@@ -20,8 +20,8 @@ import {
   ExclamationTriangleIcon,
   PlusIcon,
   MinusIcon,
-  TrashIcon,
   ChevronDownIcon,
+  ChevronUpIcon,
   InformationCircleIcon,
   BoltIcon,
   ArrowTrendingUpIcon,
@@ -154,6 +154,8 @@ export default function StrategyComposerV2({
   const [hoveredEditIcon, setHoveredEditIcon] = useState<{ label: string, rect: DOMRect } | null>(null);
   const [customBlockOrder, setCustomBlockOrder] = useState<Record<string, string[]>>({});
   const [draggedModalItemIndex, setDraggedModalItemIndex] = useState<number | null>(null);
+  const [customCategoryOrder, setCustomCategoryOrder] = useState<string[]>(['indicator', 'filter', 'risk', 'ml']);
+  const [draggedCategoryIndex, setDraggedCategoryIndex] = useState<number | null>(null);
 
   // Responsive Canvas State
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -171,6 +173,18 @@ export default function StrategyComposerV2({
     observer.observe(canvasRef.current);
     return () => observer.disconnect();
   }, [currentStep]);
+
+  // Prevent background scroll when modals are open
+  useEffect(() => {
+    if (isLibraryManagementOpen || isSearchMenuOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [isLibraryManagementOpen, isSearchMenuOpen]);
 
   // Calculate blocks per row targetting 4 by default
   const blocksPerRow = canvasWidth > 720 ? 4 : Math.max(1, Math.floor((canvasWidth - 30) / 185));
@@ -245,7 +259,6 @@ export default function StrategyComposerV2({
     }
   }, [currentStep, runSimulation]);
 
-  // Block library categories
   const blockCategories: Record<BlockCategory, { name: string; icon: any; blocks: any[] }> = {
     price_signals: {
       name: "Price Signals",
@@ -817,7 +830,9 @@ export default function StrategyComposerV2({
                 </div>
 
                 <div className="space-y-3">
-                  {(Object.values(groupedSignalLibrary)).map((group) => {
+                  {customCategoryOrder.map((key) => {
+                    const group = (groupedSignalLibrary as any)[key];
+                    if (!group) return null;
                     const filteredBlocks = group.blocks;
                     
                     return (
@@ -867,23 +882,25 @@ export default function StrategyComposerV2({
                             </div>
                           )}
                         </div>
-                        {group.key === 'ml' && (
-                          <button
-                            type="button"
-                            onClick={() => setIsSearchMenuOpen(!isSearchMenuOpen)}
-                            className={`w-full flex items-center justify-center gap-2.5 py-3.5 rounded-xl transition-all group ${
-                              isSearchMenuOpen
-                                ? "bg-blue-600 text-white shadow-[0_8px_20px_rgba(37,99,235,0.3)]"
-                                : "bg-[#161616] border border-gray-800/50 text-gray-500 hover:text-white hover:border-blue-500/30 hover:bg-blue-500/5"
-                            }`}
-                          >
-                            <MagnifyingGlassIcon className={`w-5 h-5 transition-transform duration-300 ${isSearchMenuOpen ? "rotate-90 text-white" : "text-gray-500 group-hover:text-blue-400"}`} />
-                            <span className="text-xs font-black uppercase tracking-widest">블록 검색</span>
-                          </button>
-                        )}
                       </Fragment>
                     );
                   })}
+                </div>
+
+                {/* Fixed Block Search Button */}
+                <div className="py-3 border-t border-gray-800/30">
+                  <button
+                    type="button"
+                    onClick={() => setIsSearchMenuOpen(!isSearchMenuOpen)}
+                    className={`w-full flex items-center justify-center gap-2.5 py-3.5 rounded-xl transition-all group ${
+                      isSearchMenuOpen
+                        ? "bg-blue-600 text-white shadow-[0_8px_20px_rgba(37,99,235,0.3)]"
+                        : "bg-[#161616] border border-gray-800/50 text-gray-500 hover:text-white hover:border-blue-500/30 hover:bg-blue-500/5"
+                    }`}
+                  >
+                    <MagnifyingGlassIcon className={`w-5 h-5 transition-transform duration-300 ${isSearchMenuOpen ? "rotate-90 text-white" : "text-gray-500 group-hover:text-blue-400"}`} />
+                    <span className="text-sm font-black uppercase tracking-widest">블록 검색</span>
+                  </button>
                 </div>
               </div>
 
@@ -2052,6 +2069,21 @@ export default function StrategyComposerV2({
             className="w-full max-w-4xl h-[750px] max-h-[95vh] bg-[#161616] border border-gray-800 rounded-2xl shadow-[0_30px_60px_rgba(0,0,0,0.6)] flex flex-col animate-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
+            {/* Helper function for category movement */}
+            {(() => {
+              const handleMoveCategory = (direction: 'up' | 'down', index: number) => {
+                const newOrder = [...customCategoryOrder];
+                const targetIndex = direction === 'up' ? index - 1 : index + 1;
+                if (targetIndex < 0 || targetIndex >= newOrder.length) return;
+                
+                const temp = newOrder[index];
+                newOrder[index] = newOrder[targetIndex];
+                newOrder[targetIndex] = temp;
+                setCustomCategoryOrder(newOrder);
+              };
+
+              return null; // This is just to define the function scope-wise if needed, but better as a component method.
+            })()}
             <div className="p-5 border-b border-gray-800 flex items-center justify-between bg-[#1a1a1a] rounded-t-2xl">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-blue-500/10 rounded-lg">
@@ -2073,23 +2105,50 @@ export default function StrategyComposerV2({
             <div className="flex-1 flex overflow-hidden">
               {/* Left Sidebar: Categories */}
               <div className="w-64 border-r border-gray-800 bg-[#1a1a1a]/30 flex flex-col p-3 space-y-1">
-                {(Object.values(groupedSignalLibrary)).map((group) => (
-                  <button
-                    key={group.key}
-                    onClick={() => setActiveMgmtCategory(group.key)}
-                    className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all group/cat ${
-                      activeMgmtCategory === group.key
-                        ? "bg-blue-600/10 text-blue-400 border border-blue-500/30"
-                        : "text-gray-500 hover:text-gray-300 hover:bg-white/5 border border-transparent"
-                    }`}
-                  >
-                    <group.icon className={`w-4 h-4 ${activeMgmtCategory === group.key ? "text-blue-400" : "text-gray-600 group-hover/cat:text-gray-400"}`} />
-                    <span className="text-sm font-black uppercase tracking-wider">{group.label}</span>
-                  </button>
-                ))}
-                <div className="mt-auto pt-3 border-t border-gray-800/50">
-                  <p className="text-xs text-gray-600 px-3 py-2 italic leading-relaxed">카테고리를 선택하여<br />블록을 관리하세요</p>
-                </div>
+                {customCategoryOrder.map((key, index) => {
+                  const group = (groupedSignalLibrary as any)[key];
+                  if (!group) return null;
+                  return (
+                    <div 
+                      key={key}
+                      draggable
+                      onDragStart={() => setDraggedCategoryIndex(index)}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={() => {
+                        if (draggedCategoryIndex === null) return;
+                        const newOrder = [...customCategoryOrder];
+                        const item = newOrder.splice(draggedCategoryIndex, 1)[0];
+                        newOrder.splice(index, 0, item);
+                        setCustomCategoryOrder(newOrder);
+                        setDraggedCategoryIndex(null);
+                      }}
+                      className={`relative group/cat-container flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all cursor-move ${
+                        activeMgmtCategory === key
+                          ? "bg-blue-600/10 border border-blue-500/30"
+                          : "hover:bg-white/5 border border-transparent"
+                      } ${draggedCategoryIndex === index ? "opacity-40 scale-95" : ""}`}
+                      onClick={() => setActiveMgmtCategory(key)}
+                    >
+                      <div className="grid grid-cols-2 gap-0.5 opacity-30 group-hover/cat-container:opacity-100 transition-opacity shrink-0">
+                        <div className="w-0.5 h-0.5 bg-gray-400 rounded-full" />
+                        <div className="w-0.5 h-0.5 bg-gray-400 rounded-full" />
+                        <div className="w-0.5 h-0.5 bg-gray-400 rounded-full" />
+                        <div className="w-0.5 h-0.5 bg-gray-400 rounded-full" />
+                        <div className="w-0.5 h-0.5 bg-gray-400 rounded-full" />
+                        <div className="w-0.5 h-0.5 bg-gray-400 rounded-full" />
+                      </div>
+                      <group.icon className={`w-4 h-4 shrink-0 ${activeMgmtCategory === key ? "text-blue-400" : "text-gray-600"}`} />
+                      <div className="flex-1 flex items-baseline justify-between overflow-hidden">
+                        <span className={`text-sm font-black uppercase tracking-wider truncate ${activeMgmtCategory === key ? "text-blue-400" : "text-gray-500"}`}>
+                          {group.label}
+                        </span>
+                        <span className="text-[10px] text-blue-500/60 font-black ml-1.5 shrink-0">
+                          {group.blocks.length}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
               {/* Right Content: Block List */}
@@ -2130,7 +2189,6 @@ export default function StrategyComposerV2({
                             </div>
                             <div className="min-w-0">
                               <div className="text-base font-bold text-gray-200 truncate">{block.name}</div>
-                              <div className="text-sm text-gray-600 font-medium truncate mt-0.5">{block.description}</div>
                             </div>
                           </div>
                           <button
@@ -2138,7 +2196,7 @@ export default function StrategyComposerV2({
                             className="p-2 text-gray-600 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all opacity-0 group-hover:opacity-100 shrink-0"
                             title="보관함에서 제거"
                           >
-                            <TrashIcon className="w-4 h-4" />
+                            <XMarkIcon className="w-5 h-5" />
                           </button>
                         </div>
                       ))}
@@ -2153,15 +2211,6 @@ export default function StrategyComposerV2({
                 )}
               </div>
             </div>
-            
-            <div className="p-4 border-t border-gray-800 bg-[#0f0f0f]/50 flex justify-end">
-              <button
-                onClick={() => setIsLibraryManagementOpen(false)}
-                className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-black rounded-lg transition-all shadow-lg shadow-blue-600/20"
-              >
-                완료
-              </button>
-            </div>
           </div>
         </div>
       )}
@@ -2170,19 +2219,35 @@ export default function StrategyComposerV2({
       {isSearchMenuOpen && (
         <StrategyBlockSearchMenu
           manuallyHiddenBlockIds={manuallyHiddenBlockIds}
-          onSelect={(blockId) => {
-            if (manuallyHiddenBlockIds.includes(blockId)) {
-              setManuallyHiddenBlockIds(prev => prev.filter(id => id !== blockId));
-              setSavedFeedback("보관함에 복원되었습니다.");
-            } else if (unlockedBlockIds.includes(blockId)) {
-              alert("이미 블록함에 포함된 블록입니다.");
-            } else {
-              setUnlockedBlockIds(prev => [...prev, blockId]);
-              setSavedFeedback("보관함에 추가되었습니다.");
+          onSelect={(blockIds) => {
+            const newAdditions = blockIds.filter(id => !unlockedBlockIds.includes(id) && !manuallyHiddenBlockIds.includes(id));
+            const restored = blockIds.filter(id => manuallyHiddenBlockIds.includes(id));
+            const existingCount = blockIds.length - newAdditions.length - restored.length;
+
+            if (restored.length > 0) {
+              setManuallyHiddenBlockIds(prev => prev.filter(id => !restored.includes(id)));
+            }
+            if (newAdditions.length > 0) {
+              setUnlockedBlockIds(prev => [...prev, ...newAdditions]);
+            }
+
+            let message = "";
+            if (newAdditions.length > 0 && restored.length > 0) {
+              message = `${newAdditions.length}개의 블록이 추가되고, ${restored.length}개의 블록이 복원되었습니다.`;
+            } else if (newAdditions.length > 0) {
+              message = `${newAdditions.length}개의 블록이 보관함에 추가되었습니다.`;
+            } else if (restored.length > 0) {
+              message = `${restored.length}개의 블록이 보관함에 복원되었습니다.`;
+            } else if (existingCount > 0) {
+              message = "이미 보관함에 포함된 블록들입니다.";
+            }
+
+            if (message) {
+              setSavedFeedback(message);
+              if (feedbackTimeoutRef.current) clearTimeout(feedbackTimeoutRef.current);
+              feedbackTimeoutRef.current = setTimeout(() => setSavedFeedback(null), 2000);
             }
             
-            if (feedbackTimeoutRef.current) clearTimeout(feedbackTimeoutRef.current);
-            feedbackTimeoutRef.current = setTimeout(() => setSavedFeedback(null), 2000);
             setIsSearchMenuOpen(false);
           }}
           onClose={() => setIsSearchMenuOpen(false)}
