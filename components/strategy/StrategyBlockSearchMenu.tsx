@@ -12,13 +12,14 @@ import {
 import { signalBlocks } from "@/lib/strategy-blocks";
 
 interface StrategyBlockSearchMenuProps {
-  onSelect: (blockId: string) => void;
+  onSelect: (blockIds: string[]) => void;
   onClose: () => void;
   manuallyHiddenBlockIds: string[];
 }
 
 export default function StrategyBlockSearchMenu({ onSelect, onClose, manuallyHiddenBlockIds }: StrategyBlockSearchMenuProps) {
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const filteredBlocks = useMemo(() => {
     const term = searchTerm.toLowerCase();
@@ -29,7 +30,13 @@ export default function StrategyBlockSearchMenu({ onSelect, onClose, manuallyHid
           block.name.toLowerCase().includes(term) ||
           block.description.toLowerCase().includes(term)
       );
-  }, [searchTerm]);
+  }, [searchTerm, manuallyHiddenBlockIds]);
+
+  const toggleBlock = (id: string) => {
+    setSelectedIds(prev => 
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
 
   const categoryLabels: Record<string, string> = {
     indicator: "시그널",
@@ -55,7 +62,7 @@ export default function StrategyBlockSearchMenu({ onSelect, onClose, manuallyHid
             </div>
             <div>
               <h3 className="text-base font-black text-white uppercase tracking-wider">블록 검색</h3>
-              <p className="text-[10px] text-gray-500 font-medium">전략에 사용될 지표나 조건을 검색하세요</p>
+              <p className="text-[10px] text-gray-500 font-medium">전략에 사용될 지표나 조건을 검색할 수 있습니다 (복수 선택 가능)</p>
             </div>
           </div>
           <button 
@@ -82,46 +89,49 @@ export default function StrategyBlockSearchMenu({ onSelect, onClose, manuallyHid
 
         <div className="flex-1 overflow-y-auto p-3 space-y-1.5 custom-scrollbar min-h-[300px] bg-[#161616]">
           {filteredBlocks.length > 0 ? (
-            filteredBlocks.map((block) => (
-              <button
-                key={block.id}
-                onClick={() => onSelect(block.id)}
-                className="w-full text-left p-4 rounded-xl hover:bg-white/5 group transition-all border border-transparent hover:border-gray-800/50 flex items-start gap-4"
-              >
-                <div className="mt-1 p-2.5 rounded-lg bg-gray-800/30 text-gray-500 group-hover:text-blue-400 group-hover:bg-blue-500/10 transition-all shrink-0">
-                  {block.category === "indicator" || block.category === "flow" ? (
-                    <SparklesIcon className="w-4 h-4" />
-                  ) : block.category === "filter" ? (
-                    <AdjustmentsHorizontalIcon className="w-4 h-4" />
-                  ) : block.category === "risk" ? (
-                    <ShieldExclamationIcon className="w-4 h-4" />
-                  ) : block.category === "ml" ? (
-                    <CpuChipIcon className="w-4 h-4" />
-                  ) : (
-                    <MagnifyingGlassIcon className="w-4 h-4 opacity-50" />
-                  )}
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-sm font-bold text-gray-200 group-hover:text-white transition-colors">
-                      {block.name}
-                    </span>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-tight ${
-                      block.category === 'indicator' || block.category === 'flow' ? 'bg-red-500/10 text-red-400' :
-                      block.category === 'filter' ? 'bg-blue-500/10 text-blue-400' :
-                      block.category === 'risk' ? 'bg-orange-500/10 text-orange-400' :
-                      block.category === 'ml' ? 'bg-emerald-500/10 text-emerald-400' :
-                      'bg-gray-800 text-gray-400'
+            filteredBlocks.map((block) => {
+              const isSelected = selectedIds.includes(block.id);
+              return (
+                <div
+                  key={block.id}
+                  onClick={() => toggleBlock(block.id)}
+                  className={`w-full text-left p-4 rounded-xl transition-all border flex items-start gap-4 cursor-pointer group ${
+                    isSelected 
+                      ? "bg-blue-600/10 border-blue-500/30" 
+                      : "hover:bg-white/5 border-transparent hover:border-gray-800/50"
+                  }`}
+                >
+                  <div className="mt-1 flex items-center justify-center">
+                    <div className={`w-5 h-5 rounded-md border-2 transition-all flex items-center justify-center ${
+                      isSelected 
+                        ? "bg-blue-600 border-blue-600 shadow-[0_0_10px_rgba(37,99,235,0.4)]" 
+                        : "border-gray-700 group-hover:border-gray-500"
                     }`}>
-                      {categoryLabels[block.category] || block.category}
-                    </span>
+                      {isSelected && <XMarkIcon className="w-3.5 h-3.5 text-white stroke-[3px]" />}
+                    </div>
                   </div>
-                  <p className="text-xs text-gray-500 group-hover:text-gray-400 leading-relaxed font-medium">
-                    {block.description}
-                  </p>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className={`text-sm font-bold transition-colors ${isSelected ? "text-blue-400" : "text-gray-200 group-hover:text-white"}`}>
+                        {block.name}
+                      </span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-tight ${
+                        block.category === 'indicator' || block.category === 'flow' ? 'bg-red-500/10 text-red-400' :
+                        block.category === 'filter' ? 'bg-blue-500/10 text-blue-400' :
+                        block.category === 'risk' ? 'bg-orange-500/10 text-orange-400' :
+                        block.category === 'ml' ? 'bg-emerald-500/10 text-emerald-400' :
+                        'bg-gray-800 text-gray-400'
+                      }`}>
+                        {categoryLabels[block.category] || block.category}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 group-hover:text-gray-400 leading-relaxed font-medium">
+                      {block.description}
+                    </p>
+                  </div>
                 </div>
-              </button>
-            ))
+              );
+            })
           ) : (
             <div className="py-16 text-center">
               <div className="w-16 h-16 bg-gray-800/20 rounded-full flex items-center justify-center mx-auto mb-4 border border-gray-800/50">
@@ -133,29 +143,16 @@ export default function StrategyBlockSearchMenu({ onSelect, onClose, manuallyHid
           )}
         </div>
 
-        <div className="p-4 border-t border-gray-800 bg-[#1a1a1a] rounded-b-2xl flex items-center justify-between">
-          <div className="flex items-center gap-4">
-             <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-red-400" />
-                <span className="text-[10px] text-gray-500 font-bold tracking-tight">시그널</span>
-             </div>
-             <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-blue-400" />
-                <span className="text-[10px] text-gray-500 font-bold tracking-tight">필터</span>
-             </div>
-             <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-orange-400" />
-                <span className="text-[10px] text-gray-500 font-bold tracking-tight">리스크</span>
-             </div>
-             <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                <span className="text-[10px] text-gray-500 font-bold tracking-tight">AI</span>
-             </div>
+        {selectedIds.length > 0 && (
+          <div className="p-4 border-t border-gray-800 bg-[#1a1a1a] rounded-b-2xl flex items-center justify-center">
+            <button
+              onClick={() => onSelect(selectedIds)}
+              className="px-10 py-3 bg-blue-600 hover:bg-blue-500 text-white text-sm font-black rounded-xl transition-all shadow-lg shadow-blue-600/20 flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300"
+            >
+              <span>{selectedIds.length}개의 블록 추가하기</span>
+            </button>
           </div>
-          <p className="text-[10px] text-gray-600 font-black italic tracking-tight">
-            블록을 클릭하면 보관함에 추가됩니다.
-          </p>
-        </div>
+        )}
       </div>
     </div>
   );
