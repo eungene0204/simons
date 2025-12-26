@@ -1,0 +1,8 @@
+# Project Rules for Cursor AI
+
+## Communication & Translation Protocol
+
+- **Translation Requirement**: When the user writes a request in Korean, ALWAYS translate it into English first.
+- **Display Format**: Start your response with "**English Translation:** [The translated English text]" followed by a newline.
+- **Execution**: After displaying the translation, proceed to execute the request based on the English translation.
+- **Scope**: This applies to ALL requests in this project.
