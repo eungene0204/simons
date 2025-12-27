@@ -302,61 +302,34 @@ export const signalBlocks: Record<string, SignalBlock> = {
   },
 
   // Risk Blocks
-  stop_loss_pct: {
-    id: "stop_loss_pct",
-    name: "손절매 (%)",
-    description: "자산 배분과 리스크 관리의 핵심입니다. 매수 가격 대비 손실이 설정한 비율(%)까지 확대되면 더 큰 손실을 막기 위해 무조건적으로 매도 신호를 발생시켜 투자 원금을 보호합니다.",
+  price_limit_exit: {
+    id: "price_limit_exit",
+    name: "손절/익절",
+    description: "설정한 익절 및 손절 기준에 도달하면 자동으로 매도하여 이익을 확정하거나 큰 손실을 방지합니다.",
     category: "risk",
     defaultParams: {
-      value: 5.0,
+      stopLossPct: 5.0,
+      takeProfitPct: 10.0,
       signalType: "sell",
     },
     paramSchema: {
-      value: {
+      stopLossPct: {
         type: "number",
-        label: "손절매율",
-        min: 1,
-        max: 20,
-        step: 0.5,
-        tooltip: "매수 가격 대비 손실 비율",
-        suffix: "%",
-      },
-      signalType: {
-        type: "select",
-        label: "신호 구분",
-        options: [
-          { value: "buy", label: "매수" },
-          { value: "sell", label: "매도" },
-        ],
-      },
-    },
-  },
-  take_profit_pct: {
-    id: "take_profit_pct",
-    name: "익절매 (%)",
-    description: "목표 수익에 도달했을 때 수익을 확정 짓는 전략입니다. 주가가 상승하여 설정한 수익률에 도달하면 즉시 매도 신호를 발생시켜, 상승세가 꺾이기 전에 이익을 안정적으로 실현합니다.",
-    category: "risk",
-    defaultParams: {
-      value: 10.0,
-      signalType: "sell",
-    },
-    paramSchema: {
-      value: {
-        type: "number",
-        label: "익절매율",
-        min: 1,
+        label: "손절매 기준",
+        min: 0,
         max: 50,
         step: 0.5,
-        tooltip: "매수 가격 대비 수익 비율",
+        tooltip: "매수 가격 대비 설정한 비율(%) 이하로 하락 시 매도",
         suffix: "%",
       },
-      signalType: {
-        type: "select",
-        label: "신호 구분",
-        options: [
-          { value: "buy", label: "매수" },
-          { value: "sell", label: "매도" },
-        ],
+      takeProfitPct: {
+        type: "number",
+        label: "익절매 기준",
+        min: 0,
+        max: 200,
+        step: 0.5,
+        tooltip: "매수 가격 대비 설정한 비율(%) 이상으로 상승 시 매도",
+        suffix: "%",
       },
     },
   },
@@ -378,14 +351,6 @@ export const signalBlocks: Record<string, SignalBlock> = {
         step: 1,
         suffix: "일",
       },
-      signalType: {
-        type: "select",
-        label: "신호 구분",
-        options: [
-          { value: "buy", label: "매수" },
-          { value: "sell", label: "매도" },
-        ],
-      },
     },
   },
   trailing_stop: {
@@ -406,14 +371,6 @@ export const signalBlocks: Record<string, SignalBlock> = {
         step: 0.5,
         tooltip: "최고가 대비 하락 비율",
         suffix: "%",
-      },
-      signalType: {
-        type: "select",
-        label: "신호 구분",
-        options: [
-          { value: "buy", label: "매수" },
-          { value: "sell", label: "매도" },
-        ],
       },
     },
   },
@@ -468,9 +425,17 @@ export const signalBlocks: Record<string, SignalBlock> = {
     defaultParams: {
       operator: ">=",
       value: 100, // 100억원
-      signalType: "buy",
     },
     paramSchema: {
+      value: {
+        type: "number",
+        label: "거래대금",
+        min: 0,
+        max: 10000,
+        step: 1,
+        tooltip: "일일 거래대금 기준값 (억)",
+        suffix: "억",
+      },
       operator: {
         type: "select",
         label: "연산자",
@@ -482,23 +447,6 @@ export const signalBlocks: Record<string, SignalBlock> = {
         ],
         tooltip: "거래대금 비교 연산자",
       },
-      value: {
-        type: "number",
-        label: "거래대금",
-        min: 0,
-        max: 10000,
-        step: 1,
-        tooltip: "일일 거래대금 기준값 (억)",
-        suffix: "억",
-      },
-      signalType: {
-        type: "select",
-        label: "신호 구분",
-        options: [
-          { value: "buy", label: "매수" },
-          { value: "sell", label: "매도" },
-        ],
-      },
     },
   },
   market_cap: {
@@ -509,9 +457,17 @@ export const signalBlocks: Record<string, SignalBlock> = {
     defaultParams: {
       operator: ">=",
       value: 1000, // 1000억원
-      signalType: "buy",
     },
     paramSchema: {
+      value: {
+        type: "number",
+        label: "시가총액",
+        min: 0,
+        max: 1000000,
+        step: 100,
+        tooltip: "시가총액 기준값 (억)",
+        suffix: "억",
+      },
       operator: {
         type: "select",
         label: "연산자",
@@ -523,35 +479,17 @@ export const signalBlocks: Record<string, SignalBlock> = {
         ],
         tooltip: "시가총액 비교 연산자",
       },
-      value: {
-        type: "number",
-        label: "시가총액",
-        min: 0,
-        max: 1000000,
-        step: 100,
-        tooltip: "시가총액 기준값 (억)",
-        suffix: "억",
-      },
-      signalType: {
-        type: "select",
-        label: "신호 구분",
-        options: [
-          { value: "buy", label: "매수" },
-          { value: "sell", label: "매도" },
-        ],
-      },
     },
   },
   roe_or_gpa: {
     id: "roe_or_gpa",
-    name: "수익성 지표 (ROE/GPA)",
+    name: "수익성 지표",
     description: "회사의 수익성을 나타내는 핵심 펀더멘털 지표입니다. 자기자본이익률(ROE)이나 매출총이익 대비 자산 비율(GP/A)이 높은 우량한 종목 위주로 투자하여 기본기가 탄탄한 종목을 선별합니다.",
     category: "filter",
     defaultParams: {
       metric: "roe",
       operator: ">=",
       value: 10.0,
-      signalType: "buy",
     },
     paramSchema: {
       metric: {
@@ -562,6 +500,15 @@ export const signalBlocks: Record<string, SignalBlock> = {
           { value: "gpa", label: "GP/A (%)" },
         ],
         tooltip: "ROE 또는 GP/A 선택",
+      },
+      value: {
+        type: "number",
+        label: "값",
+        min: -100,
+        max: 100,
+        step: 0.1,
+        tooltip: "ROE 또는 GP/A 기준값",
+        suffix: "%",
       },
       operator: {
         type: "select",
@@ -574,23 +521,6 @@ export const signalBlocks: Record<string, SignalBlock> = {
         ],
         tooltip: "비교 연산자",
       },
-      value: {
-        type: "number",
-        label: "값",
-        min: -100,
-        max: 100,
-        step: 0.1,
-        tooltip: "ROE 또는 GP/A 기준값",
-        suffix: "%",
-      },
-      signalType: {
-        type: "select",
-        label: "신호 구분",
-        options: [
-          { value: "buy", label: "매수" },
-          { value: "sell", label: "매도" },
-        ],
-      },
     },
   },
   debt_ratio: {
@@ -601,9 +531,17 @@ export const signalBlocks: Record<string, SignalBlock> = {
     defaultParams: {
       operator: "<=",
       value: 100.0,
-      signalType: "buy",
     },
     paramSchema: {
+      value: {
+        type: "number",
+        label: "부채비율",
+        min: 0,
+        max: 1000,
+        step: 1,
+        tooltip: "부채비율 기준값",
+        suffix: "%",
+      },
       operator: {
         type: "select",
         label: "연산자",
@@ -615,23 +553,6 @@ export const signalBlocks: Record<string, SignalBlock> = {
         ],
         tooltip: "부채비율 비교 연산자",
       },
-      value: {
-        type: "number",
-        label: "부채비율",
-        min: 0,
-        max: 1000,
-        step: 1,
-        tooltip: "부채비율 기준값",
-        suffix: "%",
-      },
-      signalType: {
-        type: "select",
-        label: "신호 구분",
-        options: [
-          { value: "buy", label: "매수" },
-          { value: "sell", label: "매도" },
-        ],
-      },
     },
   },
 
@@ -642,7 +563,6 @@ export const signalBlocks: Record<string, SignalBlock> = {
     category: "filter",
     defaultParams: {
       exclude: true,
-      signalType: "buy",
     },
     paramSchema: {
       exclude: {
@@ -650,30 +570,28 @@ export const signalBlocks: Record<string, SignalBlock> = {
         label: "제외",
         tooltip: "거래정지/관리종목을 필터에서 제외할지 여부",
       },
-      signalType: {
-        type: "select",
-        label: "신호 구분",
-        options: [
-          { value: "buy", label: "매수" },
-          { value: "sell", label: "매도" },
-        ],
-      },
     },
   },
 
   // Extended Factors - Hidden from sidebar, visible in search
   per: {
     id: "per",
-    name: "PER (주가수익비율)",
+    name: "PER",
     description: "현재 주가를 주당순이익(EPS)으로 나눈 값입니다. 기업의 수익성 대비 주가 수준을 나타내며, 낮을수록 저평가된 것으로 간주됩니다.",
-    category: "indicator",
-    hidden: true,
+    category: "filter",
     defaultParams: {
       operator: "<",
       value: 10,
-      signalType: "buy",
     },
     paramSchema: {
+      value: {
+        type: "number",
+        label: "기준값",
+        min: 0,
+        max: 500,
+        step: 5,
+        suffix: "배",
+      },
       operator: {
         type: "select",
         label: "비교 연산자",
@@ -682,21 +600,6 @@ export const signalBlocks: Record<string, SignalBlock> = {
           { value: ">", label: "초과" },
           { value: "<=", label: "이하" },
           { value: ">=", label: "이상" },
-        ],
-      },
-      value: {
-        type: "number",
-        label: "기준값",
-        min: 0,
-        max: 1000,
-        step: 0.1,
-      },
-      signalType: {
-        type: "select",
-        label: "신호 구분",
-        options: [
-          { value: "buy", label: "매수" },
-          { value: "sell", label: "매도" },
         ],
       },
     },
@@ -704,16 +607,22 @@ export const signalBlocks: Record<string, SignalBlock> = {
 
   pbr: {
     id: "pbr",
-    name: "PBR (주가순자산비율)",
+    name: "PBR",
     description: "현재 주가를 주당순자산(BPS)으로 나눈 값입니다. 기업의 자산가치 대비 주가 수준을 나타내며, 1 미만인 경우 주가가 장부가치보다 낮음을 의미합니다.",
-    category: "indicator",
-    hidden: true,
+    category: "filter",
     defaultParams: {
       operator: "<",
       value: 1,
-      signalType: "buy",
     },
     paramSchema: {
+      value: {
+        type: "number",
+        label: "기준값",
+        min: 0,
+        max: 100,
+        step: 5,
+        suffix: "배",
+      },
       operator: {
         type: "select",
         label: "비교 연산자",
@@ -722,21 +631,6 @@ export const signalBlocks: Record<string, SignalBlock> = {
           { value: ">", label: "초과" },
           { value: "<=", label: "이하" },
           { value: ">=", label: "이상" },
-        ],
-      },
-      value: {
-        type: "number",
-        label: "기준값",
-        min: 0,
-        max: 100,
-        step: 0.01,
-      },
-      signalType: {
-        type: "select",
-        label: "신호 구분",
-        options: [
-          { value: "buy", label: "매수" },
-          { value: "sell", label: "매도" },
         ],
       },
     },
@@ -754,6 +648,13 @@ export const signalBlocks: Record<string, SignalBlock> = {
       signalType: "buy",
     },
     paramSchema: {
+      value: {
+        type: "number",
+        label: "기준값 (%)",
+        min: 0,
+        max: 50,
+        step: 0.1,
+      },
       operator: {
         type: "select",
         label: "비교 연산자",
@@ -763,13 +664,6 @@ export const signalBlocks: Record<string, SignalBlock> = {
           { value: "<=", label: "이하" },
           { value: ">=", label: "이상" },
         ],
-      },
-      value: {
-        type: "number",
-        label: "기준값 (%)",
-        min: 0,
-        max: 50,
-        step: 0.1,
       },
       signalType: {
         type: "select",
@@ -784,7 +678,7 @@ export const signalBlocks: Record<string, SignalBlock> = {
 
   psr: {
     id: "psr",
-    name: "PSR (주가매출비율)",
+    name: "PSR",
     description: "현재 주가를 주당매출액으로 나눈 값입니다. 성장 초기 단계의 기업 가치 평가에 유용하게 쓰입니다.",
     category: "indicator",
     hidden: true,
@@ -794,6 +688,13 @@ export const signalBlocks: Record<string, SignalBlock> = {
       signalType: "buy",
     },
     paramSchema: {
+      value: {
+        type: "number",
+        label: "기준값",
+        min: 0,
+        max: 100,
+        step: 0.1,
+      },
       operator: {
         type: "select",
         label: "비교 연산자",
@@ -803,13 +704,6 @@ export const signalBlocks: Record<string, SignalBlock> = {
           { value: "<=", label: "이하" },
           { value: ">=", label: "이상" },
         ],
-      },
-      value: {
-        type: "number",
-        label: "기준값",
-        min: 0,
-        max: 100,
-        step: 0.1,
       },
       signalType: {
         type: "select",
@@ -834,6 +728,13 @@ export const signalBlocks: Record<string, SignalBlock> = {
       signalType: "buy",
     },
     paramSchema: {
+      value: {
+        type: "number",
+        label: "기준값 (%)",
+        min: -100,
+        max: 1000,
+        step: 1,
+      },
       operator: {
         type: "select",
         label: "비교 연산자",
@@ -843,13 +744,6 @@ export const signalBlocks: Record<string, SignalBlock> = {
           { value: "<=", label: "이하" },
           { value: ">=", label: "이상" },
         ],
-      },
-      value: {
-        type: "number",
-        label: "기준값 (%)",
-        min: -100,
-        max: 1000,
-        step: 1,
       },
       signalType: {
         type: "select",
@@ -870,8 +764,8 @@ export const signalBlocks: Record<string, SignalBlock> = {
     hidden: true,
     defaultParams: { operator: "<", value: 8, signalType: "buy" },
     paramSchema: {
-      operator: { type: "select", label: "비교 연산자", options: [{ value: "<", label: "미만" }, { value: ">", label: "초과" }, { value: "<=", label: "이하" }, { value: ">=", label: "이상" }] },
       value: { type: "number", label: "기준값", min: 0, max: 200, step: 0.1 },
+      operator: { type: "select", label: "비교 연산자", options: [{ value: "<", label: "미만" }, { value: ">", label: "초과" }, { value: "<=", label: "이하" }, { value: ">=", label: "이상" }] },
       signalType: { type: "select", label: "신호 구분", options: [{ value: "buy", label: "매수" }, { value: "sell", label: "매도" }] },
     },
   },
@@ -884,8 +778,8 @@ export const signalBlocks: Record<string, SignalBlock> = {
     hidden: true,
     defaultParams: { operator: "<", value: 10, signalType: "buy" },
     paramSchema: {
-      operator: { type: "select", label: "비교 연산자", options: [{ value: "<", label: "미만" }, { value: ">", label: "초과" }, { value: "<=", label: "이하" }, { value: ">=", label: "이상" }] },
       value: { type: "number", label: "기준값", min: 0, max: 500, step: 0.1 },
+      operator: { type: "select", label: "비교 연산자", options: [{ value: "<", label: "미만" }, { value: ">", label: "초과" }, { value: "<=", label: "이하" }, { value: ">=", label: "이상" }] },
       signalType: { type: "select", label: "신호 구분", options: [{ value: "buy", label: "매수" }, { value: "sell", label: "매도" }] },
     },
   },
@@ -896,11 +790,10 @@ export const signalBlocks: Record<string, SignalBlock> = {
     description: "투입한 자본 대비 얼마나 많은 이익을 냈는지 나타내며, 기업의 자금 운용 효율성을 보여줍니다.",
     category: "filter",
     hidden: true,
-    defaultParams: { operator: ">", value: 10, signalType: "buy" },
+    defaultParams: { operator: ">", value: 10 },
     paramSchema: {
-      operator: { type: "select", label: "비교 연산자", options: [{ value: "<", label: "미만" }, { value: ">", label: "초과" }, { value: "<=", label: "이하" }, { value: ">=", label: "이상" }] },
       value: { type: "number", label: "기준값 (%)", min: 0, max: 100, step: 0.1 },
-      signalType: { type: "select", label: "신호 구분", options: [{ value: "buy", label: "매수" }, { value: "sell", label: "매도" }] },
+      operator: { type: "select", label: "비교 연산자", options: [{ value: "<", label: "미만" }, { value: ">", label: "초과" }, { value: "<=", label: "이하" }, { value: ">=", label: "이상" }] },
     },
   },
 
@@ -912,8 +805,8 @@ export const signalBlocks: Record<string, SignalBlock> = {
     hidden: true,
     defaultParams: { operator: ">", value: 15, signalType: "buy" },
     paramSchema: {
-      operator: { type: "select", label: "비교 연산자", options: [{ value: "<", label: "미만" }, { value: ">", label: "초과" }, { value: "<=", label: "이하" }, { value: ">=", label: "이상" }] },
       value: { type: "number", label: "기준값 (%)", min: -50, max: 100, step: 0.1 },
+      operator: { type: "select", label: "비교 연산자", options: [{ value: "<", label: "미만" }, { value: ">", label: "초과" }, { value: "<=", label: "이하" }, { value: ">=", label: "이상" }] },
       signalType: { type: "select", label: "신호 구분", options: [{ value: "buy", label: "매수" }, { value: "sell", label: "매도" }] },
     },
   },
@@ -926,8 +819,8 @@ export const signalBlocks: Record<string, SignalBlock> = {
     hidden: true,
     defaultParams: { operator: "<", value: 100, signalType: "buy" },
     paramSchema: {
-      operator: { type: "select", label: "비교 연산자", options: [{ value: "<", label: "미만" }, { value: ">", label: "초과" }, { value: "<=", label: "이하" }, { value: ">=", label: "이상" }] },
       value: { type: "number", label: "기준값 (%)", min: 0, max: 2000, step: 1 },
+      operator: { type: "select", label: "비교 연산자", options: [{ value: "<", label: "미만" }, { value: ">", label: "초과" }, { value: "<=", label: "이하" }, { value: ">=", label: "이상" }] },
       signalType: { type: "select", label: "신호 구분", options: [{ value: "buy", label: "매수" }, { value: "sell", label: "매도" }] },
     },
   },
@@ -940,8 +833,8 @@ export const signalBlocks: Record<string, SignalBlock> = {
     hidden: true,
     defaultParams: { operator: ">", value: 15, signalType: "buy" },
     paramSchema: {
-      operator: { type: "select", label: "비교 연산자", options: [{ value: "<", label: "미만" }, { value: ">", label: "초과" }, { value: "<=", label: "이하" }, { value: ">=", label: "이상" }] },
       value: { type: "number", label: "기준값 (%)", min: -100, max: 2000, step: 1 },
+      operator: { type: "select", label: "비교 연산자", options: [{ value: "<", label: "미만" }, { value: ">", label: "초과" }, { value: "<=", label: "이하" }, { value: ">=", label: "이상" }] },
       signalType: { type: "select", label: "신호 구분", options: [{ value: "buy", label: "매수" }, { value: "sell", label: "매도" }] },
     },
   },
@@ -954,8 +847,8 @@ export const signalBlocks: Record<string, SignalBlock> = {
     hidden: true,
     defaultParams: { operator: "<", value: 1.2, signalType: "buy" },
     paramSchema: {
-      operator: { type: "select", label: "비교 연산자", options: [{ value: "<", label: "미만" }, { value: ">", label: "초과" }, { value: "<=", label: "이하" }, { value: ">=", label: "이상" }] },
       value: { type: "number", label: "기준값", min: 0, max: 10, step: 0.01 },
+      operator: { type: "select", label: "비교 연산자", options: [{ value: "<", label: "미만" }, { value: ">", label: "초과" }, { value: "<=", label: "이하" }, { value: ">=", label: "이상" }] },
       signalType: { type: "select", label: "신호 구분", options: [{ value: "buy", label: "매수" }, { value: "sell", label: "매도" }] },
     },
   },
@@ -966,11 +859,10 @@ export const signalBlocks: Record<string, SignalBlock> = {
     description: "전체 주식 중 외국인 투자자가 보유한 비중입니다.",
     category: "filter",
     hidden: true,
-    defaultParams: { operator: ">", value: 10, signalType: "buy" },
+    defaultParams: { operator: ">", value: 10 },
     paramSchema: {
-      operator: { type: "select", label: "비교 연산자", options: [{ value: "<", label: "미만" }, { value: ">", label: "초과" }, { value: "<=", label: "이하" }, { value: ">=", label: "이상" }] },
       value: { type: "number", label: "기준값 (%)", min: 0, max: 100, step: 0.1 },
-      signalType: { type: "select", label: "신호 구분", options: [{ value: "buy", label: "매수" }, { value: "sell", label: "매도" }] },
+      operator: { type: "select", label: "비교 연산자", options: [{ value: "<", label: "미만" }, { value: ">", label: "초과" }, { value: "<=", label: "이하" }, { value: ">=", label: "이상" }] },
     },
   },
 };
