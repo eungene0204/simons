@@ -118,3 +118,12 @@ export interface BacktestScenario {
   timestamp: string;
 }
 
+
+export interface CanvasBlock {
+  id: string;
+  type: "filter" | "entry" | "exit";
+  blockId: string;
+  position: { x: number; y: number };
+  params: Record<string, any>;
+  connections?: string[]; // IDs of connected blocks
+}
