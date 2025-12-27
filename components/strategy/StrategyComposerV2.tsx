@@ -34,6 +34,7 @@ import {
   MagnifyingGlassIcon,
   BanknotesIcon,
   EllipsisHorizontalIcon,
+  CursorArrowRaysIcon,
 } from "@heroicons/react/24/outline";
 import { StrategyDSL, Condition, ConditionType, LogicOperator, BacktestResult } from "@/types/strategy";
 import { signalBlocks } from "@/lib/strategy-blocks";
@@ -135,6 +136,7 @@ export default function StrategyComposerV2({
   // Canvas state
   const [canvasBlocks, setCanvasBlocks] = useState<CanvasBlock[]>([]);
   const [selectedBlock, setSelectedBlock] = useState<CanvasBlock | null>(null);
+  const [activeParamTab, setActiveParamTab] = useState<'block' | 'global'>('global');
   const [editingBlock, setEditingBlock] = useState<CanvasBlock | null>(null);
   const [draggedOver, setDraggedOver] = useState(false);
   
@@ -154,7 +156,7 @@ export default function StrategyComposerV2({
   const [hoveredEditIcon, setHoveredEditIcon] = useState<{ label: string, rect: DOMRect } | null>(null);
   const [customBlockOrder, setCustomBlockOrder] = useState<Record<string, string[]>>({});
   const [draggedModalItemIndex, setDraggedModalItemIndex] = useState<number | null>(null);
-  const [customCategoryOrder, setCustomCategoryOrder] = useState<string[]>(['indicator', 'filter', 'risk', 'ml']);
+  const [customCategoryOrder, setCustomCategoryOrder] = useState<string[]>(['filter', 'indicator', 'risk', 'ml']);
   const [draggedCategoryIndex, setDraggedCategoryIndex] = useState<number | null>(null);
 
   // Responsive Canvas State
@@ -300,8 +302,7 @@ export default function StrategyComposerV2({
       name: "Risk Rules",
       icon: ShieldExclamationIcon,
       blocks: [
-        { id: "stop_loss_pct", name: "손절", category: "risk_rules" },
-        { id: "take_profit_pct", name: "익절", category: "risk_rules" },
+        { id: "price_limit_exit", name: "손절/익절", category: "risk_rules" },
         { id: "mdd_cut", name: "MDD Cut", category: "risk_rules" },
       ],
     },
@@ -348,7 +349,13 @@ export default function StrategyComposerV2({
         })),
       ];
       
-      setCanvasBlocks(blocks);
+      const sortedBlocks = [
+        ...blocks.filter(b => b.type === "filter"),
+        ...blocks.filter(b => b.type === "entry"),
+        ...blocks.filter(b => b.type === "exit")
+      ];
+      
+      setCanvasBlocks(sortedBlocks);
       
       if (initialStrategy.entry.logic) setEntryLogic(initialStrategy.entry.logic);
       if (initialStrategy.exit.logic) setExitLogic(initialStrategy.exit.logic);
@@ -375,29 +382,20 @@ export default function StrategyComposerV2({
       type: type.includes("risk") ? "exit" : type.includes("filter") ? "filter" : "entry",
       blockId: blockId,
       position: { x: 0, y: 0 },
-      params: {},
+      params: signalBlocks[blockId]?.defaultParams ? { ...signalBlocks[blockId].defaultParams } : {},
     };
 
-    const isEntryOrFilter = (t: string) => t === "entry" || t === "filter";
-    const isExit = (t: string) => t === "exit";
+    const updated = [...canvasBlocks, newBlock];
     
-    let insertIndex = canvasBlocks.length;
-    for (let i = canvasBlocks.length - 1; i >= 0; i--) {
-      const currentType = canvasBlocks[i].type;
-      if ((isEntryOrFilter(newBlock.type) && isEntryOrFilter(currentType)) || (isExit(newBlock.type) && isExit(currentType))) {
-        insertIndex = i + 1;
-        break;
-      }
-    }
+    // Custom sort order: filter -> entry -> exit
+    const sorted = [
+      ...updated.filter(b => b.type === "filter"),
+      ...updated.filter(b => b.type === "entry"),
+      ...updated.filter(b => b.type === "exit")
+    ];
     
-    if (insertIndex === canvasBlocks.length && isEntryOrFilter(newBlock.type)) {
-      const firstExitIndex = canvasBlocks.findIndex(b => isExit(b.type));
-      if (firstExitIndex !== -1) insertIndex = firstExitIndex;
-    }
-    
-    const updated = [...canvasBlocks];
-    updated.splice(insertIndex, 0, newBlock);
-    setCanvasBlocks(updated);
+    setCanvasBlocks(sorted);
+    setSelectedBlock(newBlock);
     setSelectedBlock(newBlock);
   }, [canvasBlocks]);
   
@@ -491,32 +489,9 @@ export default function StrategyComposerV2({
 
   // Grouped Library for Step 2 (Signal / Filter / Risk / Model)
   const groupedSignalLibrary = {
-    indicator: {
-      key: "indicator",
-      label: "시그널 블록",
-      icon: SparklesIcon,
-      blocks: Object.values(signalBlocks).filter(
-        (b) => (b.category === "indicator" || b.category === "flow") && 
-               (!b.hidden || unlockedBlockIds.includes(b.id)) && 
-               !manuallyHiddenBlockIds.includes(b.id)
-      ).sort((a, b) => {
-        const order = customBlockOrder["indicator"] || [];
-        const indexA = order.indexOf(a.id);
-        const indexB = order.indexOf(b.id);
-        if (indexA !== -1 && indexB !== -1) return indexA - indexB;
-        if (indexA !== -1) return -1;
-        if (indexB !== -1) return 1;
-        return 0;
-      }).map((b) => ({
-        id: b.id,
-        name: b.name,
-        description: b.description,
-        blockType: b.category,
-      })),
-    },
     filter: {
       key: "filter",
-      label: "필터 블록",
+      label: "종목 필터 블록",
       icon: AdjustmentsHorizontalIcon,
       blocks: Object.values(signalBlocks).filter(
         (b) => b.category === "filter" && 
@@ -535,6 +510,29 @@ export default function StrategyComposerV2({
         name: b.name,
         description: b.description,
         blockType: "factor_filters" as const,
+      })),
+    },
+    indicator: {
+      key: "indicator",
+      label: "매매 시그널 블록",
+      icon: SparklesIcon,
+      blocks: Object.values(signalBlocks).filter(
+        (b) => (b.category === "indicator" || b.category === "flow") && 
+               (!b.hidden || unlockedBlockIds.includes(b.id)) && 
+               !manuallyHiddenBlockIds.includes(b.id)
+      ).sort((a, b) => {
+        const order = customBlockOrder["indicator"] || [];
+        const indexA = order.indexOf(a.id);
+        const indexB = order.indexOf(b.id);
+        if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+        if (indexA !== -1) return -1;
+        if (indexB !== -1) return 1;
+        return 0;
+      }).map((b) => ({
+        id: b.id,
+        name: b.name,
+        description: b.description,
+        blockType: b.category,
       })),
     },
     risk: {
@@ -586,9 +584,7 @@ export default function StrategyComposerV2({
   } as const;
 
 
-  const [openSignalGroup, setOpenSignalGroup] = useState<
-    keyof typeof groupedSignalLibrary | null
-  >(null);
+  const [openSignalGroups, setOpenSignalGroups] = useState<(keyof typeof groupedSignalLibrary)[]>([]);
 
   const filteredLibraryEntries = () => {
     if (currentStep === 3) {
@@ -816,7 +812,7 @@ export default function StrategyComposerV2({
         {/* Left Panel: Block Library - Only show for Step 2 */}
         {currentStep === 2 && (
           <>
-            <div className="w-52 bg-[#0f0f0f] relative z-50 flex flex-col shrink-0">
+            <div className="w-48 bg-[#0f0f0f] relative z-50 flex flex-col shrink-0">
               <div className="flex-1 px-4 py-3 space-y-3">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-sm font-black text-white uppercase tracking-wider">조건 블록함</h3>
@@ -840,7 +836,11 @@ export default function StrategyComposerV2({
                         <div className="rounded-lg bg-[#151515] border border-gray-800/20">
                           <button
                             type="button"
-                            onClick={() => setOpenSignalGroup((prev) => prev === group.key ? null : group.key)}
+                            onClick={() => setOpenSignalGroups((prev) => 
+                              prev.includes(group.key) 
+                                ? prev.filter(k => k !== group.key) 
+                                : [...prev, group.key]
+                            )}
                             className="w-full flex items-center justify-between px-3 py-2.5 text-xs font-black text-gray-400 hover:text-white hover:bg-[#181818] transition-all group/header"
                           >
                             <span className="flex items-center gap-2">
@@ -848,10 +848,10 @@ export default function StrategyComposerV2({
                               <span>{group.label}</span>
                             </span>
                             <div className="flex items-center gap-1">
-                              <ChevronDownIcon className={`w-3.5 h-3.5 transition-transform ${openSignalGroup === group.key ? "rotate-180" : ""}`} />
+                              <ChevronDownIcon className={`w-3.5 h-3.5 transition-transform ${openSignalGroups.includes(group.key) ? "rotate-180" : ""}`} />
                             </div>
                           </button>
-                          {openSignalGroup === group.key && (
+                          {openSignalGroups.includes(group.key) && (
                             <div className="px-2 pt-1 pb-3 space-y-1 bg-[#151515]">
                               {filteredBlocks.length === 0 && <div className="text-[10px] text-gray-600 px-3 py-2 italic text-center">결과 없음</div>}
                               {filteredBlocks.map((block) => {
@@ -1210,7 +1210,7 @@ export default function StrategyComposerV2({
             <div className="flex flex-col min-h-full">
               <div 
                 ref={canvasRef}
-                className="flex-1 relative border border-gray-800 rounded-3xl overflow-hidden mx-6 mb-6 bg-[#0a0a0a]/30"
+                className="flex-1 relative border border-gray-800 rounded-3xl overflow-hidden mx-3 mb-6 bg-[#0a0a0a]/30"
                 style={{ minHeight: canvasMinHeight }}
                 onDragOver={(e) => { e.preventDefault(); setDraggedOver(true); }}
                 onDragLeave={() => setDraggedOver(false)}
@@ -1285,39 +1285,45 @@ export default function StrategyComposerV2({
                       const nextCol = (index + 1) % blocksPerRow;
                       const nextRow = Math.floor((index + 1) / blocksPerRow);
 
-                      const startX = sidePadding + col * 185 + 60; // Center of block (120/2)
-                      const startY = 60 + row * 135 + 32; // Center of block height (Approx 32px)
-                      const endX = sidePadding + nextCol * 185 + 60; // Center of next block
-                      const endY = 60 + nextRow * 135 + 32;
-
+                      const startX = sidePadding + col * 185 + 120; // Right side of block
+                      const startY = 60 + row * 135 + 32; // Center of block height
+                      
+                      let endX, endY;
                       const isNewRow = nextRow > row;
+
+                      if (isNewRow) {
+                        endX = sidePadding + nextCol * 185 + 60; // Center of next block
+                        endY = 60 + nextRow * 135; // Top of next block
+                      } else {
+                        endX = sidePadding + nextCol * 185; // Left side of next block
+                        endY = 60 + nextRow * 135 + 32; // Center of next block height
+                      }
+
                       const dx = endX - startX;
                       const dy = endY - startY;
                       
-                      let cp1x, cp1y, cp2x, cp2y;
-
+                      let pathD;
                       if (isNewRow) {
-                        // When wrapping to a new row, use a loopy S-curve
-                        cp1x = startX + 100;
-                        cp1y = startY;
-                        cp2x = endX - 100;
-                        cp2y = endY;
+                        const gutterY = startY + (endY - startY) / 2;
+                        // Start at right, curve into gutter, travel horizontally, curve into top
+                        pathD = `M ${startX} ${startY} 
+                                 C ${startX + 30} ${startY}, ${startX + 30} ${gutterY}, ${startX} ${gutterY}
+                                 L ${endX + 30} ${gutterY}
+                                 C ${endX} ${gutterY}, ${endX} ${gutterY}, ${endX} ${endY}`;
                       } else {
-                        // Standard horizontal flow
-                        const offset = Math.min(Math.abs(dx) * 0.4, 60);
-                        cp1x = startX + offset;
-                        cp1y = startY;
-                        cp2x = endX - offset;
-                        cp2y = endY;
+                        const offset = Math.min(Math.max(dx * 0.4, 20), 40);
+                        const cp1x = startX + offset;
+                        const cp1y = startY;
+                        const cp2x = endX - offset;
+                        const cp2y = endY;
+                        pathD = `M ${startX} ${startY} C ${cp1x} ${cp1y} ${cp2x} ${cp2y} ${endX} ${endY}`;
                       }
-
-                      const d = `M ${startX} ${startY} C ${cp1x} ${cp1y} ${cp2x} ${cp2y} ${endX} ${endY}`;
 
                       return (
                         <g key={`flow-${block.id}-${nextBlock.id}`}>
                           {/* Background Glow */}
                           <path
-                            d={d}
+                            d={pathD}
                             stroke={color}
                             strokeWidth="4"
                             fill="none"
@@ -1326,16 +1332,15 @@ export default function StrategyComposerV2({
                           />
                           {/* Main Line */}
                           <path
-                            d={d}
+                            d={pathD}
                             stroke={color}
                             strokeWidth="1.5"
                             fill="none"
-                            markerEnd={`url(#${markerId})`}
                             className="opacity-40"
                           />
                           {/* Animated flow */}
                           <path
-                            d={d}
+                            d={pathD}
                             stroke={color}
                             strokeWidth="1.5"
                             fill="none"
@@ -1364,7 +1369,10 @@ export default function StrategyComposerV2({
                     return (
                       <div
                         key={block.id}
-                        onClick={() => setSelectedBlock(block)}
+                        onClick={() => {
+                          setSelectedBlock(block);
+                          setActiveParamTab('block');
+                        }}
                         className={`absolute p-4 rounded-xl transition-all duration-300 border backdrop-blur-md group cursor-pointer ${typeStyles} ${
                           isSelected 
                             ? "ring-2 ring-blue-500/50 scale-105 z-10 shadow-2xl" 
@@ -1373,11 +1381,20 @@ export default function StrategyComposerV2({
                         style={{ left: `${xOffset}px`, top: `${yOffset}px`, width: "120px" }}
                       >
                         <div className="flex items-center justify-between mb-2">
-                          <span className={`w-2 h-2 rounded-full ${
-                             block.type === "entry" ? "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]" : 
-                             block.type === "exit" ? "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]" : 
-                             "bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.6)]"
-                          }`} />
+                          <div className="flex items-center gap-1.5">
+                            <span className={`w-2 h-2 rounded-full ${
+                               block.type === "entry" ? "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]" : 
+                               block.type === "exit" ? "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]" : 
+                               "bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.6)]"
+                            }`} />
+                            <span className={`text-[9px] font-bold px-1 rounded-sm ${
+                              block.type === "entry" ? "bg-red-500/20 text-red-400" :
+                              block.type === "exit" ? "bg-blue-500/20 text-blue-400" :
+                              "bg-purple-500/20 text-purple-400"
+                            }`}>
+                              {block.type === "entry" ? "매수" : block.type === "exit" ? "매도" : "필터"}
+                            </span>
+                          </div>
                           <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             <span className="w-1 h-1 rounded-full bg-white/20" />
                             <span className="w-1 h-1 rounded-full bg-white/20" />
@@ -1734,282 +1751,315 @@ export default function StrategyComposerV2({
 
         {/* Right Panel: Parameter Editor (Only for Step 2) */}
         {currentStep === 2 && (
-          <div className="bg-[#0f0f0f] w-64 relative z-30">
-            <div className="px-4 py-3">
-              <h3 className="text-sm font-semibold text-white mb-4">파라미터 편집</h3>
-              {selectedBlock ? (
-                <div className="space-y-4">
-                  <div className="p-3 bg-[#1a1a1a] rounded-lg border border-gray-800">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-sm text-white font-bold">{signalBlocks[selectedBlock.blockId]?.name || selectedBlock.blockId}</div>
-                      <div className="flex items-center gap-2">
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-tight ${selectedBlock.type === "entry" ? "bg-red-500/20 text-red-400" : selectedBlock.type === "exit" ? "bg-blue-500/20 text-blue-400" : "bg-purple-500/20 text-purple-400"}`}>
-                          {selectedBlock.type === "entry" ? "매수" : selectedBlock.type === "exit" ? "매도" : "필터"}
-                        </span>
+          <div className="bg-[#0f0f0f] w-60 flex flex-col relative z-30">
+            {/* Tabs */}
+            <div className="flex p-1 gap-1">
+              <button
+                onClick={() => setActiveParamTab('block')}
+                className={`flex-1 py-3 text-sm font-black uppercase tracking-widest transition-all rounded-lg ${
+                  activeParamTab === 'block'
+                    ? "text-blue-400 bg-blue-500/10"
+                    : "text-gray-600 hover:text-gray-400 hover:bg-gray-800/30"
+                }`}
+              >
+                블록 설정
+              </button>
+              <button
+                onClick={() => setActiveParamTab('global')}
+                className={`flex-1 py-3 text-sm font-black uppercase tracking-widest transition-all rounded-lg ${
+                  activeParamTab === 'global'
+                    ? "text-blue-400 bg-blue-500/10"
+                    : "text-gray-600 hover:text-gray-400 hover:bg-gray-800/30"
+                }`}
+              >
+                전역 논리 설정
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-2 py-4 custom-scrollbar">
+              {activeParamTab === 'block' ? (
+                selectedBlock ? (
+                  <div className="space-y-4">
+                    <div className="p-3 bg-[#1a1a1a] rounded-lg border border-gray-800">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-sm text-white font-bold">{signalBlocks[selectedBlock.blockId]?.name || selectedBlock.blockId}</div>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-tight ${selectedBlock.type === "entry" ? "bg-red-500/20 text-red-400" : selectedBlock.type === "exit" ? "bg-blue-500/20 text-blue-400" : "bg-purple-500/20 text-purple-400"}`}>
+                            {selectedBlock.type === "entry" ? "매수" : selectedBlock.type === "exit" ? "매도" : "필터"}
+                          </span>
+                        </div>
                       </div>
+                      <p className="text-[12px] text-gray-400 leading-relaxed tabular-nums">{signalBlocks[selectedBlock.blockId]?.description || "시그널을 발생시킵니다."}</p>
                     </div>
-                    <p className="text-[11px] text-gray-400 leading-relaxed tabular-nums">{signalBlocks[selectedBlock.blockId]?.description || "시그널을 발생시킵니다."}</p>
-                  </div>
-                  <div className="space-y-3">
-                    {(() => {
-                      const blockDef = signalBlocks[selectedBlock.blockId];
-                      if (!blockDef || !blockDef.paramSchema) return <div className="text-xs text-gray-500">파라미터가 없습니다.</div>;
+                    <div className="space-y-3">
+                      {(() => {
+                        const blockDef = signalBlocks[selectedBlock.blockId];
+                        if (!blockDef || !blockDef.paramSchema) return <div className="text-xs text-gray-500">파라미터가 없습니다.</div>;
 
+                        const getVal = (k: string) => selectedBlock.params[k] ?? blockDef.defaultParams[k];
 
-                      const getVal = (k: string) => selectedBlock.params[k] ?? blockDef.defaultParams[k];
-
-                      // Custom Input-based UI for Investor block (as requested)
-                      if (selectedBlock.blockId === "investor_net_buy") {
-                        const renderInput = (key: string) => {
-                          const param = blockDef.paramSchema[key];
-                          const val = getVal(key);
-                          return (
-                            <div key={key} className="space-y-1.5 flex-1">
-                              <label className="text-[10px] text-gray-500 font-black uppercase px-0.5">{param.label}</label>
-                              <div className="flex items-center gap-2 bg-[#1a1a1a] border border-gray-800/50 rounded-lg px-3 py-2.5 hover:border-gray-700 focus-within:border-blue-500/40 transition-all">
-                                <input 
-                                  type="text"
-                                  value={val === 0 ? "" : val}
-                                  placeholder="0"
-                                  onChange={(e) => {
-                                    const raw = e.target.value;
-                                    const v = raw === "" ? 0 : isNaN(parseFloat(raw)) ? 0 : parseFloat(raw);
-                                    const newParams = { ...selectedBlock.params, [key]: v };
-                                    setCanvasBlocks(canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, params: newParams } : b));
-                                    setSelectedBlock({ ...selectedBlock, params: newParams });
-                                  }}
-                                  className="bg-transparent text-xs font-black text-white w-full outline-none tabular-nums"
-                                />
-                                {param.suffix && <span className="text-[10px] font-black text-gray-600 uppercase">{param.suffix}</span>}
-                              </div>
-                            </div>
-                          );
-                        };
-
-                        const renderSelect = (key: string) => {
-                          const param = blockDef.paramSchema[key];
-                          const val = getVal(key);
-                          return (
-                            <div key={key} className="space-y-1.5 flex-1">
-                              <label className="text-[10px] text-gray-500 font-black uppercase px-0.5">{param.label}</label>
-                              <div className="relative group/select">
-                                <select 
-                                  value={val} 
-                                  onChange={(e) => { 
-                                    const rawVal = e.target.value;
-                                    const v = isNaN(parseFloat(rawVal)) ? rawVal : parseFloat(rawVal);
-                                    let newParams = { ...selectedBlock.params, [key]: v };
-                                    let newType = selectedBlock.type;
-
-                                    if (key === "investorType") {
-                                      const newInvType = v as string;
-                                      const memory = { ...(selectedBlock.params._investorMemory || {}) };
-                                      if (memory[newInvType]) {
-                                        newParams = { ...newParams, period: memory[newInvType].period, minAmount: memory[newInvType].minAmount, _investorMemory: memory };
-                                      }
-                                    }
-                                    if (key === "signalType") newType = v === "buy" ? "entry" : "exit";
-
-                                    setCanvasBlocks(canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, params: newParams, type: newType } : b)); 
-                                    setSelectedBlock({ ...selectedBlock, params: newParams, type: newType }); 
-                                  }} 
-                                  className="w-full appearance-none pl-3 pr-10 py-2.5 bg-[#1a1a1a] border border-gray-800/50 rounded-lg text-xs font-black text-white hover:bg-[#181818] hover:border-gray-700 transition-all cursor-pointer outline-none"
-                                >
-                                  {param.options?.map((opt: any) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                                </select>
-                                <ChevronDownIcon className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 pointer-events-none" />
-                              </div>
-                            </div>
-                          );
-                        };
-
-                        return (
-                          <div className="space-y-4">
-                            <div className="space-y-4">
-                              <div className="p-4 bg-[#1a1a1a]/50 border border-gray-800/50 rounded-xl space-y-4">
-                                {renderSelect("investorType")}
-                                <div className="flex gap-3">
-                                  {renderInput("period")}
-                                  {renderInput("minAmount")}
+                        // Custom Input-based UI for Investor block (as requested)
+                        if (selectedBlock.blockId === "investor_net_buy") {
+                          const renderInput = (key: string) => {
+                            const param = blockDef.paramSchema[key];
+                            const val = getVal(key);
+                            return (
+                              <div key={key} className="space-y-1.5 flex-1">
+                                <label className="text-xs text-gray-500 font-black uppercase tracking-tight">{param.label}</label>
+                                <div className="flex items-center gap-2 bg-[#1a1a1a] border border-gray-800/50 rounded-lg px-3 py-2.5 hover:border-gray-700 focus-within:border-blue-500/40 transition-all">
+                                  <input 
+                                    type="text"
+                                    value={val === 0 ? "" : val}
+                                    placeholder="0"
+                                    onChange={(e) => {
+                                      const raw = e.target.value;
+                                      const v = raw === "" ? 0 : isNaN(parseFloat(raw)) ? 0 : parseFloat(raw);
+                                      const newParams = { ...selectedBlock.params, [key]: v };
+                                      setCanvasBlocks(canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, params: newParams } : b));
+                                      setSelectedBlock({ ...selectedBlock, params: newParams });
+                                    }}
+                                    className="bg-transparent text-xs font-black text-white w-full outline-none tabular-nums"
+                                  />
+                                  {param.suffix && <span className="text-[10px] font-black text-gray-600 uppercase">{param.suffix}</span>}
                                 </div>
+                              </div>
+                            );
+                          };
+
+                          const renderSelect = (key: string) => {
+                            const param = blockDef.paramSchema[key];
+                            const val = getVal(key);
+                            return (
+                              <div key={key} className="space-y-1.5 flex-1">
+                                <label className="text-xs text-gray-500 font-black uppercase tracking-tight">{param.label}</label>
+                                <div className="relative group/select">
+                                  <select 
+                                    value={val} 
+                                    onChange={(e) => { 
+                                      const rawVal = e.target.value;
+                                      const v = isNaN(parseFloat(rawVal)) ? rawVal : parseFloat(rawVal);
+                                      let newParams = { ...selectedBlock.params, [key]: v };
+                                      let newType = selectedBlock.type;
+
+                                      if (key === "investorType") {
+                                        const newInvType = v as string;
+                                        const memory = { ...(selectedBlock.params._investorMemory || {}) };
+                                        if (memory[newInvType]) {
+                                          newParams = { ...newParams, period: memory[newInvType].period, minAmount: memory[newInvType].minAmount, _investorMemory: memory };
+                                        }
+                                      }
+                                      if (key === "signalType") newType = v === "buy" ? "entry" : "exit";
+
+                                      setCanvasBlocks(canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, params: newParams, type: newType } : b)); 
+                                      setSelectedBlock({ ...selectedBlock, params: newParams, type: newType }); 
+                                    }} 
+                                    className="w-full appearance-none pl-3 pr-10 py-2.5 bg-[#1a1a1a] border border-gray-800/50 rounded-lg text-xs font-black text-white hover:bg-[#181818] hover:border-gray-700 transition-all cursor-pointer outline-none"
+                                  >
+                                    {param.options?.map((opt: any) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                                  </select>
+                                  <ChevronDownIcon className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 pointer-events-none" />
+                                </div>
+                              </div>
+                            );
+                          };
+
+                          return (
+                            <div className="space-y-4">
+                              <div className="space-y-4">
+                                <div className="p-3 bg-[#1a1a1a]/50 border border-gray-800/50 rounded-xl space-y-4">
+                                  {renderSelect("investorType")}
+                                  <div className="flex gap-3">
+                                    {renderInput("period")}
+                                    {renderInput("minAmount")}
+                                  </div>
+                                  <button 
+                                    onClick={() => {
+                                      const invType = selectedBlock.params.investorType || "institutional";
+                                      const memory = { ...(selectedBlock.params._investorMemory || {}) };
+                                      memory[invType] = { period: getVal("period"), minAmount: getVal("minAmount") };
+                                      const newParams = { ...selectedBlock.params, _investorMemory: memory };
+                                      setCanvasBlocks(canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, params: newParams } : b));
+                                      setSelectedBlock({ ...selectedBlock, params: newParams });
+                                    }}
+                                    className="w-full py-2.5 bg-blue-600/10 border border-blue-600/40 rounded-lg text-xs font-black text-blue-400 hover:bg-blue-600/20 hover:border-blue-600/60 transition-all flex items-center justify-center gap-1.5 group/savebtn shadow-lg shadow-blue-900/10"
+                                  >
+                                    설정 저장
+                                  </button>
+                                </div>
+                                <div className="px-1">
+                                  {renderSelect("signalType")}
+                                </div>
+                              </div>
+
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2 px-1">
+                                  <div className="h-px flex-1 bg-gray-800/50" />
+                                  <span className="text-[10px] text-gray-500 font-extrabold uppercase tracking-widest whitespace-nowrap">저장된 투자자별 요약</span>
+                                  <div className="h-px flex-1 bg-gray-800/50" />
+                                </div>
+                                <div className="grid grid-cols-1 gap-1.5 px-0.5">
+                                  {["institutional", "foreigner", "individual"].map(type => {
+                                    const data = selectedBlock.params._investorMemory?.[type];
+                                    const label = type === "institutional" ? "기관" : type === "foreigner" ? "외국인" : "개인";
+                                    const isActive = (selectedBlock.params.investorType || "institutional") === type;
+                                    if (!data) return (
+                                      <div key={type} className="px-3 py-2 bg-[#1a1a1a] border border-dashed border-gray-800/30 rounded-lg flex justify-between items-center opacity-30">
+                                        <span className="text-[10px] font-black text-gray-600">{label}</span>
+                                        <span className="text-[9px] font-bold text-gray-700 italic">설정 없음</span>
+                                      </div>
+                                    );
+                                    return (
+                                      <div key={type} className={`px-3 py-2 rounded-lg flex justify-between items-center border transition-all ${isActive ? "bg-blue-600/5 border-blue-600/30" : "bg-[#1a1a1a] border-gray-800/10"}`}>
+                                        <div className="flex items-center gap-2">
+                                          <div className={`w-1 h-3 rounded-full ${selectedBlock.type === 'entry' ? 'bg-red-500' : 'bg-blue-500'}`} />
+                                          <span className={`text-[10px] font-black ${isActive ? "text-blue-400" : "text-gray-400"}`}>{label}</span>
+                                        </div>
+                                        <span className="text-[10px] font-bold text-gray-300 tabular-nums">{data.period}일 · {data.minAmount}억</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        // Standard UI for other blocks
+                        return Object.entries(blockDef.paramSchema).map(([key, param]) => {
+                          const currentValue = selectedBlock.params[key] ?? blockDef.defaultParams[key];
+                          return (
+                            <div key={key}>
+                              <div className="flex items-center gap-1.5 mb-1.5 relative group/tooltip-row">
+                                <label className="text-xs text-gray-500 font-black uppercase tracking-tight">{param.label}</label>
+                                {param.tooltip && (
+                                  <div 
+                                    className="p-1 -m-1"
+                                    onMouseEnter={(e) => setHoveredParam({ label: param.label, tooltip: param.tooltip!, rect: e.currentTarget.getBoundingClientRect() })}
+                                    onMouseLeave={() => setHoveredParam(null)}
+                                  >
+                                    <InformationCircleIcon className="w-3.5 h-3.5 text-gray-700 hover:text-blue-500 transition-colors cursor-help" />
+                                  </div>
+                                )}
+                              </div>
+                              {param.type === "select" && param.options ? (
+                                <div className="relative group/select">
+                                  <select 
+                                    value={currentValue} 
+                                    onChange={(e) => { 
+                                      const rawVal = e.target.value;
+                                      const val = isNaN(parseFloat(rawVal)) ? rawVal : parseFloat(rawVal);
+                                      let newParams = { ...selectedBlock.params, [key]: val };
+                                      let newType = selectedBlock.type;
+                                      let feedbackMessage = "✓ 저장됨";
+                                      if (key === "signalType") {
+                                        if (val === "buy") newType = "entry";
+                                        else if (val === "sell") newType = "exit";
+                                      }
+                                      setCanvasBlocks(canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, params: newParams, type: newType } : b)); 
+                                      setSelectedBlock({ ...selectedBlock, params: newParams, type: newType }); 
+                                    }} 
+                                    className={`w-full appearance-none pl-3 ${param.suffix ? "pr-16" : "pr-10"} py-2.5 bg-[#1a1a1a] border border-gray-800/50 rounded-lg text-xs font-black text-white hover:bg-[#151515] hover:border-gray-700 transition-all cursor-pointer outline-none`}
+                                  >
+                                    {param.options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                                  </select>
+                                  <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+                                    {param.suffix && (
+                                      <span className="text-xs font-black text-gray-600 uppercase pr-1 border-r border-gray-800/50 mr-1">
+                                        {param.suffix}
+                                      </span>
+                                    )}
+                                    <ChevronDownIcon className="w-3.5 h-3.5 text-gray-500 group-hover/select:text-gray-300 transition-colors" />
+                                  </div>
+                                </div>
+                              ) : param.type === "boolean" ? (
                                 <button 
                                   onClick={() => {
-                                    const invType = selectedBlock.params.investorType || "institutional";
-                                    const memory = { ...(selectedBlock.params._investorMemory || {}) };
-                                    memory[invType] = { period: getVal("period"), minAmount: getVal("minAmount") };
-                                    const newParams = { ...selectedBlock.params, _investorMemory: memory };
-                                    setCanvasBlocks(canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, params: newParams } : b));
-                                    setSelectedBlock({ ...selectedBlock, params: newParams });
+                                    const newVal = !currentValue;
+                                    const newParams = { ...selectedBlock.params, [key]: newVal };
+                                    setCanvasBlocks(canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, params: newParams } : b)); 
+                                    setSelectedBlock({ ...selectedBlock, params: newParams }); 
                                   }}
-                                  className="w-full py-2.5 bg-blue-600/10 border border-blue-600/40 rounded-lg text-xs font-black text-blue-400 hover:bg-blue-600/20 hover:border-blue-600/60 transition-all flex items-center justify-center gap-1.5 group/savebtn shadow-lg shadow-blue-900/10"
+                                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border transition-all ${currentValue ? "bg-blue-600/10 border-blue-600/50 text-blue-400" : "bg-[#1a1a1a] border-gray-800/50 text-gray-500 hover:border-gray-700"}`}
                                 >
-                                  설정 저장
+                                  <span className="text-xs font-black">{param.label}</span>
+                                  <div className={`w-8 h-4 rounded-full relative transition-colors ${currentValue ? "bg-blue-600" : "bg-gray-800"}`}>
+                                    <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${currentValue ? "right-0.5" : "left-0.5"}`} />
+                                  </div>
                                 </button>
-                              </div>
-                              <div className="px-1">
-                                {renderSelect("signalType")}
-                              </div>
-                            </div>
-
-                            <div className="space-y-2">
-                              <div className="flex items-center gap-2 px-1">
-                                <div className="h-px flex-1 bg-gray-800/50" />
-                                <span className="text-[10px] text-gray-500 font-extrabold uppercase tracking-widest whitespace-nowrap">저장된 투자자별 요약</span>
-                                <div className="h-px flex-1 bg-gray-800/50" />
-                              </div>
-                              <div className="grid grid-cols-1 gap-1.5 px-0.5">
-                                {["institutional", "foreigner", "individual"].map(type => {
-                                  const data = selectedBlock.params._investorMemory?.[type];
-                                  const label = type === "institutional" ? "기관" : type === "foreigner" ? "외국인" : "개인";
-                                  const isActive = (selectedBlock.params.investorType || "institutional") === type;
-                                  if (!data) return (
-                                    <div key={type} className="px-3 py-2 bg-[#1a1a1a] border border-dashed border-gray-800/30 rounded-lg flex justify-between items-center opacity-30">
-                                      <span className="text-[10px] font-black text-gray-600">{label}</span>
-                                      <span className="text-[9px] font-bold text-gray-700 italic">설정 없음</span>
+                              ) : (
+                                 <div className="bg-[#1a1a1a] border border-gray-800/50 rounded-lg p-3 group/input hover:border-gray-700 transition-all">
+                                  <div className="flex justify-between items-center mb-3 px-1">
+                                    <span className="text-xs font-black text-white tabular-nums">{currentValue}</span>
+                                    {param.suffix && <span className="text-xs font-black text-gray-500 uppercase">{param.suffix}</span>}
+                                  </div>
+                                  <div className="px-1 space-y-1.5">
+                                    <input 
+                                      type="range"
+                                      min={param.min ?? 0}
+                                      max={param.max ?? 100}
+                                      step={param.step ?? 1}
+                                      value={currentValue !== "" ? currentValue : 0}
+                                      onChange={(e) => {
+                                        const val = parseFloat(e.target.value);
+                                        const newParams = { ...selectedBlock.params, [key]: val }; 
+                                        setCanvasBlocks(canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, params: newParams } : b)); 
+                                        setSelectedBlock({ ...selectedBlock, params: newParams }); 
+                                      }}
+                                      className="w-full h-1.5 bg-gray-800/50 rounded-lg appearance-none cursor-pointer accent-blue-500 hover:accent-blue-400 transition-all opacity-70 hover:opacity-100"
+                                    />
+                                    <div className="flex justify-between items-center opacity-40 group-hover/input:opacity-60 transition-opacity">
+                                      <span className="text-[9px] font-black text-gray-500 tabular-nums">{param.min ?? 0}</span>
+                                      <span className="text-[9px] font-black text-gray-500 tabular-nums">{param.max ?? 100}</span>
                                     </div>
-                                  );
-                                  return (
-                                    <div key={type} className={`px-3 py-2 rounded-lg flex justify-between items-center border transition-all ${isActive ? "bg-blue-600/5 border-blue-600/30" : "bg-[#1a1a1a] border-gray-800/10"}`}>
-                                      <div className="flex items-center gap-2">
-                                        <div className={`w-1 h-3 rounded-full ${selectedBlock.type === 'entry' ? 'bg-red-500' : 'bg-blue-500'}`} />
-                                        <span className={`text-[10px] font-black ${isActive ? "text-blue-400" : "text-gray-400"}`}>{label}</span>
-                                      </div>
-                                      <span className="text-[10px] font-bold text-gray-300 tabular-nums">{data.period}일 · {data.minAmount}억</span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      }
-
-                      // Standard UI for other blocks
-                      return Object.entries(blockDef.paramSchema).map(([key, param]) => {
-                        const currentValue = selectedBlock.params[key] ?? blockDef.defaultParams[key];
-                        return (
-                          <div key={key}>
-                            <div className="flex items-center gap-1.5 mb-1.5 relative group/tooltip-row">
-                              <label className="text-[11px] text-gray-500 font-black uppercase tracking-tight">{param.label}</label>
-                              {param.tooltip && (
-                                <div 
-                                  className="p-1 -m-1"
-                                  onMouseEnter={(e) => setHoveredParam({ label: param.label, tooltip: param.tooltip!, rect: e.currentTarget.getBoundingClientRect() })}
-                                  onMouseLeave={() => setHoveredParam(null)}
-                                >
-                                  <InformationCircleIcon className="w-3.5 h-3.5 text-gray-700 hover:text-blue-500 transition-colors cursor-help" />
+                                  </div>
                                 </div>
                               )}
                             </div>
-                            {param.type === "select" && param.options ? (
-                              <div className="relative group/select">
-                                <select 
-                                  value={currentValue} 
-                                  onChange={(e) => { 
-                                    const rawVal = e.target.value;
-                                    const val = isNaN(parseFloat(rawVal)) ? rawVal : parseFloat(rawVal);
-                                    let newParams = { ...selectedBlock.params, [key]: val };
-                                    let newType = selectedBlock.type;
-                                    let feedbackMessage = "✓ 저장됨";
-                                    if (key === "signalType") {
-                                      if (val === "buy") newType = "entry";
-                                      else if (val === "sell") newType = "exit";
-                                    }
-                                    setCanvasBlocks(canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, params: newParams, type: newType } : b)); 
-                                    setSelectedBlock({ ...selectedBlock, params: newParams, type: newType }); 
-                                  }} 
-                                  className={`w-full appearance-none pl-3 ${param.suffix ? "pr-16" : "pr-10"} py-2.5 bg-[#1a1a1a] border border-gray-800/50 rounded-lg text-xs font-black text-white hover:bg-[#151515] hover:border-gray-700 transition-all cursor-pointer outline-none`}
-                                >
-                                  {param.options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                                </select>
-                                <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
-                                  {param.suffix && (
-                                    <span className="text-[10px] font-black text-gray-600 uppercase pr-1 border-r border-gray-800/50 mr-1">
-                                      {param.suffix}
-                                    </span>
-                                  )}
-                                  <ChevronDownIcon className="w-3.5 h-3.5 text-gray-500 group-hover/select:text-gray-300 transition-colors" />
-                                </div>
-                              </div>
-                            ) : param.type === "boolean" ? (
-                              <button 
-                                onClick={() => {
-                                  const newVal = !currentValue;
-                                  const newParams = { ...selectedBlock.params, [key]: newVal };
-                                  setCanvasBlocks(canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, params: newParams } : b)); 
-                                  setSelectedBlock({ ...selectedBlock, params: newParams }); 
-                                }}
-                                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border transition-all ${currentValue ? "bg-blue-600/10 border-blue-600/50 text-blue-400" : "bg-[#1a1a1a] border-gray-800/50 text-gray-500 hover:border-gray-700"}`}
-                              >
-                                <span className="text-xs font-black">{param.label}</span>
-                                <div className={`w-8 h-4 rounded-full relative transition-colors ${currentValue ? "bg-blue-600" : "bg-gray-800"}`}>
-                                  <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${currentValue ? "right-0.5" : "left-0.5"}`} />
-                                </div>
-                              </button>
-                            ) : (
-                               <div className="bg-[#1a1a1a] border border-gray-800/50 rounded-lg p-3 group/input hover:border-gray-700 transition-all">
-                                <div className="flex justify-between items-center mb-3 px-1">
-                                  <span className="text-xs font-black text-white tabular-nums">{currentValue}</span>
-                                  {param.suffix && <span className="text-[10px] font-black text-gray-500 uppercase">{param.suffix}</span>}
-                                </div>
-                                <div className="px-1 space-y-1.5">
-                                  <input 
-                                    type="range"
-                                    min={param.min ?? 0}
-                                    max={param.max ?? 100}
-                                    step={param.step ?? 1}
-                                    value={currentValue !== "" ? currentValue : 0}
-                                    onChange={(e) => {
-                                      const val = parseFloat(e.target.value);
-                                      const newParams = { ...selectedBlock.params, [key]: val }; 
-                                      setCanvasBlocks(canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, params: newParams } : b)); 
-                                      setSelectedBlock({ ...selectedBlock, params: newParams }); 
-                                    }}
-                                    className="w-full h-1.5 bg-gray-800/50 rounded-lg appearance-none cursor-pointer accent-blue-500 hover:accent-blue-400 transition-all opacity-70 hover:opacity-100"
-                                  />
-                                  <div className="flex justify-between items-center opacity-40 group-hover/input:opacity-60 transition-opacity">
-                                    <span className="text-[9px] font-black text-gray-500 tabular-nums">{param.min ?? 0}</span>
-                                    <span className="text-[9px] font-black text-gray-500 tabular-nums">{param.max ?? 100}</span>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      });
-                    })()}
-                    {/* Reset to Default Button Moved Here */}
-                    <div className="pt-2 border-t border-gray-800/30">
-                      <button 
-                        onClick={() => {
-                          if (!selectedBlock) return;
-                          const blockDef = signalBlocks[selectedBlock.blockId];
-                          if (blockDef) {
-                            const newParams = { ...blockDef.defaultParams };
-                            let newType = selectedBlock.type;
-                            if (newParams.signalType) {
-                              newType = newParams.signalType === "buy" ? "entry" : newParams.signalType === "sell" ? "exit" : "filter";
+                          );
+                        });
+                      })()}
+                      {/* Reset to Default Button Moved Here */}
+                      <div className="pt-2 border-t border-gray-800/30">
+                        <button 
+                          onClick={() => {
+                            if (!selectedBlock) return;
+                            const blockDef = signalBlocks[selectedBlock.blockId];
+                            if (blockDef) {
+                              const newParams = { ...blockDef.defaultParams };
+                              let newType = selectedBlock.type;
+                              if (newParams.signalType) {
+                                newType = newParams.signalType === "buy" ? "entry" : newParams.signalType === "sell" ? "exit" : "filter";
+                              }
+                              const updatedBlocks = canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, params: newParams, type: newType } : b);
+                              const sortedBlocks = [
+                                ...updatedBlocks.filter(b => b.type === "filter"),
+                                ...updatedBlocks.filter(b => b.type === "entry"),
+                                ...updatedBlocks.filter(b => b.type === "exit")
+                              ];
+                              setCanvasBlocks(sortedBlocks); 
                             }
-                            const updatedBlocks = canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, params: newParams, type: newType } : b);
-                            const sortedBlocks = [
-                              ...updatedBlocks.filter(b => b.type === "entry" || b.type === "filter"),
-                              ...updatedBlocks.filter(b => b.type === "exit")
-                            ];
-                            setCanvasBlocks(sortedBlocks); 
-                            setSelectedBlock({ ...selectedBlock, params: newParams, type: newType }); 
-                          }
-                        }}
-                        className="w-full py-2 bg-[#1a1a1a] border border-gray-800 rounded-lg text-xs font-bold text-gray-400 hover:text-white hover:bg-gray-800 hover:border-gray-700 transition-all flex items-center justify-center gap-1.5"
-                      >
-                        <ArrowPathIcon className="w-3 h-3" />
-                        기본값 복원
-                      </button>
+                          }}
+                          className="w-full py-2 bg-[#1a1a1a] border border-gray-800 rounded-lg text-xs font-bold text-gray-400 hover:text-white hover:bg-gray-800 hover:border-gray-700 transition-all flex items-center justify-center gap-1.5"
+                        >
+                          <ArrowPathIcon className="w-3 h-3" />
+                          기본값 복원
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="h-full flex flex-col items-center pt-24 text-center p-6 space-y-5 opacity-30">
+                    <div className="w-20 h-20 rounded-full bg-gray-800/20 border border-gray-700/30 flex items-center justify-center">
+                      <CursorArrowRaysIcon className="w-10 h-10 text-gray-600" />
+                    </div>
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-black text-gray-400">블록 선택 안 됨</h4>
+                      <p className="text-xs text-gray-600 font-bold leading-relaxed">수정할 블록을 캔버스에서 <br /> 선택해 주세요.</p>
+                    </div>
+                  </div>
+                )
               ) : (
                 <div className="space-y-6">
-                  <div className="text-center py-5 border-b border-gray-800"><h3 className="text-base font-bold text-white mb-1.5">전역 논리 설정</h3><p className="text-xs text-gray-500">블록들이 결합되는 방식을 설정합니다.</p></div>
                   <div className="space-y-7 p-1">
                     <div className="bg-[#1a1a1a]/50 rounded-xl p-5 border border-gray-800">
                       <label className="flex items-center gap-2 text-sm font-bold text-red-400 mb-3 uppercase tracking-wider">매수 결합</label>

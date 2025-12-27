@@ -39,11 +39,11 @@ export default function StrategyBlockSearchMenu({ onSelect, onClose, manuallyHid
   };
 
   const categoryLabels: Record<string, string> = {
-    indicator: "시그널",
-    flow: "시그널",
+    indicator: "매매 시그널",
+    flow: "매매 시그널",
     risk: "리스크",
     ml: "AI",
-    filter: "필터",
+    filter: "종목 필터",
   };
 
   return (

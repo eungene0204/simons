@@ -304,13 +304,13 @@ export async function runBacktest(
 
     // Risk management conditions
     if (condition.type === "risk") {
-      if (condition.id === "stop_loss_pct" && position === "long" && entryPrice > 0) {
-        const loss = ((prices[index] - entryPrice) / entryPrice) * 100;
-        return loss <= -condition.params.value;
-      }
-      if (condition.id === "take_profit_pct" && position === "long" && entryPrice > 0) {
-        const profit = ((prices[index] - entryPrice) / entryPrice) * 100;
-        return profit >= condition.params.value;
+      if (condition.id === "price_limit_exit" && position === "long" && entryPrice > 0) {
+        const change = ((prices[index] - entryPrice) / entryPrice) * 100;
+        const stopLoss = condition.params.stopLossPct;
+        const takeProfit = condition.params.takeProfitPct;
+        const isStopLossHit = stopLoss > 0 && change <= -stopLoss;
+        const isTakeProfitHit = takeProfit > 0 && change >= takeProfit;
+        return isStopLossHit || isTakeProfitHit;
       }
       if (condition.id === "max_holding_days" && position === "long") {
         const holdingDays = index - entryDateIndex;
