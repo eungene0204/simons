@@ -1362,7 +1362,7 @@ export default function StrategyComposerV2({
                         ? "border-red-500/30 bg-red-950/20 hover:bg-red-900/30 shadow-red-900/5" 
                         : block.type === "exit" 
                         ? "border-blue-500/30 bg-blue-950/20 hover:bg-blue-900/30 shadow-blue-900/5" 
-                        : "border-purple-500/30 bg-purple-950/20 hover:bg-purple-900/30 shadow-purple-900/5";
+                        : "border-[rgba(100,155,107,0.3)] bg-[rgba(100,155,107,0.1)] hover:bg-[rgba(100,155,107,0.2)] shadow-[rgba(100,155,107,0.05)]";
 
                     const isSelected = selectedBlock?.id === block.id;
 
@@ -1385,12 +1385,12 @@ export default function StrategyComposerV2({
                             <span className={`w-2 h-2 rounded-full ${
                                block.type === "entry" ? "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]" : 
                                block.type === "exit" ? "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]" : 
-                               "bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.6)]"
+                               "bg-[rgb(100,155,107)] shadow-[0_0_8px_rgba(100,155,107,0.6)]"
                             }`} />
                             <span className={`text-[9px] font-bold px-1 rounded-sm ${
                               block.type === "entry" ? "bg-red-500/20 text-red-400" :
                               block.type === "exit" ? "bg-blue-500/20 text-blue-400" :
-                              "bg-purple-500/20 text-purple-400"
+                              "bg-[rgba(100,155,107,0.2)] text-[rgb(100,155,107)]"
                             }`}>
                               {block.type === "entry" ? "매수" : block.type === "exit" ? "매도" : "필터"}
                             </span>
@@ -1756,20 +1756,20 @@ export default function StrategyComposerV2({
             <div className="flex p-1 gap-1">
               <button
                 onClick={() => setActiveParamTab('block')}
-                className={`flex-1 py-3 text-sm font-black uppercase tracking-widest transition-all rounded-lg ${
+                className={`flex-1 py-2 text-sm font-black uppercase tracking-widest transition-all rounded-lg ${
                   activeParamTab === 'block'
-                    ? "text-blue-400 bg-blue-500/10"
-                    : "text-gray-600 hover:text-gray-400 hover:bg-gray-800/30"
+                    ? "text-white bg-white/5"
+                    : "text-gray-600 hover:text-gray-400 hover:bg-gray-800/20"
                 }`}
               >
                 블록 설정
               </button>
               <button
                 onClick={() => setActiveParamTab('global')}
-                className={`flex-1 py-3 text-sm font-black uppercase tracking-widest transition-all rounded-lg ${
+                className={`flex-1 py-2 text-sm font-black uppercase tracking-widest transition-all rounded-lg ${
                   activeParamTab === 'global'
-                    ? "text-blue-400 bg-blue-500/10"
-                    : "text-gray-600 hover:text-gray-400 hover:bg-gray-800/30"
+                    ? "text-white bg-white/5"
+                    : "text-gray-600 hover:text-gray-400 hover:bg-gray-800/20"
                 }`}
               >
                 전역 논리 설정
