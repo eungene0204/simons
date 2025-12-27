@@ -23,8 +23,6 @@ import {
 } from "@heroicons/react/24/outline";
 import StrategyComposer from "@/components/strategy/StrategyComposer";
 import StrategyComposerV2 from "@/components/strategy/StrategyComposerV2";
-import BacktestPanel from "@/components/strategy/BacktestPanel";
-import BacktestPanelV2 from "@/components/strategy/BacktestPanelV2";
 import StrategyFusionModal from "@/components/strategy/StrategyFusionModal";
 import { StrategyDSL } from "@/types/strategy";
 import { getBasePrice, generateCandleData } from "@/lib/mock-stock-data";
