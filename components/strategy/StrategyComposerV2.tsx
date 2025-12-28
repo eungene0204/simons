@@ -109,8 +109,13 @@ export default function StrategyComposerV2({
   const [riskManagement, setRiskManagement] = useState<RiskManagement>({
     position_size_pct: 5,
     max_positions: 10,
+    stop_loss_pct: 10,
+    take_profit_pct: 20,
+    trailing_stop_pct: 0,
+    max_holding_days: 0,
     max_daily_loss_pct: 5,
     max_total_exposure_pct: 50,
+    max_sector_exposure_pct: 30,
   });
   // Canvas state
   const [canvasBlocks, setCanvasBlocks] = useState<CanvasBlock[]>([]);
@@ -317,8 +322,13 @@ export default function StrategyComposerV2({
       setRiskManagement({
         position_size_pct: initialStrategy.risk.position_size_pct,
         max_positions: initialStrategy.risk.max_positions,
+        stop_loss_pct: initialStrategy.risk.stop_loss_pct ?? 10,
+        take_profit_pct: initialStrategy.risk.take_profit_pct ?? 20,
+        trailing_stop_pct: initialStrategy.risk.trailing_stop_pct ?? 0,
+        max_holding_days: initialStrategy.risk.max_holding_days ?? 0,
         max_daily_loss_pct: initialStrategy.risk.max_daily_loss_pct ?? 5,
         max_total_exposure_pct: initialStrategy.risk.max_total_exposure_pct ?? 50,
+        max_sector_exposure_pct: initialStrategy.risk.max_sector_exposure_pct ?? 30,
       });
     }
   }, [initialStrategy]);
@@ -550,11 +560,11 @@ export default function StrategyComposerV2({
           <div className="bg-[#0a0a0a] rounded-lg border border-gray-800 p-3 min-w-[180px] min-h-[64px] flex flex-col justify-start">
             <div className="flex flex-col gap-1">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">손절</span>
-                <span className="text-xs text-red-400 font-bold">{riskManagement.max_daily_loss_pct}%</span>
+                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">손절/익절</span>
+                <span className="text-xs text-orange-400 font-bold">-{riskManagement.stop_loss_pct}% / +{riskManagement.take_profit_pct}%</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">노출</span>
+                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">최대 노출</span>
                 <span className="text-xs text-blue-400 font-bold">{riskManagement.max_total_exposure_pct}%</span>
               </div>
             </div>

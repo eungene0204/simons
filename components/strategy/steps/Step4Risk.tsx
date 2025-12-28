@@ -29,46 +29,67 @@ export default function Step4Risk({
             </p>
           </div>
         </div>
-        <div className="bg-[#0f0f0f] rounded-2xl border border-gray-800/50 p-8 min-h-[580px] max-w-5xl mx-auto flex flex-col shadow-2xl">
-          <div className="flex-1 flex items-center justify-center">
-             <div className="text-center w-full max-w-md">
-               <div className="w-16 h-16 rounded-2xl bg-orange-500/10 flex items-center justify-center border border-orange-500/20 mx-auto mb-6">
-                 <ShieldCheckIcon className="w-8 h-8 text-orange-400" />
-               </div>
-               <h4 className="text-lg font-bold text-white mb-6">리스크 규칙 구성</h4>
-               
-               <div className="bg-[#0a0a0a] rounded-xl border border-gray-800 p-6 text-left">
-                 <RiskManagementEditor 
-                   riskManagement={riskManagement} 
-                   onChange={setRiskManagement} 
-                 />
-               </div>
-               
-               <p className="text-xs text-gray-500 mt-6 leading-relaxed">
-                 설정한 리스크 관리 규칙은 백테스트와 실제 매매에 즉시 반영됩니다.
-               </p>
-             </div>
+        <div className="bg-[#0f0f0f] rounded-2xl border border-gray-800/50 p-8 min-h-[600px] max-w-6xl mx-auto shadow-2xl overflow-hidden relative">
+          <div className="flex flex-col lg:flex-row gap-12">
+            {/* Left: Introduction & Summary */}
+            <div className="lg:w-1/3 xl:w-1/4">
+              <div className="sticky top-0">
+                <div className="w-16 h-16 rounded-2xl bg-orange-500/10 flex items-center justify-center border border-orange-500/20 mb-6">
+                  <ShieldCheckIcon className="w-8 h-8 text-orange-400" />
+                </div>
+                <h4 className="text-xl font-black text-white mb-4 tracking-tight">리스크 엔진 설정</h4>
+                <p className="text-sm text-gray-500 leading-relaxed mb-8">
+                  전문적인 퀀트 전략은 수익만큼 리스크 관리가 중요합니다. 자금 배분 원칙과 손실 방어 규칙을 세밀하게 구성하세요.
+                </p>
+                
+                <div className="space-y-4 pt-6 border-t border-gray-800/50">
+                  <div className="flex items-center gap-3 text-xs text-gray-400">
+                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                    <span>자본금 대비 투자 비율 자동 계산</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs text-gray-400">
+                    <div className="w-1.5 h-1.5 rounded-full bg-orange-500" />
+                    <span>실시간 변동성 기반 익절/손절</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs text-gray-400">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    <span>섹터 집중 위험 방어 엔진 작동</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Right: Detailed Settings */}
+            <div className="flex-1">
+              <div className="bg-[#0a0a0a]/50 rounded-2xl border border-gray-800/80 p-8">
+                <RiskManagementEditor 
+                  riskManagement={riskManagement} 
+                  onChange={setRiskManagement} 
+                />
+              </div>
+
+            </div>
           </div>
+        </div>
+        {/* Navigation Buttons (Non-sticky) */}
+        <div className="max-w-6xl mx-auto w-full flex justify-end gap-3 pt-8 pb-12">
+          <button
+            onClick={onPrev}
+            className="px-6 py-3 bg-[#0a0a0a] border border-gray-800 text-gray-300 rounded-xl text-md font-black hover:bg-gray-800 hover:text-white transition-all flex items-center gap-2"
+          >
+            <ArrowLeftIcon className="w-5 h-5" />
+            이전 단계
+          </button>
+          <button
+            onClick={onNext}
+            className="px-8 py-3 bg-blue-600 text-white rounded-xl text-md font-black hover:bg-blue-500 transition-all flex items-center gap-3 shadow-xl shadow-blue-900/40 hover:scale-[1.02]"
+          >
+            다음: 백테스트
+            <ArrowRightIcon className="w-5 h-5" />
+          </button>
         </div>
       </div>
 
-      {/* Sticky Navigation Footer */}
-      <div className="sticky bottom-0 bg-[#0a0a0a]/90 backdrop-blur-xl border-t border-gray-800/50 p-6 flex justify-end gap-3 z-50 mt-auto">
-        <button
-          onClick={onPrev}
-          className="px-6 py-3 bg-[#0a0a0a] border border-gray-800 text-gray-300 rounded-xl text-md font-black hover:bg-gray-800 hover:text-white transition-all flex items-center gap-2"
-        >
-          <ArrowLeftIcon className="w-5 h-5" />
-          이전 단계
-        </button>
-        <button
-          onClick={onNext}
-          className="px-8 py-3 bg-blue-600 text-white rounded-xl text-md font-black hover:bg-blue-500 transition-all flex items-center gap-3 shadow-xl shadow-blue-900/40 hover:scale-[1.02]"
-        >
-          다음: 미리보기
-          <ArrowRightIcon className="w-5 h-5" />
-        </button>
-      </div>
     </div>
   );
 }
