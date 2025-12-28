@@ -272,7 +272,6 @@ export default function Step1Universe({
                 </div>
               </div>
             </div>
-
             <div className="bg-blue-600/5 border border-blue-500/20 rounded-2xl p-6 space-y-4">
                 <div className="flex items-center gap-2">
                    <InformationCircleIcon className="w-5 h-5 text-blue-400" />
@@ -296,7 +295,6 @@ export default function Step1Universe({
           </div>
         </div>
       </div>
-
       <div className="sticky bottom-0 bg-[#0f0f0f] z-50 mt-auto">
         <div className="max-w-5xl mx-auto w-full p-6 flex justify-end">
           <button

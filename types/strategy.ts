@@ -36,8 +36,13 @@ export interface ConditionGroup {
 export interface RiskManagement {
   position_size_pct: number; // Percentage of capital per trade
   max_positions: number; // Maximum concurrent positions
+  stop_loss_pct?: number; // Fixed stop loss percentage
+  take_profit_pct?: number; // Fixed take profit percentage
+  trailing_stop_pct?: number; // Trailing stop loss percentage
+  max_holding_days?: number; // Maximum holding period in days
   max_daily_loss_pct?: number; // Maximum daily loss percentage
   max_total_exposure_pct?: number; // Maximum total exposure
+  max_sector_exposure_pct?: number; // Maximum sector concentration
 }
 
 export interface StrategyDSL {
