@@ -10,7 +10,6 @@ import {
   ArrowLeftIcon,
   SparklesIcon,
   AdjustmentsHorizontalIcon,
-  ShieldExclamationIcon,
   ChartBarIcon,
   CubeIcon,
   CpuChipIcon,
@@ -31,7 +30,7 @@ import {
   EllipsisHorizontalIcon,
   CursorArrowRaysIcon,
 } from "@heroicons/react/24/outline";
-import { StrategyDSL, Condition, ConditionType, LogicOperator, BacktestResult, CanvasBlock } from "@/types/strategy";
+import { StrategyDSL, Condition, ConditionType, LogicOperator, BacktestResult, CanvasBlock, RiskManagement } from "@/types/strategy";
 import { signalBlocks } from "@/lib/strategy-blocks";
 import { runBacktest } from "@/lib/backtest-engine";
 import BacktestChart from "@/components/strategy/BacktestChart";
@@ -39,6 +38,8 @@ import RiskManagementEditor from "./RiskManagementEditor";
 import Step1Universe from "./steps/Step1Universe";
 import Step2Conditions from "./steps/Step2Conditions";
 import Step3Position from "./steps/Step3Position";
+import Step4Risk from "./steps/Step4Risk";
+import Step5Backtest from "./steps/Step5Backtest";
 
 interface StrategyComposerV2Props {
   onSave: (strategy: StrategyDSL) => void;
@@ -100,12 +101,12 @@ export default function StrategyComposerV2({
   const [allocationType, setAllocationType] = useState<"equal" | "fixed_pct">("equal");
   const [allocationValue, setAllocationValue] = useState(5); // 5%
   const [executionTiming, setExecutionTiming] = useState<"next_open" | "current_close">("next_open");
-  const [rebalancingPeriod, setRebalancingPeriod] = useState<"none" | "daily" | "weekly" | "monthly">("none");
+  const [rebalancingPeriod, setRebalancingPeriod] = useState<string>("none");
 
   const [positionRules, setPositionRules] = useState<any[]>([]);
   const [entryLogic, setEntryLogic] = useState<LogicOperator>("AND");
   const [exitLogic, setExitLogic] = useState<LogicOperator>("OR");
-  const [riskManagement, setRiskManagement] = useState({
+  const [riskManagement, setRiskManagement] = useState<RiskManagement>({
     position_size_pct: 5,
     max_positions: 10,
     max_daily_loss_pct: 5,
@@ -671,86 +672,22 @@ export default function StrategyComposerV2({
             )}
 
           {currentStep === 4 && (
-            <div className="flex flex-col min-h-full">
-              <div className="space-y-6 p-8">
-                <div className="flex items-center justify-between mb-6">
-                  <div>
-                    <h3 className="text-xl font-black text-white tracking-tight">리스크 관리</h3>
-                    <p className="text-sm text-gray-500 mt-1 font-medium">
-                      손절매, 익절매 등 자산 보호를 위한 규칙을 설정합니다.
-                    </p>
-                  </div>
-                </div>
-              <div className="bg-[#0f0f0f] rounded-2xl border border-gray-800/50 p-8 min-h-[580px] max-w-5xl mx-auto flex items-center justify-center shadow-2xl">
-                 <div className="text-center">
-                   <div className="w-16 h-16 rounded-2xl bg-orange-500/10 flex items-center justify-center border border-orange-500/20 mx-auto mb-4">
-                     <ShieldCheckIcon className="w-8 h-8 text-orange-400" />
-                   </div>
-                   <h4 className="text-lg font-bold text-white mb-2">리스크 규칙 구성</h4>
-                    <p className="text-sm text-gray-500 max-w-sm">여기에 리스크 관리 블록들이 배치될 예정입니다.</p>
-                  </div>
-               </div>
-             </div>
-
-              {/* Sticky Navigation Footer */}
-              <div className="sticky bottom-0 bg-[#0a0a0a]/90 backdrop-blur-xl border-t border-gray-800/50 p-6 flex justify-end gap-3 z-50 mt-auto">
-                <button
-                  onClick={() => setCurrentStep(3)}
-                  className="px-6 py-3 bg-[#0a0a0a] border border-gray-800 text-gray-300 rounded-xl text-md font-black hover:bg-gray-800 hover:text-white transition-all flex items-center gap-2"
-                >
-                  <ArrowLeftIcon className="w-5 h-5" />
-                  이전 단계
-                </button>
-                <button
-                  onClick={() => setCurrentStep(5)}
-                  className="px-8 py-3 bg-blue-600 text-white rounded-xl text-md font-black hover:bg-blue-500 transition-all flex items-center gap-3 shadow-xl shadow-blue-900/40 hover:scale-[1.02]"
-                >
-                  다음: 미리보기
-                  <ArrowRightIcon className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
+            <Step4Risk
+              riskManagement={riskManagement}
+              setRiskManagement={setRiskManagement}
+              onNext={() => setCurrentStep(5)}
+              onPrev={() => setCurrentStep(3)}
+            />
           )}
 
           {currentStep === 5 && (
-            <div className="flex flex-col p-8 gap-6">
-              <div className="flex items-center justify-between shrink-0 mb-4"><div><h3 className="text-xl font-black text-white">전략 검증</h3><p className="text-sm text-gray-500 mt-1 font-medium">결과를 확인하고 전략을 최종 점검하세요.</p></div></div>
-              <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 flex-1 min-h-0">
-                <div className="xl:col-span-2 space-y-4">
-                  <div className="bg-[#0f0f0f] rounded-lg border border-gray-800 p-4">
-                    <div className="h-72 bg-[#0a0a0f] rounded border border-gray-800 overflow-hidden relative">
-                      {backtestResult ? (
-                        <BacktestChart type="equity" height={288} equityData={backtestResult.dates.map((d: string, i: number) => ({ time: d, equity: backtestResult.equity[i], buyHold: backtestResult.initialCapital * (1 + (backtestResult.buyAndHoldReturn || 0)/100) }))} />
-                      ) : (
-                        <div className="absolute inset-0 flex items-center justify-center text-gray-500 text-sm">{isBacktesting ? "시뮬레이션 중..." : "결과 없음"}</div>
-                      )}
-                    </div>
-                  </div>
-                  <div className="bg-[#0f0f0f] rounded-lg border border-gray-800 p-4"><h4 className="text-sm font-semibold text-white mb-3">로그</h4><div className="space-y-2 pr-2 custom-scrollbar">{/* Logs... */}</div></div>
-                </div>
-                <div className="space-y-4">
-                  <div className="bg-[#0f0f0f] rounded-lg border border-gray-800 p-4">
-                    <h4 className="text-sm font-semibold text-white mb-3">성과</h4>
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div className="p-3 rounded bg-[#0a0a0a] border border-gray-800"><div className="text-xs text-gray-400 mb-1">수익률</div><div className={`text-lg font-bold ${(backtestResult?.totalReturn || 0) >= 0 ? "text-red-400" : "text-blue-400"}`}>{backtestResult?.totalReturn.toFixed(1)}%</div></div>
-                      <div className="p-3 rounded bg-[#0a0a0a] border border-gray-800"><div className="text-xs text-gray-400 mb-1">MDD</div><div className="text-lg font-bold text-blue-400">{backtestResult?.maxDrawdown.toFixed(1)}%</div></div>
-                    </div>
-                  </div>
-                  <div className="bg-[#0f0f0f] rounded-lg border border-gray-800 p-4 space-y-4">
-                    <div className="flex items-center gap-2 text-green-400 mb-1"><CheckCircleIcon className="w-5 h-5" /><span className="text-sm font-bold uppercase tracking-wider">검증 종료</span></div>
-                    <p className="text-xs text-gray-500 leading-relaxed">전략을 저장하고 테스트를 시작할 수 있습니다.</p>
-                  </div>
-                </div>
-              </div>
-              <div className="p-8 flex justify-end gap-3 mt-auto sticky bottom-0 bg-[#0f0f0f]/90 backdrop-blur-md z-20">
-                <button onClick={() => setCurrentStep(4)} className="px-6 py-3 bg-[#0a0a0a] border border-gray-800 text-gray-300 rounded-xl text-md font-black hover:bg-gray-800 transition-all flex items-center gap-2">
-                  <ArrowLeftIcon className="w-5 h-5" /> 이전 단계
-                </button>
-                <button onClick={handleSave} className="px-8 py-3 bg-red-600 text-white rounded-xl text-md font-black hover:bg-red-500 transition-all flex items-center gap-3 shadow-xl shadow-red-900/40">
-                  전략 저장 <ArrowRightIcon className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
+            <Step5Backtest
+              strategyName={strategyName}
+              backtestResult={backtestResult}
+              isBacktesting={isBacktesting}
+              onPrev={() => setCurrentStep(4)}
+              onSave={handleSave}
+            />
           )}
         </div>
       )}
