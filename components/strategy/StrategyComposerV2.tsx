@@ -32,7 +32,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { StrategyDSL, Condition, ConditionType, LogicOperator, BacktestResult, CanvasBlock, RiskManagement } from "@/types/strategy";
 import { signalBlocks } from "@/lib/strategy-blocks";
-import { runBacktest } from "@/lib/backtest-engine";
+import { BacktestEngine } from "@/lib/strategy/BacktestEngine";
 import BacktestChart from "@/components/strategy/BacktestChart";
 import RiskManagementEditor from "./RiskManagementEditor";
 import Step1Universe from "./steps/Step1Universe";
@@ -267,7 +267,8 @@ export default function StrategyComposerV2({
     };
 
     try {
-      const result = await runBacktest(strategy, "1Y");
+      const engine = new BacktestEngine();
+      const result = await engine.run(strategy, "1Y");
       setBacktestResult(result);
     } catch (e) {
       console.error(e);
