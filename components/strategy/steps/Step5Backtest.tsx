@@ -58,8 +58,27 @@ export default function Step5Backtest({
           </div>
           <div className="bg-[#0f0f0f] rounded-lg border border-gray-800 p-4">
             <h4 className="text-sm font-semibold text-white mb-3">로그</h4>
-            <div className="space-y-2 pr-2 custom-scrollbar">
-              {/* Logs could be added here if needed */}
+            <div className="space-y-2 pr-2 custom-scrollbar max-h-48 overflow-y-auto">
+              {backtestResult?.tradesList && backtestResult.tradesList.length > 0 ? (
+                backtestResult.tradesList.map((trade, i) => (
+                  <div key={i} className="flex items-center justify-between text-[11px] p-2 rounded bg-[#0a0a0a] border border-gray-900 group">
+                    <div className="flex items-center gap-3">
+                      <span className="text-gray-500 font-mono">{trade.date}</span>
+                      <span className={`font-bold px-1.5 py-0.5 rounded ${trade.type === 'buy' ? 'bg-red-500/10 text-red-400' : 'bg-blue-500/10 text-blue-400'}`}>
+                        {trade.type === 'buy' ? '매수' : '매도'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className="text-gray-300 font-bold">{trade.price.toLocaleString()}원</span>
+                      <span className="text-gray-500">{trade.quantity}주</span>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8 text-gray-600 text-xs italic">
+                  기록된 거래가 없습니다.
+                </div>
+              )}
             </div>
           </div>
         </div>

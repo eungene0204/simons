@@ -102,6 +102,7 @@ export default function AnalyticsPage() {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedForFusion, setSelectedForFusion] = useState<Set<string>>(new Set());
   const [useV2Composer, setUseV2Composer] = useState(true); // Toggle for new UI
+  const [composerKey, setComposerKey] = useState(0); // For forcing re-mount
 
   // Load saved strategies from localStorage
   useEffect(() => {
@@ -148,6 +149,7 @@ export default function AnalyticsPage() {
     setShowComposer(true);
     setCurrentStep(1);
     setStrategy(null);
+    setComposerKey(prev => prev + 1);
     setSelectedStrategyIds([]);
     setSelectionMode(false); // Reset selection mode
     // Ensure V2 is used
@@ -802,7 +804,7 @@ export default function AnalyticsPage() {
           <>
             {useV2Composer ? (
               <StrategyComposerV2
-                key={strategy ? strategy.id : "new-strategy"} // Force re-mount on strategy change
+                key={strategy ? `edit-${strategy.id}` : `new-${composerKey}`} // Force re-mount on strategy change or new strategy
                 onSave={handleSaveStrategy}
                 onCancel={() => {
                   setShowComposer(false);
