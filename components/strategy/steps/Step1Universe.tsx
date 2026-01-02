@@ -64,49 +64,58 @@ export default function Step1Universe({
   return (
     <div className="flex flex-col min-h-full">
       <div className="p-8 max-w-[1440px] mx-auto w-full space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        <div className="flex flex-col gap-2 border-b border-gray-800/50 pb-8">
-          <div className="flex items-center gap-3">
-            <input
-              type="text"
-              value={strategyName}
-              onChange={(e) => setStrategyName(e.target.value)}
-              placeholder="새로운 전략의 이름을 입력하세요"
-              className="text-4xl font-black text-white bg-transparent border-none outline-none placeholder:text-gray-800 tracking-tighter flex-1"
-            />
-            <div className="px-3 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center gap-2">
-               <SparklesIcon className="w-4 h-4 text-blue-400" />
-               <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Hi-Fi 전략</span>
+        <div className="flex flex-col gap-3 pb-10 border-b border-white/5 relative">
+          <div className="flex items-center gap-4">
+            <div className="flex-1 relative group">
+              <input
+                type="text"
+                value={strategyName}
+                onChange={(e) => setStrategyName(e.target.value)}
+                placeholder="새로운 전략의 이름을 입력하세요"
+                className="text-5xl font-black text-white bg-transparent border-none outline-none placeholder:text-gray-800 tracking-tighter w-full focus:placeholder:text-gray-700 transition-all"
+              />
             </div>
           </div>
-          <p className="text-gray-500 text-sm mt-1 font-medium">탐색할 시장의 범위와 기본적인 필터링 조건을 설정하여 나만의 유니버스를 구축하세요.</p>
+          <div className="flex items-center gap-2 text-gray-500">
+            <div className="w-1.5 h-1.5 rounded-full bg-blue-500/50" />
+            <p className="text-sm font-medium tracking-tight">탐색할 시장의 범위와 기본적인 필터링 조건을 설정하여 나만의 유니버스를 구축하세요.</p>
+          </div>
         </div>
 
-        <div className="space-y-8 max-w-5xl mx-auto w-full">
+        <div className="space-y-8 max-w-full mx-auto w-full">
           {/* Market Selection Section */}
           <div className="space-y-8">
             <div className="space-y-6 bg-[#0a0a0a] rounded-2xl border border-gray-800/50 p-6 shadow-xl">
               <div className="flex items-center gap-2 mb-2">
-                <GlobeAltIcon className="w-6 h-6 text-blue-400" />
                 <h3 className="text-lg font-black text-white uppercase tracking-wider">시장 및 규모 선택</h3>
               </div>
               
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-3 gap-4">
                 {[
-                  { id: "kospi", name: "KOSPI", desc: "대형주 중심" },
-                  { id: "kosdaq", name: "KOSDAQ", desc: "기술주 중심" },
-                  { id: "kospi200", name: "KOSPI 200", desc: "우량주 200" },
+                  { id: "kospi", name: "KOSPI", desc: "대형주·우량주 중심", icon: "💎", color: "indigo" },
+                  { id: "kosdaq", name: "KOSDAQ", desc: "성장주·기술주 중심", icon: "🚀", color: "indigo" },
+                  { id: "kospi200", name: "KOSPI 200", desc: "시장 대표 우량종목", icon: "🏆", color: "indigo" },
                 ].map((m) => (
                   <div
                     key={m.id}
                     onClick={() => setUniverse(m.id)}
-                    className={`p-4 rounded-xl cursor-pointer transition-all border-2 flex flex-col justify-center text-center group ${
+                    className={`relative p-5 rounded-2xl cursor-pointer transition-all duration-300 border-2 overflow-hidden group ${
                       universe === m.id
-                        ? "bg-blue-600/10 border-blue-500/50 shadow-[0_0_20px_rgba(37,99,235,0.1)]"
-                        : "bg-[#151515] border-gray-800/50 hover:border-gray-700"
+                        ? `bg-${m.color}-500/5 border-${m.color}-500/50 shadow-[0_0_30px_rgba(59,130,246,0.15)] scale-[1.02]`
+                        : "bg-[#111] border-white/5 hover:border-white/10 hover:bg-[#151515]"
                     }`}
                   >
-                    <div className={`text-base font-black transition-colors ${universe === m.id ? "text-white" : "text-gray-500 group-hover:text-gray-300"}`}>{m.name}</div>
-                    <div className="text-xs text-gray-600 mt-1 font-bold">{m.desc}</div>
+                    {universe === m.id && (
+                      <div className={`absolute -right-4 -top-4 w-24 h-24 bg-${m.color}-500/10 rounded-full blur-2xl`} />
+                    )}
+                    <div className="flex flex-col items-center text-center relative z-10">
+                      <span className="text-2xl mb-3 filter grayscale group-hover:grayscale-0 transition-all duration-500 transform group-hover:scale-110">{m.icon}</span>
+                      <div className={`text-lg font-black tracking-tight transition-colors ${universe === m.id ? "text-white" : "text-gray-500 group-hover:text-gray-300"}`}>{m.name}</div>
+                      <div className={`text-[11px] mt-1.5 font-bold transition-colors ${universe === m.id ? `text-${m.color}-400/80` : "text-gray-600"}`}>{m.desc}</div>
+                    </div>
+                    {universe === m.id && (
+                      <div className={`absolute bottom-0 left-0 right-0 h-1 bg-${m.color}-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]`} />
+                    )}
                   </div>
                 ))}
               </div>
@@ -161,7 +170,6 @@ export default function Step1Universe({
             <div className="space-y-6 bg-[#0a0a0a] rounded-2xl border border-gray-800/50 p-6 shadow-xl">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  <TagIcon className="w-6 h-6 text-emerald-400" />
                   <h3 className="text-lg font-black text-white uppercase tracking-wider">섹터 선택</h3>
                 </div>
                 <div className="relative">
@@ -176,7 +184,7 @@ export default function Step1Universe({
                 </div>
               </div>
 
-              <div className="flex flex-wrap gap-2 pr-2 custom-scrollbar p-1">
+              <div className="grid grid-cols-5 md:grid-cols-8 gap-1.5 pr-2 custom-scrollbar p-1">
                  {ALL_SECTORS.filter(s => s.toLowerCase().includes(sectorSearchTerm.toLowerCase())).map(sector => (
                   <button
                     key={sector}
@@ -186,15 +194,29 @@ export default function Step1Universe({
                         : [...universeFilters.selectedSectors, sector];
                       setUniverseFilters({...universeFilters, selectedSectors: next});
                     }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all border ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all border break-keep ${
                       universeFilters.selectedSectors.includes(sector)
-                        ? "bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-900/40"
-                        : "bg-[#151515] border-gray-800 text-gray-500 hover:text-gray-300 hover:border-gray-700"
+                        ? "bg-emerald-600/20 border-emerald-500/50 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.1)]"
+                        : "bg-[#111] border-white/5 text-gray-500 hover:text-gray-400 hover:border-white/10"
                     }`}
                   >
                     {sector}
                   </button>
                 ))}
+              </div>
+              
+              <div className="flex justify-between items-center pt-2 border-t border-white/5 mt-2">
+                <span className="text-xs font-bold text-gray-500">
+                  {universeFilters.selectedSectors.length > 0 
+                    ? `${universeFilters.selectedSectors.length}개의 섹터가 선택되었습니다.` 
+                    : "선택이 없을땐 모든 섹터가 포함됩니다."}
+                </span>
+                <button 
+                  onClick={() => setUniverseFilters({...universeFilters, selectedSectors: []})}
+                  className="text-xs font-black text-gray-500 hover:text-white transition-colors uppercase tracking-widest px-2 py-1 hover:bg-white/5 rounded-lg active:scale-95"
+                >
+                  초기화
+                </button>
               </div>
             </div>
           </div>
@@ -203,108 +225,120 @@ export default function Step1Universe({
           <div className="space-y-8">
             <div className="space-y-6 bg-[#0a0a0a] rounded-2xl border border-gray-800/50 p-6 shadow-xl">
               <div className="flex items-center gap-2 mb-2">
-                <ShieldExclamationIcon className="w-6 h-6 text-red-500" />
                 <h3 className="text-lg font-black text-white uppercase tracking-wider">제외 필터 설정</h3>
               </div>
 
-              <div className="space-y-6">
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    onClick={() => setUniverseFilters({...universeFilters, excludeLossMaking: !universeFilters.excludeLossMaking})}
-                    className={`p-3 rounded-xl border transition-all flex items-center gap-3 text-left ${
-                      universeFilters.excludeLossMaking 
-                        ? "bg-red-500/10 border-red-500/50" 
-                        : "bg-[#151515] border-gray-800 hover:border-gray-700"
-                    }`}
-                  >
-                    <ShieldExclamationIcon className={`w-5 h-5 ${universeFilters.excludeLossMaking ? "text-red-400" : "text-gray-600"}`} />
-                    <div className="min-w-0">
-                      <p className="text-sm font-black text-white truncate">적자 기업 제외</p>
-                      <p className="text-xs text-gray-600 font-bold">영업이익 기준</p>
-                    </div>
-                  </button>
-
-                  <button
-                    onClick={() => setUniverseFilters({...universeFilters, excludeCapitalImpaired: !universeFilters.excludeCapitalImpaired})}
-                    className={`p-3 rounded-xl border transition-all flex items-center gap-3 text-left ${
-                      universeFilters.excludeCapitalImpaired 
-                        ? "bg-red-500/10 border-red-500/50" 
-                        : "bg-[#151515] border-gray-800 hover:border-gray-700"
-                    }`}
-                  >
-                     <ExclamationTriangleIcon className={`w-5 h-5 ${universeFilters.excludeCapitalImpaired ? "text-red-400" : "text-gray-600"}`} />
-                    <div className="min-w-0">
-                      <p className="text-sm font-black text-white truncate">자본잠식 제외</p>
-                      <p className="text-xs text-gray-600 font-bold">재무 건전성 미달</p>
-                    </div>
-                  </button>
-                </div>
-
-                <div className="bg-[#151515]/50 rounded-xl border border-gray-800/50 p-4">
-                  <div className="grid grid-cols-1 gap-y-3.5">
-                    {[
-                      { id: 'excludePennyStocks', label: '동전주 제외 (1,000원 미만)' },
-                      { id: 'excludeNewListings', label: '신규 상장주 제외 (1년 이내)' },
-                      { id: 'excludeHighVolatility', label: '急등락주 제외 (변동성 상위)' },
-                      { id: 'excludeAdministrative', label: '관리종목 및 거래정지 제외' },
-                      { id: 'excludeInvestmentWarning', label: '투자주의 / 경고 / 위험 제외' },
-                      { id: 'excludeDelistingPending', label: '정리매매 종목 제외' },
-                      { id: 'excludeETF_ETN', label: 'ETF / ETN 제외' },
-                      { id: 'excludeSPAC', label: 'SPAC (기업인수목적) 제외' },
-                      { id: 'excludeREITs', label: '리츠 (부동산투자) 제외' },
-                      { id: 'excludePreferred', label: '우선주 제외' },
-                      { id: 'excludeForeignStock', label: '해외 본사 기업 제외' }
-                    ].map((item) => (
-                      <label key={item.id} className="flex items-center gap-3 cursor-pointer group">
-                        <div className="relative flex items-center">
-                          <input 
-                            type="checkbox" 
-                            checked={(universeFilters as any)[item.id]}
-                            onChange={(e) => setUniverseFilters({...universeFilters, [item.id]: e.target.checked})}
-                            className="peer h-5 w-5 appearance-none rounded border border-gray-700 bg-[#0a0a0a] checked:bg-red-500 checked:border-red-500 transition-all cursor-pointer" 
-                          />
-                          <CheckIcon className="absolute h-4 w-4 text-white left-0.5 opacity-0 peer-checked:opacity-100 transition-opacity pointer-events-none" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-4">
+                    <div className="text-[10px] font-black text-gray-600 uppercase tracking-[0.2em] px-1">Financial Health & Risk</div>
+                    <div className="space-y-2">
+                      {[
+                        { id: 'excludeLossMaking', label: '적자 기업 제외', desc: '영업이익 기준', icon: ShieldExclamationIcon },
+                        { id: 'excludeCapitalImpaired', label: '자본잠식 제외', desc: '재무 건전성 미달', icon: ExclamationTriangleIcon },
+                        { id: 'excludeAdministrative', label: '관리/정지 종목', desc: '거래 위험 발생', icon: InformationCircleIcon },
+                        { id: 'excludeDelistingPending', label: '정리매매 종목', desc: '상장폐지 절차', icon: ExclamationTriangleIcon },
+                      ].map((item) => (
+                        <div
+                          key={item.id}
+                          onClick={() => setUniverseFilters({...universeFilters, [item.id]: !(universeFilters as any)[item.id]})}
+                          className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center gap-3 group ${
+                            (universeFilters as any)[item.id]
+                              ? "bg-red-500/10 border-red-500/30"
+                              : "bg-[#111] border-white/5 hover:border-white/10"
+                          }`}
+                        >
+                          <div className={`p-1.5 rounded-lg transition-colors ${(universeFilters as any)[item.id] ? "bg-red-500/20 text-red-400" : "bg-white/5 text-gray-600 group-hover:text-gray-400"}`}>
+                            <item.icon className="w-4 h-4" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-xs font-black transition-colors ${(universeFilters as any)[item.id] ? "text-red-400" : "text-gray-400 group-hover:text-gray-300"}`}>{item.label}</p>
+                            <p className="text-[10px] text-gray-600 font-bold">{item.desc}</p>
+                          </div>
+                          <div className={`w-8 h-4 rounded-full relative transition-colors ${(universeFilters as any)[item.id] ? "bg-red-500" : "bg-gray-800"}`}>
+                            <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${(universeFilters as any)[item.id] ? "left-4.5" : "left-0.5"}`} />
+                          </div>
                         </div>
-                        <span className="text-sm font-bold text-gray-500 group-hover:text-gray-300 transition-colors">{item.label}</span>
-                      </label>
-                    ))}
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="text-[10px] font-black text-gray-600 uppercase tracking-[0.2em] px-1">Market Type & Properties</div>
+                    <div className="bg-[#111] rounded-2xl border border-white/5 p-4 grid grid-cols-1 gap-y-3">
+                      {[
+                        { id: 'excludeETF_ETN', label: 'ETF / ETN 제외' },
+                        { id: 'excludeSPAC', label: 'SPAC (기업인수목적) 제외' },
+                        { id: 'excludeREITs', label: '리츠 (부동산투자) 제외' },
+                        { id: 'excludePreferred', label: '우선주 제외' },
+                        { id: 'excludePennyStocks', label: '동전주 (1천원 미만)' },
+                        { id: 'excludeNewListings', label: '신규 상장주 (1년)' },
+                        { id: 'excludeHighVolatility', label: '급등락주 (변동성 상위)' },
+                        { id: 'excludeForeignStock', label: '해외 본사 기업' }
+                      ].map((item) => (
+                        <label key={item.id} className="flex items-center justify-between cursor-pointer group">
+                          <span className={`text-[11px] font-bold transition-colors ${(universeFilters as any)[item.id] ? "text-white" : "text-gray-500 group-hover:text-gray-300"}`}>{item.label}</span>
+                          <div className="relative flex items-center">
+                            <input 
+                              type="checkbox" 
+                              checked={(universeFilters as any)[item.id]}
+                              onChange={(e) => setUniverseFilters({...universeFilters, [item.id]: e.target.checked})}
+                              className="peer h-4 w-4 appearance-none rounded border border-white/10 bg-[#0a0a0a] checked:bg-red-500 checked:border-red-500 transition-all cursor-pointer" 
+                            />
+                            <CheckIcon className="absolute h-3 w-3 text-white left-0.5 opacity-0 peer-checked:opacity-100 transition-opacity pointer-events-none" />
+                          </div>
+                        </label>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
             </div>
-            <div className="bg-blue-600/5 border border-blue-500/20 rounded-2xl p-6 space-y-4">
-                <div className="flex items-center gap-2">
-                   <InformationCircleIcon className="w-5 h-5 text-blue-400" />
-                   <span className="text-sm font-black text-white uppercase tracking-wider">유니버스 요약</span>
+            <div className="space-y-6 bg-[#0a0a0a] rounded-2xl border border-gray-800/50 p-6 shadow-xl">
+                <div className="flex items-center gap-2 mb-2">
+                   <h3 className="text-lg font-black text-white uppercase tracking-wider">유니버스 설정 요약</h3>
                 </div>
-                <div className="space-y-3">
-                   <div className="flex justify-between items-center text-sm">
-                      <span className="text-gray-500 font-bold">대상 시장</span>
-                      <span className="text-blue-400 font-black">{universe.toUpperCase()}</span>
+                
+                <div className="space-y-4">
+                   <div className="flex justify-between items-center text-sm border-b border-white/5 pb-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-1 h-1 rounded-full bg-blue-500" />
+                        <span className="text-gray-400 font-bold">대상 시장</span>
+                      </div>
+                      <span className="text-blue-400 font-black tracking-tight">{universe.toUpperCase()}</span>
+                   </div>
+                   <div className="flex justify-between items-center text-sm border-b border-white/5 pb-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-1 h-1 rounded-full bg-emerald-500" />
+                        <span className="text-gray-400 font-bold">섹터 필터링</span>
+                      </div>
+                      <span className="text-white font-black">{universeFilters.selectedSectors.length > 0 ? `${universeFilters.selectedSectors.length}개 섹터` : "모든 섹터"}</span>
                    </div>
                    <div className="flex justify-between items-center text-sm">
-                      <span className="text-gray-500 font-bold">섹터 제한</span>
-                      <span className="text-white font-black">{universeFilters.selectedSectors.length > 0 ? `${universeFilters.selectedSectors.length}개 선택됨` : "전체 섹터"}</span>
+                      <div className="flex items-center gap-2">
+                        <div className="w-1 h-1 rounded-full bg-red-500" />
+                        <span className="text-gray-400 font-bold">활성 제외 조건</span>
+                      </div>
+                      <span className="text-red-400 font-black">{Object.values(universeFilters).filter(v => typeof v === 'boolean' && v === true).length}개 작동 중</span>
                    </div>
-                   <div className="flex justify-between items-center text-sm">
-                      <span className="text-gray-500 font-bold">제외 조건</span>
-                      <span className="text-red-400 font-black">{Object.values(universeFilters).filter(v => v === true).length}개 활성</span>
-                   </div>
+                </div>
+
+                <div className="pt-2">
+                  <div className="bg-[#151515] border border-gray-800 rounded-xl px-4 py-3 flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-gray-400">예상 종목 규모</span>
+                    <span className="text-xs font-black text-white">{Math.floor(Math.random() * 500) + 1500}+ 종목</span>
+                  </div>
                 </div>
             </div>
           </div>
         </div>
       </div>
-      <div className="sticky bottom-0 bg-[#0f0f0f] z-50 mt-auto">
-        <div className="max-w-5xl mx-auto w-full p-6 flex justify-end">
+      <div className="mt-auto w-full max-w-[1440px] mx-auto p-8 flex justify-end">
           <button
             onClick={onNext}
-            className="px-10 py-4 bg-blue-600 text-white rounded-xl font-black hover:bg-blue-500 flex items-center gap-3 transition-all hover:scale-[1.02] shadow-xl shadow-blue-900/40"
+            className="group px-10 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-2xl font-black flex items-center gap-3 transition-all hover:scale-[1.02] active:scale-[0.98] shadow-[0_0_30px_rgba(37,99,235,0.3)] hover:shadow-[0_0_40px_rgba(37,99,235,0.5)] border border-white/10"
           >
             다음 단계: 매매 조건 설정
-            <ArrowRightIcon className="w-5 h-5" />
+            <ArrowRightIcon className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
           </button>
-        </div>
       </div>
     </div>
   );
