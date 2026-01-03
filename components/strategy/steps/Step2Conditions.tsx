@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment } from "react";
+import { Fragment, useMemo } from "react";
 import {
   XMarkIcon,
   ChevronDownIcon,
@@ -21,7 +21,8 @@ import {
   ChartPieIcon,
   EllipsisHorizontalIcon,
   CursorArrowRaysIcon,
-  Squares2X2Icon
+  Squares2X2Icon,
+  Bars3Icon,
 } from "@heroicons/react/24/outline";
 import { CanvasBlock, LogicOperator, ConditionType } from "@/types/strategy";
 import { signalBlocks } from "@/lib/strategy-blocks";
@@ -72,6 +73,8 @@ interface Step2ConditionsProps {
   onPrev: () => void;
   handleAddBlock: (blockId: string, blockType?: string) => void;
   handleRemoveBlockFromBin: (blockId: string, e: React.MouseEvent) => void;
+  reorderDragItem: { type: 'category' | 'block', id: string, index: number, categoryId?: string } | null;
+  setReorderDragItem: React.Dispatch<React.SetStateAction<{ type: 'category' | 'block', id: string, index: number, categoryId?: string } | null>>;
 }
 
 export default function Step2Conditions({
@@ -113,6 +116,8 @@ export default function Step2Conditions({
   setOpenSignalGroups,
   savedFeedback,
   setSavedFeedback,
+  reorderDragItem,
+  setReorderDragItem,
   canvasRef,
   canvasWidth,
   onNext,
@@ -126,6 +131,104 @@ export default function Step2Conditions({
   const sidePadding = Math.max(15, (canvasWidth - totalGridWidth) / 2);
   const numRows = Math.ceil(canvasBlocks.length / blocksPerRow);
   const canvasMinHeight = Math.max(600, 100 + numRows * 135 + 100);
+
+  // Move groupedSignalLibrary logic here and memoize
+  const groupedSignalLibrary = useMemo(() => {
+    return {
+      filter: {
+        key: "filter",
+        label: "종목 필터 블록",
+        icon: AdjustmentsHorizontalIcon,
+        blocks: Object.values(signalBlocks).filter(
+          (b) => b.category === "filter" && 
+                 (!b.hidden || unlockedBlockIds.includes(b.id)) && 
+                 !manuallyHiddenBlockIds.includes(b.id)
+        ).sort((a, b) => {
+          const order = customBlockOrder["filter"] || [];
+          const indexA = order.indexOf(a.id);
+          const indexB = order.indexOf(b.id);
+          if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+          if (indexA !== -1) return -1;
+          if (indexB !== -1) return 1;
+          return 0;
+        }).map((b) => ({
+          id: b.id,
+          name: b.name,
+          description: b.description,
+          blockType: "factor_filters" as const,
+        })),
+      },
+      indicator: {
+        key: "indicator",
+        label: "매매 시그널 블록",
+        icon: SparklesIcon,
+        blocks: Object.values(signalBlocks).filter(
+          (b) => (b.category === "indicator" || b.category === "flow") && 
+                 (!b.hidden || unlockedBlockIds.includes(b.id)) && 
+                 !manuallyHiddenBlockIds.includes(b.id)
+        ).sort((a, b) => {
+          const order = customBlockOrder["indicator"] || [];
+          const indexA = order.indexOf(a.id);
+          const indexB = order.indexOf(b.id);
+          if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+          if (indexA !== -1) return -1;
+          if (indexB !== -1) return 1;
+          return 0;
+        }).map((b) => ({
+          id: b.id,
+          name: b.name,
+          description: b.description,
+          blockType: b.category,
+        })),
+      },
+      risk: {
+        key: "risk",
+        label: "리스크 블록",
+        icon: ShieldExclamationIcon,
+        blocks: Object.values(signalBlocks).filter(
+          (b) => b.category === "risk" && 
+                 (!b.hidden || unlockedBlockIds.includes(b.id)) && 
+                 !manuallyHiddenBlockIds.includes(b.id)
+        ).sort((a, b) => {
+          const order = customBlockOrder["risk"] || [];
+          const indexA = order.indexOf(a.id);
+          const indexB = order.indexOf(b.id);
+          if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+          if (indexA !== -1) return -1;
+          if (indexB !== -1) return 1;
+          return 0;
+        }).map((b) => ({
+          id: b.id,
+          name: b.name,
+          description: b.description,
+          blockType: "risk_rules" as const,
+        })),
+      },
+      ml: {
+        key: "ml",
+        label: "AI 블록",
+        icon: CpuChipIcon,
+        blocks: Object.values(signalBlocks).filter(
+          (b) => b.category === "ml" && 
+                 (!b.hidden || unlockedBlockIds.includes(b.id)) && 
+                 !manuallyHiddenBlockIds.includes(b.id)
+        ).sort((a, b) => {
+          const order = customBlockOrder["ml"] || [];
+          const indexA = order.indexOf(a.id);
+          const indexB = order.indexOf(b.id);
+          if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+          if (indexA !== -1) return -1;
+          if (indexB !== -1) return 1;
+          return 0;
+        }).map((b) => ({
+          id: b.id,
+          name: b.name,
+          description: b.description,
+          blockType: "ml" as const,
+        })),
+      },
+    } as const;
+  }, [unlockedBlockIds, manuallyHiddenBlockIds, customBlockOrder]);
 
   const handleModalItemDragStart = (index: number) => {
     setDraggedModalItemIndex(index);
@@ -145,100 +248,77 @@ export default function Step2Conditions({
     setDraggedModalItemIndex(null);
   };
 
-  const groupedSignalLibrary = {
-    filter: {
-      key: "filter",
-      label: "종목 필터 블록",
-      icon: AdjustmentsHorizontalIcon,
-      blocks: Object.values(signalBlocks).filter(
-        (b) => b.category === "filter" && 
-               (!b.hidden || unlockedBlockIds.includes(b.id)) && 
-               !manuallyHiddenBlockIds.includes(b.id)
-      ).sort((a, b) => {
-        const order = customBlockOrder["filter"] || [];
-        const indexA = order.indexOf(a.id);
-        const indexB = order.indexOf(b.id);
-        if (indexA !== -1 && indexB !== -1) return indexA - indexB;
-        if (indexA !== -1) return -1;
-        if (indexB !== -1) return 1;
-        return 0;
-      }).map((b) => ({
-        id: b.id,
-        name: b.name,
-        description: b.description,
-        blockType: "factor_filters" as const,
-      })),
-    },
-    indicator: {
-      key: "indicator",
-      label: "매매 시그널 블록",
-      icon: SparklesIcon,
-      blocks: Object.values(signalBlocks).filter(
-        (b) => (b.category === "indicator" || b.category === "flow") && 
-               (!b.hidden || unlockedBlockIds.includes(b.id)) && 
-               !manuallyHiddenBlockIds.includes(b.id)
-      ).sort((a, b) => {
-        const order = customBlockOrder["indicator"] || [];
-        const indexA = order.indexOf(a.id);
-        const indexB = order.indexOf(b.id);
-        if (indexA !== -1 && indexB !== -1) return indexA - indexB;
-        if (indexA !== -1) return -1;
-        if (indexB !== -1) return 1;
-        return 0;
-      }).map((b) => ({
-        id: b.id,
-        name: b.name,
-        description: b.description,
-        blockType: b.category,
-      })),
-    },
-    risk: {
-      key: "risk",
-      label: "리스크 블록",
-      icon: ShieldExclamationIcon,
-      blocks: Object.values(signalBlocks).filter(
-        (b) => b.category === "risk" && 
-               (!b.hidden || unlockedBlockIds.includes(b.id)) && 
-               !manuallyHiddenBlockIds.includes(b.id)
-      ).sort((a, b) => {
-        const order = customBlockOrder["risk"] || [];
-        const indexA = order.indexOf(a.id);
-        const indexB = order.indexOf(b.id);
-        if (indexA !== -1 && indexB !== -1) return indexA - indexB;
-        if (indexA !== -1) return -1;
-        if (indexB !== -1) return 1;
-        return 0;
-      }).map((b) => ({
-        id: b.id,
-        name: b.name,
-        description: b.description,
-        blockType: "risk_rules" as const,
-      })),
-    },
-    ml: {
-      key: "ml",
-      label: "AI 블록",
-      icon: CpuChipIcon,
-      blocks: Object.values(signalBlocks).filter(
-        (b) => b.category === "ml" && 
-               (!b.hidden || unlockedBlockIds.includes(b.id)) && 
-               !manuallyHiddenBlockIds.includes(b.id)
-      ).sort((a, b) => {
-        const order = customBlockOrder["ml"] || [];
-        const indexA = order.indexOf(a.id);
-        const indexB = order.indexOf(b.id);
-        if (indexA !== -1 && indexB !== -1) return indexA - indexB;
-        if (indexA !== -1) return -1;
-        if (indexB !== -1) return 1;
-        return 0;
-      }).map((b) => ({
-        id: b.id,
-        name: b.name,
-        description: b.description,
-        blockType: "ml" as const,
-      })),
-    },
-  } as const;
+  const handleReorderDragStart = (e: React.DragEvent, item: { type: 'category' | 'block', id: string, index: number, categoryId?: string }) => {
+    e.stopPropagation();
+    setReorderDragItem(item);
+    e.dataTransfer.effectAllowed = "move";
+
+    // Set custom drag image to the parent row (the actual item being reordered)
+    const target = e.currentTarget as HTMLElement;
+    let rowElement: HTMLElement | null = null;
+
+    if (item.type === 'category') {
+      // For category: Handle div -> Row div
+      rowElement = target.parentElement;
+    } else {
+      // For block: Handle div -> Inner Row div -> Wrapper div
+      // Structure: 
+      // <div className="pb-2.5"> (Wrapper)
+      //   <div className="flex..."> (Inner Row)
+      //     <div className="flex...">
+      //       <div draggable ...> (Handle)
+      const innerRow = target.parentElement?.parentElement;
+      // We want to drag the 'innerRow' visually, not the wrapper since wrapper includes padding
+      rowElement = innerRow || null;
+    }
+    
+    if (rowElement) {
+      const rect = rowElement.getBoundingClientRect();
+      const offsetX = e.clientX - rect.left;
+      const offsetY = e.clientY - rect.top;
+      e.dataTransfer.setDragImage(rowElement, offsetX, offsetY);
+    }
+  };
+
+  const handleReorderDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleReorderDrop = (e: React.DragEvent, targetItem: { type: 'category' | 'block', id: string, index: number, categoryId?: string }) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (!reorderDragItem) return;
+    if (reorderDragItem.type !== targetItem.type) return;
+    if (reorderDragItem.type === 'block' && reorderDragItem.categoryId !== targetItem.categoryId) return; // Only reorder within same category
+
+    if (reorderDragItem.type === 'category') {
+      const newOrder = [...customCategoryOrder];
+      const oldIndex = newOrder.indexOf(reorderDragItem.id);
+      const newIndex = newOrder.indexOf(targetItem.id);
+
+      if (oldIndex === -1 || newIndex === -1) return;
+
+      newOrder.splice(oldIndex, 1);
+      newOrder.splice(newIndex, 0, reorderDragItem.id);
+      setCustomCategoryOrder(newOrder);
+    } else if (reorderDragItem.type === 'block' && reorderDragItem.categoryId) {
+       const categoryId = reorderDragItem.categoryId;
+       const currentOrder = groupedSignalLibrary[categoryId as keyof typeof groupedSignalLibrary].blocks.map((b: any) => b.id);
+       const newOrder = [...currentOrder];
+       
+       const oldIndex = newOrder.indexOf(reorderDragItem.id);
+       const newIndex = newOrder.indexOf(targetItem.id);
+       
+       if (oldIndex !== -1 && newIndex !== -1) {
+         newOrder.splice(oldIndex, 1);
+         newOrder.splice(newIndex, 0, reorderDragItem.id);
+         setCustomBlockOrder(prev => ({ ...prev, [categoryId]: newOrder }));
+       }
+    }
+    setReorderDragItem(null);
+  };
 
   return (
     <>
@@ -861,9 +941,20 @@ export default function Step2Conditions({
                   return (
                     <div 
                       key={key} 
-                      className={`flex items-center gap-2 px-3 py-2.5 rounded-lg cursor-pointer ${activeMgmtCategory === key ? "bg-blue-600/10 border border-blue-500/30" : "hover:bg-white/5"}`}
+                      onDragOver={handleReorderDragOver}
+                      onDrop={(e) => handleReorderDrop(e, { type: 'category', id: key, index: customCategoryOrder.indexOf(key) })}
+                      className={`flex items-center gap-2 px-3 py-2.5 rounded-lg cursor-pointer transition-all flex-shrink-0 ${
+                         activeMgmtCategory === key ? "bg-blue-600/10 border border-blue-500/30" : "hover:bg-white/5 border border-transparent"
+                      } ${reorderDragItem?.type === 'category' && reorderDragItem.id === key ? 'opacity-50 border-blue-500 border-dashed' : ''}`}
                       onClick={() => setActiveMgmtCategory(key)}
                     >
+                      <div 
+                        className="mr-1 cursor-grab active:cursor-grabbing text-gray-600 hover:text-white"
+                        draggable
+                        onDragStart={(e) => handleReorderDragStart(e, { type: 'category', id: key, index: customCategoryOrder.indexOf(key) })}
+                      >
+                        <Bars3Icon className="w-4 h-4" />
+                      </div>
                       <group.icon className={`w-4 h-4 ${activeMgmtCategory === key ? "text-blue-400" : "text-gray-600"}`} />
                       <span className={`text-sm font-black uppercase truncate ${activeMgmtCategory === key ? "text-blue-400" : "text-gray-500"}`}>{group.label}</span>
                     </div>
@@ -872,11 +963,31 @@ export default function Step2Conditions({
               </div>
               <div className="flex-1 p-6 overflow-y-auto custom-scrollbar">
                 {activeMgmtCategory && (
-                  <div className="grid grid-cols-1 gap-2.5">
+                  <div className="flex flex-col">
                     {(groupedSignalLibrary as any)[activeMgmtCategory].blocks.map((block: any) => (
-                      <div key={block.id} className="flex items-center justify-between p-4 bg-[#1a1a1a] border border-gray-800 rounded-xl hover:border-blue-500/20">
-                        <span className="text-gray-200 font-bold">{block.name}</span>
-                        <button onClick={(e) => handleRemoveBlockFromBin(block.id, e)} className="text-gray-600 hover:text-red-400 transition-colors"><XMarkIcon className="w-5 h-5" /></button>
+                      <div
+                        key={block.id}
+                        className="pb-2.5"
+                        onDragOver={handleReorderDragOver}
+                        onDrop={(e) => handleReorderDrop(e, { type: 'block', id: block.id, index: -1, categoryId: activeMgmtCategory })}
+                      >
+                        <div 
+                          className={`flex items-center justify-between p-4 bg-[#1a1a1a] border border-gray-800 rounded-xl hover:border-blue-500/20 transition-all ${
+                            reorderDragItem?.type === 'block' && reorderDragItem.id === block.id ? 'opacity-50 border-blue-500 border-dashed' : ''
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div
+                               className="cursor-grab active:cursor-grabbing text-gray-600 hover:text-white"
+                               draggable
+                               onDragStart={(e) => handleReorderDragStart(e, { type: 'block', id: block.id, index: -1, categoryId: activeMgmtCategory })}
+                            >
+                              <Bars3Icon className="w-5 h-5" />
+                            </div>
+                            <span className="text-gray-200 font-bold">{block.name}</span>
+                          </div>
+                          <button onClick={(e) => handleRemoveBlockFromBin(block.id, e)} className="text-gray-600 hover:text-red-400 transition-colors"><XMarkIcon className="w-5 h-5" /></button>
+                        </div>
                       </div>
                     ))}
                   </div>
