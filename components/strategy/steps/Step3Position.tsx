@@ -30,8 +30,7 @@ const formatKoreanUnit = (num: number) => {
 };
 
 interface Step3PositionProps {
-  initialCapital: number;
-  setInitialCapital: (val: number) => void;
+
   maxPositions: number;
   setMaxPositions: (val: number) => void;
   allocationType: "equal" | "fixed_pct";
@@ -47,8 +46,7 @@ interface Step3PositionProps {
 }
 
 export default function Step3Position({
-  initialCapital,
-  setInitialCapital,
+
   maxPositions,
   setMaxPositions,
   allocationType,
@@ -82,34 +80,13 @@ export default function Step3Position({
                   <BanknotesIcon className="w-5 h-5 text-gray-300" />
                 </div>
                 <div>
-                  <h4 className="text-md font-black text-white">자산 및 포트폴리오</h4>
-                  <p className="text-[11px] text-gray-500">운용 규모와 분산 투자 범위를 설정합니다.</p>
+                  <h4 className="text-md font-black text-white">포트폴리오 구성</h4>
+                  <p className="text-[11px] text-gray-500">종목 수 및 분산 투자 범위를 설정합니다.</p>
                 </div>
               </div>
               
-              <div className="space-y-4 bg-[#0a0a0a]/40 p-5 rounded-2xl border border-gray-800/40 backdrop-blur-sm flex-1 min-h-[290px]">
-              <div>
-                <div className="flex justify-between items-center mb-2.5">
-                  <label className="text-xs text-gray-400 font-black uppercase tracking-widest">초기 자본금</label>
-                </div>
-                <div className="bg-[#0a0a0a] border border-gray-800 rounded-xl px-5 py-3 group hover:border-gray-700 focus-within:border-gray-600 focus-within:ring-4 focus-within:ring-white/5 transition-all">
-                  <div className="flex items-center justify-between">
-                    <input 
-                      type="text" 
-                      value={initialCapital.toLocaleString()}
-                      onChange={(e) => {
-                        const val = e.target.value.replace(/,/g, "");
-                        if (!isNaN(Number(val))) {
-                          setInitialCapital(Number(val));
-                        }
-                      }}
-                      className="w-full bg-transparent border-none p-0 text-white font-black text-lg outline-none"
-                    />
-                    <span className="text-gray-600 font-bold text-sm ml-2">원</span>
-                  </div>
-                  <p className="text-[11px] font-bold text-gray-700 mt-1 text-right">{formatKoreanUnit(initialCapital)}</p>
-                </div>
-              </div>
+              <div className="space-y-4 bg-[#0a0a0a]/40 p-5 rounded-2xl border border-gray-800/40 backdrop-blur-sm flex-1 min-h-[290px] flex flex-col justify-center">
+
               
               <div>
                 <div className="flex justify-between items-end mb-3">

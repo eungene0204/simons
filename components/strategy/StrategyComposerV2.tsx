@@ -144,6 +144,7 @@ export default function StrategyComposerV2({
   const [draggedCategoryIndex, setDraggedCategoryIndex] = useState<number | null>(null);
   const [openSignalGroups, setOpenSignalGroups] = useState<string[]>([]);
   const [sectorSearchTerm, setSectorSearchTerm] = useState("");
+  const [reorderDragItem, setReorderDragItem] = useState<{ type: 'category' | 'block', id: string, index: number, categoryId?: string } | null>(null);
 
   // Responsive Canvas State
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -200,6 +201,7 @@ export default function StrategyComposerV2({
     
     setCanvasBlocks(sorted);
     setSelectedBlock(newBlock);
+    setActiveParamTab('block');
   }, [canvasBlocks]);
 
   const handleRemoveBlockFromBin = useCallback((blockId: string, e: React.MouseEvent) => {
@@ -222,7 +224,7 @@ export default function StrategyComposerV2({
     return new Intl.NumberFormat("ko-KR").format(price);
   };
 
-  const runSimulation = useCallback(async () => {
+  const runSimulation = useCallback(async (options: any) => {
     setIsBacktesting(true);
 
     // Map canvas blocks to backtest conditions
@@ -268,7 +270,9 @@ export default function StrategyComposerV2({
 
     try {
       const engine = new BacktestEngine();
-      const result = await engine.run(strategy, "1Y");
+      // Pass options.period. In real app, we would pass the full options object to engine.
+      // For now, engine only accepts period string.
+      const result = await engine.run(strategy, options.period || "1Y");
       setBacktestResult(result);
     } catch (e) {
       console.error(e);
@@ -278,11 +282,7 @@ export default function StrategyComposerV2({
   }, [strategyName, universe, canvasBlocks, riskManagement, entryLogic, exitLogic]);
 
   // Trigger simulation when entering step 5
-  useEffect(() => {
-    if (currentStep === 5) {
-      runSimulation();
-    }
-  }, [currentStep, runSimulation]);
+
 
 
 
@@ -640,6 +640,8 @@ export default function StrategyComposerV2({
             setOpenSignalGroups={setOpenSignalGroups}
             savedFeedback={savedFeedback}
             setSavedFeedback={setSavedFeedback}
+            reorderDragItem={reorderDragItem}
+            setReorderDragItem={setReorderDragItem}
             canvasRef={canvasRef}
             canvasWidth={canvasWidth}
             onNext={() => setCurrentStep(3)}
@@ -665,8 +667,6 @@ export default function StrategyComposerV2({
 
             {currentStep === 3 && (
               <Step3Position
-                initialCapital={initialCapital}
-                setInitialCapital={setInitialCapital}
                 maxPositions={maxPositions}
                 setMaxPositions={setMaxPositions}
                 allocationType={allocationType}
@@ -698,6 +698,30 @@ export default function StrategyComposerV2({
               isBacktesting={isBacktesting}
               onPrev={() => setCurrentStep(4)}
               onSave={handleSave}
+              onRunBacktest={runSimulation}
+              summaryData={{
+                universeName: universe === "US_TECH_TOP10" ? "미국 테크 Top 10" : 
+                              universe === "KOR_KOSPI200" ? "KOSPI 200" :
+                              universe === "KOR_KOSDAQ150" ? "KOSDAQ 150" : 
+                              universe === "CRYPTO_TOP10" ? "크립토 Top 10" : 
+                              universe === "kospi" ? "KOSPI" :
+                              universe === "kosdaq" ? "KOSDAQ" : universe,
+                universeFiltersCount: Object.keys(universeFilters).length,
+                blockNames: canvasBlocks.map(b => {
+                  const blockDef = signalBlocks[b.blockId];
+                  return blockDef ? blockDef.name : b.blockId;
+                }),
+                riskSettings: {
+                  maxPositions,
+                  allocationType,
+                },
+                riskManagement: {
+                  stopLoss: riskManagement.stop_loss_pct,
+                  takeProfit: riskManagement.take_profit_pct,
+                  trailingStop: riskManagement.trailing_stop_pct,
+                  maxHoldingDays: riskManagement.max_holding_days,
+                }
+              }}
             />
           )}
         </div>
