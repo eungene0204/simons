@@ -1,8 +1,8 @@
-import { BacktestEngine } from "../lib/strategy/BacktestEngine";
+import { BacktestService } from "../lib/strategy/BacktestService";
 import { StrategyDSL } from "../types/strategy";
 
 async function verifyTPlusOne() {
-  const engine = new BacktestEngine();
+  const engine = new BacktestService();
   
   // Strategy: Buy if RSI < 30 (which will happen on first day)
   const mockStrategy: StrategyDSL = {
