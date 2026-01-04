@@ -39,74 +39,136 @@ class BacktestEngine:
         symbol = req['symbol']
         df_pl = self.load_data(symbol)
         
-        # 1. Generate Indicators
+        # 1. Adjusted Price Handling
+        # If 'adj_close' exists in data, we use it for indicator calculation.
+        # Otherwise, we use 'close'. (Note: Data loading should provide this distinction)
+        price_col = 'adj_close' if 'adj_close' in df_pl.columns else 'close'
+        
+        # 2. Generate Indicators (using Adjusted Price if available)
         all_conditions = req['entry']['conditions'] + req['exit']['conditions']
         df_pl = self.calculate_indicators(df_pl, all_conditions)
         
-        # 2. Extract Signals (Proprietary Strategy Logic)
-        # We still use our evaluate_group to decide when to enter/exit
+        # 3. Extract Signals
         entries = []
         exits = []
         data_len = len(df_pl)
         
-        # Vectorized signal evaluation using Polars/Numpy would be faster, 
-        # but for complex DSL we use the existing evaluate_group logic.
-        # To keep it "Proprietary", we keep this part custom.
+        # 4. Liquidity Filter Logic
+        # Goal: Daily Volume Value (D-1) > 10 * Target Purchase Amount
+        risk_params = req.get('risk', {})
+        init_cash = float(risk_params.get('init_cash', 10000000.0))
+        liquidity_mult = float(risk_params.get('liquidity_multiplier', 10.0))
+        target_amount = init_cash * (risk_params.get('position_size_pct', 100) / 100)
+        
+        # Pre-calculate liquidity status (True if sufficient)
+        vol_val = (df_pl['close'] * df_pl['volume']).to_numpy()
+        liquidity_ok = np.ones(data_len, dtype=bool) # Default to True if we want to bypass
+        
+        # Apply filter only if intended (liquidity_mult > 0)
+        if liquidity_mult > 0:
+            liquidity_ok = np.zeros(data_len, dtype=bool)
+            for i in range(1, data_len):
+                liquidity_ok[i] = vol_val[i-1] >= (liquidity_mult * target_amount)
+        
         for i in range(data_len):
-            entries.append(self.evaluate_group(req['entry'], i, df_pl))
+            can_enter = self.evaluate_group(req['entry'], i, df_pl)
+            # Apply Liquidity Filter to Entry
+            if can_enter and not liquidity_ok[i]:
+                can_enter = False
+                
+            entries.append(can_enter)
             exits.append(self.evaluate_group(req['exit'], i, df_pl))
             
         entries_series = pd.Series(entries)
         exits_series = pd.Series(exits)
         
-        # 3. T+1 Execution Logic (Safety)
-        # Shift signals by 1 to execute on the NEXT day's Open
-        entries_shifted = entries_series.shift(1).fillna(False)
-        exits_shifted = exits_series.shift(1).fillna(False)
+        # 5. Execution Logic Parameters (Configurable)
+        options = req.get('options', {})
+        exec_type = options.get('execution_type', 'next_open') # 'next_open' or 'same_close'
+        fee_rate = float(options.get('fee_rate', 0.0015))
+        slippage_rate = float(options.get('slippage_rate', 0.0020))
         
-        prices_open = df_pl['open'].to_pandas()
+        # 6. Signal & Price Preparation
+        # Shift signals by 1 if using Next Day Open (to avoid look-ahead bias)
+        if exec_type == 'next_open':
+            entries_exec = entries_series.shift(1).fillna(False)
+            exits_exec = exits_series.shift(1).fillna(False)
+            exec_prices = df_pl['open'].to_pandas()
+        else: # same_close
+            entries_exec = entries_series
+            exits_exec = exits_series
+            exec_prices = df_pl['close'].to_pandas()
+            
         prices_close = df_pl['close'].to_pandas()
         dates = df_pl['date'].to_list()
         
-        # 4. Money Management (Proprietary)
-        # Position sizing from DSL
         pos_size_pct = req['risk'].get('position_size_pct', 100) / 100
         
-        # 5. vectorbt Execution (Standardization & Accuracy)
-        # Use Open prices for execution because of T+1 shift
-        pf = vbt.Portfolio.from_signals(
-            close=prices_open, # Execute at Open
-            entries=entries_shifted,
-            exits=exits_shifted,
+        # 7. vectorbt Execution
+        # common kwargs for consistency
+        vbt_kwargs = dict(
             size=pos_size_pct,
             size_type='Percent',
-            init_cash=10000000.0,
+            init_cash=init_cash,
+            fees=fee_rate,
+            slippage=slippage_rate,
             freq='D'
         )
+
+        # Full Portfolio for signals and main results
+        pf = vbt.Portfolio.from_signals(
+            close=exec_prices, 
+            entries=entries_exec,
+            exits=exits_exec,
+            **vbt_kwargs
+        )
         
-        # 6. Professional Metrics from vectorbt
-        # Note: vectorbt returns np.nan for some metrics if no trades
+        # 8. Overfitting Check (IS/OOS 70/30 Split)
+        # We run separate portfolios to avoid complex slicing issues in vbt
+        split_idx = int(data_len * 0.7)
+        
+        pf_is = vbt.Portfolio.from_signals(
+            close=exec_prices.iloc[:split_idx],
+            entries=entries_exec.iloc[:split_idx],
+            exits=exits_exec.iloc[:split_idx],
+            **vbt_kwargs
+        )
+        
+        pf_oos = vbt.Portfolio.from_signals(
+            close=exec_prices.iloc[split_idx:],
+            entries=entries_exec.iloc[split_idx:],
+            exits=exits_exec.iloc[split_idx:],
+            **vbt_kwargs
+        )
+        
         def safe(val):
             return float(val) if not (np.isnan(val) or np.isinf(val)) else 0.0
 
-        # Construct Signal List for UI
-        vbt_trades = pf.trades.records_readable
+        # Construct Signal List
         signals_list = []
-        for _, trade in vbt_trades.iterrows():
-            # Entry Signal
-            signals_list.append({
-                "date": dates[int(trade['Entry Index'])],
-                "type": "entry",
-                "price": float(trade['Entry Price']),
-                "condition": "Entry Signal"
-            })
-            # Exit Signal
-            signals_list.append({
-                "date": dates[int(trade['Exit Index'])],
-                "type": "exit",
-                "price": float(trade['Exit Price']),
-                "condition": "Exit Signal"
-            })
+        if not pf.trades.records.empty:
+            vbt_trades = pf.trades.records_readable
+            for _, trade in vbt_trades.iterrows():
+                # Handling both string and index based access depending on vbt version
+                e_idx = trade.get('Entry Index', trade.get('Entry Timestamp', trade.get('Entry Idx')))
+                x_idx = trade.get('Exit Index', trade.get('Exit Timestamp', trade.get('Exit Idx')))
+                e_price = trade.get('Avg Entry Price', trade.get('Entry Price'))
+                x_price = trade.get('Avg Exit Price', trade.get('Exit Price'))
+
+                if e_idx is not None:
+                    signals_list.append({
+                        "date": dates[int(e_idx)],
+                        "type": "entry",
+                        "price": float(e_price) if e_price is not None else 0.0,
+                        "condition": "Entry Signal"
+                    })
+                if x_idx is not None:
+                    signals_list.append({
+                        "date": dates[int(x_idx)],
+                        "type": "exit",
+                        "price": float(x_price) if x_price is not None else 0.0,
+                        "condition": "Exit Signal"
+                    })
 
         return {
             "symbol": symbol,
@@ -121,7 +183,19 @@ class BacktestEngine:
             "volatility": safe(pf.annualized_volatility() * 100),
             "equity": pf.value().tolist(), 
             "dates": dates,
-            "signals": signals_list
+            "signals": signals_list,
+            "validation": {
+                "inSample": {
+                    "cagr": safe(pf_is.annualized_return() * 100),
+                    "mdd": safe(pf_is.max_drawdown() * 100),
+                    "period": f"{dates[0]} ~ {dates[split_idx-1]}"
+                },
+                "outOfSample": {
+                    "cagr": safe(pf_oos.annualized_return() * 100),
+                    "mdd": safe(pf_oos.max_drawdown() * 100),
+                    "period": f"{dates[split_idx]} ~ {dates[-1]}"
+                }
+            }
         }
 
     def evaluate_group(self, group: Dict[str, Any], idx: int, df: pl.DataFrame) -> bool:
@@ -139,10 +213,15 @@ class BacktestEngine:
             return ps >= pl_val and s < l if p.get('signalType') == 'sell' else ps <= pl_val and s > l
         elif cid == 'rsi':
             r = df[f"rsi_{p.get('period', 14)}"][idx]
-            if np.isnan(r): return False
+            if r is None or (isinstance(r, float) and np.isnan(r)): return False
             val, op = p.get('value', 30), p.get('operator', '<')
             if op == '<': return r < val
             if op == '>': return r > val
             if op == '<=': return r <= val
             if op == '>=': return r >= val
+        elif cid == 'price':
+            val, op = p.get('value', 0), p.get('operator', '>')
+            c = df['close'][idx]
+            if op == '>': return c > val
+            if op == '<': return c < val
         return False
