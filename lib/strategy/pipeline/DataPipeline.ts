@@ -1,21 +1,8 @@
 import { getStockAPIProvider } from "@/lib/stock-api";
-import { StockHistoricalData } from "@/types/stock";
-import { StrategyDSL } from "@/types/strategy";
+import { StrategyDSL, StrategyDataset } from "@/types/strategy";
 import { FeatureCalculators } from "./FeatureCalculators";
 import { DataCache } from "./DataCache";
-
-export interface StrategyDataset {
-  symbol: string;
-  dates: string[];
-  prices: {
-    open: number[];
-    high: number[];
-    low: number[];
-    close: number[];
-    volume: number[];
-  };
-  features: Record<string, number[] | any>;
-}
+import { UniverseResolver } from "./UniverseResolver";
 
 export class DataPipeline {
   private apiProvider = getStockAPIProvider();
@@ -25,17 +12,30 @@ export class DataPipeline {
     strategy: StrategyDSL,
     period: string = "full"
   ): Promise<StrategyDataset[]> {
-    // 1. Identify required symbols (From Step 1 Universe - mock for now since Step 1 state is complex)
-    // For now, we'll use a placeholder symbol or the one defined in the strategy if applicable
-    const symbols = ["AAPL"]; // Mock symbol
+    // 1. Identify required symbols from selected Universe
+    const symbols = UniverseResolver.getSymbols(
+      strategy.universe.id, 
+      strategy.universe.filters
+    );
 
     const datasets: StrategyDataset[] = [];
 
     for (const symbol of symbols) {
       // 2. Check Cache
-      const cacheKey = `dataset_${symbol}_${period}`;
-      const cached = await this.cache.get(cacheKey);
+      const cached = await this.cache.get(symbol, period);
       if (cached) {
+        // Re-calculate features for cached data as they are strategy-dependent
+        const allConditions = [
+          ...strategy.entry.conditions,
+          ...strategy.exit.conditions
+        ];
+
+        for (const condition of allConditions) {
+          if (condition.type === "indicator") {
+            this.calculateFeature(condition, cached.prices.close, cached.features);
+          }
+        }
+
         datasets.push(cached);
         continue;
       }
@@ -83,7 +83,7 @@ export class DataPipeline {
       };
 
       // 6. Cache Result
-      await this.cache.set(cacheKey, dataset);
+      await this.cache.set(symbol, dataset);
       datasets.push(dataset);
     }
 
