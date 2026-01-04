@@ -1,5 +1,4 @@
-import { Condition, ConditionGroup, StrategyDSL } from "@/types/strategy";
-import { StrategyDataset } from "./pipeline/DataPipeline";
+import { Condition, ConditionGroup, StrategyDSL, StrategyDataset } from "@/types/strategy";
 
 export class SignalEvaluator {
   static evaluateGroup(

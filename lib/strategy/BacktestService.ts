@@ -1,11 +1,7 @@
-import { StrategyDSL, BacktestResult, StrategyDataset } from "@/types/strategy";
-import { DataPipeline } from "./pipeline/DataPipeline";
-import { SignalEvaluator } from "./SignalEvaluator";
-import { TradeSimulator } from "./TradeSimulator";
+import { StrategyDSL, BacktestResult } from "@/types/strategy";
 import { UniverseResolver } from "./pipeline/UniverseResolver";
 
-export class BacktestEngine {
-  private pipeline = new DataPipeline();
+export class BacktestService {
 
   async run(strategy: StrategyDSL, period: string = "full"): Promise<BacktestResult> {
     // 1. Identify required symbols (For now, just one from Universe)

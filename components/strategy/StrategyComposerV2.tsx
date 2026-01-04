@@ -32,7 +32,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { StrategyDSL, Condition, ConditionType, LogicOperator, BacktestResult, CanvasBlock, RiskManagement } from "@/types/strategy";
 import { signalBlocks } from "@/lib/strategy-blocks";
-import { BacktestEngine } from "@/lib/strategy/BacktestEngine";
+import { BacktestService } from "@/lib/strategy/BacktestService";
 import BacktestChart from "@/components/strategy/BacktestChart";
 import RiskManagementEditor from "./RiskManagementEditor";
 import Step1Universe from "./steps/Step1Universe";
@@ -273,7 +273,7 @@ export default function StrategyComposerV2({
     };
 
     try {
-      const engine = new BacktestEngine();
+      const engine = new BacktestService();
       // Pass options.period. In real app, we would pass the full options object to engine.
       // For now, engine only accepts period string.
       const result = await engine.run(strategy, options.period || "1Y");
