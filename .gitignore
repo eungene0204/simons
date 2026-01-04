@@ -38,3 +38,15 @@ next-env.d.ts
 # prisma
 /prisma/dev.db
 /prisma/dev.db-journal
+
+# python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv
+venv/
+ENV/
+
+# data
+/data/ohlcv/*.parquet
+/data/ohlcv/*.json

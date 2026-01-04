@@ -37,7 +37,7 @@ export class TradeSimulator {
     return this.state;
   }
 
-  executeEntry(date: string, index: number, price: number, riskParams: any) {
+  executeEntry(date: string, index: number, price: number, reason: string, riskParams: any) {
     if (this.state.shares > 0) return;
 
     const positionSizePct = riskParams.position_size_pct || 100;
@@ -56,7 +56,7 @@ export class TradeSimulator {
         type: "buy",
         price,
         shares: sharesToBuy,
-        reason: "Entry Condition Met",
+        reason,
       });
     }
   }

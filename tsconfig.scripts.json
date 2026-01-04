@@ -7,6 +7,6 @@
     "allowSyntheticDefaultImports": true,
     "types": ["node"]
   },
-  "include": ["scripts/**/*"]
+  "include": ["scripts/**/*", "types/**/*"]
 }
 

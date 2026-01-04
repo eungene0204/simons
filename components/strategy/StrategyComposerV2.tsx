@@ -251,6 +251,10 @@ export default function StrategyComposerV2({
       description: "Preview Strategy",
       version: "1.0",
       created_at: new Date().toISOString(),
+      universe: {
+        id: universe,
+        filters: universeFilters
+      },
       updated_at: new Date().toISOString(),
       entry: {
         logic: entryLogic,
@@ -362,6 +366,10 @@ export default function StrategyComposerV2({
       name: strategyName.trim(),
       description: "",
       version: "1.0.0",
+      universe: {
+        id: universe,
+        filters: universeFilters,
+      },
       entry: {
         logic: entryLogic,
         conditions: entryConditionsMap,

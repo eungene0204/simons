@@ -45,11 +45,17 @@ export interface RiskManagement {
   max_sector_exposure_pct?: number; // Maximum sector concentration
 }
 
+export interface UniverseSelection {
+  id: string; // e.g., "kospi", "kosdaq", "US_TECH_TOP10"
+  filters: Record<string, any>;
+}
+
 export interface StrategyDSL {
   id: string;
   name: string;
   description: string;
   version: string;
+  universe: UniverseSelection;
   entry: ConditionGroup;
   exit: ConditionGroup;
   risk: RiskManagement;
@@ -91,6 +97,8 @@ export interface BacktestResult {
   profitFactor: number;
   sharpe: number;
   sortino: number;
+  volatility?: number;
+  calmar?: number;
   kelly: number;
   trades: number;
   finalEquity: number;
@@ -123,6 +131,19 @@ export interface BacktestScenario {
   timestamp: string;
 }
 
+
+export interface StrategyDataset {
+  symbol: string;
+  dates: string[];
+  prices: {
+    open: number[];
+    high: number[];
+    low: number[];
+    close: number[];
+    volume: number[];
+  };
+  features: Record<string, number[] | any>;
+}
 
 export interface CanvasBlock {
   id: string;

@@ -18,5 +18,32 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+model Stock {
+  id          Int              @id @default(autoincrement())
+  symbol      String           @unique
+  name        String?
+  market      String?          // KOSPI, KOSDAQ, NASDAQ, US_TECH_TOP10, etc.
+  updatedAt   DateTime         @updatedAt
+  results     BacktestResult[]
+}
 
+model Strategy {
+  id          String           @id @default(uuid())
+  name        String
+  description String?
+  settings    String           // JSON string of StrategyDSL
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  results     BacktestResult[]
+}
 
+model BacktestResult {
+  id           String   @id @default(uuid())
+  strategy     Strategy @relation(fields: [strategyId], references: [id])
+  strategyId   String
+  stock        Stock?   @relation(fields: [stockId], references: [id])
+  stockId      Int?
+  summary      String   // JSON string of BacktestResult (Returns, MDD, Sharpe, etc.)
+  trades       String?  // JSON string of Trade records (if light enough, otherwise separate)
+  createdAt    DateTime @default(now())
+}
