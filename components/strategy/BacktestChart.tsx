@@ -139,7 +139,10 @@ export default function BacktestChart({
           layout: {
             background: { type: ColorType.Solid, color: "#0a0a0f" },
             textColor: "#9ca3af",
+            fontSize: 10,
           },
+          // @ts-ignore - Lightweight charts supports padding in layout
+          padding: { top: 12, bottom: 12, left: 8, right: 40 }, 
           grid: {
             vertLines: { color: "#374151", style: 1, visible: true },
             horzLines: { color: "#374151", style: 1, visible: true },
@@ -153,10 +156,12 @@ export default function BacktestChart({
           },
           rightPriceScale: {
             borderColor: "#4b5563",
+            autoScale: true,
             scaleMargins: {
-              top: 0.1,
-              bottom: 0.1,
+              top: 0.2,
+              bottom: 0.2,
             },
+            alignLabels: true,
           },
         });
 
@@ -171,9 +176,9 @@ export default function BacktestChart({
         if (type === "equity") {
           // Create equity area series with custom price format
           const equitySeries = chart.addSeries(AreaSeries, {
-            lineColor: "#3b82f6",
-            topColor: "rgba(59, 130, 246, 0.3)",
-            bottomColor: "rgba(59, 130, 246, 0.05)",
+            lineColor: "#ef4444", // RED for Growth (KR Standard)
+            topColor: "rgba(239, 68, 68, 0.3)",
+            bottomColor: "rgba(239, 68, 68, 0.05)",
             lineWidth: 2,
             priceFormat: {
               type: "custom",
@@ -214,9 +219,9 @@ export default function BacktestChart({
           // Create drawdown area series
           // Note: Drawdown is in percentage, so we format it differently
           const drawdownSeries = chart.addSeries(AreaSeries, {
-            lineColor: "#ef4444",
-            topColor: "rgba(239, 68, 68, 0.3)",
-            bottomColor: "rgba(239, 68, 68, 0.05)",
+            lineColor: "#3b82f6", // BLUE for Drawdown (KR Standard)
+            topColor: "rgba(59, 130, 246, 0.3)",
+            bottomColor: "rgba(59, 130, 246, 0.05)",
             lineWidth: 2,
             priceFormat: {
               type: "price",
@@ -301,10 +306,22 @@ export default function BacktestChart({
   }, [type, equityChartData, buyHoldChartData, drawdownChartData]);
 
   return (
-    <div className="w-full h-full">
+    <div className="w-full h-full relative group">
+      {/* Legend Overlay */}
+      <div className="absolute top-4 left-4 z-20 flex flex-col gap-1 b">
+        <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0f]/80 border border-gray-800 backdrop-blur-sm">
+           <div className="w-3 h-3 rounded-full bg-[#ef4444]" />
+           <span className="text-[10px] font-bold text-white">나의 전략</span>
+        </div>
+        <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0f]/80 border border-gray-800 backdrop-blur-sm">
+           <div className="w-3 h-3 rounded-full bg-[#6b7280]" />
+           <span className="text-[10px] font-bold text-gray-400">시장 수익률</span>
+        </div>
+      </div>
+
       <div
         ref={chartContainerRef}
-        style={{ width: "100%", height: `${height}px` }}
+        className="w-full h-full"
       />
     </div>
   );

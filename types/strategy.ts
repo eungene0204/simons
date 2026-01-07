@@ -89,6 +89,7 @@ export interface SignalBlock {
 // Backtest Result Types
 export interface BacktestResult {
   strategyId: string;
+  symbol: string;
   totalReturn: number;
   cagr: number;
   buyAndHoldReturn: number;
@@ -104,6 +105,7 @@ export interface BacktestResult {
   finalEquity: number;
   initialCapital: number;
   equity: number[];
+  benchmarkEquity?: number[];
   dates: string[];
   tradesList: Array<{
     date: string;
@@ -120,6 +122,7 @@ export interface BacktestResult {
     condition: string;
     price: number;
   }>;
+  warnings?: string[];
 }
 
 export interface BacktestScenario {

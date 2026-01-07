@@ -1,0 +1,269 @@
+Fetching KOSPI tickers from Naver...
+Fetching KOSDAQ tickers from Naver...
+Total stocks found: 4233
+Downloading data:   0%|          | 0/4233 [00:00<?, ?it/s]
+Processing downloads:   0%|          | 0/4233 [00:00<?, ?it/s][ADownloading data:   0%|          | 1/4233 [00:00<11:47,  5.98it/s]Downloading data:   1%|          | 37/4233 [00:00<00:44, 94.21it/s]
+Processing downloads:   1%|          | 37/4233 [00:00<00:30, 135.65it/s][ADownloading data:   5%|▍         | 202/4233 [00:00<00:08, 472.63it/s]
+Processing downloads:   5%|▍         | 202/4233 [00:00<00:06, 593.30it/s][ADownloading data:   6%|▌         | 264/4233 [00:00<00:10, 386.60it/s]
+Processing downloads:   7%|▋         | 282/4233 [00:00<00:08, 476.41it/s][ADownloading data:   7%|▋         | 313/4233 [00:01<00:15, 259.52it/s]
+Processing downloads:   8%|▊         | 342/4233 [00:01<00:22, 173.71it/s][ADownloading data:   8%|▊         | 349/4233 [00:01<00:28, 138.68it/s]Downloading data:   9%|▉         | 375/4233 [00:02<00:39, 96.84it/s] 
+Processing downloads:   9%|▉         | 381/4233 [00:02<00:36, 105.98it/s][ADownloading data:   9%|▉         | 394/4233 [00:02<00:46, 82.88it/s]
+Processing downloads:  10%|▉         | 408/4233 [00:03<00:45, 84.88it/s] [ADownloading data:  10%|▉         | 409/4233 [00:03<00:52, 73.13it/s]Downloading data:  10%|▉         | 421/4233 [00:03<00:58, 65.64it/s]
+Processing downloads:  10%|█         | 427/4233 [00:03<00:51, 73.57it/s][ADownloading data:  10%|█         | 430/4233 [00:03<01:03, 59.48it/s]Downloading data:  10%|█         | 438/4233 [00:04<01:20, 47.28it/s]
+Processing downloads:  10%|█         | 442/4233 [00:04<01:02, 60.82it/s][ADownloading data:  10%|█         | 444/4233 [00:04<01:18, 48.31it/s]Downloading data:  11%|█         | 450/4233 [00:04<01:20, 46.71it/s]
+Processing downloads:  11%|█         | 453/4233 [00:04<01:05, 57.82it/s][ADownloading data:  11%|█         | 456/4233 [00:04<01:19, 47.66it/s]Downloading data:  11%|█         | 462/4233 [00:04<01:18, 47.77it/s]
+Processing downloads:  11%|█         | 462/4233 [00:04<01:07, 56.24it/s][ADownloading data:  11%|█         | 468/4233 [00:04<01:35, 39.35it/s]
+Processing downloads:  11%|█         | 470/4233 [00:04<01:15, 50.00it/s][ADownloading data:  11%|█         | 473/4233 [00:04<01:32, 40.72it/s]
+Processing downloads:  11%|█▏        | 477/4233 [00:05<01:51, 33.59it/s][ADownloading data:  11%|█▏        | 478/4233 [00:05<02:41, 23.29it/s]Downloading data:  11%|█▏        | 486/4233 [00:05<02:09, 28.93it/s]
+Processing downloads:  11%|█▏        | 486/4233 [00:05<01:41, 36.98it/s][ADownloading data:  12%|█▏        | 491/4233 [00:05<02:09, 28.86it/s]
+Processing downloads:  12%|█▏        | 491/4233 [00:05<01:45, 35.45it/s][ADownloading data:  12%|█▏        | 495/4233 [00:05<02:13, 28.03it/s]
+Processing downloads:  12%|█▏        | 496/4233 [00:05<01:47, 34.77it/s][ADownloading data:  12%|█▏        | 504/4233 [00:06<01:45, 35.29it/s]
+Processing downloads:  12%|█▏        | 504/4233 [00:05<01:37, 38.11it/s][ADownloading data:  12%|█▏        | 510/4233 [00:06<01:39, 37.53it/s]
+Processing downloads:  12%|█▏        | 510/4233 [00:06<01:34, 39.51it/s][ADownloading data:  12%|█▏        | 516/4233 [00:06<01:30, 41.24it/s]
+Processing downloads:  12%|█▏        | 516/4233 [00:06<01:27, 42.44it/s][ADownloading data:  12%|█▏        | 521/4233 [00:06<01:29, 41.63it/s]
+Processing downloads:  12%|█▏        | 521/4233 [00:06<01:27, 42.57it/s][ADownloading data:  12%|█▏        | 526/4233 [00:06<02:10, 28.33it/s]
+Processing downloads:  12%|█▏        | 526/4233 [00:06<02:06, 29.30it/s][ADownloading data:  13%|█▎        | 530/4233 [00:07<03:14, 19.01it/s]
+Processing downloads:  13%|█▎        | 530/4233 [00:07<03:07, 19.73it/s][ADownloading data:  13%|█▎        | 545/4233 [00:07<01:46, 34.70it/s]
+Processing downloads:  13%|█▎        | 545/4233 [00:07<01:45, 35.01it/s][ADownloading data:  13%|█▎        | 551/4233 [00:07<01:37, 37.85it/s]
+Processing downloads:  13%|█▎        | 551/4233 [00:07<01:36, 38.09it/s][ADownloading data:  13%|█▎        | 557/4233 [00:07<01:32, 39.92it/s]
+Processing downloads:  13%|█▎        | 557/4233 [00:07<01:31, 40.08it/s][ADownloading data:  13%|█▎        | 562/4233 [00:07<02:10, 28.13it/s]
+Processing downloads:  13%|█▎        | 563/4233 [00:07<02:03, 29.60it/s][ADownloading data:  14%|█▎        | 572/4233 [00:08<01:42, 35.75it/s]
+Processing downloads:  14%|█▎        | 572/4233 [00:07<01:43, 35.41it/s][ADownloading data:  14%|█▎        | 577/4233 [00:08<02:06, 28.92it/s]
+Processing downloads:  14%|█▎        | 577/4233 [00:08<02:07, 28.71it/s][ADownloading data:  14%|█▍        | 587/4233 [00:08<01:35, 38.29it/s]
+Processing downloads:  14%|█▍        | 587/4233 [00:08<01:35, 38.05it/s][ADownloading data:  14%|█▍        | 593/4233 [00:08<01:47, 33.80it/s]
+Processing downloads:  14%|█▍        | 593/4233 [00:08<01:48, 33.69it/s][ADownloading data:  14%|█▍        | 601/4233 [00:08<01:31, 39.88it/s]
+Processing downloads:  14%|█▍        | 601/4233 [00:08<01:31, 39.79it/s][ADownloading data:  14%|█▍        | 606/4233 [00:09<01:57, 30.85it/s]
+Processing downloads:  14%|█▍        | 606/4233 [00:09<01:57, 30.81it/s][ADownloading data:  14%|█▍        | 610/4233 [00:09<01:55, 31.27it/s]
+Processing downloads:  14%|█▍        | 610/4233 [00:09<01:56, 31.21it/s][ADownloading data:  15%|█▍        | 616/4233 [00:09<01:42, 35.23it/s]
+Processing downloads:  15%|█▍        | 616/4233 [00:09<01:42, 35.19it/s][ADownloading data:  15%|█▍        | 622/4233 [00:09<01:31, 39.27it/s]
+Processing downloads:  15%|█▍        | 622/4233 [00:09<01:31, 39.27it/s][ADownloading data:  15%|█▍        | 627/4233 [00:09<01:31, 39.21it/s]
+Processing downloads:  15%|█▍        | 627/4233 [00:09<01:32, 39.15it/s][ADownloading data:  15%|█▍        | 632/4233 [00:09<01:34, 38.15it/s]
+Processing downloads:  15%|█▍        | 632/4233 [00:09<01:34, 38.18it/s][ADownloading data:  15%|█▌        | 637/4233 [00:09<01:28, 40.79it/s]
+Processing downloads:  15%|█▌        | 637/4233 [00:09<01:28, 40.81it/s][ADownloading data:  15%|█▌        | 642/4233 [00:10<02:10, 27.52it/s]
+Processing downloads:  15%|█▌        | 642/4233 [00:10<02:10, 27.52it/s][ADownloading data:  15%|█▌        | 652/4233 [00:10<01:28, 40.27it/s]
+Processing downloads:  15%|█▌        | 652/4233 [00:10<01:29, 40.23it/s][ADownloading data:  16%|█▌        | 658/4233 [00:10<01:51, 32.10it/s]
+Processing downloads:  16%|█▌        | 658/4233 [00:10<01:51, 32.12it/s][ADownloading data:  16%|█▌        | 666/4233 [00:11<02:05, 28.36it/s]
+Processing downloads:  16%|█▌        | 666/4233 [00:10<02:05, 28.37it/s][ADownloading data:  16%|█▌        | 675/4233 [00:11<01:59, 29.86it/s]
+Processing downloads:  16%|█▌        | 675/4233 [00:11<01:59, 29.85it/s][ADownloading data:  16%|█▌        | 681/4233 [00:11<02:20, 25.21it/s]
+Processing downloads:  16%|█▌        | 681/4233 [00:11<02:20, 25.22it/s][ADownloading data:  16%|█▋        | 695/4233 [00:11<01:31, 38.78it/s]
+Processing downloads:  16%|█▋        | 695/4233 [00:11<01:31, 38.79it/s][ADownloading data:  17%|█▋        | 701/4233 [00:11<01:30, 39.03it/s]
+Processing downloads:  17%|█▋        | 701/4233 [00:11<01:30, 39.01it/s][ADownloading data:  17%|█▋        | 706/4233 [00:12<01:44, 33.85it/s]
+Processing downloads:  17%|█▋        | 706/4233 [00:11<01:44, 33.84it/s][ADownloading data:  17%|█▋        | 714/4233 [00:12<01:24, 41.43it/s]
+Processing downloads:  17%|█▋        | 714/4233 [00:12<01:24, 41.45it/s][ADownloading data:  17%|█▋        | 720/4233 [00:12<01:53, 31.02it/s]
+Processing downloads:  17%|█▋        | 720/4233 [00:12<01:53, 31.02it/s][ADownloading data:  17%|█▋        | 727/4233 [00:12<01:36, 36.15it/s]
+Processing downloads:  17%|█▋        | 727/4233 [00:12<01:36, 36.16it/s][ADownloading data:  17%|█▋        | 732/4233 [00:12<01:32, 37.67it/s]
+Processing downloads:  17%|█▋        | 732/4233 [00:12<01:32, 37.66it/s][ADownloading data:  17%|█▋        | 737/4233 [00:12<01:33, 37.25it/s]
+Processing downloads:  17%|█▋        | 737/4233 [00:12<01:33, 37.26it/s][ADownloading data:  18%|█▊        | 742/4233 [00:13<01:27, 39.79it/s]
+Processing downloads:  18%|█▊        | 742/4233 [00:12<01:27, 39.76it/s][ADownloading data:  18%|█▊        | 747/4233 [00:13<01:30, 38.35it/s]
+Processing downloads:  18%|█▊        | 747/4233 [00:13<01:30, 38.37it/s][ADownloading data:  18%|█▊        | 752/4233 [00:13<02:19, 25.02it/s]
+Processing downloads:  18%|█▊        | 752/4233 [00:13<02:19, 24.99it/s][ADownloading data:  18%|█▊        | 764/4233 [00:13<01:26, 40.01it/s]
+Processing downloads:  18%|█▊        | 764/4233 [00:13<01:26, 40.01it/s][ADownloading data:  18%|█▊        | 770/4233 [00:13<01:26, 40.06it/s]
+Processing downloads:  18%|█▊        | 770/4233 [00:13<01:26, 40.09it/s][ADownloading data:  18%|█▊        | 776/4233 [00:14<02:27, 23.41it/s]
+Processing downloads:  18%|█▊        | 776/4233 [00:14<02:27, 23.41it/s][ADownloading data:  18%|█▊        | 780/4233 [00:14<02:34, 22.39it/s]
+Processing downloads:  18%|█▊        | 780/4233 [00:14<02:34, 22.39it/s][ADownloading data:  19%|█▊        | 791/4233 [00:14<01:44, 32.81it/s]
+Processing downloads:  19%|█▊        | 791/4233 [00:14<01:44, 32.80it/s][ADownloading data:  19%|█▉        | 797/4233 [00:14<01:32, 36.98it/s]
+Processing downloads:  19%|█▉        | 797/4233 [00:14<01:32, 36.96it/s][ADownloading data:  19%|█▉        | 802/4233 [00:14<01:27, 39.36it/s]
+Processing downloads:  19%|█▉        | 803/4233 [00:14<01:28, 38.67it/s][ADownloading data:  19%|█▉        | 807/4233 [00:15<01:29, 38.07it/s]
+Processing downloads:  19%|█▉        | 808/4233 [00:14<01:27, 39.05it/s][ADownloading data:  19%|█▉        | 812/4233 [00:15<01:57, 29.03it/s]
+Processing downloads:  19%|█▉        | 813/4233 [00:15<01:52, 30.32it/s][ADownloading data:  19%|█▉        | 816/4233 [00:15<02:03, 27.63it/s]
+Processing downloads:  19%|█▉        | 817/4233 [00:15<01:59, 28.56it/s][ADownloading data:  19%|█▉        | 820/4233 [00:15<02:15, 25.11it/s]
+Processing downloads:  19%|█▉        | 821/4233 [00:15<02:12, 25.74it/s][ADownloading data:  19%|█▉        | 823/4233 [00:16<02:58, 19.13it/s]
+Processing downloads:  19%|█▉        | 824/4233 [00:15<02:55, 19.46it/s][ADownloading data:  20%|█▉        | 834/4233 [00:16<01:46, 31.86it/s]
+Processing downloads:  20%|█▉        | 834/4233 [00:15<01:50, 30.67it/s][ADownloading data:  20%|█▉        | 840/4233 [00:16<01:41, 33.32it/s]
+Processing downloads:  20%|█▉        | 840/4233 [00:16<01:44, 32.45it/s][ADownloading data:  20%|█▉        | 844/4233 [00:16<01:59, 28.38it/s]
+Processing downloads:  20%|█▉        | 844/4233 [00:16<02:02, 27.77it/s][ADownloading data:  20%|██        | 849/4233 [00:16<02:20, 24.02it/s]
+Processing downloads:  20%|██        | 849/4233 [00:16<02:23, 23.65it/s][ADownloading data:  20%|██        | 861/4233 [00:16<01:30, 37.18it/s]
+Processing downloads:  20%|██        | 861/4233 [00:16<01:31, 36.91it/s][ADownloading data:  20%|██        | 867/4233 [00:17<01:26, 38.81it/s]
+Processing downloads:  20%|██        | 867/4233 [00:16<01:27, 38.57it/s][ADownloading data:  21%|██        | 872/4233 [00:17<01:23, 40.45it/s]
+Processing downloads:  21%|██        | 872/4233 [00:17<01:23, 40.30it/s][ADownloading data:  21%|██        | 877/4233 [00:17<01:26, 38.77it/s]
+Processing downloads:  21%|██        | 877/4233 [00:17<01:26, 38.62it/s][ADownloading data:  21%|██        | 882/4233 [00:17<01:49, 30.56it/s]
+Processing downloads:  21%|██        | 882/4233 [00:17<01:49, 30.48it/s][ADownloading data:  21%|██        | 886/4233 [00:17<02:06, 26.48it/s]
+Processing downloads:  21%|██        | 886/4233 [00:17<02:06, 26.44it/s][ADownloading data:  21%|██        | 896/4233 [00:17<01:31, 36.43it/s]
+Processing downloads:  21%|██        | 896/4233 [00:17<01:31, 36.41it/s][ADownloading data:  21%|██▏       | 901/4233 [00:18<01:57, 28.35it/s]
+Processing downloads:  21%|██▏       | 901/4233 [00:18<01:57, 28.30it/s][ADownloading data:  21%|██▏       | 905/4233 [00:18<02:01, 27.40it/s]
+Processing downloads:  21%|██▏       | 905/4233 [00:18<02:01, 27.39it/s][ADownloading data:  21%|██▏       | 909/4233 [00:18<02:10, 25.54it/s]
+Processing downloads:  21%|██▏       | 909/4233 [00:18<02:10, 25.54it/s][ADownloading data:  22%|██▏       | 919/4233 [00:19<02:07, 25.96it/s]
+Processing downloads:  22%|██▏       | 919/4233 [00:18<02:07, 25.96it/s][ADownloading data:  22%|██▏       | 924/4233 [00:19<02:34, 21.37it/s]
+Processing downloads:  22%|██▏       | 924/4233 [00:19<02:34, 21.36it/s][ADownloading data:  22%|██▏       | 933/4233 [00:19<01:52, 29.30it/s]
+Processing downloads:  22%|██▏       | 933/4233 [00:19<01:52, 29.27it/s][ADownloading data:  22%|██▏       | 937/4233 [00:19<01:48, 30.33it/s]
+Processing downloads:  22%|██▏       | 937/4233 [00:19<01:49, 30.16it/s][ADownloading data:  22%|██▏       | 942/4233 [00:19<01:41, 32.38it/s]
+Processing downloads:  22%|██▏       | 942/4233 [00:19<01:41, 32.45it/s][ADownloading data:  22%|██▏       | 947/4233 [00:19<01:34, 34.91it/s]
+Processing downloads:  22%|██▏       | 947/4233 [00:19<01:33, 34.97it/s][ADownloading data:  22%|██▏       | 951/4233 [00:20<02:17, 23.79it/s]
+Processing downloads:  22%|██▏       | 951/4233 [00:20<02:17, 23.81it/s][ADownloading data:  23%|██▎       | 964/4233 [00:20<01:20, 40.68it/s]
+Processing downloads:  23%|██▎       | 964/4233 [00:20<01:20, 40.68it/s][ADownloading data:  23%|██▎       | 970/4233 [00:20<01:14, 43.51it/s]
+Processing downloads:  23%|██▎       | 970/4233 [00:20<01:14, 43.55it/s][ADownloading data:  23%|██▎       | 976/4233 [00:20<01:34, 34.61it/s]
+Processing downloads:  23%|██▎       | 976/4233 [00:20<01:34, 34.59it/s][ADownloading data:  23%|██▎       | 981/4233 [00:21<02:01, 26.66it/s]
+Processing downloads:  23%|██▎       | 981/4233 [00:20<02:02, 26.64it/s][ADownloading data:  23%|██▎       | 989/4233 [00:21<02:04, 26.04it/s]
+Processing downloads:  23%|██▎       | 989/4233 [00:21<02:04, 26.06it/s][ADownloading data:  24%|██▎       | 998/4233 [00:21<02:03, 26.11it/s]
+Processing downloads:  24%|██▎       | 998/4233 [00:21<02:03, 26.10it/s][ADownloading data:  24%|██▎       | 1003/4233 [00:21<01:54, 28.19it/s]
+Processing downloads:  24%|██▎       | 1003/4233 [00:21<01:54, 28.20it/s][ADownloading data:  24%|██▍       | 1007/4233 [00:21<01:59, 26.98it/s]
+Processing downloads:  24%|██▍       | 1007/4233 [00:21<01:59, 26.99it/s][ADownloading data:  24%|██▍       | 1011/4233 [00:22<02:14, 23.99it/s]
+Processing downloads:  24%|██▍       | 1011/4233 [00:22<02:14, 24.00it/s][ADownloading data:  24%|██▍       | 1018/4233 [00:22<02:13, 24.14it/s]
+Processing downloads:  24%|██▍       | 1018/4233 [00:22<02:13, 24.13it/s][ADownloading data:  24%|██▍       | 1028/4233 [00:22<01:34, 33.85it/s]
+Processing downloads:  24%|██▍       | 1028/4233 [00:22<01:34, 33.86it/s][ADownloading data:  24%|██▍       | 1034/4233 [00:22<01:27, 36.75it/s]
+Processing downloads:  24%|██▍       | 1034/4233 [00:22<01:27, 36.77it/s][ADownloading data:  25%|██▍       | 1039/4233 [00:22<01:24, 37.83it/s]
+Processing downloads:  25%|██▍       | 1039/4233 [00:22<01:24, 37.84it/s][ADownloading data:  25%|██▍       | 1044/4233 [00:22<01:23, 37.97it/s]
+Processing downloads:  25%|██▍       | 1044/4233 [00:22<01:24, 37.93it/s][ADownloading data:  25%|██▍       | 1050/4233 [00:23<01:22, 38.61it/s]
+Processing downloads:  25%|██▍       | 1050/4233 [00:22<01:22, 38.62it/s][ADownloading data:  25%|██▍       | 1055/4233 [00:23<01:19, 40.21it/s]
+Processing downloads:  25%|██▍       | 1055/4233 [00:23<01:18, 40.24it/s][ADownloading data:  25%|██▌       | 1060/4233 [00:23<01:59, 26.50it/s]
+Processing downloads:  25%|██▌       | 1060/4233 [00:23<01:59, 26.51it/s][ADownloading data:  25%|██▌       | 1072/4233 [00:23<01:20, 39.27it/s]
+Processing downloads:  25%|██▌       | 1072/4233 [00:23<01:20, 39.28it/s][ADownloading data:  25%|██▌       | 1077/4233 [00:24<01:50, 28.52it/s]
+Processing downloads:  25%|██▌       | 1077/4233 [00:23<01:50, 28.51it/s][ADownloading data:  26%|██▌       | 1081/4233 [00:24<01:46, 29.51it/s]
+Processing downloads:  26%|██▌       | 1081/4233 [00:24<01:46, 29.52it/s][ADownloading data:  26%|██▌       | 1085/4233 [00:24<02:42, 19.39it/s]
+Processing downloads:  26%|██▌       | 1085/4233 [00:24<02:42, 19.38it/s][ADownloading data:  26%|██▌       | 1100/4233 [00:24<01:25, 36.49it/s]
+Processing downloads:  26%|██▌       | 1100/4233 [00:24<01:25, 36.50it/s][ADownloading data:  26%|██▌       | 1107/4233 [00:25<01:37, 32.21it/s]
+Processing downloads:  26%|██▌       | 1107/4233 [00:24<01:37, 32.22it/s][ADownloading data:  26%|██▋       | 1112/4233 [00:25<01:54, 27.32it/s]
+Processing downloads:  26%|██▋       | 1112/4233 [00:25<01:54, 27.31it/s][ADownloading data:  26%|██▋       | 1121/4233 [00:25<01:33, 33.34it/s]
+Processing downloads:  26%|██▋       | 1121/4233 [00:25<01:33, 33.35it/s][ADownloading data:  27%|██▋       | 1126/4233 [00:25<01:42, 30.34it/s]
+Processing downloads:  27%|██▋       | 1126/4233 [00:25<01:42, 30.35it/s][ADownloading data:  27%|██▋       | 1131/4233 [00:26<02:15, 22.94it/s]
+Processing downloads:  27%|██▋       | 1131/4233 [00:25<02:15, 22.93it/s][ADownloading data:  27%|██▋       | 1144/4233 [00:26<01:29, 34.52it/s]
+Processing downloads:  27%|██▋       | 1144/4233 [00:26<01:29, 34.53it/s][ADownloading data:  27%|██▋       | 1151/4233 [00:26<01:18, 39.03it/s]
+Processing downloads:  27%|██▋       | 1151/4233 [00:26<01:18, 39.02it/s][ADownloading data:  27%|██▋       | 1157/4233 [00:26<01:17, 39.62it/s]
+Processing downloads:  27%|██▋       | 1157/4233 [00:26<01:17, 39.64it/s][ADownloading data:  27%|██▋       | 1162/4233 [00:26<01:39, 30.79it/s]
+Processing downloads:  27%|██▋       | 1162/4233 [00:26<01:39, 30.80it/s][ADownloading data:  28%|██▊       | 1172/4233 [00:27<01:21, 37.44it/s]
+Processing downloads:  28%|██▊       | 1172/4233 [00:26<01:21, 37.44it/s][ADownloading data:  28%|██▊       | 1178/4233 [00:27<01:17, 39.25it/s]
+Processing downloads:  28%|██▊       | 1178/4233 [00:26<01:17, 39.26it/s][ADownloading data:  28%|██▊       | 1185/4233 [00:27<01:15, 40.11it/s]
+Processing downloads:  28%|██▊       | 1185/4233 [00:27<01:15, 40.12it/s][ADownloading data:  28%|██▊       | 1192/4233 [00:27<01:07, 45.38it/s]
+Processing downloads:  28%|██▊       | 1192/4233 [00:27<01:07, 45.38it/s][ADownloading data:  28%|██▊       | 1198/4233 [00:27<01:34, 32.14it/s]
+Processing downloads:  28%|██▊       | 1198/4233 [00:27<01:34, 32.12it/s][ADownloading data:  29%|██▊       | 1209/4233 [00:27<01:08, 44.26it/s]
+Processing downloads:  29%|██▊       | 1209/4233 [00:27<01:08, 44.28it/s][ADownloading data:  29%|██▊       | 1215/4233 [00:28<01:40, 30.17it/s]
+Processing downloads:  29%|██▊       | 1215/4233 [00:28<01:40, 30.17it/s][ADownloading data:  29%|██▉       | 1220/4233 [00:28<01:43, 29.09it/s]
+Processing downloads:  29%|██▉       | 1220/4233 [00:28<01:43, 29.08it/s][ADownloading data:  29%|██▉       | 1224/4233 [00:28<01:50, 27.35it/s]
+Processing downloads:  29%|██▉       | 1224/4233 [00:28<01:49, 27.36it/s][ADownloading data:  29%|██▉       | 1234/4233 [00:28<01:21, 36.94it/s]
+Processing downloads:  29%|██▉       | 1234/4233 [00:28<01:21, 36.91it/s][ADownloading data:  29%|██▉       | 1239/4233 [00:28<01:20, 37.37it/s]
+Processing downloads:  29%|██▉       | 1239/4233 [00:28<01:20, 37.38it/s][ADownloading data:  29%|██▉       | 1244/4233 [00:29<01:55, 25.96it/s]
+Processing downloads:  29%|██▉       | 1244/4233 [00:29<01:55, 25.95it/s][ADownloading data:  30%|██▉       | 1252/4233 [00:29<01:39, 29.91it/s]
+Processing downloads:  30%|██▉       | 1252/4233 [00:29<01:39, 29.89it/s][ADownloading data:  30%|██▉       | 1259/4233 [00:29<01:47, 27.75it/s]
+Processing downloads:  30%|██▉       | 1259/4233 [00:29<01:47, 27.75it/s][ADownloading data:  30%|██▉       | 1268/4233 [00:29<01:22, 36.07it/s]
+Processing downloads:  30%|██▉       | 1268/4233 [00:29<01:22, 36.06it/s][ADownloading data:  30%|███       | 1274/4233 [00:30<01:18, 37.81it/s]
+Processing downloads:  30%|███       | 1274/4233 [00:29<01:18, 37.84it/s][ADownloading data:  30%|███       | 1280/4233 [00:30<01:40, 29.38it/s]
+Processing downloads:  30%|███       | 1280/4233 [00:30<01:40, 29.37it/s][ADownloading data:  30%|███       | 1287/4233 [00:30<01:39, 29.64it/s]
+Processing downloads:  30%|███       | 1287/4233 [00:30<01:39, 29.63it/s][ADownloading data:  31%|███       | 1292/4233 [00:30<01:33, 31.55it/s]
+Processing downloads:  31%|███       | 1292/4233 [00:30<01:33, 31.57it/s][ADownloading data:  31%|███       | 1300/4233 [00:30<01:14, 39.48it/s]
+Processing downloads:  31%|███       | 1300/4233 [00:30<01:14, 39.50it/s][ADownloading data:  31%|███       | 1305/4233 [00:31<01:40, 29.07it/s]
+Processing downloads:  31%|███       | 1305/4233 [00:30<01:40, 29.08it/s][ADownloading data:  31%|███       | 1309/4233 [00:31<01:36, 30.38it/s]
+Processing downloads:  31%|███       | 1309/4233 [00:31<01:36, 30.37it/s][ADownloading data:  31%|███       | 1313/4233 [00:31<01:35, 30.69it/s]
+Processing downloads:  31%|███       | 1313/4233 [00:31<01:35, 30.70it/s][ADownloading data:  31%|███       | 1319/4233 [00:31<01:21, 35.90it/s]
+Processing downloads:  31%|███       | 1319/4233 [00:31<01:21, 35.91it/s][ADownloading data:  31%|███▏      | 1324/4233 [00:31<01:40, 29.03it/s]
+Processing downloads:  31%|███▏      | 1324/4233 [00:31<01:40, 29.00it/s][ADownloading data:  31%|███▏      | 1328/4233 [00:32<02:04, 23.27it/s]
+Processing downloads:  31%|███▏      | 1328/4233 [00:31<02:04, 23.28it/s][ADownloading data:  31%|███▏      | 1333/4233 [00:32<02:04, 23.25it/s]
+Processing downloads:  31%|███▏      | 1333/4233 [00:32<02:04, 23.26it/s][ADownloading data:  32%|███▏      | 1336/4233 [00:32<02:24, 20.06it/s]
+Processing downloads:  32%|███▏      | 1336/4233 [00:32<02:24, 20.06it/s][ADownloading data:  32%|███▏      | 1340/4233 [00:32<02:36, 18.46it/s]
+Processing downloads:  32%|███▏      | 1340/4233 [00:32<02:36, 18.46it/s][ADownloading data:  32%|███▏      | 1351/4233 [00:33<02:06, 22.76it/s]
+Processing downloads:  32%|███▏      | 1351/4233 [00:32<02:06, 22.76it/s][ADownloading data:  32%|███▏      | 1365/4233 [00:33<01:17, 37.21it/s]
+Processing downloads:  32%|███▏      | 1365/4233 [00:33<01:17, 37.22it/s][ADownloading data:  32%|███▏      | 1373/4233 [00:33<01:08, 41.75it/s]
+Processing downloads:  32%|███▏      | 1373/4233 [00:33<01:08, 41.76it/s][ADownloading data:  33%|███▎      | 1379/4233 [00:33<01:08, 41.52it/s]
+Processing downloads:  33%|███▎      | 1379/4233 [00:33<01:08, 41.48it/s][ADownloading data:  33%|███▎      | 1385/4233 [00:33<01:10, 40.19it/s]
+Processing downloads:  33%|███▎      | 1385/4233 [00:33<01:10, 40.20it/s][ADownloading data:  33%|███▎      | 1391/4233 [00:33<01:15, 37.54it/s]
+Processing downloads:  33%|███▎      | 1391/4233 [00:33<01:15, 37.51it/s][ADownloading data:  33%|███▎      | 1396/4233 [00:34<01:30, 31.51it/s]
+Processing downloads:  33%|███▎      | 1396/4233 [00:33<01:30, 31.50it/s][ADownloading data:  33%|███▎      | 1402/4233 [00:34<01:17, 36.30it/s]
+Processing downloads:  33%|███▎      | 1402/4233 [00:34<01:18, 36.28it/s][ADownloading data:  33%|███▎      | 1408/4233 [00:34<01:14, 38.02it/s]
+Processing downloads:  33%|███▎      | 1408/4233 [00:34<01:14, 38.02it/s][ADownloading data:  33%|███▎      | 1413/4233 [00:34<01:36, 29.34it/s]
+Processing downloads:  33%|███▎      | 1413/4233 [00:34<01:36, 29.37it/s][ADownloading data:  34%|███▎      | 1419/4233 [00:34<01:48, 25.96it/s]
+Processing downloads:  34%|███▎      | 1419/4233 [00:34<01:48, 25.97it/s][ADownloading data:  34%|███▎      | 1423/4233 [00:35<01:40, 28.01it/s]
+Processing downloads:  34%|███▎      | 1423/4233 [00:34<01:40, 27.98it/s][ADownloading data:  34%|███▎      | 1428/4233 [00:35<02:00, 23.30it/s]
+Processing downloads:  34%|███▎      | 1428/4233 [00:35<02:00, 23.31it/s][ADownloading data:  34%|███▍      | 1439/4233 [00:35<01:43, 26.98it/s]
+Processing downloads:  34%|███▍      | 1439/4233 [00:35<01:43, 26.98it/s][ADownloading data:  34%|███▍      | 1444/4233 [00:35<01:36, 29.02it/s]
+Processing downloads:  34%|███▍      | 1444/4233 [00:35<01:36, 29.00it/s][ADownloading data:  34%|███▍      | 1449/4233 [00:35<01:42, 27.24it/s]
+Processing downloads:  34%|███▍      | 1449/4233 [00:35<01:43, 26.86it/s][ADownloading data:  34%|███▍      | 1454/4233 [00:36<01:39, 27.80it/s]
+Processing downloads:  34%|███▍      | 1454/4233 [00:36<01:39, 27.92it/s][ADownloading data:  34%|███▍      | 1458/4233 [00:36<02:03, 22.48it/s]
+Processing downloads:  34%|███▍      | 1458/4233 [00:36<02:03, 22.55it/s][ADownloading data:  35%|███▍      | 1461/4233 [00:36<02:00, 23.08it/s]
+Processing downloads:  35%|███▍      | 1461/4233 [00:36<01:59, 23.14it/s][ADownloading data:  35%|███▍      | 1464/4233 [00:36<02:08, 21.53it/s]
+Processing downloads:  35%|███▍      | 1464/4233 [00:36<02:08, 21.57it/s][ADownloading data:  35%|███▍      | 1472/4233 [00:36<01:27, 31.46it/s]
+Processing downloads:  35%|███▍      | 1472/4233 [00:36<01:27, 31.52it/s][ADownloading data:  35%|███▍      | 1477/4233 [00:36<01:18, 34.95it/s]
+Processing downloads:  35%|███▍      | 1477/4233 [00:36<01:18, 34.96it/s][ADownloading data:  35%|███▌      | 1482/4233 [00:37<01:15, 36.55it/s]
+Processing downloads:  35%|███▌      | 1482/4233 [00:36<01:15, 36.60it/s][ADownloading data:  35%|███▌      | 1487/4233 [00:37<01:11, 38.59it/s]
+Processing downloads:  35%|███▌      | 1487/4233 [00:37<01:11, 38.56it/s][ADownloading data:  35%|███▌      | 1493/4233 [00:37<01:04, 42.58it/s]
+Processing downloads:  35%|███▌      | 1493/4233 [00:37<01:04, 42.63it/s][ADownloading data:  35%|███▌      | 1498/4233 [00:37<01:04, 42.66it/s]
+Processing downloads:  35%|███▌      | 1498/4233 [00:37<01:04, 42.65it/s][ADownloading data:  36%|███▌      | 1503/4233 [00:37<01:40, 27.05it/s]
+Processing downloads:  36%|███▌      | 1503/4233 [00:37<01:40, 27.04it/s][ADownloading data:  36%|███▌      | 1510/4233 [00:38<01:54, 23.68it/s]
+Processing downloads:  36%|███▌      | 1510/4233 [00:37<01:54, 23.69it/s][ADownloading data:  36%|███▌      | 1522/4233 [00:38<01:11, 37.95it/s]
+Processing downloads:  36%|███▌      | 1522/4233 [00:38<01:11, 37.96it/s][ADownloading data:  36%|███▌      | 1528/4233 [00:38<01:41, 26.67it/s]
+Processing downloads:  36%|███▌      | 1528/4233 [00:38<01:41, 26.67it/s][ADownloading data:  36%|███▋      | 1538/4233 [00:38<01:13, 36.51it/s]
+Processing downloads:  36%|███▋      | 1538/4233 [00:38<01:13, 36.49it/s][ADownloading data:  36%|███▋      | 1544/4233 [00:38<01:08, 39.32it/s]
+Processing downloads:  36%|███▋      | 1544/4233 [00:38<01:08, 39.34it/s][ADownloading data:  37%|███▋      | 1550/4233 [00:39<01:25, 31.26it/s]
+Processing downloads:  37%|███▋      | 1550/4233 [00:39<01:25, 31.24it/s][ADownloading data:  37%|███▋      | 1559/4233 [00:39<01:06, 40.27it/s]
+Processing downloads:  37%|███▋      | 1559/4233 [00:39<01:06, 40.28it/s][ADownloading data:  37%|███▋      | 1565/4233 [00:39<01:25, 31.05it/s]
+Processing downloads:  37%|███▋      | 1565/4233 [00:39<01:25, 31.06it/s][ADownloading data:  37%|███▋      | 1575/4233 [00:39<01:04, 41.49it/s]
+Processing downloads:  37%|███▋      | 1575/4233 [00:39<01:04, 41.50it/s][ADownloading data:  37%|███▋      | 1582/4233 [00:39<01:02, 42.52it/s]
+Processing downloads:  37%|███▋      | 1582/4233 [00:39<01:02, 42.53it/s][ADownloading data:  38%|███▊      | 1589/4233 [00:39<00:55, 47.25it/s]
+Processing downloads:  38%|███▊      | 1589/4233 [00:39<00:55, 47.22it/s][ADownloading data:  38%|███▊      | 1595/4233 [00:40<00:59, 44.41it/s]
+Processing downloads:  38%|███▊      | 1595/4233 [00:39<00:59, 44.42it/s][ADownloading data:  38%|███▊      | 1601/4233 [00:40<01:00, 43.40it/s]
+Processing downloads:  38%|███▊      | 1601/4233 [00:40<01:00, 43.41it/s][ADownloading data:  38%|███▊      | 1606/4233 [00:40<01:31, 28.82it/s]
+Processing downloads:  38%|███▊      | 1606/4233 [00:40<01:31, 28.81it/s][ADownloading data:  38%|███▊      | 1610/4233 [00:40<01:32, 28.40it/s]
+Processing downloads:  38%|███▊      | 1610/4233 [00:40<01:32, 28.40it/s][ADownloading data:  38%|███▊      | 1616/4233 [00:40<01:20, 32.57it/s]
+Processing downloads:  38%|███▊      | 1616/4233 [00:40<01:20, 32.58it/s][ADownloading data:  38%|███▊      | 1622/4233 [00:41<01:13, 35.35it/s]
+Processing downloads:  38%|███▊      | 1622/4233 [00:40<01:13, 35.35it/s][ADownloading data:  38%|███▊      | 1629/4233 [00:41<01:03, 41.17it/s]
+Processing downloads:  38%|███▊      | 1629/4233 [00:41<01:03, 41.13it/s][ADownloading data:  39%|███▊      | 1634/4233 [00:41<01:28, 29.40it/s]
+Processing downloads:  39%|███▊      | 1634/4233 [00:41<01:28, 29.41it/s][ADownloading data:  39%|███▉      | 1646/4233 [00:41<00:56, 45.41it/s]
+Processing downloads:  39%|███▉      | 1646/4233 [00:41<00:56, 45.42it/s][ADownloading data:  39%|███▉      | 1653/4233 [00:41<01:20, 31.86it/s]
+Processing downloads:  39%|███▉      | 1653/4233 [00:41<01:20, 31.86it/s][ADownloading data:  39%|███▉      | 1659/4233 [00:42<01:23, 30.73it/s]
+Processing downloads:  39%|███▉      | 1659/4233 [00:42<01:23, 30.73it/s][ADownloading data:  39%|███▉      | 1671/4233 [00:42<01:02, 41.22it/s]
+Processing downloads:  39%|███▉      | 1671/4233 [00:42<01:02, 41.19it/s][ADownloading data:  40%|███▉      | 1677/4233 [00:42<01:19, 31.97it/s]
+Processing downloads:  40%|███▉      | 1677/4233 [00:42<01:19, 31.98it/s][ADownloading data:  40%|███▉      | 1685/4233 [00:42<01:25, 29.69it/s]
+Processing downloads:  40%|███▉      | 1685/4233 [00:42<01:25, 29.69it/s][ADownloading data:  40%|████      | 1695/4233 [00:43<01:08, 37.20it/s]
+Processing downloads:  40%|████      | 1695/4233 [00:42<01:08, 37.21it/s][ADownloading data:  40%|████      | 1701/4233 [00:43<01:03, 39.92it/s]
+Processing downloads:  40%|████      | 1701/4233 [00:43<01:03, 39.89it/s][ADownloading data:  40%|████      | 1706/4233 [00:43<01:42, 24.69it/s]
+Processing downloads:  40%|████      | 1706/4233 [00:43<01:42, 24.68it/s][ADownloading data:  41%|████      | 1719/4233 [00:43<01:16, 33.01it/s]
+Processing downloads:  41%|████      | 1719/4233 [00:43<01:16, 32.92it/s][ADownloading data:  41%|████      | 1724/4233 [00:44<01:19, 31.42it/s]
+Processing downloads:  41%|████      | 1724/4233 [00:43<01:19, 31.46it/s][ADownloading data:  41%|████      | 1736/4233 [00:44<00:57, 43.41it/s]
+Processing downloads:  41%|████      | 1736/4233 [00:44<00:57, 43.46it/s][ADownloading data:  41%|████      | 1742/4233 [00:44<01:17, 32.01it/s]
+Processing downloads:  41%|████      | 1742/4233 [00:44<01:17, 32.02it/s][ADownloading data:  41%|████▏     | 1756/4233 [00:44<00:54, 45.84it/s]
+Processing downloads:  41%|████▏     | 1756/4233 [00:44<00:54, 45.83it/s][ADownloading data:  42%|████▏     | 1763/4233 [00:45<01:01, 39.85it/s]
+Processing downloads:  42%|████▏     | 1763/4233 [00:44<01:01, 39.88it/s][ADownloading data:  42%|████▏     | 1769/4233 [00:45<01:19, 31.17it/s]
+Processing downloads:  42%|████▏     | 1769/4233 [00:45<01:19, 31.18it/s][ADownloading data:  42%|████▏     | 1776/4233 [00:45<01:12, 33.90it/s]
+Processing downloads:  42%|████▏     | 1776/4233 [00:45<01:12, 33.91it/s][ADownloading data:  42%|████▏     | 1781/4233 [00:45<01:17, 31.59it/s]
+Processing downloads:  42%|████▏     | 1781/4233 [00:45<01:17, 31.60it/s][ADownloading data:  42%|████▏     | 1791/4233 [00:46<01:33, 26.26it/s]
+Processing downloads:  42%|████▏     | 1791/4233 [00:46<01:33, 26.25it/s][ADownloading data:  42%|████▏     | 1796/4233 [00:46<01:28, 27.46it/s]
+Processing downloads:  42%|████▏     | 1796/4233 [00:46<01:28, 27.44it/s][ADownloading data:  43%|████▎     | 1800/4233 [00:46<01:33, 26.16it/s]
+Processing downloads:  43%|████▎     | 1800/4233 [00:46<01:33, 26.13it/s][ADownloading data:  43%|████▎     | 1807/4233 [00:46<01:32, 26.27it/s]
+Processing downloads:  43%|████▎     | 1807/4233 [00:46<01:32, 26.29it/s][ADownloading data:  43%|████▎     | 1813/4233 [00:46<01:22, 29.36it/s]
+Processing downloads:  43%|████▎     | 1813/4233 [00:46<01:22, 29.36it/s][ADownloading data:  43%|████▎     | 1823/4233 [00:47<01:20, 30.10it/s]
+Processing downloads:  43%|████▎     | 1823/4233 [00:47<01:20, 30.12it/s][ADownloading data:  43%|████▎     | 1836/4233 [00:47<01:08, 35.04it/s]
+Processing downloads:  43%|████▎     | 1836/4233 [00:47<01:08, 35.06it/s][ADownloading data:  44%|████▎     | 1843/4233 [00:47<01:04, 36.87it/s]
+Processing downloads:  44%|████▎     | 1843/4233 [00:47<01:04, 36.88it/s][ADownloading data:  44%|████▍     | 1854/4233 [00:47<00:51, 45.88it/s]
+Processing downloads:  44%|████▍     | 1854/4233 [00:47<00:51, 45.89it/s][ADownloading data:  44%|████▍     | 1860/4233 [00:47<00:49, 47.87it/s]
+Processing downloads:  44%|████▍     | 1860/4233 [00:47<00:49, 47.81it/s][ADownloading data:  44%|████▍     | 1866/4233 [00:48<01:12, 32.78it/s]
+Processing downloads:  44%|████▍     | 1866/4233 [00:48<01:12, 32.79it/s][ADownloading data:  44%|████▍     | 1874/4233 [00:48<01:32, 25.60it/s]
+Processing downloads:  44%|████▍     | 1874/4233 [00:48<01:32, 25.60it/s][ADownloading data:  45%|████▍     | 1890/4233 [00:49<01:12, 32.38it/s]
+Processing downloads:  45%|████▍     | 1890/4233 [00:48<01:12, 32.39it/s][ADownloading data:  45%|████▍     | 1901/4233 [00:49<01:08, 34.08it/s]
+Processing downloads:  45%|████▍     | 1901/4233 [00:49<01:08, 34.08it/s][ADownloading data:  45%|████▌     | 1913/4233 [00:49<00:55, 42.00it/s]
+Processing downloads:  45%|████▌     | 1913/4233 [00:49<00:55, 42.01it/s][ADownloading data:  45%|████▌     | 1919/4233 [00:50<01:19, 28.98it/s]
+Processing downloads:  45%|████▌     | 1919/4233 [00:49<01:19, 28.98it/s][ADownloading data:  45%|████▌     | 1925/4233 [00:50<01:11, 32.29it/s]
+Processing downloads:  45%|████▌     | 1925/4233 [00:49<01:11, 32.28it/s][ADownloading data:  46%|████▌     | 1930/4233 [00:50<01:15, 30.65it/s]
+Processing downloads:  46%|████▌     | 1930/4233 [00:50<01:15, 30.64it/s][ADownloading data:  46%|████▌     | 1938/4233 [00:50<01:02, 36.67it/s]
+Processing downloads:  46%|████▌     | 1938/4233 [00:50<01:02, 36.69it/s][ADownloading data:  46%|████▌     | 1943/4233 [00:50<01:16, 29.76it/s]
+Processing downloads:  46%|████▌     | 1943/4233 [00:50<01:16, 29.76it/s][ADownloading data:  46%|████▌     | 1951/4233 [00:51<01:20, 28.43it/s]
+Processing downloads:  46%|████▌     | 1951/4233 [00:50<01:20, 28.43it/s][ADownloading data:  46%|████▌     | 1956/4233 [00:51<01:18, 29.10it/s]
+Processing downloads:  46%|████▌     | 1956/4233 [00:51<01:18, 29.09it/s][ADownloading data:  46%|████▋     | 1965/4233 [00:51<01:01, 36.64it/s]
+Processing downloads:  46%|████▋     | 1965/4233 [00:51<01:01, 36.65it/s][ADownloading data:  47%|████▋     | 1971/4233 [00:51<00:55, 40.45it/s]
+Processing downloads:  47%|████▋     | 1971/4233 [00:51<00:55, 40.47it/s][ADownloading data:  47%|████▋     | 1976/4233 [00:51<01:20, 28.07it/s]
+Processing downloads:  47%|████▋     | 1976/4233 [00:51<01:20, 28.07it/s][ADownloading data:  47%|████▋     | 1981/4233 [00:51<01:14, 30.10it/s]
+Processing downloads:  47%|████▋     | 1981/4233 [00:51<01:14, 30.11it/s][ADownloading data:  47%|████▋     | 1985/4233 [00:52<01:34, 23.73it/s]
+Processing downloads:  47%|████▋     | 1985/4233 [00:52<01:34, 23.71it/s][ADownloading data:  47%|████▋     | 1989/4233 [00:52<01:26, 25.98it/s]
+Processing downloads:  47%|████▋     | 1989/4233 [00:52<01:26, 25.96it/s][ADownloading data:  47%|████▋     | 1998/4233 [00:52<01:01, 36.59it/s]
+Processing downloads:  47%|████▋     | 1998/4233 [00:52<01:01, 36.61it/s][ADownloading data:  47%|████▋     | 2003/4233 [00:52<00:57, 38.66it/s]
+Processing downloads:  47%|████▋     | 2003/4233 [00:52<00:57, 38.68it/s][ADownloading data:  47%|████▋     | 2009/4233 [00:52<00:54, 40.83it/s]
+Processing downloads:  47%|████▋     | 2009/4233 [00:52<00:54, 40.84it/s][ADownloading data:  48%|████▊     | 2014/4233 [00:53<01:21, 27.33it/s]
+Processing downloads:  48%|████▊     | 2014/4233 [00:52<01:21, 27.31it/s][ADownloading data:  48%|████▊     | 2018/4233 [00:53<01:20, 27.60it/s]
+Processing downloads:  48%|████▊     | 2018/4233 [00:53<01:20, 27.61it/s][ADownloading data:  48%|████▊     | 2026/4233 [00:53<01:01, 36.17it/s]
+Processing downloads:  48%|████▊     | 2026/4233 [00:53<01:01, 36.18it/s][ADownloading data:  48%|████▊     | 2031/4233 [00:53<00:56, 38.76it/s]
+Processing downloads:  48%|████▊     | 2031/4233 [00:53<00:56, 38.77it/s][ADownloading data:  48%|████▊     | 2036/4233 [00:53<00:56, 38.97it/s]
+Processing downloads:  48%|████▊     | 2036/4233 [00:53<00:56, 38.98it/s][ADownloading data:  48%|████▊     | 2042/4233 [00:53<00:50, 43.80it/s]
+Processing downloads:  48%|████▊     | 2042/4233 [00:53<00:50, 43.81it/s][ADownloading data:  48%|████▊     | 2048/4233 [00:53<00:50, 42.98it/s]
+Processing downloads:  48%|████▊     | 2048/4233 [00:53<00:50, 42.98it/s][ADownloading data:  48%|████▊     | 2053/4233 [00:54<01:16, 28.63it/s]
+Processing downloads:  48%|████▊     | 2053/4233 [00:53<01:16, 28.59it/s][ADownloading data:  49%|████▊     | 2062/4233 [00:54<00:54, 39.68it/s]
+Processing downloads:  49%|████▊     | 2062/4233 [00:54<00:54, 39.70it/s][ADownloading data:  49%|████▉     | 2068/4233 [00:54<01:09, 30.95it/s]
+Processing downloads:  49%|████▉     | 2068/4233 [00:54<01:09, 30.96it/s][ADownloading data:  49%|████▉     | 2080/4233 [00:54<00:48, 44.84it/s]
+Processing downloads:  49%|████▉     | 2080/4233 [00:54<00:48, 44.82it/s][ADownloading data:  49%|████▉     | 2087/4233 [00:55<01:24, 25.29it/s]
+Processing downloads:  49%|████▉     | 2087/4233 [00:55<01:24, 25.30it/s][ADownloading data:  50%|████▉     | 2102/4233 [00:55<00:52, 40.56it/s]
+Processing downloads:  50%|████▉     | 2102/4233 [00:55<00:52, 40.57it/s][ADownloading data:  50%|████▉     | 2110/4233 [00:55<00:50, 41.65it/s]
+Processing downloads:  50%|████▉     | 2110/4233 [00:55<00:50, 41.66it/s][ADownloading data:  50%|█████     | 2117/4233 [00:55<00:47, 44.92it/s]
+Processing downloads:  50%|█████     | 2117/4233 [00:55<00:47, 44.92it/s][ADownloading data:  50%|█████     | 2124/4233 [00:55<00:45, 46.74it/s]
+Processing downloads:  50%|█████     | 2124/4233 [00:55<00:45, 46.74it/s][ADownloading data:  50%|█████     | 2131/4233 [00:55<00:51, 41.13it/s]
+Processing downloads:  50%|█████     | 2131/4233 [00:55<00:51, 41.13it/s][ADownloading data:  50%|█████     | 2137/4233 [00:56<00:58, 35.96it/s]
+Processing downloads:  50%|█████     | 2137/4233 [00:56<00:58, 35.96it/s][ADownloading data:  51%|█████     | 2142/4233 [00:56<00:54, 38.38it/s]
+Processing downloads:  51%|█████     | 2142/4233 [00:56<00:54, 38.35it/s][ADownloading data:  51%|█████     | 2147/4233 [00:56<00:51, 40.47it/s]
+Processing downloads:  51%|█████     | 2147/4233 [00:56<00:51, 40.48it/s][ADownloading data:  51%|█████     | 2147/4233 [01:10<00:51, 40.47it/s]
+Processing downloads:  51%|█████     | 2147/4233 [01:09<00:51, 40.48it/s][A/Users/eugene/.pyenv/versions/3.11.2/lib/python3.11/multiprocessing/resource_tracker.py:224: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '

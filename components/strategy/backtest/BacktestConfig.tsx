@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { 
   PlayCircleIcon,
   ArrowPathIcon
@@ -95,7 +95,20 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
     }
   };
 
+  useEffect(() => {
+    console.error("[DEBUG] BacktestConfig component MOUNTED (v2)");
+  }, []);
+
   const handleRun = () => {
+    console.error("[DEBUG] BacktestConfig: handleRun initiated");
+    
+    console.error("[DEBUG] Options to be passed:", {
+      period,
+      initialCapital,
+      commissionPct,
+      slippagePct
+    });
+
     onRun({
       period,
       startDate: period === "custom" ? startDate : undefined,
@@ -316,7 +329,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
         ) : (
           <>
             <PlayCircleIcon className="w-6 h-6" />
-            백테스트 시작하기
+            백테스트 시작하기 (v2)
           </>
         )}
       </button>

@@ -18,6 +18,7 @@ class RiskManagement(BaseModel):
     take_profit_pct: Optional[float] = None
     trailing_stop_pct: Optional[float] = None
     max_holding_days: Optional[int] = None
+    init_cash: Optional[float] = 10000000.0
 
 class BacktestRequest(BaseModel):
     symbol: str
@@ -25,6 +26,7 @@ class BacktestRequest(BaseModel):
     exit: ConditionGroup
     risk: RiskManagement
     period: str = "full"
+    options: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 class SignalResult(BaseModel):
     date: str
@@ -44,5 +46,7 @@ class BacktestResponse(BaseModel):
     sortino: float
     volatility: float
     equity: List[float]
+    benchmark_equity: Optional[List[float]] = Field(default_factory=list)
     dates: List[str]
     signals: List[SignalResult]
+    warnings: Optional[List[str]] = Field(default_factory=list)
