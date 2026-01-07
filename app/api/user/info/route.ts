@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
 
     // Generate mock user info data
     // In a real application, this would come from the database
-    const userInfo = {
+    const userInfo: any = {
       watchlistCount: Math.floor(Math.random() * 50) + 10, // 10-60개
       accountCount: Math.floor(Math.random() * 5) + 1, // 1-6개
       currentReturnRate: (Math.random() * 20 - 10).toFixed(2), // -10% ~ +10%

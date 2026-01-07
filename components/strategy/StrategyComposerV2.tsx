@@ -127,6 +127,7 @@ export default function StrategyComposerV2({
   // Backtest Preview State
   const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
   const [isBacktesting, setIsBacktesting] = useState(false);
+  const [backtestError, setBacktestError] = useState<string | null>(null);
   const [hoveredInfo, setHoveredInfo] = useState<{ id: string, rect: DOMRect } | null>(null);
   const [hoveredParam, setHoveredParam] = useState<{ label: string, tooltip: string, rect: DOMRect } | null>(null);
   const [savedFeedback, setSavedFeedback] = useState<string | null>(null);
@@ -225,65 +226,68 @@ export default function StrategyComposerV2({
   };
 
   const runSimulation = useCallback(async (options: any) => {
-    setIsBacktesting(true);
-
-    // Map canvas blocks to backtest conditions
-    const entryConditionsMap = canvasBlocks
-      .filter(b => b.type === "entry" || b.type === "filter")
-      .map(b => ({
-        type: (b.type === "filter" ? "filter" : "indicator") as ConditionType,
-        id: b.blockId,
-        params: b.params,
-      }));
-
-    const exitConditionsMap = canvasBlocks
-      .filter(b => b.type === "exit")
-      .map(b => ({
-        type: "indicator" as ConditionType,
-        id: b.blockId,
-        params: b.params,
-      }));
-
-    // Construct StrategyDSL from current state
-    const strategy: StrategyDSL = {
-      id: "temp_preview",
-      name: strategyName,
-      description: "Preview Strategy",
-      version: "1.0",
-      created_at: new Date().toISOString(),
-      universe: {
-        id: universe,
-        filters: universeFilters
-      },
-      updated_at: new Date().toISOString(),
-      entry: {
-        logic: entryLogic,
-        conditions: entryConditionsMap
-      },
-      exit: {
-        logic: exitLogic,
-        conditions: exitConditionsMap
-      },
-      risk: riskManagement || {
-        position_size_pct: 10,
-        max_positions: 10,
-        max_daily_loss_pct: 5,
-        max_total_exposure_pct: 100
-      }
-    };
-
+    console.error("[DEBUG] StrategyComposerV2: runSimulation CALLED with options:", options);
     try {
+      setIsBacktesting(true);
+      setBacktestError(null);
+      
+      console.error("[DEBUG] StrategyComposerV2: Preparing strategy payload...");
+
+      // Map canvas blocks to backtest conditions
+      const entryConditionsMap = canvasBlocks
+        .filter(b => b.type === "entry" || b.type === "filter")
+        .map(b => ({
+          type: (b.type === "filter" ? "filter" : "indicator") as ConditionType,
+          id: b.blockId,
+          params: b.params,
+        }));
+
+      const exitConditionsMap = canvasBlocks
+        .filter(b => b.type === "exit")
+        .map(b => ({
+          type: "indicator" as ConditionType,
+          id: b.blockId,
+          params: b.params,
+        }));
+
+      // Construct StrategyDSL from current state
+      const strategy: StrategyDSL = {
+        id: "temp_preview",
+        name: strategyName,
+        description: "Preview Strategy",
+        version: "1.0",
+        created_at: new Date().toISOString(),
+        universe: {
+          id: universe,
+          filters: universeFilters
+        },
+        updated_at: new Date().toISOString(),
+        entry: {
+          logic: entryLogic,
+          conditions: entryConditionsMap
+        },
+        exit: {
+          logic: exitLogic,
+          conditions: exitConditionsMap
+        },
+        risk: riskManagement || {
+          position_size_pct: 10,
+          max_positions: 10,
+          max_daily_loss_pct: 5,
+          max_total_exposure_pct: 100
+        }
+      };
+
       const engine = new BacktestService();
-      // Pass options.period. In real app, we would pass the full options object to engine.
-      // For now, engine only accepts period string.
-      const result = await engine.run(strategy, options.period || "1Y");
+      const result = await engine.run(strategy, options);
       setBacktestResult(result);
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      console.error("Backtest Error:", e);
+      setBacktestError(e.message || "백테스트 중 알 수 없는 오류가 발생했습니다.");
     } finally {
       setIsBacktesting(false);
     }
-  }, [strategyName, universe, canvasBlocks, riskManagement, entryLogic, exitLogic]);
+  }, [strategyName, universe, canvasBlocks, riskManagement, entryLogic, exitLogic, universeFilters]);
 
   // Trigger simulation when entering step 5
 
@@ -731,6 +735,24 @@ export default function StrategyComposerV2({
                 }
               }}
             />
+          )}
+
+          {backtestError && (
+             <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-bottom-4">
+                <div className="bg-red-500/10 border border-red-500/50 backdrop-blur-md px-6 py-4 rounded-2xl flex items-center gap-4 shadow-2xl">
+                   <ExclamationTriangleIcon className="w-6 h-6 text-red-500 shrink-0" />
+                   <div className="flex flex-col">
+                      <span className="text-sm font-bold text-white">시뮬레이션 오류</span>
+                      <span className="text-xs text-red-400">{backtestError}</span>
+                   </div>
+                   <button 
+                      onClick={() => setBacktestError(null)}
+                      className="ml-4 p-1 hover:bg-white/10 rounded-full transition-colors"
+                   >
+                     <XMarkIcon className="w-4 h-4 text-gray-400" />
+                   </button>
+                </div>
+             </div>
           )}
         </div>
       )}

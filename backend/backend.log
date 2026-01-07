@@ -1,0 +1,142 @@
+INFO:     Started server process [8374]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+/Users/eugene/nullalgo/simons/backend/main.py:28: PydanticDeprecatedSince20:
+
+The `dict` method is deprecated; use `model_dump` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.5/migration/
+
+BacktestEngine initialized with data_dir: /Users/eugene/nullalgo/simons/data/ohlcv
+
+[DEBUG] BACKEND: Received backtest request for symbol: 005930
+[DEBUG] Request Data: {
+  "symbol": "005930",
+  "entry": {
+    "logic": "AND",
+    "conditions": [
+      {
+        "type": "indicator",
+        "id": "ma_crossover",
+        "params": {
+          "shortMA": 5,
+          "longMA": 20,
+          "signalType": "buy"
+        },
+        "weight": 1.0
+      }
+    ]
+  },
+  "exit": {
+    "logic": "AND",
+    "conditions": []
+  },
+  "risk": {
+    "position_size_pct": 5.0,
+    "max_positions": 10,
+    "stop_loss_pct": 0.0,
+    "take_profit_pct": 0.0,
+    "trailing_stop_pct": 0.0,
+    "max_holding_days": 0,
+    "init_cash": 10000000.0
+  },
+  "period": "1Y",
+  "options": {
+    "fee_rate": 0.00015,
+    "slippage_rate": 0.0005,
+    "execution_type": "next_open"
+  }
+}
+[DEBUG] ENGINE: Starting backtest for 005930
+[DEBUG] ENGINE: Data loaded. Rows: 2756
+[DEBUG] ENGINE: Data sample (first 5 rows):
+        date   open  close    change
+0 2013-10-16  29380  29000       NaN
+1 2013-10-17  29200  29260  0.008966
+2 2013-10-18  29440  29440  0.006152
+3 2013-10-21  29500  29280 -0.005435
+4 2013-10-22  29200  29100 -0.006148
+[DEBUG] ENGINE: Pre-calculating indicators for ma_crossover
+[DEBUG] ENGINE: Requested period: 1Y, startDate: None, endDate: None
+[DEBUG] ENGINE: Data length after filtering: 244
+[DEBUG] ENGINE: Signal match at idx 23 for ma_crossover
+[DEBUG] ENGINE: Signal match at idx 49 for ma_crossover
+[DEBUG] ENGINE: Entry signals generated: 7
+[DEBUG] ENGINE: Exit signals generated: 0
+[DEBUG] ENGINE: VectorBT simulation with kwargs: {'size': 0.05, 'size_type': 'Percent', 'init_cash': 10000000.0, 'fees': 0.00015, 'slippage': 0.0005, 'freq': 'D', 'sl_stop': None, 'tp_stop': None, 'sl_trail': None, 'allow_partial': True}
+[DEBUG] ENGINE: Portfolio Value Stats - Min: 9,836,035, Max: 10,091,260, Final: 9,858,258
+[DEBUG] ENGINE: Final Result Summary:
+  Total Return: -1.4174232831818272%
+  Final Equity: 9,858,258
+  Initial Equity: 10,000,000
+  Num Signals: 2
+[DEBUG] BACKEND: Backtest Success. Total Return: -1.42%
+INFO:     127.0.0.1:60598 - "POST /backtest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61601 - "OPTIONS /backtest HTTP/1.1" 200 OK
+/Users/eugene/nullalgo/simons/backend/main.py:28: PydanticDeprecatedSince20:
+
+The `dict` method is deprecated; use `model_dump` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.5/migration/
+
+
+[DEBUG] BACKEND: Received backtest request for symbol: 005930
+[DEBUG] Request Data: {
+  "symbol": "005930",
+  "entry": {
+    "logic": "AND",
+    "conditions": [
+      {
+        "type": "indicator",
+        "id": "ma_crossover",
+        "params": {
+          "shortMA": 5,
+          "longMA": 20,
+          "signalType": "buy"
+        },
+        "weight": 1.0
+      }
+    ]
+  },
+  "exit": {
+    "logic": "OR",
+    "conditions": []
+  },
+  "risk": {
+    "position_size_pct": 5.0,
+    "max_positions": 10,
+    "stop_loss_pct": 10.0,
+    "take_profit_pct": 20.0,
+    "trailing_stop_pct": 0.0,
+    "max_holding_days": 0,
+    "init_cash": 10000000.0
+  },
+  "period": "1Y",
+  "options": {
+    "fee_rate": 0.00015,
+    "slippage_rate": 0.0005,
+    "execution_type": "next_open"
+  }
+}
+[DEBUG] ENGINE: Starting backtest for 005930
+[DEBUG] ENGINE: Data loaded. Rows: 2756
+[DEBUG] ENGINE: Data sample (first 5 rows):
+        date   open  close    change
+0 2013-10-16  29380  29000       NaN
+1 2013-10-17  29200  29260  0.008966
+2 2013-10-18  29440  29440  0.006152
+3 2013-10-21  29500  29280 -0.005435
+4 2013-10-22  29200  29100 -0.006148
+[DEBUG] ENGINE: Pre-calculating indicators for ma_crossover
+[DEBUG] ENGINE: Requested period: 1Y, startDate: None, endDate: None
+[DEBUG] ENGINE: Data length after filtering: 244
+[DEBUG] ENGINE: Signal match at idx 23 for ma_crossover
+[DEBUG] ENGINE: Signal match at idx 49 for ma_crossover
+[DEBUG] ENGINE: Entry signals generated: 7
+[DEBUG] ENGINE: Exit signals generated: 0
+[DEBUG] ENGINE: VectorBT simulation with kwargs: {'size': 0.05, 'size_type': 'Percent', 'init_cash': 10000000.0, 'fees': 0.00015, 'slippage': 0.0005, 'freq': 'D', 'sl_stop': 0.1, 'tp_stop': 0.2, 'sl_trail': None, 'allow_partial': True}
+[DEBUG] ENGINE: Portfolio Value Stats - Min: 9,903,355, Max: 10,091,260, Final: 9,905,071
+[DEBUG] ENGINE: Final Result Summary:
+  Total Return: -0.9492884253079595%
+  Final Equity: 9,905,071
+  Initial Equity: 10,000,000
+  Num Signals: 4
+[DEBUG] BACKEND: Backtest Success. Total Return: -0.95%
+INFO:     127.0.0.1:61601 - "POST /backtest HTTP/1.1" 200 OK

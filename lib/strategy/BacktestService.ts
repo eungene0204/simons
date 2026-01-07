@@ -1,9 +1,11 @@
 import { StrategyDSL, BacktestResult } from "@/types/strategy";
 import { UniverseResolver } from "./pipeline/UniverseResolver";
+import { BacktestConfigOptions } from "@/components/strategy/backtest/BacktestConfig";
 
 export class BacktestService {
 
-  async run(strategy: StrategyDSL, period: string = "full"): Promise<BacktestResult> {
+  async run(strategy: StrategyDSL, options: BacktestConfigOptions): Promise<BacktestResult> {
+    console.error("[DEBUG] BacktestService: run method START");
     // 1. Identify required symbols (For now, just one from Universe)
     const symbols = UniverseResolver.getSymbols(
       strategy.universe.id, 
@@ -16,6 +18,24 @@ export class BacktestService {
 
     const symbol = symbols[0]; // Single-stock proof of concept
 
+    const requestBody = {
+          symbol,
+          entry: strategy.entry,
+          exit: strategy.exit,
+          risk: {
+            ...strategy.risk,
+            init_cash: options.initialCapital
+          },
+          period: options.period,
+          options: {
+            fee_rate: options.commissionPct / 100,
+            slippage_rate: options.slippagePct / 100,
+            execution_type: "next_open" // Default
+          }
+        };
+
+    console.error("[DEBUG] BacktestService: Fetching http://localhost:8000/backtest with body:", JSON.stringify(requestBody, null, 2));
+
     // 2. Call Python Microservice
     try {
       const response = await fetch("http://localhost:8000/backtest", {
@@ -23,13 +43,7 @@ export class BacktestService {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          symbol,
-          entry: strategy.entry,
-          exit: strategy.exit,
-          risk: strategy.risk,
-          period: period
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -37,11 +51,14 @@ export class BacktestService {
         throw new Error(errorData.detail || "Failed to run backtest in Python engine");
       }
 
+      console.error("[DEBUG] BacktestService: HTTP response received, status:", response.status);
       const pythonResult = await response.json();
+      console.error("[DEBUG] BacktestService: Final result data:", pythonResult);
 
       // 3. Map Python Result to TS BacktestResult interface
       return {
         strategyId: strategy.id,
+        symbol: pythonResult.symbol,
         totalReturn: pythonResult.totalReturn,
         cagr: pythonResult.cagr,
         buyAndHoldReturn: pythonResult.buyAndHoldReturn,
@@ -56,12 +73,13 @@ export class BacktestService {
         finalEquity: pythonResult.equity[pythonResult.equity.length - 1],
         initialCapital: pythonResult.equity[0],
         equity: pythonResult.equity,
+        benchmarkEquity: pythonResult.benchmark_equity,
         dates: pythonResult.dates,
         tradesList: pythonResult.signals.map((s: any) => ({
           date: s.date,
           type: s.type,
           price: s.price,
-          quantity: 0, // Placeholder
+          quantity: s.quantity || 0,
           reason: s.condition
         })),
         monthlyReturns: {},
@@ -72,10 +90,12 @@ export class BacktestService {
           condition: s.condition,
           price: s.price
         })),
+        warnings: pythonResult.warnings,
       };
     } catch (error: any) {
       console.error("Backtest integration error:", error);
-      throw error;
+      const errorMessage = error instanceof Error ? error.message : "알 수 없는 에러가 발생했습니다.";
+      throw new Error(`백테스트 엔진 오류: ${errorMessage}`);
     }
   }
 }
