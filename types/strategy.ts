@@ -112,6 +112,7 @@ export interface BacktestResult {
     type: "buy" | "sell";
     price: number;
     quantity: number;
+    amount?: number;
     reason: string;
   }>;
   monthlyReturns: Record<string, number>;
@@ -121,6 +122,8 @@ export interface BacktestResult {
     type: "entry" | "exit";
     condition: string;
     price: number;
+    quantity?: number;
+    amount?: number;
   }>;
   warnings?: string[];
 }
