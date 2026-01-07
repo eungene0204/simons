@@ -32,6 +32,8 @@ class SignalResult(BaseModel):
     date: str
     type: str # 'entry' | 'exit'
     price: float
+    quantity: int
+    amount: float
     condition: str
 
 class BacktestResponse(BaseModel):
@@ -50,3 +52,4 @@ class BacktestResponse(BaseModel):
     dates: List[str]
     signals: List[SignalResult]
     warnings: Optional[List[str]] = Field(default_factory=list)
+    version: Optional[str] = "1.0"

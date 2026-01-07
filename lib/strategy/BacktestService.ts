@@ -53,7 +53,8 @@ export class BacktestService {
 
       console.error("[DEBUG] BacktestService: HTTP response received, status:", response.status);
       const pythonResult = await response.json();
-      console.error("[DEBUG] BacktestService: Final result data:", pythonResult);
+      console.error("[DEBUG] BacktestService: Final result data keys:", Object.keys(pythonResult));
+      console.error("[DEBUG] BacktestService: Sample signal:", pythonResult.signals?.[0]);
 
       // 3. Map Python Result to TS BacktestResult interface
       return {
@@ -80,15 +81,18 @@ export class BacktestService {
           type: s.type,
           price: s.price,
           quantity: s.quantity || 0,
+          amount: s.amount || 0,
           reason: s.condition
         })),
         monthlyReturns: {},
         yearlyReturns: {},
         signals: pythonResult.signals.map((s: any) => ({
           date: s.date,
-          type: s.type,
+          type: s.type === 'buy' ? 'entry' : 'exit',
           condition: s.condition,
-          price: s.price
+          price: Number(s.price),
+          quantity: Number(s.quantity),
+          amount: Number(s.amount)
         })),
         warnings: pythonResult.warnings,
       };

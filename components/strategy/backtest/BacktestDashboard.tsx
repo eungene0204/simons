@@ -34,7 +34,9 @@ export default function BacktestDashboard({
   const [localOptions, setLocalOptions] = useState<BacktestConfigOptions | null>(currentOptions || null);
   
   const formatKRW = (val: number) => {
-    return (Math.trunc(val / 100) * 100).toLocaleString() + "원";
+    const num = Number(val);
+    if (isNaN(num) || num === 0) return "0원";
+    return Math.round(num).toLocaleString() + "원";
   };
 
   useEffect(() => {
@@ -44,11 +46,10 @@ export default function BacktestDashboard({
   useEffect(() => {
     console.log("[DEBUG] BacktestDashboard: result received", {
       totalReturn: result.totalReturn,
-      finalEquity: result.finalEquity,
-      initialCapital: result.initialCapital,
       diff: result.finalEquity - result.initialCapital,
       numTrades: result.trades,
-      numEquityPoints: result.equity.length
+      numEquityPoints: result.equity.length,
+      sampleTrades: result.tradesList?.slice(0, 3)
     });
   }, [result]);
 
@@ -56,14 +57,14 @@ export default function BacktestDashboard({
     <div className="flex flex-col h-full animate-in fade-in zoom-in-95 duration-300">
       {/* Missing Data Warnings */}
       {result.warnings && result.warnings.length > 0 && (
-        <div className="mb-6 p-4 bg-orange-500/10 border border-orange-500/30 rounded-xl flex flex-col gap-2">
-           <div className="flex items-center gap-2 text-orange-400 font-black text-sm uppercase">
+        <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl flex flex-col gap-2">
+           <div className="flex items-center gap-2 text-amber-400 font-black text-sm uppercase">
               <ExclamationTriangleIcon className="w-5 h-5" />
               주의: 백테스트 데이터 제한 사항
            </div>
            <ul className="list-disc list-inside space-y-1">
              {result.warnings.map((w, i) => (
-               <li key={i} className="text-xs text-orange-300/80 font-medium">
+               <li key={i} className="text-xs text-amber-200 font-medium">
                  {w}
                </li>
              ))}
@@ -315,20 +316,28 @@ export default function BacktestDashboard({
                          </tr>
                       </thead>
                       <tbody className="bg-[#0f0f0f]">
-                         {result.tradesList.map((t, i) => (
-                            <tr key={i} className="hover:bg-white/5 transition-colors border-b border-gray-800/50">
-                               <td className="p-3 text-sm font-mono text-gray-400">{t.date}</td>
-                               <td className="p-3">
-                                  <span className={`px-1.5 py-0.5 rounded text-[11px] font-bold ${t.type==='buy' ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400'}`}>
-                                     {t.type === 'buy' ? '매수' : '매도'}
-                                  </span>
-                               </td>
-                               <td className="p-3 text-sm text-gray-300 font-bold">{Math.round(t.price).toLocaleString()}</td>
-                               <td className="p-3 text-sm text-gray-400">{t.quantity}</td>
-                               <td className="p-3 text-sm text-gray-500 italic">{t.reason}</td>
-                               <td className="p-3 text-sm text-right font-mono text-white">{formatKRW(t.price * t.quantity)}</td>
-                            </tr>
-                         ))}
+                          {result.tradesList.map((t, i) => {
+                             const tradeAmount = t.amount || (Number(t.price) * Number(t.quantity));
+                             
+                             return (
+                             <tr key={i} className="hover:bg-white/5 transition-colors border-b border-gray-800/50">
+                                <td className="p-3 text-sm font-mono text-gray-400">{t.date}</td>
+                                <td className="p-3">
+                                   <span className={`px-1.5 py-0.5 rounded text-[11px] font-bold ${t.type==='buy' ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400'}`}>
+                                      {t.type === 'buy' ? '매수' : '매도'}
+                                   </span>
+                                </td>
+                                <td className="p-3 text-sm text-gray-300 font-bold">{Math.round(Number(t.price)).toLocaleString()}</td>
+                                <td className="p-3 text-sm text-gray-400">
+                                   {Math.floor(Number(t.quantity)).toLocaleString()}주
+                                </td>
+                                <td className="p-3 text-sm text-gray-500 italic">{t.reason}</td>
+                                <td className="p-3 text-sm text-right font-mono text-white">
+                                   {formatKRW(tradeAmount)}
+                                </td>
+                             </tr>
+                             );
+                          })}
                       </tbody>
                     </table>
                  ) : (
