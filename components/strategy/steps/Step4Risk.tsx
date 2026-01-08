@@ -34,8 +34,8 @@ export default function Step4Risk({
             {/* Left: Introduction & Summary */}
             <div className="lg:w-1/3 xl:w-1/4">
               <div className="sticky top-0">
-                <div className="w-16 h-16 rounded-2xl bg-orange-500/10 flex items-center justify-center border border-orange-500/20 mb-6">
-                  <ShieldCheckIcon className="w-8 h-8 text-orange-400" />
+                <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center border border-white/20 mb-6">
+                  <ShieldCheckIcon className="w-8 h-8 text-white" />
                 </div>
                 <h4 className="text-xl font-black text-white mb-4 tracking-tight">리스크 엔진 설정</h4>
                 <p className="text-sm text-gray-500 leading-relaxed mb-8">
@@ -44,15 +44,15 @@ export default function Step4Risk({
                 
                 <div className="space-y-4 pt-6 border-t border-gray-800/50">
                   <div className="flex items-center gap-3 text-xs text-gray-400">
-                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                    <div className="w-1.5 h-1.5 rounded-full bg-white/50" />
                     <span>자본금 대비 투자 비율 자동 계산</span>
                   </div>
                   <div className="flex items-center gap-3 text-xs text-gray-400">
-                    <div className="w-1.5 h-1.5 rounded-full bg-orange-500" />
+                    <div className="w-1.5 h-1.5 rounded-full bg-white/30" />
                     <span>실시간 변동성 기반 익절/손절</span>
                   </div>
                   <div className="flex items-center gap-3 text-xs text-gray-400">
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    <div className="w-1.5 h-1.5 rounded-full bg-white/10" />
                     <span>섹터 집중 위험 방어 엔진 작동</span>
                   </div>
                 </div>
@@ -82,7 +82,7 @@ export default function Step4Risk({
           </button>
           <button
             onClick={onNext}
-            className="px-8 py-3 bg-blue-600 text-white rounded-xl text-md font-black hover:bg-blue-500 transition-all flex items-center gap-3 shadow-xl shadow-blue-900/40 hover:scale-[1.02]"
+            className="px-8 py-3 bg-white text-black rounded-xl text-md font-black hover:bg-gray-100 transition-all flex items-center gap-3 shadow-xl shadow-white/5 hover:scale-[1.02]"
           >
             다음: 백테스트
             <ArrowRightIcon className="w-5 h-5" />

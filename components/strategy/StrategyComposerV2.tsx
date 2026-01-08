@@ -401,25 +401,26 @@ export default function StrategyComposerV2({
 
 
   return (
-    <div className="flex flex-col bg-[#0f0f0f] relative">
+    <div className="flex flex-col bg-[#050505] min-h-screen relative">
+      <div className="flex flex-col relative z-10">
       {/* Top Header Bar */}
-      <div className="bg-[#0f0f0f] border-b border-gray-800 px-6 py-4">
+      <div className="bg-[#0f0f0f] px-8 py-8">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4 flex-1">
-            <div className="flex items-center gap-3">
-              <span className="text-xl font-bold text-white tracking-tight">
+          <div className="flex items-center gap-6 flex-1">
+            <div className="flex items-center gap-4">
+              <span className="text-3xl font-black text-white tracking-tight">
                 {strategyName || (currentStep === 1 ? "새로운 전략 개요" : "이름 없는 전략")}
               </span>
-              <span className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 text-[10px] font-bold uppercase tracking-wider border border-blue-500/20">
+              <span className="px-3 py-1 rounded-lg bg-white/10 text-gray-300 text-xs font-bold uppercase tracking-[0.15em] border border-white/5">
                 {stepLabels.find(s => s.num === currentStep)?.label}
               </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <button
               onClick={onCancel}
-              className="px-3 py-1.5 text-xs font-bold text-gray-500 hover:text-white hover:bg-gray-800 rounded-md transition-all border border-gray-800"
+              className="px-4 py-2 text-sm font-bold text-gray-400 hover:text-white hover:bg-white/5 rounded-xl transition-all border border-white/10"
             >
               초기화
             </button>
@@ -428,190 +429,141 @@ export default function StrategyComposerV2({
       </div>
 
       {/* Horizontal Timeline Context Bar with spacing from header */}
-      <div className="bg-[#0f0f0f] border-t border-gray-800 px-8 pt-10 pb-4 flex items-start justify-center gap-4">
-        {/* Step 1: Universe */}
-        <div 
-          onClick={() => setCurrentStep(1)}
-          className="relative flex flex-col items-center gap-3 shrink-0 group cursor-pointer hover:bg-white/10 p-2 rounded-xl transition-all duration-200 active:scale-95"
-        >
-          <span className="absolute -top-6 text-xs text-gray-500 font-semibold tracking-wider">유니버스</span>
-          <div className={`relative flex items-center justify-center w-10 h-10 rounded-full border-2 transition-all ${
-            universe ? "border-blue-500 bg-blue-500/10" : "border-gray-700 bg-gray-800"
-          }`}>
-            <GlobeAltIcon className={`w-5 h-5 ${universe ? "text-blue-400" : "text-gray-500"}`} />
-            {universe && (
-              <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-blue-500 border border-[#0f0f0f] flex items-center justify-center">
-                <CheckIcon className="w-2.5 h-2.5 text-white" />
+      <div className="bg-[#0f0f0f] px-8 pt-6 pb-6">
+        <div className="max-w-full mx-auto flex items-center justify-between gap-0">
+          {/* Step 1: Universe */}
+          <div 
+            onClick={() => setCurrentStep(1)}
+            className={`relative flex flex-col items-center gap-2 group cursor-pointer px-6 py-3 rounded-[24px] transition-all duration-300 border backdrop-blur-md min-w-[160px] ${
+              currentStep === 1 
+                ? "bg-white/10 border-white/20 shadow-lg" 
+                : "bg-white/[0.03] border-white/5 hover:border-white/10 hover:bg-white/5"
+            }`}
+          >
+            <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">Step 01</span>
+            <div className="flex items-center gap-3">
+              <div className={`flex items-center justify-center w-8 h-8 rounded-full border transition-all ${
+                universe ? "border-white/40 bg-white/10" : "border-gray-800 bg-gray-900"
+              }`}>
+                <GlobeAltIcon className={`w-4 h-4 ${universe ? "text-white" : "text-gray-600"}`} />
               </div>
-            )}
-          </div>
-          <div className="bg-[#0a0a0a] rounded-lg border border-gray-800 p-3 min-w-[180px] min-h-[64px] flex flex-col items-center justify-center">
-            <span className={`text-sm font-bold ${universe ? "text-white" : "text-gray-600"}`}>
-              {universe ? universe.toUpperCase() : "미선택"}
-            </span>
-            {universe && (
-              <div className="flex flex-wrap justify-center gap-x-1 mt-1 leading-tight">
-                <span className="text-[10px] text-gray-500 whitespace-nowrap">시총 {universeFilters.marketCapRange[0]}~{universeFilters.marketCapRange[1]}%</span>
-                {universeFilters.minTradingVolume > 0 && (
-                   <span className="text-[10px] text-gray-500 whitespace-nowrap">· {universeFilters.minTradingVolume}억↑</span>
-                )}
-                {universeFilters.selectedSectors.length > 0 && (
-                   <span className="text-[10px] text-gray-500 whitespace-nowrap">· 섹터({universeFilters.selectedSectors.length})</span>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Connector Line */}
-        <div className="h-10 flex items-center shrink-0">
-          <div className="w-8 h-0.5 bg-gray-800" />
-        </div>
-
-        {/* Step 2: Signal Blocks */}
-        <div 
-          onClick={() => setCurrentStep(2)}
-          className="relative flex flex-col items-center gap-3 shrink-0 group cursor-pointer hover:bg-white/10 p-2 rounded-xl transition-all duration-200 active:scale-95"
-        >
-          <span className="absolute -top-6 text-xs text-gray-500 font-semibold tracking-wider">매매 조건</span>
-          <div className={`relative flex items-center justify-center w-10 h-10 rounded-full border-2 transition-all ${
-            canvasBlocks.length > 0 ? "border-red-500 bg-red-500/10" : "border-gray-700 bg-gray-800"
-          }`}>
-            <CubeIcon className={`w-5 h-5 ${canvasBlocks.length > 0 ? "text-red-400" : "text-gray-500"}`} />
-            {canvasBlocks.length > 0 && (
-              <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-red-500 border border-[#0f0f0f] flex items-center justify-center">
-                <span className="text-[9px] font-bold text-white">{canvasBlocks.length}</span>
-              </div>
-            )}
-          </div>
-          <div className="bg-[#0a0a0a] rounded-lg border border-gray-800 p-3 min-w-[180px] min-h-[64px] flex flex-col justify-start">
-            {canvasBlocks.length > 0 ? (
-              <div className="flex flex-col gap-2">
-                {/* Entry Blocks */}
-                {canvasBlocks.filter(b => b.type === "entry" || b.type === "filter").length > 0 && (
-                  <div className="flex items-start gap-2">
-                    <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 font-medium h-fit mt-0.5">
-                      매수
-                    </span>
-                    <div className="flex flex-col">
-                      <span className="text-xs text-gray-300 truncate w-[100px]">
-                        {canvasBlocks.filter(b => b.type === "entry" || b.type === "filter").map(b => signalBlocks[b.blockId]?.name || b.blockId).join(", ")}
-                      </span>
-                    </div>
-                  </div>
-                )}
-                {/* Exit Blocks */}
-                {canvasBlocks.filter(b => b.type === "exit").length > 0 && (
-                  <div className="flex items-start gap-2">
-                    <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-medium h-fit mt-0.5">
-                      매도
-                    </span>
-                    <div className="flex flex-col">
-                      <span className="text-xs text-gray-300 truncate w-[100px]">
-                        {canvasBlocks.filter(b => b.type === "exit").map(b => signalBlocks[b.blockId]?.name || b.blockId).join(", ")}
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-               <div className="flex justify-center items-center h-full">
-                 <span className="text-sm text-gray-600 font-medium">설정 안됨</span>
-               </div>
-            )}
-          </div>
-        </div>
-
-        {/* Connector Line */}
-        <div className="h-10 flex items-center shrink-0">
-          <div className="w-8 h-0.5 bg-gray-800" />
-        </div>
-
-        {/* Step 3: Position */}
-        <div 
-          onClick={() => setCurrentStep(3)}
-          className={`relative flex flex-col items-center gap-3 shrink-0 transition-all cursor-pointer hover:bg-white/10 p-2 rounded-xl active:scale-95 ${currentStep >= 3 ? "opacity-100" : "opacity-40"}`}
-        >
-          <span className="absolute -top-6 text-xs text-gray-500 font-semibold tracking-wider">포지션</span>
-          <div className={`relative flex items-center justify-center w-10 h-10 rounded-full border-2 transition-all ${
-            currentStep >= 3 ? "border-emerald-500 bg-emerald-500/10" : "border-gray-700 bg-gray-800"
-          }`}>
-            <ChartPieIcon className={`w-5 h-5 ${currentStep >= 3 ? "text-emerald-400" : "text-gray-500"}`} />
-          </div>
-          <div className="bg-[#0a0a0a] rounded-lg border border-gray-800 p-3 min-w-[180px] min-h-[64px] flex flex-col justify-start">
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">수량</span>
-                <span className="text-xs text-white font-bold">{maxPositions}개</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">배분</span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-medium">
-                  {allocationType === "equal" ? "동일" : `${allocationValue}%`}
-                </span>
-              </div>
+              <span className={`text-sm font-black tracking-tight ${universe ? "text-white" : "text-gray-600"}`}>
+                {universe ? universe.toUpperCase() : "유니버스"}
+              </span>
             </div>
           </div>
-        </div>
 
-        {/* Connector Line */}
-        <div className="h-10 flex items-center shrink-0">
-          <div className="w-8 h-0.5 bg-gray-800" />
-        </div>
-
-        {/* Step 4: Risk */}
-        <div 
-          onClick={() => setCurrentStep(4)}
-          className={`relative flex flex-col items-center gap-3 shrink-0 transition-all cursor-pointer hover:bg-white/10 p-2 rounded-xl active:scale-95 ${currentStep >= 4 ? "opacity-100" : "opacity-40"}`}
-        >
-          <span className="absolute -top-6 text-xs text-gray-500 font-semibold tracking-wider">리스크</span>
-          <div className={`relative flex items-center justify-center w-10 h-10 rounded-full border-2 transition-all ${
-            currentStep >= 4 ? "border-orange-500 bg-orange-500/10" : "border-gray-700 bg-gray-800"
-          }`}>
-            <ShieldCheckIcon className={`w-5 h-5 ${currentStep >= 4 ? "text-orange-400" : "text-gray-500"}`} />
+          {/* Connector 1-2 */}
+          <div className="flex-1 px-4">
+            <div className={`h-[1px] w-full transition-all duration-500 ${currentStep > 1 ? "bg-[#007AFF] shadow-[0_0_8px_rgba(0,122,255,0.4)]" : "bg-white/10"}`} />
           </div>
-          <div className="bg-[#0a0a0a] rounded-lg border border-gray-800 p-3 min-w-[180px] min-h-[64px] flex flex-col justify-start">
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">손절/익절</span>
-                <span className="text-xs text-orange-400 font-bold">-{riskManagement.stop_loss_pct}% / +{riskManagement.take_profit_pct}%</span>
+
+          {/* Step 2: Signal Blocks */}
+          <div 
+            onClick={() => setCurrentStep(2)}
+            className={`relative flex flex-col items-center gap-2 group cursor-pointer px-6 py-3 rounded-[24px] transition-all duration-300 border backdrop-blur-md min-w-[160px] ${
+              currentStep === 2 
+                ? "bg-white/10 border-white/20 shadow-lg" 
+                : "bg-white/[0.03] border-white/5 hover:border-white/10 hover:bg-white/5"
+            }`}
+          >
+            <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">Step 02</span>
+            <div className="flex items-center gap-3">
+              <div className={`flex items-center justify-center w-8 h-8 rounded-full border transition-all ${
+                canvasBlocks.length > 0 ? "border-white/40 bg-white/10" : "border-gray-800 bg-gray-900"
+              }`}>
+                <CubeIcon className={`w-4 h-4 ${canvasBlocks.length > 0 ? "text-white" : "text-gray-600"}`} />
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">최대 노출</span>
-                <span className="text-xs text-blue-400 font-bold">{riskManagement.max_total_exposure_pct}%</span>
-              </div>
+              <span className={`text-sm font-black tracking-tight ${canvasBlocks.length > 0 ? "text-white" : "text-gray-600"}`}>
+                매매 조건
+              </span>
             </div>
           </div>
-        </div>
 
-        {/* Connector Line */}
-        <div className="h-10 flex items-center shrink-0">
-          <div className="w-8 h-0.5 bg-gray-800" />
-        </div>
-
-        {/* Step 5: Backtest */}
-        <div 
-          onClick={() => setCurrentStep(5)}
-          className={`relative flex flex-col items-center gap-3 shrink-0 transition-all cursor-pointer hover:bg-white/10 p-2 rounded-xl active:scale-95 ${currentStep >= 5 ? "opacity-100" : "opacity-40"}`}
-        >
-          <span className="absolute -top-6 text-xs text-gray-500 font-semibold tracking-wider">백테스트</span>
-          <div className={`relative flex items-center justify-center w-10 h-10 rounded-full border-2 transition-all ${
-            currentStep >= 5 ? "border-blue-500 bg-blue-500/10" : "border-gray-700 bg-gray-800"
-          }`}>
-            <PlayCircleIcon className={`w-5 h-5 ${currentStep >= 5 ? "text-blue-400" : "text-gray-500"}`} />
+          {/* Connector 2-3 */}
+          <div className="flex-1 px-4">
+            <div className={`h-[1px] w-full transition-all duration-500 ${currentStep > 2 ? "bg-[#007AFF] shadow-[0_0_8px_rgba(0,122,255,0.4)]" : "bg-white/10"}`} />
           </div>
-          <div className="bg-[#0a0a0a] rounded-lg border border-gray-800 p-3 min-w-[180px] min-h-[64px] flex flex-col items-center justify-center">
-             <div className="flex flex-col items-center">
-               <span className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">성과 요약</span>
-               <span className={`text-xs font-bold mt-1 ${backtestResult ? (backtestResult.totalReturn >= 0 ? "text-red-400" : "text-blue-400") : "text-gray-600"}`}>
-                 {backtestResult ? `${backtestResult.totalReturn.toFixed(1)}%` : "대기 중"}
-               </span>
-             </div>
+
+          {/* Step 3: Position */}
+          <div 
+            onClick={() => setCurrentStep(3)}
+            className={`relative flex flex-col items-center gap-2 group cursor-pointer px-6 py-3 rounded-[24px] transition-all duration-300 border backdrop-blur-md min-w-[160px] ${
+              currentStep === 3 
+                ? "bg-white/10 border-white/20 shadow-lg" 
+                : "bg-white/[0.03] border-white/5 hover:border-white/10 hover:bg-white/5"
+            }`}
+          >
+            <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">Step 03</span>
+            <div className="flex items-center gap-3">
+              <div className={`flex items-center justify-center w-8 h-8 rounded-full border transition-all ${
+                currentStep >= 3 ? "border-white/40 bg-white/10" : "border-gray-800 bg-gray-900"
+              }`}>
+                <ChartPieIcon className={`w-4 h-4 ${currentStep >= 3 ? "text-white" : "text-gray-600"}`} />
+              </div>
+              <span className={`text-sm font-black tracking-tight ${currentStep >= 3 ? "text-white" : "text-gray-600"}`}>
+                포지션/비중
+              </span>
+            </div>
+          </div>
+
+          {/* Connector 3-4 */}
+          <div className="flex-1 px-4">
+            <div className={`h-[1px] w-full transition-all duration-500 ${currentStep > 3 ? "bg-[#007AFF] shadow-[0_0_8px_rgba(0,122,255,0.4)]" : "bg-white/10"}`} />
+          </div>
+
+          {/* Step 4: Risk */}
+          <div 
+            onClick={() => setCurrentStep(4)}
+            className={`relative flex flex-col items-center gap-2 group cursor-pointer px-6 py-3 rounded-[24px] transition-all duration-300 border backdrop-blur-md min-w-[160px] ${
+              currentStep === 4 
+                ? "bg-white/10 border-white/20 shadow-lg" 
+                : "bg-white/[0.03] border-white/5 hover:border-white/10 hover:bg-white/5"
+            }`}
+          >
+            <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">Step 04</span>
+            <div className="flex items-center gap-3">
+              <div className={`flex items-center justify-center w-8 h-8 rounded-full border transition-all ${
+                currentStep >= 4 ? "border-white/40 bg-white/10" : "border-gray-800 bg-gray-900"
+              }`}>
+                <ShieldCheckIcon className={`w-4 h-4 ${currentStep >= 4 ? "text-white" : "text-gray-600"}`} />
+              </div>
+              <span className={`text-sm font-black tracking-tight ${currentStep >= 4 ? "text-white" : "text-gray-600"}`}>
+                리스크 관리
+              </span>
+            </div>
+          </div>
+
+          {/* Connector 4-5 */}
+          <div className="flex-1 px-4">
+            <div className={`h-[1px] w-full transition-all duration-500 ${currentStep > 4 ? "bg-[#007AFF] shadow-[0_0_8px_rgba(0,122,255,0.4)]" : "bg-white/10"}`} />
+          </div>
+
+          {/* Step 5: Backtest */}
+          <div 
+            onClick={() => setCurrentStep(5)}
+            className={`relative flex flex-col items-center gap-2 group cursor-pointer px-6 py-3 rounded-[24px] transition-all duration-300 border backdrop-blur-md min-w-[160px] ${
+              currentStep === 5 
+                ? "bg-white/10 border-white/20 shadow-lg" 
+                : "bg-white/[0.03] border-white/5 hover:border-white/10 hover:bg-white/5"
+            }`}
+          >
+            <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">Step 05</span>
+            <div className="flex items-center gap-3">
+              <div className={`flex items-center justify-center w-8 h-8 rounded-full border transition-all ${
+                currentStep >= 5 ? "border-white/40 bg-white/10" : "border-gray-800 bg-gray-900"
+              }`}>
+                <PlayCircleIcon className={`w-4 h-4 ${currentStep >= 5 ? "text-white" : "text-gray-600"}`} />
+              </div>
+              <span className={`text-sm font-black tracking-tight ${currentStep >= 5 ? "text-white" : "text-gray-600"}`}>
+                백테스트 결과
+              </span>
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="flex-1 flex min-h-0 overflow-hidden">
+      <div className="flex-1 flex min-h-0">
         {currentStep === 2 ? (
           <Step2Conditions
             canvasBlocks={canvasBlocks}
@@ -662,7 +614,7 @@ export default function StrategyComposerV2({
             handleRemoveBlockFromBin={handleRemoveBlockFromBin}
           />
         ) : (
-          <div className="flex-1 bg-[#0f0f0f] relative overflow-y-auto">
+          <div className="flex-1 bg-[#0f0f0f] relative">
             {currentStep === 1 && (
               <Step1Universe
                 strategyName={strategyName}
@@ -757,7 +709,7 @@ export default function StrategyComposerV2({
         </div>
       )}
       </div>
-      {/* Global Library Management Modal */}
+      </div>
     </div>
   );
 }

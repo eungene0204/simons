@@ -137,8 +137,8 @@ export default function BacktestChart({
       try {
         const chart = createChart(container, {
           layout: {
-            background: { type: ColorType.Solid, color: "#0a0a0f" },
-            textColor: "#9ca3af",
+            background: { type: ColorType.Solid, color: "#0a0a0a" },
+            textColor: "#666",
             fontSize: 10,
           },
           // @ts-ignore - Lightweight charts supports padding in layout
@@ -176,9 +176,9 @@ export default function BacktestChart({
         if (type === "equity") {
           // Create equity area series with custom price format
           const equitySeries = chart.addSeries(AreaSeries, {
-            lineColor: "#ef4444", // RED for Growth (KR Standard)
-            topColor: "rgba(239, 68, 68, 0.3)",
-            bottomColor: "rgba(239, 68, 68, 0.05)",
+            lineColor: "#FFFFFF", // WHITE for Strategy
+            topColor: "rgba(255, 255, 255, 0.2)",
+            bottomColor: "rgba(255, 255, 255, 0.02)",
             lineWidth: 2,
             priceFormat: {
               type: "custom",
@@ -219,9 +219,9 @@ export default function BacktestChart({
           // Create drawdown area series
           // Note: Drawdown is in percentage, so we format it differently
           const drawdownSeries = chart.addSeries(AreaSeries, {
-            lineColor: "#3b82f6", // BLUE for Drawdown (KR Standard)
-            topColor: "rgba(59, 130, 246, 0.3)",
-            bottomColor: "rgba(59, 130, 246, 0.05)",
+            lineColor: "#666666", // GRAY for Drawdown
+            topColor: "rgba(102, 102, 102, 0.3)",
+            bottomColor: "rgba(102, 102, 102, 0.05)",
             lineWidth: 2,
             priceFormat: {
               type: "price",
@@ -309,13 +309,13 @@ export default function BacktestChart({
     <div className="w-full h-full relative group">
       {/* Legend Overlay */}
       <div className="absolute top-4 left-4 z-20 flex flex-col gap-1 b">
-        <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0f]/80 border border-gray-800 backdrop-blur-sm">
-           <div className="w-3 h-3 rounded-full bg-[#ef4444]" />
+        <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
+           <div className="w-2.5 h-2.5 rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.4)]" />
            <span className="text-[10px] font-bold text-white">나의 전략</span>
         </div>
-        <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0f]/80 border border-gray-800 backdrop-blur-sm">
-           <div className="w-3 h-3 rounded-full bg-[#6b7280]" />
-           <span className="text-[10px] font-bold text-gray-400">시장 수익률</span>
+        <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
+           <div className="w-2.5 h-2.5 rounded-full bg-gray-600" />
+           <span className="text-[10px] font-bold text-gray-500">시장 수익률</span>
         </div>
       </div>
 

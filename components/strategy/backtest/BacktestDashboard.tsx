@@ -149,7 +149,7 @@ export default function BacktestDashboard({
                  <button 
                    onClick={() => onRun && localOptions && onRun(localOptions)}
                    disabled={isRunning}
-                   className={`px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 disabled:text-gray-600 text-white text-xs font-bold rounded-lg transition-all shadow-lg shadow-indigo-600/20 active:scale-95`}
+                   className={`px-4 py-1.5 bg-white hover:bg-gray-100 disabled:bg-gray-800 disabled:text-gray-600 text-black text-xs font-bold rounded-lg transition-all shadow-lg active:scale-95`}
                  >
                    {isRunning ? "실행 중..." : "재실행"}
                  </button>
@@ -207,10 +207,10 @@ export default function BacktestDashboard({
                                </div>
                             </td>
                             <td className="p-4 text-sm text-gray-400">전기전자</td>
-                            <td className={`p-4 text-sm font-bold text-right ${(result.finalEquity - result.initialCapital) >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
+                            <td className={`p-4 text-sm font-bold text-right ${(result.finalEquity - result.initialCapital) >= 0 ? 'text-white' : 'text-gray-400'}`}>
                                {formatKRW(result.finalEquity - result.initialCapital)}
                             </td>
-                            <td className={`p-4 text-sm font-bold text-right ${(result.finalEquity - result.initialCapital) >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
+                            <td className={`p-4 text-sm font-bold text-right ${(result.finalEquity - result.initialCapital) >= 0 ? 'text-white' : 'text-gray-400'}`}>
                                {result.totalReturn.toFixed(2)}%
                             </td>
                             <td className="p-4 text-sm text-white text-right font-mono">
@@ -256,7 +256,7 @@ export default function BacktestDashboard({
                               return (
                                 <td key={i} className="p-1">
                                   <div className={`w-full py-1.5 rounded flex items-center justify-center text-[11px] font-bold ${
-                                    val > 0 ? `bg-red-500/${Math.min(Math.floor(val * 10), 90)} text-red-100` : `bg-blue-500/${Math.min(Math.abs(val) * 10, 90)} text-blue-100`
+                                    val > 0 ? `bg-white/${Math.min(Math.floor(val * 10), 90)} text-black` : `bg-gray-700/${Math.min(Math.abs(val) * 10, 90)} text-gray-400`
                                   }`}>
                                     {val.toFixed(1)}%
                                   </div>
@@ -322,8 +322,8 @@ export default function BacktestDashboard({
                              return (
                              <tr key={i} className="hover:bg-white/5 transition-colors border-b border-gray-800/50">
                                 <td className="p-3 text-sm font-mono text-gray-400">{t.date}</td>
-                                <td className="p-3">
-                                   <span className={`px-1.5 py-0.5 rounded text-[11px] font-bold ${t.type==='buy' ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400'}`}>
+                                 <td className="p-3">
+                                   <span className={`px-1.5 py-0.5 rounded text-[11px] font-bold ${t.type==='buy' ? 'bg-white text-black' : 'bg-gray-800 text-gray-400'}`}>
                                       {t.type === 'buy' ? '매수' : '매도'}
                                    </span>
                                 </td>
@@ -360,10 +360,10 @@ export default function BacktestDashboard({
 function MetricCard({ label, value, subValue, trend }: { label: string, value: string, subValue?: string, trend: "up" | "down" | "neutral" }) {
   const isUp = trend === "up";
   const colorClass = isUp 
-    ? "text-red-400"
+    ? "text-white"
     : trend === "down" 
-      ? "text-blue-400"
-      : "text-gray-300";
+      ? "text-gray-400"
+      : "text-gray-200";
       
   return (
     <div className="bg-[#111] border border-gray-800 p-4 rounded-xl flex flex-col justify-between shadow-sm hover:border-gray-700 transition-colors">
@@ -378,7 +378,7 @@ function StatRow({ label, value, result, isNeutral }: { label: string, value: st
   return (
     <div className="bg-[#111] border border-gray-800 rounded-lg p-3">
        <div className="text-[10px] text-gray-500 mb-1">{label}</div>
-       <div className={`text-lg font-bold ${isNeutral ? "text-white" : (value.includes("-") ? "text-blue-400" : "text-red-400")}`}>{value}</div>
+       <div className={`text-lg font-bold ${isNeutral ? "text-white" : (value.includes("-") ? "text-gray-400" : "text-white")}`}>{value}</div>
     </div>
   );
 }

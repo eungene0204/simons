@@ -111,8 +111,8 @@ export default function Step3Position({
           {/* Section 2: Allocation Strategy */}
           <div className="bg-[#0f0f0f] rounded-2xl border border-gray-800/50 p-5 shadow-xl flex flex-col space-y-4">
             <div className="flex items-center gap-3.5 mb-2">
-              <div className="w-10 h-10 rounded-xl bg-[#6582ed]/10 flex items-center justify-center border border-[#6582ed]/20 shadow-inner">
-                <ChartPieIcon className="w-5 h-5 text-[#6582ed]" />
+              <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center border border-white/20 shadow-inner">
+                <ChartPieIcon className="w-5 h-5 text-white" />
               </div>
               <div>
                 <h4 className="text-md font-black text-white">비중 배분 정책</h4>
@@ -126,7 +126,7 @@ export default function Step3Position({
                   onClick={() => setAllocationType("equal")}
                   className={`flex-1 py-2.5 rounded-lg text-xs font-black transition-all ${
                     allocationType === "equal" 
-                      ? "bg-[#6582ed] text-white shadow-lg shadow-[#6582ed]/40" 
+                      ? "bg-white text-black shadow-lg shadow-white/10" 
                       : "text-gray-500 hover:text-gray-300"
                   }`}
                 >
@@ -136,7 +136,7 @@ export default function Step3Position({
                   onClick={() => setAllocationType("fixed_pct")}
                   className={`flex-1 py-2.5 rounded-lg text-xs font-black transition-all ${
                     allocationType === "fixed_pct" 
-                      ? "bg-[#6582ed] text-white shadow-lg shadow-[#6582ed]/40" 
+                      ? "bg-white text-black shadow-lg shadow-white/10" 
                       : "text-gray-500 hover:text-gray-300"
                   }`}
                 >
@@ -149,7 +149,7 @@ export default function Step3Position({
                   <div className="animate-in fade-in slide-in-from-top-2 duration-300">
                       <div className="flex justify-between items-end mb-3">
                         <label className="text-xs text-gray-400 font-black uppercase tracking-widest">종목당 투입 비중</label>
-                        <span className="text-lg font-black text-[#6582ed]">{allocationValue}<span className="text-xs ml-0.5 text-gray-500">%</span></span>
+                        <span className="text-lg font-black text-white">{allocationValue}<span className="text-xs ml-0.5 text-gray-500">%</span></span>
                       </div>
                     <div className="flex items-center gap-4">
                       <input 
@@ -158,7 +158,7 @@ export default function Step3Position({
                         max="100" 
                         value={allocationValue}
                         onChange={(e) => setAllocationValue(Number(e.target.value))}
-                        className="flex-1 h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-[#6582ed]"
+                        className="flex-1 h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-white"
                       />
                     </div>
                     <p className="text-[11px] text-gray-500 mt-3 font-medium">거래 건마다 가용 자산의 {allocationValue}%를 고정적으로 투자합니다.</p>
@@ -166,7 +166,7 @@ export default function Step3Position({
                 ) : null}
               </div>
 
-              <div className="p-4 bg-[#6582ed]/5 border border-[#6582ed]/10 rounded-xl mt-auto">
+              <div className="p-4 bg-white/5 border border-white/10 rounded-xl mt-auto">
                 <p className="text-[11px] text-gray-500 leading-relaxed font-medium">
                   {allocationType === "equal" 
                     ? `💡 최대 보유 종목 수(${maxPositions}개)에 맞춰 모든 자산을 균등하게 배분합니다. 종목당 배정 목표는 약 ${Number(100/maxPositions).toFixed(1)}% 입니다.`
@@ -179,8 +179,8 @@ export default function Step3Position({
           {/* Section 3: Execution Timing */}
           <div className="bg-[#0f0f0f] rounded-2xl border border-gray-800/50 p-5 shadow-xl flex flex-col space-y-4">
             <div className="flex items-center gap-3.5 mb-2">
-              <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center border border-orange-500/20 shadow-inner">
-                <ClockIcon className="w-5 h-5 text-orange-400" />
+              <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center border border-white/20 shadow-inner">
+                <ClockIcon className="w-5 h-5 text-white" />
               </div>
               <div>
                 <h4 className="text-md font-black text-white">체결 시점 선택</h4>
@@ -193,13 +193,13 @@ export default function Step3Position({
                 onClick={() => setExecutionTiming("next_open")}
                 className={`px-5 py-4 rounded-xl border transition-all text-left flex items-start gap-4 ${
                   executionTiming === "next_open"
-                    ? "bg-orange-500/10 border-orange-500/30 ring-1 ring-orange-500/20"
+                    ? "bg-white/5 border-white/30 ring-1 ring-white/10"
                     : "bg-[#0a0a0a] border-gray-800 hover:border-gray-700"
                 }`}
               >
-                <div className={`w-2 h-2 rounded-full mt-1.5 ${executionTiming === "next_open" ? "bg-orange-400 animate-pulse" : "bg-gray-700"}`} />
+                <div className={`w-2 h-2 rounded-full mt-1.5 ${executionTiming === "next_open" ? "bg-white animate-pulse" : "bg-gray-700"}`} />
                 <div>
-                  <div className={`text-sm font-black mb-1 ${executionTiming === "next_open" ? "text-orange-400" : "text-gray-400"}`}>익일 시가 (Next Open)</div>
+                  <div className={`text-sm font-black mb-1 ${executionTiming === "next_open" ? "text-white" : "text-gray-400"}`}>익일 시가 (Next Open)</div>
                   <div className="text-[11px] text-gray-500 leading-tight">신호가 발생한 다음 영업일 아침 시가에 즉시 체결합니다. 가장 일반적인 방식입니다.</div>
                 </div>
               </button>
@@ -207,13 +207,13 @@ export default function Step3Position({
                 onClick={() => setExecutionTiming("current_close")}
                 className={`px-5 py-4 rounded-xl border transition-all text-left flex items-start gap-4 ${
                   executionTiming === "current_close"
-                    ? "bg-orange-500/10 border-orange-500/30 ring-1 ring-orange-500/20"
+                    ? "bg-white/5 border-white/30 ring-1 ring-white/10"
                     : "bg-[#0a0a0a] border-gray-800 hover:border-gray-700"
                 }`}
               >
-                <div className={`w-2 h-2 rounded-full mt-1.5 ${executionTiming === "current_close" ? "bg-orange-400 animate-pulse" : "bg-gray-700"}`} />
+                <div className={`w-2 h-2 rounded-full mt-1.5 ${executionTiming === "current_close" ? "bg-white animate-pulse" : "bg-gray-700"}`} />
                 <div>
-                  <div className={`text-sm font-black mb-1 ${executionTiming === "current_close" ? "text-orange-400" : "text-gray-400"}`}>당일 종가 (Direct Close)</div>
+                  <div className={`text-sm font-black mb-1 ${executionTiming === "current_close" ? "text-white" : "text-gray-400"}`}>당일 종가 (Direct Close)</div>
                   <div className="text-[11px] text-gray-500 leading-tight">신호가 발생한 당일 장 마감 직전 종가로 체결합니다. 빠른 대응이 가능합니다.</div>
                 </div>
               </button>
@@ -223,8 +223,8 @@ export default function Step3Position({
           {/* Section 4: Rebalancing */}
           <div className="bg-[#0f0f0f] rounded-2xl border border-gray-800/50 p-5 shadow-xl flex flex-col space-y-4">
             <div className="flex items-center gap-3.5 mb-2">
-              <div className="w-10 h-10 rounded-xl bg-[#649b6b]/10 flex items-center justify-center border border-[#649b6b]/20 shadow-inner">
-                <ArrowPathIcon className="w-5 h-5 text-[#649b6b]" />
+              <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center border border-white/20 shadow-inner">
+                <ArrowPathIcon className="w-5 h-5 text-white" />
               </div>
               <div>
                 <h4 className="text-md font-black text-white">리밸런싱 설정</h4>
@@ -253,7 +253,7 @@ export default function Step3Position({
                       }}
                       className={`flex-1 py-2.5 rounded-lg text-xs font-black transition-all ${
                         (period.id === "custom" ? rebalancingPeriod.startsWith("custom:") : rebalancingPeriod === period.id)
-                          ? "bg-[#649b6b] text-white shadow-lg shadow-[#649b6b]/40"
+                          ? "bg-white text-black shadow-lg shadow-white/10"
                           : "text-gray-500 hover:text-gray-300"
                       }`}
                     >
@@ -273,7 +273,7 @@ export default function Step3Position({
                           const parts = rebalancingPeriod.split(":");
                           setRebalancingPeriod(`custom:${e.target.value}:${parts[2]}`);
                         }}
-                        className="w-full bg-[#0a0a0a] border border-gray-800 rounded-xl px-4 py-2 text-white font-black text-sm outline-none focus:border-[#649b6b]/50"
+                        className="w-full bg-[#0a0a0a] border border-gray-800 rounded-xl px-4 py-2 text-white font-black text-sm outline-none focus:border-white/50"
                       />
                     </div>
                     <select 
@@ -282,7 +282,7 @@ export default function Step3Position({
                         const parts = rebalancingPeriod.split(":");
                         setRebalancingPeriod(`custom:${parts[1]}:${e.target.value}`);
                       }}
-                      className="bg-[#0a0a0a] border border-gray-800 rounded-xl px-4 py-2 text-white font-black text-sm outline-none focus:border-[#649b6b]/50 appearance-none cursor-pointer"
+                      className="bg-[#0a0a0a] border border-gray-800 rounded-xl px-4 py-2 text-white font-black text-sm outline-none focus:border-white/50 appearance-none cursor-pointer"
                     >
                       <option value="day">일</option>
                       <option value="week">주</option>
@@ -291,7 +291,7 @@ export default function Step3Position({
                   </div>
                 )}
               </div>
-              <div className="p-4 bg-[#649b6b]/5 border border-[#649b6b]/10 rounded-xl mt-auto">
+              <div className="p-4 bg-white/5 border border-white/10 rounded-xl mt-auto">
                 <p className="text-[11px] text-gray-500 leading-relaxed font-medium">
                   {rebalancingPeriod === "none" 
                     ? "💡 포지션 진입 시점의 비중을 그대로 유지하며 별도의 도중 조정을 하지 않습니다."
@@ -315,7 +315,7 @@ export default function Step3Position({
             </button>
             <button
               onClick={onNext}
-              className="px-8 py-3 bg-blue-600 text-white rounded-xl text-md font-black hover:bg-blue-500 transition-all flex items-center gap-3 shadow-xl shadow-blue-900/40 hover:scale-[1.02]"
+              className="px-8 py-3 bg-white text-black rounded-xl text-md font-black hover:bg-gray-100 transition-all flex items-center gap-3 shadow-xl shadow-white/5 hover:scale-[1.02]"
             >
               다음 단계 <ArrowRightIcon className="w-5 h-5" />
             </button>
