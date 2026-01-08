@@ -102,9 +102,9 @@ export default function AnalyticsPage() {
 
   return (
     <DashboardLayout userName={"User"}>
-      <div className="p-3 sm:p-4 md:p-5 space-y-3 sm:space-y-4 md:space-y-5 max-w-7xl mx-auto overflow-x-hidden w-full min-w-0">
+      <div className="px-8 py-8 space-y-8 max-w-full mx-auto overflow-x-hidden w-full min-w-0">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between px-8">
           <div>
             <h1 className="text-2xl font-bold text-white mb-2">전략연구소</h1>
             <p className="text-sm text-gray-400">
@@ -192,7 +192,7 @@ export default function AnalyticsPage() {
           </>
         )}
         {!showComposer && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 px-8">
               {savedStrategies.length === 0 ? (
                 <div className="col-span-full">
                   <div className="bg-[#1a1a1a] rounded-lg border border-gray-800 p-12 text-center">

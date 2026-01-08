@@ -323,14 +323,14 @@ export default function Step2Conditions({
   return (
     <>
       {/* Left Sidebar */}
-      <div className="w-48 bg-[#0f0f0f] relative z-50 flex flex-col shrink-0">
-        <div className="flex-1 px-4 py-3 space-y-3">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-black text-white uppercase tracking-wider">조건 블록함</h3>
+      <div className="w-52 bg-[#0f0f0f] border-r border-gray-800 flex flex-col shrink-0">
+        <div className="flex-1 px-4 py-6 space-y-4">
+          <div className="flex items-center justify-between mb-4 px-1">
+            <h3 className="text-[11px] font-black text-white/40 uppercase tracking-[0.3em]">Block Library</h3>
             <button
               type="button"
               onClick={() => setIsLibraryManagementOpen(true)}
-              className="p-1 px-1.5 bg-[#1a1a1a] border border-gray-800 rounded-md text-gray-400 hover:text-white hover:border-gray-600 transition-all flex items-center gap-1 group/mgmt"
+              className="p-1.5 bg-white/5 border border-white/10 rounded-lg text-gray-500 hover:text-white hover:bg-white/10 transition-all group/mgmt"
             >
               <EllipsisHorizontalIcon className="w-4 h-4" />
             </button>
@@ -344,7 +344,7 @@ export default function Step2Conditions({
               
               return (
                 <Fragment key={group.key}>
-                  <div className="rounded-lg bg-[#151515] border border-gray-800/20">
+                  <div className={`rounded-xl transition-all duration-300 ${openSignalGroups.includes(group.key) ? "bg-white/5 border-white/10 shadow-lg" : "bg-transparent border-transparent"}`}>
                     <button
                       type="button"
                       onClick={() => setOpenSignalGroups((prev) => 
@@ -352,19 +352,21 @@ export default function Step2Conditions({
                           ? prev.filter(k => k !== group.key) 
                           : [...prev, group.key]
                       )}
-                      className="w-full flex items-center justify-between px-3 py-2.5 text-xs font-black text-gray-400 hover:text-white hover:bg-[#181818] transition-all group/header"
+                      className={`w-full flex items-center justify-between px-3 py-3 text-xs font-black transition-all group/header rounded-lg ${
+                        openSignalGroups.includes(group.key) ? "text-white" : "text-gray-500 hover:text-gray-400 hover:bg-white/5"
+                      }`}
                     >
-                      <span className="flex items-center gap-2">
-                        <group.icon className="w-4 h-4" />
-                        <span>{group.label}</span>
+                      <span className="flex items-center gap-3">
+                        <div className={`p-1.5 rounded-lg transition-colors ${openSignalGroups.includes(group.key) ? "bg-white text-black" : "bg-[#1a1a1a] text-gray-600"}`}>
+                          <group.icon className="w-4 h-4" />
+                        </div>
+                        <span className="tracking-tight">{group.label}</span>
                       </span>
-                      <div className="flex items-center gap-1">
-                        <ChevronDownIcon className={`w-3.5 h-3.5 transition-transform ${openSignalGroups.includes(group.key) ? "rotate-180" : ""}`} />
-                      </div>
+                      <ChevronDownIcon className={`w-4 h-4 transition-transform ${openSignalGroups.includes(group.key) ? "rotate-180" : ""}`} />
                     </button>
                     {openSignalGroups.includes(group.key) && (
-                      <div className="px-2 pt-1 pb-3 space-y-1 bg-[#151515]">
-                        {filteredBlocks.length === 0 && <div className="text-[10px] text-gray-600 px-3 py-2 italic text-center">결과 없음</div>}
+                      <div className="px-2 pt-1 pb-3 space-y-1.5">
+                        {filteredBlocks.length === 0 && <div className="text-[10px] text-gray-700 px-3 py-4 italic text-center">Empty Category</div>}
                         {filteredBlocks.map((block: any) => {
                           const blockDef = signalBlocks[block.id];
                           return (
@@ -375,17 +377,15 @@ export default function Step2Conditions({
                                 e.dataTransfer.setData("blockId", block.id);
                                 e.dataTransfer.setData("blockType", blockDef?.category || "");
                               }}
-                              className="group p-2.5 bg-[#1a1a1a] border border-gray-800/50 rounded-lg text-xs font-bold text-gray-400 hover:text-white hover:border-blue-500/30 hover:bg-blue-500/5 cursor-move transition-all flex items-center justify-between"
+                              className="group p-3 bg-[#111] border border-white/5 rounded-lg text-[11px] font-black text-gray-400 hover:text-white hover:border-white/20 hover:bg-[#151515] cursor-move transition-all flex items-center justify-between"
                             >
                               <span className="truncate pr-2">{block.name}</span>
-                              <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <div 
-                                  className="relative p-1"
+                              <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100">
+                                <InformationCircleIcon 
+                                  className="w-3.5 h-3.5 text-gray-600 hover:text-gray-400 cursor-help"
                                   onMouseEnter={(e) => setHoveredInfo({ id: block.id, rect: e.currentTarget.getBoundingClientRect() })}
                                   onMouseLeave={() => setHoveredInfo(null)}
-                                >
-                                  <InformationCircleIcon className={`w-4 h-4 transition-colors cursor-help ${hoveredInfo?.id === block.id ? "text-blue-400" : "text-gray-400 hover:text-blue-400"}`} />
-                                </div>
+                                />
                               </div>
                             </div>
                           );
@@ -402,14 +402,14 @@ export default function Step2Conditions({
             <button
               type="button"
               onClick={() => setIsSearchMenuOpen(!isSearchMenuOpen)}
-              className={`w-full flex items-center justify-center gap-2.5 py-3.5 rounded-xl transition-all group ${
+              className={`w-full flex items-center justify-center gap-2 py-4 rounded-xl transition-all ${
                 isSearchMenuOpen
-                  ? "bg-blue-600 text-white shadow-[0_8px_20px_rgba(37,99,235,0.3)]"
-                  : "bg-[#161616] border border-gray-800/50 text-gray-500 hover:text-white hover:border-blue-500/30 hover:bg-blue-500/5"
+                  ? "bg-white text-black"
+                  : "bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800"
               }`}
             >
-              <MagnifyingGlassIcon className={`w-5 h-5 transition-transform duration-300 ${isSearchMenuOpen ? "rotate-90 text-white" : "text-gray-500 group-hover:text-blue-400"}`} />
-              <span className="text-sm font-black uppercase tracking-widest">블록 검색</span>
+              <MagnifyingGlassIcon className="w-5 h-5" />
+              <span className="text-xs font-black uppercase tracking-widest">블록 검색</span>
             </button>
           </div>
         </div>
@@ -417,16 +417,16 @@ export default function Step2Conditions({
         <div className="border-t border-gray-800/30 bg-[#0f0f0f] px-3 pt-3 pb-6 flex items-center justify-center">
           <p className="text-[10px] text-gray-600 text-center leading-relaxed font-medium">
             찾고 계신 지표가 없나요? <br />
-            <span className="text-blue-500/70 hover:text-blue-400 cursor-pointer underline decoration-dotted underline-offset-4 transition-colors">기능 요청하기</span>
+            <span className="text-white hover:text-gray-300 cursor-pointer underline decoration-dotted underline-offset-4 transition-colors">기능 요청하기</span>
           </p>
         </div>
       </div>
 
       {/* Center Canvas Area */}
-      <div className="flex-1 bg-[#0f0f0f] relative overflow-hidden flex flex-col min-h-full">
+      <div className="flex-1 bg-transparent relative overflow-hidden flex flex-col min-h-full">
         <div 
           ref={canvasRef}
-          className="flex-1 relative border border-gray-800 rounded-3xl overflow-hidden mx-3 mb-6 bg-[#0a0a0a]/30"
+          className="flex-1 relative border border-gray-800/40 rounded-3xl overflow-hidden mx-4 mb-4 bg-[#111]"
           style={{ minHeight: canvasMinHeight }}
           onDragOver={(e) => { e.preventDefault(); }}
           onDrop={(e) => {
@@ -438,18 +438,21 @@ export default function Step2Conditions({
             }
           }}
         >
-          <div className="absolute inset-0 pointer-events-none opacity-20" style={{ backgroundImage: "radial-gradient(#4b5563 1px, transparent 1px)", backgroundSize: "20px 20px" }} />
+          <div className="absolute inset-0 pointer-events-none" 
+               style={{ 
+                 backgroundImage: `radial-gradient(circle at 1px 1px, rgba(255,255,255,0.05) 1px, transparent 0)`,
+                 backgroundSize: "24px 24px" 
+               }} />
           
           {canvasBlocks.length === 0 && (
-            <div className="absolute inset-0 flex items-center justify-center p-12 text-center pointer-events-none">
-              <div className="max-w-md space-y-4 animate-in fade-in zoom-in duration-700">
-                <div className="w-20 h-20 bg-gray-800/20 rounded-full flex items-center justify-center mx-auto border border-gray-700/30 mb-6">
-                  <PlusIcon className="w-10 h-10 text-gray-600" />
+            <div className="absolute inset-0 flex items-center justify-center p-12 text-center pointer-events-none z-10">
+              <div className="max-w-md space-y-6 animate-in fade-in zoom-in slide-in-from-bottom-8 duration-1000">
+                <div className="w-20 h-20 bg-gray-900 rounded-2xl flex items-center justify-center mx-auto border border-gray-800 mb-6">
+                  <PlusIcon className="w-10 h-10 text-gray-700" />
                 </div>
-                <h4 className="text-xl font-black text-gray-400">전략 구성을 시작해보세요</h4>
-                <p className="text-sm text-gray-500 font-medium leading-relaxed">
-                  왼쪽 도구함에서 원하는 지표나 조건을 드래그하여<br />
-                  이곳에 놓아주세요. 나만의 매매 전략을 만들 수 있습니다.
+                <h4 className="text-xl font-black text-gray-400">조건 캔버스</h4>
+                <p className="text-xs text-gray-600 font-medium leading-relaxed max-w-[240px] mx-auto">
+                  왼쪽 라이브러리에서 블록을 드래그하여 매수/매도 조건을 설계하세요.
                 </p>
               </div>
             </div>
@@ -462,11 +465,11 @@ export default function Step2Conditions({
                   <feGaussianBlur stdDeviation="2" result="blur" />
                   <feComposite in="SourceGraphic" in2="blur" operator="over" />
                 </filter>
-                <marker id="arrowhead-red" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                  <polygon points="0 0, 10 3.5, 0 7" fill="#EF4444" />
+                <marker id="arrowhead-white" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                  <polygon points="0 0, 10 3.5, 0 7" fill="#FFFFFF" />
                 </marker>
-                <marker id="arrowhead-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                  <polygon points="0 0, 10 3.5, 0 7" fill="#3B82F6" />
+                <marker id="arrowhead-gray-light" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                  <polygon points="0 0, 10 3.5, 0 7" fill="#E5E7EB" />
                 </marker>
                 <marker id="arrowhead-gray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
                   <polygon points="0 0, 10 3.5, 0 7" fill="#4B5563" />
@@ -484,12 +487,12 @@ export default function Step2Conditions({
 
                 if (isEntryOrFilter(block) && isEntryOrFilter(nextBlock)) {
                   shouldConnect = entryLogic === "AND";
-                  color = "#EF4444";
-                  markerId = "arrowhead-red";
+                  color = "#10b981"; // Emerald
+                  markerId = "arrowhead-white";
                 } else if (isExit(block) && isExit(nextBlock)) {
                   shouldConnect = exitLogic === "AND";
-                  color = "#3B82F6";
-                  markerId = "arrowhead-blue";
+                  color = "#f43f5e"; // Rose
+                  markerId = "arrowhead-gray-light";
                 }
 
                 if (!shouldConnect) return null;
@@ -534,9 +537,7 @@ export default function Step2Conditions({
 
                 return (
                   <g key={`flow-${block.id}-${nextBlock.id}`}>
-                    <path d={pathD} stroke={color} strokeWidth="4" fill="none" className="opacity-10" filter="url(#glow)" />
-                    <path d={pathD} stroke={color} strokeWidth="1.5" fill="none" className="opacity-40" />
-                    <path d={pathD} stroke={color} strokeWidth="1.5" fill="none" strokeDasharray="4,12" className="opacity-60 animate-dash" />
+                    <path d={pathD} stroke={color} strokeWidth="1" fill="none" strokeDasharray="4,4" className="opacity-40" />
                   </g>
                 );
               })}
@@ -547,13 +548,12 @@ export default function Step2Conditions({
               const xOffset = sidePadding + colIdx * 185;
               const yOffset = 60 + rowIdx * 135;
 
-              const typeStyles = 
-                block.type === "entry" 
-                  ? "border-red-500/30 bg-red-950/20 hover:bg-red-900/30 shadow-red-900/5" 
-                  : block.type === "exit" 
-                  ? "border-blue-500/30 bg-blue-950/20 hover:bg-blue-900/30 shadow-blue-900/5" 
-                  : "border-[rgba(100,155,107,0.3)] bg-[rgba(100,155,107,0.1)] hover:bg-[rgba(100,155,107,0.2)] shadow-[rgba(100,155,107,0.05)]";
-
+              const typeColors = {
+                entry: "emerald",
+                exit: "rose",
+                filter: "indigo"
+              };
+              const color = typeColors[block.type] || "gray";
               const isSelected = selectedBlock?.id === block.id;
 
               return (
@@ -563,30 +563,23 @@ export default function Step2Conditions({
                     setSelectedBlock(block);
                     setActiveParamTab('block');
                   }}
-                  className={`absolute p-4 rounded-xl transition-all duration-300 border backdrop-blur-md group cursor-pointer ${typeStyles} ${
+                  className={`absolute p-4 rounded-xl transition-all border group cursor-pointer ${
                     isSelected 
-                      ? "ring-2 ring-blue-500/50 scale-105 z-10 shadow-2xl" 
-                      : "hover:scale-105 z-1 shadow-lg"
+                      ? "border-white bg-white/5 shadow-[0_0_20px_rgba(255,255,255,0.1)] scale-105 z-20" 
+                      : "border-white/10 bg-[#151515] hover:border-white/20 hover:bg-[#1a1a1a] z-10"
                   }`}
-                  style={{ left: `${xOffset}px`, top: `${yOffset}px`, width: "120px" }}
+                  style={{ left: `${xOffset}px`, top: `${yOffset}px`, width: "135px" }}
                 >
                   <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-1.5">
-                      <span className={`w-2 h-2 rounded-full ${
-                         block.type === "entry" ? "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]" : 
-                         block.type === "exit" ? "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]" : 
-                         "bg-[rgb(100,155,107)] shadow-[0_0_8px_rgba(100,155,107,0.6)]"
-                      }`} />
-                      <span className={`text-[9px] font-bold px-1 rounded-sm ${
-                        block.type === "entry" ? "bg-red-500/20 text-red-400" :
-                        block.type === "exit" ? "bg-blue-500/20 text-blue-400" :
-                        "bg-[rgba(100,155,107,0.2)] text-[rgb(100,155,107)]"
-                      }`}>
-                        {block.type === "entry" ? "매수" : block.type === "exit" ? "매도" : "필터"}
-                      </span>
-                    </div>
+                    <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase border ${
+                      block.type === 'entry' ? "bg-white/10 border-white text-white" : 
+                      block.type === 'exit' ? "bg-gray-800 border-gray-600 text-gray-400" : 
+                      "bg-gray-900 border-gray-700 text-gray-500"
+                    }`}>
+                      {block.type === "entry" ? "매수" : block.type === "exit" ? "매도" : "필터"}
+                    </span>
                   </div>
-                  <div className="text-[12px] font-black text-white leading-tight tracking-tight">
+                  <div className={`text-[12px] font-black ${isSelected ? "text-white" : "text-gray-400 group-hover:text-gray-300"}`}>
                     {signalBlocks[block.blockId]?.name || block.blockId}
                   </div>
                   <button 
@@ -595,7 +588,7 @@ export default function Step2Conditions({
                       setCanvasBlocks(canvasBlocks.filter(b => b.id !== block.id)); 
                       if (selectedBlock?.id === block.id) setSelectedBlock(null); 
                     }} 
-                    className="absolute -top-2 -right-2 w-6 h-6 bg-[#1a1a1a] border border-gray-800 text-gray-500 rounded-lg opacity-0 group-hover:opacity-100 transition-all hover:text-white hover:bg-red-900/50 hover:border-red-500/50 flex items-center justify-center shadow-xl"
+                    className="absolute -top-2 -right-2 w-6 h-6 bg-gray-900 border border-gray-800 text-gray-500 rounded-full opacity-0 group-hover:opacity-100 transition-all hover:text-white hover:bg-black"
                   >
                     <XMarkIcon className="w-3.5 h-3.5" />
                   </button>
@@ -605,39 +598,38 @@ export default function Step2Conditions({
           </div>
         </div>
         
-        {/* Step Navigation Bar */}
-        <div className="p-8 flex justify-end gap-3 mt-auto sticky bottom-0 bg-[#0f0f0f]/90 backdrop-blur-md z-20">
-          <button onClick={onPrev} className="px-6 py-3 bg-[#1a1a1a] border border-gray-800 text-gray-300 rounded-xl text-md font-black hover:bg-gray-800 transition-all flex items-center gap-2">
-            <ArrowLeftIcon className="w-5 h-5" /> 이전 단계
+        <div className="p-6 flex justify-end gap-3 mt-auto">
+          <button onClick={onPrev} className="px-6 py-2.5 bg-gray-900 border border-gray-800 text-gray-400 rounded-xl text-sm font-black hover:bg-gray-800 hover:text-white transition-all flex items-center gap-2">
+            <ArrowLeftIcon className="w-4 h-4" /> 이전
           </button>
-          <button onClick={onNext} className="px-8 py-3 bg-blue-600 text-white rounded-xl text-md font-black hover:bg-blue-500 transition-all flex items-center gap-3 shadow-xl shadow-blue-900/40">
-            다음 단계 <ArrowRightIcon className="w-5 h-5" />
+          <button onClick={onNext} className="group px-8 py-2.5 bg-white text-black rounded-xl text-sm font-black hover:bg-gray-200 transition-all flex items-center gap-2">
+            다음 단계 <ArrowRightIcon className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </button>
         </div>
       </div>
 
       {/* Right Panel: Parameter Editor */}
-      <div className="bg-[#0f0f0f] w-60 flex flex-col relative z-30">
-        <div className="flex p-1 gap-1">
+      <div className="bg-[#0f0f0f] border-l border-gray-800 w-64 flex flex-col">
+        <div className="flex p-1 bg-gray-900 rounded-lg m-3">
           <button
             onClick={() => setActiveParamTab('block')}
-            className={`flex-1 py-2 text-sm font-black uppercase tracking-widest transition-all rounded-lg ${
+            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest transition-all rounded-md ${
               activeParamTab === 'block'
-                ? "text-white bg-white/5"
-                : "text-gray-600 hover:text-gray-400 hover:bg-gray-800/20"
+                ? "bg-white text-black shadow-lg"
+                : "text-gray-500 hover:text-gray-300"
             }`}
           >
             블록 설정
           </button>
           <button
             onClick={() => setActiveParamTab('global')}
-            className={`flex-1 py-2 text-sm font-black uppercase tracking-widest transition-all rounded-lg ${
+            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest transition-all rounded-md ${
               activeParamTab === 'global'
-                ? "text-white bg-white/5"
-                : "text-gray-600 hover:text-gray-400 hover:bg-gray-800/20"
+                ? "bg-white text-black shadow-lg"
+                : "text-gray-500 hover:text-gray-300"
             }`}
           >
-            전역 논리 설정
+            전체 워크플로우
           </button>
         </div>
 
@@ -645,14 +637,10 @@ export default function Step2Conditions({
           {activeParamTab === 'block' ? (
             selectedBlock ? (
               <div className="space-y-4">
-                <div className="p-3 bg-[#1a1a1a] rounded-lg border border-gray-800">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-sm text-white font-bold">{signalBlocks[selectedBlock.blockId]?.name || selectedBlock.blockId}</div>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-tight ${selectedBlock.type === "entry" ? "bg-red-500/20 text-red-400" : selectedBlock.type === "exit" ? "bg-blue-500/20 text-blue-400" : "bg-purple-500/20 text-purple-400"}`}>
-                      {selectedBlock.type === "entry" ? "매수" : selectedBlock.type === "exit" ? "매도" : "필터"}
-                    </span>
-                  </div>
-                  <p className="text-[12px] text-gray-400 leading-relaxed tabular-nums">{signalBlocks[selectedBlock.blockId]?.description || "시그널을 발생시킵니다."}</p>
+                <div className="p-3 bg-white/5 rounded-xl border border-white/5 mb-4">
+                  <div className="text-[11px] font-black text-white/40 uppercase tracking-widest mb-2">Block Details</div>
+                  <div className="text-sm text-white font-black">{signalBlocks[selectedBlock.blockId]?.name || selectedBlock.blockId}</div>
+                  <p className="text-[10px] text-gray-500 mt-1 font-medium">{signalBlocks[selectedBlock.blockId]?.description || "시그널을 발생시킵니다."}</p>
                 </div>
                 <div className="space-y-3">
                   {(() => {
@@ -668,7 +656,7 @@ export default function Step2Conditions({
                         return (
                           <div key={key} className="space-y-1.5 flex-1">
                             <label className="text-xs text-gray-500 font-black uppercase tracking-tight">{param.label}</label>
-                            <div className="flex items-center gap-2 bg-[#1a1a1a] border border-gray-800/50 rounded-lg px-3 py-2.5 hover:border-gray-700 focus-within:border-blue-500/40 transition-all">
+                            <div className="flex items-center gap-2 bg-[#1a1a1a] border border-gray-800/50 rounded-lg px-3 py-2.5 hover:border-gray-700 focus-within:border-white/40 transition-all">
                               <input 
                                 type="text"
                                 value={val === 0 ? "" : val}
@@ -742,7 +730,7 @@ export default function Step2Conditions({
                                 setCanvasBlocks(canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, params: newParams } : b));
                                 setSelectedBlock({ ...selectedBlock, params: newParams });
                               }}
-                              className="w-full py-2.5 bg-blue-600/10 border border-blue-600/40 rounded-lg text-xs font-black text-blue-400 hover:bg-blue-600/20 hover:border-blue-600/60 transition-all flex items-center justify-center gap-1.5 group/savebtn shadow-lg shadow-blue-900/10"
+                              className="w-full py-2.5 bg-white text-black rounded-lg text-xs font-black hover:bg-gray-100 transition-all flex items-center justify-center gap-1.5 group/savebtn shadow-lg shadow-white/5"
                             >
                               설정 저장
                             </button>
@@ -764,7 +752,7 @@ export default function Step2Conditions({
                                 onMouseEnter={(e) => setHoveredParam({ label: param.label, tooltip: param.tooltip!, rect: e.currentTarget.getBoundingClientRect() })}
                                 onMouseLeave={() => setHoveredParam(null)}
                               >
-                                <InformationCircleIcon className="w-3.5 h-3.5 text-gray-700 hover:text-blue-500 transition-colors cursor-help" />
+                                <InformationCircleIcon className="w-3.5 h-3.5 text-gray-700 hover:text-white transition-colors cursor-help" />
                               </div>
                             )}
                           </div>

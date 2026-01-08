@@ -145,7 +145,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                     onClick={() => handlePeriodChange(p.id)}
                     className={`py-2.5 rounded-lg text-xs font-bold transition-all border ${
                       period === p.id 
-                        ? "bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-900/20" 
+                        ? "bg-white border-white text-black shadow-lg shadow-white/10" 
                         : "bg-[#1a1a1a] border-gray-800 text-gray-400 hover:bg-gray-800 hover:text-gray-300"
                     }`}
                   >
@@ -161,7 +161,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                        type="date" 
                        value={startDate}
                        onChange={(e) => setStartDate(e.target.value)}
-                       className="bg-[#1a1a1a] border border-gray-800 rounded-xl px-3 py-2 text-xs text-white font-bold w-full outline-none focus:border-blue-500 uppercase" 
+                       className="bg-[#1a1a1a] border border-gray-800 rounded-xl px-3 py-2 text-xs text-white font-bold w-full outline-none focus:border-white uppercase" 
                      />
                    </div>
                    <div className="flex-1 space-y-1">
@@ -170,7 +170,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                        type="date" 
                        value={endDate}
                        onChange={(e) => setEndDate(e.target.value)}
-                       className="bg-[#1a1a1a] border border-gray-800 rounded-xl px-3 py-2 text-xs text-white font-bold w-full outline-none focus:border-blue-500 uppercase" 
+                       className="bg-[#1a1a1a] border border-gray-800 rounded-xl px-3 py-2 text-xs text-white font-bold w-full outline-none focus:border-white uppercase" 
                      />
                    </div>
                 </div>
@@ -185,7 +185,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
 
             <div className="space-y-3">
                <label className="text-xs text-gray-500 font-bold">초기 자본금</label>
-               <div className="bg-[#1a1a1a] border border-gray-800 rounded-xl px-5 py-3 group hover:border-gray-700 focus-within:border-purple-500 transition-all">
+               <div className="bg-[#1a1a1a] border border-gray-800 rounded-xl px-5 py-3 group hover:border-gray-700 focus-within:border-white transition-all">
                   <div className="flex items-center justify-between">
                      <input 
                        type="text"
@@ -265,7 +265,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                        {summary.blockNames.length > 0 ? (
                          summary.blockNames.map((name, idx) => (
                            <div key={idx} className="flex items-center gap-2 text-xs text-gray-300">
-                              <div className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+                              <div className="w-1.5 h-1.5 rounded-full bg-white/50 shrink-0" />
                               <span className="truncate">{name}</span>
                            </div>
                          ))
@@ -303,11 +303,11 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                    <div className="bg-[#1a1a1a] p-3 rounded-xl border border-gray-800 space-y-1.5">
                       <div className="flex justify-between">
                          <span className="text-[10px] text-gray-500">손절</span>
-                         <span className="text-xs text-red-400 font-bold">-{summary.riskManagement.stopLoss || 0}%</span>
+                         <span className="text-xs text-white font-bold">-{summary.riskManagement.stopLoss || 0}%</span>
                       </div>
                       <div className="flex justify-between">
                          <span className="text-[10px] text-gray-500">익절</span>
-                         <span className="text-xs text-green-400 font-bold">{summary.riskManagement.takeProfit || 0}%</span>
+                         <span className="text-xs text-white font-bold">{summary.riskManagement.takeProfit || 0}%</span>
                       </div>
                    </div>
                 </div>

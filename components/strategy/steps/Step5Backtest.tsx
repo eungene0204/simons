@@ -92,7 +92,7 @@ export default function Step5Backtest({
           
           <button 
              onClick={onSave}
-             className="px-8 py-3 bg-red-600 text-white rounded-xl text-md font-black hover:bg-red-500 transition-all shadow-xl shadow-red-900/40"
+             className="px-8 py-3 bg-white text-black rounded-xl text-md font-black hover:bg-gray-100 transition-all shadow-xl shadow-white/5"
           >
             전략 저장
           </button>

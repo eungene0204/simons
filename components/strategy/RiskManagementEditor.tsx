@@ -56,7 +56,7 @@ export default function RiskManagementEditor({
           step={step}
           value={value}
           onChange={(e) => handleChange(key, parseFloat(e.target.value))}
-          className="w-full accent-blue-500 h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer"
+          className="w-full accent-white h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer"
         />
         <div className="flex justify-between text-[10px] text-gray-600 font-medium mt-2">
           <span>{min}{unit}</span>
@@ -71,7 +71,7 @@ export default function RiskManagementEditor({
       {/* Capital Management */}
       <section>
         <div className="flex items-center gap-2 mb-4">
-          <div className="w-1 h-4 bg-blue-500 rounded-full" />
+          <div className="w-1 h-4 bg-white rounded-full" />
           <h3 className="text-sm font-black text-white tracking-tight">자금 관리</h3>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -93,7 +93,7 @@ export default function RiskManagementEditor({
       {/* Price-based Exit */}
       <section>
         <div className="flex items-center gap-2 mb-4">
-          <div className="w-1 h-4 bg-orange-500 rounded-full" />
+          <div className="w-1 h-4 bg-gray-400 rounded-full" />
           <h3 className="text-sm font-black text-white tracking-tight">가격 기반 청산 리스크</h3>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -127,7 +127,7 @@ export default function RiskManagementEditor({
       {/* Portfolio Controls */}
       <section>
         <div className="flex items-center gap-2 mb-4">
-          <div className="w-1 h-4 bg-emerald-500 rounded-full" />
+          <div className="w-1 h-4 bg-gray-600 rounded-full" />
           <h3 className="text-sm font-black text-white tracking-tight">포트폴리오 제어</h3>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
