@@ -565,54 +565,56 @@ export default function StrategyComposerV2({
 
       <div className="flex-1 flex min-h-0">
         {currentStep === 2 ? (
-          <Step2Conditions
-            canvasBlocks={canvasBlocks}
-            setCanvasBlocks={setCanvasBlocks}
-            selectedBlock={selectedBlock}
-            setSelectedBlock={setSelectedBlock}
-            activeParamTab={activeParamTab}
-            setActiveParamTab={setActiveParamTab}
-            entryLogic={entryLogic}
-            setEntryLogic={setEntryLogic}
-            exitLogic={exitLogic}
-            setExitLogic={setExitLogic}
-            unlockedBlockIds={unlockedBlockIds}
-            setUnlockedBlockIds={setUnlockedBlockIds}
-            manuallyHiddenBlockIds={manuallyHiddenBlockIds}
-            setManuallyHiddenBlockIds={setManuallyHiddenBlockIds}
-            customBlockOrder={customBlockOrder}
-            setCustomBlockOrder={setCustomBlockOrder}
-            customCategoryOrder={customCategoryOrder}
-            setCustomCategoryOrder={setCustomCategoryOrder}
-            hoveredInfo={hoveredInfo}
-            setHoveredInfo={setHoveredInfo}
-            hoveredParam={hoveredParam}
-            setHoveredParam={setHoveredParam}
-            hoveredEditIcon={hoveredEditIcon}
-            setHoveredEditIcon={setHoveredEditIcon}
-            isSearchMenuOpen={isSearchMenuOpen}
-            setIsSearchMenuOpen={setIsSearchMenuOpen}
-            isLibraryManagementOpen={isLibraryManagementOpen}
-            setIsLibraryManagementOpen={setIsLibraryManagementOpen}
-            activeMgmtCategory={activeMgmtCategory}
-            setActiveMgmtCategory={setActiveMgmtCategory}
-            draggedModalItemIndex={draggedModalItemIndex}
-            setDraggedModalItemIndex={setDraggedModalItemIndex}
-            draggedCategoryIndex={draggedCategoryIndex}
-            setDraggedCategoryIndex={setDraggedCategoryIndex}
-            openSignalGroups={openSignalGroups}
-            setOpenSignalGroups={setOpenSignalGroups}
-            savedFeedback={savedFeedback}
-            setSavedFeedback={setSavedFeedback}
-            reorderDragItem={reorderDragItem}
-            setReorderDragItem={setReorderDragItem}
-            canvasRef={canvasRef}
-            canvasWidth={canvasWidth}
-            onNext={() => setCurrentStep(3)}
-            onPrev={() => setCurrentStep(1)}
-            handleAddBlock={handleAddBlock}
-            handleRemoveBlockFromBin={handleRemoveBlockFromBin}
-          />
+          <div className="flex-1 flex flex-col">
+            <Step2Conditions
+              canvasBlocks={canvasBlocks}
+              setCanvasBlocks={setCanvasBlocks}
+              selectedBlock={selectedBlock}
+              setSelectedBlock={setSelectedBlock}
+              activeParamTab={activeParamTab}
+              setActiveParamTab={setActiveParamTab}
+              entryLogic={entryLogic}
+              setEntryLogic={setEntryLogic}
+              exitLogic={exitLogic}
+              setExitLogic={setExitLogic}
+              unlockedBlockIds={unlockedBlockIds}
+              setUnlockedBlockIds={setUnlockedBlockIds}
+              manuallyHiddenBlockIds={manuallyHiddenBlockIds}
+              setManuallyHiddenBlockIds={setManuallyHiddenBlockIds}
+              customBlockOrder={customBlockOrder}
+              setCustomBlockOrder={setCustomBlockOrder}
+              customCategoryOrder={customCategoryOrder}
+              setCustomCategoryOrder={setCustomCategoryOrder}
+              hoveredInfo={hoveredInfo}
+              setHoveredInfo={setHoveredInfo}
+              hoveredParam={hoveredParam}
+              setHoveredParam={setHoveredParam}
+              hoveredEditIcon={hoveredEditIcon}
+              setHoveredEditIcon={setHoveredEditIcon}
+              isSearchMenuOpen={isSearchMenuOpen}
+              setIsSearchMenuOpen={setIsSearchMenuOpen}
+              isLibraryManagementOpen={isLibraryManagementOpen}
+              setIsLibraryManagementOpen={setIsLibraryManagementOpen}
+              activeMgmtCategory={activeMgmtCategory}
+              setActiveMgmtCategory={setActiveMgmtCategory}
+              draggedModalItemIndex={draggedModalItemIndex}
+              setDraggedModalItemIndex={setDraggedModalItemIndex}
+              draggedCategoryIndex={draggedCategoryIndex}
+              setDraggedCategoryIndex={setDraggedCategoryIndex}
+              openSignalGroups={openSignalGroups}
+              setOpenSignalGroups={setOpenSignalGroups}
+              savedFeedback={savedFeedback}
+              setSavedFeedback={setSavedFeedback}
+              reorderDragItem={reorderDragItem}
+              setReorderDragItem={setReorderDragItem}
+              canvasRef={canvasRef}
+              canvasWidth={canvasWidth}
+              onNext={() => setCurrentStep(3)}
+              onPrev={() => setCurrentStep(1)}
+              handleAddBlock={handleAddBlock}
+              handleRemoveBlockFromBin={handleRemoveBlockFromBin}
+            />
+          </div>
         ) : (
           <div className="flex-1 bg-[#0f0f0f] relative">
             {currentStep === 1 && (
