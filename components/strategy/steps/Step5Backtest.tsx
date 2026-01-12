@@ -85,14 +85,14 @@ export default function Step5Backtest({
        <div className="shrink-0 p-6 flex justify-between bg-[#0f0f0f] z-20">
          <button 
             onClick={onPrev} 
-            className="px-6 py-3 bg-[#0a0a0a] border border-gray-800 text-gray-300 rounded-xl text-md font-black hover:bg-gray-800 transition-all"
+            className="px-6 py-3 bg-[#0a0a0a] border border-gray-800 text-gray-300 rounded-2xl text-md font-black hover:bg-gray-800 transition-all"
           >
             이전 단계
           </button>
           
           <button 
              onClick={onSave}
-             className="px-8 py-3 bg-white text-black rounded-xl text-md font-black hover:bg-gray-100 transition-all shadow-xl shadow-white/5"
+             className="px-8 py-3 bg-white text-black rounded-2xl text-md font-black hover:bg-gray-100 transition-all shadow-xl shadow-white/5"
           >
             전략 저장
           </button>

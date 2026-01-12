@@ -164,6 +164,11 @@ export default function StrategyComposerV2({
     return () => observer.disconnect();
   }, [currentStep]);
 
+  // Reset scroll to top when changing steps
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [currentStep]);
+
   // Prevent background scroll when modals are open
   useEffect(() => {
     if (isLibraryManagementOpen || isSearchMenuOpen) {

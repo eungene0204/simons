@@ -132,7 +132,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
         
         {/* Left Column: Period & Capital */}
         <div className="space-y-6">
-           <div className="bg-[#111] border border-gray-800 rounded-2xl p-6 h-[250px] flex flex-col justify-center">
+           <div className="bg-[#111] border border-gray-800 rounded-3xl p-6 h-[250px] flex flex-col justify-center">
             <div className="flex items-center gap-2 mb-4">
               <span className="text-lg font-black text-[#dfdfdf] uppercase tracking-tight">테스트 기간</span>
             </div>
@@ -185,7 +185,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
 
             <div className="space-y-3">
                <label className="text-xs text-gray-500 font-bold">초기 자본금</label>
-               <div className="bg-[#1a1a1a] border border-gray-800 rounded-xl px-5 py-3 group hover:border-gray-700 focus-within:border-white transition-all">
+               <div className="bg-[#1a1a1a] border border-gray-800 rounded-2xl px-5 py-3 group hover:border-gray-700 focus-within:border-white transition-all">
                   <div className="flex items-center justify-between">
                      <input 
                        type="text"
@@ -205,7 +205,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="text-xs text-gray-500 font-bold">수수료 (%)</label>
-                <div className="flex items-center bg-[#1a1a1a] border border-gray-800 rounded-xl px-3 py-2.5">
+                <div className="flex items-center bg-[#1a1a1a] border border-gray-800 rounded-2xl px-3 py-2.5">
                   <input 
                     type="number" 
                     step="0.001"
@@ -218,7 +218,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
               </div>
               <div className="space-y-2">
                 <label className="text-xs text-gray-500 font-bold">슬리피지 (%)</label>
-                <div className="flex items-center bg-[#1a1a1a] border border-gray-800 rounded-xl px-3 py-2.5">
+                <div className="flex items-center bg-[#1a1a1a] border border-gray-800 rounded-2xl px-3 py-2.5">
                   <input 
                     type="number" 
                     step="0.01"
@@ -234,7 +234,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
         </div>
 
         {/* Right Column: Strategy Summary */}
-        <div className="bg-[#111] border border-gray-800 rounded-2xl p-6 h-[524px] flex flex-col">
+        <div className="bg-[#111] border border-gray-800 rounded-3xl p-6 h-[524px] flex flex-col">
           <div className="flex items-center gap-2 mb-6">
             <span className="text-lg font-black text-[#dfdfdf] uppercase tracking-tight">전략 요약</span>
           </div>
@@ -245,7 +245,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                 <div className="flex justify-between items-center text-xs">
                    <span className="text-[#a0a0a0] font-bold">유니버스</span>
                 </div>
-                <div className="bg-[#1a1a1a] p-4 rounded-xl border border-gray-800">
+                <div className="bg-[#1a1a1a] p-4 rounded-2xl border border-gray-800">
                    <div className="text-[#dfdfdf] font-bold text-[#dfdfdf] mb-1">{summary.universeName}</div>
                    {summary.universeFiltersCount > 0 && (
                      <div className="text-xs text-gray-500">
@@ -260,7 +260,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                 <div className="flex justify-between items-center text-xs">
                    <span className="text-[#a0a0a0] font-bold">매매 조건</span>
                 </div>
-                 <div className="bg-[#1a1a1a] p-4 rounded-xl border border-gray-800">
+                 <div className="bg-[#1a1a1a] p-4 rounded-2xl border border-gray-800">
                     <div className="space-y-1.5 max-h-[120px] overflow-y-auto custom-scrollbar pr-2">
                        {summary.blockNames.length > 0 ? (
                          summary.blockNames.map((name, idx) => (
@@ -282,7 +282,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                    <div className="flex justify-between items-center text-xs">
                       <span className="text-[#a0a0a0] font-bold">포지션 설정</span>
                    </div>
-                   <div className="bg-[#1a1a1a] p-3 rounded-xl border border-gray-800 space-y-1.5">
+                   <div className="bg-[#1a1a1a] p-3 rounded-2xl border border-gray-800 space-y-1.5">
                       <div className="flex justify-between">
                          <span className="text-[10px] text-[#a0a0a0]">최대 종목</span>
                          <span className="text-xs text-white font-bold">{summary.riskSettings.maxPositions}개</span>
@@ -300,7 +300,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                    <div className="flex justify-between items-center text-xs">
                       <span className="text-[#a0a0a0] font-bold">리스크 관리</span>
                    </div>
-                   <div className="bg-[#1a1a1a] p-3 rounded-xl border border-gray-800 space-y-1.5">
+                   <div className="bg-[#1a1a1a] p-3 rounded-2xl border border-gray-800 space-y-1.5">
                       <div className="flex justify-between">
                          <span className="text-[10px] text-[#a0a0a0]">손절</span>
                          <span className="text-xs text-white font-bold">-{summary.riskManagement.stopLoss || 0}%</span>
@@ -319,7 +319,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
       <button
         onClick={handleRun}
         disabled={isRunning}
-        className="w-full py-4 bg-white hover:bg-gray-100 text-black rounded-xl text-lg font-black transition-all flex items-center justify-center gap-3 shadow-xl shadow-white/5 active:scale-[0.99] disabled:opacity-70 disabled:cursor-not-allowed"
+        className="w-full py-4 bg-white hover:bg-gray-100 text-black rounded-2xl text-lg font-black transition-all flex items-center justify-center gap-3 shadow-xl shadow-white/5 active:scale-[0.99] disabled:opacity-70 disabled:cursor-not-allowed"
       >
         {isRunning ? (
           <>

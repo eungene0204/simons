@@ -307,7 +307,7 @@ export default function Step2Conditions({
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[#0f0f0f]">
       <div className="flex-1 flex min-h-0 overflow-hidden bg-[#0f0f0f] max-h-[640px]">
         {/* Left Sidebar */}
-        <div className="w-52 bg-[#0c0c0c] backdrop-blur-2xl flex flex-col shrink-0 relative z-20 rounded-[32px] ml-4 h-full overflow-hidden">
+        <div className="w-52 bg-[#0c0c0c] backdrop-blur-2xl flex flex-col shrink-0 relative z-20 rounded-3xl ml-4 h-full overflow-hidden">
           <div className="flex-1 px-4 py-6 space-y-4">
             <div className="flex items-center justify-between mb-2 px-1">
               <div className="flex items-center gap-2">
@@ -350,7 +350,7 @@ export default function Step2Conditions({
                     {isOpen && (
                       <div 
                         ref={popoverRef}
-                        className="absolute inset-x-0 top-0 bg-[#161616] backdrop-blur-3xl rounded-[24px] border border-white/10 shadow-[0_25px_60px_rgba(0,0,0,0.8)] z-[100] p-3 animate-in fade-in zoom-in-95 duration-200"
+                        className="absolute inset-x-0 top-0 bg-[#161616] backdrop-blur-3xl rounded-2xl border border-white/10 shadow-[0_25px_60px_rgba(0,0,0,0.8)] z-[100] p-3 animate-in fade-in zoom-in-95 duration-200"
                       >
                         <div className="space-y-1.5 max-h-[420px] overflow-y-auto custom-scrollbar pr-1">
                           {filteredBlocks.length === 0 && <div className="text-xs text-gray-700 px-3 py-4 italic text-center">Empty Category</div>}
@@ -561,12 +561,12 @@ export default function Step2Conditions({
         </div>
 
         {/* Right Panel: Single Box Tabbed Layout */}
-        <div className="w-64 bg-black/20 backdrop-blur-2xl rounded-[40px] flex flex-col relative z-20 mr-4 h-full overflow-hidden">
+        <div className="w-64 bg-black/20 backdrop-blur-2xl rounded-3xl flex flex-col relative z-20 mr-4 h-full overflow-hidden">
           {/* Tab Headers */}
           <div className="px-2 py-2 bg-[#0c0c0c] flex gap-1">
             <button
               onClick={(e) => { e.stopPropagation(); setActiveParamTab('block'); }}
-              className={`flex-1 py-3 text-xs font-black uppercase tracking-widest transition-all rounded-full ${
+              className={`flex-1 py-3 text-xs font-black uppercase tracking-widest transition-all rounded-xl ${
                 activeParamTab === 'block'
                   ? "text-white bg-white/5 shadow-inner"
                   : "text-[#a0a0a0] hover:text-white/40"
@@ -576,7 +576,7 @@ export default function Step2Conditions({
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); setActiveParamTab('global'); }}
-              className={`flex-1 py-3 text-xs font-black uppercase tracking-widest transition-all rounded-full ${
+              className={`flex-1 py-3 text-xs font-black uppercase tracking-widest transition-all rounded-xl ${
                 activeParamTab === 'global'
                   ? "text-white bg-white/5 shadow-inner"
                   : "text-[#a0a0a0] hover:text-white/40"
@@ -665,7 +665,7 @@ export default function Step2Conditions({
 
                       return (
                         <div className="space-y-4">
-                          <div className="p-4 bg-white/5 rounded-3xl space-y-5">
+                          <div className="p-4 bg-white/5 rounded-2xl space-y-5">
                             {renderSelect("investorType")}
                             <div className="flex gap-4">
                               {renderInput("period")}
@@ -747,7 +747,7 @@ export default function Step2Conditions({
                               </div>
                             </button>
                           ) : (
-                            <div className="bg-white/5 rounded-[24px] p-4 group/input transition-all">
+                            <div className="bg-white/5 rounded-xl p-4 group/input transition-all">
                               <div className="flex justify-between items-center mb-3 px-1">
                                 <span className="text-lg font-bold text-white tabular-nums tracking-tight">{currentValue}</span>
                                 {param.suffix && <span className="text-sm font-bold text-white/20 uppercase tracking-widest">{param.suffix}</span>}
@@ -814,26 +814,26 @@ export default function Step2Conditions({
               )
             ) : (
               <div className="flex-1 flex flex-col justify-center space-y-6 py-4">
-                <div className="bg-white/5 rounded-[32px] p-8 backdrop-blur-sm border border-white/5 flex flex-col justify-center">
+                <div className="bg-white/5 rounded-2xl p-8 backdrop-blur-sm border border-white/5 flex flex-col justify-center">
                   <div className="flex items-center gap-2 mb-6">
                     <div className="w-2 h-2 rounded-full bg-[#007AFF] shadow-[0_0_12px_rgba(0,122,255,0.8)]" />
                     <label className="text-[13px] font-black text-[#dfdfdf] uppercase tracking-widest">매수 결합 로직</label>
                   </div>
-                  <div className="flex bg-black/40 rounded-[24px] p-2 mb-6">
-                    <button onClick={() => setEntryLogic("AND")} className={`flex-1 py-4 text-[13px] font-black rounded-[18px] transition-all ${entryLogic === "AND" ? "bg-[rgb(55,122,244)] text-white shadow-[0_0_20px_rgba(55,122,244,0.4)] scale-[1.02]" : "text-[#a0a0a0] hover:text-white/60"}`}>AND</button>
-                    <button onClick={() => setEntryLogic("OR")} className={`flex-1 py-4 text-[13px] font-black rounded-[18px] transition-all ${entryLogic === "OR" ? "bg-[rgb(55,122,244)] text-white shadow-[0_0_20px_rgba(55,122,244,0.4)] scale-[1.02]" : "text-[#a0a0a0] hover:text-white/60"}`}>OR</button>
+                  <div className="flex bg-black/40 rounded-xl p-2 mb-6">
+                    <button onClick={() => setEntryLogic("AND")} className={`flex-1 py-4 text-[13px] font-black rounded-lg transition-all ${entryLogic === "AND" ? "bg-[rgb(55,122,244)] text-white shadow-[0_0_20px_rgba(55,122,244,0.4)] scale-[1.02]" : "text-[#a0a0a0] hover:text-white/60"}`}>AND</button>
+                    <button onClick={() => setEntryLogic("OR")} className={`flex-1 py-4 text-[13px] font-black rounded-lg transition-all ${entryLogic === "OR" ? "bg-[rgb(55,122,244)] text-white shadow-[0_0_20px_rgba(55,122,244,0.4)] scale-[1.02]" : "text-[#a0a0a0] hover:text-white/60"}`}>OR</button>
                   </div>
                   <p className="text-[12px] text-[#a0a0a0] font-black uppercase tracking-tight leading-relaxed text-center px-2">{entryLogic === "AND" ? "모든 매수 블록의 조건이 동시에 충족되어야 합니다." : "매수 블록 중 하나만 충족되어도 신호가 발생합니다."}</p>
                 </div>
 
-                <div className="bg-white/5 rounded-[32px] p-8 backdrop-blur-sm border border-white/5 flex flex-col justify-center">
+                <div className="bg-white/5 rounded-2xl p-8 backdrop-blur-sm border border-white/5 flex flex-col justify-center">
                   <div className="flex items-center gap-2 mb-6">
                     <div className="w-2 h-2 rounded-full bg-[#FF3B30] shadow-[0_0_15px_rgba(255,59,48,0.6)]" />
                     <label className="text-[13px] font-black text-[#dfdfdf] uppercase tracking-widest">매도 결합 로직</label>
                   </div>
-                  <div className="flex bg-black/40 rounded-[24px] p-2 mb-6">
-                    <button onClick={() => setExitLogic("AND")} className={`flex-1 py-4 text-[13px] font-black rounded-[18px] transition-all ${exitLogic === "AND" ? "bg-[rgb(55,122,244)] text-white shadow-[0_0_20px_rgba(55,122,244,0.4)] scale-[1.02]" : "text-[#a0a0a0] hover:text-white/60"}`}>AND</button>
-                    <button onClick={() => setExitLogic("OR")} className={`flex-1 py-4 text-[13px] font-black rounded-[18px] transition-all ${exitLogic === "OR" ? "bg-[rgb(55,122,244)] text-white shadow-[0_0_20px_rgba(55,122,244,0.4)] scale-[1.02]" : "text-[#a0a0a0] hover:text-white/60"}`}>OR</button>
+                  <div className="flex bg-black/40 rounded-xl p-2 mb-6">
+                    <button onClick={() => setExitLogic("AND")} className={`flex-1 py-4 text-[13px] font-black rounded-lg transition-all ${exitLogic === "AND" ? "bg-[rgb(55,122,244)] text-white shadow-[0_0_20px_rgba(55,122,244,0.4)] scale-[1.02]" : "text-[#a0a0a0] hover:text-white/60"}`}>AND</button>
+                    <button onClick={() => setExitLogic("OR")} className={`flex-1 py-4 text-[13px] font-black rounded-lg transition-all ${exitLogic === "OR" ? "bg-[rgb(55,122,244)] text-white shadow-[0_0_20px_rgba(55,122,244,0.4)] scale-[1.02]" : "text-[#a0a0a0] hover:text-white/60"}`}>OR</button>
                   </div>
                   <p className="text-[12px] text-[#a0a0a0] font-black uppercase tracking-tight leading-relaxed text-center px-2">{exitLogic === "AND" ? "모든 매도 블록의 조건이 동시에 충족되어야 합니다." : "매도 블록 중 하나만 충족되어도 신호가 발생합니다."}</p>
                 </div>
@@ -850,7 +850,7 @@ export default function Step2Conditions({
         <div className="max-w-full mx-auto flex items-center justify-between">
           <div className="flex items-center gap-12">
             <div className="flex items-center gap-6">
-              <div className="w-16 h-16 bg-[rgb(59, 134, 247)] rounded-[24px] flex items-center justify-center shadow-[0_0_40px_rgba(0,122,255,0.4)]">
+              <div className="w-16 h-16 bg-[rgb(59, 134, 247)] rounded-2xl flex items-center justify-center shadow-[0_0_40px_rgba(0,122,255,0.4)]">
                 <CpuChipIcon className="w-8 h-8 text-white" />
               </div>
               <div className="space-y-1">
@@ -879,13 +879,13 @@ export default function Step2Conditions({
           <div className="flex items-center gap-4">
             <button 
               onClick={onPrev} 
-              className="px-8 py-5 bg-white/5 text-white/40 rounded-[24px] text-lg font-black hover:bg-white/10 hover:text-white transition-all flex items-center gap-4 active:scale-95"
+              className="px-8 py-5 bg-white/5 text-white/40 rounded-2xl text-lg font-black hover:bg-white/10 hover:text-white transition-all flex items-center gap-4 active:scale-95"
             >
               <ArrowLeftIcon className="w-6 h-6" /> 이전
             </button>
             <button 
               onClick={onNext} 
-              className="group px-12 py-5 bg-[#161616] text-white rounded-[24px] text-lg font-black hover:bg-[#1f1f1f] transition-all flex items-center gap-4 shadow-[0_20px_40px_rgba(0,0,0,0.3)] hover:scale-105 active:scale-95"
+              className="group px-12 py-5 bg-[#161616] text-white rounded-2xl text-lg font-black hover:bg-[#1f1f1f] transition-all flex items-center gap-4 shadow-[0_20px_40px_rgba(0,0,0,0.3)] hover:scale-105 active:scale-95"
             >
               포지션 설계하기 <ArrowRightIcon className="w-6 h-6 group-hover:translate-x-2 transition-transform duration-500 text-white" />
             </button>
@@ -920,7 +920,7 @@ export default function Step2Conditions({
 
       {isLibraryManagementOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md" onClick={() => setIsLibraryManagementOpen(false)}>
-          <div className="w-full max-w-4xl h-[750px] bg-[#161616]/90 rounded-[40px] shadow-2xl flex flex-col backdrop-blur-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-4xl h-[750px] bg-[#161616]/90 rounded-3xl shadow-2xl flex flex-col backdrop-blur-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <div className="p-8 flex items-center justify-between bg-black/20">
               <h3 className="text-2xl font-black text-white uppercase tracking-tight">보관함 관리</h3>
               <button 

@@ -3,6 +3,7 @@ import "./globals.css";
 import DrawerProviderWrapper from "@/components/drawer/DrawerProviderWrapper";
 import DrawerPortal from "@/components/drawer/DrawerPortal";
 import TopMenuBar from "@/components/layout/TopMenuBar";
+import ScrollToTop from "@/components/layout/ScrollToTop";
 
 export const metadata: Metadata = {
   title: "널스탁 - 주식투자 도움",
@@ -17,6 +18,7 @@ export default function RootLayout({
   return (
     <html lang="ko">
       <body className="page-transition bg-[#0f0f0f] text-white">
+        <ScrollToTop />
         <DrawerProviderWrapper>
           <TopMenuBar />
           {children}
