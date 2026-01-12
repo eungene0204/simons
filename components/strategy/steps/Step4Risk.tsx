@@ -20,8 +20,8 @@ export default function Step4Risk({
 }: Step4RiskProps) {
   return (
     <div className="flex flex-col min-h-full">
-      <div className="space-y-6 p-8">
-        <div className="flex items-center justify-between mb-6">
+      <div className="space-y-6 px-0 pt-8 pb-0">
+        <div className="flex items-center justify-between mb-6 px-8">
           <div>
             <h3 className="text-xl font-black text-[#dfdfdf] tracking-tight">리스크 관리</h3>
             <p className="text-sm text-[#a0a0a0] mt-1 font-medium">
@@ -29,7 +29,7 @@ export default function Step4Risk({
             </p>
           </div>
         </div>
-        <div className="bg-[#0f0f0f] rounded-3xl border border-gray-800/50 p-8 min-h-[600px] max-w-6xl mx-auto shadow-2xl overflow-hidden relative">
+        <div className="bg-[#0f0f0f] rounded-3xl border border-gray-800/50 p-8 min-h-[600px] max-w-6xl mx-8 shadow-2xl overflow-hidden relative">
           <div className="flex flex-col lg:flex-row gap-12">
             {/* Left: Introduction & Summary */}
             <div className="lg:w-1/3 xl:w-1/4">
@@ -71,22 +71,60 @@ export default function Step4Risk({
             </div>
           </div>
         </div>
-        {/* Navigation Buttons (Non-sticky) */}
-        <div className="max-w-6xl mx-auto w-full flex justify-end gap-3 pt-8 pb-12">
-          <button
-            onClick={onPrev}
-            className="px-6 py-3 bg-[#0a0a0a] border border-gray-800 text-gray-300 rounded-2xl text-md font-black hover:bg-gray-800 hover:text-white transition-all flex items-center gap-2"
-          >
-            <ArrowLeftIcon className="w-5 h-5" />
-            이전 단계
-          </button>
-          <button
-            onClick={onNext}
-            className="px-8 py-3 bg-white text-black rounded-2xl text-md font-black hover:bg-gray-100 transition-all flex items-center gap-3 shadow-xl shadow-white/5 hover:scale-[1.02]"
-          >
-            다음: 백테스트
-            <ArrowRightIcon className="w-5 h-5" />
-          </button>
+        <div className="h-8" />
+      </div>
+
+      {/* macOS-style Bottom Toolbar / Status View */}
+      <div className="sticky bottom-0 left-0 right-0 bg-[#0f0f0f] backdrop-blur-3xl px-8 py-5 z-50">
+        <div className="max-w-full mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-12">
+            <div className="flex items-center gap-6">
+              <div className="w-16 h-16 bg-[rgb(59, 134, 247)] rounded-2xl flex items-center justify-center shadow-[0_0_40px_rgba(0,122,255,0.4)]">
+                <ShieldCheckIcon className="w-8 h-8 text-white" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="text-xl font-black text-[#dfdfdf] tracking-tight uppercase">리스크 관리 요약</h4>
+              </div>
+            </div>
+            
+            <div className="h-12 w-px bg-white/10" />
+            
+            <div className="flex gap-12">
+              <div className="flex flex-col">
+                <span className="text-xs font-black text-[rgb(59, 134, 247)] uppercase tracking-widest mb-1.5 opacity-80">손절매</span>
+                <span className="text-2xl font-black text-[#dfdfdf] tabular-nums tracking-tight">
+                  {riskManagement.stop_loss_pct ? `-${riskManagement.stop_loss_pct}%` : "OFF"}
+                </span>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-xs font-black text-[rgb(59, 134, 247)] uppercase tracking-widest mb-1.5 opacity-80">익절매</span>
+                <span className="text-2xl font-black text-[#dfdfdf] tabular-nums tracking-tight">
+                  {riskManagement.take_profit_pct ? `+${riskManagement.take_profit_pct}%` : "OFF"}
+                </span>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-xs font-black text-[rgb(59, 134, 247)] uppercase tracking-widest mb-1.5 opacity-80">트레일링 스탑</span>
+                <span className="text-2xl font-black text-[#dfdfdf] tabular-nums tracking-tight">
+                  {riskManagement.trailing_stop_pct ? "ON" : "OFF"}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={onPrev} 
+              className="px-8 py-5 bg-white/5 text-white/40 rounded-2xl text-lg font-black hover:bg-white/10 hover:text-white transition-all flex items-center gap-4 active:scale-95"
+            >
+              <ArrowLeftIcon className="w-6 h-6" /> 이전
+            </button>
+            <button 
+              onClick={onNext} 
+              className="group px-12 py-5 bg-[#161616] text-white rounded-2xl text-lg font-black hover:bg-[#1f1f1f] transition-all flex items-center gap-4 shadow-[0_20px_40px_rgba(0,0,0,0.3)] border border-white/5 hover:border-white/10 hover:scale-105 active:scale-95"
+            >
+              다음: 백테스트 <ArrowRightIcon className="w-6 h-6 group-hover:translate-x-2 transition-transform duration-500 text-white" />
+            </button>
+          </div>
         </div>
       </div>
 

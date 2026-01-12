@@ -15,6 +15,7 @@ module.exports = {
           500: 'rgb(59, 134, 247)',
         },
         'brand-blue': 'rgb(59, 134, 247)',
+        'main-blue': 'rgb(55, 122, 244)',
       },
       animation: {
         shimmer: 'shimmer 2s infinite',

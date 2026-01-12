@@ -67,8 +67,8 @@ export default function Step1Universe({
   ).length;
 
   return (
-    <div className="flex-1 px-8 pt-8 pb-8 relative z-10 bg-[#0f0f0f]">
-      <div className="max-w-full mx-auto space-y-16 pb-20 mt-0">
+    <div className="flex-1 px-0 pt-8 pb-0 relative z-10 bg-[#0f0f0f]">
+      <div className="max-w-full mx-auto px-8 space-y-16 pb-0 mt-0">
         <div className="space-y-12 w-full mx-auto">
           {/* Strategy Name Hero Section */}
           <div className="relative group">
@@ -280,9 +280,10 @@ export default function Step1Universe({
           </div>
         </div>
       </div>
+      <div className="h-8" />
 
       {/* macOS-style Bottom Toolbar / Status View */}
-      <div className="sticky bottom-0 left-0 right-0 bg-[#0f0f0f] backdrop-blur-3xl p-8 z-50">
+      <div className="sticky bottom-0 left-0 right-0 bg-[#0f0f0f] backdrop-blur-3xl px-8 py-5 z-50">
         <div className="max-w-full mx-auto flex items-center justify-between">
           <div className="flex items-center gap-12">
             <div className="flex items-center gap-6">
