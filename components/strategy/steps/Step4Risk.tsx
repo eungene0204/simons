@@ -29,7 +29,7 @@ export default function Step4Risk({
             </p>
           </div>
         </div>
-        <div className="bg-[#0f0f0f] rounded-2xl border border-gray-800/50 p-8 min-h-[600px] max-w-6xl mx-auto shadow-2xl overflow-hidden relative">
+        <div className="bg-[#0f0f0f] rounded-3xl border border-gray-800/50 p-8 min-h-[600px] max-w-6xl mx-auto shadow-2xl overflow-hidden relative">
           <div className="flex flex-col lg:flex-row gap-12">
             {/* Left: Introduction & Summary */}
             <div className="lg:w-1/3 xl:w-1/4">
@@ -75,14 +75,14 @@ export default function Step4Risk({
         <div className="max-w-6xl mx-auto w-full flex justify-end gap-3 pt-8 pb-12">
           <button
             onClick={onPrev}
-            className="px-6 py-3 bg-[#0a0a0a] border border-gray-800 text-gray-300 rounded-xl text-md font-black hover:bg-gray-800 hover:text-white transition-all flex items-center gap-2"
+            className="px-6 py-3 bg-[#0a0a0a] border border-gray-800 text-gray-300 rounded-2xl text-md font-black hover:bg-gray-800 hover:text-white transition-all flex items-center gap-2"
           >
             <ArrowLeftIcon className="w-5 h-5" />
             이전 단계
           </button>
           <button
             onClick={onNext}
-            className="px-8 py-3 bg-white text-black rounded-xl text-md font-black hover:bg-gray-100 transition-all flex items-center gap-3 shadow-xl shadow-white/5 hover:scale-[1.02]"
+            className="px-8 py-3 bg-white text-black rounded-2xl text-md font-black hover:bg-gray-100 transition-all flex items-center gap-3 shadow-xl shadow-white/5 hover:scale-[1.02]"
           >
             다음: 백테스트
             <ArrowRightIcon className="w-5 h-5" />

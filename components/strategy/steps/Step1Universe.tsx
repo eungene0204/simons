@@ -77,12 +77,12 @@ export default function Step1Universe({
               value={strategyName}
               onChange={(e) => setStrategyName(e.target.value)}
               placeholder="전략 이름을 입력하세요..."
-              className="w-full bg-white/5 hover:bg-white/10 px-6 py-4 rounded-[32px] text-3xl font-black text-white placeholder-white/10 outline-none tracking-tight transition-all focus:bg-white/10 focus:placeholder-white/5"
+              className="w-full bg-white/5 hover:bg-white/10 px-6 py-4 rounded-2xl text-3xl font-black text-white placeholder-white/10 outline-none tracking-tight transition-all focus:bg-white/10 focus:placeholder-white/5"
             />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
-            <div className="space-y-6 bg-black/20 backdrop-blur-2xl rounded-[32px] border border-white/10 p-8 shadow-2xl h-[540px] min-h-[540px]">
+            <div className="space-y-6 bg-black/20 backdrop-blur-2xl rounded-3xl border border-white/10 p-8 shadow-2xl h-[540px] min-h-[540px]">
               <div className="flex items-center gap-3 mb-4">
                 <GlobeAltIcon className="w-6 h-6 text-[rgb(59, 134, 247)]" />
                 <h3 className="text-sm font-black text-[#dfdfdf] uppercase tracking-tight">시장 및 규모 선택</h3>
@@ -155,7 +155,7 @@ export default function Step1Universe({
               </div>
             </div>
 
-            <div className="space-y-6 bg-black/20 backdrop-blur-2xl rounded-[32px] border border-white/10 p-8 shadow-2xl h-[540px] min-h-[540px] flex flex-col">
+            <div className="space-y-6 bg-black/20 backdrop-blur-2xl rounded-3xl border border-white/10 p-8 shadow-2xl h-[540px] min-h-[540px] flex flex-col">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-3">
                   <Squares2X2Icon className="w-6 h-6 text-[rgb(59, 134, 247)]" />
@@ -212,7 +212,7 @@ export default function Step1Universe({
 
           {/* Exclusion Filters Section */}
           <div className="space-y-8">
-            <div className="space-y-6 bg-black/20 backdrop-blur-2xl rounded-[32px] border border-white/10 p-8 shadow-2xl">
+            <div className="space-y-6 bg-black/20 backdrop-blur-2xl rounded-3xl border border-white/10 p-8 shadow-2xl">
               <div className="flex items-center gap-3 mb-4">
                 <ShieldExclamationIcon className="w-6 h-6 text-[rgb(59, 134, 247)]" />
                 <h3 className="text-base font-black text-[#dfdfdf] uppercase tracking-tight">제외 필터 설정</h3>
@@ -231,7 +231,7 @@ export default function Step1Universe({
                         <div
                           key={item.id}
                           onClick={() => setUniverseFilters({...universeFilters, [item.id]: !(universeFilters as any)[item.id]})}
-                          className={`p-6 rounded-[24px] border transition-all cursor-pointer flex items-center gap-6 group ${
+                          className={`p-6 rounded-2xl border transition-all cursor-pointer flex items-center gap-6 group ${
                             (universeFilters as any)[item.id]
                               ? "bg-white/10 border-white/10 shadow-xl"
                               : "bg-white/5 border-white/5 hover:border-white/10"
@@ -251,7 +251,7 @@ export default function Step1Universe({
 
                   <div className="space-y-4 flex flex-col">
                     <div className="text-lg font-normal text-[#a0a0a0] px-1 mb-1">시장 분류 및 종목 특성</div>
-                    <div className="bg-white/5 rounded-[32px] border border-white/5 p-8 grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-4 backdrop-blur-md flex-1">
+                    <div className="bg-white/5 rounded-3xl border border-white/5 p-8 grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-4 backdrop-blur-md flex-1">
                       {[
                         { id: 'excludeETF_ETN', label: 'ETF / ETN 제외' },
                         { id: 'excludeSPAC', label: 'SPAC 제외' },
@@ -286,7 +286,7 @@ export default function Step1Universe({
         <div className="max-w-full mx-auto flex items-center justify-between">
           <div className="flex items-center gap-12">
             <div className="flex items-center gap-6">
-              <div className="w-16 h-16 bg-[rgb(59, 134, 247)] rounded-[24px] flex items-center justify-center shadow-[0_0_40px_rgba(0,122,255,0.4)]">
+              <div className="w-16 h-16 bg-[rgb(59, 134, 247)] rounded-2xl flex items-center justify-center shadow-[0_0_40px_rgba(0,122,255,0.4)]">
                 <ChartPieIcon className="w-8 h-8 text-white" />
               </div>
               <div className="space-y-1">
@@ -316,7 +316,7 @@ export default function Step1Universe({
 
           <button 
             onClick={onNext} 
-            className="group px-12 py-5 bg-[#161616] text-white rounded-[24px] text-lg font-black hover:bg-[#1f1f1f] transition-all flex items-center gap-4 shadow-[0_20px_40px_rgba(0,0,0,0.3)] border border-white/5 hover:border-white/10 hover:scale-105 active:scale-95"
+            className="group px-12 py-5 bg-[#161616] text-white rounded-2xl text-lg font-black hover:bg-[#1f1f1f] transition-all flex items-center gap-4 shadow-[0_20px_40px_rgba(0,0,0,0.3)] border border-white/5 hover:border-white/10 hover:scale-105 active:scale-95"
           >
             매매 로직 설계하기 <ArrowRightIcon className="w-6 h-6 group-hover:translate-x-2 transition-transform duration-500 text-white" />
           </button>
