@@ -120,7 +120,7 @@ export default function StrategyComposerV2({
   // Canvas state
   const [canvasBlocks, setCanvasBlocks] = useState<CanvasBlock[]>([]);
   const [selectedBlock, setSelectedBlock] = useState<CanvasBlock | null>(null);
-  const [activeParamTab, setActiveParamTab] = useState<'block' | 'global'>('global');
+  const [activeParamTab, setActiveParamTab] = useState<'block' | 'global'>('block');
   const [editingBlock, setEditingBlock] = useState<CanvasBlock | null>(null);
   const [draggedOver, setDraggedOver] = useState(false);
   
@@ -192,6 +192,7 @@ export default function StrategyComposerV2({
       params: signalBlocks[blockId]?.defaultParams ? { ...signalBlocks[blockId].defaultParams } : {},
     };
 
+    setActiveParamTab('block');
     const updated = [...canvasBlocks, newBlock];
     
     const sorted = [
@@ -202,7 +203,6 @@ export default function StrategyComposerV2({
     
     setCanvasBlocks(sorted);
     setSelectedBlock(newBlock);
-    setActiveParamTab('block');
   }, [canvasBlocks]);
 
   const handleRemoveBlockFromBin = useCallback((blockId: string, e: React.MouseEvent) => {
@@ -402,7 +402,7 @@ export default function StrategyComposerV2({
 
   return (
     <div className="flex flex-col bg-[#050505] min-h-screen relative">
-      <div className="flex flex-col relative z-10">
+      <div className="flex-1 flex flex-col relative z-10">
       {/* Top Header Bar */}
       <div className="bg-[#0f0f0f] px-8 py-8">
         <div className="flex items-center justify-between">
@@ -455,7 +455,7 @@ export default function StrategyComposerV2({
 
           {/* Connector 1-2 */}
           <div className="flex-1 px-4">
-            <div className={`h-[1px] w-full transition-all duration-500 ${currentStep > 1 ? "bg-[#007AFF] shadow-[0_0_8px_rgba(0,122,255,0.4)]" : "bg-white/10"}`} />
+            <div className="h-[1px] w-full bg-white/10" />
           </div>
 
           {/* Step 2: Signal Blocks */}
@@ -482,7 +482,7 @@ export default function StrategyComposerV2({
 
           {/* Connector 2-3 */}
           <div className="flex-1 px-4">
-            <div className={`h-[1px] w-full transition-all duration-500 ${currentStep > 2 ? "bg-[#007AFF] shadow-[0_0_8px_rgba(0,122,255,0.4)]" : "bg-white/10"}`} />
+            <div className="h-[1px] w-full bg-white/10" />
           </div>
 
           {/* Step 3: Position */}
@@ -509,7 +509,7 @@ export default function StrategyComposerV2({
 
           {/* Connector 3-4 */}
           <div className="flex-1 px-4">
-            <div className={`h-[1px] w-full transition-all duration-500 ${currentStep > 3 ? "bg-[#007AFF] shadow-[0_0_8px_rgba(0,122,255,0.4)]" : "bg-white/10"}`} />
+            <div className="h-[1px] w-full bg-white/10" />
           </div>
 
           {/* Step 4: Risk */}
@@ -536,7 +536,7 @@ export default function StrategyComposerV2({
 
           {/* Connector 4-5 */}
           <div className="flex-1 px-4">
-            <div className={`h-[1px] w-full transition-all duration-500 ${currentStep > 4 ? "bg-[#007AFF] shadow-[0_0_8px_rgba(0,122,255,0.4)]" : "bg-white/10"}`} />
+            <div className="h-[1px] w-full bg-white/10" />
           </div>
 
           {/* Step 5: Backtest */}

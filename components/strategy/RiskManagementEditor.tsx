@@ -33,7 +33,7 @@ export default function RiskManagementEditor({
       <div className="bg-[#111111] p-4 rounded-xl border border-gray-800/50 hover:border-gray-700 transition-colors">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-1.5">
-            <label className="text-xs font-bold text-gray-400 uppercase tracking-tight">
+            <label className="text-xs font-bold text-[#a0a0a0] uppercase tracking-tight">
               {label}
             </label>
             <div className="group relative">
@@ -58,7 +58,7 @@ export default function RiskManagementEditor({
           onChange={(e) => handleChange(key, parseFloat(e.target.value))}
           className="w-full accent-white h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer"
         />
-        <div className="flex justify-between text-[10px] text-gray-600 font-medium mt-2">
+        <div className="flex justify-between text-[10px] text-[#a0a0a0] font-medium mt-2">
           <span>{min}{unit}</span>
           <span>{max}{unit}</span>
         </div>
@@ -72,7 +72,7 @@ export default function RiskManagementEditor({
       <section>
         <div className="flex items-center gap-2 mb-4">
           <div className="w-1 h-4 bg-white rounded-full" />
-          <h3 className="text-sm font-black text-white tracking-tight">자금 관리</h3>
+          <h3 className="text-sm font-black text-[#dfdfdf] tracking-tight">자금 관리</h3>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {renderSlider(
@@ -94,7 +94,7 @@ export default function RiskManagementEditor({
       <section>
         <div className="flex items-center gap-2 mb-4">
           <div className="w-1 h-4 bg-gray-400 rounded-full" />
-          <h3 className="text-sm font-black text-white tracking-tight">가격 기반 청산 리스크</h3>
+          <h3 className="text-sm font-black text-[#dfdfdf] tracking-tight">가격 기반 청산 리스크</h3>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {renderSlider(
@@ -128,7 +128,7 @@ export default function RiskManagementEditor({
       <section>
         <div className="flex items-center gap-2 mb-4">
           <div className="w-1 h-4 bg-gray-600 rounded-full" />
-          <h3 className="text-sm font-black text-white tracking-tight">포트폴리오 제어</h3>
+          <h3 className="text-sm font-black text-[#dfdfdf] tracking-tight">포트폴리오 제어</h3>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {renderSlider(

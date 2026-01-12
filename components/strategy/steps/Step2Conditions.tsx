@@ -142,12 +142,11 @@ export default function Step2Conditions({
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [openSignalGroups, setOpenSignalGroups]);
-  // Original calculations moved here for internal sizing
+
   const blocksPerRow = canvasWidth > 900 ? 6 : canvasWidth > 600 ? 4 : Math.max(1, Math.floor((canvasWidth - 30) / 150));
-  const totalGridWidth = blocksPerRow * 150 - 30; // 150px step, 120px block width -> 30px gap
+  const totalGridWidth = blocksPerRow * 150 - 30;
   const sidePadding = Math.max(15, (canvasWidth - totalGridWidth) / 2);
 
-  // Move groupedSignalLibrary logic here and memoize
   const groupedSignalLibrary = useMemo(() => {
     return {
       filter: {
@@ -245,45 +244,18 @@ export default function Step2Conditions({
     } as const;
   }, [unlockedBlockIds, manuallyHiddenBlockIds, customBlockOrder]);
 
-  const handleModalItemDragStart = (index: number) => {
-    setDraggedModalItemIndex(index);
-  };
-
-  const handleModalItemDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-  };
-
-  const handleModalItemDrop = (category: string, targetIndex: number, blocks: any[]) => {
-    if (draggedModalItemIndex === null) return;
-    const newBlocks = [...blocks];
-    const item = newBlocks.splice(draggedModalItemIndex, 1)[0];
-    newBlocks.splice(targetIndex, 0, item);
-    const newBlockIds = newBlocks.map(b => b.id);
-    setCustomBlockOrder(prev => ({ ...prev, [category]: newBlockIds }));
-    setDraggedModalItemIndex(null);
-  };
-
   const handleReorderDragStart = (e: React.DragEvent, item: { type: 'category' | 'block', id: string, index: number, categoryId?: string }) => {
     e.stopPropagation();
     setReorderDragItem(item);
     e.dataTransfer.effectAllowed = "move";
 
-    // Set custom drag image to the parent row (the actual item being reordered)
     const target = e.currentTarget as HTMLElement;
     let rowElement: HTMLElement | null = null;
 
     if (item.type === 'category') {
-      // For category: Handle div -> Row div
       rowElement = target.parentElement;
     } else {
-      // For block: Handle div -> Inner Row div -> Wrapper div
-      // Structure: 
-      // <div className="pb-2.5"> (Wrapper)
-      //   <div className="flex..."> (Inner Row)
-      //     <div className="flex...">
-      //       <div draggable ...> (Handle)
       const innerRow = target.parentElement?.parentElement;
-      // We want to drag the 'innerRow' visually, not the wrapper since wrapper includes padding
       rowElement = innerRow || null;
     }
     
@@ -306,15 +278,13 @@ export default function Step2Conditions({
     
     if (!reorderDragItem) return;
     if (reorderDragItem.type !== targetItem.type) return;
-    if (reorderDragItem.type === 'block' && reorderDragItem.categoryId !== targetItem.categoryId) return; // Only reorder within same category
+    if (reorderDragItem.type === 'block' && reorderDragItem.categoryId !== targetItem.categoryId) return;
 
     if (reorderDragItem.type === 'category') {
       const newOrder = [...customCategoryOrder];
       const oldIndex = newOrder.indexOf(reorderDragItem.id);
       const newIndex = newOrder.indexOf(targetItem.id);
-
       if (oldIndex === -1 || newIndex === -1) return;
-
       newOrder.splice(oldIndex, 1);
       newOrder.splice(newIndex, 0, reorderDragItem.id);
       setCustomCategoryOrder(newOrder);
@@ -322,10 +292,8 @@ export default function Step2Conditions({
        const categoryId = reorderDragItem.categoryId;
        const currentOrder = groupedSignalLibrary[categoryId as keyof typeof groupedSignalLibrary].blocks.map((b: any) => b.id);
        const newOrder = [...currentOrder];
-       
        const oldIndex = newOrder.indexOf(reorderDragItem.id);
        const newIndex = newOrder.indexOf(targetItem.id);
-       
        if (oldIndex !== -1 && newIndex !== -1) {
          newOrder.splice(oldIndex, 1);
          newOrder.splice(newIndex, 0, reorderDragItem.id);
@@ -336,335 +304,301 @@ export default function Step2Conditions({
   };
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-      <div className="flex-1 flex min-h-0 overflow-hidden bg-[#0f0f0f]">
-      {/* Left Sidebar */}
-      <div className="w-52 bg-[#0c0c0c] backdrop-blur-2xl flex flex-col shrink-0 relative z-20 rounded-[32px] ml-4 h-full overflow-hidden">
-        <div className="flex-1 px-4 py-8 space-y-6">
-          <div className="flex items-center justify-between mb-2 px-1">
-            <div className="flex items-center gap-2">
-              <Squares2X2Icon className="w-4 h-4 text-[#007AFF]" />
-              <h3 className="text-xs font-black text-white/60 uppercase tracking-widest">지표 라이브러리</h3>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsLibraryManagementOpen(true)}
-              className="p-1.5 bg-white/5 rounded-lg text-gray-500 hover:text-white hover:bg-white/10 transition-all group/mgmt"
-            >
-              <EllipsisHorizontalIcon className="w-4 h-4" />
-            </button>
-          </div>
-
-          <div className="space-y-4">
-            {customCategoryOrder.map((key) => {
-              const group = (groupedSignalLibrary as any)[key];
-              if (!group) return null;
-              const filteredBlocks = group.blocks;
-              const isOpen = openSignalGroups.includes(group.key);
-              
-              return (
-                <div key={group.key} className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setOpenSignalGroups((prev) => 
-                      prev.includes(group.key) ? [] : [group.key]
-                    )}
-                    className={`w-full flex items-center justify-between px-4 py-4 text-sm font-black transition-all group/header rounded-xl ${
-                      isOpen ? "text-white bg-white/5" : "text-white/40 hover:text-white/60 hover:bg-white/5"
-                    }`}
-                  >
-                    <span className="tracking-tight">{group.label}</span>
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${isOpen ? "bg-white/10 text-white" : "text-white/20 group-hover:text-white/40"}`}>
-                      <ChevronUpDownIcon className="w-4 h-4" />
-                    </div>
-                  </button>
-
-                  {/* Popover Layer */}
-                  {isOpen && (
-                    <div 
-                      ref={popoverRef}
-                      className="absolute inset-x-0 top-0 bg-[#161616] backdrop-blur-3xl rounded-[24px] border border-white/10 shadow-[0_25px_60px_rgba(0,0,0,0.8)] z-[100] p-3 animate-in fade-in zoom-in-95 duration-200"
-                    >
-                      <div className="space-y-1.5 max-h-[420px] overflow-y-auto custom-scrollbar pr-1">
-                        {filteredBlocks.length === 0 && <div className="text-xs text-gray-700 px-3 py-4 italic text-center">Empty Category</div>}
-                        {filteredBlocks.map((block: any) => {
-                          const blockDef = signalBlocks[block.id];
-                          return (
-                            <div
-                              key={block.id}
-                              draggable
-                              onDragStart={(e) => {
-                                e.dataTransfer.setData("blockId", block.id);
-                                e.dataTransfer.setData("blockType", blockDef?.category || "");
-                              }}
-                              className="group p-3.5 bg-white/5 rounded-2xl text-xs font-black text-white/40 hover:text-white hover:bg-[#007AFF] cursor-move transition-all flex items-center justify-between shadow-sm border border-transparent hover:border-white/10"
-                            >
-                              <span className="truncate pr-2 tracking-tight">{block.name}</span>
-                              <InformationCircleIcon 
-                                className="w-3.5 h-3.5 text-white/10 group-hover:text-white/40 cursor-help"
-                                onMouseEnter={(e) => setHoveredInfo({ id: block.id, rect: e.currentTarget.getBoundingClientRect() })}
-                                onMouseLeave={() => setHoveredInfo(null)}
-                              />
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="py-4">
-            <button
-              type="button"
-              onClick={() => setIsSearchMenuOpen(!isSearchMenuOpen)}
-              className={`w-full flex items-center justify-center gap-3 py-4 rounded-[20px] transition-all ${
-                isSearchMenuOpen
-                  ? "bg-white text-black shadow-[0_0_25px_rgba(255,255,255,0.2)]"
-                  : "bg-white/5 text-white/40 hover:text-white hover:bg-white/10"
-              }`}
-            >
-              <MagnifyingGlassIcon className="w-5 h-5" />
-              <span className="text-xs font-black uppercase tracking-widest">블록 검색</span>
-            </button>
-          </div>
-        </div>
-
-        <div className="bg-[#0c0c0c] px-4 pt-4 pb-8 flex items-center justify-center">
-          <p className="text-xs text-white/20 text-center leading-relaxed font-black uppercase tracking-tight">
-            찾고 계신 지표가 없나요? <br />
-            <span className="text-[#007AFF] hover:text-[#0A84FF] cursor-pointer underline decoration-dotted underline-offset-4 transition-colors">지표 기능 제안하기</span>
-          </p>
-        </div>
-      </div>
-
-      {/* Center Canvas Area */}
-      <div className="flex-1 bg-transparent relative overflow-hidden flex flex-col h-full">
-        <div 
-          ref={canvasRef}
-          className="flex-1 relative border border-white/10 rounded-[32px] overflow-hidden mx-4 h-full bg-black/20 backdrop-blur-2xl shadow-2xl"
-          onDragOver={(e) => { e.preventDefault(); }}
-          onDrop={(e) => {
-            e.preventDefault();
-            const blockId = e.dataTransfer.getData("blockId");
-            const blockType = e.dataTransfer.getData("blockType");
-            if (blockId) {
-              handleAddBlock(blockId, blockType);
-            }
-          }}
-        >
-          <div className="absolute inset-0 pointer-events-none" 
-               style={{ 
-                 backgroundImage: `radial-gradient(circle at 1px 1px, rgba(255,255,255,0.05) 1px, transparent 0)`,
-                 backgroundSize: "24px 24px" 
-               }} />
-          
-          {canvasBlocks.length === 0 && (
-            <div className="absolute inset-0 flex items-center justify-center p-12 text-center pointer-events-none z-10">
-              <div className="max-w-md space-y-6 animate-in fade-in zoom-in slide-in-from-bottom-8 duration-1000">
-                <div className="w-24 h-24 bg-white/5 rounded-[32px] flex items-center justify-center mx-auto border border-white/10 mb-6 backdrop-blur-xl">
-                  <PlusIcon className="w-10 h-10 text-white/20" />
-                </div>
-                <h4 className="text-xl font-black text-white/40 tracking-tight uppercase">조건 설계 캔버스</h4>
-                <p className="text-sm text-white/20 font-black uppercase tracking-tight leading-relaxed max-w-[240px] mx-auto">
-                  왼쪽 라이브러리에서 블록을 드래그하여 <br /> 매수/매도 로직을 완성하세요.
-                </p>
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[#0f0f0f]">
+      <div className="flex-1 flex min-h-0 overflow-hidden bg-[#0f0f0f] max-h-[640px]">
+        {/* Left Sidebar */}
+        <div className="w-52 bg-[#0c0c0c] backdrop-blur-2xl flex flex-col shrink-0 relative z-20 rounded-[32px] ml-4 h-full overflow-hidden">
+          <div className="flex-1 px-4 py-6 space-y-4">
+            <div className="flex items-center justify-between mb-2 px-1">
+              <div className="flex items-center gap-2">
+                <Squares2X2Icon className="w-4 h-4 text-[rgb(59, 134, 247)]" />
+                <h3 className="text-xs font-black text-white/60 uppercase tracking-widest">지표 라이브러리</h3>
               </div>
+              <button
+                type="button"
+                onClick={() => setIsLibraryManagementOpen(true)}
+                className="p-1.5 bg-white/5 rounded-lg text-gray-500 hover:text-white hover:bg-white/10 transition-all group/mgmt"
+              >
+                <EllipsisHorizontalIcon className="w-4 h-4" />
+              </button>
             </div>
-          )}
 
-          <div className="absolute inset-0">
-            <svg className="absolute inset-0 w-full h-full pointer-events-none z-0">
-              <defs>
-                <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-                  <feGaussianBlur stdDeviation="2" result="blur" />
-                  <feComposite in="SourceGraphic" in2="blur" operator="over" />
-                </filter>
-                <marker id="arrowhead-red" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                  <polygon points="0 0, 10 3.5, 0 7" fill="#EF4444" />
-                </marker>
-                <marker id="arrowhead-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                  <polygon points="0 0, 10 3.5, 0 7" fill="#3B82F6" />
-                </marker>
-                <marker id="arrowhead-gray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                  <polygon points="0 0, 10 3.5, 0 7" fill="#4B5563" />
-                </marker>
-              </defs>
-              {canvasBlocks.map((block, index) => {
-                if (index === canvasBlocks.length - 1) return null;
-                const nextBlock = canvasBlocks[index + 1];
-                const isEntryOrFilter = (b: CanvasBlock) => b.type === "entry" || b.type === "filter";
-                const isExit = (b: CanvasBlock) => b.type === "exit";
+            <div className="space-y-4">
+              {customCategoryOrder.map((key) => {
+                const group = (groupedSignalLibrary as any)[key];
+                if (!group) return null;
+                const filteredBlocks = group.blocks;
+                const isOpen = openSignalGroups.includes(group.key);
                 
-                let shouldConnect = false;
-                let color = "#4B5563";
-                let markerId = "arrowhead-gray";
-
-                if (isEntryOrFilter(block) && isEntryOrFilter(nextBlock)) {
-                  shouldConnect = entryLogic === "AND";
-                  color = "#EF4444";
-                  markerId = "arrowhead-red";
-                } else if (isExit(block) && isExit(nextBlock)) {
-                  shouldConnect = exitLogic === "AND";
-                  color = "#3B82F6";
-                  markerId = "arrowhead-blue";
-                }
-
-                if (!shouldConnect) return null;
-
-                const col = index % blocksPerRow;
-                const row = Math.floor(index / blocksPerRow);
-                const nextCol = (index + 1) % blocksPerRow;
-                const nextRow = Math.floor((index + 1) / blocksPerRow);
-
-                const startX = sidePadding + col * 150 + 120;
-                const startY = 60 + row * 135 + 32;
-                
-                let endX, endY;
-                const isNewRow = nextRow > row;
-
-                if (isNewRow) {
-                  endX = sidePadding + nextCol * 150 + 60;
-                  endY = 60 + nextRow * 135;
-                } else {
-                  endX = sidePadding + nextCol * 150;
-                  endY = 60 + nextRow * 135 + 32;
-                }
-
-                const dx = endX - startX;
-                const dy = endY - startY;
-                
-                let pathD;
-                if (isNewRow) {
-                  const gutterY = startY + (endY - startY) / 2;
-                  pathD = `M ${startX} ${startY} 
-                           C ${startX + 30} ${startY}, ${startX + 30} ${gutterY}, ${startX} ${gutterY}
-                           L ${endX + 30} ${gutterY}
-                           C ${endX} ${gutterY}, ${endX} ${gutterY}, ${endX} ${endY}`;
-                } else {
-                  const offset = Math.min(Math.max(dx * 0.4, 20), 40);
-                  const cp1x = startX + offset;
-                  const cp1y = startY;
-                  const cp2x = endX - offset;
-                  const cp2y = endY;
-                  pathD = `M ${startX} ${startY} C ${cp1x} ${cp1y} ${cp2x} ${cp2y} ${endX} ${endY}`;
-                }
-
                 return (
-                  <g key={`flow-${block.id}-${nextBlock.id}`}>
-                    <path d={pathD} stroke={color} strokeWidth="4" fill="none" className="opacity-10" filter="url(#glow)" />
-                    <path d={pathD} stroke={color} strokeWidth="1.5" fill="none" className="opacity-40" />
-                    <path d={pathD} stroke={color} strokeWidth="1.5" fill="none" strokeDasharray="4,12" className="opacity-60 animate-dash" />
-                  </g>
+                  <div key={group.key} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setOpenSignalGroups((prev) => 
+                        prev.includes(group.key) ? [] : [group.key]
+                      )}
+                      className={`w-full flex items-center justify-between px-4 py-4 text-sm font-black transition-all group/header rounded-xl ${
+                        isOpen ? "text-white bg-white/5" : "text-white/40 hover:text-white/60 hover:bg-white/5"
+                      }`}
+                    >
+                      <span className="tracking-tight">{group.label}</span>
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${isOpen ? "bg-white/10 text-white" : "text-white/20 group-hover:text-white/40"}`}>
+                        <ChevronUpDownIcon className="w-4 h-4" />
+                      </div>
+                    </button>
+
+                    {isOpen && (
+                      <div 
+                        ref={popoverRef}
+                        className="absolute inset-x-0 top-0 bg-[#161616] backdrop-blur-3xl rounded-[24px] border border-white/10 shadow-[0_25px_60px_rgba(0,0,0,0.8)] z-[100] p-3 animate-in fade-in zoom-in-95 duration-200"
+                      >
+                        <div className="space-y-1.5 max-h-[420px] overflow-y-auto custom-scrollbar pr-1">
+                          {filteredBlocks.length === 0 && <div className="text-xs text-gray-700 px-3 py-4 italic text-center">Empty Category</div>}
+                          {filteredBlocks.map((block: any) => {
+                            const blockDef = signalBlocks[block.id];
+                            return (
+                              <div
+                                key={block.id}
+                                draggable
+                                onDragStart={(e) => {
+                                  e.dataTransfer.setData("blockId", block.id);
+                                  e.dataTransfer.setData("blockType", blockDef?.category || "");
+                                }}
+                                className="group p-3.5 bg-white/5 rounded-2xl text-xs font-black text-white/40 hover:text-white hover:bg-[rgb(59, 134, 247)] cursor-move transition-all flex items-center justify-between shadow-sm border border-transparent hover:border-white/10"
+                              >
+                                <span className="truncate pr-2 tracking-tight">{block.name}</span>
+                                <InformationCircleIcon 
+                                  className="w-3.5 h-3.5 text-white/10 group-hover:text-white/40 cursor-help"
+                                  onMouseEnter={(e) => setHoveredInfo({ id: block.id, rect: e.currentTarget.getBoundingClientRect() })}
+                                  onMouseLeave={() => setHoveredInfo(null)}
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 );
               })}
-            </svg>
-            {canvasBlocks.map((block, index) => {
-              const colIdx = index % blocksPerRow;
-              const rowIdx = Math.floor(index / blocksPerRow);
-              const xOffset = sidePadding + colIdx * 150;
-              const yOffset = 60 + rowIdx * 135;
+            </div>
 
-              const typeStyles = 
-                block.type === "entry" 
-                  ? "border-red-500/30 bg-red-950/20 hover:bg-red-900/30 shadow-red-900/5" 
-                  : block.type === "exit" 
-                  ? "border-blue-500/30 bg-blue-950/20 hover:bg-blue-900/30 shadow-blue-900/5" 
-                  : "border-[rgba(100,155,107,0.3)] bg-[rgba(100,155,107,0.1)] hover:bg-[rgba(100,155,107,0.2)] shadow-[rgba(100,155,107,0.05)]";
-
-              const isSelected = selectedBlock?.id === block.id;
-
-              return (
-                <div
-                  key={block.id}
-                  onClick={() => {
-                    setSelectedBlock(block);
-                    setActiveParamTab('block');
-                  }}
-                  className={`absolute p-4 rounded-xl transition-all duration-300 border backdrop-blur-md group cursor-pointer ${typeStyles} ${
-                    isSelected 
-                      ? "ring-2 ring-blue-500/50 scale-105 z-10 shadow-2xl" 
-                      : "hover:scale-105 z-1 shadow-lg"
-                  }`}
-                  style={{ left: `${xOffset}px`, top: `${yOffset}px`, width: "120px" }}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-1.5">
-                      <span className={`w-2 h-2 rounded-full ${
-                        block.type === "entry" ? "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]" : 
-                        block.type === "exit" ? "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]" : 
-                        "bg-[#649b6b] shadow-[0_0_8px_rgba(100,155,107,0.5)]"
-                      }`} />
-                      <span className={`text-[10px] font-bold uppercase tracking-tight ${
-                        block.type === "entry" ? "text-red-400" : 
-                        block.type === "exit" ? "text-blue-400" : 
-                        "text-[#649b6b]"
-                      }`}>
-                        {block.type === "entry" ? "매수" : block.type === "exit" ? "매도" : "필터"}
-                      </span>
-                    </div>
-                  </div>
-                  <div className={`text-xs font-bold tracking-tight ${isSelected ? "text-white" : "text-white/75 group-hover:text-white"}`}>
-                    {signalBlocks[block.blockId]?.name || block.blockId}
-                  </div>
-                  <button 
-                    onClick={(e) => { 
-                      e.stopPropagation(); 
-                      setCanvasBlocks(canvasBlocks.filter(b => b.id !== block.id)); 
-                      if (selectedBlock?.id === block.id) setSelectedBlock(null); 
-                    }} 
-                    className="absolute -top-2 -right-2 w-7 h-7 bg-black border border-white/10 text-white/40 rounded-full opacity-0 group-hover:opacity-100 transition-all hover:text-white hover:bg-[#FF3B30] hover:border-[#FF3B30] flex items-center justify-center shadow-xl"
-                  >
-                    <XMarkIcon className="w-4 h-4" />
-                  </button>
-                </div>
-              );
-            })}
+            <div className="py-4">
+              <button
+                type="button"
+                onClick={() => setIsSearchMenuOpen(!isSearchMenuOpen)}
+                className={`w-full flex items-center justify-center gap-3 py-4 rounded-[20px] transition-all ${
+                  isSearchMenuOpen
+                    ? "bg-white text-black shadow-[0_0_25px_rgba(255,255,255,0.2)]"
+                    : "bg-white/5 text-white/40 hover:text-white hover:bg-white/10"
+                }`}
+              >
+                <MagnifyingGlassIcon className="w-5 h-5" />
+                <span className="text-xs font-black uppercase tracking-widest">블록 검색</span>
+              </button>
+            </div>
+          </div>
+          <div className="bg-[#0c0c0c] px-4 pt-4 pb-8 flex items-center justify-center">
+            <p className="text-xs text-white/20 text-center leading-relaxed font-black uppercase tracking-tight">
+              찾고 계신 지표가 없나요? <br />
+              <span className="text-[rgb(59, 134, 247)] hover:text-[#0A84FF] cursor-pointer underline decoration-dotted underline-offset-4 transition-colors">지표 기능 제안하기</span>
+            </p>
           </div>
         </div>
-      </div>
 
-      {/* Right Panel: Parameter Editor */}
-      <div className="bg-black/20 backdrop-blur-2xl w-64 flex flex-col relative z-20 rounded-[32px] mr-4 h-full overflow-hidden">
-        <div className="flex p-1.5 bg-white/5 rounded-2xl m-4">
-          <button
-            onClick={() => setActiveParamTab('block')}
-            className={`flex-1 py-2.5 text-sm font-bold uppercase tracking-widest transition-all rounded-xl ${
-              activeParamTab === 'block'
-                ? "bg-[#007AFF] text-white shadow-[0_10px_20px_rgba(0,122,255,0.3)]"
-                : "text-white/40 hover:text-white/60 hover:bg-white/5"
-            }`}
+        {/* Center Canvas Area */}
+        <div className="flex-1 bg-transparent relative overflow-hidden flex flex-col h-full">
+          <div 
+            ref={canvasRef}
+            className="flex-1 relative border border-white/10 rounded-[32px] overflow-hidden mx-4 h-full bg-black/20 backdrop-blur-2xl shadow-2xl"
+            onDragOver={(e) => { e.preventDefault(); }}
+            onDrop={(e) => {
+              e.preventDefault();
+              const blockId = e.dataTransfer.getData("blockId");
+              const blockType = e.dataTransfer.getData("blockType");
+              if (blockId) {
+                handleAddBlock(blockId, blockType);
+              }
+            }}
           >
-            블록 설정
-          </button>
-          <button
-            onClick={() => setActiveParamTab('global')}
-            className={`flex-1 py-2.5 text-sm font-bold uppercase tracking-widest transition-all rounded-xl ${
-              activeParamTab === 'global'
-                ? "bg-[#007AFF] text-white shadow-[0_10px_20_rgba(0,122,255,0.3)]"
-                : "text-white/40 hover:text-white/60 hover:bg-white/5"
-            }`}
-          >
-            전체 워크플로우
-          </button>
+            <div className="absolute inset-0 pointer-events-none" 
+                 style={{ 
+                   backgroundImage: `radial-gradient(circle at 1px 1px, rgba(255,255,255,0.05) 1px, transparent 0)`,
+                   backgroundSize: "24px 24px" 
+                 }} />
+            
+            {canvasBlocks.length === 0 && (
+              <div className="absolute inset-0 flex items-center justify-center p-12 text-center pointer-events-none z-10">
+                <div className="max-w-md space-y-6 animate-in fade-in zoom-in slide-in-from-bottom-8 duration-1000">
+                  <div className="w-24 h-24 bg-white/5 rounded-[32px] flex items-center justify-center mx-auto border border-white/10 mb-6 backdrop-blur-xl">
+                    <PlusIcon className="w-10 h-10 text-white/20" />
+                  </div>
+                  <h4 className="text-xl font-black text-white/40 tracking-tight uppercase">조건 설계 캔버스</h4>
+                  <p className="text-sm text-white/20 font-black uppercase tracking-tight leading-relaxed max-w-[240px] mx-auto">
+                    왼쪽 라이브러리에서 블록을 드래그하여 <br /> 매수/매도 로직을 완성하세요.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="absolute inset-0">
+              <svg className="absolute inset-0 w-full h-full pointer-events-none z-0">
+                <defs>
+                  <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                    <feGaussianBlur stdDeviation="2" result="blur" />
+                    <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                  </filter>
+                  <marker id="arrowhead-red" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                    <polygon points="0 0, 10 3.5, 0 7" fill="#EF4444" />
+                  </marker>
+                  <marker id="arrowhead-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                    <polygon points="0 0, 10 3.5, 0 7" fill="#3B82F6" />
+                  </marker>
+                  <marker id="arrowhead-gray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                    <polygon points="0 0, 10 3.5, 0 7" fill="#4B5563" />
+                  </marker>
+                </defs>
+                {canvasBlocks.map((block, index) => {
+                  if (index === canvasBlocks.length - 1) return null;
+                  const nextBlock = canvasBlocks[index + 1];
+                  const isEntryOrFilter = (b: CanvasBlock) => b.type === "entry" || b.type === "filter";
+                  const isExit = (b: CanvasBlock) => b.type === "exit";
+                  
+                  let shouldConnect = false;
+                  let color = "#4B5563";
+                  let markerId = "arrowhead-gray";
+
+                  if (isEntryOrFilter(block) && isEntryOrFilter(nextBlock)) {
+                    shouldConnect = entryLogic === "AND";
+                    color = "#EF4444";
+                    markerId = "arrowhead-red";
+                  } else if (isExit(block) && isExit(nextBlock)) {
+                    shouldConnect = exitLogic === "AND";
+                    color = "#3B82F6";
+                    markerId = "arrowhead-blue";
+                  }
+
+                  if (!shouldConnect) return null;
+
+                  const col = index % blocksPerRow;
+                  const row = Math.floor(index / blocksPerRow);
+                  const nextCol = (index + 1) % blocksPerRow;
+                  const nextRow = Math.floor((index + 1) / blocksPerRow);
+                  const startX = sidePadding + col * 150 + 120;
+                  const startY = 60 + row * 135 + 32;
+                  let endX, endY;
+                  const isNewRow = nextRow > row;
+                  if (isNewRow) {
+                    endX = sidePadding + nextCol * 150 + 60;
+                    endY = 60 + nextRow * 135;
+                  } else {
+                    endX = sidePadding + nextCol * 150;
+                    endY = 60 + nextRow * 135 + 32;
+                  }
+                  const dx = endX - startX;
+                  let pathD;
+                  if (isNewRow) {
+                    const gutterY = startY + (endY - startY) / 2;
+                    pathD = `M ${startX} ${startY} C ${startX + 30} ${startY}, ${startX + 30} ${gutterY}, ${startX} ${gutterY} L ${endX + 30} ${gutterY} C ${endX} ${gutterY}, ${endX} ${gutterY}, ${endX} ${endY}`;
+                  } else {
+                    const offset = Math.min(Math.max(dx * 0.4, 20), 40);
+                    pathD = `M ${startX} ${startY} C ${startX + offset} ${startY} ${endX - offset} ${endY} ${endX} ${endY}`;
+                  }
+
+                  return (
+                    <g key={`flow-${block.id}-${nextBlock.id}`}>
+                      <path d={pathD} stroke={color} strokeWidth="4" fill="none" className="opacity-10" filter="url(#glow)" />
+                      <path d={pathD} stroke={color} strokeWidth="1.5" fill="none" className="opacity-40" />
+                      <path d={pathD} stroke={color} strokeWidth="1.5" fill="none" strokeDasharray="4,12" className="opacity-60 animate-dash" />
+                    </g>
+                  );
+                })}
+              </svg>
+              {canvasBlocks.map((block, index) => {
+                const colIdx = index % blocksPerRow;
+                const rowIdx = Math.floor(index / blocksPerRow);
+                const xOffset = sidePadding + colIdx * 150;
+                const yOffset = 60 + rowIdx * 135;
+                const typeStyles = block.type === "entry" ? "border-red-500/30 bg-red-950/20 hover:bg-red-900/30 shadow-red-900/5" : block.type === "exit" ? "border-blue-500/30 bg-blue-950/20 hover:bg-blue-900/30 shadow-blue-900/5" : "border-[rgba(100,155,107,0.3)] bg-[rgba(100,155,107,0.1)] hover:bg-[rgba(100,155,107,0.2)] shadow-[rgba(100,155,107,0.05)]";
+                const isSelected = selectedBlock?.id === block.id;
+
+                return (
+                  <div
+                    key={block.id}
+                    onClick={() => {
+                      setSelectedBlock(block);
+                      setActiveParamTab('block');
+                    }}
+                    className={`absolute p-4 rounded-xl transition-all duration-300 border backdrop-blur-md group cursor-pointer ${typeStyles} ${isSelected ? "ring-2 ring-blue-500/50 scale-105 z-10 shadow-2xl" : "hover:scale-105 z-1 shadow-lg"}`}
+                    style={{ left: `${xOffset}px`, top: `${yOffset}px`, width: "120px" }}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className={`w-2 h-2 rounded-full ${block.type === "entry" ? "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]" : block.type === "exit" ? "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]" : "bg-[#649b6b] shadow-[0_0_8px_rgba(100,155,107,0.5)]"}`} />
+                        <span className={`text-[10px] font-bold uppercase tracking-tight ${block.type === "entry" ? "text-red-400" : block.type === "exit" ? "text-blue-400" : "text-[#649b6b]"}`}>
+                          {block.type === "entry" ? "매수" : block.type === "exit" ? "매도" : "필터"}
+                        </span>
+                      </div>
+                    </div>
+                    <div className={`text-xs font-bold tracking-tight ${isSelected ? "text-white" : "text-white/75 group-hover:text-white"}`}>
+                      {signalBlocks[block.blockId]?.name || block.blockId}
+                    </div>
+                    <button 
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        setCanvasBlocks(canvasBlocks.filter(b => b.id !== block.id)); 
+                        if (selectedBlock?.id === block.id) setSelectedBlock(null); 
+                      }} 
+                      className="absolute -top-2 -right-2 w-7 h-7 bg-black border border-white/10 text-[#a0a0a0] rounded-full opacity-0 group-hover:opacity-100 transition-all hover:text-white hover:bg-[#FF3B30] hover:border-[#FF3B30] flex items-center justify-center shadow-xl"
+                    >
+                      <XMarkIcon className="w-4 h-4" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-2 py-4 custom-scrollbar">
-          {activeParamTab === 'block' ? (
-            selectedBlock ? (
-              <div className="space-y-6 px-2">
-                <div className="p-4 bg-white/5 rounded-2xl mb-2">
-                  <div className="text-sm font-bold text-[#007AFF] uppercase tracking-widest mb-2">Block Info</div>
-                  <div className="text-lg text-white font-bold tracking-tight">{signalBlocks[selectedBlock.blockId]?.name || selectedBlock.blockId}</div>
-                  <p className="text-sm text-white/50 mt-1.5 font-medium leading-relaxed">{signalBlocks[selectedBlock.blockId]?.description || "시그널을 발생시킵니다."}</p>
-                </div>
+        {/* Right Panel: Single Box Tabbed Layout */}
+        <div className="w-64 bg-black/20 backdrop-blur-2xl rounded-[40px] flex flex-col relative z-20 mr-4 h-full overflow-hidden">
+          {/* Tab Headers */}
+          <div className="px-2 py-2 bg-[#0c0c0c] flex gap-1">
+            <button
+              onClick={(e) => { e.stopPropagation(); setActiveParamTab('block'); }}
+              className={`flex-1 py-3 text-xs font-black uppercase tracking-widest transition-all rounded-full ${
+                activeParamTab === 'block'
+                  ? "text-white bg-white/5 shadow-inner"
+                  : "text-[#a0a0a0] hover:text-white/40"
+              }`}
+            >
+              블록 설정
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); setActiveParamTab('global'); }}
+              className={`flex-1 py-3 text-xs font-black uppercase tracking-widest transition-all rounded-full ${
+                activeParamTab === 'global'
+                  ? "text-white bg-white/5 shadow-inner"
+                  : "text-[#a0a0a0] hover:text-white/40"
+              }`}
+            >
+              매매 로직
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-4 py-4 custom-scrollbar">
+            {activeParamTab === 'block' ? (
+              selectedBlock ? (
+                <div className="space-y-6 px-2">
+                  <div className="p-2.5 bg-white/5 rounded-lg mb-1">
+                    <div className="text-[10px] font-bold text-[rgb(59, 134, 247)] uppercase tracking-widest mb-0.5">Block Info</div>
+                    <div className="text-sm text-[#dfdfdf] font-bold tracking-tight">{signalBlocks[selectedBlock.blockId]?.name || selectedBlock.blockId}</div>
+                    <p className="text-[11px] text-[#a0a0a0] mt-0.5 font-medium leading-tight">{signalBlocks[selectedBlock.blockId]?.description || "시그널을 발생시킵니다."}</p>
+                  </div>
                   {(() => {
-                    const block = selectedBlock!; // Safe due to outer check
+                    const block = selectedBlock!; 
                     const blockDef = signalBlocks[block.blockId];
                     if (!blockDef || !blockDef.paramSchema) return <div className="text-xs text-white/20 p-4">파라미터가 없습니다.</div>;
-
                     const getVal = (k: string) => block.params[k] ?? blockDef.defaultParams[k];
 
                     if (block.blockId === "investor_net_buy") {
@@ -672,9 +606,9 @@ export default function Step2Conditions({
                         const param = blockDef.paramSchema![key];
                         const val = getVal(key);
                         return (
-                          <div key={key} className="space-y-2 flex-1">
-                            <label className="text-sm text-white/40 font-bold uppercase tracking-widest ml-1">{param.label}</label>
-                            <div className="flex items-center gap-2 bg-white/5 rounded-2xl px-4 py-3 focus-within:ring-1 focus-within:ring-[#007AFF]/50 transition-all group/input">
+                          <div key={key} className="space-y-1 flex-1">
+                            <label className="text-[10px] text-white/40 font-bold uppercase tracking-widest ml-1">{param.label}</label>
+                            <div className="flex items-center gap-2 bg-white/5 rounded-lg px-3 py-1.5 focus-within:ring-1 focus-within:ring-[rgb(59, 134, 247)]/50 transition-all group/input">
                               <input 
                                 type="text"
                                 value={val === 0 ? "" : val}
@@ -686,7 +620,7 @@ export default function Step2Conditions({
                                   setCanvasBlocks(canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, params: newParams } : b));
                                   setSelectedBlock({ ...selectedBlock, params: newParams });
                                 }}
-                                className="bg-transparent text-base font-bold text-white w-full outline-none tabular-nums placeholder-white/10"
+                                className="bg-transparent text-xs font-bold text-white w-full outline-none tabular-nums placeholder-white/10"
                               />
                               {param.suffix && <span className="text-sm font-bold text-white/20 uppercase tracking-tight">{param.suffix}</span>}
                             </div>
@@ -698,8 +632,8 @@ export default function Step2Conditions({
                         const param = blockDef.paramSchema![key];
                         const val = getVal(key);
                         return (
-                          <div key={key} className="space-y-2 flex-1">
-                            <label className="text-sm text-white/40 font-bold uppercase tracking-widest ml-1">{param.label}</label>
+                          <div key={key} className="space-y-1 flex-1">
+                            <label className="text-[10px] text-white/40 font-bold uppercase tracking-widest ml-1">{param.label}</label>
                             <div className="relative group/select">
                               <select 
                                 value={val} 
@@ -708,7 +642,6 @@ export default function Step2Conditions({
                                   const v = isNaN(parseFloat(rawVal)) ? rawVal : parseFloat(rawVal);
                                   let newParams = { ...selectedBlock.params, [key]: v };
                                   let newType = selectedBlock.type;
-
                                   if (key === "investorType") {
                                     const newInvType = v as string;
                                     const memory = { ...(selectedBlock.params._investorMemory || {}) };
@@ -717,11 +650,10 @@ export default function Step2Conditions({
                                     }
                                   }
                                   if (key === "signalType") newType = v === "buy" ? "entry" : "exit";
-
                                   setCanvasBlocks(canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, params: newParams, type: newType } : b)); 
                                   setSelectedBlock({ ...selectedBlock, params: newParams, type: newType }); 
                                 }} 
-                                className="w-full appearance-none pl-4 pr-10 py-3 bg-white/5 rounded-2xl text-base font-bold text-white hover:bg-white/10 transition-all cursor-pointer outline-none"
+                                className="w-full appearance-none pl-3 pr-8 py-1.5 bg-white/5 rounded-lg text-xs font-bold text-white hover:bg-white/10 transition-all cursor-pointer outline-none"
                               >
                                 {param.options?.map((opt: any) => <option key={opt.value} value={opt.value} className="bg-[#1a1a1a]">{opt.label}</option>)}
                               </select>
@@ -748,7 +680,7 @@ export default function Step2Conditions({
                                 setCanvasBlocks(canvasBlocks.map(b => b.id === block.id ? { ...b, params: newParams } : b));
                                 setSelectedBlock({ ...block, params: newParams });
                               }}
-                              className="w-full py-3.5 bg-white text-black rounded-2xl text-xs font-black hover:bg-white/90 transition-all flex items-center justify-center gap-1.5 shadow-[0_10px_20px_rgba(255,255,255,0.1)] active:scale-95"
+                              className="w-full py-1.5 bg-white text-black rounded-lg text-[10px] font-black hover:bg-white/90 transition-all flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
                             >
                               설정값 기억하기
                             </button>
@@ -761,9 +693,9 @@ export default function Step2Conditions({
                     return Object.entries(blockDef.paramSchema).map(([key, param]) => {
                       const currentValue = block.params[key] ?? blockDef.defaultParams[key];
                       return (
-                        <div key={key} className="space-y-2">
-                          <div className="flex items-center gap-1.5 mb-1 relative group/tooltip-row">
-                            <label className="text-sm text-white/40 font-bold uppercase tracking-widest ml-1">{param.label}</label>
+                        <div key={key} className="space-y-1">
+                          <div className="flex items-center gap-1.5 mb-px relative group/tooltip-row">
+                            <label className="text-[10px] text-white/40 font-bold uppercase tracking-widest ml-1">{param.label}</label>
                             {param.tooltip && (
                               <div 
                                 className="p-1 -m-1"
@@ -790,7 +722,7 @@ export default function Step2Conditions({
                                   setCanvasBlocks(canvasBlocks.map(b => b.id === block.id ? { ...b, params: newParams, type: newType } : b)); 
                                   setSelectedBlock({ ...block, params: newParams, type: newType }); 
                                 }} 
-                                className={`w-full appearance-none pl-4 ${param.suffix ? "pr-20" : "pr-10"} py-3 bg-white/5 rounded-2xl text-base font-bold text-white hover:bg-white/10 transition-all cursor-pointer outline-none`}
+                                className={`w-full appearance-none pl-3 ${param.suffix ? "pr-16" : "pr-8"} py-1.5 bg-white/5 rounded-lg text-xs font-bold text-white hover:bg-white/10 transition-all cursor-pointer outline-none`}
                               >
                                 {param.options.map(opt => <option key={opt.value} value={opt.value} className="bg-[#1a1a1a]">{opt.label}</option>)}
                               </select>
@@ -801,46 +733,46 @@ export default function Step2Conditions({
                             </div>
                           ) : param.type === "boolean" ? (
                             <button 
-                                onClick={() => {
-                                  const newVal = !currentValue;
-                                  const newParams = { ...block.params, [key]: newVal };
-                                  setCanvasBlocks(canvasBlocks.map(b => b.id === block.id ? { ...b, params: newParams } : b)); 
-                                  setSelectedBlock({ ...block, params: newParams }); 
-                                }}
-                                className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${currentValue ? "bg-[#007AFF]/10 text-[#007AFF]" : "bg-white/5 text-white/40"}`}
-                              >
-                                <span className="text-sm font-black uppercase tracking-tight">{param.label}</span>
-                                <div className={`w-10 h-5 rounded-full relative transition-all duration-300 ${currentValue ? "bg-[#007AFF]" : "bg-white/10"}`}>
-                                  <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-lg transition-transform duration-300`} style={{ transform: currentValue ? 'translateX(20px)' : 'translateX(2px)' }} />
-                                </div>
-                              </button>
+                              onClick={() => {
+                                const newVal = !currentValue;
+                                const newParams = { ...block.params, [key]: newVal };
+                                setCanvasBlocks(canvasBlocks.map(b => b.id === block.id ? { ...b, params: newParams } : b)); 
+                                setSelectedBlock({ ...block, params: newParams }); 
+                              }}
+                              className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg transition-all ${currentValue ? "bg-[rgb(59, 134, 247)]/10 text-[rgb(59, 134, 247)]" : "bg-white/5 text-white/40"}`}
+                            >
+                              <span className="text-[10px] font-black uppercase tracking-tight">{param.label}</span>
+                              <div className={`w-8 h-4 rounded-full relative transition-all duration-300 ${currentValue ? "bg-[rgb(59, 134, 247)]" : "bg-white/10"}`}>
+                                <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-lg transition-transform duration-300`} style={{ transform: currentValue ? 'translateX(18px)' : 'translateX(2px)' }} />
+                              </div>
+                            </button>
                           ) : (
-                              <div className="bg-white/5 rounded-[24px] p-4 group/input transition-all">
-                                <div className="flex justify-between items-center mb-3 px-1">
-                                  <span className="text-lg font-bold text-white tabular-nums tracking-tight">{currentValue}</span>
-                                  {param.suffix && <span className="text-sm font-bold text-white/20 uppercase tracking-widest">{param.suffix}</span>}
-                                </div>
-                                <div className="px-1 space-y-2">
-                                  <input 
-                                    type="range"
-                                    min={param.min ?? 0}
-                                    max={param.max ?? 100}
-                                    step={param.step ?? 1}
-                                    value={currentValue !== "" ? currentValue : 0}
-                                    onChange={(e) => {
-                                      const val = parseFloat(e.target.value);
-                                      const newParams = { ...block.params, [key]: val }; 
-                                      setCanvasBlocks(canvasBlocks.map(b => b.id === block.id ? { ...b, params: newParams } : b)); 
-                                      setSelectedBlock({ ...block, params: newParams }); 
-                                    }}
-                                    className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[#007AFF] hover:accent-[#0A84FF] transition-all"
-                                  />
-                                  <div className="flex justify-between items-center opacity-20 group-hover/input:opacity-40 transition-opacity">
-                                    <span className="text-xs font-bold text-white tabular-nums">{param.min ?? 0}</span>
-                                    <span className="text-xs font-bold text-white tabular-nums">{param.max ?? 100}</span>
-                                  </div>
+                            <div className="bg-white/5 rounded-[24px] p-4 group/input transition-all">
+                              <div className="flex justify-between items-center mb-3 px-1">
+                                <span className="text-lg font-bold text-white tabular-nums tracking-tight">{currentValue}</span>
+                                {param.suffix && <span className="text-sm font-bold text-white/20 uppercase tracking-widest">{param.suffix}</span>}
+                              </div>
+                              <div className="px-1 space-y-2">
+                                <input 
+                                  type="range"
+                                  min={param.min ?? 0}
+                                  max={param.max ?? 100}
+                                  step={param.step ?? 1}
+                                  value={currentValue !== "" ? currentValue : 0}
+                                  onChange={(e) => {
+                                    const val = parseFloat(e.target.value);
+                                    const newParams = { ...block.params, [key]: val }; 
+                                    setCanvasBlocks(canvasBlocks.map(b => b.id === block.id ? { ...b, params: newParams } : b)); 
+                                    setSelectedBlock({ ...block, params: newParams }); 
+                                  }}
+                                  className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[rgb(59, 134, 247)] hover:accent-[#0A84FF] transition-all"
+                                />
+                                <div className="flex justify-between items-center opacity-20 group-hover/input:opacity-40 transition-opacity">
+                                  <span className="text-xs font-bold text-white tabular-nums">{param.min ?? 0}</span>
+                                  <span className="text-xs font-bold text-white tabular-nums">{param.max ?? 100}</span>
                                 </div>
                               </div>
+                            </div>
                           )}
                         </div>
                       );
@@ -870,72 +802,59 @@ export default function Step2Conditions({
                   </div>
                 </div>
               ) : (
-              <div className="h-full flex flex-col items-center pt-32 text-center p-6 space-y-6">
-                <div className="w-24 h-24 rounded-[32px] bg-white/5 flex items-center justify-center backdrop-blur-xl shadow-2xl">
-                  <CursorArrowRaysIcon className="w-10 h-10 text-white/10" />
+                <div className="h-full flex flex-col items-center pt-24 text-center p-6 space-y-6">
+                  <div className="w-20 h-20 rounded-[28px] bg-white/5 flex items-center justify-center backdrop-blur-xl border border-white/5">
+                    <CursorArrowRaysIcon className="w-8 h-8 text-white/10" />
+                  </div>
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-bold text-[#dfdfdf] uppercase tracking-tight">블록 미선택</h4>
+                    <p className="text-[11px] text-[#a0a0a0] font-bold uppercase tracking-tight leading-relaxed">캔버스에서 설정할 블록을 <br /> 선택해주세요.</p>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <h4 className="text-lg font-bold text-white/40 uppercase tracking-tight">블록 미선택</h4>
-                  <p className="text-sm text-white/25 font-bold uppercase tracking-tight leading-relaxed">캔버스에서 설정할 블록을 <br /> 선택해주세요.</p>
+              )
+            ) : (
+              <div className="flex-1 flex flex-col justify-center space-y-6 py-4">
+                <div className="bg-white/5 rounded-[32px] p-8 backdrop-blur-sm border border-white/5 flex flex-col justify-center">
+                  <div className="flex items-center gap-2 mb-6">
+                    <div className="w-2 h-2 rounded-full bg-[#007AFF] shadow-[0_0_12px_rgba(0,122,255,0.8)]" />
+                    <label className="text-[13px] font-black text-[#dfdfdf] uppercase tracking-widest">매수 결합 로직</label>
+                  </div>
+                  <div className="flex bg-black/40 rounded-[24px] p-2 mb-6">
+                    <button onClick={() => setEntryLogic("AND")} className={`flex-1 py-4 text-[13px] font-black rounded-[18px] transition-all ${entryLogic === "AND" ? "bg-[rgb(55,122,244)] text-white shadow-[0_0_20px_rgba(55,122,244,0.4)] scale-[1.02]" : "text-[#a0a0a0] hover:text-white/60"}`}>AND</button>
+                    <button onClick={() => setEntryLogic("OR")} className={`flex-1 py-4 text-[13px] font-black rounded-[18px] transition-all ${entryLogic === "OR" ? "bg-[rgb(55,122,244)] text-white shadow-[0_0_20px_rgba(55,122,244,0.4)] scale-[1.02]" : "text-[#a0a0a0] hover:text-white/60"}`}>OR</button>
+                  </div>
+                  <p className="text-[12px] text-[#a0a0a0] font-black uppercase tracking-tight leading-relaxed text-center px-2">{entryLogic === "AND" ? "모든 매수 블록의 조건이 동시에 충족되어야 합니다." : "매수 블록 중 하나만 충족되어도 신호가 발생합니다."}</p>
                 </div>
-              </div>
-            )
-          ) : (
-            <div className="space-y-6">
-               <div className="bg-white/5 rounded-3xl p-6 backdrop-blur-sm">
-                <div className="flex items-center gap-2 mb-4">
-                  <div className="w-2 h-2 rounded-full bg-[#007AFF] shadow-[0_0_10px_rgba(0,122,255,1)]" />
-                  <label className="text-sm font-bold text-white uppercase tracking-widest">매수 결합 로직</label>
-                </div>
-                <div className="flex bg-black/40 rounded-[18px] p-1.5 mb-4">
-                  <button onClick={() => setEntryLogic("AND")} className={`flex-1 py-2.5 text-sm font-black rounded-xl transition-all ${entryLogic === "AND" ? "bg-white text-black shadow-lg" : "text-white/20 hover:text-white/40"}`}>AND</button>
-                  <button onClick={() => setEntryLogic("OR")} className={`flex-1 py-2.5 text-sm font-black rounded-xl transition-all ${entryLogic === "OR" ? "bg-white text-black shadow-lg" : "text-white/20 hover:text-white/40"}`}>OR</button>
-                </div>
-                <p className="text-sm text-white/30 font-bold uppercase tracking-tight leading-relaxed">{entryLogic === "AND" ? "모든 매수 블록의 조건이 <br/>동시에 충족되어야 합니다." : "매수 블록 중 하나만 충족되어도 <br/>신우가 발생합니다."}</p>
-              </div>
 
-              <div className="bg-white/5 rounded-3xl p-6 backdrop-blur-sm">
-                <div className="flex items-center gap-2 mb-4">
-                  <div className="w-2 h-2 rounded-full bg-[#FF3B30] shadow-[0_0_10px_rgba(255,59,48,1)]" />
-                  <label className="text-sm font-bold text-white uppercase tracking-widest">매도 결합 로직</label>
+                <div className="bg-white/5 rounded-[32px] p-8 backdrop-blur-sm border border-white/5 flex flex-col justify-center">
+                  <div className="flex items-center gap-2 mb-6">
+                    <div className="w-2 h-2 rounded-full bg-[#FF3B30] shadow-[0_0_15px_rgba(255,59,48,0.6)]" />
+                    <label className="text-[13px] font-black text-[#dfdfdf] uppercase tracking-widest">매도 결합 로직</label>
+                  </div>
+                  <div className="flex bg-black/40 rounded-[24px] p-2 mb-6">
+                    <button onClick={() => setExitLogic("AND")} className={`flex-1 py-4 text-[13px] font-black rounded-[18px] transition-all ${exitLogic === "AND" ? "bg-[rgb(55,122,244)] text-white shadow-[0_0_20px_rgba(55,122,244,0.4)] scale-[1.02]" : "text-[#a0a0a0] hover:text-white/60"}`}>AND</button>
+                    <button onClick={() => setExitLogic("OR")} className={`flex-1 py-4 text-[13px] font-black rounded-[18px] transition-all ${exitLogic === "OR" ? "bg-[rgb(55,122,244)] text-white shadow-[0_0_20px_rgba(55,122,244,0.4)] scale-[1.02]" : "text-[#a0a0a0] hover:text-white/60"}`}>OR</button>
+                  </div>
+                  <p className="text-[12px] text-[#a0a0a0] font-black uppercase tracking-tight leading-relaxed text-center px-2">{exitLogic === "AND" ? "모든 매도 블록의 조건이 동시에 충족되어야 합니다." : "매도 블록 중 하나만 충족되어도 신호가 발생합니다."}</p>
                 </div>
-                <div className="flex bg-black/40 rounded-[18px] p-1.5 mb-4">
-                  <button onClick={() => setExitLogic("AND")} className={`flex-1 py-2.5 text-sm font-black rounded-xl transition-all ${exitLogic === "AND" ? "bg-white text-black shadow-lg" : "text-white/20 hover:text-white/40"}`}>AND</button>
-                  <button onClick={() => setExitLogic("OR")} className={`flex-1 py-2.5 text-sm font-black rounded-xl transition-all ${exitLogic === "OR" ? "bg-white text-black shadow-lg" : "text-white/20 hover:text-white/40"}`}>OR</button>
-                </div>
-                <p className="text-sm text-white/30 font-bold uppercase tracking-tight leading-relaxed">{exitLogic === "AND" ? "모든 매도 블록의 조건이 <br/>동시에 충족되어야 합니다." : "매도 블록 중 하나만 충족되어도 <br/>신호가 발생합니다."}</p>
               </div>
-            </div>
-          )}
-        </div>
-
-        {/* Global Summary in Right Sidebar Bottom */}
-        <div className="p-4 bg-black/20">
-          <button 
-            onClick={() => {
-              if (confirm("모든 블록을 삭제하시겠습니까?")) {
-                setCanvasBlocks([]);
-              }
-            }}
-            className="w-full py-3.5 bg-white/5 rounded-2xl text-sm font-bold text-white/20 hover:text-[#FF3B30] hover:bg-[#FF3B30]/10 transition-all uppercase tracking-widest active:scale-95 flex items-center justify-center gap-2"
-          >
-            <XMarkIcon className="w-3.5 h-3.5" />
-            작업공간 초기화
-          </button>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+
+      <div className="h-8" />
 
       {/* macOS-style Bottom Toolbar */}
-      <div className="sticky bottom-0 left-0 right-0 bg-[#0f0f0f] backdrop-blur-3xl p-8 z-[60]">
+      <div className="sticky bottom-0 left-0 right-0 bg-[#0f0f0f] backdrop-blur-3xl px-8 py-5 z-[60]">
         <div className="max-w-full mx-auto flex items-center justify-between">
           <div className="flex items-center gap-12">
             <div className="flex items-center gap-6">
-              <div className="w-16 h-16 bg-[#007AFF] rounded-[24px] flex items-center justify-center shadow-[0_0_40px_rgba(0,122,255,0.4)]">
+              <div className="w-16 h-16 bg-[rgb(59, 134, 247)] rounded-[24px] flex items-center justify-center shadow-[0_0_40px_rgba(0,122,255,0.4)]">
                 <CpuChipIcon className="w-8 h-8 text-white" />
               </div>
               <div className="space-y-1">
-                <h4 className="text-xl font-black text-white tracking-tight uppercase">로직 설계 요약</h4>
+                <h4 className="text-xl font-black text-[#dfdfdf] tracking-tight uppercase">로직 설계 요약</h4>
               </div>
             </div>
             
@@ -943,20 +862,16 @@ export default function Step2Conditions({
             
             <div className="flex gap-12">
               <div className="flex flex-col">
-                <span className="text-xs font-bold text-[#007AFF] uppercase tracking-widest mb-1.5 opacity-80">총 블록</span>
-                <span className="text-2xl font-bold text-white tabular-nums tracking-tight">{canvasBlocks.length}개</span>
+                <span className="text-xs font-bold text-[rgb(59, 134, 247)] uppercase tracking-widest mb-1.5 opacity-80">총 블록</span>
+                <span className="text-2xl font-bold text-[#dfdfdf] tabular-nums tracking-tight">{canvasBlocks.length}개</span>
               </div>
               <div className="flex flex-col">
-                <span className="text-xs font-bold text-[#007AFF] uppercase tracking-widest mb-1.5 opacity-80">매수 로직</span>
-                <span className="text-2xl font-bold text-white tabular-nums tracking-tight">
-                  {entryLogic}
-                </span>
+                <span className="text-xs font-bold text-[rgb(59, 134, 247)] uppercase tracking-widest mb-1.5 opacity-80">매수 로직</span>
+                <span className="text-2xl font-bold text-[#dfdfdf] tabular-nums tracking-tight">{entryLogic}</span>
               </div>
               <div className="flex flex-col">
-                <span className="text-xs font-bold text-[#007AFF] uppercase tracking-widest mb-1.5 opacity-80">매도 로직</span>
-                <span className="text-2xl font-bold text-white tabular-nums tracking-tight">
-                  {exitLogic}
-                </span>
+                <span className="text-xs font-bold text-[rgb(59, 134, 247)] uppercase tracking-widest mb-1.5 opacity-80">매도 로직</span>
+                <span className="text-2xl font-bold text-[#dfdfdf] tabular-nums tracking-tight">{exitLogic}</span>
               </div>
             </div>
           </div>
@@ -979,31 +894,30 @@ export default function Step2Conditions({
       </div>
 
       {hoveredEditIcon && (
-        <div className="fixed z-[1000] pointer-events-none" style={{ left: hoveredEditIcon!.rect.left + (hoveredEditIcon!.rect.width / 2), top: hoveredEditIcon!.rect.bottom + 8, transform: 'translateX(-50%)' }}>
+        <div className="fixed z-[1000] pointer-events-none" style={{ left: hoveredEditIcon.rect.left + (hoveredEditIcon.rect.width / 2), top: hoveredEditIcon.rect.bottom + 8, transform: 'translateX(-50%)' }}>
           <div className="px-3 py-1.5 bg-[#0a0a0a] rounded-lg shadow-xl animate-in fade-in zoom-in-95 slide-in-from-top-2 duration-200">
-            <p className="text-[11px] text-white/40 font-black uppercase tracking-widest whitespace-nowrap">{hoveredEditIcon!.label}</p>
+            <p className="text-[11px] text-white/40 font-black uppercase tracking-widest whitespace-nowrap">{hoveredEditIcon.label}</p>
           </div>
         </div>
       )}
 
       {hoveredInfo && (
-        <div className="fixed z-[1000] pointer-events-none" style={{ left: hoveredInfo!.rect.right + 12, top: hoveredInfo!.rect.top + (hoveredInfo!.rect.height / 2), transform: 'translateY(-50%)' }}>
+        <div className="fixed z-[1000] pointer-events-none" style={{ left: hoveredInfo.rect.right + 12, top: hoveredInfo.rect.top + (hoveredInfo.rect.height / 2), transform: 'translateY(-50%)' }}>
           <div className="w-80 p-5 bg-[#161616] rounded-2xl shadow-2xl animate-in fade-in zoom-in-95 slide-in-from-left-2 duration-200 backdrop-blur-3xl border border-white/10">
-            <p className="text-xs text-white/75 font-bold leading-relaxed">{signalBlocks[hoveredInfo!.id]?.description || "설명 없음"}</p>
+            <p className="text-xs text-white/75 font-bold leading-relaxed">{signalBlocks[hoveredInfo.id]?.description || "설명 없음"}</p>
           </div>
         </div>
       )}
 
       {hoveredParam && (
-        <div className="fixed z-[1000] pointer-events-none" style={{ left: hoveredParam!.rect.left - 270, top: hoveredParam!.rect.top + (hoveredParam!.rect.height / 2), transform: 'translateY(-50%)' }}>
+        <div className="fixed z-[1000] pointer-events-none" style={{ left: hoveredParam.rect.left - 270, top: hoveredParam.rect.top + (hoveredParam.rect.height / 2), transform: 'translateY(-50%)' }}>
           <div className="w-64 p-5 bg-[#161616] rounded-2xl shadow-2xl animate-in fade-in zoom-in-95 slide-in-from-right-2 duration-200 backdrop-blur-2xl border border-white/10">
-            <div className="text-[10px] text-[#007AFF] font-bold uppercase tracking-widest mb-2 opacity-50">{hoveredParam!.label}</div>
-            <p className="text-xs text-white/75 font-bold leading-relaxed">{hoveredParam!.tooltip}</p>
+            <div className="text-[10px] text-[rgb(59, 134, 247)] font-bold uppercase tracking-widest mb-2 opacity-50">{hoveredParam.label}</div>
+            <p className="text-xs text-white/75 font-bold leading-relaxed">{hoveredParam.tooltip}</p>
           </div>
         </div>
       )}
 
-      {/* Modals */}
       {isLibraryManagementOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md" onClick={() => setIsLibraryManagementOpen(false)}>
           <div className="w-full max-w-4xl h-[750px] bg-[#161616]/90 rounded-[40px] shadow-2xl flex flex-col backdrop-blur-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
@@ -1027,7 +941,7 @@ export default function Step2Conditions({
                       onDragOver={handleReorderDragOver}
                       onDrop={(e) => handleReorderDrop(e, { type: 'category', id: key, index: customCategoryOrder.indexOf(key) })}
                       className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl cursor-pointer transition-all ${
-                         activeMgmtCategory === key ? "bg-[#007AFF] shadow-[0_10px_20px_rgba(0,122,255,0.2)]" : "hover:bg-white/5"
+                         activeMgmtCategory === key ? "bg-[rgb(59, 134, 247)] shadow-[0_10px_20px_rgba(0,122,255,0.2)]" : "hover:bg-white/5"
                       } ${reorderDragItem?.type === 'category' && reorderDragItem.id === key ? 'opacity-30' : ''}`}
                       onClick={() => setActiveMgmtCategory(key)}
                     >
@@ -1061,7 +975,7 @@ export default function Step2Conditions({
                         >
                           <div className="flex items-center gap-4">
                             <div
-                               className="cursor-grab active:cursor-grabbing text-white/20 hover:text-[#007AFF]"
+                               className="cursor-grab active:cursor-grabbing text-white/20 hover:text-[rgb(59, 134, 247)]"
                                draggable
                                onDragStart={(e) => handleReorderDragStart(e, { type: 'block', id: block.id, index: -1, categoryId: activeMgmtCategory })}
                             >
