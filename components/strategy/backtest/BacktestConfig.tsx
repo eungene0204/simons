@@ -122,8 +122,8 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
   return (
     <div className="w-full max-w-4xl mx-auto p-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="text-center mb-10">
-        <h2 className="text-3xl font-black text-white tracking-tight mb-2">백테스트 시뮬레이션 설정</h2>
-        <p className="text-gray-500">
+        <h2 className="text-3xl font-black text-[#dfdfdf] tracking-tight mb-2">백테스트 시뮬레이션 설정</h2>
+        <p className="text-[#a0a0a0]">
           설정된 전략을 검증하기 위한 시뮬레이션 환경을 구성합니다.
         </p>
       </div>
@@ -134,7 +134,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
         <div className="space-y-6">
            <div className="bg-[#111] border border-gray-800 rounded-2xl p-6 h-[250px] flex flex-col justify-center">
             <div className="flex items-center gap-2 mb-4">
-              <span className="text-lg font-black text-white uppercase tracking-tight">테스트 기간</span>
+              <span className="text-lg font-black text-[#dfdfdf] uppercase tracking-tight">테스트 기간</span>
             </div>
             
             <div className="space-y-3">
@@ -146,7 +146,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                     className={`py-2.5 rounded-lg text-xs font-bold transition-all border ${
                       period === p.id 
                         ? "bg-white border-white text-black shadow-lg shadow-white/10" 
-                        : "bg-[#1a1a1a] border-gray-800 text-gray-400 hover:bg-gray-800 hover:text-gray-300"
+                        : "bg-[#1a1a1a] border-gray-800 text-[#a0a0a0] hover:bg-gray-800 hover:text-gray-300"
                     }`}
                   >
                     {p.label}
@@ -156,7 +156,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
               {period === "custom" && (
                 <div className="flex gap-2 mt-2 animate-in fade-in slide-in-from-top-2 duration-200">
                    <div className="flex-1 space-y-1">
-                     <label className="text-[10px] text-gray-500">시작일</label>
+                     <label className="text-[10px] text-[#a0a0a0]">시작일</label>
                      <input 
                        type="date" 
                        value={startDate}
@@ -165,7 +165,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                      />
                    </div>
                    <div className="flex-1 space-y-1">
-                     <label className="text-[10px] text-gray-500">종료일</label>
+                     <label className="text-[10px] text-[#a0a0a0]">종료일</label>
                      <input 
                        type="date" 
                        value={endDate}
@@ -180,7 +180,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
 
           <div className="bg-[#111] border border-gray-800 rounded-2xl p-6 h-[250px] flex flex-col justify-center">
             <div className="flex items-center gap-2 mb-4">
-              <span className="text-lg font-black text-white uppercase tracking-tight">자본 및 비용</span>
+              <span className="text-lg font-black text-[#dfdfdf] uppercase tracking-tight">자본 및 비용</span>
             </div>
 
             <div className="space-y-3">
@@ -196,7 +196,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                        }}
                        className="w-full bg-transparent border-none p-0 text-white font-black text-lg outline-none"
                      />
-                     <span className="text-gray-500 font-bold text-sm ml-2">원</span>
+                     <span className="text-[#a0a0a0] font-bold text-sm ml-2">원</span>
                   </div>
                   <p className="text-[11px] font-bold text-white mt-1 text-right">{formatKoreanUnit(initialCapital)}</p>
                </div>
@@ -236,17 +236,17 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
         {/* Right Column: Strategy Summary */}
         <div className="bg-[#111] border border-gray-800 rounded-2xl p-6 h-[524px] flex flex-col">
           <div className="flex items-center gap-2 mb-6">
-            <span className="text-lg font-black text-white uppercase tracking-tight">전략 요약</span>
+            <span className="text-lg font-black text-[#dfdfdf] uppercase tracking-tight">전략 요약</span>
           </div>
 
           <div className="flex-1 space-y-6">
              {/* Universe Summary */}
              <div className="space-y-2">
                 <div className="flex justify-between items-center text-xs">
-                   <span className="text-gray-500 font-bold">유니버스</span>
+                   <span className="text-[#a0a0a0] font-bold">유니버스</span>
                 </div>
                 <div className="bg-[#1a1a1a] p-4 rounded-xl border border-gray-800">
-                   <div className="text-white font-bold text-lg mb-1">{summary.universeName}</div>
+                   <div className="text-[#dfdfdf] font-bold text-[#dfdfdf] mb-1">{summary.universeName}</div>
                    {summary.universeFiltersCount > 0 && (
                      <div className="text-xs text-gray-500">
                         {summary.universeFiltersCount}개의 필터 적용됨
@@ -258,7 +258,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
              {/* Logic Summary */}
              <div className="space-y-2">
                 <div className="flex justify-between items-center text-xs">
-                   <span className="text-gray-500 font-bold">매매 조건</span>
+                   <span className="text-[#a0a0a0] font-bold">매매 조건</span>
                 </div>
                  <div className="bg-[#1a1a1a] p-4 rounded-xl border border-gray-800">
                     <div className="space-y-1.5 max-h-[120px] overflow-y-auto custom-scrollbar pr-2">
@@ -280,15 +280,15 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-gray-500 font-bold">포지션 설정</span>
+                      <span className="text-[#a0a0a0] font-bold">포지션 설정</span>
                    </div>
                    <div className="bg-[#1a1a1a] p-3 rounded-xl border border-gray-800 space-y-1.5">
                       <div className="flex justify-between">
-                         <span className="text-[10px] text-gray-500">최대 종목</span>
+                         <span className="text-[10px] text-[#a0a0a0]">최대 종목</span>
                          <span className="text-xs text-white font-bold">{summary.riskSettings.maxPositions}개</span>
                       </div>
                       <div className="flex justify-between">
-                         <span className="text-[10px] text-gray-500">비중 방식</span>
+                         <span className="text-[10px] text-[#a0a0a0]">비중 방식</span>
                          <span className="text-xs text-white font-bold uppercase">
                             {summary.riskSettings.allocationType === 'equal' ? '동일' : '고정'}
                          </span>
@@ -298,15 +298,15 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
 
                 <div className="space-y-2">
                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-gray-500 font-bold">리스크 관리</span>
+                      <span className="text-[#a0a0a0] font-bold">리스크 관리</span>
                    </div>
                    <div className="bg-[#1a1a1a] p-3 rounded-xl border border-gray-800 space-y-1.5">
                       <div className="flex justify-between">
-                         <span className="text-[10px] text-gray-500">손절</span>
+                         <span className="text-[10px] text-[#a0a0a0]">손절</span>
                          <span className="text-xs text-white font-bold">-{summary.riskManagement.stopLoss || 0}%</span>
                       </div>
                       <div className="flex justify-between">
-                         <span className="text-[10px] text-gray-500">익절</span>
+                         <span className="text-[10px] text-[#a0a0a0]">익절</span>
                          <span className="text-xs text-white font-bold">{summary.riskManagement.takeProfit || 0}%</span>
                       </div>
                    </div>

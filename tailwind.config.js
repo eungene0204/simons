@@ -10,6 +10,11 @@ module.exports = {
       colors: {
         background: 'var(--background)',
         foreground: 'var(--foreground)',
+        white: 'rgb(224, 224, 224)',
+        blue: {
+          500: 'rgb(59, 134, 247)',
+        },
+        'brand-blue': 'rgb(59, 134, 247)',
       },
       animation: {
         shimmer: 'shimmer 2s infinite',

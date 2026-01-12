@@ -67,7 +67,7 @@ export default function Step1Universe({
   ).length;
 
   return (
-    <div className="flex-1 px-8 pt-8 pb-8 relative z-10">
+    <div className="flex-1 px-8 pt-8 pb-8 relative z-10 bg-[#0f0f0f]">
       <div className="max-w-full mx-auto space-y-16 pb-20 mt-0">
         <div className="space-y-12 w-full mx-auto">
           {/* Strategy Name Hero Section */}
@@ -84,8 +84,8 @@ export default function Step1Universe({
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
             <div className="space-y-6 bg-black/20 backdrop-blur-2xl rounded-[32px] border border-white/10 p-8 shadow-2xl h-[540px] min-h-[540px]">
               <div className="flex items-center gap-3 mb-4">
-                <GlobeAltIcon className="w-6 h-6 text-[#007AFF]" />
-                <h3 className="text-sm font-black text-white uppercase tracking-tight">시장 및 규모 선택</h3>
+                <GlobeAltIcon className="w-6 h-6 text-[rgb(59, 134, 247)]" />
+                <h3 className="text-sm font-black text-[#dfdfdf] uppercase tracking-tight">시장 및 규모 선택</h3>
               </div>
               
               <div className="grid grid-cols-3 gap-3">
@@ -104,8 +104,8 @@ export default function Step1Universe({
                     }`}
                   >
                     <div className="flex flex-col gap-1">
-                      <div className={`text-lg font-black transition-colors ${universe === m.id ? "text-white" : "text-white/40 group-hover:text-white/60"}`}>{m.name}</div>
-                      <div className={`text-[11px] font-black tracking-tight transition-colors ${universe === m.id ? "text-[#007AFF]" : "text-white/20"}`}>{m.desc}</div>
+                      <div className={`text-lg font-black transition-colors ${universe === m.id ? "text-white" : "text-[#a0a0a0] group-hover:text-white/60"}`}>{m.name}</div>
+                      <div className={`text-[11px] font-black tracking-tight transition-colors ${universe === m.id ? "text-[rgb(59, 134, 247)]" : "text-[#a0a0a0]"}`}>{m.desc}</div>
                     </div>
                   </div>
                 ))}
@@ -114,8 +114,8 @@ export default function Step1Universe({
               <div className="space-y-8 pt-6 border-t border-white/10">
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
-                    <label className="text-xs font-black text-white/40 uppercase tracking-widest">시가총액 범위</label>
-                    <span className="text-sm font-black text-white tabular-nums">
+                    <label className="text-xs font-black text-[#a0a0a0] uppercase tracking-widest">시가총액 범위</label>
+                    <span className="text-sm font-black text-[#dfdfdf] tabular-nums">
                       상위 {universeFilters.marketCapRange[0]}% ~ {universeFilters.marketCapRange[1]}%
                     </span>
                   </div>
@@ -126,16 +126,16 @@ export default function Step1Universe({
                       max="100"
                       value={universeFilters.marketCapRange[1]}
                       onChange={(e) => setUniverseFilters({...universeFilters, marketCapRange: [universeFilters.marketCapRange[0], parseInt(e.target.value)]})}
-                      className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[#007AFF] hover:accent-[#0A84FF] transition-all"
+                      className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[rgb(56,122,244)] hover:accent-[rgb(59,134,247)] transition-all"
                     />
                   </div>
-                  <p className="text-xs text-white/30 font-medium tracking-tight bg-white/5 p-3 rounded-xl">시가총액 기준 상위 {universeFilters.marketCapRange[1]}% 이내 종목을 대상으로 합니다.</p>
+                  <p className="text-xs text-[#a0a0a0] font-medium tracking-tight bg-white/5 p-3 rounded-xl">시가총액 기준 상위 {universeFilters.marketCapRange[1]}% 이내 종목을 대상으로 합니다.</p>
                 </div>
 
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
-                    <label className="text-xs font-black text-white/40 uppercase tracking-widest">최소 거래대금 (일평균)</label>
-                    <span className="text-sm font-black text-white tabular-nums">
+                    <label className="text-xs font-black text-[#a0a0a0] uppercase tracking-widest">최소 거래대금 (일평균)</label>
+                    <span className="text-sm font-black text-[#dfdfdf] tabular-nums">
                       {universeFilters.minTradingVolume === 0 ? "제한없음" : `${universeFilters.minTradingVolume}억원 이상`}
                     </span>
                   </div>
@@ -147,10 +147,10 @@ export default function Step1Universe({
                       step="5"
                       value={universeFilters.minTradingVolume}
                       onChange={(e) => setUniverseFilters({...universeFilters, minTradingVolume: parseInt(e.target.value)})}
-                      className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[#007AFF] hover:accent-[#0A84FF] transition-all"
+                      className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[rgb(56,122,244)] hover:accent-[rgb(59,134,247)] transition-all"
                     />
                   </div>
-                  <p className="text-xs text-white/30 font-medium tracking-tight bg-white/5 p-3 rounded-xl">유동성이 일정 수준 이상인 종목만 포함합니다.</p>
+                  <p className="text-xs text-[#a0a0a0] font-medium tracking-tight bg-white/5 p-3 rounded-xl">유동성이 일정 수준 이상인 종목만 포함합니다.</p>
                 </div>
               </div>
             </div>
@@ -158,7 +158,7 @@ export default function Step1Universe({
             <div className="space-y-6 bg-black/20 backdrop-blur-2xl rounded-[32px] border border-white/10 p-8 shadow-2xl h-[540px] min-h-[540px] flex flex-col">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-3">
-                  <Squares2X2Icon className="w-6 h-6 text-[#007AFF]" />
+                  <Squares2X2Icon className="w-6 h-6 text-[rgb(59, 134, 247)]" />
                   <h3 className="text-base font-black text-white uppercase tracking-tight">섹터 선택</h3>
                 </div>
                 <div className="relative">
@@ -185,8 +185,8 @@ export default function Step1Universe({
                     }}
                     className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all border break-keep ${
                       universeFilters.selectedSectors.includes(sector)
-                        ? "bg-[#007AFF] border-[#007AFF] text-white shadow-lg shadow-[#007AFF]/20"
-                        : "bg-white/5 border-white/5 text-white/40 hover:text-white/60 hover:border-white/10 hover:bg-white/10"
+                        ? "bg-[rgb(56,122,244)] border-[rgb(56,122,244)] text-white shadow-lg shadow-blue-500/20"
+                        : "bg-white/5 border-white/5 text-[#a0a0a0] hover:text-white/60 hover:border-white/10 hover:bg-white/10"
                     }`}
                   >
                     {sector}
@@ -195,14 +195,14 @@ export default function Step1Universe({
               </div>
               
               <div className="flex justify-between items-center pt-4 border-t border-white/10 mt-2">
-                <span className="text-xs font-black text-white/30 uppercase tracking-tight">
+                <span className="text-xs font-black text-[#a0a0a0] uppercase tracking-tight">
                   {universeFilters.selectedSectors.length > 0 
                     ? `${universeFilters.selectedSectors.length}개의 섹터 선택됨` 
                     : "선택된 섹터 없음 (전체 포함)"}
                 </span>
                 <button 
                   onClick={() => setUniverseFilters({...universeFilters, selectedSectors: []})}
-                  className="text-xs font-black text-white/40 hover:text-white transition-colors uppercase tracking-widest px-3 py-1.5 bg-white/5 hover:bg-white/10 rounded-full border border-white/5 active:scale-95"
+                  className="text-xs font-black text-[#a0a0a0] hover:text-white transition-colors uppercase tracking-widest px-3 py-1.5 bg-white/5 hover:bg-white/10 rounded-full border border-white/5 active:scale-95"
                 >
                   초기화
                 </button>
@@ -214,13 +214,13 @@ export default function Step1Universe({
           <div className="space-y-8">
             <div className="space-y-6 bg-black/20 backdrop-blur-2xl rounded-[32px] border border-white/10 p-8 shadow-2xl">
               <div className="flex items-center gap-3 mb-4">
-                <ShieldExclamationIcon className="w-6 h-6 text-[#007AFF]" />
-                <h3 className="text-base font-black text-white uppercase tracking-tight">제외 필터 설정</h3>
+                <ShieldExclamationIcon className="w-6 h-6 text-[rgb(59, 134, 247)]" />
+                <h3 className="text-base font-black text-[#dfdfdf] uppercase tracking-tight">제외 필터 설정</h3>
               </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
                   <div className="space-y-4 flex flex-col">
-                    <div className="text-lg font-normal text-white/40 px-1 mb-1">재무 건전성 및 리스크</div>
+                    <div className="text-lg font-normal text-[#a0a0a0] px-1 mb-1">재무 건전성 및 리스크</div>
                     <div className="space-y-2 flex-1 flex flex-col justify-between">
                       {[
                         { id: 'excludeLossMaking', label: '적자 기업 제외', desc: '최근 분기 영업이익 기준' },
@@ -238,11 +238,11 @@ export default function Step1Universe({
                           }`}
                         >
                           <div className="flex-1">
-                            <p className={`text-sm font-black tracking-tight transition-colors ${(universeFilters as any)[item.id] ? "text-white" : "text-white/40 group-hover:text-white/60"}`}>{item.label}</p>
-                            <p className="text-[10px] font-black uppercase tracking-widest text-white/20 mt-1">{item.desc}</p>
+                            <p className={`text-sm font-black tracking-tight transition-colors ${(universeFilters as any)[item.id] ? "text-white" : "text-[#a0a0a0] group-hover:text-white/60"}`}>{item.label}</p>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-[#a0a0a0] mt-1">{item.desc}</p>
                           </div>
-                          <div className={`w-11 h-6 rounded-full relative transition-all duration-300 ${(universeFilters as any)[item.id] ? "bg-[#007AFF]" : "bg-white/10"}`}>
-                            <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-lg transition-transform duration-300 ${(universeFilters as any)[item.id] ? "translate-x-[24px]" : "translate-x-[4px]"}`} />
+                          <div className={`w-11 h-6 rounded-full relative transition-all duration-300 ${(universeFilters as any)[item.id] ? "bg-[rgb(56,122,244)]" : "bg-white/10"}`}>
+                            <div className={`absolute top-1 w-4 h-4 rounded-full shadow-lg transition-transform duration-300 bg-[rgb(226,226,225)] ${(universeFilters as any)[item.id] ? "translate-x-[24px]" : "translate-x-[4px]"}`} />
                           </div>
                         </div>
                       ))}
@@ -250,7 +250,7 @@ export default function Step1Universe({
                   </div>
 
                   <div className="space-y-4 flex flex-col">
-                    <div className="text-lg font-normal text-white/40 px-1 mb-1">시장 분류 및 종목 특성</div>
+                    <div className="text-lg font-normal text-[#a0a0a0] px-1 mb-1">시장 분류 및 종목 특성</div>
                     <div className="bg-white/5 rounded-[32px] border border-white/5 p-8 grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-4 backdrop-blur-md flex-1">
                       {[
                         { id: 'excludeETF_ETN', label: 'ETF / ETN 제외' },
@@ -268,8 +268,8 @@ export default function Step1Universe({
                           className="flex items-center justify-between cursor-pointer group/toggle py-1 border-b border-white/5 last:border-0 pb-3 last:pb-0"
                         >
                           <span className={`text-xs font-black uppercase tracking-wider transition-colors ${(universeFilters as any)[item.id] ? "text-white" : "text-white/40 group-hover/toggle:text-white/60"}`}>{item.label}</span>
-                          <div className={`w-10 h-5 rounded-full relative transition-all duration-300 ${(universeFilters as any)[item.id] ? "bg-[#007AFF]" : "bg-white/10"}`}>
-                            <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-lg transition-transform duration-300 ${(universeFilters as any)[item.id] ? "translate-x-[22px]" : "translate-x-[2px]"}`} />
+                          <div className={`w-10 h-5 rounded-full relative transition-all duration-300 ${(universeFilters as any)[item.id] ? "bg-[rgb(56,122,244)]" : "bg-white/10"}`}>
+                            <div className={`absolute top-0.5 w-4 h-4 rounded-full shadow-lg transition-transform duration-300 bg-[rgb(226,226,225)] ${(universeFilters as any)[item.id] ? "translate-x-[22px]" : "translate-x-[2px]"}`} />
                           </div>
                         </label>
                       ))}
@@ -286,11 +286,11 @@ export default function Step1Universe({
         <div className="max-w-full mx-auto flex items-center justify-between">
           <div className="flex items-center gap-12">
             <div className="flex items-center gap-6">
-              <div className="w-16 h-16 bg-[#007AFF] rounded-[24px] flex items-center justify-center shadow-[0_0_40px_rgba(0,122,255,0.4)]">
+              <div className="w-16 h-16 bg-[rgb(59, 134, 247)] rounded-[24px] flex items-center justify-center shadow-[0_0_40px_rgba(0,122,255,0.4)]">
                 <ChartPieIcon className="w-8 h-8 text-white" />
               </div>
               <div className="space-y-1">
-                <h4 className="text-xl font-black text-white tracking-tight uppercase">유니버스 설정 요약</h4>
+                <h4 className="text-xl font-black text-[#dfdfdf] tracking-tight uppercase">유니버스 설정 요약</h4>
               </div>
             </div>
             
@@ -298,18 +298,18 @@ export default function Step1Universe({
             
             <div className="flex gap-12">
               <div className="flex flex-col">
-                <span className="text-xs font-black text-[#007AFF] uppercase tracking-widest mb-1.5 opacity-80">대상 시장</span>
-                <span className="text-2xl font-black text-white tabular-nums tracking-tight">{universe.toUpperCase()}</span>
+                <span className="text-xs font-black text-[rgb(59, 134, 247)] uppercase tracking-widest mb-1.5 opacity-80">대상 시장</span>
+                <span className="text-2xl font-black text-[#dfdfdf] tabular-nums tracking-tight">{universe.toUpperCase()}</span>
               </div>
               <div className="flex flex-col">
-                <span className="text-xs font-black text-[#007AFF] uppercase tracking-widest mb-1.5 opacity-80">필터링</span>
-                <span className="text-2xl font-black text-white tabular-nums tracking-tight">
+                <span className="text-xs font-black text-[rgb(59, 134, 247)] uppercase tracking-widest mb-1.5 opacity-80">필터링</span>
+                <span className="text-2xl font-black text-[#dfdfdf] tabular-nums tracking-tight">
                   {activeFilterCount > 0 ? `${activeFilterCount}개 선택됨` : "없음"}
                 </span>
               </div>
               <div className="flex flex-col">
-                <span className="text-xs font-black text-[#007AFF] uppercase tracking-widest mb-1.5 opacity-80">예상 종목 수</span>
-                <span className="text-2xl font-black text-white tabular-nums tracking-tight">약 2,400개</span>
+                <span className="text-xs font-black text-[rgb(59, 134, 247)] uppercase tracking-widest mb-1.5 opacity-80">예상 종목 수</span>
+                <span className="text-2xl font-black text-[#dfdfdf] tabular-nums tracking-tight">약 2,400개</span>
               </div>
             </div>
           </div>
