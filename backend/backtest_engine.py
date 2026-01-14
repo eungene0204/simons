@@ -226,9 +226,18 @@ class BacktestEngine:
             sl_pct = float(risk_management.get('stop_loss_pct') or 0)
             tp_pct = float(risk_management.get('take_profit_pct') or 0)
             ts_pct = float(risk_management.get('trailing_stop_pct') or 0)
+            
+            # New Risk Factors
+            min_cash_reserve = float(risk_management.get('min_cash_reserve_pct') or 0)
+            max_daily_buy = float(risk_management.get('max_daily_buy_pct') or 100.0)
+            max_mdd_limit = float(risk_management.get('max_mdd_limit_pct') or 0)
+
+            # Adjust position size based on cash reserve and daily buy limit
+            effective_pos_size = (pos_size_pct / 100.0) * (1 - min_cash_reserve / 100.0)
+            effective_pos_size = min(effective_pos_size, max_daily_buy / 100.0)
 
             vbt_kwargs = dict(
-                size=pos_size_pct / 100.0,
+                size=effective_pos_size,
                 size_type='Percent',
                 init_cash=init_cash,
                 fees=fee_rate,
@@ -240,12 +249,38 @@ class BacktestEngine:
                 allow_partial=False
             )
 
+            # Initial Portfolio Calculation
             pf = vbt.Portfolio.from_signals(
                 close=prices_val, price=exec_prices,
                 entries=entries_exec, exits=exits_exec,
                 accumulate=False, direction='longonly', cash_sharing=False,
                 **vbt_kwargs
             )
+
+            # MDD Circuit Breaker Check
+            if max_mdd_limit > 0:
+                # vbt drawdown is typically negative, e.g., -0.27 for 27% drawdown
+                drawdowns = np.abs(pf.drawdown()) * 100
+                hit_mask = drawdowns > max_mdd_limit
+                if hit_mask.any():
+                    # Find the first date drawdown exceeded limit
+                    stop_date = hit_mask.idxmax() if hasattr(hit_mask, 'idxmax') else hit_mask.index[hit_mask.argmax()]
+                    self.warnings.add(f"최대 낙폭 제한({max_mdd_limit}%) 도달로 인한 매매 중단 ({stop_date.strftime('%Y-%m-%d')})")
+                    
+                    # Zero out all entries after stop_date and ensure an exit occurs
+                    entries_exec.loc[stop_date:] = False
+                    # Force exit on stop_date to close existing positions
+                    exits_exec.loc[stop_date] = True
+                    # Zero out future exits (though vbt handles it, it's cleaner)
+                    exits_exec.loc[stop_date + pd.Timedelta(days=1):] = False
+                    
+                    # Re-calculate pf to reflect the stop
+                    pf = vbt.Portfolio.from_signals(
+                        close=prices_val, price=exec_prices,
+                        entries=entries_exec, exits=exits_exec,
+                        accumulate=False, direction='longonly', cash_sharing=False,
+                        **vbt_kwargs
+                    )
             
             split_idx = int(data_len * 0.7)
             pf_is = vbt.Portfolio.from_signals(

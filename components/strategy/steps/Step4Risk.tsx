@@ -29,49 +29,15 @@ export default function Step4Risk({
             </p>
           </div>
         </div>
-        <div className="bg-[#0f0f0f] rounded-3xl border border-gray-800/50 p-8 min-h-[600px] max-w-6xl mx-8 shadow-2xl overflow-hidden relative">
-          <div className="flex flex-col lg:flex-row gap-12">
-            {/* Left: Introduction & Summary */}
-            <div className="lg:w-1/3 xl:w-1/4">
-              <div className="sticky top-0">
-                <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center border border-white/20 mb-6">
-                  <ShieldCheckIcon className="w-8 h-8 text-white" />
-                </div>
-                <h4 className="text-xl font-black text-[#dfdfdf] mb-4 tracking-tight">리스크 엔진 설정</h4>
-                <p className="text-sm text-[#a0a0a0] leading-relaxed mb-8">
-                  전문적인 퀀트 전략은 수익만큼 리스크 관리가 중요합니다. 자금 배분 원칙과 손실 방어 규칙을 세밀하게 구성하세요.
-                </p>
-                
-                <div className="space-y-4 pt-6 border-t border-gray-800/50">
-                  <div className="flex items-center gap-3 text-xs text-[#a0a0a0]">
-                    <div className="w-1.5 h-1.5 rounded-full bg-white/50" />
-                    <span>자본금 대비 투자 비율 자동 계산</span>
-                  </div>
-                  <div className="flex items-center gap-3 text-xs text-[#a0a0a0]">
-                    <div className="w-1.5 h-1.5 rounded-full bg-white/30" />
-                    <span>실시간 변동성 기반 익절/손절</span>
-                  </div>
-                  <div className="flex items-center gap-3 text-xs text-[#a0a0a0]">
-                    <div className="w-1.5 h-1.5 rounded-full bg-white/10" />
-                    <span>섹터 집중 위험 방어 엔진 작동</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Right: Detailed Settings */}
-            <div className="flex-1">
-              <div className="bg-[#0a0a0a]/50 rounded-2xl border border-gray-800/80 p-8">
-                <RiskManagementEditor 
-                  riskManagement={riskManagement} 
-                  onChange={setRiskManagement} 
-                />
-              </div>
-
-            </div>
-          </div>
+        
+        <div className="max-w-full mx-auto pb-12">
+          <RiskManagementEditor 
+            riskManagement={riskManagement} 
+            onChange={setRiskManagement} 
+          />
         </div>
-        <div className="h-8" />
+        
+        <div className="h-2" />
       </div>
 
       {/* macOS-style Bottom Toolbar / Status View */}
@@ -103,9 +69,15 @@ export default function Step4Risk({
                 </span>
               </div>
               <div className="flex flex-col">
-                <span className="text-xs font-black text-[rgb(59, 134, 247)] uppercase tracking-widest mb-1.5 opacity-80">트레일링 스탑</span>
+                <span className="text-xs font-black text-[rgb(59, 134, 247)] uppercase tracking-widest mb-1.5 opacity-80">최대 낙폭 (MDD)</span>
                 <span className="text-2xl font-black text-[#dfdfdf] tabular-nums tracking-tight">
-                  {riskManagement.trailing_stop_pct ? "ON" : "OFF"}
+                  {riskManagement.max_mdd_limit_pct ? `-${riskManagement.max_mdd_limit_pct}%` : "OFF"}
+                </span>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-xs font-black text-[rgb(59, 134, 247)] uppercase tracking-widest mb-1.5 opacity-80">일일 매수 한도</span>
+                <span className="text-2xl font-black text-[#dfdfdf] tabular-nums tracking-tight">
+                  {riskManagement.max_daily_buy_pct || 0}%
                 </span>
               </div>
             </div>

@@ -305,6 +305,12 @@ export default function Step2Conditions({
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[#0f0f0f]">
+      <div className="px-8 pt-8 pb-4">
+        <h3 className="text-xl font-black text-[#dfdfdf] tracking-tight">매매 로직 설계</h3>
+        <p className="text-sm text-[#a0a0a0] mt-1 font-medium">
+          보조지표와 AI 블록을 조합하여 매수 및 매도 신호를 정의합니다.
+        </p>
+      </div>
       <div className="flex-1 flex min-h-0 overflow-hidden bg-[#0f0f0f] max-h-[640px]">
         {/* Left Sidebar */}
         <div className="w-52 bg-[#0c0c0c] backdrop-blur-2xl flex flex-col shrink-0 relative z-20 rounded-3xl ml-4 h-full overflow-hidden">

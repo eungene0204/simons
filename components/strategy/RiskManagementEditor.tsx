@@ -33,7 +33,7 @@ export default function RiskManagementEditor({
       <div className="bg-[#111111] p-4 rounded-xl border border-gray-800/50 hover:border-gray-700 transition-colors">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-1.5">
-            <label className="text-xs font-bold text-[#a0a0a0] uppercase tracking-tight">
+            <label className="text-sm font-bold text-[#a0a0a0] uppercase tracking-tight">
               {label}
             </label>
             <div className="group relative">
@@ -45,7 +45,7 @@ export default function RiskManagementEditor({
               </div>
             </div>
           </div>
-          <span className="text-sm text-white font-mono font-bold">
+          <span className="text-base text-white font-mono font-bold">
             {value}{unit}
           </span>
         </div>
@@ -56,7 +56,7 @@ export default function RiskManagementEditor({
           step={step}
           value={value}
           onChange={(e) => handleChange(key, parseFloat(e.target.value))}
-          className="w-full accent-white h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer"
+          className="w-full accent-main-blue h-1.5 bg-[#222222] rounded-lg appearance-none cursor-pointer"
         />
         <div className="flex justify-between text-[10px] text-[#a0a0a0] font-medium mt-2">
           <span>{min}{unit}</span>
@@ -67,14 +67,14 @@ export default function RiskManagementEditor({
   };
 
   return (
-    <div className="space-y-8">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 px-8">
       {/* Capital Management */}
-      <section>
-        <div className="flex items-center gap-2 mb-4">
-          <div className="w-1 h-4 bg-white rounded-full" />
-          <h3 className="text-sm font-black text-[#dfdfdf] tracking-tight">자금 관리</h3>
+      <section className="bg-[#0a0a0a]/50 rounded-3xl border border-gray-800/80 p-8 shadow-xl space-y-6">
+        <div className="flex items-center gap-3">
+          <div className="w-1.5 h-6 bg-white rounded-full" />
+          <h3 className="text-base font-black text-[#dfdfdf] tracking-tight">자금 관리</h3>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-6">
           {renderSlider(
             "포지션 크기",
             "position_size_pct",
@@ -87,24 +87,36 @@ export default function RiskManagementEditor({
             1, 50, 1, "개",
             "동시에 보유할 수 있는 최대 종목 수입니다."
           )}
+          {renderSlider(
+            "최소 현금 보유 비중",
+            "min_cash_reserve_pct",
+            0, 100, 5, "%",
+            "안정성을 위해 전략이 항상 보유해야 하는 최소 현금 비율입니다."
+          )}
+          {renderSlider(
+            "일일 최대 매수 한도",
+            "max_daily_buy_pct",
+            0, 100, 5, "%",
+            "과도한 매매를 방지하기 위해 하루에 투입할 수 있는 최대 자금 비율입니다."
+          )}
         </div>
       </section>
 
       {/* Price-based Exit */}
-      <section>
-        <div className="flex items-center gap-2 mb-4">
-          <div className="w-1 h-4 bg-gray-400 rounded-full" />
-          <h3 className="text-sm font-black text-[#dfdfdf] tracking-tight">가격 기반 청산 리스크</h3>
+      <section className="bg-[#0a0a0a]/50 rounded-3xl border border-gray-800/80 p-8 shadow-xl space-y-6">
+        <div className="flex items-center gap-3">
+          <div className="w-1.5 h-6 bg-gray-400 rounded-full" />
+          <h3 className="text-base font-black text-[#dfdfdf] tracking-tight">가격 기반 청산 리스크</h3>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-6">
           {renderSlider(
-            "손절매 (Stop Loss)",
+            "손절매",
             "stop_loss_pct",
             0, 30, 0.5, "%",
             "매수가 대비 설정한 비율 이상 하락 시 즉시 매도합니다."
           )}
           {renderSlider(
-            "익절매 (Take Profit)",
+            "익절매",
             "take_profit_pct",
             0, 100, 1, "%",
             "매수가 대비 설정한 목표 수익률 도달 시 즉시 매도합니다."
@@ -125,12 +137,12 @@ export default function RiskManagementEditor({
       </section>
 
       {/* Portfolio Controls */}
-      <section>
-        <div className="flex items-center gap-2 mb-4">
-          <div className="w-1 h-4 bg-gray-600 rounded-full" />
-          <h3 className="text-sm font-black text-[#dfdfdf] tracking-tight">포트폴리오 제어</h3>
+      <section className="bg-[#0a0a0a]/50 rounded-3xl border border-gray-800/80 p-8 shadow-xl space-y-6">
+        <div className="flex items-center gap-3">
+          <div className="w-1.5 h-6 bg-gray-600 rounded-full" />
+          <h3 className="text-base font-black text-[#dfdfdf] tracking-tight">포트폴리오 제어</h3>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-6">
           {renderSlider(
             "일일 최대 손실",
             "max_daily_loss_pct",
@@ -138,10 +150,16 @@ export default function RiskManagementEditor({
             "하루 동안 포트폴리오 전체에서 허용하는 최대 손실액입니다."
           )}
           {renderSlider(
+            "최대 낙폭 제한 (MDD)",
+            "max_mdd_limit_pct",
+            0, 50, 0.5, "%",
+            "전고점 대비 자산 가치가 설정한 비율만큼 하락하면 모든 포지션을 청산합니다."
+          )}
+          {renderSlider(
             "최대 총 노출도",
             "max_total_exposure_pct",
             0, 200, 5, "%",
-            "전체 자산 대비 실제 시장에 노출된 자산의 총합입니다. (레버리지 포함)"
+            "전체 자산 대비 실제 시장에 노출된 자산의 총합입니다."
           )}
           {renderSlider(
             "섹터별 최대 집중도",
