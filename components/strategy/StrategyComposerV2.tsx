@@ -109,6 +109,8 @@ export default function StrategyComposerV2({
   const [riskManagement, setRiskManagement] = useState<RiskManagement>({
     position_size_pct: 5,
     max_positions: 10,
+    min_cash_reserve_pct: 10,
+    max_daily_buy_pct: 20,
     stop_loss_pct: 10,
     take_profit_pct: 20,
     trailing_stop_pct: 0,
@@ -116,6 +118,7 @@ export default function StrategyComposerV2({
     max_daily_loss_pct: 5,
     max_total_exposure_pct: 50,
     max_sector_exposure_pct: 30,
+    max_mdd_limit_pct: 15,
   });
   // Canvas state
   const [canvasBlocks, setCanvasBlocks] = useState<CanvasBlock[]>([]);
@@ -336,6 +339,8 @@ export default function StrategyComposerV2({
       setRiskManagement({
         position_size_pct: initialStrategy.risk.position_size_pct,
         max_positions: initialStrategy.risk.max_positions,
+        min_cash_reserve_pct: initialStrategy.risk.min_cash_reserve_pct ?? 10,
+        max_daily_buy_pct: initialStrategy.risk.max_daily_buy_pct ?? 20,
         stop_loss_pct: initialStrategy.risk.stop_loss_pct ?? 10,
         take_profit_pct: initialStrategy.risk.take_profit_pct ?? 20,
         trailing_stop_pct: initialStrategy.risk.trailing_stop_pct ?? 0,
@@ -343,6 +348,7 @@ export default function StrategyComposerV2({
         max_daily_loss_pct: initialStrategy.risk.max_daily_loss_pct ?? 5,
         max_total_exposure_pct: initialStrategy.risk.max_total_exposure_pct ?? 50,
         max_sector_exposure_pct: initialStrategy.risk.max_sector_exposure_pct ?? 30,
+        max_mdd_limit_pct: initialStrategy.risk.max_mdd_limit_pct ?? 15,
       });
     }
   }, [initialStrategy]);

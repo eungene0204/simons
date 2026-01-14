@@ -68,7 +68,13 @@ export default function Step1Universe({
 
   return (
     <div className="flex-1 px-0 pt-8 pb-0 relative z-10 bg-[#0f0f0f]">
-      <div className="max-w-full mx-auto px-8 space-y-16 pb-0 mt-0">
+      <div className="max-w-full mx-auto px-8 space-y-12 pb-0 mt-0">
+        <div className="mb-6">
+          <h3 className="text-xl font-black text-[#dfdfdf] tracking-tight">유니버스 설정</h3>
+          <p className="text-sm text-[#a0a0a0] mt-1 font-medium">
+            전략의 대상이 되는 시장과 종목 필터링 규칙을 정의합니다.
+          </p>
+        </div>
         <div className="space-y-12 w-full mx-auto">
           {/* Strategy Name Hero Section */}
           <div className="relative group">

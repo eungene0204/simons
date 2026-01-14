@@ -14,10 +14,13 @@ class ConditionGroup(BaseModel):
 class RiskManagement(BaseModel):
     position_size_pct: float
     max_positions: Optional[int] = 1
+    min_cash_reserve_pct: Optional[float] = 0.0
+    max_daily_buy_pct: Optional[float] = 100.0
     stop_loss_pct: Optional[float] = None
     take_profit_pct: Optional[float] = None
     trailing_stop_pct: Optional[float] = None
     max_holding_days: Optional[int] = None
+    max_mdd_limit_pct: Optional[float] = None
     init_cash: Optional[float] = 10000000.0
 
 class BacktestRequest(BaseModel):
