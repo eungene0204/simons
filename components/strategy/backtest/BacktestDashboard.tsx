@@ -57,7 +57,7 @@ export default function BacktestDashboard({
   }, [result]);
 
   return (
-    <div className="flex flex-col h-full animate-in fade-in zoom-in-95 duration-300">
+    <div className="flex-1 flex flex-col min-h-0 min-w-0 animate-in fade-in zoom-in-95 duration-300">
       {/* Missing Data Warnings */}
       {result.warnings && result.warnings.length > 0 && (
         <div className="mb-6 p-4 bg-main-red/10 border border-main-red/30 rounded-xl flex flex-col gap-2">
@@ -76,7 +76,7 @@ export default function BacktestDashboard({
       )}
 
       {/* 1. Hero Metrics Header */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+      <div className="flex-none grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
         <MetricCard 
           label="연평균수익률" 
           value={`${result.cagr.toFixed(2)}%`} 
@@ -109,10 +109,10 @@ export default function BacktestDashboard({
         />
       </div>
 
-      {/* 2. Main Content Area */}
-      <div className="flex-1 min-h-0 flex flex-col bg-[#111] border border-gray-800 rounded-2xl overflow-hidden">
+      {/* 2. Main Content Area - Exact Mirror of Step 2 Pattern */}
+      <div className="flex-1 flex flex-col bg-[#111] border border-gray-800 rounded-2xl overflow-hidden mb-4 min-h-0 min-w-0">
         {/* Toolbar */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800 bg-[#161616]">
+        <div className="flex-none flex items-center justify-between px-4 py-3 border-b border-gray-800 bg-[#161616]">
           <div className="flex bg-[#0a0a0a] rounded-lg p-1 border border-gray-800">
             {[
               { id: "chart", label: "차트 분석", icon: ChartBarIcon },
@@ -170,12 +170,12 @@ export default function BacktestDashboard({
         </div>
 
         {/* Tab Content */}
-        <div className="flex-1 min-h-[500px] overflow-y-auto p-0 custom-scrollbar relative">
+        <div className="flex-1 flex flex-col min-h-0 min-w-0 p-0 relative">
            
            {/* Chart View */}
            {activeTab === "chart" && (
-             <div className="h-full flex flex-col p-2 space-y-2">
-               <div className="flex-1 min-h-[300px] bg-[#0a0a0f] rounded-xl border border-gray-800 overflow-hidden relative">
+             <div className="flex-1 flex flex-col p-2 space-y-2 min-h-0">
+               <div className="flex-1 min-h-0 bg-[#0a0a0f] rounded-xl border border-gray-800 overflow-hidden relative">
                   <BacktestChart 
                     type="equity" 
                     equityData={result.dates.map((d: string, i: number) => ({ 
@@ -187,7 +187,7 @@ export default function BacktestDashboard({
                </div>
                
                {/* Quick Stats Summary below chart */}
-               <div className="grid grid-cols-4 gap-4">
+               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4">
                   <StatRow label="총 수익" value={formatKRW(result.finalEquity - result.initialCapital)} result={result} />
                   <StatRow label="매수후보유" value={`${result.buyAndHoldReturn.toFixed(1)}%`} result={result} />
                   <StatRow label="연간 변동성" value={`${(result.sharpe > 0 ? (result.cagr / result.sharpe) : 0).toFixed(1)}%`} result={result} isNeutral />
@@ -198,7 +198,7 @@ export default function BacktestDashboard({
 
            {/* Assets View (Symbol Summary) */}
            {activeTab === "assets" && (
-             <div className="p-6">
+             <div className="h-full overflow-y-auto custom-scrollbar p-6">
                 <div className="bg-[#1a1a1a] rounded-xl border border-gray-800 overflow-hidden">
                    <table className="w-full text-left border-collapse">
                       <thead className="bg-[#111] border-b border-gray-800">
@@ -242,7 +242,7 @@ export default function BacktestDashboard({
 
            {/* Stats View (Heatmap + Detailed Grid) */}
            {activeTab === "stats" && (
-             <div className="p-6 space-y-8">
+             <div className="h-full overflow-y-auto custom-scrollbar p-6 space-y-8">
                
                 <div>
                   <h4 className="text-base font-bold text-white mb-4 flex items-center gap-2">
@@ -314,7 +314,7 @@ export default function BacktestDashboard({
 
            {/* Log View */}
            {activeTab === "log" && (
-              <div className="h-full">
+              <div className="h-full overflow-y-auto custom-scrollbar">
                  {result.tradesList?.length > 0 ? (
                     <table className="w-full text-left border-collapse">
                       <thead className="bg-[#111] sticky top-0 z-10">
@@ -372,10 +372,10 @@ export default function BacktestDashboard({
 function MetricCard({ label, value, subValue, trend, colorClass = "text-white" }: { label: string, value: string, subValue?: string, trend?: "up"|"down"|"neutral", colorClass?: string }) {
       
   return (
-    <div className="bg-[#111] border border-gray-800 p-4 rounded-xl flex flex-col justify-between hover:border-gray-700 transition-colors">
-      <div className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">{label}</div>
-      <div className={`text-3xl font-black ${colorClass} tracking-tight`}>{value}</div>
-      {subValue && <div className="text-[11px] text-gray-600 font-medium mt-1 truncate">{subValue}</div>}
+    <div className="bg-[#111] border border-gray-800 p-3 md:p-4 rounded-xl flex flex-col justify-between hover:border-gray-700 transition-colors">
+      <div className="text-[10px] md:text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">{label}</div>
+      <div className={`text-xl md:text-2xl xl:text-3xl font-black ${colorClass} tracking-tight`}>{value}</div>
+      {subValue && <div className="text-[10px] md:text-[11px] text-gray-600 font-medium mt-1 truncate">{subValue}</div>}
     </div>
   );
 }
