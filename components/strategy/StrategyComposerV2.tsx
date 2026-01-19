@@ -420,7 +420,9 @@ export default function StrategyComposerV2({
 
 
   return (
-    <div className="flex flex-col bg-[#050505] min-h-screen relative">
+    <div className={`flex flex-col bg-[#050505] transition-all duration-500 relative ${
+      (currentStep === 5 && isBacktestDashboard) ? "h-screen overflow-hidden" : "min-h-screen"
+    }`}>
       <div className="flex-1 flex flex-col relative z-10">
       {/* Top Header Bar */}
       <div className="bg-[#0f0f0f] px-8 py-8">
@@ -584,9 +586,9 @@ export default function StrategyComposerV2({
       </div>
       )}
 
-      <div className="flex-1 flex min-h-0">
+      <div className="flex-1 flex min-h-0 min-w-0">
         {currentStep === 2 ? (
-          <div className="flex-1 flex flex-col">
+          <div className="flex-1 flex flex-col min-w-0">
             <Step2Conditions
               canvasBlocks={canvasBlocks}
               setCanvasBlocks={setCanvasBlocks}
@@ -637,7 +639,7 @@ export default function StrategyComposerV2({
             />
           </div>
         ) : (
-          <div className="flex-1 bg-[#0f0f0f] relative">
+          <div className="flex-1 flex flex-col min-h-0 min-w-0 bg-[#0f0f0f] relative">
             {currentStep === 1 && (
               <Step1Universe
                 strategyName={strategyName}
