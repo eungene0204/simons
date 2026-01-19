@@ -59,9 +59,9 @@ export default function BacktestChart({
 }: BacktestChartProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const equitySeriesRef = useRef<ISeriesApi<"Area"> | null>(null);
+  const equitySeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const buyHoldSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
-  const drawdownSeriesRef = useRef<ISeriesApi<"Area"> | null>(null);
+  const drawdownSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
   // Prepare equity chart data
@@ -142,7 +142,7 @@ export default function BacktestChart({
             fontSize: 10,
           },
           // @ts-ignore - Lightweight charts supports padding in layout
-          padding: { top: 12, bottom: 12, left: 8, right: 40 }, 
+          padding: { top: 4, bottom: 4, left: 8, right: 40 }, 
           grid: {
             vertLines: { color: "#374151", style: 1, visible: true },
             horzLines: { color: "#374151", style: 1, visible: true },
@@ -175,10 +175,8 @@ export default function BacktestChart({
 
         if (type === "equity") {
           // Create equity area series with custom price format
-          const equitySeries = chart.addSeries(AreaSeries, {
-            lineColor: "#FFFFFF", // WHITE for Strategy
-            topColor: "rgba(255, 255, 255, 0.2)",
-            bottomColor: "rgba(255, 255, 255, 0.02)",
+          const equitySeries = chart.addSeries(LineSeries, {
+            color: "rgb(239, 68, 68)", // main-red
             lineWidth: 2,
             priceFormat: {
               type: "custom",
@@ -194,7 +192,7 @@ export default function BacktestChart({
           // Create buy & hold line series if data exists
           if (buyHoldChartData.length > 0) {
             const buyHoldSeries = chart.addSeries(LineSeries, {
-              color: "#6b7280",
+              color: "rgb(55, 122, 244)", // main-blue
               lineWidth: 2,
               lineStyle: LineStyle.Solid,
               priceFormat: {
@@ -218,10 +216,8 @@ export default function BacktestChart({
         } else if (type === "drawdown") {
           // Create drawdown area series
           // Note: Drawdown is in percentage, so we format it differently
-          const drawdownSeries = chart.addSeries(AreaSeries, {
-            lineColor: "#666666", // GRAY for Drawdown
-            topColor: "rgba(102, 102, 102, 0.3)",
-            bottomColor: "rgba(102, 102, 102, 0.05)",
+          const drawdownSeries = chart.addSeries(LineSeries, {
+            color: "rgb(239, 68, 68)", // main-red
             lineWidth: 2,
             priceFormat: {
               type: "price",
@@ -310,12 +306,12 @@ export default function BacktestChart({
       {/* Legend Overlay */}
       <div className="absolute top-4 left-4 z-20 flex flex-col gap-1 b">
         <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
-           <div className="w-2.5 h-2.5 rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.4)]" />
+           <div className="w-2.5 h-2.5 rounded-full bg-main-red" />
            <span className="text-[10px] font-bold text-white">나의 전략</span>
         </div>
         <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
-           <div className="w-2.5 h-2.5 rounded-full bg-gray-600" />
-           <span className="text-[10px] font-bold text-gray-500">시장 수익률</span>
+           <div className="w-2.5 h-2.5 rounded-full bg-main-blue" />
+           <span className="text-[10px] font-bold text-white">매수후보유</span>
         </div>
       </div>
 

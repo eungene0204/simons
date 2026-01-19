@@ -16,6 +16,7 @@ module.exports = {
         },
         'brand-blue': 'rgb(59, 134, 247)',
         'main-blue': 'rgb(55, 122, 244)',
+        'main-red': 'rgb(239, 68, 68)',
       },
       animation: {
         shimmer: 'shimmer 2s infinite',

@@ -359,7 +359,7 @@ export default function Step3Position({
           <div className="flex items-center gap-4">
             <button 
               onClick={onPrev} 
-              className="px-8 py-5 bg-white/5 text-white/40 rounded-2xl text-lg font-black hover:bg-white/10 hover:text-white transition-all flex items-center gap-4 active:scale-95"
+              className="px-8 py-5 bg-[#161616] border border-white/5 text-white rounded-2xl text-lg font-black hover:bg-[#1f1f1f] hover:border-white/10 transition-all flex items-center gap-4 active:scale-95"
             >
               <ArrowLeftIcon className="w-6 h-6" /> 이전
             </button>
