@@ -323,7 +323,7 @@ export default function Step2Conditions({
               <button
                 type="button"
                 onClick={() => setIsLibraryManagementOpen(true)}
-                className="p-1.5 bg-white/5 rounded-lg text-gray-500 hover:text-white hover:bg-white/10 transition-all group/mgmt"
+                className="p-1.5 bg-[#161616] border border-white/5 rounded-lg text-gray-500 hover:text-white hover:bg-[#1f1f1f] hover:border-white/10 transition-all group/mgmt"
               >
                 <EllipsisHorizontalIcon className="w-4 h-4" />
               </button>
@@ -393,10 +393,10 @@ export default function Step2Conditions({
               <button
                 type="button"
                 onClick={() => setIsSearchMenuOpen(!isSearchMenuOpen)}
-                className={`w-full flex items-center justify-center gap-3 py-4 rounded-[20px] transition-all ${
+                className={`w-full flex items-center justify-center gap-3 py-4 rounded-[20px] transition-all border ${
                   isSearchMenuOpen
-                    ? "bg-white text-black shadow-[0_0_25px_rgba(255,255,255,0.2)]"
-                    : "bg-white/5 text-white/40 hover:text-white hover:bg-white/10"
+                    ? "bg-white text-black border-transparent shadow-[0_0_25px_rgba(255,255,255,0.2)]"
+                    : "bg-[#161616] text-white/40 hover:text-white hover:bg-[#1f1f1f] border-white/5 hover:border-white/10"
                 }`}
               >
                 <MagnifyingGlassIcon className="w-5 h-5" />
@@ -686,7 +686,7 @@ export default function Step2Conditions({
                                 setCanvasBlocks(canvasBlocks.map(b => b.id === block.id ? { ...b, params: newParams } : b));
                                 setSelectedBlock({ ...block, params: newParams });
                               }}
-                              className="w-full py-1.5 bg-white text-black rounded-lg text-[10px] font-black hover:bg-white/90 transition-all flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
+                              className="w-full py-1.5 bg-[#161616] text-white border border-white/5 rounded-lg text-[10px] font-black hover:bg-[#1f1f1f] hover:border-white/10 transition-all flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
                             >
                               설정값 기억하기
                             </button>
@@ -800,7 +800,7 @@ export default function Step2Conditions({
                           setSelectedBlock({ ...block, params: newParams, type: newType });
                         }
                       }}
-                      className="w-full py-3.5 bg-white/5 rounded-2xl text-sm font-bold text-white/40 hover:text-white hover:bg-white/10 transition-all flex items-center justify-center gap-2 uppercase tracking-widest active:scale-95"
+                      className="w-full py-3.5 bg-[#161616] border border-white/5 rounded-2xl text-sm font-bold text-white hover:bg-[#1f1f1f] hover:border-white/10 transition-all flex items-center justify-center gap-2 uppercase tracking-widest active:scale-95"
                     >
                       <ArrowPathIcon className="w-3.5 h-3.5" />
                       초기값으로 복원
@@ -885,7 +885,7 @@ export default function Step2Conditions({
           <div className="flex items-center gap-4">
             <button 
               onClick={onPrev} 
-              className="px-8 py-5 bg-white/5 text-white/40 rounded-2xl text-lg font-black hover:bg-white/10 hover:text-white transition-all flex items-center gap-4 active:scale-95"
+              className="px-8 py-5 bg-[#161616] border border-white/5 text-white rounded-2xl text-lg font-black hover:bg-[#1f1f1f] hover:border-white/10 transition-all flex items-center gap-4 active:scale-95"
             >
               <ArrowLeftIcon className="w-6 h-6" /> 이전
             </button>

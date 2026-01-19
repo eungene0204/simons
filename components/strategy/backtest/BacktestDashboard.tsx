@@ -11,7 +11,8 @@ import {
   ArrowPathIcon,
   CheckBadgeIcon,
   ExclamationTriangleIcon,
-  ListBulletIcon
+  ListBulletIcon,
+  CheckIcon
 } from "@heroicons/react/24/outline";
 import { useState, useEffect } from "react";
 
@@ -19,6 +20,7 @@ interface BacktestDashboardProps {
   result: BacktestResult;
   onRestart: () => void;
   onRun?: (options: BacktestConfigOptions) => void;
+  onSave?: () => void;
   currentOptions?: BacktestConfigOptions;
   isRunning?: boolean;
 }
@@ -27,6 +29,7 @@ export default function BacktestDashboard({
   result, 
   onRestart, 
   onRun, 
+  onSave,
   currentOptions,
   isRunning 
 }: BacktestDashboardProps) {
@@ -57,14 +60,14 @@ export default function BacktestDashboard({
     <div className="flex flex-col h-full animate-in fade-in zoom-in-95 duration-300">
       {/* Missing Data Warnings */}
       {result.warnings && result.warnings.length > 0 && (
-        <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl flex flex-col gap-2">
-           <div className="flex items-center gap-2 text-amber-400 font-black text-sm uppercase">
+        <div className="mb-6 p-4 bg-main-red/10 border border-main-red/30 rounded-xl flex flex-col gap-2">
+           <div className="flex items-center gap-2 text-main-red font-black text-base uppercase">
               <ExclamationTriangleIcon className="w-5 h-5" />
               주의: 백테스트 데이터 제한 사항
            </div>
            <ul className="list-disc list-inside space-y-1">
              {result.warnings.map((w, i) => (
-               <li key={i} className="text-xs text-amber-200 font-medium">
+               <li key={i} className="text-sm text-red-200/80 font-medium">
                  {w}
                </li>
              ))}
@@ -120,9 +123,9 @@ export default function BacktestDashboard({
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
                   activeTab === tab.id 
-                    ? "bg-gray-800 text-white shadow-sm" 
+                    ? "bg-gray-800 text-white" 
                     : "text-gray-500 hover:text-gray-300"
                 }`}
               >
@@ -133,7 +136,7 @@ export default function BacktestDashboard({
           </div>
           
           <div className="flex items-center gap-3">
-             <div className="text-xs font-mono text-gray-500">
+             <div className="text-sm font-mono text-gray-500">
                 {result.dates[0]} ~ {result.dates[result.dates.length-1]}
              </div>
              
@@ -142,27 +145,36 @@ export default function BacktestDashboard({
              <div className="flex items-center gap-2">
                  <button 
                    onClick={onRestart}
-                   className="px-4 py-1.5 bg-[#1a1a1a] border border-gray-700 hover:bg-gray-800 text-gray-300 text-xs font-bold rounded-lg transition-all"
+                   className="px-4 py-1.5 bg-[#161616] hover:bg-[#1f1f1f] border border-white/5 hover:border-white/10 text-white text-sm font-bold rounded-lg transition-all active:scale-95"
                  >
                    설정 변경
                  </button>
-                 <button 
-                   onClick={() => onRun && localOptions && onRun(localOptions)}
-                   disabled={isRunning}
-                   className={`px-4 py-1.5 bg-white hover:bg-gray-100 disabled:bg-gray-800 disabled:text-gray-600 text-black text-xs font-bold rounded-lg transition-all shadow-lg active:scale-95`}
-                 >
-                   {isRunning ? "실행 중..." : "재실행"}
-                 </button>
+                  <button 
+                    onClick={() => onRun && localOptions && onRun(localOptions)}
+                    disabled={isRunning}
+                    className={`px-4 py-1.5 bg-[#161616] hover:bg-[#1f1f1f] disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-bold rounded-lg transition-all border border-white/5 hover:border-white/10 active:scale-95`}
+                  >
+                    {isRunning ? "실행 중..." : "재실행"}
+                  </button>
+                  {onSave && (
+                    <button 
+                      onClick={onSave}
+                      className="px-4 py-1.5 bg-main-blue hover:bg-blue-600 text-white text-sm font-bold rounded-lg transition-all flex items-center gap-2 active:scale-95"
+                    >
+                      <CheckIcon className="w-4 h-4" />
+                      전략 저장하기
+                    </button>
+                  )}
               </div>
           </div>
         </div>
 
         {/* Tab Content */}
-        <div className="h-[600px] min-h-[600px] overflow-y-auto p-0 custom-scrollbar relative">
+        <div className="flex-1 min-h-[500px] overflow-y-auto p-0 custom-scrollbar relative">
            
            {/* Chart View */}
            {activeTab === "chart" && (
-             <div className="h-full flex flex-col p-3 space-y-3">
+             <div className="h-full flex flex-col p-2 space-y-2">
                <div className="flex-1 min-h-[300px] bg-[#0a0a0f] rounded-xl border border-gray-800 overflow-hidden relative">
                   <BacktestChart 
                     type="equity" 
@@ -191,36 +203,36 @@ export default function BacktestDashboard({
                    <table className="w-full text-left border-collapse">
                       <thead className="bg-[#111] border-b border-gray-800">
                          <tr>
-                            <th className="p-4 text-sm font-bold text-gray-500">종목</th>
-                            <th className="p-4 text-sm font-bold text-gray-500">섹터</th>
-                            <th className="p-4 text-sm font-bold text-gray-500 text-right">수익금</th>
-                            <th className="p-4 text-sm font-bold text-gray-500 text-right">수익률</th>
-                            <th className="p-4 text-sm font-bold text-gray-500 text-right">매매 횟수</th>
+                            <th className="p-4 text-base font-bold text-gray-500">종목</th>
+                            <th className="p-4 text-base font-bold text-gray-500">섹터</th>
+                            <th className="p-4 text-base font-bold text-gray-500 text-right">수익금</th>
+                            <th className="p-4 text-base font-bold text-gray-500 text-right">수익률</th>
+                            <th className="p-4 text-base font-bold text-gray-500 text-right">매매 횟수</th>
                          </tr>
                       </thead>
                       <tbody>
                          <tr className="border-b border-gray-800/50 hover:bg-white/5 transition-colors">
                             <td className="p-4">
                                <div className="flex flex-col">
-                                  <span className="text-sm font-bold text-white">삼성전자</span>
-                                  <span className="text-[11px] text-gray-500 font-mono">{result.symbol || "005930"}</span>
+                                  <span className="text-base font-bold text-white">삼성전자</span>
+                                  <span className="text-xs text-gray-500 font-mono">{result.symbol || "005930"}</span>
                                </div>
                             </td>
-                            <td className="p-4 text-sm text-gray-400">전기전자</td>
-                            <td className={`p-4 text-sm font-bold text-right ${(result.finalEquity - result.initialCapital) >= 0 ? 'text-white' : 'text-gray-400'}`}>
+                            <td className="p-4 text-base text-gray-400">전기전자</td>
+                            <td className={`p-4 text-base font-bold text-right ${(result.finalEquity - result.initialCapital) >= 0 ? 'text-white' : 'text-gray-400'}`}>
                                {formatKRW(result.finalEquity - result.initialCapital)}
                             </td>
-                            <td className={`p-4 text-sm font-bold text-right ${(result.finalEquity - result.initialCapital) >= 0 ? 'text-white' : 'text-gray-400'}`}>
+                            <td className={`p-4 text-base font-bold text-right ${(result.finalEquity - result.initialCapital) >= 0 ? 'text-white' : 'text-gray-400'}`}>
                                {result.totalReturn.toFixed(2)}%
                             </td>
-                            <td className="p-4 text-sm text-white text-right font-mono">
+                            <td className="p-4 text-base text-white text-right font-mono">
                                {result.trades}회
                             </td>
                          </tr>
                       </tbody>
                    </table>
                    <div className="p-6 bg-[#161616] border-t border-gray-800">
-                      <p className="text-xs text-gray-500 leading-relaxed italic">
+                      <p className="text-sm text-gray-500 leading-relaxed italic">
                         * 현재 베타 버전에서는 단일 종목 백테스트 분석 결과만 제공됩니다. 곧 멀티 종목 분석 기능이 추가될 예정입니다.
                       </p>
                    </div>
@@ -233,11 +245,11 @@ export default function BacktestDashboard({
              <div className="p-6 space-y-8">
                
                 <div>
-                  <h4 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
+                  <h4 className="text-base font-bold text-white mb-4 flex items-center gap-2">
                     <TableCellsIcon className="w-4 h-4 text-gray-500" /> 월별 수익률 상세 (연도/월)
                   </h4>
                   <div className="overflow-x-auto custom-scrollbar">
-                    <table className="w-full border-collapse overflow-hidden text-[13px]">
+                    <table className="w-full border-collapse overflow-hidden text-sm">
                       <thead className="bg-[#1a1a1a] text-gray-500 font-bold">
                         <tr>
                           <th className="p-2 text-center min-w-[60px]">연도</th>
@@ -255,7 +267,7 @@ export default function BacktestDashboard({
                               const val = (Math.random() * 10) - 4; 
                               return (
                                 <td key={i} className="p-1">
-                                  <div className={`w-full py-1.5 rounded flex items-center justify-center text-[11px] font-bold ${
+                                  <div className={`w-full py-1.5 rounded flex items-center justify-center text-xs font-bold ${
                                     val > 0 ? `bg-white/${Math.min(Math.floor(val * 10), 90)} text-black` : `bg-gray-700/${Math.min(Math.abs(val) * 10, 90)} text-gray-400`
                                   }`}>
                                     {val.toFixed(1)}%
@@ -305,14 +317,14 @@ export default function BacktestDashboard({
               <div className="h-full">
                  {result.tradesList?.length > 0 ? (
                     <table className="w-full text-left border-collapse">
-                      <thead className="bg-[#111] sticky top-0 z-10 shadow-sm">
+                      <thead className="bg-[#111] sticky top-0 z-10">
                          <tr>
-                            <th className="p-3 text-sm font-bold text-gray-500 border-b border-gray-800">날짜</th>
-                            <th className="p-3 text-sm font-bold text-gray-500 border-b border-gray-800">구분</th>
-                            <th className="p-3 text-sm font-bold text-gray-500 border-b border-gray-800">체결가</th>
-                            <th className="p-3 text-sm font-bold text-gray-500 border-b border-gray-800">수량</th>
-                            <th className="p-3 text-sm font-bold text-gray-500 border-b border-gray-800">매매사유</th>
-                            <th className="p-3 text-sm font-bold text-gray-500 border-b border-gray-800 text-right">거래금액</th>
+                            <th className="p-3 text-base font-bold text-gray-500 border-b border-gray-800">날짜</th>
+                            <th className="p-3 text-base font-bold text-gray-500 border-b border-gray-800">구분</th>
+                            <th className="p-3 text-base font-bold text-gray-500 border-b border-gray-800">체결가</th>
+                            <th className="p-3 text-base font-bold text-gray-500 border-b border-gray-800">수량</th>
+                            <th className="p-3 text-base font-bold text-gray-500 border-b border-gray-800">매매사유</th>
+                            <th className="p-3 text-base font-bold text-gray-500 border-b border-gray-800 text-right">거래금액</th>
                          </tr>
                       </thead>
                       <tbody className="bg-[#0f0f0f]">
@@ -321,18 +333,18 @@ export default function BacktestDashboard({
                              
                              return (
                              <tr key={i} className="hover:bg-white/5 transition-colors border-b border-gray-800/50">
-                                <td className="p-3 text-sm font-mono text-gray-400">{t.date}</td>
+                                <td className="p-3 text-base font-mono text-gray-400">{t.date}</td>
                                  <td className="p-3">
-                                   <span className={`px-1.5 py-0.5 rounded text-[11px] font-bold ${t.type==='buy' ? 'bg-white text-black' : 'bg-gray-800 text-gray-400'}`}>
+                                   <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${t.type==='buy' ? 'bg-white text-black' : 'bg-gray-800 text-gray-400'}`}>
                                       {t.type === 'buy' ? '매수' : '매도'}
                                    </span>
                                 </td>
-                                <td className="p-3 text-sm text-gray-300 font-bold">{Math.round(Number(t.price)).toLocaleString()}</td>
-                                <td className="p-3 text-sm text-gray-400">
+                                <td className="p-3 text-base text-gray-300 font-bold">{Math.round(Number(t.price)).toLocaleString()}</td>
+                                <td className="p-3 text-base text-gray-400">
                                    {Math.floor(Number(t.quantity)).toLocaleString()}주
                                 </td>
-                                <td className="p-3 text-sm text-gray-500 italic">{t.reason}</td>
-                                <td className="p-3 text-sm text-right font-mono text-white">
+                                <td className="p-3 text-base text-gray-500 italic">{t.reason}</td>
+                                <td className="p-3 text-base text-right font-mono text-white">
                                    {formatKRW(tradeAmount)}
                                 </td>
                              </tr>
@@ -357,27 +369,21 @@ export default function BacktestDashboard({
 
 // Sub-components for Cleaner Code
 
-function MetricCard({ label, value, subValue, trend }: { label: string, value: string, subValue?: string, trend: "up" | "down" | "neutral" }) {
-  const isUp = trend === "up";
-  const colorClass = isUp 
-    ? "text-white"
-    : trend === "down" 
-      ? "text-gray-400"
-      : "text-gray-200";
+function MetricCard({ label, value, subValue, trend, colorClass = "text-white" }: { label: string, value: string, subValue?: string, trend?: "up"|"down"|"neutral", colorClass?: string }) {
       
   return (
-    <div className="bg-[#111] border border-gray-800 p-4 rounded-xl flex flex-col justify-between shadow-sm hover:border-gray-700 transition-colors">
-      <div className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1">{label}</div>
-      <div className={`text-2xl font-black ${colorClass} tracking-tight`}>{value}</div>
-      {subValue && <div className="text-[10px] text-gray-600 font-medium mt-1 truncate">{subValue}</div>}
+    <div className="bg-[#111] border border-gray-800 p-4 rounded-xl flex flex-col justify-between hover:border-gray-700 transition-colors">
+      <div className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">{label}</div>
+      <div className={`text-3xl font-black ${colorClass} tracking-tight`}>{value}</div>
+      {subValue && <div className="text-[11px] text-gray-600 font-medium mt-1 truncate">{subValue}</div>}
     </div>
   );
 }
 
 function StatRow({ label, value, result, isNeutral }: { label: string, value: string, result: any, isNeutral?: boolean }) {
   return (
-    <div className="bg-[#111] border border-gray-800 rounded-lg p-3">
-       <div className="text-[10px] text-gray-500 mb-1">{label}</div>
+    <div className="bg-[#111] border border-gray-800 rounded-lg px-3 py-2 flex flex-col justify-center">
+       <div className="text-[11px] text-gray-500 mb-0.5">{label}</div>
        <div className={`text-lg font-bold ${isNeutral ? "text-white" : (value.includes("-") ? "text-gray-400" : "text-white")}`}>{value}</div>
     </div>
   );
@@ -386,10 +392,10 @@ function StatRow({ label, value, result, isNeutral }: { label: string, value: st
 function StatItem({ label, value, sub }: { label: string, value: string, sub?: string }) {
    return (
       <div className="flex justify-between items-center py-1 border-b border-gray-800/50 last:border-none">
-         <span className="text-sm text-gray-400 font-medium">{label}</span>
+         <span className="text-base text-gray-400 font-medium">{label}</span>
          <div className="text-right">
-            <div className="text-sm font-bold text-white font-mono">{value}</div>
-            {sub && <div className="text-[10px] text-gray-600">{sub}</div>}
+            <div className="text-base font-bold text-white font-mono">{value}</div>
+            {sub && <div className="text-xs text-gray-600">{sub}</div>}
          </div>
       </div>
    );

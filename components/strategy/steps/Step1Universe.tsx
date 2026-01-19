@@ -208,7 +208,7 @@ export default function Step1Universe({
                 </span>
                 <button 
                   onClick={() => setUniverseFilters({...universeFilters, selectedSectors: []})}
-                  className="text-xs font-black text-[#a0a0a0] hover:text-white transition-colors uppercase tracking-widest px-3 py-1.5 bg-white/5 hover:bg-white/10 rounded-full border border-white/5 active:scale-95"
+                  className="text-xs font-black text-white hover:text-white transition-all uppercase tracking-widest px-3 py-1.5 bg-[#161616] hover:bg-[#1f1f1f] rounded-full border border-white/5 hover:border-white/10 active:scale-95"
                 >
                   초기화
                 </button>

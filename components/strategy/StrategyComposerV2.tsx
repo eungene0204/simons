@@ -149,6 +149,7 @@ export default function StrategyComposerV2({
   const [openSignalGroups, setOpenSignalGroups] = useState<string[]>([]);
   const [sectorSearchTerm, setSectorSearchTerm] = useState("");
   const [reorderDragItem, setReorderDragItem] = useState<{ type: 'category' | 'block', id: string, index: number, categoryId?: string } | null>(null);
+  const [isBacktestDashboard, setIsBacktestDashboard] = useState(false);
 
   // Responsive Canvas State
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -165,6 +166,13 @@ export default function StrategyComposerV2({
     
     observer.observe(canvasRef.current);
     return () => observer.disconnect();
+  }, [currentStep]);
+
+  // Reset backtest dashboard state when leaving step 5
+  useEffect(() => {
+    if (currentStep !== 5) {
+      setIsBacktestDashboard(false);
+    }
   }, [currentStep]);
 
   // Reset scroll to top when changing steps
@@ -407,7 +415,7 @@ export default function StrategyComposerV2({
     { num: 2, label: "매매 조건" },
     { num: 3, label: "포지션/비중" },
     { num: 4, label: "리스크 관리" },
-    { num: 5, label: "미리보기" },
+    { num: 5, label: "백테스트" },
   ];
 
 
@@ -440,7 +448,8 @@ export default function StrategyComposerV2({
       </div>
 
       {/* Horizontal Timeline Context Bar with spacing from header */}
-      <div className="bg-[#0f0f0f] px-8 pt-6 pb-6">
+      {!(currentStep === 5 && isBacktestDashboard) && (
+        <div className="bg-[#0f0f0f] px-8 pt-6 pb-6">
         <div className="max-w-full mx-auto flex items-center justify-between gap-0">
           {/* Step 1: Universe */}
           <div 
@@ -567,12 +576,13 @@ export default function StrategyComposerV2({
                 <PlayCircleIcon className={`w-4 h-4 ${currentStep >= 5 ? "text-white" : "text-gray-600"}`} />
               </div>
               <span className={`text-sm font-black tracking-tight ${currentStep >= 5 ? "text-white" : "text-gray-600"}`}>
-                백테스트 결과
+                백테스트
               </span>
             </div>
           </div>
         </div>
       </div>
+      )}
 
       <div className="flex-1 flex min-h-0">
         {currentStep === 2 ? (
@@ -676,6 +686,7 @@ export default function StrategyComposerV2({
               onPrev={() => setCurrentStep(4)}
               onSave={handleSave}
               onRunBacktest={runSimulation}
+              onViewChange={(view) => setIsBacktestDashboard(view === "dashboard")}
               summaryData={{
                 universeName: universe === "US_TECH_TOP10" ? "미국 테크 Top 10" : 
                               universe === "KOR_KOSPI200" ? "KOSPI 200" :

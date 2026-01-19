@@ -6,6 +6,7 @@
   --background: #0f0f0f;
   --foreground: #e0e0e0;
   --main-blue: rgb(55, 122, 244);
+  --main-red: rgb(239, 68, 68);
 }
 
 @media (prefers-color-scheme: dark) {
