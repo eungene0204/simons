@@ -420,9 +420,7 @@ export default function StrategyComposerV2({
 
 
   return (
-    <div className={`flex flex-col bg-[#050505] transition-all duration-500 relative ${
-      (currentStep === 5 && isBacktestDashboard) ? "h-screen overflow-hidden" : "min-h-screen"
-    }`}>
+    <div className={`flex flex-col bg-[#050505] transition-all duration-500 relative min-h-screen`}>
       <div className="flex-1 flex flex-col relative z-10">
       {/* Top Header Bar */}
       <div className="bg-[#0f0f0f] px-8 py-8">
