@@ -21,11 +21,11 @@ engine = BacktestEngine()
 
 @app.post("/backtest", response_model=BacktestResponse)
 async def run_backtest(request: BacktestRequest):
-    print(f"\n[DEBUG] BACKEND: Received backtest request for symbol: {request.symbol}")
+    print(f"\n[DEBUG] BACKEND: Received backtest request for symbols: {request.symbols}")
     print(f"[DEBUG] Request Data: {request.model_dump_json(indent=2)}")
     try:
         # Convert Pydantic to dict for engine
-        result = engine.run_backtest(request.dict())
+        result = engine.run_backtest(request.model_dump())
         print(f"[DEBUG] BACKEND: Backtest Success. Total Return: {result.get('totalReturn', 0):.2f}%")
         return result
     except FileNotFoundError as e:

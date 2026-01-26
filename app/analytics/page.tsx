@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import {
@@ -31,7 +31,7 @@ const formatPrice = (price: number) => {
   return new Intl.NumberFormat("ko-KR").format(price);
 };
 
-export default function AnalyticsPage() {
+function AnalyticsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const symbol = searchParams.get("symbol") || "";
@@ -73,7 +73,7 @@ export default function AnalyticsPage() {
     const loaded = savedStrategies.find((s) => s.id === strategyId);
     if (loaded) {
       setStrategy(loaded);
-      setShowComposer(false);
+      setShowComposer(true);
     }
   };
 
@@ -333,5 +333,19 @@ export default function AnalyticsPage() {
         initialSelectedIds={Array.from(selectedForFusion)}
       />
     </DashboardLayout>
+  );
+}
+
+export default function AnalyticsPage() {
+  return (
+    <Suspense fallback={
+      <DashboardLayout userName={"User"}>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+        </div>
+      </DashboardLayout>
+    }>
+      <AnalyticsContent />
+    </Suspense>
   );
 }

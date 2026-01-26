@@ -24,23 +24,35 @@ class RiskManagement(BaseModel):
     init_cash: Optional[float] = 10000000.0
 
 class BacktestRequest(BaseModel):
-    symbol: str
+    symbols: List[str]
     entry: ConditionGroup
     exit: ConditionGroup
     risk: RiskManagement
     period: str = "full"
-    options: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    options: Optional[Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="백테스트 옵션 (fee_rate, slippage_rate 등)"
+    )
 
 class SignalResult(BaseModel):
     date: str
+    symbol: str
     type: str # 'entry' | 'exit'
     price: float
     quantity: int
     amount: float
     condition: str
 
-class BacktestResponse(BaseModel):
+class AssetStats(BaseModel):
     symbol: str
+    sector: Optional[str] = "-"
+    totalReturn: float
+    trades: int
+    winRate: float
+    profit: float
+
+class BacktestResponse(BaseModel):
+    symbols: List[str]
     totalReturn: float
     cagr: float
     buyAndHoldReturn: float
@@ -49,10 +61,13 @@ class BacktestResponse(BaseModel):
     profitFactor: float
     sharpe: float
     sortino: float
+    kelly: Optional[float] = 0.0
     volatility: float
+    trades: int
     equity: List[float]
     benchmark_equity: Optional[List[float]] = Field(default_factory=list)
     dates: List[str]
     signals: List[SignalResult]
+    perAssetStats: Optional[Dict[str, AssetStats]] = Field(default_factory=dict)
     warnings: Optional[List[str]] = Field(default_factory=list)
     version: Optional[str] = "1.0"

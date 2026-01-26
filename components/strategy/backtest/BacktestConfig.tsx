@@ -115,7 +115,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
       endDate: period === "custom" ? endDate : undefined,
       initialCapital,
       commissionPct,
-      slippagePct
+      slippagePct,
     });
   };
 
@@ -124,8 +124,8 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
       <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1.8fr] gap-6 mb-8">
         
         {/* Left Column: Period & Capital */}
-        <div className="space-y-6">
-           <div className="bg-[#111] border border-gray-800 rounded-3xl p-6 h-[250px] flex flex-col justify-center">
+        <div className="space-y-6 flex flex-col">
+           <div className="bg-[#111] border border-gray-800 rounded-3xl p-6 flex-1 flex flex-col">
             <div className="flex items-center gap-2 mb-4">
               <span className="text-xl font-black text-[#dfdfdf] uppercase tracking-tight">테스트 기간</span>
             </div>
@@ -171,63 +171,66 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
             </div>
           </div>
 
-          <div className="bg-[#111] border border-gray-800 rounded-2xl p-6 h-[250px] flex flex-col justify-center">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="text-xl font-black text-[#dfdfdf] uppercase tracking-tight">자본 및 비용</span>
+          <div className="bg-[#111] border border-gray-800 rounded-2xl p-6 flex-1 flex flex-col">
+            <div className="flex items-center gap-2 mb-6">
+              <span className="text-xl font-black text-[#dfdfdf] uppercase tracking-tight">투자금 및 비용</span>
             </div>
 
-            <div className="space-y-3">
-               <label className="text-sm text-gray-500 font-bold">초기 자본금</label>
-               <div className="bg-[#1a1a1a] border border-gray-800 rounded-2xl px-5 py-3 group hover:border-gray-700 focus-within:border-white transition-all">
-                  <div className="flex items-center justify-between">
-                     <input 
-                       type="text"
-                       value={initialCapital.toLocaleString()}
-                       onChange={(e) => {
-                         const val = Number(e.target.value.replace(/,/g, ''));
-                         if (!isNaN(val)) setInitialCapital(val);
-                       }}
-                       className="w-full bg-transparent border-none p-0 text-white font-black text-xl outline-none"
-                     />
-                     <span className="text-[#a0a0a0] font-bold text-base ml-2">원</span>
+            <div className="space-y-6">
+               <div className="space-y-2">
+                  <label className="text-sm text-gray-500 font-bold">초기 자본금</label>
+                  <div className="bg-[#1a1a1a] border border-gray-800 rounded-2xl px-5 py-4 group hover:border-gray-700 focus-within:border-white transition-all">
+                     <div className="flex items-center justify-between">
+                        <input 
+                          type="text"
+                          value={initialCapital.toLocaleString()}
+                          onChange={(e) => {
+                            const val = Number(e.target.value.replace(/,/g, ''));
+                            if (!isNaN(val)) setInitialCapital(val);
+                          }}
+                          className="w-full bg-transparent border-none p-0 text-white font-black text-2xl outline-none"
+                        />
+                        <span className="text-[#a0a0a0] font-bold text-lg ml-2">원</span>
+                     </div>
+                     <p className="text-sm font-bold text-white/40 mt-1 text-right">{formatKoreanUnit(initialCapital)}</p>
                   </div>
-                  <p className="text-xs font-bold text-white mt-1 text-right">{formatKoreanUnit(initialCapital)}</p>
                </div>
-            </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-sm text-gray-500 font-bold">수수료 (%)</label>
-                <div className="flex items-center bg-[#1a1a1a] border border-gray-800 rounded-2xl px-3 py-2.5">
-                  <input 
-                    type="number" 
-                    step="0.001"
-                    value={commissionPct}
-                    onChange={(e) => setCommissionPct(Number(e.target.value))}
-                    className="w-full bg-transparent border-none p-0 text-base text-white font-bold outline-none"
-                  />
-                  <span className="text-sm text-gray-500 ml-1">%</span>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm text-gray-500 font-bold">슬리피지 (%)</label>
-                <div className="flex items-center bg-[#1a1a1a] border border-gray-800 rounded-2xl px-3 py-2.5">
-                  <input 
-                    type="number" 
-                    step="0.01"
-                    value={slippagePct}
-                    onChange={(e) => setSlippagePct(Number(e.target.value))}
-                    className="w-full bg-transparent border-none p-0 text-base text-white font-bold outline-none"
-                  />
-                  <span className="text-sm text-gray-500 ml-1">%</span>
-                </div>
-              </div>
+               <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm text-gray-500 font-bold">수수료 (%)</label>
+                    <div className="flex items-center bg-[#1a1a1a] border border-gray-800 rounded-2xl px-4 py-3">
+                      <input 
+                        type="number" 
+                        step="0.001"
+                        value={commissionPct}
+                        onChange={(e) => setCommissionPct(Number(e.target.value))}
+                        className="w-full bg-transparent border-none p-0 text-base text-white font-bold outline-none font-mono"
+                      />
+                      <span className="text-sm text-gray-500 ml-1">%</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm text-gray-500 font-bold">슬리피지 (%)</label>
+                    <div className="flex items-center bg-[#1a1a1a] border border-gray-800 rounded-2xl px-4 py-3">
+                      <input 
+                        type="number" 
+                        step="0.01"
+                        value={slippagePct}
+                        onChange={(e) => setSlippagePct(Number(e.target.value))}
+                        className="w-full bg-transparent border-none p-0 text-base text-white font-bold outline-none font-mono"
+                      />
+                      <span className="text-sm text-gray-500 ml-1">%</span>
+                    </div>
+                  </div>
+               </div>
+
             </div>
           </div>
         </div>
 
         {/* Right Column: Strategy Summary */}
-        <div className="bg-[#111] border border-gray-800 rounded-3xl p-6 h-[524px] flex flex-col">
+        <div className="bg-[#111] border border-gray-800 rounded-3xl p-6 flex flex-col">
           <div className="flex items-center gap-2 mb-6">
             <span className="text-xl font-black text-[#dfdfdf] uppercase tracking-tight">전략 요약</span>
           </div>
