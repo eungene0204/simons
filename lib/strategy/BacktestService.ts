@@ -6,7 +6,7 @@ export class BacktestService {
 
   async run(strategy: StrategyDSL, options: BacktestConfigOptions): Promise<BacktestResult> {
     console.error("[DEBUG] BacktestService: run method START");
-    // 1. Identify required symbols (For now, just one from Universe)
+    // 1. Identify required symbols
     const symbols = UniverseResolver.getSymbols(
       strategy.universe.id, 
       strategy.universe.filters
@@ -16,10 +16,8 @@ export class BacktestService {
       throw new Error("No symbols found in selected universe");
     }
 
-    const symbol = symbols[0]; // Single-stock proof of concept
-
     const requestBody = {
-          symbol,
+          symbols,
           entry: strategy.entry,
           exit: strategy.exit,
           risk: {
@@ -48,18 +46,28 @@ export class BacktestService {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || "Failed to run backtest in Python engine");
+        const detail = errorData.detail;
+        let errorMessage = "Failed to run backtest in Python engine";
+        
+        if (typeof detail === "string") {
+          errorMessage = detail;
+        } else if (Array.isArray(detail)) {
+          // FastAPI validation error format
+          errorMessage = detail.map((err: any) => `${err.loc.join('.')}: ${err.msg}`).join(', ');
+        } else if (detail && typeof detail === "object") {
+          errorMessage = JSON.stringify(detail);
+        }
+        
+        throw new Error(errorMessage);
       }
 
       console.error("[DEBUG] BacktestService: HTTP response received, status:", response.status);
       const pythonResult = await response.json();
-      console.error("[DEBUG] BacktestService: Final result data keys:", Object.keys(pythonResult));
-      console.error("[DEBUG] BacktestService: Sample signal:", pythonResult.signals?.[0]);
-
+      
       // 3. Map Python Result to TS BacktestResult interface
       return {
         strategyId: strategy.id,
-        symbol: pythonResult.symbol,
+        symbols: pythonResult.symbols,
         totalReturn: pythonResult.totalReturn,
         cagr: pythonResult.cagr,
         buyAndHoldReturn: pythonResult.buyAndHoldReturn,
@@ -67,10 +75,10 @@ export class BacktestService {
         winRate: pythonResult.winRate,
         profitFactor: pythonResult.profitFactor || 0,
         sharpe: pythonResult.sharpe || 0,
-        sortino: pythonResult.sortino || 0,
-        volatility: pythonResult.volatility || 0,
-        kelly: 0,
-        trades: pythonResult.signals.length / 2,
+        sortino: Number(pythonResult.sortino),
+        kelly: Number(pythonResult.kelly || 0),
+        volatility: Number(pythonResult.volatility),
+        trades: Number(pythonResult.trades),
         finalEquity: pythonResult.equity[pythonResult.equity.length - 1],
         initialCapital: pythonResult.equity[0],
         equity: pythonResult.equity,
@@ -78,6 +86,7 @@ export class BacktestService {
         dates: pythonResult.dates,
         tradesList: pythonResult.signals.map((s: any) => ({
           date: s.date,
+          symbol: s.symbol,
           type: s.type,
           price: s.price,
           quantity: s.quantity || 0,
@@ -88,12 +97,14 @@ export class BacktestService {
         yearlyReturns: {},
         signals: pythonResult.signals.map((s: any) => ({
           date: s.date,
+          symbol: s.symbol,
           type: s.type === 'buy' ? 'entry' : 'exit',
           condition: s.condition,
           price: Number(s.price),
           quantity: Number(s.quantity),
           amount: Number(s.amount)
         })),
+        perAssetStats: pythonResult.perAssetStats,
         warnings: pythonResult.warnings,
       };
     } catch (error: any) {

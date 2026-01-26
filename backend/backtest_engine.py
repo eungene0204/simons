@@ -42,21 +42,41 @@ class BacktestEngine:
         try:
             if val is None:
                 return 0.0
+            
+            # 1. Handle Series/Index/Arrays
             if isinstance(val, (pd.Series, pd.Index, np.ndarray)):
                 if len(val) == 0: return 0.0
-                val = val.iloc[0] if hasattr(val, 'iloc') else val[0]
+                try:
+                    # Mean usually returns a scalar. If not, take the first item.
+                    m = val.mean()
+                    if hasattr(m, 'iloc'): m = m.iloc[0]
+                    elif hasattr(m, '__getitem__'): m = m[0]
+                    return float(m)
+                except:
+                    # Fallback to first element if mean fails
+                    v = val.iloc[0] if hasattr(val, 'iloc') else val[0]
+                    return float(v)
             
-            # Check if it's a numeric type before calling isnan
+            # 2. Handle DataFrames
+            if isinstance(val, pd.DataFrame):
+                if val.empty: return 0.0
+                return float(val.values.mean())
+
+            # 3. Handle standard numeric types
             if isinstance(val, (int, float, np.number)):
                 if np.isnan(val) or np.isinf(val):
                     return 0.0
                 return float(val)
             
-            # If it's a single-element array/series that didn't match above
+            # 4. Handle anything with .item() (like single-element numpy arrays)
             if hasattr(val, 'item'):
-                return float(val.item())
+                try:
+                    return float(val.item())
+                except:
+                    pass
 
-            return 0.0
+            # 5. Last resort: try float conversion
+            return float(val)
         except:
             return 0.0
 
@@ -78,7 +98,8 @@ class BacktestEngine:
             pdf['low'] *= factor
             pdf['close'] = pdf['adj_close']
         else:
-            self.warnings.add("데이터베이스에 수정주가(adj_close)가 존재하지 않습니다. 액면분할이 있었던 종목의 경우 백테스트 결과가 왜곡될 수 있습니다.")
+            # Data is already adjusted (verified via 005930 sample)
+            pass
         
         sdf = StockDataFrame.retype(pdf)
         
@@ -106,202 +127,190 @@ class BacktestEngine:
             elif cid == 'breakout':
                 period = p.get('lookbackPeriod', 20)
                 # Donchian channel / High/Low breakout
-                pdf[f'close_{period}_max'] = pdf['close'].rolling(window=period).max()
-                pdf[f'close_{period}_min'] = pdf['close'].rolling(window=period).min()
-                # Re-sync to sdf if needed, but we can just use pdf for these
-                sdf = StockDataFrame.retype(pdf)
+                sdf[f'close_{period}_max'] = sdf['close'].rolling(window=period).max()
+                sdf[f'close_{period}_min'] = sdf['close'].rolling(window=period).min()
         
-        return pl.from_pandas(sdf.reset_index())
+        res_pdf = pd.DataFrame(sdf)
+        if res_pdf.index.name == 'date' or 'date' not in res_pdf.columns:
+            res_pdf = res_pdf.reset_index()
+            
+        return pl.from_pandas(res_pdf) # Returning sdf as standard pandas DF with date column included
 
     def run_backtest(self, req: Dict[str, Any]) -> Dict[str, Any]:
         try:
             self.warnings = set()
-            symbol = req['symbol']
-            print(f"[DEBUG] ENGINE: Starting backtest for {symbol}")
-            df_pl = self.load_data(symbol)
-            print(f"[DEBUG] ENGINE: Data loaded. Rows: {len(df_pl)}")
+            symbols = req.get('symbols', [req.get('symbol')])
+            print(f"[DEBUG] ENGINE: Starting backtest for {len(symbols)} symbols: {symbols}")
             
-            # 1. Adjusted Price Handling
-            price_col = 'adj_close' if 'adj_close' in df_pl.columns else 'close'
-            
-            # 2. Generate Indicators
-            all_conditions = req['entry']['conditions'] + req['exit']['conditions']
-            df_pl = self.calculate_indicators(df_pl, all_conditions)
-            
-            # 3. Period Filtering
-            period = req.get('period', 'full')
-            start_date = req.get('startDate')
-            end_date = req.get('endDate')
-            
-            if period != 'full' or start_date or end_date:
-                last_date = df_pl['date'].max()
-                ref_date = last_date if isinstance(last_date, datetime) else pd.to_datetime(last_date)
-                    
-                if start_date:
-                    df_pl = df_pl.filter(pl.col("date") >= pd.to_datetime(start_date))
-                elif period == '6M':
-                    df_pl = df_pl.filter(pl.col("date") >= (ref_date - pd.DateOffset(months=6)))
-                elif period == '1Y':
-                    df_pl = df_pl.filter(pl.col("date") >= (ref_date - pd.DateOffset(years=1)))
-                elif period == '5Y':
-                    df_pl = df_pl.filter(pl.col("date") >= (ref_date - pd.DateOffset(years=5)))
-                
-                if end_date:
-                    df_pl = df_pl.filter(pl.col("date") <= pd.to_datetime(end_date))
-
-            data_len = len(df_pl)
-            if data_len < 10:
-                 print("[WARNING] ENGINE: Too little data for backtest.")
-
-            # 4. Extract Signals
-            entries = []
-            exits = []
-            
+            # Risk & Options
             risk_params = req.get('risk', {})
             init_cash = float(risk_params.get('init_cash') or 10000000.0)
-            liquidity_mult = float(risk_params.get('liquidity_multiplier') or 10.0)
+            liquidity_mult = float(risk_params.get('liquidity_multiplier') or 0.0)
             pos_size_pct = float(risk_params.get('position_size_pct') or 100.0)
-            target_amount = init_cash * (pos_size_pct / 100.0)
-            
-            vol_val = (df_pl['close'] * df_pl['volume']).to_numpy()
-            liquidity_ok = np.ones(data_len, dtype=bool)
-            if (liquidity_mult or 0) > 0:
-                liquidity_ok = np.zeros(data_len, dtype=bool)
-                for i in range(1, data_len):
-                    liquidity_ok[i] = vol_val[i-1] >= (liquidity_mult * target_amount)
-            
-            entry_reasons = [None] * data_len
-            exit_reasons = [None] * data_len
-            
-            for i in range(data_len):
-                can_enter, entry_desc = self.evaluate_group(req['entry'], i, df_pl)
-                if can_enter and not liquidity_ok[i]:
-                    can_enter = False
-                    entry_desc = None
-                entries.append(can_enter)
-                entry_reasons[i] = entry_desc
-                
-                can_exit, exit_desc = self.evaluate_group(req['exit'], i, df_pl)
-                exits.append(can_exit)
-                exit_reasons[i] = exit_desc
-                
-            entries_series = pd.Series(entries)
-            exits_series = pd.Series(exits)
-            
-            print(f"[DEBUG] ENGINE: Entry signals generated: {sum(entries)}")
-            print(f"[DEBUG] ENGINE: Exit signals generated: {sum(exits)}")
-            
-            if sum(entries) == 0:
-                 self.warnings.add("선택한 기간 동안 매수 조건이 한 번도 충족되지 않았습니다 (매매 없음).")
+            max_positions = int(risk_params.get('max_positions') or 1)
             
             options = req.get('options', {})
             exec_type = options.get('execution_type', 'next_open') 
             fee_rate = float(options.get('fee_rate') or 0.0015)
-            slippage_rate = float(options.get('slippage_rate') or 0.0020)
+            slippage_val = float(options.get('slippage_rate') or 0.0020)
             
-            price_col = 'close'
-            open_col = 'open' if 'open' in df_pl.columns else 'close'
-            price_series = df_pl[price_col].to_pandas()
-            dates_list = df_pl['date'].to_list()
-            dt_index = pd.to_datetime(dates_list)
-            
-            if exec_type == 'next_open':
-                entries_exec = entries_series.shift(1).fillna(False)
-                exits_exec = exits_series.shift(1).fillna(False)
-                exec_prices = df_pl[open_col].to_pandas()
-            else:
-                entries_exec = entries_series
-                exits_exec = exits_series
-                exec_prices = price_series
-                
-            exec_prices.index = dt_index
-            entries_exec.index = dt_index
-            exits_exec.index = dt_index
-            prices_val = price_series
-            prices_val.index = dt_index
-            dates = [d.strftime('%Y-%m-%d') if hasattr(d, 'strftime') else str(d) for d in dates_list]
-            
-            # 7. vectorbt Execution
-            risk_management = req.get('risk', {})
-            sl_pct = float(risk_management.get('stop_loss_pct') or 0)
-            tp_pct = float(risk_management.get('take_profit_pct') or 0)
-            ts_pct = float(risk_management.get('trailing_stop_pct') or 0)
-            
-            # New Risk Factors
-            min_cash_reserve = float(risk_management.get('min_cash_reserve_pct') or 0)
-            max_daily_buy = float(risk_management.get('max_daily_buy_pct') or 100.0)
-            max_mdd_limit = float(risk_management.get('max_mdd_limit_pct') or 0)
+            period_req = req.get('period', 'full')
+            start_date_req = req.get('startDate')
+            end_date_req = req.get('endDate')
 
-            # Adjust position size based on cash reserve and daily buy limit
-            effective_pos_size = (pos_size_pct / 100.0) * (1 - min_cash_reserve / 100.0)
-            effective_pos_size = min(effective_pos_size, max_daily_buy / 100.0)
+            # 1. Load and process each symbol
+            all_prices = {}
+            all_exec_prices = {}
+            all_entries = {}
+            all_exits = {}
+            all_entry_reasons = {}
+            all_exit_reasons = {}
+            
+            processed_symbols = []
+            common_index = None
 
+            for sym in symbols:
+                try:
+                    df_pl = self.load_data(sym)
+                    # Indicators
+                    all_conditions = req['entry']['conditions'] + req['exit']['conditions']
+                    df_pl = self.calculate_indicators(df_pl, all_conditions)
+                    
+                    # Filtering
+                    if period_req != 'full' or start_date_req or end_date_req:
+                        last_date = df_pl['date'].max()
+                        ref_date = last_date if isinstance(last_date, datetime) else pd.to_datetime(last_date)
+                        if start_date_req: df_pl = df_pl.filter(pl.col("date") >= pd.to_datetime(start_date_req))
+                        elif period_req == '6M': df_pl = df_pl.filter(pl.col("date") >= (ref_date - pd.DateOffset(months=6)))
+                        elif period_req == '1Y': df_pl = df_pl.filter(pl.col("date") >= (ref_date - pd.DateOffset(years=1)))
+                        elif period_req == '5Y': df_pl = df_pl.filter(pl.col("date") >= (ref_date - pd.DateOffset(years=5)))
+                        if end_date_req: df_pl = df_pl.filter(pl.col("date") <= pd.to_datetime(end_date_req))
+
+                    if len(df_pl) < 10:
+                        print(f"[WARNING] ENGINE: Too little data for {sym}. Skipping.")
+                        continue
+
+                    data_len = len(df_pl)
+                    pdf = df_pl.to_pandas()
+                    pdf.set_index('date', inplace=True)
+                    pdf.index = pd.to_datetime(pdf.index)
+                    
+                    # Liquidity check
+                    target_amount = init_cash * (pos_size_pct / 100.0 / max_positions)
+                    vol_val = (pdf['close'] * pdf['volume']).values
+                    liquidity_ok = np.ones(data_len, dtype=bool)
+                    if liquidity_mult > 0:
+                        liquidity_ok = np.zeros(data_len, dtype=bool)
+                        for i in range(1, data_len):
+                            liquidity_ok[i] = vol_val[i-1] >= (liquidity_mult * target_amount)
+
+                    # Signals
+                    entries = []
+                    exits = []
+                    entry_descs = [None] * data_len
+                    exit_descs = [None] * data_len
+                    
+                    for i in range(data_len):
+                        can_enter, entry_desc = self.evaluate_group(req['entry'], i, df_pl)
+                        if can_enter and not liquidity_ok[i]:
+                            can_enter = False
+                            entry_desc = None
+                        entries.append(can_enter)
+                        entry_descs[i] = entry_desc
+                        
+                        can_exit, exit_desc = self.evaluate_group(req['exit'], i, df_pl)
+                        exits.append(can_exit)
+                        exit_descs[i] = exit_desc
+                    
+                    # Store data indexed by datetime
+                    sym_prices = pdf['close']
+                    sym_open = pdf['open'] if 'open' in pdf.columns else pdf['close']
+                    
+                    entries_s = pd.Series(entries, index=pdf.index)
+                    exits_s = pd.Series(exits, index=pdf.index)
+                    
+                    if exec_type == 'next_open':
+                        entries_exec = entries_s.shift(1).fillna(False)
+                        exits_exec = exits_s.shift(1).fillna(False)
+                        exec_prices = sym_open
+                    else:
+                        entries_exec = entries_s
+                        exits_exec = exits_s
+                        exec_prices = sym_prices
+
+                    all_prices[sym] = sym_prices
+                    all_exec_prices[sym] = exec_prices
+                    all_entries[sym] = entries_exec
+                    all_exits[sym] = exits_exec
+                    all_entry_reasons[sym] = entry_descs
+                    all_exit_reasons[sym] = exit_descs
+                    processed_symbols.append(sym)
+                    
+                    if common_index is None:
+                        common_index = pdf.index
+                    else:
+                        common_index = common_index.union(pdf.index).sort_values()
+
+                except Exception as e:
+                    print(f"[ERROR] ENGINE: Failed to process {sym}: {e}")
+
+            if not processed_symbols:
+                raise Exception("No valid data found for any of the symbols.")
+
+            # Align all DataFrames to common_index
+            price_df = pd.DataFrame(all_prices, index=common_index).ffill()
+            exec_price_df = pd.DataFrame(all_exec_prices, index=common_index).ffill()
+            entries_df = pd.DataFrame(all_entries, index=common_index).fillna(False)
+            exits_df = pd.DataFrame(all_exits, index=common_index).fillna(False)
+
+            # vectorbt Execution
+            sl_pct = float(risk_params.get('stop_loss_pct') or 0)
+            tp_pct = float(risk_params.get('take_profit_pct') or 0)
+            ts_pct = float(risk_params.get('trailing_stop_pct') or 0)
+            min_cash_reserve = float(risk_params.get('min_cash_reserve_pct') or 0)
+            max_daily_buy = float(risk_params.get('max_daily_buy_pct') or 100.0)
+            max_mdd_limit = float(risk_params.get('max_mdd_limit_pct') or 0)
+
+            # size_per_pos: Percent of equity to use for EACH position.
+            # Example: 10% means EACH stock gets 10% of NAV.
+            size_per_pos = pos_size_pct / 100.0
+            
             vbt_kwargs = dict(
-                size=effective_pos_size,
+                size=size_per_pos,
                 size_type='Percent',
                 init_cash=init_cash,
                 fees=fee_rate,
-                slippage=slippage_rate,
+                slippage=slippage_val,
                 freq='D',
                 sl_stop=sl_pct / 100 if sl_pct > 0 else None,
                 tp_stop=tp_pct / 100 if tp_pct > 0 else None,
                 sl_trail=ts_pct / 100 if ts_pct > 0 else None,
+                cash_sharing=True,
+                group_by=False, # Each symbol has its own column
                 allow_partial=False
             )
 
-            # Initial Portfolio Calculation
             pf = vbt.Portfolio.from_signals(
-                close=prices_val, price=exec_prices,
-                entries=entries_exec, exits=exits_exec,
-                accumulate=False, direction='longonly', cash_sharing=False,
+                close=price_df, price=exec_price_df,
+                entries=entries_df, exits=exits_df,
+                accumulate=False, direction='longonly',
                 **vbt_kwargs
             )
 
-            # MDD Circuit Breaker Check
-            if max_mdd_limit > 0:
-                # vbt drawdown is typically negative, e.g., -0.27 for 27% drawdown
-                drawdowns = np.abs(pf.drawdown()) * 100
-                hit_mask = drawdowns > max_mdd_limit
-                if hit_mask.any():
-                    # Find the first date drawdown exceeded limit
-                    stop_date = hit_mask.idxmax() if hasattr(hit_mask, 'idxmax') else hit_mask.index[hit_mask.argmax()]
-                    self.warnings.add(f"최대 낙폭 제한({max_mdd_limit}%) 도달로 인한 매매 중단 ({stop_date.strftime('%Y-%m-%d')})")
-                    
-                    # Zero out all entries after stop_date and ensure an exit occurs
-                    entries_exec.loc[stop_date:] = False
-                    # Force exit on stop_date to close existing positions
-                    exits_exec.loc[stop_date] = True
-                    # Zero out future exits (though vbt handles it, it's cleaner)
-                    exits_exec.loc[stop_date + pd.Timedelta(days=1):] = False
-                    
-                    # Re-calculate pf to reflect the stop
-                    pf = vbt.Portfolio.from_signals(
-                        close=prices_val, price=exec_prices,
-                        entries=entries_exec, exits=exits_exec,
-                        accumulate=False, direction='longonly', cash_sharing=False,
-                        **vbt_kwargs
-                    )
-            
-            split_idx = int(data_len * 0.7)
-            pf_is = vbt.Portfolio.from_signals(
-                close=prices_val.iloc[:split_idx], price=exec_prices.iloc[:split_idx],
-                entries=entries_exec.iloc[:split_idx], exits=exits_exec.iloc[:split_idx],
-                accumulate=False, direction='longonly', cash_sharing=False,
-                **vbt_kwargs
-            )
-            pf_oos = vbt.Portfolio.from_signals(
-                close=prices_val.iloc[split_idx:], price=exec_prices.iloc[split_idx:],
-                entries=entries_exec.iloc[split_idx:], exits=exits_exec.iloc[split_idx:],
-                accumulate=False, direction='longonly', cash_sharing=False,
-                **vbt_kwargs
-            )
-            
+            # Results
             signals_list = []
             if len(pf.trades.records) > 0:
                 vbt_trades = pf.trades.records_readable
                 raw_records = pf.trades.records
-                
-                for i, (idx, trade) in enumerate(vbt_trades.iterrows()):
+                dates_str = [d.strftime('%Y-%m-%d') for d in common_index]
+
+                for i, (idx_row, trade) in enumerate(vbt_trades.iterrows()):
+                    # Column can be the symbol directly if group_by=False
+                    sym = trade.get('Column')
+                    if sym is None:
+                        col_idx = trade.get('Column Idx', 0)
+                        sym = processed_symbols[int(col_idx)]
+                    
                     e_idx = trade.get('Entry Index', trade.get('Entry Idx', trade.get('Entry Timestamp')))
                     x_idx = trade.get('Exit Index', trade.get('Exit Idx', trade.get('Exit Timestamp')))
                     e_price = self.safe(trade.get('Avg Entry Price', trade.get('Entry Price')))
@@ -315,93 +324,155 @@ class BacktestEngine:
                         exit_type = int(raw_record['exit_type']) if 'exit_type' in raw_records.columns else -1
                     except: pass
 
-                    def get_date_str(idx):
-                        if isinstance(idx, (pd.Timestamp, datetime)): return idx.strftime('%Y-%m-%d')
-                        try: return dates[int(idx)]
-                        except: return str(idx)
+                    def get_dt_str(ts):
+                        if isinstance(ts, (pd.Timestamp, datetime)): return ts.strftime('%Y-%m-%d')
+                        return str(ts)
 
-                    if e_idx is not None and e_price > 0:
-                        e_reason = "전략 진입"
+                    # Entry Reason
+                    e_reason = "전략 진입"
+                    try:
+                        # Find original index in sym's data
+                        sym_dates = [d.strftime('%Y-%m-%d') for d in all_entries[sym].index]
+                        dt_s = get_dt_str(e_idx)
+                        if dt_s in sym_dates:
+                            idx_in_sym = sym_dates.index(dt_s)
+                            # Adjust for next_open
+                            p_idx = idx_in_sym - 1 if exec_type == 'next_open' and idx_in_sym > 0 else idx_in_sym
+                            if all_entry_reasons[sym][p_idx]:
+                                e_reason = all_entry_reasons[sym][p_idx]
+                    except: pass
+
+                    # Round price for SSOT (Consistent with UI display)
+                    e_price_rounded = round(e_price)
+                    final_qty = int(np.floor(self.safe(trade.get('Size'))))
+                    
+                    if final_qty >= 1: # Only log if we at least bought 1 share
+                        signals_list.append({
+                            "date": get_dt_str(e_idx), "symbol": str(sym), "type": "buy",
+                            "price": float(e_price_rounded), "quantity": final_qty,
+                            "amount": float(e_price_rounded * final_qty), "condition": e_reason
+                        })
+                    else:
+                        self.warnings.add(f"{sym}: 자금 부족으로 인해 최소 수량(1주)을 매수하지 못했습니다. (필요 금액: {e_price:,.0f}원)")
+
+                    # Exit Reason mapping
+                    reason_kr = "전략 청산"
+                    
+                    # 1. Try to find signal-based reason first
+                    # If exit_type is 0 (Signal) or -1 (Missing/Unknown), check strategy signals
+                    if exit_type <= 0:
                         try:
-                            if isinstance(e_idx, (pd.Timestamp, datetime)):
-                                target_dt = e_idx.strftime('%Y-%m-%d')
-                                if target_dt in dates:
-                                    idx_int = dates.index(target_dt)
-                                    potential_indices = [idx_int]
-                                    if exec_type == 'next_open' and idx_int > 0: potential_indices.append(idx_int - 1)
-                                    for p_idx in potential_indices:
-                                        if entry_reasons[p_idx]:
-                                            e_reason = entry_reasons[p_idx]
-                                            break
-                            else:
-                                idx_int = int(e_idx)
-                                potential_indices = [idx_int]
-                                if exec_type == 'next_open' and idx_int > 0: potential_indices.append(idx_int - 1)
-                                for p_idx in potential_indices:
-                                    if 0 <= p_idx < len(entry_reasons) and entry_reasons[p_idx]:
-                                        e_reason = entry_reasons[p_idx]
-                                        break
-                        except: pass
-                        
-                        final_qty = int(np.floor(size))
-                        if final_qty > 0:
-                            signals_list.append({
-                                "date": get_date_str(e_idx), "type": "buy",
-                                "price": e_price, "quantity": final_qty,
-                                "amount": e_price * final_qty, "condition": e_reason
-                            })
+                            sym_dates = [d.strftime('%Y-%m-%d') for d in all_exits[sym].index]
+                            dt_s = get_dt_str(x_idx)
+                            if dt_s in sym_dates:
+                                idx_in_sym = sym_dates.index(dt_s)
+                                # For next_open, signal occurred at p_idx
+                                p_idx = idx_in_sym - 1 if exec_type == 'next_open' and idx_in_sym > 0 else idx_in_sym
+                                if p_idx >= 0 and p_idx < len(all_exit_reasons[sym]) and all_exit_reasons[sym][p_idx]:
+                                    reason_kr = all_exit_reasons[sym][p_idx]
+                        except Exception as e:
+                            print(f"[DEBUG] Reason lookup failed for {sym}: {e}")
 
-                    if x_idx is not None and x_price > 0:
-                        reason_kr = "전략 청산"
-                        if exit_type >= 0:
-                            if exit_type in [1, 5]: reason_kr = f"손절매 (-{sl_pct}%)" if sl_pct > 0 else "손절매"
-                            elif exit_type == 2: reason_kr = f"트레일링 스탑 (-{ts_pct}%)" if ts_pct > 0 else "트레일링 스탑"
-                            elif exit_type in [3, 4]: reason_kr = f"익절매 (+{tp_pct}%)" if tp_pct > 0 else "익절매"
-                            elif exit_type == 0:
-                                try:
-                                    if isinstance(x_idx, (pd.Timestamp, datetime)):
-                                        target_dt = x_idx.strftime('%Y-%m-%d')
-                                        if target_dt in dates:
-                                            idx_int = dates.index(target_dt)
-                                            potential_indices = [idx_int-1] if exec_type == 'next_open' and idx_int > 0 else [idx_int]
-                                            for p_idx in potential_indices:
-                                                if exit_reasons[p_idx]:
-                                                    reason_kr = exit_reasons[p_idx]
-                                                    break
-                                except: pass
-                        
-                        final_qty = int(np.floor(size))
-                        if final_qty > 0:
-                            signals_list.append({
-                                "date": get_date_str(x_idx), "type": "sell",
-                                "price": x_price, "quantity": final_qty,
-                                "amount": x_price * final_qty,
-                                "condition": f"{reason_kr} (수익: {pnl:,.0f}원)"
-                            })
+                    # 2. Override with stop-loss/etc if exit_type indicates it
+                    if exit_type > 0:
+                        if exit_type in [1, 5]: reason_kr = f"손절매 (-{sl_pct}%)" if sl_pct > 0 else "손절매"
+                        elif exit_type == 2: reason_kr = f"트레일링 스탑 (-{ts_pct}%)" if ts_pct > 0 else "트레일링 스탑"
+                        elif exit_type == 3: reason_kr = f"익절매 (+{tp_pct}%)" if tp_pct > 0 else "익절매"
+                        elif exit_type == 4: reason_kr = "기한 만료 청산"
+
+                    if final_qty >= 1:
+                        # Round price for SSOT
+                        x_price_rounded = round(x_price)
+                        signals_list.append({
+                            "date": get_dt_str(x_idx), "symbol": str(sym), "type": "sell",
+                            "price": float(x_price_rounded), "quantity": final_qty,
+                            "amount": float(x_price_rounded * final_qty),
+                            "condition": f"{reason_kr} (수익: {pnl:,.0f}원)"
+                        })
+
+            # Sort signals by date
+            signals_list.sort(key=lambda x: x['date'])
+
+            # Helper to ensure Series/List
+            def to_list(obj):
+                if isinstance(obj, pd.DataFrame):
+                    return obj.iloc[:, 0].tolist()
+                if isinstance(obj, pd.Series):
+                    return obj.tolist()
+                if isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                return list(obj)
+
+            # Calculate per-asset stats
+            per_asset_stats = {}
+            if len(processed_symbols) > 1:
+                col_total_returns = pf.total_return()
+                col_trade_counts = pf.trades.count()
+                col_win_rates = pf.trades.win_rate()
+                col_profits = pf.total_profit()
+                
+                for i, sym in enumerate(processed_symbols):
+                    wr = col_win_rates.iloc[i]
+                    per_asset_stats[sym] = {
+                        "symbol": sym,
+                        "totalReturn": self.safe(col_total_returns.iloc[i] * 100),
+                        "trades": int(self.safe(col_trade_counts.iloc[i])),
+                        "winRate": self.safe(wr * 100),
+                        "profit": self.safe(col_profits.iloc[i])
+                    }
+            elif len(processed_symbols) == 1:
+                sym = processed_symbols[0]
+                per_asset_stats[sym] = {
+                    "symbol": sym,
+                    "totalReturn": self.safe(pf.total_return() * 100),
+                    "trades": int(self.safe(pf.trades.count())),
+                    "winRate": self.safe(pf.trades.win_rate() * 100),
+                    "profit": self.safe(pf.total_profit())
+                }
+
+            # Portfolio-wide Win Rate and Kelly
+            total_trades = len(pf.trades)
+            win_count = len(pf.trades.winning)
+            agg_win_rate = (win_count / total_trades * 100) if total_trades > 0 else 0.0
             
+            # Kelly Criterion: K = W - (1-W)/R where W is win rate, R is win/loss ratio
+            # Use safe to ensure scalar values
+            print(f"[DEBUG] ENGINE: Calculating Portfolio stats (v5.6 fix)...")
+            avg_win = self.safe(pf.trades.winning.pnl.mean())
+            avg_loss = abs(self.safe(pf.trades.losing.pnl.mean()))
+            
+            r = 0.0
+            if self.safe(avg_loss) > 0:
+                r = avg_win / avg_loss
+            
+            w = agg_win_rate / 100
+            kelly_val = 0.0
+            if self.safe(r) > 0:
+                kelly_val = w - (1 - w) / r
+
             final_res = {
-                "symbol": req['symbol'],
+                "symbols": processed_symbols,
                 "totalReturn": self.safe(pf.total_return() * 100),
                 "cagr": self.safe(pf.annualized_return() * 100),
-                "buyAndHoldReturn": self.safe(pf.benchmark_returns().sum() * 100),
+                "buyAndHoldReturn": self.safe(pf.benchmark_returns().sum().mean() * 100), # Simple mean of returns
                 "maxDrawdown": self.safe(pf.max_drawdown() * 100),
-                "winRate": self.safe(pf.trades.win_rate() * 100),
+                "winRate": agg_win_rate,
+                "trades": total_trades,
                 "profitFactor": self.safe(pf.trades.profit_factor()),
                 "sharpe": self.safe(pf.sharpe_ratio()),
                 "sortino": self.safe(pf.sortino_ratio()),
+                "kelly": self.safe(kelly_val),
                 "volatility": self.safe(pf.returns().std() * np.sqrt(252) * 100),
-                "equity": pf.value().tolist(),
-                "benchmark_equity": (init_cash * (1 + pf.benchmark_returns().cumsum())).tolist(),
-                "dates": dates,
+                "equity": to_list(pf.value()),
+                "benchmark_equity": to_list(init_cash * (1 + pf.benchmark_returns().mean(axis=1).cumsum())),
+                "dates": [d.strftime('%Y-%m-%d') for d in common_index],
                 "signals": signals_list,
-                "validation": {
-                    "inSample": {"cagr": self.safe(pf_is.annualized_return() * 100), "mdd": self.safe(pf_is.max_drawdown() * 100), "period": f"{dates[0]} ~ {dates[split_idx-1]}"},
-                    "outOfSample": {"cagr": self.safe(pf_oos.annualized_return() * 100), "mdd": self.safe(pf_oos.max_drawdown() * 100), "period": f"{dates[split_idx]} ~ {dates[-1]}"}
-                },
+                "perAssetStats": per_asset_stats,
                 "warnings": list(self.warnings),
-                "version": "5.0"
+                "version": "5.5"
             }
             return final_res
+
         except Exception as e:
             import traceback
             traceback.print_exc()

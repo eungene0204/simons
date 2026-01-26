@@ -36,6 +36,22 @@ export default function BacktestDashboard({
 }: BacktestDashboardProps) {
   const [activeTab, setActiveTab] = useState<"chart" | "stats" | "log" | "assets">("chart");
   const [localOptions, setLocalOptions] = useState<BacktestConfigOptions | null>(currentOptions || null);
+  const [stockMetadata, setStockMetadata] = useState<Record<string, { name: string, sector: string }>>({});
+
+  useEffect(() => {
+    const fetchStockMetadata = async () => {
+      try {
+        const response = await fetch("/api/stocks/names");
+        if (response.ok) {
+          const data = await response.json();
+          setStockMetadata(data);
+        }
+      } catch (error) {
+        console.error("Failed to fetch stock metadata:", error);
+      }
+    };
+    fetchStockMetadata();
+  }, []);
   
   const formatKRW = (val: number) => {
     const num = Number(val);
@@ -240,9 +256,16 @@ export default function BacktestDashboard({
                {/* Quick Stats Summary below chart */}
                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4">
                   <StatRow label="총 수익" value={formatKRW(result.finalEquity - result.initialCapital)} result={result} />
-                  <StatRow label="매수후보유" value={`${result.buyAndHoldReturn.toFixed(1)}%`} result={result} />
-                  <StatRow label="연간 변동성" value={`${(result.sharpe > 0 ? (result.cagr / result.sharpe) : 0).toFixed(1)}%`} result={result} isNeutral />
-                  <StatRow label="승:패" value={`${Math.round(result.trades * result.winRate / 100)} : ${Math.round(result.trades * (100 - result.winRate) / 100)}`} result={result} isNeutral />
+                   <StatRow label="매수후보유" value={`${(result.buyAndHoldReturn || 0).toFixed(1)}%`} result={result} />
+                   <StatRow label="연간 변동성" value={`${(result.sharpe > 0 ? ((result.cagr || 0) / result.sharpe) : 0).toFixed(1)}%`} result={result} isNeutral />
+                   <StatRow 
+                     label="승:패" 
+                     value={result.trades > 0 
+                       ? `${Math.round((result.trades || 0) * (result.winRate || 0) / 100)} : ${Math.round((result.trades || 0) * (100 - (result.winRate || 0)) / 100)}` 
+                       : "0 : 0"} 
+                     result={result} 
+                     isNeutral 
+                   />
                </div>
              </div>
            )}
@@ -261,30 +284,56 @@ export default function BacktestDashboard({
                             <th className="p-4 text-sm font-bold text-white text-right">매매 횟수</th>
                          </tr>
                       </thead>
-                      <tbody>
-                         <tr className="border-b border-gray-800/50 hover:bg-white/5 transition-colors">
-                            <td className="p-4">
-                               <div className="flex flex-col">
-                                  <span className="text-sm font-bold text-white">삼성전자</span>
-                                  <span className="text-xs text-gray-500 font-mono">{result.symbol || "005930"}</span>
-                               </div>
-                            </td>
-                            <td className="p-4 text-sm text-gray-400">전기전자</td>
-                            <td className={`p-4 text-sm font-bold text-right ${(result.finalEquity - result.initialCapital) >= 0 ? 'text-white' : 'text-gray-400'}`}>
-                               {formatKRW(result.finalEquity - result.initialCapital)}
-                            </td>
-                            <td className={`p-4 text-sm font-bold text-right ${(result.finalEquity - result.initialCapital) >= 0 ? 'text-white' : 'text-gray-400'}`}>
-                               {result.totalReturn.toFixed(2)}%
-                            </td>
-                            <td className="p-4 text-sm text-white text-right font-mono">
-                               {result.trades}회
-                            </td>
-                         </tr>
-                      </tbody>
+                       <tbody>
+                          {result.symbols ? result.symbols.map(sym => {
+                             const stats = result.perAssetStats?.[sym];
+                             const meta = stockMetadata[sym];
+                             
+                             return (
+                               <tr key={sym} className="border-b border-gray-800/50 hover:bg-white/5 transition-colors">
+                                  <td className="p-4">
+                                     <div className="flex flex-col">
+                                        <span className="text-sm font-bold text-white">{meta?.name || sym}</span>
+                                        <span className="text-xs text-gray-500 font-mono">{sym}</span>
+                                     </div>
+                                  </td>
+                                  <td className="p-4 text-sm text-gray-400">{meta?.sector || "-"}</td>
+                                  <td className={`p-4 text-sm font-bold text-right ${(stats?.profit || 0) > 0 ? 'text-main-red' : (stats?.profit || 0) < 0 ? 'text-main-blue' : 'text-white'}`}>
+                                     {stats ? formatKRW(stats.profit) : "-"}
+                                  </td>
+                                  <td className={`p-4 text-sm font-bold text-right ${(stats?.totalReturn || 0) > 0 ? 'text-main-red' : (stats?.totalReturn || 0) < 0 ? 'text-main-blue' : 'text-white'}`}>
+                                     {stats ? `${stats.totalReturn.toFixed(2)}%` : "-"}
+                                  </td>
+                                  <td className="p-4 text-sm text-white text-right font-mono">
+                                     {stats ? `${stats.trades}회` : "-"}
+                                  </td>
+                               </tr>
+                             );
+                          }) : (
+                            <tr className="border-b border-gray-800/50 hover:bg-white/5 transition-colors">
+                                <td className="p-4">
+                                   <div className="flex flex-col">
+                                      <span className="text-sm font-bold text-white">삼성전자</span>
+                                      <span className="text-xs text-gray-500 font-mono">{result.symbol}</span>
+                                   </div>
+                                </td>
+                                <td className="p-4 text-sm text-gray-400">전기전자</td>
+                                <td className={`p-4 text-sm font-bold text-right ${(result.finalEquity - result.initialCapital) >= 0 ? 'text-white' : 'text-gray-400'}`}>
+                                   {formatKRW(result.finalEquity - result.initialCapital)}
+                                </td>
+                                <td className={`p-4 text-sm font-bold text-right ${(result.finalEquity - result.initialCapital) >= 0 ? 'text-white' : 'text-gray-400'}`}>
+                                   {result.totalReturn.toFixed(2)}%
+                                </td>
+                                <td className="p-4 text-sm text-white text-right font-mono">
+                                   {result.trades}회
+                                </td>
+                             </tr>
+                          )}
+                       </tbody>
                    </table>
                    <div className="p-6 bg-[#111]">
                       <p className="text-sm text-gray-500 leading-relaxed italic">
-                        * 현재 베타 버전에서는 단일 종목 백테스트 분석 결과만 제공됩니다. 곧 멀티 종목 분석 기능이 추가될 예정입니다.
+                        * 종목별 상세 수익 분석 기능은 준비 중입니다. 현재는 포트폴리오 전체 성과 중심으로 제공됩니다.
                       </p>
                    </div>
                 </div>
@@ -375,6 +424,7 @@ export default function BacktestDashboard({
                       <thead className="bg-[#161616] sticky top-0 z-10">
                          <tr>
                             <th className="p-3 text-sm font-bold text-white">날짜</th>
+                            <th className="p-3 text-sm font-bold text-white">종목</th>
                             <th className="p-3 text-sm font-bold text-white">구분</th>
                             <th className="p-3 text-sm font-bold text-white">체결가</th>
                             <th className="p-3 text-sm font-bold text-white">수량</th>
@@ -384,25 +434,31 @@ export default function BacktestDashboard({
                       </thead>
                       <tbody className="bg-[#0f0f0f]">
                           {result.tradesList.map((t, i) => {
-                             const tradeAmount = t.amount || (Number(t.price) * Number(t.quantity));
+                             const tradeAmount = t.amount || 0;
                              
                              return (
-                             <tr key={i} className="hover:bg-white/5 transition-colors">
-                                <td className="p-3 text-sm font-mono text-gray-400">{t.date}</td>
-                                 <td className="p-3">
-                                   <span className={`px-2 py-0.5 rounded text-sm font-bold ${t.type==='buy' ? 'text-[#ef4444]' : 'text-[#377af4]'}`}>
-                                      {t.type === 'buy' ? '매수' : '매도'}
-                                   </span>
-                                </td>
-                                <td className="p-3 text-sm text-gray-300 font-bold">{Math.round(Number(t.price)).toLocaleString()}</td>
-                                <td className="p-3 text-sm text-gray-400">
-                                   {Math.floor(Number(t.quantity)).toLocaleString()}주
-                                </td>
-                                <td className="p-3 text-sm text-gray-500 italic">{t.reason}</td>
-                                <td className="p-3 text-sm text-right font-mono text-white">
-                                   {formatKRW(tradeAmount)}
-                                </td>
-                             </tr>
+                              <tr key={i} className="hover:bg-white/5 transition-colors">
+                                 <td className="p-3 text-sm font-mono text-gray-400">{t.date}</td>
+                                 <td className="p-3 text-sm font-bold text-white">
+                                    <div className="flex flex-col">
+                                       <span>{stockMetadata[t.symbol]?.name || t.symbol}</span>
+                                       <span className="text-[10px] text-gray-500 font-mono">{t.symbol}</span>
+                                    </div>
+                                 </td>
+                                  <td className="p-3">
+                                    <span className={`px-2 py-0.5 rounded text-sm font-bold ${t.type==='buy' ? 'text-[#ef4444]' : 'text-[#377af4]'}`}>
+                                       {t.type === 'buy' ? '매수' : '매도'}
+                                    </span>
+                                 </td>
+                                 <td className="p-3 text-sm text-gray-300 font-bold">{Math.round(Number(t.price)).toLocaleString()}</td>
+                                 <td className="p-3 text-sm text-gray-400">
+                                    {Math.floor(Number(t.quantity)).toLocaleString()}주
+                                 </td>
+                                 <td className="p-3 text-sm text-gray-500 italic">{t.reason}</td>
+                                 <td className="p-3 text-sm text-right font-mono text-white">
+                                    {formatKRW(tradeAmount)}
+                                 </td>
+                              </tr>
                              );
                           })}
                       </tbody>
@@ -424,22 +480,27 @@ export default function BacktestDashboard({
 
 // Sub-components for Cleaner Code
 
-function MetricCard({ label, value, subValue, trend, colorClass = "text-white" }: { label: string, value: string, subValue?: string, trend?: "up"|"down"|"neutral", colorClass?: string }) {
+function MetricCard({ label, value, subValue, trend, colorClass }: { label: string, value: string, subValue?: string, trend?: "up"|"down"|"neutral", colorClass?: string }) {
+  const dynamicColor = trend === "up" ? "text-main-red" : trend === "down" ? "text-main-blue" : (colorClass || "text-white");
       
   return (
     <div className="bg-[#111] border border-gray-800 p-2 md:p-3 rounded-xl flex flex-col justify-between hover:border-gray-700 transition-colors">
       <div className="text-[10px] md:text-xs font-bold text-gray-500 uppercase tracking-widest mb-0.5">{label}</div>
-      <div className={`text-xl md:text-2xl xl:text-3xl font-black ${colorClass} tracking-tight`}>{value}</div>
+      <div className={`text-xl md:text-2xl xl:text-3xl font-black ${dynamicColor} tracking-tight`}>{value}</div>
       {subValue && <div className="text-[10px] md:text-[11px] text-gray-600 font-medium mt-0.5 truncate">{subValue}</div>}
     </div>
   );
 }
 
 function StatRow({ label, value, result, isNeutral }: { label: string, value: string, result: any, isNeutral?: boolean }) {
+  const dynamicColor = isNeutral 
+    ? "text-white" 
+    : (value.includes("-") ? "text-main-blue" : (parseFloat(value) === 0 ? "text-white" : "text-main-red"));
+
   return (
     <div className="bg-[#111] rounded-lg px-3 pt-2 pb-0.5 flex flex-col justify-center">
        <div className="text-xs text-gray-400 mb-0.5 font-bold">{label}</div>
-       <div className={`text-xl md:text-2xl font-black ${isNeutral ? "text-white" : (value.includes("-") ? "text-gray-400" : "text-white")}`}>{value}</div>
+       <div className={`text-xl md:text-2xl font-black ${dynamicColor}`}>{value}</div>
     </div>
   );
 }

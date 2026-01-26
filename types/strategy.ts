@@ -92,7 +92,8 @@ export interface SignalBlock {
 // Backtest Result Types
 export interface BacktestResult {
   strategyId: string;
-  symbol: string;
+  symbol?: string; // Kept for backward compatibility
+  symbols?: string[]; 
   totalReturn: number;
   cagr: number;
   buyAndHoldReturn: number;
@@ -112,6 +113,7 @@ export interface BacktestResult {
   dates: string[];
   tradesList: Array<{
     date: string;
+    symbol: string;
     type: "buy" | "sell";
     price: number;
     quantity: number;
@@ -122,11 +124,19 @@ export interface BacktestResult {
   yearlyReturns: Record<string, number>;
   signals: Array<{
     date: string;
+    symbol: string;
     type: "entry" | "exit";
     condition: string;
     price: number;
     quantity?: number;
     amount?: number;
+  }>;
+  perAssetStats?: Record<string, {
+    symbol: string;
+    totalReturn: number;
+    trades: number;
+    winRate: number;
+    profit: number;
   }>;
   warnings?: string[];
 }
