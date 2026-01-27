@@ -12,9 +12,11 @@ import {
   CheckBadgeIcon,
   ExclamationTriangleIcon,
   ListBulletIcon,
-  CheckIcon
+  CheckIcon,
+  ChevronUpIcon,
+  ChevronDownIcon
 } from "@heroicons/react/24/outline";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 
 interface BacktestDashboardProps {
@@ -37,6 +39,7 @@ export default function BacktestDashboard({
   const [activeTab, setActiveTab] = useState<"chart" | "stats" | "log" | "assets">("chart");
   const [localOptions, setLocalOptions] = useState<BacktestConfigOptions | null>(currentOptions || null);
   const [stockMetadata, setStockMetadata] = useState<Record<string, { name: string, sector: string }>>({});
+  const [sortConfig, setSortConfig] = useState<{ key: 'profit' | 'totalReturn' | 'trades' | null, direction: 'asc' | 'desc' }>({ key: null, direction: 'desc' });
 
   useEffect(() => {
     const fetchStockMetadata = async () => {
@@ -98,6 +101,45 @@ export default function BacktestDashboard({
   };
 
   const monthlyReturns = calculateMonthlyReturns();
+
+  const sortedSymbols = useMemo(() => {
+    if (!result.symbols) return [];
+    const symbols = [...result.symbols];
+    if (!sortConfig.key) return symbols;
+
+    return symbols.sort((a, b) => {
+      const key = sortConfig.key;
+      if (!key) return 0;
+      
+      const statsA = result.perAssetStats?.[a];
+      const statsB = result.perAssetStats?.[b];
+      
+      const valA = statsA ? (statsA[key as keyof typeof statsA] as number || 0) : 0;
+      const valB = statsB ? (statsB[key as keyof typeof statsB] as number || 0) : 0;
+
+      if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [result.symbols, result.perAssetStats, sortConfig]);
+
+  const handleSort = (key: 'profit' | 'totalReturn' | 'trades') => {
+    setSortConfig(prev => ({
+      key,
+      direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc'
+    }));
+  };
+
+  const SortIcon = ({ column }: { column: 'profit' | 'totalReturn' | 'trades' }) => {
+    const isActive = sortConfig.key === column;
+    const Icon = sortConfig.direction === 'asc' ? ChevronUpIcon : ChevronDownIcon;
+    
+    return (
+      <div className={`w-3 h-3 transition-opacity ${isActive ? 'opacity-100 text-white' : 'opacity-0 group-hover:opacity-40 text-gray-400'}`}>
+        <Icon className="w-3 h-3" />
+      </div>
+    );
+  };
   const availableYears = Object.keys(monthlyReturns).sort((a, b) => b.localeCompare(a));
 
   useEffect(() => {
@@ -279,13 +321,34 @@ export default function BacktestDashboard({
                          <tr>
                             <th className="p-4 text-sm font-bold text-white">종목</th>
                             <th className="p-4 text-sm font-bold text-white">섹터</th>
-                            <th className="p-4 text-sm font-bold text-white text-right">수익금</th>
-                            <th className="p-4 text-sm font-bold text-white text-right">수익률</th>
-                            <th className="p-4 text-sm font-bold text-white text-right">매매 횟수</th>
+                             <th className="p-4 text-sm font-bold text-white text-right">
+                                <div 
+                                  className="inline-flex items-center justify-end gap-1 cursor-pointer transition-colors group"
+                                  onClick={() => handleSort('profit')}
+                                >
+                                   수익금 <SortIcon column="profit" />
+                                </div>
+                             </th>
+                             <th className="p-4 text-sm font-bold text-white text-right">
+                                <div 
+                                  className="inline-flex items-center justify-end gap-1 cursor-pointer transition-colors group"
+                                  onClick={() => handleSort('totalReturn')}
+                                >
+                                   수익률 <SortIcon column="totalReturn" />
+                                </div>
+                             </th>
+                             <th className="p-4 text-sm font-bold text-white text-right">
+                                <div 
+                                  className="inline-flex items-center justify-end gap-1 cursor-pointer transition-colors group"
+                                  onClick={() => handleSort('trades')}
+                                >
+                                   매매 횟수 <SortIcon column="trades" />
+                                </div>
+                             </th>
                          </tr>
                       </thead>
                        <tbody>
-                          {result.symbols ? result.symbols.map(sym => {
+                          {sortedSymbols.length > 0 ? sortedSymbols.map(sym => {
                              const stats = result.perAssetStats?.[sym];
                              const meta = stockMetadata[sym];
                              
