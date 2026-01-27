@@ -41,11 +41,15 @@ export interface RiskManagement {
   stop_loss_pct?: number; // Fixed stop loss percentage
   take_profit_pct?: number; // Fixed take profit percentage
   trailing_stop_pct?: number; // Trailing stop loss percentage
+  liquidity_limit_pct?: number; // Liquidity limit percentage
   max_holding_days?: number; // Maximum holding period in days
   max_daily_loss_pct?: number; // Maximum daily loss percentage
   max_total_exposure_pct?: number; // Maximum total exposure
   max_sector_exposure_pct?: number; // Maximum sector concentration
   max_mdd_limit_pct?: number; // Maximum drawdown limit
+  execution_timing?: "next_open" | "current_close";
+  allocation_type?: "equal" | "fixed_pct";
+  rebalancing_period?: string;
 }
 
 export interface UniverseSelection {

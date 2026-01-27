@@ -166,11 +166,23 @@ export default function BacktestDashboard({
               주의: 백테스트 데이터 제한 사항
            </div>
            <ul className="list-disc list-inside space-y-1">
-             {result.warnings.map((w, i) => (
-               <li key={i} className="text-sm text-red-200/80 font-medium">
-                 {w}
-               </li>
-             ))}
+             {result.warnings.map((w, i) => {
+               // Try to inject stock name if symbol is present
+               let displayWarning = w;
+               const symMatch = w.match(/^([0-9A-Z]{6}):/);
+               if (symMatch) {
+                 const sym = symMatch[1];
+                 const name = stockMetadata[sym]?.name;
+                 if (name) {
+                   displayWarning = w.replace(sym, `${name} (${sym})`);
+                 }
+               }
+               return (
+                 <li key={i} className="text-sm text-red-200/80 font-medium">
+                   {displayWarning}
+                 </li>
+               );
+             })}
            </ul>
         </div>
       )}

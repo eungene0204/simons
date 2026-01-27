@@ -114,11 +114,14 @@ export default function StrategyComposerV2({
     stop_loss_pct: 10,
     take_profit_pct: 20,
     trailing_stop_pct: 0,
+    liquidity_limit_pct: 10,
     max_holding_days: 0,
     max_daily_loss_pct: 5,
     max_total_exposure_pct: 50,
     max_sector_exposure_pct: 30,
     max_mdd_limit_pct: 15,
+    execution_timing: "next_open",
+    allocation_type: "equal",
   });
   // Canvas state
   const [canvasBlocks, setCanvasBlocks] = useState<CanvasBlock[]>([]);
@@ -154,6 +157,32 @@ export default function StrategyComposerV2({
   // Responsive Canvas State
   const canvasRef = useRef<HTMLDivElement>(null);
   const [canvasWidth, setCanvasWidth] = useState(1000);
+
+  // Sync position size when allocation type or max positions change
+  useEffect(() => {
+    if (allocationType === "equal") {
+      const perPosSize = Math.floor(100 / maxPositions);
+      setRiskManagement(prev => ({
+        ...prev,
+        position_size_pct: perPosSize,
+        allocation_type: "equal"
+      }));
+    } else {
+      setRiskManagement(prev => ({
+        ...prev,
+        position_size_pct: allocationValue,
+        allocation_type: "fixed_pct"
+      }));
+    }
+  }, [allocationType, maxPositions, allocationValue]);
+
+  // Sync execution timing
+  useEffect(() => {
+    setRiskManagement(prev => ({
+      ...prev,
+      execution_timing: executionTiming
+    }));
+  }, [executionTiming]);
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -286,11 +315,9 @@ export default function StrategyComposerV2({
           logic: exitLogic,
           conditions: exitConditionsMap
         },
-        risk: riskManagement || {
-          position_size_pct: 10,
-          max_positions: 10,
-          max_daily_loss_pct: 5,
-          max_total_exposure_pct: 100
+        risk: {
+          ...riskManagement,
+          max_positions: maxPositions, // Sync max_positions from Step 3 state
         }
       };
 
@@ -357,7 +384,18 @@ export default function StrategyComposerV2({
         max_total_exposure_pct: initialStrategy.risk.max_total_exposure_pct ?? 50,
         max_sector_exposure_pct: initialStrategy.risk.max_sector_exposure_pct ?? 30,
         max_mdd_limit_pct: initialStrategy.risk.max_mdd_limit_pct ?? 15,
+        execution_timing: initialStrategy.risk.execution_timing ?? "next_open",
+        allocation_type: initialStrategy.risk.allocation_type ?? "equal",
       });
+
+      // Also sync top-level states
+      if (initialStrategy.risk.max_positions) setMaxPositions(initialStrategy.risk.max_positions);
+      if (initialStrategy.risk.allocation_type) setAllocationType(initialStrategy.risk.allocation_type as any);
+      if (initialStrategy.risk.position_size_pct && initialStrategy.risk.allocation_type === "fixed_pct") {
+        setAllocationValue(initialStrategy.risk.position_size_pct);
+      }
+      if (initialStrategy.risk.execution_timing) setExecutionTiming(initialStrategy.risk.execution_timing as any);
+      if (initialStrategy.risk.rebalancing_period) setRebalancingPeriod(initialStrategy.risk.rebalancing_period);
     }
   }, [initialStrategy]);
 
@@ -401,7 +439,10 @@ export default function StrategyComposerV2({
         logic: exitLogic,
         conditions: exitConditionsMap,
       },
-      risk: riskManagement,
+      risk: {
+        ...riskManagement,
+        max_positions: maxPositions, // Sync max_positions from Step 3 state
+      },
       created_at: initialStrategy?.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
