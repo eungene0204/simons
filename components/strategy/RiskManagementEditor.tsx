@@ -82,10 +82,10 @@ export default function RiskManagementEditor({
             "거래당 투입할 자산의 비중을 설정합니다."
           )}
           {renderSlider(
-            "최대 동시 포지션",
-            "max_positions",
-            1, 50, 1, "개",
-            "동시에 보유할 수 있는 최대 종목 수입니다."
+            "유동성 제약",
+            "liquidity_limit_pct",
+            0, 100, 1, "%",
+            "개별 종목의 일일 거래대금 대비 최대 투자 비중을 제한합니다. 과도한 비중으로 인한 체결 리스크를 방지합니다."
           )}
           {renderSlider(
             "최소 현금 보유 비중",

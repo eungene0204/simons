@@ -28,7 +28,7 @@ export class BacktestService {
           options: {
             fee_rate: options.commissionPct / 100,
             slippage_rate: options.slippagePct / 100,
-            execution_type: "next_open" // Default
+            execution_type: strategy.risk?.execution_timing || "next_open"
           }
         };
 

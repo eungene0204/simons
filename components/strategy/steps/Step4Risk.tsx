@@ -75,9 +75,9 @@ export default function Step4Risk({
                 </span>
               </div>
               <div className="flex flex-col">
-                <span className="text-xs font-black text-[rgb(59, 134, 247)] uppercase tracking-widest mb-1.5 opacity-80">일일 매수 한도</span>
+                <span className="text-xs font-black text-[rgb(59, 134, 247)] uppercase tracking-widest mb-1.5 opacity-80">유동성 제약</span>
                 <span className="text-2xl font-black text-[#dfdfdf] tabular-nums tracking-tight">
-                  {riskManagement.max_daily_buy_pct || 0}%
+                  {riskManagement.liquidity_limit_pct || 0}%
                 </span>
               </div>
             </div>

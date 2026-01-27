@@ -16,11 +16,15 @@ class RiskManagement(BaseModel):
     max_positions: Optional[int] = 1
     min_cash_reserve_pct: Optional[float] = 0.0
     max_daily_buy_pct: Optional[float] = 100.0
+    liquidity_limit_pct: Optional[float] = 10.0
     stop_loss_pct: Optional[float] = None
     take_profit_pct: Optional[float] = None
     trailing_stop_pct: Optional[float] = None
     max_holding_days: Optional[int] = None
     max_mdd_limit_pct: Optional[float] = None
+    execution_timing: Optional[str] = "next_open"
+    allocation_type: Optional[str] = "equal"
+    rebalancing_period: Optional[str] = "none"
     init_cash: Optional[float] = 10000000.0
 
 class BacktestRequest(BaseModel):
