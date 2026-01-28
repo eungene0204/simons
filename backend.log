@@ -1,0 +1,511 @@
+INFO:     Will watch for changes in these directories: ['/Users/eugene/nullalgo/simons']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [83086] using StatReload
+INFO:     Started server process [83118]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+
+[DEBUG] BACKEND: Received backtest request for symbols: ['005930', '000660']
+[DEBUG] Request Data: {
+  "symbols": [
+    "005930",
+    "000660"
+  ],
+  "entry": {
+    "logic": "AND",
+    "conditions": [
+      {
+        "type": "indicator",
+        "id": "ma_crossover",
+        "params": {
+          "shortMA": 5,
+          "longMA": 20,
+          "signalType": "buy"
+        },
+        "weight": 1.0
+      }
+    ]
+  },
+  "exit": {
+    "logic": "OR",
+    "conditions": []
+  },
+  "risk": {
+    "position_size_pct": 10.0,
+    "max_positions": 10,
+    "min_cash_reserve_pct": 0.0,
+    "max_daily_buy_pct": 100.0,
+    "liquidity_limit_pct": 10.0,
+    "stop_loss_pct": null,
+    "take_profit_pct": null,
+    "trailing_stop_pct": null,
+    "max_holding_days": null,
+    "max_mdd_limit_pct": null,
+    "execution_timing": "next_open",
+    "allocation_type": "equal",
+    "rebalancing_period": "none",
+    "init_cash": 10000000.0
+  },
+  "period": "1Y",
+  "options": {}
+}
+[DEBUG] ENGINE: Symbol 005930 has 7 entries. Sample dates: ['2024-02-02', '2024-03-14', '2024-05-09']
+[DEBUG] ENGINE: Symbol 000660 has 8 entries. Sample dates: ['2024-01-23', '2024-02-08', '2024-03-22']
+[DEBUG] BACKEND: Backtest Success. Total Return: 0.00%
+[DEBUG] First 10 signals: [{'date': '2024-01-24', 'symbol': '000660', 'type': 'buy', 'price': 140280.0, 'quantity': 7, 'amount': 981960.0, 'condition': '5/20일 이동평균선 골든크로스'}, {'date': '2024-02-05', 'symbol': '005930', 'type': 'buy', 'price': 74348.0, 'quantity': 13, 'amount': 966524.0, 'condition': '5/20일 이동평균선 골든크로스'}, {'date': '2024-12-30', 'symbol': '005930', 'type': 'sell', 'price': 53200.0, 'quantity': 13, 'amount': 691600.0, 'condition': '전략 청산 시그널 [수익률: -28.59%, 손실: 285,522원]'}, {'date': '2024-12-30', 'symbol': '000660', 'type': 'sell', 'price': 173900.0, 'quantity': 7, 'amount': 1217300.0, 'condition': '전략 청산 시그널 [수익률: +23.82%, 수익: 237,807원]'}]
+INFO:     127.0.0.1:52904 - "POST /backtest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53138 - "OPTIONS /backtest HTTP/1.1" 200 OK
+
+[DEBUG] BACKEND: Received backtest request for symbols: ['005930', '000660', '035420', '035720', '005380', '000270', '068270', '005490', '105560', '055550', '003550', '032830', '000810', '033780', '011780', '010140', '009150', '018260', '010950', '000100']
+[DEBUG] Request Data: {
+  "symbols": [
+    "005930",
+    "000660",
+    "035420",
+    "035720",
+    "005380",
+    "000270",
+    "068270",
+    "005490",
+    "105560",
+    "055550",
+    "003550",
+    "032830",
+    "000810",
+    "033780",
+    "011780",
+    "010140",
+    "009150",
+    "018260",
+    "010950",
+    "000100"
+  ],
+  "entry": {
+    "logic": "AND",
+    "conditions": [
+      {
+        "type": "indicator",
+        "id": "ma_crossover",
+        "params": {
+          "shortMA": 5,
+          "longMA": 20,
+          "signalType": "buy"
+        },
+        "weight": 1.0
+      }
+    ]
+  },
+  "exit": {
+    "logic": "OR",
+    "conditions": []
+  },
+  "risk": {
+    "position_size_pct": 10.0,
+    "max_positions": 10,
+    "min_cash_reserve_pct": 10.0,
+    "max_daily_buy_pct": 20.0,
+    "liquidity_limit_pct": 10.0,
+    "stop_loss_pct": 10.0,
+    "take_profit_pct": 20.0,
+    "trailing_stop_pct": 0.0,
+    "max_holding_days": 0,
+    "max_mdd_limit_pct": 15.0,
+    "execution_timing": "next_open",
+    "allocation_type": "equal",
+    "rebalancing_period": "none",
+    "init_cash": 10000000.0
+  },
+  "period": "1Y",
+  "options": {
+    "fee_rate": 0.00015,
+    "slippage_rate": 0.0005,
+    "execution_type": "next_open"
+  }
+}
+[DEBUG] ENGINE: Symbol 005930 has 7 entries. Sample dates: ['2024-02-02', '2024-03-14', '2024-05-09']
+[DEBUG] ENGINE: Symbol 000660 has 8 entries. Sample dates: ['2024-01-23', '2024-02-08', '2024-03-22']
+[DEBUG] ENGINE: Symbol 035420 has 6 entries. Sample dates: ['2024-03-28', '2024-05-03', '2024-07-10']
+[DEBUG] ENGINE: Symbol 035720 has 7 entries. Sample dates: ['2024-02-16', '2024-03-27', '2024-05-03']
+[DEBUG] ENGINE: Symbol 005380 has 7 entries. Sample dates: ['2024-01-29', '2024-04-15', '2024-05-17']
+[DEBUG] ENGINE: Symbol 000270 has 9 entries. Sample dates: ['2024-01-29', '2024-04-16', '2024-05-23']
+[DEBUG] ENGINE: Symbol 068270 has 10 entries. Sample dates: ['2024-02-13', '2024-02-28', '2024-03-18']
+[DEBUG] ENGINE: Symbol 005490 has 6 entries. Sample dates: ['2024-02-02', '2024-03-06', '2024-04-29']
+[DEBUG] ENGINE: Symbol 105560 has 9 entries. Sample dates: ['2024-01-26', '2024-03-06', '2024-04-25']
+[DEBUG] ENGINE: Symbol 055550 has 10 entries. Sample dates: ['2024-01-24', '2024-03-06', '2024-04-26']
+[DEBUG] ENGINE: Symbol 003550 has 11 entries. Sample dates: ['2024-01-31', '2024-03-13', '2024-05-02']
+[DEBUG] ENGINE: Symbol 032830 has 7 entries. Sample dates: ['2024-01-30', '2024-04-29', '2024-06-20']
+[DEBUG] ENGINE: Symbol 000810 has 9 entries. Sample dates: ['2024-01-31', '2024-03-08', '2024-04-26']
+[DEBUG] ENGINE: Symbol 033780 has 7 entries. Sample dates: ['2024-01-30', '2024-03-27', '2024-05-03']
+[DEBUG] ENGINE: Symbol 011780 has 7 entries. Sample dates: ['2024-01-31', '2024-03-27', '2024-04-26']
+[DEBUG] ENGINE: Symbol 010140 has 7 entries. Sample dates: ['2024-01-24', '2024-02-22', '2024-04-16']
+[DEBUG] ENGINE: Symbol 009150 has 6 entries. Sample dates: ['2024-03-04', '2024-03-14', '2024-05-03']
+[DEBUG] ENGINE: Symbol 018260 has 8 entries. Sample dates: ['2024-01-12', '2024-02-21', '2024-03-13']
+[DEBUG] ENGINE: Symbol 010950 has 8 entries. Sample dates: ['2024-01-29', '2024-07-03', '2024-07-17']
+[DEBUG] ENGINE: Symbol 000100 has 6 entries. Sample dates: ['2024-02-13', '2024-04-29', '2024-06-05']
+[DEBUG] BACKEND: Backtest Success. Total Return: 0.00%
+[DEBUG] First 10 signals: [{'date': '2024-01-15', 'symbol': '018260', 'type': 'buy', 'price': 169985.0, 'quantity': 5, 'amount': 849925.0, 'condition': '5/20일 이동평균선 골든크로스'}, {'date': '2024-01-24', 'symbol': '000660', 'type': 'buy', 'price': 140070.0, 'quantity': 7, 'amount': 980490.0, 'condition': '5/20일 이동평균선 골든크로스'}, {'date': '2024-01-25', 'symbol': '055550', 'type': 'buy', 'price': 39720.0, 'quantity': 25, 'amount': 993000.0, 'condition': '5/20일 이동평균선 골든크로스'}, {'date': '2024-01-25', 'symbol': '010140', 'type': 'buy', 'price': 7474.0, 'quantity': 133, 'amount': 994042.0, 'condition': '5/20일 이동평균선 골든크로스'}, {'date': '2024-01-29', 'symbol': '105560', 'type': 'buy', 'price': 53927.0, 'quantity': 18, 'amount': 970686.0, 'condition': '5/20일 이동평균선 골든크로스'}, {'date': '2024-01-29', 'symbol': '018260', 'type': 'sell', 'price': 153100.0, 'quantity': 5, 'amount': 765500.0, 'condition': '전략 청산 시그널 [수익률: -9.96%, 손실: 99,602원]'}, {'date': '2024-01-30', 'symbol': '005380', 'type': 'buy', 'price': 196098.0, 'quantity': 5, 'amount': 980490.0, 'condition': '5/20일 이동평균선 골든크로스'}, {'date': '2024-01-30', 'symbol': '000270', 'type': 'buy', 'price': 101050.0, 'quantity': 9, 'amount': 909450.0, 'condition': '5/20일 이동평균선 골든크로스'}, {'date': '2024-01-30', 'symbol': '010950', 'type': 'buy', 'price': 68834.0, 'quantity': 14, 'amount': 963676.0, 'condition': '5/20일 이동평균선 골든크로스'}, {'date': '2024-01-31', 'symbol': '032830', 'type': 'buy', 'price': 65833.0, 'quantity': 15, 'amount': 987495.0, 'condition': '5/20일 이동평균선 골든크로스'}]
+INFO:     127.0.0.1:53138 - "POST /backtest HTTP/1.1" 200 OK
+WARNING:  StatReload detected changes in 'backend/main.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [83118]
+INFO:     Started server process [88127]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+
+[DEBUG] BACKEND: Received backtest request for symbols: ['005930', '000660']
+[DEBUG] Request Data: {
+  "symbols": [
+    "005930",
+    "000660"
+  ],
+  "entry": {
+    "logic": "AND",
+    "conditions": [
+      {
+        "type": "indicator",
+        "id": "ma_crossover",
+        "params": {
+          "shortMA": 5,
+          "longMA": 20,
+          "signalType": "buy"
+        },
+        "weight": 1.0
+      }
+    ]
+  },
+  "exit": {
+    "logic": "OR",
+    "conditions": []
+  },
+  "risk": {
+    "position_size_pct": 10.0,
+    "max_positions": 10,
+    "min_cash_reserve_pct": 0.0,
+    "max_daily_buy_pct": 100.0,
+    "liquidity_limit_pct": 10.0,
+    "stop_loss_pct": null,
+    "take_profit_pct": null,
+    "trailing_stop_pct": null,
+    "max_holding_days": null,
+    "max_mdd_limit_pct": null,
+    "execution_timing": "next_open",
+    "allocation_type": "equal",
+    "rebalancing_period": "none",
+    "init_cash": 10000000.0
+  },
+  "period": "1Y",
+  "options": {}
+}
+[DEBUG] ENGINE: Symbol 005930 has 7 entries. Sample dates: ['2024-02-02', '2024-03-14', '2024-05-09']
+[DEBUG] ENGINE: Symbol 000660 has 8 entries. Sample dates: ['2024-01-23', '2024-02-08', '2024-03-22']
+INFO:     127.0.0.1:53340 - "POST /backtest HTTP/1.1" 500 Internal Server Error
+WARNING:  StatReload detected changes in 'backend/main.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [88127]
+INFO:     Started server process [88753]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+
+[DEBUG] BACKEND: Received backtest request for symbols: ['005930', '000660']
+[DEBUG] Request Data: {
+  "symbols": [
+    "005930",
+    "000660"
+  ],
+  "entry": {
+    "logic": "AND",
+    "conditions": [
+      {
+        "type": "indicator",
+        "id": "ma_crossover",
+        "params": {
+          "shortMA": 5,
+          "longMA": 20,
+          "signalType": "buy"
+        },
+        "weight": 1.0
+      }
+    ]
+  },
+  "exit": {
+    "logic": "OR",
+    "conditions": []
+  },
+  "risk": {
+    "position_size_pct": 10.0,
+    "max_positions": 10,
+    "min_cash_reserve_pct": 0.0,
+    "max_daily_buy_pct": 100.0,
+    "liquidity_limit_pct": 10.0,
+    "stop_loss_pct": null,
+    "take_profit_pct": null,
+    "trailing_stop_pct": null,
+    "max_holding_days": null,
+    "max_mdd_limit_pct": null,
+    "execution_timing": "next_open",
+    "allocation_type": "equal",
+    "rebalancing_period": "none",
+    "init_cash": 10000000.0
+  },
+  "period": "1Y",
+  "options": {}
+}
+[DEBUG] ENGINE: Symbol 005930 has 7 entries. Sample dates: ['2024-02-02', '2024-03-14', '2024-05-09']
+[DEBUG] ENGINE: Symbol 000660 has 8 entries. Sample dates: ['2024-01-23', '2024-02-08', '2024-03-22']
+[DEBUG] [2026-01-28T16:44:46.169755] BACKEND: Backtest Success. Total Return: 0.00%
+[DEBUG] Found 4 total signals.
+  Signal 0: 000660 on 2024-01-24 (buy)
+  Signal 1: 005930 on 2024-02-05 (buy)
+  Signal 2: 005930 on 2024-12-30 (sell)
+  Signal 3: 000660 on 2024-12-30 (sell)
+INFO:     127.0.0.1:53370 - "POST /backtest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56523 - "OPTIONS /backtest HTTP/1.1" 200 OK
+
+[DEBUG] BACKEND: Received backtest request for symbols: ['005930', '000660', '035420', '035720', '005380', '000270', '068270', '005490', '105560', '055550', '003550', '032830', '000810', '033780', '011780', '010140', '009150', '018260', '010950', '000100']
+[DEBUG] Request Data: {
+  "symbols": [
+    "005930",
+    "000660",
+    "035420",
+    "035720",
+    "005380",
+    "000270",
+    "068270",
+    "005490",
+    "105560",
+    "055550",
+    "003550",
+    "032830",
+    "000810",
+    "033780",
+    "011780",
+    "010140",
+    "009150",
+    "018260",
+    "010950",
+    "000100"
+  ],
+  "entry": {
+    "logic": "AND",
+    "conditions": [
+      {
+        "type": "indicator",
+        "id": "ma_crossover",
+        "params": {
+          "shortMA": 5,
+          "longMA": 20,
+          "signalType": "buy"
+        },
+        "weight": 1.0
+      }
+    ]
+  },
+  "exit": {
+    "logic": "OR",
+    "conditions": []
+  },
+  "risk": {
+    "position_size_pct": 10.0,
+    "max_positions": 10,
+    "min_cash_reserve_pct": 10.0,
+    "max_daily_buy_pct": 20.0,
+    "liquidity_limit_pct": 10.0,
+    "stop_loss_pct": 10.0,
+    "take_profit_pct": 20.0,
+    "trailing_stop_pct": 0.0,
+    "max_holding_days": 0,
+    "max_mdd_limit_pct": 15.0,
+    "execution_timing": "next_open",
+    "allocation_type": "equal",
+    "rebalancing_period": "none",
+    "init_cash": 10000000.0
+  },
+  "period": "1Y",
+  "options": {
+    "fee_rate": 0.00015,
+    "slippage_rate": 0.0005,
+    "execution_type": "next_open"
+  }
+}
+[DEBUG] ENGINE: Symbol 005930 has 7 entries. Sample dates: ['2024-02-02', '2024-03-14', '2024-05-09']
+[DEBUG] ENGINE: Symbol 000660 has 8 entries. Sample dates: ['2024-01-23', '2024-02-08', '2024-03-22']
+[DEBUG] ENGINE: Symbol 035420 has 6 entries. Sample dates: ['2024-03-28', '2024-05-03', '2024-07-10']
+[DEBUG] ENGINE: Symbol 035720 has 7 entries. Sample dates: ['2024-02-16', '2024-03-27', '2024-05-03']
+[DEBUG] ENGINE: Symbol 005380 has 7 entries. Sample dates: ['2024-01-29', '2024-04-15', '2024-05-17']
+[DEBUG] ENGINE: Symbol 000270 has 9 entries. Sample dates: ['2024-01-29', '2024-04-16', '2024-05-23']
+[DEBUG] ENGINE: Symbol 068270 has 10 entries. Sample dates: ['2024-02-13', '2024-02-28', '2024-03-18']
+[DEBUG] ENGINE: Symbol 005490 has 6 entries. Sample dates: ['2024-02-02', '2024-03-06', '2024-04-29']
+[DEBUG] ENGINE: Symbol 105560 has 9 entries. Sample dates: ['2024-01-26', '2024-03-06', '2024-04-25']
+[DEBUG] ENGINE: Symbol 055550 has 10 entries. Sample dates: ['2024-01-24', '2024-03-06', '2024-04-26']
+[DEBUG] ENGINE: Symbol 003550 has 11 entries. Sample dates: ['2024-01-31', '2024-03-13', '2024-05-02']
+[DEBUG] ENGINE: Symbol 032830 has 7 entries. Sample dates: ['2024-01-30', '2024-04-29', '2024-06-20']
+[DEBUG] ENGINE: Symbol 000810 has 9 entries. Sample dates: ['2024-01-31', '2024-03-08', '2024-04-26']
+[DEBUG] ENGINE: Symbol 033780 has 7 entries. Sample dates: ['2024-01-30', '2024-03-27', '2024-05-03']
+[DEBUG] ENGINE: Symbol 011780 has 7 entries. Sample dates: ['2024-01-31', '2024-03-27', '2024-04-26']
+[DEBUG] ENGINE: Symbol 010140 has 7 entries. Sample dates: ['2024-01-24', '2024-02-22', '2024-04-16']
+[DEBUG] ENGINE: Symbol 009150 has 6 entries. Sample dates: ['2024-03-04', '2024-03-14', '2024-05-03']
+[DEBUG] ENGINE: Symbol 018260 has 8 entries. Sample dates: ['2024-01-12', '2024-02-21', '2024-03-13']
+[DEBUG] ENGINE: Symbol 010950 has 8 entries. Sample dates: ['2024-01-29', '2024-07-03', '2024-07-17']
+[DEBUG] ENGINE: Symbol 000100 has 6 entries. Sample dates: ['2024-02-13', '2024-04-29', '2024-06-05']
+[DEBUG] [2026-01-28T17:54:49.674814] BACKEND: Backtest Success. Total Return: 0.00%
+[DEBUG] Found 148 total signals.
+  Signal 0: 018260 on 2024-01-15 (buy)
+  Signal 1: 000660 on 2024-01-24 (buy)
+  Signal 2: 055550 on 2024-01-25 (buy)
+  Signal 3: 010140 on 2024-01-25 (buy)
+  Signal 4: 105560 on 2024-01-29 (buy)
+  Signal 5: 018260 on 2024-01-29 (sell)
+  Signal 6: 005380 on 2024-01-30 (buy)
+  Signal 7: 000270 on 2024-01-30 (buy)
+  Signal 8: 010950 on 2024-01-30 (buy)
+  Signal 9: 032830 on 2024-01-31 (buy)
+  Signal 10: 033780 on 2024-01-31 (buy)
+  Signal 11: 003550 on 2024-02-01 (buy)
+  Signal 12: 000810 on 2024-02-01 (buy)
+  Signal 13: 011780 on 2024-02-01 (buy)
+  Signal 14: 000270 on 2024-02-02 (sell)
+  Signal 15: 005930 on 2024-02-05 (buy)
+  Signal 16: 005380 on 2024-02-05 (sell)
+  Signal 17: 005490 on 2024-02-05 (buy)
+  Signal 18: 105560 on 2024-02-08 (sell)
+  Signal 19: 032830 on 2024-02-13 (sell)
+INFO:     127.0.0.1:56523 - "POST /backtest HTTP/1.1" 200 OK
+WARNING:  StatReload detected changes in 'backend/engine/result_handler.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [88753]
+INFO:     Started server process [8638]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     127.0.0.1:58345 - "OPTIONS /backtest HTTP/1.1" 200 OK
+
+[DEBUG] BACKEND: Received backtest request for symbols: ['005930', '000660', '035420', '035720', '005380', '000270', '068270', '005490', '105560', '055550', '003550', '032830', '000810', '033780', '011780', '010140', '009150', '018260', '010950', '000100']
+[DEBUG] Request Data: {
+  "symbols": [
+    "005930",
+    "000660",
+    "035420",
+    "035720",
+    "005380",
+    "000270",
+    "068270",
+    "005490",
+    "105560",
+    "055550",
+    "003550",
+    "032830",
+    "000810",
+    "033780",
+    "011780",
+    "010140",
+    "009150",
+    "018260",
+    "010950",
+    "000100"
+  ],
+  "entry": {
+    "logic": "AND",
+    "conditions": [
+      {
+        "type": "indicator",
+        "id": "ma_crossover",
+        "params": {
+          "shortMA": 5,
+          "longMA": 20,
+          "signalType": "buy"
+        },
+        "weight": 1.0
+      }
+    ]
+  },
+  "exit": {
+    "logic": "OR",
+    "conditions": []
+  },
+  "risk": {
+    "position_size_pct": 10.0,
+    "max_positions": 10,
+    "min_cash_reserve_pct": 10.0,
+    "max_daily_buy_pct": 20.0,
+    "liquidity_limit_pct": 10.0,
+    "stop_loss_pct": 10.0,
+    "take_profit_pct": 20.0,
+    "trailing_stop_pct": 0.0,
+    "max_holding_days": 0,
+    "max_mdd_limit_pct": 15.0,
+    "execution_timing": "next_open",
+    "allocation_type": "equal",
+    "rebalancing_period": "none",
+    "init_cash": 10000000.0
+  },
+  "period": "1Y",
+  "options": {
+    "fee_rate": 0.00015,
+    "slippage_rate": 0.0005,
+    "execution_type": "next_open"
+  }
+}
+[DEBUG] ENGINE: Symbol 005930 has 7 entries. Sample dates: ['2024-02-02', '2024-03-14', '2024-05-09']
+[DEBUG] ENGINE: Symbol 000660 has 8 entries. Sample dates: ['2024-01-23', '2024-02-08', '2024-03-22']
+[DEBUG] ENGINE: Symbol 035420 has 6 entries. Sample dates: ['2024-03-28', '2024-05-03', '2024-07-10']
+[DEBUG] ENGINE: Symbol 035720 has 7 entries. Sample dates: ['2024-02-16', '2024-03-27', '2024-05-03']
+[DEBUG] ENGINE: Symbol 005380 has 7 entries. Sample dates: ['2024-01-29', '2024-04-15', '2024-05-17']
+[DEBUG] ENGINE: Symbol 000270 has 9 entries. Sample dates: ['2024-01-29', '2024-04-16', '2024-05-23']
+[DEBUG] ENGINE: Symbol 068270 has 10 entries. Sample dates: ['2024-02-13', '2024-02-28', '2024-03-18']
+[DEBUG] ENGINE: Symbol 005490 has 6 entries. Sample dates: ['2024-02-02', '2024-03-06', '2024-04-29']
+[DEBUG] ENGINE: Symbol 105560 has 9 entries. Sample dates: ['2024-01-26', '2024-03-06', '2024-04-25']
+[DEBUG] ENGINE: Symbol 055550 has 10 entries. Sample dates: ['2024-01-24', '2024-03-06', '2024-04-26']
+[DEBUG] ENGINE: Symbol 003550 has 11 entries. Sample dates: ['2024-01-31', '2024-03-13', '2024-05-02']
+[DEBUG] ENGINE: Symbol 032830 has 7 entries. Sample dates: ['2024-01-30', '2024-04-29', '2024-06-20']
+[DEBUG] ENGINE: Symbol 000810 has 9 entries. Sample dates: ['2024-01-31', '2024-03-08', '2024-04-26']
+[DEBUG] ENGINE: Symbol 033780 has 7 entries. Sample dates: ['2024-01-30', '2024-03-27', '2024-05-03']
+[DEBUG] ENGINE: Symbol 011780 has 7 entries. Sample dates: ['2024-01-31', '2024-03-27', '2024-04-26']
+[DEBUG] ENGINE: Symbol 010140 has 7 entries. Sample dates: ['2024-01-24', '2024-02-22', '2024-04-16']
+[DEBUG] ENGINE: Symbol 009150 has 6 entries. Sample dates: ['2024-03-04', '2024-03-14', '2024-05-03']
+[DEBUG] ENGINE: Symbol 018260 has 8 entries. Sample dates: ['2024-01-12', '2024-02-21', '2024-03-13']
+[DEBUG] ENGINE: Symbol 010950 has 8 entries. Sample dates: ['2024-01-29', '2024-07-03', '2024-07-17']
+[DEBUG] ENGINE: Symbol 000100 has 6 entries. Sample dates: ['2024-02-13', '2024-04-29', '2024-06-05']
+[DEBUG] [2026-01-28T18:00:53.110110] BACKEND: Backtest Success. Total Return: 0.00%
+[DEBUG] Found 148 total signals.
+  Signal 0: 018260 on 2024-01-15 (buy)
+  Signal 1: 000660 on 2024-01-24 (buy)
+  Signal 2: 055550 on 2024-01-25 (buy)
+  Signal 3: 010140 on 2024-01-25 (buy)
+  Signal 4: 105560 on 2024-01-29 (buy)
+  Signal 5: 018260 on 2024-01-29 (sell)
+  Signal 6: 005380 on 2024-01-30 (buy)
+  Signal 7: 000270 on 2024-01-30 (buy)
+  Signal 8: 010950 on 2024-01-30 (buy)
+  Signal 9: 032830 on 2024-01-31 (buy)
+  Signal 10: 033780 on 2024-01-31 (buy)
+  Signal 11: 003550 on 2024-02-01 (buy)
+  Signal 12: 000810 on 2024-02-01 (buy)
+  Signal 13: 011780 on 2024-02-01 (buy)
+  Signal 14: 000270 on 2024-02-02 (sell)
+  Signal 15: 005930 on 2024-02-05 (buy)
+  Signal 16: 005380 on 2024-02-05 (sell)
+  Signal 17: 005490 on 2024-02-05 (buy)
+  Signal 18: 105560 on 2024-02-08 (sell)
+  Signal 19: 032830 on 2024-02-13 (sell)
+INFO:     127.0.0.1:58345 - "POST /backtest HTTP/1.1" 200 OK
+WARNING:  StatReload detected changes in 'backend/engine/signals.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [8638]
+INFO:     Started server process [15834]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  StatReload detected changes in 'backend/engine/signals.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [15834]
+INFO:     Started server process [18563]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.

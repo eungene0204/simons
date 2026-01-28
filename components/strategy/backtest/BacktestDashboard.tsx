@@ -510,9 +510,10 @@ export default function BacktestDashboard({
                       <tbody className="bg-[#0f0f0f]">
                           {result.tradesList.map((t, i) => {
                              const tradeAmount = t.amount || 0;
+                             if (i < 5) console.log(`[DEBUG] Rendering Trade Row ${i}: ${t.symbol} on ${t.date}`);
                              
                              return (
-                              <tr key={i} className="hover:bg-white/5 transition-colors">
+                              <tr key={`${t.symbol}-${t.date}-${t.type}-${i}`} className="hover:bg-white/5 transition-colors">
                                  <td className="p-3 text-sm font-mono text-gray-400">{t.date}</td>
                                  <td className="p-3 text-sm font-bold text-white">
                                     <div className="flex flex-col">

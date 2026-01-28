@@ -140,6 +140,10 @@ class BacktestEngine:
                     if common_index is None: common_index = pdf.index
                     else: common_index = common_index.union(pdf.index).sort_values()
 
+                    # Final verification for this symbol
+                    sig_dates = [entries_s.index[i].strftime('%Y-%m-%d') for i, val in enumerate(entries) if val]
+                    print(f"[DEBUG] ENGINE: Symbol {sym} has {len(sig_dates)} entries. Sample dates: {sig_dates[:3]}")
+
                 except Exception as e:
                     self.warnings.add(f"{sym}: 처리 중 오류 ({str(e)})")
 

@@ -39,16 +39,36 @@ class ResultHandler:
             raw_records = pf.trades.records
 
             for i, (idx_row, trade) in enumerate(vbt_trades.iterrows()):
-                sym = trade.get('Column')
-                if sym is None:
-                    col_idx = trade.get('Column Idx', 0)
-                    sym = processed_symbols[int(col_idx)]
+                # Improved symbol identification: vectorbt usually puts symbol in 'Column' for multi-col
+                # It can be a string or an object depending on vbt version
+                sym_raw = trade.get('Column')
+                sym = str(sym_raw) if sym_raw is not None else None
                 
-                e_idx = trade.get('Entry Index', trade.get('Entry Idx', trade.get('Entry Timestamp')))
-                x_idx = trade.get('Exit Index', trade.get('Exit Idx', trade.get('Exit Timestamp')))
-
-                e_price = cls.safe(trade.get('Entry Price', trade.get('Avg Entry Price')))
-                x_price = cls.safe(trade.get('Exit Price', trade.get('Avg Exit Price')))
+                if sym is None or sym not in processed_symbols:
+                    # Fallback to Column Idx if Column name is missing or mismatched
+                    col_idx = trade.get('Column Idx')
+                    if col_idx is not None:
+                        try:
+                            idx = int(col_idx)
+                            if 0 <= idx < len(processed_symbols):
+                                sym = processed_symbols[idx]
+                        except (IndexError, ValueError):
+                            pass
+                
+                # If still None, it's likely a single asset backtest, so default to the first
+                if sym is None:
+                    if len(processed_symbols) == 1:
+                        sym = processed_symbols[0]
+                    else:
+                        sym = "unknown"
+                        print(f"[DEBUG] ResultHandler: Could not identify symbol for trade {i}. Column={trade.get('Column')}, Idx={trade.get('Column Idx')}")
+                
+                # Robust timestamp retrieval
+                e_idx = trade.get('Entry Timestamp', trade.get('Entry Index', trade.get('Entry Idx')))
+                x_idx = trade.get('Exit Timestamp', trade.get('Exit Index', trade.get('Exit Idx')))
+                
+                e_price = cls.safe(trade.get('Avg Entry Price', trade.get('Entry Price')))
+                x_price = cls.safe(trade.get('Avg Exit Price', trade.get('Exit Price')))
                 size = cls.safe(trade.get('Size'))
                 pnl = cls.safe(trade.get('PnL'))
                 ret_val = cls.safe(trade.get('Return')) * 100
@@ -63,17 +83,24 @@ class ResultHandler:
                     if isinstance(ts, (pd.Timestamp, datetime)): return ts.strftime('%Y-%m-%d')
                     return str(ts)
 
-                # Entry Logic
+                # Entry Reason Mapping: Match by timestamp for absolute accuracy
                 e_reason = "매수 조건 충족 (전략 시그널)"
                 try:
-                    sym_dates = [d.strftime('%Y-%m-%d') for d in all_entries[sym].index]
-                    dt_s = get_dt_str(e_idx)
-                    if dt_s in sym_dates:
-                        idx_in_sym = sym_dates.index(dt_s)
-                        p_idx = idx_in_sym - 1 if exec_type == 'next_open' and idx_in_sym > 0 else idx_in_sym
-                        if all_entry_reasons[sym][p_idx]:
-                            e_reason = all_entry_reasons[sym][p_idx]
-                except: pass
+                    # Use the identified 'sym' to get the correct reasons
+                    if sym in all_entries and sym in all_entry_reasons:
+                        target_dt = pd.to_datetime(e_idx)
+                        sym_series = all_entries[sym]
+                        
+                        if target_dt in sym_series.index:
+                            idx_in_sym = sym_series.index.get_loc(target_dt)
+                            # Shift for next_open
+                            p_idx = idx_in_sym - 1 if exec_type == 'next_open' and idx_in_sym > 0 else idx_in_sym
+                            
+                            reasons = all_entry_reasons[sym]
+                            if 0 <= p_idx < len(reasons) and reasons[p_idx]:
+                                e_reason = reasons[p_idx]
+                except Exception as ex:
+                    print(f"[DEBUG] Entry reason mapping failed for {sym} at {e_idx}: {str(ex)}")
 
                 final_qty = int(np.floor(size))
                 if final_qty >= 1:
@@ -83,17 +110,22 @@ class ResultHandler:
                         "amount": float(round(e_price) * final_qty), "condition": e_reason
                     })
 
-                    # Exit Logic
+                    # Exit Reason Mapping
                     reason_kr = "전략 청산 시그널"
                     try:
-                        sym_dates_x = [d.strftime('%Y-%m-%d') for d in all_exits[sym].index]
-                        dt_sx = get_dt_str(x_idx)
-                        if dt_sx in sym_dates_x:
-                            idx_in_sym = sym_dates_x.index(dt_sx)
-                            p_idx = idx_in_sym - 1 if exec_type == 'next_open' and idx_in_sym > 0 else idx_in_sym
-                            if p_idx >= 0 and p_idx < len(all_exit_reasons[sym]) and all_exit_reasons[sym][p_idx]:
-                                reason_kr = all_exit_reasons[sym][p_idx]
-                    except: pass
+                        if sym in all_exits and sym in all_exit_reasons:
+                            target_dt_x = pd.to_datetime(x_idx)
+                            sym_series_x = all_exits[sym]
+                            
+                            if target_dt_x in sym_series_x.index:
+                                idx_in_sym_x = sym_series_x.index.get_loc(target_dt_x)
+                                p_idx_x = idx_in_sym_x - 1 if exec_type == 'next_open' and idx_in_sym_x > 0 else idx_in_sym_x
+                                
+                                reasons_x = all_exit_reasons[sym]
+                                if 0 <= p_idx_x < len(reasons_x) and reasons_x[p_idx_x]:
+                                    reason_kr = reasons_x[p_idx_x]
+                    except Exception as ex:
+                        print(f"[DEBUG] Exit reason mapping failed for {sym} at {x_idx}: {str(ex)}")
 
                     def fmt_pct(v): return str(int(v)) if v == int(v) else str(v)
                     if exit_type > 0:

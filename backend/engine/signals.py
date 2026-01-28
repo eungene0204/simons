@@ -114,7 +114,7 @@ class SignalEngine:
         if cid == 'ma_crossover':
             short = p.get('shortMA', p.get('short_period', p.get('short', 5)))
             long = p.get('longMA', p.get('long_period', p.get('long', 20)))
-            return f"{short}/{long}일 이동평균선 골든크로스" if p.get('signalType') != 'sell' else f"{short}/{long}일 이동평균선 데드크로스"
+            return f"{short}일선-{long}일선 골든크로스" if p.get('signalType') != 'sell' else f"{short}일선-{long}일선 데드크로스"
         elif cid == 'rsi':
             val = p.get('value', 30)
             return f"RSI {val} {op_kr}"
