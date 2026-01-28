@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from schemas import BacktestRequest, BacktestResponse
 from backtest_engine import BacktestEngine
 from fastapi.middleware.cors import CORSMiddleware
+from datetime import datetime
 import uvicorn
 
 app = FastAPI()
@@ -26,7 +27,11 @@ async def run_backtest(request: BacktestRequest):
     try:
         # Convert Pydantic to dict for engine
         result = engine.run_backtest(request.model_dump())
-        print(f"[DEBUG] BACKEND: Backtest Success. Total Return: {result.get('totalReturn', 0):.2f}%")
+        print(f"[DEBUG] [{datetime.now().isoformat()}] BACKEND: Backtest Success. Total Return: {result.get('totalReturn', 0):.2f}%")
+        signals = result.get('signals', [])
+        print(f"[DEBUG] Found {len(signals)} total signals.")
+        for i, s in enumerate(signals[:20]):
+            print(f"  Signal {i}: {s['symbol']} on {s['date']} ({s['type']})")
         return result
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -34,4 +39,4 @@ async def run_backtest(request: BacktestRequest):
         raise HTTPException(status_code=500, detail=f"Engine error: {str(e)}")
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

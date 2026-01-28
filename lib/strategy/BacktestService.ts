@@ -42,6 +42,7 @@ export class BacktestService {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(requestBody),
+        cache: "no-store",
       });
 
       if (!response.ok) {
@@ -64,6 +65,11 @@ export class BacktestService {
       console.error("[DEBUG] BacktestService: HTTP response received, status:", response.status);
       const pythonResult = await response.json();
       
+      console.error("[DEBUG] BacktestService: Mapping complete. First 20 trades summary:");
+      pythonResult.signals.slice(0, 20).forEach((s: any, idx: number) => {
+        console.error(`  Trade ${idx}: Symbol=${s.symbol} Date=${s.date} Type=${s.type}`);
+      });
+
       // 3. Map Python Result to TS BacktestResult interface
       return {
         strategyId: strategy.id,
