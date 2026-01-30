@@ -38,22 +38,21 @@ export default function Step5Backtest({
     slippagePct: 0.05
   });
 
-  const [lastResultId, setLastResultId] = useState<string | null>(null);
+  const [lastResultId, setLastResultId] = useState<any>(null);
 
   useEffect(() => {
     // Only auto-switch to dashboard if we get a NEW result 
-    // (comparing some identifying field like a timestamp or just the object reference)
     if (backtestResult && !isBacktesting) {
-      // If result object changed, it's a new run
-      if (backtestResult !== (lastResultId as any)) {
+      if (backtestResult !== lastResultId) {
         setView("dashboard");
         onViewChange?.("dashboard");
-        setLastResultId(backtestResult as any);
+        setLastResultId(backtestResult);
       }
     }
   }, [backtestResult, isBacktesting, lastResultId, onViewChange]);
 
   const handleRun = (options: BacktestConfigOptions) => {
+    console.log("[DEBUG] Step5Backtest: handleRun called with", options);
     setConfigOptions(options);
     onRunBacktest(options);
   };

@@ -107,7 +107,7 @@ export default function StrategyComposerV2({
   const [entryLogic, setEntryLogic] = useState<LogicOperator>("AND");
   const [exitLogic, setExitLogic] = useState<LogicOperator>("OR");
   const [riskManagement, setRiskManagement] = useState<RiskManagement>({
-    position_size_pct: 5,
+    position_size_pct: 10,
     max_positions: 10,
     min_cash_reserve_pct: 10,
     max_daily_buy_pct: 20,
@@ -158,31 +158,22 @@ export default function StrategyComposerV2({
   const canvasRef = useRef<HTMLDivElement>(null);
   const [canvasWidth, setCanvasWidth] = useState(1000);
 
-  // Sync position size when allocation type or max positions change
+  // Sync Step 3 position & risk settings into the riskManagement object
   useEffect(() => {
+    let perPosSize = allocationValue;
     if (allocationType === "equal") {
-      const perPosSize = Math.floor(100 / maxPositions);
-      setRiskManagement(prev => ({
-        ...prev,
-        position_size_pct: perPosSize,
-        allocation_type: "equal"
-      }));
-    } else {
-      setRiskManagement(prev => ({
-        ...prev,
-        position_size_pct: allocationValue,
-        allocation_type: "fixed_pct"
-      }));
+      perPosSize = Math.floor(100 / maxPositions);
     }
-  }, [allocationType, maxPositions, allocationValue]);
-
-  // Sync execution timing
-  useEffect(() => {
+    
     setRiskManagement(prev => ({
       ...prev,
-      execution_timing: executionTiming
+      position_size_pct: perPosSize,
+      max_positions: maxPositions,
+      allocation_type: allocationType,
+      execution_timing: executionTiming,
+      rebalancing_period: rebalancingPeriod,
     }));
-  }, [executionTiming]);
+  }, [allocationType, maxPositions, allocationValue, executionTiming, rebalancingPeriod]);
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -330,7 +321,7 @@ export default function StrategyComposerV2({
     } finally {
       setIsBacktesting(false);
     }
-  }, [strategyName, universe, canvasBlocks, riskManagement, entryLogic, exitLogic, universeFilters]);
+  }, [strategyName, universe, canvasBlocks, riskManagement, entryLogic, exitLogic, universeFilters, maxPositions, allocationType, allocationValue, executionTiming, rebalancingPeriod]);
 
   // Trigger simulation when entering step 5
 

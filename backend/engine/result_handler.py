@@ -128,11 +128,16 @@ class ResultHandler:
                         print(f"[DEBUG] Exit reason mapping failed for {sym} at {x_idx}: {str(ex)}")
 
                     def fmt_pct(v): return str(int(v)) if v == int(v) else str(v)
-                    if exit_type > 0:
-                        if exit_type in [1, 5]: reason_kr = f"손절매 실행 (-{fmt_pct(sl_pct)}%)" if sl_pct > 0 else "손절매 실행"
-                        elif exit_type == 2: reason_kr = f"트레일링 스탑 (-{fmt_pct(ts_pct)}%)" if ts_pct > 0 else "트레일링 스탑 실행"
-                        elif exit_type == 3: reason_kr = f"익절매 실행 (+{fmt_pct(tp_pct)}%)" if tp_pct > 0 else "익절매 실행"
-                        elif exit_type == 4: reason_kr = "보유 기간 만료 (강제 청산)"
+                    
+                    # vectorbt exit_type mapping: 0:Signal, 1:SL, 2:TSL, 3:TP, 4:Time, 5:EndOfLife/Simulation
+                    if exit_type in [1]: reason_kr = f"손절매 실행 (-{fmt_pct(sl_pct)}%)" if sl_pct > 0 else "손절매 실행"
+                    elif exit_type == 2: reason_kr = f"트레일링 스탑 (-{fmt_pct(ts_pct)}%)" if ts_pct > 0 else "트레일링 스탑 실행"
+                    elif exit_type == 3: reason_kr = f"익절매 실행 (+{fmt_pct(tp_pct)}%)" if tp_pct > 0 else "익절매 실행"
+                    elif exit_type == 4: reason_kr = "보유 기간 만료 (강제 청산)"
+                    elif exit_type == 5 or get_dt_str(x_idx) == get_dt_str(common_index[-1]):
+                        # If it's the last day and reason is default, it's a forced close
+                        if reason_kr == "전략 청산 시그널":
+                            reason_kr = "백테스트 종료 (강제 청산)"
                     
                     pnl_label = "수익" if pnl >= 0 else "손실"
                     signals_list.append({
@@ -157,30 +162,52 @@ class ResultHandler:
 
         per_asset_stats = {}
         if len(processed_symbols) > 0:
-            returns = pf.total_return()
-            counts = pf.trades.count()
-            wins = pf.trades.win_rate()
-            profits = pf.total_profit()
+            # We use group_by=False to get individual asset stats from the grouped portfolio
+            returns = pf.total_return(group_by=False)
+            counts = pf.trades.count(group_by=False)
+            wins = pf.trades.win_rate(group_by=False)
+            profits = pf.total_profit(group_by=False)
+            cagrs = pf.annualized_return(group_by=False)
+            mdds = pf.max_drawdown(group_by=False)
+
             for i, sym in enumerate(processed_symbols):
-                idx = i if len(processed_symbols) > 1 else None
+                # When using group_by=False on a grouped Portfolio, it returns a Series with original columns
                 per_asset_stats[sym] = {
                     "symbol": sym,
-                    "totalReturn": cls.safe(returns.iloc[i] if idx is not None else returns) * 100,
-                    "trades": int(cls.safe(counts.iloc[i] if idx is not None else counts)),
-                    "winRate": cls.safe(wins.iloc[i] if idx is not None else wins) * 100,
-                    "profit": cls.safe(profits.iloc[i] if idx is not None else profits)
+                    "totalReturn": cls.safe(returns.iloc[i] if len(returns) > i else 0.0) * 100,
+                    "trades": int(cls.safe(counts.iloc[i] if len(counts) > i else 0.0)),
+                    "winRate": cls.safe(wins.iloc[i] if len(wins) > i else 0.0) * 100,
+                    "profit": cls.safe(profits.iloc[i] if len(profits) > i else 0.0),
+                    "cagr": cls.safe(cagrs.iloc[i] if len(cagrs) > i else 0.0) * 100,
+                    "maxDrawdown": cls.safe(mdds.iloc[i] if len(mdds) > i else 0.0) * 100
                 }
 
         def to_list(obj):
-            if isinstance(obj, pd.DataFrame): return obj.iloc[:, 0].tolist()
-            if isinstance(obj, pd.Series): return obj.tolist()
-            return list(obj)
+            if isinstance(obj, (pd.DataFrame, pd.Series)):
+                # Convert to numpy, replace NaN/Inf with 0.0, then to list
+                return np.nan_to_num(obj.values.flatten(), nan=0.0, posinf=0.0, neginf=0.0).tolist()
+            return [cls.safe(x) for x in obj]
 
-        return {
+        def sanitize(v):
+            if isinstance(v, dict): return {k: sanitize(item) for k, item in v.items()}
+            if isinstance(v, list): return [sanitize(item) for item in v]
+            if isinstance(v, float):
+                if np.isnan(v) or np.isinf(v): return 0.0
+                return v
+            return v
+
+        # Calculate Benchmark properly for both Series (grouped) and DataFrame (individual)
+        bench_rets = pf.benchmark_returns()
+        if isinstance(bench_rets, pd.DataFrame):
+            bench_mean_rets = bench_rets.mean(axis=1)
+        else:
+            bench_mean_rets = bench_rets
+
+        res = {
             "symbols": processed_symbols,
             "totalReturn": cls.safe(pf.total_return()) * 100,
             "cagr": cls.safe(pf.annualized_return()) * 100,
-            "buyAndHoldReturn": cls.safe(pf.benchmark_returns().sum().mean()) * 100,
+            "buyAndHoldReturn": cls.safe(bench_mean_rets.sum()) * 100,
             "maxDrawdown": cls.safe(pf.max_drawdown()) * 100,
             "winRate": agg_win_rate,
             "trades": total_trades,
@@ -190,9 +217,10 @@ class ResultHandler:
             "kelly": cls.safe(kelly),
             "volatility": cls.safe(pf.returns().std() * np.sqrt(252)) * 100,
             "equity": to_list(pf.value()),
-            "benchmark_equity": to_list(init_cash * (1 + pf.benchmark_returns().mean(axis=1).cumsum())),
+            "benchmark_equity": to_list(init_cash * (1 + bench_mean_rets.cumsum())),
             "dates": [d.strftime('%Y-%m-%d') for d in common_index],
             "signals": signals_list,
             "perAssetStats": per_asset_stats,
-            "version": "6.0 (Refactored)"
+            "version": "6.1 (Sanitized)"
         }
+        return sanitize(res)
