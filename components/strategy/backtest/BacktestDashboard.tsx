@@ -317,7 +317,7 @@ export default function BacktestDashboard({
                {/* Quick Stats Summary below chart */}
                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4">
                   <StatRow label="총 수익" value={formatKRW(result.finalEquity - result.initialCapital)} result={result} />
-                   <StatRow label="매수후보유" value={`${(result.buyAndHoldReturn || 0).toFixed(1)}%`} result={result} />
+                   <StatRow label="매수후보유" value={`${(result.buyAndHoldReturn || 0).toFixed(1)}%`} result={result} colorOverride="text-main-green" />
                    <StatRow label="연간 변동성" value={`${(result.sharpe > 0 ? ((result.cagr || 0) / result.sharpe) : 0).toFixed(1)}%`} result={result} isNeutral />
                    <StatRow 
                      label="승:패" 
@@ -565,10 +565,12 @@ function MetricCard({ label, value, subValue, trend, colorClass }: { label: stri
   );
 }
 
-function StatRow({ label, value, result, isNeutral }: { label: string, value: string, result: any, isNeutral?: boolean }) {
-  const dynamicColor = isNeutral 
-    ? "text-white" 
-    : (value.includes("-") ? "text-main-blue" : (parseFloat(value) === 0 ? "text-white" : "text-main-red"));
+function StatRow({ label, value, result, isNeutral, colorOverride }: { label: string, value: string, result: any, isNeutral?: boolean, colorOverride?: string }) {
+  const dynamicColor = colorOverride 
+    ? colorOverride
+    : (isNeutral 
+        ? "text-white" 
+        : (value.includes("-") ? "text-main-blue" : (parseFloat(value) === 0 ? "text-white" : "text-main-red")));
 
   return (
     <div className="bg-[#111] rounded-lg px-3 pt-2 pb-0.5 flex flex-col justify-center">

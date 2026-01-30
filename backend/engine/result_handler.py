@@ -33,6 +33,7 @@ class ResultHandler:
         sl_pct = float(risk_params.get('stop_loss_pct') or 0)
         tp_pct = float(risk_params.get('take_profit_pct') or 0)
         ts_pct = float(risk_params.get('trailing_stop_pct') or 0)
+        max_hold = int(risk_params.get('max_holding_days') or 0)
 
         if len(pf.trades.records) > 0:
             vbt_trades = pf.trades.records_readable
@@ -119,23 +120,38 @@ class ResultHandler:
                             
                             if target_dt_x in sym_series_x.index:
                                 idx_in_sym_x = sym_series_x.index.get_loc(target_dt_x)
+                                
+                                # For 'next_open', the trade happens on the day AFTER the signal.
+                                # The reason we want is from the day the signal was generated.
                                 p_idx_x = idx_in_sym_x - 1 if exec_type == 'next_open' and idx_in_sym_x > 0 else idx_in_sym_x
                                 
                                 reasons_x = all_exit_reasons[sym]
                                 if 0 <= p_idx_x < len(reasons_x) and reasons_x[p_idx_x]:
                                     reason_kr = reasons_x[p_idx_x]
+                                    print(f"[DEBUG] Found specific exit reason: {reason_kr} for {sym} at {x_idx}")
                     except Exception as ex:
                         print(f"[DEBUG] Exit reason mapping failed for {sym} at {x_idx}: {str(ex)}")
 
                     def fmt_pct(v): return str(int(v)) if v == int(v) else str(v)
                     
                     # vectorbt exit_type mapping: 0:Signal, 1:SL, 2:TSL, 3:TP, 4:Time, 5:EndOfLife/Simulation
-                    if exit_type in [1]: reason_kr = f"손절매 실행 (-{fmt_pct(sl_pct)}%)" if sl_pct > 0 else "손절매 실행"
+                    # If it's a specific exit type from risk management, override the generic reason
+                    if exit_type == 1: reason_kr = f"손절매 실행 (-{fmt_pct(sl_pct)}%)" if sl_pct > 0 else "손절매 실행"
                     elif exit_type == 2: reason_kr = f"트레일링 스탑 (-{fmt_pct(ts_pct)}%)" if ts_pct > 0 else "트레일링 스탑 실행"
                     elif exit_type == 3: reason_kr = f"익절매 실행 (+{fmt_pct(tp_pct)}%)" if tp_pct > 0 else "익절매 실행"
                     elif exit_type == 4: reason_kr = "보유 기간 만료 (강제 청산)"
-                    elif exit_type == 5 or get_dt_str(x_idx) == get_dt_str(common_index[-1]):
-                        # If it's the last day and reason is default, it's a forced close
+                    elif (exit_type == 0 or exit_type == -1) and max_hold > 0:
+                        try:
+                            # Fallback for manual time-exits added to exits_df
+                            raw_record = raw_records.iloc[i]
+                            # records usually has entry_idx and exit_idx
+                            duration = int(raw_record['exit_idx'] - raw_record['entry_idx'])
+                            if duration >= max_hold:
+                                reason_kr = "보유 기간 만료 (강제 청산)"
+                        except: pass
+
+                    if exit_type == 5 or get_dt_str(x_idx) == get_dt_str(common_index[-1]):
+                        # Only label as "백테스트 종료" if we haven't found a specific reason from signals
                         if reason_kr == "전략 청산 시그널":
                             reason_kr = "백테스트 종료 (강제 청산)"
                     
