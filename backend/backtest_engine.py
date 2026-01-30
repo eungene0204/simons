@@ -37,6 +37,7 @@ class BacktestEngine:
             
             # Risk & Options
             risk_params = req.get('risk', {})
+            print(f"[DEBUG] BacktestEngine: Received risk_params: {risk_params}")
             init_cash = float(risk_params.get('init_cash') or 10000000.0)
             pos_size_pct = float(risk_params.get('position_size_pct') or 100.0)
             
@@ -103,15 +104,28 @@ class BacktestEngine:
                     entry_descs = [None] * data_len
                     exit_descs = [None] * data_len
                     
+                    # Core risk blocks that should be handled by the simulator, not as base signals
+                    RISK_STOP_BLOCKS = ['price_limit_exit', 'max_holding_days', 'trailing_stop']
+                    
+                    # Prepare filtered condition groups
+                    entry_config = {
+                        "logic": req['entry']['logic'],
+                        "conditions": [c for c in req['entry']['conditions'] if c['id'] not in RISK_STOP_BLOCKS]
+                    }
+                    exit_config = {
+                        "logic": req['exit']['logic'],
+                        "conditions": [c for c in req['exit']['conditions'] if c['id'] not in RISK_STOP_BLOCKS]
+                    }
+                    
                     for i in range(data_len):
-                        can_enter, entry_desc = self.signal_engine.evaluate_group(req['entry'], i, df_pl)
+                        can_enter, entry_desc = self.signal_engine.evaluate_group(entry_config, i, df_pl)
                         if can_enter and not liquidity_ok[i]:
                             can_enter = False
                             entry_desc = None
                         entries.append(can_enter)
                         entry_descs[i] = entry_desc
                         
-                        can_exit, exit_desc = self.signal_engine.evaluate_group(req['exit'], i, df_pl)
+                        can_exit, exit_desc = self.signal_engine.evaluate_group(exit_config, i, df_pl)
                         exits.append(can_exit)
                         exit_descs[i] = exit_desc
                     

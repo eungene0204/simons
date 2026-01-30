@@ -192,7 +192,7 @@ export default function BacktestChart({
           // Create buy & hold line series if data exists
           if (buyHoldChartData.length > 0) {
             const buyHoldSeries = chart.addSeries(LineSeries, {
-              color: "rgb(55, 122, 244)", // main-blue
+              color: "rgb(34, 197, 94)", // main-green
               lineWidth: 2,
               lineStyle: LineStyle.Solid,
               priceFormat: {
@@ -310,7 +310,7 @@ export default function BacktestChart({
            <span className="text-[10px] font-bold text-white">나의 전략</span>
         </div>
         <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
-           <div className="w-2.5 h-2.5 rounded-full bg-main-blue" />
+           <div className="w-2.5 h-2.5 rounded-full bg-main-green" />
            <span className="text-[10px] font-bold text-white">매수후보유</span>
         </div>
       </div>

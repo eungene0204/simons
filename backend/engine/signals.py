@@ -103,7 +103,13 @@ class SignalEngine:
             val, op = float(p.get('value') or 0), p.get('operator', '<')
             curr = safe_get(cid, idx)
             return compare(curr, op, val)
-            
+
+        elif cid in ['price_limit_exit', 'max_holding_days', 'trailing_stop']:
+            # These are handled natively by vectorbt using risk_params.
+            # Returning False here prevents them from interfering with other OR-based signals.
+            # If they are AND-ed, it will break the signal, which is usually correct for risk blocks.
+            return False 
+
         return False
 
     def get_condition_description(self, cond: Dict[str, Any]) -> str:

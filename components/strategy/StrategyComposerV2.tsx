@@ -256,10 +256,32 @@ export default function StrategyComposerV2({
 
 
 
-
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat("ko-KR").format(price);
   };
+
+  const getResolvedRisk = useCallback(() => {
+    let resolved = { 
+      ...riskManagement, 
+      max_positions: maxPositions,
+      allocation_type: allocationType,
+      position_size_pct: allocationType === 'equal' ? Math.floor(100 / maxPositions) : allocationValue
+    };
+
+    // Map risk blocks from canvas to specific risk parameters (Overrides Step 4)
+    canvasBlocks.forEach(b => {
+      if (b.blockId === 'price_limit_exit') {
+        if (b.params.stopLossPct) resolved.stop_loss_pct = b.params.stopLossPct;
+        if (b.params.takeProfitPct) resolved.take_profit_pct = b.params.takeProfitPct;
+      } else if (b.blockId === 'max_holding_days') {
+        if (b.params.value) resolved.max_holding_days = b.params.value;
+      } else if (b.blockId === 'trailing_stop') {
+        if (b.params.percentage) resolved.trailing_stop_pct = b.params.percentage;
+      }
+    });
+
+    return resolved;
+  }, [riskManagement, maxPositions, allocationType, allocationValue, canvasBlocks]);
 
   const runSimulation = useCallback(async (options: any) => {
     console.error("[DEBUG] StrategyComposerV2: runSimulation CALLED with options:", options);
@@ -306,10 +328,7 @@ export default function StrategyComposerV2({
           logic: exitLogic,
           conditions: exitConditionsMap
         },
-        risk: {
-          ...riskManagement,
-          max_positions: maxPositions, // Sync max_positions from Step 3 state
-        }
+        risk: getResolvedRisk()
       };
 
       const engine = new BacktestService();
@@ -321,7 +340,7 @@ export default function StrategyComposerV2({
     } finally {
       setIsBacktesting(false);
     }
-  }, [strategyName, universe, canvasBlocks, riskManagement, entryLogic, exitLogic, universeFilters, maxPositions, allocationType, allocationValue, executionTiming, rebalancingPeriod]);
+  }, [strategyName, universe, canvasBlocks, entryLogic, exitLogic, universeFilters, getResolvedRisk]);
 
   // Trigger simulation when entering step 5
 
@@ -430,10 +449,7 @@ export default function StrategyComposerV2({
         logic: exitLogic,
         conditions: exitConditionsMap,
       },
-      risk: {
-        ...riskManagement,
-        max_positions: maxPositions, // Sync max_positions from Step 3 state
-      },
+      risk: getResolvedRisk(),
       created_at: initialStrategy?.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -731,16 +747,31 @@ export default function StrategyComposerV2({
                   const blockDef = signalBlocks[b.blockId];
                   return blockDef ? blockDef.name : b.blockId;
                 }),
+                canvasBlocks: canvasBlocks, // Include blocks to ensure key changes on param update
                 riskSettings: {
                   maxPositions,
                   allocationType,
                 },
-                riskManagement: {
-                  stopLoss: riskManagement.stop_loss_pct,
-                  takeProfit: riskManagement.take_profit_pct,
-                  trailingStop: riskManagement.trailing_stop_pct,
-                  maxHoldingDays: riskManagement.max_holding_days,
-                }
+                riskManagement: (() => {
+                  // Resolved risk: global settings overridden by canvas blocks
+                  const resolved = {
+                    stopLoss: riskManagement.stop_loss_pct,
+                    takeProfit: riskManagement.take_profit_pct,
+                    trailingStop: riskManagement.trailing_stop_pct,
+                    maxHoldingDays: riskManagement.max_holding_days,
+                  };
+                  canvasBlocks.forEach(b => {
+                    if (b.blockId === 'price_limit_exit') {
+                      if (b.params.stopLossPct) resolved.stopLoss = b.params.stopLossPct;
+                      if (b.params.takeProfitPct) resolved.takeProfit = b.params.takeProfitPct;
+                    } else if (b.blockId === 'max_holding_days') {
+                      if (b.params.value) resolved.maxHoldingDays = b.params.value;
+                    } else if (b.blockId === 'trailing_stop') {
+                      if (b.params.percentage) resolved.trailingStop = b.params.percentage;
+                    }
+                  });
+                  return resolved;
+                })()
               }}
             />
           )}

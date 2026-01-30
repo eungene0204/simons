@@ -17,6 +17,7 @@ module.exports = {
         'brand-blue': 'rgb(59, 134, 247)',
         'main-blue': 'rgb(55, 122, 244)',
         'main-red': 'rgb(239, 68, 68)',
+        'main-green': 'rgb(34, 197, 94)',
         tab_black: 'rgb(37, 38, 46)',
       },
       animation: {
