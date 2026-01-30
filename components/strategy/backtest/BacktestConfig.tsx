@@ -68,6 +68,18 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
   const [startDate, setStartDate] = useState(initialConfig?.startDate || new Date(new Date().setFullYear(new Date().getFullYear() - 1)).toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(initialConfig?.endDate || new Date().toISOString().split('T')[0]);
 
+  // Sync with initialConfig if it changes (e.g. returning from dashboard)
+  useEffect(() => {
+    if (initialConfig) {
+      if (initialConfig.period) setPeriod(initialConfig.period);
+      if (initialConfig.initialCapital) setInitialCapital(initialConfig.initialCapital);
+      if (initialConfig.commissionPct !== undefined) setCommissionPct(initialConfig.commissionPct);
+      if (initialConfig.slippagePct !== undefined) setSlippagePct(initialConfig.slippagePct);
+      if (initialConfig.startDate) setStartDate(initialConfig.startDate);
+      if (initialConfig.endDate) setEndDate(initialConfig.endDate);
+    }
+  }, [initialConfig]);
+
   const periods = [
     { id: "6M", label: "6개월" },
     { id: "1Y", label: "1년" },
@@ -76,7 +88,6 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
     { id: "20Y", label: "20년" },
     { id: "custom", label: "직접 입력" },
   ];
-
   const handlePeriodChange = (id: string) => {
     setPeriod(id);
     if (id !== "custom") {
@@ -94,10 +105,6 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
       setEndDate(end.toISOString().split('T')[0]);
     }
   };
-
-  useEffect(() => {
-    console.error("[DEBUG] BacktestConfig component MOUNTED (v2)");
-  }, []);
 
   const handleRun = () => {
     console.error("[DEBUG] BacktestConfig: handleRun initiated");

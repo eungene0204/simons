@@ -104,9 +104,16 @@ export default function BacktestDashboard({
 
   const sortedSymbols = useMemo(() => {
     if (!result.symbols) return [];
-    const symbols = [...result.symbols];
+    
+    // 1. Filter out symbols with 0 trades
+    let symbols = result.symbols.filter(sym => {
+      const stats = result.perAssetStats?.[sym];
+      return stats && stats.trades > 0;
+    });
+
     if (!sortConfig.key) return symbols;
 
+    // 2. Sort remaining symbols
     return symbols.sort((a, b) => {
       const key = sortConfig.key;
       if (!key) return 0;
@@ -385,22 +392,12 @@ export default function BacktestDashboard({
                                </tr>
                              );
                           }) : (
-                            <tr className="border-b border-gray-800/50 hover:bg-white/5 transition-colors">
-                                <td className="p-4">
-                                   <div className="flex flex-col">
-                                      <span className="text-sm font-bold text-white">삼성전자</span>
-                                      <span className="text-xs text-gray-500 font-mono">{result.symbol}</span>
+                             <tr>
+                                <td colSpan={5} className="p-12 text-center text-gray-500">
+                                   <div className="flex flex-col items-center gap-2">
+                                      <ListBulletIcon className="w-8 h-8 opacity-20" />
+                                      <span className="text-sm font-medium">매매 결과가 있는 종목이 부재합니다.</span>
                                    </div>
-                                </td>
-                                <td className="p-4 text-sm text-gray-400">전기전자</td>
-                                <td className={`p-4 text-sm font-bold text-right ${(result.finalEquity - result.initialCapital) >= 0 ? 'text-white' : 'text-gray-400'}`}>
-                                   {formatKRW(result.finalEquity - result.initialCapital)}
-                                </td>
-                                <td className={`p-4 text-sm font-bold text-right ${(result.finalEquity - result.initialCapital) >= 0 ? 'text-white' : 'text-gray-400'}`}>
-                                   {result.totalReturn.toFixed(2)}%
-                                </td>
-                                <td className="p-4 text-sm text-white text-right font-mono">
-                                   {result.trades}회
                                 </td>
                              </tr>
                           )}
