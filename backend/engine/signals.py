@@ -104,11 +104,23 @@ class SignalEngine:
             curr = safe_get(cid, idx)
             return compare(curr, op, val)
 
-        elif cid in ['price_limit_exit', 'max_holding_days', 'trailing_stop']:
-            # These are handled natively by vectorbt using risk_params.
-            # Returning False here prevents them from interfering with other OR-based signals.
-            # If they are AND-ed, it will break the signal, which is usually correct for risk blocks.
-            return False 
+        elif cid == 'price_limit_exit':
+            c = safe_get('close', idx)
+            if c is None: return False
+            sl, tp = p.get('stopLoss'), p.get('takeProfit')
+            sl_mode, tp_mode = p.get('stopLossMode', 'pct'), p.get('takeProfitMode', 'pct')
+            
+            # We only handle fixed price (krw) mode here as signals.
+            # Percentage mode is handled by vbt's risk_params.
+            if sl_mode == 'krw' and sl is not None:
+                if c <= float(sl): return True
+            if tp_mode == 'krw' and tp is not None:
+                if c >= float(tp): return True
+            return False
+
+        elif cid == 'max_holding_days' or cid == 'trailing_stop':
+            # Pure risk blocks handled by simulator, return False to avoid signal interference
+            return False
 
         return False
 
@@ -137,6 +149,23 @@ class SignalEngine:
         elif cid == 'breakout':
             period = p.get('lookbackPeriod', 20)
             return f"{period}일 신고가 돌파" if p.get('signalType') != 'sell' else f"{period}일 신저가 돌파"
+        elif cid == 'price_limit_exit':
+            sl, tp = p.get('stopLoss'), p.get('takeProfit')
+            sl_m, tp_m = p.get('stopLossMode', 'pct'), p.get('takeProfitMode', 'pct')
+            reasons = []
+            if sl is not None:
+                unit = "원" if sl_m == 'krw' else "%"
+                reasons.append(f"현재가 {sl:,.0f}{unit} 이하")
+            if tp is not None:
+                unit = "원" if tp_m == 'krw' else "%"
+                reasons.append(f"현재가 {tp:,.0f}{unit} 이상")
+            return " 또는 ".join(reasons) if reasons else "가격 제한 청산"
+        elif cid == 'max_holding_days':
+            days = p.get('days', 0)
+            return f"최대 {days}일 보유 만료"
+        elif cid == 'trailing_stop':
+            pct = p.get('pips', 0)
+            return f"트레일링 스탑 {pct}%"
         elif cid in ['per', 'pbr', 'roe_or_gpa', 'debt_ratio', 'market_cap']:
             labels = {"per": "PER", "pbr": "PBR", "roe_or_gpa": "ROE/GPA", "debt_ratio": "부채비율", "market_cap": "시가총액"}
             label = labels.get(cid, cid.upper())
