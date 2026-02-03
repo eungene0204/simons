@@ -23,14 +23,23 @@ class DataLoader:
     def preprocess_data(self, df_pl: pl.DataFrame) -> pd.DataFrame:
         """OHLCV basic alignment and adjusting prices if needed."""
         pdf = df_pl.to_pandas()
-        pdf['raw_close_ref'] = pdf['close']
         
+        # 1. Handle Adjustment
         if 'adj_close' in pdf.columns:
             factor = pdf['adj_close'] / pdf['close']
             pdf['open'] *= factor
             pdf['high'] *= factor
             pdf['low'] *= factor
             pdf['close'] = pdf['adj_close']
+            
+        # 2. Robust Price Sanitization
+        # Replace non-positive or non-finite values with NaN
+        for col in ['open', 'high', 'low', 'close']:
+            if col in pdf.columns:
+                pdf.loc[pdf[col] <= 0, col] = np.nan
+                pdf.loc[~np.isfinite(pdf[col]), col] = np.nan
+                # Fill missing prices with previous ones, then next ones as fallback
+                pdf[col] = pdf[col].ffill().bfill()
             
         pdf.set_index('date', inplace=True)
         pdf.index = pd.to_datetime(pdf.index)
