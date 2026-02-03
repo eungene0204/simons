@@ -11,6 +11,7 @@ import {
   ArrowPathIcon,
   CheckBadgeIcon,
   ExclamationTriangleIcon,
+  InformationCircleIcon,
   ListBulletIcon,
   CheckIcon,
   ChevronUpIcon,
@@ -28,6 +29,20 @@ interface BacktestDashboardProps {
   isRunning?: boolean;
 }
 
+const METRIC_DESCRIPTIONS: Record<string, string> = {
+  cagr: "연평균수익률(Compound Annual Growth Rate). 전체 수익률을 연간 단위로 환산하여 복리 성장을 나타낸 지표입니다.",
+  mdd: "최대 낙폭(Maximum Drawdown). 특정 기간 동안 발생한 전고점 대비 최대 하락 비율로, 전략의 리스크를 측정합니다.",
+  sharpe: "샤프 지수. 위험 1단위당 얻은 초과 수익을 나타내며, 수치가 높을수록 위험 대비 수익 효율이 좋습니다.",
+  winRate: "백테스트 기간 동안 발생한 전체 거래 중 수익을 기록한 거래의 비율입니다.",
+  profitFactor: "손익비. 총 이익을 총 손실로 나눈 값으로, 1원 손실당 기대할 수 있는 수익금을 의미합니다.",
+  totalReturn: "백테스트 시작 시점부터 종료 시점까지의 전체 자산 변동 비율입니다.",
+  buyHold: "전략을 사용하지 않고 단순히 종목을 매수하여 보유했을 때의 수익률(벤치마크)입니다.",
+  volatility: "연간 변동성. 수익률의 표준편차를 연간 단위로 환산한 값으로, 변동폭이 클수록 위험이 높음을 의미합니다.",
+  sortino: "소르티노 지수. 하락 변동성(손실 위험)만을 고려한 위험 대비 수익 효율 지표입니다.",
+  kelly: "켈리 공식. 자산 대비 최적의 배팅 비율을 계산하는 모델로, 가산 비중 조절에 참고할 수 있습니다.",
+  winLoss: "수익 거래 횟수와 손실 거래 횟수의 비율입니다."
+};
+
 export default function BacktestDashboard({ 
   result, 
   onRestart, 
@@ -40,6 +55,7 @@ export default function BacktestDashboard({
   const [localOptions, setLocalOptions] = useState<BacktestConfigOptions | null>(currentOptions || null);
   const [stockMetadata, setStockMetadata] = useState<Record<string, { name: string, sector: string }>>({});
   const [sortConfig, setSortConfig] = useState<{ key: 'profit' | 'totalReturn' | 'trades' | null, direction: 'asc' | 'desc' }>({ key: null, direction: 'desc' });
+  const [hoveredMetric, setHoveredMetric] = useState<{ label: string, description: string, rect: DOMRect } | null>(null);
 
   useEffect(() => {
     const fetchStockMetadata = async () => {
@@ -201,30 +217,40 @@ export default function BacktestDashboard({
           value={`${result.cagr.toFixed(2)}%`} 
           subValue="CAGR" 
           trend={result.cagr > 0 ? "up" : "down"} 
+          description={METRIC_DESCRIPTIONS.cagr}
+          onHover={(rect) => setHoveredMetric(rect ? { label: "연평균수익률", description: METRIC_DESCRIPTIONS.cagr, rect } : null)}
         />
         <MetricCard 
           label="최대낙폭" 
           value={`${result.maxDrawdown.toFixed(2)}%`} 
           subValue="MDD" 
           trend="down"
+          description={METRIC_DESCRIPTIONS.mdd}
+          onHover={(rect) => setHoveredMetric(rect ? { label: "최대낙폭", description: METRIC_DESCRIPTIONS.mdd, rect } : null)}
         />
         <MetricCard 
           label="샤프지수" 
           value={result.sharpe.toFixed(2)} 
           subValue="위험 대비 성과" 
           trend={result.sharpe > 1 ? "up" : "neutral"} 
+          description={METRIC_DESCRIPTIONS.sharpe}
+          onHover={(rect) => setHoveredMetric(rect ? { label: "샤프지수", description: METRIC_DESCRIPTIONS.sharpe, rect } : null)}
         />
          <MetricCard 
           label="승률" 
           value={`${result.winRate.toFixed(1)}%`} 
           subValue={`총 ${result.trades}회 거래`} 
           trend={result.winRate > 50 ? "up" : "neutral"} 
+          description={METRIC_DESCRIPTIONS.winRate}
+          onHover={(rect) => setHoveredMetric(rect ? { label: "승률", description: METRIC_DESCRIPTIONS.winRate, rect } : null)}
         />
         <MetricCard 
           label="손익비" 
           value={result.profitFactor.toFixed(2)} 
           subValue="Profit Factor" 
           trend={result.profitFactor > 1.5 ? "up" : "neutral"} 
+          description={METRIC_DESCRIPTIONS.profitFactor}
+          onHover={(rect) => setHoveredMetric(rect ? { label: "손익비", description: METRIC_DESCRIPTIONS.profitFactor, rect } : null)}
         />
       </div>
 
@@ -315,10 +341,35 @@ export default function BacktestDashboard({
                </div>
                
                {/* Quick Stats Summary below chart */}
-               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4">
-                  <StatRow label="총 수익" value={formatKRW(result.finalEquity - result.initialCapital)} result={result} />
-                   <StatRow label="매수후보유" value={`${(result.buyAndHoldReturn || 0).toFixed(1)}%`} result={result} colorOverride="text-main-green" />
-                   <StatRow label="연간 변동성" value={`${(result.sharpe > 0 ? ((result.cagr || 0) / result.sharpe) : 0).toFixed(1)}%`} result={result} isNeutral />
+               <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-4">
+                  <StatRow 
+                    label="총 수익" 
+                    value={formatKRW(result.finalEquity - result.initialCapital)} 
+                    result={result} 
+                  />
+                  <StatRow 
+                    label="총수익률" 
+                    value={`${(result.totalReturn || 0).toFixed(1)}%`} 
+                    result={result} 
+                    description={METRIC_DESCRIPTIONS.totalReturn}
+                    onHover={(rect) => setHoveredMetric(rect ? { label: "총수익률", description: METRIC_DESCRIPTIONS.totalReturn, rect } : null)}
+                  />
+                   <StatRow 
+                     label="매수후보유" 
+                     value={`${(result.buyAndHoldReturn || 0).toFixed(1)}%`} 
+                     result={result} 
+                     colorOverride="text-main-green" 
+                     description={METRIC_DESCRIPTIONS.buyHold}
+                     onHover={(rect) => setHoveredMetric(rect ? { label: "매수후보유", description: METRIC_DESCRIPTIONS.buyHold, rect } : null)}
+                   />
+                   <StatRow 
+                     label="연간 변동성" 
+                     value={`${(result.sharpe > 0 ? ((result.cagr || 0) / result.sharpe) : 0).toFixed(1)}%`} 
+                     result={result} 
+                     isNeutral 
+                     description={METRIC_DESCRIPTIONS.volatility}
+                     onHover={(rect) => setHoveredMetric(rect ? { label: "연간 변동성", description: METRIC_DESCRIPTIONS.volatility, rect } : null)}
+                   />
                    <StatRow 
                      label="승:패" 
                      value={result.trades > 0 
@@ -326,6 +377,8 @@ export default function BacktestDashboard({
                        : "0 : 0"} 
                      result={result} 
                      isNeutral 
+                     description={METRIC_DESCRIPTIONS.winLoss}
+                     onHover={(rect) => setHoveredMetric(rect ? { label: "승:패", description: METRIC_DESCRIPTIONS.winLoss, rect } : null)}
                    />
                </div>
              </div>
@@ -465,8 +518,18 @@ export default function BacktestDashboard({
                      <div className="space-y-3">
                         <StatItem label="초기 자본" value={formatKRW(result.initialCapital)} />
                         <StatItem label="최종 자산" value={formatKRW(result.finalEquity)} />
-                        <StatItem label="소르티노 지수" value={result.sortino.toFixed(2)} />
-                        <StatItem label="켈리 공식" value={result.kelly.toFixed(2)} />
+                        <StatItem 
+                          label="소르티노 지수" 
+                          value={result.sortino.toFixed(2)} 
+                          description={METRIC_DESCRIPTIONS.sortino}
+                          onHover={(rect) => setHoveredMetric(rect ? { label: "소르티노 지수", description: METRIC_DESCRIPTIONS.sortino, rect } : null)}
+                        />
+                        <StatItem 
+                          label="켈리 공식" 
+                          value={result.kelly.toFixed(2)} 
+                          description={METRIC_DESCRIPTIONS.kelly}
+                          onHover={(rect) => setHoveredMetric(rect ? { label: "켈리 공식", description: METRIC_DESCRIPTIONS.kelly, rect } : null)}
+                        />
                        <StatItem label="알파 (KOSPI 대비)" value="-" sub="데이터 부족" />
                        <StatItem label="베타" value="-" sub="데이터 부족" />
                     </div>
@@ -547,25 +610,97 @@ export default function BacktestDashboard({
            )}
         </div>
       </div>
+
+      {hoveredMetric && (
+        <div 
+          className="fixed z-[1000] pointer-events-none" 
+          style={(() => {
+            const rect = hoveredMetric.rect;
+            const tooltipWidth = 256; // w-64 is 256px
+            let left = rect.left + rect.width / 2;
+            const padding = 16;
+
+            if (typeof window !== 'undefined') {
+              if (left - tooltipWidth / 2 < padding) {
+                left = tooltipWidth / 2 + padding;
+              } else if (left + tooltipWidth / 2 > window.innerWidth - padding) {
+                left = window.innerWidth - tooltipWidth / 2 - padding;
+              }
+            }
+
+            return { 
+              left: `${left}px`, 
+              top: `${rect.top - 8}px`,
+              transform: 'translate(-50%, -100%)'
+            };
+          })()}
+        >
+          <div className="w-64 p-4 bg-[#161616] rounded-2xl shadow-2xl animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-200 backdrop-blur-2xl border border-white/10">
+            <div className="text-[10px] text-main-blue font-bold uppercase tracking-widest mb-1.5 opacity-80">{hoveredMetric.label}</div>
+            <p className="text-xs text-white/75 font-bold leading-relaxed">{hoveredMetric.description}</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 // Sub-components for Cleaner Code
 
-function MetricCard({ label, value, subValue, trend, colorClass }: { label: string, value: string, subValue?: string, trend?: "up"|"down"|"neutral", colorClass?: string }) {
+function MetricCard({ 
+  label, 
+  value, 
+  subValue, 
+  trend, 
+  colorClass,
+  description,
+  onHover
+}: { 
+  label: string, 
+  value: string, 
+  subValue?: string, 
+  trend?: "up"|"down"|"neutral", 
+  colorClass?: string,
+  description?: string,
+  onHover?: (rect: DOMRect | null) => void
+}) {
   const dynamicColor = trend === "up" ? "text-main-red" : trend === "down" ? "text-main-blue" : (colorClass || "text-white");
       
   return (
     <div className="bg-[#111] border border-gray-800 p-2 md:p-3 rounded-xl flex flex-col justify-between hover:border-gray-700 transition-colors">
-      <div className="text-[10px] md:text-xs font-bold text-gray-500 uppercase tracking-widest mb-0.5">{label}</div>
+      <div className="flex items-center justify-between mb-0.5">
+        <div className="text-[10px] md:text-xs font-bold text-gray-500 uppercase tracking-widest">{label}</div>
+        {description && onHover && (
+           <InformationCircleIcon 
+             className="w-3.5 h-3.5 text-gray-600 hover:text-gray-400 cursor-help transition-colors"
+             onMouseEnter={(e) => onHover(e.currentTarget.getBoundingClientRect())}
+             onMouseLeave={() => onHover(null)}
+           />
+        )}
+      </div>
       <div className={`text-xl md:text-2xl xl:text-3xl font-black ${dynamicColor} tracking-tight`}>{value}</div>
       {subValue && <div className="text-[10px] md:text-[11px] text-gray-600 font-medium mt-0.5 truncate">{subValue}</div>}
     </div>
   );
 }
 
-function StatRow({ label, value, result, isNeutral, colorOverride }: { label: string, value: string, result: any, isNeutral?: boolean, colorOverride?: string }) {
+function StatRow({ 
+  label, 
+  value, 
+  result, 
+  isNeutral, 
+  colorOverride,
+  description,
+  onHover
+}: { 
+  label: string, 
+  value: string, 
+  result: any, 
+  isNeutral?: boolean, 
+  colorOverride?: string,
+  description?: string,
+  onHover?: (rect: DOMRect | null) => void
+}) {
   const dynamicColor = colorOverride 
     ? colorOverride
     : (isNeutral 
@@ -574,16 +709,46 @@ function StatRow({ label, value, result, isNeutral, colorOverride }: { label: st
 
   return (
     <div className="bg-[#111] rounded-lg px-3 pt-2 pb-0.5 flex flex-col justify-center">
-       <div className="text-xs text-gray-400 mb-0.5 font-bold">{label}</div>
+       <div className="flex items-center justify-between mb-0.5">
+          <div className="text-xs text-gray-400 font-bold">{label}</div>
+          {description && onHover && (
+             <InformationCircleIcon 
+               className="w-3 h-3 text-gray-700 hover:text-gray-500 cursor-help transition-colors"
+               onMouseEnter={(e) => onHover(e.currentTarget.getBoundingClientRect())}
+               onMouseLeave={() => onHover(null)}
+             />
+          )}
+       </div>
        <div className={`text-xl md:text-2xl font-black ${dynamicColor}`}>{value}</div>
     </div>
   );
 }
 
-function StatItem({ label, value, sub }: { label: string, value: string, sub?: string }) {
+function StatItem({ 
+  label, 
+  value, 
+  sub,
+  description,
+  onHover
+}: { 
+  label: string, 
+  value: string, 
+  sub?: string,
+  description?: string,
+  onHover?: (rect: DOMRect | null) => void
+}) {
    return (
       <div className="flex justify-between items-center py-1 border-b border-gray-800/50 last:border-none">
-         <span className="text-base text-gray-400 font-medium">{label}</span>
+         <div className="flex items-center gap-1.5">
+            <span className="text-base text-gray-400 font-medium">{label}</span>
+            {description && onHover && (
+               <InformationCircleIcon 
+                 className="w-4 h-4 text-gray-700 hover:text-gray-500 cursor-help transition-colors"
+                 onMouseEnter={(e) => onHover(e.currentTarget.getBoundingClientRect())}
+                 onMouseLeave={() => onHover(null)}
+               />
+            )}
+         </div>
          <div className="text-right">
             <div className="text-base font-bold text-white font-mono">{value}</div>
             {sub && <div className="text-xs text-gray-600">{sub}</div>}

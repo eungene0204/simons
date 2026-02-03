@@ -204,8 +204,9 @@ class BacktestEngine:
                 raise Exception("분석 가능한 유효한 데이터가 없습니다.")
 
             # 2. Vectorbt Simulation
-            price_df = pd.DataFrame(all_prices, index=common_index).ffill()
-            exec_price_df = pd.DataFrame(all_exec_prices, index=common_index).ffill()
+            # Final sanitization: ensure no NaNs or zeros in prices before reaching simulator
+            price_df = pd.DataFrame(all_prices, index=common_index).ffill().bfill()
+            exec_price_df = pd.DataFrame(all_exec_prices, index=common_index).ffill().bfill()
             entries_df = pd.DataFrame(all_entries, index=common_index).fillna(False)
             exits_df = pd.DataFrame(all_exits, index=common_index).fillna(False)
 
