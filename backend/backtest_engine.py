@@ -81,9 +81,18 @@ class BacktestEngine:
                         last_date = df_pl['date'].max()
                         ref_date = last_date if isinstance(last_date, datetime) else pd.to_datetime(last_date)
                         if start_date_req: df_pl = df_pl.filter(pl.col("date") >= pd.to_datetime(start_date_req))
-                        elif period_req == '6M': df_pl = df_pl.filter(pl.col("date") >= (ref_date - pd.DateOffset(months=6)))
-                        elif period_req == '1Y': df_pl = df_pl.filter(pl.col("date") >= (ref_date - pd.DateOffset(years=1)))
-                        elif period_req == '5Y': df_pl = df_pl.filter(pl.col("date") >= (ref_date - pd.DateOffset(years=5)))
+                        elif period_req == '6M': 
+                            df_pl = df_pl.filter(pl.col("date") >= (ref_date - pd.DateOffset(months=6)))
+                        elif period_req == '1Y': 
+                            df_pl = df_pl.filter(pl.col("date") >= (ref_date - pd.DateOffset(years=1)))
+                        elif period_req == '5Y': 
+                            df_pl = df_pl.filter(pl.col("date") >= pd.Timestamp(year=ref_date.year - 4, month=1, day=1))
+                        elif period_req == '10Y':
+                            df_pl = df_pl.filter(pl.col("date") >= pd.Timestamp(year=ref_date.year - 9, month=1, day=1))
+                        elif period_req == '20Y':
+                            df_pl = df_pl.filter(pl.col("date") >= pd.Timestamp(year=ref_date.year - 19, month=1, day=1))
+                        elif period_req == '3Y': # Fallback for Step 5 dashboard convenience
+                            df_pl = df_pl.filter(pl.col("date") >= pd.Timestamp(year=ref_date.year - 2, month=1, day=1))
                         if end_date_req: df_pl = df_pl.filter(pl.col("date") <= pd.to_datetime(end_date_req))
 
                     if len(df_pl) < 1:

@@ -468,48 +468,26 @@ export default function BacktestDashboard({
            {/* Stats View (Heatmap + Detailed Grid) */}
            {activeTab === "stats" && (
              <div className="h-full overflow-y-auto custom-scrollbar p-6 space-y-8">
-               
-                <div>
-                  <h4 className="text-base font-bold text-white mb-4 flex items-center gap-2">
-                    <TableCellsIcon className="w-4 h-4 text-gray-500" /> 월별 수익률 상세 (연도/월)
-                  </h4>
-                  <div className="overflow-x-auto custom-scrollbar rounded-xl overflow-hidden">
-                    <table className="w-full border-collapse text-sm">
-                      <thead className="bg-[#1a1a1a] text-white font-bold">
-                        <tr>
-                          <th className="p-2 text-center min-w-[60px] text-sm">연도</th>
-                          {Array.from({length: 12}).map((_, i) => (
-                            <th key={i} className="p-2 text-center min-w-[50px] text-sm font-mono">{i+1}월</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="bg-[#111]">
-                        {availableYears.map(year => (
-                          <tr key={year} className="hover:bg-white/5 transition-colors">
-                            <td className="p-2 py-3 font-mono text-gray-400 font-bold bg-[#161616] text-center">{year}</td>
-                            {Array.from({length: 12}).map((_, i) => {
-                              const month = (i + 1).toString();
-                              const val = monthlyReturns[year][month];
-                              return (
-                                <td key={i} className="p-1">
-                                  <div className={`w-full py-1.5 flex items-center justify-center text-sm font-black font-mono ${
-                                    val > 0 
-                                      ? `text-[#ef4444]` 
-                                      : val < 0 
-                                        ? `text-[#377af4]`
-                                        : `text-gray-500`
-                                  }`}>
-                                    {val !== undefined ? `${val > 0 ? '+' : ''}${val.toFixed(1)}%` : '-'}
-                                  </div>
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+                               <div>
+                   <h4 className="text-base font-bold text-white mb-4 flex items-center gap-2">
+                     <ChartBarIcon className="w-4 h-4 text-gray-500" /> 월별 수익률 추이 (Monthly Returns)
+                   </h4>
+                   <div className="h-[350px] md:h-[500px] xl:h-[600px] bg-[#0a0a0f] rounded-xl overflow-hidden relative border border-gray-800/50">
+                      <BacktestChart 
+                        type="seasonal_returns"
+                        seasonalData={(() => {
+                           const years = Object.keys(monthlyReturns).sort();
+                           return years.map(year => ({
+                              year,
+                              data: Object.keys(monthlyReturns[year]).sort((a,b) => Number(a)-Number(b)).map(month => ({
+                                 time: `${year}-${month.padStart(2, '0')}-01`,
+                                 value: monthlyReturns[year][month]
+                              }))
+                           }));
+                        })()}
+                      />
+                   </div>
+                 </div>
 
                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                  {/* Risk Stats */}
@@ -530,8 +508,6 @@ export default function BacktestDashboard({
                           description={METRIC_DESCRIPTIONS.kelly}
                           onHover={(rect) => setHoveredMetric(rect ? { label: "켈리 공식", description: METRIC_DESCRIPTIONS.kelly, rect } : null)}
                         />
-                       <StatItem label="알파 (KOSPI 대비)" value="-" sub="데이터 부족" />
-                       <StatItem label="베타" value="-" sub="데이터 부족" />
                     </div>
                  </div>
                  
@@ -540,10 +516,10 @@ export default function BacktestDashboard({
                     <h5 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">매매 통계</h5>
                     <div className="space-y-3">
                        <StatItem label="총 매매 횟수" value={result.trades.toString()} />
-                       <StatItem label="평균 수익" value="--" />
-                       <StatItem label="평균 손실" value="--" />
-                       <StatItem label="최대 연속 수익" value="--" />
-                       <StatItem label="최대 연속 손실" value="--" />
+                       <StatItem label="평균 수익" value={formatKRW(result.avgProfit || 0)} />
+                       <StatItem label="평균 손실" value={formatKRW(result.avgLoss || 0)} />
+                       <StatItem label="최대 연속 수익" value={`${result.maxConsecutiveWins || 0}회`} />
+                       <StatItem label="최대 연속 손실" value={`${result.maxConsecutiveLosses || 0}회`} />
                     </div>
                  </div>
                </div>
@@ -738,7 +714,7 @@ function StatItem({
   onHover?: (rect: DOMRect | null) => void
 }) {
    return (
-      <div className="flex justify-between items-center py-1 border-b border-gray-800/50 last:border-none">
+      <div className="flex justify-between items-center py-1">
          <div className="flex items-center gap-1.5">
             <span className="text-base text-gray-400 font-medium">{label}</span>
             {description && onHover && (

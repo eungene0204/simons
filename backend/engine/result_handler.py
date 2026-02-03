@@ -216,6 +216,11 @@ class ResultHandler:
         
         avg_win = cls.safe(pf.trades.winning.pnl.mean())
         avg_loss = abs(cls.safe(pf.trades.losing.pnl.mean()))
+        
+        # New detailed stats
+        max_consecutive_wins = int(cls.safe(pf.trades.winning_streak.max()))
+        max_consecutive_losses = int(cls.safe(pf.trades.losing_streak.max()))
+        
         r = avg_win / avg_loss if avg_loss > 0 else 0.0
         w = agg_win_rate / 100
         kelly = w - (1 - w) / r if r > 0 else 0.0
@@ -229,15 +234,22 @@ class ResultHandler:
             cagrs = pf.annualized_return(group_by=False)
             mdds = pf.max_drawdown(group_by=False)
 
+            def get_val(obj, i):
+                if isinstance(obj, (pd.Series, pd.Index, np.ndarray, list)):
+                    return obj[i] if len(obj) > i else 0.0
+                if isinstance(obj, pd.DataFrame):
+                    return obj.iloc[:, i].iloc[0] if obj.shape[1] > i else 0.0
+                return obj if i == 0 else 0.0
+
             for i, sym in enumerate(processed_symbols):
                 per_asset_stats[sym] = {
                     "symbol": sym,
-                    "totalReturn": cls.safe(returns.iloc[i] if len(returns) > i else 0.0) * 100,
-                    "trades": int(cls.safe(counts.iloc[i] if len(counts) > i else 0.0)),
-                    "winRate": cls.safe(wins.iloc[i] if len(wins) > i else 0.0) * 100,
-                    "profit": cls.safe(profits.iloc[i] if len(profits) > i else 0.0),
-                    "cagr": cls.safe(cagrs.iloc[i] if len(cagrs) > i else 0.0) * 100,
-                    "maxDrawdown": cls.safe(mdds.iloc[i] if len(mdds) > i else 0.0) * 100
+                    "totalReturn": cls.safe(get_val(returns, i)) * 100,
+                    "trades": int(cls.safe(get_val(counts, i))),
+                    "winRate": cls.safe(get_val(wins, i)) * 100,
+                    "profit": cls.safe(get_val(profits, i)),
+                    "cagr": cls.safe(get_val(cagrs, i)) * 100,
+                    "maxDrawdown": cls.safe(get_val(mdds, i)) * 100
                 }
 
         def to_list(obj):
@@ -265,6 +277,10 @@ class ResultHandler:
             "maxDrawdown": cls.safe(pf.max_drawdown()) * 100,
             "winRate": agg_win_rate,
             "trades": total_trades,
+            "avgProfit": avg_win,
+            "avgLoss": avg_loss,
+            "maxConsecutiveWins": max_consecutive_wins,
+            "maxConsecutiveLosses": max_consecutive_losses,
             "profitFactor": cls.safe(pf.trades.profit_factor()),
             "sharpe": cls.safe(pf.sharpe_ratio()),
             "sortino": cls.safe(pf.sortino_ratio()),
@@ -275,6 +291,6 @@ class ResultHandler:
             "dates": [d.strftime('%Y-%m-%d') for d in common_index],
             "signals": signals_list,
             "perAssetStats": per_asset_stats,
-            "version": "6.2 (Optimized)"
+            "version": "6.3 (Detailed Stats)"
         }
         return sanitize(res)

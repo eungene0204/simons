@@ -68,6 +68,10 @@ class BacktestResponse(BaseModel):
     kelly: Optional[float] = 0.0
     volatility: float
     trades: int
+    avgProfit: Optional[float] = 0.0
+    avgLoss: Optional[float] = 0.0
+    maxConsecutiveWins: Optional[int] = 0
+    maxConsecutiveLosses: Optional[int] = 0
     equity: List[float]
     benchmark_equity: Optional[List[float]] = Field(default_factory=list)
     dates: List[str]

@@ -112,6 +112,10 @@ export class BacktestService {
         })),
         perAssetStats: pythonResult.perAssetStats,
         warnings: pythonResult.warnings,
+        avgProfit: pythonResult.avgProfit,
+        avgLoss: pythonResult.avgLoss,
+        maxConsecutiveWins: pythonResult.maxConsecutiveWins,
+        maxConsecutiveLosses: pythonResult.maxConsecutiveLosses,
       };
     } catch (error: any) {
       console.error("Backtest integration error:", error);
