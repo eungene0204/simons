@@ -110,6 +110,10 @@ export interface BacktestResult {
   calmar?: number;
   kelly: number;
   trades: number;
+  avgProfit?: number;
+  avgLoss?: number;
+  maxConsecutiveWins?: number;
+  maxConsecutiveLosses?: number;
   finalEquity: number;
   initialCapital: number;
   equity: number[];
