@@ -104,18 +104,57 @@ class BacktestEngine:
                     entry_descs = [None] * data_len
                     exit_descs = [None] * data_len
                     
-                    # Core risk blocks that should be handled by the simulator, not as base signals
-                    RISK_STOP_BLOCKS = ['price_limit_exit', 'max_holding_days', 'trailing_stop']
+                    # Core risk blocks that should be handled by the simulator strictly
+                    SIMULATOR_ONLY_BLOCKS = ['max_holding_days', 'trailing_stop']
                     
-                    # Prepare filtered condition groups
-                    entry_config = {
-                        "logic": req['entry']['logic'],
-                        "conditions": [c for c in req['entry']['conditions'] if c['id'] not in RISK_STOP_BLOCKS]
-                    }
-                    exit_config = {
-                        "logic": req['exit']['logic'],
-                        "conditions": [c for c in req['exit']['conditions'] if c['id'] not in RISK_STOP_BLOCKS]
-                    }
+                    # Extract Risk Params recursively from Step 2 Strategy
+                    pure_percentage_exits = set()
+
+                    def extract_risk_from_group(group):
+                        if not group or 'conditions' not in group: return
+                        for cond in group['conditions']:
+                            if 'conditions' in cond: # Nested group
+                                extract_risk_from_group(cond)
+                                continue
+                                
+                            cid = cond.get('id')
+                            p = cond.get('params', {})
+                            
+                            if cid == 'price_limit_exit':
+                                sl, tp = p.get('stopLoss'), p.get('takeProfit')
+                                sl_m, tp_m = p.get('stopLossMode', 'pct'), p.get('takeProfitMode', 'pct')
+                                is_pct = False
+                                if sl_m == 'pct' and sl:
+                                    risk_params['stop_loss_pct'] = sl
+                                    is_pct = True
+                                if tp_m == 'pct' and tp:
+                                    risk_params['take_profit_pct'] = tp
+                                    is_pct = True
+                                if is_pct: pure_percentage_exits.add(id(cond))
+
+                            elif cid == 'max_holding_days':
+                                if p.get('maxHoldingDays'): risk_params['max_holding_days'] = p['maxHoldingDays']
+                            elif cid == 'trailing_stop':
+                                if p.get('trailingStop'): risk_params['trailing_stop_pct'] = p['trailingStop']
+
+                    extract_risk_from_group(req['entry'])
+                    extract_risk_from_group(req['exit'])
+
+                    # Prepare filtered condition groups (clean signals)
+                    def filter_risk_blocks(group):
+                        if not group: return None
+                        new_conds = []
+                        for c in group.get('conditions', []):
+                            if 'conditions' in c: # Nested group
+                                filtered_sub = filter_risk_blocks(c)
+                                if filtered_sub and filtered_sub['conditions']:
+                                    new_conds.append(filtered_sub)
+                            elif c['id'] not in SIMULATOR_ONLY_BLOCKS and id(c) not in pure_percentage_exits:
+                                new_conds.append(c)
+                        return {**group, "conditions": new_conds}
+
+                    entry_config = filter_risk_blocks(req['entry'])
+                    exit_config = filter_risk_blocks(req['exit'])
                     
                     for i in range(data_len):
                         can_enter, entry_desc = self.signal_engine.evaluate_group(entry_config, i, df_pl)
@@ -147,8 +186,8 @@ class BacktestEngine:
                     all_exec_prices[sym] = exec_prices
                     all_entries[sym] = entries_exec
                     all_exits[sym] = exits_exec
-                    all_entry_reasons[sym] = entry_descs
-                    all_exit_reasons[sym] = exit_descs
+                    all_entry_reasons[sym] = pd.Series(entry_descs, index=pdf.index)
+                    all_exit_reasons[sym] = pd.Series(exit_descs, index=pdf.index)
                     processed_symbols.append(sym)
                     
                     if common_index is None: common_index = pdf.index
@@ -171,6 +210,10 @@ class BacktestEngine:
             exits_df = pd.DataFrame(all_exits, index=common_index).fillna(False)
 
             pf = Simulator.run(price_df, exec_price_df, entries_df, exits_df, risk_params, options)
+
+            # Check for zero trades
+            if len(pf.trades) == 0:
+                self.warnings.add("매매 조건에 부합하는 종목이 없어 매매 기록이 생성되지 않았습니다. 매수 조건을 확인해 주세요.")
 
             # 3. Format Results
             final_res = self.handler.format_results(
