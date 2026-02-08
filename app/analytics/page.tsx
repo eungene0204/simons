@@ -39,7 +39,6 @@ function AnalyticsContent() {
   const [strategy, setStrategy] = useState<StrategyDSL | null>(null);
   const [savedStrategies, setSavedStrategies] = useState<StrategyDSL[]>([]);
   const [showComposer, setShowComposer] = useState(false);
-
   const [showFusionModal, setShowFusionModal] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedForFusion, setSelectedForFusion] = useState<Set<string>>(new Set());

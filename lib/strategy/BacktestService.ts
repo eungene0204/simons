@@ -7,7 +7,7 @@ export class BacktestService {
   async run(strategy: StrategyDSL, options: BacktestConfigOptions): Promise<BacktestResult> {
     console.error("[DEBUG] BacktestService: run method START");
     // 1. Identify required symbols
-    const symbols = UniverseResolver.getSymbols(
+    const symbols = await UniverseResolver.getSymbols(
       strategy.universe.id, 
       strategy.universe.filters
     );

@@ -1,0 +1,180 @@
+components/strategy/backtest/BacktestDashboard.tsx(1,32): error TS2307: Cannot find module '@/types/strategy' or its corresponding type declarations.
+components/strategy/backtest/BacktestDashboard.tsx(2,26): error TS2307: Cannot find module '@/components/strategy/NextGenChart' or its corresponding type declarations.
+components/strategy/backtest/BacktestDashboard.tsx(3,28): error TS2307: Cannot find module '@/components/strategy/BentoNarrative' or its corresponding type declarations.
+components/strategy/backtest/BacktestDashboard.tsx(4,29): error TS2307: Cannot find module '@/components/strategy/SyncedDataTable' or its corresponding type declarations.
+components/strategy/backtest/BacktestDashboard.tsx(5,49): error TS2307: Cannot find module '@/contexts/DashboardContext' or its corresponding type declarations.
+components/strategy/backtest/BacktestDashboard.tsx(6,39): error TS2307: Cannot find module '@/components/strategy/backtest/BacktestConfig' or its corresponding type declarations.
+components/strategy/backtest/BacktestDashboard.tsx(64,5): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/backtest/BacktestDashboard.tsx(66,7): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/backtest/BacktestDashboard.tsx(69,7): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/backtest/BacktestDashboard.tsx(71,9): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/backtest/BacktestDashboard.tsx(72,11): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/backtest/BacktestDashboard.tsx(79,15): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/backtest/BacktestDashboard.tsx(89,19): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/backtest/BacktestDashboard.tsx(95,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/backtest/BacktestDashboard.tsx(96,19): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/backtest/BacktestDashboard.tsx(103,11): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/backtest/BacktestDashboard.tsx(104,14): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/backtest/BacktestDashboard.tsx(105,18): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/backtest/BacktestDashboard.tsx(111,19): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/backtest/BacktestDashboard.tsx(123,9): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/backtest/BacktestDashboard.tsx(124,11): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/backtest/BacktestDashboard.tsx(125,13): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/backtest/BacktestDashboard.tsx(134,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/backtest/BacktestDashboard.tsx(135,19): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/backtest/BacktestDashboard.tsx(136,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/backtest/BacktestDashboard.tsx(138,19): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/backtest/BacktestDashboard.tsx(143,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/backtest/BacktestDashboard.tsx(148,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/backtest/BacktestDashboard.tsx(149,19): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/backtest/BacktestDashboard.tsx(150,19): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/backtest/BacktestDashboard.tsx(163,5): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/backtest/BacktestDashboard.tsx(164,7): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/BentoNarrative.tsx(3,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+components/strategy/BentoNarrative.tsx(5,20): error TS2307: Cannot find module '@/lib/utils' or its corresponding type declarations.
+components/strategy/BentoNarrative.tsx(27,5): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/BentoNarrative.tsx(37,7): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/BentoNarrative.tsx(38,9): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/BentoNarrative.tsx(39,11): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/BentoNarrative.tsx(40,13): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/BentoNarrative.tsx(44,15): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/BentoNarrative.tsx(45,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/BentoNarrative.tsx(46,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/BentoNarrative.tsx(47,20): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/BentoNarrative.tsx(54,11): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/BentoNarrative.tsx(63,11): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/BentoNarrative.tsx(64,13): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/BentoNarrative.tsx(68,24): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/BentoNarrative.tsx(69,26): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/BentoNarrative.tsx(77,7): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/BentoNarrative.tsx(87,5): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/BentoNarrative.tsx(89,7): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/BentoNarrative.tsx(98,7): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/BentoNarrative.tsx(109,7): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/BentoNarrative.tsx(117,7): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/BentoNarrative.tsx(125,7): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/BentoNarrative.tsx(133,7): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/NextGenChart.tsx(3,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+components/strategy/NextGenChart.tsx(39,5): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/NextGenChart.tsx(40,7): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/NextGenChart.tsx(47,9): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/NextGenChart.tsx(55,9): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/NextGenChart.tsx(64,9): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/NextGenChart.tsx(75,9): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/NextGenChart.tsx(87,11): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/NextGenChart.tsx(98,9): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/NextGenChart.tsx(109,9): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/NextGenChart.tsx(119,15): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/NextGenChart.tsx(120,18): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/NextGenChart.tsx(129,22): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/NextGenChart.tsx(130,24): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/NextGenChart.tsx(131,27): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/NextGenChart.tsx(132,27): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/NextGenChart.tsx(134,24): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/NextGenChart.tsx(153,5): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/NextGenChart.tsx(154,7): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/NextGenChart.tsx(155,9): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/NextGenChart.tsx(157,13): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/NextGenChart.tsx(163,7): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/NextGenChart.tsx(164,9): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/NextGenChart.tsx(166,13): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/NextGenChart.tsx(173,15): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/NextGenChart.tsx(184,15): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/SyncedDataTable.tsx(3,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+components/strategy/SyncedDataTable.tsx(10,20): error TS2307: Cannot find module '@/lib/utils' or its corresponding type declarations.
+components/strategy/SyncedDataTable.tsx(11,30): error TS2307: Cannot find module '@/contexts/DashboardContext' or its corresponding type declarations.
+components/strategy/SyncedDataTable.tsx(31,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/SyncedDataTable.tsx(35,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/SyncedDataTable.tsx(40,9): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/SyncedDataTable.tsx(50,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/SyncedDataTable.tsx(56,16): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/SyncedDataTable.tsx(61,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/SyncedDataTable.tsx(72,5): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/SyncedDataTable.tsx(73,7): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/SyncedDataTable.tsx(74,9): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/SyncedDataTable.tsx(75,11): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/SyncedDataTable.tsx(77,15): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/SyncedDataTable.tsx(79,19): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/SyncedDataTable.tsx(86,11): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/SyncedDataTable.tsx(93,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+components/strategy/SyncedDataTable.tsx(101,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+node_modules/@types/node/buffer.d.ts(631,19): error TS2430: Interface 'Buffer' incorrectly extends interface 'Uint8Array<ArrayBufferLike>'.
+  The types of 'slice(...).buffer' are incompatible between these types.
+    Type 'ArrayBufferLike' is not assignable to type 'ArrayBuffer'.
+      Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer'.
+        Types of property '[Symbol.toStringTag]' are incompatible.
+          Type '"SharedArrayBuffer"' is not assignable to type '"ArrayBuffer"'.
+node_modules/@types/node/fs/promises.d.ts(56,66): error TS2344: Type 'Buffer' does not satisfy the constraint 'ArrayBufferView'.
+  Type 'Buffer' is not assignable to type 'Uint8Array<ArrayBufferLike> | DataView<ArrayBufferLike>'.
+    Type 'Buffer' is not assignable to type 'Uint8Array<ArrayBufferLike>'.
+      The types of 'slice(...).buffer' are incompatible between these types.
+        Type 'ArrayBufferLike' is not assignable to type 'ArrayBuffer'.
+          Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer'.
+            Types of property '[Symbol.toStringTag]' are incompatible.
+              Type '"SharedArrayBuffer"' is not assignable to type '"ArrayBuffer"'.
+node_modules/@types/node/fs/promises.d.ts(238,49): error TS2344: Type 'Buffer' does not satisfy the constraint 'ArrayBufferView'.
+  Type 'Buffer' is not assignable to type 'Uint8Array<ArrayBufferLike> | DataView<ArrayBufferLike>'.
+    Type 'Buffer' is not assignable to type 'Uint8Array<ArrayBufferLike>'.
+      The types of 'slice(...).buffer' are incompatible between these types.
+        Type 'ArrayBufferLike' is not assignable to type 'ArrayBuffer'.
+          Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer'.
+            Types of property '[Symbol.toStringTag]' are incompatible.
+              Type '"SharedArrayBuffer"' is not assignable to type '"ArrayBuffer"'.
+node_modules/@visx/annotation/lib/components/Annotation.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/annotation/lib/components/CircleSubject.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/annotation/lib/components/Connector.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/annotation/lib/components/EditableAnnotation.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/annotation/lib/components/Label.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/annotation/lib/components/LineSubject.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/brush/lib/BaseBrush.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/brush/lib/Brush.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/brush/lib/BrushHandle.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/drag/lib/Drag.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/drag/lib/useDrag.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/gradient/lib/gradients/LinearGradient.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/gradient/lib/gradients/RadialGradient.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/grid/lib/grids/GridColumns.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/grid/lib/grids/GridRows.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/responsive/lib/components/ParentSize.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/responsive/lib/components/ScaleSVG.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/responsive/lib/enhancers/withParentSize.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/responsive/lib/enhancers/withScreenSize.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/shape/lib/shapes/Arc.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/shape/lib/shapes/Bar.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/shape/lib/shapes/BarGroup.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/shape/lib/shapes/BarGroupHorizontal.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/shape/lib/shapes/BarRounded.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/shape/lib/shapes/Circle.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/shape/lib/shapes/Line.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/shape/lib/shapes/LinePath.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/shape/lib/shapes/LineRadial.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/shape/lib/shapes/Pie.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/shape/lib/shapes/Polygon.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/shape/lib/shapes/SplitLinePath.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/shape/lib/shapes/Stack.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/tooltip/lib/hooks/useTooltipInPortal.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/tooltip/lib/Portal.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/tooltip/lib/tooltips/Tooltip.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/xychart/lib/components/annotation/AnnotationLineSubject.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/xychart/lib/components/annotation/private/BaseAnnotation.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/xychart/lib/components/axis/BaseAxis.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/xychart/lib/components/grid/BaseGrid.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/xychart/lib/components/series/AnimatedGlyphSeries.d.ts(2,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/xychart/lib/components/series/GlyphSeries.d.ts(2,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/xychart/lib/components/series/private/BaseAreaSeries.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/xychart/lib/components/series/private/BaseAreaStack.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/xychart/lib/components/series/private/BaseBarGroup.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/xychart/lib/components/series/private/BaseBarSeries.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/xychart/lib/components/series/private/BaseBarStack.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/xychart/lib/components/series/private/BaseGlyphSeries.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/xychart/lib/components/series/private/BaseLineSeries.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/xychart/lib/components/Tooltip.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/xychart/lib/components/XYChart.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/xychart/lib/context/DataContext.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/xychart/lib/context/ThemeContext.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/xychart/lib/enhancers/withRegisteredData.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/xychart/lib/providers/DataProvider.d.ts(2,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/xychart/lib/providers/EventEmitterProvider.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/xychart/lib/providers/ThemeProvider.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/xychart/lib/providers/TooltipProvider.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@visx/xychart/lib/types/theme.d.ts(1,8): error TS1259: Module '"/Users/eugene/nullalgo/simons/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag

@@ -4,6 +4,10 @@ import DrawerProviderWrapper from "@/components/drawer/DrawerProviderWrapper";
 import DrawerPortal from "@/components/drawer/DrawerPortal";
 import TopMenuBar from "@/components/layout/TopMenuBar";
 import ScrollToTop from "@/components/layout/ScrollToTop";
+import { Inter, Outfit } from "next/font/google";
+
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+const outfit = Outfit({ subsets: ["latin"], variable: "--font-outfit" });
 
 export const metadata: Metadata = {
   title: "널스탁 - 주식투자 도움",
@@ -16,8 +20,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="ko">
-      <body className="page-transition bg-[#0f0f0f] text-white">
+    <html lang="ko" className={`${inter.variable} ${outfit.variable}`}>
+      <body className="page-transition bg-[#050505] text-white font-inter antialiased">
         <ScrollToTop />
         <DrawerProviderWrapper>
           <TopMenuBar />

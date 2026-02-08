@@ -11,6 +11,7 @@ import {
   MagnifyingGlassIcon,
   PresentationChartLineIcon,
   UsersIcon,
+  SparklesIcon,
 } from "@heroicons/react/24/outline";
 import {
   Squares2X2Icon as Squares2X2IconSolid,
@@ -247,7 +248,7 @@ function SidebarComponent({
   }
 
   return (
-    <nav className="bg-[#0f0f0f] flex items-center gap-1 px-4 py-2 overflow-x-auto">
+    <nav className="bg-black/40 backdrop-blur-xl border-b border-white/5 flex items-center gap-1 px-6 py-3 overflow-x-auto scrollbar-hide">
       {/* Logo */}
       <Link
         href={
@@ -257,12 +258,12 @@ function SidebarComponent({
             ? "/?watchlist=open"
             : "/"
         }
-        className="flex items-center gap-2 mr-4 flex-shrink-0"
+        className="flex items-center gap-3 mr-8 flex-shrink-0 group"
       >
-        <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-sm">
+        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-black text-lg shadow-[0_0_15px_rgba(59,130,246,0.3)] group-hover:scale-105 transition-transform duration-300">
           N
         </div>
-        <p className="text-sm font-semibold text-white">널스탁</p>
+        <p className="text-sm font-black text-white tracking-tighter font-outfit uppercase">널스탁</p>
       </Link>
 
       {/* Menu Items */}
@@ -276,18 +277,18 @@ function SidebarComponent({
               key={item.id}
               href={item.href}
               onClick={(e) => handleMenuClick(item, e)}
-              className={`relative flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200 whitespace-nowrap ${
+              className={`relative flex items-center gap-2 px-4 py-2 rounded-xl transition-all duration-300 whitespace-nowrap group ${
                 isActive
-                  ? "!bg-[#252525] !text-white font-semibold"
-                  : "text-gray-400 hover:bg-gray-900"
+                  ? "bg-white/10 text-white shadow-lg border border-white/5"
+                  : "text-gray-500 hover:text-gray-300 hover:bg-white/[0.02]"
               }`}
             >
               <IconComponent
-                className={`w-5 h-5 ${isActive ? "text-white" : ""}`}
+                className={`w-4.5 h-4.5 transition-colors ${isActive ? "text-blue-400" : "group-hover:text-blue-400"}`}
               />
               <span
-                className={`text-sm ${
-                  isActive ? "font-semibold" : "font-medium"
+                className={`text-sm tracking-tight ${
+                  isActive ? "font-black" : "font-bold"
                 }`}
               >
                 {item.label}
@@ -298,29 +299,21 @@ function SidebarComponent({
       </div>
 
       {/* Search Bar */}
-      <div className="flex items-center gap-2 ml-auto mr-2">
+      <div className="flex items-center gap-2 ml-auto mr-4">
         <div
           onClick={handleSearchClick}
-          className="relative flex items-center bg-[#1a1a1a] border border-gray-800 rounded-lg px-3 py-1.5 min-w-[200px] cursor-pointer hover:bg-[#252525] transition-colors"
+          className="relative flex items-center bg-white/5 border border-white/5 rounded-xl px-4 py-1.5 min-w-[220px] cursor-pointer hover:bg-white/10 transition-all group"
         >
-          <MagnifyingGlassIcon className="w-4 h-4 text-gray-400 mr-2 flex-shrink-0" />
-          <span className="text-xs text-gray-400 bg-[#0f0f0f] border border-gray-700 rounded px-1.5 py-0.5 mr-2 flex-shrink-0">/</span>
-          <span className="text-xs text-gray-500 flex-1">를 눌러 검색하세요</span>
+          <MagnifyingGlassIcon className="w-4 h-4 text-gray-500 group-hover:text-gray-300 mr-2 flex-shrink-0" />
+          <span className="text-[10px] text-gray-500 font-bold bg-black/40 border border-white/10 rounded px-1.5 py-0.5 mr-2 flex-shrink-0">/</span>
+          <span className="text-xs text-gray-500 group-hover:text-gray-400 font-bold flex-1">Quick Search</span>
         </div>
       </div>
 
-      {/* Search Modal */}
-      <StockSearchModal
-        isOpen={isSearchModalOpen}
-        onClose={() => setIsSearchModalOpen(false)}
-        onSelect={handleSearchSelect}
-        singleSelect={true}
-      />
-
       {/* Upgrade Button */}
-      <button className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-600 flex items-center gap-1.5 flex-shrink-0">
-        <span>⭐</span>
-        <span>Upgrade</span>
+      <button className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl text-xs font-black hover:shadow-[0_0_15px_rgba(59,130,246,0.4)] transition-all flex items-center gap-2 flex-shrink-0">
+        <SparklesIcon className="w-4 h-4" />
+        <span>PRO</span>
       </button>
     </nav>
   );

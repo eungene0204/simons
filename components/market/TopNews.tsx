@@ -66,53 +66,55 @@ export default function TopNews() {
   }
 
   return (
-    <div className="bg-[#1a1a1a] border-gray-800 p-3 sm:p-4 rounded-lg shadow-sm border border-gray-800 w-full max-w-full overflow-x-hidden min-w-0">
-      <div className="flex items-center justify-between mb-4">
+    <div className="glass-card p-6 w-full max-w-full overflow-x-hidden min-w-0">
+      <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
-          <NewspaperIcon className="w-5 h-5 text-gray-400" />
-          <h3 className="text-base sm:text-lg font-semibold text-white">
-            주요뉴스
+          <NewspaperIcon className="w-5 h-5 text-blue-400" />
+          <h3 className="text-lg font-bold text-white tracking-tight">
+            주요 뉴스
           </h3>
         </div>
         <button
           onClick={fetchNews}
-          className="text-xs sm:text-sm text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+          className="text-xs text-gray-400 hover:text-white transition-colors"
         >
           새로고침
         </button>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-4">
         {news.map((item) => (
           <div
             key={item.id}
-            className="p-3 sm:p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors cursor-pointer"
+            className="group relative p-4 bg-white/5 border border-white/5 rounded-xl hover:bg-white/10 hover:border-blue-500/30 transition-all duration-300 cursor-pointer overflow-hidden"
             onClick={() => item.url && window.open(item.url, "_blank")}
           >
-            <div className="flex items-start gap-3">
+            <div className="flex items-start gap-4">
               <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xs sm:text-sm font-medium text-blue-500 dark:text-blue-400">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider bg-blue-400/10 px-2 py-0.5 rounded">
                     {item.category}
                   </span>
-                  <span className="text-xs text-gray-400">
+                  <span className="text-[11px] text-gray-500 font-medium">
                     {item.source}
                   </span>
                 </div>
-                <h4 className="text-sm sm:text-base font-semibold text-white mb-1 line-clamp-2">
+                <h4 className="text-sm font-bold text-gray-100 group-hover:text-white mb-2 line-clamp-2 leading-snug">
                   {item.title}
                 </h4>
-                <p className="text-xs text-gray-400">
+                <div className="flex items-center gap-2 text-[10px] text-gray-500 font-medium">
                   {new Date(item.publishedAt).toLocaleDateString("ko-KR", {
-                    year: "numeric",
                     month: "short",
                     day: "numeric",
                     hour: "2-digit",
                     minute: "2-digit",
                   })}
-                </p>
+                </div>
               </div>
             </div>
+            
+            {/* Subtle glow on hover */}
+            <div className="absolute inset-0 bg-blue-500/0 group-hover:bg-blue-500/[0.02] transition-colors pointer-events-none" />
           </div>
         ))}
       </div>

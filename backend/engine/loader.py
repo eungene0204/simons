@@ -10,13 +10,20 @@ class DataLoader:
 
     def load_symbol_data(self, symbol: str) -> pl.DataFrame:
         file_path = os.path.join(self.data_dir, f"{symbol}.parquet")
+        
+        # --- Auto-Download Logic ---
         if not os.path.exists(file_path):
-            # Fallback for specific environment
-            abs_fallback = f"/Users/eugene/nullalgo/simons/data/ohlcv/{symbol}.parquet"
-            if os.path.exists(abs_fallback):
-                file_path = abs_fallback
-            else:
-                raise FileNotFoundError(f"Data for {symbol} not found in {self.data_dir}")
+            print(f"[INFO] Data for {symbol} missing. Attempting automatic download...")
+            from .data_fetcher import fetch_and_enrich
+            success = fetch_and_enrich(symbol, self.data_dir)
+            if not success:
+                # Fallback for specific environment check (existing logic)
+                abs_fallback = f"/Users/eugene/nullalgo/simons/data/ohlcv/{symbol}.parquet"
+                if os.path.exists(abs_fallback):
+                    file_path = abs_fallback
+                else:
+                    raise FileNotFoundError(f"Data for {symbol} not found and download failed.")
+        # ----------------------------
         
         return pl.read_parquet(file_path)
 

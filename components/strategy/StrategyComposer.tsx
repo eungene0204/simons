@@ -110,7 +110,7 @@ export default function StrategyComposer({
     },
   ];
 
-  const libraryBlocks: LibraryBlock[] = [
+  const libraryBlocks: any[] = [
     ...Object.values(signalBlocks),
     ...positionBlocks,
     ...portfolioBlocks,
@@ -161,10 +161,10 @@ export default function StrategyComposer({
       setName(initialStrategy.name);
       setDescription(initialStrategy.description);
       setEntryConditions(initialStrategy.entry.conditions);
-      setEntryLogic(initialStrategy.entry.logic);
+      setEntryLogic(initialStrategy.entry.logic as any);
       setExitConditions(initialStrategy.exit.conditions);
-      setExitLogic(initialStrategy.exit.logic);
-      setRiskManagement(initialStrategy.risk);
+      setExitLogic(initialStrategy.exit.logic as any);
+      setRiskManagement(initialStrategy.risk as any);
     }
   }, [initialStrategy]);
 
@@ -302,7 +302,11 @@ export default function StrategyComposer({
         logic: exitLogic,
         conditions: exitConditions,
       },
-      risk: riskManagement,
+      risk: riskManagement as any,
+      universe: initialStrategy?.universe || {
+        id: "all",
+        filters: {}
+      },
       created_at: initialStrategy?.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -335,57 +339,60 @@ export default function StrategyComposer({
   }, [entryConditions, exitConditions, positionRules, portfolioRules]);
 
   return (
-    <div className="bg-[#1a1a1a] rounded-lg border border-gray-800 p-6">
+    <div className="glass-card p-6 md:p-8">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-8">
         <div>
-          <h2 className="text-xl font-semibold text-white mb-1">전략 컴포저</h2>
-          <p className="text-sm text-gray-400">
-            {currentStep === 1 && "기본 정보를 입력하세요"}
-            {currentStep === 2 && "매매 신호 블록을 조합하세요"}
-            {currentStep === 3 && "리스크 관리 설정을 완료하세요"}
+          <div className="flex items-center gap-3 mb-1">
+            <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest bg-blue-400/10 px-2 py-0.5 rounded">
+              Expert Mode
+            </span>
+            <h2 className="text-2xl font-bold text-white tracking-tight">전략 컴포저</h2>
+          </div>
+          <p className="text-sm text-gray-400 font-medium">
+            {currentStep === 1 && "기본 정보를 입력하여 새로운 전략의 기반을 다집니다."}
+            {currentStep === 2 && "매매 신호 블록을 조합하여 고유한 알고리즘을 구축하세요."}
+            {currentStep === 3 && "자본 보호를 위한 리스크 관리 매개변수를 설정합니다."}
           </p>
         </div>
         <button
           onClick={onCancel}
-          className="text-gray-400 hover:text-white"
+          className="p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-full transition-colors"
         >
           <XMarkIcon className="w-6 h-6" />
         </button>
       </div>
 
       {/* Progress Steps */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-12">
         {[1, 2, 3].map((step) => (
           <div key={step} className="flex items-center flex-1">
-            <div className="flex items-center">
+            <div className="flex flex-col items-center group cursor-pointer" onClick={() => (currentStep > step || step <= currentStep + 1) && onStepChange(step as any)}>
               <div
-                className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold ${
+                className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold transition-all duration-300 ${
                   currentStep === step
-                    ? "bg-blue-600 text-white"
+                    ? "bg-blue-600 text-white shadow-[0_0_20px_rgba(59,130,246,0.4)] scale-110"
                     : currentStep > step
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-700 text-gray-400"
+                    ? "bg-blue-600/20 text-blue-400 border border-blue-500/30"
+                    : "bg-white/5 text-gray-500 border border-white/5"
                 }`}
               >
                 {currentStep > step ? "✓" : step}
               </div>
-              <div className="ml-2">
-                <div
-                  className={`text-sm font-medium ${
-                    currentStep >= step ? "text-white" : "text-gray-500"
-                  }`}
-                >
-                  {step === 1 && "기본 정보"}
-                  {step === 2 && "신호 블록"}
-                  {step === 3 && "리스크 관리"}
-                </div>
+              <div
+                className={`mt-2 text-[11px] font-bold uppercase tracking-wider ${
+                  currentStep >= step ? "text-blue-400" : "text-gray-600"
+                }`}
+              >
+                {step === 1 && "Basic Info"}
+                {step === 2 && "Blocks"}
+                {step === 3 && "Risk Settings"}
               </div>
             </div>
             {step < 3 && (
               <div
-                className={`flex-1 h-0.5 mx-4 ${
-                  currentStep > step ? "bg-blue-600" : "bg-gray-700"
+                className={`flex-1 h-[2px] mx-6 -mt-6 transition-colors duration-500 ${
+                  currentStep > step ? "bg-blue-600/50" : "bg-white/5"
                 }`}
               />
             )}
@@ -1074,48 +1081,48 @@ export default function StrategyComposer({
       )}
 
       {/* Navigation Buttons */}
-      <div className="flex items-center justify-between mt-8 pt-6 border-t border-gray-800">
+      <div className="flex items-center justify-between mt-12 pt-8 border-t border-white/5">
         <button
           onClick={() => {
             if (currentStep > 1) {
-              setCurrentStep((currentStep - 1) as 1 | 2 | 3);
+              onStepChange((currentStep - 1) as 1 | 2 | 3);
             } else {
               onCancel();
             }
           }}
-          className="px-4 py-2 bg-gray-700 text-white rounded-lg text-sm font-medium hover:bg-gray-600 flex items-center gap-2"
+          className="px-6 py-2.5 bg-white/5 text-gray-400 rounded-xl text-sm font-bold hover:bg-white/10 hover:text-white transition-all flex items-center gap-2"
         >
           <ArrowLeftIcon className="w-4 h-4" />
           {currentStep === 1 ? "취소" : "이전"}
         </button>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-4">
           {currentStep < 3 ? (
             <button
               onClick={() => {
                 if (currentStep === 1 && canProceedToStep2) {
-                  setCurrentStep(2);
+                  onStepChange(2);
                 } else if (currentStep === 2 && canProceedToStep3) {
-                  setCurrentStep(3);
+                  onStepChange(3);
                 }
               }}
               disabled={
                 (currentStep === 1 && !canProceedToStep2) ||
                 (currentStep === 2 && !canProceedToStep3)
               }
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-600 disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center gap-2"
+              className="px-8 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-500 hover:shadow-[0_0_20px_rgba(59,130,246,0.3)] disabled:bg-gray-800 disabled:text-gray-600 disabled:cursor-not-allowed transition-all flex items-center gap-2"
             >
-              다음
+              다음 단계
               <ArrowRightIcon className="w-4 h-4" />
             </button>
           ) : (
             <button
               onClick={handleSave}
               disabled={!canSave}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-600 disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center gap-2"
+              className="px-8 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-500 hover:shadow-[0_0_20px_rgba(59,130,246,0.3)] disabled:bg-gray-800 disabled:text-gray-600 disabled:cursor-not-allowed transition-all flex items-center gap-2"
             >
               <CheckCircleIcon className="w-5 h-5" />
-              전략 저장
+              전략 생성 및 저장
             </button>
           )}
         </div>
