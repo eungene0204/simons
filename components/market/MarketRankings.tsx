@@ -137,6 +137,8 @@ export default function MarketRankings() {
         volumeAmount: priceData.currentPrice * priceData.volume, // 거래량 대금
         sector: stock.sector,
         theme: stock.theme,
+        sentiment: Math.random() > 0.6 ? 'Bullish' : (Math.random() > 0.5 ? 'Bearish' : 'Neutral'),
+        aiScore: Math.floor(Math.random() * 40) + 60, // 60-100
       };
     });
     
@@ -419,26 +421,38 @@ export default function MarketRankings() {
   };
 
   return (
-    <div className="bg-[#1a1a1a] border-gray-800 p-3 sm:p-4 rounded-lg shadow-sm border border-gray-800 w-full max-w-full overflow-x-hidden min-w-0">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm sm:text-base font-semibold text-white">
-          시장 정보
-        </h3>
+    <div className="glass-card p-6 w-full max-w-full overflow-x-hidden min-w-0">
+      <div className="flex items-center justify-between mb-8">
+        <div className="flex flex-col">
+          <h3 className="text-xl font-black text-white tracking-tight font-outfit">
+            시장 모니터링
+          </h3>
+          <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mt-1">
+            Real-time Market Heatmap & Alpha Rankings
+          </p>
+        </div>
+        <div className="flex items-center gap-2 px-3 py-1 bg-blue-500/10 border border-blue-500/20 rounded-full">
+           <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
+           <span className="text-[10px] text-blue-400 font-bold uppercase tracking-wider">Live</span>
+        </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 mb-4 border-b border-gray-800">
+      <div className="flex gap-1 mb-8 p-1 bg-white/5 rounded-xl border border-white/5 w-fit">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`px-3 py-2 text-xs sm:text-sm font-medium transition-colors ${
+            className={`px-6 py-2 text-sm font-bold rounded-lg transition-all duration-300 ${
               activeTab === tab.id
-                ? "text-white bg-[#252525] border-b-2 border-transparent"
-                : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+                ? "bg-white/10 text-white shadow-lg"
+                : "text-gray-500 hover:text-gray-300 hover:bg-white/[0.02]"
             }`}
           >
             {tab.label}
+            {activeTab === tab.id && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]" />
+            )}
           </button>
         ))}
       </div>

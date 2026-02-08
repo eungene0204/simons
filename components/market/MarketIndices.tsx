@@ -140,9 +140,9 @@ export default function MarketIndices() {
   }) => {
     const isPositive = index.change >= 0;
     const colorClass = isPositive
-      ? "text-red-600 dark:text-red-400"
-      : "text-blue-500 dark:text-blue-400";
-    const chartColor = isPositive ? "#ef4444" : "#22c55e";
+      ? "text-[var(--main-red)]"
+      : "text-[var(--main-blue)]";
+    const chartColor = isPositive ? "rgb(239, 68, 68)" : "rgb(55, 122, 244)";
 
     // Format date for chart display
     const chartData =
@@ -155,100 +155,85 @@ export default function MarketIndices() {
       })) || [];
 
     const CardContent = (
-      <div className="p-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600 h-full flex flex-col">
-        <div className="flex items-center justify-between mb-0.5">
-          <h4 className="text-[10px] sm:text-xs font-semibold text-white">
+      <div className="glass-card p-4 h-full flex flex-col group hover:scale-[1.02] transition-transform duration-300">
+        <div className="flex items-center justify-between mb-1">
+          <h4 className="text-xs font-black text-gray-100 uppercase tracking-wider font-outfit">
             {index.name}
           </h4>
-          <span className="text-[8px] sm:text-[10px] text-gray-500 dark:text-gray-400">
+          <span className="text-[10px] text-gray-500 font-bold tabular-nums">
             {index.symbol}
           </span>
         </div>
-        <div className="flex items-baseline gap-1 mb-0.5">
-          <span className="text-sm sm:text-base font-bold text-white">
+        <div className="flex items-baseline gap-2 mb-1">
+          <span className="text-2xl font-black text-white tabular-nums font-outfit tracking-tighter">
             {index.value.toLocaleString("ko-KR", {
               minimumFractionDigits: 2,
               maximumFractionDigits: 2,
             })}
           </span>
           {isPositive ? (
-            <ArrowUpIcon className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-red-600 dark:text-red-400" />
+            <ArrowUpIcon className="w-4 h-4 text-[var(--main-red)] animate-pulse" />
           ) : (
-            <ArrowDownIcon className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-blue-500 dark:text-blue-400" />
+            <ArrowDownIcon className="w-4 h-4 text-[var(--main-blue)] animate-pulse" />
           )}
         </div>
-        <div className="flex items-center gap-1.5 mb-1.5">
-          <span className={`text-[8px] sm:text-[10px] font-medium ${colorClass}`}>
+        <div className="flex items-center gap-2 mb-3">
+          <span className={`text-xs font-bold ${colorClass}`}>
             {isPositive ? "+" : ""}
             {index.change.toFixed(2)}
           </span>
-          <span className={`text-[8px] sm:text-[10px] font-medium ${colorClass}`}>
-            ({isPositive ? "+" : ""}
-            {index.changePercent.toFixed(2)}%)
+          <span className={`text-xs font-bold ${colorClass} bg-white/5 px-1.5 py-0.5 rounded`}>
+            {isPositive ? "+" : ""}
+            {index.changePercent.toFixed(2)}%
           </span>
         </div>
 
         {/* Time Series Chart */}
         {chartData.length > 0 && (
-          <div className="mt-1.5 h-10 sm:h-14 flex-shrink-0">
+          <div className="mt-auto h-16 sm:h-20 w-full overflow-hidden">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chartData}>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="#e5e7eb"
-                  className="dark:stroke-gray-600"
-                />
-                <XAxis
-                  dataKey="date"
-                  tick={{ fontSize: 6 }}
-                  stroke="#6b7280"
-                  className="dark:stroke-gray-400"
-                />
-                <YAxis
-                  tick={{ fontSize: 6 }}
-                  stroke="#6b7280"
-                  className="dark:stroke-gray-400"
-                  domain={["auto", "auto"]}
-                />
+                <defs>
+                  <linearGradient id={`gradient-${index.symbol}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={chartColor} stopOpacity={0.3} />
+                    <stop offset="95%" stopColor={chartColor} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
                 <Line
                   type="monotone"
                   dataKey="value"
                   stroke={chartColor}
-                  strokeWidth={1}
+                  strokeWidth={2}
                   dot={false}
-                  activeDot={{ r: 2 }}
+                  activeDot={{ r: 4, strokeWidth: 0 }}
                 />
+                <YAxis hide domain={["auto", "auto"]} />
+                <XAxis hide dataKey="date" />
               </LineChart>
             </ResponsiveContainer>
           </div>
         )}
 
-        <div className="mt-1.5 pt-1.5 border-t border-gray-200 dark:border-gray-600 grid grid-cols-2 gap-1 text-[8px] sm:text-[10px] mt-auto">
+        <div className="mt-3 pt-3 border-t border-white/5 grid grid-cols-2 gap-2 text-[10px] text-gray-400 font-medium">
           {showVolume && (
-            <div>
-              <span className="text-gray-500 dark:text-gray-400">거래량: </span>
-              <span className="text-white">
+            <div className="flex justify-between">
+              <span>Vol</span>
+              <span className="text-gray-200">
                 {(index.volume / 1000000).toFixed(1)}M
               </span>
             </div>
           )}
-          <div>
-            <span className="text-gray-500 dark:text-gray-400">고가: </span>
-            <span className="text-white">
-              {index.high.toFixed(2)}
-            </span>
+          <div className="flex justify-between">
+            <span>High</span>
+            <span className="text-gray-200">{index.high.toLocaleString()}</span>
           </div>
-          <div>
-            <span className="text-gray-500 dark:text-gray-400">저가: </span>
-            <span className="text-white">
-              {index.low.toFixed(2)}
-            </span>
+          <div className="flex justify-between">
+            <span>Low</span>
+            <span className="text-gray-200">{index.low.toLocaleString()}</span>
           </div>
-          <div>
-            <span className="text-gray-500 dark:text-gray-400">시가: </span>
-            <span className="text-white">
-              {index.open.toFixed(2)}
-            </span>
+          <div className="flex justify-between">
+            <span>Open</span>
+            <span className="text-gray-200">{index.open.toLocaleString()}</span>
           </div>
         </div>
       </div>
@@ -362,97 +347,42 @@ export default function MarketIndices() {
 
   return (
     <div className="space-y-3 sm:space-y-4 w-full max-w-full min-w-0">
-      {/* Main Indices Section - Slider */}
-      <div className="bg-[#1a1a1a] border-gray-800 p-3 sm:p-4 rounded-lg shadow-sm border border-gray-800 w-full max-w-full overflow-x-hidden min-w-0">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm sm:text-base font-semibold text-white">
+      {/* Main Indices Section - Vertical List for Sidebar */}
+      <div className="glass-card p-5 w-full">
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-sm font-black text-white uppercase tracking-widest font-outfit">
             주요 지수
           </h3>
-          <button
-            onClick={fetchIndices}
-            className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
-          >
-            새로고침
-          </button>
+          <div className="flex items-center gap-2">
+             <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+             <span className="text-[10px] text-gray-500 font-bold uppercase">Live</span>
+          </div>
         </div>
 
-        {/* Slider Container */}
-        <div 
-          className="relative overflow-hidden" 
-          onMouseEnter={() => setIsMouseOverSlider(true)}
-          onMouseLeave={() => setIsMouseOverSlider(false)}
-        >
-          {/* Slider */}
-          <div
-            id="indices-slider"
-            onScroll={handleScroll}
-            className="flex gap-3 overflow-x-auto overflow-y-hidden scrollbar-hide"
-            style={{ 
-              scrollbarWidth: 'none',
-              msOverflowStyle: 'none',
-              WebkitOverflowScrolling: 'touch',
-              touchAction: 'pan-x',
-              overscrollBehaviorX: 'contain',
-              overscrollBehaviorY: 'auto',
-              scrollBehavior: 'auto'
-            }}
-            onWheel={(e) => {
-              // Only handle wheel event when mouse is over the slider
-              if (!isMouseOverSlider) {
-                return;
-              }
-              
-              const container = e.currentTarget;
-              const canScroll = container.scrollWidth > container.clientWidth;
-              
-              if (canScroll) {
-                // Only prevent default if scrolling horizontally
-                // Allow vertical scroll to pass through for page scrolling
-                if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  
-                  // Use scrollBy with auto behavior for immediate scroll
-                  container.scrollBy({
-                    left: e.deltaX,
-                    behavior: 'auto'
-                  });
-                }
-              }
-            }}
-          >
-            {mainIndices.map((index) => (
-              <div key={index.symbol} className="flex-shrink-0" style={{ minWidth: '187px', maxWidth: '187px' }}>
-                <IndexCard index={index} />
-              </div>
-            ))}
-          </div>
+        <div className="space-y-3">
+          {mainIndices.map((index) => (
+            <IndexCard key={index.symbol} index={index} />
+          ))}
+        </div>
+      </div>
 
-          {/* Left Scroll Button */}
-          {canScrollLeft && (
-            <button
-              onClick={scrollLeft}
-              className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-[#1a1a1a] border-gray-800 border border-gray-800 rounded-full p-2 shadow-md hover:bg-gray-50 dark:hover:bg-gray-700 transition-all"
-              aria-label="왼쪽으로 스크롤"
-            >
-              <svg className="w-5 h-5 text-gray-600 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-          )}
-
-          {/* Right Scroll Button */}
-          {canScrollRight && (
-            <button
-              onClick={scrollRight}
-              className="absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-[#1a1a1a] border-gray-800 border border-gray-800 rounded-full p-2 shadow-md hover:bg-gray-50 dark:hover:bg-gray-700 transition-all"
-              aria-label="오른쪽으로 스크롤"
-            >
-              <svg className="w-5 h-5 text-gray-600 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-          )}
+      {/* Exchange Rate and Commodities - Compact 2-Column Grid */}
+      <div className="glass-card p-5 w-full">
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-sm font-black text-white uppercase tracking-widest font-outfit">
+            환율 및 원자재
+          </h3>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-3">
+          {[
+            indices.exchangeRate,
+            indices.goldPrice,
+            indices.oilPrice,
+            indices.silverPrice,
+            indices.naturalGasPrice
+          ].filter(Boolean).map((item) => (
+            <IndexCard key={item!.symbol} index={item!} />
+          ))}
         </div>
       </div>
 

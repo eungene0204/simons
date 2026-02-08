@@ -67,12 +67,12 @@ export default function RiskManagementEditor({
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 px-8">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 px-4 md:px-8">
       {/* Capital Management */}
-      <section className="bg-[#0a0a0a]/50 rounded-3xl border border-gray-800/80 p-8 shadow-xl space-y-6">
+      <section className="glass-card p-6 md:p-8 space-y-6">
         <div className="flex items-center gap-3">
-          <div className="w-1.5 h-6 bg-white rounded-full" />
-          <h3 className="text-base font-black text-[#dfdfdf] tracking-tight">자금 관리</h3>
+          <div className="w-1.5 h-6 bg-blue-500 rounded-full shadow-[0_0_10px_rgba(59,130,246,0.5)]" />
+          <h3 className="text-base font-bold text-gray-100 tracking-tight">자금 관리</h3>
         </div>
         <div className="grid grid-cols-1 gap-6">
           {renderSlider(
@@ -85,28 +85,22 @@ export default function RiskManagementEditor({
             "유동성 제약",
             "liquidity_limit_pct",
             0, 100, 1, "%",
-            "개별 종목의 일일 거래대금 대비 최대 투자 비중을 제한합니다. 과도한 비중으로 인한 체결 리스크를 방지합니다."
+            "개별 종목의 일일 거래대금 대비 최대 투자 비중을 제한합니다."
           )}
           {renderSlider(
-            "최소 현금 보유 비중",
+            "현금 보유 비중",
             "min_cash_reserve_pct",
             0, 100, 5, "%",
             "안정성을 위해 전략이 항상 보유해야 하는 최소 현금 비율입니다."
-          )}
-          {renderSlider(
-            "일일 최대 매수 한도",
-            "max_daily_buy_pct",
-            0, 100, 5, "%",
-            "과도한 매매를 방지하기 위해 하루에 투입할 수 있는 최대 자금 비율입니다."
           )}
         </div>
       </section>
 
       {/* Price-based Exit */}
-      <section className="bg-[#0a0a0a]/50 rounded-3xl border border-gray-800/80 p-8 shadow-xl space-y-6">
+      <section className="glass-card p-6 md:p-8 space-y-6">
         <div className="flex items-center gap-3">
-          <div className="w-1.5 h-6 bg-gray-400 rounded-full" />
-          <h3 className="text-base font-black text-[#dfdfdf] tracking-tight">가격 기반 청산 리스크</h3>
+          <div className="w-1.5 h-6 bg-[var(--main-red)] rounded-full shadow-[0_0_10px_rgba(239,68,68,0.5)]" />
+          <h3 className="text-base font-bold text-gray-100 tracking-tight">청산 리스크</h3>
         </div>
         <div className="grid grid-cols-1 gap-6">
           {renderSlider(
@@ -127,20 +121,14 @@ export default function RiskManagementEditor({
             0, 20, 0.5, "%",
             "최고점 대비 설정한 비율만큼 하락 시 수익을 보존하며 매도합니다."
           )}
-          {renderSlider(
-            "최대 보유 기간",
-            "max_holding_days",
-            0, 200, 1, "일",
-            "설정한 기간이 지나면 수익 여부와 관계없이 매도합니다. (0은 무제한)"
-          )}
         </div>
       </section>
 
       {/* Portfolio Controls */}
-      <section className="bg-[#0a0a0a]/50 rounded-3xl border border-gray-800/80 p-8 shadow-xl space-y-6">
+      <section className="glass-card p-6 md:p-8 space-y-6">
         <div className="flex items-center gap-3">
-          <div className="w-1.5 h-6 bg-gray-600 rounded-full" />
-          <h3 className="text-base font-black text-[#dfdfdf] tracking-tight">포트폴리오 제어</h3>
+          <div className="w-1.5 h-6 bg-[var(--main-green)] rounded-full shadow-[0_0_10px_rgba(34,197,94,0.5)]" />
+          <h3 className="text-base font-bold text-gray-100 tracking-tight">포트폴리오 제어</h3>
         </div>
         <div className="grid grid-cols-1 gap-6">
           {renderSlider(
@@ -150,22 +138,16 @@ export default function RiskManagementEditor({
             "하루 동안 포트폴리오 전체에서 허용하는 최대 손실액입니다."
           )}
           {renderSlider(
-            "최대 낙폭 제한 (MDD)",
+            "최대 낙폭 제한",
             "max_mdd_limit_pct",
             0, 50, 0.5, "%",
-            "전고점 대비 자산 가치가 설정한 비율만큼 하락하면 모든 포지션을 청산합니다."
+            "전고점 대비 자산 가치가 설정한 비율만큼 하락하면 청산합니다."
           )}
           {renderSlider(
             "최대 총 노출도",
             "max_total_exposure_pct",
             0, 200, 5, "%",
             "전체 자산 대비 실제 시장에 노출된 자산의 총합입니다."
-          )}
-          {renderSlider(
-            "섹터별 최대 집중도",
-            "max_sector_exposure_pct",
-            0, 100, 5, "%",
-            "특정 섹터에 과도하게 자산이 쏠리는 것을 방지합니다."
           )}
         </div>
       </section>

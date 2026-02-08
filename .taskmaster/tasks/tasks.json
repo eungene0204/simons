@@ -1,0 +1,146 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Set up User Authentication and Database",
+        "description": "Configure user authentication system and database to store user accounts, Null balances, order history, and strategies.",
+        "details": "Implement user registration, login, and session management. Choose a database (e.g., PostgreSQL) and define schemas for User, Order, Strategy, and Ledger data models. Ensure secure password storage and data encryption. Use FastAPI's built-in authentication mechanisms or integrate with a library like Authlib.",
+        "testStrategy": "Verify user registration, login, and logout functionalities. Confirm that user data is stored securely in the database. Test database connection and schema creation.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 2,
+        "title": "Implement Market Data Ingestion Pipeline",
+        "description": "Develop a pipeline to ingest real-time and historical market data from a market data provider.",
+        "details": "Choose a market data provider and integrate with their API. Implement a data ingestion process to fetch and store historical price data. Set up a separate process to capture real-time market data using WebSockets. Store the data in a time-series database or a suitable data store for efficient querying. Consider using Apache Kafka for data streaming.",
+        "testStrategy": "Verify that historical and real-time market data is being ingested correctly. Check for data accuracy and completeness. Monitor the pipeline for errors and latency.",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 3,
+        "title": "Develop the Null Ledger System",
+        "description": "Implement the virtual accounting logic for the 'Null' currency, including balance management and transaction recording.",
+        "details": "Create a ledger system to track all 'Null' transactions. Implement functions for crediting and debiting user balances. Enforce transaction rules, such as applying virtual commission (0.015%) to both auto and manual trades. Ensure atomicity and consistency of transactions to prevent balance discrepancies. Use database transactions to maintain data integrity.",
+        "testStrategy": "Verify that 'Null' balances are updated correctly after each transaction. Check that virtual commissions are applied accurately. Test for race conditions and ensure that concurrent transactions are handled correctly.",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 4,
+        "title": "Build the Strategy Builder (GUI Form)",
+        "description": "Create a React/Next.js-based GUI form that allows users to define automated trading strategies using dropdowns and input fields.",
+        "details": "Design a user-friendly interface with dropdowns for selecting indicators (SMA, RSI, Bollinger Bands, MACD) and input fields for specifying parameters and AI probability conditions. Convert the user-defined strategy into a JSON format for storage and processing. Use a state management library like Redux or Zustand to manage the form state.",
+        "testStrategy": "Verify that the GUI form is intuitive and easy to use. Check that all indicators and parameters are correctly represented. Ensure that the generated JSON configuration is valid and accurately reflects the user's strategy.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 5,
+        "title": "Implement the Backtesting Engine",
+        "description": "Develop a backtesting engine that simulates the performance of a trading strategy using historical market data.",
+        "details": "Load historical market data sequentially. Simulate trades based on the strategy's conditions. Calculate key performance metrics such as profit/loss, maximum drawdown (MDD), and win rate. Provide a clear and concise report of the backtesting results. Optimize the engine for performance to handle large datasets efficiently.",
+        "testStrategy": "Verify that the backtesting engine produces accurate results. Compare the simulated trades with the expected trades based on the strategy and historical data. Test the engine with different strategies and market conditions.",
+        "priority": "high",
+        "dependencies": [
+          2,
+          3,
+          4
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 6,
+        "title": "Integrate AI Model for Probability Scores",
+        "description": "Integrate the internal AI API to fetch probability scores for individual stocks and use them as filter conditions in trading strategies.",
+        "details": "Implement API calls to the AI microservice to retrieve probability scores. Cache the scores to reduce latency and API calls. Allow users to specify conditions based on AI probability (e.g., `AI_Probability > 80%`). Handle potential errors and timeouts from the AI API gracefully. Use gRPC or REST for communication with the AI microservice.",
+        "testStrategy": "Verify that the AI probability scores are being fetched correctly. Check that the scores are being used correctly in the trading strategies. Test the integration for performance and reliability.",
+        "priority": "medium",
+        "dependencies": [
+          4
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 7,
+        "title": "Develop Manual Order API",
+        "description": "Create API endpoints for users to manually buy and sell 'Null' currency.",
+        "details": "Implement API endpoints to handle user-initiated buy and sell orders. Validate user input (e.g., quantity, price). Check for sufficient 'Null' balance before executing a buy order. Match the order against real-time market data to determine the execution price. Update the 'Null' ledger and user balance accordingly. Apply virtual commission (0.015%).",
+        "testStrategy": "Verify that buy and sell orders are executed correctly. Check that 'Null' balances are updated accurately. Test for invalid input and insufficient balance errors. Ensure that virtual commissions are applied correctly.",
+        "priority": "medium",
+        "dependencies": [
+          2,
+          3
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 8,
+        "title": "Implement Real-time Data Fetcher using WebSockets",
+        "description": "Integrate WebSocket to fetch live market prices for automated trading and manual trading interfaces.",
+        "details": "Establish a WebSocket connection with the market data provider. Parse the incoming data stream and update the real-time price feed. Handle connection errors and reconnect automatically. Optimize the data stream for performance and minimize latency. Use a library like Socket.IO for WebSocket management.",
+        "testStrategy": "Verify that the real-time price feed is updating correctly. Check for data accuracy and latency. Test the connection stability and error handling.",
+        "priority": "medium",
+        "dependencies": [
+          2
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 9,
+        "title": "Build Scheduler for Automated Strategy Execution",
+        "description": "Develop a scheduler to periodically check strategy conditions and execute trades automatically.",
+        "details": "Use Celery or Redis Queue to implement a scheduler. Configure the scheduler to run at regular intervals (e.g., every minute). Fetch all active trading strategies from the database. Evaluate the strategy conditions using real-time market data and AI probability scores. Execute trades automatically if the conditions are met. Update the 'Null' ledger and user balance accordingly. Implement error handling and logging.",
+        "testStrategy": "Verify that the scheduler is running correctly and executing trades automatically. Check that the strategy conditions are being evaluated correctly. Test for error handling and logging.",
+        "priority": "medium",
+        "dependencies": [
+          3,
+          6,
+          7,
+          8
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 10,
+        "title": "Create Dashboard for Performance Review",
+        "description": "Develop a dashboard to display automated and manual trading performance separately.",
+        "details": "Design a user-friendly dashboard with charts and tables to visualize trading performance. Display key metrics such as profit/loss, win rate, and maximum drawdown for both automated and manual trades. Allow users to filter the data by time period and strategy. Use a charting library like Chart.js or Recharts.",
+        "testStrategy": "Verify that the dashboard is displaying accurate performance data. Check that the charts and tables are rendering correctly. Test the filtering and sorting functionalities.",
+        "priority": "medium",
+        "dependencies": [
+          3,
+          5,
+          7,
+          9
+        ],
+        "status": "pending",
+        "subtasks": []
+      }
+    ],
+    "metadata": {
+      "created": "2026-02-04T09:30:08.540Z",
+      "updated": "2026-02-04T09:30:08.540Z",
+      "description": "Tasks for master context"
+    }
+  }
+}

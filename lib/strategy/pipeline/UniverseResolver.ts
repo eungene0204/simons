@@ -1,31 +1,47 @@
 export class UniverseResolver {
-  private static universeMappings: Record<string, string[]> = {
-    kospi: [
-      "005930", "000660", "035420", "035720", "005380", 
-      "000270", "068270", "005490", "105560", "055550", 
-      "003550", "032830", "000810", "033780", "011780", 
-      "010140", "009150", "018260", "010950", "000100"
-    ], 
-    kosdaq: [
-      "247540", "086520", "293480", "066970", "028300", 
-      "121600", "033100", "035900", "041510", "078890",
-      "067630", "214150", "091990", "056190", "036490",
-      "034230", "039030", "046890", "053800", "086900"
-    ],
-    kospi200: [
-      "005930", "000660", "373220", "207940", "005380", 
-      "000270", "068270", "005490", "051910", "003670",
-      "035420", "035720", "105560", "055550", "034730",
-      "017670", "011200", "010130", "009150", "012330"
-    ],
-  };
+  private static symbolToSectorCache: Record<string, string> | null = null;
+  private static universeCache: Record<string, string[]> | null = null;
+  private static loadingPromise: Promise<void> | null = null;
 
-  static getSymbols(universeId: string, filters?: any): string[] {
-    const baseSymbols = this.universeMappings[universeId] || ["005930"]; // Fallback to Samsung Electronics
-
-    // In a real implementation, filters would further prune this list via Fundamental API
-    // (e.g., sector filtering, market cap ranking, etc.)
+  private static async ensureCache() {
+    if (this.symbolToSectorCache && this.universeCache) return;
     
-    return baseSymbols;
+    if (this.loadingPromise) return this.loadingPromise;
+
+    this.loadingPromise = (async () => {
+      try {
+        const response = await fetch("/api/universe/data");
+        if (!response.ok) throw new Error("Failed to fetch universe data");
+        const data = await response.json();
+        
+        this.symbolToSectorCache = data.symbolToSector;
+        this.universeCache = data.universes;
+      } catch (error) {
+        console.error("UniverseResolver error:", error);
+        // Fallback to minimal data to avoid total failure
+        this.symbolToSectorCache = {};
+        this.universeCache = { kospi: ["005930"], kosdaq: [], kospi200: ["005930"] };
+      } finally {
+        this.loadingPromise = null;
+      }
+    })();
+
+    return this.loadingPromise;
+  }
+
+  static async getSymbols(universeId: string, filters?: any): Promise<string[]> {
+    await this.ensureCache();
+
+    let symbols = this.universeCache![universeId] || ["005930"]; // Fallback to Samsung Electronics
+
+    // Filter by Selected Sectors
+    if (filters?.selectedSectors && filters.selectedSectors.length > 0) {
+      symbols = symbols.filter(symbol => {
+        const sector = this.symbolToSectorCache![symbol];
+        return sector && filters.selectedSectors.includes(sector);
+      });
+    }
+    
+    return symbols;
   }
 }

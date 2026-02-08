@@ -1,6 +1,6 @@
 "use client";
 
-import { StockListItem } from "@/lib/krx-stocks";
+import { StockListItem } from "@/types/stock";
 import { generateStockPriceData } from "@/lib/mock-stock-data";
 
 interface StockListCardProps {

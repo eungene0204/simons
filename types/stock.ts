@@ -83,4 +83,12 @@ export interface APIError {
   statusCode?: number;
 }
 
-
+export interface StockListItem {
+  symbol: string; // 종목 코드 (예: 005930)
+  name: string; // 종목명 (예: 삼성전자)
+  market: 'KOSPI' | 'KOSDAQ'; // 시장 구분
+  sector?: string; // 섹터
+  industry?: string; // 업종
+  marketCap?: number; // 시가총액
+  listedDate?: string; // 상장일
+}
