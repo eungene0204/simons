@@ -1,15 +1,15 @@
 import vectorbt as vbt
 import pandas as pd
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 class Simulator:
-    @staticmethod
     def run(price_df: pd.DataFrame, 
             exec_price_df: pd.DataFrame, 
             entries_df: pd.DataFrame, 
             exits_df: pd.DataFrame, 
             risk_params: Dict[str, Any],
-            options: Dict[str, Any]) -> vbt.Portfolio:
+            options: Dict[str, Any],
+            rank_df: Optional[pd.DataFrame] = None) -> vbt.Portfolio:
         
         # 1. Copy Signal Inputs to avoid side effects
         entries_df = entries_df.copy()
@@ -20,7 +20,6 @@ class Simulator:
         if max_hold > 0:
             for col in entries_df.columns:
                 # Signal an exit N days after each entry
-                # shift(N) maps entry at T to exit signal at T+N
                 time_exits = entries_df[col].shift(max_hold).fillna(False).astype(bool)
                 exits_df[col] = exits_df[col] | time_exits
 
@@ -36,19 +35,15 @@ class Simulator:
         slippage_val = float(options.get('slippage_rate') or 0.0020)
         
         # Determine size per position
-        # For equal weight, we force it to 1/N to use cash as a natural limit
         if risk_params.get('allocation_type') == 'equal':
             size_per_pos = 1.0 / max_pos if max_pos and max_pos > 0 else 0.1
         else:
             size_per_pos = pos_size_pct / 100.0
 
-        # --- Hard Limit on Concurrent Positions ---
-        # Since vectorbt only limits by cash, we pre-filter signals to honor max_pos count
-        # This is strictly for cross-asset count limiting.
+        # --- Hard Limit on Concurrent Positions with Ranking ---
         if max_pos is not None and max_pos < entries_df.shape[1]:
             filtered_entries = entries_df.copy()
             active_count = 0
-            # Track active status per symbol
             is_active = {sym: False for sym in entries_df.columns}
             
             for i in range(len(entries_df)):
@@ -58,15 +53,22 @@ class Simulator:
                         is_active[sym] = False
                         active_count -= 1
                 
-                # 2. Process new entries
+                # 2. Process new entries (Prioritized by rank if available)
                 today_entries = entries_df.iloc[i]
-                for sym in today_entries.index:
-                    if today_entries[sym] and not is_active[sym]:
+                candidates = today_entries.index[today_entries].tolist()
+                
+                if rank_df is not None and len(candidates) > 1:
+                    # Sort candidates by rank (descending score)
+                    today_ranks = rank_df.iloc[i]
+                    candidates.sort(key=lambda s: today_ranks.get(s, 0.0), reverse=True)
+                
+                for sym in candidates:
+                    if not is_active[sym]:
                         if active_count < max_pos:
                             is_active[sym] = True
                             active_count += 1
                         else:
-                            # Block this entry as we've hit the count limit
+                            # Block this entry
                             filtered_entries.iloc[i, filtered_entries.columns.get_loc(sym)] = False
             entries_df = filtered_entries
         # ------------------------------------------
