@@ -22,6 +22,9 @@ class RiskManagement(BaseModel):
     trailing_stop_pct: Optional[float] = None
     max_holding_days: Optional[int] = None
     max_mdd_limit_pct: Optional[float] = None
+    ranking_enabled: Optional[bool] = True
+    ranking_weight_value: Optional[float] = 0.5
+    ranking_weight_quality: Optional[float] = 0.5
     execution_timing: Optional[str] = "next_open"
     allocation_type: Optional[str] = "equal"
     rebalancing_period: Optional[str] = "none"

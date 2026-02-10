@@ -63,6 +63,7 @@ class BacktestEngine:
             all_exits = {}
             all_entry_reasons = {}
             all_exit_reasons = {}
+            all_ranks = {'pbr': {}, 'roe': {}}
             
             processed_symbols = []
             common_index = None
@@ -197,6 +198,11 @@ class BacktestEngine:
                     all_exits[sym] = exits_exec
                     all_entry_reasons[sym] = pd.Series(entry_descs, index=pdf.index)
                     all_exit_reasons[sym] = pd.Series(exit_descs, index=pdf.index)
+                    
+                    # Store data for ranking
+                    all_ranks['pbr'][sym] = pdf['pbr'] if 'pbr' in pdf.columns else pd.Series(index=pdf.index)
+                    all_ranks['roe'][sym] = pdf['roe_or_gpa'] if 'roe_or_gpa' in pdf.columns else pd.Series(index=pdf.index)
+                    
                     processed_symbols.append(sym)
                     
                     if common_index is None: common_index = pdf.index
@@ -219,7 +225,29 @@ class BacktestEngine:
             entries_df = pd.DataFrame(all_entries, index=common_index).fillna(False)
             exits_df = pd.DataFrame(all_exits, index=common_index).fillna(False)
 
-            pf = Simulator.run(price_df, exec_price_df, entries_df, exits_df, risk_params, options)
+            # Calculate Ranking Score (Value 50% + Quality 50%)
+            rank_df = None
+            if risk_params.get('ranking_enabled', True):
+                try:
+                    pbr_df = pd.DataFrame(all_ranks['pbr'], index=common_index).ffill().fillna(1.0)
+                    roe_df = pd.DataFrame(all_ranks['roe'], index=common_index).ffill().fillna(0.0)
+                    
+                    # Percentile Ranks (0 to 1)
+                    # Lower PBR is better: 1.0 - rank_percentile
+                    v_score = 1.0 - pbr_df.rank(axis=1, pct=True)
+                    # Higher ROE is better: rank_percentile
+                    q_score = roe_df.rank(axis=1, pct=True)
+                    
+                    w_v = float(risk_params.get('ranking_weight_value', 0.5))
+                    w_q = float(risk_params.get('ranking_weight_quality', 0.5))
+                    
+                    rank_df = (v_score * w_v) + (q_score * w_q)
+                    print(f"[DEBUG] Ranking calculated. Sample scores: {rank_df.iloc[-1].head().to_dict()}")
+                except Exception as e:
+                    print(f"[WARNING] Ranking calculation failed: {e}")
+                    rank_df = None
+
+            pf = Simulator.run(price_df, exec_price_df, entries_df, exits_df, risk_params, options, rank_df=rank_df)
 
             # Check for zero trades
             if len(pf.trades) == 0:
