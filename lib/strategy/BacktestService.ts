@@ -12,6 +12,11 @@ export class BacktestService {
       strategy.universe.filters
     );
 
+    console.error(`[DEBUG] BacktestService: Universe ${strategy.universe.id} resolved to ${symbols.length} symbols.`);
+    if (symbols.length > 0) {
+      console.error(`[DEBUG] Sample symbols: ${symbols.slice(0, 5).join(", ")}...`);
+    }
+
     if (symbols.length === 0) {
       throw new Error("No symbols found in selected universe");
     }

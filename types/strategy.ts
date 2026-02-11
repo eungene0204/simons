@@ -149,6 +149,8 @@ export interface BacktestResult {
   warnings?: string[];
 }
 
+
+
 export interface BacktestScenario {
   id: string;
   strategyId: string;

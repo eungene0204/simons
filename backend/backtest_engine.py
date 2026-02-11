@@ -56,6 +56,13 @@ class BacktestEngine:
             start_date_req = req.get('startDate')
             end_date_req = req.get('endDate')
 
+            # --- Pre-calculate a global ref_date for period filtering ---
+            # Use today as the reference point for relative periods if no endDate is specified
+            ref_date = pd.to_datetime('today').normalize()
+            if end_date_req:
+                ref_date = pd.to_datetime(end_date_req)
+            # -------------------------------------------------------------
+
             # 1. Load and process each symbol
             all_prices = {}
             all_exec_prices = {}
@@ -79,9 +86,8 @@ class BacktestEngine:
                     
                     # 1.3 Filtering by Period
                     if period_req != 'full' or start_date_req or end_date_req:
-                        last_date = df_pl['date'].max()
-                        ref_date = last_date if isinstance(last_date, datetime) else pd.to_datetime(last_date)
-                        if start_date_req: df_pl = df_pl.filter(pl.col("date") >= pd.to_datetime(start_date_req))
+                        if start_date_req: 
+                            df_pl = df_pl.filter(pl.col("date") >= pd.to_datetime(start_date_req))
                         elif period_req == '6M': 
                             df_pl = df_pl.filter(pl.col("date") >= (ref_date - pd.DateOffset(months=6)))
                         elif period_req == '1Y': 
@@ -92,11 +98,15 @@ class BacktestEngine:
                             df_pl = df_pl.filter(pl.col("date") >= pd.Timestamp(year=ref_date.year - 9, month=1, day=1))
                         elif period_req == '20Y':
                             df_pl = df_pl.filter(pl.col("date") >= pd.Timestamp(year=ref_date.year - 19, month=1, day=1))
-                        elif period_req == '3Y': # Fallback for Step 5 dashboard convenience
-                            df_pl = df_pl.filter(pl.col("date") >= pd.Timestamp(year=ref_date.year - 2, month=1, day=1))
-                        if end_date_req: df_pl = df_pl.filter(pl.col("date") <= pd.to_datetime(end_date_req))
+                        
+                        if end_date_req: 
+                            df_pl = df_pl.filter(pl.col("date") <= ref_date)
+                        else:
+                            # Also cap to the reference date to ensure consistency if and when symbols have future data (though rare in OHLCV)
+                            df_pl = df_pl.filter(pl.col("date") <= ref_date)
 
                     if len(df_pl) < 1:
+                        print(f"[DEBUG] {sym}: Dropped due to insufficient OHLCV data after filtering.")
                         self.warnings.add(f"{sym}: 충분한 OHLCV 데이터가 없어 백테스트에서 제외되었습니다.")
                         continue
 
@@ -107,6 +117,11 @@ class BacktestEngine:
                     # 1.5 Liquidity check
                     target_pos_amount = init_cash * (pos_size_pct / 100.0)
                     liquidity_ok = self.loader.check_liquidity(pdf, target_pos_amount, liquidity_limit_pct)
+                    num_liquid_bars = liquidity_ok.sum()
+                    if num_liquid_bars == 0:
+                        print(f"[DEBUG] {sym}: Dropped due to zero liquid bars (limit: {liquidity_limit_pct}% of {target_pos_amount:,.0f} KRW)")
+                    elif num_liquid_bars < data_len * 0.1: # Heuristic
+                        print(f"[DEBUG] {sym}: Low liquidity ({num_liquid_bars}/{data_len} bars passed).")
 
                     # 1.6 Generate Signals
                     entries = []
