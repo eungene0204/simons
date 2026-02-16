@@ -293,4 +293,6 @@ class ResultHandler:
             "perAssetStats": per_asset_stats,
             "version": "6.3 (Detailed Stats)"
         }
+
+
         return sanitize(res)

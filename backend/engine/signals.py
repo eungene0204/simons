@@ -1,9 +1,25 @@
 from typing import List, Dict, Any, Tuple, Optional
 import polars as pl
+import numpy as np
 
 class SignalEngine:
     def __init__(self):
         pass
+    def generate_signals(self, df: pl.DataFrame, group: Dict[str, Any]) -> Tuple[np.ndarray, List[Optional[str]]]:
+        if not group or not group.get('conditions'):
+            data_len = len(df)
+            return np.zeros(data_len, dtype=bool), [None] * data_len
+        
+        data_len = len(df)
+        signals = np.zeros(data_len, dtype=bool)
+        reasons = [None] * data_len
+        
+        for i in range(data_len):
+            en, ed = self.evaluate_group(group, i, df)
+            signals[i] = en
+            reasons[i] = ed
+            
+        return signals, reasons
 
     def evaluate_group(self, group: Dict[str, Any], idx: int, df: pl.DataFrame) -> Tuple[bool, Optional[str]]:
         if not group.get('conditions'): return False, None
@@ -118,6 +134,20 @@ class SignalEngine:
                 if c >= float(tp): return True
             return False
 
+        elif cid == 'ai_model':
+            # AI Score is pre-calculated and stored in the dataframe by BacktestEngine
+            score = safe_get('ai_score', idx)
+            if score is None: return False
+            threshold = float(p.get('threshold', 0.5))
+            if threshold > 1.0:
+                threshold /= 100.0
+            direction = p.get('direction', 'above')
+            
+            if direction == 'above':
+                return score >= threshold
+            else:
+                return score <= threshold
+
         elif cid == 'max_holding_days' or cid == 'trailing_stop':
             # Pure risk blocks handled by simulator, return False to avoid signal interference
             return False
@@ -149,6 +179,11 @@ class SignalEngine:
         elif cid == 'breakout':
             period = p.get('lookbackPeriod', 20)
             return f"{period}일 신고가 돌파" if p.get('signalType') != 'sell' else f"{period}일 신저가 돌파"
+        elif cid == 'ai_model':
+            threshold = p.get('threshold', 0.5)
+            direction = "이상" if p.get('direction', 'above') == 'above' else "이하"
+            suffix = "%" if threshold > 1 else ""
+            return f"AI 예측 점수 {threshold}{suffix} {direction}"
         elif cid == 'price_limit_exit':
             sl, tp = p.get('stopLoss'), p.get('takeProfit')
             sl_m, tp_m = p.get('stopLossMode', 'pct'), p.get('takeProfitMode', 'pct')

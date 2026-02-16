@@ -26,28 +26,36 @@ class BacktestEngine:
         self.indicator_engine = IndicatorEngine()
         self.signal_engine = SignalEngine()
         self.handler = ResultHandler()
+        self.simulator = Simulator()
+        
+        # Load AI Engine lazily
+        self._ai_engine = None
 
-    def calculate_indicators(self, df_pl: pl.DataFrame, conditions: List[Dict[str, Any]]) -> pl.DataFrame:
-        return self.indicator_engine.calculate(df_pl, conditions)
+    @property
+    def ai_engine(self):
+        if self._ai_engine is None:
+            from ai.ai_engine import AIEngine
+            try:
+                self._ai_engine = AIEngine()
+            except Exception as e:
+                print(f"[ERROR] Failed to initialize AIEngine: {e}", flush=True)
+                self._ai_engine = "FAILED"
+        return None if self._ai_engine == "FAILED" else self._ai_engine
 
     def run_backtest(self, req: Dict[str, Any]) -> Dict[str, Any]:
         try:
+            # 1. Parameter Extraction
             self.warnings = set()
-            symbols = req.get('symbols', [req.get('symbol')])
-            
+            symbols = req.get('symbols') or [req.get('symbol')]
+            if not symbols or symbols == [None]:
+                symbols = []
+                
             # Risk & Options
-            risk_params = req.get('risk', {})
-            print(f"[DEBUG] BacktestEngine: Received risk_params: {risk_params}")
-            init_cash = float(risk_params.get('init_cash') or 10000000.0)
+            risk_params = req.get('risk_params') or req.get('risk') or {}
+            init_cash = float(risk_params.get('init_cash') or risk_params.get('initial_cash') or 10000000.0)
             pos_size_pct = float(risk_params.get('position_size_pct') or 100.0)
             
-            # Support both naming conventions for compatibility, respect 0.0
-            liquidity_limit_pct = risk_params.get('liquidity_limit_pct')
-            if liquidity_limit_pct is None:
-                liquidity_limit_pct = risk_params.get('liquidity_multiplier')
-            if liquidity_limit_pct is None:
-                liquidity_limit_pct = 10.0
-            liquidity_limit_pct = float(liquidity_limit_pct)
+            liquid_limit = float(risk_params.get('liquidity_limit_pct') or 10.0)
             
             options = req.get('options', {})
             exec_type = options.get('execution_type', 'next_open') 
@@ -56,22 +64,24 @@ class BacktestEngine:
             start_date_req = req.get('startDate')
             end_date_req = req.get('endDate')
 
-            # --- Pre-calculate a global ref_date for period filtering ---
-            # Use today as the reference point for relative periods if no endDate is specified
-            ref_date = pd.to_datetime('today').normalize()
-            if end_date_req:
-                ref_date = pd.to_datetime(end_date_req)
-            # -------------------------------------------------------------
-
-            # 1. Load and process each symbol
-            all_prices = {}
-            all_exec_prices = {}
-            all_entries = {}
-            all_exits = {}
-            all_entry_reasons = {}
-            all_exit_reasons = {}
-            all_ranks = {'pbr': {}, 'roe': {}}
+            # Detect if AI is needed
+            def check_ai_needed(group):
+                if not group: return False
+                for c in group.get('conditions', []):
+                    if c.get('id') == 'ai_model': return True
+                    if 'conditions' in c:
+                        if check_ai_needed(c): return True
+                return False
             
+            ai_needed = check_ai_needed(req.get('entry')) or check_ai_needed(req.get('exit'))
+
+            # Reference date for relative periods
+            ref_date = pd.to_datetime(end_date_req) if end_date_req else pd.to_datetime('today').normalize()
+
+            # 2. Data Structures for Vectorbt
+            all_prices, all_exec_prices, all_entries, all_exits = {}, {}, {}, {}
+            all_entry_reasons, all_exit_reasons = {}, {}
+            all_ranks = {'pbr': {}, 'roe': {}}
             processed_symbols = []
             common_index = None
 
@@ -79,12 +89,32 @@ class BacktestEngine:
                 try:
                     # 1.1 Load Data
                     df_pl = self.loader.load_symbol_data(sym)
+                    if df_pl is None or len(df_pl) == 0:
+                        continue
                     
-                    # 1.2 Calculate Indicators
-                    all_conditions = req['entry']['conditions'] + req['exit']['conditions']
-                    df_pl = self.indicator_engine.calculate(df_pl, all_conditions)
+                    # 3.2 Indicators
+                    indicators = []
+                    def collect_indicators(group):
+                        if not group: return
+                        for c in group.get('conditions', []):
+                            if 'conditions' in c: collect_indicators(c)
+                            else: indicators.append(c)
                     
-                    # 1.3 Filtering by Period
+                    collect_indicators(req.get('entry'))
+                    collect_indicators(req.get('exit'))
+                    df_pl = self.indicator_engine.calculate(df_pl, indicators)
+
+                    # 3.3 AI Model Inference
+                    if ai_needed:
+                        engine = self.ai_engine
+                        if engine:
+                            pdf_ai = df_pl.to_pandas()
+                            ai_probs = engine.predict_signals(pdf_ai)
+                            df_pl = df_pl.with_columns(pl.Series("ai_score", ai_probs))
+                        else:
+                            df_pl = df_pl.with_columns(pl.Series("ai_score", [0.0] * len(df_pl)))
+                    
+                    # 3.4 Period Filtering
                     if period_req != 'full' or start_date_req or end_date_req:
                         if start_date_req: 
                             df_pl = df_pl.filter(pl.col("date") >= pd.to_datetime(start_date_req))
@@ -92,193 +122,81 @@ class BacktestEngine:
                             df_pl = df_pl.filter(pl.col("date") >= (ref_date - pd.DateOffset(months=6)))
                         elif period_req == '1Y': 
                             df_pl = df_pl.filter(pl.col("date") >= (ref_date - pd.DateOffset(years=1)))
-                        elif period_req == '5Y': 
-                            df_pl = df_pl.filter(pl.col("date") >= pd.Timestamp(year=ref_date.year - 4, month=1, day=1))
-                        elif period_req == '10Y':
-                            df_pl = df_pl.filter(pl.col("date") >= pd.Timestamp(year=ref_date.year - 9, month=1, day=1))
-                        elif period_req == '20Y':
-                            df_pl = df_pl.filter(pl.col("date") >= pd.Timestamp(year=ref_date.year - 19, month=1, day=1))
+                        elif period_req in ['5Y', '10Y', '20Y']:
+                            y = int(period_req[:-1])
+                            df_pl = df_pl.filter(pl.col("date") >= pd.Timestamp(year=ref_date.year - (y-1), month=1, day=1))
                         
                         if end_date_req: 
                             df_pl = df_pl.filter(pl.col("date") <= ref_date)
                         else:
-                            # Also cap to the reference date to ensure consistency if and when symbols have future data (though rare in OHLCV)
                             df_pl = df_pl.filter(pl.col("date") <= ref_date)
 
                     if len(df_pl) < 1:
-                        print(f"[DEBUG] {sym}: Dropped due to insufficient OHLCV data after filtering.")
-                        self.warnings.add(f"{sym}: 충분한 OHLCV 데이터가 없어 백테스트에서 제외되었습니다.")
                         continue
 
-                    # 1.4 Preprocess (Adjusted Prices, Datetime Index)
+                    # 3.5 Preprocessing (Adjusted Prices)
                     pdf = self.loader.preprocess_data(df_pl)
-                    data_len = len(pdf)
                     
-                    # 1.5 Liquidity check
+                    # 3.6 Liquidity Check
                     target_pos_amount = init_cash * (pos_size_pct / 100.0)
-                    liquidity_ok = self.loader.check_liquidity(pdf, target_pos_amount, liquidity_limit_pct)
-                    num_liquid_bars = liquidity_ok.sum()
-                    if num_liquid_bars == 0:
-                        print(f"[DEBUG] {sym}: Dropped due to zero liquid bars (limit: {liquidity_limit_pct}% of {target_pos_amount:,.0f} KRW)")
-                    elif num_liquid_bars < data_len * 0.1: # Heuristic
-                        print(f"[DEBUG] {sym}: Low liquidity ({num_liquid_bars}/{data_len} bars passed).")
+                    liquidity_ok = self.loader.check_liquidity(pdf, target_pos_amount, liquid_limit)
+                    if liquidity_ok.sum() == 0:
+                        self.warnings.add(f"{sym}: 유동성 기준 미달 (거래대금 부족)")
+                        continue
 
-                    # 1.6 Generate Signals
-                    entries = []
-                    exits = []
-                    entry_descs = [None] * data_len
-                    exit_descs = [None] * data_len
+                    # 3.7 Signal Generation
+                    entry_signals, entry_reasons = self.signal_engine.generate_signals(df_pl, req.get('entry'))
+                    exit_signals, exit_reasons = self.signal_engine.generate_signals(df_pl, req.get('exit'))
                     
-                    # Core risk blocks that should be handled by the simulator strictly
-                    SIMULATOR_ONLY_BLOCKS = ['max_holding_days', 'trailing_stop']
+                    if entry_signals is None: 
+                        continue
                     
-                    # Extract Risk Params recursively from Step 2 Strategy
-                    pure_percentage_exits = set()
-
-                    def extract_risk_from_group(group):
-                        if not group or 'conditions' not in group: return
-                        for cond in group['conditions']:
-                            if 'conditions' in cond: # Nested group
-                                extract_risk_from_group(cond)
-                                continue
-                                
-                            cid = cond.get('id')
-                            p = cond.get('params', {})
-                            
-                            if cid == 'price_limit_exit':
-                                sl, tp = p.get('stopLoss'), p.get('takeProfit')
-                                sl_m, tp_m = p.get('stopLossMode', 'pct'), p.get('takeProfitMode', 'pct')
-                                is_pct = False
-                                if sl_m == 'pct' and sl:
-                                    risk_params['stop_loss_pct'] = sl
-                                    is_pct = True
-                                if tp_m == 'pct' and tp:
-                                    risk_params['take_profit_pct'] = tp
-                                    is_pct = True
-                                if is_pct: pure_percentage_exits.add(id(cond))
-
-                            elif cid == 'max_holding_days':
-                                if p.get('maxHoldingDays'): risk_params['max_holding_days'] = p['maxHoldingDays']
-                            elif cid == 'trailing_stop':
-                                if p.get('trailingStop'): risk_params['trailing_stop_pct'] = p['trailingStop']
-
-                    extract_risk_from_group(req['entry'])
-                    extract_risk_from_group(req['exit'])
-
-                    # Prepare filtered condition groups (clean signals)
-                    def filter_risk_blocks(group):
-                        if not group: return None
-                        new_conds = []
-                        for c in group.get('conditions', []):
-                            if 'conditions' in c: # Nested group
-                                filtered_sub = filter_risk_blocks(c)
-                                if filtered_sub and filtered_sub['conditions']:
-                                    new_conds.append(filtered_sub)
-                            elif c['id'] not in SIMULATOR_ONLY_BLOCKS and id(c) not in pure_percentage_exits:
-                                new_conds.append(c)
-                        return {**group, "conditions": new_conds}
-
-                    entry_config = filter_risk_blocks(req['entry'])
-                    exit_config = filter_risk_blocks(req['exit'])
-                    
-                    for i in range(data_len):
-                        can_enter, entry_desc = self.signal_engine.evaluate_group(entry_config, i, df_pl)
-                        if can_enter and not liquidity_ok[i]:
-                            can_enter = False
-                            entry_desc = None
-                        entries.append(can_enter)
-                        entry_descs[i] = entry_desc
-                        
-                        can_exit, exit_desc = self.signal_engine.evaluate_group(exit_config, i, df_pl)
-                        exits.append(can_exit)
-                        exit_descs[i] = exit_desc
-                    
-                    # 1.7 Execution Alignment
-                    entries_s = pd.Series(entries, index=pdf.index)
-                    exits_s = pd.Series(exits, index=pdf.index)
-                    
-                    if exec_type == 'next_open':
-                        entries_exec = entries_s.shift(1).fillna(False)
-                        exits_exec = exits_s.shift(1).fillna(False)
-                        exec_prices = pdf['open'] if 'open' in pdf.columns else pdf['close']
-                    else:
-                        entries_exec = entries_s
-                        exits_exec = exits_s
-                        exec_prices = pdf['close']
-
-                    # 1.8 Store results for vectorbt
+                    # 3.8 Store Data for Vectorbt
+                    if common_index is None: common_index = pdf.index
                     all_prices[sym] = pdf['close']
-                    all_exec_prices[sym] = exec_prices
-                    all_entries[sym] = entries_exec
-                    all_exits[sym] = exits_exec
-                    all_entry_reasons[sym] = pd.Series(entry_descs, index=pdf.index)
-                    all_exit_reasons[sym] = pd.Series(exit_descs, index=pdf.index)
-                    
-                    # Store data for ranking
-                    all_ranks['pbr'][sym] = pdf['pbr'] if 'pbr' in pdf.columns else pd.Series(index=pdf.index)
-                    all_ranks['roe'][sym] = pdf['roe_or_gpa'] if 'roe_or_gpa' in pdf.columns else pd.Series(index=pdf.index)
+                    all_exec_prices[sym] = pdf['open']
+                    all_entries[sym] = pd.Series(entry_signals, index=pdf.index)
+                    all_exits[sym] = pd.Series(exit_signals, index=pdf.index)
+                    all_entry_reasons[sym] = pd.Series(entry_reasons, index=pdf.index)
+                    all_exit_reasons[sym] = pd.Series(exit_reasons, index=pdf.index)
+
+                    if 'pbr' in pdf.columns: all_ranks['pbr'][sym] = pdf['pbr']
+                    if 'roe_or_gpa' in pdf.columns: all_ranks['roe'][sym] = pdf['roe_or_gpa']
                     
                     processed_symbols.append(sym)
-                    
-                    if common_index is None: common_index = pdf.index
-                    else: common_index = common_index.union(pdf.index).sort_values()
-
-                    # Final verification for this symbol
-                    sig_dates = [entries_s.index[i].strftime('%Y-%m-%d') for i, val in enumerate(entries) if val]
-                    print(f"[DEBUG] ENGINE: Symbol {sym} has {len(sig_dates)} entries. Sample dates: {sig_dates[:3]}")
 
                 except Exception as e:
-                    self.warnings.add(f"{sym}: 처리 중 오류 ({str(e)})")
+                    self.warnings.add(f"{sym}: 처리 오류 ({e})")
 
+            # 4. Simulation
             if not processed_symbols:
                 raise Exception("분석 가능한 유효한 데이터가 없습니다.")
 
-            # 2. Vectorbt Simulation
-            # Final sanitization: ensure no NaNs or zeros in prices before reaching simulator
             price_df = pd.DataFrame(all_prices, index=common_index).ffill().bfill()
-            exec_price_df = pd.DataFrame(all_exec_prices, index=common_index).ffill().bfill()
-            entries_df = pd.DataFrame(all_entries, index=common_index).fillna(False)
-            exits_df = pd.DataFrame(all_exits, index=common_index).fillna(False)
+            exec_px_df = pd.DataFrame(all_exec_prices, index=common_index).ffill().bfill()
+            ents_df = pd.DataFrame(all_entries, index=common_index).fillna(False)
+            exts_df = pd.DataFrame(all_exits, index=common_index).fillna(False)
 
-            # Calculate Ranking Score (Value 50% + Quality 50%)
             rank_df = None
-            if risk_params.get('ranking_enabled', True):
+            if risk_params.get('ranking_enabled', True) and all_ranks['pbr'] and all_ranks['roe']:
                 try:
                     pbr_df = pd.DataFrame(all_ranks['pbr'], index=common_index).ffill().fillna(1.0)
                     roe_df = pd.DataFrame(all_ranks['roe'], index=common_index).ffill().fillna(0.0)
-                    
-                    # Percentile Ranks (0 to 1)
-                    # Lower PBR is better: 1.0 - rank_percentile
                     v_score = 1.0 - pbr_df.rank(axis=1, pct=True)
-                    # Higher ROE is better: rank_percentile
                     q_score = roe_df.rank(axis=1, pct=True)
-                    
                     w_v = float(risk_params.get('ranking_weight_value', 0.5))
                     w_q = float(risk_params.get('ranking_weight_quality', 0.5))
-                    
                     rank_df = (v_score * w_v) + (q_score * w_q)
-                    print(f"[DEBUG] Ranking calculated. Sample scores: {rank_df.iloc[-1].head().to_dict()}")
-                except Exception as e:
-                    print(f"[WARNING] Ranking calculation failed: {e}")
+                except:
                     rank_df = None
 
-            pf = Simulator.run(price_df, exec_price_df, entries_df, exits_df, risk_params, options, rank_df=rank_df)
-
-            # Check for zero trades
-            if len(pf.trades) == 0:
-                self.warnings.add("매매 조건에 부합하는 종목이 없어 매매 기록이 생성되지 않았습니다. 매수 조건을 확인해 주세요.")
-
-            # 3. Format Results
-            final_res = self.handler.format_results(
-                pf, processed_symbols, all_entries, all_exits, 
-                all_entry_reasons, all_exit_reasons, common_index, 
-                risk_params, exec_type, init_cash
-            )
+            pf = self.simulator.run(price_df, exec_px_df, ents_df, exts_df, risk_params, options, rank_df=rank_df)
             
-            final_res["warnings"] = list(self.warnings) + list(getattr(pf, 'warnings', []))
-            return final_res
+            # 5. Format
+            final = self.handler.format_results(pf, processed_symbols, all_entries, all_exits, all_entry_reasons, all_exit_reasons, common_index, risk_params, exec_type, init_cash)
+            final["warnings"] = list(self.warnings) + list(getattr(pf, 'warnings', []))
+            return final
 
         except Exception as e:
-            import traceback
-            traceback.print_exc()
+            import traceback; traceback.print_exc()
             raise e

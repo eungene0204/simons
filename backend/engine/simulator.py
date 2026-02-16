@@ -3,7 +3,8 @@ import pandas as pd
 from typing import Dict, Any, Optional
 
 class Simulator:
-    def run(price_df: pd.DataFrame, 
+    def run(self,
+            price_df: pd.DataFrame, 
             exec_price_df: pd.DataFrame, 
             entries_df: pd.DataFrame, 
             exits_df: pd.DataFrame, 
@@ -15,14 +16,6 @@ class Simulator:
         entries_df = entries_df.copy()
         exits_df = exits_df.copy()
         
-        # 2. Merge Max Holding Days into exits (Needs to be done before pre-filtering)
-        max_hold = int(risk_params.get('max_holding_days') or 0)
-        if max_hold > 0:
-            for col in entries_df.columns:
-                # Signal an exit N days after each entry
-                time_exits = entries_df[col].shift(max_hold).fillna(False).astype(bool)
-                exits_df[col] = exits_df[col] | time_exits
-
         init_cash = float(risk_params.get('init_cash') or 10000000.0)
         pos_size_pct = float(risk_params.get('position_size_pct') or 100.0)
         max_pos = risk_params.get('max_positions')
@@ -30,6 +23,7 @@ class Simulator:
         sl_pct = float(risk_params.get('stop_loss_pct') or 0)
         tp_pct = float(risk_params.get('take_profit_pct') or 0)
         ts_pct = float(risk_params.get('trailing_stop_pct') or 0)
+        max_hold = int(risk_params.get('max_holding_days') or 0)
         
         fee_rate = float(options.get('fee_rate') or 0.0015)
         slippage_val = float(options.get('slippage_rate') or 0.0020)
@@ -40,33 +34,62 @@ class Simulator:
         else:
             size_per_pos = pos_size_pct / 100.0
 
-        # --- Hard Limit on Concurrent Positions with Ranking ---
-        if max_pos is not None and max_pos < entries_df.shape[1]:
+        # --- Hard Limit on Concurrent Positions with Unified Exit Logic ---
+        has_risk = max_pos is not None or max_hold > 0 or sl_pct > 0 or tp_pct > 0
+        if has_risk:
+            eff_max_pos = max_pos if max_pos is not None else entries_df.shape[1]
             filtered_entries = entries_df.copy()
             active_count = 0
             is_active = {sym: False for sym in entries_df.columns}
+            entry_day = {sym: -1 for sym in entries_df.columns}
+            entry_price = {sym: 0.0 for sym in entries_df.columns}
             
             for i in range(len(entries_df)):
                 # 1. Update exits (free up slots)
-                for sym in entries_df.columns:
-                    if is_active[sym] and exits_df.iloc[i][sym]:
-                        is_active[sym] = False
-                        active_count -= 1
+                for sym_idx, sym in enumerate(entries_df.columns):
+                    if is_active[sym]:
+                        should_exit = False
+                        
+                        # A. Strategy Exit Signal (Already in exits_df)
+                        if exits_df.iloc[i][sym]:
+                            should_exit = True
+                        
+                        # B. Max Holding Days Exit
+                        elif max_hold > 0 and (i - entry_day[sym]) >= max_hold:
+                            should_exit = True
+                            exits_df.iloc[i, sym_idx] = True # Record the exit
+                            
+                        # C. Stop Loss / Take Profit Approximation
+                        elif sl_pct > 0 or tp_pct > 0:
+                            current_price = price_df.iloc[i][sym]
+                            pct_ret = (current_price - entry_price[sym]) / entry_price[sym] * 100
+                            
+                            if sl_pct > 0 and pct_ret <= -sl_pct:
+                                should_exit = True
+                                exits_df.iloc[i, sym_idx] = True
+                            elif tp_pct > 0 and pct_ret >= tp_pct:
+                                should_exit = True
+                                exits_df.iloc[i, sym_idx] = True
+                        
+                        if should_exit:
+                            is_active[sym] = False
+                            active_count -= 1
                 
                 # 2. Process new entries (Prioritized by rank if available)
                 today_entries = entries_df.iloc[i]
                 candidates = today_entries.index[today_entries].tolist()
                 
                 if rank_df is not None and len(candidates) > 1:
-                    # Sort candidates by rank (descending score)
                     today_ranks = rank_df.iloc[i]
                     candidates.sort(key=lambda s: today_ranks.get(s, 0.0), reverse=True)
                 
                 for sym in candidates:
                     if not is_active[sym]:
-                        if active_count < max_pos:
+                        if active_count < eff_max_pos:
                             is_active[sym] = True
                             active_count += 1
+                            entry_day[sym] = i
+                            entry_price[sym] = exec_price_df.iloc[i][sym]
                         else:
                             # Block this entry
                             filtered_entries.iloc[i, filtered_entries.columns.get_loc(sym)] = False
