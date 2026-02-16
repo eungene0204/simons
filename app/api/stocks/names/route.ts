@@ -5,11 +5,13 @@ import { cache } from "@/lib/cache";
 export async function GET(request: NextRequest) {
   try {
     const cacheKey = "stocks:metadata-map";
+    /*
     const cached = cache.get(cacheKey);
     
     if (cached) {
       return NextResponse.json(cached);
     }
+    */
 
     const stocks = await loadStockList();
     const metadataMap: Record<string, { name: string, sector: string }> = {};

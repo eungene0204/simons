@@ -17,6 +17,8 @@ import {
   ChevronUpIcon,
   ChevronDownIcon
 } from "@heroicons/react/24/outline";
+
+
 import { useState, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 
@@ -52,6 +54,8 @@ export default function BacktestDashboard({
   isRunning 
 }: BacktestDashboardProps) {
   const [activeTab, setActiveTab] = useState<"chart" | "stats" | "log" | "assets">("chart");
+
+
   const [localOptions, setLocalOptions] = useState<BacktestConfigOptions | null>(currentOptions || null);
   const [stockMetadata, setStockMetadata] = useState<Record<string, { name: string, sector: string }>>({});
   const [sortConfig, setSortConfig] = useState<{ key: 'profit' | 'totalReturn' | 'trades' | null, direction: 'asc' | 'desc' }>({ key: null, direction: 'desc' });
@@ -265,6 +269,8 @@ export default function BacktestDashboard({
               { id: "stats", label: "통계 상세", icon: TableCellsIcon },
               { id: "log", label: "매매 기록", icon: CheckBadgeIcon },
             ].map(tab => (
+
+
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
@@ -384,8 +390,9 @@ export default function BacktestDashboard({
              </div>
            )}
 
-           {/* Assets View (Symbol Summary) */}
-           {activeTab === "assets" && (
+            {/* Assets View (Symbol Summary) */}
+            {activeTab === "assets" && (
+
              <div className="h-full overflow-y-auto custom-scrollbar">
                 <div className="bg-[#111] overflow-hidden">
                    <table className="w-full text-left border-collapse">

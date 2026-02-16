@@ -376,34 +376,34 @@ export const signalBlocks: Record<string, SignalBlock> = {
   },
 
   // ML Blocks
-  ml_probability: {
-    id: "ml_probability",
-    name: "ML 확률",
-    description: "수십 가지의 시장 특징 데이터를 학습한 앙상블 머신러닝 모델의 예측값을 활용합니다. 과거 패턴을 기반으로 현재 종목의 상승 확률이 설정한 임계값보다 높을 때만 진입하는 데이터 기반 전략입니다.",
+  ai_model: {
+    id: "ai_model",
+    name: "Simons AI 예측 모델",
+    description: "Transformer와 XGBoost가 결합된 하이브리드 AI 모델이 계산한 상승 확률을 이용합니다. 과거 패턴을 기반으로 현재 종목이 10일 이내에 7% 이상 상승할 확률이 설정한 임계값보다 높을 때 진입합니다.",
     category: "ml",
     defaultParams: {
-      threshold: 0.7,
-      modelType: "ensemble",
+      threshold: 70,
+      direction: "above",
       signalType: "buy",
     },
     paramSchema: {
       threshold: {
         type: "number",
         label: "확률 임계값",
-        min: 0.5,
-        max: 0.95,
-        step: 0.05,
-        tooltip: "매수 신호 확률 임계값",
+        min: 5,
+        max: 95,
+        step: 5,
+        tooltip: "매수 신호 발생을 위한 최소 AI 예측 확률 (5% ~ 95%)",
         suffix: "%",
       },
-      modelType: {
+      direction: {
         type: "select",
-        label: "모델 타입",
+        label: "판단 기준",
         options: [
-          { value: "random_forest", label: "랜덤 포레스트" },
-          { value: "lstm", label: "LSTM (장단기 메모리)" },
-          { value: "ensemble", label: "앙상블 (Ensemble)" },
+          { value: "above", label: "임계값 이상 (상승 예측)" },
+          { value: "below", label: "임계값 이하 (하락 예측)" },
         ],
+        tooltip: "AI 점수가 설정한 값보다 높을 때 혹은 낮을 때 신호를 발생시킵니다.",
       },
       signalType: {
         type: "select",

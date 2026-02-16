@@ -6,45 +6,96 @@ from typing import List, Dict, Any
 class IndicatorEngine:
     @staticmethod
     def calculate(df_pl: pl.DataFrame, conditions: List[Dict[str, Any]]) -> pl.DataFrame:
-        pdf = df_pl.to_pandas()
-        # Preserve original Close before stockstats conversion
-        if 'date' not in pdf.columns and pdf.index.name == 'date':
-            pdf = pdf.reset_index()
-            
-        sdf = StockDataFrame.retype(pdf.copy())
+        log_file = "backend_execution.log"
+        def log(msg):
+            from datetime import datetime
+            with open(log_file, "a") as f:
+                f.write(f"[{datetime.now()}] [IndicatorEngine] {msg}\n")
         
-        for cond in conditions:
-            cid = cond.get('id')
-            p = cond.get('params', {})
+        log(f"calculate started with {len(conditions)} conditions")
+        try:
+            log("Converting polars to pandas")
+            pdf = df_pl.to_pandas()
+            log("Pandas conversion successful")
+            orig_cols = [c.lower() for c in pdf.columns]
+            pdf.columns = orig_cols
             
-            if cid == 'ma_crossover':
-                short = p.get('shortMA', p.get('short_period', p.get('short', 5)))
-                long = p.get('longMA', p.get('long_period', p.get('long', 20)))
-                _ = sdf[f'close_{short}_sma']
-                _ = sdf[f'close_{long}_sma']
-            elif cid == 'rsi':
-                period = p.get('period', p.get('rsi_period', 14))
-                _ = sdf[f'rsi_{period}']
-            elif cid == 'macd':
-                _ = sdf['macd']
-                _ = sdf['macds']
-            elif cid == 'bollinger_bands':
-                period = p.get('period', 20)
-                _ = sdf[f'close_{period}_sma']
-                _ = sdf[f'boll_ub']
-                _ = sdf[f'boll_lb']
-            elif cid == 'volume_spike':
-                _ = sdf['obv']
-                # Pre-calculate SMA for OBV if needed
-                period = p.get('period', 20)
-                sdf[f'obv_{period}_sma'] = sdf['obv'].rolling(window=period).mean()
-            elif cid == 'breakout':
-                period = p.get('lookbackPeriod', 20)
-                sdf[f'close_{period}_max'] = sdf['close'].rolling(window=period).max()
-                sdf[f'close_{period}_min'] = sdf['close'].rolling(window=period).min()
-        
-        res_pdf = pd.DataFrame(sdf)
-        if 'date' not in res_pdf.columns:
-            res_pdf = res_pdf.reset_index()
+            # Preserve original state
+            if 'date' not in pdf.columns and pdf.index.name == 'date':
+                log("Resetting index")
+                pdf = pdf.reset_index()
             
-        return pl.from_pandas(res_pdf)
+            log("Retyping to StockDataFrame")
+            sdf = StockDataFrame.retype(pdf.copy())
+            log("StockDataFrame retype successful")
+            
+            # Ensure we can calculate basic columns first
+            target_cols = set(orig_cols)
+            
+            for cond in conditions:
+                cid = cond.get('id')
+                p = cond.get('params', {})
+                log(f"Processing condition: {cid}")
+                
+                try:
+                    if cid == 'ma_crossover':
+                        short = p.get('shortMA', p.get('short_period', p.get('short', 5)))
+                        long = p.get('longMA', p.get('long_period', p.get('long', 20)))
+                        target_cols.add(f'close_{short}_sma')
+                        target_cols.add(f'close_{long}_sma')
+                    elif cid == 'rsi':
+                        period = p.get('period', p.get('rsi_period', 14))
+                        target_cols.add(f'rsi_{period}')
+                    elif cid == 'macd':
+                        target_cols.add('macd')
+                        target_cols.add('macds')
+                    elif cid == 'bollinger_bands':
+                        period = p.get('period', 20)
+                        target_cols.add(f'close_{period}_sma')
+                        target_cols.add('boll_ub')
+                        target_cols.add('boll_lb')
+                    elif cid == 'volume_spike':
+                        log("Handling volume_spike")
+                        _ = sdf['obv'] 
+                        period = p.get('period', 20)
+                        sdf[f'obv_{period}_sma'] = sdf['obv'].rolling(window=period).mean()
+                        target_cols.add('obv')
+                        target_cols.add(f'obv_{period}_sma')
+                    elif cid == 'breakout':
+                        log("Handling breakout")
+                        period = p.get('lookbackPeriod', 20)
+                        sdf[f'close_{period}_max'] = sdf['close'].rolling(window=period).max()
+                        sdf[f'close_{period}_min'] = sdf['close'].rolling(window=period).min()
+                        target_cols.add(f'close_{period}_max')
+                        target_cols.add(f'close_{period}_min')
+                except Exception as e:
+                    log(f"WARNING: Indicator {cid} failed: {e}")
+
+            # Trigger bulk calculation
+            log(f"Triggering bulk calculation for {len(target_cols)} cols")
+            final_cols = []
+            for c in target_cols:
+                try:
+                    # StockDataFrame triggers calculation on access
+                    if c in sdf.columns or c in sdf:
+                        _ = sdf[c]
+                        final_cols.append(c)
+                    else:
+                        _ = sdf[c]
+                        final_cols.append(c)
+                except Exception as e:
+                    log(f"Failed to calculate {c}: {e}")
+            
+            log(f"Calculated {len(final_cols)} columns")
+            res_pdf = pd.DataFrame(sdf[final_cols])
+            if 'date' not in res_pdf.columns:
+                res_pdf = res_pdf.reset_index()
+                
+            log("calculate finished")
+            return pl.from_pandas(res_pdf)
+        except Exception as e:
+            log(f"CRITICAL ERROR in calculate: {e}")
+            import traceback
+            with open(log_file, "a") as f:
+                traceback.print_exc(file=f)
+            raise e
