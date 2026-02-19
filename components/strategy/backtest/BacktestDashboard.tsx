@@ -73,44 +73,58 @@ export default function BacktestDashboard({
 
   // Load and update history
   useEffect(() => {
-    const saved = localStorage.getItem("backtest_history");
-    const historyList: BacktestHistoryItem[] = saved ? JSON.parse(saved) : [];
-    setHistory(historyList);
+    const fetchHistory = async () => {
+      try {
+        const response = await fetch("/api/backtest/history");
+        if (response.ok) {
+          const data = await response.json();
+          setHistory(data);
 
-    // Record NEW result if it's not already there (based on metrics and conditions)
-    if (result && strategySummary) {
-      const newItem: BacktestHistoryItem = {
-        id: Math.random().toString(36).substr(2, 9),
-        timestamp: Date.now(),
-        strategyName: strategySummary.strategyName || "이름 없는 전략",
-        universe: strategySummary.universeName,
-        conditions: strategySummary.blockNames,
-        metrics: {
-          totalReturn: result.totalReturn,
-          cagr: result.cagr,
-          mdd: result.maxDrawdown,
-          winRate: result.winRate,
-          profitFactor: result.profitFactor,
-          buyHold: result.buyAndHoldReturn,
-          trades: result.trades
+          // Record NEW result if it's not already there (based on metrics and conditions)
+          if (result && strategySummary) {
+            const newItemData = {
+              strategyName: strategySummary.strategyName || "이름 없는 전략",
+              universe: strategySummary.universeName,
+              conditions: strategySummary.blockNames,
+              metrics: {
+                totalReturn: result.totalReturn,
+                cagr: result.cagr,
+                mdd: result.maxDrawdown,
+                winRate: result.winRate,
+                profitFactor: result.profitFactor,
+                buyHold: result.buyAndHoldReturn,
+                trades: result.trades
+              }
+            };
+
+            // Improved deduplication: Check recently added items in the fetched list
+            const isDuplicate = data.slice(0, 5).some((item: any) => 
+              item.strategyName === newItemData.strategyName &&
+              item.metrics.totalReturn === newItemData.metrics.totalReturn && 
+              item.metrics.trades === newItemData.metrics.trades &&
+              JSON.stringify(item.conditions) === JSON.stringify(newItemData.conditions)
+            );
+
+            if (!isDuplicate) {
+              const saveResponse = await fetch("/api/backtest/history", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(newItemData),
+              });
+              
+              if (saveResponse.ok) {
+                const savedItem = await saveResponse.json();
+                setHistory(prev => [savedItem, ...prev].slice(0, 50));
+              }
+            }
+          }
         }
-      };
-
-      // Improved deduplication: Check recently added items
-      // We check the last 5 items just in case multiple re-renders happen quickly
-      const isDuplicate = historyList.slice(0, 5).some(item => 
-        item.strategyName === newItem.strategyName &&
-        item.metrics.totalReturn === newItem.metrics.totalReturn && 
-        item.metrics.trades === newItem.metrics.trades &&
-        JSON.stringify(item.conditions) === JSON.stringify(newItem.conditions)
-      );
-
-      if (!isDuplicate) {
-        const updated = [newItem, ...historyList].slice(0, 50); // Keep last 50
-        localStorage.setItem("backtest_history", JSON.stringify(updated));
-        setHistory(updated);
+      } catch (error) {
+        console.error("Failed to fetch/save backtest history:", error);
       }
-    }
+    };
+
+    fetchHistory();
   }, [result, strategySummary]);
 
   useEffect(() => {
@@ -235,12 +249,19 @@ export default function BacktestDashboard({
     });
   }, [result]);
 
-  const handleDeleteHistoryItem = (id: string, e: React.MouseEvent) => {
+  const handleDeleteHistoryItem = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (confirm("이 테스트 기록을 삭제하시겠습니까?")) {
-      const updated = history.filter(item => item.id !== id);
-      localStorage.setItem("backtest_history", JSON.stringify(updated));
-      setHistory(updated);
+      try {
+        const response = await fetch(`/api/backtest/history?id=${id}`, {
+          method: "DELETE",
+        });
+        if (response.ok) {
+          setHistory(prev => prev.filter(item => item.id !== id));
+        }
+      } catch (error) {
+        console.error("Failed to delete history item:", error);
+      }
     }
   };
 
@@ -663,10 +684,18 @@ export default function BacktestDashboard({
                        테스트 기록 (최근 50개)
                     </h4>
                     <button 
-                      onClick={() => {
+                      onClick={async () => {
                         if (confirm("모든 테스트 기록을 삭제하시겠습니까?")) {
-                          localStorage.removeItem("backtest_history");
-                          setHistory([]);
+                          try {
+                            const response = await fetch("/api/backtest/history", {
+                              method: "DELETE",
+                            });
+                            if (response.ok) {
+                              setHistory([]);
+                            }
+                          } catch (error) {
+                            console.error("Failed to clear history:", error);
+                          }
                         }
                       }}
                       className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 text-xs font-bold rounded-lg border border-red-500/20 transition-all"
