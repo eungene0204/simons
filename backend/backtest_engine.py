@@ -52,10 +52,16 @@ class BacktestEngine:
                 
             # Risk & Options
             risk_params = req.get('risk_params') or req.get('risk') or {}
-            init_cash = float(risk_params.get('init_cash') or risk_params.get('initial_cash') or 10000000.0)
-            pos_size_pct = float(risk_params.get('position_size_pct') or 100.0)
             
-            liquid_limit = float(risk_params.get('liquidity_limit_pct') or 10.0)
+            # Explicitly check for None to allow 0 values
+            init_cash_raw = risk_params.get('init_cash') or risk_params.get('initial_cash')
+            init_cash = float(init_cash_raw) if init_cash_raw is not None else 10000000.0
+            
+            pos_size_raw = risk_params.get('position_size_pct')
+            pos_size_pct = float(pos_size_raw) if pos_size_raw is not None else 100.0
+            
+            liquid_limit_raw = risk_params.get('liquidity_limit_pct')
+            liquid_limit = float(liquid_limit_raw) if liquid_limit_raw is not None else 10.0
             
             options = req.get('options', {})
             exec_type = options.get('execution_type', 'next_open') 
@@ -85,12 +91,16 @@ class BacktestEngine:
             processed_symbols = []
             common_index = None
 
-            for sym in symbols:
+            # Pre-load AI engine to avoid race conditions during lazy loading
+            if ai_needed:
+                self.ai_engine
+
+            def _process_symbol(sym):
                 try:
                     # 1.1 Load Data
                     df_pl = self.loader.load_symbol_data(sym)
                     if df_pl is None or len(df_pl) == 0:
-                        continue
+                        return None
                     
                     # 3.2 Indicators
                     indicators = []
@@ -132,7 +142,7 @@ class BacktestEngine:
                             df_pl = df_pl.filter(pl.col("date") <= ref_date)
 
                     if len(df_pl) < 1:
-                        continue
+                        return None
 
                     # 3.5 Preprocessing (Adjusted Prices)
                     pdf = self.loader.preprocess_data(df_pl)
@@ -141,32 +151,59 @@ class BacktestEngine:
                     target_pos_amount = init_cash * (pos_size_pct / 100.0)
                     liquidity_ok = self.loader.check_liquidity(pdf, target_pos_amount, liquid_limit)
                     if liquidity_ok.sum() == 0:
-                        self.warnings.add(f"{sym}: 유동성 기준 미달 (거래대금 부족)")
-                        continue
+                        return ("warning", f"{sym}: 유동성 기준 미달 (거래대금 부족)")
 
                     # 3.7 Signal Generation
                     entry_signals, entry_reasons = self.signal_engine.generate_signals(df_pl, req.get('entry'))
                     exit_signals, exit_reasons = self.signal_engine.generate_signals(df_pl, req.get('exit'))
                     
                     if entry_signals is None: 
-                        continue
+                        return None
                     
-                    # 3.8 Store Data for Vectorbt
-                    if common_index is None: common_index = pdf.index
-                    all_prices[sym] = pdf['close']
-                    all_exec_prices[sym] = pdf['open']
-                    all_entries[sym] = pd.Series(entry_signals, index=pdf.index)
-                    all_exits[sym] = pd.Series(exit_signals, index=pdf.index)
-                    all_entry_reasons[sym] = pd.Series(entry_reasons, index=pdf.index)
-                    all_exit_reasons[sym] = pd.Series(exit_reasons, index=pdf.index)
-
-                    if 'pbr' in pdf.columns: all_ranks['pbr'][sym] = pdf['pbr']
-                    if 'roe_or_gpa' in pdf.columns: all_ranks['roe'][sym] = pdf['roe_or_gpa']
-                    
-                    processed_symbols.append(sym)
+                    # Return result package
+                    res = {
+                        "symbol": sym,
+                        "price": pdf['close'],
+                        "exec_price": pdf['open'],
+                        "entries": pd.Series(entry_signals, index=pdf.index),
+                        "exits": pd.Series(exit_signals, index=pdf.index),
+                        "entry_reasons": pd.Series(entry_reasons, index=pdf.index),
+                        "exit_reasons": pd.Series(exit_reasons, index=pdf.index),
+                        "index": pdf.index
+                    }
+                    if 'pbr' in pdf.columns: res["pbr"] = pdf['pbr']
+                    if 'roe_or_gpa' in pdf.columns: res["roe"] = pdf['roe_or_gpa']
+                    return ("success", res)
 
                 except Exception as e:
-                    self.warnings.add(f"{sym}: 처리 오류 ({e})")
+                    return ("warning", f"{sym}: 처리 오류 ({e})")
+
+            import concurrent.futures
+            # Limit workers to avoid too many threads (e.g., CPU count * 2 or fixed number)
+            # AI Inference is heavy on CPU, but loading is I/O.
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+                future_to_sym = {executor.submit(_process_symbol, sym): sym for sym in symbols}
+                for future in concurrent.futures.as_completed(future_to_sym):
+                    result = future.result()
+                    if result is None: continue
+                    
+                    status, data = result
+                    if status == "warning":
+                        self.warnings.add(data)
+                    elif status == "success":
+                        sym = data["symbol"]
+                        if common_index is None: common_index = data["index"]
+                        
+                        all_prices[sym] = data["price"]
+                        all_exec_prices[sym] = data["exec_price"]
+                        all_entries[sym] = data["entries"]
+                        all_exits[sym] = data["exits"]
+                        all_entry_reasons[sym] = data["entry_reasons"]
+                        all_exit_reasons[sym] = data["exit_reasons"]
+                        
+                        if "pbr" in data: all_ranks['pbr'][sym] = data["pbr"]
+                        if "roe" in data: all_ranks['roe'][sym] = data["roe"]
+                        processed_symbols.append(sym)
 
             # 4. Simulation
             if not processed_symbols:

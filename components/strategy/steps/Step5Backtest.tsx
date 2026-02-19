@@ -83,6 +83,11 @@ export default function Step5Backtest({
             onSave={onSave}
             currentOptions={configOptions}
             isRunning={isBacktesting}
+            strategySummary={{
+              universeName: summaryData.universeName,
+              blockNames: summaryData.blockNames,
+              strategyName: strategyName
+            }}
           />
         ) : (
           <div className="h-full overflow-y-auto custom-scrollbar">
