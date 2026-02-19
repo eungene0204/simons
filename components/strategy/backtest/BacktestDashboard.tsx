@@ -1,6 +1,6 @@
 "use client";
 
-import { BacktestResult } from "@/types/strategy";
+import { BacktestResult, BacktestHistoryItem } from "@/types/strategy";
 import BacktestChart from "@/components/strategy/BacktestChart";
 import { BacktestConfigOptions } from "@/components/strategy/backtest/BacktestConfig";
 import { 
@@ -15,7 +15,10 @@ import {
   ListBulletIcon,
   CheckIcon,
   ChevronUpIcon,
-  ChevronDownIcon
+  ChevronDownIcon,
+  ClockIcon,
+  TrashIcon,
+  XMarkIcon
 } from "@heroicons/react/24/outline";
 
 
@@ -29,6 +32,11 @@ interface BacktestDashboardProps {
   onSave?: () => void;
   currentOptions?: BacktestConfigOptions;
   isRunning?: boolean;
+  strategySummary?: {
+    universeName: string;
+    blockNames: string[];
+    strategyName: string;
+  };
 }
 
 const METRIC_DESCRIPTIONS: Record<string, string> = {
@@ -51,15 +59,59 @@ export default function BacktestDashboard({
   onRun, 
   onSave,
   currentOptions,
-  isRunning 
+  isRunning,
+  strategySummary
 }: BacktestDashboardProps) {
-  const [activeTab, setActiveTab] = useState<"chart" | "stats" | "log" | "assets">("chart");
+  const [activeTab, setActiveTab] = useState<"chart" | "stats" | "log" | "assets" | "history">("chart");
+  const [history, setHistory] = useState<BacktestHistoryItem[]>([]);
 
 
   const [localOptions, setLocalOptions] = useState<BacktestConfigOptions | null>(currentOptions || null);
   const [stockMetadata, setStockMetadata] = useState<Record<string, { name: string, sector: string }>>({});
   const [sortConfig, setSortConfig] = useState<{ key: 'profit' | 'totalReturn' | 'trades' | null, direction: 'asc' | 'desc' }>({ key: null, direction: 'desc' });
   const [hoveredMetric, setHoveredMetric] = useState<{ label: string, description: string, rect: DOMRect } | null>(null);
+
+  // Load and update history
+  useEffect(() => {
+    const saved = localStorage.getItem("backtest_history");
+    const historyList: BacktestHistoryItem[] = saved ? JSON.parse(saved) : [];
+    setHistory(historyList);
+
+    // Record NEW result if it's not already there (based on metrics and conditions)
+    if (result && strategySummary) {
+      const newItem: BacktestHistoryItem = {
+        id: Math.random().toString(36).substr(2, 9),
+        timestamp: Date.now(),
+        strategyName: strategySummary.strategyName || "이름 없는 전략",
+        universe: strategySummary.universeName,
+        conditions: strategySummary.blockNames,
+        metrics: {
+          totalReturn: result.totalReturn,
+          cagr: result.cagr,
+          mdd: result.maxDrawdown,
+          winRate: result.winRate,
+          profitFactor: result.profitFactor,
+          buyHold: result.buyAndHoldReturn,
+          trades: result.trades
+        }
+      };
+
+      // Improved deduplication: Check recently added items
+      // We check the last 5 items just in case multiple re-renders happen quickly
+      const isDuplicate = historyList.slice(0, 5).some(item => 
+        item.strategyName === newItem.strategyName &&
+        item.metrics.totalReturn === newItem.metrics.totalReturn && 
+        item.metrics.trades === newItem.metrics.trades &&
+        JSON.stringify(item.conditions) === JSON.stringify(newItem.conditions)
+      );
+
+      if (!isDuplicate) {
+        const updated = [newItem, ...historyList].slice(0, 50); // Keep last 50
+        localStorage.setItem("backtest_history", JSON.stringify(updated));
+        setHistory(updated);
+      }
+    }
+  }, [result, strategySummary]);
 
   useEffect(() => {
     const fetchStockMetadata = async () => {
@@ -183,6 +235,15 @@ export default function BacktestDashboard({
     });
   }, [result]);
 
+  const handleDeleteHistoryItem = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirm("이 테스트 기록을 삭제하시겠습니까?")) {
+      const updated = history.filter(item => item.id !== id);
+      localStorage.setItem("backtest_history", JSON.stringify(updated));
+      setHistory(updated);
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col min-h-0 min-w-0 animate-in fade-in zoom-in-95 duration-300">
       {/* Missing Data Warnings */}
@@ -268,6 +329,7 @@ export default function BacktestDashboard({
               { id: "assets", label: "종목 분석", icon: ListBulletIcon },
               { id: "stats", label: "통계 상세", icon: TableCellsIcon },
               { id: "log", label: "매매 기록", icon: CheckBadgeIcon },
+              { id: "history", label: "테스트 기록", icon: ClockIcon },
             ].map(tab => (
 
 
@@ -591,6 +653,86 @@ export default function BacktestDashboard({
                  )}
               </div>
            )}
+
+            {/* History View */}
+            {activeTab === "history" && (
+              <div className="h-full overflow-y-auto custom-scrollbar p-6">
+                 <div className="flex items-center justify-between mb-6">
+                    <h4 className="text-xl font-black text-white flex items-center gap-2">
+                       <ClockIcon className="w-6 h-6 text-main-blue" />
+                       테스트 기록 (최근 50개)
+                    </h4>
+                    <button 
+                      onClick={() => {
+                        if (confirm("모든 테스트 기록을 삭제하시겠습니까?")) {
+                          localStorage.removeItem("backtest_history");
+                          setHistory([]);
+                        }
+                      }}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 text-xs font-bold rounded-lg border border-red-500/20 transition-all"
+                    >
+                       <TrashIcon className="w-4 h-4" />
+                       기록 전체 삭제
+                    </button>
+                 </div>
+
+                 {history.length > 0 ? (
+                   <div className="space-y-4">
+                      {history.map((item) => (
+                        <div key={item.id} className="bg-[#161616] border border-white/5 rounded-2xl p-5 hover:border-white/10 transition-all group">
+                           <div className="flex items-start justify-between mb-4">
+                              <div>
+                                 <div className="flex items-center gap-3 mb-1.5">
+                                    <span className="text-base font-black text-white">{item.strategyName}</span>
+                                    <span className="px-2.5 py-1 bg-main-blue/10 text-main-blue text-xs font-black rounded uppercase tracking-wider border border-main-blue/20">
+                                       {item.universe}
+                                    </span>
+                                 </div>
+                                 <div className="flex flex-wrap gap-2">
+                                    {item.conditions.map((cond, idx) => (
+                                      <span key={idx} className="px-2.5 py-1 bg-white/5 text-gray-300 text-xs font-medium rounded-md border border-white/5">
+                                         {cond}
+                                      </span>
+                                    ))}
+                                 </div>
+                              </div>
+                              <div className="flex flex-col items-end gap-2">
+                                 <button
+                                    onClick={(e) => handleDeleteHistoryItem(item.id, e)}
+                                    className="p-1.5 text-gray-600 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                                    title="기록 삭제"
+                                 >
+                                    <XMarkIcon className="w-4 h-4" />
+                                 </button>
+                                 <div className="text-xs text-gray-500 font-mono">
+                                    {new Date(item.timestamp).toLocaleString()}
+                                 </div>
+                              </div>
+                           </div>
+                           
+                           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+                              <HistoryMetric label="총 수익률" value={`${item.metrics.totalReturn.toFixed(1)}%`} trend={item.metrics.totalReturn > 0 ? "up" : "down"} />
+                              <HistoryMetric label="CAGR" value={`${item.metrics.cagr.toFixed(1)}%`} trend={item.metrics.cagr > 0 ? "up" : "down"} />
+                              <HistoryMetric label="MDD" value={`${item.metrics.mdd.toFixed(1)}%`} trend="down" />
+                              <HistoryMetric label="승률" value={`${item.metrics.winRate.toFixed(1)}%`} />
+                              <HistoryMetric label="손익비" value={item.metrics.profitFactor.toFixed(2)} />
+                              <HistoryMetric label="매수후보유" value={`${item.metrics.buyHold.toFixed(1)}%`} colorOverride="text-main-green" />
+                              <HistoryMetric label="매매횟수" value={`${item.metrics.trades}회`} />
+                           </div>
+                        </div>
+                      ))}
+                   </div>
+                 ) : (
+                   <div className="h-[300px] flex flex-col items-center justify-center text-gray-600 space-y-3">
+                      <div className="p-4 bg-white/5 rounded-full border border-white/5">
+                        <ClockIcon className="w-10 h-10 opacity-20" />
+                      </div>
+                      <p className="text-base font-bold">기록된 테스트가 없습니다</p>
+                      <p className="text-sm text-gray-500">백테스트를 실행하면 이곳에 자동으로 기록됩니다.</p>
+                   </div>
+                 )}
+              </div>
+            )}
         </div>
       </div>
 
@@ -738,4 +880,27 @@ function StatItem({
          </div>
       </div>
    );
+}
+
+function HistoryMetric({ 
+  label, 
+  value, 
+  trend, 
+  colorOverride 
+}: { 
+  label: string, 
+  value: string, 
+  trend?: "up" | "down", 
+  colorOverride?: string 
+}) {
+  const dynamicColor = colorOverride 
+    ? colorOverride 
+    : (trend === "up" ? "text-main-red" : trend === "down" ? "text-main-blue" : "text-white");
+
+  return (
+    <div className="flex flex-col">
+       <span className="text-xs text-gray-500 font-bold uppercase tracking-wider mb-1">{label}</span>
+       <span className={`text-base font-black ${dynamicColor}`}>{value}</span>
+    </div>
+  );
 }

@@ -160,6 +160,23 @@ export interface BacktestScenario {
   timestamp: string;
 }
 
+export interface BacktestHistoryItem {
+  id: string;
+  timestamp: number;
+  strategyName: string;
+  universe: string;
+  conditions: string[]; // List of condition names
+  metrics: {
+    totalReturn: number;
+    cagr: number;
+    mdd: number;
+    winRate: number;
+    profitFactor: number;
+    buyHold: number;
+    trades: number;
+  };
+}
+
 
 export interface StrategyDataset {
   symbol: string;

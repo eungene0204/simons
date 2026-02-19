@@ -1,5 +1,6 @@
 import vectorbt as vbt
 import pandas as pd
+import numpy as np
 from typing import Dict, Any, Optional
 
 class Simulator:
@@ -38,62 +39,72 @@ class Simulator:
         has_risk = max_pos is not None or max_hold > 0 or sl_pct > 0 or tp_pct > 0
         if has_risk:
             eff_max_pos = max_pos if max_pos is not None else entries_df.shape[1]
-            filtered_entries = entries_df.copy()
+            
+            # Pre-calculate data for faster access
+            symbols = entries_df.columns.tolist()
+            num_symbols = len(symbols)
+            price_values = price_df.values
+            exec_price_values = exec_price_df.values
+            entries_values = entries_df.values
+            exits_values = exits_df.values
+            
+            filtered_entries_values = entries_values.copy()
+            active_mask = np.zeros(num_symbols, dtype=bool)
+            entry_day = np.full(num_symbols, -1)
+            entry_price = np.zeros(num_symbols)
             active_count = 0
-            is_active = {sym: False for sym in entries_df.columns}
-            entry_day = {sym: -1 for sym in entries_df.columns}
-            entry_price = {sym: 0.0 for sym in entries_df.columns}
             
             for i in range(len(entries_df)):
                 # 1. Update exits (free up slots)
-                for sym_idx, sym in enumerate(entries_df.columns):
-                    if is_active[sym]:
+                for s_idx in range(num_symbols):
+                    if active_mask[s_idx]:
                         should_exit = False
                         
-                        # A. Strategy Exit Signal (Already in exits_df)
-                        if exits_df.iloc[i][sym]:
+                        # A. Strategy Exit Signal
+                        if exits_values[i, s_idx]:
                             should_exit = True
                         
                         # B. Max Holding Days Exit
-                        elif max_hold > 0 and (i - entry_day[sym]) >= max_hold:
+                        elif max_hold > 0 and (i - entry_day[s_idx]) >= max_hold:
                             should_exit = True
-                            exits_df.iloc[i, sym_idx] = True # Record the exit
+                            exits_df.iloc[i, s_idx] = True
                             
-                        # C. Stop Loss / Take Profit Approximation
+                        # C. Stop Loss / Take Profit
                         elif sl_pct > 0 or tp_pct > 0:
-                            current_price = price_df.iloc[i][sym]
-                            pct_ret = (current_price - entry_price[sym]) / entry_price[sym] * 100
+                            current_px = price_values[i, s_idx]
+                            pct_ret = (current_px - entry_price[s_idx]) / entry_price[s_idx] * 100
                             
                             if sl_pct > 0 and pct_ret <= -sl_pct:
                                 should_exit = True
-                                exits_df.iloc[i, sym_idx] = True
+                                exits_df.iloc[i, s_idx] = True
                             elif tp_pct > 0 and pct_ret >= tp_pct:
                                 should_exit = True
-                                exits_df.iloc[i, sym_idx] = True
+                                exits_df.iloc[i, s_idx] = True
                         
                         if should_exit:
-                            is_active[sym] = False
+                            active_mask[s_idx] = False
                             active_count -= 1
                 
-                # 2. Process new entries (Prioritized by rank if available)
-                today_entries = entries_df.iloc[i]
-                candidates = today_entries.index[today_entries].tolist()
+                # 2. Process new entries
+                today_ents = entries_values[i]
+                candidate_indices = np.where(today_ents & ~active_mask)[0]
                 
-                if rank_df is not None and len(candidates) > 1:
-                    today_ranks = rank_df.iloc[i]
-                    candidates.sort(key=lambda s: today_ranks.get(s, 0.0), reverse=True)
-                
-                for sym in candidates:
-                    if not is_active[sym]:
+                if len(candidate_indices) > 0:
+                    if rank_df is not None:
+                        today_ranks = rank_df.iloc[i].values
+                        # Sort by rank descending
+                        candidate_indices = candidate_indices[np.argsort(-today_ranks[candidate_indices])]
+                    
+                    for s_idx in candidate_indices:
                         if active_count < eff_max_pos:
-                            is_active[sym] = True
+                            active_mask[s_idx] = True
                             active_count += 1
-                            entry_day[sym] = i
-                            entry_price[sym] = exec_price_df.iloc[i][sym]
+                            entry_day[s_idx] = i
+                            entry_price[s_idx] = exec_price_values[i, s_idx]
                         else:
-                            # Block this entry
-                            filtered_entries.iloc[i, filtered_entries.columns.get_loc(sym)] = False
-            entries_df = filtered_entries
+                            filtered_entries_values[i, s_idx] = False
+
+            entries_df = pd.DataFrame(filtered_entries_values, index=entries_df.index, columns=entries_df.columns)
         # ------------------------------------------
 
         vbt_kwargs = dict(
