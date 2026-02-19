@@ -73,10 +73,6 @@ export default function Step5Backtest({
       <div className="flex-1 flex flex-col min-h-0 min-w-0">
         {backtestResult && view === "dashboard" ? (
           <BacktestDashboard 
-            key={`${backtestResult === (lastResultId as any) ? "same" : "new"}-${JSON.stringify({
-              summary: summaryData,
-              // Explicitly include canvasBlocks if not already in summary
-            })}`}
             result={backtestResult} 
             onRestart={handleRestart}
             onRun={handleRun}
@@ -85,8 +81,12 @@ export default function Step5Backtest({
             isRunning={isBacktesting}
             strategySummary={{
               universeName: summaryData.universeName,
-              blockNames: summaryData.blockNames,
-              strategyName: strategyName
+              strategyName: strategyName,
+              entryLogic: summaryData.entryLogic,
+              exitLogic: summaryData.exitLogic,
+              entryBlocks: summaryData.entryBlocks,
+              exitBlocks: summaryData.exitBlocks,
+              blockNames: summaryData.blockNames
             }}
           />
         ) : (

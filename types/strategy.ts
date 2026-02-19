@@ -95,6 +95,7 @@ export interface SignalBlock {
 
 // Backtest Result Types
 export interface BacktestResult {
+  executionId: string;
   strategyId: string;
   symbol?: string; // Kept for backward compatibility
   symbols?: string[]; 
@@ -165,7 +166,12 @@ export interface BacktestHistoryItem {
   timestamp: number;
   strategyName: string;
   universe: string;
-  conditions: string[]; // List of condition names
+  conditions: string[] | { 
+    logic?: string; 
+    names?: string[];
+    entry?: { logic: string; names: string[] };
+    exit?: { logic: string; names: string[] };
+  };
   metrics: {
     totalReturn: number;
     cagr: number;

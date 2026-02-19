@@ -11,15 +11,27 @@ class AIEngine:
     def __init__(self, model_dir="/Users/eugene/nullalgo/simons/model"):
         self.model_dir = model_dir
         
-        # Robust Device Selection: CUDA -> MPS -> CPU
+        # 0. Set Seeds for Determinism
+        seed = 42
+        torch.manual_seed(seed)
+        np.random.seed(seed)
+        import random
+        random.seed(seed)
+        
         if torch.cuda.is_available():
+            torch.cuda.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
             self.device = torch.device("cuda")
         elif torch.backends.mps.is_available():
+            # Note: MPS determinism is partially supported in newer torch versions
+            # os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
             self.device = torch.device("mps")
         else:
             self.device = torch.device("cpu")
         
-        print(f"AIEngine initialized on: {self.device}")
+        print(f"AIEngine initialized on: {self.device} (Seed: {seed})")
         
         # 1. Load Scaler
         scaler_path = os.path.join(model_dir, 'feature_scaler.joblib')

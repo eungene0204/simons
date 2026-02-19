@@ -5,7 +5,11 @@ import { BacktestConfigOptions } from "@/components/strategy/backtest/BacktestCo
 export class BacktestService {
 
   async run(strategy: StrategyDSL, options: BacktestConfigOptions): Promise<BacktestResult> {
-    console.error("[DEBUG] BacktestService: run method START");
+    const serviceId = Math.random().toString(36).substr(2, 5);
+    console.error(`[DEBUG-SVC] BacktestService.run START (ID: ${serviceId})`, {
+      strategyId: strategy.id,
+      period: options.period
+    });
     // 1. Identify required symbols
     const symbols = await UniverseResolver.getSymbols(
       strategy.universe.id, 
@@ -77,6 +81,7 @@ export class BacktestService {
 
       // 3. Map Python Result to TS BacktestResult interface
       return {
+        executionId: `run_${Date.now()}_${serviceId}`,
         strategyId: strategy.id,
         symbols: pythonResult.symbols,
         totalReturn: pythonResult.totalReturn,

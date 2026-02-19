@@ -22,8 +22,8 @@ import {
 } from "@heroicons/react/24/outline";
 
 
-import { useState, useEffect, useMemo } from "react";
-import { motion } from "framer-motion";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 
 interface BacktestDashboardProps {
   result: BacktestResult;
@@ -36,6 +36,10 @@ interface BacktestDashboardProps {
     universeName: string;
     blockNames: string[];
     strategyName: string;
+    entryLogic?: string;
+    exitLogic?: string;
+    entryBlocks?: string[];
+    exitBlocks?: string[];
   };
 }
 
@@ -70,57 +74,142 @@ export default function BacktestDashboard({
   const [stockMetadata, setStockMetadata] = useState<Record<string, { name: string, sector: string }>>({});
   const [sortConfig, setSortConfig] = useState<{ key: 'profit' | 'totalReturn' | 'trades' | null, direction: 'asc' | 'desc' }>({ key: null, direction: 'desc' });
   const [hoveredMetric, setHoveredMetric] = useState<{ label: string, description: string, rect: DOMRect } | null>(null);
+  const [isWarningsOpen, setIsWarningsOpen] = useState(false);
+  const lastProcessedResultRef = useRef<string | null>(null);
+  const isSavingRef = useRef(false);
 
   // Load and update history
   useEffect(() => {
     const fetchHistory = async () => {
+      // Create a unique identifier for this result + summary combination
+      const currentResultId = result && strategySummary 
+        ? `${result.totalReturn}-${result.trades}-${strategySummary.strategyName}-${JSON.stringify(strategySummary.blockNames)}`
+        : null;
+
+      console.error("[DEBUG-SAVE] useEffect Triggered", {
+        hasResult: !!result,
+        resultId: currentResultId,
+        lastProcessed: lastProcessedResultRef.current,
+        isSaving: isSavingRef.current
+      });
+
+      // 1. Prevent overlapping executions, double-processing, and invalid results
+      if (isSavingRef.current) {
+        console.error("[DEBUG-SAVE] Skipping: already in progress (LOCKED)");
+        return;
+      }
+
+      // DO NOT SAVE if currently running or result is missing
+      if (isRunning || !result) {
+        console.error("[DEBUG-SAVE] Skipping: isRunning:", isRunning, "hasResult:", !!result);
+        return;
+      }
+
+      // Use executionId as the definitive check for this run
+      if (result.executionId === lastProcessedResultRef.current) {
+        console.error("[DEBUG-SAVE] Skipping: Already processed this executionId:", result.executionId);
+        return;
+      }
+
+      // Fallback: also check the content-based ID if needed, 
+      // but executionId should be sufficient now.
+      if (currentResultId === lastProcessedResultRef.current) {
+        console.error("[DEBUG-SAVE] Skipping: Already processed this result content");
+        return;
+      }
+      
       try {
+        // LOCK
+        isSavingRef.current = true;
+
+        console.error("[DEBUG-SAVE] Fetching existing history...");
         const response = await fetch("/api/backtest/history");
         if (response.ok) {
           const data = await response.json();
           setHistory(data);
 
-          // Record NEW result if it's not already there (based on metrics and conditions)
-          if (result && strategySummary) {
+          if (strategySummary) {
+            console.error("[DEBUG-CRITICAL] Save process started. strategySummary:", strategySummary);
+
             const newItemData = {
               strategyName: strategySummary.strategyName || "이름 없는 전략",
               universe: strategySummary.universeName,
-              conditions: strategySummary.blockNames,
+              conditions: {
+                entry: {
+                  logic: strategySummary.entryLogic || "AND",
+                  names: strategySummary.entryBlocks || []
+                },
+                exit: {
+                  logic: strategySummary.exitLogic || "AND",
+                  names: strategySummary.exitBlocks || []
+                }
+              },
               metrics: {
-                totalReturn: result.totalReturn,
-                cagr: result.cagr,
-                mdd: result.maxDrawdown,
-                winRate: result.winRate,
-                profitFactor: result.profitFactor,
-                buyHold: result.buyAndHoldReturn,
-                trades: result.trades
-              }
+                totalReturn: result.totalReturn || 0,
+                cagr: result.cagr || 0,
+                mdd: result.maxDrawdown || 0,
+                winRate: result.winRate || 0,
+                profitFactor: result.profitFactor || 0,
+                buyHold: result.buyAndHoldReturn || 0,
+                trades: result.trades || 0,
+              },
             };
 
-            // Improved deduplication: Check recently added items in the fetched list
-            const isDuplicate = data.slice(0, 5).some((item: any) => 
-              item.strategyName === newItemData.strategyName &&
-              item.metrics.totalReturn === newItemData.metrics.totalReturn && 
-              item.metrics.trades === newItemData.metrics.trades &&
-              JSON.stringify(item.conditions) === JSON.stringify(newItemData.conditions)
-            );
+            let isDuplicate = false;
+            try {
+              if (data && Array.isArray(data)) {
+                isDuplicate = data.slice(0, 10).some((item: any) => {
+                  if (!item || !item.metrics) return false;
+                  
+                  // Strict metric match
+                  const metricsMatch = Math.abs((item.metrics.totalReturn || 0) - (newItemData.metrics.totalReturn || 0)) < 0.00001 && 
+                                      (item.metrics.trades || 0) === (newItemData.metrics.trades || 0);
+                  
+                  // Check recursive structure (handle both old and new format during transition if needed)
+                  const conditionsMatch = JSON.stringify(item.conditions) === JSON.stringify(newItemData.conditions);
+                  
+                  return metricsMatch && conditionsMatch && item.strategyName === newItemData.strategyName;
+                });
+              }
+            } catch (err) {
+              console.error("[DEBUG-CRITICAL] Error in deduplication:", err);
+              isDuplicate = false;
+            }
+
+            console.error("[DEBUG-CRITICAL] isDuplicate result:", isDuplicate);
 
             if (!isDuplicate) {
-              const saveResponse = await fetch("/api/backtest/history", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(newItemData),
-              });
-              
-              if (saveResponse.ok) {
-                const savedItem = await saveResponse.json();
-                setHistory(prev => [savedItem, ...prev].slice(0, 50));
+              console.error("[DEBUG-CRITICAL] PROCEEDING TO POST RECORD TO /api/backtest/history");
+              try {
+                const saveResponse = await fetch("/api/backtest/history", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(newItemData),
+                });
+                
+                console.error("[DEBUG-CRITICAL] Save response status:", saveResponse.status);
+                const savedData = await saveResponse.json();
+                console.error("[DEBUG-CRITICAL] Saved data from server:", savedData);
+
+                if (saveResponse.ok) {
+                  setHistory(prev => [savedData, ...prev]);
+                  lastProcessedResultRef.current = result.executionId;
+                }
+              } catch (saveErr) {
+                console.error("[DEBUG-CRITICAL] FATAL ERROR DURING FETCH/POST:", saveErr);
               }
+            } else {
+              // Even if it's a duplicate in the database, mark it as processed locally
+              lastProcessedResultRef.current = result.executionId;
             }
           }
         }
       } catch (error) {
-        console.error("Failed to fetch/save backtest history:", error);
+        console.error("[DEBUG-SAVE] Failed to fetch/save backtest history:", error);
+      } finally {
+        // ALWAYS unlock
+        isSavingRef.current = false;
+        console.error("[DEBUG-SAVE] FINISHED and UNLOCKED");
       }
     };
 
@@ -269,30 +358,55 @@ export default function BacktestDashboard({
     <div className="flex-1 flex flex-col min-h-0 min-w-0 animate-in fade-in zoom-in-95 duration-300">
       {/* Missing Data Warnings */}
       {result.warnings && result.warnings.length > 0 && (
-        <div className="mb-6 p-4 bg-main-red/10 border border-main-red/30 rounded-xl flex flex-col gap-2">
-           <div className="flex items-center gap-2 text-main-red font-black text-base uppercase">
+        <div className="mb-6 bg-main-red/5 border border-main-red/20 rounded-2xl overflow-hidden transition-all duration-300">
+          <button 
+            onClick={() => setIsWarningsOpen(!isWarningsOpen)}
+            className="w-full px-5 py-4 flex items-center justify-between hover:bg-main-red/10 transition-colors"
+          >
+            <div className="flex items-center gap-3 text-main-red font-black text-sm uppercase tracking-tight">
               <ExclamationTriangleIcon className="w-5 h-5" />
-              주의: 백테스트 데이터 제한 사항
-           </div>
-           <ul className="list-disc list-inside space-y-1">
-             {result.warnings.map((w, i) => {
-               // Try to inject stock name if symbol is present
-               let displayWarning = w;
-               const symMatch = w.match(/^([0-9A-Z]{6}):/);
-               if (symMatch) {
-                 const sym = symMatch[1];
-                 const name = stockMetadata[sym]?.name;
-                 if (name) {
-                   displayWarning = w.replace(sym, `${name} (${sym})`);
-                 }
-               }
-               return (
-                 <li key={i} className="text-sm text-red-200/80 font-medium">
-                   {displayWarning}
-                 </li>
-               );
-             })}
-           </ul>
+              <span>주의: {result.warnings.length}개의 데이터 제한 사항</span>
+            </div>
+            <motion.div
+              animate={{ rotate: isWarningsOpen ? 180 : 0 }}
+              transition={{ duration: 0.3, ease: "circOut" }}
+            >
+              <ChevronDownIcon className="w-5 h-5 text-main-red/60" />
+            </motion.div>
+          </button>
+
+          <AnimatePresence>
+            {isWarningsOpen && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
+              >
+                <div className="px-5 pb-5 pt-1 border-t border-main-red/10">
+                  <ul className="space-y-2">
+                    {result.warnings.map((w, i) => {
+                      let displayWarning = w;
+                      const symMatch = w.match(/^([0-9A-Z]{6}):/);
+                      if (symMatch) {
+                        const sym = symMatch[1];
+                        const name = stockMetadata[sym]?.name;
+                        if (name) {
+                          displayWarning = w.replace(sym, `${name} (${sym})`);
+                        }
+                      }
+                      return (
+                        <li key={i} className="flex gap-2 text-xs text-red-100/60 leading-relaxed font-medium">
+                          <span className="text-main-red/40 mt-1">•</span>
+                          {displayWarning}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       )}
 
@@ -717,13 +831,64 @@ export default function BacktestDashboard({
                                        {item.universe}
                                     </span>
                                  </div>
-                                 <div className="flex flex-wrap gap-2">
-                                    {item.conditions.map((cond, idx) => (
-                                      <span key={idx} className="px-2.5 py-1 bg-white/5 text-gray-300 text-xs font-medium rounded-md border border-white/5">
-                                         {cond}
-                                      </span>
-                                    ))}
-                                 </div>
+                                  <div className="flex flex-wrap items-center gap-y-2 gap-x-4">
+                                     {/* 1. Entry Blocks Rendering (Red Theme) */}
+                                     {(() => {
+                                         const conds = item.conditions as any;
+                                         const entry = conds?.entry || (Array.isArray(item.conditions) ? { logic: "AND", names: item.conditions } : { logic: conds.logic || "AND", names: conds.names || [] });
+                                         const isEntryAnd = String(entry.logic).trim().toUpperCase() === "AND";
+                                         const names = entry.names || [];
+                                         if (names.length === 0) return null;
+
+                                         return (
+                                           <div className="flex items-center">
+                                             {names.map((name: string, idx: number) => (
+                                               <div key={`entry-${idx}`} className="flex items-center">
+                                                  {/* PHYSICAL LINE: ONLY DRAW IF 'AND' AND NOT FIRST */}
+                                                  {idx > 0 && isEntryAnd && <div className="w-5 h-[1.5px] bg-red-500/40" />}
+                                                  {/* GAP: ONLY IF 'OR' AND NOT FIRST */}
+                                                  {idx > 0 && !isEntryAnd && <div className="w-4" />}
+                                                  
+                                                  <span className={`px-2.5 py-1 ${!isEntryAnd ? 'bg-red-500/5 text-red-400/80 border-red-500/20' : 'bg-red-500/10 text-red-500 border-red-500/10'} text-[10px] font-bold rounded-md border whitespace-nowrap`}>
+                                                    {name}
+                                                  </span>
+                                               </div>
+                                             ))}
+                                           </div>
+                                         );
+                                     })()}
+
+                                     {/* Divider if both exist (Simple Spacer) */}
+                                     {((item.conditions as any).entry?.names?.length > 0 && (item.conditions as any).exit?.names?.length > 0) && (
+                                       <div className="w-6" /> 
+                                     )}
+
+                                     {/* 2. Exit Blocks Rendering (Blue Theme) */}
+                                     {(() => {
+                                         const conds = item.conditions as any;
+                                         if (!conds?.exit || (conds.exit.names || []).length === 0) return null;
+                                         const exit = conds.exit;
+                                         const isExitAnd = String(exit.logic).trim().toUpperCase() === "AND";
+                                         const names = exit.names || [];
+
+                                         return (
+                                           <div className="flex items-center">
+                                             {names.map((name: string, idx: number) => (
+                                               <div key={`exit-${idx}`} className="flex items-center">
+                                                  {/* PHYSICAL LINE: ONLY DRAW IF 'AND' AND NOT FIRST */}
+                                                  {idx > 0 && isExitAnd && <div className="w-5 h-[1.5px] bg-blue-500/40" />}
+                                                  {/* GAP: ONLY IF 'OR' AND NOT FIRST */}
+                                                  {idx > 0 && !isExitAnd && <div className="w-4" />}
+
+                                                  <span className={`px-2.5 py-1 ${!isExitAnd ? 'bg-blue-500/5 text-blue-400/80 border-blue-500/20' : 'bg-blue-500/10 text-blue-500 border-blue-500/10'} text-[10px] font-bold rounded-md border whitespace-nowrap`}>
+                                                    {name}
+                                                  </span>
+                                               </div>
+                                             ))}
+                                           </div>
+                                         );
+                                     })()}
+                                  </div>
                               </div>
                               <div className="flex flex-col items-end gap-2">
                                  <button

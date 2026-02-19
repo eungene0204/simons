@@ -153,6 +153,7 @@ export default function StrategyComposerV2({
   const [sectorSearchTerm, setSectorSearchTerm] = useState("");
   const [reorderDragItem, setReorderDragItem] = useState<{ type: 'category' | 'block', id: string, index: number, categoryId?: string } | null>(null);
   const [isBacktestDashboard, setIsBacktestDashboard] = useState(false);
+  const isRunningRef = useRef(false);
 
   // Responsive Canvas State
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -284,12 +285,24 @@ export default function StrategyComposerV2({
   }, [riskManagement, maxPositions, allocationType, allocationValue, canvasBlocks]);
 
   const runSimulation = useCallback(async (options: any) => {
-    console.error("[DEBUG] StrategyComposerV2: runSimulation CALLED with options:", options);
+    if (isRunningRef.current) {
+      console.error("[DEBUG-RUN] runSimulation BLOCKED: already running");
+      return;
+    }
+
+    const runId = Math.random().toString(36).substr(2, 5);
+    console.error(`[DEBUG-RUN] runSimulation START (ID: ${runId})`, {
+      options,
+      currentStep,
+      strategyName
+    });
+    
     try {
+      isRunningRef.current = true;
       setIsBacktesting(true);
       setBacktestError(null);
       
-      console.error("[DEBUG] StrategyComposerV2: Preparing strategy payload...");
+      console.error(`[DEBUG-RUN] Preparing payload for ID: ${runId}`);
 
       // Map canvas blocks to backtest conditions
       const entryConditionsMap = canvasBlocks
@@ -331,14 +344,27 @@ export default function StrategyComposerV2({
         risk: getResolvedRisk()
       };
 
+      console.error(`[DEBUG-RUN] Strategy for ID: ${runId}`, {
+        risk: strategy.risk,
+        entryCount: strategy.entry.conditions.length
+      });
+
       const engine = new BacktestService();
       const result = await engine.run(strategy, options);
+      
+      console.error(`[DEBUG-RUN] Result received for ID: ${runId}`, {
+        totalReturn: result.totalReturn,
+        trades: result.trades
+      });
+
       setBacktestResult(result);
     } catch (e: any) {
-      console.error("Backtest Error:", e);
+      console.error(`[DEBUG-RUN] Error in ID: ${runId}`, e);
       setBacktestError(e.message || "백테스트 중 알 수 없는 오류가 발생했습니다.");
     } finally {
       setIsBacktesting(false);
+      isRunningRef.current = false;
+      console.error(`[DEBUG-RUN] runSimulation FINISHED (ID: ${runId})`);
     }
   }, [strategyName, universe, canvasBlocks, entryLogic, exitLogic, universeFilters, getResolvedRisk]);
 
@@ -743,6 +769,30 @@ export default function StrategyComposerV2({
                               universe === "kospi" ? "KOSPI" :
                               universe === "kosdaq" ? "KOSDAQ" : universe,
                 universeFiltersCount: Object.keys(universeFilters).length,
+                entryLogic: entryLogic,
+                exitLogic: exitLogic,
+                entryBlocks: canvasBlocks
+                  .filter(b => {
+                    const blockDef = signalBlocks[b.blockId];
+                    const name = blockDef ? blockDef.name : "";
+                    const isRisk = name.includes("손절") || name.includes("익절") || name.includes("Risk") || name.includes("Stop");
+                    return (b.type === "entry" || b.type === "filter") && !isRisk;
+                  })
+                  .map(b => {
+                    const blockDef = signalBlocks[b.blockId];
+                    return blockDef ? blockDef.name : b.blockId;
+                  }),
+                exitBlocks: canvasBlocks
+                  .filter(b => {
+                    const blockDef = signalBlocks[b.blockId];
+                    const name = blockDef ? blockDef.name : "";
+                    const isRisk = name.includes("손절") || name.includes("익절") || name.includes("Risk") || name.includes("Stop");
+                    return b.type === "exit" || isRisk;
+                  })
+                  .map(b => {
+                    const blockDef = signalBlocks[b.blockId];
+                    return blockDef ? blockDef.name : b.blockId;
+                  }),
                 blockNames: canvasBlocks.map(b => {
                   const blockDef = signalBlocks[b.blockId];
                   return blockDef ? blockDef.name : b.blockId;
