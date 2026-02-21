@@ -235,7 +235,9 @@ class ResultHandler:
             mdds = pf.max_drawdown(group_by=False)
 
             def get_val(obj, i):
-                if isinstance(obj, (pd.Series, pd.Index, np.ndarray, list)):
+                if isinstance(obj, pd.Series):
+                    return obj.iloc[i] if len(obj) > i else 0.0
+                if isinstance(obj, (pd.Index, np.ndarray, list)):
                     return obj[i] if len(obj) > i else 0.0
                 if isinstance(obj, pd.DataFrame):
                     return obj.iloc[:, i].iloc[0] if obj.shape[1] > i else 0.0
@@ -269,11 +271,15 @@ class ResultHandler:
         if isinstance(bench_rets, pd.DataFrame): bench_mean_rets = bench_rets.mean(axis=1)
         else: bench_mean_rets = bench_rets
 
+        # Calculate compounded benchmark return
+        bench_cum_returns = (1 + bench_mean_rets).cumprod()
+        bench_total_return = bench_cum_returns.iloc[-1] - 1 if len(bench_cum_returns) > 0 else 0.0
+
         res = {
             "symbols": processed_symbols,
             "totalReturn": cls.safe(pf.total_return()) * 100,
             "cagr": cls.safe(pf.annualized_return()) * 100,
-            "buyAndHoldReturn": cls.safe(bench_mean_rets.sum()) * 100,
+            "buyAndHoldReturn": cls.safe(bench_total_return) * 100,
             "maxDrawdown": cls.safe(pf.max_drawdown()) * 100,
             "winRate": agg_win_rate,
             "trades": total_trades,
@@ -287,12 +293,11 @@ class ResultHandler:
             "kelly": cls.safe(kelly),
             "volatility": cls.safe(pf.returns().std() * np.sqrt(252)) * 100,
             "equity": to_list(pf.value()),
-            "benchmark_equity": to_list(init_cash * (1 + bench_mean_rets.cumsum())),
+            "benchmark_equity": to_list(init_cash * bench_cum_returns),
             "dates": [d.strftime('%Y-%m-%d') for d in common_index],
             "signals": signals_list,
             "perAssetStats": per_asset_stats,
             "version": "6.3 (Detailed Stats)"
         }
-
 
         return sanitize(res)

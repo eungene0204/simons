@@ -190,9 +190,8 @@ class BacktestEngine:
                     status, data = result
                     if status == "warning":
                         self.warnings.add(data)
-                    elif status == "success":
+                    if status == "success":
                         sym = data["symbol"]
-                        if common_index is None: common_index = data["index"]
                         
                         all_prices[sym] = data["price"]
                         all_exec_prices[sym] = data["exec_price"]
@@ -209,7 +208,11 @@ class BacktestEngine:
             if not processed_symbols:
                 raise Exception("분석 가능한 유효한 데이터가 없습니다.")
 
-            price_df = pd.DataFrame(all_prices, index=common_index).ffill().bfill()
+            # Let pandas infer the united index across all symbols
+            price_df = pd.DataFrame(all_prices).sort_index()
+            common_index = price_df.index
+            
+            price_df = price_df.ffill().bfill()
             exec_px_df = pd.DataFrame(all_exec_prices, index=common_index).ffill().bfill()
             ents_df = pd.DataFrame(all_entries, index=common_index).fillna(False)
             exts_df = pd.DataFrame(all_exits, index=common_index).fillna(False)

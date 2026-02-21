@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 import joblib
 import os
-from backend.ai.models import HybridAIModel
+from ai.models import HybridAIModel
 
 class AIEngine:
     def __init__(self, model_dir="/Users/eugene/nullalgo/simons/model"):
@@ -100,15 +100,15 @@ class AIEngine:
             features_to_use = ['ret_open', 'ret_high', 'ret_low', 'ret_close', 'ret_volume', actual_rsi]
             
             # 2. Preprocessing & Scaling
-            pdf[features_to_use] = pdf[features_to_use].replace([np.inf, -np.inf], np.nan).ffill().bfill().fillna(0)
+            pdf[features_to_use] = pdf[features_to_use].replace([np.inf, -np.inf], np.nan).ffill().fillna(0)
             scaled_data = self.scaler.transform(pdf[features_to_use].values).astype(np.float32)
             
             # 3. Optimized Vectorized Window Creation
             # Using stride_tricks for zero-copy windowing
             from numpy.lib.stride_tricks import as_strided
             
-            # Calculate strides for a window of size (data_len - lookback, lookback, num_features)
-            n_windows = data_len - self.lookback
+            # Calculate strides for a window of size (lookback, num_features)
+            n_windows = data_len - self.lookback + 1
             itemsize = scaled_data.itemsize
             num_features = len(features_to_use)
             
@@ -141,8 +141,8 @@ class AIEngine:
             except:
                 signal_probs = self.xgb_head.predict(embeddings).astype(float)
             
-            # Fill the probabilities (skipping the first 'lookback' indices)
-            probs[self.lookback:] = signal_probs
+            # Fill the probabilities (skipping the first 'lookback - 1' indices)
+            probs[self.lookback - 1:] = signal_probs
             
             log(f"predict_signals optimized finished for {data_len} rows")
             return probs
