@@ -46,7 +46,7 @@ class Simulator:
             price_values = price_df.values
             exec_price_values = exec_price_df.values
             entries_values = entries_df.values
-            exits_values = exits_df.values
+            exits_values = exits_df.values.copy()
             
             filtered_entries_values = entries_values.copy()
             active_mask = np.zeros(num_symbols, dtype=bool)
@@ -67,7 +67,7 @@ class Simulator:
                         # B. Max Holding Days Exit
                         elif max_hold > 0 and (i - entry_day[s_idx]) >= max_hold:
                             should_exit = True
-                            exits_df.iloc[i, s_idx] = True
+                            exits_values[i, s_idx] = True
                             
                         # C. Stop Loss / Take Profit
                         elif sl_pct > 0 or tp_pct > 0:
@@ -76,10 +76,10 @@ class Simulator:
                             
                             if sl_pct > 0 and pct_ret <= -sl_pct:
                                 should_exit = True
-                                exits_df.iloc[i, s_idx] = True
+                                exits_values[i, s_idx] = True
                             elif tp_pct > 0 and pct_ret >= tp_pct:
                                 should_exit = True
-                                exits_df.iloc[i, s_idx] = True
+                                exits_values[i, s_idx] = True
                         
                         if should_exit:
                             active_mask[s_idx] = False
@@ -105,6 +105,7 @@ class Simulator:
                             filtered_entries_values[i, s_idx] = False
 
             entries_df = pd.DataFrame(filtered_entries_values, index=entries_df.index, columns=entries_df.columns)
+            exits_df = pd.DataFrame(exits_values, index=exits_df.index, columns=exits_df.columns)
         # ------------------------------------------
 
         vbt_kwargs = dict(
