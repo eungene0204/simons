@@ -28,6 +28,15 @@ export default function Step4Risk({
               손절매, 익절매 등 자산 보호를 위한 규칙을 설정합니다.
             </p>
           </div>
+          <div className="flex items-center gap-3 bg-[#161616] px-5 py-3 rounded-2xl border border-white/5 hover:border-white/10 transition-all cursor-pointer group"
+               onClick={() => setRiskManagement({...riskManagement, skip_risk_management: !riskManagement.skip_risk_management})}>
+            <div className={`w-10 h-6 rounded-full transition-colors relative ${riskManagement.skip_risk_management ? 'bg-main-blue' : 'bg-[#2a2a2a]'}`}>
+              <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${riskManagement.skip_risk_management ? 'translate-x-4' : ''}`} />
+            </div>
+            <span className={`text-sm font-bold tracking-tight transition-colors ${riskManagement.skip_risk_management ? 'text-[#dfdfdf]' : 'text-[#a0a0a0]'}`}>
+              리스크 관리 안 함
+            </span>
+          </div>
         </div>
         
         <div className="max-w-full mx-auto pb-12">
@@ -59,25 +68,25 @@ export default function Step4Risk({
               <div className="flex flex-col">
                 <span className="text-xs font-black text-[rgb(59, 134, 247)] uppercase tracking-widest mb-1.5 opacity-80">손절매</span>
                 <span className="text-2xl font-black text-[#dfdfdf] tabular-nums tracking-tight">
-                  {riskManagement.stop_loss_pct ? `-${riskManagement.stop_loss_pct}%` : "OFF"}
+                  {riskManagement.skip_risk_management ? "OFF" : (riskManagement.stop_loss_pct ? `-${riskManagement.stop_loss_pct}%` : "OFF")}
                 </span>
               </div>
               <div className="flex flex-col">
                 <span className="text-xs font-black text-[rgb(59, 134, 247)] uppercase tracking-widest mb-1.5 opacity-80">익절매</span>
                 <span className="text-2xl font-black text-[#dfdfdf] tabular-nums tracking-tight">
-                  {riskManagement.take_profit_pct ? `+${riskManagement.take_profit_pct}%` : "OFF"}
+                  {riskManagement.skip_risk_management ? "OFF" : (riskManagement.take_profit_pct ? `+${riskManagement.take_profit_pct}%` : "OFF")}
                 </span>
               </div>
               <div className="flex flex-col">
                 <span className="text-xs font-black text-[rgb(59, 134, 247)] uppercase tracking-widest mb-1.5 opacity-80">최대 낙폭 (MDD)</span>
                 <span className="text-2xl font-black text-[#dfdfdf] tabular-nums tracking-tight">
-                  {riskManagement.max_mdd_limit_pct ? `-${riskManagement.max_mdd_limit_pct}%` : "OFF"}
+                  {riskManagement.skip_risk_management ? "OFF" : (riskManagement.max_mdd_limit_pct ? `-${riskManagement.max_mdd_limit_pct}%` : "OFF")}
                 </span>
               </div>
               <div className="flex flex-col">
                 <span className="text-xs font-black text-[rgb(59, 134, 247)] uppercase tracking-widest mb-1.5 opacity-80">유동성 제약</span>
                 <span className="text-2xl font-black text-[#dfdfdf] tabular-nums tracking-tight">
-                  {riskManagement.liquidity_limit_pct || 0}%
+                  {riskManagement.skip_risk_management ? "OFF" : `${riskManagement.liquidity_limit_pct || 0}%`}
                 </span>
               </div>
             </div>

@@ -728,6 +728,8 @@ export default function StrategyComposerV2({
 
             {currentStep === 3 && (
               <Step3Position
+                riskManagement={riskManagement}
+                setRiskManagement={setRiskManagement}
                 maxPositions={maxPositions}
                 setMaxPositions={setMaxPositions}
                 allocationType={allocationType}

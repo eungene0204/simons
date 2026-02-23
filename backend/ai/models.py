@@ -41,9 +41,16 @@ class HybridAIModel(nn.Module):
     Hybrid model wrapper. 
     During training/inference, the Transformer part is used to generate embeddings.
     """
-    def __init__(self, input_dim, d_model=64):
+    def __init__(self, input_dim, d_model=64, nhead=4, num_layers=2, dim_feedforward=128, dropout=0.1):
         super(HybridAIModel, self).__init__()
-        self.transformer = TimeSeriesTransformer(input_dim, d_model)
+        self.transformer = TimeSeriesTransformer(
+            input_dim=input_dim, 
+            d_model=d_model, 
+            nhead=nhead, 
+            num_layers=num_layers, 
+            dim_feedforward=dim_feedforward, 
+            dropout=dropout
+        )
         
     def forward(self, x):
         return self.transformer(x)
