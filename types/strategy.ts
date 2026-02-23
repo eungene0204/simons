@@ -50,6 +50,7 @@ export interface RiskManagement {
   execution_timing?: "next_open" | "current_close";
   allocation_type?: "equal" | "fixed_pct";
   rebalancing_period?: string;
+  skip_risk_management?: boolean;
 }
 
 export interface UniverseSelection {

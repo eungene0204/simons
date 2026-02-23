@@ -148,10 +148,12 @@ class BacktestEngine:
                     pdf = self.loader.preprocess_data(df_pl)
                     
                     # 3.6 Liquidity Check
-                    target_pos_amount = init_cash * (pos_size_pct / 100.0)
-                    liquidity_ok = self.loader.check_liquidity(pdf, target_pos_amount, liquid_limit)
-                    if liquidity_ok.sum() == 0:
-                        return ("warning", f"{sym}: 유동성 기준 미달 (거래대금 부족)")
+                    skip_risk = risk_params.get('skip_risk_management', False)
+                    if not skip_risk:
+                        target_pos_amount = init_cash * (pos_size_pct / 100.0)
+                        liquidity_ok = self.loader.check_liquidity(pdf, target_pos_amount, liquid_limit)
+                        if liquidity_ok.sum() == 0:
+                            return ("warning", f"{sym}: 유동성 기준 미달 (거래대금 부족)")
 
                     # 3.7 Signal Generation
                     entry_signals, entry_reasons = self.signal_engine.generate_signals(df_pl, req.get('entry'))
@@ -181,7 +183,8 @@ class BacktestEngine:
             import concurrent.futures
             # Limit workers to avoid too many threads (e.g., CPU count * 2 or fixed number)
             # AI Inference is heavy on CPU, but loading is I/O.
-            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+            # Use a reasonable number of workers, but sorting and epsilon are the real fixes for determinism
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
                 future_to_sym = {executor.submit(_process_symbol, sym): sym for sym in symbols}
                 for future in concurrent.futures.as_completed(future_to_sym):
                     result = future.result()
@@ -208,20 +211,24 @@ class BacktestEngine:
             if not processed_symbols:
                 raise Exception("분석 가능한 유효한 데이터가 없습니다.")
 
-            # Let pandas infer the united index across all symbols
-            price_df = pd.DataFrame(all_prices).sort_index()
+            # Determinism: Sort symbols so column order is always the same
+            processed_symbols.sort()
+            
+            # Create DataFrames with explicit sorted column list
+            price_df = pd.DataFrame(all_prices, columns=processed_symbols).sort_index()
             common_index = price_df.index
             
             price_df = price_df.ffill().bfill()
-            exec_px_df = pd.DataFrame(all_exec_prices, index=common_index).ffill().bfill()
-            ents_df = pd.DataFrame(all_entries, index=common_index).fillna(False)
-            exts_df = pd.DataFrame(all_exits, index=common_index).fillna(False)
+            exec_px_df = pd.DataFrame(all_exec_prices, index=common_index, columns=processed_symbols).ffill().bfill()
+            ents_df = pd.DataFrame(all_entries, index=common_index, columns=processed_symbols).fillna(False)
+            exts_df = pd.DataFrame(all_exits, index=common_index, columns=processed_symbols).fillna(False)
 
             rank_df = None
-            if risk_params.get('ranking_enabled', True) and all_ranks['pbr'] and all_ranks['roe']:
+            skip_risk = risk_params.get('skip_risk_management', False)
+            if (not skip_risk) and risk_params.get('ranking_enabled', True) and all_ranks['pbr'] and all_ranks['roe']:
                 try:
-                    pbr_df = pd.DataFrame(all_ranks['pbr'], index=common_index).ffill().fillna(1.0)
-                    roe_df = pd.DataFrame(all_ranks['roe'], index=common_index).ffill().fillna(0.0)
+                    pbr_df = pd.DataFrame(all_ranks['pbr'], index=common_index, columns=processed_symbols).ffill().fillna(1.0)
+                    roe_df = pd.DataFrame(all_ranks['roe'], index=common_index, columns=processed_symbols).ffill().fillna(0.0)
                     v_score = 1.0 - pbr_df.rank(axis=1, pct=True)
                     q_score = roe_df.rank(axis=1, pct=True)
                     w_v = float(risk_params.get('ranking_weight_value', 0.5))

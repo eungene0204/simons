@@ -29,11 +29,17 @@ export default function RiskManagementEditor({
     tooltip: string
   ) => {
     const value = (riskManagement[key] as number) || 0;
+    const disabled = riskManagement.skip_risk_management;
+    
     return (
-      <div className="bg-[#111111] p-4 rounded-xl border border-gray-800/50 hover:border-gray-700 transition-colors">
+      <div className={`p-4 rounded-xl border transition-all ${
+        disabled 
+          ? "bg-[#0a0a0a] border-white/5 opacity-30 grayscale" 
+          : "bg-[#111111] border-gray-800/50 hover:border-gray-700"
+      }`}>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-1.5">
-            <label className="text-sm font-bold text-[#a0a0a0] uppercase tracking-tight">
+            <label className={`text-sm font-bold uppercase tracking-tight ${disabled ? "text-[#555555]" : "text-[#a0a0a0]"}`}>
               {label}
             </label>
             <div className="group relative">
@@ -45,7 +51,7 @@ export default function RiskManagementEditor({
               </div>
             </div>
           </div>
-          <span className="text-base text-white font-mono font-bold">
+          <span className={`text-base font-mono font-bold ${disabled ? "text-[#555555]" : "text-white"}`}>
             {value}{unit}
           </span>
         </div>
@@ -55,10 +61,13 @@ export default function RiskManagementEditor({
           max={max}
           step={step}
           value={value}
+          disabled={disabled}
           onChange={(e) => handleChange(key, parseFloat(e.target.value))}
-          className="w-full accent-main-blue h-1.5 bg-[#222222] rounded-lg appearance-none cursor-pointer"
+          className={`w-full accent-main-blue h-1.5 bg-[#222222] rounded-lg appearance-none cursor-pointer ${
+            disabled ? "opacity-20 cursor-not-allowed" : ""
+          }`}
         />
-        <div className="flex justify-between text-[10px] text-[#a0a0a0] font-medium mt-2">
+        <div className={`flex justify-between text-[10px] font-medium mt-2 ${disabled ? "text-[#444444]" : "text-[#a0a0a0]"}`}>
           <span>{min}{unit}</span>
           <span>{max}{unit}</span>
         </div>
