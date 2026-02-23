@@ -28,6 +28,7 @@ class RiskManagement(BaseModel):
     execution_timing: Optional[str] = "next_open"
     allocation_type: Optional[str] = "equal"
     rebalancing_period: Optional[str] = "none"
+    skip_risk_management: Optional[bool] = False
     init_cash: Optional[float] = 10000000.0
 
 class BacktestRequest(BaseModel):

@@ -7,15 +7,19 @@ import joblib
 import os
 from ai.models import HybridAIModel
 
+# 0. Set Seeds for Determinism
+seed = 42
+torch.manual_seed(seed)
+np.random.seed(seed)
+import random
+random.seed(seed)
+
 class AIEngine:
     def __init__(self, model_dir="/Users/eugene/nullalgo/simons/model"):
         self.model_dir = model_dir
-        
-        # 0. Set Seeds for Determinism
-        seed = 42
+        # ... Re-apply seeds inside init as well for absolute safety ...
         torch.manual_seed(seed)
         np.random.seed(seed)
-        import random
         random.seed(seed)
         
         if torch.cuda.is_available():
@@ -141,16 +145,25 @@ class AIEngine:
             except:
                 signal_probs = self.xgb_head.predict(embeddings).astype(float)
             
+            # --- Percentile Rank Transform (Dynamic Score 0.0 ~ 1.0) ---
+            if len(signal_probs) > 0:
+                s = pd.Series(signal_probs)
+                # 6 months rolling rank (126 days), fallback to expanding for initial days
+                rolling_rank = s.rolling(window=126, min_periods=20).rank(pct=True)
+                expanding_rank = s.expanding(min_periods=1).rank(pct=True)
+                final_scores = rolling_rank.fillna(expanding_rank).values
+                # Handle edge case NaNs
+                final_scores = np.nan_to_num(final_scores, nan=0.5)
+            else:
+                final_scores = np.array([])
+            
             # Fill the probabilities (skipping the first 'lookback - 1' indices)
-            probs[self.lookback - 1:] = signal_probs
+            probs[self.lookback - 1:] = final_scores
             
             log(f"predict_signals optimized finished for {data_len} rows")
             return probs
         except Exception as e:
-            log(f"CRITICAL ERROR in predict_signals: {e}")
-            import traceback
-            with open(log_file, "a") as f:
-                traceback.print_exc(file=f)
+            # log(f"CRITICAL ERROR in predict_signals: {e}") # Reduce concurrent writes
             raise e
 
 if __name__ == "__main__":

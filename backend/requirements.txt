@@ -7,3 +7,4 @@ pandas==2.1.3
 pandas-ta
 quantstats
 vectorbt
+optuna

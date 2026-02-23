@@ -36,7 +36,8 @@ class Simulator:
             size_per_pos = pos_size_pct / 100.0
 
         # --- Hard Limit on Concurrent Positions with Unified Exit Logic ---
-        has_risk = max_pos is not None or max_hold > 0 or sl_pct > 0 or tp_pct > 0
+        skip_risk = risk_params.get('skip_risk_management', False)
+        has_risk = (not skip_risk) and (max_pos is not None or max_hold > 0 or sl_pct > 0 or tp_pct > 0)
         if has_risk:
             eff_max_pos = max_pos if max_pos is not None else entries_df.shape[1]
             
@@ -69,15 +70,16 @@ class Simulator:
                             should_exit = True
                             exits_values[i, s_idx] = True
                             
-                        # C. Stop Loss / Take Profit
+                        # C. Stop Loss / Take Profit (with 1e-6 epsilon for float stability)
                         elif sl_pct > 0 or tp_pct > 0:
                             current_px = price_values[i, s_idx]
                             pct_ret = (current_px - entry_price[s_idx]) / entry_price[s_idx] * 100
                             
-                            if sl_pct > 0 and pct_ret <= -sl_pct:
+                            EPS = 1e-6
+                            if sl_pct > 0 and pct_ret <= (-sl_pct + EPS):
                                 should_exit = True
                                 exits_values[i, s_idx] = True
-                            elif tp_pct > 0 and pct_ret >= tp_pct:
+                            elif tp_pct > 0 and pct_ret >= (tp_pct - EPS):
                                 should_exit = True
                                 exits_values[i, s_idx] = True
                         
@@ -103,6 +105,8 @@ class Simulator:
                             entry_price[s_idx] = exec_price_values[i, s_idx]
                         else:
                             filtered_entries_values[i, s_idx] = False
+                            # Optional: Log if needed for debugging
+                            # print(f"Row {i}: Dropping {symbols[s_idx]} due to max_pos={eff_max_pos}")
 
             entries_df = pd.DataFrame(filtered_entries_values, index=entries_df.index, columns=entries_df.columns)
             exits_df = pd.DataFrame(exits_values, index=exits_df.index, columns=exits_df.columns)
@@ -115,9 +119,9 @@ class Simulator:
             fees=fee_rate,
             slippage=slippage_val,
             freq='D',
-            sl_stop=sl_pct / 100 if sl_pct > 0 else None,
-            tp_stop=tp_pct / 100 if tp_pct > 0 else None,
-            sl_trail=ts_pct / 100 if ts_pct > 0 else None,
+            sl_stop=sl_pct / 100 if (not skip_risk) and sl_pct > 0 else None,
+            tp_stop=tp_pct / 100 if (not skip_risk) and tp_pct > 0 else None,
+            sl_trail=ts_pct / 100 if (not skip_risk) and ts_pct > 0 else None,
             allow_partial=False,
             direction='longonly',
             accumulate=False,

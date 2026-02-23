@@ -155,28 +155,9 @@ export default function BacktestDashboard({
               },
             };
 
-            let isDuplicate = false;
-            try {
-              if (data && Array.isArray(data)) {
-                isDuplicate = data.slice(0, 10).some((item: any) => {
-                  if (!item || !item.metrics) return false;
-                  
-                  // Strict metric match
-                  const metricsMatch = Math.abs((item.metrics.totalReturn || 0) - (newItemData.metrics.totalReturn || 0)) < 0.00001 && 
-                                      (item.metrics.trades || 0) === (newItemData.metrics.trades || 0);
-                  
-                  // Check recursive structure (handle both old and new format during transition if needed)
-                  const conditionsMatch = JSON.stringify(item.conditions) === JSON.stringify(newItemData.conditions);
-                  
-                  return metricsMatch && conditionsMatch && item.strategyName === newItemData.strategyName;
-                });
-              }
-            } catch (err) {
-              console.error("[DEBUG-CRITICAL] Error in deduplication:", err);
-              isDuplicate = false;
-            }
-
-            console.error("[DEBUG-CRITICAL] isDuplicate result:", isDuplicate);
+            // [FIX] Always save reruns even if metrics are identical, 
+            // since results are now deterministic, we WANT to see the record of the rerun.
+            const isDuplicate = false;
 
             if (!isDuplicate) {
               console.error("[DEBUG-CRITICAL] PROCEEDING TO POST RECORD TO /api/backtest/history");
