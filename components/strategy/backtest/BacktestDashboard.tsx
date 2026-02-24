@@ -24,6 +24,7 @@ import {
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import XAIModal from "./XAIModal";
 
 interface BacktestDashboardProps {
   result: BacktestResult;
@@ -75,6 +76,7 @@ export default function BacktestDashboard({
   const [sortConfig, setSortConfig] = useState<{ key: 'profit' | 'totalReturn' | 'trades' | null, direction: 'asc' | 'desc' }>({ key: null, direction: 'desc' });
   const [hoveredMetric, setHoveredMetric] = useState<{ label: string, description: string, rect: DOMRect } | null>(null);
   const [isWarningsOpen, setIsWarningsOpen] = useState(false);
+  const [xaiTarget, setXaiTarget] = useState<{ symbol: string; date: string } | null>(null);
   const lastProcessedResultRef = useRef<string | null>(null);
   const isSavingRef = useRef(false);
 
@@ -723,9 +725,10 @@ export default function BacktestDashboard({
                             <th className="p-3 text-sm font-bold text-white">종목</th>
                             <th className="p-3 text-sm font-bold text-white">구분</th>
                             <th className="p-3 text-sm font-bold text-white">체결가</th>
-                            <th className="p-3 text-sm font-bold text-white">수량</th>
-                            <th className="p-3 text-sm font-bold text-white">매매사유</th>
-                            <th className="p-3 text-sm font-bold text-white text-right">거래금액</th>
+                             <th className="p-3 text-sm font-bold text-white">수량</th>
+                             <th className="p-3 text-sm font-bold text-white text-center">AI 분석</th>
+                             <th className="p-3 text-sm font-bold text-white">매매사유</th>
+                             <th className="p-3 text-sm font-bold text-white text-right">거래금액</th>
                          </tr>
                       </thead>
                       <tbody className="bg-[#0f0f0f]">
@@ -748,10 +751,18 @@ export default function BacktestDashboard({
                                     </span>
                                  </td>
                                  <td className="p-3 text-sm text-gray-300 font-bold">{Math.round(Number(t.price)).toLocaleString()}</td>
-                                 <td className="p-3 text-sm text-gray-400">
+                                  <td className="p-3 text-sm text-gray-400">
                                     {Math.floor(Number(t.quantity)).toLocaleString()}주
-                                 </td>
-                                 <td className="p-3 text-sm text-gray-500 italic">{t.reason}</td>
+                                  </td>
+                                  <td className="p-3 text-center">
+                                     <button 
+                                       onClick={() => setXaiTarget({ symbol: t.symbol, date: t.date })}
+                                       className="px-2 py-1 bg-main-blue/10 hover:bg-main-blue/20 text-main-blue text-[10px] font-black rounded border border-main-blue/20 transition-all"
+                                     >
+                                       분석
+                                     </button>
+                                  </td>
+                                  <td className="p-3 text-sm text-gray-500 italic">{t.reason}</td>
                                  <td className="p-3 text-sm text-right font-mono text-white">
                                     {formatKRW(tradeAmount)}
                                  </td>
@@ -941,6 +952,13 @@ export default function BacktestDashboard({
           </div>
         </div>
       )}
+
+      <XAIModal 
+        isOpen={!!xaiTarget} 
+        onClose={() => setXaiTarget(null)} 
+        symbol={xaiTarget?.symbol || ""} 
+        date={xaiTarget?.date || ""} 
+      />
     </div>
   );
 }
