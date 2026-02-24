@@ -14,24 +14,54 @@ def run_xai(symbol, target_date_str):
     # Load AIEngine
     engine = AIEngine(model_dir="model")
     
+    # Enable GPU for XGBoost if possible
+    if engine.device.type == 'cuda':
+        try:
+            engine.xgb_head.set_params(tree_method='gpu_hist', predictor='gpu_predictor')
+        except:
+            pass
+    
     # Load data
     try:
         df = pd.read_parquet("model/training_data_processed.parquet")
+        sym_df = df[df['symbol'] == symbol].copy()
     except:
-        df = pd.read_parquet("backend/data/training_data_processed.parquet")
+        sym_df = pd.DataFrame()
         
-    sym_df = df[df['symbol'] == symbol].copy()
     if sym_df.empty:
-        return {"error": f"Symbol '{symbol}' not found in dataset"}
+        # Fallback to raw OHLCV data
+        raw_path = f"data/ohlcv/{symbol}.parquet"
+        if not os.path.exists(raw_path):
+            return {"error": f"Symbol '{symbol}' not found in any dataset"}
         
-    sym_df['date'] = pd.to_datetime(sym_df['date'])
-    sym_df = sym_df.sort_values('date')
-    
-    # Calculate features BEFORE slicing
-    for col in ['open', 'high', 'low', 'close']:
-        sym_df[f'ret_{col}'] = sym_df[col].pct_change()
-    sym_df['ret_volume'] = sym_df['volume'].pct_change()
-    actual_rsi = next((c for c in sym_df.columns if c.startswith('rsi')), None)
+        sym_df = pd.read_parquet(raw_path)
+        sym_df['date'] = pd.to_datetime(sym_df['date'])
+        sym_df = sym_df.sort_values('date')
+        
+        # Calculate technical indicators on the fly
+        for col in ['open', 'high', 'low', 'close']:
+            sym_df[f'ret_{col}'] = sym_df[col].pct_change()
+        sym_df['ret_volume'] = sym_df['volume'].pct_change()
+        
+        # Calculate RSI (RSI14)
+        def calculate_rsi(series, period=14):
+            delta = series.diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+            rs = gain / loss
+            return 100 - (100 / (1 + rs))
+        
+        sym_df['rsi_14'] = calculate_rsi(sym_df['close'])
+        actual_rsi = 'rsi_14'
+    else:
+        sym_df['date'] = pd.to_datetime(sym_df['date'])
+        sym_df = sym_df.sort_values('date')
+        
+        # Calculate features BEFORE slicing
+        for col in ['open', 'high', 'low', 'close']:
+            sym_df[f'ret_{col}'] = sym_df[col].pct_change()
+        sym_df['ret_volume'] = sym_df['volume'].pct_change()
+        actual_rsi = next((c for c in sym_df.columns if c.startswith('rsi')), None)
     
     # Find the row for target_date
     target_date = pd.to_datetime(target_date_str)
@@ -83,20 +113,28 @@ def run_xai(symbol, target_date_str):
     background_2d = background.reshape(background.shape[0], -1) # (100, 360)
     single_2d = scaled_data.reshape(1, -1) # (1, 360)
     
+    # Pre-cache device for faster access
+    device = engine.device
+    transformer = engine.transformer
+    xgb_head = engine.xgb_head
+
     def model_predict_2d(X_2d):
-        X_3d = X_2d.reshape(-1, 60, 6)
-        t_input = torch.from_numpy(X_3d.astype(np.float32)).to(engine.device)
-        with torch.no_grad():
-            embs = engine.transformer(t_input).cpu().numpy()
-        try:
-            probs = engine.xgb_head.predict_proba(embs)[:, 1]
-        except:
-            probs = engine.xgb_head.predict(embs).astype(float)
-        return probs
+        # Already vectorized: X_2d is (N, 360) where N is SHAP samples
+        X_3d = X_2d.reshape(-1, 60, 6).astype(np.float32)
+        t_input = torch.from_numpy(X_3d).to(device)
         
-    # We use a very small sample size for speed (e.g., 500)
+        with torch.inference_mode():
+            embs = transformer(t_input).cpu().numpy()
+            
+        try:
+            # XGBoost predict_proba is generally optimized for batches
+            return xgb_head.predict_proba(embs)[:, 1]
+        except:
+            return xgb_head.predict(embs).astype(float)
+        
+    # We use a larger sample size for better stability (e.g., 1000)
     explainer = shap.KernelExplainer(model_predict_2d, background_2d)
-    shap_out = explainer.shap_values(single_2d, nsamples=500, silent=True)
+    shap_out = explainer.shap_values(single_2d, nsamples=1000, silent=True)
     
     # Normalizing SHAP output shape
     if isinstance(shap_out, list):
