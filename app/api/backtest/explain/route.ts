@@ -21,7 +21,7 @@ export async function POST(req: Request) {
     const command = `PYTHONPATH=.:backend python backend/ai/xai_engine.py ${symbol} ${date}`;
     
     // Set a reasonable timeout since SHAP might take a few seconds
-    const { stdout, stderr } = await execPromise(command, { timeout: 30000 });
+    const { stdout, stderr } = await execPromise(command, { timeout: 90000 });
     
     // Parse the JSON output from the python script
     try {
