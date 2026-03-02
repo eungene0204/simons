@@ -26,6 +26,8 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import XAIModal from "./XAIModal";
 
+const processedExecutionIds = new Set<string>(); // Global Set to prevent re-saves across unmounts
+
 interface BacktestDashboardProps {
   result: BacktestResult;
   onRestart: () => void;
@@ -84,13 +86,18 @@ export default function BacktestDashboard({
 
   // Load and update history
   useEffect(() => {
+    console.error("[DEBUG-SAVE] useEffect TRIGGERED", { 
+      executionId: result?.executionId,
+      strategyName: strategySummary?.strategyName,
+      isRunning 
+    });
     const fetchHistory = async () => {
       // Create a unique identifier for this result + summary combination
       const currentResultId = result && strategySummary 
         ? `${result.totalReturn}-${result.trades}-${strategySummary.strategyName}-${JSON.stringify(strategySummary.blockNames)}`
         : null;
 
-      console.error("[DEBUG-SAVE] useEffect Triggered", {
+      console.error("[DEBUG-SAVE] inside fetchHistory", {
         hasResult: !!result,
         resultId: currentResultId,
         lastProcessed: lastProcessedResultRef.current,
@@ -110,13 +117,12 @@ export default function BacktestDashboard({
       }
 
       // Use executionId as the definitive check for this run
-      if (result.executionId === lastProcessedResultRef.current) {
+      if (result.executionId && processedExecutionIds.has(result.executionId)) {
         console.error("[DEBUG-SAVE] Skipping: Already processed this executionId:", result.executionId);
         return;
       }
 
-      // Fallback: also check the content-based ID if needed, 
-      // but executionId should be sufficient now.
+      // Fallback: also check the content-based ID if needed
       if (currentResultId === lastProcessedResultRef.current) {
         console.error("[DEBUG-SAVE] Skipping: Already processed this result content");
         return;
@@ -125,6 +131,9 @@ export default function BacktestDashboard({
       try {
         // LOCK
         isSavingRef.current = true;
+        if (result.executionId) {
+          processedExecutionIds.add(result.executionId);
+        }
 
         console.error("[DEBUG-SAVE] Fetching existing history...");
         const response = await fetch("/api/backtest/history");

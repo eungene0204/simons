@@ -78,7 +78,7 @@ export default function Step3Position({
   onNext,
   onPrev,
 }: Step3PositionProps) {
-  const skip_risk = riskManagement.skip_risk_management;
+  const skip_pos = riskManagement.skip_position_setting;
 
   return (
     <div className="flex flex-col min-h-full">
@@ -91,17 +91,17 @@ export default function Step3Position({
             </p>
           </div>
           <div className="flex items-center gap-3 bg-[#161616] px-5 py-3 rounded-2xl border border-white/5 hover:border-white/10 transition-all cursor-pointer group"
-               onClick={() => setRiskManagement({...riskManagement, skip_risk_management: !riskManagement.skip_risk_management})}>
-            <div className={`w-10 h-6 rounded-full transition-colors relative ${riskManagement.skip_risk_management ? 'bg-main-blue' : 'bg-[#2a2a2a]'}`}>
-              <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${riskManagement.skip_risk_management ? 'translate-x-4' : ''}`} />
+               onClick={() => setRiskManagement({...riskManagement, skip_position_setting: !riskManagement.skip_position_setting})}>
+            <div className={`w-10 h-6 rounded-full transition-colors relative ${riskManagement.skip_position_setting ? 'bg-main-blue' : 'bg-[#2a2a2a]'}`}>
+              <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${riskManagement.skip_position_setting ? 'translate-x-4' : ''}`} />
             </div>
-            <span className={`text-sm font-bold tracking-tight transition-colors ${riskManagement.skip_risk_management ? 'text-[#dfdfdf]' : 'text-[#a0a0a0]'}`}>
+            <span className={`text-sm font-bold tracking-tight transition-colors ${riskManagement.skip_position_setting ? 'text-[#dfdfdf]' : 'text-[#a0a0a0]'}`}>
               포지션/비중 설정 안 함
             </span>
           </div>
         </div>
 
-        <div className={`w-full grid grid-cols-1 lg:grid-cols-2 gap-4 pb-0 items-stretch transition-all duration-500 ${skip_risk ? 'opacity-30 grayscale pointer-events-none' : ''}`}>
+        <div className={`w-full grid grid-cols-1 lg:grid-cols-2 gap-4 pb-0 items-stretch transition-all duration-500 ${skip_pos ? 'opacity-30 grayscale pointer-events-none' : ''}`}>
           {/* Section 1: Capital & Max Positions */}
           <div className="bg-[#0f0f0f] rounded-3xl border border-gray-800/50 p-5 shadow-xl flex flex-col space-y-4">
             <div className="flex items-center gap-3.5 mb-2">
@@ -206,7 +206,7 @@ export default function Step3Position({
           </div>
 
           {/* Section 3: Execution Timing */}
-          <div className={`bg-[#0f0f0f] rounded-3xl border border-gray-800/50 p-5 shadow-xl flex flex-col space-y-4 transition-all duration-500 ${skip_risk ? 'opacity-30 grayscale pointer-events-none' : ''}`}>
+          <div className={`bg-[#0f0f0f] rounded-3xl border border-gray-800/50 p-5 shadow-xl flex flex-col space-y-4 transition-all duration-500 ${skip_pos ? 'opacity-30 grayscale pointer-events-none' : ''}`}>
             <div className="flex items-center gap-3.5 mb-2">
               <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center border border-white/20 shadow-inner">
                 <ClockIcon className="w-5 h-5 text-white" />
@@ -355,19 +355,19 @@ export default function Step3Position({
               <div className="flex flex-col">
                 <span className="text-xs font-black text-[rgb(59, 134, 247)] uppercase tracking-widest mb-1.5 opacity-80">최대 종목 수</span>
                 <span className="text-2xl font-black text-[#dfdfdf] tabular-nums tracking-tight">
-                  {skip_risk ? "OFF" : `${maxPositions}개`}
+                  {skip_pos ? "OFF" : `${maxPositions}개`}
                 </span>
               </div>
               <div className="flex flex-col">
                 <span className="text-xs font-black text-[rgb(59, 134, 247)] uppercase tracking-widest mb-1.5 opacity-80">배분 방식</span>
                 <span className="text-2xl font-black text-[#dfdfdf] tabular-nums tracking-tight">
-                  {skip_risk ? "OFF" : (allocationType === "equal" ? "동일 비중" : "고정 비중")}
+                  {skip_pos ? "OFF" : (allocationType === "equal" ? "동일 비중" : "고정 비중")}
                 </span>
               </div>
               <div className="flex flex-col">
                 <span className="text-xs font-black text-[rgb(59, 134, 247)] uppercase tracking-widest mb-1.5 opacity-80">체결 시점</span>
                 <span className="text-2xl font-black text-[#dfdfdf] tabular-nums tracking-tight">
-                  {skip_risk ? "OFF" : (executionTiming === "next_open" ? "익일 시가" : "당일 종가")}
+                  {skip_pos ? "OFF" : (executionTiming === "next_open" ? "익일 시가" : "당일 종가")}
                 </span>
               </div>
             </div>

@@ -36,14 +36,19 @@ class Simulator:
             size_per_pos = pos_size_pct / 100.0
 
         # --- Hard Limit on Concurrent Positions with Unified Exit Logic ---
-        skip_risk = risk_params.get('skip_risk_management', False)
-        has_risk = (not skip_risk) and (max_pos is not None or max_hold > 0 or sl_pct > 0 or tp_pct > 0)
-        if has_risk:
-            eff_max_pos = max_pos if max_pos is not None else entries_df.shape[1]
-            
+        skip_pos = risk_params.get('skip_position_setting', False)
+        use_risk_mgmt = not risk_params.get('skip_risk_management', False)
+        
+        # We need the custom loop if we have a position limit OR risk management exits
+        has_custom_loop = (not skip_pos) or (use_risk_mgmt and (max_hold > 0 or sl_pct > 0 or tp_pct > 0))
+        
+        if has_custom_loop:
             # Pre-calculate data for faster access
             symbols = entries_df.columns.tolist()
             num_symbols = len(symbols)
+            
+            eff_max_pos = max_pos if (not skip_pos) and max_pos is not None else num_symbols
+            
             price_values = price_df.values
             exec_price_values = exec_price_df.values
             entries_values = entries_df.values
@@ -56,6 +61,8 @@ class Simulator:
             active_count = 0
             
             for i in range(len(entries_df)):
+                if i % 100 == 0:
+                    print(f"[DEBUG-SIM] Processing Day {i}/{len(entries_df)} (Active Assets: {active_count}/{eff_max_pos})", flush=True)
                 # 1. Update exits (free up slots)
                 for s_idx in range(num_symbols):
                     if active_mask[s_idx]:
@@ -71,7 +78,7 @@ class Simulator:
                             exits_values[i, s_idx] = True
                             
                         # C. Stop Loss / Take Profit (with 1e-6 epsilon for float stability)
-                        elif sl_pct > 0 or tp_pct > 0:
+                        elif use_risk_mgmt and (sl_pct > 0 or tp_pct > 0):
                             current_px = price_values[i, s_idx]
                             pct_ret = (current_px - entry_price[s_idx]) / entry_price[s_idx] * 100
                             
@@ -105,6 +112,8 @@ class Simulator:
                             entry_price[s_idx] = exec_price_values[i, s_idx]
                         else:
                             filtered_entries_values[i, s_idx] = False
+            
+            print(f"[DEBUG-SIM] Simulation loop finished. {len(entries_df)} days processed.", flush=True)
                             # Optional: Log if needed for debugging
                             # print(f"Row {i}: Dropping {symbols[s_idx]} due to max_pos={eff_max_pos}")
 
@@ -119,9 +128,9 @@ class Simulator:
             fees=fee_rate,
             slippage=slippage_val,
             freq='D',
-            sl_stop=sl_pct / 100 if (not skip_risk) and sl_pct > 0 else None,
-            tp_stop=tp_pct / 100 if (not skip_risk) and tp_pct > 0 else None,
-            sl_trail=ts_pct / 100 if (not skip_risk) and ts_pct > 0 else None,
+            sl_stop=sl_pct / 100 if (not risk_params.get('skip_risk_management', False)) and sl_pct > 0 else None,
+            tp_stop=tp_pct / 100 if (not risk_params.get('skip_risk_management', False)) and tp_pct > 0 else None,
+            sl_trail=ts_pct / 100 if (not risk_params.get('skip_risk_management', False)) and ts_pct > 0 else None,
             allow_partial=False,
             direction='longonly',
             accumulate=False,

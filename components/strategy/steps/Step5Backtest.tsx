@@ -3,7 +3,7 @@
 import { BacktestResult } from "@/types/strategy";
 import BacktestConfig, { BacktestConfigOptions } from "@/components/strategy/backtest/BacktestConfig";
 import BacktestDashboard from "@/components/strategy/backtest/BacktestDashboard";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 
 interface Step5BacktestProps {
   strategyName: string;
@@ -52,7 +52,7 @@ export default function Step5Backtest({
   }, [backtestResult, isBacktesting, lastResultId, onViewChange]);
 
   const handleRun = (options: BacktestConfigOptions) => {
-    console.log("[DEBUG] Step5Backtest: handleRun called with", options);
+    console.error("[DEBUG-TRACE] Step5Backtest: handleRun CALLED with", options);
     setConfigOptions(options);
     onRunBacktest(options);
   };
@@ -61,6 +61,28 @@ export default function Step5Backtest({
     setView("config");
     onViewChange?.("config");
   };
+
+  const memoizedStrategySummary = useMemo(() => ({
+    universeName: summaryData.universeName,
+    strategyName: strategyName,
+    entryLogic: summaryData.entryLogic,
+    exitLogic: summaryData.exitLogic,
+    entryBlocks: summaryData.entryBlocks,
+    exitBlocks: summaryData.exitBlocks,
+    blockNames: summaryData.blockNames,
+    positionText: summaryData.positionText,
+    riskText: summaryData.riskText
+  }), [
+    summaryData.universeName,
+    strategyName,
+    summaryData.entryLogic,
+    summaryData.exitLogic,
+    summaryData.positionText,
+    summaryData.riskText,
+    JSON.stringify(summaryData.entryBlocks),
+    JSON.stringify(summaryData.exitBlocks),
+    JSON.stringify(summaryData.blockNames)
+  ]);
 
   return (
     <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden bg-[#0f0f0f] relative px-0 pb-0">
@@ -79,17 +101,7 @@ export default function Step5Backtest({
             onSave={onSave}
             currentOptions={configOptions}
             isRunning={isBacktesting}
-            strategySummary={{
-              universeName: summaryData.universeName,
-              strategyName: strategyName,
-              entryLogic: summaryData.entryLogic,
-              exitLogic: summaryData.exitLogic,
-              entryBlocks: summaryData.entryBlocks,
-              exitBlocks: summaryData.exitBlocks,
-              blockNames: summaryData.blockNames,
-              positionText: summaryData.positionText,
-              riskText: summaryData.riskText
-            }}
+            strategySummary={memoizedStrategySummary}
           />
         ) : (
           <div className="h-full overflow-y-auto custom-scrollbar">

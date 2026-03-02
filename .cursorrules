@@ -8,3 +8,13 @@ npm run dev:backend
 ```
 This command maps to:
 `uvicorn main:app --host 0.0.0.0 --port 8000 --reload --app-dir backend`
+
+## Unit Testing Policy
+
+**Critical Rule**: All unit tests must pass before completing any task that involves code changes.
+
+### Running Backend Tests
+```bash
+python3 -m pytest backend/tests
+```
+Always run this command after modifying any code in the `backend/` directory to ensure no regressions are introduced.
