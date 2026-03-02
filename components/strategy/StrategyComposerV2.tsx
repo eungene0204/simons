@@ -122,6 +122,8 @@ export default function StrategyComposerV2({
     max_mdd_limit_pct: 15,
     execution_timing: "next_open",
     allocation_type: "equal",
+    skip_risk_management: false,
+    skip_position_setting: false,
   });
   // Canvas state
   const [canvasBlocks, setCanvasBlocks] = useState<CanvasBlock[]>([]);
@@ -285,6 +287,7 @@ export default function StrategyComposerV2({
   }, [riskManagement, maxPositions, allocationType, allocationValue, canvasBlocks]);
 
   const runSimulation = useCallback(async (options: any) => {
+    console.error(`[DEBUG-TRACE] runSimulation CALLED with options:`, options);
     if (isRunningRef.current) {
       console.error("[DEBUG-RUN] runSimulation BLOCKED: already running");
       return;
@@ -422,6 +425,8 @@ export default function StrategyComposerV2({
         max_mdd_limit_pct: initialStrategy.risk.max_mdd_limit_pct ?? 15,
         execution_timing: initialStrategy.risk.execution_timing ?? "next_open",
         allocation_type: initialStrategy.risk.allocation_type ?? "equal",
+        skip_risk_management: initialStrategy.risk.skip_risk_management ?? false,
+        skip_position_setting: initialStrategy.risk.skip_position_setting ?? false,
       });
 
       // Also sync top-level states
@@ -799,7 +804,7 @@ export default function StrategyComposerV2({
                   const blockDef = signalBlocks[b.blockId];
                   return blockDef ? blockDef.name : b.blockId;
                 }),
-                positionText: riskManagement.skip_risk_management 
+                positionText: riskManagement.skip_position_setting 
                   ? "포지션/비중 설정 안 함"
                   : `${allocationType === 'equal' ? '동일 비중' : `고정 비중 ${allocationValue}%`} (최대 ${maxPositions}종목)`,
                 riskText: riskManagement.skip_risk_management

@@ -42,6 +42,10 @@ class BacktestEngine:
                 self._ai_engine = "FAILED"
         return None if self._ai_engine == "FAILED" else self._ai_engine
 
+    def calculate_indicators(self, df_pl: pl.DataFrame, conditions: List[Dict[str, Any]]) -> pl.DataFrame:
+        """Compatibility method for tests."""
+        return self.indicator_engine.calculate(df_pl, conditions)
+
     def run_backtest(self, req: Dict[str, Any]) -> Dict[str, Any]:
         try:
             # 1. Parameter Extraction
@@ -60,7 +64,7 @@ class BacktestEngine:
             pos_size_raw = risk_params.get('position_size_pct')
             pos_size_pct = float(pos_size_raw) if pos_size_raw is not None else 100.0
             
-            liquid_limit_raw = risk_params.get('liquidity_limit_pct')
+            liquid_limit_raw = risk_params.get('liquidity_limit_pct') or risk_params.get('liquidity_multiplier')
             liquid_limit = float(liquid_limit_raw) if liquid_limit_raw is not None else 10.0
             
             options = req.get('options', {})
@@ -155,7 +159,9 @@ class BacktestEngine:
                     
                     # 3.6 Liquidity Check
                     skip_risk = risk_params.get('skip_risk_management', False)
-                    if not skip_risk:
+                    skip_pos = risk_params.get('skip_position_setting', False)
+                    
+                    if not (skip_risk or skip_pos):
                         target_pos_amount = init_cash * (pos_size_pct / 100.0)
                         liquidity_ok = self.loader.check_liquidity(pdf, target_pos_amount, liquid_limit)
                         if liquidity_ok.sum() == 0:
@@ -165,6 +171,10 @@ class BacktestEngine:
                     entry_signals, entry_reasons = self.signal_engine.generate_signals(df_pl, req.get('entry'))
                     exit_signals, exit_reasons = self.signal_engine.generate_signals(df_pl, req.get('exit'))
                     
+                    # Apply Liquidity Mask
+                    if not (skip_risk or skip_pos):
+                        entry_signals = entry_signals & liquidity_ok
+                    
                     if entry_signals is None: 
                         return None
                     
@@ -172,7 +182,7 @@ class BacktestEngine:
                     res = {
                         "symbol": sym,
                         "price": pdf['close'],
-                        "exec_price": pdf['open'],
+                        "exec_price": pdf['close'] if exec_type == 'same_close' else pdf['open'],
                         "entries": pd.Series(entry_signals, index=pdf.index),
                         "exits": pd.Series(exit_signals, index=pdf.index),
                         "entry_reasons": pd.Series(entry_reasons, index=pdf.index),
@@ -229,9 +239,13 @@ class BacktestEngine:
             ents_df = pd.DataFrame(all_entries, index=common_index, columns=processed_symbols).fillna(False)
             exts_df = pd.DataFrame(all_exits, index=common_index, columns=processed_symbols).fillna(False)
 
+            if exec_type == 'next_open':
+                ents_df = ents_df.shift(1).fillna(False)
+                exts_df = exts_df.shift(1).fillna(False)
+
             rank_df = None
-            skip_risk = risk_params.get('skip_risk_management', False)
-            if (not skip_risk) and risk_params.get('ranking_enabled', True) and all_ranks['pbr'] and all_ranks['roe']:
+            skip_pos = risk_params.get('skip_position_setting', False)
+            if (not skip_pos) and risk_params.get('ranking_enabled', True) and all_ranks['pbr'] and all_ranks['roe']:
                 try:
                     pbr_df = pd.DataFrame(all_ranks['pbr'], index=common_index, columns=processed_symbols).ffill().fillna(1.0)
                     roe_df = pd.DataFrame(all_ranks['roe'], index=common_index, columns=processed_symbols).ffill().fillna(0.0)
@@ -247,6 +261,11 @@ class BacktestEngine:
             
             # 5. Format
             final = self.handler.format_results(pf, processed_symbols, all_entries, all_exits, all_entry_reasons, all_exit_reasons, common_index, risk_params, exec_type, init_cash)
+            
+            # Add no-trades warning
+            if pf.trades.count() == 0:
+                self.warnings.add("매매 조건에 부합하는 종목이 없어 매매 기록이 생성되지 않았습니다. 매수 조건을 확인해 주세요.")
+                
             final["warnings"] = list(self.warnings) + list(getattr(pf, 'warnings', []))
             return final
 

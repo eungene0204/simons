@@ -41,9 +41,10 @@ def test_ranking_priority():
         "allocation_type": "equal"
     }
     options = {}
+    simulator = Simulator()
     
     # Simulator should pick StockA because of higher rank
-    pf1 = Simulator.run(price_df, exec_price_df, entries_df, exits_df, risk_params, options, rank_df=rank_df_1)
+    pf1 = simulator.run(price_df, exec_price_df, entries_df, exits_df, risk_params, options, rank_df=rank_df_1)
     
     print("\n[Test 1] StockA (Score 0.9) vs StockB (Score 0.1), max_pos=1")
     print(f"Trades: {pf1.trades.records}")
@@ -61,7 +62,7 @@ def test_ranking_priority():
         "StockB": [0.9] * 5
     }, index=dates)
     
-    pf2 = Simulator.run(price_df, exec_price_df, entries_df, exits_df, risk_params, options, rank_df=rank_df_2)
+    pf2 = simulator.run(price_df, exec_price_df, entries_df, exits_df, risk_params, options, rank_df=rank_df_2)
     
     print("\n[Test 2] StockA (Score 0.1) vs StockB (Score 0.9), max_pos=1")
     trades_assets_2 = [symbols[i] for i in pf2.trades.records['col'].values]
@@ -74,7 +75,7 @@ def test_ranking_priority():
 
     # 4. Case 3: Default behavior (No rank_df)
     # Simulator should pick the first alphabetical symbol "StockA" (or by order in DF)
-    pf3 = Simulator.run(price_df, exec_price_df, entries_df, exits_df, risk_params, options)
+    pf3 = simulator.run(price_df, exec_price_df, entries_df, exits_df, risk_params, options)
     print("\n[Test 3] No rank_df (Default behavior)")
     trades_assets_3 = [symbols[i] for i in pf3.trades.records['col'].values]
     print(f"Actually picked: {trades_assets_3}")

@@ -12,7 +12,7 @@ def test_signal_mapping_robustness():
     ohlcv = []
     for d, p in zip(dates, prices):
         ohlcv.append({
-            "date": d, # pd.Timestamp
+            "date": d.strftime('%Y-%m-%d'), # Use string to avoid arrow conversion issues
             "open": float(p), "high": float(p+1), "low": float(p-1), "close": float(p), "volume": 1000000.0
         })
         
