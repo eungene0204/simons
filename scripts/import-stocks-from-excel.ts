@@ -7,7 +7,8 @@
  */
 
 const XLSX = require('xlsx');
-import { saveStockList, StockListItem } from '../lib/krx-stocks';
+import { saveStockList } from '../lib/krx-stocks';
+import { StockListItem } from '../types/stock';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 

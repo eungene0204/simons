@@ -29,7 +29,7 @@ async function verifyTPlusOne() {
   };
 
   try {
-    const result = await engine.run(mockStrategy);
+    const result = await engine.run(mockStrategy, {} as any);
     console.log("Backtest run successful!");
     console.log("Symbol:", result.initialCapital === 10000000 ? "Capital Matched" : "Capital Mismatch");
     console.log("Return:", result.totalReturn, "%");

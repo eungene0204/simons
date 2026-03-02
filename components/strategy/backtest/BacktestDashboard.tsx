@@ -41,6 +41,8 @@ interface BacktestDashboardProps {
     exitLogic?: string;
     entryBlocks?: string[];
     exitBlocks?: string[];
+    positionText?: string;
+    riskText?: string;
   };
 }
 
@@ -144,7 +146,9 @@ export default function BacktestDashboard({
                 exit: {
                   logic: strategySummary.exitLogic || "AND",
                   names: strategySummary.exitBlocks || []
-                }
+                },
+                position: strategySummary.positionText,
+                risk: strategySummary.riskText
               },
               metrics: {
                 totalReturn: result.totalReturn || 0,
@@ -879,6 +883,28 @@ export default function BacktestDashboard({
                                              ))}
                                            </div>
                                          );
+                                     })()}
+
+                                     {/* 3. Position and Risk Settings */}
+                                     {(() => {
+                                         const conds = item.conditions as any;
+                                         if (!conds?.position && !conds?.risk) return null;
+                                         return (
+                                           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 mt-1 sm:mt-0">
+                                              {conds.position && (
+                                                <div className="flex items-center gap-1.5 bg-gray-800/30 px-2 py-1 rounded text-[10px] border border-gray-700/50">
+                                                   <span className="text-gray-500 font-bold">포지션/비중</span>
+                                                   <span className="text-gray-300">{conds.position}</span>
+                                                </div>
+                                              )}
+                                              {conds.risk && (
+                                                <div className="flex items-center gap-1.5 bg-gray-800/30 px-2 py-1 rounded text-[10px] border border-gray-700/50">
+                                                   <span className="text-gray-500 font-bold">리스크 관리</span>
+                                                   <span className="text-gray-300">{conds.risk}</span>
+                                                </div>
+                                              )}
+                                           </div>
+                                         )
                                      })()}
                                   </div>
                               </div>

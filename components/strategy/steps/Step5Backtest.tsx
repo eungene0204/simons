@@ -86,7 +86,9 @@ export default function Step5Backtest({
               exitLogic: summaryData.exitLogic,
               entryBlocks: summaryData.entryBlocks,
               exitBlocks: summaryData.exitBlocks,
-              blockNames: summaryData.blockNames
+              blockNames: summaryData.blockNames,
+              positionText: summaryData.positionText,
+              riskText: summaryData.riskText
             }}
           />
         ) : (

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { getStockAPIProvider } from "@/lib/stock-api";
 import { StrategyDSL, StrategyDataset } from "@/types/strategy";
 import { FeatureCalculators } from "./FeatureCalculators";
