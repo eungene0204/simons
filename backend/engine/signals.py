@@ -134,19 +134,34 @@ class SignalEngine:
                 if c >= float(tp): return True
             return False
 
-        elif cid == 'ai_model':
-            # AI Score is pre-calculated and stored in the dataframe by BacktestEngine
-            score = safe_get('ai_score', idx)
+        elif cid in ['ai_model', 'ai_drop_model']:
+            # Handle legacy 'ai_drop_model' by treating it as 'ai_model' with targetType='down'
+            target_type = p.get('targetType')
+            if cid == 'ai_drop_model' and not target_type:
+                target_type = 'down'
+            elif not target_type:
+                target_type = 'up' # Default to up for legacy 'ai_model'
+
+            score_col = 'ai_drop_score' if target_type == 'down' else 'ai_score'
+            score = safe_get(score_col, idx)
             if score is None: return False
-            threshold = float(p.get('threshold', 0.5))
-            if threshold > 1.0:
-                threshold /= 100.0
-            direction = p.get('direction', 'above')
             
-            if direction == 'above':
-                return score >= threshold
-            else:
-                return score <= threshold
+            sig_type = p.get('signalType', 'sell' if target_type == 'down' else 'buy')
+            threshold = float(p.get('minProbability', 70))
+            if threshold > 1.0: threshold /= 100.0
+            
+            if target_type == 'up':
+                if sig_type == 'buy':
+                    return score >= threshold
+                else: # sell
+                    return score <= threshold
+            else: # down
+                if sig_type == 'buy':
+                    # Safe to buy if drop probability is LESS than threshold
+                    return score <= threshold
+                else: # sell
+                    # Dangerous to hold if drop probability is GREATER than threshold
+                    return score >= threshold
 
         elif cid == 'max_holding_days' or cid == 'trailing_stop':
             # Pure risk blocks handled by simulator, return False to avoid signal interference
@@ -179,11 +194,26 @@ class SignalEngine:
         elif cid == 'breakout':
             period = p.get('lookbackPeriod', 20)
             return f"{period}일 신고가 돌파" if p.get('signalType') != 'sell' else f"{period}일 신저가 돌파"
-        elif cid == 'ai_model':
-            threshold = p.get('threshold', 0.5)
-            direction = "이상" if p.get('direction', 'above') == 'above' else "이하"
-            suffix = "%" if threshold > 1 else ""
-            return f"AI 예측 점수 {threshold}{suffix} {direction}"
+        elif cid in ['ai_model', 'ai_drop_model']:
+            target_type = p.get('targetType')
+            if cid == 'ai_drop_model' and not target_type:
+                target_type = 'down'
+            elif not target_type:
+                target_type = 'up'
+
+            sig_type = p.get('signalType', 'sell' if target_type == 'down' else 'buy')
+            threshold = p.get('minProbability', 70)
+            suffix = "%" if isinstance(threshold, (int, float)) and threshold > 1 else ""
+
+            if target_type == 'up':
+                target = p.get('targetThreshold', p.get('buyThreshold', 7))
+                direction = f"{target}% 상승"
+                return f"AI {direction} 확률 {threshold}{suffix} 이하 (매도)" if sig_type == 'sell' else f"AI {direction} 확률 {threshold}{suffix} 이상 (매수)"
+            else:
+                target = p.get('targetThreshold', p.get('sellThreshold', 7))
+                direction = f"{target}% 하락"
+                label = "이하 (안전 진입)" if sig_type == 'buy' else "이상 (위험 청산)"
+                return f"AI {direction} 확률 {threshold}{suffix} {label}"
         elif cid == 'price_limit_exit':
             sl, tp = p.get('stopLoss'), p.get('takeProfit')
             sl_m, tp_m = p.get('stopLossMode', 'pct'), p.get('takeProfitMode', 'pct')

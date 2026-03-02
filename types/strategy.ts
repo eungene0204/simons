@@ -172,6 +172,8 @@ export interface BacktestHistoryItem {
     names?: string[];
     entry?: { logic: string; names: string[] };
     exit?: { logic: string; names: string[] };
+    position?: string;
+    risk?: string;
   };
   metrics: {
     totalReturn: number;

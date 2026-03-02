@@ -156,7 +156,7 @@ export default function VirtualAccountMainView() {
             : "차트"}
         </h3>
         <div className="h-96">
-          <CandlestickChart data={chartData} />
+          <CandlestickChart data={(chartData as any).chartData || []} />
         </div>
       </div>
 

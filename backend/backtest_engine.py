@@ -74,7 +74,7 @@ class BacktestEngine:
             def check_ai_needed(group):
                 if not group: return False
                 for c in group.get('conditions', []):
-                    if c.get('id') == 'ai_model': return True
+                    if c.get('id') in ['ai_model', 'ai_drop_model']: return True
                     if 'conditions' in c:
                         if check_ai_needed(c): return True
                 return False
@@ -119,10 +119,16 @@ class BacktestEngine:
                         engine = self.ai_engine
                         if engine:
                             pdf_ai = df_pl.to_pandas()
-                            ai_probs = engine.predict_signals(pdf_ai)
-                            df_pl = df_pl.with_columns(pl.Series("ai_score", ai_probs))
+                            ai_probs, ai_drop_probs = engine.predict_signals(pdf_ai)
+                            df_pl = df_pl.with_columns([
+                                pl.Series("ai_score", ai_probs),
+                                pl.Series("ai_drop_score", ai_drop_probs)
+                            ])
                         else:
-                            df_pl = df_pl.with_columns(pl.Series("ai_score", [0.0] * len(df_pl)))
+                            df_pl = df_pl.with_columns([
+                                pl.Series("ai_score", [0.0] * len(df_pl)),
+                                pl.Series("ai_drop_score", [0.0] * len(df_pl))
+                            ])
                     
                     # 3.4 Period Filtering
                     if period_req != 'full' or start_date_req or end_date_req:
