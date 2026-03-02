@@ -45,10 +45,21 @@ export class BacktestService {
 
     // 2. Call Python Microservice
     try {
-      const response = await fetch("http://localhost:8000/backtest", {
+      const payloadString = JSON.stringify(requestBody);
+      let hash = 0;
+      for (let i = 0; i < payloadString.length; i++) {
+        const char = payloadString.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+      }
+      const traceId = `req_hash_${Math.abs(hash)}`;
+      console.error(`[DEBUG-SVC] SENDING FETCH to Python Engine (Trace ID: ${traceId})`);
+      
+      const response = await fetch("http://127.0.0.1:8000/backtest", {
         method: "POST",
-        headers: {
+        headers: { 
           "Content-Type": "application/json",
+          "X-Trace-Id": traceId
         },
         body: JSON.stringify(requestBody),
         cache: "no-store",

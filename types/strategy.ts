@@ -51,6 +51,7 @@ export interface RiskManagement {
   allocation_type?: "equal" | "fixed_pct";
   rebalancing_period?: string;
   skip_risk_management?: boolean;
+  skip_position_setting?: boolean;
 }
 
 export interface UniverseSelection {

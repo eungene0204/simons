@@ -14,8 +14,11 @@ np.random.seed(seed)
 import random
 random.seed(seed)
 
+import threading
+
 class AIEngine:
     def __init__(self, model_dir="/Users/eugene/nullalgo/simons/model"):
+        self.model_lock = threading.Lock()
         self.model_dir = model_dir
         # ... Re-apply seeds inside init as well for absolute safety ...
         torch.manual_seed(seed)
@@ -80,10 +83,20 @@ class AIEngine:
         def log(msg):
             from datetime import datetime
             with open(log_file, "a") as f:
-                f.write(f"[{datetime.now()}] [AIEngine-Opt] {msg}\n")
+                f.write(f"[{datetime.now()}] [AIEngine-Thread-{threading.get_ident()}] {msg}\n")
         
         log(f"predict_signals started. input df shape={df.shape}")
+        
+        # Use lock to prevent concurrent GPU access on MPS/CUDA
+        with self.model_lock:
+            log("Acquired model lock")
+            result = self._predict_signals_internal(df, log)
+            log("Released model lock")
+            return result
+
+    def _predict_signals_internal(self, df: pd.DataFrame, log_func) -> np.ndarray:
         try:
+            log = log_func
             data_len = len(df)
             probs = np.zeros(data_len)
             probs_drop = np.zeros(data_len)
@@ -106,10 +119,10 @@ class AIEngine:
                 pdf['rsi_14'] = sdf['rsi_14']
                 actual_rsi = 'rsi_14'
             
-            # 1. Feature Engineering
+            # 1. Feature Engineering (Log Returns)
             for col in ['open', 'high', 'low', 'close']:
-                pdf[f'ret_{col}'] = pdf[col].pct_change()
-            pdf['ret_volume'] = pdf['volume'].pct_change()
+                pdf[f'ret_{col}'] = np.log1p(pdf[col].pct_change())
+            pdf['ret_volume'] = np.log1p(pdf['volume'].pct_change())
             
             features_to_use = ['ret_open', 'ret_high', 'ret_low', 'ret_close', 'ret_volume', actual_rsi]
             
@@ -195,7 +208,7 @@ class AIEngine:
             log(f"predict_signals optimized finished for {data_len} rows")
             return probs, probs_drop
         except Exception as e:
-            # log(f"CRITICAL ERROR in predict_signals: {e}") # Reduce concurrent writes
+            log(f"CRITICAL ERROR in _predict_signals_internal: {e}")
             raise e
 
 if __name__ == "__main__":
