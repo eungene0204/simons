@@ -799,6 +799,18 @@ export default function StrategyComposerV2({
                   const blockDef = signalBlocks[b.blockId];
                   return blockDef ? blockDef.name : b.blockId;
                 }),
+                positionText: riskManagement.skip_risk_management 
+                  ? "포지션/비중 설정 안 함"
+                  : `${allocationType === 'equal' ? '동일 비중' : `고정 비중 ${allocationValue}%`} (최대 ${maxPositions}종목)`,
+                riskText: riskManagement.skip_risk_management
+                  ? "리스크 관리 안 함"
+                  : (
+                    [
+                      riskManagement.stop_loss_pct ? `손절 -${riskManagement.stop_loss_pct}%` : null,
+                      riskManagement.take_profit_pct ? `익절 +${riskManagement.take_profit_pct}%` : null,
+                      riskManagement.max_mdd_limit_pct ? `MDD -${riskManagement.max_mdd_limit_pct}%` : null,
+                    ].filter(Boolean).join(" / ") || "설정 없음"
+                  ),
                 canvasBlocks: canvasBlocks, // Include blocks to ensure key changes on param update
                 riskSettings: {
                   maxPositions,

@@ -38,13 +38,30 @@ class StockDataset(Dataset):
         x = group.iloc[start:start+self.lookback][self.features].values.astype(np.float32)
         y = group.iloc[start+self.lookback-1][self.target] # Target is linked to the end of the window
         
-        return torch.from_numpy(x), torch.tensor(y, dtype=torch.float32)
+        # We also extract binary targets directly from the dataframe
+        y_up = group.iloc[start+self.lookback-1]['target_up']
+        y_down = group.iloc[start+self.lookback-1]['target_down']
+        
+        return torch.from_numpy(x), torch.tensor(y, dtype=torch.float32), torch.tensor(y_up, dtype=torch.float32), torch.tensor(y_down, dtype=torch.float32)
 
-def train_hybrid_model(data_path, model_dir, lookback=60, epochs=30, n_trials_transformer=10, n_trials_xgb=20):
+def train_hybrid_model(data_path, model_dir, lookback=60, epochs=30, n_trials_transformer=10, n_trials_xgb=20, buy_threshold=0.07, sell_threshold=0.07):
     os.makedirs(model_dir, exist_ok=True)
     
     print(f"Loading processed data from {data_path}...")
     df = pd.read_parquet(data_path)
+    
+    # Backward compatibility with older datasets
+    if 'target_up' not in df.columns:
+        if 'target_7pct_10d' in df.columns:
+            df['target_up'] = df['target_7pct_10d']
+        else:
+            df['target_up'] = (df['fwd_return_10'] >= buy_threshold).astype(int)
+            
+    if 'target_down' not in df.columns:
+        if 'target_drop_7pct_10d' in df.columns:
+            df['target_down'] = df['target_drop_7pct_10d']
+        else:
+            df['target_down'] = (df['fwd_return_10'] <= -sell_threshold).astype(int)
     
     # Split by time (Training: < 2023, Val: 2023)
     df['date'] = pd.to_datetime(df['date'])
@@ -94,7 +111,7 @@ def train_hybrid_model(data_path, model_dir, lookback=60, epochs=30, n_trials_tr
         
         model_tmp.train()
         for epoch in range(tune_epochs):
-            for x, y in train_loader:
+            for x, y, y_up, y_down in train_loader:
                 x, y = x.to(device), y.to(device)
                 optimizer_tmp.zero_grad()
                 emb = model_tmp(x)
@@ -107,7 +124,7 @@ def train_hybrid_model(data_path, model_dir, lookback=60, epochs=30, n_trials_tr
         model_tmp.eval()
         val_loss = 0
         with torch.no_grad():
-            for x, y in val_loader:
+            for x, y, y_up, y_down in val_loader:
                 x, y = x.to(device), y.to(device)
                 emb = model_tmp(x)
                 pred = pretrain_head_tmp(emb).squeeze()
@@ -146,7 +163,7 @@ def train_hybrid_model(data_path, model_dir, lookback=60, epochs=30, n_trials_tr
     for epoch in range(epochs):
         model.train()
         total_loss = 0
-        for x, y in tqdm(train_loader, desc=f"Epoch {epoch+1}"):
+        for x, y, y_up, y_down in tqdm(train_loader, desc=f"Epoch {epoch+1}"):
             x, y = x.to(device), y.to(device)
             optimizer.zero_grad()
             emb = model(x)
@@ -160,7 +177,7 @@ def train_hybrid_model(data_path, model_dir, lookback=60, epochs=30, n_trials_tr
         model.eval()
         val_loss = 0
         with torch.no_grad():
-            for x, y in val_loader:
+            for x, y, y_up, y_down in val_loader:
                 x, y = x.to(device), y.to(device)
                 emb = model(x)
                 pred = pretrain_head(emb).squeeze()
@@ -190,28 +207,30 @@ def train_hybrid_model(data_path, model_dir, lookback=60, epochs=30, n_trials_tr
     torch.save(model.state_dict(), os.path.join(model_dir, 'transformer_engine.pt'))
     
     # Stage 2: Train XGBoost Head
-    print("--- Stage 2: Training XGBoost Head ---")
+    print("--- Stage 2: Training XGBoost Head (Multi-Target) ---")
     model.eval()
     
     def extract_embeddings(loader):
         embeddings = []
-        labels = []
+        labels_up = []
+        labels_down = []
         with torch.no_grad():
-            for x, y in tqdm(loader, desc="Extracting embeddings"):
+            for x, y, y_up, y_down in tqdm(loader, desc="Extracting embeddings"):
                 x = x.to(device)
                 emb = model(x)
                 embeddings.append(emb.cpu().numpy())
-                # For XGBoost target: target_7pct_10d (binary)
-                # Note: StockDataset returns 'fwd_return_10', we need to map back to binary
-                labels.append((y >= 0.07).float().numpy())
+                # Use robust labels directly
+                labels_up.append(y_up.numpy())
+                labels_down.append(y_down.numpy())
         
-        return np.vstack(embeddings), np.concatenate(labels)
+        y_combined = np.column_stack((np.concatenate(labels_up), np.concatenate(labels_down)))
+        return np.vstack(embeddings), y_combined
 
     train_emb, train_y = extract_embeddings(train_loader)
     val_emb, val_y = extract_embeddings(val_loader)
     
-    print("--- Stage 2.5: Optuna Hyperparameter Tuning for XGBoost ---")
-    def objective(trial):
+    print("--- Stage 2.5: Optuna Hyperparameter Tuning for XGBoost (Multi-Target) ---")
+    def objective_xgb(trial):
         param = {
             'n_estimators': trial.suggest_int('n_estimators', 100, 1000, step=100),
             'max_depth': trial.suggest_int('max_depth', 3, 10),
@@ -219,7 +238,8 @@ def train_hybrid_model(data_path, model_dir, lookback=60, epochs=30, n_trials_tr
             'subsample': trial.suggest_float('subsample', 0.6, 1.0),
             'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
             'tree_method': 'hist',
-            'device': str(device) if device.type == 'cuda' else 'cpu'
+            'device': str(device) if device.type == 'cuda' else 'cpu',
+            'objective': 'binary:logistic'
         }
         
         xgb_tmp = xgb.XGBClassifier(**param)
@@ -229,38 +249,56 @@ def train_hybrid_model(data_path, model_dir, lookback=60, epochs=30, n_trials_tr
             verbose=False
         )
         
-        # Use predict_proba and average_precision_score (PR-AUC)
-        # This focuses on the accuracy of top ranked probabilities, avoiding threshold mismatch
-        preds_proba = xgb_tmp.predict_proba(val_emb)[:, 1]
-        score = average_precision_score(val_y, preds_proba)
-        
-        return score
+        preds_proba = xgb_tmp.predict_proba(val_emb)
+        score_up = average_precision_score(val_y[:, 0], preds_proba[:, 0])
+        score_down = average_precision_score(val_y[:, 1], preds_proba[:, 1])
+        return (score_up + score_down) / 2.0
 
-    study = optuna.create_study(direction='maximize')
-    study.optimize(objective, n_trials=n_trials_xgb)
+    study_xgb = optuna.create_study(direction='maximize')
+    study_xgb.optimize(objective_xgb, n_trials=n_trials_xgb)
     
-    print("Optuna Best Parameters:", study.best_params)
-    
-    print("--- Stage 3: Training Final XGBoost Head ---")
-    best_params = study.best_params
-    best_params['tree_method'] = 'hist'
-    # Ensure device logic is correct for XGBoost 'device' parameter mapping
-    best_params['device'] = str(device) if device.type == 'cuda' else 'cpu'
+    print("--- Stage 3: Training Final XGBoost Head (Multi-Target) ---")
+    best_params_xgb = study_xgb.best_params
+    best_params_xgb['tree_method'] = 'hist'
+    best_params_xgb['device'] = str(device) if device.type == 'cuda' else 'cpu'
+    best_params_xgb['objective'] = 'binary:logistic'
 
-    xgb_model = xgb.XGBClassifier(**best_params)
-    
-    print("Fitting XGBoost with best params...")
-    xgb_model.fit(
-        train_emb, train_y,
-        eval_set=[(val_emb, val_y)],
-        verbose=False
-    )
-    
-    # Save XGBoost
-    xgb_model.save_model(os.path.join(model_dir, 'xgboost_head.json'))
-    print("Hybrid model training complete.")
+    xgb_model_final = xgb.XGBClassifier(**best_params_xgb)
+    xgb_model_final.fit(train_emb, train_y, eval_set=[(val_emb, val_y)], verbose=False)
+    xgb_model_final.save_model(os.path.join(model_dir, 'xgboost_head.json'))
+
+    # Save Metadata
+    import json
+    meta = {
+        "buy_threshold": buy_threshold,
+        "sell_threshold": sell_threshold,
+        "lookback": lookback,
+        "features": ts_features,
+        "trained_at": str(pd.Timestamp.now())
+    }
+    with open(os.path.join(model_dir, 'model_meta.json'), 'w') as f:
+        json.dump(meta, f, indent=4)
+
+    print("Hybrid model UP & DROP training complete. Metadata saved.")
 
 if __name__ == "__main__":
-    DATA_PATH = "/Users/eugene/nullalgo/simons/model/training_data_processed.parquet"
-    MODEL_DIR = "/Users/eugene/nullalgo/simons/model"
-    train_hybrid_model(DATA_PATH, MODEL_DIR, epochs=30, n_trials_transformer=10, n_trials_xgb=20)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_path", default="/Users/eugene/nullalgo/simons/model/training_data_processed.parquet")
+    parser.add_argument("--model_dir", default="/Users/eugene/nullalgo/simons/model")
+    parser.add_argument("--buy_threshold", type=float, default=0.07)
+    parser.add_argument("--sell_threshold", type=float, default=0.07)
+    parser.add_argument("--epochs", type=int, default=30)
+    parser.add_argument("--n_trials_transformer", type=int, default=10)
+    parser.add_argument("--n_trials_xgb", type=int, default=20)
+    args = parser.parse_args()
+    
+    train_hybrid_model(
+        args.data_path, 
+        args.model_dir, 
+        epochs=args.epochs, 
+        n_trials_transformer=args.n_trials_transformer, 
+        n_trials_xgb=args.n_trials_xgb,
+        buy_threshold=args.buy_threshold,
+        sell_threshold=args.sell_threshold
+    )

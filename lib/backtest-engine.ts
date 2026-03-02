@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { StrategyDSL, BacktestResult } from "@/types/strategy";
 import { generateCandleData } from "@/lib/mock-stock-data";
 

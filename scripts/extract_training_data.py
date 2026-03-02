@@ -11,7 +11,9 @@ import sys
 sys.path.append(os.path.join(os.getcwd(), 'backend'))
 from engine.indicators import IndicatorEngine
 
-def extract_training_data(ohlcv_dir, output_file, lookback_window=60, symbols=None):
+import argparse
+
+def extract_training_data(ohlcv_dir, output_file, lookback_window=60, symbols=None, buy_threshold=0.07, sell_threshold=0.07):
     """
     Extracts OHLCV and technical indicators for a set of symbols and saves them to a parquet file for training.
     """
@@ -39,6 +41,7 @@ def extract_training_data(ohlcv_dir, output_file, lookback_window=60, symbols=No
     ]
 
     print(f"Extracting data for {len(symbols)} symbols...")
+    print(f"Targets: BuyThreshold={buy_threshold*100}%, SellThreshold={sell_threshold*100}%")
     
     for symbol in tqdm(symbols):
         try:
@@ -57,10 +60,16 @@ def extract_training_data(ohlcv_dir, output_file, lookback_window=60, symbols=No
             pdf = pdf.sort_values('date')
             
             # 3. Labeling: Future Returns (Next 10 days max return)
-            # Target: 1 if max return in next 10 days >= 7%, else 0
-            # Also provide the raw 10-day forward return for regression projects
+            # Use provided targets
             pdf['fwd_return_10'] = pdf['close'].shift(-10) / pdf['close'] - 1
-            pdf['target_7pct_10d'] = (pdf['close'].rolling(window=10).max().shift(-10) / pdf['close'] - 1 >= 0.07).astype(int)
+            
+            # Binary targets for XGBoost
+            pdf['target_up'] = (pdf['close'].rolling(window=10).max().shift(-10) / pdf['close'] - 1 >= buy_threshold).astype(int)
+            pdf['target_down'] = (pdf['close'].rolling(window=10).min().shift(-10) / pdf['close'] - 1 <= -sell_threshold).astype(int)
+            
+            # Keep old names for backward compatibility during transition if needed
+            pdf['target_7pct_10d'] = pdf['target_up']
+            pdf['target_drop_7pct_10d'] = pdf['target_down']
             
             # 4. Feature Engineering for Transformer
             # Scale prices to returns
@@ -90,8 +99,13 @@ def extract_training_data(ohlcv_dir, output_file, lookback_window=60, symbols=No
         print("No data extracted.")
 
 if __name__ == "__main__":
-    OHLCV_DIR = "/Users/eugene/nullalgo/simons/data/ohlcv"
-    OUTPUT_FILE = "/Users/eugene/nullalgo/simons/data/training_data_raw.parquet"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--ohlcv_dir", default="/Users/eugene/nullalgo/simons/data/ohlcv")
+    parser.add_argument("--output_file", default="/Users/eugene/nullalgo/simons/data/training_data_raw.parquet")
+    parser.add_argument("--buy_threshold", type=float, default=0.07, help="Buy threshold (Target Upside Rate, e.g. 0.07 for 7%)")
+    parser.add_argument("--sell_threshold", type=float, default=0.07, help="Sell threshold (Target Downside Rate, e.g. 0.07 for 7%)")
+    args = parser.parse_args()
     
-    os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
-    extract_training_data(OHLCV_DIR, OUTPUT_FILE)
+    os.makedirs(os.path.dirname(args.output_file), exist_ok=True)
+    extract_training_data(args.ohlcv_dir, args.output_file, buy_threshold=args.buy_threshold, sell_threshold=args.sell_threshold)
+

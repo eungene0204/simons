@@ -25,7 +25,7 @@ function test() {
 
   // 5. No filters
   const all = UniverseResolver.getSymbols('kospi', {});
-  console.log("KOSPI (No filters) length:", all.length);
+  all.then((res: any) => console.log("KOSPI (No filters) length:", res.length));
   // Expect: 20
 
   // 6. No matching sectors

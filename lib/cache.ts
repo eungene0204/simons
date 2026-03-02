@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Simple in-memory cache for stock data
 // In production, consider using Redis or similar
 

@@ -8,7 +8,8 @@
  *   ts-node scripts/sync-korea-stocks.ts
  */
 
-import { saveStockList, fetchKRXStockList, StockListItem } from '../lib/krx-stocks';
+import { saveStockList, fetchKRXStockList } from '../lib/krx-stocks';
+import { StockListItem } from '../types/stock';
 
 /**
  * 한국거래소 공개 데이터에서 종목 목록을 가져옵니다
@@ -55,6 +56,7 @@ async function fetchAllStocks(): Promise<StockListItem[]> {
   stocks.push(...kospiStocks, ...kosdaqStocks);
   
   console.log(`Found ${stocks.length} stocks (${kospiStocks.length} KOSPI, ${kosdaqStocks.length} KOSDAQ)`);
+  }
   
   return stocks;
 }

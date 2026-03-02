@@ -54,7 +54,16 @@ class AIEngine:
         else:
             raise FileNotFoundError(f"Transformer model not found at {model_path}")
             
-        # 3. Load XGBoost
+        # 2.5 Load Metadata
+        import json
+        meta_path = os.path.join(model_dir, 'model_meta.json')
+        if os.path.exists(meta_path):
+            with open(meta_path, 'r') as f:
+                self.meta = json.load(f)
+        else:
+            self.meta = {"buy_threshold": 0.07, "sell_threshold": 0.07}
+            
+        # 3. Load XGBoost Head (Multi-Output Expected)
         xgb_path = os.path.join(model_dir, 'xgboost_head.json')
         self.xgb_head = xgb.XGBClassifier()
         if os.path.exists(xgb_path):
@@ -77,10 +86,11 @@ class AIEngine:
         try:
             data_len = len(df)
             probs = np.zeros(data_len)
+            probs_drop = np.zeros(data_len)
             
             if data_len <= self.lookback:
                 log("Data length too short for lookback")
-                return probs
+                return probs, probs_drop
 
             # 0. Robust Column Name Check
             pdf = df.copy()
@@ -139,11 +149,24 @@ class AIEngine:
             
             embeddings = np.concatenate(all_embeddings, axis=0)
             
-            # 5. XGBoost Inference
+            # 5. XGBoost Inference (Multi-Target)
             try:
-                signal_probs = self.xgb_head.predict_proba(embeddings)[:, 1]
-            except:
-                signal_probs = self.xgb_head.predict(embeddings).astype(float)
+                preds_proba = self.xgb_head.predict_proba(embeddings)
+                if len(preds_proba.shape) == 2 and preds_proba.shape[1] == 2:
+                    signal_probs = preds_proba[:, 0]
+                    drop_probs = preds_proba[:, 1]
+                else:
+                    signal_probs = np.zeros(len(embeddings))
+                    drop_probs = np.zeros(len(embeddings))
+            except Exception as e:
+                log(f"Falling back to direct predict for XGBoost: {e}")
+                preds = self.xgb_head.predict(embeddings).astype(float)
+                if len(preds.shape) == 2 and preds.shape[1] == 2:
+                    signal_probs = preds[:, 0]
+                    drop_probs = preds[:, 1]
+                else:
+                    signal_probs = np.zeros(len(embeddings))
+                    drop_probs = np.zeros(len(embeddings))
             
             # --- Percentile Rank Transform (Dynamic Score 0.0 ~ 1.0) ---
             if len(signal_probs) > 0:
@@ -154,14 +177,23 @@ class AIEngine:
                 final_scores = rolling_rank.fillna(expanding_rank).values
                 # Handle edge case NaNs
                 final_scores = np.nan_to_num(final_scores, nan=0.5)
+                
+                # Do the same for drop probabilities
+                s_drop = pd.Series(drop_probs)
+                rolling_rank_drop = s_drop.rolling(window=126, min_periods=20).rank(pct=True)
+                expanding_rank_drop = s_drop.expanding(min_periods=1).rank(pct=True)
+                final_drop_scores = rolling_rank_drop.fillna(expanding_rank_drop).values
+                final_drop_scores = np.nan_to_num(final_drop_scores, nan=0.5)
             else:
                 final_scores = np.array([])
+                final_drop_scores = np.array([])
             
             # Fill the probabilities (skipping the first 'lookback - 1' indices)
             probs[self.lookback - 1:] = final_scores
+            probs_drop[self.lookback - 1:] = final_drop_scores
             
             log(f"predict_signals optimized finished for {data_len} rows")
-            return probs
+            return probs, probs_drop
         except Exception as e:
             # log(f"CRITICAL ERROR in predict_signals: {e}") # Reduce concurrent writes
             raise e
@@ -180,5 +212,5 @@ if __name__ == "__main__":
         'rsi_14': np.random.rand(100) * 100
     }, index=dates)
     
-    probs = engine.predict_signals(df)
-    print(f"Predictions generated for {len(probs)} steps. Sample: {probs[-5:]}")
+    probs, probs_drop = engine.predict_signals(df)
+    print(f"Predictions generated for {len(probs)} steps. Sample Up: {probs[-5:]}, Sample Drop: {probs_drop[-5:]}")
