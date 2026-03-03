@@ -45,7 +45,11 @@ async def run_backtest(http_req: Request, request: BacktestRequest):
     print(f"[DEBUG] Request Data: {request.model_dump_json(indent=2)}", flush=True)
     try:
         # Convert Pydantic to dict for engine
+        start_time = time.time()
         result = engine.run_backtest(request.model_dump())
+        end_time = time.time()
+        result['executionTime'] = end_time - start_time
+
         print(f"[DEBUG] [{datetime.now().isoformat()}] BACKEND: Backtest Success. Total Return: {result.get('totalReturn', 0):.2f}%", flush=True)
         signals = result.get('signals', [])
         print(f"[DEBUG] Found {len(signals)} total signals.", flush=True)

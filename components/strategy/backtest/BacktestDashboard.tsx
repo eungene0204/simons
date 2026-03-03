@@ -167,6 +167,7 @@ export default function BacktestDashboard({
                 profitFactor: result.profitFactor || 0,
                 buyHold: result.buyAndHoldReturn || 0,
                 trades: result.trades || 0,
+                executionTime: result.executionTime !== undefined ? result.executionTime : 0,
               },
             };
 
@@ -931,7 +932,7 @@ export default function BacktestDashboard({
                               </div>
                            </div>
                            
-                           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+                           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
                               <HistoryMetric label="총 수익률" value={`${item.metrics.totalReturn.toFixed(1)}%`} trend={item.metrics.totalReturn > 0 ? "up" : "down"} />
                               <HistoryMetric label="CAGR" value={`${item.metrics.cagr.toFixed(1)}%`} trend={item.metrics.cagr > 0 ? "up" : "down"} />
                               <HistoryMetric label="MDD" value={`${item.metrics.mdd.toFixed(1)}%`} trend="down" />
@@ -939,6 +940,7 @@ export default function BacktestDashboard({
                               <HistoryMetric label="손익비" value={item.metrics.profitFactor.toFixed(2)} />
                               <HistoryMetric label="매수후보유" value={`${item.metrics.buyHold.toFixed(1)}%`} colorOverride="text-main-green" />
                               <HistoryMetric label="매매횟수" value={`${item.metrics.trades}회`} />
+                              <HistoryMetric label="소요시간" value={item.metrics.executionTime !== undefined ? `${item.metrics.executionTime.toFixed(2)}초` : "-"} />
                            </div>
                         </div>
                       ))}
