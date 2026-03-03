@@ -45,26 +45,42 @@ function AnalyticsContent() {
   const [useV2Composer, setUseV2Composer] = useState(true); // Toggle for new UI
   const [composerKey, setComposerKey] = useState(0); // For forcing re-mount
 
-  // Load saved strategies from localStorage
+  // Load saved strategies from the database
   useEffect(() => {
-    const saved = localStorage.getItem("savedStrategies");
-    if (saved) {
+    const fetchStrategies = async () => {
       try {
-        setSavedStrategies(JSON.parse(saved));
+        const response = await fetch('/api/strategy');
+        if (response.ok) {
+          const data = await response.json();
+          setSavedStrategies(data);
+        }
       } catch (e) {
-        console.error("Failed to load saved strategies", e);
+        console.error("Failed to load saved strategies from API", e);
       }
-    }
+    };
+    fetchStrategies();
   }, []);
 
   // Save strategy
-  const handleSaveStrategy = (strategyData: StrategyDSL) => {
-    const updated = [...savedStrategies, strategyData];
-    setSavedStrategies(updated);
-    localStorage.setItem("savedStrategies", JSON.stringify(updated));
-    setStrategy(strategyData);
-    setShowComposer(false);
-    setCurrentStep(1);
+  const handleSaveStrategy = async (strategyData: StrategyDSL) => {
+    try {
+      const response = await fetch('/api/strategy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(strategyData)
+      });
+      if (response.ok) {
+         const newStrategy = await response.json();
+         // The settings contains the StrategyDSL, so we need to parse it for the list view
+         const parsedStrategy = typeof newStrategy.settings === 'string' ? JSON.parse(newStrategy.settings) : newStrategy;
+         setSavedStrategies(prev => [parsedStrategy, ...prev]);
+         setStrategy(parsedStrategy);
+         setShowComposer(false);
+         setCurrentStep(1);
+      }
+    } catch (error) {
+       console.error("Failed to save strategy", error);
+    }
   };
 
   // Load strategy
@@ -77,11 +93,17 @@ function AnalyticsContent() {
   };
 
   // Delete strategy
-  const handleDeleteStrategy = (strategyId: string) => {
-    const updated = savedStrategies.filter((s) => s.id !== strategyId);
-    setSavedStrategies(updated);
-    localStorage.setItem("savedStrategies", JSON.stringify(updated));
-
+  const handleDeleteStrategy = async (strategyId: string) => {
+    try {
+       const response = await fetch(`/api/strategy?id=${strategyId}`, {
+         method: 'DELETE'
+       });
+       if (response.ok) {
+         setSavedStrategies(prev => prev.filter((s) => s.id !== strategyId));
+       }
+    } catch (error) {
+       console.error("Failed to delete strategy", error);
+    }
   };
 
   const openComposer = () => {
