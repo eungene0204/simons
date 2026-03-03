@@ -14,7 +14,11 @@ def preprocess_for_training(input_file, output_dir, lookback=60):
     
     # 1. Feature Selection
     # Transformer features (Time-series)
-    ts_features = ['ret_open', 'ret_high', 'ret_low', 'ret_close', 'ret_volume', 'rsi_14']
+    ts_features = [
+        'ret_open', 'ret_high', 'ret_low', 'ret_close', 'ret_volume', 'ret_obv', 
+        'rsi_14', 'macd', 'macds', 'macdh', 'kdjk', 'kdjd', 'cci_14', 'adx', 
+        'dist_sma_20', 'dist_ema_20', 'boll_pos'
+    ]
     
     # XGBoost features (Point-in-time + Transformer Embedding)
     static_features = ['sector', 'symbol'] # To be encoded later
