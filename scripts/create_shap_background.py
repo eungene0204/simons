@@ -7,7 +7,8 @@ from numpy.lib.stride_tricks import as_strided
 def create_background():
     print("Initializing AIEngine to load Scaler...")
     try:
-        engine = AIEngine(model_dir="model")
+        # Use the NEW expanded model
+        engine = AIEngine(model_dir="model/expanded_features")
     except Exception as e:
         print(f"Failed to load AIEngine: {e}")
         return
@@ -32,15 +33,33 @@ def create_background():
         if len(sym_df) < engine.lookback:
             continue
             
-        # 1. Feature Engineering
+        # 1. Feature Engineering (Expanded 17 features)
+        from backend.engine.indicators import IndicatorEngine
+        indicator_reqs = [
+            {'id': 'ema', 'params': {'period': 20}},
+            {'id': 'macd', 'params': {}},
+            {'id': 'stochastic', 'params': {}},
+            {'id': 'cci', 'params': {'period': 14}},
+            {'id': 'adx', 'params': {}},
+            {'id': 'bollinger_bands', 'params': {'period': 20}},
+            {'id': 'volume_spike', 'params': {'period': 20}}
+        ]
+        import polars as pl
+        sym_df_pl = IndicatorEngine.calculate(pl.from_pandas(sym_df), indicator_reqs)
+        sym_df = sym_df_pl.to_pandas()
+
+        # Price/Volume Log Returns
         for col in ['open', 'high', 'low', 'close']:
-            sym_df[f'ret_{col}'] = sym_df[col].pct_change()
-        sym_df['ret_volume'] = sym_df['volume'].pct_change()
+            sym_df[f'ret_{col}'] = np.log1p(sym_df[col].pct_change())
+        sym_df['ret_volume'] = np.log1p(sym_df['volume'].pct_change())
+        sym_df['ret_obv'] = np.log1p(sym_df['obv'].pct_change())
+
+        # Stationary Technical Features
+        sym_df['dist_sma_20'] = sym_df['close'] / sym_df['close_20_sma'] - 1
+        sym_df['dist_ema_20'] = sym_df['close'] / sym_df['close_20_ema'] - 1
+        sym_df['boll_pos'] = (sym_df['close'] - sym_df['boll_lb']) / (sym_df['boll_ub'] - sym_df['boll_lb'] + 1e-8)
         
-        # Determine actual RSI column
-        actual_rsi = next((c for c in sym_df.columns if c.startswith('rsi')), None)
-        features_to_use = ['ret_open', 'ret_high', 'ret_low', 'ret_close', 'ret_volume', actual_rsi]
-        
+        features_to_use = engine.ts_features
         sym_df[features_to_use] = sym_df[features_to_use].replace([np.inf, -np.inf], np.nan).ffill().fillna(0)
         scaled_data = engine.scaler.transform(sym_df[features_to_use].values).astype(np.float32)
         
@@ -70,7 +89,7 @@ def create_background():
         
     print(f"Generated background shape: {background_windows.shape}")
     
-    out_path = "model/shap_background.npy"
+    out_path = "model/expanded_features/shap_background.npy"
     np.save(out_path, background_windows)
     print(f"Successfully saved SHAP background to {out_path}")
 

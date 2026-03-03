@@ -3,6 +3,7 @@ import torch.nn as nn
 import xgboost as xgb
 import pandas as pd
 import numpy as np
+import polars as pl
 import joblib
 import os
 from ai.models import HybridAIModel
@@ -17,7 +18,7 @@ random.seed(seed)
 import threading
 
 class AIEngine:
-    def __init__(self, model_dir="/Users/eugene/nullalgo/simons/model"):
+    def __init__(self, model_dir="/Users/eugene/nullalgo/simons/model/expanded_features"):
         self.model_lock = threading.Lock()
         self.model_dir = model_dir
         # ... Re-apply seeds inside init as well for absolute safety ...
@@ -47,16 +48,6 @@ class AIEngine:
         else:
             raise FileNotFoundError(f"Scaler not found at {scaler_path}")
             
-        # 2. Load Transformer
-        ts_features_count = 6 # (ret_open, ret_high, ret_low, ret_close, ret_volume, rsi_14)
-        self.transformer = HybridAIModel(input_dim=ts_features_count).to(self.device)
-        model_path = os.path.join(model_dir, 'transformer_engine.pt')
-        if os.path.exists(model_path):
-            self.transformer.load_state_dict(torch.load(model_path, map_location=self.device))
-            self.transformer.eval()
-        else:
-            raise FileNotFoundError(f"Transformer model not found at {model_path}")
-            
         # 2.5 Load Metadata
         import json
         meta_path = os.path.join(model_dir, 'model_meta.json')
@@ -64,7 +55,33 @@ class AIEngine:
             with open(meta_path, 'r') as f:
                 self.meta = json.load(f)
         else:
-            self.meta = {"buy_threshold": 0.07, "sell_threshold": 0.07}
+            self.meta = {"buy_threshold": 0.07, "sell_threshold": 0.07, "lookback": 60}
+            
+        # 2. Load Transformer
+        ts_features_count = len(self.meta.get('features', [])) or 17
+        
+        # Load hyperparams from meta, with safe defaults
+        d_model = self.meta.get('d_model', 64)
+        nhead = self.meta.get('nhead', 4)
+        num_layers = self.meta.get('num_layers', 2)
+        dim_feedforward = self.meta.get('dim_feedforward', 128)
+        dropout = self.meta.get('dropout', 0.1)
+        
+        self.transformer = HybridAIModel(
+            input_dim=ts_features_count,
+            d_model=d_model,
+            nhead=nhead,
+            num_layers=num_layers,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout
+        ).to(self.device)
+        
+        model_path = os.path.join(model_dir, 'transformer_engine.pt')
+        if os.path.exists(model_path):
+            self.transformer.load_state_dict(torch.load(model_path, map_location=self.device))
+            self.transformer.eval()
+        else:
+            raise FileNotFoundError(f"Transformer model not found at {model_path}")
             
         # 3. Load XGBoost Head (Multi-Output Expected)
         xgb_path = os.path.join(model_dir, 'xgboost_head.json')
@@ -74,8 +91,12 @@ class AIEngine:
         else:
             raise FileNotFoundError(f"XGBoost model not found at {xgb_path}")
             
-        self.ts_features = ['ret_open', 'ret_high', 'ret_low', 'ret_close', 'ret_volume', 'rsi_14']
-        self.lookback = 60
+        self.ts_features = self.meta.get('features', [
+            'ret_open', 'ret_high', 'ret_low', 'ret_close', 'ret_volume', 'ret_obv', 
+            'rsi_14', 'macd', 'macds', 'macdh', 'kdjk', 'kdjd', 'cci_14', 'adx', 
+            'dist_sma_20', 'dist_ema_20', 'boll_pos'
+        ])
+        self.lookback = self.meta.get('lookback', 60)
         print(f"AIEngine initialized on {self.device}")
 
     def predict_signals(self, df: pd.DataFrame) -> np.ndarray:
@@ -119,12 +140,32 @@ class AIEngine:
                 pdf['rsi_14'] = sdf['rsi_14']
                 actual_rsi = 'rsi_14'
             
-            # 1. Feature Engineering (Log Returns)
+            # 1. Feature Engineering (Log Returns & Technical Indicators)
+            from engine.indicators import IndicatorEngine
+            indicator_reqs = [
+                {'id': 'ema', 'params': {'period': 20}},
+                {'id': 'macd', 'params': {}},
+                {'id': 'stochastic', 'params': {}},
+                {'id': 'cci', 'params': {'period': 14}},
+                {'id': 'adx', 'params': {}},
+                {'id': 'bollinger_bands', 'params': {'period': 20}},
+                {'id': 'volume_spike', 'params': {'period': 20}}
+            ]
+            pdf_pl = IndicatorEngine.calculate(pl.from_pandas(pdf), indicator_reqs)
+            pdf = pdf_pl.to_pandas()
+
+            # Price/Volume Log Returns
             for col in ['open', 'high', 'low', 'close']:
                 pdf[f'ret_{col}'] = np.log1p(pdf[col].pct_change())
             pdf['ret_volume'] = np.log1p(pdf['volume'].pct_change())
+            pdf['ret_obv'] = np.log1p(pdf['obv'].pct_change())
+
+            # Stationary Technical Features
+            pdf['dist_sma_20'] = pdf['close'] / pdf['close_20_sma'] - 1
+            pdf['dist_ema_20'] = pdf['close'] / pdf['close_20_ema'] - 1
+            pdf['boll_pos'] = (pdf['close'] - pdf['boll_lb']) / (pdf['boll_ub'] - pdf['boll_lb'] + 1e-8)
             
-            features_to_use = ['ret_open', 'ret_high', 'ret_low', 'ret_close', 'ret_volume', actual_rsi]
+            features_to_use = self.ts_features
             
             # 2. Preprocessing & Scaling
             pdf[features_to_use] = pdf[features_to_use].replace([np.inf, -np.inf], np.nan).ffill().fillna(0)

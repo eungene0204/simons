@@ -68,7 +68,11 @@ def train_hybrid_model(data_path, model_dir, lookback=60, epochs=30, n_trials_tr
     train_df = df[df['date'].dt.year < 2023]
     val_df = df[df['date'].dt.year == 2023]
     
-    ts_features = ['ret_open', 'ret_high', 'ret_low', 'ret_close', 'ret_volume', 'rsi_14']
+    ts_features = [
+        'ret_open', 'ret_high', 'ret_low', 'ret_close', 'ret_volume', 'ret_obv', 
+        'rsi_14', 'macd', 'macds', 'macdh', 'kdjk', 'kdjd', 'cci_14', 'adx', 
+        'dist_sma_20', 'dist_ema_20', 'boll_pos'
+    ]
     
     train_ds = StockDataset(train_df, lookback=lookback, features=ts_features)
     val_ds = StockDataset(val_df, lookback=lookback, features=ts_features)
@@ -274,6 +278,12 @@ def train_hybrid_model(data_path, model_dir, lookback=60, epochs=30, n_trials_tr
         "sell_threshold": sell_threshold,
         "lookback": lookback,
         "features": ts_features,
+        "d_model": t_best['d_model'],
+        "nhead": t_best['nhead'],
+        "num_layers": t_best['num_layers'],
+        "dim_feedforward": t_best['dim_feedforward'],
+        "dropout": t_best['dropout'],
+        "xgb_params": best_params_xgb,
         "trained_at": str(pd.Timestamp.now())
     }
     with open(os.path.join(model_dir, 'model_meta.json'), 'w') as f:
