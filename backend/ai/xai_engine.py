@@ -12,7 +12,8 @@ from backend.ai.ai_engine import AIEngine
 
 def run_xai(symbol, target_date_str):
     # Load AIEngine
-    engine = AIEngine(model_dir="model")
+    # Use the NEW expanded model
+    engine = AIEngine(model_dir="model/expanded_features")
     
     # Enable GPU for XGBoost if possible
     if engine.device.type == 'cuda':
@@ -57,11 +58,33 @@ def run_xai(symbol, target_date_str):
         sym_df['date'] = pd.to_datetime(sym_df['date'])
         sym_df = sym_df.sort_values('date')
         
-        # Calculate features BEFORE slicing
+        # Calculate features (Expanded 17 features)
+        from backend.engine.indicators import IndicatorEngine
+        indicator_reqs = [
+            {'id': 'ema', 'params': {'period': 20}},
+            {'id': 'macd', 'params': {}},
+            {'id': 'stochastic', 'params': {}},
+            {'id': 'cci', 'params': {'period': 14}},
+            {'id': 'adx', 'params': {}},
+            {'id': 'bollinger_bands', 'params': {'period': 20}},
+            {'id': 'volume_spike', 'params': {'period': 20}}
+        ]
+        import polars as pl
+        sym_df_pl = IndicatorEngine.calculate(pl.from_pandas(sym_df), indicator_reqs)
+        sym_df = sym_df_pl.to_pandas()
+
+        # Price/Volume Log Returns
         for col in ['open', 'high', 'low', 'close']:
-            sym_df[f'ret_{col}'] = sym_df[col].pct_change()
-        sym_df['ret_volume'] = sym_df['volume'].pct_change()
-        actual_rsi = next((c for c in sym_df.columns if c.startswith('rsi')), None)
+            sym_df[f'ret_{col}'] = np.log1p(sym_df[col].pct_change())
+        sym_df['ret_volume'] = np.log1p(sym_df['volume'].pct_change())
+        sym_df['ret_obv'] = np.log1p(sym_df['obv'].pct_change())
+
+        # Stationary Technical Features
+        sym_df['dist_sma_20'] = sym_df['close'] / sym_df['close_20_sma'] - 1
+        sym_df['dist_ema_20'] = sym_df['close'] / sym_df['close_20_ema'] - 1
+        sym_df['boll_pos'] = (sym_df['close'] - sym_df['boll_lb']) / (sym_df['boll_ub'] - sym_df['boll_lb'] + 1e-8)
+        
+        actual_rsi = 'rsi_14'
     
     # Find the row for target_date
     target_date = pd.to_datetime(target_date_str)
@@ -77,12 +100,12 @@ def run_xai(symbol, target_date_str):
     # Get EXACTLY 60 days up to the target date
     slice_df = sym_df.iloc[pos-59 : pos+1].copy()
     
-    features_to_use = ['ret_open', 'ret_high', 'ret_low', 'ret_close', 'ret_volume', actual_rsi]
+    features_to_use = engine.ts_features
     slice_df[features_to_use] = slice_df[features_to_use].replace([np.inf, -np.inf], np.nan).ffill().fillna(0)
     
     raw_slice_values = slice_df[features_to_use].values
     scaled_data = engine.scaler.transform(raw_slice_values).astype(np.float32)
-    # shape: (60, 6)
+    # shape: (60, 17)
     
     # 2. Extract Attention Map (using unittest.mock.patch to force need_weights=True)
     import unittest.mock
@@ -97,7 +120,7 @@ def run_xai(symbol, target_date_str):
             attention_weights.append(attn_weights.detach().cpu().numpy())
         return attn_out, attn_weights
     
-    tensor_input = torch.from_numpy(scaled_data).unsqueeze(0).to(engine.device) # (1, 60, 6)
+    tensor_input = torch.from_numpy(scaled_data).unsqueeze(0).to(engine.device) # (1, 60, 17)
     with torch.no_grad(), unittest.mock.patch('torch.nn.MultiheadAttention.forward', new=custom_forward):
         _ = engine.transformer(tensor_input)
     
@@ -109,9 +132,9 @@ def run_xai(symbol, target_date_str):
     if not os.path.exists(bg_path):
         return {"error": "Missing SHAP background dataset at 'model/shap_background.npy'"}
         
-    background = np.load(bg_path) # (100, 60, 6)
-    background_2d = background.reshape(background.shape[0], -1) # (100, 360)
-    single_2d = scaled_data.reshape(1, -1) # (1, 360)
+    background = np.load(bg_path) # (100, 60, 17)
+    background_2d = background.reshape(background.shape[0], -1) # (100, 1020)
+    single_2d = scaled_data.reshape(1, -1) # (1, 1020)
     
     # Pre-cache device for faster access
     device = engine.device
@@ -119,8 +142,8 @@ def run_xai(symbol, target_date_str):
     xgb_head = engine.xgb_head
 
     def model_predict_2d(X_2d):
-        # Already vectorized: X_2d is (N, 360) where N is SHAP samples
-        X_3d = X_2d.reshape(-1, 60, 6).astype(np.float32)
+        # Already vectorized: X_2d is (N, 1020) where N is SHAP samples
+        X_3d = X_2d.reshape(-1, 60, 17).astype(np.float32)
         t_input = torch.from_numpy(X_3d).to(device)
         
         with torch.inference_mode():
@@ -142,19 +165,23 @@ def run_xai(symbol, target_date_str):
     else:
         shap_values_raw = shap_out[0] if len(shap_out.shape) == 2 else shap_out
         
-    shap_matrix = shap_values_raw.reshape(60, 6)
+    shap_matrix = shap_values_raw.reshape(60, 17)
     
     # Calculate feature importance summary (sum over 60 days)
     # Directional (preserves +/- contribution)
     feature_importance_directional = np.sum(shap_matrix, axis=0).tolist()
+    
+    # Absolute (total magnitude)
+    feature_importance_absolute = np.sum(np.abs(shap_matrix), axis=0).tolist()
     
     result = {
         "symbol": symbol,
         "date": target_date_str,
         "status": "success",
         "attention_map": attn_map,  # array of 60 standard floats
-        "shap_matrix": shap_matrix.tolist(), # 60x6 matrix
+        "shap_matrix": shap_matrix.tolist(), # 60x17 matrix
         "feature_importance_directional": feature_importance_directional,
+        "feature_importance_absolute": feature_importance_absolute,
         "features": features_to_use
     }
     
