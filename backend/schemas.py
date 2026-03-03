@@ -83,3 +83,4 @@ class BacktestResponse(BaseModel):
     perAssetStats: Optional[Dict[str, AssetStats]] = Field(default_factory=dict)
     warnings: Optional[List[str]] = Field(default_factory=list)
     version: Optional[str] = "1.0"
+    executionTime: Optional[float] = 0.0

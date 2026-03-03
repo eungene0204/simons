@@ -150,6 +150,7 @@ export interface BacktestResult {
     profit: number;
   }>;
   warnings?: string[];
+  executionTime?: number;
 }
 
 
@@ -184,6 +185,7 @@ export interface BacktestHistoryItem {
     profitFactor: number;
     buyHold: number;
     trades: number;
+    executionTime?: number;
   };
 }
 

@@ -137,6 +137,7 @@ export class BacktestService {
         avgLoss: pythonResult.avgLoss,
         maxConsecutiveWins: pythonResult.maxConsecutiveWins,
         maxConsecutiveLosses: pythonResult.maxConsecutiveLosses,
+        executionTime: pythonResult.executionTime,
       };
     } catch (error: any) {
       console.error("Backtest integration error:", error);

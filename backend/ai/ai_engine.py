@@ -108,16 +108,9 @@ class AIEngine:
         
         log(f"predict_signals started. input df shape={df.shape}")
         
-        # Use lock to prevent concurrent GPU access on MPS/CUDA
-        with self.model_lock:
-            log("Acquired model lock")
-            result = self._predict_signals_internal(df, log)
-            log("Released model lock")
-            return result
-
-    def _predict_signals_internal(self, df: pd.DataFrame, log_func) -> np.ndarray:
+        # 1. PREPROCESSING (OUTSIDE LOCK)
+        log("Starting preprocessing outside lock")
         try:
-            log = log_func
             data_len = len(df)
             probs = np.zeros(data_len)
             probs_drop = np.zeros(data_len)
@@ -172,85 +165,82 @@ class AIEngine:
             scaled_data = self.scaler.transform(pdf[features_to_use].values).astype(np.float32)
             
             # 3. Optimized Vectorized Window Creation
-            # Using stride_tricks for zero-copy windowing
             from numpy.lib.stride_tricks import as_strided
-            
-            # Calculate strides for a window of size (lookback, num_features)
             n_windows = data_len - self.lookback + 1
             itemsize = scaled_data.itemsize
             num_features = len(features_to_use)
-            
-            # Shape: (num_windows, lookback, num_features)
-            # Strides: (row_stride, row_stride, feature_stride)
-            # scaled_data strides are (num_features * itemsize, itemsize)
             orig_strides = scaled_data.strides
             new_shape = (n_windows, self.lookback, num_features)
             new_strides = (orig_strides[0], orig_strides[0], orig_strides[1])
-            
             windows_arr = as_strided(scaled_data, shape=new_shape, strides=new_strides)
             
-            # 4. Batch Transformer Inference
-            # Process in one large batch if memory allows, or chunks of 1024
-            batch_size = 1024
-            all_embeddings = []
-            
-            with torch.inference_mode():
-                for i in range(0, n_windows, batch_size):
-                    batch = windows_arr[i:i+batch_size]
-                    batch_tensor = torch.from_numpy(batch).to(self.device)
-                    emb = self.transformer(batch_tensor).cpu().numpy()
-                    all_embeddings.append(emb)
-            
-            embeddings = np.concatenate(all_embeddings, axis=0)
-            
-            # 5. XGBoost Inference (Multi-Target)
-            try:
-                preds_proba = self.xgb_head.predict_proba(embeddings)
-                if len(preds_proba.shape) == 2 and preds_proba.shape[1] == 2:
-                    signal_probs = preds_proba[:, 0]
-                    drop_probs = preds_proba[:, 1]
-                else:
-                    signal_probs = np.zeros(len(embeddings))
-                    drop_probs = np.zeros(len(embeddings))
-            except Exception as e:
-                log(f"Falling back to direct predict for XGBoost: {e}")
-                preds = self.xgb_head.predict(embeddings).astype(float)
-                if len(preds.shape) == 2 and preds.shape[1] == 2:
-                    signal_probs = preds[:, 0]
-                    drop_probs = preds[:, 1]
-                else:
-                    signal_probs = np.zeros(len(embeddings))
-                    drop_probs = np.zeros(len(embeddings))
-            
-            # --- Percentile Rank Transform (Dynamic Score 0.0 ~ 1.0) ---
-            if len(signal_probs) > 0:
-                s = pd.Series(signal_probs)
-                # 6 months rolling rank (126 days), fallback to expanding for initial days
-                rolling_rank = s.rolling(window=126, min_periods=20).rank(pct=True)
-                expanding_rank = s.expanding(min_periods=1).rank(pct=True)
-                final_scores = rolling_rank.fillna(expanding_rank).values
-                # Handle edge case NaNs
-                final_scores = np.nan_to_num(final_scores, nan=0.5)
-                
-                # Do the same for drop probabilities
-                s_drop = pd.Series(drop_probs)
-                rolling_rank_drop = s_drop.rolling(window=126, min_periods=20).rank(pct=True)
-                expanding_rank_drop = s_drop.expanding(min_periods=1).rank(pct=True)
-                final_drop_scores = rolling_rank_drop.fillna(expanding_rank_drop).values
-                final_drop_scores = np.nan_to_num(final_drop_scores, nan=0.5)
-            else:
-                final_scores = np.array([])
-                final_drop_scores = np.array([])
-            
-            # Fill the probabilities (skipping the first 'lookback - 1' indices)
-            probs[self.lookback - 1:] = final_scores
-            probs_drop[self.lookback - 1:] = final_drop_scores
-            
-            log(f"predict_signals optimized finished for {data_len} rows")
-            return probs, probs_drop
+            log("Preprocessing complete. Waiting for lock.")
         except Exception as e:
-            log(f"CRITICAL ERROR in _predict_signals_internal: {e}")
+            log(f"CRITICAL ERROR during preprocessing: {e}")
             raise e
+
+        # 2. INFERENCE (INSIDE LOCK)
+        with self.model_lock:
+            log("Acquired model lock")
+            try:
+                batch_size = 1024
+                all_embeddings = []
+                
+                with torch.inference_mode():
+                    for i in range(0, n_windows, batch_size):
+                        batch = windows_arr[i:i+batch_size]
+                        batch_tensor = torch.from_numpy(batch).to(self.device)
+                        emb = self.transformer(batch_tensor).cpu().numpy()
+                        all_embeddings.append(emb)
+                
+                embeddings = np.concatenate(all_embeddings, axis=0)
+                
+                try:
+                    preds_proba = self.xgb_head.predict_proba(embeddings)
+                    if len(preds_proba.shape) == 2 and preds_proba.shape[1] == 2:
+                        signal_probs = preds_proba[:, 0]
+                        drop_probs = preds_proba[:, 1]
+                    else:
+                        signal_probs = np.zeros(len(embeddings))
+                        drop_probs = np.zeros(len(embeddings))
+                except Exception as e:
+                    log(f"Falling back to direct predict for XGBoost: {e}")
+                    preds = self.xgb_head.predict(embeddings).astype(float)
+                    if len(preds.shape) == 2 and preds.shape[1] == 2:
+                        signal_probs = preds[:, 0]
+                        drop_probs = preds[:, 1]
+                    else:
+                        signal_probs = np.zeros(len(embeddings))
+                        drop_probs = np.zeros(len(embeddings))
+
+                # --- Percentile Rank Transform ---
+                if len(signal_probs) > 0:
+                    s = pd.Series(signal_probs)
+                    rolling_rank = s.rolling(window=126, min_periods=20).rank(pct=True)
+                    expanding_rank = s.expanding(min_periods=1).rank(pct=True)
+                    final_scores = rolling_rank.fillna(expanding_rank).values
+                    final_scores = np.nan_to_num(final_scores, nan=0.5)
+                    
+                    s_drop = pd.Series(drop_probs)
+                    rolling_rank_drop = s_drop.rolling(window=126, min_periods=20).rank(pct=True)
+                    expanding_rank_drop = s_drop.expanding(min_periods=1).rank(pct=True)
+                    final_drop_scores = rolling_rank_drop.fillna(expanding_rank_drop).values
+                    final_drop_scores = np.nan_to_num(final_drop_scores, nan=0.5)
+                else:
+                    final_scores = np.array([])
+                    final_drop_scores = np.array([])
+                
+                probs[self.lookback - 1:] = final_scores
+                probs_drop[self.lookback - 1:] = final_drop_scores
+                
+                log(f"predict_signals optimized finished for {data_len} rows")
+            except Exception as e:
+                log(f"CRITICAL ERROR during inference: {e}")
+                raise e
+            finally:
+                log("Released model lock")
+        
+        return probs, probs_drop
 
 if __name__ == "__main__":
     # Test AIEngine
