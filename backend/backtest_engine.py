@@ -197,10 +197,12 @@ class BacktestEngine:
                     return ("warning", f"{sym}: 처리 오류 ({e})")
 
             import concurrent.futures
-            # Limit workers to avoid too many threads (e.g., CPU count * 2 or fixed number)
-            # AI Inference is heavy on CPU, but loading is I/O.
-            # Use a reasonable number of workers, but sorting and epsilon are the real fixes for determinism
-            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            import os
+            
+            # Maximize threads for I/O and pre-processing. The global lock in AIEngine will protect the GPU/CPU Inference.
+            max_threads = min(32, (os.cpu_count() or 1) + 4)
+            
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_threads) as executor:
                 future_to_sym = {executor.submit(_process_symbol, sym): sym for sym in symbols}
                 for future in concurrent.futures.as_completed(future_to_sym):
                     result = future.result()
