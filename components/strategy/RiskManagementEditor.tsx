@@ -76,14 +76,14 @@ export default function RiskManagementEditor({
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 px-4 md:px-8">
+    <div className="grid grid-cols-1 gap-6">
       {/* Capital Management */}
-      <section className="glass-card p-6 md:p-8 space-y-6">
-        <div className="flex items-center gap-3">
+      <section className="bg-[#111] rounded-xl p-6 relative">
+        <div className="flex items-center gap-2 mb-6">
           <div className="w-1.5 h-6 bg-blue-500 rounded-full shadow-[0_0_10px_rgba(59,130,246,0.5)]" />
-          <h3 className="text-base font-bold text-gray-100 tracking-tight">자금 관리</h3>
+          <h3 className="text-lg font-bold text-blue-500 tracking-tight">자금 관리</h3>
         </div>
-        <div className="grid grid-cols-1 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {renderSlider(
             "포지션 크기",
             "position_size_pct",
@@ -106,12 +106,12 @@ export default function RiskManagementEditor({
       </section>
 
       {/* Price-based Exit */}
-      <section className="glass-card p-6 md:p-8 space-y-6">
-        <div className="flex items-center gap-3">
-          <div className="w-1.5 h-6 bg-[var(--main-red)] rounded-full shadow-[0_0_10px_rgba(239,68,68,0.5)]" />
-          <h3 className="text-base font-bold text-gray-100 tracking-tight">청산 리스크</h3>
+      <section className="bg-[#111] rounded-xl p-6 relative">
+        <div className="flex items-center gap-2 mb-6">
+          <div className="w-1.5 h-6 bg-red-500 rounded-full shadow-[0_0_10px_rgba(239,68,68,0.5)]" />
+          <h3 className="text-lg font-bold text-red-500 tracking-tight">청산 리스크</h3>
         </div>
-        <div className="grid grid-cols-1 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {renderSlider(
             "손절매",
             "stop_loss_pct",
@@ -134,12 +134,12 @@ export default function RiskManagementEditor({
       </section>
 
       {/* Portfolio Controls */}
-      <section className="glass-card p-6 md:p-8 space-y-6">
-        <div className="flex items-center gap-3">
-          <div className="w-1.5 h-6 bg-[var(--main-green)] rounded-full shadow-[0_0_10px_rgba(34,197,94,0.5)]" />
-          <h3 className="text-base font-bold text-gray-100 tracking-tight">포트폴리오 제어</h3>
+      <section className="bg-[#111] rounded-xl p-6 relative">
+        <div className="flex items-center gap-2 mb-6">
+          <div className="w-1.5 h-6 bg-green-500 rounded-full shadow-[0_0_10px_rgba(34,197,94,0.5)]" />
+          <h3 className="text-lg font-bold text-green-500 tracking-tight">포트폴리오 제어</h3>
         </div>
-        <div className="grid grid-cols-1 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {renderSlider(
             "일일 최대 손실",
             "max_daily_loss_pct",
