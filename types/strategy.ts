@@ -210,4 +210,5 @@ export interface CanvasBlock {
   position: { x: number; y: number };
   params: Record<string, any>;
   connections?: string[]; // IDs of connected blocks
+  logic?: "AND" | "OR"; // Per-block logic operator
 }
