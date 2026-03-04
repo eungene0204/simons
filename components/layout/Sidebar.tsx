@@ -248,7 +248,7 @@ function SidebarComponent({
   }
 
   return (
-    <nav className="bg-black/40 backdrop-blur-xl border-b border-white/5 flex items-center gap-1 px-6 py-3 overflow-x-auto scrollbar-hide">
+    <nav className="bg-black/40 backdrop-blur-xl flex items-center gap-1 px-6 py-3 overflow-x-auto scrollbar-hide">
       {/* Logo */}
       <Link
         href={

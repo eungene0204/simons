@@ -35,7 +35,7 @@ function AnalyticsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const symbol = searchParams.get("symbol") || "";
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [strategy, setStrategy] = useState<StrategyDSL | null>(null);
   const [savedStrategies, setSavedStrategies] = useState<StrategyDSL[]>([]);
   const [showComposer, setShowComposer] = useState(false);
@@ -120,94 +120,141 @@ function AnalyticsContent() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  const timelineHeader = useMemo(() => {
+    if (!showComposer) return null;
+    return (
+      <div className="bg-black/40 backdrop-blur-xl px-6 border-t border-white/5">
+        <div className="flex items-center justify-between w-full max-w-full mx-auto">
+          <div className="flex items-center">
+            {[
+              { id: 1, label: "유니버스 선택" },
+              { id: 2, label: "매매 조건" },
+              { id: 3, label: "포지션/비중" },
+              { id: 4, label: "리스크 관리" },
+              { id: 5, label: "백테스트" },
+            ].map((step) => {
+              const isActive = currentStep === step.id;
+              return (
+                <div 
+                  key={step.id}
+                  onClick={() => setCurrentStep(step.id as 1 | 2 | 3 | 4 | 5)} 
+                  className={`relative px-5 py-5 mr-4 cursor-pointer text-[13px] font-bold tracking-wide transition-colors ${
+                    isActive ? "text-blue-500" : "text-white/40 hover:text-white/70"
+                  }`}
+                >
+                  {step.label}
+                  {isActive && (
+                    <div className="absolute bottom-0 left-0 w-full h-[2px] bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]"></div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                setShowComposer(false);
+                setCurrentStep(1);
+                setStrategy(null);
+              }}
+              className="px-4 py-2 text-xs font-bold text-gray-500 hover:text-white hover:bg-white/5 rounded-xl transition-all border border-white/10"
+            >
+              초기화
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }, [showComposer, currentStep]);
+
 
   return (
-    <DashboardLayout userName={"User"}>
-      <div className="px-8 py-8 space-y-8 max-w-full mx-auto overflow-x-hidden w-full min-w-0">
-        {/* Header */}
-        <div className="flex-none flex items-center justify-end px-8">
-            <div className="flex items-center gap-3">
-              {savedStrategies.length >= 2 && (
-                <>
-                  {!selectionMode ? (
-                    <button
-                      onClick={() => {
-                        setSelectionMode(true);
-                        setSelectedForFusion(new Set());
-                      }}
-                      className="px-4 py-2 bg-gray-700 text-white rounded-lg text-sm font-medium hover:bg-gray-600 flex items-center gap-2"
-                    >
-                      <SparklesIcon className="w-5 h-5" />
-                      전략 선택하기
-                    </button>
-                  ) : (
-                    <div className="flex items-center gap-2">
+    <DashboardLayout userName={"User"} subHeader={timelineHeader}>
+      {/* Strategy Composer or Backtest Panel */}
+      {showComposer ? (
+        <>
+          {useV2Composer ? (
+            <StrategyComposerV2
+              key={strategy ? `edit-${strategy.id}` : `new-${composerKey}`}
+              onSave={handleSaveStrategy}
+              onCancel={() => {
+                setShowComposer(false);
+                setCurrentStep(1);
+                setStrategy(null);
+              }}
+              onQuickPreview={() => {
+                console.log("Quick preview");
+              }}
+              currentStep={currentStep}
+              setCurrentStep={setCurrentStep}
+              initialStrategy={strategy}
+            />
+          ) : (
+            <StrategyComposer
+              currentStep={currentStep}
+              onStepChange={setCurrentStep}
+              onSave={handleSaveStrategy}
+              onCancel={() => {
+                setShowComposer(false);
+                setCurrentStep(1);
+                setStrategy(null);
+              }}
+              initialStrategy={strategy}
+            />
+          )}
+        </>
+      ) : (
+        <div className="px-8 py-8 space-y-8 max-w-full mx-auto overflow-x-hidden w-full min-w-0">
+          {/* Header */}
+          <div className="flex-none flex items-center justify-end px-8">
+              <div className="flex items-center gap-3">
+                {savedStrategies.length >= 2 && (
+                  <>
+                    {!selectionMode ? (
                       <button
                         onClick={() => {
-                          setSelectionMode(false);
+                          setSelectionMode(true);
                           setSelectedForFusion(new Set());
                         }}
-                        className="px-4 py-2 bg-gray-700 text-white rounded-lg text-sm font-medium hover:bg-gray-600"
-                      >
-                        취소
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (selectedForFusion.size >= 2) {
-                            setShowFusionModal(true);
-                          } else {
-                            alert("최소 2개 이상의 전략을 선택해주세요.");
-                          }
-                        }}
-                        disabled={selectedForFusion.size < 2}
-                        className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        className="px-4 py-2 bg-gray-700 text-white rounded-lg text-sm font-medium hover:bg-gray-600 flex items-center gap-2"
                       >
                         <SparklesIcon className="w-5 h-5" />
-                        전략 조합하기 ({selectedForFusion.size}개 선택됨)
+                        전략 선택하기
                       </button>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-        </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            setSelectionMode(false);
+                            setSelectedForFusion(new Set());
+                          }}
+                          className="px-4 py-2 bg-gray-700 text-white rounded-lg text-sm font-medium hover:bg-gray-600"
+                        >
+                          취소
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (selectedForFusion.size >= 2) {
+                              setShowFusionModal(true);
+                            } else {
+                              alert("최소 2개 이상의 전략을 선택해주세요.");
+                            }
+                          }}
+                          disabled={selectedForFusion.size < 2}
+                          className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        >
+                          <SparklesIcon className="w-5 h-5" />
+                          전략 조합하기 ({selectedForFusion.size}개 선택됨)
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+          </div>
 
-        {/* Strategy Composer or Backtest Panel */}
-        {showComposer && (
-          <>
-            {useV2Composer ? (
-              <StrategyComposerV2
-                key={strategy ? `edit-${strategy.id}` : `new-${composerKey}`} // Force re-mount on strategy change or new strategy
-                onSave={handleSaveStrategy}
-                onCancel={() => {
-                  setShowComposer(false);
-                  setCurrentStep(1);
-                  setStrategy(null);
-                }}
-                onQuickPreview={() => {
-                  // Quick preview logic
-                  console.log("Quick preview");
-                }}
-
-                initialStrategy={strategy}
-              />
-            ) : (
-              <StrategyComposer
-                currentStep={currentStep}
-                onStepChange={setCurrentStep}
-                onSave={handleSaveStrategy}
-                onCancel={() => {
-                  setShowComposer(false);
-                  setCurrentStep(1);
-                  setStrategy(null);
-                }}
-                initialStrategy={strategy}
-              />
-            )}
-          </>
-        )}
-        {!showComposer && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 px-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 px-8">
               {savedStrategies.length === 0 ? (
                 <div className="col-span-full">
                   <div className="bg-[#1a1a1a] rounded-lg border border-gray-800 p-12 text-center">
@@ -328,8 +375,8 @@ function AnalyticsContent() {
                 </>
               )}
             </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Strategy Fusion Modal */}
       <StrategyFusionModal

@@ -2,6 +2,7 @@
 
 import { ReactNode, useState, useEffect, createContext, useContext, memo } from "react";
 import { useDrawer } from "@/contexts/DrawerContext";
+import TopMenuBar from "./TopMenuBar";
 
 // 주문 페이지 컨텍스트
 interface OrderContextType {
@@ -25,9 +26,11 @@ export function useOrder() {
 const DashboardLayoutContent = memo(function DashboardLayoutContent({
   children,
   userName,
+  subHeader,
 }: {
   children: ReactNode;
   userName: string;
+  subHeader?: ReactNode;
 }) {
   const { drawerType } = useDrawer();
   const [drawerWidthPx, setDrawerWidthPx] = useState(0);
@@ -90,6 +93,7 @@ const DashboardLayoutContent = memo(function DashboardLayoutContent({
       }}
     >
       <div className="min-h-screen bg-[#0f0f0f] text-white flex flex-col relative">
+        <TopMenuBar subHeader={subHeader} />
         {/* Real-time Ticker Tape */}
         <div 
           className="fixed bottom-0 left-0 right-0 h-9 bg-black/40 backdrop-blur-xl border-t border-white/5 z-40 flex items-center overflow-hidden"
@@ -117,7 +121,7 @@ const DashboardLayoutContent = memo(function DashboardLayoutContent({
         </div>
 
         <main 
-          className="flex-1 overflow-y-auto overflow-x-hidden animate-fade-in max-w-full transition-all duration-300 ease-in-out"
+          className="flex-1 overflow-y-auto overflow-x-hidden animate-fade-in max-w-full"
           style={{
             marginLeft: `${drawerWidthPx}px`,
             paddingTop: `${topMenuBarHeight}px`,
@@ -145,12 +149,14 @@ const DashboardLayoutContent = memo(function DashboardLayoutContent({
 export default function DashboardLayout({
   children,
   userName,
+  subHeader,
 }: {
   children: ReactNode;
   userName: string;
+  subHeader?: ReactNode;
 }) {
   return (
-    <DashboardLayoutContent userName={userName}>
+    <DashboardLayoutContent userName={userName} subHeader={subHeader}>
       {children}
     </DashboardLayoutContent>
   );
