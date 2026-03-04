@@ -3,19 +3,19 @@
 
 import { useState, useEffect } from "react";
 import {
-  ArrowRightIcon,
-  ArrowLeftIcon,
-  XMarkIcon,
-  PlusIcon,
-  TrashIcon,
-  CheckCircleIcon,
-  ChevronDownIcon,
-  PlayCircleIcon,
-  SparklesIcon,
-  AdjustmentsHorizontalIcon,
-  ShieldExclamationIcon,
-  ArrowPathIcon,
-} from "@heroicons/react/24/outline";
+  ArrowRight,
+  ArrowLeft,
+  X,
+  Plus,
+  Trash,
+  CheckCircle,
+  CaretDown,
+  PlayCircle,
+  Sparkle,
+  Sliders,
+  ShieldWarning,
+  ArrowsClockwise,
+} from "phosphor-react";
 import { StrategyDSL, SignalBlock, Condition } from "@/types/strategy";
 import { signalBlocks } from "@/lib/strategy-blocks";
 import { strategyGroups, StrategyDefinition } from "@/lib/strategy-groups";
@@ -360,7 +360,7 @@ export default function StrategyComposer({
           onClick={onCancel}
           className="p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-full transition-colors"
         >
-          <XMarkIcon className="w-6 h-6" />
+          <X className="w-6 h-6" />
         </button>
       </div>
 
@@ -491,7 +491,7 @@ export default function StrategyComposer({
                             </option>
                           ))}
                         </select>
-                        <ChevronDownIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                        <CaretDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                       </div>
                       {selectedStrategy && (
                         <div className="text-[11px] text-gray-400 line-clamp-2">
@@ -582,7 +582,7 @@ export default function StrategyComposer({
                   </p>
                 </div>
                 <div className="flex items-center gap-1 text-[11px] text-gray-400 bg-[#1a1a1a] px-2 py-1 rounded">
-                  <AdjustmentsHorizontalIcon className="w-4 h-4" />
+                  <Sliders className="w-4 h-4" />
                   <span>{placement === "entry" ? "매수" : "매도"}</span>
                   <button
                     onClick={() => setPlacement(placement === "entry" ? "exit" : "entry")}
@@ -684,7 +684,7 @@ export default function StrategyComposer({
                     </span>
                   </div>
                   <div className="flex items-center gap-2 text-xs text-gray-400">
-                    <SparklesIcon className="w-4 h-4 text-blue-400" />
+                    <Sparkle className="w-4 h-4 text-blue-400" />
                     <span>AND/OR 조합 · 순서 변경 · 가중치</span>
                   </div>
                 </div>
@@ -752,7 +752,7 @@ export default function StrategyComposer({
                                   onClick={() => handleRemoveCondition(condition)}
                                   className="text-red-400 hover:text-red-300"
                                 >
-                                  <TrashIcon className="w-4 h-4" />
+                                  <Trash className="w-4 h-4" />
                                 </button>
                               </div>
                             </div>
@@ -821,7 +821,7 @@ export default function StrategyComposer({
                                   onClick={() => handleRemoveCondition(condition)}
                                   className="text-red-400 hover:text-red-300"
                                 >
-                                  <TrashIcon className="w-4 h-4" />
+                                  <Trash className="w-4 h-4" />
                                 </button>
                               </div>
                             </div>
@@ -858,7 +858,7 @@ export default function StrategyComposer({
                           }
                           className="text-red-400 hover:text-red-300"
                         >
-                          <TrashIcon className="w-4 h-4" />
+                          <Trash className="w-4 h-4" />
                         </button>
                       </div>
                     ))}
@@ -888,7 +888,7 @@ export default function StrategyComposer({
                           }
                           className="text-red-400 hover:text-red-300"
                         >
-                          <TrashIcon className="w-4 h-4" />
+                          <Trash className="w-4 h-4" />
                         </button>
                       </div>
                     ))}
@@ -897,7 +897,7 @@ export default function StrategyComposer({
 
                 <div className="bg-[#0f0f0f] rounded-lg border border-gray-800 p-3">
                   <div className="flex items-center gap-2 text-[11px] text-gray-400 flex-wrap">
-                    <ShieldExclamationIcon className="w-4 h-4 text-amber-400" />
+                    <ShieldWarning className="w-4 h-4 text-amber-400" />
                     {validatorMessages.map((msg, idx) => (
                       <span
                         key={idx}
@@ -919,7 +919,7 @@ export default function StrategyComposer({
                       템플릿 두 개를 합치고 중복 조건을 제거합니다.
                     </p>
                   </div>
-                  <SparklesIcon className="w-5 h-5 text-blue-400" />
+                  <Sparkle className="w-5 h-5 text-blue-400" />
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <select
@@ -973,7 +973,7 @@ export default function StrategyComposer({
                     }}
                     className="w-full md:w-auto px-3 py-2 bg-blue-600 text-white rounded text-sm font-semibold hover:bg-blue-500 flex items-center justify-center gap-2"
                   >
-                    <ArrowPathIcon className="w-4 h-4" />
+                    <ArrowsClockwise className="w-4 h-4" />
                     자동 합치기
                   </button>
                 </div>
@@ -997,7 +997,7 @@ export default function StrategyComposer({
                       즉시 미리보기 → 빠른/전체 백테스트를 실행하세요.
                     </p>
                   </div>
-                  <PlayCircleIcon className="w-6 h-6 text-blue-400" />
+                  <PlayCircle className="w-6 h-6 text-blue-400" />
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button
@@ -1047,7 +1047,7 @@ export default function StrategyComposer({
 
               <div className="bg-[#0f0f0f] rounded-lg border border-gray-800 p-4 space-y-2">
                 <div className="flex items-center gap-2">
-                  <SparklesIcon className="w-5 h-5 text-emerald-400" />
+                  <Sparkle className="w-5 h-5 text-emerald-400" />
                   <h4 className="text-sm font-semibold text-white">실시간 시그널 로그</h4>
                 </div>
                 <div className="text-xs text-gray-400 space-y-1">
@@ -1093,7 +1093,7 @@ export default function StrategyComposer({
           }}
           className="px-6 py-2.5 bg-white/5 text-gray-400 rounded-xl text-sm font-bold hover:bg-white/10 hover:text-white transition-all flex items-center gap-2"
         >
-          <ArrowLeftIcon className="w-4 h-4" />
+          <ArrowLeft className="w-4 h-4" />
           {currentStep === 1 ? "취소" : "이전"}
         </button>
 
@@ -1114,7 +1114,7 @@ export default function StrategyComposer({
               className="px-8 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-500 hover:shadow-[0_0_20px_rgba(59,130,246,0.3)] disabled:bg-gray-800 disabled:text-gray-600 disabled:cursor-not-allowed transition-all flex items-center gap-2"
             >
               다음 단계
-              <ArrowRightIcon className="w-4 h-4" />
+              <ArrowRight className="w-4 h-4" />
             </button>
           ) : (
             <button
@@ -1122,7 +1122,7 @@ export default function StrategyComposer({
               disabled={!canSave}
               className="px-8 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-500 hover:shadow-[0_0_20px_rgba(59,130,246,0.3)] disabled:bg-gray-800 disabled:text-gray-600 disabled:cursor-not-allowed transition-all flex items-center gap-2"
             >
-              <CheckCircleIcon className="w-5 h-5" />
+              <CheckCircle className="w-5 h-5" />
               전략 생성 및 저장
             </button>
           )}

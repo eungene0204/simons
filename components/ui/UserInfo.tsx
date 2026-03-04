@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import {
-  StarIcon,
-  BriefcaseIcon,
-  PresentationChartLineIcon,
-  TrophyIcon,
-} from "@heroicons/react/24/outline";
+  Star,
+  Briefcase,
+  ChartLineUp,
+  Trophy,
+  IconProps,
+} from "phosphor-react";
 
 interface UserInfoData {
   watchlistCount: number;
@@ -75,7 +76,7 @@ export default function UserInfo() {
     valueColor = "text-white",
     suffix = "",
   }: {
-    icon: React.ComponentType<{ className?: string }>;
+    icon: React.ComponentType<IconProps>;
     label: string;
     value: string | number;
     valueColor?: string;
@@ -84,7 +85,7 @@ export default function UserInfo() {
     return (
       <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600">
         <div className="flex items-center gap-2 mb-2">
-          <Icon className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+          <Icon size={20} className="text-gray-500 dark:text-gray-400" />
           <span className="text-xs sm:text-sm font-medium text-gray-600 dark:text-gray-400">
             {label}
           </span>
@@ -113,26 +114,26 @@ export default function UserInfo() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
         <InfoCard
-          icon={StarIcon}
+          icon={Star}
           label="관심종목"
           value={userInfo.watchlistCount}
           suffix="개"
         />
         <InfoCard
-          icon={BriefcaseIcon}
+          icon={Briefcase}
           label="보유계좌"
           value={userInfo.accountCount}
           suffix="개"
         />
         <InfoCard
-          icon={PresentationChartLineIcon}
+          icon={ChartLineUp}
           label="현재 수익률"
           value={userInfo.currentReturnRate}
           valueColor={returnColorClass}
           suffix="%"
         />
         <InfoCard
-          icon={TrophyIcon}
+          icon={Trophy}
           label="수익률 순위"
           value={userInfo.returnRateRank}
           suffix={

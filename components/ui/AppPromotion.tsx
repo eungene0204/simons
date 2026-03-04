@@ -1,6 +1,6 @@
 "use client";
 
-import { DevicePhoneMobileIcon } from "@heroicons/react/24/outline";
+import { DeviceMobile } from "phosphor-react";
 
 export default function AppPromotion() {
   return (
@@ -175,7 +175,7 @@ export default function AppPromotion() {
         {/* Right: App Promotion Text */}
         <div className="text-center xl:text-left min-w-0">
           <div className="flex items-center justify-center xl:justify-start gap-2 mb-2 sm:mb-3">
-            <DevicePhoneMobileIcon className="w-5 h-5 sm:w-6 sm:h-6 text-blue-500 dark:text-blue-400 flex-shrink-0" />
+            <DeviceMobile size={24} className="text-blue-500 dark:text-blue-400 flex-shrink-0" />
             <h2 className="text-lg sm:text-xl md:text-2xl lg:text-3xl font-bold text-gray-900 dark:text-white break-words">
               Manage your stock portfolio on the go!
             </h2>

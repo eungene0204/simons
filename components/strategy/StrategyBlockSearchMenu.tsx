@@ -2,13 +2,13 @@
 
 import { useState, useMemo } from "react";
 import { 
-  MagnifyingGlassIcon, 
-  XMarkIcon,
-  SparklesIcon,
-  AdjustmentsHorizontalIcon,
-  ShieldExclamationIcon,
-  CpuChipIcon
-} from "@heroicons/react/24/outline";
+  MagnifyingGlass, 
+  X,
+  Sparkle,
+  Sliders,
+  ShieldWarning,
+  Cpu
+} from "phosphor-react";
 import { signalBlocks } from "@/lib/strategy-blocks";
 
 interface StrategyBlockSearchMenuProps {
@@ -58,7 +58,7 @@ export default function StrategyBlockSearchMenu({ onSelect, onClose, manuallyHid
         <div className="p-5 border-b border-gray-800 flex items-center justify-between bg-[#1a1a1a] rounded-t-2xl">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-500/10 rounded-lg">
-              <MagnifyingGlassIcon className="w-5 h-5 text-blue-400" />
+              <MagnifyingGlass className="w-5 h-5 text-blue-400" />
             </div>
             <div>
               <h3 className="text-base font-black text-white uppercase tracking-wider">블록 검색</h3>
@@ -69,13 +69,13 @@ export default function StrategyBlockSearchMenu({ onSelect, onClose, manuallyHid
             onClick={onClose} 
             className="p-2 text-gray-500 hover:text-white hover:bg-white/5 rounded-full transition-all"
           >
-            <XMarkIcon className="w-6 h-6" />
+            <X className="w-6 h-6" />
           </button>
         </div>
         
         <div className="p-4 bg-[#161616] border-b border-gray-800/20">
           <div className="relative group">
-            <MagnifyingGlassIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 transition-colors group-focus-within:text-blue-400" />
+            <MagnifyingGlass className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 transition-colors group-focus-within:text-blue-400" />
             <input
               autoFocus
               type="text"
@@ -107,7 +107,7 @@ export default function StrategyBlockSearchMenu({ onSelect, onClose, manuallyHid
                         ? "bg-blue-600 border-blue-600 shadow-[0_0_10px_rgba(37,99,235,0.4)]" 
                         : "border-gray-700 group-hover:border-gray-500"
                     }`}>
-                      {isSelected && <XMarkIcon className="w-3.5 h-3.5 text-white stroke-[3px]" />}
+                      {isSelected && <X className="w-3.5 h-3.5 text-white stroke-[3px]" />}
                     </div>
                   </div>
                   <div className="flex-1">
@@ -135,7 +135,7 @@ export default function StrategyBlockSearchMenu({ onSelect, onClose, manuallyHid
           ) : (
             <div className="py-16 text-center">
               <div className="w-16 h-16 bg-gray-800/20 rounded-full flex items-center justify-center mx-auto mb-4 border border-gray-800/50">
-                <MagnifyingGlassIcon className="w-8 h-8 text-gray-700" />
+                <MagnifyingGlass className="w-8 h-8 text-gray-700" />
               </div>
               <p className="text-sm text-gray-500 font-bold">검색 결과가 없습니다.</p>
               <p className="text-xs text-gray-600 mt-1">다른 검색어를 입력해 보세요.</p>

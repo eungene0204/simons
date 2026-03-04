@@ -3,20 +3,19 @@
 import { useEffect, useState, useLayoutEffect, useMemo, memo } from "react";
 import { useRouter } from "next/navigation";
 import {
-  StarIcon,
-  MagnifyingGlassIcon,
-  FolderIcon,
-  PlusIcon,
-  PencilIcon,
-  PencilSquareIcon,
-  TrashIcon,
-  ChevronDownIcon,
-  ChevronLeftIcon,
-  XMarkIcon,
-  Bars3Icon,
-  ArrowsUpDownIcon,
-} from "@heroicons/react/24/outline";
-import { StarIcon as StarIconSolid } from "@heroicons/react/24/solid";
+  Star,
+  MagnifyingGlass,
+  FolderSimple,
+  Plus,
+  Pencil,
+  NotePencil,
+  Trash,
+  CaretDown,
+  CaretLeft,
+  X,
+  List,
+  ArrowsDownUp,
+} from "phosphor-react";
 import StockSearchModal from "@/components/stock/StockSearchModal";
 import {
   getWatchlistSymbols,
@@ -428,7 +427,7 @@ function WatchlistDrawer({
                   className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors"
                   title="닫기"
                 >
-                  <ChevronLeftIcon className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                  <CaretLeft size={20} className="text-gray-600 dark:text-gray-400" />
                 </button>
               </div>
               <div className="flex items-center justify-between">
@@ -437,14 +436,14 @@ function WatchlistDrawer({
                   className="flex items-center gap-1 text-sm text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
                 >
                   {groups.find((g) => g.id === selectedGroupId)?.name || ""}
-                  <ChevronDownIcon className="w-3 h-3" />
+                  <CaretDown size={12} />
                 </button>
                 <button
                   onClick={handleOpenEditModal}
                   className="flex items-center gap-1 px-3 py-1.5 bg-gray-700 dark:bg-gray-600 text-white rounded-full text-xs font-medium hover:bg-gray-600 dark:hover:bg-gray-500 transition-colors"
                   title="관심 종목 편집"
                 >
-                  <PencilSquareIcon className="w-3 h-3" />
+                  <NotePencil size={12} />
                   편집
                 </button>
               </div>
@@ -492,7 +491,7 @@ function WatchlistDrawer({
                 className="w-full flex items-center gap-3 text-left"
               >
                 <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center flex-shrink-0">
-                  <PlusIcon className="w-5 h-5 text-blue-500 dark:text-blue-400" />
+                  <Plus size={20} className="text-blue-500 dark:text-blue-400" />
                 </div>
                 <span className="text-sm font-medium text-gray-900 dark:text-white">
                   종목추가
@@ -608,7 +607,7 @@ function WatchlistDrawer({
                 onClick={handleCloseEditModal}
                 className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
               >
-                <XMarkIcon className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+                <X size={20} className="text-gray-500 dark:text-gray-400" />
               </button>
             </div>
 
@@ -621,7 +620,7 @@ function WatchlistDrawer({
                     onClick={openCreateGroupModal}
                     className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-600 transition-colors shadow-sm"
                   >
-                    <PlusIcon className="w-4 h-4" />
+                    <Plus size={16} />
                     그룹 추가
                   </button>
                 </div>
@@ -687,18 +686,18 @@ function WatchlistDrawer({
                     disabled={selectedItemsForEdit.size === 0}
                     className="flex items-center gap-2 px-3 py-1.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <TrashIcon className="w-4 h-4" />
+                    <Trash size={16} />
                     삭제
                   </button>
                   <button
                     onClick={() => setIsSearchOpen(true)}
                     className="flex items-center gap-2 px-3 py-1.5 text-sm text-blue-500 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-800/20 rounded transition-colors"
                   >
-                    <PlusIcon className="w-4 h-4" />
+                    <Plus size={16} />
                     종목 추가
                   </button>
                   <div className="ml-auto flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-                    <ArrowsUpDownIcon className="w-4 h-4" />
+                    <ArrowsDownUp size={16} />
                     직접 설정한 순
                   </div>
                 </div>
@@ -730,7 +729,7 @@ function WatchlistDrawer({
                                   : "bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50"
                               }`}
                             >
-                              <Bars3Icon className="w-5 h-5 text-gray-400 dark:text-gray-500 cursor-move" />
+                              <List size={20} className="text-gray-400 dark:text-gray-500 cursor-move" />
                               <input
                                 type="checkbox"
                                 checked={isSelected}
@@ -772,7 +771,7 @@ function WatchlistDrawer({
                                 }}
                                 className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors"
                               >
-                                <XMarkIcon className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                                <X size={16} className="text-gray-500 dark:text-gray-400" />
                               </button>
                             </div>
                           );

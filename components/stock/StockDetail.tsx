@@ -3,10 +3,10 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
-  ArrowLeftIcon,
-  ArrowUpIcon,
-  ArrowDownIcon,
-} from "@heroicons/react/24/outline";
+  ArrowLeft,
+  CaretUp,
+  CaretDown,
+} from "phosphor-react";
 import CandlestickChart, { OHLCV } from "@/components/stock/CandlestickChart";
 
 interface StockDetail {
@@ -121,7 +121,7 @@ export default function StockDetail({ symbol }: { symbol: string }) {
           onClick={() => router.back()}
           className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
         >
-          <ArrowLeftIcon className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+          <ArrowLeft size={16} className="text-gray-600 dark:text-gray-400" />
         </button>
         <div className="flex items-center gap-2 flex-1">
           {/* Company Logo Placeholder */}
@@ -170,9 +170,9 @@ export default function StockDetail({ symbol }: { symbol: string }) {
           </div>
           <div className="flex items-center gap-1.5 mb-1.5">
             {detail.changePercent > 0 ? (
-              <ArrowUpIcon className="w-4 h-4 text-red-600 dark:text-red-400" />
+              <CaretUp size={16} weight="fill" className="text-red-600 dark:text-red-400" />
             ) : detail.changePercent < 0 ? (
-              <ArrowDownIcon className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              <CaretDown size={16} weight="fill" className="text-blue-600 dark:text-blue-400" />
             ) : null}
             <span
               className={`text-base font-semibold ${

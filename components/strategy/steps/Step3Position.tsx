@@ -1,13 +1,13 @@
 "use client";
 
 import { 
-  BriefcaseIcon, 
-  ChartPieIcon, 
-  ClockIcon, 
-  ArrowPathIcon, 
-  ArrowLeftIcon, 
-  ArrowRightIcon 
-} from "@heroicons/react/24/outline";
+  Briefcase, 
+  ChartPie, 
+  Clock, 
+  ArrowsClockwise, 
+  ArrowLeft, 
+  ArrowRight 
+} from "phosphor-react";
 
 const EggIcon = ({ className }: { className?: string }) => (
   <svg 
@@ -141,7 +141,7 @@ export default function Step3Position({
           <div className="bg-[#0f0f0f] rounded-3xl border border-gray-800/50 p-5 shadow-xl flex flex-col space-y-4">
             <div className="flex items-center gap-3.5 mb-2">
               <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center border border-white/20 shadow-inner">
-                <ChartPieIcon className="w-5 h-5 text-white" />
+                <ChartPie className="w-5 h-5 text-white" />
               </div>
               <div>
                 <h4 className="text-md font-black text-[#dfdfdf]">비중 배분 정책</h4>
@@ -209,7 +209,7 @@ export default function Step3Position({
           <div className={`bg-[#0f0f0f] rounded-3xl border border-gray-800/50 p-5 shadow-xl flex flex-col space-y-4 transition-all duration-500 ${skip_pos ? 'opacity-30 grayscale pointer-events-none' : ''}`}>
             <div className="flex items-center gap-3.5 mb-2">
               <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center border border-white/20 shadow-inner">
-                <ClockIcon className="w-5 h-5 text-white" />
+                <Clock className="w-5 h-5 text-white" />
               </div>
               <div>
                 <h4 className="text-md font-black text-[#dfdfdf]">체결 시점 선택</h4>
@@ -253,7 +253,7 @@ export default function Step3Position({
           <div className="bg-[#0f0f0f] rounded-3xl border border-gray-800/50 p-5 shadow-xl flex flex-col space-y-4">
             <div className="flex items-center gap-3.5 mb-2">
               <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center border border-white/20 shadow-inner">
-                <ArrowPathIcon className="w-5 h-5 text-white" />
+                <ArrowsClockwise className="w-5 h-5 text-white" />
               </div>
               <div>
                 <h4 className="text-md font-black text-[#dfdfdf]">리밸런싱 설정</h4>
@@ -378,13 +378,13 @@ export default function Step3Position({
               onClick={onPrev} 
               className="px-8 py-5 bg-[#161616] border border-white/5 text-white rounded-2xl text-lg font-black hover:bg-[#1f1f1f] hover:border-white/10 transition-all flex items-center gap-4 active:scale-95"
             >
-              <ArrowLeftIcon className="w-6 h-6" /> 이전
+              <ArrowLeft className="w-6 h-6" /> 이전
             </button>
             <button 
               onClick={onNext} 
               className="group px-12 py-5 bg-[#161616] text-white rounded-2xl text-lg font-black hover:bg-[#1f1f1f] transition-all flex items-center gap-4 shadow-[0_20px_40px_rgba(0,0,0,0.3)] border border-white/5 hover:border-white/10 hover:scale-105 active:scale-95"
             >
-              리스크 관리 설정하기 <ArrowRightIcon className="w-6 h-6 group-hover:translate-x-2 transition-transform duration-500 text-white" />
+              리스크 관리 설정하기 <ArrowRight className="w-6 h-6 group-hover:translate-x-2 transition-transform duration-500 text-white" />
             </button>
           </div>
         </div>

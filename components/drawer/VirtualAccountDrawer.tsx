@@ -3,10 +3,10 @@
 import { useEffect, useState, memo } from "react";
 import { useRouter } from "next/navigation";
 import {
-  ChevronLeftIcon,
-  BanknotesIcon,
-  PlusIcon,
-} from "@heroicons/react/24/outline";
+  CaretLeft,
+  Bank,
+  Plus,
+} from "phosphor-react";
 import { VirtualAccount } from "@/types/portfolio";
 import { getAllAccounts, refreshAccountValue } from "@/lib/portfolio";
 import CreateAccountModal from "@/components/ui/CreateAccountModal";
@@ -98,7 +98,7 @@ function VirtualAccountDrawer({
                   className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors"
                   title="닫기"
                 >
-                  <ChevronLeftIcon className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                  <CaretLeft size={20} className="text-gray-600 dark:text-gray-400" />
                 </button>
               </div>
             </div>
@@ -113,7 +113,7 @@ function VirtualAccountDrawer({
                 className="w-full flex items-center gap-3 text-left"
               >
                 <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center flex-shrink-0">
-                  <PlusIcon className="w-5 h-5 text-blue-500 dark:text-blue-400" />
+                  <Plus size={20} className="text-blue-500 dark:text-blue-400" />
                 </div>
                 <span className="text-sm font-medium text-gray-900 dark:text-white">
                   계좌 추가
@@ -157,7 +157,7 @@ function VirtualAccountDrawer({
                         <div className="flex items-center gap-3 justify-between">
                           <div className="flex items-center gap-3 flex-1 min-w-0">
                             <div className="w-10 h-10 rounded-full bg-blue-60000 dark:bg-blue-800 flex items-center justify-center flex-shrink-0">
-                              <BanknotesIcon className="w-5 h-5 text-blue-500 dark:text-blue-400" />
+                              <Bank size={20} className="text-blue-500 dark:text-blue-400" />
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="text-sm font-medium text-gray-900 dark:text-white truncate">

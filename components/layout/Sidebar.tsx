@@ -5,21 +5,14 @@ import Link from "next/link";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { useDrawer } from "@/contexts/DrawerContext";
 import {
-  Squares2X2Icon,
-  StarIcon,
-  BanknotesIcon,
-  MagnifyingGlassIcon,
-  PresentationChartLineIcon,
-  UsersIcon,
-  SparklesIcon,
-} from "@heroicons/react/24/outline";
-import {
-  Squares2X2Icon as Squares2X2IconSolid,
-  StarIcon as StarIconSolid,
-  BanknotesIcon as BanknotesIconSolid,
-  PresentationChartLineIcon as PresentationChartLineIconSolid,
-  UsersIcon as UsersIconSolid,
-} from "@heroicons/react/24/solid";
+  SquaresFour,
+  Star,
+  Bank,
+  MagnifyingGlass,
+  ChartLineUp,
+  Users,
+  Sparkle,
+} from "phosphor-react";
 import StockSearchModal from "@/components/stock/StockSearchModal";
 
 const menuItems = [
@@ -27,36 +20,31 @@ const menuItems = [
     label: "대시보드",
     href: "/",
     id: "dashboard",
-    Icon: Squares2X2Icon,
-    IconSolid: Squares2X2IconSolid,
+    Icon: SquaresFour,
   },
   {
     label: "가상계좌",
     href: "/virtual-account",
     id: "virtual-account",
-    Icon: BanknotesIcon,
-    IconSolid: BanknotesIconSolid,
+    Icon: Bank,
   },
   {
     label: "관심종목",
     href: "/watchlist",
     id: "watchlist",
-    Icon: StarIcon,
-    IconSolid: StarIconSolid,
+    Icon: Star,
   },
   {
     label: "전략연구소",
     href: "/analytics",
     id: "analytics",
-    Icon: PresentationChartLineIcon,
-    IconSolid: PresentationChartLineIconSolid,
+    Icon: ChartLineUp,
   },
   {
     label: "커뮤니티",
     href: "/community",
     id: "community",
-    Icon: UsersIcon,
-    IconSolid: UsersIconSolid,
+    Icon: Users,
   },
 ];
 
@@ -270,7 +258,7 @@ function SidebarComponent({
       <div className="flex items-center gap-1 flex-1">
         {menuItems.map((item) => {
           const isActive = activeMenuItemId === item.id;
-          const IconComponent = isActive ? item.IconSolid : item.Icon;
+          const IconComponent = item.Icon;
 
           return (
             <Link
@@ -284,7 +272,9 @@ function SidebarComponent({
               }`}
             >
               <IconComponent
-                className={`w-4.5 h-4.5 transition-colors ${isActive ? "text-blue-400" : "group-hover:text-blue-400"}`}
+                size={18}
+                weight={isActive ? "fill" : "regular"}
+                className={`transition-colors ${isActive ? "text-blue-400" : "group-hover:text-blue-400"}`}
               />
               <span
                 className={`text-sm tracking-tight ${
@@ -304,7 +294,7 @@ function SidebarComponent({
           onClick={handleSearchClick}
           className="relative flex items-center bg-white/5 border border-white/5 rounded-xl px-4 py-1.5 min-w-[220px] cursor-pointer hover:bg-white/10 transition-all group"
         >
-          <MagnifyingGlassIcon className="w-4 h-4 text-gray-500 group-hover:text-gray-300 mr-2 flex-shrink-0" />
+          <MagnifyingGlass size={16} className="text-gray-500 group-hover:text-gray-300 mr-2 flex-shrink-0" />
           <span className="text-[10px] text-gray-500 font-bold bg-black/40 border border-white/10 rounded px-1.5 py-0.5 mr-2 flex-shrink-0">/</span>
           <span className="text-xs text-gray-500 group-hover:text-gray-400 font-bold flex-1">Quick Search</span>
         </div>
@@ -312,7 +302,7 @@ function SidebarComponent({
 
       {/* Upgrade Button */}
       <button className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl text-xs font-black hover:shadow-[0_0_15px_rgba(59,130,246,0.4)] transition-all flex items-center gap-2 flex-shrink-0">
-        <SparklesIcon className="w-4 h-4" />
+        <Sparkle size={16} weight="fill" />
         <span>PRO</span>
       </button>
     </nav>

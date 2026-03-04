@@ -4,23 +4,23 @@ import { useState, useEffect, useMemo, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import {
-  CheckCircleIcon,
-  ExclamationTriangleIcon,
-  XMarkIcon,
-  ChartBarIcon,
-  PlusIcon,
-  TrashIcon,
-  ArrowRightIcon,
-  ArrowLeftIcon,
-  ChevronDownIcon,
-  InformationCircleIcon,
-  BoltIcon,
-  ArrowTrendingUpIcon,
-  ArrowPathIcon,
-  CpuChipIcon,
-  SparklesIcon,
-  MagnifyingGlassIcon,
-} from "@heroicons/react/24/outline";
+  CheckCircle,
+  Warning,
+  X,
+  ChartBar,
+  Plus,
+  Trash,
+  ArrowRight,
+  ArrowLeft,
+  CaretDown,
+  Info,
+  Lightning,
+  TrendUp,
+  ArrowsClockwise,
+  Cpu,
+  Sparkle,
+  MagnifyingGlass,
+} from "phosphor-react";
 import StrategyComposer from "@/components/strategy/StrategyComposer";
 import StrategyComposerV2 from "@/components/strategy/StrategyComposerV2";
 import StrategyFusionModal from "@/components/strategy/StrategyFusionModal";
@@ -219,7 +219,7 @@ function AnalyticsContent() {
                         }}
                         className="px-4 py-2 bg-gray-700 text-white rounded-lg text-sm font-medium hover:bg-gray-600 flex items-center gap-2"
                       >
-                        <SparklesIcon className="w-5 h-5" />
+                        <Sparkle className="w-5 h-5" />
                         전략 선택하기
                       </button>
                     ) : (
@@ -244,7 +244,7 @@ function AnalyticsContent() {
                           disabled={selectedForFusion.size < 2}
                           className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                         >
-                          <SparklesIcon className="w-5 h-5" />
+                          <Sparkle className="w-5 h-5" />
                           전략 조합하기 ({selectedForFusion.size}개 선택됨)
                         </button>
                       </div>
@@ -258,7 +258,7 @@ function AnalyticsContent() {
               {savedStrategies.length === 0 ? (
                 <div className="col-span-full">
                   <div className="bg-[#1a1a1a] rounded-lg border border-gray-800 p-12 text-center">
-                    <ChartBarIcon className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+                    <ChartBar className="w-16 h-16 text-gray-600 mx-auto mb-4" />
                     <h3 className="text-lg font-semibold text-white mb-2">
                       저장된 전략이 없습니다
                     </h3>
@@ -269,7 +269,7 @@ function AnalyticsContent() {
                       onClick={openComposer}
                       className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-600 flex items-center gap-2 mx-auto"
                     >
-                      <PlusIcon className="w-5 h-5" />새 전략 만들기
+                      <Plus className="w-5 h-5" />새 전략 만들기
                     </button>
                   </div>
                 </div>
@@ -280,7 +280,7 @@ function AnalyticsContent() {
                     onClick={openComposer}
                   >
                     <div className="w-12 h-12 rounded-full bg-blue-600/20 border border-blue-600/40 flex items-center justify-center mb-3">
-                      <PlusIcon className="w-6 h-6 text-blue-400" />
+                      <Plus className="w-6 h-6 text-blue-400" />
                     </div>
                     <h3 className="text-base font-semibold text-white mb-1">
                       새 전략 만들기
@@ -336,7 +336,7 @@ function AnalyticsContent() {
                                 }}
                               >
                                 {isSelected && (
-                                  <CheckCircleIcon className="w-4 h-4 text-white" />
+                                  <CheckCircle className="w-4 h-4 text-white" />
                                 )}
                               </div>
                             )}
@@ -352,7 +352,7 @@ function AnalyticsContent() {
                               }}
                               className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-red-600/20 rounded"
                             >
-                              <TrashIcon className="w-4 h-4 text-red-400" />
+                              <Trash className="w-4 h-4 text-red-400" />
                             </button>
                           )}
                         </div>
