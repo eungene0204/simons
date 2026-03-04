@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { NewspaperIcon } from "@heroicons/react/24/outline";
+import { Newspaper } from "phosphor-react";
 
 interface NewsItem {
   id: number;
@@ -53,7 +53,7 @@ export default function TopNews() {
     return (
       <div className="bg-[#1a1a1a] border-gray-800 p-4 sm:p-6 rounded-lg shadow-sm border border-gray-800 w-full max-w-full overflow-x-hidden">
         <div className="flex items-center gap-2 mb-4">
-          <NewspaperIcon className="w-5 h-5 text-gray-400" />
+          <Newspaper size={20} className="text-gray-400" />
           <h3 className="text-base sm:text-lg font-semibold text-white">
             주요뉴스
           </h3>
@@ -69,7 +69,7 @@ export default function TopNews() {
     <div className="glass-card p-6 w-full max-w-full overflow-x-hidden min-w-0">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
-          <NewspaperIcon className="w-5 h-5 text-blue-400" />
+          <Newspaper size={20} className="text-blue-400" />
           <h3 className="text-lg font-bold text-white tracking-tight">
             주요 뉴스
           </h3>

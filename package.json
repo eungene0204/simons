@@ -16,7 +16,6 @@
     "start-scheduler": "python3 scripts/scheduler.py"
   },
   "dependencies": {
-    "@heroicons/react": "^2.2.0",
     "@prisma/client": "^5.7.1",
     "@tanstack/react-table": "^8.21.3",
     "@visx/axis": "^3.12.0",
@@ -38,9 +37,9 @@
     "framer-motion": "^12.27.0",
     "jsonwebtoken": "^9.0.2",
     "lightweight-charts": "^5.0.9",
-    "lucide-react": "^0.563.0",
     "next": "14.0.4",
     "parquetjs-lite": "^0.8.7",
+    "phosphor-react": "^1.4.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "recharts": "^2.10.3",

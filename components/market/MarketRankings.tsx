@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { generateStockPriceData } from "@/lib/mock-stock-data";
-import { ArrowUpIcon, ArrowDownIcon } from "@heroicons/react/24/solid";
+import { CaretUp, CaretDown } from "phosphor-react";
 
 type TabType = "volume" | "sector" | "theme" | "investor";
 
@@ -259,9 +259,9 @@ export default function MarketRankings() {
                         <td className={`py-2 px-2 text-right ${colorClass}`}>
                           <div className="flex items-center justify-end gap-1">
                             {isPositive ? (
-                              <ArrowUpIcon className="w-3 h-3" />
+                              <CaretUp size={12} weight="fill" />
                             ) : (
-                              <ArrowDownIcon className="w-3 h-3" />
+                              <CaretDown size={12} weight="fill" />
                             )}
                             <span>
                               {isPositive ? "+" : ""}
@@ -394,9 +394,9 @@ export default function MarketRankings() {
                         <td className={`py-2 px-2 text-right ${colorClass}`}>
                           <div className="flex items-center justify-end gap-1">
                             {isPositive ? (
-                              <ArrowUpIcon className="w-3 h-3" />
+                              <CaretUp size={12} weight="fill" />
                             ) : (
-                              <ArrowDownIcon className="w-3 h-3" />
+                              <CaretDown size={12} weight="fill" />
                             )}
                             <span>
                               {isPositive ? "+" : ""}

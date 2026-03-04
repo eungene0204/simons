@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { XMarkIcon } from "@heroicons/react/24/outline";
+import { X } from "phosphor-react";
 
 interface CreateAccountModalProps {
   isOpen: boolean;
@@ -75,7 +75,7 @@ export default function CreateAccountModal({
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
           >
-            <XMarkIcon className="w-5 h-5" />
+            <X size={20} />
           </button>
         </div>
 

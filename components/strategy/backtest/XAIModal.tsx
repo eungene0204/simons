@@ -3,13 +3,13 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  XMarkIcon, 
-  InformationCircleIcon, 
-  ArrowPathIcon,
-  ExclamationCircleIcon,
-  ChartBarIcon,
-  ClockIcon
-} from '@heroicons/react/24/outline';
+  X, 
+  Info, 
+  ArrowsClockwise,
+  WarningCircle,
+  ChartBar,
+  Clock
+} from "phosphor-react";
 
 interface XAIModalProps {
   isOpen: boolean;
@@ -103,7 +103,7 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
             <div className="flex items-center justify-between px-6 py-3 border-b border-white/5 bg-[#161616] transition-colors">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-main-blue/10 rounded-xl">
-                  <ChartBarIcon className="w-5 h-5 text-main-blue" />
+                  <ChartBar className="w-5 h-5 text-main-blue" />
                 </div>
                 <div>
                   <h3 className="text-lg font-black text-white">AI 의사결정 분석 (XAI)</h3>
@@ -116,7 +116,7 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
                 onClick={onClose}
                 className="p-2 hover:bg-white/5 rounded-full transition-colors"
               >
-                <XMarkIcon className="w-6 h-6 text-gray-400" />
+                <X className="w-6 h-6 text-gray-400" />
               </button>
             </div>
 
@@ -128,7 +128,7 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
                      animate={{ rotate: 360 }}
                      transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
                    >
-                     <ArrowPathIcon className="w-10 h-10 text-main-blue/50" />
+                     <ArrowsClockwise className="w-10 h-10 text-main-blue/50" />
                    </motion.div>
                    <div className="text-center">
                      <p className="text-white font-bold">모델 해석 중...</p>
@@ -137,7 +137,7 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
                 </div>
               ) : error ? (
                 <div className="h-96 flex flex-col items-center justify-center text-center space-y-3">
-                   <ExclamationCircleIcon className="w-12 h-12 text-main-red/40" />
+                   <WarningCircle className="w-12 h-12 text-main-red/40" />
                    <div>
                      <p className="text-white font-bold">{error}</p>
                      <p className="text-xs text-gray-500 mt-2">훈련 데이터셋에 해당 종목 정보가 부족할 수 있습니다.</p>
@@ -180,7 +180,7 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
                    <div className="bg-[#111]/50 p-4 rounded-2xl border border-white/5">
                       <div className="flex items-center justify-between mb-3">
                         <h4 className="text-sm font-black text-white flex items-center gap-2">
-                          <ClockIcon className="w-4 h-4 text-gray-500" /> 시계열 특징 기여도 (SHAP Heatmap)
+                          <Clock className="w-4 h-4 text-gray-500" /> 시계열 특징 기여도 (SHAP Heatmap)
                         </h4>
                         <div className="flex items-center gap-4 text-[10px] font-bold">
                            <div className="flex items-center gap-1.5">
@@ -235,7 +235,7 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
                       {/* Attention Map */}
                       <div>
                         <h4 className="text-[11px] font-black text-white mb-3 flex items-center gap-2">
-                           <InformationCircleIcon className="w-4 h-4 text-gray-400" /> 모델 관심도 (Attention Map)
+                           <Info className="w-4 h-4 text-gray-400" /> 모델 관심도 (Attention Map)
                         </h4>
                         <div className="bg-[#111] p-3 rounded-xl border border-white/5 h-32 flex items-end gap-[1px]">
                            {result.attention_map.map((v, i) => (
@@ -253,7 +253,7 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
                       {/* Feature Importance Bar Chart */}
                       <div>
                         <h4 className="text-sm font-black text-white mb-4 flex items-center gap-2">
-                           <ChartBarIcon className="w-4 h-4 text-gray-500" /> 종합 특징 중요도 (Global Summary)
+                           <ChartBar className="w-4 h-4 text-gray-500" /> 종합 특징 중요도 (Global Summary)
                         </h4>
                         <div className="space-y-3">
                            {result.features.map((f, i) => {
@@ -290,7 +290,7 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
             {/* Footer Info */}
             <div className="px-6 py-3 bg-[#161616] border-t border-white/5">
                <div className="flex items-start gap-3 bg-blue-500/5 p-3 rounded-xl border border-blue-500/10">
-                  <InformationCircleIcon className="w-5 h-5 text-main-blue mt-0.5 flex-none" />
+                  <Info className="w-5 h-5 text-main-blue mt-0.5 flex-none" />
                   <p className="text-xs text-gray-400 leading-relaxed font-medium">
                     <span className="text-main-blue font-black mr-1">분석 안내:</span>
                     SHAP 값은 해당 시점의 특정 데이터가 AI 모델의 예측 확률(Long 확률)을 얼마나 변화시켰는지 나타냅니다. 

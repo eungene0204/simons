@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { 
-  PlayCircleIcon,
-  ArrowPathIcon
-} from "@heroicons/react/24/outline";
+  PlayCircle,
+  ArrowsClockwise
+} from "phosphor-react";
 
 const formatKoreanUnit = (num: number) => {
   if (num === 0) return "0원";
@@ -326,12 +326,12 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
       >
         {isRunning ? (
           <>
-            <ArrowPathIcon className="w-6 h-6 animate-spin" />
+            <ArrowsClockwise className="w-6 h-6 animate-spin" />
             시뮬레이션 실행 중...
           </>
         ) : (
           <>
-            <PlayCircleIcon className="w-6 h-6" />
+            <PlayCircle className="w-6 h-6" />
             백테스트 시작하기
           </>
         )}

@@ -3,15 +3,15 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  ChevronDownIcon,
-  InformationCircleIcon,
-  CheckCircleIcon,
-  ExclamationTriangleIcon,
-  XMarkIcon,
-  ChartBarIcon,
-  DocumentTextIcon,
-  TableCellsIcon,
-} from "@heroicons/react/24/outline";
+  CaretDown,
+  Info,
+  CheckCircle,
+  Warning,
+  X,
+  ChartBar,
+  FileText,
+  Table,
+} from "phosphor-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import OrderBook from "@/components/order/OrderBook";
 import {
@@ -581,7 +581,7 @@ export default function OrderPage() {
                         ? "가상계좌가 없습니다"
                         : "가상계좌를 선택하세요"}
                     </span>
-                    <ChevronDownIcon className="w-4 h-4" />
+                    <CaretDown className="w-4 h-4" />
                   </button>
 
                   {/* Dropdown Menu */}
@@ -1465,7 +1465,7 @@ export default function OrderPage() {
             </div>
 
             <div className="bg-[#1a1a1a] rounded-lg border border-gray-800 p-12 text-center">
-              <ChartBarIcon className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+              <ChartBar className="w-16 h-16 text-gray-600 mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-white mb-2">
                 종목 분석
               </h3>

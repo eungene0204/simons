@@ -2,15 +2,15 @@
 
 import React, { useState } from "react";
 import {
-  GlobeAltIcon,
-  ServerStackIcon,
-  Squares2X2Icon,
-  ChartBarIcon,
-  Bars3BottomLeftIcon,
-  XMarkIcon,
-  PlusIcon,
-  ArrowRightIcon
-} from "@heroicons/react/24/outline";
+  Globe,
+  Stack,
+  SquaresFour,
+  ChartBar,
+  TextAlignLeft,
+  X,
+  Plus,
+  ArrowRight
+} from "phosphor-react";
 
 interface Step1UniverseProps {
   strategyName: string;
@@ -120,7 +120,7 @@ export default function Step1Universe({
 
               <label className="text-sm font-black text-white/40 uppercase tracking-widest mb-4 block">전략 이름</label>
               <div className="relative flex items-center max-w-3xl">
-                <Bars3BottomLeftIcon className="w-7 h-7 text-blue-500 absolute left-5" />
+                <TextAlignLeft className="w-7 h-7 text-blue-500 absolute left-5" />
                 <input
                   type="text"
                   value={strategyName}
@@ -136,7 +136,7 @@ export default function Step1Universe({
               {/* Panel 1 */}
               <div>
                 <div className="flex items-center gap-2 mb-4">
-                  <GlobeAltIcon className="w-5 h-5 text-blue-500" />
+                  <Globe className="w-5 h-5 text-blue-500" />
                   <h2 className="text-lg font-bold text-blue-500">시장 선택</h2>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -164,7 +164,7 @@ export default function Step1Universe({
               {/* Panel 2 */}
               <div className="mt-4">
                 <div className="flex items-center gap-2 mb-4">
-                  <ServerStackIcon className="w-5 h-5 text-blue-500" />
+                  <Stack className="w-5 h-5 text-blue-500" />
                   <h2 className="text-lg font-bold text-blue-500">시가총액 및 거래대금</h2>
                 </div>
                 
@@ -221,7 +221,7 @@ export default function Step1Universe({
               {/* Panel 3 */}
               <div className="mt-4 mb-16">
                 <div className="flex items-center gap-2 mb-4">
-                  <Squares2X2Icon className="w-5 h-5 text-blue-500" />
+                  <SquaresFour className="w-5 h-5 text-blue-500" />
                   <h2 className="text-lg font-bold text-blue-500">섹터 필터링</h2>
                 </div>
                 
@@ -239,7 +239,7 @@ export default function Step1Universe({
                           }}
                           className="hover:bg-black/20 rounded-full p-0.5"
                         >
-                          <XMarkIcon className="w-3.5 h-3.5" />
+                          <X className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     ))}
@@ -249,7 +249,7 @@ export default function Step1Universe({
                         onClick={() => setShowSectorSelector(true)}
                         className="flex items-center gap-1.5 bg-transparent border border-white/10 text-white/60 hover:text-white hover:border-white/30 px-3 py-1.5 rounded-full text-xs font-medium transition-all"
                       >
-                        <PlusIcon className="w-3.5 h-3.5" />
+                        <Plus className="w-3.5 h-3.5" />
                         <span>섹터 추가</span>
                       </button>
                     </div>
@@ -264,7 +264,7 @@ export default function Step1Universe({
                   className="py-3 px-8 rounded-lg bg-blue-500 hover:bg-blue-400 active:bg-blue-600 text-sm font-bold text-white transition-all shadow-[0_0_15px_rgba(59,130,246,0.3)] flex items-center gap-2"
                 >
                   <span>매매 조건</span>
-                  <ArrowRightIcon className="w-4 h-4" />
+                  <ArrowRight className="w-4 h-4" />
                 </button>
               </div>
 
@@ -276,7 +276,7 @@ export default function Step1Universe({
         <div className="hidden lg:block w-[320px] xl:w-[380px] bg-[#141414] border-l border-white/5 h-full overflow-y-auto shrink-0 p-8">
           
           <div className="flex items-center gap-3 mb-10">
-            <ChartBarIcon className="w-6 h-6 text-blue-500" />
+            <ChartBar className="w-6 h-6 text-blue-500" />
             <h3 className="text-base font-black text-white/60 uppercase tracking-widest">유니버스 설정 요약</h3>
           </div>
 
@@ -284,7 +284,7 @@ export default function Step1Universe({
             
             <div>
               <div className="flex items-center gap-2 mb-3">
-                <GlobeAltIcon className="w-5 h-5 text-blue-500" />
+                <Globe className="w-5 h-5 text-blue-500" />
                 <span className="text-sm font-black text-white/40 uppercase tracking-widest">선택된 시장</span>
               </div>
               <span className="text-2xl font-black text-white block pl-8 tracking-tight">{universe.toUpperCase()}</span>
@@ -292,7 +292,7 @@ export default function Step1Universe({
 
             <div>
               <div className="flex items-center gap-2 mb-3">
-                <ServerStackIcon className="w-5 h-5 text-blue-500" />
+                <Stack className="w-5 h-5 text-blue-500" />
                 <span className="text-sm font-black text-white/40 uppercase tracking-widest">시가총액 범위</span>
               </div>
               <span className="text-2xl font-black text-white block pl-8 tracking-tight">{getMarketCapDesc().replace(" 선택됨", "")}</span>
@@ -312,7 +312,7 @@ export default function Step1Universe({
 
             <div>
                <div className="flex items-center gap-2 mb-4">
-                <Squares2X2Icon className="w-5 h-5 text-blue-500" />
+                <SquaresFour className="w-5 h-5 text-blue-500" />
                 <span className="text-sm font-black text-white/40 uppercase tracking-widest">섹터 필터</span>
               </div>
               <div className="flex flex-wrap gap-2 pl-8">
@@ -337,14 +337,14 @@ export default function Step1Universe({
           <div className="w-full max-w-[500px] bg-[#1a1a1a] border border-white/10 rounded-3xl shadow-2xl p-8 animate-in zoom-in duration-200">
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-2">
-                <Squares2X2Icon className="w-5 h-5 text-blue-500" />
+                <SquaresFour className="w-5 h-5 text-blue-500" />
                 <h3 className="text-lg font-bold">섹터 선택</h3>
               </div>
               <button 
                 onClick={() => setShowSectorSelector(false)}
                 className="p-2 hover:bg-white/5 rounded-full transition-all text-white/40 hover:text-white"
               >
-                <XMarkIcon className="w-5 h-5" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 

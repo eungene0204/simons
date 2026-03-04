@@ -3,31 +3,31 @@
 import { Fragment, useMemo, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  XMarkIcon,
-  ChevronDownIcon,
-  ChevronUpIcon,
-  InformationCircleIcon,
-  PlusIcon,
-  MagnifyingGlassIcon,
-  ArrowRightIcon,
-  ArrowLeftIcon,
-  CubeIcon,
-  AdjustmentsHorizontalIcon,
-  SparklesIcon,
-  ShieldExclamationIcon,
-  CpuChipIcon,
-  ChartBarIcon,
-  ArrowPathIcon,
-  BanknotesIcon,
-  ChartPieIcon,
-  EllipsisHorizontalIcon,
-  CursorArrowRaysIcon,
-  Squares2X2Icon,
-  Bars3Icon,
-  GlobeAltIcon,
-  ServerStackIcon,
-  VariableIcon,
-} from "@heroicons/react/24/outline";
+  X,
+  CaretDown,
+  CaretUp,
+  Info,
+  Plus,
+  MagnifyingGlass,
+  ArrowRight,
+  ArrowLeft,
+  Cube,
+  Sliders,
+  Sparkle,
+  ShieldWarning,
+  Cpu,
+  ChartBar,
+  ArrowsClockwise,
+  Bank,
+  ChartPie,
+  DotsThreeOutline,
+  HandPointing,
+  SquaresFour,
+  List,
+  Globe,
+  Database,
+  FramerLogo,
+} from "phosphor-react";
 import { CanvasBlock, LogicOperator } from "@/types/strategy";
 import { signalBlocks } from "@/lib/strategy-blocks";
 import StrategyBlockSearchMenu from "../StrategyBlockSearchMenu";
@@ -160,7 +160,7 @@ export default function Step2Conditions({
       filter: {
         key: "filter",
         label: "종목 필터",
-        icon: AdjustmentsHorizontalIcon,
+        icon: Sliders,
         blocks: Object.values(signalBlocks).filter(
           (b) => b.category === "filter" && 
                  (!b.hidden || unlockedBlockIds.includes(b.id)) && 
@@ -183,7 +183,7 @@ export default function Step2Conditions({
       indicator: {
         key: "indicator",
         label: "매매 시그널",
-        icon: SparklesIcon,
+        icon: Sparkle,
         blocks: Object.values(signalBlocks).filter(
           (b) => (b.category === "indicator" || b.category === "flow") && 
                  (!b.hidden || unlockedBlockIds.includes(b.id)) && 
@@ -206,7 +206,7 @@ export default function Step2Conditions({
       risk: {
         key: "risk",
         label: "리스크",
-        icon: ShieldExclamationIcon,
+        icon: ShieldWarning,
         blocks: Object.values(signalBlocks).filter(
           (b) => b.category === "risk" && 
                  (!b.hidden || unlockedBlockIds.includes(b.id)) && 
@@ -229,7 +229,7 @@ export default function Step2Conditions({
       ml: {
         key: "ml",
         label: "AI 모델",
-        icon: CpuChipIcon,
+        icon: Cpu,
         blocks: Object.values(signalBlocks).filter(
           (b) => b.category === "ml" && 
                  (!b.hidden || unlockedBlockIds.includes(b.id)) && 
@@ -320,7 +320,7 @@ export default function Step2Conditions({
       <div className="flex shrink-0 items-center justify-between bg-[#111111] border-b border-white/5 px-8 py-5 shadow-xl relative z-40">
         <div className="flex items-center gap-4">
           <div className="w-12 h-12 bg-[rgb(59,134,247)]/10 rounded-xl flex items-center justify-center border border-[rgb(59,134,247)]/20 shadow-[0_0_15px_rgba(59,134,247,0.1)]">
-            <CpuChipIcon className="w-7 h-7 text-[rgb(59,134,247)]" />
+            <Cpu size={28} className="text-[rgb(59,134,247)]" />
           </div>
           <div>
             <h3 className="text-2xl font-black text-white tracking-tight">매매 로직 설계</h3>
@@ -379,7 +379,7 @@ export default function Step2Conditions({
           <div className="p-5 border-b border-white/5 bg-white/[0.01]">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3.5">
-                <Squares2X2Icon className="w-8 h-8 text-[rgb(59,134,247)]" />
+                <SquaresFour size={32} className="text-[rgb(59,134,247)]" />
                 <h3 className="text-xl font-black text-white/90 uppercase tracking-tight">라이브러리</h3>
               </div>
               <button
@@ -387,7 +387,7 @@ export default function Step2Conditions({
                 onClick={() => setIsLibraryManagementOpen(true)}
                 className="p-1.5 bg-black/40 border border-white/5 rounded-xl text-white/20 hover:text-white hover:bg-black/60 transition-all"
               >
-                <EllipsisHorizontalIcon className="w-5 h-5" />
+                <DotsThreeOutline size={20} />
               </button>
             </div>
 
@@ -400,7 +400,7 @@ export default function Step2Conditions({
                   : "bg-black/40 text-white/40 hover:text-white hover:bg-black/60 border-white/5"
               }`}
             >
-              <MagnifyingGlassIcon className="w-5 h-5" />
+              <MagnifyingGlass size={20} />
               <span className="text-[11px] font-black uppercase tracking-widest leading-none pt-0.5">블록 검색...</span>
             </button>
           </div>
@@ -427,7 +427,7 @@ export default function Step2Conditions({
                        <group.icon className={`w-5 h-5 ${isOpen ? "text-[rgb(59,134,247)]" : "text-white/10"}`} />
                        <span className="text-sm font-black tracking-tight">{group.label}</span>
                     </div>
-                    <ChevronDownIcon className={`w-4 h-4 transition-transform duration-300 ${isOpen ? "rotate-180 text-white" : "text-white/10"}`} />
+                    <CaretDown size={16} className={`transition-transform duration-300 ${isOpen ? "rotate-180 text-white" : "text-white/10"}`} />
                   </button>
 
                   <AnimatePresence>
@@ -452,8 +452,9 @@ export default function Step2Conditions({
                                 className="group p-3 bg-white/[0.02] hover:bg-[rgb(59,134,247)] rounded-xl text-sm font-black text-white/30 hover:text-white cursor-move transition-all flex items-center justify-between border border-transparent hover:border-white/10"
                               >
                                 <span className="truncate pr-2 tracking-tight">{block.name}</span>
-                                <InformationCircleIcon 
-                                  className="w-4 h-4 text-white/5 group-hover:text-white/40 cursor-help"
+                                <Info 
+                                  size={16}
+                                  className="text-white/5 group-hover:text-white/40 cursor-help"
                                   onMouseEnter={(e) => setHoveredInfo({ id: block.id, rect: e.currentTarget.getBoundingClientRect() })}
                                   onMouseLeave={() => setHoveredInfo(null)}
                                 />
@@ -496,7 +497,7 @@ export default function Step2Conditions({
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[1]">
                 <div className="text-center space-y-6">
                   <div className="w-20 h-20 bg-white/[0.02] rounded-3xl border border-white/5 flex items-center justify-center mx-auto shadow-inner backdrop-blur-sm">
-                    <PlusIcon className="w-8 h-8 text-white/5" />
+                    <Plus size={32} className="text-white/5" />
                   </div>
                   <div>
                     <h4 className="text-white/20 font-black uppercase tracking-[0.3em] text-xs mb-2">전략 초기화</h4>
@@ -638,7 +639,7 @@ export default function Step2Conditions({
                         }} 
                         className="absolute -top-3 -right-3 w-8 h-8 bg-black/80 border border-white/10 text-white/40 rounded-full opacity-0 group-hover:opacity-100 transition-all hover:text-white hover:bg-red-500 hover:border-transparent flex items-center justify-center shadow-xl backdrop-blur-sm"
                       >
-                        <XMarkIcon className="w-5 h-5" />
+                        <X size={20} />
                       </button>
                     </motion.div>
                   );
@@ -664,14 +665,14 @@ export default function Step2Conditions({
                   <div className="p-5 border-b border-white/5 bg-white/[0.01]">
                     <div className="flex items-center justify-between mb-5">
                       <div className="flex items-center gap-3.5">
-                        <AdjustmentsHorizontalIcon className="w-8 h-8 text-[rgb(59,134,247)]" />
+                        <Sliders size={32} className="text-[rgb(59,134,247)]" />
                         <h3 className="text-xl font-black text-white/90 uppercase tracking-tight">속성</h3>
                       </div>
                       <button 
                         onClick={() => setSelectedBlock(null)}
                         className="p-1.5 hover:bg-white/5 rounded-xl transition-colors text-white/20 hover:text-white"
                       >
-                        <XMarkIcon className="w-5 h-5" />
+                        <X size={20} />
                       </button>
                     </div>
 
@@ -747,7 +748,7 @@ export default function Step2Conditions({
                   className="flex-1 flex flex-col min-h-0 p-8"
                 >
                   <div className="flex items-center gap-3 mb-10">
-                    <ChartBarIcon className="w-6 h-6 text-blue-500" />
+                    <ChartBar size={24} className="text-blue-500" />
                     <h3 className="text-base font-black text-white/60 uppercase tracking-widest">매매 로직 요약</h3>
                   </div>
 
@@ -755,7 +756,7 @@ export default function Step2Conditions({
                     {/* Total Blocks Section */}
                     <div>
                       <div className="flex items-center gap-2 mb-3">
-                        <Squares2X2Icon className="w-5 h-5 text-blue-500" />
+                        <SquaresFour size={20} className="text-blue-500" />
                         <span className="text-sm font-black text-white/40 uppercase tracking-widest">전체 블록 수</span>
                       </div>
                       <span className="text-2xl font-black text-white block pl-8 tracking-tight">{canvasBlocks.length}개</span>
@@ -764,7 +765,7 @@ export default function Step2Conditions({
                     {/* Entry Strategy Section */}
                     <div>
                       <div className="flex items-center gap-2 mb-3">
-                        <ArrowPathIcon className="w-5 h-5 text-blue-500" />
+                        <ArrowsClockwise size={20} className="text-blue-500" />
                         <span className="text-sm font-black text-white/40 uppercase tracking-widest">진입 조건</span>
                       </div>
                       <div className="flex items-center gap-3 pl-8">
@@ -776,7 +777,7 @@ export default function Step2Conditions({
                     {/* Exit Strategy Section */}
                     <div>
                       <div className="flex items-center gap-2 mb-3">
-                        <ArrowPathIcon className="w-5 h-5 text-blue-500 rotate-180" />
+                        <ArrowsClockwise size={20} className="text-blue-500 rotate-180" />
                         <span className="text-sm font-black text-white/40 uppercase tracking-widest">청산 조건</span>
                       </div>
                       <div className="flex items-center gap-3 pl-8">
@@ -791,14 +792,14 @@ export default function Step2Conditions({
                       onClick={onPrev} 
                       className="px-5 py-4 bg-black/40 hover:bg-black/60 text-white rounded-xl text-base font-black transition-all border border-white/5 active:scale-95 shadow-lg"
                     >
-                      <ArrowLeftIcon className="w-5 h-5" />
+                      <ArrowLeft size={20} />
                     </button>
                     <button 
                       onClick={onNext} 
                       className="flex-1 group px-4 py-4 bg-blue-500 hover:bg-blue-400 text-white rounded-xl text-sm font-black uppercase tracking-widest transition-all flex items-center justify-between shadow-[0_10px_30px_rgba(59,130,246,0.1)] active:scale-[0.98]"
                     >
                       <span>포지션 설계</span>
-                      <ArrowRightIcon className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                      <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
                     </button>
                   </div>
                 </motion.div>
@@ -840,7 +841,7 @@ export default function Step2Conditions({
             <div className="p-8 flex items-center justify-between border-b border-white/5">
               <div className="flex items-center gap-4">
                  <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center">
-                    <Squares2X2Icon className="w-7 h-7 text-[rgb(59,134,247)]" />
+                    <SquaresFour size={28} className="text-[rgb(59,134,247)]" />
                  </div>
                  <h3 className="text-2xl font-black text-white uppercase tracking-tight">보관함 관리</h3>
               </div>
@@ -848,7 +849,7 @@ export default function Step2Conditions({
                 onClick={() => setIsLibraryManagementOpen(false)}
                 className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition-all"
               >
-                <XMarkIcon className="w-6 h-6" />
+                <X size={24} />
               </button>
             </div>
             <div className="flex-1 flex overflow-hidden">
@@ -883,7 +884,7 @@ export default function Step2Conditions({
                               onClick={(e) => handleRemoveBlockFromBin(block.id, e)}
                               className="w-10 h-10 rounded-lg bg-red-500/10 text-red-500/40 hover:text-red-500 hover:bg-red-500/20 transition-all flex items-center justify-center"
                            >
-                              <XMarkIcon className="w-5 h-5" />
+                              <X size={20} />
                            </button>
                          </div>
                       ))}

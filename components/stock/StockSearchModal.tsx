@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { XMarkIcon, MagnifyingGlassIcon, StarIcon } from "@heroicons/react/24/outline";
-import { StarIcon as StarIconSolid } from "@heroicons/react/24/solid";
+import { X, MagnifyingGlass, Star } from "phosphor-react";
 import type { StockSearchResult } from "@/types/stock";
 
 interface StockSearchModalProps {
@@ -126,14 +125,14 @@ export default function StockSearchModal({
             onClick={onClose}
             className="text-gray-400 hover:text-gray-300 transition-colors"
           >
-            <XMarkIcon className="w-5 h-5" />
+            <X size={20} />
           </button>
         </div>
 
         {/* Search Input */}
         <div className="p-4 border-b border-gray-800">
           <div className="relative">
-            <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <MagnifyingGlass size={20} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               ref={inputRef}
               type="text"
@@ -187,9 +186,9 @@ export default function StockSearchModal({
                         {!singleSelect && (
                           <>
                             {isSelected ? (
-                              <StarIconSolid className="w-5 h-5 text-yellow-500 flex-shrink-0" />
+                              <Star size={20} weight="fill" className="text-yellow-500 flex-shrink-0" />
                             ) : (
-                              <StarIcon className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                              <Star size={20} className="text-gray-400 flex-shrink-0" />
                             )}
                           </>
                         )}
