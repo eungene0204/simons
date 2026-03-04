@@ -77,7 +77,7 @@ export default function Step1Universe({
       </div>
       
       {/* Row 2: Strategy Name Hero Section */}
-      <div className="col-start-1 col-end-2 min-w-0 relative group">
+      <div className="col-span-2 min-w-0 relative group">
         <input
           type="text"
           value={strategyName}
@@ -277,19 +277,19 @@ export default function Step1Universe({
           <div className="space-y-6 flex-1 overflow-y-auto custom-scrollbar pr-2 pb-4">
             
             <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
-              <span className="text-[10px] font-black text-[rgb(59,134,247)] uppercase tracking-widest block mb-2 opacity-90">대상 시장</span>
+              <span className="text-[11px] font-black text-[rgb(59,134,247)] uppercase tracking-widest block mb-2 opacity-90">대상 시장</span>
               <span className="text-xl font-black text-white tracking-tight">{universe.toUpperCase()}</span>
             </div>
 
             <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
-              <span className="text-[10px] font-black text-[rgb(59,134,247)] uppercase tracking-widest block mb-2 opacity-90">시가총액 범위</span>
+              <span className="text-[11px] font-black text-[rgb(59,134,247)] uppercase tracking-widest block mb-2 opacity-90">시가총액 범위</span>
               <span className="text-xl font-black text-white tracking-tight tabular-nums">
                 상위 {universeFilters.marketCapRange[0]}% ~ {universeFilters.marketCapRange[1]}%
               </span>
             </div>
 
             <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
-              <span className="text-[10px] font-black text-[rgb(59,134,247)] uppercase tracking-widest block mb-2 opacity-90">최소 거래대금</span>
+              <span className="text-[11px] font-black text-[rgb(59,134,247)] uppercase tracking-widest block mb-2 opacity-90">최소 거래대금</span>
               <span className="text-xl font-black text-white tracking-tight">
                 {universeFilters.minTradingVolume === 0 ? "제한없음" : `${universeFilters.minTradingVolume}억원 이상`}
               </span>
@@ -298,7 +298,7 @@ export default function Step1Universe({
 
 
             <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
-              <span className="text-[10px] font-black text-[rgb(59,134,247)] uppercase tracking-widest block mb-2 opacity-90">선택된 섹터</span>
+              <span className="text-[11px] font-black text-[rgb(59,134,247)] uppercase tracking-widest block mb-2 opacity-90">선택된 섹터</span>
               <div className="flex flex-wrap gap-1.5 mt-1">
                 {universeFilters.selectedSectors.length > 0 ? (
                   universeFilters.selectedSectors.slice(0, 5).map(s => (
@@ -316,7 +316,7 @@ export default function Step1Universe({
             </div>
 
             <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
-              <span className="text-[10px] font-black text-[rgb(59,134,247)] uppercase tracking-widest block mb-2 opacity-90">예상 유니버스 종목 수</span>
+              <span className="text-[11px] font-black text-[rgb(59,134,247)] uppercase tracking-widest block mb-2 opacity-90">예상 유니버스 종목 수</span>
               <span className="text-xl font-black text-white tracking-tight tabular-nums">약 2,400개</span>
             </div>
 

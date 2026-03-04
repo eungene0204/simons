@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useMemo, useEffect, useRef } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   XMarkIcon,
   ChevronDownIcon,
@@ -128,20 +129,32 @@ export default function Step2Conditions({
 }: Step2ConditionsProps) {
   const popoverRef = useRef<HTMLDivElement>(null);
 
+  const paramPopupRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (popoverRef.current && !popoverRef.current.contains(event.target as Node)) {
         setOpenSignalGroups([]);
       }
+      
+      const target = event.target as Element;
+      const isCanvasBlock = target.closest?.('[data-canvas-block="true"]');
+      if (
+        paramPopupRef.current && 
+        !paramPopupRef.current.contains(target) &&
+        !isCanvasBlock
+      ) {
+        setSelectedBlock(null);
+      }
     };
 
-    if (openSignalGroups.length > 0) {
+    if (openSignalGroups.length > 0 || selectedBlock) {
       document.addEventListener("mousedown", handleClickOutside);
     }
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [openSignalGroups, setOpenSignalGroups]);
+  }, [openSignalGroups, setOpenSignalGroups, selectedBlock, setSelectedBlock]);
 
   const blocksPerRow = canvasWidth > 900 ? 6 : canvasWidth > 600 ? 4 : Math.max(1, Math.floor((canvasWidth - 30) / 150));
   const totalGridWidth = blocksPerRow * 150 - 30;
@@ -305,11 +318,29 @@ export default function Step2Conditions({
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[#0f0f0f]">
-      <div className="px-8 pt-8 pb-4">
-        <h3 className="text-xl font-black text-[#dfdfdf] tracking-tight">매매 로직 설계</h3>
-        <p className="text-sm text-[#a0a0a0] mt-1 font-medium">
-          보조지표와 AI 블록을 조합하여 매수 및 매도 신호를 정의합니다.
-        </p>
+      <div className="px-8 pt-8 pb-4 flex justify-between items-start">
+        <div>
+          <h3 className="text-xl font-black text-[#dfdfdf] tracking-tight">매매 로직 설계</h3>
+          <p className="text-sm text-[#a0a0a0] mt-1 font-medium">
+            보조지표와 AI 블록을 조합하여 매수 및 매도 신호를 정의합니다.
+          </p>
+        </div>
+        <div className="flex gap-6 mt-1">
+          <div className="flex items-center gap-3">
+            <span className="text-[11px] font-black text-[#EF4444] uppercase tracking-widest">매수 결합</span>
+            <div className="flex bg-black/40 rounded-lg p-1 border border-white/5">
+              <button onClick={() => setEntryLogic("AND")} className={`px-2.5 py-1 text-[10px] font-black rounded transition-all ${entryLogic === "AND" ? "bg-[rgb(55,122,244)] text-white shadow-[0_0_10px_rgba(55,122,244,0.4)]" : "text-[#a0a0a0] hover:text-white/60"}`}>AND</button>
+              <button onClick={() => setEntryLogic("OR")} className={`px-2.5 py-1 text-[10px] font-black rounded transition-all ${entryLogic === "OR" ? "bg-[rgb(55,122,244)] text-white shadow-[0_0_10px_rgba(55,122,244,0.4)]" : "text-[#a0a0a0] hover:text-white/60"}`}>OR</button>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-[11px] font-black text-[#3B82F6] uppercase tracking-widest">매도 결합</span>
+            <div className="flex bg-black/40 rounded-lg p-1 border border-white/5">
+              <button onClick={() => setExitLogic("AND")} className={`px-2.5 py-1 text-[10px] font-black rounded transition-all ${exitLogic === "AND" ? "bg-[rgb(55,122,244)] text-white shadow-[0_0_10px_rgba(55,122,244,0.4)]" : "text-[#a0a0a0] hover:text-white/60"}`}>AND</button>
+              <button onClick={() => setExitLogic("OR")} className={`px-2.5 py-1 text-[10px] font-black rounded transition-all ${exitLogic === "OR" ? "bg-[rgb(55,122,244)] text-white shadow-[0_0_10px_rgba(55,122,244,0.4)]" : "text-[#a0a0a0] hover:text-white/60"}`}>OR</button>
+            </div>
+          </div>
+        </div>
       </div>
       <div className="flex-1 flex min-h-0 overflow-hidden bg-[#0f0f0f] max-h-[640px]">
         {/* Left Sidebar */}
@@ -531,6 +562,7 @@ export default function Step2Conditions({
                 return (
                   <div
                     key={block.id}
+                    data-canvas-block="true"
                     onClick={() => {
                       setSelectedBlock(block);
                       setActiveParamTab('block');
@@ -563,39 +595,22 @@ export default function Step2Conditions({
                 );
               })}
             </div>
-          </div>
-        </div>
 
-        {/* Right Panel: Single Box Tabbed Layout */}
-        <div className="w-64 bg-black/20 backdrop-blur-2xl rounded-3xl flex flex-col relative z-20 mr-4 h-full overflow-hidden">
-          {/* Tab Headers */}
-          <div className="px-2 py-2 bg-[#0c0c0c] flex gap-1">
-            <button
-              onClick={(e) => { e.stopPropagation(); setActiveParamTab('block'); }}
-              className={`flex-1 py-3 text-xs font-black uppercase tracking-widest transition-all rounded-xl ${
-                activeParamTab === 'block'
-                  ? "text-white bg-white/5 shadow-inner"
-                  : "text-[#a0a0a0] hover:text-white/40"
-              }`}
-            >
-              블록 설정
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); setActiveParamTab('global'); }}
-              className={`flex-1 py-3 text-xs font-black uppercase tracking-widest transition-all rounded-xl ${
-                activeParamTab === 'global'
-                  ? "text-white bg-white/5 shadow-inner"
-                  : "text-[#a0a0a0] hover:text-white/40"
-              }`}
-            >
-              매매 로직
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto px-4 py-4 custom-scrollbar">
-            {activeParamTab === 'block' ? (
-              selectedBlock ? (
-                <div className="space-y-6 px-2">
+              <AnimatePresence>
+                {selectedBlock && (
+                  <motion.div
+                    ref={paramPopupRef}
+                    drag
+                    dragMomentum={false}
+                    dragConstraints={canvasRef}
+                    initial={{ opacity: 0, scale: 0.95, y: -20 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95, y: -20 }}
+                    className="absolute z-[60] w-[300px] bg-[#161616]/95 backdrop-blur-3xl rounded-3xl border border-white/10 shadow-2xl flex flex-col max-h-[520px]"
+                    style={{ top: '5%', right: '5%' }}
+                  >
+                    <div className="flex-1 overflow-y-auto p-4 custom-scrollbar text-left cursor-move">
+                      <div className="space-y-4 px-1">
                   <div className="p-2.5 bg-white/5 rounded-lg mb-1">
                     <div className="text-[10px] font-bold text-[rgb(59, 134, 247)] uppercase tracking-widest mb-0.5">Block Info</div>
                     <div className="text-sm text-[#dfdfdf] font-bold tracking-tight">{signalBlocks[selectedBlock.blockId]?.name || selectedBlock.blockId}</div>
@@ -753,12 +768,12 @@ export default function Step2Conditions({
                               </div>
                             </button>
                           ) : (
-                            <div className="bg-white/5 rounded-xl p-4 group/input transition-all">
-                              <div className="flex justify-between items-center mb-3 px-1">
-                                <span className="text-lg font-bold text-white tabular-nums tracking-tight">{currentValue}</span>
-                                {param.suffix && <span className="text-sm font-bold text-white/20 uppercase tracking-widest">{param.suffix}</span>}
+                            <div className="bg-white/5 rounded-lg py-1.5 px-3 group/input transition-all">
+                              <div className="flex justify-between items-center mb-1 px-1">
+                                <span className="text-sm font-bold text-white tabular-nums tracking-tight">{currentValue}</span>
+                                {param.suffix && <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest">{param.suffix}</span>}
                               </div>
-                              <div className="px-1 space-y-2">
+                              <div className="px-1 space-y-0.5">
                                 <input 
                                   type="range"
                                   min={param.min ?? 0}
@@ -774,8 +789,8 @@ export default function Step2Conditions({
                                   className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[rgb(59, 134, 247)] hover:accent-[#0A84FF] transition-all"
                                 />
                                 <div className="flex justify-between items-center opacity-20 group-hover/input:opacity-40 transition-opacity">
-                                  <span className="text-xs font-bold text-white tabular-nums">{param.min ?? 0}</span>
-                                  <span className="text-xs font-bold text-white tabular-nums">{param.max ?? 100}</span>
+                                  <span className="text-[10px] font-bold text-white tabular-nums">{param.min ?? 0}</span>
+                                  <span className="text-[10px] font-bold text-white tabular-nums">{param.max ?? 100}</span>
                                 </div>
                               </div>
                             </div>
@@ -784,7 +799,7 @@ export default function Step2Conditions({
                       );
                     });
                   })()}
-                  <div className="pt-4 mt-2">
+                  <div className="pt-4 mt-2 flex gap-3">
                     <button 
                       onClick={() => {
                         const block = selectedBlock!;
@@ -800,108 +815,90 @@ export default function Step2Conditions({
                           setSelectedBlock({ ...block, params: newParams, type: newType });
                         }
                       }}
-                      className="w-full py-3.5 bg-[#161616] border border-white/5 rounded-2xl text-sm font-bold text-white hover:bg-[#1f1f1f] hover:border-white/10 transition-all flex items-center justify-center gap-2 uppercase tracking-widest active:scale-95"
+                      onMouseEnter={(e) => setHoveredEditIcon({ label: "초기화", rect: e.currentTarget.getBoundingClientRect() })}
+                      onMouseLeave={() => setHoveredEditIcon(null)}
+                      className="px-4 py-3.5 bg-[#161616] border border-white/5 rounded-2xl text-sm font-bold text-white hover:bg-[#1f1f1f] hover:border-white/10 transition-all flex items-center justify-center gap-2 uppercase tracking-widest active:scale-95"
                     >
-                      <ArrowPathIcon className="w-3.5 h-3.5" />
-                      초기값으로 복원
+                      <ArrowPathIcon className="w-4 h-4" />
+                    </button>
+                    <button 
+                      onClick={() => setSelectedBlock(null)}
+                      className="flex-1 py-3.5 bg-[rgb(59,134,247)] hover:bg-[rgb(56,122,244)] rounded-2xl text-sm font-black text-white transition-all shadow-[0_10px_30px_rgba(0,122,255,0.2)] hover:shadow-[0_15px_40px_rgba(0,122,255,0.4)] flex items-center justify-center uppercase tracking-widest active:scale-95"
+                    >
+                      확인
                     </button>
                   </div>
                 </div>
-              ) : (
-                <div className="h-full flex flex-col items-center pt-24 text-center p-6 space-y-6">
-                  <div className="w-20 h-20 rounded-[28px] bg-white/5 flex items-center justify-center backdrop-blur-xl border border-white/5">
-                    <CursorArrowRaysIcon className="w-8 h-8 text-white/10" />
-                  </div>
-                  <div className="space-y-2">
-                    <h4 className="text-sm font-bold text-[#dfdfdf] uppercase tracking-tight">블록 미선택</h4>
-                    <p className="text-[11px] text-[#a0a0a0] font-bold uppercase tracking-tight leading-relaxed">캔버스에서 설정할 블록을 <br /> 선택해주세요.</p>
-                  </div>
-                </div>
-              )
-            ) : (
-              <div className="flex-1 flex flex-col justify-center space-y-6 py-4">
-                <div className="bg-white/5 rounded-2xl p-8 backdrop-blur-sm border border-white/5 flex flex-col justify-center">
-                  <div className="flex items-center gap-2 mb-6">
-                    <div className="w-2 h-2 rounded-full bg-[#007AFF] shadow-[0_0_12px_rgba(0,122,255,0.8)]" />
-                    <label className="text-[13px] font-black text-[#dfdfdf] uppercase tracking-widest">매수 결합 로직</label>
-                  </div>
-                  <div className="flex bg-black/40 rounded-xl p-2 mb-6">
-                    <button onClick={() => setEntryLogic("AND")} className={`flex-1 py-4 text-[13px] font-black rounded-lg transition-all ${entryLogic === "AND" ? "bg-[rgb(55,122,244)] text-white shadow-[0_0_20px_rgba(55,122,244,0.4)] scale-[1.02]" : "text-[#a0a0a0] hover:text-white/60"}`}>AND</button>
-                    <button onClick={() => setEntryLogic("OR")} className={`flex-1 py-4 text-[13px] font-black rounded-lg transition-all ${entryLogic === "OR" ? "bg-[rgb(55,122,244)] text-white shadow-[0_0_20px_rgba(55,122,244,0.4)] scale-[1.02]" : "text-[#a0a0a0] hover:text-white/60"}`}>OR</button>
-                  </div>
-                  <p className="text-[12px] text-[#a0a0a0] font-black uppercase tracking-tight leading-relaxed text-center px-2">{entryLogic === "AND" ? "모든 매수 블록의 조건이 동시에 충족되어야 합니다." : "매수 블록 중 하나만 충족되어도 신호가 발생합니다."}</p>
-                </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
-                <div className="bg-white/5 rounded-2xl p-8 backdrop-blur-sm border border-white/5 flex flex-col justify-center">
-                  <div className="flex items-center gap-2 mb-6">
-                    <div className="w-2 h-2 rounded-full bg-[#FF3B30] shadow-[0_0_15px_rgba(255,59,48,0.6)]" />
-                    <label className="text-[13px] font-black text-[#dfdfdf] uppercase tracking-widest">매도 결합 로직</label>
-                  </div>
-                  <div className="flex bg-black/40 rounded-xl p-2 mb-6">
-                    <button onClick={() => setExitLogic("AND")} className={`flex-1 py-4 text-[13px] font-black rounded-lg transition-all ${exitLogic === "AND" ? "bg-[rgb(55,122,244)] text-white shadow-[0_0_20px_rgba(55,122,244,0.4)] scale-[1.02]" : "text-[#a0a0a0] hover:text-white/60"}`}>AND</button>
-                    <button onClick={() => setExitLogic("OR")} className={`flex-1 py-4 text-[13px] font-black rounded-lg transition-all ${exitLogic === "OR" ? "bg-[rgb(55,122,244)] text-white shadow-[0_0_20px_rgba(55,122,244,0.4)] scale-[1.02]" : "text-[#a0a0a0] hover:text-white/60"}`}>OR</button>
-                  </div>
-                  <p className="text-[12px] text-[#a0a0a0] font-black uppercase tracking-tight leading-relaxed text-center px-2">{exitLogic === "AND" ? "모든 매도 블록의 조건이 동시에 충족되어야 합니다." : "매도 블록 중 하나만 충족되어도 신호가 발생합니다."}</p>
-                </div>
-              </div>
-            )}
           </div>
         </div>
-      </div>
 
-      <div className="h-8" />
+        {/* Right Panel: Summary Section */}
+        <div className="w-72 flex flex-col relative z-20 mr-4 h-full self-stretch">
+          <div className="bg-[#121212] border border-white/10 rounded-3xl p-6 shadow-2xl flex flex-col flex-1 relative overflow-hidden h-full">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-[rgb(59,134,247)]/10 rounded-full blur-[100px] pointer-events-none" />
 
-      {/* macOS-style Bottom Toolbar */}
-      <div className="sticky bottom-0 left-0 right-0 bg-[#0f0f0f] backdrop-blur-3xl px-8 py-5 z-[60]">
-        <div className="max-w-full mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-12">
-            <div className="flex items-center gap-6">
-              <div className="w-16 h-16 bg-[rgb(59, 134, 247)] rounded-2xl flex items-center justify-center shadow-[0_0_40px_rgba(0,122,255,0.4)]">
-                <CpuChipIcon className="w-8 h-8 text-white" />
+            {/* Summary Header */}
+            <div className="flex items-center gap-4 border-b border-white/10 pb-6 mb-6 relative z-10">
+              <div className="w-12 h-12 bg-black/40 rounded-xl flex items-center justify-center border border-white/10">
+                <CubeIcon className="w-6 h-6 text-[rgb(59,134,247)]" />
               </div>
-              <div className="space-y-1">
-                <h4 className="text-xl font-black text-[#dfdfdf] tracking-tight uppercase">로직 설계 요약</h4>
+              <div>
+                <h4 className="text-xl font-black text-white tracking-tight uppercase">매매 로직 요약</h4>
               </div>
             </div>
             
-            <div className="h-12 w-px bg-white/5" />
-            
-            <div className="flex gap-12">
-              <div className="flex flex-col">
-                <span className="text-xs font-bold text-[rgb(59, 134, 247)] uppercase tracking-widest mb-1.5 opacity-80">총 블록</span>
-                <span className="text-2xl font-bold text-[#dfdfdf] tabular-nums tracking-tight">{canvasBlocks.length}개</span>
+            <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-4 space-y-6 relative z-10">
+              
+              <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
+                <span className="text-[11px] font-black text-[rgb(59,134,247)] uppercase tracking-widest block mb-2 opacity-90">총 블록</span>
+                <span className="text-xl font-black text-white tracking-tight">{canvasBlocks.length}개</span>
               </div>
-              <div className="flex flex-col">
-                <span className="text-xs font-bold text-[rgb(59, 134, 247)] uppercase tracking-widest mb-1.5 opacity-80">매수 로직</span>
-                <span className="text-2xl font-bold text-[#dfdfdf] tabular-nums tracking-tight">{entryLogic}</span>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-xs font-bold text-[rgb(59, 134, 247)] uppercase tracking-widest mb-1.5 opacity-80">매도 로직</span>
-                <span className="text-2xl font-bold text-[#dfdfdf] tabular-nums tracking-tight">{exitLogic}</span>
-              </div>
-            </div>
-          </div>
 
-          <div className="flex items-center gap-4">
-            <button 
-              onClick={onPrev} 
-              className="px-8 py-5 bg-[#161616] border border-white/5 text-white rounded-2xl text-lg font-black hover:bg-[#1f1f1f] hover:border-white/10 transition-all flex items-center gap-4 active:scale-95"
-            >
-              <ArrowLeftIcon className="w-6 h-6" /> 이전
-            </button>
-            <button 
-              onClick={onNext} 
-              className="group px-12 py-5 bg-[#161616] text-white rounded-2xl text-lg font-black hover:bg-[#1f1f1f] transition-all flex items-center gap-4 shadow-[0_20px_40px_rgba(0,0,0,0.3)] hover:scale-105 active:scale-95"
-            >
-              포지션 설계하기 <ArrowRightIcon className="w-6 h-6 group-hover:translate-x-2 transition-transform duration-500 text-white" />
-            </button>
-          </div>
+              <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
+                <span className="text-[11px] font-black text-[rgb(59,134,247)] uppercase tracking-widest block mb-2 opacity-90">매수 로직</span>
+                <span className="text-xl font-black text-white tracking-tight tabular-nums">
+                  {entryLogic}
+                </span>
+              </div>
+
+              <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
+                <span className="text-[11px] font-black text-[rgb(59,134,247)] uppercase tracking-widest block mb-2 opacity-90">매도 로직</span>
+                <span className="text-xl font-black text-white tracking-tight">
+                  {exitLogic}
+                </span>
+              </div>
+
+            </div>
+
+            <div className="pt-4 border-t border-white/10 mt-auto flex gap-3 relative z-10">
+              <button 
+                onClick={onPrev} 
+                className="px-4 py-4 bg-white/5 hover:bg-white/10 text-white rounded-2xl text-sm font-black transition-all flex items-center justify-center border border-white/5 hover:border-white/10"
+              >
+                <ArrowLeftIcon className="w-5 h-5" />
+              </button>
+              <button 
+                onClick={onNext} 
+                className="flex-1 group px-5 py-4 bg-[rgb(59,134,247)] hover:bg-[rgb(56,122,244)] text-white rounded-2xl text-sm font-black transition-all flex items-center justify-between shadow-[0_10px_30px_rgba(0,122,255,0.2)] hover:shadow-[0_15px_40px_rgba(0,122,255,0.4)] hover:-translate-y-0.5"
+              >
+                <span>포지션 설계하기</span>
+                <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center group-hover:bg-white/30 transition-colors">
+                  <ArrowRightIcon className="w-4 h-4 text-white group-hover:translate-x-0.5 transition-transform" />
+                </div>
+              </button>
+            </div>
         </div>
       </div>
+    </div>
 
       {hoveredEditIcon && (
-        <div className="fixed z-[1000] pointer-events-none" style={{ left: hoveredEditIcon.rect.left + (hoveredEditIcon.rect.width / 2), top: hoveredEditIcon.rect.bottom + 8, transform: 'translateX(-50%)' }}>
-          <div className="px-3 py-1.5 bg-[#0a0a0a] rounded-lg shadow-xl animate-in fade-in zoom-in-95 slide-in-from-top-2 duration-200">
+        <div className="fixed z-[1000] pointer-events-none" style={{ left: hoveredEditIcon.rect.left + (hoveredEditIcon.rect.width / 2), top: hoveredEditIcon.rect.top - 8, transform: 'translate(-50%, -100%)' }}>
+          <div className="px-3 py-1.5 bg-[#0a0a0a] rounded-lg shadow-xl animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-200">
             <p className="text-[11px] text-white/40 font-black uppercase tracking-widest whitespace-nowrap">{hoveredEditIcon.label}</p>
           </div>
         </div>

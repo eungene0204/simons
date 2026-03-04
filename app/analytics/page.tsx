@@ -125,13 +125,7 @@ function AnalyticsContent() {
     <DashboardLayout userName={"User"}>
       <div className="px-8 py-8 space-y-8 max-w-full mx-auto overflow-x-hidden w-full min-w-0">
         {/* Header */}
-        <div className="flex-none flex items-center justify-between px-8">
-          <div>
-            <h1 className="text-2xl font-bold text-white mb-2">전략연구소</h1>
-            <p className="text-sm text-gray-400">
-              나만의 매매전략을 만들어보세요
-            </p>
-          </div>
+        <div className="flex-none flex items-center justify-end px-8">
             <div className="flex items-center gap-3">
               {savedStrategies.length >= 2 && (
                 <>
