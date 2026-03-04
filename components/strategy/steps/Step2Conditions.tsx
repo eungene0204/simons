@@ -13,6 +13,7 @@ import {
   ArrowLeft,
   Cube,
   Sliders,
+  Question,
   Sparkle,
   ShieldWarning,
   Cpu,
@@ -151,9 +152,9 @@ export default function Step2Conditions({
     };
   }, [openSignalGroups, setOpenSignalGroups, selectedBlock, setSelectedBlock]);
 
-  const blocksPerRow = canvasWidth > 1200 ? 8 : canvasWidth > 900 ? 6 : canvasWidth > 600 ? 4 : Math.max(1, Math.floor((canvasWidth - 30) / 150));
-  const totalGridWidth = blocksPerRow * 150 - 30;
-  const sidePadding = Math.max(15, (canvasWidth - totalGridWidth) / 2);
+  const blocksPerRow = canvasWidth > 1200 ? 6 : canvasWidth > 900 ? 4 : canvasWidth > 600 ? 3 : Math.max(1, Math.floor((canvasWidth - 40) / 220));
+  const totalGridWidth = blocksPerRow * 220 - 60;
+  const sidePadding = Math.max(20, (canvasWidth - totalGridWidth) / 2);
 
   const groupedSignalLibrary = useMemo(() => {
     return {
@@ -315,72 +316,16 @@ export default function Step2Conditions({
   const exitBlocksCount = canvasBlocks.filter(b => b.type === 'exit').length;
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[#0a0a0a] font-sans">
-      {/* Top Header Section - Tiled Header */}
-      <div className="flex shrink-0 items-center justify-between bg-[#111111] border-b border-white/5 px-8 py-5 shadow-xl relative z-40">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-[rgb(59,134,247)]/10 rounded-xl flex items-center justify-center border border-[rgb(59,134,247)]/20 shadow-[0_0_15px_rgba(59,134,247,0.1)]">
-            <Cpu size={28} className="text-[rgb(59,134,247)]" />
-          </div>
-          <div>
-            <h3 className="text-2xl font-black text-white tracking-tight">매매 로직 설계</h3>
-            <p className="text-xs text-white/40 mt-1 font-black uppercase tracking-[0.2em]">
-              매매 전략 로직을 설계하세요
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-6">
-          {/* Entry Logic Switcher */}
-          <div className="flex items-center gap-3 bg-black/20 rounded-xl p-1.5 border border-white/5">
-            <span className="text-[11px] font-black text-red-500/80 uppercase tracking-widest px-2">진입</span>
-            <div className="flex bg-[#161616] rounded-lg p-0.5 border border-white/5 shadow-inner">
-              <button 
-                onClick={() => setEntryLogic("AND")} 
-                className={`px-4 py-1.5 text-xs font-black rounded-md transition-all duration-300 ${entryLogic === "AND" ? "bg-[rgb(55,122,244)] text-white shadow-lg" : "text-white/30 hover:text-white/60"}`}
-              >
-                AND
-              </button>
-              <button 
-                onClick={() => setEntryLogic("OR")} 
-                className={`px-4 py-1.5 text-xs font-black rounded-md transition-all duration-300 ${entryLogic === "OR" ? "bg-[rgb(55,122,244)] text-white shadow-lg" : "text-white/30 hover:text-white/60"}`}
-              >
-                OR
-              </button>
-            </div>
-          </div>
-
-          {/* Exit Logic Switcher */}
-          <div className="flex items-center gap-3 bg-black/20 rounded-xl p-1.5 border border-white/5">
-            <span className="text-[11px] font-black text-blue-500/80 uppercase tracking-widest px-2">청산</span>
-            <div className="flex bg-[#161616] rounded-lg p-0.5 border border-white/5 shadow-inner">
-              <button 
-                onClick={() => setExitLogic("AND")} 
-                className={`px-4 py-1.5 text-xs font-black rounded-md transition-all duration-300 ${exitLogic === "AND" ? "bg-[rgb(55,122,244)] text-white shadow-lg" : "text-white/30 hover:text-white/60"}`}
-              >
-                AND
-              </button>
-              <button 
-                onClick={() => setExitLogic("OR")} 
-                className={`px-4 py-1.5 text-xs font-black rounded-md transition-all duration-300 ${exitLogic === "OR" ? "bg-[rgb(55,122,244)] text-white shadow-lg" : "text-white/30 hover:text-white/60"}`}
-              >
-                OR
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[#0a0a0a] font-sans relative">
       {/* Main Tiled Grid */}
       <div className="flex-1 grid grid-cols-12 gap-0 min-h-0 overflow-hidden">
         
-        {/* Left Side: Library (col-span-2) */}
-        <div className="col-span-2 bg-[#0d0d0d] border-r border-white/5 flex flex-col shadow-2xl relative z-30">
+        {/* Left Side: Library (col-span-3) */}
+        <div className="col-span-3 bg-[#0d0d0d] border-r border-white/5 flex flex-col shadow-2xl relative z-30">
           <div className="p-5 border-b border-white/5 bg-white/[0.01]">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3.5">
-                <SquaresFour size={32} className="text-[rgb(59,134,247)]" />
-                <h3 className="text-xl font-black text-white/90 uppercase tracking-tight">라이브러리</h3>
+                <h3 className="text-xl font-black text-white/90 uppercase tracking-tight">블록 라이브러리</h3>
               </div>
               <button
                 type="button"
@@ -401,7 +346,7 @@ export default function Step2Conditions({
               }`}
             >
               <MagnifyingGlass size={20} />
-              <span className="text-[11px] font-black uppercase tracking-widest leading-none pt-0.5">블록 검색...</span>
+              <span className="text-sm font-black uppercase tracking-widest leading-none pt-0.5">블록 검색...</span>
             </button>
           </div>
 
@@ -420,7 +365,7 @@ export default function Step2Conditions({
                       prev.includes(group.key) ? [] : [group.key]
                     )}
                     className={`w-full flex items-center justify-between px-3 py-3.5 rounded-xl transition-all duration-300 ${
-                      isOpen ? "bg-white/[0.05] text-white" : "text-white/20 hover:text-white/40 hover:bg-white/[0.02]"
+                      isOpen ? "bg-white/[0.05] text-white/70" : "text-white/70 hover:text-white hover:bg-white/[0.02]"
                     }`}
                   >
                     <div className="flex items-center gap-2.5">
@@ -449,12 +394,12 @@ export default function Step2Conditions({
                                   e.dataTransfer.setData("blockId", block.id);
                                   e.dataTransfer.setData("blockType", blockDef?.category || "");
                                 }}
-                                className="group p-3 bg-white/[0.02] hover:bg-[rgb(59,134,247)] rounded-xl text-sm font-black text-white/30 hover:text-white cursor-move transition-all flex items-center justify-between border border-transparent hover:border-white/10"
+                                className="group p-3 bg-white/[0.02] hover:bg-[rgb(59,134,247)] rounded-xl text-sm font-black text-white cursor-move transition-all flex items-center justify-between border border-transparent hover:border-white/10"
                               >
                                 <span className="truncate pr-2 tracking-tight">{block.name}</span>
                                 <Info 
                                   size={16}
-                                  className="text-white/5 group-hover:text-white/40 cursor-help"
+                                  className="text-white/40 group-hover:text-white/80 cursor-help"
                                   onMouseEnter={(e) => setHoveredInfo({ id: block.id, rect: e.currentTarget.getBoundingClientRect() })}
                                   onMouseLeave={() => setHoveredInfo(null)}
                                 />
@@ -471,8 +416,8 @@ export default function Step2Conditions({
           </div>
         </div>
 
-        {/* Center: Canvas (col-span-8) */}
-        <div className="col-span-8 bg-[#0a0a0a] border-r border-white/5 overflow-hidden relative shadow-inner flex flex-col transition-all duration-500 z-20">
+        {/* Center: Canvas (col-span-9) */}
+        <div className="col-span-9 bg-[#0a0a0a] overflow-hidden relative shadow-inner flex flex-col transition-all duration-500 z-20 pt-8">
           {/* Grid Background */}
           <div className="absolute inset-0 pointer-events-none opacity-[0.03]" 
                style={{ 
@@ -510,7 +455,7 @@ export default function Step2Conditions({
             )}
 
             <div className="absolute inset-0 overflow-auto custom-scrollbar">
-              <div className="w-full h-full relative" style={{ minWidth: canvasWidth, minHeight: Math.ceil(canvasBlocks.length / blocksPerRow) * 150 + 100 }}>
+              <div className="w-full h-full relative" style={{ minWidth: canvasWidth, minHeight: Math.ceil(canvasBlocks.length / blocksPerRow) * 200 + 120 }}>
                 {/* SVG Connections Layer */}
                 <svg className="absolute inset-0 w-full h-full pointer-events-none z-0">
                   <defs>
@@ -523,42 +468,35 @@ export default function Step2Conditions({
                       <feComposite in="SourceGraphic" in2="blur" operator="over" />
                     </filter>
                   </defs>
-                  {canvasBlocks.map((block, index) => {
+                   {canvasBlocks.map((block, index) => {
                     if (index === canvasBlocks.length - 1) return null;
                     const nextBlock = canvasBlocks[index + 1];
-                    const isEntryOrFilter = (b: CanvasBlock) => b.type === "entry" || b.type === "filter";
-                    const isExit = (b: CanvasBlock) => b.type === "exit";
-                    
-                    let shouldConnect = false;
-                    let color = "#4B5563";
+
+                    // Connect only if: same signal type AND both blocks use AND logic
+                    const sameType = block.type === nextBlock.type;
+                    const bothAnd = (block.logic ?? "AND") === "AND" && (nextBlock.logic ?? "AND") === "AND";
+                    if (!sameType || !bothAnd) return null;
+
+                    let color = "#6B7280";
                     let filterUrl = "";
-
-                    if (isEntryOrFilter(block) && isEntryOrFilter(nextBlock)) {
-                      shouldConnect = entryLogic === "AND";
-                      color = "#EF4444";
-                      filterUrl = "url(#glow-red)";
-                    } else if (isExit(block) && isExit(nextBlock)) {
-                      shouldConnect = exitLogic === "AND";
-                      color = "#3B82F6";
-                      filterUrl = "url(#glow-blue)";
-                    }
-
-                    if (!shouldConnect) return null;
+                    if (block.type === "entry") { color = "#EF4444"; filterUrl = "url(#glow-red)"; }
+                    else if (block.type === "exit") { color = "#3B82F6"; filterUrl = "url(#glow-blue)"; }
+                    else if (block.type === "filter") { color = "#22C55E"; filterUrl = ""; }
 
                     const col = index % blocksPerRow;
                     const row = Math.floor(index / blocksPerRow);
                     const nextCol = (index + 1) % blocksPerRow;
                     const nextRow = Math.floor((index + 1) / blocksPerRow);
-                    const startX = sidePadding + col * 150 + 120;
-                    const startY = 80 + row * 140 + 35;
+                    const startX = sidePadding + col * 220 + 150;
+                    const startY = 100 + row * 200 + 45;
                     let endX, endY;
                     const isNewRow = nextRow > row;
                     if (isNewRow) {
-                      endX = sidePadding + nextCol * 150 + 60;
-                      endY = 80 + nextRow * 140;
+                      endX = sidePadding + nextCol * 220 + 80;
+                      endY = 100 + nextRow * 200;
                     } else {
-                      endX = sidePadding + nextCol * 150;
-                      endY = 80 + nextRow * 140 + 35;
+                      endX = sidePadding + nextCol * 220;
+                      endY = 100 + nextRow * 200 + 45;
                     }
                     const dx = endX - startX;
                     let pathD;
@@ -584,8 +522,8 @@ export default function Step2Conditions({
                 {canvasBlocks.map((block, index) => {
                   const colIdx = index % blocksPerRow;
                   const rowIdx = Math.floor(index / blocksPerRow);
-                  const xOffset = sidePadding + colIdx * 150;
-                  const yOffset = 80 + rowIdx * 140;
+                  const xOffset = sidePadding + colIdx * 220;
+                  const yOffset = 100 + rowIdx * 200;
                   const isSelected = selectedBlock?.id === block.id;
 
                   let typeColor = "rgb(100,155,107)";
@@ -615,7 +553,7 @@ export default function Step2Conditions({
                       style={{ 
                         left: `${xOffset}px`, 
                         top: `${yOffset}px`, 
-                        width: "140px",
+                        width: "160px",
                         boxShadow: isSelected ? `0 20px 40px -10px rgba(0,0,0,0.5), 0 0 20px -5px ${typeColor}40` : ""
                       }}
                     >
@@ -648,165 +586,195 @@ export default function Step2Conditions({
             </div>
           </div>
         </div>
+      </div>
 
-        {/* Right Side: Shared Panel (col-span-2) */}
-        <div className="col-span-2 bg-[#0d0d0d] flex flex-col shadow-2xl relative z-30 overflow-hidden">
-          <div className="flex-1 flex flex-col min-h-0">
-            <AnimatePresence mode="wait">
-              {selectedBlock ? (
-                /* Parameter Editor View */
-                <motion.div
-                  key="params"
-                  initial={{ x: 20, opacity: 0 }}
-                  animate={{ x: 0, opacity: 1 }}
-                  exit={{ x: 20, opacity: 0 }}
-                  className="flex-1 flex flex-col min-h-0"
+      {/* Floating: Block Param Editor */}
+      <AnimatePresence>
+        {selectedBlock && (
+          <motion.div
+            ref={paramPopupRef}
+            key="params"
+            initial={{ x: 20, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: 20, opacity: 0 }}
+            className="absolute top-4 right-4 w-72 bg-[#0d0d0d] border border-white/10 rounded-2xl shadow-2xl flex flex-col z-50 overflow-hidden"
+          >
+            <div className="p-5 border-b border-white/5 bg-white/[0.01]">
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-3.5">
+                  <Sliders size={24} className="text-[rgb(59,134,247)]" />
+                  <h3 className="text-sm font-black text-white/90 uppercase tracking-tight">속성</h3>
+                </div>
+                <button 
+                  onClick={() => setSelectedBlock(null)}
+                  className="p-1.5 hover:bg-white/5 rounded-xl transition-colors text-white/20 hover:text-white"
                 >
-                  <div className="p-5 border-b border-white/5 bg-white/[0.01]">
-                    <div className="flex items-center justify-between mb-5">
-                      <div className="flex items-center gap-3.5">
-                        <Sliders size={32} className="text-[rgb(59,134,247)]" />
-                        <h3 className="text-xl font-black text-white/90 uppercase tracking-tight">속성</h3>
-                      </div>
-                      <button 
-                        onClick={() => setSelectedBlock(null)}
-                        className="p-1.5 hover:bg-white/5 rounded-xl transition-colors text-white/20 hover:text-white"
-                      >
-                        <X size={20} />
-                      </button>
-                    </div>
+                  <X size={16} />
+                </button>
+              </div>
 
-                    <div className="bg-black/40 rounded-2xl p-4 border border-white/5 shadow-inner">
-                      <h4 className="text-sm font-black text-white mb-2 uppercase tracking-tight">{signalBlocks[selectedBlock.blockId]?.name}</h4>
-                      <p className="text-[11px] text-white/20 font-medium leading-relaxed">파라미터를 설정하세요.</p>
-                    </div>
-                  </div>
+              <div className="bg-black/40 rounded-2xl p-4 border border-white/5 shadow-inner">
+                <h4 className="text-sm font-black text-white mb-2 uppercase tracking-tight">{signalBlocks[selectedBlock.blockId]?.name}</h4>
+                {signalBlocks[selectedBlock.blockId]?.description ? (
+                  <p className="text-[11px] text-white/50 font-medium leading-relaxed">{signalBlocks[selectedBlock.blockId].description}</p>
+                ) : (
+                  <p className="text-[11px] text-white/20 font-medium leading-relaxed">파라미터를 설정하세요.</p>
+                )}
+              </div>
 
-                  <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-6">
-                    {(() => {
-                      const blockDef = signalBlocks[selectedBlock.blockId];
-                      if (!blockDef || !blockDef.paramSchema) return <div className="text-sm text-white/20 text-center italic">설정 가능한 파라미터가 없습니다</div>;
-
-                      return Object.entries(blockDef.paramSchema).map(([key, param]) => {
-                        const value = selectedBlock.params[key] ?? blockDef.defaultParams[key];
-                        return (
-                          <div key={key} className="space-y-3 group">
-                            <div className="flex items-center justify-between px-1">
-                              <label className="text-[11px] font-black text-white/30 uppercase tracking-[0.15em]">{param.label}</label>
-                              <span className="text-sm font-black text-[rgb(59,134,247)] tabular-nums">{value}{param.suffix}</span>
-                            </div>
-                            
-                            <div className="flex items-center px-3 py-3.5 bg-black/40 border border-white/5 rounded-xl group-hover:border-white/10 transition-all shadow-inner">
-                              <input
-                                type="text"
-                                value={value === 0 ? "" : value}
-                                placeholder="0"
-                                onChange={(e) => {
-                                  const rawValue = e.target.value;
-                                  const val = rawValue === "" ? 0 : isNaN(parseFloat(rawValue)) ? 0 : parseFloat(rawValue);
-                                  const newParams = { ...selectedBlock.params, [key]: val };
-                                  setCanvasBlocks(canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, params: newParams } : b));
-                                  setSelectedBlock({ ...selectedBlock, params: newParams });
-                                }}
-                                className="flex-1 bg-transparent text-sm font-black text-white outline-none tabular-nums placeholder:text-white/[0.05]"
-                              />
-                              {param.suffix && (
-                                <span className="text-xs font-black text-white/20 uppercase tracking-widest">{param.suffix}</span>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      });
-                    })()}
-                  </div>
-
-                  <div className="p-5 bg-white/[0.01] border-t border-white/5 space-y-3">
-                    <button 
-                      onClick={() => setSelectedBlock(null)}
-                      className="w-full py-4 rounded-xl bg-[rgb(59,134,247)] text-white text-xs font-black uppercase tracking-widest hover:bg-[#4B9FFF] transition-all shadow-xl shadow-blue-500/10 active:scale-[0.98]"
-                    >
-                      변경사항 적용
-                    </button>
-                    <button 
+              {/* Per-block AND/OR logic selector */}
+              <div className="mt-4 flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm font-black text-white/40 uppercase tracking-widest">로직 종류</span>
+                  <Question
+                    size={14}
+                    className="text-white/30 hover:text-blue-400 cursor-help transition-colors"
+                    onMouseEnter={(e) => setHoveredParam({
+                      label: "로직 종류",
+                      tooltip: "AND: 전략 내 모든 블록의 조건이 동시에 충족될 때만 매매 신호가 발생합니다. 조건이 더 까다롭지만 신뢰도가 높습니다.\nOR: 이 블록 하나의 조건만 충족되어도 바로 매매 신호가 발생합니다. 더 자주 매매가 이루어집니다.",
+                      rect: e.currentTarget.getBoundingClientRect()
+                    })}
+                    onMouseLeave={() => setHoveredParam(null)}
+                  />
+                </div>
+                <div className="flex bg-black/40 rounded-lg p-0.5 border border-white/5">
+                  {(["AND", "OR"] as const).map((op) => (
+                    <button
+                      key={op}
                       onClick={() => {
-                        setCanvasBlocks(canvasBlocks.filter(b => b.id !== selectedBlock?.id));
-                        setSelectedBlock(null);
+                        const updated = canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, logic: op } : b);
+                        setCanvasBlocks(updated);
+                        setSelectedBlock({ ...selectedBlock, logic: op });
                       }}
-                      className="w-full py-4 rounded-xl text-white/20 text-xs font-black uppercase tracking-widest hover:text-red-500 hover:bg-red-500/5 transition-all"
+                      className={`px-4 py-1.5 text-xs font-black rounded-md transition-all duration-200 ${
+                        (selectedBlock.logic ?? "AND") === op
+                          ? "bg-[rgb(59,134,247)] text-white shadow"
+                          : "text-white/30 hover:text-white/60"
+                      }`}
                     >
-                      블록 삭제
+                      {op}
                     </button>
-                  </div>
-                </motion.div>
-              ) : (
-                /* Logic Summary View - Redesigned to match Step 1 */
-                <motion.div
-                  key="summary"
-                  initial={{ x: -20, opacity: 0 }}
-                  animate={{ x: 0, opacity: 1 }}
-                  exit={{ x: -20, opacity: 0 }}
-                  className="flex-1 flex flex-col min-h-0 p-8"
-                >
-                  <div className="flex items-center gap-3 mb-10">
-                    <ChartBar size={24} className="text-blue-500" />
-                    <h3 className="text-base font-black text-white/60 uppercase tracking-widest">매매 로직 요약</h3>
-                  </div>
+                  ))}
+                </div>
+              </div>
+            </div>
 
-                  <div className="space-y-8 flex-1 overflow-y-auto custom-scrollbar">
-                    {/* Total Blocks Section */}
-                    <div>
-                      <div className="flex items-center gap-2 mb-3">
-                        <SquaresFour size={20} className="text-blue-500" />
-                        <span className="text-sm font-black text-white/40 uppercase tracking-widest">전체 블록 수</span>
+            <div className="overflow-y-auto custom-scrollbar p-5 space-y-6 max-h-80">
+              {(() => {
+                const blockDef = signalBlocks[selectedBlock.blockId];
+                if (!blockDef || !blockDef.paramSchema) return <div className="text-sm text-white/20 text-center italic">설정 가능한 파라미터가 없습니다</div>;
+
+                return Object.entries(blockDef.paramSchema).map(([key, param]) => {
+                  const value = selectedBlock.params[key] ?? blockDef.defaultParams[key];
+                  return (
+                    <div key={key} className="space-y-2.5 group">
+                      <div className="flex items-center justify-between px-1">
+                        <div className="flex items-center gap-1.5">
+                          <label className="text-sm font-black text-white/50 uppercase tracking-[0.15em]">{param.label}</label>
+                          {param.tooltip && (
+                            <div className="relative">
+                              <Question
+                                size={13}
+                                className="text-white/30 hover:text-blue-400 cursor-help transition-colors"
+                                onMouseEnter={(e) => setHoveredParam({ label: param.label, tooltip: param.tooltip!, rect: e.currentTarget.getBoundingClientRect() })}
+                                onMouseLeave={() => setHoveredParam(null)}
+                              />
+                            </div>
+                          )}
+                        </div>
+                        {param.type !== "select" && (
+                          <span className="text-sm font-black text-[rgb(59,134,247)] tabular-nums">{value}{param.suffix}</span>
+                        )}
                       </div>
-                      <span className="text-2xl font-black text-white block pl-8 tracking-tight">{canvasBlocks.length}개</span>
+
+                      {param.type === "select" && param.options ? (
+                        <select
+                          value={value}
+                          onChange={(e) => {
+                            const newVal = e.target.value;
+                            const newParams = { ...selectedBlock.params, [key]: newVal };
+                            // If signalType changes, also update the block's type
+                            const newType = key === "signalType"
+                              ? (newVal === "buy" ? "entry" : newVal === "sell" ? "exit" : selectedBlock.type)
+                              : selectedBlock.type;
+                            setCanvasBlocks(canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, params: newParams, type: newType } : b));
+                            setSelectedBlock({ ...selectedBlock, params: newParams, type: newType });
+                          }}
+                          className="w-full px-3 py-3 bg-black/40 border border-white/5 rounded-xl text-sm font-black text-white outline-none appearance-none cursor-pointer hover:border-white/10 transition-all"
+                          style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.3)' stroke-width='3'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center' }}
+                        >
+                          {param.options.map((opt: any) => (
+                            <option key={opt.value} value={opt.value} style={{ background: '#0d0d0d', color: 'white' }}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div className="flex items-center px-3 py-3.5 bg-black/40 border border-white/5 rounded-xl group-hover:border-white/10 transition-all shadow-inner">
+                          <input
+                            type="text"
+                            value={value === 0 ? "" : value}
+                            placeholder="0"
+                            onChange={(e) => {
+                              const rawValue = e.target.value;
+                              const val = rawValue === "" ? 0 : isNaN(parseFloat(rawValue)) ? 0 : parseFloat(rawValue);
+                              const newParams = { ...selectedBlock.params, [key]: val };
+                              setCanvasBlocks(canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, params: newParams } : b));
+                              setSelectedBlock({ ...selectedBlock, params: newParams });
+                            }}
+                            className="flex-1 bg-transparent text-sm font-black text-white outline-none tabular-nums placeholder:text-white/[0.05]"
+                          />
+                          {param.suffix && (
+                            <span className="text-xs font-black text-white/20 uppercase tracking-widest">{param.suffix}</span>
+                          )}
+                        </div>
+                      )}
                     </div>
+                  );
+                });
+              })()}
+            </div>
 
-                    {/* Entry Strategy Section */}
-                    <div>
-                      <div className="flex items-center gap-2 mb-3">
-                        <ArrowsClockwise size={20} className="text-blue-500" />
-                        <span className="text-sm font-black text-white/40 uppercase tracking-widest">진입 조건</span>
-                      </div>
-                      <div className="flex items-center gap-3 pl-8">
-                        <span className="text-2xl font-black text-white tracking-tight">{entryBlocksCount}개</span>
-                        <span className="px-2 py-0.5 border-2 border-blue-500/30 bg-blue-500/10 text-blue-400 text-[10px] font-black rounded-lg">{entryLogic}</span>
-                      </div>
-                    </div>
+            <div className="p-5 bg-white/[0.01] border-t border-white/5 space-y-3">
+              <button 
+                onClick={() => setSelectedBlock(null)}
+                className="w-full py-3 rounded-xl bg-[rgb(59,134,247)] text-white text-xs font-black uppercase tracking-widest hover:bg-[#4B9FFF] transition-all shadow-xl shadow-blue-500/10 active:scale-[0.98]"
+              >
+                확인
+              </button>
+              <button 
+                onClick={() => {
+                  const blockDef = signalBlocks[selectedBlock.blockId];
+                  if (!blockDef) return;
+                  const resetParams = { ...blockDef.defaultParams };
+                  const updated = canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, params: resetParams, logic: undefined } : b);
+                  setCanvasBlocks(updated);
+                  setSelectedBlock({ ...selectedBlock, params: resetParams, logic: undefined });
+                }}
+                className="w-full py-3 rounded-xl text-white/20 text-xs font-black uppercase tracking-widest hover:text-orange-400 hover:bg-orange-500/5 transition-all"
+              >
+                초기화
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-                    {/* Exit Strategy Section */}
-                    <div>
-                      <div className="flex items-center gap-2 mb-3">
-                        <ArrowsClockwise size={20} className="text-blue-500 rotate-180" />
-                        <span className="text-sm font-black text-white/40 uppercase tracking-widest">청산 조건</span>
-                      </div>
-                      <div className="flex items-center gap-3 pl-8">
-                        <span className="text-2xl font-black text-white tracking-tight">{exitBlocksCount}개</span>
-                        <span className="px-2 py-0.5 border-2 border-blue-500/30 bg-blue-500/10 text-blue-400 text-[10px] font-black rounded-lg">{exitLogic}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="pt-8 border-t border-white/5 flex gap-3 mt-auto">
-                    <button 
-                      onClick={onPrev} 
-                      className="px-5 py-4 bg-black/40 hover:bg-black/60 text-white rounded-xl text-base font-black transition-all border border-white/5 active:scale-95 shadow-lg"
-                    >
-                      <ArrowLeft size={20} />
-                    </button>
-                    <button 
-                      onClick={onNext} 
-                      className="flex-1 group px-4 py-4 bg-blue-500 hover:bg-blue-400 text-white rounded-xl text-sm font-black uppercase tracking-widest transition-all flex items-center justify-between shadow-[0_10px_30px_rgba(59,130,246,0.1)] active:scale-[0.98]"
-                    >
-                      <span>포지션 설계</span>
-                      <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
-                    </button>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        </div>
+      {/* Floating: Nav Buttons */}
+      <div className="absolute bottom-6 right-6 flex gap-3 z-40">
+        <button 
+          onClick={onPrev} 
+          className="px-5 py-3 bg-black/60 hover:bg-black/80 text-white rounded-xl text-base font-black transition-all border border-white/10 active:scale-95 shadow-lg backdrop-blur-sm"
+        >
+          <ArrowLeft size={20} />
+        </button>
+        <button 
+          onClick={onNext} 
+          className="group px-6 py-3 bg-blue-500 hover:bg-blue-400 text-white rounded-xl text-sm font-black uppercase tracking-widest transition-all flex items-center gap-3 shadow-[0_10px_30px_rgba(59,130,246,0.3)] active:scale-[0.98]"
+        >
+          <span>포지션 설계</span>
+          <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
+        </button>
       </div>
 
       {/* Overlays / Popovers */}
@@ -830,7 +798,7 @@ export default function Step2Conditions({
         <div className="fixed z-[1000] pointer-events-none" style={{ left: hoveredParam.rect.left - 270, top: hoveredParam.rect.top + (hoveredParam.rect.height / 2), transform: 'translateY(-50%)' }}>
           <div className="w-72 p-6 bg-[#161616] rounded-2xl shadow-2xl border border-white/10 backdrop-blur-2xl">
             <div className="text-[11px] text-[rgb(59, 134, 247)] font-bold uppercase tracking-widest mb-2 opacity-50">{hoveredParam.label}</div>
-            <p className="text-sm text-white/75 font-bold leading-relaxed">{hoveredParam.tooltip}</p>
+            <p className="text-sm text-white/75 font-bold leading-relaxed whitespace-pre-line">{hoveredParam.tooltip}</p>
           </div>
         </div>
       )}
