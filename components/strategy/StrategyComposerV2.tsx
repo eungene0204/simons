@@ -48,6 +48,8 @@ interface StrategyComposerV2Props {
   onQuickBacktest?: () => void;
   onFullBacktest?: () => void;
   initialStrategy?: StrategyDSL | null;
+  currentStep: 1 | 2 | 3 | 4 | 5;
+  setCurrentStep: (step: 1 | 2 | 3 | 4 | 5) => void;
 }
 
 type StrategyStatus = "draft" | "saved" | "published";
@@ -70,11 +72,12 @@ export default function StrategyComposerV2({
   onQuickBacktest,
   onFullBacktest,
   initialStrategy,
+  currentStep,
+  setCurrentStep,
 }: StrategyComposerV2Props) {
   // Header state
   const [strategyName, setStrategyName] = useState("");
   const [strategyStatus, setStrategyStatus] = useState<StrategyStatus>("draft");
-  const [currentStep, setCurrentStep] = useState<ComposerStep>(1);
 
   // Strategy state
   const [universe, setUniverse] = useState<string>("kospi");
@@ -501,167 +504,8 @@ export default function StrategyComposerV2({
   return (
     <div className={`flex flex-col bg-[#050505] transition-all duration-500 relative min-h-screen`}>
       <div className="flex-1 flex flex-col relative z-10">
-      {/* Top Header Bar */}
-      <div className="bg-[#0f0f0f] px-8 py-8">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-6 flex-1">
-            <div className="flex items-center gap-4">
-              <span className="text-3xl font-black text-white tracking-tight">
-                {strategyName || (currentStep === 1 ? "새로운 전략 개요" : "이름 없는 전략")}
-              </span>
-              <span className="px-3 py-1 rounded-lg bg-white/10 text-gray-300 text-xs font-bold uppercase tracking-[0.15em] border border-white/5">
-                {stepLabels.find(s => s.num === currentStep)?.label}
-              </span>
-            </div>
-          </div>
 
-          <div className="flex items-center gap-3">
-            <button
-              onClick={onCancel}
-              className="px-4 py-2 text-sm font-bold text-gray-400 hover:text-white hover:bg-white/5 rounded-xl transition-all border border-white/10"
-            >
-              초기화
-            </button>
-          </div>
-        </div>
-      </div>
 
-      {/* Horizontal Timeline Context Bar with spacing from header */}
-      {!(currentStep === 5 && isBacktestDashboard) && (
-        <div className="bg-[#0f0f0f] px-8 pt-6 pb-6">
-        <div className="max-w-full mx-auto flex items-center justify-between gap-0">
-          {/* Step 1: Universe */}
-          <div 
-            onClick={() => setCurrentStep(1)}
-            className={`relative flex flex-col items-center gap-2 group cursor-pointer px-6 py-3 rounded-[24px] transition-all duration-300 border backdrop-blur-md min-w-[160px] ${
-              currentStep === 1 
-                ? "bg-white/10 border-white/20 shadow-lg" 
-                : "bg-white/[0.03] border-white/5 hover:border-white/10 hover:bg-white/5"
-            }`}
-          >
-            <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">Step 01</span>
-            <div className="flex items-center gap-3">
-              <div className={`flex items-center justify-center w-8 h-8 rounded-full border transition-all ${
-                universe ? "border-white/40 bg-white/10" : "border-gray-800 bg-gray-900"
-              }`}>
-                <GlobeAltIcon className={`w-4 h-4 ${universe ? "text-white" : "text-gray-600"}`} />
-              </div>
-              <span className={`text-sm font-black tracking-tight ${universe ? "text-white" : "text-gray-600"}`}>
-                {universe ? universe.toUpperCase() : "유니버스"}
-              </span>
-            </div>
-          </div>
-
-          {/* Connector 1-2 */}
-          <div className="flex-1 px-4">
-            <div className="h-[1px] w-full bg-white/10" />
-          </div>
-
-          {/* Step 2: Signal Blocks */}
-          <div 
-            onClick={() => setCurrentStep(2)}
-            className={`relative flex flex-col items-center gap-2 group cursor-pointer px-6 py-3 rounded-[24px] transition-all duration-300 border backdrop-blur-md min-w-[160px] ${
-              currentStep === 2 
-                ? "bg-white/10 border-white/20 shadow-lg" 
-                : "bg-white/[0.03] border-white/5 hover:border-white/10 hover:bg-white/5"
-            }`}
-          >
-            <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">Step 02</span>
-            <div className="flex items-center gap-3">
-              <div className={`flex items-center justify-center w-8 h-8 rounded-full border transition-all ${
-                canvasBlocks.length > 0 ? "border-white/40 bg-white/10" : "border-gray-800 bg-gray-900"
-              }`}>
-                <CubeIcon className={`w-4 h-4 ${canvasBlocks.length > 0 ? "text-white" : "text-gray-600"}`} />
-              </div>
-              <span className={`text-sm font-black tracking-tight ${canvasBlocks.length > 0 ? "text-white" : "text-gray-600"}`}>
-                매매 조건
-              </span>
-            </div>
-          </div>
-
-          {/* Connector 2-3 */}
-          <div className="flex-1 px-4">
-            <div className="h-[1px] w-full bg-white/10" />
-          </div>
-
-          {/* Step 3: Position */}
-          <div 
-            onClick={() => setCurrentStep(3)}
-            className={`relative flex flex-col items-center gap-2 group cursor-pointer px-6 py-3 rounded-[24px] transition-all duration-300 border backdrop-blur-md min-w-[160px] ${
-              currentStep === 3 
-                ? "bg-white/10 border-white/20 shadow-lg" 
-                : "bg-white/[0.03] border-white/5 hover:border-white/10 hover:bg-white/5"
-            }`}
-          >
-            <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">Step 03</span>
-            <div className="flex items-center gap-3">
-              <div className={`flex items-center justify-center w-8 h-8 rounded-full border transition-all ${
-                currentStep >= 3 ? "border-white/40 bg-white/10" : "border-gray-800 bg-gray-900"
-              }`}>
-                <ChartPieIcon className={`w-4 h-4 ${currentStep >= 3 ? "text-white" : "text-gray-600"}`} />
-              </div>
-              <span className={`text-sm font-black tracking-tight ${currentStep >= 3 ? "text-white" : "text-gray-600"}`}>
-                포지션/비중
-              </span>
-            </div>
-          </div>
-
-          {/* Connector 3-4 */}
-          <div className="flex-1 px-4">
-            <div className="h-[1px] w-full bg-white/10" />
-          </div>
-
-          {/* Step 4: Risk */}
-          <div 
-            onClick={() => setCurrentStep(4)}
-            className={`relative flex flex-col items-center gap-2 group cursor-pointer px-6 py-3 rounded-[24px] transition-all duration-300 border backdrop-blur-md min-w-[160px] ${
-              currentStep === 4 
-                ? "bg-white/10 border-white/20 shadow-lg" 
-                : "bg-white/[0.03] border-white/5 hover:border-white/10 hover:bg-white/5"
-            }`}
-          >
-            <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">Step 04</span>
-            <div className="flex items-center gap-3">
-              <div className={`flex items-center justify-center w-8 h-8 rounded-full border transition-all ${
-                currentStep >= 4 ? "border-white/40 bg-white/10" : "border-gray-800 bg-gray-900"
-              }`}>
-                <ShieldCheckIcon className={`w-4 h-4 ${currentStep >= 4 ? "text-white" : "text-gray-600"}`} />
-              </div>
-              <span className={`text-sm font-black tracking-tight ${currentStep >= 4 ? "text-white" : "text-gray-600"}`}>
-                리스크 관리
-              </span>
-            </div>
-          </div>
-
-          {/* Connector 4-5 */}
-          <div className="flex-1 px-4">
-            <div className="h-[1px] w-full bg-white/10" />
-          </div>
-
-          {/* Step 5: Backtest */}
-          <div 
-            onClick={() => setCurrentStep(5)}
-            className={`relative flex flex-col items-center gap-2 group cursor-pointer px-6 py-3 rounded-[24px] transition-all duration-300 border backdrop-blur-md min-w-[160px] ${
-              currentStep === 5 
-                ? "bg-white/10 border-white/20 shadow-lg" 
-                : "bg-white/[0.03] border-white/5 hover:border-white/10 hover:bg-white/5"
-            }`}
-          >
-            <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">Step 05</span>
-            <div className="flex items-center gap-3">
-              <div className={`flex items-center justify-center w-8 h-8 rounded-full border transition-all ${
-                currentStep >= 5 ? "border-white/40 bg-white/10" : "border-gray-800 bg-gray-900"
-              }`}>
-                <PlayCircleIcon className={`w-4 h-4 ${currentStep >= 5 ? "text-white" : "text-gray-600"}`} />
-              </div>
-              <span className={`text-sm font-black tracking-tight ${currentStep >= 5 ? "text-white" : "text-gray-600"}`}>
-                백테스트
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-      )}
 
       <div className="flex-1 flex min-h-0 min-w-0">
         {currentStep === 2 ? (
