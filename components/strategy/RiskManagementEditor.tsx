@@ -1,7 +1,7 @@
 "use client";
 
 import { RiskManagement } from "@/types/strategy";
-import { InformationCircleIcon } from "@heroicons/react/24/outline";
+import { Info } from "phosphor-react";
 
 interface RiskManagementEditorProps {
   riskManagement: RiskManagement;
@@ -43,7 +43,7 @@ export default function RiskManagementEditor({
               {label}
             </label>
             <div className="group relative">
-              <InformationCircleIcon className="w-3.5 h-3.5 text-gray-600 cursor-help" />
+              <Info className="w-3.5 h-3.5 text-gray-600 cursor-help" />
               <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-20 w-56">
                 <div className="bg-gray-900 text-white text-[11px] rounded-lg px-3 py-2 border border-gray-700 shadow-2xl">
                   {tooltip}

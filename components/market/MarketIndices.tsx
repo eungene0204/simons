@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { MarketIndex } from "@/types/market";
-import { ArrowUpIcon, ArrowDownIcon } from "@heroicons/react/24/solid";
+import { CaretUp, CaretDown, CaretLeft, CaretRight } from "phosphor-react";
 import {
   LineChart,
   Line,
@@ -172,9 +172,9 @@ export default function MarketIndices() {
             })}
           </span>
           {isPositive ? (
-            <ArrowUpIcon className="w-4 h-4 text-[var(--main-red)] animate-pulse" />
+            <CaretUp weight="fill" className="w-4 h-4 text-[var(--main-red)] animate-pulse" />
           ) : (
-            <ArrowDownIcon className="w-4 h-4 text-[var(--main-blue)] animate-pulse" />
+            <CaretDown weight="fill" className="w-4 h-4 text-[var(--main-blue)] animate-pulse" />
           )}
         </div>
         <div className="flex items-center gap-2 mb-3">
@@ -486,9 +486,7 @@ export default function MarketIndices() {
                 className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-[#1a1a1a] border-gray-800 border border-gray-800 rounded-full p-2 shadow-md hover:bg-gray-50 dark:hover:bg-gray-700 transition-all"
                 aria-label="왼쪽으로 스크롤"
               >
-                <svg className="w-5 h-5 text-gray-600 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
+                <CaretLeft size={20} className="text-gray-600 dark:text-gray-400" />
               </button>
             )}
 
@@ -499,9 +497,7 @@ export default function MarketIndices() {
                 className="absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-[#1a1a1a] border-gray-800 border border-gray-800 rounded-full p-2 shadow-md hover:bg-gray-50 dark:hover:bg-gray-700 transition-all"
                 aria-label="오른쪽으로 스크롤"
               >
-                <svg className="w-5 h-5 text-gray-600 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
+                <CaretRight size={20} className="text-gray-600 dark:text-gray-400" />
               </button>
             )}
           </div>

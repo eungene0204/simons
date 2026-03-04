@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { XMarkIcon, CheckCircleIcon } from "@heroicons/react/24/outline";
+import { X, CheckCircle } from "phosphor-react";
 import { Condition } from "@/types/strategy";
 import { signalBlocks } from "@/lib/strategy-blocks";
 
@@ -54,7 +54,7 @@ export default function ConditionBlockEditor({
             onClick={onCancel}
             className="text-gray-400 hover:text-white"
           >
-            <XMarkIcon className="w-6 h-6" />
+            <X className="w-6 h-6" />
           </button>
         </div>
 
@@ -154,7 +154,7 @@ export default function ConditionBlockEditor({
             onClick={handleSave}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-600 flex items-center gap-2"
           >
-            <CheckCircleIcon className="w-5 h-5" />
+            <CheckCircle className="w-5 h-5" />
             저장
           </button>
         </div>

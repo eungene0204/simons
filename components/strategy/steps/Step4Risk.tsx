@@ -1,7 +1,7 @@
 "use client";
 
 import { Dispatch, SetStateAction } from "react";
-import { ShieldCheckIcon, ArrowLeftIcon, ArrowRightIcon } from "@heroicons/react/24/outline";
+import { ShieldCheck, ArrowLeft, ArrowRight } from "phosphor-react";
 import { RiskManagement } from "@/types/strategy";
 import RiskManagementEditor from "../RiskManagementEditor";
 
@@ -55,7 +55,7 @@ export default function Step4Risk({
           <div className="flex items-center gap-12">
             <div className="flex items-center gap-6">
               <div className="w-16 h-16 bg-[rgb(59, 134, 247)] rounded-2xl flex items-center justify-center shadow-[0_0_40px_rgba(0,122,255,0.4)]">
-                <ShieldCheckIcon className="w-8 h-8 text-white" />
+                <ShieldCheck className="w-8 h-8 text-white" />
               </div>
               <div className="space-y-1">
                 <h4 className="text-xl font-black text-[#dfdfdf] tracking-tight uppercase">리스크 관리 요약</h4>
@@ -97,13 +97,13 @@ export default function Step4Risk({
               onClick={onPrev} 
               className="px-8 py-5 bg-[#161616] border border-white/5 text-white rounded-2xl text-lg font-black hover:bg-[#1f1f1f] hover:border-white/10 transition-all flex items-center gap-4 active:scale-95"
             >
-              <ArrowLeftIcon className="w-6 h-6" /> 이전
+              <ArrowLeft className="w-6 h-6" /> 이전
             </button>
             <button 
               onClick={onNext} 
               className="group px-12 py-5 bg-[#161616] text-white rounded-2xl text-lg font-black hover:bg-[#1f1f1f] transition-all flex items-center gap-4 shadow-[0_20px_40px_rgba(0,0,0,0.3)] border border-white/5 hover:border-white/10 hover:scale-105 active:scale-95"
             >
-              다음: 백테스트 <ArrowRightIcon className="w-6 h-6 group-hover:translate-x-2 transition-transform duration-500 text-white" />
+              다음: 백테스트 <ArrowRight className="w-6 h-6 group-hover:translate-x-2 transition-transform duration-500 text-white" />
             </button>
           </div>
         </div>

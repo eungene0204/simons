@@ -2,14 +2,14 @@
 
 import { useState, useEffect } from "react";
 import {
-  XMarkIcon,
-  SparklesIcon,
-  CheckCircleIcon,
-  ExclamationTriangleIcon,
-  ArrowRightIcon,
-  PlayCircleIcon,
-  AdjustmentsHorizontalIcon,
-} from "@heroicons/react/24/outline";
+  X,
+  Sparkle,
+  CheckCircle,
+  Warning,
+  ArrowRight,
+  PlayCircle,
+  Sliders,
+} from "phosphor-react";
 import { StrategyDSL } from "@/types/strategy";
 import {
   fuseStrategies,
@@ -162,7 +162,7 @@ export default function StrategyFusionModal({
             onClick={onClose}
             className="text-gray-400 hover:text-white transition-colors"
           >
-            <XMarkIcon className="w-6 h-6" />
+            <X className="w-6 h-6" />
           </button>
         </div>
 
@@ -244,7 +244,7 @@ export default function StrategyFusionModal({
                                 {strategy.name}
                               </h4>
                               {isSelected && (
-                                <CheckCircleIcon className="w-5 h-5 text-blue-400" />
+                                <CheckCircle className="w-5 h-5 text-blue-400" />
                               )}
                             </div>
                             <p className="text-sm text-gray-400 mb-3 line-clamp-2">
@@ -282,14 +282,14 @@ export default function StrategyFusionModal({
                   }`}
                 >
                   <div className="flex items-center gap-2 mb-3">
-                    <SparklesIcon className="w-6 h-6 text-blue-400" />
+                    <Sparkle className="w-6 h-6 text-blue-400" />
                     <h4 className="text-base font-semibold text-white">룰 병합</h4>
                   </div>
                   <p className="text-sm text-gray-400 mb-4">
                     모든 전략의 룰을 하나의 전략으로 합칩니다. 중복 조건은 제거됩니다.
                   </p>
                   {fusionMode === "logic_merge" && (
-                    <CheckCircleIcon className="w-5 h-5 text-blue-400" />
+                    <CheckCircle className="w-5 h-5 text-blue-400" />
                   )}
                 </div>
 
@@ -302,14 +302,14 @@ export default function StrategyFusionModal({
                   }`}
                 >
                   <div className="flex items-center gap-2 mb-3">
-                    <AdjustmentsHorizontalIcon className="w-6 h-6 text-purple-400" />
+                    <Sliders className="w-6 h-6 text-purple-400" />
                     <h4 className="text-base font-semibold text-white">시그널 투표</h4>
                   </div>
                   <p className="text-sm text-gray-400 mb-4">
                     각 전략의 시그널을 가중치에 따라 투표로 결합합니다.
                   </p>
                   {fusionMode === "signal_voting" && (
-                    <CheckCircleIcon className="w-5 h-5 text-blue-400" />
+                    <CheckCircle className="w-5 h-5 text-blue-400" />
                   )}
                 </div>
 
@@ -322,14 +322,14 @@ export default function StrategyFusionModal({
                   }`}
                 >
                   <div className="flex items-center gap-2 mb-3">
-                    <PlayCircleIcon className="w-6 h-6 text-green-400" />
+                    <PlayCircle className="w-6 h-6 text-green-400" />
                     <h4 className="text-base font-semibold text-white">포트폴리오 혼합</h4>
                   </div>
                   <p className="text-sm text-gray-400 mb-4">
                     각 전략의 결과물을 비중으로 조합하여 포트폴리오를 구성합니다.
                   </p>
                   {fusionMode === "portfolio_blending" && (
-                    <CheckCircleIcon className="w-5 h-5 text-blue-400" />
+                    <CheckCircle className="w-5 h-5 text-blue-400" />
                   )}
                 </div>
               </div>
@@ -506,7 +506,7 @@ export default function StrategyFusionModal({
               {fusionResult.conflicts.length > 0 && (
                 <div className="p-4 rounded-lg border border-amber-800 bg-amber-900/10">
                   <div className="flex items-center gap-2 mb-2">
-                    <ExclamationTriangleIcon className="w-5 h-5 text-amber-400" />
+                    <Warning className="w-5 h-5 text-amber-400" />
                     <h4 className="text-sm font-semibold text-amber-400">충돌 감지</h4>
                   </div>
                   <ul className="text-sm text-amber-300 space-y-1">
@@ -525,7 +525,7 @@ export default function StrategyFusionModal({
                     disabled={previewLoading}
                     className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-500 disabled:opacity-50 flex items-center gap-2"
                   >
-                    <PlayCircleIcon className="w-4 h-4" />
+                    <PlayCircle className="w-4 h-4" />
                     {previewLoading ? "실행 중..." : "최근 3개월 시뮬레이션"}
                   </button>
                 </div>
@@ -574,7 +574,7 @@ export default function StrategyFusionModal({
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 다음
-                <ArrowRightIcon className="w-4 h-4" />
+                <ArrowRight className="w-4 h-4" />
               </button>
             )}
             {step === 4 && (
@@ -582,7 +582,7 @@ export default function StrategyFusionModal({
                 onClick={handleSaveCombined}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-500 flex items-center gap-2"
               >
-                <CheckCircleIcon className="w-5 h-5" />
+                <CheckCircle className="w-5 h-5" />
                 조합 전략 저장
               </button>
             )}

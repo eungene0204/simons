@@ -3,13 +3,12 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  ArrowUpIcon,
-  ArrowDownIcon,
-  StarIcon,
-  MagnifyingGlassIcon,
-  XMarkIcon,
-} from "@heroicons/react/24/outline";
-import { StarIcon as StarIconSolid } from "@heroicons/react/24/solid";
+  CaretUp,
+  CaretDown,
+  Star,
+  MagnifyingGlass,
+  X,
+} from "phosphor-react";
 import StockSearchModal from "@/components/stock/StockSearchModal";
 import { getWatchlistSymbols, addMultipleToWatchlist, removeFromWatchlist } from "@/lib/watchlist";
 
@@ -119,7 +118,7 @@ export default function Watchlist() {
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <StarIconSolid className="w-5 h-5 text-yellow-500" />
+            <Star size={20} weight="fill" className="text-yellow-500" />
             <h1 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white">
               관심종목
             </h1>
@@ -128,7 +127,7 @@ export default function Watchlist() {
             onClick={() => setIsSearchOpen(true)}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm font-semibold"
           >
-            <MagnifyingGlassIcon className="w-4 h-4" />
+            <MagnifyingGlass size={16} />
             종목 검색
           </button>
         </div>
@@ -202,7 +201,7 @@ export default function Watchlist() {
                         className="ml-auto p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
                         title="관심종목에서 제거"
                       >
-                        <XMarkIcon className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                        <X size={16} className="text-gray-500 dark:text-gray-400" />
                       </button>
                     </div>
                   </td>
@@ -226,9 +225,9 @@ export default function Watchlist() {
                   <td className="text-right py-2.5 px-2">
                     <div className="flex items-center justify-end gap-0.5">
                       {item.changePercent > 0 ? (
-                        <ArrowUpIcon className="w-3 h-3 text-red-600 dark:text-red-400" />
+                        <CaretUp size={12} weight="fill" className="text-red-600 dark:text-red-400" />
                       ) : item.changePercent < 0 ? (
-                        <ArrowDownIcon className="w-3 h-3 text-blue-500 dark:text-blue-400" />
+                        <CaretDown size={12} weight="fill" className="text-blue-500 dark:text-blue-400" />
                       ) : null}
                       <span
                         className={`text-sm font-semibold ${

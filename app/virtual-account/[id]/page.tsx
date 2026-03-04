@@ -17,7 +17,7 @@ import {
   updateAccount,
   refreshAccountValue,
 } from "@/lib/portfolio";
-import { MagnifyingGlassIcon } from "@heroicons/react/24/outline";
+import { MagnifyingGlass } from "phosphor-react";
 import StockSearchModal from "@/components/stock/StockSearchModal";
 import OrderBook from "@/components/order/OrderBook";
 import CurrentPriceDisplay from "@/components/stock/CurrentPriceDisplay";

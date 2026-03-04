@@ -4,22 +4,22 @@ import { BacktestResult, BacktestHistoryItem } from "@/types/strategy";
 import BacktestChart from "@/components/strategy/BacktestChart";
 import { BacktestConfigOptions } from "@/components/strategy/backtest/BacktestConfig";
 import { 
-  ArrowTrendingUpIcon, 
-  ArrowTrendingDownIcon, 
-  TableCellsIcon, 
-  ChartBarIcon, 
-  ArrowPathIcon,
-  CheckBadgeIcon,
-  ExclamationTriangleIcon,
-  InformationCircleIcon,
-  ListBulletIcon,
-  CheckIcon,
-  ChevronUpIcon,
-  ChevronDownIcon,
-  ClockIcon,
-  TrashIcon,
-  XMarkIcon
-} from "@heroicons/react/24/outline";
+  TrendUp, 
+  TrendDown, 
+  Table, 
+  ChartBar, 
+  ArrowsClockwise,
+  ShieldCheck,
+  Warning,
+  Info,
+  List,
+  Check,
+  CaretUp,
+  CaretDown,
+  Clock,
+  Trash,
+  X
+} from "phosphor-react";
 
 
 import { useState, useEffect, useMemo, useRef } from "react";
@@ -311,7 +311,7 @@ export default function BacktestDashboard({
 
   const SortIcon = ({ column }: { column: 'profit' | 'totalReturn' | 'trades' }) => {
     const isActive = sortConfig.key === column;
-    const Icon = sortConfig.direction === 'asc' ? ChevronUpIcon : ChevronDownIcon;
+    const Icon = sortConfig.direction === 'asc' ? CaretUp : CaretDown;
     
     return (
       <div className={`w-3 h-3 transition-opacity ${isActive ? 'opacity-100 text-white' : 'opacity-0 group-hover:opacity-40 text-gray-400'}`}>
@@ -361,14 +361,14 @@ export default function BacktestDashboard({
             className="w-full px-5 py-4 flex items-center justify-between hover:bg-main-red/10 transition-colors"
           >
             <div className="flex items-center gap-3 text-main-red font-black text-sm uppercase tracking-tight">
-              <ExclamationTriangleIcon className="w-5 h-5" />
+              <Warning className="w-5 h-5" />
               <span>주의: {result.warnings.length}개의 데이터 제한 사항</span>
             </div>
             <motion.div
               animate={{ rotate: isWarningsOpen ? 180 : 0 }}
               transition={{ duration: 0.3, ease: "circOut" }}
             >
-              <ChevronDownIcon className="w-5 h-5 text-main-red/60" />
+              <CaretDown className="w-5 h-5 text-main-red/60" />
             </motion.div>
           </button>
 
@@ -457,11 +457,11 @@ export default function BacktestDashboard({
         <div className="flex-none flex items-center justify-between px-3 py-2 bg-[#111]">
           <div className="flex bg-[#0a0a0a] rounded-lg p-1">
             {[
-              { id: "chart", label: "차트 분석", icon: ChartBarIcon },
-              { id: "assets", label: "종목 분석", icon: ListBulletIcon },
-              { id: "stats", label: "통계 상세", icon: TableCellsIcon },
-              { id: "log", label: "매매 기록", icon: CheckBadgeIcon },
-              { id: "history", label: "테스트 기록", icon: ClockIcon },
+              { id: "chart", label: "차트 분석", icon: ChartBar },
+              { id: "assets", label: "종목 분석", icon: List },
+              { id: "stats", label: "통계 상세", icon: Table },
+              { id: "log", label: "매매 기록", icon: ShieldCheck },
+              { id: "history", label: "테스트 기록", icon: Clock },
             ].map(tab => (
 
 
@@ -515,7 +515,7 @@ export default function BacktestDashboard({
                       onClick={onSave}
                       className="px-4 py-1.5 bg-main-blue hover:bg-blue-600 text-white text-sm font-bold rounded-lg transition-all flex items-center gap-2 active:scale-95"
                     >
-                      <CheckIcon className="w-4 h-4" />
+                      <Check className="w-4 h-4" />
                       전략 저장하기
                     </button>
                   )}
@@ -649,7 +649,7 @@ export default function BacktestDashboard({
                              <tr>
                                 <td colSpan={5} className="p-12 text-center text-gray-500">
                                    <div className="flex flex-col items-center gap-2">
-                                      <ListBulletIcon className="w-8 h-8 opacity-20" />
+                                      <List className="w-8 h-8 opacity-20" />
                                       <span className="text-sm font-medium">매매 결과가 있는 종목이 부재합니다.</span>
                                    </div>
                                 </td>
@@ -671,7 +671,7 @@ export default function BacktestDashboard({
              <div className="h-full overflow-y-auto custom-scrollbar p-6 space-y-8">
                                <div>
                    <h4 className="text-base font-bold text-white mb-4 flex items-center gap-2">
-                     <ChartBarIcon className="w-4 h-4 text-gray-500" /> 월별 수익률 추이 (Monthly Returns)
+                     <ChartBar className="w-4 h-4 text-gray-500" /> 월별 수익률 추이 (Monthly Returns)
                    </h4>
                    <div className="h-[350px] md:h-[500px] xl:h-[600px] bg-[#0a0a0f] rounded-xl overflow-hidden relative border border-gray-800/50">
                       <BacktestChart 
@@ -787,7 +787,7 @@ export default function BacktestDashboard({
                     </table>
                  ) : (
                     <div className="h-full flex flex-col items-center justify-center text-gray-600 space-y-2 pb-20">
-                       <CheckBadgeIcon className="w-12 h-12 text-gray-800" />
+                       <ShieldCheck className="w-12 h-12 text-gray-800" />
                        <p className="text-lg font-bold">기록이 없습니다</p>
                        <p className="text-sm">백테스트 기간 동안 매매 조건이 충족되지 않았습니다.</p>
                     </div>
@@ -800,7 +800,7 @@ export default function BacktestDashboard({
               <div className="h-full overflow-y-auto custom-scrollbar p-6">
                  <div className="flex items-center justify-between mb-6">
                     <h4 className="text-xl font-black text-white flex items-center gap-2">
-                       <ClockIcon className="w-6 h-6 text-main-blue" />
+                       <Clock className="w-6 h-6 text-main-blue" />
                        테스트 기록 (최근 50개)
                     </h4>
                     <button 
@@ -820,7 +820,7 @@ export default function BacktestDashboard({
                       }}
                       className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 text-xs font-bold rounded-lg border border-red-500/20 transition-all"
                     >
-                       <TrashIcon className="w-4 h-4" />
+                       <Trash className="w-4 h-4" />
                        기록 전체 삭제
                     </button>
                  </div>
@@ -924,7 +924,7 @@ export default function BacktestDashboard({
                                     className="p-1.5 text-gray-600 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
                                     title="기록 삭제"
                                  >
-                                    <XMarkIcon className="w-4 h-4" />
+                                    <X className="w-4 h-4" />
                                  </button>
                                  <div className="text-xs text-gray-500 font-mono">
                                     {new Date(item.timestamp).toLocaleString()}
@@ -948,7 +948,7 @@ export default function BacktestDashboard({
                  ) : (
                    <div className="h-[300px] flex flex-col items-center justify-center text-gray-600 space-y-3">
                       <div className="p-4 bg-white/5 rounded-full border border-white/5">
-                        <ClockIcon className="w-10 h-10 opacity-20" />
+                        <Clock className="w-10 h-10 opacity-20" />
                       </div>
                       <p className="text-base font-bold">기록된 테스트가 없습니다</p>
                       <p className="text-sm text-gray-500">백테스트를 실행하면 이곳에 자동으로 기록됩니다.</p>
@@ -1026,7 +1026,7 @@ function MetricCard({
       <div className="flex items-center justify-between mb-0.5">
         <div className="text-[10px] md:text-xs font-bold text-gray-500 uppercase tracking-widest">{label}</div>
         {description && onHover && (
-           <InformationCircleIcon 
+           <Info 
              className="w-3.5 h-3.5 text-gray-600 hover:text-gray-400 cursor-help transition-colors"
              onMouseEnter={(e) => onHover(e.currentTarget.getBoundingClientRect())}
              onMouseLeave={() => onHover(null)}
@@ -1067,7 +1067,7 @@ function StatRow({
        <div className="flex items-center justify-between mb-0.5">
           <div className="text-xs text-gray-400 font-bold">{label}</div>
           {description && onHover && (
-             <InformationCircleIcon 
+             <Info 
                className="w-3 h-3 text-gray-700 hover:text-gray-500 cursor-help transition-colors"
                onMouseEnter={(e) => onHover(e.currentTarget.getBoundingClientRect())}
                onMouseLeave={() => onHover(null)}
@@ -1097,7 +1097,7 @@ function StatItem({
          <div className="flex items-center gap-1.5">
             <span className="text-base text-gray-400 font-medium">{label}</span>
             {description && onHover && (
-               <InformationCircleIcon 
+               <Info 
                  className="w-4 h-4 text-gray-700 hover:text-gray-500 cursor-help transition-colors"
                  onMouseEnter={(e) => onHover(e.currentTarget.getBoundingClientRect())}
                  onMouseLeave={() => onHover(null)}

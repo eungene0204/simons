@@ -2,34 +2,34 @@
 
 import { useState, useEffect, useCallback, useRef, Fragment } from "react";
 import {
-  XMarkIcon,
-  PlayCircleIcon,
-  DocumentArrowDownIcon,
-  CheckCircleIcon,
-  ArrowRightIcon,
-  ArrowLeftIcon,
-  SparklesIcon,
-  AdjustmentsHorizontalIcon,
-  ChartBarIcon,
-  CubeIcon,
-  CpuChipIcon,
-  ExclamationTriangleIcon,
-  PlusIcon,
-  MinusIcon,
-  ChevronDownIcon,
-  ChevronUpIcon,
-  InformationCircleIcon,
-  BoltIcon,
-  ArrowTrendingUpIcon,
-  GlobeAltIcon,
-  CheckIcon,
-  ChartPieIcon,
-  ShieldCheckIcon,
-  Squares2X2Icon,
-  TagIcon,
-  EllipsisHorizontalIcon,
-  CursorArrowRaysIcon,
-} from "@heroicons/react/24/outline";
+  X,
+  PlayCircle,
+  DownloadSimple,
+  CheckCircle,
+  ArrowRight,
+  ArrowLeft,
+  Sparkle,
+  Sliders,
+  ChartBar,
+  Cube,
+  Cpu,
+  Warning,
+  Plus,
+  Minus,
+  CaretDown,
+  CaretUp,
+  Info,
+  Lightning,
+  TrendUp,
+  Globe,
+  Check,
+  ChartPie,
+  ShieldCheck,
+  SquaresFour,
+  Tag,
+  DotsThreeOutline,
+  HandPointing,
+} from "phosphor-react";
 import { StrategyDSL, Condition, ConditionType, LogicOperator, BacktestResult, CanvasBlock, RiskManagement } from "@/types/strategy";
 import { signalBlocks } from "@/lib/strategy-blocks";
 import { BacktestService } from "@/lib/strategy/BacktestService";
@@ -692,7 +692,7 @@ export default function StrategyComposerV2({
           {backtestError && (
              <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-bottom-4">
                 <div className="bg-red-500/10 border border-red-500/50 backdrop-blur-md px-6 py-4 rounded-2xl flex items-center gap-4 shadow-2xl">
-                   <ExclamationTriangleIcon className="w-6 h-6 text-red-500 shrink-0" />
+                   <Warning size={24} className="text-red-500 shrink-0" />
                    <div className="flex flex-col">
                       <span className="text-sm font-bold text-white">시뮬레이션 오류</span>
                       <span className="text-xs text-red-400">{backtestError}</span>
@@ -701,7 +701,7 @@ export default function StrategyComposerV2({
                       onClick={() => setBacktestError(null)}
                       className="ml-4 p-1 hover:bg-white/10 rounded-full transition-colors"
                    >
-                     <XMarkIcon className="w-4 h-4 text-gray-400" />
+                     <X size={16} className="text-gray-400" />
                    </button>
                 </div>
              </div>
