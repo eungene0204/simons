@@ -1,47 +1,15 @@
 "use client";
 
-import { 
-  Briefcase, 
-  ChartPie, 
-  Clock, 
-  ArrowsClockwise, 
-  ArrowLeft, 
-  ArrowRight 
+import React, { useState } from "react";
+import {
+  Briefcase,
+  ChartPie,
+  Clock,
+  ArrowsClockwise,
+  ChartBar,
+  ArrowRight,
+  ArrowLeft,
 } from "phosphor-react";
-
-const EggIcon = ({ className }: { className?: string }) => (
-  <svg 
-    viewBox="0 0 24 24" 
-    fill="none" 
-    stroke="currentColor" 
-    strokeWidth="2" 
-    strokeLinecap="round" 
-    strokeLinejoin="round" 
-    className={className}
-  >
-    <path d="M12 22C16.9706 22 21 17.9706 21 13C21 7.47715 16.9706 2 12 2C7.02944 2 3 7.47715 3 13C3 17.9706 7.02944 22 12 22Z" />
-  </svg>
-);
-
-const formatKoreanUnit = (num: number) => {
-  if (num === 0) return "0원";
-  const units = ["", "만", "억", "조", "경"];
-  const result = [];
-  let temp = num;
-  let unitIdx = 0;
-
-  while (temp > 0 && unitIdx < units.length) {
-    const chunk = temp % 10000;
-    if (chunk > 0) {
-      const formattedChunk = chunk.toLocaleString();
-      result.unshift(`${formattedChunk}${units[unitIdx]}`);
-    }
-    temp = Math.floor(temp / 10000);
-    unitIdx++;
-  }
-
-  return result.join(" ") + "원";
-};
 
 import { RiskManagement } from "@/types/strategy";
 
@@ -78,317 +46,378 @@ export default function Step3Position({
   onNext,
   onPrev,
 }: Step3PositionProps) {
+
   const skip_pos = riskManagement.skip_position_setting;
 
+  const getRebalancingLabel = () => {
+    if (rebalancingPeriod === "none") return "안함";
+    if (rebalancingPeriod === "daily") return "매일";
+    if (rebalancingPeriod === "weekly") return "매주";
+    if (rebalancingPeriod === "monthly") return "매월";
+    if (rebalancingPeriod.startsWith("custom:")) {
+      const parts = rebalancingPeriod.split(":");
+      const unit = parts[2] === "day" ? "일" : parts[2] === "week" ? "주" : "달";
+      return `${parts[1]}${unit}마다`;
+    }
+    return "안함";
+  };
+
   return (
-    <div className="flex flex-col min-h-full">
-      <div className="px-8 pt-8 pb-0 max-w-[1440px] mx-auto w-full space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h3 className="text-xl font-black text-[#dfdfdf] tracking-tight">포지션 & 비중 설정</h3>
-            <p className="text-sm text-[#a0a0a0] mt-1 font-medium">
-              자산 배분 방식과 매매 체결 시점, 리밸런싱 주기를 구성합니다.
-            </p>
-          </div>
-          <div className="flex items-center gap-3 bg-[#161616] px-5 py-3 rounded-2xl border border-white/5 hover:border-white/10 transition-all cursor-pointer group"
-               onClick={() => setRiskManagement({...riskManagement, skip_position_setting: !riskManagement.skip_position_setting})}>
-            <div className={`w-10 h-6 rounded-full transition-colors relative ${riskManagement.skip_position_setting ? 'bg-main-blue' : 'bg-[#2a2a2a]'}`}>
-              <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${riskManagement.skip_position_setting ? 'translate-x-4' : ''}`} />
-            </div>
-            <span className={`text-sm font-bold tracking-tight transition-colors ${riskManagement.skip_position_setting ? 'text-[#dfdfdf]' : 'text-[#a0a0a0]'}`}>
-              포지션/비중 설정 안 함
-            </span>
-          </div>
-        </div>
-
-        <div className={`w-full grid grid-cols-1 lg:grid-cols-2 gap-4 pb-0 items-stretch transition-all duration-500 ${skip_pos ? 'opacity-30 grayscale pointer-events-none' : ''}`}>
-          {/* Section 1: Capital & Max Positions */}
-          <div className="bg-[#0f0f0f] rounded-3xl border border-gray-800/50 p-5 shadow-xl flex flex-col space-y-4">
-            <div className="flex items-center gap-3.5 mb-2">
-                <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center border border-white/20 shadow-inner">
-                  <EggIcon className="w-5 h-5 text-gray-300" />
-                </div>
-                <div>
-                  <h4 className="text-md font-black text-[#dfdfdf]">포트폴리오 구성</h4>
-                  <p className="text-[11px] text-[#a0a0a0]">종목 수 및 분산 투자 범위를 설정합니다.</p>
-                </div>
-              </div>
-              
-              <div className="space-y-4 bg-[#0a0a0a]/40 p-5 rounded-2xl border border-gray-800/40 backdrop-blur-sm flex-1 min-h-[200px] flex flex-col justify-center">
-
-              
+    <div className="flex-1 w-full bg-[#0a0a0a] min-h-screen text-white flex justify-center relative">
+      
+      <div className="flex w-full h-full">
+        
+        {/* Left Main Content */}
+        <div className="flex-1 flex flex-col overflow-y-auto">
+          
+          <div className="w-full px-8 pt-8 lg:px-12">
+            {/* Header section */}
+            <div className="mb-14 flex justify-between items-start">
               <div>
-                <div className="flex justify-between items-end mb-3">
-                  <label className="text-xs text-[#a0a0a0] font-black uppercase tracking-widest">최대 보유 종목 수</label>
-                  <span className="text-lg font-black text-[#dfdfdf]">{maxPositions}<span className="text-xs ml-0.5 text-[#a0a0a0]">개</span></span>
-                </div>
-                <div className="flex items-center gap-4">
-                  <input 
-                    type="range" 
-                    min="1" 
-                    max="100" 
-                    value={maxPositions}
-                    onChange={(e) => setMaxPositions(Number(e.target.value))}
-                    className="flex-1 h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-main-blue"
-                  />
-                </div>
-                <p className="text-[11px] text-[#a0a0a0] mt-3 font-medium">동시에 최대 {maxPositions}개의 종목까지 매수합니다.</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Section 2: Allocation Strategy */}
-          <div className="bg-[#0f0f0f] rounded-3xl border border-gray-800/50 p-5 shadow-xl flex flex-col space-y-4">
-            <div className="flex items-center gap-3.5 mb-2">
-              <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center border border-white/20 shadow-inner">
-                <ChartPie className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <h4 className="text-md font-black text-[#dfdfdf]">비중 배분 정책</h4>
-                <p className="text-[11px] text-[#a0a0a0]">개별 종목당 자산 투입 비중을 결정합니다.</p>
-              </div>
-            </div>
-
-            <div className="space-y-4 bg-[#0a0a0a]/40 p-5 rounded-2xl border border-gray-800/40 backdrop-blur-sm flex-1 flex flex-col min-h-[200px]">
-              <div className="flex p-1 bg-[#0a0a0a] rounded-xl border border-gray-800">
-                <button 
-                  onClick={() => setAllocationType("equal")}
-                  className={`flex-1 py-2.5 rounded-lg text-xs font-black transition-all ${
-                    allocationType === "equal" 
-                      ? "bg-main-blue text-white shadow-lg shadow-main-blue/20" 
-                      : "text-[#a0a0a0] hover:text-gray-300"
-                  }`}
-                >
-                  동일 비중
-                </button>
-                <button 
-                  onClick={() => setAllocationType("fixed_pct")}
-                  className={`flex-1 py-2.5 rounded-lg text-xs font-black transition-all ${
-                    allocationType === "fixed_pct" 
-                      ? "bg-main-blue text-white shadow-lg shadow-main-blue/20" 
-                      : "text-[#a0a0a0] hover:text-gray-300"
-                  }`}
-                >
-                  고정 비중 (%)
-                </button>
-              </div>
-
-              <div className="flex-1">
-                {allocationType === "fixed_pct" ? (
-                  <div className="animate-in fade-in slide-in-from-top-2 duration-300">
-                      <div className="flex justify-between items-end mb-3">
-                        <label className="text-xs text-[#a0a0a0] font-black uppercase tracking-widest">종목당 투입 비중</label>
-                        <span className="text-lg font-black text-[#dfdfdf]">{allocationValue}<span className="text-xs ml-0.5 text-[#a0a0a0]">%</span></span>
-                      </div>
-                    <div className="flex items-center gap-4">
-                      <input 
-                        type="range" 
-                        min="1" 
-                        max="100" 
-                        value={allocationValue}
-                        onChange={(e) => setAllocationValue(Number(e.target.value))}
-                        className="flex-1 h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-main-blue"
-                      />
-                    </div>
-                    <p className="text-[11px] text-[#a0a0a0] mt-3 font-medium">거래 건마다 가용 자산의 {allocationValue}%를 고정적으로 투자합니다.</p>
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="p-4 bg-white/5 border border-white/10 rounded-xl mt-auto">
-                <p className="text-[11px] text-[#a0a0a0] leading-relaxed font-medium">
-                  {allocationType === "equal" 
-                    ? `💡 최대 보유 종목 수(${maxPositions}개)에 맞춰 모든 자산을 균등하게 배분합니다. 종목당 배정 목표는 약 ${Number(100/maxPositions).toFixed(1)}% 입니다.`
-                    : "💡 각 거래마다 설정된 고정 비중만큼의 자산을 투입합니다."}
+                <h1 className="text-3xl font-bold tracking-tight text-white mb-2">
+                  포지션 &amp; 비중 설정
+                </h1>
+                <p className="text-sm font-medium text-white/50 mb-12">
+                  자산 배분 방식과 매매 체결 시점, 리밸런싱 주기를 구성합니다.
                 </p>
               </div>
-            </div>
-          </div>
 
-          {/* Section 3: Execution Timing */}
-          <div className={`bg-[#0f0f0f] rounded-3xl border border-gray-800/50 p-5 shadow-xl flex flex-col space-y-4 transition-all duration-500 ${skip_pos ? 'opacity-30 grayscale pointer-events-none' : ''}`}>
-            <div className="flex items-center gap-3.5 mb-2">
-              <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center border border-white/20 shadow-inner">
-                <Clock className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <h4 className="text-md font-black text-[#dfdfdf]">체결 시점 선택</h4>
-                <p className="text-[11px] text-[#a0a0a0]">조건 충족 시 실제 주문이 나가는 타이밍입니다.</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 bg-[#1a1a1a]/40 p-5 rounded-2xl border border-gray-800/40 backdrop-blur-sm flex-1 min-h-[200px]">
-              <button 
-                onClick={() => setExecutionTiming("next_open")}
-                className={`px-5 py-4 rounded-xl border transition-all text-left flex items-start gap-4 ${
-                  executionTiming === "next_open"
-                    ? "bg-white/5 border-white/30 ring-1 ring-white/10"
-                    : "bg-[#0a0a0a] border-gray-800 hover:border-gray-700"
-                }`}
+              {/* Skip Setting Toggle */}
+              <div
+                className="flex items-center gap-3 bg-[#111] px-5 py-3 rounded-2xl border border-white/5 hover:border-white/10 transition-all cursor-pointer group"
+                onClick={() => setRiskManagement({ ...riskManagement, skip_position_setting: !skip_pos })}
               >
-                <div className={`w-2 h-2 rounded-full mt-1.5 ${executionTiming === "next_open" ? "bg-main-blue animate-pulse" : "bg-gray-700"}`} />
-                <div>
-                  <div className={`text-sm font-black mb-1 ${executionTiming === "next_open" ? "text-main-blue" : "text-[#a0a0a0]"}`}>익일 시가 (Next Open)</div>
-                  <div className="text-[11px] text-[#a0a0a0] leading-tight">신호가 발생한 다음 영업일 아침 시가에 즉시 체결합니다. 가장 일반적인 방식입니다.</div>
+                <div className={`w-10 h-6 rounded-full transition-colors relative ${skip_pos ? 'bg-blue-500' : 'bg-[#2a2a2a]'}`}>
+                  <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${skip_pos ? 'translate-x-4' : ''}`} />
                 </div>
-              </button>
-              <button 
-                onClick={() => setExecutionTiming("current_close")}
-                className={`px-5 py-4 rounded-xl border transition-all text-left flex items-start gap-4 ${
-                  executionTiming === "current_close"
-                    ? "bg-white/5 border-white/30 ring-1 ring-white/10"
-                    : "bg-[#0a0a0a] border-gray-800 hover:border-gray-700"
-                }`}
-              >
-                <div className={`w-2 h-2 rounded-full mt-1.5 ${executionTiming === "current_close" ? "bg-main-blue animate-pulse" : "bg-gray-700"}`} />
-                <div>
-                  <div className={`text-sm font-black mb-1 ${executionTiming === "current_close" ? "text-main-blue" : "text-[#a0a0a0]"}`}>당일 종가 (Direct Close)</div>
-                  <div className="text-[11px] text-[#a0a0a0] leading-tight">신호가 발생한 당일 장 마감 직전 종가로 체결합니다. 빠른 대응이 가능합니다.</div>
-                </div>
-              </button>
-            </div>
-          </div>
-
-          {/* Section 4: Rebalancing */}
-          <div className="bg-[#0f0f0f] rounded-3xl border border-gray-800/50 p-5 shadow-xl flex flex-col space-y-4">
-            <div className="flex items-center gap-3.5 mb-2">
-              <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center border border-white/20 shadow-inner">
-                <ArrowsClockwise className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <h4 className="text-md font-black text-[#dfdfdf]">리밸런싱 설정</h4>
-                <p className="text-[11px] text-[#a0a0a0]">보유 종목의 비중을 정기적으로 재조정합니다.</p>
+                <span className={`text-sm font-bold tracking-tight transition-colors ${skip_pos ? 'text-white' : 'text-white/40'}`}>
+                  포지션/비중 설정 안 함
+                </span>
               </div>
             </div>
 
-            <div className="bg-[#1a1a1a]/40 p-5 rounded-2xl border border-gray-800/40 backdrop-blur-sm flex-1 flex flex-col justify-between min-h-[200px]">
-              <div>
-                <div className="flex p-1 bg-[#0a0a0a] rounded-xl border border-gray-800 mb-5">
-                  {[
-                    { id: "none", label: "안함" },
-                    { id: "daily", label: "매일" },
-                    { id: "weekly", label: "매주" },
-                    { id: "monthly", label: "매월" },
-                    { id: "custom", label: "직접 입력" }
-                  ].map((period) => (
-                    <button
-                      key={period.id}
-                      onClick={() => {
-                        if (period.id === "custom") {
-                          setRebalancingPeriod("custom:2:week");
-                        } else {
-                          setRebalancingPeriod(period.id);
-                        }
-                      }}
-                      className={`flex-1 py-2.5 rounded-lg text-xs font-black transition-all ${
-                        (period.id === "custom" ? rebalancingPeriod.startsWith("custom:") : rebalancingPeriod === period.id)
-                          ? "bg-main-blue text-white shadow-lg shadow-main-blue/20"
-                          : "text-[#a0a0a0] hover:text-gray-300"
-                      }`}
-                    >
-                      {period.label}
-                    </button>
-                  ))}
-                </div>
-
-                {rebalancingPeriod.startsWith("custom:") && (
-                  <div className="flex items-center gap-3 mb-5 animate-in fade-in slide-in-from-top-2 duration-300">
+            <div className={`flex flex-col gap-6 transition-all duration-500 ${skip_pos ? 'opacity-30 grayscale pointer-events-none' : ''}`}>
+              
+              {/* Panels 1 & 2: 2-Column Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                {/* Panel 1: 포트폴리오 구성 */}
+                <div className="flex flex-col">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Briefcase className="w-5 h-5 text-blue-500" />
+                    <h2 className="text-lg font-bold text-blue-500">포트폴리오 구성</h2>
+                  </div>
+                  
+                  <div className="bg-[#111] rounded-xl p-6 flex-1 flex flex-col">
                     <div className="flex-1">
-                      <input 
-                        type="number" 
-                        min="1"
-                        value={rebalancingPeriod.split(":")[1]}
-                        onChange={(e) => {
-                          const parts = rebalancingPeriod.split(":");
-                          setRebalancingPeriod(`custom:${e.target.value}:${parts[2]}`);
-                        }}
-                        className="w-full bg-[#0a0a0a] border border-gray-800 rounded-xl px-4 py-2 text-white font-black text-sm outline-none focus:border-white/50"
-                      />
+                      <div className="flex items-center justify-between mb-6">
+                        <span className="text-sm font-medium text-white/70">최대 보유 종목 수</span>
+                        <span className="text-sm font-bold text-blue-500">{maxPositions}개</span>
+                      </div>
+                      <div className="relative px-2">
+                        <input
+                          type="range"
+                          min="1"
+                          max="100"
+                          value={maxPositions}
+                          onChange={(e) => setMaxPositions(Number(e.target.value))}
+                          className="w-full h-1.5 bg-[#0a0a0a] rounded-full appearance-none cursor-pointer accent-blue-500"
+                        />
+                        <div className="flex justify-between items-center mt-3 text-[9px] font-bold text-white/30 uppercase tracking-wider">
+                          <span>1개</span>
+                          <span>50개</span>
+                          <span>100개</span>
+                        </div>
+                      </div>
                     </div>
-                    <select 
-                      value={rebalancingPeriod.split(":")[2]}
-                      onChange={(e) => {
-                        const parts = rebalancingPeriod.split(":");
-                        setRebalancingPeriod(`custom:${parts[1]}:${e.target.value}`);
-                      }}
-                      className="bg-[#0a0a0a] border border-gray-800 rounded-xl px-4 py-2 text-white font-black text-sm outline-none focus:border-white/50 appearance-none cursor-pointer"
-                    >
-                      <option value="day">일</option>
-                      <option value="week">주</option>
-                      <option value="month">월</option>
-                    </select>
+                    <p className="text-[11px] text-white/40 font-medium leading-relaxed mt-4">
+                      동시에 최대 <span className="text-white font-bold">{maxPositions}개</span>의 종목까지 보유합니다.
+                    </p>
                   </div>
-                )}
+                </div>
+
+                {/* Panel 2: 비중 배분 정책 */}
+                <div className="flex flex-col">
+                  <div className="flex items-center gap-2 mb-4">
+                    <ChartPie className="w-5 h-5 text-blue-500" />
+                    <h2 className="text-lg font-bold text-blue-500">비중 배분 정책</h2>
+                  </div>
+                  
+                  <div className="bg-[#111] rounded-xl p-6 flex-1 flex flex-col">
+                    <div className="mb-6">
+                      <div className="flex items-center justify-between mb-4">
+                        <span className="text-sm font-medium text-white/70">배분 방식</span>
+                      </div>
+                      <div className="flex gap-2 p-1 bg-[#0a0a0a] rounded-lg">
+                        <button
+                          onClick={() => setAllocationType("equal")}
+                          className={`flex-1 py-2.5 text-sm font-bold rounded-md transition-all ${
+                            allocationType === "equal"
+                              ? "bg-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.2)]"
+                              : "text-white/50 hover:text-white hover:bg-white/5"
+                          }`}
+                        >
+                          동일 비중
+                        </button>
+                        <button
+                          onClick={() => setAllocationType("fixed_pct")}
+                          className={`flex-1 py-2.5 text-sm font-bold rounded-md transition-all ${
+                            allocationType === "fixed_pct"
+                              ? "bg-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.2)]"
+                              : "text-white/50 hover:text-white hover:bg-white/5"
+                          }`}
+                        >
+                          고정 비중 (%)
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex-1 flex flex-col justify-end">
+                      {allocationType === "fixed_pct" ? (
+                        <div className="animate-in fade-in duration-300">
+                          <div className="flex items-center justify-between mb-4">
+                            <span className="text-sm font-medium text-white/70">종목당 투입 비중</span>
+                            <span className="text-sm font-bold text-blue-500">{allocationValue}%</span>
+                          </div>
+                          <div className="relative px-2">
+                            <input
+                              type="range"
+                              min="1"
+                              max="100"
+                              value={allocationValue}
+                              onChange={(e) => setAllocationValue(Number(e.target.value))}
+                              className="w-full h-1.5 bg-[#0a0a0a] rounded-full appearance-none cursor-pointer accent-blue-500"
+                            />
+                            <div className="flex justify-between items-center mt-3 text-[9px] font-bold text-white/30 uppercase tracking-wider">
+                              <span>1%</span>
+                              <span>50%</span>
+                              <span>100%</span>
+                            </div>
+                          </div>
+                          <p className="text-[11px] text-white/40 font-medium leading-relaxed mt-4">
+                            각 거래마다 가용 자산의 <span className="text-white font-bold">{allocationValue}%</span>를 고정적으로 투자합니다.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="animate-in fade-in duration-300">
+                          <p className="text-[11px] text-white/40 font-medium leading-relaxed mt-2">
+                            종목당 목표 비중: <span className="text-white font-bold">약 {Number(100 / maxPositions).toFixed(1)}%</span> (총 {maxPositions}개 균등 배분)
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div className="p-4 bg-white/5 border border-white/10 rounded-xl mt-auto">
-                <p className="text-[11px] text-[#a0a0a0] leading-relaxed font-medium">
-                  {rebalancingPeriod === "none" 
-                    ? "💡 포지션 진입 시점의 비중을 그대로 유지하며 별도의 도중 조정을 하지 않습니다."
-                    : rebalancingPeriod.startsWith("custom:")
-                    ? `💡 설정하신 주기(${rebalancingPeriod.split(":")[1]}${rebalancingPeriod.split(":")[2] === "day" ? "일" : rebalancingPeriod.split(":")[2] === "week" ? "주" : "달"})마다 포트폴리오 비중을 배분 정책에 맞춰 다시 계산합니다.`
-                    : `💡 정해진 주기(${rebalancingPeriod === "daily" ? "매일" : rebalancingPeriod === "weekly" ? "매주" : "매월"})마다 포트폴리오 비중을 배분 정책에 맞춰 다시 계산합니다.`}
-                </p>
+
+              {/* Panels 3 & 4: 2-Column Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-16">
+                
+                {/* Panel 3: 체결 시점 선택 */}
+                <div className="flex flex-col">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Clock className="w-5 h-5 text-blue-500" />
+                    <h2 className="text-lg font-bold text-blue-500">체결 시점 선택</h2>
+                  </div>
+                  
+                  <div className="bg-[#111] rounded-xl p-6 relative flex-1 flex flex-col">
+                    <div className="flex flex-col gap-4 flex-1 justify-center">
+                      {[
+                        {
+                          id: "next_open" as const,
+                          name: "익일 시가 (Next Open)",
+                          desc: "신호 발생 다음 영업일 아침 시가에 즉시 체결합니다. 가장 일반적인 추천 방식입니다.",
+                        },
+                        {
+                          id: "current_close" as const,
+                          name: "당일 종가 (Direct Close)",
+                          desc: "신호 발생 당일 장 마감 직전 종가로 체결합니다. 빠른 대응이 필요할 때 사용합니다.",
+                        }
+                      ].map((opt) => (
+                        <div
+                          key={opt.id}
+                          onClick={() => setExecutionTiming(opt.id)}
+                          className={`p-5 rounded-xl cursor-pointer transition-all border ${
+                            executionTiming === opt.id
+                              ? "bg-[#161616] border-blue-500/50"
+                              : "bg-[#0a0a0a] border-transparent hover:border-white/10"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <h3 className={`text-sm font-bold ${executionTiming === opt.id ? "text-white" : "text-white/60"}`}>{opt.name}</h3>
+                            <div className={`w-3 h-3 rounded-full border-2 transition-all ${executionTiming === opt.id ? 'border-blue-500 bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]' : 'border-white/20 bg-transparent'}`} />
+                          </div>
+                          <p className="text-[11px] text-white/40 font-medium leading-relaxed">{opt.desc}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Panel 4: 리밸런싱 설정 */}
+                <div className="flex flex-col">
+                  <div className="flex items-center gap-2 mb-4">
+                    <ArrowsClockwise className="w-5 h-5 text-blue-500" />
+                    <h2 className="text-lg font-bold text-blue-500">리밸런싱 설정</h2>
+                  </div>
+                  
+                  <div className="bg-[#111] rounded-xl p-6 relative flex-1 flex flex-col">
+                    <div className="flex flex-wrap gap-2 p-1 bg-[#0a0a0a] rounded-lg mb-6 w-full">
+                      {[
+                        { id: "none", label: "안함" },
+                        { id: "daily", label: "매일" },
+                        { id: "weekly", label: "매주" },
+                        { id: "monthly", label: "매월" },
+                        { id: "custom", label: "직접 입력" },
+                      ].map((period) => (
+                        <button
+                          key={period.id}
+                          onClick={() => {
+                            if (period.id === "custom") {
+                              setRebalancingPeriod("custom:2:week");
+                            } else {
+                              setRebalancingPeriod(period.id);
+                            }
+                          }}
+                          className={`flex-1 py-2.5 px-3 text-sm font-bold rounded-md transition-all whitespace-nowrap ${
+                            (period.id === "custom" ? rebalancingPeriod.startsWith("custom:") : rebalancingPeriod === period.id)
+                              ? "bg-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.2)]"
+                              : "text-white/50 hover:text-white hover:bg-white/5"
+                          }`}
+                        >
+                          {period.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="flex-1 flex flex-col justify-end">
+                      {rebalancingPeriod.startsWith("custom:") && (
+                        <div className="flex items-center gap-3 animate-in fade-in slide-in-from-top-2 duration-300 w-full mb-4">
+                          <div className="flex-1">
+                            <input
+                              type="number"
+                              min="1"
+                              value={rebalancingPeriod.split(":")[1]}
+                              onChange={(e) => {
+                                const parts = rebalancingPeriod.split(":");
+                                setRebalancingPeriod(`custom:${e.target.value}:${parts[2]}`);
+                              }}
+                              className="w-full bg-[#0a0a0a] border border-white/10 rounded-lg px-4 py-2.5 text-white font-bold text-sm outline-none focus:border-blue-500/50"
+                            />
+                          </div>
+                          <select
+                            value={rebalancingPeriod.split(":")[2]}
+                            onChange={(e) => {
+                              const parts = rebalancingPeriod.split(":");
+                              setRebalancingPeriod(`custom:${parts[1]}:${e.target.value}`);
+                            }}
+                            className="bg-[#0a0a0a] border border-white/10 rounded-lg px-4 py-2.5 text-white font-bold text-sm outline-none focus:border-blue-500/50 appearance-none cursor-pointer w-24 text-center"
+                          >
+                            <option value="day">일</option>
+                            <option value="week">주</option>
+                            <option value="month">월</option>
+                          </select>
+                        </div>
+                      )}
+
+                      <p className="text-[11px] text-white/40 font-medium leading-relaxed">
+                        {rebalancingPeriod === "none"
+                          ? "포지션 진입 후 별도의 재조정 없이 신호에 따라 매도될 때까지 유지합니다."
+                          : "설정된 주기마다 전체 포트폴리오 비중을 배분 정책에 맞춰 재조정합니다."}
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </div>
+
             </div>
+
+            {/* Action Buttons at the bottom of the main content */}
+            <div className="flex items-center justify-between border-t border-white/5 pt-8 mb-12">
+              <button 
+                onClick={onPrev}
+                className="py-3 px-6 rounded-lg bg-transparent border border-white/10 hover:border-white/30 text-sm font-bold text-white transition-all flex items-center gap-2"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>이전</span>
+              </button>
+              
+              <button 
+                onClick={onNext}
+                className="py-3 px-8 rounded-lg bg-blue-500 hover:bg-blue-400 active:bg-blue-600 text-sm font-bold text-white transition-all shadow-[0_0_15px_rgba(59,130,246,0.3)] flex items-center gap-2"
+              >
+                <span>리스크 관리</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+
           </div>
         </div>
 
-        <div className="h-8" />
-      </div>
-
-      {/* macOS-style Bottom Toolbar / Status View */}
-      <div className="sticky bottom-0 left-0 right-0 bg-[#0f0f0f] backdrop-blur-3xl px-8 py-5 z-50">
-        <div className="max-w-full mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-12">
-            <div className="flex items-center gap-6">
-              <div className="w-16 h-16 bg-[rgb(59, 134, 247)] rounded-2xl flex items-center justify-center shadow-[0_0_40px_rgba(0,122,255,0.4)]">
-                <EggIcon className="w-8 h-8 text-white" />
-              </div>
-              <div className="space-y-1">
-                <h4 className="text-xl font-black text-[#dfdfdf] tracking-tight uppercase">자금 배분 요약</h4>
-              </div>
-            </div>
-            
-            <div className="h-12 w-px bg-white/10" />
-            
-            <div className="flex gap-12">
-              <div className="flex flex-col">
-                <span className="text-xs font-black text-[rgb(59, 134, 247)] uppercase tracking-widest mb-1.5 opacity-80">최대 종목 수</span>
-                <span className="text-2xl font-black text-[#dfdfdf] tabular-nums tracking-tight">
-                  {skip_pos ? "OFF" : `${maxPositions}개`}
-                </span>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-xs font-black text-[rgb(59, 134, 247)] uppercase tracking-widest mb-1.5 opacity-80">배분 방식</span>
-                <span className="text-2xl font-black text-[#dfdfdf] tabular-nums tracking-tight">
-                  {skip_pos ? "OFF" : (allocationType === "equal" ? "동일 비중" : "고정 비중")}
-                </span>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-xs font-black text-[rgb(59, 134, 247)] uppercase tracking-widest mb-1.5 opacity-80">체결 시점</span>
-                <span className="text-2xl font-black text-[#dfdfdf] tabular-nums tracking-tight">
-                  {skip_pos ? "OFF" : (executionTiming === "next_open" ? "익일 시가" : "당일 종가")}
-                </span>
-              </div>
-            </div>
+        {/* Right Fixed Sidebar (Summary) */}
+        <div className="hidden lg:block w-[320px] xl:w-[380px] bg-[#141414] border-l border-white/5 h-full overflow-y-auto shrink-0 p-8">
+          
+          <div className="flex items-center gap-3 mb-10">
+            <ChartBar className="w-6 h-6 text-blue-500" />
+            <h3 className="text-base font-black text-white/60 uppercase tracking-widest">포지션 설정 요약</h3>
           </div>
 
-          <div className="flex items-center gap-4">
-            <button 
-              onClick={onPrev} 
-              className="px-8 py-5 bg-[#161616] border border-white/5 text-white rounded-2xl text-lg font-black hover:bg-[#1f1f1f] hover:border-white/10 transition-all flex items-center gap-4 active:scale-95"
-            >
-              <ArrowLeft className="w-6 h-6" /> 이전
-            </button>
-            <button 
-              onClick={onNext} 
-              className="group px-12 py-5 bg-[#161616] text-white rounded-2xl text-lg font-black hover:bg-[#1f1f1f] transition-all flex items-center gap-4 shadow-[0_20px_40px_rgba(0,0,0,0.3)] border border-white/5 hover:border-white/10 hover:scale-105 active:scale-95"
-            >
-              리스크 관리 설정하기 <ArrowRight className="w-6 h-6 group-hover:translate-x-2 transition-transform duration-500 text-white" />
-            </button>
+          <div className={`space-y-8 transition-opacity duration-500 ${skip_pos ? 'opacity-30' : 'opacity-100'}`}>
+            
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <Briefcase className="w-5 h-5 text-blue-500" />
+                <span className="text-sm font-black text-white/40 uppercase tracking-widest">최대 종목 수</span>
+              </div>
+              <span className="text-2xl font-black text-white block pl-8 tracking-tight">
+                {skip_pos ? "OFF" : `${maxPositions}개`}
+              </span>
+            </div>
+
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <ChartPie className="w-5 h-5 text-blue-500" />
+                <span className="text-sm font-black text-white/40 uppercase tracking-widest">배분 방식</span>
+              </div>
+              <span className="text-2xl font-black text-white block pl-8 tracking-tight">
+                {skip_pos ? "OFF" : (allocationType === "equal" ? "동일 비중" : `고정 비중 (${allocationValue}%)`)}
+              </span>
+            </div>
+
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <Clock className="w-5 h-5 text-blue-500" />
+                <span className="text-sm font-black text-white/40 uppercase tracking-widest">체결 시점</span>
+              </div>
+              <span className="text-2xl font-black text-white block pl-8 tracking-tight">
+                {skip_pos ? "OFF" : (executionTiming === "next_open" ? "익일 시가" : "당일 종가")}
+              </span>
+            </div>
+
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <ArrowsClockwise className="w-5 h-5 text-blue-500" />
+                <span className="text-sm font-black text-white/40 uppercase tracking-widest">리밸런싱</span>
+              </div>
+              <span className="text-2xl font-black text-white block pl-8 tracking-tight">
+                {skip_pos ? "OFF" : getRebalancingLabel()}
+              </span>
+            </div>
+
           </div>
+
+          {skip_pos && (
+            <div className="mt-8 p-4 bg-white/5 rounded-xl border border-white/10">
+              <p className="text-xs text-blue-400 font-bold mb-1">안내</p>
+              <p className="text-[11px] text-white/40 leading-relaxed">
+                포지션 및 비중 설정을 건너뜁니다. 모델 자체의 시그널 크기 등에 의존하거나 기본 설정이 적용됩니다.
+              </p>
+            </div>
+          )}
+
         </div>
       </div>
+
     </div>
   );
 }
