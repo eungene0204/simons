@@ -92,7 +92,7 @@ const DashboardLayoutContent = memo(function DashboardLayoutContent({
       <div className="min-h-screen bg-[#0f0f0f] text-white flex flex-col relative">
         {/* Real-time Ticker Tape */}
         <div 
-          className="fixed top-[var(--top-menu-bar-height)] left-0 right-0 h-9 bg-black/40 backdrop-blur-xl border-b border-white/5 z-40 flex items-center overflow-hidden"
+          className="fixed bottom-0 left-0 right-0 h-9 bg-black/40 backdrop-blur-xl border-t border-white/5 z-40 flex items-center overflow-hidden"
           style={{ marginLeft: `${drawerWidthPx}px` }}
         >
           <div className="animate-marquee flex gap-12 whitespace-nowrap text-[11px] font-bold tracking-tight">
@@ -120,7 +120,8 @@ const DashboardLayoutContent = memo(function DashboardLayoutContent({
           className="flex-1 overflow-y-auto overflow-x-hidden animate-fade-in max-w-full transition-all duration-300 ease-in-out"
           style={{
             marginLeft: `${drawerWidthPx}px`,
-            paddingTop: `calc(${topMenuBarHeight}px + 32px)`, // Adjust for ticker tape
+            paddingTop: `${topMenuBarHeight}px`,
+            paddingBottom: `36px`, // Adjust for ticker tape
           }}
         >
           <div className="relative z-10">
