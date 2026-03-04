@@ -5,12 +5,13 @@ export const signalBlocks: Record<string, SignalBlock> = {
   ma_crossover: {
     id: "ma_crossover",
     name: "이동평균선 교차",
-    description: "단기 이평선이 장기 이평선을 돌파할 때의 추세 전환을 포착합니다. '매수(골든크로스)'는 단기 선이 위로 뚫고 올라올 때의 강력한 상승 추세를, '매도(데드크로스)'는 아래로 뚫고 내려갈 때의 하락 전환 신호를 의미합니다.",
+    description: "단기 이평선이 장기 이평선을 돌파할 때의 추세 전환을 포착합니다. 골든크로스는 단기 선이 위로 뚫고 올라올 때의 상승 추세를, 데드크로스는 아래로 뚫고 내려갈 때의 하락 전환 신호를 의미합니다.",
     category: "indicator",
     defaultParams: {
       shortMA: 5,
       longMA: 20,
-      signalType: "buy", // "buy" for golden cross, "sell" for death cross
+      crossType: "golden",
+      signalType: "buy",
     },
     paramSchema: {
       shortMA: {
@@ -39,14 +40,23 @@ export const signalBlocks: Record<string, SignalBlock> = {
         tooltip: "추세의 기본 방향을 나타내는 장기 이동평균 기간",
         suffix: "일",
       },
-      signalType: {
+      crossType: {
         type: "select",
         label: "교차 종류",
         options: [
-          { value: "buy", label: "매수 (골든크로스)" },
-          { value: "sell", label: "매도 (데드크로스)" },
+          { value: "golden", label: "골든크로스" },
+          { value: "dead", label: "데드크로스" },
         ],
-        tooltip: "단기 선이 장기 선을 상향 돌파(골든) 혹은 하향 돌파(데드) 하는 조건",
+        tooltip: "단기 선이 장기 선을 상향 돌파(골든크로스) 혹은 하향 돌파(데드크로스) 하는 조건",
+      },
+      signalType: {
+        type: "select",
+        label: "신호 구분",
+        options: [
+          { value: "buy", label: "매수" },
+          { value: "sell", label: "매도" },
+        ],
+        tooltip: "이 블록의 신호를 매수 신호로 쓸지, 매도 신호로 쓸지 구분합니다.",
       },
     },
   },
@@ -95,8 +105,8 @@ export const signalBlocks: Record<string, SignalBlock> = {
         type: "select",
         label: "신호 구분",
         options: [
-          { value: "buy", label: "매수 (과매도 탈출 등)" },
-          { value: "sell", label: "매도 (과매수 진입 등)" },
+          { value: "buy", label: "매수" },
+          { value: "sell", label: "매도" },
         ],
         tooltip: "RSI 임계값 도달 시 발생시킬 신호 종류",
       },
@@ -142,8 +152,8 @@ export const signalBlocks: Record<string, SignalBlock> = {
         type: "select",
         label: "신호 구분",
         options: [
-          { value: "buy", label: "매수 (상향 돌파)" },
-          { value: "sell", label: "매도 (하향 돌파)" },
+          { value: "buy", label: "매수" },
+          { value: "sell", label: "매도" },
         ],
       },
     },
@@ -181,8 +191,8 @@ export const signalBlocks: Record<string, SignalBlock> = {
         type: "select",
         label: "신호 조건",
         options: [
-          { value: "buy", label: "하단 밴드 하향 돌파 (매수)" },
-          { value: "sell", label: "상단 밴드 상향 돌파 (매도)" },
+          { value: "buy", label: "매수" },
+          { value: "sell", label: "매도" },
         ],
         tooltip: "가격과 밴드의 상호작용에 따른 신호 발생 지점",
       },
@@ -211,8 +221,8 @@ export const signalBlocks: Record<string, SignalBlock> = {
         type: "select",
         label: "신호 구분",
         options: [
-          { value: "buy", label: "매수 (시그널 상향 돌파)" },
-          { value: "sell", label: "매도 (시그널 하향 돌파)" },
+          { value: "buy", label: "매수" },
+          { value: "sell", label: "매도" },
         ],
         tooltip: "OBV가 시그널선을 상향 돌파(매수) 또는 하향 돌파(매도) 하는 조건",
       },
@@ -241,8 +251,8 @@ export const signalBlocks: Record<string, SignalBlock> = {
         type: "select",
         label: "신호 구분",
         options: [
-          { value: "buy", label: "매수 (신고가 돌파)" },
-          { value: "sell", label: "매도 (신저가 돌파)" },
+          { value: "buy", label: "매수" },
+          { value: "sell", label: "매도" },
         ],
         tooltip: "돌파 시 발생시킬 신호의 성격 (상향/하향)",
       },
@@ -294,8 +304,8 @@ export const signalBlocks: Record<string, SignalBlock> = {
         type: "select",
         label: "신호 구분",
         options: [
-          { value: "buy", label: "매수 (매수가 많을 때)" },
-          { value: "sell", label: "매도 (매도가 많을 때)" },
+          { value: "buy", label: "매수" },
+          { value: "sell", label: "매도" },
         ],
       },
     },
