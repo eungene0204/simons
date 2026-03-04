@@ -24,9 +24,11 @@ import {
   CursorArrowRaysIcon,
   Squares2X2Icon,
   Bars3Icon,
-  ChevronUpDownIcon,
+  GlobeAltIcon,
+  ServerStackIcon,
+  VariableIcon,
 } from "@heroicons/react/24/outline";
-import { CanvasBlock, LogicOperator, ConditionType } from "@/types/strategy";
+import { CanvasBlock, LogicOperator } from "@/types/strategy";
 import { signalBlocks } from "@/lib/strategy-blocks";
 import StrategyBlockSearchMenu from "../StrategyBlockSearchMenu";
 
@@ -110,14 +112,8 @@ export default function Step2Conditions({
   setIsLibraryManagementOpen,
   activeMgmtCategory,
   setActiveMgmtCategory,
-  draggedModalItemIndex,
-  setDraggedModalItemIndex,
-  draggedCategoryIndex,
-  setDraggedCategoryIndex,
   openSignalGroups,
   setOpenSignalGroups,
-  savedFeedback,
-  setSavedFeedback,
   reorderDragItem,
   setReorderDragItem,
   canvasRef,
@@ -128,7 +124,6 @@ export default function Step2Conditions({
   handleRemoveBlockFromBin,
 }: Step2ConditionsProps) {
   const popoverRef = useRef<HTMLDivElement>(null);
-
   const paramPopupRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -156,7 +151,7 @@ export default function Step2Conditions({
     };
   }, [openSignalGroups, setOpenSignalGroups, selectedBlock, setSelectedBlock]);
 
-  const blocksPerRow = canvasWidth > 900 ? 6 : canvasWidth > 600 ? 4 : Math.max(1, Math.floor((canvasWidth - 30) / 150));
+  const blocksPerRow = canvasWidth > 1200 ? 8 : canvasWidth > 900 ? 6 : canvasWidth > 600 ? 4 : Math.max(1, Math.floor((canvasWidth - 30) / 150));
   const totalGridWidth = blocksPerRow * 150 - 30;
   const sidePadding = Math.max(15, (canvasWidth - totalGridWidth) / 2);
 
@@ -164,7 +159,7 @@ export default function Step2Conditions({
     return {
       filter: {
         key: "filter",
-        label: "종목 필터 블록",
+        label: "종목 필터",
         icon: AdjustmentsHorizontalIcon,
         blocks: Object.values(signalBlocks).filter(
           (b) => b.category === "filter" && 
@@ -187,7 +182,7 @@ export default function Step2Conditions({
       },
       indicator: {
         key: "indicator",
-        label: "매매 시그널 블록",
+        label: "매매 시그널",
         icon: SparklesIcon,
         blocks: Object.values(signalBlocks).filter(
           (b) => (b.category === "indicator" || b.category === "flow") && 
@@ -210,7 +205,7 @@ export default function Step2Conditions({
       },
       risk: {
         key: "risk",
-        label: "리스크 블록",
+        label: "리스크",
         icon: ShieldExclamationIcon,
         blocks: Object.values(signalBlocks).filter(
           (b) => b.category === "risk" && 
@@ -233,7 +228,7 @@ export default function Step2Conditions({
       },
       ml: {
         key: "ml",
-        label: "AI 블록",
+        label: "AI 모델",
         icon: CpuChipIcon,
         blocks: Object.values(signalBlocks).filter(
           (b) => b.category === "ml" && 
@@ -316,81 +311,134 @@ export default function Step2Conditions({
     setReorderDragItem(null);
   };
 
+  const entryBlocksCount = canvasBlocks.filter(b => b.type === 'entry').length;
+  const exitBlocksCount = canvasBlocks.filter(b => b.type === 'exit').length;
+
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[#0f0f0f]">
-      <div className="px-8 pt-8 pb-4 flex justify-between items-start">
-        <div>
-          <h3 className="text-xl font-black text-[#dfdfdf] tracking-tight">매매 로직 설계</h3>
-          <p className="text-sm text-[#a0a0a0] mt-1 font-medium">
-            보조지표와 AI 블록을 조합하여 매수 및 매도 신호를 정의합니다.
-          </p>
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[#0a0a0a] font-sans">
+      {/* Top Header Section - Tiled Header */}
+      <div className="flex shrink-0 items-center justify-between bg-[#111111] border-b border-white/5 px-8 py-5 shadow-xl relative z-40">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 bg-[rgb(59,134,247)]/10 rounded-xl flex items-center justify-center border border-[rgb(59,134,247)]/20 shadow-[0_0_15px_rgba(59,134,247,0.1)]">
+            <CpuChipIcon className="w-7 h-7 text-[rgb(59,134,247)]" />
+          </div>
+          <div>
+            <h3 className="text-2xl font-black text-white tracking-tight">매매 로직 설계</h3>
+            <p className="text-xs text-white/40 mt-1 font-black uppercase tracking-[0.2em]">
+              매매 전략 로직을 설계하세요
+            </p>
+          </div>
         </div>
-        <div className="flex gap-6 mt-1">
-          <div className="flex items-center gap-3">
-            <span className="text-[11px] font-black text-[#EF4444] uppercase tracking-widest">매수 결합</span>
-            <div className="flex bg-black/40 rounded-lg p-1 border border-white/5">
-              <button onClick={() => setEntryLogic("AND")} className={`px-2.5 py-1 text-[10px] font-black rounded transition-all ${entryLogic === "AND" ? "bg-[rgb(55,122,244)] text-white shadow-[0_0_10px_rgba(55,122,244,0.4)]" : "text-[#a0a0a0] hover:text-white/60"}`}>AND</button>
-              <button onClick={() => setEntryLogic("OR")} className={`px-2.5 py-1 text-[10px] font-black rounded transition-all ${entryLogic === "OR" ? "bg-[rgb(55,122,244)] text-white shadow-[0_0_10px_rgba(55,122,244,0.4)]" : "text-[#a0a0a0] hover:text-white/60"}`}>OR</button>
+
+        <div className="flex items-center gap-6">
+          {/* Entry Logic Switcher */}
+          <div className="flex items-center gap-3 bg-black/20 rounded-xl p-1.5 border border-white/5">
+            <span className="text-[11px] font-black text-red-500/80 uppercase tracking-widest px-2">진입</span>
+            <div className="flex bg-[#161616] rounded-lg p-0.5 border border-white/5 shadow-inner">
+              <button 
+                onClick={() => setEntryLogic("AND")} 
+                className={`px-4 py-1.5 text-xs font-black rounded-md transition-all duration-300 ${entryLogic === "AND" ? "bg-[rgb(55,122,244)] text-white shadow-lg" : "text-white/30 hover:text-white/60"}`}
+              >
+                AND
+              </button>
+              <button 
+                onClick={() => setEntryLogic("OR")} 
+                className={`px-4 py-1.5 text-xs font-black rounded-md transition-all duration-300 ${entryLogic === "OR" ? "bg-[rgb(55,122,244)] text-white shadow-lg" : "text-white/30 hover:text-white/60"}`}
+              >
+                OR
+              </button>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="text-[11px] font-black text-[#3B82F6] uppercase tracking-widest">매도 결합</span>
-            <div className="flex bg-black/40 rounded-lg p-1 border border-white/5">
-              <button onClick={() => setExitLogic("AND")} className={`px-2.5 py-1 text-[10px] font-black rounded transition-all ${exitLogic === "AND" ? "bg-[rgb(55,122,244)] text-white shadow-[0_0_10px_rgba(55,122,244,0.4)]" : "text-[#a0a0a0] hover:text-white/60"}`}>AND</button>
-              <button onClick={() => setExitLogic("OR")} className={`px-2.5 py-1 text-[10px] font-black rounded transition-all ${exitLogic === "OR" ? "bg-[rgb(55,122,244)] text-white shadow-[0_0_10px_rgba(55,122,244,0.4)]" : "text-[#a0a0a0] hover:text-white/60"}`}>OR</button>
+
+          {/* Exit Logic Switcher */}
+          <div className="flex items-center gap-3 bg-black/20 rounded-xl p-1.5 border border-white/5">
+            <span className="text-[11px] font-black text-blue-500/80 uppercase tracking-widest px-2">청산</span>
+            <div className="flex bg-[#161616] rounded-lg p-0.5 border border-white/5 shadow-inner">
+              <button 
+                onClick={() => setExitLogic("AND")} 
+                className={`px-4 py-1.5 text-xs font-black rounded-md transition-all duration-300 ${exitLogic === "AND" ? "bg-[rgb(55,122,244)] text-white shadow-lg" : "text-white/30 hover:text-white/60"}`}
+              >
+                AND
+              </button>
+              <button 
+                onClick={() => setExitLogic("OR")} 
+                className={`px-4 py-1.5 text-xs font-black rounded-md transition-all duration-300 ${exitLogic === "OR" ? "bg-[rgb(55,122,244)] text-white shadow-lg" : "text-white/30 hover:text-white/60"}`}
+              >
+                OR
+              </button>
             </div>
           </div>
         </div>
       </div>
-      <div className="flex-1 flex min-h-0 overflow-hidden bg-[#0f0f0f] max-h-[640px]">
-        {/* Left Sidebar */}
-        <div className="w-52 bg-[#0c0c0c] backdrop-blur-2xl flex flex-col shrink-0 relative z-20 rounded-3xl ml-4 h-full overflow-hidden">
-          <div className="flex-1 px-4 py-6 space-y-4">
-            <div className="flex items-center justify-between mb-2 px-1">
-              <div className="flex items-center gap-2">
-                <Squares2X2Icon className="w-4 h-4 text-[rgb(59, 134, 247)]" />
-                <h3 className="text-xs font-black text-white/60 uppercase tracking-widest">지표 라이브러리</h3>
+
+      {/* Main Tiled Grid */}
+      <div className="flex-1 grid grid-cols-12 gap-0 min-h-0 overflow-hidden">
+        
+        {/* Left Side: Library (col-span-2) */}
+        <div className="col-span-2 bg-[#0d0d0d] border-r border-white/5 flex flex-col shadow-2xl relative z-30">
+          <div className="p-5 border-b border-white/5 bg-white/[0.01]">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3.5">
+                <Squares2X2Icon className="w-8 h-8 text-[rgb(59,134,247)]" />
+                <h3 className="text-xl font-black text-white/90 uppercase tracking-tight">라이브러리</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setIsLibraryManagementOpen(true)}
-                className="p-1.5 bg-[#161616] border border-white/5 rounded-lg text-gray-500 hover:text-white hover:bg-[#1f1f1f] hover:border-white/10 transition-all group/mgmt"
+                className="p-1.5 bg-black/40 border border-white/5 rounded-xl text-white/20 hover:text-white hover:bg-black/60 transition-all"
               >
-                <EllipsisHorizontalIcon className="w-4 h-4" />
+                <EllipsisHorizontalIcon className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="space-y-4">
-              {customCategoryOrder.map((key) => {
-                const group = (groupedSignalLibrary as any)[key];
-                if (!group) return null;
-                const filteredBlocks = group.blocks;
-                const isOpen = openSignalGroups.includes(group.key);
-                
-                return (
-                  <div key={group.key} className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setOpenSignalGroups((prev) => 
-                        prev.includes(group.key) ? [] : [group.key]
-                      )}
-                      className={`w-full flex items-center justify-between px-4 py-4 text-sm font-black transition-all group/header rounded-xl ${
-                        isOpen ? "text-white bg-white/5" : "text-white/40 hover:text-white/60 hover:bg-white/5"
-                      }`}
-                    >
-                      <span className="tracking-tight">{group.label}</span>
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${isOpen ? "bg-white/10 text-white" : "text-white/20 group-hover:text-white/40"}`}>
-                        <ChevronUpDownIcon className="w-4 h-4" />
-                      </div>
-                    </button>
+            <button
+              type="button"
+              onClick={() => setIsSearchMenuOpen(!isSearchMenuOpen)}
+              className={`w-full flex items-center gap-3 px-3 py-3.5 rounded-2xl transition-all border ${
+                isSearchMenuOpen
+                  ? "bg-white text-black border-transparent shadow-[0_0_30px_rgba(255,255,255,0.15)]"
+                  : "bg-black/40 text-white/40 hover:text-white hover:bg-black/60 border-white/5"
+              }`}
+            >
+              <MagnifyingGlassIcon className="w-5 h-5" />
+              <span className="text-[11px] font-black uppercase tracking-widest leading-none pt-0.5">블록 검색...</span>
+            </button>
+          </div>
 
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-2.5 space-y-1">
+            {customCategoryOrder.map((key) => {
+              const group = (groupedSignalLibrary as any)[key];
+              if (!group) return null;
+              const filteredBlocks = group.blocks;
+              const isOpen = openSignalGroups.includes(group.key);
+              
+              return (
+                <div key={group.key} className="space-y-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setOpenSignalGroups((prev) => 
+                      prev.includes(group.key) ? [] : [group.key]
+                    )}
+                    className={`w-full flex items-center justify-between px-3 py-3.5 rounded-xl transition-all duration-300 ${
+                      isOpen ? "bg-white/[0.05] text-white" : "text-white/20 hover:text-white/40 hover:bg-white/[0.02]"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                       <group.icon className={`w-5 h-5 ${isOpen ? "text-[rgb(59,134,247)]" : "text-white/10"}`} />
+                       <span className="text-sm font-black tracking-tight">{group.label}</span>
+                    </div>
+                    <ChevronDownIcon className={`w-4 h-4 transition-transform duration-300 ${isOpen ? "rotate-180 text-white" : "text-white/10"}`} />
+                  </button>
+
+                  <AnimatePresence>
                     {isOpen && (
-                      <div 
-                        ref={popoverRef}
-                        className="absolute inset-x-0 top-0 bg-[#161616] backdrop-blur-3xl rounded-2xl border border-white/10 shadow-[0_25px_60px_rgba(0,0,0,0.8)] z-[100] p-3 animate-in fade-in zoom-in-95 duration-200"
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="overflow-hidden bg-black/10 rounded-xl mb-1"
                       >
-                        <div className="space-y-1.5 max-h-[420px] overflow-y-auto custom-scrollbar pr-1">
-                          {filteredBlocks.length === 0 && <div className="text-xs text-gray-700 px-3 py-4 italic text-center">Empty Category</div>}
+                        <div className="p-1 space-y-1">
                           {filteredBlocks.map((block: any) => {
                             const blockDef = signalBlocks[block.id];
                             return (
@@ -401,11 +449,11 @@ export default function Step2Conditions({
                                   e.dataTransfer.setData("blockId", block.id);
                                   e.dataTransfer.setData("blockType", blockDef?.category || "");
                                 }}
-                                className="group p-3.5 bg-white/5 rounded-2xl text-xs font-black text-white/40 hover:text-white hover:bg-[rgb(59, 134, 247)] cursor-move transition-all flex items-center justify-between shadow-sm border border-transparent hover:border-white/10"
+                                className="group p-3 bg-white/[0.02] hover:bg-[rgb(59,134,247)] rounded-xl text-sm font-black text-white/30 hover:text-white cursor-move transition-all flex items-center justify-between border border-transparent hover:border-white/10"
                               >
                                 <span className="truncate pr-2 tracking-tight">{block.name}</span>
                                 <InformationCircleIcon 
-                                  className="w-3.5 h-3.5 text-white/10 group-hover:text-white/40 cursor-help"
+                                  className="w-4 h-4 text-white/5 group-hover:text-white/40 cursor-help"
                                   onMouseEnter={(e) => setHoveredInfo({ id: block.id, rect: e.currentTarget.getBoundingClientRect() })}
                                   onMouseLeave={() => setHoveredInfo(null)}
                                 />
@@ -413,41 +461,27 @@ export default function Step2Conditions({
                             );
                           })}
                         </div>
-                      </div>
+                      </motion.div>
                     )}
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="py-4">
-              <button
-                type="button"
-                onClick={() => setIsSearchMenuOpen(!isSearchMenuOpen)}
-                className={`w-full flex items-center justify-center gap-3 py-4 rounded-[20px] transition-all border ${
-                  isSearchMenuOpen
-                    ? "bg-white text-black border-transparent shadow-[0_0_25px_rgba(255,255,255,0.2)]"
-                    : "bg-[#161616] text-white/40 hover:text-white hover:bg-[#1f1f1f] border-white/5 hover:border-white/10"
-                }`}
-              >
-                <MagnifyingGlassIcon className="w-5 h-5" />
-                <span className="text-xs font-black uppercase tracking-widest">블록 검색</span>
-              </button>
-            </div>
-          </div>
-          <div className="bg-[#0c0c0c] px-4 pt-4 pb-8 flex items-center justify-center">
-            <p className="text-xs text-white/20 text-center leading-relaxed font-black uppercase tracking-tight">
-              찾고 계신 지표가 없나요? <br />
-              <span className="text-[rgb(59, 134, 247)] hover:text-[#0A84FF] cursor-pointer underline decoration-dotted underline-offset-4 transition-colors">지표 기능 제안하기</span>
-            </p>
+                  </AnimatePresence>
+                </div>
+              );
+            })}
           </div>
         </div>
 
-        {/* Center Canvas Area */}
-        <div className="flex-1 bg-transparent relative overflow-hidden flex flex-col h-full">
+        {/* Center: Canvas (col-span-8) */}
+        <div className="col-span-8 bg-[#0a0a0a] border-r border-white/5 overflow-hidden relative shadow-inner flex flex-col transition-all duration-500 z-20">
+          {/* Grid Background */}
+          <div className="absolute inset-0 pointer-events-none opacity-[0.03]" 
+               style={{ 
+                 backgroundImage: `radial-gradient(circle at 1.5px 1.5px, #fff 1.5px, transparent 0)`,
+                 backgroundSize: "32px 32px" 
+               }} />
+
           <div 
             ref={canvasRef}
-            className="flex-1 relative border border-white/10 rounded-[32px] overflow-hidden mx-4 h-full bg-black/20 backdrop-blur-2xl shadow-2xl"
+            className="flex-1 relative min-h-0"
             onDragOver={(e) => { e.preventDefault(); }}
             onDrop={(e) => {
               e.preventDefault();
@@ -458,546 +492,404 @@ export default function Step2Conditions({
               }
             }}
           >
-            <div className="absolute inset-0 pointer-events-none" 
-                 style={{ 
-                   backgroundImage: `radial-gradient(circle at 1px 1px, rgba(255,255,255,0.05) 1px, transparent 0)`,
-                   backgroundSize: "24px 24px" 
-                 }} />
-            
             {canvasBlocks.length === 0 && (
-              <div className="absolute inset-0 flex items-center justify-center p-12 text-center pointer-events-none z-10">
-                <div className="max-w-md space-y-6 animate-in fade-in zoom-in slide-in-from-bottom-8 duration-1000">
-                  <div className="w-24 h-24 bg-white/5 rounded-[32px] flex items-center justify-center mx-auto border border-white/10 mb-6 backdrop-blur-xl">
-                    <PlusIcon className="w-10 h-10 text-white/20" />
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[1]">
+                <div className="text-center space-y-6">
+                  <div className="w-20 h-20 bg-white/[0.02] rounded-3xl border border-white/5 flex items-center justify-center mx-auto shadow-inner backdrop-blur-sm">
+                    <PlusIcon className="w-8 h-8 text-white/5" />
                   </div>
-                  <h4 className="text-xl font-black text-white/40 tracking-tight uppercase">조건 설계 캔버스</h4>
-                  <p className="text-sm text-white/20 font-black uppercase tracking-tight leading-relaxed max-w-[240px] mx-auto">
-                    왼쪽 라이브러리에서 블록을 드래그하여 <br /> 매수/매도 로직을 완성하세요.
-                  </p>
+                  <div>
+                    <h4 className="text-white/20 font-black uppercase tracking-[0.3em] text-xs mb-2">전략 초기화</h4>
+                    <p className="text-[11px] text-white/10 font-black uppercase tracking-widest max-w-[240px]">
+                      라이브러리에서 블록을 드래그하여 <br /> 로직을 정의하세요
+                    </p>
+                  </div>
                 </div>
               </div>
             )}
 
-            <div className="absolute inset-0">
-              <svg className="absolute inset-0 w-full h-full pointer-events-none z-0">
-                <defs>
-                  <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-                    <feGaussianBlur stdDeviation="2" result="blur" />
-                    <feComposite in="SourceGraphic" in2="blur" operator="over" />
-                  </filter>
-                  <marker id="arrowhead-red" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                    <polygon points="0 0, 10 3.5, 0 7" fill="#EF4444" />
-                  </marker>
-                  <marker id="arrowhead-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                    <polygon points="0 0, 10 3.5, 0 7" fill="#3B82F6" />
-                  </marker>
-                  <marker id="arrowhead-gray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                    <polygon points="0 0, 10 3.5, 0 7" fill="#4B5563" />
-                  </marker>
-                </defs>
+            <div className="absolute inset-0 overflow-auto custom-scrollbar">
+              <div className="w-full h-full relative" style={{ minWidth: canvasWidth, minHeight: Math.ceil(canvasBlocks.length / blocksPerRow) * 150 + 100 }}>
+                {/* SVG Connections Layer */}
+                <svg className="absolute inset-0 w-full h-full pointer-events-none z-0">
+                  <defs>
+                    <filter id="glow-red" x="-20%" y="-20%" width="140%" height="140%">
+                      <feGaussianBlur stdDeviation="3" result="blur" />
+                      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                    </filter>
+                    <filter id="glow-blue" x="-20%" y="-20%" width="140%" height="140%">
+                      <feGaussianBlur stdDeviation="3" result="blur" />
+                      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                    </filter>
+                  </defs>
+                  {canvasBlocks.map((block, index) => {
+                    if (index === canvasBlocks.length - 1) return null;
+                    const nextBlock = canvasBlocks[index + 1];
+                    const isEntryOrFilter = (b: CanvasBlock) => b.type === "entry" || b.type === "filter";
+                    const isExit = (b: CanvasBlock) => b.type === "exit";
+                    
+                    let shouldConnect = false;
+                    let color = "#4B5563";
+                    let filterUrl = "";
+
+                    if (isEntryOrFilter(block) && isEntryOrFilter(nextBlock)) {
+                      shouldConnect = entryLogic === "AND";
+                      color = "#EF4444";
+                      filterUrl = "url(#glow-red)";
+                    } else if (isExit(block) && isExit(nextBlock)) {
+                      shouldConnect = exitLogic === "AND";
+                      color = "#3B82F6";
+                      filterUrl = "url(#glow-blue)";
+                    }
+
+                    if (!shouldConnect) return null;
+
+                    const col = index % blocksPerRow;
+                    const row = Math.floor(index / blocksPerRow);
+                    const nextCol = (index + 1) % blocksPerRow;
+                    const nextRow = Math.floor((index + 1) / blocksPerRow);
+                    const startX = sidePadding + col * 150 + 120;
+                    const startY = 80 + row * 140 + 35;
+                    let endX, endY;
+                    const isNewRow = nextRow > row;
+                    if (isNewRow) {
+                      endX = sidePadding + nextCol * 150 + 60;
+                      endY = 80 + nextRow * 140;
+                    } else {
+                      endX = sidePadding + nextCol * 150;
+                      endY = 80 + nextRow * 140 + 35;
+                    }
+                    const dx = endX - startX;
+                    let pathD;
+                    if (isNewRow) {
+                      const gutterY = startY + (endY - startY) / 2;
+                      pathD = `M ${startX} ${startY} C ${startX + 40} ${startY}, ${startX + 40} ${gutterY}, ${startX} ${gutterY} L ${endX + 40} ${gutterY} C ${endX} ${gutterY}, ${endX} ${gutterY}, ${endX} ${endY}`;
+                    } else {
+                      const offset = Math.min(Math.max(dx * 0.4, 30), 50);
+                      pathD = `M ${startX} ${startY} C ${startX + offset} ${startY} ${endX - offset} ${endY} ${endX} ${endY}`;
+                    }
+
+                    return (
+                      <g key={`flow-${block.id}-${nextBlock.id}`}>
+                        <path d={pathD} stroke={color} strokeWidth="6" fill="none" className="opacity-[0.05]" filter={filterUrl} />
+                        <path d={pathD} stroke={color} strokeWidth="2" fill="none" className="opacity-30" />
+                        <path d={pathD} stroke={color} strokeWidth="2" fill="none" strokeDasharray="6,14" className="opacity-50 animate-dash" />
+                      </g>
+                    );
+                  })}
+                </svg>
+
+                {/* Blocks Layer */}
                 {canvasBlocks.map((block, index) => {
-                  if (index === canvasBlocks.length - 1) return null;
-                  const nextBlock = canvasBlocks[index + 1];
-                  const isEntryOrFilter = (b: CanvasBlock) => b.type === "entry" || b.type === "filter";
-                  const isExit = (b: CanvasBlock) => b.type === "exit";
-                  
-                  let shouldConnect = false;
-                  let color = "#4B5563";
-                  let markerId = "arrowhead-gray";
+                  const colIdx = index % blocksPerRow;
+                  const rowIdx = Math.floor(index / blocksPerRow);
+                  const xOffset = sidePadding + colIdx * 150;
+                  const yOffset = 80 + rowIdx * 140;
+                  const isSelected = selectedBlock?.id === block.id;
 
-                  if (isEntryOrFilter(block) && isEntryOrFilter(nextBlock)) {
-                    shouldConnect = entryLogic === "AND";
-                    color = "#EF4444";
-                    markerId = "arrowhead-red";
-                  } else if (isExit(block) && isExit(nextBlock)) {
-                    shouldConnect = exitLogic === "AND";
-                    color = "#3B82F6";
-                    markerId = "arrowhead-blue";
-                  }
-
-                  if (!shouldConnect) return null;
-
-                  const col = index % blocksPerRow;
-                  const row = Math.floor(index / blocksPerRow);
-                  const nextCol = (index + 1) % blocksPerRow;
-                  const nextRow = Math.floor((index + 1) / blocksPerRow);
-                  const startX = sidePadding + col * 150 + 120;
-                  const startY = 60 + row * 135 + 32;
-                  let endX, endY;
-                  const isNewRow = nextRow > row;
-                  if (isNewRow) {
-                    endX = sidePadding + nextCol * 150 + 60;
-                    endY = 60 + nextRow * 135;
-                  } else {
-                    endX = sidePadding + nextCol * 150;
-                    endY = 60 + nextRow * 135 + 32;
-                  }
-                  const dx = endX - startX;
-                  let pathD;
-                  if (isNewRow) {
-                    const gutterY = startY + (endY - startY) / 2;
-                    pathD = `M ${startX} ${startY} C ${startX + 30} ${startY}, ${startX + 30} ${gutterY}, ${startX} ${gutterY} L ${endX + 30} ${gutterY} C ${endX} ${gutterY}, ${endX} ${gutterY}, ${endX} ${endY}`;
-                  } else {
-                    const offset = Math.min(Math.max(dx * 0.4, 20), 40);
-                    pathD = `M ${startX} ${startY} C ${startX + offset} ${startY} ${endX - offset} ${endY} ${endX} ${endY}`;
+                  let typeColor = "rgb(100,155,107)";
+                  let typeLabel = "필터";
+                  if (block.type === "entry") {
+                    typeColor = "#EF4444";
+                    typeLabel = "매수";
+                  } else if (block.type === "exit") {
+                    typeColor = "#3B82F6";
+                    typeLabel = "매도";
                   }
 
                   return (
-                    <g key={`flow-${block.id}-${nextBlock.id}`}>
-                      <path d={pathD} stroke={color} strokeWidth="4" fill="none" className="opacity-10" filter="url(#glow)" />
-                      <path d={pathD} stroke={color} strokeWidth="1.5" fill="none" className="opacity-40" />
-                      <path d={pathD} stroke={color} strokeWidth="1.5" fill="none" strokeDasharray="4,12" className="opacity-60 animate-dash" />
-                    </g>
+                    <motion.div
+                      key={block.id}
+                      initial={{ scale: 0.8, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      onClick={() => {
+                        setSelectedBlock(block);
+                        setActiveParamTab('block');
+                      }}
+                      className={`absolute p-6 rounded-2xl transition-all duration-400 border backdrop-blur-xl group cursor-pointer ${
+                        isSelected 
+                        ? "bg-white/[0.08] border-white/20 ring-2 ring-[rgb(59,134,247)]/40 shadow-2xl z-20 scale-105" 
+                        : "bg-white/[0.04] border-white/5 hover:border-white/10 hover:bg-white/[0.06] shadow-lg z-10"
+                      }`}
+                      style={{ 
+                        left: `${xOffset}px`, 
+                        top: `${yOffset}px`, 
+                        width: "140px",
+                        boxShadow: isSelected ? `0 20px 40px -10px rgba(0,0,0,0.5), 0 0 20px -5px ${typeColor}40` : ""
+                      }}
+                    >
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full shadow-lg" style={{ backgroundColor: typeColor }} />
+                          <span className="text-[11px] font-black uppercase tracking-widest" style={{ color: typeColor }}>
+                            {typeLabel}
+                          </span>
+                        </div>
+                      </div>
+                      <div className={`text-[15px] font-black tracking-tight leading-tight ${isSelected ? "text-white" : "text-white/60 group-hover:text-white/90"}`}>
+                        {signalBlocks[block.blockId]?.name || block.blockId}
+                      </div>
+
+                      <button 
+                        onClick={(e) => { 
+                          e.stopPropagation(); 
+                          setCanvasBlocks(canvasBlocks.filter(b => b.id !== block.id)); 
+                          if (selectedBlock?.id === block.id) setSelectedBlock(null); 
+                        }} 
+                        className="absolute -top-3 -right-3 w-8 h-8 bg-black/80 border border-white/10 text-white/40 rounded-full opacity-0 group-hover:opacity-100 transition-all hover:text-white hover:bg-red-500 hover:border-transparent flex items-center justify-center shadow-xl backdrop-blur-sm"
+                      >
+                        <XMarkIcon className="w-5 h-5" />
+                      </button>
+                    </motion.div>
                   );
                 })}
-              </svg>
-              {canvasBlocks.map((block, index) => {
-                const colIdx = index % blocksPerRow;
-                const rowIdx = Math.floor(index / blocksPerRow);
-                const xOffset = sidePadding + colIdx * 150;
-                const yOffset = 60 + rowIdx * 135;
-                const typeStyles = block.type === "entry" ? "border-red-500/30 bg-red-950/20 hover:bg-red-900/30 shadow-red-900/5" : block.type === "exit" ? "border-blue-500/30 bg-blue-950/20 hover:bg-blue-900/30 shadow-blue-900/5" : "border-[rgba(100,155,107,0.3)] bg-[rgba(100,155,107,0.1)] hover:bg-[rgba(100,155,107,0.2)] shadow-[rgba(100,155,107,0.05)]";
-                const isSelected = selectedBlock?.id === block.id;
-
-                return (
-                  <div
-                    key={block.id}
-                    data-canvas-block="true"
-                    onClick={() => {
-                      setSelectedBlock(block);
-                      setActiveParamTab('block');
-                    }}
-                    className={`absolute p-4 rounded-xl transition-all duration-300 border backdrop-blur-md group cursor-pointer ${typeStyles} ${isSelected ? "ring-2 ring-blue-500/50 scale-105 z-10 shadow-2xl" : "hover:scale-105 z-1 shadow-lg"}`}
-                    style={{ left: `${xOffset}px`, top: `${yOffset}px`, width: "120px" }}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-1.5">
-                        <span className={`w-2 h-2 rounded-full ${block.type === "entry" ? "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]" : block.type === "exit" ? "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]" : "bg-[#649b6b] shadow-[0_0_8px_rgba(100,155,107,0.5)]"}`} />
-                        <span className={`text-[10px] font-bold uppercase tracking-tight ${block.type === "entry" ? "text-red-400" : block.type === "exit" ? "text-blue-400" : "text-[#649b6b]"}`}>
-                          {block.type === "entry" ? "매수" : block.type === "exit" ? "매도" : "필터"}
-                        </span>
-                      </div>
-                    </div>
-                    <div className={`text-xs font-bold tracking-tight ${isSelected ? "text-white" : "text-white/75 group-hover:text-white"}`}>
-                      {signalBlocks[block.blockId]?.name || block.blockId}
-                    </div>
-                    <button 
-                      onClick={(e) => { 
-                        e.stopPropagation(); 
-                        setCanvasBlocks(canvasBlocks.filter(b => b.id !== block.id)); 
-                        if (selectedBlock?.id === block.id) setSelectedBlock(null); 
-                      }} 
-                      className="absolute -top-2 -right-2 w-7 h-7 bg-black border border-white/10 text-[#a0a0a0] rounded-full opacity-0 group-hover:opacity-100 transition-all hover:text-white hover:bg-[#FF3B30] hover:border-[#FF3B30] flex items-center justify-center shadow-xl"
-                    >
-                      <XMarkIcon className="w-4 h-4" />
-                    </button>
-                  </div>
-                );
-              })}
+              </div>
             </div>
-
-              <AnimatePresence>
-                {selectedBlock && (
-                  <motion.div
-                    ref={paramPopupRef}
-                    drag
-                    dragMomentum={false}
-                    dragConstraints={canvasRef}
-                    initial={{ opacity: 0, scale: 0.95, y: -20 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95, y: -20 }}
-                    className="absolute z-[60] w-[300px] bg-[#161616]/95 backdrop-blur-3xl rounded-3xl border border-white/10 shadow-2xl flex flex-col max-h-[520px]"
-                    style={{ top: '5%', right: '5%' }}
-                  >
-                    <div className="flex-1 overflow-y-auto p-4 custom-scrollbar text-left cursor-move">
-                      <div className="space-y-4 px-1">
-                  <div className="p-2.5 bg-white/5 rounded-lg mb-1">
-                    <div className="text-[10px] font-bold text-[rgb(59, 134, 247)] uppercase tracking-widest mb-0.5">Block Info</div>
-                    <div className="text-sm text-[#dfdfdf] font-bold tracking-tight">{signalBlocks[selectedBlock.blockId]?.name || selectedBlock.blockId}</div>
-                    <p className="text-[11px] text-[#a0a0a0] mt-0.5 font-medium leading-tight">{signalBlocks[selectedBlock.blockId]?.description || "시그널을 발생시킵니다."}</p>
-                  </div>
-                  {(() => {
-                    const block = selectedBlock!; 
-                    const blockDef = signalBlocks[block.blockId];
-                    if (!blockDef || !blockDef.paramSchema) return <div className="text-xs text-white/20 p-4">파라미터가 없습니다.</div>;
-                    const getVal = (k: string) => block.params[k] ?? blockDef.defaultParams[k];
-
-                    if (block.blockId === "investor_net_buy") {
-                      const renderInput = (key: string) => {
-                        const param = blockDef.paramSchema![key];
-                        const val = getVal(key);
-                        return (
-                          <div key={key} className="space-y-1 flex-1">
-                            <label className="text-[10px] text-white/40 font-bold uppercase tracking-widest ml-1">{param.label}</label>
-                            <div className="flex items-center gap-2 bg-white/5 rounded-lg px-3 py-1.5 focus-within:ring-1 focus-within:ring-[rgb(59, 134, 247)]/50 transition-all group/input">
-                              <input 
-                                type="text"
-                                value={val === 0 ? "" : val}
-                                placeholder="0"
-                                onChange={(e) => {
-                                  const raw = e.target.value;
-                                  const v = raw === "" ? 0 : isNaN(parseFloat(raw)) ? 0 : parseFloat(raw);
-                                  const newParams = { ...selectedBlock.params, [key]: v };
-                                  setCanvasBlocks(canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, params: newParams } : b));
-                                  setSelectedBlock({ ...selectedBlock, params: newParams });
-                                }}
-                                className="bg-transparent text-xs font-bold text-white w-full outline-none tabular-nums placeholder-white/10"
-                              />
-                              {param.suffix && <span className="text-sm font-bold text-white/20 uppercase tracking-tight">{param.suffix}</span>}
-                            </div>
-                          </div>
-                        );
-                      };
-
-                      const renderSelect = (key: string) => {
-                        const param = blockDef.paramSchema![key];
-                        const val = getVal(key);
-                        return (
-                          <div key={key} className="space-y-1 flex-1">
-                            <label className="text-[10px] text-white/40 font-bold uppercase tracking-widest ml-1">{param.label}</label>
-                            <div className="relative group/select">
-                              <select 
-                                value={val} 
-                                onChange={(e) => { 
-                                  const rawVal = e.target.value;
-                                  const v = isNaN(parseFloat(rawVal)) ? rawVal : parseFloat(rawVal);
-                                  let newParams = { ...selectedBlock.params, [key]: v };
-                                  let newType = selectedBlock.type;
-                                  if (key === "investorType") {
-                                    const newInvType = v as string;
-                                    const memory = { ...(selectedBlock.params._investorMemory || {}) };
-                                    if (memory[newInvType]) {
-                                      newParams = { ...newParams, period: memory[newInvType].period, minAmount: memory[newInvType].minAmount, _investorMemory: memory };
-                                    }
-                                  }
-                                  if (key === "signalType") newType = v === "buy" ? "entry" : "exit";
-                                  setCanvasBlocks(canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, params: newParams, type: newType } : b)); 
-                                  setSelectedBlock({ ...selectedBlock, params: newParams, type: newType }); 
-                                }} 
-                                className="w-full appearance-none pl-3 pr-8 py-1.5 bg-white/5 rounded-lg text-xs font-bold text-white hover:bg-white/10 transition-all cursor-pointer outline-none"
-                              >
-                                {param.options?.map((opt: any) => <option key={opt.value} value={opt.value} className="bg-[#1a1a1a]">{opt.label}</option>)}
-                              </select>
-                              <ChevronDownIcon className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 pointer-events-none group-hover/select:text-white/40 transition-colors" />
-                            </div>
-                          </div>
-                        );
-                      };
-
-                      return (
-                        <div className="space-y-4">
-                          <div className="p-4 bg-white/5 rounded-2xl space-y-5">
-                            {renderSelect("investorType")}
-                            <div className="flex gap-4">
-                              {renderInput("period")}
-                              {renderInput("minAmount")}
-                            </div>
-                            <button 
-                              onClick={() => {
-                                const invType = block.params.investorType || "institutional";
-                                const memory = { ...(block.params._investorMemory || {}) };
-                                memory[invType] = { period: getVal("period"), minAmount: getVal("minAmount") };
-                                const newParams = { ...block.params, _investorMemory: memory };
-                                setCanvasBlocks(canvasBlocks.map(b => b.id === block.id ? { ...b, params: newParams } : b));
-                                setSelectedBlock({ ...block, params: newParams });
-                              }}
-                              className="w-full py-1.5 bg-[#161616] text-white border border-white/5 rounded-lg text-[10px] font-black hover:bg-[#1f1f1f] hover:border-white/10 transition-all flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
-                            >
-                              설정값 기억하기
-                            </button>
-                          </div>
-                          <div className="px-1">{renderSelect("signalType")}</div>
-                        </div>
-                      );
-                    }
-
-                    return Object.entries(blockDef.paramSchema).map(([key, param]) => {
-                      const currentValue = block.params[key] ?? blockDef.defaultParams[key];
-                      return (
-                        <div key={key} className="space-y-1">
-                          <div className="flex items-center gap-1.5 mb-px relative group/tooltip-row">
-                            <label className="text-[10px] text-white/40 font-bold uppercase tracking-widest ml-1">{param.label}</label>
-                            {param.tooltip && (
-                              <div 
-                                className="p-1 -m-1"
-                                onMouseEnter={(e) => setHoveredParam({ label: param.label, tooltip: param.tooltip!, rect: e.currentTarget.getBoundingClientRect() })}
-                                onMouseLeave={() => setHoveredParam(null)}
-                              >
-                                <InformationCircleIcon className="w-3.5 h-3.5 text-white/10 hover:text-white transition-colors cursor-help" />
-                              </div>
-                            )}
-                          </div>
-                          {param.type === "select" && param.options ? (
-                            <div className="relative group/select">
-                              <select 
-                                value={currentValue} 
-                                onChange={(e) => { 
-                                  const rawVal = e.target.value;
-                                  const val = isNaN(parseFloat(rawVal)) ? rawVal : parseFloat(rawVal);
-                                  let newParams = { ...block.params, [key]: val };
-                                  let newType = block.type;
-                                  if (key === "signalType") {
-                                    if (val === "buy") newType = "entry";
-                                    else if (val === "sell") newType = "exit";
-                                  }
-                                  setCanvasBlocks(canvasBlocks.map(b => b.id === block.id ? { ...b, params: newParams, type: newType } : b)); 
-                                  setSelectedBlock({ ...block, params: newParams, type: newType }); 
-                                }} 
-                                className={`w-full appearance-none pl-3 ${param.suffix ? "pr-16" : "pr-8"} py-1.5 bg-white/5 rounded-lg text-xs font-bold text-white hover:bg-white/10 transition-all cursor-pointer outline-none`}
-                              >
-                                {param.options.map(opt => <option key={opt.value} value={opt.value} className="bg-[#1a1a1a]">{opt.label}</option>)}
-                              </select>
-                              <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 pointer-events-none">
-                                {param.suffix && <span className="text-sm font-bold text-white/20 uppercase pr-2 mr-1">{param.suffix}</span>}
-                                <ChevronDownIcon className="w-4 h-4 text-white/20" />
-                              </div>
-                            </div>
-                          ) : param.type === "boolean" ? (
-                            <button 
-                              onClick={() => {
-                                const newVal = !currentValue;
-                                const newParams = { ...block.params, [key]: newVal };
-                                setCanvasBlocks(canvasBlocks.map(b => b.id === block.id ? { ...b, params: newParams } : b)); 
-                                setSelectedBlock({ ...block, params: newParams }); 
-                              }}
-                              className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg transition-all ${currentValue ? "bg-[rgb(59, 134, 247)]/10 text-[rgb(59, 134, 247)]" : "bg-white/5 text-white/40"}`}
-                            >
-                              <span className="text-[10px] font-black uppercase tracking-tight">{param.label}</span>
-                              <div className={`w-8 h-4 rounded-full relative transition-all duration-300 ${currentValue ? "bg-[rgb(59, 134, 247)]" : "bg-white/10"}`}>
-                                <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-lg transition-transform duration-300`} style={{ transform: currentValue ? 'translateX(18px)' : 'translateX(2px)' }} />
-                              </div>
-                            </button>
-                          ) : (
-                            <div className="bg-white/5 rounded-lg py-1.5 px-3 group/input transition-all">
-                              <div className="flex justify-between items-center mb-1 px-1">
-                                <span className="text-sm font-bold text-white tabular-nums tracking-tight">{currentValue}</span>
-                                {param.suffix && <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest">{param.suffix}</span>}
-                              </div>
-                              <div className="px-1 space-y-0.5">
-                                <input 
-                                  type="range"
-                                  min={param.min ?? 0}
-                                  max={param.max ?? 100}
-                                  step={param.step ?? 1}
-                                  value={currentValue !== "" ? currentValue : 0}
-                                  onChange={(e) => {
-                                    const val = parseFloat(e.target.value);
-                                    const newParams = { ...block.params, [key]: val }; 
-                                    setCanvasBlocks(canvasBlocks.map(b => b.id === block.id ? { ...b, params: newParams } : b)); 
-                                    setSelectedBlock({ ...block, params: newParams }); 
-                                  }}
-                                  className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[rgb(59, 134, 247)] hover:accent-[#0A84FF] transition-all"
-                                />
-                                <div className="flex justify-between items-center opacity-20 group-hover/input:opacity-40 transition-opacity">
-                                  <span className="text-[10px] font-bold text-white tabular-nums">{param.min ?? 0}</span>
-                                  <span className="text-[10px] font-bold text-white tabular-nums">{param.max ?? 100}</span>
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    });
-                  })()}
-                  <div className="pt-4 mt-2 flex gap-3">
-                    <button 
-                      onClick={() => {
-                        const block = selectedBlock!;
-                        const blockDef = signalBlocks[block.blockId];
-                        if (blockDef) {
-                          const newParams = { ...blockDef.defaultParams };
-                          let newType = block.type;
-                          if (newParams.signalType) {
-                            newType = newParams.signalType === "buy" ? "entry" : newParams.signalType === "sell" ? "exit" : "filter";
-                          }
-                          const updatedBlocks = canvasBlocks.map(b => b.id === block.id ? { ...b, params: newParams, type: newType } : b);
-                          setCanvasBlocks(updatedBlocks); 
-                          setSelectedBlock({ ...block, params: newParams, type: newType });
-                        }
-                      }}
-                      onMouseEnter={(e) => setHoveredEditIcon({ label: "초기화", rect: e.currentTarget.getBoundingClientRect() })}
-                      onMouseLeave={() => setHoveredEditIcon(null)}
-                      className="px-4 py-3.5 bg-[#161616] border border-white/5 rounded-2xl text-sm font-bold text-white hover:bg-[#1f1f1f] hover:border-white/10 transition-all flex items-center justify-center gap-2 uppercase tracking-widest active:scale-95"
-                    >
-                      <ArrowPathIcon className="w-4 h-4" />
-                    </button>
-                    <button 
-                      onClick={() => setSelectedBlock(null)}
-                      className="flex-1 py-3.5 bg-[rgb(59,134,247)] hover:bg-[rgb(56,122,244)] rounded-2xl text-sm font-black text-white transition-all shadow-[0_10px_30px_rgba(0,122,255,0.2)] hover:shadow-[0_15px_40px_rgba(0,122,255,0.4)] flex items-center justify-center uppercase tracking-widest active:scale-95"
-                    >
-                      확인
-                    </button>
-                  </div>
-                </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
           </div>
         </div>
 
-        {/* Right Panel: Summary Section */}
-        <div className="w-72 flex flex-col relative z-20 mr-4 h-full self-stretch">
-          <div className="bg-[#121212] border border-white/10 rounded-3xl p-6 shadow-2xl flex flex-col flex-1 relative overflow-hidden h-full">
-            <div className="absolute top-0 right-0 w-64 h-64 bg-[rgb(59,134,247)]/10 rounded-full blur-[100px] pointer-events-none" />
+        {/* Right Side: Shared Panel (col-span-2) */}
+        <div className="col-span-2 bg-[#0d0d0d] flex flex-col shadow-2xl relative z-30 overflow-hidden">
+          <div className="flex-1 flex flex-col min-h-0">
+            <AnimatePresence mode="wait">
+              {selectedBlock ? (
+                /* Parameter Editor View */
+                <motion.div
+                  key="params"
+                  initial={{ x: 20, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: 20, opacity: 0 }}
+                  className="flex-1 flex flex-col min-h-0"
+                >
+                  <div className="p-5 border-b border-white/5 bg-white/[0.01]">
+                    <div className="flex items-center justify-between mb-5">
+                      <div className="flex items-center gap-3.5">
+                        <AdjustmentsHorizontalIcon className="w-8 h-8 text-[rgb(59,134,247)]" />
+                        <h3 className="text-xl font-black text-white/90 uppercase tracking-tight">속성</h3>
+                      </div>
+                      <button 
+                        onClick={() => setSelectedBlock(null)}
+                        className="p-1.5 hover:bg-white/5 rounded-xl transition-colors text-white/20 hover:text-white"
+                      >
+                        <XMarkIcon className="w-5 h-5" />
+                      </button>
+                    </div>
 
-            {/* Summary Header */}
-            <div className="flex items-center gap-4 border-b border-white/10 pb-6 mb-6 relative z-10">
-              <div className="w-12 h-12 bg-black/40 rounded-xl flex items-center justify-center border border-white/10">
-                <CubeIcon className="w-6 h-6 text-[rgb(59,134,247)]" />
-              </div>
-              <div>
-                <h4 className="text-xl font-black text-white tracking-tight uppercase">매매 로직 요약</h4>
-              </div>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-4 space-y-6 relative z-10">
-              
-              <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
-                <span className="text-[11px] font-black text-[rgb(59,134,247)] uppercase tracking-widest block mb-2 opacity-90">총 블록</span>
-                <span className="text-xl font-black text-white tracking-tight">{canvasBlocks.length}개</span>
-              </div>
+                    <div className="bg-black/40 rounded-2xl p-4 border border-white/5 shadow-inner">
+                      <h4 className="text-sm font-black text-white mb-2 uppercase tracking-tight">{signalBlocks[selectedBlock.blockId]?.name}</h4>
+                      <p className="text-[11px] text-white/20 font-medium leading-relaxed">파라미터를 설정하세요.</p>
+                    </div>
+                  </div>
 
-              <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
-                <span className="text-[11px] font-black text-[rgb(59,134,247)] uppercase tracking-widest block mb-2 opacity-90">매수 로직</span>
-                <span className="text-xl font-black text-white tracking-tight tabular-nums">
-                  {entryLogic}
-                </span>
-              </div>
+                  <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-6">
+                    {(() => {
+                      const blockDef = signalBlocks[selectedBlock.blockId];
+                      if (!blockDef || !blockDef.paramSchema) return <div className="text-sm text-white/20 text-center italic">설정 가능한 파라미터가 없습니다</div>;
 
-              <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
-                <span className="text-[11px] font-black text-[rgb(59,134,247)] uppercase tracking-widest block mb-2 opacity-90">매도 로직</span>
-                <span className="text-xl font-black text-white tracking-tight">
-                  {exitLogic}
-                </span>
-              </div>
+                      return Object.entries(blockDef.paramSchema).map(([key, param]) => {
+                        const value = selectedBlock.params[key] ?? blockDef.defaultParams[key];
+                        return (
+                          <div key={key} className="space-y-3 group">
+                            <div className="flex items-center justify-between px-1">
+                              <label className="text-[11px] font-black text-white/30 uppercase tracking-[0.15em]">{param.label}</label>
+                              <span className="text-sm font-black text-[rgb(59,134,247)] tabular-nums">{value}{param.suffix}</span>
+                            </div>
+                            
+                            <div className="flex items-center px-3 py-3.5 bg-black/40 border border-white/5 rounded-xl group-hover:border-white/10 transition-all shadow-inner">
+                              <input
+                                type="text"
+                                value={value === 0 ? "" : value}
+                                placeholder="0"
+                                onChange={(e) => {
+                                  const rawValue = e.target.value;
+                                  const val = rawValue === "" ? 0 : isNaN(parseFloat(rawValue)) ? 0 : parseFloat(rawValue);
+                                  const newParams = { ...selectedBlock.params, [key]: val };
+                                  setCanvasBlocks(canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, params: newParams } : b));
+                                  setSelectedBlock({ ...selectedBlock, params: newParams });
+                                }}
+                                className="flex-1 bg-transparent text-sm font-black text-white outline-none tabular-nums placeholder:text-white/[0.05]"
+                              />
+                              {param.suffix && (
+                                <span className="text-xs font-black text-white/20 uppercase tracking-widest">{param.suffix}</span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
 
-            </div>
+                  <div className="p-5 bg-white/[0.01] border-t border-white/5 space-y-3">
+                    <button 
+                      onClick={() => setSelectedBlock(null)}
+                      className="w-full py-4 rounded-xl bg-[rgb(59,134,247)] text-white text-xs font-black uppercase tracking-widest hover:bg-[#4B9FFF] transition-all shadow-xl shadow-blue-500/10 active:scale-[0.98]"
+                    >
+                      변경사항 적용
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setCanvasBlocks(canvasBlocks.filter(b => b.id !== selectedBlock?.id));
+                        setSelectedBlock(null);
+                      }}
+                      className="w-full py-4 rounded-xl text-white/20 text-xs font-black uppercase tracking-widest hover:text-red-500 hover:bg-red-500/5 transition-all"
+                    >
+                      블록 삭제
+                    </button>
+                  </div>
+                </motion.div>
+              ) : (
+                /* Logic Summary View - Redesigned to match Step 1 */
+                <motion.div
+                  key="summary"
+                  initial={{ x: -20, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: -20, opacity: 0 }}
+                  className="flex-1 flex flex-col min-h-0 p-8"
+                >
+                  <div className="flex items-center gap-3 mb-10">
+                    <ChartBarIcon className="w-6 h-6 text-blue-500" />
+                    <h3 className="text-base font-black text-white/60 uppercase tracking-widest">매매 로직 요약</h3>
+                  </div>
 
-            <div className="pt-4 border-t border-white/10 mt-auto flex gap-3 relative z-10">
-              <button 
-                onClick={onPrev} 
-                className="px-4 py-4 bg-white/5 hover:bg-white/10 text-white rounded-2xl text-sm font-black transition-all flex items-center justify-center border border-white/5 hover:border-white/10"
-              >
-                <ArrowLeftIcon className="w-5 h-5" />
-              </button>
-              <button 
-                onClick={onNext} 
-                className="flex-1 group px-5 py-4 bg-[rgb(59,134,247)] hover:bg-[rgb(56,122,244)] text-white rounded-2xl text-sm font-black transition-all flex items-center justify-between shadow-[0_10px_30px_rgba(0,122,255,0.2)] hover:shadow-[0_15px_40px_rgba(0,122,255,0.4)] hover:-translate-y-0.5"
-              >
-                <span>포지션 설계하기</span>
-                <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center group-hover:bg-white/30 transition-colors">
-                  <ArrowRightIcon className="w-4 h-4 text-white group-hover:translate-x-0.5 transition-transform" />
-                </div>
-              </button>
-            </div>
+                  <div className="space-y-8 flex-1 overflow-y-auto custom-scrollbar">
+                    {/* Total Blocks Section */}
+                    <div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <Squares2X2Icon className="w-5 h-5 text-blue-500" />
+                        <span className="text-sm font-black text-white/40 uppercase tracking-widest">전체 블록 수</span>
+                      </div>
+                      <span className="text-2xl font-black text-white block pl-8 tracking-tight">{canvasBlocks.length}개</span>
+                    </div>
+
+                    {/* Entry Strategy Section */}
+                    <div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <ArrowPathIcon className="w-5 h-5 text-blue-500" />
+                        <span className="text-sm font-black text-white/40 uppercase tracking-widest">진입 조건</span>
+                      </div>
+                      <div className="flex items-center gap-3 pl-8">
+                        <span className="text-2xl font-black text-white tracking-tight">{entryBlocksCount}개</span>
+                        <span className="px-2 py-0.5 border-2 border-blue-500/30 bg-blue-500/10 text-blue-400 text-[10px] font-black rounded-lg">{entryLogic}</span>
+                      </div>
+                    </div>
+
+                    {/* Exit Strategy Section */}
+                    <div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <ArrowPathIcon className="w-5 h-5 text-blue-500 rotate-180" />
+                        <span className="text-sm font-black text-white/40 uppercase tracking-widest">청산 조건</span>
+                      </div>
+                      <div className="flex items-center gap-3 pl-8">
+                        <span className="text-2xl font-black text-white tracking-tight">{exitBlocksCount}개</span>
+                        <span className="px-2 py-0.5 border-2 border-blue-500/30 bg-blue-500/10 text-blue-400 text-[10px] font-black rounded-lg">{exitLogic}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-8 border-t border-white/5 flex gap-3 mt-auto">
+                    <button 
+                      onClick={onPrev} 
+                      className="px-5 py-4 bg-black/40 hover:bg-black/60 text-white rounded-xl text-base font-black transition-all border border-white/5 active:scale-95 shadow-lg"
+                    >
+                      <ArrowLeftIcon className="w-5 h-5" />
+                    </button>
+                    <button 
+                      onClick={onNext} 
+                      className="flex-1 group px-4 py-4 bg-blue-500 hover:bg-blue-400 text-white rounded-xl text-sm font-black uppercase tracking-widest transition-all flex items-center justify-between shadow-[0_10px_30px_rgba(59,130,246,0.1)] active:scale-[0.98]"
+                    >
+                      <span>포지션 설계</span>
+                      <ArrowRightIcon className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       </div>
-    </div>
 
+      {/* Overlays / Popovers */}
       {hoveredEditIcon && (
         <div className="fixed z-[1000] pointer-events-none" style={{ left: hoveredEditIcon.rect.left + (hoveredEditIcon.rect.width / 2), top: hoveredEditIcon.rect.top - 8, transform: 'translate(-50%, -100%)' }}>
-          <div className="px-3 py-1.5 bg-[#0a0a0a] rounded-lg shadow-xl animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-200">
-            <p className="text-[11px] text-white/40 font-black uppercase tracking-widest whitespace-nowrap">{hoveredEditIcon.label}</p>
+          <div className="px-4 py-2 bg-[#0a0a0a] rounded-lg shadow-xl animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-200">
+            <p className="text-xs text-white/40 font-black uppercase tracking-widest whitespace-nowrap">{hoveredEditIcon.label}</p>
           </div>
         </div>
       )}
 
       {hoveredInfo && (
         <div className="fixed z-[1000] pointer-events-none" style={{ left: hoveredInfo.rect.right + 12, top: hoveredInfo.rect.top + (hoveredInfo.rect.height / 2), transform: 'translateY(-50%)' }}>
-          <div className="w-80 p-5 bg-[#161616] rounded-2xl shadow-2xl animate-in fade-in zoom-in-95 slide-in-from-left-2 duration-200 backdrop-blur-3xl border border-white/10">
-            <p className="text-xs text-white/75 font-bold leading-relaxed">{signalBlocks[hoveredInfo.id]?.description || "설명 없음"}</p>
+          <div className="w-80 p-6 bg-[#161616] rounded-2xl shadow-2xl border border-white/10 backdrop-blur-3xl">
+            <p className="text-sm text-white/75 font-bold leading-relaxed">{signalBlocks[hoveredInfo.id]?.description || "설명이 제공되지 않았습니다."}</p>
           </div>
         </div>
       )}
 
       {hoveredParam && (
         <div className="fixed z-[1000] pointer-events-none" style={{ left: hoveredParam.rect.left - 270, top: hoveredParam.rect.top + (hoveredParam.rect.height / 2), transform: 'translateY(-50%)' }}>
-          <div className="w-64 p-5 bg-[#161616] rounded-2xl shadow-2xl animate-in fade-in zoom-in-95 slide-in-from-right-2 duration-200 backdrop-blur-2xl border border-white/10">
-            <div className="text-[10px] text-[rgb(59, 134, 247)] font-bold uppercase tracking-widest mb-2 opacity-50">{hoveredParam.label}</div>
-            <p className="text-xs text-white/75 font-bold leading-relaxed">{hoveredParam.tooltip}</p>
+          <div className="w-72 p-6 bg-[#161616] rounded-2xl shadow-2xl border border-white/10 backdrop-blur-2xl">
+            <div className="text-[11px] text-[rgb(59, 134, 247)] font-bold uppercase tracking-widest mb-2 opacity-50">{hoveredParam.label}</div>
+            <p className="text-sm text-white/75 font-bold leading-relaxed">{hoveredParam.tooltip}</p>
           </div>
         </div>
       )}
 
       {isLibraryManagementOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md" onClick={() => setIsLibraryManagementOpen(false)}>
-          <div className="w-full max-w-4xl h-[750px] bg-[#161616]/90 rounded-3xl shadow-2xl flex flex-col backdrop-blur-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <div className="p-8 flex items-center justify-between bg-black/20">
-              <h3 className="text-2xl font-black text-white uppercase tracking-tight">보관함 관리</h3>
+          <div className="w-full max-w-4xl h-[650px] bg-[#161616]/90 rounded-3xl shadow-2xl flex flex-col backdrop-blur-2xl overflow-hidden border border-white/10" onClick={(e) => e.stopPropagation()}>
+            <div className="p-8 flex items-center justify-between border-b border-white/5">
+              <div className="flex items-center gap-4">
+                 <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center">
+                    <Squares2X2Icon className="w-7 h-7 text-[rgb(59,134,247)]" />
+                 </div>
+                 <h3 className="text-2xl font-black text-white uppercase tracking-tight">보관함 관리</h3>
+              </div>
               <button 
                 onClick={() => setIsLibraryManagementOpen(false)}
-                className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition-all"
+                className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition-all"
               >
                 <XMarkIcon className="w-6 h-6" />
               </button>
             </div>
             <div className="flex-1 flex overflow-hidden">
-              <div className="w-72 bg-black/20 flex flex-col p-4 space-y-2">
-                {customCategoryOrder.map((key) => {
-                  const group = (groupedSignalLibrary as any)[key];
-                  if (!group) return null;
-                  return (
-                    <div 
-                      key={key} 
-                      onDragOver={handleReorderDragOver}
-                      onDrop={(e) => handleReorderDrop(e, { type: 'category', id: key, index: customCategoryOrder.indexOf(key) })}
-                      className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl cursor-pointer transition-all ${
-                         activeMgmtCategory === key ? "bg-[rgb(59, 134, 247)] shadow-[0_10px_20px_rgba(0,122,255,0.2)]" : "hover:bg-white/5"
-                      } ${reorderDragItem?.type === 'category' && reorderDragItem.id === key ? 'opacity-30' : ''}`}
-                      onClick={() => setActiveMgmtCategory(key)}
-                    >
-                      <div 
-                        className={`mr-1 cursor-grab active:cursor-grabbing ${activeMgmtCategory === key ? "text-white/60" : "text-white/20"}`}
-                        draggable
-                        onDragStart={(e) => handleReorderDragStart(e, { type: 'category', id: key, index: customCategoryOrder.indexOf(key) })}
-                      >
-                        <Bars3Icon className="w-4 h-4" />
-                      </div>
-                      <group.icon className={`w-5 h-5 ${activeMgmtCategory === key ? "text-white" : "text-white/20"}`} />
-                      <span className={`text-[13px] font-black uppercase truncate tracking-tight ${activeMgmtCategory === key ? "text-white" : "text-white/40"}`}>{group.label}</span>
+               {/* Categories Panel */}
+               <div className="w-72 bg-black/20 border-r border-white/5 flex flex-col p-4 space-y-2">
+                 {customCategoryOrder.map((key) => {
+                   const group = (groupedSignalLibrary as any)[key];
+                   if (!group) return null;
+                   return (
+                     <button 
+                       key={key} 
+                       onClick={() => setActiveMgmtCategory(key)}
+                       className={`w-full flex items-center gap-4 px-5 py-4 rounded-xl transition-all ${
+                          activeMgmtCategory === key ? "bg-[rgb(59, 134, 247)] text-white shadow-lg" : "text-white/30 hover:bg-white/5"
+                       }`}
+                     >
+                       <group.icon className="w-6 h-6 shrink-0" />
+                       <span className="text-xs font-black uppercase tracking-widest truncate">{group.label}</span>
+                     </button>
+                   );
+                 })}
+               </div>
+               
+               {/* Items Grid */}
+               <div className="flex-1 p-8 overflow-y-auto custom-scrollbar bg-black/10">
+                 {activeMgmtCategory && (
+                    <div className="grid grid-cols-2 gap-5">
+                      {(groupedSignalLibrary as any)[activeMgmtCategory].blocks.map((block: any) => (
+                         <div key={block.id} className="flex items-center justify-between p-5 bg-white/[0.03] border border-white/5 rounded-2xl">
+                           <span className="text-sm font-black text-white/70">{block.name}</span>
+                           <button 
+                              onClick={(e) => handleRemoveBlockFromBin(block.id, e)}
+                              className="w-10 h-10 rounded-lg bg-red-500/10 text-red-500/40 hover:text-red-500 hover:bg-red-500/20 transition-all flex items-center justify-center"
+                           >
+                              <XMarkIcon className="w-5 h-5" />
+                           </button>
+                         </div>
+                      ))}
                     </div>
-                  );
-                })}
-              </div>
-              <div className="flex-1 p-8 overflow-y-auto custom-scrollbar bg-black/10">
-                {activeMgmtCategory && (
-                  <div className="flex flex-col gap-3">
-                    {(groupedSignalLibrary as any)[activeMgmtCategory].blocks.map((block: any) => (
-                      <div
-                        key={block.id}
-                        className="pb-1"
-                        onDragOver={handleReorderDragOver}
-                        onDrop={(e) => handleReorderDrop(e, { type: 'block', id: block.id, index: -1, categoryId: activeMgmtCategory })}
-                      >
-                        <div 
-                          className={`flex items-center justify-between p-5 bg-white/5 rounded-2xl transition-all shadow-sm ${
-                            reorderDragItem?.type === 'block' && reorderDragItem.id === block.id ? 'opacity-30' : ''
-                          }`}
-                        >
-                          <div className="flex items-center gap-4">
-                            <div
-                               className="cursor-grab active:cursor-grabbing text-white/20 hover:text-[rgb(59, 134, 247)]"
-                               draggable
-                               onDragStart={(e) => handleReorderDragStart(e, { type: 'block', id: block.id, index: -1, categoryId: activeMgmtCategory })}
-                            >
-                              <Bars3Icon className="w-5 h-5" />
-                            </div>
-                            <span className="text-white font-black tracking-tight">{block.name}</span>
-                          </div>
-                          <button 
-                            onClick={(e) => handleRemoveBlockFromBin(block.id, e)} 
-                            className="w-10 h-10 flex items-center justify-center bg-white/5 rounded-xl text-white/20 hover:text-[#FF3B30] hover:bg-[#FF3B30]/10 transition-all"
-                          >
-                            <XMarkIcon className="w-5 h-5" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+                 )}
+               </div>
             </div>
           </div>
         </div>
