@@ -118,15 +118,13 @@ export default function Step1Universe({
               </h1>
               <p className="text-sm font-medium text-white/50 mb-12">전략의 대상이 되는 시장과 종목 필터링 규칙을 정의합니다.</p>
 
-              <label className="text-sm font-black text-white/40 uppercase tracking-widest mb-4 block">전략 이름</label>
               <div className="relative flex items-center max-w-3xl">
-                <TextAlignLeft className="w-7 h-7 text-blue-500 absolute left-5" />
                 <input
                   type="text"
                   value={strategyName}
                   onChange={(e) => setStrategyName(e.target.value)}
                   placeholder="전략의 이름을 입력하세요 (예: 나의 첫 알파 전략)"
-                  className="w-full bg-transparent border-b-2 border-white/10 px-16 py-5 text-3xl font-black text-white placeholder-white/10 outline-none focus:outline-none focus:ring-0 transition-all focus:border-blue-500/50"
+                  className="w-full bg-transparent border-b-2 border-white/10 py-5 text-3xl font-black text-white placeholder-white/20 outline-none focus:outline-none focus:ring-0 transition-all focus:border-blue-500/50"
                 />
               </div>
             </div>
@@ -137,7 +135,7 @@ export default function Step1Universe({
               <div>
                 <div className="flex items-center gap-2 mb-4">
                   <Globe className="w-5 h-5 text-blue-500" />
-                  <h2 className="text-lg font-bold text-blue-500">시장 선택</h2>
+                  <h2 className="text-lg font-bold text-white">시장 선택</h2>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {[
@@ -161,97 +159,99 @@ export default function Step1Universe({
                 </div>
               </div>
 
-              {/* Panel 2 */}
-              <div className="mt-4">
-                <div className="flex items-center gap-2 mb-4">
-                  <Stack className="w-5 h-5 text-blue-500" />
-                  <h2 className="text-lg font-bold text-blue-500">시가총액 및 거래대금</h2>
-                </div>
-                
-                <div className="bg-[#111] rounded-xl p-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4 mb-4">
+                {/* Panel 2 */}
+                <div className="flex flex-col">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Stack className="w-5 h-5 text-blue-500" />
+                    <h2 className="text-lg font-bold text-white">시가총액 및 거래대금</h2>
+                  </div>
                   
-                  <div className="mb-8">
-                    <div className="flex items-center justify-between mb-4">
-                      <span className="text-sm font-medium text-white/70">시가총액 필터</span>
-                      <span className="text-xs font-medium text-white/40 bg-white/5 px-2.5 py-1 rounded-md">{getMarketCapDesc()}</span>
-                    </div>
-                    <div className="flex gap-2">
-                      {["대형주", "중형주", "소형주"].map((cap) => (
-                        <button
-                          key={cap}
-                          onClick={() => setMarketCap(cap)}
-                          className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${
-                            currentCap === cap
-                              ? "bg-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.2)]"
-                              : "text-white/50 bg-[#0a0a0a] hover:text-white hover:bg-white/5"
-                          }`}
-                        >
-                          {cap}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between mb-6">
-                      <span className="text-sm font-medium text-white/70">최소 거래대금</span>
-                      <span className="text-sm font-bold text-blue-500">{getVolumeDisplay()}</span>
-                    </div>
-                    <div className="relative px-2">
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        step="5"
-                        value={universeFilters.minTradingVolume}
-                        onChange={(e) => setUniverseFilters({...universeFilters, minTradingVolume: parseInt(e.target.value)})}
-                        className="w-full h-1.5 bg-[#0a0a0a] rounded-full appearance-none cursor-pointer accent-blue-500"
-                      />
-                      <div className="flex justify-between items-center mt-3 text-[9px] font-bold text-white/30 uppercase tracking-wider">
-                        <span>0억원</span>
-                        <span>50억원</span>
-                        <span>100억원+</span>
-                      </div>
-                    </div>
-                  </div>
-
-                </div>
-              </div>
-
-              {/* Panel 3 */}
-              <div className="mt-4 mb-16">
-                <div className="flex items-center gap-2 mb-4">
-                  <SquaresFour className="w-5 h-5 text-blue-500" />
-                  <h2 className="text-lg font-bold text-blue-500">섹터 필터링</h2>
-                </div>
-                
-                <div className="bg-[#111] rounded-xl p-6 relative">
-                  <div className="flex flex-wrap gap-2.5 relative z-10">
-                    {universeFilters.selectedSectors.map(sector => (
-                      <div key={sector} className="flex items-center gap-1.5 bg-blue-500 text-white px-3 py-1.5 rounded-full text-xs font-bold">
-                        <span>{sector}</span>
-                        <button 
-                          onClick={() => {
-                            setUniverseFilters({
-                              ...universeFilters, 
-                              selectedSectors: universeFilters.selectedSectors.filter(s => s !== sector)
-                            });
-                          }}
-                          className="hover:bg-black/20 rounded-full p-0.5"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ))}
+                  <div className="bg-[#111] rounded-xl p-6 flex flex-col flex-1 shadow-lg border border-transparent hover:border-white/5 transition-colors">
                     
-                    <div className="flex">
-                      <button 
-                        onClick={() => setShowSectorSelector(true)}
-                        className="flex items-center gap-1.5 bg-transparent border border-white/10 text-white/60 hover:text-white hover:border-white/30 px-3 py-1.5 rounded-full text-xs font-medium transition-all"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>섹터 추가</span>
-                      </button>
+                    <div className="mb-8">
+                      <div className="flex items-center justify-between mb-4">
+                        <span className="text-sm font-medium text-white/70">시가총액 필터</span>
+                        <span className="text-xs font-medium text-white/40 bg-white/5 px-2.5 py-1 rounded-md">{getMarketCapDesc()}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        {["대형주", "중형주", "소형주"].map((cap) => (
+                          <button
+                            key={cap}
+                            onClick={() => setMarketCap(cap)}
+                            className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${
+                              currentCap === cap
+                                ? "bg-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.2)]"
+                                : "text-white/50 bg-[#0a0a0a] hover:text-white hover:bg-white/5"
+                            }`}
+                          >
+                            {cap}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex-1 flex flex-col justify-end mt-auto pt-4 border-t border-white/5">
+                      <div className="flex items-center justify-between mb-6">
+                        <span className="text-sm font-medium text-white/70">최소 거래대금</span>
+                        <span className="text-sm font-bold text-blue-500">{getVolumeDisplay()}</span>
+                      </div>
+                      <div className="relative px-2">
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          step="5"
+                          value={universeFilters.minTradingVolume}
+                          onChange={(e) => setUniverseFilters({...universeFilters, minTradingVolume: parseInt(e.target.value)})}
+                          className="w-full h-1.5 bg-[#0a0a0a] rounded-full appearance-none cursor-pointer accent-blue-500"
+                        />
+                        <div className="flex justify-between items-center mt-3 text-[9px] font-bold text-white/30 uppercase tracking-wider">
+                          <span>0억원</span>
+                          <span>50억원</span>
+                          <span>100억원+</span>
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+
+                {/* Panel 3 */}
+                <div className="flex flex-col">
+                  <div className="flex items-center gap-2 mb-4">
+                    <SquaresFour className="w-5 h-5 text-blue-500" />
+                    <h2 className="text-lg font-bold text-white">섹터 필터링</h2>
+                  </div>
+                  
+                  <div className="bg-[#111] rounded-xl p-6 relative flex flex-col flex-1 shadow-lg border border-transparent hover:border-white/5 transition-colors">
+                    <div className="flex flex-wrap gap-2.5 relative z-10 w-full">
+                      {universeFilters.selectedSectors.map(sector => (
+                        <div key={sector} className="flex items-center gap-1.5 bg-blue-500 text-white px-3 py-1.5 rounded-full text-xs font-bold shadow-sm">
+                          <span>{sector}</span>
+                          <button 
+                            onClick={() => {
+                              setUniverseFilters({
+                                ...universeFilters, 
+                                selectedSectors: universeFilters.selectedSectors.filter(s => s !== sector)
+                              });
+                            }}
+                            className="hover:bg-black/20 rounded-full p-0.5 transition-colors"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                      
+                      <div className="flex">
+                        <button 
+                          onClick={() => setShowSectorSelector(true)}
+                          className="flex items-center gap-1.5 bg-[#0a0a0a] border border-white/10 text-white/60 hover:text-white hover:border-white/30 hover:bg-white/5 px-3 py-1.5 rounded-full text-xs font-medium transition-all"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>섹터 추가</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -275,47 +275,38 @@ export default function Step1Universe({
         {/* Right Fixed Sidebar (Summary) */}
         <div className="hidden lg:block w-[320px] xl:w-[380px] bg-[#141414] border-l border-white/5 h-full overflow-y-auto shrink-0 p-8">
           
-          <div className="flex items-center gap-3 mb-10">
-            <ChartBar className="w-6 h-6 text-blue-500" />
-            <h3 className="text-base font-black text-white/60 uppercase tracking-widest">유니버스 설정 요약</h3>
+          <div className="mb-10">
+            <h3 className="text-xl font-bold text-white tracking-widest">유니버스 설정 요약</h3>
           </div>
 
           <div className="space-y-8">
             
             <div>
-              <div className="flex items-center gap-2 mb-3">
-                <Globe className="w-5 h-5 text-blue-500" />
+              <div className="mb-3">
                 <span className="text-sm font-black text-white/40 uppercase tracking-widest">선택된 시장</span>
               </div>
-              <span className="text-2xl font-black text-white block pl-8 tracking-tight">{universe.toUpperCase()}</span>
+              <span className="text-2xl font-black text-white block tracking-tight">{universe.toUpperCase()}</span>
             </div>
 
             <div>
-              <div className="flex items-center gap-2 mb-3">
-                <Stack className="w-5 h-5 text-blue-500" />
+              <div className="mb-3">
                 <span className="text-sm font-black text-white/40 uppercase tracking-widest">시가총액 범위</span>
               </div>
-              <span className="text-2xl font-black text-white block pl-8 tracking-tight">{getMarketCapDesc().replace(" 선택됨", "")}</span>
+              <span className="text-2xl font-black text-white block tracking-tight">{getMarketCapDesc().replace(" 선택됨", "")}</span>
             </div>
 
             <div>
-               <div className="flex items-center gap-2 mb-3">
-                <div className="w-5 flex justify-center">
-                  <div className="w-4 h-4 border-2 border-blue-500 rounded-full flex items-center justify-center">
-                    <div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
-                  </div>
-                </div>
+               <div className="mb-3">
                 <span className="text-sm font-black text-white/40 uppercase tracking-widest">최소 일일 거래대금</span>
               </div>
-              <span className="text-2xl font-black text-white block pl-8 tracking-tight">{getVolumeDisplay()}</span>
+              <span className="text-2xl font-black text-white block tracking-tight">{getVolumeDisplay()}</span>
             </div>
 
             <div>
-               <div className="flex items-center gap-2 mb-4">
-                <SquaresFour className="w-5 h-5 text-blue-500" />
+               <div className="mb-4">
                 <span className="text-sm font-black text-white/40 uppercase tracking-widest">섹터 필터</span>
               </div>
-              <div className="flex flex-wrap gap-2 pl-8">
+              <div className="flex flex-wrap gap-2">
                 {universeFilters.selectedSectors.length > 0 ? (
                   universeFilters.selectedSectors.map(s => (
                     <span key={s} className="px-3.5 py-1.5 border-2 border-blue-500/30 bg-blue-500/10 text-blue-400 text-sm font-black rounded-lg">{s}</span>
@@ -338,18 +329,36 @@ export default function Step1Universe({
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-2">
                 <SquaresFour className="w-5 h-5 text-blue-500" />
-                <h3 className="text-lg font-bold">섹터 선택</h3>
+                <h3 className="text-lg font-bold text-white">섹터 선택</h3>
               </div>
               <button 
-                onClick={() => setShowSectorSelector(false)}
+                onClick={() => {
+                  setShowSectorSelector(false);
+                  setSectorSearchTerm(""); // Reset search on close
+                }}
                 className="p-2 hover:bg-white/5 rounded-full transition-all text-white/40 hover:text-white"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="grid grid-cols-3 gap-2 max-h-[400px] overflow-y-auto custom-scrollbar pr-2 mb-6">
-              {ALL_SECTORS.map(sector => {
+            {/* Search Input */}
+            <div className="mb-4">
+              <div className="relative">
+                <input
+                  type="text"
+                  value={sectorSearchTerm}
+                  onChange={(e) => setSectorSearchTerm(e.target.value)}
+                  placeholder="섹터 검색..."
+                  className="w-full bg-[#0a0a0a] border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/30 focus:outline-none focus:border-blue-500/50 transition-colors"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 h-[400px] overflow-y-auto custom-scrollbar pr-2 mb-6 content-start">
+              {ALL_SECTORS
+                .filter(sector => sector.toLowerCase().includes(sectorSearchTerm.toLowerCase()))
+                .map(sector => {
                 const isSelected = universeFilters.selectedSectors.includes(sector);
                 return (
                   <button

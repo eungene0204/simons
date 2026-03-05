@@ -37,10 +37,9 @@ import BacktestChart from "@/components/strategy/BacktestChart";
 import RiskManagementEditor from "./RiskManagementEditor";
 import Step1Universe from "./steps/Step1Universe";
 import Step2Conditions from "./steps/Step2Conditions";
-import Step3Position from "./steps/Step3Position";
-import Step4Risk from "./steps/Step4Risk";
-import Step5Backtest from "./steps/Step5Backtest";
-import Step6Report from "./steps/Step6Report";
+import Step3PositionRisk from "./steps/Step3PositionRisk";
+import Step4Backtest from "./steps/Step4Backtest";
+import Step5Report from "./steps/Step5Report";
 
 interface StrategyComposerV2Props {
   onSave: (strategy: StrategyDSL) => void;
@@ -49,12 +48,12 @@ interface StrategyComposerV2Props {
   onQuickBacktest?: () => void;
   onFullBacktest?: () => void;
   initialStrategy?: StrategyDSL | null;
-  currentStep: 1 | 2 | 3 | 4 | 5 | 6;
-  setCurrentStep: (step: 1 | 2 | 3 | 4 | 5 | 6) => void;
+  currentStep: 1 | 2 | 3 | 4 | 5;
+  setCurrentStep: (step: 1 | 2 | 3 | 4 | 5) => void;
 }
 
 type StrategyStatus = "draft" | "saved" | "published";
-type ComposerStep = 1 | 2 | 3 | 4 | 5 | 6;
+type ComposerStep = 1 | 2 | 3 | 4 | 5;
 
 type BlockCategory =
   | "price_signals"
@@ -195,9 +194,9 @@ export default function StrategyComposerV2({
     return () => observer.disconnect();
   }, [currentStep]);
 
-  // Reset backtest dashboard state when leaving step 5 or 6
+  // Reset backtest dashboard state when leaving step 4 or 5
   useEffect(() => {
-    if (currentStep !== 5 && currentStep !== 6) {
+    if (currentStep !== 4 && currentStep !== 5) {
       setIsBacktestDashboard(false);
     }
   }, [currentStep]);
@@ -433,8 +432,8 @@ export default function StrategyComposerV2({
       });
 
       setBacktestResult(result);
-      // Automatically move to Step 6 after successful backtest
-      setCurrentStep(6);
+      // Automatically move to Step 5 (Report) after successful backtest
+      setCurrentStep(5);
     } catch (e: any) {
       console.error(`[DEBUG-RUN] Error in ID: ${runId}`, e);
       setBacktestError(e.message || "백테스트 중 알 수 없는 오류가 발생했습니다.");
@@ -564,12 +563,11 @@ export default function StrategyComposerV2({
   };
 
   const stepLabels = [
-    { num: 1, label: "유니버스 선택" },
+    { num: 1, label: "유니버스" },
     { num: 2, label: "매매 조건" },
-    { num: 3, label: "포지션/비중" },
-    { num: 4, label: "리스크 관리" },
-    { num: 5, label: "백테스트" },
-    { num: 6, label: "결과 리포트" },
+    { num: 3, label: "포지션/리스크" },
+    { num: 4, label: "백테스트" },
+    { num: 5, label: "결과 리포트" },
   ];
 
 
@@ -648,7 +646,7 @@ export default function StrategyComposerV2({
             )}
 
             {currentStep === 3 && (
-              <Step3Position
+              <Step3PositionRisk
                 riskManagement={riskManagement}
                 setRiskManagement={setRiskManagement}
                 maxPositions={maxPositions}
@@ -667,32 +665,23 @@ export default function StrategyComposerV2({
             )}
 
           {currentStep === 4 && (
-            <Step4Risk
-              riskManagement={riskManagement}
-              setRiskManagement={setRiskManagement}
-              onNext={() => setCurrentStep(5)}
-              onPrev={() => setCurrentStep(3)}
-            />
-          )}
-
-          {currentStep === 5 && (
-            <Step5Backtest
+            <Step4Backtest
               strategyName={strategyName}
               isBacktesting={isBacktesting}
-              onPrev={() => setCurrentStep(4)}
+              onPrev={() => setCurrentStep(3)}
               onRunBacktest={runSimulation}
               configOptions={backtestOptions}
               summaryData={getSummaryData()}
             />
           )}
 
-          {currentStep === 6 && (
-            <Step6Report
+          {currentStep === 5 && (
+            <Step5Report
               strategyName={strategyName}
               backtestResult={backtestResult}
               isBacktesting={isBacktesting}
-              onPrev={() => setCurrentStep(5)}
-              onRestart={() => setCurrentStep(5)}
+              onPrev={() => setCurrentStep(4)}
+              onRestart={() => setCurrentStep(4)}
               onSave={handleSave}
               onRunBacktest={runSimulation}
               configOptions={backtestOptions}
