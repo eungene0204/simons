@@ -1,55 +1,30 @@
 "use client";
 
-import { BacktestResult } from "@/types/strategy";
 import BacktestConfig, { BacktestConfigOptions } from "@/components/strategy/backtest/BacktestConfig";
-import BacktestDashboard from "@/components/strategy/backtest/BacktestDashboard";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 
 interface Step5BacktestProps {
   strategyName: string;
-  backtestResult: BacktestResult | null;
   isBacktesting: boolean;
   onPrev: () => void;
-  onSave: () => void;
   onRunBacktest: (options: BacktestConfigOptions) => void;
-  onViewChange?: (view: "config" | "dashboard") => void;
-  summaryData: any; // Using any for now to avoid circular deps or complex imports, ideally stick to StrategySummaryData
+  configOptions: BacktestConfigOptions;
+  summaryData: any;
 }
 
 export default function Step5Backtest({
   strategyName,
-  backtestResult,
   isBacktesting,
   onPrev,
-  onSave,
   onRunBacktest,
-  onViewChange,
+  configOptions: initialOptions,
   summaryData,
 }: Step5BacktestProps) {
   useEffect(() => {
     console.error("[DEBUG] Step5Backtest: MOUNTED");
   }, []);
 
-  const [view, setView] = useState<"config" | "dashboard">("config");
-  const [configOptions, setConfigOptions] = useState<BacktestConfigOptions>({
-    period: "1Y",
-    initialCapital: 10000000,
-    commissionPct: 0.015,
-    slippagePct: 0.05
-  });
-
-  const [lastResultId, setLastResultId] = useState<any>(null);
-
-  useEffect(() => {
-    // Only auto-switch to dashboard if we get a NEW result 
-    if (backtestResult && !isBacktesting) {
-      if (backtestResult !== lastResultId) {
-        setView("dashboard");
-        onViewChange?.("dashboard");
-        setLastResultId(backtestResult);
-      }
-    }
-  }, [backtestResult, isBacktesting, lastResultId, onViewChange]);
+  const [configOptions, setConfigOptions] = useState<BacktestConfigOptions>(initialOptions);
 
   const handleRun = (options: BacktestConfigOptions) => {
     console.error("[DEBUG-TRACE] Step5Backtest: handleRun CALLED with", options);
@@ -57,56 +32,17 @@ export default function Step5Backtest({
     onRunBacktest(options);
   };
 
-  const handleRestart = () => {
-    setView("config");
-    onViewChange?.("config");
-  };
-
-  const memoizedStrategySummary = useMemo(() => ({
-    universeName: summaryData.universeName,
-    strategyName: strategyName,
-    entryLogic: summaryData.entryLogic,
-    exitLogic: summaryData.exitLogic,
-    entryBlocks: summaryData.entryBlocks,
-    exitBlocks: summaryData.exitBlocks,
-    blockNames: summaryData.blockNames,
-    positionText: summaryData.positionText,
-    riskText: summaryData.riskText
-  }), [
-    summaryData.universeName,
-    strategyName,
-    summaryData.entryLogic,
-    summaryData.exitLogic,
-    summaryData.positionText,
-    summaryData.riskText,
-    JSON.stringify(summaryData.entryBlocks),
-    JSON.stringify(summaryData.exitBlocks),
-    JSON.stringify(summaryData.blockNames)
-  ]);
-
   return (
     <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden bg-[#0f0f0f] relative px-0 pb-0">
       <div className="flex-1 flex flex-col min-h-0 min-w-0">
-        {backtestResult && view === "dashboard" ? (
-          <BacktestDashboard 
-            result={backtestResult} 
-            onRestart={handleRestart}
-            onRun={handleRun}
-            onSave={onSave}
-            currentOptions={configOptions}
-            isRunning={isBacktesting}
-            strategySummary={memoizedStrategySummary}
-          />
-        ) : (
-          <div className="h-full overflow-y-auto custom-scrollbar">
-             <BacktestConfig 
-               onRun={handleRun} 
-               isRunning={isBacktesting}
-               initialConfig={configOptions}
-               summary={summaryData}
-             />
-          </div>
-        )}
+        <div className="h-full overflow-y-auto custom-scrollbar">
+           <BacktestConfig 
+             onRun={handleRun} 
+             isRunning={isBacktesting}
+             initialConfig={configOptions}
+             summary={summaryData}
+           />
+        </div>
       </div>
     </div>
   );

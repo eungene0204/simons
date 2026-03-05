@@ -169,6 +169,16 @@ export default function StrategyComposer({
     }
   }, [initialStrategy]);
 
+  // Reset scroll to top when changing steps
+  useEffect(() => {
+    const mainContent = document.querySelector('main');
+    if (mainContent) {
+      mainContent.scrollTo({ top: 0, behavior: "instant" });
+    } else {
+      window.scrollTo({ top: 0, behavior: "instant" });
+    }
+  }, [currentStep]);
+
   // When user selects a template from backtest strategy groups
   const handleSelectTemplate = (strategyDef: StrategyDefinition) => {
     setTemplate(strategyDef.id);

@@ -171,7 +171,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
           Left Column: Functional Inputs (Simulation Parameters)
           ========================================================= */}
       <div className="flex-1 flex flex-col border-r border-white/5 overflow-y-auto">
-        <div className="flex-none px-6 pt-4 lg:px-10 lg:pt-6 pb-12">
+        <div className="flex-none px-6 pt-4 lg:px-10 lg:pt-5 pb-6">
           <h3 className="text-lg font-black text-[#dfdfdf] tracking-tight">백테스트 & 성과 분석</h3>
           <p className="text-[11px] text-[#a0a0a0] mt-0.5 font-medium">
             설정한 전략을 과거 데이터를 바탕으로 시뮬레이션하고 성과를 검증합니다.
@@ -179,10 +179,10 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
         </div>
         
         {/* Step 1: Period */}
-        <div className="p-3 lg:px-8 lg:py-4 border-b border-white/5 flex flex-col justify-center">
-          <div className="flex flex-col mb-2">
+        <div className="px-6 py-3 lg:px-10 lg:py-4 border-b border-white/5 flex flex-col justify-center">
+          <div className="flex flex-col mb-1.5">
             <span className="text-[10px] font-bold text-main-blue uppercase tracking-widest mb-0.5">Step 1</span>
-            <h2 className="text-lg font-black text-[#dfdfdf] tracking-tight">테스트 기간 설정</h2>
+            <h2 className="text-base font-black text-[#dfdfdf] tracking-tight">테스트 기간 설정</h2>
           </div>
           
           <div className="space-y-4 max-w-2xl">
@@ -227,10 +227,10 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
         </div>
 
         {/* Step 2: Capital & Costs */}
-        <div className="p-3 lg:px-8 lg:py-4 flex flex-col justify-center">
-          <div className="flex flex-col mb-2">
+        <div className="px-6 py-3 lg:px-10 lg:py-4 flex flex-col justify-center">
+          <div className="flex flex-col mb-1.5">
             <span className="text-[10px] font-bold text-main-blue uppercase tracking-widest mb-0.5">Step 2</span>
-            <h2 className="text-lg font-black text-[#dfdfdf] tracking-tight">초기 자본 및 거래 비용</h2>
+            <h2 className="text-base font-black text-[#dfdfdf] tracking-tight">초기 자본 및 거래 비용</h2>
           </div>
 
           <div className="space-y-3 max-w-2xl">
@@ -250,7 +250,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                       />
                       <span className="text-[#606060] font-black text-sm ml-3 tracking-widest">KRW</span>
                    </div>
-                   <p className="text-[10px] font-bold text-main-blue mt-0.5 text-right">{formatKoreanUnit(initialCapital)}</p>
+                    <p className="text-[9px] font-bold text-main-blue mt-0.5 text-right">{formatKoreanUnit(initialCapital)}</p>
                 </div>
              </div>
 
@@ -285,29 +285,6 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
           </div>
         </div>
 
-        {/* Bottom Action Bar (Left Pane) */}
-        <div className="mt-auto border-t border-white/5 bg-[#050505] p-4 lg:px-8 py-4 flex items-center justify-between shrink-0">
-          <div className="hidden sm:block text-[10px] text-[#606060] font-medium leading-relaxed max-w-sm">
-            시뮬레이션은 과거 데이터 기반 연산으로 미래 수익을 보장하지 않으며, 보수적 평가를 위해 수수료와 슬리피지가 자동 차감됩니다.
-          </div>
-          <button
-            onClick={handleRun}
-            disabled={isRunning}
-            className="w-full sm:w-auto relative overflow-hidden group py-3 px-8 bg-main-blue hover:bg-blue-500 text-white rounded-lg text-sm font-black transition-all flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(59,134,247,0.2)] hover:shadow-[0_0_20px_rgba(59,134,247,0.3)] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:shadow-none min-w-[180px]"
-          >
-            {isRunning ? (
-              <>
-                <ArrowsClockwise className="w-5 h-5 animate-spin" />
-                <span>분석 중...</span>
-              </>
-            ) : (
-              <>
-                <PlayCircle className="w-5 h-5" />
-                <span>백테스트 시작</span>
-              </>
-            )}
-          </button>
-        </div>
       </div>
 
       {/* =========================================================
@@ -317,12 +294,12 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
         <div className="p-4 lg:p-6 flex-1 flex flex-col relative">
           <div className="absolute top-0 right-0 w-64 h-64 bg-main-blue/5 rounded-full blur-[80px] pointer-events-none" />
           
-          <div className="mb-10 relative z-10">
-            <h3 className="text-3xl font-black text-white uppercase tracking-tighter">전략 요약</h3>
+          <div className="mb-6 relative z-10">
+            <h3 className="text-2xl font-black text-white uppercase tracking-tighter">전략 요약</h3>
           </div>
 
           {/* Redesigned Summary Content */}
-          <div className="space-y-8 relative z-10">
+          <div className="space-y-6 relative z-10">
             
             {/* Universe */}
             <div>
@@ -546,6 +523,30 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                 )}
               </div>
             </div>
+
+          {/* Backtest Action at bottom of summary */}
+          <div className="mt-10 pt-8 border-t border-white/10 relative z-10 pb-4">
+            <button
+              onClick={handleRun}
+              disabled={isRunning}
+              className="w-full relative overflow-hidden group py-4 px-8 bg-main-blue hover:bg-blue-500 text-white rounded-xl text-base font-black transition-all flex items-center justify-center gap-3 shadow-[0_0_20px_rgba(59,134,247,0.3)] hover:shadow-[0_0_30px_rgba(59,134,247,0.5)] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isRunning ? (
+                <>
+                  <ArrowsClockwise className="w-6 h-6 animate-spin" />
+                  <span>시뮬레이션 분석 중...</span>
+                </>
+              ) : (
+                <>
+                  <PlayCircle className="w-6 h-6" />
+                  <span>백테스트 시작하기</span>
+                </>
+              )}
+            </button>
+            <p className="text-[10px] text-white/30 mt-4 text-center leading-relaxed">
+              운용 결과는 과거 데이터를 기반으로 하며 미래 수익을 보장하지 않습니다.
+            </p>
+          </div>
 
           </div>
         </div>
