@@ -8,7 +8,8 @@ import {
   Code,
   Briefcase,
   ShieldCheck,
-  WarningCircle
+  WarningCircle,
+  ChartBar
 } from "phosphor-react";
 
 const formatKoreanUnit = (num: number) => {
@@ -41,18 +42,46 @@ export interface BacktestConfigOptions {
 }
 
 export interface StrategySummaryData {
+  strategyName: string;
   universeName: string;
+  universeSettings: {
+    marketCapRange: number[];
+    minTradingVolume: number;
+    selectedSectors: string[];
+    excludeLossMaking: boolean;
+    excludeCapitalImpaired: boolean;
+    excludeAdministrative: boolean;
+    excludePreferred: boolean;
+    excludeETF_ETN: boolean;
+    excludeSPAC: boolean;
+    excludeREITs: boolean;
+    excludeInvestmentWarning: boolean;
+    excludeDelistingPending: boolean;
+    excludeForeignStock: boolean;
+    excludePennyStocks: boolean;
+    excludeNewListings: boolean;
+    excludeHighVolatility: boolean;
+  };
   universeFiltersCount: number;
   blockNames: string[];
   riskSettings: {
     maxPositions: number;
     allocationType: string;
+    allocationValue?: number;
+    executionTiming: string;
+    rebalancingPeriod: string;
   };
   riskManagement: {
-    stopLoss?: number;
-    takeProfit?: number;
-    trailingStop?: number;
-    maxHoldingDays?: number;
+    stop_loss_pct?: number;
+    take_profit_pct?: number;
+    trailing_stop_pct?: number;
+    position_size_pct?: number;
+    liquidity_limit_pct?: number;
+    min_cash_reserve_pct?: number;
+    max_daily_loss_pct?: number;
+    max_mdd_limit_pct?: number;
+    max_total_exposure_pct?: number;
+    skip_risk_management?: boolean;
   };
 }
 
@@ -62,6 +91,19 @@ interface BacktestConfigProps {
   initialConfig?: Partial<BacktestConfigOptions>;
   summary: StrategySummaryData;
 }
+
+const getRebalancingLabel = (period?: string) => {
+  if (!period || period === "none") return "안함";
+  if (period === "daily") return "매일";
+  if (period === "weekly") return "매주";
+  if (period === "monthly") return "매월";
+  if (period.startsWith("custom:")) {
+    const parts = period.split(":");
+    const unit = parts[2] === "day" ? "일" : parts[2] === "week" ? "주" : "달";
+    return `${parts[1]}${unit}마다`;
+  }
+  return period;
+};
 
 export default function BacktestConfig({ onRun, isRunning, initialConfig, summary }: BacktestConfigProps) {
   const [period, setPeriod] = useState(initialConfig?.period || "1Y");
@@ -129,23 +171,29 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
           Left Column: Functional Inputs (Simulation Parameters)
           ========================================================= */}
       <div className="flex-1 flex flex-col border-r border-white/5 overflow-y-auto">
+        <div className="flex-none px-6 pt-4 lg:px-10 lg:pt-6 pb-12">
+          <h3 className="text-lg font-black text-[#dfdfdf] tracking-tight">백테스트 & 성과 분석</h3>
+          <p className="text-[11px] text-[#a0a0a0] mt-0.5 font-medium">
+            설정한 전략을 과거 데이터를 바탕으로 시뮬레이션하고 성과를 검증합니다.
+          </p>
+        </div>
         
         {/* Step 1: Period */}
-        <div className="flex-1 p-6 lg:p-10 border-b border-white/5 flex flex-col justify-center">
-          <div className="flex flex-col mb-8">
-            <span className="text-xs font-bold text-main-blue uppercase tracking-widest mb-2">Step 1</span>
-            <h2 className="text-xl font-black text-[#dfdfdf] tracking-tight">테스트 기간 설정</h2>
+        <div className="p-3 lg:px-8 lg:py-4 border-b border-white/5 flex flex-col justify-center">
+          <div className="flex flex-col mb-2">
+            <span className="text-[10px] font-bold text-main-blue uppercase tracking-widest mb-0.5">Step 1</span>
+            <h2 className="text-lg font-black text-[#dfdfdf] tracking-tight">테스트 기간 설정</h2>
           </div>
           
           <div className="space-y-4 max-w-2xl">
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {periods.map((p) => (
                 <button
                   key={p.id}
                   onClick={() => handlePeriodChange(p.id)}
-                  className={`py-3.5 rounded-lg text-sm font-bold transition-all border ${
+                  className={`py-2 rounded-lg text-xs font-bold transition-all border ${
                     period === p.id 
-                      ? "bg-main-blue border-main-blue text-white shadow-[0_0_15px_rgba(59,134,247,0.3)]" 
+                      ? "bg-main-blue border-main-blue text-white shadow-[0_0_10px_rgba(59,134,247,0.2)]" 
                       : "bg-[#111] border-white/5 text-[#a0a0a0] hover:bg-white/5 hover:text-white"
                   }`}
                 >
@@ -154,23 +202,23 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
               ))}
             </div>
             {period === "custom" && (
-              <div className="flex gap-4 mt-6 animate-in fade-in slide-in-from-top-2 duration-200 bg-[#111] p-5 rounded-xl border border-white/5">
-                 <div className="flex-1 space-y-2">
-                   <label className="text-[11px] font-black text-[#606060] uppercase tracking-widest pl-1">시작일</label>
+              <div className="flex gap-3 mt-3 animate-in fade-in slide-in-from-top-1 duration-200 bg-[#111] p-3 rounded-xl border border-white/5">
+                 <div className="flex-1 space-y-1">
+                   <label className="text-[10px] font-black text-[#606060] uppercase tracking-widest pl-1">시작일</label>
                    <input 
                      type="date" 
                      value={startDate}
                      onChange={(e) => setStartDate(e.target.value)}
-                     className="bg-[#0a0a0a] border border-white/10 rounded-lg px-4 py-3 text-sm text-white font-bold w-full outline-none focus:border-main-blue transition-all" 
+                     className="bg-[#0a0a0a] border border-white/10 rounded-lg px-3 py-2 text-xs text-white font-bold w-full outline-none focus:border-main-blue transition-all" 
                    />
                  </div>
-                 <div className="flex-1 space-y-2">
-                   <label className="text-[11px] font-black text-[#606060] uppercase tracking-widest pl-1">종료일</label>
+                 <div className="flex-1 space-y-1">
+                   <label className="text-[10px] font-black text-[#606060] uppercase tracking-widest pl-1">종료일</label>
                    <input 
                      type="date" 
                      value={endDate}
                      onChange={(e) => setEndDate(e.target.value)}
-                     className="bg-[#0a0a0a] border border-white/10 rounded-lg px-4 py-3 text-sm text-white font-bold w-full outline-none focus:border-main-blue transition-all" 
+                     className="bg-[#0a0a0a] border border-white/10 rounded-lg px-3 py-2 text-xs text-white font-bold w-full outline-none focus:border-main-blue transition-all" 
                    />
                  </div>
               </div>
@@ -179,16 +227,16 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
         </div>
 
         {/* Step 2: Capital & Costs */}
-        <div className="flex-1 p-6 lg:p-10 flex flex-col justify-center">
-          <div className="flex flex-col mb-8">
-            <span className="text-xs font-bold text-main-blue uppercase tracking-widest mb-2">Step 2</span>
-            <h2 className="text-xl font-black text-[#dfdfdf] tracking-tight">초기 자본 및 거래 비용</h2>
+        <div className="p-3 lg:px-8 lg:py-4 flex flex-col justify-center">
+          <div className="flex flex-col mb-2">
+            <span className="text-[10px] font-bold text-main-blue uppercase tracking-widest mb-0.5">Step 2</span>
+            <h2 className="text-lg font-black text-[#dfdfdf] tracking-tight">초기 자본 및 거래 비용</h2>
           </div>
 
-          <div className="space-y-6 max-w-2xl">
-             <div className="space-y-2">
-                <label className="text-[11px] font-black text-[#a0a0a0] uppercase tracking-widest pl-1">초기 자본금</label>
-                <div className="bg-[#111] border border-white/5 rounded-xl px-5 py-4 group hover:border-white/10 focus-within:border-main-blue transition-all relative overflow-hidden">
+          <div className="space-y-3 max-w-2xl">
+             <div className="space-y-1">
+                <label className="text-[10px] font-black text-[#a0a0a0] uppercase tracking-widest pl-1">초기 자본금</label>
+                <div className="bg-[#111] border border-white/5 rounded-xl px-4 py-2 group hover:border-white/10 focus-within:border-main-blue transition-all relative overflow-hidden">
                    <div className="absolute inset-y-0 left-0 w-1 bg-main-blue opacity-0 group-focus-within:opacity-100 transition-opacity" />
                    <div className="flex items-center justify-between">
                       <input 
@@ -198,39 +246,39 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                           const val = Number(e.target.value.replace(/,/g, ''));
                           if (!isNaN(val)) setInitialCapital(val);
                         }}
-                        className="w-full bg-transparent border-none p-0 text-white font-black text-2xl outline-none"
+                        className="w-full bg-transparent border-none p-0 text-white font-black text-lg outline-none"
                       />
-                      <span className="text-[#606060] font-black text-lg ml-3 tracking-widest">KRW</span>
+                      <span className="text-[#606060] font-black text-sm ml-3 tracking-widest">KRW</span>
                    </div>
-                   <p className="text-xs font-bold text-main-blue mt-2 text-right">{formatKoreanUnit(initialCapital)}</p>
+                   <p className="text-[10px] font-bold text-main-blue mt-0.5 text-right">{formatKoreanUnit(initialCapital)}</p>
                 </div>
              </div>
 
-             <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-[11px] font-black text-[#a0a0a0] uppercase tracking-widest pl-1">수수료</label>
-                  <div className="flex items-center bg-[#111] border border-white/5 rounded-xl px-4 py-3 group hover:border-white/10 focus-within:border-white transition-all">
+             <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-[#a0a0a0] uppercase tracking-widest pl-1">수수료</label>
+                  <div className="flex items-center bg-[#111] border border-white/5 rounded-xl px-4 py-2 group hover:border-white/10 focus-within:border-white transition-all">
                     <input 
                       type="number" 
                       step="0.001"
                       value={commissionPct}
                       onChange={(e) => setCommissionPct(Number(e.target.value))}
-                      className="w-full bg-transparent border-none p-0 text-lg text-white font-black outline-none font-mono"
+                      className="w-full bg-transparent border-none p-0 text-base text-white font-black outline-none font-mono"
                     />
-                    <span className="text-sm text-[#606060] font-black ml-2">%</span>
+                    <span className="text-xs text-[#606060] font-black ml-2">%</span>
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-[11px] font-black text-[#a0a0a0] uppercase tracking-widest pl-1">슬리피지</label>
-                  <div className="flex items-center bg-[#111] border border-white/5 rounded-xl px-4 py-3 group hover:border-white/10 focus-within:border-white transition-all">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-[#a0a0a0] uppercase tracking-widest pl-1">슬리피지</label>
+                  <div className="flex items-center bg-[#111] border border-white/5 rounded-xl px-4 py-2 group hover:border-white/10 focus-within:border-white transition-all">
                     <input 
                       type="number" 
                       step="0.01"
                       value={slippagePct}
                       onChange={(e) => setSlippagePct(Number(e.target.value))}
-                      className="w-full bg-transparent border-none p-0 text-lg text-white font-black outline-none font-mono"
+                      className="w-full bg-transparent border-none p-0 text-base text-white font-black outline-none font-mono"
                     />
-                    <span className="text-sm text-[#606060] font-black ml-2">%</span>
+                    <span className="text-xs text-[#606060] font-black ml-2">%</span>
                   </div>
                 </div>
              </div>
@@ -238,14 +286,14 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
         </div>
 
         {/* Bottom Action Bar (Left Pane) */}
-        <div className="mt-auto border-t border-white/5 bg-[#050505] p-6 lg:px-10 py-5 flex items-center justify-between shrink-0">
-          <div className="hidden sm:block text-[11px] text-[#606060] font-medium leading-relaxed max-w-sm">
+        <div className="mt-auto border-t border-white/5 bg-[#050505] p-4 lg:px-8 py-4 flex items-center justify-between shrink-0">
+          <div className="hidden sm:block text-[10px] text-[#606060] font-medium leading-relaxed max-w-sm">
             시뮬레이션은 과거 데이터 기반 연산으로 미래 수익을 보장하지 않으며, 보수적 평가를 위해 수수료와 슬리피지가 자동 차감됩니다.
           </div>
           <button
             onClick={handleRun}
             disabled={isRunning}
-            className="w-full sm:w-auto relative overflow-hidden group py-4 px-10 bg-main-blue hover:bg-blue-500 text-white rounded-lg text-base font-black transition-all flex items-center justify-center gap-3 shadow-[0_0_20px_rgba(59,134,247,0.3)] hover:shadow-[0_0_30px_rgba(59,134,247,0.4)] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:shadow-none min-w-[200px]"
+            className="w-full sm:w-auto relative overflow-hidden group py-3 px-8 bg-main-blue hover:bg-blue-500 text-white rounded-lg text-sm font-black transition-all flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(59,134,247,0.2)] hover:shadow-[0_0_20px_rgba(59,134,247,0.3)] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:shadow-none min-w-[180px]"
           >
             {isRunning ? (
               <>
@@ -265,127 +313,238 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
       {/* =========================================================
           Right Column: Strategy Snapshot (Bento Grid)
           ========================================================= */}
-      <div className="w-full lg:w-[480px] xl:w-[540px] bg-[#141414] flex flex-col overflow-y-auto shrink-0 border-l border-white/5">
-        <div className="p-6 lg:p-10 flex-1 flex flex-col relative">
+      <div className="w-full lg:w-[420px] xl:w-[460px] bg-[#141414] flex flex-col overflow-y-auto shrink-0 border-l border-white/5">
+        <div className="p-4 lg:p-6 flex-1 flex flex-col relative">
           <div className="absolute top-0 right-0 w-64 h-64 bg-main-blue/5 rounded-full blur-[80px] pointer-events-none" />
           
-          <div className="flex items-center gap-3 mb-8 relative z-10">
-            <h2 className="text-lg font-black text-white/80 tracking-widest uppercase">전략 스냅샷</h2>
-            <div className="flex-1 h-px bg-white/5" />
-            <span className="px-2 py-1 bg-white/5 rounded text-[9px] font-black text-white/40 tracking-widest border border-white/5">
-              SUMMARY
-            </span>
+          <div className="mb-10 relative z-10">
+            <h3 className="text-3xl font-black text-white uppercase tracking-tighter">전략 요약</h3>
           </div>
 
-          {/* Bento Grid Container */}
-          <div className="flex-1 grid grid-cols-2 gap-3 auto-rows-max relative z-10">
+          {/* Redesigned Summary Content */}
+          <div className="space-y-8 relative z-10">
             
-            {/* CELL 1: Universe (Full width) */}
-            <div className="col-span-2 bg-[#1a1a1a]/80 rounded-xl p-5 border border-white/5 hover:border-white/10 transition-colors group flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-               <div className="w-10 h-10 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0 group-hover:bg-blue-500/20 transition-colors">
-                 <Globe className="w-5 h-5 text-blue-500" />
-               </div>
-               <div className="flex-1 min-w-0">
-                  <div className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-1">유니버스 설정</div>
-                  <div className="flex items-baseline gap-2 flex-wrap">
-                    <span className="text-lg font-black text-white truncate">{summary.universeName}</span>
-                    {summary.universeFiltersCount > 0 ? (
-                      <span className="text-[10px] font-bold text-[#a0a0a0] bg-[#222] px-2 py-0.5 rounded border border-[#333]">
-                        {summary.universeFiltersCount} 필터
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-medium text-[#606060] italic">전체 종목</span>
-                    )}
-                  </div>
-               </div>
-            </div>
+            {/* Universe */}
+            <div>
+              <div className="mb-3">
+                <span className="text-base font-black text-white/40 uppercase tracking-widest">유니버스 설정</span>
+              </div>
+              <div className="pl-8 space-y-4">
+                <div className="flex flex-col">
+                  <span className="text-xs font-black text-white/30 uppercase tracking-[0.1em] mb-1.5">전략 이름</span>
+                  <span className="text-2xl font-black text-white tracking-tight leading-tight">{summary.strategyName || "이름 없는 전략"}</span>
+                </div>
 
-            {/* CELL 2: Trading Logic (Full width) */}
-            <div className="col-span-2 bg-[#1a1a1a]/80 rounded-xl p-5 border border-white/5 hover:border-white/10 transition-colors group flex flex-col gap-3">
-               <div className="flex items-center gap-3">
-                 <div className="w-10 h-10 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center shrink-0 group-hover:bg-purple-500/20 transition-colors">
-                   <Code className="w-5 h-5 text-purple-500" />
-                 </div>
-                 <div className="flex-1">
-                    <div className="text-[10px] font-black text-purple-500 uppercase tracking-widest mb-0.5">매매 로직 블록</div>
-                    <div className="text-xs text-[#606060] font-bold">{summary.blockNames.length} 조건 설정됨</div>
-                 </div>
-               </div>
-               
-               <div className="bg-[#111] rounded-lg border border-white/5 p-3 max-h-[160px] overflow-y-auto custom-scrollbar">
-                  {summary.blockNames.length > 0 ? (
-                    <ul className="space-y-1.5">
-                      {summary.blockNames.map((name, idx) => (
-                        <li key={idx} className="flex items-start gap-2 text-xs text-[#dfdfdf] font-medium leading-relaxed">
-                           <span className="text-purple-500/50 text-[8px] mt-1.5">●</span>
-                           <span className="break-words">{name}</span>
-                        </li>
+                <div className="flex flex-col">
+                  <span className="text-xs font-black text-white/30 uppercase tracking-[0.1em] mb-1.5">선택된 시장</span>
+                  <span className="text-xl font-black text-white/80 tracking-tight">{summary.universeName}</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="flex flex-col">
+                    <span className="text-xs font-black text-white/30 uppercase tracking-[0.1em] mb-1.5">시가총액 범위</span>
+                    <span className="text-white text-sm font-bold border border-white/10 px-3 py-1 rounded-md w-fit">
+                      {(() => {
+                        const range = summary.universeSettings?.marketCapRange || [0, 50];
+                        if (range[0] === 0 && range[1] === 50) return "대형주 (상위 50%)";
+                        if (range[0] === 50 && range[1] === 80) return "중형주 (50-80%)";
+                        if (range[0] === 80 && range[1] === 100) return "소형주 (80-100%)";
+                        return `상위 ${range[0]}% - ${range[1]}%`;
+                      })()}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-col">
+                    <span className="text-xs font-black text-white/30 uppercase tracking-[0.1em] mb-1.5">최소 거래대금</span>
+                    <span className="text-white text-sm font-bold border border-white/10 px-3 py-1 rounded-md w-fit">
+                      {summary.universeSettings?.minTradingVolume === 0 
+                        ? "제한 없음" 
+                        : `${summary.universeSettings?.minTradingVolume}억원 이상`}
+                    </span>
+                  </div>
+                </div>
+
+                {summary.universeSettings?.selectedSectors && summary.universeSettings.selectedSectors.length > 0 && (
+                  <div className="flex flex-col">
+                    <span className="text-xs font-black text-white/30 uppercase tracking-[0.1em] mb-1.5">섹터 필터</span>
+                    <div className="flex flex-wrap gap-2">
+                      {summary.universeSettings.selectedSectors.map((sector, i) => (
+                        <span key={i} className="text-white text-xs font-bold border border-white/10 px-3 py-1 rounded-md">
+                          {sector}
+                        </span>
                       ))}
-                    </ul>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center py-4 text-center opacity-50">
-                      <WarningCircle className="w-5 h-5 text-[#a0a0a0] mb-1" />
-                      <span className="text-xs font-bold text-[#a0a0a0]">설정된 조건이 없습니다</span>
                     </div>
-                  )}
-               </div>
+                  </div>
+                )}
+
+                {(() => {
+                  const exclusions = [
+                    summary.universeSettings?.excludeLossMaking && "적자 기업",
+                    summary.universeSettings?.excludeCapitalImpaired && "자본 잠식",
+                    summary.universeSettings?.excludeAdministrative && "관리 종목",
+                    summary.universeSettings?.excludePreferred && "우선주",
+                    summary.universeSettings?.excludeETF_ETN && "ETF/ETN",
+                    summary.universeSettings?.excludeSPAC && "SPAC",
+                    summary.universeSettings?.excludeREITs && "리츠",
+                    summary.universeSettings?.excludeInvestmentWarning && "투자 경고",
+                    summary.universeSettings?.excludeDelistingPending && "상장 폐지 예정",
+                    summary.universeSettings?.excludeForeignStock && "외국주",
+                    summary.universeSettings?.excludePennyStocks && "동전주",
+                    summary.universeSettings?.excludeNewListings && "신규 상장",
+                    summary.universeSettings?.excludeHighVolatility && "급변동 종목",
+                  ].filter(Boolean);
+
+                  if (exclusions.length === 0) return null;
+
+                  return (
+                    <div className="flex flex-col">
+                      <span className="text-xs font-black text-white/30 uppercase tracking-[0.1em] mb-1.5">제외 대상</span>
+                      <div className="flex flex-wrap gap-2">
+                        {exclusions.map((ex, i) => (
+                          <span key={i} className="text-white text-[10px] font-bold border border-white/10 px-2 py-0.5 rounded opacity-60">
+                            {ex}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
 
-            {/* CELL 3: Position Sizing (Left Half) */}
-            <div className="col-span-2 sm:col-span-1 bg-[#1a1a1a]/80 rounded-xl p-5 border border-white/5 hover:border-white/10 transition-colors group flex flex-col justify-between">
-               <div>
-                 <div className="w-8 h-8 rounded-md bg-orange-500/10 border border-orange-500/20 flex items-center justify-center mb-3 group-hover:bg-orange-500/20 transition-colors">
-                   <Briefcase className="w-4 h-4 text-orange-500" />
-                 </div>
-                 <div className="text-[10px] font-black text-orange-500 uppercase tracking-widest mb-4">포지션/비중</div>
-               </div>
-               
-               <div className="space-y-2.5">
-                  <div className="flex flex-col">
-                     <span className="text-[9px] text-[#606060] font-bold uppercase mb-0.5">최대 보유 종목</span>
-                     <span className="text-base font-black text-white">{summary.riskSettings.maxPositions}<span className="text-[10px] text-[#a0a0a0] ml-1">개</span></span>
-                  </div>
-                  <div className="h-px w-full bg-white/5" />
-                  <div className="flex flex-col">
-                     <span className="text-[9px] text-[#606060] font-bold uppercase mb-0.5">배분 방식</span>
-                     <span className="text-xs font-black text-white">
-                        {summary.riskSettings.allocationType === 'equal' ? '동일 비중' : '고정 비율'}
-                     </span>
-                  </div>
-               </div>
+            {/* Trading Logic */}
+            <div>
+              <div className="mb-4">
+                <span className="text-base font-black text-white/40 uppercase tracking-widest">매매 로직 블록</span>
+              </div>
+              <div className="flex flex-wrap gap-2 pl-8">
+                {summary.blockNames.length > 0 ? (
+                  summary.blockNames.map((name, idx) => (
+                    <span key={idx} className="px-3.5 py-1.5 border-2 border-purple-500/30 bg-purple-500/10 text-purple-400 text-sm font-black rounded-lg">
+                      {name}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-xs font-medium text-white/30 italic">설정된 조건 없음</span>
+                )}
+              </div>
             </div>
 
-            {/* CELL 4: Risk Management (Right Half) */}
-            <div className="col-span-2 sm:col-span-1 bg-[#1a1a1a]/80 rounded-xl p-5 border border-white/5 hover:border-white/10 transition-colors group flex flex-col justify-between">
-               <div>
-                 <div className="w-8 h-8 rounded-md bg-green-500/10 border border-green-500/20 flex items-center justify-center mb-3 group-hover:bg-green-500/20 transition-colors">
-                   <ShieldCheck className="w-4 h-4 text-green-500" />
-                 </div>
-                 <div className="text-[10px] font-black text-green-500 uppercase tracking-widest mb-4">청산 방어선</div>
-               </div>
-               
-               <div className="space-y-2.5">
-                  <div className="flex items-center justify-between">
-                     <span className="text-[10px] text-[#a0a0a0] font-bold">손절매</span>
-                     <span className={`text-sm font-black ${summary.riskManagement.stopLoss ? 'text-red-500' : 'text-[#606060]'}`}>
-                       {summary.riskManagement.stopLoss ? `-${summary.riskManagement.stopLoss}%` : 'OFF'}
-                     </span>
-                  </div>
-                  <div className="h-px w-full bg-white/5" />
-                  <div className="flex items-center justify-between">
-                     <span className="text-[10px] text-[#a0a0a0] font-bold">익절매</span>
-                     <span className={`text-sm font-black ${summary.riskManagement.takeProfit ? 'text-green-500' : 'text-[#606060]'}`}>
-                       {summary.riskManagement.takeProfit ? `+${summary.riskManagement.takeProfit}%` : 'OFF'}
-                     </span>
-                  </div>
-                   <div className="h-px w-full bg-white/5" />
-                  <div className="flex items-center justify-between">
-                     <span className="text-[10px] text-[#a0a0a0] font-bold">MDD 제어</span>
-                     <span className={`text-sm font-black ${summary.riskManagement.trailingStop ? 'text-orange-500' : 'text-[#606060]'}`}>
-                       {summary.riskManagement.trailingStop ? 'ON' : 'OFF'}
-                     </span>
-                  </div>
-               </div>
+            {/* Position Sizing */}
+            <div>
+              <div className="mb-3">
+                <span className="text-base font-black text-white/40 uppercase tracking-widest">포지션/비중</span>
+              </div>
+              <div className="pl-8 grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-8">
+                <div className="flex flex-col">
+                  <span className="text-xs font-black text-white/30 uppercase tracking-widest mb-1">최대 보유 종목</span>
+                  <span className="text-xl font-black text-white">{summary.riskSettings.maxPositions}개</span>
+                </div>
+                
+                <div className="flex flex-col">
+                  <span className="text-xs font-black text-white/30 uppercase tracking-widest mb-1">배분 방식</span>
+                  <span className="text-sm font-bold text-white">
+                    {summary.riskSettings.allocationType === 'equal' 
+                      ? '동일 비중' 
+                      : `고정 비중 (${summary.riskSettings.allocationValue}%)`}
+                  </span>
+                </div>
+
+                <div className="flex flex-col">
+                  <span className="text-xs font-black text-white/30 uppercase tracking-widest mb-1">체결 시점 선택</span>
+                  <span className="text-sm font-bold text-white">
+                    {summary.riskSettings.executionTiming === 'next_open' ? '익일 시가' : '당일 종가'}
+                  </span>
+                </div>
+
+                <div className="flex flex-col">
+                  <span className="text-xs font-black text-white/30 uppercase tracking-widest mb-1">리밸런싱 설정</span>
+                  <span className="text-sm font-bold text-white">
+                    {getRebalancingLabel(summary.riskSettings.rebalancingPeriod)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Risk Management */}
+            <div>
+              <div className="mb-4">
+                <span className="text-base font-black text-white/40 uppercase tracking-widest">리스크 관리</span>
+              </div>
+              
+              <div className="pl-8 space-y-6">
+                {summary.riskManagement?.skip_risk_management ? (
+                  <span className="text-sm font-medium text-white/30 italic">리스크 관리 하지 않음</span>
+                ) : (
+                  <>
+                    {/* Category 1: Capital */}
+                    <div className="space-y-3">
+                      <span className="text-xs font-black text-white/30 uppercase tracking-[0.1em]">자금 관리</span>
+                      <div className="flex flex-wrap gap-2">
+                        {summary.riskManagement?.position_size_pct !== undefined && (
+                          <span className="text-white text-xs font-bold border border-white/10 px-3 py-1 rounded-md">
+                            포지션 {summary.riskManagement.position_size_pct}%
+                          </span>
+                        )}
+                        {summary.riskManagement?.liquidity_limit_pct !== undefined && (
+                          <span className="text-white text-xs font-bold border border-white/10 px-3 py-1 rounded-md">
+                            유동성 {summary.riskManagement.liquidity_limit_pct}%
+                          </span>
+                        )}
+                        {summary.riskManagement?.min_cash_reserve_pct !== undefined && (
+                          <span className="text-white text-xs font-bold border border-white/10 px-3 py-1 rounded-md">
+                            현금 {summary.riskManagement.min_cash_reserve_pct}%
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Category 2: Price Exit */}
+                    <div className="space-y-3">
+                      <span className="text-xs font-black text-white/30 uppercase tracking-[0.1em]">청산 리스크</span>
+                      <div className="flex flex-wrap gap-2">
+                        {summary.riskManagement?.stop_loss_pct ? (
+                          <span className="text-white text-xs font-bold border border-white/10 px-3 py-1 rounded-md">
+                            손절 -{summary.riskManagement.stop_loss_pct}%
+                          </span>
+                        ) : null}
+                        {summary.riskManagement?.take_profit_pct ? (
+                          <span className="text-white text-xs font-bold border border-white/10 px-3 py-1 rounded-md">
+                            익절 +{summary.riskManagement.take_profit_pct}%
+                          </span>
+                        ) : null}
+                        {summary.riskManagement?.trailing_stop_pct !== undefined ? (
+                          <span className="text-white text-xs font-bold border border-white/10 px-3 py-1 rounded-md">
+                            트레일링 스탑 {summary.riskManagement.trailing_stop_pct}%
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {/* Category 3: Portfolio Control */}
+                    <div className="space-y-3">
+                      <span className="text-xs font-black text-white/30 uppercase tracking-[0.1em]">포트폴리오 제어</span>
+                      <div className="flex flex-wrap gap-2">
+                        {summary.riskManagement?.max_daily_loss_pct !== undefined && (
+                          <span className="text-white text-xs font-bold border border-white/10 px-3 py-1 rounded-md">
+                            일일 손실 {summary.riskManagement.max_daily_loss_pct}%
+                          </span>
+                        )}
+                        {summary.riskManagement?.max_mdd_limit_pct !== undefined && (
+                          <span className="text-white text-xs font-bold border border-white/10 px-3 py-1 rounded-md">
+                            MDD 제한 {summary.riskManagement.max_mdd_limit_pct}%
+                          </span>
+                        )}
+                        {summary.riskManagement?.max_total_exposure_pct !== undefined && (
+                          <span className="text-white text-xs font-bold border border-white/10 px-3 py-1 rounded-md">
+                            총 노출 {summary.riskManagement.max_total_exposure_pct}%
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
 
           </div>
