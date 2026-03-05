@@ -4,7 +4,7 @@ import { BacktestResult } from "@/types/strategy";
 import BacktestDashboard from "@/components/strategy/backtest/BacktestDashboard";
 import { ChartLineUp, FileText } from "phosphor-react";
 
-interface Step6ReportProps {
+interface Step5ReportProps {
   strategyName: string;
   backtestResult: BacktestResult | null;
   isBacktesting: boolean;
@@ -16,7 +16,7 @@ interface Step6ReportProps {
   summaryData: any;
 }
 
-export default function Step6Report({
+export default function Step5Report({
   strategyName,
   backtestResult,
   isBacktesting,
@@ -26,7 +26,7 @@ export default function Step6Report({
   onRunBacktest,
   configOptions,
   summaryData,
-}: Step6ReportProps) {
+}: Step5ReportProps) {
   if (!backtestResult) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center bg-[#0f0f0f] text-gray-500 relative overflow-hidden">

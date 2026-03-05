@@ -761,7 +761,7 @@ export default function Step2Conditions({
       </AnimatePresence>
 
       {/* Floating: Nav Buttons */}
-      <div className="absolute bottom-6 right-6 flex gap-3 z-40">
+      <div className="absolute bottom-12 right-6 flex gap-3 z-40">
         <button 
           onClick={onPrev} 
           className="px-5 py-3 bg-black/60 hover:bg-black/80 text-white rounded-xl text-base font-black transition-all border border-white/10 active:scale-95 shadow-lg backdrop-blur-sm"
@@ -772,7 +772,7 @@ export default function Step2Conditions({
           onClick={onNext} 
           className="group px-6 py-3 bg-blue-500 hover:bg-blue-400 text-white rounded-xl text-sm font-black uppercase tracking-widest transition-all flex items-center gap-3 shadow-[0_10px_30px_rgba(59,130,246,0.3)] active:scale-[0.98]"
         >
-          <span>포지션 설계</span>
+          <span>포지션/리스크</span>
           <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
         </button>
       </div>

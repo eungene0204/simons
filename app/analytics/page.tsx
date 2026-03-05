@@ -35,7 +35,7 @@ function AnalyticsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const symbol = searchParams.get("symbol") || "";
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(1);
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [strategy, setStrategy] = useState<StrategyDSL | null>(null);
   const [savedStrategies, setSavedStrategies] = useState<StrategyDSL[]>([]);
   const [showComposer, setShowComposer] = useState(false);
@@ -131,18 +131,17 @@ function AnalyticsContent() {
         <div className="flex items-center justify-between w-full max-w-full mx-auto">
           <div className="flex items-center">
             {[
-              { id: 1, label: "유니버스 선택" },
+              { id: 1, label: "유니버스" },
               { id: 2, label: "매매 조건" },
-              { id: 3, label: "포지션/비중" },
-              { id: 4, label: "리스크 관리" },
-              { id: 5, label: "백테스트" },
-              { id: 6, label: "결과 리포트" },
+              { id: 3, label: "포지션/리스크" },
+              { id: 4, label: "백테스트" },
+              { id: 5, label: "결과 리포트" },
             ].map((step) => {
               const isActive = currentStep === step.id;
               return (
                 <div 
                   key={step.id}
-                  onClick={() => setCurrentStep(step.id as 1 | 2 | 3 | 4 | 5 | 6)} 
+                  onClick={() => setCurrentStep(step.id as 1 | 2 | 3 | 4 | 5)} 
                   className={`relative px-5 py-5 mr-4 cursor-pointer text-[13px] font-bold tracking-wide transition-colors ${
                     isActive ? "text-blue-500" : "text-white/40 hover:text-white/70"
                   }`}
