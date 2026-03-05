@@ -3,7 +3,7 @@
 import BacktestConfig, { BacktestConfigOptions } from "@/components/strategy/backtest/BacktestConfig";
 import { useState, useEffect } from "react";
 
-interface Step5BacktestProps {
+interface Step4BacktestProps {
   strategyName: string;
   isBacktesting: boolean;
   onPrev: () => void;
@@ -12,22 +12,22 @@ interface Step5BacktestProps {
   summaryData: any;
 }
 
-export default function Step5Backtest({
+export default function Step4Backtest({
   strategyName,
   isBacktesting,
   onPrev,
   onRunBacktest,
   configOptions: initialOptions,
   summaryData,
-}: Step5BacktestProps) {
+}: Step4BacktestProps) {
   useEffect(() => {
-    console.error("[DEBUG] Step5Backtest: MOUNTED");
+    console.error("[DEBUG] Step4Backtest: MOUNTED");
   }, []);
 
   const [configOptions, setConfigOptions] = useState<BacktestConfigOptions>(initialOptions);
 
   const handleRun = (options: BacktestConfigOptions) => {
-    console.error("[DEBUG-TRACE] Step5Backtest: handleRun CALLED with", options);
+    console.error("[DEBUG-TRACE] Step4Backtest: handleRun CALLED with", options);
     setConfigOptions(options);
     onRunBacktest(options);
   };
