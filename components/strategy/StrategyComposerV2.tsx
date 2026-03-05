@@ -40,6 +40,7 @@ import Step2Conditions from "./steps/Step2Conditions";
 import Step3Position from "./steps/Step3Position";
 import Step4Risk from "./steps/Step4Risk";
 import Step5Backtest from "./steps/Step5Backtest";
+import Step6Report from "./steps/Step6Report";
 
 interface StrategyComposerV2Props {
   onSave: (strategy: StrategyDSL) => void;
@@ -48,12 +49,12 @@ interface StrategyComposerV2Props {
   onQuickBacktest?: () => void;
   onFullBacktest?: () => void;
   initialStrategy?: StrategyDSL | null;
-  currentStep: 1 | 2 | 3 | 4 | 5;
-  setCurrentStep: (step: 1 | 2 | 3 | 4 | 5) => void;
+  currentStep: 1 | 2 | 3 | 4 | 5 | 6;
+  setCurrentStep: (step: 1 | 2 | 3 | 4 | 5 | 6) => void;
 }
 
 type StrategyStatus = "draft" | "saved" | "published";
-type ComposerStep = 1 | 2 | 3 | 4 | 5;
+type ComposerStep = 1 | 2 | 3 | 4 | 5 | 6;
 
 type BlockCategory =
   | "price_signals"
@@ -194,17 +195,107 @@ export default function StrategyComposerV2({
     return () => observer.disconnect();
   }, [currentStep]);
 
-  // Reset backtest dashboard state when leaving step 5
+  // Reset backtest dashboard state when leaving step 5 or 6
   useEffect(() => {
-    if (currentStep !== 5) {
+    if (currentStep !== 5 && currentStep !== 6) {
       setIsBacktestDashboard(false);
     }
   }, [currentStep]);
 
-  // Reset scroll to top when changing steps
-  useEffect(() => {
-    window.scrollTo({ top: 0, behavior: "instant" });
-  }, [currentStep]);
+  const [backtestOptions, setBacktestOptions] = useState<any>({
+    period: "1Y",
+    initialCapital: 10000000,
+    commissionPct: 0.015,
+    slippagePct: 0.05
+  });
+
+  const getResolvedRisk = useCallback(() => {
+    let resolved = { 
+      ...riskManagement, 
+      max_positions: maxPositions,
+      allocation_type: allocationType,
+      position_size_pct: allocationType === 'equal' ? Math.floor(100 / maxPositions) : allocationValue
+    };
+
+    // Map risk blocks from canvas to specific risk parameters (Overrides Step 4)
+    canvasBlocks.forEach(b => {
+      if (b.blockId === 'price_limit_exit') {
+        if (b.params.stopLossPct) resolved.stop_loss_pct = b.params.stopLossPct;
+        if (b.params.takeProfitPct) resolved.take_profit_pct = b.params.takeProfitPct;
+      } else if (b.blockId === 'max_holding_days') {
+        if (b.params.value) resolved.max_holding_days = b.params.value;
+      } else if (b.blockId === 'trailing_stop') {
+        if (b.params.percentage) resolved.trailing_stop_pct = b.params.percentage;
+      }
+    });
+
+    return resolved;
+  }, [riskManagement, maxPositions, allocationType, allocationValue, canvasBlocks]);
+
+  const getSummaryData = useCallback(() => {
+    return {
+      strategyName: strategyName,
+      universeName: universe === "US_TECH_TOP10" ? "미국 테크 Top 10" : 
+                    universe === "KOR_KOSPI200" ? "KOSPI 200" :
+                    universe === "KOR_KOSDAQ150" ? "KOSDAQ 150" : 
+                    universe === "CRYPTO_TOP10" ? "크립토 Top 10" : 
+                    universe === "kospi" ? "KOSPI" :
+                    universe === "kosdaq" ? "KOSDAQ" : universe,
+      universeSettings: {
+        ...universeFilters,
+      },
+      universeFiltersCount: Object.keys(universeFilters).length,
+      entryLogic: entryLogic,
+      exitLogic: exitLogic,
+      entryBlocks: canvasBlocks
+        .filter(b => {
+          const blockDef = signalBlocks[b.blockId];
+          const name = blockDef ? blockDef.name : "";
+          const isRisk = name.includes("손절") || name.includes("익절") || name.includes("Risk") || name.includes("Stop");
+          return (b.type === "entry" || b.type === "filter") && !isRisk;
+        })
+        .map(b => {
+          const blockDef = signalBlocks[b.blockId];
+          return blockDef ? blockDef.name : b.blockId;
+        }),
+      exitBlocks: canvasBlocks
+        .filter(b => {
+          const blockDef = signalBlocks[b.blockId];
+          const name = blockDef ? blockDef.name : "";
+          const isRisk = name.includes("손절") || name.includes("익절") || name.includes("Risk") || name.includes("Stop");
+          return b.type === "exit" || isRisk;
+        })
+        .map(b => {
+          const blockDef = signalBlocks[b.blockId];
+          return blockDef ? blockDef.name : b.blockId;
+        }),
+      blockNames: canvasBlocks.map(b => {
+        const blockDef = signalBlocks[b.blockId];
+        return blockDef ? blockDef.name : b.blockId;
+      }),
+      positionText: riskManagement.skip_position_setting 
+        ? "포지션/비중 설정 안 함"
+        : `${allocationType === 'equal' ? '동일 비중' : `고정 비중 ${allocationValue}%`} (최대 ${maxPositions}종목)`,
+      riskText: riskManagement.skip_risk_management
+        ? "리스크 관리 안 함"
+        : (
+          [
+            riskManagement.stop_loss_pct ? `손절 -${riskManagement.stop_loss_pct}%` : null,
+            riskManagement.take_profit_pct ? `익절 +${riskManagement.take_profit_pct}%` : null,
+            riskManagement.max_mdd_limit_pct ? `MDD -${riskManagement.max_mdd_limit_pct}%` : null,
+          ].filter(Boolean).join(" / ") || "설정 없음"
+        ),
+      canvasBlocks: canvasBlocks,
+      riskSettings: {
+        maxPositions,
+        allocationType,
+        allocationValue,
+        executionTiming,
+        rebalancingPeriod,
+      },
+      riskManagement: getResolvedRisk()
+    };
+  }, [strategyName, universe, universeFilters, entryLogic, exitLogic, canvasBlocks, riskManagement, allocationType, allocationValue, maxPositions, executionTiming, rebalancingPeriod, getResolvedRisk]);
 
   // Prevent background scroll when modals are open
   useEffect(() => {
@@ -266,29 +357,6 @@ export default function StrategyComposerV2({
     return new Intl.NumberFormat("ko-KR").format(price);
   };
 
-  const getResolvedRisk = useCallback(() => {
-    let resolved = { 
-      ...riskManagement, 
-      max_positions: maxPositions,
-      allocation_type: allocationType,
-      position_size_pct: allocationType === 'equal' ? Math.floor(100 / maxPositions) : allocationValue
-    };
-
-    // Map risk blocks from canvas to specific risk parameters (Overrides Step 4)
-    canvasBlocks.forEach(b => {
-      if (b.blockId === 'price_limit_exit') {
-        if (b.params.stopLossPct) resolved.stop_loss_pct = b.params.stopLossPct;
-        if (b.params.takeProfitPct) resolved.take_profit_pct = b.params.takeProfitPct;
-      } else if (b.blockId === 'max_holding_days') {
-        if (b.params.value) resolved.max_holding_days = b.params.value;
-      } else if (b.blockId === 'trailing_stop') {
-        if (b.params.percentage) resolved.trailing_stop_pct = b.params.percentage;
-      }
-    });
-
-    return resolved;
-  }, [riskManagement, maxPositions, allocationType, allocationValue, canvasBlocks]);
-
   const runSimulation = useCallback(async (options: any) => {
     console.error(`[DEBUG-TRACE] runSimulation CALLED with options:`, options);
     if (isRunningRef.current) {
@@ -307,6 +375,7 @@ export default function StrategyComposerV2({
       isRunningRef.current = true;
       setIsBacktesting(true);
       setBacktestError(null);
+      setBacktestOptions(options);
       
       console.error(`[DEBUG-RUN] Preparing payload for ID: ${runId}`);
 
@@ -364,6 +433,8 @@ export default function StrategyComposerV2({
       });
 
       setBacktestResult(result);
+      // Automatically move to Step 6 after successful backtest
+      setCurrentStep(6);
     } catch (e: any) {
       console.error(`[DEBUG-RUN] Error in ID: ${runId}`, e);
       setBacktestError(e.message || "백테스트 중 알 수 없는 오류가 발생했습니다.");
@@ -498,6 +569,7 @@ export default function StrategyComposerV2({
     { num: 3, label: "포지션/비중" },
     { num: 4, label: "리스크 관리" },
     { num: 5, label: "백테스트" },
+    { num: 6, label: "결과 리포트" },
   ];
 
 
@@ -606,87 +678,25 @@ export default function StrategyComposerV2({
           {currentStep === 5 && (
             <Step5Backtest
               strategyName={strategyName}
-              backtestResult={backtestResult}
               isBacktesting={isBacktesting}
               onPrev={() => setCurrentStep(4)}
+              onRunBacktest={runSimulation}
+              configOptions={backtestOptions}
+              summaryData={getSummaryData()}
+            />
+          )}
+
+          {currentStep === 6 && (
+            <Step6Report
+              strategyName={strategyName}
+              backtestResult={backtestResult}
+              isBacktesting={isBacktesting}
+              onPrev={() => setCurrentStep(5)}
+              onRestart={() => setCurrentStep(5)}
               onSave={handleSave}
               onRunBacktest={runSimulation}
-              onViewChange={(view) => setIsBacktestDashboard(view === "dashboard")}
-              summaryData={{
-                strategyName: strategyName,
-                universeName: universe === "US_TECH_TOP10" ? "미국 테크 Top 10" : 
-                              universe === "KOR_KOSPI200" ? "KOSPI 200" :
-                              universe === "KOR_KOSDAQ150" ? "KOSDAQ 150" : 
-                              universe === "CRYPTO_TOP10" ? "크립토 Top 10" : 
-                              universe === "kospi" ? "KOSPI" :
-                              universe === "kosdaq" ? "KOSDAQ" : universe,
-                universeSettings: {
-                  ...universeFilters,
-                },
-                universeFiltersCount: Object.keys(universeFilters).length,
-                entryLogic: entryLogic,
-                exitLogic: exitLogic,
-                entryBlocks: canvasBlocks
-                  .filter(b => {
-                    const blockDef = signalBlocks[b.blockId];
-                    const name = blockDef ? blockDef.name : "";
-                    const isRisk = name.includes("손절") || name.includes("익절") || name.includes("Risk") || name.includes("Stop");
-                    return (b.type === "entry" || b.type === "filter") && !isRisk;
-                  })
-                  .map(b => {
-                    const blockDef = signalBlocks[b.blockId];
-                    return blockDef ? blockDef.name : b.blockId;
-                  }),
-                exitBlocks: canvasBlocks
-                  .filter(b => {
-                    const blockDef = signalBlocks[b.blockId];
-                    const name = blockDef ? blockDef.name : "";
-                    const isRisk = name.includes("손절") || name.includes("익절") || name.includes("Risk") || name.includes("Stop");
-                    return b.type === "exit" || isRisk;
-                  })
-                  .map(b => {
-                    const blockDef = signalBlocks[b.blockId];
-                    return blockDef ? blockDef.name : b.blockId;
-                  }),
-                blockNames: canvasBlocks.map(b => {
-                  const blockDef = signalBlocks[b.blockId];
-                  return blockDef ? blockDef.name : b.blockId;
-                }),
-                positionText: riskManagement.skip_position_setting 
-                  ? "포지션/비중 설정 안 함"
-                  : `${allocationType === 'equal' ? '동일 비중' : `고정 비중 ${allocationValue}%`} (최대 ${maxPositions}종목)`,
-                riskText: riskManagement.skip_risk_management
-                  ? "리스크 관리 안 함"
-                  : (
-                    [
-                      riskManagement.stop_loss_pct ? `손절 -${riskManagement.stop_loss_pct}%` : null,
-                      riskManagement.take_profit_pct ? `익절 +${riskManagement.take_profit_pct}%` : null,
-                      riskManagement.max_mdd_limit_pct ? `MDD -${riskManagement.max_mdd_limit_pct}%` : null,
-                    ].filter(Boolean).join(" / ") || "설정 없음"
-                  ),
-                canvasBlocks: canvasBlocks, // Include blocks to ensure key changes on param update
-                riskSettings: {
-                  maxPositions,
-                  allocationType,
-                  allocationValue,
-                  executionTiming,
-                  rebalancingPeriod,
-                },
-                riskManagement: (() => {
-                  const resolved = { ...riskManagement };
-                  canvasBlocks.forEach(b => {
-                    if (b.blockId === 'price_limit_exit') {
-                      if (b.params.stopLossPct) resolved.stop_loss_pct = b.params.stopLossPct;
-                      if (b.params.takeProfitPct) resolved.take_profit_pct = b.params.takeProfitPct;
-                    } else if (b.blockId === 'max_holding_days') {
-                      if (b.params.value) resolved.max_holding_days = b.params.value;
-                    } else if (b.blockId === 'trailing_stop') {
-                      if (b.params.percentage) resolved.trailing_stop_pct = b.params.percentage;
-                    }
-                  });
-                  return resolved;
-                })()
-              }}
+              configOptions={backtestOptions}
+              summaryData={getSummaryData()}
             />
           )}
 

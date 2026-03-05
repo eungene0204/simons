@@ -35,7 +35,7 @@ function AnalyticsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const symbol = searchParams.get("symbol") || "";
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(1);
   const [strategy, setStrategy] = useState<StrategyDSL | null>(null);
   const [savedStrategies, setSavedStrategies] = useState<StrategyDSL[]>([]);
   const [showComposer, setShowComposer] = useState(false);
@@ -115,9 +115,13 @@ function AnalyticsContent() {
     setComposerKey(prev => prev + 1);
 
     setSelectionMode(false); // Reset selection mode
-    // Ensure V2 is used
-    setUseV2Composer(true);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    // Target the main scrollable container in DashboardLayout
+    const mainContent = document.querySelector('main');
+    if (mainContent) {
+      mainContent.scrollTo({ top: 0, behavior: "smooth" });
+    } else {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   };
 
   const timelineHeader = useMemo(() => {
@@ -132,12 +136,13 @@ function AnalyticsContent() {
               { id: 3, label: "포지션/비중" },
               { id: 4, label: "리스크 관리" },
               { id: 5, label: "백테스트" },
+              { id: 6, label: "결과 리포트" },
             ].map((step) => {
               const isActive = currentStep === step.id;
               return (
                 <div 
                   key={step.id}
-                  onClick={() => setCurrentStep(step.id as 1 | 2 | 3 | 4 | 5)} 
+                  onClick={() => setCurrentStep(step.id as 1 | 2 | 3 | 4 | 5 | 6)} 
                   className={`relative px-5 py-5 mr-4 cursor-pointer text-[13px] font-bold tracking-wide transition-colors ${
                     isActive ? "text-blue-500" : "text-white/40 hover:text-white/70"
                   }`}
