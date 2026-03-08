@@ -8,11 +8,11 @@ from backtest_engine import BacktestEngine
 
 @pytest.fixture
 def engine():
-    return BacktestEngine(data_dir="backend/tests/data")
+    return BacktestEngine(data_dir="tests/data")
 
 @pytest.fixture
 def reference_data():
-    path = "backend/tests/tradingview_reference.json"
+    path = "tests/tradingview_reference.json"
     with open(path, 'r') as f:
         return json.load(f)
 

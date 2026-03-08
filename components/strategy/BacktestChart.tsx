@@ -12,6 +12,7 @@ import {
   LineStyle,
   HistogramSeries,
   LineType,
+  SeriesMarker,
 } from "lightweight-charts";
 
 export interface EquityDataPoint {
@@ -41,6 +42,7 @@ interface BacktestChartProps {
   drawdownData?: DrawdownDataPoint[];
   monthlyData?: MonthlyReturnDataPoint[];
   seasonalData?: SeasonalDataPoint[];
+  trades?: { date: string; type: string; price: number | string }[];
   height?: number;
 }
 
@@ -71,6 +73,7 @@ export default function BacktestChart({
   drawdownData = [],
   monthlyData = [],
   seasonalData = [],
+  trades = [],
   height = 400,
 }: BacktestChartProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -285,6 +288,22 @@ export default function BacktestChart({
           if (equityChartData.length > 0) {
             equitySeries.setData(equityChartData);
             chart.timeScale().fitContent();
+          }
+
+          // Add trade markers
+          if (trades && trades.length > 0) {
+            const markers: SeriesMarker<UTCTimestamp>[] = trades
+              .map((trade) => ({
+                time: dateToTimestamp(trade.date),
+                position: trade.type === "buy" ? "belowBar" as const : "aboveBar" as const,
+                color: trade.type === "buy" ? "#ef4444" : "#377af4", // red for buy, blue for sell
+                shape: trade.type === "buy" ? "arrowUp" as const : "arrowDown" as const,
+                text: trade.type === "buy" ? "B" : "S",
+              }))
+              // sort markers by time to prevent lightweight-charts errors
+              .sort((a, b) => (a.time as number) - (b.time as number));
+
+            (equitySeries as any).setMarkers(markers);
           }
         } else if (type === "monthly_returns") {
           // Create monthly returns histogram series

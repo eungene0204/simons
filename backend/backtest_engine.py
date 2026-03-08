@@ -251,6 +251,11 @@ class BacktestEngine:
                 try:
                     pbr_df = pd.DataFrame(all_ranks['pbr'], index=common_index, columns=processed_symbols).ffill().fillna(1.0)
                     roe_df = pd.DataFrame(all_ranks['roe'], index=common_index, columns=processed_symbols).ffill().fillna(0.0)
+                    
+                    if exec_type == 'next_open':
+                        pbr_df = pbr_df.shift(1).ffill()
+                        roe_df = roe_df.shift(1).ffill()
+
                     v_score = 1.0 - pbr_df.rank(axis=1, pct=True)
                     q_score = roe_df.rank(axis=1, pct=True)
                     w_v = float(risk_params.get('ranking_weight_value', 0.5))

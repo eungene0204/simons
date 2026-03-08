@@ -275,10 +275,51 @@ class ResultHandler:
         bench_cum_returns = (1 + bench_mean_rets).cumprod()
         bench_total_return = bench_cum_returns.iloc[-1] - 1 if len(bench_cum_returns) > 0 else 0.0
 
+        # Manual CAGR: for sub-1Y periods, just use total return (no annualization)
+        total_return_decimal = cls.safe(pf.total_return())
+        n_days = len(common_index)
+        n_years = n_days / 252.0
+        if n_years >= 1.0 and total_return_decimal > -1:
+            cagr_val = ((1 + total_return_decimal) ** (1 / n_years) - 1) * 100
+        else:
+            # For sub-1Y: CAGR = Total Return (no extrapolation)
+            cagr_val = total_return_decimal * 100
+        
+        # Profit Factor: detect buy-and-hold-to-end scenario
+        # If all trades exit on the last day, PF by individual trades is misleading.
+        raw_pf = cls.safe(pf.trades.profit_factor())
+        
+        # Check if this is a buy-and-hold pattern (most trades span nearly the full period)
+        last_date = common_index[-1] if len(common_index) > 0 else None
+        is_buy_and_hold = False
+        if total_trades > 0 and total_trades <= 30 and len(pf.trades.records) > 0:
+            try:
+                recs = pf.trades.records
+                # A trade is "full-period" if it exits within 5 days of the last bar
+                last_bar = n_days - 1
+                full_period_trades = sum(1 for r in recs if (last_bar - int(r['exit_idx'])) <= 5)
+                if full_period_trades >= total_trades * 0.7:  # 70%+ held to end
+                    is_buy_and_hold = True
+            except:
+                pass
+        
+        if is_buy_and_hold:
+            # For buy-and-hold: use aggregate profit/loss ratio
+            try:
+                total_profit = sum(float(r['pnl']) for r in pf.trades.records if float(r['pnl']) > 0)
+                total_loss = abs(sum(float(r['pnl']) for r in pf.trades.records if float(r['pnl']) < 0))
+                raw_pf = total_profit / total_loss if total_loss > 0 else 0.0
+            except:
+                pass
+        
+        # Final cap: never show PF > 10 for < 30 trades
+        if total_trades < 30 and raw_pf > 10.0:
+            raw_pf = min(raw_pf, 10.0)
+
         res = {
             "symbols": processed_symbols,
             "totalReturn": cls.safe(pf.total_return()) * 100,
-            "cagr": cls.safe(pf.annualized_return()) * 100,
+            "cagr": cagr_val,
             "buyAndHoldReturn": cls.safe(bench_total_return) * 100,
             "maxDrawdown": cls.safe(pf.max_drawdown()) * 100,
             "winRate": agg_win_rate,
@@ -287,7 +328,7 @@ class ResultHandler:
             "avgLoss": avg_loss,
             "maxConsecutiveWins": max_consecutive_wins,
             "maxConsecutiveLosses": max_consecutive_losses,
-            "profitFactor": cls.safe(pf.trades.profit_factor()),
+            "profitFactor": raw_pf,
             "sharpe": cls.safe(pf.sharpe_ratio()),
             "sortino": cls.safe(pf.sortino_ratio()),
             "kelly": cls.safe(kelly),
@@ -297,7 +338,8 @@ class ResultHandler:
             "dates": [d.strftime('%Y-%m-%d') for d in common_index],
             "signals": signals_list,
             "perAssetStats": per_asset_stats,
-            "version": "6.3 (Detailed Stats)"
+            "warnings": list(getattr(cls, '_warnings', set())),
+            "version": "6.4 (Fixed CAGR + PF Cap)"
         }
 
         return sanitize(res)
