@@ -49,17 +49,15 @@ interface BacktestDashboardProps {
 }
 
 const METRIC_DESCRIPTIONS: Record<string, string> = {
-  cagr: "연평균수익률(Compound Annual Growth Rate). 전체 수익률을 연간 단위로 환산하여 복리 성장을 나타낸 지표입니다.",
-  mdd: "최대 낙폭(Maximum Drawdown). 특정 기간 동안 발생한 전고점 대비 최대 하락 비율로, 전략의 리스크를 측정합니다.",
-  sharpe: "샤프 지수. 위험 1단위당 얻은 초과 수익을 나타내며, 수치가 높을수록 위험 대비 수익 효율이 좋습니다.",
-  winRate: "백테스트 기간 동안 발생한 전체 거래 중 수익을 기록한 거래의 비율입니다.",
-  profitFactor: "손익비. 총 이익을 총 손실로 나눈 값으로, 1원 손실당 기대할 수 있는 수익금을 의미합니다.",
+  cagr: "연평균수익률(Compound Annual Growth Rate). 전체 수익률을 연간 단위로 환산하여 복리 성장을 나타낸 지표입니다.\n\n[ 가이드라인 ]\n🟢 우수: 20% 이상\n🟡 보통: 10% ~ 20%\n🔴 미흡: 10% 미만",
+  mdd: "최대 낙폭(Maximum Drawdown). 특정 기간 동안 발생한 전고점 대비 최대 하락 비율로, 전략의 리스크를 측정합니다.\n\n[ 가이드라인 ]\n🟢 안정: 10% 미만\n🟡 보통: 10% ~ 20%\n🔴 위험: 20% 초과",
+  sharpe: "샤프 지수. 위험 1단위당 얻은 초과 수익을 나타내며, 수치가 높을수록 위험 대비 수익 효율이 좋습니다.\n\n[ 가이드라인 ]\n🟢 우수: 1.5 이상\n🟡 보통: 1.0 ~ 1.5\n🔴 미흡: 1.0 미만",
+  profitFactor: "손익비. 총 이익을 총 손실로 나눈 값으로, 1원 손실당 기대할 수 있는 수익금을 의미합니다.\n\n[ 가이드라인 ]\n🟢 우수: 2.0 이상\n🟡 보통: 1.5 ~ 2.0\n🔴 미흡: 1.5 미만",
   totalReturn: "백테스트 시작 시점부터 종료 시점까지의 전체 자산 변동 비율입니다.",
-  buyHold: "전략을 사용하지 않고 단순히 종목을 매수하여 보유했을 때의 수익률(벤치마크)입니다.",
-  volatility: "연간 변동성. 수익률의 표준편차를 연간 단위로 환산한 값으로, 변동폭이 클수록 위험이 높음을 의미합니다.",
-  sortino: "소르티노 지수. 하락 변동성(손실 위험)만을 고려한 위험 대비 수익 효율 지표입니다.",
-  kelly: "켈리 공식. 자산 대비 최적의 배팅 비율을 계산하는 모델로, 가산 비중 조절에 참고할 수 있습니다.",
-  winLoss: "수익 거래 횟수와 손실 거래 횟수의 비율입니다."
+  buyHold: "전략을 사용하지 않고 단순히 종목을 매수하여 보유했을 때의 수익률(벤치마크)입니다.\n\n이 수치보다 전략의 수익률(Total Return)이 높아야 전략을 사용하는 의미가 있습니다.",
+  volatility: "연간 변동성. 수익률의 표준편차를 연간 단위로 환산한 값으로, 변동폭이 클수록 위험이 높음을 의미합니다.\n\n[ 가이드라인 ]\n🟢 우수: 15% 미만\n🟡 보통: 15% ~ 25%\n🔴 미흡: 25% 초과",
+  sortino: "소르티노 지수. 하락 변동성(손실 위험)만을 고려한 위험 대비 수익 효율 지표입니다.\n\n[ 가이드라인 ]\n🟢 우수: 2.0 이상\n🟡 보통: 1.0 ~ 2.0\n🔴 미흡: 1.0 미만",
+  kelly: "켈리 공식. 자산 대비 최적의 배팅 비율을 계산하는 모델로, 가산 비중 조절에 참고할 수 있습니다.\n\n[ 가이드라인 ]\n🟢 최적: 10% ~ 20%\n🟡 공격적: 20% 이상 (리스크 증가)\n🔴 보수적: 10% 미만"
 };
 
 export default function BacktestDashboard({ 
@@ -352,7 +350,69 @@ export default function BacktestDashboard({
   };
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 min-w-0 animate-in fade-in zoom-in-95 duration-300">
+    <div className="flex-1 flex flex-col min-h-0 min-w-0 animate-in fade-in zoom-in-95 duration-300 px-6">
+      <div className="pt-8 px-2 mb-4 flex flex-col gap-1">
+        <h2 className="text-3xl font-black text-white tracking-tight">
+          백테스트 결과
+        </h2>
+        <span className="text-sm font-mono text-gray-500 font-normal mb-2">
+          {result.dates[0] && result.dates[result.dates.length-1] && `${result.dates[0]} ~ ${result.dates[result.dates.length-1]}`}
+        </span>
+
+        <div className="flex items-center justify-between w-full">
+          <div className="flex bg-[#0a0a0a] rounded-lg p-1 w-fit">
+            {[
+              { id: "chart", label: "차트 분석", icon: ChartBar },
+              { id: "assets", label: "종목 분석", icon: List },
+              { id: "stats", label: "통계 상세", icon: Table },
+              { id: "log", label: "매매 기록", icon: ShieldCheck },
+              { id: "history", label: "테스트 기록", icon: Clock },
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                className={`relative flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-colors ${
+                  activeTab === tab.id 
+                    ? "text-white" 
+                    : "text-gray-500 hover:text-gray-300"
+                }`}
+              >
+                {activeTab === tab.id && (
+                  <motion.div
+                    layoutId="active-tab-backtest"
+                    className="absolute inset-0 bg-tab_black rounded-md z-0"
+                    transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                  />
+                )}
+                <span className="relative z-10 flex items-center gap-2">
+                  <tab.icon className="w-4 h-4" />
+                  {tab.label}
+                </span>
+              </button>
+            ))}
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => onRun && localOptions && onRun(localOptions)}
+              disabled={isRunning}
+              className={`px-4 py-1.5 bg-[#161616] hover:bg-[#1f1f1f] disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-bold rounded-lg transition-all border border-white/5 hover:border-white/10 active:scale-95`}
+            >
+              {isRunning ? "실행 중..." : "재실행"}
+            </button>
+            {onSave && (
+              <button 
+                onClick={onSave}
+                className="px-4 py-1.5 bg-main-blue hover:bg-blue-600 text-white text-sm font-bold rounded-lg transition-all flex items-center gap-2 active:scale-95"
+              >
+                <Check className="w-4 h-4" />
+                전략 저장하기
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Missing Data Warnings */}
       {result.warnings && result.warnings.length > 0 && (
         <div className="mb-6 bg-main-red/5 border border-main-red/20 rounded-2xl overflow-hidden transition-all duration-300">
@@ -408,7 +468,7 @@ export default function BacktestDashboard({
       )}
 
       {/* 1. Hero Metrics Header */}
-      <div className="flex-none grid grid-cols-2 lg:grid-cols-5 gap-2 mb-2">
+      <div className="flex-none grid grid-cols-2 lg:grid-cols-5 gap-2 px-2 mb-2">
         <MetricCard 
           label="연평균수익률" 
           value={`${result.cagr.toFixed(2)}%`} 
@@ -433,14 +493,7 @@ export default function BacktestDashboard({
           description={METRIC_DESCRIPTIONS.sharpe}
           onHover={(rect) => setHoveredMetric(rect ? { label: "샤프지수", description: METRIC_DESCRIPTIONS.sharpe, rect } : null)}
         />
-         <MetricCard 
-          label="승률" 
-          value={`${result.winRate.toFixed(1)}%`} 
-          subValue={`총 ${result.trades}회 거래`} 
-          trend={result.winRate > 50 ? "up" : "neutral"} 
-          description={METRIC_DESCRIPTIONS.winRate}
-          onHover={(rect) => setHoveredMetric(rect ? { label: "승률", description: METRIC_DESCRIPTIONS.winRate, rect } : null)}
-        />
+
         <MetricCard 
           label="손익비" 
           value={result.profitFactor.toFixed(2)} 
@@ -453,75 +506,6 @@ export default function BacktestDashboard({
 
       {/* 2. Main Content Area - Exact Mirror of Step 2 Pattern */}
       <div className="flex flex-col bg-[#111] rounded-2xl overflow-hidden mb-2 min-h-0 min-w-0">
-        {/* Toolbar */}
-        <div className="flex-none flex items-center justify-between px-3 py-2 bg-[#111]">
-          <div className="flex bg-[#0a0a0a] rounded-lg p-1">
-            {[
-              { id: "chart", label: "차트 분석", icon: ChartBar },
-              { id: "assets", label: "종목 분석", icon: List },
-              { id: "stats", label: "통계 상세", icon: Table },
-              { id: "log", label: "매매 기록", icon: ShieldCheck },
-              { id: "history", label: "테스트 기록", icon: Clock },
-            ].map(tab => (
-
-
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`relative flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-colors ${
-                  activeTab === tab.id 
-                    ? "text-white" 
-                    : "text-gray-500 hover:text-gray-300"
-                }`}
-              >
-                {activeTab === tab.id && (
-                  <motion.div
-                    layoutId="active-tab-backtest"
-                    className="absolute inset-0 bg-tab_black rounded-md z-0"
-                    transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
-                  />
-                )}
-                <span className="relative z-10 flex items-center gap-2">
-                  <tab.icon className="w-4 h-4" />
-                  {tab.label}
-                </span>
-              </button>
-            ))}
-          </div>
-          
-          <div className="flex items-center gap-3">
-             <div className="text-sm font-mono text-gray-500">
-                {result.dates[0]} ~ {result.dates[result.dates.length-1]}
-             </div>
-             
-             <div className="h-4 w-[1px] bg-gray-800 mx-1" />
-
-             <div className="flex items-center gap-2">
-                 <button 
-                   onClick={onRestart}
-                   className="px-4 py-1.5 bg-[#161616] hover:bg-[#1f1f1f] border border-white/5 hover:border-white/10 text-white text-sm font-bold rounded-lg transition-all active:scale-95"
-                 >
-                   설정 변경
-                 </button>
-                  <button 
-                    onClick={() => onRun && localOptions && onRun(localOptions)}
-                    disabled={isRunning}
-                    className={`px-4 py-1.5 bg-[#161616] hover:bg-[#1f1f1f] disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-bold rounded-lg transition-all border border-white/5 hover:border-white/10 active:scale-95`}
-                  >
-                    {isRunning ? "실행 중..." : "재실행"}
-                  </button>
-                  {onSave && (
-                    <button 
-                      onClick={onSave}
-                      className="px-4 py-1.5 bg-main-blue hover:bg-blue-600 text-white text-sm font-bold rounded-lg transition-all flex items-center gap-2 active:scale-95"
-                    >
-                      <Check className="w-4 h-4" />
-                      전략 저장하기
-                    </button>
-                  )}
-              </div>
-          </div>
-        </div>
 
         {/* Tab Content */}
         <div className="flex flex-col min-h-0 min-w-0 p-0 relative">
@@ -532,6 +516,7 @@ export default function BacktestDashboard({
                 <div className="h-[280px] md:h-[380px] xl:h-[450px] bg-[#0a0a0f] rounded-xl overflow-hidden relative">
                   <BacktestChart 
                     type="equity" 
+                    trades={result.tradesList}
                     equityData={result.dates.map((d: string, i: number) => ({ 
                       time: d, 
                       equity: result.equity[i], 
@@ -570,16 +555,7 @@ export default function BacktestDashboard({
                      description={METRIC_DESCRIPTIONS.volatility}
                      onHover={(rect) => setHoveredMetric(rect ? { label: "연간 변동성", description: METRIC_DESCRIPTIONS.volatility, rect } : null)}
                    />
-                   <StatRow 
-                     label="승:패" 
-                     value={result.trades > 0 
-                       ? `${Math.round((result.trades || 0) * (result.winRate || 0) / 100)} : ${Math.round((result.trades || 0) * (100 - (result.winRate || 0)) / 100)}` 
-                       : "0 : 0"} 
-                     result={result} 
-                     isNeutral 
-                     description={METRIC_DESCRIPTIONS.winLoss}
-                     onHover={(rect) => setHoveredMetric(rect ? { label: "승:패", description: METRIC_DESCRIPTIONS.winLoss, rect } : null)}
-                   />
+
                </div>
              </div>
            )}
@@ -932,11 +908,10 @@ export default function BacktestDashboard({
                               </div>
                            </div>
                            
-                           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
+                           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
                               <HistoryMetric label="총 수익률" value={`${item.metrics.totalReturn.toFixed(1)}%`} trend={item.metrics.totalReturn > 0 ? "up" : "down"} />
                               <HistoryMetric label="CAGR" value={`${item.metrics.cagr.toFixed(1)}%`} trend={item.metrics.cagr > 0 ? "up" : "down"} />
                               <HistoryMetric label="MDD" value={`${item.metrics.mdd.toFixed(1)}%`} trend="down" />
-                              <HistoryMetric label="승률" value={`${item.metrics.winRate.toFixed(1)}%`} />
                               <HistoryMetric label="손익비" value={item.metrics.profitFactor.toFixed(2)} />
                               <HistoryMetric label="매수후보유" value={`${item.metrics.buyHold.toFixed(1)}%`} colorOverride="text-main-green" />
                               <HistoryMetric label="매매횟수" value={`${item.metrics.trades}회`} />
@@ -985,7 +960,7 @@ export default function BacktestDashboard({
         >
           <div className="w-64 p-4 bg-[#161616] rounded-2xl shadow-2xl animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-200 backdrop-blur-2xl border border-white/10">
             <div className="text-[10px] text-main-blue font-bold uppercase tracking-widest mb-1.5 opacity-80">{hoveredMetric.label}</div>
-            <p className="text-xs text-white/75 font-bold leading-relaxed">{hoveredMetric.description}</p>
+            <p className="text-xs text-white/75 font-bold leading-relaxed whitespace-pre-wrap">{hoveredMetric.description}</p>
           </div>
         </div>
       )}

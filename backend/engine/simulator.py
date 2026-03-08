@@ -29,11 +29,23 @@ class Simulator:
         fee_rate = float(options.get('fee_rate') or 0.0015)
         slippage_val = float(options.get('slippage_rate') or 0.0020)
         
-        # Determine size per position
+        # Determine size per position (relative to FULL portfolio NAV)
+        # VectorBT size_type='Percent' means % of CURRENT Total Equity (NAV).
         if risk_params.get('allocation_type') == 'equal':
-            size_per_pos = 1.0 / max_pos if max_pos and max_pos > 0 else 0.1
+            # Equal weight: divide 100% of equity by max_positions
+            size_per_pos = 1.0 / max_pos if max_pos and max_pos > 0 else 1.0 / len(entries_df.columns)
         else:
+            # Fixed percent: the UI passes 'pos_size_pct' as the percentage of the WHOLE portfolio
+            # e.g., 10% per trade -> size_per_pos = 0.1
             size_per_pos = pos_size_pct / 100.0
+            
+            # Safeguard: If user says fixed_pct is 100%, but max_pos is 10, VectorBT will try to put
+            # 100% into the FIRST signal it sees, starving the rest. We must cap it.
+            if max_pos and max_pos > 0:
+                max_allowed_size = 1.0 / max_pos
+                if size_per_pos > max_allowed_size:
+                    # e.g. user set 100% per trade, but max_pos=10. Cap it to 10% so all 10 can enter.
+                    size_per_pos = max_allowed_size
 
         # --- Hard Limit on Concurrent Positions with Unified Exit Logic ---
         skip_pos = risk_params.get('skip_position_setting', False)
@@ -63,38 +75,42 @@ class Simulator:
             for i in range(len(entries_df)):
                 if i % 100 == 0:
                     print(f"[DEBUG-SIM] Processing Day {i}/{len(entries_df)} (Active Assets: {active_count}/{eff_max_pos})", flush=True)
-                # 1. Update exits (free up slots)
+                
+                # 1. Process deferred exits from previous day's SL/TP/MaxHold
+                for s_idx in range(num_symbols):
+                    if active_mask[s_idx] and exits_values[i, s_idx]:
+                        active_mask[s_idx] = False
+                        active_count -= 1
+                
+                # 2. Evaluate new exits for NEXT day execution
                 for s_idx in range(num_symbols):
                     if active_mask[s_idx]:
-                        should_exit = False
-                        
-                        # A. Strategy Exit Signal
-                        if exits_values[i, s_idx]:
-                            should_exit = True
+                        should_exit_next = False
                         
                         # B. Max Holding Days Exit
-                        elif max_hold > 0 and (i - entry_day[s_idx]) >= max_hold:
-                            should_exit = True
-                            exits_values[i, s_idx] = True
+                        if max_hold > 0 and (i - entry_day[s_idx]) >= max_hold:
+                            should_exit_next = True
                             
-                        # C. Stop Loss / Take Profit (with 1e-6 epsilon for float stability)
+                        # C. Stop Loss / Take Profit
+                        # Evaluate using today's close. If triggered, the exit signal
+                        # goes to day i+1 so VectorBT executes at open[i+1].
+                        # This ensures we only use information available at end of day i.
                         elif use_risk_mgmt and (sl_pct > 0 or tp_pct > 0):
                             current_px = price_values[i, s_idx]
                             pct_ret = (current_px - entry_price[s_idx]) / entry_price[s_idx] * 100
                             
                             EPS = 1e-6
                             if sl_pct > 0 and pct_ret <= (-sl_pct + EPS):
-                                should_exit = True
-                                exits_values[i, s_idx] = True
+                                should_exit_next = True
                             elif tp_pct > 0 and pct_ret >= (tp_pct - EPS):
-                                should_exit = True
-                                exits_values[i, s_idx] = True
+                                should_exit_next = True
                         
-                        if should_exit:
-                            active_mask[s_idx] = False
-                            active_count -= 1
+                        if should_exit_next and i + 1 < len(entries_df):
+                            exits_values[i + 1, s_idx] = True
+                            # Don't deactivate here — it will be deactivated at step 1
+                            # on the next iteration when exits_values[i+1] is processed.
                 
-                # 2. Process new entries
+                # 3. Process new entries (after exits freed slots)
                 today_ents = entries_values[i]
                 candidate_indices = np.where(today_ents & ~active_mask)[0]
                 
@@ -121,6 +137,13 @@ class Simulator:
             exits_df = pd.DataFrame(exits_values, index=exits_df.index, columns=exits_df.columns)
         # ------------------------------------------
 
+        # NOTE: sl_stop/tp_stop/sl_trail are intentionally NOT passed to VectorBT.
+        # Our custom simulation loop above already injects exit signals into exits_df
+        # when SL/TP/trailing stop conditions are met. VectorBT's built-in mechanism
+        # fills at the EXACT stop price (ignoring overnight gaps and real market
+        # execution), which creates artificially perfect risk management and inflates
+        # the Profit Factor. By relying solely on exits_df, exits happen at the
+        # next available market price (exec_price_df), which is realistic.
         vbt_kwargs = dict(
             size=size_per_pos,
             size_type='Percent',
@@ -128,9 +151,6 @@ class Simulator:
             fees=fee_rate,
             slippage=slippage_val,
             freq='D',
-            sl_stop=sl_pct / 100 if (not risk_params.get('skip_risk_management', False)) and sl_pct > 0 else None,
-            tp_stop=tp_pct / 100 if (not risk_params.get('skip_risk_management', False)) and tp_pct > 0 else None,
-            sl_trail=ts_pct / 100 if (not risk_params.get('skip_risk_management', False)) and ts_pct > 0 else None,
             allow_partial=False,
             direction='longonly',
             accumulate=False,

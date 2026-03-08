@@ -111,7 +111,8 @@ class IndicatorEngine:
             res_pdf = pd.DataFrame(pdf.copy())
             for c in final_cols:
                 if c not in res_pdf.columns:
-                    res_pdf[c] = sdf[c]
+                    # Use .values to ignore index alignment since sdf index is 'date' but res_pdf is RangeIndex
+                    res_pdf[c] = sdf[c].values
             
             res_pdf = res_pdf[final_cols]
             
