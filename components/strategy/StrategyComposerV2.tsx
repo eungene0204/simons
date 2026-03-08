@@ -164,6 +164,11 @@ export default function StrategyComposerV2({
   const canvasRef = useRef<HTMLDivElement>(null);
   const [canvasWidth, setCanvasWidth] = useState(1000);
 
+  // Scroll to top when step changes
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [currentStep]);
+
   // Sync Step 3 position & risk settings into the riskManagement object
   useEffect(() => {
     let perPosSize = allocationValue;

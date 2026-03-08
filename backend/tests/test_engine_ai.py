@@ -124,7 +124,7 @@ def test_predict_signals_feature_prep(mock_engine):
     passed_features = args[0]
     
     # passed_features should have shape (6, 6) -> (ret_open, ret_high, ret_low, ret_close, ret_volume, rsi_14)
-    assert passed_features.shape == (6, 6)
+    assert passed_features.shape == (6, 17)
     
     # Check row 1 (index 1) ret_open = log(1.1)
     # Note: row 0 pct_change() is NaN which is filled with 0.

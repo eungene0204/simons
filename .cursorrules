@@ -11,10 +11,14 @@ This command maps to:
 
 ## Unit Testing Policy
 
-**Critical Rule**: All unit tests must pass before completing any task that involves code changes.
+**CRITICAL RULE - PERMANENT MEMORY**: 
+1. **ALWAYS** run all unit tests before completing **any** task that involves code changes.
+2. If **ANY** change is made to the backtest engine (`backend/engine` or `backend/backtest_engine.py`) or related logic, you **MUST** run the unit tests every single time.
+3. Never skip this step to save time.
 
 ### Running Backend Tests
 ```bash
-python3 -m pytest backend/tests
+PYTHONPATH=. pytest tests/
 ```
+*(Run from within the `backend/` directory)*
 Always run this command after modifying any code in the `backend/` directory to ensure no regressions are introduced.

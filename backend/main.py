@@ -51,7 +51,9 @@ async def run_backtest(http_req: Request, request: BacktestRequest):
         result['executionTime'] = end_time - start_time
 
         print(f"[DEBUG] [{datetime.now().isoformat()}] BACKEND: Backtest Success. Total Return: {result.get('totalReturn', 0):.2f}%", flush=True)
+        print(f"[DEBUG] CAGR: {result.get('cagr', 0):.2f}%, PF: {result.get('profitFactor', 0):.2f}, Win Rate: {result.get('winRate', 0):.2f}%, Trades: {result.get('trades', 0)}", flush=True)
         signals = result.get('signals', [])
+        print(f"[DEBUG] Found {len(signals)} total signals.", flush=True)
         print(f"[DEBUG] Found {len(signals)} total signals.", flush=True)
         for i, s in enumerate(signals[:20]):
             print(f"  Signal {i}: {s['symbol']} on {s['date']} ({s['type']})", flush=True)
