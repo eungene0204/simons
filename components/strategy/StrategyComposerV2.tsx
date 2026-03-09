@@ -125,8 +125,8 @@ export default function StrategyComposerV2({
     max_mdd_limit_pct: 15,
     execution_timing: "next_open",
     allocation_type: "equal",
-    skip_risk_management: false,
-    skip_position_setting: false,
+    skip_risk_management: true,
+    skip_position_setting: true,
   });
   // Canvas state
   const [canvasBlocks, setCanvasBlocks] = useState<CanvasBlock[]>([]);
@@ -301,7 +301,14 @@ export default function StrategyComposerV2({
     };
   }, [strategyName, universe, universeFilters, entryLogic, exitLogic, canvasBlocks, riskManagement, allocationType, allocationValue, maxPositions, executionTiming, rebalancingPeriod, getResolvedRisk]);
 
-  // Prevent background scroll when modals are open
+  useEffect(() => {
+    console.log("[StrategyComposerV2] Entry Logic changed to:", entryLogic);
+  }, [entryLogic]);
+
+  useEffect(() => {
+    console.log("[StrategyComposerV2] Exit Logic changed to:", exitLogic);
+  }, [exitLogic]);
+
   useEffect(() => {
     if (isLibraryManagementOpen || isSearchMenuOpen) {
       document.body.style.overflow = 'hidden';
@@ -327,6 +334,7 @@ export default function StrategyComposerV2({
       blockId: blockId,
       position: { x: 0, y: 0 },
       params: signalBlocks[blockId]?.defaultParams ? { ...signalBlocks[blockId].defaultParams } : {},
+      logic: type.includes("risk") || type.includes("exit") ? exitLogic : entryLogic,
     };
 
     setActiveParamTab('block');
@@ -390,6 +398,7 @@ export default function StrategyComposerV2({
           type: (b.type === "filter" ? "filter" : "indicator") as ConditionType,
           id: b.blockId,
           params: b.params,
+          logic: b.logic ?? "AND",
         }));
 
       const exitConditionsMap = canvasBlocks
@@ -398,6 +407,7 @@ export default function StrategyComposerV2({
           type: "indicator" as ConditionType,
           id: b.blockId,
           params: b.params,
+          logic: b.logic ?? "AND",
         }));
 
       // Construct StrategyDSL from current state
@@ -531,6 +541,7 @@ export default function StrategyComposerV2({
         type: (b.type === "filter" ? "filter" : "indicator") as ConditionType,
         id: b.blockId,
         params: b.params,
+        logic: b.logic ?? "AND",
       }));
 
     const exitConditionsMap = canvasBlocks
@@ -539,6 +550,7 @@ export default function StrategyComposerV2({
         type: "indicator" as ConditionType,
         id: b.blockId,
         params: b.params,
+        logic: b.logic ?? "AND",
       }));
 
     const strategy: StrategyDSL = {

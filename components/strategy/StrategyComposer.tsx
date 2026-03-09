@@ -154,6 +154,8 @@ export default function StrategyComposer({
     max_positions: 10,
     max_daily_loss_pct: 5,
     max_total_exposure_pct: 50,
+    skip_risk_management: true,
+    skip_position_setting: true,
   });
 
   // Initialize from template or existing strategy

@@ -26,6 +26,7 @@ export interface Condition {
   id: string;
   params: Record<string, any>;
   weight?: number; // For weighted sum
+  logic?: LogicOperator;
 }
 
 export interface ConditionGroup {
@@ -210,5 +211,5 @@ export interface CanvasBlock {
   position: { x: number; y: number };
   params: Record<string, any>;
   connections?: string[]; // IDs of connected blocks
-  logic?: "AND" | "OR"; // Per-block logic operator
+  logic?: LogicOperator; // Per-block logic operator
 }

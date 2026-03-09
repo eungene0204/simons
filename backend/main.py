@@ -43,6 +43,10 @@ async def run_backtest(http_req: Request, request: BacktestRequest):
 
     print(f"\n[DEBUG] BACKEND: Received backtest request for symbols: {request.symbols}", flush=True)
     print(f"[DEBUG] Request Data: {request.model_dump_json(indent=2)}", flush=True)
+    with open("/tmp/backtest_logic_debug.txt", "w") as f:
+        f.write(f"Entry Logic: {request.entry.logic}\n")
+        f.write(f"Exit Logic: {request.exit.logic}\n")
+        f.write(f"JSON: {request.model_dump_json()}\n")
     try:
         # Convert Pydantic to dict for engine
         start_time = time.time()

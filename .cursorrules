@@ -9,16 +9,35 @@ npm run dev:backend
 This command maps to:
 `uvicorn main:app --host 0.0.0.0 --port 8000 --reload --app-dir backend`
 
-## Unit Testing Policy
+## Unit Testing Policy (Strict Enforcement)
 
 **CRITICAL RULE - PERMANENT MEMORY**: 
 1. **ALWAYS** run all unit tests before completing **any** task that involves code changes.
 2. If **ANY** change is made to the backtest engine (`backend/engine` or `backend/backtest_engine.py`) or related logic, you **MUST** run the unit tests every single time.
-3. Never skip this step to save time.
+3. **NEW FEATURE RULE**: When adding a new feature or fixing a logic bug, **ALWAYS** add a corresponding test case in `backend/tests/` (e.g., `test_per_block_logic.py`).
+4. **REGRESSION CHECK**: Never skip tests to save time. A "PASS" result is required for any PR-like completion.
 
-### Running Backend Tests
+### How to Run Tests correctly:
+- **Backend Tests**:
+  ```bash
+  export PYTHONPATH=$PYTHONPATH:$(pwd)/backend
+  pytest backend/tests/
+  ```
+- **Specific Logic Test** (Example):
+  ```bash
+  export PYTHONPATH=$PYTHONPATH:$(pwd)/backend
+  pytest backend/tests/test_per_block_logic.py
+  ```
+Confirm all tests pass before notifying the user of completion.
+
+### Frontend Unit Testing (Vitest)
+1. **MANDATORY**: Whenever you modify **any** frontend-related code (`components/`, `app/`, `lib/`, `types/`, etc.), you **MUST** run **ALL** frontend unit tests using `npm run test:frontend`.
+2. **NEW FEATURE/COMPONENT RULE**: When adding a new UI feature or logic, **ALWAYS** add a corresponding test in the `__tests__` folder.
+3. **INTERACTION TESTING**: Focus tests on user interactions and state transitions.
+4. **REGRESSION CHECK**: Ensure no existing functionality is broken by verifying that **every** test passes.
+
+#### Running Frontend Tests:
 ```bash
-PYTHONPATH=. pytest tests/
+npm run test:frontend
 ```
-*(Run from within the `backend/` directory)*
-Always run this command after modifying any code in the `backend/` directory to ensure no regressions are introduced.
+Confirm all tests pass before finalizing any frontend-related tasks.
