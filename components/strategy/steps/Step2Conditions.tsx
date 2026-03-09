@@ -438,6 +438,7 @@ export default function Step2Conditions({
               }
             }}
           >
+
             {canvasBlocks.length === 0 && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[1]">
                 <div className="text-center space-y-6">
@@ -625,13 +626,15 @@ export default function Step2Conditions({
               {/* Per-block AND/OR logic selector */}
               <div className="mt-4 flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-sm font-black text-white/40 uppercase tracking-widest">로직 종류</span>
+                  <span className="text-xs font-black text-white/40 uppercase tracking-widest">
+                    {selectedBlock.type === 'exit' ? '청산/리스크 조합' : '진입/필터 조합'} 로직
+                  </span>
                   <Question
                     size={14}
                     className="text-white/30 hover:text-blue-400 cursor-help transition-colors"
                     onMouseEnter={(e) => setHoveredParam({
                       label: "로직 종류",
-                      tooltip: "AND: 전략 내 모든 블록의 조건이 동시에 충족될 때만 매매 신호가 발생합니다. 조건이 더 까다롭지만 신뢰도가 높습니다.\nOR: 이 블록 하나의 조건만 충족되어도 바로 매매 신호가 발생합니다. 더 자주 매매가 이루어집니다.",
+                      tooltip: "AND: 전략 내 모든 블록의 조건이 동시에 충족될 때만 매매 신호가 발생합니다. 조건이 더 까다롭지만 신뢰도가 높습니다.\nOR: 이 블록 그룹 중 하나만 충족되어도 바로 매매 신호가 발생합니다. 더 자주 매매가 이루어집니다.",
                       rect: e.currentTarget.getBoundingClientRect()
                     })}
                     onMouseLeave={() => setHoveredParam(null)}
@@ -642,7 +645,11 @@ export default function Step2Conditions({
                     <button
                       key={op}
                       onClick={() => {
-                        const updated = canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, logic: op } : b);
+                        console.log(`[Step2Conditions] Switching Block ${selectedBlock.id} Logic to:`, op);
+                        // Update ONLY the specific block's logic
+                        const updated = canvasBlocks.map(b => 
+                          b.id === selectedBlock.id ? { ...b, logic: op } : b
+                        );
                         setCanvasBlocks(updated);
                         setSelectedBlock({ ...selectedBlock, logic: op });
                       }}
@@ -650,7 +657,7 @@ export default function Step2Conditions({
                         (selectedBlock.logic ?? "AND") === op
                           ? "bg-[rgb(59,134,247)] text-white shadow"
                           : "text-white/30 hover:text-white/60"
-                      }`}
+                      } ${op === 'OR' && (selectedBlock.logic ?? "AND") === 'OR' ? 'bg-[rgb(249,115,22)]' : ''}`}
                     >
                       {op}
                     </button>

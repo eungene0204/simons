@@ -64,6 +64,8 @@ export interface StrategySummaryData {
   };
   universeFiltersCount: number;
   blockNames: string[];
+  entryLogic?: string;
+  exitLogic?: string;
   riskSettings: {
     maxPositions: number;
     allocationType: string;
@@ -111,6 +113,8 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
   const [commissionPct, setCommissionPct] = useState(initialConfig?.commissionPct || 0.015);
   const [slippagePct, setSlippagePct] = useState(initialConfig?.slippagePct || 0.05);
   
+  console.log("[DEBUG-UI] BacktestConfig summary.entryLogic:", summary.entryLogic);
+
   // Custom Date Range State
   const [startDate, setStartDate] = useState(initialConfig?.startDate || new Date(new Date().setFullYear(new Date().getFullYear() - 1)).toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(initialConfig?.endDate || new Date().toISOString().split('T')[0]);
@@ -394,16 +398,21 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
               <div className="mb-4">
                 <span className="text-base font-black text-white/40 uppercase tracking-widest">매매 로직 블록</span>
               </div>
-              <div className="flex flex-wrap gap-2 pl-8">
-                {summary.blockNames.length > 0 ? (
-                  summary.blockNames.map((name, idx) => (
-                    <span key={idx} className="px-3.5 py-1.5 border-2 border-purple-500/30 bg-purple-500/10 text-purple-400 text-sm font-black rounded-lg">
-                      {name}
-                    </span>
-                  ))
-                ) : (
-                  <span className="text-xs font-medium text-white/30 italic">설정된 조건 없음</span>
-                )}
+              <div className="flex flex-col pl-8 gap-4">
+                <div className="space-y-2">
+
+                  <div className="flex flex-wrap gap-2">
+                    {summary.blockNames.length > 0 ? (
+                      summary.blockNames.map((name, idx) => (
+                        <span key={idx} className="px-3.5 py-1.5 border-2 border-purple-500/30 bg-purple-500/10 text-purple-400 text-sm font-black rounded-lg">
+                          {name}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-xs font-medium text-white/30 italic">설정된 조건 없음</span>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
 
