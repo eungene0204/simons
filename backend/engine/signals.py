@@ -24,22 +24,28 @@ class SignalEngine:
     def evaluate_group(self, group: Dict[str, Any], idx: int, df: pl.DataFrame) -> Tuple[bool, Optional[str]]:
         if not group.get('conditions'): return False, None
         
-        results = []
-        descriptions = []
+        curr_res = None
+        curr_desc = None
+        
         for cond in group['conditions']:
             res = self.evaluate_condition(cond, idx, df)
-            results.append(res)
-            if res: 
-                desc = self.get_condition_description(cond)
-                descriptions.append(desc)
+            logic = cond.get('logic', 'AND')
+            desc = self.get_condition_description(cond) if res else ""
+            
+            if curr_res is None:
+                curr_res = res
+                curr_desc = desc if res else None
+            else:
+                if logic == 'AND':
+                    curr_res = curr_res and res
+                    if res:
+                        curr_desc = f"{curr_desc} + {desc}" if curr_desc else desc
+                else: # OR
+                    if res:
+                        curr_desc = f"{curr_desc} 또는 {desc}" if curr_desc else desc
+                    curr_res = curr_res or res
         
-        if group.get('logic') == 'AND':
-            if all(results): return True, " + ".join(descriptions)
-            return False, None
-        else:
-            if any(results):
-                return True, " 또는 ".join(descriptions)
-            return False, None
+        return bool(curr_res), curr_desc
 
     def evaluate_condition(self, cond: Dict[str, Any], idx: int, df: pl.DataFrame) -> bool:
         cid, p = cond['id'], cond['params']

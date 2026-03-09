@@ -6,6 +6,7 @@ class Condition(BaseModel):
     id: str
     params: Dict[str, Any]
     weight: Optional[float] = 1.0
+    logic: Optional[str] = "AND"
 
 class ConditionGroup(BaseModel):
     logic: str # "AND" | "OR" | "WEIGHTED_SUM"

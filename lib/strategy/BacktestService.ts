@@ -41,6 +41,7 @@ export class BacktestService {
           }
         };
 
+    console.error(`[DEBUG-SVC] (ID: ${serviceId}) FULL REQUEST PAYLOAD:`, JSON.stringify(requestBody, null, 2));
     console.error("[DEBUG] BacktestService: Fetching http://localhost:8000/backtest with body:", JSON.stringify(requestBody, null, 2));
 
     // 2. Call Python Microservice
