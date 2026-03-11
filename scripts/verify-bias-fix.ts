@@ -14,13 +14,11 @@ async function verifyTPlusOne() {
     updated_at: new Date().toISOString(),
     universe: { id: "US_TECH_TOP10", filters: {} },
     entry: {
-      logic: "AND",
       conditions: [
         { type: "indicator", id: "ma_crossover", params: { shortMA: 1, longMA: 2, signalType: "buy" } }
       ]
     },
     exit: {
-      logic: "AND",
       conditions: [
         { type: "indicator", id: "ma_crossover", params: { shortMA: 1, longMA: 2, signalType: "sell" } }
       ]

@@ -53,10 +53,10 @@ export class BacktestService {
         hash = ((hash << 5) - hash) + char;
         hash = hash & hash;
       }
-      const traceId = `req_hash_${Math.abs(hash)}`;
+      const traceId = `req_${Math.abs(hash)}_${Date.now()}`;
       console.error(`[DEBUG-SVC] SENDING FETCH to Python Engine (Trace ID: ${traceId})`);
       
-      const response = await fetch("http://127.0.0.1:8000/backtest", {
+      const response = await fetch("http://localhost:8000/backtest", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
