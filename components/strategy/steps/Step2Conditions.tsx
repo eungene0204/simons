@@ -29,7 +29,7 @@ import {
   Database,
   FramerLogo,
 } from "phosphor-react";
-import { CanvasBlock, LogicOperator } from "@/types/strategy";
+import { CanvasBlock } from "@/types/strategy";
 import { signalBlocks } from "@/lib/strategy-blocks";
 import StrategyBlockSearchMenu from "../StrategyBlockSearchMenu";
 
@@ -40,10 +40,6 @@ interface Step2ConditionsProps {
   setSelectedBlock: React.Dispatch<React.SetStateAction<CanvasBlock | null>>;
   activeParamTab: 'block' | 'global';
   setActiveParamTab: React.Dispatch<React.SetStateAction<'block' | 'global'>>;
-  entryLogic: LogicOperator;
-  setEntryLogic: React.Dispatch<React.SetStateAction<LogicOperator>>;
-  exitLogic: LogicOperator;
-  setExitLogic: React.Dispatch<React.SetStateAction<LogicOperator>>;
   unlockedBlockIds: string[];
   setUnlockedBlockIds: React.Dispatch<React.SetStateAction<string[]>>;
   manuallyHiddenBlockIds: string[];
@@ -89,10 +85,6 @@ export default function Step2Conditions({
   setSelectedBlock,
   activeParamTab,
   setActiveParamTab,
-  entryLogic,
-  setEntryLogic,
-  exitLogic,
-  setExitLogic,
   unlockedBlockIds,
   setUnlockedBlockIds,
   manuallyHiddenBlockIds,
@@ -473,10 +465,9 @@ export default function Step2Conditions({
                     if (index === canvasBlocks.length - 1) return null;
                     const nextBlock = canvasBlocks[index + 1];
 
-                    // Connect only if: same signal type AND both blocks use AND logic
+                    // Connect only if: same signal type
                     const sameType = block.type === nextBlock.type;
-                    const bothAnd = (block.logic ?? "AND") === "AND" && (nextBlock.logic ?? "AND") === "AND";
-                    if (!sameType || !bothAnd) return null;
+                    if (!sameType) return null;
 
                     let color = "#6B7280";
                     let filterUrl = "";
@@ -622,48 +613,6 @@ export default function Step2Conditions({
                   <p className="text-[11px] text-white/20 font-medium leading-relaxed">파라미터를 설정하세요.</p>
                 )}
               </div>
-
-              {/* Per-block AND/OR logic selector */}
-              <div className="mt-4 flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-black text-white/40 uppercase tracking-widest">
-                    {selectedBlock.type === 'exit' ? '청산/리스크 조합' : '진입/필터 조합'} 로직
-                  </span>
-                  <Question
-                    size={14}
-                    className="text-white/30 hover:text-blue-400 cursor-help transition-colors"
-                    onMouseEnter={(e) => setHoveredParam({
-                      label: "로직 종류",
-                      tooltip: "AND: 전략 내 모든 블록의 조건이 동시에 충족될 때만 매매 신호가 발생합니다. 조건이 더 까다롭지만 신뢰도가 높습니다.\nOR: 이 블록 그룹 중 하나만 충족되어도 바로 매매 신호가 발생합니다. 더 자주 매매가 이루어집니다.",
-                      rect: e.currentTarget.getBoundingClientRect()
-                    })}
-                    onMouseLeave={() => setHoveredParam(null)}
-                  />
-                </div>
-                <div className="flex bg-black/40 rounded-lg p-0.5 border border-white/5">
-                  {(["AND", "OR"] as const).map((op) => (
-                    <button
-                      key={op}
-                      onClick={() => {
-                        console.log(`[Step2Conditions] Switching Block ${selectedBlock.id} Logic to:`, op);
-                        // Update ONLY the specific block's logic
-                        const updated = canvasBlocks.map(b => 
-                          b.id === selectedBlock.id ? { ...b, logic: op } : b
-                        );
-                        setCanvasBlocks(updated);
-                        setSelectedBlock({ ...selectedBlock, logic: op });
-                      }}
-                      className={`px-4 py-1.5 text-xs font-black rounded-md transition-all duration-200 ${
-                        (selectedBlock.logic ?? "AND") === op
-                          ? "bg-[rgb(59,134,247)] text-white shadow"
-                          : "text-white/30 hover:text-white/60"
-                      } ${op === 'OR' && (selectedBlock.logic ?? "AND") === 'OR' ? 'bg-[rgb(249,115,22)]' : ''}`}
-                    >
-                      {op}
-                    </button>
-                  ))}
-                </div>
-              </div>
             </div>
 
             <div className="overflow-y-auto custom-scrollbar p-5 space-y-6 max-h-80">
@@ -754,9 +703,9 @@ export default function Step2Conditions({
                   const blockDef = signalBlocks[selectedBlock.blockId];
                   if (!blockDef) return;
                   const resetParams = { ...blockDef.defaultParams };
-                  const updated = canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, params: resetParams, logic: undefined } : b);
+                  const updated = canvasBlocks.map(b => b.id === selectedBlock.id ? { ...b, params: resetParams } : b);
                   setCanvasBlocks(updated);
-                  setSelectedBlock({ ...selectedBlock, params: resetParams, logic: undefined });
+                  setSelectedBlock({ ...selectedBlock, params: resetParams });
                 }}
                 className="w-full py-3 rounded-xl text-white/20 text-xs font-black uppercase tracking-widest hover:text-orange-400 hover:bg-orange-500/5 transition-all"
               >

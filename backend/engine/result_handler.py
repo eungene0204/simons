@@ -179,21 +179,19 @@ class ResultHandler:
                     elif exit_type == 4: 
                         reason_kr = f"보유 기간 만료 ({duration}일 보유)" if duration > 0 else "보유 기간 만료"
                     else:
-                        # Inference fallback for missing exit_type (VectorBT 0.28.2)
-                        # Use a wider 2.0% tolerance to account for fees and execution timing (next open/slippage)
-                        if sl_pct > 0 and abs(ret_val + sl_pct) < 2.0:
-                            reason_kr = f"손절매 실행 (-{fmt_pct(sl_pct)}%)"
-                        elif tp_pct > 0 and abs(ret_val - tp_pct) < 2.0:
-                            reason_kr = f"익절매 실행 (+{fmt_pct(tp_pct)}%)"
-                        elif ts_pct > 0 and pnl > 0 and (reason_kr == "전략 매도 조건 충족"):
-                            # If no strategy signal found, and TS is set, and it's a winner, likely TSL
-                            reason_kr = f"트레일링 스탑 실행 (-{fmt_pct(ts_pct)}%)"
-                        elif max_hold > 0 and duration >= max_hold:
+                                        # Fix 8: 종료 이유 추론 — 허용 오차를 1%로 축소하고 우선순위 명확화
+                        # 수수료+슬리피지(≈0.35%) 복합을 고려한 현실적 허용 범위
+                        _TOLERANCE = 1.0
+                        if max_hold > 0 and duration >= max_hold:
+                            # 최대 보유일 만료 — 가장 명확하므로 최우선
                             reason_kr = f"보유 기간 만료 ({duration}일 보유)"
-                        elif (sl_pct > 0 or tp_pct > 0) and (reason_kr == "전략 매도 조건 충족") and (not (exit_type == 5 or get_dt_str(x_idx) == get_dt_str(common_index[-1]))):
-                            # Final fallback: if no strategy signal, but risk params exist, label by PnL direction
-                            if pnl < 0 and sl_pct > 0: reason_kr = f"손절매 실행 (-{fmt_pct(sl_pct)}%)"
-                            elif pnl > 0 and tp_pct > 0: reason_kr = f"익절매 실행 (+{fmt_pct(tp_pct)}%)"
+                        elif sl_pct > 0 and pnl < 0 and abs(ret_val + sl_pct) < _TOLERANCE:
+                            reason_kr = f"손절매 실행 (-{fmt_pct(sl_pct)}%)"
+                        elif tp_pct > 0 and pnl > 0 and abs(ret_val - tp_pct) < _TOLERANCE:
+                            reason_kr = f"익절매 실행 (+{fmt_pct(tp_pct)}%)"
+                        elif ts_pct > 0 and pnl > 0 and reason_kr == "전략 매도 조건 충족":
+                            # 전략 신호 없이 수익 청산 → 트레일링 스탑 가능성
+                            reason_kr = f"트레일링 스탑 실행 (-{fmt_pct(ts_pct)}%)"
                     
                     if (exit_type == 5 or get_dt_str(x_idx) == get_dt_str(common_index[-1])):
                         if reason_kr == "전략 매도 조건 충족": reason_kr = "백테스트 종료"
@@ -290,7 +288,6 @@ class ResultHandler:
         raw_pf = cls.safe(pf.trades.profit_factor())
         
         # Check if this is a buy-and-hold pattern (most trades span nearly the full period)
-        last_date = common_index[-1] if len(common_index) > 0 else None
         is_buy_and_hold = False
         if total_trades > 0 and total_trades <= 30 and len(pf.trades.records) > 0:
             try:
@@ -332,7 +329,10 @@ class ResultHandler:
             "sharpe": cls.safe(pf.sharpe_ratio()),
             "sortino": cls.safe(pf.sortino_ratio()),
             "kelly": cls.safe(kelly),
-            "volatility": cls.safe(pf.returns().std() * np.sqrt(252)) * 100,
+            # Fix 7: group_by=True로 포트폴리오 전체 수익률 시리즈를 명시적으로 사용
+            # pf.returns()는 group_by=True 포트폴리오에서 DataFrame을 반환할 수 있으므로
+            # pf.returns(group_by=True)로 단일 시리즈를 강제한다.
+            "volatility": float(np.nan_to_num(pf.returns(group_by=True).std() * np.sqrt(252), nan=0.0)) * 100,
             "equity": to_list(pf.value()),
             "benchmark_equity": to_list(init_cash * bench_cum_returns),
             "dates": [d.strftime('%Y-%m-%d') for d in common_index],

@@ -9,18 +9,10 @@ export class SignalEvaluator {
   ): boolean {
     if (group.conditions.length === 0) return false;
 
-    if (group.logic === "AND") {
-      return group.conditions.every((c) => this.evaluateCondition(c, index, dataset, portfolioState));
-    } else if (group.logic === "OR") {
-      return group.conditions.some((c) => this.evaluateCondition(c, index, dataset, portfolioState));
-    } else if (group.logic === "WEIGHTED_SUM") {
-      const totalWeight = group.conditions.reduce((acc, c) => acc + (c.weight || 1), 0);
-      const score = group.conditions.reduce((acc, c) => {
-        return acc + (this.evaluateCondition(c, index, dataset, portfolioState) ? (c.weight || 1) : 0);
-      }, 0);
-      return score / totalWeight >= 0.5;
-    }
-    return false;
+    // Implicitly evaluate as OR for indicators (any condition met)
+    // Filter conditions will be evaluated outside if needed, 
+    // but within a condition group, we treat it as OR based on the new spec.
+    return group.conditions.some((c) => this.evaluateCondition(c, index, dataset, portfolioState));
   }
 
   private static evaluateCondition(

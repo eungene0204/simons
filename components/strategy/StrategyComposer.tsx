@@ -119,9 +119,7 @@ export default function StrategyComposer({
 
   // Step 2: Conditions
   const [entryConditions, setEntryConditions] = useState<Condition[]>([]);
-  const [entryLogic, setEntryLogic] = useState<"AND" | "OR" | "WEIGHTED_SUM">("AND");
   const [exitConditions, setExitConditions] = useState<Condition[]>([]);
-  const [exitLogic, setExitLogic] = useState<"AND" | "OR">("OR");
   const [selectedBlock, setSelectedBlock] = useState<LibraryBlock | null>(null);
   const [editingCondition, setEditingCondition] = useState<Condition | null>(null);
   const [placement, setPlacement] = useState<"entry" | "exit">("entry");
@@ -308,11 +306,9 @@ export default function StrategyComposer({
       description: description.trim(),
       version: "1.0.0",
       entry: {
-        logic: entryLogic,
         conditions: entryConditions,
       },
       exit: {
-        logic: exitLogic,
         conditions: exitConditions,
       },
       risk: riskManagement as any,
@@ -705,17 +701,6 @@ export default function StrategyComposer({
                   <div className="bg-[#0f0f0f] border border-gray-800 rounded-lg p-3 space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="text-sm font-semibold text-white">매수 (Entry)</div>
-                      <select
-                        value={entryLogic}
-                        onChange={(e) =>
-                          setEntryLogic(e.target.value as "AND" | "OR" | "WEIGHTED_SUM")
-                        }
-                        className="px-3 py-1 bg-[#1a1a1a] border border-gray-700 rounded text-xs text-white"
-                      >
-                        <option value="AND">AND</option>
-                        <option value="OR">OR</option>
-                        <option value="WEIGHTED_SUM">가중합</option>
-                      </select>
                     </div>
                     <div className="space-y-2">
                       {entryConditions.length === 0 && (
@@ -777,14 +762,6 @@ export default function StrategyComposer({
                   <div className="bg-[#0f0f0f] border border-gray-800 rounded-lg p-3 space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="text-sm font-semibold text-white">매도·리스크 (Exit)</div>
-                      <select
-                        value={exitLogic}
-                        onChange={(e) => setExitLogic(e.target.value as "AND" | "OR")}
-                        className="px-3 py-1 bg-[#1a1a1a] border border-gray-700 rounded text-xs text-white"
-                      >
-                        <option value="OR">OR</option>
-                        <option value="AND">AND</option>
-                      </select>
                     </div>
                     <div className="space-y-2">
                       {exitConditions.length === 0 && (
