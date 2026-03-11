@@ -13,6 +13,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -22,7 +24,7 @@ app.add_middleware(
 engine = BacktestEngine()
 
 recent_executions = {}
-EXECUTION_CACHE_TTL = 30  # seconds
+EXECUTION_CACHE_TTL = 2  # seconds — 더블클릭 방지만, 의도적 재실행은 허용
 
 @app.post("/backtest", response_model=BacktestResponse)
 async def run_backtest(http_req: Request, request: BacktestRequest):
@@ -42,11 +44,7 @@ async def run_backtest(http_req: Request, request: BacktestRequest):
             del recent_executions[k]
 
     print(f"\n[DEBUG] BACKEND: Received backtest request for symbols: {request.symbols}", flush=True)
-    print(f"[DEBUG] Request Data: {request.model_dump_json(indent=2)}", flush=True)
-    with open("/tmp/backtest_logic_debug.txt", "w") as f:
-        f.write(f"Entry Logic: {request.entry.logic}\n")
-        f.write(f"Exit Logic: {request.exit.logic}\n")
-        f.write(f"JSON: {request.model_dump_json()}\n")
+    # The debug file logging was removed as it was accessing properties that no longer exist (entry.logic).
     try:
         # Convert Pydantic to dict for engine
         start_time = time.time()

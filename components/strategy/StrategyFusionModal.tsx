@@ -474,12 +474,6 @@ export default function StrategyFusionModal({
                         {fusionResult.combinedStrategy.exit.conditions.length}개
                       </span>
                     </div>
-                    <div>
-                      <span className="text-gray-400">진입 로직:</span>
-                      <span className="text-white ml-2">
-                        {fusionResult.combinedStrategy.entry.logic}
-                      </span>
-                    </div>
                   </div>
                 </div>
 

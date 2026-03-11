@@ -1,8 +1,7 @@
 import os
 import polars as pl
 import pandas as pd
-from typing import Dict, List, Any, Optional
-from datetime import datetime
+from typing import Dict, List, Any
 
 # Import refactored modules
 from engine.loader import DataLoader
@@ -57,14 +56,18 @@ class BacktestEngine:
             # Risk & Options
             risk_params = req.get('risk_params') or req.get('risk') or {}
             
-            # Explicitly check for None to allow 0 values
-            init_cash_raw = risk_params.get('init_cash') or risk_params.get('initial_cash')
+            # Fix 9: or 연산자는 0.0을 falsy로 취급하므로 명시적 None 체크로 교체
+            init_cash_raw = risk_params.get('init_cash')
+            if init_cash_raw is None:
+                init_cash_raw = risk_params.get('initial_cash')
             init_cash = float(init_cash_raw) if init_cash_raw is not None else 10000000.0
-            
+
             pos_size_raw = risk_params.get('position_size_pct')
             pos_size_pct = float(pos_size_raw) if pos_size_raw is not None else 100.0
-            
-            liquid_limit_raw = risk_params.get('liquidity_limit_pct') or risk_params.get('liquidity_multiplier')
+
+            liquid_limit_raw = risk_params.get('liquidity_limit_pct')
+            if liquid_limit_raw is None:
+                liquid_limit_raw = risk_params.get('liquidity_multiplier')
             liquid_limit = float(liquid_limit_raw) if liquid_limit_raw is not None else 10.0
             
             options = req.get('options', {})
@@ -135,21 +138,27 @@ class BacktestEngine:
                             ])
                     
                     # 3.4 Period Filtering
+                    # date 컬럼이 Utf8(문자열) 또는 Date 타입 모두에 대응하기 위해
+                    # 필터 값을 "YYYY-MM-DD" 문자열로 통일하고 컬럼도 Utf8로 캐스팅
+                    def _ts_str(ts) -> str:
+                        if isinstance(ts, str):
+                            return pd.to_datetime(ts).strftime("%Y-%m-%d")
+                        return ts.strftime("%Y-%m-%d")
+
                     if period_req != 'full' or start_date_req or end_date_req:
-                        if start_date_req: 
-                            df_pl = df_pl.filter(pl.col("date") >= pd.to_datetime(start_date_req))
-                        elif period_req == '6M': 
-                            df_pl = df_pl.filter(pl.col("date") >= (ref_date - pd.DateOffset(months=6)))
-                        elif period_req == '1Y': 
-                            df_pl = df_pl.filter(pl.col("date") >= (ref_date - pd.DateOffset(years=1)))
+                        date_col = pl.col("date").cast(pl.Utf8)
+                        if start_date_req:
+                            df_pl = df_pl.filter(date_col >= _ts_str(start_date_req))
+                        elif period_req == '6M':
+                            df_pl = df_pl.filter(date_col >= _ts_str(ref_date - pd.DateOffset(months=6)))
+                        elif period_req == '1Y':
+                            df_pl = df_pl.filter(date_col >= _ts_str(ref_date - pd.DateOffset(years=1)))
                         elif period_req in ['5Y', '10Y', '20Y']:
                             y = int(period_req[:-1])
-                            df_pl = df_pl.filter(pl.col("date") >= pd.Timestamp(year=ref_date.year - (y-1), month=1, day=1))
-                        
-                        if end_date_req: 
-                            df_pl = df_pl.filter(pl.col("date") <= ref_date)
-                        else:
-                            df_pl = df_pl.filter(pl.col("date") <= ref_date)
+                            df_pl = df_pl.filter(date_col >= _ts_str(pd.Timestamp(year=ref_date.year - (y-1), month=1, day=1)))
+
+                        # Fix 2: 두 분기가 동일했던 중복 코드 제거
+                        df_pl = df_pl.filter(date_col <= _ts_str(ref_date))
 
                     if len(df_pl) < 1:
                         return None
@@ -261,7 +270,10 @@ class BacktestEngine:
                     w_v = float(risk_params.get('ranking_weight_value', 0.5))
                     w_q = float(risk_params.get('ranking_weight_quality', 0.5))
                     rank_df = (v_score * w_v) + (q_score * w_q)
-                except:
+                except Exception as e:
+                    # Fix 12: 무음 예외 대신 경고 로깅으로 원인 추적 가능하게
+                    import logging
+                    logging.getLogger(__name__).warning(f"[BacktestEngine] 랭킹 계산 실패: {e}")
                     rank_df = None
 
             pf = self.simulator.run(price_df, exec_px_df, ents_df, exts_df, risk_params, options, rank_df=rank_df)

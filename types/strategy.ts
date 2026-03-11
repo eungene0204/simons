@@ -1,6 +1,4 @@
 // Strategy DSL Types
-export type LogicOperator = "AND" | "OR" | "NOT" | "WEIGHTED_SUM";
-
 export type ConditionType = "indicator" | "flow" | "risk" | "ml" | "filter";
 
 export type IndicatorType =
@@ -26,11 +24,9 @@ export interface Condition {
   id: string;
   params: Record<string, any>;
   weight?: number; // For weighted sum
-  logic?: LogicOperator;
 }
 
 export interface ConditionGroup {
-  logic: LogicOperator;
   conditions: Condition[];
 }
 
@@ -171,10 +167,9 @@ export interface BacktestHistoryItem {
   strategyName: string;
   universe: string;
   conditions: string[] | { 
-    logic?: string; 
     names?: string[];
-    entry?: { logic: string; names: string[] };
-    exit?: { logic: string; names: string[] };
+    entry?: { names: string[] };
+    exit?: { names: string[] };
     position?: string;
     risk?: string;
   };
@@ -211,5 +206,4 @@ export interface CanvasBlock {
   position: { x: number; y: number };
   params: Record<string, any>;
   connections?: string[]; // IDs of connected blocks
-  logic?: LogicOperator; // Per-block logic operator
 }

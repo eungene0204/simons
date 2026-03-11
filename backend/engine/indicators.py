@@ -1,17 +1,17 @@
+import logging
 import pandas as pd
 import polars as pl
 from stockstats import StockDataFrame
 from typing import List, Dict, Any
 
+# Fix 6: 멀티스레드 안전한 표준 logging 모듈로 교체
+_logger = logging.getLogger(__name__)
+
 class IndicatorEngine:
     @staticmethod
     def calculate(df_pl: pl.DataFrame, conditions: List[Dict[str, Any]]) -> pl.DataFrame:
-        log_file = "backend_execution.log"
-        def log(msg):
-            from datetime import datetime
-            with open(log_file, "a") as f:
-                f.write(f"[{datetime.now()}] [IndicatorEngine] {msg}\n")
-        
+        log = _logger.debug   # 한 줄 alias — 호출부 변경 불필요
+
         log(f"calculate started with {len(conditions)} conditions")
         try:
             log("Converting polars to pandas")
@@ -101,7 +101,7 @@ class IndicatorEngine:
                         continue
                     
                     # Accessing triggers calculation if it doesn't exist
-                    _ = sdf[c]
+                    sdf[c]  # side-effect: stockstats computes and caches the column
                     final_cols.append(c)
                 except Exception as e:
                     log(f"Failed to calculate {c}: {e}")
@@ -122,8 +122,6 @@ class IndicatorEngine:
             log("calculate finished")
             return pl.from_pandas(res_pdf)
         except Exception as e:
-            log(f"CRITICAL ERROR in calculate: {e}")
-            import traceback
-            with open(log_file, "a") as f:
-                traceback.print_exc(file=f)
+            # Fix 6: logging.exception이 traceback을 자동 포함하므로 파일 I/O 불필요
+            _logger.exception(f"CRITICAL ERROR in calculate: {e}")
             raise e

@@ -2,7 +2,6 @@ import os
 import polars as pl
 import pandas as pd
 import numpy as np
-from datetime import datetime
 
 class DataLoader:
     def __init__(self, data_dir: str):
@@ -17,12 +16,8 @@ class DataLoader:
             from .data_fetcher import fetch_and_enrich
             success = fetch_and_enrich(symbol, self.data_dir)
             if not success:
-                # Fallback for specific environment check (existing logic)
-                abs_fallback = f"/Users/eugene/nullalgo/simons/data/ohlcv/{symbol}.parquet"
-                if os.path.exists(abs_fallback):
-                    file_path = abs_fallback
-                else:
-                    raise FileNotFoundError(f"Data for {symbol} not found and download failed.")
+                # Fix 11: 하드코딩된 개발자 절대 경로 제거 — 이식성 확보
+                raise FileNotFoundError(f"Data for {symbol} not found and download failed.")
         # ----------------------------
         
         return pl.read_parquet(file_path)

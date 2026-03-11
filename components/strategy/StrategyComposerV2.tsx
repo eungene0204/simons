@@ -30,7 +30,7 @@ import {
   DotsThreeOutline,
   HandPointing,
 } from "phosphor-react";
-import { StrategyDSL, Condition, ConditionType, LogicOperator, BacktestResult, CanvasBlock, RiskManagement } from "@/types/strategy";
+import { StrategyDSL, Condition, ConditionType, BacktestResult, CanvasBlock, RiskManagement } from "@/types/strategy";
 import { signalBlocks } from "@/lib/strategy-blocks";
 import { BacktestService } from "@/lib/strategy/BacktestService";
 import BacktestChart from "@/components/strategy/BacktestChart";
@@ -107,8 +107,6 @@ export default function StrategyComposerV2({
   const [rebalancingPeriod, setRebalancingPeriod] = useState<string>("none");
 
   const [positionRules, setPositionRules] = useState<any[]>([]);
-  const [entryLogic, setEntryLogic] = useState<LogicOperator>("AND");
-  const [exitLogic, setExitLogic] = useState<LogicOperator>("OR");
   const [riskManagement, setRiskManagement] = useState<RiskManagement>({
     position_size_pct: 10,
     max_positions: 10,
@@ -249,8 +247,6 @@ export default function StrategyComposerV2({
         ...universeFilters,
       },
       universeFiltersCount: Object.keys(universeFilters).length,
-      entryLogic: entryLogic,
-      exitLogic: exitLogic,
       entryBlocks: canvasBlocks
         .filter(b => {
           const blockDef = signalBlocks[b.blockId];
@@ -299,15 +295,7 @@ export default function StrategyComposerV2({
       },
       riskManagement: getResolvedRisk()
     };
-  }, [strategyName, universe, universeFilters, entryLogic, exitLogic, canvasBlocks, riskManagement, allocationType, allocationValue, maxPositions, executionTiming, rebalancingPeriod, getResolvedRisk]);
-
-  useEffect(() => {
-    console.log("[StrategyComposerV2] Entry Logic changed to:", entryLogic);
-  }, [entryLogic]);
-
-  useEffect(() => {
-    console.log("[StrategyComposerV2] Exit Logic changed to:", exitLogic);
-  }, [exitLogic]);
+  }, [strategyName, universe, universeFilters, canvasBlocks, riskManagement, allocationType, allocationValue, maxPositions, executionTiming, rebalancingPeriod, getResolvedRisk]);
 
   useEffect(() => {
     if (isLibraryManagementOpen || isSearchMenuOpen) {
@@ -334,7 +322,6 @@ export default function StrategyComposerV2({
       blockId: blockId,
       position: { x: 0, y: 0 },
       params: signalBlocks[blockId]?.defaultParams ? { ...signalBlocks[blockId].defaultParams } : {},
-      logic: type.includes("risk") || type.includes("exit") ? exitLogic : entryLogic,
     };
 
     setActiveParamTab('block');
@@ -398,7 +385,6 @@ export default function StrategyComposerV2({
           type: (b.type === "filter" ? "filter" : "indicator") as ConditionType,
           id: b.blockId,
           params: b.params,
-          logic: b.logic ?? "AND",
         }));
 
       const exitConditionsMap = canvasBlocks
@@ -407,7 +393,6 @@ export default function StrategyComposerV2({
           type: "indicator" as ConditionType,
           id: b.blockId,
           params: b.params,
-          logic: b.logic ?? "AND",
         }));
 
       // Construct StrategyDSL from current state
@@ -423,11 +408,9 @@ export default function StrategyComposerV2({
         },
         updated_at: new Date().toISOString(),
         entry: {
-          logic: entryLogic,
           conditions: entryConditionsMap
         },
         exit: {
-          logic: exitLogic,
           conditions: exitConditionsMap
         },
         risk: getResolvedRisk()
@@ -457,7 +440,7 @@ export default function StrategyComposerV2({
       isRunningRef.current = false;
       console.error(`[DEBUG-RUN] runSimulation FINISHED (ID: ${runId})`);
     }
-  }, [strategyName, universe, canvasBlocks, entryLogic, exitLogic, universeFilters, getResolvedRisk]);
+  }, [strategyName, universe, canvasBlocks, universeFilters, getResolvedRisk]);
 
   // Trigger simulation when entering step 5
 
@@ -494,9 +477,6 @@ export default function StrategyComposerV2({
       ];
       
       setCanvasBlocks(sortedBlocks);
-      
-      if (initialStrategy.entry.logic) setEntryLogic(initialStrategy.entry.logic);
-      if (initialStrategy.exit.logic) setExitLogic(initialStrategy.exit.logic);
       
       setRiskManagement({
         position_size_pct: initialStrategy.risk.position_size_pct,
@@ -541,7 +521,6 @@ export default function StrategyComposerV2({
         type: (b.type === "filter" ? "filter" : "indicator") as ConditionType,
         id: b.blockId,
         params: b.params,
-        logic: b.logic ?? "AND",
       }));
 
     const exitConditionsMap = canvasBlocks
@@ -550,7 +529,6 @@ export default function StrategyComposerV2({
         type: "indicator" as ConditionType,
         id: b.blockId,
         params: b.params,
-        logic: b.logic ?? "AND",
       }));
 
     const strategy: StrategyDSL = {
@@ -563,11 +541,9 @@ export default function StrategyComposerV2({
         filters: universeFilters,
       },
       entry: {
-        logic: entryLogic,
         conditions: entryConditionsMap,
       },
       exit: {
-        logic: exitLogic,
         conditions: exitConditionsMap,
       },
       risk: getResolvedRisk(),
@@ -604,10 +580,6 @@ export default function StrategyComposerV2({
               setSelectedBlock={setSelectedBlock}
               activeParamTab={activeParamTab}
               setActiveParamTab={setActiveParamTab}
-              entryLogic={entryLogic}
-              setEntryLogic={setEntryLogic}
-              exitLogic={exitLogic}
-              setExitLogic={setExitLogic}
               unlockedBlockIds={unlockedBlockIds}
               setUnlockedBlockIds={setUnlockedBlockIds}
               manuallyHiddenBlockIds={manuallyHiddenBlockIds}
