@@ -146,4 +146,71 @@ export class BacktestService {
       throw new Error(`백테스트 엔진 오류: ${errorMessage}`);
     }
   }
+
+  async optimize(strategy: StrategyDSL, options: BacktestConfigOptions, userPrompt: string, targetMetric: string = "cagr", ranges: Record<string, any[]>, nTrials: number = 50): Promise<any> {
+    const serviceId = Math.random().toString(36).substr(2, 5);
+    console.log(`[DEBUG-SVC] BacktestService.optimize START (ID: ${serviceId})`);
+    
+    // 1. Identify required symbols
+    const symbols = await UniverseResolver.getSymbols(
+      strategy.universe.id, 
+      strategy.universe.filters
+    );
+
+    if (symbols.length === 0) {
+      throw new Error("No symbols found in selected universe");
+    }
+
+    const baseStrategy = {
+      symbols,
+      entry: strategy.entry,
+      exit: strategy.exit,
+      risk: {
+        ...strategy.risk,
+        init_cash: options.initialCapital
+      },
+      period: options.period,
+      options: {
+        fee_rate: options.commissionPct / 100,
+        slippage_rate: options.slippagePct / 100,
+        execution_type: strategy.risk?.execution_timing || "next_open"
+      }
+    };
+
+    const requestBody = {
+      base_strategy: baseStrategy,
+      user_prompt: userPrompt,
+      target_metric: targetMetric,
+      n_trials: nTrials,
+      ranges: ranges
+    };
+
+    try {
+      const response = await fetch("http://localhost:8000/optimize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        const detail = errorData.detail;
+        let errorMessage = "Failed to run optimization in Python engine";
+        if (typeof detail === "string") {
+          errorMessage = detail;
+        } else if (detail && typeof detail === "object") {
+          errorMessage = JSON.stringify(detail);
+        }
+        throw new Error(errorMessage);
+      }
+
+      const result = await response.json();
+      return result;
+    } catch (error: any) {
+      console.error("Optimization integration error:", error);
+      const errorMessage = error instanceof Error ? error.message : "알 수 없는 에러가 발생했습니다.";
+      throw new Error(`최적화 엔진 오류: ${errorMessage}`);
+    }
+  }
 }

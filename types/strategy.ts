@@ -207,3 +207,23 @@ export interface CanvasBlock {
   params: Record<string, any>;
   connections?: string[]; // IDs of connected blocks
 }
+
+// Optimization Types
+export interface OptimizationResultItem {
+  iteration: number;
+  parameters: Record<string, any>;
+  metrics: Record<string, number>;
+  target_value: number;
+}
+
+export interface OptimizationResponse {
+  status: string;
+  message?: string;
+  target_metric?: string;
+  total_iterations?: number;
+  tested_ranges?: Record<string, any[]>;
+  best_parameters?: Record<string, any>;
+  best_metrics?: Record<string, number>;
+  top_results?: OptimizationResultItem[];
+  report?: string;
+}
