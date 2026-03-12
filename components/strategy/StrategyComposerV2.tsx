@@ -292,6 +292,7 @@ export default function StrategyComposerV2({
         allocationValue,
         executionTiming,
         rebalancingPeriod,
+        skip_position_setting: riskManagement.skip_position_setting,
       },
       riskManagement: getResolvedRisk()
     };
@@ -434,13 +435,93 @@ export default function StrategyComposerV2({
       setCurrentStep(5);
     } catch (e: any) {
       console.error(`[DEBUG-RUN] Error in ID: ${runId}`, e);
-      setBacktestError(e.message || "백테스트 중 알 수 없는 오류가 발생했습니다.");
     } finally {
       setIsBacktesting(false);
       isRunningRef.current = false;
       console.error(`[DEBUG-RUN] runSimulation FINISHED (ID: ${runId})`);
     }
   }, [strategyName, universe, canvasBlocks, universeFilters, getResolvedRisk]);
+
+  const handleOptimize = async (prompt: string, targetMetric: string, nTrials: number = 50) => {
+    try {
+      const entryConditionsMap = canvasBlocks
+        .filter(b => b.type === "entry" || b.type === "filter")
+        .map(b => ({
+          type: (b.type === "filter" ? "filter" : "indicator") as ConditionType,
+          id: b.blockId,
+          params: b.params,
+        }));
+
+      const exitConditionsMap = canvasBlocks
+        .filter(b => b.type === "exit")
+        .map(b => ({
+          type: "indicator" as ConditionType,
+          id: b.blockId,
+          params: b.params,
+        }));
+
+      // Generate localized search space ranges for Optuna
+      const ranges: Record<string, any[]> = {};
+      
+      canvasBlocks.forEach((block, index) => {
+        let basePath = "";
+        if (block.type === "filter" || block.type === "entry") {
+          const arrIndex = canvasBlocks.filter(b => b.type === "entry" || b.type === "filter").indexOf(block);
+          basePath = `entry.conditions.${arrIndex}.params`;
+        } else if (block.type === "exit") {
+          const arrIndex = canvasBlocks.filter(b => b.type === "exit").indexOf(block);
+          basePath = `exit.conditions.${arrIndex}.params`;
+        }
+        
+        const defBlock = Object.values(signalBlocks).find((sb: any) => sb.id === block.blockId);
+        if (defBlock) {
+          Object.keys(block.params).forEach(paramKey => {
+            const schema = defBlock.paramSchema[paramKey];
+            const currentVal = block.params[paramKey];
+            
+            // Generate basic variations around the current value if it's a number
+            if (schema && schema.type === "number" && typeof currentVal === "number") {
+              const variations = new Set<number>();
+              variations.add(currentVal);
+              
+              const step = schema.step || 1;
+              const min = schema.min !== undefined ? schema.min : 0;
+              const max = schema.max !== undefined ? schema.max : 1000;
+              
+              // Add +- variations
+              if (currentVal - step * 2 >= min) variations.add(currentVal - step * 2);
+              if (currentVal - step >= min) variations.add(currentVal - step);
+              if (currentVal + step <= max) variations.add(currentVal + step);
+              if (currentVal + step * 2 <= max) variations.add(currentVal + step * 2);
+              
+              // Only optimize things that have meaningful variance
+              if (variations.size > 1) {
+                ranges[`${basePath}.${paramKey}`] = Array.from(variations).sort((a,b) => a-b);
+              }
+            }
+          });
+        }
+      });
+
+      const strategy: StrategyDSL = {
+        id: initialStrategy?.id || "temp_opt",
+        name: strategyName || "Opt Strategy",
+        description: "",
+        version: "1.0",
+        created_at: new Date().toISOString(),
+        universe: { id: universe, filters: universeFilters },
+        updated_at: new Date().toISOString(),
+        entry: { conditions: entryConditionsMap },
+        exit: { conditions: exitConditionsMap },
+        risk: getResolvedRisk()
+      };
+
+      const engine = new BacktestService();
+      return await engine.optimize(strategy, backtestOptions, prompt, targetMetric, ranges, nTrials);
+    } catch (error: any) {
+      throw error;
+    }
+  };
 
   // Trigger simulation when entering step 5
 
@@ -616,6 +697,8 @@ export default function StrategyComposerV2({
               onPrev={() => setCurrentStep(1)}
               handleAddBlock={handleAddBlock}
               handleRemoveBlockFromBin={handleRemoveBlockFromBin}
+              onOptimize={handleOptimize}
+              feedbackTimeoutRef={feedbackTimeoutRef}
             />
           </div>
         ) : (

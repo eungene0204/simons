@@ -28,6 +28,7 @@ class RiskManagement(BaseModel):
     allocation_type: Optional[str] = "equal"
     rebalancing_period: Optional[str] = "none"
     skip_risk_management: Optional[bool] = False
+    skip_position_setting: Optional[bool] = False
     init_cash: Optional[float] = 10000000.0
 
 class BacktestRequest(BaseModel):
@@ -83,3 +84,27 @@ class BacktestResponse(BaseModel):
     warnings: Optional[List[str]] = Field(default_factory=list)
     version: Optional[str] = "1.0"
     executionTime: Optional[float] = 0.0
+
+class OptimizationRequest(BaseModel):
+    base_strategy: BacktestRequest
+    user_prompt: str
+    target_metric: Optional[str] = "cagr"
+    n_trials: Optional[int] = 50
+    ranges: Dict[str, List[Any]] # Explicit parameter search space from frontend
+
+class OptimizationResultItem(BaseModel):
+    iteration: int
+    parameters: Dict[str, Any]
+    metrics: Dict[str, float]
+    target_value: float
+
+class OptimizationResponse(BaseModel):
+    status: str
+    message: Optional[str] = None
+    target_metric: Optional[str] = None
+    total_iterations: Optional[int] = 0
+    tested_ranges: Optional[Dict[str, List[Any]]] = None
+    best_parameters: Optional[Dict[str, Any]] = None
+    best_metrics: Optional[Dict[str, float]] = None
+    top_results: Optional[List[OptimizationResultItem]] = None
+    report: Optional[str] = None

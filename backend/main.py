@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Request
-from schemas import BacktestRequest, BacktestResponse
+from schemas import BacktestRequest, BacktestResponse, OptimizationRequest, OptimizationResponse
 from backtest_engine import BacktestEngine
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
@@ -64,6 +64,32 @@ async def run_backtest(http_req: Request, request: BacktestRequest):
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Engine error: {str(e)}")
+
+@app.post("/optimize", response_model=OptimizationResponse)
+async def optimize_strategy(request: OptimizationRequest):
+    print(f"\n[DEBUG] BACKEND: Received optimize request. Goal: {request.user_prompt}", flush=True)
+    try:
+        from ai.local_optimization_agent import LocalOptimizationAgent
+        agent = LocalOptimizationAgent(engine)
+        
+        result = agent.run_optimization_loop(
+            base_request=request.base_strategy.model_dump(),
+            user_prompt=request.user_prompt,
+            ranges=request.ranges,
+            target_metric=request.target_metric,
+            n_trials=request.n_trials
+        )
+        
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("message"))
+            
+        return result
+        
+    except Exception as e:
+        import traceback
+        err_msg = traceback.format_exc()
+        print(f"[DEBUG] OPTIMIZE ERROR:\n{err_msg}")
+        raise HTTPException(status_code=500, detail=f"Optimization error: {repr(e)}")
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

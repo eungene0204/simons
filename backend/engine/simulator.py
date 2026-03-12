@@ -30,6 +30,9 @@ class Simulator:
         fee_rate = float(options.get('fee_rate') or 0.0015)
         slippage_val = float(options.get('slippage_rate') or 0.0020)
 
+        skip_pos = risk_params.get('skip_position_setting', False)
+        use_risk_mgmt = not risk_params.get('skip_risk_management', False)
+
         # Determine size per position (relative to FULL portfolio NAV)
         if risk_params.get('allocation_type') == 'equal':
             size_per_pos = 1.0 / max_pos if max_pos and max_pos > 0 else 1.0 / len(entries_df.columns)
@@ -40,8 +43,10 @@ class Simulator:
                 if size_per_pos > max_allowed_size:
                     size_per_pos = max_allowed_size
 
-        skip_pos = risk_params.get('skip_position_setting', False)
-        use_risk_mgmt = not risk_params.get('skip_risk_management', False)
+        if skip_pos:
+            eff_max_pos = len(entries_df.columns)
+        else:
+            eff_max_pos = max_pos if max_pos is not None else len(entries_df.columns)
 
         # Fix 1: ts_pct now included so trailing stop triggers the custom loop
         has_custom_loop = (not skip_pos) or (
@@ -51,7 +56,6 @@ class Simulator:
         if has_custom_loop:
             symbols = entries_df.columns.tolist()
             num_symbols = len(symbols)
-            eff_max_pos = max_pos if (not skip_pos) and max_pos is not None else num_symbols
 
             price_values = price_df.values
             exec_price_values = exec_price_df.values
