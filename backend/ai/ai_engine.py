@@ -16,9 +16,14 @@ import random
 random.seed(seed)
 
 import threading
+import logging
+
+logger = logging.getLogger(__name__)
 
 class AIEngine:
-    def __init__(self, model_dir="/Users/eugene/nullalgo/simons/model/expanded_features"):
+    def __init__(self, model_dir=None):
+        if model_dir is None:
+            model_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "model", "expanded_features")
         self.model_lock = threading.Lock()
         self.model_dir = model_dir
         # ... Re-apply seeds inside init as well for absolute safety ...
@@ -38,8 +43,6 @@ class AIEngine:
             self.device = torch.device("mps")
         else:
             self.device = torch.device("cpu")
-        
-        print(f"AIEngine initialized on: {self.device} (Seed: {seed})")
         
         # 1. Load Scaler
         scaler_path = os.path.join(model_dir, 'feature_scaler.joblib')
@@ -92,19 +95,25 @@ class AIEngine:
             raise FileNotFoundError(f"XGBoost model not found at {xgb_path}")
             
         self.ts_features = self.meta.get('features', [
-            'ret_open', 'ret_high', 'ret_low', 'ret_close', 'ret_volume', 'ret_obv', 
-            'rsi_14', 'macd', 'macds', 'macdh', 'kdjk', 'kdjd', 'cci_14', 'adx', 
+            'ret_open', 'ret_high', 'ret_low', 'ret_close', 'ret_volume', 'ret_obv',
+            'rsi_14', 'macd', 'macds', 'macdh', 'kdjk', 'kdjd', 'cci_14', 'adx',
             'dist_sma_20', 'dist_ema_20', 'boll_pos'
         ])
         self.lookback = self.meta.get('lookback', 60)
-        print(f"AIEngine initialized on {self.device}")
+
+        # Validate scaler input dimension matches feature count
+        expected_features = getattr(self.scaler, 'n_features_in_', None)
+        actual_features = len(self.ts_features)
+        if isinstance(expected_features, int) and expected_features != actual_features:
+            raise ValueError(
+                f"Scaler expects {expected_features} features but ts_features has {actual_features}. "
+                f"Check model_meta.json 'features' list."
+            )
+        logger.info(f"AIEngine initialized. Device={self.device}, Features={len(self.ts_features)}, Lookback={self.lookback}")
 
     def predict_signals(self, df: pd.DataFrame) -> np.ndarray:
-        log_file = "backend_execution.log"
         def log(msg):
-            from datetime import datetime
-            with open(log_file, "a") as f:
-                f.write(f"[{datetime.now()}] [AIEngine-Thread-{threading.get_ident()}] {msg}\n")
+            logger.debug(f"[AIEngine-Thread-{threading.get_ident()}] {msg}")
         
         log(f"predict_signals started. input df shape={df.shape}")
         
@@ -162,8 +171,10 @@ class AIEngine:
             
             # 2. Preprocessing & Scaling
             pdf[features_to_use] = pdf[features_to_use].replace([np.inf, -np.inf], np.nan).ffill().fillna(0)
-            scaled_data = self.scaler.transform(pdf[features_to_use].values).astype(np.float32)
-            
+            scaled_data = np.ascontiguousarray(
+                self.scaler.transform(pdf[features_to_use].values).astype(np.float32)
+            )
+
             # 3. Optimized Vectorized Window Creation
             from numpy.lib.stride_tricks import as_strided
             n_windows = data_len - self.lookback + 1
@@ -198,6 +209,8 @@ class AIEngine:
                 try:
                     preds_proba = self.xgb_head.predict_proba(embeddings)
                     if len(preds_proba.shape) == 2 and preds_proba.shape[1] == 2:
+                        # Multi-output XGBoost: col 0 = P(up), col 1 = P(down)
+                        # (trained with y = column_stack(target_up, target_down))
                         signal_probs = preds_proba[:, 0]
                         drop_probs = preds_proba[:, 1]
                     else:

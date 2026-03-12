@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useEffect, useRef } from "react";
+import { Fragment, useMemo, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X,
@@ -29,9 +29,10 @@ import {
   Database,
   FramerLogo,
 } from "phosphor-react";
-import { CanvasBlock } from "@/types/strategy";
+import { CanvasBlock, OptimizationResponse } from "@/types/strategy";
 import { signalBlocks } from "@/lib/strategy-blocks";
 import StrategyBlockSearchMenu from "../StrategyBlockSearchMenu";
+import { StrategyOptimizerModal } from "../StrategyOptimizerModal";
 
 interface Step2ConditionsProps {
   canvasBlocks: CanvasBlock[];
@@ -76,6 +77,8 @@ interface Step2ConditionsProps {
   handleRemoveBlockFromBin: (blockId: string, e: React.MouseEvent) => void;
   reorderDragItem: { type: 'category' | 'block', id: string, index: number, categoryId?: string } | null;
   setReorderDragItem: React.Dispatch<React.SetStateAction<{ type: 'category' | 'block', id: string, index: number, categoryId?: string } | null>>;
+  onOptimize: (prompt: string, targetMetric: string, nTrials?: number) => Promise<OptimizationResponse>;
+  feedbackTimeoutRef: React.MutableRefObject<NodeJS.Timeout | null>;
 }
 
 export default function Step2Conditions({
@@ -107,6 +110,8 @@ export default function Step2Conditions({
   setActiveMgmtCategory,
   openSignalGroups,
   setOpenSignalGroups,
+  savedFeedback,
+  setSavedFeedback,
   reorderDragItem,
   setReorderDragItem,
   canvasRef,
@@ -115,9 +120,12 @@ export default function Step2Conditions({
   onPrev,
   handleAddBlock,
   handleRemoveBlockFromBin,
+  onOptimize,
+  feedbackTimeoutRef,
 }: Step2ConditionsProps) {
   const popoverRef = useRef<HTMLDivElement>(null);
   const paramPopupRef = useRef<HTMLDivElement>(null);
+  const [isOptimizerOpen, setIsOptimizerOpen] = useState(false);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -725,6 +733,13 @@ export default function Step2Conditions({
           <ArrowLeft size={20} />
         </button>
         <button 
+          onClick={() => setIsOptimizerOpen(true)}
+          className="group px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-black uppercase tracking-widest transition-all flex items-center gap-3 shadow-[0_10px_30px_rgba(79,70,229,0.3)] active:scale-[0.98]"
+        >
+          <Sparkle size={16} className="text-white" />
+          <span>AI 최적화</span>
+        </button>
+        <button 
           onClick={onNext} 
           className="group px-6 py-3 bg-blue-500 hover:bg-blue-400 text-white rounded-xl text-sm font-black uppercase tracking-widest transition-all flex items-center gap-3 shadow-[0_10px_30px_rgba(59,130,246,0.3)] active:scale-[0.98]"
         >
@@ -833,6 +848,52 @@ export default function Step2Conditions({
           onClose={() => setIsSearchMenuOpen(false)}
         />
       )}
+
+      {/* Optimizer Modal */}
+      <StrategyOptimizerModal
+        open={isOptimizerOpen}
+        onOpenChange={setIsOptimizerOpen}
+        onOptimize={onOptimize}
+        onApplyParameters={(newParams) => {
+          // Flatten new params to apply them to blocks by searching their paths
+          // Since the flatten step gave us "entry.conditions.0.params.period", we'll just parse the flat dict.
+          // In reality, strategy JSON format uses array index in the optimizer grid. 
+          // For simplicity in the interactive builder, we can match block indices or ids.
+          // Because we extracted them sequentially in StrategyComposerV2:
+          const blockUpdates: Record<string, Record<string, any>> = {};
+          
+          Object.entries(newParams).forEach(([path, value]) => {
+            // path format: entry.conditions.0.params.period
+            const parts = path.split('.');
+            if (parts.length >= 5 && parts[3] === 'params') {
+              const type = parts[0]; // entry or exit
+              const index = parseInt(parts[2], 10);
+              const paramKey = parts[4];
+              
+              if (!isNaN(index)) {
+                // Find the Nth block of that type
+                const targetBlocks = canvasBlocks.filter(b => 
+                  type === 'entry' ? (b.type === 'entry' || b.type === 'filter') : b.type === 'exit'
+                );
+                const targetBlock = targetBlocks[index];
+                if (targetBlock) {
+                  if (!blockUpdates[targetBlock.id]) {
+                    blockUpdates[targetBlock.id] = { ...targetBlock.params };
+                  }
+                  blockUpdates[targetBlock.id][paramKey] = value;
+                }
+              }
+            }
+          });
+          
+          if (Object.keys(blockUpdates).length > 0) {
+            setCanvasBlocks(prev => prev.map(b => blockUpdates[b.id] ? { ...b, params: blockUpdates[b.id] } : b));
+            setSavedFeedback("최적화 파라미터가 적용되었습니다.");
+            if (feedbackTimeoutRef.current) clearTimeout(feedbackTimeoutRef.current);
+            feedbackTimeoutRef.current = setTimeout(() => setSavedFeedback(null), 3000);
+          }
+        }}
+      />
     </div>
   );
 }

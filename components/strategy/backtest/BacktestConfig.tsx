@@ -66,12 +66,13 @@ export interface StrategySummaryData {
   blockNames: string[];
   entryLogic?: string;
   exitLogic?: string;
-  riskSettings: {
+    riskSettings: {
     maxPositions: number;
     allocationType: string;
     allocationValue?: number;
     executionTiming: string;
     rebalancingPeriod: string;
+    skip_position_setting?: boolean;
   };
   riskManagement: {
     stop_loss_pct?: number;
@@ -424,29 +425,37 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
               <div className="pl-8 grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-8">
                 <div className="flex flex-col">
                   <span className="text-xs font-black text-white/30 uppercase tracking-widest mb-1">최대 보유 종목</span>
-                  <span className="text-xl font-black text-white">{summary.riskSettings.maxPositions}개</span>
+                  <span className="text-xl font-black text-white">
+                    {summary.riskSettings.skip_position_setting ? 'OFF' : `${summary.riskSettings.maxPositions}개`}
+                  </span>
                 </div>
                 
                 <div className="flex flex-col">
                   <span className="text-xs font-black text-white/30 uppercase tracking-widest mb-1">배분 방식</span>
-                  <span className="text-sm font-bold text-white">
-                    {summary.riskSettings.allocationType === 'equal' 
-                      ? '동일 비중' 
-                      : `고정 비중 (${summary.riskSettings.allocationValue}%)`}
+                  <span className={`${summary.riskSettings.skip_position_setting ? 'text-xl font-black' : 'text-sm font-bold'} text-white`}>
+                    {summary.riskSettings.skip_position_setting 
+                      ? 'OFF'
+                      : (summary.riskSettings.allocationType === 'equal' 
+                        ? '동일 비중' 
+                        : `고정 비중 (${summary.riskSettings.allocationValue}%)`)}
                   </span>
                 </div>
 
                 <div className="flex flex-col">
                   <span className="text-xs font-black text-white/30 uppercase tracking-widest mb-1">체결 시점 선택</span>
-                  <span className="text-sm font-bold text-white">
-                    {summary.riskSettings.executionTiming === 'next_open' ? '익일 시가' : '당일 종가'}
+                  <span className={`${summary.riskSettings.skip_position_setting ? 'text-xl font-black' : 'text-sm font-bold'} text-white`}>
+                    {summary.riskSettings.skip_position_setting 
+                      ? 'OFF'
+                      : (summary.riskSettings.executionTiming === 'next_open' ? '익일 시가' : '당일 종가')}
                   </span>
                 </div>
 
                 <div className="flex flex-col">
                   <span className="text-xs font-black text-white/30 uppercase tracking-widest mb-1">리밸런싱 설정</span>
-                  <span className="text-sm font-bold text-white">
-                    {getRebalancingLabel(summary.riskSettings.rebalancingPeriod)}
+                  <span className={`${summary.riskSettings.skip_position_setting ? 'text-xl font-black' : 'text-sm font-bold'} text-white`}>
+                    {summary.riskSettings.skip_position_setting 
+                      ? 'OFF'
+                      : getRebalancingLabel(summary.riskSettings.rebalancingPeriod)}
                   </span>
                 </div>
               </div>
