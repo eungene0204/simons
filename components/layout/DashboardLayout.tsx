@@ -128,7 +128,7 @@ const DashboardLayoutContent = memo(function DashboardLayoutContent({
             paddingBottom: `36px`, // Adjust for ticker tape
           }}
         >
-          <div className="relative z-10">
+          <div className="relative">
             {children}
           </div>
           

@@ -55,3 +55,46 @@ model BacktestHistory {
   metrics      String   // JSON string of metrics object
   createdAt    DateTime @default(now())
 }
+
+model VirtualAccount {
+  id           String            @id @default(uuid())
+  name         String
+  initialCash  Float
+  currentCash  Float
+  strategyId   String?
+  strategyName String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  positions    VirtualPosition[]
+  orders       VirtualOrder[]
+}
+
+model VirtualPosition {
+  id        String         @id @default(uuid())
+  accountId String
+  account   VirtualAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  symbol    String
+  name      String
+  quantity  Int
+  avgPrice  Float
+  openedAt  DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@unique([accountId, symbol])
+}
+
+model VirtualOrder {
+  id          String         @id @default(uuid())
+  accountId   String
+  account     VirtualAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  symbol      String
+  name        String?
+  side        String         // "BUY" | "SELL"
+  type        String         // "MARKET" | "LIMIT"
+  quantity    Int
+  price       Float          // 주문가
+  filledPrice Float?         // 체결가
+  status      String         // "PENDING" | "FILLED" | "CANCELLED"
+  filledAt    DateTime?
+  createdAt   DateTime       @default(now())
+}

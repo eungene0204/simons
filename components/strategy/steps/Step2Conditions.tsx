@@ -28,6 +28,7 @@ import {
   Globe,
   Database,
   FramerLogo,
+  WarningCircle,
 } from "phosphor-react";
 import { CanvasBlock, OptimizationResponse } from "@/types/strategy";
 import { signalBlocks } from "@/lib/strategy-blocks";
@@ -410,6 +411,34 @@ export default function Step2Conditions({
                       </motion.div>
                     )}
                   </AnimatePresence>
+                   {key === 'ml' && (
+                    <div className="px-1.5 py-2">
+                       <button
+                         type="button"
+                         onClick={() => setIsOptimizerOpen(true)}
+                         className="w-full group px-4 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-black uppercase tracking-[0.1em] transition-all flex items-center shadow-lg active:scale-[0.98]"
+                       >
+                         <div className="flex-1 invisible" /> {/* Left spacer for centering title */}
+                         <div className="flex items-center gap-2.5">
+                           <Sparkle size={14} weight="fill" className="text-white" />
+                           <span>AI 최적화</span>
+                         </div>
+                         <div className="flex-1 flex justify-end">
+                           <WarningCircle 
+                             size={16} 
+                             weight="fill" 
+                             className="text-white/60 group-hover:text-white transition-colors cursor-help"
+                             onMouseEnter={(e: React.MouseEvent) => setHoveredParam({ 
+                               label: "AI 최적화 안내", 
+                               tooltip: "캔버스에 배치된 블록들의 설정을 수십~수백 번씩 자동으로 바꿔가며 백테스트를 수행해 최적의 조합을 찾습니다", 
+                               rect: e.currentTarget.getBoundingClientRect() 
+                             })}
+                             onMouseLeave={() => setHoveredParam(null)}
+                           />
+                         </div>
+                       </button>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -733,13 +762,6 @@ export default function Step2Conditions({
           <ArrowLeft size={20} />
         </button>
         <button 
-          onClick={() => setIsOptimizerOpen(true)}
-          className="group px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-black uppercase tracking-widest transition-all flex items-center gap-3 shadow-[0_10px_30px_rgba(79,70,229,0.3)] active:scale-[0.98]"
-        >
-          <Sparkle size={16} className="text-white" />
-          <span>AI 최적화</span>
-        </button>
-        <button 
           onClick={onNext} 
           className="group px-6 py-3 bg-blue-500 hover:bg-blue-400 text-white rounded-xl text-sm font-black uppercase tracking-widest transition-all flex items-center gap-3 shadow-[0_10px_30px_rgba(59,130,246,0.3)] active:scale-[0.98]"
         >
@@ -766,7 +788,7 @@ export default function Step2Conditions({
       )}
 
       {hoveredParam && (
-        <div className="fixed z-[1000] pointer-events-none" style={{ left: hoveredParam.rect.left - 270, top: hoveredParam.rect.top + (hoveredParam.rect.height / 2), transform: 'translateY(-50%)' }}>
+        <div className="fixed z-[1000] pointer-events-none" style={{ left: hoveredParam.rect.right + 12, top: hoveredParam.rect.top + (hoveredParam.rect.height / 2), transform: 'translateY(-50%)' }}>
           <div className="w-72 p-6 bg-[#161616] rounded-2xl shadow-2xl border border-white/10 backdrop-blur-2xl">
             <div className="text-[11px] text-[rgb(59, 134, 247)] font-bold uppercase tracking-widest mb-2 opacity-50">{hoveredParam.label}</div>
             <p className="text-sm text-white/75 font-bold leading-relaxed whitespace-pre-line">{hoveredParam.tooltip}</p>

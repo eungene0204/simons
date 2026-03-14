@@ -181,7 +181,7 @@ class TestIssue4_5_XaiEngineFallback:
 class TestIssue6_OptimizerErrorTargetValue:
     def test_error_target_value_for_cagr(self):
         """target_metric='cagr'일 때 에러 결과의 target_value는 -999999.0이어야 한다."""
-        from engine.optimizer import StrategyOptimizer
+        from engine.grid_optimizer import StrategyOptimizer
 
         mock_engine = MagicMock()
         mock_engine.run_backtest.side_effect = RuntimeError("test error")
@@ -200,7 +200,7 @@ class TestIssue6_OptimizerErrorTargetValue:
 
     def test_error_target_value_for_maxdrawdown(self):
         """target_metric='maxDrawdown'일 때 에러 결과의 target_value는 999999.0이어야 한다."""
-        from engine.optimizer import StrategyOptimizer
+        from engine.grid_optimizer import StrategyOptimizer
 
         mock_engine = MagicMock()
         mock_engine.run_backtest.side_effect = RuntimeError("test error")

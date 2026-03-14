@@ -26,6 +26,10 @@ export default function ConditionBlockEditor({
   }, [condition]);
 
   const handleParamChange = (key: string, value: any) => {
+    // NaN 방어: 숫자 입력이 비어있거나 유효하지 않은 경우 기본값 사용
+    if (typeof value === "number" && isNaN(value)) {
+      value = block.defaultParams[key] ?? 0;
+    }
     setParams({ ...params, [key]: value });
   };
 
@@ -108,9 +112,14 @@ export default function ConditionBlockEditor({
                       max={schema.max}
                       step={schema.step || 1}
                       value={currentValue}
-                      onChange={(e) =>
-                        handleParamChange(key, parseFloat(e.target.value))
-                      }
+                      onChange={(e) => {
+                        let val = parseFloat(e.target.value);
+                        if (!isNaN(val)) {
+                          if (schema.min !== undefined) val = Math.max(schema.min, val);
+                          if (schema.max !== undefined) val = Math.min(schema.max, val);
+                        }
+                        handleParamChange(key, val);
+                      }}
                       className="flex-1 bg-transparent text-sm font-black text-white outline-none tabular-nums placeholder:text-white/[0.05]"
                     />
                     {schema.suffix && (
@@ -171,7 +180,10 @@ export default function ConditionBlockEditor({
                   max={10}
                   step={0.1}
                   value={weight}
-                  onChange={(e) => setWeight(parseFloat(e.target.value))}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value);
+                    setWeight(isNaN(val) ? 1 : Math.max(0, Math.min(10, val)));
+                  }}
                   className="flex-1 bg-transparent text-sm font-black text-white outline-none tabular-nums"
                 />
               </div>

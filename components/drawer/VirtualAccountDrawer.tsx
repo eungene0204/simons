@@ -8,9 +8,8 @@ import {
   Plus,
 } from "phosphor-react";
 import { VirtualAccount } from "@/types/portfolio";
-import { getAllAccounts, refreshAccountValue } from "@/lib/portfolio";
+import { getAllAccounts, createAccount } from "@/lib/portfolio";
 import CreateAccountModal from "@/components/ui/CreateAccountModal";
-import { createAccount } from "@/lib/portfolio";
 
 interface VirtualAccountDrawerProps {
   isOpen: boolean;
@@ -34,21 +33,16 @@ function VirtualAccountDrawer({
     }
   }, [isOpen]);
 
-  const loadAccounts = () => {
+  const loadAccounts = async () => {
     setLoading(true);
-    const allAccounts = getAllAccounts();
-    // 각 계좌의 총 자산 가치를 업데이트
-    allAccounts.forEach((account) => {
-      refreshAccountValue(account.id);
-    });
-    const updatedAccounts = getAllAccounts();
-    setAccounts(updatedAccounts);
+    const allAccounts = await getAllAccounts();
+    setAccounts(allAccounts);
     setLoading(false);
   };
 
-  const handleCreateAccount = (name: string, amount: number) => {
-    createAccount(name, amount);
-    loadAccounts();
+  const handleCreateAccount = async (name: string, amount: number, strategyId?: string, strategyName?: string) => {
+    await createAccount(name, amount, strategyId, strategyName);
+    await loadAccounts();
     setIsModalOpen(false);
   };
 
@@ -163,9 +157,15 @@ function VirtualAccountDrawer({
                               <div className="text-sm font-medium text-gray-900 dark:text-white truncate">
                                 {account.name}
                               </div>
-                              <div className="text-xs text-gray-500 dark:text-gray-400">
-                                잔액: {formatPrice(account.currentBalance)}원
-                              </div>
+                              {account.strategyName ? (
+                                <div className="text-xs text-blue-500 dark:text-blue-400 truncate">
+                                  {account.strategyName}
+                                </div>
+                              ) : (
+                                <div className="text-xs text-gray-500 dark:text-gray-400">
+                                  잔액: {formatPrice(account.currentBalance)}원
+                                </div>
+                              )}
                             </div>
                           </div>
                           <div className="flex flex-col items-end flex-shrink-0">

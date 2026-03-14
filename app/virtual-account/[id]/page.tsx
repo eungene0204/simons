@@ -12,9 +12,7 @@ import {
   getAccount,
   getHoldingsByAccount,
   getTransactionsByAccount,
-  updateHolding,
-  addTransaction,
-  updateAccount,
+  executeTrade,
   refreshAccountValue,
 } from "@/lib/portfolio";
 import { MagnifyingGlass } from "phosphor-react";
@@ -63,36 +61,15 @@ export default function VirtualAccountDetailPage() {
   useEffect(() => {
     if (!accountId) return;
 
-    const updateHoldings = () => {
-      // 보유 종목의 현재가를 업데이트하고 계좌 총 자산도 업데이트
-      refreshAccountValue(accountId);
-      const updatedAccount = getAccount(accountId);
-      if (updatedAccount) {
-        setAccount(updatedAccount);
-      }
-
-      // 보유 종목 리스트 업데이트 (현재가 포함)
-      const updatedHoldings = getHoldingsByAccount(accountId);
-      
-      // 기존 보유 종목의 이름 유지 (localStorage에서 가져오기)
-      setHoldings((prevHoldings) => {
-        const holdingsWithNames = updatedHoldings.map((updatedHolding) => {
-          const existingHolding = prevHoldings.find((h) => h.symbol === updatedHolding.symbol);
-          return {
-            ...updatedHolding,
-            name: existingHolding?.name || updatedHolding.name,
-          };
-        });
-        return holdingsWithNames;
-      });
+    const updateHoldings = async () => {
+      const result = await refreshAccountValue(accountId);
+      if (!result) return;
+      setAccount(result.account);
+      setHoldings(result.holdings);
     };
 
-    // 즉시 업데이트
     updateHoldings();
-
-    // 1초마다 보유 종목 가격 업데이트
-    const interval = setInterval(updateHoldings, 1000);
-
+    const interval = setInterval(updateHoldings, 3000);
     return () => clearInterval(interval);
   }, [accountId]);
 
@@ -127,44 +104,22 @@ export default function VirtualAccountDetailPage() {
   }, [selectedSymbol, isAutoPrice, selectedOrderPrice]);
 
   const loadAccountData = async () => {
-    const acc = getAccount(accountId);
+    const [acc, h, t] = await Promise.all([
+      getAccount(accountId),
+      getHoldingsByAccount(accountId),
+      getTransactionsByAccount(accountId),
+    ]);
+
     if (!acc) {
       router.push("/virtual-account");
       return;
     }
 
-    refreshAccountValue(accountId);
-    const updatedAccount = getAccount(accountId);
-    if (updatedAccount) {
-      setAccount(updatedAccount);
-    }
-
-    const h = getHoldingsByAccount(accountId);
-    
-    // name이 없는 종목의 이름을 API에서 가져오기
-    const holdingsWithNames = await Promise.all(
-      h.map(async (holding) => {
-        if (!holding.name || holding.name === holding.symbol) {
-          try {
-            const response = await fetch(`/api/stock/${holding.symbol}/detail`);
-            if (response.ok) {
-              const data = await response.json();
-              if (data.name) {
-                return { ...holding, name: data.name };
-              }
-            }
-          } catch (error) {
-            console.error(`Failed to fetch name for ${holding.symbol}:`, error);
-          }
-        }
-        return holding;
-      })
+    setAccount(acc);
+    setHoldings(h);
+    setTransactions(
+      t.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
     );
-    
-    setHoldings(holdingsWithNames);
-
-    const t = getTransactionsByAccount(accountId);
-    setTransactions(t.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
   };
 
   const handleTransaction = async () => {
@@ -172,89 +127,32 @@ export default function VirtualAccountDetailPage() {
 
     const qty = parseInt(quantity);
     const prc = parseFloat(price);
-
     if (isNaN(qty) || qty <= 0 || isNaN(prc) || prc <= 0) return;
 
-    const totalAmount = qty * prc;
-
-    if (transactionType === "buy") {
-      if (account.currentBalance < totalAmount) {
-        alert("잔액이 부족합니다.");
-        return;
+    // 종목 이름 가져오기
+    let stockName = selectedStockName || selectedSymbol;
+    try {
+      const response = await fetch(`/api/stock/${selectedSymbol}/detail`);
+      if (response.ok) {
+        const data = await response.json();
+        stockName = data.name || stockName;
       }
+    } catch {
+      // 이름 가져오기 실패 시 기존 이름 유지
+    }
 
-      // 종목 이름 가져오기
-      let stockName = selectedSymbol;
-      try {
-        const response = await fetch(`/api/stock/${selectedSymbol}/detail`);
-        if (response.ok) {
-          const data = await response.json();
-          stockName = data.name || selectedSymbol;
-        }
-      } catch (error) {
-        console.error("Failed to fetch stock name:", error);
-      }
-
-      // 매수 처리
-      updateHolding(accountId, selectedSymbol, qty, prc, stockName);
-      updateAccount({
-        ...account,
-        currentBalance: account.currentBalance - totalAmount,
-      });
-
-      addTransaction({
-        accountId,
-        type: "buy",
-        symbol: selectedSymbol,
-        name: stockName,
-        quantity: qty,
-        price: prc,
-        totalAmount,
-      });
-    } else {
-      // 매도 처리
-      const holding = holdings.find((h) => h.symbol === selectedSymbol);
-      if (!holding || holding.quantity < qty) {
-        alert("보유 수량이 부족합니다.");
-        return;
-      }
-
-      // 종목 이름 가져오기
-      let stockName = holding.name;
-      try {
-        const response = await fetch(`/api/stock/${selectedSymbol}/detail`);
-        if (response.ok) {
-          const data = await response.json();
-          stockName = data.name || holding.name;
-        }
-      } catch (error) {
-        console.error("Failed to fetch stock name:", error);
-      }
-
-      updateHolding(accountId, selectedSymbol, -qty, prc, stockName);
-      updateAccount({
-        ...account,
-        currentBalance: account.currentBalance + totalAmount,
-      });
-
-      addTransaction({
-        accountId,
-        type: "sell",
-        symbol: selectedSymbol,
-        name: holding.name,
-        quantity: qty,
-        price: prc,
-        totalAmount,
-      });
+    const result = await executeTrade(accountId, transactionType, selectedSymbol, stockName, qty, prc);
+    if (!result.success) {
+      alert(result.error ?? "거래에 실패했습니다.");
+      return;
     }
 
     setSelectedSymbol("");
     setQuantity("");
     setPrice("");
     setSelectedOrderPrice(undefined);
-    loadAccountData();
-    
-    // 거래 후 보유 종목 리스트로 돌아가기
+    await loadAccountData();
+
     if (transactionType === "buy") {
       setShowOrderPage(false);
       const url = new URL(window.location.href);

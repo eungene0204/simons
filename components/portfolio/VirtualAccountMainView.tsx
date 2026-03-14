@@ -2,11 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { VirtualAccount, PortfolioHolding } from "@/types/portfolio";
-import {
-  getAccount,
-  getHoldingsByAccount,
-  refreshAccountValue,
-} from "@/lib/portfolio";
+import { refreshAccountValue } from "@/lib/portfolio";
 import { useDrawer } from "@/contexts/DrawerContext";
 import CandlestickChart from "@/components/stock/CandlestickChart";
 import { generateStockPriceData } from "@/lib/mock-stock-data";
@@ -24,36 +20,26 @@ export default function VirtualAccountMainView() {
   useEffect(() => {
     if (selectedAccountId) {
       loadAccountData();
-      // 주기적으로 계좌 정보 업데이트
-      const interval = setInterval(() => {
-        loadAccountData();
-      }, 3000);
+      const interval = setInterval(loadAccountData, 3000);
       return () => clearInterval(interval);
     } else {
       setAccount(null);
       setHoldings([]);
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAccountId]);
 
-  const loadAccountData = () => {
+  const loadAccountData = async () => {
     if (!selectedAccountId) return;
-    
     setLoading(true);
-    const acc = getAccount(selectedAccountId);
-    if (!acc) {
+    const result = await refreshAccountValue(selectedAccountId);
+    if (!result) {
       setLoading(false);
       return;
     }
-
-    refreshAccountValue(selectedAccountId);
-    const updatedAccount = getAccount(selectedAccountId);
-    if (updatedAccount) {
-      setAccount(updatedAccount);
-    }
-
-    const h = getHoldingsByAccount(selectedAccountId);
-    setHoldings(h);
+    setAccount(result.account);
+    setHoldings(result.holdings);
     setLoading(false);
   };
 

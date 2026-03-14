@@ -6,21 +6,31 @@ import numpy as np
 class DataLoader:
     def __init__(self, data_dir: str):
         self.data_dir = data_dir
+        self._cache: dict[str, pl.DataFrame] = {}
 
     def load_symbol_data(self, symbol: str) -> pl.DataFrame:
+        # Return cached data if available (avoids repeated parquet I/O during optimization)
+        if symbol in self._cache:
+            return self._cache[symbol]
+
         file_path = os.path.join(self.data_dir, f"{symbol}.parquet")
-        
+
         # --- Auto-Download Logic ---
         if not os.path.exists(file_path):
             print(f"[INFO] Data for {symbol} missing. Attempting automatic download...")
             from .data_fetcher import fetch_and_enrich
             success = fetch_and_enrich(symbol, self.data_dir)
             if not success:
-                # Fix 11: 하드코딩된 개발자 절대 경로 제거 — 이식성 확보
                 raise FileNotFoundError(f"Data for {symbol} not found and download failed.")
         # ----------------------------
-        
-        return pl.read_parquet(file_path)
+
+        df = pl.read_parquet(file_path)
+        self._cache[symbol] = df
+        return df
+
+    def clear_cache(self):
+        """Clear the in-memory data cache."""
+        self._cache.clear()
 
     def preprocess_data(self, df_pl: pl.DataFrame) -> pd.DataFrame:
         """OHLCV basic alignment and adjusting prices if needed."""

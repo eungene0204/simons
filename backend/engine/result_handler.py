@@ -316,6 +316,7 @@ class ResultHandler:
         res = {
             "symbols": processed_symbols,
             "totalReturn": cls.safe(pf.total_return()) * 100,
+            "totalProfit": cls.safe(pf.total_profit()),
             "cagr": cagr_val,
             "buyAndHoldReturn": cls.safe(bench_total_return) * 100,
             "maxDrawdown": cls.safe(pf.max_drawdown()) * 100,
