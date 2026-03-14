@@ -6,62 +6,38 @@ export class BacktestService {
 
   async run(strategy: StrategyDSL, options: BacktestConfigOptions): Promise<BacktestResult> {
     const serviceId = Math.random().toString(36).substr(2, 5);
-    console.error(`[DEBUG-SVC] BacktestService.run START (ID: ${serviceId})`, {
-      strategyId: strategy.id,
-      period: options.period
-    });
+
     // 1. Identify required symbols
     const symbols = await UniverseResolver.getSymbols(
-      strategy.universe.id, 
+      strategy.universe.id,
       strategy.universe.filters
     );
-
-    console.error(`[DEBUG] BacktestService: Universe ${strategy.universe.id} resolved to ${symbols.length} symbols.`);
-    if (symbols.length > 0) {
-      console.error(`[DEBUG] Sample symbols: ${symbols.slice(0, 5).join(", ")}...`);
-    }
 
     if (symbols.length === 0) {
       throw new Error("No symbols found in selected universe");
     }
 
     const requestBody = {
-          symbols,
-          entry: strategy.entry,
-          exit: strategy.exit,
-          risk: {
-            ...strategy.risk,
-            init_cash: options.initialCapital
-          },
-          period: options.period,
-          options: {
-            fee_rate: options.commissionPct / 100,
-            slippage_rate: options.slippagePct / 100,
-            execution_type: strategy.risk?.execution_timing || "next_open"
-          }
-        };
-
-    console.error(`[DEBUG-SVC] (ID: ${serviceId}) FULL REQUEST PAYLOAD:`, JSON.stringify(requestBody, null, 2));
-    console.error("[DEBUG] BacktestService: Fetching http://localhost:8000/backtest with body:", JSON.stringify(requestBody, null, 2));
+      symbols,
+      entry: strategy.entry,
+      exit: strategy.exit,
+      risk: {
+        ...strategy.risk,
+        init_cash: options.initialCapital
+      },
+      period: options.period,
+      options: {
+        fee_rate: options.commissionPct / 100,
+        slippage_rate: options.slippagePct / 100,
+        execution_type: strategy.risk?.execution_timing || "next_open"
+      }
+    };
 
     // 2. Call Python Microservice
     try {
-      const payloadString = JSON.stringify(requestBody);
-      let hash = 0;
-      for (let i = 0; i < payloadString.length; i++) {
-        const char = payloadString.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash = hash & hash;
-      }
-      const traceId = `req_${Math.abs(hash)}_${Date.now()}`;
-      console.error(`[DEBUG-SVC] SENDING FETCH to Python Engine (Trace ID: ${traceId})`);
-      
       const response = await fetch("http://localhost:8000/backtest", {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "X-Trace-Id": traceId
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
         cache: "no-store",
       });
@@ -83,13 +59,7 @@ export class BacktestService {
         throw new Error(errorMessage);
       }
 
-      console.error("[DEBUG] BacktestService: HTTP response received, status:", response.status);
       const pythonResult = await response.json();
-      
-      console.error("[DEBUG] BacktestService: Mapping complete. First 20 trades summary:");
-      pythonResult.signals.slice(0, 20).forEach((s: any, idx: number) => {
-        console.error(`  Trade ${idx}: Symbol=${s.symbol} Date=${s.date} Type=${s.type}`);
-      });
 
       // 3. Map Python Result to TS BacktestResult interface
       return {
@@ -147,10 +117,7 @@ export class BacktestService {
     }
   }
 
-  async optimize(strategy: StrategyDSL, options: BacktestConfigOptions, userPrompt: string, targetMetric: string = "cagr", ranges: Record<string, any[]>, nTrials: number = 50): Promise<any> {
-    const serviceId = Math.random().toString(36).substr(2, 5);
-    console.log(`[DEBUG-SVC] BacktestService.optimize START (ID: ${serviceId})`);
-    
+  async optimize(strategy: StrategyDSL, options: BacktestConfigOptions, userPrompt: string, targetMetric: string = "cagr", ranges: Record<string, any>, nTrials: number = 50, signal?: AbortSignal): Promise<any> {
     // 1. Identify required symbols
     const symbols = await UniverseResolver.getSymbols(
       strategy.universe.id, 
@@ -191,6 +158,7 @@ export class BacktestService {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
         cache: "no-store",
+        signal,
       });
 
       if (!response.ok) {

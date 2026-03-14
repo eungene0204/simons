@@ -1,12 +1,17 @@
 "use client";
 
-import { useState } from "react";
-import { X } from "phosphor-react";
+import { useState, useEffect } from "react";
+import { X, CaretDown } from "phosphor-react";
+
+interface Strategy {
+  id: string;
+  name: string;
+}
 
 interface CreateAccountModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreate: (name: string, amount: number) => void;
+  onCreate: (name: string, amount: number, strategyId?: string, strategyName?: string) => void;
 }
 
 export default function CreateAccountModal({
@@ -17,8 +22,24 @@ export default function CreateAccountModal({
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
   const [error, setError] = useState("");
+  const [strategies, setStrategies] = useState<Strategy[]>([]);
+  const [selectedStrategyId, setSelectedStrategyId] = useState("");
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [loadingStrategies, setLoadingStrategies] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setLoadingStrategies(true);
+    fetch("/api/strategy")
+      .then((res) => res.ok ? res.json() : [])
+      .then((data: Strategy[]) => setStrategies(data))
+      .catch(() => setStrategies([]))
+      .finally(() => setLoadingStrategies(false));
+  }, [isOpen]);
 
   if (!isOpen) return null;
+
+  const selectedStrategy = strategies.find((s) => s.id === selectedStrategyId);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,7 +56,6 @@ export default function CreateAccountModal({
       return;
     }
 
-    // 만원 단위로 입력받고, 원 단위로 변환
     const amountInWon = amountNum * 10000;
 
     if (amountNum < 100) {
@@ -48,9 +68,15 @@ export default function CreateAccountModal({
       return;
     }
 
-    onCreate(name.trim(), amountInWon);
+    onCreate(
+      name.trim(),
+      amountInWon,
+      selectedStrategyId || undefined,
+      selectedStrategy?.name || undefined
+    );
     setName("");
     setAmount("");
+    setSelectedStrategyId("");
     onClose();
   };
 
@@ -115,6 +141,75 @@ export default function CreateAccountModal({
             </p>
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              전략 선택 <span className="text-gray-400 font-normal">(선택사항)</span>
+            </label>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsDropdownOpen((prev) => !prev)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <span
+                  className={
+                    selectedStrategy
+                      ? "text-gray-900 dark:text-white text-sm"
+                      : "text-gray-400 dark:text-gray-500 text-sm"
+                  }
+                >
+                  {loadingStrategies
+                    ? "로딩 중..."
+                    : selectedStrategy
+                    ? selectedStrategy.name
+                    : "전략을 선택하세요"}
+                </span>
+                <CaretDown
+                  size={16}
+                  className={`text-gray-400 transition-transform ${isDropdownOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+
+              {isDropdownOpen && (
+                <div className="absolute z-10 mt-1 w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedStrategyId("");
+                      setIsDropdownOpen(false);
+                    }}
+                    className="w-full px-3 py-2 text-left text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-600"
+                  >
+                    선택 안함
+                  </button>
+                  {strategies.length === 0 ? (
+                    <div className="px-3 py-2 text-sm text-gray-400 dark:text-gray-500">
+                      저장된 전략이 없습니다
+                    </div>
+                  ) : (
+                    strategies.map((strategy) => (
+                      <button
+                        key={strategy.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedStrategyId(strategy.id);
+                          setIsDropdownOpen(false);
+                        }}
+                        className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-600 ${
+                          selectedStrategyId === strategy.id
+                            ? "text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20"
+                            : "text-gray-900 dark:text-white"
+                        }`}
+                      >
+                        {strategy.name}
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
           {error && (
             <div className="p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
               <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
@@ -141,4 +236,3 @@ export default function CreateAccountModal({
     </div>
   );
 }
-

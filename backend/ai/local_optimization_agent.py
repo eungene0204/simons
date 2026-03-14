@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from engine.optuna_optimizer import OptunaOptimizer
 
 class LocalOptimizationAgent:
@@ -9,68 +9,137 @@ class LocalOptimizationAgent:
         self.engine = engine
         self.optimizer = OptunaOptimizer(engine)
 
-    def write_report(self, user_prompt: str, best_params: Dict[str, Any], top_results: List[Dict[str, Any]], target_metric: str, importances: Dict[str, float], total_trials: int) -> str:
-        """
-        Generates a human-readable markdown report explaining the optimization results 
-        programmatically without relying on an external LLM.
-        """
-        importances_md = "해당 최적화에서 영향력이 분석된 주요 변수들은 다음과 같습니다:"
-        if importances:
-            sorted_imp = sorted(importances.items(), key=lambda item: item[1], reverse=True)
-            for k, v in sorted_imp:
-                # Format key for readability
-                display_key = k.split('.')[-1].replace('_', ' ').capitalize()
-                importances_md += f"\n- **{display_key}**: {v*100:.1f}% 기여도"
-        else:
-            importances_md = "변수 기여도를 분석하기에는 시도 횟수(Trials)가 부족하거나 결과들의 분산이 작았습니다."
+    # Mapping for parameter names to Korean
+    PARAM_MAP = {
+        "shortMA": "단기 이평선", "longMA": "장기 이평선",
+        "crossType": "교차 종류", "signalType": "신호 구분",
+        "period": "기간", "value": "기준값",
+        "operator": "비교 연산자", "threshold": "임계값",
+        "fastPeriod": "단기 지수이평", "slowPeriod": "장기 지수이평",
+        "signalPeriod": "시그널 기간", "stdDev": "표준편차 배수",
+        "lookbackPeriod": "기준 기간", "stopLossPct": "손절 기준",
+        "takeProfitPct": "익절 기준", "percentage": "하락률",
+        "investorType": "투자 주체"
+    }
+    VALUE_MAP = {
+        "golden": "골든크로스", "dead": "데드크로스",
+        "buy": "매수", "sell": "매도",
+        "above": "이상", "below": "이하",
+        "institutional": "기관", "foreigner": "외국인", "individual": "개인"
+    }
+    METRIC_KR = {
+        "cagr": "연평균 수익률", "winRate": "승률", "sharpe": "샤프 지수",
+        "profitFactor": "손익비", "maxDrawdown": "최대 낙폭",
+        "totalReturn": "총 수익률", "totalProfit": "총 수익"
+    }
 
+    def _display_param(self, key: str) -> str:
+        return self.PARAM_MAP.get(key, key.replace('_', ' ').capitalize())
+
+    def _display_value(self, v: Any) -> str:
+        if isinstance(v, str):
+            return self.VALUE_MAP.get(v, v)
+        return str(v)
+
+    def write_report(self, best_params: Dict[str, Any], top_results: List[Dict[str, Any]], target_metric: str, importances: Dict[str, float], total_trials: int, walk_forward: Optional[Dict[str, Any]] = None) -> str:
         if not top_results:
             return "최적화 결과가 없습니다. 모든 시뮬레이션이 실패했을 수 있습니다."
 
-        best_metrics = top_results[0]["metrics"]
-        win_rate = (best_metrics.get("winRate") or 0) * 100
-        cagr = best_metrics.get("cagr") or 0
-        mdd = best_metrics.get("maxDrawdown") or 0
-        trades = best_metrics.get("trades") or 0
+        m = top_results[0]["metrics"]
+        metric_name = self.METRIC_KR.get(target_metric, target_metric)
 
-        # Mapping target metric backend name to readable string
-        metric_kr = {
-            "cagr": "연평균 수익률 (CAGR)",
-            "winRate": "승률 (Win Rate)",
-            "sharpe": "샤프 지수 (Sharpe Ratio)",
-            "profitFactor": "수익 팩터 (Profit Factor)",
-            "maxDrawdown": "최대 낙폭 (MDD)",
-            "totalReturn": "총 수익률 (Total Return)"
-        }.get(target_metric, target_metric)
+        # ── 1. 요약 ──
+        report = f"### 최적화 결과\n\n"
+        report += f"**{metric_name}** 기준으로 총 **{total_trials}회** 시뮬레이션한 결과입니다.\n\n"
 
-        report = f"""
-### 로컬 ML 최적화 결과 보고서
-
-**1. 최적화 개요**
-* 설정하신 목표 지표인 **{metric_kr}** 기준으로 총 **{total_trials}개의 경우의 수**를 베이지안 튜닝(Optuna) 방식으로 시뮬레이션 하였습니다.
-* 사용자 분석 목표: "{user_prompt}"
-
-**2. 찾아낸 최적의 파라미터 셋**
-가장 우수한 성능을 보여준 파라미터 조합은 다음과 같습니다:
-"""
+        # ── 2. 최적 설정값 (표) ──
+        report += "#### 최적 설정값\n\n"
+        report += "| 항목 | 값 |\n|------|----|\n"
         for k, v in best_params.items():
-            display_key = k.split('.')[-1].replace('_', ' ').capitalize()
-            report += f"* **{display_key}**: `{v}`\n"
+            key = k.split('.')[-1]
+            report += f"| {self._display_param(key)} | {self._display_value(v)} |\n"
+
+        # ── 3. 성과 요약 (표) ──
+        cagr = m.get("cagr") or 0
+        total_return = m.get("totalReturn") or 0
+        total_profit = m.get("totalProfit") or 0
+        mdd = m.get("maxDrawdown") or 0
+        pf = m.get("profitFactor") or 0
+        wr = m.get("winRate") or 0
+        trades = m.get("trades") or 0
 
         report += f"""
-**3. 최적 파라미터 하의 핵심 성과 (Top 1)**
-* **{metric_kr}**: 최고 수준 달성
-* **연환산 수익률 (CAGR)**: {cagr:.2f}%
-* **승률 (Win Rate)**: {win_rate:.1f}%
-* **최대 낙폭 (MDD)**: {mdd:.2f}%
-* **총 매매 횟수**: {trades}회
+#### 성과 요약
 
-**4. 파라미터 중요도 (Optuna Importances)**
-{importances_md}
+| 지표 | 결과 |
+|------|------|
+| 연평균 수익률 | {cagr:.2f}% |
+| 총 수익률 | {total_return:.2f}% |
+| 총 수익 | {total_profit:,.0f}원 |
+| 최대 낙폭 | {mdd:.2f}% |
+| 손익비 | {pf:.2f} |
+| 승률 | {wr:.1f}% |
+| 매매 횟수 | {trades}회 |
+"""
 
-**5. 시스템 분석 요약**
-이 조합은 머신러닝 모델(Optuna의 TPE 샘플러)이 {total_trials}번의 탐색적 백테스트 끝에 발견한 지역 최적점(Local Optima)입니다.
-발견된 파라미터는 백테스트 기간 내에서 {metric_kr}를 극대화하는 성질을 가집니다. 다만 특정 기간에 과최적화(Overfitting) 되었을 가능성도 존재하므로 실제 적용 전 다양한 시장 국면에서의 추가 검증(Forward Testing)을 권장합니다.
+        # ── 4. 설정값 영향도 ──
+        if importances:
+            report += "\n#### 설정값 영향도\n\n"
+            report += "| 설정값 | 영향도 |\n|--------|--------|\n"
+            sorted_imp = sorted(importances.items(), key=lambda x: x[1], reverse=True)
+            for k, v in sorted_imp:
+                key = k.split('.')[-1]
+                report += f"| {self._display_param(key)} | {v*100:.1f}% |\n"
+
+        # ── 5. 과적합 검증 ──
+        if walk_forward:
+            full_m = walk_forward.get("full_metrics", {})
+            oos_m = walk_forward.get("oos_metrics", {})
+            oos_period = walk_forward.get("oos_period", "")
+
+            full_cagr = full_m.get("cagr") or 0
+            oos_cagr = oos_m.get("cagr") or 0
+            oos_trades = oos_m.get("trades") or 0
+
+            cagr_degradation = 0
+            if full_cagr > 0 and oos_cagr < full_cagr:
+                cagr_degradation = (1 - oos_cagr / full_cagr) * 100
+
+            if oos_trades == 0:
+                emoji, verdict = "🔴", "위험"
+                msg = "검증 구간에서 매매가 한 건도 없습니다. **이 설정값은 특정 기간에서만 우연히 작동한 조합**일 가능성이 매우 높습니다."
+            elif cagr_degradation > 70:
+                emoji, verdict = "🔴", "위험"
+                msg = f"최근 구간 수익률이 **{cagr_degradation:.0f}% 하락**했습니다. 실전 적용을 권장하지 않습니다."
+            elif cagr_degradation > 40:
+                emoji, verdict = "🟡", "주의"
+                msg = f"최근 구간 수익률이 **{cagr_degradation:.0f}% 하락**했습니다. 추가 검증이 필요합니다."
+            else:
+                emoji, verdict = "🟢", "양호"
+                msg = "최근 구간에서도 비슷한 성과를 보여 신뢰도가 높습니다."
+
+            report += f"""
+#### 실전 신뢰도 검증 {emoji} {verdict}
+
+최적 설정값이 **최근 데이터(후반 30%, {oos_period})** 에서도 통하는지 검증한 결과입니다.
+
+| 지표 | 전체 기간 | 최근 검증 구간 |
+|------|:---------:|:-------------:|
+| 연평균 수익률 | {full_cagr:.2f}% | {oos_cagr:.2f}% |
+| 최대 낙폭 | {(full_m.get("maxDrawdown") or 0):.2f}% | {(oos_m.get("maxDrawdown") or 0):.2f}% |
+| 손익비 | {(full_m.get("profitFactor") or 0):.2f} | {(oos_m.get("profitFactor") or 0):.2f} |
+| 승률 | {(full_m.get("winRate") or 0):.1f}% | {(oos_m.get("winRate") or 0):.1f}% |
+| 매매 횟수 | {(full_m.get("trades") or 0)}회 | {oos_trades}회 |
+
+{msg}
+"""
+        else:
+            report += "\n#### 실전 신뢰도 검증\n\n데이터가 부족하여 검증을 수행하지 못했습니다.\n"
+
+        # ── 6. 주의사항 ──
+        report += f"""
+---
+*{total_trials}회 시뮬레이션으로 찾은 결과이며, 과거 성과가 미래 수익을 보장하지 않습니다. 실전 적용 전 다양한 기간에서 추가 테스트를 권장합니다.*
 """
         return report.strip()
 
@@ -78,31 +147,31 @@ class LocalOptimizationAgent:
         """
         The main orchestration method replacing the LLM API loop.
         """
-        print(f"[LocalOptimizationAgent] 1. Receiving search space directly from UI for target: '{target_metric}'")
-        
+        print(f"[LocalOptimizationAgent] 1. Receiving search space for target: '{target_metric}', prompt: '{user_prompt}'")
+
         if not ranges:
             return {
                 "status": "error",
                 "message": "No parameter ranges were submitted for optimization.",
                 "ranges_attempted": ranges
             }
-            
+
         print(f"[LocalOptimizationAgent] 2. Running ML Optimizer for {n_trials} trials...")
         opt_results = self.optimizer.optimize(base_request, ranges, target_metric=target_metric, n_trials=n_trials)
-        
+
         if opt_results.get("status") == "error":
             return opt_results
 
         print(f"[LocalOptimizationAgent] 3. Writing Text Report Locally...")
         report = self.write_report(
-            user_prompt=user_prompt,
             best_params=opt_results.get("best_parameters", {}),
             top_results=opt_results.get("top_results", []),
             target_metric=target_metric,
             importances=opt_results.get("param_importances", {}),
-            total_trials=opt_results.get("total_iterations", n_trials)
+            total_trials=opt_results.get("total_iterations", n_trials),
+            walk_forward=opt_results.get("walk_forward")
         )
-        
+
         return {
             "status": "success",
             "tested_ranges": ranges,

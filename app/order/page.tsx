@@ -24,11 +24,9 @@ import { useDrawer } from "@/contexts/DrawerContext";
 import {
   getAllAccounts,
   getAccount,
-  refreshAccountValue,
-  updateHolding,
-  addTransaction,
-  updateAccount,
+  executeTrade,
   getHoldingsByAccount,
+  refreshAccountValue,
 } from "@/lib/portfolio";
 import type { VirtualAccount } from "@/types/portfolio";
 
@@ -82,66 +80,44 @@ export default function OrderPage() {
 
   // 가상계좌 목록 로드 및 주기적 업데이트
   useEffect(() => {
-    const loadAccounts = () => {
-      const accounts = getAllAccounts();
-      accounts.forEach((account) => {
-        refreshAccountValue(account.id);
-      });
-      const updatedAccounts = getAllAccounts();
-
-      // 이전 계좌 목록과 비교하여 실제로 변경된 경우에만 업데이트
+    const loadAccounts = async () => {
+      const updatedAccounts = await getAllAccounts();
       setVirtualAccounts((prevAccounts) => {
-        // 계좌 개수가 다르면 업데이트
-        if (prevAccounts.length !== updatedAccounts.length) {
-          return updatedAccounts;
-        }
-
-        // ID 기반으로 계좌를 매핑하여 비교
+        if (prevAccounts.length !== updatedAccounts.length) return updatedAccounts;
         const prevMap = new Map(prevAccounts.map((acc) => [acc.id, acc]));
         const hasChanged = updatedAccounts.some((current) => {
           const prev = prevMap.get(current.id);
-          if (!prev) return true; // 새 계좌가 추가됨
-
-          // 잔액이나 총 자산이 변경되었는지 확인 (이름 변경은 무시)
+          if (!prev) return true;
           return (
             prev.currentBalance !== current.currentBalance ||
             prev.totalValue !== current.totalValue
           );
         });
-
         return hasChanged ? updatedAccounts : prevAccounts;
       });
     };
 
-    // 초기 로드
     loadAccounts();
-
-    // 주기적으로 업데이트 (3초마다)
     const interval = setInterval(loadAccounts, 3000);
-
     return () => clearInterval(interval);
-  }, []); // 초기 로드 시 한 번만 실행
+  }, []);
 
   // 초기 로드 시 기본 계좌 선택
   useEffect(() => {
     if (!selectedAccountId) {
-      const accounts = getAllAccounts();
-      if (accounts.length > 0) {
-        setSelectedAccountId(accounts[0].id);
-      }
+      getAllAccounts().then((accounts) => {
+        if (accounts.length > 0) setSelectedAccountId(accounts[0].id);
+      });
     }
-  }, []); // 초기 로드 시 한 번만 실행
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 선택된 계좌 변경 시 잔액 업데이트
   useEffect(() => {
     if (selectedAccountId) {
-      const account = getAccount(selectedAccountId);
-      if (account) {
-        // 잔액만 즉시 업데이트 (refreshAccountValue는 loadAccounts에서 처리)
-        setAvailableAmount(account.currentBalance);
-      } else {
-        setAvailableAmount(0);
-      }
+      getAccount(selectedAccountId).then((account) => {
+        setAvailableAmount(account ? account.currentBalance : 0);
+      });
     } else {
       setAvailableAmount(0);
     }
@@ -187,143 +163,49 @@ export default function OrderPage() {
 
   // 매수/매도 주문 처리
   const handleOrder = async () => {
-    if (!selectedAccountId) {
-      alert("가상계좌를 선택해주세요.");
-      return;
-    }
-
-    if (!symbol) {
-      alert("종목을 선택해주세요.");
-      return;
-    }
-
-    if (!quantity || !price) {
-      alert("수량과 가격을 입력해주세요.");
-      return;
-    }
-
-    const account = getAccount(selectedAccountId);
-    if (!account) {
-      alert("계좌를 찾을 수 없습니다.");
-      return;
-    }
+    if (!selectedAccountId) { alert("가상계좌를 선택해주세요."); return; }
+    if (!symbol) { alert("종목을 선택해주세요."); return; }
+    if (!quantity || !price) { alert("수량과 가격을 입력해주세요."); return; }
 
     const qty = parseInt(quantity);
     const prc = parseFloat(price);
-
     if (isNaN(qty) || qty <= 0 || isNaN(prc) || prc <= 0) {
       alert("올바른 수량과 가격을 입력해주세요.");
       return;
     }
 
-    const totalAmount = qty * prc;
-
-    if (transactionType === "buy") {
-      if (account.currentBalance < totalAmount) {
-        alert("잔액이 부족합니다.");
-        return;
-      }
-
-      // 종목 이름 가져오기
-      let stockName = selectedStockName || symbol;
-      try {
-        const response = await fetch(`/api/stock/${symbol}/detail`);
-        if (response.ok) {
-          const data = await response.json();
-          stockName = data.name || selectedStockName || symbol;
-        }
-      } catch (error) {
-        console.error("Failed to fetch stock name:", error);
-      }
-
-      // 매수 처리
-      updateHolding(selectedAccountId, symbol, qty, prc, stockName);
-      updateAccount({
-        ...account,
-        currentBalance: account.currentBalance - totalAmount,
-      });
-
-      addTransaction({
-        accountId: selectedAccountId,
-        type: "buy",
-        symbol: symbol,
-        name: stockName,
-        quantity: qty,
-        price: prc,
-        totalAmount,
-      });
-
-      // 계좌 정보 업데이트
-      refreshAccountValue(selectedAccountId);
-      const updatedAccount = getAccount(selectedAccountId);
-      if (updatedAccount) {
-        setAvailableAmount(updatedAccount.currentBalance);
-      }
-
-      // 가상계좌 목록 업데이트
-      const updatedAccounts = getAllAccounts();
-      setVirtualAccounts(updatedAccounts);
-
-      alert(
-        `매수가 완료되었습니다.\n종목: ${stockName}\n수량: ${qty}주\n가격: ${formatPrice(
-          prc
-        )}원\n총액: ${formatPrice(totalAmount)}원`
-      );
-
-      // 폼 초기화
-      setQuantity("");
-    } else if (transactionType === "sell") {
-      // 매도 처리
-      const holdings = getHoldingsByAccount(selectedAccountId);
-      const holding = holdings.find((h) => h.symbol === symbol);
-
-      if (!holding || holding.quantity < qty) {
-        alert("보유 수량이 부족합니다.");
-        return;
-      }
-
-      // 종목 이름 가져오기
-      let stockName = holding.name || selectedStockName || symbol;
-
-      updateHolding(selectedAccountId, symbol, -qty, prc, stockName);
-      updateAccount({
-        ...account,
-        currentBalance: account.currentBalance + totalAmount,
-      });
-
-      addTransaction({
-        accountId: selectedAccountId,
-        type: "sell",
-        symbol: symbol,
-        name: stockName,
-        quantity: qty,
-        price: prc,
-        totalAmount,
-      });
-
-      // 계좌 정보 업데이트
-      refreshAccountValue(selectedAccountId);
-      const updatedAccount = getAccount(selectedAccountId);
-      if (updatedAccount) {
-        setAvailableAmount(updatedAccount.currentBalance);
-      }
-
-      // 가상계좌 목록 업데이트
-      const updatedAccounts = getAllAccounts();
-      setVirtualAccounts(updatedAccounts);
-
-      alert(
-        `매도가 완료되었습니다.\n종목: ${stockName}\n수량: ${qty}주\n가격: ${formatPrice(
-          prc
-        )}원\n총액: ${formatPrice(totalAmount)}원`
-      );
-
-      // 폼 초기화
-      setQuantity("");
-    } else {
-      // 대기 주문 (아직 구현되지 않음)
+    if (transactionType !== "buy" && transactionType !== "sell") {
       alert("대기 주문 기능은 아직 구현되지 않았습니다.");
+      return;
     }
+
+    // 종목 이름 확정
+    let stockName = selectedStockName || symbol;
+    try {
+      const res = await fetch(`/api/stock/${symbol}/detail`);
+      if (res.ok) {
+        const data = await res.json();
+        stockName = data.name || stockName;
+      }
+    } catch { /* 이름 가져오기 실패 시 기존 이름 유지 */ }
+
+    const result = await executeTrade(selectedAccountId, transactionType, symbol, stockName, qty, prc);
+    if (!result.success) {
+      alert(result.error ?? "거래에 실패했습니다.");
+      return;
+    }
+
+    // 계좌 잔액 갱신
+    const updatedAccount = await getAccount(selectedAccountId);
+    if (updatedAccount) setAvailableAmount(updatedAccount.currentBalance);
+    const updatedAccounts = await getAllAccounts();
+    setVirtualAccounts(updatedAccounts);
+
+    const action = transactionType === "buy" ? "매수" : "매도";
+    alert(
+      `${action}가 완료되었습니다.\n종목: ${stockName}\n수량: ${qty}주\n가격: ${formatPrice(prc)}원\n총액: ${formatPrice(qty * prc)}원`
+    );
+    setQuantity("");
   };
 
   // URL 파라미터에서 name이 변경될 때 selectedStockName 업데이트

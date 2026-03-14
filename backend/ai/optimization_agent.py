@@ -6,7 +6,7 @@ from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 # Core Optimizer
-from engine.optimizer import StrategyOptimizer, generate_permutations
+from engine.grid_optimizer import StrategyOptimizer, generate_permutations
 
 class OptimizationAgent:
     def __init__(self, engine, model_name="gpt-4o", gemini_model_name="gemini-2.5-flash"):

@@ -88,8 +88,9 @@ class StrategyOptimizer:
                     "parameters": perm,
                     "metrics": {
                         "cagr": res.get("cagr"),
-                        "mdd": res.get("maxDrawdown"),
-                        "winRate": res.get("winRate"),
+                        "maxDrawdown": res.get("maxDrawdown") or res.get("mdd"),
+                        "totalProfit": res.get("totalProfit"),
+                        "totalReturn": res.get("totalReturn"),
                         "profitFactor": res.get("profitFactor"),
                         "sharpe": res.get("sharpe"),
                         "trades": res.get("trades")
@@ -108,7 +109,7 @@ class StrategyOptimizer:
 
         # Sort results by the target metric descending (assuming higher is better, except for perhaps MDD)
         # Standardize sorting: higher is better for returns, win rate, sharpe. Lower is better for MDD.
-        reverse_sort = target_metric != "maxDrawdown"
+        reverse_sort = target_metric not in ["maxDrawdown", "mdd"]
         
         results.sort(key=lambda x: x.get("target_value", -999999.0) if reverse_sort else x.get("target_value", 999999.0), reverse=reverse_sort)
         
