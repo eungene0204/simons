@@ -27,7 +27,7 @@ recent_executions = {}
 EXECUTION_CACHE_TTL = 2  # seconds — 더블클릭 방지만, 의도적 재실행은 허용
 
 @app.post("/backtest", response_model=BacktestResponse)
-async def run_backtest(http_req: Request, request: BacktestRequest):
+def run_backtest(http_req: Request, request: BacktestRequest):
     trace_id = http_req.headers.get("x-trace-id")
     current_time = time.time()
     
@@ -66,7 +66,7 @@ async def run_backtest(http_req: Request, request: BacktestRequest):
         raise HTTPException(status_code=500, detail=f"Engine error: {str(e)}")
 
 @app.post("/optimize", response_model=OptimizationResponse)
-async def optimize_strategy(request: OptimizationRequest):
+def optimize_strategy(request: OptimizationRequest):
     print(f"\n[DEBUG] BACKEND: Received optimize request. Goal: {request.user_prompt}", flush=True)
     try:
         from ai.local_optimization_agent import LocalOptimizationAgent

@@ -26,7 +26,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import XAIModal from "./XAIModal";
 
-const processedExecutionIds = new Set<string>(); // Global Set to prevent re-saves across unmounts
+const processedExecutionIds = new Set<string>();
 
 interface BacktestDashboardProps {
   result: BacktestResult;
@@ -82,133 +82,77 @@ export default function BacktestDashboard({
   const lastProcessedResultRef = useRef<string | null>(null);
   const isSavingRef = useRef(false);
 
-  // Load and update history
+  // Load and save history
   useEffect(() => {
-    console.error("[DEBUG-SAVE] useEffect TRIGGERED", { 
-      executionId: result?.executionId,
-      strategyName: strategySummary?.strategyName,
-      isRunning 
-    });
-    const fetchHistory = async () => {
-      // Create a unique identifier for this result + summary combination
-      const currentResultId = result && strategySummary 
-        ? `${result.totalReturn}-${result.trades}-${strategySummary.strategyName}-${JSON.stringify(strategySummary.blockNames)}`
-        : null;
+    if (isRunning || !result) return;
 
-      console.error("[DEBUG-SAVE] inside fetchHistory", {
-        hasResult: !!result,
-        resultId: currentResultId,
-        lastProcessed: lastProcessedResultRef.current,
-        isSaving: isSavingRef.current
-      });
+    // Idempotency: skip if this execution was already saved
+    if (result.executionId && processedExecutionIds.has(result.executionId)) return;
+    if (isSavingRef.current) return;
 
-      // 1. Prevent overlapping executions, double-processing, and invalid results
-      if (isSavingRef.current) {
-        console.error("[DEBUG-SAVE] Skipping: already in progress (LOCKED)");
-        return;
+    const saveHistory = async () => {
+      isSavingRef.current = true;
+      if (result.executionId) {
+        processedExecutionIds.add(result.executionId);
       }
 
-      // DO NOT SAVE if currently running or result is missing
-      if (isRunning || !result) {
-        console.error("[DEBUG-SAVE] Skipping: isRunning:", isRunning, "hasResult:", !!result);
-        return;
-      }
-
-      // Use executionId as the definitive check for this run
-      if (result.executionId && processedExecutionIds.has(result.executionId)) {
-        console.error("[DEBUG-SAVE] Skipping: Already processed this executionId:", result.executionId);
-        return;
-      }
-
-      // Fallback: also check the content-based ID if needed
-      if (currentResultId === lastProcessedResultRef.current) {
-        console.error("[DEBUG-SAVE] Skipping: Already processed this result content");
-        return;
-      }
-      
       try {
-        // LOCK
-        isSavingRef.current = true;
-        if (result.executionId) {
-          processedExecutionIds.add(result.executionId);
-        }
-
-        console.error("[DEBUG-SAVE] Fetching existing history...");
+        // Fetch existing history
         const response = await fetch("/api/backtest/history");
         if (response.ok) {
           const data = await response.json();
           setHistory(data);
+        }
 
-          if (strategySummary) {
-            console.error("[DEBUG-CRITICAL] Save process started. strategySummary:", strategySummary);
-
-            const newItemData = {
-              strategyName: strategySummary.strategyName || "이름 없는 전략",
-              universe: strategySummary.universeName,
-              conditions: {
-                entry: {
-                  logic: strategySummary.entryLogic || "AND",
-                  names: strategySummary.entryBlocks || []
-                },
-                exit: {
-                  logic: strategySummary.exitLogic || "AND",
-                  names: strategySummary.exitBlocks || []
-                },
-                position: strategySummary.positionText,
-                risk: strategySummary.riskText
+        // Save new result if strategy summary is available
+        if (strategySummary) {
+          const newItemData = {
+            strategyName: strategySummary.strategyName || "이름 없는 전략",
+            universe: strategySummary.universeName,
+            conditions: {
+              entry: {
+                logic: strategySummary.entryLogic || "AND",
+                names: strategySummary.entryBlocks || []
               },
-              metrics: {
-                totalReturn: result.totalReturn || 0,
-                cagr: result.cagr || 0,
-                mdd: result.maxDrawdown || 0,
-                winRate: result.winRate || 0,
-                profitFactor: result.profitFactor || 0,
-                buyHold: result.buyAndHoldReturn || 0,
-                trades: result.trades || 0,
-                executionTime: result.executionTime !== undefined ? result.executionTime : 0,
+              exit: {
+                logic: strategySummary.exitLogic || "AND",
+                names: strategySummary.exitBlocks || []
               },
-            };
+              position: strategySummary.positionText,
+              risk: strategySummary.riskText
+            },
+            metrics: {
+              totalReturn: result.totalReturn || 0,
+              cagr: result.cagr || 0,
+              mdd: result.maxDrawdown || 0,
+              winRate: result.winRate || 0,
+              profitFactor: result.profitFactor || 0,
+              buyHold: result.buyAndHoldReturn || 0,
+              trades: result.trades || 0,
+              executionTime: result.executionTime ?? 0,
+            },
+          };
 
-            // [FIX] Always save reruns even if metrics are identical, 
-            // since results are now deterministic, we WANT to see the record of the rerun.
-            const isDuplicate = false;
+          const saveResponse = await fetch("/api/backtest/history", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(newItemData),
+          });
 
-            if (!isDuplicate) {
-              console.error("[DEBUG-CRITICAL] PROCEEDING TO POST RECORD TO /api/backtest/history");
-              try {
-                const saveResponse = await fetch("/api/backtest/history", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify(newItemData),
-                });
-                
-                console.error("[DEBUG-CRITICAL] Save response status:", saveResponse.status);
-                const savedData = await saveResponse.json();
-                console.error("[DEBUG-CRITICAL] Saved data from server:", savedData);
-
-                if (saveResponse.ok) {
-                  setHistory(prev => [savedData, ...prev]);
-                  lastProcessedResultRef.current = result.executionId;
-                }
-              } catch (saveErr) {
-                console.error("[DEBUG-CRITICAL] FATAL ERROR DURING FETCH/POST:", saveErr);
-              }
-            } else {
-              // Even if it's a duplicate in the database, mark it as processed locally
-              lastProcessedResultRef.current = result.executionId;
-            }
+          if (saveResponse.ok) {
+            const savedData = await saveResponse.json();
+            setHistory(prev => [savedData, ...prev]);
+            lastProcessedResultRef.current = result.executionId;
           }
         }
       } catch (error) {
-        console.error("[DEBUG-SAVE] Failed to fetch/save backtest history:", error);
+        console.error("Failed to save backtest history:", error);
       } finally {
-        // ALWAYS unlock
         isSavingRef.current = false;
-        console.error("[DEBUG-SAVE] FINISHED and UNLOCKED");
       }
     };
 
-    fetchHistory();
+    saveHistory();
   }, [result, strategySummary]);
 
   useEffect(() => {
@@ -322,16 +266,6 @@ export default function BacktestDashboard({
   useEffect(() => {
     if (currentOptions) setLocalOptions(currentOptions);
   }, [currentOptions]);
-
-  useEffect(() => {
-    console.log("[DEBUG] BacktestDashboard: result received", {
-      totalReturn: result.totalReturn,
-      diff: result.finalEquity - result.initialCapital,
-      numTrades: result.trades,
-      numEquityPoints: result.equity.length,
-      sampleTrades: result.tradesList?.slice(0, 3)
-    });
-  }, [result]);
 
   const handleDeleteHistoryItem = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -724,8 +658,6 @@ export default function BacktestDashboard({
                       <tbody className="bg-[#0f0f0f]">
                           {result.tradesList.map((t, i) => {
                              const tradeAmount = t.amount || 0;
-                             if (i < 5) console.log(`[DEBUG] Rendering Trade Row ${i}: ${t.symbol} on ${t.date}`);
-                             
                              return (
                               <tr key={`${t.symbol}-${t.date}-${t.type}-${i}`} className="hover:bg-white/5 transition-colors">
                                  <td className="p-3 text-sm font-mono text-gray-400">{t.date}</td>

@@ -90,7 +90,7 @@ class OptimizationRequest(BaseModel):
     user_prompt: str
     target_metric: Optional[str] = "cagr"
     n_trials: Optional[int] = 50
-    ranges: Dict[str, List[Any]] # Explicit parameter search space from frontend
+    ranges: Dict[str, Any]  # {path: [values]} or {path: {type, min, max, step}}
 
 class OptimizationResultItem(BaseModel):
     iteration: int
@@ -103,7 +103,7 @@ class OptimizationResponse(BaseModel):
     message: Optional[str] = None
     target_metric: Optional[str] = None
     total_iterations: Optional[int] = 0
-    tested_ranges: Optional[Dict[str, List[Any]]] = None
+    tested_ranges: Optional[Dict[str, Any]] = None
     best_parameters: Optional[Dict[str, Any]] = None
     best_metrics: Optional[Dict[str, float]] = None
     top_results: Optional[List[OptimizationResultItem]] = None

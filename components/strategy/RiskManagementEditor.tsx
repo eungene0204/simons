@@ -1,7 +1,8 @@
 "use client";
 
+import { useMemo } from "react";
 import { RiskManagement } from "@/types/strategy";
-import { Info } from "phosphor-react";
+import { Info, Warning } from "phosphor-react";
 
 interface RiskManagementEditorProps {
   riskManagement: RiskManagement;
@@ -75,8 +76,37 @@ export default function RiskManagementEditor({
     );
   };
 
+  const warnings = useMemo(() => {
+    if (riskManagement.skip_risk_management) return [];
+    const w: string[] = [];
+    const sl = (riskManagement.stop_loss_pct as number) || 0;
+    const tp = (riskManagement.take_profit_pct as number) || 0;
+    const pos = (riskManagement.position_size_pct as number) || 0;
+    const cash = (riskManagement.min_cash_reserve_pct as number) || 0;
+
+    if (sl > 0 && tp > 0 && sl >= tp) {
+      w.push("손절매(%)가 익절매(%)보다 크거나 같으면 익절이 먼저 발동되지 않습니다.");
+    }
+    if (pos + cash > 100) {
+      w.push(`포지션 크기(${pos}%) + 현금 보유(${cash}%)가 100%를 초과합니다.`);
+    }
+    return w;
+  }, [riskManagement]);
+
   return (
     <div className="grid grid-cols-1 gap-12">
+      {/* Validation Warnings */}
+      {warnings.length > 0 && (
+        <div className="space-y-2">
+          {warnings.map((msg, i) => (
+            <div key={i} className="flex items-start gap-2.5 p-3.5 rounded-xl bg-amber-500/5 border border-amber-500/15">
+              <Warning className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" weight="fill" />
+              <span className="text-xs font-bold text-amber-300/80">{msg}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Capital Management */}
       <section className="relative">
         <div className="flex items-center gap-3 mb-8">

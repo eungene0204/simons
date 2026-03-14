@@ -442,7 +442,7 @@ export default function StrategyComposerV2({
     }
   }, [strategyName, universe, canvasBlocks, universeFilters, getResolvedRisk]);
 
-  const handleOptimize = async (prompt: string, targetMetric: string, nTrials: number = 50) => {
+  const handleOptimize = async (prompt: string, targetMetric: string, nTrials: number = 50, signal?: AbortSignal) => {
     try {
       const entryConditionsMap = canvasBlocks
         .filter(b => b.type === "entry" || b.type === "filter")
@@ -461,7 +461,7 @@ export default function StrategyComposerV2({
         }));
 
       // Generate localized search space ranges for Optuna
-      const ranges: Record<string, any[]> = {};
+      const ranges: Record<string, any> = {};
       
       canvasBlocks.forEach((block, index) => {
         let basePath = "";
@@ -473,35 +473,38 @@ export default function StrategyComposerV2({
           basePath = `exit.conditions.${arrIndex}.params`;
         }
         
-        const defBlock = Object.values(signalBlocks).find((sb: any) => sb.id === block.blockId);
-        if (defBlock) {
-          Object.keys(block.params).forEach(paramKey => {
-            const schema = defBlock.paramSchema[paramKey];
+        const defBlock = signalBlocks[block.blockId];
+        Object.keys(block.params).forEach(paramKey => {
             const currentVal = block.params[paramKey];
+            const schema = defBlock?.paramSchema?.[paramKey];
             
-            // Generate basic variations around the current value if it's a number
-            if (schema && schema.type === "number" && typeof currentVal === "number") {
-              const variations = new Set<number>();
-              variations.add(currentVal);
-              
-              const step = schema.step || 1;
-              const min = schema.min !== undefined ? schema.min : 0;
-              const max = schema.max !== undefined ? schema.max : 1000;
-              
-              // Add +- variations
-              if (currentVal - step * 2 >= min) variations.add(currentVal - step * 2);
-              if (currentVal - step >= min) variations.add(currentVal - step);
-              if (currentVal + step <= max) variations.add(currentVal + step);
-              if (currentVal + step * 2 <= max) variations.add(currentVal + step * 2);
-              
-              // Only optimize things that have meaningful variance
-              if (variations.size > 1) {
-                ranges[`${basePath}.${paramKey}`] = Array.from(variations).sort((a,b) => a-b);
+            // 1. Handle numeric parameters
+            if (typeof currentVal === "number") {
+              const step = schema?.step || 1;
+              const min = schema?.min !== undefined ? schema.min : (currentVal > 0 ? currentVal * 0.5 : currentVal - 10);
+              const max = schema?.max !== undefined ? schema.max : (currentVal > 0 ? currentVal * 1.5 : currentVal + 10);
+
+              if (max > min) {
+                ranges[`${basePath}.${paramKey}`] = { type: "number", min, max, step };
+              }
+            } 
+            // 2. Handle select parameters
+            else if (schema?.type === "select" && schema.options) {
+              const options = schema.options.map(o => o.value);
+              if (options.length > 1) {
+                ranges[`${basePath}.${paramKey}`] = options;
               }
             }
+            // 3. Handle boolean parameters
+            else if (typeof currentVal === "boolean" || schema?.type === "boolean") {
+              ranges[`${basePath}.${paramKey}`] = [true, false];
+            }
           });
-        }
       });
+
+      if (Object.keys(ranges).length === 0) {
+        throw new Error("최적화할 수 있는 변수가 없습니다. 블록의 설정을 확인해주세요.");
+      }
 
       const strategy: StrategyDSL = {
         id: initialStrategy?.id || "temp_opt",
@@ -517,7 +520,7 @@ export default function StrategyComposerV2({
       };
 
       const engine = new BacktestService();
-      return await engine.optimize(strategy, backtestOptions, prompt, targetMetric, ranges, nTrials);
+      return await engine.optimize(strategy, backtestOptions, prompt, targetMetric, ranges, nTrials, signal);
     } catch (error: any) {
       throw error;
     }

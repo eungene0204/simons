@@ -1,5 +1,5 @@
 import pytest
-from engine.optimizer import StrategyOptimizer, set_nested_value, generate_permutations
+from engine.grid_optimizer import StrategyOptimizer, set_nested_value, generate_permutations
 
 class DummyEngine:
     def __init__(self):

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { CircleNotch, Sparkle, WarningCircle, ArrowRight, X } from "phosphor-react";
 import ReactMarkdown from 'react-markdown';
 import { OptimizationResponse } from "@/types/strategy";
@@ -6,16 +6,17 @@ import { OptimizationResponse } from "@/types/strategy";
 interface StrategyOptimizerModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onOptimize: (prompt: string, targetMetric: string, nTrials?: number) => Promise<OptimizationResponse>;
+  onOptimize: (prompt: string, targetMetric: string, nTrials?: number, signal?: AbortSignal) => Promise<OptimizationResponse>;
   onApplyParameters: (parameters: Record<string, any>) => void;
 }
 
 export function StrategyOptimizerModal({ open, onOpenChange, onOptimize, onApplyParameters }: StrategyOptimizerModalProps) {
-  const [targetMetric, setTargetMetric] = useState("winRate");
+  const [targetMetric, setTargetMetric] = useState("cagr");
   const [nTrials, setNTrials] = useState(50);
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [result, setResult] = useState<OptimizationResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   if (!open) return null;
 
@@ -23,29 +24,32 @@ export function StrategyOptimizerModal({ open, onOpenChange, onOptimize, onApply
     setIsOptimizing(true);
     setError(null);
     setResult(null);
-    
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
-      // Pass a static prompt since it's now generated locally
-      const resp = await onOptimize("자동 생성된 범위 내에서 최고의 성과 도출", targetMetric, nTrials);
+      const resp = await onOptimize("자동 생성된 범위 내에서 최고의 성과 도출", targetMetric, nTrials, controller.signal);
       setResult(resp);
     } catch (err: any) {
-      setError(err.message || "최적화 중 오류가 발생했습니다.");
+      if (err.name === "AbortError") {
+        setError("최적화가 사용자에 의해 취소되었습니다.");
+      } else {
+        setError(err.message || "최적화 중 오류가 발생했습니다.");
+      }
     } finally {
+      abortRef.current = null;
       setIsOptimizing(false);
     }
   };
 
-  const flattenParams = (params: Record<string, any>) => {
-    const flattened: any[] = [];
-    for (const [key, value] of Object.entries(params)) {
-      const label = key.split('.').pop();
-      flattened.push({ key, label, value });
-    }
-    return flattened;
+  const handleCancel = () => {
+    abortRef.current?.abort();
   };
 
+
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md" onClick={() => !isOptimizing && onOpenChange(false)}>
+    <div className="fixed inset-0 z-[9999] flex items-start justify-center p-4 pt-32 bg-black/60 backdrop-blur-md" onClick={() => !isOptimizing && onOpenChange(false)}>
       <div 
         className="w-full max-w-3xl bg-[#161616] rounded-3xl shadow-2xl flex flex-col backdrop-blur-2xl border border-white/10 overflow-hidden max-h-[85vh]"
         onClick={(e) => e.stopPropagation()}
@@ -56,8 +60,7 @@ export function StrategyOptimizerModal({ open, onOpenChange, onOptimize, onApply
                 <Sparkle className="w-5 h-5 text-indigo-400" weight="fill" />
              </div>
              <div>
-               <h3 className="text-xl font-black text-white tracking-tight">로컬 ML 최적화 (Optuna)</h3>
-               <p className="text-white/40 text-xs mt-1">서버 자원을 활용하여 전략 파라미터 영역을 탐색하고 베이지안 튜닝을 수행합니다.</p>
+               <h3 className="text-xl font-black text-white tracking-tight">AI 최적화</h3>
              </div>
           </div>
           <button 
@@ -82,9 +85,9 @@ export function StrategyOptimizerModal({ open, onOpenChange, onOptimize, onApply
                   style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 16px center' }}
                 >
                   <option value="cagr" style={{ background: '#0d0d0d' }}>연평균 수익률 (CAGR)</option>
-                  <option value="winRate" style={{ background: '#0d0d0d' }}>승률 (Win Rate)</option>
-                  <option value="sharpe" style={{ background: '#0d0d0d' }}>샤프 지수 (Sharpe Ratio)</option>
-                  <option value="profitFactor" style={{ background: '#0d0d0d' }}>수익 팩터 (Profit Factor)</option>
+                  <option value="maxDrawdown" style={{ background: '#0d0d0d' }}>최대낙폭 (MDD)</option>
+                  <option value="profitFactor" style={{ background: '#0d0d0d' }}>손익비 (Profit Factor)</option>
+                  <option value="totalProfit" style={{ background: '#0d0d0d' }}>총 수익 (Total Profit)</option>
                   <option value="totalReturn" style={{ background: '#0d0d0d' }}>총 수익률 (Total Return)</option>
                 </select>
               </div>
@@ -114,9 +117,16 @@ export function StrategyOptimizerModal({ open, onOpenChange, onOptimize, onApply
             <div className="flex flex-col items-center justify-center py-16 space-y-5">
               <CircleNotch className="w-12 h-12 animate-spin text-indigo-500" weight="bold" />
               <div className="text-center space-y-2">
-                <h3 className="font-black text-lg text-white">머신러닝(Optuna) 모델이 최적 조합을 찾는 중입니다</h3>
-                <p className="text-sm text-white/40">목표 횟수({nTrials}회)만큼 로컬 백테스트를 수행하고 있습니다. 잠시만 기다려주세요.</p>
+                <h3 className="font-black text-lg text-white">최적의 설정값을 찾고 있습니다</h3>
+                <p className="text-sm text-white/40">총 {nTrials}가지 조합을 자동으로 테스트하고 있습니다. 잠시만 기다려주세요.</p>
               </div>
+              <button
+                type="button"
+                onClick={handleCancel}
+                className="mt-2 px-6 py-2.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 text-sm font-black uppercase tracking-widest transition-all border border-red-500/20"
+              >
+                최적화 중단
+              </button>
             </div>
           )}
 
@@ -131,51 +141,47 @@ export function StrategyOptimizerModal({ open, onOpenChange, onOptimize, onApply
           )}
 
           {result && !isOptimizing && (
-            <div className="space-y-8">
-              <div className="bg-black/40 border border-white/5 p-6 rounded-2xl">
-                <div className="prose prose-sm prose-invert max-w-none text-sm leading-relaxed prose-headings:font-black prose-p:text-white/70">
-                  <ReactMarkdown>{result.report || "AI 보고서 내용이 없습니다."}</ReactMarkdown>
-                </div>
-              </div>
+            <div className="space-y-5">
 
-              {result.best_parameters && (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between pb-2 border-b border-white/5">
-                    <h4 className="text-sm font-black text-white uppercase tracking-widest">찾아낸 최적 파라미터 조합</h4>
-                    <span className="text-[10px] font-black tracking-widest text-[#4B9FFF] bg-[#4B9FFF]/10 px-2 py-1 rounded-md uppercase">
-                      총 {result.total_iterations}회 시뮬레이션
-                    </span>
+              {/* 핵심 지표 — 가장 먼저 */}
+              {result.best_metrics && (
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-white/[0.04] border border-white/8 rounded-2xl p-4 text-center">
+                    <div className="text-[11px] font-bold text-white/40 mb-2 tracking-wide">총 수익</div>
+                    <div className="font-black text-lg text-white leading-none">{result.best_metrics.totalProfit?.toLocaleString()}<span className="text-sm font-medium text-white/50 ml-1">원</span></div>
                   </div>
-                  
-                  <div className="grid grid-cols-2 gap-3">
-                    {flattenParams(result.best_parameters).map((p, i) => (
-                      <div key={i} className="flex justify-between items-center bg-white/[0.03] border border-white/5 p-3 rounded-xl">
-                        <span className="text-xs font-black text-white/50 tracking-widest truncate mr-2" title={p.key}>{p.label.toUpperCase()}</span>
-                        <span className="font-mono font-medium text-white">{p.value}</span>
-                      </div>
-                    ))}
+                  <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-2xl p-4 text-center">
+                    <div className="text-[11px] font-bold text-indigo-400/60 mb-2 tracking-wide">CAGR</div>
+                    <div className="font-black text-2xl text-indigo-300 leading-none">{result.best_metrics.cagr?.toFixed(1)}<span className="text-sm font-medium ml-0.5">%</span></div>
                   </div>
-                  
-                  {result.best_metrics && (
-                    <div className="flex gap-4 mt-4 p-4 bg-green-500/5 text-green-400 rounded-xl justify-around border border-green-500/10">
-                      <div className="text-center">
-                        <div className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-1">승률</div>
-                        <div className="font-black text-xl">{(result.best_metrics.winRate * 100).toFixed(1)}%</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-1">CAGR</div>
-                        <div className="font-black text-xl">{result.best_metrics.cagr.toFixed(1)}%</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-1">최대 수익</div>
-                        <div className="font-black text-xl uppercase tracking-tighter">
-                          {targetMetric === 'winRate' ? 'WIN' : 'TOP'}
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                  <div className="bg-white/[0.04] border border-white/8 rounded-2xl p-4 text-center">
+                    <div className="text-[11px] font-bold text-white/40 mb-2 tracking-wide">최대 낙폭</div>
+                    <div className="font-black text-lg text-red-400 leading-none">-{result.best_metrics.maxDrawdown?.toFixed(1)}<span className="text-sm font-medium ml-0.5">%</span></div>
+                  </div>
                 </div>
               )}
+
+
+              {/* AI 분석 리포트 */}
+              {result.report && (
+                <div className="rounded-2xl border border-white/8 overflow-hidden">
+                  <div className="px-4 py-3 border-b border-white/5 bg-white/[0.02]">
+                    <span className="text-xs font-bold text-white/60 tracking-wide flex items-center gap-2">
+                      <Sparkle className="w-3.5 h-3.5 text-indigo-400" weight="fill" /> AI 분석 리포트
+                    </span>
+                  </div>
+                  <div className="p-5 prose prose-sm prose-invert max-w-none
+                    prose-headings:text-white prose-headings:font-bold prose-headings:text-sm prose-headings:mt-4 prose-headings:mb-2
+                    prose-p:text-white/60 prose-p:leading-relaxed prose-p:text-sm
+                    prose-strong:text-white prose-strong:font-semibold
+                    prose-li:text-white/60 prose-li:text-sm
+                    prose-ul:my-2 prose-ol:my-2
+                    [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                    <ReactMarkdown components={{ table: () => null, thead: () => null, tbody: () => null, tr: () => null, th: () => null, td: () => null }}>{result.report}</ReactMarkdown>
+                  </div>
+                </div>
+              )}
+
             </div>
           )}
         </div>

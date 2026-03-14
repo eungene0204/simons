@@ -6,6 +6,8 @@ export interface VirtualAccount {
   initialAmount: number; // 초기 투자금액 (단위: 원)
   currentBalance: number; // 현재 잔액 (단위: 원)
   totalValue: number; // 총 자산 가치 (현금 + 주식 가치)
+  strategyId?: string; // 연결된 전략 ID
+  strategyName?: string; // 연결된 전략 이름
   createdAt: string;
   updatedAt: string;
 }
