@@ -46,7 +46,7 @@ export default function VirtualAccountMainView() {
   if (!selectedAccountId) {
     return (
       <div className="p-6 text-center">
-        <p className="text-gray-500 dark:text-gray-400">
+        <p className="text-gray-400">
           가상계좌를 선택해주세요.
         </p>
       </div>
@@ -57,8 +57,8 @@ export default function VirtualAccountMainView() {
     return (
       <div className="p-6">
         <div className="animate-pulse space-y-4">
-          <div className="h-32 bg-gray-200 dark:bg-gray-700 rounded"></div>
-          <div className="h-64 bg-gray-200 dark:bg-gray-700 rounded"></div>
+          <div className="h-32 bg-[#252525] rounded"></div>
+          <div className="h-64 bg-[#252525] rounded"></div>
         </div>
       </div>
     );
@@ -84,45 +84,45 @@ export default function VirtualAccountMainView() {
   return (
     <div className="p-4 sm:p-6 space-y-6">
       {/* 계좌 정보 카드 */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+      <div className="bg-[#1a1a1a] rounded-lg p-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+          <h2 className="text-2xl font-bold text-white">
             {account.name}
           </h2>
-          <div className="text-sm text-gray-500 dark:text-gray-400">
+          <div className="text-sm text-gray-400">
             생성일: {new Date(account.createdAt).toLocaleDateString("ko-KR")}
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">
+            <div className="text-sm text-gray-400 mb-1">
               초기 투자금액
             </div>
-            <div className="text-xl font-semibold text-gray-900 dark:text-white">
+            <div className="text-xl font-semibold text-white">
               {formatPrice(account.initialAmount)}원
             </div>
           </div>
           <div>
-            <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">
+            <div className="text-sm text-gray-400 mb-1">
               현재 잔액
             </div>
-            <div className="text-xl font-semibold text-gray-900 dark:text-white">
+            <div className="text-xl font-semibold text-white">
               {formatPrice(account.currentBalance)}원
             </div>
           </div>
           <div>
-            <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">
+            <div className="text-sm text-gray-400 mb-1">
               총 자산 가치
             </div>
-            <div className="text-xl font-semibold text-gray-900 dark:text-white">
+            <div className="text-xl font-semibold text-white">
               {formatPrice(account.totalValue)}원
             </div>
             <div
               className={`text-sm mt-1 ${
                 isPositive
-                  ? "text-orange-500 dark:text-orange-400"
-                  : "text-red-600 dark:text-red-400"
+                  ? "text-orange-400"
+                  : "text-red-400"
               }`}
             >
               {isPositive ? "+" : ""}
@@ -135,8 +135,8 @@ export default function VirtualAccountMainView() {
       </div>
 
       {/* 차트 */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+      <div className="bg-[#1a1a1a] rounded-lg p-6">
+        <h3 className="text-lg font-semibold text-white mb-4">
           {holdings.length > 0 
             ? `${holdings[0].name || holdings[0].symbol} 차트`
             : "차트"}
@@ -148,8 +148,8 @@ export default function VirtualAccountMainView() {
 
       {/* 보유 종목 */}
       {holdings.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+        <div className="bg-[#1a1a1a] rounded-lg p-6">
+          <h3 className="text-lg font-semibold text-white mb-4">
             보유 종목
           </h3>
           <div className="space-y-2">
@@ -162,25 +162,25 @@ export default function VirtualAccountMainView() {
               return (
                 <div
                   key={holding.symbol}
-                  className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg"
+                  className="flex items-center justify-between p-3 bg-[#111111] rounded-lg"
                 >
                   <div className="flex-1">
-                    <div className="font-medium text-gray-900 dark:text-white">
+                    <div className="font-medium text-white">
                       {holding.name || holding.symbol}
                     </div>
-                    <div className="text-sm text-gray-500 dark:text-gray-400">
+                    <div className="text-sm text-gray-400">
                       {holding.quantity}주 × {formatPrice(holding.currentPrice)}원
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="font-semibold text-gray-900 dark:text-white">
+                    <div className="font-semibold text-white">
                       {formatPrice(holdingValue)}원
                     </div>
                     <div
                       className={`text-sm ${
                         isPositive
-                          ? "text-orange-500 dark:text-orange-400"
-                          : "text-red-600 dark:text-red-400"
+                          ? "text-orange-400"
+                          : "text-red-400"
                       }`}
                     >
                       {isPositive ? "+" : ""}
