@@ -10,6 +10,7 @@ import {
   TrendUp,
   Gauge,
   MagnifyingGlass,
+  Trash,
 } from "phosphor-react";
 import {
   VirtualMarketState,
@@ -262,8 +263,8 @@ export default function VirtualMarketPanel({
 
   if (loading) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 mb-6">
-        <div className="animate-pulse h-24 bg-gray-200 dark:bg-gray-700 rounded" />
+      <div className="bg-[#1a1a1a] rounded-lg p-4 mb-6">
+        <div className="animate-pulse h-24 bg-[#252525] rounded" />
       </div>
     );
   }
@@ -273,22 +274,22 @@ export default function VirtualMarketPanel({
   const isActive = isRunning || isPaused;
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 mb-6 overflow-hidden">
+    <div className="bg-[#1a1a1a] rounded-lg mb-6 overflow-hidden">
       {/* 헤더 */}
-      <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+      <div className="px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Lightning size={18} className="text-yellow-500" weight="fill" />
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+          <h3 className="text-sm font-semibold text-white">
             가상 주식시장
           </h3>
           {isRunning && (
-            <span className="flex items-center gap-1 px-2 py-0.5 bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400 rounded-full text-xs font-medium">
+            <span className="flex items-center gap-1 px-2 py-0.5 bg-green-900/40 text-green-400 rounded-full text-xs font-medium">
               <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
               실행중
             </span>
           )}
           {isPaused && (
-            <span className="px-2 py-0.5 bg-yellow-100 dark:bg-yellow-900/40 text-yellow-600 dark:text-yellow-400 rounded-full text-xs font-medium">
+            <span className="px-2 py-0.5 bg-yellow-900/40 text-yellow-400 rounded-full text-xs font-medium">
               일시정지
             </span>
           )}
@@ -340,7 +341,7 @@ export default function VirtualMarketPanel({
       <div className="p-4">
         {/* 에러 메시지 */}
         {startError && (
-          <div className="mb-3 px-3 py-2 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg text-xs text-red-600 dark:text-red-400">
+          <div className="mb-3 px-3 py-2 bg-red-900/30 rounded-lg text-xs text-red-400">
             {startError}
           </div>
         )}
@@ -349,32 +350,32 @@ export default function VirtualMarketPanel({
           <div className="space-y-4">
             {/* 상태 정보 그리드 */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3">
+              <div className="bg-[#111111] rounded-lg p-3">
                 <div className="flex items-center gap-1.5 mb-1">
                   <CalendarBlank
                     size={14}
                     className="text-gray-400"
                   />
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                  <span className="text-xs text-gray-400">
                     가상 날짜
                   </span>
                 </div>
                 <p
                   key={marketState.virtualDate}
-                  className="text-sm font-semibold text-gray-900 dark:text-white animate-fadeIn"
+                  className="text-sm font-semibold text-white animate-fadeIn"
                 >
                   {marketState.virtualDate}
                 </p>
               </div>
 
-              <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3">
+              <div className="bg-[#111111] rounded-lg p-3">
                 <div className="flex items-center gap-1.5 mb-1">
                   <TrendUp size={14} className="text-gray-400" />
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                  <span className="text-xs text-gray-400">
                     시나리오
                   </span>
                 </div>
-                <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                <p className="text-sm font-semibold text-white">
                   {
                     SCENARIOS.find(
                       (s) => s.value === marketState.scenario
@@ -383,10 +384,10 @@ export default function VirtualMarketPanel({
                 </p>
               </div>
 
-              <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3">
+              <div className="bg-[#111111] rounded-lg p-3">
                 <div className="flex items-center gap-1.5 mb-1">
                   <Gauge size={14} className="text-gray-400" />
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                  <span className="text-xs text-gray-400">
                     속도
                   </span>
                 </div>
@@ -395,7 +396,7 @@ export default function VirtualMarketPanel({
                   onChange={(e) =>
                     handleSpeedChange(parseInt(e.target.value))
                   }
-                  className="text-sm font-semibold text-gray-900 dark:text-white bg-transparent border-none p-0 focus:ring-0 cursor-pointer"
+                  className="text-sm font-semibold text-white bg-transparent border-none p-0 focus:ring-0 cursor-pointer"
                 >
                   {SPEED_OPTIONS.map((opt) => (
                     <option key={opt.value} value={opt.value}>
@@ -405,14 +406,14 @@ export default function VirtualMarketPanel({
                 </select>
               </div>
 
-              <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3">
+              <div className="bg-[#111111] rounded-lg p-3">
                 <div className="flex items-center gap-1.5 mb-1">
                   <Lightning size={14} className="text-gray-400" />
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                  <span className="text-xs text-gray-400">
                     시그널 수
                   </span>
                 </div>
-                <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                <p className="text-sm font-semibold text-white">
                   {logs.length}건
                 </p>
               </div>
@@ -420,7 +421,7 @@ export default function VirtualMarketPanel({
 
             {/* 추적 종목 */}
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">
+              <p className="text-xs text-gray-400 mb-1.5">
                 추적 종목
               </p>
               <div className="flex flex-wrap gap-1.5">
@@ -431,8 +432,8 @@ export default function VirtualMarketPanel({
                       key={sym}
                       className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
                         isHeld
-                          ? "bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400"
-                          : "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400"
+                          ? "bg-green-900/20 text-green-400"
+                          : "bg-blue-900/20 text-blue-400"
                       }`}
                     >
                       {isHeld && <span className="text-[10px]">●</span>}
@@ -446,9 +447,24 @@ export default function VirtualMarketPanel({
 
             {/* 시그널 로그 */}
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">
-                시그널 히스토리
-              </p>
+              <div className="flex items-center justify-between mb-1.5">
+                <p className="text-xs text-gray-400">
+                  시그널 히스토리
+                </p>
+                {logs.length > 0 && (
+                  <button
+                    onClick={async () => {
+                      if (!confirm("시그널 히스토리를 모두 삭제하시겠습니까?")) return;
+                      await fetch(`/api/virtual-market/${accountId}/logs`, { method: "DELETE" });
+                      setLogs([]);
+                    }}
+                    className="flex items-center gap-1 px-2 py-0.5 text-xs text-red-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors"
+                  >
+                    <Trash size={12} />
+                    전체 삭제
+                  </button>
+                )}
+              </div>
               <SignalLog logs={logs} symbolNameMap={symbolNameMap} />
             </div>
           </div>
@@ -459,18 +475,18 @@ export default function VirtualMarketPanel({
           <div className="space-y-3">
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                <label className="text-xs font-medium text-gray-300">
                   추적 종목
                 </label>
                 <button
                   onClick={() => setIsSearchOpen(true)}
-                  className="flex items-center gap-1 px-2 py-1 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md transition-colors"
+                  className="flex items-center gap-1 px-2 py-1 text-xs text-blue-400 hover:bg-blue-900/20 rounded-md transition-colors"
                 >
                   <MagnifyingGlass size={12} />
                   종목 추가
                 </button>
               </div>
-              <div className="flex flex-wrap gap-1.5 min-h-[32px] p-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700">
+              <div className="flex flex-wrap gap-1.5 min-h-[32px] p-2 rounded-lg bg-[#252525]">
                 {selectedStocks.length === 0 ? (
                   <span className="text-xs text-gray-400 self-center">종목을 추가하세요</span>
                 ) : (
@@ -481,8 +497,8 @@ export default function VirtualMarketPanel({
                         key={s.symbol}
                         className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
                           isHeld
-                            ? "bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400"
-                            : "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400"
+                            ? "bg-green-900/20 text-green-400"
+                            : "bg-blue-900/20 text-blue-400"
                         }`}
                       >
                         {isHeld && <span className="text-[10px]">●</span>}
@@ -490,7 +506,7 @@ export default function VirtualMarketPanel({
                         {!isHeld && (
                           <button
                             onClick={() => handleRemoveStock(s.symbol)}
-                            className="hover:text-blue-800 dark:hover:text-blue-200 leading-none"
+                            className="hover:text-blue-200 leading-none"
                           >
                             ×
                           </button>
@@ -504,13 +520,13 @@ export default function VirtualMarketPanel({
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-xs font-medium text-gray-300 mb-1">
                   시나리오
                 </label>
                 <select
                   value={scenario}
                   onChange={(e) => setScenario(e.target.value)}
-                  className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-1.5 text-sm rounded-lg bg-[#252525] text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   {SCENARIOS.map((s) => (
                     <option key={s.value} value={s.value}>
@@ -521,13 +537,13 @@ export default function VirtualMarketPanel({
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-xs font-medium text-gray-300 mb-1">
                   속도
                 </label>
                 <select
                   value={speed}
                   onChange={(e) => setSpeed(parseInt(e.target.value))}
-                  className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-1.5 text-sm rounded-lg bg-[#252525] text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   {SPEED_OPTIONS.map((opt) => (
                     <option key={opt.value} value={opt.value}>
@@ -538,7 +554,7 @@ export default function VirtualMarketPanel({
               </div>
             </div>
 
-            <p className="text-xs text-gray-500 dark:text-gray-400">
+            <p className="text-xs text-gray-400">
               가상 시장을 시작하면 {speed}초마다 1거래일이 진행됩니다.
               전략 시그널 발생 시{" "}
               {strategyName
