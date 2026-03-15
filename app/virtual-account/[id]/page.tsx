@@ -14,9 +14,11 @@ import {
   getTransactionsByAccount,
   executeTrade,
   refreshAccountValue,
+  updateTradingMode,
 } from "@/lib/portfolio";
-import { MagnifyingGlass } from "phosphor-react";
+import { MagnifyingGlass, Robot, Bell } from "phosphor-react";
 import StockSearchModal from "@/components/stock/StockSearchModal";
+import VirtualMarketPanel from "@/components/virtual-market/VirtualMarketPanel";
 import OrderBook from "@/components/order/OrderBook";
 import CurrentPriceDisplay from "@/components/stock/CurrentPriceDisplay";
 import { getBasePrice, generateStockPriceData } from "@/lib/mock-stock-data";
@@ -76,7 +78,7 @@ export default function VirtualAccountDetailPage() {
 
   const handleStockSelect = (symbol: string, name: string) => {
     // 주문 페이지로 이동 (차트, 호가창, 주문창이 있는 페이지)
-    router.push(`/order?symbol=${symbol}&name=${encodeURIComponent(name)}`);
+    router.push(`/stock-order?symbol=${symbol}&name=${encodeURIComponent(name)}`);
   };
 
 
@@ -165,7 +167,7 @@ export default function VirtualAccountDetailPage() {
     return (
       <DashboardLayout userName="사용자">
         <div className="p-4 sm:p-6">
-          <p className="text-gray-500 dark:text-gray-400">계좌를 불러오는 중...</p>
+          <p className="text-gray-400">계좌를 불러오는 중...</p>
         </div>
       </DashboardLayout>
     );
@@ -186,49 +188,119 @@ export default function VirtualAccountDetailPage() {
         {/* Header */}
         <div className="flex items-center gap-4 mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+            <h1 className="text-2xl font-bold text-white">
               {account.name}
             </h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
+            <p className="text-sm text-gray-400">
               생성일: {new Date(account.createdAt).toLocaleDateString("ko-KR")}
             </p>
           </div>
         </div>
 
+        {/* 전략 연동 & 매매 모드 */}
+        {account.strategyName && (
+          <div className="bg-[#1a1a1a] rounded-lg p-4 mb-6">
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              <div>
+                <p className="text-xs text-gray-400 mb-0.5">연결된 전략</p>
+                <p className="text-sm font-semibold text-white">{account.strategyName}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-400 mb-2">매매 방식</p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={async () => {
+                      const updated = await updateTradingMode(accountId, "auto");
+                      setAccount((prev) => prev ? { ...prev, tradingMode: updated.tradingMode } : prev);
+                    }}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                      account.tradingMode === "auto"
+                        ? "bg-blue-600 text-white"
+                        : "bg-[#252525] text-gray-300 hover:text-white"
+                    }`}
+                  >
+                    <Robot size={16} weight={account.tradingMode === "auto" ? "fill" : "regular"} />
+                    자동매매
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const updated = await updateTradingMode(accountId, "manual");
+                      setAccount((prev) => prev ? { ...prev, tradingMode: updated.tradingMode } : prev);
+                    }}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                      account.tradingMode === "manual" || !account.tradingMode
+                        ? "bg-blue-600 text-white"
+                        : "bg-[#252525] text-gray-300 hover:text-white"
+                    }`}
+                  >
+                    <Bell size={16} weight={(account.tradingMode === "manual" || !account.tradingMode) ? "fill" : "regular"} />
+                    신호 알림만
+                  </button>
+                </div>
+              </div>
+            </div>
+            {account.tradingMode === "auto" && (
+              <div className="mt-3 flex items-start gap-2 p-2.5 bg-blue-900/20 rounded-lg">
+                <Robot size={16} className="text-blue-500 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-blue-300">
+                  전략 신호 발생 시 자동으로 주문이 실행됩니다. 신호가 없을 때는 수동 매매를 이용하세요.
+                </p>
+              </div>
+            )}
+            {(account.tradingMode === "manual" || !account.tradingMode) && (
+              <div className="mt-3 flex items-start gap-2 p-2.5 bg-[#252525] rounded-lg">
+                <Bell size={16} className="text-gray-400 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-gray-400">
+                  전략 신호 발생 시 알림을 받습니다. 직접 매매 여부를 결정하고 수동으로 주문하세요.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 가상 주식시장 패널 — 전략이 연결된 계좌에만 표시 */}
+        {account.strategyName && (
+          <VirtualMarketPanel
+            accountId={accountId}
+            strategyName={account.strategyName}
+            onTradeExecuted={loadAccountData}
+          />
+        )}
+
         {/* Account Summary */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">총 자산</p>
-            <p className="text-xl font-bold text-gray-900 dark:text-white">
+          <div className="bg-[#1a1a1a] p-4 rounded-lg">
+            <p className="text-xs text-gray-400 mb-1">총 자산</p>
+            <p className="text-xl font-bold text-white">
               {formatPrice(account.totalValue)} 원
             </p>
           </div>
-          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">현재 잔액</p>
-            <p className="text-xl font-bold text-gray-900 dark:text-white">
+          <div className="bg-[#1a1a1a] p-4 rounded-lg">
+            <p className="text-xs text-gray-400 mb-1">현재 잔액</p>
+            <p className="text-xl font-bold text-white">
               {formatPrice(account.currentBalance)} 원
             </p>
           </div>
-          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">손익</p>
+          <div className="bg-[#1a1a1a] p-4 rounded-lg">
+            <p className="text-xs text-gray-400 mb-1">손익</p>
             <p
               className={`text-xl font-bold ${
                 profit >= 0
-                  ? "text-red-600 dark:text-red-400"
-                  : "text-blue-500 dark:text-blue-400"
+                  ? "text-red-400"
+                  : "text-blue-400"
               }`}
             >
               {profit >= 0 ? "+" : ""}
               {formatPrice(profit)} 원
             </p>
           </div>
-          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">수익률</p>
+          <div className="bg-[#1a1a1a] p-4 rounded-lg">
+            <p className="text-xs text-gray-400 mb-1">수익률</p>
             <p
               className={`text-xl font-bold ${
                 profitPercent >= 0
-                  ? "text-red-600 dark:text-red-400"
-                  : "text-blue-500 dark:text-blue-400"
+                  ? "text-red-400"
+                  : "text-blue-400"
               }`}
             >
               {profitPercent >= 0 ? "+" : ""}
@@ -241,13 +313,13 @@ export default function VirtualAccountDetailPage() {
         {shouldShowTabs && (
           <div className="mb-6">
             {/* Tab Navigation */}
-            <div className="flex gap-2 mb-4 border-b border-gray-200 dark:border-gray-700">
+            <div className="flex gap-2 mb-4 ">
               <button
                 onClick={() => setActiveTab("holdings")}
                 className={`px-4 py-2 font-semibold transition-colors ${
                   activeTab === "holdings"
-                    ? "text-white dark:text-white bg-[#252525] border-b-2 border-transparent"
-                    : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+                    ? "text-white bg-[#252525]"
+                    : "text-gray-400 hover:text-gray-200"
                 }`}
               >
                 보유종목
@@ -256,8 +328,8 @@ export default function VirtualAccountDetailPage() {
                 onClick={() => setActiveTab("transactions")}
                 className={`px-4 py-2 font-semibold transition-colors ${
                   activeTab === "transactions"
-                    ? "text-white dark:text-white bg-[#252525] border-b-2 border-transparent"
-                    : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+                    ? "text-white bg-[#252525]"
+                    : "text-gray-400 hover:text-gray-200"
                 }`}
               >
                 거래내역
@@ -270,8 +342,8 @@ export default function VirtualAccountDetailPage() {
               {activeTab === "holdings" && (
                 <div>
                   {holdings.length === 0 ? (
-                    <div className="bg-white dark:bg-gray-800 p-8 rounded-lg border border-gray-200 dark:border-gray-700 text-center">
-                      <p className="text-gray-500 dark:text-gray-400 mb-4">
+                    <div className="bg-[#1a1a1a] p-8 rounded-lg text-center">
+                      <p className="text-gray-400 mb-4">
                         보유종목이 없습니다.
                       </p>
                       <button
@@ -282,30 +354,30 @@ export default function VirtualAccountDetailPage() {
                       </button>
                     </div>
                   ) : (
-                    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                    <div className="bg-[#1a1a1a] rounded-lg overflow-hidden">
                       <div className="overflow-x-auto">
                         <table className="w-full">
                           <thead>
-                            <tr className="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
-                              <th className="text-left py-3 px-4 text-xs font-semibold text-gray-600 dark:text-gray-400">
+                            <tr className="bg-[#111111] ">
+                              <th className="text-left py-3 px-4 text-xs font-semibold text-gray-400">
                                 종목명
                               </th>
-                              <th className="text-right py-3 px-4 text-xs font-semibold text-gray-600 dark:text-gray-400">
+                              <th className="text-right py-3 px-4 text-xs font-semibold text-gray-400">
                                 매입가
                               </th>
-                              <th className="text-right py-3 px-4 text-xs font-semibold text-gray-600 dark:text-gray-400">
+                              <th className="text-right py-3 px-4 text-xs font-semibold text-gray-400">
                                 현재가
                               </th>
-                              <th className="text-right py-3 px-4 text-xs font-semibold text-gray-600 dark:text-gray-400">
+                              <th className="text-right py-3 px-4 text-xs font-semibold text-gray-400">
                                 평가손익
                               </th>
-                              <th className="text-right py-3 px-4 text-xs font-semibold text-gray-600 dark:text-gray-400">
+                              <th className="text-right py-3 px-4 text-xs font-semibold text-gray-400">
                                 수익률
                               </th>
-                              <th className="text-right py-3 px-4 text-xs font-semibold text-gray-600 dark:text-gray-400">
+                              <th className="text-right py-3 px-4 text-xs font-semibold text-gray-400">
                                 가능수량
                               </th>
-                              <th className="text-right py-3 px-4 text-xs font-semibold text-gray-600 dark:text-gray-400">
+                              <th className="text-right py-3 px-4 text-xs font-semibold text-gray-400">
                                 보유수량
                               </th>
                             </tr>
@@ -315,30 +387,30 @@ export default function VirtualAccountDetailPage() {
                               <tr
                                 key={holding.symbol}
                                 onClick={() => handleStockSelect(holding.symbol, holding.name || holding.symbol)}
-                                className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-900 cursor-pointer transition-colors"
+                                className=" hover:bg-[#252525] cursor-pointer transition-colors"
                               >
                                 <td className="py-3 px-4">
                                   <div>
-                                    <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                                    <p className="text-sm font-semibold text-white">
                                       {holding.name || holding.symbol}
                                     </p>
-                                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    <p className="text-xs text-gray-400">
                                       {holding.symbol}
                                     </p>
                                   </div>
                                 </td>
-                                <td className="text-right py-3 px-4 text-sm text-gray-900 dark:text-white">
+                                <td className="text-right py-3 px-4 text-sm text-white">
                                   {formatPrice(holding.averagePrice)} 원
                                 </td>
-                                <td className="text-right py-3 px-4 text-sm text-gray-900 dark:text-white">
+                                <td className="text-right py-3 px-4 text-sm text-white">
                                   {formatPrice(holding.currentPrice)} 원
                                 </td>
                                 <td className="text-right py-3 px-4">
                                   <span
                                     className={`text-sm font-semibold ${
                                       holding.profit >= 0
-                                        ? "text-red-600 dark:text-red-400"
-                                        : "text-blue-500 dark:text-blue-400"
+                                        ? "text-red-400"
+                                        : "text-blue-400"
                                     }`}
                                   >
                                     {holding.profit >= 0 ? "+" : ""}
@@ -349,18 +421,18 @@ export default function VirtualAccountDetailPage() {
                                   <span
                                     className={`text-sm font-semibold ${
                                       holding.profitPercent >= 0
-                                        ? "text-red-600 dark:text-red-400"
-                                        : "text-blue-500 dark:text-blue-400"
+                                        ? "text-red-400"
+                                        : "text-blue-400"
                                     }`}
                                   >
                                     {holding.profitPercent >= 0 ? "+" : ""}
                                     {holding.profitPercent.toFixed(2)}%
                                   </span>
                                 </td>
-                                <td className="text-right py-3 px-4 text-sm text-gray-900 dark:text-white">
+                                <td className="text-right py-3 px-4 text-sm text-white">
                                   {formatPrice(holding.quantity)}주
                                 </td>
-                                <td className="text-right py-3 px-4 text-sm text-gray-900 dark:text-white">
+                                <td className="text-right py-3 px-4 text-sm text-white">
                                   {formatPrice(holding.quantity)}주
                                 </td>
                               </tr>
@@ -377,18 +449,18 @@ export default function VirtualAccountDetailPage() {
               {activeTab === "transactions" && (
                 <div>
                   {transactions.length === 0 ? (
-                    <div className="bg-white dark:bg-gray-800 p-8 rounded-lg border border-gray-200 dark:border-gray-700 text-center">
-                      <p className="text-gray-500 dark:text-gray-400">
+                    <div className="bg-[#1a1a1a] p-8 rounded-lg text-center">
+                      <p className="text-gray-400">
                         거래 내역이 없습니다.
                       </p>
                     </div>
                   ) : (
-                    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                    <div className="bg-[#1a1a1a] rounded-lg overflow-hidden">
                       <div className="space-y-2 p-4">
                         {transactions.map((transaction) => (
                           <div
                             key={transaction.id}
-                            className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-900 rounded-lg"
+                            className="flex items-center justify-between p-3 bg-[#111111] rounded-lg"
                           >
                             <div className="flex items-center gap-3">
                               <div
@@ -399,10 +471,10 @@ export default function VirtualAccountDetailPage() {
                                 }`}
                               ></div>
                               <div>
-                                <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                                <p className="text-sm font-semibold text-white">
                                   {transaction.name} ({transaction.symbol})
                                 </p>
-                                <p className="text-xs text-gray-500 dark:text-gray-400">
+                                <p className="text-xs text-gray-400">
                                   {new Date(transaction.timestamp).toLocaleString("ko-KR")}
                                 </p>
                               </div>
@@ -411,13 +483,13 @@ export default function VirtualAccountDetailPage() {
                               <p
                                 className={`text-sm font-semibold ${
                                   transaction.type === "buy"
-                                    ? "text-blue-500 dark:text-blue-400"
-                                    : "text-red-600 dark:text-red-400"
+                                    ? "text-blue-400"
+                                    : "text-red-400"
                                 }`}
                               >
                                 {transaction.type === "buy" ? "매수" : "매도"} {formatPrice(transaction.quantity)}주
                               </p>
-                              <p className="text-xs text-gray-500 dark:text-gray-400">
+                              <p className="text-xs text-gray-400">
                                 {formatPrice(transaction.price)} 원 × {formatPrice(transaction.quantity)} = {formatPrice(transaction.totalAmount)} 원
                               </p>
                             </div>
@@ -437,32 +509,32 @@ export default function VirtualAccountDetailPage() {
           <div className="animate-fade-in-up">
             {/* Stock Info Header */}
             {selectedSymbol && (
-              <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700 mb-6 animate-slide-in">
+              <div className="bg-[#1a1a1a] p-4 rounded-lg mb-6 animate-slide-in">
                 <div className="flex items-center gap-4">
                   <div>
-                    <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+                    <h2 className="text-lg font-bold text-white">
                       {stockInfo?.name || selectedStockName || selectedSymbol}
                     </h2>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                    <p className="text-sm text-gray-400">
                       {selectedSymbol} · {stockInfo?.sector || ""} · {stockInfo?.industry || ""}
                     </p>
                   </div>
                   <div className="ml-auto flex items-center gap-4 text-sm">
                     <div>
-                      <span className="text-gray-500 dark:text-gray-400">시가총액: </span>
-                      <span className="font-semibold text-gray-900 dark:text-white">
+                      <span className="text-gray-400">시가총액: </span>
+                      <span className="font-semibold text-white">
                         {stockInfo?.marketCap ? formatPrice(stockInfo.marketCap) : "-"} 원
                       </span>
                     </div>
                     <div>
-                      <span className="text-gray-500 dark:text-gray-400">PER: </span>
-                      <span className="font-semibold text-gray-900 dark:text-white">
+                      <span className="text-gray-400">PER: </span>
+                      <span className="font-semibold text-white">
                         {stockInfo?.pe ? stockInfo.pe.toFixed(2) : "-"}
                       </span>
                     </div>
                     <div>
-                      <span className="text-gray-500 dark:text-gray-400">PBR: </span>
-                      <span className="font-semibold text-gray-900 dark:text-white">
+                      <span className="text-gray-400">PBR: </span>
+                      <span className="font-semibold text-white">
                         {stockInfo?.pbr ? stockInfo.pbr.toFixed(2) : "-"}
                       </span>
                     </div>
@@ -495,18 +567,18 @@ export default function VirtualAccountDetailPage() {
 
           {/* Order Section - Right Side */}
           <div className="lg:col-span-1 h-full flex flex-col animate-slide-in-right" style={{ animationDelay: '0.15s', animationFillMode: 'both' }}>
-            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 h-full flex flex-col">
+            <div className="bg-[#1a1a1a] rounded-lg h-full flex flex-col">
               {/* Order Tabs */}
-              <div className="flex border-b border-gray-200 dark:border-gray-700">
+              <div className="flex ">
                 <button
                   onClick={() => {
                     setOrderTab("buy");
                     setTransactionType("buy");
                   }}
-                  className={`px-4 py-2 text-xs font-medium transition-colors border-b-2 ${
+                  className={`px-4 py-2 text-xs font-medium transition-colors ${
                     orderTab === "buy"
-                      ? "border-blue-500 text-blue-500 dark:text-blue-400"
-                      : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                      ? "text-blue-400"
+                      : "text-gray-400 hover:text-gray-300"
                   }`}
                 >
                   매수
@@ -516,40 +588,40 @@ export default function VirtualAccountDetailPage() {
                     setOrderTab("sell");
                     setTransactionType("sell");
                   }}
-                  className={`px-4 py-2 text-xs font-medium transition-colors border-b-2 ${
+                  className={`px-4 py-2 text-xs font-medium transition-colors ${
                     orderTab === "sell"
-                      ? "border-red-600 text-red-600 dark:text-red-400"
-                      : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                      ? "text-red-400"
+                      : "text-gray-400 hover:text-gray-300"
                   }`}
                 >
                   매도
                 </button>
                 <button
                   onClick={() => setOrderTab("amend")}
-                  className={`px-4 py-2 text-xs font-medium transition-colors border-b-2 ${
+                  className={`px-4 py-2 text-xs font-medium transition-colors ${
                     orderTab === "amend"
-                      ? "border-blue-500 text-blue-500 dark:text-blue-400"
-                      : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                      ? "text-blue-400"
+                      : "text-gray-400 hover:text-gray-300"
                   }`}
                 >
                   정정/취소
                 </button>
                 <button
                   onClick={() => setOrderTab("unfilled")}
-                  className={`px-4 py-2 text-xs font-medium transition-colors border-b-2 ${
+                  className={`px-4 py-2 text-xs font-medium transition-colors ${
                     orderTab === "unfilled"
-                      ? "border-blue-500 text-blue-500 dark:text-blue-400"
-                      : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                      ? "text-blue-400"
+                      : "text-gray-400 hover:text-gray-300"
                   }`}
                 >
                   미체결
                 </button>
                 <button
                   onClick={() => setOrderTab("balance")}
-                  className={`px-4 py-2 text-xs font-medium transition-colors border-b-2 ${
+                  className={`px-4 py-2 text-xs font-medium transition-colors ${
                     orderTab === "balance"
-                      ? "border-blue-500 text-blue-500 dark:text-blue-400"
-                      : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                      ? "text-blue-400"
+                      : "text-gray-400 hover:text-gray-300"
                   }`}
                 >
                   잔고
@@ -565,7 +637,7 @@ export default function VirtualAccountDetailPage() {
                     className={`flex-1 px-3 py-1.5 text-xs font-medium rounded transition-colors ${
                       paymentType === "cash"
                         ? "bg-blue-600 text-white"
-                        : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
+                        : "bg-[#252525] text-gray-300"
                     }`}
                   >
                     현금
@@ -575,7 +647,7 @@ export default function VirtualAccountDetailPage() {
                     className={`flex-1 px-3 py-1.5 text-xs font-medium rounded transition-colors ${
                       paymentType === "credit"
                         ? "bg-blue-600 text-white"
-                        : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
+                        : "bg-[#252525] text-gray-300"
                     }`}
                   >
                     신용
@@ -587,19 +659,19 @@ export default function VirtualAccountDetailPage() {
                   <select
                     value={orderType}
                     onChange={(e) => setOrderType(e.target.value as "limit" | "market")}
-                    className="flex-1 px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="flex-1 px-3 py-1.5 text-xs rounded bg-[#252525] text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="limit">보통(지정가)</option>
                     <option value="market">시장가</option>
                   </select>
-                  <button className="px-3 py-1.5 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600">
+                  <button className="px-3 py-1.5 text-xs font-medium bg-[#252525] text-gray-300 rounded hover:bg-[#333333]">
                     잔고
                   </button>
                 </div>
 
                 {/* Quantity Input with +/- buttons */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label className="block text-xs font-medium text-gray-300 mb-1">
                     수량
                   </label>
                   <div className="flex items-center gap-1.5">
@@ -610,7 +682,7 @@ export default function VirtualAccountDetailPage() {
                           setQuantity((qty - 1).toString());
                         }
                       }}
-                      className="px-2 py-1 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600"
+                      className="px-2 py-1 text-xs font-medium bg-[#252525] text-gray-300 rounded hover:bg-[#333333]"
                     >
                       -
                     </button>
@@ -618,7 +690,7 @@ export default function VirtualAccountDetailPage() {
                       type="number"
                       value={quantity}
                       onChange={(e) => setQuantity(e.target.value)}
-                      className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="flex-1 px-3 py-1.5 text-sm rounded bg-[#252525] text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="0"
                       min="1"
                     />
@@ -627,20 +699,20 @@ export default function VirtualAccountDetailPage() {
                         const qty = parseInt(quantity || "0");
                         setQuantity((qty + 1).toString());
                       }}
-                      className="px-2 py-1 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600"
+                      className="px-2 py-1 text-xs font-medium bg-[#252525] text-gray-300 rounded hover:bg-[#333333]"
                     >
                       +
                     </button>
                   </div>
                   <div className="flex gap-1.5 mt-1.5">
-                    <select className="px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+                    <select className="px-2 py-1 text-xs rounded bg-[#252525] text-white">
                       <option>%</option>
                       <option>25%</option>
                       <option>50%</option>
                       <option>75%</option>
                       <option>100%</option>
                     </select>
-                    <button className="px-3 py-1 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600">
+                    <button className="px-3 py-1 text-xs font-medium bg-[#252525] text-gray-300 rounded hover:bg-[#333333]">
                       가능
                     </button>
                   </div>
@@ -648,7 +720,7 @@ export default function VirtualAccountDetailPage() {
 
                 {/* Price Input with +/- buttons */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label className="block text-xs font-medium text-gray-300 mb-1">
                     가격
                   </label>
                   <div className="flex items-center gap-1.5">
@@ -661,7 +733,7 @@ export default function VirtualAccountDetailPage() {
                           setSelectedOrderPrice(newPrice);
                         }
                       }}
-                      className="px-2 py-1 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600"
+                      className="px-2 py-1 text-xs font-medium bg-[#252525] text-gray-300 rounded hover:bg-[#333333]"
                     >
                       -
                     </button>
@@ -678,12 +750,12 @@ export default function VirtualAccountDetailPage() {
                           setSelectedOrderPrice(undefined);
                         }
                       }}
-                      className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="flex-1 px-3 py-1.5 text-sm rounded bg-[#252525] text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="0"
                       min="0"
                       step="1"
                     />
-                    <span className="text-xs text-gray-500 dark:text-gray-400">원</span>
+                    <span className="text-xs text-gray-400">원</span>
                     <button
                       onClick={() => {
                         const p = parseFloat(price || "0");
@@ -691,7 +763,7 @@ export default function VirtualAccountDetailPage() {
                         setPrice(newPrice.toFixed(0));
                         setSelectedOrderPrice(newPrice);
                       }}
-                      className="px-2 py-1 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600"
+                      className="px-2 py-1 text-xs font-medium bg-[#252525] text-gray-300 rounded hover:bg-[#333333]"
                     >
                       +
                     </button>
@@ -707,9 +779,9 @@ export default function VirtualAccountDetailPage() {
                             setIsAutoPrice(false);
                           }
                         }}
-                        className="w-3.5 h-3.5 text-blue-500 border-gray-300 rounded focus:ring-blue-500"
+                        className="w-3.5 h-3.5 text-blue-500 rounded focus:ring-blue-500"
                       />
-                      <span className="text-xs text-gray-700 dark:text-gray-300">시장가</span>
+                      <span className="text-xs text-gray-300">시장가</span>
                     </label>
                     <label className="flex items-center gap-1.5 cursor-pointer">
                       <input
@@ -725,30 +797,30 @@ export default function VirtualAccountDetailPage() {
                             }
                           }
                         }}
-                        className="w-3.5 h-3.5 text-blue-500 border-gray-300 rounded focus:ring-blue-500"
+                        className="w-3.5 h-3.5 text-blue-500 rounded focus:ring-blue-500"
                       />
-                      <span className="text-xs text-gray-700 dark:text-gray-300">가격 자동(현재가)</span>
+                      <span className="text-xs text-gray-300">가격 자동(현재가)</span>
                     </label>
-                    <button className="px-2 py-1 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600">
+                    <button className="px-2 py-1 text-xs font-medium bg-[#252525] text-gray-300 rounded hover:bg-[#333333]">
                       호가
                     </button>
                   </div>
                 </div>
 
                 {/* Total Amount Display */}
-                <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                <div className="bg-[#111111] rounded-lg p-4">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                    <span className="text-xs font-medium text-gray-400">
                       총 거래금액
                     </span>
-                    <span className="text-lg font-bold text-gray-900 dark:text-white">
+                    <span className="text-lg font-bold text-white">
                       {quantity && price && !isNaN(parseFloat(quantity)) && !isNaN(parseFloat(price))
                         ? formatPrice(parseFloat(quantity) * parseFloat(price))
                         : "0"} 원
                     </span>
                   </div>
                   {quantity && price && !isNaN(parseFloat(quantity)) && !isNaN(parseFloat(price)) && (
-                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                    <div className="text-xs text-gray-400">
                       {formatPrice(parseFloat(quantity))}주 × {formatPrice(parseFloat(price))}원
                     </div>
                   )}

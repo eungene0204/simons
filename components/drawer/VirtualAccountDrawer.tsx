@@ -6,6 +6,8 @@ import {
   CaretLeft,
   Bank,
   Plus,
+  Robot,
+  Bell,
 } from "phosphor-react";
 import { VirtualAccount } from "@/types/portfolio";
 import { getAllAccounts, createAccount } from "@/lib/portfolio";
@@ -40,8 +42,8 @@ function VirtualAccountDrawer({
     setLoading(false);
   };
 
-  const handleCreateAccount = async (name: string, amount: number, strategyId?: string, strategyName?: string) => {
-    await createAccount(name, amount, strategyId, strategyName);
+  const handleCreateAccount = async (name: string, amount: number, strategyId?: string, strategyName?: string, tradingMode?: "auto" | "manual") => {
+    await createAccount(name, amount, strategyId, strategyName, tradingMode);
     await loadAccounts();
     setIsModalOpen(false);
   };
@@ -84,15 +86,15 @@ function VirtualAccountDrawer({
           >
             <div className="flex flex-col">
               <div className="flex items-center justify-between mb-2">
-                <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+                <h2 className="text-xl font-bold text-white">
                   가상계좌
                 </h2>
                 <button
                   onClick={onClose}
-                  className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                  className="p-1.5 hover:bg-[#252525] rounded-lg transition-colors"
                   title="닫기"
                 >
-                  <CaretLeft size={20} className="text-gray-600 dark:text-gray-400" />
+                  <CaretLeft size={20} className="text-gray-400" />
                 </button>
               </div>
             </div>
@@ -101,15 +103,15 @@ function VirtualAccountDrawer({
           {/* Content */}
           <div className="flex-1 overflow-y-auto flex flex-col">
             {/* Add Account Button at Top */}
-            <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
+            <div className="px-4 py-3 flex-shrink-0">
               <button
                 onClick={() => setIsModalOpen(true)}
                 className="w-full flex items-center gap-3 text-left"
               >
-                <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center flex-shrink-0">
-                  <Plus size={20} className="text-blue-500 dark:text-blue-400" />
+                <div className="w-10 h-10 rounded-full bg-[#252525] flex items-center justify-center flex-shrink-0">
+                  <Plus size={20} className="text-blue-400" />
                 </div>
-                <span className="text-sm font-medium text-gray-900 dark:text-white">
+                <span className="text-sm font-medium text-white">
                   계좌 추가
                 </span>
               </button>
@@ -123,13 +125,13 @@ function VirtualAccountDrawer({
                     {[...Array(3)].map((_, i) => (
                       <div
                         key={i}
-                        className="h-16 bg-gray-200 dark:bg-gray-700 rounded"
+                        className="h-16 bg-[#252525] rounded"
                       ></div>
                     ))}
                   </div>
                 </div>
               ) : accounts.length === 0 ? (
-                <div className="p-4 text-center text-sm text-gray-500 dark:text-gray-400">
+                <div className="p-4 text-center text-sm text-gray-400">
                   가상계좌가 없습니다.
                 </div>
               ) : (
@@ -150,33 +152,48 @@ function VirtualAccountDrawer({
                       >
                         <div className="flex items-center gap-3 justify-between">
                           <div className="flex items-center gap-3 flex-1 min-w-0">
-                            <div className="w-10 h-10 rounded-full bg-blue-60000 dark:bg-blue-800 flex items-center justify-center flex-shrink-0">
-                              <Bank size={20} className="text-blue-500 dark:text-blue-400" />
+                            <div className="w-10 h-10 rounded-full bg-blue-900/30 flex items-center justify-center flex-shrink-0">
+                              <Bank size={20} className="text-blue-400" />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                                {account.name}
+                              <div className="flex items-center gap-1.5">
+                                <div className="text-sm font-medium text-white truncate">
+                                  {account.name}
+                                </div>
+                                {account.strategyName && (
+                                  account.tradingMode === "auto" ? (
+                                    <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-blue-900/40 text-blue-400 rounded text-xs font-medium flex-shrink-0">
+                                      <Robot size={10} weight="bold" />
+                                      자동
+                                    </span>
+                                  ) : (
+                                    <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-[#252525] text-gray-400 rounded text-xs font-medium flex-shrink-0">
+                                      <Bell size={10} weight="bold" />
+                                      알림
+                                    </span>
+                                  )
+                                )}
                               </div>
                               {account.strategyName ? (
-                                <div className="text-xs text-blue-500 dark:text-blue-400 truncate">
+                                <div className="text-xs text-blue-400 truncate">
                                   {account.strategyName}
                                 </div>
                               ) : (
-                                <div className="text-xs text-gray-500 dark:text-gray-400">
+                                <div className="text-xs text-gray-400">
                                   잔액: {formatPrice(account.currentBalance)}원
                                 </div>
                               )}
                             </div>
                           </div>
                           <div className="flex flex-col items-end flex-shrink-0">
-                            <span className="text-sm font-medium text-gray-900 dark:text-white">
+                            <span className="text-sm font-medium text-white">
                               {formatPrice(account.totalValue)}원
                             </span>
                             <span
                               className={`text-xs mt-0.5 ${
                                 isPositive
-                                  ? "text-red-600 dark:text-red-400"
-                                  : "text-blue-500 dark:text-blue-400"
+                                  ? "text-red-400"
+                                  : "text-blue-400"
                               }`}
                             >
                               {isPositive ? "+" : ""}
