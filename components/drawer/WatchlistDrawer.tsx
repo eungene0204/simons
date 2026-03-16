@@ -77,25 +77,23 @@ function WatchlistDrawer({
         setLoading(true);
       }
 
-      // Get symbols from localStorage
-      const watchlistSymbols = getWatchlistSymbols();
+      // Get symbols from DB
+      const watchlistSymbols = await getWatchlistSymbols();
       const symbols = watchlistSymbols.map((item) => item.symbol);
 
-      // If no symbols in localStorage, use empty array (will show default mock data)
-      const symbolsParam = symbols.length > 0 ? JSON.stringify(symbols) : null;
-      const url = symbolsParam
-        ? `/api/watchlist?symbols=${encodeURIComponent(symbolsParam)}`
-        : "/api/watchlist";
+      if (symbols.length === 0) {
+        setItems([]);
+        return;
+      }
 
+      const url = `/api/watchlist?symbols=${encodeURIComponent(JSON.stringify(symbols))}`;
       const response = await fetch(url);
       if (response.ok) {
         const data = await response.json();
-        // Create a map of API results by symbol for quick lookup
         const apiItemsMap = new Map(
           (data.items || []).map((item: WatchlistItem) => [item.symbol, item])
         );
 
-        // Map groupId from localStorage to items, maintaining localStorage order
         const itemsWithGroups: WatchlistItem[] = watchlistSymbols
           .map((symbolData) => {
             const apiItem = apiItemsMap.get(symbolData.symbol);
@@ -118,41 +116,35 @@ function WatchlistDrawer({
   const handleAddToWatchlist = async (
     itemsToAdd: Array<{ symbol: string; name: string }>
   ) => {
-    // First, add items to watchlist
-    const addedCount = addMultipleToWatchlist(itemsToAdd);
+    const addedCount = await addMultipleToWatchlist(itemsToAdd);
 
     if (addedCount > 0) {
-      // Get all groups
-      const allGroups = getWatchlistGroups();
-
-      // Assign each added item to the selected group or first group
+      const allGroups = await getWatchlistGroups();
       const targetGroupId =
         selectedGroupId || (allGroups.length > 0 ? allGroups[0].id : undefined);
 
-      itemsToAdd.forEach((item) => {
-        if (targetGroupId) {
-          assignSymbolToGroup(item.symbol, targetGroupId);
-        }
-      });
+      await Promise.all(
+        itemsToAdd.map((item) =>
+          targetGroupId ? assignSymbolToGroup(item.symbol, targetGroupId) : Promise.resolve()
+        )
+      );
 
-      // Refresh the watchlist to show new items
       await fetchWatchlist(false);
-
       setIsSearchOpen(false);
     }
   };
 
-  const loadGroups = () => {
-    const loadedGroups = getWatchlistGroups();
+  const loadGroups = async () => {
+    const loadedGroups = await getWatchlistGroups();
     setGroups(loadedGroups);
   };
 
-  const handleCreateGroup = () => {
+  const handleCreateGroup = async () => {
     if (!groupName.trim()) return;
 
     try {
-      const newGroup = createWatchlistGroup(groupName.trim(), groupColor);
-      loadGroups();
+      await createWatchlistGroup(groupName.trim(), groupColor);
+      await loadGroups();
       setGroupName("");
       setGroupColor("#3B82F6");
       setIsGroupModalOpen(false);
@@ -161,15 +153,15 @@ function WatchlistDrawer({
     }
   };
 
-  const handleUpdateGroup = () => {
+  const handleUpdateGroup = async () => {
     if (!editingGroup || !groupName.trim()) return;
 
     try {
-      updateWatchlistGroup(editingGroup.id, {
+      await updateWatchlistGroup(editingGroup.id, {
         name: groupName.trim(),
         color: groupColor,
       });
-      loadGroups();
+      await loadGroups();
       setEditingGroup(null);
       setGroupName("");
       setGroupColor("#3B82F6");
@@ -180,15 +172,15 @@ function WatchlistDrawer({
     }
   };
 
-  const handleDeleteGroup = (groupId: string) => {
+  const handleDeleteGroup = async (groupId: string) => {
     if (
       confirm(
         "그룹을 삭제하시겠습니까? 그룹에 속한 종목들은 그룹이 해제됩니다."
       )
     ) {
       try {
-        deleteWatchlistGroup(groupId);
-        loadGroups();
+        await deleteWatchlistGroup(groupId);
+        await loadGroups();
         if (selectedGroupId === groupId) {
           setSelectedGroupId(null);
         }
@@ -199,9 +191,9 @@ function WatchlistDrawer({
     }
   };
 
-  const handleAssignToGroup = (symbol: string, groupId: string | undefined) => {
+  const handleAssignToGroup = async (symbol: string, groupId: string | undefined) => {
     try {
-      assignSymbolToGroup(symbol, groupId);
+      await assignSymbolToGroup(symbol, groupId);
       fetchWatchlist(false);
     } catch (error) {
       console.error("Failed to assign to group:", error);
@@ -237,17 +229,14 @@ function WatchlistDrawer({
     return items.filter((item) => item.groupId === selectedGroupId);
   }, [items, selectedGroupId]);
 
-  const handleRemoveUngroupedItems = () => {
+  const handleRemoveUngroupedItems = async () => {
     if (confirm("그룹에 포함되지 않은 종목들을 모두 삭제하시겠습니까?")) {
       const ungroupedItems = items.filter(
         (item) =>
           !item.groupId || item.groupId === null || item.groupId === undefined
       );
 
-      ungroupedItems.forEach((item) => {
-        removeFromWatchlist(item.symbol);
-      });
-
+      await Promise.all(ungroupedItems.map((item) => removeFromWatchlist(item.symbol)));
       fetchWatchlist(false);
     }
   };
@@ -277,23 +266,25 @@ function WatchlistDrawer({
     setSelectedItemsForEdit(newSelected);
   };
 
-  const handleMoveSelectedItems = (targetGroupId: string | null) => {
+  const handleMoveSelectedItems = async (targetGroupId: string | null) => {
     if (selectedItemsForEdit.size === 0) return;
-    selectedItemsForEdit.forEach((symbol) => {
-      assignSymbolToGroup(symbol, targetGroupId || undefined);
-    });
+    await Promise.all(
+      Array.from(selectedItemsForEdit).map((symbol) =>
+        assignSymbolToGroup(symbol, targetGroupId || undefined)
+      )
+    );
     setSelectedItemsForEdit(new Set());
     fetchWatchlist(false);
   };
 
-  const handleDeleteSelectedItems = () => {
+  const handleDeleteSelectedItems = async () => {
     if (selectedItemsForEdit.size === 0) return;
     if (
       confirm(`선택한 ${selectedItemsForEdit.size}개 종목을 삭제하시겠습니까?`)
     ) {
-      selectedItemsForEdit.forEach((symbol) => {
-        removeFromWatchlist(symbol);
-      });
+      await Promise.all(
+        Array.from(selectedItemsForEdit).map((symbol) => removeFromWatchlist(symbol))
+      );
       setSelectedItemsForEdit(new Set());
       fetchWatchlist(false);
     }
@@ -399,7 +390,7 @@ function WatchlistDrawer({
     <>
       {/* Drawer */}
       <div
-        className={`fixed left-0 top-0 h-full w-[20vw] min-w-[300px] max-w-[400px] bg-[#1a1a1a] border-r border-gray-800 z-50 transform transition-transform duration-300 ease-out ${
+        className={`fixed left-0 top-0 h-full w-[20vw] min-w-[300px] max-w-[400px] bg-[#1a1a1a] z-50 transform transition-transform duration-300 ease-out ${
           isOpen ? "translate-x-0" : "-translate-x-full"
         }`}
         style={{
@@ -758,14 +749,14 @@ function WatchlistDrawer({
                                 </div>
                               </div>
                               <button
-                                onClick={(e) => {
+                                onClick={async (e) => {
                                   e.stopPropagation();
                                   if (
                                     confirm(
                                       `${item.name}을(를) 삭제하시겠습니까?`
                                     )
                                   ) {
-                                    removeFromWatchlist(item.symbol);
+                                    await removeFromWatchlist(item.symbol);
                                     fetchWatchlist(false);
                                   }
                                 }}

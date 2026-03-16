@@ -33,17 +33,17 @@ export default function Watchlist() {
       if (isInitial) {
         setLoading(true);
       }
-      
-      // Get symbols from localStorage
-      const watchlistSymbols = getWatchlistSymbols();
+
+      // Get symbols from DB
+      const watchlistSymbols = await getWatchlistSymbols();
       const symbols = watchlistSymbols.map((item) => item.symbol);
-      
-      // If no symbols in localStorage, use empty array (will show default mock data)
-      const symbolsParam = symbols.length > 0 ? JSON.stringify(symbols) : null;
-      const url = symbolsParam 
-        ? `/api/watchlist?symbols=${encodeURIComponent(symbolsParam)}`
-        : "/api/watchlist";
-      
+
+      if (symbols.length === 0) {
+        setItems([]);
+        return;
+      }
+
+      const url = `/api/watchlist?symbols=${encodeURIComponent(JSON.stringify(symbols))}`;
       const response = await fetch(url);
       if (response.ok) {
         const data = await response.json();
@@ -58,17 +58,18 @@ export default function Watchlist() {
     }
   };
 
-  const handleAddToWatchlist = (items: Array<{ symbol: string; name: string }>) => {
-    const addedCount = addMultipleToWatchlist(items);
+  const handleAddToWatchlist = async (items: Array<{ symbol: string; name: string }>) => {
+    const addedCount = await addMultipleToWatchlist(items);
     if (addedCount > 0) {
       fetchWatchlist(false);
       setIsSearchOpen(false);
     }
   };
 
-  const handleRemoveFromWatchlist = (symbol: string, e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent row click
-    if (removeFromWatchlist(symbol)) {
+  const handleRemoveFromWatchlist = async (symbol: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const ok = await removeFromWatchlist(symbol);
+    if (ok) {
       fetchWatchlist(false);
     }
   };

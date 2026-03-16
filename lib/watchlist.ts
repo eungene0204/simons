@@ -1,5 +1,4 @@
-// Watchlist utility functions for managing user's watchlist
-// Uses localStorage to persist watchlist data
+// Watchlist utility functions - persists data via API (SQLite DB)
 
 export interface WatchlistSymbol {
   symbol: string;
@@ -15,249 +14,123 @@ export interface WatchlistGroup {
   createdAt: string;
 }
 
-const WATCHLIST_STORAGE_KEY = "watchlist_symbols";
-const WATCHLIST_GROUPS_STORAGE_KEY = "watchlist_groups";
-
-/**
- * Get all watchlist symbols from localStorage
- */
-export function getWatchlistSymbols(): WatchlistSymbol[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
-
+export async function getWatchlistSymbols(): Promise<WatchlistSymbol[]> {
   try {
-    const stored = localStorage.getItem(WATCHLIST_STORAGE_KEY);
-    if (!stored) {
-      return [];
-    }
-    return JSON.parse(stored);
-  } catch (error) {
-    console.error("Failed to load watchlist:", error);
-    return [];
+    const res = await fetch('/api/watchlist/symbols')
+    if (!res.ok) return []
+    const data = await res.json()
+    return data.map((item: WatchlistSymbol & { addedAt: string | Date }) => ({
+      symbol: item.symbol,
+      name: item.name,
+      addedAt: typeof item.addedAt === 'string' ? item.addedAt : new Date(item.addedAt).toISOString(),
+      groupId: item.groupId,
+    }))
+  } catch {
+    return []
   }
 }
 
-/**
- * Add a symbol to watchlist
- */
-export function addToWatchlist(symbol: string, name: string): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
+export async function addToWatchlist(symbol: string, name: string): Promise<boolean> {
   try {
-    const watchlist = getWatchlistSymbols();
-    
-    // Check if already exists
-    if (watchlist.some((item) => item.symbol === symbol)) {
-      return false; // Already in watchlist
-    }
-
-    const newItem: WatchlistSymbol = {
-      symbol,
-      name,
-      addedAt: new Date().toISOString(),
-    };
-
-    watchlist.push(newItem);
-    localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify(watchlist));
-    return true;
-  } catch (error) {
-    console.error("Failed to add to watchlist:", error);
-    return false;
+    const res = await fetch('/api/watchlist/symbols', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol, name }),
+    })
+    if (!res.ok) return false
+    const data = await res.json()
+    return data.added === true
+  } catch {
+    return false
   }
 }
 
-/**
- * Add multiple symbols to watchlist
- */
-export function addMultipleToWatchlist(
+export async function addMultipleToWatchlist(
   items: Array<{ symbol: string; name: string }>
-): number {
-  if (typeof window === "undefined") {
-    return 0;
-  }
-
+): Promise<number> {
   try {
-    const watchlist = getWatchlistSymbols();
-    const existingSymbols = new Set(watchlist.map((item) => item.symbol));
-    let addedCount = 0;
-
-    items.forEach((item) => {
-      // Skip if already exists
-      if (!existingSymbols.has(item.symbol)) {
-        const newItem: WatchlistSymbol = {
-          symbol: item.symbol,
-          name: item.name,
-          addedAt: new Date().toISOString(),
-        };
-        watchlist.push(newItem);
-        existingSymbols.add(item.symbol);
-        addedCount++;
-      }
-    });
-
-    if (addedCount > 0) {
-      localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify(watchlist));
-    }
-
-    return addedCount;
-  } catch (error) {
-    console.error("Failed to add multiple to watchlist:", error);
-    return 0;
+    const results = await Promise.all(items.map((item) => addToWatchlist(item.symbol, item.name)))
+    return results.filter(Boolean).length
+  } catch {
+    return 0
   }
 }
 
-/**
- * Remove a symbol from watchlist
- */
-export function removeFromWatchlist(symbol: string): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
+export async function removeFromWatchlist(symbol: string): Promise<boolean> {
   try {
-    const watchlist = getWatchlistSymbols();
-    const filtered = watchlist.filter((item) => item.symbol !== symbol);
-    localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify(filtered));
-    return true;
-  } catch (error) {
-    console.error("Failed to remove from watchlist:", error);
-    return false;
+    const res = await fetch(`/api/watchlist/symbols/${encodeURIComponent(symbol)}`, {
+      method: 'DELETE',
+    })
+    return res.ok
+  } catch {
+    return false
   }
 }
 
-/**
- * Check if a symbol is in watchlist
- */
-export function isInWatchlist(symbol: string): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
-  const watchlist = getWatchlistSymbols();
-  return watchlist.some((item) => item.symbol === symbol);
+export async function isInWatchlist(symbol: string): Promise<boolean> {
+  const list = await getWatchlistSymbols()
+  return list.some((item) => item.symbol === symbol)
 }
 
-/**
- * Get all watchlist groups from localStorage
- */
-export function getWatchlistGroups(): WatchlistGroup[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
-
+export async function getWatchlistGroups(): Promise<WatchlistGroup[]> {
   try {
-    const stored = localStorage.getItem(WATCHLIST_GROUPS_STORAGE_KEY);
-    if (!stored) {
-      return [];
-    }
-    return JSON.parse(stored);
-  } catch (error) {
-    console.error("Failed to load watchlist groups:", error);
-    return [];
+    const res = await fetch('/api/watchlist/groups')
+    if (!res.ok) return []
+    return await res.json()
+  } catch {
+    return []
   }
 }
 
-/**
- * Create a new watchlist group
- */
-export function createWatchlistGroup(name: string, color?: string): WatchlistGroup {
-  if (typeof window === "undefined") {
-    throw new Error("Cannot create group on server");
-  }
+export async function createWatchlistGroup(name: string, color?: string): Promise<WatchlistGroup> {
+  const res = await fetch('/api/watchlist/groups', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, color: color || '#3B82F6' }),
+  })
+  if (!res.ok) throw new Error('Failed to create group')
+  return await res.json()
+}
 
+export async function updateWatchlistGroup(
+  groupId: string,
+  updates: Partial<Omit<WatchlistGroup, 'id' | 'createdAt'>>
+): Promise<boolean> {
   try {
-    const groups = getWatchlistGroups();
-    const newGroup: WatchlistGroup = {
-      id: `group_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      name,
-      color: color || "#3B82F6",
-      createdAt: new Date().toISOString(),
-    };
-
-    groups.push(newGroup);
-    localStorage.setItem(WATCHLIST_GROUPS_STORAGE_KEY, JSON.stringify(groups));
-    return newGroup;
-  } catch (error) {
-    console.error("Failed to create watchlist group:", error);
-    throw error;
+    const res = await fetch(`/api/watchlist/groups/${groupId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    })
+    return res.ok
+  } catch {
+    return false
   }
 }
 
-/**
- * Update a watchlist group
- */
-export function updateWatchlistGroup(groupId: string, updates: Partial<Omit<WatchlistGroup, "id" | "createdAt">>): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
+export async function deleteWatchlistGroup(groupId: string): Promise<boolean> {
   try {
-    const groups = getWatchlistGroups();
-    const index = groups.findIndex((g) => g.id === groupId);
-    if (index === -1) {
-      return false;
-    }
-
-    groups[index] = { ...groups[index], ...updates };
-    localStorage.setItem(WATCHLIST_GROUPS_STORAGE_KEY, JSON.stringify(groups));
-    return true;
-  } catch (error) {
-    console.error("Failed to update watchlist group:", error);
-    return false;
+    const res = await fetch(`/api/watchlist/groups/${groupId}`, {
+      method: 'DELETE',
+    })
+    return res.ok
+  } catch {
+    return false
   }
 }
 
-/**
- * Delete a watchlist group
- */
-export function deleteWatchlistGroup(groupId: string): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
+export async function assignSymbolToGroup(
+  symbol: string,
+  groupId: string | undefined
+): Promise<boolean> {
   try {
-    const groups = getWatchlistGroups();
-    const filtered = groups.filter((g) => g.id !== groupId);
-    localStorage.setItem(WATCHLIST_GROUPS_STORAGE_KEY, JSON.stringify(filtered));
-
-    // Remove groupId from all symbols in this group
-    const watchlist = getWatchlistSymbols();
-    const updated = watchlist.map((item) => 
-      item.groupId === groupId ? { ...item, groupId: undefined } : item
-    );
-    localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify(updated));
-
-    return true;
-  } catch (error) {
-    console.error("Failed to delete watchlist group:", error);
-    return false;
+    const res = await fetch(`/api/watchlist/symbols/${encodeURIComponent(symbol)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ groupId: groupId ?? null }),
+    })
+    return res.ok
+  } catch {
+    return false
   }
 }
-
-/**
- * Assign a symbol to a group
- */
-export function assignSymbolToGroup(symbol: string, groupId: string | undefined): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
-  try {
-    const watchlist = getWatchlistSymbols();
-    const index = watchlist.findIndex((item) => item.symbol === symbol);
-    if (index === -1) {
-      return false;
-    }
-
-    watchlist[index] = { ...watchlist[index], groupId };
-    localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify(watchlist));
-    return true;
-  } catch (error) {
-    console.error("Failed to assign symbol to group:", error);
-    return false;
-  }
-}
-

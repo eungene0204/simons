@@ -297,7 +297,7 @@ RiskManagement {
 
 ### 3.4 가상 매매 시스템 (페이퍼 트레이딩)
 
-> **현재 상태:** 기본 UI 구조 구현, 핵심 로직 개발 필요
+> **현재 상태:** 가상 주식시장 엔진 + 자동매매 시스템 구현 완료
 
 #### 3.4.1 기능 명세
 
@@ -305,9 +305,9 @@ RiskManagement {
 |------|------|-----------|
 | 가상 계좌 생성 | 초기 자금 설정, 복수 계좌 관리 | ✅ UI 구현 |
 | 실시간 호가 조회 | 종목별 매수/매도 호가 표시 | ✅ API 구현 |
-| 시장가/지정가 주문 | 매수·매도 주문 입력 | 🔲 개발 필요 |
-| 포지션 관리 | 보유 종목, 평균 단가, 평가 손익 | 🔲 개발 필요 |
-| 전략 연동 매매 | 백테스트 전략 기반 자동 주문 생성 | 🔲 개발 필요 |
+| 시장가/지정가 주문 | 매수·매도 주문 입력 | ✅ 완료 |
+| 포지션 관리 | 보유 종목, 평균 단가, 평가 손익 | ✅ 완료 |
+| 전략 연동 매매 | 백테스트 전략 기반 자동 주문 생성 | ✅ 완료 (자동매매/신호알림 모드 선택 UI + 가상 주식시장 엔진) |
 | 거래 내역 | 체결 이력, 수수료 포함 손익 계산 | 🔲 개발 필요 |
 | 포트폴리오 리밸런싱 | 비중 조정, 자동 리밸런싱 알림 | 🔲 개발 필요 |
 | 실시간 PnL | 시장 데이터 기반 실시간 손익 추적 | 🔲 개발 필요 |
@@ -343,9 +343,10 @@ RiskManagement {
 
 | 기능 | 설명 | 구현 상태 |
 |------|------|-----------|
-| 포트폴리오 대시보드 | 전체 자산 현황, 수익률 추이 | ✅ 기본 구현 |
+| 포트폴리오 대시보드 | 전체 자산 현황, 수익률 추이 | ✅ 완료 |
+| 홈 대시보드 재설계 | 전략/백테스트/가상계좌 허브 (WelcomeSection, StrategyOverview, BacktestHistory, VirtualAccountSummary, MarketSnapshot) | ✅ 완료 |
 | 종목별 비중 | 파이차트, 섹터별 분산도 | ✅ 기본 구현 |
-| 관심종목 | 종목 추가/삭제, 가격 알림 | ✅ 완료 |
+| 관심종목 | 종목 추가/삭제, 그룹 관리, DB 영구 저장 (SQLite) | ✅ 완료 |
 | 리밸런싱 추천 | 목표 비중 대비 조정 제안 | 🔲 개발 필요 |
 | 성과 귀인 분석 | 종목·전략·타이밍별 기여도 | 🔲 개발 필요 |
 
@@ -502,7 +503,11 @@ Alert {
 | GET | `/api/stock/overview` | 시장 개요 |
 | GET | `/api/stocks/names` | 종목 목록 |
 | POST | `/api/stocks/sync` | 종목 데이터 동기화 |
-| GET/POST | `/api/watchlist` | 관심종목 관리 |
+| GET | `/api/watchlist` | 관심종목 가격 데이터 |
+| GET/POST | `/api/watchlist/symbols` | 관심종목 목록 CRUD |
+| DELETE/PATCH | `/api/watchlist/symbols/[symbol]` | 종목 삭제/그룹 변경 |
+| GET/POST | `/api/watchlist/groups` | 그룹 목록 CRUD |
+| PUT/DELETE | `/api/watchlist/groups/[id]` | 그룹 수정/삭제 |
 | GET | `/api/market/indices` | 지수 데이터 |
 | GET | `/api/news/top` | 뉴스 피드 |
 | GET | `/api/universe/data` | 유니버스 필터 데이터 |
@@ -525,8 +530,8 @@ Alert {
 | POST | `/api/virtual-account/[id]/order` | 주문 실행 | P1 |
 | GET | `/api/virtual-account/[id]/positions` | 포지션 조회 | P1 |
 | GET | `/api/virtual-account/[id]/orders` | 주문 이력 | P1 |
-| POST | `/api/virtual-account/[id]/strategy/start` | 전략 자동 실행 시작 | P2 |
-| POST | `/api/virtual-account/[id]/strategy/stop` | 전략 자동 실행 중지 | P2 |
+| POST | `/api/virtual-account/[id]/strategy/start` | 전략 자동 실행 시작 | ✅ 완료 |
+| POST | `/api/virtual-account/[id]/strategy/stop` | 전략 자동 실행 중지 | ✅ 완료 |
 | GET | `/api/portfolio/analysis` | 포트폴리오 분석 | P2 |
 | GET | `/api/portfolio/rebalance` | 리밸런싱 추천 | P3 |
 | GET | `/api/market/sectors` | 섹터별 분석 | P3 |
@@ -558,13 +563,13 @@ Alert {
 
 | 작업 | 상세 | 우선순위 |
 |------|------|----------|
-| 가상 계좌 DB 스키마 | VirtualAccount, Position, Order 테이블 | P1 |
-| 주문 시스템 | 시장가/지정가 주문 처리, 체결 로직 | P1 |
-| 포지션 관리 | 실시간 보유 종목 평가, 평균 단가 계산 | P1 |
-| 실시간 시세 연동 | WebSocket 또는 폴링 기반 가격 업데이트 | P1 |
-| 전략 자동 실행 | 백테스트 전략을 가상 시장에서 자동 실행 | P2 |
-| 거래 내역 & 정산 | 수수료, 세금 포함 실현 손익 계산 | P2 |
-| 가상 매매 대시보드 | 종합 성과, 일/월별 PnL, 승률 통계 | P2 |
+| 가상 계좌 DB 스키마 | VirtualAccount, Position, Order 테이블 | ✅ 완료 |
+| 주문 시스템 | 시장가/지정가 주문 처리, 체결 로직 | ✅ 완료 |
+| 포지션 관리 | 실시간 보유 종목 평가, 평균 단가 계산 | ✅ 완료 |
+| 실시간 시세 연동 | WebSocket 또는 폴링 기반 가격 업데이트 | ✅ 완료 |
+| 전략 자동 실행 | 백테스트 전략을 가상 시장에서 자동 실행 | ✅ 완료 |
+| 거래 내역 & 정산 | 수수료, 세금 포함 실현 손익 계산 | ✅ 완료 |
+| 가상 매매 대시보드 | 종합 성과, 일/월별 PnL, 승률 통계 | ✅ 완료 |
 
 ### Phase 3: 고급 분석 & 최적화 (v1.2)
 > **목표:** 전문적 퀀트 분석 도구 제공
@@ -620,7 +625,18 @@ Alert {
 | 백엔드 통합 | 2개 | pytest | 낮음 |
 | 프론트엔드 | 1개 | Vitest | 낮음 |
 
-### 7.2 테스트 개선 계획
+### 7.2 Mock 데이터 생성기
+
+| 항목 | 내용 | 상태 |
+|------|------|------|
+| 백엔드 OHLCV 생성기 | `backend/engine/mock_data_generator.py` — GBM 기반, 6가지 시나리오, 한국 상하한가·호가 단위 반영 | ✅ 완료 |
+| pytest conftest | `backend/tests/conftest.py` — 공용 fixture (mock_ohlcv, mock_data_dir, sim_matrices 등) | ✅ 완료 |
+| 프론트엔드 생성기 | `lib/mock-stock-data.ts` — GBM + seeded PRNG(mulberry32) 업그레이드, Math.random() 제거 | ✅ 완료 |
+| CLI 도구 | `python -m engine.mock_data_generator --scenario bull --symbols A B --days 252` | ✅ 완료 |
+
+**지원 시나리오:** `bull` / `bear` / `sideways` / `volatile` / `crash_recovery` / `realistic`
+
+### 7.3 테스트 개선 계획
 
 | 영역 | 목표 | 우선순위 |
 |------|------|----------|

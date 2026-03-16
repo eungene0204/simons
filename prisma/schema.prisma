@@ -57,16 +57,18 @@ model BacktestHistory {
 }
 
 model VirtualAccount {
-  id           String            @id @default(uuid())
+  id           String              @id @default(uuid())
   name         String
   initialCash  Float
   currentCash  Float
   strategyId   String?
   strategyName String?
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
+  tradingMode  String              @default("manual") // "auto" | "manual"
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
   positions    VirtualPosition[]
   orders       VirtualOrder[]
+  marketState  VirtualMarketState?
 }
 
 model VirtualPosition {
@@ -84,17 +86,65 @@ model VirtualPosition {
 }
 
 model VirtualOrder {
+  id           String         @id @default(uuid())
+  accountId    String
+  account      VirtualAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  symbol       String
+  name         String?
+  side         String         // "BUY" | "SELL"
+  type         String         // "MARKET" | "LIMIT"
+  quantity     Int
+  price        Float          // 주문가
+  filledPrice  Float?         // 체결가
+  fee          Float?         // 수수료 (원)
+  tax          Float?         // 증권거래세 (매도 시, 원)
+  avgBuyPrice  Float?         // 매도 시 기준 평균매수가 (실현손익 계산용)
+  realizedPnl  Float?         // 실현 손익 (매도 체결 시, 원)
+  status       String         // "PENDING" | "FILLED" | "CANCELLED"
+  filledAt     DateTime?
+  createdAt    DateTime       @default(now())
+}
+
+model VirtualMarketState {
   id          String         @id @default(uuid())
-  accountId   String
+  accountId   String         @unique
   account     VirtualAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  symbol      String
-  name        String?
-  side        String         // "BUY" | "SELL"
-  type        String         // "MARKET" | "LIMIT"
-  quantity    Int
-  price       Float          // 주문가
-  filledPrice Float?         // 체결가
-  status      String         // "PENDING" | "FILLED" | "CANCELLED"
-  filledAt    DateTime?
+  virtualDate String         // 현재 가상 날짜 "2023-01-15"
+  startDate   String         // 시뮬레이션 시작일
+  scenario    String         @default("realistic")
+  speed       Int            @default(10) // 실제 N초 = 가상 1거래일
+  status      String         @default("stopped") // "running" | "paused" | "stopped"
+  symbols     String         // JSON: ["005930","000660"]
   createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+model WatchlistGroup {
+  id        String            @id @default(uuid())
+  name      String
+  color     String            @default("#3B82F6")
+  createdAt DateTime          @default(now())
+  symbols   WatchlistSymbol[]
+}
+
+model WatchlistSymbol {
+  id      String          @id @default(uuid())
+  symbol  String          @unique
+  name    String
+  addedAt DateTime        @default(now())
+  groupId String?
+  group   WatchlistGroup? @relation(fields: [groupId], references: [id])
+}
+
+model VirtualMarketLog {
+  id          String   @id @default(uuid())
+  accountId   String
+  virtualDate String
+  symbol      String
+  signalType  String   // "entry" | "exit"
+  reason      String?
+  price       Float
+  action      String   // "auto_executed" | "notified" | "skipped"
+  orderId     String?
+  createdAt   DateTime @default(now())
 }
