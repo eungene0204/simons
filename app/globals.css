@@ -39,7 +39,7 @@
   }
   
   .glass-card:hover {
-    @apply border-white/20 bg-white/[0.05] -translate-y-1 shadow-[0_12px_40px_rgba(0,0,0,0.4)];
+    @apply border-white/10;
   }
 
   .premium-gradient-text {
