@@ -1,7 +1,6 @@
 // Portfolio Utility Functions — API 기반 (DB 저장)
 
-import { VirtualAccount, PortfolioHolding, Transaction } from "@/types/portfolio";
-import { generateStockPriceData } from "@/lib/mock-stock-data";
+import { VirtualAccount, PortfolioHolding, Transaction, PendingOrder } from "@/types/portfolio";
 
 // ─── 가상계좌 관리 ────────────────────────────────────────────────────────────
 
@@ -21,12 +20,25 @@ export async function createAccount(
   name: string,
   initialAmount: number,
   strategyId?: string,
-  strategyName?: string
+  strategyName?: string,
+  tradingMode?: "auto" | "manual"
 ): Promise<VirtualAccount> {
   const res = await fetch("/api/virtual-account", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, initialAmount, strategyId, strategyName }),
+    body: JSON.stringify({ name, initialAmount, strategyId, strategyName, tradingMode }),
+  });
+  return res.json();
+}
+
+export async function updateTradingMode(
+  accountId: string,
+  tradingMode: "auto" | "manual"
+): Promise<VirtualAccount> {
+  const res = await fetch(`/api/virtual-account/${accountId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tradingMode }),
   });
   return res.json();
 }
@@ -50,20 +62,10 @@ export async function getHoldingsByAccount(
 ): Promise<PortfolioHolding[]> {
   const res = await fetch(`/api/virtual-account/${accountId}/positions`);
   if (!res.ok) return [];
-  const positions: PortfolioHolding[] = await res.json();
-
-  // 실시간 현재가 반영 (mock)
-  return positions.map((p) => {
-    const priceData = generateStockPriceData(p.symbol);
-    const currentPrice = priceData.currentPrice;
-    const totalValue = p.quantity * currentPrice;
-    const profit = totalValue - p.quantity * p.averagePrice;
-    const profitPercent = (profit / (p.quantity * p.averagePrice)) * 100;
-    return { ...p, currentPrice, totalValue, profit, profitPercent };
-  });
+  return res.json();
 }
 
-// ─── 주문 실행 (매수/매도) ────────────────────────────────────────────────────
+// ─── 주문 실행 (매수/매도, 시장가/지정가) ────────────────────────────────────
 
 export async function executeTrade(
   accountId: string,
@@ -71,16 +73,63 @@ export async function executeTrade(
   symbol: string,
   name: string,
   quantity: number,
-  price: number
-): Promise<{ success: boolean; error?: string }> {
+  price: number,
+  orderType: "MARKET" | "LIMIT" = "MARKET"
+): Promise<{ success: boolean; order?: Transaction; error?: string }> {
   const res = await fetch(`/api/virtual-account/${accountId}/orders`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ type, symbol, name, quantity, price }),
+    body: JSON.stringify({ type, symbol, name, quantity, price, orderType }),
   });
   const data = await res.json();
   if (!res.ok) return { success: false, error: data.error };
+  return { success: true, order: data };
+}
+
+// ─── 미체결 주문 조회 ─────────────────────────────────────────────────────────
+
+export async function getPendingOrders(
+  accountId: string
+): Promise<PendingOrder[]> {
+  const res = await fetch(
+    `/api/virtual-account/${accountId}/orders?status=PENDING`
+  );
+  if (!res.ok) return [];
+  return res.json();
+}
+
+// ─── 주문 취소 ────────────────────────────────────────────────────────────────
+
+export async function cancelOrder(
+  accountId: string,
+  orderId: string
+): Promise<{ success: boolean; error?: string }> {
+  const res = await fetch(
+    `/api/virtual-account/${accountId}/orders/${orderId}`,
+    { method: "DELETE" }
+  );
+  const data = await res.json();
+  if (!res.ok) return { success: false, error: data.error };
   return { success: true };
+}
+
+// ─── PENDING 주문 체결 트리거 (가격 갱신 시 호출) ─────────────────────────────
+
+export async function fillPendingOrders(
+  accountId: string,
+  symbol: string,
+  currentPrice: number
+): Promise<{ filled: string[]; count: number }> {
+  const res = await fetch(
+    `/api/virtual-account/${accountId}/orders/fill`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol, currentPrice }),
+    }
+  );
+  if (!res.ok) return { filled: [], count: 0 };
+  return res.json();
 }
 
 // ─── 거래 내역 조회 ───────────────────────────────────────────────────────────

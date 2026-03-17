@@ -117,6 +117,56 @@ export class BacktestService {
     }
   }
 
+  async walkForward(strategy: StrategyDSL, options: BacktestConfigOptions, ranges: Record<string, any>, wfaSettings: { n_splits: number; train_pct: number; anchor: boolean; target_metric: string; n_trials: number }): Promise<any> {
+    const symbols = await UniverseResolver.getSymbols(
+      strategy.universe.id,
+      strategy.universe.filters
+    );
+
+    if (symbols.length === 0) {
+      throw new Error("No symbols found in selected universe");
+    }
+
+    const baseStrategy = {
+      symbols,
+      entry: strategy.entry,
+      exit: strategy.exit,
+      risk: { ...strategy.risk, init_cash: options.initialCapital },
+      period: options.period,
+      options: {
+        fee_rate: options.commissionPct / 100,
+        slippage_rate: options.slippagePct / 100,
+        execution_type: strategy.risk?.execution_timing || "next_open",
+      },
+    };
+
+    const requestBody = {
+      base_strategy: baseStrategy,
+      ranges,
+      ...wfaSettings,
+    };
+
+    try {
+      const response = await fetch("/api/backtest/walk-forward", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        const detail = errorData.detail;
+        throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+      }
+
+      return await response.json();
+    } catch (error: any) {
+      const msg = error instanceof Error ? error.message : "알 수 없는 에러";
+      throw new Error(`워크포워드 분석 오류: ${msg}`);
+    }
+  }
+
   async optimize(strategy: StrategyDSL, options: BacktestConfigOptions, userPrompt: string, targetMetric: string = "cagr", ranges: Record<string, any>, nTrials: number = 50, signal?: AbortSignal): Promise<any> {
     // 1. Identify required symbols
     const symbols = await UniverseResolver.getSymbols(

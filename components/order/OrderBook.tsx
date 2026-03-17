@@ -7,16 +7,42 @@ import {
   getBasePrice,
   type OrderBookItem,
 } from "@/lib/mock-stock-data";
+
+// seeded PRNG — Math.random() 대신 심볼 기반 재현 가능한 난수
+function mulberry32(seed: number) {
+  return function () {
+    let t = (seed += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function symbolHash(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return h >>> 0;
+}
 import PriceList from "./PriceList";
 import MarketSummary from "./MarketSummary";
 import TradeList from "./TradeList";
 import AskVolume from "./AskVolume";
 import BidVolume from "./BidVolume";
 
+export interface MarketStats {
+  open: number;
+  high: number;
+  low: number;
+  volume: number;
+  previousClose: number;
+  week52High: number;
+  week52Low: number;
+}
+
 interface OrderBookProps {
   symbol: string;
   currentPrice?: number;
   onPriceSelect?: (price: number) => void;
+  marketStats?: MarketStats;
 }
 
 interface TradeExecution {
@@ -37,6 +63,7 @@ export default function OrderBook({
   symbol,
   currentPrice,
   onPriceSelect,
+  marketStats,
 }: OrderBookProps) {
   const [orderBookData, setOrderBookData] = useState<{
     sellOrders: OrderBookItem[];
@@ -58,7 +85,8 @@ export default function OrderBook({
       if (p < 10000) return 10;
       if (p < 50000) return 50;
       if (p < 100000) return 100;
-      return 500;
+      if (p < 500000) return 500;
+      return 1000;
     };
     const tickSize = getTickSize(price);
     return Math.floor(price / tickSize) * tickSize;
@@ -94,6 +122,7 @@ export default function OrderBook({
       );
 
       if (!isInSellOrders && !isInBuyOrders && roundedPrice) {
+        const rngFallback = mulberry32(symbolHash(symbol) ^ Math.floor(Date.now() / 1000));
         const lowestSellPrice =
           sellOrders.length > 0
             ? Math.min(...sellOrders.map((o) => o.price))
@@ -106,13 +135,13 @@ export default function OrderBook({
         if (roundedPrice >= (lowestSellPrice + highestBuyPrice) / 2) {
           sellOrders.push({
             price: roundedPrice,
-            quantity: Math.floor(Math.random() * 10000) + 1000,
+            quantity: Math.floor(rngFallback() * 10000) + 1000,
           });
           sellOrders.sort((a, b) => b.price - a.price);
         } else {
           buyOrders.push({
             price: roundedPrice,
-            quantity: Math.floor(Math.random() * 10000) + 1000,
+            quantity: Math.floor(rngFallback() * 10000) + 1000,
           });
           buyOrders.sort((a, b) => a.price - b.price);
         }
@@ -120,14 +149,15 @@ export default function OrderBook({
 
       setOrderBookData({ sellOrders, buyOrders });
 
-      // 최근 체결 내역 생성
+      // 최근 체결 내역 생성 (seeded PRNG 기반)
       const generateRecentTrades = (basePrice: number) => {
+        const rng = mulberry32(symbolHash(symbol) ^ Math.floor(Date.now() / 60000));
         const trades: TradeExecution[] = [];
         for (let i = 0; i < 16; i++) {
-          const priceOffset = (Math.random() - 0.5) * basePrice * 0.01;
+          const priceOffset = (rng() - 0.5) * basePrice * 0.01;
           const tradePrice = Math.round(basePrice + priceOffset);
-          const quantity = Math.floor(Math.random() * 500) + 1;
-          const type = Math.random() > 0.5 ? "buy" : "sell";
+          const quantity = Math.floor(rng() * 500) + 1;
+          const type = rng() > 0.5 ? "buy" : "sell";
           trades.push({
             price: tradePrice,
             quantity,
@@ -167,6 +197,7 @@ export default function OrderBook({
           );
 
           if (!isInSellOrders && !isInBuyOrders) {
+            const rngFallback = mulberry32(symbolHash(symbol) ^ Math.floor(Date.now() / 1000));
             const lowestSellPrice =
               sellOrders.length > 0
                 ? Math.min(...sellOrders.map((o) => o.price))
@@ -182,13 +213,13 @@ export default function OrderBook({
             ) {
               sellOrders.push({
                 price: roundedUpdatedPrice,
-                quantity: Math.floor(Math.random() * 10000) + 1000,
+                quantity: Math.floor(rngFallback() * 10000) + 1000,
               });
               sellOrders.sort((a, b) => b.price - a.price);
             } else {
               buyOrders.push({
                 price: roundedUpdatedPrice,
-                quantity: Math.floor(Math.random() * 10000) + 1000,
+                quantity: Math.floor(rngFallback() * 10000) + 1000,
               });
               buyOrders.sort((a, b) => a.price - b.price);
             }
@@ -198,13 +229,11 @@ export default function OrderBook({
         setOrderBookData({ sellOrders, buyOrders });
 
         if (roundedUpdatedPrice) {
+          const rng = mulberry32(symbolHash(symbol) ^ Math.floor(Date.now() / 1000));
           const newTrade: TradeExecution = {
-            price: Math.round(
-              roundedUpdatedPrice +
-                (Math.random() - 0.5) * roundedUpdatedPrice * 0.01
-            ),
-            quantity: Math.floor(Math.random() * 500) + 1,
-            type: Math.random() > 0.5 ? "buy" : "sell",
+            price: Math.round(roundedUpdatedPrice + (rng() - 0.5) * roundedUpdatedPrice * 0.01),
+            quantity: Math.floor(rng() * 500) + 1,
+            type: rng() > 0.5 ? "buy" : "sell",
             timestamp: new Date(),
           };
           setRecentTrades((prev) => [newTrade, ...prev.slice(0, 15)]);
@@ -262,35 +291,31 @@ export default function OrderBook({
   const maxSellQty = Math.max(...sellOrders.map((o) => o.quantity), 1);
   const maxBuyQty = Math.max(...buyOrders.map((o) => o.quantity), 1);
 
-  // 전일 종가 (현재가 기준으로 계산)
-  const previousClose = actualCurrentPrice ? actualCurrentPrice * 0.98 : 0;
+  // 전일 종가: 실제 데이터 우선, 없으면 현재가 기반 추정
+  const previousClose = marketStats?.previousClose ?? (actualCurrentPrice ? actualCurrentPrice * 0.98 : 0);
   const percentChange = (priceValue: number) => {
     if (!previousClose || previousClose === 0) return 0;
     return ((priceValue - previousClose) / previousClose) * 100;
   };
 
-  // 보조 지표
+  // 보조 지표: 실제 데이터 우선
   const base = actualCurrentPrice || 0;
-  const upperLimit = Math.max(0, Math.round(base * 1.3));
-  const lowerLimit = Math.max(0, Math.round(base * 0.7));
-  const week52High = Math.max(0, Math.round(base * 1.045));
-  const week52Low = Math.max(0, Math.round(base * 0.255));
-  const openPrice = Math.max(0, Math.round(base * 1.0));
-  const highPrice = Math.max(0, Math.round(base * 1.045));
-  const lowPrice = Math.max(0, Math.round(base * 0.978));
-  const volumeTotal = Math.round((totalBuyVolume + totalSellVolume) * 7.5);
-  const yesterdayRatio =
-    100 +
-    Math.round(
-      ((totalBuyVolume - totalSellVolume) / Math.max(1, totalSellVolume)) *
-        10000
-    ) /
-      100;
+  const upperLimit = Math.max(0, Math.round(previousClose * 1.3));
+  const lowerLimit = Math.max(0, Math.round(previousClose * 0.7));
+  const week52High = marketStats?.week52High ?? Math.max(0, Math.round(base * 1.045));
+  const week52Low = marketStats?.week52Low ?? Math.max(0, Math.round(base * 0.255));
+  const openPrice = marketStats?.open ?? Math.max(0, Math.round(base * 1.0));
+  const highPrice = marketStats?.high ?? Math.max(0, Math.round(base * 1.045));
+  const lowPrice = marketStats?.low ?? Math.max(0, Math.round(base * 0.978));
+  const volumeTotal = marketStats?.volume ?? Math.round((totalBuyVolume + totalSellVolume) * 7.5);
+  const yesterdayRatio = previousClose > 0
+    ? ((base - previousClose) / previousClose) * 100
+    : 0;
   const tradeStrength = (totalBuyVolume / Math.max(1, totalSellVolume)) * 100;
 
-  // 상승VI / 하강VI
-  const upVI = Math.round(base * 1.02);
-  const downVI = Math.round(base * 0.98);
+  // 상승VI / 하강VI (±10% from 전일종가, 한국 동적VI 기준)
+  const upVI = Math.round(previousClose * 1.1);
+  const downVI = Math.round(previousClose * 0.9);
 
   // 가격 리스트 생성: 현재가를 중심으로 위=매도, 아래=매수
   const sortedSellOrders = [...sellOrders].sort((a, b) => b.price - a.price);
@@ -344,7 +369,8 @@ export default function OrderBook({
     if (p < 10000) return 10;
     if (p < 50000) return 50;
     if (p < 100000) return 100;
-    return 500;
+    if (p < 500000) return 500;
+    return 1000;
   };
   const tickSize = actualCurrentPrice ? getTickSize(actualCurrentPrice) : 1;
 

@@ -1,20 +1,22 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
-function mapPosition(p: any) {
-  return {
-    symbol: p.symbol,
-    name: p.name,
-    quantity: p.quantity,
-    averagePrice: p.avgPrice,
-    currentPrice: p.avgPrice, // 프론트에서 실시간 가격으로 덮어씀
-    totalValue: p.quantity * p.avgPrice,
-    profit: 0,
-    profitPercent: 0,
-  };
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+
+async function fetchLastClose(symbol: string): Promise<number | null> {
+  try {
+    const res = await fetch(`${BACKEND_URL}/stock/${symbol}/ohlcv?limit=1`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.lastClose ?? null;
+  } catch {
+    return null;
+  }
 }
 
-// GET: 보유 포지션 목록
+// GET: 보유 포지션 목록 (실시간 현재가 포함)
 export async function GET(
   _request: Request,
   { params }: { params: { id: string } }
@@ -24,7 +26,33 @@ export async function GET(
       where: { accountId: params.id },
       orderBy: { openedAt: 'asc' },
     });
-    return NextResponse.json(positions.map(mapPosition));
+
+    if (positions.length === 0) {
+      return NextResponse.json([]);
+    }
+
+    // 모든 종목 현재가 병렬 조회
+    const prices = await Promise.all(positions.map((p) => fetchLastClose(p.symbol)));
+
+    const result = positions.map((p, i) => {
+      const currentPrice = prices[i] ?? p.avgPrice;
+      const cost = p.quantity * p.avgPrice;
+      const totalValue = p.quantity * currentPrice;
+      const profit = totalValue - cost;
+      const profitPercent = cost > 0 ? (profit / cost) * 100 : 0;
+      return {
+        symbol: p.symbol,
+        name: p.name,
+        quantity: p.quantity,
+        averagePrice: p.avgPrice,
+        currentPrice,
+        totalValue,
+        profit,
+        profitPercent,
+      };
+    });
+
+    return NextResponse.json(result);
   } catch (error) {
     console.error('Failed to fetch positions:', error);
     return NextResponse.json({ error: 'Failed to fetch positions' }, { status: 500 });

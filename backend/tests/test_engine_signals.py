@@ -296,6 +296,72 @@ def test_generate_signals_empty_group_returns_all_false(signal_engine):
     assert list(signals2) == [False, False, False]
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# 재무 필터 데이터 누락 시 필터 통과 처리 테스트
+# ──────────────────────────────────────────────────────────────────────────────
+
+def test_fundamental_filter_missing_column_passes_vec(signal_engine):
+    """재무 컬럼(per/pbr 등)이 없으면 필터 통과(np.ones) 반환 — 벡터화 (_eval_vec)"""
+    df = pl.DataFrame({"close": [1000.0, 1100.0, 950.0]})
+
+    for cid in ["per", "pbr", "roe_or_gpa", "debt_ratio", "market_cap"]:
+        cond = {"id": cid, "params": {"operator": "<=", "value": 10.0}}
+        result = signal_engine._eval_vec(cond, df)
+        assert list(result) == [True, True, True], \
+            f"{cid}: 컬럼 없을 때 np.ones 기대, 실제={list(result)}"
+
+def test_fundamental_filter_missing_column_passes_row(signal_engine):
+    """재무 컬럼이 없으면 필터 통과(True) 반환 — 행별 (evaluate_condition)"""
+    df = pl.DataFrame({"close": [1000.0, 1100.0]})
+
+    for cid in ["per", "pbr", "roe_or_gpa", "debt_ratio", "market_cap"]:
+        cond = {"id": cid, "params": {"operator": "<=", "value": 10.0}}
+        assert signal_engine.evaluate_condition(cond, 0, df) is True, \
+            f"{cid}: 컬럼 없을 때 True 기대"
+
+def test_fundamental_filter_with_column_applies_correctly(signal_engine):
+    """재무 컬럼이 존재하면 조건을 정상 평가"""
+    df = pl.DataFrame({"close": [1000.0, 1100.0, 950.0], "pbr": [0.8, 1.5, 0.5]})
+    cond = {"id": "pbr", "params": {"operator": "<=", "value": 1.0}}
+
+    result = signal_engine._eval_vec(cond, df)
+    assert list(result) == [True, False, True]
+
+    assert signal_engine.evaluate_condition(cond, 0, df) is True   # 0.8 <= 1.0
+    assert signal_engine.evaluate_condition(cond, 1, df) is False  # 1.5 > 1.0
+    assert signal_engine.evaluate_condition(cond, 2, df) is True   # 0.5 <= 1.0
+
+def test_generate_signals_fundamental_filter_only_no_column(signal_engine):
+    """재무 필터만 있고 해당 컬럼이 없으면 신호가 모두 True (데이터 없어도 거래 가능)"""
+    df = pl.DataFrame({"close": [1000.0, 1100.0, 950.0]})
+    group = {
+        "conditions": [
+            {"type": "filter", "id": "pbr", "params": {"operator": "<=", "value": 1.0}},
+            {"type": "filter", "id": "per", "params": {"operator": "<=", "value": 10.0}},
+        ]
+    }
+    signals, reasons = signal_engine.generate_signals(df, group)
+    assert list(signals) == [True, True, True], \
+        f"재무 필터 컬럼 누락 시 모두 True 기대, 실제={list(signals)}"
+
+def test_generate_signals_fundamental_filter_with_technical_signal(signal_engine):
+    """재무 필터(컬럼 없음) + 기술적 신호 조합 — 기술적 신호만으로 진입 결정"""
+    df = pl.DataFrame({
+        "close":      [10.0, 10.0, 12.0, 8.0],
+        "close_5_sma":  [10.0, 10.0, 12.0, 8.0],
+        "close_20_sma": [11.0, 11.0, 11.0, 11.0],
+    })
+    group = {
+        "conditions": [
+            {"type": "indicator", "id": "ma_crossover", "params": {"shortMA": 5, "longMA": 20, "signalType": "buy"}},
+            {"type": "filter",    "id": "pbr",          "params": {"operator": "<=", "value": 1.0}},  # 컬럼 없음
+        ]
+    }
+    signals, _ = signal_engine.generate_signals(df, group)
+    # pbr 필터는 통과, MA 크로스오버만 결정 (idx=2에서 골든크로스)
+    assert list(signals) == [False, False, True, False]
+
+
 def test_evaluate_group_implicit_logic(signal_engine):
     data = {
         "rsi_14": [20, 40],

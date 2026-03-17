@@ -30,6 +30,7 @@ interface StockDetail {
     close: number;
     volume: number;
   }>;
+  realLastClose?: number | null;
 }
 
 export async function GET(
@@ -130,8 +131,21 @@ export async function GET(
       console.error("Failed to load stock list:", error);
     }
 
+    // 파케이 실제 lastClose 조회 (백엔드 가용 시 우선 사용)
+    let realLastClose: number | undefined;
+    try {
+      const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+      const ohlcvRes = await fetch(`${BACKEND_URL}/stock/${symbol}/ohlcv?limit=2`, {
+        signal: AbortSignal.timeout(800),
+      });
+      if (ohlcvRes.ok) {
+        const ohlcvData = await ohlcvRes.json();
+        realLastClose = ohlcvData.lastClose;
+      }
+    } catch { /* 백엔드 미실행 시 무시 */ }
+
     const base = baseData[symbol] || {};
-    const basePrice = base.currentPrice || getBasePrice(symbol);
+    const basePrice = realLastClose || base.currentPrice || getBasePrice(symbol);
     const priceData = generateStockPriceData(symbol, basePrice);
     
     // 캔들 데이터 생성
@@ -158,6 +172,7 @@ export async function GET(
       industry: stockIndustry || base.industry || "",
       timeSeries: timeSeries,
       candleData: candleData,
+      realLastClose: realLastClose ?? null,
     };
 
     const response = {

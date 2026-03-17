@@ -244,6 +244,9 @@ class SignalEngine:
         elif cid in ['per', 'pbr', 'roe_or_gpa', 'debt_ratio', 'market_cap']:
             val = float(p.get('value') or 0)
             curr = get_col(cid)
+            if curr is None:
+                # 재무 데이터 컬럼이 없으면 필터 통과로 처리 (데이터 누락)
+                return np.ones(data_len, dtype=bool)
             return compare_vec(curr, p.get('operator', '<'), val)
 
         elif cid == 'price_limit_exit':
@@ -272,7 +275,8 @@ class SignalEngine:
             if score is None:
                 return result
             sig_type = p.get('signalType', 'sell' if target_type == 'down' else 'buy')
-            threshold = float(p.get('minProbability', 70))
+            # 프론트엔드는 'threshold', 구형 DSL은 'minProbability' 키 사용
+            threshold = float(p.get('threshold') or p.get('minProbability') or 70)
             if threshold > 1.0:
                 threshold /= 100.0
             with np.errstate(invalid='ignore'):
@@ -496,6 +500,9 @@ class SignalEngine:
         elif cid in ['per', 'pbr', 'roe_or_gpa', 'debt_ratio', 'market_cap']:
             val, op = float(p.get('value') or 0), p.get('operator', '<')
             curr = safe_get(cid, idx)
+            if curr is None:
+                # 재무 데이터 컬럼이 없으면 필터 통과로 처리 (데이터 누락)
+                return True
             return compare(curr, op, val)
 
         elif cid == 'price_limit_exit':
@@ -523,7 +530,7 @@ class SignalEngine:
             if score is None:
                 return False
             sig_type = p.get('signalType', 'sell' if target_type == 'down' else 'buy')
-            threshold = float(p.get('minProbability', 70))
+            threshold = float(p.get('threshold') or p.get('minProbability') or 70)
             if threshold > 1.0:
                 threshold /= 100.0
             if target_type == 'up':

@@ -1,13 +1,26 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
-function mapAccount(a: any) {
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+
+async function fetchLastClose(symbol: string): Promise<number | null> {
+  try {
+    const res = await fetch(`${BACKEND_URL}/stock/${symbol}/ohlcv?limit=1`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.lastClose ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function mapAccount(a: any, priceMap: Record<string, number>) {
   const totalValue =
     a.currentCash +
-    (a.positions ?? []).reduce(
-      (sum: number, p: any) => sum + p.quantity * p.avgPrice,
-      0
-    );
+    (a.positions ?? []).reduce((sum: number, p: any) => {
+      const currentPrice = priceMap[p.symbol] ?? p.avgPrice;
+      return sum + p.quantity * currentPrice;
+    }, 0);
   return {
     id: a.id,
     name: a.name,
@@ -16,6 +29,7 @@ function mapAccount(a: any) {
     totalValue,
     strategyId: a.strategyId ?? undefined,
     strategyName: a.strategyName ?? undefined,
+    tradingMode: (a.tradingMode ?? "manual") as "auto" | "manual",
     createdAt: a.createdAt.toISOString(),
     updatedAt: a.updatedAt.toISOString(),
   };
@@ -28,7 +42,14 @@ export async function GET() {
       include: { positions: true },
       orderBy: { createdAt: 'desc' },
     });
-    return NextResponse.json(accounts.map(mapAccount));
+
+    // 전체 계좌의 고유 종목 코드 수집 후 병렬로 현재가 조회
+    const symbols = [...new Set(accounts.flatMap((a) => a.positions.map((p) => p.symbol)))];
+    const prices = await Promise.all(symbols.map(fetchLastClose));
+    const priceMap: Record<string, number> = {};
+    symbols.forEach((s, i) => { if (prices[i] !== null) priceMap[s] = prices[i]!; });
+
+    return NextResponse.json(accounts.map((a) => mapAccount(a, priceMap)));
   } catch (error) {
     console.error('Failed to fetch virtual accounts:', error);
     return NextResponse.json({ error: 'Failed to fetch accounts' }, { status: 500 });
@@ -38,7 +59,7 @@ export async function GET() {
 // POST: 가상계좌 생성
 export async function POST(request: Request) {
   try {
-    const { name, initialAmount, strategyId, strategyName } = await request.json();
+    const { name, initialAmount, strategyId, strategyName, tradingMode } = await request.json();
 
     if (!name || !initialAmount) {
       return NextResponse.json(
@@ -54,6 +75,7 @@ export async function POST(request: Request) {
         currentCash: initialAmount,
         strategyId: strategyId || null,
         strategyName: strategyName || null,
+        tradingMode: tradingMode || "manual",
       },
       include: { positions: true },
     });

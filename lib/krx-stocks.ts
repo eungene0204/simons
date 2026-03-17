@@ -4,97 +4,23 @@
 import { StockListItem } from "@/types/stock";
 
 /**
- * 한국거래소에서 코스피/코스닥 종목 목록을 가져옵니다
- * KRX 정보데이터시스템 공개 데이터 활용
+ * ⚠️  DEPRECATED — 이 함수는 사용하지 마세요.
+ *
+ * KRX 비공식 통계 API(MDCSTAT01501/02501)를 직접 호출하는 방식은
+ * 이름-코드 매핑이 잘못 반환되는 문제가 확인되었습니다.
+ * (예: 000100이 유한양행이 아닌 엉뚱한 종목으로 매핑)
+ *
+ * 종목 목록 동기화는 반드시 Python 백엔드의 /sync-stocks endpoint를 사용하세요.
+ * 해당 endpoint는 FinanceDataReader(FDR)로 올바른 KRX 데이터를 가져옵니다.
+ *
+ *   CLI:  python3 scripts/sync_data.py --symbols-only
+ *   API:  POST /api/stocks/sync  (백엔드 서버 실행 필요)
  */
 export async function fetchKRXStockList(): Promise<StockListItem[]> {
-  const stocks: StockListItem[] = [];
-
-  try {
-    // KRX 정보데이터시스템 공개 데이터 URL
-    const baseUrl = 'http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd';
-    
-    // 코스피 종목 목록
-    const kospiParams = new URLSearchParams({
-      bld: 'dbms/MDC/STAT/standard/MDCSTAT01501',
-      locale: 'ko_KR',
-      isuCd: '',
-      isuCd2: '',
-      strtDd: '',
-      endDd: '',
-      share: '1',
-      money: '1',
-    });
-
-    // 코스닥 종목 목록
-    const kosdaqParams = new URLSearchParams({
-      bld: 'dbms/MDC/STAT/standard/MDCSTAT02501',
-      locale: 'ko_KR',
-      isuCd: '',
-      isuCd2: '',
-      strtDd: '',
-      endDd: '',
-      share: '1',
-      money: '1',
-    });
-
-    // 코스피 종목 가져오기
-    try {
-      const kospiResponse = await fetch(`${baseUrl}?${kospiParams.toString()}`, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        },
-      });
-      
-      if (kospiResponse.ok) {
-        const kospiData = await kospiResponse.json();
-        if (kospiData.OutBlock_1) {
-          kospiData.OutBlock_1.forEach((item: any) => {
-            stocks.push({
-              symbol: item.ISU_SRT_CD || item.MKT_ID,
-              name: item.ISU_ABBRV || item.ISU_NM,
-              market: 'KOSPI',
-              sector: item.IDX_IND_NM || '',
-              industry: item.IDX_IND_CD_NM || '',
-            });
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Failed to fetch KOSPI stocks:', error);
-    }
-
-    // 코스닥 종목 가져오기
-    try {
-      const kosdaqResponse = await fetch(`${baseUrl}?${kosdaqParams.toString()}`, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        },
-      });
-      
-      if (kosdaqResponse.ok) {
-        const kosdaqData = await kosdaqResponse.json();
-        if (kosdaqData.OutBlock_1) {
-          kosdaqData.OutBlock_1.forEach((item: any) => {
-            stocks.push({
-              symbol: item.ISU_SRT_CD || item.MKT_ID,
-              name: item.ISU_ABBRV || item.ISU_NM,
-              market: 'KOSDAQ',
-              sector: item.IDX_IND_NM || '',
-              industry: item.IDX_IND_CD_NM || '',
-            });
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Failed to fetch KOSDAQ stocks:', error);
-    }
-    
-    return stocks;
-  } catch (error) {
-    console.error('Failed to fetch KRX stock list:', error);
-    return stocks;
-  }
+  throw new Error(
+    "fetchKRXStockList()는 더 이상 사용되지 않습니다. " +
+    "POST /api/stocks/sync 또는 `python3 scripts/sync_data.py --symbols-only`를 사용하세요."
+  );
 }
 
 /**

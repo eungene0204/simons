@@ -25,7 +25,7 @@ export function useOrder() {
 // 내부 컴포넌트 - memo로 감싸서 children이나 userName이 변경되지 않으면 리렌더링 방지
 const DashboardLayoutContent = memo(function DashboardLayoutContent({
   children,
-  userName,
+  userName: _userName,
   subHeader,
 }: {
   children: ReactNode;
@@ -121,7 +121,7 @@ const DashboardLayoutContent = memo(function DashboardLayoutContent({
         </div>
 
         <main 
-          className="flex-1 overflow-y-auto overflow-x-hidden animate-fade-in max-w-full"
+          className="flex-1 overflow-y-auto overflow-x-hidden max-w-full"
           style={{
             marginLeft: `${drawerWidthPx}px`,
             paddingTop: `${topMenuBarHeight}px`,
