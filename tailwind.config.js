@@ -22,11 +22,16 @@ module.exports = {
       },
       animation: {
         shimmer: 'shimmer 2s infinite',
+        fadeIn: 'fadeIn 0.35s ease-in-out',
       },
       keyframes: {
         shimmer: {
           '0%': { transform: 'translateX(-100%)' },
           '100%': { transform: 'translateX(100%)' },
+        },
+        fadeIn: {
+          '0%': { opacity: '0', transform: 'translateY(-4px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
         },
       },
     },

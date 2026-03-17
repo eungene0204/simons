@@ -179,6 +179,13 @@ class BacktestEngine:
                     # 3.7 Signal Generation
                     entry_signals, entry_reasons = self.signal_engine.generate_signals(df_pl, req.get('entry'))
                     exit_signals, exit_reasons = self.signal_engine.generate_signals(df_pl, req.get('exit'))
+
+                    # 재무 필터 데이터 누락 경고 (첫 번째 심볼에서만 한 번 확인)
+                    FUNDAMENTAL_IDS = {'per', 'pbr', 'roe_or_gpa', 'debt_ratio', 'market_cap'}
+                    all_conditions = list(req.get('entry', {}).get('conditions', [])) + list(req.get('exit', {}).get('conditions', []))
+                    missing_funds = [c['id'] for c in all_conditions if c.get('id') in FUNDAMENTAL_IDS and c['id'] not in df_pl.columns]
+                    if missing_funds:
+                        self.warnings.add(f"재무 데이터({', '.join(set(missing_funds))}) 없음 — 해당 필터는 무시되었습니다. 백테스트는 기술적 신호만으로 실행됩니다.")
                     
                     # Apply Liquidity Mask
                     if not (skip_risk or skip_pos):

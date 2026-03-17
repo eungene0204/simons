@@ -47,8 +47,14 @@ class IndicatorEngine:
                         period = p.get('period', p.get('rsi_period', 14))
                         target_cols.add(f'rsi_{period}')
                     elif cid == 'ema':
-                        period = p.get('period', 20)
-                        target_cols.add(f'close_{period}_ema')
+                        short_p = p.get('shortPeriod', p.get('short'))
+                        long_p = p.get('longPeriod', p.get('long'))
+                        if short_p is not None and long_p is not None:
+                            target_cols.add(f'close_{int(short_p)}_ema')
+                            target_cols.add(f'close_{int(long_p)}_ema')
+                        else:
+                            period = p.get('period', 20)
+                            target_cols.add(f'close_{period}_ema')
                     elif cid == 'macd':
                         target_cols.add('macd')
                         target_cols.add('macds')

@@ -183,88 +183,90 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
           </p>
         </div>
         
-        {/* Step 1: Period */}
-        <div className="px-6 py-3 lg:px-10 lg:py-4 border-b border-white/5 flex flex-col justify-center">
-          <div className="flex flex-col mb-1.5">
-            <span className="text-[10px] font-bold text-main-blue uppercase tracking-widest mb-0.5">Step 1</span>
-            <h2 className="text-base font-black text-[#dfdfdf] tracking-tight">테스트 기간 설정</h2>
-          </div>
-          
-          <div className="space-y-4 max-w-2xl">
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {periods.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => handlePeriodChange(p.id)}
-                  className={`py-2 rounded-lg text-xs font-bold transition-all border ${
-                    period === p.id 
-                      ? "bg-main-blue border-main-blue text-white shadow-[0_0_10px_rgba(59,134,247,0.2)]" 
-                      : "bg-[#111] border-white/5 text-[#a0a0a0] hover:bg-white/5 hover:text-white"
-                  }`}
-                >
-                  {p.label}
-                </button>
-              ))}
+        {/* Step 1 + Step 2: 2컬럼 */}
+        <div className="flex flex-row divide-x divide-white/5 flex-1">
+          {/* Step 1: Period */}
+          <div className="flex-1 px-6 py-3 lg:px-10 lg:py-4 flex flex-col">
+            <div className="flex flex-col mb-1.5">
+              <span className="text-[10px] font-bold text-main-blue uppercase tracking-widest mb-0.5">Step 1</span>
+              <h2 className="text-base font-black text-[#dfdfdf] tracking-tight">테스트 기간 설정</h2>
             </div>
-            {period === "custom" && (
-              <div className="flex gap-3 mt-3 animate-in fade-in slide-in-from-top-1 duration-200 bg-[#111] p-3 rounded-xl border border-white/5">
-                 <div className="flex-1 space-y-1">
-                   <label className="text-[10px] font-black text-[#606060] uppercase tracking-widest pl-1">시작일</label>
-                   <input 
-                     type="date" 
-                     value={startDate}
-                     onChange={(e) => setStartDate(e.target.value)}
-                     className="bg-[#0a0a0a] border border-white/10 rounded-lg px-3 py-2 text-xs text-white font-bold w-full outline-none focus:border-main-blue transition-all" 
-                   />
-                 </div>
-                 <div className="flex-1 space-y-1">
-                   <label className="text-[10px] font-black text-[#606060] uppercase tracking-widest pl-1">종료일</label>
-                   <input 
-                     type="date" 
-                     value={endDate}
-                     onChange={(e) => setEndDate(e.target.value)}
-                     className="bg-[#0a0a0a] border border-white/10 rounded-lg px-3 py-2 text-xs text-white font-bold w-full outline-none focus:border-main-blue transition-all" 
-                   />
-                 </div>
+
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-2">
+                {periods.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => handlePeriodChange(p.id)}
+                    className={`py-2 rounded-lg text-xs font-bold transition-all border ${
+                      period === p.id
+                        ? "bg-main-blue border-main-blue text-white shadow-[0_0_10px_rgba(59,134,247,0.2)]"
+                        : "bg-[#111] border-white/5 text-[#a0a0a0] hover:bg-white/5 hover:text-white"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
               </div>
-            )}
+              {period === "custom" && (
+                <div className="flex gap-3 animate-in fade-in slide-in-from-top-1 duration-200 bg-[#111] p-3 rounded-xl border border-white/5">
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[10px] font-black text-[#606060] uppercase tracking-widest pl-1">시작일</label>
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="bg-[#0a0a0a] border border-white/10 rounded-lg px-3 py-2 text-xs text-white font-bold w-full outline-none focus:border-main-blue transition-all"
+                    />
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[10px] font-black text-[#606060] uppercase tracking-widest pl-1">종료일</label>
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="bg-[#0a0a0a] border border-white/10 rounded-lg px-3 py-2 text-xs text-white font-bold w-full outline-none focus:border-main-blue transition-all"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
 
-        {/* Step 2: Capital & Costs */}
-        <div className="px-6 py-3 lg:px-10 lg:py-4 flex flex-col justify-center">
-          <div className="flex flex-col mb-1.5">
-            <span className="text-[10px] font-bold text-main-blue uppercase tracking-widest mb-0.5">Step 2</span>
-            <h2 className="text-base font-black text-[#dfdfdf] tracking-tight">초기 자본 및 거래 비용</h2>
-          </div>
+          {/* Step 2: Capital & Costs */}
+          <div className="flex-1 px-6 py-3 lg:px-10 lg:py-4 flex flex-col">
+            <div className="flex flex-col mb-1.5">
+              <span className="text-[10px] font-bold text-main-blue uppercase tracking-widest mb-0.5">Step 2</span>
+              <h2 className="text-base font-black text-[#dfdfdf] tracking-tight">초기 자본 및 거래 비용</h2>
+            </div>
 
-          <div className="space-y-3 max-w-2xl">
-             <div className="space-y-1">
+            <div className="space-y-3">
+              <div className="space-y-1">
                 <label className="text-[10px] font-black text-[#a0a0a0] uppercase tracking-widest pl-1">초기 자본금</label>
                 <div className="bg-[#111] border border-white/5 rounded-xl px-4 py-2 group hover:border-white/10 focus-within:border-main-blue transition-all relative overflow-hidden">
-                   <div className="absolute inset-y-0 left-0 w-1 bg-main-blue opacity-0 group-focus-within:opacity-100 transition-opacity" />
-                   <div className="flex items-center justify-between">
-                      <input 
-                        type="text"
-                        value={initialCapital.toLocaleString()}
-                        onChange={(e) => {
-                          const val = Number(e.target.value.replace(/,/g, ''));
-                          if (!isNaN(val)) setInitialCapital(val);
-                        }}
-                        className="w-full bg-transparent border-none p-0 text-white font-black text-lg outline-none"
-                      />
-                      <span className="text-[#606060] font-black text-sm ml-3 tracking-widest">KRW</span>
-                   </div>
-                    <p className="text-[9px] font-bold text-main-blue mt-0.5 text-right">{formatKoreanUnit(initialCapital)}</p>
+                  <div className="absolute inset-y-0 left-0 w-1 bg-main-blue opacity-0 group-focus-within:opacity-100 transition-opacity" />
+                  <div className="flex items-center justify-between">
+                    <input
+                      type="text"
+                      value={initialCapital.toLocaleString()}
+                      onChange={(e) => {
+                        const val = Number(e.target.value.replace(/,/g, ''));
+                        if (!isNaN(val)) setInitialCapital(val);
+                      }}
+                      className="w-full bg-transparent border-none p-0 text-white font-black text-lg outline-none"
+                    />
+                    <span className="text-[#606060] font-black text-sm ml-3 tracking-widest">KRW</span>
+                  </div>
+                  <p className="text-[9px] font-bold text-main-blue mt-0.5 text-right">{formatKoreanUnit(initialCapital)}</p>
                 </div>
-             </div>
+              </div>
 
-             <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-[10px] font-black text-[#a0a0a0] uppercase tracking-widest pl-1">수수료</label>
                   <div className="flex items-center bg-[#111] border border-white/5 rounded-xl px-4 py-2 group hover:border-white/10 focus-within:border-white transition-all">
-                    <input 
-                      type="number" 
+                    <input
+                      type="number"
                       step="0.001"
                       value={commissionPct}
                       onChange={(e) => setCommissionPct(Number(e.target.value))}
@@ -276,8 +278,8 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                 <div className="space-y-1">
                   <label className="text-[10px] font-black text-[#a0a0a0] uppercase tracking-widest pl-1">슬리피지</label>
                   <div className="flex items-center bg-[#111] border border-white/5 rounded-xl px-4 py-2 group hover:border-white/10 focus-within:border-white transition-all">
-                    <input 
-                      type="number" 
+                    <input
+                      type="number"
                       step="0.01"
                       value={slippagePct}
                       onChange={(e) => setSlippagePct(Number(e.target.value))}
@@ -286,7 +288,8 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                     <span className="text-xs text-[#606060] font-black ml-2">%</span>
                   </div>
                 </div>
-             </div>
+              </div>
+            </div>
           </div>
         </div>
 

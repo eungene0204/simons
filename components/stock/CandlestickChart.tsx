@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useState, useMemo, useCallback } from "react";
+import { useRef, useEffect, useMemo, useCallback } from "react";
 import {
   createChart,
   IChartApi,
@@ -61,7 +61,7 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
   const ema120SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
-  const [chartPeriod, setChartPeriod] = useState<ChartPeriod>("day");
+  const chartPeriod: ChartPeriod = "day";
 
   // Filter and deduplicate data by time
   const deduplicatedData = useMemo(() => {
@@ -233,7 +233,7 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
       return {
         time: dateToTimestamp(item.time),
         value: item.volume,
-        color: isUp ? "#ef4444" : "#22c55e",
+        color: isUp ? "#ef4444" : "#3b82f6",
       };
     });
   }, [aggregatedData]);
@@ -349,10 +349,10 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
         // Create candlestick series
         const candlestickSeries = chart.addSeries(CandlestickSeries, {
           upColor: "#ef4444",
-          downColor: "#22c55e",
+          downColor: "#3b82f6",
           borderVisible: false,
           wickUpColor: "#ef4444",
-          wickDownColor: "#22c55e",
+          wickDownColor: "#3b82f6",
           priceFormat: {
             type: "price",
             precision: 0,
@@ -365,7 +365,8 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
         const ema5Series = chart.addSeries(LineSeries, {
           color: "#f59e0b",
           lineWidth: 2,
-          title: "EMA 5",
+          lastValueVisible: false,
+          priceLineVisible: false,
           priceFormat: {
             type: "price",
             precision: 0,
@@ -377,7 +378,8 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
         const ema20Series = chart.addSeries(LineSeries, {
           color: "#22c55e",
           lineWidth: 2,
-          title: "EMA 20",
+          lastValueVisible: false,
+          priceLineVisible: false,
           priceFormat: {
             type: "price",
             precision: 0,
@@ -389,7 +391,8 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
         const ema60Series = chart.addSeries(LineSeries, {
           color: "#8b5cf6",
           lineWidth: 2,
-          title: "EMA 60",
+          lastValueVisible: false,
+          priceLineVisible: false,
           priceFormat: {
             type: "price",
             precision: 0,
@@ -401,7 +404,8 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
         const ema120Series = chart.addSeries(LineSeries, {
           color: "#ec4899",
           lineWidth: 2,
-          title: "EMA 120",
+          lastValueVisible: false,
+          priceLineVisible: false,
           priceFormat: {
             type: "price",
             precision: 0,
@@ -552,39 +556,6 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
           </div>
         </div>
 
-        {/* Period Selection Buttons */}
-        <div className="flex gap-2">
-          <button
-            onClick={() => setChartPeriod("day")}
-            className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
-              chartPeriod === "day"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-            }`}
-          >
-            일
-          </button>
-          <button
-            onClick={() => setChartPeriod("week")}
-            className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
-              chartPeriod === "week"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-            }`}
-          >
-            주
-          </button>
-          <button
-            onClick={() => setChartPeriod("month")}
-            className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
-              chartPeriod === "month"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-            }`}
-          >
-            월
-          </button>
-        </div>
       </div>
 
       {/* Chart Container */}

@@ -89,16 +89,18 @@ export default function BacktestChart({
   // Prepare equity chart data
   const equityChartData = useMemo(() => {
     if (equityData.length === 0) return [];
-    return equityData.map((item) => ({
-      time: dateToTimestamp(item.time),
-      value: item.equity,
-    }));
+    return equityData
+      .filter((item) => isFinite(item.equity))
+      .map((item) => ({
+        time: dateToTimestamp(item.time),
+        value: item.equity,
+      }));
   }, [equityData]);
 
   const buyHoldChartData = useMemo(() => {
     if (equityData.length === 0) return [];
     return equityData
-      .filter((item) => item.buyHold !== undefined)
+      .filter((item) => item.buyHold !== undefined && isFinite(item.buyHold!))
       .map((item) => ({
         time: dateToTimestamp(item.time),
         value: item.buyHold!,
@@ -108,10 +110,12 @@ export default function BacktestChart({
   // Prepare drawdown chart data
   const drawdownChartData = useMemo(() => {
     if (drawdownData.length === 0) return [];
-    return drawdownData.map((item) => ({
-      time: dateToTimestamp(item.time),
-      value: item.drawdown,
-    }));
+    return drawdownData
+      .filter((item) => isFinite(item.drawdown))
+      .map((item) => ({
+        time: dateToTimestamp(item.time),
+        value: item.drawdown,
+      }));
   }, [drawdownData]);
 
   // Prepare monthly return chart data
@@ -144,7 +148,8 @@ export default function BacktestChart({
           time: dateToTimestamp(normalizedDateStr),
           value: item.value,
         };
-      }).sort((a: {time: UTCTimestamp}, b: {time: UTCTimestamp}) => (a.time as number) - (b.time as number));
+      }).filter((d) => isFinite(d.value) && isFinite(d.time as number))
+        .sort((a: {time: UTCTimestamp}, b: {time: UTCTimestamp}) => (a.time as number) - (b.time as number));
     });
     return res;
   }, [type, seasonalData]);

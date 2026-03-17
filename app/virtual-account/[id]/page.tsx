@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
+import VirtualTradingDashboard from "@/components/dashboard/VirtualTradingDashboard";
 import {
   VirtualAccount,
   PortfolioHolding,
@@ -50,7 +51,7 @@ export default function VirtualAccountDetailPage() {
   const [isAutoPrice, setIsAutoPrice] = useState(true);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [showOrderPage, setShowOrderPage] = useState(false);
-  const [activeTab, setActiveTab] = useState<"holdings" | "transactions">("holdings");
+  const [activeTab, setActiveTab] = useState<"holdings" | "transactions" | "performance">("holdings");
 
   useEffect(() => {
     if (accountId) {
@@ -262,6 +263,7 @@ export default function VirtualAccountDetailPage() {
         {account.strategyName && (
           <VirtualMarketPanel
             accountId={accountId}
+            strategyId={account.strategyId}
             strategyName={account.strategyName}
             onTradeExecuted={loadAccountData}
           />
@@ -333,6 +335,16 @@ export default function VirtualAccountDetailPage() {
                 }`}
               >
                 거래내역
+              </button>
+              <button
+                onClick={() => setActiveTab("performance")}
+                className={`px-4 py-2 font-semibold transition-colors ${
+                  activeTab === "performance"
+                    ? "text-white bg-[#252525]"
+                    : "text-gray-400 hover:text-gray-200"
+                }`}
+              >
+                성과 분석
               </button>
             </div>
 
@@ -445,56 +457,122 @@ export default function VirtualAccountDetailPage() {
                 </div>
               )}
 
+              {/* 성과 분석 */}
+              {activeTab === "performance" && (
+                <VirtualTradingDashboard
+                  accountId={accountId}
+                  initialAmount={account.initialAmount}
+                />
+              )}
+
               {/* 거래내역 */}
               {activeTab === "transactions" && (
                 <div>
                   {transactions.length === 0 ? (
                     <div className="bg-[#1a1a1a] p-8 rounded-lg text-center">
-                      <p className="text-gray-400">
-                        거래 내역이 없습니다.
-                      </p>
+                      <p className="text-gray-400">거래 내역이 없습니다.</p>
                     </div>
                   ) : (
-                    <div className="bg-[#1a1a1a] rounded-lg overflow-hidden">
-                      <div className="space-y-2 p-4">
-                        {transactions.map((transaction) => (
-                          <div
-                            key={transaction.id}
-                            className="flex items-center justify-between p-3 bg-[#111111] rounded-lg"
-                          >
-                            <div className="flex items-center gap-3">
-                              <div
-                                className={`w-2 h-2 rounded-full ${
-                                  transaction.type === "buy"
-                                    ? "bg-blue-600"
-                                    : "bg-red-500"
-                                }`}
-                              ></div>
+                    <div className="space-y-4">
+                      {/* 정산 요약 */}
+                      {(() => {
+                        const sells = transactions.filter(t => t.type === "sell" && t.status === "FILLED");
+                        if (sells.length === 0) return null;
+                        const totalFee = transactions
+                          .filter(t => t.status === "FILLED")
+                          .reduce((s, t) => s + (t.fee ?? 0), 0);
+                        const totalTax = sells.reduce((s, t) => s + (t.tax ?? 0), 0);
+                        const totalRealizedPnl = sells.reduce((s, t) => s + (t.realizedPnl ?? 0), 0);
+                        return (
+                          <div className="bg-[#1a1a1a] rounded-lg p-4">
+                            <p className="text-xs font-semibold text-gray-400 mb-3">정산 요약</p>
+                            <div className="grid grid-cols-3 gap-4">
                               <div>
-                                <p className="text-sm font-semibold text-white">
-                                  {transaction.name} ({transaction.symbol})
+                                <p className="text-xs text-gray-500 mb-0.5">총 수수료</p>
+                                <p className="text-sm font-bold text-gray-300">
+                                  -{formatPrice(Math.round(totalFee))} 원
                                 </p>
-                                <p className="text-xs text-gray-400">
-                                  {new Date(transaction.timestamp).toLocaleString("ko-KR")}
+                              </div>
+                              <div>
+                                <p className="text-xs text-gray-500 mb-0.5">총 증권거래세</p>
+                                <p className="text-sm font-bold text-gray-300">
+                                  -{formatPrice(Math.round(totalTax))} 원
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-gray-500 mb-0.5">총 실현 손익</p>
+                                <p className={`text-sm font-bold ${totalRealizedPnl >= 0 ? "text-red-400" : "text-blue-400"}`}>
+                                  {totalRealizedPnl >= 0 ? "+" : ""}{formatPrice(Math.round(totalRealizedPnl))} 원
                                 </p>
                               </div>
                             </div>
-                            <div className="text-right">
-                              <p
-                                className={`text-sm font-semibold ${
-                                  transaction.type === "buy"
-                                    ? "text-blue-400"
-                                    : "text-red-400"
-                                }`}
-                              >
-                                {transaction.type === "buy" ? "매수" : "매도"} {formatPrice(transaction.quantity)}주
-                              </p>
-                              <p className="text-xs text-gray-400">
-                                {formatPrice(transaction.price)} 원 × {formatPrice(transaction.quantity)} = {formatPrice(transaction.totalAmount)} 원
-                              </p>
-                            </div>
                           </div>
-                        ))}
+                        );
+                      })()}
+
+                      {/* 거래 목록 */}
+                      <div className="bg-[#1a1a1a] rounded-lg overflow-hidden">
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            <thead>
+                              <tr className="bg-[#111111]">
+                                <th className="text-left py-3 px-4 text-xs font-semibold text-gray-400">종목</th>
+                                <th className="text-center py-3 px-4 text-xs font-semibold text-gray-400">구분</th>
+                                <th className="text-right py-3 px-4 text-xs font-semibold text-gray-400">체결가</th>
+                                <th className="text-right py-3 px-4 text-xs font-semibold text-gray-400">수량</th>
+                                <th className="text-right py-3 px-4 text-xs font-semibold text-gray-400">거래금액</th>
+                                <th className="text-right py-3 px-4 text-xs font-semibold text-gray-400">수수료</th>
+                                <th className="text-right py-3 px-4 text-xs font-semibold text-gray-400">세금</th>
+                                <th className="text-right py-3 px-4 text-xs font-semibold text-gray-400">실현 손익</th>
+                                <th className="text-right py-3 px-4 text-xs font-semibold text-gray-400">체결 시각</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {transactions.map((t) => (
+                                <tr key={t.id} className="hover:bg-[#252525] transition-colors">
+                                  <td className="py-3 px-4">
+                                    <p className="text-sm font-semibold text-white">{t.name}</p>
+                                    <p className="text-xs text-gray-400">{t.symbol}</p>
+                                  </td>
+                                  <td className="py-3 px-4 text-center">
+                                    <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                                      t.type === "buy" ? "bg-blue-900/40 text-blue-400" : "bg-red-900/40 text-red-400"
+                                    }`}>
+                                      {t.type === "buy" ? "매수" : "매도"}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-4 text-right text-sm text-white">
+                                    {formatPrice(t.filledPrice ?? t.price)} 원
+                                  </td>
+                                  <td className="py-3 px-4 text-right text-sm text-white">
+                                    {formatPrice(t.quantity)}주
+                                  </td>
+                                  <td className="py-3 px-4 text-right text-sm text-white">
+                                    {formatPrice(t.totalAmount)} 원
+                                  </td>
+                                  <td className="py-3 px-4 text-right text-xs text-gray-400">
+                                    {t.fee != null ? `-${formatPrice(t.fee)} 원` : "-"}
+                                  </td>
+                                  <td className="py-3 px-4 text-right text-xs text-gray-400">
+                                    {t.tax != null ? `-${formatPrice(t.tax)} 원` : "-"}
+                                  </td>
+                                  <td className="py-3 px-4 text-right">
+                                    {t.realizedPnl != null ? (
+                                      <span className={`text-sm font-semibold ${t.realizedPnl >= 0 ? "text-red-400" : "text-blue-400"}`}>
+                                        {t.realizedPnl >= 0 ? "+" : ""}{formatPrice(Math.round(t.realizedPnl))} 원
+                                      </span>
+                                    ) : (
+                                      <span className="text-xs text-gray-600">-</span>
+                                    )}
+                                  </td>
+                                  <td className="py-3 px-4 text-right text-xs text-gray-400">
+                                    {new Date(t.filledAt ?? t.timestamp).toLocaleString("ko-KR")}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     </div>
                   )}

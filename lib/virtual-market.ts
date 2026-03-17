@@ -130,3 +130,31 @@ export async function getMarketLogs(
   if (!res.ok) return [];
   return res.json();
 }
+
+export interface StrategyStartConfig {
+  scenario?: string;
+  speed?: number;
+  startDate?: string;
+}
+
+export async function startStrategyExecution(
+  accountId: string,
+  config: StrategyStartConfig = {}
+): Promise<VirtualMarketState> {
+  const res = await fetch(`/api/virtual-account/${accountId}/strategy/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || "전략 자동 실행 시작에 실패했습니다");
+  }
+  return data;
+}
+
+export async function stopStrategyExecution(accountId: string): Promise<void> {
+  await fetch(`/api/virtual-account/${accountId}/strategy/stop`, {
+    method: "POST",
+  });
+}

@@ -104,7 +104,7 @@ function SidebarComponent({
   const handleSearchSelect = (symbols: Array<{ symbol: string; name: string }>) => {
     if (symbols.length > 0) {
       const { symbol, name } = symbols[0];
-      router.push(`/order?symbol=${symbol}&name=${encodeURIComponent(name)}`);
+      router.push(`/stock-order?symbol=${symbol}&name=${encodeURIComponent(name)}`);
     }
   };
 
@@ -196,7 +196,7 @@ function SidebarComponent({
     }
 
     // 3. pathname과 일치하는 메뉴가 없을 때만 drawer 상태 확인
-    // (예: /order 같은 특정 페이지에 있을 때)
+    // (예: /stock-order 같은 특정 페이지에 있을 때)
     const isWatchlistDrawerOpen =
       drawerOpen || isWatchlistOpen || watchlistParam === "open";
     const isVirtualAccountDrawerOpen =
@@ -267,7 +267,7 @@ function SidebarComponent({
               onClick={(e) => handleMenuClick(item, e)}
               className={`relative flex items-center gap-2 px-4 py-2 rounded-xl transition-all duration-300 whitespace-nowrap group ${
                 isActive
-                  ? "bg-white/10 text-white shadow-lg border border-white/5"
+                  ? "bg-white/10 text-white shadow-lg"
                   : "text-gray-500 hover:text-gray-300 hover:bg-white/[0.02]"
               }`}
             >

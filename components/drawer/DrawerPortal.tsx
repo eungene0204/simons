@@ -63,7 +63,7 @@ export default function DrawerPortal() {
 
   const handleStockSelect = (symbol: string, name: string) => {
     // 주문 페이지로 이동 (드로어는 유지)
-    router.push(`/order?symbol=${symbol}&name=${encodeURIComponent(name)}&watchlist=open`);
+    router.push(`/stock-order?symbol=${symbol}&name=${encodeURIComponent(name)}&watchlist=open`);
   };
 
   const handleAccountSelect = (accountId: string) => {

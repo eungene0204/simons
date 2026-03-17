@@ -22,7 +22,8 @@ def fetch_and_enrich(symbol, data_dir):
         df.columns = [col.lower() for col in df.columns]
         
         # 2. Get Sector from krx-stocks.json
-        base_path = Path("/Users/eugene/nullalgo/simons")
+        # Resolve project root relative to this file (backend/engine/data_fetcher.py → ../../)
+        base_path = Path(__file__).resolve().parent.parent.parent
         stocks_json_path = base_path / "data" / "korea-stocks.json"
         
         sector = None

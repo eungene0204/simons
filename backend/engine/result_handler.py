@@ -25,10 +25,10 @@ class ResultHandler:
         except: return 0.0
 
     @classmethod
-    def format_results(cls, pf, processed_symbols, all_entries, all_exits, 
-                       all_entry_reasons, all_exit_reasons, common_index, 
+    def format_results(cls, pf, processed_symbols, all_entries, all_exits,
+                       all_entry_reasons, all_exit_reasons, common_index,
                        risk_params, exec_type, init_cash) -> Dict[str, Any]:
-        
+
         signals_list = []
         sl_pct = float(risk_params.get('stop_loss_pct') or 0)
         tp_pct = float(risk_params.get('take_profit_pct') or 0)
@@ -48,156 +48,175 @@ class ResultHandler:
                 if isinstance(ts, (pd.Timestamp, datetime)): return ts.strftime('%Y-%m-%d')
                 return str(ts)
 
-            def get_reasons_for_sym(s_name, reasons_dict, processed_symbols, col_idx=None):
-                if not s_name and col_idx is None: return None
-                if s_name in reasons_dict: return reasons_dict[s_name]
-                for k in reasons_dict.keys():
-                    if str(s_name) in str(k) or str(k) in str(s_name):
-                        return reasons_dict[k]
-                if col_idx is not None and 0 <= col_idx < len(processed_symbols):
-                    target_sym = processed_symbols[col_idx]
-                    if target_sym in reasons_dict: return reasons_dict[target_sym]
-                if len(reasons_dict) == 1:
-                    return next(iter(reasons_dict.values()))
+            # ── O(log n) reason lookup via searchsorted ───────────────────────
+            def build_reason_array(ser):
+                """Normalize DatetimeIndex → sorted int64 array for searchsorted."""
+                valid = ser.dropna()
+                if len(valid) == 0:
+                    return None
+                ts_vals = np.array([pd.Timestamp(t).value for t in valid.index], dtype=np.int64)
+                sort_idx = np.argsort(ts_vals)
+                return {'timestamps': ts_vals[sort_idx], 'values': valid.values[sort_idx]}
+
+            def fast_reason_lookup(reason_arr, lookup_dt, max_diff_days=3):
+                """Find reason at or before lookup_dt within max_diff_days."""
+                if reason_arr is None:
+                    return None
+                lookup_ts = np.int64(pd.Timestamp(lookup_dt).value)
+                idx = int(np.searchsorted(reason_arr['timestamps'], lookup_ts, side='right')) - 1
+                if idx < 0:
+                    return None
+                diff_days = float(lookup_ts - reason_arr['timestamps'][idx]) / 86_400_000_000_000.0
+                if diff_days <= max_diff_days:
+                    val = reason_arr['values'][idx]
+                    return val if val else None
                 return None
 
-            # Optimization: Pre-normalize all reason indices ONCE
-            norm_entries = {}
+            def get_reason_arr(sym, fast_dict, col_idx=None):
+                """Mirror get_reasons_for_sym but returns pre-built array."""
+                if sym in fast_dict:
+                    return fast_dict[sym]
+                for k in fast_dict:
+                    if str(sym) in str(k) or str(k) in str(sym):
+                        return fast_dict[k]
+                if col_idx is not None and 0 <= col_idx < len(processed_symbols):
+                    target = processed_symbols[col_idx]
+                    if target in fast_dict:
+                        return fast_dict[target]
+                if len(fast_dict) == 1:
+                    return next(iter(fast_dict.values()))
+                return None
+
+            # Pre-build lookup arrays once (replaces per-row DatetimeIndex filtering)
+            fast_entries = {}
             for s, ser in all_entry_reasons.items():
                 ser_norm = ser.copy()
                 ser_norm.index = ser_norm.index.map(norm_dt)
-                norm_entries[s] = ser_norm
+                fast_entries[s] = build_reason_array(ser_norm)
 
-            norm_exits = {}
+            fast_exits = {}
             for s, ser in all_exit_reasons.items():
                 ser_norm = ser.copy()
                 ser_norm.index = ser_norm.index.map(norm_dt)
-                norm_exits[s] = ser_norm
+                fast_exits[s] = build_reason_array(ser_norm)
 
             def fmt_pct(v): return str(int(v)) if v == int(v) else str(v)
 
-            for i, (idx_row, trade) in enumerate(vbt_trades.iterrows()):
+            # ── Pre-extract DataFrame columns as numpy arrays ─────────────────
+            # Avoids per-row Series object creation from iterrows()
+            cols = set(vbt_trades.columns.tolist())
+
+            arr_column  = vbt_trades['Column'].values    if 'Column'     in cols else None
+            arr_col_idx = vbt_trades['Column Idx'].values if 'Column Idx' in cols else None
+
+            e_ts_key    = next((c for c in ['Entry Timestamp', 'Entry Index', 'Entry Idx'] if c in cols), None)
+            x_ts_key    = next((c for c in ['Exit Timestamp',  'Exit Index',  'Exit Idx']  if c in cols), None)
+            e_price_key = next((c for c in ['Avg Entry Price', 'Entry Price'] if c in cols), None)
+            x_price_key = next((c for c in ['Avg Exit Price',  'Exit Price']  if c in cols), None)
+
+            n_trades = len(vbt_trades)
+            arr_e_ts    = vbt_trades[e_ts_key].values    if e_ts_key    else [None] * n_trades
+            arr_x_ts    = vbt_trades[x_ts_key].values    if x_ts_key    else [None] * n_trades
+            arr_e_price = vbt_trades[e_price_key].values if e_price_key else np.zeros(n_trades)
+            arr_x_price = vbt_trades[x_price_key].values if x_price_key else np.zeros(n_trades)
+            arr_size    = vbt_trades['Size'].values       if 'Size'   in cols else np.zeros(n_trades)
+            arr_pnl     = vbt_trades['PnL'].values        if 'PnL'    in cols else np.zeros(n_trades)
+            arr_ret     = vbt_trades['Return'].values     if 'Return' in cols else np.zeros(n_trades)
+
+            # Raw records numpy arrays
+            rc_cols = set(raw_records.columns.tolist())
+            arr_exit_type  = raw_records['exit_type'].values.astype(int)  if 'exit_type'  in rc_cols else np.full(n_trades, -1, dtype=int)
+            arr_exit_idx   = raw_records['exit_idx'].values.astype(int)   if 'exit_idx'   in rc_cols else np.zeros(n_trades, dtype=int)
+            arr_entry_idx  = raw_records['entry_idx'].values.astype(int)  if 'entry_idx'  in rc_cols else np.zeros(n_trades, dtype=int)
+
+            last_date_str = common_index[-1].strftime('%Y-%m-%d') if len(common_index) > 0 else ''
+
+            # ── Main loop: index-based (no iterrows/itertuples overhead) ──────
+            for i in range(n_trades):
                 # 1. Symbol Identification
-                sym_raw = trade.get('Column')
+                sym_raw = arr_column[i] if arr_column is not None else None
                 if isinstance(sym_raw, tuple) and len(sym_raw) > 0: sym_raw = sym_raw[0]
                 sym = str(sym_raw) if sym_raw is not None else None
-                
-                if sym is None or sym not in processed_symbols:
-                    col_idx = trade.get('Column Idx')
-                    if col_idx is not None:
-                        try:
-                            idx = int(col_idx)
-                            if 0 <= idx < len(processed_symbols):
-                                sym = processed_symbols[idx]
-                        except: pass
-                
-                if sym is None or sym not in processed_symbols:
-                    if len(processed_symbols) == 1: sym = processed_symbols[0]
-                    else: sym = "unknown"
-                
-                # 2. Retrieve Trade Data
-                e_idx = trade.get('Entry Timestamp', trade.get('Entry Index', trade.get('Entry Idx')))
-                x_idx = trade.get('Exit Timestamp', trade.get('Exit Index', trade.get('Exit Idx')))
-                e_price = cls.safe(trade.get('Avg Entry Price', trade.get('Entry Price')))
-                x_price = cls.safe(trade.get('Avg Exit Price', trade.get('Exit Price')))
-                size = cls.safe(trade.get('Size'))
-                pnl = cls.safe(trade.get('PnL'))
-                ret_val = cls.safe(trade.get('Return')) * 100
-                
-                exit_type = -1
-                try:
-                    raw_record = raw_records.iloc[i]
-                    exit_type = int(raw_record['exit_type']) if 'exit_type' in raw_records.columns else -1
-                except: pass
 
-                # 3. Entry Reason Mapping
+                col_idx_val = int(arr_col_idx[i]) if arr_col_idx is not None else None
+                if sym is None or sym not in processed_symbols:
+                    if col_idx_val is not None and 0 <= col_idx_val < len(processed_symbols):
+                        sym = processed_symbols[col_idx_val]
+
+                if sym is None or sym not in processed_symbols:
+                    sym = processed_symbols[0] if len(processed_symbols) == 1 else "unknown"
+
+                # 2. Trade Data
+                e_idx   = arr_e_ts[i]
+                x_idx   = arr_x_ts[i]
+                e_price = cls.safe(arr_e_price[i])
+                x_price = cls.safe(arr_x_price[i])
+                size    = cls.safe(arr_size[i])
+                pnl     = cls.safe(arr_pnl[i])
+                ret_val = cls.safe(arr_ret[i]) * 100
+                exit_type = int(arr_exit_type[i])
+                duration  = int(arr_exit_idx[i] - arr_entry_idx[i])
+
+                # 3. Entry Reason (O(log n) searchsorted)
                 e_reason = "매수 조건 충족 (전략 시그널)"
                 try:
-                    sym_reasons = get_reasons_for_sym(sym, norm_entries, processed_symbols)
-                    if sym_reasons is not None:
-                        target_norm = norm_dt(e_idx)
-                        lookup_dt = target_norm
-                        if exec_type == 'next_open':
-                            prev_dates = sym_reasons.index[sym_reasons.index < target_norm]
-                            if not prev_dates.empty: lookup_dt = prev_dates[-1]
-                        
-                        if lookup_dt in sym_reasons.index:
-                            res_val = sym_reasons[lookup_dt]
-                            if res_val: e_reason = res_val
-                        else:
-                            potential = sym_reasons.index[(sym_reasons.index <= lookup_dt) & (sym_reasons.notna())]
-                            if not potential.empty:
-                                diff = (lookup_dt - potential[-1]).days
-                                if diff <= 3:
-                                    res_val = sym_reasons[potential[-1]]
-                                    if res_val: e_reason = res_val
+                    sym_arr_e = get_reason_arr(sym, fast_entries, col_idx_val)
+                    if sym_arr_e is not None:
+                        lookup_dt = norm_dt(e_idx)
+                        if exec_type == 'next_open' and sym_arr_e is not None:
+                            lookup_ts_ns = np.int64(pd.Timestamp(lookup_dt).value)
+                            idx2 = int(np.searchsorted(sym_arr_e['timestamps'], lookup_ts_ns, side='left')) - 1
+                            if idx2 >= 0:
+                                lookup_dt = pd.Timestamp(sym_arr_e['timestamps'][idx2])
+                        val = fast_reason_lookup(sym_arr_e, lookup_dt)
+                        if val: e_reason = val
                 except: pass
 
                 final_qty = int(np.floor(size))
                 if final_qty >= 1:
-                    # Append Buy Signal
                     signals_list.append({
                         "date": get_dt_str(e_idx), "symbol": str(sym), "type": "buy",
                         "price": float(round(e_price)), "quantity": final_qty,
                         "amount": float(round(e_price) * final_qty), "condition": e_reason
                     })
 
-                    # 4. Exit Reason Mapping
+                    # 4. Exit Reason (O(log n) searchsorted)
                     reason_kr = "전략 매도 조건 충족"
                     try:
-                        c_idx_val = trade.get('Column Idx')
-                        sym_reasons_x = get_reasons_for_sym(sym, norm_exits, processed_symbols, c_idx_val)
-                        if sym_reasons_x is not None:
-                            target_norm_x = norm_dt(x_idx)
-                            lookup_dt_x = target_norm_x
+                        sym_arr_x = get_reason_arr(sym, fast_exits, col_idx_val)
+                        if sym_arr_x is not None:
+                            lookup_dt_x = norm_dt(x_idx)
                             if exec_type == 'next_open':
-                                prev_dates_x = sym_reasons_x.index[sym_reasons_x.index < target_norm_x]
-                                if not prev_dates_x.empty: lookup_dt_x = prev_dates_x[-1]
-                            
-                            if lookup_dt_x in sym_reasons_x.index:
-                                res_val_x = sym_reasons_x[lookup_dt_x]
-                                if res_val_x: reason_kr = res_val_x
-                            else:
-                                potential_x = sym_reasons_x.index[(sym_reasons_x.index <= lookup_dt_x) & (sym_reasons_x.notna())]
-                                if not potential_x.empty:
-                                    diff_x = (lookup_dt_x - potential_x[-1]).days
-                                    if diff_x <= 3:
-                                        res_val_x = sym_reasons_x[potential_x[-1]]
-                                        if res_val_x: reason_kr = res_val_x
+                                lookup_ts_ns_x = np.int64(pd.Timestamp(lookup_dt_x).value)
+                                idx3 = int(np.searchsorted(sym_arr_x['timestamps'], lookup_ts_ns_x, side='left')) - 1
+                                if idx3 >= 0:
+                                    lookup_dt_x = pd.Timestamp(sym_arr_x['timestamps'][idx3])
+                            val_x = fast_reason_lookup(sym_arr_x, lookup_dt_x)
+                            if val_x: reason_kr = val_x
                     except: pass
 
                     # 5. Risk Management Overrides
-                    duration = -1
-                    try:
-                        raw_record = raw_records.iloc[i]
-                        duration = int(raw_record['exit_idx'] - raw_record['entry_idx'])
-                    except: pass
-
-                    if exit_type == 1: reason_kr = f"손절매 실행 (-{fmt_pct(sl_pct)}%)" if sl_pct > 0 else "손절매 실행"
+                    if exit_type == 1:   reason_kr = f"손절매 실행 (-{fmt_pct(sl_pct)}%)" if sl_pct > 0 else "손절매 실행"
                     elif exit_type == 2: reason_kr = f"트레일링 스탑 (-{fmt_pct(ts_pct)}%)" if ts_pct > 0 else "트레일링 스탑 실행"
                     elif exit_type == 3: reason_kr = f"익절매 실행 (+{fmt_pct(tp_pct)}%)" if tp_pct > 0 else "익절매 실행"
-                    elif exit_type == 4: 
+                    elif exit_type == 4:
                         reason_kr = f"보유 기간 만료 ({duration}일 보유)" if duration > 0 else "보유 기간 만료"
                     else:
-                                        # Fix 8: 종료 이유 추론 — 허용 오차를 1%로 축소하고 우선순위 명확화
-                        # 수수료+슬리피지(≈0.35%) 복합을 고려한 현실적 허용 범위
+                        # Fix 8: 종료 이유 추론 — 허용 오차를 1%로 축소하고 우선순위 명확화
                         _TOLERANCE = 1.0
                         if max_hold > 0 and duration >= max_hold:
-                            # 최대 보유일 만료 — 가장 명확하므로 최우선
                             reason_kr = f"보유 기간 만료 ({duration}일 보유)"
                         elif sl_pct > 0 and pnl < 0 and abs(ret_val + sl_pct) < _TOLERANCE:
                             reason_kr = f"손절매 실행 (-{fmt_pct(sl_pct)}%)"
                         elif tp_pct > 0 and pnl > 0 and abs(ret_val - tp_pct) < _TOLERANCE:
                             reason_kr = f"익절매 실행 (+{fmt_pct(tp_pct)}%)"
                         elif ts_pct > 0 and pnl > 0 and reason_kr == "전략 매도 조건 충족":
-                            # 전략 신호 없이 수익 청산 → 트레일링 스탑 가능성
                             reason_kr = f"트레일링 스탑 실행 (-{fmt_pct(ts_pct)}%)"
-                    
-                    if (exit_type == 5 or get_dt_str(x_idx) == get_dt_str(common_index[-1])):
+
+                    if exit_type == 5 or get_dt_str(x_idx) == last_date_str:
                         if reason_kr == "전략 매도 조건 충족": reason_kr = "백테스트 종료"
-                    
+
                     pnl_label = "수익" if pnl >= 0 else "손실"
-                    # Append Sell Signal
                     signals_list.append({
                         "date": get_dt_str(x_idx), "symbol": str(sym), "type": "sell",
                         "price": float(round(x_price)), "quantity": final_qty,
@@ -211,14 +230,13 @@ class ResultHandler:
         total_trades = len(pf.trades)
         win_count = len(pf.trades.winning)
         agg_win_rate = (win_count / total_trades * 100) if total_trades > 0 else 0.0
-        
-        avg_win = cls.safe(pf.trades.winning.pnl.mean())
+
+        avg_win  = cls.safe(pf.trades.winning.pnl.mean())
         avg_loss = abs(cls.safe(pf.trades.losing.pnl.mean()))
-        
-        # New detailed stats
-        max_consecutive_wins = int(cls.safe(pf.trades.winning_streak.max()))
+
+        max_consecutive_wins   = int(cls.safe(pf.trades.winning_streak.max()))
         max_consecutive_losses = int(cls.safe(pf.trades.losing_streak.max()))
-        
+
         r = avg_win / avg_loss if avg_loss > 0 else 0.0
         w = agg_win_rate / 100
         kelly = w - (1 - w) / r if r > 0 else 0.0
@@ -226,11 +244,11 @@ class ResultHandler:
         per_asset_stats = {}
         if len(processed_symbols) > 0:
             returns = pf.total_return(group_by=False)
-            counts = pf.trades.count(group_by=False)
-            wins = pf.trades.win_rate(group_by=False)
+            counts  = pf.trades.count(group_by=False)
+            wins    = pf.trades.win_rate(group_by=False)
             profits = pf.total_profit(group_by=False)
-            cagrs = pf.annualized_return(group_by=False)
-            mdds = pf.max_drawdown(group_by=False)
+            cagrs   = pf.annualized_return(group_by=False)
+            mdds    = pf.max_drawdown(group_by=False)
 
             def get_val(obj, i):
                 if isinstance(obj, pd.Series):
@@ -243,12 +261,12 @@ class ResultHandler:
 
             for i, sym in enumerate(processed_symbols):
                 per_asset_stats[sym] = {
-                    "symbol": sym,
+                    "symbol":      sym,
                     "totalReturn": cls.safe(get_val(returns, i)) * 100,
-                    "trades": int(cls.safe(get_val(counts, i))),
-                    "winRate": cls.safe(get_val(wins, i)) * 100,
-                    "profit": cls.safe(get_val(profits, i)),
-                    "cagr": cls.safe(get_val(cagrs, i)) * 100,
+                    "trades":      int(cls.safe(get_val(counts, i))),
+                    "winRate":     cls.safe(get_val(wins, i)) * 100,
+                    "profit":      cls.safe(get_val(profits, i)),
+                    "cagr":        cls.safe(get_val(cagrs, i)) * 100,
                     "maxDrawdown": cls.safe(get_val(mdds, i)) * 100
                 }
 
@@ -269,78 +287,67 @@ class ResultHandler:
         if isinstance(bench_rets, pd.DataFrame): bench_mean_rets = bench_rets.mean(axis=1)
         else: bench_mean_rets = bench_rets
 
-        # Calculate compounded benchmark return
         bench_cum_returns = (1 + bench_mean_rets).cumprod()
         bench_total_return = bench_cum_returns.iloc[-1] - 1 if len(bench_cum_returns) > 0 else 0.0
 
-        # Manual CAGR: for sub-1Y periods, just use total return (no annualization)
         total_return_decimal = cls.safe(pf.total_return())
-        n_days = len(common_index)
+        n_days  = len(common_index)
         n_years = n_days / 252.0
         if n_years >= 1.0 and total_return_decimal > -1:
             cagr_val = ((1 + total_return_decimal) ** (1 / n_years) - 1) * 100
         else:
-            # For sub-1Y: CAGR = Total Return (no extrapolation)
             cagr_val = total_return_decimal * 100
-        
-        # Profit Factor: detect buy-and-hold-to-end scenario
-        # If all trades exit on the last day, PF by individual trades is misleading.
+
+        # ── Profit Factor: vectorized numpy (replaces 3× Python loops) ───────
         raw_pf = cls.safe(pf.trades.profit_factor())
-        
-        # Check if this is a buy-and-hold pattern (most trades span nearly the full period)
+
         is_buy_and_hold = False
         if total_trades > 0 and total_trades <= 30 and len(pf.trades.records) > 0:
             try:
-                recs = pf.trades.records
-                # A trade is "full-period" if it exits within 5 days of the last bar
-                last_bar = n_days - 1
-                full_period_trades = sum(1 for r in recs if (last_bar - int(r['exit_idx'])) <= 5)
-                if full_period_trades >= total_trades * 0.7:  # 70%+ held to end
+                exit_idxs = pf.trades.records['exit_idx'].values.astype(int)
+                last_bar  = n_days - 1
+                full_period_trades = int(np.sum((last_bar - exit_idxs) <= 5))
+                if full_period_trades >= total_trades * 0.7:
                     is_buy_and_hold = True
-            except:
-                pass
-        
+            except: pass
+
         if is_buy_and_hold:
-            # For buy-and-hold: use aggregate profit/loss ratio
             try:
-                total_profit = sum(float(r['pnl']) for r in pf.trades.records if float(r['pnl']) > 0)
-                total_loss = abs(sum(float(r['pnl']) for r in pf.trades.records if float(r['pnl']) < 0))
-                raw_pf = total_profit / total_loss if total_loss > 0 else 0.0
-            except:
-                pass
-        
-        # Final cap: never show PF > 10 for < 30 trades
+                pnls = pf.trades.records['pnl'].values.astype(float)
+                total_profit_v = float(np.sum(pnls[pnls > 0]))
+                total_loss_v   = float(np.abs(np.sum(pnls[pnls < 0])))
+                raw_pf = total_profit_v / total_loss_v if total_loss_v > 0 else 0.0
+            except: pass
+
         if total_trades < 30 and raw_pf > 10.0:
             raw_pf = min(raw_pf, 10.0)
 
         res = {
-            "symbols": processed_symbols,
-            "totalReturn": cls.safe(pf.total_return()) * 100,
-            "totalProfit": cls.safe(pf.total_profit()),
-            "cagr": cagr_val,
-            "buyAndHoldReturn": cls.safe(bench_total_return) * 100,
-            "maxDrawdown": cls.safe(pf.max_drawdown()) * 100,
-            "winRate": agg_win_rate,
-            "trades": total_trades,
-            "avgProfit": avg_win,
-            "avgLoss": avg_loss,
-            "maxConsecutiveWins": max_consecutive_wins,
+            "symbols":              processed_symbols,
+            "totalReturn":          cls.safe(pf.total_return()) * 100,
+            "totalProfit":          cls.safe(pf.total_profit()),
+            "cagr":                 cagr_val,
+            "buyAndHoldReturn":     cls.safe(bench_total_return) * 100,
+            "maxDrawdown":          cls.safe(pf.max_drawdown()) * 100,
+            "winRate":              agg_win_rate,
+            "trades":               total_trades,
+            "avgProfit":            avg_win,
+            "avgLoss":              avg_loss,
+            "maxConsecutiveWins":   max_consecutive_wins,
             "maxConsecutiveLosses": max_consecutive_losses,
-            "profitFactor": raw_pf,
-            "sharpe": cls.safe(pf.sharpe_ratio()),
-            "sortino": cls.safe(pf.sortino_ratio()),
-            "kelly": cls.safe(kelly),
+            "profitFactor":         raw_pf,
+            "sharpe":               cls.safe(pf.sharpe_ratio()),
+            "sortino":              cls.safe(pf.sortino_ratio()),
+            "kelly":                cls.safe(kelly),
             # Fix 7: group_by=True로 포트폴리오 전체 수익률 시리즈를 명시적으로 사용
-            # pf.returns()는 group_by=True 포트폴리오에서 DataFrame을 반환할 수 있으므로
-            # pf.returns(group_by=True)로 단일 시리즈를 강제한다.
-            "volatility": float(np.nan_to_num(pf.returns(group_by=True).std() * np.sqrt(252), nan=0.0)) * 100,
-            "equity": to_list(pf.value()),
-            "benchmark_equity": to_list(init_cash * bench_cum_returns),
-            "dates": [d.strftime('%Y-%m-%d') for d in common_index],
-            "signals": signals_list,
-            "perAssetStats": per_asset_stats,
-            "warnings": list(getattr(cls, '_warnings', set())),
-            "version": "6.4 (Fixed CAGR + PF Cap)"
+            "volatility":           float(np.nan_to_num(pf.returns(group_by=True).std() * np.sqrt(252), nan=0.0)) * 100,
+            "equity":               to_list(pf.value()),
+            "benchmark_equity":     to_list(init_cash * bench_cum_returns),
+            "dates":                [d.strftime('%Y-%m-%d') for d in common_index],
+            "signals":              signals_list,
+            "perAssetStats":        per_asset_stats,
+            "warnings":             list(getattr(cls, '_warnings', set())),
+            "version":              "6.5 (Optimized: array-index loop + searchsorted reason lookup + vectorized PF)"
         }
 
         return sanitize(res)

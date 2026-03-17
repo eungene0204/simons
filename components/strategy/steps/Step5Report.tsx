@@ -12,6 +12,7 @@ interface Step5ReportProps {
   onSave: () => void;
   onRestart: () => void;
   onRunBacktest: (options: any) => void;
+  onWalkForward?: (settings: any) => Promise<any>;
   configOptions: any;
   summaryData: any;
 }
@@ -24,6 +25,7 @@ export default function Step5Report({
   onSave,
   onRestart,
   onRunBacktest,
+  onWalkForward,
   configOptions,
   summaryData,
 }: Step5ReportProps) {
@@ -54,11 +56,12 @@ export default function Step5Report({
 
   return (
     <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden bg-[#0f0f0f] relative">
-      <BacktestDashboard 
-        result={backtestResult} 
+      <BacktestDashboard
+        result={backtestResult}
         onRestart={onRestart}
         onRun={(options) => onRunBacktest(options)}
         onSave={onSave}
+        onWalkForward={onWalkForward}
         currentOptions={configOptions}
         isRunning={isBacktesting}
         strategySummary={summaryData}
