@@ -526,6 +526,73 @@ export default function StrategyComposerV2({
     }
   };
 
+  const handleWalkForward = async (wfaSettings: any) => {
+    const entryConditionsMap = canvasBlocks
+      .filter(b => b.type === "entry" || b.type === "filter")
+      .map(b => ({
+        type: (b.type === "filter" ? "filter" : "indicator") as ConditionType,
+        id: b.blockId,
+        params: b.params,
+      }));
+
+    const exitConditionsMap = canvasBlocks
+      .filter(b => b.type === "exit")
+      .map(b => ({
+        type: "indicator" as ConditionType,
+        id: b.blockId,
+        params: b.params,
+      }));
+
+    // Build ranges same as optimizer
+    const ranges: Record<string, any> = {};
+    canvasBlocks.forEach((block) => {
+      let basePath = "";
+      if (block.type === "filter" || block.type === "entry") {
+        const arrIndex = canvasBlocks.filter(b => b.type === "entry" || b.type === "filter").indexOf(block);
+        basePath = `entry.conditions.${arrIndex}.params`;
+      } else if (block.type === "exit") {
+        const arrIndex = canvasBlocks.filter(b => b.type === "exit").indexOf(block);
+        basePath = `exit.conditions.${arrIndex}.params`;
+      }
+      const defBlock = signalBlocks[block.blockId];
+      Object.keys(block.params).forEach(paramKey => {
+        const currentVal = block.params[paramKey];
+        const schema = defBlock?.paramSchema?.[paramKey];
+        if (typeof currentVal === "number") {
+          const step = schema?.step || 1;
+          const min = schema?.min !== undefined ? schema.min : (currentVal > 0 ? currentVal * 0.5 : currentVal - 10);
+          const max = schema?.max !== undefined ? schema.max : (currentVal > 0 ? currentVal * 1.5 : currentVal + 10);
+          if (max > min) ranges[`${basePath}.${paramKey}`] = { type: "number", min, max, step };
+        } else if (schema?.type === "select" && schema.options) {
+          const options = schema.options.map((o: any) => o.value);
+          if (options.length > 1) ranges[`${basePath}.${paramKey}`] = options;
+        } else if (typeof currentVal === "boolean" || schema?.type === "boolean") {
+          ranges[`${basePath}.${paramKey}`] = [true, false];
+        }
+      });
+    });
+
+    if (Object.keys(ranges).length === 0) {
+      throw new Error("최적화할 수 있는 변수가 없습니다. 블록의 설정을 확인해주세요.");
+    }
+
+    const strategy: StrategyDSL = {
+      id: initialStrategy?.id || "temp_wfa",
+      name: strategyName || "WFA Strategy",
+      description: "",
+      version: "1.0",
+      created_at: new Date().toISOString(),
+      universe: { id: universe, filters: universeFilters },
+      updated_at: new Date().toISOString(),
+      entry: { conditions: entryConditionsMap },
+      exit: { conditions: exitConditionsMap },
+      risk: getResolvedRisk(),
+    };
+
+    const engine = new BacktestService();
+    return await engine.walkForward(strategy, backtestOptions, ranges, wfaSettings);
+  };
+
   // Trigger simulation when entering step 5
 
 
@@ -759,6 +826,7 @@ export default function StrategyComposerV2({
               onRestart={() => setCurrentStep(4)}
               onSave={handleSave}
               onRunBacktest={runSimulation}
+              onWalkForward={handleWalkForward}
               configOptions={backtestOptions}
               summaryData={getSummaryData()}
             />

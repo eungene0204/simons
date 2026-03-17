@@ -16,6 +16,27 @@ interface MarketSummaryProps {
   formatQuantity: (quantity: number) => string;
 }
 
+function StatItem({
+  label,
+  value,
+  valueClass = "text-gray-900 dark:text-white",
+}: {
+  label: string;
+  value: string;
+  valueClass?: string;
+}) {
+  return (
+    <div className="flex flex-col px-3 py-[3px]">
+      <span className="text-gray-500 dark:text-gray-400 text-[10px] tracking-wider leading-tight">
+        {label}
+      </span>
+      <span className={`${valueClass} text-[11px] tabular-nums tracking-wider leading-tight font-medium`}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
 export default function MarketSummary({
   week52High,
   week52Low,
@@ -34,97 +55,24 @@ export default function MarketSummary({
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1" />
-      <div className="pb-1 text-xs" style={{ letterSpacing: "0.05em" }}>
-        <div className="h-[16px] flex items-center justify-between px-3">
-          <span className="text-gray-600 dark:text-gray-400 tracking-wider">
-            52주 최고
-          </span>
-          <span className="text-gray-900 dark:text-white text-right tabular-nums tracking-wider">
-            {formatPrice(week52High)}
-          </span>
-        </div>
-        <div className="h-[16px] flex items-center justify-between px-3">
-          <span className="text-gray-600 dark:text-gray-400 tracking-wider">
-            52주 최저
-          </span>
-          <span className="text-gray-900 dark:text-white text-right tabular-nums tracking-wider">
-            {formatPrice(week52Low)}
-          </span>
-        </div>
-        <div className="h-[16px] flex items-center justify-between px-3">
-          <span className="text-gray-600 dark:text-gray-400 tracking-wider">
-            상한가
-          </span>
-          <span className="text-red-400 text-right tabular-nums tracking-wider">
-            {formatPrice(upperLimit)}
-          </span>
-        </div>
-        <div className="h-[16px] flex items-center justify-between px-3">
-          <span className="text-gray-600 dark:text-gray-400 tracking-wider">
-            하한가
-          </span>
-          <span className="text-blue-400 text-right tabular-nums tracking-wider">
-            {formatPrice(lowerLimit)}
-          </span>
-        </div>
-        <div className="h-[16px] flex items-center justify-between px-3">
-          <span className="text-gray-600 dark:text-gray-400 tracking-wider">
-            상승VI
-          </span>
-          <span className="text-red-400 text-right tabular-nums tracking-wider">
-            {formatPrice(upVI)}
-          </span>
-        </div>
-        <div className="h-[16px] flex items-center justify-between px-3">
-          <span className="text-gray-600 dark:text-gray-400 tracking-wider">
-            하강VI
-          </span>
-          <span className="text-blue-400 text-right tabular-nums tracking-wider">
-            {formatPrice(downVI)}
-          </span>
-        </div>
-        <div className="h-[16px]" />
-        <div className="h-[16px] flex items-center justify-between px-3">
-          <span className="text-gray-600 dark:text-gray-400 tracking-wider">
-            시가
-          </span>
-          <span className="text-gray-900 dark:text-white text-right tabular-nums tracking-wider">
-            {formatPrice(openPrice)}
-          </span>
-        </div>
-        <div className="h-[16px] flex items-center justify-between px-3">
-          <span className="text-gray-600 dark:text-gray-400 tracking-wider">
-            고가
-          </span>
-          <span className="text-red-400 text-right tabular-nums tracking-wider">
-            {formatPrice(highPrice)}
-          </span>
-        </div>
-        <div className="h-[16px] flex items-center justify-between px-3">
-          <span className="text-gray-600 dark:text-gray-400 tracking-wider">
-            저가
-          </span>
-          <span className="text-blue-400 text-right tabular-nums tracking-wider">
-            {formatPrice(lowPrice)}
-          </span>
-        </div>
-        <div className="h-[16px]" />
-        <div className="h-[16px] flex items-center justify-between px-3">
-          <span className="text-gray-600 dark:text-gray-400 tracking-wider">
-            거래량
-          </span>
-          <span className="text-gray-900 dark:text-white text-right tabular-nums tracking-wider">
-            {formatQuantity(volumeTotal)}
-          </span>
-        </div>
-        <div className="h-[16px] flex items-center justify-between px-3">
-          <span className="text-gray-600 dark:text-gray-400 tracking-wider">
-            어제 대비
-          </span>
-          <span className="text-gray-900 dark:text-white text-right tabular-nums tracking-wider">
-            {yesterdayRatio.toFixed(2)}%
-          </span>
-        </div>
+      <div className="pb-1">
+        <StatItem label="52주 최고" value={formatPrice(week52High)} />
+        <StatItem label="52주 최저" value={formatPrice(week52Low)} />
+        <StatItem label="상한가" value={formatPrice(upperLimit)} valueClass="text-red-400" />
+        <StatItem label="하한가" value={formatPrice(lowerLimit)} valueClass="text-blue-400" />
+        <StatItem label="상승VI" value={formatPrice(upVI)} valueClass="text-red-400" />
+        <StatItem label="하강VI" value={formatPrice(downVI)} valueClass="text-blue-400" />
+        <div className="h-2" />
+        <StatItem label="시가" value={formatPrice(openPrice)} />
+        <StatItem label="고가" value={formatPrice(highPrice)} valueClass="text-red-400" />
+        <StatItem label="저가" value={formatPrice(lowPrice)} valueClass="text-blue-400" />
+        <div className="h-2" />
+        <StatItem label="거래량" value={formatQuantity(volumeTotal)} />
+        <StatItem
+          label="어제 대비"
+          value={`${yesterdayRatio >= 0 ? "+" : ""}${yesterdayRatio.toFixed(2)}%`}
+          valueClass={yesterdayRatio > 0 ? "text-red-400" : yesterdayRatio < 0 ? "text-blue-400" : "text-gray-900 dark:text-white"}
+        />
       </div>
     </div>
   );

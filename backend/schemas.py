@@ -85,12 +85,99 @@ class BacktestResponse(BaseModel):
     version: Optional[str] = "1.0"
     executionTime: Optional[float] = 0.0
 
+# ─── Virtual Market ──────────────────────────────────────────────────────────
+
+class VirtualMarketStepRequest(BaseModel):
+    symbols: List[str]
+    base_prices: Optional[Dict[str, float]] = None
+    entry_conditions: List[Dict[str, Any]]
+    exit_conditions: List[Dict[str, Any]]
+    virtual_date: str  # "YYYY-MM-DD"
+    scenario: str = "realistic"
+    history_days: int = 60
+
+class SymbolSignal(BaseModel):
+    symbol: str
+    close: float
+    open: float
+    high: float
+    low: float
+    volume: int
+    entry_signal: bool
+    exit_signal: bool
+    entry_reason: Optional[str] = None
+    exit_reason: Optional[str] = None
+    error: Optional[str] = None
+
+class VirtualMarketStepResponse(BaseModel):
+    date: str
+    signals: List[SymbolSignal]
+
+
+# ─── Monte Carlo ──────────────────────────────────────────────────────────────
+
+class MonteCarloRequest(BaseModel):
+    equity: List[float]
+    initial_capital: float = 10_000_000.0
+    n_simulations: Optional[int] = 1000
+    block_size: Optional[int] = 20
+
+
+class MonteCarloResponse(BaseModel):
+    n_simulations: int
+    n_days: int
+    percentile_paths: Dict[str, List[float]]         # "5","25","50","75","95"
+    final_return_pct: Dict[str, float]               # "1".."99"
+    final_return_distribution: List[float]
+    mdd_distribution: List[float]
+    mdd_percentiles: Dict[str, float]
+    sharpe_percentiles: Dict[str, float]
+    prob_profit: float
+
+
 class OptimizationRequest(BaseModel):
     base_strategy: BacktestRequest
     user_prompt: str
     target_metric: Optional[str] = "cagr"
     n_trials: Optional[int] = 50
     ranges: Dict[str, Any]  # {path: [values]} or {path: {type, min, max, step}}
+
+
+# ─── Walk-Forward Analysis ────────────────────────────────────────────────────
+
+class WalkForwardRequest(BaseModel):
+    base_strategy: BacktestRequest
+    ranges: Dict[str, Any]
+    n_splits: Optional[int] = 5
+    train_pct: Optional[float] = 0.7
+    anchor: Optional[bool] = False   # False=rolling, True=anchored(expanding)
+    target_metric: Optional[str] = "cagr"
+    n_trials: Optional[int] = 30
+
+
+class WalkForwardWindowResult(BaseModel):
+    window: int
+    is_period: str
+    oos_period: str
+    best_params: Dict[str, Any]
+    is_metrics: Dict[str, Any]
+    oos_metrics: Dict[str, Any]
+    oos_equity: List[float]
+    oos_dates: List[str]
+    error: Optional[str] = None
+
+
+class WalkForwardResponse(BaseModel):
+    status: str
+    message: Optional[str] = None
+    n_splits: Optional[int] = 0
+    anchor: Optional[bool] = False
+    target_metric: Optional[str] = None
+    windows: Optional[List[WalkForwardWindowResult]] = Field(default_factory=list)
+    aggregate: Optional[Dict[str, float]] = Field(default_factory=dict)
+    combined_equity: Optional[List[float]] = Field(default_factory=list)
+    combined_dates: Optional[List[str]] = Field(default_factory=list)
+    walk_forward_efficiency: Optional[float] = 0.0
 
 class OptimizationResultItem(BaseModel):
     iteration: int

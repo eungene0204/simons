@@ -22,12 +22,15 @@ import {
   stopVirtualMarket,
   tickVirtualMarket,
   getMarketLogs,
+  startStrategyExecution,
+  stopStrategyExecution,
 } from "@/lib/virtual-market";
 import SignalLog from "./SignalLog";
 import StockSearchModal from "@/components/stock/StockSearchModal";
 
 interface VirtualMarketPanelProps {
   accountId: string;
+  strategyId?: string;
   strategyName?: string;
   onTradeExecuted?: () => void; // 거래 실행 후 부모 새로고침
 }
@@ -58,6 +61,7 @@ const DEFAULT_STOCKS = [
 
 export default function VirtualMarketPanel({
   accountId,
+  strategyId,
   strategyName,
   onTradeExecuted,
 }: VirtualMarketPanelProps) {
@@ -214,6 +218,34 @@ export default function VirtualMarketPanel({
     }
   };
 
+  // 전략 유니버스로 자동 시작
+  const handleStrategyStart = async () => {
+    setStarting(true);
+    setStartError(null);
+    try {
+      const state = await startStrategyExecution(accountId, {
+        scenario,
+        speed,
+        startDate: "2023-01-02",
+      });
+      setMarketState(state);
+      if (state.symbolNames) {
+        setSymbolNameMap((prev) => ({ ...prev, ...state.symbolNames }));
+      }
+    } catch (e) {
+      setStartError(e instanceof Error ? e.message : "전략 자동 실행 시작에 실패했습니다");
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  // 전략 자동 실행 중지
+  const handleStrategyStop = async () => {
+    await stopStrategyExecution(accountId);
+    setMarketState(null);
+    setLastTickResult(null);
+  };
+
   const handleStocksSelected = (stocks: { symbol: string; name: string }[]) => {
     const newStocks = stocks.filter(
       (s) => !selectedStocks.some((existing) => existing.symbol === s.symbol)
@@ -297,14 +329,24 @@ export default function VirtualMarketPanel({
 
         {/* 컨트롤 버튼 */}
         <div className="flex items-center gap-1.5">
+          {!isActive && strategyId && (
+            <button
+              onClick={handleStrategyStart}
+              disabled={starting}
+              className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              <Lightning size={14} weight="fill" />
+              {starting ? "시작중..." : "전략 자동 실행"}
+            </button>
+          )}
           {!isActive && (
             <button
               onClick={handleStart}
               disabled={starting}
-              className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 disabled:opacity-50 transition-colors"
+              className="flex items-center gap-1 px-3 py-1.5 bg-[#252525] text-gray-300 rounded-lg text-xs font-medium hover:bg-[#2e2e2e] disabled:opacity-50 transition-colors"
             >
               <Play size={14} weight="fill" />
-              {starting ? "시작중..." : "시작"}
+              {starting ? "시작중..." : "수동 시작"}
             </button>
           )}
           {isRunning && (
@@ -554,14 +596,24 @@ export default function VirtualMarketPanel({
               </div>
             </div>
 
-            <p className="text-xs text-gray-400">
-              가상 시장을 시작하면 {speed}초마다 1거래일이 진행됩니다.
-              전략 시그널 발생 시{" "}
-              {strategyName
-                ? `"${strategyName}" 전략에 따라`
-                : "연결된 전략에 따라"}{" "}
-              자동매매 또는 알림이 실행됩니다.
-            </p>
+            {strategyId ? (
+              <div className="px-3 py-2.5 bg-blue-950/40 border border-blue-900/40 rounded-lg">
+                <p className="text-xs text-blue-300 font-medium mb-0.5">
+                  전략 자동 실행 모드
+                </p>
+                <p className="text-xs text-blue-400/80">
+                  <span className="font-medium">[전략 자동 실행]</span>을 누르면{" "}
+                  {strategyName ? `"${strategyName}" 전략의 ` : "연결된 전략의 "}
+                  유니버스 종목이 자동으로 선택되고, {speed}초마다 1거래일씩 진행되며
+                  시그널 발생 시 자동매매됩니다.
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400">
+                가상 시장을 시작하면 {speed}초마다 1거래일이 진행됩니다.
+                전략 시그널 발생 시 연결된 전략에 따라 자동매매 또는 알림이 실행됩니다.
+              </p>
+            )}
           </div>
         )}
       </div>

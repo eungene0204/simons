@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X, CaretDown } from "phosphor-react";
+import { X, CaretDown, Robot, Bell } from "phosphor-react";
 
 interface Strategy {
   id: string;
@@ -11,7 +11,7 @@ interface Strategy {
 interface CreateAccountModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreate: (name: string, amount: number, strategyId?: string, strategyName?: string) => void;
+  onCreate: (name: string, amount: number, strategyId?: string, strategyName?: string, tradingMode?: "auto" | "manual") => void;
 }
 
 export default function CreateAccountModal({
@@ -26,6 +26,7 @@ export default function CreateAccountModal({
   const [selectedStrategyId, setSelectedStrategyId] = useState("");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [loadingStrategies, setLoadingStrategies] = useState(false);
+  const [tradingMode, setTradingMode] = useState<"auto" | "manual">("manual");
 
   useEffect(() => {
     if (!isOpen) return;
@@ -72,11 +73,13 @@ export default function CreateAccountModal({
       name.trim(),
       amountInWon,
       selectedStrategyId || undefined,
-      selectedStrategy?.name || undefined
+      selectedStrategy?.name || undefined,
+      selectedStrategyId ? tradingMode : undefined
     );
     setName("");
     setAmount("");
     setSelectedStrategyId("");
+    setTradingMode("manual");
     onClose();
   };
 
@@ -176,6 +179,7 @@ export default function CreateAccountModal({
                     type="button"
                     onClick={() => {
                       setSelectedStrategyId("");
+                      setTradingMode("manual");
                       setIsDropdownOpen(false);
                     }}
                     className="w-full px-3 py-2 text-left text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-600"
@@ -209,6 +213,72 @@ export default function CreateAccountModal({
               )}
             </div>
           </div>
+
+          {/* 매매 모드 선택 — 전략을 선택했을 때만 표시 */}
+          {selectedStrategyId && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                매매 방식
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setTradingMode("auto")}
+                  className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all ${
+                    tradingMode === "auto"
+                      ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
+                      : "border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500"
+                  }`}
+                >
+                  <Robot
+                    size={24}
+                    className={tradingMode === "auto" ? "text-blue-500" : "text-gray-400 dark:text-gray-500"}
+                  />
+                  <div className="text-center">
+                    <p className={`text-sm font-semibold ${tradingMode === "auto" ? "text-blue-600 dark:text-blue-400" : "text-gray-700 dark:text-gray-300"}`}>
+                      자동매매
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      신호 발생 시 자동 주문
+                    </p>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setTradingMode("manual")}
+                  className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all ${
+                    tradingMode === "manual"
+                      ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
+                      : "border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500"
+                  }`}
+                >
+                  <Bell
+                    size={24}
+                    className={tradingMode === "manual" ? "text-blue-500" : "text-gray-400 dark:text-gray-500"}
+                  />
+                  <div className="text-center">
+                    <p className={`text-sm font-semibold ${tradingMode === "manual" ? "text-blue-600 dark:text-blue-400" : "text-gray-700 dark:text-gray-300"}`}>
+                      신호 알림만
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      알림 받고 직접 매매
+                    </p>
+                  </div>
+                </button>
+              </div>
+              {tradingMode === "auto" && (
+                <p className="mt-2 text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 rounded px-2 py-1.5">
+                  전략 신호가 발생하면 현재가로 자동 주문이 실행됩니다.
+                </p>
+              )}
+              {tradingMode === "manual" && (
+                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700 rounded px-2 py-1.5">
+                  신호 발생 시 알림을 받고, 직접 매매 여부를 결정합니다.
+                </p>
+              )}
+            </div>
+          )}
 
           {error && (
             <div className="p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">

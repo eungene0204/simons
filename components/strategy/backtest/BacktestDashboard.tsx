@@ -25,6 +25,8 @@ import {
 import { useState, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import XAIModal from "./XAIModal";
+import WalkForwardModal, { WalkForwardSettings } from "./WalkForwardModal";
+import MonteCarloPanel from "./MonteCarloPanel";
 
 const processedExecutionIds = new Set<string>();
 
@@ -33,6 +35,7 @@ interface BacktestDashboardProps {
   onRestart: () => void;
   onRun?: (options: BacktestConfigOptions) => void;
   onSave?: () => void;
+  onWalkForward?: (settings: WalkForwardSettings) => Promise<any>;
   currentOptions?: BacktestConfigOptions;
   isRunning?: boolean;
   strategySummary?: {
@@ -60,17 +63,19 @@ const METRIC_DESCRIPTIONS: Record<string, string> = {
   kelly: "켈리 공식. 자산 대비 최적의 배팅 비율을 계산하는 모델로, 가산 비중 조절에 참고할 수 있습니다.\n\n[ 가이드라인 ]\n🟢 최적: 10% ~ 20%\n🟡 공격적: 20% 이상 (리스크 증가)\n🔴 보수적: 10% 미만"
 };
 
-export default function BacktestDashboard({ 
-  result, 
-  onRestart, 
-  onRun, 
+export default function BacktestDashboard({
+  result,
+  onRestart,
+  onRun,
   onSave,
+  onWalkForward,
   currentOptions,
   isRunning,
   strategySummary
 }: BacktestDashboardProps) {
-  const [activeTab, setActiveTab] = useState<"chart" | "stats" | "log" | "assets" | "history">("chart");
+  const [activeTab, setActiveTab] = useState<"chart" | "stats" | "log" | "assets" | "history" | "monte-carlo">("chart");
   const [history, setHistory] = useState<BacktestHistoryItem[]>([]);
+  const [isWFAOpen, setIsWFAOpen] = useState(false);
 
 
   const [localOptions, setLocalOptions] = useState<BacktestConfigOptions | null>(currentOptions || null);
@@ -301,6 +306,7 @@ export default function BacktestDashboard({
               { id: "stats", label: "통계 상세", icon: Table },
               { id: "log", label: "매매 기록", icon: ShieldCheck },
               { id: "history", label: "테스트 기록", icon: Clock },
+              { id: "monte-carlo", label: "몬테카를로", icon: ChartBar },
             ].map(tab => (
               <button
                 key={tab.id}
@@ -327,7 +333,16 @@ export default function BacktestDashboard({
           </div>
           
           <div className="flex items-center gap-2">
-            <button 
+            {onWalkForward && (
+              <button
+                onClick={() => setIsWFAOpen(true)}
+                className="px-4 py-1.5 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 text-sm font-bold rounded-lg transition-all border border-purple-500/30 hover:border-purple-500/50 active:scale-95 flex items-center gap-1.5"
+              >
+                <ChartBar className="w-4 h-4" />
+                워크포워드
+              </button>
+            )}
+            <button
               onClick={() => onRun && localOptions && onRun(localOptions)}
               disabled={isRunning}
               className={`px-4 py-1.5 bg-[#161616] hover:bg-[#1f1f1f] disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-bold rounded-lg transition-all border border-white/5 hover:border-white/10 active:scale-95`}
@@ -335,7 +350,7 @@ export default function BacktestDashboard({
               {isRunning ? "실행 중..." : "재실행"}
             </button>
             {onSave && (
-              <button 
+              <button
                 onClick={onSave}
                 className="px-4 py-1.5 bg-main-blue hover:bg-blue-600 text-white text-sm font-bold rounded-lg transition-all flex items-center gap-2 active:scale-95"
               >
@@ -703,6 +718,15 @@ export default function BacktestDashboard({
               </div>
            )}
 
+            {/* Monte Carlo View */}
+            {activeTab === "monte-carlo" && (
+              <MonteCarloPanel
+                equity={result.equity}
+                dates={result.dates}
+                initialCapital={result.initialCapital}
+              />
+            )}
+
             {/* History View */}
             {activeTab === "history" && (
               <div className="h-full overflow-y-auto custom-scrollbar p-6">
@@ -897,12 +921,20 @@ export default function BacktestDashboard({
         </div>
       )}
 
-      <XAIModal 
-        isOpen={!!xaiTarget} 
-        onClose={() => setXaiTarget(null)} 
-        symbol={xaiTarget?.symbol || ""} 
-        date={xaiTarget?.date || ""} 
+      <XAIModal
+        isOpen={!!xaiTarget}
+        onClose={() => setXaiTarget(null)}
+        symbol={xaiTarget?.symbol || ""}
+        date={xaiTarget?.date || ""}
       />
+
+      {onWalkForward && (
+        <WalkForwardModal
+          open={isWFAOpen}
+          onOpenChange={setIsWFAOpen}
+          onRun={onWalkForward}
+        />
+      )}
     </div>
   );
 }
