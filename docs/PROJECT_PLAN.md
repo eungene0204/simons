@@ -14,7 +14,7 @@
 ### 1.2 핵심 가치 제안
 | 가치 | 설명 |
 |------|------|
-| **노코드 전략 설계** | 코딩 없이 블록 조합으로 복잡한 퀀트 전략 수립 |
+| **AI 대화형 전략 설계** | 자연어 프롬프트로 투자 전략을 설명하면 AI가 자동으로 퀀트 전략으로 변환 |
 | **AI 융합** | 자체 개발 Transformer+XGBoost 예측 모델을 전략 블록으로 결합 |
 | **과학적 검증** | 과거 데이터 기반 백테스트 + SHAP 기반 설명 가능 AI |
 | **가상 실전 매매** | 실시간 시장 데이터 기반 페이퍼 트레이딩으로 전략 실전 검증 |
@@ -66,6 +66,8 @@ simons/
 │   │   ├── loader.py      #   데이터 로딩 (Parquet)
 │   │   ├── indicators.py  #   기술적 지표 계산
 │   │   ├── signals.py     #   시그널 생성 엔진 (벡터화)
+│   │   ├── nl_parser.py   #   자연어 → 전략 파서 (MLX/Ollama LLM)
+│   │   ├── strategy_converter.py  # ParsedStrategy → BacktestRequest
 │   │   ├── simulator.py   #   매매 시뮬레이션 (vectorbt)
 │   │   ├── result_handler.py  # 결과 집계·메트릭
 │   │   └── optuna_optimizer.py # 하이퍼파라미터 최적화
@@ -89,13 +91,21 @@ simons/
 
 ```
 [사용자]
-    │
+    │  자연어 프롬프트 입력
+    │  (예: "PBR 1 이하, PER 7 이하 종목 10개를 1년간 보유")
     ▼
 ┌──────────────────┐     ┌──────────────────┐
-│  Strategy Builder │────▶│  BacktestService │
-│  (5-Step Wizard)  │     │  (Orchestrator)  │
+│  전략연구소 Chat  │────▶│  NLStrategyParser│
+│  (프롬프트 UI)    │     │  (로컬 LLM 파싱)  │
 └──────────────────┘     └────────┬─────────┘
-                                  │ POST /backtest
+                                  │ POST /strategy/parse
+                                  ▼
+                         ┌──────────────────┐
+                         │ StrategyConverter│
+                         │ (ParsedStrategy  │
+                         │  → BacktestReq)  │
+                         └────────┬─────────┘
+                                  │ POST /strategy/backtest-stream (SSE)
                                   ▼
                          ┌──────────────────┐
                          │   FastAPI Server  │
@@ -132,7 +142,64 @@ simons/
 
 ### 3.1 전략 설계 시스템
 
-#### 3.1.1 전략 빌더 (5-Step Wizard)
+#### 3.1.1 전략연구소 (프롬프트 기반 전략 생성)
+
+> **핵심 변경:** 기존 5단계 위자드 방식에서 **자연어 프롬프트 기반** 전략 생성으로 전환.
+> 사용자가 한국어로 투자 전략을 설명하면, 로컬 LLM이 이를 구조화된 퀀트 전략으로 자동 변환.
+
+**UX 흐름:**
+
+| 단계 | 기능 | 구현 상태 |
+|------|------|-----------|
+| 1. 프롬프트 입력 | 자연어로 전략 설명 (채팅 인터페이스) | ✅ 완료 |
+| 2. AI 파싱 | 로컬 LLM이 자연어 → ParsedStrategy 구조 변환 | ✅ 완료 |
+| 3. 전략 요약 확인 | 파싱된 유니버스, 필터, 시그널, 포트폴리오 설정 표시 | ✅ 완료 |
+| 4. 전략 수정 | 대화형으로 파라미터 점진적 수정 가능 | ✅ 완료 |
+| 5. 백테스트 실행 | SSE 스트림으로 진행률 + 결과 실시간 전달 | ✅ 완료 |
+| 6. 결과 분석 | BacktestDashboard (수익률, 샤프, MDD, 거래내역, 차트) | ✅ 완료 |
+
+**자연어 파서 (NLStrategyParser):**
+
+| 항목 | 내용 |
+|------|------|
+| 위치 | `backend/engine/nl_parser.py` |
+| 지원 백엔드 | MLX (Apple Silicon 최적, 기본값), Ollama (범용) |
+| 기본 모델 | `mlx-community/Qwen2.5-32B-Instruct-4bit` / `qwen2.5:32b` |
+| 입력 | 한국어 자연어 전략 설명 |
+| 출력 | `ParsedStrategy` (유니버스, 펀더멘탈 필터, 진입/청산 시그널, 리스크 설정) |
+| 수정 모드 | `previous_parsed` 전달 시 기존 전략 기반 점진적 수정 |
+
+**전략 변환기 (StrategyConverter):**
+
+| 항목 | 내용 |
+|------|------|
+| 위치 | `backend/engine/strategy_converter.py` |
+| 기능 | `ParsedStrategy` → `BacktestRequest` 변환 |
+| 종목 로딩 | `/data/korea-stocks.json` 기반 유니버스별 심볼 매핑 |
+| 필터 변환 | 펀더멘탈 필터 → `type="filter"` 조건 블록 |
+| 시그널 변환 | 기술적 시그널 → `type="indicator"` 조건 블록 + 파라미터 |
+
+**ParsedStrategy 구조:**
+
+```python
+ParsedStrategy {
+  universe: List["KOSPI" | "KOSDAQ" | "KOSPI200"]
+  fundamental_filters: List[FundamentalFilter]  # PBR, PER, ROE, 부채비율, 시총, 거래대금
+  entry_signals: List[TechnicalSignal]          # MA, RSI, MACD, 볼린저 등
+  exit_signals: List[TechnicalSignal]
+  max_positions: int                            # 최대 보유 종목 수
+  hold_period_days: int                         # 보유 기간
+  rebalancing_period: Optional[str]             # 리밸런싱 주기
+  stop_loss_pct: Optional[float]                # 손절선
+  take_profit_pct: Optional[float]              # 익절선
+  backtest_period: str                          # 백테스트 기간 (예: "1y", "3y")
+  initial_capital: int                          # 초기 투자금
+}
+```
+
+#### 3.1.1-legacy 전략 빌더 (5-Step Wizard, 레거시)
+
+> 기존 블록 조합 방식의 전략 빌더. 향후 고급 사용자 전용 또는 프롬프트 파싱 결과의 상세 편집용으로 활용 가능.
 
 | 단계 | 이름 | 기능 | 구현 상태 |
 |------|------|------|-----------|
@@ -520,6 +587,9 @@ Alert {
 |--------|----------|------|
 | POST | `/backtest` | 백테스트 실행 |
 | POST | `/optimize` | 전략 최적화 |
+| POST | `/strategy/parse` | 자연어 → 구조화 전략 변환 (NL Parser) |
+| POST | `/strategy/backtest-stream` | SSE 스트림 기반 백테스트 실행 (진행률 + 결과) |
+| GET | `/model/status` | NL 파서 모델 로딩 상태 확인 |
 
 ### 5.2 추가 예정 API
 
@@ -552,6 +622,7 @@ Alert {
 | 백테스트 엔진 버그 수정 | 시뮬레이터 바이어스 제거, 결과 정확성 검증 | ✅ 완료 |
 | 시그널 엔진 벡터화 | 전체 시계열 벡터화 평가로 성능 최적화 | ✅ 완료 |
 | 전략 빌더 V2 | 5단계 위자드 UI/UX 개선 | ✅ 완료 |
+| **전략연구소 (프롬프트 기반)** | **자연어 전략 생성 — 로컬 LLM 파싱 + 대화형 수정 + SSE 백테스트** | **✅ 완료** |
 | Optuna 최적화 통합 | 하이퍼파라미터 자동 최적화 | ✅ 완료 |
 | AI 모델 통합 | Transformer+XGBoost 시그널 블록 | ✅ 완료 |
 | 테스트 커버리지 확대 | 32개 테스트 파일, 핵심 경로 커버 | ✅ 완료 |
@@ -583,6 +654,9 @@ Alert {
 | 섹터 로테이션 분석 | 업종별 동향, 순환 패턴 | P3 |
 | 리밸런싱 시뮬레이션 | 주기적 리밸런싱 전략 백테스트 | P3 |
 | 벤치마크 비교 | KOSPI/S&P500 대비 알파/베타 분석 | P3 |
+| NL 파서 고도화 | 복합 전략 해석, 다중 진입/청산 조건 조합 자연어 지원 | P2 |
+| 전략 저장 & 불러오기 | 프롬프트 기반 생성 전략의 DB 저장, 이력 관리 | P2 |
+| 전략 템플릿 | 인기 전략 프롬프트 템플릿 제공 (가치투자, 모멘텀 등) | P2 |
 
 ### Phase 4: 소셜 & 마켓플레이스 (v2.0)
 > **목표:** 커뮤니티 기반 전략 공유 생태계
@@ -760,19 +834,20 @@ cd backend && pytest tests/
 
 | 기능 | Simons | 증권사 HTS | QuantConnect | 뱅크샐러드 |
 |------|--------|-----------|--------------|-----------|
-| 노코드 전략 설계 | ✅ | ❌ | ❌ (코딩 필수) | ❌ |
+| AI 대화형 전략 설계 | ✅ (자연어) | ❌ | ❌ (코딩 필수) | ❌ |
 | AI 시그널 블록 | ✅ | ❌ | ⚠️ (직접 구현) | ❌ |
 | SHAP 설명 | ✅ | ❌ | ❌ | ❌ |
 | 자동 최적화 | ✅ (Optuna) | ❌ | ⚠️ (제한적) | ❌ |
 | 한국 시장 특화 | ✅ | ✅ | ❌ | ❌ |
-| 가상 매매 | 🔲 (개발중) | ⚠️ (제한적) | ✅ | ❌ |
+| 가상 매매 | ✅ | ⚠️ (제한적) | ✅ | ❌ |
 | 무료 접근 | ✅ | ❌ (계좌 필요) | ⚠️ (제한) | ✅ |
 
 ### 핵심 차별화 포인트
-1. **AI + 노코드의 결합:** 코딩 없이 AI 예측 모델을 전략에 통합
-2. **설명 가능 AI:** 단순 수익률이 아닌, "왜" 매수/매도했는지 SHAP으로 해석
-3. **한국 시장 딥 커버리지:** 4,052개 한국 종목, 기관/외인 수급, PER/PBR 등 국내 특화 데이터
-4. **원클릭 최적화:** Optuna 기반 자동 파라미터 튜닝으로 전문가 수준 최적화
+1. **자연어 → 퀀트 전략:** 한국어 프롬프트만으로 AI가 투자 전략을 자동 생성 — 코딩도 블록 조합도 불필요
+2. **대화형 전략 수정:** 채팅으로 점진적으로 전략 파라미터를 조정하며 최적화
+3. **설명 가능 AI:** 단순 수익률이 아닌, "왜" 매수/매도했는지 SHAP으로 해석
+4. **한국 시장 딥 커버리지:** 4,052개 한국 종목, 기관/외인 수급, PER/PBR 등 국내 특화 데이터
+5. **로컬 AI 프라이버시:** MLX/Ollama 기반 로컬 LLM 사용 — 투자 전략이 외부 서버로 전송되지 않음
 
 ---
 
@@ -831,6 +906,9 @@ npm run dev:backend  # Backend  (localhost:8000)
 
 ### C. 파일 구조 참조
 
+- 전략연구소 UI: `app/analytics/page.tsx` (프롬프트 기반 채팅 인터페이스)
+- NL 전략 파서: `backend/engine/nl_parser.py` (자연어 → ParsedStrategy)
+- 전략 변환기: `backend/engine/strategy_converter.py` (ParsedStrategy → BacktestRequest)
 - 전략 DSL 타입: `types/strategy.ts`
 - 시그널 블록 정의: `lib/strategy-blocks.ts` (879줄)
 - 백테스트 엔진: `backend/backtest_engine.py` (14.5KB)
@@ -838,6 +916,7 @@ npm run dev:backend  # Backend  (localhost:8000)
 - 시뮬레이터: `backend/engine/simulator.py` (7.7KB)
 - AI 엔진: `backend/ai/ai_engine.py` (11.9KB)
 - 최적화: `backend/ai/local_optimization_agent.py` (8.2KB)
+- 전략 빌더 V2 (레거시): `components/strategy/StrategyComposerV2.tsx`
 
 ---
 

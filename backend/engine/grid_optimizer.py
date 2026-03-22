@@ -14,21 +14,26 @@ def set_nested_value(d: Dict[str, Any], path: str, value: Any):
         if isinstance(current, list):
             try:
                 idx = int(key)
-                current = current[idx]
-                continue
             except ValueError:
-                pass
-                
+                raise KeyError(f"Cannot traverse list index '{key}': not an integer")
+            if idx < 0 or idx >= len(current):
+                raise KeyError(f"Cannot traverse list index {idx}: out of range (len={len(current)})")
+            current = current[idx]
+            continue
+
         if key not in current:
             current[key] = {}
         current = current[key]
-        
+
     final_key = keys[-1]
     if isinstance(current, list):
         try:
-            current[int(final_key)] = value
+            idx = int(final_key)
         except ValueError:
-            pass
+            raise KeyError(f"Cannot set list index '{final_key}': not an integer")
+        if idx < 0 or idx >= len(current):
+            raise KeyError(f"Cannot set list index {idx}: out of range (len={len(current)})")
+        current[idx] = value
     else:
         current[final_key] = value
 

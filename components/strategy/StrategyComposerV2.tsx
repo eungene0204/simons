@@ -205,7 +205,7 @@ export default function StrategyComposerV2({
   }, [currentStep]);
 
   const [backtestOptions, setBacktestOptions] = useState<any>({
-    period: "1Y",
+    period: "5Y",
     initialCapital: 10000000,
     commissionPct: 0.015,
     slippagePct: 0.05

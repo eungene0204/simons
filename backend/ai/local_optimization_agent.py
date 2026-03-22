@@ -13,7 +13,7 @@ class LocalOptimizationAgent:
     PARAM_MAP = {
         "shortMA": "단기 이평선", "longMA": "장기 이평선",
         "crossType": "교차 종류", "signalType": "신호 구분",
-        "period": "기간", "value": "기준값",
+        "value": "기준값",
         "operator": "비교 연산자", "threshold": "임계값",
         "fastPeriod": "단기 지수이평", "slowPeriod": "장기 지수이평",
         "signalPeriod": "시그널 기간", "stdDev": "표준편차 배수",
@@ -41,7 +41,7 @@ class LocalOptimizationAgent:
             return self.VALUE_MAP.get(v, v)
         return str(v)
 
-    def write_report(self, best_params: Dict[str, Any], top_results: List[Dict[str, Any]], target_metric: str, importances: Dict[str, float], total_trials: int, walk_forward: Optional[Dict[str, Any]] = None) -> str:
+    def write_report(self, best_params: Dict[str, Any], top_results: List[Dict[str, Any]], target_metric: str, importances: Dict[str, float], total_trials: int, walk_forward: Optional[Dict[str, Any]] = None, user_prompt: Optional[str] = None) -> str:
         if not top_results:
             return "최적화 결과가 없습니다. 모든 시뮬레이션이 실패했을 수 있습니다."
 
@@ -89,7 +89,7 @@ class LocalOptimizationAgent:
             sorted_imp = sorted(importances.items(), key=lambda x: x[1], reverse=True)
             for k, v in sorted_imp:
                 key = k.split('.')[-1]
-                report += f"| {self._display_param(key)} | {v*100:.1f}% |\n"
+                report += f"| {self._display_param(key)} | {v*100:.1f}% 기여도 |\n"
 
         # ── 5. 과적합 검증 ──
         if walk_forward:
