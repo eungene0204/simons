@@ -94,38 +94,11 @@ const DashboardLayoutContent = memo(function DashboardLayoutContent({
     >
       <div className="min-h-screen bg-[#0f0f0f] text-white flex flex-col relative">
         <TopMenuBar subHeader={subHeader} />
-        {/* Real-time Ticker Tape */}
-        <div 
-          className="fixed bottom-0 left-0 right-0 h-9 bg-black/40 backdrop-blur-xl border-t border-white/5 z-40 flex items-center overflow-hidden"
-          style={{ marginLeft: `${drawerWidthPx}px` }}
-        >
-          <div className="animate-marquee flex gap-12 whitespace-nowrap text-[11px] font-bold tracking-tight">
-             <div className="flex gap-12 py-2">
-               <span className="flex items-center gap-2">KOSPI <span className="text-red-400 tabular-nums">2,580.42 ▲ 12.3</span> <span className="text-[9px] bg-red-400/10 px-1 rounded text-red-500">0.48%</span></span>
-               <span className="flex items-center gap-2">KOSDAQ <span className="text-blue-400 tabular-nums">840.12 ▼ 3.1</span> <span className="text-[9px] bg-blue-400/10 px-1 rounded text-blue-500">0.37%</span></span>
-               <span className="flex items-center gap-2">NASDAQ <span className="text-red-400 tabular-nums">16,248.52 ▲ 45.2</span> <span className="text-[9px] bg-red-400/10 px-1 rounded text-red-500">0.28%</span></span>
-               <span className="flex items-center gap-2">S&P 500 <span className="text-red-400 tabular-nums">5,123.34 ▲ 8.7</span> <span className="text-[9px] bg-red-400/10 px-1 rounded text-red-500">0.17%</span></span>
-               <span className="flex items-center gap-2 text-gray-400">USD/KRW <span className="text-white tabular-nums">1,342.50</span></span>
-               <span className="flex items-center gap-2">BTC/USDT <span className="text-red-400 tabular-nums">98,240 ▲ 1.4%</span></span>
-             </div>
-             {/* Duplicate for seamless loop */}
-             <div className="flex gap-12 py-2">
-               <span className="flex items-center gap-2">KOSPI <span className="text-red-400 tabular-nums">2,580.42 ▲ 12.3</span> <span className="text-[9px] bg-red-400/10 px-1 rounded text-red-500">0.48%</span></span>
-               <span className="flex items-center gap-2">KOSDAQ <span className="text-blue-400 tabular-nums">840.12 ▼ 3.1</span> <span className="text-[9px] bg-blue-400/10 px-1 rounded text-blue-500">0.37%</span></span>
-               <span className="flex items-center gap-2">NASDAQ <span className="text-red-400 tabular-nums">16,248.52 ▲ 45.2</span> <span className="text-[9px] bg-red-400/10 px-1 rounded text-red-500">0.28%</span></span>
-               <span className="flex items-center gap-2">S&P 500 <span className="text-red-400 tabular-nums">5,123.34 ▲ 8.7</span> <span className="text-[9px] bg-red-400/10 px-1 rounded text-red-500">0.17%</span></span>
-               <span className="flex items-center gap-2 text-gray-400">USD/KRW <span className="text-white tabular-nums">1,342.50</span></span>
-               <span className="flex items-center gap-2">BTC/USDT <span className="text-red-400 tabular-nums">98,240 ▲ 1.4%</span></span>
-             </div>
-          </div>
-        </div>
-
-        <main 
+        <main
           className="flex-1 overflow-y-auto overflow-x-hidden max-w-full"
           style={{
             marginLeft: `${drawerWidthPx}px`,
             paddingTop: `${topMenuBarHeight}px`,
-            paddingBottom: `36px`, // Adjust for ticker tape
           }}
         >
           <div className="relative">

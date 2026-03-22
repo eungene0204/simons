@@ -87,8 +87,17 @@ export default function BacktestDashboard({
   const lastProcessedResultRef = useRef<string | null>(null);
   const isSavingRef = useRef(false);
 
-  // Load and save history
+  // Load history on mount
   useEffect(() => {
+    fetch("/api/backtest/history")
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setHistory(data))
+      .catch(() => {});
+  }, []);
+
+  // Save history when a new backtest result arrives
+  useEffect(() => {
+    // isRunning 이 deps에 포함되어야 batching이 안 될 때도 재실행됨
     if (isRunning || !result) return;
 
     // Idempotency: skip if this execution was already saved
@@ -102,14 +111,6 @@ export default function BacktestDashboard({
       }
 
       try {
-        // Fetch existing history
-        const response = await fetch("/api/backtest/history");
-        if (response.ok) {
-          const data = await response.json();
-          setHistory(data);
-        }
-
-        // Save new result if strategy summary is available
         if (strategySummary) {
           const newItemData = {
             strategyName: strategySummary.strategyName || "이름 없는 전략",
@@ -158,7 +159,7 @@ export default function BacktestDashboard({
     };
 
     saveHistory();
-  }, [result, strategySummary]);
+  }, [result, isRunning, strategySummary]);
 
   useEffect(() => {
     const fetchStockMetadata = async () => {
@@ -597,12 +598,22 @@ export default function BacktestDashboard({
                                <div>
                    <h4 className="text-base font-bold text-white mb-4 flex items-center gap-2">
                      <ChartBar className="w-4 h-4 text-gray-500" /> 월별 수익률 추이 (Monthly Returns)
+                     {(() => {
+                       const allYears = Object.keys(monthlyReturns).sort();
+                       if (allYears.length > 0) return (
+                         <span className="text-xs text-gray-500 font-normal ml-1">
+                           {allYears[0]} ~ {allYears[allYears.length - 1]}
+                         </span>
+                       );
+                     })()}
                    </h4>
                    <div className="h-[350px] md:h-[500px] xl:h-[600px] bg-[#0a0a0f] rounded-xl overflow-hidden relative border border-gray-800/50">
-                      <BacktestChart 
+                      <BacktestChart
                         type="seasonal_returns"
                         seasonalData={(() => {
-                           const years = Object.keys(monthlyReturns).sort();
+                           // 최대 10년만 표시 (최근 연도 기준)
+                           const MAX_YEARS = 10;
+                           const years = Object.keys(monthlyReturns).sort().slice(-MAX_YEARS);
                            return years.map(year => ({
                               year,
                               data: Object.keys(monthlyReturns[year]).sort((a,b) => Number(a)-Number(b)).map(month => ({

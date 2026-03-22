@@ -970,7 +970,7 @@
     "name": "HD건설기계",
     "market": "KOSPI",
     "sector": "기계/장비",
-    "industry": "일반 목적용 기계 제조업"
+    "industry": "특수 목적용 기계 제조업"
   },
   {
     "symbol": "267250",
@@ -5864,6 +5864,13 @@
     "market": "KOSPI",
     "sector": "에너지/원자력",
     "industry": "연료용 가스 제조 및 배관공급업"
+  },
+  {
+    "symbol": "493280",
+    "name": "아이엠바이오로직스",
+    "market": "KOSDAQ",
+    "sector": "바이오/제약",
+    "industry": "자연과학 및 공학 연구개발업"
   },
   {
     "symbol": "458350",
@@ -12159,13 +12166,6 @@
     "industry": "의료용품 및 기타 의약 관련제품 제조업"
   },
   {
-    "symbol": "204630",
-    "name": "스튜디오산타클로스",
-    "market": "KOSDAQ",
-    "sector": "미디어/엔터",
-    "industry": "창작 및 예술관련 서비스업"
-  },
-  {
     "symbol": "208640",
     "name": "썸에이지",
     "market": "KOSDAQ",
@@ -17176,13 +17176,6 @@
     "market": "KOSDAQ",
     "sector": "화학",
     "industry": "귀금속 및 장신용품 제조업"
-  },
-  {
-    "symbol": "036180",
-    "name": "지더블유바이텍",
-    "market": "KOSDAQ",
-    "sector": "IT 하드웨어",
-    "industry": "기계장비 및 관련 물품 도매업"
   },
   {
     "symbol": "037230",

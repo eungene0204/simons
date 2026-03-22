@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from schemas import (
     BacktestRequest, BacktestResponse,
     MonteCarloRequest, MonteCarloResponse,
@@ -33,6 +33,7 @@ app.add_middleware(
 )
 
 engine = BacktestEngine()
+_ = engine.ai_engine  # 서버 시작 시 AI 모델 사전 로드
 vm_engine = VirtualMarketEngine()
 
 recent_executions = {}
@@ -344,13 +345,41 @@ class NLParseRequest(BaseModel):
     prompt: str
     backend: str = "mlx"  # "mlx" | "ollama"
     model: Optional[str] = None  # None = 기본값 사용
+    previous_parsed: Optional[dict] = None  # 수정 모드: 이전 파싱 결과
 
 class NLParseResponse(BaseModel):
     parsed: dict
     backtest_request: dict
     symbol_count: int
+    clarification_question: Optional[str] = None
+    clarification_suggestions: Optional[List[str]] = None
 
 _nl_parsers: dict = {}  # backend → NLStrategyParser (lazy singleton)
+_nl_parser_status: dict = {"status": "loading", "error": None}  # "ok" | "failed" | "loading"
+
+
+@app.on_event("startup")
+def preload_nl_parser():
+    """서버 시작 시 NL 파서 모델을 미리 로드 (첫 요청 지연 방지)"""
+    try:
+        from engine.nl_parser import NLStrategyParser
+        parser = NLStrategyParser(backend="mlx")
+        parser._init_mlx()  # 모델 로딩 (최초 1회)
+        _nl_parsers["mlx"] = parser
+        _nl_parser_status["status"] = "ok"
+        _nl_parser_status["error"] = None
+        print("[startup] NL 파서 7B 모델 로딩 완료 (32B는 첫 수정 요청 시 lazy 로드)", flush=True)
+    except Exception as e:
+        _nl_parser_status["status"] = "failed"
+        _nl_parser_status["error"] = str(e)
+        print(f"[startup] NL 파서 로딩 실패 (무시됨): {e}", flush=True)
+
+
+@app.get("/model/status")
+def get_model_status():
+    """NL 파서 모델 로딩 상태 반환"""
+    return _nl_parser_status
+
 
 @app.post("/strategy/parse", response_model=NLParseResponse)
 def parse_nl_strategy(request: NLParseRequest):
@@ -371,15 +400,24 @@ def parse_nl_strategy(request: NLParseRequest):
             _nl_parsers[backend] = NLStrategyParser(**kwargs)
 
         parser = _nl_parsers[backend]
-        parsed = parser.parse(request.prompt)
+        if request.previous_parsed:
+            print(f"[NL-PARSE] 수정 모드 (diff)", flush=True)
+            parsed = parser.parse_modification(request.prompt, request.previous_parsed)
+        else:
+            parsed = parser.parse(request.prompt)
         backtest_req = to_backtest_request(parsed)
 
-        print(f"[NL-PARSE] filters={len(parsed.fundamental_filters)}, entry={len(parsed.entry_signals)}, symbols={len(backtest_req['symbols'])}", flush=True)
+        from engine.nl_parser import validate_parsed_strategy
+        clarification_question, clarification_suggestions = validate_parsed_strategy(parsed, request.prompt)
+
+        print(f"[NL-PARSE] filters={len(parsed.fundamental_filters)}, entry={len(parsed.entry_signals)}, symbols={len(backtest_req['symbols'])}, clarification={'yes' if clarification_question else 'no'}", flush=True)
 
         return {
             "parsed": parsed.model_dump(),
             "backtest_request": backtest_req,
             "symbol_count": len(backtest_req["symbols"]),
+            "clarification_question": clarification_question,
+            "clarification_suggestions": clarification_suggestions,
         }
     except Exception as e:
         import traceback
@@ -399,7 +437,10 @@ async def backtest_stream(request: BacktestRequest):
 
     def run_bt():
         try:
-            result_holder["data"] = engine.run_backtest(request.model_dump())
+            start_time = time.time()
+            result = engine.run_backtest(request.model_dump())
+            result["executionTime"] = time.time() - start_time
+            result_holder["data"] = result
         except Exception as exc:
             error_holder["error"] = str(exc)
 

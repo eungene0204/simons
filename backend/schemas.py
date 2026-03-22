@@ -36,7 +36,7 @@ class BacktestRequest(BaseModel):
     entry: ConditionGroup
     exit: ConditionGroup
     risk: RiskManagement
-    period: str = "full"
+    period: str = "5Y"
     options: Optional[Dict[str, Any]] = Field(
         default_factory=dict,
         description="백테스트 옵션 (fee_rate, slippage_rate 등)"
