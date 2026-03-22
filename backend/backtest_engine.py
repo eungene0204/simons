@@ -73,7 +73,7 @@ class BacktestEngine:
             options = req.get('options', {})
             exec_type = options.get('execution_type', 'next_open') 
             
-            period_req = req.get('period', 'full')
+            period_req = (req.get('period') or '5Y').upper()
             start_date_req = req.get('startDate')
             end_date_req = req.get('endDate')
 
@@ -145,7 +145,7 @@ class BacktestEngine:
                             return pd.to_datetime(ts).strftime("%Y-%m-%d")
                         return ts.strftime("%Y-%m-%d")
 
-                    if period_req != 'full' or start_date_req or end_date_req:
+                    if period_req != 'FULL' or start_date_req or end_date_req:
                         date_col = pl.col("date").cast(pl.Utf8)
                         if start_date_req:
                             df_pl = df_pl.filter(date_col >= _ts_str(start_date_req))
@@ -153,6 +153,8 @@ class BacktestEngine:
                             df_pl = df_pl.filter(date_col >= _ts_str(ref_date - pd.DateOffset(months=6)))
                         elif period_req == '1Y':
                             df_pl = df_pl.filter(date_col >= _ts_str(ref_date - pd.DateOffset(years=1)))
+                        elif period_req == '3Y':
+                            df_pl = df_pl.filter(date_col >= _ts_str(ref_date - pd.DateOffset(years=3)))
                         elif period_req in ['5Y', '10Y', '20Y']:
                             y = int(period_req[:-1])
                             df_pl = df_pl.filter(date_col >= _ts_str(pd.Timestamp(year=ref_date.year - (y-1), month=1, day=1)))

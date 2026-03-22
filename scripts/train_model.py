@@ -13,7 +13,7 @@ from sklearn.metrics import average_precision_score
 from backend.ai.models import HybridAIModel
 
 class StockDataset(Dataset):
-    def __init__(self, df, lookback=60, features=None, target='fwd_return_10'):
+    def __init__(self, df, lookback=60, features=None, target=None):
         self.lookback = lookback
         self.features = features
         self.target = target
@@ -44,24 +44,25 @@ class StockDataset(Dataset):
         
         return torch.from_numpy(x), torch.tensor(y, dtype=torch.float32), torch.tensor(y_up, dtype=torch.float32), torch.tensor(y_down, dtype=torch.float32)
 
-def train_hybrid_model(data_path, model_dir, lookback=60, epochs=30, n_trials_transformer=10, n_trials_xgb=20, buy_threshold=0.07, sell_threshold=0.07):
+def train_hybrid_model(data_path, model_dir, lookback=60, epochs=30, n_trials_transformer=10, n_trials_xgb=20, buy_threshold=0.07, sell_threshold=0.07, horizon=10):
     os.makedirs(model_dir, exist_ok=True)
     
     print(f"Loading processed data from {data_path}...")
     df = pd.read_parquet(data_path)
     
     # Backward compatibility with older datasets
+    fwd_col = f'fwd_return_{horizon}'
     if 'target_up' not in df.columns:
         if 'target_7pct_10d' in df.columns:
             df['target_up'] = df['target_7pct_10d']
         else:
-            df['target_up'] = (df['fwd_return_10'] >= buy_threshold).astype(int)
-            
+            df['target_up'] = (df[fwd_col] >= buy_threshold).astype(int)
+
     if 'target_down' not in df.columns:
         if 'target_drop_7pct_10d' in df.columns:
             df['target_down'] = df['target_drop_7pct_10d']
         else:
-            df['target_down'] = (df['fwd_return_10'] <= -sell_threshold).astype(int)
+            df['target_down'] = (df[fwd_col] <= -sell_threshold).astype(int)
     
     # Split by time (Training: < 2023, Val: 2023)
     df['date'] = pd.to_datetime(df['date'])
@@ -74,8 +75,8 @@ def train_hybrid_model(data_path, model_dir, lookback=60, epochs=30, n_trials_tr
         'dist_sma_20', 'dist_ema_20', 'boll_pos'
     ]
     
-    train_ds = StockDataset(train_df, lookback=lookback, features=ts_features)
-    val_ds = StockDataset(val_df, lookback=lookback, features=ts_features)
+    train_ds = StockDataset(train_df, lookback=lookback, features=ts_features, target=fwd_col)
+    val_ds = StockDataset(val_df, lookback=lookback, features=ts_features, target=fwd_col)
     
     train_loader = DataLoader(train_ds, batch_size=128, shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=128)
@@ -276,6 +277,7 @@ def train_hybrid_model(data_path, model_dir, lookback=60, epochs=30, n_trials_tr
     meta = {
         "buy_threshold": buy_threshold,
         "sell_threshold": sell_threshold,
+        "horizon": horizon,
         "lookback": lookback,
         "features": ts_features,
         "d_model": t_best['d_model'],
@@ -298,17 +300,19 @@ if __name__ == "__main__":
     parser.add_argument("--model_dir", default="/Users/eugene/nullalgo/simons/model")
     parser.add_argument("--buy_threshold", type=float, default=0.07)
     parser.add_argument("--sell_threshold", type=float, default=0.07)
+    parser.add_argument("--horizon", type=int, default=10, help="Prediction horizon in trading days (e.g. 10)")
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--n_trials_transformer", type=int, default=10)
     parser.add_argument("--n_trials_xgb", type=int, default=20)
     args = parser.parse_args()
-    
+
     train_hybrid_model(
-        args.data_path, 
-        args.model_dir, 
-        epochs=args.epochs, 
-        n_trials_transformer=args.n_trials_transformer, 
+        args.data_path,
+        args.model_dir,
+        epochs=args.epochs,
+        n_trials_transformer=args.n_trials_transformer,
         n_trials_xgb=args.n_trials_xgb,
         buy_threshold=args.buy_threshold,
-        sell_threshold=args.sell_threshold
+        sell_threshold=args.sell_threshold,
+        horizon=args.horizon,
     )

@@ -84,6 +84,11 @@ def _tech_signal_to_condition(sig: TechnicalSignal) -> dict:
         if sig.value is not None:
             params["value"] = sig.value
 
+    elif sig.indicator in ("ai_model", "ai_drop_model"):
+        params["threshold"] = sig.threshold if sig.threshold is not None else 70
+        if sig.indicator == "ai_drop_model":
+            params["targetType"] = "down"
+
     return {
         "type": "indicator",
         "id": sig.indicator,
@@ -130,13 +135,15 @@ def to_backtest_request(strategy: ParsedStrategy) -> dict:
         "max_positions": strategy.max_positions,
         "stop_loss_pct": strategy.stop_loss_pct,
         "take_profit_pct": strategy.take_profit_pct,
+        "trailing_stop_pct": strategy.trailing_stop_pct,
+        "max_mdd_limit_pct": strategy.max_mdd_limit_pct,
         "max_holding_days": strategy.hold_period_days,
         "rebalancing_period": strategy.rebalancing_period,
         "init_cash": strategy.initial_capital,
         "ranking_enabled": True,
         "ranking_weight_value": 0.5,
         "ranking_weight_quality": 0.5,
-        "execution_timing": "next_open",
+        "execution_timing": strategy.execution_timing,
         "allocation_type": "equal",
     }
 
@@ -146,5 +153,8 @@ def to_backtest_request(strategy: ParsedStrategy) -> dict:
         "exit": {"conditions": exit_conditions},
         "risk": risk,
         "period": strategy.backtest_period,
-        "options": {},
+        "options": {
+            "fee_rate": strategy.fee_rate,
+            "slippage_rate": strategy.slippage_rate,
+        },
     }

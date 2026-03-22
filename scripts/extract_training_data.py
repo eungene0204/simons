@@ -13,9 +13,10 @@ from engine.indicators import IndicatorEngine
 
 import argparse
 
-def extract_training_data(ohlcv_dir, output_file, lookback_window=60, symbols=None, buy_threshold=0.07, sell_threshold=0.07):
+def extract_training_data(ohlcv_dir, output_file, lookback_window=60, symbols=None, buy_threshold=0.07, sell_threshold=0.07, horizon=10):
     """
     Extracts OHLCV and technical indicators for a set of symbols and saves them to a parquet file for training.
+    horizon: 예측 기간 (거래일). 기본값 10일.
     """
     if not symbols:
         # Get top 200 list if exists, else take all parquet files
@@ -46,7 +47,7 @@ def extract_training_data(ohlcv_dir, output_file, lookback_window=60, symbols=No
     ]
 
     print(f"Extracting data for {len(symbols)} symbols...")
-    print(f"Targets: BuyThreshold={buy_threshold*100}%, SellThreshold={sell_threshold*100}%")
+    print(f"Targets: BuyThreshold={buy_threshold*100}%, SellThreshold={sell_threshold*100}%, Horizon={horizon}d")
     
     for symbol in tqdm(symbols):
         try:
@@ -64,13 +65,13 @@ def extract_training_data(ohlcv_dir, output_file, lookback_window=60, symbols=No
             pdf['symbol'] = symbol
             pdf = pdf.sort_values('date')
             
-            # 3. Labeling: Future Returns (Next 10 days max return)
+            # 3. Labeling: Future Returns (Next N days max return)
             # Use provided targets
-            pdf['fwd_return_10'] = pdf['close'].shift(-10) / pdf['close'] - 1
-            
+            pdf[f'fwd_return_{horizon}'] = pdf['close'].shift(-horizon) / pdf['close'] - 1
+
             # Binary targets for XGBoost
-            pdf['target_up'] = (pdf['close'].rolling(window=10).max().shift(-10) / pdf['close'] - 1 >= buy_threshold).astype(int)
-            pdf['target_down'] = (pdf['close'].rolling(window=10).min().shift(-10) / pdf['close'] - 1 <= -sell_threshold).astype(int)
+            pdf['target_up'] = (pdf['close'].rolling(window=horizon).max().shift(-horizon) / pdf['close'] - 1 >= buy_threshold).astype(int)
+            pdf['target_down'] = (pdf['close'].rolling(window=horizon).min().shift(-horizon) / pdf['close'] - 1 <= -sell_threshold).astype(int)
             
             # Keep old names for backward compatibility during transition if needed
             pdf['target_7pct_10d'] = pdf['target_up']
@@ -117,8 +118,9 @@ if __name__ == "__main__":
     parser.add_argument("--output_file", default="/Users/eugene/nullalgo/simons/data/training_data_raw.parquet")
     parser.add_argument("--buy_threshold", type=float, default=0.07, help="Buy threshold (Target Upside Rate, e.g. 0.07 for 7%)")
     parser.add_argument("--sell_threshold", type=float, default=0.07, help="Sell threshold (Target Downside Rate, e.g. 0.07 for 7%)")
+    parser.add_argument("--horizon", type=int, default=10, help="Prediction horizon in trading days (e.g. 10)")
     args = parser.parse_args()
-    
+
     os.makedirs(os.path.dirname(args.output_file), exist_ok=True)
-    extract_training_data(args.ohlcv_dir, args.output_file, buy_threshold=args.buy_threshold, sell_threshold=args.sell_threshold)
+    extract_training_data(args.ohlcv_dir, args.output_file, buy_threshold=args.buy_threshold, sell_threshold=args.sell_threshold, horizon=args.horizon)
 

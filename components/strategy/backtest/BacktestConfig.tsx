@@ -109,7 +109,7 @@ const getRebalancingLabel = (period?: string) => {
 };
 
 export default function BacktestConfig({ onRun, isRunning, initialConfig, summary }: BacktestConfigProps) {
-  const [period, setPeriod] = useState(initialConfig?.period || "1Y");
+  const [period, setPeriod] = useState(initialConfig?.period || "5Y");
   const [initialCapital, setInitialCapital] = useState(initialConfig?.initialCapital || 10000000);
   const [commissionPct, setCommissionPct] = useState(initialConfig?.commissionPct || 0.015);
   const [slippagePct, setSlippagePct] = useState(initialConfig?.slippagePct || 0.05);

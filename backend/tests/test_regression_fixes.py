@@ -48,6 +48,7 @@ def _simple_req(symbol, extra_risk=None):
         "entry": {"conditions": [{"id": "price", "params": {"value": 0, "operator": ">"}}]},
         "exit": {"conditions": []},
         "risk": risk,
+        "period": "full",
         "options": {"execution_type": "same_close"},
     }
 
