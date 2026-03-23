@@ -190,13 +190,8 @@ export default function MonteCarloPanel({
       {!result && !isRunning && (
         <div className="flex flex-col items-center justify-center py-16 gap-3 text-gray-600">
           <span className="text-4xl">🎲</span>
-          <p className="text-sm">
-            백테스트 수익률을 무작위로 재조합하여 다양한 시나리오의 분포를
-            분석합니다.
-          </p>
-          <p className="text-xs text-gray-700">
-            블록 부트스트랩 (block_size=20일) 방식으로 시계열 자기상관을
-            보존합니다.
+          <p className="text-sm text-center">
+            백테스트 수익률을 무작위로 재조합해 다양한 시나리오를 생성하고, 전략의 강건성을 통계적으로 검증합니다.
           </p>
         </div>
       )}
