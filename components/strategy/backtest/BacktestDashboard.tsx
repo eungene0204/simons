@@ -27,6 +27,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import XAIModal from "./XAIModal";
 import WalkForwardModal, { WalkForwardSettings } from "./WalkForwardModal";
 import MonteCarloPanel from "./MonteCarloPanel";
+import BacktestSummaryCard from "./BacktestSummaryCard";
 
 const processedExecutionIds = new Set<string>();
 
@@ -362,6 +363,9 @@ export default function BacktestDashboard({
           </div>
         </div>
       </div>
+
+      {/* AI Summary */}
+      <BacktestSummaryCard result={result} strategySummary={strategySummary} />
 
       {/* Missing Data Warnings */}
       {result.warnings && result.warnings.length > 0 && (
