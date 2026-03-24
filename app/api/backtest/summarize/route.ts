@@ -25,7 +25,7 @@ export async function POST(req: Request) {
       if (result.error) {
         return NextResponse.json({ error: result.error }, { status: 500 });
       }
-      return NextResponse.json({ summary: result.summary });
+      return NextResponse.json({ score: result.score, summary: result.summary });
     } catch {
       console.error("Failed to parse summarize output:", stdout);
       console.error("stderr:", stderr);
