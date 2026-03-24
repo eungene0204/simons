@@ -574,7 +574,7 @@ export default function BacktestChart({
   }, [type, equityChartData, buyHoldChartData, drawdownChartData, monthlyChartData, seasonalChartData]);
 
   return (
-    <div className="w-full h-full relative group">
+    <div className="w-full relative group" style={{ height: `${height}px` }}>
       {/* Legend Overlay */}
       <div className="absolute top-4 left-4 z-20 flex flex-col gap-1 b">
         {type !== "seasonal_returns" && (

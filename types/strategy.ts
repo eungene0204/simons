@@ -182,6 +182,7 @@ export interface BacktestHistoryItem {
     buyHold: number;
     trades: number;
     executionTime?: number;
+    score?: number;
   };
 }
 

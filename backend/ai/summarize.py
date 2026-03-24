@@ -1,19 +1,11 @@
 """
-백테스트 결과 자연어 요약 스크립트.
+백테스트 결과 자연어 요약 + 전략 점수 스크립트.
 
 사용 방법:
   python backend/ai/summarize.py <json_payload>
 
-json_payload 구조:
-  {
-    "metrics": { totalReturn, cagr, buyAndHoldReturn, maxDrawdown, sharpe,
-                 sortino, profitFactor, winRate, trades, volatility, kelly,
-                 initialCapital, finalEquity },
-    "strategySummary": { strategyName, universeName, entryBlocks, exitBlocks }
-  }
-
 출력 (stdout, JSON):
-  { "summary": "..." }
+  { "score": 72, "summary": "..." }
 """
 
 import sys
@@ -24,6 +16,61 @@ MLX_MODEL = "mlx-community/Qwen2.5-3B-Instruct-4bit"
 OLLAMA_MODEL = "qwen2.5:3b"
 OLLAMA_URL = "http://localhost:11434/api/generate"
 
+
+# ── 지표 기반 점수 계산 ──────────────────────────────────────────────────────
+
+def calculate_score(m: dict) -> int:
+    """
+    CAGR, MDD, Sharpe, ProfitFactor, WinRate 5개 지표를 가중 평균해 0~100점 반환.
+    기준은 BacktestDashboard의 METRIC_DESCRIPTIONS 가이드라인과 동일.
+    """
+    def score_cagr(v):
+        if v is None: return 50
+        if v >= 20: return 100
+        if v >= 10: return 70
+        return max(0, int(v / 10 * 70))
+
+    def score_mdd(v):
+        # MDD는 음수로 오거나 양수(절댓값)로 올 수 있음
+        if v is None: return 50
+        v = abs(v)
+        if v <= 10: return 100
+        if v <= 20: return 70
+        if v <= 30: return 40
+        return max(0, int(100 - v * 2))
+
+    def score_sharpe(v):
+        if v is None: return 50
+        if v >= 1.5: return 100
+        if v >= 1.0: return 70
+        if v >= 0.5: return 40
+        return max(0, int(v / 1.5 * 100))
+
+    def score_pf(v):
+        if v is None: return 50
+        if v >= 2.0: return 100
+        if v >= 1.5: return 70
+        if v >= 1.0: return 40
+        return max(0, int(v / 2.0 * 100))
+
+    def score_winrate(v):
+        if v is None: return 50
+        if v >= 55: return 100
+        if v >= 50: return 70
+        if v >= 45: return 40
+        return max(0, int(v / 55 * 100))
+
+    weights = [
+        (score_cagr(m.get("cagr")), 0.30),
+        (score_mdd(m.get("maxDrawdown")), 0.25),
+        (score_sharpe(m.get("sharpe")), 0.20),
+        (score_pf(m.get("profitFactor")), 0.15),
+        (score_winrate(m.get("winRate")), 0.10),
+    ]
+    return round(sum(s * w for s, w in weights))
+
+
+# ── 프롬프트 빌드 ────────────────────────────────────────────────────────────
 
 def build_prompt(payload: dict) -> str:
     m = payload.get("metrics", {})
@@ -66,15 +113,15 @@ def build_prompt(payload: dict) -> str:
     )
 
 
+# ── LLM 호출 ────────────────────────────────────────────────────────────────
+
 def summarize_mlx(prompt: str) -> str:
     import os
     from mlx_lm import load, generate  # type: ignore
 
-    # HF 원격 확인 생략 → 캐시에서 바로 로드
     os.environ["HF_HUB_OFFLINE"] = "1"
     model, tokenizer = load(MLX_MODEL)
 
-    # Apply chat template if available
     if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template:
         messages = [{"role": "user", "content": prompt}]
         formatted = tokenizer.apply_chat_template(
@@ -110,6 +157,8 @@ def summarize_ollama(prompt: str) -> str:
     return data.get("response", "").strip()
 
 
+# ── 진입점 ───────────────────────────────────────────────────────────────────
+
 def main():
     if len(sys.argv) < 2:
         print(json.dumps({"error": "No payload provided"}))
@@ -121,16 +170,14 @@ def main():
         print(json.dumps({"error": f"JSON parse error: {e}"}))
         sys.exit(1)
 
+    metrics = payload.get("metrics", {})
+    score = calculate_score(metrics)
     prompt = build_prompt(payload)
 
     try:
         is_mac = platform.system() == "Darwin"
-        if is_mac:
-            summary = summarize_mlx(prompt)
-        else:
-            summary = summarize_ollama(prompt)
-
-        print(json.dumps({"summary": summary}, ensure_ascii=False))
+        summary = summarize_mlx(prompt) if is_mac else summarize_ollama(prompt)
+        print(json.dumps({"score": score, "summary": summary}, ensure_ascii=False))
     except Exception as e:
         print(json.dumps({"error": str(e)}))
         sys.exit(1)

@@ -65,8 +65,8 @@ class ParsedStrategy(BaseModel):
 
     # ── 유니버스
     universe: List[Literal["KOSPI", "KOSDAQ", "KOSPI200"]] = Field(
-        default=["KOSPI", "KOSDAQ"],
-        description="투자 대상 시장. 언급 없으면 ['KOSPI', 'KOSDAQ']. KOSPI200은 명시적 언급 시만"
+        default=["KOSPI200"],
+        description="투자 대상 시장. 언급 없으면 ['KOSPI200'] (KOSPI 전체 종목, 유동성 우선). '코스닥'/'KOSDAQ' 언급 시 ['KOSDAQ'], '전체'/'코스피+코스닥' 언급 시 ['KOSPI', 'KOSDAQ']"
     )
 
     # ── 재무 필터
@@ -182,6 +182,15 @@ MODIFY_PROMPT = """현재 전략 JSON이 주어집니다. 사용자 수정 요�
 
 수정 요청: "트레일링 스탑 15%로 설정해줘"
 출력: {"description": null, "universe": null, "fundamental_filters": null, "entry_signals": null, "exit_signals": null, "max_positions": null, "hold_period_days": null, "rebalancing_period": null, "stop_loss_pct": null, "take_profit_pct": null, "trailing_stop_pct": 15.0, "max_mdd_limit_pct": null, "backtest_period": null, "initial_capital": null, "execution_timing": null, "fee_rate": null, "slippage_rate": null}
+
+수정 요청: "KOSPI200 (기본값, 빠름) 그대로 진행" 또는 "KOSPI200으로 진행"
+출력: {"description": null, "universe": ["KOSPI200"], "fundamental_filters": null, "entry_signals": null, "exit_signals": null, "max_positions": null, "hold_period_days": null, "rebalancing_period": null, "stop_loss_pct": null, "take_profit_pct": null, "trailing_stop_pct": null, "max_mdd_limit_pct": null, "backtest_period": null, "initial_capital": null, "execution_timing": null, "fee_rate": null, "slippage_rate": null}
+
+수정 요청: "코스닥으로 바꿔줘" 또는 "KOSDAQ (코스닥 ~1,781종목)"
+출력: {"description": null, "universe": ["KOSDAQ"], "fundamental_filters": null, "entry_signals": null, "exit_signals": null, "max_positions": null, "hold_period_days": null, "rebalancing_period": null, "stop_loss_pct": null, "take_profit_pct": null, "trailing_stop_pct": null, "max_mdd_limit_pct": null, "backtest_period": null, "initial_capital": null, "execution_timing": null, "fee_rate": null, "slippage_rate": null}
+
+수정 요청: "전체 시장 (KOSPI+KOSDAQ ~2,619종목)" 또는 "전체 시장으로"
+출력: {"description": null, "universe": ["KOSPI", "KOSDAQ"], "fundamental_filters": null, "entry_signals": null, "exit_signals": null, "max_positions": null, "hold_period_days": null, "rebalancing_period": null, "stop_loss_pct": null, "take_profit_pct": null, "trailing_stop_pct": null, "max_mdd_limit_pct": null, "backtest_period": null, "initial_capital": null, "execution_timing": null, "fee_rate": null, "slippage_rate": null}
 """
 
 
@@ -254,7 +263,7 @@ SYSTEM_PROMPT = """당신은 한국 주식 퀀트 투자 전략을 JSON으로 �
 출력:
 {
   "description": "AI 모델이 상승 예측한 종목에 매수, AI 하락 예측 시 매도, 최대 15종목, 손절 10%",
-  "universe": ["KOSPI", "KOSDAQ"],
+  "universe": ["KOSPI200"],
   "fundamental_filters": [],
   "entry_signals": [{"indicator": "ai_model", "signal_type": "buy", "threshold": 70}],
   "exit_signals": [{"indicator": "ai_drop_model", "signal_type": "sell", "threshold": 70}],
@@ -276,7 +285,7 @@ SYSTEM_PROMPT = """당신은 한국 주식 퀀트 투자 전략을 JSON으로 �
 출력:
 {
   "description": "pbr 1이하 per 7이하 종목을 10개 사서 1년간 보유하는 전략",
-  "universe": ["KOSPI", "KOSDAQ"],
+  "universe": ["KOSPI200"],
   "fundamental_filters": [
     {"metric": "pbr", "operator": "<=", "value": 1.0},
     {"metric": "per", "operator": "<=", "value": 7.0}
@@ -474,6 +483,7 @@ _KEYWORDS: dict[str, list[str]] = {
     "max_positions":["종목", "개", "포지션", "position"],
     "backtest_period": ["1년", "3년", "5년", "전체", "1y", "3y", "5y", "full", "백테스트 기간", "테스트 기간"],
     "initial_capital":  ["초기자금", "자본금", "원금", "자금", "억", "천만", "만원"],
+    "universe": ["코스피", "kospi", "코스닥", "kosdaq", "전체 시장", "코스피+코스닥", "모든 종목", "유니버스", "universe"],
 }
 
 def _mentioned(prompt_lower: str, factor: str) -> bool:
@@ -545,6 +555,29 @@ def validate_parsed_strategy(
                 "1년 보유 후 연간 리밸런싱",
                 "RSI 70 이상에서 매도, 손절 10%",
                 "손절 10%, 익절 25%",
+            ],
+        )
+
+    # ── 1.5순위: 유니버스 (명시 언급 없으면 확인)
+    if not _mentioned(p, "universe"):
+        universe_label = {
+            ("KOSPI200",): "KOSPI200 (200종목, 빠름)",
+            ("KOSPI",): "KOSPI 전체 (~838종목)",
+            ("KOSDAQ",): "KOSDAQ 전체 (~1,781종목)",
+            ("KOSPI", "KOSDAQ"): "전체 시장 (~2,619종목, 느림)",
+            ("KOSDAQ", "KOSPI"): "전체 시장 (~2,619종목, 느림)",
+        }.get(tuple(sorted(parsed.universe)), str(parsed.universe))
+        return (
+            f"어느 시장에서 종목을 찾을까요?\n\n"
+            f"현재 기본값은 **{universe_label}**입니다.\n\n"
+            f"• **KOSPI200** (권장): KRX KOSPI200 구성 200종목 — 대형 우량주, 백테스트 속도 빠름\n"
+            f"• **KOSDAQ**: 코스닥 ~1,781종목 — 중소형 성장주 위주\n"
+            f"• **전체 시장**: KOSPI + KOSDAQ ~2,619종목 — 가장 넓지만 느림",
+            [
+                "KOSPI200 (기본값, 빠름) 그대로 진행",
+                "KOSPI200 (KRX 구성 200종목)",
+                "KOSDAQ (코스닥 ~1,781종목)",
+                "전체 시장 (KOSPI+KOSDAQ ~2,619종목)",
             ],
         )
 

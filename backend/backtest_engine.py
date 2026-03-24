@@ -102,13 +102,17 @@ class BacktestEngine:
             if ai_needed:
                 self.ai_engine
 
+            # AI 백테스트: Phase1(데이터/지표 준비) → Phase2(일괄 AI 추론) → Phase3(신호 생성)
+            # 비AI 백테스트: 기존 단일 패스 유지
+            _phase1_data: dict = {}  # sym → {df_pl, pdf_for_ai}
+
             def _process_symbol(sym):
                 try:
                     # 1.1 Load Data
                     df_pl = self.loader.load_symbol_data(sym)
                     if df_pl is None or len(df_pl) == 0:
                         return None
-                    
+
                     # 3.2 Indicators
                     indicators = []
                     def collect_indicators(group):
@@ -116,26 +120,19 @@ class BacktestEngine:
                         for c in group.get('conditions', []):
                             if 'conditions' in c: collect_indicators(c)
                             else: indicators.append(c)
-                    
+
                     collect_indicators(req.get('entry'))
                     collect_indicators(req.get('exit'))
                     df_pl = self.indicator_engine.calculate(df_pl, indicators)
 
-                    # 3.3 AI Model Inference
+                    # 3.3 AI: Phase1 전용 — df_pl과 AI 입력용 pdf를 저장하고 추론은 나중에 일괄 처리
                     if ai_needed:
-                        engine = self.ai_engine
-                        if engine:
-                            pdf_ai = df_pl.to_pandas()
-                            ai_probs, ai_drop_probs = engine.predict_signals(pdf_ai)
-                            df_pl = df_pl.with_columns([
-                                pl.Series("ai_score", ai_probs),
-                                pl.Series("ai_drop_score", ai_drop_probs)
-                            ])
-                        else:
-                            df_pl = df_pl.with_columns([
-                                pl.Series("ai_score", [0.0] * len(df_pl)),
-                                pl.Series("ai_drop_score", [0.0] * len(df_pl))
-                            ])
+                        _phase1_data[sym] = {
+                            "df_pl": df_pl,
+                            "pdf_for_ai": df_pl.to_pandas(),
+                        }
+                        return ("phase1_done", sym)
+                    # AI 불필요: 기존 흐름 계속
                     
                     # 3.4 Period Filtering
                     # date 컬럼이 Utf8(문자열) 또는 Date 타입 모두에 대응하기 위해
@@ -216,32 +213,135 @@ class BacktestEngine:
 
             import concurrent.futures
             import os
-            
+
             # Maximize threads for I/O and pre-processing. The global lock in AIEngine will protect the GPU/CPU Inference.
             max_threads = min(32, (os.cpu_count() or 1) + 4)
-            
+
+            def _collect_result(result):
+                """결과 dict를 공유 컬렉션에 병합"""
+                if result is None:
+                    return
+                status, data = result
+                if status == "warning":
+                    self.warnings.add(data)
+                elif status == "success":
+                    sym = data["symbol"]
+                    all_prices[sym] = data["price"]
+                    all_exec_prices[sym] = data["exec_price"]
+                    all_entries[sym] = data["entries"]
+                    all_exits[sym] = data["exits"]
+                    all_entry_reasons[sym] = data["entry_reasons"]
+                    all_exit_reasons[sym] = data["exit_reasons"]
+                    if "pbr" in data: all_ranks['pbr'][sym] = data["pbr"]
+                    if "roe" in data: all_ranks['roe'][sym] = data["roe"]
+                    processed_symbols.append(sym)
+
+            # Phase 1: 병렬 데이터 로드 + 지표 계산
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_threads) as executor:
                 future_to_sym = {executor.submit(_process_symbol, sym): sym for sym in symbols}
                 for future in concurrent.futures.as_completed(future_to_sym):
                     result = future.result()
-                    if result is None: continue
-                    
+                    if result is None:
+                        continue
                     status, data = result
-                    if status == "warning":
-                        self.warnings.add(data)
-                    if status == "success":
-                        sym = data["symbol"]
-                        
-                        all_prices[sym] = data["price"]
-                        all_exec_prices[sym] = data["exec_price"]
-                        all_entries[sym] = data["entries"]
-                        all_exits[sym] = data["exits"]
-                        all_entry_reasons[sym] = data["entry_reasons"]
-                        all_exit_reasons[sym] = data["exit_reasons"]
-                        
-                        if "pbr" in data: all_ranks['pbr'][sym] = data["pbr"]
-                        if "roe" in data: all_ranks['roe'][sym] = data["roe"]
-                        processed_symbols.append(sym)
+                    if status == "phase1_done":
+                        pass  # AI 종목: Phase2에서 일괄 처리
+                    else:
+                        _collect_result(result)
+
+            # Phase 2: AI 일괄 추론 (단일 lock, 단일 XGBoost 호출)
+            if ai_needed and _phase1_data:
+                engine = self.ai_engine
+                t_ai_start = pd.Timestamp.now()
+                if engine:
+                    print(f"[AI-Batch] {len(_phase1_data)}종목 일괄 추론 시작...", flush=True)
+                    batch_scores = engine.predict_signals_batch(
+                        {sym: d["pdf_for_ai"] for sym, d in _phase1_data.items()}
+                    )
+                    elapsed = (pd.Timestamp.now() - t_ai_start).total_seconds()
+                    print(f"[AI-Batch] 완료: {elapsed:.1f}s ({len(_phase1_data)}종목)", flush=True)
+                else:
+                    batch_scores = {}
+
+                # Phase 3: AI 점수 주입 후 신호 생성 (병렬)
+                def _finalize_symbol(sym):
+                    try:
+                        d = _phase1_data[sym]
+                        df_pl = d["df_pl"]
+                        zeros = [0.0] * len(df_pl)
+                        ai_probs, ai_drop_probs = batch_scores.get(sym, (zeros, zeros))
+                        df_pl = df_pl.with_columns([
+                            pl.Series("ai_score", list(ai_probs) if not isinstance(ai_probs, list) else ai_probs),
+                            pl.Series("ai_drop_score", list(ai_drop_probs) if not isinstance(ai_drop_probs, list) else ai_drop_probs),
+                        ])
+
+                        def _ts_str(ts) -> str:
+                            if isinstance(ts, str):
+                                return pd.to_datetime(ts).strftime("%Y-%m-%d")
+                            return ts.strftime("%Y-%m-%d")
+
+                        if period_req != 'FULL' or start_date_req or end_date_req:
+                            date_col = pl.col("date").cast(pl.Utf8)
+                            if start_date_req:
+                                df_pl = df_pl.filter(date_col >= _ts_str(start_date_req))
+                            elif period_req == '6M':
+                                df_pl = df_pl.filter(date_col >= _ts_str(ref_date - pd.DateOffset(months=6)))
+                            elif period_req == '1Y':
+                                df_pl = df_pl.filter(date_col >= _ts_str(ref_date - pd.DateOffset(years=1)))
+                            elif period_req == '3Y':
+                                df_pl = df_pl.filter(date_col >= _ts_str(ref_date - pd.DateOffset(years=3)))
+                            elif period_req in ['5Y', '10Y', '20Y']:
+                                y = int(period_req[:-1])
+                                df_pl = df_pl.filter(date_col >= _ts_str(pd.Timestamp(year=ref_date.year - (y - 1), month=1, day=1)))
+                            df_pl = df_pl.filter(date_col <= _ts_str(ref_date))
+
+                        if len(df_pl) < 1:
+                            return None
+
+                        pdf = self.loader.preprocess_data(df_pl)
+                        skip_risk = risk_params.get('skip_risk_management', False)
+                        skip_pos = risk_params.get('skip_position_setting', False)
+
+                        if not (skip_risk or skip_pos):
+                            target_pos_amount = init_cash * (pos_size_pct / 100.0)
+                            liquidity_ok = self.loader.check_liquidity(pdf, target_pos_amount, liquid_limit)
+                            if liquidity_ok.sum() == 0:
+                                return ("warning", f"{sym}: 유동성 기준 미달 (거래대금 부족)")
+
+                        entry_signals, entry_reasons = self.signal_engine.generate_signals(df_pl, req.get('entry'))
+                        exit_signals, exit_reasons = self.signal_engine.generate_signals(df_pl, req.get('exit'))
+
+                        FUNDAMENTAL_IDS = {'per', 'pbr', 'roe_or_gpa', 'debt_ratio', 'market_cap'}
+                        all_conditions = list(req.get('entry', {}).get('conditions', [])) + list(req.get('exit', {}).get('conditions', []))
+                        missing_funds = [c['id'] for c in all_conditions if c.get('id') in FUNDAMENTAL_IDS and c['id'] not in df_pl.columns]
+                        if missing_funds:
+                            self.warnings.add(f"재무 데이터({', '.join(set(missing_funds))}) 없음 — 해당 필터는 무시되었습니다.")
+
+                        if not (skip_risk or skip_pos):
+                            entry_signals = entry_signals & liquidity_ok
+
+                        if entry_signals is None:
+                            return None
+
+                        res = {
+                            "symbol": sym,
+                            "price": pdf['close'],
+                            "exec_price": pdf['close'] if exec_type == 'same_close' else pdf['open'],
+                            "entries": pd.Series(entry_signals, index=pdf.index),
+                            "exits": pd.Series(exit_signals, index=pdf.index),
+                            "entry_reasons": pd.Series(entry_reasons, index=pdf.index),
+                            "exit_reasons": pd.Series(exit_reasons, index=pdf.index),
+                            "index": pdf.index,
+                        }
+                        if 'pbr' in pdf.columns: res["pbr"] = pdf['pbr']
+                        if 'roe_or_gpa' in pdf.columns: res["roe"] = pdf['roe_or_gpa']
+                        return ("success", res)
+                    except Exception as e:
+                        return ("warning", f"{sym}: 처리 오류 ({e})")
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=max_threads) as executor:
+                    for result in executor.map(_finalize_symbol, _phase1_data.keys()):
+                        _collect_result(result)
 
             # 4. Simulation
             if not processed_symbols:
@@ -256,12 +356,15 @@ class BacktestEngine:
             
             price_df = price_df.ffill().bfill()
             exec_px_df = pd.DataFrame(all_exec_prices, index=common_index, columns=processed_symbols).ffill().bfill()
-            ents_df = pd.DataFrame(all_entries, index=common_index, columns=processed_symbols).fillna(False)
-            exts_df = pd.DataFrame(all_exits, index=common_index, columns=processed_symbols).fillna(False)
+            _raw_ents = pd.DataFrame(all_entries, index=common_index, columns=processed_symbols)
+            _raw_exts = pd.DataFrame(all_exits, index=common_index, columns=processed_symbols)
+            import numpy as np
+            ents_df = pd.DataFrame(np.where(_raw_ents.isna(), False, _raw_ents).astype(bool), index=common_index, columns=processed_symbols)
+            exts_df = pd.DataFrame(np.where(_raw_exts.isna(), False, _raw_exts).astype(bool), index=common_index, columns=processed_symbols)
 
             if exec_type == 'next_open':
-                ents_df = ents_df.shift(1).fillna(False)
-                exts_df = exts_df.shift(1).fillna(False)
+                ents_df = ents_df.shift(1, fill_value=False)
+                exts_df = exts_df.shift(1, fill_value=False)
 
             rank_df = None
             skip_pos = risk_params.get('skip_position_setting', False)

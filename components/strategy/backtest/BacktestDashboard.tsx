@@ -31,6 +31,45 @@ import BacktestSummaryCard from "./BacktestSummaryCard";
 
 const processedExecutionIds = new Set<string>();
 
+function calculateScore(r: {
+  cagr?: number; maxDrawdown?: number; sharpe?: number;
+  profitFactor?: number; winRate?: number;
+}): number {
+  const scoreCagr = (v?: number) => {
+    if (v == null) return 50;
+    if (v >= 20) return 100; if (v >= 10) return 70;
+    return Math.max(0, Math.round(v / 10 * 70));
+  };
+  const scoreMdd = (v?: number) => {
+    if (v == null) return 50;
+    const a = Math.abs(v);
+    if (a <= 10) return 100; if (a <= 20) return 70; if (a <= 30) return 40;
+    return Math.max(0, Math.round(100 - a * 2));
+  };
+  const scoreSharpe = (v?: number) => {
+    if (v == null) return 50;
+    if (v >= 1.5) return 100; if (v >= 1.0) return 70; if (v >= 0.5) return 40;
+    return Math.max(0, Math.round(v / 1.5 * 100));
+  };
+  const scorePf = (v?: number) => {
+    if (v == null) return 50;
+    if (v >= 2.0) return 100; if (v >= 1.5) return 70; if (v >= 1.0) return 40;
+    return Math.max(0, Math.round(v / 2.0 * 100));
+  };
+  const scoreWr = (v?: number) => {
+    if (v == null) return 50;
+    if (v >= 55) return 100; if (v >= 50) return 70; if (v >= 45) return 40;
+    return Math.max(0, Math.round(v / 55 * 100));
+  };
+  return Math.round(
+    scoreCagr(r.cagr) * 0.30 +
+    scoreMdd(r.maxDrawdown) * 0.25 +
+    scoreSharpe(r.sharpe) * 0.20 +
+    scorePf(r.profitFactor) * 0.15 +
+    scoreWr(r.winRate) * 0.10
+  );
+}
+
 interface BacktestDashboardProps {
   result: BacktestResult;
   onRestart: () => void;
@@ -83,7 +122,7 @@ export default function BacktestDashboard({
   const [stockMetadata, setStockMetadata] = useState<Record<string, { name: string, sector: string }>>({});
   const [sortConfig, setSortConfig] = useState<{ key: 'profit' | 'totalReturn' | 'trades' | null, direction: 'asc' | 'desc' }>({ key: null, direction: 'desc' });
   const [hoveredMetric, setHoveredMetric] = useState<{ label: string, description: string, rect: DOMRect } | null>(null);
-  const [isWarningsOpen, setIsWarningsOpen] = useState(false);
+
   const [xaiTarget, setXaiTarget] = useState<{ symbol: string; date: string } | null>(null);
   const lastProcessedResultRef = useRef<string | null>(null);
   const isSavingRef = useRef(false);
@@ -137,6 +176,7 @@ export default function BacktestDashboard({
               buyHold: result.buyAndHoldReturn || 0,
               trades: result.trades || 0,
               executionTime: result.executionTime ?? 0,
+              score: calculateScore(result),
             },
           };
 
@@ -364,99 +404,47 @@ export default function BacktestDashboard({
         </div>
       </div>
 
-      {/* AI Summary */}
-      <BacktestSummaryCard result={result} strategySummary={strategySummary} />
-
-      {/* Missing Data Warnings */}
-      {result.warnings && result.warnings.length > 0 && (
-        <div className="mb-6 bg-main-red/5 border border-main-red/20 rounded-2xl overflow-hidden transition-all duration-300">
-          <button 
-            onClick={() => setIsWarningsOpen(!isWarningsOpen)}
-            className="w-full px-5 py-4 flex items-center justify-between hover:bg-main-red/10 transition-colors"
-          >
-            <div className="flex items-center gap-3 text-main-red font-black text-sm uppercase tracking-tight">
-              <Warning className="w-5 h-5" />
-              <span>주의: {result.warnings.length}개의 데이터 제한 사항</span>
-            </div>
-            <motion.div
-              animate={{ rotate: isWarningsOpen ? 180 : 0 }}
-              transition={{ duration: 0.3, ease: "circOut" }}
-            >
-              <CaretDown className="w-5 h-5 text-main-red/60" />
-            </motion.div>
-          </button>
-
-          <AnimatePresence>
-            {isWarningsOpen && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
-              >
-                <div className="px-5 pb-5 pt-1 border-t border-main-red/10">
-                  <ul className="space-y-2">
-                    {result.warnings.map((w, i) => {
-                      let displayWarning = w;
-                      const symMatch = w.match(/^([0-9A-Z]{6}):/);
-                      if (symMatch) {
-                        const sym = symMatch[1];
-                        const name = stockMetadata[sym]?.name;
-                        if (name) {
-                          displayWarning = w.replace(sym, `${name} (${sym})`);
-                        }
-                      }
-                      return (
-                        <li key={i} className="flex gap-2 text-xs text-red-100/60 leading-relaxed font-medium">
-                          <span className="text-main-red/40 mt-1">•</span>
-                          {displayWarning}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+      {/* AI Summary + Hero Metrics side by side */}
+      <div className="flex gap-3 mb-4 items-stretch">
+        <div className="flex-1 min-w-0">
+          <BacktestSummaryCard result={result} strategySummary={strategySummary} />
         </div>
-      )}
-
-      {/* 1. Hero Metrics Header */}
-      <div className="flex-none grid grid-cols-2 lg:grid-cols-5 gap-2 px-2 mb-2">
-        <MetricCard 
-          label="연평균수익률" 
-          value={`${result.cagr.toFixed(2)}%`} 
-          subValue="CAGR" 
-          trend={result.cagr > 0 ? "up" : "down"} 
-          description={METRIC_DESCRIPTIONS.cagr}
-          onHover={(rect) => setHoveredMetric(rect ? { label: "연평균수익률", description: METRIC_DESCRIPTIONS.cagr, rect } : null)}
-        />
-        <MetricCard 
-          label="최대낙폭" 
-          value={`${result.maxDrawdown.toFixed(2)}%`} 
-          subValue="MDD" 
-          trend="down"
-          description={METRIC_DESCRIPTIONS.mdd}
-          onHover={(rect) => setHoveredMetric(rect ? { label: "최대낙폭", description: METRIC_DESCRIPTIONS.mdd, rect } : null)}
-        />
-        <MetricCard 
-          label="샤프지수" 
-          value={result.sharpe.toFixed(2)} 
-          subValue="위험 대비 성과" 
-          trend={result.sharpe > 1 ? "up" : "neutral"} 
-          description={METRIC_DESCRIPTIONS.sharpe}
-          onHover={(rect) => setHoveredMetric(rect ? { label: "샤프지수", description: METRIC_DESCRIPTIONS.sharpe, rect } : null)}
-        />
-
-        <MetricCard 
-          label="손익비" 
-          value={result.profitFactor.toFixed(2)} 
-          subValue="Profit Factor" 
-          trend={result.profitFactor > 1.5 ? "up" : "neutral"} 
-          description={METRIC_DESCRIPTIONS.profitFactor}
-          onHover={(rect) => setHoveredMetric(rect ? { label: "손익비", description: METRIC_DESCRIPTIONS.profitFactor, rect } : null)}
-        />
+        <div className="flex-none grid grid-cols-2 gap-2 content-start" style={{ width: "320px" }}>
+          <MetricCard
+            label="연평균수익률"
+            value={`${result.cagr.toFixed(2)}%`}
+            subValue="CAGR"
+            trend={result.cagr > 0 ? "up" : "down"}
+            description={METRIC_DESCRIPTIONS.cagr}
+            onHover={(rect) => setHoveredMetric(rect ? { label: "연평균수익률", description: METRIC_DESCRIPTIONS.cagr, rect } : null)}
+          />
+          <MetricCard
+            label="최대낙폭"
+            value={`${result.maxDrawdown.toFixed(2)}%`}
+            subValue="MDD"
+            trend="down"
+            description={METRIC_DESCRIPTIONS.mdd}
+            onHover={(rect) => setHoveredMetric(rect ? { label: "최대낙폭", description: METRIC_DESCRIPTIONS.mdd, rect } : null)}
+          />
+          <MetricCard
+            label="샤프지수"
+            value={result.sharpe.toFixed(2)}
+            subValue="위험 대비 성과"
+            trend={result.sharpe > 1 ? "up" : "neutral"}
+            description={METRIC_DESCRIPTIONS.sharpe}
+            onHover={(rect) => setHoveredMetric(rect ? { label: "샤프지수", description: METRIC_DESCRIPTIONS.sharpe, rect } : null)}
+          />
+          <MetricCard
+            label="손익비"
+            value={result.profitFactor.toFixed(2)}
+            subValue="Profit Factor"
+            trend={result.profitFactor > 1.5 ? "up" : "neutral"}
+            description={METRIC_DESCRIPTIONS.profitFactor}
+            onHover={(rect) => setHoveredMetric(rect ? { label: "손익비", description: METRIC_DESCRIPTIONS.profitFactor, rect } : null)}
+          />
+        </div>
       </div>
+
 
       {/* 2. Main Content Area - Exact Mirror of Step 2 Pattern */}
       <div className="flex flex-col bg-[#111] rounded-2xl overflow-hidden mb-2 min-h-0 min-w-0">
@@ -466,52 +454,63 @@ export default function BacktestDashboard({
            
            {/* Chart View */}
             {activeTab === "chart" && (
-              <div className="flex flex-col px-2 pt-2 pb-3 space-y-2 min-h-0">
-                <div className="h-[280px] md:h-[380px] xl:h-[450px] bg-[#0a0a0f] rounded-xl overflow-hidden relative">
-                  <BacktestChart 
-                    type="equity" 
+              <>
+              <div className="flex flex-col px-2 pt-2 pb-3 gap-3">
+                <div className="flex flex-col">
+                  <div className="flex items-center gap-2 px-1 pb-1.5">
+                    <TrendUp className="w-3.5 h-3.5 text-gray-500" />
+                    <span className="text-xs font-bold uppercase tracking-widest text-gray-500">자산 곡선 (Equity Curve)</span>
+                  </div>
+                  <div className="bg-[#0a0a0f] rounded-xl overflow-hidden relative">
+                  <BacktestChart
+                    type="equity"
+                    height={450}
                     trades={result.tradesList}
-                    equityData={result.dates.map((d: string, i: number) => ({ 
-                      time: d, 
-                      equity: result.equity[i], 
+                    equityData={result.dates.map((d: string, i: number) => ({
+                      time: d,
+                      equity: result.equity[i],
                       buyHold: result.benchmarkEquity ? result.benchmarkEquity[i] : (result.initialCapital * (1 + (result.buyAndHoldReturn || 0)/100))
-                    }))} 
+                    }))}
                   />
-               </div>
-               
-               {/* Quick Stats Summary below chart */}
-               <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-4">
-                  <StatRow 
-                    label="총 수익" 
-                    value={formatKRW(result.finalEquity - result.initialCapital)} 
-                    result={result} 
+                  </div>
+                </div>
+
+               {/* Quick Stats — horizontal below chart */}
+               <div className="grid grid-cols-4 gap-2">
+                  <StatRow
+                    label="총 수익"
+                    value={formatKRW(result.finalEquity - result.initialCapital)}
+                    result={result}
                   />
-                  <StatRow 
-                    label="총수익률" 
-                    value={`${(result.totalReturn || 0).toFixed(1)}%`} 
-                    result={result} 
+                  <StatRow
+                    label="총수익률"
+                    value={`${(result.totalReturn || 0).toFixed(1)}%`}
+                    result={result}
                     description={METRIC_DESCRIPTIONS.totalReturn}
                     onHover={(rect) => setHoveredMetric(rect ? { label: "총수익률", description: METRIC_DESCRIPTIONS.totalReturn, rect } : null)}
                   />
-                   <StatRow 
-                     label="매수후보유" 
-                     value={`${(result.buyAndHoldReturn || 0).toFixed(1)}%`} 
-                     result={result} 
-                     colorOverride="text-main-green" 
-                     description={METRIC_DESCRIPTIONS.buyHold}
-                     onHover={(rect) => setHoveredMetric(rect ? { label: "매수후보유", description: METRIC_DESCRIPTIONS.buyHold, rect } : null)}
-                   />
-                   <StatRow 
-                     label="연간 변동성" 
-                     value={`${(result.sharpe > 0 ? ((result.cagr || 0) / result.sharpe) : 0).toFixed(1)}%`} 
-                     result={result} 
-                     isNeutral 
-                     description={METRIC_DESCRIPTIONS.volatility}
-                     onHover={(rect) => setHoveredMetric(rect ? { label: "연간 변동성", description: METRIC_DESCRIPTIONS.volatility, rect } : null)}
-                   />
-
+                  <StatRow
+                    label="매수후보유"
+                    value={`${(result.buyAndHoldReturn || 0).toFixed(1)}%`}
+                    result={result}
+                    colorOverride="text-main-green"
+                    description={METRIC_DESCRIPTIONS.buyHold}
+                    onHover={(rect) => setHoveredMetric(rect ? { label: "매수후보유", description: METRIC_DESCRIPTIONS.buyHold, rect } : null)}
+                  />
+                  <StatRow
+                    label="연간 변동성"
+                    value={`${(result.sharpe > 0 ? ((result.cagr || 0) / result.sharpe) : 0).toFixed(1)}%`}
+                    result={result}
+                    isNeutral
+                    description={METRIC_DESCRIPTIONS.volatility}
+                    onHover={(rect) => setHoveredMetric(rect ? { label: "연간 변동성", description: METRIC_DESCRIPTIONS.volatility, rect } : null)}
+                  />
                </div>
              </div>
+
+             {/* Terminal Log */}
+             <BacktestTerminalLog result={result} stockMetadata={stockMetadata} />
+              </>
            )}
 
             {/* Assets View (Symbol Summary) */}
@@ -873,6 +872,16 @@ export default function BacktestDashboard({
                                  >
                                     <X className="w-4 h-4" />
                                  </button>
+                                 {item.metrics.score != null && (
+                                   <div className={`flex flex-col items-center leading-none ${
+                                     item.metrics.score >= 80 ? "text-emerald-400" :
+                                     item.metrics.score >= 60 ? "text-yellow-400" :
+                                     item.metrics.score >= 40 ? "text-orange-400" : "text-red-400"
+                                   }`}>
+                                     <span className="text-2xl font-black tabular-nums">{item.metrics.score}</span>
+                                     <span className="text-[10px] text-gray-600">/ 100</span>
+                                   </div>
+                                 )}
                                  <div className="text-xs text-gray-500 font-mono">
                                     {new Date(item.timestamp).toLocaleString()}
                                  </div>
@@ -954,9 +963,120 @@ export default function BacktestDashboard({
   );
 }
 
+function BacktestTerminalLog({
+  result,
+  stockMetadata,
+}: {
+  result: BacktestResult;
+  stockMetadata: Record<string, { name: string; sector: string }>;
+}) {
+  const now = result.dates?.[result.dates.length - 1] ?? "----/--/--";
+  const start = result.dates?.[0] ?? "----/--/--";
+  const totalDays = result.dates?.length ?? 0;
+  const symbolCount = result.symbols?.length ?? (result.symbol ? 1 : 0);
+
+  type LogLevel = "INFO" | "WARN" | "ERROR" | "SUCCESS";
+  const logs: { level: LogLevel; message: string; ts?: string }[] = [];
+
+  const ts = (i: number) => `${start.slice(0, 10)} +${String(i).padStart(3, "0")}s`;
+
+  // 초기화
+  logs.push({ level: "INFO", ts: ts(0), message: `백테스트 엔진 초기화 완료` });
+  logs.push({ level: "INFO", ts: ts(1), message: `기간: ${start} ~ ${now} (${totalDays}일)` });
+  logs.push({ level: "INFO", ts: ts(2), message: `유니버스: ${symbolCount}개 종목 로드 / 초기자금: ${(result.initialCapital ?? 0).toLocaleString()}원` });
+
+  // 매수 신호 통계
+  const buyCount = result.tradesList?.filter(t => t.type === "buy").length ?? 0;
+  const sellCount = result.tradesList?.filter(t => t.type === "sell").length ?? 0;
+  logs.push({ level: "INFO", ts: ts(3), message: `시그널 처리 완료 — 매수 ${buyCount}회 / 매도 ${sellCount}회` });
+
+  // 연도별 수익률
+  if (result.yearlyReturns && Object.keys(result.yearlyReturns).length > 0) {
+    const years = Object.keys(result.yearlyReturns).sort();
+    years.forEach((yr, i) => {
+      const ret = result.yearlyReturns[yr];
+      const sign = ret >= 0 ? "+" : "";
+      logs.push({ level: ret >= 0 ? "SUCCESS" : "WARN", ts: ts(4 + i), message: `${yr}년 수익률: ${sign}${ret.toFixed(2)}%` });
+    });
+  }
+
+  // 리스크 지표
+  logs.push({ level: "INFO", ts: ts(20), message: `MDD: ${(result.maxDrawdown ?? 0).toFixed(2)}% / Sharpe: ${(result.sharpe ?? 0).toFixed(2)} / Sortino: ${(result.sortino ?? 0).toFixed(2)}` });
+  logs.push({ level: "INFO", ts: ts(21), message: `승률: ${(result.winRate ?? 0).toFixed(1)}% / 손익비: ${(result.profitFactor ?? 0).toFixed(2)} / CAGR: ${(result.cagr ?? 0).toFixed(2)}%` });
+
+  if ((result.avgProfit ?? 0) !== 0 || (result.avgLoss ?? 0) !== 0) {
+    logs.push({ level: "INFO", ts: ts(22), message: `평균수익: +${(result.avgProfit ?? 0).toFixed(2)}% / 평균손실: ${(result.avgLoss ?? 0).toFixed(2)}%` });
+  }
+  if ((result.maxConsecutiveWins ?? 0) > 0 || (result.maxConsecutiveLosses ?? 0) > 0) {
+    logs.push({ level: "INFO", ts: ts(23), message: `최대 연속수익: ${result.maxConsecutiveWins ?? 0}회 / 최대 연속손실: ${result.maxConsecutiveLosses ?? 0}회` });
+  }
+
+  // 상위 종목
+  if (result.perAssetStats) {
+    const sorted = Object.values(result.perAssetStats).sort((a, b) => b.profit - a.profit);
+    const top3 = sorted.slice(0, 3);
+    const bot3 = sorted.slice(-3).reverse();
+    top3.forEach((s, i) => {
+      const name = stockMetadata[s.symbol]?.name ?? s.symbol;
+      logs.push({ level: "SUCCESS", ts: ts(30 + i), message: `TOP${i+1} ${name}(${s.symbol}): +${s.profit.toLocaleString()}원 / 수익률 ${s.totalReturn.toFixed(1)}% / ${s.trades}거래` });
+    });
+    bot3.forEach((s, i) => {
+      const name = stockMetadata[s.symbol]?.name ?? s.symbol;
+      logs.push({ level: "WARN", ts: ts(33 + i), message: `BOT${i+1} ${name}(${s.symbol}): ${s.profit.toLocaleString()}원 / 수익률 ${s.totalReturn.toFixed(1)}% / ${s.trades}거래` });
+    });
+  }
+
+  // 경고
+  if (result.warnings && result.warnings.length > 0) {
+    result.warnings.forEach((w, i) => {
+      let msg = w;
+      const symMatch = w.match(/^([0-9A-Z]{6}):/);
+      if (symMatch) {
+        const sym = symMatch[1];
+        const name = stockMetadata[sym]?.name;
+        if (name) msg = w.replace(sym, `${name}(${sym})`);
+      }
+      logs.push({ level: "WARN", ts: ts(40 + i), message: msg });
+    });
+  }
+
+  // 완료
+  const elapsed = result.executionTime != null ? ` (${result.executionTime.toFixed(2)}s)` : "";
+  logs.push({ level: "SUCCESS", ts: ts(99), message: `백테스트 완료${elapsed} — 총 ${result.trades ?? 0}회 거래 / 최종자산 ${(result.finalEquity ?? 0).toLocaleString()}원 / 수익률 ${(result.totalReturn ?? 0).toFixed(2)}%` });
+
+  const levelStyle: Record<LogLevel, string> = {
+    INFO: "text-blue-400",
+    WARN: "text-yellow-400",
+    ERROR: "text-red-400",
+    SUCCESS: "text-emerald-400",
+  };
+
+  return (
+    <div className="mx-2 mb-2 rounded-xl bg-[#080808] border border-white/5 overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-white/5 bg-[#0d0d0d]">
+        <div className="flex gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-full bg-[#ff5f57]" />
+          <span className="w-2.5 h-2.5 rounded-full bg-[#febc2e]" />
+          <span className="w-2.5 h-2.5 rounded-full bg-[#28c840]" />
+        </div>
+        <span className="text-[11px] font-mono text-gray-600 ml-1">backtest.log</span>
+      </div>
+      <div className="px-4 py-3 space-y-1 max-h-64 overflow-y-auto custom-scrollbar font-mono text-xs">
+        {logs.map((log, i) => (
+          <div key={i} className="flex gap-3 leading-relaxed">
+            <span className="text-gray-600 shrink-0">[{log.ts ?? now}]</span>
+            <span className={`font-bold shrink-0 ${levelStyle[log.level]}`}>[{log.level}]</span>
+            <span className="text-gray-300">{log.message}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Sub-components for Cleaner Code
 
-function MetricCard({ 
+function MetricCard({
   label, 
   value, 
   subValue, 
@@ -1017,18 +1137,18 @@ function StatRow({
         : (value.includes("-") ? "text-main-blue" : (parseFloat(value) === 0 ? "text-white" : "text-main-red")));
 
   return (
-    <div className="bg-[#111] rounded-lg px-3 pt-2 pb-0.5 flex flex-col justify-center">
+    <div className="bg-[#0d0d0d] rounded-lg px-3 pt-2 pb-2 flex flex-col justify-center flex-1">
        <div className="flex items-center justify-between mb-0.5">
           <div className="text-xs text-gray-400 font-bold">{label}</div>
           {description && onHover && (
-             <Info 
+             <Info
                className="w-3 h-3 text-gray-700 hover:text-gray-500 cursor-help transition-colors"
                onMouseEnter={(e) => onHover(e.currentTarget.getBoundingClientRect())}
                onMouseLeave={() => onHover(null)}
              />
           )}
        </div>
-       <div className={`text-xl md:text-2xl font-black ${dynamicColor}`}>{value}</div>
+       <div className={`text-2xl font-black leading-tight ${dynamicColor}`}>{value}</div>
     </div>
   );
 }

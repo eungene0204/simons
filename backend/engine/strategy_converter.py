@@ -8,31 +8,103 @@ BacktestRequest 형식으로 변환한다.
 from __future__ import annotations
 
 import json
+import time
+import logging
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from engine.nl_parser import ParsedStrategy, TechnicalSignal
 
+logger = logging.getLogger(__name__)
 
 # ─── 유니버스 심볼 로딩 ───────────────────────────────────────────────────────
 
 _STOCKS_PATH = Path(__file__).parent.parent.parent / "data" / "korea-stocks.json"
+_KOSPI200_CACHE_PATH = Path(__file__).parent.parent.parent / "data" / "kospi200-cache.json"
+_CACHE_TTL_SECONDS = 7 * 24 * 3600  # 1주일
+
+
+def _fetch_kospi200_from_naver() -> Optional[List[str]]:
+    """네이버 금융에서 KOSPI200 구성종목 200개 조회"""
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+
+        codes: set[str] = set()
+        for page in range(1, 22):
+            url = "https://finance.naver.com/sise/entryJongmok.nhn"
+            params = {"code": "KPI200", "page": str(page)}
+            headers = {
+                "User-Agent": "Mozilla/5.0",
+                "Referer": "https://finance.naver.com",
+            }
+            r = requests.get(url, params=params, headers=headers, timeout=10)
+            r.encoding = "euc-kr"
+            soup = BeautifulSoup(r.text, "html.parser")
+            links = soup.find_all("a", href=True)
+            page_codes = [
+                code for a in links
+                if "code=" in a.get("href", "") and "main.naver" in a["href"]
+                for code in [a["href"].split("code=")[1][:6]]
+                if code.isdigit()  # 6자리 숫자만 허용 (파생상품·채권 등 제외)
+            ]
+            if not page_codes:
+                break
+            codes.update(page_codes)
+
+        return sorted(codes) if len(codes) >= 150 else None
+    except Exception as e:
+        logger.warning(f"[KOSPI200] 네이버 조회 실패: {e}")
+        return None
+
+
+def _load_kospi200() -> List[str]:
+    """KOSPI200 구성종목 반환 (캐시 우선, 만료 시 재조회, 실패 시 KOSPI 전체 fallback)"""
+    # 캐시 확인
+    if _KOSPI200_CACHE_PATH.exists():
+        try:
+            cache = json.loads(_KOSPI200_CACHE_PATH.read_text(encoding="utf-8"))
+            age = time.time() - cache.get("fetched_at", 0)
+            if age < _CACHE_TTL_SECONDS and len(cache.get("symbols", [])) >= 150:
+                logger.info(f"[KOSPI200] 캐시 사용 ({len(cache['symbols'])}종목, {age/3600:.1f}h 전)")
+                return cache["symbols"]
+        except Exception:
+            pass
+
+    # 네이버에서 실시간 조회
+    logger.info("[KOSPI200] 네이버 금융에서 구성종목 조회 중...")
+    symbols = _fetch_kospi200_from_naver()
+
+    if symbols:
+        _KOSPI200_CACHE_PATH.write_text(
+            json.dumps({"fetched_at": time.time(), "symbols": symbols}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        logger.info(f"[KOSPI200] {len(symbols)}종목 조회 완료, 캐시 저장")
+        return symbols
+
+    # fallback: KOSPI 전체
+    logger.warning("[KOSPI200] 조회 실패 — KOSPI 전체로 fallback")
+    with open(_STOCKS_PATH, encoding="utf-8") as f:
+        all_stocks = json.load(f)
+    return [s["symbol"] for s in all_stocks if s.get("market") == "KOSPI"]
+
 
 def _load_universe(markets: List[str]) -> List[str]:
     """universe 설정에 맞는 종목 코드 목록 반환"""
-    with open(_STOCKS_PATH, encoding="utf-8") as f:
-        all_stocks = json.load(f)
+    symbols: set[str] = set()
 
-    # KOSPI200 → KOSPI 포함으로 처리 (market 필드가 'KOSPI'임)
-    target_markets = set()
-    for m in markets:
-        if m == "KOSPI200":
-            target_markets.add("KOSPI")
-        else:
-            target_markets.add(m)
+    if "KOSPI200" in markets:
+        symbols.update(_load_kospi200())
 
-    symbols = [s["symbol"] for s in all_stocks if s.get("market") in target_markets]
-    return symbols
+    remaining = [m for m in markets if m != "KOSPI200"]
+    if remaining:
+        with open(_STOCKS_PATH, encoding="utf-8") as f:
+            all_stocks = json.load(f)
+        target_markets = set(remaining)
+        symbols.update(s["symbol"] for s in all_stocks if s.get("market") in target_markets)
+
+    return sorted(symbols)
 
 
 # ─── 기술 신호 → Condition dict 변환 ─────────────────────────────────────────
