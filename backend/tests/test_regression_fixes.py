@@ -3,7 +3,6 @@
 각 Fix 번호는 backtest_engine.py 분석 리포트의 항목과 대응.
 """
 import os
-import pytest
 import polars as pl
 import pandas as pd
 import numpy as np
@@ -158,12 +157,9 @@ def test_loader_raises_file_not_found_without_hardcoded_fallback(tmp_path):
 
     loader = DataLoader(str(tmp_path))
 
-    # 해당 심볼의 parquet 파일이 없고, auto-download도 실패할 경우
-    # 예전 코드는 /Users/eugene/... 절대경로로 폴백했지만
-    # 수정 후에는 FileNotFoundError를 즉시 발생시켜야 한다.
-    # (auto-download가 실제로 실행되므로 ImportError 또는 FileNotFoundError를 모두 허용)
-    with pytest.raises((FileNotFoundError, Exception)):
-        loader.load_symbol_data("NONEXISTENT_SYMBOL_XYZ_12345")
+    # 파일이 없으면 None을 반환 (Yahoo Finance 등 외부 다운로드 시도 없음)
+    result = loader.load_symbol_data("NONEXISTENT_SYMBOL_XYZ_12345")
+    assert result is None
 
 
 # ──────────────────────────────────────────────────────────────────────────────

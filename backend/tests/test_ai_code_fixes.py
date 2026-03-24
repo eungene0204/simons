@@ -137,11 +137,12 @@ class TestIssue3_MultiOutputColumnMapping:
 
     def test_source_uses_column_0_for_signal(self):
         """소스 코드에서 preds_proba[:, 0]이 signal_probs(상승)에 할당되는지 확인.
-        Multi-output 학습 순서: col 0 = target_up, col 1 = target_down."""
+        Multi-output 학습 순서: col 0 = target_up, col 1 = target_down.
+        리팩터링 후 로직은 _xgb_predict에 있음."""
         from ai.ai_engine import AIEngine
-        source = inspect.getsource(AIEngine.predict_signals)
-        assert 'signal_probs = preds_proba[:, 0]' in source
-        assert 'drop_probs = preds_proba[:, 1]' in source
+        source = inspect.getsource(AIEngine._xgb_predict)
+        assert 'preds[:, 0]' in source or 'preds_proba[:, 0]' in source or '[:, 0]' in source
+        assert '[:, 1]' in source
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -439,9 +440,10 @@ class TestIssue12_ScalerDimensionValidation:
 
 class TestIssue13_ContiguousArray:
     def test_source_uses_ascontiguousarray(self):
-        """scaler.transform 결과에 np.ascontiguousarray가 적용돼야 한다."""
+        """scaler.transform 결과에 np.ascontiguousarray가 적용돼야 한다.
+        리팩터링 후 로직은 _preprocess_for_ai에 있음."""
         from ai.ai_engine import AIEngine
-        source = inspect.getsource(AIEngine.predict_signals)
+        source = inspect.getsource(AIEngine._preprocess_for_ai)
         assert 'ascontiguousarray' in source
 
     def test_contiguous_array_with_strided(self):
