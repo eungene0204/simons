@@ -10,6 +10,7 @@ const KOSPI200_TOP = [
 ];
 
 const MAX_SYMBOLS = 20;
+const MIN_BACKTEST_SYMBOLS = 3; // 백테스트 종목이 이보다 적으면 유니버스 폴백
 
 async function resolveUniverseSymbols(
   universeId: string,
@@ -39,18 +40,83 @@ async function resolveUniverseSymbols(
   return filtered.slice(0, MAX_SYMBOLS).map((s) => s.symbol);
 }
 
+/**
+ * perAssetStats JSON에서 수익률 상위 종목 추출 (공통 헬퍼)
+ */
+function rankSymbolsByReturn(
+  perAssetStats: Record<string, { totalReturn: number; trades: number }>
+): string[] {
+  return Object.entries(perAssetStats)
+    .filter(([, stat]) => stat.trades > 0)
+    .sort(([, a], [, b]) => b.totalReturn - a.totalReturn)
+    .slice(0, MAX_SYMBOLS)
+    .map(([symbol]) => symbol);
+}
+
+/**
+ * 전략의 최근 백테스트 결과에서 수익률 상위 종목 추출.
+ *
+ * Source of truth 우선순위:
+ *  1. BacktestResult (strategyId FK — "전략 저장" 시 생성된 정식 저장본)
+ *  2. BacktestHistory (strategyName 매칭 — 자동 저장된 실행 로그, 폴백)
+ */
+async function getBestBacktestSymbols(
+  strategyId: string,
+  strategyName: string
+): Promise<{ symbols: string[]; source: "backtest" } | null> {
+  // 1순위: 정식 저장본 (BacktestResult)
+  const savedResult = await prisma.backtestResult.findFirst({
+    where: { strategyId },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (savedResult) {
+    try {
+      const summary = JSON.parse(savedResult.summary);
+      const perAssetStats = summary.perAssetStats as
+        | Record<string, { totalReturn: number; trades: number }>
+        | undefined;
+      if (perAssetStats && Object.keys(perAssetStats).length >= MIN_BACKTEST_SYMBOLS) {
+        const ranked = rankSymbolsByReturn(perAssetStats);
+        if (ranked.length >= MIN_BACKTEST_SYMBOLS) {
+          return { symbols: ranked, source: "backtest" };
+        }
+      }
+    } catch {
+      // 파싱 실패 시 폴백으로 진행
+    }
+  }
+
+  // 2순위: 실행 로그 폴백 (BacktestHistory)
+  const latestHistory = await prisma.backtestHistory.findFirst({
+    where: { strategyName },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!latestHistory) return null;
+
+  try {
+    const metrics = JSON.parse(latestHistory.metrics);
+    const perAssetStats = metrics.perAssetStats as
+      | Record<string, { totalReturn: number; trades: number }>
+      | undefined;
+    if (!perAssetStats || Object.keys(perAssetStats).length < MIN_BACKTEST_SYMBOLS) return null;
+
+    const ranked = rankSymbolsByReturn(perAssetStats);
+    if (ranked.length < MIN_BACKTEST_SYMBOLS) return null;
+
+    return { symbols: ranked, source: "backtest" };
+  } catch {
+    return null;
+  }
+}
+
 // POST: 전략 자동 실행 시작
 export async function POST(
   request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
-    const body = await request.json().catch(() => ({}));
-    const {
-      scenario = "realistic",
-      speed = 10,
-      startDate = "2023-01-02",
-    } = body;
+    await request.json().catch(() => ({}));
 
     const account = await prisma.virtualAccount.findUnique({
       where: { id: params.id },
@@ -79,10 +145,20 @@ export async function POST(
     const dsl = JSON.parse(strategy.settings);
     const universe = dsl.universe || { id: "kospi200", filters: {} };
 
-    const symbols = await resolveUniverseSymbols(
-      universe.id || "kospi200",
-      universe.filters || {}
-    );
+    // 1) 백테스트 수익률 상위 종목 우선 사용
+    let symbolSource = "universe";
+    const backtestBest = await getBestBacktestSymbols(account.strategyId!, strategy.name);
+    let symbols: string[];
+
+    if (backtestBest) {
+      symbols = backtestBest.symbols;
+      symbolSource = "backtest";
+    } else {
+      symbols = await resolveUniverseSymbols(
+        universe.id || "kospi200",
+        universe.filters || {}
+      );
+    }
 
     if (symbols.length === 0) {
       return NextResponse.json(
@@ -94,28 +170,27 @@ export async function POST(
     // tradingMode를 auto로 설정
     await prisma.virtualAccount.update({
       where: { id: params.id },
-      data: { tradingMode: "auto" },
+      data: { tradingMode: "auto", updatedAt: new Date() },
     });
 
-    // 가상시장 상태 생성/업데이트 (running)
+    const today = new Date().toISOString().split("T")[0];
+
+    // 가상 계좌 상태 생성/업데이트 (running)
     const state = await prisma.virtualMarketState.upsert({
       where: { accountId: params.id },
       create: {
+        id: crypto.randomUUID(),
         accountId: params.id,
-        virtualDate: startDate,
-        startDate,
-        scenario,
-        speed,
+        startDate: today,
         status: "running",
         symbols: JSON.stringify(symbols),
+        updatedAt: new Date(),
       },
       update: {
-        virtualDate: startDate,
-        startDate,
-        scenario,
-        speed,
+        startDate: today,
         status: "running",
         symbols: JSON.stringify(symbols),
+        updatedAt: new Date(),
       },
     });
 
@@ -128,7 +203,7 @@ export async function POST(
     });
 
     console.log(
-      `[전략 자동 실행] 계좌=${params.id} 전략="${strategy.name}" 종목=${symbols.length}개 시작`,
+      `[전략 자동 실행] 계좌=${params.id} 전략="${strategy.name}" 종목=${symbols.length}개 시작 (출처: ${symbolSource})`,
       symbols
     );
 
@@ -137,6 +212,7 @@ export async function POST(
       symbols,
       symbolNames,
       strategyName: strategy.name,
+      symbolSource, // "backtest" | "universe"
     });
   } catch (error) {
     console.error("Strategy start error:", error);

@@ -3,11 +3,11 @@
 import { BacktestResult, BacktestHistoryItem } from "@/types/strategy";
 import BacktestChart from "@/components/strategy/BacktestChart";
 import { BacktestConfigOptions } from "@/components/strategy/backtest/BacktestConfig";
-import { 
-  TrendUp, 
-  TrendDown, 
-  Table, 
-  ChartBar, 
+import {
+  TrendUp,
+  TrendDown,
+  Table,
+  ChartBar,
   ArrowsClockwise,
   ShieldCheck,
   Warning,
@@ -18,7 +18,9 @@ import {
   CaretDown,
   Clock,
   Trash,
-  X
+  X,
+  FloppyDisk,
+  Spinner,
 } from "phosphor-react";
 
 
@@ -78,6 +80,7 @@ interface BacktestDashboardProps {
   onWalkForward?: (settings: WalkForwardSettings) => Promise<any>;
   currentOptions?: BacktestConfigOptions;
   isRunning?: boolean;
+  backtestDsl?: any; // 전략 저장 시 사용할 원본 DSL/요청 객체
   strategySummary?: {
     universeName: string;
     blockNames: string[];
@@ -111,10 +114,13 @@ export default function BacktestDashboard({
   onWalkForward,
   currentOptions,
   isRunning,
-  strategySummary
+  backtestDsl,
+  strategySummary,
 }: BacktestDashboardProps) {
   const [activeTab, setActiveTab] = useState<"chart" | "stats" | "log" | "assets" | "history" | "monte-carlo">("chart");
   const [history, setHistory] = useState<BacktestHistoryItem[]>([]);
+  const [historySortField, setHistorySortField] = useState<'timestamp' | 'totalReturn' | 'cagr' | 'mdd' | 'profitFactor' | 'trades' | 'score'>('timestamp');
+  const [historySortDir, setHistorySortDir] = useState<'asc' | 'desc'>('desc');
   const [isWFAOpen, setIsWFAOpen] = useState(false);
 
 
@@ -126,6 +132,13 @@ export default function BacktestDashboard({
   const [xaiTarget, setXaiTarget] = useState<{ symbol: string; date: string } | null>(null);
   const lastProcessedResultRef = useRef<string | null>(null);
   const isSavingRef = useRef(false);
+
+  // 전략 저장 모달
+  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+  const [saveStrategyName, setSaveStrategyName] = useState("");
+  const [saveDescription, setSaveDescription] = useState("");
+  const [isSavingStrategy, setIsSavingStrategy] = useState(false);
+  const [saveResult, setSaveResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   // Load history on mount
   useEffect(() => {
@@ -177,6 +190,7 @@ export default function BacktestDashboard({
               trades: result.trades || 0,
               executionTime: result.executionTime ?? 0,
               score: calculateScore(result),
+              perAssetStats: result.perAssetStats || {},
             },
           };
 
@@ -330,8 +344,173 @@ export default function BacktestDashboard({
     }
   };
 
+  const handleOpenSaveModal = () => {
+    setSaveStrategyName("");
+    setSaveDescription(strategySummary?.strategyName || "");
+    setSaveResult(null);
+    setIsSaveModalOpen(true);
+  };
+
+  const handleSaveStrategy = async () => {
+    if (!saveStrategyName.trim()) return;
+    setIsSavingStrategy(true);
+    setSaveResult(null);
+    try {
+      const res = await fetch("/api/strategy/save-with-backtest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: saveStrategyName.trim(),
+          description: saveDescription.trim(),
+          dsl: backtestDsl ?? {},
+          backtestResult: result,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "저장 실패");
+      setSaveResult({ ok: true, message: "전략이 저장되었습니다." });
+      onSave?.();
+      setTimeout(() => setIsSaveModalOpen(false), 1200);
+    } catch (e: any) {
+      setSaveResult({ ok: false, message: e.message || "저장 중 오류가 발생했습니다." });
+    } finally {
+      setIsSavingStrategy(false);
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col min-h-0 min-w-0 animate-in fade-in zoom-in-95 duration-300 px-6">
+
+      {/* 전략 저장 모달 */}
+      <AnimatePresence>
+        {isSaveModalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            onClick={(e) => { if (e.target === e.currentTarget) setIsSaveModalOpen(false); }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 8 }}
+              transition={{ type: "spring", bounce: 0.2, duration: 0.35 }}
+              className="bg-[#111111] border border-white/10 rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl"
+            >
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-2.5">
+                  <FloppyDisk size={18} className="text-blue-400" weight="fill" />
+                  <h3 className="text-base font-black text-white">전략 저장</h3>
+                </div>
+                <button
+                  onClick={() => setIsSaveModalOpen(false)}
+                  className="p-1.5 rounded-lg hover:bg-white/10 text-gray-500 hover:text-white transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* 저장될 주요 지표 미리보기 */}
+              <div className="grid grid-cols-3 gap-2 mb-5 p-3 bg-white/[0.03] rounded-xl border border-white/5">
+                <div className="text-center">
+                  <p className="text-[10px] text-gray-500 mb-0.5">CAGR</p>
+                  <p className={`text-sm font-black ${result.cagr >= 0 ? "text-green-400" : "text-red-400"}`}>
+                    {result.cagr >= 0 ? "+" : ""}{result.cagr.toFixed(1)}%
+                  </p>
+                </div>
+                <div className="text-center">
+                  <p className="text-[10px] text-gray-500 mb-0.5">MDD</p>
+                  <p className="text-sm font-black text-red-400">{result.maxDrawdown.toFixed(1)}%</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-[10px] text-gray-500 mb-0.5">Sharpe</p>
+                  <p className={`text-sm font-black ${result.sharpe >= 1 ? "text-green-400" : "text-gray-300"}`}>
+                    {result.sharpe.toFixed(2)}
+                  </p>
+                </div>
+                <div className="text-center">
+                  <p className="text-[10px] text-gray-500 mb-0.5">승률</p>
+                  <p className="text-sm font-black text-white">{result.winRate.toFixed(1)}%</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-[10px] text-gray-500 mb-0.5">거래 수</p>
+                  <p className="text-sm font-black text-white">{result.trades}건</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-[10px] text-gray-500 mb-0.5">종목 수</p>
+                  <p className="text-sm font-black text-white">{result.symbols?.length ?? 0}개</p>
+                </div>
+              </div>
+
+              <div className="space-y-3 mb-5">
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 mb-1.5">전략 이름 *</label>
+                  <input
+                    type="text"
+                    value={saveStrategyName}
+                    onChange={(e) => setSaveStrategyName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && saveStrategyName.trim()) handleSaveStrategy(); }}
+                    placeholder="전략 이름을 입력하세요"
+                    maxLength={50}
+                    className="w-full px-3 py-2.5 bg-[#1a1a1a] border border-white/10 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500/60 transition-colors"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 mb-1.5">설명 (선택)</label>
+                  <textarea
+                    value={saveDescription}
+                    onChange={(e) => setSaveDescription(e.target.value)}
+                    placeholder="전략에 대한 간단한 설명"
+                    maxLength={200}
+                    rows={2}
+                    className="w-full px-3 py-2.5 bg-[#1a1a1a] border border-white/10 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500/60 resize-none transition-colors"
+                  />
+                </div>
+              </div>
+
+              {saveResult && (
+                <div className={`mb-4 px-3 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 ${
+                  saveResult.ok
+                    ? "bg-green-500/10 text-green-400 border border-green-500/20"
+                    : "bg-red-500/10 text-red-400 border border-red-500/20"
+                }`}>
+                  {saveResult.ok ? <Check size={14} weight="bold" /> : <Warning size={14} weight="fill" />}
+                  {saveResult.message}
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setIsSaveModalOpen(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white text-sm font-bold transition-colors"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={handleSaveStrategy}
+                  disabled={!saveStrategyName.trim() || isSavingStrategy}
+                  className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold transition-colors flex items-center justify-center gap-2"
+                >
+                  {isSavingStrategy ? (
+                    <>
+                      <Spinner size={14} className="animate-spin" />
+                      저장 중...
+                    </>
+                  ) : (
+                    <>
+                      <FloppyDisk size={14} />
+                      저장
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="pt-8 px-2 mb-4 flex flex-col gap-1">
         <h2 className="text-3xl font-black text-white tracking-tight">
           백테스트 결과
@@ -391,15 +570,14 @@ export default function BacktestDashboard({
             >
               {isRunning ? "실행 중..." : "재실행"}
             </button>
-            {onSave && (
-              <button
-                onClick={onSave}
-                className="px-4 py-1.5 bg-main-blue hover:bg-blue-600 text-white text-sm font-bold rounded-lg transition-all flex items-center gap-2 active:scale-95"
-              >
-                <Check className="w-4 h-4" />
-                전략 저장하기
-              </button>
-            )}
+            <button
+              onClick={handleOpenSaveModal}
+              disabled={isRunning}
+              className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-bold rounded-lg transition-all flex items-center gap-2 active:scale-95"
+            >
+              <FloppyDisk className="w-4 h-4" />
+              전략 저장
+            </button>
           </div>
         </div>
       </div>
@@ -744,12 +922,12 @@ export default function BacktestDashboard({
             {/* History View */}
             {activeTab === "history" && (
               <div className="h-full overflow-y-auto custom-scrollbar p-6">
-                 <div className="flex items-center justify-between mb-6">
+                 <div className="flex items-center justify-between mb-4">
                     <h4 className="text-xl font-black text-white flex items-center gap-2">
                        <Clock className="w-6 h-6 text-main-blue" />
                        테스트 기록 (최근 50개)
                     </h4>
-                    <button 
+                    <button
                       onClick={async () => {
                         if (confirm("모든 테스트 기록을 삭제하시겠습니까?")) {
                           try {
@@ -771,9 +949,70 @@ export default function BacktestDashboard({
                     </button>
                  </div>
 
+                 {/* Sort buttons */}
+                 {history.length > 0 && (
+                   <div className="flex flex-wrap items-center gap-2 mb-4">
+                     <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">정렬:</span>
+                     {([
+                       { field: 'timestamp', label: '날짜' },
+                       { field: 'score', label: '점수' },
+                       { field: 'cagr', label: 'CAGR' },
+                       { field: 'totalReturn', label: '총수익률' },
+                       { field: 'mdd', label: 'MDD' },
+                       { field: 'profitFactor', label: '손익비' },
+                       { field: 'trades', label: '매매횟수' },
+                     ] as const).map(({ field, label }) => {
+                       const isActive = historySortField === field;
+                       return (
+                         <button
+                           key={field}
+                           onClick={() => {
+                             if (isActive) {
+                               setHistorySortDir(d => d === 'asc' ? 'desc' : 'asc');
+                             } else {
+                               setHistorySortField(field);
+                               setHistorySortDir('desc');
+                             }
+                           }}
+                           className={`flex items-center justify-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all ${
+                             isActive
+                               ? 'bg-main-blue/15 text-main-blue border-main-blue/30'
+                               : 'bg-white/5 text-gray-400 border-white/10 hover:border-white/20 hover:text-white'
+                           }`}
+                         >
+                           {label}
+                           {isActive ? (
+                             historySortDir === 'desc' ? <CaretDown className="w-3 h-3" /> : <CaretUp className="w-3 h-3" />
+                           ) : (
+                             <span className="w-3 h-3 opacity-0"><CaretDown className="w-3 h-3" /></span>
+                           )}
+                         </button>
+                       );
+                     })}
+                   </div>
+                 )}
+
                  {history.length > 0 ? (
                    <div className="space-y-4">
-                      {history.map((item) => (
+                      {[...history].sort((a, b) => {
+                        let av: number, bv: number;
+                        if (historySortField === 'timestamp') {
+                          av = a.timestamp; bv = b.timestamp;
+                        } else if (historySortField === 'score') {
+                          av = a.metrics.score ?? -Infinity; bv = b.metrics.score ?? -Infinity;
+                        } else if (historySortField === 'cagr') {
+                          av = a.metrics.cagr ?? -Infinity; bv = b.metrics.cagr ?? -Infinity;
+                        } else if (historySortField === 'totalReturn') {
+                          av = a.metrics.totalReturn ?? -Infinity; bv = b.metrics.totalReturn ?? -Infinity;
+                        } else if (historySortField === 'mdd') {
+                          av = a.metrics.mdd ?? Infinity; bv = b.metrics.mdd ?? Infinity;
+                        } else if (historySortField === 'profitFactor') {
+                          av = a.metrics.profitFactor ?? -Infinity; bv = b.metrics.profitFactor ?? -Infinity;
+                        } else {
+                          av = a.metrics.trades ?? -Infinity; bv = b.metrics.trades ?? -Infinity;
+                        }
+                        return historySortDir === 'asc' ? av - bv : bv - av;
+                      }).map((item) => (
                         <div key={item.id} className="bg-[#161616] border border-white/5 rounded-2xl p-5 hover:border-white/10 transition-all group">
                            <div className="flex items-start justify-between mb-4">
                               <div>

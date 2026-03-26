@@ -5,11 +5,10 @@ from schemas import (
     BacktestRequest, BacktestResponse,
     MonteCarloRequest, MonteCarloResponse,
     OptimizationRequest, OptimizationResponse,
-    VirtualMarketStepRequest, VirtualMarketStepResponse,
     WalkForwardRequest, WalkForwardResponse,
 )
 from backtest_engine import BacktestEngine
-from engine.virtual_market import VirtualMarketEngine
+from engine.krx_client import get_multiple_prices, get_stock_price, health_check as krx_health_check
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 import uvicorn
@@ -34,7 +33,6 @@ app.add_middleware(
 
 engine = BacktestEngine()
 _ = engine.ai_engine  # 서버 시작 시 AI 모델 사전 로드
-vm_engine = VirtualMarketEngine()
 
 recent_executions = {}
 EXECUTION_CACHE_TTL = 2  # seconds — 더블클릭 방지만, 의도적 재실행은 허용
@@ -148,28 +146,6 @@ def walk_forward_analysis(request: WalkForwardRequest):
         raise HTTPException(status_code=500, detail=f"Walk-forward error: {repr(e)}")
 
 
-@app.post("/virtual-market/step", response_model=VirtualMarketStepResponse)
-def virtual_market_step(request: VirtualMarketStepRequest):
-    print(f"\n[DEBUG] VIRTUAL-MARKET: step for {request.symbols} on {request.virtual_date}", flush=True)
-    try:
-        result = vm_engine.step(
-            symbols=request.symbols,
-            base_prices=request.base_prices,
-            entry_conditions=request.entry_conditions,
-            exit_conditions=request.exit_conditions,
-            virtual_date=request.virtual_date,
-            scenario=request.scenario,
-            history_days=request.history_days,
-        )
-        for sig in result["signals"]:
-            if sig.get("entry_signal") or sig.get("exit_signal"):
-                print(f"  SIGNAL: {sig['symbol']} entry={sig['entry_signal']} exit={sig['exit_signal']} close={sig['close']}", flush=True)
-        return result
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Virtual market error: {str(e)}")
-
 
 @app.get("/stock/{symbol}/ohlcv")
 def get_stock_ohlcv(symbol: str, limit: int = 1260):
@@ -205,6 +181,119 @@ def get_stock_ohlcv(symbol: str, limit: int = 1260):
         raise HTTPException(status_code=404, detail=f"Data for {symbol} not found")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─────────────────────────────────────────────
+# KRX 실제 시세 API
+# ─────────────────────────────────────────────
+
+@app.get("/market/health")
+def market_health():
+    """KRX API 연결 상태 확인"""
+    return krx_health_check()
+
+
+@app.get("/market/price/{symbol}")
+def market_price(symbol: str, date: Optional[str] = None):
+    """단일 종목 최신 종가 조회 (KRX EOD)"""
+    result = get_stock_price(symbol, date)
+    if not result:
+        raise HTTPException(status_code=404, detail=f"{symbol} 시세 없음")
+    return result
+
+
+@app.post("/market/prices")
+def market_prices(body: dict):
+    """
+    여러 종목 가격 일괄 조회
+    body: {"symbols": ["005930", "000660", ...], "date": "20260326"(optional)}
+    """
+    symbols: list[str] = body.get("symbols", [])
+    date: Optional[str] = body.get("date")
+    if not symbols:
+        raise HTTPException(status_code=400, detail="symbols 필드가 필요합니다")
+    return get_multiple_prices(symbols, date)
+
+
+@app.post("/market/signals")
+def market_signals(body: dict):
+    """
+    실제 데이터 기반 전략 시그널 평가
+    body: {
+        symbols: [...],
+        entry_conditions: [...],
+        exit_conditions: [...],
+        history_days: 60  (optional)
+    }
+    반환: {date, signals: [{symbol, close, entry_signal, exit_signal, ...}]}
+    """
+    from engine.signals import SignalEngine
+    from engine.indicators import IndicatorEngine
+
+    symbols: list[str] = body.get("symbols", [])
+    entry_conditions: list = body.get("entry_conditions", [])
+    exit_conditions: list = body.get("exit_conditions", [])
+    history_days: int = body.get("history_days", 60)
+
+    if not symbols:
+        raise HTTPException(status_code=400, detail="symbols 필드가 필요합니다")
+
+    results = []
+    latest_date = None
+
+    sig_engine = SignalEngine()
+
+    for symbol in symbols:
+        try:
+            df = engine.loader.load_symbol_data(symbol)
+            df_slice = df.tail(history_days + 15)
+
+            if len(df_slice) == 0:
+                results.append({"symbol": symbol, "error": "데이터 없음"})
+                continue
+
+            last_row = df_slice.tail(1).to_dicts()[0]
+            date_val = last_row["date"]
+            date_str = date_val.strftime("%Y-%m-%d") if hasattr(date_val, "strftime") else str(date_val)[:10]
+            if latest_date is None:
+                latest_date = date_str
+
+            entry_signal = False
+            exit_signal = False
+            entry_reason = None
+            exit_reason = None
+
+            if entry_conditions:
+                entry_arr, entry_reasons = sig_engine.generate_signals(
+                    df_slice, {"conditions": entry_conditions}
+                )
+                entry_signal = bool(entry_arr[-1])
+                entry_reason = entry_reasons[-1]
+
+            if exit_conditions:
+                exit_arr, exit_reasons = sig_engine.generate_signals(
+                    df_slice, {"conditions": exit_conditions}
+                )
+                exit_signal = bool(exit_arr[-1])
+                exit_reason = exit_reasons[-1]
+
+            results.append({
+                "symbol": symbol,
+                "date": date_str,
+                "close": int(last_row.get("close", 0)),
+                "open": int(last_row.get("open", 0)),
+                "high": int(last_row.get("high", 0)),
+                "low": int(last_row.get("low", 0)),
+                "volume": int(last_row.get("volume", 0)),
+                "entry_signal": entry_signal,
+                "exit_signal": exit_signal,
+                "entry_reason": entry_reason,
+                "exit_reason": exit_reason,
+            })
+        except Exception as e:
+            results.append({"symbol": symbol, "error": str(e)})
+
+    return {"date": latest_date or "", "signals": results}
 
 
 # 알려진 주요 종목 검증용 (코드: (이름 일부, 시장))

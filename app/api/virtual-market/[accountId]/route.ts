@@ -11,7 +11,7 @@ async function getStockNameMap(): Promise<Record<string, string>> {
   return stockNameCache;
 }
 
-// GET: 가상시장 상태 조회
+// GET: 가상 계좌 시장 상태 조회
 export async function GET(
   _request: Request,
   { params }: { params: { accountId: string } }
@@ -20,82 +20,57 @@ export async function GET(
     const state = await prisma.virtualMarketState.findUnique({
       where: { accountId: params.accountId },
     });
-    if (!state) {
-      return NextResponse.json(null);
-    }
+    if (!state) return NextResponse.json(null);
+
     const symbols: string[] = JSON.parse(state.symbols);
     const nameMap = await getStockNameMap();
     const symbolNames: Record<string, string> = {};
     symbols.forEach((sym) => {
       if (nameMap[sym]) symbolNames[sym] = nameMap[sym];
     });
-    return NextResponse.json({
-      ...state,
-      symbols,
-      symbolNames,
-    });
+    return NextResponse.json({ ...state, symbols, symbolNames });
   } catch (error) {
     console.error("Failed to get market state:", error);
-    return NextResponse.json(
-      { error: "Failed to get market state" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to get market state" }, { status: 500 });
   }
 }
 
-// POST: 가상시장 시작 (생성)
+// POST: 시장 추적 시작
 export async function POST(
   request: Request,
   { params }: { params: { accountId: string } }
 ) {
   try {
-    const { symbols, scenario, speed, startDate } = await request.json();
+    const { symbols } = await request.json();
 
     if (!symbols || !Array.isArray(symbols) || symbols.length === 0) {
-      return NextResponse.json(
-        { error: "symbols array is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "symbols array is required" }, { status: 400 });
     }
 
-    // 계좌 확인 & 전략 연결 확인
     const account = await prisma.virtualAccount.findUnique({
       where: { id: params.accountId },
     });
     if (!account) {
-      return NextResponse.json(
-        { error: "Account not found" },
-        { status: 404 }
-      );
-    }
-    if (!account.strategyId) {
-      return NextResponse.json(
-        { error: "전략이 연결되지 않은 계좌입니다" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Account not found" }, { status: 404 });
     }
 
-    const date = startDate || "2023-01-02";
+    const today = new Date().toISOString().split("T")[0];
 
-    // upsert: 이미 존재하면 업데이트
     const state = await prisma.virtualMarketState.upsert({
       where: { accountId: params.accountId },
       create: {
+        id: crypto.randomUUID(),
         accountId: params.accountId,
-        virtualDate: date,
-        startDate: date,
-        scenario: scenario || "realistic",
-        speed: speed || 10,
+        startDate: today,
         status: "running",
         symbols: JSON.stringify(symbols),
+        updatedAt: new Date(),
       },
       update: {
-        virtualDate: date,
-        startDate: date,
-        scenario: scenario || "realistic",
-        speed: speed || 10,
+        startDate: today,
         status: "running",
         symbols: JSON.stringify(symbols),
+        updatedAt: new Date(),
       },
     });
 
@@ -105,34 +80,24 @@ export async function POST(
     parsedSymbols.forEach((sym) => {
       if (nameMap[sym]) symbolNames[sym] = nameMap[sym];
     });
-    return NextResponse.json({
-      ...state,
-      symbols: parsedSymbols,
-      symbolNames,
-    });
+    return NextResponse.json({ ...state, symbols: parsedSymbols, symbolNames });
   } catch (error) {
-    console.error("Failed to start virtual market:", error);
-    return NextResponse.json(
-      { error: "Failed to start virtual market" },
-      { status: 500 }
-    );
+    console.error("Failed to start market tracking:", error);
+    return NextResponse.json({ error: "Failed to start market tracking" }, { status: 500 });
   }
 }
 
-// PATCH: 상태 변경 (pause/resume/speed)
+// PATCH: 상태 변경 (pause/resume/symbols)
 export async function PATCH(
   request: Request,
   { params }: { params: { accountId: string } }
 ) {
   try {
     const body = await request.json();
-    const data: Record<string, unknown> = {};
+    const data: Record<string, unknown> = { updatedAt: new Date() };
 
     if (body.status !== undefined) data.status = body.status;
-    if (body.speed !== undefined) data.speed = body.speed;
-    if (body.scenario !== undefined) data.scenario = body.scenario;
-    if (body.symbols !== undefined)
-      data.symbols = JSON.stringify(body.symbols);
+    if (body.symbols !== undefined) data.symbols = JSON.stringify(body.symbols);
 
     const state = await prisma.virtualMarketState.update({
       where: { accountId: params.accountId },
@@ -140,26 +105,19 @@ export async function PATCH(
     });
 
     const patchedSymbols: string[] = JSON.parse(state.symbols);
-    const patchNameMap = await getStockNameMap();
-    const patchSymbolNames: Record<string, string> = {};
+    const nameMap = await getStockNameMap();
+    const symbolNames: Record<string, string> = {};
     patchedSymbols.forEach((sym) => {
-      if (patchNameMap[sym]) patchSymbolNames[sym] = patchNameMap[sym];
+      if (nameMap[sym]) symbolNames[sym] = nameMap[sym];
     });
-    return NextResponse.json({
-      ...state,
-      symbols: patchedSymbols,
-      symbolNames: patchSymbolNames,
-    });
+    return NextResponse.json({ ...state, symbols: patchedSymbols, symbolNames });
   } catch (error) {
     console.error("Failed to update market state:", error);
-    return NextResponse.json(
-      { error: "Failed to update market state" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to update market state" }, { status: 500 });
   }
 }
 
-// DELETE: 가상시장 중지 & 정리
+// DELETE: 추적 중지
 export async function DELETE(
   _request: Request,
   { params }: { params: { accountId: string } }
@@ -168,12 +126,9 @@ export async function DELETE(
     await prisma.virtualMarketState.deleteMany({
       where: { accountId: params.accountId },
     });
-    return NextResponse.json({ message: "Virtual market stopped" });
+    return NextResponse.json({ message: "Market tracking stopped" });
   } catch (error) {
-    console.error("Failed to delete market state:", error);
-    return NextResponse.json(
-      { error: "Failed to delete market state" },
-      { status: 500 }
-    );
+    console.error("Failed to stop market tracking:", error);
+    return NextResponse.json({ error: "Failed to stop market tracking" }, { status: 500 });
   }
 }

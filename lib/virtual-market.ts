@@ -1,15 +1,13 @@
-// Virtual Market Service — 가상주식시장 API 래퍼
+// Virtual Market Service — 가상 계좌 실제 시세 연동 API 래퍼
 
 export interface VirtualMarketState {
   id: string;
   accountId: string;
-  virtualDate: string;
   startDate: string;
-  scenario: string;
-  speed: number;
   status: "running" | "paused" | "stopped";
   symbols: string[];
   symbolNames?: Record<string, string>;
+  lastRefreshed: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -17,7 +15,7 @@ export interface VirtualMarketState {
 export interface VirtualMarketLog {
   id: string;
   accountId: string;
-  virtualDate: string;
+  date: string;
   symbol: string;
   stockName: string | null;
   signalType: "entry" | "exit";
@@ -28,28 +26,24 @@ export interface VirtualMarketLog {
   createdAt: string;
 }
 
-export interface StartMarketConfig {
-  symbols: string[];
-  scenario?: string;
-  speed?: number;
-  startDate?: string;
-}
-
-export interface TickResult {
-  stepped: boolean;
+export interface RefreshResult {
+  refreshed: boolean;
   reason?: string;
-  nextStepIn?: number;
-  currentDate?: string;
   date?: string;
-  nextDate?: string;
   signals?: Array<{
     symbol: string;
     close: number;
+    open: number;
+    high: number;
+    low: number;
+    volume: number;
     entry_signal: boolean;
     exit_signal: boolean;
     entry_reason: string | null;
     exit_reason: string | null;
+    error?: string;
   }>;
+  prices?: Record<string, { close: number; open: number; high: number; low: number; volume: number; name: string; date: string }>;
   logs?: Array<{
     symbol: string;
     type: string;
@@ -72,28 +66,21 @@ export async function getMarketState(
 
 export async function startVirtualMarket(
   accountId: string,
-  config: StartMarketConfig
+  symbols: string[]
 ): Promise<VirtualMarketState> {
   const res = await fetch(`/api/virtual-market/${accountId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(config),
+    body: JSON.stringify({ symbols }),
   });
   const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error || "가상시장 시작에 실패했습니다");
-  }
+  if (!res.ok) throw new Error(data.error || "시장 추적 시작 실패");
   return data;
 }
 
 export async function updateMarketState(
   accountId: string,
-  updates: Partial<{
-    status: string;
-    speed: number;
-    scenario: string;
-    symbols: string[];
-  }>
+  updates: Partial<{ status: string; symbols: string[] }>
 ): Promise<VirtualMarketState> {
   const res = await fetch(`/api/virtual-market/${accountId}`, {
     method: "PATCH",
@@ -103,18 +90,12 @@ export async function updateMarketState(
   return res.json();
 }
 
-export async function stopVirtualMarket(
-  accountId: string
-): Promise<void> {
-  await fetch(`/api/virtual-market/${accountId}`, {
-    method: "DELETE",
-  });
+export async function stopVirtualMarket(accountId: string): Promise<void> {
+  await fetch(`/api/virtual-market/${accountId}`, { method: "DELETE" });
 }
 
-export async function tickVirtualMarket(
-  accountId: string
-): Promise<TickResult> {
-  const res = await fetch(`/api/virtual-market/${accountId}/tick`, {
+export async function refreshMarket(accountId: string): Promise<RefreshResult> {
+  const res = await fetch(`/api/virtual-market/${accountId}/refresh`, {
     method: "POST",
   });
   return res.json();
@@ -124,37 +105,24 @@ export async function getMarketLogs(
   accountId: string,
   limit: number = 50
 ): Promise<VirtualMarketLog[]> {
-  const res = await fetch(
-    `/api/virtual-market/${accountId}/logs?limit=${limit}`
-  );
+  const res = await fetch(`/api/virtual-market/${accountId}/logs?limit=${limit}`);
   if (!res.ok) return [];
   return res.json();
 }
 
-export interface StrategyStartConfig {
-  scenario?: string;
-  speed?: number;
-  startDate?: string;
-}
-
 export async function startStrategyExecution(
-  accountId: string,
-  config: StrategyStartConfig = {}
+  accountId: string
 ): Promise<VirtualMarketState> {
   const res = await fetch(`/api/virtual-account/${accountId}/strategy/start`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(config),
+    body: JSON.stringify({}),
   });
   const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error || "전략 자동 실행 시작에 실패했습니다");
-  }
+  if (!res.ok) throw new Error(data.error || "전략 자동 실행 시작 실패");
   return data;
 }
 
 export async function stopStrategyExecution(accountId: string): Promise<void> {
-  await fetch(`/api/virtual-account/${accountId}/strategy/stop`, {
-    method: "POST",
-  });
+  await fetch(`/api/virtual-account/${accountId}/strategy/stop`, { method: "POST" });
 }

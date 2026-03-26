@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, memo } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import {
   CaretLeft,
   Bank,
@@ -25,6 +25,7 @@ function VirtualAccountDrawer({
   onAccountSelect,
 }: VirtualAccountDrawerProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const [accounts, setAccounts] = useState<VirtualAccount[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -33,7 +34,7 @@ function VirtualAccountDrawer({
     if (isOpen) {
       loadAccounts();
     }
-  }, [isOpen]);
+  }, [isOpen, pathname]);
 
   const loadAccounts = async () => {
     setLoading(true);

@@ -325,22 +325,28 @@ RiskManagement {
 
 ### 3.3 AI/ML 시스템
 
-#### 3.3.1 하이브리드 예측 모델
+#### 3.3.1 하이브리드 예측 모델 v2 ✅ 완료
 
 ```
-입력: 17개 기술적 지표 + 로그 수익률
+입력: 45개 피처 (멀티타임프레임 모멘텀, 변동성, 거래패턴, 캔들)
     │
-    ├─ Transformer Encoder
-    │   ├─ 64차원 임베딩
-    │   ├─ 4-Head Multi-Head Attention
-    │   ├─ 2 Encoder Layers
-    │   └─ 128차원 FFN
+    ├─ Conv1D Stem (3일/7일 멀티스케일 로컬 패턴)
     │
-    ├─ XGBoost Head
-    │   └─ Gradient Boosting (feature importance 기반)
+    ├─ Advanced Transformer Encoder
+    │   ├─ 128~256차원 임베딩 (Optuna 최적화)
+    │   ├─ Rotary Positional Encoding (RoPE)
+    │   ├─ Pre-LayerNorm + Stochastic Depth
+    │   ├─ 4~8 Head Attention, 4~8 Encoder Layers
+    │   ├─ Learnable [CLS] Token (전역 집계)
+    │   └─ 256~1024차원 FFN
     │
-    └─ Ensemble
-        └─ 출력: 10일 내 7% 상승 확률 (0~1)
+    ├─ XGBoost UP Model (상승 예측 전용)
+    │   └─ Embedding + 통계 피처 → P(7%+ 상승)
+    │
+    ├─ XGBoost DOWN Model (하락 예측 전용)
+    │   └─ Embedding + 통계 피처 → P(7%+ 하락)
+    │
+    └─ 출력: 10일 내 상승/하락 확률 (0~1) 분리 예측
 ```
 
 #### 3.3.2 설명 가능 AI (XAI)

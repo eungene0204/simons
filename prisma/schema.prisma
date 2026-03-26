@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,141 +7,142 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model BacktestHistory {
+  id           String   @id
+  strategyName String
+  universe     String
+  conditions   String
+  metrics      String
+  createdAt    DateTime @default(now())
+}
+
+model BacktestResult {
+  id         String   @id
+  strategyId String
+  stockId    Int?
+  summary    String
+  trades     String?
+  createdAt  DateTime @default(now())
+  Stock      Stock?   @relation(fields: [stockId], references: [id])
+  Strategy   Strategy @relation(fields: [strategyId], references: [id])
+}
+
+model Stock {
+  id             Int              @id @default(autoincrement())
+  symbol         String           @unique
+  name           String?
+  market         String?
+  updatedAt      DateTime
+  BacktestResult BacktestResult[]
+}
+
+model Strategy {
+  id             String           @id
+  name           String
+  description    String?
+  settings       String
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime
+  BacktestResult BacktestResult[]
+}
+
 model User {
   id        Int      @id @default(autoincrement())
   email     String   @unique
   name      String
   password  String
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-model Stock {
-  id          Int              @id @default(autoincrement())
-  symbol      String           @unique
-  name        String?
-  market      String?          // KOSPI, KOSDAQ, NASDAQ, US_TECH_TOP10, etc.
-  updatedAt   DateTime         @updatedAt
-  results     BacktestResult[]
-}
-
-model Strategy {
-  id          String           @id @default(uuid())
-  name        String
-  description String?
-  settings    String           // JSON string of StrategyDSL
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-  results     BacktestResult[]
-}
-
-model BacktestResult {
-  id           String   @id @default(uuid())
-  strategy     Strategy @relation(fields: [strategyId], references: [id])
-  strategyId   String
-  stock        Stock?   @relation(fields: [stockId], references: [id])
-  stockId      Int?
-  summary      String   // JSON string of BacktestResult (Returns, MDD, Sharpe, etc.)
-  trades       String?  // JSON string of Trade records (if light enough, otherwise separate)
-  createdAt    DateTime @default(now())
-}
-model BacktestHistory {
-  id           String   @id @default(uuid())
-  strategyName String
-  universe     String
-  conditions   String   // JSON string of conditions array
-  metrics      String   // JSON string of metrics object
-  createdAt    DateTime @default(now())
+  updatedAt DateTime
 }
 
 model VirtualAccount {
-  id           String              @id @default(uuid())
-  name         String
-  initialCash  Float
-  currentCash  Float
-  strategyId   String?
-  strategyName String?
-  tradingMode  String              @default("manual") // "auto" | "manual"
-  createdAt    DateTime            @default(now())
-  updatedAt    DateTime            @updatedAt
-  positions    VirtualPosition[]
-  orders       VirtualOrder[]
-  marketState  VirtualMarketState?
+  id                 String              @id
+  name               String
+  initialCash        Float
+  currentCash        Float
+  strategyId         String?
+  strategyName       String?
+  tradingMode        String              @default("manual")
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime
+  VirtualMarketState VirtualMarketState?
+  VirtualOrder       VirtualOrder[]
+  VirtualPosition    VirtualPosition[]
+}
+
+model VirtualMarketLog {
+  id          String   @id
+  accountId   String
+  date        String
+  symbol      String
+  signalType  String
+  reason      String?
+  price       Float
+  action      String
+  orderId     String?
+  createdAt   DateTime @default(now())
+}
+
+model VirtualMarketState {
+  id             String         @id
+  accountId      String         @unique
+  startDate      String
+  status         String         @default("stopped")
+  symbols        String
+  lastRefreshed  String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime
+  VirtualAccount VirtualAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+}
+
+model VirtualOrder {
+  id             String         @id
+  accountId      String
+  symbol         String
+  name           String?
+  side           String
+  type           String
+  quantity       Int
+  price          Float
+  filledPrice    Float?
+  status         String
+  filledAt       DateTime?
+  createdAt      DateTime       @default(now())
+  avgBuyPrice    Float?
+  fee            Float?
+  realizedPnl    Float?
+  tax            Float?
+  VirtualAccount VirtualAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
 }
 
 model VirtualPosition {
-  id        String         @id @default(uuid())
-  accountId String
-  account   VirtualAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  symbol    String
-  name      String
-  quantity  Int
-  avgPrice  Float
-  openedAt  DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  id             String         @id
+  accountId      String
+  symbol         String
+  name           String
+  quantity       Int
+  avgPrice       Float
+  currentPrice   Float?
+  openedAt       DateTime       @default(now())
+  updatedAt      DateTime
+  VirtualAccount VirtualAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@unique([accountId, symbol])
 }
 
-model VirtualOrder {
-  id           String         @id @default(uuid())
-  accountId    String
-  account      VirtualAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  symbol       String
-  name         String?
-  side         String         // "BUY" | "SELL"
-  type         String         // "MARKET" | "LIMIT"
-  quantity     Int
-  price        Float          // 주문가
-  filledPrice  Float?         // 체결가
-  fee          Float?         // 수수료 (원)
-  tax          Float?         // 증권거래세 (매도 시, 원)
-  avgBuyPrice  Float?         // 매도 시 기준 평균매수가 (실현손익 계산용)
-  realizedPnl  Float?         // 실현 손익 (매도 체결 시, 원)
-  status       String         // "PENDING" | "FILLED" | "CANCELLED"
-  filledAt     DateTime?
-  createdAt    DateTime       @default(now())
-}
-
-model VirtualMarketState {
-  id          String         @id @default(uuid())
-  accountId   String         @unique
-  account     VirtualAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  virtualDate String         // 현재 가상 날짜 "2023-01-15"
-  startDate   String         // 시뮬레이션 시작일
-  scenario    String         @default("realistic")
-  speed       Int            @default(10) // 실제 N초 = 가상 1거래일
-  status      String         @default("stopped") // "running" | "paused" | "stopped"
-  symbols     String         // JSON: ["005930","000660"]
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-}
-
 model WatchlistGroup {
-  id        String            @id @default(uuid())
-  name      String
-  color     String            @default("#3B82F6")
-  createdAt DateTime          @default(now())
-  symbols   WatchlistSymbol[]
+  id              String            @id
+  name            String
+  color           String            @default("#3B82F6")
+  createdAt       DateTime          @default(now())
+  WatchlistSymbol WatchlistSymbol[]
 }
 
 model WatchlistSymbol {
-  id      String          @id @default(uuid())
-  symbol  String          @unique
-  name    String
-  addedAt DateTime        @default(now())
-  groupId String?
-  group   WatchlistGroup? @relation(fields: [groupId], references: [id])
-}
-
-model VirtualMarketLog {
-  id          String   @id @default(uuid())
-  accountId   String
-  virtualDate String
-  symbol      String
-  signalType  String   // "entry" | "exit"
-  reason      String?
-  price       Float
-  action      String   // "auto_executed" | "notified" | "skipped"
-  orderId     String?
-  createdAt   DateTime @default(now())
+  id             String          @id
+  symbol         String          @unique
+  name           String
+  addedAt        DateTime        @default(now())
+  groupId        String?
+  WatchlistGroup WatchlistGroup? @relation(fields: [groupId], references: [id])
 }
