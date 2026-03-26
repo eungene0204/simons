@@ -5866,6 +5866,13 @@
     "industry": "연료용 가스 제조 및 배관공급업"
   },
   {
+    "symbol": "408470",
+    "name": "한패스",
+    "market": "KOSDAQ",
+    "sector": "은행/금융지주",
+    "industry": "기타 금융업"
+  },
+  {
     "symbol": "493280",
     "name": "아이엠바이오로직스",
     "market": "KOSDAQ",
@@ -8870,9 +8877,9 @@
   },
   {
     "symbol": "187660",
-    "name": "현대ADM",
+    "name": "페니트리움바이오",
     "market": "KOSDAQ",
-    "sector": "기타 서비스",
+    "sector": "바이오/제약",
     "industry": "자연과학 및 공학 연구개발업"
   },
   {

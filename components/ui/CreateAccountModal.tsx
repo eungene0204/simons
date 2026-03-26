@@ -69,12 +69,17 @@ export default function CreateAccountModal({
       return;
     }
 
+    if (!selectedStrategyId) {
+      setError("전략을 선택해주세요.");
+      return;
+    }
+
     onCreate(
       name.trim(),
       amountInWon,
-      selectedStrategyId || undefined,
-      selectedStrategy?.name || undefined,
-      selectedStrategyId ? tradingMode : undefined
+      selectedStrategyId,
+      selectedStrategy?.name,
+      tradingMode
     );
     setName("");
     setAmount("");
@@ -146,7 +151,7 @@ export default function CreateAccountModal({
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              전략 선택 <span className="text-gray-400 font-normal">(선택사항)</span>
+              전략 선택
             </label>
             <div className="relative">
               <button

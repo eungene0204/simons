@@ -498,6 +498,7 @@ function StrategyLabContent() {
               onRun={handleRunBacktest}
               currentOptions={currentOptions}
               isRunning={isRunning}
+              backtestDsl={backtestReq}
               strategySummary={latestParsed ? {
                 strategyName: latestParsed.description,
                 universeName: latestParsed.universe.join(", "),

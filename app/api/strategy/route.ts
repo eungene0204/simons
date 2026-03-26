@@ -32,8 +32,11 @@ export async function GET() {
       orderBy: { createdAt: 'desc' },
     });
     
-    // Parse the settings JSON back into StrategyDSL objects
-    const parsedStrategies = strategies.map((s: any) => JSON.parse(s.settings));
+    // Parse the settings JSON, but always use the DB id
+    const parsedStrategies = strategies.map((s: any) => ({
+      ...JSON.parse(s.settings),
+      id: s.id,
+    }));
 
     return NextResponse.json(parsedStrategies);
   } catch (error) {
