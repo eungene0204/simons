@@ -1,59 +1,74 @@
-import pandas as pd
+"""
+Preprocessing Pipeline v2.
+
+Reads raw training data, applies RobustScaler to all 45 features,
+and saves the processed parquet + scaler for inference.
+"""
+
+import os
+import argparse
+
 import numpy as np
-import polars as pl
+import pandas as pd
 from sklearn.preprocessing import RobustScaler
 import joblib
-import os
 
-def preprocess_for_training(input_file, output_dir, lookback=60):
-    """
-    Prepares the raw data for Transformer + XGBoost training.
-    """
+# Import feature list from extraction script
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from extract_training_data import FEATURE_LIST_V2
+
+
+def preprocess_for_training(input_file: str, output_dir: str):
+    """Scale features with RobustScaler and save processed data."""
+
     print(f"Loading raw data from {input_file}...")
     df = pd.read_parquet(input_file)
-    
-    # 1. Feature Selection
-    # Transformer features (Time-series)
-    ts_features = [
-        'ret_open', 'ret_high', 'ret_low', 'ret_close', 'ret_volume', 'ret_obv', 
-        'rsi_14', 'macd', 'macds', 'macdh', 'kdjk', 'kdjd', 'cci_14', 'adx', 
-        'dist_sma_20', 'dist_ema_20', 'boll_pos'
-    ]
-    
-    # XGBoost features (Point-in-time + Transformer Embedding)
-    static_features = ['sector', 'symbol'] # To be encoded later
-    
-    # Target
-    target = 'target_7pct_10d'
-    
-    # Scale Calculation might produce Inf/-Inf if prices are zero (rare but possible in bad data)
-    print("Sanitizing data (Inf/NaN)...")
-    df[ts_features] = df[ts_features].replace([np.inf, -np.inf], np.nan)
-    df[ts_features] = df[ts_features].ffill().bfill().fillna(0)
+    print(f"Loaded {len(df):,} rows")
 
-    # 2. Scaling
-    print("Scaling features...")
+    # Verify all features exist
+    missing = [f for f in FEATURE_LIST_V2 if f not in df.columns]
+    if missing:
+        raise ValueError(f"Missing features in data: {missing}")
+
+    # Sanitize Inf/NaN
+    print("Sanitizing data (Inf/NaN)...")
+    df[FEATURE_LIST_V2] = df[FEATURE_LIST_V2].replace([np.inf, -np.inf], np.nan)
+    df[FEATURE_LIST_V2] = df[FEATURE_LIST_V2].ffill().bfill().fillna(0)
+
+    # Clip extreme outliers (> 10 std from median) per feature before scaling
+    print("Clipping extreme outliers...")
+    for feat in FEATURE_LIST_V2:
+        median = df[feat].median()
+        std = df[feat].std()
+        if std > 0:
+            lower = median - 10 * std
+            upper = median + 10 * std
+            df[feat] = df[feat].clip(lower=lower, upper=upper)
+
+    # Scale
+    print(f"Scaling {len(FEATURE_LIST_V2)} features with RobustScaler...")
     scaler = RobustScaler()
-    df[ts_features] = scaler.fit_transform(df[ts_features])
-    
-    # Save scaler for inference
+    df[FEATURE_LIST_V2] = scaler.fit_transform(df[FEATURE_LIST_V2])
+
+    # Save
     os.makedirs(output_dir, exist_ok=True)
     joblib.dump(scaler, os.path.join(output_dir, 'feature_scaler.joblib'))
-    
-    # 3. Handle Categorical
-    df['sector_code'] = df['sector'].astype('category').cat.codes
-    
-    # 4. Save processed dataframe
-    # We don't create 3D windows here yet as it would explode file size.
-    # We save the cleaned flat file and will use a custom PyTorch Dataset to create windows on the fly.
+
     processed_file = os.path.join(output_dir, 'training_data_processed.parquet')
     df.to_parquet(processed_file)
-    
-    print(f"Preprocessing complete. Processed data saved to {processed_file}")
-    print(f"Features used for Transformer: {ts_features}")
-    print(f"Total samples: {len(df)}")
+
+    print(f"Preprocessing complete.")
+    print(f"  Processed data: {processed_file}")
+    print(f"  Scaler: {os.path.join(output_dir, 'feature_scaler.joblib')}")
+    print(f"  Features: {len(FEATURE_LIST_V2)}")
+    print(f"  Total samples: {len(df):,}")
+
 
 if __name__ == "__main__":
-    RAW_FILE = "/Users/eugene/nullalgo/simons/data/training_data_raw.parquet"
-    OUTPUT_DIR = "/Users/eugene/nullalgo/simons/model"
-    preprocess_for_training(RAW_FILE, OUTPUT_DIR)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input_file", default="/Users/eugene/nullalgo/simons/data/training_data_raw_v2.parquet")
+    parser.add_argument("--output_dir", default="/Users/eugene/nullalgo/simons/model/v2")
+    args = parser.parse_args()
+
+    preprocess_for_training(args.input_file, args.output_dir)

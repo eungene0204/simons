@@ -85,34 +85,6 @@ class BacktestResponse(BaseModel):
     version: Optional[str] = "1.0"
     executionTime: Optional[float] = 0.0
 
-# ─── Virtual Market ──────────────────────────────────────────────────────────
-
-class VirtualMarketStepRequest(BaseModel):
-    symbols: List[str]
-    base_prices: Optional[Dict[str, float]] = None
-    entry_conditions: List[Dict[str, Any]]
-    exit_conditions: List[Dict[str, Any]]
-    virtual_date: str  # "YYYY-MM-DD"
-    scenario: str = "realistic"
-    history_days: int = 60
-
-class SymbolSignal(BaseModel):
-    symbol: str
-    close: float
-    open: float
-    high: float
-    low: float
-    volume: int
-    entry_signal: bool
-    exit_signal: bool
-    entry_reason: Optional[str] = None
-    exit_reason: Optional[str] = None
-    error: Optional[str] = None
-
-class VirtualMarketStepResponse(BaseModel):
-    date: str
-    signals: List[SymbolSignal]
-
 
 # ─── Monte Carlo ──────────────────────────────────────────────────────────────
 

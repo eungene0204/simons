@@ -68,6 +68,13 @@ export async function POST(request: Request) {
       );
     }
 
+    if (!strategyId) {
+      return NextResponse.json(
+        { error: '전략을 선택해야 계좌를 생성할 수 있습니다.' },
+        { status: 400 }
+      );
+    }
+
     const account = await prisma.virtualAccount.create({
       data: {
         name,

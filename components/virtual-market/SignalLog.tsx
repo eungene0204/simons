@@ -44,7 +44,7 @@ export default function SignalLog({ logs, symbolNameMap = {} }: SignalLogProps) 
                 {log.stockName ?? symbolNameMap[log.symbol] ?? log.symbol}
               </span>
               <span className="text-gray-500 ml-1.5 text-xs">
-                {log.virtualDate}
+                {log.date}
               </span>
               {log.reason && (
                 <p className="text-xs text-gray-400 truncate">

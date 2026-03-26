@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { CaretUp, CaretDown } from "phosphor-react";
 import type { DashboardBacktestRecord } from "@/types/dashboard";
+
+type SortField = 'strategyName' | 'universe' | 'cagr' | 'sharpe' | 'mdd' | 'timestamp';
 
 function fmt(v: number | undefined, digits = 1, suffix = "%"): string {
   if (v === undefined || v === null) return "-";
@@ -13,9 +16,16 @@ function fmtDate(ts: number): string {
   return new Date(ts).toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
 }
 
+function SortIcon({ field, active, dir }: { field: SortField; active: SortField; dir: 'asc' | 'desc' }) {
+  if (field !== active) return <span className="inline-block w-3 h-3 opacity-0" />;
+  return dir === 'asc' ? <CaretUp className="inline-block w-3 h-3 ml-0.5" weight="bold" /> : <CaretDown className="inline-block w-3 h-3 ml-0.5" weight="bold" />;
+}
+
 export default function BacktestHistory() {
   const [records, setRecords] = useState<DashboardBacktestRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [sortField, setSortField] = useState<SortField>('timestamp');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   useEffect(() => {
     fetch("/api/backtest/history")
@@ -24,6 +34,27 @@ export default function BacktestHistory() {
       .catch(() => setRecords([]))
       .finally(() => setLoading(false));
   }, []);
+
+  function handleSort(field: SortField) {
+    if (field === sortField) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDir('desc');
+    }
+  }
+
+  const sorted = [...records].sort((a, b) => {
+    let av: number | string, bv: number | string;
+    if (sortField === 'strategyName') { av = a.strategyName ?? ''; bv = b.strategyName ?? ''; }
+    else if (sortField === 'universe') { av = a.universe ?? ''; bv = b.universe ?? ''; }
+    else if (sortField === 'cagr') { av = a.metrics?.cagr ?? -Infinity; bv = b.metrics?.cagr ?? -Infinity; }
+    else if (sortField === 'sharpe') { av = a.metrics?.sharpe ?? -Infinity; bv = b.metrics?.sharpe ?? -Infinity; }
+    else if (sortField === 'mdd') { av = a.metrics?.mdd ?? Infinity; bv = b.metrics?.mdd ?? Infinity; }
+    else { av = a.timestamp; bv = b.timestamp; }
+    if (typeof av === 'string') return sortDir === 'asc' ? av.localeCompare(bv as string) : (bv as string).localeCompare(av);
+    return sortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number);
+  });
 
   return (
     <div className="glass-card p-5 h-full">
@@ -64,28 +95,29 @@ export default function BacktestHistory() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-white/5">
-                <th className="text-left py-2 pr-3 text-[10px] uppercase tracking-widest text-gray-500 font-bold">
-                  전략명
-                </th>
-                <th className="text-left py-2 pr-3 text-[10px] uppercase tracking-widest text-gray-500 font-bold hidden sm:table-cell">
-                  유니버스
-                </th>
-                <th className="text-right py-2 pr-3 text-[10px] uppercase tracking-widest text-gray-500 font-bold">
-                  CAGR
-                </th>
-                <th className="text-right py-2 pr-3 text-[10px] uppercase tracking-widest text-gray-500 font-bold hidden md:table-cell">
-                  Sharpe
-                </th>
-                <th className="text-right py-2 pr-3 text-[10px] uppercase tracking-widest text-gray-500 font-bold hidden md:table-cell">
-                  MDD
-                </th>
-                <th className="text-right py-2 text-[10px] uppercase tracking-widest text-gray-500 font-bold hidden lg:table-cell">
-                  날짜
-                </th>
+                {([
+                  { field: 'strategyName' as SortField, label: '전략명', align: 'left', cls: '' },
+                  { field: 'universe' as SortField, label: '유니버스', align: 'left', cls: 'hidden sm:table-cell' },
+                  { field: 'cagr' as SortField, label: 'CAGR', align: 'right', cls: '' },
+                  { field: 'sharpe' as SortField, label: 'Sharpe', align: 'right', cls: 'hidden md:table-cell' },
+                  { field: 'mdd' as SortField, label: 'MDD', align: 'right', cls: 'hidden md:table-cell' },
+                  { field: 'timestamp' as SortField, label: '날짜', align: 'right', cls: 'hidden lg:table-cell' },
+                ]).map(({ field, label, align, cls }) => (
+                  <th
+                    key={field}
+                    onClick={() => handleSort(field)}
+                    className={`py-2 pr-3 text-[10px] uppercase tracking-widest font-bold cursor-pointer select-none transition-colors ${
+                      sortField === field ? 'text-main-blue' : 'text-gray-500 hover:text-gray-300'
+                    } ${align === 'right' ? 'text-right' : 'text-left'} ${cls}`}
+                  >
+                    {label}
+                    <SortIcon field={field} active={sortField} dir={sortDir} />
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {records.map((r) => {
+              {sorted.map((r) => {
                 const cagr = r.metrics?.cagr;
                 const isPos = (cagr ?? 0) >= 0;
                 return (

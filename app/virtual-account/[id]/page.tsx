@@ -16,8 +16,9 @@ import {
   executeTrade,
   refreshAccountValue,
   updateTradingMode,
+  deleteAccount,
 } from "@/lib/portfolio";
-import { MagnifyingGlass, Robot, Bell } from "phosphor-react";
+import { MagnifyingGlass, Robot, Bell, Trash } from "phosphor-react";
 import StockSearchModal from "@/components/stock/StockSearchModal";
 import VirtualMarketPanel from "@/components/virtual-market/VirtualMarketPanel";
 import OrderBook from "@/components/order/OrderBook";
@@ -187,7 +188,7 @@ export default function VirtualAccountDetailPage() {
     <DashboardLayout userName="사용자">
       <div className="p-4 sm:p-6 max-w-7xl mx-auto overflow-x-hidden w-full">
         {/* Header */}
-        <div className="flex items-center gap-4 mb-6">
+        <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-white">
               {account.name}
@@ -196,6 +197,17 @@ export default function VirtualAccountDetailPage() {
               생성일: {new Date(account.createdAt).toLocaleDateString("ko-KR")}
             </p>
           </div>
+          <button
+            onClick={async () => {
+              if (!confirm(`'${account.name}' 계좌를 삭제하시겠습니까?\n보유 종목, 거래내역이 모두 삭제됩니다.`)) return;
+              await deleteAccount(accountId);
+              router.push("/virtual-account");
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1a1a1a] text-white border border-red-600 rounded-lg text-sm font-medium hover:bg-[#252525] transition-colors"
+          >
+            <Trash size={15} weight="bold" />
+            계좌 삭제
+          </button>
         </div>
 
         {/* 전략 연동 & 매매 모드 */}
@@ -318,7 +330,7 @@ export default function VirtualAccountDetailPage() {
             <div className="flex gap-2 mb-4 ">
               <button
                 onClick={() => setActiveTab("holdings")}
-                className={`px-4 py-2 font-semibold transition-colors ${
+                className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${
                   activeTab === "holdings"
                     ? "text-white bg-[#252525]"
                     : "text-gray-400 hover:text-gray-200"
@@ -328,7 +340,7 @@ export default function VirtualAccountDetailPage() {
               </button>
               <button
                 onClick={() => setActiveTab("transactions")}
-                className={`px-4 py-2 font-semibold transition-colors ${
+                className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${
                   activeTab === "transactions"
                     ? "text-white bg-[#252525]"
                     : "text-gray-400 hover:text-gray-200"
@@ -338,7 +350,7 @@ export default function VirtualAccountDetailPage() {
               </button>
               <button
                 onClick={() => setActiveTab("performance")}
-                className={`px-4 py-2 font-semibold transition-colors ${
+                className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${
                   activeTab === "performance"
                     ? "text-white bg-[#252525]"
                     : "text-gray-400 hover:text-gray-200"
