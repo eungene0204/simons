@@ -180,17 +180,6 @@ export default function CreateAccountModal({
 
               {isDropdownOpen && (
                 <div className="absolute z-10 mt-1 w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedStrategyId("");
-                      setTradingMode("manual");
-                      setIsDropdownOpen(false);
-                    }}
-                    className="w-full px-3 py-2 text-left text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-600"
-                  >
-                    선택 안함
-                  </button>
                   {strategies.length === 0 ? (
                     <div className="px-3 py-2 text-sm text-gray-400 dark:text-gray-500">
                       저장된 전략이 없습니다

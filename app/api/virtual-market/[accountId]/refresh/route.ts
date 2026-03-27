@@ -4,9 +4,12 @@
  * 실제 KRX 시세 기반 가상 계좌 새로고침:
  * 1. 추적 종목 실제 가격 조회 (Python /market/prices)
  * 2. 전략 시그널 평가 (Python /market/signals)
- * 3. auto 모드 시 신호에 따라 자동 매매 실행
- * 4. 보유 포지션 현재가 갱신
- * 5. lastRefreshed 업데이트
+ * 3. 리스크 관리: 손절/익절/트레일링스톱/최대보유일 평가
+ * 4. 같은 날 중복 매매 방지
+ * 5. auto 모드 시 신호에 따라 자동 매매 실행
+ * 6. PENDING 지정가 주문 자동 체결
+ * 7. 보유 포지션 현재가/최고가 갱신
+ * 8. lastRefreshed 업데이트
  */
 
 import { NextResponse } from "next/server";
@@ -18,6 +21,7 @@ import {
   calcBuyCost,
   calcSellProceeds,
   calcRealizedPnl,
+  isPendingFillable,
 } from "@/lib/order-engine";
 import koreaStocks from "@/data/korea-stocks.json";
 
@@ -42,7 +46,7 @@ export async function POST(
 
     const account = await prisma.virtualAccount.findUnique({
       where: { id: params.accountId },
-      include: { positions: true },
+      include: { VirtualPosition: true },
     });
     if (!account) {
       return NextResponse.json({ refreshed: false, reason: "account not found" });
@@ -65,11 +69,15 @@ export async function POST(
       console.error("Price fetch failed:", e);
     }
 
-    // 3. 전략 시그널 평가
+    // 3. 전략 DSL 파싱 (진입/청산 조건 + 리스크 파라미터)
     let entryConditions: Array<Record<string, unknown>> = [];
     let exitConditions: Array<Record<string, unknown>> = [];
     let positionSizePct = 10;
     let maxPositions = 5;
+    let stopLossPct = 0;
+    let takeProfitPct = 0;
+    let trailingStopPct = 0;
+    let maxHoldingDays = 0;
 
     if (account.strategyId) {
       const strategy = await prisma.strategy.findUnique({
@@ -82,9 +90,14 @@ export async function POST(
         const risk = dsl.risk || {};
         positionSizePct = risk.position_size_pct || 10;
         maxPositions = risk.max_positions || 5;
+        stopLossPct = risk.stop_loss_pct || 0;
+        takeProfitPct = risk.take_profit_pct || 0;
+        trailingStopPct = risk.trailing_stop_pct || 0;
+        maxHoldingDays = risk.max_holding_days || 0;
       }
     }
 
+    // 4. 전략 시그널 평가
     type SignalResult = {
       symbol: string;
       date?: string;
@@ -120,7 +133,6 @@ export async function POST(
         });
         if (sigRes.ok) {
           const sigData = await sigRes.json();
-          // 시그널 결과에 실제 가격 덮어쓰기 (parquet보다 KRX 가격이 더 최신)
           signals = sigData.signals.map((sig: SignalResult) => ({
             ...sig,
             ...(priceMap[sig.symbol]
@@ -139,8 +151,91 @@ export async function POST(
       }
     }
 
-    // 4. 시그널에 따른 매매 실행
+    // 5. 리스크 관리: 보유 포지션에 대해 손절/익절/TS/최대보유일 평가
+    const riskExits: Map<string, string> = new Map(); // symbol → reason
+    const freshPositions = account.VirtualPosition;
+
+    for (const pos of freshPositions) {
+      const currentPrice = priceMap[pos.symbol]?.close ?? pos.currentPrice;
+      if (!currentPrice) continue;
+
+      const pnlPct = ((currentPrice - pos.avgPrice) / pos.avgPrice) * 100;
+
+      // 손절 (Stop Loss)
+      if (stopLossPct > 0 && pnlPct <= -stopLossPct) {
+        riskExits.set(pos.symbol, `손절 (${pnlPct.toFixed(1)}% ≤ -${stopLossPct}%)`);
+        continue;
+      }
+
+      // 익절 (Take Profit)
+      if (takeProfitPct > 0 && pnlPct >= takeProfitPct) {
+        riskExits.set(pos.symbol, `익절 (${pnlPct.toFixed(1)}% ≥ +${takeProfitPct}%)`);
+        continue;
+      }
+
+      // 트레일링 스톱 (Trailing Stop)
+      if (trailingStopPct > 0) {
+        const peakPrice = pos.peakPrice ?? pos.avgPrice;
+        const drawdownPct = ((currentPrice - peakPrice) / peakPrice) * 100;
+        if (drawdownPct <= -trailingStopPct) {
+          riskExits.set(
+            pos.symbol,
+            `트레일링스톱 (최고가 ${peakPrice.toLocaleString()}원 대비 ${drawdownPct.toFixed(1)}% 하락)`
+          );
+          continue;
+        }
+      }
+
+      // 최대 보유일
+      if (maxHoldingDays > 0) {
+        const holdingDays = Math.floor(
+          (Date.now() - new Date(pos.openedAt).getTime()) / (1000 * 60 * 60 * 24)
+        );
+        if (holdingDays >= maxHoldingDays) {
+          riskExits.set(pos.symbol, `최대보유일 초과 (${holdingDays}일 ≥ ${maxHoldingDays}일)`);
+          continue;
+        }
+      }
+    }
+
+    // 리스크 종료 신호를 시그널에 병합 (기존 exit 신호와 OR)
+    for (const sig of signals) {
+      if (riskExits.has(sig.symbol)) {
+        sig.exit_signal = true;
+        const riskReason = riskExits.get(sig.symbol)!;
+        sig.exit_reason = sig.exit_reason
+          ? `${sig.exit_reason} + ${riskReason}`
+          : riskReason;
+      }
+    }
+    // 리스크 종료 대상인데 signals 배열에 없는 종목 추가
+    for (const [symbol, reason] of riskExits) {
+      if (!signals.find((s) => s.symbol === symbol)) {
+        const price = priceMap[symbol]?.close;
+        signals.push({
+          symbol,
+          close: price,
+          entry_signal: false,
+          exit_signal: true,
+          exit_reason: reason,
+        });
+      }
+    }
+
+    // 6. 같은 날 중복 매매 방지를 위한 오늘 실행 이력 조회
     const today = new Date().toISOString().split("T")[0];
+    const todayLogs = await prisma.virtualMarketLog.findMany({
+      where: {
+        accountId: params.accountId,
+        date: today,
+        action: "auto_executed",
+      },
+    });
+    const executedToday = new Set(
+      todayLogs.map((log) => `${log.symbol}_${log.signalType}`)
+    );
+
+    // 7. 시그널에 따른 매매 실행
     const logs: Array<Record<string, unknown>> = [];
 
     for (const sig of signals) {
@@ -148,13 +243,51 @@ export async function POST(
 
       const freshAccount = await prisma.virtualAccount.findUnique({
         where: { id: params.accountId },
-        include: { positions: true },
+        include: { VirtualPosition: true },
       });
       if (!freshAccount) break;
 
+      // ── 청산 먼저 (리스크 종료 포함) ───────────────────────────────────
+      if (sig.exit_signal) {
+        const existingPos = freshAccount.VirtualPosition.find((p) => p.symbol === sig.symbol);
+        if (!existingPos) continue;
+
+        // 같은 날 이미 청산 실행했으면 건너뜀
+        if (executedToday.has(`${sig.symbol}_exit`)) {
+          logs.push({ symbol: sig.symbol, type: "exit", action: "skipped", reason: "오늘 이미 청산 실행됨" });
+          continue;
+        }
+
+        if (freshAccount.tradingMode === "auto") {
+          const result = await executeSell(params.accountId, sig.symbol, sig.close, existingPos.quantity);
+          if (result) {
+            await logSignal(params.accountId, today, sig, "exit", "auto_executed", result.orderId);
+            executedToday.add(`${sig.symbol}_exit`);
+            logs.push({ symbol: sig.symbol, type: "exit", action: "auto_executed", price: sig.close, quantity: existingPos.quantity, reason: sig.exit_reason });
+          }
+        } else {
+          await logSignal(params.accountId, today, sig, "exit", "notified");
+          logs.push({ symbol: sig.symbol, type: "exit", action: "notified", price: sig.close, reason: sig.exit_reason });
+        }
+      }
+
+      // ── 진입 ───────────────────────────────────────────────────────────
       if (sig.entry_signal) {
-        const existingPos = freshAccount.positions.find((p) => p.symbol === sig.symbol);
-        const positionCount = freshAccount.positions.length;
+        // 같은 날 이미 진입 실행했으면 건너뜀
+        if (executedToday.has(`${sig.symbol}_entry`)) {
+          logs.push({ symbol: sig.symbol, type: "entry", action: "skipped", reason: "오늘 이미 진입 실행됨" });
+          continue;
+        }
+
+        // 최신 상태 다시 조회 (청산으로 포지션 변경되었을 수 있음)
+        const latestAccount = await prisma.virtualAccount.findUnique({
+          where: { id: params.accountId },
+          include: { VirtualPosition: true },
+        });
+        if (!latestAccount) break;
+
+        const existingPos = latestAccount.VirtualPosition.find((p) => p.symbol === sig.symbol);
+        const positionCount = latestAccount.VirtualPosition.length;
 
         if (existingPos) {
           await logSignal(params.accountId, today, sig, "entry", "skipped");
@@ -162,10 +295,11 @@ export async function POST(
         } else if (positionCount >= maxPositions) {
           await logSignal(params.accountId, today, sig, "entry", "skipped");
           logs.push({ symbol: sig.symbol, type: "entry", action: "skipped", reason: "최대 보유 종목 초과" });
-        } else if (freshAccount.tradingMode === "auto") {
-          const result = await executeBuy(params.accountId, sig.symbol, sig.close, freshAccount.currentCash, positionSizePct);
+        } else if (latestAccount.tradingMode === "auto") {
+          const result = await executeBuy(params.accountId, sig.symbol, sig.close, latestAccount.currentCash, positionSizePct);
           if (result) {
             await logSignal(params.accountId, today, sig, "entry", "auto_executed", result.orderId);
+            executedToday.add(`${sig.symbol}_entry`);
             logs.push({ symbol: sig.symbol, type: "entry", action: "auto_executed", price: sig.close, quantity: result.quantity });
           } else {
             await logSignal(params.accountId, today, sig, "entry", "skipped");
@@ -176,39 +310,114 @@ export async function POST(
           logs.push({ symbol: sig.symbol, type: "entry", action: "notified", price: sig.close, reason: sig.entry_reason });
         }
       }
+    }
 
-      if (sig.exit_signal) {
-        const existingPos = freshAccount.positions.find((p) => p.symbol === sig.symbol);
-        if (!existingPos) continue;
+    // 8. PENDING 지정가 주문 자동 체결
+    const pendingOrders = await prisma.virtualOrder.findMany({
+      where: { accountId: params.accountId, status: "PENDING" },
+    });
+    for (const order of pendingOrders) {
+      const currentPrice = priceMap[order.symbol]?.close;
+      if (!currentPrice) continue;
 
-        if (freshAccount.tradingMode === "auto") {
-          const result = await executeSell(params.accountId, sig.symbol, sig.close, existingPos.quantity);
-          if (result) {
-            await logSignal(params.accountId, today, sig, "exit", "auto_executed", result.orderId);
-            logs.push({ symbol: sig.symbol, type: "exit", action: "auto_executed", price: sig.close, quantity: existingPos.quantity });
-          }
+      const side = order.side as "BUY" | "SELL";
+      if (!isPendingFillable(side, order.price, currentPrice)) continue;
+
+      if (side === "BUY") {
+        const pendingAccount = await prisma.virtualAccount.findUnique({
+          where: { id: params.accountId },
+        });
+        if (!pendingAccount) break;
+
+        const filledPrice = order.price; // 지정가로 체결
+        const fee = calcFee(filledPrice, order.quantity);
+        const cost = calcBuyCost(filledPrice, order.quantity);
+
+        // 예약금은 이미 차감되었으므로 잔액 확인 불필요 — 바로 체결
+        await prisma.virtualOrder.update({
+          where: { id: order.id },
+          data: { status: "FILLED", filledPrice, fee, filledAt: new Date() },
+        });
+
+        const name = stockNameMap[order.symbol] || order.symbol;
+        const existing = await prisma.virtualPosition.findUnique({
+          where: { accountId_symbol: { accountId: params.accountId, symbol: order.symbol } },
+        });
+        if (existing) {
+          const newQty = existing.quantity + order.quantity;
+          const newAvg = (existing.avgPrice * existing.quantity + filledPrice * order.quantity) / newQty;
+          await prisma.virtualPosition.update({
+            where: { accountId_symbol: { accountId: params.accountId, symbol: order.symbol } },
+            data: { quantity: newQty, avgPrice: newAvg, currentPrice, peakPrice: Math.max(newAvg, currentPrice), updatedAt: new Date() },
+          });
         } else {
-          await logSignal(params.accountId, today, sig, "exit", "notified");
-          logs.push({ symbol: sig.symbol, type: "exit", action: "notified", price: sig.close, reason: sig.exit_reason });
+          await prisma.virtualPosition.create({
+            data: {
+              id: crypto.randomUUID(),
+              accountId: params.accountId, symbol: order.symbol, name, quantity: order.quantity,
+              avgPrice: filledPrice, currentPrice, peakPrice: Math.max(filledPrice, currentPrice),
+              updatedAt: new Date(),
+            },
+          });
         }
+
+        logs.push({ symbol: order.symbol, type: "pending_fill", action: "filled", side: "BUY", price: filledPrice, quantity: order.quantity });
+      } else {
+        // SELL PENDING 체결
+        const pos = await prisma.virtualPosition.findUnique({
+          where: { accountId_symbol: { accountId: params.accountId, symbol: order.symbol } },
+        });
+        if (!pos || pos.quantity < order.quantity) continue;
+
+        const filledPrice = order.price;
+        const fee = calcFee(filledPrice, order.quantity);
+        const tax = calcTransactionTax(filledPrice, order.quantity);
+        const proceeds = calcSellProceeds(filledPrice, order.quantity);
+        const realizedPnl = calcRealizedPnl(filledPrice, pos.avgPrice, order.quantity, fee, tax);
+
+        await prisma.virtualOrder.update({
+          where: { id: order.id },
+          data: { status: "FILLED", filledPrice, fee, tax, avgBuyPrice: pos.avgPrice, realizedPnl, filledAt: new Date() },
+        });
+
+        await prisma.virtualAccount.update({
+          where: { id: params.accountId },
+          data: { currentCash: { increment: proceeds }, updatedAt: new Date() },
+        });
+
+        const newQty = pos.quantity - order.quantity;
+        if (newQty === 0) {
+          await prisma.virtualPosition.delete({
+            where: { accountId_symbol: { accountId: params.accountId, symbol: order.symbol } },
+          });
+        } else {
+          await prisma.virtualPosition.update({
+            where: { accountId_symbol: { accountId: params.accountId, symbol: order.symbol } },
+            data: { quantity: newQty, updatedAt: new Date() },
+          });
+        }
+
+        logs.push({ symbol: order.symbol, type: "pending_fill", action: "filled", side: "SELL", price: filledPrice, quantity: order.quantity });
       }
     }
 
-    // 5. 포지션 현재가 갱신
+    // 9. 포지션 현재가 + peakPrice 갱신
     const currentPositions = await prisma.virtualPosition.findMany({
       where: { accountId: params.accountId },
     });
     for (const pos of currentPositions) {
       const price = priceMap[pos.symbol]?.close;
       if (price) {
+        const highPrice = priceMap[pos.symbol]?.high ?? price;
+        const newPeak = Math.max(pos.peakPrice ?? pos.avgPrice, highPrice);
         await prisma.virtualPosition.update({
           where: { accountId_symbol: { accountId: params.accountId, symbol: pos.symbol } },
-          data: { currentPrice: price, updatedAt: new Date() },
+          data: { currentPrice: price, peakPrice: newPeak, updatedAt: new Date() },
         });
       }
     }
 
-    // 6. lastRefreshed 갱신
+    // 10. lastRefreshed 갱신
     await prisma.virtualMarketState.update({
       where: { accountId: params.accountId },
       data: { lastRefreshed: today, updatedAt: new Date() },
@@ -287,7 +496,7 @@ async function executeBuy(
     const newAvg = (existing.avgPrice * existing.quantity + filledPrice * quantity) / newQty;
     await prisma.virtualPosition.update({
       where: { accountId_symbol: { accountId, symbol } },
-      data: { quantity: newQty, avgPrice: newAvg, updatedAt: new Date() },
+      data: { quantity: newQty, avgPrice: newAvg, peakPrice: Math.max(existing.peakPrice ?? newAvg, price), updatedAt: new Date() },
     });
   } else {
     await prisma.virtualPosition.create({
@@ -295,6 +504,7 @@ async function executeBuy(
         id: crypto.randomUUID(),
         accountId, symbol, name, quantity,
         avgPrice: filledPrice,
+        peakPrice: Math.max(filledPrice, price),
         updatedAt: new Date(),
       },
     });

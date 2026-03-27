@@ -8,7 +8,7 @@ datasource db {
 }
 
 model BacktestHistory {
-  id           String   @id
+  id           String   @id @default(cuid())
   strategyName String
   universe     String
   conditions   String
@@ -17,7 +17,7 @@ model BacktestHistory {
 }
 
 model BacktestResult {
-  id         String   @id
+  id         String   @id @default(cuid())
   strategyId String
   stockId    Int?
   summary    String
@@ -37,12 +37,12 @@ model Stock {
 }
 
 model Strategy {
-  id             String           @id
+  id             String           @id @default(cuid())
   name           String
   description    String?
   settings       String
   createdAt      DateTime         @default(now())
-  updatedAt      DateTime
+  updatedAt      DateTime         @updatedAt
   BacktestResult BacktestResult[]
 }
 
@@ -123,6 +123,7 @@ model VirtualPosition {
   quantity       Int
   avgPrice       Float
   currentPrice   Float?
+  peakPrice      Float?
   openedAt       DateTime       @default(now())
   updatedAt      DateTime
   VirtualAccount VirtualAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
