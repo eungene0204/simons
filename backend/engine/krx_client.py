@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 
-BASE_URL = "http://data-dbg.krx.co.kr/svc/apis"
+BASE_URL = "https://data-dbg.krx.co.kr/svc/apis"
 
 def _get_auth_key() -> str:
     return os.getenv("KRX_API_KEY", "").strip()
@@ -24,13 +24,13 @@ def _headers() -> dict:
     }
 
 def _latest_trading_date() -> str:
-    """오늘 08:00 이후면 오늘, 이전이면 전 영업일 반환 (YYYYMMDD)"""
-    now = datetime.now()
-    if now.hour < 8:
-        now -= timedelta(days=1)
-    while now.weekday() >= 5:
-        now -= timedelta(days=1)
-    return now.strftime("%Y%m%d")
+    """가장 최근 정산된 영업일 반환 (YYYYMMDD)
+    KRX EOD 데이터는 전일분이 익일 08:00에 제공되므로 항상 전 영업일을 반환한다.
+    """
+    candidate = datetime.now() - timedelta(days=1)
+    while candidate.weekday() >= 5:
+        candidate -= timedelta(days=1)
+    return candidate.strftime("%Y%m%d")
 
 def _request(endpoint: str, params: dict) -> list[dict]:
     url = f"{BASE_URL}/{endpoint}"
@@ -127,7 +127,7 @@ def get_daily_ohlcv(market: str = "STK", base_date: Optional[str] = None) -> pd.
                   "ACC_TRDVOL", "ACC_TRDVAL", "MKTCAP"]
     for col in price_cols:
         if col in df.columns:
-            df[col] = pd.to_numeric(df[col].str.replace(",", ""), errors="coerce")
+            df[col] = pd.to_numeric(df[col].astype(str).str.replace(",", ""), errors="coerce")
     return df
 
 
@@ -142,18 +142,18 @@ def get_stock_price(symbol: str, base_date: Optional[str] = None) -> Optional[di
             df = get_daily_ohlcv(market, base_date)
             if df.empty:
                 continue
-            row = df[df["ISU_SRT_CD"] == symbol]
+            row = df[df["ISU_CD"] == symbol]
             if not row.empty:
                 r = row.iloc[0]
                 return {
                     "symbol": symbol,
-                    "name": r.get("ISU_ABBRV", ""),
-                    "date": r.get("TRD_DD", ""),
-                    "open": r.get("TDD_OPNPRC"),
-                    "high": r.get("TDD_HGPRC"),
-                    "low":  r.get("TDD_LWPRC"),
-                    "close": r.get("TDD_CLSPRC"),
-                    "volume": r.get("ACC_TRDVOL"),
+                    "name": r.get("ISU_NM", ""),
+                    "date": r.get("BAS_DD", ""),
+                    "open": int(r.get("TDD_OPNPRC") or 0),
+                    "high": int(r.get("TDD_HGPRC") or 0),
+                    "low":  int(r.get("TDD_LWPRC") or 0),
+                    "close": int(r.get("TDD_CLSPRC") or 0),
+                    "volume": int(r.get("ACC_TRDVOL") or 0),
                     "source": "krx_api",
                 }
         return None
@@ -173,18 +173,18 @@ def get_multiple_prices(symbols: list[str], base_date: Optional[str] = None) -> 
             df = get_daily_ohlcv(market, date)
             if df.empty:
                 continue
-            matched = df[df["ISU_SRT_CD"].isin(sym_set)]
+            matched = df[df["ISU_CD"].isin(sym_set)]
             for _, r in matched.iterrows():
-                sym = r["ISU_SRT_CD"]
+                sym = r["ISU_CD"]
                 result[sym] = {
                     "symbol": sym,
-                    "name": r.get("ISU_ABBRV", ""),
-                    "date": r.get("TRD_DD", ""),
-                    "open": r.get("TDD_OPNPRC"),
-                    "high": r.get("TDD_HGPRC"),
-                    "low":  r.get("TDD_LWPRC"),
-                    "close": r.get("TDD_CLSPRC"),
-                    "volume": r.get("ACC_TRDVOL"),
+                    "name": r.get("ISU_NM", ""),
+                    "date": r.get("BAS_DD", ""),
+                    "open": int(r.get("TDD_OPNPRC") or 0),
+                    "high": int(r.get("TDD_HGPRC") or 0),
+                    "low":  int(r.get("TDD_LWPRC") or 0),
+                    "close": int(r.get("TDD_CLSPRC") or 0),
+                    "volume": int(r.get("ACC_TRDVOL") or 0),
                     "source": "krx_api",
                 }
         return result
@@ -206,16 +206,87 @@ def get_index(index_code: str = "1", base_date: Optional[str] = None) -> Optiona
     rows = _request(endpoint, {"basDd": date})
     if not rows:
         return None
-    r = rows[0]
+    # "코스피" / "코스닥" 행만 추출 (합산/섹터 행 제외)
+    target = "코스피" if index_code == "1" else "코스닥"
+    r = next((row for row in rows if row.get("IDX_NM") == target), rows[0])
     return {
-        "date": r.get("TRD_DD"),
+        "date": r.get("BAS_DD"),
         "name": r.get("IDX_NM"),
-        "close": r.get("CLSPRC_IDX"),
-        "open": r.get("OPNPRC_IDX"),
-        "high": r.get("HGPRC_IDX"),
-        "low": r.get("LWPRC_IDX"),
-        "change_pct": r.get("FLUC_RT"),
+        "close": float(r.get("CLSPRC_IDX") or 0),
+        "open": float(r.get("OPNPRC_IDX") or 0),
+        "high": float(r.get("HGPRC_IDX") or 0),
+        "low": float(r.get("LWPRC_IDX") or 0),
+        "change": float(r.get("CMPPREVDD_IDX") or 0),
+        "change_pct": float(r.get("FLUC_RT") or 0),
     }
+
+
+# ─────────────────────────────────────────────
+# 실시간 지수 (pykrx — 장중 현재가 반영)
+# ─────────────────────────────────────────────
+
+def get_index_realtime(index_code: str = "1") -> Optional[dict]:
+    """
+    pykrx로 실시간 지수 조회 (장중에도 현재 가격 반영)
+    index_code: '1'=KOSPI, '2'=KOSDAQ
+    반환: {name, close, open, high, low, change, change_pct, date, source}
+    """
+    from pykrx import stock as pykrx_stock
+
+    ticker = "1001" if index_code == "1" else "2001"
+    name = "코스피" if index_code == "1" else "코스닥"
+    today = datetime.now().strftime("%Y%m%d")
+    prev_day = _latest_trading_date()
+
+    try:
+        df_today = pykrx_stock.get_index_ohlcv_by_date(today, today, ticker)
+        df_prev = pykrx_stock.get_index_ohlcv_by_date(prev_day, prev_day, ticker)
+
+        # 오늘 데이터 없으면(장 전/주말) 전일 데이터 반환
+        if df_today is None or df_today.empty:
+            if df_prev is None or df_prev.empty:
+                return None
+            row = df_prev.iloc[0]
+            close = float(row.get("종가", 0))
+            prev_prev = pykrx_stock.get_index_ohlcv_by_date(
+                (datetime.strptime(prev_day, "%Y%m%d") - timedelta(days=5)).strftime("%Y%m%d"),
+                prev_day, ticker
+            )
+            prev_close = float(prev_prev.iloc[-2]["종가"]) if prev_prev is not None and len(prev_prev) >= 2 else 0.0
+            change = round(close - prev_close, 2) if prev_close else 0.0
+            change_pct = round((change / prev_close) * 100, 2) if prev_close else float(row.get("등락률", 0))
+            return {
+                "date": prev_day,
+                "name": name,
+                "close": close,
+                "open": float(row.get("시가", 0)),
+                "high": float(row.get("고가", 0)),
+                "low": float(row.get("저가", 0)),
+                "change": change,
+                "change_pct": change_pct,
+                "source": "pykrx",
+            }
+
+        row = df_today.iloc[0]
+        close = float(row.get("종가", 0))
+        prev_close = float(df_prev.iloc[0].get("종가", 0)) if df_prev is not None and not df_prev.empty else 0.0
+        change = round(close - prev_close, 2) if prev_close else 0.0
+        change_pct = round((change / prev_close) * 100, 2) if prev_close else float(row.get("등락률", 0))
+
+        return {
+            "date": today,
+            "name": name,
+            "close": close,
+            "open": float(row.get("시가", 0)),
+            "high": float(row.get("고가", 0)),
+            "low": float(row.get("저가", 0)),
+            "change": change,
+            "change_pct": change_pct,
+            "source": "pykrx",
+        }
+    except Exception as e:
+        print(f"[pykrx] get_index_realtime {index_code} 실패: {e}")
+        return None
 
 
 # ─────────────────────────────────────────────

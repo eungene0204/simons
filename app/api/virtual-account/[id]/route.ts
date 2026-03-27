@@ -17,7 +17,7 @@ async function fetchLastClose(symbol: string): Promise<number | null> {
 function mapAccount(a: any, priceMap: Record<string, number>) {
   const totalValue =
     a.currentCash +
-    (a.positions ?? []).reduce((sum: number, p: any) => {
+    (a.VirtualPosition ?? []).reduce((sum: number, p: any) => {
       const currentPrice = priceMap[p.symbol] ?? p.avgPrice;
       return sum + p.quantity * currentPrice;
     }, 0);
@@ -43,14 +43,14 @@ export async function GET(
   try {
     const account = await prisma.virtualAccount.findUnique({
       where: { id: params.id },
-      include: { positions: true },
+      include: { VirtualPosition: true },
     });
     if (!account) {
       return NextResponse.json({ error: 'Account not found' }, { status: 404 });
     }
 
     // 보유 종목 현재가 병렬 조회
-    const symbols = account.positions.map((p) => p.symbol);
+    const symbols = account.VirtualPosition.map((p) => p.symbol);
     const prices = await Promise.all(symbols.map(fetchLastClose));
     const priceMap: Record<string, number> = {};
     symbols.forEach((s, i) => { if (prices[i] !== null) priceMap[s] = prices[i]!; });
@@ -74,10 +74,11 @@ export async function PATCH(
       data: {
         ...(body.currentBalance !== undefined && { currentCash: body.currentBalance }),
         ...(body.tradingMode !== undefined && { tradingMode: body.tradingMode }),
+        updatedAt: new Date(),
       },
-      include: { positions: true },
+      include: { VirtualPosition: true },
     });
-    const symbols2 = account.positions.map((p) => p.symbol);
+    const symbols2 = account.VirtualPosition.map((p) => p.symbol);
     const prices2 = await Promise.all(symbols2.map(fetchLastClose));
     const priceMap2: Record<string, number> = {};
     symbols2.forEach((s, i) => { if (prices2[i] !== null) priceMap2[s] = prices2[i]!; });

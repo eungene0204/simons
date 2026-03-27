@@ -1,3 +1,7 @@
+from dotenv import load_dotenv
+import os
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional, List
@@ -8,7 +12,7 @@ from schemas import (
     WalkForwardRequest, WalkForwardResponse,
 )
 from backtest_engine import BacktestEngine
-from engine.krx_client import get_multiple_prices, get_stock_price, health_check as krx_health_check
+from engine.market_data import market_data_provider
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 import uvicorn
@@ -188,31 +192,205 @@ def get_stock_ohlcv(symbol: str, limit: int = 1260):
 # ─────────────────────────────────────────────
 
 @app.get("/market/health")
-def market_health():
-    """KRX API 연결 상태 확인"""
-    return krx_health_check()
+async def market_health():
+    """전체 데이터 provider 상태 확인 (KIS, Naver, yfinance, pykrx, KRX API)"""
+    return market_data_provider.get_health()
 
 
 @app.get("/market/price/{symbol}")
-def market_price(symbol: str, date: Optional[str] = None):
-    """단일 종목 최신 종가 조회 (KRX EOD)"""
-    result = get_stock_price(symbol, date)
+async def market_price(symbol: str):
+    """단일 종목 현재가 조회 (다중 provider 폴백 체인)"""
+    result = await market_data_provider.get_price(symbol)
     if not result:
         raise HTTPException(status_code=404, detail=f"{symbol} 시세 없음")
-    return result
+    return result.to_dict()
 
 
 @app.post("/market/prices")
-def market_prices(body: dict):
+async def market_prices(body: dict):
     """
-    여러 종목 가격 일괄 조회
-    body: {"symbols": ["005930", "000660", ...], "date": "20260326"(optional)}
+    여러 종목 가격 일괄 조회 (다중 provider 폴백 체인)
+    body: {"symbols": ["005930", "000660", ...]}
+    반환: {symbol: {symbol, name, date, open, high, low, close, volume, source}}
     """
     symbols: list[str] = body.get("symbols", [])
-    date: Optional[str] = body.get("date")
     if not symbols:
         raise HTTPException(status_code=400, detail="symbols 필드가 필요합니다")
-    return get_multiple_prices(symbols, date)
+    quotes = await market_data_provider.get_prices(symbols)
+    return {sym: q.to_dict() for sym, q in quotes.items()}
+
+
+# ── /market/indices 서버 측 캐시 ──────────────────────────────────────────
+_indices_cache: dict = {"data": None, "expires_at": 0.0, "loading": False}
+_INDICES_TTL = 30  # seconds
+
+
+def _fetch_naver_index(code: str, name: str) -> Optional[dict]:
+    """네이버 금융 모바일 API로 코스피/코스닥 지수를 조회한다."""
+    import requests as req
+    _HEADERS = {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15"}
+    _BASE = "https://m.stock.naver.com/api/index"
+
+    def _num(s):
+        try:
+            return float(str(s).replace(",", "").strip())
+        except Exception:
+            return 0.0
+
+    try:
+        basic = req.get(f"{_BASE}/{code}/basic", headers=_HEADERS, timeout=5)
+        if basic.status_code != 200:
+            return None
+        b = basic.json()
+        close = _num(b.get("closePrice", 0))
+        if not close:
+            return None
+        change = _num(b.get("compareToPreviousClosePrice", 0))
+        change_pct = _num(b.get("fluctuationsRatio", 0))
+        date_raw = b.get("localTradedAt", "")[:10]
+
+        integ = req.get(f"{_BASE}/{code}/integration", headers=_HEADERS, timeout=5)
+        open_p = high_p = low_p = 0.0
+        volume = 0
+        if integ.status_code == 200:
+            infos = {i["code"]: i["value"] for i in integ.json().get("totalInfos", [])}
+            open_p = _num(infos.get("openPrice", 0))
+            high_p = _num(infos.get("highPrice", 0))
+            low_p  = _num(infos.get("lowPrice", 0))
+            volume = int(_num(infos.get("accumulatedTradingVolume", 0)))
+
+        return {
+            "name": name,
+            "value": round(close, 2),
+            "change": round(change, 2),
+            "changePercent": round(change_pct, 2),
+            "open": round(open_p, 2),
+            "high": round(high_p, 2),
+            "low": round(low_p, 2),
+            "volume": volume,
+            "date": date_raw,
+            "source": "naver",
+        }
+    except Exception as e:
+        print(f"[market/indices] naver index {code} 실패: {e}")
+        return None
+
+
+def _fetch_indices_data() -> dict:
+    """지수 데이터를 가져온다 — KOSPI/KOSDAQ: Naver, 해외: yfinance (blocking)."""
+    import yfinance as yf
+    from datetime import timezone
+
+    YFINANCE_TICKERS = {
+        "nasdaq":          ("^IXIC",     "나스닥"),
+        "dow":             ("^DJI",      "다우존스"),
+        "sp500":           ("^GSPC",     "S&P 500"),
+        "vix":             ("^VIX",      "VIX"),
+        "nikkei":          ("^N225",     "닛케이 225"),
+        "topix":           ("^TOPX",     "토픽스"),
+        "shanghai":        ("000001.SS", "상하이종합"),
+        "shenzhen":        ("399001.SZ", "선전종합"),
+        "exchangeRate":    ("USDKRW=X",  "원/달러"),
+        "goldPrice":       ("GC=F",      "금"),
+        "oilPrice":        ("CL=F",      "WTI 원유"),
+        "silverPrice":     ("SI=F",      "은"),
+        "naturalGasPrice": ("NG=F",      "천연가스"),
+        "copperPrice":     ("HG=F",      "구리"),
+        "wheatPrice":      ("ZW=F",      "밀"),
+    }
+
+    result: dict = {}
+
+    # ── KOSPI / KOSDAQ: Naver 실시간 ────────────────────────────────────
+    KR_INDICES = {"kospi": ("KOSPI", "코스피"), "kosdaq": ("KOSDAQ", "코스닥")}
+    for key, (code, name) in KR_INDICES.items():
+        data = _fetch_naver_index(code, name)
+        if data:
+            result[key] = data
+
+    # ── 해외지수 / 환율 / 원자재 ──────────────────────────────────────
+    tickers_to_fetch = [v[0] for k, v in YFINANCE_TICKERS.items() if k not in result]
+    data = None
+    if tickers_to_fetch:
+        try:
+            data = yf.download(
+                tickers_to_fetch,
+                period="2d",
+                interval="1d",
+                group_by="ticker",
+                auto_adjust=True,
+                progress=False,
+                threads=True,
+            )
+        except Exception as e:
+            print(f"[market/indices] yfinance 다운로드 실패: {e}")
+
+    for key, (ticker, name) in YFINANCE_TICKERS.items():
+        if key in result:
+            continue
+        try:
+            if data is None:
+                continue
+            df = data if len(tickers_to_fetch) == 1 else (
+                data[ticker] if ticker in data.columns.get_level_values(0) else None
+            )
+            if df is None or df.empty:
+                continue
+            df = df.dropna(subset=["Close"])
+            if len(df) < 1:
+                continue
+            last = df.iloc[-1]
+            prev = df.iloc[-2] if len(df) >= 2 else last
+            close = float(last["Close"])
+            prev_close = float(prev["Close"])
+            change = round(close - prev_close, 4)
+            change_pct = round((change / prev_close) * 100, 2) if prev_close else 0
+            result[key] = {
+                "name": name,
+                "value": round(close, 2),
+                "change": change,
+                "changePercent": change_pct,
+                "open": round(float(last.get("Open", close)), 2),
+                "high": round(float(last.get("High", close)), 2),
+                "low": round(float(last.get("Low", close)), 2),
+                "date": str(df.index[-1].date()),
+                "source": "yfinance",
+            }
+        except Exception as e:
+            print(f"[market/indices] yfinance {key}({ticker}) 파싱 실패: {e}")
+
+    return result
+
+
+@app.get("/market/indices")
+async def market_indices():
+    """
+    글로벌 시장 지수 조회 (서버 측 30초 캐시)
+    - KOSPI/KOSDAQ: yfinance 1분봉 실시간
+    - 해외지수/환율/원자재: yfinance 일봉
+    """
+    global _indices_cache
+
+    now = time.time()
+
+    # 캐시 유효: 즉시 반환
+    if _indices_cache["data"] is not None and now < _indices_cache["expires_at"]:
+        return _indices_cache["data"]
+
+    # 다른 요청이 이미 로딩 중이면 stale 데이터 반환 (있을 때)
+    if _indices_cache["loading"]:
+        if _indices_cache["data"] is not None:
+            return _indices_cache["data"]
+
+    # 캐시 갱신
+    _indices_cache["loading"] = True
+    try:
+        data = await asyncio.to_thread(_fetch_indices_data)
+        _indices_cache["data"] = data
+        _indices_cache["expires_at"] = time.time() + _INDICES_TTL
+        return data
+    finally:
+        _indices_cache["loading"] = False
 
 
 @app.post("/market/signals")

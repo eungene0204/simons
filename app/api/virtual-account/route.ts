@@ -17,7 +17,7 @@ async function fetchLastClose(symbol: string): Promise<number | null> {
 function mapAccount(a: any, priceMap: Record<string, number>) {
   const totalValue =
     a.currentCash +
-    (a.positions ?? []).reduce((sum: number, p: any) => {
+    (a.VirtualPosition ?? []).reduce((sum: number, p: any) => {
       const currentPrice = priceMap[p.symbol] ?? p.avgPrice;
       return sum + p.quantity * currentPrice;
     }, 0);
@@ -39,12 +39,12 @@ function mapAccount(a: any, priceMap: Record<string, number>) {
 export async function GET() {
   try {
     const accounts = await prisma.virtualAccount.findMany({
-      include: { positions: true },
+      include: { VirtualPosition: true },
       orderBy: { createdAt: 'desc' },
     });
 
     // 전체 계좌의 고유 종목 코드 수집 후 병렬로 현재가 조회
-    const symbols = [...new Set(accounts.flatMap((a) => a.positions.map((p) => p.symbol)))];
+    const symbols = [...new Set(accounts.flatMap((a) => a.VirtualPosition.map((p) => p.symbol)))];
     const prices = await Promise.all(symbols.map(fetchLastClose));
     const priceMap: Record<string, number> = {};
     symbols.forEach((s, i) => { if (prices[i] !== null) priceMap[s] = prices[i]!; });
@@ -77,17 +77,19 @@ export async function POST(request: Request) {
 
     const account = await prisma.virtualAccount.create({
       data: {
+        id: crypto.randomUUID(),
         name,
         initialCash: initialAmount,
         currentCash: initialAmount,
         strategyId: strategyId || null,
         strategyName: strategyName || null,
         tradingMode: tradingMode || "manual",
+        updatedAt: new Date(),
       },
-      include: { positions: true },
+      include: { VirtualPosition: true },
     });
 
-    return NextResponse.json(mapAccount(account));
+    return NextResponse.json(mapAccount(account, {}));
   } catch (error) {
     console.error('Failed to create virtual account:', error);
     return NextResponse.json({ error: 'Failed to create account' }, { status: 500 });

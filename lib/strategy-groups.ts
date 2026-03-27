@@ -1306,6 +1306,15 @@ export function getStrategyById(strategyId: string): StrategyDefinition | undefi
   return undefined;
 }
 
+// Helper function to get strategy by name
+export function getStrategyByName(strategyName: string): StrategyDefinition | undefined {
+  for (const group of strategyGroups) {
+    const strategy = group.strategies.find((s) => s.name === strategyName);
+    if (strategy) return strategy;
+  }
+  return undefined;
+}
+
 // Helper function to get group by ID
 export function getGroupById(groupId: StrategyGroupId): StrategyGroup | undefined {
   return strategyGroups.find((g) => g.id === groupId);
