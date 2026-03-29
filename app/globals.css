@@ -10,7 +10,7 @@
   --main-green: rgb(34, 197, 94);
   
   /* Premium Design Tokens */
-  --card-bg: rgba(10, 10, 10, 0.4);
+  --card-bg: rgb(22, 22, 22);
   --card-border: rgba(255, 255, 255, 0.05);
   --glass-bg: rgba(255, 255, 255, 0.02);
   --glass-border: rgba(255, 255, 255, 0.12);
