@@ -63,18 +63,6 @@ export default function MarketSnapshot() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit">
-            시장 지표
-          </h2>
-          <span className="flex items-center gap-1 text-[10px] text-green-400 font-bold">
-            <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
-            LIVE
-          </span>
-        </div>
-      </div>
-
       {loading ? (
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
           {[...Array(6)].map((_, i) => (
