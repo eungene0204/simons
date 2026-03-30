@@ -13,6 +13,9 @@ interface BacktestSummaryCardProps {
     entryBlocks?: string[];
     exitBlocks?: string[];
   };
+  initialSummary?: string;
+  initialScore?: number;
+  onSummaryReady?: (summary: string, score: number) => void;
 }
 
 function scoreColor(score: number): string {
@@ -32,9 +35,12 @@ function scoreLabel(score: number): string {
 export default function BacktestSummaryCard({
   result,
   strategySummary,
+  initialSummary,
+  initialScore,
+  onSummaryReady,
 }: BacktestSummaryCardProps) {
-  const [summary, setSummary] = useState<string>("");
-  const [score, setScore] = useState<number | null>(null);
+  const [summary, setSummary] = useState<string>(initialSummary ?? "");
+  const [score, setScore] = useState<number | null>(initialScore ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -72,6 +78,9 @@ export default function BacktestSummaryCard({
       if (!res.ok) throw new Error(data.error || "Unknown error");
       setScore(data.score ?? null);
       setSummary(data.summary);
+      if (data.summary && data.score != null) {
+        onSummaryReady?.(data.summary, data.score);
+      }
     } catch (e: any) {
       setError(e.message ?? "요약 생성에 실패했습니다.");
     } finally {
@@ -80,6 +89,8 @@ export default function BacktestSummaryCard({
   };
 
   useEffect(() => {
+    // 캐시된 결과가 있으면 재연산 생략
+    if (initialSummary && initialScore != null) return;
     fetchSummary();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result.executionId]);

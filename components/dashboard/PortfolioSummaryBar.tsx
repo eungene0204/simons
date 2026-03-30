@@ -1,18 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Wallet, TrendUp, CurrencyKrw, ArrowUpRight, ArrowDownRight, Info, CalendarBlank } from "phosphor-react";
-import type { VirtualAccount } from "@/types/portfolio";
-import type { TradingStatusData } from "@/app/api/dashboard/trading-status/route";
-
-interface PortfolioStats {
-  totalInvested: number;
-  totalValue: number;
-  totalProfit: number;
-  totalReturnPct: number;
-  accountCount: number;
-  dailyPnl: number;
-}
+import type { PortfolioStats } from "@/lib/dashboard-data";
 
 function formatKRW(v: number): string {
   const abs = Math.abs(v);
@@ -41,39 +31,9 @@ function Badge({ value, isPositive }: { value: string; isPositive: boolean }) {
   );
 }
 
-export default function PortfolioSummaryBar() {
-  const [stats, setStats] = useState<PortfolioStats>({
-    totalInvested: 0,
-    totalValue: 0,
-    totalProfit: 0,
-    totalReturnPct: 0,
-    accountCount: 0,
-    dailyPnl: 0,
-  });
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    Promise.all([
-      fetch("/api/virtual-account").then((r) => (r.ok ? r.json() : [])),
-      fetch("/api/dashboard/trading-status").then((r) => (r.ok ? r.json() : { dailyPnl: 0 })),
-    ])
-      .then(([accounts, tradingStatus]: [VirtualAccount[], TradingStatusData]) => {
-        const totalInvested = accounts.reduce((sum, a) => sum + a.initialAmount, 0);
-        const totalValue = accounts.reduce((sum, a) => sum + a.totalValue, 0);
-        const totalProfit = totalValue - totalInvested;
-        const totalReturnPct = totalInvested > 0 ? (totalProfit / totalInvested) * 100 : 0;
-        setStats({
-          totalInvested,
-          totalValue,
-          totalProfit,
-          totalReturnPct,
-          accountCount: accounts.length,
-          dailyPnl: tradingStatus.dailyPnl ?? 0,
-        });
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+export default function PortfolioSummaryBar({ initialStats }: { initialStats: PortfolioStats }) {
+  const [stats] = useState<PortfolioStats>(initialStats);
+  const loading = false;
 
   const isPositive = stats.totalProfit >= 0;
   const isDailyPos = stats.dailyPnl >= 0;

@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { inferStrategyType } from "@/lib/strategy-type";
 
 // POST: 전략 DSL + 백테스트 결과를 한 번에 저장
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { name, description, dsl, backtestResult } = body;
+    const { name, description, dsl, backtestResult, aiSummary, aiScore } = body;
 
     if (!name?.trim()) {
       return NextResponse.json({ error: "전략 이름을 입력해주세요." }, { status: 400 });
@@ -22,6 +23,8 @@ export async function POST(request: Request) {
       updated_at: new Date().toISOString(),
     };
 
+    const strategyType = inferStrategyType(name.trim(), description?.trim() ?? "", dsl);
+
     // Strategy + BacktestResult 트랜잭션으로 함께 저장
     const result = await prisma.$transaction(async (tx) => {
       const strategy = await tx.strategy.create({
@@ -29,6 +32,7 @@ export async function POST(request: Request) {
           name: name.trim(),
           description: description?.trim() || null,
           settings: JSON.stringify(dslToSave),
+          strategyType,
         },
       });
 
@@ -60,6 +64,8 @@ export async function POST(request: Request) {
           dates: backtestResult.dates,
           warnings: backtestResult.warnings,
           executionTime: backtestResult.executionTime,
+          aiSummary: aiSummary ?? null,
+          aiScore: aiScore ?? null,
         };
 
         backtestRecord = await tx.backtestResult.create({
