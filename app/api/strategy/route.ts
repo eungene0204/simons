@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { StrategyDSL } from '@/types/strategy';
+import { inferStrategyType } from '@/lib/strategy-type';
 
 export async function POST(request: Request) {
   try {
@@ -10,12 +11,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Strategy name is required' }, { status: 400 });
     }
 
+    const strategyType = inferStrategyType(data.name, data.description ?? "", data);
+
     const strategy = await prisma.strategy.create({
       data: {
-        id: data.id || undefined, // Prisma will generate an ID if undefined, but we can allow setting it if needed
+        id: data.id || undefined,
         name: data.name,
         description: data.description || null,
         settings: JSON.stringify(data),
+        strategyType,
       },
     });
 

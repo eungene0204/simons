@@ -4,10 +4,13 @@ import { prisma } from "@/lib/prisma";
 export interface StrategyListItem {
   id: string;
   name: string;
-  type: string;         // universe (e.g. "KOSPI", "KOSDAQ", "미국주식")
-  avgReturnPct: number; // 이 전략을 쓰는 계좌들의 평균 수익률 (%)
-  totalProfit: number;  // 이 전략을 쓰는 계좌들의 총 수익금 (원)
+  description: string | null;
+  type: string;         // 전략 방식 — DB 저장값 (AI전략 / 가치투자 / 모멘텀 등)
+  universe: string;     // 유니버스 — settings 파싱 (KOSPI / KOSDAQ / 미국주식 등)
+  avgReturnPct: number;
+  totalProfit: number;
   accountCount: number;
+  createdAt: string;
 }
 
 export interface StrategyListData {
@@ -25,24 +28,26 @@ export async function GET() {
     ]);
 
     const result: StrategyListItem[] = strategies.map((s) => {
-      // universe 파싱
-      let type = "기타";
+      // universe: settings에서 파싱
+      let universe = "기타";
       try {
         const settings = JSON.parse(s.settings);
-        const u: string = settings?.universe ?? "";
-        if (u.includes("KOSPI") || u === "KOSPI200" || u === "KOSPI") type = "KOSPI";
-        else if (u.includes("KOSDAQ")) type = "KOSDAQ";
-        else if (u.includes("US") || u.includes("미국") || u.includes("NYSE") || u.includes("NASDAQ")) type = "미국주식";
-        else if (u) type = u;
+        const u: string = settings?.universe?.id ?? settings?.universe ?? "";
+        if (u.toUpperCase().includes("KOSPI") || u === "KOSPI200") universe = "KOSPI";
+        else if (u.toUpperCase().includes("KOSDAQ")) universe = "KOSDAQ";
+        else if (u.includes("US") || u.includes("미국") || u.includes("NYSE") || u.includes("NASDAQ")) universe = "미국주식";
+        else if (u) universe = u;
       } catch {}
+
+      // 전략 타입: DB 저장값 사용 (저장 시 inferStrategyType으로 결정됨)
+      const type = s.strategyType || "기타";
 
       // 이 전략을 쓰는 계좌
       const accs = accounts.filter((a) => a.strategyId === s.id);
       if (accs.length === 0) {
-        return { id: s.id, name: s.name, type, avgReturnPct: 0, totalProfit: 0, accountCount: 0 };
+        return { id: s.id, name: s.name, description: s.description ?? null, type, universe, avgReturnPct: 0, totalProfit: 0, accountCount: 0, createdAt: s.createdAt.toISOString() };
       }
 
-      // totalValue = currentCash + positions * avgPrice (실시간 가격 없이 평균 단가 사용)
       const stats = accs.map((a) => {
         const posValue = (a.VirtualPosition ?? []).reduce(
           (sum, p) => sum + p.quantity * (p.currentPrice ?? p.avgPrice),
@@ -60,10 +65,13 @@ export async function GET() {
       return {
         id: s.id,
         name: s.name,
+        description: s.description ?? null,
         type,
+        universe,
         avgReturnPct,
         totalProfit,
         accountCount: accs.length,
+        createdAt: s.createdAt.toISOString(),
       };
     });
 

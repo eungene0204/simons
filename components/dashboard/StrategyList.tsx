@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { StrategyListData, StrategyListItem } from "@/app/api/dashboard/strategy-list/route";
 
 function formatKRW(v: number): string {
@@ -16,16 +16,19 @@ function fmtPct(v: number): string {
 }
 
 const TYPE_BADGE: Record<string, string> = {
-  KOSPI: "bg-blue-500/15 text-blue-400",
-  KOSDAQ: "bg-purple-500/15 text-purple-400",
-  미국주식: "bg-emerald-500/15 text-emerald-400",
+  AI전략: "bg-violet-500/20 text-violet-300",
+  가치투자: "bg-emerald-500/15 text-emerald-400",
+  모멘텀: "bg-orange-500/15 text-orange-400",
+  기술분석: "bg-blue-500/15 text-blue-400",
+  수급전략: "bg-pink-500/15 text-pink-400",
   기타: "bg-white/10 text-gray-400",
 };
 
-function TypeBadge({ type }: { type: string }) {
+
+function TypeBadge({ type }: { type: string; universe: string }) {
   const cls = TYPE_BADGE[type] ?? TYPE_BADGE["기타"];
   return (
-    <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-md ${cls}`}>
+    <span className={`inline-block text-xs font-bold px-2 py-0.5 rounded-md ${cls}`}>
       {type}
     </span>
   );
@@ -48,7 +51,7 @@ function ReturnBar({ pct, maxAbs }: { pct: number; maxAbs: number }) {
         />
       </div>
       <span
-        className={`text-xs font-bold tabular-nums font-outfit w-14 ${
+        className={`text-sm font-bold tabular-nums font-outfit w-14 ${
           isPos ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"
         }`}
       >
@@ -58,28 +61,15 @@ function ReturnBar({ pct, maxAbs }: { pct: number; maxAbs: number }) {
   );
 }
 
-export default function StrategyList() {
-  const [data, setData] = useState<StrategyListData | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    // TODO: MOCK DATA - 테스트용, 나중에 제거
-    const mock: StrategyListData = {
-      strategies: [
-        { id: "1", name: "모멘텀 전략 v2", type: "KOSPI", avgReturnPct: 12.4, totalProfit: 2_480_000, accountCount: 2 },
-        { id: "2", name: "RSI 역추세 전략", type: "KOSDAQ", avgReturnPct: 7.8, totalProfit: 390_000, accountCount: 1 },
-        { id: "3", name: "가치투자 퀀트", type: "KOSPI", avgReturnPct: -3.2, totalProfit: -320_000, accountCount: 1 },
-        { id: "4", name: "AI 예측 기반", type: "미국주식", avgReturnPct: 21.5, totalProfit: 6_450_000, accountCount: 3 },
-      ],
-    };
-    setTimeout(() => { setData(mock); setLoading(false); }, 400);
-  }, []);
+export default function StrategyList({ initialData }: { initialData: StrategyListData }) {
+  const [data] = useState<StrategyListData>(initialData);
+  const loading = false;
 
   const strategies = data?.strategies ?? [];
   const maxAbs = Math.max(...strategies.map((s) => Math.abs(s.avgReturnPct)), 1);
 
   return (
-    <div className="glass-card p-5">
+    <div className="glass-card p-5 h-full">
       {/* 헤더 */}
       <div className="flex items-center justify-between mb-5">
         <div>
@@ -94,9 +84,9 @@ export default function StrategyList() {
       </div>
 
       {/* 테이블 헤더 */}
-      <div className="grid grid-cols-[minmax(0,1fr)_80px_180px_110px] gap-2 px-2 mb-2">
+      <div className="grid grid-cols-[minmax(0,1fr)_160px_160px_110px] gap-2 px-2 mb-2">
         {["전략명", "타입", "평균 수익률", "총 수익금"].map((h) => (
-          <span key={h} className="text-[10px] font-bold uppercase tracking-widest text-gray-600">
+          <span key={h} className="text-xs font-bold uppercase tracking-widest text-gray-600">
             {h}
           </span>
         ))}
@@ -125,17 +115,17 @@ export default function StrategyList() {
           {strategies.map((s) => (
             <div
               key={s.id}
-              className="grid grid-cols-[minmax(0,1fr)_80px_180px_110px] gap-2 items-center px-2 py-3 hover:bg-white/[0.02] rounded-xl transition-colors cursor-pointer"
+              className="grid grid-cols-[minmax(0,1fr)_160px_160px_110px] gap-2 items-center px-2 py-3 hover:bg-white/[0.02] rounded-xl transition-colors cursor-pointer"
             >
               {/* 전략명 */}
               <div className="min-w-0">
-                <p className="text-sm font-bold text-white truncate">{s.name}</p>
-                <p className="text-[10px] text-gray-600 mt-0.5">{s.accountCount}개 계좌</p>
+                <p className="text-base font-bold text-white truncate">{s.name}</p>
+                <p className="text-xs text-gray-600 mt-0.5">{s.accountCount}개 계좌</p>
               </div>
 
               {/* 타입 */}
               <div>
-                <TypeBadge type={s.type} />
+                <TypeBadge type={s.type} universe={s.universe} />
               </div>
 
               {/* 평균 수익률 — 프로그레스 바 */}
@@ -143,7 +133,7 @@ export default function StrategyList() {
 
               {/* 총 수익금 */}
               <span
-                className={`text-sm font-bold tabular-nums font-outfit ${
+                className={`text-base font-bold tabular-nums font-outfit ${
                   s.totalProfit >= 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"
                 }`}
               >

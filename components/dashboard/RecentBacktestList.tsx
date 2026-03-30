@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Flask, ArrowUpRight, ArrowDownRight } from "phosphor-react";
 import type { DashboardBacktestRecord } from "@/types/dashboard";
 
@@ -19,17 +19,9 @@ const UNIVERSE_COLOR: Record<string, string> = {
   미국주식: "bg-emerald-500/15 text-emerald-400",
 };
 
-export default function RecentBacktestList() {
-  const [records, setRecords] = useState<DashboardBacktestRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch("/api/backtest/history")
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data: DashboardBacktestRecord[]) => setRecords(data.slice(0, 5)))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+export default function RecentBacktestList({ initialRecords }: { initialRecords: DashboardBacktestRecord[] }) {
+  const [records] = useState<DashboardBacktestRecord[]>(initialRecords.slice(0, 5));
+  const loading = false;
 
   return (
     <div className="glass-card p-5 h-full">

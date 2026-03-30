@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Activity, ChartLine, Stack, CheckCircle, Vault } from "phosphor-react";
 import type { TradingStatusData } from "@/app/api/dashboard/trading-status/route";
 
@@ -12,27 +12,10 @@ function formatKRW(v: number): string {
   return `${sign}${abs.toLocaleString("ko-KR")}`;
 }
 
-const DEFAULT: TradingStatusData = {
-  totalAccounts: 0,
-  runningAccounts: 0,
-  autoAccounts: 0,
-  todayFilledOrders: 0,
-  totalPositions: 0,
-  dailyPnl: 0,
-  totalEvaluation: 0,
-};
 
-export default function VirtualTradingStatus() {
-  const [data, setData] = useState<TradingStatusData>(DEFAULT);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch("/api/dashboard/trading-status")
-      .then((r) => (r.ok ? r.json() : DEFAULT))
-      .then((d: TradingStatusData) => setData(d))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+export default function VirtualTradingStatus({ initialData }: { initialData: TradingStatusData }) {
+  const [data] = useState<TradingStatusData>(initialData);
+  const loading = false;
 
   const stats = [
     {

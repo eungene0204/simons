@@ -81,6 +81,8 @@ interface BacktestDashboardProps {
   currentOptions?: BacktestConfigOptions;
   isRunning?: boolean;
   backtestDsl?: any; // 전략 저장 시 사용할 원본 DSL/요청 객체
+  aiSummary?: string;  // 저장된 AI 요약 (캐시)
+  aiScore?: number;    // 저장된 AI 점수 (캐시)
   strategySummary?: {
     universeName: string;
     blockNames: string[];
@@ -115,6 +117,8 @@ export default function BacktestDashboard({
   currentOptions,
   isRunning,
   backtestDsl,
+  aiSummary: initialAiSummary,
+  aiScore: initialAiScore,
   strategySummary,
 }: BacktestDashboardProps) {
   const [activeTab, setActiveTab] = useState<"chart" | "stats" | "log" | "assets" | "history" | "monte-carlo">("chart");
@@ -132,6 +136,10 @@ export default function BacktestDashboard({
   const [xaiTarget, setXaiTarget] = useState<{ symbol: string; date: string } | null>(null);
   const lastProcessedResultRef = useRef<string | null>(null);
   const isSavingRef = useRef(false);
+
+  // AI 요약 캐시
+  const [cachedAiSummary, setCachedAiSummary] = useState<string | undefined>(initialAiSummary);
+  const [cachedAiScore, setCachedAiScore] = useState<number | undefined>(initialAiScore);
 
   // 전략 저장 모달
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
@@ -364,6 +372,8 @@ export default function BacktestDashboard({
           description: saveDescription.trim(),
           dsl: backtestDsl ?? {},
           backtestResult: result,
+          aiSummary: cachedAiSummary,
+          aiScore: cachedAiScore,
         }),
       });
       const data = await res.json();
@@ -585,7 +595,13 @@ export default function BacktestDashboard({
       {/* AI Summary + Hero Metrics side by side */}
       <div className="flex gap-3 mb-4 items-stretch">
         <div className="flex-1 min-w-0">
-          <BacktestSummaryCard result={result} strategySummary={strategySummary} />
+          <BacktestSummaryCard
+            result={result}
+            strategySummary={strategySummary}
+            initialSummary={cachedAiSummary}
+            initialScore={cachedAiScore}
+            onSummaryReady={(s, sc) => { setCachedAiSummary(s); setCachedAiScore(sc); }}
+          />
         </div>
         <div className="flex-none grid grid-cols-2 gap-2 content-start" style={{ width: "320px" }}>
           <MetricCard

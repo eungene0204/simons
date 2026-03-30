@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { DashboardBacktestRecord } from "@/types/dashboard";
 
 interface DayBar {
@@ -25,23 +25,10 @@ function buildLast7Days(records: DashboardBacktestRecord[]): DayBar[] {
   return days;
 }
 
-export default function BacktestActivityChart() {
-  const [bars, setBars] = useState<DayBar[]>([]);
-  const [loading, setLoading] = useState(true);
+export default function BacktestActivityChart({ initialRecords }: { initialRecords: DashboardBacktestRecord[] }) {
+  const [bars] = useState<DayBar[]>(() => buildLast7Days(initialRecords));
+  const loading = false;
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
-
-  useEffect(() => {
-    // TODO: MOCK DATA - 테스트용, 나중에 제거
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const mockCounts = [1, 4, 2, 0, 3, 8, 6];
-    const mockBars: DayBar[] = mockCounts.map((count, i) => {
-      const d = new Date(today);
-      d.setDate(today.getDate() - (6 - i));
-      return { date: `${d.getMonth() + 1}/${d.getDate()}`, count };
-    });
-    setTimeout(() => { setBars(mockBars); setLoading(false); }, 400);
-  }, []);
 
   const maxCount = Math.max(...bars.map((b) => b.count), 1);
 

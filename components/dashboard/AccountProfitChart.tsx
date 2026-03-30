@@ -34,26 +34,11 @@ function fmtPct(v: number): string {
   return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
 }
 
-export default function AccountProfitChart() {
-  const [data, setData]                     = useState<AccountMonthlyData | null>(null);
-  const [loading, setLoading]               = useState(true);
+export default function AccountProfitChart({ initialData }: { initialData: AccountMonthlyData | null }) {
+  const [data]                              = useState<AccountMonthlyData | null>(initialData);
   const [hoveredMonth, setHoveredMonth]     = useState<number | null>(null);
   const containerRef                        = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
-
-  useEffect(() => {
-    // TODO: MOCK DATA
-    const mock: AccountMonthlyData = {
-      months: ["2024/10", "2024/11", "2024/12", "2025/01", "2025/02", "2025/03"],
-      accounts: [
-        { id: "1", name: "계좌 A", initialCash: 10_000_000, monthlyProfitPct: [0.8, 1.2, 3.5, 5.1, 4.8, 7.3] },
-        { id: "2", name: "계좌 B", initialCash:  5_000_000, monthlyProfitPct: [0.2, 0.5, 1.8, 2.2, 3.9, 5.0] },
-        { id: "3", name: "계좌 C", initialCash:  8_000_000, monthlyProfitPct: [0.5,-0.8, 0.4,-1.2, 2.1, 3.4] },
-        { id: "4", name: "계좌 D", initialCash:  3_000_000, monthlyProfitPct: [1.0, 2.1, 4.2, 6.0, 5.5, 9.1] },
-      ],
-    };
-    setTimeout(() => { setData(mock); setLoading(false); }, 400);
-  }, []);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -62,13 +47,13 @@ export default function AccountProfitChart() {
     });
     ro.observe(containerRef.current);
     return () => ro.disconnect();
-  }, [loading]);
+  }, []);
 
   const nAccounts = data?.accounts.length ?? 0;
   const nMonths   = data?.months.length   ?? 0;
   const totalH    = LABEL_H + CHART_H + VALUE_H;
 
-  if (loading) {
+  if (!data) {
     return (
       <div className="glass-card p-5 h-full">
         <div className="h-4 bg-white/5 rounded w-1/3 mb-5 animate-pulse" />
@@ -231,13 +216,13 @@ export default function AccountProfitChart() {
                   onMouseEnter={() => setHoveredMonth(mi)}
                   onMouseLeave={() => setHoveredMonth(null)}
                 >
-                  {/* 월 라벨 */}
-                  <div className="absolute top-0 left-0 right-0 flex items-end justify-start pb-1"
+                  {/* 수익률 라벨 — 상단 */}
+                  <div className="absolute top-0 left-0 right-0 flex items-end justify-center pb-1"
                     style={{ height: LABEL_H }}>
-                    <span className={`text-sm font-black font-outfit transition-colors ${
-                      isActive ? "text-white" : "text-gray-600"
+                    <span className={`text-xs font-bold tabular-nums transition-colors ${
+                      isActive ? "text-white font-black" : "text-gray-600"
                     }`}>
-                      {fmtMonth(ym)}
+                      {fmtPct(monthTotal)}
                     </span>
                   </div>
 
@@ -260,18 +245,14 @@ export default function AccountProfitChart() {
                     );
                   })}
 
-                  {/* 값 라벨 */}
-                  <div className="absolute left-0 bottom-0 flex items-center"
+                  {/* 월 라벨 — 하단 */}
+                  <div className="absolute left-0 right-0 bottom-0 flex items-center justify-center"
                     style={{ height: VALUE_H }}>
-                    {isActive ? (
-                      <span className="text-xs font-black tabular-nums text-white bg-gray-900/90 px-2.5 py-1 rounded-md">
-                        {fmtPct(monthTotal)}
-                      </span>
-                    ) : (
-                      <span className="text-xs font-bold tabular-nums text-gray-600">
-                        {fmtPct(monthTotal)}
-                      </span>
-                    )}
+                    <span className={`text-xs font-black font-outfit transition-colors ${
+                      isActive ? "text-white" : "text-gray-600"
+                    }`}>
+                      {fmtMonth(ym)}
+                    </span>
                   </div>
                 </div>
               );
