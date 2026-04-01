@@ -14,7 +14,8 @@ function fmtDate(ts: number): string {
 }
 
 const UNIVERSE_COLOR: Record<string, string> = {
-  KOSPI: "bg-blue-500/15 text-blue-400",
+  KOSPI: "bg-sky-500/15 text-sky-400",
+  "KOSPI200": "bg-indigo-500/15 text-indigo-400",
   KOSDAQ: "bg-purple-500/15 text-purple-400",
   미국주식: "bg-emerald-500/15 text-emerald-400",
 };
@@ -39,7 +40,7 @@ export default function RecentBacktestList({ initialRecords }: { initialRecords:
       {/* 테이블 헤더 */}
       <div className="grid grid-cols-[minmax(0,1fr)_64px_72px_56px] gap-2 px-2 mb-2">
         {["전략명", "유니버스", "수익률", "날짜"].map((h) => (
-          <span key={h} className="text-[10px] font-bold uppercase tracking-widest text-gray-600">
+          <span key={h} className="text-xs font-bold uppercase tracking-widest text-gray-600">
             {h}
           </span>
         ))}
@@ -107,7 +108,7 @@ export default function RecentBacktestList({ initialRecords }: { initialRecords:
               { label: "최고 수익", value: fmtPct(best.metrics.totalReturn ?? 0), positive: (best.metrics.totalReturn ?? 0) >= 0 },
               { label: "Sharpe", value: best.metrics.sharpe != null ? best.metrics.sharpe.toFixed(2) : "--" },
               { label: "MDD", value: best.metrics.mdd != null ? `${best.metrics.mdd.toFixed(1)}%` : "--" },
-              { label: "승률", value: best.metrics.winRate != null ? `${best.metrics.winRate.toFixed(0)}%` : "--" },
+              { label: "점수", value: best.metrics.score != null ? best.metrics.score.toFixed(0) : "--" },
             ].map((item) => (
               <div key={item.label} className="flex-1 text-center">
                 <p className="text-[9px] uppercase tracking-widest text-gray-600 font-bold">{item.label}</p>

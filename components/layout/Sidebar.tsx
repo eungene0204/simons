@@ -4,6 +4,7 @@ import { useMemo, memo, useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { useDrawer } from "@/contexts/DrawerContext";
+import Image from "next/image";
 import {
   SquaresFour,
   Star,
@@ -248,10 +249,14 @@ function SidebarComponent({
         }
         className="flex items-center gap-3 mr-8 flex-shrink-0 group"
       >
-        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-black text-lg shadow-[0_0_15px_rgba(59,130,246,0.3)] group-hover:scale-105 transition-transform duration-300">
-          N
-        </div>
-        <p className="text-sm font-black text-white tracking-tighter font-outfit uppercase">널스탁</p>
+        <Image
+          src="/nullStock.png"
+          alt="NullStock Logo"
+          width={72}
+          height={42}
+          className="rounded-full group-hover:scale-105 transition-transform duration-300"
+        />
+        <span className="text-sm font-black text-white tracking-tighter uppercase">널스탁</span>
       </Link>
 
       {/* Menu Items */}

@@ -5859,6 +5859,13 @@
     "industry": "연료용 가스 제조 및 배관공급업"
   },
   {
+    "symbol": "394420",
+    "name": "리센스메디컬",
+    "market": "KOSDAQ",
+    "sector": "의료기기",
+    "industry": "의료용 기기 제조업"
+  },
+  {
     "symbol": "408470",
     "name": "한패스",
     "market": "KOSDAQ",
@@ -15205,7 +15212,7 @@
   },
   {
     "symbol": "070590",
-    "name": "한솔인티큐브",
+    "name": "인티큐브",
     "market": "KOSDAQ",
     "sector": "IT 하드웨어",
     "industry": "컴퓨터 프로그래밍, 시스템 통합 및 관리업"

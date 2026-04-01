@@ -147,14 +147,9 @@ export async function getTransactionsByAccount(
 export async function refreshAccountValue(
   accountId: string
 ): Promise<{ account: VirtualAccount; holdings: PortfolioHolding[] } | null> {
-  const [account, holdings] = await Promise.all([
-    getAccount(accountId),
-    getHoldingsByAccount(accountId),
-  ]);
+  // account API가 holdings도 포함해서 반환하므로 1회 요청으로 충분
+  const account = await getAccount(accountId);
   if (!account) return null;
-
-  const stocksValue = holdings.reduce((sum, h) => sum + h.totalValue, 0);
-  const totalValue = account.currentBalance + stocksValue;
-
-  return { account: { ...account, totalValue }, holdings };
+  const holdings: PortfolioHolding[] = (account as any).holdings ?? [];
+  return { account, holdings };
 }

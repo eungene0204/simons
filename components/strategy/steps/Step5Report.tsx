@@ -15,6 +15,7 @@ interface Step5ReportProps {
   onWalkForward?: (settings: any) => Promise<any>;
   configOptions: any;
   summaryData: any;
+  backtestDsl?: any;
 }
 
 export default function Step5Report({
@@ -28,6 +29,7 @@ export default function Step5Report({
   onWalkForward,
   configOptions,
   summaryData,
+  backtestDsl,
 }: Step5ReportProps) {
   if (!backtestResult) {
     return (
@@ -65,6 +67,7 @@ export default function Step5Report({
         currentOptions={configOptions}
         isRunning={isBacktesting}
         strategySummary={summaryData}
+        backtestDsl={backtestDsl}
       />
     </div>
   );

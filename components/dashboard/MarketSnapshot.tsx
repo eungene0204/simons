@@ -57,7 +57,7 @@ export default function MarketSnapshot() {
 
   useEffect(() => {
     fetchData();
-    const id = setInterval(fetchData, 60000);
+    const id = setInterval(fetchData, 30000);
     return () => clearInterval(id);
   }, []);
 
