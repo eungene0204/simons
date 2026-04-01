@@ -8,7 +8,7 @@ export interface DashboardBacktestRecord {
     cagr?: number;
     sharpe?: number;
     mdd?: number;
-    winRate?: number;
+    score?: number;
     startDate?: string;
     endDate?: string;
     trades?: number;

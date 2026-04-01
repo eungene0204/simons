@@ -17,6 +17,7 @@ from datetime import datetime, timezone, timedelta
 from engine.providers.base import BaseProvider, StockQuote, ProviderHealth
 from engine.providers.naver import NaverProvider
 from engine.providers.kis import KISProvider
+from engine.providers.kis_ws import KISWebSocketProvider
 from engine.providers.yfinance_kr import YFinanceKRProvider
 from engine.providers.pykrx_provider import PykrxProvider
 from engine.providers.krx_api_provider import KRXApiProvider
@@ -139,12 +140,14 @@ class MarketDataProvider:
         self.circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_timeout=60)
         self.providers: list[BaseProvider] = []
         self._health: dict[str, ProviderHealth] = {}
+        self.ws_provider = KISWebSocketProvider()
         self._init_providers()
 
     def _init_providers(self) -> None:
-        """우선순위 순서로 provider 초기화"""
+        """우선순위 순서로 provider 초기화 (WebSocket 캐시 → REST 폴백 체인)"""
         candidates = [
-            KISProvider(),
+            self.ws_provider,   # 1순위: KIS WebSocket 실시간 캐시
+            KISProvider(),      # 2순위: KIS REST
             NaverProvider(),
             YFinanceKRProvider(),
             PykrxProvider(),
@@ -162,6 +165,18 @@ class MarketDataProvider:
                 print(f"[MarketData] {p.name}: 미설정 (환경변수 없음) — 건너뜀")
             else:
                 print(f"[MarketData] {p.name}: 등록됨")
+
+    async def start_ws(self) -> None:
+        """KIS WebSocket 백그라운드 루프 시작"""
+        await self.ws_provider.start()
+
+    async def stop_ws(self) -> None:
+        """KIS WebSocket 백그라운드 루프 중지"""
+        await self.ws_provider.stop()
+
+    async def subscribe(self, symbols: list[str]) -> None:
+        """실시간 구독 종목 추가"""
+        await self.ws_provider.subscribe(symbols)
 
     async def get_price(self, symbol: str) -> Optional[StockQuote]:
         """단일 종목 현재가 — 캐시 → provider 체인 순회"""

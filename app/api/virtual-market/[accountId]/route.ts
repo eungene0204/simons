@@ -80,6 +80,18 @@ export async function POST(
     parsedSymbols.forEach((sym) => {
       if (nameMap[sym]) symbolNames[sym] = nameMap[sym];
     });
+
+    // KIS WebSocket 실시간 구독 등록
+    try {
+      await fetch(`${process.env.BACKEND_URL || "http://localhost:8000"}/market/subscribe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbols: parsedSymbols }),
+      });
+    } catch (e) {
+      console.warn("WebSocket subscribe failed (non-critical):", e);
+    }
+
     return NextResponse.json({ ...state, symbols: parsedSymbols, symbolNames });
   } catch (error) {
     console.error("Failed to start market tracking:", error);

@@ -12,8 +12,8 @@ import sys
 import json
 import platform
 
-MLX_MODEL = "mlx-community/Qwen2.5-3B-Instruct-4bit"
-OLLAMA_MODEL = "qwen2.5:3b"
+MLX_MODEL = "mlx-community/Qwen2.5-32B-Instruct-4bit"
+OLLAMA_MODEL = "qwen2.5:32b"
 OLLAMA_URL = "http://localhost:11434/api/generate"
 
 
@@ -131,7 +131,7 @@ def summarize_mlx(prompt: str) -> str:
     else:
         formatted = prompt
 
-    result = generate(model, tokenizer, prompt=formatted, max_tokens=400, verbose=False)
+    result = generate(model, tokenizer, prompt=formatted, max_tokens=600, verbose=False)
     return result.strip()
 
 
@@ -143,7 +143,7 @@ def summarize_ollama(prompt: str) -> str:
             "model": OLLAMA_MODEL,
             "prompt": prompt,
             "stream": False,
-            "options": {"temperature": 0.3, "num_predict": 400},
+            "options": {"temperature": 0.3, "num_predict": 600},
         }
     ).encode()
 

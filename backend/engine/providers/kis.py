@@ -110,6 +110,8 @@ class KISProvider(BaseProvider):
                 volume=int(output.get("acml_vol", "0") or "0"),
                 source="kis",
                 timestamp=time.time(),
+                prev_close=int(output.get("stck_sdpr", "0") or "0"),
+                change_rate=float(output.get("prdy_ctrt", "0") or "0"),
             )
         except Exception as e:
             print(f"[KISProvider] {symbol} 조회 실패: {e}")

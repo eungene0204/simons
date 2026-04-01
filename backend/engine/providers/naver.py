@@ -50,6 +50,18 @@ def _fetch_naver_quote(symbol: str) -> Optional[StockQuote]:
         name = basic.get("stockName", symbol)
         date_str = basic.get("localTradedAt", "")[:10]  # "2026-03-27T..."
 
+        # 전일종가 계산: close ± compareToPreviousClosePrice (방향 고려)
+        compare_val = _parse_number(basic.get("compareToPreviousClosePrice", "0"))
+        compare_dir = basic.get("compareToPreviousPrice", {})
+        dir_code = compare_dir.get("code", "3") if isinstance(compare_dir, dict) else "3"
+        # code: 1=하한가, 2=상승, 3=보합, 4=하락, 5=상한가
+        if dir_code in ("4", "1"):  # 하락/하한가: 전일종가 = 현재가 + 변동폭
+            prev_close = close + compare_val
+        elif dir_code in ("2", "5"):  # 상승/상한가: 전일종가 = 현재가 - 변동폭
+            prev_close = close - compare_val
+        else:  # 보합
+            prev_close = close
+
         # 2) integration 엔드포인트 → 시가, 고가, 저가, 거래량
         integ_resp = requests.get(
             f"{_BASE_URL}/{symbol}/integration",
@@ -81,6 +93,8 @@ def _fetch_naver_quote(symbol: str) -> Optional[StockQuote]:
             volume=volume,
             source="naver",
             timestamp=time.time(),
+            prev_close=prev_close,
+            change_rate=round((close - prev_close) / prev_close * 100, 2) if prev_close else 0.0,
         )
     except Exception as e:
         print(f"[NaverProvider] {symbol} 조회 실패: {e}")

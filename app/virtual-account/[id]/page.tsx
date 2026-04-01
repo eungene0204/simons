@@ -11,19 +11,19 @@ import {
 } from "@/types/portfolio";
 import {
   getAccount,
-  getHoldingsByAccount,
   getTransactionsByAccount,
   executeTrade,
   refreshAccountValue,
   updateTradingMode,
   deleteAccount,
 } from "@/lib/portfolio";
-import { MagnifyingGlass, Robot, Bell, Trash } from "phosphor-react";
+import { MagnifyingGlass, Robot, Bell, Trash, X } from "phosphor-react";
 import StockSearchModal from "@/components/stock/StockSearchModal";
 import OrderBook from "@/components/order/OrderBook";
-import { generateStockPriceData } from "@/lib/mock-stock-data";
+import type { BatchQuoteItem } from "@/app/api/stock/batch-quotes/route";
 import PortfolioPerformanceChart, { PerformancePoint } from "@/components/portfolio/PortfolioPerformanceChart";
 import { getStrategyByName } from "@/lib/strategy-groups";
+import { TrendUp } from "phosphor-react";
 
 const formatPrice = (price: number) =>
   new Intl.NumberFormat("ko-KR").format(Math.round(price));
@@ -72,7 +72,32 @@ export default function VirtualAccountDetailPage() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [showOrderPage, setShowOrderPage] = useState(false);
   const [activeTab, setActiveTab] = useState<"holdings" | "transactions" | "performance">("holdings");
-const [dbStrategyDescription, setDbStrategyDescription] = useState<string | null>(null);
+  const [dbStrategyDescription, setDbStrategyDescription] = useState<string | null>(null);
+  const [trackedSymbols, setTrackedSymbols] = useState<{ symbol: string; name: string }[]>([]);
+  const [trackedPrices, setTrackedPrices] = useState<Record<string, BatchQuoteItem>>({});
+  const [isTrackSearchOpen, setIsTrackSearchOpen] = useState(false);
+
+  const fetchTrackedPrices = async (symbols: string[]) => {
+    if (symbols.length === 0) return;
+    try {
+      const res = await fetch("/api/stock/batch-quotes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbols }),
+      });
+      if (res.ok) {
+        const data: Record<string, BatchQuoteItem> = await res.json();
+        // price>0인 항목만 업데이트, 0이면 마지막 가격 유지
+        setTrackedPrices((prev) => {
+          const merged = { ...prev };
+          for (const [sym, item] of Object.entries(data)) {
+            if (item.price > 0) merged[sym] = item;
+          }
+          return merged;
+        });
+      }
+    } catch {}
+  };
 
   useEffect(() => {
     if (accountId) loadAccountData();
@@ -81,46 +106,121 @@ const [dbStrategyDescription, setDbStrategyDescription] = useState<string | null
 
   useEffect(() => {
     if (!accountId) return;
-    const updateHoldings = async () => {
+    const interval = setInterval(async () => {
       const result = await refreshAccountValue(accountId);
       if (!result) return;
       setAccount(result.account);
       setHoldings(result.holdings);
-    };
-    updateHoldings();
-    const interval = setInterval(updateHoldings, 3000);
+    }, 3000);
     return () => clearInterval(interval);
   }, [accountId]);
 
+  // 추적 종목 가격 동기화: 종목 변경 시 즉시 + 5초마다 갱신
+  useEffect(() => {
+    const symbols = trackedSymbols.map((s) => s.symbol);
+    fetchTrackedPrices(symbols);
+    const interval = setInterval(() => fetchTrackedPrices(symbols), 2000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trackedSymbols]);
+
   useEffect(() => {
     if (!selectedSymbol) return;
-    const updatePrice = () => {
-      const priceData = generateStockPriceData(selectedSymbol);
-      setCurrentPrice(priceData.currentPrice);
-      if (isAutoPrice && !selectedOrderPrice) {
-        setPrice(priceData.currentPrice.toString());
-      }
+    const updatePrice = async () => {
+      try {
+        const res = await fetch("/api/stock/batch-quotes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbols: [selectedSymbol] }),
+        });
+        if (res.ok) {
+          const data: Record<string, BatchQuoteItem> = await res.json();
+          const q = data[selectedSymbol];
+          if (q?.price > 0) {
+            setCurrentPrice(q.price);
+            if (isAutoPrice && !selectedOrderPrice) {
+              setPrice(q.price.toString());
+            }
+          }
+        }
+      } catch {}
     };
     updatePrice();
-    const interval = setInterval(updatePrice, 1000);
+    const interval = setInterval(updatePrice, 2000);
     return () => clearInterval(interval);
   }, [selectedSymbol, isAutoPrice, selectedOrderPrice]);
 
   const loadAccountData = async () => {
-    const [acc, h, t] = await Promise.all([
+    const [acc, t] = await Promise.all([
       getAccount(accountId),
-      getHoldingsByAccount(accountId),
       getTransactionsByAccount(accountId),
     ]);
     if (!acc) { router.push("/virtual-account"); return; }
     setAccount(acc);
-    setHoldings(h);
+    setHoldings((acc as any).holdings ?? []);
     setTransactions(t.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
     if (acc.strategyId) {
       fetch(`/api/strategy/${acc.strategyId}`)
         .then((r) => r.ok ? r.json() : null)
         .then((s) => setDbStrategyDescription(s?.description ?? null))
         .catch(() => setDbStrategyDescription(null));
+    }
+    fetch(`/api/virtual-market/${accountId}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((state) => {
+        if (state?.symbols?.length) {
+          setTrackedSymbols(
+            state.symbols.map((sym: string) => ({
+              symbol: sym,
+              name: state.symbolNames?.[sym] || sym,
+            }))
+          );
+        }
+      })
+      .catch(() => {});
+  };
+
+  const handleAddTrackedSymbols = async (selected: Array<{ symbol: string; name: string }>) => {
+    const newSymbols = selected.filter(
+      (s) => !trackedSymbols.some((t) => t.symbol === s.symbol)
+    );
+    if (newSymbols.length === 0) return;
+    const merged = [...trackedSymbols, ...newSymbols];
+    const symbolList = merged.map((s) => s.symbol);
+    try {
+      const checkRes = await fetch(`/api/virtual-market/${accountId}`);
+      const existing = checkRes.ok ? await checkRes.json() : null;
+      if (existing) {
+        await fetch(`/api/virtual-market/${accountId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbols: symbolList }),
+        });
+      } else {
+        await fetch(`/api/virtual-market/${accountId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbols: symbolList }),
+        });
+      }
+      setTrackedSymbols(merged);
+    } catch (e) {
+      console.error("Failed to add tracked symbols:", e);
+    }
+  };
+
+  const handleRemoveTrackedSymbol = async (symbol: string) => {
+    const merged = trackedSymbols.filter((s) => s.symbol !== symbol);
+    const symbolList = merged.map((s) => s.symbol);
+    try {
+      await fetch(`/api/virtual-market/${accountId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbols: symbolList }),
+      });
+      setTrackedSymbols(merged);
+    } catch (e) {
+      console.error("Failed to remove tracked symbol:", e);
     }
   };
 
@@ -154,13 +254,16 @@ const [dbStrategyDescription, setDbStrategyDescription] = useState<string | null
     if (!account) return { profit: 0, profitPercent: 0, todayPnl: 0, todayPnlPct: 0, performanceData: [] };
     const p = account.totalValue - account.initialAmount;
     const pp = (p / account.initialAmount) * 100;
-    const todayPnl = Math.abs(account.totalValue * 0.0214);
-    const todayPnlPct = 2.14;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayPnl = transactions
+      .filter((t) => t.type === "sell" && t.status === "FILLED" && t.filledAt?.startsWith(todayStr))
+      .reduce((sum, t) => sum + (t.realizedPnl ?? 0), 0);
+    const todayPnlPct = account.initialAmount > 0 ? (todayPnl / account.initialAmount) * 100 : 0;
     const startDate = new Date(account.createdAt);
     const days = Math.max(1, Math.round((Date.now() - startDate.getTime()) / 86400000));
     const performanceData = generatePerformanceData(startDate, Math.min(days, 150), pp);
     return { profit: p, profitPercent: pp, todayPnl, todayPnlPct, performanceData };
-  }, [account]);
+  }, [account, transactions]);
 
   if (!account) {
     return (
@@ -175,11 +278,8 @@ const [dbStrategyDescription, setDbStrategyDescription] = useState<string | null
   const shouldShowOrderPage = showOrderPage || selectedSymbol;
 
   const strategies = account.strategyName
-    ? [{ name: account.strategyName, status: "active" as const, dailyPnl: 4.82, allocated: account.currentBalance * 0.5 }]
-    : [
-        { name: "모멘텀 헌터 v4", status: "active" as const, dailyPnl: 4.82, allocated: 450000 },
-        { name: "변동성 조절 차익거래", status: "standby" as const, dailyPnl: 0, allocated: 200000, lastRun: "05-01 15:30" },
-      ];
+    ? [{ name: account.strategyName, status: "active" as const }]
+    : [];
 
   return (
     <DashboardLayout userName="사용자">
@@ -309,54 +409,142 @@ const [dbStrategyDescription, setDbStrategyDescription] = useState<string | null
               <div className="bg-[#111111] border border-[#222] rounded-xl p-5">
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-xs text-gray-500 uppercase tracking-wide">당일 손익</p>
-                  <div className="w-8 h-8 rounded-lg bg-[#1a1a1a] flex items-center justify-center text-emerald-500">
+                  <div className="w-8 h-8 rounded-lg bg-[#1a1a1a] flex items-center justify-center text-gray-400">
                     <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
                   </div>
                 </div>
-                <p className="text-2xl font-bold text-emerald-400">+{formatPrice(todayPnl)}</p>
-                <p className="text-xs text-emerald-500 mt-1">+{todayPnlPct.toFixed(2)}% ▲</p>
+                <p className={`text-2xl font-bold ${todayPnl >= 0 ? "text-white" : "text-blue-400"}`}>
+                  {todayPnl >= 0 ? "+" : ""}{formatPrice(todayPnl)}
+                </p>
+                <p className={`text-xs mt-1 ${todayPnl >= 0 ? "text-gray-400" : "text-blue-400"}`}>
+                  {todayPnlPct >= 0 ? "+" : ""}{todayPnlPct.toFixed(2)}% {todayPnl >= 0 ? "▲" : "▼"}
+                </p>
               </div>
 
               <div className="bg-[#111111] border border-[#222] rounded-xl p-5">
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-xs text-gray-500 uppercase tracking-wide">누적 수익률</p>
-                  <div className={`w-8 h-8 rounded-lg bg-[#1a1a1a] flex items-center justify-center ${profitPercent >= 0 ? "text-emerald-500" : "text-red-500"}`}>
+                  <div className={`w-8 h-8 rounded-lg bg-[#1a1a1a] flex items-center justify-center ${profitPercent >= 0 ? "text-gray-400" : "text-red-500"}`}>
                     <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12h18M3 6h18M3 18h18"/><path d="M5 9v6M9 7v8M13 8v7M17 6v9"/></svg>
                   </div>
                 </div>
-                <p className={`text-2xl font-bold ${profitPercent >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                <p className={`text-2xl font-bold ${profitPercent >= 0 ? "text-white" : "text-red-400"}`}>
                   {profitPercent >= 0 ? "+" : ""}{profitPercent.toFixed(2)}%
                 </p>
                 <div className="mt-3 h-1.5 bg-[#222] rounded-full overflow-hidden">
-                  <div className={`h-full rounded-full ${profitPercent >= 0 ? "bg-emerald-500" : "bg-red-500"}`} style={{ width: `${Math.min(100, Math.abs(profitPercent) * 2)}%` }} />
+                  <div className={`h-full rounded-full ${profitPercent >= 0 ? "bg-blue-500" : "bg-red-500"}`} style={{ width: `${Math.min(100, Math.abs(profitPercent) * 2)}%` }} />
                 </div>
               </div>
             </div>
 
-            {/* 차트 + 전략 */}
+            {/* 추적 종목 + 전략 */}
             <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4">
-              {/* 전략 성과 현황 */}
+              {/* 추적 종목 */}
               <div className="bg-[#111111] border border-[#222] rounded-xl p-6">
-                <div className="flex items-start justify-between mb-1">
+                <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h2 className="text-base font-semibold text-white">전략 성과 현황</h2>
-                    <p className="text-xs text-gray-500 mt-0.5">성과 분석 및 벤치마크 대비 추이</p>
+                    <h2 className="text-base font-semibold text-white">추적 종목</h2>
+                    <p className="text-xs text-gray-500 mt-0.5">전략이 시그널을 모니터링 중인 종목 목록</p>
                   </div>
-                  <div className="flex items-center gap-4 text-xs text-gray-400">
-                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-gray-500 inline-block" />벤치마크 (KOSPI 200)</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500 bg-[#1a1a1a] border border-[#2a2a2a] px-2.5 py-0.5 rounded-full">
+                      {trackedSymbols.length}개
+                    </span>
+                    <button
+                      onClick={() => setIsTrackSearchOpen(true)}
+                      className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 border border-blue-400/20 px-2.5 py-1 rounded-full transition-colors"
+                    >
+                      <span className="text-base leading-none">+</span> 종목 추가
+                    </button>
                   </div>
                 </div>
-                <div className="h-72 mt-4">
-                  <PortfolioPerformanceChart data={performanceData} />
-                </div>
+                {trackedSymbols.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-48 gap-3 text-gray-600">
+                    <TrendUp size={32} weight="thin" />
+                    <p className="text-sm">추적 중인 종목이 없습니다</p>
+                    <button
+                      onClick={() => setIsTrackSearchOpen(true)}
+                      className="text-xs text-blue-400 hover:text-blue-300 underline underline-offset-2 transition-colors"
+                    >
+                      종목을 직접 추가하기
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    {/* 헤더 */}
+                    <div className="grid grid-cols-[1fr_80px_72px_80px_52px_24px] gap-x-3 px-1 pb-2 border-b border-[#1e1e1e] text-[11px] text-gray-600 uppercase tracking-wide">
+                      <span>종목</span>
+                      <span className="text-right">현재가</span>
+                      <span className="text-right">등락률</span>
+                      <span className="text-right">거래량</span>
+                      <span className="text-right">상태</span>
+                      <span />
+                    </div>
+                    {/* 행 */}
+                    <div className="max-h-64 overflow-y-auto divide-y divide-[#161616]">
+                      {trackedSymbols.map(({ symbol, name }) => {
+                        const q = trackedPrices[symbol];
+                        const hasPrice = q && q.price > 0;
+                        const holding = holdings.find((h) => h.symbol === symbol);
+                        const isUp = (q?.changePercent ?? 0) >= 0;
+                        return (
+                          <div
+                            key={symbol}
+                            className="grid grid-cols-[1fr_80px_72px_80px_52px_24px] gap-x-3 items-center px-1 py-2.5 hover:bg-[#161616] transition-colors group cursor-pointer"
+                            onClick={() => handleStockSelect(symbol, name)}
+                          >
+                            {/* 종목명 */}
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="w-7 h-7 rounded-lg bg-[#252525] flex-shrink-0 flex items-center justify-center">
+                                <span className="text-[10px] font-bold text-gray-400">{symbol.slice(0, 2)}</span>
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-xs font-medium text-white truncate">{name}</p>
+                                <p className="text-[10px] text-gray-500">{symbol}</p>
+                              </div>
+                            </div>
+                            {/* 현재가 */}
+                            <p className="text-xs text-right text-white font-medium tabular-nums">
+                              {hasPrice ? formatPrice(q.price) : <span className="text-gray-600">-</span>}
+                            </p>
+                            {/* 등락률 */}
+                            <p className={`text-xs text-right font-semibold tabular-nums ${hasPrice ? (isUp ? "text-red-400" : "text-blue-400") : "text-gray-600"}`}>
+                              {hasPrice ? `${isUp ? "+" : ""}${q.changePercent.toFixed(2)}%` : "-"}
+                            </p>
+                            {/* 거래량 */}
+                            <p className="text-xs text-right text-gray-400 tabular-nums">
+                              {hasPrice ? q.volume.toLocaleString("ko-KR") : <span className="text-gray-600">-</span>}
+                            </p>
+                            {/* 상태 */}
+                            <div className="flex justify-end">
+                              {holding ? (
+                                <span className="text-[10px] text-blue-400 bg-blue-400/10 px-1.5 py-0.5 rounded">보유중</span>
+                              ) : (
+                                <span className="text-[10px] text-gray-600">대기</span>
+                              )}
+                            </div>
+                            {/* 삭제 */}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleRemoveTrackedSymbol(symbol); }}
+                              className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-red-400 transition-all flex items-center justify-center"
+                              title="추적 제거"
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* 운용 중인 전략 */}
               <div className="bg-[#111111] border border-[#222] rounded-xl p-6 flex flex-col">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-base font-semibold text-white">운용 중인 전략</h2>
-                  <span className="flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 px-2.5 py-1 rounded-full">
-                    <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />실시간 AI 처리 중
+                  <span className="flex items-center gap-1.5 text-xs text-gray-400 bg-gray-400/10 border border-gray-400/20 px-2.5 py-1 rounded-full">
+                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-pulse" />실시간 AI 처리 중
                   </span>
                 </div>
 
@@ -393,9 +581,11 @@ const [dbStrategyDescription, setDbStrategyDescription] = useState<string | null
                           <span className="text-sm">{strategy.status === "active" ? "🚀" : "⏸"}</span>
                           <span className="text-sm font-medium text-white truncate max-w-[140px]">{strategy.name}</span>
                         </div>
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${strategy.status === "active" ? "bg-emerald-400/10 text-emerald-400 border border-emerald-400/20" : "bg-gray-700/50 text-gray-400 border border-gray-600/30"}`}>
-                          {strategy.status === "active" ? "● 활성" : "대기"}
-                        </span>
+                        {strategy.status !== "active" && (
+                          <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-gray-700/50 text-gray-400 border border-gray-600/30">
+                            대기
+                          </span>
+                        )}
                       </div>
                       {description && (
                         <p className="text-xs text-gray-400">{description}</p>
@@ -470,10 +660,10 @@ const [dbStrategyDescription, setDbStrategyDescription] = useState<string | null
                               <td className="py-4 px-4 text-right text-gray-300">{formatPrice(h.averagePrice)}</td>
                               <td className="py-4 px-4 text-right text-white font-medium">{formatPrice(h.currentPrice)}</td>
                               <td className="py-4 px-4 text-right text-gray-300">{h.quantity.toLocaleString()}</td>
-                              <td className={`py-4 px-4 text-right font-semibold ${isPos ? "text-emerald-400" : "text-red-400"}`}>
+                              <td className={`py-4 px-4 text-right font-semibold ${isPos ? "text-white" : "text-red-400"}`}>
                                 {isPos ? "+" : ""}{h.profitPercent.toFixed(2)}%
                               </td>
-                              <td className={`py-4 pl-4 text-right font-semibold ${isPos ? "text-emerald-400" : "text-red-400"}`}>
+                              <td className={`py-4 pl-4 text-right font-semibold ${isPos ? "text-white" : "text-red-400"}`}>
                                 {isPos ? "+" : "-"}{formatPrice(Math.abs(h.profit))}
                               </td>
                             </tr>
@@ -517,7 +707,7 @@ const [dbStrategyDescription, setDbStrategyDescription] = useState<string | null
                             <td className="py-3 px-3 text-right text-gray-500">{t.fee!=null?`-${formatPrice(t.fee)}`:"-"}</td>
                             <td className="py-3 px-3 text-right">
                               {t.realizedPnl!=null ? (
-                                <span className={`font-semibold ${t.realizedPnl>=0?"text-emerald-400":"text-red-400"}`}>
+                                <span className={`font-semibold ${t.realizedPnl>=0?"text-white":"text-red-400"}`}>
                                   {t.realizedPnl>=0?"+":""}{formatPrice(Math.round(t.realizedPnl))}
                                 </span>
                               ) : <span className="text-gray-600">-</span>}
@@ -535,7 +725,25 @@ const [dbStrategyDescription, setDbStrategyDescription] = useState<string | null
 
               {/* 성과 분석 */}
               {activeTab === "performance" && (
-                <VirtualTradingDashboard accountId={accountId} initialAmount={account.initialAmount} />
+                <div className="space-y-6">
+                  {/* 전략 성과 현황 차트 */}
+                  <div>
+                    <div className="flex items-start justify-between mb-4">
+                      <div>
+                        <h3 className="text-sm font-semibold text-white">전략 성과 현황</h3>
+                        <p className="text-xs text-gray-500 mt-0.5">성과 분석 및 벤치마크 대비 추이</p>
+                      </div>
+                      <span className="flex items-center gap-1.5 text-xs text-gray-500">
+                        <span className="w-2.5 h-2.5 rounded-full bg-gray-600 inline-block" />벤치마크 (KOSPI 200)
+                      </span>
+                    </div>
+                    <div className="h-64">
+                      <PortfolioPerformanceChart data={performanceData} />
+                    </div>
+                  </div>
+                  <div className="border-t border-[#1e1e1e]" />
+                  <VirtualTradingDashboard accountId={accountId} initialAmount={account.initialAmount} />
+                </div>
               )}
             </div>
           </div>
@@ -546,6 +754,12 @@ const [dbStrategyDescription, setDbStrategyDescription] = useState<string | null
           onClose={() => setIsSearchOpen(false)}
           onSelect={(items) => { if (items.length > 0) { handleStockSelect(items[0].symbol, items[0].name); setIsSearchOpen(false); } }}
           singleSelect={true}
+        />
+
+        <StockSearchModal
+          isOpen={isTrackSearchOpen}
+          onClose={() => setIsTrackSearchOpen(false)}
+          onSelect={handleAddTrackedSymbols}
         />
       </div>
     </DashboardLayout>

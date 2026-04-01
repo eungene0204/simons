@@ -1,6 +1,35 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
+  try {
+    // 자동매매 중인 연결 계좌 조회
+    const autoTradingAccounts = await prisma.virtualAccount.findMany({
+      where: { strategyId: params.id, tradingMode: { not: "manual" } },
+      select: { id: true, name: true },
+    });
+
+    await prisma.$transaction(async (tx) => {
+      // 연결 계좌 자동매매 중지
+      if (autoTradingAccounts.length > 0) {
+        const accountIds = autoTradingAccounts.map((a) => a.id);
+        await tx.virtualMarketState.deleteMany({ where: { accountId: { in: accountIds } } });
+        await tx.virtualAccount.updateMany({
+          where: { id: { in: accountIds } },
+          data: { tradingMode: "manual" },
+        });
+      }
+      await tx.backtestResult.deleteMany({ where: { strategyId: params.id } });
+      await tx.strategy.delete({ where: { id: params.id } });
+    });
+
+    return NextResponse.json({ ok: true, stoppedAccounts: autoTradingAccounts });
+  } catch (error) {
+    console.error("Failed to delete strategy:", error);
+    return NextResponse.json({ error: "Failed to delete strategy" }, { status: 500 });
+  }
+}
+
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   try {
     const strategy = await prisma.strategy.findUnique({
