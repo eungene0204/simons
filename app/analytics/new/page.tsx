@@ -1,9 +1,14 @@
 "use client";
 
 import { useState, useRef, useEffect, Suspense } from "react";
+import dynamic from "next/dynamic";
 import DashboardLayout from "@/components/layout/DashboardLayout";
-import BacktestDashboard from "@/components/strategy/backtest/BacktestDashboard";
 import { BacktestResult } from "@/types/strategy";
+
+const BacktestDashboard = dynamic(
+  () => import("@/components/strategy/backtest/BacktestDashboard"),
+  { ssr: false }
+);
 import {
   Sparkle,
   ArrowRight,
@@ -165,6 +170,12 @@ interface ParsedSummary {
   initial_capital: number;
 }
 
+const UNIVERSE_LABELS: Record<string, string> = {
+  kospi: "KOSPI", kosdaq: "KOSDAQ", kospi200: "KOSPI 200",
+  KOR_KOSPI200: "KOSPI 200", KOR_KOSDAQ150: "KOSDAQ 150",
+  US_TECH_TOP10: "미국 테크 Top 10", CRYPTO_TOP10: "크립토 Top 10",
+};
+
 const METRIC_LABELS: Record<string, string> = {
   per: "PER", pbr: "PBR", roe_or_gpa: "ROE",
   debt_ratio: "부채비율", market_cap: "시총", trading_value: "거래대금",
@@ -184,7 +195,7 @@ const INDICATOR_LABELS: Record<string, string> = {
 
 function FilterBadge({ label }: { label: string }) {
   return (
-    <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs font-bold">
+    <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-white/[0.05] border border-white/10 text-white text-xs font-bold">
       {label}
     </span>
   );
@@ -195,13 +206,23 @@ function ParsedSummaryBubble({ parsed }: { parsed: ParsedSummary }) {
   return (
     <div className="bg-white/[0.03] border border-white/8 rounded-2xl rounded-tl-sm p-4 space-y-3">
       <div className="flex items-center gap-1.5">
-        <CheckCircle size={13} className="text-blue-400" weight="fill" />
-        <span className="text-xs font-bold text-blue-400">전략 요약</span>
+        <CheckCircle size={14} className="text-white/50" weight="fill" />
+        <span className="text-xs font-bold text-white">전략 요약</span>
       </div>
       <div className="space-y-2.5">
+        {parsed.universe.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 items-center">
+            <span className="text-xs text-gray-500 w-16 flex-shrink-0">유니버스</span>
+            <div className="flex flex-wrap gap-1">
+              {parsed.universe.map((u, i) => (
+                <FilterBadge key={i} label={UNIVERSE_LABELS[u] ?? u} />
+              ))}
+            </div>
+          </div>
+        )}
         {parsed.fundamental_filters.length > 0 && (
           <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="text-[11px] text-gray-500 w-14 flex-shrink-0">재무 필터</span>
+            <span className="text-xs text-gray-500 w-16 flex-shrink-0">재무 필터</span>
             <div className="flex flex-wrap gap-1">
               {parsed.fundamental_filters.map((f, i) => (
                 <FilterBadge key={i} label={`${METRIC_LABELS[f.metric] ?? f.metric} ${f.operator} ${f.value}`} />
@@ -211,7 +232,7 @@ function ParsedSummaryBubble({ parsed }: { parsed: ParsedSummary }) {
         )}
         {parsed.entry_signals.length > 0 && (
           <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="text-[11px] text-gray-500 w-14 flex-shrink-0">진입 신호</span>
+            <span className="text-xs text-gray-500 w-16 flex-shrink-0">진입 신호</span>
             <div className="flex flex-wrap gap-1">
               {parsed.entry_signals.map((s, i) => (
                 <FilterBadge key={i} label={INDICATOR_LABELS[s.indicator] ?? s.indicator} />
@@ -221,7 +242,7 @@ function ParsedSummaryBubble({ parsed }: { parsed: ParsedSummary }) {
         )}
         {parsed.exit_signals.length > 0 && (
           <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="text-[11px] text-gray-500 w-14 flex-shrink-0">청산 신호</span>
+            <span className="text-xs text-gray-500 w-16 flex-shrink-0">청산 신호</span>
             <div className="flex flex-wrap gap-1">
               {parsed.exit_signals.map((s, i) => (
                 <FilterBadge key={i} label={INDICATOR_LABELS[s.indicator] ?? s.indicator} />
@@ -230,7 +251,7 @@ function ParsedSummaryBubble({ parsed }: { parsed: ParsedSummary }) {
           </div>
         )}
         <div className="flex flex-wrap gap-1.5 items-center">
-          <span className="text-[11px] text-gray-500 w-14 flex-shrink-0">포트폴리오</span>
+          <span className="text-xs text-gray-500 w-16 flex-shrink-0">포트폴리오</span>
           <div className="flex flex-wrap gap-1">
             <FilterBadge label={`최대 ${parsed.max_positions}종목`} />
             {parsed.hold_period_days && <FilterBadge label={`${parsed.hold_period_days}일 보유`} />}
@@ -241,7 +262,7 @@ function ParsedSummaryBubble({ parsed }: { parsed: ParsedSummary }) {
         </div>
         {(parsed.stop_loss_pct || parsed.take_profit_pct) && (
           <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="text-[11px] text-gray-500 w-14 flex-shrink-0">리스크</span>
+            <span className="text-xs text-gray-500 w-16 flex-shrink-0">리스크</span>
             <div className="flex flex-wrap gap-1">
               {parsed.stop_loss_pct && <FilterBadge label={`손절 ${parsed.stop_loss_pct}%`} />}
               {parsed.take_profit_pct && <FilterBadge label={`익절 ${parsed.take_profit_pct}%`} />}
@@ -285,10 +306,10 @@ function StrategyLabContent() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const handleSend = async () => {
-    if (!inputValue.trim() || isSending || stage === "running") return;
-    const userText = inputValue.trim();
-    setInputValue("");
+  const handleSend = async (overrideText?: string) => {
+    const userText = overrideText ?? inputValue.trim();
+    if (!userText || isSending || stage === "running") return;
+    if (!overrideText) setInputValue("");
     setIsSending(true);
 
     setMessages(prev => [
@@ -501,7 +522,7 @@ function StrategyLabContent() {
               backtestDsl={backtestReq}
               strategySummary={latestParsed ? {
                 strategyName: latestParsed.description,
-                universeName: latestParsed.universe.join(", "),
+                universeName: latestParsed.universe.map(u => UNIVERSE_LABELS[u] ?? u).join(", "),
                 blockNames: [
                   ...latestParsed.fundamental_filters.map(f => `${METRIC_LABELS[f.metric] ?? f.metric} ${f.operator} ${f.value}`),
                   ...latestParsed.entry_signals.map(s => INDICATOR_LABELS[s.indicator] ?? s.indicator),
@@ -562,7 +583,7 @@ function StrategyLabContent() {
                     {msg.role === "user" && (
                       <div className="flex justify-end">
                         <div className="max-w-[80%] bg-blue-600/20 border border-blue-500/20 rounded-2xl rounded-tr-sm px-4 py-2.5">
-                          <p className="text-sm text-white font-medium leading-relaxed">{msg.content}</p>
+                          <p className="text-xs text-white font-medium leading-relaxed">{msg.content}</p>
                         </div>
                       </div>
                     )}
@@ -570,7 +591,7 @@ function StrategyLabContent() {
                       <div className="space-y-3">
                         {msg.isLoading && (
                           <div className="flex items-center gap-2 px-1">
-                            <ArrowsClockwise size={13} className="text-blue-400 animate-spin flex-shrink-0" />
+                            <ArrowsClockwise size={14} className="text-blue-400 animate-spin flex-shrink-0" />
                             <span className="text-xs text-gray-400 font-bold">전략 분석 중...</span>
                           </div>
                         )}
@@ -588,8 +609,8 @@ function StrategyLabContent() {
                                     {msg.clarificationSuggestions.map((s, si) => (
                                       <button
                                         key={si}
-                                        onClick={() => setInputValue(s)}
-                                        className="px-3 py-1.5 rounded-lg bg-white/[0.03] border border-yellow-400/30 hover:border-yellow-400 text-sm text-white/70 hover:text-white transition-all"
+                                        onClick={() => handleSend(s)}
+                                        className="px-3 py-1.5 rounded-lg bg-white/[0.03] border border-yellow-400/30 hover:border-yellow-400 text-xs text-white/70 hover:text-white transition-all"
                                       >
                                         {s}
                                       </button>
@@ -610,7 +631,7 @@ function StrategyLabContent() {
                             )}
                             {isLastAssistant(i) && stage === "running" && (
                               <div className="flex items-center gap-2 px-1">
-                                <ArrowsClockwise size={13} className="text-blue-400 animate-spin flex-shrink-0" />
+                                <ArrowsClockwise size={14} className="text-blue-400 animate-spin flex-shrink-0" />
                                 <span className="text-xs text-gray-400 font-bold transition-all duration-300">{statusMessage}</span>
                               </div>
                             )}
@@ -648,7 +669,7 @@ function StrategyLabContent() {
               />
               <div className="absolute bottom-3 right-3 flex items-center gap-2">
                 <button
-                  onClick={handleSend}
+                  onClick={() => handleSend()}
                   disabled={!inputValue.trim() || isSending || stage === "running"}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:bg-white/5 disabled:text-gray-600 text-white text-xs font-bold transition-all"
                 >

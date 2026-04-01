@@ -63,26 +63,20 @@ export default function VirtualTradingStatus({ initialData }: { initialData: Tra
         return (
           <div
             key={s.label}
-            className={`flex-1 flex flex-col justify-between px-4 py-4 glass-card transition-colors ${
-              s.highlight ? "!bg-indigo-500/10 !border-indigo-500/20" : ""
-            }`}
+            className="flex-1 flex flex-col justify-between px-4 py-4 glass-card"
           >
               <div className="flex items-center gap-2">
                 <Icon
                   size={15}
                   weight="bold"
-                  className={s.highlight ? "text-indigo-400" : "text-gray-500"}
+                  className="text-gray-500"
                 />
                 <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
                   {s.label}
                 </span>
               </div>
               <div className="mt-2">
-                <p
-                  className={`text-xl font-black tabular-nums font-outfit ${
-                    s.highlight ? "text-indigo-300" : "text-white"
-                  }`}
-                >
+                <p className="text-xl font-black tabular-nums font-outfit text-white">
                   {s.value}
                 </p>
                 <p className="text-[10px] text-gray-600 mt-0.5">{s.sub}</p>

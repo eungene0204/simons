@@ -37,9 +37,13 @@ export default async function Home() {
         <VirtualTradingStatus initialData={dashData.tradingStatus} />
 
         {/* Row 4: 백테스트 활동 + 최근 백테스트 결과 */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <BacktestActivityChart initialRecords={dashData.backtestRecords} />
-          <RecentBacktestList initialRecords={dashData.backtestRecords} />
+        <div className="grid grid-cols-1 lg:grid-cols-10 gap-6">
+          <div className="lg:col-span-3">
+            <BacktestActivityChart initialRecords={dashData.backtestRecords} />
+          </div>
+          <div className="lg:col-span-7">
+            <RecentBacktestList initialRecords={dashData.backtestRecords} />
+          </div>
         </div>
 
         {/* Row 5: 시장 지표 */}

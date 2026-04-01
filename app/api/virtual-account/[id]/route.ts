@@ -3,24 +3,49 @@ import { prisma } from '@/lib/prisma';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
 
-async function fetchLastClose(symbol: string): Promise<number | null> {
+async function fetchBatchPrices(symbols: string[]): Promise<Record<string, number>> {
+  if (symbols.length === 0) return {};
   try {
-    const res = await fetch(`${BACKEND_URL}/stock/${symbol}/ohlcv?limit=1`, { cache: 'no-store' });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data.lastClose ?? null;
+    const res = await fetch(`${BACKEND_URL}/market/prices`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbols }),
+      cache: 'no-store',
+    });
+    if (!res.ok) return {};
+    const data: Record<string, { close: number }> = await res.json();
+    return Object.fromEntries(
+      Object.entries(data).filter(([, v]) => v?.close).map(([k, v]) => [k, v.close])
+    );
   } catch {
-    return null;
+    return {};
   }
 }
 
 function mapAccount(a: any, priceMap: Record<string, number>) {
+  const positions = a.VirtualPosition ?? [];
   const totalValue =
     a.currentCash +
-    (a.VirtualPosition ?? []).reduce((sum: number, p: any) => {
-      const currentPrice = priceMap[p.symbol] ?? p.avgPrice;
+    positions.reduce((sum: number, p: any) => {
+      const currentPrice = priceMap[p.symbol] ?? p.currentPrice ?? p.avgPrice;
       return sum + p.quantity * currentPrice;
     }, 0);
+  const holdings = positions.map((p: any) => {
+    const currentPrice = priceMap[p.symbol] ?? p.currentPrice ?? p.avgPrice;
+    const cost = p.quantity * p.avgPrice;
+    const totalVal = p.quantity * currentPrice;
+    const profit = totalVal - cost;
+    return {
+      symbol: p.symbol,
+      name: p.name,
+      quantity: p.quantity,
+      averagePrice: p.avgPrice,
+      currentPrice,
+      totalValue: totalVal,
+      profit,
+      profitPercent: cost > 0 ? (profit / cost) * 100 : 0,
+    };
+  });
   return {
     id: a.id,
     name: a.name,
@@ -32,6 +57,7 @@ function mapAccount(a: any, priceMap: Record<string, number>) {
     tradingMode: (a.tradingMode ?? "manual") as "auto" | "manual",
     createdAt: a.createdAt.toISOString(),
     updatedAt: a.updatedAt.toISOString(),
+    holdings,
   };
 }
 
@@ -49,11 +75,9 @@ export async function GET(
       return NextResponse.json({ error: 'Account not found' }, { status: 404 });
     }
 
-    // 보유 종목 현재가 병렬 조회
+    // 보유 종목 현재가 배치 조회 (1회 요청)
     const symbols = account.VirtualPosition.map((p) => p.symbol);
-    const prices = await Promise.all(symbols.map(fetchLastClose));
-    const priceMap: Record<string, number> = {};
-    symbols.forEach((s, i) => { if (prices[i] !== null) priceMap[s] = prices[i]!; });
+    const priceMap = await fetchBatchPrices(symbols);
 
     return NextResponse.json(mapAccount(account, priceMap));
   } catch (error) {
@@ -79,9 +103,7 @@ export async function PATCH(
       include: { VirtualPosition: true },
     });
     const symbols2 = account.VirtualPosition.map((p) => p.symbol);
-    const prices2 = await Promise.all(symbols2.map(fetchLastClose));
-    const priceMap2: Record<string, number> = {};
-    symbols2.forEach((s, i) => { if (prices2[i] !== null) priceMap2[s] = prices2[i]!; });
+    const priceMap2 = await fetchBatchPrices(symbols2);
 
     return NextResponse.json(mapAccount(account, priceMap2));
   } catch (error) {

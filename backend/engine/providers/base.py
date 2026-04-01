@@ -21,6 +21,8 @@ class StockQuote:
     volume: int
     source: str       # "kis", "naver", "yfinance", "pykrx", "krx_api"
     timestamp: float   # time.time() when fetched
+    prev_close: int = 0    # 전일종가
+    change_rate: float = 0.0  # 전일 대비 등락률 % (provider가 직접 제공 시 사용)
 
     def to_dict(self) -> dict:
         return asdict(self)

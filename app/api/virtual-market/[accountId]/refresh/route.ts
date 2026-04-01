@@ -54,7 +54,14 @@ export async function POST(
 
     const symbols: string[] = JSON.parse(state.symbols);
 
-    // 2. 실제 가격 조회
+    // 2. KIS WebSocket 구독 보장 (서버 재시작 후 구독 초기화 대비)
+    fetch(`${BACKEND_URL}/market/subscribe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbols }),
+    }).catch(() => {}); // fire-and-forget, 실패해도 무시
+
+    // 3. 실제 가격 조회
     let priceMap: Record<string, { close: number; open: number; high: number; low: number; volume: number; name: string; date: string }> = {};
     try {
       const priceRes = await fetch(`${BACKEND_URL}/market/prices`, {

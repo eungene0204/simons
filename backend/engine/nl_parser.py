@@ -318,9 +318,9 @@ class NLStrategyParser:
     - backend="ollama" : instructor + Ollama HTTP API (범용, 설정 쉬움)
     - backend="mlx"    : outlines + mlx-lm (M1/M2/M3 Mac 전용, 2~3x 빠름)
 
-    라우팅 전략 (3번 옵션):
+    라우팅 전략:
     - parse()             → 7B (빠름, 단순 파싱에 충분)
-    - parse_modification() → 32B (정확도 필요, diff 추출)
+    - parse_modification() → 7B (파싱과 동일 모델, 32B는 summarize에서 사용)
     """
 
     def __init__(
@@ -339,8 +339,9 @@ class NLStrategyParser:
         self.ollama_model_32b = ollama_model_32b
         self.max_retries = max_retries
         self._client = None
-        # MLX: 7B (parse용), 32B (modification용) 별도 관리
+        # MLX: 7B (parse + modification용), 32B (미사용)
         self._generator_7b = None
+        self._diff_generator_7b = None
         self._generator_32b = None
         self._diff_generator_32b = None
 
@@ -362,7 +363,7 @@ class NLStrategyParser:
         )
 
     def _init_mlx_7b(self):
-        """7B 모델 초기화 (parse용, 서버 시작 시 로드)"""
+        """7B 모델 초기화 (parse + modification용, 서버 시작 시 로드)"""
         if self._generator_7b is not None:
             return
         try:
@@ -376,6 +377,7 @@ class NLStrategyParser:
         mlx_model, tokenizer = mlx_lm.load(self.model_7b)
         self._outlines_model_7b = models.from_mlxlm(mlx_model, tokenizer)
         self._generator_7b = outlines.Generator(self._outlines_model_7b, ParsedStrategy)
+        self._diff_generator_7b = outlines.Generator(self._outlines_model_7b, ParsedStrategyDiff)
         print("[NLParser] 7B 모델 로딩 완료", flush=True)
 
     def _init_mlx_32b(self):
@@ -424,13 +426,13 @@ class NLStrategyParser:
         return ParsedStrategy.model_validate(merged)
 
     def _modify_mlx(self, user_input: str, previous: dict) -> ParsedStrategyDiff:
-        self._init_mlx_32b()
+        self._init_mlx_7b()
         prompt = (
             f"{MODIFY_PROMPT}\n\n"
             f"현재 전략:\n{json.dumps(previous, ensure_ascii=False)}\n\n"
             f"수정 요청: \"{user_input}\"\n출력:"
         )
-        result = self._diff_generator_32b(prompt, max_tokens=1024)
+        result = self._diff_generator_7b(prompt, max_tokens=1024)
         if isinstance(result, str):
             return ParsedStrategyDiff.model_validate_json(result)
         return result
@@ -438,7 +440,7 @@ class NLStrategyParser:
     def _modify_ollama(self, user_input: str, previous: dict) -> ParsedStrategyDiff:
         self._init_ollama()
         result = self._client.chat.completions.create(
-            model=self.ollama_model_32b,
+            model=self.ollama_model_7b,
             response_model=ParsedStrategyDiff,
             max_retries=self.max_retries,
             messages=[
@@ -571,11 +573,13 @@ def validate_parsed_strategy(
             f"어느 시장에서 종목을 찾을까요?\n\n"
             f"현재 기본값은 **{universe_label}**입니다.\n\n"
             f"• **KOSPI200** (권장): KRX KOSPI200 구성 200종목 — 대형 우량주, 백테스트 속도 빠름\n"
+            f"• **KOSPI**: 코스피 전체 ~838종목 — 대형·중형주 포함\n"
             f"• **KOSDAQ**: 코스닥 ~1,781종목 — 중소형 성장주 위주\n"
             f"• **전체 시장**: KOSPI + KOSDAQ ~2,619종목 — 가장 넓지만 느림",
             [
                 "KOSPI200 (기본값, 빠름) 그대로 진행",
                 "KOSPI200 (KRX 구성 200종목)",
+                "KOSPI (코스피 전체 ~838종목)",
                 "KOSDAQ (코스닥 ~1,781종목)",
                 "전체 시장 (KOSPI+KOSDAQ ~2,619종목)",
             ],

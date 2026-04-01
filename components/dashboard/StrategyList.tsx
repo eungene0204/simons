@@ -15,49 +15,17 @@ function fmtPct(v: number): string {
   return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
 }
 
-const TYPE_BADGE: Record<string, string> = {
-  AI전략: "bg-violet-500/20 text-violet-300",
-  가치투자: "bg-emerald-500/15 text-emerald-400",
-  모멘텀: "bg-orange-500/15 text-orange-400",
-  기술분석: "bg-blue-500/15 text-blue-400",
-  수급전략: "bg-pink-500/15 text-pink-400",
-  기타: "bg-white/10 text-gray-400",
-};
-
-
-function TypeBadge({ type }: { type: string; universe: string }) {
-  const cls = TYPE_BADGE[type] ?? TYPE_BADGE["기타"];
+function ScoreBadge({ score }: { score: number | null }) {
+  if (score == null) return <span className="text-xs text-gray-600">-</span>;
+  const color =
+    score >= 80 ? "text-emerald-400" :
+    score >= 60 ? "text-blue-400" :
+    score >= 40 ? "text-amber-400" :
+    "text-red-400";
   return (
-    <span className={`inline-block text-xs font-bold px-2 py-0.5 rounded-md ${cls}`}>
-      {type}
+    <span className={`text-sm font-black tabular-nums font-outfit ${color}`}>
+      {score.toFixed(0)}
     </span>
-  );
-}
-
-function ReturnBar({ pct, maxAbs }: { pct: number; maxAbs: number }) {
-  const widthPct = maxAbs > 0 ? Math.min((Math.abs(pct) / maxAbs) * 100, 100) : 0;
-  const isPos = pct >= 0;
-  return (
-    <div className="flex items-center gap-2">
-      <div className="w-24 h-1.5 bg-white/[0.06] rounded-full overflow-hidden flex-shrink-0">
-        <div
-          className="h-full rounded-full transition-all duration-500"
-          style={{
-            width: `${widthPct}%`,
-            background: isPos
-              ? "linear-gradient(90deg,#6366f1,#818cf8)"
-              : "linear-gradient(90deg,#3b82f6,#60a5fa)",
-          }}
-        />
-      </div>
-      <span
-        className={`text-sm font-bold tabular-nums font-outfit w-14 ${
-          isPos ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"
-        }`}
-      >
-        {fmtPct(pct)}
-      </span>
-    </div>
   );
 }
 
@@ -66,7 +34,6 @@ export default function StrategyList({ initialData }: { initialData: StrategyLis
   const loading = false;
 
   const strategies = data?.strategies ?? [];
-  const maxAbs = Math.max(...strategies.map((s) => Math.abs(s.avgReturnPct)), 1);
 
   return (
     <div className="glass-card p-5 h-full">
@@ -84,8 +51,8 @@ export default function StrategyList({ initialData }: { initialData: StrategyLis
       </div>
 
       {/* 테이블 헤더 */}
-      <div className="grid grid-cols-[minmax(0,1fr)_160px_160px_110px] gap-2 px-2 mb-2">
-        {["전략명", "타입", "평균 수익률", "총 수익금"].map((h) => (
+      <div className="grid grid-cols-[minmax(0,1fr)_80px_120px_110px] gap-2 px-2 mb-2">
+        {["전략명", "점수", "평균 수익률", "총 수익금"].map((h) => (
           <span key={h} className="text-xs font-bold uppercase tracking-widest text-gray-600">
             {h}
           </span>
@@ -111,11 +78,11 @@ export default function StrategyList({ initialData }: { initialData: StrategyLis
           <p className="text-gray-600 text-xs mt-1">전략을 생성하고 계좌에 연결하면 여기서 확인할 수 있습니다</p>
         </div>
       ) : (
-        <div className="divide-y divide-white/[0.04]">
+        <div className="divide-y divide-white/[0.04] overflow-y-auto max-h-64 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent">
           {strategies.map((s) => (
             <div
               key={s.id}
-              className="grid grid-cols-[minmax(0,1fr)_160px_160px_110px] gap-2 items-center px-2 py-3 hover:bg-white/[0.02] rounded-xl transition-colors cursor-pointer"
+              className="grid grid-cols-[minmax(0,1fr)_80px_120px_110px] gap-2 items-center px-2 py-3 hover:bg-white/[0.02] rounded-xl transition-colors cursor-pointer"
             >
               {/* 전략명 */}
               <div className="min-w-0">
@@ -123,13 +90,15 @@ export default function StrategyList({ initialData }: { initialData: StrategyLis
                 <p className="text-xs text-gray-600 mt-0.5">{s.accountCount}개 계좌</p>
               </div>
 
-              {/* 타입 */}
+              {/* 점수 */}
               <div>
-                <TypeBadge type={s.type} universe={s.universe} />
+                <ScoreBadge score={s.aiScore} />
               </div>
 
-              {/* 평균 수익률 — 프로그레스 바 */}
-              <ReturnBar pct={s.avgReturnPct} maxAbs={maxAbs} />
+              {/* 평균 수익률 */}
+              <span className={`text-sm font-bold tabular-nums font-outfit ${s.avgReturnPct >= 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
+                {fmtPct(s.avgReturnPct)}
+              </span>
 
               {/* 총 수익금 */}
               <span

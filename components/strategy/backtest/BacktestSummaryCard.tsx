@@ -99,12 +99,12 @@ export default function BacktestSummaryCard({
     <div className="h-full rounded-2xl border border-white/5 bg-[#0d0d0d] px-5 py-4">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-widest text-gray-500">
-          <Sparkle className="w-4 h-4 text-blue-400" weight="fill" />
+          <Sparkle className="w-4 h-4 text-white/30" weight="fill" />
           AI 결과 요약
           <span className="text-[10px] font-mono text-gray-700 normal-case tracking-normal">
             {typeof navigator !== "undefined" && navigator.platform?.toLowerCase().includes("mac")
-              ? "mlx · Qwen2.5-3B"
-              : "ollama · qwen2.5:3b"}
+              ? "mlx · Qwen2.5-32B"
+              : "ollama · qwen2.5:32b"}
           </span>
         </div>
         <button

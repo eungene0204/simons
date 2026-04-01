@@ -2,9 +2,9 @@
 
 import { useEffect, useState, memo } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import Image from "next/image";
 import {
   CaretLeft,
-  Bank,
   Plus,
   Robot,
   Bell,
@@ -153,8 +153,14 @@ function VirtualAccountDrawer({
                       >
                         <div className="flex items-center gap-3 justify-between">
                           <div className="flex items-center gap-3 flex-1 min-w-0">
-                            <div className="w-10 h-10 rounded-full bg-blue-900/30 flex items-center justify-center flex-shrink-0">
-                              <Bank size={20} className="text-blue-400" />
+                            <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0">
+                              <Image
+                                src="/nullStock.png"
+                                alt="NullStock"
+                                width={40}
+                                height={40}
+                                className="w-full h-full object-cover"
+                              />
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-1.5">

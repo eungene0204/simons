@@ -103,9 +103,18 @@ async function fetchDashboardFromDB(): Promise<DashboardInitialData> {
       else if (u) type = u;
     } catch {}
 
+    let aiScore: number | null = null;
+    try {
+      const historyItem = backtestHistory.find((h) => h.strategyName === s.name);
+      if (historyItem) {
+        const m = JSON.parse(historyItem.metrics);
+        if (m.score != null) aiScore = m.score;
+      }
+    } catch {}
+
     const accs = strategyAccounts.filter((a) => a.strategyId === s.id);
     if (accs.length === 0) {
-      return { id: s.id, name: s.name, description: s.description ?? null, type, avgReturnPct: 0, totalProfit: 0, accountCount: 0, createdAt: s.createdAt.toISOString() };
+      return { id: s.id, name: s.name, description: s.description ?? null, type, aiScore, avgReturnPct: 0, totalProfit: 0, accountCount: 0, createdAt: s.createdAt.toISOString() };
     }
 
     const stats = accs.map((a) => {
@@ -124,6 +133,7 @@ async function fetchDashboardFromDB(): Promise<DashboardInitialData> {
       name: s.name,
       description: s.description ?? null,
       type,
+      aiScore,
       avgReturnPct: stats.reduce((s, x) => s + x.returnPct, 0) / stats.length,
       totalProfit: stats.reduce((s, x) => s + x.profit, 0),
       accountCount: accs.length,
@@ -155,14 +165,14 @@ function getMockDashboardData(): DashboardInitialData {
   today.setHours(0, 0, 0, 0);
 
   const backtestRecords: DashboardBacktestRecord[] = [
-    { id: "1", timestamp: today.getTime() - 86400000 * 0, strategyName: "모멘텀 전략 v2", universe: "KOSPI",   metrics: { totalReturn: 12.4, cagr: 8.2, sharpe: 1.31, mdd: -8.3, winRate: 62 } },
-    { id: "2", timestamp: today.getTime() - 86400000 * 1, strategyName: "RSI 역추세",    universe: "KOSDAQ",  metrics: { totalReturn:  7.8, cagr: 5.1, sharpe: 0.95, mdd: -6.1, winRate: 55 } },
-    { id: "3", timestamp: today.getTime() - 86400000 * 1, strategyName: "가치투자 퀀트", universe: "KOSPI",   metrics: { totalReturn: -3.2, cagr:-2.1, sharpe:-0.42, mdd:-12.5, winRate: 41 } },
-    { id: "4", timestamp: today.getTime() - 86400000 * 2, strategyName: "AI 예측 기반",  universe: "미국주식", metrics: { totalReturn: 21.5, cagr:14.8, sharpe: 1.87, mdd: -5.2, winRate: 71 } },
-    { id: "5", timestamp: today.getTime() - 86400000 * 3, strategyName: "모멘텀 전략 v2", universe: "KOSPI",  metrics: { totalReturn: 10.1, cagr: 7.0, sharpe: 1.15, mdd: -9.0, winRate: 60 } },
-    { id: "6", timestamp: today.getTime() - 86400000 * 4, strategyName: "RSI 역추세",    universe: "KOSDAQ",  metrics: { totalReturn:  5.5, cagr: 3.8, sharpe: 0.80, mdd: -7.2, winRate: 53 } },
-    { id: "7", timestamp: today.getTime() - 86400000 * 4, strategyName: "AI 예측 기반",  universe: "미국주식", metrics: { totalReturn: 18.2, cagr:12.5, sharpe: 1.65, mdd: -4.8, winRate: 68 } },
-    { id: "8", timestamp: today.getTime() - 86400000 * 6, strategyName: "가치투자 퀀트", universe: "KOSPI",   metrics: { totalReturn: -1.0, cagr:-0.7, sharpe:-0.18, mdd:-10.1, winRate: 44 } },
+    { id: "1", timestamp: today.getTime() - 86400000 * 0, strategyName: "모멘텀 전략 v2", universe: "KOSPI",   metrics: { totalReturn: 12.4, cagr: 8.2, sharpe: 1.31, mdd: -8.3, score: 74 } },
+    { id: "2", timestamp: today.getTime() - 86400000 * 1, strategyName: "RSI 역추세",    universe: "KOSDAQ",  metrics: { totalReturn:  7.8, cagr: 5.1, sharpe: 0.95, mdd: -6.1, score: 61 } },
+    { id: "3", timestamp: today.getTime() - 86400000 * 1, strategyName: "가치투자 퀀트", universe: "KOSPI",   metrics: { totalReturn: -3.2, cagr:-2.1, sharpe:-0.42, mdd:-12.5, score: 18 } },
+    { id: "4", timestamp: today.getTime() - 86400000 * 2, strategyName: "AI 예측 기반",  universe: "미국주식", metrics: { totalReturn: 21.5, cagr:14.8, sharpe: 1.87, mdd: -5.2, score: 88 } },
+    { id: "5", timestamp: today.getTime() - 86400000 * 3, strategyName: "모멘텀 전략 v2", universe: "KOSPI",  metrics: { totalReturn: 10.1, cagr: 7.0, sharpe: 1.15, mdd: -9.0, score: 70 } },
+    { id: "6", timestamp: today.getTime() - 86400000 * 4, strategyName: "RSI 역추세",    universe: "KOSDAQ",  metrics: { totalReturn:  5.5, cagr: 3.8, sharpe: 0.80, mdd: -7.2, score: 55 } },
+    { id: "7", timestamp: today.getTime() - 86400000 * 4, strategyName: "AI 예측 기반",  universe: "미국주식", metrics: { totalReturn: 18.2, cagr:12.5, sharpe: 1.65, mdd: -4.8, score: 83 } },
+    { id: "8", timestamp: today.getTime() - 86400000 * 6, strategyName: "가치투자 퀀트", universe: "KOSPI",   metrics: { totalReturn: -1.0, cagr:-0.7, sharpe:-0.18, mdd:-10.1, score: 22 } },
   ];
 
   return {

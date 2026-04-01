@@ -220,13 +220,81 @@ async def market_prices(body: dict):
     return {sym: q.to_dict() for sym, q in quotes.items()}
 
 
+@app.post("/market/subscribe")
+async def market_subscribe(body: dict):
+    """
+    KIS WebSocket 실시간 구독 종목 추가.
+    body: {"symbols": ["005930", "000660", ...]}
+    구독 후 /market/price/{symbol} 조회 시 WebSocket 캐시(실시간)가 최우선 반환.
+    """
+    symbols: list[str] = body.get("symbols", [])
+    if not symbols:
+        raise HTTPException(status_code=400, detail="symbols 필드가 필요합니다")
+    await market_data_provider.subscribe(symbols)
+    return {"subscribed": symbols, "total": len(market_data_provider.ws_provider.get_subscribed())}
+
+
+@app.get("/market/realtime")
+async def market_realtime():
+    """KIS WebSocket 실시간 캐시 전체 스냅샷 반환"""
+    snapshot = market_data_provider.ws_provider.get_cache_snapshot()
+    return {
+        "running": await market_data_provider.ws_provider.health_check(),
+        "subscribed": market_data_provider.ws_provider.get_subscribed(),
+        "quotes": snapshot,
+    }
+
+
 # ── /market/indices 서버 측 캐시 ──────────────────────────────────────────
 _indices_cache: dict = {"data": None, "expires_at": 0.0, "loading": False}
 _INDICES_TTL = 30  # seconds
 
 
+def _fetch_kis_index(iscd: str, name: str, token: str, app_key: str, app_secret: str) -> Optional[dict]:
+    """KIS API로 국내 지수(코스피/코스닥) 현재값을 조회한다."""
+    import requests as req
+    try:
+        resp = req.get(
+            "https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/inquire-index-price",
+            headers={
+                "Content-Type": "application/json; charset=UTF-8",
+                "authorization": f"Bearer {token}",
+                "appkey": app_key,
+                "appsecret": app_secret,
+                "tr_id": "FHKUP03500100",
+            },
+            params={"FID_COND_MRKT_DIV_CODE": "U", "FID_INPUT_ISCD": iscd},
+            timeout=5,
+        )
+        if resp.status_code != 200:
+            return None
+        o = resp.json().get("output", {})
+        close = float(o.get("bstp_nmix_prpr", 0) or 0)
+        if not close:
+            return None
+        change = float(o.get("bstp_nmix_prdy_vrss", 0) or 0)
+        change_pct = float(o.get("bstp_nmix_prdy_ctrt", 0) or 0)
+        from datetime import datetime
+        today = datetime.now().strftime("%Y-%m-%d")
+        return {
+            "name": name,
+            "value": round(close, 2),
+            "change": round(change, 2),
+            "changePercent": round(change_pct, 2),
+            "open": round(float(o.get("bstp_nmix_oprc", close) or close), 2),
+            "high": round(float(o.get("bstp_nmix_hgpr", close) or close), 2),
+            "low": round(float(o.get("bstp_nmix_lwpr", close) or close), 2),
+            "volume": int(float(o.get("acml_vol", 0) or 0)),
+            "date": today,
+            "source": "kis",
+        }
+    except Exception as e:
+        print(f"[market/indices] KIS index {iscd} 실패: {e}")
+        return None
+
+
 def _fetch_naver_index(code: str, name: str) -> Optional[dict]:
-    """네이버 금융 모바일 API로 코스피/코스닥 지수를 조회한다."""
+    """네이버 금융 모바일 API로 코스피/코스닥 지수를 조회한다. (KIS 실패 시 폴백)"""
     import requests as req
     _HEADERS = {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15"}
     _BASE = "https://m.stock.naver.com/api/index"
@@ -277,7 +345,7 @@ def _fetch_naver_index(code: str, name: str) -> Optional[dict]:
 
 
 def _fetch_indices_data() -> dict:
-    """지수 데이터를 가져온다 — KOSPI/KOSDAQ: Naver, 해외: yfinance (blocking)."""
+    """지수 데이터를 가져온다 — KOSPI/KOSDAQ: KIS → Naver 폴백, 해외: yfinance (blocking)."""
     import yfinance as yf
     from datetime import timezone
 
@@ -287,7 +355,6 @@ def _fetch_indices_data() -> dict:
         "sp500":           ("^GSPC",     "S&P 500"),
         "vix":             ("^VIX",      "VIX"),
         "nikkei":          ("^N225",     "닛케이 225"),
-        "topix":           ("^TOPX",     "토픽스"),
         "shanghai":        ("000001.SS", "상하이종합"),
         "shenzhen":        ("399001.SZ", "선전종합"),
         "exchangeRate":    ("USDKRW=X",  "원/달러"),
@@ -301,10 +368,46 @@ def _fetch_indices_data() -> dict:
 
     result: dict = {}
 
-    # ── KOSPI / KOSDAQ: Naver 실시간 ────────────────────────────────────
-    KR_INDICES = {"kospi": ("KOSPI", "코스피"), "kosdaq": ("KOSDAQ", "코스닥")}
-    for key, (code, name) in KR_INDICES.items():
-        data = _fetch_naver_index(code, name)
+    # ── KOSPI / KOSDAQ: KIS 우선, 실패 시 Naver 폴백 ───────────────────
+    # iscd: 0001=코스피, 1001=코스닥
+    KR_INDICES = {
+        "kospi":  ("0001", "KOSPI", "코스피"),
+        "kosdaq": ("1001", "KOSDAQ", "코스닥"),
+    }
+    app_key = os.getenv("KIS_APP_KEY", "")
+    app_secret = os.getenv("KIS_APP_SECRET", "")
+
+    # KIS 토큰: KISProvider 캐시 우선, 없으면 직접 발급
+    kis_token: Optional[str] = None
+    if app_key and app_secret:
+        kis_provider = next((p for p in market_data_provider.providers if p.name == "kis"), None)
+        if kis_provider and kis_provider._access_token and time.time() < kis_provider._token_expires_at:
+            kis_token = kis_provider._access_token
+        else:
+            import requests as _req
+            try:
+                r = _req.post(
+                    "https://openapi.koreainvestment.com:9443/oauth2/tokenP",
+                    json={"grant_type": "client_credentials", "appkey": app_key, "appsecret": app_secret},
+                    timeout=5,
+                )
+                if r.status_code == 200:
+                    kis_token = r.json().get("access_token")
+                    # KISProvider 캐시에 저장해 다음 호출에서 재사용
+                    if kis_provider and kis_token:
+                        kis_provider._access_token = kis_token
+                        kis_provider._token_expires_at = time.time() + 23 * 3600
+            except Exception as e:
+                print(f"[market/indices] KIS 토큰 발급 실패: {e}")
+
+    for key, (iscd, naver_code, name) in KR_INDICES.items():
+        data = None
+        if kis_token:
+            data = _fetch_kis_index(iscd, name, kis_token, app_key, app_secret)
+            if data:
+                print(f"[market/indices] {name} KIS 소스")
+        if not data:
+            data = _fetch_naver_index(naver_code, name)
         if data:
             result[key] = data
 
@@ -623,6 +726,18 @@ class NLParseResponse(BaseModel):
 
 _nl_parsers: dict = {}  # backend → NLStrategyParser (lazy singleton)
 _nl_parser_status: dict = {"status": "loading", "error": None}  # "ok" | "failed" | "loading"
+
+
+@app.on_event("startup")
+async def start_kis_websocket():
+    """서버 시작 시 KIS WebSocket 백그라운드 루프 시작"""
+    await market_data_provider.start_ws()
+
+
+@app.on_event("shutdown")
+async def stop_kis_websocket():
+    """서버 종료 시 WebSocket 연결 정리"""
+    await market_data_provider.stop_ws()
 
 
 @app.on_event("startup")

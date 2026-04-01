@@ -83,6 +83,7 @@ interface BacktestDashboardProps {
   backtestDsl?: any; // 전략 저장 시 사용할 원본 DSL/요청 객체
   aiSummary?: string;  // 저장된 AI 요약 (캐시)
   aiScore?: number;    // 저장된 AI 점수 (캐시)
+  disableHistorySave?: boolean; // true이면 히스토리 자동 저장 비활성화 (저장된 전략 조회 시)
   strategySummary?: {
     universeName: string;
     blockNames: string[];
@@ -120,6 +121,7 @@ export default function BacktestDashboard({
   aiSummary: initialAiSummary,
   aiScore: initialAiScore,
   strategySummary,
+  disableHistorySave,
 }: BacktestDashboardProps) {
   const [activeTab, setActiveTab] = useState<"chart" | "stats" | "log" | "assets" | "history" | "monte-carlo">("chart");
   const [history, setHistory] = useState<BacktestHistoryItem[]>([]);
@@ -159,7 +161,7 @@ export default function BacktestDashboard({
   // Save history when a new backtest result arrives
   useEffect(() => {
     // isRunning 이 deps에 포함되어야 batching이 안 될 때도 재실행됨
-    if (isRunning || !result) return;
+    if (disableHistorySave || isRunning || !result) return;
 
     // Idempotency: skip if this execution was already saved
     if (result.executionId && processedExecutionIds.has(result.executionId)) return;
@@ -374,6 +376,7 @@ export default function BacktestDashboard({
           backtestResult: result,
           aiSummary: cachedAiSummary,
           aiScore: cachedAiScore,
+          score: calculateScore(result),
         }),
       });
       const data = await res.json();
@@ -422,34 +425,34 @@ export default function BacktestDashboard({
               </div>
 
               {/* 저장될 주요 지표 미리보기 */}
-              <div className="grid grid-cols-3 gap-2 mb-5 p-3 bg-white/[0.03] rounded-xl border border-white/5">
+              <div className="grid grid-cols-3 gap-3 mb-5 p-4 bg-white/[0.03] rounded-xl border border-white/5">
                 <div className="text-center">
-                  <p className="text-[10px] text-gray-500 mb-0.5">CAGR</p>
-                  <p className={`text-sm font-black ${result.cagr >= 0 ? "text-green-400" : "text-red-400"}`}>
+                  <p className="text-xs text-gray-500 mb-1">CAGR</p>
+                  <p className={`text-xl font-black ${result.cagr >= 0 ? "text-green-400" : "text-red-400"}`}>
                     {result.cagr >= 0 ? "+" : ""}{result.cagr.toFixed(1)}%
                   </p>
                 </div>
                 <div className="text-center">
-                  <p className="text-[10px] text-gray-500 mb-0.5">MDD</p>
-                  <p className="text-sm font-black text-red-400">{result.maxDrawdown.toFixed(1)}%</p>
+                  <p className="text-xs text-gray-500 mb-1">MDD</p>
+                  <p className="text-xl font-black text-red-400">{result.maxDrawdown.toFixed(1)}%</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-[10px] text-gray-500 mb-0.5">Sharpe</p>
-                  <p className={`text-sm font-black ${result.sharpe >= 1 ? "text-green-400" : "text-gray-300"}`}>
+                  <p className="text-xs text-gray-500 mb-1">Sharpe</p>
+                  <p className={`text-xl font-black ${result.sharpe >= 1 ? "text-green-400" : "text-gray-300"}`}>
                     {result.sharpe.toFixed(2)}
                   </p>
                 </div>
                 <div className="text-center">
-                  <p className="text-[10px] text-gray-500 mb-0.5">승률</p>
-                  <p className="text-sm font-black text-white">{result.winRate.toFixed(1)}%</p>
+                  <p className="text-xs text-gray-500 mb-1">점수</p>
+                  <p className="text-xl font-black text-white">{calculateScore(result)}</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-[10px] text-gray-500 mb-0.5">거래 수</p>
-                  <p className="text-sm font-black text-white">{result.trades}건</p>
+                  <p className="text-xs text-gray-500 mb-1">거래 수</p>
+                  <p className="text-xl font-black text-white">{result.trades}건</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-[10px] text-gray-500 mb-0.5">종목 수</p>
-                  <p className="text-sm font-black text-white">{result.symbols?.length ?? 0}개</p>
+                  <p className="text-xs text-gray-500 mb-1">종목 수</p>
+                  <p className="text-xl font-black text-white">{result.symbols?.length ?? 0}개</p>
                 </div>
               </div>
 

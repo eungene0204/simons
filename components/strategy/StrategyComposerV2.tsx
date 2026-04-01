@@ -156,6 +156,7 @@ export default function StrategyComposerV2({
   const [sectorSearchTerm, setSectorSearchTerm] = useState("");
   const [reorderDragItem, setReorderDragItem] = useState<{ type: 'category' | 'block', id: string, index: number, categoryId?: string } | null>(null);
   const [isBacktestDashboard, setIsBacktestDashboard] = useState(false);
+  const [lastDsl, setLastDsl] = useState<StrategyDSL | null>(null);
   const isRunningRef = useRef(false);
 
   // Responsive Canvas State
@@ -237,12 +238,13 @@ export default function StrategyComposerV2({
   const getSummaryData = useCallback(() => {
     return {
       strategyName: strategyName,
-      universeName: universe === "US_TECH_TOP10" ? "미국 테크 Top 10" : 
+      universeName: universe === "US_TECH_TOP10" ? "미국 테크 Top 10" :
                     universe === "KOR_KOSPI200" ? "KOSPI 200" :
-                    universe === "KOR_KOSDAQ150" ? "KOSDAQ 150" : 
-                    universe === "CRYPTO_TOP10" ? "크립토 Top 10" : 
+                    universe === "KOR_KOSDAQ150" ? "KOSDAQ 150" :
+                    universe === "CRYPTO_TOP10" ? "크립토 Top 10" :
                     universe === "kospi" ? "KOSPI" :
-                    universe === "kosdaq" ? "KOSDAQ" : universe,
+                    universe === "kosdaq" ? "KOSDAQ" :
+                    universe === "kospi200" ? "KOSPI 200" : universe,
       universeSettings: {
         ...universeFilters,
       },
@@ -424,12 +426,13 @@ export default function StrategyComposerV2({
 
       const engine = new BacktestService();
       const result = await engine.run(strategy, options);
-      
+
       console.error(`[DEBUG-RUN] Result received for ID: ${runId}`, {
         totalReturn: result.totalReturn,
         trades: result.trades
       });
 
+      setLastDsl(strategy);
       setBacktestResult(result);
       // Automatically move to Step 5 (Report) after successful backtest
       setCurrentStep(5);
@@ -829,6 +832,7 @@ export default function StrategyComposerV2({
               onWalkForward={handleWalkForward}
               configOptions={backtestOptions}
               summaryData={getSummaryData()}
+              backtestDsl={lastDsl}
             />
           )}
 

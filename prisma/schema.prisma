@@ -23,8 +23,8 @@ model BacktestResult {
   summary    String
   trades     String?
   createdAt  DateTime @default(now())
-  Stock      Stock?   @relation(fields: [stockId], references: [id])
   Strategy   Strategy @relation(fields: [strategyId], references: [id])
+  Stock      Stock?   @relation(fields: [stockId], references: [id])
 }
 
 model Stock {
@@ -72,16 +72,16 @@ model VirtualAccount {
 }
 
 model VirtualMarketLog {
-  id          String   @id
-  accountId   String
-  date        String
-  symbol      String
-  signalType  String
-  reason      String?
-  price       Float
-  action      String
-  orderId     String?
-  createdAt   DateTime @default(now())
+  id         String   @id
+  accountId  String
+  date       String
+  symbol     String
+  signalType String
+  reason     String?
+  price      Float
+  action     String
+  orderId    String?
+  createdAt  DateTime @default(now())
 }
 
 model VirtualMarketState {
@@ -124,9 +124,9 @@ model VirtualPosition {
   quantity       Int
   avgPrice       Float
   currentPrice   Float?
-  peakPrice      Float?
   openedAt       DateTime       @default(now())
   updatedAt      DateTime
+  peakPrice      Float?
   VirtualAccount VirtualAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@unique([accountId, symbol])

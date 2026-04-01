@@ -37,10 +37,19 @@ function StrategyResultContent() {
         // strategySummary 구성
         const s = data.settings;
         if (s) {
-          const universe = Array.isArray(s.universe) ? s.universe : s.universe ? [s.universe] : [];
+          // universe는 V2: { id: "kospi", filters: {...} } 또는 NL: 없음
+          const universeId = s.universe?.id ?? s.universe;
+          const UNIVERSE_NAMES: Record<string, string> = {
+            kospi: "KOSPI", kosdaq: "KOSDAQ", kospi200: "KOSPI 200",
+            KOR_KOSPI200: "KOSPI 200", KOR_KOSDAQ150: "KOSDAQ 150",
+            US_TECH_TOP10: "미국 테크 Top 10", CRYPTO_TOP10: "크립토 Top 10",
+          };
+          const universeName = (typeof universeId === "string" && universeId)
+            ? (UNIVERSE_NAMES[universeId] ?? universeId)
+            : "";
           setStrategySummary({
             strategyName: data.name,
-            universeName: universe.join(", ") || "—",
+            universeName: universeName || "—",
             blockNames: [],
             positionText: s.max_positions ? `최대 ${s.max_positions}종목` : undefined,
             riskText: [
@@ -105,6 +114,7 @@ function StrategyResultContent() {
             strategySummary={strategySummary}
             aiSummary={aiSummary}
             aiScore={aiScore}
+            disableHistorySave={true}
           />
         </div>
       </div>
