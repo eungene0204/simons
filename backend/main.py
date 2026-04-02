@@ -13,6 +13,7 @@ from schemas import (
 )
 from backtest_engine import BacktestEngine
 from engine.market_data import market_data_provider
+from engine.virtual_trader import VirtualTrader
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 import uvicorn
@@ -728,16 +729,21 @@ _nl_parsers: dict = {}  # backend → NLStrategyParser (lazy singleton)
 _nl_parser_status: dict = {"status": "loading", "error": None}  # "ok" | "failed" | "loading"
 
 
+_virtual_trader = VirtualTrader(market_data_provider, engine.loader)
+
+
 @app.on_event("startup")
-async def start_kis_websocket():
-    """서버 시작 시 KIS WebSocket 백그라운드 루프 시작"""
+async def startup():
+    """서버 시작 시 KIS WebSocket + VirtualTrader 백그라운드 루프 시작"""
     await market_data_provider.start_ws()
+    await _virtual_trader.start()
 
 
 @app.on_event("shutdown")
-async def stop_kis_websocket():
-    """서버 종료 시 WebSocket 연결 정리"""
+async def shutdown():
+    """서버 종료 시 백그라운드 루프 정리"""
     await market_data_provider.stop_ws()
+    await _virtual_trader.stop()
 
 
 @app.on_event("startup")

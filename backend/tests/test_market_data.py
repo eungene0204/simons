@@ -119,10 +119,13 @@ class MockProvider(BaseProvider):
 class TestMarketDataProvider:
     def _make_provider(self, providers):
         """테스트용 MarketDataProvider 생성 (기본 provider 초기화 건너뜀)"""
+        from engine.providers.kis_ws import KISWebSocketProvider
         mdp = MarketDataProvider.__new__(MarketDataProvider)
         mdp.cache = PriceCache(market_ttl=300, off_market_ttl=300)
         mdp.circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_timeout=60)
         mdp.providers = providers
+        # 테스트에서는 ws_provider 미설정 (환경변수 없음) → WS 경로 건너뜀
+        mdp.ws_provider = KISWebSocketProvider()
         mdp._health = {}
         for p in providers:
             from engine.providers.base import ProviderHealth

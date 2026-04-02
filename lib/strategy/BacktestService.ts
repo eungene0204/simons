@@ -33,9 +33,9 @@ export class BacktestService {
       }
     };
 
-    // 2. Call Python Microservice
+    // 2. Call caching proxy (deduplicates identical backtests across users)
     try {
-      const response = await fetch("http://localhost:8000/backtest", {
+      const response = await fetch("/api/backtest/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
@@ -109,6 +109,9 @@ export class BacktestService {
         maxConsecutiveWins: pythonResult.maxConsecutiveWins,
         maxConsecutiveLosses: pythonResult.maxConsecutiveLosses,
         executionTime: pythonResult.executionTime,
+        fromCache: pythonResult.fromCache ?? false,
+        cachedAt: pythonResult.cachedAt,
+        cacheKey: pythonResult.cacheKey,
       };
     } catch (error: any) {
       console.error("Backtest integration error:", error);

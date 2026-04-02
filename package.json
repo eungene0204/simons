@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:all": "concurrently --names \"next,backend,scheduler\" --prefix-colors \"cyan,green,yellow\" \"npm run dev\" \"npm run dev:backend\" \"npm run dev:scheduler\"",
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
@@ -13,6 +14,7 @@
     "sync-stocks": "ts-node scripts/sync-korea-stocks.ts",
     "sync-data": "python3 scripts/sync_data.py",
     "dev:backend": "python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload --app-dir backend",
+    "dev:scheduler": "python3 scripts/scheduler.py",
     "start-scheduler": "python3 scripts/scheduler.py",
     "test:frontend": "vitest run"
   },
@@ -60,6 +62,7 @@
     "@types/xlsx": "^0.0.35",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.16",
+    "concurrently": "^9.2.1",
     "eslint": "^8.56.0",
     "eslint-config-next": "14.0.4",
     "iconv-lite": "^0.7.0",

@@ -148,6 +148,9 @@ export interface BacktestResult {
   }>;
   warnings?: string[];
   executionTime?: number;
+  fromCache?: boolean;
+  cachedAt?: string;
+  cacheKey?: string;
 }
 
 
@@ -166,7 +169,7 @@ export interface BacktestHistoryItem {
   timestamp: number;
   strategyName: string;
   universe: string;
-  conditions: string[] | { 
+  conditions: string[] | {
     names?: string[];
     entry?: { names: string[] };
     exit?: { names: string[] };
@@ -184,6 +187,7 @@ export interface BacktestHistoryItem {
     executionTime?: number;
     score?: number;
   };
+  result?: BacktestResult;
 }
 
 
