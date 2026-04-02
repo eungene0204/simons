@@ -7,12 +7,11 @@ import { useDrawer } from "@/contexts/DrawerContext";
 import Image from "next/image";
 import {
   SquaresFour,
-  Star,
   Bank,
   MagnifyingGlass,
   ChartLineUp,
-  Users,
   Sparkle,
+  Clock,
 } from "phosphor-react";
 import StockSearchModal from "@/components/stock/StockSearchModal";
 
@@ -30,46 +29,26 @@ const menuItems = [
     Icon: Bank,
   },
   {
-    label: "관심종목",
-    href: "/watchlist",
-    id: "watchlist",
-    Icon: Star,
-  },
-  {
     label: "전략연구소",
     href: "/analytics",
     id: "analytics",
     Icon: ChartLineUp,
   },
   {
-    label: "커뮤니티",
-    href: "/community",
-    id: "community",
-    Icon: Users,
+    label: "백테스트",
+    href: "/backtest",
+    id: "backtest",
+    Icon: Clock,
   },
 ];
 
-interface SidebarProps {
-  onWatchlistClick?: () => void;
-  isWatchlistOpen?: boolean;
-}
-
-function SidebarComponent({
-  onWatchlistClick,
-  isWatchlistOpen,
-}: SidebarProps) {
+function SidebarComponent() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
-  
-  // Context에서 drawer 상태 직접 가져오기
-  const {
-    isWatchlistOpen: drawerOpen,
-    openWatchlist,
-    isVirtualAccountOpen,
-    openVirtualAccount,
-  } = useDrawer();
+
+  const { isVirtualAccountOpen, openVirtualAccount } = useDrawer();
 
   // '/' 키보드 단축키 처리
   useEffect(() => {
@@ -113,50 +92,24 @@ function SidebarComponent({
     item: (typeof menuItems)[0],
     e: React.MouseEvent
   ) => {
-    if (item.id === "watchlist") {
+    if (item.id === "virtual-account") {
       e.preventDefault();
-      // Context의 openWatchlist 사용
-      if (onWatchlistClick) {
-        onWatchlistClick();
-      } else {
-        openWatchlist();
-      }
-    } else if (item.id === "virtual-account") {
-      e.preventDefault();
-      // 가상계좌 drawer 열기
       openVirtualAccount();
     } else {
-      // 다른 메뉴를 클릭할 때 drawer가 열려있으면 파라미터 유지
-      // drawer 상태는 절대 변경하지 않음
-      const isWatchlistDrawerOpen =
-        drawerOpen ||
-        isWatchlistOpen ||
-        searchParams.get("watchlist") === "open";
       const isVirtualAccountDrawerOpen =
         isVirtualAccountOpen || searchParams.get("virtualAccount") === "open";
 
-      if (isWatchlistDrawerOpen) {
-        e.preventDefault();
-        const url = new URL(item.href, window.location.origin);
-        url.searchParams.set("watchlist", "open");
-        router.push(url.pathname + url.search);
-      } else if (isVirtualAccountDrawerOpen) {
-        e.preventDefault();
+      e.preventDefault();
+      if (isVirtualAccountDrawerOpen) {
         const url = new URL(item.href, window.location.origin);
         url.searchParams.set("virtualAccount", "open");
         router.push(url.pathname + url.search);
       } else {
-        // drawer가 열려있지 않을 때도 명시적으로 pathname 업데이트
-        e.preventDefault();
         router.push(item.href);
       }
     }
   };
 
-  // Find the active menu item - only one should be active at a time
-  // useMemo로 메모이제이션하여 pathname, searchParams, drawer 상태 변경 시에만 재계산
-  // searchParams는 객체이므로 toString()으로 변환하여 dependency로 사용
-  const watchlistParam = searchParams.get("watchlist");
   const virtualAccountParam = searchParams.get("virtualAccount");
 
   const activeMenuItemId = useMemo(() => {
@@ -197,56 +150,19 @@ function SidebarComponent({
     }
 
     // 3. pathname과 일치하는 메뉴가 없을 때만 drawer 상태 확인
-    // (예: /stock-order 같은 특정 페이지에 있을 때)
-    const isWatchlistDrawerOpen =
-      drawerOpen || isWatchlistOpen || watchlistParam === "open";
-    const isVirtualAccountDrawerOpen =
-      isVirtualAccountOpen || virtualAccountParam === "open";
-
-    if (isWatchlistDrawerOpen) {
-      return "watchlist";
-    }
-    if (isVirtualAccountDrawerOpen) {
+    if (isVirtualAccountOpen || virtualAccountParam === "open") {
       return "virtual-account";
     }
 
     return null;
-  }, [
-    pathname,
-    watchlistParam,
-    virtualAccountParam,
-    drawerOpen,
-    isWatchlistOpen,
-    isVirtualAccountOpen,
-  ]);
+  }, [pathname, virtualAccountParam, isVirtualAccountOpen]);
 
-  // 디버깅: pathname과 activeMenuItemId 확인 (개발 중에만)
-  if (process.env.NODE_ENV === "development") {
-    console.log(
-      "Sidebar - pathname:",
-      pathname,
-      "activeMenuItemId:",
-      activeMenuItemId,
-      "drawerOpen:",
-      drawerOpen,
-      "watchlistParam:",
-      watchlistParam,
-      "virtualAccountParam:",
-      virtualAccountParam
-    );
-  }
 
   return (
     <nav className="bg-black/40 backdrop-blur-xl flex items-center gap-1 px-6 py-3 overflow-x-auto scrollbar-hide">
       {/* Logo */}
       <Link
-        href={
-          drawerOpen ||
-          isWatchlistOpen ||
-          searchParams.get("watchlist") === "open"
-            ? "/?watchlist=open"
-            : "/"
-        }
+        href="/"
         className="flex items-center gap-3 mr-8 flex-shrink-0 group"
       >
         <Image

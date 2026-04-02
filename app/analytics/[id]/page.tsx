@@ -78,11 +78,11 @@ function StrategyResultContent() {
     return (
       <DashboardLayout userName="">
         <div className="flex flex-col items-center justify-center h-full gap-4">
-          <Warning size={36} className="text-red-400" weight="fill" />
-          <p className="text-sm font-bold text-red-400">{error ?? "결과를 불러올 수 없습니다."}</p>
+          <Warning size={32} className="text-[var(--main-blue)]" weight="fill" />
+          <p className="text-sm font-bold text-[var(--main-blue)]">{error ?? "결과를 불러올 수 없습니다."}</p>
           <button
             onClick={() => router.push("/analytics")}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white text-xs font-bold transition-all"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.05] hover:bg-white/10 text-gray-400 hover:text-white text-xs font-bold transition-all duration-200"
           >
             <ArrowLeft size={13} />
             전략 목록으로
@@ -95,15 +95,15 @@ function StrategyResultContent() {
   return (
     <DashboardLayout userName="">
       <div className="h-full flex flex-col">
-        <div className="flex items-center justify-between px-6 py-3 border-b border-white/5">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.05]">
           <div className="flex items-center gap-3">
             <button
               onClick={() => router.push("/analytics")}
-              className="flex items-center gap-1.5 text-gray-500 hover:text-white transition-colors"
+              className="flex items-center gap-1.5 text-gray-500 hover:text-gray-300 transition-colors duration-200"
             >
               <ArrowLeft size={14} />
             </button>
-            <ChartLineUp size={18} className="text-blue-400" weight="fill" />
+            <ChartLineUp size={16} className="text-sky-400" weight="fill" />
             <span className="text-sm font-black text-white">{strategyName}</span>
           </div>
         </div>

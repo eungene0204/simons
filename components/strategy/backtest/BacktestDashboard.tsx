@@ -1,6 +1,6 @@
 "use client";
 
-import { BacktestResult, BacktestHistoryItem } from "@/types/strategy";
+import { BacktestResult } from "@/types/strategy";
 import BacktestChart from "@/components/strategy/BacktestChart";
 import { BacktestConfigOptions } from "@/components/strategy/backtest/BacktestConfig";
 import {
@@ -16,8 +16,6 @@ import {
   Check,
   CaretUp,
   CaretDown,
-  Clock,
-  Trash,
   X,
   FloppyDisk,
   Spinner,
@@ -123,10 +121,7 @@ export default function BacktestDashboard({
   strategySummary,
   disableHistorySave,
 }: BacktestDashboardProps) {
-  const [activeTab, setActiveTab] = useState<"chart" | "stats" | "log" | "assets" | "history" | "monte-carlo">("chart");
-  const [history, setHistory] = useState<BacktestHistoryItem[]>([]);
-  const [historySortField, setHistorySortField] = useState<'timestamp' | 'totalReturn' | 'cagr' | 'mdd' | 'profitFactor' | 'trades' | 'score'>('timestamp');
-  const [historySortDir, setHistorySortDir] = useState<'asc' | 'desc'>('desc');
+  const [activeTab, setActiveTab] = useState<"chart" | "stats" | "log" | "assets" | "monte-carlo">("chart");
   const [isWFAOpen, setIsWFAOpen] = useState(false);
 
 
@@ -150,81 +145,9 @@ export default function BacktestDashboard({
   const [isSavingStrategy, setIsSavingStrategy] = useState(false);
   const [saveResult, setSaveResult] = useState<{ ok: boolean; message: string } | null>(null);
 
-  // Load history on mount
-  useEffect(() => {
-    fetch("/api/backtest/history")
-      .then(r => r.ok ? r.json() : [])
-      .then(data => setHistory(data))
-      .catch(() => {});
-  }, []);
 
-  // Save history when a new backtest result arrives
-  useEffect(() => {
-    // isRunning 이 deps에 포함되어야 batching이 안 될 때도 재실행됨
-    if (disableHistorySave || isRunning || !result) return;
-
-    // Idempotency: skip if this execution was already saved
-    if (result.executionId && processedExecutionIds.has(result.executionId)) return;
-    if (isSavingRef.current) return;
-
-    const saveHistory = async () => {
-      isSavingRef.current = true;
-      if (result.executionId) {
-        processedExecutionIds.add(result.executionId);
-      }
-
-      try {
-        if (strategySummary) {
-          const newItemData = {
-            strategyName: strategySummary.strategyName || "이름 없는 전략",
-            universe: strategySummary.universeName,
-            conditions: {
-              entry: {
-                logic: strategySummary.entryLogic || "AND",
-                names: strategySummary.entryBlocks || []
-              },
-              exit: {
-                logic: strategySummary.exitLogic || "AND",
-                names: strategySummary.exitBlocks || []
-              },
-              position: strategySummary.positionText,
-              risk: strategySummary.riskText
-            },
-            metrics: {
-              totalReturn: result.totalReturn || 0,
-              cagr: result.cagr || 0,
-              mdd: result.maxDrawdown || 0,
-              winRate: result.winRate || 0,
-              profitFactor: result.profitFactor || 0,
-              buyHold: result.buyAndHoldReturn || 0,
-              trades: result.trades || 0,
-              executionTime: result.executionTime ?? 0,
-              score: calculateScore(result),
-              perAssetStats: result.perAssetStats || {},
-            },
-          };
-
-          const saveResponse = await fetch("/api/backtest/history", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(newItemData),
-          });
-
-          if (saveResponse.ok) {
-            const savedData = await saveResponse.json();
-            setHistory(prev => [savedData, ...prev]);
-            lastProcessedResultRef.current = result.executionId;
-          }
-        }
-      } catch (error) {
-        console.error("Failed to save backtest history:", error);
-      } finally {
-        isSavingRef.current = false;
-      }
-    };
-
-    saveHistory();
-  }, [result, isRunning, strategySummary]);
+  // 자동 히스토리 저장 제거됨 — 실행 결과는 /api/backtest/run 의 BacktestCache에만 캐싱됨.
+  // 저장 목록(BacktestHistory)은 사용자가 명시적으로 저장 버튼을 눌렀을 때만 생성됨.
 
   useEffect(() => {
     const fetchStockMetadata = async () => {
@@ -338,21 +261,6 @@ export default function BacktestDashboard({
     if (currentOptions) setLocalOptions(currentOptions);
   }, [currentOptions]);
 
-  const handleDeleteHistoryItem = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (confirm("이 테스트 기록을 삭제하시겠습니까?")) {
-      try {
-        const response = await fetch(`/api/backtest/history?id=${id}`, {
-          method: "DELETE",
-        });
-        if (response.ok) {
-          setHistory(prev => prev.filter(item => item.id !== id));
-        }
-      } catch (error) {
-        console.error("Failed to delete history item:", error);
-      }
-    }
-  };
 
   const handleOpenSaveModal = () => {
     setSaveStrategyName("");
@@ -381,6 +289,39 @@ export default function BacktestDashboard({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "저장 실패");
+
+      // 저장 버튼을 누른 시점에 BacktestHistory 생성 (저장 목록에 노출)
+      if (strategySummary) {
+        fetch("/api/backtest/history", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            strategyName: saveStrategyName.trim() || strategySummary.strategyName || "이름 없는 전략",
+            universe: strategySummary.universeName,
+            conditions: {
+              entry: { logic: strategySummary.entryLogic || "AND", names: strategySummary.entryBlocks || [] },
+              exit: { logic: strategySummary.exitLogic || "AND", names: strategySummary.exitBlocks || [] },
+              position: strategySummary.positionText,
+              risk: strategySummary.riskText,
+            },
+            metrics: {
+              totalReturn: result.totalReturn || 0,
+              cagr: result.cagr || 0,
+              mdd: result.maxDrawdown || 0,
+              winRate: result.winRate || 0,
+              profitFactor: result.profitFactor || 0,
+              buyHold: result.buyAndHoldReturn || 0,
+              trades: result.trades || 0,
+              executionTime: result.executionTime ?? 0,
+              score: calculateScore(result),
+              perAssetStats: result.perAssetStats || {},
+            },
+            result,
+            cacheKey: result.cacheKey,  // 기존 숨김 레코드를 isVisible=true 로 승격
+          }),
+        }).catch(() => {/* 히스토리 저장 실패는 무시 */});
+      }
+
       setSaveResult({ ok: true, message: "전략이 저장되었습니다." });
       onSave?.();
       setTimeout(() => setIsSaveModalOpen(false), 1200);
@@ -539,7 +480,6 @@ export default function BacktestDashboard({
               { id: "assets", label: "종목 분석", icon: List },
               { id: "stats", label: "통계 상세", icon: Table },
               { id: "log", label: "매매 기록", icon: ShieldCheck },
-              { id: "history", label: "테스트 기록", icon: Clock },
               { id: "monte-carlo", label: "몬테카를로", icon: ChartBar },
             ].map(tab => (
               <button
@@ -651,63 +591,66 @@ export default function BacktestDashboard({
            
            {/* Chart View */}
             {activeTab === "chart" && (
-              <>
-              <div className="flex flex-col px-2 pt-2 pb-3 gap-3">
-                <div className="flex flex-col">
-                  <div className="flex items-center gap-2 px-1 pb-1.5">
-                    <TrendUp className="w-3.5 h-3.5 text-gray-500" />
-                    <span className="text-xs font-bold uppercase tracking-widest text-gray-500">자산 곡선 (Equity Curve)</span>
+              <div className="flex gap-3 px-2 pt-2 pb-3 items-stretch">
+                {/* Left: Equity Curve + Quick Stats */}
+                <div className="flex-[6] min-w-0 flex flex-col gap-3">
+                  <div className="flex flex-col">
+                    <div className="flex items-center gap-2 px-1 pb-1.5">
+                      <TrendUp className="w-3.5 h-3.5 text-gray-500" />
+                      <span className="text-xs font-bold uppercase tracking-widest text-gray-500">자산 곡선 (Equity Curve)</span>
+                    </div>
+                    <div className="bg-[#0a0a0f] rounded-xl overflow-hidden relative">
+                      <BacktestChart
+                        type="equity"
+                        height={420}
+                        trades={result.tradesList}
+                        equityData={result.dates.map((d: string, i: number) => ({
+                          time: d,
+                          equity: result.equity[i],
+                          buyHold: result.benchmarkEquity ? result.benchmarkEquity[i] : (result.initialCapital * (1 + (result.buyAndHoldReturn || 0)/100))
+                        }))}
+                      />
+                    </div>
                   </div>
-                  <div className="bg-[#0a0a0f] rounded-xl overflow-hidden relative">
-                  <BacktestChart
-                    type="equity"
-                    height={450}
-                    trades={result.tradesList}
-                    equityData={result.dates.map((d: string, i: number) => ({
-                      time: d,
-                      equity: result.equity[i],
-                      buyHold: result.benchmarkEquity ? result.benchmarkEquity[i] : (result.initialCapital * (1 + (result.buyAndHoldReturn || 0)/100))
-                    }))}
-                  />
+
+                  {/* Quick Stats */}
+                  <div className="grid grid-cols-4 gap-2">
+                    <StatRow
+                      label="총 수익"
+                      value={formatKRW(result.finalEquity - result.initialCapital)}
+                      result={result}
+                    />
+                    <StatRow
+                      label="총수익률"
+                      value={`${(result.totalReturn || 0).toFixed(1)}%`}
+                      result={result}
+                      description={METRIC_DESCRIPTIONS.totalReturn}
+                      onHover={(rect) => setHoveredMetric(rect ? { label: "총수익률", description: METRIC_DESCRIPTIONS.totalReturn, rect } : null)}
+                    />
+                    <StatRow
+                      label="매수후보유"
+                      value={`${(result.buyAndHoldReturn || 0).toFixed(1)}%`}
+                      result={result}
+                      colorOverride="text-main-green"
+                      description={METRIC_DESCRIPTIONS.buyHold}
+                      onHover={(rect) => setHoveredMetric(rect ? { label: "매수후보유", description: METRIC_DESCRIPTIONS.buyHold, rect } : null)}
+                    />
+                    <StatRow
+                      label="연간 변동성"
+                      value={`${(result.sharpe > 0 ? ((result.cagr || 0) / result.sharpe) : 0).toFixed(1)}%`}
+                      result={result}
+                      isNeutral
+                      description={METRIC_DESCRIPTIONS.volatility}
+                      onHover={(rect) => setHoveredMetric(rect ? { label: "연간 변동성", description: METRIC_DESCRIPTIONS.volatility, rect } : null)}
+                    />
                   </div>
                 </div>
 
-               {/* Quick Stats — horizontal below chart */}
-               <div className="grid grid-cols-4 gap-2">
-                  <StatRow
-                    label="총 수익"
-                    value={formatKRW(result.finalEquity - result.initialCapital)}
-                    result={result}
-                  />
-                  <StatRow
-                    label="총수익률"
-                    value={`${(result.totalReturn || 0).toFixed(1)}%`}
-                    result={result}
-                    description={METRIC_DESCRIPTIONS.totalReturn}
-                    onHover={(rect) => setHoveredMetric(rect ? { label: "총수익률", description: METRIC_DESCRIPTIONS.totalReturn, rect } : null)}
-                  />
-                  <StatRow
-                    label="매수후보유"
-                    value={`${(result.buyAndHoldReturn || 0).toFixed(1)}%`}
-                    result={result}
-                    colorOverride="text-main-green"
-                    description={METRIC_DESCRIPTIONS.buyHold}
-                    onHover={(rect) => setHoveredMetric(rect ? { label: "매수후보유", description: METRIC_DESCRIPTIONS.buyHold, rect } : null)}
-                  />
-                  <StatRow
-                    label="연간 변동성"
-                    value={`${(result.sharpe > 0 ? ((result.cagr || 0) / result.sharpe) : 0).toFixed(1)}%`}
-                    result={result}
-                    isNeutral
-                    description={METRIC_DESCRIPTIONS.volatility}
-                    onHover={(rect) => setHoveredMetric(rect ? { label: "연간 변동성", description: METRIC_DESCRIPTIONS.volatility, rect } : null)}
-                  />
-               </div>
-             </div>
-
-             {/* Terminal Log */}
-             <BacktestTerminalLog result={result} stockMetadata={stockMetadata} />
-              </>
+                {/* Right: Terminal Log — h-[490px]로 명시적 높이를 줘야 flex-1 자식이 scroll 활성화됨 */}
+                <div className="flex-[4] min-w-0 flex flex-col h-[490px]">
+                  <BacktestTerminalLog result={result} stockMetadata={stockMetadata} fill />
+                </div>
+              </div>
            )}
 
             {/* Assets View (Symbol Summary) */}
@@ -938,237 +881,6 @@ export default function BacktestDashboard({
               />
             )}
 
-            {/* History View */}
-            {activeTab === "history" && (
-              <div className="h-full overflow-y-auto custom-scrollbar p-6">
-                 <div className="flex items-center justify-between mb-4">
-                    <h4 className="text-xl font-black text-white flex items-center gap-2">
-                       <Clock className="w-6 h-6 text-main-blue" />
-                       테스트 기록 (최근 50개)
-                    </h4>
-                    <button
-                      onClick={async () => {
-                        if (confirm("모든 테스트 기록을 삭제하시겠습니까?")) {
-                          try {
-                            const response = await fetch("/api/backtest/history", {
-                              method: "DELETE",
-                            });
-                            if (response.ok) {
-                              setHistory([]);
-                            }
-                          } catch (error) {
-                            console.error("Failed to clear history:", error);
-                          }
-                        }
-                      }}
-                      className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 text-xs font-bold rounded-lg border border-red-500/20 transition-all"
-                    >
-                       <Trash className="w-4 h-4" />
-                       기록 전체 삭제
-                    </button>
-                 </div>
-
-                 {/* Sort buttons */}
-                 {history.length > 0 && (
-                   <div className="flex flex-wrap items-center gap-2 mb-4">
-                     <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">정렬:</span>
-                     {([
-                       { field: 'timestamp', label: '날짜' },
-                       { field: 'score', label: '점수' },
-                       { field: 'cagr', label: 'CAGR' },
-                       { field: 'totalReturn', label: '총수익률' },
-                       { field: 'mdd', label: 'MDD' },
-                       { field: 'profitFactor', label: '손익비' },
-                       { field: 'trades', label: '매매횟수' },
-                     ] as const).map(({ field, label }) => {
-                       const isActive = historySortField === field;
-                       return (
-                         <button
-                           key={field}
-                           onClick={() => {
-                             if (isActive) {
-                               setHistorySortDir(d => d === 'asc' ? 'desc' : 'asc');
-                             } else {
-                               setHistorySortField(field);
-                               setHistorySortDir('desc');
-                             }
-                           }}
-                           className={`flex items-center justify-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all ${
-                             isActive
-                               ? 'bg-main-blue/15 text-main-blue border-main-blue/30'
-                               : 'bg-white/5 text-gray-400 border-white/10 hover:border-white/20 hover:text-white'
-                           }`}
-                         >
-                           {label}
-                           {isActive ? (
-                             historySortDir === 'desc' ? <CaretDown className="w-3 h-3" /> : <CaretUp className="w-3 h-3" />
-                           ) : (
-                             <span className="w-3 h-3 opacity-0"><CaretDown className="w-3 h-3" /></span>
-                           )}
-                         </button>
-                       );
-                     })}
-                   </div>
-                 )}
-
-                 {history.length > 0 ? (
-                   <div className="space-y-4">
-                      {[...history].sort((a, b) => {
-                        let av: number, bv: number;
-                        if (historySortField === 'timestamp') {
-                          av = a.timestamp; bv = b.timestamp;
-                        } else if (historySortField === 'score') {
-                          av = a.metrics.score ?? -Infinity; bv = b.metrics.score ?? -Infinity;
-                        } else if (historySortField === 'cagr') {
-                          av = a.metrics.cagr ?? -Infinity; bv = b.metrics.cagr ?? -Infinity;
-                        } else if (historySortField === 'totalReturn') {
-                          av = a.metrics.totalReturn ?? -Infinity; bv = b.metrics.totalReturn ?? -Infinity;
-                        } else if (historySortField === 'mdd') {
-                          av = a.metrics.mdd ?? Infinity; bv = b.metrics.mdd ?? Infinity;
-                        } else if (historySortField === 'profitFactor') {
-                          av = a.metrics.profitFactor ?? -Infinity; bv = b.metrics.profitFactor ?? -Infinity;
-                        } else {
-                          av = a.metrics.trades ?? -Infinity; bv = b.metrics.trades ?? -Infinity;
-                        }
-                        return historySortDir === 'asc' ? av - bv : bv - av;
-                      }).map((item) => (
-                        <div key={item.id} className="bg-[#161616] border border-white/5 rounded-2xl p-5 hover:border-white/10 transition-all group">
-                           <div className="flex items-start justify-between mb-4">
-                              <div>
-                                 <div className="flex items-center gap-3 mb-1.5">
-                                    <span className="text-base font-black text-white">{item.strategyName}</span>
-                                    <span className="px-2.5 py-1 bg-main-blue/10 text-main-blue text-xs font-black rounded uppercase tracking-wider border border-main-blue/20">
-                                       {item.universe}
-                                    </span>
-                                 </div>
-                                  <div className="flex flex-wrap items-center gap-y-2 gap-x-4">
-                                     {/* 1. Entry Blocks Rendering (Red Theme) */}
-                                     {(() => {
-                                         const conds = item.conditions as any;
-                                         const entry = conds?.entry || (Array.isArray(item.conditions) ? { logic: "AND", names: item.conditions } : { logic: conds.logic || "AND", names: conds.names || [] });
-                                         const isEntryAnd = String(entry.logic).trim().toUpperCase() === "AND";
-                                         const names = entry.names || [];
-                                         if (names.length === 0) return null;
-
-                                         return (
-                                           <div className="flex items-center">
-                                             {names.map((name: string, idx: number) => (
-                                               <div key={`entry-${idx}`} className="flex items-center">
-                                                  {/* PHYSICAL LINE: ONLY DRAW IF 'AND' AND NOT FIRST */}
-                                                  {idx > 0 && isEntryAnd && <div className="w-5 h-[1.5px] bg-red-500/40" />}
-                                                  {/* GAP: ONLY IF 'OR' AND NOT FIRST */}
-                                                  {idx > 0 && !isEntryAnd && <div className="w-4" />}
-                                                  
-                                                  <span className={`px-2.5 py-1 ${!isEntryAnd ? 'bg-red-500/5 text-red-400/80 border-red-500/20' : 'bg-red-500/10 text-red-500 border-red-500/10'} text-[10px] font-bold rounded-md border whitespace-nowrap`}>
-                                                    {name}
-                                                  </span>
-                                               </div>
-                                             ))}
-                                           </div>
-                                         );
-                                     })()}
-
-                                     {/* Divider if both exist (Simple Spacer) */}
-                                     {((item.conditions as any).entry?.names?.length > 0 && (item.conditions as any).exit?.names?.length > 0) && (
-                                       <div className="w-6" /> 
-                                     )}
-
-                                     {/* 2. Exit Blocks Rendering (Blue Theme) */}
-                                     {(() => {
-                                         const conds = item.conditions as any;
-                                         if (!conds?.exit || (conds.exit.names || []).length === 0) return null;
-                                         const exit = conds.exit;
-                                         const isExitAnd = String(exit.logic).trim().toUpperCase() === "AND";
-                                         const names = exit.names || [];
-
-                                         return (
-                                           <div className="flex items-center">
-                                             {names.map((name: string, idx: number) => (
-                                               <div key={`exit-${idx}`} className="flex items-center">
-                                                  {/* PHYSICAL LINE: ONLY DRAW IF 'AND' AND NOT FIRST */}
-                                                  {idx > 0 && isExitAnd && <div className="w-5 h-[1.5px] bg-blue-500/40" />}
-                                                  {/* GAP: ONLY IF 'OR' AND NOT FIRST */}
-                                                  {idx > 0 && !isExitAnd && <div className="w-4" />}
-
-                                                  <span className={`px-2.5 py-1 ${!isExitAnd ? 'bg-blue-500/5 text-blue-400/80 border-blue-500/20' : 'bg-blue-500/10 text-blue-500 border-blue-500/10'} text-[10px] font-bold rounded-md border whitespace-nowrap`}>
-                                                    {name}
-                                                  </span>
-                                               </div>
-                                             ))}
-                                           </div>
-                                         );
-                                     })()}
-
-                                     {/* 3. Position and Risk Settings */}
-                                     {(() => {
-                                         const conds = item.conditions as any;
-                                         if (!conds?.position && !conds?.risk) return null;
-                                         return (
-                                           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 mt-1 sm:mt-0">
-                                              {conds.position && (
-                                                <div className="flex items-center gap-1.5 bg-gray-800/30 px-2 py-1 rounded text-[10px] border border-gray-700/50">
-                                                   <span className="text-gray-500 font-bold">포지션/비중</span>
-                                                   <span className="text-gray-300">{conds.position}</span>
-                                                </div>
-                                              )}
-                                              {conds.risk && (
-                                                <div className="flex items-center gap-1.5 bg-gray-800/30 px-2 py-1 rounded text-[10px] border border-gray-700/50">
-                                                   <span className="text-gray-500 font-bold">리스크 관리</span>
-                                                   <span className="text-gray-300">{conds.risk}</span>
-                                                </div>
-                                              )}
-                                           </div>
-                                         )
-                                     })()}
-                                  </div>
-                              </div>
-                              <div className="flex flex-col items-end gap-2">
-                                 <button
-                                    onClick={(e) => handleDeleteHistoryItem(item.id, e)}
-                                    className="p-1.5 text-gray-600 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                                    title="기록 삭제"
-                                 >
-                                    <X className="w-4 h-4" />
-                                 </button>
-                                 {item.metrics.score != null && (
-                                   <div className={`flex flex-col items-center leading-none ${
-                                     item.metrics.score >= 80 ? "text-emerald-400" :
-                                     item.metrics.score >= 60 ? "text-yellow-400" :
-                                     item.metrics.score >= 40 ? "text-orange-400" : "text-red-400"
-                                   }`}>
-                                     <span className="text-2xl font-black tabular-nums">{item.metrics.score}</span>
-                                     <span className="text-[10px] text-gray-600">/ 100</span>
-                                   </div>
-                                 )}
-                                 <div className="text-xs text-gray-500 font-mono">
-                                    {new Date(item.timestamp).toLocaleString()}
-                                 </div>
-                              </div>
-                           </div>
-                           
-                           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
-                              <HistoryMetric label="총 수익률" value={`${item.metrics.totalReturn.toFixed(1)}%`} trend={item.metrics.totalReturn > 0 ? "up" : "down"} />
-                              <HistoryMetric label="CAGR" value={`${item.metrics.cagr.toFixed(1)}%`} trend={item.metrics.cagr > 0 ? "up" : "down"} />
-                              <HistoryMetric label="MDD" value={`${item.metrics.mdd.toFixed(1)}%`} trend="down" />
-                              <HistoryMetric label="손익비" value={item.metrics.profitFactor.toFixed(2)} />
-                              <HistoryMetric label="매수후보유" value={`${item.metrics.buyHold.toFixed(1)}%`} colorOverride="text-main-green" />
-                              <HistoryMetric label="매매횟수" value={`${item.metrics.trades}회`} />
-                              <HistoryMetric label="소요시간" value={item.metrics.executionTime !== undefined ? `${item.metrics.executionTime.toFixed(2)}초` : "-"} />
-                           </div>
-                        </div>
-                      ))}
-                   </div>
-                 ) : (
-                   <div className="h-[300px] flex flex-col items-center justify-center text-gray-600 space-y-3">
-                      <div className="p-4 bg-white/5 rounded-full border border-white/5">
-                        <Clock className="w-10 h-10 opacity-20" />
-                      </div>
-                      <p className="text-base font-bold">기록된 테스트가 없습니다</p>
-                      <p className="text-sm text-gray-500">백테스트를 실행하면 이곳에 자동으로 기록됩니다.</p>
-                   </div>
-                 )}
-              </div>
-            )}
         </div>
       </div>
 
@@ -1224,9 +936,11 @@ export default function BacktestDashboard({
 function BacktestTerminalLog({
   result,
   stockMetadata,
+  fill,
 }: {
   result: BacktestResult;
   stockMetadata: Record<string, { name: string; sector: string }>;
+  fill?: boolean;
 }) {
   const now = result.dates?.[result.dates.length - 1] ?? "----/--/--";
   const start = result.dates?.[0] ?? "----/--/--";
@@ -1310,8 +1024,8 @@ function BacktestTerminalLog({
   };
 
   return (
-    <div className="mx-2 mb-2 rounded-xl bg-[#080808] border border-white/5 overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-white/5 bg-[#0d0d0d]">
+    <div className={`rounded-xl bg-[#080808] border border-white/5 overflow-hidden flex flex-col ${fill ? "flex-1 min-h-0" : "mx-2 mb-2"}`}>
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-white/5 bg-[#0d0d0d] flex-none">
         <div className="flex gap-1.5">
           <span className="w-2.5 h-2.5 rounded-full bg-[#ff5f57]" />
           <span className="w-2.5 h-2.5 rounded-full bg-[#febc2e]" />
@@ -1319,7 +1033,7 @@ function BacktestTerminalLog({
         </div>
         <span className="text-[11px] font-mono text-gray-600 ml-1">backtest.log</span>
       </div>
-      <div className="px-4 py-3 space-y-1 max-h-64 overflow-y-auto custom-scrollbar font-mono text-xs">
+      <div className={`px-4 py-3 space-y-1 overflow-y-auto custom-scrollbar font-mono text-xs ${fill ? "flex-1 min-h-0" : "max-h-64"}`}>
         {logs.map((log, i) => (
           <div key={i} className="flex gap-3 leading-relaxed">
             <span className="text-gray-600 shrink-0">[{log.ts ?? now}]</span>
@@ -1444,25 +1158,3 @@ function StatItem({
    );
 }
 
-function HistoryMetric({ 
-  label, 
-  value, 
-  trend, 
-  colorOverride 
-}: { 
-  label: string, 
-  value: string, 
-  trend?: "up" | "down", 
-  colorOverride?: string 
-}) {
-  const dynamicColor = colorOverride 
-    ? colorOverride 
-    : (trend === "up" ? "text-main-red" : trend === "down" ? "text-main-blue" : "text-white");
-
-  return (
-    <div className="flex flex-col">
-       <span className="text-xs text-gray-500 font-bold uppercase tracking-wider mb-1">{label}</span>
-       <span className={`text-base font-black ${dynamicColor}`}>{value}</span>
-    </div>
-  );
-}
