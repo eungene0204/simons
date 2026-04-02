@@ -12,8 +12,8 @@ import sys
 import json
 import platform
 
-MLX_MODEL = "mlx-community/Qwen2.5-32B-Instruct-4bit"
-OLLAMA_MODEL = "qwen2.5:32b"
+MLX_MODEL = "mlx-community/Qwen2.5-3B-Instruct-4bit"
+OLLAMA_MODEL = "qwen2.5:3b"
 OLLAMA_URL = "http://localhost:11434/api/generate"
 
 

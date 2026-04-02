@@ -179,7 +179,16 @@ class MarketDataProvider:
         await self.ws_provider.subscribe(symbols)
 
     async def get_price(self, symbol: str) -> Optional[StockQuote]:
-        """단일 종목 현재가 — 캐시 → provider 체인 순회"""
+        """단일 종목 현재가 — WebSocket 실시간 캐시 우선, 외부캐시 → provider 체인 순회"""
+        # WebSocket 실시간 캐시 최우선
+        if self.ws_provider.is_configured():
+            ws_quote = await self.ws_provider.get_price(symbol)
+            if ws_quote:
+                self.cache.put(symbol, ws_quote)
+                self._update_health(self.ws_provider.name, True, 0)
+                return ws_quote
+
+        # 외부 캐시 (REST 폴백용)
         cached = self.cache.get(symbol)
         if cached:
             return cached
@@ -212,11 +221,23 @@ class MarketDataProvider:
         return None
 
     async def get_prices(self, symbols: list[str]) -> dict[str, StockQuote]:
-        """여러 종목 현재가 — 캐시 분리 후 provider 체인으로 미스분 조회"""
+        """여러 종목 현재가 — WebSocket 실시간 캐시 우선, 미구독 종목은 외부캐시 → REST 폴백"""
         result: dict[str, StockQuote] = {}
-        uncached: list[str] = []
 
+        # 1. WebSocket 실시간 캐시 최우선 (30초 외부캐시 TTL 무시)
+        if self.ws_provider.is_configured():
+            ws_data = await self.ws_provider.get_prices(symbols)
+            for sym, quote in ws_data.items():
+                result[sym] = quote
+                self.cache.put(sym, quote)  # 외부캐시도 갱신
+            if ws_data:
+                self._update_health(self.ws_provider.name, True, 0)
+
+        # 2. WS에서 못 구한 종목은 외부캐시 → REST 폴백
+        uncached: list[str] = []
         for sym in symbols:
+            if sym in result:
+                continue
             cached = self.cache.get(sym)
             if cached:
                 result[sym] = cached

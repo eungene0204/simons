@@ -13,6 +13,10 @@ model BacktestHistory {
   universe     String
   conditions   String
   metrics      String
+  result       String?
+  cacheKey     String?  @unique
+  isVisible    Boolean  @default(false)
+  hitCount     Int      @default(0)
   createdAt    DateTime @default(now())
 }
 

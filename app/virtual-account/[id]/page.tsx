@@ -87,7 +87,6 @@ export default function VirtualAccountDetailPage() {
       });
       if (res.ok) {
         const data: Record<string, BatchQuoteItem> = await res.json();
-        // price>0인 항목만 업데이트, 0이면 마지막 가격 유지
         setTrackedPrices((prev) => {
           const merged = { ...prev };
           for (const [sym, item] of Object.entries(data)) {
@@ -115,7 +114,6 @@ export default function VirtualAccountDetailPage() {
     return () => clearInterval(interval);
   }, [accountId]);
 
-  // 추적 종목 가격 동기화: 종목 변경 시 즉시 + 5초마다 갱신
   useEffect(() => {
     const symbols = trackedSymbols.map((s) => s.symbol);
     fetchTrackedPrices(symbols);
@@ -268,8 +266,8 @@ export default function VirtualAccountDetailPage() {
   if (!account) {
     return (
       <DashboardLayout userName="사용자">
-        <div className="p-4 sm:p-6">
-          <p className="text-gray-400">계좌를 불러오는 중...</p>
+        <div className="p-4 md:p-5 lg:p-6 flex flex-col items-center justify-center min-h-48 gap-3">
+          <p className="text-sm font-bold text-gray-500">계좌를 불러오는 중...</p>
         </div>
       </DashboardLayout>
     );
@@ -283,72 +281,144 @@ export default function VirtualAccountDetailPage() {
 
   return (
     <DashboardLayout userName="사용자">
-      <div className="p-4 sm:p-6 max-w-7xl mx-auto w-full">
+      <div className="p-4 md:p-5 lg:p-6 space-y-5 w-full min-w-0">
 
         {/* ── 주문 페이지 (종목 선택 시) ── */}
         {shouldShowOrderPage && (
-          <div>
+          <div className="space-y-5">
             {selectedSymbol && (
-              <div className="bg-[#1a1a1a] p-4 rounded-lg mb-6">
+              <div className="glass-card p-5">
                 <div className="flex items-center gap-4">
                   <div>
-                    <h2 className="text-lg font-bold text-white">{stockInfo?.name || selectedStockName || selectedSymbol}</h2>
-                    <p className="text-sm text-gray-400">{selectedSymbol}</p>
+                    <h2 className="text-base font-black text-white">{stockInfo?.name || selectedStockName || selectedSymbol}</h2>
+                    <p className="text-xs font-bold text-gray-500">{selectedSymbol}</p>
                   </div>
-                  <button onClick={() => { setSelectedSymbol(""); setShowOrderPage(false); }} className="ml-auto text-sm text-gray-400 hover:text-white">← 돌아가기</button>
+                  <button
+                    onClick={() => { setSelectedSymbol(""); setShowOrderPage(false); }}
+                    className="ml-auto text-xs font-bold text-gray-500 hover:text-gray-300 transition-colors duration-200"
+                  >
+                    ← 돌아가기
+                  </button>
                 </div>
               </div>
             )}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <OrderBook symbol={selectedSymbol} currentPrice={currentPrice} onPriceSelect={(p) => { setPrice(p.toString()); setSelectedOrderPrice(p); }} />
-              <div className="bg-[#1a1a1a] rounded-lg flex flex-col">
-                <div className="flex">
-                  {(["buy","sell","amend","unfilled","balance"] as const).map((tab) => (
-                    <button key={tab} onClick={() => { setOrderTab(tab); if (tab === "buy" || tab === "sell") setTransactionType(tab); }}
-                      className={`px-4 py-2 text-xs font-medium transition-colors ${orderTab === tab ? (tab === "sell" ? "text-red-400" : "text-blue-400") : "text-gray-400 hover:text-gray-300"}`}>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              <OrderBook
+                symbol={selectedSymbol}
+                currentPrice={currentPrice}
+                onPriceSelect={(p) => { setPrice(p.toString()); setSelectedOrderPrice(p); }}
+              />
+              <div className="glass-card flex flex-col overflow-hidden">
+                {/* 탭 */}
+                <div className="flex border-b border-white/[0.05]">
+                  {(["buy", "sell", "amend", "unfilled", "balance"] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => { setOrderTab(tab); if (tab === "buy" || tab === "sell") setTransactionType(tab); }}
+                      className={`px-4 py-3 text-xs font-bold transition-colors duration-200 ${
+                        orderTab === tab
+                          ? tab === "sell"
+                            ? "text-[var(--main-blue)] border-b-2 border-[var(--main-blue)]"
+                            : "text-[var(--main-red)] border-b-2 border-[var(--main-red)]"
+                          : "text-gray-500 hover:text-gray-300"
+                      }`}
+                    >
                       {tab === "buy" ? "매수" : tab === "sell" ? "매도" : tab === "amend" ? "정정/취소" : tab === "unfilled" ? "미체결" : "잔고"}
                     </button>
                   ))}
                 </div>
-                <div className="p-4 space-y-4 flex-1 flex flex-col">
+                <div className="p-5 space-y-4 flex-1 flex flex-col">
+                  {/* 현금/신용 */}
                   <div className="flex gap-2">
-                    {(["cash","credit"] as const).map((t) => (
-                      <button key={t} onClick={() => setPaymentType(t)} className={`flex-1 px-3 py-1.5 text-xs font-medium rounded ${paymentType === t ? "bg-blue-600 text-white" : "bg-[#252525] text-gray-300"}`}>
+                    {(["cash", "credit"] as const).map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => setPaymentType(t)}
+                        className={`flex-1 px-3 py-1.5 text-xs font-bold rounded-xl transition-all duration-200 ${
+                          paymentType === t
+                            ? "bg-white/10 text-white"
+                            : "bg-white/[0.03] text-gray-400 hover:text-gray-300"
+                        }`}
+                      >
                         {t === "cash" ? "현금" : "신용"}
                       </button>
                     ))}
                   </div>
-                  <select value={orderType} onChange={(e) => setOrderType(e.target.value as any)} className="w-full px-3 py-1.5 text-xs rounded bg-[#252525] text-white focus:outline-none">
+                  {/* 주문 유형 */}
+                  <select
+                    value={orderType}
+                    onChange={(e) => setOrderType(e.target.value as any)}
+                    className="w-full px-3 py-1.5 text-xs font-bold rounded-xl bg-white/[0.05] text-white border border-white/[0.05] focus:outline-none"
+                  >
                     <option value="limit">보통(지정가)</option>
                     <option value="market">시장가</option>
                   </select>
+                  {/* 수량 */}
                   <div>
-                    <label className="block text-xs font-medium text-gray-300 mb-1">수량</label>
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">수량</label>
                     <div className="flex items-center gap-1.5">
-                      <button onClick={() => setQuantity(q => String(Math.max(0, parseInt(q || "0") - 1)))} className="px-2 py-1 text-xs bg-[#252525] text-gray-300 rounded">-</button>
-                      <input type="number" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="flex-1 px-3 py-1.5 text-sm rounded bg-[#252525] text-white focus:outline-none" placeholder="0" min="1" />
-                      <button onClick={() => setQuantity(q => String(parseInt(q || "0") + 1))} className="px-2 py-1 text-xs bg-[#252525] text-gray-300 rounded">+</button>
+                      <button
+                        onClick={() => setQuantity(q => String(Math.max(0, parseInt(q || "0") - 1)))}
+                        className="px-2.5 py-1.5 text-xs font-bold bg-white/[0.05] text-gray-300 rounded-lg hover:bg-white/10 transition-all duration-200"
+                      >-</button>
+                      <input
+                        type="number"
+                        value={quantity}
+                        onChange={(e) => setQuantity(e.target.value)}
+                        className="flex-1 px-3 py-1.5 text-sm font-bold rounded-xl bg-white/[0.05] text-white border border-white/[0.05] focus:outline-none tabular-nums"
+                        placeholder="0"
+                        min="1"
+                      />
+                      <button
+                        onClick={() => setQuantity(q => String(parseInt(q || "0") + 1))}
+                        className="px-2.5 py-1.5 text-xs font-bold bg-white/[0.05] text-gray-300 rounded-lg hover:bg-white/10 transition-all duration-200"
+                      >+</button>
                     </div>
                   </div>
+                  {/* 가격 */}
                   <div>
-                    <label className="block text-xs font-medium text-gray-300 mb-1">가격</label>
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">가격</label>
                     <div className="flex items-center gap-1.5">
-                      <button onClick={() => { const p = parseFloat(price||"0"); const np = Math.max(0,p-p*0.01); setPrice(np.toFixed(0)); setSelectedOrderPrice(np); }} className="px-2 py-1 text-xs bg-[#252525] text-gray-300 rounded">-</button>
-                      <input id="order-price-input" type="number" value={price} onChange={(e) => { setPrice(e.target.value); const np=parseFloat(e.target.value); setSelectedOrderPrice(!isNaN(np)&&np>0?np:undefined); }} className="flex-1 px-3 py-1.5 text-sm rounded bg-[#252525] text-white focus:outline-none" placeholder="0" />
-                      <span className="text-xs text-gray-400">원</span>
-                      <button onClick={() => { const p=parseFloat(price||"0"); const np=p+p*0.01; setPrice(np.toFixed(0)); setSelectedOrderPrice(np); }} className="px-2 py-1 text-xs bg-[#252525] text-gray-300 rounded">+</button>
+                      <button
+                        onClick={() => { const p = parseFloat(price || "0"); const np = Math.max(0, p - p * 0.01); setPrice(np.toFixed(0)); setSelectedOrderPrice(np); }}
+                        className="px-2.5 py-1.5 text-xs font-bold bg-white/[0.05] text-gray-300 rounded-lg hover:bg-white/10 transition-all duration-200"
+                      >-</button>
+                      <input
+                        id="order-price-input"
+                        type="number"
+                        value={price}
+                        onChange={(e) => { setPrice(e.target.value); const np = parseFloat(e.target.value); setSelectedOrderPrice(!isNaN(np) && np > 0 ? np : undefined); }}
+                        className="flex-1 px-3 py-1.5 text-sm font-bold rounded-xl bg-white/[0.05] text-white border border-white/[0.05] focus:outline-none tabular-nums"
+                        placeholder="0"
+                      />
+                      <span className="text-xs font-bold text-gray-500">원</span>
+                      <button
+                        onClick={() => { const p = parseFloat(price || "0"); const np = p + p * 0.01; setPrice(np.toFixed(0)); setSelectedOrderPrice(np); }}
+                        className="px-2.5 py-1.5 text-xs font-bold bg-white/[0.05] text-gray-300 rounded-lg hover:bg-white/10 transition-all duration-200"
+                      >+</button>
                     </div>
                   </div>
-                  <div className="bg-[#111111] rounded-lg p-4">
+                  {/* 총 거래금액 */}
+                  <div className="bg-white/[0.03] rounded-xl p-4 border border-white/[0.05]">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-400">총 거래금액</span>
-                      <span className="text-lg font-bold text-white">{quantity&&price?formatPrice(parseFloat(quantity)*parseFloat(price)):"0"}원</span>
+                      <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">총 거래금액</span>
+                      <span className="text-lg font-black text-white tabular-nums">
+                        {quantity && price ? formatPrice(parseFloat(quantity) * parseFloat(price)) : "0"}원
+                      </span>
                     </div>
                   </div>
-                  <div className="mt-auto pt-4">
-                    <button onClick={handleTransaction} disabled={!selectedSymbol||!quantity||!price}
-                      className={`w-full px-4 py-3 rounded-lg text-sm font-bold text-white ${transactionType==="buy"?"bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600":"bg-red-600 hover:bg-red-700 disabled:bg-gray-600"}`}>
-                      {paymentType==="cash"?"현금":"신용"}{transactionType==="buy"?"매수":"매도"}
+                  {/* 매수/매도 버튼 */}
+                  <div className="mt-auto pt-2">
+                    <button
+                      onClick={handleTransaction}
+                      disabled={!selectedSymbol || !quantity || !price}
+                      className={`w-full px-4 py-3 rounded-xl text-sm font-bold text-white transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed ${
+                        transactionType === "buy"
+                          ? "bg-gradient-to-r from-blue-600 to-blue-500 hover:shadow-[0_0_15px_rgba(59,130,246,0.4)]"
+                          : "bg-gradient-to-r from-red-600 to-red-500 hover:shadow-[0_0_15px_rgba(239,68,68,0.4)]"
+                      }`}
+                    >
+                      {paymentType === "cash" ? "현금" : "신용"}{transactionType === "buy" ? "매수" : "매도"}
                     </button>
                   </div>
                 </div>
@@ -359,120 +429,121 @@ export default function VirtualAccountDetailPage() {
 
         {/* ── 메인 대시보드 ── */}
         {!shouldShowOrderPage && (
-          <div className="space-y-6">
+          <div className="space-y-5">
             {/* 헤더 */}
-            <div className="flex items-start justify-between">
-              <div>
-                <h1 className="text-3xl font-bold text-white">
-                  {account.name}
-                </h1>
-              </div>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={async () => {
-                    if (!confirm(`'${account.name}' 계좌를 삭제하시겠습니까?`)) return;
-                    await deleteAccount(accountId);
-                    router.push("/virtual-account");
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-gray-400 border border-gray-700 rounded-lg text-sm hover:text-red-400 hover:border-red-700 transition-colors"
-                >
-                  <Trash size={14} />
-                  삭제
-                </button>
-              </div>
+            <div className="flex items-center justify-between">
+              <h1 className="text-2xl font-black text-white">{account.name}</h1>
+              <button
+                onClick={async () => {
+                  if (!confirm(`'${account.name}' 계좌를 삭제하시겠습니까?`)) return;
+                  await deleteAccount(accountId);
+                  router.push("/virtual-account");
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-gray-500 border border-white/[0.08] rounded-xl text-xs font-bold hover:text-[var(--main-blue)] hover:border-[var(--main-blue)]/30 transition-all duration-200"
+              >
+                <Trash size={13} />
+                삭제
+              </button>
             </div>
 
-            {/* 4개 지표 카드 */}
+            {/* 4개 KPI 카드 */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-[#111111] border border-[#222] rounded-xl p-5">
+              {/* 총 자산 */}
+              <div className="glass-card p-5">
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs text-gray-500 uppercase tracking-wide">총 자산</p>
-                  <div className="w-8 h-8 rounded-lg bg-[#1a1a1a] flex items-center justify-center text-gray-400">
-                    <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+                  <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">총 자산</span>
+                  <div className="w-7 h-7 rounded-lg bg-white/[0.05] flex items-center justify-center text-gray-500">
+                    <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
                   </div>
                 </div>
-                <p className="text-2xl font-bold text-white">{formatPrice(account.totalValue)}</p>
-                <p className="text-xs text-gray-500 mt-1">원</p>
+                <p className="text-2xl font-black text-white tabular-nums leading-none">{formatPrice(account.totalValue)}</p>
+                <p className="text-xs font-bold text-gray-500 mt-1">원</p>
               </div>
 
-              <div className="bg-[#111111] border border-[#222] rounded-xl p-5">
+              {/* 주문 가능 금액 */}
+              <div className="glass-card p-5">
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs text-gray-500 uppercase tracking-wide">주문 가능 금액</p>
-                  <div className="w-8 h-8 rounded-lg bg-[#1a1a1a] flex items-center justify-center text-gray-400">
-                    <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+                  <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">주문 가능</span>
+                  <div className="w-7 h-7 rounded-lg bg-white/[0.05] flex items-center justify-center text-gray-500">
+                    <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
                   </div>
                 </div>
-                <p className="text-2xl font-bold text-white">{formatPrice(account.currentBalance)}</p>
-                <p className="text-xs text-gray-500 mt-1">원</p>
+                <p className="text-2xl font-black text-white tabular-nums leading-none">{formatPrice(account.currentBalance)}</p>
+                <p className="text-xs font-bold text-gray-500 mt-1">원</p>
               </div>
 
-              <div className="bg-[#111111] border border-[#222] rounded-xl p-5">
+              {/* 당일 손익 */}
+              <div className="glass-card p-5">
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs text-gray-500 uppercase tracking-wide">당일 손익</p>
-                  <div className="w-8 h-8 rounded-lg bg-[#1a1a1a] flex items-center justify-center text-gray-400">
-                    <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+                  <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">당일 손익</span>
+                  <div className="w-7 h-7 rounded-lg bg-white/[0.05] flex items-center justify-center text-gray-500">
+                    <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
                   </div>
                 </div>
-                <p className={`text-2xl font-bold ${todayPnl >= 0 ? "text-white" : "text-blue-400"}`}>
+                <p className={`text-2xl font-black tabular-nums leading-none ${todayPnl >= 0 ? "text-white" : "text-[var(--main-blue)]"}`}>
                   {todayPnl >= 0 ? "+" : ""}{formatPrice(todayPnl)}
                 </p>
-                <p className={`text-xs mt-1 ${todayPnl >= 0 ? "text-gray-400" : "text-blue-400"}`}>
+                <p className={`text-xs font-bold mt-1 tabular-nums ${todayPnl >= 0 ? "text-gray-500" : "text-[var(--main-blue)]"}`}>
                   {todayPnlPct >= 0 ? "+" : ""}{todayPnlPct.toFixed(2)}% {todayPnl >= 0 ? "▲" : "▼"}
                 </p>
               </div>
 
-              <div className="bg-[#111111] border border-[#222] rounded-xl p-5">
+              {/* 누적 수익률 */}
+              <div className="glass-card p-5">
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs text-gray-500 uppercase tracking-wide">누적 수익률</p>
-                  <div className={`w-8 h-8 rounded-lg bg-[#1a1a1a] flex items-center justify-center ${profitPercent >= 0 ? "text-gray-400" : "text-red-500"}`}>
-                    <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12h18M3 6h18M3 18h18"/><path d="M5 9v6M9 7v8M13 8v7M17 6v9"/></svg>
+                  <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">누적 수익률</span>
+                  <div className={`w-7 h-7 rounded-lg bg-white/[0.05] flex items-center justify-center ${profitPercent >= 0 ? "text-gray-500" : "text-[var(--main-blue)]"}`}>
+                    <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12h18M3 6h18M3 18h18"/><path d="M5 9v6M9 7v8M13 8v7M17 6v9"/></svg>
                   </div>
                 </div>
-                <p className={`text-2xl font-bold ${profitPercent >= 0 ? "text-white" : "text-red-400"}`}>
+                <p className={`text-2xl font-black tabular-nums leading-none ${profitPercent >= 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
                   {profitPercent >= 0 ? "+" : ""}{profitPercent.toFixed(2)}%
                 </p>
-                <div className="mt-3 h-1.5 bg-[#222] rounded-full overflow-hidden">
-                  <div className={`h-full rounded-full ${profitPercent >= 0 ? "bg-blue-500" : "bg-red-500"}`} style={{ width: `${Math.min(100, Math.abs(profitPercent) * 2)}%` }} />
+                <div className="mt-3 h-1 bg-white/[0.05] rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${profitPercent >= 0 ? "bg-[var(--main-red)]" : "bg-[var(--main-blue)]"}`}
+                    style={{ width: `${Math.min(100, Math.abs(profitPercent) * 2)}%` }}
+                  />
                 </div>
               </div>
             </div>
 
             {/* 추적 종목 + 전략 */}
-            <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-5">
               {/* 추적 종목 */}
-              <div className="bg-[#111111] border border-[#222] rounded-xl p-6">
+              <div className="glass-card p-5">
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h2 className="text-base font-semibold text-white">추적 종목</h2>
-                    <p className="text-xs text-gray-500 mt-0.5">전략이 시그널을 모니터링 중인 종목 목록</p>
+                    <span className="text-base font-black uppercase tracking-widest text-white">추적 종목</span>
+                    <p className="text-xs font-bold text-gray-500 mt-0.5">전략이 시그널을 모니터링 중인 종목</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-500 bg-[#1a1a1a] border border-[#2a2a2a] px-2.5 py-0.5 rounded-full">
+                    <span className="text-xs font-bold text-gray-500 bg-white/[0.05] px-2.5 py-0.5 rounded-md">
                       {trackedSymbols.length}개
                     </span>
                     <button
                       onClick={() => setIsTrackSearchOpen(true)}
-                      className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 border border-blue-400/20 px-2.5 py-1 rounded-full transition-colors"
+                      className="flex items-center gap-1 text-xs font-bold text-sky-400 hover:text-sky-300 border border-sky-400/20 px-2.5 py-1 rounded-lg transition-colors duration-200"
                     >
-                      <span className="text-base leading-none">+</span> 종목 추가
+                      <span className="text-sm leading-none">+</span> 종목 추가
                     </button>
                   </div>
                 </div>
                 {trackedSymbols.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-48 gap-3 text-gray-600">
-                    <TrendUp size={32} weight="thin" />
-                    <p className="text-sm">추적 중인 종목이 없습니다</p>
+                  <div className="flex flex-col items-center justify-center h-48 gap-3">
+                    <TrendUp size={32} className="text-gray-700" weight="thin" />
+                    <p className="text-sm font-bold text-gray-600">추적 중인 종목이 없습니다</p>
                     <button
                       onClick={() => setIsTrackSearchOpen(true)}
-                      className="text-xs text-blue-400 hover:text-blue-300 underline underline-offset-2 transition-colors"
+                      className="text-xs font-bold text-sky-400 hover:text-sky-300 underline underline-offset-2 transition-colors duration-200"
                     >
                       종목을 직접 추가하기
                     </button>
                   </div>
                 ) : (
                   <div>
-                    {/* 헤더 */}
-                    <div className="grid grid-cols-[1fr_80px_72px_80px_52px_24px] gap-x-3 px-1 pb-2 border-b border-[#1e1e1e] text-[11px] text-gray-600 uppercase tracking-wide">
+                    {/* 테이블 헤더 */}
+                    <div className="grid grid-cols-[1fr_80px_72px_80px_52px_24px] gap-x-3 px-1 pb-2 border-b border-white/[0.05] text-[10px] font-bold text-gray-600 uppercase tracking-widest">
                       <span>종목</span>
                       <span className="text-right">현재가</span>
                       <span className="text-right">등락률</span>
@@ -480,8 +551,8 @@ export default function VirtualAccountDetailPage() {
                       <span className="text-right">상태</span>
                       <span />
                     </div>
-                    {/* 행 */}
-                    <div className="max-h-64 overflow-y-auto divide-y divide-[#161616]">
+                    {/* 테이블 행 */}
+                    <div className="max-h-64 overflow-y-auto scrollbar-hide divide-y divide-white/[0.03]">
                       {trackedSymbols.map(({ symbol, name }) => {
                         const q = trackedPrices[symbol];
                         const hasPrice = q && q.price > 0;
@@ -490,43 +561,37 @@ export default function VirtualAccountDetailPage() {
                         return (
                           <div
                             key={symbol}
-                            className="grid grid-cols-[1fr_80px_72px_80px_52px_24px] gap-x-3 items-center px-1 py-2.5 hover:bg-[#161616] transition-colors group cursor-pointer"
+                            className="grid grid-cols-[1fr_80px_72px_80px_52px_24px] gap-x-3 items-center px-1 py-2.5 hover:bg-white/[0.02] transition-colors duration-150 group cursor-pointer"
                             onClick={() => handleStockSelect(symbol, name)}
                           >
-                            {/* 종목명 */}
                             <div className="flex items-center gap-2 min-w-0">
-                              <div className="w-7 h-7 rounded-lg bg-[#252525] flex-shrink-0 flex items-center justify-center">
+                              <div className="w-7 h-7 rounded-lg bg-white/[0.05] flex-shrink-0 flex items-center justify-center">
                                 <span className="text-[10px] font-bold text-gray-400">{symbol.slice(0, 2)}</span>
                               </div>
                               <div className="min-w-0">
-                                <p className="text-xs font-medium text-white truncate">{name}</p>
-                                <p className="text-[10px] text-gray-500">{symbol}</p>
+                                <p className="text-xs font-bold text-white truncate">{name}</p>
+                                <p className="text-[10px] font-bold text-gray-500">{symbol}</p>
                               </div>
                             </div>
-                            {/* 현재가 */}
-                            <p className="text-xs text-right text-white font-medium tabular-nums">
+                            <p className="text-xs font-bold text-right text-white tabular-nums">
                               {hasPrice ? formatPrice(q.price) : <span className="text-gray-600">-</span>}
                             </p>
-                            {/* 등락률 */}
-                            <p className={`text-xs text-right font-semibold tabular-nums ${hasPrice ? (isUp ? "text-red-400" : "text-blue-400") : "text-gray-600"}`}>
+                            <p className={`text-xs font-bold text-right tabular-nums ${hasPrice ? (isUp ? "text-[var(--main-red)]" : "text-[var(--main-blue)]") : "text-gray-600"}`}>
                               {hasPrice ? `${isUp ? "+" : ""}${q.changePercent.toFixed(2)}%` : "-"}
                             </p>
-                            {/* 거래량 */}
-                            <p className="text-xs text-right text-gray-400 tabular-nums">
+                            <p className="text-xs font-bold text-right text-gray-400 tabular-nums">
                               {hasPrice ? q.volume.toLocaleString("ko-KR") : <span className="text-gray-600">-</span>}
                             </p>
-                            {/* 상태 */}
                             <div className="flex justify-end">
                               {holding ? (
-                                <span className="text-[10px] text-blue-400 bg-blue-400/10 px-1.5 py-0.5 rounded">보유중</span>
+                                <span className="text-[10px] font-bold text-sky-400 bg-sky-400/10 px-1.5 py-0.5 rounded-md">보유중</span>
                               ) : (
-                                <span className="text-[10px] text-gray-600">대기</span>
+                                <span className="text-[10px] font-bold text-gray-600">대기</span>
                               )}
                             </div>
-                            {/* 삭제 */}
                             <button
                               onClick={(e) => { e.stopPropagation(); handleRemoveTrackedSymbol(symbol); }}
-                              className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-red-400 transition-all flex items-center justify-center"
+                              className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-[var(--main-blue)] transition-all duration-200 flex items-center justify-center"
                               title="추적 제거"
                             >
                               <X size={12} />
@@ -540,27 +605,29 @@ export default function VirtualAccountDetailPage() {
               </div>
 
               {/* 운용 중인 전략 */}
-              <div className="bg-[#111111] border border-[#222] rounded-xl p-6 flex flex-col">
+              <div className="glass-card p-5 flex flex-col">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-base font-semibold text-white">운용 중인 전략</h2>
-                  <span className="flex items-center gap-1.5 text-xs text-gray-400 bg-gray-400/10 border border-gray-400/20 px-2.5 py-1 rounded-full">
-                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-pulse" />실시간 AI 처리 중
+                  <span className="text-base font-black uppercase tracking-widest text-white">운용 전략</span>
+                  <span className="flex items-center gap-1.5 text-[10px] font-bold text-gray-500 bg-white/[0.05] px-2.5 py-1 rounded-md">
+                    <span className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-pulse" />실시간 AI
                   </span>
                 </div>
 
                 {account.strategyName && (
-                  <div className="mb-3 space-y-3">
-                    <div className="p-3 bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl">
-                      <div className="flex items-center justify-between mb-2">
-                        <p className="text-xs text-gray-500">매매 방식</p>
-                      </div>
+                  <div className="mb-3">
+                    <div className="p-3 bg-white/[0.03] border border-white/[0.05] rounded-xl">
+                      <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">매매 방식</p>
                       <div className="flex gap-2">
-                        <button onClick={async () => { const u = await updateTradingMode(accountId, "auto"); setAccount(prev => prev ? { ...prev, tradingMode: u.tradingMode } : prev); }}
-                          className={`flex items-center gap-1.5 flex-1 justify-center px-2 py-1.5 rounded-lg text-xs font-medium ${account.tradingMode==="auto" ? "bg-blue-600 text-white" : "bg-[#252525] text-gray-300 hover:text-white"}`}>
+                        <button
+                          onClick={async () => { const u = await updateTradingMode(accountId, "auto"); setAccount(prev => prev ? { ...prev, tradingMode: u.tradingMode } : prev); }}
+                          className={`flex items-center gap-1.5 flex-1 justify-center px-2 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 ${account.tradingMode === "auto" ? "bg-white/10 text-white" : "bg-white/[0.03] text-gray-400 hover:text-gray-300"}`}
+                        >
                           <Robot size={13} />자동매매
                         </button>
-                        <button onClick={async () => { const u = await updateTradingMode(accountId, "manual"); setAccount(prev => prev ? { ...prev, tradingMode: u.tradingMode } : prev); }}
-                          className={`flex items-center gap-1.5 flex-1 justify-center px-2 py-1.5 rounded-lg text-xs font-medium ${account.tradingMode!=="auto" ? "bg-blue-600 text-white" : "bg-[#252525] text-gray-300 hover:text-white"}`}>
+                        <button
+                          onClick={async () => { const u = await updateTradingMode(accountId, "manual"); setAccount(prev => prev ? { ...prev, tradingMode: u.tradingMode } : prev); }}
+                          className={`flex items-center gap-1.5 flex-1 justify-center px-2 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 ${account.tradingMode !== "auto" ? "bg-white/10 text-white" : "bg-white/[0.03] text-gray-400 hover:text-gray-300"}`}
+                        >
                           <Bell size={13} />신호 알림
                         </button>
                       </div>
@@ -575,95 +642,111 @@ export default function VirtualAccountDetailPage() {
                       ? dbStrategyDescription
                       : (getStrategyByName(strategy.name)?.description ?? null);
                     return (
-                    <div key={idx} className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm">{strategy.status === "active" ? "🚀" : "⏸"}</span>
-                          <span className="text-sm font-medium text-white truncate max-w-[140px]">{strategy.name}</span>
+                      <div key={idx} className="bg-white/[0.03] border border-white/[0.05] rounded-xl p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-sm">{strategy.status === "active" ? "🚀" : "⏸"}</span>
+                            <span className="text-sm font-bold text-white truncate max-w-[140px]">{strategy.name}</span>
+                          </div>
+                          {strategy.status !== "active" && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-white/[0.05] text-gray-500">
+                              대기
+                            </span>
+                          )}
                         </div>
-                        {strategy.status !== "active" && (
-                          <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-gray-700/50 text-gray-400 border border-gray-600/30">
-                            대기
-                          </span>
+                        {description && (
+                          <p className="text-xs font-bold text-gray-500">{description}</p>
                         )}
                       </div>
-                      {description && (
-                        <p className="text-xs text-gray-400">{description}</p>
-                      )}
-                    </div>
                     );
                   })}
                 </div>
-                <button className="mt-4 w-full py-2.5 text-sm text-gray-400 border border-dashed border-[#333] rounded-xl hover:text-white hover:border-[#444] transition-all">
+
+                <button className="mt-4 w-full py-2.5 text-xs font-bold text-gray-500 border border-dashed border-white/[0.08] rounded-xl hover:text-gray-300 hover:border-white/[0.15] transition-all duration-200">
                   + 포워드 테스트 추가
                 </button>
               </div>
             </div>
 
-            {/* 보유 자산 현황 / 거래내역 / 성과분석 탭 */}
-            <div className="bg-[#111111] border border-[#222] rounded-xl p-6">
+            {/* 보유 자산 / 거래내역 / 성과분석 탭 */}
+            <div className="glass-card p-5">
               <div className="flex items-center justify-between mb-5">
                 <div className="flex items-center gap-3">
                   <div className="flex gap-1">
-                    {(["holdings","transactions","performance"] as const).map((tab) => (
-                      <button key={tab} onClick={() => setActiveTab(tab)}
-                        className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${activeTab === tab ? "bg-[#1e1e1e] text-white font-medium" : "text-gray-500 hover:text-gray-300"}`}>
+                    {(["holdings", "transactions", "performance"] as const).map((tab) => (
+                      <button
+                        key={tab}
+                        onClick={() => setActiveTab(tab)}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all duration-200 ${
+                          activeTab === tab
+                            ? "bg-white/[0.08] text-white"
+                            : "text-gray-500 hover:text-gray-300"
+                        }`}
+                      >
                         {tab === "holdings" ? "보유 자산 현황" : tab === "transactions" ? "거래 내역" : "성과 분석"}
                       </button>
                     ))}
                   </div>
                   {activeTab === "holdings" && (
-                    <span className="text-xs text-gray-400 bg-[#1a1a1a] border border-[#2a2a2a] px-2.5 py-0.5 rounded-full">
+                    <span className="text-[10px] font-bold text-gray-500 bg-white/[0.05] px-2.5 py-0.5 rounded-md">
                       {holdings.length}개 포지션 활성
                     </span>
                   )}
                 </div>
-                <button onClick={() => setIsSearchOpen(true)} className="flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-300 transition-colors">
-                  <MagnifyingGlass size={14} />종목 검색
+                <button
+                  onClick={() => setIsSearchOpen(true)}
+                  className="flex items-center gap-1.5 text-xs font-bold text-sky-400 hover:text-sky-300 transition-colors duration-200"
+                >
+                  <MagnifyingGlass size={13} />종목 검색
                 </button>
               </div>
 
               {/* 보유 자산 */}
               {activeTab === "holdings" && (
                 holdings.length === 0 ? (
-                  <p className="text-center text-sm text-gray-500 py-8">보유 중인 종목이 없습니다.</p>
+                  <div className="flex flex-col items-center justify-center py-12 gap-3">
+                    <p className="text-sm font-bold text-gray-600">보유 중인 종목이 없습니다.</p>
+                  </div>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                    <table className="w-full">
                       <thead>
-                        <tr className="border-b border-[#1e1e1e]">
-                          <th className="text-left text-xs text-gray-500 font-normal pb-3 pr-4">종목명 / 티커</th>
-                          <th className="text-right text-xs text-gray-500 font-normal pb-3 px-4">평균 단가</th>
-                          <th className="text-right text-xs text-gray-500 font-normal pb-3 px-4">현재가</th>
-                          <th className="text-right text-xs text-gray-500 font-normal pb-3 px-4">수량</th>
-                          <th className="text-right text-xs text-gray-500 font-normal pb-3 px-4">수익률</th>
-                          <th className="text-right text-xs text-gray-500 font-normal pb-3 pl-4">평가 손익</th>
+                        <tr className="border-b border-white/[0.05]">
+                          <th className="text-left text-[10px] font-bold text-gray-600 uppercase tracking-widest pb-3 pr-4">종목명 / 티커</th>
+                          <th className="text-right text-[10px] font-bold text-gray-600 uppercase tracking-widest pb-3 px-4">평균 단가</th>
+                          <th className="text-right text-[10px] font-bold text-gray-600 uppercase tracking-widest pb-3 px-4">현재가</th>
+                          <th className="text-right text-[10px] font-bold text-gray-600 uppercase tracking-widest pb-3 px-4">수량</th>
+                          <th className="text-right text-[10px] font-bold text-gray-600 uppercase tracking-widest pb-3 px-4">수익률</th>
+                          <th className="text-right text-[10px] font-bold text-gray-600 uppercase tracking-widest pb-3 pl-4">평가 손익</th>
                         </tr>
                       </thead>
                       <tbody>
                         {holdings.map((h, idx) => {
                           const isPos = h.profitPercent >= 0;
                           return (
-                            <tr key={h.symbol} onClick={() => handleStockSelect(h.symbol, h.name || h.symbol)}
-                              className={`border-b border-[#151515] hover:bg-[#161616] cursor-pointer transition-colors ${idx === holdings.length - 1 ? "border-b-0" : ""}`}>
+                            <tr
+                              key={h.symbol}
+                              onClick={() => handleStockSelect(h.symbol, h.name || h.symbol)}
+                              className={`border-b border-white/[0.03] hover:bg-white/[0.02] cursor-pointer transition-colors duration-150 ${idx === holdings.length - 1 ? "border-b-0" : ""}`}
+                            >
                               <td className="py-4 pr-4">
                                 <div className="flex items-center gap-3">
-                                  <div className="w-8 h-8 rounded-lg bg-[#1e1e1e] flex items-center justify-center">
-                                    <span className="text-[10px] font-bold text-gray-300">{h.symbol.slice(0,2)}</span>
+                                  <div className="w-8 h-8 rounded-lg bg-white/[0.05] flex items-center justify-center flex-shrink-0">
+                                    <span className="text-[10px] font-bold text-gray-400">{h.symbol.slice(0, 2)}</span>
                                   </div>
                                   <div>
-                                    <p className="font-medium text-white">{h.symbol}</p>
-                                    <p className="text-[11px] text-gray-500">{h.name}</p>
+                                    <p className="text-sm font-bold text-white">{h.symbol}</p>
+                                    <p className="text-[10px] font-bold text-gray-500">{h.name}</p>
                                   </div>
                                 </div>
                               </td>
-                              <td className="py-4 px-4 text-right text-gray-300">{formatPrice(h.averagePrice)}</td>
-                              <td className="py-4 px-4 text-right text-white font-medium">{formatPrice(h.currentPrice)}</td>
-                              <td className="py-4 px-4 text-right text-gray-300">{h.quantity.toLocaleString()}</td>
-                              <td className={`py-4 px-4 text-right font-semibold ${isPos ? "text-white" : "text-red-400"}`}>
+                              <td className="py-4 px-4 text-right text-sm font-bold text-gray-400 tabular-nums">{formatPrice(h.averagePrice)}</td>
+                              <td className="py-4 px-4 text-right text-sm font-black text-white tabular-nums">{formatPrice(h.currentPrice)}</td>
+                              <td className="py-4 px-4 text-right text-sm font-bold text-gray-400 tabular-nums">{h.quantity.toLocaleString()}</td>
+                              <td className={`py-4 px-4 text-right text-sm font-black tabular-nums ${isPos ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
                                 {isPos ? "+" : ""}{h.profitPercent.toFixed(2)}%
                               </td>
-                              <td className={`py-4 pl-4 text-right font-semibold ${isPos ? "text-white" : "text-red-400"}`}>
+                              <td className={`py-4 pl-4 text-right text-sm font-black tabular-nums ${isPos ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
                                 {isPos ? "+" : "-"}{formatPrice(Math.abs(h.profit))}
                               </td>
                             </tr>
@@ -678,42 +761,48 @@ export default function VirtualAccountDetailPage() {
               {/* 거래 내역 */}
               {activeTab === "transactions" && (
                 transactions.length === 0 ? (
-                  <p className="text-center text-sm text-gray-500 py-8">거래 내역이 없습니다.</p>
+                  <div className="flex flex-col items-center justify-center py-12 gap-3">
+                    <p className="text-sm font-bold text-gray-600">거래 내역이 없습니다.</p>
+                  </div>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                    <table className="w-full">
                       <thead>
-                        <tr className="border-b border-[#1e1e1e]">
-                          {["종목","구분","체결가","수량","거래금액","수수료","실현손익","체결시각"].map(h => (
-                            <th key={h} className="text-xs text-gray-500 font-normal pb-3 px-3 first:pl-0 last:pr-0 text-right first:text-left">{h}</th>
+                        <tr className="border-b border-white/[0.05]">
+                          {["종목", "구분", "체결가", "수량", "거래금액", "수수료", "실현손익", "체결시각"].map(h => (
+                            <th key={h} className="text-[10px] font-bold text-gray-600 uppercase tracking-widest pb-3 px-3 first:pl-0 last:pr-0 text-right first:text-left">{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
                         {transactions.map((t) => (
-                          <tr key={t.id} className="border-b border-[#151515] hover:bg-[#161616] transition-colors">
+                          <tr key={t.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors duration-150">
                             <td className="py-3 pl-0 pr-3">
-                              <p className="font-medium text-white">{t.name}</p>
-                              <p className="text-[11px] text-gray-500">{t.symbol}</p>
+                              <p className="text-sm font-bold text-white">{t.name}</p>
+                              <p className="text-[10px] font-bold text-gray-500">{t.symbol}</p>
                             </td>
                             <td className="py-3 px-3 text-right">
-                              <span className={`text-xs font-bold px-2 py-0.5 rounded ${t.type==="buy"?"bg-blue-900/40 text-blue-400":"bg-red-900/40 text-red-400"}`}>
-                                {t.type==="buy"?"매수":"매도"}
+                              <span className={`text-[10px] font-black px-2 py-0.5 rounded-md ${
+                                t.type === "buy"
+                                  ? "bg-sky-500/15 text-sky-400"
+                                  : "bg-[var(--main-blue)]/10 text-[var(--main-blue)]"
+                              }`}>
+                                {t.type === "buy" ? "매수" : "매도"}
                               </span>
                             </td>
-                            <td className="py-3 px-3 text-right text-gray-200">{formatPrice(t.filledPrice??t.price)}</td>
-                            <td className="py-3 px-3 text-right text-gray-200">{t.quantity}주</td>
-                            <td className="py-3 px-3 text-right text-gray-200">{formatPrice(t.totalAmount)}</td>
-                            <td className="py-3 px-3 text-right text-gray-500">{t.fee!=null?`-${formatPrice(t.fee)}`:"-"}</td>
+                            <td className="py-3 px-3 text-right text-sm font-bold text-white tabular-nums">{formatPrice(t.filledPrice ?? t.price)}</td>
+                            <td className="py-3 px-3 text-right text-sm font-bold text-gray-400 tabular-nums">{t.quantity}주</td>
+                            <td className="py-3 px-3 text-right text-sm font-bold text-white tabular-nums">{formatPrice(t.totalAmount)}</td>
+                            <td className="py-3 px-3 text-right text-sm font-bold text-gray-500 tabular-nums">{t.fee != null ? `-${formatPrice(t.fee)}` : "-"}</td>
                             <td className="py-3 px-3 text-right">
-                              {t.realizedPnl!=null ? (
-                                <span className={`font-semibold ${t.realizedPnl>=0?"text-white":"text-red-400"}`}>
-                                  {t.realizedPnl>=0?"+":""}{formatPrice(Math.round(t.realizedPnl))}
+                              {t.realizedPnl != null ? (
+                                <span className={`text-sm font-black tabular-nums ${t.realizedPnl >= 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
+                                  {t.realizedPnl >= 0 ? "+" : ""}{formatPrice(Math.round(t.realizedPnl))}
                                 </span>
-                              ) : <span className="text-gray-600">-</span>}
+                              ) : <span className="text-sm font-bold text-gray-600">-</span>}
                             </td>
-                            <td className="py-3 pl-3 pr-0 text-right text-gray-500 text-xs">
-                              {new Date(t.filledAt??t.timestamp).toLocaleString("ko-KR")}
+                            <td className="py-3 pl-3 pr-0 text-right text-[10px] font-bold text-gray-500">
+                              {new Date(t.filledAt ?? t.timestamp).toLocaleString("ko-KR")}
                             </td>
                           </tr>
                         ))}
@@ -726,22 +815,21 @@ export default function VirtualAccountDetailPage() {
               {/* 성과 분석 */}
               {activeTab === "performance" && (
                 <div className="space-y-6">
-                  {/* 전략 성과 현황 차트 */}
                   <div>
                     <div className="flex items-start justify-between mb-4">
                       <div>
-                        <h3 className="text-sm font-semibold text-white">전략 성과 현황</h3>
-                        <p className="text-xs text-gray-500 mt-0.5">성과 분석 및 벤치마크 대비 추이</p>
+                        <span className="text-base font-black uppercase tracking-widest text-white block">전략 성과 현황</span>
+                        <p className="text-xs font-bold text-gray-500 mt-0.5">성과 분석 및 벤치마크 대비 추이</p>
                       </div>
-                      <span className="flex items-center gap-1.5 text-xs text-gray-500">
-                        <span className="w-2.5 h-2.5 rounded-full bg-gray-600 inline-block" />벤치마크 (KOSPI 200)
+                      <span className="flex items-center gap-1.5 text-xs font-bold text-gray-500">
+                        <span className="w-2 h-2 rounded-full bg-gray-600 inline-block" />벤치마크 (KOSPI 200)
                       </span>
                     </div>
                     <div className="h-64">
                       <PortfolioPerformanceChart data={performanceData} />
                     </div>
                   </div>
-                  <div className="border-t border-[#1e1e1e]" />
+                  <div className="border-t border-white/[0.05]" />
                   <VirtualTradingDashboard accountId={accountId} initialAmount={account.initialAmount} />
                 </div>
               )}
