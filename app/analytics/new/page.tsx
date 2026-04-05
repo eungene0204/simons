@@ -4,11 +4,6 @@ import { useState, useRef, useEffect, Suspense } from "react";
 import dynamic from "next/dynamic";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { BacktestResult } from "@/types/strategy";
-
-const BacktestDashboard = dynamic(
-  () => import("@/components/strategy/backtest/BacktestDashboard"),
-  { ssr: false }
-);
 import {
   Sparkle,
   ArrowRight,
@@ -18,6 +13,11 @@ import {
   ChartLineUp,
   Question,
 } from "phosphor-react";
+
+const BacktestDashboard = dynamic(
+  () => import("@/components/strategy/backtest/BacktestDashboard"),
+  { ssr: false }
+);
 
 type ExampleCategory = "가치투자" | "기술분석" | "모멘텀" | "복합전략" | "AI 전략";
 
@@ -514,6 +514,7 @@ function StrategyLabContent() {
               perAssetStats: raw.perAssetStats,
               warnings: raw.warnings,
               executionTime: raw.executionTime,
+              vbtResult: raw.vbtResult ?? undefined,
             });
             setStage("done");
           } else if (event.type === "error") {

@@ -92,6 +92,30 @@ export interface SignalBlock {
   };
 }
 
+// VectorBT Native Engine Result (for comparison)
+export interface VBTNativeResult {
+  totalReturn: number;
+  cagr: number;
+  buyAndHoldReturn: number;
+  maxDrawdown: number;
+  winRate: number;
+  profitFactor: number;
+  sharpe: number;
+  sortino: number;
+  kelly?: number;
+  volatility: number;
+  trades: number;
+  avgProfit?: number;
+  avgLoss?: number;
+  maxConsecutiveWins?: number;
+  maxConsecutiveLosses?: number;
+  equity: number[];
+  benchmark_equity?: number[];
+  dates: string[];
+  finalEquity?: number;
+  initialCapital?: number;
+}
+
 // Backtest Result Types
 export interface BacktestResult {
   executionId: string;
@@ -151,6 +175,7 @@ export interface BacktestResult {
   fromCache?: boolean;
   cachedAt?: string;
   cacheKey?: string;
+  vbtResult?: VBTNativeResult;
 }
 
 
@@ -186,6 +211,10 @@ export interface BacktestHistoryItem {
     trades: number;
     executionTime?: number;
     score?: number;
+    aiSummary?: string;
+    aiScore?: number;
+    aiStrengths?: string[];
+    aiRisks?: string[];
   };
   result?: BacktestResult;
 }

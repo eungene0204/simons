@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any
 
 class ResultHandler:
     @staticmethod
@@ -25,7 +25,7 @@ class ResultHandler:
         except: return 0.0
 
     @classmethod
-    def format_results(cls, pf, processed_symbols, all_entries, all_exits,
+    def format_results(cls, pf, processed_symbols, _all_entries, _all_exits,
                        all_entry_reasons, all_exit_reasons, common_index,
                        risk_params, exec_type, init_cash) -> Dict[str, Any]:
 
@@ -54,7 +54,11 @@ class ResultHandler:
                 valid = ser.dropna()
                 if len(valid) == 0:
                     return None
-                ts_vals = np.array([pd.Timestamp(t).value for t in valid.index], dtype=np.int64)
+                idx = pd.DatetimeIndex(valid.index)
+                if idx.tz is not None:
+                    idx = idx.tz_localize(None)
+                idx = idx.normalize()
+                ts_vals = idx.asi8  # vectorized int64, no Python loop
                 sort_idx = np.argsort(ts_vals)
                 return {'timestamps': ts_vals[sort_idx], 'values': valid.values[sort_idx]}
 
@@ -87,18 +91,14 @@ class ResultHandler:
                     return next(iter(fast_dict.values()))
                 return None
 
-            # Pre-build lookup arrays once (replaces per-row DatetimeIndex filtering)
+            # Pre-build lookup arrays once (vectorized — no per-element norm_dt)
             fast_entries = {}
             for s, ser in all_entry_reasons.items():
-                ser_norm = ser.copy()
-                ser_norm.index = ser_norm.index.map(norm_dt)
-                fast_entries[s] = build_reason_array(ser_norm)
+                fast_entries[s] = build_reason_array(ser)
 
             fast_exits = {}
             for s, ser in all_exit_reasons.items():
-                ser_norm = ser.copy()
-                ser_norm.index = ser_norm.index.map(norm_dt)
-                fast_exits[s] = build_reason_array(ser_norm)
+                fast_exits[s] = build_reason_array(ser)
 
             def fmt_pct(v): return str(int(v)) if v == int(v) else str(v)
 
@@ -226,48 +226,63 @@ class ResultHandler:
 
         signals_list.sort(key=lambda x: x['date'])
 
-        # Aggregate Stats
+        # ── Aggregate Stats ───────────────────────────────────────────────────
         total_trades = len(pf.trades)
-        win_count = len(pf.trades.winning)
+        win_count    = len(pf.trades.winning)
         agg_win_rate = (win_count / total_trades * 100) if total_trades > 0 else 0.0
 
         avg_win  = cls.safe(pf.trades.winning.pnl.mean())
         avg_loss = abs(cls.safe(pf.trades.losing.pnl.mean()))
 
-        max_consecutive_wins   = int(cls.safe(pf.trades.winning_streak.max()))
-        max_consecutive_losses = int(cls.safe(pf.trades.losing_streak.max()))
+        # ── Win/Loss streak — fully vectorized numpy (no Python loop) ────────
+        if total_trades > 0:
+            _is_win = (pf.trades.records['pnl'].astype(float) > 0).astype(np.int8)
+
+            def _max_streak_np(a: np.ndarray) -> int:
+                """O(n) vectorized max consecutive run — zero Python loop."""
+                if len(a) == 0:
+                    return 0
+                padded = np.concatenate([[0], a, [0]])
+                diffs  = np.diff(padded.astype(np.int16))
+                starts = np.where(diffs == 1)[0]
+                ends   = np.where(diffs == -1)[0]
+                return int((ends - starts).max()) if len(starts) > 0 else 0
+
+            max_consecutive_wins   = _max_streak_np(_is_win)
+            max_consecutive_losses = _max_streak_np(1 - _is_win)
+        else:
+            max_consecutive_wins   = 0
+            max_consecutive_losses = 0
 
         r = avg_win / avg_loss if avg_loss > 0 else 0.0
         w = agg_win_rate / 100
         kelly = w - (1 - w) / r if r > 0 else 0.0
 
+        # ── Per-Asset Stats — extract to numpy arrays, avoid repeated VBT overhead ──
         per_asset_stats = {}
         if len(processed_symbols) > 0:
-            returns = pf.total_return(group_by=False)
-            counts  = pf.trades.count(group_by=False)
-            wins    = pf.trades.win_rate(group_by=False)
-            profits = pf.total_profit(group_by=False)
-            cagrs   = pf.annualized_return(group_by=False)
-            mdds    = pf.max_drawdown(group_by=False)
+            def _to_np(obj) -> np.ndarray:
+                if isinstance(obj, pd.Series):   return np.nan_to_num(obj.values, nan=0.0, posinf=0.0, neginf=0.0)
+                if isinstance(obj, pd.DataFrame): return np.nan_to_num(obj.values.flatten(), nan=0.0, posinf=0.0, neginf=0.0)
+                if isinstance(obj, np.ndarray):   return np.nan_to_num(obj, nan=0.0, posinf=0.0, neginf=0.0)
+                return np.array([float(obj) if obj is not None else 0.0])
 
-            def get_val(obj, i):
-                if isinstance(obj, pd.Series):
-                    return obj.iloc[i] if len(obj) > i else 0.0
-                if isinstance(obj, (pd.Index, np.ndarray, list)):
-                    return obj[i] if len(obj) > i else 0.0
-                if isinstance(obj, pd.DataFrame):
-                    return obj.iloc[:, i].iloc[0] if obj.shape[1] > i else 0.0
-                return obj if i == 0 else 0.0
+            _pa_r = _to_np(pf.total_return(group_by=False))
+            _pa_c = _to_np(pf.trades.count(group_by=False))
+            _pa_w = _to_np(pf.trades.win_rate(group_by=False))
+            _pa_p = _to_np(pf.total_profit(group_by=False))
+            _pa_g = _to_np(pf.annualized_return(group_by=False))
+            _pa_m = _to_np(pf.max_drawdown(group_by=False))
 
             for i, sym in enumerate(processed_symbols):
                 per_asset_stats[sym] = {
                     "symbol":      sym,
-                    "totalReturn": cls.safe(get_val(returns, i)) * 100,
-                    "trades":      int(cls.safe(get_val(counts, i))),
-                    "winRate":     cls.safe(get_val(wins, i)) * 100,
-                    "profit":      cls.safe(get_val(profits, i)),
-                    "cagr":        cls.safe(get_val(cagrs, i)) * 100,
-                    "maxDrawdown": cls.safe(get_val(mdds, i)) * 100
+                    "totalReturn": float(_pa_r[i] if i < len(_pa_r) else 0.0) * 100,
+                    "trades":      int(_pa_c[i]   if i < len(_pa_c) else 0.0),
+                    "winRate":     float(_pa_w[i] if i < len(_pa_w) else 0.0) * 100,
+                    "profit":      float(_pa_p[i] if i < len(_pa_p) else 0.0),
+                    "cagr":        float(_pa_g[i] if i < len(_pa_g) else 0.0) * 100,
+                    "maxDrawdown": float(_pa_m[i] if i < len(_pa_m) else 0.0) * 100,
                 }
 
         def to_list(obj):
@@ -275,14 +290,7 @@ class ResultHandler:
                 return np.nan_to_num(obj.values.flatten(), nan=0.0, posinf=0.0, neginf=0.0).tolist()
             return [cls.safe(x) for x in obj]
 
-        def sanitize(v):
-            if isinstance(v, dict): return {k: sanitize(item) for k, item in v.items()}
-            if isinstance(v, list): return [sanitize(item) for item in v]
-            if isinstance(v, float):
-                if np.isnan(v) or np.isinf(v): return 0.0
-                return v
-            return v
-
+        # ── Benchmark ─────────────────────────────────────────────────────────
         bench_rets = pf.benchmark_returns()
         if isinstance(bench_rets, pd.DataFrame): bench_mean_rets = bench_rets.mean(axis=1)
         else: bench_mean_rets = bench_rets
@@ -290,6 +298,7 @@ class ResultHandler:
         bench_cum_returns = (1 + bench_mean_rets).cumprod()
         bench_total_return = bench_cum_returns.iloc[-1] - 1 if len(bench_cum_returns) > 0 else 0.0
 
+        # ── Portfolio-level metrics ───────────────────────────────────────────
         total_return_decimal = cls.safe(pf.total_return())
         n_days  = len(common_index)
         n_years = n_days / 252.0
@@ -298,7 +307,6 @@ class ResultHandler:
         else:
             cagr_val = total_return_decimal * 100
 
-        # ── Profit Factor: vectorized numpy (replaces 3× Python loops) ───────
         raw_pf = cls.safe(pf.trades.profit_factor())
 
         is_buy_and_hold = False
@@ -322,32 +330,60 @@ class ResultHandler:
         if total_trades < 30 and raw_pf > 10.0:
             raw_pf = min(raw_pf, 10.0)
 
-        res = {
+        # ── Sharpe / Sortino / Volatility — single pf.returns() call ─────────
+        # pf.sharpe_ratio() and pf.sortino_ratio() each call pf.returns() internally.
+        # Computing returns once and deriving all three avoids 3× recomputation.
+        _daily_rets_raw = pf.returns(group_by=True)
+        if isinstance(_daily_rets_raw, pd.DataFrame):
+            _daily_rets = _daily_rets_raw.mean(axis=1).values.astype(float)
+        else:
+            _daily_rets = np.asarray(_daily_rets_raw, dtype=float)
+        _daily_rets = _daily_rets[np.isfinite(_daily_rets)]
+
+        _std = _daily_rets.std()
+        _mean = _daily_rets.mean()
+        _sharpe  = float((_mean * np.sqrt(252)) / _std) if _std > 0 else 0.0
+
+        _down = _daily_rets[_daily_rets < 0]
+        _down_std = _down.std() if len(_down) > 1 else 0.0
+        _sortino = float((_mean * 252) / (_down_std * np.sqrt(252))) if _down_std > 0 else 0.0
+
+        _vol = float(_std * np.sqrt(252)) * 100
+
+        _mdd    = cls.safe(pf.max_drawdown()) * 100
+        _equity = to_list(pf.value())
+        _total_profit = cls.safe(pf.total_profit())
+
+        # ── dates: vectorized strftime, no Python loop ────────────────────────
+        _dates = pd.DatetimeIndex(common_index).strftime('%Y-%m-%d').tolist()
+
+        # ── scalar NaN guard (applied only to float scalars, not arrays) ──────
+        def _sf(v: float) -> float:
+            return 0.0 if (np.isnan(v) or np.isinf(v)) else v
+
+        return {
             "symbols":              processed_symbols,
-            "totalReturn":          cls.safe(pf.total_return()) * 100,
-            "totalProfit":          cls.safe(pf.total_profit()),
-            "cagr":                 cagr_val,
-            "buyAndHoldReturn":     cls.safe(bench_total_return) * 100,
-            "maxDrawdown":          cls.safe(pf.max_drawdown()) * 100,
-            "winRate":              agg_win_rate,
+            "totalReturn":          _sf(total_return_decimal * 100),
+            "totalProfit":          _sf(_total_profit),
+            "cagr":                 _sf(cagr_val),
+            "buyAndHoldReturn":     _sf(cls.safe(bench_total_return) * 100),
+            "maxDrawdown":          _sf(_mdd),
+            "winRate":              _sf(agg_win_rate),
             "trades":               total_trades,
-            "avgProfit":            avg_win,
-            "avgLoss":              avg_loss,
+            "avgProfit":            _sf(avg_win),
+            "avgLoss":              _sf(avg_loss),
             "maxConsecutiveWins":   max_consecutive_wins,
             "maxConsecutiveLosses": max_consecutive_losses,
-            "profitFactor":         raw_pf,
-            "sharpe":               cls.safe(pf.sharpe_ratio()),
-            "sortino":              cls.safe(pf.sortino_ratio()),
-            "kelly":                cls.safe(kelly),
-            # Fix 7: group_by=True로 포트폴리오 전체 수익률 시리즈를 명시적으로 사용
-            "volatility":           float(np.nan_to_num(pf.returns(group_by=True).std() * np.sqrt(252), nan=0.0)) * 100,
-            "equity":               to_list(pf.value()),
+            "profitFactor":         _sf(raw_pf),
+            "sharpe":               _sf(_sharpe),
+            "sortino":              _sf(_sortino),
+            "kelly":                _sf(cls.safe(kelly)),
+            "volatility":           _sf(_vol),
+            "equity":               _equity,
             "benchmark_equity":     to_list(init_cash * bench_cum_returns),
-            "dates":                [d.strftime('%Y-%m-%d') for d in common_index],
+            "dates":                _dates,
             "signals":              signals_list,
             "perAssetStats":        per_asset_stats,
             "warnings":             list(getattr(cls, '_warnings', set())),
-            "version":              "6.5 (Optimized: array-index loop + searchsorted reason lookup + vectorized PF)"
+            "version":              "6.6 (vectorized streaks, cached returns, no-sanitize-loop)",
         }
-
-        return sanitize(res)

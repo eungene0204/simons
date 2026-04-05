@@ -79,8 +79,10 @@ interface BacktestDashboardProps {
   currentOptions?: BacktestConfigOptions;
   isRunning?: boolean;
   backtestDsl?: any; // 전략 저장 시 사용할 원본 DSL/요청 객체
-  aiSummary?: string;  // 저장된 AI 요약 (캐시)
-  aiScore?: number;    // 저장된 AI 점수 (캐시)
+  aiSummary?: string;
+  aiScore?: number;
+  aiStrengths?: string[];
+  aiRisks?: string[];
   disableHistorySave?: boolean; // true이면 히스토리 자동 저장 비활성화 (저장된 전략 조회 시)
   strategySummary?: {
     universeName: string;
@@ -116,8 +118,10 @@ export default function BacktestDashboard({
   currentOptions,
   isRunning,
   backtestDsl,
-  aiSummary: initialAiSummary,
-  aiScore: initialAiScore,
+  aiSummary: initialAiSummaryProp,
+  aiScore: initialAiScoreProp,
+  aiStrengths: initialAiStrengthsProp,
+  aiRisks: initialAiRisksProp,
   strategySummary,
   disableHistorySave,
 }: BacktestDashboardProps) {
@@ -134,9 +138,19 @@ export default function BacktestDashboard({
   const lastProcessedResultRef = useRef<string | null>(null);
   const isSavingRef = useRef(false);
 
-  // AI 요약 캐시
-  const [cachedAiSummary, setCachedAiSummary] = useState<string | undefined>(initialAiSummary);
-  const [cachedAiScore, setCachedAiScore] = useState<number | undefined>(initialAiScore);
+  // AI 요약 캐시 — prop 우선, 없으면 result 객체에서 (캐시 히트 응답에 포함된 경우)
+  const [cachedAiSummary, setCachedAiSummary] = useState<string | undefined>(
+    initialAiSummaryProp ?? result.aiSummary ?? undefined
+  );
+  const [cachedAiScore, setCachedAiScore] = useState<number | undefined>(
+    initialAiScoreProp ?? result.aiScore ?? undefined
+  );
+  const [cachedStrengths, setCachedStrengths] = useState<string[]>(
+    initialAiStrengthsProp ?? result.aiStrengths ?? []
+  );
+  const [cachedRisks, setCachedRisks] = useState<string[]>(
+    initialAiRisksProp ?? result.aiRisks ?? []
+  );
 
   // 전략 저장 모달
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
@@ -146,8 +160,42 @@ export default function BacktestDashboard({
   const [saveResult, setSaveResult] = useState<{ ok: boolean; message: string } | null>(null);
 
 
-  // 자동 히스토리 저장 제거됨 — 실행 결과는 /api/backtest/run 의 BacktestCache에만 캐싱됨.
-  // 저장 목록(BacktestHistory)은 사용자가 명시적으로 저장 버튼을 눌렀을 때만 생성됨.
+  // 백테스트 완료 시 자동으로 히스토리에 저장 (isAutoSave=true → 기존 이름 보존)
+  useEffect(() => {
+    if (disableHistorySave) return;
+    if (!strategySummary) return;
+    if (processedExecutionIds.has(result.executionId)) return;
+    processedExecutionIds.add(result.executionId);
+
+    fetch("/api/backtest/history", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        strategyName: strategySummary.strategyName || "이름 없는 전략",
+        universe: strategySummary.universeName,
+        conditions: {
+          entry: { logic: strategySummary.entryLogic || "AND", names: strategySummary.entryBlocks || [] },
+          exit: { logic: strategySummary.exitLogic || "AND", names: strategySummary.exitBlocks || [] },
+          position: strategySummary.positionText,
+          risk: strategySummary.riskText,
+        },
+        metrics: {
+          totalReturn: result.totalReturn || 0,
+          cagr: result.cagr || 0,
+          mdd: result.maxDrawdown || 0,
+          winRate: result.winRate || 0,
+          profitFactor: result.profitFactor || 0,
+          buyHold: result.buyAndHoldReturn || 0,
+          trades: result.trades || 0,
+          executionTime: result.executionTime ?? 0,
+          score: calculateScore(result),
+        },
+        // result는 route.ts(/api/backtest/run)가 저장한 게 source of truth — 재전송 불필요
+        cacheKey: result.cacheKey,
+        isAutoSave: true,
+      }),
+    }).catch(() => {/* 자동 저장 실패는 무시 */});
+  }, [result.executionId]);
 
   useEffect(() => {
     const fetchStockMetadata = async () => {
@@ -274,6 +322,41 @@ export default function BacktestDashboard({
     setIsSavingStrategy(true);
     setSaveResult(null);
     try {
+      // AI 요약이 아직 없으면 저장 전에 먼저 생성
+      let finalSummary = cachedAiSummary;
+      let finalScore = cachedAiScore;
+      if (!finalSummary) {
+        try {
+          const sumRes = await fetch("/api/backtest/summarize", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              metrics: {
+                totalReturn: result.totalReturn, cagr: result.cagr,
+                buyAndHoldReturn: result.buyAndHoldReturn, maxDrawdown: result.maxDrawdown,
+                sharpe: result.sharpe, sortino: result.sortino,
+                profitFactor: result.profitFactor, winRate: result.winRate,
+                trades: result.trades, volatility: result.volatility,
+                kelly: result.kelly, initialCapital: result.initialCapital,
+                finalEquity: result.finalEquity,
+              },
+              strategySummary,
+            }),
+          });
+          if (sumRes.ok) {
+            const sumData = await sumRes.json();
+            finalSummary = sumData.summary;
+            finalScore = sumData.score;
+            setCachedAiSummary(finalSummary);
+            setCachedAiScore(finalScore);
+            setCachedStrengths(sumData.strengths ?? []);
+            setCachedRisks(sumData.risks ?? []);
+          }
+        } catch {
+          // AI 요약 실패는 저장 자체를 막지 않음
+        }
+      }
+
       const res = await fetch("/api/strategy/save-with-backtest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -282,8 +365,10 @@ export default function BacktestDashboard({
           description: saveDescription.trim(),
           dsl: backtestDsl ?? {},
           backtestResult: result,
-          aiSummary: cachedAiSummary,
-          aiScore: cachedAiScore,
+          aiSummary: finalSummary,
+          aiScore: finalScore,
+          aiStrengths: cachedStrengths,
+          aiRisks: cachedRisks,
           score: calculateScore(result),
         }),
       });
@@ -315,6 +400,10 @@ export default function BacktestDashboard({
               executionTime: result.executionTime ?? 0,
               score: calculateScore(result),
               perAssetStats: result.perAssetStats || {},
+              aiSummary: finalSummary ?? null,
+              aiScore: finalScore ?? null,
+              aiStrengths: cachedStrengths,
+              aiRisks: cachedRisks,
             },
             result,
             cacheKey: result.cacheKey,  // 기존 숨김 레코드를 isVisible=true 로 승격
@@ -333,7 +422,7 @@ export default function BacktestDashboard({
   };
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 min-w-0 animate-in fade-in zoom-in-95 duration-300 px-6">
+    <div className="flex-1 flex flex-col min-h-0 min-w-0 animate-in fade-in zoom-in-95 duration-300 px-6 pb-8">
 
       {/* 전략 저장 모달 */}
       <AnimatePresence>
@@ -450,7 +539,7 @@ export default function BacktestDashboard({
                   {isSavingStrategy ? (
                     <>
                       <Spinner size={14} className="animate-spin" />
-                      저장 중...
+                      {!cachedAiSummary ? "AI 요약 생성 중..." : "저장 중..."}
                     </>
                   ) : (
                     <>
@@ -537,16 +626,37 @@ export default function BacktestDashboard({
 
       {/* AI Summary + Hero Metrics side by side */}
       <div className="flex gap-3 mb-4 items-stretch">
-        <div className="flex-1 min-w-0">
+        <div className="flex-[6] min-w-0">
           <BacktestSummaryCard
             result={result}
             strategySummary={strategySummary}
             initialSummary={cachedAiSummary}
             initialScore={cachedAiScore}
-            onSummaryReady={(s, sc) => { setCachedAiSummary(s); setCachedAiScore(sc); }}
+            initialStrengths={cachedStrengths}
+            initialRisks={cachedRisks}
+            onSummaryReady={(s, sc, st, ri) => {
+              setCachedAiSummary(s);
+              setCachedAiScore(sc);
+              setCachedStrengths(st);
+              setCachedRisks(ri);
+              // AI 리포트 생성 완료 시 DB에 저장 → 같은 전략 재실행 시 재생성 불필요
+              if (result.cacheKey) {
+                fetch("/api/backtest/ai-report", {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    cacheKey: result.cacheKey,
+                    aiSummary: s,
+                    aiScore: sc,
+                    aiStrengths: st,
+                    aiRisks: ri,
+                  }),
+                }).catch(() => {/* 저장 실패는 무시 */});
+              }
+            }}
           />
         </div>
-        <div className="flex-none grid grid-cols-2 gap-2 content-start" style={{ width: "320px" }}>
+        <div className="flex-[4] grid grid-cols-2 gap-2 content-start">
           <MetricCard
             label="연평균수익률"
             value={`${result.cagr.toFixed(2)}%`}
@@ -583,72 +693,135 @@ export default function BacktestDashboard({
       </div>
 
 
+      {/* Engine Comparison Panel */}
+      {result.vbtResult && (
+        <div className="mb-4 glass-card p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <ArrowsClockwise className="w-4 h-4 text-purple-400" />
+            <h4 className="text-base font-black uppercase tracking-widest text-white">엔진 비교</h4>
+            <span className="text-[10px] text-gray-500 font-bold ml-1">자체 엔진 vs VectorBT 네이티브</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-white/5">
+                  <th className="py-2 px-3 text-[10px] font-bold text-gray-500 uppercase tracking-widest w-[140px]">지표</th>
+                  <th className="py-2 px-3 text-[10px] font-bold text-gray-500 uppercase tracking-widest text-right">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-main-red inline-block" />자체 엔진
+                    </span>
+                  </th>
+                  <th className="py-2 px-3 text-[10px] font-bold text-gray-500 uppercase tracking-widest text-right">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-purple-500 inline-block" />VectorBT
+                    </span>
+                  </th>
+                  <th className="py-2 px-3 text-[10px] font-bold text-gray-500 uppercase tracking-widest text-right">차이</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  { label: "CAGR", ours: result.cagr, vbt: result.vbtResult.cagr, fmt: (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`, unit: "%" },
+                  { label: "총수익률", ours: result.totalReturn, vbt: result.vbtResult.totalReturn, fmt: (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`, unit: "%" },
+                  { label: "MDD", ours: result.maxDrawdown, vbt: result.vbtResult.maxDrawdown, fmt: (v: number) => `${v.toFixed(2)}%`, unit: "%", invertDiff: true },
+                  { label: "Sharpe", ours: result.sharpe, vbt: result.vbtResult.sharpe, fmt: (v: number) => v.toFixed(2), unit: "" },
+                  { label: "Sortino", ours: result.sortino, vbt: result.vbtResult.sortino, fmt: (v: number) => v.toFixed(2), unit: "" },
+                  { label: "승률", ours: result.winRate, vbt: result.vbtResult.winRate, fmt: (v: number) => `${v.toFixed(1)}%`, unit: "%" },
+                  { label: "손익비", ours: result.profitFactor, vbt: result.vbtResult.profitFactor, fmt: (v: number) => v.toFixed(2), unit: "" },
+                  { label: "거래 수", ours: result.trades, vbt: result.vbtResult.trades, fmt: (v: number) => `${v}`, unit: "" },
+                  { label: "변동성", ours: (result.volatility || 0), vbt: (result.vbtResult.volatility || 0), fmt: (v: number) => `${v.toFixed(2)}%`, unit: "%", invertDiff: true },
+                ].map((row) => {
+                  const diff = row.vbt - row.ours;
+                  const absDiff = Math.abs(diff);
+                  // For MDD and volatility, lower is better, so positive diff means VBT is worse
+                  const isVbtBetter = row.invertDiff ? diff < -0.01 : diff > 0.01;
+                  const isVbtWorse = row.invertDiff ? diff > 0.01 : diff < -0.01;
+                  const diffColor = isVbtBetter ? "text-purple-400" : isVbtWorse ? "text-gray-500" : "text-gray-600";
+
+                  return (
+                    <tr key={row.label} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
+                      <td className="py-2 px-3 text-xs font-bold text-gray-400">{row.label}</td>
+                      <td className={`py-2 px-3 text-sm font-black text-right font-mono ${
+                        row.label === "MDD" || row.label === "변동성" ? "text-white" :
+                        row.ours >= 0 ? "text-white" : "text-main-blue"
+                      }`}>
+                        {row.fmt(row.ours)}
+                      </td>
+                      <td className={`py-2 px-3 text-sm font-black text-right font-mono ${
+                        row.label === "MDD" || row.label === "변동성" ? "text-purple-300" :
+                        row.vbt >= 0 ? "text-purple-300" : "text-purple-300/60"
+                      }`}>
+                        {row.fmt(row.vbt)}
+                      </td>
+                      <td className={`py-2 px-3 text-xs font-bold text-right font-mono ${diffColor}`}>
+                        {absDiff < 0.01 ? "-" : `${diff >= 0 ? "+" : ""}${row.unit === "%" ? diff.toFixed(2) + "%" : diff.toFixed(2)}`}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-[10px] text-gray-600 leading-relaxed">
+            * 자체 엔진: 당일 종가 기반 현실적 리스크 관리 (SL/TP/TS를 종가로 감지 후 종가로 청산). VectorBT: 네이티브 SL/TP/TS 사용 (정확한 스탑 가격에서 이상적으로 체결).
+          </p>
+        </div>
+      )}
+
       {/* 2. Main Content Area - Exact Mirror of Step 2 Pattern */}
-      <div className="flex flex-col bg-[#111] rounded-2xl overflow-hidden mb-2 min-h-0 min-w-0">
+      <div className="glass-card flex flex-col overflow-hidden mb-2 min-h-0 min-w-0">
 
         {/* Tab Content */}
         <div className="flex flex-col min-h-0 min-w-0 p-0 relative">
            
            {/* Chart View */}
             {activeTab === "chart" && (
-              <div className="flex gap-3 px-2 pt-2 pb-3 items-stretch">
-                {/* Left: Equity Curve + Quick Stats */}
-                <div className="flex-[6] min-w-0 flex flex-col gap-3">
-                  <div className="flex flex-col">
-                    <div className="flex items-center gap-2 px-1 pb-1.5">
-                      <TrendUp className="w-3.5 h-3.5 text-gray-500" />
-                      <span className="text-xs font-bold uppercase tracking-widest text-gray-500">자산 곡선 (Equity Curve)</span>
-                    </div>
-                    <div className="bg-[#0a0a0f] rounded-xl overflow-hidden relative">
-                      <BacktestChart
-                        type="equity"
-                        height={420}
-                        trades={result.tradesList}
-                        equityData={result.dates.map((d: string, i: number) => ({
-                          time: d,
-                          equity: result.equity[i],
-                          buyHold: result.benchmarkEquity ? result.benchmarkEquity[i] : (result.initialCapital * (1 + (result.buyAndHoldReturn || 0)/100))
-                        }))}
-                      />
-                    </div>
+              <div className="flex flex-col px-2 pt-2 pb-3 gap-3">
+                {/* Equity Curve — full width */}
+                <div className="flex flex-col">
+                  <div className="flex items-center gap-2 px-1 pb-1.5">
+                    <TrendUp className="w-3.5 h-3.5 text-gray-500" />
+                    <span className="text-xs font-bold uppercase tracking-widest text-gray-500">자산 곡선 (Equity Curve)</span>
                   </div>
-
-                  {/* Quick Stats */}
-                  <div className="grid grid-cols-4 gap-2">
-                    <StatRow
-                      label="총 수익"
-                      value={formatKRW(result.finalEquity - result.initialCapital)}
-                      result={result}
-                    />
-                    <StatRow
-                      label="총수익률"
-                      value={`${(result.totalReturn || 0).toFixed(1)}%`}
-                      result={result}
-                      description={METRIC_DESCRIPTIONS.totalReturn}
-                      onHover={(rect) => setHoveredMetric(rect ? { label: "총수익률", description: METRIC_DESCRIPTIONS.totalReturn, rect } : null)}
-                    />
-                    <StatRow
-                      label="매수후보유"
-                      value={`${(result.buyAndHoldReturn || 0).toFixed(1)}%`}
-                      result={result}
-                      colorOverride="text-main-green"
-                      description={METRIC_DESCRIPTIONS.buyHold}
-                      onHover={(rect) => setHoveredMetric(rect ? { label: "매수후보유", description: METRIC_DESCRIPTIONS.buyHold, rect } : null)}
-                    />
-                    <StatRow
-                      label="연간 변동성"
-                      value={`${(result.sharpe > 0 ? ((result.cagr || 0) / result.sharpe) : 0).toFixed(1)}%`}
-                      result={result}
-                      isNeutral
-                      description={METRIC_DESCRIPTIONS.volatility}
-                      onHover={(rect) => setHoveredMetric(rect ? { label: "연간 변동성", description: METRIC_DESCRIPTIONS.volatility, rect } : null)}
+                  <div className="bg-[#0a0a0f] rounded-xl overflow-hidden relative">
+                    <BacktestChart
+                      type="equity"
+                      height={380}
+                      trades={result.tradesList}
+                      equityData={result.dates.map((d: string, i: number) => ({
+                        time: d,
+                        equity: result.equity[i],
+                        buyHold: result.benchmarkEquity ? result.benchmarkEquity[i] : (result.initialCapital * (1 + (result.buyAndHoldReturn || 0)/100)),
+                        vbtEquity: result.vbtResult?.equity?.[i],
+                      }))}
                     />
                   </div>
                 </div>
 
-                {/* Right: Terminal Log — h-[490px]로 명시적 높이를 줘야 flex-1 자식이 scroll 활성화됨 */}
-                <div className="flex-[4] min-w-0 flex flex-col h-[490px]">
-                  <BacktestTerminalLog result={result} stockMetadata={stockMetadata} fill />
+                {/* Below chart: 4 stats | Terminal Log */}
+                <div className="flex gap-3 items-stretch">
+                  {/* 4 Key Stats */}
+                  <div className="flex-[4] min-w-0 glass-card px-5 py-4">
+                    <p className="text-base font-black uppercase tracking-widest text-white mb-4">통계 요약</p>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-5">
+                      {[
+                        { label: "총 수익", value: formatKRW(result.finalEquity - result.initialCapital), color: result.finalEquity >= result.initialCapital ? "text-main-red" : "text-main-blue" },
+                        { label: "총 수익률", value: `${result.totalReturn >= 0 ? "+" : ""}${(result.totalReturn || 0).toFixed(2)}%`, color: result.totalReturn >= 0 ? "text-main-red" : "text-main-blue" },
+                        { label: "승률", value: `${result.winRate.toFixed(1)}%`, color: result.winRate >= 55 ? "text-emerald-400" : result.winRate >= 50 ? "text-yellow-400" : "text-red-400" },
+                        { label: "총 거래 수", value: `${result.trades}회`, color: "text-gray-200" },
+                      ].map((stat) => (
+                        <div key={stat.label}>
+                          <p className="text-xs text-gray-600 mb-1">{stat.label}</p>
+                          <p className={`text-xl font-black tabular-nums ${stat.color}`}>{stat.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Terminal Log */}
+                  <div className="flex-[6] min-w-0 flex flex-col h-[200px]">
+                    <BacktestTerminalLog result={result} stockMetadata={stockMetadata} fill />
+                  </div>
                 </div>
               </div>
            )}
@@ -657,30 +830,30 @@ export default function BacktestDashboard({
             {activeTab === "assets" && (
 
              <div className="h-full overflow-y-auto custom-scrollbar">
-                <div className="bg-[#111] overflow-hidden">
+                <div className="overflow-hidden">
                    <table className="w-full text-left border-collapse">
-                      <thead className="bg-[#161616]">
-                         <tr>
-                            <th className="p-4 text-sm font-bold text-white">종목</th>
-                            <th className="p-4 text-sm font-bold text-white">섹터</th>
-                             <th className="p-4 text-sm font-bold text-white text-right">
-                                <div 
+                      <thead className="bg-[var(--card-bg)]">
+                         <tr className="border-b border-white/[0.05]">
+                            <th className="p-4 text-[10px] font-bold text-gray-600 uppercase tracking-widest">종목</th>
+                            <th className="p-4 text-[10px] font-bold text-gray-600 uppercase tracking-widest">섹터</th>
+                             <th className="p-4 text-[10px] font-bold text-gray-600 uppercase tracking-widest text-right">
+                                <div
                                   className="inline-flex items-center justify-end gap-1 cursor-pointer transition-colors group"
                                   onClick={() => handleSort('profit')}
                                 >
                                    수익금 <SortIcon column="profit" />
                                 </div>
                              </th>
-                             <th className="p-4 text-sm font-bold text-white text-right">
-                                <div 
+                             <th className="p-4 text-[10px] font-bold text-gray-600 uppercase tracking-widest text-right">
+                                <div
                                   className="inline-flex items-center justify-end gap-1 cursor-pointer transition-colors group"
                                   onClick={() => handleSort('totalReturn')}
                                 >
                                    수익률 <SortIcon column="totalReturn" />
                                 </div>
                              </th>
-                             <th className="p-4 text-sm font-bold text-white text-right">
-                                <div 
+                             <th className="p-4 text-[10px] font-bold text-gray-600 uppercase tracking-widest text-right">
+                                <div
                                   className="inline-flex items-center justify-end gap-1 cursor-pointer transition-colors group"
                                   onClick={() => handleSort('trades')}
                                 >
@@ -693,23 +866,23 @@ export default function BacktestDashboard({
                           {sortedSymbols.length > 0 ? sortedSymbols.map(sym => {
                              const stats = result.perAssetStats?.[sym];
                              const meta = stockMetadata[sym];
-                             
+
                              return (
-                               <tr key={sym} className="border-b border-gray-800/50 hover:bg-white/5 transition-colors">
-                                  <td className="p-4">
+                               <tr key={sym} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors duration-150">
+                                  <td className="px-4 py-2.5">
                                      <div className="flex flex-col">
-                                        <span className="text-sm font-bold text-white">{meta?.name || sym}</span>
-                                        <span className="text-xs text-gray-500 font-mono">{sym}</span>
+                                        <span className="text-sm font-bold text-white truncate">{meta?.name || sym}</span>
+                                        <span className="text-[10px] text-gray-500 font-mono">{sym}</span>
                                      </div>
                                   </td>
-                                  <td className="p-4 text-sm text-gray-400">{meta?.sector || "-"}</td>
-                                  <td className={`p-4 text-sm font-bold text-right ${(stats?.profit || 0) > 0 ? 'text-main-red' : (stats?.profit || 0) < 0 ? 'text-main-blue' : 'text-white'}`}>
+                                  <td className="px-4 py-2.5 text-sm font-bold text-gray-400">{meta?.sector || "-"}</td>
+                                  <td className={`px-4 py-2.5 text-sm font-bold text-right tabular-nums ${(stats?.profit || 0) > 0 ? 'text-[var(--main-red)]' : (stats?.profit || 0) < 0 ? 'text-[var(--main-blue)]' : 'text-white'}`}>
                                      {stats ? formatKRW(stats.profit) : "-"}
                                   </td>
-                                  <td className={`p-4 text-sm font-bold text-right ${(stats?.totalReturn || 0) > 0 ? 'text-main-red' : (stats?.totalReturn || 0) < 0 ? 'text-main-blue' : 'text-white'}`}>
+                                  <td className={`px-4 py-2.5 text-sm font-bold text-right tabular-nums ${(stats?.totalReturn || 0) > 0 ? 'text-[var(--main-red)]' : (stats?.totalReturn || 0) < 0 ? 'text-[var(--main-blue)]' : 'text-white'}`}>
                                      {stats ? `${stats.totalReturn.toFixed(2)}%` : "-"}
                                   </td>
-                                  <td className="p-4 text-sm text-white text-right font-mono">
+                                  <td className="px-4 py-2.5 text-sm font-bold text-white text-right tabular-nums">
                                      {stats ? `${stats.trades}회` : "-"}
                                   </td>
                                </tr>
@@ -726,8 +899,8 @@ export default function BacktestDashboard({
                           )}
                        </tbody>
                    </table>
-                   <div className="p-6 bg-[#111]">
-                      <p className="text-sm text-gray-500 leading-relaxed italic">
+                   <div className="p-6 border-t border-white/[0.05]">
+                      <p className="text-xs font-bold text-gray-600 leading-relaxed">
                         * 종목별 상세 수익 분석 기능은 준비 중입니다. 현재는 포트폴리오 전체 성과 중심으로 제공됩니다.
                       </p>
                    </div>
@@ -739,8 +912,8 @@ export default function BacktestDashboard({
            {activeTab === "stats" && (
              <div className="h-full overflow-y-auto custom-scrollbar p-6 space-y-8">
                                <div>
-                   <h4 className="text-base font-bold text-white mb-4 flex items-center gap-2">
-                     <ChartBar className="w-4 h-4 text-gray-500" /> 월별 수익률 추이 (Monthly Returns)
+                   <h4 className="text-base font-black uppercase tracking-widest text-white mb-4 flex items-center gap-2">
+                     <ChartBar className="w-4 h-4 text-gray-500" /> 월별 수익률 추이
                      {(() => {
                        const allYears = Object.keys(monthlyReturns).sort();
                        if (allYears.length > 0) return (
@@ -771,8 +944,8 @@ export default function BacktestDashboard({
 
                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                  {/* Risk Stats */}
-                 <div className="bg-[#1a1a1a] rounded-xl p-5">
-                     <h5 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">리스크 및 성과 분석</h5>
+                 <div className="glass-card p-5">
+                     <h5 className="text-xs font-black text-gray-500 uppercase tracking-widest mb-4">리스크 및 성과 분석</h5>
                      <div className="space-y-3">
                         <StatItem label="초기 자본" value={formatKRW(result.initialCapital)} />
                         <StatItem label="최종 자산" value={formatKRW(result.finalEquity)} />
@@ -792,8 +965,8 @@ export default function BacktestDashboard({
                  </div>
                  
                   {/* Trade Stats */}
-                 <div className="bg-[#1a1a1a] rounded-xl p-5">
-                    <h5 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">매매 통계</h5>
+                 <div className="glass-card p-5">
+                    <h5 className="text-xs font-black text-gray-500 uppercase tracking-widest mb-4">매매 통계</h5>
                     <div className="space-y-3">
                        <StatItem label="총 매매 횟수" value={result.trades.toString()} />
                        <StatItem label="평균 수익" value={formatKRW(result.avgProfit || 0)} />
@@ -812,49 +985,49 @@ export default function BacktestDashboard({
               <div className="h-full overflow-y-auto custom-scrollbar">
                  {result.tradesList?.length > 0 ? (
                     <table className="w-full text-left border-collapse">
-                      <thead className="bg-[#161616] sticky top-0 z-10">
-                         <tr>
-                            <th className="p-3 text-sm font-bold text-white">날짜</th>
-                            <th className="p-3 text-sm font-bold text-white">종목</th>
-                            <th className="p-3 text-sm font-bold text-white">구분</th>
-                            <th className="p-3 text-sm font-bold text-white">체결가</th>
-                             <th className="p-3 text-sm font-bold text-white">수량</th>
-                             <th className="p-3 text-sm font-bold text-white text-center">AI 분석</th>
-                             <th className="p-3 text-sm font-bold text-white">매매사유</th>
-                             <th className="p-3 text-sm font-bold text-white text-right">거래금액</th>
+                      <thead className="bg-[var(--card-bg)] sticky top-0 z-10">
+                         <tr className="border-b border-white/[0.05]">
+                            <th className="p-3 text-[10px] font-bold text-gray-600 uppercase tracking-widest">날짜</th>
+                            <th className="p-3 text-[10px] font-bold text-gray-600 uppercase tracking-widest">종목</th>
+                            <th className="p-3 text-[10px] font-bold text-gray-600 uppercase tracking-widest">구분</th>
+                            <th className="p-3 text-[10px] font-bold text-gray-600 uppercase tracking-widest">체결가</th>
+                             <th className="p-3 text-[10px] font-bold text-gray-600 uppercase tracking-widest">수량</th>
+                             <th className="p-3 text-[10px] font-bold text-gray-600 uppercase tracking-widest text-center">AI 분석</th>
+                             <th className="p-3 text-[10px] font-bold text-gray-600 uppercase tracking-widest">매매사유</th>
+                             <th className="p-3 text-[10px] font-bold text-gray-600 uppercase tracking-widest text-right">거래금액</th>
                          </tr>
                       </thead>
-                      <tbody className="bg-[#0f0f0f]">
+                      <tbody>
                           {result.tradesList.map((t, i) => {
                              const tradeAmount = t.amount || 0;
                              return (
-                              <tr key={`${t.symbol}-${t.date}-${t.type}-${i}`} className="hover:bg-white/5 transition-colors">
-                                 <td className="p-3 text-sm font-mono text-gray-400">{t.date}</td>
+                              <tr key={`${t.symbol}-${t.date}-${t.type}-${i}`} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors duration-150">
+                                 <td className="p-3 text-xs font-bold text-gray-400 tabular-nums">{t.date}</td>
                                  <td className="p-3 text-sm font-bold text-white">
                                     <div className="flex flex-col">
-                                       <span>{stockMetadata[t.symbol]?.name || t.symbol}</span>
+                                       <span className="truncate">{stockMetadata[t.symbol]?.name || t.symbol}</span>
                                        <span className="text-[10px] text-gray-500 font-mono">{t.symbol}</span>
                                     </div>
                                  </td>
                                   <td className="p-3">
-                                    <span className={`px-2 py-0.5 rounded text-sm font-bold ${t.type==='buy' ? 'text-[#ef4444]' : 'text-[#377af4]'}`}>
+                                    <span className={`px-2 py-0.5 rounded-md text-xs font-bold ${t.type==='buy' ? 'bg-[var(--main-red)]/10 text-[var(--main-red)]' : 'bg-[var(--main-blue)]/10 text-[var(--main-blue)]'}`}>
                                        {t.type === 'buy' ? '매수' : '매도'}
                                     </span>
                                  </td>
-                                 <td className="p-3 text-sm text-gray-300 font-bold">{Math.round(Number(t.price)).toLocaleString()}</td>
-                                  <td className="p-3 text-sm text-gray-400">
+                                 <td className="p-3 text-sm font-bold text-gray-300 tabular-nums">{Math.round(Number(t.price)).toLocaleString()}</td>
+                                  <td className="p-3 text-sm font-bold text-gray-400 tabular-nums">
                                     {Math.floor(Number(t.quantity)).toLocaleString()}주
                                   </td>
                                   <td className="p-3 text-center">
-                                     <button 
+                                     <button
                                        onClick={() => setXaiTarget({ symbol: t.symbol, date: t.date })}
-                                       className="px-2 py-1 bg-main-blue/10 hover:bg-main-blue/20 text-main-blue text-[10px] font-black rounded border border-main-blue/20 transition-all"
+                                       className="px-2 py-1 bg-[var(--main-blue)]/10 hover:bg-[var(--main-blue)]/20 text-[var(--main-blue)] text-[10px] font-black rounded-md border border-[var(--main-blue)]/20 transition-all"
                                      >
                                        분석
                                      </button>
                                   </td>
-                                  <td className="p-3 text-sm text-gray-500 italic">{t.reason}</td>
-                                 <td className="p-3 text-sm text-right font-mono text-white">
+                                  <td className="p-3 text-xs font-bold text-gray-500">{t.reason}</td>
+                                 <td className="p-3 text-sm font-bold text-right tabular-nums text-white">
                                     {formatKRW(tradeAmount)}
                                  </td>
                               </tr>
@@ -1024,14 +1197,9 @@ function BacktestTerminalLog({
   };
 
   return (
-    <div className={`rounded-xl bg-[#080808] border border-white/5 overflow-hidden flex flex-col ${fill ? "flex-1 min-h-0" : "mx-2 mb-2"}`}>
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-white/5 bg-[#0d0d0d] flex-none">
-        <div className="flex gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-[#ff5f57]" />
-          <span className="w-2.5 h-2.5 rounded-full bg-[#febc2e]" />
-          <span className="w-2.5 h-2.5 rounded-full bg-[#28c840]" />
-        </div>
-        <span className="text-[11px] font-mono text-gray-600 ml-1">backtest.log</span>
+    <div className={`glass-card overflow-hidden flex flex-col ${fill ? "flex-1 min-h-0" : "mx-2 mb-2"}`}>
+      <div className="px-4 py-3 border-b border-white/[0.05] flex-none">
+        <p className="text-xs font-black uppercase tracking-widest text-white">백테스트 알림</p>
       </div>
       <div className={`px-4 py-3 space-y-1 overflow-y-auto custom-scrollbar font-mono text-xs ${fill ? "flex-1 min-h-0" : "max-h-64"}`}>
         {logs.map((log, i) => (
@@ -1068,9 +1236,9 @@ function MetricCard({
   const dynamicColor = trend === "up" ? "text-main-red" : trend === "down" ? "text-main-blue" : (colorClass || "text-white");
       
   return (
-    <div className="bg-[#111] border border-gray-800 p-2 md:p-3 rounded-xl flex flex-col justify-between hover:border-gray-700 transition-colors">
+    <div className="glass-card p-2 md:p-3 flex flex-col justify-between hover:border-white/10 transition-colors">
       <div className="flex items-center justify-between mb-0.5">
-        <div className="text-[10px] md:text-xs font-bold text-gray-500 uppercase tracking-widest">{label}</div>
+        <div className="text-[10px] md:text-xs font-black text-gray-500 uppercase tracking-widest">{label}</div>
         {description && onHover && (
            <Info 
              className="w-3.5 h-3.5 text-gray-600 hover:text-gray-400 cursor-help transition-colors"
@@ -1079,8 +1247,8 @@ function MetricCard({
            />
         )}
       </div>
-      <div className={`text-xl md:text-2xl xl:text-3xl font-black ${dynamicColor} tracking-tight`}>{value}</div>
-      {subValue && <div className="text-[10px] md:text-[11px] text-gray-600 font-medium mt-0.5 truncate">{subValue}</div>}
+      <div className={`text-xl md:text-2xl xl:text-3xl font-black tabular-nums ${dynamicColor} tracking-tight`}>{value}</div>
+      {subValue && <div className="text-[10px] md:text-[11px] text-gray-600 font-bold mt-0.5 truncate">{subValue}</div>}
     </div>
   );
 }
@@ -1141,7 +1309,7 @@ function StatItem({
    return (
       <div className="flex justify-between items-center py-1">
          <div className="flex items-center gap-1.5">
-            <span className="text-base text-gray-400 font-medium">{label}</span>
+            <span className="text-sm font-bold text-gray-400">{label}</span>
             {description && onHover && (
                <Info 
                  className="w-4 h-4 text-gray-700 hover:text-gray-500 cursor-help transition-colors"
@@ -1151,8 +1319,8 @@ function StatItem({
             )}
          </div>
          <div className="text-right">
-            <div className="text-base font-bold text-white font-mono">{value}</div>
-            {sub && <div className="text-xs text-gray-600">{sub}</div>}
+            <div className="text-sm font-bold text-white tabular-nums">{value}</div>
+            {sub && <div className="text-xs font-bold text-gray-600">{sub}</div>}
          </div>
       </div>
    );

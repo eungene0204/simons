@@ -248,3 +248,85 @@ def test_backtest_volatility_is_finite_scalar(tmp_path):
     assert isinstance(vol, (int, float))
     assert np.isfinite(vol), f"volatility={vol} 는 유한값이어야 한다"
     assert vol >= 0.0, f"volatility={vol} 는 0 이상이어야 한다"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Fix: format_results 에서 norm_dt 가 수십만 회 호출되던 성능 버그
+# build_reason_array 가 DatetimeIndex.asi8 벡터화로 교체됐는지 확인.
+# 다심볼 + 거래 발생 시 format_results 가 2초 이내에 완료되어야 한다.
+# ──────────────────────────────────────────────────────────────────────────────
+
+def test_format_results_does_not_call_norm_dt_per_row(tmp_path):
+    """
+    199종목 규모를 흉내낸 20심볼 백테스트에서 format_results 가
+    0.5초 이내에 완료되는지 검증한다.
+    (수정 전: build_reason_array 에서 norm_dt 를 ~40만 회 호출 → ~2초
+     수정 후: DatetimeIndex.asi8 벡터화 → ~0.1초)
+    """
+    import time
+
+    N_SYMS = 20
+    N_DAYS = 500
+    # 단순 상승 추세 → MA crossover 진입 신호가 발생하도록 설계
+    prices_trend = [100.0 + i * 0.5 for i in range(N_DAYS)]
+
+    data_dir = str(tmp_path)
+    symbols = []
+    for i in range(N_SYMS):
+        sym = f"PERF{i:02d}"
+        symbols.append(sym)
+        dates = pd.date_range("2022-01-01", periods=N_DAYS, freq="B")
+        rows = [
+            {
+                "date": d.strftime("%Y-%m-%d"),
+                "open": float(p), "high": float(p + 1),
+                "low": float(p - 1), "close": float(p),
+                "volume": 1_000_000.0,
+            }
+            for d, p in zip(dates, prices_trend)
+        ]
+        pl.from_dicts(rows).write_parquet(os.path.join(data_dir, f"{sym}.parquet"))
+
+    from backtest_engine import BacktestEngine
+    engine = BacktestEngine(data_dir=data_dir)
+
+    req = {
+        "symbols": symbols,
+        "entry": {"conditions": [
+            {"id": "ma_crossover", "params": {"signalType": "buy", "shortMA": 5, "longMA": 20}},
+        ]},
+        "exit": {"conditions": [
+            {"id": "rsi", "params": {"signalType": "sell", "period": 14, "operator": ">", "value": 70}},
+        ]},
+        "risk": {
+            "position_size_pct": 5.0,
+            "max_positions": 20,
+            "stop_loss_pct": 10,
+            "init_cash": 10_000_000,
+            "allocation_type": "equal",
+            "ranking_enabled": False,
+        },
+        "period": "full",
+        "options": {"fee_rate": 0.00015, "slippage_rate": 0.0005},
+    }
+
+    # 1회 실행(데이터 캐시 워밍업)
+    engine.run_backtest(req)
+
+    # format_results 단독 시간 측정
+    captured = {}
+    orig_fmt = engine.handler.format_results
+    def timed_fmt(*a, **kw):
+        t = time.time()
+        r = orig_fmt(*a, **kw)
+        captured["fmt_time"] = time.time() - t
+        return r
+    engine.handler.format_results = timed_fmt
+
+    engine.run_backtest(req)
+
+    fmt_time = captured.get("fmt_time", 999)
+    assert fmt_time < 0.5, (
+        f"format_results 가 {fmt_time:.2f}s 걸렸습니다 — "
+        "norm_dt per-row 호출 버그가 재발했을 수 있습니다 (허용: 0.5s)"
+    )
