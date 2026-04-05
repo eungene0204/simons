@@ -59,6 +59,30 @@ class AssetStats(BaseModel):
     winRate: float
     profit: float
 
+class VBTNativeResult(BaseModel):
+    """Pure VectorBT engine metrics (native SL/TP/trailing stop)."""
+    totalReturn: float = 0.0
+    cagr: float = 0.0
+    buyAndHoldReturn: float = 0.0
+    maxDrawdown: float = 0.0
+    winRate: float = 0.0
+    profitFactor: float = 0.0
+    sharpe: float = 0.0
+    sortino: float = 0.0
+    kelly: Optional[float] = 0.0
+    volatility: float = 0.0
+    trades: int = 0
+    avgProfit: Optional[float] = 0.0
+    avgLoss: Optional[float] = 0.0
+    maxConsecutiveWins: Optional[int] = 0
+    maxConsecutiveLosses: Optional[int] = 0
+    equity: List[float] = Field(default_factory=list)
+    benchmark_equity: Optional[List[float]] = Field(default_factory=list)
+    dates: List[str] = Field(default_factory=list)
+    finalEquity: Optional[float] = 0.0
+    initialCapital: Optional[float] = 10000000.0
+
+
 class BacktestResponse(BaseModel):
     symbols: List[str]
     totalReturn: float
@@ -84,6 +108,7 @@ class BacktestResponse(BaseModel):
     warnings: Optional[List[str]] = Field(default_factory=list)
     version: Optional[str] = "1.0"
     executionTime: Optional[float] = 0.0
+    vbtResult: Optional[VBTNativeResult] = None
 
 
 # ─── Monte Carlo ──────────────────────────────────────────────────────────────

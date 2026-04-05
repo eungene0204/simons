@@ -2,8 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "crypto";
 import { prisma } from "@/lib/prisma";
 
+/** 객체/배열을 재귀적으로 키 정렬해 JSON.stringify 결과를 결정적으로 만든다 */
+function sortDeep(val: any): any {
+  if (Array.isArray(val)) return val.map(sortDeep);
+  if (val !== null && typeof val === "object") {
+    return Object.fromEntries(
+      Object.keys(val)
+        .sort()
+        .map((k) => [k, sortDeep(val[k])])
+    );
+  }
+  return val;
+}
+
 function computeCacheKey(body: any): string {
-  const normalized = {
+  const normalized = sortDeep({
     symbols: [...(body.symbols ?? [])].sort(),
     entry: {
       conditions: [...(body.entry?.conditions ?? [])].sort((a: any, b: any) =>
@@ -16,9 +29,9 @@ function computeCacheKey(body: any): string {
       ),
     },
     risk: body.risk ?? {},
-    period: body.period ?? "5Y",
+    period: (body.period ?? "5Y").toUpperCase(),
     options: body.options ?? {},
-  };
+  });
   return createHash("sha256")
     .update(JSON.stringify(normalized))
     .digest("hex");
@@ -40,12 +53,23 @@ export async function POST(req: NextRequest) {
   });
 
   if (existing?.result) {
+    const result = JSON.parse(existing.result);
+    const metrics = existing.metrics ? JSON.parse(existing.metrics) : {};
     await prisma.backtestHistory.update({
       where: { cacheKey },
       data: { hitCount: { increment: 1 } },
     });
-    const result = JSON.parse(existing.result);
-    return NextResponse.json({ ...result, fromCache: true, cacheKey, cachedAt: existing.createdAt });
+    return NextResponse.json({
+      ...result,
+      fromCache: true,
+      cacheKey,
+      cachedAt: existing.createdAt,
+      // 저장된 AI 리포트가 있으면 캐시 응답에 포함 (재생성 불필요)
+      aiSummary: metrics.aiSummary ?? null,
+      aiScore: metrics.aiScore ?? null,
+      aiStrengths: metrics.aiStrengths ?? null,
+      aiRisks: metrics.aiRisks ?? null,
+    });
   }
 
   // 미저장 전략: Python 엔진 실행

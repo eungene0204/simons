@@ -29,7 +29,7 @@ class DataLoader:
     def preprocess_data(self, df_pl: pl.DataFrame) -> pd.DataFrame:
         """OHLCV basic alignment and adjusting prices if needed."""
         pdf = df_pl.to_pandas()
-        
+
         # 1. Handle Adjustment
         if 'adj_close' in pdf.columns:
             factor = pdf['adj_close'] / pdf['close']
@@ -37,16 +37,15 @@ class DataLoader:
             pdf['high'] *= factor
             pdf['low'] *= factor
             pdf['close'] = pdf['adj_close']
-            
-        # 2. Robust Price Sanitization
-        # Replace non-positive or non-finite values with NaN
-        for col in ['open', 'high', 'low', 'close']:
-            if col in pdf.columns:
-                pdf.loc[pdf[col] <= 0, col] = np.nan
-                pdf.loc[~np.isfinite(pdf[col]), col] = np.nan
-                # Fill missing prices with previous ones, then next ones as fallback
-                pdf[col] = pdf[col].ffill().bfill()
-            
+
+        # 2. Robust Price Sanitization (vectorized across all price columns at once)
+        price_cols = [c for c in ['open', 'high', 'low', 'close'] if c in pdf.columns]
+        if price_cols:
+            vals = pdf[price_cols].values  # single numpy view
+            vals[(vals <= 0) | ~np.isfinite(vals)] = np.nan
+            # ffill + bfill via pandas (operates on contiguous block)
+            pdf[price_cols] = pd.DataFrame(vals, columns=price_cols, index=pdf.index).ffill().bfill()
+
         pdf.set_index('date', inplace=True)
         pdf.index = pd.to_datetime(pdf.index)
         return pdf
@@ -54,13 +53,11 @@ class DataLoader:
     def check_liquidity(self, pdf: pd.DataFrame, target_amount: float, limit_pct: float) -> np.ndarray:
         """Check if trading volume is enough to cover the target amount."""
         data_len = len(pdf)
+        if limit_pct <= 0:
+            return np.ones(data_len, dtype=bool)
+
         vol_val = (pdf['close'] * pdf['volume']).values
-        liquidity_ok = np.ones(data_len, dtype=bool)
-        
-        if limit_pct > 0:
-            liquidity_ok = np.zeros(data_len, dtype=bool)
-            for i in range(1, data_len):
-                # Yesterday's trading value * limit_pct
-                liquidity_ok[i] = vol_val[i-1] * (limit_pct / 100.0) >= target_amount
-                
+        liquidity_ok = np.zeros(data_len, dtype=bool)
+        # 전일 거래대금 * limit_pct% >= target_amount (벡터화)
+        liquidity_ok[1:] = vol_val[:-1] * (limit_pct / 100.0) >= target_amount
         return liquidity_ok

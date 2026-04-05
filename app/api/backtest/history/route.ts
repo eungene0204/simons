@@ -31,10 +31,11 @@ export async function GET() {
 // 저장 버튼 클릭 시 호출
 // cacheKey 가 있으면 기존 숨김 레코드를 isVisible=true 로 업데이트,
 // 없거나 레코드가 없으면 새로 생성
+// isAutoSave=true 인 경우: 기존 레코드에 이미 이름이 있으면 이름을 덮어쓰지 않음
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { strategyName, universe, conditions, metrics, result, cacheKey } = body;
+    const { strategyName, universe, conditions, metrics, result, cacheKey, isAutoSave } = body;
 
     if (cacheKey) {
       const existing = await prisma.backtestHistory.findUnique({ where: { cacheKey } });
@@ -42,11 +43,13 @@ export async function POST(request: Request) {
         const updated = await prisma.backtestHistory.update({
           where: { cacheKey },
           data: {
-            strategyName,
+            // 자동 저장 시 기존에 사용자가 지정한 이름이 있으면 유지
+            strategyName: isAutoSave && existing.strategyName ? existing.strategyName : strategyName,
             universe,
             conditions: JSON.stringify(conditions),
             metrics: JSON.stringify(metrics),
-            result: result ? JSON.stringify(result) : existing.result,
+            // isAutoSave: route.ts가 저장한 result가 source of truth — 덮어쓰지 않음
+            result: isAutoSave ? existing.result : (result ? JSON.stringify(result) : existing.result),
             isVisible: true,
           },
         });

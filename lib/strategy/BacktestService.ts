@@ -112,6 +112,11 @@ export class BacktestService {
         fromCache: pythonResult.fromCache ?? false,
         cachedAt: pythonResult.cachedAt,
         cacheKey: pythonResult.cacheKey,
+        vbtResult: pythonResult.vbtResult ?? undefined,
+        aiSummary: pythonResult.aiSummary ?? undefined,
+        aiScore: pythonResult.aiScore ?? undefined,
+        aiStrengths: pythonResult.aiStrengths ?? undefined,
+        aiRisks: pythonResult.aiRisks ?? undefined,
       };
     } catch (error: any) {
       console.error("Backtest integration error:", error);

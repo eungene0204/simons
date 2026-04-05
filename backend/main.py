@@ -39,6 +39,51 @@ app.add_middleware(
 engine = BacktestEngine()
 _ = engine.ai_engine  # 서버 시작 시 AI 모델 사전 로드
 
+# VBT Numba JIT 사전 워밍업 — 첫 백테스트 요청에서 ~4s JIT 컴파일 패널티 제거
+# from_signals(2.0s) + winning_streak(1.2s) + pnl.mean(0.2s) + profit_factor(0.1s)
+# + total_return/per-col(0.16s) + annualized_return(0.12s) + losing_streak(0.17s) = ~3.9s
+def _warmup_vbt():
+    try:
+        import vectorbt as vbt
+        import pandas as pd
+        import numpy as np
+        dates = pd.date_range("2020-01-01", periods=30, freq="D")
+        _d = pd.DataFrame({"A": np.linspace(100, 110, 30), "B": np.linspace(100, 90, 30)}, index=dates)
+        _e = pd.DataFrame({"A": [False]*30, "B": [False]*30}, index=dates)
+        _x = pd.DataFrame({"A": [False]*30, "B": [False]*30}, index=dates)
+        _e.iloc[2] = True; _e.iloc[15] = True; _x.iloc[10] = True; _x.iloc[25] = True
+        _pf = vbt.Portfolio.from_signals(
+            close=_d, price=_d, entries=_e, exits=_x,
+            size=0.5, size_type="Percent", init_cash=1_000_000,
+            fees=0.0015, slippage=0.002, freq="D",
+            allow_partial=False, direction="longonly",
+            accumulate=False, group_by=True, cash_sharing=True,
+        )
+        # result_handler.py가 사용하는 모든 VBT 메서드 JIT 워밍업
+        _pf.trades.records_readable
+        _pf.trades.winning.pnl.mean()
+        _pf.trades.losing.pnl.mean()
+        _pf.trades.winning_streak.max()
+        _pf.trades.losing_streak.max()
+        _pf.trades.profit_factor()
+        _pf.total_return()
+        _pf.total_return(group_by=False)
+        _pf.trades.count(group_by=False)
+        _pf.trades.win_rate(group_by=False)
+        _pf.total_profit(group_by=False)
+        _pf.annualized_return(group_by=False)
+        _pf.max_drawdown(group_by=False)
+        _pf.benchmark_returns()
+        _pf.returns(group_by=True)
+        _pf.max_drawdown()
+        _pf.value()
+        _pf.total_profit()
+        print("[STARTUP] VBT JIT warmup complete (all result_handler methods)", flush=True)
+    except Exception as e:
+        print(f"[STARTUP] VBT warmup failed (non-fatal): {e}", flush=True)
+
+_warmup_vbt()
+
 recent_executions = {}
 EXECUTION_CACHE_TTL = 2  # seconds — 더블클릭 방지만, 의도적 재실행은 허용
 
@@ -728,6 +773,23 @@ class NLParseResponse(BaseModel):
 _nl_parsers: dict = {}  # backend → NLStrategyParser (lazy singleton)
 _nl_parser_status: dict = {"status": "loading", "error": None}  # "ok" | "failed" | "loading"
 
+# NL parse 결과 캐시: 동일 프롬프트 재파싱 방지 (LLM inference 14s → 0s)
+import hashlib as _hashlib
+import json as _json
+
+_nl_parse_cache: dict = {}   # cache_key → NLParseResponse dict
+_NL_PARSE_CACHE_MAX = 200    # 최대 200개 항목 유지
+
+
+def _nl_cache_key(prompt: str, backend: str, model: str | None, previous_parsed: dict | None) -> str:
+    payload = {
+        "prompt": prompt.strip(),
+        "backend": backend,
+        "model": model or "",
+        "previous_parsed": previous_parsed or {},
+    }
+    return _hashlib.sha256(_json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
 
 _virtual_trader = VirtualTrader(market_data_provider, engine.loader)
 
@@ -773,6 +835,13 @@ def get_model_status():
 def parse_nl_strategy(request: NLParseRequest):
     """자연어 전략 설명을 ParsedStrategy + BacktestRequest로 변환"""
     print(f"\n[NL-PARSE] prompt='{request.prompt}', backend={request.backend}", flush=True)
+
+    # 캐시 조회 — 동일 프롬프트면 LLM 재호출 없이 즉시 반환
+    cache_key = _nl_cache_key(request.prompt, request.backend, request.model, request.previous_parsed)
+    if cache_key in _nl_parse_cache:
+        print(f"[NL-PARSE] 캐시 히트 → 즉시 반환", flush=True)
+        return _nl_parse_cache[cache_key]
+
     try:
         from engine.nl_parser import NLStrategyParser
         from engine.strategy_converter import to_backtest_request
@@ -800,13 +869,21 @@ def parse_nl_strategy(request: NLParseRequest):
 
         print(f"[NL-PARSE] filters={len(parsed.fundamental_filters)}, entry={len(parsed.entry_signals)}, symbols={len(backtest_req['symbols'])}, clarification={'yes' if clarification_question else 'no'}", flush=True)
 
-        return {
+        result = {
             "parsed": parsed.model_dump(),
             "backtest_request": backtest_req,
             "symbol_count": len(backtest_req["symbols"]),
             "clarification_question": clarification_question,
             "clarification_suggestions": clarification_suggestions,
         }
+
+        # 캐시 저장 (최대 크기 초과 시 가장 오래된 항목 제거)
+        if len(_nl_parse_cache) >= _NL_PARSE_CACHE_MAX:
+            oldest_key = next(iter(_nl_parse_cache))
+            del _nl_parse_cache[oldest_key]
+        _nl_parse_cache[cache_key] = result
+
+        return result
     except Exception as e:
         import traceback
         print(f"[NL-PARSE ERROR]\n{traceback.format_exc()}", flush=True)
@@ -826,10 +903,16 @@ async def backtest_stream(request: BacktestRequest):
     def run_bt():
         try:
             start_time = time.time()
-            result = engine.run_backtest(request.model_dump())
-            result["executionTime"] = time.time() - start_time
+            req_dict = request.model_dump()
+            sym_count = len(req_dict.get("symbols", []))
+            print(f"[BT-STREAM] 엔진 시작: {sym_count}종목", flush=True)
+            result = engine.run_backtest(req_dict)
+            elapsed = time.time() - start_time
+            result["executionTime"] = elapsed
             result_holder["data"] = result
+            print(f"[BT-STREAM] 엔진 완료: {elapsed:.2f}s ({sym_count}종목, {result.get('trades',0)}거래)", flush=True)
         except Exception as exc:
+            print(f"[BT-STREAM] 엔진 에러: {exc}", flush=True)
             error_holder["error"] = str(exc)
 
     thread = threading.Thread(target=run_bt, daemon=True)
@@ -838,8 +921,6 @@ async def backtest_stream(request: BacktestRequest):
         symbol_count = len(request.symbols)
         period = request.period or "5y"
         period_years = {"1y": 1, "3y": 3, "5y": 5, "full": 10}.get(period, 5)
-        end_year = datetime.now().year
-        start_year = end_year - period_years
 
         def emit(msg: str) -> str:
             return f"data: {json.dumps({'type': 'status', 'message': msg})}\n\n"
@@ -849,7 +930,6 @@ async def backtest_stream(request: BacktestRequest):
 
         # ── Step 1: 종목 데이터 로딩
         yield emit(f"{symbol_count:,}개 종목 데이터 로딩 중...")
-        await asyncio.sleep(0.4)
 
         # ── Step 2: 재무 필터 정보
         filter_descs = []
@@ -860,28 +940,21 @@ async def backtest_stream(request: BacktestRequest):
                 filter_descs.append(f"{c.id.upper()} {op} {val}")
         if filter_descs:
             yield emit(f"재무 필터 적용 중... ({', '.join(filter_descs[:4])})")
-            await asyncio.sleep(0.5)
 
-        # ── Step 3: 연도별 시뮬레이션
-        time_per_year = 1.5
-
-        for year in range(start_year, end_year):
-            if not thread.is_alive():
-                break
-            yield emit(f"{year}년 시뮬레이션 중...")
-            # time_per_year 동안 100ms 단위로 스레드 완료 체크
-            elapsed = 0.0
-            while thread.is_alive() and elapsed < time_per_year:
-                await asyncio.sleep(0.1)
-                elapsed += 0.1
-
-        # ── Step 4: 집계 & 완료 대기
-        if thread.is_alive():
-            yield emit("거래 내역 집계 중...")
-            await asyncio.sleep(0.3)
-        if thread.is_alive():
-            yield emit("성과 지표 계산 중...")
-            thread.join(timeout=120)
+        # ── Step 3: 실제 백테스트 완료 대기 (0.2초 단위 폴링, 인위적 지연 없음)
+        phases = [
+            f"시뮬레이션 실행 중... ({symbol_count:,}종목 × {period_years}년)",
+            "거래 내역 집계 중...",
+            "성과 지표 계산 중...",
+        ]
+        phase_idx = 0
+        wait_count = 0
+        while thread.is_alive():
+            if wait_count % 10 == 0 and phase_idx < len(phases):
+                yield emit(phases[phase_idx])
+                phase_idx += 1
+            await asyncio.sleep(0.2)
+            wait_count += 1
 
         thread.join()
 
@@ -900,6 +973,97 @@ async def backtest_stream(request: BacktestRequest):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ─── AI 요약 ────────────────────────────────────────────────────────────────
+
+class SummarizeRequest(BaseModel):
+    metrics: dict
+    strategySummary: Optional[dict] = None
+
+# 모델 싱글턴 (최초 1회 로드, 이후 재사용)
+_summarize_model = {"model": None, "tokenizer": None}
+
+@app.post("/summarize")
+def summarize_backtest(req: SummarizeRequest):
+    """백테스트 결과를 AI로 요약. 모델을 프로세스 내에서 재사용 → 로드 시간 제거."""
+    from ai.summarize import calculate_score, build_prompt, parse_llm_output
+    import platform
+
+    score = calculate_score(req.metrics)
+    prompt = build_prompt({"metrics": req.metrics, "strategySummary": req.strategySummary})
+
+    try:
+        is_mac = platform.system() == "Darwin"
+        if is_mac:
+            import os
+            from mlx_lm import load, generate  # type: ignore
+            os.environ["HF_HUB_OFFLINE"] = "1"
+
+            if _summarize_model["model"] is None:
+                print("[SUMMARIZE] MLX 7B 모델 최초 로드 중...", flush=True)
+                m, t = load("mlx-community/Qwen2.5-7B-Instruct-4bit")
+                _summarize_model["model"] = m
+                _summarize_model["tokenizer"] = t
+                print("[SUMMARIZE] 모델 로드 완료", flush=True)
+
+            tokenizer = _summarize_model["tokenizer"]
+            if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template:
+                formatted = tokenizer.apply_chat_template(
+                    [{"role": "user", "content": prompt}],
+                    tokenize=False, add_generation_prompt=True,
+                )
+            else:
+                formatted = prompt
+
+            raw = generate(_summarize_model["model"], tokenizer, prompt=formatted, max_tokens=600, verbose=False).strip()
+        else:
+            from ai.summarize import summarize_ollama
+            raw = summarize_ollama(prompt)
+
+        parsed = parse_llm_output(raw)
+        return {
+            "score": score,
+            "summary": parsed.get("total_summary", ""),
+            "strengths": parsed.get("strengths", []),
+            "risks": parsed.get("risks", []),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Summarize error: {repr(e)}")
+
+
+# ─── 데이터 동기화 이벤트 로깅 ──────────────────────────────────────────────
+
+class SyncEventRequest(BaseModel):
+    event: str  # "start" | "end"
+    total: Optional[int] = None
+    success: Optional[int] = None
+    fail: Optional[int] = None
+    new_symbols: Optional[int] = None
+    message: Optional[str] = None
+
+
+@app.post("/internal/sync/event")
+def sync_event(req: SyncEventRequest):
+    """scripts/sync_data.py 에서 동기화 시작/종료를 알린다."""
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if req.event == "start":
+        print(f"[{ts}] [SYNC] 데이터 동기화 시작", flush=True)
+    elif req.event == "end":
+        parts = []
+        if req.total is not None:
+            parts.append(f"전체={req.total}")
+        if req.new_symbols is not None:
+            parts.append(f"신규={req.new_symbols}")
+        if req.success is not None:
+            parts.append(f"성공={req.success}")
+        if req.fail is not None:
+            parts.append(f"실패={req.fail}")
+        summary = ", ".join(parts)
+        print(f"[{ts}] [SYNC] 데이터 동기화 완료 — {summary}", flush=True)
+    else:
+        print(f"[{ts}] [SYNC] {req.message or req.event}", flush=True)
+    return {"ok": True}
 
 
 if __name__ == "__main__":

@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { ArrowLeft } from "phosphor-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import BacktestDashboard from "@/components/strategy/backtest/BacktestDashboard";
 import { BacktestHistoryItem } from "@/types/strategy";
-import { ArrowLeft } from "phosphor-react";
 
 export default function BacktestDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -30,8 +30,17 @@ export default function BacktestDetailPage() {
   if (isLoading) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center h-full text-gray-500 text-sm font-bold">
-          불러오는 중...
+        <div className="p-4 md:p-5 lg:p-6 space-y-5">
+          <div className="animate-pulse space-y-3">
+            <div className="h-6 bg-white/[0.04] rounded-xl w-48" />
+            <div className="h-4 bg-white/[0.04] rounded-xl w-32" />
+          </div>
+          <div className="animate-pulse grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="h-24 bg-white/[0.04] rounded-2xl" />
+            ))}
+          </div>
+          <div className="animate-pulse h-64 bg-white/[0.04] rounded-2xl" />
         </div>
       </DashboardLayout>
     );
@@ -72,21 +81,21 @@ export default function BacktestDetailPage() {
 
   const conds = item.conditions as any;
 
+  const universeBadgeClass =
+    item.universe?.includes("KOSPI200") ? "bg-indigo-500/15 text-indigo-400" :
+    item.universe?.includes("KOSPI") ? "bg-sky-500/15 text-sky-400" :
+    item.universe?.includes("KOSDAQ") ? "bg-purple-500/15 text-purple-400" :
+    "bg-emerald-500/15 text-emerald-400";
+
   return (
     <DashboardLayout>
       <div className="flex flex-col h-full">
-        <div className="flex items-center gap-3 px-6 pt-5 pb-2">
-          <button
-            onClick={() => router.back()}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white text-xs font-bold rounded-lg border border-white/10 transition-all"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" /> 기록으로 돌아가기
-          </button>
+        <div className="flex items-center gap-3 px-4 md:px-5 lg:px-6 pt-5 pb-2">
           <span className="text-white font-black text-base">{item.strategyName}</span>
-          <span className="px-2 py-0.5 bg-main-blue/10 text-main-blue text-xs font-black rounded border border-main-blue/20">
+          <span className={`px-2 py-0.5 rounded-md text-xs font-bold ${universeBadgeClass}`}>
             {item.universe}
           </span>
-          <span className="text-xs text-gray-600 font-mono ml-auto">
+          <span className="text-xs font-bold text-gray-600 tabular-nums ml-auto">
             {new Date(item.timestamp).toLocaleString()}
           </span>
         </div>
@@ -94,6 +103,10 @@ export default function BacktestDetailPage() {
           result={item.result}
           onRestart={() => router.back()}
           disableHistorySave={true}
+          aiSummary={item.metrics.aiSummary}
+          aiScore={item.metrics.aiScore}
+          aiStrengths={item.metrics.aiStrengths}
+          aiRisks={item.metrics.aiRisks}
           strategySummary={{
             universeName: item.universe,
             blockNames: conds?.entry?.names || conds?.names || [],
