@@ -439,7 +439,7 @@ export default function VirtualAccountDetailPage() {
                   await deleteAccount(accountId);
                   router.push("/virtual-account");
                 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-gray-500 border border-white/[0.08] rounded-xl text-xs font-bold hover:text-[var(--main-blue)] hover:border-[var(--main-blue)]/30 transition-all duration-200"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-gray-500 border border-white/[0.08] rounded-xl text-xs font-bold hover:text-[var(--main-red)] hover:border-[var(--main-red)]/30 transition-all duration-200"
               >
                 <Trash size={13} />
                 삭제

@@ -328,6 +328,21 @@ transition-colors duration-200 (텍스트 색상 변화)
 </button>
 ```
 
+### 삭제 버튼
+
+모든 삭제 버튼은 마우스가 올라가면 **레드색**으로 변한다.
+
+```tsx
+<button className="
+  p-1.5 rounded-lg
+  text-gray-500 hover:text-red-500
+  hover:bg-red-500/10
+  transition-colors duration-200
+">
+  <TrashIcon className="w-4 h-4" />
+</button>
+```
+
 ---
 
 ## 11. 배지 & 태그

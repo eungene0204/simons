@@ -9,6 +9,21 @@ from tqdm import tqdm
 from pathlib import Path
 from datetime import datetime
 
+BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
+
+
+def _notify_backend(event: str, **kwargs):
+    """백엔드 서버에 동기화 이벤트를 알린다. 서버가 꺼져 있으면 조용히 무시한다."""
+    try:
+        import requests
+        requests.post(
+            f"{BACKEND_URL}/internal/sync/event",
+            json={"event": event, **kwargs},
+            timeout=3,
+        )
+    except Exception:
+        pass
+
 # Add root and backend to path
 sys.path.append(os.getcwd())
 sys.path.append(os.path.join(os.getcwd(), "backend"))
@@ -240,6 +255,8 @@ def main():
     if not data_dir.exists():
         data_dir.mkdir(parents=True)
 
+    _notify_backend("start")
+
     # 1. Sync Symbols
     stocks, new_symbols = sync_symbols(str(stocks_path))
 
@@ -283,6 +300,14 @@ def main():
     print(f"- New symbols added: {len(new_symbols)}")
     print(f"- OHLCV Update Success: {success_count}")
     print(f"- OHLCV Update Failure: {fail_count}")
+
+    _notify_backend(
+        "end",
+        total=len(stocks),
+        new_symbols=len(new_symbols),
+        success=success_count,
+        fail=fail_count,
+    )
 
 if __name__ == "__main__":
     main()

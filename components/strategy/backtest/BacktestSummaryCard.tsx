@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { BacktestResult } from "@/types/strategy";
-import { Sparkle, ArrowsClockwise } from "phosphor-react";
+import { Sparkle, ArrowsClockwise, TrendUp, Warning } from "phosphor-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface BacktestSummaryCardProps {
@@ -15,7 +15,9 @@ interface BacktestSummaryCardProps {
   };
   initialSummary?: string;
   initialScore?: number;
-  onSummaryReady?: (summary: string, score: number) => void;
+  initialStrengths?: string[];
+  initialRisks?: string[];
+  onSummaryReady?: (summary: string, score: number, strengths: string[], risks: string[]) => void;
 }
 
 function scoreColor(score: number): string {
@@ -23,6 +25,13 @@ function scoreColor(score: number): string {
   if (score >= 60) return "text-yellow-400";
   if (score >= 40) return "text-orange-400";
   return "text-red-400";
+}
+
+function scoreBorder(score: number): string {
+  if (score >= 80) return "border-emerald-400/40";
+  if (score >= 60) return "border-yellow-400/40";
+  if (score >= 40) return "border-orange-400/40";
+  return "border-red-400/40";
 }
 
 function scoreLabel(score: number): string {
@@ -37,10 +46,14 @@ export default function BacktestSummaryCard({
   strategySummary,
   initialSummary,
   initialScore,
+  initialStrengths,
+  initialRisks,
   onSummaryReady,
 }: BacktestSummaryCardProps) {
   const [summary, setSummary] = useState<string>(initialSummary ?? "");
   const [score, setScore] = useState<number | null>(initialScore ?? null);
+  const [strengths, setStrengths] = useState<string[]>(initialStrengths ?? []);
+  const [risks, setRisks] = useState<string[]>(initialRisks ?? []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,6 +62,8 @@ export default function BacktestSummaryCard({
     setError(null);
     setSummary("");
     setScore(null);
+    setStrengths([]);
+    setRisks([]);
 
     try {
       const res = await fetch("/api/backtest/summarize", {
@@ -77,9 +92,11 @@ export default function BacktestSummaryCard({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Unknown error");
       setScore(data.score ?? null);
-      setSummary(data.summary);
+      setSummary(data.summary ?? "");
+      setStrengths(data.strengths ?? []);
+      setRisks(data.risks ?? []);
       if (data.summary && data.score != null) {
-        onSummaryReady?.(data.summary, data.score);
+        onSummaryReady?.(data.summary, data.score, data.strengths ?? [], data.risks ?? []);
       }
     } catch (e: any) {
       setError(e.message ?? "요약 생성에 실패했습니다.");
@@ -89,18 +106,21 @@ export default function BacktestSummaryCard({
   };
 
   useEffect(() => {
-    // 캐시된 결과가 있으면 재연산 생략
+    // 캐시된 결과가 있으면 즉시 표시, 없으면 사용자 클릭 대기 (자동 호출 제거)
     if (initialSummary && initialScore != null) return;
-    fetchSummary();
+    // AI 요약은 모델 로드에 수십 초 소요 → 자동 호출하지 않고 버튼 클릭 시에만 생성
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result.executionId]);
 
+  const hasContent = !loading && !!summary;
+
   return (
-    <div className="h-full rounded-2xl border border-white/5 bg-[#0d0d0d] px-5 py-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-widest text-gray-500">
+    <div className="glass-card h-full px-5 py-4 flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2 text-base font-black uppercase tracking-widest text-white">
           <Sparkle className="w-4 h-4 text-white/30" weight="fill" />
-          AI 결과 요약
+          AI 백테스트 리포트
           <span className="text-[10px] font-mono text-gray-700 normal-case tracking-normal">
             {typeof navigator !== "undefined" && navigator.platform?.toLowerCase().includes("mac")
               ? "mlx · Qwen2.5-32B"
@@ -153,31 +173,86 @@ export default function BacktestSummaryCard({
           </motion.p>
         )}
 
-        {!loading && summary && (
+        {!loading && !error && !hasContent && (
+          <motion.div
+            key="idle"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="flex-1 flex flex-col items-center justify-center gap-3"
+          >
+            <p className="text-xs text-gray-600">AI 리포트가 아직 생성되지 않았습니다.</p>
+            <button
+              onClick={fetchSummary}
+              className="px-4 py-1.5 text-xs font-bold text-white bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 rounded-lg transition-colors"
+            >
+              리포트 생성
+            </button>
+          </motion.div>
+        )}
+
+        {hasContent && (
           <motion.div
             key="result"
             initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.4 }}
-            className="flex gap-5 items-start"
+            className="grid grid-cols-3 gap-4 flex-1"
           >
-            {/* 점수 */}
-            {score !== null && (
-              <div className="flex-none flex flex-col items-center justify-center w-16 pt-0.5">
-                <span className={`text-3xl font-black tabular-nums leading-none ${scoreColor(score)}`}>
-                  {score}
-                </span>
-                <span className="text-[10px] text-gray-600 mt-0.5">/ 100</span>
-                <span className={`text-[10px] font-bold mt-1 ${scoreColor(score)}`}>
-                  {scoreLabel(score)}
-                </span>
+            {/* 총평 */}
+            <div className="flex flex-col gap-2">
+              <p className="text-xs font-bold uppercase tracking-widest text-gray-500">총평</p>
+              <div className="flex items-start gap-2.5">
+                {score !== null && (
+                  <div className={`flex-none flex flex-col items-center justify-center w-10 h-10 rounded-lg border ${scoreBorder(score)}`}>
+                    <span className={`text-base font-black tabular-nums leading-none ${scoreColor(score)}`}>{score}</span>
+                    <span className={`text-[8px] font-bold ${scoreColor(score)}`}>{scoreLabel(score)}</span>
+                  </div>
+                )}
+                <p className="text-xs text-gray-300 leading-relaxed">{summary}</p>
               </div>
-            )}
-            {/* 요약 */}
-            <p className="text-base text-gray-300 leading-relaxed flex-1">
-              {summary}
-            </p>
+            </div>
+
+            {/* 강점 */}
+            <div className="border-l border-white/5 pl-4">
+              <div className="flex items-center gap-1.5 mb-2">
+                <TrendUp className="w-3 h-3 text-emerald-400" weight="bold" />
+                <p className="text-xs font-bold uppercase tracking-widest text-gray-500">강점</p>
+              </div>
+              {strengths.length > 0 ? (
+                <ul className="space-y-1.5">
+                  {strengths.map((s, i) => (
+                    <li key={i} className="flex items-start gap-1.5">
+                      <span className="mt-1.5 w-1 h-1 rounded-full bg-emerald-500/60 flex-none" />
+                      <span className="text-xs text-gray-400 leading-relaxed">{s}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-gray-600">없음</p>
+              )}
+            </div>
+
+            {/* 리스크 */}
+            <div className="border-l border-white/5 pl-4">
+              <div className="flex items-center gap-1.5 mb-2">
+                <Warning className="w-3 h-3 text-orange-400" weight="bold" />
+                <p className="text-xs font-bold uppercase tracking-widest text-gray-500">리스크 및 개선안</p>
+              </div>
+              {risks.length > 0 ? (
+                <ul className="space-y-1.5">
+                  {risks.map((r, i) => (
+                    <li key={i} className="flex items-start gap-1.5">
+                      <span className="mt-1.5 w-1 h-1 rounded-full bg-orange-500/60 flex-none" />
+                      <span className="text-xs text-gray-400 leading-relaxed">{r}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-gray-600">없음</p>
+              )}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

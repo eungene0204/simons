@@ -13,7 +13,7 @@
     "db:studio": "prisma studio",
     "sync-stocks": "ts-node scripts/sync-korea-stocks.ts",
     "sync-data": "python3 scripts/sync_data.py",
-    "dev:backend": "python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload --app-dir backend",
+    "dev:backend": "python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload --reload-dir backend --app-dir backend",
     "dev:scheduler": "python3 scripts/scheduler.py",
     "start-scheduler": "python3 scripts/scheduler.py",
     "test:frontend": "vitest run"

@@ -63,7 +63,7 @@ function VirtualAccountDrawer({
     router.push(`/virtual-account/${accountId}`);
   };
 
-  return (
+return (
     <>
       {/* Drawer */}
       <div

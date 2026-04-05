@@ -12,8 +12,8 @@ import sys
 import json
 import platform
 
-MLX_MODEL = "mlx-community/Qwen2.5-3B-Instruct-4bit"
-OLLAMA_MODEL = "qwen2.5:3b"
+MLX_MODEL = "mlx-community/Qwen2.5-7B-Instruct-4bit"
+OLLAMA_MODEL = "qwen2.5:7b"
 OLLAMA_URL = "http://localhost:11434/api/generate"
 
 
@@ -94,9 +94,9 @@ def build_prompt(payload: dict) -> str:
 
     return (
         "당신은 주식 퀀트 투자 전략 분석가입니다. "
-        "아래 백테스트 결과를 바탕으로 전략을 3~4문장으로 한국어 존댓말로 요약해 주세요. "
-        "반드시 '~습니다', '~입니다', '~됩니다' 등 격식체 존댓말을 사용하세요. 반말은 절대 사용하지 마세요. "
-        "수치를 언급하고, 강점과 약점을 간결하게 평가해 주세요.\n\n"
+        "아래 백테스트 결과를 분석하여 반드시 아래 JSON 형식으로만 출력하세요. "
+        "JSON 외 다른 텍스트는 절대 출력하지 마세요. "
+        "모든 텍스트는 한국어 격식체 존댓말(~습니다, ~입니다)을 사용하세요.\n\n"
         f"{strategy_desc}"
         "백테스트 지표:\n"
         f"- 총 수익률: {fmt(m.get('totalReturn'))}%\n"
@@ -110,8 +110,29 @@ def build_prompt(payload: dict) -> str:
         f"- 총 거래 횟수: {m.get('trades', 'N/A')}\n"
         f"- 연간 변동성: {fmt(m.get('volatility'))}%\n"
         f"- 켈리 기준: {fmt(m.get('kelly'))}%\n\n"
-        "요약:"
+        "출력 형식 (JSON만 출력):\n"
+        "{\n"
+        '  "total_summary": "전략 전체 총평 2~3문장",\n'
+        '  "strengths": ["강점1", "강점2", "강점3"],\n'
+        '  "risks": ["리스크 또는 개선안1", "리스크 또는 개선안2", "리스크 또는 개선안3"]\n'
+        "}"
     )
+
+
+def parse_llm_output(text: str) -> dict:
+    """LLM 출력에서 JSON을 추출한다. 실패 시 전체 텍스트를 total_summary로 사용."""
+    import re
+    # JSON 블록 추출 시도
+    match = re.search(r'\{[\s\S]*\}', text)
+    if match:
+        try:
+            data = json.loads(match.group())
+            if "total_summary" in data:
+                return data
+        except json.JSONDecodeError:
+            pass
+    # 폴백: 텍스트 전체를 총평으로
+    return {"total_summary": text.strip(), "strengths": [], "risks": []}
 
 
 # ── LLM 호출 ────────────────────────────────────────────────────────────────
@@ -177,8 +198,14 @@ def main():
 
     try:
         is_mac = platform.system() == "Darwin"
-        summary = summarize_mlx(prompt) if is_mac else summarize_ollama(prompt)
-        print(json.dumps({"score": score, "summary": summary}, ensure_ascii=False))
+        raw = summarize_mlx(prompt) if is_mac else summarize_ollama(prompt)
+        parsed = parse_llm_output(raw)
+        print(json.dumps({
+            "score": score,
+            "summary": parsed.get("total_summary", ""),
+            "strengths": parsed.get("strengths", []),
+            "risks": parsed.get("risks", []),
+        }, ensure_ascii=False))
     except Exception as e:
         print(json.dumps({"error": str(e)}))
         sys.exit(1)

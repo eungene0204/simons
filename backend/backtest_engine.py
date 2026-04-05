@@ -26,7 +26,7 @@ class BacktestEngine:
         self.signal_engine = SignalEngine()
         self.handler = ResultHandler()
         self.simulator = Simulator()
-        
+
         # Load AI Engine lazily
         self._ai_engine = None
 
@@ -47,6 +47,9 @@ class BacktestEngine:
 
     def run_backtest(self, req: Dict[str, Any]) -> Dict[str, Any]:
         try:
+            import time as _time
+            _t0 = _time.time()
+
             # 1. Parameter Extraction
             self.warnings = set()
             symbols = req.get('symbols') or [req.get('symbol')]
@@ -106,11 +109,52 @@ class BacktestEngine:
             # 비AI 백테스트: 기존 단일 패스 유지
             _phase1_data: dict = {}  # sym → {df_pl, pdf_for_ai}
 
+            # ── Pre-compute period filter strings (once, shared across all symbol threads) ──
+            # KOSPI200 stocks avg 3000+ rows/file vs KOSPI avg 428 rows.
+            # Without pre-filtering, indicator calculation wastes ~67% of work on history
+            # that gets discarded by the period filter afterwards.
+            def _ts_str(ts) -> str:
+                if isinstance(ts, str):
+                    return pd.to_datetime(ts).strftime("%Y-%m-%d")
+                return ts.strftime("%Y-%m-%d")
+
+            _WARMUP_CALENDAR_DAYS = 400  # ≈280 trading days; covers MA-200 warmup
+            _has_period_filter = (period_req != 'FULL') or bool(start_date_req) or bool(end_date_req)
+            _end_str = _ts_str(ref_date)
+            _period_start_str: str | None = None
+            _warmup_start_str: str | None = None
+
+            if _has_period_filter:
+                if start_date_req:
+                    _period_start_dt = pd.to_datetime(start_date_req)
+                elif period_req == '6M':
+                    _period_start_dt = ref_date - pd.DateOffset(months=6)
+                elif period_req == '1Y':
+                    _period_start_dt = ref_date - pd.DateOffset(years=1)
+                elif period_req == '3Y':
+                    _period_start_dt = ref_date - pd.DateOffset(years=3)
+                elif period_req in ['5Y', '10Y', '20Y']:
+                    y = int(period_req[:-1])
+                    _period_start_dt = pd.Timestamp(year=ref_date.year - (y-1), month=1, day=1)
+                else:
+                    _period_start_dt = None
+
+                if _period_start_dt is not None:
+                    _period_start_str = _period_start_dt.strftime("%Y-%m-%d")
+                    _warmup_start_str = (_period_start_dt - pd.DateOffset(days=_WARMUP_CALENDAR_DAYS)).strftime("%Y-%m-%d")
+
             def _process_symbol(sym):
                 try:
                     # 1.1 Load Data
                     df_pl = self.loader.load_symbol_data(sym)
                     if df_pl is None or len(df_pl) == 0:
+                        return None
+
+                    # 3.1.5 Pre-filter: clip to warmup window BEFORE indicator calculation.
+                    # Reduces KOSPI200 from ~3000 rows to ~1400 rows before expensive indicator work.
+                    if _warmup_start_str is not None:
+                        df_pl = df_pl.filter(pl.col("date").cast(pl.Utf8) >= _warmup_start_str)
+                    if len(df_pl) == 0:
                         return None
 
                     # 3.2 Indicators
@@ -133,31 +177,13 @@ class BacktestEngine:
                         }
                         return ("phase1_done", sym)
                     # AI 불필요: 기존 흐름 계속
-                    
-                    # 3.4 Period Filtering
-                    # date 컬럼이 Utf8(문자열) 또는 Date 타입 모두에 대응하기 위해
-                    # 필터 값을 "YYYY-MM-DD" 문자열로 통일하고 컬럼도 Utf8로 캐스팅
-                    def _ts_str(ts) -> str:
-                        if isinstance(ts, str):
-                            return pd.to_datetime(ts).strftime("%Y-%m-%d")
-                        return ts.strftime("%Y-%m-%d")
 
-                    if period_req != 'FULL' or start_date_req or end_date_req:
+                    # 3.4 Period Filtering (strip warmup rows, apply exact period bounds)
+                    if _has_period_filter:
                         date_col = pl.col("date").cast(pl.Utf8)
-                        if start_date_req:
-                            df_pl = df_pl.filter(date_col >= _ts_str(start_date_req))
-                        elif period_req == '6M':
-                            df_pl = df_pl.filter(date_col >= _ts_str(ref_date - pd.DateOffset(months=6)))
-                        elif period_req == '1Y':
-                            df_pl = df_pl.filter(date_col >= _ts_str(ref_date - pd.DateOffset(years=1)))
-                        elif period_req == '3Y':
-                            df_pl = df_pl.filter(date_col >= _ts_str(ref_date - pd.DateOffset(years=3)))
-                        elif period_req in ['5Y', '10Y', '20Y']:
-                            y = int(period_req[:-1])
-                            df_pl = df_pl.filter(date_col >= _ts_str(pd.Timestamp(year=ref_date.year - (y-1), month=1, day=1)))
-
-                        # Fix 2: 두 분기가 동일했던 중복 코드 제거
-                        df_pl = df_pl.filter(date_col <= _ts_str(ref_date))
+                        if _period_start_str is not None:
+                            df_pl = df_pl.filter(date_col >= _period_start_str)
+                        df_pl = df_pl.filter(date_col <= _end_str)
 
                     if len(df_pl) < 1:
                         return None
@@ -237,6 +263,8 @@ class BacktestEngine:
                     processed_symbols.append(sym)
 
             # Phase 1: 병렬 데이터 로드 + 지표 계산
+            _t1 = _time.time()
+            print(f"[BT-ENGINE] Phase1 시작: {len(symbols)}종목, period={period_req}", flush=True)
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_threads) as executor:
                 future_to_sym = {executor.submit(_process_symbol, sym): sym for sym in symbols}
                 for future in concurrent.futures.as_completed(future_to_sym):
@@ -275,25 +303,12 @@ class BacktestEngine:
                             pl.Series("ai_drop_score", list(ai_drop_probs) if not isinstance(ai_drop_probs, list) else ai_drop_probs),
                         ])
 
-                        def _ts_str(ts) -> str:
-                            if isinstance(ts, str):
-                                return pd.to_datetime(ts).strftime("%Y-%m-%d")
-                            return ts.strftime("%Y-%m-%d")
-
-                        if period_req != 'FULL' or start_date_req or end_date_req:
+                        # Use pre-computed period strings (data already warmup-pre-filtered in Phase1)
+                        if _has_period_filter:
                             date_col = pl.col("date").cast(pl.Utf8)
-                            if start_date_req:
-                                df_pl = df_pl.filter(date_col >= _ts_str(start_date_req))
-                            elif period_req == '6M':
-                                df_pl = df_pl.filter(date_col >= _ts_str(ref_date - pd.DateOffset(months=6)))
-                            elif period_req == '1Y':
-                                df_pl = df_pl.filter(date_col >= _ts_str(ref_date - pd.DateOffset(years=1)))
-                            elif period_req == '3Y':
-                                df_pl = df_pl.filter(date_col >= _ts_str(ref_date - pd.DateOffset(years=3)))
-                            elif period_req in ['5Y', '10Y', '20Y']:
-                                y = int(period_req[:-1])
-                                df_pl = df_pl.filter(date_col >= _ts_str(pd.Timestamp(year=ref_date.year - (y - 1), month=1, day=1)))
-                            df_pl = df_pl.filter(date_col <= _ts_str(ref_date))
+                            if _period_start_str is not None:
+                                df_pl = df_pl.filter(date_col >= _period_start_str)
+                            df_pl = df_pl.filter(date_col <= _end_str)
 
                         if len(df_pl) < 1:
                             return None
@@ -388,15 +403,23 @@ class BacktestEngine:
                     logging.getLogger(__name__).warning(f"[BacktestEngine] 랭킹 계산 실패: {e}")
                     rank_df = None
 
+            _t2 = _time.time()
+            print(f"[BT-ENGINE] Phase1 완료: {_t2-_t1:.2f}s ({len(processed_symbols)}종목 처리)", flush=True)
+
             pf = self.simulator.run(price_df, exec_px_df, ents_df, exts_df, risk_params, options, rank_df=rank_df)
-            
+            _t3 = _time.time()
+            print(f"[BT-ENGINE] Simulator 완료: {_t3-_t2:.2f}s", flush=True)
+
             # 5. Format
             final = self.handler.format_results(pf, processed_symbols, all_entries, all_exits, all_entry_reasons, all_exit_reasons, common_index, risk_params, exec_type, init_cash)
-            
+            _t4 = _time.time()
+            print(f"[BT-ENGINE] Format 완료: {_t4-_t3:.2f}s", flush=True)
+            print(f"[BT-ENGINE] 총 소요: {_t4-_t0:.2f}s", flush=True)
+
             # Add no-trades warning
             if pf.trades.count() == 0:
                 self.warnings.add("매매 조건에 부합하는 종목이 없어 매매 기록이 생성되지 않았습니다. 매수 조건을 확인해 주세요.")
-                
+
             final["warnings"] = list(self.warnings) + list(getattr(pf, 'warnings', []))
             return final
 

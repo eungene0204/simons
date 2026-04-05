@@ -94,8 +94,8 @@ def _atr(high, low, close, period=14):
 
 
 def _garman_klass_vol(open_, high, low, close, window=20):
-    log_hl = (np.log(high / (low + 1e-10))) ** 2
-    log_co = (np.log(close / (open_ + 1e-10))) ** 2
+    log_hl = (np.log(high.clip(lower=1e-10) / (low + 1e-10))) ** 2
+    log_co = (np.log(close.clip(lower=1e-10) / (open_ + 1e-10))) ** 2
     gk = 0.5 * log_hl - (2 * np.log(2) - 1) * log_co
     return gk.rolling(window, min_periods=1).mean().apply(np.sqrt)
 
@@ -201,7 +201,7 @@ def _engineer_features_v2(pdf: pd.DataFrame) -> pd.DataFrame:
     pdf['atr_14_norm'] = atr14 / (c + 1e-10)
     pdf['keltner_pos'] = _keltner_position(c, h, l, 20, 2.0)
 
-    log_ret = np.log(c / c.shift(1))
+    log_ret = np.log(c.clip(lower=1e-10) / c.shift(1).clip(lower=1e-10))
     pdf['hist_vol_10'] = log_ret.rolling(10, min_periods=1).std() * np.sqrt(252)
     pdf['hist_vol_20'] = log_ret.rolling(20, min_periods=1).std() * np.sqrt(252)
     pdf['garman_klass'] = _garman_klass_vol(o, h, l, c, 20)

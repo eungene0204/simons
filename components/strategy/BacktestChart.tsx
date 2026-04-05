@@ -19,6 +19,7 @@ export interface EquityDataPoint {
   time: string; // YYYY-MM-DD
   equity: number;
   buyHold?: number;
+  vbtEquity?: number;
 }
 
 export interface DrawdownDataPoint {
@@ -80,6 +81,7 @@ export default function BacktestChart({
   const chartRef = useRef<IChartApi | null>(null);
   const equitySeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const buyHoldSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const vbtEquitySeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const drawdownSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const monthlySeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const seasonalSeriesRefs = useRef<Record<string, ISeriesApi<"Line">>>({});
@@ -104,6 +106,16 @@ export default function BacktestChart({
       .map((item) => ({
         time: dateToTimestamp(item.time),
         value: item.buyHold!,
+      }));
+  }, [equityData]);
+
+  const vbtEquityChartData = useMemo(() => {
+    if (equityData.length === 0) return [];
+    return equityData
+      .filter((item) => item.vbtEquity !== undefined && isFinite(item.vbtEquity!))
+      .map((item) => ({
+        time: dateToTimestamp(item.time),
+        value: item.vbtEquity!,
       }));
   }, [equityData]);
 
@@ -289,6 +301,26 @@ export default function BacktestChart({
             buyHoldSeries.setData(buyHoldChartData);
           }
 
+          // Create VBT equity line series if data exists
+          if (vbtEquityChartData.length > 0) {
+            const vbtSeries = chart.addSeries(LineSeries, {
+              color: "rgb(168, 85, 247)", // purple-500
+              lineWidth: 1,
+              lineStyle: LineStyle.Dashed,
+              lineType: LineType.Curved,
+              priceFormat: {
+                type: "custom",
+                formatter: (price: number) => formatCompactPrice(price),
+                tickmarksFormatter: (priceValues: number[]) => {
+                  return priceValues.map((price) => formatCompactPrice(price));
+                },
+                minMove: 1,
+              },
+            });
+            vbtEquitySeriesRef.current = vbtSeries;
+            vbtSeries.setData(vbtEquityChartData);
+          }
+
           // Set equity data
           if (equityChartData.length > 0) {
             equitySeries.setData(equityChartData);
@@ -435,6 +467,18 @@ export default function BacktestChart({
                   `;
                 }
               }
+              const vbtSeries = vbtEquitySeriesRef.current;
+              if (vbtSeries) {
+                const vbtData = param.seriesData.get(vbtSeries);
+                if (vbtData && "value" in vbtData) {
+                  tooltipContent += `
+                    <div class="text-white text-[10px] flex justify-between gap-4">
+                      <span>VectorBT:</span>
+                      <span class="text-purple-400 font-mono font-bold">${formatCompactPrice(vbtData.value as number)}</span>
+                    </div>
+                  `;
+                }
+              }
             } else if (type === "drawdown") {
               const ddSeries = drawdownSeriesRef.current;
               if (ddSeries) {
@@ -511,6 +555,7 @@ export default function BacktestChart({
       // Clear series refs
       equitySeriesRef.current = null;
       buyHoldSeriesRef.current = null;
+      vbtEquitySeriesRef.current = null;
       drawdownSeriesRef.current = null;
       monthlySeriesRef.current = null;
       seasonalSeriesRefs.current = {};
@@ -527,6 +572,9 @@ export default function BacktestChart({
       }
       if (buyHoldSeriesRef.current && buyHoldChartData.length > 0) {
         buyHoldSeriesRef.current.setData(buyHoldChartData);
+      }
+      if (vbtEquitySeriesRef.current && vbtEquityChartData.length > 0) {
+        vbtEquitySeriesRef.current.setData(vbtEquityChartData);
       }
       if (equityChartData.length > 0 && chartRef.current) {
         chartRef.current.timeScale().fitContent();
@@ -571,7 +619,7 @@ export default function BacktestChart({
         chart.timeScale().fitContent();
       }
     }
-  }, [type, equityChartData, buyHoldChartData, drawdownChartData, monthlyChartData, seasonalChartData]);
+  }, [type, equityChartData, buyHoldChartData, vbtEquityChartData, drawdownChartData, monthlyChartData, seasonalChartData]);
 
   return (
     <div className="w-full relative group" style={{ height: `${height}px` }}>
@@ -587,6 +635,12 @@ export default function BacktestChart({
                <div className="w-2.5 h-2.5 rounded-full bg-main-green" />
                <span className="text-[10px] font-bold text-white">매수후보유</span>
             </div>
+            {vbtEquityChartData.length > 0 && (
+              <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
+                 <div className="w-2.5 h-2.5 rounded-full bg-purple-500" />
+                 <span className="text-[10px] font-bold text-white">VectorBT</span>
+              </div>
+            )}
           </>
         )}
         {type === "monthly_returns" && (
