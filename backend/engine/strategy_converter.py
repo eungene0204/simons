@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import time
 import logging
+import re
 from pathlib import Path
 from typing import List, Optional
 
@@ -22,6 +23,23 @@ logger = logging.getLogger(__name__)
 _STOCKS_PATH = Path(__file__).parent.parent.parent / "data" / "korea-stocks.json"
 _KOSPI200_CACHE_PATH = Path(__file__).parent.parent.parent / "data" / "kospi200-cache.json"
 _CACHE_TTL_SECONDS = 7 * 24 * 3600  # 1주일
+_NAVER_SYMBOL_RE = re.compile(r"code=([0-9A-Z]{6})(?:&|$)")
+# Naver KOSPI200 page may omit recently listed alphanumeric symbols even when they are
+# already treated as K200 constituents by downstream market data vendors.
+_KOSPI200_SUPPLEMENTAL_SYMBOLS = {"0126Z0"}
+
+
+def _extract_naver_symbol(href: str) -> Optional[str]:
+    """네이버 종목 링크에서 6자리 영숫자 코드를 추출한다."""
+    match = _NAVER_SYMBOL_RE.search(href or "")
+    return match.group(1) if match else None
+
+
+def _normalize_kospi200_symbols(symbols: List[str]) -> List[str]:
+    """스크래핑 결과에 누락되기 쉬운 보정 종목을 포함해 정렬 반환한다."""
+    normalized = {symbol for symbol in symbols if symbol}
+    normalized.update(_KOSPI200_SUPPLEMENTAL_SYMBOLS)
+    return sorted(normalized)
 
 
 def _fetch_kospi200_from_naver() -> Optional[List[str]]:
@@ -45,14 +63,14 @@ def _fetch_kospi200_from_naver() -> Optional[List[str]]:
             page_codes = [
                 code for a in links
                 if "code=" in a.get("href", "") and "main.naver" in a["href"]
-                for code in [a["href"].split("code=")[1][:6]]
-                if code.isdigit()  # 6자리 숫자만 허용 (파생상품·채권 등 제외)
+                for code in [_extract_naver_symbol(a["href"])]
+                if code is not None
             ]
             if not page_codes:
                 break
             codes.update(page_codes)
 
-        return sorted(codes) if len(codes) >= 150 else None
+        return _normalize_kospi200_symbols(list(codes)) if len(codes) >= 150 else None
     except Exception as e:
         logger.warning(f"[KOSPI200] 네이버 조회 실패: {e}")
         return None
@@ -66,8 +84,9 @@ def _load_kospi200() -> List[str]:
             cache = json.loads(_KOSPI200_CACHE_PATH.read_text(encoding="utf-8"))
             age = time.time() - cache.get("fetched_at", 0)
             if age < _CACHE_TTL_SECONDS and len(cache.get("symbols", [])) >= 150:
-                logger.info(f"[KOSPI200] 캐시 사용 ({len(cache['symbols'])}종목, {age/3600:.1f}h 전)")
-                return cache["symbols"]
+                symbols = _normalize_kospi200_symbols(cache["symbols"])
+                logger.info(f"[KOSPI200] 캐시 사용 ({len(symbols)}종목, {age/3600:.1f}h 전)")
+                return symbols
         except Exception:
             pass
 
@@ -76,6 +95,7 @@ def _load_kospi200() -> List[str]:
     symbols = _fetch_kospi200_from_naver()
 
     if symbols:
+        symbols = _normalize_kospi200_symbols(symbols)
         _KOSPI200_CACHE_PATH.write_text(
             json.dumps({"fetched_at": time.time(), "symbols": symbols}, ensure_ascii=False),
             encoding="utf-8",

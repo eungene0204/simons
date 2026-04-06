@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import argparse
+import re
 import pandas as pd
 import polars as pl
 import FinanceDataReader as fdr
@@ -45,6 +46,12 @@ KNOWN_STOCKS = {
     "373220": ("LG에너지솔루션", "KOSPI"),
 }
 
+_ALNUM_SYMBOL_RE = re.compile(r"^[0-9A-Z]{6}$")
+
+
+def _is_krx_symbol(symbol: str) -> bool:
+    return bool(_ALNUM_SYMBOL_RE.fullmatch(symbol or ""))
+
 def _fetch_kind_market(market_type: str, market_label: str) -> list[dict]:
     """KRX KIND 상장법인 목록에서 종목 정보를 가져온다.
     market_type: 'stockMkt'(KOSPI) or 'kosdaqMkt'(KOSDAQ)
@@ -66,8 +73,8 @@ def _fetch_kind_market(market_type: str, market_label: str) -> list[dict]:
         industry = str(row.get("업종", "")).strip()
         if not symbol or not name:
             continue
-        # FDR은 6자리 숫자 코드만 지원 — 스팩/리츠 등 영문자 포함 코드 제외
-        if not symbol.isdigit() or len(symbol) != 6:
+        # KIND 원본은 영문 포함 6자리 KRX 코드도 내려주므로 그대로 유지한다.
+        if not _is_krx_symbol(symbol):
             continue
         sector = get_sector_from_industry(symbol, industry, name)
         result.append({

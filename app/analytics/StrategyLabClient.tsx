@@ -126,7 +126,7 @@ export default function StrategyLabClient({ strategies: initial }: { strategies:
       <div className="p-4 md:p-5 lg:p-6 space-y-5 w-full min-w-0">
 
         {/* 헤더 */}
-        <div className="flex items-end justify-between">
+        <div className="flex items-end">
           <div className="space-y-1">
             <div className="flex items-center gap-2.5">
               <ChartLineUp size={20} className="text-sky-400" weight="fill" />
@@ -136,14 +136,6 @@ export default function StrategyLabClient({ strategies: initial }: { strategies:
               투자 전략을 설계하고 백테스트로 검증하세요
             </p>
           </div>
-
-          <button
-            onClick={() => router.push("/analytics/new")}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-black transition-all duration-300 hover:shadow-[0_0_24px_rgba(59,130,246,0.35)]"
-          >
-            <Plus size={14} weight="bold" />
-            새 전략 만들기
-          </button>
         </div>
 
         {/* 전략 목록 */}
