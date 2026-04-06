@@ -207,6 +207,27 @@ describe("POST /api/strategy/save-with-backtest", () => {
     expect(summary.totalReturn).toBe(VALID_BACKTEST_RESULT.totalReturn);
   });
 
+  it("AI 리포트 상세 항목도 summary에 함께 저장됨", async () => {
+    await POST(
+      makeRequest({
+        name: "AI 전략",
+        dsl: VALID_DSL,
+        backtestResult: VALID_BACKTEST_RESULT,
+        aiSummary: "리포트 요약",
+        aiScore: 87,
+        aiStrengths: ["강점 1", "강점 2"],
+        aiRisks: ["리스크 1"],
+      })
+    );
+
+    const createArg = mockBacktestResultCreate.mock.calls[0][0];
+    const summary = JSON.parse(createArg.data.summary);
+    expect(summary.aiSummary).toBe("리포트 요약");
+    expect(summary.aiScore).toBe(87);
+    expect(summary.aiStrengths).toEqual(["강점 1", "강점 2"]);
+    expect(summary.aiRisks).toEqual(["리스크 1"]);
+  });
+
   // ── Prisma 오류 처리 ────────────────────────────────────────────────────────
 
   it("Prisma 오류 발생 시 500 반환", async () => {

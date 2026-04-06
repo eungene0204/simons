@@ -84,6 +84,31 @@ def test_simulator_stop_loss(simulator):
     # With freq='D' and default longonly, the exit is triggered at Day 2.
     assert trades.iloc[0]['Exit Timestamp'] == pf.close.index[2]
 
+def test_simulator_stop_loss_next_open_exits_next_bar(simulator):
+    price, exec_price, entries, exits = create_dummy_data(days=5, symbols=1)
+
+    # Entry executes on Day 1 open. Day 2 close breaks stop, so next_open mode
+    # must exit on Day 3 open rather than the same day's open.
+    price.iloc[:, 0] = [100.0, 120.0, 89.0, 88.0, 87.0]
+    exec_price.iloc[:, 0] = [100.0, 101.0, 102.0, 103.0, 104.0]
+    entries.iloc[1, 0] = True
+
+    risk_params = {
+        "stop_loss_pct": 10.0,
+        "skip_risk_management": False
+    }
+    options = {
+        "execution_type": "next_open",
+        "fee_rate": 0.0,
+        "slippage_rate": 0.0
+    }
+
+    pf = simulator.run(price, exec_price, entries, exits, risk_params, options)
+    trades = pf.trades.records_readable
+
+    assert len(trades) == 1
+    assert trades.iloc[0]["Exit Timestamp"] == pf.close.index[3]
+
 def test_simulator_take_profit(simulator):
     price, exec_price, entries, exits = create_dummy_data(days=5, symbols=1)
     
@@ -211,3 +236,28 @@ def test_simulator_ranking(simulator):
     trades = pf.trades.records_readable
     assert len(trades) == 1
     assert trades.iloc[0]['Column'] == 'SYM2' # Highest rank won
+
+
+def test_simulator_allows_zero_fee_and_slippage(simulator):
+    price, exec_price, entries, exits = create_dummy_data(days=3, symbols=1)
+
+    price.iloc[:, 0] = [100.0, 110.0, 110.0]
+    exec_price.iloc[:, 0] = [100.0, 110.0, 110.0]
+    entries.iloc[0, 0] = True
+    exits.iloc[1, 0] = True
+
+    risk_params = {
+        "position_size_pct": 100,
+        "init_cash": 1000.0,
+        "skip_position_setting": True
+    }
+    options = {
+        "fee_rate": 0.0,
+        "slippage_rate": 0.0,
+        "execution_type": "same_close"
+    }
+
+    pf = simulator.run(price, exec_price, entries, exits, risk_params, options)
+
+    assert pf.trades.count() == 1
+    assert pf.final_value() == pytest.approx(1100.0)

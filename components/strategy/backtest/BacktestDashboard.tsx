@@ -28,6 +28,7 @@ import XAIModal from "./XAIModal";
 import WalkForwardModal, { WalkForwardSettings } from "./WalkForwardModal";
 import MonteCarloPanel from "./MonteCarloPanel";
 import BacktestSummaryCard from "./BacktestSummaryCard";
+import { buildAutoSaveHistoryPayload } from "@/lib/backtest-history";
 
 const processedExecutionIds = new Set<string>();
 
@@ -170,30 +171,7 @@ export default function BacktestDashboard({
     fetch("/api/backtest/history", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        strategyName: strategySummary.strategyName || "이름 없는 전략",
-        universe: strategySummary.universeName,
-        conditions: {
-          entry: { logic: strategySummary.entryLogic || "AND", names: strategySummary.entryBlocks || [] },
-          exit: { logic: strategySummary.exitLogic || "AND", names: strategySummary.exitBlocks || [] },
-          position: strategySummary.positionText,
-          risk: strategySummary.riskText,
-        },
-        metrics: {
-          totalReturn: result.totalReturn || 0,
-          cagr: result.cagr || 0,
-          mdd: result.maxDrawdown || 0,
-          winRate: result.winRate || 0,
-          profitFactor: result.profitFactor || 0,
-          buyHold: result.buyAndHoldReturn || 0,
-          trades: result.trades || 0,
-          executionTime: result.executionTime ?? 0,
-          score: calculateScore(result),
-        },
-        // result는 route.ts(/api/backtest/run)가 저장한 게 source of truth — 재전송 불필요
-        cacheKey: result.cacheKey,
-        isAutoSave: true,
-      }),
+      body: JSON.stringify(buildAutoSaveHistoryPayload(result, strategySummary)),
     }).catch(() => {/* 자동 저장 실패는 무시 */});
   }, [result.executionId]);
 
@@ -298,8 +276,8 @@ export default function BacktestDashboard({
     const Icon = sortConfig.direction === 'asc' ? CaretUp : CaretDown;
     
     return (
-      <div className={`w-3 h-3 transition-opacity ${isActive ? 'opacity-100 text-white' : 'opacity-0 group-hover:opacity-40 text-gray-400'}`}>
-        <Icon className="w-3 h-3" />
+      <div className={`w-3.5 h-3.5 transition-opacity ${isActive ? 'opacity-100 text-white' : 'opacity-0 group-hover:opacity-40 text-gray-400'}`}>
+        <Icon className="w-3.5 h-3.5" />
       </div>
     );
   };
@@ -325,12 +303,15 @@ export default function BacktestDashboard({
       // AI 요약이 아직 없으면 저장 전에 먼저 생성
       let finalSummary = cachedAiSummary;
       let finalScore = cachedAiScore;
+      let finalStrengths = cachedStrengths;
+      let finalRisks = cachedRisks;
       if (!finalSummary) {
         try {
           const sumRes = await fetch("/api/backtest/summarize", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
+              cacheKey: result.cacheKey,
               metrics: {
                 totalReturn: result.totalReturn, cagr: result.cagr,
                 buyAndHoldReturn: result.buyAndHoldReturn, maxDrawdown: result.maxDrawdown,
@@ -347,10 +328,12 @@ export default function BacktestDashboard({
             const sumData = await sumRes.json();
             finalSummary = sumData.summary;
             finalScore = sumData.score;
+            finalStrengths = sumData.strengths ?? [];
+            finalRisks = sumData.risks ?? [];
             setCachedAiSummary(finalSummary);
             setCachedAiScore(finalScore);
-            setCachedStrengths(sumData.strengths ?? []);
-            setCachedRisks(sumData.risks ?? []);
+            setCachedStrengths(finalStrengths);
+            setCachedRisks(finalRisks);
           }
         } catch {
           // AI 요약 실패는 저장 자체를 막지 않음
@@ -367,8 +350,8 @@ export default function BacktestDashboard({
           backtestResult: result,
           aiSummary: finalSummary,
           aiScore: finalScore,
-          aiStrengths: cachedStrengths,
-          aiRisks: cachedRisks,
+          aiStrengths: finalStrengths,
+          aiRisks: finalRisks,
           score: calculateScore(result),
         }),
       });
@@ -402,8 +385,8 @@ export default function BacktestDashboard({
               perAssetStats: result.perAssetStats || {},
               aiSummary: finalSummary ?? null,
               aiScore: finalScore ?? null,
-              aiStrengths: cachedStrengths,
-              aiRisks: cachedRisks,
+              aiStrengths: finalStrengths,
+              aiRisks: finalRisks,
             },
             result,
             cacheKey: result.cacheKey,  // 기존 숨김 레코드를 isVisible=true 로 승격
@@ -443,7 +426,7 @@ export default function BacktestDashboard({
             >
               <div className="flex items-center justify-between mb-5">
                 <div className="flex items-center gap-2.5">
-                  <FloppyDisk size={18} className="text-blue-400" weight="fill" />
+                  <FloppyDisk size={18} className="text-gray-300" weight="fill" />
                   <h3 className="text-base font-black text-white">전략 저장</h3>
                 </div>
                 <button
@@ -496,7 +479,7 @@ export default function BacktestDashboard({
                     onKeyDown={(e) => { if (e.key === "Enter" && saveStrategyName.trim()) handleSaveStrategy(); }}
                     placeholder="전략 이름을 입력하세요"
                     maxLength={50}
-                    className="w-full px-3 py-2.5 bg-[#1a1a1a] border border-white/10 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500/60 transition-colors"
+                    className="w-full px-3 py-2.5 bg-[#1a1a1a] border border-white/10 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:border-white/20 transition-colors"
                     autoFocus
                   />
                 </div>
@@ -508,7 +491,7 @@ export default function BacktestDashboard({
                     placeholder="전략에 대한 간단한 설명"
                     maxLength={200}
                     rows={2}
-                    className="w-full px-3 py-2.5 bg-[#1a1a1a] border border-white/10 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500/60 resize-none transition-colors"
+                    className="w-full px-3 py-2.5 bg-[#1a1a1a] border border-white/10 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:border-white/20 resize-none transition-colors"
                   />
                 </div>
               </div>
@@ -534,7 +517,7 @@ export default function BacktestDashboard({
                 <button
                   onClick={handleSaveStrategy}
                   disabled={!saveStrategyName.trim() || isSavingStrategy}
-                  className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold transition-colors flex items-center justify-center gap-2"
+                  className="flex-1 py-2.5 rounded-xl bg-white text-black hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-bold transition-colors flex items-center justify-center gap-2"
                 >
                   {isSavingStrategy ? (
                     <>
@@ -599,12 +582,19 @@ export default function BacktestDashboard({
             {onWalkForward && (
               <button
                 onClick={() => setIsWFAOpen(true)}
-                className="px-4 py-1.5 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 text-sm font-bold rounded-lg transition-all border border-purple-500/30 hover:border-purple-500/50 active:scale-95 flex items-center gap-1.5"
+                className="px-4 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] text-gray-200 text-sm font-bold rounded-lg transition-colors border border-white/10 hover:border-white/15 active:scale-95 flex items-center gap-1.5"
               >
                 <ChartBar className="w-4 h-4" />
                 워크포워드
               </button>
             )}
+            <button
+              onClick={onRestart}
+              className="px-4 py-1.5 bg-white/[0.05] hover:bg-white/10 text-gray-300 hover:text-white text-sm font-bold rounded-lg transition-all border border-white/5 hover:border-white/10 active:scale-95 flex items-center gap-2"
+            >
+              <ArrowsClockwise className="w-4 h-4" />
+              새 전략
+            </button>
             <button
               onClick={() => onRun && localOptions && onRun(localOptions)}
               disabled={isRunning}
@@ -615,7 +605,7 @@ export default function BacktestDashboard({
             <button
               onClick={handleOpenSaveModal}
               disabled={isRunning}
-              className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-bold rounded-lg transition-all flex items-center gap-2 active:scale-95"
+              className="px-4 py-1.5 bg-white text-black hover:bg-gray-100 disabled:opacity-50 text-sm font-bold rounded-lg transition-colors flex items-center gap-2 active:scale-95"
             >
               <FloppyDisk className="w-4 h-4" />
               전략 저장
@@ -624,39 +614,37 @@ export default function BacktestDashboard({
         </div>
       </div>
 
-      {/* AI Summary + Hero Metrics side by side */}
-      <div className="flex gap-3 mb-4 items-stretch">
-        <div className="flex-[6] min-w-0">
-          <BacktestSummaryCard
-            result={result}
-            strategySummary={strategySummary}
-            initialSummary={cachedAiSummary}
-            initialScore={cachedAiScore}
-            initialStrengths={cachedStrengths}
-            initialRisks={cachedRisks}
-            onSummaryReady={(s, sc, st, ri) => {
-              setCachedAiSummary(s);
-              setCachedAiScore(sc);
-              setCachedStrengths(st);
-              setCachedRisks(ri);
-              // AI 리포트 생성 완료 시 DB에 저장 → 같은 전략 재실행 시 재생성 불필요
-              if (result.cacheKey) {
-                fetch("/api/backtest/ai-report", {
-                  method: "PATCH",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    cacheKey: result.cacheKey,
-                    aiSummary: s,
-                    aiScore: sc,
-                    aiStrengths: st,
-                    aiRisks: ri,
-                  }),
-                }).catch(() => {/* 저장 실패는 무시 */});
-              }
-            }}
-          />
-        </div>
-        <div className="flex-[4] grid grid-cols-2 gap-2 content-start">
+      {/* AI Summary + Hero Metrics */}
+      <div className="mb-4 space-y-3">
+        <BacktestSummaryCard
+          result={result}
+          strategySummary={strategySummary}
+          initialSummary={cachedAiSummary}
+          initialScore={cachedAiScore}
+          initialStrengths={cachedStrengths}
+          initialRisks={cachedRisks}
+          onSummaryReady={(s, sc, st, ri) => {
+            setCachedAiSummary(s);
+            setCachedAiScore(sc);
+            setCachedStrengths(st);
+            setCachedRisks(ri);
+            // AI 리포트 생성 완료 시 DB에 저장 → 같은 전략 재실행 시 재생성 불필요
+            if (result.cacheKey) {
+              fetch("/api/backtest/ai-report", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  cacheKey: result.cacheKey,
+                  aiSummary: s,
+                  aiScore: sc,
+                  aiStrengths: st,
+                  aiRisks: ri,
+                }),
+              }).catch(() => {/* 저장 실패는 무시 */});
+            }
+          }}
+        />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
           <MetricCard
             label="연평균수익률"
             value={`${result.cagr.toFixed(2)}%`}
@@ -697,7 +685,7 @@ export default function BacktestDashboard({
       {result.vbtResult && (
         <div className="mb-4 glass-card p-4">
           <div className="flex items-center gap-2 mb-3">
-            <ArrowsClockwise className="w-4 h-4 text-purple-400" />
+            <ArrowsClockwise className="w-4 h-4 text-gray-400" />
             <h4 className="text-base font-black uppercase tracking-widest text-white">엔진 비교</h4>
             <span className="text-[10px] text-gray-500 font-bold ml-1">자체 엔진 vs VectorBT 네이티브</span>
           </div>
@@ -713,7 +701,7 @@ export default function BacktestDashboard({
                   </th>
                   <th className="py-2 px-3 text-[10px] font-bold text-gray-500 uppercase tracking-widest text-right">
                     <span className="inline-flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-purple-500 inline-block" />VectorBT
+                      <span className="w-2 h-2 rounded-full bg-white/40 inline-block" />VectorBT
                     </span>
                   </th>
                   <th className="py-2 px-3 text-[10px] font-bold text-gray-500 uppercase tracking-widest text-right">차이</th>
@@ -736,7 +724,7 @@ export default function BacktestDashboard({
                   // For MDD and volatility, lower is better, so positive diff means VBT is worse
                   const isVbtBetter = row.invertDiff ? diff < -0.01 : diff > 0.01;
                   const isVbtWorse = row.invertDiff ? diff > 0.01 : diff < -0.01;
-                  const diffColor = isVbtBetter ? "text-purple-400" : isVbtWorse ? "text-gray-500" : "text-gray-600";
+                  const diffColor = isVbtBetter ? "text-white" : isVbtWorse ? "text-gray-500" : "text-gray-600";
 
                   return (
                     <tr key={row.label} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
@@ -748,8 +736,8 @@ export default function BacktestDashboard({
                         {row.fmt(row.ours)}
                       </td>
                       <td className={`py-2 px-3 text-sm font-black text-right font-mono ${
-                        row.label === "MDD" || row.label === "변동성" ? "text-purple-300" :
-                        row.vbt >= 0 ? "text-purple-300" : "text-purple-300/60"
+                        row.label === "MDD" || row.label === "변동성" ? "text-gray-200" :
+                        row.vbt >= 0 ? "text-gray-200" : "text-gray-500"
                       }`}>
                         {row.fmt(row.vbt)}
                       </td>
@@ -769,19 +757,18 @@ export default function BacktestDashboard({
       )}
 
       {/* 2. Main Content Area - Exact Mirror of Step 2 Pattern */}
-      <div className="glass-card flex flex-col overflow-hidden mb-2 min-h-0 min-w-0">
+      <div className="flex flex-col overflow-hidden mb-2 min-h-0 min-w-0">
 
         {/* Tab Content */}
         <div className="flex flex-col min-h-0 min-w-0 p-0 relative">
            
            {/* Chart View */}
             {activeTab === "chart" && (
-              <div className="flex flex-col px-2 pt-2 pb-3 gap-3">
+              <div className="flex flex-col pt-2 pb-3 gap-3">
                 {/* Equity Curve — full width */}
-                <div className="flex flex-col">
-                  <div className="flex items-center gap-2 px-1 pb-1.5">
-                    <TrendUp className="w-3.5 h-3.5 text-gray-500" />
-                    <span className="text-xs font-bold uppercase tracking-widest text-gray-500">자산 곡선 (Equity Curve)</span>
+                <div className="glass-card flex flex-col p-3">
+                  <div className="px-1 pb-2">
+                    <span className="text-sm font-black tracking-wide text-gray-400">자산 차트</span>
                   </div>
                   <div className="bg-[#0a0a0f] rounded-xl overflow-hidden relative">
                     <BacktestChart
@@ -807,11 +794,11 @@ export default function BacktestDashboard({
                       {[
                         { label: "총 수익", value: formatKRW(result.finalEquity - result.initialCapital), color: result.finalEquity >= result.initialCapital ? "text-main-red" : "text-main-blue" },
                         { label: "총 수익률", value: `${result.totalReturn >= 0 ? "+" : ""}${(result.totalReturn || 0).toFixed(2)}%`, color: result.totalReturn >= 0 ? "text-main-red" : "text-main-blue" },
-                        { label: "승률", value: `${result.winRate.toFixed(1)}%`, color: result.winRate >= 55 ? "text-emerald-400" : result.winRate >= 50 ? "text-yellow-400" : "text-red-400" },
+                        { label: "승률", value: `${(result.winRate || 0).toFixed(1)}%`, color: (result.winRate || 0) >= 55 ? "text-emerald-400" : (result.winRate || 0) >= 50 ? "text-yellow-400" : "text-red-400" },
                         { label: "총 거래 수", value: `${result.trades}회`, color: "text-gray-200" },
                       ].map((stat) => (
                         <div key={stat.label}>
-                          <p className="text-xs text-gray-600 mb-1">{stat.label}</p>
+                          <p className="text-xs text-gray-400 mb-1">{stat.label}</p>
                           <p className={`text-xl font-black tabular-nums ${stat.color}`}>{stat.value}</p>
                         </div>
                       ))}
@@ -834,9 +821,9 @@ export default function BacktestDashboard({
                    <table className="w-full text-left border-collapse">
                       <thead className="bg-[var(--card-bg)]">
                          <tr className="border-b border-white/[0.05]">
-                            <th className="p-4 text-[10px] font-bold text-gray-600 uppercase tracking-widest">종목</th>
-                            <th className="p-4 text-[10px] font-bold text-gray-600 uppercase tracking-widest">섹터</th>
-                             <th className="p-4 text-[10px] font-bold text-gray-600 uppercase tracking-widest text-right">
+                            <th className="p-4 text-xs font-bold text-gray-500 uppercase tracking-[0.18em]">종목</th>
+                            <th className="p-4 text-xs font-bold text-gray-500 uppercase tracking-[0.18em]">섹터</th>
+                             <th className="p-4 text-xs font-bold text-gray-500 uppercase tracking-[0.18em] text-right">
                                 <div
                                   className="inline-flex items-center justify-end gap-1 cursor-pointer transition-colors group"
                                   onClick={() => handleSort('profit')}
@@ -844,7 +831,7 @@ export default function BacktestDashboard({
                                    수익금 <SortIcon column="profit" />
                                 </div>
                              </th>
-                             <th className="p-4 text-[10px] font-bold text-gray-600 uppercase tracking-widest text-right">
+                             <th className="p-4 text-xs font-bold text-gray-500 uppercase tracking-[0.18em] text-right">
                                 <div
                                   className="inline-flex items-center justify-end gap-1 cursor-pointer transition-colors group"
                                   onClick={() => handleSort('totalReturn')}
@@ -852,7 +839,7 @@ export default function BacktestDashboard({
                                    수익률 <SortIcon column="totalReturn" />
                                 </div>
                              </th>
-                             <th className="p-4 text-[10px] font-bold text-gray-600 uppercase tracking-widest text-right">
+                             <th className="p-4 text-xs font-bold text-gray-500 uppercase tracking-[0.18em] text-right">
                                 <div
                                   className="inline-flex items-center justify-end gap-1 cursor-pointer transition-colors group"
                                   onClick={() => handleSort('trades')}
@@ -923,7 +910,7 @@ export default function BacktestDashboard({
                        );
                      })()}
                    </h4>
-                   <div className="h-[350px] md:h-[500px] xl:h-[600px] bg-[#0a0a0f] rounded-xl overflow-hidden relative border border-gray-800/50">
+                   <div className="h-[280px] md:h-[360px] xl:h-[420px] bg-[#0a0a0f] rounded-xl overflow-hidden relative border border-gray-800/50">
                       <BacktestChart
                         type="seasonal_returns"
                         seasonalData={(() => {
@@ -987,14 +974,14 @@ export default function BacktestDashboard({
                     <table className="w-full text-left border-collapse">
                       <thead className="bg-[var(--card-bg)] sticky top-0 z-10">
                          <tr className="border-b border-white/[0.05]">
-                            <th className="p-3 text-[10px] font-bold text-gray-600 uppercase tracking-widest">날짜</th>
-                            <th className="p-3 text-[10px] font-bold text-gray-600 uppercase tracking-widest">종목</th>
-                            <th className="p-3 text-[10px] font-bold text-gray-600 uppercase tracking-widest">구분</th>
-                            <th className="p-3 text-[10px] font-bold text-gray-600 uppercase tracking-widest">체결가</th>
-                             <th className="p-3 text-[10px] font-bold text-gray-600 uppercase tracking-widest">수량</th>
-                             <th className="p-3 text-[10px] font-bold text-gray-600 uppercase tracking-widest text-center">AI 분석</th>
-                             <th className="p-3 text-[10px] font-bold text-gray-600 uppercase tracking-widest">매매사유</th>
-                             <th className="p-3 text-[10px] font-bold text-gray-600 uppercase tracking-widest text-right">거래금액</th>
+                            <th className="p-3 text-xs font-bold text-gray-500 uppercase tracking-[0.18em]">날짜</th>
+                            <th className="p-3 text-xs font-bold text-gray-500 uppercase tracking-[0.18em]">종목</th>
+                            <th className="p-3 text-xs font-bold text-gray-500 uppercase tracking-[0.18em]">구분</th>
+                            <th className="p-3 text-xs font-bold text-gray-500 uppercase tracking-[0.18em]">체결가</th>
+                             <th className="p-3 text-xs font-bold text-gray-500 uppercase tracking-[0.18em]">수량</th>
+                             <th className="p-3 text-xs font-bold text-gray-500 uppercase tracking-[0.18em] text-center">AI 분석</th>
+                             <th className="p-3 text-xs font-bold text-gray-500 uppercase tracking-[0.18em]">매매사유</th>
+                             <th className="p-3 text-xs font-bold text-gray-500 uppercase tracking-[0.18em] text-right">거래금액</th>
                          </tr>
                       </thead>
                       <tbody>
@@ -1199,7 +1186,7 @@ function BacktestTerminalLog({
   return (
     <div className={`glass-card overflow-hidden flex flex-col ${fill ? "flex-1 min-h-0" : "mx-2 mb-2"}`}>
       <div className="px-4 py-3 border-b border-white/[0.05] flex-none">
-        <p className="text-xs font-black uppercase tracking-widest text-white">백테스트 알림</p>
+        <p className="text-base font-black uppercase tracking-widest text-white">백테스트 알림</p>
       </div>
       <div className={`px-4 py-3 space-y-1 overflow-y-auto custom-scrollbar font-mono text-xs ${fill ? "flex-1 min-h-0" : "max-h-64"}`}>
         {logs.map((log, i) => (
@@ -1325,4 +1312,3 @@ function StatItem({
       </div>
    );
 }
-

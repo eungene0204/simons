@@ -78,6 +78,8 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
         warnings: summary.warnings ?? [],
         aiSummary: summary.aiSummary ?? null,
         aiScore: summary.aiScore ?? null,
+        aiStrengths: summary.aiStrengths ?? [],
+        aiRisks: summary.aiRisks ?? [],
       };
     }
 

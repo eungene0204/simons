@@ -40,6 +40,11 @@ export async function POST(request: Request) {
     if (cacheKey) {
       const existing = await prisma.backtestHistory.findUnique({ where: { cacheKey } });
       if (existing) {
+        const nextResult =
+          isAutoSave
+            ? existing.result ?? (result ? JSON.stringify(result) : existing.result)
+            : (result ? JSON.stringify(result) : existing.result);
+
         const updated = await prisma.backtestHistory.update({
           where: { cacheKey },
           data: {
@@ -48,8 +53,8 @@ export async function POST(request: Request) {
             universe,
             conditions: JSON.stringify(conditions),
             metrics: JSON.stringify(metrics),
-            // isAutoSave: route.ts가 저장한 result가 source of truth — 덮어쓰지 않음
-            result: isAutoSave ? existing.result : (result ? JSON.stringify(result) : existing.result),
+            // 자동 저장이어도 기존 상세 결과가 비어 있으면 전달된 result로 보완한다.
+            result: nextResult,
             isVisible: true,
           },
         });
@@ -84,7 +89,8 @@ export async function DELETE(request: Request) {
     if (id) {
       await prisma.backtestHistory.delete({ where: { id } });
     } else {
-      await prisma.backtestHistory.deleteMany({ where: { isVisible: true } });
+      // "전체 삭제"는 목록 노출 여부와 무관하게 DB의 백테스트 기록을 모두 제거한다.
+      await prisma.backtestHistory.deleteMany();
     }
     return NextResponse.json({ success: true });
   } catch (error) {

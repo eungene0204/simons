@@ -289,7 +289,7 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
 
             {/* Footer Info */}
             <div className="px-6 py-3 bg-[#161616] border-t border-white/5">
-               <div className="flex items-start gap-3 bg-blue-500/5 p-3 rounded-xl border border-blue-500/10">
+               <div className="flex items-start gap-3 bg-white/[0.03] p-3 rounded-xl border border-white/10">
                   <Info className="w-5 h-5 text-main-blue mt-0.5 flex-none" />
                   <p className="text-xs text-gray-400 leading-relaxed font-medium">
                     <span className="text-main-blue font-black mr-1">분석 안내:</span>

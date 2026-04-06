@@ -8,11 +8,11 @@ from backtest_engine import BacktestEngine
 
 @pytest.fixture
 def engine():
-    return BacktestEngine(data_dir="tests/data")
+    return BacktestEngine(data_dir="backend/tests/data")
 
 @pytest.fixture
 def reference_data():
-    path = "tests/tradingview_reference.json"
+    path = "backend/tests/tradingview_reference.json"
     with open(path, 'r') as f:
         return json.load(f)
 
@@ -42,7 +42,8 @@ def test_trade_signals_and_execution(engine, reference_data):
             "conditions": [{"id": "price", "params": {"value": 50, "operator": ">"}}]
         },
         "exit": {"logic": "AND", "conditions": []},
-        "risk": {"position_size_pct": 100, "liquidity_multiplier": 0} 
+        "risk": {"position_size_pct": 100, "liquidity_multiplier": 0},
+        "period": "FULL",
     }
     
     result = engine.run_backtest(req)
@@ -62,7 +63,8 @@ def test_performance_metrics(engine, reference_data):
             "conditions": [{"id": "rsi", "params": {"period": 14, "value": 110, "operator": "<"}}]
         },
         "exit": {"logic": "AND", "conditions": []},
-        "risk": {"position_size_pct": 100, "liquidity_multiplier": 0}
+        "risk": {"position_size_pct": 100, "liquidity_multiplier": 0},
+        "period": "FULL",
     }
     
     result = engine.run_backtest(req)
@@ -94,7 +96,8 @@ def test_configurable_options(engine):
             "fee_rate": 0.0,
             "slippage_rate": 0.0
         },
-        "risk": {"position_size_pct": 100, "liquidity_multiplier": 0}
+        "risk": {"position_size_pct": 100, "liquidity_multiplier": 0},
+        "period": "FULL",
     }
     
     result = engine.run_backtest(req)
@@ -126,7 +129,8 @@ def test_liquidity_filter(engine):
             "position_size_pct": 100, 
             "init_cash": 10000000.0,
             "liquidity_multiplier": 10.0
-        }
+        },
+        "period": "FULL",
     }
     
     result = engine.run_backtest(req)

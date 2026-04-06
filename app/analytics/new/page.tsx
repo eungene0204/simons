@@ -289,7 +289,7 @@ function StrategyLabContent() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetch("http://localhost:8000/model/status")
+    fetch("/api/model/status")
       .then((r) => r.json())
       .then(setModelStatus)
       .catch(() => setModelStatus({ status: "failed", error: "서버에 연결할 수 없습니다" }));
@@ -374,7 +374,7 @@ function StrategyLabContent() {
     ]);
 
     try {
-      const res = await fetch("http://localhost:8000/strategy/parse", {
+      const res = await fetch("/api/strategy/parse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -436,7 +436,7 @@ function StrategyLabContent() {
     setStatusMessage("백테스트 준비 중...");
 
     try {
-      const res = await fetch("http://localhost:8000/strategy/backtest-stream", {
+      const res = await fetch("/api/strategy/backtest-stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(effectiveReq),
@@ -554,20 +554,6 @@ function StrategyLabContent() {
     return (
       <DashboardLayout userName="">
         <div className="h-full flex flex-col">
-          <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.05]">
-            <div className="flex items-center gap-3">
-              <ChartLineUp size={16} className="text-sky-400" weight="fill" />
-              <span className="text-sm font-black text-white">전략 만들기</span>
-              <span className="text-xs font-bold text-gray-500 truncate max-w-xs">"{latestParsed?.description}"</span>
-            </div>
-            <button
-              onClick={handleReset}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/[0.05] hover:bg-white/10 transition-all duration-200 text-xs font-bold text-gray-400 hover:text-white"
-            >
-              <ArrowsClockwise size={14} />
-              새 전략
-            </button>
-          </div>
           <div className="flex-1 overflow-auto">
             <BacktestDashboard
               result={result}

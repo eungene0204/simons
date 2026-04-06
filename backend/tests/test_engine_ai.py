@@ -122,12 +122,13 @@ def test_predict_signals_feature_prep(mock_engine):
     # Get the features passed to it
     args, kwargs = mock_engine.scaler.transform.call_args
     passed_features = args[0]
-    
-    # passed_features should have shape (6, 6) -> (ret_open, ret_high, ret_low, ret_close, ret_volume, rsi_14)
-    assert passed_features.shape == (6, 17)
-    
+
+    # AIEngine currently uses the v2 feature set.
+    assert passed_features.shape == (6, 45)
+    assert list(passed_features.columns[:5]) == ["ret_open", "ret_high", "ret_low", "ret_close", "ret_volume"]
+
     # Check row 1 (index 1) ret_open = log(1.1)
     # Note: row 0 pct_change() is NaN which is filled with 0.
-    assert np.isclose(passed_features[1, 0], np.log1p(0.1)) 
+    assert np.isclose(passed_features.iloc[1, 0], np.log1p(0.1))
     # Check row 1 ret_volume = log(1.5)
-    assert np.isclose(passed_features[1, 4], np.log1p(0.5))
+    assert np.isclose(passed_features.iloc[1, 4], np.log1p(0.5))

@@ -28,12 +28,16 @@ class VectorBTNativeEngine:
         risk_params: Dict[str, Any],
         options: Dict[str, Any],
     ) -> vbt.Portfolio:
-        init_cash = float(risk_params.get('init_cash') or 10_000_000.0)
-        pos_size_pct = float(risk_params.get('position_size_pct') or 100.0)
+        init_cash_raw = risk_params.get('init_cash')
+        pos_size_raw = risk_params.get('position_size_pct')
+        init_cash = float(init_cash_raw) if init_cash_raw is not None else 10_000_000.0
+        pos_size_pct = float(pos_size_raw) if pos_size_raw is not None else 100.0
         max_pos = risk_params.get('max_positions')
 
-        fee_rate = float(options.get('fee_rate') or 0.0015)
-        slippage_val = float(options.get('slippage_rate') or 0.0020)
+        fee_rate_raw = options.get('fee_rate')
+        slippage_raw = options.get('slippage_rate')
+        fee_rate = float(fee_rate_raw) if fee_rate_raw is not None else 0.0015
+        slippage_val = float(slippage_raw) if slippage_raw is not None else 0.0020
 
         skip_pos = risk_params.get('skip_position_setting', False)
 

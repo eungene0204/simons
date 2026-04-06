@@ -198,9 +198,9 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                   <button
                     key={p.id}
                     onClick={() => handlePeriodChange(p.id)}
-                    className={`py-2 rounded-lg text-xs font-bold transition-all border ${
+                    className={`py-2 rounded-lg text-xs font-bold transition-colors border ${
                       period === p.id
-                        ? "bg-main-blue border-main-blue text-white shadow-[0_0_10px_rgba(59,134,247,0.2)]"
+                        ? "bg-white/10 border-white/15 text-white"
                         : "bg-[#111] border-white/5 text-[#a0a0a0] hover:bg-white/5 hover:text-white"
                     }`}
                   >
@@ -408,7 +408,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                   <div className="flex flex-wrap gap-2">
                     {summary.blockNames.length > 0 ? (
                       summary.blockNames.map((name, idx) => (
-                        <span key={idx} className="px-3.5 py-1.5 border-2 border-purple-500/30 bg-purple-500/10 text-purple-400 text-sm font-black rounded-lg">
+                        <span key={idx} className="px-3.5 py-1.5 border border-white/10 bg-white/[0.04] text-gray-200 text-sm font-black rounded-lg">
                           {name}
                         </span>
                       ))
@@ -550,7 +550,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
             <button
               onClick={handleRun}
               disabled={isRunning}
-              className="w-full relative overflow-hidden group py-4 px-8 bg-main-blue hover:bg-blue-500 text-white rounded-xl text-base font-black transition-all flex items-center justify-center gap-3 shadow-[0_0_20px_rgba(59,134,247,0.3)] hover:shadow-[0_0_30px_rgba(59,134,247,0.5)] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full py-4 px-8 bg-white text-black hover:bg-gray-100 rounded-xl text-base font-black transition-colors flex items-center justify-center gap-3 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isRunning ? (
                 <>

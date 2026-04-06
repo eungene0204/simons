@@ -3,6 +3,7 @@ AI 코드 14가지 버그 수정 회귀 방지 테스트
 각 번호는 AI 코드 리뷰 리포트의 이슈 번호와 대응.
 """
 import os
+import sys
 import inspect
 import pytest
 import numpy as np
@@ -177,6 +178,71 @@ class TestIssue4_5_XaiEngineFallback:
         required_features = ['ret_obv', 'dist_sma_20', 'boll_pos']
         for feat in required_features:
             assert feat in source, f"Missing feature '{feat}' in ai_engine.py feature engineering"
+
+    def test_lfs_pointer_processed_parquet_falls_back_to_raw_ohlcv(self, tmp_path):
+        """processed parquet가 Git LFS 포인터여도 raw OHLCV parquet로 fallback 해야 한다."""
+        backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        if backend_dir not in sys.path:
+            sys.path.insert(0, backend_dir)
+
+        from ai.xai_engine import _load_symbol_dataframe
+
+        model_dir = tmp_path / "model"
+        raw_dir = tmp_path / "data" / "ohlcv"
+        model_dir.mkdir(parents=True)
+        raw_dir.mkdir(parents=True)
+
+        processed_path = model_dir / "training_data_processed.parquet"
+        processed_path.write_text(
+            "version https://git-lfs.github.com/spec/v1\n"
+            "oid sha256:test\n"
+            "size 123\n",
+            encoding="utf-8",
+        )
+
+        raw_df = pd.DataFrame({
+            "date": ["2024-01-01", "2024-01-02"],
+            "open": [100, 101],
+            "high": [102, 103],
+            "low": [99, 100],
+            "close": [101, 102],
+            "volume": [1000, 1200],
+        })
+        raw_path = raw_dir / "005930.parquet"
+        raw_df.to_parquet(raw_path, index=False)
+
+        engine = MagicMock()
+        engine.model_dir = str(model_dir)
+
+        cwd = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            loaded = _load_symbol_dataframe(engine, "005930")
+        finally:
+            os.chdir(cwd)
+
+        pd.testing.assert_frame_equal(loaded.reset_index(drop=True), raw_df)
+
+    def test_xai_retries_on_cpu_when_mps_runtime_fails(self):
+        """XAI는 MPS를 우선 사용하되 MPS 런타임 오류 시 CPU fallback 해야 한다."""
+        backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        if backend_dir not in sys.path:
+            sys.path.insert(0, backend_dir)
+
+        import torch
+        from ai.xai_engine import _move_engine_to_cpu, _should_retry_on_cpu
+
+        engine = MagicMock()
+        engine.device = torch.device("mps")
+        engine.transformer = MagicMock()
+        engine.transformer.to.return_value = engine.transformer
+
+        err = RuntimeError("MPSNDArray init failed assertion: NDArray dimension length > INT_MAX")
+
+        assert _should_retry_on_cpu(engine, err) is True
+        _move_engine_to_cpu(engine)
+        assert engine.device.type == "cpu"
+        engine.transformer.to.assert_called_once()
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -344,6 +344,10 @@ class NLStrategyParser:
         self._diff_generator_7b = None
         self._generator_32b = None
         self._diff_generator_32b = None
+        self._mlx_model_7b = None
+        self._tokenizer_7b = None
+        self._mlx_model_32b = None
+        self._tokenizer_32b = None
 
     # ── Lazy init ────────────────────────────────────────────────────────────
 
@@ -375,6 +379,8 @@ class NLStrategyParser:
 
         print(f"[NLParser] 7B 모델 로딩: {self.model_7b} ...", flush=True)
         mlx_model, tokenizer = mlx_lm.load(self.model_7b)
+        self._mlx_model_7b = mlx_model
+        self._tokenizer_7b = tokenizer
         self._outlines_model_7b = models.from_mlxlm(mlx_model, tokenizer)
         self._generator_7b = outlines.Generator(self._outlines_model_7b, ParsedStrategy)
         self._diff_generator_7b = outlines.Generator(self._outlines_model_7b, ParsedStrategyDiff)
@@ -393,6 +399,8 @@ class NLStrategyParser:
 
         print(f"[NLParser] 32B 모델 로딩: {self.model_32b} ...", flush=True)
         mlx_model, tokenizer = mlx_lm.load(self.model_32b)
+        self._mlx_model_32b = mlx_model
+        self._tokenizer_32b = tokenizer
         self._outlines_model_32b = models.from_mlxlm(mlx_model, tokenizer)
         self._generator_32b = outlines.Generator(self._outlines_model_32b, ParsedStrategy)
         self._diff_generator_32b = outlines.Generator(self._outlines_model_32b, ParsedStrategyDiff)
