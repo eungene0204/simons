@@ -6,7 +6,7 @@ import { inferStrategyType } from "@/lib/strategy-type";
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { name, description, dsl, backtestResult, aiSummary, aiScore, score } = body;
+    const { name, description, dsl, backtestResult, aiSummary, aiScore, aiStrengths, aiRisks, score } = body;
 
     if (!name?.trim()) {
       return NextResponse.json({ error: "전략 이름을 입력해주세요." }, { status: 400 });
@@ -66,6 +66,8 @@ export async function POST(request: Request) {
           executionTime: backtestResult.executionTime,
           aiSummary: aiSummary ?? null,
           aiScore: aiScore ?? null,
+          aiStrengths: aiStrengths ?? [],
+          aiRisks: aiRisks ?? [],
         };
 
         backtestRecord = await tx.backtestResult.create({

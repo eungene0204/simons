@@ -1,5 +1,6 @@
 import requests
 import json
+import pytest
 
 def test_api_isolation():
     url = "http://localhost:8000/backtest"
@@ -32,7 +33,10 @@ def test_api_isolation():
     }
     
     print("Sending request to API...")
-    response = requests.post(url, json=payload)
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+    except requests.RequestException as e:
+        pytest.skip(f"Local API server unavailable in test environment: {e}")
     if response.status_code != 200:
         print(f"FAILED: {response.status_code} - {response.text}")
         return

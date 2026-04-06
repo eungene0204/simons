@@ -10,30 +10,65 @@ import logging
 
 warnings.filterwarnings('ignore')
 logger = logging.getLogger(__name__)
+MAX_SHAP_BACKGROUND_SAMPLES = 50
 
 from ai.ai_engine import AIEngine, _engineer_features_v2, _augment_embeddings
 
 
-def run_xai(symbol, target_date_str):
-    engine = AIEngine()
+def _move_engine_to_cpu(engine):
+    if getattr(engine, "device", None) is None or engine.device.type == "cpu":
+        return engine
+    logger.warning("Retrying XAI execution on CPU after accelerator runtime failure")
+    engine.device = torch.device("cpu")
+    engine.transformer = engine.transformer.to(engine.device)
+    return engine
 
-    # Load data
-    try:
-        processed_path = os.path.join(engine.model_dir, 'training_data_processed.parquet')
+
+def _should_retry_on_cpu(engine, error):
+    if getattr(engine, "device", None) is None or engine.device.type != "mps":
+        return False
+
+    msg = str(error)
+    retry_markers = [
+        "MetalPerformanceShaders",
+        "MPSNDArray",
+        "NDArray dimension length > INT_MAX",
+        "mps",
+    ]
+    lowered = msg.lower()
+    return any(marker in msg for marker in retry_markers[:-1]) or retry_markers[-1] in lowered
+
+
+def _load_symbol_dataframe(engine, symbol):
+    sym_df = pd.DataFrame()
+    processed_candidates = [
+        os.path.join(engine.model_dir, 'training_data_processed.parquet'),
+        "model/training_data_processed.parquet",
+    ]
+
+    for processed_path in processed_candidates:
         if not os.path.exists(processed_path):
-            processed_path = "model/training_data_processed.parquet"
-        df = pd.read_parquet(processed_path)
-        sym_df = df[df['symbol'] == symbol].copy()
-    except (FileNotFoundError, OSError) as e:
-        logger.warning(f"Could not load training_data_processed.parquet: {e}")
-        sym_df = pd.DataFrame()
+            continue
 
-    if sym_df.empty:
-        raw_path = f"data/ohlcv/{symbol}.parquet"
-        if not os.path.exists(raw_path):
-            return {"error": f"Symbol '{symbol}' not found in any dataset"}
-        sym_df = pd.read_parquet(raw_path)
+        try:
+            df = pd.read_parquet(processed_path)
+            sym_df = df[df['symbol'] == symbol].copy()
+            if not sym_df.empty:
+                return sym_df
+        except Exception as e:
+            logger.warning(f"Could not load processed parquet at {processed_path}: {e}")
 
+    raw_path = f"data/ohlcv/{symbol}.parquet"
+    if not os.path.exists(raw_path):
+        raise FileNotFoundError(f"Symbol '{symbol}' not found in any dataset")
+
+    try:
+        return pd.read_parquet(raw_path)
+    except Exception as e:
+        raise RuntimeError(f"Failed to load raw OHLCV parquet for '{symbol}': {e}") from e
+
+
+def _run_xai_with_engine(engine, sym_df, symbol, target_date_str):
     sym_df['date'] = pd.to_datetime(sym_df['date'])
     sym_df.columns = [c.lower() for c in sym_df.columns]
     sym_df = sym_df.sort_values('date')
@@ -96,6 +131,8 @@ def run_xai(symbol, target_date_str):
         return {"error": "Missing SHAP background dataset"}
 
     background = np.load(bg_path)
+    if background.shape[0] > MAX_SHAP_BACKGROUND_SAMPLES:
+        background = background[:MAX_SHAP_BACKGROUND_SAMPLES]
     background_2d = background.reshape(background.shape[0], -1)
     single_2d = scaled_data.reshape(1, -1)
 
@@ -138,6 +175,31 @@ def run_xai(symbol, target_date_str):
         "feature_importance_absolute": feature_importance_absolute,
         "features": features_to_use
     }
+
+
+def run_xai(symbol, target_date_str):
+    engine = AIEngine()
+    if os.environ.get("XAI_FORCE_CPU") == "1":
+        _move_engine_to_cpu(engine)
+
+    # Load data
+    try:
+        sym_df = _load_symbol_dataframe(engine, symbol)
+    except FileNotFoundError as e:
+        return {"error": str(e)}
+    except RuntimeError as e:
+        return {"error": str(e)}
+
+    try:
+        return _run_xai_with_engine(engine, sym_df.copy(), symbol, target_date_str)
+    except Exception as e:
+        if _should_retry_on_cpu(engine, e):
+            try:
+                _move_engine_to_cpu(engine)
+                return _run_xai_with_engine(engine, sym_df.copy(), symbol, target_date_str)
+            except Exception as retry_error:
+                return {"error": str(retry_error)}
+        return {"error": str(e)}
 
 
 if __name__ == "__main__":

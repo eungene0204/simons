@@ -17,6 +17,7 @@ class SignalEngine:
             return np.zeros(data_len, dtype=bool), [None] * data_len
 
         data_len = len(df)
+        logic = str(group.get('logic', 'OR')).upper()
         filters = [c for c in group['conditions'] if c.get('type') == 'filter']
         signals = [c for c in group['conditions'] if c.get('type') != 'filter']
 
@@ -24,11 +25,16 @@ class SignalEngine:
         sig_arrays = [self._eval_vec(cond, df) for cond in signals]
         fil_arrays = [self._eval_vec(cond, df) for cond in filters]
 
-        # Signal: OR 결합
+        # Signal: group.logic에 따라 AND / OR 결합
         if sig_arrays:
-            sig_result = np.zeros(data_len, dtype=bool)
-            for arr in sig_arrays:
-                sig_result |= arr
+            if logic == 'AND':
+                sig_result = np.ones(data_len, dtype=bool)
+                for arr in sig_arrays:
+                    sig_result &= arr
+            else:
+                sig_result = np.zeros(data_len, dtype=bool)
+                for arr in sig_arrays:
+                    sig_result |= arr
         else:
             # 필터만 존재하는 경우 전체 통과로 처리
             sig_result = np.ones(data_len, dtype=bool) if filters else np.zeros(data_len, dtype=bool)
@@ -49,7 +55,8 @@ class SignalEngine:
             for i in true_indices:
                 active_sig = [d for d, arr in zip(sig_descs, sig_arrays) if arr[i] and d]
                 active_fil = [d for d, arr in zip(fil_descs, fil_arrays) if arr[i] and d]
-                sig_part = " 또는 ".join(active_sig)
+                sig_joiner = " + " if logic == 'AND' else " 또는 "
+                sig_part = sig_joiner.join(active_sig)
                 fil_part = " + ".join(active_fil)
                 if sig_part and fil_part:
                     reasons[i] = f"({sig_part}) + {fil_part}"
@@ -298,19 +305,31 @@ class SignalEngine:
         if not group.get('conditions'):
             return False, None
 
+        logic = str(group.get('logic', 'OR')).upper()
         filters = [c for c in group['conditions'] if c.get('type') == 'filter']
         signals = [c for c in group['conditions'] if c.get('type') != 'filter']
 
-        sig_res = True if (not signals and filters) else False
+        if not signals and filters:
+            sig_res = True
+        else:
+            sig_res = True if logic == 'AND' else False
         sig_desc = None
 
         for cond in signals:
             res = self.evaluate_condition(cond, idx, df)
-            if res:
-                sig_res = True
-                desc = self.get_condition_description(cond)
-                if desc:
-                    sig_desc = f"{sig_desc} 또는 {desc}" if sig_desc else desc
+            if logic == 'AND':
+                if not res:
+                    sig_res = False
+                elif sig_res:
+                    desc = self.get_condition_description(cond)
+                    if desc:
+                        sig_desc = f"{sig_desc} + {desc}" if sig_desc else desc
+            else:
+                if res:
+                    sig_res = True
+                    desc = self.get_condition_description(cond)
+                    if desc:
+                        sig_desc = f"{sig_desc} 또는 {desc}" if sig_desc else desc
 
         fil_res = True
         fil_desc = None

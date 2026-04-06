@@ -19,6 +19,7 @@ from datetime import datetime
 import uvicorn
 import time
 import asyncio
+import threading
 import numpy as np
 
 app = FastAPI()
@@ -772,6 +773,7 @@ class NLParseResponse(BaseModel):
 
 _nl_parsers: dict = {}  # backend → NLStrategyParser (lazy singleton)
 _nl_parser_status: dict = {"status": "loading", "error": None}  # "ok" | "failed" | "loading"
+_mlx_inference_lock = threading.Lock()
 
 # NL parse 결과 캐시: 동일 프롬프트 재파싱 방지 (LLM inference 14s → 0s)
 import hashlib as _hashlib
@@ -816,6 +818,8 @@ def preload_nl_parser():
         parser = NLStrategyParser(backend="mlx")
         parser._init_mlx()  # 모델 로딩 (최초 1회)
         _nl_parsers["mlx"] = parser
+        _summarize_model["model"] = parser._mlx_model_7b
+        _summarize_model["tokenizer"] = parser._tokenizer_7b
         _nl_parser_status["status"] = "ok"
         _nl_parser_status["error"] = None
         print("[startup] NL 파서 7B 모델 로딩 완료 (32B는 첫 수정 요청 시 lazy 로드)", flush=True)
@@ -823,6 +827,44 @@ def preload_nl_parser():
         _nl_parser_status["status"] = "failed"
         _nl_parser_status["error"] = str(e)
         print(f"[startup] NL 파서 로딩 실패 (무시됨): {e}", flush=True)
+
+
+def _ensure_summarize_model_loaded():
+    """요약용 Qwen MLX 모델을 프로세스 시작 시 1회 로드한다."""
+    import platform
+
+    if platform.system() != "Darwin":
+        return
+
+    if _summarize_model["model"] is not None:
+        return
+
+    shared_parser = _nl_parsers.get("mlx")
+    if shared_parser is not None:
+        shared_parser._init_mlx()
+        if shared_parser._mlx_model_7b is not None and shared_parser._tokenizer_7b is not None:
+            _summarize_model["model"] = shared_parser._mlx_model_7b
+            _summarize_model["tokenizer"] = shared_parser._tokenizer_7b
+            print("[startup] Summarize Qwen 7B 모델이 NL 파서 모델을 공유합니다", flush=True)
+            return
+
+    from mlx_lm import load  # type: ignore
+
+    print("[startup] Summarize Qwen 7B 모델 최초 로드 중...", flush=True)
+    m, t = load("mlx-community/Qwen2.5-7B-Instruct-4bit")
+    _summarize_model["model"] = m
+    _summarize_model["tokenizer"] = t
+    print("[startup] Summarize Qwen 7B 모델 로드 완료", flush=True)
+
+
+@app.on_event("startup")
+def preload_summarize_model():
+    """서버 시작 시 AI 요약용 Qwen 모델도 미리 로드한다."""
+    try:
+        with _mlx_inference_lock:
+            _ensure_summarize_model_loaded()
+    except Exception as e:
+        print(f"[startup] Summarize 모델 로딩 실패 (무시됨): {e}", flush=True)
 
 
 @app.get("/model/status")
@@ -857,11 +899,19 @@ def parse_nl_strategy(request: NLParseRequest):
             _nl_parsers[backend] = NLStrategyParser(**kwargs)
 
         parser = _nl_parsers[backend]
-        if request.previous_parsed:
-            print(f"[NL-PARSE] 수정 모드 (diff)", flush=True)
-            parsed = parser.parse_modification(request.prompt, request.previous_parsed)
+        if backend == "mlx":
+            with _mlx_inference_lock:
+                if request.previous_parsed:
+                    print(f"[NL-PARSE] 수정 모드 (diff)", flush=True)
+                    parsed = parser.parse_modification(request.prompt, request.previous_parsed)
+                else:
+                    parsed = parser.parse(request.prompt)
         else:
-            parsed = parser.parse(request.prompt)
+            if request.previous_parsed:
+                print(f"[NL-PARSE] 수정 모드 (diff)", flush=True)
+                parsed = parser.parse_modification(request.prompt, request.previous_parsed)
+            else:
+                parsed = parser.parse(request.prompt)
         backtest_req = to_backtest_request(parsed)
 
         from engine.nl_parser import validate_parsed_strategy
@@ -987,7 +1037,7 @@ _summarize_model = {"model": None, "tokenizer": None}
 @app.post("/summarize")
 def summarize_backtest(req: SummarizeRequest):
     """백테스트 결과를 AI로 요약. 모델을 프로세스 내에서 재사용 → 로드 시간 제거."""
-    from ai.summarize import calculate_score, build_prompt, parse_llm_output
+    from ai.summarize import calculate_score, build_prompt, parse_llm_output, normalize_report_items
     import platform
 
     score = calculate_score(req.metrics)
@@ -997,26 +1047,24 @@ def summarize_backtest(req: SummarizeRequest):
         is_mac = platform.system() == "Darwin"
         if is_mac:
             import os
-            from mlx_lm import load, generate  # type: ignore
+            from mlx_lm import generate  # type: ignore
             os.environ["HF_HUB_OFFLINE"] = "1"
 
-            if _summarize_model["model"] is None:
-                print("[SUMMARIZE] MLX 7B 모델 최초 로드 중...", flush=True)
-                m, t = load("mlx-community/Qwen2.5-7B-Instruct-4bit")
-                _summarize_model["model"] = m
-                _summarize_model["tokenizer"] = t
-                print("[SUMMARIZE] 모델 로드 완료", flush=True)
+            with _mlx_inference_lock:
+                _ensure_summarize_model_loaded()
 
-            tokenizer = _summarize_model["tokenizer"]
-            if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template:
-                formatted = tokenizer.apply_chat_template(
-                    [{"role": "user", "content": prompt}],
-                    tokenize=False, add_generation_prompt=True,
-                )
-            else:
-                formatted = prompt
+                tokenizer = _summarize_model["tokenizer"]
+                if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template:
+                    formatted = tokenizer.apply_chat_template(
+                        [{"role": "user", "content": prompt}],
+                        tokenize=False, add_generation_prompt=True,
+                    )
+                else:
+                    formatted = prompt
 
-            raw = generate(_summarize_model["model"], tokenizer, prompt=formatted, max_tokens=600, verbose=False).strip()
+                raw = generate(
+                    _summarize_model["model"], tokenizer, prompt=formatted, max_tokens=600, verbose=False
+                ).strip()
         else:
             from ai.summarize import summarize_ollama
             raw = summarize_ollama(prompt)
@@ -1025,8 +1073,8 @@ def summarize_backtest(req: SummarizeRequest):
         return {
             "score": score,
             "summary": parsed.get("total_summary", ""),
-            "strengths": parsed.get("strengths", []),
-            "risks": parsed.get("risks", []),
+            "strengths": normalize_report_items(parsed.get("strengths", [])),
+            "risks": normalize_report_items(parsed.get("risks", [])),
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Summarize error: {repr(e)}")

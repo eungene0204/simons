@@ -18,8 +18,10 @@ class Simulator:
         entries_df = entries_df.copy()
         exits_df = exits_df.copy()
 
-        init_cash = float(risk_params.get('init_cash') or 10000000.0)
-        pos_size_pct = float(risk_params.get('position_size_pct') or 100.0)
+        init_cash_raw = risk_params.get('init_cash')
+        pos_size_raw = risk_params.get('position_size_pct')
+        init_cash = float(init_cash_raw) if init_cash_raw is not None else 10000000.0
+        pos_size_pct = float(pos_size_raw) if pos_size_raw is not None else 100.0
         max_pos = risk_params.get('max_positions')
 
         sl_pct = float(risk_params.get('stop_loss_pct') or 0)
@@ -27,8 +29,11 @@ class Simulator:
         ts_pct = float(risk_params.get('trailing_stop_pct') or 0)  # Fix 1
         max_hold = int(risk_params.get('max_holding_days') or 0)
 
-        fee_rate = float(options.get('fee_rate') or 0.0015)
-        slippage_val = float(options.get('slippage_rate') or 0.0020)
+        fee_rate_raw = options.get('fee_rate')
+        slippage_raw = options.get('slippage_rate')
+        fee_rate = float(fee_rate_raw) if fee_rate_raw is not None else 0.0015
+        slippage_val = float(slippage_raw) if slippage_raw is not None else 0.0020
+        exec_type = options.get('execution_type', 'same_close')
 
         skip_pos = risk_params.get('skip_position_setting', False)
         use_risk_mgmt = not risk_params.get('skip_risk_management', False)
@@ -112,7 +117,10 @@ class Simulator:
                             should_exit |= active_mask & ~should_exit & (drawdown <= (-ts_pct + EPS))
 
                     if should_exit.any():
-                        exits_values[i] |= should_exit
+                        if exec_type == 'next_open' and i + 1 < len(entries_df):
+                            exits_values[i + 1] |= should_exit
+                        else:
+                            exits_values[i] |= should_exit
 
                 # Step 3: Process new entries after exits freed slots
                 candidate_indices = np.where(entries_values[i] & ~active_mask)[0]

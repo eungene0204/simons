@@ -8,8 +8,6 @@ import {
   Clock,
   Trash,
   X,
-  CaretUp,
-  CaretDown,
 } from "phosphor-react";
 
 type SortField = 'timestamp' | 'totalReturn' | 'cagr' | 'mdd' | 'profitFactor' | 'trades' | 'score';
@@ -17,26 +15,14 @@ type SortField = 'timestamp' | 'totalReturn' | 'cagr' | 'mdd' | 'profitFactor' |
 function HistoryMetric({
   label,
   value,
-  trend,
-  colorOverride,
 }: {
   label: string;
   value: string;
-  trend?: "up" | "down";
-  colorOverride?: string;
 }) {
-  const dynamicColor = colorOverride
-    ? colorOverride
-    : trend === "up"
-    ? "text-main-red"
-    : trend === "down"
-    ? "text-main-blue"
-    : "text-white";
-
   return (
     <div className="flex flex-col">
       <span className="text-xs text-gray-500 font-bold uppercase tracking-wider mb-1">{label}</span>
-      <span className={`text-sm font-black ${dynamicColor}`}>{value}</span>
+      <span className="text-sm font-black text-white">{value}</span>
     </div>
   );
 }
@@ -119,7 +105,7 @@ export default function BacktestHistoryPage() {
           {history.length > 0 && (
             <button
               onClick={handleClearAll}
-              className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 text-xs font-bold rounded-lg border border-red-500/20 transition-all"
+              className="flex items-center gap-2 px-3 py-1.5 bg-transparent text-red-500 text-xs font-bold rounded-lg border border-red-500/30 transition-colors"
             >
               <Trash className="w-4 h-4" />
               기록 전체 삭제
@@ -130,7 +116,6 @@ export default function BacktestHistoryPage() {
         {/* Sort buttons */}
         {history.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 mb-4">
-            <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">정렬:</span>
             {([
               { field: "timestamp", label: "날짜" },
               { field: "score", label: "점수" },
@@ -152,24 +137,13 @@ export default function BacktestHistoryPage() {
                       setSortDir("desc");
                     }
                   }}
-                  className={`flex items-center justify-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all ${
+                  className={`flex items-center justify-center px-2.5 py-1 rounded-md text-xs font-bold border transition-colors ${
                     isActive
-                      ? "bg-main-blue/15 text-main-blue border-main-blue/30"
-                      : "bg-white/5 text-gray-400 border-white/10 hover:border-white/20 hover:text-white"
+                      ? "bg-white/10 text-white border-white/15"
+                      : "bg-white/5 text-gray-400 border-white/10 hover:border-white/15 hover:text-white"
                   }`}
                 >
                   {label}
-                  {isActive ? (
-                    sortDir === "desc" ? (
-                      <CaretDown className="w-3 h-3" />
-                    ) : (
-                      <CaretUp className="w-3 h-3" />
-                    )
-                  ) : (
-                    <span className="w-3 h-3 opacity-0">
-                      <CaretDown className="w-3 h-3" />
-                    </span>
-                  )}
                 </button>
               );
             })}
@@ -191,98 +165,71 @@ export default function BacktestHistoryPage() {
               >
                 <div className="flex items-start justify-between mb-4">
                   <div>
-                    <div className="flex items-center gap-3 mb-1.5">
+                    <div className="mb-2">
                       <span className="text-base font-black text-white">{item.strategyName}</span>
-                      <span className="px-2.5 py-1 bg-main-blue/10 text-main-blue text-xs font-black rounded uppercase tracking-wider border border-main-blue/20">
-                        {item.universe}
-                      </span>
                     </div>
-                    <div className="flex flex-wrap items-center gap-y-2 gap-x-4">
-                      {/* Entry Blocks */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center min-h-7 px-2.5 rounded-md border border-main-blue/30 bg-white/[0.03] text-[11px] whitespace-nowrap">
+                        <span className="font-black text-gray-500 mr-1">유니버스</span>
+                        <span className="font-bold text-gray-100">{item.universe}</span>
+                      </span>
+
                       {(() => {
                         const conds = item.conditions as any;
                         const entry =
                           conds?.entry ||
                           (Array.isArray(item.conditions)
                             ? { logic: "AND", names: item.conditions }
-                            : { logic: conds.logic || "AND", names: conds.names || [] });
-                        const isEntryAnd = String(entry.logic).trim().toUpperCase() === "AND";
+                            : { logic: conds?.logic || "AND", names: conds?.names || [] });
                         const names = entry.names || [];
                         if (names.length === 0) return null;
-                        return (
-                          <div className="flex items-center">
-                            {names.map((name: string, idx: number) => (
-                              <div key={`entry-${idx}`} className="flex items-center">
-                                {idx > 0 && isEntryAnd && <div className="w-5 h-[1.5px] bg-red-500/40" />}
-                                {idx > 0 && !isEntryAnd && <div className="w-4" />}
-                                <span
-                                  className={`px-2.5 py-1 ${
-                                    !isEntryAnd
-                                      ? "bg-red-500/5 text-red-400/80 border-red-500/20"
-                                      : "bg-red-500/10 text-red-500 border-red-500/10"
-                                  } text-[10px] font-bold rounded-md border whitespace-nowrap`}
-                                >
-                                  {name}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        );
+
+                        return names.map((name: string, idx: number) => (
+                          <span
+                            key={`entry-${idx}`}
+                            className="inline-flex items-center min-h-7 px-2.5 rounded-md border border-main-blue/30 bg-white/[0.03] text-[11px] whitespace-nowrap"
+                          >
+                            <span className="font-black text-gray-500 mr-1">진입 신호</span>
+                            <span className="font-bold text-gray-100">{name}</span>
+                          </span>
+                        ));
                       })()}
 
-                      {/* Divider */}
-                      {(item.conditions as any).entry?.names?.length > 0 &&
-                        (item.conditions as any).exit?.names?.length > 0 && (
-                          <div className="w-6" />
-                        )}
-
-                      {/* Exit Blocks */}
                       {(() => {
                         const conds = item.conditions as any;
                         if (!conds?.exit || (conds.exit.names || []).length === 0) return null;
-                        const exit = conds.exit;
-                        const isExitAnd = String(exit.logic).trim().toUpperCase() === "AND";
-                        const names = exit.names || [];
+                        const names = conds.exit.names || [];
+
+                        return names.map((name: string, idx: number) => (
+                          <span
+                            key={`exit-${idx}`}
+                            className="inline-flex items-center min-h-7 px-2.5 rounded-md border border-main-blue/30 bg-white/[0.03] text-[11px] whitespace-nowrap"
+                          >
+                            <span className="font-black text-gray-500 mr-1">청산 신호</span>
+                            <span className="font-bold text-gray-100">{name}</span>
+                          </span>
+                        ));
+                      })()}
+
+                      {(() => {
+                        const conds = item.conditions as any;
+                        if (!conds?.position) return null;
                         return (
-                          <div className="flex items-center">
-                            {names.map((name: string, idx: number) => (
-                              <div key={`exit-${idx}`} className="flex items-center">
-                                {idx > 0 && isExitAnd && <div className="w-5 h-[1.5px] bg-blue-500/40" />}
-                                {idx > 0 && !isExitAnd && <div className="w-4" />}
-                                <span
-                                  className={`px-2.5 py-1 ${
-                                    !isExitAnd
-                                      ? "bg-blue-500/5 text-blue-400/80 border-blue-500/20"
-                                      : "bg-blue-500/10 text-blue-500 border-blue-500/10"
-                                  } text-[10px] font-bold rounded-md border whitespace-nowrap`}
-                                >
-                                  {name}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
+                          <span className="inline-flex items-center min-h-7 px-2.5 rounded-md border border-main-blue/30 bg-white/[0.03] text-[11px] whitespace-nowrap">
+                            <span className="font-black text-gray-500 mr-1">포지션/비중</span>
+                            <span className="font-bold text-gray-100">{conds.position}</span>
+                          </span>
                         );
                       })()}
 
-                      {/* Position and Risk */}
                       {(() => {
                         const conds = item.conditions as any;
-                        if (!conds?.position && !conds?.risk) return null;
+                        if (!conds?.risk) return null;
                         return (
-                          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 mt-1 sm:mt-0">
-                            {conds.position && (
-                              <div className="flex items-center gap-1.5 bg-gray-800/30 px-2 py-1 rounded text-[10px] border border-gray-700/50">
-                                <span className="text-gray-500 font-bold">포지션/비중</span>
-                                <span className="text-gray-300">{conds.position}</span>
-                              </div>
-                            )}
-                            {conds.risk && (
-                              <div className="flex items-center gap-1.5 bg-gray-800/30 px-2 py-1 rounded text-[10px] border border-gray-700/50">
-                                <span className="text-gray-500 font-bold">리스크 관리</span>
-                                <span className="text-gray-300">{conds.risk}</span>
-                              </div>
-                            )}
-                          </div>
+                          <span className="inline-flex items-center min-h-7 px-2.5 rounded-md border border-main-blue/30 bg-white/[0.03] text-[11px] whitespace-nowrap">
+                            <span className="font-black text-gray-500 mr-1">리스크 관리</span>
+                            <span className="font-bold text-gray-100">{conds.risk}</span>
+                          </span>
                         );
                       })()}
                     </div>
@@ -290,7 +237,7 @@ export default function BacktestHistoryPage() {
                   <div className="flex flex-col items-end gap-2">
                     <button
                       onClick={(e) => handleDeleteItem(item.id, e)}
-                      className="p-1.5 text-gray-600 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                      className="p-1.5 text-red-500 border border-red-500/30 bg-transparent rounded-lg transition-all opacity-0 group-hover:opacity-100"
                       title="기록 삭제"
                     >
                       <X className="w-4 h-4" />
@@ -302,23 +249,17 @@ export default function BacktestHistoryPage() {
                 </div>
 
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
-                  <HistoryMetric label="총 수익률" value={`${item.metrics.totalReturn.toFixed(1)}%`} trend={item.metrics.totalReturn > 0 ? "up" : "down"} />
-                  <HistoryMetric label="CAGR" value={`${item.metrics.cagr.toFixed(1)}%`} trend={item.metrics.cagr > 0 ? "up" : "down"} />
-                  <HistoryMetric label="MDD" value={`${item.metrics.mdd.toFixed(1)}%`} trend="down" />
+                  <HistoryMetric label="총 수익률" value={`${item.metrics.totalReturn.toFixed(1)}%`} />
+                  <HistoryMetric label="CAGR" value={`${item.metrics.cagr.toFixed(1)}%`} />
+                  <HistoryMetric label="MDD" value={`${item.metrics.mdd.toFixed(1)}%`} />
                   <HistoryMetric label="손익비" value={item.metrics.profitFactor.toFixed(2)} />
-                  <HistoryMetric label="매수후보유" value={`${item.metrics.buyHold.toFixed(1)}%`} colorOverride="text-main-green" />
+                  <HistoryMetric label="매수후보유" value={`${item.metrics.buyHold.toFixed(1)}%`} />
                   <HistoryMetric label="매매횟수" value={`${item.metrics.trades}회`} />
                   <HistoryMetric label="소요시간" value={item.metrics.executionTime !== undefined ? `${item.metrics.executionTime.toFixed(2)}초` : "-"} />
                   {item.metrics.score != null && (
                     <HistoryMetric
                       label="점수"
                       value={`${item.metrics.score} / 100`}
-                      colorOverride={
-                        item.metrics.score >= 80 ? "text-emerald-400"
-                        : item.metrics.score >= 60 ? "text-yellow-400"
-                        : item.metrics.score >= 40 ? "text-orange-400"
-                        : "text-red-400"
-                      }
                     />
                   )}
                 </div>

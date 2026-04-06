@@ -176,6 +176,10 @@ export interface BacktestResult {
   cachedAt?: string;
   cacheKey?: string;
   vbtResult?: VBTNativeResult;
+  aiSummary?: string | null;
+  aiScore?: number | null;
+  aiStrengths?: string[];
+  aiRisks?: string[];
 }
 
 
