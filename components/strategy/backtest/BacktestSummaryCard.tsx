@@ -70,6 +70,7 @@ export default function BacktestSummaryCard({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          cacheKey: result.cacheKey,
           metrics: {
             totalReturn: result.totalReturn,
             cagr: result.cagr,
@@ -106,9 +107,10 @@ export default function BacktestSummaryCard({
   };
 
   useEffect(() => {
-    // 캐시된 결과가 있으면 즉시 표시, 없으면 사용자 클릭 대기 (자동 호출 제거)
+    // 캐시된 결과가 있으면 즉시 표시
     if (initialSummary && initialScore != null) return;
-    // AI 요약은 모델 로드에 수십 초 소요 → 자동 호출하지 않고 버튼 클릭 시에만 생성
+    // 백테스트 완료 시 자동 생성 (모델 싱글턴으로 재로드 없음)
+    fetchSummary();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result.executionId]);
 
@@ -201,56 +203,56 @@ export default function BacktestSummaryCard({
             className="grid grid-cols-3 gap-4 flex-1"
           >
             {/* 총평 */}
-            <div className="flex flex-col gap-2">
-              <p className="text-xs font-bold uppercase tracking-widest text-gray-500">총평</p>
+            <div className="flex flex-col gap-2.5">
+              <p className="text-base font-black tracking-wide text-white/85">총평</p>
               <div className="flex items-start gap-2.5">
                 {score !== null && (
-                  <div className={`flex-none flex flex-col items-center justify-center w-10 h-10 rounded-lg border ${scoreBorder(score)}`}>
-                    <span className={`text-base font-black tabular-nums leading-none ${scoreColor(score)}`}>{score}</span>
+                  <div className={`flex-none flex flex-col items-center justify-center w-16 h-16 rounded-xl border ${scoreBorder(score)}`}>
+                    <span className={`text-2xl font-black tabular-nums leading-none ${scoreColor(score)}`}>{score}점</span>
                     <span className={`text-[8px] font-bold ${scoreColor(score)}`}>{scoreLabel(score)}</span>
                   </div>
                 )}
-                <p className="text-xs text-gray-300 leading-relaxed">{summary}</p>
+                <p className="text-sm text-gray-300 leading-relaxed">{summary}</p>
               </div>
             </div>
 
             {/* 강점 */}
             <div className="border-l border-white/5 pl-4">
-              <div className="flex items-center gap-1.5 mb-2">
+              <div className="flex items-center gap-1.5 mb-2.5">
                 <TrendUp className="w-3 h-3 text-emerald-400" weight="bold" />
-                <p className="text-xs font-bold uppercase tracking-widest text-gray-500">강점</p>
+                <p className="text-base font-black tracking-wide text-white/85">강점</p>
               </div>
               {strengths.length > 0 ? (
                 <ul className="space-y-1.5">
                   {strengths.map((s, i) => (
                     <li key={i} className="flex items-start gap-1.5">
                       <span className="mt-1.5 w-1 h-1 rounded-full bg-emerald-500/60 flex-none" />
-                      <span className="text-xs text-gray-400 leading-relaxed">{s}</span>
+                      <span className="text-sm text-gray-400 leading-relaxed">{s}</span>
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p className="text-xs text-gray-600">없음</p>
+                <p className="text-sm text-gray-600">없음</p>
               )}
             </div>
 
             {/* 리스크 */}
             <div className="border-l border-white/5 pl-4">
-              <div className="flex items-center gap-1.5 mb-2">
+              <div className="flex items-center gap-1.5 mb-2.5">
                 <Warning className="w-3 h-3 text-orange-400" weight="bold" />
-                <p className="text-xs font-bold uppercase tracking-widest text-gray-500">리스크 및 개선안</p>
+                <p className="text-base font-black tracking-wide text-white/85">리스크 및 개선안</p>
               </div>
               {risks.length > 0 ? (
                 <ul className="space-y-1.5">
                   {risks.map((r, i) => (
                     <li key={i} className="flex items-start gap-1.5">
                       <span className="mt-1.5 w-1 h-1 rounded-full bg-orange-500/60 flex-none" />
-                      <span className="text-xs text-gray-400 leading-relaxed">{r}</span>
+                      <span className="text-sm text-gray-400 leading-relaxed">{r}</span>
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p className="text-xs text-gray-600">없음</p>
+                <p className="text-sm text-gray-600">없음</p>
               )}
             </div>
           </motion.div>

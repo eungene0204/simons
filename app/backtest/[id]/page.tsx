@@ -81,11 +81,7 @@ export default function BacktestDetailPage() {
 
   const conds = item.conditions as any;
 
-  const universeBadgeClass =
-    item.universe?.includes("KOSPI200") ? "bg-indigo-500/15 text-indigo-400" :
-    item.universe?.includes("KOSPI") ? "bg-sky-500/15 text-sky-400" :
-    item.universe?.includes("KOSDAQ") ? "bg-purple-500/15 text-purple-400" :
-    "bg-emerald-500/15 text-emerald-400";
+  const universeBadgeClass = "bg-white/[0.04] text-gray-200 border border-white/10";
 
   return (
     <DashboardLayout>

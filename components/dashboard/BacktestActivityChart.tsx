@@ -4,7 +4,7 @@ import { useState } from "react";
 import type { DashboardBacktestRecord } from "@/types/dashboard";
 
 interface DayBar {
-  date: string;      // "MM/DD"
+  date: string;
   count: number;
 }
 
@@ -32,7 +32,6 @@ export default function BacktestActivityChart({ initialRecords }: { initialRecor
 
   const maxCount = Math.max(...bars.map((b) => b.count), 1);
 
-  // 가장 높은 값의 인덱스 (하이라이트)
   const peakIdx = bars.reduce((best, b, i) => (b.count > bars[best].count ? i : best), 0);
   const activeIdx = hoveredIdx !== null ? hoveredIdx : peakIdx;
 
@@ -77,7 +76,6 @@ export default function BacktestActivityChart({ initialRecords }: { initialRecor
                 onMouseEnter={() => setHoveredIdx(i)}
                 onMouseLeave={() => setHoveredIdx(null)}
               >
-                {/* 값 라벨 */}
                 <div className="h-5 flex items-end justify-center">
                   {isActive && (
                     <span className="text-[11px] font-black text-white tabular-nums font-outfit">
@@ -86,7 +84,6 @@ export default function BacktestActivityChart({ initialRecords }: { initialRecor
                   )}
                 </div>
 
-                {/* 바 */}
                 <div className="w-full flex items-end flex-1">
                   <div
                     className="w-full rounded-xl transition-all duration-300"
@@ -107,7 +104,6 @@ export default function BacktestActivityChart({ initialRecords }: { initialRecor
         </div>
       )}
 
-      {/* X축 날짜 — 모두 표시 */}
       {!loading && (
         <div className="flex mt-2">
           {bars.map((bar, i) => (

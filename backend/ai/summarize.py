@@ -135,6 +135,19 @@ def parse_llm_output(text: str) -> dict:
     return {"total_summary": text.strip(), "strengths": [], "risks": []}
 
 
+def normalize_report_items(items) -> list[str]:
+    """빈 강점/리스크 목록은 ['없음']으로 통일한다."""
+    if not items:
+        return ["없음"]
+
+    normalized = [
+        str(item).strip()
+        for item in items
+        if item is not None and str(item).strip()
+    ]
+    return normalized if normalized else ["없음"]
+
+
 # ── LLM 호출 ────────────────────────────────────────────────────────────────
 
 def summarize_mlx(prompt: str) -> str:
@@ -203,8 +216,8 @@ def main():
         print(json.dumps({
             "score": score,
             "summary": parsed.get("total_summary", ""),
-            "strengths": parsed.get("strengths", []),
-            "risks": parsed.get("risks", []),
+            "strengths": normalize_report_items(parsed.get("strengths", [])),
+            "risks": normalize_report_items(parsed.get("risks", [])),
         }, ensure_ascii=False))
     except Exception as e:
         print(json.dumps({"error": str(e)}))

@@ -45,8 +45,10 @@ class ResultHandler:
                 except: return ts
 
             def get_dt_str(ts):
-                if isinstance(ts, (pd.Timestamp, datetime)): return ts.strftime('%Y-%m-%d')
-                return str(ts)
+                try:
+                    return pd.Timestamp(ts).strftime('%Y-%m-%d')
+                except Exception:
+                    return str(ts)
 
             # ── O(log n) reason lookup via searchsorted ───────────────────────
             def build_reason_array(ser):

@@ -400,3 +400,43 @@ def test_evaluate_group_implicit_logic(signal_engine):
     }
     df_true = pl.DataFrame(data_true)
     assert signal_engine.evaluate_group(group_mixed, 1, df_true)[0] == True
+
+
+def test_generate_signals_respects_group_logic_and(signal_engine):
+    df = pl.DataFrame({
+        "rsi_14": [20, 20],
+        "close_5_sma": [10, 12],
+        "close_20_sma": [11, 11]
+    })
+
+    group = {
+        "logic": "AND",
+        "conditions": [
+            {"type": "indicator", "id": "rsi", "params": {"period": 14, "value": 30, "operator": "<"}},
+            {"type": "indicator", "id": "ma_crossover", "params": {"shortMA": 5, "longMA": 20, "signalType": "buy"}}
+        ]
+    }
+
+    signals, reasons = signal_engine.generate_signals(df, group)
+
+    assert list(signals) == [False, True]
+    assert reasons[1] == "RSI 30 이하 + 5일선-20일선 골든크로스"
+
+
+def test_evaluate_group_respects_explicit_and_logic(signal_engine):
+    df = pl.DataFrame({
+        "rsi_14": [20, 20],
+        "close_5_sma": [10, 12],
+        "close_20_sma": [11, 11]
+    })
+
+    group = {
+        "logic": "AND",
+        "conditions": [
+            {"type": "indicator", "id": "rsi", "params": {"period": 14, "value": 30, "operator": "<"}},
+            {"type": "indicator", "id": "ma_crossover", "params": {"shortMA": 5, "longMA": 20, "signalType": "buy"}}
+        ]
+    }
+
+    assert signal_engine.evaluate_group(group, 0, df) == (False, None)
+    assert signal_engine.evaluate_group(group, 1, df) == (True, "RSI 30 이하 + 5일선-20일선 골든크로스")

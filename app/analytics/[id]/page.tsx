@@ -19,6 +19,8 @@ function StrategyResultContent() {
   const [strategySummary, setStrategySummary] = useState<any>(null);
   const [aiSummary, setAiSummary] = useState<string | undefined>();
   const [aiScore, setAiScore] = useState<number | undefined>();
+  const [aiStrengths, setAiStrengths] = useState<string[]>([]);
+  const [aiRisks, setAiRisks] = useState<string[]>([]);
 
   useEffect(() => {
     fetch(`/api/strategy/${id}`)
@@ -33,6 +35,8 @@ function StrategyResultContent() {
         setResult(data.backtestResult);
         if (data.backtestResult.aiSummary) setAiSummary(data.backtestResult.aiSummary);
         if (data.backtestResult.aiScore != null) setAiScore(data.backtestResult.aiScore);
+        setAiStrengths(data.backtestResult.aiStrengths ?? []);
+        setAiRisks(data.backtestResult.aiRisks ?? []);
 
         // strategySummary 구성
         const s = data.settings;
@@ -114,6 +118,8 @@ function StrategyResultContent() {
             strategySummary={strategySummary}
             aiSummary={aiSummary}
             aiScore={aiScore}
+            aiStrengths={aiStrengths}
+            aiRisks={aiRisks}
             disableHistorySave={true}
           />
         </div>

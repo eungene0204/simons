@@ -162,10 +162,10 @@ export default function MonteCarloPanel({
             <button
               key={n}
               onClick={() => setNSims(n)}
-              className={`px-3 py-1 rounded-md text-sm font-bold transition-colors ${
+              className={`px-3 py-1 rounded-md text-sm font-bold border transition-colors ${
                 nSims === n
-                  ? "bg-blue-600 text-white"
-                  : "bg-[#0a0a0a] text-gray-400 hover:text-white"
+                  ? "bg-white/10 border-white/15 text-white"
+                  : "bg-[#0a0a0a] border-white/5 text-gray-400 hover:text-white"
               }`}
             >
               {n.toLocaleString()}
@@ -175,7 +175,7 @@ export default function MonteCarloPanel({
         <button
           onClick={run}
           disabled={isRunning}
-          className="ml-auto px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-bold rounded-lg transition-all active:scale-95"
+          className="ml-auto px-5 py-2 bg-white text-black hover:bg-gray-100 disabled:bg-gray-700 disabled:text-gray-500 text-sm font-bold rounded-lg transition-colors active:scale-95"
         >
           {isRunning ? "시뮬레이션 중..." : "몬테카를로 실행"}
         </button>
@@ -198,7 +198,7 @@ export default function MonteCarloPanel({
 
       {isRunning && (
         <div className="flex items-center justify-center py-16 gap-3 text-gray-400">
-          <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <div className="w-5 h-5 border-2 border-white/30 border-t-transparent rounded-full animate-spin" />
           <span className="text-sm">
             {nSims.toLocaleString()}회 시뮬레이션 실행 중...
           </span>

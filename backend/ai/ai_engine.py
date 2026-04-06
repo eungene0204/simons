@@ -431,6 +431,19 @@ class AIEngine:
     def _xgb_predict(self, embeddings: np.ndarray):
         """XGBoost v2 prediction → (signal_probs, drop_probs)."""
         emb_aug = _augment_embeddings(embeddings)
+        legacy_head = getattr(self, "xgb_head", None)
+
+        if legacy_head is not None:
+            try:
+                probs = legacy_head.predict_proba(emb_aug)
+                probs = np.asarray(probs, dtype=float)
+                if probs.ndim == 2 and probs.shape[1] >= 2:
+                    return probs[:, 0], probs[:, 1]
+                if probs.ndim == 1:
+                    return probs.astype(float), np.zeros(len(probs), dtype=float)
+            except Exception:
+                pass
+
         try:
             sig_probs = self.xgb_up.predict_proba(emb_aug)[:, 1]
         except Exception:

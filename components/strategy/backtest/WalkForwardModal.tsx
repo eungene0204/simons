@@ -148,8 +148,8 @@ export default function WalkForwardModal({ open, onOpenChange, onRun }: WalkForw
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/5">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-purple-500/15 rounded-xl flex items-center justify-center">
-              <ChartLine className="w-5 h-5 text-purple-400" weight="bold" />
+            <div className="w-9 h-9 bg-white/[0.06] rounded-xl flex items-center justify-center border border-white/10">
+              <ChartLine className="w-5 h-5 text-gray-200" weight="bold" />
             </div>
             <div>
               <h2 className="text-base font-black text-white">워크포워드 분석</h2>
@@ -183,7 +183,7 @@ export default function WalkForwardModal({ open, onOpenChange, onRun }: WalkForw
                         onClick={() => setSettings((s) => ({ ...s, n_splits: n }))}
                         className={`px-3 py-1.5 rounded-lg text-sm font-bold border transition-all ${
                           settings.n_splits === n
-                            ? "bg-purple-500/20 border-purple-500/60 text-purple-300"
+                            ? "bg-white/10 border-white/15 text-white"
                             : "bg-white/5 border-white/10 text-white/50 hover:text-white"
                         }`}
                       >
@@ -210,7 +210,7 @@ export default function WalkForwardModal({ open, onOpenChange, onRun }: WalkForw
                         onClick={() => setSettings((s) => ({ ...s, train_pct: v }))}
                         className={`px-3 py-1.5 rounded-lg text-sm font-bold border transition-all ${
                           settings.train_pct === v
-                            ? "bg-purple-500/20 border-purple-500/60 text-purple-300"
+                            ? "bg-white/10 border-white/15 text-white"
                             : "bg-white/5 border-white/10 text-white/50 hover:text-white"
                         }`}
                       >
@@ -232,7 +232,7 @@ export default function WalkForwardModal({ open, onOpenChange, onRun }: WalkForw
                         onClick={() => setSettings((s) => ({ ...s, target_metric: id }))}
                         className={`px-3 py-1.5 rounded-lg text-sm font-bold border transition-all ${
                           settings.target_metric === id
-                            ? "bg-purple-500/20 border-purple-500/60 text-purple-300"
+                            ? "bg-white/10 border-white/15 text-white"
                             : "bg-white/5 border-white/10 text-white/50 hover:text-white"
                         }`}
                       >
@@ -255,7 +255,7 @@ export default function WalkForwardModal({ open, onOpenChange, onRun }: WalkForw
                           onClick={() => setSettings((s) => ({ ...s, n_trials: n }))}
                           className={`px-3 py-1.5 rounded-lg text-sm font-bold border transition-all ${
                             settings.n_trials === n
-                              ? "bg-purple-500/20 border-purple-500/60 text-purple-300"
+                              ? "bg-white/10 border-white/15 text-white"
                               : "bg-white/5 border-white/10 text-white/50 hover:text-white"
                           }`}
                         >
@@ -278,7 +278,7 @@ export default function WalkForwardModal({ open, onOpenChange, onRun }: WalkForw
                           onClick={() => setSettings((s) => ({ ...s, anchor: v }))}
                           className={`px-3 py-1.5 rounded-lg text-sm font-bold border transition-all ${
                             settings.anchor === v
-                              ? "bg-purple-500/20 border-purple-500/60 text-purple-300"
+                              ? "bg-white/10 border-white/15 text-white"
                               : "bg-white/5 border-white/10 text-white/50 hover:text-white"
                           }`}
                         >
@@ -480,7 +480,7 @@ export default function WalkForwardModal({ open, onOpenChange, onRun }: WalkForw
                     return (
                       <div key={w.window} className="bg-white/3 border border-white/8 rounded-xl px-4 py-3">
                         <div className="flex items-start gap-3 flex-wrap">
-                          <span className="text-[10px] font-black text-purple-400 mt-0.5 shrink-0">W{w.window}</span>
+                          <span className="text-[10px] font-black text-gray-300 mt-0.5 shrink-0">W{w.window}</span>
                           <div className="flex flex-wrap gap-2">
                             {paramEntries.slice(0, 8).map(([k, v]) => {
                               // Show only the last segment of the key path
@@ -526,7 +526,7 @@ export default function WalkForwardModal({ open, onOpenChange, onRun }: WalkForw
               <button
                 onClick={handleRun}
                 disabled={isRunning}
-                className="px-5 py-2 text-sm font-black text-white bg-purple-600 hover:bg-purple-500 rounded-lg transition-all flex items-center gap-2 shadow-[0_0_15px_rgba(168,85,247,0.25)] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-5 py-2 text-sm font-black text-black bg-white hover:bg-gray-100 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isRunning ? (
                   <>

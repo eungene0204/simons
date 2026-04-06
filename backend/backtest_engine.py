@@ -406,7 +406,12 @@ class BacktestEngine:
             _t2 = _time.time()
             print(f"[BT-ENGINE] Phase1 완료: {_t2-_t1:.2f}s ({len(processed_symbols)}종목 처리)", flush=True)
 
-            pf = self.simulator.run(price_df, exec_px_df, ents_df, exts_df, risk_params, options, rank_df=rank_df)
+            simulator_options = dict(options)
+            simulator_options.setdefault('execution_type', exec_type)
+
+            pf = self.simulator.run(
+                price_df, exec_px_df, ents_df, exts_df, risk_params, simulator_options, rank_df=rank_df
+            )
             _t3 = _time.time()
             print(f"[BT-ENGINE] Simulator 완료: {_t3-_t2:.2f}s", flush=True)
 
