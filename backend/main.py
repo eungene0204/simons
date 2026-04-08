@@ -241,6 +241,29 @@ async def market_price(symbol: str):
     return result.to_dict()
 
 
+@app.get("/market/stock-detail/{symbol}")
+async def market_stock_detail(symbol: str):
+    """
+    KIS 상세 현재가 조회.
+    시가총액/거래량 등 종목 매매 페이지용 실데이터를 우선 제공한다.
+    """
+    quote, app_key, app_secret, token = await _resolve_kis_orderbook_context(symbol)
+
+    if not (app_key and app_secret and token):
+        raise HTTPException(status_code=503, detail="KIS 상세 시세를 조회할 수 없습니다")
+
+    detail = _fetch_kis_stock_detail(symbol, app_key, app_secret, token)
+    if not detail:
+        raise HTTPException(status_code=503, detail="KIS 상세 시세를 조회할 수 없습니다")
+
+    return {
+        **detail,
+        "currentPrice": detail.get("currentPrice") or quote.close,
+        "volume": detail.get("volume") or quote.volume,
+        "previousClose": detail.get("previousClose") or quote.prev_close,
+    }
+
+
 @app.post("/market/prices")
 async def market_prices(body: dict):
     """
@@ -269,6 +292,87 @@ def _tick_size(price: int) -> int:
     if price < 500000:
         return 500
     return 1000
+
+
+def _to_int(value) -> int:
+    if value in (None, "", "-"):
+        return 0
+    try:
+        return int(float(str(value).replace(",", "").strip()))
+    except Exception:
+        return 0
+
+
+def _first_nonzero_int(data: dict, *keys: str) -> int:
+    for key in keys:
+        value = _to_int(data.get(key))
+        if value > 0:
+            return value
+    return 0
+
+
+def _fetch_kis_stock_detail(symbol: str, app_key: str, app_secret: str, token: str) -> Optional[dict]:
+    try:
+        resp = requests.get(
+            "https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/inquire-price",
+            headers={
+                "Content-Type": "application/json; charset=UTF-8",
+                "authorization": f"Bearer {token}",
+                "appkey": app_key,
+                "appsecret": app_secret,
+                "tr_id": "FHKST01010100",
+                "custtype": "P",
+            },
+            params={
+                "FID_COND_MRKT_DIV_CODE": "UN",
+                "FID_INPUT_ISCD": symbol,
+            },
+            timeout=5,
+        )
+        if resp.status_code != 200:
+            return None
+
+        output = resp.json().get("output", {})
+        if not isinstance(output, dict):
+            return None
+
+        current_price = _first_nonzero_int(output, "stck_prpr")
+        if current_price <= 0:
+            return None
+
+        market_cap = _first_nonzero_int(
+            output,
+            "hts_avls",
+            "stck_avls",
+            "mrkt_tot_amt",
+            "mrkt_cap",
+            "market_cap",
+        )
+        listed_shares = _first_nonzero_int(
+            output,
+            "lstn_stcn",
+            "listed_stcn",
+            "istt_qty",
+            "stck_lstn_qty",
+        )
+        if market_cap <= 0 and listed_shares > 0:
+            market_cap = current_price * listed_shares
+
+        return {
+            "symbol": symbol,
+            "name": output.get("hts_kor_isnm", symbol),
+            "currentPrice": current_price,
+            "open": _first_nonzero_int(output, "stck_oprc"),
+            "high": _first_nonzero_int(output, "stck_hgpr"),
+            "low": _first_nonzero_int(output, "stck_lwpr"),
+            "volume": _first_nonzero_int(output, "acml_vol"),
+            "marketCap": market_cap,
+            "previousClose": _first_nonzero_int(output, "stck_sdpr"),
+            "changePercent": float(output.get("prdy_ctrt", 0) or 0),
+            "source": "kis_inquire_price",
+        }
+    except Exception:
+        return None
 
 
 def _fetch_kis_vi_display(symbol: str, app_key: str, app_secret: str, token: str) -> Optional[dict]:
