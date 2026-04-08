@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { resolveTrackedSymbolsForStrategy } from '@/lib/strategy-tracked-symbols';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
 
@@ -93,15 +94,77 @@ export async function PATCH(
 ) {
   try {
     const body = await request.json();
+    const strategyChanged = typeof body.strategyId === "string" && body.strategyId.trim().length > 0;
     const account = await prisma.virtualAccount.update({
       where: { id: params.id },
       data: {
         ...(body.currentBalance !== undefined && { currentCash: body.currentBalance }),
         ...(body.tradingMode !== undefined && { tradingMode: body.tradingMode }),
+        ...(body.strategyId !== undefined && { strategyId: body.strategyId }),
+        ...(body.strategyName !== undefined && { strategyName: body.strategyName }),
         updatedAt: new Date(),
       },
       include: { VirtualPosition: true },
     });
+
+    if (strategyChanged) {
+      const strategy = await prisma.strategy.findUnique({
+        where: { id: body.strategyId },
+      });
+
+      const resolved = strategy
+        ? await resolveTrackedSymbolsForStrategy({
+            strategyId: body.strategyId,
+            strategyName: strategy.name,
+            strategySettings: strategy.settings,
+          })
+        : { symbols: [], source: "universe" as const };
+      const topSymbols = resolved.symbols;
+
+      if (topSymbols.length > 0) {
+        const priceMap = await fetchBatchPrices(account.VirtualPosition.map((p) => p.symbol));
+        const existingState = await prisma.virtualMarketState.findUnique({
+          where: { accountId: params.id },
+        });
+        const today = new Date().toISOString().split("T")[0];
+        const state = await prisma.virtualMarketState.upsert({
+          where: { accountId: params.id },
+          create: {
+            id: crypto.randomUUID(),
+            accountId: params.id,
+            startDate: today,
+            status: existingState?.status ?? "running",
+            symbols: JSON.stringify(topSymbols),
+            updatedAt: new Date(),
+          },
+          update: {
+            symbols: JSON.stringify(topSymbols),
+            updatedAt: new Date(),
+          },
+        });
+
+        try {
+          await fetch(`${BACKEND_URL}/market/subscribe`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ symbols: topSymbols }),
+          });
+        } catch (error) {
+          console.warn("Failed to subscribe top strategy symbols:", error);
+        }
+
+        return NextResponse.json({
+          ...mapAccount(account, priceMap),
+          trackedSymbols: topSymbols,
+          symbolSource: resolved.source,
+          virtualMarketState: {
+            ...state,
+            symbols: topSymbols,
+          },
+        });
+      }
+    }
+
     const symbols2 = account.VirtualPosition.map((p) => p.symbol);
     const priceMap2 = await fetchBatchPrices(symbols2);
 

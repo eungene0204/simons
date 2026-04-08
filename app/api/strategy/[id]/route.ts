@@ -75,6 +75,8 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
           amount: t.amount,
         })),
         perAssetStats: summary.perAssetStats ?? null,
+        topSymbols: summary.topSymbols ?? [],
+        topAssetStats: summary.topAssetStats ?? [],
         warnings: summary.warnings ?? [],
         aiSummary: summary.aiSummary ?? null,
         aiScore: summary.aiScore ?? null,

@@ -1,10 +1,10 @@
 "use client";
 
 interface PriceRow {
-  price: number;
+  price?: number;
   sellQuantity?: number;
   buyQuantity?: number;
-  type: "sell" | "buy" | "current";
+  type: "sell" | "buy";
 }
 
 interface AskVolumeProps {
@@ -22,7 +22,9 @@ export default function AskVolume({
     <div className="flex flex-col">
       <div>
         {priceList.map((row, index) => {
-          if (row.type === "current" || !row.sellQuantity) return null;
+          if (typeof row.price !== "number" || !row.sellQuantity) {
+            return <div key={`ask-bar-${index}`} className="h-[36px]" />;
+          }
           const pct = Math.min(
             100,
             Math.max(0, (row.sellQuantity / maxSellQty) * 100)

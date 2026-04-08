@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import { loadStockList } from "@/lib/krx-stocks";
+import { getUniverseOverview } from "@/lib/universe-history";
 
 export async function GET() {
   try {
-    const stocks = await loadStockList();
+    const [stocks, overview] = await Promise.all([
+      loadStockList(),
+      getUniverseOverview(),
+    ]);
     const symbolToSector: Record<string, string> = {};
     const universes: Record<string, string[]> = {
       kospi: [],
@@ -43,7 +47,14 @@ export async function GET() {
 
     return NextResponse.json({
       symbolToSector,
-      universes
+      universes,
+      counts: {
+        total: stocks.length,
+        kospi: universes.kospi.length,
+        kosdaq: universes.kosdaq.length,
+        kospi200: universes.kospi200.length,
+      },
+      latestSync: overview.latest,
     });
   } catch (error) {
     console.error("Failed to load universe data:", error);

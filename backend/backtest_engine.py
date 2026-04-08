@@ -148,6 +148,7 @@ class BacktestEngine:
                     # 1.1 Load Data
                     df_pl = self.loader.load_symbol_data(sym)
                     if df_pl is None or len(df_pl) == 0:
+                        self.warnings.add(f"{sym}: 데이터 없음 — 백테스트 대상에서 제외되었습니다.")
                         return None
 
                     # 3.1.5 Pre-filter: clip to warmup window BEFORE indicator calculation.

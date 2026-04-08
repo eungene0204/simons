@@ -43,6 +43,19 @@ export async function updateTradingMode(
   return res.json();
 }
 
+export async function updateAccountStrategy(
+  accountId: string,
+  strategyId: string,
+  strategyName: string
+): Promise<VirtualAccount> {
+  const res = await fetch(`/api/virtual-account/${accountId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ strategyId, strategyName }),
+  });
+  return res.json();
+}
+
 export async function updateAccount(account: VirtualAccount): Promise<void> {
   await fetch(`/api/virtual-account/${account.id}`, {
     method: "PATCH",

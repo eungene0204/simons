@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { cache } from "@/lib/cache";
-import { generateOrderBook, getBasePrice, generateStockPriceData } from "@/lib/mock-stock-data";
 
 /**
  * 호가창 데이터를 제공하는 API
@@ -20,30 +18,18 @@ export async function GET(
       );
     }
 
-    // Check cache first
-    const cacheKey = `stock:orderbook:${symbol}`;
-    const cached = cache.get(cacheKey);
-    if (cached) {
-      return NextResponse.json(cached);
+    const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
+    const res = await fetch(`${BACKEND_URL}/market/orderbook/${symbol}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      return NextResponse.json(
+        { error: "Failed to fetch orderbook" },
+        { status: res.status }
+      );
     }
 
-    // 현재가 가져오기 (또는 기본 가격 사용)
-    const basePrice = getBasePrice(symbol);
-    const priceData = generateStockPriceData(symbol, basePrice);
-    const currentPrice = priceData.currentPrice;
-
-    // 호가 데이터 생성
-    const orderBookData = generateOrderBook(symbol, currentPrice, 10);
-
-    const response = {
-      symbol,
-      currentPrice,
-      ...orderBookData,
-      timestamp: new Date().toISOString(),
-    };
-
-    // Cache for 1 second (for real-time updates)
-    cache.set(cacheKey, response, 1);
+    const response = await res.json();
     return NextResponse.json(response);
   } catch (error) {
     console.error("Order book API error:", error);
@@ -53,4 +39,3 @@ export async function GET(
     );
   }
 }
-

@@ -177,6 +177,15 @@ space-y-5            (섹션 간 세로 간격)
 <div className="border-t border-white/[0.05]" />
 ```
 
+### 카드형 테이블
+
+- 분석 리스트, 종목 분석, 매매 기록, 월별 수익률처럼 행 단위 정보가 많은 표는 `overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0f0f10]` 같은 외곽 카드로 감싼다.
+- 헤더는 `sticky top-0 z-10`을 사용해 고정할 수 있다.
+- 첫 번째 헤더 셀은 `rounded-tl-2xl`, 마지막 헤더 셀은 `rounded-tr-2xl`을 사용해 외곽만 부드럽게 만든다.
+- 행 내부는 과한 테두리 대신 `border-b border-white/[0.03]`와 `hover:bg-white/[0.02]`로 구분한다.
+- 카드형 테이블은 표 본문보다 외곽 라운드와 여백을 우선하고, 셀마다 별도 라운드는 넣지 않는다.
+- 같은 화면 안에 있는 표들은 가능한 한 동일한 외곽, 헤더 높이, 행 간격을 공유한다.
+
 ---
 
 ## 6. 테두리 반경

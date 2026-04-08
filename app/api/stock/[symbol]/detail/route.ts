@@ -6,6 +6,8 @@ import { getBasePrice, generateStockPriceData, generateCandleData, generateTimeS
 interface StockDetail {
   symbol: string;
   name: string;
+  market?: "KOSPI" | "KOSDAQ";
+  isKospi200?: boolean;
   logo?: string;
   currentPrice: number;
   changePercent: number;
@@ -119,6 +121,7 @@ export async function GET(
     let stockName = "";
     let stockSector = "";
     let stockIndustry = "";
+    let stockMarket: "KOSPI" | "KOSDAQ" | undefined;
     try {
       const koreaStocks = await loadStockList();
       const stock = koreaStocks.find((s) => s.symbol === symbol);
@@ -126,9 +129,22 @@ export async function GET(
         stockName = stock.name;
         stockSector = stock.sector || "";
         stockIndustry = stock.industry || "";
+        stockMarket = stock.market;
       }
     } catch (error) {
       console.error("Failed to load stock list:", error);
+    }
+
+    let isKospi200 = false;
+    try {
+      const fs = await import("fs/promises");
+      const path = await import("path");
+      const cachePath = path.join(process.cwd(), "data", "kospi200-cache.json");
+      const raw = await fs.readFile(cachePath, "utf-8");
+      const parsed = JSON.parse(raw) as { symbols?: string[] };
+      isKospi200 = Array.isArray(parsed.symbols) && parsed.symbols.includes(symbol);
+    } catch {
+      isKospi200 = false;
     }
 
     // 파케이 실제 lastClose 조회 (백엔드 가용 시 우선 사용)
@@ -155,6 +171,8 @@ export async function GET(
     const detail: StockDetail = {
       symbol,
       name: stockName || base.name || symbol,
+      market: stockMarket,
+      isKospi200,
       logo: undefined,
       currentPrice: priceData.currentPrice,
       changePercent: priceData.changePercent,
@@ -190,4 +208,3 @@ export async function GET(
     );
   }
 }
-
