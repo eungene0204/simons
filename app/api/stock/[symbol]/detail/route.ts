@@ -35,6 +35,20 @@ interface StockDetail {
   realLastClose?: number | null;
 }
 
+interface MarketDetailResponse {
+  symbol: string;
+  name?: string;
+  currentPrice?: number;
+  changePercent?: number;
+  open?: number;
+  high?: number;
+  low?: number;
+  volume?: number;
+  marketCap?: number;
+  previousClose?: number;
+  source?: string;
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ symbol: string }> | { symbol: string } }
@@ -51,7 +65,7 @@ export async function GET(
       return NextResponse.json(cached);
     }
 
-    console.log(`Generating mock stock detail for ${symbol}...`);
+    console.log(`Generating stock detail for ${symbol}...`);
 
     // Base prices for generating dynamic mock data
     const baseData: Record<string, Partial<StockDetail>> = {
@@ -160,9 +174,33 @@ export async function GET(
       }
     } catch { /* 백엔드 미실행 시 무시 */ }
 
+    let realDetail: MarketDetailResponse | null = null;
+    try {
+      const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
+      const detailRes = await fetch(`${BACKEND_URL}/market/stock-detail/${symbol}`, {
+        signal: AbortSignal.timeout(1500),
+        cache: "no-store",
+      });
+      if (detailRes.ok) {
+        realDetail = await detailRes.json();
+      }
+    } catch {
+      realDetail = null;
+    }
+
     const base = baseData[symbol] || {};
-    const basePrice = realLastClose || base.currentPrice || getBasePrice(symbol);
+    const basePrice =
+      realLastClose ||
+      realDetail?.currentPrice ||
+      base.currentPrice ||
+      getBasePrice(symbol);
     const priceData = generateStockPriceData(symbol, basePrice);
+    const currentPrice = realDetail?.currentPrice || priceData.currentPrice;
+    const previousClose = realDetail?.previousClose || priceData.previousClose;
+    const change = currentPrice - previousClose;
+    const changePercent =
+      realDetail?.changePercent ??
+      (previousClose > 0 ? (change / previousClose) * 100 : priceData.changePercent);
     
     // 캔들 데이터 생성
     const candleData = generateCandleData(symbol, basePrice, 365);
@@ -170,19 +208,19 @@ export async function GET(
 
     const detail: StockDetail = {
       symbol,
-      name: stockName || base.name || symbol,
+      name: realDetail?.name || stockName || base.name || symbol,
       market: stockMarket,
       isKospi200,
       logo: undefined,
-      currentPrice: priceData.currentPrice,
-      changePercent: priceData.changePercent,
-      change: priceData.change,
-      open: priceData.open,
-      high: priceData.high,
-      low: priceData.low,
-      volume: priceData.volume,
-      marketCap: base.marketCap || 0,
-      previousClose: priceData.previousClose,
+      currentPrice,
+      changePercent,
+      change,
+      open: realDetail?.open || priceData.open,
+      high: realDetail?.high || priceData.high,
+      low: realDetail?.low || priceData.low,
+      volume: realDetail?.volume || 0,
+      marketCap: realDetail?.marketCap || 0,
+      previousClose,
       pe: (base.pe || 0) + (Math.random() * 2 - 1),
       pbr: (base.pbr || 0) + (Math.random() * 0.2 - 0.1),
       description: base.description || "",

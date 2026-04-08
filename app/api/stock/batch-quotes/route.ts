@@ -6,6 +6,7 @@ export interface BatchQuoteItem {
   price: number;
   changePercent: number;
   volume: number;
+  source?: string;
   open?: number;
   high?: number;
   low?: number;
@@ -71,6 +72,7 @@ export async function POST(request: NextRequest) {
           price: q.close,
           changePercent,
           volume: q.volume ?? 0,
+          source: q.source,
           open: q.open,
           high: q.high,
           low: q.low,
