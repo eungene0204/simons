@@ -8,6 +8,7 @@ import {
   CaretDown,
 } from "phosphor-react";
 import CandlestickChart, { OHLCV } from "@/components/stock/CandlestickChart";
+import { formatMarketCap } from "@/lib/format-market-cap";
 
 interface StockDetail {
   symbol: string;
@@ -71,15 +72,6 @@ export default function StockDetail({ symbol }: { symbol: string }) {
 
   const formatVolume = (volume: number) => {
     return new Intl.NumberFormat("ko-KR").format(volume);
-  };
-
-  const formatMarketCap = (marketCap: number) => {
-    if (marketCap >= 1000000000000) {
-      return `${(marketCap / 1000000000000).toFixed(1)}조`;
-    } else if (marketCap >= 100000000) {
-      return `${(marketCap / 100000000).toFixed(1)}억`;
-    }
-    return formatPrice(marketCap);
   };
 
   if (loading) {

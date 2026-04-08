@@ -12,6 +12,7 @@ import {
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import OrderBook, { MarketStats } from "@/components/order/OrderBook";
 import { getBasePrice } from "@/lib/mock-stock-data";
+import { formatMarketCap } from "@/lib/format-market-cap";
 import CandlestickChart, { OHLCV } from "@/components/stock/CandlestickChart";
 import type { BatchQuoteItem } from "@/app/api/stock/batch-quotes/route";
 import { useDrawer } from "@/contexts/DrawerContext";
@@ -357,7 +358,10 @@ export default function OrderPage() {
                 ...prev,
                 currentPrice: quote.price,
                 changePercent: quote.changePercent,
-                volume: quote.volume || prev.volume,
+                volume:
+                  quote.source?.startsWith("kis") && quote.volume > 0
+                    ? quote.volume
+                    : prev.volume,
                 open: quote.open ?? prev.open,
                 high: quote.high ?? prev.high,
                 low: quote.low ?? prev.low,
@@ -670,7 +674,7 @@ export default function OrderPage() {
               <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
                 <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400">시가총액</div>
                 <div className="mt-2 font-outfit text-lg font-black tabular-nums text-white">
-                  {stockInfo?.marketCap ? `${formatPrice(stockInfo.marketCap)}원` : "-"}
+                  {stockInfo?.marketCap ? formatMarketCap(stockInfo.marketCap) : "-"}
                 </div>
               </div>
               <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
@@ -1205,9 +1209,8 @@ export default function OrderPage() {
                       <span className="text-sm text-gray-400">시가총액</span>
                       <span className="font-bold text-white">
                         {stockInfo.marketCap
-                          ? formatPrice(stockInfo.marketCap)
+                          ? formatMarketCap(stockInfo.marketCap)
                           : "-"}
-                        원
                       </span>
                     </div>
                     <div className="flex justify-between text-sm">
@@ -1398,9 +1401,8 @@ export default function OrderPage() {
                   <div className="text-xs text-gray-400 mb-1">시가총액</div>
                   <div className="text-sm font-semibold text-white">
                     {stockInfo?.marketCap
-                      ? formatPrice(stockInfo.marketCap)
+                      ? formatMarketCap(stockInfo.marketCap)
                       : "-"}
-                    원
                   </div>
                 </div>
                 <div>
