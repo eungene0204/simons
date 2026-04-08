@@ -63,8 +63,11 @@ function DeleteConfirmModal({
 
         {/* 자동매매 경고 */}
         {strategy.autoTradingCount > 0 && (
-          <div className="flex items-start gap-3 rounded-xl border border-[var(--main-blue)]/30 px-4 py-3">
-            <Warning size={14} className="text-gray-500 mt-0.5 shrink-0" weight="fill" />
+          <div
+            className="flex items-start gap-3 rounded-xl border-2 bg-[var(--main-red)]/5 px-4 py-3"
+            style={{ borderColor: "var(--main-red)" }}
+          >
+            <Warning size={14} className="text-[var(--main-red)] mt-0.5 shrink-0" weight="fill" />
             <p className="text-xs font-bold text-gray-300 leading-relaxed">
               이 전략을 사용하는{" "}
               <span className="font-black text-white">{strategy.autoTradingCount}개 계좌</span>의
@@ -152,7 +155,7 @@ export default function StrategyLabClient({ strategies: initial }: { strategies:
               <p className="text-xs font-bold text-gray-700 mt-1 mb-5">새 전략을 만들어 백테스트를 시작해보세요</p>
               <button
                 onClick={() => router.push("/analytics/new")}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-500/10 border border-sky-500/20 hover:bg-sky-500/15 text-sky-400 text-xs font-black transition-all duration-200"
+                className="flex items-center gap-2 px-4 py-2 rounded-xl border border-[var(--main-blue)] bg-transparent text-white text-xs font-black transition-all duration-200 hover:border-[var(--main-blue)]/80"
               >
                 <Plus size={13} weight="bold" />
                 새 전략 만들기
@@ -207,7 +210,7 @@ export default function StrategyLabClient({ strategies: initial }: { strategies:
                       </p>
                       <button
                         onClick={(e) => openDeleteModal(e, s)}
-                        className="shrink-0 p-1 rounded-lg text-gray-700 hover:text-[var(--main-blue)] hover:bg-[var(--main-blue)]/10 transition-all duration-200 opacity-0 group-hover:opacity-100"
+                        className="shrink-0 p-1 rounded-lg text-gray-700 hover:text-[var(--main-red)] hover:bg-[var(--main-red)]/10 transition-all duration-200 opacity-0 group-hover:opacity-100"
                       >
                         <Trash size={13} weight="bold" />
                       </button>

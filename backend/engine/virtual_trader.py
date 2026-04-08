@@ -21,6 +21,8 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
+from engine.live_signal_utils import prepare_signal_dataframe
+
 logger = logging.getLogger(__name__)
 
 # ── 상수 ────────────────────────────────────────────────────────────────────
@@ -105,9 +107,10 @@ class VirtualTrader:
         await trader.stop()    # shutdown 이벤트
     """
 
-    def __init__(self, market_data_provider, data_loader):
+    def __init__(self, market_data_provider, data_loader, ai_engine=None):
         self._mdp = market_data_provider
         self._loader = data_loader
+        self._ai_engine = ai_engine
         self._running = False
         self._task: Optional[asyncio.Task] = None
         self._db = _db_path()
@@ -268,7 +271,7 @@ class VirtualTrader:
 
         # 3. 시그널 평가
         signals = await asyncio.to_thread(
-            self._evaluate_signals, symbols, entry_conditions, exit_conditions
+            self._evaluate_signals, symbols, entry_conditions, exit_conditions, quotes
         )
 
         # 4. 리스크 관리
@@ -402,6 +405,7 @@ class VirtualTrader:
         symbols: list[str],
         entry_conditions: list,
         exit_conditions: list,
+        quotes: dict,
     ) -> list[dict]:
         from engine.signals import SignalEngine
         sig_engine = SignalEngine()
@@ -415,7 +419,14 @@ class VirtualTrader:
             exit_reason = None
 
             if df is not None and len(df) > 0:
-                df_slice = df.tail(HISTORY_DAYS + 15)
+                df_live = prepare_signal_dataframe(
+                    df,
+                    quotes.get(sym),
+                    entry_conditions,
+                    exit_conditions,
+                    self._ai_engine,
+                )
+                df_slice = df_live.tail(HISTORY_DAYS + 15)
                 if entry_conditions:
                     try:
                         arr, reasons = sig_engine.generate_signals(df_slice, {"conditions": entry_conditions})

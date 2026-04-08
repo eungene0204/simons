@@ -78,7 +78,7 @@ class KISProvider(BaseProvider):
                 "custtype": "P",
             }
             params = {
-                "FID_COND_MRKT_DIV_CODE": "J",
+                "FID_COND_MRKT_DIV_CODE": "UN",
                 "FID_INPUT_ISCD": symbol,
             }
             resp = requests.get(
@@ -108,7 +108,7 @@ class KISProvider(BaseProvider):
                 low=int(output.get("stck_lwpr", "0") or "0"),
                 close=close,
                 volume=int(output.get("acml_vol", "0") or "0"),
-                source="kis",
+                source="kis_total",
                 timestamp=time.time(),
                 prev_close=int(output.get("stck_sdpr", "0") or "0"),
                 change_rate=float(output.get("prdy_ctrt", "0") or "0"),

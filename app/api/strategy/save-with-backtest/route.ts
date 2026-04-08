@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { inferStrategyType } from "@/lib/strategy-type";
+import { getTopAssetStats } from "@/lib/backtest-top-symbols";
 
 // POST: 전략 DSL + 백테스트 결과를 한 번에 저장
 export async function POST(request: Request) {
@@ -39,6 +40,7 @@ export async function POST(request: Request) {
       let backtestRecord = null;
       if (backtestResult) {
         // 무거운 배열 데이터(equity, dates, tradesList)는 summary에 통째로 저장
+        const topAssetStats = getTopAssetStats(backtestResult.perAssetStats, 10);
         const summary = {
           totalReturn: backtestResult.totalReturn,
           cagr: backtestResult.cagr,
@@ -59,6 +61,8 @@ export async function POST(request: Request) {
           finalEquity: backtestResult.finalEquity,
           symbols: backtestResult.symbols,
           perAssetStats: backtestResult.perAssetStats,
+          topSymbols: topAssetStats.map((stat) => stat.symbol),
+          topAssetStats,
           equity: backtestResult.equity,
           benchmarkEquity: backtestResult.benchmarkEquity,
           dates: backtestResult.dates,

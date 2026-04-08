@@ -15,15 +15,18 @@ import {
   executeTrade,
   refreshAccountValue,
   updateTradingMode,
+  updateAccountStrategy,
   deleteAccount,
 } from "@/lib/portfolio";
-import { MagnifyingGlass, Robot, Bell, Trash, X } from "phosphor-react";
+import { MagnifyingGlass, Robot, Bell, Trash } from "phosphor-react";
 import StockSearchModal from "@/components/stock/StockSearchModal";
 import OrderBook from "@/components/order/OrderBook";
 import type { BatchQuoteItem } from "@/app/api/stock/batch-quotes/route";
 import PortfolioPerformanceChart, { PerformancePoint } from "@/components/portfolio/PortfolioPerformanceChart";
 import { getStrategyByName } from "@/lib/strategy-groups";
 import { TrendUp } from "phosphor-react";
+import StrategyReplaceModal from "@/components/ui/StrategyReplaceModal";
+import TrackedSymbolRow from "@/components/virtual-account/TrackedSymbolRow";
 
 const formatPrice = (price: number) =>
   new Intl.NumberFormat("ko-KR").format(Math.round(price));
@@ -76,6 +79,7 @@ export default function VirtualAccountDetailPage() {
   const [trackedSymbols, setTrackedSymbols] = useState<{ symbol: string; name: string }[]>([]);
   const [trackedPrices, setTrackedPrices] = useState<Record<string, BatchQuoteItem>>({});
   const [isTrackSearchOpen, setIsTrackSearchOpen] = useState(false);
+  const [isStrategyReplaceOpen, setIsStrategyReplaceOpen] = useState(false);
 
   const fetchTrackedPrices = async (symbols: string[]) => {
     if (symbols.length === 0) return;
@@ -147,6 +151,24 @@ export default function VirtualAccountDetailPage() {
     const interval = setInterval(updatePrice, 2000);
     return () => clearInterval(interval);
   }, [selectedSymbol, isAutoPrice, selectedOrderPrice]);
+
+  useEffect(() => {
+    if (!selectedSymbol) {
+      setStockInfo(null);
+      return;
+    }
+
+    fetch(`/api/stock/${selectedSymbol}/detail`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data) return;
+        setStockInfo(data);
+        if (data.name) {
+          setSelectedStockName(data.name);
+        }
+      })
+      .catch(() => {});
+  }, [selectedSymbol]);
 
   const loadAccountData = async () => {
     const [acc, t] = await Promise.all([
@@ -306,6 +328,7 @@ export default function VirtualAccountDetailPage() {
               <OrderBook
                 symbol={selectedSymbol}
                 currentPrice={currentPrice}
+                previousClose={stockInfo?.previousClose}
                 onPriceSelect={(p) => { setPrice(p.toString()); setSelectedOrderPrice(p); }}
               />
               <div className="glass-card flex flex-col overflow-hidden">
@@ -491,20 +514,14 @@ export default function VirtualAccountDetailPage() {
               {/* 누적 수익률 */}
               <div className="glass-card p-5">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">누적 수익률</span>
+                  <span className="text-xs font-bold text-white uppercase tracking-widest">누적 수익률</span>
                   <div className={`w-7 h-7 rounded-lg bg-white/[0.05] flex items-center justify-center ${profitPercent >= 0 ? "text-gray-500" : "text-[var(--main-blue)]"}`}>
                     <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12h18M3 6h18M3 18h18"/><path d="M5 9v6M9 7v8M13 8v7M17 6v9"/></svg>
                   </div>
                 </div>
-                <p className={`text-2xl font-black tabular-nums leading-none ${profitPercent >= 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
+                <p className="text-2xl font-black tabular-nums leading-none text-white">
                   {profitPercent >= 0 ? "+" : ""}{profitPercent.toFixed(2)}%
                 </p>
-                <div className="mt-3 h-1 bg-white/[0.05] rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all duration-500 ${profitPercent >= 0 ? "bg-[var(--main-red)]" : "bg-[var(--main-blue)]"}`}
-                    style={{ width: `${Math.min(100, Math.abs(profitPercent) * 2)}%` }}
-                  />
-                </div>
               </div>
             </div>
 
@@ -523,7 +540,7 @@ export default function VirtualAccountDetailPage() {
                     </span>
                     <button
                       onClick={() => setIsTrackSearchOpen(true)}
-                      className="flex items-center gap-1 text-xs font-bold text-sky-400 hover:text-sky-300 border border-sky-400/20 px-2.5 py-1 rounded-lg transition-colors duration-200"
+                      className="flex items-center gap-1 text-xs font-bold text-[var(--main-blue)] hover:text-[var(--main-blue)] border border-sky-400/20 px-2.5 py-1 rounded-lg transition-colors duration-200"
                     >
                       <span className="text-sm leading-none">+</span> 종목 추가
                     </button>
@@ -535,7 +552,7 @@ export default function VirtualAccountDetailPage() {
                     <p className="text-sm font-bold text-gray-600">추적 중인 종목이 없습니다</p>
                     <button
                       onClick={() => setIsTrackSearchOpen(true)}
-                      className="text-xs font-bold text-sky-400 hover:text-sky-300 underline underline-offset-2 transition-colors duration-200"
+                      className="text-xs font-bold text-[var(--main-blue)] hover:text-[var(--main-blue)] underline underline-offset-2 transition-colors duration-200"
                     >
                       종목을 직접 추가하기
                     </button>
@@ -543,7 +560,7 @@ export default function VirtualAccountDetailPage() {
                 ) : (
                   <div>
                     {/* 테이블 헤더 */}
-                    <div className="grid grid-cols-[1fr_80px_72px_80px_52px_24px] gap-x-3 px-1 pb-2 border-b border-white/[0.05] text-[10px] font-bold text-gray-600 uppercase tracking-widest">
+                    <div className="grid grid-cols-[1fr_80px_72px_80px_52px_24px] gap-x-3 px-1 pb-2 border-b border-white/[0.05] text-xs font-bold text-gray-600 uppercase tracking-widest">
                       <span>종목</span>
                       <span className="text-right">현재가</span>
                       <span className="text-right">등락률</span>
@@ -555,48 +572,18 @@ export default function VirtualAccountDetailPage() {
                     <div className="max-h-64 overflow-y-auto scrollbar-hide divide-y divide-white/[0.03]">
                       {trackedSymbols.map(({ symbol, name }) => {
                         const q = trackedPrices[symbol];
-                        const hasPrice = q && q.price > 0;
                         const holding = holdings.find((h) => h.symbol === symbol);
-                        const isUp = (q?.changePercent ?? 0) >= 0;
                         return (
-                          <div
+                          <TrackedSymbolRow
                             key={symbol}
-                            className="grid grid-cols-[1fr_80px_72px_80px_52px_24px] gap-x-3 items-center px-1 py-2.5 hover:bg-white/[0.02] transition-colors duration-150 group cursor-pointer"
-                            onClick={() => handleStockSelect(symbol, name)}
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <div className="w-7 h-7 rounded-lg bg-white/[0.05] flex-shrink-0 flex items-center justify-center">
-                                <span className="text-[10px] font-bold text-gray-400">{symbol.slice(0, 2)}</span>
-                              </div>
-                              <div className="min-w-0">
-                                <p className="text-xs font-bold text-white truncate">{name}</p>
-                                <p className="text-[10px] font-bold text-gray-500">{symbol}</p>
-                              </div>
-                            </div>
-                            <p className="text-xs font-bold text-right text-white tabular-nums">
-                              {hasPrice ? formatPrice(q.price) : <span className="text-gray-600">-</span>}
-                            </p>
-                            <p className={`text-xs font-bold text-right tabular-nums ${hasPrice ? (isUp ? "text-[var(--main-red)]" : "text-[var(--main-blue)]") : "text-gray-600"}`}>
-                              {hasPrice ? `${isUp ? "+" : ""}${q.changePercent.toFixed(2)}%` : "-"}
-                            </p>
-                            <p className="text-xs font-bold text-right text-gray-400 tabular-nums">
-                              {hasPrice ? q.volume.toLocaleString("ko-KR") : <span className="text-gray-600">-</span>}
-                            </p>
-                            <div className="flex justify-end">
-                              {holding ? (
-                                <span className="text-[10px] font-bold text-sky-400 bg-sky-400/10 px-1.5 py-0.5 rounded-md">보유중</span>
-                              ) : (
-                                <span className="text-[10px] font-bold text-gray-600">대기</span>
-                              )}
-                            </div>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleRemoveTrackedSymbol(symbol); }}
-                              className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-[var(--main-blue)] transition-all duration-200 flex items-center justify-center"
-                              title="추적 제거"
-                            >
-                              <X size={12} />
-                            </button>
-                          </div>
+                            symbol={symbol}
+                            name={name}
+                            quote={q}
+                            hasHolding={!!holding}
+                            onSelect={handleStockSelect}
+                            onRemove={handleRemoveTrackedSymbol}
+                            formatPrice={formatPrice}
+                          />
                         );
                       })}
                     </div>
@@ -608,9 +595,6 @@ export default function VirtualAccountDetailPage() {
               <div className="glass-card p-5 flex flex-col">
                 <div className="flex items-center justify-between mb-4">
                   <span className="text-base font-black uppercase tracking-widest text-white">운용 전략</span>
-                  <span className="flex items-center gap-1.5 text-[10px] font-bold text-gray-500 bg-white/[0.05] px-2.5 py-1 rounded-md">
-                    <span className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-pulse" />실시간 AI
-                  </span>
                 </div>
 
                 {account.strategyName && (
@@ -645,7 +629,6 @@ export default function VirtualAccountDetailPage() {
                       <div key={idx} className="bg-white/[0.03] border border-white/[0.05] rounded-xl p-4">
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-2 min-w-0">
-                            <span className="text-sm">{strategy.status === "active" ? "🚀" : "⏸"}</span>
                             <span className="text-sm font-bold text-white truncate max-w-[140px]">{strategy.name}</span>
                           </div>
                           {strategy.status !== "active" && (
@@ -662,8 +645,11 @@ export default function VirtualAccountDetailPage() {
                   })}
                 </div>
 
-                <button className="mt-4 w-full py-2.5 text-xs font-bold text-gray-500 border border-dashed border-white/[0.08] rounded-xl hover:text-gray-300 hover:border-white/[0.15] transition-all duration-200">
-                  + 포워드 테스트 추가
+                <button
+                  onClick={() => setIsStrategyReplaceOpen(true)}
+                  className="mt-4 w-full py-2.5 text-xs font-bold text-white bg-white/[0.06] border border-white/[0.08] rounded-xl hover:bg-white/[0.1] hover:border-white/[0.15] transition-all duration-200"
+                >
+                  전략 교체
                 </button>
               </div>
             </div>
@@ -695,7 +681,7 @@ export default function VirtualAccountDetailPage() {
                 </div>
                 <button
                   onClick={() => setIsSearchOpen(true)}
-                  className="flex items-center gap-1.5 text-xs font-bold text-sky-400 hover:text-sky-300 transition-colors duration-200"
+                  className="flex items-center gap-1.5 text-xs font-bold text-[var(--main-blue)] hover:text-[var(--main-blue)] transition-colors duration-200"
                 >
                   <MagnifyingGlass size={13} />종목 검색
                 </button>
@@ -784,7 +770,7 @@ export default function VirtualAccountDetailPage() {
                             <td className="py-3 px-3 text-right">
                               <span className={`text-[10px] font-black px-2 py-0.5 rounded-md ${
                                 t.type === "buy"
-                                  ? "bg-sky-500/15 text-sky-400"
+                                  ? "bg-sky-500/15 text-[var(--main-blue)]"
                                   : "bg-[var(--main-blue)]/10 text-[var(--main-blue)]"
                               }`}>
                                 {t.type === "buy" ? "매수" : "매도"}
@@ -848,6 +834,27 @@ export default function VirtualAccountDetailPage() {
           isOpen={isTrackSearchOpen}
           onClose={() => setIsTrackSearchOpen(false)}
           onSelect={handleAddTrackedSymbols}
+        />
+
+        <StrategyReplaceModal
+          isOpen={isStrategyReplaceOpen}
+          currentStrategyId={account?.strategyId}
+          currentStrategyName={account?.strategyName}
+          onClose={() => setIsStrategyReplaceOpen(false)}
+          onReplace={async (strategy) => {
+            const updated = await updateAccountStrategy(accountId, strategy.id, strategy.name);
+            setAccount((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    strategyId: updated.strategyId,
+                    strategyName: updated.strategyName,
+                  }
+                : prev
+            );
+            setDbStrategyDescription(strategy.description ?? null);
+            await loadAccountData();
+          }}
         />
       </div>
     </DashboardLayout>

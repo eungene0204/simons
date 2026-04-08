@@ -1,10 +1,10 @@
 "use client";
 
 interface PriceRow {
-  price: number;
+  price?: number;
   sellQuantity?: number;
   buyQuantity?: number;
-  type: "sell" | "buy" | "current";
+  type: "sell" | "buy";
 }
 
 interface BidVolumeProps {
@@ -22,7 +22,9 @@ export default function BidVolume({
     <div className="flex flex-col">
       <div>
         {priceList.map((row, index) => {
-          if (row.type === "current" || !row.buyQuantity) return null;
+          if (typeof row.price !== "number" || !row.buyQuantity) {
+            return <div key={`bid-bar-${index}`} className="h-[36px]" />;
+          }
           const pct = Math.min(
             100,
             Math.max(0, (row.buyQuantity / maxBuyQty) * 100)

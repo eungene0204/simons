@@ -12,6 +12,7 @@
  * 2. POST: name/initialAmount/strategyId 없을 때 400 반환
  * 3. POST: 성공 시 매핑된 계좌 반환
  * 4. PATCH: updatedAt을 명시적으로 update에 전달
+ * 5. PATCH: strategyId/strategyName으로 전략 교체 가능
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -21,6 +22,11 @@ const mockAccountUpdate = vi.fn();
 const mockAccountDelete = vi.fn();
 const mockAccountFindUnique = vi.fn();
 const mockAccountFindMany = vi.fn();
+const mockBacktestResultFindFirst = vi.fn();
+const mockBacktestHistoryFindFirst = vi.fn();
+const mockMarketStateFindUnique = vi.fn();
+const mockMarketStateUpsert = vi.fn();
+const mockStrategyFindUnique = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -30,6 +36,19 @@ vi.mock("@/lib/prisma", () => ({
       delete: mockAccountDelete,
       findUnique: mockAccountFindUnique,
       findMany: mockAccountFindMany,
+    },
+    backtestResult: {
+      findFirst: mockBacktestResultFindFirst,
+    },
+    backtestHistory: {
+      findFirst: mockBacktestHistoryFindFirst,
+    },
+    strategy: {
+      findUnique: mockStrategyFindUnique,
+    },
+    virtualMarketState: {
+      findUnique: mockMarketStateFindUnique,
+      upsert: mockMarketStateUpsert,
     },
   },
 }));
@@ -83,6 +102,21 @@ describe("POST /api/virtual-account", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAccountCreate.mockResolvedValue(MOCK_DB_ACCOUNT);
+    mockBacktestResultFindFirst.mockResolvedValue(null);
+    mockBacktestHistoryFindFirst.mockResolvedValue(null);
+    mockStrategyFindUnique.mockResolvedValue({
+      id: "strategy-123",
+      name: "모멘텀 전략",
+      settings: JSON.stringify({ universe: { id: "kospi200", filters: {} } }),
+    });
+    mockMarketStateUpsert.mockResolvedValue({
+      id: "market-state-1",
+      accountId: "test-uuid-1234",
+      startDate: "2026-01-01",
+      status: "paused",
+      symbols: JSON.stringify(["005930", "000660", "373220"]),
+      updatedAt: new Date(),
+    });
   });
 
   // ── 핵심 회귀: id/updatedAt 명시적 전달 ──────────────────────────────────
@@ -186,6 +220,31 @@ describe("POST /api/virtual-account", () => {
     expect(createArg.data.tradingMode).toBe("manual");
   });
 
+  it("계좌 생성 시 전략 기준 추적 종목 상태를 함께 초기화해야 함", async () => {
+    mockBacktestResultFindFirst.mockResolvedValue({
+      id: "backtest-1",
+      strategyId: "strategy-123",
+      summary: JSON.stringify({
+        topSymbols: ["005930", "000660", "035420"],
+        perAssetStats: {
+          "005930": { symbol: "005930", totalReturn: 20, trades: 3 },
+          "000660": { symbol: "000660", totalReturn: 15, trades: 2 },
+          "035420": { symbol: "035420", totalReturn: 12, trades: 2 },
+        },
+      }),
+    });
+
+    await POST(makePostRequest(VALID_POST_BODY));
+
+    expect(mockStrategyFindUnique).toHaveBeenCalledWith({
+      where: { id: "strategy-123" },
+    });
+    expect(mockMarketStateUpsert).toHaveBeenCalledOnce();
+    const upsertArg = mockMarketStateUpsert.mock.calls[0][0];
+    expect(JSON.parse(upsertArg.create.symbols)).toEqual(["005930", "000660", "035420"]);
+    expect(upsertArg.create.status).toBe("paused");
+  });
+
   // ── Prisma 오류 처리 ────────────────────────────────────────────────────────
 
   it("Prisma 오류 발생 시 500 반환", async () => {
@@ -204,6 +263,22 @@ describe("PATCH /api/virtual-account/[id]", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAccountUpdate.mockResolvedValue(MOCK_DB_ACCOUNT);
+    mockBacktestResultFindFirst.mockResolvedValue(null);
+    mockBacktestHistoryFindFirst.mockResolvedValue(null);
+    mockMarketStateFindUnique.mockResolvedValue(null);
+    mockStrategyFindUnique.mockResolvedValue({
+      id: "strategy-999",
+      name: "새 전략",
+      settings: JSON.stringify({ universe: { id: "kospi200", filters: {} } }),
+    });
+    mockMarketStateUpsert.mockResolvedValue({
+      id: "market-state-1",
+      accountId: "test-uuid-1234",
+      startDate: "2026-01-01",
+      status: "running",
+      symbols: JSON.stringify([]),
+      updatedAt: new Date(),
+    });
   });
 
   // ── 핵심 회귀: updatedAt 명시적 전달 ──────────────────────────────────────
@@ -218,6 +293,45 @@ describe("PATCH /api/virtual-account/[id]", () => {
 
     expect(updateArg.data).toHaveProperty("updatedAt");
     expect(updateArg.data.updatedAt).toBeInstanceOf(Date);
+  });
+
+  it("전략 교체 시 strategyId와 strategyName을 함께 update에 전달해야 함", async () => {
+    mockBacktestResultFindFirst.mockResolvedValue({
+      id: "backtest-1",
+      strategyId: "strategy-999",
+      summary: JSON.stringify({
+        topSymbols: ["005930", "000660", "035420"],
+      }),
+    });
+
+    mockAccountUpdate.mockResolvedValue({
+      ...MOCK_DB_ACCOUNT,
+      strategyId: "strategy-999",
+      strategyName: "새 전략",
+    });
+
+    const res = await PATCH(
+      makePatchRequest("test-uuid-1234", {
+        strategyId: "strategy-999",
+        strategyName: "새 전략",
+      }),
+      { params: { id: "test-uuid-1234" } }
+    );
+
+    expect(mockAccountUpdate).toHaveBeenCalledOnce();
+    const updateArg = mockAccountUpdate.mock.calls[0][0];
+    expect(updateArg.data.strategyId).toBe("strategy-999");
+    expect(updateArg.data.strategyName).toBe("새 전략");
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.strategyId).toBe("strategy-999");
+    expect(body.strategyName).toBe("새 전략");
+    expect(mockBacktestResultFindFirst).toHaveBeenCalledOnce();
+    expect(mockMarketStateUpsert).toHaveBeenCalledOnce();
+    const upsertArg = mockMarketStateUpsert.mock.calls[0][0];
+    expect(JSON.parse(upsertArg.create.symbols)).toEqual(["005930", "000660", "035420"]);
+    expect(JSON.parse(upsertArg.update.symbols)).toEqual(["005930", "000660", "035420"]);
   });
 
   it("tradingMode 업데이트 시 해당 값이 전달됨", async () => {

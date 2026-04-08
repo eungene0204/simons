@@ -4,10 +4,10 @@ import { useEffect, useState } from "react";
 import { PriceRow } from "./PriceRow";
 
 interface PriceRowData {
-  price: number;
+  price?: number;
   sellQuantity?: number;
   buyQuantity?: number;
-  type: "sell" | "buy" | "current";
+  type: "sell" | "buy";
 }
 
 interface PriceListProps {
@@ -57,10 +57,13 @@ export default function PriceList({
   const buyRows = priceList.filter((row) => row.type === "buy");
 
   return (
-    <div className="flex flex-col relative h-full overflow-y-auto thin-scrollbar" aria-live="polite" aria-atomic="true">
+    <div className="flex flex-col relative h-full" aria-live="polite" aria-atomic="true">
       {/* 매도 호가 (위) */}
       <div>
         {sellRows.map((row, index) => {
+          if (typeof row.price !== "number") {
+            return <div key={`sell-${index}`} className="h-[36px] px-3" />;
+          }
           const pctChange = percentChange(row.price);
           const side = "ask";
           const isCurrent = currentPrice ? Math.abs(row.price - currentPrice) < 1 : false;
@@ -84,6 +87,9 @@ export default function PriceList({
       {/* 매수 호가 (아래) */}
       <div>
         {buyRows.map((row, index) => {
+          if (typeof row.price !== "number") {
+            return <div key={`buy-${index}`} className="h-[36px] px-3" />;
+          }
           const pctChange = percentChange(row.price);
           const side = "bid";
           const isCurrent = currentPrice ? Math.abs(row.price - currentPrice) < 1 : false;

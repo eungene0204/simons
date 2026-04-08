@@ -75,6 +75,19 @@ const VALID_BACKTEST_RESULT = {
   equity: [10000000, 10500000, 11000000],
   dates: ["2023-01-01", "2023-06-01", "2024-01-01"],
   tradesList: [{ symbol: "005930", pnl: 50000 }],
+  perAssetStats: {
+    A: { symbol: "A", totalReturn: 1, trades: 2, profit: 10, winRate: 50 },
+    B: { symbol: "B", totalReturn: 5, trades: 3, profit: 50, winRate: 60 },
+    C: { symbol: "C", totalReturn: 3, trades: 4, profit: 30, winRate: 55 },
+    D: { symbol: "D", totalReturn: 8, trades: 1, profit: 80, winRate: 100 },
+    E: { symbol: "E", totalReturn: 2, trades: 2, profit: 20, winRate: 50 },
+    F: { symbol: "F", totalReturn: 9, trades: 5, profit: 90, winRate: 80 },
+    G: { symbol: "G", totalReturn: 7, trades: 2, profit: 70, winRate: 75 },
+    H: { symbol: "H", totalReturn: 4, trades: 3, profit: 40, winRate: 66 },
+    I: { symbol: "I", totalReturn: 6, trades: 1, profit: 60, winRate: 100 },
+    J: { symbol: "J", totalReturn: 10, trades: 6, profit: 100, winRate: 83 },
+    K: { symbol: "K", totalReturn: 0.5, trades: 1, profit: 5, winRate: 50 },
+  },
 };
 
 // ── 테스트 ──────────────────────────────────────────────────────────────────
@@ -226,6 +239,18 @@ describe("POST /api/strategy/save-with-backtest", () => {
     expect(summary.aiScore).toBe(87);
     expect(summary.aiStrengths).toEqual(["강점 1", "강점 2"]);
     expect(summary.aiRisks).toEqual(["리스크 1"]);
+  });
+
+  it("summary에 수익률 상위 10개 종목과 해당 스탯이 저장됨", async () => {
+    await POST(
+      makeRequest({ name: "AI 전략", dsl: VALID_DSL, backtestResult: VALID_BACKTEST_RESULT })
+    );
+
+    const createArg = mockBacktestResultCreate.mock.calls[0][0];
+    const summary = JSON.parse(createArg.data.summary);
+    expect(summary.topSymbols).toEqual(["J", "F", "D", "G", "I", "B", "H", "C", "E", "A"]);
+    expect(summary.topAssetStats).toHaveLength(10);
+    expect(summary.topAssetStats[0]).toMatchObject({ symbol: "J", totalReturn: 10, trades: 6 });
   });
 
   // ── Prisma 오류 처리 ────────────────────────────────────────────────────────

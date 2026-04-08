@@ -5,8 +5,8 @@ import {
   createChart,
   IChartApi,
   ISeriesApi,
+  BusinessDay,
   ColorType,
-  UTCTimestamp,
   CandlestickSeries,
   LineSeries,
   HistogramSeries,
@@ -44,10 +44,18 @@ const calculateEMA = (data: number[], period: number): number[] => {
   return result;
 };
 
-// Convert YYYY-MM-DD to timestamp
-const dateToTimestamp = (dateStr: string): UTCTimestamp => {
-  const date = new Date(dateStr + "T00:00:00Z");
-  return (date.getTime() / 1000) as UTCTimestamp;
+// Use BusinessDay for daily/weekly/monthly candles to avoid timezone drift.
+const dateToBusinessDay = (dateStr: string): BusinessDay => {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  return { year, month, day };
+};
+
+const formatBusinessDay = (time: BusinessDay | string): string => {
+  if (typeof time === "string") return time;
+  const year = String(time.year);
+  const month = String(time.month).padStart(2, "0");
+  const day = String(time.day).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 };
 
 export default function CandlestickChart({ data }: CandlestickChartProps) {
@@ -60,6 +68,7 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
   const ema60SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const ema120SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const hasAutoFittedRef = useRef(false);
 
   const chartPeriod: ChartPeriod = "day";
 
@@ -218,7 +227,7 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
   const candlestickData = useMemo(() => {
     if (aggregatedData.length === 0) return [];
     return aggregatedData.map((item) => ({
-      time: dateToTimestamp(item.time),
+      time: dateToBusinessDay(item.time),
       open: item.open,
       high: item.high,
       low: item.low,
@@ -231,7 +240,7 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
     return aggregatedData.map((item) => {
       const isUp = item.close >= item.open;
       return {
-        time: dateToTimestamp(item.time),
+        time: dateToBusinessDay(item.time),
         value: item.volume,
         color: isUp ? "#ef4444" : "#3b82f6",
       };
@@ -241,7 +250,7 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
   const ema5Data = useMemo(() => {
     if (aggregatedData.length === 0 || ema5.length === 0) return [];
     return aggregatedData.map((item, index) => ({
-      time: dateToTimestamp(item.time),
+      time: dateToBusinessDay(item.time),
       value: ema5[index] || item.close,
     }));
   }, [aggregatedData, ema5]);
@@ -249,7 +258,7 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
   const ema20Data = useMemo(() => {
     if (aggregatedData.length === 0 || ema20.length === 0) return [];
     return aggregatedData.map((item, index) => ({
-      time: dateToTimestamp(item.time),
+      time: dateToBusinessDay(item.time),
       value: ema20[index] || item.close,
     }));
   }, [aggregatedData, ema20]);
@@ -257,7 +266,7 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
   const ema60Data = useMemo(() => {
     if (aggregatedData.length === 0 || ema60.length === 0) return [];
     return aggregatedData.map((item, index) => ({
-      time: dateToTimestamp(item.time),
+      time: dateToBusinessDay(item.time),
       value: ema60[index] || item.close,
     }));
   }, [aggregatedData, ema60]);
@@ -265,7 +274,7 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
   const ema120Data = useMemo(() => {
     if (aggregatedData.length === 0 || ema120.length === 0) return [];
     return aggregatedData.map((item, index) => ({
-      time: dateToTimestamp(item.time),
+      time: dateToBusinessDay(item.time),
       value: ema120[index] || item.close,
     }));
   }, [aggregatedData, ema120]);
@@ -318,6 +327,10 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
             background: { type: ColorType.Solid, color: "#1a1a1a" },
             textColor: "#9ca3af",
           },
+          localization: {
+            locale: "ko-KR",
+            dateFormat: "yyyy-MM-dd",
+          },
           grid: {
             vertLines: { color: "#374151", style: 1 },
             horzLines: { color: "#374151", style: 1 },
@@ -325,9 +338,15 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
           width,
           height,
           timeScale: {
-            timeVisible: true,
+            timeVisible: false,
             secondsVisible: false,
             borderColor: "#4b5563",
+            tickMarkFormatter: (time) => {
+              if (typeof time === "object" && time !== null && "year" in time) {
+                return formatBusinessDay(time as BusinessDay);
+              }
+              return String(time);
+            },
           },
           rightPriceScale: {
             borderColor: "#4b5563",
@@ -455,6 +474,7 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
         // Fit content
         if (candlestickData.length > 0) {
           chart.timeScale().fitContent();
+          hasAutoFittedRef.current = true;
         }
 
         // Use ResizeObserver for better resize handling
@@ -500,6 +520,7 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
       ema20SeriesRef.current = null;
       ema60SeriesRef.current = null;
       ema120SeriesRef.current = null;
+      hasAutoFittedRef.current = false;
     };
   }, []); // Only initialize once
 
@@ -526,9 +547,10 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
       volumeSeriesRef.current.setData(volumeData);
     }
 
-    // Fit content after data update
-    if (candlestickData.length > 0 && chartRef.current) {
+    // Auto-fit only once on first data load. Realtime updates should not reset user zoom.
+    if (candlestickData.length > 0 && chartRef.current && !hasAutoFittedRef.current) {
       chartRef.current.timeScale().fitContent();
+      hasAutoFittedRef.current = true;
     }
   }, [candlestickData, ema5Data, ema20Data, ema60Data, ema120Data, volumeData]);
 

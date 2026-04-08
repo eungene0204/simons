@@ -6,6 +6,11 @@ export interface BatchQuoteItem {
   price: number;
   changePercent: number;
   volume: number;
+  open?: number;
+  high?: number;
+  low?: number;
+  previousClose?: number;
+  date?: string;
 }
 
 // POST body: { symbols: string[] }
@@ -23,6 +28,18 @@ export async function POST(request: NextRequest) {
   ];
 
   try {
+    try {
+      await fetch(`${BACKEND_URL}/market/subscribe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbols }),
+        signal: AbortSignal.timeout(3000),
+        cache: "no-store",
+      });
+    } catch {
+      // 실시간 구독 실패 시에도 현재가 조회는 계속 진행한다.
+    }
+
     const res = await fetch(`${BACKEND_URL}/market/prices`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -54,6 +71,11 @@ export async function POST(request: NextRequest) {
           price: q.close,
           changePercent,
           volume: q.volume ?? 0,
+          open: q.open,
+          high: q.high,
+          low: q.low,
+          previousClose: q.prev_close,
+          date: q.date,
         };
       } else {
         result[sym] = { price: 0, changePercent: 0, volume: 0 };

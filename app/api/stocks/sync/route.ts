@@ -41,8 +41,13 @@ export async function POST(_request: NextRequest) {
       count: data.count,
       kospi: data.kospi,
       kosdaq: data.kosdaq,
+      added: data.added ?? 0,
+      delisted: data.delisted ?? 0,
+      added_symbols: data.added_symbols ?? [],
+      delisted_symbols: data.delisted_symbols ?? [],
+      date: data.date ?? null,
       validation_warnings: data.validation_warnings ?? [],
-      message: `${data.count}개 종목 저장 완료 (KOSPI ${data.kospi}, KOSDAQ ${data.kosdaq})`,
+      message: `${data.count}개 종목 저장 완료 (KOSPI ${data.kospi}, KOSDAQ ${data.kosdaq}, 신규 ${data.added ?? 0}, 상폐 ${data.delisted ?? 0})`,
     });
   } catch (error) {
     console.error("Failed to sync stock list:", error);

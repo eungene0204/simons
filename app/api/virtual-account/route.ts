@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { resolveTrackedSymbolsForStrategy } from '@/lib/strategy-tracked-symbols';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
 
@@ -75,6 +76,10 @@ export async function POST(request: Request) {
       );
     }
 
+    const strategy = await prisma.strategy.findUnique({
+      where: { id: strategyId },
+    });
+
     const account = await prisma.virtualAccount.create({
       data: {
         id: crypto.randomUUID(),
@@ -88,6 +93,35 @@ export async function POST(request: Request) {
       },
       include: { VirtualPosition: true },
     });
+
+    if (strategy) {
+      const resolved = await resolveTrackedSymbolsForStrategy({
+        strategyId,
+        strategyName: strategy.name,
+        strategySettings: strategy.settings,
+      });
+
+      if (resolved.symbols.length > 0) {
+        const today = new Date().toISOString().split("T")[0];
+        await prisma.virtualMarketState.upsert({
+          where: { accountId: account.id },
+          create: {
+            id: crypto.randomUUID(),
+            accountId: account.id,
+            startDate: today,
+            status: tradingMode === "auto" ? "running" : "paused",
+            symbols: JSON.stringify(resolved.symbols),
+            updatedAt: new Date(),
+          },
+          update: {
+            startDate: today,
+            status: tradingMode === "auto" ? "running" : "paused",
+            symbols: JSON.stringify(resolved.symbols),
+            updatedAt: new Date(),
+          },
+        });
+      }
+    }
 
     return NextResponse.json(mapAccount(account, {}));
   } catch (error) {

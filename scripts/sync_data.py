@@ -3,6 +3,7 @@ import sys
 import json
 import argparse
 import re
+from zoneinfo import ZoneInfo
 import pandas as pd
 import polars as pl
 import FinanceDataReader as fdr
@@ -25,12 +26,23 @@ def _notify_backend(event: str, **kwargs):
     except Exception:
         pass
 
+
+def _now_kst() -> datetime:
+    return datetime.now(KST)
+
 # Add root and backend to path
 sys.path.append(os.getcwd())
 sys.path.append(os.path.join(os.getcwd(), "backend"))
 
 from backend.engine.data_fetcher import fetch_and_enrich
 from backend.engine.sector_mapper import get_sector_from_industry
+from backend.universe_history import (
+    build_universe_sync_log_lines,
+    load_universe_history,
+    record_universe_sync,
+)
+
+KST = ZoneInfo("Asia/Seoul")
 
 # 알려진 주요 종목 — sync 후 데이터 정합성 검증에 사용
 KNOWN_STOCKS = {
@@ -129,7 +141,7 @@ def sync_symbols(stocks_path):
             print(f"  FDR StockListing도 실패: {e2}")
 
     if not new_list:
-        return [], []
+        return [], [], []
 
     # Compare with existing
     existing_stocks = []
@@ -138,13 +150,22 @@ def sync_symbols(stocks_path):
             existing_stocks = json.load(f)
 
     existing_symbols = {s['symbol'] for s in existing_stocks}
+    new_symbols_set = {s['symbol'] for s in new_list}
     new_symbols_found = [s for s in new_list if s['symbol'] not in existing_symbols]
+    delisted_symbols = [s for s in existing_stocks if s['symbol'] not in new_symbols_set]
 
     if new_symbols_found:
         print(f"Found {len(new_symbols_found)} new symbols!")
         for ns in new_symbols_found[:5]:
             print(f"  - {ns['name']} ({ns['symbol']})")
         if len(new_symbols_found) > 5:
+            print("  ...")
+
+    if delisted_symbols:
+        print(f"Found {len(delisted_symbols)} delisted/removed symbols!")
+        for ds in delisted_symbols[:5]:
+            print(f"  - {ds['name']} ({ds['symbol']})")
+        if len(delisted_symbols) > 5:
             print("  ...")
 
     # Atomic write (tmp → rename)
@@ -154,7 +175,7 @@ def sync_symbols(stocks_path):
     os.replace(tmp_path, stocks_path)
 
     print(f"Updated {stocks_path} with {len(new_list)} symbols.")
-    return new_list, new_symbols_found
+    return new_list, new_symbols_found, delisted_symbols
 
 def update_ohlcv_incremental(symbol, data_dir):
     """Update parquet file with latest data if exists, else full download."""
@@ -246,14 +267,14 @@ def validate_stock_list(stocks: list) -> list[str]:
     return warnings
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description="Sync Korean stock data")
     parser.add_argument(
         "--symbols-only",
         action="store_true",
         help="종목 목록(korea-stocks.json)만 업데이트하고 OHLCV 다운로드는 건너뜀",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     base_dir = Path(os.getcwd())
     stocks_path = base_dir / "data" / "korea-stocks.json"
@@ -265,7 +286,7 @@ def main():
     _notify_backend("start")
 
     # 1. Sync Symbols
-    stocks, new_symbols = sync_symbols(str(stocks_path))
+    stocks, new_symbols, delisted_symbols = sync_symbols(str(stocks_path))
 
     if not stocks:
         print("[WARNING] Symbol sync failed. Falling back to existing korea-stocks.json...")
@@ -273,9 +294,13 @@ def main():
             with open(stocks_path, 'r', encoding='utf-8') as f:
                 stocks = json.load(f)
             new_symbols = []
+            delisted_symbols = []
+            symbol_sync_ok = False
         else:
             print("[ERROR] No existing stock list found. Aborting.")
-            return
+            return 1
+    else:
+        symbol_sync_ok = True
 
     # 2. Validate
     warnings = validate_stock_list(stocks)
@@ -286,9 +311,32 @@ def main():
     else:
         print("[OK] 주요 종목 검증 통과")
 
+    now_kst = _now_kst()
+    kospi_count = sum(1 for s in stocks if s.get("market") == "KOSPI")
+    kosdaq_count = sum(1 for s in stocks if s.get("market") == "KOSDAQ")
+    history_entry = record_universe_sync(
+        date=now_kst.strftime("%Y-%m-%d"),
+        synced_at=now_kst.isoformat(),
+        total_count=len(stocks),
+        kospi_count=kospi_count,
+        kosdaq_count=kosdaq_count,
+        added=new_symbols,
+        delisted=delisted_symbols,
+    )
+    print(
+        "[OK] 유니버스 이력 기록 완료 "
+        f"({history_entry['date']} total={history_entry['totalCount']}, "
+        f"added={history_entry['addedCount']}, delisted={history_entry['delistedCount']})"
+    )
+    for line in build_universe_sync_log_lines(history_entry, load_universe_history()):
+        print(line)
+
     if args.symbols_only:
         print(f"\n[--symbols-only] OHLCV 동기화 건너뜀. 종목 목록 업데이트 완료 ({len(stocks)}개)")
-        return
+        if not symbol_sync_ok:
+            print("[ERROR] 종목 목록 실시간 갱신 실패: 기존 korea-stocks.json으로 폴백했습니다.")
+            return 2
+        return 0
 
     # 3. Sync OHLCV
     print(f"Starting OHLCV synchronization for {len(stocks)} symbols...")
@@ -305,16 +353,28 @@ def main():
     print(f"\nFinal Summary:")
     print(f"- Total Stocks: {len(stocks)}")
     print(f"- New symbols added: {len(new_symbols)}")
+    print(f"- Delisted symbols removed: {len(delisted_symbols)}")
     print(f"- OHLCV Update Success: {success_count}")
     print(f"- OHLCV Update Failure: {fail_count}")
 
     _notify_backend(
         "end",
+        date=history_entry["date"],
         total=len(stocks),
+        kospi=kospi_count,
+        kosdaq=kosdaq_count,
         new_symbols=len(new_symbols),
+        added_symbols=new_symbols,
+        delisted_symbols=delisted_symbols,
         success=success_count,
         fail=fail_count,
     )
 
+    if not symbol_sync_ok:
+        print("[ERROR] 종목 목록 실시간 갱신 실패: 기존 korea-stocks.json으로 OHLCV만 갱신했습니다.")
+        return 2
+
+    return 0
+
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
