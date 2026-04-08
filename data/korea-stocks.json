@@ -14,6 +14,20 @@
     "industry": "절연선 및 케이블 제조업"
   },
   {
+    "symbol": "0126Z0",
+    "name": "삼성에피스홀딩스",
+    "market": "KOSPI",
+    "sector": "은행/금융지주",
+    "industry": "기타 금융업"
+  },
+  {
+    "symbol": "0120G0",
+    "name": "삼양바이오팜",
+    "market": "KOSPI",
+    "sector": "바이오/제약",
+    "industry": "의약품 제조업"
+  },
+  {
     "symbol": "317450",
     "name": "명인제약",
     "market": "KOSPI",
@@ -26,6 +40,13 @@
     "market": "KOSPI",
     "sector": "조선/해운",
     "industry": "선박 및 보트 건조업"
+  },
+  {
+    "symbol": "0030R0",
+    "name": "대신밸류리츠",
+    "market": "KOSPI",
+    "sector": "부동산",
+    "industry": "신탁업 및 집합투자업"
   },
   {
     "symbol": "483650",
@@ -5859,8 +5880,50 @@
     "industry": "연료용 가스 제조 및 배관공급업"
   },
   {
+    "symbol": "0010F0",
+    "name": "보원케미칼",
+    "market": "KOSDAQ",
+    "sector": "화학",
+    "industry": "플라스틱제품 제조업"
+  },
+  {
+    "symbol": "0132G0",
+    "name": "교보20호스팩",
+    "market": "KOSDAQ",
+    "sector": "은행/금융지주",
+    "industry": "기타 금융업"
+  },
+  {
+    "symbol": "0007J0",
+    "name": "인벤테라",
+    "market": "KOSDAQ",
+    "sector": "기타 서비스",
+    "industry": "자연과학 및 공학 연구개발업"
+  },
+  {
+    "symbol": "0130D0",
+    "name": "신한제17호스팩",
+    "market": "KOSDAQ",
+    "sector": "은행/금융지주",
+    "industry": "금융 지원 서비스업"
+  },
+  {
     "symbol": "394420",
     "name": "리센스메디컬",
+    "market": "KOSDAQ",
+    "sector": "의료기기",
+    "industry": "의료용 기기 제조업"
+  },
+  {
+    "symbol": "0130H0",
+    "name": "엔에이치스팩33호",
+    "market": "KOSDAQ",
+    "sector": "은행/금융지주",
+    "industry": "금융 지원 서비스업"
+  },
+  {
+    "symbol": "0088M0",
+    "name": "메쥬",
     "market": "KOSDAQ",
     "sector": "의료기기",
     "industry": "의료용 기기 제조업"
@@ -5880,11 +5943,46 @@
     "industry": "자연과학 및 공학 연구개발업"
   },
   {
+    "symbol": "0082N0",
+    "name": "카나프테라퓨틱스",
+    "market": "KOSDAQ",
+    "sector": "기타 서비스",
+    "industry": "자연과학 및 공학 연구개발업"
+  },
+  {
+    "symbol": "0011A0",
+    "name": "액스비스",
+    "market": "KOSDAQ",
+    "sector": "IT 하드웨어",
+    "industry": "기타 전기장비 제조업"
+  },
+  {
     "symbol": "458350",
     "name": "에스팀",
     "market": "KOSDAQ",
     "sector": "기타 서비스",
     "industry": "기타 사업지원 서비스업"
+  },
+  {
+    "symbol": "0001A0",
+    "name": "덕양에너젠",
+    "market": "KOSDAQ",
+    "sector": "에너지/원자력",
+    "industry": "연료용 가스 제조 및 배관공급업"
+  },
+  {
+    "symbol": "0115H0",
+    "name": "삼성스팩13호",
+    "market": "KOSDAQ",
+    "sector": "은행/금융지주",
+    "industry": "금융 지원 서비스업"
+  },
+  {
+    "symbol": "0004V0",
+    "name": "엔비알모션",
+    "market": "KOSDAQ",
+    "sector": "화학",
+    "industry": "기타 금속 가공제품 제조업"
   },
   {
     "symbol": "493330",
@@ -5915,6 +6013,41 @@
     "industry": "의료용 기기 제조업"
   },
   {
+    "symbol": "0097F0",
+    "name": "미래에셋비전스팩10호",
+    "market": "KOSDAQ",
+    "sector": "은행/금융지주",
+    "industry": "금융 지원 서비스업"
+  },
+  {
+    "symbol": "0099W0",
+    "name": "미래에셋비전스팩11호",
+    "market": "KOSDAQ",
+    "sector": "은행/금융지주",
+    "industry": "금융 지원 서비스업"
+  },
+  {
+    "symbol": "0013V0",
+    "name": "삼진식품",
+    "market": "KOSDAQ",
+    "sector": "수산가공",
+    "industry": "수산물 가공 및 저장 처리업"
+  },
+  {
+    "symbol": "0101C0",
+    "name": "하나36호스팩",
+    "market": "KOSDAQ",
+    "sector": "은행/금융지주",
+    "industry": "금융 지원 서비스업"
+  },
+  {
+    "symbol": "0099X0",
+    "name": "IBKS제25호스팩",
+    "market": "KOSDAQ",
+    "sector": "은행/금융지주",
+    "industry": "금융 지원 서비스업"
+  },
+  {
     "symbol": "476830",
     "name": "알지노믹스",
     "market": "KOSDAQ",
@@ -5927,6 +6060,27 @@
     "market": "KOSDAQ",
     "sector": "우주항공/방산",
     "industry": "항공기,우주선 및 부품 제조업"
+  },
+  {
+    "symbol": "0007C0",
+    "name": "아크릴",
+    "market": "KOSDAQ",
+    "sector": "소프트웨어/플랫폼",
+    "industry": "소프트웨어 개발 및 공급업"
+  },
+  {
+    "symbol": "0088D0",
+    "name": "메리츠제1호스팩",
+    "market": "KOSDAQ",
+    "sector": "부동산",
+    "industry": "금융 지원 서비스업"
+  },
+  {
+    "symbol": "0098T0",
+    "name": "교보19호스팩",
+    "market": "KOSDAQ",
+    "sector": "은행/금융지주",
+    "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "464490",
@@ -5943,6 +6097,13 @@
     "industry": "금융 지원 서비스업"
   },
   {
+    "symbol": "0105P0",
+    "name": "유진스팩12호",
+    "market": "KOSDAQ",
+    "sector": "은행/금융지주",
+    "industry": "금융 지원 서비스업"
+  },
+  {
     "symbol": "261520",
     "name": "이지스",
     "market": "KOSDAQ",
@@ -5950,11 +6111,74 @@
     "industry": "소프트웨어 개발 및 공급업"
   },
   {
+    "symbol": "0015S0",
+    "name": "페스카로",
+    "market": "KOSDAQ",
+    "sector": "기타 서비스",
+    "industry": "그외 기타 전문, 과학 및 기술 서비스업"
+  },
+  {
     "symbol": "950250",
     "name": "테라뷰",
     "market": "KOSDAQ",
     "sector": "은행/금융지주",
     "industry": "기타 금융업"
+  },
+  {
+    "symbol": "0054V0",
+    "name": "엔에이치스팩32호",
+    "market": "KOSDAQ",
+    "sector": "은행/금융지주",
+    "industry": "금융 지원 서비스업"
+  },
+  {
+    "symbol": "0009K0",
+    "name": "에임드바이오",
+    "market": "KOSDAQ",
+    "sector": "바이오/제약",
+    "industry": "자연과학 및 공학 연구개발업"
+  },
+  {
+    "symbol": "0096D0",
+    "name": "미래에셋비전스팩9호",
+    "market": "KOSDAQ",
+    "sector": "은행/금융지주",
+    "industry": "금융 지원 서비스업"
+  },
+  {
+    "symbol": "0096B0",
+    "name": "삼성스팩12호",
+    "market": "KOSDAQ",
+    "sector": "은행/금융지주",
+    "industry": "기타 금융업"
+  },
+  {
+    "symbol": "0093G0",
+    "name": "미래에셋비전스팩8호",
+    "market": "KOSDAQ",
+    "sector": "은행/금융지주",
+    "industry": "금융 지원 서비스업"
+  },
+  {
+    "symbol": "0015N0",
+    "name": "아로마티카",
+    "market": "KOSDAQ",
+    "sector": "화학",
+    "industry": "기타 화학제품 제조업"
+  },
+  {
+    "symbol": "0091W0",
+    "name": "신영스팩11호",
+    "market": "KOSDAQ",
+    "sector": "은행/금융지주",
+    "industry": "금융 지원 서비스업"
+  },
+  {
+    "symbol": "0068Y0",
+    "name": "비엔케이제3호스팩",
+    "market": "KOSDAQ",
+    "sector": "은행/금융지주",
+    "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "488900",
@@ -5976,6 +6200,13 @@
     "market": "KOSDAQ",
     "sector": "미디어/엔터",
     "industry": "영화, 비디오물, 방송프로그램 제작 및 배급업"
+  },
+  {
+    "symbol": "0015G0",
+    "name": "그린광학",
+    "market": "KOSDAQ",
+    "sector": "IT 하드웨어",
+    "industry": "사진장비 및 광학기기 제조업"
   },
   {
     "symbol": "459550",
@@ -6020,6 +6251,20 @@
     "industry": "의약품 제조업"
   },
   {
+    "symbol": "0072Z0",
+    "name": "KB제33호스팩",
+    "market": "KOSDAQ",
+    "sector": "은행/금융지주",
+    "industry": "금융 지원 서비스업"
+  },
+  {
+    "symbol": "0071M0",
+    "name": "삼성스팩11호",
+    "market": "KOSDAQ",
+    "sector": "은행/금융지주",
+    "industry": "금융 지원 서비스업"
+  },
+  {
     "symbol": "488280",
     "name": "에스투더블유",
     "market": "KOSDAQ",
@@ -6048,6 +6293,20 @@
     "industry": "광고업"
   },
   {
+    "symbol": "0044K0",
+    "name": "삼성스팩10호",
+    "market": "KOSDAQ",
+    "sector": "은행/금융지주",
+    "industry": "금융 지원 서비스업"
+  },
+  {
+    "symbol": "0010V0",
+    "name": "제이피아이헬스케어",
+    "market": "KOSDAQ",
+    "sector": "의료기기",
+    "industry": "의료용 기기 제조업"
+  },
+  {
     "symbol": "125490",
     "name": "한라캐스트",
     "market": "KOSDAQ",
@@ -6055,11 +6314,25 @@
     "industry": "자동차 신품 부품 제조업"
   },
   {
+    "symbol": "0008Z0",
+    "name": "에스엔시스",
+    "market": "KOSDAQ",
+    "sector": "에너지/원자력",
+    "industry": "전동기, 발전기 및 전기 변환 · 공급 · 제어 장치 제조업"
+  },
+  {
     "symbol": "484590",
     "name": "삼양컴텍",
     "market": "KOSDAQ",
     "sector": "기타 제조업",
     "industry": "무기 및 총포탄 제조업"
+  },
+  {
+    "symbol": "0041B0",
+    "name": "교보18호스팩",
+    "market": "KOSDAQ",
+    "sector": "은행/금융지주",
+    "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "456160",
@@ -6074,6 +6347,13 @@
     "market": "KOSDAQ",
     "sector": "바이오/제약",
     "industry": "기초 의약물질 제조업"
+  },
+  {
+    "symbol": "0041L0",
+    "name": "하나35호스팩",
+    "market": "KOSDAQ",
+    "sector": "은행/금융지주",
+    "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "468530",
@@ -6104,6 +6384,20 @@
     "industry": "전자부품 제조업"
   },
   {
+    "symbol": "0004Y0",
+    "name": "디비금융제14호스팩",
+    "market": "KOSDAQ",
+    "sector": "은행/금융지주",
+    "industry": "기타 금융업"
+  },
+  {
+    "symbol": "0041J0",
+    "name": "엘에스스팩1호",
+    "market": "KOSDAQ",
+    "sector": "은행/금융지주",
+    "industry": "금융 지원 서비스업"
+  },
+  {
     "symbol": "331740",
     "name": "아우토크립트",
     "market": "KOSDAQ",
@@ -6123,6 +6417,13 @@
     "market": "KOSDAQ",
     "sector": "반도체",
     "industry": "반도체 제조업"
+  },
+  {
+    "symbol": "0037T0",
+    "name": "KB제32호스팩",
+    "market": "KOSDAQ",
+    "sector": "은행/금융지주",
+    "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "463020",

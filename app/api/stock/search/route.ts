@@ -3,6 +3,7 @@ import { getStockAPIProvider } from "@/lib/stock-api";
 import { cache, cacheKeys, cacheTTL } from "@/lib/cache";
 import { StockAPIError } from "@/lib/stock-api/base";
 import { loadStockList } from "@/lib/krx-stocks";
+import { scoreSmartMatch, normalizeSearchText } from "@/lib/smart-search";
 import type { StockSearchResult } from "@/types/stock";
 
 export async function GET(request: NextRequest) {
@@ -27,42 +28,39 @@ export async function GET(request: NextRequest) {
     // 먼저 저장된 한국 종목 목록에서 검색
     try {
       const koreaStocks = await loadStockList();
-      const lowerQuery = query.toLowerCase();
+      const normalizedQuery = normalizeSearchText(query);
       
-      // 한국 종목 검색 (종목 코드 또는 종목명으로 검색)
-      const koreaResults: StockSearchResult[] = koreaStocks
-        .filter((stock) => {
-          const symbolMatch = stock.symbol.includes(query);
-          const nameMatch = stock.name.toLowerCase().includes(lowerQuery);
-          return symbolMatch || nameMatch;
+      // 한국 종목 검색: 종목 코드, 이름, 초성, 순서 기반 부분 일치까지 반영
+      const koreaResults: Array<StockSearchResult & { _score: number }> = koreaStocks
+        .map((stock) => {
+          const score =
+            scoreSmartMatch(normalizedQuery, [stock.symbol]) * 5 +
+            scoreSmartMatch(normalizedQuery, [stock.name]) * 4 +
+            scoreSmartMatch(normalizedQuery, [stock.market, stock.sector, stock.industry]);
+
+          return {
+            symbol: stock.symbol,
+            name: stock.name,
+            type: stock.market,
+            region: "KR",
+            currency: "KRW",
+            matchScore: score,
+            sector: stock.sector,
+            industry: stock.industry,
+            _score: score,
+          };
         })
-        .map((stock) => ({
-          symbol: stock.symbol,
-          name: stock.name,
-          type: stock.market,
-          region: "KR",
-          currency: "KRW",
-          matchScore: 1.0,
-          sector: stock.sector,
-          industry: stock.industry,
-        }));
+        .filter((stock) => stock._score > 0);
 
       // 한국 종목이 있으면 반환
       if (koreaResults.length > 0) {
-        // 관련도 순으로 정렬 (정확한 일치 우선)
         const sortedResults = koreaResults.sort((a, b) => {
-          const aExactSymbol = a.symbol === query;
-          const bExactSymbol = b.symbol === query;
-          const aExactName = a.name.toLowerCase() === lowerQuery;
-          const bExactName = b.name.toLowerCase() === lowerQuery;
-          
-          if (aExactSymbol && !bExactSymbol) return -1;
-          if (!aExactSymbol && bExactSymbol) return 1;
-          if (aExactName && !bExactName) return -1;
-          if (!aExactName && bExactName) return 1;
-          
+          if (b._score !== a._score) {
+            return b._score - a._score;
+          }
+
           return a.name.localeCompare(b.name, "ko");
-        });
+        }).map(({ _score, ...stock }) => stock);
 
         // Cache the result
         cache.set(cacheKey, sortedResults, cacheTTL.search);

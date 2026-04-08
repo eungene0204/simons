@@ -13,7 +13,7 @@ import {
   Sparkle,
   Clock,
 } from "phosphor-react";
-import StockSearchModal from "@/components/stock/StockSearchModal";
+import QuickSearchModal from "./QuickSearchModal";
 
 const menuItems = [
   {
@@ -80,14 +80,6 @@ function SidebarComponent() {
   const handleSearchClick = () => {
     setIsSearchModalOpen(true);
   };
-
-  const handleSearchSelect = (symbols: Array<{ symbol: string; name: string }>) => {
-    if (symbols.length > 0) {
-      const { symbol, name } = symbols[0];
-      router.push(`/stock-order?symbol=${symbol}&name=${encodeURIComponent(name)}`);
-    }
-  };
-
   const handleMenuClick = (
     item: (typeof menuItems)[0],
     e: React.MouseEvent
@@ -226,6 +218,11 @@ function SidebarComponent() {
         <Sparkle size={16} weight="fill" />
         <span>PRO</span>
       </button>
+
+      <QuickSearchModal
+        isOpen={isSearchModalOpen}
+        onClose={() => setIsSearchModalOpen(false)}
+      />
     </nav>
   );
 }

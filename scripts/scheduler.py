@@ -28,7 +28,10 @@ def run_sync():
             print(f"[{datetime.now(KST).strftime('%Y-%m-%d %H:%M:%S')} KST] 데이터 동기화 완료.")
         else:
             print(f"[{datetime.now(KST).strftime('%Y-%m-%d %H:%M:%S')} KST] 데이터 동기화 실패 (exit {result.returncode})")
-            print(result.stderr)
+            if result.stdout:
+                print(result.stdout)
+            if result.stderr:
+                print(result.stderr)
     except Exception as e:
         print(f"[{datetime.now(KST).strftime('%Y-%m-%d %H:%M:%S')} KST] 데이터 동기화 오류: {e}")
 

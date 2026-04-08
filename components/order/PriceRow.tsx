@@ -26,17 +26,8 @@ export function PriceRow({
   // 현재가 색상 결정 (상승: 빨강, 하락: 파랑, 보합: 회색)
   const getCurrentPriceStyle = () => {
     if (!isCurrent || changePct === undefined) return "";
-    
-    const isUp = changePct > 0;
-    const isDown = changePct < 0;
-    
-    if (isUp) {
-      return `border-2 border-red-400 bg-red-50 dark:bg-red-900/20 shadow-lg rounded-lg ${isPulsing ? "animate-pulse" : ""}`;
-    } else if (isDown) {
-      return `border-2 border-blue-400 bg-blue-50 dark:bg-blue-900/20 shadow-lg rounded-lg ${isPulsing ? "animate-pulse" : ""}`;
-    } else {
-      return `border-2 border-gray-400 bg-gray-50 dark:bg-gray-700 shadow-lg rounded-lg ${isPulsing ? "animate-pulse" : ""}`;
-    }
+
+    return `border-2 border-white bg-transparent rounded-lg ${isPulsing ? "animate-pulse" : ""}`;
   };
 
   const currentPriceColor = isCurrent && changePct !== undefined
@@ -73,4 +64,3 @@ export function PriceRow({
     </button>
   );
 }
-

@@ -134,6 +134,7 @@ export async function POST(
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             symbols,
+            quotes: priceMap,
             entry_conditions: entryConditions,
             exit_conditions: exitConditions,
           }),

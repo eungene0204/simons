@@ -11,7 +11,7 @@ export async function GET(
 
   try {
     const res = await fetch(`${BACKEND_URL}/stock/${symbol}/ohlcv?limit=${limit}`, {
-      next: { revalidate: 60 },
+      cache: "no-store",
     });
     if (!res.ok) {
       return NextResponse.json({ error: 'Not found' }, { status: res.status });

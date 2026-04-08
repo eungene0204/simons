@@ -41,7 +41,7 @@ class DataLoader:
         # 2. Robust Price Sanitization (vectorized across all price columns at once)
         price_cols = [c for c in ['open', 'high', 'low', 'close'] if c in pdf.columns]
         if price_cols:
-            vals = pdf[price_cols].values  # single numpy view
+            vals = pdf[price_cols].astype(float).values  # ensure NaN-safe dtype
             vals[(vals <= 0) | ~np.isfinite(vals)] = np.nan
             # ffill + bfill via pandas (operates on contiguous block)
             pdf[price_cols] = pd.DataFrame(vals, columns=price_cols, index=pdf.index).ffill().bfill()

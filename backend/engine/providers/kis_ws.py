@@ -1,6 +1,6 @@
 """
 한국투자증권 (KIS) WebSocket 실시간 시세 Provider
-- WebSocket 기반 실시간 체결가 수신 (H0STCNT0)
+- WebSocket 기반 통합 실시간 체결가/호가 수신 (H0UNCNT0, H0UNASP0)
 - 환경변수: KIS_APP_KEY, KIS_APP_SECRET
 - 백그라운드 루프가 WebSocket 연결 유지 및 자동 재접속
 
@@ -30,8 +30,10 @@ logger = logging.getLogger(__name__)
 
 _REST_BASE = "https://openapi.koreainvestment.com:9443"
 _WS_URL = "ws://ops.koreainvestment.com:21000"
+_TRADE_TR_ID = "H0UNCNT0"
+_ORDERBOOK_TR_ID = "H0UNASP0"
 
-# H0STCNT0 응답 필드 인덱스 (KIS 공식 문서 기준)
+# H0UNCNT0 응답 필드 인덱스 (KIS 공식 문서 기준)
 # 0:유가증권단축종목코드 1:주식체결시간 2:주식현재가 3:전일대비부호 4:전일대비
 # 5:전일대비율 6:가중평균주식가격 7:주식시가 8:주식최고가 9:주식최저가
 # 10:매도호가 11:매수호가 12:체결거래량 13:누적거래량 14:누적거래대금
@@ -44,7 +46,23 @@ _F_RATE = 5
 _F_OPEN = 7
 _F_HIGH = 8
 _F_LOW = 9
+_F_ASK1 = 10
+_F_BID1 = 11
 _F_VOLUME = 13
+_F_TRADE_VOLUME = 12
+_F_SELL_COUNT = 15
+_F_BUY_COUNT = 16
+_F_TRADE_CLASS = 21
+
+_OB_F_SYMBOL = 0
+_OB_F_TIME = 1
+_OB_F_ASK_START = 3
+_OB_F_BID_START = 13
+_OB_F_ASK_QTY_START = 23
+_OB_F_BID_QTY_START = 33
+_OB_F_TOTAL_ASK = 43
+_OB_F_TOTAL_BID = 44
+_OB_F_ANTC_CNPR = 47
 
 
 class KISWebSocketProvider(BaseProvider):
@@ -71,6 +89,8 @@ class KISWebSocketProvider(BaseProvider):
 
         # 인메모리 시세 캐시: symbol → StockQuote
         self._cache: dict[str, StockQuote] = {}
+        self._orderbook_cache: dict[str, dict] = {}
+        self._recent_trades: dict[str, list[dict]] = {}
         self._cache_lock = asyncio.Lock()
 
         # 백그라운드 태스크
@@ -121,7 +141,7 @@ class KISWebSocketProvider(BaseProvider):
     #  구독 메시지 생성                                                     #
     # ------------------------------------------------------------------ #
 
-    def _make_subscribe_msg(self, symbol: str, tr_type: str = "1") -> str:
+    def _make_subscribe_msg(self, tr_id: str, symbol: str, tr_type: str = "1") -> str:
         """tr_type: '1'=등록, '2'=해제"""
         return json.dumps({
             "header": {
@@ -132,7 +152,7 @@ class KISWebSocketProvider(BaseProvider):
             },
             "body": {
                 "input": {
-                    "tr_id": "H0STCNT0",
+                    "tr_id": tr_id,
                     "tr_key": symbol,
                 },
             },
@@ -145,14 +165,14 @@ class KISWebSocketProvider(BaseProvider):
     def _parse_realtime(self, raw: str) -> Optional[StockQuote]:
         """
         실시간 체결가 메시지 파싱.
-        포맷: '0|H0STCNT0|{cnt}|{field1}^{field2}^...'
+        포맷: '0|H0UNCNT0|{cnt}|{field1}^{field2}^...'
         """
         try:
             parts = raw.split("|")
             if len(parts) < 4:
                 return None
-            # parts[0]='0', parts[1]='H0STCNT0', parts[2]=건수, parts[3]=데이터(^구분)
-            if parts[0] != "0" or parts[1] != "H0STCNT0":
+            # parts[0]='0', parts[1]='H0UNCNT0', parts[2]=건수, parts[3]=데이터(^구분)
+            if parts[0] != "0" or parts[1] not in ("H0STCNT0", "H0UNCNT0"):
                 return None
 
             fields = parts[3].split("^")
@@ -190,13 +210,96 @@ class KISWebSocketProvider(BaseProvider):
                 low=int(fields[_F_LOW] or "0"),
                 close=price,
                 volume=int(fields[_F_VOLUME] or "0"),
-                source="kis_ws",
+                source="kis_ws_total",
                 timestamp=time.time(),
                 prev_close=prev_close,
                 change_rate=change_rate,
             )
         except Exception as e:
             logger.debug("[KIS_WS] 파싱 실패: %s | raw=%s", e, raw[:100])
+            return None
+
+    def _parse_realtime_orderbook(self, raw: str) -> Optional[dict]:
+        """
+        실시간 통합 호가 메시지 파싱.
+        포맷: '0|H0UNASP0|{cnt}|{field1}^{field2}^...'
+        """
+        try:
+            parts = raw.split("|")
+            if len(parts) < 4:
+                return None
+            if parts[0] != "0" or parts[1] not in ("H0STASP0", "H0UNASP0"):
+                return None
+
+            fields = parts[3].split("^")
+            if len(fields) < _OB_F_TOTAL_BID + 1:
+                return None
+
+            symbol = fields[_OB_F_SYMBOL]
+            sell_orders = []
+            buy_orders = []
+            for level in range(10):
+                ask_price = int(fields[_OB_F_ASK_START + level] or "0")
+                bid_price = int(fields[_OB_F_BID_START + level] or "0")
+                ask_qty = int(fields[_OB_F_ASK_QTY_START + level] or "0")
+                bid_qty = int(fields[_OB_F_BID_QTY_START + level] or "0")
+                if ask_price > 0:
+                    sell_orders.append({"price": ask_price, "quantity": ask_qty})
+                if bid_price > 0:
+                    buy_orders.append({"price": bid_price, "quantity": bid_qty})
+
+            return {
+                "symbol": symbol,
+                "sellOrders": sell_orders,
+                "buyOrders": buy_orders,
+                "totalAskQty": int(fields[_OB_F_TOTAL_ASK] or "0"),
+                "totalBidQty": int(fields[_OB_F_TOTAL_BID] or "0"),
+                "anticipatedPrice": int(fields[_OB_F_ANTC_CNPR] or "0"),
+                "asprAcptHour": fields[_OB_F_TIME],
+                "source": "kis_ws_total_orderbook",
+                "timestamp": time.time(),
+            }
+        except Exception as e:
+            logger.debug("[KIS_WS] 호가 파싱 실패: %s | raw=%s", e, raw[:100])
+            return None
+
+    def _build_recent_trade(self, quote: StockQuote, raw: str) -> Optional[dict]:
+        try:
+            parts = raw.split("|")
+            if len(parts) < 4:
+                return None
+            fields = parts[3].split("^")
+            quantity = int(fields[_F_TRADE_VOLUME] or "0")
+            if quantity <= 0:
+                return None
+
+            ask1 = int(fields[_F_ASK1] or "0")
+            bid1 = int(fields[_F_BID1] or "0")
+            trade_class = fields[_F_TRADE_CLASS].strip() if len(fields) > _F_TRADE_CLASS else ""
+            sell_count = int(fields[_F_SELL_COUNT] or "0")
+            buy_count = int(fields[_F_BUY_COUNT] or "0")
+
+            if ask1 > 0 and quote.close >= ask1:
+                trade_type = "buy"
+            elif bid1 > 0 and quote.close <= bid1:
+                trade_type = "sell"
+            elif ask1 > bid1 > 0:
+                midpoint = (ask1 + bid1) / 2
+                trade_type = "buy" if quote.close >= midpoint else "sell"
+            elif trade_class in {"2", "5"}:
+                trade_type = "buy"
+            elif trade_class in {"1", "4"}:
+                trade_type = "sell"
+            else:
+                trade_type = "buy" if buy_count >= sell_count else "sell"
+
+            return {
+                "price": quote.close,
+                "quantity": quantity,
+                "type": trade_type,
+                "timestamp": quote.timestamp,
+            }
+        except Exception:
             return None
 
     # ------------------------------------------------------------------ #
@@ -228,16 +331,18 @@ class KISWebSocketProvider(BaseProvider):
                         symbols_to_subscribe = list(self._subscribed)
 
                     for sym in symbols_to_subscribe:
-                        await ws.send(self._make_subscribe_msg(sym, "1"))
-                        logger.info("[KIS_WS] 구독 등록: %s", sym)
+                        await ws.send(self._make_subscribe_msg(_TRADE_TR_ID, sym, "1"))
+                        await ws.send(self._make_subscribe_msg(_ORDERBOOK_TR_ID, sym, "1"))
+                        logger.info("[KIS_WS] 통합 체결/호가 구독 등록: %s", sym)
 
                     # 큐에 남아있는 pending 구독도 처리
                     while not self._pending_subscribe.empty():
                         sym = self._pending_subscribe.get_nowait()
                         if sym not in self._subscribed:
                             continue
-                        await ws.send(self._make_subscribe_msg(sym, "1"))
-                        logger.info("[KIS_WS] 큐 구독 등록: %s", sym)
+                        await ws.send(self._make_subscribe_msg(_TRADE_TR_ID, sym, "1"))
+                        await ws.send(self._make_subscribe_msg(_ORDERBOOK_TR_ID, sym, "1"))
+                        logger.info("[KIS_WS] 큐 통합 체결/호가 구독 등록: %s", sym)
 
                     # 메시지 수신 루프 (pending 구독도 병행 처리)
                     while self._running:
@@ -248,8 +353,9 @@ class KISWebSocketProvider(BaseProvider):
                             # 타임아웃: pending 큐만 처리하고 다시 recv
                             while not self._pending_subscribe.empty():
                                 sym = self._pending_subscribe.get_nowait()
-                                await ws.send(self._make_subscribe_msg(sym, "1"))
-                                logger.info("[KIS_WS] 실시간 구독 추가: %s", sym)
+                                await ws.send(self._make_subscribe_msg(_TRADE_TR_ID, sym, "1"))
+                                await ws.send(self._make_subscribe_msg(_ORDERBOOK_TR_ID, sym, "1"))
+                                logger.info("[KIS_WS] 실시간 통합 체결/호가 구독 추가: %s", sym)
                             continue
 
                         if isinstance(raw, bytes):
@@ -261,17 +367,31 @@ class KISWebSocketProvider(BaseProvider):
                             continue
 
                         # 체결가 파싱 및 캐시 업데이트
-                        if "|" in raw and raw.split("|")[1] in ("H0STCNT0",):
+                        if "|" in raw and raw.split("|")[1] in ("H0STCNT0", "H0UNCNT0"):
                             quote = self._parse_realtime(raw)
                             if quote:
                                 async with self._cache_lock:
                                     self._cache[quote.symbol] = quote
+                                    trade = self._build_recent_trade(quote, raw)
+                                    if trade:
+                                        self._recent_trades.setdefault(quote.symbol, [])
+                                        self._recent_trades[quote.symbol] = [
+                                            trade,
+                                            *self._recent_trades[quote.symbol][:15],
+                                        ]
+
+                        if "|" in raw and raw.split("|")[1] in ("H0STASP0", "H0UNASP0"):
+                            orderbook = self._parse_realtime_orderbook(raw)
+                            if orderbook:
+                                async with self._cache_lock:
+                                    self._orderbook_cache[orderbook["symbol"]] = orderbook
 
                         # recv 사이사이에 pending 큐 처리
                         while not self._pending_subscribe.empty():
                             sym = self._pending_subscribe.get_nowait()
-                            await ws.send(self._make_subscribe_msg(sym, "1"))
-                            logger.info("[KIS_WS] 실시간 구독 추가: %s", sym)
+                            await ws.send(self._make_subscribe_msg(_TRADE_TR_ID, sym, "1"))
+                            await ws.send(self._make_subscribe_msg(_ORDERBOOK_TR_ID, sym, "1"))
+                            logger.info("[KIS_WS] 실시간 통합 체결/호가 구독 추가: %s", sym)
 
             except ConnectionClosed as e:
                 logger.warning("[KIS_WS] 연결 종료: %s", e)
@@ -330,6 +450,8 @@ class KISWebSocketProvider(BaseProvider):
             for s in symbols:
                 self._subscribed.discard(s)
                 self._cache.pop(s, None)
+                self._orderbook_cache.pop(s, None)
+                self._recent_trades.pop(s, None)
 
     # ------------------------------------------------------------------ #
     #  BaseProvider 구현                                                   #
@@ -348,6 +470,18 @@ class KISWebSocketProvider(BaseProvider):
             return {}
         async with self._cache_lock:
             return {s: self._cache[s] for s in symbols if s in self._cache}
+
+    async def get_orderbook(self, symbol: str) -> Optional[dict]:
+        if not self.is_configured():
+            return None
+        async with self._cache_lock:
+            orderbook = self._orderbook_cache.get(symbol)
+            if not orderbook:
+                return None
+            return {
+                **orderbook,
+                "recentTrades": list(self._recent_trades.get(symbol, [])),
+            }
 
     async def health_check(self) -> bool:
         return self._running and self._task is not None and not self._task.done()

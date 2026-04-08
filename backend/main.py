@@ -7,13 +7,16 @@ from pydantic import BaseModel
 from typing import Optional, List
 from schemas import (
     BacktestRequest, BacktestResponse,
-    MonteCarloRequest, MonteCarloResponse,
     OptimizationRequest, OptimizationResponse,
     WalkForwardRequest, WalkForwardResponse,
 )
 from backtest_engine import BacktestEngine
 from engine.market_data import market_data_provider
+from engine.live_signal_utils import prepare_signal_dataframe
 from engine.virtual_trader import VirtualTrader
+from engine.vi_utils import build_vi_display
+from nl_cache import nl_cache_key
+from stream_progress import build_backtest_stream_status
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 import uvicorn
@@ -21,6 +24,9 @@ import time
 import asyncio
 import threading
 import numpy as np
+import requests
+import json
+from fastapi.responses import StreamingResponse
 
 app = FastAPI()
 
@@ -153,24 +159,6 @@ def optimize_strategy(request: OptimizationRequest):
         print(f"[DEBUG] OPTIMIZE ERROR:\n{err_msg}")
         raise HTTPException(status_code=500, detail=f"Optimization error: {repr(e)}")
 
-@app.post("/monte-carlo", response_model=MonteCarloResponse)
-def monte_carlo_simulation(request: MonteCarloRequest):
-    print(f"\n[DEBUG] MONTE-CARLO: n={request.n_simulations}, block={request.block_size}, equity_len={len(request.equity)}", flush=True)
-    try:
-        from engine.monte_carlo import run_monte_carlo
-        result = run_monte_carlo(
-            equity=request.equity,
-            initial_capital=request.initial_capital,
-            n_simulations=request.n_simulations,
-            block_size=request.block_size,
-        )
-        return result
-    except Exception as e:
-        import traceback
-        print(f"[DEBUG] MONTE-CARLO ERROR:\n{traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Monte Carlo error: {repr(e)}")
-
-
 @app.post("/walk-forward", response_model=WalkForwardResponse)
 def walk_forward_analysis(request: WalkForwardRequest):
     print(f"\n[DEBUG] BACKEND: Walk-Forward Analysis request. splits={request.n_splits}, train={request.train_pct}, anchor={request.anchor}", flush=True)
@@ -265,6 +253,255 @@ async def market_prices(body: dict):
         raise HTTPException(status_code=400, detail="symbols 필드가 필요합니다")
     quotes = await market_data_provider.get_prices(symbols)
     return {sym: q.to_dict() for sym, q in quotes.items()}
+
+
+def _tick_size(price: int) -> int:
+    if price < 1000:
+        return 1
+    if price < 5000:
+        return 5
+    if price < 10000:
+        return 10
+    if price < 50000:
+        return 50
+    if price < 100000:
+        return 100
+    if price < 500000:
+        return 500
+    return 1000
+
+
+def _fetch_kis_vi_display(symbol: str, app_key: str, app_secret: str, token: str) -> Optional[dict]:
+    try:
+        today = datetime.now().strftime("%Y%m%d")
+        resp = requests.get(
+            "https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/inquire-vi-status",
+            headers={
+                "Content-Type": "application/json; charset=UTF-8",
+                "authorization": f"Bearer {token}",
+                "appkey": app_key,
+                "appsecret": app_secret,
+                "tr_id": "FHPST01390000",
+                "custtype": "P",
+            },
+            params={
+                "FID_DIV_CLS_CODE": "0",
+                "FID_COND_SCR_DIV_CODE": "20139",
+                "FID_MRKT_CLS_CODE": "0",
+                "FID_INPUT_ISCD": symbol,
+                "FID_RANK_SORT_CLS_CODE": "0",
+                "FID_INPUT_DATE_1": today,
+                "FID_TRGT_CLS_CODE": "",
+                "FID_TRGT_EXLS_CLS_CODE": "",
+            },
+            timeout=5,
+        )
+        if resp.status_code != 200:
+            return None
+
+        output = resp.json().get("output", [])
+        if not isinstance(output, list) or not output:
+            return None
+
+        records = [
+            item for item in output
+            if isinstance(item, dict) and str(item.get("mksc_shrn_iscd", "")) == symbol
+        ]
+        if not records:
+            return None
+
+        records.sort(key=lambda item: str(item.get("cntg_vi_hour", "")), reverse=True)
+        return build_vi_display(records[0])
+    except Exception:
+        return None
+
+_vi_cache: dict[str, tuple[Optional[dict], float]] = {}
+_trade_strength_cache: dict[str, tuple[Optional[float], float]] = {}
+_VI_CACHE_TTL = 5.0
+_TRADE_STRENGTH_CACHE_TTL = 1.0
+
+
+def _get_cached_vi_display(symbol: str, app_key: str, app_secret: str, token: str) -> Optional[dict]:
+    cached = _vi_cache.get(symbol)
+    if cached and cached[1] > time.time():
+        return cached[0]
+    value = _fetch_kis_vi_display(symbol, app_key, app_secret, token)
+    _vi_cache[symbol] = (value, time.time() + _VI_CACHE_TTL)
+    return value
+
+
+def _fetch_kis_trade_strength(symbol: str, app_key: str, app_secret: str, token: str) -> Optional[float]:
+    try:
+        resp = requests.get(
+            "https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/inquire-ccnl",
+            headers={
+                "Content-Type": "application/json; charset=UTF-8",
+                "authorization": f"Bearer {token}",
+                "appkey": app_key,
+                "appsecret": app_secret,
+                "tr_id": "FHKST01010300",
+                "custtype": "P",
+            },
+            params={
+                "FID_COND_MRKT_DIV_CODE": "UN",
+                "FID_INPUT_ISCD": symbol,
+            },
+            timeout=5,
+        )
+        if resp.status_code != 200:
+            return None
+
+        output = resp.json().get("output", [])
+        if not isinstance(output, list) or not output:
+            return None
+
+        latest = output[0] if isinstance(output[0], dict) else None
+        if not latest:
+            return None
+
+        value = float(latest.get("tday_rltv", 0) or 0)
+        return value if value > 0 else None
+    except Exception:
+        return None
+
+
+def _get_cached_trade_strength(symbol: str, app_key: str, app_secret: str, token: str) -> Optional[float]:
+    cached = _trade_strength_cache.get(symbol)
+    if cached and cached[1] > time.time():
+        return cached[0]
+    value = _fetch_kis_trade_strength(symbol, app_key, app_secret, token)
+    _trade_strength_cache[symbol] = (value, time.time() + _TRADE_STRENGTH_CACHE_TTL)
+    return value
+
+
+async def _resolve_kis_orderbook_context(symbol: str) -> tuple[Optional[object], str, str, Optional[str]]:
+    quote = await market_data_provider.get_price(symbol)
+    if not quote:
+        raise HTTPException(status_code=404, detail=f"{symbol} 시세 없음")
+
+    app_key = os.getenv("KIS_APP_KEY", "").strip()
+    app_secret = os.getenv("KIS_APP_SECRET", "").strip()
+    token = getattr(market_data_provider.providers[1], "_access_token", None) if len(market_data_provider.providers) > 1 else None
+    expires_at = getattr(market_data_provider.providers[1], "_token_expires_at", 0.0) if len(market_data_provider.providers) > 1 else 0.0
+
+    if app_key and app_secret and (not token or time.time() >= expires_at):
+        try:
+            token = await market_data_provider.providers[1]._ensure_token()  # type: ignore[attr-defined]
+        except Exception:
+            token = None
+
+    return quote, app_key, app_secret, token
+
+
+async def _build_orderbook_payload(symbol: str) -> dict:
+    if market_data_provider.ws_provider.is_configured():
+        await market_data_provider.subscribe([symbol])
+
+    quote, app_key, app_secret, token = await _resolve_kis_orderbook_context(symbol)
+
+    if app_key and app_secret and token:
+        vi_display = _get_cached_vi_display(symbol, app_key, app_secret, token)
+        trade_strength = _get_cached_trade_strength(symbol, app_key, app_secret, token)
+        ws_orderbook = await market_data_provider.ws_provider.get_orderbook(symbol)
+        if ws_orderbook:
+            return {
+                **ws_orderbook,
+                "symbol": symbol,
+                "currentPrice": quote.close,
+                "vi": vi_display,
+                "tradeStrength": trade_strength,
+                "source": "kis_ws_total_orderbook",
+            }
+
+        try:
+            resp = requests.get(
+                "https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn",
+                headers={
+                    "Content-Type": "application/json; charset=UTF-8",
+                    "authorization": f"Bearer {token}",
+                    "appkey": app_key,
+                    "appsecret": app_secret,
+                    "tr_id": "FHKST01010200",
+                    "custtype": "P",
+                },
+                params={
+                    "FID_COND_MRKT_DIV_CODE": "UN",
+                    "FID_INPUT_ISCD": symbol,
+                },
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                output = resp.json().get("output1", {})
+                sell_orders = []
+                buy_orders = []
+                for level in range(1, 11):
+                    ask_price = int(float(output.get(f"askp{level}", 0) or 0))
+                    ask_qty = int(float(output.get(f"askp_rsqn{level}", 0) or 0))
+                    bid_price = int(float(output.get(f"bidp{level}", 0) or 0))
+                    bid_qty = int(float(output.get(f"bidp_rsqn{level}", 0) or 0))
+                    if ask_price > 0:
+                        sell_orders.append({"price": ask_price, "quantity": ask_qty})
+                    if bid_price > 0:
+                        buy_orders.append({"price": bid_price, "quantity": bid_qty})
+
+                if sell_orders or buy_orders:
+                    return {
+                        "symbol": symbol,
+                        "currentPrice": quote.close,
+                        "sellOrders": sell_orders,
+                        "buyOrders": buy_orders,
+                        "totalAskQty": int(float(output.get("total_askp_rsqn", 0) or 0)),
+                        "totalBidQty": int(float(output.get("total_bidp_rsqn", 0) or 0)),
+                        "vi": vi_display,
+                        "recentTrades": ws_orderbook.get("recentTrades", []) if ws_orderbook else [],
+                        "tradeStrength": trade_strength,
+                        "source": "kis_total_orderbook_rest",
+                        "timestamp": time.time(),
+                    }
+        except Exception:
+            pass
+
+    raise HTTPException(status_code=503, detail="실제 호가 데이터를 아직 받지 못했습니다")
+
+
+@app.get("/market/orderbook/{symbol}")
+async def market_orderbook(symbol: str):
+    """
+    실시간 10호가 조회.
+    KIS REST 호가 API 응답이 있을 때만 실제 10호가를 반환한다.
+    실호가를 받지 못하면 503을 반환한다.
+    """
+    return await _build_orderbook_payload(symbol)
+
+
+@app.get("/market/orderbook-stream/{symbol}")
+async def market_orderbook_stream(symbol: str, request: Request):
+    async def generate():
+        last_payload: Optional[str] = None
+
+        while True:
+            if await request.is_disconnected():
+                break
+
+            try:
+                payload = await _build_orderbook_payload(symbol)
+                serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+                if serialized != last_payload:
+                    yield f"data: {serialized}\n\n"
+                    last_payload = serialized
+            except HTTPException as exc:
+                serialized = json.dumps({"error": exc.detail}, ensure_ascii=False, separators=(",", ":"))
+                if serialized != last_payload:
+                    yield f"data: {serialized}\n\n"
+                    last_payload = serialized
+
+            await asyncio.sleep(0.1)
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.post("/market/subscribe")
@@ -574,11 +811,18 @@ def market_signals(body: dict):
     for symbol in symbols:
         try:
             df = engine.loader.load_symbol_data(symbol)
-            df_slice = df.tail(history_days + 15)
-
-            if len(df_slice) == 0:
+            live_quote = body.get("quotes", {}).get(symbol)
+            df_live = prepare_signal_dataframe(
+                df,
+                live_quote,
+                entry_conditions,
+                exit_conditions,
+                engine.ai_engine,
+            )
+            if df_live is None or len(df_live) == 0:
                 results.append({"symbol": symbol, "error": "데이터 없음"})
                 continue
+            df_slice = df_live.tail(history_days + 15)
 
             last_row = df_slice.tail(1).to_dicts()[0]
             date_val = last_row["date"]
@@ -649,6 +893,7 @@ def sync_stocks():
         import json
         from pathlib import Path
         from engine.sector_mapper import get_sector_from_industry
+        from universe_history import build_universe_sync_log_lines, load_universe_history, record_universe_sync
 
         stocks: list[dict] = []
         fetch_errors: list[str] = []
@@ -726,9 +971,19 @@ def sync_stocks():
         if validation_warnings:
             print(f"[WARN] sync-stocks validation: {validation_warnings}", flush=True)
 
-        # Atomic write (tmp → rename)
         base_path = Path(__file__).resolve().parent.parent
         stocks_path = base_path / "data" / "korea-stocks.json"
+        existing_stocks = []
+        if stocks_path.exists():
+            with open(stocks_path, "r", encoding="utf-8") as f:
+                existing_stocks = json.load(f)
+
+        existing_symbols = {s["symbol"] for s in existing_stocks}
+        incoming_symbols = {s["symbol"] for s in stocks}
+        added_symbols = [s for s in stocks if s["symbol"] not in existing_symbols]
+        delisted_symbols = [s for s in existing_stocks if s["symbol"] not in incoming_symbols]
+
+        # Atomic write (tmp → rename)
         tmp_path = stocks_path.with_suffix(".json.tmp")
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(stocks, f, ensure_ascii=False, indent=2)
@@ -736,13 +991,31 @@ def sync_stocks():
 
         kospi_cnt = sum(1 for s in stocks if s["market"] == "KOSPI")
         kosdaq_cnt = sum(1 for s in stocks if s["market"] == "KOSDAQ")
+        synced_at = datetime.now().astimezone()
+        history_entry = record_universe_sync(
+            date=synced_at.strftime("%Y-%m-%d"),
+            synced_at=synced_at.isoformat(),
+            total_count=len(stocks),
+            kospi_count=kospi_cnt,
+            kosdaq_count=kosdaq_cnt,
+            added=added_symbols,
+            delisted=delisted_symbols,
+        )
+        history_store = load_universe_history()
         print(f"[INFO] sync-stocks: {len(stocks)} stocks saved (KOSPI={kospi_cnt}, KOSDAQ={kosdaq_cnt})", flush=True)
+        for line in build_universe_sync_log_lines(history_entry, history_store):
+            print(line, flush=True)
 
         return {
             "success": True,
             "count": len(stocks),
             "kospi": kospi_cnt,
             "kosdaq": kosdaq_cnt,
+            "date": history_entry["date"],
+            "added": len(added_symbols),
+            "delisted": len(delisted_symbols),
+            "added_symbols": added_symbols,
+            "delisted_symbols": delisted_symbols,
             "validation_warnings": validation_warnings,
             "fetch_errors": fetch_errors,
         }
@@ -775,25 +1048,11 @@ _nl_parsers: dict = {}  # backend → NLStrategyParser (lazy singleton)
 _nl_parser_status: dict = {"status": "loading", "error": None}  # "ok" | "failed" | "loading"
 _mlx_inference_lock = threading.Lock()
 
-# NL parse 결과 캐시: 동일 프롬프트 재파싱 방지 (LLM inference 14s → 0s)
-import hashlib as _hashlib
-import json as _json
-
 _nl_parse_cache: dict = {}   # cache_key → NLParseResponse dict
 _NL_PARSE_CACHE_MAX = 200    # 최대 200개 항목 유지
 
 
-def _nl_cache_key(prompt: str, backend: str, model: str | None, previous_parsed: dict | None) -> str:
-    payload = {
-        "prompt": prompt.strip(),
-        "backend": backend,
-        "model": model or "",
-        "previous_parsed": previous_parsed or {},
-    }
-    return _hashlib.sha256(_json.dumps(payload, sort_keys=True).encode()).hexdigest()
-
-
-_virtual_trader = VirtualTrader(market_data_provider, engine.loader)
+_virtual_trader = VirtualTrader(market_data_provider, engine.loader, engine.ai_engine)
 
 
 @app.on_event("startup")
@@ -801,6 +1060,18 @@ async def startup():
     """서버 시작 시 KIS WebSocket + VirtualTrader 백그라운드 루프 시작"""
     await market_data_provider.start_ws()
     await _virtual_trader.start()
+
+
+@app.on_event("startup")
+def log_universe_status_on_startup():
+    try:
+        from universe_history import build_universe_startup_log_lines, load_universe_history
+
+        history_store = load_universe_history()
+        for line in build_universe_startup_log_lines(history_store):
+            print(line, flush=True)
+    except Exception as e:
+        print(f"[startup] universe-sync 로그 출력 실패 (무시됨): {e}", flush=True)
 
 
 @app.on_event("shutdown")
@@ -822,7 +1093,7 @@ def preload_nl_parser():
         _summarize_model["tokenizer"] = parser._tokenizer_7b
         _nl_parser_status["status"] = "ok"
         _nl_parser_status["error"] = None
-        print("[startup] NL 파서 7B 모델 로딩 완료 (32B는 첫 수정 요청 시 lazy 로드)", flush=True)
+        print("[startup] NL 파서 7B 모델 로딩 완료", flush=True)
     except Exception as e:
         _nl_parser_status["status"] = "failed"
         _nl_parser_status["error"] = str(e)
@@ -879,7 +1150,7 @@ def parse_nl_strategy(request: NLParseRequest):
     print(f"\n[NL-PARSE] prompt='{request.prompt}', backend={request.backend}", flush=True)
 
     # 캐시 조회 — 동일 프롬프트면 LLM 재호출 없이 즉시 반환
-    cache_key = _nl_cache_key(request.prompt, request.backend, request.model, request.previous_parsed)
+    cache_key = nl_cache_key(request.prompt, request.backend, request.model, request.previous_parsed)
     if cache_key in _nl_parse_cache:
         print(f"[NL-PARSE] 캐시 히트 → 즉시 반환", flush=True)
         return _nl_parse_cache[cache_key]
@@ -997,12 +1268,11 @@ async def backtest_stream(request: BacktestRequest):
             "거래 내역 집계 중...",
             "성과 지표 계산 중...",
         ]
-        phase_idx = 0
         wait_count = 0
         while thread.is_alive():
-            if wait_count % 10 == 0 and phase_idx < len(phases):
-                yield emit(phases[phase_idx])
-                phase_idx += 1
+            status_message = build_backtest_stream_status(wait_count, phases)
+            if status_message:
+                yield emit(status_message)
             await asyncio.sleep(0.2)
             wait_count += 1
 
@@ -1084,10 +1354,15 @@ def summarize_backtest(req: SummarizeRequest):
 
 class SyncEventRequest(BaseModel):
     event: str  # "start" | "end"
+    date: Optional[str] = None
     total: Optional[int] = None
+    kospi: Optional[int] = None
+    kosdaq: Optional[int] = None
     success: Optional[int] = None
     fail: Optional[int] = None
     new_symbols: Optional[int] = None
+    added_symbols: Optional[List[dict]] = None
+    delisted_symbols: Optional[List[dict]] = None
     message: Optional[str] = None
 
 
@@ -1099,10 +1374,18 @@ def sync_event(req: SyncEventRequest):
         print(f"[{ts}] [SYNC] 데이터 동기화 시작", flush=True)
     elif req.event == "end":
         parts = []
+        if req.date is not None:
+            parts.append(f"일자={req.date}")
         if req.total is not None:
             parts.append(f"전체={req.total}")
+        if req.kospi is not None:
+            parts.append(f"KOSPI={req.kospi}")
+        if req.kosdaq is not None:
+            parts.append(f"KOSDAQ={req.kosdaq}")
         if req.new_symbols is not None:
             parts.append(f"신규={req.new_symbols}")
+        if req.delisted_symbols is not None:
+            parts.append(f"상폐={len(req.delisted_symbols)}")
         if req.success is not None:
             parts.append(f"성공={req.success}")
         if req.fail is not None:

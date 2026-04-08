@@ -110,28 +110,6 @@ class BacktestResponse(BaseModel):
     executionTime: Optional[float] = 0.0
     vbtResult: Optional[VBTNativeResult] = None
 
-
-# ─── Monte Carlo ──────────────────────────────────────────────────────────────
-
-class MonteCarloRequest(BaseModel):
-    equity: List[float]
-    initial_capital: float = 10_000_000.0
-    n_simulations: Optional[int] = 1000
-    block_size: Optional[int] = 20
-
-
-class MonteCarloResponse(BaseModel):
-    n_simulations: int
-    n_days: int
-    percentile_paths: Dict[str, List[float]]         # "5","25","50","75","95"
-    final_return_pct: Dict[str, float]               # "1".."99"
-    final_return_distribution: List[float]
-    mdd_distribution: List[float]
-    mdd_percentiles: Dict[str, float]
-    sharpe_percentiles: Dict[str, float]
-    prob_profit: float
-
-
 class OptimizationRequest(BaseModel):
     base_strategy: BacktestRequest
     user_prompt: str

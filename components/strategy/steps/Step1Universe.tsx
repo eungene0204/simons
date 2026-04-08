@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Globe,
   Stack,
@@ -61,6 +61,8 @@ export default function Step1Universe({
 }: Step1UniverseProps) {
 
   const [showSectorSelector, setShowSectorSelector] = useState(false);
+  const [universeCounts, setUniverseCounts] = useState<Record<string, number>>({});
+  const [latestSyncDate, setLatestSyncDate] = useState<string>("");
 
   const getMarketCapLabel = () => {
     if (universeFilters.marketCapRange[0] === 0 && universeFilters.marketCapRange[1] === 50) return "대형주";
@@ -101,6 +103,40 @@ export default function Step1Universe({
       selectedSectors: []
     });
   };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadUniverseMeta = async () => {
+      try {
+        const response = await fetch("/api/universe/data");
+        if (!response.ok) return;
+        const data = await response.json();
+        if (cancelled) return;
+
+        setUniverseCounts({
+          kospi: data?.counts?.kospi ?? 0,
+          kosdaq: data?.counts?.kosdaq ?? 0,
+          kospi200: data?.counts?.kospi200 ?? 0,
+        });
+        setLatestSyncDate(data?.latestSync?.date ?? "");
+      } catch {
+        if (!cancelled) {
+          setUniverseCounts({});
+          setLatestSyncDate("");
+        }
+      }
+    };
+
+    loadUniverseMeta();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const selectedUniverseCount = useMemo(() => {
+    return universeCounts[universe] ?? 0;
+  }, [universe, universeCounts]);
 
   return (
     <div className="flex-1 w-full bg-[#0a0a0a] min-h-screen text-white flex justify-center relative">
@@ -154,6 +190,9 @@ export default function Step1Universe({
                     >
                       <h3 className="text-base font-bold mb-2 text-white">{m.name}</h3>
                       <p className="text-[11px] text-white/40 font-medium leading-relaxed">{m.desc}</p>
+                      <p className="mt-4 text-sm font-black text-blue-400">
+                        {universeCounts[m.id]?.toLocaleString("ko-KR") ?? "—"}개 종목
+                      </p>
                     </div>
                   ))}
                 </div>
@@ -286,6 +325,12 @@ export default function Step1Universe({
                 <span className="text-sm font-black text-white/40 uppercase tracking-widest">선택된 시장</span>
               </div>
               <span className="text-2xl font-black text-white block tracking-tight">{universe.toUpperCase()}</span>
+              <span className="text-sm font-bold text-blue-400 block mt-2">
+                현재 기준 {selectedUniverseCount.toLocaleString("ko-KR")}개 종목
+              </span>
+              {latestSyncDate && (
+                <span className="text-xs text-white/30 block mt-1">최근 갱신일 {latestSyncDate}</span>
+              )}
             </div>
 
             <div>
@@ -400,5 +445,4 @@ export default function Step1Universe({
     </div>
   );
 }
-
 
