@@ -18,7 +18,6 @@ import {
 } from "phosphor-react";
 import StockSearchModal from "@/components/stock/StockSearchModal";
 import {
-  getWatchlistSymbols,
   addMultipleToWatchlist,
   removeFromWatchlist,
   getWatchlistGroups,
@@ -28,17 +27,7 @@ import {
   assignSymbolToGroup,
   type WatchlistGroup,
 } from "@/lib/watchlist";
-
-interface WatchlistItem {
-  symbol: string;
-  name: string;
-  logo?: string;
-  currentPrice: number;
-  changePercent: number;
-  change: number;
-  volume: number;
-  groupId?: string;
-}
+import { useWatchlistMarket } from "@/lib/hooks/useWatchlistMarket";
 
 interface WatchlistDrawerProps {
   isOpen: boolean;
@@ -51,8 +40,7 @@ function WatchlistDrawer({
   onClose,
   onStockSelect,
 }: WatchlistDrawerProps) {
-  const [items, setItems] = useState<WatchlistItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { items, loading, refetch } = useWatchlistMarket(3000);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [headerHeight, setHeaderHeight] = useState(76);
   const [groups, setGroups] = useState<WatchlistGroup[]>([]);
@@ -71,48 +59,6 @@ function WatchlistDrawer({
   );
   const router = useRouter();
 
-  const fetchWatchlist = async (isInitial = false) => {
-    try {
-      if (isInitial) {
-        setLoading(true);
-      }
-
-      // Get symbols from DB
-      const watchlistSymbols = await getWatchlistSymbols();
-      const symbols = watchlistSymbols.map((item) => item.symbol);
-
-      if (symbols.length === 0) {
-        setItems([]);
-        return;
-      }
-
-      const url = `/api/watchlist?symbols=${encodeURIComponent(JSON.stringify(symbols))}`;
-      const response = await fetch(url);
-      if (response.ok) {
-        const data = await response.json();
-        const apiItemsMap = new Map(
-          (data.items || []).map((item: WatchlistItem) => [item.symbol, item])
-        );
-
-        const itemsWithGroups: WatchlistItem[] = watchlistSymbols
-          .map((symbolData) => {
-            const apiItem = apiItemsMap.get(symbolData.symbol);
-            if (!apiItem) return null;
-            return { ...apiItem, groupId: symbolData.groupId };
-          })
-          .filter((item) => item !== null) as WatchlistItem[];
-
-        setItems(itemsWithGroups);
-      }
-    } catch (error) {
-      console.error("Failed to fetch watchlist:", error);
-    } finally {
-      if (isInitial) {
-        setLoading(false);
-      }
-    }
-  };
-
   const handleAddToWatchlist = async (
     itemsToAdd: Array<{ symbol: string; name: string }>
   ) => {
@@ -129,7 +75,7 @@ function WatchlistDrawer({
         )
       );
 
-      await fetchWatchlist(false);
+      await refetch();
       setIsSearchOpen(false);
     }
   };
@@ -166,7 +112,7 @@ function WatchlistDrawer({
       setGroupName("");
       setGroupColor("#3B82F6");
       setIsGroupModalOpen(false);
-      fetchWatchlist(false);
+      refetch();
     } catch (error) {
       console.error("Failed to update group:", error);
     }
@@ -184,7 +130,7 @@ function WatchlistDrawer({
         if (selectedGroupId === groupId) {
           setSelectedGroupId(null);
         }
-        fetchWatchlist(false);
+        refetch();
       } catch (error) {
         console.error("Failed to delete group:", error);
       }
@@ -194,7 +140,7 @@ function WatchlistDrawer({
   const handleAssignToGroup = async (symbol: string, groupId: string | undefined) => {
     try {
       await assignSymbolToGroup(symbol, groupId);
-      fetchWatchlist(false);
+      refetch();
     } catch (error) {
       console.error("Failed to assign to group:", error);
     }
@@ -237,7 +183,7 @@ function WatchlistDrawer({
       );
 
       await Promise.all(ungroupedItems.map((item) => removeFromWatchlist(item.symbol)));
-      fetchWatchlist(false);
+      refetch();
     }
   };
 
@@ -274,7 +220,7 @@ function WatchlistDrawer({
       )
     );
     setSelectedItemsForEdit(new Set());
-    fetchWatchlist(false);
+    refetch();
   };
 
   const handleDeleteSelectedItems = async () => {
@@ -286,7 +232,7 @@ function WatchlistDrawer({
         Array.from(selectedItemsForEdit).map((symbol) => removeFromWatchlist(symbol))
       );
       setSelectedItemsForEdit(new Set());
-      fetchWatchlist(false);
+      refetch();
     }
   };
 
@@ -342,21 +288,10 @@ function WatchlistDrawer({
 
   useEffect(() => {
     if (isOpen) {
-      // Initial fetch when drawer opens
-      fetchWatchlist(true);
+      refetch();
       loadGroups();
-
-      // Set up real-time updates every 3 seconds
-      const interval = setInterval(() => {
-        fetchWatchlist(false);
-      }, 3000);
-
-      // Cleanup interval on unmount
-      return () => {
-        clearInterval(interval);
-      };
     }
-  }, [isOpen]);
+  }, [isOpen, refetch]);
 
   // Set first group as default when groups are loaded
   useEffect(() => {
@@ -757,7 +692,7 @@ function WatchlistDrawer({
                                     )
                                   ) {
                                     await removeFromWatchlist(item.symbol);
-                                    fetchWatchlist(false);
+                                    refetch();
                                   }
                                 }}
                                 className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors"

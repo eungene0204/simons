@@ -1,6 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Sidebar from "@/components/layout/Sidebar";
+import { mergePopularStocks } from "@/components/layout/QuickSearchModal";
 
 const pushMock = vi.fn();
 const openVirtualAccountMock = vi.fn();
@@ -46,9 +48,46 @@ vi.mock("@/contexts/DrawerContext", () => ({
 
 vi.stubGlobal("fetch", fetchMock);
 
+// EventSource mock — popular-stream SSE는 테스트에서 사용하지 않으므로 no-op
+class MockEventSource {
+  static instances: MockEventSource[] = [];
+
+  onmessage: ((event: MessageEvent) => void) | null = null;
+  onerror: ((event: Event) => void) | null = null;
+  url: string;
+
+  constructor(url: string) {
+    this.url = url;
+    MockEventSource.instances.push(this);
+  }
+
+  emitMessage(data: unknown) {
+    this.onmessage?.({ data: JSON.stringify(data) } as MessageEvent);
+  }
+
+  close() {}
+}
+vi.stubGlobal("EventSource", MockEventSource);
+
+function renderWithQueryClient(ui: React.ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+      },
+    },
+  });
+
+  return render(
+    <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>
+  );
+}
+
 describe("Sidebar quick search", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    MockEventSource.instances = [];
+
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
 
@@ -86,6 +125,22 @@ describe("Sidebar quick search", () => {
         });
       }
 
+      if (url === "/api/stock/popular") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            stocks: [
+              { rank: 1, symbol: "005930", name: "삼성전자", changePercent: 0.12 },
+              { rank: 2, symbol: "000660", name: "SK하이닉스", changePercent: -0.34 },
+              { rank: 3, symbol: "373220", name: "LG에너지솔루션", changePercent: 0 },
+              { rank: 4, symbol: "005380", name: "현대차", changePercent: 0 },
+              { rank: 5, symbol: "068270", name: "셀트리온", changePercent: 0 },
+            ],
+            updatedAt: "09:00:00",
+          }),
+        });
+      }
+
       return Promise.resolve({
         ok: false,
         json: async () => ({}),
@@ -94,12 +149,12 @@ describe("Sidebar quick search", () => {
   });
 
   it("슬래시 퀵서치에서 종목, 전략, 가상계좌를 검색하고 이동할 수 있다", async () => {
-    render(<Sidebar />);
+    renderWithQueryClient(<Sidebar />);
 
     fireEvent.keyDown(window, { key: "/" });
 
     const input = await screen.findByPlaceholderText(
-      "종목명, 전략명, 가상계좌명을 입력하세요"
+      "검색어를 입력해주세요"
     );
     fireEvent.change(input, { target: { value: "삼성" } });
 
@@ -117,12 +172,12 @@ describe("Sidebar quick search", () => {
   });
 
   it("몇 글자만 입력해도 바로 추천 결과를 보여준다", async () => {
-    render(<Sidebar />);
+    renderWithQueryClient(<Sidebar />);
 
     fireEvent.keyDown(window, { key: "/" });
 
     const input = await screen.findByPlaceholderText(
-      "종목명, 전략명, 가상계좌명을 입력하세요"
+      "검색어를 입력해주세요"
     );
     fireEvent.change(input, { target: { value: "삼" } });
 
@@ -133,5 +188,46 @@ describe("Sidebar quick search", () => {
     expect(await screen.findByText("삼성전자")).toBeInTheDocument();
     expect(screen.getByText("삼성 모멘텀 전략")).toBeInTheDocument();
     expect(screen.getByText("삼성 테스트 계좌")).toBeInTheDocument();
+  });
+
+  it("실시간 시세가 비어도 마지막 정상 등락률을 유지한다", () => {
+    const current = [
+      { rank: 1, symbol: "005930", name: "삼성전자", changePercent: -1.9 },
+      { rank: 2, symbol: "000660", name: "SK하이닉스", changePercent: -1.83 },
+      { rank: 3, symbol: "373220", name: "LG에너지솔루션", changePercent: null },
+      { rank: 4, symbol: "005380", name: "현대차", changePercent: null },
+      { rank: 5, symbol: "068270", name: "셀트리온", changePercent: null },
+    ];
+
+    const merged = mergePopularStocks(current, {
+      "005930": { price: 0, changePercent: 0, volume: 0 },
+      "000660": { price: 0, changePercent: 0, volume: 0 },
+    });
+
+    expect(merged[0]?.changePercent).toBe(-1.9);
+    expect(merged[1]?.changePercent).toBe(-1.83);
+    expect(merged[2]?.changePercent).toBeNull();
+  });
+
+  it("인기 검색은 SSE 이벤트를 받으면 즉시 등락률을 갱신한다", async () => {
+    renderWithQueryClient(<Sidebar />);
+
+    fireEvent.keyDown(window, { key: "/" });
+
+    await screen.findByText("인기 검색");
+    expect(fetchMock).toHaveBeenCalledWith("/api/stock/popular");
+    expect(await screen.findByText("+0.12%")).toBeInTheDocument();
+
+    expect(MockEventSource.instances[0]?.url).toBe("/api/stock/popular-stream");
+
+    await act(async () => {
+      MockEventSource.instances[0]?.emitMessage({
+        "005930": { close: 61000, change_rate: 1.23, prev_close: 60260, open: 60500 },
+        "000660": { close: 210000, change_rate: -1.83, prev_close: 213910, open: 211500 },
+      });
+    });
+
+    expect(await screen.findByText("+1.23%")).toBeInTheDocument();
+    expect(await screen.findByText("1.83%")).toBeInTheDocument();
   });
 });

@@ -4,8 +4,7 @@ import { useEffect, useState } from "react";
 import { VirtualAccount, PortfolioHolding } from "@/types/portfolio";
 import { refreshAccountValue } from "@/lib/portfolio";
 import { useDrawer } from "@/contexts/DrawerContext";
-import CandlestickChart from "@/components/stock/CandlestickChart";
-import { generateStockPriceData } from "@/lib/mock-stock-data";
+import CandlestickChart, { OHLCV } from "@/components/stock/CandlestickChart";
 
 const formatPrice = (price: number) => {
   return new Intl.NumberFormat("ko-KR").format(price);
@@ -16,6 +15,7 @@ export default function VirtualAccountMainView() {
   const [account, setAccount] = useState<VirtualAccount | null>(null);
   const [holdings, setHoldings] = useState<PortfolioHolding[]>([]);
   const [loading, setLoading] = useState(true);
+  const [chartData, setChartData] = useState<OHLCV[]>([]);
 
   useEffect(() => {
     if (selectedAccountId) {
@@ -42,6 +42,52 @@ export default function VirtualAccountMainView() {
     setHoldings(result.holdings);
     setLoading(false);
   };
+
+  useEffect(() => {
+    const symbol = holdings[0]?.symbol;
+    if (!symbol) {
+      setChartData([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    fetch(`/api/stock/${symbol}/ohlcv`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.candles) {
+          return;
+        }
+        setChartData(
+          data.candles.map(
+            (c: {
+              date: string;
+              open: number;
+              high: number;
+              low: number;
+              close: number;
+              volume: number;
+            }) => ({
+              time: c.date,
+              open: c.open,
+              high: c.high,
+              low: c.low,
+              close: c.close,
+              volume: c.volume,
+            })
+          )
+        );
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setChartData([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [holdings]);
 
   if (!selectedAccountId) {
     return (
@@ -73,10 +119,6 @@ export default function VirtualAccountMainView() {
   const profit = account.totalValue - account.initialAmount;
   const profitPercent = ((profit / account.initialAmount) * 100);
   const isPositive = profit >= 0;
-
-  const chartData = holdings.length > 0
-    ? generateStockPriceData(holdings[0].symbol, 30)
-    : generateStockPriceData("AAPL", 30);
 
   return (
     <div className="p-4 md:p-5 lg:p-6 space-y-5">
@@ -119,7 +161,7 @@ export default function VirtualAccountMainView() {
           {holdings.length > 0 ? `${holdings[0].name || holdings[0].symbol} 차트` : "차트"}
         </span>
         <div className="h-96">
-          <CandlestickChart data={(chartData as any).chartData || []} />
+          <CandlestickChart data={chartData} />
         </div>
       </div>
 

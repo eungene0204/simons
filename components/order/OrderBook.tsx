@@ -59,6 +59,8 @@ export default function OrderBook({
     sellOrders: OrderBookItem[];
     buyOrders: OrderBookItem[];
     vi?: VIDisplay | null;
+    totalAskQty?: number;
+    totalBidQty?: number;
   } | null>(null);
   const [isOrderBookLoading, setIsOrderBookLoading] = useState(true);
   const [orderBookError, setOrderBookError] = useState<string | null>(null);
@@ -138,6 +140,8 @@ export default function OrderBook({
         sellOrders: Array.isArray(data.sellOrders) ? data.sellOrders : [],
         buyOrders: Array.isArray(data.buyOrders) ? data.buyOrders : [],
         vi: data.vi ?? null,
+        totalAskQty: typeof data.totalAskQty === "number" ? data.totalAskQty : undefined,
+        totalBidQty: typeof data.totalBidQty === "number" ? data.totalBidQty : undefined,
       });
       setRecentTrades(
         Array.isArray(data.recentTrades)
@@ -249,14 +253,18 @@ export default function OrderBook({
   }
 
   const { sellOrders, buyOrders, vi } = orderBookData;
-  const totalSellVolume = sellOrders.reduce(
+  // 화면에 보이는 10단계 합계가 아니라 거래소가 알려주는 "전체 잔량"이 우선
+  const totalSellVolume = orderBookData.totalAskQty ?? sellOrders.reduce(
     (sum, order) => sum + order.quantity,
     0
   );
-  const totalBuyVolume = buyOrders.reduce(
+  const totalBuyVolume = orderBookData.totalBidQty ?? buyOrders.reduce(
     (sum, order) => sum + order.quantity,
     0
   );
+  const totalsSum = totalSellVolume + totalBuyVolume;
+  const sellRatio = totalsSum > 0 ? (totalSellVolume / totalsSum) * 100 : 50;
+  const buyRatio = totalsSum > 0 ? (totalBuyVolume / totalsSum) * 100 : 50;
   const maxSellQty = Math.max(...sellOrders.map((o) => o.quantity), 1);
   const maxBuyQty = Math.max(...buyOrders.map((o) => o.quantity), 1);
 
@@ -351,11 +359,19 @@ export default function OrderBook({
       aria-label="Order book"
     >
       {/* Header */}
-      <div className="px-3 pt-3 pb-1">
+      <div className="px-3 pt-3 pb-1 flex items-center justify-between">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
           호가
         </h2>
+        {bestAsk && bestBid ? (
+          <div className="text-[11px] tabular-nums text-gray-400">
+            스프레드 <span className="text-white">{formatPrice(spread)}</span>
+            <span className="mx-1 text-gray-600">·</span>
+            중간 <span className="text-white">{formatPrice(Math.round(midPrice))}</span>
+          </div>
+        ) : null}
       </div>
+
 
       {/* Order Book Content */}
       <div className="flex-1 overflow-y-auto orderbook-scrollbar px-3 pt-1 pb-3">
@@ -431,6 +447,31 @@ export default function OrderBook({
               priceList={buyPriceList}
               maxBuyQty={maxBuyQty}
               formatQuantity={formatQuantity}
+            />
+          </div>
+        </div>
+
+        {/* 총잔량 푸터: 총매도 ━ 비율바 ━ 총매수 */}
+        <div className="mt-2 px-1">
+          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 text-[11px] tabular-nums">
+            <div className="text-right text-blue-400">
+              판매대기 {formatQuantity(totalSellVolume)}
+            </div>
+            <div className="text-[10px] text-gray-500">잔량</div>
+            <div className="text-left text-red-400">
+              구매대기 {formatQuantity(totalBuyVolume)}
+            </div>
+          </div>
+          <div className="mt-1 h-[6px] w-full overflow-hidden rounded-full bg-gray-800 flex">
+            <div
+              className="h-full bg-blue-500/70"
+              style={{ width: `${sellRatio}%` }}
+              aria-label={`매도 비율 ${sellRatio.toFixed(1)}%`}
+            />
+            <div
+              className="h-full bg-red-500/70"
+              style={{ width: `${buyRatio}%` }}
+              aria-label={`매수 비율 ${buyRatio.toFixed(1)}%`}
             />
           </div>
         </div>

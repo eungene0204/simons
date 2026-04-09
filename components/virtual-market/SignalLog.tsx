@@ -40,12 +40,12 @@ export default function SignalLog({ logs, symbolNameMap = {} }: SignalLogProps) 
 
             {/* 종목 + 날짜 */}
             <div className="min-w-0">
-              <span className="font-medium text-white">
+              <p className="font-medium text-white">
                 {log.stockName ?? symbolNameMap[log.symbol] ?? log.symbol}
-              </span>
-              <span className="text-gray-500 ml-1.5 text-xs">
+              </p>
+              <p className="text-xs text-gray-500">
                 {log.date}
-              </span>
+              </p>
               {log.reason && (
                 <p className="text-xs text-gray-400 truncate">
                   {log.reason}

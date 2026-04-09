@@ -72,6 +72,15 @@ def _realized_pnl(sell_price: int, avg_buy: float, qty: int, fee: int, tax: int)
     return (sell_price - avg_buy) * qty - fee - tax
 
 
+def _coerce_numeric(value, default: float = 0.0) -> float:
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 # ── 시장 시간 ────────────────────────────────────────────────────────────────
 
 def _is_market_hours() -> bool:
@@ -258,12 +267,12 @@ class VirtualTrader:
                 entry_conditions = dsl.get("entry", {}).get("conditions", [])
                 exit_conditions = dsl.get("exit", {}).get("conditions", [])
                 risk = dsl.get("risk", {})
-                position_size_pct = risk.get("position_size_pct", 10)
-                max_positions = risk.get("max_positions", 5)
-                stop_loss_pct = risk.get("stop_loss_pct", 0)
-                take_profit_pct = risk.get("take_profit_pct", 0)
-                trailing_stop_pct = risk.get("trailing_stop_pct", 0)
-                max_holding_days = risk.get("max_holding_days", 0)
+                position_size_pct = _coerce_numeric(risk.get("position_size_pct"), 10.0)
+                max_positions = int(_coerce_numeric(risk.get("max_positions"), 5.0))
+                stop_loss_pct = _coerce_numeric(risk.get("stop_loss_pct"))
+                take_profit_pct = _coerce_numeric(risk.get("take_profit_pct"))
+                trailing_stop_pct = _coerce_numeric(risk.get("trailing_stop_pct"))
+                max_holding_days = int(_coerce_numeric(risk.get("max_holding_days")))
 
         # 2. 실시간 시세 조회
         quotes = await self._mdp.get_prices(symbols)

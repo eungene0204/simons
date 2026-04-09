@@ -3,9 +3,14 @@
 각 Fix 번호는 backtest_engine.py 분석 리포트의 항목과 대응.
 """
 import os
+import sys
 import polars as pl
 import pandas as pd
 import numpy as np
+import pytest
+from types import SimpleNamespace
+
+sys.path.append(os.path.join(os.getcwd(), "backend"))
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -160,6 +165,59 @@ def test_loader_raises_file_not_found_without_hardcoded_fallback(tmp_path):
     # 파일이 없으면 None을 반환 (Yahoo Finance 등 외부 다운로드 시도 없음)
     result = loader.load_symbol_data("NONEXISTENT_SYMBOL_XYZ_12345")
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_virtual_trader_handles_none_risk_values_without_crashing(monkeypatch):
+    """VirtualTrader는 null 리스크 설정을 0/기본값으로 처리해야 한다."""
+    from engine.virtual_trader import VirtualTrader
+
+    class DummyMarketDataProvider:
+        async def get_prices(self, symbols):
+            return {
+                symbol: SimpleNamespace(close=110, high=112)
+                for symbol in symbols
+            }
+
+    trader = VirtualTrader(DummyMarketDataProvider(), data_loader=None)
+
+    monkeypatch.setattr(trader, "_fetch_strategy", lambda _strategy_id: {
+        "entry": {"conditions": []},
+        "exit": {"conditions": []},
+        "risk": {
+            "position_size_pct": None,
+            "max_positions": None,
+            "stop_loss_pct": None,
+            "take_profit_pct": None,
+            "trailing_stop_pct": None,
+            "max_holding_days": None,
+        },
+    })
+    monkeypatch.setattr(trader, "_fetch_positions", lambda _account_id: [
+        {
+            "symbol": "005930",
+            "avgPrice": 100,
+            "peakPrice": 120,
+            "openedAt": "2026-04-01T00:00:00+00:00",
+            "quantity": 3,
+        }
+    ])
+    monkeypatch.setattr(trader, "_evaluate_signals", lambda *_args, **_kwargs: [
+        {"symbol": "005930", "entry_signal": False, "exit_signal": False}
+    ])
+    monkeypatch.setattr(trader, "_fetch_today_logs", lambda *_args, **_kwargs: set())
+    monkeypatch.setattr(trader, "_fetch_pending_orders", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(trader, "_update_positions", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(trader, "_update_last_refreshed", lambda *_args, **_kwargs: None)
+
+    account = {
+        "id": "acct-1",
+        "tradingMode": "manual",
+        "symbols": '["005930"]',
+        "strategyId": "strategy-1",
+    }
+
+    await trader._refresh_account(account)
 
 
 # ──────────────────────────────────────────────────────────────────────────────

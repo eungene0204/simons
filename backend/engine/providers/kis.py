@@ -132,14 +132,16 @@ class KISProvider(BaseProvider):
         if not token:
             return {}
 
-        result: dict[str, StockQuote] = {}
-        for sym in symbols:
-            quote = await asyncio.to_thread(self._fetch_price_sync, sym, token)
-            if quote:
-                result[sym] = quote
-            # KIS rate limit: 20 req/sec → 50ms 간격
-            await asyncio.sleep(0.05)
-        return result
+        # KIS rate limit: 20 req/sec → 5종목 동시 요청은 안전 범위
+        quotes = await asyncio.gather(
+            *(asyncio.to_thread(self._fetch_price_sync, sym, token) for sym in symbols),
+            return_exceptions=True,
+        )
+        return {
+            sym: q
+            for sym, q in zip(symbols, quotes)
+            if isinstance(q, StockQuote) and q is not None
+        }
 
     async def health_check(self) -> bool:
         if not self.is_configured():

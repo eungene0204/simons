@@ -108,12 +108,15 @@ class NaverProvider(BaseProvider):
         return await asyncio.to_thread(_fetch_naver_quote, symbol)
 
     async def get_prices(self, symbols: list[str]) -> dict[str, StockQuote]:
-        result: dict[str, StockQuote] = {}
-        for sym in symbols:
-            quote = await self.get_price(sym)
-            if quote:
-                result[sym] = quote
-        return result
+        quotes = await asyncio.gather(
+            *(self.get_price(sym) for sym in symbols),
+            return_exceptions=True,
+        )
+        return {
+            sym: q
+            for sym, q in zip(symbols, quotes)
+            if isinstance(q, StockQuote) and q is not None
+        }
 
     async def health_check(self) -> bool:
         quote = await self.get_price("005930")  # 삼성전자
