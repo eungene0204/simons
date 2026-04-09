@@ -30,13 +30,9 @@ export function PriceRow({
     return `border-2 border-white bg-transparent rounded-lg ${isPulsing ? "animate-pulse" : ""}`;
   };
 
-  const currentPriceColor = isCurrent && changePct !== undefined
-    ? changePct > 0
-      ? "text-red-400"
-      : changePct < 0
-      ? "text-blue-400"
-      : "text-gray-400"
-    : tone.text;
+  // 가격 색상은 "어느 쪽 호가인가"로 결정한다 (한국 표준).
+  // 매도(ask) = 파랑, 매수(bid) = 빨강. 현재가에 닿았다고 색을 뒤집지 않는다.
+  const currentPriceColor = tone.text;
 
   return (
     <button

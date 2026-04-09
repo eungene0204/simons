@@ -1,7 +1,25 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { fetchStockPriceSnapshots } from '@/lib/server/stock-prices';
+import { loadStockList } from '@/lib/krx-stocks';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+let stockNameCache: Record<string, string> | null = null;
+
+async function getStockNameMap(): Promise<Record<string, string>> {
+  if (stockNameCache) return stockNameCache;
+  const stocks = await loadStockList();
+  stockNameCache = Object.fromEntries(stocks.map((s) => [s.symbol, s.name]));
+  return stockNameCache;
+}
+
+function resolvePositionName(
+  symbol: string,
+  storedName: string | null | undefined,
+  stockNameMap: Record<string, string>
+) {
+  if (stockNameMap[symbol]) return stockNameMap[symbol];
+  return storedName && storedName.trim().length > 0 ? storedName : symbol;
+}
 
 // GET: 보유 포지션 목록 (항상 실시간 시세 조회)
 export async function GET(
@@ -9,6 +27,7 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    const stockNameMap = await getStockNameMap();
     const positions = await prisma.virtualPosition.findMany({
       where: { accountId: params.id },
       orderBy: { openedAt: 'asc' },
@@ -22,16 +41,13 @@ export async function GET(
     const symbols = positions.map((p) => p.symbol);
     let livePrices: Record<string, number> = {};
     try {
-      const res = await fetch(`${BACKEND_URL}/market/prices`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbols }),
-        cache: 'no-store',
+      const snapshots = await fetchStockPriceSnapshots(symbols, {
+        subscribe: true,
+        mode: 'realtime',
       });
-      if (res.ok) {
-        const data: Record<string, { close: number }> = await res.json();
-        for (const [sym, q] of Object.entries(data)) {
-          if (q.close) livePrices[sym] = q.close;
+      for (const [sym, quote] of Object.entries(snapshots)) {
+        if (quote.price > 0) {
+          livePrices[sym] = quote.price;
         }
       }
     } catch {
@@ -46,7 +62,7 @@ export async function GET(
       const profitPercent = cost > 0 ? (profit / cost) * 100 : 0;
       return {
         symbol: p.symbol,
-        name: p.name,
+        name: resolvePositionName(p.symbol, p.name, stockNameMap),
         quantity: p.quantity,
         averagePrice: p.avgPrice,
         currentPrice,

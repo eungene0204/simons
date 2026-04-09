@@ -1,29 +1,28 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { resolveTrackedSymbolsForStrategy } from '@/lib/strategy-tracked-symbols';
+import { loadStockList } from '@/lib/krx-stocks';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+let stockNameCache: Record<string, string> | null = null;
 
-async function fetchBatchPrices(symbols: string[]): Promise<Record<string, number>> {
-  if (symbols.length === 0) return {};
-  try {
-    const res = await fetch(`${BACKEND_URL}/market/prices`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ symbols }),
-      cache: 'no-store',
-    });
-    if (!res.ok) return {};
-    const data: Record<string, { close: number }> = await res.json();
-    return Object.fromEntries(
-      Object.entries(data).filter(([, v]) => v?.close).map(([k, v]) => [k, v.close])
-    );
-  } catch {
-    return {};
-  }
+async function getStockNameMap(): Promise<Record<string, string>> {
+  if (stockNameCache) return stockNameCache;
+  const stocks = await loadStockList();
+  stockNameCache = Object.fromEntries(stocks.map((s) => [s.symbol, s.name]));
+  return stockNameCache;
 }
 
-function mapAccount(a: any, priceMap: Record<string, number>) {
+function resolvePositionName(
+  symbol: string,
+  storedName: string | null | undefined,
+  stockNameMap: Record<string, string>
+) {
+  if (stockNameMap[symbol]) return stockNameMap[symbol];
+  return storedName && storedName.trim().length > 0 ? storedName : symbol;
+}
+
+function mapAccount(a: any, priceMap: Record<string, number>, stockNameMap: Record<string, string>) {
   const positions = a.VirtualPosition ?? [];
   const totalValue =
     a.currentCash +
@@ -38,7 +37,7 @@ function mapAccount(a: any, priceMap: Record<string, number>) {
     const profit = totalVal - cost;
     return {
       symbol: p.symbol,
-      name: p.name,
+      name: resolvePositionName(p.symbol, p.name, stockNameMap),
       quantity: p.quantity,
       averagePrice: p.avgPrice,
       currentPrice,
@@ -68,6 +67,7 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    const stockNameMap = await getStockNameMap();
     const account = await prisma.virtualAccount.findUnique({
       where: { id: params.id },
       include: { VirtualPosition: true },
@@ -76,11 +76,7 @@ export async function GET(
       return NextResponse.json({ error: 'Account not found' }, { status: 404 });
     }
 
-    // 보유 종목 현재가 배치 조회 (1회 요청)
-    const symbols = account.VirtualPosition.map((p) => p.symbol);
-    const priceMap = await fetchBatchPrices(symbols);
-
-    return NextResponse.json(mapAccount(account, priceMap));
+    return NextResponse.json(mapAccount(account, {}, stockNameMap));
   } catch (error) {
     console.error('Failed to fetch virtual account:', error);
     return NextResponse.json({ error: 'Failed to fetch account' }, { status: 500 });
@@ -93,6 +89,7 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
+    const stockNameMap = await getStockNameMap();
     const body = await request.json();
     const strategyChanged = typeof body.strategyId === "string" && body.strategyId.trim().length > 0;
     const account = await prisma.virtualAccount.update({
@@ -122,7 +119,6 @@ export async function PATCH(
       const topSymbols = resolved.symbols;
 
       if (topSymbols.length > 0) {
-        const priceMap = await fetchBatchPrices(account.VirtualPosition.map((p) => p.symbol));
         const existingState = await prisma.virtualMarketState.findUnique({
           where: { accountId: params.id },
         });
@@ -143,18 +139,18 @@ export async function PATCH(
           },
         });
 
-        try {
-          await fetch(`${BACKEND_URL}/market/subscribe`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ symbols: topSymbols }),
-          });
-        } catch (error) {
+        // fire-and-forget: route 응답을 block하지 않도록 timeout 없이 병렬 실행
+        fetch(`${BACKEND_URL}/market/subscribe`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbols: topSymbols }),
+          signal: AbortSignal.timeout(3000),
+        }).catch((error) => {
           console.warn("Failed to subscribe top strategy symbols:", error);
-        }
+        });
 
         return NextResponse.json({
-          ...mapAccount(account, priceMap),
+          ...mapAccount(account, {}, stockNameMap),
           trackedSymbols: topSymbols,
           symbolSource: resolved.source,
           virtualMarketState: {
@@ -165,10 +161,7 @@ export async function PATCH(
       }
     }
 
-    const symbols2 = account.VirtualPosition.map((p) => p.symbol);
-    const priceMap2 = await fetchBatchPrices(symbols2);
-
-    return NextResponse.json(mapAccount(account, priceMap2));
+    return NextResponse.json(mapAccount(account, {}, stockNameMap));
   } catch (error) {
     console.error('Failed to update virtual account:', error);
     return NextResponse.json({ error: 'Failed to update account' }, { status: 500 });

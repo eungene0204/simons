@@ -1,22 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
-
-async function fetchPriceChange(symbol: string): Promise<{ price: number; prevClose: number } | null> {
-  try {
-    const res = await fetch(`${BACKEND_URL}/stock/${symbol}/ohlcv?limit=2`, { cache: 'no-store' });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const candles: { close: number }[] = data.candles ?? [];
-    if (candles.length === 0) return null;
-    const price = candles[candles.length - 1].close;
-    const prevClose = candles.length >= 2 ? candles[candles.length - 2].close : price;
-    return { price, prevClose };
-  } catch {
-    return null;
-  }
-}
+import { fetchStockPriceSnapshots } from '@/lib/server/stock-prices';
 
 export interface WatchlistSnapshotItem {
   symbol: string;
@@ -37,15 +21,22 @@ export async function GET() {
       return NextResponse.json([]);
     }
 
-    const quotes = await Promise.all(symbols.map((s) => fetchPriceChange(s.symbol)));
+    const snapshots = await fetchStockPriceSnapshots(
+      symbols.map((symbol) => symbol.symbol),
+      {
+        subscribe: true,
+        mode: 'realtime',
+      }
+    );
 
     const items: WatchlistSnapshotItem[] = symbols.map((s, i) => {
-      const q = quotes[i];
+      const q = snapshots[s.symbol];
       if (!q || q.price === 0) {
         return { symbol: s.symbol, name: s.name, price: 0, change: 0, changePercent: 0 };
       }
-      const change = q.price - q.prevClose;
-      const changePercent = q.prevClose > 0 ? (change / q.prevClose) * 100 : 0;
+      const prevClose = q.previousClose ?? q.price;
+      const change = q.price - prevClose;
+      const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0;
       return { symbol: s.symbol, name: s.name, price: q.price, change, changePercent };
     });
 

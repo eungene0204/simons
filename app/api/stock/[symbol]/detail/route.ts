@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { cache } from '@/lib/cache'
 import { loadStockList } from '@/lib/krx-stocks'
 import { getBasePrice, generateStockPriceData, generateCandleData, generateTimeSeries } from '@/lib/mock-stock-data'
+import { fetchStockPriceSnapshots } from '@/lib/server/stock-prices'
 
 interface StockDetail {
   symbol: string;
@@ -38,15 +39,21 @@ interface StockDetail {
 interface MarketDetailResponse {
   symbol: string;
   name?: string;
-  currentPrice?: number;
-  changePercent?: number;
-  open?: number;
-  high?: number;
-  low?: number;
   volume?: number;
   marketCap?: number;
-  previousClose?: number;
   source?: string;
+}
+
+const DETAIL_CACHE_TTL_SECONDS = 2;
+const MARKET_CAP_CACHE_TTL_SECONDS = 60 * 60 * 6;
+
+function pickPositiveNumber(...values: Array<number | undefined>): number {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+      return value;
+    }
+  }
+  return 0;
 }
 
 export async function GET(
@@ -174,6 +181,12 @@ export async function GET(
       }
     } catch { /* 백엔드 미실행 시 무시 */ }
 
+    const priceSnapshots = await fetchStockPriceSnapshots([symbol], {
+      subscribe: true,
+      mode: "realtime",
+    });
+    const quote = priceSnapshots[symbol];
+
     let realDetail: MarketDetailResponse | null = null;
     try {
       const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
@@ -189,18 +202,29 @@ export async function GET(
     }
 
     const base = baseData[symbol] || {};
+    const marketCapCacheKey = `stock:detail:market-cap:${symbol}`;
+    const cachedMarketCap = cache.get<number>(marketCapCacheKey) ?? undefined;
     const basePrice =
       realLastClose ||
-      realDetail?.currentPrice ||
+      quote?.price ||
       base.currentPrice ||
       getBasePrice(symbol);
     const priceData = generateStockPriceData(symbol, basePrice);
-    const currentPrice = realDetail?.currentPrice || priceData.currentPrice;
-    const previousClose = realDetail?.previousClose || priceData.previousClose;
+    const currentPrice = pickPositiveNumber(quote?.price, priceData.currentPrice);
+    const previousClose = pickPositiveNumber(quote?.previousClose, priceData.previousClose);
     const change = currentPrice - previousClose;
     const changePercent =
-      realDetail?.changePercent ??
+      quote?.changePercent ??
       (previousClose > 0 ? (change / previousClose) * 100 : priceData.changePercent);
+    const resolvedMarketCap = pickPositiveNumber(
+      realDetail?.marketCap,
+      cachedMarketCap,
+      base.marketCap,
+    );
+
+    if (resolvedMarketCap > 0) {
+      cache.set(marketCapCacheKey, resolvedMarketCap, MARKET_CAP_CACHE_TTL_SECONDS);
+    }
     
     // 캔들 데이터 생성
     const candleData = generateCandleData(symbol, basePrice, 365);
@@ -215,11 +239,11 @@ export async function GET(
       currentPrice,
       changePercent,
       change,
-      open: realDetail?.open || priceData.open,
-      high: realDetail?.high || priceData.high,
-      low: realDetail?.low || priceData.low,
-      volume: realDetail?.volume || 0,
-      marketCap: realDetail?.marketCap || 0,
+      open: pickPositiveNumber(quote?.open, priceData.open),
+      high: pickPositiveNumber(quote?.high, priceData.high),
+      low: pickPositiveNumber(quote?.low, priceData.low),
+      volume: pickPositiveNumber(quote?.volume, realDetail?.volume, base.volume),
+      marketCap: resolvedMarketCap,
       previousClose,
       pe: (base.pe || 0) + (Math.random() * 2 - 1),
       pbr: (base.pbr || 0) + (Math.random() * 0.2 - 0.1),
@@ -236,7 +260,7 @@ export async function GET(
     };
 
     // Cache for 2 seconds (for real-time updates)
-    cache.set(cacheKey, response, 2);
+    cache.set(cacheKey, response, DETAIL_CACHE_TTL_SECONDS);
     return NextResponse.json(response);
   } catch (error) {
     console.error('Stock detail API error:', error);

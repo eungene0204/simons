@@ -18,15 +18,19 @@ import {
   updateAccountStrategy,
   deleteAccount,
 } from "@/lib/portfolio";
+import { getMarketLogs, type VirtualMarketLog } from "@/lib/virtual-market";
 import { MagnifyingGlass, Robot, Bell, Trash } from "phosphor-react";
 import StockSearchModal from "@/components/stock/StockSearchModal";
 import OrderBook from "@/components/order/OrderBook";
-import type { BatchQuoteItem } from "@/app/api/stock/batch-quotes/route";
 import PortfolioPerformanceChart, { PerformancePoint } from "@/components/portfolio/PortfolioPerformanceChart";
 import { getStrategyByName } from "@/lib/strategy-groups";
 import { TrendUp } from "phosphor-react";
 import StrategyReplaceModal from "@/components/ui/StrategyReplaceModal";
 import TrackedSymbolRow from "@/components/virtual-account/TrackedSymbolRow";
+import TrackedSymbolsSkeleton from "@/components/virtual-account/TrackedSymbolsSkeleton";
+import SignalLog from "@/components/virtual-market/SignalLog";
+import { useStockPrices } from "@/lib/hooks/useStockPrices";
+import type { StockPriceSnapshot as BatchQuoteItem } from "@/lib/stock-prices";
 
 const formatPrice = (price: number) =>
   new Intl.NumberFormat("ko-KR").format(Math.round(price));
@@ -78,29 +82,22 @@ export default function VirtualAccountDetailPage() {
   const [dbStrategyDescription, setDbStrategyDescription] = useState<string | null>(null);
   const [trackedSymbols, setTrackedSymbols] = useState<{ symbol: string; name: string }[]>([]);
   const [trackedPrices, setTrackedPrices] = useState<Record<string, BatchQuoteItem>>({});
+  const [isTrackedSymbolsLoading, setIsTrackedSymbolsLoading] = useState(true);
+  const [signalLogs, setSignalLogs] = useState<VirtualMarketLog[]>([]);
   const [isTrackSearchOpen, setIsTrackSearchOpen] = useState(false);
   const [isStrategyReplaceOpen, setIsStrategyReplaceOpen] = useState(false);
-
-  const fetchTrackedPrices = async (symbols: string[]) => {
-    if (symbols.length === 0) return;
-    try {
-      const res = await fetch("/api/stock/batch-quotes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbols }),
-      });
-      if (res.ok) {
-        const data: Record<string, BatchQuoteItem> = await res.json();
-        setTrackedPrices((prev) => {
-          const merged = { ...prev };
-          for (const [sym, item] of Object.entries(data)) {
-            if (item.price > 0) merged[sym] = item;
-          }
-          return merged;
-        });
-      }
-    } catch {}
-  };
+  const trackedSymbolsList = trackedSymbols.map((s) => s.symbol);
+  const { data: trackedPriceSnapshots } = useStockPrices(trackedSymbolsList, {
+    enabled: trackedSymbolsList.length > 0,
+    refetchInterval: 2000,
+  });
+  const { data: selectedSymbolSnapshots } = useStockPrices(
+    selectedSymbol ? [selectedSymbol] : [],
+    {
+      enabled: !!selectedSymbol,
+      refetchInterval: 2000,
+    }
+  );
 
   useEffect(() => {
     if (accountId) loadAccountData();
@@ -119,38 +116,36 @@ export default function VirtualAccountDetailPage() {
   }, [accountId]);
 
   useEffect(() => {
-    const symbols = trackedSymbols.map((s) => s.symbol);
-    fetchTrackedPrices(symbols);
-    const interval = setInterval(() => fetchTrackedPrices(symbols), 2000);
+    if (!accountId) return;
+    loadSignalLogs();
+    const interval = setInterval(() => {
+      loadSignalLogs();
+    }, 5000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trackedSymbols]);
+  }, [accountId]);
 
   useEffect(() => {
-    if (!selectedSymbol) return;
-    const updatePrice = async () => {
-      try {
-        const res = await fetch("/api/stock/batch-quotes", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ symbols: [selectedSymbol] }),
-        });
-        if (res.ok) {
-          const data: Record<string, BatchQuoteItem> = await res.json();
-          const q = data[selectedSymbol];
-          if (q?.price > 0) {
-            setCurrentPrice(q.price);
-            if (isAutoPrice && !selectedOrderPrice) {
-              setPrice(q.price.toString());
-            }
-          }
+    if (!trackedPriceSnapshots) return;
+    setTrackedPrices((prev) => {
+      const merged = { ...prev };
+      for (const [sym, item] of Object.entries(trackedPriceSnapshots)) {
+        if (item.price > 0) {
+          merged[sym] = item;
         }
-      } catch {}
-    };
-    updatePrice();
-    const interval = setInterval(updatePrice, 2000);
-    return () => clearInterval(interval);
-  }, [selectedSymbol, isAutoPrice, selectedOrderPrice]);
+      }
+      return merged;
+    });
+  }, [trackedPriceSnapshots]);
+
+  useEffect(() => {
+    const quote = selectedSymbol ? selectedSymbolSnapshots?.[selectedSymbol] : undefined;
+    if (!quote || quote.price <= 0) return;
+    setCurrentPrice(quote.price);
+    if (isAutoPrice && !selectedOrderPrice) {
+      setPrice(quote.price.toString());
+    }
+  }, [selectedSymbol, selectedSymbolSnapshots, isAutoPrice, selectedOrderPrice]);
 
   useEffect(() => {
     if (!selectedSymbol) {
@@ -185,19 +180,33 @@ export default function VirtualAccountDetailPage() {
         .then((s) => setDbStrategyDescription(s?.description ?? null))
         .catch(() => setDbStrategyDescription(null));
     }
+    setIsTrackedSymbolsLoading(true);
     fetch(`/api/virtual-market/${accountId}`)
       .then((r) => r.ok ? r.json() : null)
       .then((state) => {
-        if (state?.symbols?.length) {
-          setTrackedSymbols(
-            state.symbols.map((sym: string) => ({
+        const nextTrackedSymbols = state?.symbols?.length
+          ? state.symbols.map((sym: string) => ({
               symbol: sym,
               name: state.symbolNames?.[sym] || sym,
             }))
-          );
-        }
+          : [];
+        setTrackedSymbols(nextTrackedSymbols);
       })
-      .catch(() => {});
+      .catch(() => {
+        setTrackedSymbols([]);
+      })
+      .finally(() => {
+        setIsTrackedSymbolsLoading(false);
+      });
+  };
+
+  const loadSignalLogs = async () => {
+    const logs = await getMarketLogs(accountId, 30);
+    setSignalLogs(
+      [...logs].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      )
+    );
   };
 
   const handleAddTrackedSymbols = async (selected: Array<{ symbol: string; name: string }>) => {
@@ -515,7 +524,7 @@ export default function VirtualAccountDetailPage() {
               <div className="glass-card p-5">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-xs font-bold text-white uppercase tracking-widest">누적 수익률</span>
-                  <div className={`w-7 h-7 rounded-lg bg-white/[0.05] flex items-center justify-center ${profitPercent >= 0 ? "text-gray-500" : "text-[var(--main-blue)]"}`}>
+                  <div className="w-7 h-7 rounded-lg bg-white/[0.05] flex items-center justify-center text-white">
                     <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12h18M3 6h18M3 18h18"/><path d="M5 9v6M9 7v8M13 8v7M17 6v9"/></svg>
                   </div>
                 </div>
@@ -523,10 +532,11 @@ export default function VirtualAccountDetailPage() {
                   {profitPercent >= 0 ? "+" : ""}{profitPercent.toFixed(2)}%
                 </p>
               </div>
+
             </div>
 
             {/* 추적 종목 + 전략 */}
-            <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-5">
+            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px_320px] gap-5">
               {/* 추적 종목 */}
               <div className="glass-card p-5">
                 <div className="flex items-center justify-between mb-4">
@@ -546,7 +556,9 @@ export default function VirtualAccountDetailPage() {
                     </button>
                   </div>
                 </div>
-                {trackedSymbols.length === 0 ? (
+                {isTrackedSymbolsLoading ? (
+                  <TrackedSymbolsSkeleton />
+                ) : trackedSymbols.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-48 gap-3">
                     <TrendUp size={32} className="text-gray-700" weight="thin" />
                     <p className="text-sm font-bold text-gray-600">추적 중인 종목이 없습니다</p>
@@ -565,7 +577,7 @@ export default function VirtualAccountDetailPage() {
                       <span className="text-right">현재가</span>
                       <span className="text-right">등락률</span>
                       <span className="text-right">거래량</span>
-                      <span className="text-right">상태</span>
+                      <span className="text-center">상태</span>
                       <span />
                     </div>
                     {/* 테이블 행 */}
@@ -652,6 +664,21 @@ export default function VirtualAccountDetailPage() {
                   전략 교체
                 </button>
               </div>
+
+              <div className="glass-card p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <span className="text-base font-black uppercase tracking-widest text-white">매매 신호</span>
+                    <p className="text-xs font-bold text-gray-500 mt-0.5">최근 발생한 전략 신호</p>
+                  </div>
+                  <span className="text-xs font-bold text-gray-500 bg-white/[0.05] px-2.5 py-0.5 rounded-md">
+                    {signalLogs.length}건
+                  </span>
+                </div>
+                <div className="max-h-[420px] overflow-y-auto pr-1 scrollbar-hide">
+                  <SignalLog logs={signalLogs} />
+                </div>
+              </div>
             </div>
 
             {/* 보유 자산 / 거래내역 / 성과분석 탭 */}
@@ -669,7 +696,7 @@ export default function VirtualAccountDetailPage() {
                             : "text-gray-500 hover:text-gray-300"
                         }`}
                       >
-                        {tab === "holdings" ? "보유 자산 현황" : tab === "transactions" ? "거래 내역" : "성과 분석"}
+                        {tab === "holdings" ? "보유 종목" : tab === "transactions" ? "거래 내역" : "성과 분석"}
                       </button>
                     ))}
                   </div>
@@ -698,12 +725,12 @@ export default function VirtualAccountDetailPage() {
                     <table className="w-full">
                       <thead>
                         <tr className="border-b border-white/[0.05]">
-                          <th className="text-left text-[10px] font-bold text-gray-600 uppercase tracking-widest pb-3 pr-4">종목명 / 티커</th>
-                          <th className="text-right text-[10px] font-bold text-gray-600 uppercase tracking-widest pb-3 px-4">평균 단가</th>
-                          <th className="text-right text-[10px] font-bold text-gray-600 uppercase tracking-widest pb-3 px-4">현재가</th>
-                          <th className="text-right text-[10px] font-bold text-gray-600 uppercase tracking-widest pb-3 px-4">수량</th>
-                          <th className="text-right text-[10px] font-bold text-gray-600 uppercase tracking-widest pb-3 px-4">수익률</th>
-                          <th className="text-right text-[10px] font-bold text-gray-600 uppercase tracking-widest pb-3 pl-4">평가 손익</th>
+                          <th className="text-left text-xs font-bold text-gray-600 uppercase tracking-widest pb-3 pr-4">종목명 / 티커</th>
+                          <th className="text-right text-xs font-bold text-gray-600 uppercase tracking-widest pb-3 px-4">평균 단가</th>
+                          <th className="text-right text-xs font-bold text-gray-600 uppercase tracking-widest pb-3 px-4">현재가</th>
+                          <th className="text-right text-xs font-bold text-gray-600 uppercase tracking-widest pb-3 px-4">수량</th>
+                          <th className="text-right text-xs font-bold text-gray-600 uppercase tracking-widest pb-3 px-4">수익률</th>
+                          <th className="text-right text-xs font-bold text-gray-600 uppercase tracking-widest pb-3 pl-4">평가 손익</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -716,13 +743,10 @@ export default function VirtualAccountDetailPage() {
                               className={`border-b border-white/[0.03] hover:bg-white/[0.02] cursor-pointer transition-colors duration-150 ${idx === holdings.length - 1 ? "border-b-0" : ""}`}
                             >
                               <td className="py-4 pr-4">
-                                <div className="flex items-center gap-3">
-                                  <div className="w-8 h-8 rounded-lg bg-white/[0.05] flex items-center justify-center flex-shrink-0">
-                                    <span className="text-[10px] font-bold text-gray-400">{h.symbol.slice(0, 2)}</span>
-                                  </div>
+                                <div className="flex items-center">
                                   <div>
-                                    <p className="text-sm font-bold text-white">{h.symbol}</p>
-                                    <p className="text-[10px] font-bold text-gray-500">{h.name}</p>
+                                    <p className="text-sm font-bold text-white">{h.name || h.symbol}</p>
+                                    <p className="text-[10px] font-bold text-gray-500">{h.symbol}</p>
                                   </div>
                                 </div>
                               </td>

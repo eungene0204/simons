@@ -30,6 +30,7 @@ export interface RefreshResult {
   refreshed: boolean;
   reason?: string;
   date?: string;
+  warnings?: string[];
   signals?: Array<{
     symbol: string;
     close: number;

@@ -27,6 +27,7 @@ import numpy as np
 import requests
 import json
 from fastapi.responses import StreamingResponse
+from market_cap import normalize_market_cap
 
 app = FastAPI()
 
@@ -311,6 +312,14 @@ def _first_nonzero_int(data: dict, *keys: str) -> int:
     return 0
 
 
+def _first_nonzero_entry(data: dict, *keys: str) -> tuple[Optional[str], int]:
+    for key in keys:
+        value = _to_int(data.get(key))
+        if value > 0:
+            return key, value
+    return None, 0
+
+
 def _fetch_kis_stock_detail(symbol: str, app_key: str, app_secret: str, token: str) -> Optional[dict]:
     try:
         resp = requests.get(
@@ -340,7 +349,7 @@ def _fetch_kis_stock_detail(symbol: str, app_key: str, app_secret: str, token: s
         if current_price <= 0:
             return None
 
-        market_cap = _first_nonzero_int(
+        market_cap_key, market_cap = _first_nonzero_entry(
             output,
             "hts_avls",
             "stck_avls",
@@ -355,8 +364,12 @@ def _fetch_kis_stock_detail(symbol: str, app_key: str, app_secret: str, token: s
             "istt_qty",
             "stck_lstn_qty",
         )
-        if market_cap <= 0 and listed_shares > 0:
-            market_cap = current_price * listed_shares
+        market_cap = normalize_market_cap(
+            market_cap,
+            market_cap_key,
+            listed_shares,
+            current_price,
+        )
 
         return {
             "symbol": symbol,
@@ -600,6 +613,52 @@ async def market_orderbook_stream(symbol: str, request: Request):
                     last_payload = serialized
 
             await asyncio.sleep(0.1)
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/market/prices-stream")
+async def market_prices_stream(symbols: str, request: Request):
+    """
+    다중 종목 실시간 가격 SSE 스트림 (500ms 주기).
+    ?symbols=005930,000660,373220,...
+    이벤트 데이터: {symbol: {close, change_rate, prev_close, open}, ...}
+    """
+    symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
+
+    if symbol_list:
+        try:
+            await market_data_provider.subscribe(symbol_list)
+        except Exception:
+            pass
+
+    async def generate():
+        last_payload: Optional[str] = None
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                quotes = await market_data_provider.get_prices(symbol_list)
+                data = {
+                    sym: {
+                        "close": q.to_dict().get("close", 0),
+                        "change_rate": q.to_dict().get("change_rate", 0),
+                        "prev_close": q.to_dict().get("prev_close", 0),
+                        "open": q.to_dict().get("open", 0),
+                    }
+                    for sym, q in quotes.items()
+                }
+                serialized = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+                if serialized != last_payload:
+                    yield f"data: {serialized}\n\n"
+                    last_payload = serialized
+            except Exception:
+                pass
+            await asyncio.sleep(0.5)
 
     return StreamingResponse(
         generate(),
@@ -1159,11 +1218,26 @@ _NL_PARSE_CACHE_MAX = 200    # 최대 200개 항목 유지
 _virtual_trader = VirtualTrader(market_data_provider, engine.loader, engine.ai_engine)
 
 
+_POPULAR_SYMBOLS = ["005930", "000660", "373220", "005380", "068270"]
+
 @app.on_event("startup")
 async def startup():
     """서버 시작 시 KIS WebSocket + VirtualTrader 백그라운드 루프 시작"""
     await market_data_provider.start_ws()
     await _virtual_trader.start()
+
+    # 인기 종목 사전 구독 + 캐시 워밍
+    # → 첫 번째 /api/stock/popular 요청이 캐시를 바로 hit하도록
+    async def _warm_popular():
+        try:
+            await market_data_provider.subscribe(_POPULAR_SYMBOLS)
+            quotes = await market_data_provider.get_prices(_POPULAR_SYMBOLS)
+            if quotes:
+                print(f"[startup] 인기 종목 캐시 워밍 완료: {list(quotes.keys())}", flush=True)
+        except Exception as e:
+            print(f"[startup] 인기 종목 캐시 워밍 실패 (무시됨): {e}", flush=True)
+
+    asyncio.create_task(_warm_popular())
 
 
 @app.on_event("startup")
