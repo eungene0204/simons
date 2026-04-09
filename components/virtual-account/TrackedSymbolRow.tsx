@@ -1,7 +1,7 @@
 "use client";
 
 import { X } from "phosphor-react";
-import type { BatchQuoteItem } from "@/app/api/stock/batch-quotes/route";
+import type { StockPriceSnapshot as BatchQuoteItem } from "@/lib/stock-prices";
 
 interface TrackedSymbolRowProps {
   symbol: string;
@@ -53,7 +53,7 @@ export default function TrackedSymbolRow({
       <p className="text-xs font-bold text-right text-gray-400 tabular-nums">
         {hasPrice ? quote.volume.toLocaleString("ko-KR") : <span className="text-gray-600">-</span>}
       </p>
-      <div className="flex justify-end">
+      <div className="flex items-center justify-center text-center">
         {hasHolding ? (
           <span className="text-[10px] font-bold text-[var(--main-blue)] bg-sky-400/10 px-1.5 py-0.5 rounded-md">
             보유중

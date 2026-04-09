@@ -1,7 +1,7 @@
 "use client";
 
 import { StockListItem } from "@/types/stock";
-import { generateStockPriceData } from "@/lib/mock-stock-data";
+import { useStockPrices } from "@/lib/hooks/useStockPrices";
 
 interface StockListCardProps {
   stock: StockListItem;
@@ -9,7 +9,15 @@ interface StockListCardProps {
 }
 
 export default function StockListCard({ stock, onClick }: StockListCardProps) {
-  const priceData = generateStockPriceData(stock.symbol);
+  const { data } = useStockPrices([stock.symbol], {
+    enabled: !!stock.symbol,
+    refetchInterval: 3000,
+  });
+  const quote = data?.[stock.symbol];
+  const currentPrice = quote?.price ?? 0;
+  const previousClose = quote?.previousClose ?? currentPrice;
+  const change = currentPrice - previousClose;
+  const changePercent = quote?.changePercent ?? 0;
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat("ko-KR").format(price);
   };
@@ -31,22 +39,27 @@ export default function StockListCard({ stock, onClick }: StockListCardProps) {
         </div>
         <div className="text-right">
           <p className="text-sm font-semibold text-gray-900 dark:text-white">
-            {formatPrice(priceData.currentPrice)} 원
+            {currentPrice > 0 ? `${formatPrice(currentPrice)} 원` : "-"}
           </p>
           <p
             className={`text-xs font-medium ${
-              priceData.change >= 0
+              change >= 0
                 ? "text-red-600 dark:text-red-400"
                 : "text-blue-600 dark:text-blue-400"
             }`}
           >
-            {priceData.change >= 0 ? "+" : ""}
-            {formatPrice(priceData.change)} ({priceData.changePercent >= 0 ? "+" : ""}
-            {priceData.changePercent.toFixed(2)}%)
+            {currentPrice > 0 ? (
+              <>
+                {change >= 0 ? "+" : ""}
+                {formatPrice(change)} ({changePercent >= 0 ? "+" : ""}
+                {changePercent.toFixed(2)}%)
+              </>
+            ) : (
+              "-"
+            )}
           </p>
         </div>
       </div>
     </button>
   );
 }
-

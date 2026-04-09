@@ -1,19 +1,195 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import {
   Bank,
   ChartLineUp,
   MagnifyingGlass,
   TrendUp,
+  ArrowUpRight,
   X,
+  CaretUp,
+  CaretDown,
+  Minus,
 } from "phosphor-react";
 import type { QuickSearchResponse } from "@/types/quick-search";
+import type { PopularStocksResponse } from "@/app/api/stock/popular/route"; // FALLBACK_POPULAR_STOCKS 타입용
+import type { StockPriceSnapshot } from "@/lib/stock-prices";
 
 interface QuickSearchModalProps {
   isOpen: boolean;
   onClose: () => void;
+}
+
+const RECENT_SEARCHES_KEY = "quick-search:recent";
+const MAX_RECENT_SEARCHES = 5;
+
+// 종목 심볼 → 브랜드 색상
+const STOCK_AVATAR_COLORS: Record<string, string> = {
+  "005930": "#1428A0", // 삼성전자
+  "000660": "#E8231A", // SK하이닉스
+  "373220": "#A50034", // LG에너지솔루션
+  "005380": "#002C5F", // 현대차
+  "068270": "#0057A8", // 셀트리온
+  "035420": "#03C75A", // NAVER
+  "035720": "#FFCD00", // 카카오
+  "005490": "#005BAA", // POSCO홀딩스
+  "105560": "#FFC220", // KB금융
+  "207940": "#1560BD", // 삼성바이오로직스
+};
+
+// API 응답 전 또는 실패 시 표시할 정적 폴백
+const FALLBACK_POPULAR_STOCKS: PopularStocksResponse["stocks"] = [
+  { rank: 1, symbol: "005930", name: "삼성전자", changePercent: 0 },
+  { rank: 2, symbol: "000660", name: "SK하이닉스", changePercent: 0 },
+  { rank: 3, symbol: "373220", name: "LG에너지솔루션", changePercent: 0 },
+  { rank: 4, symbol: "005380", name: "현대차", changePercent: 0 },
+  { rank: 5, symbol: "068270", name: "셀트리온", changePercent: 0 },
+];
+const POPULAR_STOCKS = FALLBACK_POPULAR_STOCKS.map((stock) => ({
+  symbol: stock.symbol,
+  name: stock.name,
+}));
+const POPULAR_STREAM_URL = "/api/stock/popular-stream";
+const POPULAR_QUERY_KEY = ["quick-search", "popular-stocks"] as const;
+
+interface QuickSearchPopularStock {
+  rank: number;
+  symbol: string;
+  name: string;
+  changePercent: number | null;
+}
+
+interface PopularQueryData {
+  stocks: QuickSearchPopularStock[];
+  updatedAt: string;
+}
+
+function formatPopularUpdatedAt() {
+  return new Date().toLocaleTimeString("ko-KR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    timeZone: "Asia/Seoul",
+  });
+}
+
+function createFallbackPopularResponse(): PopularQueryData {
+  return {
+    stocks: FALLBACK_POPULAR_STOCKS.map((stock) => ({
+      ...stock,
+      changePercent: null,
+    })),
+    updatedAt: "",
+  };
+}
+
+function hasRealtimeSnapshot(snapshot?: StockPriceSnapshot) {
+  return Boolean(snapshot && snapshot.price > 0);
+}
+
+interface PopularStreamQuote {
+  close?: number;
+  open?: number;
+  prev_close?: number;
+  change_rate?: number;
+}
+
+function toPopularSnapshots(
+  payload: Record<string, PopularStreamQuote>
+): Record<string, StockPriceSnapshot> {
+  return Object.fromEntries(
+    Object.entries(payload).map(([symbol, quote]) => {
+      const price = quote.close ?? 0;
+
+      if (price <= 0) {
+        return [symbol, { price: 0, changePercent: 0, volume: 0 }];
+      }
+
+      const hasChangeRate =
+        quote.change_rate !== undefined && quote.change_rate !== 0;
+      const base =
+        quote.prev_close && quote.prev_close > 0
+          ? quote.prev_close
+          : quote.open && quote.open > 0
+            ? quote.open
+            : null;
+
+      // change_rate도 없고 base price도 없으면 등락률 계산 불가
+      // → price=0으로 표시해 hasRealtimeSnapshot이 false가 되도록 해 이전 값 유지
+      if (!hasChangeRate && base === null) {
+        return [symbol, { price: 0, changePercent: 0, volume: 0 }];
+      }
+
+      const changePercent = hasChangeRate
+        ? quote.change_rate!
+        : Math.round(((price - base!) / base!) * 10000) / 100;
+
+      return [
+        symbol,
+        {
+          price,
+          changePercent,
+          volume: 0,
+          open: quote.open,
+          previousClose: quote.prev_close,
+        },
+      ];
+    })
+  );
+}
+
+export function mergePopularStocks(
+  current: QuickSearchPopularStock[],
+  snapshots: Record<string, StockPriceSnapshot> | undefined
+): QuickSearchPopularStock[] {
+  return POPULAR_STOCKS.map((stock, index) => {
+    const snapshot = snapshots?.[stock.symbol];
+    const previous = current.find((item) => item.symbol === stock.symbol);
+
+    return {
+      rank: index + 1,
+      symbol: stock.symbol,
+      name: stock.name,
+      changePercent: hasRealtimeSnapshot(snapshot)
+        ? snapshot.changePercent
+        : previous?.changePercent ?? null,
+    };
+  });
+}
+
+function mergePopularStocksResponse(
+  current: PopularQueryData | undefined,
+  snapshots: Record<string, StockPriceSnapshot> | undefined
+): PopularQueryData {
+  const base = current ?? createFallbackPopularResponse();
+
+  return {
+    stocks: mergePopularStocks(base.stocks, snapshots),
+    updatedAt: formatPopularUpdatedAt(),
+  };
+}
+
+async function fetchPopularStocks(): Promise<PopularQueryData> {
+  const response = await fetch("/api/stock/popular");
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch popular stocks");
+  }
+
+  const json = (await response.json()) as PopularStocksResponse;
+
+  return {
+    stocks: json.stocks.map((stock) => ({
+      ...stock,
+      changePercent:
+        typeof stock.changePercent === "number" ? stock.changePercent : null,
+    })),
+    updatedAt: json.updatedAt ?? "",
+  };
 }
 
 type QuickSearchItem =
@@ -47,8 +223,11 @@ export default function QuickSearchModal({
   onClose,
 }: QuickSearchModalProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [stockResults, setStockResults] = useState<QuickSearchResponse["stocks"]>([]);
   const [strategyResults, setStrategyResults] = useState<QuickSearchResponse["strategies"]>([]);
   const [virtualAccountResults, setVirtualAccountResults] = useState<
@@ -57,6 +236,16 @@ export default function QuickSearchModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const trimmedQuery = query.trim();
+  const { data: popularData } = useQuery({
+    queryKey: POPULAR_QUERY_KEY,
+    queryFn: fetchPopularStocks,
+    enabled: isOpen,
+    placeholderData: (previousData) =>
+      previousData ?? createFallbackPopularResponse(),
+    staleTime: 1000,
+    refetchOnWindowFocus: false,
+  });
 
   useEffect(() => {
     if (!isOpen) {
@@ -70,19 +259,71 @@ export default function QuickSearchModal({
       return;
     }
 
+    try {
+      const stored = window.localStorage.getItem(RECENT_SEARCHES_KEY);
+      setRecentSearches(stored ? (JSON.parse(stored) as string[]) : []);
+    } catch {
+      setRecentSearches([]);
+    }
+
     const focusTimer = window.setTimeout(() => {
       inputRef.current?.focus();
     }, 0);
 
-    return () => window.clearTimeout(focusTimer);
+    return () => {
+      window.clearTimeout(focusTimer);
+    };
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || typeof window === "undefined" || typeof EventSource === "undefined") {
+      return;
+    }
+
+    const eventSource = new EventSource(POPULAR_STREAM_URL);
+
+    eventSource.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data) as Record<string, PopularStreamQuote>;
+        const snapshots = toPopularSnapshots(payload);
+
+        queryClient.setQueryData<PopularQueryData>(POPULAR_QUERY_KEY, (current) =>
+          mergePopularStocksResponse(current, snapshots)
+        );
+      } catch (streamError) {
+        console.error("Popular stream parse error:", streamError);
+      }
+    };
+
+    eventSource.onerror = () => {
+      eventSource.close();
+    };
+
+    return () => {
+      eventSource.close();
+    };
+  }, [isOpen, queryClient]);
 
   useEffect(() => {
     if (!isOpen) {
       return;
     }
 
-    const trimmedQuery = query.trim();
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!panelRef.current?.contains(event.target as Node)) {
+        onClose();
+      }
+    };
+
+    window.addEventListener("mousedown", handlePointerDown);
+    return () => window.removeEventListener("mousedown", handlePointerDown);
+  }, [isOpen, onClose]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
     if (!trimmedQuery) {
       setStockResults([]);
       setStrategyResults([]);
@@ -137,7 +378,37 @@ export default function QuickSearchModal({
       isCancelled = true;
       window.clearTimeout(debounceTimer);
     };
-  }, [isOpen, query]);
+  }, [isOpen, trimmedQuery]);
+
+  const persistRecentSearch = (term: string) => {
+    const normalized = term.trim();
+    if (!normalized) {
+      return;
+    }
+
+    setRecentSearches((current) => {
+      const next = [
+        normalized,
+        ...current.filter((entry) => entry !== normalized),
+      ].slice(0, MAX_RECENT_SEARCHES);
+
+      try {
+        window.localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(next));
+      } catch {}
+
+      return next;
+    });
+  };
+
+  const removeRecentSearch = (term: string) => {
+    setRecentSearches((current) => {
+      const next = current.filter((entry) => entry !== term);
+      try {
+        window.localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
 
   const items = useMemo<QuickSearchItem[]>(() => {
     const stocks: QuickSearchItem[] = stockResults.map((stock) => ({
@@ -175,6 +446,15 @@ export default function QuickSearchModal({
     return [...stocks, ...strategies, ...accounts];
   }, [stockResults, strategyResults, virtualAccountResults]);
 
+  const groupedItems = useMemo(
+    () => ({
+      stocks: items.filter((item) => item.kind === "stock"),
+      strategies: items.filter((item) => item.kind === "strategy"),
+      virtualAccounts: items.filter((item) => item.kind === "virtualAccount"),
+    }),
+    [items]
+  );
+
   useEffect(() => {
     if (!isOpen) {
       return;
@@ -205,6 +485,7 @@ export default function QuickSearchModal({
         event.preventDefault();
         const selectedItem = items[activeIndex];
         if (selectedItem) {
+          persistRecentSearch(selectedItem.title);
           router.push(selectedItem.href);
           onClose();
         }
@@ -218,6 +499,11 @@ export default function QuickSearchModal({
   if (!isOpen) {
     return null;
   }
+
+  const stockCount = groupedItems.stocks.length;
+  const strategyCount = groupedItems.strategies.length;
+  const popularStocks = popularData?.stocks ?? createFallbackPopularResponse().stocks;
+  const popularUpdatedAt = popularData?.updatedAt ?? "";
 
   const renderSection = (
     title: string,
@@ -238,7 +524,7 @@ export default function QuickSearchModal({
             {sectionItems.length}개
           </p>
         </div>
-        <div className="space-y-2">
+        <div className="space-y-0.5">
           {sectionItems.map((item, index) => {
             const Icon = item.icon;
             const isActive = activeIndex === offset + index;
@@ -249,24 +535,25 @@ export default function QuickSearchModal({
                 type="button"
                 onMouseEnter={() => setActiveIndex(offset + index)}
                 onClick={() => {
+                  persistRecentSearch(item.title);
                   router.push(item.href);
                   onClose();
                 }}
-                className={`flex w-full items-start gap-3 rounded-2xl border px-4 py-3 text-left transition-all ${
+                className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2 text-left transition-all ${
                   isActive
-                    ? "border-sky-400/40 bg-sky-400/10 shadow-[0_0_0_1px_rgba(56,189,248,0.12)]"
-                    : "border-white/[0.06] bg-white/[0.03] hover:border-white/[0.12] hover:bg-white/[0.05]"
+                    ? "border-sky-400/20 bg-sky-400/8"
+                    : "border-transparent hover:bg-white/[0.04]"
                 }`}
               >
-                <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04]">
-                  <Icon size={18} className="text-sky-300" weight="fill" />
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.06]">
+                  <Icon size={14} className="text-sky-400" weight="fill" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <p className="truncate text-sm font-black text-white">
+                    <p className="truncate text-sm font-semibold text-white">
                       {item.title}
                     </p>
-                    <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.16em] text-gray-500">
+                    <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-gray-600">
                       {item.kind === "stock"
                         ? "종목"
                         : item.kind === "strategy"
@@ -274,10 +561,11 @@ export default function QuickSearchModal({
                           : "가상계좌"}
                     </span>
                   </div>
-                  <p className="mt-1 truncate text-xs font-medium text-gray-500">
+                  <p className="truncate text-xs text-gray-500">
                     {item.subtitle}
                   </p>
                 </div>
+                <ArrowUpRight size={13} className="shrink-0 text-gray-600" />
               </button>
             );
           })}
@@ -287,39 +575,22 @@ export default function QuickSearchModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/72 px-4 py-[10vh] backdrop-blur-md">
-      <div className="w-full max-w-3xl overflow-hidden rounded-[28px] border border-white/[0.08] bg-[#0c0c0d] shadow-2xl shadow-black/40">
-        <div className="border-b border-white/[0.08] px-5 py-4">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg font-black tracking-tight text-white">
-                  Quick Search
-                </h2>
-                <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.2em] text-gray-500">
-                  /
-                </span>
-              </div>
-              <p className="mt-1 text-xs font-medium text-gray-500">
-                종목, 전략, 가상계정을 한 번에 찾습니다.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-xl border border-white/[0.08] p-2 text-gray-500 transition-colors hover:border-white/[0.16] hover:text-white"
-              aria-label="퀵서치 닫기"
-            >
-              <X size={18} />
-            </button>
-          </div>
-        </div>
-
-        <div className="border-b border-white/[0.08] px-5 py-4">
+    <div
+      className="fixed left-1/2 z-[70] -translate-x-1/2 px-3"
+      style={{
+        top: "calc(var(--top-menu-bar-height, 72px) + 8px)",
+        width: "min(640px, calc(100vw - 24px))",
+      }}
+    >
+      <div
+        ref={panelRef}
+        className="overflow-hidden rounded-2xl border border-white/[0.07] bg-[#1e1f27]/95 shadow-[0_16px_48px_rgba(0,0,0,0.5)] backdrop-blur-2xl"
+      >
+        <div className="px-4 pb-3 pt-4">
           <div className="relative">
             <MagnifyingGlass
               size={18}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"
+              className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500"
             />
             <input
               ref={inputRef}
@@ -332,67 +603,160 @@ export default function QuickSearchModal({
               spellCheck={false}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="종목명, 전략명, 가상계좌명을 입력하세요"
-              className="w-full rounded-2xl border border-white/[0.08] bg-white/[0.03] py-3 pl-10 pr-4 text-sm font-medium text-white placeholder:text-gray-600 outline-none transition-colors focus:border-sky-400/30 focus:bg-white/[0.05]"
+              placeholder="검색어를 입력해주세요"
+              className="w-full rounded-xl border border-white/0 bg-white/[0.06] py-2.5 pl-10 pr-10 text-sm font-bold text-white placeholder:text-gray-500 outline-none transition-colors focus:bg-white/[0.10]"
             />
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <span className="rounded-full bg-white/[0.04] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-gray-500">
-              종목
-            </span>
-            <span className="rounded-full bg-white/[0.04] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-gray-500">
-              전략
-            </span>
-            <span className="rounded-full bg-white/[0.04] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-gray-500">
-              가상계좌
-            </span>
+            <button
+              type="button"
+              onClick={onClose}
+              className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-white/[0.06] hover:text-white"
+              aria-label="퀵서치 닫기"
+            >
+              <X size={14} />
+            </button>
           </div>
           {error && (
-            <p className="mt-3 text-xs font-bold text-[var(--main-blue)]">
+            <p className="mt-2 text-xs font-bold text-[var(--main-blue)]">
               {error}
             </p>
           )}
         </div>
 
-        <div className="max-h-[60vh] overflow-y-auto px-4 py-4">
+        <div className="h-[380px] overflow-y-auto px-4 pb-4 pt-1">
           {loading ? (
-            <div className="flex items-center justify-center py-16 text-sm text-gray-500">
+            <div className="flex h-full items-center justify-center text-sm text-gray-500">
               검색 중...
             </div>
           ) : !query.trim() ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <div className="mb-3 rounded-2xl border border-white/[0.08] bg-white/[0.03] p-4">
-                <MagnifyingGlass size={22} className="text-gray-500" />
-              </div>
-              <p className="text-sm font-black text-white">검색어를 입력하세요</p>
-              <p className="mt-1 text-xs text-gray-500">
-                `/`로 열고, 방향키와 Enter로 바로 이동할 수 있습니다.
-              </p>
+            <div className="space-y-4 py-2">
+              {/* 최근 검색 */}
+              <section>
+                <div className="mb-2.5 flex items-center justify-between">
+                  <h3 className="text-xs font-black uppercase tracking-widest text-gray-500">
+                    최근 검색
+                  </h3>
+                </div>
+                {recentSearches.length === 0 ? (
+                  <p className="text-sm font-medium text-gray-500">
+                    아직 최근 검색이 없습니다.
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {recentSearches.map((recent) => (
+                      <div
+                        key={recent}
+                        className="flex items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.06] px-4 py-2"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setQuery(recent)}
+                          className="text-sm font-bold text-gray-100"
+                        >
+                          {recent}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeRecentSearch(recent)}
+                          className="text-gray-500 transition-colors hover:text-gray-200"
+                          aria-label={`${recent} 최근 검색 삭제`}
+                        >
+                          <X size={13} weight="bold" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              {/* 인기 검색 */}
+              <section>
+                <div className="mb-2.5 flex items-center justify-between">
+                  <h3 className="text-xs font-black uppercase tracking-widest text-gray-500">
+                    인기 검색
+                  </h3>
+                  {popularUpdatedAt && (
+                    <p className="text-[10px] font-medium text-gray-600">
+                      {popularUpdatedAt} 업데이트
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-0.5">
+                  {popularStocks.map((stock) => {
+                    const avatarBg = STOCK_AVATAR_COLORS[stock.symbol] ?? "#334155";
+                    const hasChangePercent = typeof stock.changePercent === "number";
+                    const isPositive = hasChangePercent && stock.changePercent > 0;
+                    const isNegative = hasChangePercent && stock.changePercent < 0;
+                    const changeColor = isPositive
+                      ? "text-[#FF4D4F]"
+                      : isNegative
+                        ? "text-[#4096FF]"
+                        : "text-gray-400";
+                    const changeSign = isPositive ? "+" : "";
+
+                    return (
+                      <button
+                        key={stock.symbol}
+                        type="button"
+                        onClick={() => {
+                          persistRecentSearch(stock.name);
+                          router.push(
+                            `/stock-order?symbol=${encodeURIComponent(stock.symbol)}&name=${encodeURIComponent(stock.name)}`
+                          );
+                          onClose();
+                        }}
+                        className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-white/[0.04]"
+                      >
+                        {/* 순위 */}
+                        <span className="w-4 text-center text-xs font-black text-sky-500">
+                          {stock.rank}
+                        </span>
+
+                        {/* 로고 아바타 */}
+                        <div
+                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-black text-white"
+                          style={{ backgroundColor: avatarBg }}
+                        >
+                          {stock.name.slice(0, 2)}
+                        </div>
+
+                        {/* 종목명 */}
+                        <span className="flex-1 text-sm font-semibold text-gray-100">
+                          {stock.name}
+                        </span>
+
+                        {/* 등락률 */}
+                        <span className={`flex items-center gap-0.5 text-xs font-black tabular-nums ${changeColor}`}>
+                          {isPositive && <CaretUp size={10} weight="fill" />}
+                          {isNegative && <CaretDown size={10} weight="fill" />}
+                          {!isPositive && !isNegative && <Minus size={10} />}
+                          {hasChangePercent
+                            ? `${changeSign}${Math.abs(stock.changePercent).toFixed(2)}%`
+                            : "--"}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
             </div>
           ) : items.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <div className="mb-3 rounded-2xl border border-white/[0.08] bg-white/[0.03] p-4">
-                <X size={22} className="text-gray-500" />
-              </div>
-              <p className="text-sm font-black text-white">
-                검색 결과가 없습니다
-              </p>
-              <p className="mt-1 text-xs text-gray-500">
-                다른 키워드로 다시 검색해보세요.
-              </p>
+            <div className="flex h-full flex-col items-center justify-center text-center">
+              <X size={20} className="mb-2 text-gray-600" />
+              <p className="text-sm font-bold text-gray-400">검색 결과가 없습니다</p>
+              <p className="mt-1 text-xs text-gray-600">다른 키워드로 다시 검색해보세요.</p>
             </div>
           ) : (
             <div className="space-y-5">
-              {renderSection("Stocks", items.filter((item) => item.kind === "stock"), 0)}
+              {renderSection("Stocks", groupedItems.stocks, 0)}
               {renderSection(
                 "Strategies",
-                items.filter((item) => item.kind === "strategy"),
-                items.filter((item) => item.kind === "stock").length
+                groupedItems.strategies,
+                stockCount
               )}
               {renderSection(
                 "Virtual Accounts",
-                items.filter((item) => item.kind === "virtualAccount"),
-                items.filter((item) => item.kind !== "virtualAccount").length
+                groupedItems.virtualAccounts,
+                stockCount + strategyCount
               )}
             </div>
           )}

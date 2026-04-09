@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getStockAPIProvider } from '@/lib/stock-api'
 import { cache, cacheKeys, cacheTTL } from '@/lib/cache'
-import { StockAPIError } from '@/lib/stock-api/base'
+import { fetchStockPriceSnapshots } from '@/lib/server/stock-prices'
 
 export async function GET(request: NextRequest) {
   try {
@@ -22,11 +21,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(cached)
     }
 
-    // Fetch from API
-    const provider = getStockAPIProvider()
-    const quote = await provider.getQuote(symbol)
+    const quotes = await fetchStockPriceSnapshots([symbol], {
+      subscribe: true,
+      mode: 'standard',
+    })
+    const quote = quotes[symbol]
 
-    if (!quote) {
+    if (!quote || quote.price <= 0) {
       return NextResponse.json(
         { error: 'Stock not found' },
         { status: 404 }
@@ -40,18 +41,9 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('Stock quote API error:', error)
 
-    if (error instanceof StockAPIError) {
-      return NextResponse.json(
-        { error: error.message, code: error.code },
-        { status: error.statusCode || 500 }
-      )
-    }
-
     return NextResponse.json(
       { error: 'Failed to fetch stock quote' },
       { status: 500 }
     )
   }
 }
-
-

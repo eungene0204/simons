@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CaretUp,
@@ -10,58 +10,18 @@ import {
   X,
 } from "phosphor-react";
 import StockSearchModal from "@/components/stock/StockSearchModal";
-import { getWatchlistSymbols, addMultipleToWatchlist, removeFromWatchlist } from "@/lib/watchlist";
-
-interface WatchlistItem {
-  symbol: string;
-  name: string;
-  logo?: string;
-  currentPrice: number;
-  changePercent: number;
-  change: number;
-  volume: number;
-}
+import { addMultipleToWatchlist, removeFromWatchlist } from "@/lib/watchlist";
+import { useWatchlistMarket } from "@/lib/hooks/useWatchlistMarket";
 
 export default function Watchlist() {
-  const [items, setItems] = useState<WatchlistItem[]>([]);
-  const [loading, setLoading] = useState(true);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const router = useRouter();
-
-  const fetchWatchlist = async (isInitial = false) => {
-    try {
-      if (isInitial) {
-        setLoading(true);
-      }
-
-      // Get symbols from DB
-      const watchlistSymbols = await getWatchlistSymbols();
-      const symbols = watchlistSymbols.map((item) => item.symbol);
-
-      if (symbols.length === 0) {
-        setItems([]);
-        return;
-      }
-
-      const url = `/api/watchlist?symbols=${encodeURIComponent(JSON.stringify(symbols))}`;
-      const response = await fetch(url);
-      if (response.ok) {
-        const data = await response.json();
-        setItems(data.items || []);
-      }
-    } catch (error) {
-      console.error("Failed to fetch watchlist:", error);
-    } finally {
-      if (isInitial) {
-        setLoading(false);
-      }
-    }
-  };
+  const { items, loading, refetch } = useWatchlistMarket(3000);
 
   const handleAddToWatchlist = async (items: Array<{ symbol: string; name: string }>) => {
     const addedCount = await addMultipleToWatchlist(items);
     if (addedCount > 0) {
-      fetchWatchlist(false);
+      await refetch();
       setIsSearchOpen(false);
     }
   };
@@ -70,22 +30,9 @@ export default function Watchlist() {
     e.stopPropagation();
     const ok = await removeFromWatchlist(symbol);
     if (ok) {
-      fetchWatchlist(false);
+      await refetch();
     }
   };
-
-  useEffect(() => {
-    // Initial fetch
-    fetchWatchlist(true);
-
-    // Set up real-time updates every 3 seconds
-    const interval = setInterval(() => {
-      fetchWatchlist(false);
-    }, 3000);
-
-    // Cleanup interval on unmount
-    return () => clearInterval(interval);
-  }, []);
 
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat("ko-KR").format(price);

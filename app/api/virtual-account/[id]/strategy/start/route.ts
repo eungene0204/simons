@@ -5,12 +5,10 @@ import { resolveTrackedSymbolsForStrategy } from "@/lib/strategy-tracked-symbols
 
 // POST: 전략 자동 실행 시작
 export async function POST(
-  request: Request,
+  _request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
-    await request.json().catch(() => ({}));
-
     const account = await prisma.virtualAccount.findUnique({
       where: { id: params.id },
     });

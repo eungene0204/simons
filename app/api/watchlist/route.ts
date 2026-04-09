@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cache } from '@/lib/cache'
-import { generateStockPriceData } from '@/lib/mock-stock-data'
 import { loadStockList } from '@/lib/krx-stocks'
+import { fetchStockPriceSnapshots } from '@/lib/server/stock-prices'
 
 interface WatchlistItem {
   symbol: string;
@@ -79,16 +79,23 @@ export async function GET(request: NextRequest) {
 
     console.log('Generating watchlist data for symbols:', symbols);
 
+    const snapshots = await fetchStockPriceSnapshots(symbols, {
+      subscribe: true,
+      mode: 'realtime',
+    });
+
     const watchlistItems: WatchlistItem[] = symbols.map((symbol) => {
-      const priceData = generateStockPriceData(symbol);
+      const snapshot = snapshots[symbol];
+      const currentPrice = snapshot?.price ?? 0;
+      const previousClose = snapshot?.previousClose ?? 0;
       return {
         symbol,
         name: names[symbol] || symbol,
         logo: undefined,
-        currentPrice: priceData.currentPrice,
-        changePercent: priceData.changePercent,
-        change: priceData.change,
-        volume: priceData.volume,
+        currentPrice,
+        changePercent: snapshot?.changePercent ?? 0,
+        change: previousClose > 0 ? currentPrice - previousClose : 0,
+        volume: snapshot?.volume ?? 0,
       };
     });
 
@@ -107,4 +114,3 @@ export async function GET(request: NextRequest) {
     );
   }
 }
-

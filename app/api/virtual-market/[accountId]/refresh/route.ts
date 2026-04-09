@@ -24,6 +24,7 @@ import {
   isPendingFillable,
 } from "@/lib/order-engine";
 import koreaStocks from "@/data/korea-stocks.json";
+import { fetchStockPriceSnapshots } from "@/lib/server/stock-prices";
 
 const stockNameMap: Record<string, string> = Object.fromEntries(
   (koreaStocks as Array<{ symbol: string; name: string }>).map((s) => [s.symbol, s.name])
@@ -31,11 +32,30 @@ const stockNameMap: Record<string, string> = Object.fromEntries(
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
 
+function summarizeFetchError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return "unknown fetch error";
+  }
+
+  const cause = error.cause;
+  if (
+    cause &&
+    typeof cause === "object" &&
+    "code" in cause &&
+    typeof (cause as { code?: unknown }).code === "string"
+  ) {
+    return `${error.message} (${(cause as { code: string }).code})`;
+  }
+
+  return error.message;
+}
+
 export async function POST(
   _request: Request,
   { params }: { params: { accountId: string } }
 ) {
   try {
+    const warnings: string[] = [];
     // 1. 마켓 상태 + 계좌 로드
     const state = await prisma.virtualMarketState.findUnique({
       where: { accountId: params.accountId },
@@ -64,14 +84,26 @@ export async function POST(
     // 3. 실제 가격 조회
     let priceMap: Record<string, { close: number; open: number; high: number; low: number; volume: number; name: string; date: string }> = {};
     try {
-      const priceRes = await fetch(`${BACKEND_URL}/market/prices`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbols }),
+      const snapshots = await fetchStockPriceSnapshots(symbols, {
+        subscribe: true,
+        mode: 'realtime',
       });
-      if (priceRes.ok) {
-        priceMap = await priceRes.json();
-      }
+      priceMap = Object.fromEntries(
+        Object.entries(snapshots)
+          .filter(([, value]) => value.price > 0)
+          .map(([symbol, value]) => [
+            symbol,
+            {
+              close: value.price,
+              open: value.open ?? value.price,
+              high: value.high ?? value.price,
+              low: value.low ?? value.price,
+              volume: value.volume ?? 0,
+              name: stockNameMap[symbol] || symbol,
+              date: value.date || new Date().toISOString().slice(0, 10),
+            },
+          ])
+      );
     } catch (e) {
       console.error("Price fetch failed:", e);
     }
@@ -132,6 +164,7 @@ export async function POST(
         const sigRes = await fetch(`${BACKEND_URL}/market/signals`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: AbortSignal.timeout(3000),
           body: JSON.stringify({
             symbols,
             quotes: priceMap,
@@ -155,7 +188,9 @@ export async function POST(
           }));
         }
       } catch (e) {
-        console.error("Signal evaluation failed:", e);
+        const summary = summarizeFetchError(e);
+        warnings.push(`Signal evaluation unavailable: ${summary}`);
+        console.warn(`Signal evaluation unavailable via ${BACKEND_URL}/market/signals: ${summary}`);
       }
     }
 
@@ -236,10 +271,9 @@ export async function POST(
       where: {
         accountId: params.accountId,
         date: today,
-        action: "auto_executed",
       },
     });
-    const executedToday = new Set(
+    const loggedToday = new Set(
       todayLogs.map((log) => `${log.symbol}_${log.signalType}`)
     );
 
@@ -257,33 +291,30 @@ export async function POST(
 
       // ── 청산 먼저 (리스크 종료 포함) ───────────────────────────────────
       if (sig.exit_signal) {
-        const existingPos = freshAccount.VirtualPosition.find((p) => p.symbol === sig.symbol);
-        if (!existingPos) continue;
-
-        // 같은 날 이미 청산 실행했으면 건너뜀
-        if (executedToday.has(`${sig.symbol}_exit`)) {
-          logs.push({ symbol: sig.symbol, type: "exit", action: "skipped", reason: "오늘 이미 청산 실행됨" });
+        if (loggedToday.has(`${sig.symbol}_exit`)) {
           continue;
         }
+
+        const existingPos = freshAccount.VirtualPosition.find((p) => p.symbol === sig.symbol);
+        if (!existingPos) continue;
 
         if (freshAccount.tradingMode === "auto") {
           const result = await executeSell(params.accountId, sig.symbol, sig.close, existingPos.quantity);
           if (result) {
             await logSignal(params.accountId, today, sig, "exit", "auto_executed", result.orderId);
-            executedToday.add(`${sig.symbol}_exit`);
+            loggedToday.add(`${sig.symbol}_exit`);
             logs.push({ symbol: sig.symbol, type: "exit", action: "auto_executed", price: sig.close, quantity: existingPos.quantity, reason: sig.exit_reason });
           }
         } else {
           await logSignal(params.accountId, today, sig, "exit", "notified");
+          loggedToday.add(`${sig.symbol}_exit`);
           logs.push({ symbol: sig.symbol, type: "exit", action: "notified", price: sig.close, reason: sig.exit_reason });
         }
       }
 
       // ── 진입 ───────────────────────────────────────────────────────────
       if (sig.entry_signal) {
-        // 같은 날 이미 진입 실행했으면 건너뜀
-        if (executedToday.has(`${sig.symbol}_entry`)) {
-          logs.push({ symbol: sig.symbol, type: "entry", action: "skipped", reason: "오늘 이미 진입 실행됨" });
+        if (loggedToday.has(`${sig.symbol}_entry`)) {
           continue;
         }
 
@@ -299,22 +330,26 @@ export async function POST(
 
         if (existingPos) {
           await logSignal(params.accountId, today, sig, "entry", "skipped");
+          loggedToday.add(`${sig.symbol}_entry`);
           logs.push({ symbol: sig.symbol, type: "entry", action: "skipped", reason: "이미 보유 중" });
         } else if (positionCount >= maxPositions) {
           await logSignal(params.accountId, today, sig, "entry", "skipped");
+          loggedToday.add(`${sig.symbol}_entry`);
           logs.push({ symbol: sig.symbol, type: "entry", action: "skipped", reason: "최대 보유 종목 초과" });
         } else if (latestAccount.tradingMode === "auto") {
           const result = await executeBuy(params.accountId, sig.symbol, sig.close, latestAccount.currentCash, positionSizePct);
           if (result) {
             await logSignal(params.accountId, today, sig, "entry", "auto_executed", result.orderId);
-            executedToday.add(`${sig.symbol}_entry`);
+            loggedToday.add(`${sig.symbol}_entry`);
             logs.push({ symbol: sig.symbol, type: "entry", action: "auto_executed", price: sig.close, quantity: result.quantity });
           } else {
             await logSignal(params.accountId, today, sig, "entry", "skipped");
+            loggedToday.add(`${sig.symbol}_entry`);
             logs.push({ symbol: sig.symbol, type: "entry", action: "skipped", reason: "잔액 부족" });
           }
         } else {
           await logSignal(params.accountId, today, sig, "entry", "notified");
+          loggedToday.add(`${sig.symbol}_entry`);
           logs.push({ symbol: sig.symbol, type: "entry", action: "notified", price: sig.close, reason: sig.entry_reason });
         }
       }
@@ -431,7 +466,7 @@ export async function POST(
       data: { lastRefreshed: today, updatedAt: new Date() },
     });
 
-    return NextResponse.json({ refreshed: true, date: today, signals, logs, prices: priceMap });
+    return NextResponse.json({ refreshed: true, date: today, signals, logs, prices: priceMap, warnings });
   } catch (error) {
     console.error("Virtual market refresh error:", error);
     return NextResponse.json({ error: "Refresh failed" }, { status: 500 });

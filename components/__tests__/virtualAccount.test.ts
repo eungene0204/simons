@@ -27,6 +27,7 @@ const mockBacktestHistoryFindFirst = vi.fn();
 const mockMarketStateFindUnique = vi.fn();
 const mockMarketStateUpsert = vi.fn();
 const mockStrategyFindUnique = vi.fn();
+const mockLoadStockList = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -53,9 +54,13 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
+vi.mock("@/lib/krx-stocks", () => ({
+  loadStockList: mockLoadStockList,
+}));
+
 // ── route 핸들러 import (mock 이후) ─────────────────────────────────────────
 const { POST, GET } = await import("@/app/api/virtual-account/route");
-const { PATCH } = await import("@/app/api/virtual-account/[id]/route");
+const { GET: GET_BY_ID, PATCH } = await import("@/app/api/virtual-account/[id]/route");
 
 // ── 헬퍼: Request 생성 ────────────────────────────────────────────────────
 function makePostRequest(body: object): Request {
@@ -88,6 +93,20 @@ const MOCK_DB_ACCOUNT = {
   VirtualPosition: [],
 };
 
+const MOCK_DB_ACCOUNT_WITH_POSITION = {
+  ...MOCK_DB_ACCOUNT,
+  currentCash: 400000,
+  VirtualPosition: [
+    {
+      symbol: "005930",
+      name: "삼성전자",
+      quantity: 10,
+      avgPrice: 50000,
+      currentPrice: 61000,
+    },
+  ],
+};
+
 const VALID_POST_BODY = {
   name: "테스트 계좌",
   initialAmount: 1000000,
@@ -101,6 +120,10 @@ const VALID_POST_BODY = {
 describe("POST /api/virtual-account", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockLoadStockList.mockResolvedValue([
+      { symbol: "005930", name: "삼성전자" },
+      { symbol: "000660", name: "SK하이닉스" },
+    ]);
     mockAccountCreate.mockResolvedValue(MOCK_DB_ACCOUNT);
     mockBacktestResultFindFirst.mockResolvedValue(null);
     mockBacktestHistoryFindFirst.mockResolvedValue(null);
@@ -259,9 +282,97 @@ describe("POST /api/virtual-account", () => {
 
 // ── PATCH /api/virtual-account/[id] ─────────────────────────────────────────
 
+describe("GET /api/virtual-account", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockLoadStockList.mockResolvedValue([
+      { symbol: "005930", name: "삼성전자" },
+      { symbol: "000660", name: "SK하이닉스" },
+    ]);
+  });
+
+  it("저장된 currentPrice 기준으로 목록을 즉시 반환한다", async () => {
+    mockAccountFindMany.mockResolvedValue([MOCK_DB_ACCOUNT_WITH_POSITION]);
+
+    const res = await GET();
+
+    expect(res.status).toBe(200);
+    expect(mockAccountFindMany).toHaveBeenCalledOnce();
+
+    const body = await res.json();
+    expect(body).toHaveLength(1);
+    expect(body[0].totalValue).toBe(1010000);
+  });
+});
+
+describe("GET /api/virtual-account/[id]", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("실시간 시세를 기다리지 않고 저장된 보유 가격으로 상세를 반환한다", async () => {
+    mockAccountFindUnique.mockResolvedValue(MOCK_DB_ACCOUNT_WITH_POSITION);
+
+    const res = await GET_BY_ID(
+      new Request("http://localhost/api/virtual-account/test-uuid-1234"),
+      { params: { id: "test-uuid-1234" } }
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockAccountFindUnique).toHaveBeenCalledOnce();
+
+    const body = await res.json();
+    expect(body.totalValue).toBe(1010000);
+    expect(body.holdings).toEqual([
+      expect.objectContaining({
+        symbol: "005930",
+        name: "삼성전자",
+        currentPrice: 61000,
+        totalValue: 610000,
+        profit: 110000,
+      }),
+    ]);
+  });
+
+  it("기존 포지션 name에 종목코드가 저장돼 있어도 종목명을 복원해서 반환한다", async () => {
+    mockAccountFindUnique.mockResolvedValue({
+      ...MOCK_DB_ACCOUNT_WITH_POSITION,
+      VirtualPosition: [
+        {
+          symbol: "000660",
+          name: "000660",
+          quantity: 3,
+          avgPrice: 200000,
+          currentPrice: 210000,
+        },
+      ],
+    });
+
+    const res = await GET_BY_ID(
+      new Request("http://localhost/api/virtual-account/test-uuid-1234"),
+      { params: { id: "test-uuid-1234" } }
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.holdings).toEqual([
+      expect.objectContaining({
+        symbol: "000660",
+        name: "SK하이닉스",
+      }),
+    ]);
+  });
+});
+
 describe("PATCH /api/virtual-account/[id]", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // fetch mock: 실제 네트워크 호출 방지 (AbortSignal 타이머로 인한 지연 방지)
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
+    mockLoadStockList.mockResolvedValue([
+      { symbol: "005930", name: "삼성전자" },
+      { symbol: "000660", name: "SK하이닉스" },
+    ]);
     mockAccountUpdate.mockResolvedValue(MOCK_DB_ACCOUNT);
     mockBacktestResultFindFirst.mockResolvedValue(null);
     mockBacktestHistoryFindFirst.mockResolvedValue(null);

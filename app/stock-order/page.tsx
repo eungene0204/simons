@@ -14,7 +14,14 @@ import OrderBook, { MarketStats } from "@/components/order/OrderBook";
 import { getBasePrice } from "@/lib/mock-stock-data";
 import { formatMarketCap } from "@/lib/format-market-cap";
 import CandlestickChart, { OHLCV } from "@/components/stock/CandlestickChart";
-import type { BatchQuoteItem } from "@/app/api/stock/batch-quotes/route";
+import {
+  mergeStockInfo,
+  pickPositiveNumber,
+  pickStockName,
+  sanitizeMarketCap,
+} from "@/app/stock-order/stock-info";
+import { useStockPrices } from "@/lib/hooks/useStockPrices";
+import type { StockPriceSnapshot as BatchQuoteItem } from "@/lib/stock-prices";
 import { useDrawer } from "@/contexts/DrawerContext";
 import {
   getAllAccounts,
@@ -29,6 +36,8 @@ import type { VirtualAccount, PendingOrder } from "@/types/portfolio";
 const formatPrice = (price: number) => {
   return new Intl.NumberFormat("ko-KR").format(price);
 };
+
+const STOCK_DETAIL_RETRY_DELAYS_MS = [0, 400, 1200];
 
 function applyRealtimeToLatestCandle(
   candles: OHLCV[] | null,
@@ -87,7 +96,9 @@ export default function OrderPage() {
   const name = searchParams.get("name") || "";
   const { selectedAccountId, setSelectedAccountId } = useDrawer();
 
-  const [selectedStockName, setSelectedStockName] = useState(name);
+  const [selectedStockName, setSelectedStockName] = useState(
+    pickStockName(symbol, name) ?? ""
+  );
   const [stockInfo, setStockInfo] = useState<any>(null);
   const [quantity, setQuantity] = useState("");
   const [price, setPrice] = useState("");
@@ -136,6 +147,11 @@ export default function OrderPage() {
     total?: number;
     message?: string;
   } | null>(null);
+  const { data: priceSnapshots } = useStockPrices(symbol ? [symbol] : [], {
+    enabled: !!symbol,
+    refetchInterval: 2000,
+  });
+  const realtimeQuote = symbol ? priceSnapshots?.[symbol] : undefined;
 
   // 가상계좌 목록 로드 및 주기적 업데이트
   useEffect(() => {
@@ -237,12 +253,12 @@ export default function OrderPage() {
     const orderTypeMapped: "MARKET" | "LIMIT" = priceType === "market" ? "MARKET" : "LIMIT";
 
     // 종목 이름 확정
-    let stockName = selectedStockName || symbol;
+    let stockName = pickStockName(symbol, selectedStockName, stockInfo?.name) || symbol;
     try {
       const res = await fetch(`/api/stock/${symbol}/detail`);
       if (res.ok) {
         const data = await res.json();
-        stockName = data.name || stockName;
+        stockName = pickStockName(symbol, data.name, stockName) || symbol;
       }
     } catch { /* 이름 가져오기 실패 시 기존 이름 유지 */ }
 
@@ -285,119 +301,180 @@ export default function OrderPage() {
 
   // URL 파라미터에서 name이 변경될 때 selectedStockName 업데이트
   useEffect(() => {
-    if (name) {
-      setSelectedStockName(name);
+    const routeName = pickStockName(symbol, name);
+    if (routeName) {
+      setSelectedStockName(routeName);
     }
-  }, [name]);
+  }, [name, symbol]);
 
   useEffect(() => {
-    if (symbol) {
-      setIsStockInfoLoading(true);
-      // 종목 정보 가져오기
-      fetch(`/api/stock/${symbol}/detail`)
-        .then((res) => res.json())
-        .then((data) => {
-          setStockInfo(data);
-          if (data.name) {
-            setSelectedStockName(data.name);
-          }
-          // 백엔드에서 실제 lastClose를 받았으면 즉시 설정 (interval이 undefined로 덮어쓰는 것 방지)
-          if (data.realLastClose) {
-            setRealLastClose(data.realLastClose);
-          }
-          // 실제 ohlcv 데이터가 이미 로드됐으면 mock 가격으로 덮어쓰지 않음
-          if (!hasRealPriceRef.current && currentPrice === undefined && data.currentPrice) {
-            setPrice(data.currentPrice.toString());
-            setCurrentPrice(data.currentPrice);
-          } else if (!hasRealPriceRef.current && currentPrice === undefined && !data.currentPrice) {
-            const basePrice = getBasePrice(symbol);
-            if (basePrice) {
-              setCurrentPrice(basePrice);
-              setPrice(basePrice.toString());
-            }
-          }
-        })
-        .catch((error) => {
-          console.error("Failed to fetch stock info:", error);
-          if (!hasRealPriceRef.current && currentPrice === undefined) {
-            const basePrice = getBasePrice(symbol);
-            if (basePrice) {
-              setCurrentPrice(basePrice);
-              setPrice(basePrice.toString());
-            }
-          }
-        })
-        .finally(() => setIsStockInfoLoading(false));
-    }
-  }, [symbol, currentPrice]);
-
-  // 실시간 현재가/거래량 갱신 + 미체결 주문 체결 트리거
-  useEffect(() => {
-    if (!symbol) return;
+    const routeName = pickStockName(symbol, name);
+    const resolvedName = pickStockName(symbol, routeName, stockInfo?.name, selectedStockName);
+    if (!symbol || resolvedName) return;
 
     let isMounted = true;
 
-    const loadRealtimeQuote = async () => {
-      try {
-        const res = await fetch("/api/stock/batch-quotes", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ symbols: [symbol] }),
-        });
-        if (!res.ok) return;
-
-        const data: Record<string, BatchQuoteItem> = await res.json();
-        const quote = data[symbol];
-        if (!isMounted || !quote || quote.price <= 0) return;
-
-        setLiveQuote(quote);
-        setCurrentPrice(quote.price);
-        setStockInfo((prev: any) =>
-          prev
-            ? {
-                ...prev,
-                currentPrice: quote.price,
-                changePercent: quote.changePercent,
-                volume:
-                  quote.source?.startsWith("kis") && quote.volume > 0
-                    ? quote.volume
-                    : prev.volume,
-                open: quote.open ?? prev.open,
-                high: quote.high ?? prev.high,
-                low: quote.low ?? prev.low,
-                previousClose: quote.previousClose ?? prev.previousClose,
-              }
-            : prev
+    fetch("/api/stocks/names")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!isMounted || !data || typeof data !== "object") return;
+        const metadataName = pickStockName(
+          symbol,
+          data[symbol]?.name,
         );
-
-        if (priceType === "market" && !selectedOrderPrice) {
-          setPrice(quote.price.toString());
+        if (metadataName) {
+          setSelectedStockName(metadataName);
         }
-
-        if (selectedAccountId) {
-          const fillResult = await fillPendingOrders(selectedAccountId, symbol, quote.price);
-          if (fillResult.count > 0) {
-            getAccount(selectedAccountId).then((acc) => {
-              if (acc) setAvailableAmount(acc.currentBalance);
-            });
-            getAllAccounts().then(setVirtualAccounts);
-            loadPendingOrders();
-          }
-        }
-      } catch {
-        // Keep last known value when realtime fetch fails.
-      }
-    };
-
-    loadRealtimeQuote();
-    const interval = setInterval(loadRealtimeQuote, 2000);
+      })
+      .catch(() => {
+        // Keep the current fallback when metadata lookup fails.
+      });
 
     return () => {
       isMounted = false;
-      clearInterval(interval);
+    };
+  }, [symbol, name, stockInfo?.name, selectedStockName]);
+
+  useEffect(() => {
+    if (symbol) {
+      let cancelled = false;
+
+      setIsStockInfoLoading(true);
+      setStockInfo(null);
+      setCurrentPrice(undefined);
+      setPrice("");
+      setSelectedOrderPrice(undefined);
+      setSelectedStockName(pickStockName(symbol, name) ?? "");
+      // 시가총액은 장중에 거의 변하지 않으므로 누락 시 짧게 재시도해 일시적인 상세 시세 실패를 흡수한다.
+      const loadStockInfo = async () => {
+        let hadSuccessfulResponse = false;
+
+        for (const delayMs of STOCK_DETAIL_RETRY_DELAYS_MS) {
+          if (delayMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+          }
+          if (cancelled) {
+            return;
+          }
+
+          try {
+            const res = await fetch(`/api/stock/${symbol}/detail`, { cache: "no-store" });
+            const rawData = await res.json();
+            const data = {
+              ...rawData,
+              marketCap: sanitizeMarketCap(
+                symbol,
+                rawData?.marketCap,
+                rawData?.currentPrice
+              ),
+            };
+            hadSuccessfulResponse = true;
+
+            if (cancelled) {
+              return;
+            }
+
+            setStockInfo((prev: any) => mergeStockInfo(prev, data));
+            const resolvedName = pickStockName(symbol, data.name, name);
+            if (resolvedName) {
+              setSelectedStockName(resolvedName);
+            }
+            // 백엔드에서 실제 lastClose를 받았으면 즉시 설정 (interval이 undefined로 덮어쓰는 것 방지)
+            if (data.realLastClose) {
+              setRealLastClose(data.realLastClose);
+            }
+            // 실제 ohlcv 데이터가 이미 로드됐으면 mock 가격으로 덮어쓰지 않음
+            const nextPrice = pickPositiveNumber(data.currentPrice, getBasePrice(symbol));
+            if (!hasRealPriceRef.current && nextPrice) {
+              setCurrentPrice((prev) => prev ?? nextPrice);
+              setPrice((prev) => prev || nextPrice.toString());
+            }
+
+            if (pickPositiveNumber(data.marketCap)) {
+              break;
+            }
+          } catch (error) {
+            if (delayMs === STOCK_DETAIL_RETRY_DELAYS_MS[STOCK_DETAIL_RETRY_DELAYS_MS.length - 1]) {
+              console.error("Failed to fetch stock info:", error);
+            }
+          }
+        }
+
+        if (!hadSuccessfulResponse && !hasRealPriceRef.current) {
+          const basePrice = getBasePrice(symbol);
+          if (basePrice) {
+            setCurrentPrice((prev) => prev ?? basePrice);
+            setPrice((prev) => prev || basePrice.toString());
+          }
+        }
+
+        if (!cancelled) {
+          setIsStockInfoLoading(false);
+        }
+      };
+
+      loadStockInfo();
+
+      return () => {
+        cancelled = true;
+      };
+    }
+  }, [symbol, name]);
+
+  // 공용 시세 소스로부터 현재가/거래량 갱신 + 미체결 주문 체결 트리거
+  useEffect(() => {
+    if (!symbol || !realtimeQuote || realtimeQuote.price <= 0) return;
+
+    let cancelled = false;
+
+    const applyRealtimeQuote = async () => {
+      setLiveQuote(realtimeQuote);
+      setCurrentPrice(realtimeQuote.price);
+      setStockInfo((prev: any) =>
+        prev
+          ? {
+              ...prev,
+              currentPrice: realtimeQuote.price,
+              changePercent: realtimeQuote.changePercent,
+              volume:
+                realtimeQuote.source?.startsWith("kis") && realtimeQuote.volume > 0
+                  ? realtimeQuote.volume
+                  : prev.volume,
+              open: realtimeQuote.open ?? prev.open,
+              high: realtimeQuote.high ?? prev.high,
+              low: realtimeQuote.low ?? prev.low,
+              previousClose: realtimeQuote.previousClose ?? prev.previousClose,
+            }
+          : prev
+      );
+
+      if (priceType === "market" && !selectedOrderPrice) {
+        setPrice(realtimeQuote.price.toString());
+      }
+
+      if (selectedAccountId) {
+        const fillResult = await fillPendingOrders(
+          selectedAccountId,
+          symbol,
+          realtimeQuote.price
+        );
+        if (!cancelled && fillResult.count > 0) {
+          getAccount(selectedAccountId).then((acc) => {
+            if (acc) setAvailableAmount(acc.currentBalance);
+          });
+          getAllAccounts().then(setVirtualAccounts);
+          loadPendingOrders();
+        }
+      }
+    };
+
+    applyRealtimeQuote();
+
+    return () => {
+      cancelled = true;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [symbol, priceType, selectedOrderPrice, selectedAccountId]);
+  }, [symbol, realtimeQuote, priceType, selectedOrderPrice, selectedAccountId]);
 
   // 파케이 실제 OHLCV 데이터 fetch (백엔드 가용 시)
   useEffect(() => {
@@ -531,6 +608,8 @@ export default function OrderPage() {
   const estimatedFee = Math.floor(orderAmount * 0.00015);
   const settlementAmount =
     transactionType === "buy" ? orderAmount + estimatedFee : orderAmount - estimatedFee;
+  const displayStockName =
+    pickStockName(symbol, selectedStockName, stockInfo?.name) ?? symbol;
 
   if (!symbol) {
     return (
@@ -641,12 +720,9 @@ export default function OrderPage() {
         <div className="glass-card p-5">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="space-y-2">
-              <div className="inline-flex items-center rounded-md bg-white/[0.06] px-2 py-1 text-xs font-bold uppercase tracking-widest text-gray-300">
-                Stock Order
-              </div>
               <div>
                 <h1 className="text-3xl font-black leading-none text-white">
-                  {selectedStockName || symbol}
+                  {displayStockName}
                 </h1>
                 <p className="mt-2 text-sm font-bold uppercase tracking-[0.24em] text-gray-400">
                   {symbol}
@@ -723,12 +799,8 @@ export default function OrderPage() {
           <div className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-10 gap-6 items-stretch">
               <div className="lg:col-span-6">
-                <div className="glass-card p-5 h-full">
-                  <div className="mb-4 flex flex-col gap-3 border-b border-white/[0.05] pb-4 md:flex-row md:items-center md:justify-between">
-                    <div>
-                      <div className="text-base font-black uppercase tracking-widest text-gray-400">Price Chart</div>
-                      <div className="mt-1 text-sm text-gray-500">실시간 가격과 기간별 봉 차트를 확인합니다.</div>
-                    </div>
+                <div className="glass-card flex h-[620px] flex-col overflow-hidden p-0">
+                  <div className="flex flex-col gap-3 border-b border-white/[0.05] px-5 py-4 md:flex-row md:items-center md:justify-end">
                     <div className="flex flex-wrap items-center gap-2">
                       {(["1Y", "3Y", "5Y"] as const).map((range) => (
                         <button
@@ -759,7 +831,7 @@ export default function OrderPage() {
                       ))}
                     </div>
                   </div>
-                  <div className="h-[460px] overflow-hidden rounded-2xl border border-white/[0.05] bg-black/20">
+                  <div className="min-h-0 flex-1 overflow-hidden bg-black/20">
                     {isOhlcvLoading ? (
                       <div className="flex h-full items-center justify-center text-sm font-bold text-gray-500">
                         차트 데이터를 불러오는 중...
@@ -772,7 +844,7 @@ export default function OrderPage() {
               </div>
 
               <div className="lg:col-span-4">
-                <div className="h-full">
+                <div className="h-[620px]">
                   <OrderBook
                     symbol={symbol}
                     currentPrice={currentPrice}
@@ -788,14 +860,11 @@ export default function OrderPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-10 gap-6 items-start">
+            <div className="grid grid-cols-1 lg:grid-cols-10 gap-6 items-stretch">
               <div className="lg:col-span-6">
                 <div className="glass-card h-[600px] overflow-hidden">
                   <div className="flex items-center justify-between border-b border-white/[0.05] px-5 py-4">
-                    <div>
-                      <div className="text-base font-black uppercase tracking-widest text-gray-400">Price History</div>
-                      <div className="mt-1 text-xs font-bold text-gray-500">최근 2년 일별 가격과 거래량</div>
-                    </div>
+                    <div className="text-xs font-bold text-gray-500">최근 2년 일별 가격과 거래량</div>
                   </div>
                   <div className="custom-scrollbar h-[calc(100%-73px)] overflow-auto">
                     <table className="w-full text-sm">
@@ -855,13 +924,10 @@ export default function OrderPage() {
               </div>
 
               <div className="lg:col-span-4">
-                <div className="glass-card p-5">
+                <div className="glass-card flex h-[600px] flex-col p-5">
                   <div className="mb-5 flex items-start justify-between border-b border-white/[0.05] pb-4">
-                    <div>
-                      <div className="text-base font-black uppercase tracking-widest text-gray-400">Order Ticket</div>
-                      <div className="mt-1 text-xs font-bold text-gray-500">
-                        {isStockInfoLoading ? "종목 정보를 불러오는 중..." : "실시간 가격을 기준으로 주문을 입력합니다."}
-                      </div>
+                    <div className="mt-1 text-xs font-bold text-gray-500">
+                      {isStockInfoLoading ? "종목 정보를 불러오는 중..." : "실시간 가격을 기준으로 주문을 입력합니다."}
                     </div>
                     <div className="rounded-md bg-white/[0.06] px-2 py-1 text-xs font-bold text-gray-300">
                       가능 {formatPrice(availableQty)}주
@@ -901,7 +967,7 @@ export default function OrderPage() {
 
                   <div className="relative mb-5" ref={accountDropdownRef}>
                     <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-gray-400">
-                      Virtual Account
+                      가상계좌
                     </label>
                     <button
                       onClick={() => setIsAccountDropdownOpen(!isAccountDropdownOpen)}
@@ -948,9 +1014,9 @@ export default function OrderPage() {
                   </div>
 
                   {transactionType === "pending" ? (
-                    <div className="space-y-3">
+                    <div className="min-h-0 flex-1 space-y-3 overflow-auto">
                       <div className="flex items-center justify-between">
-                        <div className="text-xs font-bold uppercase tracking-widest text-gray-400">Pending Orders</div>
+                        <div className="text-xs font-bold uppercase tracking-widest text-gray-400">미체결 주문</div>
                         <button onClick={loadPendingOrders} className="text-xs font-bold text-gray-400 hover:text-white">
                           새로고침
                         </button>
@@ -1005,11 +1071,12 @@ export default function OrderPage() {
                       )}
                     </div>
                   ) : (
-                    <div className="space-y-5">
+                    <div className="flex flex-1 flex-col">
+                      <div className="space-y-5">
                       <div>
                         <div className="mb-2 flex items-center justify-between">
                           <label className="text-xs font-bold uppercase tracking-widest text-gray-400">
-                            {transactionType === "buy" ? "Buy Price" : "Sell Price"}
+                            {transactionType === "buy" ? "매수가" : "매도가"}
                           </label>
                           <div className="flex items-center gap-3">
                             <label className="flex items-center gap-1.5 text-xs font-bold text-gray-300">
@@ -1076,7 +1143,7 @@ export default function OrderPage() {
 
                       <div>
                         <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-gray-400">
-                          Quantity
+                          수량
                         </label>
                         <div className="grid grid-cols-[1fr_auto_auto] gap-2">
                           <input
@@ -1130,7 +1197,7 @@ export default function OrderPage() {
                         <div className="border-t border-white/[0.06] pt-3">
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-bold uppercase tracking-widest text-gray-400">
-                              {transactionType === "buy" ? "Total Cost" : "Expected Proceeds"}
+                              {transactionType === "buy" ? "총 주문금액" : "예상 수령금액"}
                             </span>
                             <span className="font-outfit text-xl font-black tabular-nums text-white">
                               {formatPrice(settlementAmount)}원
@@ -1141,7 +1208,7 @@ export default function OrderPage() {
 
                       <button
                         onClick={handleOrder}
-                        className={`w-full rounded-xl py-3 text-sm font-black transition-colors ${
+                        className={`mt-auto w-full rounded-xl py-3 text-sm font-black transition-colors ${
                           transactionType === "buy"
                             ? "bg-[var(--main-red)] text-white hover:bg-red-500"
                             : "bg-[var(--main-blue)] text-white hover:bg-blue-500"
@@ -1155,6 +1222,7 @@ export default function OrderPage() {
                           ? "시장가 매도"
                           : "지정가 매도"}
                       </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1166,7 +1234,6 @@ export default function OrderPage() {
         {activeTab === "info" && (
           <div className="glass-card p-5">
             <div className="mb-5 border-b border-white/[0.05] pb-4">
-              <h2 className="text-base font-black uppercase tracking-widest text-gray-400">Stock Info</h2>
               <p className="mt-1 text-sm text-gray-500">기본 정보와 재무 지표를 한눈에 확인합니다.</p>
             </div>
             {stockInfo ? (
@@ -1179,7 +1246,7 @@ export default function OrderPage() {
                     <div className="flex justify-between text-sm">
                       <span className="text-sm text-gray-400">종목명</span>
                       <span className="font-bold text-white">
-                        {stockInfo.name || selectedStockName}
+                        {displayStockName}
                       </span>
                     </div>
                     <div className="flex justify-between text-sm">
@@ -1255,7 +1322,6 @@ export default function OrderPage() {
         {activeTab === "news" && (
           <div className="glass-card p-5">
             <div className="mb-5 border-b border-white/[0.05] pb-4">
-              <h2 className="text-base font-black uppercase tracking-widest text-gray-400">News & Filings</h2>
               <p className="mt-1 text-sm text-gray-500">뉴스와 공시 피드를 같은 톤으로 정리합니다.</p>
             </div>
             <div className="space-y-4">
@@ -1265,7 +1331,7 @@ export default function OrderPage() {
                   <span className="text-xs text-gray-500">2024.01.15</span>
                 </div>
                 <p className="text-sm text-gray-300">
-                  {selectedStockName || symbol} 관련 주요 공시사항이 없습니다.
+                  {displayStockName} 관련 주요 공시사항이 없습니다.
                 </p>
               </div>
               <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
@@ -1274,7 +1340,7 @@ export default function OrderPage() {
                   <span className="text-xs text-gray-500">2024.01.15</span>
                 </div>
                 <p className="text-sm text-gray-300">
-                  {selectedStockName || symbol} 관련 최신 뉴스가 없습니다.
+                  {displayStockName} 관련 최신 뉴스가 없습니다.
                 </p>
               </div>
             </div>
@@ -1284,7 +1350,6 @@ export default function OrderPage() {
         {activeTab === "trading" && (
           <div className="glass-card p-5">
             <div className="mb-5 border-b border-white/[0.05] pb-4">
-              <h2 className="text-base font-black uppercase tracking-widest text-gray-400">Trading Snapshot</h2>
               <p className="mt-1 text-sm text-gray-500">당일 거래 지표와 가격 범위를 확인합니다.</p>
             </div>
             <div className="space-y-4">
@@ -1332,7 +1397,6 @@ export default function OrderPage() {
         {activeTab === "community" && (
           <div className="glass-card p-5">
             <div className="mb-5 border-b border-white/[0.05] pb-4">
-              <h2 className="text-base font-black uppercase tracking-widest text-gray-400">Community</h2>
               <p className="mt-1 text-sm text-gray-500">커뮤니티 영역도 동일한 카드 톤을 유지합니다.</p>
             </div>
             <div className="space-y-4">
@@ -1344,7 +1408,7 @@ export default function OrderPage() {
                   <span className="text-xs text-gray-500">2024.01.15</span>
                 </div>
                 <p className="text-sm text-gray-300">
-                  {selectedStockName || symbol} 관련 커뮤니티 게시글이 없습니다.
+                  {displayStockName} 관련 커뮤니티 게시글이 없습니다.
                 </p>
               </div>
               <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
@@ -1353,7 +1417,7 @@ export default function OrderPage() {
                   <span className="text-xs text-gray-500">2024.01.15</span>
                 </div>
                 <p className="text-sm text-gray-300">
-                  {selectedStockName || symbol} 관련 토론이 없습니다.
+                  {displayStockName} 관련 토론이 없습니다.
                 </p>
               </div>
             </div>
@@ -1367,7 +1431,7 @@ export default function OrderPage() {
               <div className="flex items-start justify-between mb-4">
                 <div>
                   <h1 className="text-2xl font-bold text-white mb-1">
-                    {selectedStockName || symbol}
+                    {displayStockName}
                   </h1>
                   <p className="text-sm text-gray-400">{symbol}</p>
                 </div>
@@ -1758,14 +1822,14 @@ export default function OrderPage() {
                         >
                           <div className="flex items-start justify-between mb-2">
                             <h4 className="text-sm font-medium text-white">
-                              {selectedStockName || symbol} 관련 주요 뉴스 {i}
+                              {displayStockName} 관련 주요 뉴스 {i}
                             </h4>
                             <span className="text-xs text-gray-500">
                               2024.01.{15 + i}
                             </span>
                           </div>
                           <p className="text-sm text-gray-300 mb-2">
-                            {selectedStockName || symbol} 관련 뉴스 요약 내용...
+                            {displayStockName} 관련 뉴스 요약 내용...
                           </p>
                           <div className="flex items-center gap-2">
                             <span className="px-2 py-1 text-xs bg-blue-600/20 text-blue-400 rounded">

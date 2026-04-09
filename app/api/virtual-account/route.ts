@@ -2,24 +2,11 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { resolveTrackedSymbolsForStrategy } from '@/lib/strategy-tracked-symbols';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
-
-async function fetchLastClose(symbol: string): Promise<number | null> {
-  try {
-    const res = await fetch(`${BACKEND_URL}/stock/${symbol}/ohlcv?limit=1`, { cache: 'no-store' });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data.lastClose ?? null;
-  } catch {
-    return null;
-  }
-}
-
 function mapAccount(a: any, priceMap: Record<string, number>) {
   const totalValue =
     a.currentCash +
     (a.VirtualPosition ?? []).reduce((sum: number, p: any) => {
-      const currentPrice = priceMap[p.symbol] ?? p.avgPrice;
+      const currentPrice = priceMap[p.symbol] ?? p.currentPrice ?? p.avgPrice;
       return sum + p.quantity * currentPrice;
     }, 0);
   return {
@@ -44,13 +31,7 @@ export async function GET() {
       orderBy: { createdAt: 'desc' },
     });
 
-    // 전체 계좌의 고유 종목 코드 수집 후 병렬로 현재가 조회
-    const symbols = [...new Set(accounts.flatMap((a) => a.VirtualPosition.map((p) => p.symbol)))];
-    const prices = await Promise.all(symbols.map(fetchLastClose));
-    const priceMap: Record<string, number> = {};
-    symbols.forEach((s, i) => { if (prices[i] !== null) priceMap[s] = prices[i]!; });
-
-    return NextResponse.json(accounts.map((a) => mapAccount(a, priceMap)));
+    return NextResponse.json(accounts.map((a) => mapAccount(a, {})));
   } catch (error) {
     console.error('Failed to fetch virtual accounts:', error);
     return NextResponse.json({ error: 'Failed to fetch accounts' }, { status: 500 });

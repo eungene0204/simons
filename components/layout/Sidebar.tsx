@@ -151,79 +151,81 @@ function SidebarComponent() {
 
 
   return (
-    <nav className="bg-black/40 backdrop-blur-xl flex items-center gap-1 px-6 py-3 overflow-x-auto scrollbar-hide">
-      {/* Logo */}
-      <Link
-        href="/"
-        className="flex items-center gap-3 mr-8 flex-shrink-0 group"
-      >
-        <Image
-          src="/nullStock.png"
-          alt="NullStock Logo"
-          width={72}
-          height={42}
-          className="rounded-full group-hover:scale-105 transition-transform duration-300"
-        />
-        <span className="text-sm font-black text-white tracking-tighter uppercase">널스탁</span>
-      </Link>
+    <>
+      <nav className="bg-black/40 backdrop-blur-xl flex items-center gap-1 px-6 py-3 overflow-x-auto scrollbar-hide">
+        {/* Logo */}
+        <Link
+          href="/"
+          className="flex items-center gap-3 mr-8 flex-shrink-0 group"
+        >
+          <Image
+            src="/nullStock.png"
+            alt="NullStock Logo"
+            width={72}
+            height={42}
+            className="rounded-full group-hover:scale-105 transition-transform duration-300"
+          />
+          <span className="text-sm font-black text-white tracking-tighter uppercase">널스탁</span>
+        </Link>
 
-      {/* Menu Items */}
-      <div className="flex items-center gap-1 flex-1">
-        {menuItems.map((item) => {
-          const isActive = activeMenuItemId === item.id;
-          const IconComponent = item.Icon;
+        {/* Menu Items */}
+        <div className="flex items-center gap-1 flex-1">
+          {menuItems.map((item) => {
+            const isActive = activeMenuItemId === item.id;
+            const IconComponent = item.Icon;
 
-          return (
-            <Link
-              key={item.id}
-              href={item.href}
-              onClick={(e) => handleMenuClick(item, e)}
-              className={`relative flex items-center gap-2 px-4 py-2 rounded-xl transition-all duration-300 whitespace-nowrap group ${
-                isActive
-                  ? "bg-white/10 text-white shadow-lg"
-                  : "text-gray-500 hover:text-gray-300 hover:bg-white/[0.02]"
-              }`}
-            >
-              <IconComponent
-                size={18}
-                weight={isActive ? "fill" : "regular"}
-                className={`transition-colors ${isActive ? "text-blue-400" : "group-hover:text-blue-400"}`}
-              />
-              <span
-                className={`text-sm tracking-tight ${
-                  isActive ? "font-black" : "font-bold"
+            return (
+              <Link
+                key={item.id}
+                href={item.href}
+                onClick={(e) => handleMenuClick(item, e)}
+                className={`relative flex items-center gap-2 px-4 py-2 rounded-xl transition-all duration-300 whitespace-nowrap group ${
+                  isActive
+                    ? "bg-white/10 text-white shadow-lg"
+                    : "text-gray-500 hover:text-gray-300 hover:bg-white/[0.02]"
                 }`}
               >
-                {item.label}
-              </span>
-            </Link>
-          );
-        })}
-      </div>
-
-      {/* Search Bar */}
-      <div className="flex items-center gap-2 ml-auto mr-4">
-        <div
-          onClick={handleSearchClick}
-          className="relative flex items-center bg-white/5 border border-white/5 rounded-xl px-4 py-1.5 min-w-[220px] cursor-pointer hover:bg-white/10 transition-all group"
-        >
-          <MagnifyingGlass size={16} className="text-gray-500 group-hover:text-gray-300 mr-2 flex-shrink-0" />
-          <span className="text-[10px] text-gray-500 font-bold bg-black/40 border border-white/10 rounded px-1.5 py-0.5 mr-2 flex-shrink-0">/</span>
-          <span className="text-xs text-gray-500 group-hover:text-gray-400 font-bold flex-1">Quick Search</span>
+                <IconComponent
+                  size={18}
+                  weight={isActive ? "fill" : "regular"}
+                  className={`transition-colors ${isActive ? "text-blue-400" : "group-hover:text-blue-400"}`}
+                />
+                <span
+                  className={`text-sm tracking-tight ${
+                    isActive ? "font-black" : "font-bold"
+                  }`}
+                >
+                  {item.label}
+                </span>
+              </Link>
+            );
+          })}
         </div>
-      </div>
 
-      {/* Upgrade Button */}
-      <button className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl text-xs font-black hover:shadow-[0_0_15px_rgba(59,130,246,0.4)] transition-all flex items-center gap-2 flex-shrink-0">
-        <Sparkle size={16} weight="fill" />
-        <span>PRO</span>
-      </button>
+        {/* Search Bar */}
+        <div className="flex items-center gap-2 ml-auto mr-4">
+          <div
+            onClick={handleSearchClick}
+            className="relative flex items-center bg-white/5 border border-white/5 rounded-xl px-4 py-1.5 min-w-[220px] cursor-pointer hover:bg-white/10 transition-all group"
+          >
+            <MagnifyingGlass size={16} className="text-gray-500 group-hover:text-gray-300 mr-2 flex-shrink-0" />
+            <span className="text-[10px] text-gray-500 font-bold bg-black/40 border border-white/10 rounded px-1.5 py-0.5 mr-2 flex-shrink-0">/</span>
+            <span className="text-xs text-gray-500 group-hover:text-gray-400 font-bold flex-1">Quick Search</span>
+          </div>
+        </div>
+
+        {/* Upgrade Button */}
+        <button className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl text-xs font-black hover:shadow-[0_0_15px_rgba(59,130,246,0.4)] transition-all flex items-center gap-2 flex-shrink-0">
+          <Sparkle size={16} weight="fill" />
+          <span>PRO</span>
+        </button>
+      </nav>
 
       <QuickSearchModal
         isOpen={isSearchModalOpen}
         onClose={() => setIsSearchModalOpen(false)}
       />
-    </nav>
+    </>
   );
 }
 

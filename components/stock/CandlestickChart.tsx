@@ -554,34 +554,5 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
     }
   }, [candlestickData, ema5Data, ema20Data, ema60Data, ema120Data, volumeData]);
 
-  return (
-    <div className="w-full h-full flex flex-col bg-[#1a1a1a]">
-      {/* Top Controls - Legend and Period Buttons */}
-      <div className="flex justify-between items-center px-4 py-2 bg-[#1a1a1a] border-b border-gray-800">
-        {/* EMA Legend */}
-        <div className="flex gap-4 text-xs">
-          <div className="flex items-center gap-1">
-            <div className="w-3 h-0.5 bg-amber-500"></div>
-            <span className="text-gray-300">이동평균5</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <div className="w-3 h-0.5 bg-blue-600"></div>
-            <span className="text-gray-300">이동평균20</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <div className="w-3 h-0.5 bg-purple-500"></div>
-            <span className="text-gray-300">이동평균60</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <div className="w-3 h-0.5 bg-pink-500"></div>
-            <span className="text-gray-300">이동평균120</span>
-          </div>
-        </div>
-
-      </div>
-
-      {/* Chart Container */}
-      <div ref={chartContainerRef} className="flex-1 min-h-0" />
-    </div>
-  );
+  return <div ref={chartContainerRef} className="h-full w-full" />;
 }

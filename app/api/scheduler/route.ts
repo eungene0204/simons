@@ -15,6 +15,7 @@
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { fetchStockPriceSnapshots } from "@/lib/server/stock-prices";
 
 const APP_URL = process.env.APP_URL || "http://localhost:3000";
 const SCHEDULER_SECRET = process.env.SCHEDULER_SECRET;
@@ -30,7 +31,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
   const { action } = await request.json();
   const now = new Date().toISOString();
 
@@ -51,10 +51,9 @@ export async function POST(request: Request) {
 
     if (allSymbols.size > 0) {
       try {
-        await fetch(`${BACKEND_URL}/market/prices`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ symbols: Array.from(allSymbols) }),
+        await fetchStockPriceSnapshots(Array.from(allSymbols), {
+          subscribe: true,
+          mode: "standard",
         });
       } catch (e) {
         console.error(`[Scheduler] pre-market cache warming failed:`, e);

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildDisplayRows, ORDERBOOK_DEPTH } from "@/lib/orderbook-display";
 
 describe("buildDisplayRows", () => {
-  it("호가가 부족해도 표시 행 수를 항상 고정한다", () => {
+  it("매도 호가가 부족하면 위쪽을 빈 줄로 채워 best ask를 하단(현재가 인접)에 고정한다", () => {
     const rows = buildDisplayRows(
       [
         { price: 1000, quantity: 10 },
@@ -13,12 +13,33 @@ describe("buildDisplayRows", () => {
     );
 
     expect(rows).toHaveLength(ORDERBOOK_DEPTH);
-    expect(rows.slice(0, 3)).toEqual([
+    // 위쪽 7행은 빈 줄
+    expect(rows.slice(0, 7).every((row) => row.price === undefined && row.type === "sell")).toBe(true);
+    // 아래쪽 3행에 호가가 가격 desc로 채워지고 best ask(990)가 가장 아래
+    expect(rows.slice(7)).toEqual([
       { price: 1000, sellQuantity: 10, buyQuantity: undefined, type: "sell" },
       { price: 995, sellQuantity: 20, buyQuantity: undefined, type: "sell" },
       { price: 990, sellQuantity: 30, buyQuantity: undefined, type: "sell" },
     ]);
-    expect(rows.slice(3).every((row) => row.price === undefined && row.type === "sell")).toBe(true);
+  });
+
+  it("매수 호가가 부족하면 아래쪽을 빈 줄로 채워 best bid를 상단(현재가 인접)에 고정한다", () => {
+    const rows = buildDisplayRows(
+      [
+        { price: 990, quantity: 10 },
+        { price: 985, quantity: 20 },
+        { price: 980, quantity: 30 },
+      ],
+      "buy"
+    );
+
+    expect(rows).toHaveLength(ORDERBOOK_DEPTH);
+    expect(rows.slice(0, 3)).toEqual([
+      { price: 990, sellQuantity: undefined, buyQuantity: 10, type: "buy" },
+      { price: 985, sellQuantity: undefined, buyQuantity: 20, type: "buy" },
+      { price: 980, sellQuantity: undefined, buyQuantity: 30, type: "buy" },
+    ]);
+    expect(rows.slice(3).every((row) => row.price === undefined && row.type === "buy")).toBe(true);
   });
 
   it("표시용 호가는 항상 가격 기준으로 정렬된 상위 10단계를 사용한다", () => {
