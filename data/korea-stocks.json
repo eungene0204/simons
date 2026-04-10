@@ -862,7 +862,7 @@
   },
   {
     "symbol": "294870",
-    "name": "HDC현대산업개발",
+    "name": "IPARK현대산업개발",
     "market": "KOSPI",
     "sector": "건설",
     "industry": "건물 건설업"
@@ -10321,8 +10321,8 @@
     "symbol": "234340",
     "name": "헥토파이낸셜",
     "market": "KOSDAQ",
-    "sector": "소프트웨어/플랫폼",
-    "industry": "기타 정보 서비스업"
+    "sector": "은행/금융지주",
+    "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "289010",

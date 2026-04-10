@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, Suspense } from "react";
 import dynamic from "next/dynamic";
 import DashboardLayout from "@/components/layout/DashboardLayout";
+import { StrategyExampleTabs } from "@/components/strategy/StrategyExampleTabs";
 import { BacktestResult } from "@/types/strategy";
 import {
   Sparkle,
@@ -18,130 +19,6 @@ const BacktestDashboard = dynamic(
   () => import("@/components/strategy/backtest/BacktestDashboard"),
   { ssr: false }
 );
-
-type ExampleCategory = "가치투자" | "기술분석" | "모멘텀" | "복합전략" | "AI 전략";
-
-interface Example {
-  category: ExampleCategory;
-  title: string;
-  prompt: string;
-}
-
-const EXAMPLES: Example[] = [
-  // 가치투자
-  {
-    category: "가치투자",
-    title: "저PBR·저PER 스크리닝",
-    prompt: "KOSPI에서 PBR이 1배 미만이고 PER도 7배 이하로 시장에서 저평가된 종목들을 찾아줘. 단기 시세 흐름보다는 기업 본질 가치를 보고 투자할 거라 최소 1년은 들고 갈 계획이야. 10종목에 분산하고, 그래도 15% 이상 손실 나면 손절해줘.",
-  },
-  {
-    category: "가치투자",
-    title: "우량 성장주 분기 리밸런싱",
-    prompt: "KOSPI에서 ROE 15% 이상에 부채비율 100% 이하인 재무 건전한 우량주를 골라줘. 꾸준히 수익성 좋은 기업들 위주로 20종목 분산 투자하고, 3개월마다 조건 다시 점검해서 리밸런싱해줘. 손절은 -15%로 설정해.",
-  },
-  {
-    category: "가치투자",
-    title: "소형 저PBR 가치주",
-    prompt: "KOSPI에서 시총 1000억에서 5000억 사이의 소형주 중 PBR 0.5배 이하인 종목을 사줘. 대형주보다 덜 알려져 있지만 자산 대비 저평가된 종목들이라 6개월 정도 보유할 생각이야. 최대 10종목으로 나누고, 손절은 -12%야.",
-  },
-  {
-    category: "가치투자",
-    title: "고ROE 저부채 장기보유",
-    prompt: "KOSPI에서 ROE 20% 이상이면서 부채비율 50% 이하, PER 15배 이하인 종목을 찾아줘. 수익성 높고 재무도 튼튼한 기업을 골라서 장기 보유할 거야. 매년 리밸런싱하고, 최대 15종목 분산, 손절은 -15%로 해줘.",
-  },
-  // 기술분석
-  {
-    category: "기술분석",
-    title: "골든크로스 + RSI 매도",
-    prompt: "KOSPI 종목 중 단기 이평선이 장기를 위로 돌파하는 골든크로스가 발생할 때 진입하고 싶어. 과매수 구간인 RSI 70을 넘으면 차익 실현하고, 최대 15종목 운용에 손절은 -10%로 해줘.",
-  },
-  {
-    category: "기술분석",
-    title: "MACD 크로스 + 손익절",
-    prompt: "KOSPI에서 MACD 시그널 골든크로스가 뜨면 추세 전환으로 보고 매수할게. 반대로 데드크로스가 나오면 추세가 꺾인 거니까 바로 매도해줘. 손절은 -10%, 익절은 +25%로 잡아서 리스크 대비 수익을 관리해줘.",
-  },
-  {
-    category: "기술분석",
-    title: "RSI 과매도 반등",
-    prompt: "KOSDAQ 종목 중 RSI가 30 아래로 떨어지면 단기 과매도로 보고 반등을 노려 매수할게. 이후 RSI 65 이상으로 회복되면 수익 실현하고, 최대 10종목 분산에 손절은 -8%로 설정해줘.",
-  },
-  {
-    category: "기술분석",
-    title: "볼린저밴드 역추세",
-    prompt: "KOSPI에서 가격이 볼린저밴드 하단을 이탈했다가 다시 밴드 안으로 들어오면 과매도 반등 신호로 보고 매수할게. 상단에 닿으면 목표 달성으로 보고 매도해줘. 최대 12종목, 손절은 -7%야.",
-  },
-  // 모멘텀
-  {
-    category: "모멘텀",
-    title: "거래량 급증 브레이크아웃",
-    prompt: "KOSPI에서 평소보다 거래량이 급증하면서 52주 신고가를 돌파하는 종목을 찾아줘. 강한 모멘텀이 붙었을 때 따라가는 전략이라 20일 보유 후 매도하고, 10종목 분산에 손절은 -10%야.",
-  },
-  {
-    category: "모멘텀",
-    title: "스토캐스틱 모멘텀",
-    prompt: "KOSDAQ에서 스토캐스틱 %K가 20 이하의 과매도 구간에 있다가 %D를 상향 돌파할 때 매수할게. 반대로 %K가 80 이상에서 %D를 하향 이탈하면 과매수 전환으로 보고 매도해줘. 손절은 -12%야.",
-  },
-  {
-    category: "모멘텀",
-    title: "거래대금 상위 EMA",
-    prompt: "KOSPI에서 하루 거래대금이 50억 이상으로 시장에서 주목받는 종목 중에, EMA 골든크로스가 함께 뜨면 매수할게. 유동성과 추세가 동시에 확인된 셈이니까. 데드크로스 나오면 매도, 손절 -10%, 익절 +20%야.",
-  },
-  {
-    category: "모멘텀",
-    title: "CCI 과매도 반등",
-    prompt: "KOSPI에서 CCI가 -100 이하로 급락했다가 다시 위로 반등하는 시점을 과매도 이후 회복 신호로 보고 매수할게. CCI가 +100을 넘어 과매수 구간에 진입하면 매도해줘. 최대 10종목, 손절은 -10%야.",
-  },
-  // 복합전략
-  {
-    category: "복합전략",
-    title: "가치 + 기술 결합",
-    prompt: "KOSPI에서 PER 10배 이하로 저평가된 종목 중, 기술적으로 골든크로스가 뜰 때만 매수할게. 저평가 종목에 추세 전환 타이밍을 결합한 방식이야. 데드크로스 나오면 매도, 최대 20종목 분산, 손절은 -15%야.",
-  },
-  {
-    category: "복합전략",
-    title: "ROE + MACD 월 리밸런싱",
-    prompt: "KOSPI에서 ROE 10% 이상이고 부채비율 150% 이하로 수익성과 재무 안정성을 갖춘 종목 중에, MACD 골든크로스가 나올 때 매수할게. 매달 조건을 다시 확인해서 리밸런싱하고, 최대 15종목, 손절 -10%야.",
-  },
-  {
-    category: "복합전략",
-    title: "퀄리티 + 모멘텀 혼합",
-    prompt: "KOSPI에서 PBR 2배 이하이고 ROE 12% 이상인 우량주를 먼저 거른 다음, 거래량 급증과 RSI 50 돌파가 동시에 나타나는 타이밍에 진입할게. 30일 보유 후 매도하고, 최대 10종목, 손절은 -10%야.",
-  },
-  {
-    category: "복합전략",
-    title: "소형가치 + 볼린저",
-    prompt: "KOSDAQ에서 시총 2000억 이하의 소형주이면서 PBR 1배 이하로 저평가된 종목을 대상으로, 볼린저밴드 하단에서 반등하는 타이밍에 매수할게. 상단에 도달하면 목표 수익으로 보고 매도해줘. 손절은 -8%야.",
-  },
-  // AI 전략
-  {
-    category: "AI 전략",
-    title: "AI 단독 매수 예측",
-    prompt: "KOSPI 종목 중에서 AI 모델이 단기 상승 가능성이 높다고 판단하는 종목을 사줘. AI가 하락 예측으로 전환하면 추가 손실 전에 바로 매도해줘. 최대 15종목 분산하고, 손절은 -10%로 설정해.",
-  },
-  {
-    category: "AI 전략",
-    title: "AI + RSI 복합 필터",
-    prompt: "KOSPI에서 AI 상승 예측에 RSI 50 이상의 모멘텀 조건까지 함께 충족할 때 매수할게. AI 단독보다 기술적 확인을 더해 신뢰도를 높이는 방식이야. RSI 70 이상이거나 AI가 하락으로 바뀌면 매도, 최대 10종목, 손절 -10%야.",
-  },
-  {
-    category: "AI 전략",
-    title: "AI + 가치 스크리닝",
-    prompt: "KOSPI에서 PBR 1.5배 이하이고 ROE 10% 이상인 저평가 우량주 중에서 AI 모델도 상승 예측하는 종목을 사줘. 가치와 AI 판단이 일치할 때만 진입하는 보수적인 전략이야. AI가 하락으로 전환하면 매도하고, 손절은 -12%야.",
-  },
-  {
-    category: "AI 전략",
-    title: "AI + 골든크로스 확인",
-    prompt: "KOSDAQ에서 AI 모델이 상승 예측을 내놓은 종목 중, MA 골든크로스로 추세 전환까지 확인된 것만 매수할게. AI 예측만으로는 노이즈가 많으니 기술적 신호로 한 번 걸러주는 거야. 데드크로스나 AI 하락 신호 중 하나라도 뜨면 매도, 최대 10종목, 손절 -10%야.",
-  },
-];
-
-const CATEGORY_STYLE: Record<ExampleCategory, { label: string; color: string; bg: string; border: string }> = {
-  가치투자: { label: "가치투자", color: "text-emerald-400", bg: "bg-emerald-500/10", border: "border-emerald-500/20" },
-  기술분석: { label: "기술분석", color: "text-blue-400", bg: "bg-blue-500/10", border: "border-blue-500/20" },
-  모멘텀: { label: "모멘텀", color: "text-violet-400", bg: "bg-violet-500/10", border: "border-violet-500/20" },
-  복합전략: { label: "복합전략", color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/20" },
-  "AI 전략": { label: "AI 전략", color: "text-pink-400", bg: "bg-pink-500/10", border: "border-pink-500/20" },
-};
 
 type Stage = "idle" | "ready" | "running" | "done";
 
@@ -704,7 +581,6 @@ function StrategyLabContent() {
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={isIdle ? "예) PBR 1 이하, PER 7 이하 종목 10개를 1년간 보유하는 전략" : "수정하고 싶은 내용을 입력하세요..."}
                 disabled={stage === "running"}
                 rows={2}
                 className="w-full bg-transparent text-white placeholder-gray-600 text-sm font-bold resize-none outline-none focus:outline-none focus:ring-0 px-5 pt-4 pb-12 leading-relaxed"
@@ -725,27 +601,7 @@ function StrategyLabContent() {
 
           {/* 예시 프롬프트 */}
           {isIdle && (
-            <div className="w-full space-y-3">
-              <p className="text-xs font-bold text-gray-500 text-center uppercase tracking-widest">전략 예시</p>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                {EXAMPLES.map((ex) => {
-                  const style = CATEGORY_STYLE[ex.category];
-                  return (
-                    <button
-                      key={ex.title}
-                      onClick={() => setInputValue(ex.prompt)}
-                      className="group text-left rounded-xl border border-white/[0.05] hover:border-white/[0.10] bg-white/[0.02] hover:bg-white/[0.04] px-3.5 py-3 transition-all duration-200 space-y-1.5"
-                    >
-                      <span className={`inline-block text-[9px] font-black px-1.5 py-0.5 rounded-md ${style.border} border ${style.color}`}>
-                        {style.label}
-                      </span>
-                      <p className="text-xs font-black text-white/80 group-hover:text-white leading-snug">{ex.title}</p>
-                      <p className="text-[11px] font-bold text-gray-500 group-hover:text-gray-400 leading-relaxed line-clamp-2">{ex.prompt}</p>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+            <StrategyExampleTabs onSelectExample={setInputValue} />
           )}
         </div>
       </div>
