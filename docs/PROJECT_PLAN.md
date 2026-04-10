@@ -80,7 +80,8 @@ simons/
 │   │   ├── virtual_trader.py # 가상매매 자동 실행기
 │   │   ├── live_signal_utils.py # 실시간 시그널 유틸
 │   │   ├── market_data.py #   멀티 Provider 시세 데이터 (CircuitBreaker)
-│   │   ├── data_fetcher.py #  외부 OHLCV 수집
+│   │   ├── data_fetcher.py #  외부 OHLCV 수집 + 재무 데이터(EPS/BPS/PER/PBR) enrichment
+│   │   ├── fundamental_fetcher.py # Naver Finance 기반 재무 데이터 스크래핑 (EPS/BPS → PER/PBR)
 │   │   ├── vectorbt_native.py # VectorBT 네이티브 엔진
 │   │   ├── krx_client.py  #   KRX API 클라이언트
 │   │   ├── vi_utils.py    #   VI(변동성 완화) 유틸
@@ -265,8 +266,8 @@ simons/
 |---------|------|----------|------|
 | `trading_value` | 거래대금 필터 | operator, value (억원) | ✅ |
 | `market_cap` | 시가총액 필터 | operator, value | ✅ |
-| `per` | PER 필터 | operator, value | ✅ |
-| `pbr` | PBR 필터 | operator, value | ✅ |
+| `per` | PER 필터 | operator, value | ✅ (Naver Finance EPS 기반 일별 PER 계산) |
+| `pbr` | PBR 필터 | operator, value | ✅ (Naver Finance BPS 기반 일별 PBR 계산) |
 | `roe_or_gpa` | ROE/GPA 필터 | metric, operator, value | ✅ |
 | `debt_ratio` | 부채비율 필터 | operator, value | ✅ |
 | `trading_suspension` | 거래정지 제외 | exclude | ✅ |

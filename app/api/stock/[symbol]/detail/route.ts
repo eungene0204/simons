@@ -19,8 +19,8 @@ interface StockDetail {
   volume: number;
   marketCap: number;
   previousClose: number;
-  pe: number;
-  pbr: number;
+  pe: number | null;
+  pbr: number | null;
   description: string;
   sector: string;
   industry: string;
@@ -42,6 +42,8 @@ interface MarketDetailResponse {
   volume?: number;
   marketCap?: number;
   source?: string;
+  per?: number;
+  pbr?: number;
 }
 
 const DETAIL_CACHE_TTL_SECONDS = 2;
@@ -222,6 +224,9 @@ export async function GET(
       base.marketCap,
     );
 
+    const resolvedPer = typeof realDetail?.per === "number" ? realDetail.per : undefined;
+    const resolvedPbr = typeof realDetail?.pbr === "number" ? realDetail.pbr : undefined;
+
     if (resolvedMarketCap > 0) {
       cache.set(marketCapCacheKey, resolvedMarketCap, MARKET_CAP_CACHE_TTL_SECONDS);
     }
@@ -245,8 +250,8 @@ export async function GET(
       volume: pickPositiveNumber(quote?.volume, realDetail?.volume, base.volume),
       marketCap: resolvedMarketCap,
       previousClose,
-      pe: (base.pe || 0) + (Math.random() * 2 - 1),
-      pbr: (base.pbr || 0) + (Math.random() * 0.2 - 0.1),
+      pe: resolvedPer ?? null,
+      pbr: resolvedPbr ?? null,
       description: base.description || "",
       sector: stockSector || base.sector || "",
       industry: stockIndustry || base.industry || "",

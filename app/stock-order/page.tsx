@@ -30,6 +30,7 @@ import {
   getPendingOrders,
   cancelOrder,
   fillPendingOrders,
+  getHoldingsByAccount,
 } from "@/lib/portfolio";
 import type { VirtualAccount, PendingOrder } from "@/types/portfolio";
 
@@ -111,8 +112,11 @@ export default function OrderPage() {
   const [transactionType, setTransactionType] = useState<
     "buy" | "sell" | "pending"
   >("buy");
-  const [priceType, setPriceType] = useState<"limit" | "market">("limit");
-  const [availableAmount, setAvailableAmount] = useState(12); // 구매가능 금액
+  const [priceType, setPriceType] = useState<"limit" | "market" | "best_limit" | "conditional">("limit");
+  const [availableAmount, setAvailableAmount] = useState(0); // 구매가능 금액
+  const [holdingQty, setHoldingQty] = useState(0); // 보유수량
+  const [avgBuyPrice, setAvgBuyPrice] = useState(0); // 평균매수가
+  const [orderConfirmStep, setOrderConfirmStep] = useState(false); // 주문확인 단계
   const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([]);
   const [chartPeriod, setChartPeriod] = useState<"day" | "week" | "month">(
     "day"
@@ -236,20 +240,44 @@ export default function OrderPage() {
     setPendingOrders(orders);
   };
 
+  // 보유수량/평균매수가 로드
+  useEffect(() => {
+    if (!selectedAccountId || !symbol) {
+      setHoldingQty(0);
+      setAvgBuyPrice(0);
+      return;
+    }
+    getHoldingsByAccount(selectedAccountId).then((holdings) => {
+      const h = holdings.find((h) => h.symbol === symbol);
+      setHoldingQty(h?.quantity ?? 0);
+      setAvgBuyPrice(h?.averagePrice ?? 0);
+    });
+  }, [selectedAccountId, symbol]);
+
+  // 주문 확인 단계
+  const handleOrderConfirm = () => {
+    if (!selectedAccountId) { alert("가상계좌를 선택해주세요."); return; }
+    if (!symbol) { alert("종목을 선택해주세요."); return; }
+    if (transactionType !== "buy" && transactionType !== "sell") return;
+    const qty = parseInt(quantity);
+    const prc = priceType === "market" ? (currentPrice ?? 0) : parseFloat(price);
+    if (!quantity || isNaN(qty) || qty <= 0) { alert("수량을 입력해주세요."); return; }
+    if (priceType !== "market" && (!price || isNaN(prc) || prc <= 0)) { alert("가격을 입력해주세요."); return; }
+    if (transactionType === "sell" && qty > holdingQty) { alert(`보유수량(${holdingQty}주)을 초과할 수 없습니다.`); return; }
+    setOrderConfirmStep(true);
+  };
+
   // 매수/매도 주문 처리
   const handleOrder = async () => {
     if (!selectedAccountId) { alert("가상계좌를 선택해주세요."); return; }
     if (!symbol) { alert("종목을 선택해주세요."); return; }
     if (transactionType !== "buy" && transactionType !== "sell") return;
-    if (!quantity || !price) { alert("수량과 가격을 입력해주세요."); return; }
-
     const qty = parseInt(quantity);
-    const prc = parseFloat(price);
-    if (isNaN(qty) || qty <= 0 || isNaN(prc) || prc <= 0) {
-      alert("올바른 수량과 가격을 입력해주세요.");
-      return;
-    }
+    const prc = priceType === "market" ? (currentPrice ?? parseFloat(price || "0")) : parseFloat(price);
+    if (isNaN(qty) || qty <= 0) { alert("수량을 올바르게 입력해주세요."); return; }
+    if (priceType !== "market" && (isNaN(prc) || prc <= 0)) { alert("가격을 올바르게 입력해주세요."); return; }
 
+    setOrderConfirmStep(false);
     const orderTypeMapped: "MARKET" | "LIMIT" = priceType === "market" ? "MARKET" : "LIMIT";
 
     // 종목 이름 확정
@@ -297,6 +325,12 @@ export default function OrderPage() {
       });
     }
     setQuantity("");
+    // 보유수량 갱신
+    getHoldingsByAccount(selectedAccountId).then((holdings) => {
+      const h = holdings.find((h) => h.symbol === symbol);
+      setHoldingQty(h?.quantity ?? 0);
+      setAvgBuyPrice(h?.averagePrice ?? 0);
+    });
   };
 
   // URL 파라미터에서 name이 변경될 때 selectedStockName 업데이트
@@ -603,11 +637,36 @@ export default function OrderPage() {
       : priceChange < 0
       ? "text-[var(--main-blue)]"
       : "text-white";
-  const availableQty = Math.floor(availableAmount / Math.max(Number(price || 0), 1));
-  const orderAmount = Number(price || 0) * Number(quantity || 0);
-  const estimatedFee = Math.floor(orderAmount * 0.00015);
+  // 한국 주식 가격 제한 (±30%)
+  const upperLimitPrice = referenceClose
+    ? Math.floor((referenceClose * 1.3) / getTickSize(referenceClose * 1.3)) * getTickSize(referenceClose * 1.3)
+    : undefined;
+  const lowerLimitPrice = referenceClose
+    ? Math.ceil((referenceClose * 0.7) / getTickSize(referenceClose * 0.7)) * getTickSize(referenceClose * 0.7)
+    : undefined;
+
+  // 주문 가능 수량: 매수=현금기준, 매도=보유수량기준
+  const orderPrice = Number(price || 0);
+  const availableQty = transactionType === "sell"
+    ? holdingQty
+    : Math.floor(availableAmount / Math.max(orderPrice, 1));
+
+  const qty = Number(quantity || 0);
+  const orderAmount = orderPrice * qty;
+  // 수수료 0.015% (키움증권 기준), 매도 시 증권거래세 0.20% (코스피), 농어촌특별세 생략
+  const commission = Math.floor(orderAmount * 0.00015);
+  const securityTax = transactionType === "sell" ? Math.floor(orderAmount * 0.002) : 0;
   const settlementAmount =
-    transactionType === "buy" ? orderAmount + estimatedFee : orderAmount - estimatedFee;
+    transactionType === "buy" ? orderAmount + commission : orderAmount - commission - securityTax;
+
+  // 예상 손익 (매도 시)
+  const estimatedPnl = transactionType === "sell" && avgBuyPrice > 0 && orderPrice > 0
+    ? (orderPrice - avgBuyPrice) * qty - commission - securityTax
+    : undefined;
+  const estimatedPnlRate = estimatedPnl !== undefined && avgBuyPrice > 0
+    ? ((orderPrice - avgBuyPrice) / avgBuyPrice) * 100
+    : undefined;
+
   const displayStockName =
     pickStockName(symbol, selectedStockName, stockInfo?.name) ?? symbol;
 
@@ -862,14 +921,14 @@ export default function OrderPage() {
 
             <div className="grid grid-cols-1 lg:grid-cols-10 gap-6 items-stretch">
               <div className="lg:col-span-6">
-                <div className="glass-card h-[600px] overflow-hidden">
-                  <div className="flex items-center justify-between border-b border-white/[0.05] px-5 py-4">
-                    <div className="text-xs font-bold text-gray-500">최근 2년 일별 가격과 거래량</div>
+                <div className="glass-card h-[600px] overflow-hidden border-0">
+                  <div className="flex items-center justify-between px-5 py-4">
+                    <div className="text-lg font-semibold text-gray-900 dark:text-white">시세</div>
                   </div>
                   <div className="custom-scrollbar h-[calc(100%-73px)] overflow-auto">
                     <table className="w-full text-sm">
-                      <thead className="sticky top-0 z-10 bg-[rgb(18,18,18)]">
-                        <tr className="border-b border-white/[0.05]">
+                      <thead className="sticky top-0 z-10 bg-[var(--card-bg)]">
+                        <tr>
                           <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-widest text-gray-400">일자</th>
                           <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-widest text-gray-400">종가</th>
                           <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-widest text-gray-400">등락률</th>
@@ -890,7 +949,7 @@ export default function OrderPage() {
                               ? "text-[var(--main-blue)]"
                               : "text-white";
                           return (
-                            <tr key={row.time} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+                            <tr key={row.time} className="hover:bg-white/[0.02]">
                               <td className="px-4 py-3 text-xs font-bold tabular-nums text-gray-400">{row.time.slice(2).replace(/-/g, ".")}</td>
                               <td className={`px-4 py-3 text-right font-bold tabular-nums ${priceColor}`}>{formatPrice(row.close)}</td>
                               <td className={`px-4 py-3 text-right font-bold tabular-nums ${priceColor}`}>
@@ -924,307 +983,366 @@ export default function OrderPage() {
               </div>
 
               <div className="lg:col-span-4">
-                <div className="glass-card flex h-[600px] flex-col p-5">
-                  <div className="mb-5 flex items-start justify-between border-b border-white/[0.05] pb-4">
-                    <div className="mt-1 text-xs font-bold text-gray-500">
-                      {isStockInfoLoading ? "종목 정보를 불러오는 중..." : "실시간 가격을 기준으로 주문을 입력합니다."}
-                    </div>
-                    <div className="rounded-md bg-white/[0.06] px-2 py-1 text-xs font-bold text-gray-300">
-                      가능 {formatPrice(availableQty)}주
-                    </div>
+                <div className="glass-card flex flex-col overflow-hidden" style={{ height: "600px" }}>
+                  {/* 매수/매도/미체결 탭 */}
+                  <div className="grid grid-cols-3 border-b border-white/[0.06]">
+                    {(["buy", "sell", "pending"] as const).map((type) => {
+                      const label = type === "buy" ? "매수" : type === "sell" ? "매도" : `미체결${pendingOrders.length > 0 ? ` ${pendingOrders.length}` : ""}`;
+                      const activeColor = type === "buy"
+                        ? "border-b-2 border-[var(--main-red)] text-[var(--main-red)]"
+                        : type === "sell"
+                        ? "border-b-2 border-[var(--main-blue)] text-[var(--main-blue)]"
+                        : "border-b-2 border-amber-400 text-amber-300";
+                      return (
+                        <button
+                          key={type}
+                          onClick={() => {
+                            setTransactionType(type);
+                            setOrderConfirmStep(false);
+                            if (type === "pending") loadPendingOrders();
+                          }}
+                          className={`py-3 text-sm font-black transition-colors ${
+                            transactionType === type ? activeColor : "text-gray-500 hover:text-gray-300"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
                   </div>
 
-                  <div className="mb-5 grid grid-cols-3 gap-3">
-                    {[
-                      ["buy", "매수"],
-                      ["sell", "매도"],
-                      ["pending", `미체결${pendingOrders.length > 0 ? ` (${pendingOrders.length})` : ""}`],
-                    ].map(([type, label]) => (
+                  <div className="flex flex-1 flex-col overflow-y-auto px-4 py-3 space-y-3">
+                    {/* 계좌 선택 */}
+                    <div className="relative" ref={accountDropdownRef}>
                       <button
-                        key={type}
-                        onClick={() => {
-                          if (type === "pending") {
-                            setTransactionType("pending");
-                            loadPendingOrders();
-                            return;
-                          }
-                          setTransactionType(type as "buy" | "sell");
-                        }}
-                        className={`rounded-xl px-3 py-2 text-sm font-bold transition-colors ${
-                          transactionType === type
-                            ? type === "buy"
-                              ? "bg-[var(--main-red)]/15 text-[var(--main-red)]"
-                              : type === "sell"
-                              ? "bg-[var(--main-blue)]/15 text-[var(--main-blue)]"
-                              : "bg-amber-500/15 text-amber-300"
-                            : "bg-white/[0.03] text-gray-400 hover:text-white"
-                        }`}
+                        onClick={() => setIsAccountDropdownOpen(!isAccountDropdownOpen)}
+                        className="flex w-full items-center justify-between rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-left text-xs font-bold text-white transition-colors hover:bg-white/[0.05]"
                       >
-                        {label}
+                        <span className="truncate text-xs">
+                          {selectedAccount
+                            ? `${selectedAccount.name}  |  잔고 ${formatPrice(selectedAccount.currentBalance)}원`
+                            : virtualAccounts.length === 0 ? "가상계좌 없음" : "계좌 선택"}
+                        </span>
+                        <CaretDown className="h-3.5 w-3.5 shrink-0 text-gray-400" />
                       </button>
-                    ))}
-                  </div>
+                      {isAccountDropdownOpen && (
+                        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-48 overflow-y-auto rounded-xl border border-white/[0.08] bg-[rgb(20,20,20)] p-1.5 shadow-2xl">
+                          {virtualAccounts.length === 0 ? (
+                            <div className="px-3 py-2 text-xs text-gray-500">가상계좌가 없습니다</div>
+                          ) : (
+                            virtualAccounts.map((account) => (
+                              <button
+                                key={account.id}
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSelectedAccountId(account.id); setIsAccountDropdownOpen(false); }}
+                                className={`w-full rounded-lg px-3 py-2 text-left text-xs font-bold transition-colors ${selectedAccountId === account.id ? "bg-white/[0.08] text-white" : "text-gray-300 hover:bg-white/[0.04]"}`}
+                              >
+                                {account.name} ({formatPrice(account.currentBalance)}원)
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
 
-                  <div className="relative mb-5" ref={accountDropdownRef}>
-                    <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-gray-400">
-                      가상계좌
-                    </label>
-                    <button
-                      onClick={() => setIsAccountDropdownOpen(!isAccountDropdownOpen)}
-                      className="flex w-full items-center justify-between rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-left text-sm font-bold text-white transition-colors hover:bg-white/[0.05]"
-                    >
-                      <span className="truncate">
-                        {selectedAccount
-                          ? `${selectedAccount.name} (${formatPrice(selectedAccount.currentBalance)}원)`
-                          : virtualAccounts.length === 0
-                          ? "가상계좌가 없습니다"
-                          : "가상계좌를 선택하세요"}
-                      </span>
-                      <CaretDown className="h-4 w-4 text-gray-400" />
-                    </button>
-
-                    {isAccountDropdownOpen && (
-                      <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-60 overflow-y-auto rounded-2xl border border-white/[0.08] bg-[rgb(20,20,20)] p-2 shadow-2xl">
-                        {virtualAccounts.length === 0 ? (
-                          <div className="px-3 py-2 text-xs font-bold text-gray-500">
-                            가상계좌가 없습니다
+                    {transactionType === "pending" ? (
+                      /* ── 미체결 패널 ── */
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-gray-400">미체결 주문</span>
+                          <button onClick={loadPendingOrders} className="text-xs text-gray-500 hover:text-white">새로고침</button>
+                        </div>
+                        {pendingOrders.length === 0 ? (
+                          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-8 text-center text-xs font-bold text-gray-500">
+                            미체결 주문이 없습니다.
                           </div>
                         ) : (
-                          virtualAccounts.map((account) => (
-                            <button
-                              key={account.id}
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                setSelectedAccountId(account.id);
-                                setIsAccountDropdownOpen(false);
-                              }}
-                              className={`w-full rounded-xl px-3 py-2 text-left text-sm font-bold transition-colors ${
-                                selectedAccountId === account.id
-                                  ? "bg-white/[0.08] text-white"
-                                  : "text-gray-300 hover:bg-white/[0.04]"
-                              }`}
-                            >
-                              {account.name} ({formatPrice(account.currentBalance)}원)
-                            </button>
+                          pendingOrders.map((order) => (
+                            <div key={order.id} className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-xs font-black ${order.type === "buy" ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
+                                    {order.type === "buy" ? "매수" : "매도"}
+                                  </span>
+                                  <span className="truncate text-xs font-bold text-white">{order.name}</span>
+                                </div>
+                                <div className="mt-0.5 text-xs text-gray-400">{formatPrice(order.price)}원 × {order.quantity}주</div>
+                                <div className="mt-0.5 text-[10px] text-gray-500">
+                                  {new Date(order.timestamp).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                                </div>
+                              </div>
+                              <button
+                                onClick={async () => {
+                                  const res = await cancelOrder(selectedAccountId!, order.id);
+                                  if (res.success) {
+                                    await loadPendingOrders();
+                                    const acc = await getAccount(selectedAccountId!);
+                                    if (acc) setAvailableAmount(acc.currentBalance);
+                                    getAllAccounts().then(setVirtualAccounts);
+                                  } else { alert(res.error ?? "취소 실패"); }
+                                }}
+                                className="ml-2 rounded-lg border border-white/[0.08] px-2.5 py-1.5 text-xs font-bold text-gray-400 hover:text-white"
+                              >취소</button>
+                            </div>
                           ))
                         )}
                       </div>
-                    )}
-                  </div>
+                    ) : orderConfirmStep ? (
+                      /* ── 주문 확인 단계 ── */
+                      <div className="flex flex-1 flex-col space-y-3">
+                        <div className={`rounded-xl p-3 text-center text-xs font-black ${transactionType === "buy" ? "bg-[var(--main-red)]/10 text-[var(--main-red)]" : "bg-[var(--main-blue)]/10 text-[var(--main-blue)]"}`}>
+                          {transactionType === "buy" ? "매수" : "매도"} 주문을 확인합니다
+                        </div>
+                        <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 space-y-2">
+                          <div className="flex justify-between text-xs">
+                            <span className="text-gray-400">종목</span>
+                            <span className="font-bold text-white">{displayStockName} ({symbol})</span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-gray-400">주문유형</span>
+                            <span className="font-bold text-white">
+                              {priceType === "market" ? "시장가" : priceType === "best_limit" ? "최유리지정가" : priceType === "conditional" ? "조건부지정가" : "지정가"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-gray-400">주문가</span>
+                            <span className="font-bold text-white">
+                              {priceType === "market" ? "시장가" : `${formatPrice(Number(price))}원`}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-gray-400">주문수량</span>
+                            <span className="font-bold text-white">{formatPrice(Number(quantity))}주</span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-gray-400">주문금액</span>
+                            <span className="font-bold text-white">{formatPrice(orderAmount)}원</span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-gray-400">수수료 (0.015%)</span>
+                            <span className="text-gray-300">{formatPrice(commission)}원</span>
+                          </div>
+                          {transactionType === "sell" && (
+                            <div className="flex justify-between text-xs">
+                              <span className="text-gray-400">증권거래세 (0.20%)</span>
+                              <span className="text-gray-300">{formatPrice(securityTax)}원</span>
+                            </div>
+                          )}
+                          <div className="border-t border-white/[0.06] pt-2 flex justify-between text-xs font-bold">
+                            <span className="text-gray-300">{transactionType === "buy" ? "총 결제금액" : "예상 수령금액"}</span>
+                            <span className="text-white">{formatPrice(settlementAmount)}원</span>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 mt-auto">
+                          <button
+                            onClick={() => setOrderConfirmStep(false)}
+                            className="rounded-xl border border-white/[0.08] py-3 text-sm font-bold text-gray-300 hover:text-white"
+                          >취소</button>
+                          <button
+                            onClick={handleOrder}
+                            className={`rounded-xl py-3 text-sm font-black text-white ${transactionType === "buy" ? "bg-[var(--main-red)] hover:bg-red-500" : "bg-[var(--main-blue)] hover:bg-blue-500"}`}
+                          >주문 확정</button>
+                        </div>
+                      </div>
+                    ) : (
+                      /* ── 주문 입력 ── */
+                      <div className="flex flex-1 flex-col space-y-3">
+                        {/* 매도 시 보유정보 */}
+                        {transactionType === "sell" && (
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+                              <div className="text-[10px] text-gray-500">보유수량</div>
+                              <div className="text-sm font-black tabular-nums text-white">{formatPrice(holdingQty)}주</div>
+                            </div>
+                            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+                              <div className="text-[10px] text-gray-500">평균단가</div>
+                              <div className="text-sm font-black tabular-nums text-white">{avgBuyPrice > 0 ? `${formatPrice(avgBuyPrice)}원` : "-"}</div>
+                            </div>
+                          </div>
+                        )}
 
-                  {transactionType === "pending" ? (
-                    <div className="min-h-0 flex-1 space-y-3 overflow-auto">
-                      <div className="flex items-center justify-between">
-                        <div className="text-xs font-bold uppercase tracking-widest text-gray-400">미체결 주문</div>
-                        <button onClick={loadPendingOrders} className="text-xs font-bold text-gray-400 hover:text-white">
-                          새로고침
+                        {/* 주문유형 */}
+                        <div>
+                          <div className="mb-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-500">주문유형</div>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            {([
+                              ["limit", "지정가"],
+                              ["market", "시장가"],
+                              ["best_limit", "최유리지정가"],
+                              ["conditional", "조건부지정가"],
+                            ] as const).map(([type, label]) => (
+                              <button
+                                key={type}
+                                onClick={() => {
+                                  setPriceType(type);
+                                  if (type === "market" && currentPrice) setPrice(currentPrice.toString());
+                                }}
+                                className={`rounded-lg py-1.5 text-xs font-bold transition-colors ${
+                                  priceType === type
+                                    ? transactionType === "buy"
+                                      ? "bg-[var(--main-red)]/15 text-[var(--main-red)]"
+                                      : "bg-[var(--main-blue)]/15 text-[var(--main-blue)]"
+                                    : "border border-white/[0.06] bg-white/[0.02] text-gray-400 hover:text-gray-200"
+                                }`}
+                              >{label}</button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* 가격 입력 */}
+                        <div>
+                          <div className="mb-1.5 flex items-center justify-between">
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
+                              {transactionType === "buy" ? "매수가격" : "매도가격"}
+                            </span>
+                            {referenceClose && (
+                              <div className="flex items-center gap-1 text-[10px]">
+                                <span className="text-[var(--main-red)] font-bold">상:{upperLimitPrice ? formatPrice(upperLimitPrice) : "-"}</span>
+                                <span className="text-gray-600">|</span>
+                                <span className="text-[var(--main-blue)] font-bold">하:{lowerLimitPrice ? formatPrice(lowerLimitPrice) : "-"}</span>
+                              </div>
+                            )}
+                          </div>
+                          {/* 빠른 가격 버튼 */}
+                          <div className="mb-1.5 flex gap-1">
+                            {upperLimitPrice && (
+                              <button
+                                onClick={() => { setPriceType("limit"); setPrice(upperLimitPrice.toString()); }}
+                                className="flex-1 rounded-md border border-[var(--main-red)]/30 bg-[var(--main-red)]/5 py-1 text-[10px] font-bold text-[var(--main-red)] hover:bg-[var(--main-red)]/10"
+                              >상한가</button>
+                            )}
+                            {currentPrice && (
+                              <button
+                                onClick={() => { setPriceType("limit"); setPrice(currentPrice.toString()); }}
+                                className="flex-1 rounded-md border border-white/[0.08] bg-white/[0.03] py-1 text-[10px] font-bold text-gray-300 hover:text-white"
+                              >현재가</button>
+                            )}
+                            {lowerLimitPrice && (
+                              <button
+                                onClick={() => { setPriceType("limit"); setPrice(lowerLimitPrice.toString()); }}
+                                className="flex-1 rounded-md border border-[var(--main-blue)]/30 bg-[var(--main-blue)]/5 py-1 text-[10px] font-bold text-[var(--main-blue)] hover:bg-[var(--main-blue)]/10"
+                              >하한가</button>
+                            )}
+                          </div>
+                          <div className="flex gap-1.5">
+                            <input
+                              type="text"
+                              value={priceType === "market" ? "" : (price ? Number(price).toLocaleString("ko-KR") : "")}
+                              onChange={(e) => { const raw = e.target.value.replace(/,/g, ""); if (raw === "" || /^\d+$/.test(raw)) setPrice(raw); }}
+                              disabled={priceType === "market"}
+                              className="min-w-0 flex-1 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-sm font-bold text-right tabular-nums text-white placeholder:text-gray-600 disabled:cursor-not-allowed disabled:opacity-40"
+                              placeholder={priceType === "market" ? "시장가" : "0"}
+                            />
+                            <button
+                              disabled={priceType === "market"}
+                              onClick={() => setPrice((prev) => { const cur = Number(prev || 0); return Math.max(0, cur - getTickSize(cur)).toString(); })}
+                              className="w-9 rounded-lg border border-white/[0.08] bg-white/[0.03] text-base font-black text-gray-300 hover:text-white disabled:opacity-30"
+                            >−</button>
+                            <button
+                              disabled={priceType === "market"}
+                              onClick={() => setPrice((prev) => { const cur = Number(prev || 0); return (cur + getTickSize(cur)).toString(); })}
+                              className="w-9 rounded-lg border border-white/[0.08] bg-white/[0.03] text-base font-black text-gray-300 hover:text-white disabled:opacity-30"
+                            >+</button>
+                          </div>
+                          {priceType === "limit" && price && referenceClose && Number(price) > 0 && (
+                            <div className={`mt-1 text-right text-[10px] font-bold ${Number(price) > referenceClose ? "text-[var(--main-red)]" : Number(price) < referenceClose ? "text-[var(--main-blue)]" : "text-gray-500"}`}>
+                              전일비 {Number(price) > referenceClose ? "+" : ""}{(((Number(price) - referenceClose) / referenceClose) * 100).toFixed(2)}%
+                            </div>
+                          )}
+                        </div>
+
+                        {/* 수량 입력 */}
+                        <div>
+                          <div className="mb-1.5 flex items-center justify-between">
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">수량</span>
+                            <span className="text-[10px] text-gray-500">
+                              {transactionType === "sell" ? `보유 ${formatPrice(holdingQty)}주` : `가능 ${formatPrice(availableQty)}주`}
+                            </span>
+                          </div>
+                          <div className="flex gap-1.5">
+                            <input
+                              type="text"
+                              value={quantity}
+                              onChange={(e) => { const v = e.target.value.replace(/[^0-9]/g, ""); setQuantity(v); }}
+                              className="min-w-0 flex-1 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-sm font-bold text-right tabular-nums text-white placeholder:text-gray-600"
+                              placeholder="0"
+                            />
+                            <button
+                              onClick={() => setQuantity((prev) => Math.max(0, Number(prev || 0) - 1).toString())}
+                              className="w-9 rounded-lg border border-white/[0.08] bg-white/[0.03] text-base font-black text-gray-300 hover:text-white"
+                            >−</button>
+                            <button
+                              onClick={() => setQuantity((prev) => (Number(prev || 0) + 1).toString())}
+                              className="w-9 rounded-lg border border-white/[0.08] bg-white/[0.03] text-base font-black text-gray-300 hover:text-white"
+                            >+</button>
+                          </div>
+                          <div className="mt-1.5 grid grid-cols-4 gap-1">
+                            {([0.1, 0.25, 0.5, 1] as const).map((ratio, i) => (
+                              <button
+                                key={ratio}
+                                onClick={() => setQuantity(Math.floor(availableQty * ratio).toString())}
+                                className="rounded-md border border-white/[0.06] bg-white/[0.02] py-1.5 text-[10px] font-bold text-gray-400 hover:text-white"
+                              >{i === 3 ? "전체" : `${ratio * 100}%`}</button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* 주문 요약 */}
+                        <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 space-y-1.5">
+                          {transactionType === "sell" && avgBuyPrice > 0 && Number(quantity) > 0 && orderPrice > 0 && (
+                            <>
+                              <div className="flex justify-between text-xs">
+                                <span className="text-gray-500">예상손익</span>
+                                <span className={`font-bold tabular-nums ${estimatedPnl !== undefined && estimatedPnl > 0 ? "text-[var(--main-red)]" : estimatedPnl !== undefined && estimatedPnl < 0 ? "text-[var(--main-blue)]" : "text-white"}`}>
+                                  {estimatedPnl !== undefined ? `${estimatedPnl > 0 ? "+" : ""}${formatPrice(estimatedPnl)}원` : "-"}
+                                  {estimatedPnlRate !== undefined ? ` (${estimatedPnlRate > 0 ? "+" : ""}${estimatedPnlRate.toFixed(2)}%)` : ""}
+                                </span>
+                              </div>
+                              <div className="border-t border-white/[0.04]" />
+                            </>
+                          )}
+                          <div className="flex justify-between text-xs">
+                            <span className="text-gray-500">{transactionType === "buy" ? "구매가능" : "보유수량"}</span>
+                            <span className="font-bold tabular-nums text-gray-300">
+                              {transactionType === "buy" ? `${formatPrice(availableAmount)}원` : `${formatPrice(holdingQty)}주`}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-gray-500">주문금액</span>
+                            <span className="font-bold tabular-nums text-white">{formatPrice(orderAmount)}원</span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-gray-500">수수료 (0.015%)</span>
+                            <span className="tabular-nums text-gray-400">{formatPrice(commission)}원</span>
+                          </div>
+                          {transactionType === "sell" && (
+                            <div className="flex justify-between text-xs">
+                              <span className="text-gray-500">증권거래세 (0.20%)</span>
+                              <span className="tabular-nums text-gray-400">{formatPrice(securityTax)}원</span>
+                            </div>
+                          )}
+                          <div className="border-t border-white/[0.06] pt-1.5 flex justify-between text-sm font-black">
+                            <span className="text-gray-300">{transactionType === "buy" ? "총 결제금액" : "예상 수령금액"}</span>
+                            <span className="tabular-nums text-white">{formatPrice(settlementAmount)}원</span>
+                          </div>
+                        </div>
+
+                        {/* 주문 버튼 */}
+                        <button
+                          onClick={handleOrderConfirm}
+                          disabled={!selectedAccountId || !quantity || (priceType !== "market" && !price)}
+                          className={`w-full rounded-xl py-3.5 text-sm font-black transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                            transactionType === "buy"
+                              ? "bg-[var(--main-red)] text-white hover:bg-red-500"
+                              : "bg-[var(--main-blue)] text-white hover:bg-blue-400"
+                          }`}
+                        >
+                          {transactionType === "buy"
+                            ? priceType === "market" ? "시장가 매수" : priceType === "best_limit" ? "최유리 매수" : priceType === "conditional" ? "조건부 매수" : "지정가 매수"
+                            : priceType === "market" ? "시장가 매도" : priceType === "best_limit" ? "최유리 매도" : priceType === "conditional" ? "조건부 매도" : "지정가 매도"}
                         </button>
                       </div>
-                      {pendingOrders.length === 0 ? (
-                        <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-8 text-center text-sm font-bold text-gray-500">
-                          미체결 주문이 없습니다.
-                        </div>
-                      ) : (
-                        pendingOrders.map((order) => (
-                          <div
-                            key={order.id}
-                            className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-white/[0.02] p-4"
-                          >
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-2">
-                                <span className={`text-xs font-bold ${order.type === "buy" ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
-                                  {order.type === "buy" ? "매수" : "매도"}
-                                </span>
-                                <span className="truncate text-sm font-bold text-white">{order.name}</span>
-                              </div>
-                              <div className="mt-1 text-xs font-bold text-gray-400">
-                                {formatPrice(order.price)}원 × {order.quantity}주
-                              </div>
-                              <div className="mt-1 text-xs font-bold text-gray-500">
-                                {new Date(order.timestamp).toLocaleString("ko-KR", {
-                                  month: "2-digit",
-                                  day: "2-digit",
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                })}
-                              </div>
-                            </div>
-                            <button
-                              onClick={async () => {
-                                const res = await cancelOrder(selectedAccountId!, order.id);
-                                if (res.success) {
-                                  await loadPendingOrders();
-                                  const acc = await getAccount(selectedAccountId!);
-                                  if (acc) setAvailableAmount(acc.currentBalance);
-                                  getAllAccounts().then(setVirtualAccounts);
-                                } else {
-                                  alert(res.error ?? "취소 실패");
-                                }
-                              }}
-                              className="ml-3 rounded-xl border border-white/[0.08] px-3 py-2 text-xs font-bold text-gray-400 transition-colors hover:border-white/[0.12] hover:text-white"
-                            >
-                              취소
-                            </button>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  ) : (
-                    <div className="flex flex-1 flex-col">
-                      <div className="space-y-5">
-                      <div>
-                        <div className="mb-2 flex items-center justify-between">
-                          <label className="text-xs font-bold uppercase tracking-widest text-gray-400">
-                            {transactionType === "buy" ? "매수가" : "매도가"}
-                          </label>
-                          <div className="flex items-center gap-3">
-                            <label className="flex items-center gap-1.5 text-xs font-bold text-gray-300">
-                              <input
-                                type="radio"
-                                name="priceType"
-                                checked={priceType === "limit"}
-                                onChange={() => setPriceType("limit")}
-                                className="h-3.5 w-3.5 border-gray-500 bg-transparent text-[var(--main-red)]"
-                              />
-                              지정가
-                            </label>
-                            <label className="flex items-center gap-1.5 text-xs font-bold text-gray-300">
-                              <input
-                                type="radio"
-                                name="priceType"
-                                checked={priceType === "market"}
-                                onChange={() => {
-                                  setPriceType("market");
-                                  if (currentPrice) setPrice(currentPrice.toString());
-                                }}
-                                className="h-3.5 w-3.5 border-gray-500 bg-transparent text-[var(--main-red)]"
-                              />
-                              시장가
-                            </label>
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-[1fr_auto_auto] gap-2">
-                          <input
-                            type="text"
-                            value={priceType === "market" ? "" : (price ? Number(price).toLocaleString("ko-KR") : "")}
-                            onChange={(e) => {
-                              const raw = e.target.value.replace(/,/g, "");
-                              if (raw === "" || /^\d+$/.test(raw)) setPrice(raw);
-                            }}
-                            disabled={priceType === "market"}
-                            className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
-                            placeholder={priceType === "market" ? "시장가 자동" : "619,000"}
-                          />
-                          <button
-                            onClick={() =>
-                              setPrice((prev) => {
-                                const cur = Number(prev.replace(/,/g, "") || 0);
-                                return Math.max(0, cur - getTickSize(cur)).toString();
-                              })
-                            }
-                            className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-lg font-black text-gray-300 hover:text-white"
-                          >
-                            -
-                          </button>
-                          <button
-                            onClick={() =>
-                              setPrice((prev) => {
-                                const cur = Number(prev.replace(/,/g, "") || 0);
-                                return (cur + getTickSize(cur)).toString();
-                              })
-                            }
-                            className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-lg font-black text-gray-300 hover:text-white"
-                          >
-                            +
-                          </button>
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-gray-400">
-                          수량
-                        </label>
-                        <div className="grid grid-cols-[1fr_auto_auto] gap-2">
-                          <input
-                            type="number"
-                            min={0}
-                            value={quantity}
-                            onChange={(e) => setQuantity(Math.floor(Number(e.target.value)).toString())}
-                            step={1}
-                            className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm font-bold text-white [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                            placeholder={`최대 ${formatPrice(availableQty)}주 가능`}
-                          />
-                          <button
-                            onClick={() => setQuantity((prev) => Math.max(0, Number(prev || 0) - 1).toString())}
-                            className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-lg font-black text-gray-300 hover:text-white"
-                          >
-                            -
-                          </button>
-                          <button
-                            onClick={() => setQuantity((prev) => (Number(prev || 0) + 1).toString())}
-                            className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-lg font-black text-gray-300 hover:text-white"
-                          >
-                            +
-                          </button>
-                        </div>
-                        <div className="mt-2 grid grid-cols-4 gap-2">
-                          {[0.1, 0.25, 0.5, 1].map((ratio, index) => (
-                            <button
-                              key={ratio}
-                              onClick={() => setQuantity(Math.floor(availableQty * ratio).toString())}
-                              className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-2 text-xs font-bold text-gray-300 hover:text-white"
-                            >
-                              {index === 3 ? "최대" : `${ratio * 100}%`}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="space-y-3 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="font-bold text-gray-400">구매가능 금액</span>
-                          <span className="font-outfit font-black tabular-nums text-white">{formatPrice(availableAmount)}원</span>
-                        </div>
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="font-bold text-gray-400">주문금액</span>
-                          <span className="font-outfit font-black tabular-nums text-white">{formatPrice(orderAmount)}원</span>
-                        </div>
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="font-bold text-gray-400">예상 수수료</span>
-                          <span className="font-outfit font-black tabular-nums text-white">{formatPrice(estimatedFee)}원</span>
-                        </div>
-                        <div className="border-t border-white/[0.06] pt-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold uppercase tracking-widest text-gray-400">
-                              {transactionType === "buy" ? "총 주문금액" : "예상 수령금액"}
-                            </span>
-                            <span className="font-outfit text-xl font-black tabular-nums text-white">
-                              {formatPrice(settlementAmount)}원
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <button
-                        onClick={handleOrder}
-                        className={`mt-auto w-full rounded-xl py-3 text-sm font-black transition-colors ${
-                          transactionType === "buy"
-                            ? "bg-[var(--main-red)] text-white hover:bg-red-500"
-                            : "bg-[var(--main-blue)] text-white hover:bg-blue-500"
-                        }`}
-                      >
-                        {transactionType === "buy"
-                          ? priceType === "market"
-                            ? "시장가 매수"
-                            : "지정가 매수"
-                          : priceType === "market"
-                          ? "시장가 매도"
-                          : "지정가 매도"}
-                      </button>
-                      </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

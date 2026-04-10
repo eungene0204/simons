@@ -14,6 +14,16 @@ import {
   ChartLineUp,
   Question,
 } from "phosphor-react";
+import {
+  buildStrategySummary,
+  getDisplayExitLabels,
+  getDisplayUniverseLabels,
+  INDICATOR_LABELS,
+  METRIC_LABELS,
+  PERIOD_LABELS,
+  REBAL_LABELS,
+  type ParsedSummary,
+} from "./strategySummary";
 
 const BacktestDashboard = dynamic(
   () => import("@/components/strategy/backtest/BacktestDashboard"),
@@ -32,44 +42,6 @@ interface ChatMessage {
   error?: string;
 }
 
-interface ParsedSummary {
-  description: string;
-  universe: string[];
-  fundamental_filters: Array<{ metric: string; operator: string; value: number }>;
-  entry_signals: Array<{ indicator: string }>;
-  exit_signals: Array<{ indicator: string }>;
-  max_positions: number;
-  hold_period_days: number | null;
-  rebalancing_period: string;
-  stop_loss_pct: number | null;
-  take_profit_pct: number | null;
-  backtest_period: string;
-  initial_capital: number;
-}
-
-const UNIVERSE_LABELS: Record<string, string> = {
-  kospi: "KOSPI", kosdaq: "KOSDAQ", kospi200: "KOSPI 200",
-  KOR_KOSPI200: "KOSPI 200", KOR_KOSDAQ150: "KOSDAQ 150",
-  US_TECH_TOP10: "미국 테크 Top 10", CRYPTO_TOP10: "크립토 Top 10",
-};
-
-const METRIC_LABELS: Record<string, string> = {
-  per: "PER", pbr: "PBR", roe_or_gpa: "ROE",
-  debt_ratio: "부채비율", market_cap: "시총", trading_value: "거래대금",
-};
-const PERIOD_LABELS: Record<string, string> = {
-  "1y": "1년", "3y": "3년", "5y": "5년", "full": "전체",
-};
-const REBAL_LABELS: Record<string, string> = {
-  none: "없음", monthly: "매월", quarterly: "분기", yearly: "매년",
-};
-const INDICATOR_LABELS: Record<string, string> = {
-  ma_crossover: "MA 크로스", rsi: "RSI", ema: "EMA 크로스",
-  macd: "MACD", bollinger_bands: "볼린저밴드", breakout: "브레이크아웃",
-  volume_spike: "거래량 급증", stochastic: "스토캐스틱", cci: "CCI", adx: "ADX",
-  ai_model: "AI 매수 예측", ai_drop_model: "AI 하락 예측",
-};
-
 function FilterBadge({ label }: { label: string }) {
   return (
     <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] text-white text-xs font-bold">
@@ -79,7 +51,16 @@ function FilterBadge({ label }: { label: string }) {
 }
 
 
-function ParsedSummaryBubble({ parsed }: { parsed: ParsedSummary }) {
+function ParsedSummaryBubble({
+  parsed,
+  backtestRequest,
+}: {
+  parsed: ParsedSummary;
+  backtestRequest?: { symbols?: string[] } | null;
+}) {
+  const universeLabels = getDisplayUniverseLabels(parsed, backtestRequest);
+  const exitLabels = getDisplayExitLabels(parsed);
+
   return (
     <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl rounded-tl-sm p-4 space-y-3">
       <div className="flex items-center gap-1.5">
@@ -91,8 +72,8 @@ function ParsedSummaryBubble({ parsed }: { parsed: ParsedSummary }) {
           <div className="flex flex-wrap gap-1.5 items-center">
             <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0">유니버스</span>
             <div className="flex flex-wrap gap-1">
-              {parsed.universe.map((u, i) => (
-                <FilterBadge key={i} label={UNIVERSE_LABELS[u] ?? u} />
+              {universeLabels.map((label, i) => (
+                <FilterBadge key={i} label={label} />
               ))}
             </div>
           </div>
@@ -117,12 +98,12 @@ function ParsedSummaryBubble({ parsed }: { parsed: ParsedSummary }) {
             </div>
           </div>
         )}
-        {parsed.exit_signals.length > 0 && (
+        {exitLabels.length > 0 && (
           <div className="flex flex-wrap gap-1.5 items-center">
             <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0">청산 신호</span>
             <div className="flex flex-wrap gap-1">
-              {parsed.exit_signals.map((s, i) => (
-                <FilterBadge key={i} label={INDICATOR_LABELS[s.indicator] ?? s.indicator} />
+              {exitLabels.map((label, i) => (
+                <FilterBadge key={i} label={label} />
               ))}
             </div>
           </div>
@@ -439,22 +420,7 @@ function StrategyLabContent() {
               currentOptions={currentOptions}
               isRunning={isRunning}
               backtestDsl={backtestReq}
-              strategySummary={latestParsed ? {
-                strategyName: latestParsed.description,
-                universeName: latestParsed.universe.map(u => UNIVERSE_LABELS[u] ?? u).join(", "),
-                blockNames: [
-                  ...latestParsed.fundamental_filters.map(f => `${METRIC_LABELS[f.metric] ?? f.metric} ${f.operator} ${f.value}`),
-                  ...latestParsed.entry_signals.map(s => INDICATOR_LABELS[s.indicator] ?? s.indicator),
-                  ...latestParsed.exit_signals.map(s => INDICATOR_LABELS[s.indicator] ?? s.indicator),
-                ],
-                entryBlocks: latestParsed.entry_signals.map(s => INDICATOR_LABELS[s.indicator] ?? s.indicator),
-                exitBlocks: latestParsed.exit_signals.map(s => INDICATOR_LABELS[s.indicator] ?? s.indicator),
-                positionText: `최대 ${latestParsed.max_positions}종목${latestParsed.hold_period_days ? ` · ${latestParsed.hold_period_days}일 보유` : ""}`,
-                riskText: [
-                  latestParsed.stop_loss_pct ? `손절 ${latestParsed.stop_loss_pct}%` : "",
-                  latestParsed.take_profit_pct ? `익절 ${latestParsed.take_profit_pct}%` : "",
-                ].filter(Boolean).join(", ") || undefined,
-              } : undefined}
+              strategySummary={buildStrategySummary(latestParsed, backtestReq)}
             />
           </div>
         </div>
@@ -516,7 +482,7 @@ function StrategyLabContent() {
                         )}
                         {msg.parsed && (
                           <>
-                            <ParsedSummaryBubble parsed={msg.parsed} />
+                            <ParsedSummaryBubble parsed={msg.parsed} backtestRequest={backtestReq} />
                             {msg.clarification && (
                               <div className="space-y-2">
                                 <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-white/[0.02] border border-yellow-400/40">

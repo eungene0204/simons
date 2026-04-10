@@ -23,6 +23,10 @@ class StockQuote:
     timestamp: float   # time.time() when fetched
     prev_close: int = 0    # 전일종가
     change_rate: float = 0.0  # 전일 대비 등락률 % (provider가 직접 제공 시 사용)
+    per: Optional[float] = None   # PER (주가수익비율)
+    pbr: Optional[float] = None   # PBR (주가순자산비율)
+    eps: Optional[float] = None   # EPS (주당순이익)
+    bps: Optional[float] = None   # BPS (주당순자산)
 
     def to_dict(self) -> dict:
         return asdict(self)

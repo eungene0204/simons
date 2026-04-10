@@ -1,3 +1,39 @@
+# AGENTS.md
+
+## MUST FOLLOW
+
+- Follow all rules in:
+  - `docs/development/codex-rules.md`
+  - `docs/architecture/boundaries.md`
+
+## Boundary Rules (CRITICAL)
+
+Before making any change:
+- Select exactly ONE boundary from `boundaries.md`
+- Only modify files inside that boundary
+
+## Simons Codex Policy
+
+Before making code changes, decide whether the user request is already a complete executable spec.
+
+If the request is short, vague, broad, or missing boundary / file scope / validation steps,
+use the `spec-writer` skill first.
+
+Only begin implementation after the request has been converted into this format:
+
+- Task
+- Boundary
+- Files allowed
+- Do not
+- Requirements
+- Run
+- Deliver
+
+If the request is already structured in this format, use it directly.
+
+Always keep work inside one boundary.
+Never modify forbidden paths unless explicitly instructed.
+
 # Repository Guidelines
 
 ## Project Structure & Module Organization

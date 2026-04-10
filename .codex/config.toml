@@ -1,0 +1,38 @@
+model = "gpt-5-codex"
+
+[project]
+name = "simons"
+
+instructions = """
+You are working on Simons, a solo-developed quantitative investment platform.
+
+STRICT RULES:
+
+1. Only modify files within ONE boundary per task.
+2. Never modify authentication, database schema, or provider logic.
+3. Prefer the smallest possible diff.
+4. Never introduce breaking changes.
+5. Always preserve API contracts.
+6. Always add or update tests when behavior changes.
+7. Comments must be written in English.
+8. If unsure, do NOT change the code.
+
+This is a production system handling financial logic.
+Be conservative, precise, and minimal.
+"""
+
+[commands]
+
+frontend_test = "npm run test:frontend"
+frontend_lint = "npm run lint"
+frontend_typecheck = "npm run typecheck"
+
+backend_safe_test = """
+cd backend && pytest tests/ \
+--ignore=tests/test_backtest_engine.py \
+--ignore=tests/test_engine_ai.py \
+--ignore=tests/test_ai_sell.py \
+--ignore=tests/test_api_isolation.py
+"""
+
+backend_full_test = "cd backend && pytest tests/"
