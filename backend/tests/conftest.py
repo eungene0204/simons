@@ -3,6 +3,7 @@ pytest conftest.py - 테스트용 공용 fixture
 """
 
 import os
+import tempfile
 
 import numpy as np
 import pandas as pd
@@ -10,6 +11,23 @@ import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+
+
+def _ensure_test_runtime_cache_dirs() -> None:
+    numba_cache_dir = os.environ.get("NUMBA_CACHE_DIR")
+    if not numba_cache_dir:
+        numba_cache_dir = os.path.join(tempfile.gettempdir(), "simons-numba-cache")
+        os.environ["NUMBA_CACHE_DIR"] = numba_cache_dir
+    os.makedirs(numba_cache_dir, exist_ok=True)
+
+    mpl_config_dir = os.environ.get("MPLCONFIGDIR")
+    if not mpl_config_dir:
+        mpl_config_dir = os.path.join(tempfile.gettempdir(), "simons-matplotlib")
+        os.environ["MPLCONFIGDIR"] = mpl_config_dir
+    os.makedirs(mpl_config_dir, exist_ok=True)
+
+
+_ensure_test_runtime_cache_dirs()
 
 
 # ────────────────────────────────────────────────────────────────────

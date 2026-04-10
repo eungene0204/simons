@@ -304,12 +304,29 @@ def _to_int(value) -> int:
         return 0
 
 
+def _to_float(value) -> float:
+    if value in (None, "", "-"):
+        return 0.0
+    try:
+        return float(str(value).replace(",", "").strip())
+    except Exception:
+        return 0.0
+
+
 def _first_nonzero_int(data: dict, *keys: str) -> int:
     for key in keys:
         value = _to_int(data.get(key))
         if value > 0:
             return value
     return 0
+
+
+def _first_nonzero_float(data: dict, *keys: str) -> float:
+    for key in keys:
+        value = _to_float(data.get(key))
+        if value > 0:
+            return value
+    return 0.0
 
 
 def _first_nonzero_entry(data: dict, *keys: str) -> tuple[Optional[str], int]:
@@ -371,6 +388,9 @@ def _fetch_kis_stock_detail(symbol: str, app_key: str, app_secret: str, token: s
             current_price,
         )
 
+        per = _first_nonzero_float(output, "perx", "per")
+        pbr = _first_nonzero_float(output, "pbrx", "pbr")
+
         return {
             "symbol": symbol,
             "name": output.get("hts_kor_isnm", symbol),
@@ -382,6 +402,8 @@ def _fetch_kis_stock_detail(symbol: str, app_key: str, app_secret: str, token: s
             "marketCap": market_cap,
             "previousClose": _first_nonzero_int(output, "stck_sdpr"),
             "changePercent": float(output.get("prdy_ctrt", 0) or 0),
+            "per": per if per > 0 else None,
+            "pbr": pbr if pbr > 0 else None,
             "source": "kis_inquire_price",
         }
     except Exception:

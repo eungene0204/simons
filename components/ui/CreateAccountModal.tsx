@@ -2,11 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { X, CaretDown, Robot, Bell } from "phosphor-react";
+import { buildStrategySummaryFromDsl } from "@/lib/strategy-summary";
+import type { StrategyDSL } from "@/types/strategy";
 
-interface Strategy {
-  id: string;
-  name: string;
-}
+type Strategy = Pick<StrategyDSL, "id" | "name" | "description" | "universe" | "entry" | "exit" | "risk">;
 
 interface CreateAccountModalProps {
   isOpen: boolean;
@@ -27,6 +26,7 @@ export default function CreateAccountModal({
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [loadingStrategies, setLoadingStrategies] = useState(false);
   const [tradingMode, setTradingMode] = useState<"auto" | "manual">("manual");
+  const [isPromptVisible, setIsPromptVisible] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -38,9 +38,24 @@ export default function CreateAccountModal({
       .finally(() => setLoadingStrategies(false));
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    setIsPromptVisible(false);
+  }, [isOpen, selectedStrategyId]);
+
   if (!isOpen) return null;
 
   const selectedStrategy = strategies.find((s) => s.id === selectedStrategyId);
+  const selectedSummary = buildStrategySummaryFromDsl(selectedStrategy);
+  const summaryChips = selectedSummary
+    ? [
+        `유니버스 ${selectedSummary.universeName}`,
+        ...selectedSummary.exitBlocks,
+        selectedSummary.positionText,
+        selectedSummary.rebalancingText,
+        selectedSummary.riskText ? `리스크 관리 ${selectedSummary.riskText}` : undefined,
+      ].filter((value): value is string => Boolean(value))
+    : [];
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,6 +100,7 @@ export default function CreateAccountModal({
     setAmount("");
     setSelectedStrategyId("");
     setTradingMode("manual");
+    setIsPromptVisible(false);
     onClose();
   };
 
@@ -207,6 +223,54 @@ export default function CreateAccountModal({
               )}
             </div>
           </div>
+
+          {selectedStrategy && (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900/60">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                    운용 전략
+                  </p>
+                  <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    선택한 전략의 핵심 조건을 먼저 확인합니다.
+                  </p>
+                </div>
+                {selectedStrategy.description && (
+                  <button
+                    type="button"
+                    onClick={() => setIsPromptVisible((prev) => !prev)}
+                    className="shrink-0 rounded-md border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                  >
+                    {isPromptVisible ? "프롬프트 숨기기" : "프롬프트 보기"}
+                  </button>
+                )}
+              </div>
+
+              {summaryChips.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {summaryChips.map((chip) => (
+                    <span
+                      key={chip}
+                      className="rounded-full border border-blue-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 dark:border-blue-900/70 dark:bg-gray-800 dark:text-gray-200"
+                    >
+                      {chip}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {isPromptVisible && selectedStrategy.description && (
+                <div className="mt-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-800">
+                  <p className="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400">
+                    사용자 프롬프트
+                  </p>
+                  <p className="whitespace-pre-wrap text-sm leading-6 text-gray-700 dark:text-gray-200">
+                    {selectedStrategy.description}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* 매매 모드 선택 — 전략을 선택했을 때만 표시 */}
           {selectedStrategyId && (

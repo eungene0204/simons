@@ -8,6 +8,7 @@ LLM 백엔드: Ollama (instructor) 또는 MLX (outlines)
 from __future__ import annotations
 
 import json
+import re
 from typing import List, Literal, Optional
 from pydantic import BaseModel, Field
 
@@ -415,9 +416,10 @@ class NLStrategyParser:
     def parse(self, user_input: str) -> ParsedStrategy:
         """자연어 입력 → ParsedStrategy (7B 사용)"""
         if self.backend == "mlx":
-            return self._parse_mlx(user_input)
+            parsed = self._parse_mlx(user_input)
         else:
-            return self._parse_ollama(user_input)
+            parsed = self._parse_ollama(user_input)
+        return _apply_prompt_overrides(parsed, user_input)
 
     def parse_modification(self, user_input: str, previous: dict) -> ParsedStrategy:
         """수정 요청: diff만 LLM으로 추출 후 previous와 병합 (32B 사용)"""
@@ -431,7 +433,7 @@ class NLStrategyParser:
         for field, val in diff.model_dump().items():
             if val is not None:
                 merged[field] = val
-        return ParsedStrategy.model_validate(merged)
+        return _apply_prompt_overrides(ParsedStrategy.model_validate(merged), user_input)
 
     def _modify_mlx(self, user_input: str, previous: dict) -> ParsedStrategyDiff:
         self._init_mlx_7b()
@@ -488,16 +490,92 @@ class NLStrategyParser:
 # 키워드 묶음: 사용자 프롬프트에서 해당 팩터 언급 여부를 판단
 _KEYWORDS: dict[str, list[str]] = {
     "stop_loss":    ["손절", "stop loss", "스탑로스", "스탑 로스"],
-    "take_profit":  ["익절", "take profit", "목표 수익", "익절률"],
+    "take_profit":  ["익절", "take profit", "목표 수익", "익절률", "수익", "수익률"],
     "trailing_stop":["트레일링", "trailing stop", "최고가 대비"],
     "max_positions":["종목", "개", "포지션", "position"],
     "backtest_period": ["1년", "3년", "5년", "전체", "1y", "3y", "5y", "full", "백테스트 기간", "테스트 기간"],
     "initial_capital":  ["초기자금", "자본금", "원금", "자금", "억", "천만", "만원"],
-    "universe": ["코스피", "kospi", "코스닥", "kosdaq", "전체 시장", "코스피+코스닥", "모든 종목", "유니버스", "universe"],
+    "universe": ["코스피", "코스피200", "kospi", "kospi200", "코스닥", "kosdaq", "전체 시장", "코스피+코스닥", "모든 종목", "유니버스", "universe"],
 }
 
 def _mentioned(prompt_lower: str, factor: str) -> bool:
     return any(kw in prompt_lower for kw in _KEYWORDS.get(factor, []))
+
+
+def _extract_explicit_universe(user_input: str) -> Optional[List[str]]:
+    prompt = user_input.lower()
+    compact = re.sub(r"\s+", "", prompt)
+
+    mentions_kospi200 = "kospi200" in compact or "코스피200" in compact
+    mentions_kosdaq = "kosdaq" in compact or "코스닥" in compact
+    mentions_kospi = not mentions_kospi200 and ("kospi" in compact or "코스피" in compact)
+    mentions_all_market = (
+        "전체시장" in compact or
+        "코스피+코스닥" in compact or
+        "코스피와코스닥" in compact or
+        "kospi+kosdaq" in compact or
+        ("모든종목" in compact and not mentions_kospi200)
+    )
+
+    if mentions_all_market or (mentions_kospi and mentions_kosdaq):
+        return ["KOSPI", "KOSDAQ"]
+    if mentions_kospi200:
+        return ["KOSPI200"]
+    if mentions_kospi:
+        return ["KOSPI"]
+    if mentions_kosdaq:
+        return ["KOSDAQ"]
+    return None
+
+
+def _mentions_technical_exit_terms(compact_prompt: str) -> bool:
+    technical_terms = [
+        "rsi", "cci", "adx", "macd", "stochastic", "bollinger", "breakout",
+        "데드크로스", "골든크로스", "볼린저", "스토캐스틱", "브레이크아웃",
+        "이평", "이동평균", "기술적", "시그널", "신호",
+    ]
+    return any(term in compact_prompt for term in technical_terms)
+
+
+def _apply_prompt_overrides(parsed: ParsedStrategy, user_input: str) -> ParsedStrategy:
+    updates: dict[str, object] = {}
+    explicit_universe = _extract_explicit_universe(user_input)
+    if explicit_universe is not None:
+        updates["universe"] = explicit_universe
+
+    compact = re.sub(r"\s+", "", user_input.lower())
+    risk_exit_detected = False
+
+    take_profit_patterns = [
+        r"수익(\d+(?:\.\d+)?)%이상(?:이면|일때|일시|시)?(?:매도|청산)",
+        r"(\d+(?:\.\d+)?)%이상수익(?:이면|일때|일시|시)?(?:매도|청산)",
+        r"(\d+(?:\.\d+)?)%수익(?:이면|일때|일시|시)?(?:매도|청산)",
+    ]
+    for pattern in take_profit_patterns:
+        match = re.search(pattern, compact)
+        if match:
+            updates["take_profit_pct"] = float(match.group(1))
+            risk_exit_detected = True
+            break
+
+    stop_loss_patterns = [
+        r"손실(\d+(?:\.\d+)?)%이상(?:이면|일때|일시|시)?(?:매도|청산)",
+        r"(\d+(?:\.\d+)?)%이상하락(?:이면|일때|일시|시)?(?:매도|청산)",
+        r"(\d+(?:\.\d+)?)%하락(?:이면|일때|일시|시)?(?:매도|청산)",
+    ]
+    for pattern in stop_loss_patterns:
+        match = re.search(pattern, compact)
+        if match:
+            updates["stop_loss_pct"] = float(match.group(1))
+            risk_exit_detected = True
+            break
+
+    if risk_exit_detected and not _mentions_technical_exit_terms(compact):
+        updates["exit_signals"] = []
+
+    if not updates:
+        return parsed
+    return parsed.model_copy(update=updates)
 
 
 def validate_parsed_strategy(
@@ -521,7 +599,14 @@ def validate_parsed_strategy(
     p = user_prompt.lower()
 
     has_entry = bool(parsed.fundamental_filters or parsed.entry_signals)
-    has_exit  = bool(parsed.exit_signals or parsed.hold_period_days)
+    has_exit  = bool(
+        parsed.exit_signals or
+        parsed.hold_period_days or
+        parsed.stop_loss_pct is not None or
+        parsed.take_profit_pct is not None or
+        parsed.trailing_stop_pct is not None or
+        parsed.max_mdd_limit_pct is not None
+    )
 
     # ── 1순위: 진입 / 청산 조건 ──────────────────────────────────────────────
     if not has_entry and not has_exit:

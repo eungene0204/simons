@@ -47,6 +47,7 @@ def apply_realtime_quote(df_pl: pl.DataFrame, quote: Any) -> pl.DataFrame:
             date_value = quote_date.strftime("%Y-%m-%d")
 
     price_fields = ("open", "high", "low", "close", "volume")
+    fundamental_fields = ("per", "pbr", "eps", "bps")
     target_idx = len(pdf) - 1
     if quote_date is not None and last_date is not None and quote_date > last_date:
         target_idx = len(pdf)
@@ -67,6 +68,13 @@ def apply_realtime_quote(df_pl: pl.DataFrame, quote: Any) -> pl.DataFrame:
             value = _get_value(field)
             if value is not None:
                 pdf.at[target_idx, field] = value
+
+    # 실시간 PER/PBR/EPS/BPS 반영 (KIS API 등에서 제공 시)
+    for field in fundamental_fields:
+        value = _get_value(field)
+        if value is not None:
+            pdf[field] = pdf.get(field, float("nan"))
+            pdf.at[target_idx, field] = value
 
     if "date" in pdf.columns and date_value is not None:
         pdf.at[target_idx, "date"] = date_value

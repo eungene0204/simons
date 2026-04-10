@@ -1,0 +1,127 @@
+{
+  "suite_name": "backtest_smoke",
+  "defaults": {
+    "data_dir": "backend/tests/data",
+    "request": {
+      "period": "FULL",
+      "exit": {
+        "logic": "AND",
+        "conditions": []
+      },
+      "risk": {
+        "position_size_pct": 100,
+        "liquidity_multiplier": 0
+      },
+      "options": {
+        "execution_type": "same_close",
+        "fee_rate": 0.0,
+        "slippage_rate": 0.0
+      }
+    }
+  },
+  "cases": [
+    {
+      "id": "config_same_close_entry",
+      "description": "same_close should enter on the same candle close for CONFIG_TEST",
+      "request": {
+        "symbols": [
+          "CONFIG_TEST"
+        ],
+        "entry": {
+          "logic": "AND",
+          "conditions": [
+            {
+              "id": "price",
+              "params": {
+                "value": 102,
+                "operator": ">"
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": "success",
+        "signal_count": {
+          "min": 1
+        },
+        "signals_include": [
+          {
+            "type": "buy",
+            "date": "2024-01-01",
+            "price": 105.0,
+            "price_tolerance": 0.001
+          }
+        ]
+      }
+    },
+    {
+      "id": "zero_trade_warning",
+      "description": "A never-triggering entry should surface the zero-trade warning",
+      "request": {
+        "symbols": [
+          "ZERO_TRADE_TEST"
+        ],
+        "entry": {
+          "logic": "AND",
+          "conditions": [
+            {
+              "id": "price",
+              "params": {
+                "value": 1000,
+                "operator": ">"
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": "success",
+        "signal_count": {
+          "equals": 0
+        },
+        "warnings_include": [
+          "매매 조건에 부합하는 종목이 없어 매매 기록이 생성되지 않았습니다."
+        ]
+      }
+    },
+    {
+      "id": "time_exit_reason",
+      "description": "Max holding days should create a time-expiry exit reason",
+      "request": {
+        "symbols": [
+          "TIME_EXIT_TEST_V2"
+        ],
+        "entry": {
+          "logic": "AND",
+          "conditions": [
+            {
+              "id": "price",
+              "params": {
+                "value": 105,
+                "operator": "<"
+              }
+            }
+          ]
+        },
+        "risk": {
+          "position_size_pct": 100,
+          "liquidity_multiplier": 0,
+          "max_holding_days": 5
+        }
+      },
+      "expect": {
+        "status": "success",
+        "signal_count": {
+          "min": 2
+        },
+        "signals_include": [
+          {
+            "type": "sell",
+            "condition_contains": "보유 기간 만료 (5일 보유)"
+          }
+        ]
+      }
+    }
+  ]
+}
