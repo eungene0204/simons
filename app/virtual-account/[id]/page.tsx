@@ -30,7 +30,9 @@ import TrackedSymbolRow from "@/components/virtual-account/TrackedSymbolRow";
 import TrackedSymbolsSkeleton from "@/components/virtual-account/TrackedSymbolsSkeleton";
 import SignalLog from "@/components/virtual-market/SignalLog";
 import { useStockPrices } from "@/lib/hooks/useStockPrices";
+import { buildStrategySummaryFromDsl } from "@/lib/strategy-summary";
 import type { StockPriceSnapshot as BatchQuoteItem } from "@/lib/stock-prices";
+import type { StrategyDSL } from "@/types/strategy";
 
 const formatPrice = (price: number) =>
   new Intl.NumberFormat("ko-KR").format(Math.round(price));
@@ -80,12 +82,14 @@ export default function VirtualAccountDetailPage() {
   const [showOrderPage, setShowOrderPage] = useState(false);
   const [activeTab, setActiveTab] = useState<"holdings" | "transactions" | "performance">("holdings");
   const [dbStrategyDescription, setDbStrategyDescription] = useState<string | null>(null);
+  const [dbStrategySettings, setDbStrategySettings] = useState<StrategyDSL | null>(null);
   const [trackedSymbols, setTrackedSymbols] = useState<{ symbol: string; name: string }[]>([]);
   const [trackedPrices, setTrackedPrices] = useState<Record<string, BatchQuoteItem>>({});
   const [isTrackedSymbolsLoading, setIsTrackedSymbolsLoading] = useState(true);
   const [signalLogs, setSignalLogs] = useState<VirtualMarketLog[]>([]);
   const [isTrackSearchOpen, setIsTrackSearchOpen] = useState(false);
   const [isStrategyReplaceOpen, setIsStrategyReplaceOpen] = useState(false);
+  const [isPromptVisible, setIsPromptVisible] = useState(false);
   const trackedSymbolsList = trackedSymbols.map((s) => s.symbol);
   const { data: trackedPriceSnapshots } = useStockPrices(trackedSymbolsList, {
     enabled: trackedSymbolsList.length > 0,
@@ -165,6 +169,10 @@ export default function VirtualAccountDetailPage() {
       .catch(() => {});
   }, [selectedSymbol]);
 
+  useEffect(() => {
+    setIsPromptVisible(false);
+  }, [account?.strategyId]);
+
   const loadAccountData = async () => {
     const [acc, t] = await Promise.all([
       getAccount(accountId),
@@ -177,8 +185,17 @@ export default function VirtualAccountDetailPage() {
     if (acc.strategyId) {
       fetch(`/api/strategy/${acc.strategyId}`)
         .then((r) => r.ok ? r.json() : null)
-        .then((s) => setDbStrategyDescription(s?.description ?? null))
-        .catch(() => setDbStrategyDescription(null));
+        .then((s) => {
+          setDbStrategyDescription(s?.description ?? null);
+          setDbStrategySettings((s?.settings as StrategyDSL | null) ?? null);
+        })
+        .catch(() => {
+          setDbStrategyDescription(null);
+          setDbStrategySettings(null);
+        });
+    } else {
+      setDbStrategyDescription(null);
+      setDbStrategySettings(null);
     }
     setIsTrackedSymbolsLoading(true);
     fetch(`/api/virtual-market/${accountId}`)
@@ -305,6 +322,16 @@ export default function VirtualAccountDetailPage() {
   }
 
   const shouldShowOrderPage = showOrderPage || selectedSymbol;
+  const strategySummary = buildStrategySummaryFromDsl(dbStrategySettings);
+  const strategySummaryChips = strategySummary
+    ? [
+        `유니버스 ${strategySummary.universeName}`,
+        ...strategySummary.exitBlocks,
+        strategySummary.positionText,
+        strategySummary.rebalancingText,
+        strategySummary.riskText ? `리스크 관리 ${strategySummary.riskText}` : undefined,
+      ].filter((value): value is string => Boolean(value))
+    : [];
 
   const strategies = account.strategyName
     ? [{ name: account.strategyName, status: "active" as const }]
@@ -639,18 +666,44 @@ export default function VirtualAccountDetailPage() {
                       : (getStrategyByName(strategy.name)?.description ?? null);
                     return (
                       <div key={idx} className="bg-white/[0.03] border border-white/[0.05] rounded-xl p-4">
-                        <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center justify-between gap-3 mb-3">
                           <div className="flex items-center gap-2 min-w-0">
                             <span className="text-sm font-bold text-white truncate max-w-[140px]">{strategy.name}</span>
                           </div>
-                          {strategy.status !== "active" && (
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-white/[0.05] text-gray-500">
-                              대기
-                            </span>
-                          )}
+                          <div className="flex items-center gap-2">
+                            {description && (
+                              <button
+                                type="button"
+                                onClick={() => setIsPromptVisible((prev) => !prev)}
+                                className="shrink-0 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[11px] font-bold text-gray-300 transition-all duration-200 hover:bg-white/[0.08] hover:text-white"
+                              >
+                                {isPromptVisible ? "프롬프트 숨기기" : "프롬프트 보기"}
+                              </button>
+                            )}
+                            {strategy.status !== "active" && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-white/[0.05] text-gray-500">
+                                대기
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        {description && (
-                          <p className="text-xs font-bold text-gray-500">{description}</p>
+                        {strategySummaryChips.length > 0 && (
+                          <div className="flex flex-wrap gap-2">
+                            {strategySummaryChips.map((chip) => (
+                              <span
+                                key={chip}
+                                className="rounded-xl border border-[#2b4471] bg-[#1a2233] px-3 py-2 text-xs font-bold text-gray-200"
+                              >
+                                {chip}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {isPromptVisible && description && (
+                          <div className="mt-3 rounded-xl border border-white/[0.05] bg-black/10 p-3">
+                            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-500">사용자 프롬프트</p>
+                            <p className="text-xs font-bold text-gray-500 leading-6 whitespace-pre-wrap">{description}</p>
+                          </div>
                         )}
                       </div>
                     );
@@ -877,6 +930,8 @@ export default function VirtualAccountDetailPage() {
                 : prev
             );
             setDbStrategyDescription(strategy.description ?? null);
+            setDbStrategySettings(strategy as StrategyDSL);
+            setIsPromptVisible(false);
             await loadAccountData();
           }}
         />

@@ -99,6 +99,14 @@ class KISProvider(BaseProvider):
             from datetime import datetime
             today = datetime.now().strftime("%Y-%m-%d")
 
+            # PER/PBR/EPS/BPS 파싱 (KIS API 응답 필드)
+            def _parse_float(val: str) -> Optional[float]:
+                try:
+                    v = float(val or "0")
+                    return v if v != 0 else None
+                except (ValueError, TypeError):
+                    return None
+
             return StockQuote(
                 symbol=symbol,
                 name=output.get("hts_kor_isnm", symbol),
@@ -112,6 +120,10 @@ class KISProvider(BaseProvider):
                 timestamp=time.time(),
                 prev_close=int(output.get("stck_sdpr", "0") or "0"),
                 change_rate=float(output.get("prdy_ctrt", "0") or "0"),
+                per=_parse_float(output.get("per", "")),
+                pbr=_parse_float(output.get("pbr", "")),
+                eps=_parse_float(output.get("eps", "")),
+                bps=_parse_float(output.get("bps", "")),
             )
         except Exception as e:
             print(f"[KISProvider] {symbol} 조회 실패: {e}")

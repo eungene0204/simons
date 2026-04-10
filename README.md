@@ -185,6 +185,35 @@ npm run test:frontend
 - 백엔드: 38개 pytest 파일 (시그널, 시뮬레이터, AI, 최적화, 시세, 회귀 테스트)
 - 프론트엔드: 24개 Vitest 파일 (컴포넌트, API 라우트, 유틸리티)
 
+## Harness Engineering
+
+프로젝트에는 이제 `backend/harness/runner.py` 기반의 최소 백테스트 하네스 레이어가 들어 있습니다.
+
+- 목적: 고정된 parquet 픽스처와 전략 입력으로 백테스트를 반복 실행하고, 핵심 기대값이 깨졌는지 빠르게 확인
+- 위치: `backend/harness/suites/backtest_smoke.json`
+- 출력: pass/fail, 케이스별 실패 사유, 요약 메트릭, 실행 시간 JSON 리포트
+
+실행 예시:
+
+```bash
+python3 backend/harness/runner.py \
+  backend/harness/suites/backtest_smoke.json \
+  --output backend/harness/reports/backtest_smoke.latest.json
+```
+
+기본 스위트는 세 가지를 검증합니다.
+
+- `CONFIG_TEST`: `same_close` 진입이 같은 봉 종가에 체결되는지
+- `ZERO_TRADE_TEST`: 무매매 전략에서 사용자 경고가 유지되는지
+- `TIME_EXIT_TEST_V2`: `max_holding_days`가 시간 기반 청산 사유를 생성하는지
+
+새 케이스를 추가할 때는 `request`와 `expect`만 넣으면 됩니다. `expect`는 아래 형태를 지원합니다.
+
+- `metric_ranges`: `totalReturn`, `trades` 같은 결과 필드의 `min` / `max` / `equals` / `approx`
+- `signal_count`, `warning_count`, `date_count`
+- `warnings_include`: 경고 문구 substring 검증
+- `signals_include`: `type`, `date`, `price`, `condition_contains` 기반 시그널 검증
+
 ## DB 관리
 
 ```bash

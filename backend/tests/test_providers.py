@@ -27,6 +27,30 @@ class TestStockQuote:
         assert d["source"] == "naver"
         assert isinstance(d, dict)
 
+    def test_to_dict_with_fundamentals(self):
+        q = StockQuote(
+            symbol="005930", name="삼성전자", date="2026-03-27",
+            open=55000, high=56000, low=54000, close=55500,
+            volume=10000000, source="kis_total", timestamp=1000.0,
+            per=12.5, pbr=1.3, eps=4440.0, bps=42692.0,
+        )
+        d = q.to_dict()
+        assert d["per"] == 12.5
+        assert d["pbr"] == 1.3
+        assert d["eps"] == 4440.0
+        assert d["bps"] == 42692.0
+
+    def test_fundamentals_default_none(self):
+        q = StockQuote(
+            symbol="005930", name="삼성전자", date="2026-03-27",
+            open=55000, high=56000, low=54000, close=55500,
+            volume=10000000, source="naver", timestamp=1000.0,
+        )
+        assert q.per is None
+        assert q.pbr is None
+        assert q.eps is None
+        assert q.bps is None
+
 
 # ─── Naver Provider ──────────────────────────────────────────
 
@@ -108,6 +132,76 @@ class TestNaverProvider:
 
         quote = _fetch_naver_quote("000000")
         assert quote is None
+
+
+# ─── KIS Provider ────────────────────────────────────────────
+
+class TestKISProvider:
+    @patch("engine.providers.kis.requests.get")
+    def test_fetch_price_includes_fundamentals(self, mock_get):
+        """KIS 현재가 응답에서 PER/PBR/EPS/BPS 파싱"""
+        from engine.providers.kis import KISProvider
+
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {
+            "output": {
+                "stck_prpr": "55500",
+                "stck_oprc": "55000",
+                "stck_hgpr": "56000",
+                "stck_lwpr": "54000",
+                "acml_vol": "10000000",
+                "stck_sdpr": "55200",
+                "prdy_ctrt": "-0.36",
+                "hts_kor_isnm": "삼성전자",
+                "per": "12.50",
+                "pbr": "1.30",
+                "eps": "4440",
+                "bps": "42692",
+            }
+        }
+        mock_get.return_value = resp
+
+        provider = KISProvider()
+        quote = provider._fetch_price_sync("005930", "fake_token")
+        assert quote is not None
+        assert quote.per == 12.5
+        assert quote.pbr == 1.3
+        assert quote.eps == 4440.0
+        assert quote.bps == 42692.0
+
+    @patch("engine.providers.kis.requests.get")
+    def test_fetch_price_zero_fundamentals_are_none(self, mock_get):
+        """PER/PBR이 0이면 None으로 처리"""
+        from engine.providers.kis import KISProvider
+
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {
+            "output": {
+                "stck_prpr": "55500",
+                "stck_oprc": "55000",
+                "stck_hgpr": "56000",
+                "stck_lwpr": "54000",
+                "acml_vol": "10000000",
+                "stck_sdpr": "55200",
+                "prdy_ctrt": "0",
+                "hts_kor_isnm": "테스트",
+                "per": "0",
+                "pbr": "0.00",
+                "eps": "",
+                "bps": "0",
+            }
+        }
+        mock_get.return_value = resp
+
+        provider = KISProvider()
+        quote = provider._fetch_price_sync("000000", "fake_token")
+        assert quote is not None
+        assert quote.per is None
+        assert quote.pbr is None
+        assert quote.eps is None
+        assert quote.bps is None
 
 
 # ─── Pykrx Provider ──────────────────────────────────────────
