@@ -24,6 +24,7 @@ import {
   REBAL_LABELS,
   type ParsedSummary,
 } from "./strategySummary";
+import { mergeStrategyModification } from "./parsedStrategyMerge";
 
 const BacktestDashboard = dynamic(
   () => import("@/components/strategy/backtest/BacktestDashboard"),
@@ -224,6 +225,9 @@ function StrategyLabContent() {
     if (!userText || isSending || stage === "running") return;
     if (!overrideText) setInputValue("");
     setIsSending(true);
+    const previousAssistantMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === "assistant" && message.parsed);
 
     setMessages(prev => [
       ...prev,
@@ -246,11 +250,29 @@ function StrategyLabContent() {
         throw new Error(err.detail ?? "파싱 실패");
       }
       const data = await res.json();
-      setLatestParsed(data.parsed);
-      setBacktestReq(data.backtest_request);
+      const mergedResponse = mergeStrategyModification({
+        previousParsed: latestParsed,
+        nextParsed: data.parsed,
+        previousBacktestRequest: backtestReq,
+        nextBacktestRequest: data.backtest_request,
+        userPrompt: userText,
+        clarificationQuestion: data.clarification_question,
+      });
+
+      const nextParsed = mergedResponse.parsed;
+      const nextBacktestReq = mergedResponse.backtestRequest;
+      const clarification = mergedResponse.shouldReusePreviousClarification
+        ? previousAssistantMessage?.clarification
+        : data.clarification_question;
+      const clarificationSuggestions = mergedResponse.shouldReusePreviousClarification
+        ? previousAssistantMessage?.clarificationSuggestions
+        : data.clarification_suggestions;
+
+      setLatestParsed(nextParsed);
+      setBacktestReq(nextBacktestReq);
       setCurrentOptions({
-        period: data.backtest_request?.period ?? "5y",
-        initialCapital: data.backtest_request?.risk?.init_cash ?? 10000000,
+        period: nextBacktestReq?.period ?? "5y",
+        initialCapital: nextBacktestReq?.risk?.init_cash ?? 10000000,
         commissionPct: 0.015,
         slippagePct: 0.05,
       });
@@ -258,9 +280,9 @@ function StrategyLabContent() {
       setMessages(prev => prev.map((m, i) =>
         i === prev.length - 1 ? {
           role: "assistant",
-          parsed: data.parsed,
-          clarification: data.clarification_question ?? undefined,
-          clarificationSuggestions: data.clarification_suggestions ?? undefined,
+          parsed: nextParsed,
+          clarification: clarification ?? undefined,
+          clarificationSuggestions: clarificationSuggestions ?? undefined,
         } : m
       ));
     } catch (e: any) {

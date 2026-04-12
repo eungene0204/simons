@@ -242,7 +242,7 @@ export const signalBlocks: Record<string, SignalBlock> = {
         type: "number",
         label: "기준 기간 (Lookback)",
         min: 5,
-        max: 60,
+        max: 252,
         step: 1,
         tooltip: "신고가 또는 신저가를 계산할 기준 일수",
         suffix: "일",
@@ -876,4 +876,3 @@ export const signalBlocks: Record<string, SignalBlock> = {
     },
   },
 };
-

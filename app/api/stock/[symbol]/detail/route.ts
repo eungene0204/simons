@@ -21,6 +21,16 @@ interface StockDetail {
   previousClose: number;
   pe: number | null;
   pbr: number | null;
+  debtRatio?: number | null;
+  week52High?: number | null;
+  week52HighDate?: string | null;
+  week52HighChangePercent?: number | null;
+  week52Low?: number | null;
+  week52LowDate?: string | null;
+  week52LowChangePercent?: number | null;
+  newHighLowCode?: string | null;
+  isNew52WeekHigh?: boolean;
+  isNew52WeekLow?: boolean;
   description: string;
   sector: string;
   industry: string;
@@ -44,6 +54,16 @@ interface MarketDetailResponse {
   source?: string;
   per?: number;
   pbr?: number;
+  debtRatio?: number | null;
+  week52High?: number | null;
+  week52HighDate?: string | null;
+  week52HighChangePercent?: number | null;
+  week52Low?: number | null;
+  week52LowDate?: string | null;
+  week52LowChangePercent?: number | null;
+  newHighLowCode?: string | null;
+  isNew52WeekHigh?: boolean;
+  isNew52WeekLow?: boolean;
 }
 
 const DETAIL_CACHE_TTL_SECONDS = 2;
@@ -226,6 +246,7 @@ export async function GET(
 
     const resolvedPer = typeof realDetail?.per === "number" ? realDetail.per : undefined;
     const resolvedPbr = typeof realDetail?.pbr === "number" ? realDetail.pbr : undefined;
+    const resolvedDebtRatio = typeof realDetail?.debtRatio === "number" ? realDetail.debtRatio : undefined;
 
     if (resolvedMarketCap > 0) {
       cache.set(marketCapCacheKey, resolvedMarketCap, MARKET_CAP_CACHE_TTL_SECONDS);
@@ -252,6 +273,16 @@ export async function GET(
       previousClose,
       pe: resolvedPer ?? null,
       pbr: resolvedPbr ?? null,
+      debtRatio: resolvedDebtRatio ?? null,
+      week52High: realDetail?.week52High ?? null,
+      week52HighDate: realDetail?.week52HighDate ?? null,
+      week52HighChangePercent: realDetail?.week52HighChangePercent ?? null,
+      week52Low: realDetail?.week52Low ?? null,
+      week52LowDate: realDetail?.week52LowDate ?? null,
+      week52LowChangePercent: realDetail?.week52LowChangePercent ?? null,
+      newHighLowCode: realDetail?.newHighLowCode ?? null,
+      isNew52WeekHigh: realDetail?.isNew52WeekHigh ?? false,
+      isNew52WeekLow: realDetail?.isNew52WeekLow ?? false,
       description: base.description || "",
       sector: stockSector || base.sector || "",
       industry: stockIndustry || base.industry || "",

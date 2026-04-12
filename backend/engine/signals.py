@@ -216,26 +216,27 @@ class SignalEngine:
 
         elif cid == 'breakout':
             period = p.get('lookbackPeriod', 20)
-            c = get_col('close')
-            if c is None:
+            current_high = get_col('high')
+            current_low = get_col('low')
+            if current_high is None or current_low is None:
                 return result
             if p.get('signalType') == 'sell':
-                prev_min = get_col(f'close_{period}_min')
+                prev_min = get_col(f'low_{period}_min')
                 if prev_min is None:
                     return result
                 res = np.zeros(data_len, dtype=bool)
                 with np.errstate(invalid='ignore'):
-                    # 오늘 가격이 전일 구간 최저가 하향 돌파
-                    res[1:] = c[1:] < prev_min[:-1]
+                    # Today's low breaks below the prior lookback low.
+                    res[1:] = current_low[1:] < prev_min[:-1]
                 return res
             else:
-                prev_max = get_col(f'close_{period}_max')
+                prev_max = get_col(f'high_{period}_max')
                 if prev_max is None:
                     return result
                 res = np.zeros(data_len, dtype=bool)
                 with np.errstate(invalid='ignore'):
-                    # 오늘 가격이 전일 구간 최고가 상향 돌파
-                    res[1:] = c[1:] > prev_max[:-1]
+                    # Today's high breaks above the prior lookback high.
+                    res[1:] = current_high[1:] > prev_max[:-1]
                 return res
 
         elif cid == 'trading_value':
@@ -497,15 +498,16 @@ class SignalEngine:
 
         elif cid == 'breakout':
             period = p.get('lookbackPeriod', 20)
-            c = safe_get('close', idx)
-            if idx < period or c is None:
+            current_high = safe_get('high', idx)
+            current_low = safe_get('low', idx)
+            if idx < period or current_high is None or current_low is None:
                 return False
             if p.get('signalType') == 'sell':
-                prev_min = safe_get(f'close_{period}_min', idx - 1)
-                return compare(c, '<', prev_min)
+                prev_min = safe_get(f'low_{period}_min', idx - 1)
+                return compare(current_low, '<', prev_min)
             else:
-                prev_max = safe_get(f'close_{period}_max', idx - 1)
-                return compare(c, '>', prev_max)
+                prev_max = safe_get(f'high_{period}_max', idx - 1)
+                return compare(current_high, '>', prev_max)
 
         elif cid == 'trading_value':
             val, op = float(p.get('value', 0)) * 100_000_000, p.get('operator', '>=')
@@ -650,7 +652,7 @@ class SignalEngine:
             pct = p.get('pips', 0)
             return f"트레일링 스탑 {pct}%"
         elif cid in ['per', 'pbr', 'roe_or_gpa', 'debt_ratio', 'market_cap']:
-            labels = {"per": "PER", "pbr": "PBR", "roe_or_gpa": "ROE/GPA", "debt_ratio": "부채비율", "market_cap": "시가총액"}
+            labels = {"per": "PER", "pbr": "PBR", "roe_or_gpa": "ROE", "debt_ratio": "부채비율", "market_cap": "시가총액"}
             label = labels.get(cid, cid.upper())
             suffix = "억" if cid == 'market_cap' else ""
             return f"{label} {p.get('value')}{suffix} {op_kr}"

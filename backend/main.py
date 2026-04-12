@@ -329,12 +329,83 @@ def _first_nonzero_float(data: dict, *keys: str) -> float:
     return 0.0
 
 
+def _first_nonempty_str(data: dict, *keys: str) -> Optional[str]:
+    for key in keys:
+        value = data.get(key)
+        if value is None:
+            continue
+        normalized = str(value).strip()
+        if normalized and normalized != "-":
+            return normalized
+    return None
+
+
 def _first_nonzero_entry(data: dict, *keys: str) -> tuple[Optional[str], int]:
     for key in keys:
         value = _to_int(data.get(key))
         if value > 0:
             return key, value
     return None, 0
+
+
+def _extract_latest_debt_ratio(output: list[dict]) -> Optional[float]:
+    if not isinstance(output, list) or not output:
+        return None
+
+    latest_period = ""
+    latest_value: Optional[float] = None
+
+    for row in output:
+        if not isinstance(row, dict):
+            continue
+
+        period = str(row.get("stac_yymm", "") or "").strip()
+        value = _to_float(row.get("lblt_rate"))
+        if value <= 0:
+            continue
+
+        if period >= latest_period:
+            latest_period = period
+            latest_value = value
+
+    return latest_value
+
+
+_financial_ratio_cache: dict[str, tuple[Optional[float], float]] = {}
+_FINANCIAL_RATIO_CACHE_TTL = 60.0 * 60.0 * 6.0
+
+
+def _fetch_kis_debt_ratio(symbol: str, app_key: str, app_secret: str, token: str) -> Optional[float]:
+    cached = _financial_ratio_cache.get(symbol)
+    if cached and cached[1] > time.time():
+        return cached[0]
+
+    debt_ratio: Optional[float] = None
+    try:
+        resp = requests.get(
+            "https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/finance/financial-ratio",
+            headers={
+                "Content-Type": "application/json; charset=UTF-8",
+                "authorization": f"Bearer {token}",
+                "appkey": app_key,
+                "appsecret": app_secret,
+                "tr_id": "FHKST66430300",
+                "custtype": "P",
+            },
+            params={
+                "FID_DIV_CLS_CODE": "0",
+                "fid_cond_mrkt_div_code": "J",
+                "fid_input_iscd": symbol,
+            },
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            debt_ratio = _extract_latest_debt_ratio(resp.json().get("output", []))
+    except Exception:
+        debt_ratio = None
+
+    _financial_ratio_cache[symbol] = (debt_ratio, time.time() + _FINANCIAL_RATIO_CACHE_TTL)
+    return debt_ratio
 
 
 def _fetch_kis_stock_detail(symbol: str, app_key: str, app_secret: str, token: str) -> Optional[dict]:
@@ -390,6 +461,12 @@ def _fetch_kis_stock_detail(symbol: str, app_key: str, app_secret: str, token: s
 
         per = _first_nonzero_float(output, "perx", "per")
         pbr = _first_nonzero_float(output, "pbrx", "pbr")
+        debt_ratio = _fetch_kis_debt_ratio(symbol, app_key, app_secret, token)
+        week52_high = _first_nonzero_int(output, "w52_hgpr")
+        week52_low = _first_nonzero_int(output, "w52_lwpr")
+        week52_high_ratio = _first_nonzero_float(output, "w52_hgpr_vrss_prpr_ctrt")
+        week52_low_ratio = _first_nonzero_float(output, "w52_lwpr_vrss_prpr_ctrt")
+        new_high_low_code = _first_nonempty_str(output, "new_hgpr_lwpr_cls_code")
 
         return {
             "symbol": symbol,
@@ -404,6 +481,16 @@ def _fetch_kis_stock_detail(symbol: str, app_key: str, app_secret: str, token: s
             "changePercent": float(output.get("prdy_ctrt", 0) or 0),
             "per": per if per > 0 else None,
             "pbr": pbr if pbr > 0 else None,
+            "debtRatio": debt_ratio if debt_ratio and debt_ratio > 0 else None,
+            "week52High": week52_high or None,
+            "week52HighDate": _first_nonempty_str(output, "w52_hgpr_date"),
+            "week52HighChangePercent": week52_high_ratio if week52_high_ratio > 0 else None,
+            "week52Low": week52_low or None,
+            "week52LowDate": _first_nonempty_str(output, "w52_lwpr_date"),
+            "week52LowChangePercent": week52_low_ratio if week52_low_ratio > 0 else None,
+            "newHighLowCode": new_high_low_code,
+            "isNew52WeekHigh": new_high_low_code == "1",
+            "isNew52WeekLow": new_high_low_code == "2",
             "source": "kis_inquire_price",
         }
     except Exception:
