@@ -4,8 +4,8 @@ export interface ParsedSummary {
   description: string;
   universe: string[];
   fundamental_filters: Array<{ metric: string; operator: string; value: number }>;
-  entry_signals: Array<{ indicator: string }>;
-  exit_signals: Array<{ indicator: string }>;
+  entry_signals: Array<{ indicator: string; signal_type?: string | null }>;
+  exit_signals: Array<{ indicator: string; signal_type?: string | null }>;
   max_positions: number;
   hold_period_days: number | null;
   rebalancing_period: string;
@@ -67,6 +67,21 @@ export const INDICATOR_LABELS: Record<string, string> = {
   ai_drop_model: "AI 하락 예측",
 };
 
+function getSignalLabel(
+  signal: { indicator: string; signal_type?: string | null },
+  context: "entry" | "exit"
+): string {
+  if (signal.indicator === "ai_drop_model") {
+    return INDICATOR_LABELS.ai_drop_model;
+  }
+
+  if (signal.indicator === "ai_model" && (context === "exit" || signal.signal_type === "sell")) {
+    return INDICATOR_LABELS.ai_drop_model;
+  }
+
+  return INDICATOR_LABELS[signal.indicator] ?? signal.indicator;
+}
+
 function normalizeUniverseId(universe: string): string {
   const normalized = universe.trim();
   if (!normalized) return normalized;
@@ -107,21 +122,24 @@ export function getDisplayUniverseLabels(
 
 export function getDisplayExitLabels(parsed: ParsedSummary): string[] {
   const labels: string[] = [];
+
+  // 기술적 청산 신호 (데드크로스, RSI 매도 등)
+  for (const signal of parsed.exit_signals) {
+    labels.push(getSignalLabel(signal, "exit"));
+  }
+
+  // 리스크 관리 (손절/익절)
   const takeProfitPct = formatPercent(parsed.take_profit_pct);
   const stopLossPct = formatPercent(parsed.stop_loss_pct);
 
+  if (stopLossPct) {
+    labels.push(`손절 -${stopLossPct}% 하락시 매도`);
+  }
   if (takeProfitPct) {
     labels.push(`익절 ${takeProfitPct}% 이상 수익시 매도`);
   }
-  if (stopLossPct) {
-    labels.push(`손절 ${stopLossPct}% 하락시 매도`);
-  }
 
-  if (labels.length > 0) {
-    return labels;
-  }
-
-  return parsed.exit_signals.map((signal) => INDICATOR_LABELS[signal.indicator] ?? signal.indicator);
+  return labels;
 }
 
 export function buildStrategySummary(
@@ -142,12 +160,12 @@ export function buildStrategySummary(
         (filter) => `${METRIC_LABELS[filter.metric] ?? filter.metric} ${filter.operator} ${filter.value}`
       ),
       ...parsed.entry_signals.map(
-        (signal) => INDICATOR_LABELS[signal.indicator] ?? signal.indicator
+        (signal) => getSignalLabel(signal, "entry")
       ),
       ...exitLabels,
     ],
     entryBlocks: parsed.entry_signals.map(
-      (signal) => INDICATOR_LABELS[signal.indicator] ?? signal.indicator
+      (signal) => getSignalLabel(signal, "entry")
     ),
     exitBlocks: exitLabels,
     positionText: `최대 ${parsed.max_positions}종목${parsed.hold_period_days ? ` · ${parsed.hold_period_days}일 보유` : ""}`,

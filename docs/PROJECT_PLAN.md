@@ -798,6 +798,18 @@ WatchlistSymbol {
 | 섹터 분석 | 업종별 동향, 로테이션 | 🔲 미구현 |
 | 상관관계 분석 | 종목 간 상관계수 히트맵 | 🔲 미구현 |
 
+### Phase 3.5: 데이터 해결 엔진 (DataResolver) — ✅ 완료
+
+| 작업 | 상세 | 구현 상태 |
+|------|------|----------|
+| DataResolver 코어 | 전략 조건의 누락 데이터를 자동 감지·해결하는 엔진 (`backend/engine/data_resolver.py`) | ✅ 완료 |
+| 거래대금 자동 계산 | `trading_value_20_sma` 누락 시 close×volume 20일 SMA로 즉시 계산 | ✅ 완료 |
+| 펀더멘털 즉시 보충 | PER/PBR/ROE/부채비율 누락 시 KIS API → Naver Finance 순으로 실시간 조회 | ✅ 완료 |
+| 시가총액 계산 | `market_cap` 누락 시 상장주식수(Naver/pykrx) × close로 계산 | ✅ 완료 |
+| PER/PBR 직접 산출 | EPS/BPS가 존재하면 close÷EPS, close÷BPS로 fallback 계산 | ✅ 완료 |
+| 해결 과정 로그 | 모든 해결 시도를 `resolution_logs`로 프론트엔드 터미널에 실시간 표시 | ✅ 완료 |
+| 유닛 테스트 | 20개 테스트 케이스 (`backend/tests/test_data_resolver.py`) | ✅ 완료 |
+
 ### Phase 4: 미구현 기능 (향후)
 
 | 작업 | 상세 | 우선순위 |

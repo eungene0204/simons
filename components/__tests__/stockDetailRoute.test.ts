@@ -71,6 +71,15 @@ describe("GET /api/stock/[symbol]/detail", () => {
           volume: 12345678,
           marketCap: 418474470500000,
           previousClose: 69000,
+          week52High: 88800,
+          week52HighDate: "2025-07-11",
+          week52HighChangePercent: 78.95,
+          week52Low: 61200,
+          week52LowDate: "2025-11-19",
+          week52LowChangePercent: 14.54,
+          newHighLowCode: "1",
+          isNew52WeekHigh: true,
+          isNew52WeekLow: false,
           source: "kis_inquire_price",
         }),
       });
@@ -89,6 +98,15 @@ describe("GET /api/stock/[symbol]/detail", () => {
     expect(body.volume).toBe(12345678);
     expect(body.currentPrice).toBe(70100);
     expect(body.previousClose).toBe(69000);
+    expect(body.week52High).toBe(88800);
+    expect(body.week52HighDate).toBe("2025-07-11");
+    expect(body.week52HighChangePercent).toBe(78.95);
+    expect(body.week52Low).toBe(61200);
+    expect(body.week52LowDate).toBe("2025-11-19");
+    expect(body.week52LowChangePercent).toBe(14.54);
+    expect(body.newHighLowCode).toBe("1");
+    expect(body.isNew52WeekHigh).toBe(true);
+    expect(body.isNew52WeekLow).toBe(false);
   });
 
   it("KIS 상세 시세가 비어도 기존 유효한 시가총액과 거래량을 0으로 덮어쓰지 않는다", async () => {
@@ -111,6 +129,11 @@ describe("GET /api/stock/[symbol]/detail", () => {
     expect(body.marketCap).toBe(432000000000000);
     expect(body.volume).toBe(12500000);
     expect(body.name).toBe("삼성전자");
+    expect(body.week52High).toBeNull();
+    expect(body.week52Low).toBeNull();
+    expect(body.newHighLowCode).toBeNull();
+    expect(body.isNew52WeekHigh).toBe(false);
+    expect(body.isNew52WeekLow).toBe(false);
   });
 
   it("same symbol reuses the last valid market cap when KIS detail temporarily drops it", async () => {

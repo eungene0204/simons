@@ -7,8 +7,11 @@ import pandas as pd
 import pytest
 
 from engine.fundamental_fetcher import (
+    _parse_kis_financial_ratio_output,
     _parse_fundamentals,
     _parse_number,
+    _read_cache,
+    _write_cache,
     enrich_ohlcv_with_fundamentals,
 )
 
@@ -42,6 +45,10 @@ _SAMPLE_HTML = """
     <td>IFRS연결</td><td>IFRS연결</td><td>IFRS연결</td><td>IFRS연결</td><td>IFRS연결</td><td>IFRS연결</td></tr>
 <tr><td>매출액</td><td>100</td><td>200</td><td>300</td><td>400</td>
     <td>50</td><td>55</td><td>60</td><td>65</td><td>70</td><td>75</td></tr>
+<tr><td>ROE(지배주주)</td><td>4.15</td><td>9.03</td><td>10.85</td><td>44.98</td>
+    <td>9.03</td><td>9.03</td><td>9.03</td><td>9.03</td><td>9.03</td><td></td></tr>
+<tr><td>부채비율</td><td>25.10</td><td>30.20</td><td>35.30</td><td>40.40</td>
+    <td>30.20</td><td>30.20</td><td>30.20</td><td>30.20</td><td>30.20</td><td></td></tr>
 <tr><td>EPS(원)</td><td>2,131</td><td>4,950</td><td>6,564</td><td>36,119</td>
     <td>1,115</td><td>1,186</td><td>733</td><td>1,783</td><td>2,864</td><td>5,298</td></tr>
 <tr><td>BPS(원)</td><td>52,002</td><td>57,981</td><td>63,997</td><td>99,649</td>
@@ -84,6 +91,32 @@ def test_parse_fundamentals_no_table():
     assert _parse_fundamentals(html) is None
 
 
+# ── _parse_kis_financial_ratio_output ──
+
+def test_parse_kis_financial_ratio_output_extracts_roe_eps_bps():
+    result = _parse_kis_financial_ratio_output([
+        {
+            "stac_yymm": "202512",
+            "roe_val": "10.85",
+            "eps": "6564.00",
+            "bps": "63997.00",
+            "lblt_rate": "35.30",
+        },
+        {
+            "stac_yymm": "202412",
+            "roe_val": "9.03",
+            "eps": "4950.00",
+            "bps": "57981.00",
+            "lblt_rate": "30.20",
+        },
+    ])
+
+    assert result == [
+        {"year_end": "2025-12-31", "eps": 6564.0, "bps": 63997.0, "roe_or_gpa": 10.85, "debt_ratio": 35.3},
+        {"year_end": "2024-12-31", "eps": 4950.0, "bps": 57981.0, "roe_or_gpa": 9.03, "debt_ratio": 30.2},
+    ]
+
+
 # ── enrich_ohlcv_with_fundamentals ──
 
 def _make_ohlcv_df(dates, close_prices):
@@ -114,11 +147,15 @@ def test_enrich_adds_per_pbr_columns():
     assert "pbr" in result.columns
     assert "eps" in result.columns
     assert "bps" in result.columns
+    assert "roe_or_gpa" in result.columns
+    assert "debt_ratio" in result.columns
 
     # PER = close / EPS = 50000 / 2000 = 25.0
     assert result.iloc[0]["per"] == pytest.approx(25.0)
     # PBR = close / BPS = 50000 / 50000 = 1.0
     assert result.iloc[0]["pbr"] == pytest.approx(1.0)
+    assert pd.isna(result.iloc[0]["roe_or_gpa"])
+    assert pd.isna(result.iloc[0]["debt_ratio"])
 
 
 def test_enrich_respects_publish_delay():
@@ -161,6 +198,38 @@ def test_enrich_forward_fill_updates_with_new_fiscal_year():
     assert result.iloc[1]["per"] == pytest.approx(10.0)
 
 
+def test_enrich_forward_fills_roe_or_gpa():
+    dates = ["2024-04-01", "2025-04-01"]
+    close = [50000.0, 50000.0]
+    df = _make_ohlcv_df(dates, close)
+
+    fundamentals = [
+        {"year_end": "2023-12-31", "roe_or_gpa": 4.15},
+        {"year_end": "2024-12-31", "roe_or_gpa": 9.03},
+    ]
+
+    result = enrich_ohlcv_with_fundamentals(df, fundamentals)
+
+    assert result.iloc[0]["roe_or_gpa"] == pytest.approx(4.15)
+    assert result.iloc[1]["roe_or_gpa"] == pytest.approx(9.03)
+
+
+def test_enrich_forward_fills_debt_ratio():
+    dates = ["2024-04-01", "2025-04-01"]
+    close = [50000.0, 50000.0]
+    df = _make_ohlcv_df(dates, close)
+
+    fundamentals = [
+        {"year_end": "2023-12-31", "debt_ratio": 45.5},
+        {"year_end": "2024-12-31", "debt_ratio": 38.2},
+    ]
+
+    result = enrich_ohlcv_with_fundamentals(df, fundamentals)
+
+    assert result.iloc[0]["debt_ratio"] == pytest.approx(45.5)
+    assert result.iloc[1]["debt_ratio"] == pytest.approx(38.2)
+
+
 def test_enrich_negative_eps_produces_negative_per():
     """적자 기업의 경우 음수 PER이 계산되어야 함."""
     dates = ["2024-04-01"]
@@ -201,3 +270,97 @@ def test_enrich_empty_fundamentals_no_change():
 
     result2 = enrich_ohlcv_with_fundamentals(df, None)
     assert "per" not in result2.columns
+
+
+# ── Naver ROE 파싱 ──
+
+def test_parse_fundamentals_extracts_roe():
+    """Naver Finance HTML에서 ROE 값이 파싱되어야 함."""
+    result = _parse_fundamentals(_SAMPLE_HTML)
+    assert result is not None
+    # 2023.12
+    assert result[0].get("roe_or_gpa") == 4.15
+    # 2024.12
+    assert result[1].get("roe_or_gpa") == 9.03
+    # 2025.12
+    assert result[2].get("roe_or_gpa") == 10.85
+
+
+def test_parse_fundamentals_extracts_debt_ratio():
+    result = _parse_fundamentals(_SAMPLE_HTML)
+    assert result is not None
+    assert result[0].get("debt_ratio") == 25.10
+    assert result[1].get("debt_ratio") == 30.20
+    assert result[2].get("debt_ratio") == 35.30
+
+
+def test_parse_fundamentals_roe_excluded_for_estimates():
+    """추정치(E) 연도의 ROE는 포함되지 않아야 함."""
+    result = _parse_fundamentals(_SAMPLE_HTML)
+    # 2026.12(E) → 제외됨
+    year_ends = [r["year_end"] for r in result]
+    assert "2026-12-31" not in year_ends
+
+
+_SAMPLE_HTML_NO_ROE = """
+<html><body>
+<table>
+<tr><th>주요재무정보</th><th colspan="2">최근 연간 실적</th></tr>
+<tr><td>2023.12</td><td>2024.12</td></tr>
+<tr><td>EPS(원)</td><td>1,000</td><td>2,000</td></tr>
+<tr><td>BPS(원)</td><td>10,000</td><td>20,000</td></tr>
+</table>
+</body></html>
+"""
+
+
+def test_parse_fundamentals_no_roe_row():
+    """ROE 행이 없는 HTML에서는 roe_or_gpa가 결과에 포함되지 않아야 함."""
+    result = _parse_fundamentals(_SAMPLE_HTML_NO_ROE)
+    assert result is not None
+    for entry in result:
+        assert "roe_or_gpa" not in entry
+
+
+# ── 캐시 read/write ──
+
+def test_cache_write_and_read(tmp_path, monkeypatch):
+    """캐시 write 후 read가 동일한 데이터를 반환해야 함."""
+    import engine.fundamental_fetcher as ff
+    monkeypatch.setattr(ff, "_CACHE_DIR", tmp_path)
+
+    fundamentals = [
+        {"year_end": "2024-12-31", "eps": 5000.0, "bps": 60000.0, "roe_or_gpa": 9.03},
+    ]
+    _write_cache("005930", fundamentals)
+    result = _read_cache("005930")
+    assert result == fundamentals
+
+
+def test_cache_expired(tmp_path, monkeypatch):
+    """만료된 캐시는 None을 반환해야 함."""
+    import engine.fundamental_fetcher as ff
+    monkeypatch.setattr(ff, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(ff, "_CACHE_MAX_AGE_DAYS", 0)
+
+    fundamentals = [{"year_end": "2024-12-31", "roe_or_gpa": 9.03}]
+    _write_cache("005930", fundamentals)
+
+    # fetched_at을 과거로 수정
+    import json
+    cache_file = tmp_path / "005930.json"
+    data = json.loads(cache_file.read_text())
+    data["fetched_at"] = "2020-01-01T00:00:00"
+    cache_file.write_text(json.dumps(data))
+
+    result = _read_cache("005930")
+    assert result is None
+
+
+def test_cache_missing_symbol(tmp_path, monkeypatch):
+    """캐시에 없는 종목은 None을 반환해야 함."""
+    import engine.fundamental_fetcher as ff
+    monkeypatch.setattr(ff, "_CACHE_DIR", tmp_path)
+
+    result = _read_cache("999999")
+    assert result is None

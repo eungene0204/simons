@@ -32,14 +32,23 @@ describe("strategySummary", () => {
     expect(labels).toEqual(["KOSPI"]);
   });
 
-  it("익절이 있으면 기술적 지표 대신 사용자 친화적 청산 문구를 우선 표시한다", () => {
+  it("기술적 청산 신호와 리스크 레이블을 함께 표시한다", () => {
     const labels = getDisplayExitLabels({
       ...baseParsed,
       exit_signals: [{ indicator: "cci" }],
       take_profit_pct: 10,
     });
 
-    expect(labels).toEqual(["익절 10% 이상 수익시 매도"]);
+    expect(labels).toEqual(["CCI", "익절 10% 이상 수익시 매도"]);
+  });
+
+  it("sell 문맥의 AI 신호는 청산 요약에서 하락 예측으로 표시한다", () => {
+    const labels = getDisplayExitLabels({
+      ...baseParsed,
+      exit_signals: [{ indicator: "ai_model", signal_type: "sell" }],
+    });
+
+    expect(labels).toEqual(["AI 하락 예측"]);
   });
 
   it("익절과 손절이 모두 있으면 전략 요약에도 같은 문구를 반영한다", () => {
@@ -50,8 +59,8 @@ describe("strategySummary", () => {
     });
 
     expect(summary?.exitBlocks).toEqual([
+      "손절 -7% 하락시 매도",
       "익절 10% 이상 수익시 매도",
-      "손절 7% 하락시 매도",
     ]);
     expect(summary?.riskText).toBe("손절 7%, 익절 10%");
   });
@@ -94,8 +103,8 @@ describe("strategySummary", () => {
 
     expect(summary?.universeName).toBe("KOSPI");
     expect(summary?.exitBlocks).toEqual([
+      "손절 -12% 하락시 매도",
       "익절 10% 이상 수익시 매도",
-      "손절 12% 하락시 매도",
     ]);
     expect(summary?.positionText).toBe("포지션/비중 최대 8종목 · 182일 보유");
     expect(summary?.riskText).toBe("손절 12%, 익절 10%");

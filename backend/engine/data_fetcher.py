@@ -9,7 +9,7 @@ from .fundamental_fetcher import fetch_fundamentals, enrich_ohlcv_with_fundament
 def fetch_and_enrich(symbol, data_dir, skip_fundamentals=False):
     """
     Downloads OHLCV data from FDR, maps the sector based on krx-stocks.json,
-    enriches with fundamental data (EPS/BPS/PER/PBR), and saves as parquet.
+    enriches with fundamental data (EPS/BPS/PER/PBR/ROE/debt_ratio), and saves as parquet.
     """
     try:
         # 1. Download data
@@ -45,12 +45,12 @@ def fetch_and_enrich(symbol, data_dir, skip_fundamentals=False):
         else:
             print(f"[WARNING] Could not determine sector for {symbol}")
 
-        # 4. Fundamental enrichment (EPS/BPS → PER/PBR)
+        # 4. Fundamental enrichment (EPS/BPS/ROE/debt_ratio → PER/PBR)
         if not skip_fundamentals:
             fundamentals = fetch_fundamentals(symbol)
             if fundamentals:
                 df = enrich_ohlcv_with_fundamentals(df, fundamentals)
-                print(f"[INFO] Enriched {symbol} with fundamentals: EPS/BPS/PER/PBR")
+                print(f"[INFO] Enriched {symbol} with fundamentals: EPS/BPS/PER/PBR/ROE/debt_ratio")
             else:
                 print(f"[WARNING] Could not fetch fundamentals for {symbol}")
 
@@ -66,7 +66,7 @@ def fetch_and_enrich(symbol, data_dir, skip_fundamentals=False):
 
 
 def enrich_existing_parquet(symbol, data_dir):
-    """기존 parquet 파일에 재무 데이터(EPS/BPS/PER/PBR)를 추가한다."""
+    """기존 parquet 파일에 재무 데이터(EPS/BPS/PER/PBR/ROE/debt_ratio)를 추가한다."""
     target_path = os.path.join(data_dir, f"{symbol}.parquet")
     if not os.path.exists(target_path):
         print(f"[ERROR] Parquet file not found: {target_path}")

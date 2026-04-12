@@ -3,6 +3,7 @@ import sys
 import json
 import argparse
 import re
+import time
 from zoneinfo import ZoneInfo
 import pandas as pd
 import polars as pl
@@ -34,8 +35,9 @@ def _now_kst() -> datetime:
 sys.path.append(os.getcwd())
 sys.path.append(os.path.join(os.getcwd(), "backend"))
 
-from backend.engine.data_fetcher import fetch_and_enrich
+from backend.engine.data_fetcher import fetch_and_enrich, enrich_existing_parquet
 from backend.engine.sector_mapper import get_sector_from_industry
+from backend.engine.fundamental_fetcher import _read_cache
 from backend.universe_history import (
     build_universe_sync_log_lines,
     load_universe_history,
@@ -350,12 +352,51 @@ def main(argv=None):
         else:
             fail_count += 1
 
+    # 4. Fundamental Enrichment (EPS/BPS/PER/PBR/ROE)
+    #    캐시 미보유 또는 만료된 종목만 네트워크 요청, 나머지는 캐시 사용
+    print(f"\nStarting fundamental enrichment for {len(stocks)} symbols...")
+    fund_success, fund_fail, fund_skip = 0, 0, 0
+
+    for s in tqdm(stocks, desc="Enriching fundamentals"):
+        symbol = s['symbol']
+        parquet_path = os.path.join(str(data_dir), f"{symbol}.parquet")
+        if not os.path.exists(parquet_path):
+            fund_skip += 1
+            continue
+
+        # 이미 ROE 데이터가 있고 캐시가 유효하면 건너뜀
+        try:
+            df_check = pd.read_parquet(parquet_path)
+            has_roe = "roe_or_gpa" in df_check.columns and df_check["roe_or_gpa"].notna().any()
+            has_valid_cache = _read_cache(symbol) is not None
+            if has_roe and has_valid_cache:
+                fund_skip += 1
+                continue
+        except Exception:
+            pass
+
+        try:
+            if enrich_existing_parquet(symbol, str(data_dir)):
+                fund_success += 1
+            else:
+                fund_fail += 1
+        except Exception:
+            fund_fail += 1
+
+        time.sleep(0.3)
+
+    print(f"Fundamental Enrichment Summary:")
+    print(f"- Success: {fund_success}")
+    print(f"- Failed: {fund_fail}")
+    print(f"- Skipped (already up-to-date): {fund_skip}")
+
     print(f"\nFinal Summary:")
     print(f"- Total Stocks: {len(stocks)}")
     print(f"- New symbols added: {len(new_symbols)}")
     print(f"- Delisted symbols removed: {len(delisted_symbols)}")
     print(f"- OHLCV Update Success: {success_count}")
     print(f"- OHLCV Update Failure: {fail_count}")
+    print(f"- Fundamental Enriched: {fund_success}, Failed: {fund_fail}, Skipped: {fund_skip}")
 
     _notify_backend(
         "end",
@@ -368,6 +409,9 @@ def main(argv=None):
         delisted_symbols=delisted_symbols,
         success=success_count,
         fail=fail_count,
+        fundamental_success=fund_success,
+        fundamental_fail=fund_fail,
+        fundamental_skip=fund_skip,
     )
 
     if not symbol_sync_ok:

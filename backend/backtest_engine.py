@@ -9,6 +9,7 @@ from engine.indicators import IndicatorEngine
 from engine.signals import SignalEngine
 from engine.simulator import Simulator
 from engine.result_handler import ResultHandler
+from engine.data_resolver import DataResolver
 
 class BacktestEngine:
     def __init__(self, data_dir: str = None):
@@ -24,6 +25,7 @@ class BacktestEngine:
         self.loader = DataLoader(data_dir)
         self.indicator_engine = IndicatorEngine()
         self.signal_engine = SignalEngine()
+        self.data_resolver = DataResolver()
         self.handler = ResultHandler()
         self.simulator = Simulator()
 
@@ -98,6 +100,7 @@ class BacktestEngine:
             all_prices, all_exec_prices, all_entries, all_exits = {}, {}, {}, {}
             all_entry_reasons, all_exit_reasons = {}, {}
             all_ranks = {'pbr': {}, 'roe': {}}
+            all_resolution_logs: List[Dict[str, str]] = []
             processed_symbols = []
             common_index = None
 
@@ -170,6 +173,12 @@ class BacktestEngine:
                     collect_indicators(req.get('exit'))
                     df_pl = self.indicator_engine.calculate(df_pl, indicators)
 
+                    # 3.2.5 DataResolver: 누락 데이터 즉시 해결
+                    resolver = DataResolver()
+                    df_pl, res_logs = resolver.resolve(sym, df_pl, req.get('entry'), req.get('exit'))
+                    if res_logs:
+                        all_resolution_logs.extend(res_logs)
+
                     # 3.3 AI: Phase1 전용 — df_pl과 AI 입력용 pdf를 저장하고 추론은 나중에 일괄 처리
                     if ai_needed:
                         _phase1_data[sym] = {
@@ -206,13 +215,6 @@ class BacktestEngine:
                     entry_signals, entry_reasons = self.signal_engine.generate_signals(df_pl, req.get('entry'))
                     exit_signals, exit_reasons = self.signal_engine.generate_signals(df_pl, req.get('exit'))
 
-                    # 재무 필터 데이터 누락 경고 (첫 번째 심볼에서만 한 번 확인)
-                    FUNDAMENTAL_IDS = {'per', 'pbr', 'roe_or_gpa', 'debt_ratio', 'market_cap'}
-                    all_conditions = list(req.get('entry', {}).get('conditions', [])) + list(req.get('exit', {}).get('conditions', []))
-                    missing_funds = [c['id'] for c in all_conditions if c.get('id') in FUNDAMENTAL_IDS and c['id'] not in df_pl.columns]
-                    if missing_funds:
-                        self.warnings.add(f"재무 데이터({', '.join(set(missing_funds))}) 없음 — 해당 필터는 무시되었습니다. 백테스트는 기술적 신호만으로 실행됩니다.")
-                    
                     # Apply Liquidity Mask
                     if not (skip_risk or skip_pos):
                         entry_signals = entry_signals & liquidity_ok
@@ -304,6 +306,12 @@ class BacktestEngine:
                             pl.Series("ai_drop_score", list(ai_drop_probs) if not isinstance(ai_drop_probs, list) else ai_drop_probs),
                         ])
 
+                        # 3.2.5 DataResolver: 누락 데이터 즉시 해결 (AI 경로)
+                        resolver = DataResolver()
+                        df_pl, res_logs = resolver.resolve(sym, df_pl, req.get('entry'), req.get('exit'))
+                        if res_logs:
+                            all_resolution_logs.extend(res_logs)
+
                         # Use pre-computed period strings (data already warmup-pre-filtered in Phase1)
                         if _has_period_filter:
                             date_col = pl.col("date").cast(pl.Utf8)
@@ -326,12 +334,6 @@ class BacktestEngine:
 
                         entry_signals, entry_reasons = self.signal_engine.generate_signals(df_pl, req.get('entry'))
                         exit_signals, exit_reasons = self.signal_engine.generate_signals(df_pl, req.get('exit'))
-
-                        FUNDAMENTAL_IDS = {'per', 'pbr', 'roe_or_gpa', 'debt_ratio', 'market_cap'}
-                        all_conditions = list(req.get('entry', {}).get('conditions', [])) + list(req.get('exit', {}).get('conditions', []))
-                        missing_funds = [c['id'] for c in all_conditions if c.get('id') in FUNDAMENTAL_IDS and c['id'] not in df_pl.columns]
-                        if missing_funds:
-                            self.warnings.add(f"재무 데이터({', '.join(set(missing_funds))}) 없음 — 해당 필터는 무시되었습니다.")
 
                         if not (skip_risk or skip_pos):
                             entry_signals = entry_signals & liquidity_ok
@@ -427,6 +429,7 @@ class BacktestEngine:
                 self.warnings.add("매매 조건에 부합하는 종목이 없어 매매 기록이 생성되지 않았습니다. 매수 조건을 확인해 주세요.")
 
             final["warnings"] = list(self.warnings) + list(getattr(pf, 'warnings', []))
+            final["resolution_logs"] = all_resolution_logs
             return final
 
         except Exception as e:

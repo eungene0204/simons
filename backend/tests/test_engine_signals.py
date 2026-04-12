@@ -208,6 +208,24 @@ def test_evaluate_condition_unknown_id_returns_false(signal_engine):
     cond = {"id": "unknown_indicator_xyz", "params": {}}
     assert signal_engine.evaluate_condition(cond, 0, df) == False
 
+
+def test_evaluate_condition_breakout_uses_intraday_high_and_low(signal_engine):
+    """breakout은 종가가 아니라 당일 고가/저가 기준으로 돌파를 판정한다"""
+    data = {
+        "close": [100.0, 100.0, 100.0, 100.0],
+        "high": [100.0, 100.0, 100.0, 106.0],
+        "low": [95.0, 95.0, 95.0, 89.0],
+        "high_3_max": [100.0, 100.0, 100.0, 100.0],
+        "low_3_min": [95.0, 95.0, 95.0, 95.0],
+    }
+    df = pl.DataFrame(data)
+
+    cond_buy = {"id": "breakout", "params": {"lookbackPeriod": 3, "signalType": "buy"}}
+    cond_sell = {"id": "breakout", "params": {"lookbackPeriod": 3, "signalType": "sell"}}
+
+    assert signal_engine.evaluate_condition(cond_buy, 3, df) == True
+    assert signal_engine.evaluate_condition(cond_sell, 3, df) == True
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Fix 4: _eval_vec(벡터화)과 evaluate_condition(행별) 결과 일관성 검증
 # ──────────────────────────────────────────────────────────────────────────────
@@ -263,6 +281,28 @@ def test_eval_vec_matches_row_by_row_bollinger(signal_engine):
         vec  = list(signal_engine._eval_vec(cond, df))
         rows = [signal_engine.evaluate_condition(cond, i, df) for i in range(len(df))]
         assert vec == rows, f"Mismatch for {cond['params']['signalType']}: {vec} vs {rows}"
+
+
+def test_eval_vec_matches_row_by_row_breakout(signal_engine):
+    """breakout: 벡터화 결과 == 행별 결과, 고가/저가 기준 유지"""
+    data = {
+        "close": [100.0, 100.0, 100.0, 100.0, 100.0],
+        "high": [100.0, 101.0, 102.0, 103.0, 106.0],
+        "low": [95.0, 94.0, 93.0, 92.0, 89.0],
+        "high_3_max": [None, None, 102.0, 103.0, 103.0],
+        "low_3_min": [None, None, 93.0, 92.0, 92.0],
+    }
+    df = pl.DataFrame(data)
+    cond_buy = {"id": "breakout", "params": {"lookbackPeriod": 3, "signalType": "buy"}}
+    cond_sell = {"id": "breakout", "params": {"lookbackPeriod": 3, "signalType": "sell"}}
+
+    vec_buy = list(signal_engine._eval_vec(cond_buy, df))
+    rows_buy = [signal_engine.evaluate_condition(cond_buy, i, df) for i in range(len(df))]
+    assert vec_buy == rows_buy
+
+    vec_sell = list(signal_engine._eval_vec(cond_sell, df))
+    rows_sell = [signal_engine.evaluate_condition(cond_sell, i, df) for i in range(len(df))]
+    assert vec_sell == rows_sell
 
 def test_generate_signals_vectorized_produces_correct_signals(signal_engine):
     """generate_signals(_eval_vec 기반)가 올바른 신호 배열을 반환한다 (Fix 4)"""

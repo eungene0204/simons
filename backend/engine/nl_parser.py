@@ -327,10 +327,10 @@ class NLStrategyParser:
     def __init__(
         self,
         backend: Literal["ollama", "mlx"] = "mlx",
-        model_7b: str = "mlx-community/Qwen2.5-7B-Instruct-4bit",
-        model_32b: str = "mlx-community/Qwen2.5-32B-Instruct-4bit",
-        ollama_model_7b: str = "qwen2.5:7b",
-        ollama_model_32b: str = "qwen2.5:32b",
+        model_7b: str = "mlx-community/Qwen3.5-4B-OptiQ-4bit",
+        model_32b: str = "mlx-community/Qwen3.5-4B-OptiQ-4bit",
+        ollama_model_7b: str = "qwen3.5:4b",
+        ollama_model_32b: str = "qwen3.5:4b",
         max_retries: int = 3,
     ):
         self.backend = backend
@@ -537,6 +537,172 @@ def _mentions_technical_exit_terms(compact_prompt: str) -> bool:
     return any(term in compact_prompt for term in technical_terms)
 
 
+# ─── LLM 환각 신호 검증 ─────────────────────────────────────────────────────
+
+# 지표별 프롬프트 키워드 매핑: 프롬프트에 이 키워드 중 하나라도 있어야 해당 지표를 인정
+_INDICATOR_KEYWORDS: dict[str, list[str]] = {
+    "ma_crossover": ["골든크로스", "데드크로스", "이동평균", "이평선", "ma크로스", "goldencross", "deadcross", "ma_crossover"],
+    "rsi": ["rsi"],
+    "ema": ["ema", "지수이동평균"],
+    "macd": ["macd"],
+    "bollinger_bands": ["볼린저", "bollinger"],
+    "breakout": ["브레이크아웃", "breakout", "신고가", "돌파"],
+    "volume_spike": ["거래량급증", "거래량폭발", "volumespike"],
+    "stochastic": ["스토캐스틱", "stochastic"],
+    "cci": ["cci"],
+    "adx": ["adx"],
+    "ai_model": ["ai", "인공지능"],
+    "ai_drop_model": ["ai", "인공지능"],
+}
+
+
+def _validate_signals(
+    signals: list[TechnicalSignal],
+    user_input: str,
+) -> list[TechnicalSignal]:
+    """
+    LLM이 생성한 신호 중 프롬프트에 실제로 언급된 지표만 남긴다.
+    프롬프트에 키워드가 없는 지표는 LLM 환각으로 간주하고 제거한다.
+    """
+    compact = re.sub(r"\s+", "", user_input.lower())
+    validated: list[TechnicalSignal] = []
+    for sig in signals:
+        keywords = _INDICATOR_KEYWORDS.get(sig.indicator, [])
+        if not keywords:
+            # 알 수 없는 지표는 일단 유지
+            validated.append(sig)
+            continue
+        if any(kw in compact for kw in keywords):
+            validated.append(sig)
+    return validated
+
+
+def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], list[TechnicalSignal]]:
+    """
+    프롬프트에서 기술적 진입/청산 신호를 deterministic하게 추출한다.
+    LLM이 놓칠 수 있는 패턴을 보장하기 위한 후처리 단계.
+
+    Returns:
+        (entry_signals, exit_signals)
+    """
+    compact = re.sub(r"\s+", "", user_input.lower())
+    entry: list[TechnicalSignal] = []
+    exit_: list[TechnicalSignal] = []
+
+    # ── 골든크로스 / 데드크로스 (MA 크로스오버) ──
+    # 기간 추출: "5일/20일", "5일20일", "단기5장기20" 등
+    ma_short, ma_long = None, None
+    ma_period_match = re.search(r"(\d+)일[/,]?(\d+)일", compact)
+    if ma_period_match:
+        p1, p2 = int(ma_period_match.group(1)), int(ma_period_match.group(2))
+        ma_short, ma_long = min(p1, p2), max(p1, p2)
+
+    golden_patterns = ["골든크로스", "goldencross", "golden_cross"]
+    dead_patterns = ["데드크로스", "deadcross", "dead_cross"]
+
+    has_golden = any(p in compact for p in golden_patterns)
+    has_dead = any(p in compact for p in dead_patterns)
+
+    # "크로스오버" / "이동평균 크로스" 같은 일반 표현 + 매수/매도 언급
+    if not has_golden and not has_dead:
+        crossover_terms = ["이동평균선을위로뚫", "이동평균크로스", "ma크로스", "이평선크로스"]
+        if any(t in compact for t in crossover_terms):
+            has_golden = True
+            # "반대로" / "매도" 가 함께 있으면 데드크로스도 포함
+            if "반대로" in compact or ("매도" in compact and "매수" in compact):
+                has_dead = True
+
+    if has_golden:
+        entry.append(TechnicalSignal(
+            indicator="ma_crossover",
+            signal_type="buy",
+            short_period=ma_short or 5,
+            long_period=ma_long or 20,
+        ))
+    if has_dead:
+        exit_.append(TechnicalSignal(
+            indicator="ma_crossover",
+            signal_type="sell",
+            short_period=ma_short or 5,
+            long_period=ma_long or 20,
+        ))
+
+    # ── RSI 매수/매도 ──
+    rsi_buy_match = re.search(r"rsi\s*(\d+)\s*이하.*?매수|rsi.*?과매도.*?매수", compact)
+    if rsi_buy_match:
+        val = int(rsi_buy_match.group(1)) if rsi_buy_match.group(1) else 30
+        entry.append(TechnicalSignal(
+            indicator="rsi", signal_type="buy", period=14, operator="<=", value=float(val),
+        ))
+    rsi_sell_match = re.search(r"rsi\s*(\d+)\s*이상.*?매도|rsi.*?과매수.*?매도", compact)
+    if rsi_sell_match:
+        val = int(rsi_sell_match.group(1)) if rsi_sell_match.group(1) else 70
+        exit_.append(TechnicalSignal(
+            indicator="rsi", signal_type="sell", period=14, operator=">=", value=float(val),
+        ))
+
+    # ── MACD ──
+    macd_buy_patterns = ["macd크로스.*?매수", "macd.*?골든", "macd시그널.*?매수"]
+    if any(re.search(p, compact) for p in macd_buy_patterns):
+        entry.append(TechnicalSignal(indicator="macd", signal_type="buy", mode="crossover"))
+    macd_sell_patterns = ["macd크로스.*?매도", "macd.*?데드", "macd시그널.*?매도"]
+    if any(re.search(p, compact) for p in macd_sell_patterns):
+        exit_.append(TechnicalSignal(indicator="macd", signal_type="sell", mode="crossover"))
+
+    # ── 볼린저밴드 ──
+    if re.search(r"볼린저.*?하단.*?매수|볼린저밴드.*?매수", compact):
+        entry.append(TechnicalSignal(indicator="bollinger_bands", signal_type="buy"))
+    if re.search(r"볼린저.*?상단.*?매도|볼린저밴드.*?매도", compact):
+        exit_.append(TechnicalSignal(indicator="bollinger_bands", signal_type="sell"))
+
+    # ── 브레이크아웃 ──
+    breakout_match = re.search(r"(?:(\d+)(주|일)?신고가.*?(?:돌파|매수)|브레이크아웃)", compact)
+    if breakout_match:
+        lookback = 20
+        period_text = breakout_match.group(1)
+        period_unit = breakout_match.group(2)
+        if period_text:
+            period_value = int(period_text)
+            if period_unit == "주":
+                lookback = period_value * 5 if period_value < 52 else 252
+            elif period_unit == "일":
+                lookback = period_value
+            else:
+                lookback = 252 if period_value == 52 else period_value
+        entry.append(TechnicalSignal(indicator="breakout", signal_type="buy", lookback_period=lookback))
+
+    # ── 거래량 급증 ──
+    if "거래량급증" in compact or "거래량폭발" in compact or "volumespike" in compact:
+        entry.append(TechnicalSignal(indicator="volume_spike", signal_type="buy", period=20))
+
+    return entry, exit_
+
+
+def _merge_signals(
+    existing: list[TechnicalSignal],
+    extracted: list[TechnicalSignal],
+) -> list[TechnicalSignal]:
+    """Deterministic extraction takes precedence over same-kind existing signals."""
+    merged = list(existing)
+    index_by_key = {
+        (signal.indicator, signal.signal_type): idx
+        for idx, signal in enumerate(merged)
+    }
+
+    for sig in extracted:
+        key = (sig.indicator, sig.signal_type)
+        existing_idx = index_by_key.get(key)
+        if existing_idx is None:
+            merged.append(sig)
+            index_by_key[key] = len(merged) - 1
+            continue
+
+        if merged[existing_idx] != sig:
+            merged[existing_idx] = sig
+
+    return merged
+
+
 def _apply_prompt_overrides(parsed: ParsedStrategy, user_input: str) -> ParsedStrategy:
     updates: dict[str, object] = {}
     explicit_universe = _extract_explicit_universe(user_input)
@@ -544,34 +710,59 @@ def _apply_prompt_overrides(parsed: ParsedStrategy, user_input: str) -> ParsedSt
         updates["universe"] = explicit_universe
 
     compact = re.sub(r"\s+", "", user_input.lower())
-    risk_exit_detected = False
 
     take_profit_patterns = [
-        r"수익(\d+(?:\.\d+)?)%이상(?:이면|일때|일시|시)?(?:매도|청산)",
-        r"(\d+(?:\.\d+)?)%이상수익(?:이면|일때|일시|시)?(?:매도|청산)",
-        r"(\d+(?:\.\d+)?)%수익(?:이면|일때|일시|시)?(?:매도|청산)",
+        # "수익이 10% 이상 날때도 매도", "수익이 10% 이상이면 매도"
+        r"수익이?(\d+(?:\.\d+)?)%이상.*?(?:매도|청산)",
+        # "10% 이상 수익이면 매도", "10% 이상 수익시 매도"
+        r"(\d+(?:\.\d+)?)%이상수익.*?(?:매도|청산)",
+        # "10% 수익이면 매도"
+        r"(\d+(?:\.\d+)?)%수익.*?(?:매도|청산)",
+        # "수익 10%에서 매도", "수익 10% 매도"
+        r"수익이?(\d+(?:\.\d+)?)%.*?(?:매도|청산)",
+        # "익절 10%", "익절10%"
+        r"익절-?(\d+(?:\.\d+)?)%",
     ]
     for pattern in take_profit_patterns:
         match = re.search(pattern, compact)
         if match:
             updates["take_profit_pct"] = float(match.group(1))
-            risk_exit_detected = True
             break
 
     stop_loss_patterns = [
-        r"손실(\d+(?:\.\d+)?)%이상(?:이면|일때|일시|시)?(?:매도|청산)",
-        r"(\d+(?:\.\d+)?)%이상하락(?:이면|일때|일시|시)?(?:매도|청산)",
-        r"(\d+(?:\.\d+)?)%하락(?:이면|일때|일시|시)?(?:매도|청산)",
+        # "손실 10% 이상이면 매도"
+        r"손실이?(\d+(?:\.\d+)?)%이상.*?(?:매도|청산)",
+        # "10% 이상 하락시 매도", "10% 이상 하락하면 매도"
+        r"(\d+(?:\.\d+)?)%이상하락.*?(?:매도|청산)",
+        # "10% 하락시 매도", "10% 하락하면 매도"
+        r"(\d+(?:\.\d+)?)%하락.*?(?:매도|청산)",
+        # "-10% 매도", "-10%에서 매도"
+        r"-(\d+(?:\.\d+)?)%.*?(?:매도|청산)",
+        # "손절 10%", "손절-10%", "손절 -10%"
+        r"손절-?(\d+(?:\.\d+)?)%",
     ]
     for pattern in stop_loss_patterns:
         match = re.search(pattern, compact)
         if match:
             updates["stop_loss_pct"] = float(match.group(1))
-            risk_exit_detected = True
             break
 
-    if risk_exit_detected and not _mentions_technical_exit_terms(compact):
-        updates["exit_signals"] = []
+    # ── Step 1: LLM 환각 신호 제거 (프롬프트에 언급되지 않은 지표 제거) ──
+    validated_entry = _validate_signals(list(parsed.entry_signals), user_input)
+    validated_exit = _validate_signals(list(parsed.exit_signals), user_input)
+    if len(validated_entry) != len(parsed.entry_signals):
+        updates["entry_signals"] = validated_entry
+    if len(validated_exit) != len(parsed.exit_signals):
+        updates["exit_signals"] = validated_exit
+
+    # ── Step 2: deterministic 추출 & 병합 ──
+    extracted_entry, extracted_exit = _extract_technical_signals(user_input)
+    current_entry = updates.get("entry_signals", list(parsed.entry_signals))
+    current_exit = updates.get("exit_signals", list(parsed.exit_signals))
+    if extracted_entry:
+        updates["entry_signals"] = _merge_signals(current_entry, extracted_entry)
+    if extracted_exit:
+        updates["exit_signals"] = _merge_signals(current_exit, extracted_exit)
 
     if not updates:
         return parsed
