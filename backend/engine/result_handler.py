@@ -216,7 +216,7 @@ class ResultHandler:
                             reason_kr = f"트레일링 스탑 실행 (-{fmt_pct(ts_pct)}%)"
 
                     if exit_type == 5 or get_dt_str(x_idx) == last_date_str:
-                        if reason_kr == "전략 매도 조건 충족": reason_kr = "백테스트 종료"
+                        reason_kr = "백테스트 종료"
 
                     pnl_label = "수익" if pnl >= 0 else "손실"
                     signals_list.append({
@@ -233,8 +233,20 @@ class ResultHandler:
         win_count    = len(pf.trades.winning)
         agg_win_rate = (win_count / total_trades * 100) if total_trades > 0 else 0.0
 
-        avg_win  = cls.safe(pf.trades.winning.pnl.mean())
-        avg_loss = abs(cls.safe(pf.trades.losing.pnl.mean()))
+        avg_win = 0.0
+        avg_loss = 0.0
+        trade_returns = None
+        try:
+            if 'return' in pf.trades.records:
+                trade_returns = pf.trades.records['return'].values.astype(float)
+        except:
+            trade_returns = None
+
+        if trade_returns is not None and len(trade_returns) > 0:
+            winning_returns = trade_returns[trade_returns > 0]
+            losing_returns = trade_returns[trade_returns < 0]
+            avg_win = float(np.mean(winning_returns) * 100) if len(winning_returns) > 0 else 0.0
+            avg_loss = float(abs(np.mean(losing_returns)) * 100) if len(losing_returns) > 0 else 0.0
 
         # ── Win/Loss streak — fully vectorized numpy (no Python loop) ────────
         if total_trades > 0:

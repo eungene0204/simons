@@ -11,9 +11,10 @@
 import sys
 import json
 import platform
+import re
 
-MLX_MODEL = "mlx-community/Qwen2.5-7B-Instruct-4bit"
-OLLAMA_MODEL = "qwen2.5:7b"
+MLX_MODEL = "mlx-community/Qwen3.5-4B-OptiQ-4bit"
+OLLAMA_MODEL = "qwen3.5:4b"
 OLLAMA_URL = "http://localhost:11434/api/generate"
 
 
@@ -121,7 +122,9 @@ def build_prompt(payload: dict) -> str:
 
 def parse_llm_output(text: str) -> dict:
     """LLM 출력에서 JSON을 추출한다. 실패 시 전체 텍스트를 total_summary로 사용."""
-    import re
+    text = re.sub(r"<think>[\s\S]*?</think>\s*", "", text).strip()
+    text = re.sub(r"^Thinking Process:\s*[\s\S]*?(?=\{)", "", text).strip()
+
     # JSON 블록 추출 시도
     match = re.search(r'\{[\s\S]*\}', text)
     if match:
@@ -160,7 +163,10 @@ def summarize_mlx(prompt: str) -> str:
     if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template:
         messages = [{"role": "user", "content": prompt}]
         formatted = tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=False,
         )
     else:
         formatted = prompt

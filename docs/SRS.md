@@ -256,12 +256,13 @@ RiskManagement {
 **FR-BT-001** 백테스트 엔진은 다음 단계를 순서대로 실행해야 한다:
 
 ```
-1. DataLoader   → Parquet → Polars DataFrame
-2. Indicators   → 기술적 지표 계산 (MA, RSI, MACD, BBands, 스토캐스틱, CCI, ADX, OBV)
-3. SignalEngine → 벡터화 시그널 평가 (진입 OR 조합, 필터 AND 조합)
-4. AIEngine     → (선택적) Transformer+XGBoost 예측
-5. Simulator    → 매매 시뮬레이션
-6. ResultHandler→ 메트릭 계산 및 리포트 생성
+1. DataLoader     → Parquet → Polars DataFrame
+2. Indicators     → 기술적 지표 계산 (MA, RSI, MACD, BBands, 스토캐스틱, CCI, ADX, OBV)
+3. DataResolver   → 누락 데이터 즉시 해결 (펀더멘털 API 조회, 계산 보완, 해결 로그 수집)
+4. SignalEngine   → 벡터화 시그널 평가 (진입 OR 조합, 필터 AND 조합)
+5. AIEngine       → (선택적) Transformer+XGBoost 예측
+6. Simulator      → 매매 시뮬레이션
+7. ResultHandler  → 메트릭 계산 및 리포트 생성
 ```
 
 **FR-BT-002** 백테스트는 SSE(Server-Sent Events) 스트림으로 진행률과 중간 결과를 실시간으로 전달해야 한다.
@@ -302,6 +303,46 @@ RiskManagement {
 **FR-BT-030** 시스템은 백테스트 실행 이력을 저장하고 조회할 수 있어야 한다.
 
 **FR-BT-031** 백테스트 이력은 전략명, 유니버스, 조건, 핵심 메트릭(CAGR, MDD, Sharpe), 실행 일시를 포함해야 한다.
+
+#### 3.2.5 DataResolver — 누락 데이터 즉시 해결
+
+**배경:** 사용자가 PBR, PER, ROE, 부채비율, 시가총액 등 펀더멘털 지표나 거래대금 기반 조건을 포함한 전략을 설계할 때, 해당 종목의 로컬 Parquet 파일에 해당 컬럼이 없거나 전체 null인 경우가 발생한다. 기존 시스템은 이를 무시하고 신호를 all-True로 통과시켜 조건이 사실상 무력화되는 문제가 있었다.
+
+**FR-BT-040** DataResolver는 지표 계산(IndicatorEngine) 직후, 신호 평가(SignalEngine) 직전에 실행되어야 한다.
+
+**FR-BT-041** DataResolver는 전략 조건에서 요구하는 컬럼 목록을 추출하고, 누락(컬럼 없음 또는 전체 null) 여부를 판단해야 한다.
+
+**FR-BT-042** 누락 데이터 해결 우선순위:
+
+| 우선순위 | 방법 | 대상 |
+|---------|------|------|
+| 1 | 기존 데이터에서 직접 계산 | `trading_value_20_sma` = close × volume → 20일 SMA |
+| 2 | 기존 데이터에서 비율 계산 | `per` = close ÷ eps, `pbr` = close ÷ bps (컬럼 존재 시) |
+| 3 | 외부 API 조회 후 시계열 보강 | 펀더멘털 (EPS/BPS/ROE/부채비율): KIS API → Naver Finance 스크래핑 → 로컬 캐시(90일 TTL) |
+| 4 | 외부 API로 상장주식수 조회 후 계산 | `market_cap` = close × 상장주식수 ÷ 1억 (Naver Finance → pykrx 폴백) |
+
+**FR-BT-043** 펀더멘털 데이터 보강 시 look-ahead bias를 방지하기 위해 공시 지연 90일(`_PUBLISH_DELAY_DAYS = 90`)을 적용하여 각 날짜에 실제로 사용 가능했던 데이터만 매핑해야 한다.
+
+**FR-BT-044** 데이터 해결 과정의 모든 단계(감지, 시도, 성공, 실패)를 `resolution_logs`로 기록하고, 백테스트 응답 JSON에 포함해야 한다.
+
+```json
+{
+  "resolution_logs": [
+    { "level": "INFO",    "message": "[005930] 누락 데이터 감지: per" },
+    { "level": "INFO",    "message": "[005930] 펀더멘털 데이터 조회 중..." },
+    { "level": "SUCCESS", "message": "[005930] 펀더멘털 보강 완료 (100/100 행)" },
+    { "level": "SUCCESS", "message": "[005930] per 계산 완료 (eps 기반)" }
+  ]
+}
+```
+
+**FR-BT-045** 프론트엔드 백테스트 터미널 UI는 `resolution_logs`를 동일 메시지 기준으로 중복 제거하여 최대 20건까지 표시해야 한다. 종목 코드(`[005930]`)는 종목명으로 치환하여 표시한다 (`[삼성전자(005930)]`).
+
+**FR-BT-046** 데이터 해결 실패 시 해당 컬럼 없이 진행하고 `WARN` 또는 `ERROR` 로그를 남기며, 백테스트 전체를 중단하지 않아야 한다.
+
+**구현 파일:**
+- `backend/engine/data_resolver.py` — `DataResolver` 클래스, `_collect_all_conditions()`, `_get_required_columns()`
+- `backend/tests/test_data_resolver.py` — 유닛 테스트 20건
 
 ---
 

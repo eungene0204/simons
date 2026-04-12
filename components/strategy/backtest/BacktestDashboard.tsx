@@ -29,6 +29,10 @@ import WalkForwardModal, { WalkForwardSettings } from "./WalkForwardModal";
 import BacktestSummaryCard from "./BacktestSummaryCard";
 import { buildAutoSaveHistoryPayload } from "@/lib/backtest-history";
 import { buildMonthlyReturnTableData } from "./monthlyReturns";
+import {
+  normalizeLegacyBreakoutStrategy,
+  resolveTradeReason,
+} from "@/components/strategy/legacyBreakout";
 
 const processedExecutionIds = new Set<string>();
 
@@ -165,6 +169,10 @@ export default function BacktestDashboard({
   const [saveDescription, setSaveDescription] = useState("");
   const [isSavingStrategy, setIsSavingStrategy] = useState(false);
   const [saveResult, setSaveResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const normalizedBacktestDsl = useMemo(
+    () => (backtestDsl ? normalizeLegacyBreakoutStrategy(backtestDsl) : backtestDsl),
+    [backtestDsl]
+  );
 
 
   // 백테스트 완료 시 자동으로 히스토리에 저장 (isAutoSave=true → 기존 이름 보존)
@@ -356,7 +364,7 @@ export default function BacktestDashboard({
         body: JSON.stringify({
           name: saveStrategyName.trim(),
           description: saveDescription.trim(),
-          dsl: backtestDsl ?? {},
+          dsl: normalizedBacktestDsl ?? {},
           backtestResult: result,
           aiSummary: finalSummary,
           aiScore: finalScore,
@@ -1082,7 +1090,7 @@ export default function BacktestDashboard({
                                          분석
                                        </button>
                                     </td>
-                                    <td className="p-3 text-xs font-bold text-gray-500">{t.reason}</td>
+                                    <td className="p-3 text-xs font-bold text-gray-500">{resolveTradeReason(t.reason, t.type, normalizedBacktestDsl)}</td>
                                    <td className="p-3 pr-4 text-sm font-bold text-right tabular-nums text-white">
                                       {formatKRW(tradeAmount)}
                                    </td>
@@ -1210,12 +1218,34 @@ function BacktestTerminalLog({
     const bot3 = sorted.slice(-3).reverse();
     top3.forEach((s, i) => {
       const name = stockMetadata[s.symbol]?.name ?? s.symbol;
-      logs.push({ level: "SUCCESS", ts: ts(30 + i), message: `TOP${i+1} ${name}(${s.symbol}): +${s.profit.toLocaleString()}원 / 수익률 ${s.totalReturn.toFixed(1)}% / ${s.trades}거래` });
+      logs.push({ level: "INFO", ts: ts(30 + i), message: `TOP${i+1} ${name}(${s.symbol}): +${s.profit.toLocaleString()}원 / 수익률 ${s.totalReturn.toFixed(1)}% / ${s.trades}거래` });
     });
     bot3.forEach((s, i) => {
       const name = stockMetadata[s.symbol]?.name ?? s.symbol;
-      logs.push({ level: "WARN", ts: ts(33 + i), message: `BOT${i+1} ${name}(${s.symbol}): ${s.profit.toLocaleString()}원 / 수익률 ${s.totalReturn.toFixed(1)}% / ${s.trades}거래` });
+      logs.push({ level: "INFO", ts: ts(33 + i), message: `BOT${i+1} ${name}(${s.symbol}): ${s.profit.toLocaleString()}원 / 수익률 ${s.totalReturn.toFixed(1)}% / ${s.trades}거래` });
     });
+  }
+
+  // 데이터 해결 로그 (DataResolver)
+  const resLogs = (result as any).resolution_logs as Array<{ level: string; message: string }> | undefined;
+  if (resLogs && resLogs.length > 0) {
+    // 중복 제거 (동일 메시지가 여러 심볼에서 반복될 수 있음) — 최대 20개
+    const seen = new Set<string>();
+    let count = 0;
+    for (const rl of resLogs) {
+      if (seen.has(rl.message) || count >= 20) continue;
+      seen.add(rl.message);
+      count++;
+      const lvl = (rl.level === "SUCCESS" ? "SUCCESS" : rl.level === "ERROR" ? "ERROR" : rl.level === "WARN" ? "WARN" : "INFO") as LogLevel;
+      let msg = rl.message;
+      const symMatch = msg.match(/^\[([0-9A-Z]{6})\]/);
+      if (symMatch) {
+        const sym = symMatch[1];
+        const name = stockMetadata[sym]?.name;
+        if (name) msg = msg.replace(`[${sym}]`, `[${name}(${sym})]`);
+      }
+      logs.push({ level: lvl, ts: ts(36 + count * 0.5), message: msg });
+    }
   }
 
   // 경고

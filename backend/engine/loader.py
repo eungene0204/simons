@@ -1,7 +1,13 @@
 import os
+import logging
 import polars as pl
 import pandas as pd
 import numpy as np
+
+from .fundamental_fetcher import fetch_fundamentals, enrich_ohlcv_with_fundamentals
+
+logger = logging.getLogger(__name__)
+
 
 class DataLoader:
     def __init__(self, data_dir: str):
@@ -19,8 +25,26 @@ class DataLoader:
             return None
 
         df = pl.read_parquet(file_path)
+
+        # ROE 미보유 시 캐시에서 빠르게 enrichment 시도
+        if "roe_or_gpa" not in df.columns or df["roe_or_gpa"].is_null().all():
+            df = self._enrich_fundamentals(symbol, df)
+
         self._cache[symbol] = df
         return df
+
+    def _enrich_fundamentals(self, symbol: str, df: pl.DataFrame) -> pl.DataFrame:
+        """ROE/EPS/BPS 미보유 종목을 캐시 → API 순으로 enrichment."""
+        try:
+            fundamentals = fetch_fundamentals(symbol)
+            if not fundamentals:
+                return df
+            pdf = df.to_pandas()
+            pdf = enrich_ohlcv_with_fundamentals(pdf, fundamentals)
+            return pl.from_pandas(pdf)
+        except Exception as e:
+            logger.debug("[%s] fundamental enrichment skipped: %s", symbol, e)
+            return df
 
     def clear_cache(self):
         """Clear the in-memory data cache."""

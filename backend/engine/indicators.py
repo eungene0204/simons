@@ -89,10 +89,12 @@ class IndicatorEngine:
                     elif cid == 'breakout':
                         log("Handling breakout")
                         period = p.get('lookbackPeriod', 20)
-                        sdf[f'close_{period}_max'] = sdf['close'].rolling(window=period).max()
-                        sdf[f'close_{period}_min'] = sdf['close'].rolling(window=period).min()
-                        target_cols.add(f'close_{period}_max')
-                        target_cols.add(f'close_{period}_min')
+                        # min_periods=1: 데이터가 period보다 적어도 가용 데이터로 계산
+                        # (예: 52주=252일 breakout에서 신규 상장 종목도 유효한 값 생성)
+                        sdf[f'high_{period}_max'] = sdf['high'].rolling(window=period, min_periods=1).max()
+                        sdf[f'low_{period}_min'] = sdf['low'].rolling(window=period, min_periods=1).min()
+                        target_cols.add(f'high_{period}_max')
+                        target_cols.add(f'low_{period}_min')
                 except Exception as e:
                     log(f"WARNING: Indicator {cid} failed: {e}")
 

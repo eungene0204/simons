@@ -66,6 +66,9 @@ node_modules/
 *.njsproj
 *.sln
 *.sw?
+# Fundamental data cache
+/data/fundamentals/
+
 # OS specific
 
 # Task files

@@ -146,6 +146,31 @@ Live 주식 상세 데이터(가격·시가총액·PER/PBR 등) 조회 및 프�
 
 ---
 
+## Boundary H: Data Enrichment Pipeline
+
+### Purpose
+OHLCV parquet 수집 후처리 및 펀더멘털 보강(예: PER/PBR/ROE) 적재.
+
+### Files
+- backend/engine/data_fetcher.py
+- backend/engine/fundamental_fetcher.py
+- backend/tests/test_fundamental_fetcher.py
+- data/ohlcv/**
+
+### Allowed Tasks
+- 외부 소스에서 펀더멘털 지표 조회 및 파싱
+- parquet 컬럼 보강 및 재저장
+- 공시 반영 시점 지연 로직 보완
+- enrichment 전용 테스트 추가 및 수정
+
+### Forbidden
+- 백테스트 엔진(`backend/backtest_engine.py`, `backend/engine/loader.py`, `backend/engine/signals.py`, `backend/engine/simulator.py`) 변경
+- API/프론트엔드 응답 스키마 변경
+- provider 계층(`backend/engine/providers/**`) 변경
+- 범용 스크립트(`scripts/**`, `backend/scripts/**`) 변경
+
+---
+
 ## Boundary G: Governance / Policy Docs
 
 ### Purpose

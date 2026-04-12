@@ -33,6 +33,7 @@ import {
 import { StrategyDSL, Condition, ConditionType, BacktestResult, CanvasBlock, RiskManagement } from "@/types/strategy";
 import { signalBlocks } from "@/lib/strategy-blocks";
 import { BacktestService } from "@/lib/strategy/BacktestService";
+import { normalizeLegacyBreakoutStrategy } from "@/components/strategy/legacyBreakout";
 import BacktestChart from "@/components/strategy/BacktestChart";
 import RiskManagementEditor from "./RiskManagementEditor";
 import Step1Universe from "./steps/Step1Universe";
@@ -604,18 +605,19 @@ export default function StrategyComposerV2({
   // Initialize from existing strategy
   useEffect(() => {
     if (initialStrategy) {
-      setStrategyName(initialStrategy.name);
+      const normalizedInitialStrategy = normalizeLegacyBreakoutStrategy(initialStrategy);
+      setStrategyName(normalizedInitialStrategy.name);
       
       // Populate canvas blocks from existing conditions
       const blocks: CanvasBlock[] = [
-        ...initialStrategy.entry.conditions.map((c, i) => ({
+        ...normalizedInitialStrategy.entry.conditions.map((c, i) => ({
           id: `entry-${i}-${Math.random().toString(36).substr(2, 5)}`,
           type: c.type === "filter" ? ("filter" as const) : ("entry" as const),
           blockId: c.id,
           position: { x: 0, y: 0 },
           params: c.params,
         })),
-        ...initialStrategy.exit.conditions.map((c, i) => ({
+        ...normalizedInitialStrategy.exit.conditions.map((c, i) => ({
           id: `exit-${i}-${Math.random().toString(36).substr(2, 5)}`,
           type: "exit" as const,
           blockId: c.id,
@@ -633,32 +635,32 @@ export default function StrategyComposerV2({
       setCanvasBlocks(sortedBlocks);
       
       setRiskManagement({
-        position_size_pct: initialStrategy.risk.position_size_pct,
-        max_positions: initialStrategy.risk.max_positions,
-        min_cash_reserve_pct: initialStrategy.risk.min_cash_reserve_pct ?? 10,
-        max_daily_buy_pct: initialStrategy.risk.max_daily_buy_pct ?? 20,
-        stop_loss_pct: initialStrategy.risk.stop_loss_pct ?? 10,
-        take_profit_pct: initialStrategy.risk.take_profit_pct ?? 20,
-        trailing_stop_pct: initialStrategy.risk.trailing_stop_pct ?? 0,
-        max_holding_days: initialStrategy.risk.max_holding_days ?? 0,
-        max_daily_loss_pct: initialStrategy.risk.max_daily_loss_pct ?? 5,
-        max_total_exposure_pct: initialStrategy.risk.max_total_exposure_pct ?? 50,
-        max_sector_exposure_pct: initialStrategy.risk.max_sector_exposure_pct ?? 30,
-        max_mdd_limit_pct: initialStrategy.risk.max_mdd_limit_pct ?? 15,
-        execution_timing: initialStrategy.risk.execution_timing ?? "next_open",
-        allocation_type: initialStrategy.risk.allocation_type ?? "equal",
-        skip_risk_management: initialStrategy.risk.skip_risk_management ?? false,
-        skip_position_setting: initialStrategy.risk.skip_position_setting ?? false,
+        position_size_pct: normalizedInitialStrategy.risk.position_size_pct,
+        max_positions: normalizedInitialStrategy.risk.max_positions,
+        min_cash_reserve_pct: normalizedInitialStrategy.risk.min_cash_reserve_pct ?? 10,
+        max_daily_buy_pct: normalizedInitialStrategy.risk.max_daily_buy_pct ?? 20,
+        stop_loss_pct: normalizedInitialStrategy.risk.stop_loss_pct ?? 10,
+        take_profit_pct: normalizedInitialStrategy.risk.take_profit_pct ?? 20,
+        trailing_stop_pct: normalizedInitialStrategy.risk.trailing_stop_pct ?? 0,
+        max_holding_days: normalizedInitialStrategy.risk.max_holding_days ?? 0,
+        max_daily_loss_pct: normalizedInitialStrategy.risk.max_daily_loss_pct ?? 5,
+        max_total_exposure_pct: normalizedInitialStrategy.risk.max_total_exposure_pct ?? 50,
+        max_sector_exposure_pct: normalizedInitialStrategy.risk.max_sector_exposure_pct ?? 30,
+        max_mdd_limit_pct: normalizedInitialStrategy.risk.max_mdd_limit_pct ?? 15,
+        execution_timing: normalizedInitialStrategy.risk.execution_timing ?? "next_open",
+        allocation_type: normalizedInitialStrategy.risk.allocation_type ?? "equal",
+        skip_risk_management: normalizedInitialStrategy.risk.skip_risk_management ?? false,
+        skip_position_setting: normalizedInitialStrategy.risk.skip_position_setting ?? false,
       });
 
       // Also sync top-level states
-      if (initialStrategy.risk.max_positions) setMaxPositions(initialStrategy.risk.max_positions);
-      if (initialStrategy.risk.allocation_type) setAllocationType(initialStrategy.risk.allocation_type as any);
-      if (initialStrategy.risk.position_size_pct && initialStrategy.risk.allocation_type === "fixed_pct") {
-        setAllocationValue(initialStrategy.risk.position_size_pct);
+      if (normalizedInitialStrategy.risk.max_positions) setMaxPositions(normalizedInitialStrategy.risk.max_positions);
+      if (normalizedInitialStrategy.risk.allocation_type) setAllocationType(normalizedInitialStrategy.risk.allocation_type as any);
+      if (normalizedInitialStrategy.risk.position_size_pct && normalizedInitialStrategy.risk.allocation_type === "fixed_pct") {
+        setAllocationValue(normalizedInitialStrategy.risk.position_size_pct);
       }
-      if (initialStrategy.risk.execution_timing) setExecutionTiming(initialStrategy.risk.execution_timing as any);
-      if (initialStrategy.risk.rebalancing_period) setRebalancingPeriod(initialStrategy.risk.rebalancing_period);
+      if (normalizedInitialStrategy.risk.execution_timing) setExecutionTiming(normalizedInitialStrategy.risk.execution_timing as any);
+      if (normalizedInitialStrategy.risk.rebalancing_period) setRebalancingPeriod(normalizedInitialStrategy.risk.rebalancing_period);
     }
   }, [initialStrategy]);
 
