@@ -178,10 +178,12 @@ def build_prompt(payload: dict) -> str:
         "Thinking Process, Reasoning, Analysis, <think> 같은 내부 추론 텍스트를 절대 출력하지 마세요. "
         "모든 텍스트는 한국어 격식체 존댓말(~습니다, ~입니다)을 사용하세요.\n\n"
         "작성 규칙:\n"
-        "1) total_summary는 2~3문장으로 작성하고, 최소 2개 이상의 지표 수치를 직접 인용하세요.\n"
-        "2) strengths는 정확히 3개로 작성하고, 각 항목에 지표명 또는 수치를 포함하세요.\n"
-        "3) risks는 정확히 3개로 작성하고, 각 항목에 리스크와 개선 제안을 함께 포함하세요.\n"
-        "4) 과장된 단정 표현을 피하고 지표 기반으로 판단하세요.\n\n"
+        "1) total_summary는 5~7문장으로 작성하고, 전략의 성과, 위험도, 시장 대비 상대 성과 등 다각적으로 분석하세요. 최소 4개 이상의 지표 수치를 직접 인용하세요.\n"
+        "2) strengths는 정확히 3개로 작성하고, 각 항목은 2~3문장으로 상세히 설명하며 지표명 또는 수치를 포함하세요. 단순 나열이 아닌 분석적 설명을 제공하세요.\n"
+        "3) weaknesses는 정확히 3개로 작성하고, 각 항목은 단점이나 개선 필요 영역만 설명합니다(개선안 없음). 각 항목 1~2문장으로 간결히 작성하세요.\n"
+        "4) improvements는 정확히 3개로 작성하고, 각 항목은 구체적인 개선 방안과 기대 효과를 2~3문장으로 작성하세요. \"~하면 좋습니다\", \"~을 고려해보세요\" 같은 제안형으로 작성하세요.\n"
+        "5) 과장된 단정 표현을 피하고 지표 기반으로 판단하세요.\n"
+        "6) total_summary의 각 문장은 서로 다른 관점(수익성, 안정성, 효율성, 거래 신뢰도 등)에서 작성하세요.\n\n"
         f"{strategy_desc}"
         "백테스트 지표:\n"
         f"- 총 수익률: {fmt(m.get('totalReturn'))}%\n"
@@ -199,9 +201,10 @@ def build_prompt(payload: dict) -> str:
         f"{metric_hints}\n\n"
         "출력 형식 (JSON만 출력):\n"
         "{\n"
-        '  "total_summary": "전략 전체 총평 2~3문장",\n'
-        '  "strengths": ["강점1", "강점2", "강점3"],\n'
-        '  "risks": ["리스크 또는 개선안1", "리스크 또는 개선안2", "리스크 또는 개선안3"]\n'
+        '  "total_summary": "전략 전체 총평 5~7문장으로 상세히 작성. 수익성, 안정성, 효율성, 거래 신뢰도 등 다각도 분석",\n'
+        '  "strengths": ["강점1 - 2~3문장으로 상세 설명, 지표 수치 포함", "강점2 - 2~3문장", "강점3 - 2~3문장"],\n'
+        '  "weaknesses": ["단점1 - 1~2문장으로 간결히", "단점2 - 1~2문장", "단점3 - 1~2문장"],\n'
+        '  "improvements": ["개선 방안1 - 2~3문장으로 구체적 조치와 기대효과", "개선 방안2 - 2~3문장", "개선 방안3 - 2~3문장"]\n'
         "}"
     )
 
@@ -287,18 +290,23 @@ def _coerce_report_shape(data: dict) -> dict | None:
         or data.get("advantages")
         or data.get("장점")
     )
-    risks = (
-        data.get("risks")
+    weaknesses = (
+        data.get("weaknesses")
+        or data.get("단점")
         or data.get("cons")
-        or data.get("weaknesses")
-        or data.get("improvements")
+    )
+    improvements = (
+        data.get("improvements")
         or data.get("개선점")
+        or data.get("recommendations")
+        or data.get("suggestions")
     )
 
     return {
         "total_summary": str(summary).strip(),
         "strengths": _to_string_list(strengths),
-        "risks": _to_string_list(risks),
+        "weaknesses": _to_string_list(weaknesses),
+        "improvements": _to_string_list(improvements),
     }
 
 
@@ -332,13 +340,17 @@ def _extract_report_from_sections(text: str) -> dict | None:
         "강점": "strengths",
         "장점": "strengths",
         "strengths": "strengths",
-        "리스크": "risks",
-        "위험": "risks",
-        "개선": "risks",
-        "risks": "risks",
+        "단점": "weaknesses",
+        "약점": "weaknesses",
+        "weaknesses": "weaknesses",
+        "리스크": "weaknesses",
+        "위험": "weaknesses",
+        "개선": "improvements",
+        "개선점": "improvements",
+        "improvements": "improvements",
     }
 
-    sections = {"summary": [], "strengths": [], "risks": []}
+    sections = {"summary": [], "strengths": [], "weaknesses": [], "improvements": []}
 
     current = None
     for raw in text.splitlines():
@@ -370,7 +382,7 @@ def _extract_report_from_sections(text: str) -> dict | None:
         sections[current].append(normalized)
 
     summary = " ".join(sections["summary"]).strip()
-    if not summary and not sections["strengths"] and not sections["risks"]:
+    if not summary and not sections["strengths"] and not sections["weaknesses"] and not sections["improvements"]:
         return None
 
     if not summary:
@@ -379,7 +391,8 @@ def _extract_report_from_sections(text: str) -> dict | None:
     return {
         "total_summary": summary,
         "strengths": sections["strengths"],
-        "risks": sections["risks"],
+        "weaknesses": sections["weaknesses"],
+        "improvements": sections["improvements"],
     }
 
 
@@ -423,7 +436,7 @@ def parse_llm_output(text: str) -> dict:
     if section_based:
         return section_based
 
-    return {"total_summary": _extract_plain_summary(text), "strengths": [], "risks": []}
+    return {"total_summary": _extract_plain_summary(text), "strengths": [], "weaknesses": [], "improvements": []}
 
 
 def normalize_report_items(items) -> list[str]:

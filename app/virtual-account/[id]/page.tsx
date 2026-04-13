@@ -633,25 +633,35 @@ export default function VirtualAccountDetailPage() {
               {/* 운용 중인 전략 */}
               <div className="p-5 flex flex-col">
                 <div className="flex items-center justify-between mb-4">
-                  <span className="text-base font-black uppercase tracking-widest text-white">운용 전략</span>
+                  <span className="text-base font-black uppercase tracking-widest text-white font-outfit">운용 전략</span>
                 </div>
 
                 {account.strategyName && (
-                  <div className="mb-3">
-                    <div className="p-3 bg-white/[0.03] border border-white/[0.05] rounded-xl">
-                      <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">매매 방식</p>
+                  <div className="mb-4">
+                    <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4">
+                      <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">매매 방식</p>
                       <div className="flex gap-2">
                         <button
                           onClick={async () => { const u = await updateTradingMode(accountId, "auto"); setAccount(prev => prev ? { ...prev, tradingMode: u.tradingMode } : prev); }}
-                          className={`flex items-center gap-1.5 flex-1 justify-center px-2 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 ${account.tradingMode === "auto" ? "bg-white/10 text-white" : "bg-white/[0.03] text-gray-400 hover:text-gray-300"}`}
+                          className={`flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-sm font-bold transition-colors duration-200 ${
+                            account.tradingMode === "auto"
+                              ? "border-white/[0.08] bg-white/[0.08] text-white"
+                              : "border-white/[0.05] bg-white/[0.02] text-gray-500 hover:text-gray-300"
+                          }`}
                         >
-                          <Robot size={13} />자동매매
+                          <Robot size={14} weight="bold" className={account.tradingMode === "auto" ? "text-white" : "text-gray-500"} />
+                          자동매매
                         </button>
                         <button
                           onClick={async () => { const u = await updateTradingMode(accountId, "manual"); setAccount(prev => prev ? { ...prev, tradingMode: u.tradingMode } : prev); }}
-                          className={`flex items-center gap-1.5 flex-1 justify-center px-2 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 ${account.tradingMode !== "auto" ? "bg-white/10 text-white" : "bg-white/[0.03] text-gray-400 hover:text-gray-300"}`}
+                          className={`flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-sm font-bold transition-colors duration-200 ${
+                            account.tradingMode !== "auto"
+                              ? "border-white/[0.08] bg-white/[0.08] text-white"
+                              : "border-white/[0.05] bg-white/[0.02] text-gray-500 hover:text-gray-300"
+                          }`}
                         >
-                          <Bell size={13} />신호 알림
+                          <Bell size={14} weight="bold" className={account.tradingMode !== "auto" ? "text-white" : "text-gray-500"} />
+                          신호 알림
                         </button>
                       </div>
                     </div>
@@ -665,34 +675,38 @@ export default function VirtualAccountDetailPage() {
                       ? dbStrategyDescription
                       : (getStrategyByName(strategy.name)?.description ?? null);
                     return (
-                      <div key={idx} className="bg-white/[0.03] border border-white/[0.05] rounded-xl p-4">
-                        <div className="flex items-center justify-between gap-3 mb-3">
+                      <div key={idx} className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5">
+                        <div className="mb-4 flex items-start justify-between gap-3">
                           <div className="flex items-center gap-2 min-w-0">
-                            <span className="text-sm font-bold text-white truncate max-w-[140px]">{strategy.name}</span>
+                            <span className="truncate text-xl font-black text-white">{strategy.name}</span>
                           </div>
                           <div className="flex items-center gap-2">
                             {description && (
                               <button
                                 type="button"
                                 onClick={() => setIsPromptVisible((prev) => !prev)}
-                                className="shrink-0 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[11px] font-bold text-gray-300 transition-all duration-200 hover:bg-white/[0.08] hover:text-white"
+                                className="shrink-0 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs font-bold text-gray-300 transition-colors duration-200 hover:text-white hover:bg-white/[0.08]"
                               >
                                 {isPromptVisible ? "프롬프트 숨기기" : "프롬프트 보기"}
                               </button>
                             )}
                             {strategy.status !== "active" && (
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-white/[0.05] text-gray-500">
+                              <span className="inline-flex items-center rounded-md bg-white/[0.06] px-2 py-0.5 text-xs font-bold text-gray-400">
                                 대기
                               </span>
                             )}
                           </div>
                         </div>
                         {strategySummaryChips.length > 0 && (
-                          <div className="flex flex-wrap gap-2">
+                          <div className="flex flex-wrap gap-1.5">
                             {strategySummaryChips.map((chip) => (
                               <span
                                 key={chip}
-                                className="rounded-xl border border-[#2b4471] bg-[#1a2233] px-3 py-2 text-xs font-bold text-gray-200"
+                                className={`inline-flex items-center rounded-md px-2.5 py-1 text-xs font-bold ${
+                                  chip.startsWith("유니버스 ")
+                                    ? "bg-sky-500/15 text-sky-400"
+                                    : "bg-white/[0.06] text-gray-300"
+                                }`}
                               >
                                 {chip}
                               </span>
@@ -700,9 +714,9 @@ export default function VirtualAccountDetailPage() {
                           </div>
                         )}
                         {isPromptVisible && description && (
-                          <div className="mt-3 rounded-xl border border-white/[0.05] bg-black/10 p-3">
+                          <div className="mt-4 rounded-xl border border-white/[0.08] bg-black/10 p-4">
                             <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-500">사용자 프롬프트</p>
-                            <p className="text-xs font-bold text-gray-500 leading-6 whitespace-pre-wrap">{description}</p>
+                            <p className="whitespace-pre-wrap text-xs font-bold leading-6 text-gray-400">{description}</p>
                           </div>
                         )}
                       </div>
@@ -712,7 +726,7 @@ export default function VirtualAccountDetailPage() {
 
                 <button
                   onClick={() => setIsStrategyReplaceOpen(true)}
-                  className="mt-4 w-full py-2.5 text-xs font-bold text-white bg-white/[0.06] border border-white/[0.08] rounded-xl hover:bg-white/[0.1] hover:border-white/[0.15] transition-all duration-200"
+                  className="mt-4 w-full rounded-2xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm font-bold text-gray-200 transition-colors duration-200 hover:bg-white/[0.08] hover:text-white"
                 >
                   전략 교체
                 </button>

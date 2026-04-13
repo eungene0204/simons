@@ -179,7 +179,8 @@ export interface BacktestResult {
   aiSummary?: string | null;
   aiScore?: number | null;
   aiStrengths?: string[];
-  aiRisks?: string[];
+  aiWeaknesses?: string[];
+  aiImprovements?: string[];
 }
 
 
@@ -218,7 +219,8 @@ export interface BacktestHistoryItem {
     aiSummary?: string;
     aiScore?: number;
     aiStrengths?: string[];
-    aiRisks?: string[];
+    aiWeaknesses?: string[];
+    aiImprovements?: string[];
   };
   result?: BacktestResult;
 }

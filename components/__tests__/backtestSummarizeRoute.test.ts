@@ -40,7 +40,8 @@ describe("POST /api/backtest/summarize", () => {
         aiSummary: "기존 요약",
         aiScore: 91,
         aiStrengths: ["강점"],
-        aiRisks: ["리스크"],
+        aiWeaknesses: ["단점"],
+        aiImprovements: ["개선점"],
       }),
     });
 
@@ -59,7 +60,8 @@ describe("POST /api/backtest/summarize", () => {
       score: 91,
       summary: "기존 요약",
       strengths: ["강점"],
-      risks: ["리스크"],
+      weaknesses: ["단점"],
+      improvements: ["개선점"],
       cached: true,
     });
   });
@@ -81,7 +83,8 @@ describe("POST /api/backtest/summarize", () => {
         score: 76,
         summary: "새 요약",
         strengths: ["강점 A"],
-        risks: ["리스크 A"],
+        weaknesses: ["단점 A"],
+        improvements: ["개선점 A"],
       }),
     });
 
@@ -103,7 +106,8 @@ describe("POST /api/backtest/summarize", () => {
           aiSummary: "새 요약",
           aiScore: 76,
           aiStrengths: ["강점 A"],
-          aiRisks: ["리스크 A"],
+          aiWeaknesses: ["단점 A"],
+          aiImprovements: ["개선점 A"],
         }),
       },
     });
@@ -111,7 +115,8 @@ describe("POST /api/backtest/summarize", () => {
       score: 76,
       summary: "새 요약",
       strengths: ["강점 A"],
-      risks: ["리스크 A"],
+      weaknesses: ["단점 A"],
+      improvements: ["개선점 A"],
       cached: false,
     });
   });

@@ -83,7 +83,7 @@ export default function BacktestDetailPage() {
 
   return (
     <DashboardLayout>
-      <div className="flex flex-col h-full">
+      <div className="w-full min-w-0">
         <BacktestDashboard
           result={item.result}
           onRestart={() => router.back()}
@@ -92,7 +92,8 @@ export default function BacktestDetailPage() {
           aiSummary={item.metrics.aiSummary}
           aiScore={item.metrics.aiScore}
           aiStrengths={item.metrics.aiStrengths}
-          aiRisks={item.metrics.aiRisks}
+          aiWeaknesses={item.metrics.aiWeaknesses}
+          aiImprovements={item.metrics.aiImprovements}
           strategySummary={{
             universeName: item.universe,
             blockNames: conds?.entry?.names || conds?.names || [],

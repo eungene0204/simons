@@ -69,7 +69,8 @@ function mapBacktestResponse(raw: any): BacktestResult {
     aiSummary: raw.aiSummary ?? undefined,
     aiScore: raw.aiScore ?? undefined,
     aiStrengths: raw.aiStrengths ?? undefined,
-    aiRisks: raw.aiRisks ?? undefined,
+    aiWeaknesses: raw.aiWeaknesses ?? undefined,
+    aiImprovements: raw.aiImprovements ?? undefined,
   };
 }
 
@@ -90,7 +91,8 @@ function StrategyResultContent() {
   const [aiSummary, setAiSummary] = useState<string | undefined>();
   const [aiScore, setAiScore] = useState<number | undefined>();
   const [aiStrengths, setAiStrengths] = useState<string[]>([]);
-  const [aiRisks, setAiRisks] = useState<string[]>([]);
+  const [aiWeaknesses, setAiWeaknesses] = useState<string[]>([]);
+  const [aiImprovements, setAiImprovements] = useState<string[]>([]);
 
   useEffect(() => {
     const loadStrategy = async () => {
@@ -114,7 +116,8 @@ function StrategyResultContent() {
         if (data.backtestResult.aiSummary) setAiSummary(data.backtestResult.aiSummary);
         if (data.backtestResult.aiScore != null) setAiScore(data.backtestResult.aiScore);
         setAiStrengths(data.backtestResult.aiStrengths ?? []);
-        setAiRisks(data.backtestResult.aiRisks ?? []);
+        setAiWeaknesses(data.backtestResult.aiWeaknesses ?? []);
+        setAiImprovements(data.backtestResult.aiImprovements ?? []);
 
         // strategySummary 구성
         if (normalizedSettings) {
@@ -257,7 +260,8 @@ function StrategyResultContent() {
             aiSummary={aiSummary}
             aiScore={aiScore}
             aiStrengths={aiStrengths}
-            aiRisks={aiRisks}
+            aiWeaknesses={aiWeaknesses}
+            aiImprovements={aiImprovements}
             disableHistorySave={true}
           />
         </div>
