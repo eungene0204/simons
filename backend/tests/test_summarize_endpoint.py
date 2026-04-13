@@ -30,7 +30,7 @@ def test_summarize_endpoint_disables_thinking_on_mlx(monkeypatch):
     def fake_generate(model, tokenizer_arg, prompt, max_tokens, verbose):  # pragma: no cover - assertions below validate call
         assert tokenizer_arg is tokenizer
         assert prompt == "FORMATTED_PROMPT"
-        return '{"total_summary":"요약 성공","strengths":["강점"],"risks":["리스크"]}'
+        return '{"total_summary":"요약 성공","strengths":["강점"],"weaknesses":["단점"],"improvements":["개선점"]}'
 
     fake_mlx_lm.generate = fake_generate
     monkeypatch.setitem(sys.modules, "mlx_lm", fake_mlx_lm)
@@ -46,4 +46,5 @@ def test_summarize_endpoint_disables_thinking_on_mlx(monkeypatch):
     assert tokenizer.kwargs.get("enable_thinking") is False
     assert response["summary"] == "요약 성공"
     assert response["strengths"] == ["강점"]
-    assert response["risks"] == ["리스크"]
+    assert response["weaknesses"] == ["단점"]
+    assert response["improvements"] == ["개선점"]

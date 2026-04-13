@@ -20,7 +20,8 @@ export async function POST(req: Request) {
           score: existingMetrics.aiScore,
           summary: existingMetrics.aiSummary,
           strengths: existingMetrics.aiStrengths ?? [],
-          risks: existingMetrics.aiRisks ?? [],
+          weaknesses: existingMetrics.aiWeaknesses ?? [],
+          improvements: existingMetrics.aiImprovements ?? [],
           cached: true,
         });
       }
@@ -47,7 +48,8 @@ export async function POST(req: Request) {
       score: result.score,
       summary: result.summary,
       strengths: result.strengths ?? [],
-      risks: result.risks ?? [],
+      weaknesses: result.weaknesses ?? [],
+      improvements: result.improvements ?? [],
       cached: false,
     };
 
@@ -63,7 +65,8 @@ export async function POST(req: Request) {
               aiSummary: payload.summary ?? currentMetrics.aiSummary,
               aiScore: payload.score ?? currentMetrics.aiScore,
               aiStrengths: payload.strengths,
-              aiRisks: payload.risks,
+              aiWeaknesses: payload.weaknesses,
+              aiImprovements: payload.improvements,
             }),
           },
         });

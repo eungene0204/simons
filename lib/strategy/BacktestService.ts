@@ -116,7 +116,8 @@ export class BacktestService {
         aiSummary: pythonResult.aiSummary ?? undefined,
         aiScore: pythonResult.aiScore ?? undefined,
         aiStrengths: pythonResult.aiStrengths ?? undefined,
-        aiRisks: pythonResult.aiRisks ?? undefined,
+        aiWeaknesses: pythonResult.aiWeaknesses ?? undefined,
+        aiImprovements: pythonResult.aiImprovements ?? undefined,
       };
     } catch (error: any) {
       console.error("Backtest integration error:", error);

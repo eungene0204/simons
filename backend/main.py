@@ -1623,7 +1623,7 @@ def summarize_backtest(req: SummarizeRequest):
                     formatted = prompt
 
                 raw = generate(
-                    _summarize_model["model"], tokenizer, prompt=formatted, max_tokens=600, verbose=False
+                    _summarize_model["model"], tokenizer, prompt=formatted, max_tokens=1200, verbose=False
                 ).strip()
         else:
             from ai.summarize import summarize_ollama
@@ -1634,7 +1634,8 @@ def summarize_backtest(req: SummarizeRequest):
             "score": score,
             "summary": parsed.get("total_summary", ""),
             "strengths": normalize_report_items(parsed.get("strengths", [])),
-            "risks": normalize_report_items(parsed.get("risks", [])),
+            "weaknesses": normalize_report_items(parsed.get("weaknesses", [])),
+            "improvements": normalize_report_items(parsed.get("improvements", [])),
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Summarize error: {repr(e)}")
