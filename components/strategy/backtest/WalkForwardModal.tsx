@@ -420,7 +420,7 @@ export default function WalkForwardModal({ open, onOpenChange, onRun }: WalkForw
                 <div className="rounded-2xl border border-white/8 overflow-hidden">
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="bg-white/3 border-b border-white/5">
+                      <tr className="bg-white/[0.06]">
                         <th className="text-left px-4 py-3 text-[10px] font-black text-white/40 uppercase tracking-wider">구간</th>
                         <th className="text-left px-4 py-3 text-[10px] font-black text-white/40 uppercase tracking-wider">IS 기간</th>
                         <th className="text-left px-4 py-3 text-[10px] font-black text-white/40 uppercase tracking-wider">OOS 기간</th>
@@ -437,7 +437,7 @@ export default function WalkForwardModal({ open, onOpenChange, onRun }: WalkForw
                         return (
                           <tr
                             key={w.window}
-                            className="border-b border-white/5 last:border-b-0 hover:bg-white/3 transition-colors"
+                            className="hover:bg-white/[0.02] transition-colors"
                           >
                             <td className="px-4 py-3 font-black text-white/60">
                               W{w.window}

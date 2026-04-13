@@ -45,6 +45,7 @@ interface BacktestChartProps {
   seasonalData?: SeasonalDataPoint[];
   trades?: { date: string; type: string; price: number | string }[];
   height?: number;
+  hideLegend?: boolean;
 }
 
 // Convert YYYY-MM-DD to timestamp
@@ -76,6 +77,7 @@ export default function BacktestChart({
   seasonalData = [],
   trades = [],
   height = 400,
+  hideLegend = false,
 }: BacktestChartProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -211,22 +213,22 @@ export default function BacktestChart({
       try {
         const chart = createChart(container, {
           layout: {
-            background: { type: ColorType.Solid, color: "#0a0a0a" },
-            textColor: "#666",
+            background: { type: ColorType.Solid, color: "#151515" },
+            textColor: "rgba(255,255,255,0.38)",
             fontSize: 10,
           },
           // @ts-ignore - Lightweight charts supports padding in layout
           padding: { top: 4, bottom: 4, left: 8, right: 40 }, 
           grid: {
-            vertLines: { color: "#374151", style: 1, visible: true },
-            horzLines: { color: "#374151", style: 1, visible: true },
+            vertLines: { color: "rgba(255,255,255,0.06)", style: 1, visible: true },
+            horzLines: { color: "rgba(255,255,255,0.06)", style: 1, visible: true },
           },
           width,
           height: chartHeight,
           timeScale: {
             timeVisible: true,
             secondsVisible: false,
-            borderColor: "#4b5563",
+            borderColor: "rgba(255,255,255,0.10)",
             tickMarkFormatter: (time: UTCTimestamp) => {
               const date = new Date((time as number) * 1000);
               if (type === "seasonal_returns") {
@@ -237,7 +239,7 @@ export default function BacktestChart({
             },
           },
           rightPriceScale: {
-            borderColor: "#4b5563",
+            borderColor: "rgba(255,255,255,0.10)",
             autoScale: true,
             scaleMargins: {
               top: 0.2,
@@ -267,8 +269,8 @@ export default function BacktestChart({
         if (type === "equity") {
           // Create equity line series with custom price format
           const equitySeries = chart.addSeries(LineSeries, {
-            color: "rgb(239, 68, 68)", // main-red
-            lineWidth: 1,
+            color: "#0f62fe",
+            lineWidth: 2,
             lineType: LineType.Curved,
             priceFormat: {
               type: "custom",
@@ -284,7 +286,7 @@ export default function BacktestChart({
           // Create buy & hold line series if data exists
           if (buyHoldChartData.length > 0) {
             const buyHoldSeries = chart.addSeries(LineSeries, {
-              color: "rgb(34, 197, 94)", // main-green
+              color: "rgba(255,255,255,0.5)",
               lineWidth: 1,
               lineStyle: LineStyle.Solid,
               lineType: LineType.Curved, // Smooth line
@@ -304,7 +306,7 @@ export default function BacktestChart({
           // Create VBT equity line series if data exists
           if (vbtEquityChartData.length > 0) {
             const vbtSeries = chart.addSeries(LineSeries, {
-              color: "rgb(168, 85, 247)", // purple-500
+              color: "rgba(163, 163, 255, 0.7)",
               lineWidth: 1,
               lineStyle: LineStyle.Dashed,
               lineType: LineType.Curved,
@@ -624,48 +626,53 @@ export default function BacktestChart({
   return (
     <div className="w-full relative group" style={{ height: `${height}px` }}>
       {/* Legend Overlay */}
-      <div className="absolute top-4 left-4 z-20 flex flex-col gap-1 b">
-        {type !== "seasonal_returns" && (
+      {!hideLegend && (
+        <div className="absolute top-4 left-4 z-20 flex flex-col gap-1 b">
+          {type !== "seasonal_returns" && (
           <>
             <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
-               <div className="w-2.5 h-2.5 rounded-full bg-main-red" />
+               <div className="w-2.5 h-2.5 rounded-full bg-[#0f62fe]" />
                <span className="text-[10px] font-bold text-white">나의 전략</span>
             </div>
             <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
-               <div className="w-2.5 h-2.5 rounded-full bg-main-green" />
+               <div className="w-2.5 h-2.5 rounded-full bg-white/50" />
                <span className="text-[10px] font-bold text-white">매수후보유</span>
             </div>
             {vbtEquityChartData.length > 0 && (
               <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
-                 <div className="w-2.5 h-2.5 rounded-full bg-purple-500" />
+                 <div
+                   className="w-2.5 h-2.5 rounded-full"
+                   style={{ backgroundColor: "rgba(163, 163, 255, 0.7)" }}
+                 />
                  <span className="text-[10px] font-bold text-white">VectorBT</span>
               </div>
             )}
           </>
-        )}
-        {type === "monthly_returns" && (
-          <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
-             <div className="flex gap-1">
-                <div className="w-2.5 h-2.5 rounded-full bg-main-red" />
-                <div className="w-2.5 h-2.5 rounded-full bg-main-blue" />
-             </div>
-             <span className="text-[10px] font-bold text-white">월간 수익/손실</span>
-          </div>
-        )}
-        {type === "seasonal_returns" && (
-          <div className="flex flex-wrap gap-2 max-w-[300px]">
-             {Object.keys(seasonalChartData).sort().map((year, idx) => (
-                <div key={year} className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
-                   <div 
-                      className="w-2 h-2 rounded-full" 
-                      style={{ backgroundColor: YEAR_COLORS[idx % YEAR_COLORS.length] }} 
-                   />
-                   <span className="text-[10px] font-bold text-white">{year}년</span>
-                </div>
-             ))}
-          </div>
-        )}
-      </div>
+          )}
+          {type === "monthly_returns" && (
+            <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
+               <div className="flex gap-1">
+                  <div className="w-2.5 h-2.5 rounded-full bg-main-red" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-main-blue" />
+               </div>
+               <span className="text-[10px] font-bold text-white">월간 수익/손실</span>
+            </div>
+          )}
+          {type === "seasonal_returns" && (
+            <div className="flex flex-wrap gap-2 max-w-[300px]">
+               {Object.keys(seasonalChartData).sort().map((year, idx) => (
+                  <div key={year} className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
+                     <div 
+                        className="w-2 h-2 rounded-full" 
+                        style={{ backgroundColor: YEAR_COLORS[idx % YEAR_COLORS.length] }} 
+                     />
+                     <span className="text-[10px] font-bold text-white">{year}년</span>
+                  </div>
+               ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Custom Tooltip */}
       <div
