@@ -188,23 +188,43 @@ space-y-1    (섹션 간 세로 간격 — 카드가 바짝 붙도록)
 모든 테이블의 컬럼 제목 행은 다음 스타일을 기본으로 한다.
 
 ```tsx
-<div className="... px-2 py-2 bg-white/[0.03] rounded-lg text-xs font-bold text-gray-400 uppercase tracking-widest">
-  <span>컬럼명</span>
-  ...
-</div>
+<thead>
+  <tr className="bg-white/[0.06]">
+    <th className="text-left text-xs font-bold text-gray-400 uppercase tracking-widest py-2 pl-2 pr-4 rounded-l-lg">
+      첫 번째 컬럼
+    </th>
+    <th className="text-right text-xs font-bold text-gray-400 uppercase tracking-widest py-2 px-4">
+      중간 컬럼
+    </th>
+    <th className="text-right text-xs font-bold text-gray-400 uppercase tracking-widest py-2 pl-4 pr-2 rounded-r-lg">
+      마지막 컬럼
+    </th>
+  </tr>
+</thead>
 ```
 
-- 배경: `bg-white/[0.03]` + `rounded-lg` — 보더 대신 배경색으로 헤더 행 구분
-- 텍스트: `text-gray-400 text-xs font-bold uppercase tracking-widest`
-- 행 구분선(border-b) 사용 금지 — 배경색으로만 구분
+- 배경: `bg-white/[0.06]` — 보더 대신 배경색으로 헤더 행 구분
+- 텍스트: `text-xs font-bold text-gray-400 uppercase tracking-widest`
+- 라운드: 첫 번째 `<th>`에 `rounded-l-lg`, 마지막 `<th>`에 `rounded-r-lg` (`<tr>`에 `rounded` 적용 불가)
+- 패딩: 첫 컬럼 `pl-2`, 마지막 컬럼 `pr-2`, 중간 컬럼 `px-4`
+- 헤더 행 구분선(`border-b`) 사용 금지 — 배경색으로만 구분
 
 ### 테이블 행 (기본)
 
-- 행 구분선(`border-b`) 사용 금지 — 행 간 시각적 구분은 `hover:bg-white/[0.02]` 호버 효과로만 처리한다.
+> **규칙: 모든 테이블에서 보더라인 사용 금지**
+> `border-b`, `border-t`, `divide-y` 등 행 구분선은 `<tr>`, `<td>` 어디에도 사용하지 않는다.
+> 행 간 시각적 구분은 **호버 효과(`hover:bg-white/[0.02]`)만으로** 처리한다.
+
 - 행 클릭이 가능한 경우 `cursor-pointer transition-colors duration-150` 추가.
 
 ```tsx
+{/* ✅ 올바른 패턴 */}
 <tr className="hover:bg-white/[0.02] cursor-pointer transition-colors duration-150">
+  ...
+</tr>
+
+{/* ❌ 금지 패턴 */}
+<tr className="border-b border-white/[0.03] ...">  {/* 사용 금지 */}
   ...
 </tr>
 ```
