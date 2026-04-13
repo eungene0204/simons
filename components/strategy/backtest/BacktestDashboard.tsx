@@ -17,6 +17,7 @@ import {
   X,
   FloppyDisk,
   Spinner,
+  Sparkle,
 } from "phosphor-react";
 
 
@@ -91,7 +92,8 @@ interface BacktestDashboardProps {
   aiSummary?: string;
   aiScore?: number;
   aiStrengths?: string[];
-  aiRisks?: string[];
+  aiWeaknesses?: string[];
+  aiImprovements?: string[];
   disableHistorySave?: boolean; // true이면 히스토리 자동 저장 비활성화 (저장된 전략 조회 시)
   promptText?: string; // 사용자 프롬프트 (툴팁으로 표시)
   strategySummary?: {
@@ -131,12 +133,13 @@ export default function BacktestDashboard({
   aiSummary: initialAiSummaryProp,
   aiScore: initialAiScoreProp,
   aiStrengths: initialAiStrengthsProp,
-  aiRisks: initialAiRisksProp,
+  aiWeaknesses: initialAiWeaknessesProp,
+  aiImprovements: initialAiImprovementsProp,
   strategySummary,
   disableHistorySave,
   promptText,
 }: BacktestDashboardProps) {
-  const [activeTab, setActiveTab] = useState<"chart" | "stats" | "log" | "assets">("chart");
+  const [activeTab, setActiveTab] = useState<"chart" | "log" | "assets" | "report">("chart");
   const [isWFAOpen, setIsWFAOpen] = useState(false);
   const [promptTooltipOpen, setPromptTooltipOpen] = useState(false);
   const promptTooltipRef = useRef<HTMLDivElement>(null);
@@ -160,8 +163,11 @@ export default function BacktestDashboard({
   const [cachedStrengths, setCachedStrengths] = useState<string[]>(
     initialAiStrengthsProp ?? result.aiStrengths ?? []
   );
-  const [cachedRisks, setCachedRisks] = useState<string[]>(
-    initialAiRisksProp ?? result.aiRisks ?? []
+  const [cachedWeaknesses, setCachedWeaknesses] = useState<string[]>(
+    initialAiWeaknessesProp ?? result.aiWeaknesses ?? []
+  );
+  const [cachedImprovements, setCachedImprovements] = useState<string[]>(
+    initialAiImprovementsProp ?? result.aiImprovements ?? []
   );
 
   // 전략 저장 모달
@@ -199,6 +205,59 @@ export default function BacktestDashboard({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(buildAutoSaveHistoryPayload(result, strategySummary)),
     }).catch(() => {/* 자동 저장 실패는 무시 */});
+  }, [result.executionId]);
+
+  // 백테스트 완료 시 AI 리포트 자동 생성
+  useEffect(() => {
+    if (cachedAiSummary && cachedAiScore != null) return; // 이미 캐시된 경우 스킵
+    fetch("/api/backtest/summarize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cacheKey: result.cacheKey,
+        metrics: {
+          totalReturn: result.totalReturn,
+          cagr: result.cagr,
+          buyAndHoldReturn: result.buyAndHoldReturn,
+          maxDrawdown: result.maxDrawdown,
+          sharpe: result.sharpe,
+          sortino: result.sortino,
+          profitFactor: result.profitFactor,
+          winRate: result.winRate,
+          trades: result.trades,
+          volatility: result.volatility,
+          kelly: result.kelly,
+          initialCapital: result.initialCapital,
+          finalEquity: result.finalEquity,
+        },
+        strategySummary,
+      }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.summary && data.score != null) {
+          setCachedAiSummary(data.summary);
+          setCachedAiScore(data.score);
+          setCachedStrengths(data.strengths ?? []);
+          setCachedWeaknesses(data.weaknesses ?? []);
+          setCachedImprovements(data.improvements ?? []);
+          if (result.cacheKey) {
+            fetch("/api/backtest/ai-report", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                cacheKey: result.cacheKey,
+                aiSummary: data.summary,
+                aiScore: data.score,
+                aiStrengths: data.strengths ?? [],
+                aiWeaknesses: data.weaknesses ?? [],
+                aiImprovements: data.improvements ?? [],
+              }),
+            }).catch(() => {});
+          }
+        }
+      })
+      .catch(() => {/* AI 리포트 생성 실패는 무시 */});
   }, [result.executionId]);
 
   useEffect(() => {
@@ -332,7 +391,6 @@ export default function BacktestDashboard({
       let finalSummary = cachedAiSummary;
       let finalScore = cachedAiScore;
       let finalStrengths = cachedStrengths;
-      let finalRisks = cachedRisks;
       if (!finalSummary) {
         try {
           const sumRes = await fetch("/api/backtest/summarize", {
@@ -357,11 +415,9 @@ export default function BacktestDashboard({
             finalSummary = sumData.summary;
             finalScore = sumData.score;
             finalStrengths = sumData.strengths ?? [];
-            finalRisks = sumData.risks ?? [];
             setCachedAiSummary(finalSummary);
             setCachedAiScore(finalScore);
             setCachedStrengths(finalStrengths);
-            setCachedRisks(finalRisks);
           }
         } catch {
           // AI 요약 실패는 저장 자체를 막지 않음
@@ -379,7 +435,6 @@ export default function BacktestDashboard({
           aiSummary: finalSummary,
           aiScore: finalScore,
           aiStrengths: finalStrengths,
-          aiRisks: finalRisks,
           score: calculateScore(result),
         }),
       });
@@ -414,7 +469,6 @@ export default function BacktestDashboard({
               aiSummary: finalSummary ?? null,
               aiScore: finalScore ?? null,
               aiStrengths: finalStrengths,
-              aiRisks: finalRisks,
             },
             result,
             cacheKey: result.cacheKey,  // 기존 숨김 레코드를 isVisible=true 로 승격
@@ -435,55 +489,71 @@ export default function BacktestDashboard({
   const dateRangeLabel = result.dates[0] && result.dates[result.dates.length - 1]
     ? `${result.dates[0]} → ${result.dates[result.dates.length - 1]}`
     : "";
+  const totalProfit = (result.finalEquity || 0) - (result.initialCapital || 0);
 
   const overviewMetrics = [
     {
-      label: "총수익률",
+      label: "총 수익",
+      englishLabel: "Total Profit",
+      value: formatKRW(totalProfit),
+      valueClass: totalProfit > 0 ? "text-[var(--main-red)]" : totalProfit < 0 ? "text-[var(--main-blue)]" : "text-white",
+      description: "최종 자산에서 초기 자본을 뺀 전체 손익입니다.",
+    },
+    {
+      label: "총 수익률",
+      englishLabel: "Total Return",
       value: `${result.totalReturn >= 0 ? "+" : ""}${(result.totalReturn || 0).toFixed(2)}%`,
-      valueClass: result.totalReturn > 0 ? "text-emerald-400" : result.totalReturn < 0 ? "text-red-400" : "text-white",
+      valueClass: result.totalReturn > 0 ? "text-[var(--main-red)]" : result.totalReturn < 0 ? "text-[var(--main-blue)]" : "text-white",
       description: METRIC_DESCRIPTIONS.totalReturn,
     },
     {
-      label: "연평균수익률",
-      value: `${result.cagr.toFixed(2)}%`,
+      label: "총 거래 수",
+      englishLabel: "Trades",
+      value: `${result.trades || 0}회`,
       valueClass: "text-white",
+      description: "백테스트 동안 발생한 전체 거래 횟수입니다.",
+    },
+    {
+      label: "연평균수익률",
+      englishLabel: "CAGR",
+      value: `${result.cagr.toFixed(2)}%`,
+      valueClass: result.cagr > 0 ? "text-[var(--main-red)]" : result.cagr < 0 ? "text-[var(--main-blue)]" : "text-white",
       description: METRIC_DESCRIPTIONS.cagr,
     },
     {
       label: "최대낙폭",
+      englishLabel: "MDD",
       value: `${result.maxDrawdown.toFixed(2)}%`,
-      valueClass: "text-red-400",
+      valueClass: "text-[var(--main-blue)]",
       description: METRIC_DESCRIPTIONS.mdd,
     },
     {
       label: "샤프 비율",
+      englishLabel: "Sharpe",
       value: result.sharpe.toFixed(2),
-      valueClass: "text-white",
+      valueClass: result.sharpe > 0 ? "text-[var(--main-red)]" : result.sharpe < 0 ? "text-[var(--main-blue)]" : "text-white",
       description: METRIC_DESCRIPTIONS.sharpe,
     },
     {
       label: "소르티노",
+      englishLabel: "Sortino",
       value: result.sortino.toFixed(2),
-      valueClass: "text-white",
+      valueClass: result.sortino > 0 ? "text-[var(--main-red)]" : result.sortino < 0 ? "text-[var(--main-blue)]" : "text-white",
       description: METRIC_DESCRIPTIONS.sortino,
     },
     {
       label: "승률",
+      englishLabel: "Win Rate",
       value: `${(result.winRate || 0).toFixed(1)}%`,
-      valueClass: "text-white",
+      valueClass: (result.winRate || 0) >= 55 ? "text-white" : (result.winRate || 0) >= 50 ? "text-yellow-400" : "text-red-400",
       description: "전체 거래 중 수익으로 끝난 거래의 비율입니다.",
     },
     {
       label: "손익비",
+      englishLabel: "Profit Factor",
       value: result.profitFactor.toFixed(2),
-      valueClass: "text-white",
+      valueClass: result.profitFactor > 1 ? "text-[var(--main-red)]" : result.profitFactor < 1 ? "text-[var(--main-blue)]" : "text-white",
       description: METRIC_DESCRIPTIONS.profitFactor,
-    },
-    {
-      label: "켈리 기준",
-      value: result.kelly.toFixed(2),
-      valueClass: "text-white",
-      description: METRIC_DESCRIPTIONS.kelly,
     },
   ];
 
@@ -493,7 +563,7 @@ export default function BacktestDashboard({
   }));
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 min-w-0 animate-in fade-in zoom-in-95 duration-300 px-6 pb-8">
+    <div className="flex-1 flex flex-col min-h-0 min-w-0 animate-in fade-in zoom-in-95 duration-300">
 
       {/* 전략 저장 모달 */}
       <AnimatePresence>
@@ -625,7 +695,7 @@ export default function BacktestDashboard({
         )}
       </AnimatePresence>
 
-      <div className="pt-8 px-2 mb-4 flex flex-col gap-1">
+      <div className="pt-8 px-6 pb-4 flex flex-col gap-1">
         <h2 className="text-3xl font-black text-white tracking-tight">
           백테스트 결과
         </h2>
@@ -657,8 +727,8 @@ export default function BacktestDashboard({
             {[
               { id: "chart", label: "개요", icon: ChartBar },
               { id: "assets", label: "종목 분석", icon: List },
-              { id: "stats", label: "통계 상세", icon: Table },
               { id: "log", label: "매매 기록", icon: ShieldCheck },
+              { id: "report", label: "AI 리포트", icon: Sparkle },
             ].map(tab => (
               <button
                 key={tab.id}
@@ -720,155 +790,310 @@ export default function BacktestDashboard({
         </div>
       </div>
 
-      <div className="relative mb-4 overflow-hidden border-y border-white/[0.1] bg-[#151515] lg:pr-[360px]">
-        <div className="min-w-0">
-          <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
-            {overviewMetrics.map((metric, index) => (
-              <OverviewMetricCard
-                key={metric.label}
-                label={metric.label}
-                value={metric.value}
-                valueClass={metric.valueClass}
-                className={[
-                  index < 4 ? "lg:border-b-0" : "lg:border-b",
-                  index < 6 ? "xl:border-b-0" : "xl:border-b",
-                ].join(" ")}
-                description={metric.description}
-                onHover={(rect) => setHoveredMetric(rect ? { label: metric.label, description: metric.description, rect } : null)}
-              />
-            ))}
-          </div>
 
-          <div className="border-t border-white/[0.08]">
-            <div className="flex items-center justify-between gap-4 px-5 py-4">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-white/35">Equity Curve</p>
-                <p className="mt-2 text-xl font-black tracking-tight text-white/80">Portfolio Value</p>
-              </div>
-              {dateRangeLabel && (
-                <span className="text-sm font-mono text-white/40 md:text-base">
-                  {dateRangeLabel}
-                </span>
-              )}
-            </div>
-            <BacktestChart
-              type="equity"
-              height={420}
-              equityData={equityCurveData}
-              hideLegend
-            />
-          </div>
-        </div>
-
-        <div className="border-t border-white/[0.08] min-h-0 lg:absolute lg:inset-y-0 lg:right-0 lg:w-[360px] lg:border-t-0 lg:border-l lg:border-white/[0.08]">
-          <div className="flex h-full min-h-0 flex-col">
-            <BacktestTerminalLog result={result} stockMetadata={stockMetadata} fill />
-          </div>
-        </div>
-      </div>
-
-
-      {/* Engine Comparison Panel */}
-      {result.vbtResult && (
-        <div className="mb-4 flat-card p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <ArrowsClockwise className="w-4 h-4 text-gray-400" />
-            <h4 className="text-base font-black uppercase tracking-widest text-white">엔진 비교</h4>
-            <span className="text-[10px] text-gray-500 font-bold ml-1">자체 엔진 vs VectorBT 네이티브</span>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-white/[0.06]">
-                  <th className="py-2 px-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest w-[140px] rounded-l-lg">지표</th>
-                  <th className="py-2 px-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-right">
-                    <span className="inline-flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-main-red inline-block" />자체 엔진
-                    </span>
-                  </th>
-                  <th className="py-2 px-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-right">
-                    <span className="inline-flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-white/40 inline-block" />VectorBT
-                    </span>
-                  </th>
-                  <th className="py-2 px-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-right rounded-r-lg">차이</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[
-                  { label: "CAGR", ours: result.cagr, vbt: result.vbtResult.cagr, fmt: (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`, unit: "%" },
-                  { label: "총수익률", ours: result.totalReturn, vbt: result.vbtResult.totalReturn, fmt: (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`, unit: "%" },
-                  { label: "MDD", ours: result.maxDrawdown, vbt: result.vbtResult.maxDrawdown, fmt: (v: number) => `${v.toFixed(2)}%`, unit: "%", invertDiff: true },
-                  { label: "Sharpe", ours: result.sharpe, vbt: result.vbtResult.sharpe, fmt: (v: number) => v.toFixed(2), unit: "" },
-                  { label: "Sortino", ours: result.sortino, vbt: result.vbtResult.sortino, fmt: (v: number) => v.toFixed(2), unit: "" },
-                  { label: "승률", ours: result.winRate, vbt: result.vbtResult.winRate, fmt: (v: number) => `${v.toFixed(1)}%`, unit: "%" },
-                  { label: "손익비", ours: result.profitFactor, vbt: result.vbtResult.profitFactor, fmt: (v: number) => v.toFixed(2), unit: "" },
-                  { label: "거래 수", ours: result.trades, vbt: result.vbtResult.trades, fmt: (v: number) => `${v}`, unit: "" },
-                  { label: "변동성", ours: (result.volatility || 0), vbt: (result.vbtResult.volatility || 0), fmt: (v: number) => `${v.toFixed(2)}%`, unit: "%", invertDiff: true },
-                ].map((row) => {
-                  const diff = row.vbt - row.ours;
-                  const absDiff = Math.abs(diff);
-                  // For MDD and volatility, lower is better, so positive diff means VBT is worse
-                  const isVbtBetter = row.invertDiff ? diff < -0.01 : diff > 0.01;
-                  const isVbtWorse = row.invertDiff ? diff > 0.01 : diff < -0.01;
-                  const diffColor = isVbtBetter ? "text-white" : isVbtWorse ? "text-gray-500" : "text-gray-600";
-
-                  return (
-                    <tr key={row.label} className="hover:bg-white/[0.02] transition-colors">
-                      <td className="py-2 px-3 text-xs font-bold text-gray-400">{row.label}</td>
-                      <td className={`py-2 px-3 text-sm font-black text-right font-mono ${
-                        row.label === "MDD" || row.label === "변동성" ? "text-white" :
-                        row.ours >= 0 ? "text-white" : "text-main-blue"
-                      }`}>
-                        {row.fmt(row.ours)}
-                      </td>
-                      <td className={`py-2 px-3 text-sm font-black text-right font-mono ${
-                        row.label === "MDD" || row.label === "변동성" ? "text-gray-200" :
-                        row.vbt >= 0 ? "text-gray-200" : "text-gray-500"
-                      }`}>
-                        {row.fmt(row.vbt)}
-                      </td>
-                      <td className={`py-2 px-3 text-xs font-bold text-right font-mono ${diffColor}`}>
-                        {absDiff < 0.01 ? "-" : `${diff >= 0 ? "+" : ""}${row.unit === "%" ? diff.toFixed(2) + "%" : diff.toFixed(2)}`}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <p className="mt-3 text-[10px] text-gray-600 leading-relaxed">
-            * 자체 엔진: 당일 종가 기반 현실적 리스크 관리 (SL/TP/TS를 종가로 감지 후 종가로 청산). VectorBT: 네이티브 SL/TP/TS 사용 (정확한 스탑 가격에서 이상적으로 체결).
-          </p>
-        </div>
-      )}
-
-      {/* 2. Main Content Area - Exact Mirror of Step 2 Pattern */}
-      <div className="flex flex-col overflow-hidden mb-2 min-h-0 min-w-0">
+      {/* 2. Main Content Area */}
+      <div className="flex flex-col min-w-0">
 
         {/* Tab Content */}
-        <div className="flex flex-col min-h-0 min-w-0 p-0 relative">
+        <div className="flex flex-col min-w-0">
            
            {/* Chart View */}
             {activeTab === "chart" && (
-              <div className="flex flex-col pt-2 pb-3 gap-3">
-                <div className="flat-card px-5 py-4">
-                  <p className="text-base font-black uppercase tracking-widest text-white mb-4">통계 요약</p>
-                  <div className="grid grid-cols-2 gap-x-6 gap-y-5">
-                    {[
-                      { label: "총 수익", value: formatKRW(result.finalEquity - result.initialCapital), color: result.finalEquity >= result.initialCapital ? "text-main-red" : "text-main-blue" },
-                      { label: "총 수익률", value: `${result.totalReturn >= 0 ? "+" : ""}${(result.totalReturn || 0).toFixed(2)}%`, color: result.totalReturn >= 0 ? "text-main-red" : "text-main-blue" },
-                      { label: "승률", value: `${(result.winRate || 0).toFixed(1)}%`, color: (result.winRate || 0) >= 55 ? "text-emerald-400" : (result.winRate || 0) >= 50 ? "text-yellow-400" : "text-red-400" },
-                      { label: "총 거래 수", value: `${result.trades}회`, color: "text-gray-200" },
-                    ].map((stat) => (
-                      <div key={stat.label}>
-                        <p className="text-xs text-gray-400 mb-1">{stat.label}</p>
-                        <p className={`text-xl font-black tabular-nums ${stat.color}`}>{stat.value}</p>
+              <>
+              <div className="border border-white/[0.08]">
+                <div className="relative overflow-hidden lg:pr-[420px]">
+                  <div className="min-w-0">
+                    <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+                      {overviewMetrics.map((metric, index) => (
+                        <OverviewMetricCard
+                          key={metric.label}
+                          label={metric.label}
+                          englishLabel={metric.englishLabel}
+                          value={metric.value}
+                          valueClass={metric.valueClass}
+                          className={[
+                            index < 4 ? "lg:border-b-0" : "lg:border-b",
+                            index < 6 ? "xl:border-b-0" : "xl:border-b",
+                          ].join(" ")}
+                          description={metric.description}
+                          onHover={(rect) => setHoveredMetric(rect ? { label: metric.label, description: metric.description, rect } : null)}
+                        />
+                      ))}
+                    </div>
+
+                    <div className="border-t border-white/[0.08]">
+                      <div className="flex items-center justify-between gap-4 px-5 py-4">
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-white/35">Equity Curve</p>
+                          <p className="mt-2 text-xl font-black tracking-tight text-white/80">Portfolio Value</p>
+                        </div>
+                        {dateRangeLabel && (
+                          <span className="text-sm font-mono text-white/40 md:text-base">
+                            {dateRangeLabel}
+                          </span>
+                        )}
+                      </div>
+                      <BacktestChart
+                        type="equity"
+                        height={340}
+                        equityData={equityCurveData}
+                        hideLegend
+                      />
+                    </div>
+                  </div>
+
+                  <div className="border-t border-white/[0.08] min-h-0 lg:absolute lg:inset-y-0 lg:right-0 lg:w-[420px] lg:border-t-0 lg:border-l lg:border-white/[0.08]">
+                    <div className="flex h-full min-h-0 flex-col">
+                      <BacktestTerminalLog result={result} stockMetadata={stockMetadata} fill />
+                    </div>
+                  </div>
+                </div>
+
+                {result.vbtResult && (
+                  <div className="border-t border-white/[0.08] p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <ArrowsClockwise className="w-4 h-4 text-gray-400" />
+                      <h4 className="text-base font-black uppercase tracking-widest text-white">엔진 비교</h4>
+                      <span className="text-[10px] text-gray-500 font-bold ml-1">자체 엔진 vs VectorBT 네이티브</span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-white/[0.06]">
+                            <th className="py-2 px-3 text-xs font-bold text-gray-400 uppercase tracking-widest w-[140px] rounded-l-lg">지표</th>
+                            <th className="py-2 px-3 text-xs font-bold text-gray-400 uppercase tracking-widest text-right">
+                              <span className="inline-flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-main-red inline-block" />자체 엔진
+                              </span>
+                            </th>
+                            <th className="py-2 px-3 text-xs font-bold text-gray-400 uppercase tracking-widest text-right">
+                              <span className="inline-flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-white/40 inline-block" />VectorBT
+                              </span>
+                            </th>
+                            <th className="py-2 px-3 text-xs font-bold text-gray-400 uppercase tracking-widest text-right rounded-r-lg">차이</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[
+                            { label: "CAGR", ours: result.cagr, vbt: result.vbtResult.cagr, fmt: (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`, unit: "%" },
+                            { label: "총수익률", ours: result.totalReturn, vbt: result.vbtResult.totalReturn, fmt: (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`, unit: "%" },
+                            { label: "MDD", ours: result.maxDrawdown, vbt: result.vbtResult.maxDrawdown, fmt: (v: number) => `${v.toFixed(2)}%`, unit: "%", invertDiff: true },
+                            { label: "Sharpe", ours: result.sharpe, vbt: result.vbtResult.sharpe, fmt: (v: number) => v.toFixed(2), unit: "" },
+                            { label: "Sortino", ours: result.sortino, vbt: result.vbtResult.sortino, fmt: (v: number) => v.toFixed(2), unit: "" },
+                            { label: "승률", ours: result.winRate, vbt: result.vbtResult.winRate, fmt: (v: number) => `${v.toFixed(1)}%`, unit: "%" },
+                            { label: "손익비", ours: result.profitFactor, vbt: result.vbtResult.profitFactor, fmt: (v: number) => v.toFixed(2), unit: "" },
+                            { label: "거래 수", ours: result.trades, vbt: result.vbtResult.trades, fmt: (v: number) => `${v}`, unit: "" },
+                            { label: "변동성", ours: (result.volatility || 0), vbt: (result.vbtResult.volatility || 0), fmt: (v: number) => `${v.toFixed(2)}%`, unit: "%", invertDiff: true },
+                          ].map((row) => {
+                            const diff = row.vbt - row.ours;
+                            const absDiff = Math.abs(diff);
+                            const isVbtBetter = row.invertDiff ? diff < -0.01 : diff > 0.01;
+                            const isVbtWorse = row.invertDiff ? diff > 0.01 : diff < -0.01;
+                            const diffColor = isVbtBetter ? "text-white" : isVbtWorse ? "text-gray-500" : "text-gray-600";
+
+                            return (
+                              <tr key={row.label} className="hover:bg-white/[0.02] transition-colors">
+                                <td className="py-2 px-3 text-xs font-bold text-gray-400">{row.label}</td>
+                                <td className={`py-2 px-3 text-sm font-black text-right font-mono ${
+                                  row.label === "MDD" || row.label === "변동성" ? "text-white" :
+                                  row.ours >= 0 ? "text-white" : "text-[var(--main-blue)]"
+                                }`}>
+                                  {row.fmt(row.ours)}
+                                </td>
+                                <td className={`py-2 px-3 text-sm font-black text-right font-mono ${
+                                  row.label === "MDD" || row.label === "변동성" ? "text-gray-200" :
+                                  row.vbt >= 0 ? "text-gray-200" : "text-gray-500"
+                                }`}>
+                                  {row.fmt(row.vbt)}
+                                </td>
+                                <td className={`py-2 px-3 text-xs font-bold text-right font-mono ${diffColor}`}>
+                                  {absDiff < 0.01 ? "-" : `${diff >= 0 ? "+" : ""}${row.unit === "%" ? diff.toFixed(2) + "%" : diff.toFixed(2)}`}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="mt-3 text-[10px] text-gray-600 leading-relaxed">
+                      * 자체 엔진: 당일 종가 기반 현실적 리스크 관리 (SL/TP/TS를 종가로 감지 후 종가로 청산). VectorBT: 네이티브 SL/TP/TS 사용 (정확한 스탑 가격에서 이상적으로 체결).
+                    </p>
+                  </div>
+                )}
+
+                {/* 월별 수익률 추이 */}
+                <div className="border-t border-white/[0.08] p-5 pb-4">
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h4 className="text-base font-black uppercase tracking-widest text-white font-outfit">
+                        월별 수익률 추이
+                      </h4>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {(() => {
+                          const allYears = Object.keys(monthlyReturns).sort((a, b) => Number(a) - Number(b));
+                          if (allYears.length > 0) return `${allYears[0]} ~ ${allYears[allYears.length - 1]} · 최근 ${monthlyReturnRows.length}년`;
+                          return "데이터 없음";
+                        })()}
+                      </p>
+                    </div>
+                    <Table size={18} className="text-gray-600" />
+                  </div>
+                  <div className="w-full overflow-x-auto">
+                    <table className="w-full min-w-[1040px] border-collapse">
+                      <thead>
+                        <tr>
+                          <th className="sticky left-0 z-30 bg-[var(--background)] text-left text-xs font-bold text-gray-600 uppercase tracking-widest py-2 pl-2 pr-4">
+                            연도
+                          </th>
+                          {["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"].map((label) => (
+                            <th key={label} className="px-3 py-2 text-right text-xs font-bold text-gray-600 uppercase tracking-widest">
+                              {label}
+                            </th>
+                          ))}
+                          <th className="text-right text-xs font-bold text-gray-600 uppercase tracking-widest py-2 pl-4 pr-2">
+                            연간 누적
+                          </th>
+                        </tr>
+                        <tr><td colSpan={14}><div className="border-t border-white/[0.05]" /></td></tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/[0.04]">
+                        {monthlyReturnRows.length > 0 ? (
+                          monthlyReturnRows.map((row) => (
+                            <tr key={row.year} className="hover:bg-white/[0.02] transition-colors duration-150">
+                              <td className="sticky left-0 z-10 bg-[var(--background)] pl-2 pr-4 py-3 text-sm font-black text-white tabular-nums font-outfit">
+                                {row.year}
+                              </td>
+                              {row.months.map((cell) => (
+                                <td key={`${row.year}-${cell.month}`} className="px-3 py-3 text-right">
+                                  <span className={`text-sm font-black tabular-nums font-outfit ${
+                                    cell.value == null ? "text-gray-600"
+                                    : cell.value > 0 ? "text-[var(--main-red)]"
+                                    : cell.value < 0 ? "text-[var(--main-blue)]"
+                                    : "text-white"
+                                  }`}>
+                                    {cell.value == null ? "-" : `${cell.value > 0 ? "+" : ""}${cell.value.toFixed(2)}%`}
+                                  </span>
+                                </td>
+                              ))}
+                              <td className="pl-4 pr-2 py-3 text-right">
+                                <span className={`text-sm font-black tabular-nums font-outfit ${
+                                  row.annualReturn == null ? "text-gray-600"
+                                  : row.annualReturn > 0 ? "text-[var(--main-red)]"
+                                  : row.annualReturn < 0 ? "text-[var(--main-blue)]"
+                                  : "text-white"
+                                }`}>
+                                  {row.annualReturn == null ? "-" : `${row.annualReturn > 0 ? "+" : ""}${row.annualReturn.toFixed(2)}%`}
+                                </span>
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={14} className="px-4 py-16 text-center text-sm text-gray-500">
+                              월별 수익률 데이터가 없습니다.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* 리스크 및 성과 분석 */}
+                <div className="border-t border-white/[0.08]">
+                  <div className="px-5 pt-4 pb-2">
+                    <span className="text-xs font-black uppercase tracking-widest text-gray-500">리스크 및 성과 분석</span>
+                  </div>
+                  <div className="flex divide-x divide-white/[0.08]">
+                    {([
+                      { label: "초기 자본", value: formatKRW(result.initialCapital), sub: "원" },
+                      { label: "최종 자산", value: formatKRW(result.finalEquity), sub: "원" },
+                      { label: "소르티노 지수", value: result.sortino.toFixed(2), sub: null, desc: METRIC_DESCRIPTIONS.sortino },
+                      { label: "켈리 공식", value: result.kelly.toFixed(2), sub: null, desc: METRIC_DESCRIPTIONS.kelly },
+                    ] as const).map((s) => (
+                      <div key={s.label} className="flex-1 flex flex-col gap-1 px-5 py-4">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">{s.label}</span>
+                          {"desc" in s && s.desc && (
+                            <Info
+                              className="w-3 h-3 text-gray-700 hover:text-gray-500 cursor-help transition-colors"
+                              onMouseEnter={(e) => setHoveredMetric({ label: s.label, description: s.desc!, rect: e.currentTarget.getBoundingClientRect() })}
+                              onMouseLeave={() => setHoveredMetric(null)}
+                            />
+                          )}
+                        </div>
+                        <div className="flex items-baseline gap-1">
+                          <p className="text-xl font-black tabular-nums font-outfit text-white leading-tight">{s.value}</p>
+                          {s.sub && <span className="text-[10px] font-bold text-gray-600">{s.sub}</span>}
+                        </div>
                       </div>
                     ))}
                   </div>
                 </div>
+
+                {/* 매매 통계 */}
+                <div className="border-t border-white/[0.08]">
+                  <div className="px-5 pt-4 pb-2">
+                    <span className="text-xs font-black uppercase tracking-widest text-gray-500">매매 통계</span>
+                  </div>
+                  <div className="flex divide-x divide-white/[0.08]">
+                    {[
+                      { label: "총 매매 횟수", value: result.trades.toString(), sub: "회" },
+                      { label: "평균 수익", value: formatKRW(result.avgProfit || 0), sub: "원" },
+                      { label: "평균 손실", value: formatKRW(result.avgLoss || 0), sub: "원" },
+                      { label: "최대 연속 수익", value: `${result.maxConsecutiveWins || 0}`, sub: "회" },
+                      { label: "최대 연속 손실", value: `${result.maxConsecutiveLosses || 0}`, sub: "회" },
+                    ].map((s) => (
+                      <div key={s.label} className="flex-1 flex flex-col gap-1 px-5 py-4">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">{s.label}</span>
+                        <div className="flex items-baseline gap-1">
+                          <p className="text-xl font-black tabular-nums font-outfit text-white leading-tight">{s.value}</p>
+                          <span className="text-[10px] font-bold text-gray-600">{s.sub}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
               </div>
+              </>
+           )}
+
+           {/* Report View */}
+           {activeTab === "report" && (
+             <div className="py-4">
+               <BacktestSummaryCard
+                 result={result}
+                 strategySummary={strategySummary}
+                 initialSummary={cachedAiSummary}
+                 initialScore={cachedAiScore}
+                 initialStrengths={cachedStrengths}
+                 initialWeaknesses={cachedWeaknesses}
+                 initialImprovements={cachedImprovements}
+                 onSummaryReady={(s, sc, st, wk, im) => {
+                   setCachedAiSummary(s);
+                   setCachedAiScore(sc);
+                   setCachedStrengths(st);
+                   setCachedWeaknesses(wk);
+                   setCachedImprovements(im);
+                   if (result.cacheKey) {
+                     fetch("/api/backtest/ai-report", {
+                       method: "PATCH",
+                       headers: { "Content-Type": "application/json" },
+                       body: JSON.stringify({
+                         cacheKey: result.cacheKey,
+                         aiSummary: s,
+                         aiScore: sc,
+                         aiStrengths: st,
+                         aiWeaknesses: wk,
+                         aiImprovements: im,
+                       }),
+                     }).catch(() => {/* 저장 실패는 무시 */});
+                   }
+                 }}
+               />
+             </div>
            )}
 
             {/* Assets View (Symbol Summary) */}
@@ -954,135 +1179,6 @@ export default function BacktestDashboard({
            )}
 
            {/* Stats View (Heatmap + Detailed Grid) */}
-          {activeTab === "stats" && (
-             <div className="h-full w-full overflow-y-auto custom-scrollbar py-6 space-y-8">
-               <div className="w-full">
-                   <h4 className="flex items-center gap-2 text-base font-black uppercase tracking-widest text-white mb-2">
-                     <Table className="w-4 h-4 text-gray-500" /> 월별 수익률 추이
-                   </h4>
-                   <div className="flex flex-wrap items-center gap-2 mb-4">
-                     <span className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-gray-500">
-                       최근 {monthlyReturnRows.length}년
-                     </span>
-                     {(() => {
-                       const allYears = Object.keys(monthlyReturns).sort((a, b) => Number(a) - Number(b));
-                       if (allYears.length > 0) return (
-                         <span className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-gray-500">
-                           {allYears[0]} ~ {allYears[allYears.length - 1]}
-                         </span>
-                       );
-                     })()}
-                   </div>
-                   <div className="w-full overflow-hidden rounded-2xl bg-[#0f0f10] shadow-[0_12px_40px_rgba(0,0,0,0.22)]">
-                      <div className="w-full overflow-x-auto">
-                        <table className="w-full min-w-[1040px] border-collapse">
-                          <thead className="sticky top-0 z-20">
-                            <tr className="bg-white/[0.06]">
-                              <th className="sticky left-0 z-30 bg-white/[0.06] px-5 py-4 text-left text-xs font-black uppercase tracking-[0.22em] text-gray-400 rounded-tl-2xl">
-                                연도
-                              </th>
-                              {["1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월"].map((label) => (
-                                <th key={label} className="px-3 py-4 text-right text-sm font-black uppercase tracking-[0.18em] text-gray-400">
-                                  {label}
-                                </th>
-                              ))}
-                              <th className="px-5 py-4 text-right text-xs font-black uppercase tracking-[0.22em] text-gray-400 rounded-tr-2xl">
-                                연간 누적
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {monthlyReturnRows.length > 0 ? (
-                              monthlyReturnRows.map((row) => (
-                                <tr key={row.year} className="bg-transparent hover:bg-white/[0.02] transition-colors">
-                                  <td className="sticky left-0 z-10 bg-white/[0.02] px-5 py-4 text-sm font-black text-white tabular-nums">
-                                    {row.year}
-                                  </td>
-                                  {row.months.map((cell) => (
-                                    <td
-                                      key={`${row.year}-${cell.month}`}
-                                      className="px-3 py-4 text-right"
-                                    >
-                                      <span
-                                        className={`inline-flex min-w-[72px] justify-end rounded-xl px-3 py-1.5 text-sm font-black tabular-nums ${
-                                          cell.value == null
-                                            ? "bg-white/[0.02] text-gray-600"
-                                            : cell.value > 0
-                                              ? "bg-[var(--main-red)]/10 text-[var(--main-red)]"
-                                              : cell.value < 0
-                                                ? "bg-[var(--main-blue)]/10 text-[var(--main-blue)]"
-                                                : "bg-white/[0.03] text-white"
-                                      }`}
-                                    >
-                                        {cell.value == null ? "-" : `${cell.value > 0 ? "+" : ""}${cell.value.toFixed(2)}%`}
-                                      </span>
-                                    </td>
-                                  ))}
-                                  <td className="px-5 py-4 text-right">
-                                    <span className={`inline-flex min-w-[88px] justify-end rounded-xl px-3 py-1.5 text-sm font-black tabular-nums ${
-                                      row.annualReturn == null
-                                        ? "bg-white/[0.02] text-gray-600"
-                                        : row.annualReturn > 0
-                                          ? "bg-[var(--main-red)]/10 text-[var(--main-red)]"
-                                          : row.annualReturn < 0
-                                            ? "bg-[var(--main-blue)]/10 text-[var(--main-blue)]"
-                                            : "bg-white/[0.03] text-white"
-                                    }`}>
-                                      {row.annualReturn == null ? "-" : `${row.annualReturn > 0 ? "+" : ""}${row.annualReturn.toFixed(2)}%`}
-                                    </span>
-                                  </td>
-                                </tr>
-                              ))
-                            ) : (
-                              <tr>
-                                <td colSpan={14} className="px-4 py-16 text-center text-sm text-gray-500">
-                                  월별 수익률 데이터가 없습니다.
-                                </td>
-                              </tr>
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-                   </div>
-                 </div>
-
-               <div className="grid w-full grid-cols-1 lg:grid-cols-2 gap-6">
-                 {/* Risk Stats */}
-                 <div className="flat-card p-5">
-                     <h5 className="text-xs font-black text-gray-500 uppercase tracking-widest mb-4">리스크 및 성과 분석</h5>
-                     <div className="space-y-3">
-                        <StatItem label="초기 자본" value={formatKRW(result.initialCapital)} />
-                        <StatItem label="최종 자산" value={formatKRW(result.finalEquity)} />
-                        <StatItem 
-                          label="소르티노 지수" 
-                          value={result.sortino.toFixed(2)} 
-                          description={METRIC_DESCRIPTIONS.sortino}
-                          onHover={(rect) => setHoveredMetric(rect ? { label: "소르티노 지수", description: METRIC_DESCRIPTIONS.sortino, rect } : null)}
-                        />
-                        <StatItem 
-                          label="켈리 공식" 
-                          value={result.kelly.toFixed(2)} 
-                          description={METRIC_DESCRIPTIONS.kelly}
-                          onHover={(rect) => setHoveredMetric(rect ? { label: "켈리 공식", description: METRIC_DESCRIPTIONS.kelly, rect } : null)}
-                        />
-                    </div>
-                 </div>
-                 
-                  {/* Trade Stats */}
-                 <div className="flat-card p-5">
-                    <h5 className="text-xs font-black text-gray-500 uppercase tracking-widest mb-4">매매 통계</h5>
-                    <div className="space-y-3">
-                       <StatItem label="총 매매 횟수" value={result.trades.toString()} />
-                       <StatItem label="평균 수익" value={formatKRW(result.avgProfit || 0)} />
-                       <StatItem label="평균 손실" value={formatKRW(result.avgLoss || 0)} />
-                       <StatItem label="최대 연속 수익" value={`${result.maxConsecutiveWins || 0}회`} />
-                       <StatItem label="최대 연속 손실" value={`${result.maxConsecutiveLosses || 0}회`} />
-                    </div>
-                 </div>
-               </div>
-
-             </div>
-           )}
 
            {/* Log View */}
            {activeTab === "log" && (
@@ -1092,12 +1188,11 @@ export default function BacktestDashboard({
                       <table className="w-full text-left border-collapse">
                         <thead className="bg-white/[0.06] sticky top-0 z-10">
                            <tr>
-                              <th className="p-3 pl-4 text-sm font-bold text-gray-400 uppercase tracking-[0.18em] rounded-tl-2xl">날짜</th>
+                              <th className="p-3 pl-4 text-xs font-bold text-gray-400 uppercase tracking-[0.18em] rounded-tl-2xl">날짜</th>
                               <th className="p-3 text-xs font-bold text-gray-400 uppercase tracking-[0.18em]">종목</th>
                               <th className="p-3 text-xs font-bold text-gray-400 uppercase tracking-[0.18em]">구분</th>
                               <th className="p-3 text-xs font-bold text-gray-400 uppercase tracking-[0.18em]">체결가</th>
                                <th className="p-3 text-xs font-bold text-gray-400 uppercase tracking-[0.18em]">수량</th>
-                               <th className="p-3 text-xs font-bold text-gray-400 uppercase tracking-[0.18em] text-center">AI 분석</th>
                                <th className="p-3 text-xs font-bold text-gray-400 uppercase tracking-[0.18em]">매매사유</th>
                                <th className="p-3 pr-4 text-xs font-bold text-gray-400 uppercase tracking-[0.18em] text-right rounded-tr-2xl">거래금액</th>
                            </tr>
@@ -1123,14 +1218,6 @@ export default function BacktestDashboard({
                                     <td className="p-3 text-sm font-bold text-gray-400 tabular-nums">
                                       {Math.floor(Number(t.quantity)).toLocaleString()}주
                                     </td>
-                                    <td className="p-3 text-center">
-                                       <button
-                                         onClick={() => setXaiTarget({ symbol: t.symbol, date: t.date })}
-                                         className="px-2 py-1 bg-[var(--main-blue)]/10 hover:bg-[var(--main-blue)]/20 text-[var(--main-blue)] text-[10px] font-black rounded-md border border-[var(--main-blue)]/20 transition-all"
-                                       >
-                                         분석
-                                       </button>
-                                    </td>
                                     <td className="p-3 text-xs font-bold text-gray-500">{resolveTradeReason(t.reason, t.type, normalizedBacktestDsl)}</td>
                                    <td className="p-3 pr-4 text-sm font-bold text-right tabular-nums text-white">
                                       {formatKRW(tradeAmount)}
@@ -1150,38 +1237,8 @@ export default function BacktestDashboard({
                  )}
               </div>
            )}
-        </div>
-      </div>
 
-      <div className="mt-4">
-        <BacktestSummaryCard
-          result={result}
-          strategySummary={strategySummary}
-          initialSummary={cachedAiSummary}
-          initialScore={cachedAiScore}
-          initialStrengths={cachedStrengths}
-          initialRisks={cachedRisks}
-          onSummaryReady={(s, sc, st, ri) => {
-            setCachedAiSummary(s);
-            setCachedAiScore(sc);
-            setCachedStrengths(st);
-            setCachedRisks(ri);
-            // AI 리포트 생성 완료 시 DB에 저장 → 같은 전략 재실행 시 재생성 불필요
-            if (result.cacheKey) {
-              fetch("/api/backtest/ai-report", {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  cacheKey: result.cacheKey,
-                  aiSummary: s,
-                  aiScore: sc,
-                  aiStrengths: st,
-                  aiRisks: ri,
-                }),
-              }).catch(() => {/* 저장 실패는 무시 */});
-            }
-          }}
-        />
+        </div>
       </div>
 
       {hoveredMetric && (
@@ -1209,7 +1266,7 @@ export default function BacktestDashboard({
           })()}
         >
           <div className="w-64 p-4 bg-[#161616] rounded-2xl shadow-2xl animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-200 backdrop-blur-2xl border border-white/10">
-            <div className="text-[10px] text-main-blue font-bold uppercase tracking-widest mb-1.5 opacity-80">{hoveredMetric.label}</div>
+            <div className="text-[10px] text-[var(--main-blue)] font-bold uppercase tracking-widest mb-1.5 opacity-80">{hoveredMetric.label}</div>
             <p className="text-xs text-white/75 font-bold leading-relaxed whitespace-pre-wrap">{hoveredMetric.description}</p>
           </div>
         </div>
@@ -1250,7 +1307,7 @@ function BacktestTerminalLog({
   type LogLevel = "INFO" | "WARN" | "ERROR" | "SUCCESS";
   const logs: { level: LogLevel; message: string; ts?: string }[] = [];
 
-  const ts = (i: number) => `${start.slice(0, 10)} +${String(i).padStart(3, "0")}s`;
+  const ts = (_i: number) => start.slice(0, 10);
 
   // 초기화
   logs.push({ level: "INFO", ts: ts(0), message: `백테스트 엔진 초기화 완료` });
@@ -1335,20 +1392,19 @@ function BacktestTerminalLog({
   }
 
   // 완료
-  const elapsed = result.executionTime != null ? ` (${result.executionTime.toFixed(2)}s)` : "";
-  logs.push({ level: "SUCCESS", ts: ts(99), message: `백테스트 완료${elapsed} — 총 ${result.trades ?? 0}회 거래 / 최종자산 ${(result.finalEquity ?? 0).toLocaleString()}원 / 수익률 ${(result.totalReturn ?? 0).toFixed(2)}%` });
+  logs.push({ level: "SUCCESS", ts: ts(99), message: `백테스트 완료 — 총 ${result.trades ?? 0}회 거래 / 최종자산 ${(result.finalEquity ?? 0).toLocaleString()}원 / 수익률 ${(result.totalReturn ?? 0).toFixed(2)}%` });
 
   const levelStyle: Record<LogLevel, string> = {
     INFO: "text-blue-400",
-    WARN: "text-yellow-400",
+    WARN: "text-orange-400",
     ERROR: "text-red-400",
-    SUCCESS: "text-emerald-400",
+    SUCCESS: "text-white",
   };
 
   return (
     <div className={`flat-card overflow-hidden flex flex-col ${fill ? "flex-1 min-h-0" : "mx-2 mb-2"}`}>
       <div className="px-4 py-3 border-b border-white/[0.05] flex-none">
-        <p className="text-base font-black uppercase tracking-widest text-white">백테스트 알림</p>
+        <p className="text-base font-black uppercase tracking-widest text-white">백테스트 로그</p>
       </div>
       <div className={`px-4 py-3 overflow-y-auto custom-scrollbar font-mono text-xs ${fill ? "flex-1 min-h-0 space-y-1" : "max-h-64 space-y-1"}`}>
         {logs.map((log, i) => (
@@ -1367,6 +1423,7 @@ function BacktestTerminalLog({
 
 function OverviewMetricCard({
   label,
+  englishLabel,
   value,
   valueClass,
   className,
@@ -1374,6 +1431,7 @@ function OverviewMetricCard({
   onHover,
 }: {
   label: string;
+  englishLabel?: string;
   value: string;
   valueClass?: string;
   className?: string;
@@ -1381,10 +1439,17 @@ function OverviewMetricCard({
   onHover?: (rect: DOMRect | null) => void;
 }) {
   return (
-    <div className={`min-h-[148px] border-r border-b border-white/[0.08] px-5 py-5 md:px-6 md:py-6 ${className || ""}`}>
+    <div className={`min-h-[110px] border-r border-b border-white/[0.08] px-5 py-5 md:px-6 md:py-6 ${className || ""}`}>
       <div className="flex items-start justify-between gap-3">
-        <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-white/42">
-          {label}
+        <div className="flex flex-col gap-1">
+          <div className="text-xs font-bold uppercase tracking-[0.22em] text-gray-500">
+            {label}
+          </div>
+          {englishLabel && (
+            <div className="text-[10px] font-bold text-gray-600 tracking-wider">
+              {englishLabel}
+            </div>
+          )}
         </div>
         {description && onHover && (
           <Info
@@ -1394,7 +1459,7 @@ function OverviewMetricCard({
           />
         )}
       </div>
-      <div className={`mt-5 text-3xl font-black tracking-tight text-white md:text-4xl ${valueClass || ""}`}>
+      <div className={`mt-5 text-3xl font-black tracking-tight ${valueClass || "text-white"} md:text-4xl`}>
         {value}
       </div>
     </div>
@@ -1422,7 +1487,7 @@ function StatRow({
     ? colorOverride
     : (isNeutral 
         ? "text-white" 
-        : (value.includes("-") ? "text-main-blue" : (parseFloat(value) === 0 ? "text-white" : "text-main-red")));
+        : (value.includes("-") ? "text-[var(--main-blue)]" : (parseFloat(value) === 0 ? "text-white" : "text-[var(--main-red)]")));
 
   return (
     <div className="bg-[#0d0d0d] rounded-lg px-3 pt-2 pb-2 flex flex-col justify-center flex-1">
