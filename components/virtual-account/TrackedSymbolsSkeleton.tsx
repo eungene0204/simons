@@ -9,7 +9,7 @@ export default function TrackedSymbolsSkeleton({
 }: TrackedSymbolsSkeletonProps) {
   return (
     <div>
-      <div className="grid grid-cols-[1fr_80px_72px_80px_52px_24px] gap-x-3 px-1 pb-2 border-b border-white/[0.05] text-xs font-bold text-gray-600 uppercase tracking-widest">
+      <div className="grid grid-cols-[1fr_80px_72px_80px_52px_24px] gap-x-3 px-2 py-2 bg-white/[0.06] rounded-lg text-xs font-bold text-gray-400 uppercase tracking-widest">
         <span>종목</span>
         <span className="text-right">현재가</span>
         <span className="text-right">등락률</span>

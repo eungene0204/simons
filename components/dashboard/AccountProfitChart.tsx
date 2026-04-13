@@ -55,7 +55,7 @@ export default function AccountProfitChart({ initialData }: { initialData: Accou
 
   if (!data) {
     return (
-      <div className="glass-card p-5 h-full">
+      <div className="flat-card p-5 h-full">
         <div className="h-4 bg-white/5 rounded w-1/3 mb-5 animate-pulse" />
         <div className="flex items-end gap-8 mt-4" style={{ height: CHART_H }}>
           {[...Array(4)].map((_, i) => (
@@ -154,7 +154,7 @@ export default function AccountProfitChart({ initialData }: { initialData: Accou
 
   /* ── Render ──────────────────────────────── */
   return (
-    <div className="glass-card p-5 h-full">
+    <div className="flat-card p-5 h-full">
       {/* Header */}
       <div className="flex items-start justify-between mb-4">
         <div>

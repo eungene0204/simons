@@ -8,7 +8,6 @@ import { BacktestResult } from "@/types/strategy";
 import { ChartLineUp, ArrowLeft, ArrowsClockwise, Warning } from "phosphor-react";
 import { BacktestConfigOptions } from "@/components/strategy/backtest/BacktestConfig";
 import {
-  hasLegacyBreakoutLookback,
   inferBacktestOptionsFromResult,
   normalizeLegacyBreakoutStrategy,
 } from "@/components/strategy/legacyBreakout";
@@ -141,30 +140,11 @@ function StrategyResultContent() {
           });
         }
 
-        if (normalizedSettings && hasLegacyBreakoutLookback(rawSettings)) {
-          setLegacyNotice("기존 52일 breakout 버그가 감지되어 결과를 252일 기준으로 자동 재실행했습니다.");
-          setIsRunning(true);
-          try {
-            const rerunResponse = await fetch("/api/backtest/run", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(normalizedSettings),
-              cache: "no-store",
-            });
-            const rerunData = await rerunResponse.json();
-            if (!rerunResponse.ok) {
-              throw new Error(rerunData.detail ?? rerunData.error ?? "자동 재실행 실패");
-            }
-            setResult(mapBacktestResponse(rerunData));
-          } catch {
-            setResult(data.backtestResult);
-            setLegacyNotice("기존 52일 breakout 버그가 감지됐지만 자동 재실행에 실패했습니다. 재실행을 다시 시도해 주세요.");
-          } finally {
-            setIsRunning(false);
-          }
-        } else {
-          setResult(data.backtestResult);
+        if (normalizedSettings !== rawSettings) {
+          setLegacyNotice("기존 52일 breakout 버그가 감지되었습니다. 필요하면 재실행 버튼으로 252일 기준 결과를 다시 계산해 주세요.");
         }
+
+        setResult(data.backtestResult);
       } catch (e: any) {
         setError(e.message ?? "불러오기 실패");
       } finally {

@@ -36,7 +36,7 @@ export default function WatchlistSnapshot() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between px-5 pt-4 mb-4">
         <div className="flex items-center gap-2">
           <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit">
             관심 종목
@@ -49,9 +49,9 @@ export default function WatchlistSnapshot() {
       </div>
 
       {loading ? (
-        <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+        <div className="grid grid-cols-3 sm:grid-cols-6 border-t border-l border-white/[0.08]">
           {[...Array(6)].map((_, i) => (
-            <div key={i} className="glass-card p-3 animate-pulse">
+            <div key={i} className="border-r border-b border-white/[0.08] p-3 animate-pulse">
               <div className="h-2 bg-white/5 rounded w-2/3 mb-3" />
               <div className="h-5 bg-white/5 rounded w-3/4 mb-2" />
               <div className="h-3 bg-white/5 rounded w-1/2" />
@@ -59,7 +59,7 @@ export default function WatchlistSnapshot() {
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 border-t border-l border-white/[0.08]">
           {items.map((item) => {
             const isPos = item.changePercent >= 0;
             const hasData = item.price > 0;
@@ -70,7 +70,7 @@ export default function WatchlistSnapshot() {
               : "text-gray-600";
 
             return (
-              <div key={item.symbol} className="glass-card p-3">
+              <div key={item.symbol} className="border-r border-b border-white/[0.08] p-3">
                 <div className="flex items-start justify-between mb-1">
                   <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold leading-tight truncate pr-1">
                     {item.name}

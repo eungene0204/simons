@@ -36,7 +36,7 @@ export default function StrategyList({ initialData }: { initialData: StrategyLis
   const strategies = data?.strategies ?? [];
 
   return (
-    <div className="glass-card p-5 h-full">
+    <div className="flat-card p-5 h-full">
       {/* 헤더 */}
       <div className="flex items-center justify-between mb-5">
         <div>

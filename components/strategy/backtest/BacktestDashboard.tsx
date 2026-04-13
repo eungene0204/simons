@@ -700,7 +700,7 @@ export default function BacktestDashboard({
 
       {/* Engine Comparison Panel */}
       {result.vbtResult && (
-        <div className="mb-4 glass-card p-4">
+        <div className="mb-4 flat-card p-4">
           <div className="flex items-center gap-2 mb-3">
             <ArrowsClockwise className="w-4 h-4 text-gray-400" />
             <h4 className="text-base font-black uppercase tracking-widest text-white">엔진 비교</h4>
@@ -709,19 +709,19 @@ export default function BacktestDashboard({
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-white/5">
-                  <th className="py-2 px-3 text-[10px] font-bold text-gray-500 uppercase tracking-widest w-[140px]">지표</th>
-                  <th className="py-2 px-3 text-[10px] font-bold text-gray-500 uppercase tracking-widest text-right">
+                <tr className="bg-white/[0.06]">
+                  <th className="py-2 px-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest w-[140px] rounded-l-lg">지표</th>
+                  <th className="py-2 px-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-right">
                     <span className="inline-flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-main-red inline-block" />자체 엔진
                     </span>
                   </th>
-                  <th className="py-2 px-3 text-[10px] font-bold text-gray-500 uppercase tracking-widest text-right">
+                  <th className="py-2 px-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-right">
                     <span className="inline-flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-white/40 inline-block" />VectorBT
                     </span>
                   </th>
-                  <th className="py-2 px-3 text-[10px] font-bold text-gray-500 uppercase tracking-widest text-right">차이</th>
+                  <th className="py-2 px-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-right rounded-r-lg">차이</th>
                 </tr>
               </thead>
               <tbody>
@@ -783,7 +783,7 @@ export default function BacktestDashboard({
             {activeTab === "chart" && (
               <div className="flex flex-col pt-2 pb-3 gap-3">
                 {/* Equity Curve — full width */}
-                <div className="glass-card flex flex-col p-3">
+                <div className="flat-card flex flex-col p-3">
                   <div className="px-1 pb-2">
                     <span className="text-sm font-black tracking-wide text-gray-400">자산 차트</span>
                   </div>
@@ -805,7 +805,7 @@ export default function BacktestDashboard({
                 {/* Below chart: 4 stats | Terminal Log */}
                 <div className="flex gap-3 items-stretch">
                   {/* 4 Key Stats */}
-                  <div className="flex-[4] min-w-0 glass-card px-5 py-4">
+                  <div className="flex-[4] min-w-0 flat-card px-5 py-4">
                     <p className="text-base font-black uppercase tracking-widest text-white mb-4">통계 요약</p>
                     <div className="grid grid-cols-2 gap-x-6 gap-y-5">
                       {[
@@ -836,11 +836,11 @@ export default function BacktestDashboard({
              <div className="h-full overflow-y-auto custom-scrollbar">
                 <div className="overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0f0f10] shadow-[0_12px_40px_rgba(0,0,0,0.22)]">
                    <table className="w-full text-left border-collapse">
-                      <thead className="bg-[var(--card-bg)] sticky top-0 z-10">
-                         <tr className="border-b border-white/[0.05]">
-                            <th className="p-4 pl-5 text-xs font-bold text-gray-500 uppercase tracking-[0.18em] rounded-tl-2xl">종목</th>
-                            <th className="p-4 text-xs font-bold text-gray-500 uppercase tracking-[0.18em]">섹터</th>
-                             <th className="p-4 text-xs font-bold text-gray-500 uppercase tracking-[0.18em] text-right">
+                      <thead className="bg-white/[0.06] sticky top-0 z-10">
+                         <tr>
+                            <th className="p-4 pl-5 text-xs font-bold text-gray-400 uppercase tracking-[0.18em] rounded-tl-2xl">종목</th>
+                            <th className="p-4 text-xs font-bold text-gray-400 uppercase tracking-[0.18em]">섹터</th>
+                             <th className="p-4 text-xs font-bold text-gray-400 uppercase tracking-[0.18em] text-right">
                                 <div
                                   className="inline-flex items-center justify-end gap-1 cursor-pointer transition-colors group"
                                   onClick={() => handleSort('profit')}
@@ -848,7 +848,7 @@ export default function BacktestDashboard({
                                    수익금 <SortIcon column="profit" />
                                 </div>
                              </th>
-                             <th className="p-4 text-xs font-bold text-gray-500 uppercase tracking-[0.18em] text-right">
+                             <th className="p-4 text-xs font-bold text-gray-400 uppercase tracking-[0.18em] text-right">
                                 <div
                                   className="inline-flex items-center justify-end gap-1 cursor-pointer transition-colors group"
                                   onClick={() => handleSort('totalReturn')}
@@ -856,7 +856,7 @@ export default function BacktestDashboard({
                                    수익률 <SortIcon column="totalReturn" />
                                 </div>
                              </th>
-                             <th className="p-4 pr-5 text-xs font-bold text-gray-500 uppercase tracking-[0.18em] text-right rounded-tr-2xl">
+                             <th className="p-4 pr-5 text-xs font-bold text-gray-400 uppercase tracking-[0.18em] text-right rounded-tr-2xl">
                                 <div
                                   className="inline-flex items-center justify-end gap-1 cursor-pointer transition-colors group"
                                   onClick={() => handleSort('trades')}
@@ -936,8 +936,8 @@ export default function BacktestDashboard({
                       <div className="w-full overflow-x-auto">
                         <table className="w-full min-w-[1040px] border-collapse">
                           <thead className="sticky top-0 z-20">
-                            <tr className="bg-[var(--card-bg)]">
-                              <th className="sticky left-0 z-30 bg-white/[0.02] px-5 py-4 text-left text-xs font-black uppercase tracking-[0.22em] text-gray-400 rounded-tl-2xl">
+                            <tr className="bg-white/[0.06]">
+                              <th className="sticky left-0 z-30 bg-white/[0.06] px-5 py-4 text-left text-xs font-black uppercase tracking-[0.22em] text-gray-400 rounded-tl-2xl">
                                 연도
                               </th>
                               {["1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월"].map((label) => (
@@ -1007,7 +1007,7 @@ export default function BacktestDashboard({
 
                <div className="grid w-full grid-cols-1 lg:grid-cols-2 gap-6">
                  {/* Risk Stats */}
-                 <div className="glass-card p-5">
+                 <div className="flat-card p-5">
                      <h5 className="text-xs font-black text-gray-500 uppercase tracking-widest mb-4">리스크 및 성과 분석</h5>
                      <div className="space-y-3">
                         <StatItem label="초기 자본" value={formatKRW(result.initialCapital)} />
@@ -1028,7 +1028,7 @@ export default function BacktestDashboard({
                  </div>
                  
                   {/* Trade Stats */}
-                 <div className="glass-card p-5">
+                 <div className="flat-card p-5">
                     <h5 className="text-xs font-black text-gray-500 uppercase tracking-widest mb-4">매매 통계</h5>
                     <div className="space-y-3">
                        <StatItem label="총 매매 횟수" value={result.trades.toString()} />
@@ -1049,16 +1049,16 @@ export default function BacktestDashboard({
                  {result.tradesList?.length > 0 ? (
                     <div className="overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0f0f10] shadow-[0_12px_40px_rgba(0,0,0,0.22)]">
                       <table className="w-full text-left border-collapse">
-                        <thead className="bg-[var(--card-bg)] sticky top-0 z-10">
-                           <tr className="border-b border-white/[0.05]">
-                              <th className="p-3 pl-4 text-sm font-bold text-gray-500 uppercase tracking-[0.18em] rounded-tl-2xl">날짜</th>
-                              <th className="p-3 text-xs font-bold text-gray-500 uppercase tracking-[0.18em]">종목</th>
-                              <th className="p-3 text-xs font-bold text-gray-500 uppercase tracking-[0.18em]">구분</th>
-                              <th className="p-3 text-xs font-bold text-gray-500 uppercase tracking-[0.18em]">체결가</th>
-                               <th className="p-3 text-xs font-bold text-gray-500 uppercase tracking-[0.18em]">수량</th>
-                               <th className="p-3 text-xs font-bold text-gray-500 uppercase tracking-[0.18em] text-center">AI 분석</th>
-                               <th className="p-3 text-xs font-bold text-gray-500 uppercase tracking-[0.18em]">매매사유</th>
-                               <th className="p-3 pr-4 text-xs font-bold text-gray-500 uppercase tracking-[0.18em] text-right rounded-tr-2xl">거래금액</th>
+                        <thead className="bg-white/[0.06] sticky top-0 z-10">
+                           <tr>
+                              <th className="p-3 pl-4 text-sm font-bold text-gray-400 uppercase tracking-[0.18em] rounded-tl-2xl">날짜</th>
+                              <th className="p-3 text-xs font-bold text-gray-400 uppercase tracking-[0.18em]">종목</th>
+                              <th className="p-3 text-xs font-bold text-gray-400 uppercase tracking-[0.18em]">구분</th>
+                              <th className="p-3 text-xs font-bold text-gray-400 uppercase tracking-[0.18em]">체결가</th>
+                               <th className="p-3 text-xs font-bold text-gray-400 uppercase tracking-[0.18em]">수량</th>
+                               <th className="p-3 text-xs font-bold text-gray-400 uppercase tracking-[0.18em] text-center">AI 분석</th>
+                               <th className="p-3 text-xs font-bold text-gray-400 uppercase tracking-[0.18em]">매매사유</th>
+                               <th className="p-3 pr-4 text-xs font-bold text-gray-400 uppercase tracking-[0.18em] text-right rounded-tr-2xl">거래금액</th>
                            </tr>
                         </thead>
                         <tbody>
@@ -1274,7 +1274,7 @@ function BacktestTerminalLog({
   };
 
   return (
-    <div className={`glass-card overflow-hidden flex flex-col ${fill ? "flex-1 min-h-0" : "mx-2 mb-2"}`}>
+    <div className={`flat-card overflow-hidden flex flex-col ${fill ? "flex-1 min-h-0" : "mx-2 mb-2"}`}>
       <div className="px-4 py-3 border-b border-white/[0.05] flex-none">
         <p className="text-base font-black uppercase tracking-widest text-white">백테스트 알림</p>
       </div>
@@ -1313,7 +1313,7 @@ function MetricCard({
   const dynamicColor = trend === "up" ? "text-main-red" : trend === "down" ? "text-main-blue" : (colorClass || "text-white");
       
   return (
-    <div className="glass-card p-2 md:p-3 flex flex-col justify-between hover:border-white/10 transition-colors">
+    <div className="flat-card p-2 md:p-3 flex flex-col justify-between hover:border-white/10 transition-colors">
       <div className="flex items-center justify-between mb-0.5">
         <div className="text-[10px] md:text-xs font-black text-gray-500 uppercase tracking-widest">{label}</div>
         {description && onHover && (

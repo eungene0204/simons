@@ -7,10 +7,10 @@
 
 ## 1. 디자인 시스템 개요
 
-**Dark Glass Morphism** 기반의 다크 테마 UI.
+**Flat Dark** 기반의 다크 테마 UI.
 
 - 배경: 깊은 검정색 (`#0f0f0f`)
-- 카드: 반투명 유리 효과 (`glass-card` 클래스)
+- 카드: 평면 단색 카드 (`flat-card` 클래스, 그림자/블러 없음)
 - 강조색: 빨강/파랑/초록 3색 체계
 - 폰트: 굵고 대담한 스타일 (`font-black`, `font-bold`)
 
@@ -112,8 +112,8 @@ KOSDAQ:   bg-purple-500/15  text-purple-400
 ### 페이지 레이아웃 패딩
 
 ```
-p-4 md:p-5 lg:p-6   (반응형 페이지 패딩)
-space-y-5            (섹션 간 세로 간격)
+p-2 md:p-3   (반응형 페이지 패딩)
+space-y-1    (섹션 간 세로 간격 — 카드가 바짝 붙도록)
 ```
 
 ### 카드 내부 패딩
@@ -128,7 +128,7 @@ space-y-5            (섹션 간 세로 간격)
 
 | 용도 | 갭 |
 |------|----|
-| 섹션 간 카드 | `gap-6` |
+| 섹션 간 카드 | `gap-1` |
 | 카드 그룹 내부 | `gap-4` |
 | 소형 카드 그룹 | `gap-3` |
 | 아이콘-텍스트 | `gap-2`, `gap-1.5` |
@@ -138,36 +138,42 @@ space-y-5            (섹션 간 세로 간격)
 
 ## 5. 카드 & 패널
 
-### glass-card (기본 카드)
+### flat-card (기본 카드)
 
 모든 카드/패널의 기본 단위. `globals.css`에 정의된 유틸리티 클래스.
 
+- 배경색은 페이지 배경(`var(--background)`)과 동일 — 카드가 배경에 녹아드는 flat 효과
+- 테두리·그림자·라운드 없음 — 경계는 컨테이너 레벨 `divide-*`로 처리
+
 ```css
-.glass-card {
-  background: var(--card-bg);       /* rgb(22,22,22) */
-  backdrop-filter: blur(24px);
-  border: 1px solid var(--card-border);  /* rgba(255,255,255,0.05) */
-  border-radius: 1rem;              /* rounded-2xl */
-  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
-  transition: all 500ms;
+.flat-card {
+  background: var(--background);   /* #0f0f0f — 페이지 배경과 동일 */
   overflow: hidden;
-  position: relative;
-}
-
-.glass-card::before {
-  /* 상단 하이라이트 그래디언트 */
-  background: linear-gradient(from-white/[0.05] to-transparent);
-}
-
-.glass-card:hover {
-  border-color: rgba(255,255,255,0.1);
 }
 ```
 
-**사용법:**
+**레이아웃 구분 방식 (divide 패턴):**
 ```tsx
-<div className="glass-card p-5 h-full">
-  {/* 내용 */}
+{/* 페이지 전체 외곽 + 행 구분 */}
+<div className="border border-white/[0.08]">
+  <div className="divide-y divide-white/[0.08]">
+    <ComponentA />  {/* 행1 */}
+    {/* 열 구분이 필요한 행 */}
+    <div className="grid grid-cols-1 lg:grid-cols-10 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
+      <div className="lg:col-span-6"><ComponentB /></div>
+      <div className="lg:col-span-4"><ComponentC /></div>
+    </div>
+  </div>
+</div>
+
+{/* flex 행 내부 열 구분 */}
+<div className="flex divide-x divide-white/[0.08]">
+  {items.map(item => <div key={item.id} className="flex-1 px-5 py-4" />)}
+</div>
+
+{/* 그리드 아이템 개별 구분 (border-t border-l을 wrapper에, border-r border-b를 아이템에) */}
+<div className="grid grid-cols-3 sm:grid-cols-6 border-t border-l border-white/[0.08]">
+  {items.map(item => <div key={item.id} className="border-r border-b border-white/[0.08] p-3" />)}
 </div>
 ```
 
@@ -177,14 +183,36 @@ space-y-5            (섹션 간 세로 간격)
 <div className="border-t border-white/[0.05]" />
 ```
 
+### 테이블 컬럼 제목 (기본)
+
+모든 테이블의 컬럼 제목 행은 다음 스타일을 기본으로 한다.
+
+```tsx
+<div className="... px-2 py-2 bg-white/[0.03] rounded-lg text-xs font-bold text-gray-400 uppercase tracking-widest">
+  <span>컬럼명</span>
+  ...
+</div>
+```
+
+- 배경: `bg-white/[0.03]` + `rounded-lg` — 보더 대신 배경색으로 헤더 행 구분
+- 텍스트: `text-gray-400 text-xs font-bold uppercase tracking-widest`
+- 행 구분선(border-b) 사용 금지 — 배경색으로만 구분
+
+### 테이블 행 (기본)
+
+- 행 구분선(`border-b`) 사용 금지 — 행 간 시각적 구분은 `hover:bg-white/[0.02]` 호버 효과로만 처리한다.
+- 행 클릭이 가능한 경우 `cursor-pointer transition-colors duration-150` 추가.
+
+```tsx
+<tr className="hover:bg-white/[0.02] cursor-pointer transition-colors duration-150">
+  ...
+</tr>
+```
+
 ### 카드형 테이블
 
-- 분석 리스트, 종목 분석, 매매 기록, 월별 수익률처럼 행 단위 정보가 많은 표는 `overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0f0f10]` 같은 외곽 카드로 감싼다.
-- 헤더는 `sticky top-0 z-10`을 사용해 고정할 수 있다.
-- 첫 번째 헤더 셀은 `rounded-tl-2xl`, 마지막 헤더 셀은 `rounded-tr-2xl`을 사용해 외곽만 부드럽게 만든다.
-- 행 내부는 과한 테두리 대신 `border-b border-white/[0.03]`와 `hover:bg-white/[0.02]`로 구분한다.
-- 카드형 테이블은 표 본문보다 외곽 라운드와 여백을 우선하고, 셀마다 별도 라운드는 넣지 않는다.
-- 같은 화면 안에 있는 표들은 가능한 한 동일한 외곽, 헤더 높이, 행 간격을 공유한다.
+- 분석 리스트, 종목 분석, 매매 기록, 월별 수익률처럼 행 단위 정보가 많은 표는 외곽 카드로 감싼다.
+- 같은 화면 안에 있는 표들은 가능한 한 동일한 헤더 높이, 행 간격을 공유한다.
 
 ---
 
@@ -202,7 +230,7 @@ space-y-5            (섹션 간 세로 간격)
 ## 7. 그림자
 
 ```css
-카드:     box-shadow: 0 8px 32px rgba(0,0,0,0.3)
+카드:     그림자 없음 (flat)
 활성 바:  box-shadow: 0 4px 16px rgba({color},0.40)
 버튼 호버: box-shadow: 0 0 15px rgba(59,130,246,0.4)
 ```
@@ -214,7 +242,7 @@ space-y-5            (섹션 간 세로 간격)
 ### 페이지 기본 구조
 
 ```tsx
-<div className="p-4 md:p-5 lg:p-6 space-y-5 w-full min-w-0">
+<div className="p-2 md:p-3 space-y-1 w-full min-w-0">
   {/* 섹션들 */}
 </div>
 ```
@@ -233,7 +261,7 @@ space-y-5            (섹션 간 세로 간격)
 ```tsx
 {/* 4개 균등 */}
 <div className="flex gap-4">
-  {items.map(item => <div key={item.id} className="flex-1 glass-card p-4" />)}
+  {items.map(item => <div key={item.id} className="flex-1 flat-card p-4" />)}
 </div>
 
 {/* 3컬럼 → 6컬럼 반응형 */}
@@ -300,7 +328,7 @@ space-y-5            (섹션 간 세로 간격)
 
 ```
 transition-all duration-300    (일반 상호작용)
-transition-all duration-500    (glass-card 전환)
+transition-all duration-300    (flat-card 호버)
 transition-colors duration-200 (텍스트 색상 변화)
 ```
 
@@ -493,8 +521,8 @@ transition-colors duration-200 (텍스트 색상 변화)
 
 새 페이지/컴포넌트 작성 시 확인:
 
-- [ ] `glass-card` 클래스로 카드 구성
-- [ ] 페이지 루트에 `p-4 md:p-5 lg:p-6 space-y-5` 적용
+- [ ] `flat-card` 클래스로 카드 구성
+- [ ] 페이지 루트에 `p-2 md:p-3 space-y-1` 적용
 - [ ] 섹션 제목에 `text-base font-black uppercase tracking-widest` 적용
 - [ ] 숫자 수치에 `tabular-nums` 적용
 - [ ] 상태 색상에 CSS 커스텀 속성(`var(--main-red)` 등) 사용

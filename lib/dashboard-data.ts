@@ -36,6 +36,7 @@ async function fetchDashboardFromDB(): Promise<DashboardInitialData> {
     strategies,
     strategyAccounts,
     backtestHistory,
+    sellOrders,
   ] = await Promise.all([
     prisma.virtualAccount.findMany({ include: { VirtualPosition: true } }),
     prisma.virtualAccount.count(),
@@ -53,6 +54,15 @@ async function fetchDashboardFromDB(): Promise<DashboardInitialData> {
       include: { VirtualPosition: true },
     }),
     prisma.backtestHistory.findMany({ orderBy: { createdAt: "desc" }, take: 50 }),
+    prisma.virtualOrder.findMany({
+      where: {
+        side: "SELL",
+        status: "FILLED",
+        realizedPnl: { not: null },
+        filledAt: { not: null },
+      },
+      select: { accountId: true, realizedPnl: true, filledAt: true },
+    }),
   ]);
 
   // ── PortfolioStats ──────────────────────────────────────────
@@ -88,8 +98,29 @@ async function fetchDashboardFromDB(): Promise<DashboardInitialData> {
     totalEvaluation: totalValue,
   };
 
-  // ── AccountMonthly (목 데이터) ──────────────────────────────
-  const accountMonthly = MOCK_ACCOUNT_MONTHLY;
+  // ── AccountMonthly ──────────────────────────────────────────
+  const now = new Date();
+  const months: string[] = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push(`${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
+
+  const accountMonthly: AccountMonthlyData = {
+    months,
+    accounts: accounts.map((acc) => {
+      const accOrders = sellOrders.filter((o) => o.accountId === acc.id);
+      const monthlyProfitPct = months.map((ym) => {
+        const [y, m] = ym.split("/").map(Number);
+        const monthEnd = new Date(y, m, 1).getTime();
+        const cumPnl = accOrders
+          .filter((o) => o.filledAt && o.filledAt.getTime() < monthEnd)
+          .reduce((sum, o) => sum + (o.realizedPnl ?? 0), 0);
+        return acc.initialCash > 0 ? (cumPnl / acc.initialCash) * 100 : 0;
+      });
+      return { id: acc.id, name: acc.name, initialCash: acc.initialCash, monthlyProfitPct };
+    }),
+  };
 
   // ── StrategyList ────────────────────────────────────────────
   const strategyItems: StrategyListItem[] = strategies.map((s) => {

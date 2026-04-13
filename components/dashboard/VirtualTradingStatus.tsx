@@ -56,14 +56,14 @@ export default function VirtualTradingStatus({ initialData }: { initialData: Tra
   ];
 
   return (
-    <div className="flex gap-3 items-stretch">
+    <div className="flex divide-x divide-white/[0.08] items-stretch">
       {/* 5개 통계 */}
       {stats.map((s) => {
         const Icon = s.icon;
         return (
           <div
             key={s.label}
-            className="flex-1 flex flex-col justify-between px-4 py-4 glass-card"
+            className="flex-1 flex flex-col justify-between px-4 py-4"
           >
               <div className="flex items-center gap-2">
                 <Icon

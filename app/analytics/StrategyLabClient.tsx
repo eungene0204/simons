@@ -36,7 +36,7 @@ function DeleteConfirmModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
-      <div className="relative w-full max-w-sm glass-card p-6 space-y-5">
+      <div className="relative w-full max-w-sm flat-card p-6 space-y-5">
         {/* 닫기 */}
         <button
           onClick={onCancel}
@@ -149,7 +149,7 @@ export default function StrategyLabClient({ strategies: initial }: { strategies:
           </div>
 
           {strategies.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 glass-card">
+            <div className="flex flex-col items-center justify-center py-20 flat-card">
               <ChartLineUp size={36} className="text-gray-700 mb-4" />
               <p className="text-sm font-bold text-gray-600">저장된 전략이 없습니다</p>
               <p className="text-xs font-bold text-gray-700 mt-1 mb-5">새 전략을 만들어 백테스트를 시작해보세요</p>
@@ -201,7 +201,7 @@ export default function StrategyLabClient({ strategies: initial }: { strategies:
                   <div
                     key={s.id}
                     onClick={() => router.push(`/analytics/${s.id}`)}
-                    className="group glass-card p-4 space-y-3 cursor-pointer"
+                    className="group flat-card p-4 space-y-3 cursor-pointer"
                   >
                     {/* 이름 + 삭제 버튼 */}
                     <div className="flex items-start justify-between gap-2">

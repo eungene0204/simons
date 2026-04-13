@@ -327,10 +327,10 @@ class NLStrategyParser:
     def __init__(
         self,
         backend: Literal["ollama", "mlx"] = "mlx",
-        model_7b: str = "mlx-community/Qwen3.5-4B-OptiQ-4bit",
-        model_32b: str = "mlx-community/Qwen3.5-4B-OptiQ-4bit",
-        ollama_model_7b: str = "qwen3.5:4b",
-        ollama_model_32b: str = "qwen3.5:4b",
+        model_7b: str = "mlx-community/Qwen3.5-9B-OptiQ-4bit",
+        model_32b: str = "mlx-community/Qwen3.5-9B-OptiQ-4bit",
+        ollama_model_7b: str = "qwen3.5:9b",
+        ollama_model_32b: str = "qwen3.5:9b",
         max_retries: int = 3,
     ):
         self.backend = backend
@@ -350,6 +350,12 @@ class NLStrategyParser:
         self._mlx_model_32b = None
         self._tokenizer_32b = None
 
+    def _model_log_label(self, model_name: str) -> str:
+        """로그에 표시할 사람이 읽기 쉬운 모델 라벨을 만든다."""
+        model_id = model_name.split("/")[-1]
+        normalized = model_id.replace("-OptiQ-4bit", "").replace("-Instruct-4bit", "")
+        return normalized or model_name
+
     # ── Lazy init ────────────────────────────────────────────────────────────
 
     def _init_ollama(self):
@@ -368,7 +374,7 @@ class NLStrategyParser:
         )
 
     def _init_mlx_7b(self):
-        """7B 모델 초기화 (parse + modification용, 서버 시작 시 로드)"""
+        """기본 MLX 모델 초기화 (parse + modification용, 서버 시작 시 로드)"""
         if self._generator_7b is not None:
             return
         try:
@@ -378,17 +384,18 @@ class NLStrategyParser:
         except ImportError:
             raise RuntimeError("pip install outlines mlx-lm 필요")
 
-        print(f"[NLParser] 7B 모델 로딩: {self.model_7b} ...", flush=True)
+        log_label = self._model_log_label(self.model_7b)
+        print(f"[NLParser] {log_label} 모델 로딩: {self.model_7b} ...", flush=True)
         mlx_model, tokenizer = mlx_lm.load(self.model_7b)
         self._mlx_model_7b = mlx_model
         self._tokenizer_7b = tokenizer
         self._outlines_model_7b = models.from_mlxlm(mlx_model, tokenizer)
         self._generator_7b = outlines.Generator(self._outlines_model_7b, ParsedStrategy)
         self._diff_generator_7b = outlines.Generator(self._outlines_model_7b, ParsedStrategyDiff)
-        print("[NLParser] 7B 모델 로딩 완료", flush=True)
+        print(f"[NLParser] {log_label} 모델 로딩 완료", flush=True)
 
     def _init_mlx_32b(self):
-        """32B 모델 초기화 (modification용, 첫 수정 요청 시 lazy 로드)"""
+        """추가 MLX 모델 초기화 (하위 호환용 lazy 로드)"""
         if self._generator_32b is not None:
             return
         try:
@@ -398,14 +405,15 @@ class NLStrategyParser:
         except ImportError:
             raise RuntimeError("pip install outlines mlx-lm 필요")
 
-        print(f"[NLParser] 32B 모델 로딩: {self.model_32b} ...", flush=True)
+        log_label = self._model_log_label(self.model_32b)
+        print(f"[NLParser] {log_label} 모델 로딩: {self.model_32b} ...", flush=True)
         mlx_model, tokenizer = mlx_lm.load(self.model_32b)
         self._mlx_model_32b = mlx_model
         self._tokenizer_32b = tokenizer
         self._outlines_model_32b = models.from_mlxlm(mlx_model, tokenizer)
         self._generator_32b = outlines.Generator(self._outlines_model_32b, ParsedStrategy)
         self._diff_generator_32b = outlines.Generator(self._outlines_model_32b, ParsedStrategyDiff)
-        print("[NLParser] 32B 모델 로딩 완료", flush=True)
+        print(f"[NLParser] {log_label} 모델 로딩 완료", flush=True)
 
     # 하위 호환: preload_nl_parser에서 _init_mlx() 호출 지원
     def _init_mlx(self):

@@ -348,7 +348,7 @@ export default function StrategyComposer({
   }, [entryConditions, exitConditions, positionRules, portfolioRules]);
 
   return (
-    <div className="glass-card p-6 md:p-8">
+    <div className="flat-card p-6 md:p-8">
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>

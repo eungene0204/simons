@@ -38,7 +38,7 @@ export default function BacktestActivityChart({ initialRecords }: { initialRecor
   const totalCount = bars.reduce((s, b) => s + b.count, 0);
 
   return (
-    <div className="glass-card p-5 h-full flex flex-col">
+    <div className="flat-card p-5 h-full flex flex-col">
       <div className="flex items-center justify-between mb-5">
         <div>
           <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit">

@@ -265,13 +265,20 @@ def test_take_profit_korean_shorthand():
     assert parsed.take_profit_pct == 20.0
 
 
-def test_nl_strategy_parser_defaults_point_to_qwen35_4b():
+def test_nl_strategy_parser_defaults_point_to_qwen35_9b():
     parser = NLStrategyParser()
 
-    assert parser.model_7b == "mlx-community/Qwen3.5-4B-OptiQ-4bit"
-    assert parser.model_32b == "mlx-community/Qwen3.5-4B-OptiQ-4bit"
-    assert parser.ollama_model_7b == "qwen3.5:4b"
-    assert parser.ollama_model_32b == "qwen3.5:4b"
+    assert parser.model_7b == "mlx-community/Qwen3.5-9B-OptiQ-4bit"
+    assert parser.model_32b == "mlx-community/Qwen3.5-9B-OptiQ-4bit"
+    assert parser.ollama_model_7b == "qwen3.5:9b"
+    assert parser.ollama_model_32b == "qwen3.5:9b"
+
+
+def test_nl_strategy_parser_model_log_label_uses_actual_model_name():
+    parser = NLStrategyParser()
+
+    assert parser._model_log_label(parser.model_7b) == "Qwen3.5-9B"
+    assert parser._model_log_label("mlx-community/Qwen2.5-7B-Instruct-4bit") == "Qwen2.5-7B"
 
 
 # ─── LLM 환각 신호 검증 테스트 ──────────────────────────────────────────────
