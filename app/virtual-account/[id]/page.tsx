@@ -833,13 +833,13 @@ export default function VirtualAccountDetailPage() {
                       <thead>
                         <tr className="bg-white/[0.06]">
                           {["종목", "구분", "체결가", "수량", "거래금액", "수수료", "실현손익", "체결시각"].map((h, i, arr) => (
-                            <th key={h} className={`text-[10px] font-bold text-gray-400 uppercase tracking-widest py-2 px-3 first:pl-2 last:pr-2 text-right first:text-left ${i === 0 ? "rounded-l-lg" : ""} ${i === arr.length - 1 ? "rounded-r-lg" : ""}`}>{h}</th>
+                            <th key={h} className={`text-xs font-bold text-gray-400 uppercase tracking-widest py-2 px-3 first:pl-2 last:pr-2 text-right first:text-left ${i === 0 ? "rounded-l-lg" : ""} ${i === arr.length - 1 ? "rounded-r-lg" : ""}`}>{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
                         {transactions.map((t) => (
-                          <tr key={t.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors duration-150">
+                          <tr key={t.id} className="hover:bg-white/[0.02] transition-colors duration-150">
                             <td className="py-3 pl-0 pr-3">
                               <p className="text-sm font-bold text-white">{t.name}</p>
                               <p className="text-[10px] font-bold text-gray-500">{t.symbol}</p>

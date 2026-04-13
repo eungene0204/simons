@@ -81,24 +81,14 @@ export default function BacktestDetailPage() {
 
   const conds = item.conditions as any;
 
-  const universeBadgeClass = "bg-white/[0.04] text-gray-200 border border-white/10";
-
   return (
     <DashboardLayout>
       <div className="flex flex-col h-full">
-        <div className="flex items-center gap-3 px-4 md:px-5 lg:px-6 pt-5 pb-2">
-          <span className="text-white font-black text-base">{item.strategyName}</span>
-          <span className={`px-2 py-0.5 rounded-md text-xs font-bold ${universeBadgeClass}`}>
-            {item.universe}
-          </span>
-          <span className="text-xs font-bold text-gray-600 tabular-nums ml-auto">
-            {new Date(item.timestamp).toLocaleString()}
-          </span>
-        </div>
         <BacktestDashboard
           result={item.result}
           onRestart={() => router.back()}
           disableHistorySave={true}
+          promptText={item.strategyName}
           aiSummary={item.metrics.aiSummary}
           aiScore={item.metrics.aiScore}
           aiStrengths={item.metrics.aiStrengths}

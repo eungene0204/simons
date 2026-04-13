@@ -4,8 +4,6 @@ import { BacktestResult } from "@/types/strategy";
 import BacktestChart from "@/components/strategy/BacktestChart";
 import { BacktestConfigOptions } from "@/components/strategy/backtest/BacktestConfig";
 import {
-  TrendUp,
-  TrendDown,
   Table,
   ChartBar,
   ArrowsClockwise,
@@ -95,6 +93,7 @@ interface BacktestDashboardProps {
   aiStrengths?: string[];
   aiRisks?: string[];
   disableHistorySave?: boolean; // true이면 히스토리 자동 저장 비활성화 (저장된 전략 조회 시)
+  promptText?: string; // 사용자 프롬프트 (툴팁으로 표시)
   strategySummary?: {
     universeName: string;
     blockNames: string[];
@@ -135,10 +134,12 @@ export default function BacktestDashboard({
   aiRisks: initialAiRisksProp,
   strategySummary,
   disableHistorySave,
+  promptText,
 }: BacktestDashboardProps) {
   const [activeTab, setActiveTab] = useState<"chart" | "stats" | "log" | "assets">("chart");
   const [isWFAOpen, setIsWFAOpen] = useState(false);
-
+  const [promptTooltipOpen, setPromptTooltipOpen] = useState(false);
+  const promptTooltipRef = useRef<HTMLDivElement>(null);
 
   const [localOptions, setLocalOptions] = useState<BacktestConfigOptions | null>(currentOptions || null);
   const [stockMetadata, setStockMetadata] = useState<Record<string, { name: string, sector: string }>>({});
@@ -176,6 +177,17 @@ export default function BacktestDashboard({
 
 
   // 백테스트 완료 시 자동으로 히스토리에 저장 (isAutoSave=true → 기존 이름 보존)
+  useEffect(() => {
+    if (!promptTooltipOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (promptTooltipRef.current && !promptTooltipRef.current.contains(e.target as Node)) {
+        setPromptTooltipOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [promptTooltipOpen]);
+
   useEffect(() => {
     if (disableHistorySave) return;
     if (!strategySummary) return;
@@ -299,8 +311,6 @@ export default function BacktestDashboard({
       </div>
     );
   };
-  const availableYears = Object.keys(monthlyReturns).sort((a, b) => b.localeCompare(a));
-
   useEffect(() => {
     if (currentOptions) setLocalOptions(currentOptions);
   }, [currentOptions]);
@@ -421,6 +431,66 @@ export default function BacktestDashboard({
       setIsSavingStrategy(false);
     }
   };
+
+  const dateRangeLabel = result.dates[0] && result.dates[result.dates.length - 1]
+    ? `${result.dates[0]} → ${result.dates[result.dates.length - 1]}`
+    : "";
+
+  const overviewMetrics = [
+    {
+      label: "총수익률",
+      value: `${result.totalReturn >= 0 ? "+" : ""}${(result.totalReturn || 0).toFixed(2)}%`,
+      valueClass: result.totalReturn > 0 ? "text-emerald-400" : result.totalReturn < 0 ? "text-red-400" : "text-white",
+      description: METRIC_DESCRIPTIONS.totalReturn,
+    },
+    {
+      label: "연평균수익률",
+      value: `${result.cagr.toFixed(2)}%`,
+      valueClass: "text-white",
+      description: METRIC_DESCRIPTIONS.cagr,
+    },
+    {
+      label: "최대낙폭",
+      value: `${result.maxDrawdown.toFixed(2)}%`,
+      valueClass: "text-red-400",
+      description: METRIC_DESCRIPTIONS.mdd,
+    },
+    {
+      label: "샤프 비율",
+      value: result.sharpe.toFixed(2),
+      valueClass: "text-white",
+      description: METRIC_DESCRIPTIONS.sharpe,
+    },
+    {
+      label: "소르티노",
+      value: result.sortino.toFixed(2),
+      valueClass: "text-white",
+      description: METRIC_DESCRIPTIONS.sortino,
+    },
+    {
+      label: "승률",
+      value: `${(result.winRate || 0).toFixed(1)}%`,
+      valueClass: "text-white",
+      description: "전체 거래 중 수익으로 끝난 거래의 비율입니다.",
+    },
+    {
+      label: "손익비",
+      value: result.profitFactor.toFixed(2),
+      valueClass: "text-white",
+      description: METRIC_DESCRIPTIONS.profitFactor,
+    },
+    {
+      label: "켈리 기준",
+      value: result.kelly.toFixed(2),
+      valueClass: "text-white",
+      description: METRIC_DESCRIPTIONS.kelly,
+    },
+  ];
+
+  const equityCurveData = result.dates.map((d: string, i: number) => ({
+    time: d,
+    equity: result.equity[i],
+  }));
 
   return (
     <div className="flex-1 flex flex-col min-h-0 min-w-0 animate-in fade-in zoom-in-95 duration-300 px-6 pb-8">
@@ -559,14 +629,33 @@ export default function BacktestDashboard({
         <h2 className="text-3xl font-black text-white tracking-tight">
           백테스트 결과
         </h2>
-        <span className="text-sm font-mono text-gray-500 font-normal mb-2">
-          {result.dates[0] && result.dates[result.dates.length-1] && `${result.dates[0]} ~ ${result.dates[result.dates.length-1]}`}
-        </span>
+        <div className="flex items-center gap-3 mb-2">
+          <span className="text-sm font-mono text-gray-500 font-normal">
+            {result.dates[0] && result.dates[result.dates.length-1] && `${result.dates[0]} ~ ${result.dates[result.dates.length-1]}`}
+          </span>
+          {promptText && (
+            <div className="relative" ref={promptTooltipRef}>
+              <button
+                type="button"
+                onClick={() => setPromptTooltipOpen((v) => !v)}
+                className="shrink-0 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[11px] font-bold text-gray-300 transition-all duration-200 hover:bg-white/[0.08] hover:text-white"
+              >
+                프롬프트 보기
+              </button>
+              {promptTooltipOpen && (
+                <div className="absolute left-0 top-full mt-2 z-50 w-80 rounded-xl border border-white/[0.08] bg-[#1a1f2e] p-4 shadow-2xl">
+                  <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-500">사용자 프롬프트</p>
+                  <p className="text-xs font-bold text-gray-300 leading-6 whitespace-pre-wrap">{promptText}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         <div className="flex items-center justify-between w-full">
           <div className="flex bg-[#0a0a0a] rounded-lg p-1 w-fit">
             {[
-              { id: "chart", label: "차트 분석", icon: ChartBar },
+              { id: "chart", label: "개요", icon: ChartBar },
               { id: "assets", label: "종목 분석", icon: List },
               { id: "stats", label: "통계 상세", icon: Table },
               { id: "log", label: "매매 기록", icon: ShieldCheck },
@@ -631,69 +720,50 @@ export default function BacktestDashboard({
         </div>
       </div>
 
-      {/* AI Summary + Hero Metrics */}
-      <div className="mb-4 space-y-3">
-        <BacktestSummaryCard
-          result={result}
-          strategySummary={strategySummary}
-          initialSummary={cachedAiSummary}
-          initialScore={cachedAiScore}
-          initialStrengths={cachedStrengths}
-          initialRisks={cachedRisks}
-          onSummaryReady={(s, sc, st, ri) => {
-            setCachedAiSummary(s);
-            setCachedAiScore(sc);
-            setCachedStrengths(st);
-            setCachedRisks(ri);
-            // AI 리포트 생성 완료 시 DB에 저장 → 같은 전략 재실행 시 재생성 불필요
-            if (result.cacheKey) {
-              fetch("/api/backtest/ai-report", {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  cacheKey: result.cacheKey,
-                  aiSummary: s,
-                  aiScore: sc,
-                  aiStrengths: st,
-                  aiRisks: ri,
-                }),
-              }).catch(() => {/* 저장 실패는 무시 */});
-            }
-          }}
-        />
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-          <MetricCard
-            label="연평균수익률"
-            value={`${result.cagr.toFixed(2)}%`}
-            subValue="CAGR"
-            trend={result.cagr > 0 ? "up" : "down"}
-            description={METRIC_DESCRIPTIONS.cagr}
-            onHover={(rect) => setHoveredMetric(rect ? { label: "연평균수익률", description: METRIC_DESCRIPTIONS.cagr, rect } : null)}
-          />
-          <MetricCard
-            label="최대낙폭"
-            value={`${result.maxDrawdown.toFixed(2)}%`}
-            subValue="MDD"
-            trend="down"
-            description={METRIC_DESCRIPTIONS.mdd}
-            onHover={(rect) => setHoveredMetric(rect ? { label: "최대낙폭", description: METRIC_DESCRIPTIONS.mdd, rect } : null)}
-          />
-          <MetricCard
-            label="샤프지수"
-            value={result.sharpe.toFixed(2)}
-            subValue="위험 대비 성과"
-            trend={result.sharpe > 1 ? "up" : "neutral"}
-            description={METRIC_DESCRIPTIONS.sharpe}
-            onHover={(rect) => setHoveredMetric(rect ? { label: "샤프지수", description: METRIC_DESCRIPTIONS.sharpe, rect } : null)}
-          />
-          <MetricCard
-            label="손익비"
-            value={result.profitFactor.toFixed(2)}
-            subValue="Profit Factor"
-            trend={result.profitFactor > 1.5 ? "up" : "neutral"}
-            description={METRIC_DESCRIPTIONS.profitFactor}
-            onHover={(rect) => setHoveredMetric(rect ? { label: "손익비", description: METRIC_DESCRIPTIONS.profitFactor, rect } : null)}
-          />
+      <div className="relative mb-4 overflow-hidden border-y border-white/[0.1] bg-[#151515] lg:pr-[360px]">
+        <div className="min-w-0">
+          <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+            {overviewMetrics.map((metric, index) => (
+              <OverviewMetricCard
+                key={metric.label}
+                label={metric.label}
+                value={metric.value}
+                valueClass={metric.valueClass}
+                className={[
+                  index < 4 ? "lg:border-b-0" : "lg:border-b",
+                  index < 6 ? "xl:border-b-0" : "xl:border-b",
+                ].join(" ")}
+                description={metric.description}
+                onHover={(rect) => setHoveredMetric(rect ? { label: metric.label, description: metric.description, rect } : null)}
+              />
+            ))}
+          </div>
+
+          <div className="border-t border-white/[0.08]">
+            <div className="flex items-center justify-between gap-4 px-5 py-4">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-white/35">Equity Curve</p>
+                <p className="mt-2 text-xl font-black tracking-tight text-white/80">Portfolio Value</p>
+              </div>
+              {dateRangeLabel && (
+                <span className="text-sm font-mono text-white/40 md:text-base">
+                  {dateRangeLabel}
+                </span>
+              )}
+            </div>
+            <BacktestChart
+              type="equity"
+              height={420}
+              equityData={equityCurveData}
+              hideLegend
+            />
+          </div>
+        </div>
+
+        <div className="border-t border-white/[0.08] min-h-0 lg:absolute lg:inset-y-0 lg:right-0 lg:w-[360px] lg:border-t-0 lg:border-l lg:border-white/[0.08]">
+          <div className="flex h-full min-h-0 flex-col">
+            <BacktestTerminalLog result={result} stockMetadata={stockMetadata} fill />
+          </div>
         </div>
       </div>
 
@@ -744,7 +814,7 @@ export default function BacktestDashboard({
                   const diffColor = isVbtBetter ? "text-white" : isVbtWorse ? "text-gray-500" : "text-gray-600";
 
                   return (
-                    <tr key={row.label} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
+                    <tr key={row.label} className="hover:bg-white/[0.02] transition-colors">
                       <td className="py-2 px-3 text-xs font-bold text-gray-400">{row.label}</td>
                       <td className={`py-2 px-3 text-sm font-black text-right font-mono ${
                         row.label === "MDD" || row.label === "변동성" ? "text-white" :
@@ -782,49 +852,20 @@ export default function BacktestDashboard({
            {/* Chart View */}
             {activeTab === "chart" && (
               <div className="flex flex-col pt-2 pb-3 gap-3">
-                {/* Equity Curve — full width */}
-                <div className="flat-card flex flex-col p-3">
-                  <div className="px-1 pb-2">
-                    <span className="text-sm font-black tracking-wide text-gray-400">자산 차트</span>
-                  </div>
-                  <div className="bg-[#0a0a0f] rounded-xl overflow-hidden relative">
-                    <BacktestChart
-                      type="equity"
-                      height={380}
-                      trades={result.tradesList}
-                      equityData={result.dates.map((d: string, i: number) => ({
-                        time: d,
-                        equity: result.equity[i],
-                        buyHold: result.benchmarkEquity ? result.benchmarkEquity[i] : (result.initialCapital * (1 + (result.buyAndHoldReturn || 0)/100)),
-                        vbtEquity: result.vbtResult?.equity?.[i],
-                      }))}
-                    />
-                  </div>
-                </div>
-
-                {/* Below chart: 4 stats | Terminal Log */}
-                <div className="flex gap-3 items-stretch">
-                  {/* 4 Key Stats */}
-                  <div className="flex-[4] min-w-0 flat-card px-5 py-4">
-                    <p className="text-base font-black uppercase tracking-widest text-white mb-4">통계 요약</p>
-                    <div className="grid grid-cols-2 gap-x-6 gap-y-5">
-                      {[
-                        { label: "총 수익", value: formatKRW(result.finalEquity - result.initialCapital), color: result.finalEquity >= result.initialCapital ? "text-main-red" : "text-main-blue" },
-                        { label: "총 수익률", value: `${result.totalReturn >= 0 ? "+" : ""}${(result.totalReturn || 0).toFixed(2)}%`, color: result.totalReturn >= 0 ? "text-main-red" : "text-main-blue" },
-                        { label: "승률", value: `${(result.winRate || 0).toFixed(1)}%`, color: (result.winRate || 0) >= 55 ? "text-emerald-400" : (result.winRate || 0) >= 50 ? "text-yellow-400" : "text-red-400" },
-                        { label: "총 거래 수", value: `${result.trades}회`, color: "text-gray-200" },
-                      ].map((stat) => (
-                        <div key={stat.label}>
-                          <p className="text-xs text-gray-400 mb-1">{stat.label}</p>
-                          <p className={`text-xl font-black tabular-nums ${stat.color}`}>{stat.value}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Terminal Log */}
-                  <div className="flex-[6] min-w-0 flex flex-col h-[200px]">
-                    <BacktestTerminalLog result={result} stockMetadata={stockMetadata} fill />
+                <div className="flat-card px-5 py-4">
+                  <p className="text-base font-black uppercase tracking-widest text-white mb-4">통계 요약</p>
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-5">
+                    {[
+                      { label: "총 수익", value: formatKRW(result.finalEquity - result.initialCapital), color: result.finalEquity >= result.initialCapital ? "text-main-red" : "text-main-blue" },
+                      { label: "총 수익률", value: `${result.totalReturn >= 0 ? "+" : ""}${(result.totalReturn || 0).toFixed(2)}%`, color: result.totalReturn >= 0 ? "text-main-red" : "text-main-blue" },
+                      { label: "승률", value: `${(result.winRate || 0).toFixed(1)}%`, color: (result.winRate || 0) >= 55 ? "text-emerald-400" : (result.winRate || 0) >= 50 ? "text-yellow-400" : "text-red-400" },
+                      { label: "총 거래 수", value: `${result.trades}회`, color: "text-gray-200" },
+                    ].map((stat) => (
+                      <div key={stat.label}>
+                        <p className="text-xs text-gray-400 mb-1">{stat.label}</p>
+                        <p className={`text-xl font-black tabular-nums ${stat.color}`}>{stat.value}</p>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -872,7 +913,7 @@ export default function BacktestDashboard({
                              const meta = stockMetadata[sym];
 
                              return (
-                               <tr key={sym} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors duration-150 last:border-b-0">
+                               <tr key={sym} className="hover:bg-white/[0.02] transition-colors duration-150">
                                   <td className="px-4 py-2.5 pl-5">
                                      <div className="flex flex-col">
                                         <span className="text-sm font-bold text-white truncate">{meta?.name || sym}</span>
@@ -1065,7 +1106,7 @@ export default function BacktestDashboard({
                             {result.tradesList.map((t, i) => {
                                const tradeAmount = t.amount || 0;
                                return (
-                                <tr key={`${t.symbol}-${t.date}-${t.type}-${i}`} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors duration-150 last:border-b-0">
+                                <tr key={`${t.symbol}-${t.date}-${t.type}-${i}`} className="hover:bg-white/[0.02] transition-colors duration-150">
                                    <td className="p-3 pl-4 text-sm font-bold text-gray-300 tabular-nums">{t.date}</td>
                                    <td className="p-3 text-sm font-bold text-white">
                                       <div className="flex flex-col">
@@ -1110,6 +1151,37 @@ export default function BacktestDashboard({
               </div>
            )}
         </div>
+      </div>
+
+      <div className="mt-4">
+        <BacktestSummaryCard
+          result={result}
+          strategySummary={strategySummary}
+          initialSummary={cachedAiSummary}
+          initialScore={cachedAiScore}
+          initialStrengths={cachedStrengths}
+          initialRisks={cachedRisks}
+          onSummaryReady={(s, sc, st, ri) => {
+            setCachedAiSummary(s);
+            setCachedAiScore(sc);
+            setCachedStrengths(st);
+            setCachedRisks(ri);
+            // AI 리포트 생성 완료 시 DB에 저장 → 같은 전략 재실행 시 재생성 불필요
+            if (result.cacheKey) {
+              fetch("/api/backtest/ai-report", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  cacheKey: result.cacheKey,
+                  aiSummary: s,
+                  aiScore: sc,
+                  aiStrengths: st,
+                  aiRisks: ri,
+                }),
+              }).catch(() => {/* 저장 실패는 무시 */});
+            }
+          }}
+        />
       </div>
 
       {hoveredMetric && (
@@ -1278,7 +1350,7 @@ function BacktestTerminalLog({
       <div className="px-4 py-3 border-b border-white/[0.05] flex-none">
         <p className="text-base font-black uppercase tracking-widest text-white">백테스트 알림</p>
       </div>
-      <div className={`px-4 py-3 space-y-1 overflow-y-auto custom-scrollbar font-mono text-xs ${fill ? "flex-1 min-h-0" : "max-h-64"}`}>
+      <div className={`px-4 py-3 overflow-y-auto custom-scrollbar font-mono text-xs ${fill ? "flex-1 min-h-0 space-y-1" : "max-h-64 space-y-1"}`}>
         {logs.map((log, i) => (
           <div key={i} className="flex gap-3 leading-relaxed">
             <span className="text-gray-600 shrink-0">[{log.ts ?? now}]</span>
@@ -1293,39 +1365,38 @@ function BacktestTerminalLog({
 
 // Sub-components for Cleaner Code
 
-function MetricCard({
-  label, 
-  value, 
-  subValue, 
-  trend, 
-  colorClass,
+function OverviewMetricCard({
+  label,
+  value,
+  valueClass,
+  className,
   description,
-  onHover
-}: { 
-  label: string, 
-  value: string, 
-  subValue?: string, 
-  trend?: "up"|"down"|"neutral", 
-  colorClass?: string,
-  description?: string,
-  onHover?: (rect: DOMRect | null) => void
+  onHover,
+}: {
+  label: string;
+  value: string;
+  valueClass?: string;
+  className?: string;
+  description?: string;
+  onHover?: (rect: DOMRect | null) => void;
 }) {
-  const dynamicColor = trend === "up" ? "text-main-red" : trend === "down" ? "text-main-blue" : (colorClass || "text-white");
-      
   return (
-    <div className="flat-card p-2 md:p-3 flex flex-col justify-between hover:border-white/10 transition-colors">
-      <div className="flex items-center justify-between mb-0.5">
-        <div className="text-[10px] md:text-xs font-black text-gray-500 uppercase tracking-widest">{label}</div>
+    <div className={`min-h-[148px] border-r border-b border-white/[0.08] px-5 py-5 md:px-6 md:py-6 ${className || ""}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-white/42">
+          {label}
+        </div>
         {description && onHover && (
-           <Info 
-             className="w-3.5 h-3.5 text-gray-600 hover:text-gray-400 cursor-help transition-colors"
-             onMouseEnter={(e) => onHover(e.currentTarget.getBoundingClientRect())}
-             onMouseLeave={() => onHover(null)}
-           />
+          <Info
+            className="mt-0.5 h-3.5 w-3.5 cursor-help text-white/25 transition-colors hover:text-white/55"
+            onMouseEnter={(e) => onHover(e.currentTarget.getBoundingClientRect())}
+            onMouseLeave={() => onHover(null)}
+          />
         )}
       </div>
-      <div className={`text-xl md:text-2xl xl:text-3xl font-black tabular-nums ${dynamicColor} tracking-tight`}>{value}</div>
-      {subValue && <div className="text-[10px] md:text-[11px] text-gray-600 font-bold mt-0.5 truncate">{subValue}</div>}
+      <div className={`mt-5 text-3xl font-black tracking-tight text-white md:text-4xl ${valueClass || ""}`}>
+        {value}
+      </div>
     </div>
   );
 }
