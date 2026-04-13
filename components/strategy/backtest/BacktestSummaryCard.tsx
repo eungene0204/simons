@@ -117,17 +117,12 @@ export default function BacktestSummaryCard({
   const hasContent = !loading && !!summary;
 
   return (
-    <div className="glass-card h-full px-5 py-4 flex flex-col">
+    <div className="flat-card h-full px-5 py-4 flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2 text-base font-black uppercase tracking-widest text-white">
           <Sparkle className="w-4 h-4 text-white/30" weight="fill" />
           AI 백테스트 리포트
-          <span className="text-[10px] font-mono text-gray-700 normal-case tracking-normal">
-            {typeof navigator !== "undefined" && navigator.platform?.toLowerCase().includes("mac")
-              ? "mlx · Qwen2.5-32B"
-              : "ollama · qwen2.5:32b"}
-          </span>
         </div>
         <button
           onClick={fetchSummary}

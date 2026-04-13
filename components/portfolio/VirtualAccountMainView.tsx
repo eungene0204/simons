@@ -123,7 +123,7 @@ export default function VirtualAccountMainView() {
   return (
     <div className="p-4 md:p-5 lg:p-6 space-y-5">
       {/* 계좌 요약 */}
-      <div className="glass-card p-5">
+      <div className="flat-card p-5">
         <div className="flex items-center justify-between mb-4">
           <span className="text-base font-black uppercase tracking-widest text-white">{account.name}</span>
           <span className="text-xs font-bold text-gray-500">
@@ -156,7 +156,7 @@ export default function VirtualAccountMainView() {
       </div>
 
       {/* 차트 */}
-      <div className="glass-card p-5">
+      <div className="flat-card p-5">
         <span className="text-base font-black uppercase tracking-widest text-white block mb-4">
           {holdings.length > 0 ? `${holdings[0].name || holdings[0].symbol} 차트` : "차트"}
         </span>
@@ -167,7 +167,7 @@ export default function VirtualAccountMainView() {
 
       {/* 보유 종목 */}
       {holdings.length > 0 && (
-        <div className="glass-card p-5">
+        <div className="flat-card p-5">
           <span className="text-base font-black uppercase tracking-widest text-white block mb-4">보유 종목</span>
           <div className="space-y-2">
             {holdings.map((holding) => {

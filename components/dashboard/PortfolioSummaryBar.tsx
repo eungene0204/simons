@@ -78,13 +78,13 @@ export default function PortfolioSummaryBar({ initialStats }: { initialStats: Po
   ];
 
   return (
-    <div className="flex gap-4">
+    <div className="flex divide-x divide-white/[0.08]">
       {cards.map((card) => {
         const Icon = card.icon;
         return (
           <div
             key={card.label}
-            className="flex-1 flex flex-col justify-between gap-3 px-5 py-4 glass-card"
+            className="flex-1 flex flex-col justify-between gap-3 px-5 py-4"
           >
               {/* Top row: icon + label / info */}
               <div className="flex items-center justify-between">

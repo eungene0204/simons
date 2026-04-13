@@ -339,13 +339,13 @@ export default function VirtualAccountDetailPage() {
 
   return (
     <DashboardLayout userName="사용자">
-      <div className="p-4 md:p-5 lg:p-6 space-y-5 w-full min-w-0">
+      <div className="w-full min-w-0">
 
         {/* ── 주문 페이지 (종목 선택 시) ── */}
         {shouldShowOrderPage && (
           <div className="space-y-5">
             {selectedSymbol && (
-              <div className="glass-card p-5">
+              <div className="flat-card p-5">
                 <div className="flex items-center gap-4">
                   <div>
                     <h2 className="text-base font-black text-white">{stockInfo?.name || selectedStockName || selectedSymbol}</h2>
@@ -367,7 +367,7 @@ export default function VirtualAccountDetailPage() {
                 previousClose={stockInfo?.previousClose}
                 onPriceSelect={(p) => { setPrice(p.toString()); setSelectedOrderPrice(p); }}
               />
-              <div className="glass-card flex flex-col overflow-hidden">
+              <div className="flat-card flex flex-col overflow-hidden">
                 {/* 탭 */}
                 <div className="flex border-b border-white/[0.05]">
                   {(["buy", "sell", "amend", "unfilled", "balance"] as const).map((tab) => (
@@ -488,9 +488,9 @@ export default function VirtualAccountDetailPage() {
 
         {/* ── 메인 대시보드 ── */}
         {!shouldShowOrderPage && (
-          <div className="space-y-5">
+          <div className="border border-white/[0.08] divide-y divide-white/[0.08]">
             {/* 헤더 */}
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between px-5 py-4">
               <h1 className="text-2xl font-black text-white">{account.name}</h1>
               <button
                 onClick={async () => {
@@ -506,9 +506,9 @@ export default function VirtualAccountDetailPage() {
             </div>
 
             {/* 4개 KPI 카드 */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 border-t border-l border-white/[0.08]">
               {/* 총 자산 */}
-              <div className="glass-card p-5">
+              <div className="border-r border-b border-white/[0.08] p-5">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">총 자산</span>
                   <div className="w-7 h-7 rounded-lg bg-white/[0.05] flex items-center justify-center text-gray-500">
@@ -520,7 +520,7 @@ export default function VirtualAccountDetailPage() {
               </div>
 
               {/* 주문 가능 금액 */}
-              <div className="glass-card p-5">
+              <div className="border-r border-b border-white/[0.08] p-5">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">주문 가능</span>
                   <div className="w-7 h-7 rounded-lg bg-white/[0.05] flex items-center justify-center text-gray-500">
@@ -532,7 +532,7 @@ export default function VirtualAccountDetailPage() {
               </div>
 
               {/* 당일 손익 */}
-              <div className="glass-card p-5">
+              <div className="border-r border-b border-white/[0.08] p-5">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">당일 손익</span>
                   <div className="w-7 h-7 rounded-lg bg-white/[0.05] flex items-center justify-center text-gray-500">
@@ -548,7 +548,7 @@ export default function VirtualAccountDetailPage() {
               </div>
 
               {/* 누적 수익률 */}
-              <div className="glass-card p-5">
+              <div className="border-r border-b border-white/[0.08] p-5">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-xs font-bold text-white uppercase tracking-widest">누적 수익률</span>
                   <div className="w-7 h-7 rounded-lg bg-white/[0.05] flex items-center justify-center text-white">
@@ -563,9 +563,9 @@ export default function VirtualAccountDetailPage() {
             </div>
 
             {/* 추적 종목 + 전략 */}
-            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px_320px] gap-5">
+            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px_320px] divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
               {/* 추적 종목 */}
-              <div className="glass-card p-5">
+              <div className="p-5">
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <span className="text-base font-black uppercase tracking-widest text-white">추적 종목</span>
@@ -599,7 +599,7 @@ export default function VirtualAccountDetailPage() {
                 ) : (
                   <div>
                     {/* 테이블 헤더 */}
-                    <div className="grid grid-cols-[1fr_80px_72px_80px_52px_24px] gap-x-3 px-1 pb-2 border-b border-white/[0.05] text-xs font-bold text-gray-600 uppercase tracking-widest">
+                    <div className="grid grid-cols-[1fr_80px_72px_80px_52px_24px] gap-x-3 px-2 py-2 bg-white/[0.06] rounded-lg text-xs font-bold text-gray-400 uppercase tracking-widest">
                       <span>종목</span>
                       <span className="text-right">현재가</span>
                       <span className="text-right">등락률</span>
@@ -608,7 +608,7 @@ export default function VirtualAccountDetailPage() {
                       <span />
                     </div>
                     {/* 테이블 행 */}
-                    <div className="max-h-64 overflow-y-auto scrollbar-hide divide-y divide-white/[0.03]">
+                    <div className="max-h-64 overflow-y-auto scrollbar-hide">
                       {trackedSymbols.map(({ symbol, name }) => {
                         const q = trackedPrices[symbol];
                         const holding = holdings.find((h) => h.symbol === symbol);
@@ -631,7 +631,7 @@ export default function VirtualAccountDetailPage() {
               </div>
 
               {/* 운용 중인 전략 */}
-              <div className="glass-card p-5 flex flex-col">
+              <div className="p-5 flex flex-col">
                 <div className="flex items-center justify-between mb-4">
                   <span className="text-base font-black uppercase tracking-widest text-white">운용 전략</span>
                 </div>
@@ -718,7 +718,7 @@ export default function VirtualAccountDetailPage() {
                 </button>
               </div>
 
-              <div className="glass-card p-5">
+              <div className="p-5">
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <span className="text-base font-black uppercase tracking-widest text-white">매매 신호</span>
@@ -735,7 +735,7 @@ export default function VirtualAccountDetailPage() {
             </div>
 
             {/* 보유 자산 / 거래내역 / 성과분석 탭 */}
-            <div className="glass-card p-5">
+            <div className="p-5">
               <div className="flex items-center justify-between mb-5">
                 <div className="flex items-center gap-3">
                   <div className="flex gap-1">
@@ -777,13 +777,13 @@ export default function VirtualAccountDetailPage() {
                   <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead>
-                        <tr className="border-b border-white/[0.05]">
-                          <th className="text-left text-xs font-bold text-gray-600 uppercase tracking-widest pb-3 pr-4">종목명 / 티커</th>
-                          <th className="text-right text-xs font-bold text-gray-600 uppercase tracking-widest pb-3 px-4">평균 단가</th>
-                          <th className="text-right text-xs font-bold text-gray-600 uppercase tracking-widest pb-3 px-4">현재가</th>
-                          <th className="text-right text-xs font-bold text-gray-600 uppercase tracking-widest pb-3 px-4">수량</th>
-                          <th className="text-right text-xs font-bold text-gray-600 uppercase tracking-widest pb-3 px-4">수익률</th>
-                          <th className="text-right text-xs font-bold text-gray-600 uppercase tracking-widest pb-3 pl-4">평가 손익</th>
+                        <tr className="bg-white/[0.06] rounded-lg">
+                          <th className="text-left text-xs font-bold text-gray-400 uppercase tracking-widest py-2 pr-4 pl-2 rounded-l-lg">종목명 / 티커</th>
+                          <th className="text-right text-xs font-bold text-gray-400 uppercase tracking-widest py-2 px-4">평균 단가</th>
+                          <th className="text-right text-xs font-bold text-gray-400 uppercase tracking-widest py-2 px-4">현재가</th>
+                          <th className="text-right text-xs font-bold text-gray-400 uppercase tracking-widest py-2 px-4">수량</th>
+                          <th className="text-right text-xs font-bold text-gray-400 uppercase tracking-widest py-2 px-4">수익률</th>
+                          <th className="text-right text-xs font-bold text-gray-400 uppercase tracking-widest py-2 pl-4 pr-2 rounded-r-lg">평가 손익</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -793,7 +793,7 @@ export default function VirtualAccountDetailPage() {
                             <tr
                               key={h.symbol}
                               onClick={() => handleStockSelect(h.symbol, h.name || h.symbol)}
-                              className={`border-b border-white/[0.03] hover:bg-white/[0.02] cursor-pointer transition-colors duration-150 ${idx === holdings.length - 1 ? "border-b-0" : ""}`}
+                              className="hover:bg-white/[0.02] cursor-pointer transition-colors duration-150"
                             >
                               <td className="py-4 pr-4">
                                 <div className="flex items-center">
@@ -831,9 +831,9 @@ export default function VirtualAccountDetailPage() {
                   <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead>
-                        <tr className="border-b border-white/[0.05]">
-                          {["종목", "구분", "체결가", "수량", "거래금액", "수수료", "실현손익", "체결시각"].map(h => (
-                            <th key={h} className="text-[10px] font-bold text-gray-600 uppercase tracking-widest pb-3 px-3 first:pl-0 last:pr-0 text-right first:text-left">{h}</th>
+                        <tr className="bg-white/[0.06]">
+                          {["종목", "구분", "체결가", "수량", "거래금액", "수수료", "실현손익", "체결시각"].map((h, i, arr) => (
+                            <th key={h} className={`text-[10px] font-bold text-gray-400 uppercase tracking-widest py-2 px-3 first:pl-2 last:pr-2 text-right first:text-left ${i === 0 ? "rounded-l-lg" : ""} ${i === arr.length - 1 ? "rounded-r-lg" : ""}`}>{h}</th>
                           ))}
                         </tr>
                       </thead>

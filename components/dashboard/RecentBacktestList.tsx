@@ -25,7 +25,7 @@ export default function RecentBacktestList({ initialRecords }: { initialRecords:
   const loading = false;
 
   return (
-    <div className="glass-card p-5 h-full">
+    <div className="flat-card p-5 h-full">
       {/* 헤더 */}
       <div className="flex items-center justify-between mb-5">
         <div>

@@ -68,9 +68,9 @@ export default function MarketSnapshot() {
 
   if (loading) {
     return (
-      <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+      <div className="grid grid-cols-3 sm:grid-cols-6 border-t border-l border-white/[0.08]">
         {[...Array(6)].map((_, i) => (
-          <div key={i} className="glass-card p-3 animate-pulse">
+          <div key={i} className="border-r border-b border-white/[0.08] p-3 animate-pulse">
             <div className="h-2 bg-white/5 rounded w-2/3 mb-3" />
             <div className="h-5 bg-white/5 rounded w-3/4 mb-2" />
             <div className="h-3 bg-white/5 rounded w-1/2" />
@@ -87,7 +87,7 @@ export default function MarketSnapshot() {
           접속 시도중...
         </p>
       )}
-      <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+      <div className="grid grid-cols-3 sm:grid-cols-6 border-t border-l border-white/[0.08]">
         {(connected ? items : SNAPSHOT_KEYS.map(({ symbol, label }) => ({
           symbol, name: label, value: 0, change: 0, changePercent: 0,
         }))).map((item) => {
@@ -96,7 +96,7 @@ export default function MarketSnapshot() {
           return (
             <div
               key={item.symbol}
-              className={`glass-card p-3 ${!connected ? "shimmer" : ""}`}
+              className={`border-r border-b border-white/[0.08] p-3 ${!connected ? "shimmer" : ""}`}
             >
               <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold mb-1">
                 {item.name}

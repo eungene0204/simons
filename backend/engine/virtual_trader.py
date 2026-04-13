@@ -242,6 +242,24 @@ class VirtualTrader:
         finally:
             con.close()
 
+    def _fetch_stock_names(self, symbols: list[str]) -> dict[str, str]:
+        """Stock 테이블에서 종목명 조회. 없으면 symbol을 fallback으로 사용."""
+        if not symbols:
+            return {}
+        con = sqlite3.connect(self._db)
+        try:
+            placeholders = ",".join("?" * len(symbols))
+            rows = con.execute(
+                f"SELECT symbol, name FROM Stock WHERE symbol IN ({placeholders})",
+                symbols,
+            ).fetchall()
+            result = {r[0]: r[1] for r in rows if r[1]}
+            return result
+        except Exception:
+            return {}
+        finally:
+            con.close()
+
     # ── 계좌 새로고침 ─────────────────────────────────────────────────────────
 
     async def _refresh_account(self, account: dict):
@@ -277,6 +295,7 @@ class VirtualTrader:
         # 2. 실시간 시세 조회
         quotes = await self._mdp.get_prices(symbols)
         price_map: dict[str, int] = {sym: q.close for sym, q in quotes.items() if q.close > 0}
+        name_map: dict[str, str] = await asyncio.to_thread(self._fetch_stock_names, symbols)
 
         # 3. 시그널 평가
         signals = await asyncio.to_thread(
@@ -343,8 +362,9 @@ class VirtualTrader:
                     continue
 
                 if trading_mode == "auto":
+                    stock_name = name_map.get(sym) or pos.get("name") or sym
                     order_id = await asyncio.to_thread(
-                        self._execute_sell, account_id, sym, close, pos["quantity"], pos["avgPrice"]
+                        self._execute_sell, account_id, sym, stock_name, close, pos["quantity"], pos["avgPrice"]
                     )
                     if order_id:
                         await asyncio.to_thread(
@@ -372,8 +392,9 @@ class VirtualTrader:
 
                 if trading_mode == "auto":
                     current_cash = await asyncio.to_thread(self._fetch_current_cash, account_id)
+                    stock_name = name_map.get(sym, sym)
                     order_id = await asyncio.to_thread(
-                        self._execute_buy, account_id, sym, close, current_cash, position_size_pct
+                        self._execute_buy, account_id, sym, stock_name, close, current_cash, position_size_pct
                     )
                     if order_id:
                         await asyncio.to_thread(
@@ -467,6 +488,7 @@ class VirtualTrader:
         self,
         account_id: str,
         symbol: str,
+        name: str,
         price: int,
         current_cash: float,
         position_size_pct: float,
@@ -489,7 +511,7 @@ class VirtualTrader:
             con.execute("""
                 INSERT INTO VirtualOrder (id, accountId, symbol, name, side, type, quantity, price, filledPrice, fee, status, filledAt, createdAt)
                 VALUES (?, ?, ?, ?, 'BUY', 'MARKET', ?, ?, ?, ?, 'FILLED', ?, ?)
-            """, (order_id, account_id, symbol, symbol, qty, price, filled, fee, now_iso, now_iso))
+            """, (order_id, account_id, symbol, name, qty, price, filled, fee, now_iso, now_iso))
 
             con.execute("""
                 UPDATE VirtualAccount SET currentCash = currentCash - ?, updatedAt = ? WHERE id = ?
@@ -514,7 +536,7 @@ class VirtualTrader:
                 con.execute("""
                     INSERT INTO VirtualPosition (id, accountId, symbol, name, quantity, avgPrice, peakPrice, openedAt, updatedAt)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (pos_id, account_id, symbol, symbol, qty, filled, peak, now_iso, now_iso))
+                """, (pos_id, account_id, symbol, name, qty, filled, peak, now_iso, now_iso))
 
             con.commit()
             return order_id
@@ -529,6 +551,7 @@ class VirtualTrader:
         self,
         account_id: str,
         symbol: str,
+        name: str,
         price: int,
         quantity: int,
         avg_buy_price: float,
@@ -547,7 +570,7 @@ class VirtualTrader:
             con.execute("""
                 INSERT INTO VirtualOrder (id, accountId, symbol, name, side, type, quantity, price, filledPrice, fee, tax, avgBuyPrice, realizedPnl, status, filledAt, createdAt)
                 VALUES (?, ?, ?, ?, 'SELL', 'MARKET', ?, ?, ?, ?, ?, ?, ?, 'FILLED', ?, ?)
-            """, (order_id, account_id, symbol, symbol, quantity, price, filled, fee, tax, avg_buy_price, pnl, now_iso, now_iso))
+            """, (order_id, account_id, symbol, name, quantity, price, filled, fee, tax, avg_buy_price, pnl, now_iso, now_iso))
 
             con.execute("""
                 UPDATE VirtualAccount SET currentCash = currentCash + ?, updatedAt = ? WHERE id = ?

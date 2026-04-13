@@ -1327,26 +1327,11 @@ _NL_PARSE_CACHE_MAX = 200    # 최대 200개 항목 유지
 _virtual_trader = VirtualTrader(market_data_provider, engine.loader, engine.ai_engine)
 
 
-_POPULAR_SYMBOLS = ["005930", "000660", "373220", "005380", "068270"]
-
 @app.on_event("startup")
 async def startup():
     """서버 시작 시 KIS WebSocket + VirtualTrader 백그라운드 루프 시작"""
     await market_data_provider.start_ws()
     await _virtual_trader.start()
-
-    # 인기 종목 사전 구독 + 캐시 워밍
-    # → 첫 번째 /api/stock/popular 요청이 캐시를 바로 hit하도록
-    async def _warm_popular():
-        try:
-            await market_data_provider.subscribe(_POPULAR_SYMBOLS)
-            quotes = await market_data_provider.get_prices(_POPULAR_SYMBOLS)
-            if quotes:
-                print(f"[startup] 인기 종목 캐시 워밍 완료: {list(quotes.keys())}", flush=True)
-        except Exception as e:
-            print(f"[startup] 인기 종목 캐시 워밍 실패 (무시됨): {e}", flush=True)
-
-    asyncio.create_task(_warm_popular())
 
 
 @app.on_event("startup")
@@ -1373,6 +1358,7 @@ def preload_nl_parser():
     """서버 시작 시 NL 파서 모델을 미리 로드 (첫 요청 지연 방지)"""
     try:
         from engine.nl_parser import NLStrategyParser
+
         parser = NLStrategyParser(backend="mlx")
         parser._init_mlx()  # 모델 로딩 (최초 1회)
         _nl_parsers["mlx"] = parser
@@ -1380,7 +1366,10 @@ def preload_nl_parser():
         _summarize_model["tokenizer"] = parser._tokenizer_7b
         _nl_parser_status["status"] = "ok"
         _nl_parser_status["error"] = None
-        print("[startup] NL 파서 7B 모델 로딩 완료", flush=True)
+        print(
+            f"[startup] NL 파서 모델 로딩 완료: {parser._model_log_label(parser.model_7b)}",
+            flush=True,
+        )
     except Exception as e:
         _nl_parser_status["status"] = "failed"
         _nl_parser_status["error"] = str(e)
@@ -1403,21 +1392,26 @@ def _ensure_summarize_model_loaded():
         if shared_parser._mlx_model_7b is not None and shared_parser._tokenizer_7b is not None:
             _summarize_model["model"] = shared_parser._mlx_model_7b
             _summarize_model["tokenizer"] = shared_parser._tokenizer_7b
-            print("[startup] Summarize Qwen 7B 모델이 NL 파서 모델을 공유합니다", flush=True)
+            print(
+                f"[startup] Summarize 모델이 NL 파서 모델을 공유합니다: {shared_parser._model_log_label(shared_parser.model_7b)}",
+                flush=True,
+            )
             return
 
+    from ai.summarize import MLX_MODEL
     from mlx_lm import load  # type: ignore
 
-    print("[startup] Summarize Qwen 7B 모델 최초 로드 중...", flush=True)
-    m, t = load("mlx-community/Qwen2.5-7B-Instruct-4bit")
+    model_label = shared_parser._model_log_label(MLX_MODEL) if shared_parser is not None else MLX_MODEL.split("/")[-1].replace("-OptiQ-4bit", "")
+    print(f"[startup] Summarize 모델 최초 로드 중: {model_label}", flush=True)
+    m, t = load(MLX_MODEL)
     _summarize_model["model"] = m
     _summarize_model["tokenizer"] = t
-    print("[startup] Summarize Qwen 7B 모델 로드 완료", flush=True)
+    print(f"[startup] Summarize 모델 로드 완료: {model_label}", flush=True)
 
 
 @app.on_event("startup")
 def preload_summarize_model():
-    """서버 시작 시 AI 요약용 Qwen 모델도 미리 로드한다."""
+    """서버 시작 시 AI 요약용 모델도 미리 로드한다."""
     try:
         with _mlx_inference_lock:
             _ensure_summarize_model_loaded()
@@ -1448,6 +1442,8 @@ def parse_nl_strategy(request: NLParseRequest):
 
         backend = request.backend
         if backend not in _nl_parsers:
+            _nl_parser_status["status"] = "loading"
+            _nl_parser_status["error"] = None
             kwargs = {"backend": backend}
             if request.model:
                 if backend == "mlx":
@@ -1470,6 +1466,9 @@ def parse_nl_strategy(request: NLParseRequest):
                 parsed = parser.parse_modification(request.prompt, request.previous_parsed)
             else:
                 parsed = parser.parse(request.prompt)
+
+        _nl_parser_status["status"] = "ok"
+        _nl_parser_status["error"] = None
         backtest_req = to_backtest_request(parsed)
 
         from engine.nl_parser import validate_parsed_strategy
@@ -1493,6 +1492,8 @@ def parse_nl_strategy(request: NLParseRequest):
 
         return result
     except Exception as e:
+        _nl_parser_status["status"] = "failed"
+        _nl_parser_status["error"] = str(e)
         import traceback
         print(f"[NL-PARSE ERROR]\n{traceback.format_exc()}", flush=True)
         raise HTTPException(status_code=500, detail=f"NL parse error: {repr(e)}")
@@ -1614,7 +1615,9 @@ def summarize_backtest(req: SummarizeRequest):
                 if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template:
                     formatted = tokenizer.apply_chat_template(
                         [{"role": "user", "content": prompt}],
-                        tokenize=False, add_generation_prompt=True,
+                        tokenize=False,
+                        add_generation_prompt=True,
+                        enable_thinking=False,
                     )
                 else:
                     formatted = prompt

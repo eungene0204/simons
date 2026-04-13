@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { loadStockList } from '@/lib/krx-stocks';
 import {
   calcMarketFilledPrice,
   calcFee,
@@ -11,15 +12,19 @@ import {
   roundToTick,
 } from '@/lib/order-engine';
 
-function mapOrder(o: any) {
+
+function mapOrder(o: any, nameMap: Record<string, string>) {
   const filledPrice = o.filledPrice ?? undefined;
   const fee = o.fee ?? (filledPrice ? calcFee(filledPrice, o.quantity) : undefined);
+  // name이 없거나 symbol과 동일한 경우 korea-stocks.json에서 조회
+  const storedName = o.name as string | null | undefined;
+  const resolvedName = storedName && storedName !== o.symbol ? storedName : (nameMap[o.symbol] ?? o.symbol);
   return {
     id: o.id,
     accountId: o.accountId,
     type: o.side.toLowerCase() as 'buy' | 'sell',
     symbol: o.symbol,
-    name: o.name ?? o.symbol,
+    name: resolvedName,
     quantity: o.quantity,
     price: o.price,
     filledPrice,
@@ -55,7 +60,9 @@ export async function GET(
       where,
       orderBy: { createdAt: 'desc' },
     });
-    return NextResponse.json(orders.map(mapOrder));
+    const stocks = await loadStockList();
+    const nameMap = Object.fromEntries(stocks.map((s) => [s.symbol, s.name]));
+    return NextResponse.json(orders.map((o) => mapOrder(o, nameMap)));
   } catch (error) {
     console.error('Failed to fetch orders:', error);
     return NextResponse.json({ error: 'Failed to fetch orders' }, { status: 500 });
@@ -210,7 +217,9 @@ export async function POST(
       });
     });
 
-    return NextResponse.json(mapOrder(result));
+    const stocks = await loadStockList();
+    const nameMap = Object.fromEntries(stocks.map((s) => [s.symbol, s.name]));
+    return NextResponse.json(mapOrder(result, nameMap));
   } catch (error: any) {
     const msg = error?.message;
     if (msg === 'INSUFFICIENT_BALANCE')
