@@ -20,61 +20,37 @@ export default function SignalLog({ logs, symbolNameMap = {} }: SignalLogProps) 
   }
 
   return (
-    <div className="space-y-1.5 max-h-64 overflow-y-auto">
+    <div className="divide-y divide-white/[0.04]">
       {logs.map((log) => (
         <div
           key={log.id}
-          className="flex items-center justify-between px-3 py-2 bg-[#111111] rounded-lg text-sm"
+          className="flex items-center justify-between px-2 py-2 hover:bg-white/[0.02] transition-colors"
         >
           <div className="flex items-center gap-2 min-w-0 flex-1">
-            {/* 시그널 타입 배지 */}
             <span
-              className={`px-1.5 py-0.5 rounded text-xs font-medium flex-shrink-0 ${
+              className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold flex-shrink-0 ${
                 log.signalType === "entry"
-                  ? "bg-blue-900/40 text-blue-400"
-                  : "bg-red-900/40 text-red-400"
+                  ? "bg-white/[0.06] text-gray-300"
+                  : "bg-white/[0.06] text-gray-300"
               }`}
             >
               {log.signalType === "entry" ? "진입" : "청산"}
             </span>
-
-            {/* 종목 + 날짜 */}
             <div className="min-w-0">
-              <p className="font-medium text-white">
+              <p className="text-xs font-bold text-white truncate leading-tight">
                 {log.stockName ?? symbolNameMap[log.symbol] ?? log.symbol}
               </p>
-              <p className="text-xs text-gray-500">
-                {log.date}
+              <p className="text-[10px] text-gray-500 leading-tight">
+                {log.date}{log.reason ? ` · ${log.reason}` : ""}
               </p>
-              {log.reason && (
-                <p className="text-xs text-gray-400 truncate">
-                  {log.reason}
-                </p>
-              )}
             </div>
           </div>
-
-          <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-            {/* 가격 */}
-            <span className="text-gray-300 text-xs">
+          <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+            <span className="text-[10px] font-bold text-gray-400 tabular-nums">
               {formatPrice(log.price)}원
             </span>
-
-            {/* 실행 상태 배지 */}
-            <span
-              className={`px-1.5 py-0.5 rounded text-xs font-medium ${
-                log.action === "auto_executed"
-                  ? "bg-green-900/40 text-green-400"
-                  : log.action === "notified"
-                  ? "bg-yellow-900/40 text-yellow-400"
-                  : "bg-[#252525] text-gray-400"
-              }`}
-            >
-              {log.action === "auto_executed"
-                ? "체결"
-                : log.action === "notified"
-                ? "알림"
-                : "스킵"}
+            <span className="inline-flex items-center rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-bold text-gray-400">
+              {log.action === "auto_executed" ? "체결" : log.action === "notified" ? "알림" : "스킵"}
             </span>
           </div>
         </div>
