@@ -167,7 +167,7 @@ export function StrategyExampleTabs({ onSelectExample }: { onSelectExample: (pro
                 onClick={() => setActiveLevel(level)}
                 className={`flex-1 rounded-xl px-3 py-2.5 text-xs font-black transition-all duration-200 ${
                   isActive
-                    ? "bg-white text-slate-950 shadow-[0_8px_30px_rgba(255,255,255,0.12)]"
+                    ? "bg-[var(--main-blue)] text-white shadow-[0_8px_30px_rgba(59,130,246,0.28)]"
                     : "text-gray-400 hover:bg-white/[0.04] hover:text-white"
                 }`}
               >

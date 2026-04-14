@@ -105,7 +105,7 @@ export default function BacktestHistoryPage() {
           {history.length > 0 && (
             <button
               onClick={handleClearAll}
-              className="flex items-center gap-2 px-3 py-1.5 bg-transparent text-red-500 text-xs font-bold rounded-lg border border-red-500/30 transition-colors"
+              className="flex items-center gap-2 px-3 py-1.5 bg-transparent text-gray-500 text-xs font-bold rounded-lg border border-white/[0.08] transition-colors hover:text-[var(--main-red)] hover:border-[var(--main-red)]/30"
             >
               <Trash className="w-4 h-4" />
               기록 전체 삭제
@@ -161,7 +161,7 @@ export default function BacktestHistoryPage() {
               <div
                 key={item.id}
                 onClick={() => router.push(`/backtest/${item.id}`)}
-                className="bg-[#161616] border border-white/5 rounded-2xl p-5 hover:border-white/10 hover:bg-[#1a1a1a] transition-all group cursor-pointer"
+                className="flat-card rounded-2xl border border-white/[0.08] p-5 hover:border-white/[0.14] transition-colors group cursor-pointer"
               >
                 <div className="flex items-start justify-between mb-4">
                   <div>
@@ -169,7 +169,10 @@ export default function BacktestHistoryPage() {
                       <span className="text-base font-black text-white">{item.strategyName}</span>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="inline-flex items-center min-h-7 px-2.5 rounded-md border border-main-blue/30 bg-white/[0.03] text-[11px] whitespace-nowrap">
+                      <span
+                        className="inline-flex items-center min-h-7 px-2.5 rounded-md border bg-white/[0.03] text-[11px] whitespace-nowrap"
+                        style={{ borderColor: "rgba(239, 68, 68, 0.3)" }}
+                      >
                         <span className="font-black text-gray-500 mr-1">유니버스</span>
                         <span className="font-bold text-gray-100">{item.universe}</span>
                       </span>
@@ -187,7 +190,8 @@ export default function BacktestHistoryPage() {
                         return names.map((name: string, idx: number) => (
                           <span
                             key={`entry-${idx}`}
-                            className="inline-flex items-center min-h-7 px-2.5 rounded-md border border-main-blue/30 bg-white/[0.03] text-[11px] whitespace-nowrap"
+                            className="inline-flex items-center min-h-7 px-2.5 rounded-md border bg-white/[0.03] text-[11px] whitespace-nowrap"
+                            style={{ borderColor: "rgba(239, 68, 68, 0.3)" }}
                           >
                             <span className="font-black text-gray-500 mr-1">진입 신호</span>
                             <span className="font-bold text-gray-100">{name}</span>
@@ -203,7 +207,8 @@ export default function BacktestHistoryPage() {
                         return names.map((name: string, idx: number) => (
                           <span
                             key={`exit-${idx}`}
-                            className="inline-flex items-center min-h-7 px-2.5 rounded-md border border-main-blue/30 bg-white/[0.03] text-[11px] whitespace-nowrap"
+                            className="inline-flex items-center min-h-7 px-2.5 rounded-md border bg-white/[0.03] text-[11px] whitespace-nowrap"
+                            style={{ borderColor: "rgba(239, 68, 68, 0.3)" }}
                           >
                             <span className="font-black text-gray-500 mr-1">청산 신호</span>
                             <span className="font-bold text-gray-100">{name}</span>
@@ -215,7 +220,10 @@ export default function BacktestHistoryPage() {
                         const conds = item.conditions as any;
                         if (!conds?.position) return null;
                         return (
-                          <span className="inline-flex items-center min-h-7 px-2.5 rounded-md border border-main-blue/30 bg-white/[0.03] text-[11px] whitespace-nowrap">
+                          <span
+                            className="inline-flex items-center min-h-7 px-2.5 rounded-md border bg-white/[0.03] text-[11px] whitespace-nowrap"
+                            style={{ borderColor: "rgba(239, 68, 68, 0.3)" }}
+                          >
                             <span className="font-black text-gray-500 mr-1">포지션/비중</span>
                             <span className="font-bold text-gray-100">{conds.position}</span>
                           </span>
@@ -226,7 +234,10 @@ export default function BacktestHistoryPage() {
                         const conds = item.conditions as any;
                         if (!conds?.risk) return null;
                         return (
-                          <span className="inline-flex items-center min-h-7 px-2.5 rounded-md border border-main-blue/30 bg-white/[0.03] text-[11px] whitespace-nowrap">
+                          <span
+                            className="inline-flex items-center min-h-7 px-2.5 rounded-md border bg-white/[0.03] text-[11px] whitespace-nowrap"
+                            style={{ borderColor: "rgba(239, 68, 68, 0.3)" }}
+                          >
                             <span className="font-black text-gray-500 mr-1">리스크 관리</span>
                             <span className="font-bold text-gray-100">{conds.risk}</span>
                           </span>
