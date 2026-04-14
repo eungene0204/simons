@@ -269,7 +269,7 @@ export default function BacktestChart({
         if (type === "equity") {
           // Create equity line series with custom price format
           const equitySeries = chart.addSeries(LineSeries, {
-            color: "#0f62fe",
+            color: "#ef4444",
             lineWidth: 2,
             lineType: LineType.Curved,
             priceFormat: {

@@ -27,15 +27,11 @@ export default function SignalLog({ logs, symbolNameMap = {} }: SignalLogProps) 
           className="flex items-center justify-between px-2 py-2 hover:bg-white/[0.02] transition-colors"
         >
           <div className="flex items-center gap-2 min-w-0 flex-1">
-            <span
-              className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold flex-shrink-0 ${
-                log.signalType === "entry"
-                  ? "bg-white/[0.06] text-gray-300"
-                  : "bg-white/[0.06] text-gray-300"
-              }`}
-            >
-              {log.signalType === "entry" ? "진입" : "청산"}
-            </span>
+            {log.signalType !== "entry" && (
+              <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold flex-shrink-0 bg-white/[0.06] text-gray-300">
+                청산
+              </span>
+            )}
             <div className="min-w-0">
               <p className="text-xs font-bold text-white truncate leading-tight">
                 {log.stockName ?? symbolNameMap[log.symbol] ?? log.symbol}

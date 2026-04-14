@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   BarChart,
   Bar,
@@ -32,40 +32,122 @@ const fmtShort = (n: number) => {
 
 const pnlColor = (v: number) => (v >= 0 ? "#f87171" : "#60a5fa");
 
-const StatCard = ({
+const axisStyle = { fill: "#6b7280", fontSize: 10 };
+
+const valueTone = (v: number) =>
+  v >= 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]";
+
+function MetricCell({
   label,
   value,
   sub,
-  highlight,
+  tone = "neutral",
 }: {
   label: string;
   value: string;
   sub?: string;
-  highlight?: "red" | "blue" | "neutral";
-}) => {
-  const color =
-    highlight === "red"
-      ? "text-red-400"
-      : highlight === "blue"
-      ? "text-blue-400"
+  tone?: "positive" | "negative" | "neutral";
+}) {
+  const toneClass =
+    tone === "positive"
+      ? "text-[var(--main-red)]"
+      : tone === "negative"
+      ? "text-[var(--main-blue)]"
       : "text-white";
+
   return (
-    <div className="bg-[#1a1a1a] rounded-lg p-4">
-      <p className="text-xs text-gray-400 mb-1">{label}</p>
-      <p className={`text-lg font-bold ${color}`}>{value}</p>
-      {sub && <p className="text-xs text-gray-500 mt-0.5">{sub}</p>}
+    <div className="p-5">
+      <p className="text-xs font-bold uppercase tracking-widest text-gray-400">{label}</p>
+      <p className={`mt-2 text-2xl font-black font-outfit tabular-nums leading-none ${toneClass}`}>
+        {value}
+      </p>
+      {sub && <p className="mt-1 text-[10px] font-bold text-gray-500">{sub}</p>}
     </div>
   );
-};
+}
+
+function SectionTitle({
+  title,
+  description,
+  right,
+}: {
+  title: string;
+  description: string;
+  right?: ReactNode;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 mb-5">
+      <div>
+        <h2 className="text-base font-black uppercase tracking-widest text-gray-400 font-outfit">
+          {title}
+        </h2>
+        <p className="text-xs font-bold text-gray-500 mt-0.5">{description}</p>
+      </div>
+      {right}
+    </div>
+  );
+}
+
+function EmptyChartState() {
+  return (
+    <div className="flex h-48 items-center justify-center text-xs font-bold text-gray-500">
+      거래 내역이 없습니다.
+    </div>
+  );
+}
+
+function SymbolList({
+  items,
+  emptyLabel,
+  profit,
+}: {
+  items: DashboardStats["bySymbol"];
+  emptyLabel: string;
+  profit: boolean;
+}) {
+  if (items.length === 0) {
+    return <p className="text-xs font-bold text-gray-500">{emptyLabel}</p>;
+  }
+
+  return (
+    <div>
+      <div className="grid grid-cols-[minmax(0,1fr)_72px_84px_110px] gap-2 px-2 mb-2">
+        <span className="text-xs font-bold uppercase tracking-widest text-gray-600">종목</span>
+        <span className="text-xs font-bold uppercase tracking-widest text-gray-600 text-right">거래</span>
+        <span className="text-xs font-bold uppercase tracking-widest text-gray-600 text-right">승률</span>
+        <span className="text-xs font-bold uppercase tracking-widest text-gray-600 text-right">실현손익</span>
+      </div>
+      <div className="border-t border-white/[0.05] mb-1" />
+      <div className="divide-y divide-white/[0.04]">
+        {items.map((item) => (
+          <div
+            key={item.symbol}
+            className="grid grid-cols-[minmax(0,1fr)_72px_84px_110px] gap-2 items-center px-2 py-3 hover:bg-white/[0.02] rounded-xl transition-colors"
+          >
+            <div className="min-w-0">
+              <p className="truncate text-sm font-black text-white">{item.name}</p>
+              <p className="text-[10px] font-bold text-gray-500">{item.symbol}</p>
+            </div>
+            <p className="text-right text-sm font-bold text-gray-400 tabular-nums">{item.trades}</p>
+            <p className="text-right text-sm font-bold text-white tabular-nums">{item.winRate.toFixed(0)}%</p>
+            <p className={`text-right text-sm font-black font-outfit tabular-nums ${profit ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
+              {profit ? "+" : ""}{fmtShort(Math.round(item.pnl))}원
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-[#111] border border-[#333] rounded-lg p-3 text-xs">
-      <p className="text-gray-400 mb-1">{label}</p>
-      {payload.map((p: any) => (
-        <p key={p.name} style={{ color: p.color ?? p.fill }}>
-          {p.name}: {fmt(p.value)} 원
+    <div className="rounded-xl border border-white/[0.08] bg-[#111] p-3 text-xs">
+      <p className="mb-1 font-bold text-gray-400">{label}</p>
+      {payload.map((item: any) => (
+        <p key={item.name} style={{ color: item.color ?? item.fill }}>
+          {item.name}: {fmt(item.value)} 원
         </p>
       ))}
     </div>
@@ -89,7 +171,7 @@ export default function VirtualTradingDashboard({ accountId, initialAmount }: Pr
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-48 text-gray-400 text-sm">
+      <div className="flex h-48 items-center justify-center text-sm font-bold text-gray-400">
         성과 데이터를 불러오는 중...
       </div>
     );
@@ -97,275 +179,295 @@ export default function VirtualTradingDashboard({ accountId, initialAmount }: Pr
 
   if (!stats) {
     return (
-      <div className="flex items-center justify-center h-48 text-gray-400 text-sm">
+      <div className="flex h-48 items-center justify-center text-sm font-bold text-gray-400">
         성과 데이터를 불러올 수 없습니다.
       </div>
     );
   }
 
   const hasTrades = stats.totalTrades > 0;
-
-  // 일별 PnL 슬라이스
   const dailyData = stats.dailyPnl.slice(-dailyRange);
-
-  // 월별 레이블: "24.03" 형식
   const monthlyData = stats.monthlyPnl.map((m) => ({
     ...m,
     label: m.month.replace(/^(\d{4})-(\d{2})$/, (_, y, mo) => `${y.slice(2)}.${mo}`),
   }));
-
-  // 종목별: 수익 Top5, 손실 Bottom5
   const topSymbols = stats.bySymbol.slice(0, 5);
   const bottomSymbols = [...stats.bySymbol].reverse().slice(0, 5).filter((s) => s.pnl < 0);
+  const metricRows = [
+    [
+      {
+        label: "총 실현 손익",
+        value: `${stats.totalRealizedPnl >= 0 ? "+" : ""}${fmt(Math.round(stats.totalRealizedPnl))}원`,
+        sub: "누적 매도 체결 기준",
+        tone: stats.totalRealizedPnl >= 0 ? "positive" : "negative",
+      },
+      {
+        label: "실현 수익률",
+        value: `${stats.totalReturn >= 0 ? "+" : ""}${stats.totalReturn.toFixed(2)}%`,
+        sub: `초기 자본 ${fmtShort(initialAmount)}원 기준`,
+        tone: stats.totalReturn >= 0 ? "positive" : "negative",
+      },
+      {
+        label: "승률",
+        value: hasTrades ? `${stats.winRate.toFixed(1)}%` : "-",
+        sub: hasTrades ? `${stats.winCount}승 ${stats.lossCount}패` : "거래 없음",
+        tone: "neutral",
+      },
+      {
+        label: "손익비",
+        value: hasTrades ? (stats.profitFactor >= 999 ? "∞" : stats.profitFactor.toFixed(2)) : "-",
+        sub: hasTrades ? `총 ${stats.totalTrades}건 체결` : "거래 없음",
+        tone: "neutral",
+      },
+    ],
+    [
+      {
+        label: "평균 수익",
+        value: hasTrades && stats.winCount > 0 ? `+${fmtShort(stats.avgWin)}원` : "-",
+        sub: "이익 거래 평균",
+        tone: hasTrades && stats.winCount > 0 ? "positive" : "neutral",
+      },
+      {
+        label: "평균 손실",
+        value: hasTrades && stats.lossCount > 0 ? `${fmtShort(stats.avgLoss)}원` : "-",
+        sub: "손실 거래 평균",
+        tone: hasTrades && stats.lossCount > 0 ? "negative" : "neutral",
+      },
+      {
+        label: "총 수수료",
+        value: `-${fmt(Math.round(stats.totalFees))}원`,
+        sub: "누적 비용",
+        tone: "neutral",
+      },
+      {
+        label: "총 증권거래세",
+        value: `-${fmt(Math.round(stats.totalTax))}원`,
+        sub: "누적 비용",
+        tone: "neutral",
+      },
+    ],
+  ] as const;
 
   return (
-    <div className="space-y-6">
-      {/* ── 종합 성과 카드 ─────────────────────────────────────────── */}
-      <div>
-        <h3 className="text-sm font-semibold text-gray-300 mb-3">종합 성과</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <StatCard
-            label="총 실현 손익"
-            value={`${stats.totalRealizedPnl >= 0 ? "+" : ""}${fmt(Math.round(stats.totalRealizedPnl))} 원`}
-            highlight={stats.totalRealizedPnl >= 0 ? "red" : "blue"}
-          />
-          <StatCard
-            label="수익률 (실현)"
-            value={`${stats.totalReturn >= 0 ? "+" : ""}${stats.totalReturn.toFixed(2)}%`}
-            sub={`초기자본 ${fmtShort(initialAmount)} 원 기준`}
-            highlight={stats.totalReturn >= 0 ? "red" : "blue"}
-          />
-          <StatCard
-            label="승률"
-            value={hasTrades ? `${stats.winRate.toFixed(1)}%` : "-"}
-            sub={hasTrades ? `${stats.winCount}승 ${stats.lossCount}패 (${stats.totalTrades}거래)` : "거래 없음"}
-          />
-          <StatCard
-            label="손익비 (Profit Factor)"
-            value={hasTrades ? (stats.profitFactor >= 999 ? "∞" : stats.profitFactor.toFixed(2)) : "-"}
-            sub={hasTrades ? `평균 수익 ${fmtShort(stats.avgWin)}원 / 평균 손실 ${fmtShort(Math.abs(stats.avgLoss))}원` : undefined}
-          />
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
-          <StatCard
-            label="평균 수익 (승)"
-            value={hasTrades && stats.winCount > 0 ? `+${fmtShort(stats.avgWin)} 원` : "-"}
-            highlight="red"
-          />
-          <StatCard
-            label="평균 손실 (패)"
-            value={hasTrades && stats.lossCount > 0 ? `${fmtShort(stats.avgLoss)} 원` : "-"}
-            highlight="blue"
-          />
-          <StatCard
-            label="총 수수료"
-            value={`-${fmt(Math.round(stats.totalFees))} 원`}
-          />
-          <StatCard
-            label="총 증권거래세"
-            value={`-${fmt(Math.round(stats.totalTax))} 원`}
-          />
-        </div>
-      </div>
-
-      {/* ── 일별 PnL ───────────────────────────────────────────────── */}
-      <div className="bg-[#1a1a1a] rounded-lg p-4">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-gray-300">일별 PnL</h3>
-          <div className="flex gap-1">
-            {([30, 60, 90] as const).map((d) => (
-              <button
-                key={d}
-                onClick={() => setDailyRange(d)}
-                className={`px-2.5 py-1 text-xs rounded transition-colors ${
-                  dailyRange === d
-                    ? "bg-[#333] text-white"
-                    : "text-gray-500 hover:text-gray-300"
-                }`}
-              >
-                {d}일
-              </button>
-            ))}
-          </div>
-        </div>
-        {!hasTrades ? (
-          <div className="flex items-center justify-center h-32 text-gray-500 text-xs">
-            거래 내역이 없습니다.
-          </div>
-        ) : (
-          <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={dailyData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#222" vertical={false} />
-              <XAxis
-                dataKey="date"
-                tick={{ fill: "#6b7280", fontSize: 10 }}
-                tickFormatter={(v: string) => v.slice(5)}
-                interval={Math.floor(dailyRange / 6)}
-              />
-              <YAxis
-                tick={{ fill: "#6b7280", fontSize: 10 }}
-                tickFormatter={(v) => fmtShort(v)}
-                width={52}
-              />
-              <Tooltip content={<CustomTooltip />} />
-              <ReferenceLine y={0} stroke="#444" />
-              <Bar dataKey="pnl" name="일일 PnL" radius={[2, 2, 0, 0]}>
-                {dailyData.map((entry, index) => (
-                  <Cell key={index} fill={pnlColor(entry.pnl)} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        )}
-      </div>
-
-      {/* ── 누적 PnL 라인 ──────────────────────────────────────────── */}
-      <div className="bg-[#1a1a1a] rounded-lg p-4">
-        <h3 className="text-sm font-semibold text-gray-300 mb-4">누적 실현 PnL</h3>
-        {!hasTrades ? (
-          <div className="flex items-center justify-center h-32 text-gray-500 text-xs">
-            거래 내역이 없습니다.
-          </div>
-        ) : (
-          <ResponsiveContainer width="100%" height={160}>
-            <LineChart data={dailyData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#222" vertical={false} />
-              <XAxis
-                dataKey="date"
-                tick={{ fill: "#6b7280", fontSize: 10 }}
-                tickFormatter={(v: string) => v.slice(5)}
-                interval={Math.floor(dailyRange / 6)}
-              />
-              <YAxis
-                tick={{ fill: "#6b7280", fontSize: 10 }}
-                tickFormatter={(v) => fmtShort(v)}
-                width={52}
-              />
-              <Tooltip content={<CustomTooltip />} />
-              <ReferenceLine y={0} stroke="#444" />
-              <Line
-                type="monotone"
-                dataKey="cumPnl"
-                name="누적 PnL"
-                stroke="#a78bfa"
-                dot={false}
-                strokeWidth={2}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        )}
-      </div>
-
-      {/* ── 월별 PnL ───────────────────────────────────────────────── */}
-      <div className="bg-[#1a1a1a] rounded-lg p-4">
-        <h3 className="text-sm font-semibold text-gray-300 mb-4">월별 PnL (최근 12개월)</h3>
-        {!hasTrades ? (
-          <div className="flex items-center justify-center h-32 text-gray-500 text-xs">
-            거래 내역이 없습니다.
-          </div>
-        ) : (
-          <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={monthlyData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#222" vertical={false} />
-              <XAxis dataKey="label" tick={{ fill: "#6b7280", fontSize: 10 }} />
-              <YAxis
-                tick={{ fill: "#6b7280", fontSize: 10 }}
-                tickFormatter={(v) => fmtShort(v)}
-                width={52}
-              />
-              <Tooltip content={<CustomTooltip />} />
-              <ReferenceLine y={0} stroke="#444" />
-              <Bar dataKey="pnl" name="월별 PnL" radius={[3, 3, 0, 0]}>
-                {monthlyData.map((entry, index) => (
-                  <Cell key={index} fill={pnlColor(entry.pnl)} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        )}
-      </div>
-
-      {/* ── 종목별 성과 ────────────────────────────────────────────── */}
-      {hasTrades && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* 수익 Top 5 */}
-          <div className="bg-[#1a1a1a] rounded-lg p-4">
-            <h3 className="text-sm font-semibold text-gray-300 mb-3">수익 상위 종목</h3>
-            {topSymbols.length === 0 ? (
-              <p className="text-xs text-gray-500">수익 종목 없음</p>
-            ) : (
-              <div className="space-y-2">
-                {topSymbols.map((s) => (
-                  <div key={s.symbol} className="flex items-center justify-between">
-                    <div>
-                      <p className="text-xs font-semibold text-white">{s.name}</p>
-                      <p className="text-xs text-gray-500">{s.symbol} · {s.trades}거래 · 승률 {s.winRate.toFixed(0)}%</p>
-                    </div>
-                    <p className={`text-sm font-bold ${s.pnl >= 0 ? "text-red-400" : "text-blue-400"}`}>
-                      {s.pnl >= 0 ? "+" : ""}{fmtShort(Math.round(s.pnl))} 원
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* 손실 Bottom 5 */}
-          <div className="bg-[#1a1a1a] rounded-lg p-4">
-            <h3 className="text-sm font-semibold text-gray-300 mb-3">손실 하위 종목</h3>
-            {bottomSymbols.length === 0 ? (
-              <p className="text-xs text-gray-500">손실 종목 없음</p>
-            ) : (
-              <div className="space-y-2">
-                {bottomSymbols.map((s) => (
-                  <div key={s.symbol} className="flex items-center justify-between">
-                    <div>
-                      <p className="text-xs font-semibold text-white">{s.name}</p>
-                      <p className="text-xs text-gray-500">{s.symbol} · {s.trades}거래 · 승률 {s.winRate.toFixed(0)}%</p>
-                    </div>
-                    <p className="text-sm font-bold text-blue-400">
-                      {fmtShort(Math.round(s.pnl))} 원
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ── 승률 도넛 대용 (텍스트 요약) ─────────────────────────── */}
-      {hasTrades && (
-        <div className="bg-[#1a1a1a] rounded-lg p-4">
-          <h3 className="text-sm font-semibold text-gray-300 mb-3">승률 분포</h3>
-          <div className="flex items-center gap-3 mb-2">
-            <div className="flex-1 bg-[#111] rounded-full h-4 overflow-hidden flex">
-              <div
-                className="h-full bg-red-500 transition-all"
-                style={{ width: `${stats.winRate}%` }}
-              />
-              <div
-                className="h-full bg-blue-500 transition-all"
-                style={{ width: `${100 - stats.winRate}%` }}
-              />
+    <div className="divide-y divide-white/[0.08]">
+        <div className="divide-y divide-white/[0.08]">
+          {metricRows.map((row, rowIndex) => (
+            <div
+              key={rowIndex}
+              className="grid grid-cols-2 xl:grid-cols-4 xl:divide-x divide-white/[0.08]"
+            >
+              {row.map((metric) => (
+                <MetricCell
+                  key={metric.label}
+                  label={metric.label}
+                  value={metric.value}
+                  sub={metric.sub}
+                  tone={metric.tone}
+                />
+              ))}
             </div>
-            <span className="text-sm font-bold text-white w-16 text-right">
-              {stats.winRate.toFixed(1)}%
-            </span>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-10 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
+          <div className="lg:col-span-6 p-5">
+            <SectionTitle
+              title="일별 손익"
+              description="최근 기간별 실현 손익 변동"
+              right={
+                <div className="flex gap-1">
+                  {([30, 60, 90] as const).map((range) => (
+                    <button
+                      key={range}
+                      onClick={() => setDailyRange(range)}
+                      className={`rounded-md px-2.5 py-1 text-xs font-bold transition-colors ${
+                        dailyRange === range
+                          ? "bg-white/[0.08] text-white"
+                          : "text-gray-500 hover:text-gray-300"
+                      }`}
+                    >
+                      {range}일
+                    </button>
+                  ))}
+                </div>
+              }
+            />
+            {hasTrades ? (
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={dailyData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#222" vertical={false} />
+                  <XAxis
+                    dataKey="date"
+                    tick={axisStyle}
+                    tickFormatter={(v: string) => v.slice(5)}
+                    interval={Math.floor(dailyRange / 6)}
+                  />
+                  <YAxis tick={axisStyle} tickFormatter={(v) => fmtShort(v)} width={52} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <ReferenceLine y={0} stroke="#444" />
+                  <Bar dataKey="pnl" name="일별 PnL" radius={[8, 8, 0, 0]}>
+                    {dailyData.map((entry, index) => (
+                      <Cell key={index} fill={pnlColor(entry.pnl)} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <EmptyChartState />
+            )}
           </div>
-          <div className="flex gap-4 text-xs text-gray-400">
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-sm bg-red-500 inline-block" />
-              승 {stats.winCount}회
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-sm bg-blue-500 inline-block" />
-              패 {stats.lossCount}회
-            </span>
-            <span className="text-gray-500">총 {stats.totalTrades}거래</span>
+
+          <div className="lg:col-span-4 p-5">
+            <SectionTitle
+              title="승률 분포"
+              description="체결 거래 기준 승패 비중"
+              right={
+                <div className="text-right">
+                  <p className="text-2xl font-black font-outfit tabular-nums text-white">
+                    {hasTrades ? stats.winRate.toFixed(1) : "-"}{hasTrades ? "%" : ""}
+                  </p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
+                    Win Rate
+                  </p>
+                </div>
+              }
+            />
+            {hasTrades ? (
+              <div className="space-y-5">
+                <div className="overflow-hidden rounded-xl bg-white/[0.04]">
+                  <div className="flex h-5">
+                    <div
+                      className="h-full bg-[var(--main-red)]"
+                      style={{ width: `${stats.winRate}%` }}
+                    />
+                    <div
+                      className="h-full bg-[var(--main-blue)]"
+                      style={{ width: `${100 - stats.winRate}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-xl bg-white/[0.04] p-4">
+                    <p className="text-xs font-bold uppercase tracking-widest text-gray-400">승</p>
+                    <p className="mt-2 text-2xl font-black font-outfit tabular-nums text-[var(--main-red)]">
+                      {stats.winCount}
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-white/[0.04] p-4">
+                    <p className="text-xs font-bold uppercase tracking-widest text-gray-400">패</p>
+                    <p className="mt-2 text-2xl font-black font-outfit tabular-nums text-[var(--main-blue)]">
+                      {stats.lossCount}
+                    </p>
+                  </div>
+                </div>
+                <div className="divide-y divide-white/[0.08]">
+                  <div className="py-3 flex items-center justify-between gap-4">
+                    <p className="text-xs font-bold uppercase tracking-widest text-gray-600">평균 수익</p>
+                    <p className="text-sm font-black font-outfit tabular-nums text-[var(--main-red)]">
+                      +{fmtShort(stats.avgWin)}원
+                    </p>
+                  </div>
+                  <div className="py-3 flex items-center justify-between gap-4">
+                    <p className="text-xs font-bold uppercase tracking-widest text-gray-600">평균 손실</p>
+                    <p className="text-sm font-black font-outfit tabular-nums text-[var(--main-blue)]">
+                      {fmtShort(stats.avgLoss)}원
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <EmptyChartState />
+            )}
           </div>
         </div>
-      )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-10 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
+          <div className="lg:col-span-4 p-5">
+            <SectionTitle
+              title="누적 손익"
+              description="일별 누적 실현 손익 추이"
+              right={
+                <span className={`inline-flex items-center rounded-md px-2.5 py-1 text-xs font-bold ${valueTone(stats.totalRealizedPnl)} ${stats.totalRealizedPnl >= 0 ? "bg-[var(--main-red)]/10" : "bg-[var(--main-blue)]/10"}`}>
+                  {stats.totalRealizedPnl >= 0 ? "GAIN" : "LOSS"}
+                </span>
+              }
+            />
+            {hasTrades ? (
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={dailyData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#222" vertical={false} />
+                  <XAxis
+                    dataKey="date"
+                    tick={axisStyle}
+                    tickFormatter={(v: string) => v.slice(5)}
+                    interval={Math.floor(dailyRange / 6)}
+                  />
+                  <YAxis tick={axisStyle} tickFormatter={(v) => fmtShort(v)} width={52} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <ReferenceLine y={0} stroke="#444" />
+                  <Line
+                    type="monotone"
+                    dataKey="cumPnl"
+                    name="누적 PnL"
+                    stroke="#e5e7eb"
+                    dot={false}
+                    strokeWidth={2}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <EmptyChartState />
+            )}
+          </div>
+
+          <div className="lg:col-span-6 p-5">
+            <SectionTitle
+              title="월별 손익"
+              description="최근 12개월 실현 손익 분포"
+              right={
+                <span className="inline-flex items-center rounded-md bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-gray-400">
+                  12M
+                </span>
+              }
+            />
+            {hasTrades ? (
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={monthlyData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#222" vertical={false} />
+                  <XAxis dataKey="label" tick={axisStyle} />
+                  <YAxis tick={axisStyle} tickFormatter={(v) => fmtShort(v)} width={52} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <ReferenceLine y={0} stroke="#444" />
+                  <Bar dataKey="pnl" name="월별 PnL" radius={[8, 8, 0, 0]}>
+                    {monthlyData.map((entry, index) => (
+                      <Cell key={index} fill={pnlColor(entry.pnl)} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <EmptyChartState />
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-10 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
+          <div className="lg:col-span-5 p-5">
+            <SectionTitle
+              title="수익 상위 종목"
+              description="실현 손익 기준 상위 5개"
+            />
+            <SymbolList items={topSymbols} emptyLabel="수익 종목이 없습니다." profit={true} />
+          </div>
+
+          <div className="lg:col-span-5 p-5">
+            <SectionTitle
+              title="손실 하위 종목"
+              description="실현 손익 기준 하위 5개"
+            />
+            <SymbolList items={bottomSymbols} emptyLabel="손실 종목이 없습니다." profit={false} />
+          </div>
+        </div>
     </div>
   );
 }

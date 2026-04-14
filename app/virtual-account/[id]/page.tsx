@@ -296,8 +296,30 @@ export default function VirtualAccountDetailPage() {
     }
   };
 
-  const { profit, profitPercent, todayPnl, todayPnlPct, performanceData } = useMemo(() => {
-    if (!account) return { profit: 0, profitPercent: 0, todayPnl: 0, todayPnlPct: 0, performanceData: [] };
+  const {
+    profit,
+    profitPercent,
+    todayPnl,
+    todayPnlPct,
+    performanceData,
+    activeDays,
+    investedValue,
+    cashRatio,
+    filledTradeCount,
+  } = useMemo(() => {
+    if (!account) {
+      return {
+        profit: 0,
+        profitPercent: 0,
+        todayPnl: 0,
+        todayPnlPct: 0,
+        performanceData: [],
+        activeDays: 0,
+        investedValue: 0,
+        cashRatio: 0,
+        filledTradeCount: 0,
+      };
+    }
     const p = account.totalValue - account.initialAmount;
     const pp = (p / account.initialAmount) * 100;
     const todayStr = new Date().toISOString().slice(0, 10);
@@ -308,7 +330,20 @@ export default function VirtualAccountDetailPage() {
     const startDate = new Date(account.createdAt);
     const days = Math.max(1, Math.round((Date.now() - startDate.getTime()) / 86400000));
     const performanceData = generatePerformanceData(startDate, Math.min(days, 150), pp);
-    return { profit: p, profitPercent: pp, todayPnl, todayPnlPct, performanceData };
+    const investedValue = Math.max(0, account.totalValue - account.currentBalance);
+    const cashRatio = account.totalValue > 0 ? (account.currentBalance / account.totalValue) * 100 : 0;
+    const filledTradeCount = transactions.filter((t) => t.status === "FILLED").length;
+    return {
+      profit: p,
+      profitPercent: pp,
+      todayPnl,
+      todayPnlPct,
+      performanceData,
+      activeDays: days,
+      investedValue,
+      cashRatio,
+      filledTradeCount,
+    };
   }, [account, transactions]);
 
   if (!account) {
@@ -590,7 +625,7 @@ export default function VirtualAccountDetailPage() {
             </div>
 
             {/* 추적 종목 + 전략 */}
-            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,0.9fr)_320px_420px] divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08] items-stretch">
+            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,0.9fr)_320px_570px] divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08] items-stretch">
               {/* 추적 종목 */}
               <div className="p-5">
                 <div className="flex items-center justify-between mb-4">
@@ -719,7 +754,7 @@ export default function VirtualAccountDetailPage() {
                 </div>
               </div>
 
-              <div className="p-5 flex flex-col max-h-[385px]">
+              <div className="pl-5 pr-2 py-5 flex flex-col max-h-[385px]">
                 <div className="flex items-center justify-between mb-4 shrink-0">
                   <div>
                     <span className="text-base font-black uppercase tracking-widest text-white">매매 신호</span>
@@ -878,23 +913,126 @@ export default function VirtualAccountDetailPage() {
 
               {/* 성과 분석 */}
               {activeTab === "performance" && (
-                <div className="space-y-6">
-                  <div>
-                    <div className="flex items-start justify-between mb-4">
-                      <div>
-                        <span className="text-base font-black uppercase tracking-widest text-white block">전략 성과 현황</span>
-                        <p className="text-xs font-bold text-gray-500 mt-0.5">성과 분석 및 벤치마크 대비 추이</p>
+                <div className="border border-white/[0.08]">
+                  <div className="divide-y divide-white/[0.08]">
+                    <div className="grid grid-cols-2 xl:grid-cols-6 border-l border-t border-white/[0.08]">
+                      <div className="border-r border-b border-white/[0.08] p-5">
+                        <p className="text-xs font-bold uppercase tracking-widest text-gray-400">누적 평가손익</p>
+                        <p className={`mt-2 text-2xl font-black font-outfit tabular-nums leading-none ${profit >= 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
+                          {profit >= 0 ? "+" : "-"}{formatPrice(Math.abs(profit))}
+                        </p>
+                        <p className="mt-1 text-[10px] font-bold text-gray-500">초기 자본 대비 평가 기준</p>
                       </div>
-                      <span className="flex items-center gap-1.5 text-xs font-bold text-gray-500">
-                        <span className="w-2 h-2 rounded-full bg-gray-600 inline-block" />벤치마크 (KOSPI 200)
-                      </span>
+                      <div className="border-r border-b border-white/[0.08] p-5">
+                        <p className="text-xs font-bold uppercase tracking-widest text-gray-400">누적 수익률</p>
+                        <p className={`mt-2 text-2xl font-black font-outfit tabular-nums leading-none ${profitPercent >= 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
+                          {profitPercent >= 0 ? "+" : ""}{profitPercent.toFixed(2)}%
+                        </p>
+                        <p className="mt-1 text-[10px] font-bold text-gray-500">현재 총 자산 기준</p>
+                      </div>
+                      <div className="border-r border-b border-white/[0.08] p-5">
+                        <p className="text-xs font-bold uppercase tracking-widest text-gray-400">당일 실현손익</p>
+                        <p className={`mt-2 text-2xl font-black font-outfit tabular-nums leading-none ${todayPnl >= 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
+                          {todayPnl >= 0 ? "+" : "-"}{formatPrice(Math.abs(todayPnl))}
+                        </p>
+                        <p className={`mt-1 text-[10px] font-bold tabular-nums ${todayPnl >= 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
+                          {todayPnlPct >= 0 ? "+" : ""}{todayPnlPct.toFixed(2)}%
+                        </p>
+                      </div>
+                      <div className="border-r border-b border-white/[0.08] p-5">
+                        <p className="text-xs font-bold uppercase tracking-widest text-gray-400">운용 기간</p>
+                        <p className="mt-2 text-2xl font-black font-outfit tabular-nums leading-none text-white">
+                          {formatCompact(activeDays)}
+                        </p>
+                        <p className="mt-1 text-[10px] font-bold text-gray-500">일 기준</p>
+                      </div>
+                      <div className="border-r border-b border-white/[0.08] p-5">
+                        <p className="text-xs font-bold uppercase tracking-widest text-gray-400">체결 거래</p>
+                        <p className="mt-2 text-2xl font-black font-outfit tabular-nums leading-none text-white">
+                          {formatCompact(filledTradeCount)}
+                        </p>
+                        <p className="mt-1 text-[10px] font-bold text-gray-500">누적 체결 건수</p>
+                      </div>
+                      <div className="border-r border-b border-white/[0.08] p-5">
+                        <p className="text-xs font-bold uppercase tracking-widest text-gray-400">현금 비중</p>
+                        <p className="mt-2 text-2xl font-black font-outfit tabular-nums leading-none text-white">
+                          {cashRatio.toFixed(1)}%
+                        </p>
+                        <p className="mt-1 text-[10px] font-bold text-gray-500">주문 가능 금액 비중</p>
+                      </div>
                     </div>
-                    <div className="h-64">
-                      <PortfolioPerformanceChart data={performanceData} />
+
+                    <div className="grid grid-cols-1 lg:grid-cols-10 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
+                      <div className="lg:col-span-7 p-5">
+                        <div className="flex items-start justify-between gap-4 mb-5">
+                          <div>
+                            <span className="block text-base font-black uppercase tracking-widest font-outfit text-gray-400">성과 추이</span>
+                            <p className="mt-0.5 text-xs font-bold text-gray-500">계좌 개설 이후 누적 성과 흐름</p>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs font-bold">
+                            <span className="inline-flex items-center gap-1.5 rounded-md bg-white/[0.06] px-2.5 py-1 text-gray-400">
+                              <span className="inline-block h-2 w-2 rounded-full bg-gray-500" />
+                              Benchmark
+                            </span>
+                            <span className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 ${profitPercent >= 0 ? "bg-[var(--main-red)]/10 text-[var(--main-red)]" : "bg-[var(--main-blue)]/10 text-[var(--main-blue)]"}`}>
+                              {profitPercent >= 0 ? "GAIN" : "LOSS"}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="h-72">
+                          <PortfolioPerformanceChart data={performanceData} />
+                        </div>
+                      </div>
+
+                      <div className="lg:col-span-3 p-5">
+                        <div className="mb-5">
+                          <span className="block text-base font-black uppercase tracking-widest font-outfit text-gray-400">분석 요약</span>
+                          <p className="mt-0.5 text-xs font-bold text-gray-500">성과 해석에 필요한 현재 상태</p>
+                        </div>
+                        <div className="divide-y divide-white/[0.08] border-y border-white/[0.08]">
+                          <div className="py-3">
+                            <p className="text-xs font-bold uppercase tracking-widest text-gray-600">계좌 개설일</p>
+                            <p className="mt-1 text-sm font-black text-white">{new Date(account.createdAt).toLocaleDateString("ko-KR")}</p>
+                          </div>
+                          <div className="py-3">
+                            <p className="text-xs font-bold uppercase tracking-widest text-gray-600">초기 투자금</p>
+                            <p className="mt-1 text-sm font-black font-outfit tabular-nums text-white">{formatPrice(account.initialAmount)}원</p>
+                          </div>
+                          <div className="py-3">
+                            <p className="text-xs font-bold uppercase tracking-widest text-gray-600">현재 투자 금액</p>
+                            <p className="mt-1 text-sm font-black font-outfit tabular-nums text-white">{formatPrice(investedValue)}원</p>
+                          </div>
+                          <div className="py-3">
+                            <p className="text-xs font-bold uppercase tracking-widest text-gray-600">보유 종목 수</p>
+                            <p className="mt-1 text-sm font-black font-outfit tabular-nums text-white">{holdings.length}개</p>
+                          </div>
+                        </div>
+                        <div className="mt-5 space-y-2">
+                          <span className="inline-flex items-center rounded-md bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-gray-400">
+                            벤치마크: KOSPI 200
+                          </span>
+                          <p className="text-xs font-bold leading-5 text-gray-500">
+                            성과 차트는 계좌 개설일부터 누적 흐름을 기준으로 표시되며, 아래 상세 패널에서 실현 손익과 종목별 성과를 함께 확인할 수 있습니다.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-5">
+                      <div className="flex items-start justify-between gap-4 mb-4">
+                        <div>
+                          <span className="block text-base font-black uppercase tracking-widest font-outfit text-gray-400">세부 성과 리포트</span>
+                          <p className="mt-0.5 text-xs font-bold text-gray-500">실현 손익, 승률, 일별 PnL, 종목별 성과</p>
+                        </div>
+                        <span className="inline-flex items-center rounded-md bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-gray-400">
+                          DETAIL
+                        </span>
+                      </div>
+                      <div className="flat-card">
+                        <VirtualTradingDashboard accountId={accountId} initialAmount={account.initialAmount} />
+                      </div>
                     </div>
                   </div>
-                  <div className="border-t border-white/[0.05]" />
-                  <VirtualTradingDashboard accountId={accountId} initialAmount={account.initialAmount} />
                 </div>
               )}
             </div>

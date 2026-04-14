@@ -41,6 +41,25 @@ describe("StrategyExampleTabs", () => {
     expect(screen.queryByText("저PBR 대형주 장기보유")).not.toBeInTheDocument();
   });
 
+  it("선택된 등급 버튼은 main-blue 배경을 사용한다", async () => {
+    const onSelectExample = vi.fn();
+    const user = userEvent.setup();
+
+    render(<StrategyExampleTabs onSelectExample={onSelectExample} />);
+
+    const beginnerTab = screen.getByRole("button", { name: "초보자 예시" });
+    expect(beginnerTab.className).toContain("bg-[var(--main-blue)]");
+    expect(beginnerTab.className).toContain("text-white");
+
+    await act(async () => {
+      await user.click(screen.getByRole("button", { name: "중급자 예시" }));
+    });
+
+    const intermediateTab = screen.getByRole("button", { name: "중급자 예시" });
+    expect(intermediateTab.className).toContain("bg-[var(--main-blue)]");
+    expect(intermediateTab.className).toContain("text-white");
+  });
+
   it("예시 카드를 누르면 해당 프롬프트를 입력창으로 보낼 수 있다", async () => {
     const onSelectExample = vi.fn();
     const user = userEvent.setup();
