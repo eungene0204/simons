@@ -491,7 +491,34 @@ export default function VirtualAccountDetailPage() {
           <div className="border border-white/[0.08] divide-y divide-white/[0.08]">
             {/* 헤더 */}
             <div className="flex items-center justify-between px-5 py-4">
-              <h1 className="text-2xl font-black text-white">{account.name}</h1>
+              <div className="flex items-center gap-4">
+                <h1 className="text-2xl font-black text-white">{account.name}</h1>
+                <div className="flex items-center border border-white/[0.08] rounded-lg overflow-hidden">
+                  <button
+                    onClick={async () => { const u = await updateTradingMode(accountId, "auto"); setAccount(prev => prev ? { ...prev, tradingMode: u.tradingMode } : prev); }}
+                    className={`flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold transition-colors duration-200 ${
+                      account.tradingMode === "auto"
+                        ? "bg-white/[0.08] text-white"
+                        : "bg-transparent text-gray-500 hover:text-gray-300"
+                    }`}
+                  >
+                    <Robot size={11} weight="bold" />
+                    자동매매
+                  </button>
+                  <div className="w-px h-4 bg-white/[0.08]" />
+                  <button
+                    onClick={async () => { const u = await updateTradingMode(accountId, "manual"); setAccount(prev => prev ? { ...prev, tradingMode: u.tradingMode } : prev); }}
+                    className={`flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold transition-colors duration-200 ${
+                      account.tradingMode !== "auto"
+                        ? "bg-white/[0.08] text-white"
+                        : "bg-transparent text-gray-500 hover:text-gray-300"
+                    }`}
+                  >
+                    <Bell size={11} weight="bold" />
+                    신호 알림
+                  </button>
+                </div>
+              </div>
               <button
                 onClick={async () => {
                   if (!confirm(`'${account.name}' 계좌를 삭제하시겠습니까?`)) return;
@@ -563,7 +590,7 @@ export default function VirtualAccountDetailPage() {
             </div>
 
             {/* 추적 종목 + 전략 */}
-            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px_320px] divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
+            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,0.9fr)_320px_420px] divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08] items-stretch">
               {/* 추적 종목 */}
               <div className="p-5">
                 <div className="flex items-center justify-between mb-4">
@@ -632,108 +659,68 @@ export default function VirtualAccountDetailPage() {
 
               {/* 운용 중인 전략 */}
               <div className="p-5 flex flex-col">
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-base font-black uppercase tracking-widest text-white font-outfit">운용 전략</span>
+                <div className="flex items-center justify-between mb-5">
+                  <div>
+                    <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit">운용 전략</h2>
+                    <p className="text-xs text-gray-500 mt-0.5">현재 계좌에 적용된 매매 전략</p>
+                  </div>
+                  <button
+                    onClick={() => setIsStrategyReplaceOpen(true)}
+                    className="text-xs font-bold text-gray-400 hover:text-white transition-colors duration-200"
+                  >
+                    전략 교체
+                  </button>
                 </div>
 
-                {account.strategyName && (
-                  <div className="mb-4">
-                    <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4">
-                      <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">매매 방식</p>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={async () => { const u = await updateTradingMode(accountId, "auto"); setAccount(prev => prev ? { ...prev, tradingMode: u.tradingMode } : prev); }}
-                          className={`flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-sm font-bold transition-colors duration-200 ${
-                            account.tradingMode === "auto"
-                              ? "border-white/[0.08] bg-white/[0.08] text-white"
-                              : "border-white/[0.05] bg-white/[0.02] text-gray-500 hover:text-gray-300"
-                          }`}
-                        >
-                          <Robot size={14} weight="bold" className={account.tradingMode === "auto" ? "text-white" : "text-gray-500"} />
-                          자동매매
-                        </button>
-                        <button
-                          onClick={async () => { const u = await updateTradingMode(accountId, "manual"); setAccount(prev => prev ? { ...prev, tradingMode: u.tradingMode } : prev); }}
-                          className={`flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-sm font-bold transition-colors duration-200 ${
-                            account.tradingMode !== "auto"
-                              ? "border-white/[0.08] bg-white/[0.08] text-white"
-                              : "border-white/[0.05] bg-white/[0.02] text-gray-500 hover:text-gray-300"
-                          }`}
-                        >
-                          <Bell size={14} weight="bold" className={account.tradingMode !== "auto" ? "text-white" : "text-gray-500"} />
-                          신호 알림
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex-1 space-y-3">
+                <div className="h-48 overflow-y-auto scrollbar-hide space-y-3">
                   {strategies.map((strategy, idx) => {
                     const isAccountStrategy = strategy.name === account.strategyName;
                     const description = isAccountStrategy
                       ? dbStrategyDescription
                       : (getStrategyByName(strategy.name)?.description ?? null);
+                    const isActive = strategy.status === "active";
                     return (
-                      <div key={idx} className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5">
-                        <div className="mb-4 flex items-start justify-between gap-3">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="truncate text-xl font-black text-white">{strategy.name}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {description && (
+                      <div key={idx} className="py-3">
+                        <div className="flex items-start justify-between gap-2 mb-3">
+                          <span className="truncate text-sm font-black text-white leading-tight">{strategy.name}</span>
+                          {description && (
+                            <div className="relative shrink-0">
                               <button
                                 type="button"
                                 onClick={() => setIsPromptVisible((prev) => !prev)}
-                                className="shrink-0 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs font-bold text-gray-300 transition-colors duration-200 hover:text-white hover:bg-white/[0.08]"
+                                className="inline-flex items-center rounded-md bg-white/[0.06] hover:bg-white/[0.1] px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 hover:text-gray-200 transition-colors duration-200"
                               >
-                                {isPromptVisible ? "프롬프트 숨기기" : "프롬프트 보기"}
+                                프롬프트
                               </button>
-                            )}
-                            {strategy.status !== "active" && (
-                              <span className="inline-flex items-center rounded-md bg-white/[0.06] px-2 py-0.5 text-xs font-bold text-gray-400">
-                                대기
-                              </span>
-                            )}
-                          </div>
+                              {isPromptVisible && (
+                                <div className="absolute top-full right-0 mt-2 w-64 z-50 rounded-xl border border-white/[0.08] bg-[#1c1c1c] p-3">
+                                  <p className="text-xs font-bold leading-5 text-gray-400 whitespace-pre-wrap">{description}</p>
+                                  <div className="absolute -top-[5px] right-3.5 w-2.5 h-2.5 rotate-45 bg-[#1c1c1c] border-l border-t border-white/[0.08]" />
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                         {strategySummaryChips.length > 0 && (
-                          <div className="flex flex-wrap gap-1.5">
+                          <div className="flex flex-wrap gap-1 mb-3">
                             {strategySummaryChips.map((chip) => (
                               <span
                                 key={chip}
-                                className={`inline-flex items-center rounded-md px-2.5 py-1 text-xs font-bold ${
-                                  chip.startsWith("유니버스 ")
-                                    ? "bg-sky-500/15 text-sky-400"
-                                    : "bg-white/[0.06] text-gray-300"
-                                }`}
+                                className="inline-flex items-center rounded-md bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-gray-400"
                               >
                                 {chip}
                               </span>
                             ))}
                           </div>
                         )}
-                        {isPromptVisible && description && (
-                          <div className="mt-4 rounded-xl border border-white/[0.08] bg-black/10 p-4">
-                            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-500">사용자 프롬프트</p>
-                            <p className="whitespace-pre-wrap text-xs font-bold leading-6 text-gray-400">{description}</p>
-                          </div>
-                        )}
                       </div>
                     );
                   })}
                 </div>
-
-                <button
-                  onClick={() => setIsStrategyReplaceOpen(true)}
-                  className="mt-4 w-full rounded-2xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm font-bold text-gray-200 transition-colors duration-200 hover:bg-white/[0.08] hover:text-white"
-                >
-                  전략 교체
-                </button>
               </div>
 
-              <div className="p-5">
-                <div className="flex items-center justify-between mb-4">
+              <div className="p-5 flex flex-col max-h-[385px]">
+                <div className="flex items-center justify-between mb-4 shrink-0">
                   <div>
                     <span className="text-base font-black uppercase tracking-widest text-white">매매 신호</span>
                     <p className="text-xs font-bold text-gray-500 mt-0.5">최근 발생한 전략 신호</p>
@@ -742,7 +729,7 @@ export default function VirtualAccountDetailPage() {
                     {signalLogs.length}건
                   </span>
                 </div>
-                <div className="max-h-[420px] overflow-y-auto pr-1 scrollbar-hide">
+                <div className="overflow-y-auto pr-1 scrollbar-hide">
                   <SignalLog logs={signalLogs} />
                 </div>
               </div>
