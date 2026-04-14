@@ -117,7 +117,7 @@ const METRIC_DESCRIPTIONS: Record<string, string> = {
   totalReturn: "백테스트 시작 시점부터 종료 시점까지의 전체 자산 변동 비율입니다.",
   buyHold: "전략을 사용하지 않고 단순히 종목을 매수하여 보유했을 때의 수익률(벤치마크)입니다.\n\n이 수치보다 전략의 수익률(Total Return)이 높아야 전략을 사용하는 의미가 있습니다.",
   volatility: "연간 변동성. 수익률의 표준편차를 연간 단위로 환산한 값으로, 변동폭이 클수록 위험이 높음을 의미합니다.\n\n[ 가이드라인 ]\n🟢 우수: 15% 미만\n🟡 보통: 15% ~ 25%\n🔴 미흡: 25% 초과",
-  sortino: "소르티노 지수. 하락 변동성(손실 위험)만을 고려한 위험 대비 수익 효율 지표입니다.\n\n[ 가이드라인 ]\n🟢 우수: 2.0 이상\n🟡 보통: 1.0 ~ 2.0\n🔴 미흡: 1.0 미만",
+  sortino: "소르티노 지수는 전략이 낸 수익을 '손실이 나는 방향의 변동성'만 기준으로 평가한 지표입니다.\n\n샤프 지수는 상승과 하락 변동을 모두 위험으로 보지만, 소르티노 지수는 실제로 계좌에 더 불편한 하락 구간만 따로 봅니다. 그래서 같은 수익률이라도 하락이 적고 안정적으로 오른 전략일수록 더 높게 나옵니다.\n\n쉽게 말하면 '손실 위험을 얼마나 덜 감수하면서 수익을 냈는가'를 보여주는 값입니다.\n\n[ 해석 가이드 ]\n🟢 우수: 2.0 이상\n이익 대비 하락 위험 관리가 매우 잘 된 상태입니다.\n\n🟡 보통: 1.0 ~ 2.0\n수익은 괜찮지만 하락 구간 관리가 아주 뛰어난 수준은 아닙니다.\n\n🔴 미흡: 1.0 미만\n수익 대비 하락 위험이 크거나, 손실 구간이 잦았을 가능성이 큽니다.",
   kelly: "켈리 공식. 자산 대비 최적의 배팅 비율을 계산하는 모델로, 가산 비중 조절에 참고할 수 있습니다.\n\n[ 가이드라인 ]\n🟢 최적: 10% ~ 20%\n🟡 공격적: 20% 이상 (리스크 증가)\n🔴 보수적: 10% 미만"
 };
 
@@ -675,7 +675,7 @@ export default function BacktestDashboard({
                 <button
                   onClick={handleSaveStrategy}
                   disabled={!saveStrategyName.trim() || isSavingStrategy}
-                  className="flex-1 py-2.5 rounded-xl bg-white text-black hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-bold transition-colors flex items-center justify-center gap-2"
+                  className="flex-1 py-2.5 rounded-xl bg-[var(--main-blue)] text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-bold transition-colors flex items-center justify-center gap-2"
                 >
                   {isSavingStrategy ? (
                     <>
@@ -723,31 +723,30 @@ export default function BacktestDashboard({
         </div>
 
         <div className="flex items-center justify-between w-full">
-          <div className="flex bg-[#0a0a0a] rounded-lg p-1 w-fit">
+          <div className="flex flex-wrap items-center gap-1.5 md:gap-2 w-fit">
             {[
-              { id: "chart", label: "개요", icon: ChartBar },
-              { id: "assets", label: "종목 분석", icon: List },
-              { id: "log", label: "매매 기록", icon: ShieldCheck },
-              { id: "report", label: "AI 리포트", icon: Sparkle },
+              { id: "chart", label: "개요" },
+              { id: "assets", label: "종목 분석" },
+              { id: "log", label: "매매 기록" },
+              { id: "report", label: "AI 리포트" },
             ].map(tab => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`relative flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-colors ${
+                className={`relative min-h-[34px] overflow-hidden rounded-[8px] px-3.5 md:px-4 text-sm font-black tracking-tight transition-colors ${
                   activeTab === tab.id 
-                    ? "text-white" 
-                    : "text-gray-500 hover:text-gray-300"
+                    ? "text-white"
+                    : "text-[#6f7481] hover:text-[#a7adba]"
                 }`}
               >
                 {activeTab === tab.id && (
                   <motion.div
                     layoutId="active-tab-backtest"
-                    className="absolute inset-0 bg-tab_black rounded-md z-0"
-                    transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                    className="absolute inset-0 rounded-[8px] bg-[#232323] z-0"
+                    transition={{ type: "tween", ease: [0.22, 1, 0.36, 1], duration: 0.22 }}
                   />
                 )}
-                <span className="relative z-10 flex items-center gap-2">
-                  <tab.icon className="w-4 h-4" />
+                <span className="relative z-10 flex items-center">
                   {tab.label}
                 </span>
               </button>
@@ -781,7 +780,7 @@ export default function BacktestDashboard({
             <button
               onClick={handleOpenSaveModal}
               disabled={isRunning}
-              className="px-4 py-1.5 bg-white text-black hover:bg-gray-100 disabled:opacity-50 text-sm font-bold rounded-lg transition-colors flex items-center gap-2 active:scale-95"
+              className="px-4 py-1.5 bg-[var(--main-blue)] text-white hover:opacity-90 disabled:opacity-50 text-sm font-bold rounded-lg transition-colors flex items-center gap-2 active:scale-95"
             >
               <FloppyDisk className="w-4 h-4" />
               전략 저장
@@ -821,18 +820,22 @@ export default function BacktestDashboard({
                       ))}
                     </div>
 
-                    <div className="border-t border-white/[0.08]">
-                      <div className="flex items-center justify-between gap-4 px-5 py-4">
-                        <div>
-                          <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-white/35">Equity Curve</p>
-                          <p className="mt-2 text-xl font-black tracking-tight text-white/80">Portfolio Value</p>
+                    <div className="relative border-t border-white/[0.08]">
+                      <div className="pointer-events-none absolute left-5 top-4 z-10">
+                        <div className="flex items-center gap-2 rounded-md bg-black/25 px-2.5 py-1.5 backdrop-blur-sm">
+                          <span className="h-2.5 w-2.5 rounded-full bg-[#ef4444]" />
+                          <span className="text-xs font-bold text-white/75">
+                            포트폴리오 가치
+                          </span>
                         </div>
-                        {dateRangeLabel && (
-                          <span className="text-sm font-mono text-white/40 md:text-base">
+                      </div>
+                      {dateRangeLabel && (
+                        <div className="pointer-events-none absolute right-16 top-4 z-10">
+                          <span className="rounded-md bg-black/25 px-2.5 py-1 text-xs font-mono text-white/45 backdrop-blur-sm">
                             {dateRangeLabel}
                           </span>
-                        )}
-                      </div>
+                        </div>
+                      )}
                       <BacktestChart
                         type="equity"
                         height={340}
@@ -924,12 +927,12 @@ export default function BacktestDashboard({
 
                 {/* 월별 수익률 추이 */}
                 <div className="border-t border-white/[0.08] p-5 pb-4">
-                  <div className="flex items-start justify-between mb-4">
-                    <div>
-                      <h4 className="text-base font-black uppercase tracking-widest text-white font-outfit">
+                  <div className="flex items-center justify-between gap-3 mb-4">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <h4 className="whitespace-nowrap text-base font-black uppercase tracking-widest text-white font-outfit">
                         월별 수익률 추이
                       </h4>
-                      <p className="text-xs text-gray-500 mt-0.5">
+                      <p className="truncate text-xs text-gray-500">
                         {(() => {
                           const allYears = Object.keys(monthlyReturns).sort((a, b) => Number(a) - Number(b));
                           if (allYears.length > 0) return `${allYears[0]} ~ ${allYears[allYears.length - 1]} · 최근 ${monthlyReturnRows.length}년`;
@@ -937,7 +940,7 @@ export default function BacktestDashboard({
                         })()}
                       </p>
                     </div>
-                    <Table size={18} className="text-gray-600" />
+                    <Table size={18} className="shrink-0 text-gray-600" />
                   </div>
                   <div className="w-full overflow-x-auto">
                     <table className="w-full min-w-[1040px] border-collapse">
@@ -1002,9 +1005,6 @@ export default function BacktestDashboard({
 
                 {/* 리스크 및 성과 분석 */}
                 <div className="border-t border-white/[0.08]">
-                  <div className="px-5 pt-4 pb-2">
-                    <span className="text-xs font-black uppercase tracking-widest text-gray-500">리스크 및 성과 분석</span>
-                  </div>
                   <div className="flex divide-x divide-white/[0.08]">
                     {([
                       { label: "초기 자본", value: formatKRW(result.initialCapital), sub: "원" },
@@ -1014,7 +1014,7 @@ export default function BacktestDashboard({
                     ] as const).map((s) => (
                       <div key={s.label} className="flex-1 flex flex-col gap-1 px-5 py-4">
                         <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">{s.label}</span>
+                          <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-gray-500">{s.label}</span>
                           {"desc" in s && s.desc && (
                             <Info
                               className="w-3 h-3 text-gray-700 hover:text-gray-500 cursor-help transition-colors"
@@ -1024,8 +1024,8 @@ export default function BacktestDashboard({
                           )}
                         </div>
                         <div className="flex items-baseline gap-1">
-                          <p className="text-xl font-black tabular-nums font-outfit text-white leading-tight">{s.value}</p>
-                          {s.sub && <span className="text-[10px] font-bold text-gray-600">{s.sub}</span>}
+                          <p className="text-base font-black tabular-nums font-outfit text-white leading-tight">{s.value}</p>
+                          {s.sub && <span className="text-[8px] font-bold text-gray-600">{s.sub}</span>}
                         </div>
                       </div>
                     ))}
@@ -1034,9 +1034,6 @@ export default function BacktestDashboard({
 
                 {/* 매매 통계 */}
                 <div className="border-t border-white/[0.08]">
-                  <div className="px-5 pt-4 pb-2">
-                    <span className="text-xs font-black uppercase tracking-widest text-gray-500">매매 통계</span>
-                  </div>
                   <div className="flex divide-x divide-white/[0.08]">
                     {[
                       { label: "총 매매 횟수", value: result.trades.toString(), sub: "회" },
@@ -1046,10 +1043,10 @@ export default function BacktestDashboard({
                       { label: "최대 연속 손실", value: `${result.maxConsecutiveLosses || 0}`, sub: "회" },
                     ].map((s) => (
                       <div key={s.label} className="flex-1 flex flex-col gap-1 px-5 py-4">
-                        <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">{s.label}</span>
+                        <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-gray-500">{s.label}</span>
                         <div className="flex items-baseline gap-1">
-                          <p className="text-xl font-black tabular-nums font-outfit text-white leading-tight">{s.value}</p>
-                          <span className="text-[10px] font-bold text-gray-600">{s.sub}</span>
+                          <p className="text-base font-black tabular-nums font-outfit text-white leading-tight">{s.value}</p>
+                          <span className="text-[8px] font-bold text-gray-600">{s.sub}</span>
                         </div>
                       </div>
                     ))}
@@ -1398,7 +1395,7 @@ function BacktestTerminalLog({
     INFO: "text-blue-400",
     WARN: "text-orange-400",
     ERROR: "text-red-400",
-    SUCCESS: "text-white",
+    SUCCESS: "text-[var(--main-green)]",
   };
 
   return (
@@ -1442,7 +1439,7 @@ function OverviewMetricCard({
     <div className={`min-h-[110px] border-r border-b border-white/[0.08] px-5 py-5 md:px-6 md:py-6 ${className || ""}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <div className="text-xs font-bold uppercase tracking-[0.22em] text-gray-500">
+          <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-gray-500">
             {label}
           </div>
           {englishLabel && (
@@ -1459,7 +1456,7 @@ function OverviewMetricCard({
           />
         )}
       </div>
-      <div className={`mt-5 text-3xl font-black tracking-tight ${valueClass || "text-white"} md:text-4xl`}>
+      <div className={`mt-5 text-[clamp(1.25rem,2vw,2.2rem)] font-black leading-[0.95] tracking-tight [overflow-wrap:anywhere] ${valueClass || "text-white"}`}>
         {value}
       </div>
     </div>

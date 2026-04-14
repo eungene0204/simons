@@ -166,7 +166,7 @@ export default function StrategyLabClient({ strategies: initial }: { strategies:
               {/* 새 전략 만들기 카드 */}
               <button
                 onClick={() => router.push("/analytics/new")}
-                className="group relative overflow-hidden flex flex-col items-center justify-center gap-2 rounded-2xl border border-white/[0.08] bg-white/[0.02] hover:border-white/[0.12] py-8 transition-all duration-300"
+                className="group relative overflow-hidden flat-card flex flex-col items-center justify-center gap-2 rounded-2xl border border-white/[0.08] hover:border-white/[0.14] py-8 transition-all duration-300"
               >
                 <span
                   aria-hidden
@@ -201,7 +201,7 @@ export default function StrategyLabClient({ strategies: initial }: { strategies:
                   <div
                     key={s.id}
                     onClick={() => router.push(`/analytics/${s.id}`)}
-                    className="group flat-card p-4 space-y-3 cursor-pointer"
+                    className="group flat-card rounded-2xl border border-white/[0.08] p-4 space-y-3 cursor-pointer transition-colors duration-200 hover:border-white/[0.14]"
                   >
                     {/* 이름 + 삭제 버튼 */}
                     <div className="flex items-start justify-between gap-2">
@@ -222,7 +222,7 @@ export default function StrategyLabClient({ strategies: initial }: { strategies:
                     )}
 
                     {/* 메트릭 */}
-                    <div className="flex items-center justify-between pt-1 border-t border-white/[0.05]">
+                    <div className="flex items-center justify-between pt-3 border-t border-white/[0.05]">
                       <div className="flex items-center gap-3">
                         <div className="flex items-center gap-1">
                           {isPositive
