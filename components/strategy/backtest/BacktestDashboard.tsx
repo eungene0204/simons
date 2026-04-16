@@ -117,8 +117,8 @@ const METRIC_DESCRIPTIONS: Record<string, string> = {
   totalReturn: "백테스트 시작 시점부터 종료 시점까지의 전체 자산 변동 비율입니다.",
   buyHold: "전략을 사용하지 않고 단순히 종목을 매수하여 보유했을 때의 수익률(벤치마크)입니다.\n\n이 수치보다 전략의 수익률(Total Return)이 높아야 전략을 사용하는 의미가 있습니다.",
   volatility: "연간 변동성. 수익률의 표준편차를 연간 단위로 환산한 값으로, 변동폭이 클수록 위험이 높음을 의미합니다.\n\n[ 가이드라인 ]\n🟢 우수: 15% 미만\n🟡 보통: 15% ~ 25%\n🔴 미흡: 25% 초과",
-  sortino: "소르티노 지수는 전략이 낸 수익을 '손실이 나는 방향의 변동성'만 기준으로 평가한 지표입니다.\n\n샤프 지수는 상승과 하락 변동을 모두 위험으로 보지만, 소르티노 지수는 실제로 계좌에 더 불편한 하락 구간만 따로 봅니다. 그래서 같은 수익률이라도 하락이 적고 안정적으로 오른 전략일수록 더 높게 나옵니다.\n\n쉽게 말하면 '손실 위험을 얼마나 덜 감수하면서 수익을 냈는가'를 보여주는 값입니다.\n\n[ 해석 가이드 ]\n🟢 우수: 2.0 이상\n이익 대비 하락 위험 관리가 매우 잘 된 상태입니다.\n\n🟡 보통: 1.0 ~ 2.0\n수익은 괜찮지만 하락 구간 관리가 아주 뛰어난 수준은 아닙니다.\n\n🔴 미흡: 1.0 미만\n수익 대비 하락 위험이 크거나, 손실 구간이 잦았을 가능성이 큽니다.",
-  kelly: "켈리 공식. 자산 대비 최적의 배팅 비율을 계산하는 모델로, 가산 비중 조절에 참고할 수 있습니다.\n\n[ 가이드라인 ]\n🟢 최적: 10% ~ 20%\n🟡 공격적: 20% 이상 (리스크 증가)\n🔴 보수적: 10% 미만"
+  sortino: "돈을 잃는 위험 대비 수익을 얼마나 잘 냈는지 보여주는 점수.\n높을수록 손실 없이 안정적으로 수익을 낸 전략입니다.\n\n[ 예 ]\nA 전략: 수익 +30%, 중간에 -20% 폭락 있음 → 소르티노 낮음\nB 전략: 수익 +30%, 내내 조금씩 올라옴 → 소르티노 높음\n\n[ 가이드라인 ]\n🟢 우수: 2.0 이상\n🟡 보통: 1.0 ~ 2.0\n🔴 미흡: 1.0 미만",
+  kelly: "한 번 투자할 때 전체 돈의 몇 %를 넣는 게 가장 효율적인지 알려주는 비율.\n너무 많이 넣으면 한 번 실패로 크게 잃고, 너무 적게 넣으면 수익이 작아집니다.\n\n[ 예 ]\n켈리 15% → 100만원 중 15만원씩 투자하는 게 최적\n켈리 40% → 너무 공격적, 실패 시 손실이 큼\n켈리 3% → 너무 소극적, 수익이 거의 안 남\n\n[ 가이드라인 ]\n🟢 최적: 10% ~ 20%\n🟡 공격적: 20% 이상 (리스크 증가)\n🔴 보수적: 10% 미만"
 };
 
 export default function BacktestDashboard({
@@ -535,11 +535,11 @@ export default function BacktestDashboard({
       description: METRIC_DESCRIPTIONS.sharpe,
     },
     {
-      label: "소르티노",
-      englishLabel: "Sortino",
-      value: result.sortino.toFixed(2),
-      valueClass: result.sortino > 0 ? "text-[var(--main-red)]" : result.sortino < 0 ? "text-[var(--main-blue)]" : "text-white",
-      description: METRIC_DESCRIPTIONS.sortino,
+      label: "매수 후 보유",
+      englishLabel: "Buy & Hold",
+      value: `${(result.buyAndHoldReturn || 0) >= 0 ? "+" : ""}${(result.buyAndHoldReturn || 0).toFixed(2)}%`,
+      valueClass: (result.buyAndHoldReturn || 0) > 0 ? "text-[var(--main-red)]" : (result.buyAndHoldReturn || 0) < 0 ? "text-[var(--main-blue)]" : "text-white",
+      description: METRIC_DESCRIPTIONS.buyHold,
     },
     {
       label: "승률",

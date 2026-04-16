@@ -98,6 +98,11 @@ BacktestEngine.run_backtest()
 - `virtual_trader.py` — 가상매매 실시간 트레이더
 - `providers/` — 시장 데이터 공급자 (KIS API, pykrx, yfinance, KRX API)
 
+## 코드 설계 원칙
+
+코드를 작성하거나 수정할 때 반드시 [`docs/coding_rules.md`](docs/coding_rules.md)의 원칙들을 준수한다.
+(SOLID, DRY, KISS, YAGNI, SoC, LoD, Composition Over Inheritance, Boy Scout Rule, Fail Fast)
+
 ## 필수 규칙
 
 ### 코드 수정 후 유닛 테스트 전체 실행
