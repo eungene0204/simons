@@ -155,29 +155,34 @@ class TestIssue3_MultiOutputColumnMapping:
 
 class TestIssue4_5_XaiEngineFallback:
     def test_fallback_uses_log1p(self):
-        """Feature engineering에서 log1p를 사용해야 한다 (xai_engine 또는 ai_engine에서)."""
-        # V2: feature engineering is in ai_engine.py, imported by xai_engine
-        ai_engine_path = os.path.join(os.path.dirname(__file__), '..', 'ai', 'ai_engine.py')
-        xai_engine_path = os.path.join(os.path.dirname(__file__), '..', 'ai', 'xai_engine.py')
+        """Feature engineering에서 log1p를 사용해야 한다.
+        V3: feature engineering이 feature_engineering.py로 분리됨."""
+        ai_dir = os.path.join(os.path.dirname(__file__), '..', 'ai')
+        sources = {}
+        for fname in ('ai_engine.py', 'xai_engine.py', 'feature_engineering.py'):
+            path = os.path.join(ai_dir, fname)
+            with open(path, 'r') as f:
+                sources[fname] = f.read()
 
-        with open(ai_engine_path, 'r') as f:
-            ai_source = f.read()
-        with open(xai_engine_path, 'r') as f:
-            xai_source = f.read()
-
-        # log1p should be in either ai_engine (shared) or xai_engine (inline)
-        assert 'log1p' in ai_source or 'log1p' in xai_source, \
-            "Neither ai_engine.py nor xai_engine.py uses log1p for returns"
+        assert any('log1p' in src for src in sources.values()), \
+            "log1p not found in any of ai_engine.py, xai_engine.py, feature_engineering.py"
 
     def test_fallback_has_key_features(self):
-        """Feature engineering에서 핵심 피처가 계산돼야 한다."""
-        ai_engine_path = os.path.join(os.path.dirname(__file__), '..', 'ai', 'ai_engine.py')
-        with open(ai_engine_path, 'r') as f:
-            source = f.read()
+        """Feature engineering에서 핵심 피처가 계산돼야 한다.
+        V3: feature_engineering.py에 통합됨."""
+        feat_path = os.path.join(os.path.dirname(__file__), '..', 'ai', 'feature_engineering.py')
+        ai_path   = os.path.join(os.path.dirname(__file__), '..', 'ai', 'ai_engine.py')
 
+        with open(feat_path, 'r') as f:
+            feat_source = f.read()
+        with open(ai_path, 'r') as f:
+            ai_source = f.read()
+
+        combined = feat_source + ai_source
         required_features = ['ret_obv', 'dist_sma_20', 'boll_pos']
         for feat in required_features:
-            assert feat in source, f"Missing feature '{feat}' in ai_engine.py feature engineering"
+            assert feat in combined, \
+                f"Missing feature '{feat}' in feature_engineering.py or ai_engine.py"
 
     def test_lfs_pointer_processed_parquet_falls_back_to_raw_ohlcv(self, tmp_path):
         """processed parquet가 Git LFS 포인터여도 raw OHLCV parquet로 fallback 해야 한다."""
