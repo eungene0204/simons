@@ -12,7 +12,12 @@ warnings.filterwarnings('ignore')
 logger = logging.getLogger(__name__)
 MAX_SHAP_BACKGROUND_SAMPLES = 50
 
-from ai.ai_engine import AIEngine, _engineer_features_v2, _augment_embeddings
+from ai.ai_engine import AIEngine
+from ai.feature_engineering import engineer_features as _engineer_features_v2, FEATURE_LIST
+
+def _augment_embeddings(emb):
+    """Shim for backward compat — augmentation removed in v3."""
+    return emb
 
 
 def _move_engine_to_cpu(engine):
@@ -76,7 +81,7 @@ def _run_xai_with_engine(engine, sym_df, symbol, target_date_str):
     sym_df = _engineer_features_v2(sym_df)
 
     lookback = engine.lookback
-    features_to_use = engine.ts_features
+    features_to_use = FEATURE_LIST
     n_features = len(features_to_use)
 
     # Find target date row
