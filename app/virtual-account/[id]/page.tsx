@@ -23,7 +23,6 @@ import { MagnifyingGlass, Robot, Bell, Trash } from "phosphor-react";
 import StockSearchModal from "@/components/stock/StockSearchModal";
 import OrderBook from "@/components/order/OrderBook";
 import PortfolioPerformanceChart, { PerformancePoint } from "@/components/portfolio/PortfolioPerformanceChart";
-import { getStrategyByName } from "@/lib/strategy-groups";
 import { TrendUp } from "phosphor-react";
 import StrategyReplaceModal from "@/components/ui/StrategyReplaceModal";
 import TrackedSymbolRow from "@/components/virtual-account/TrackedSymbolRow";
@@ -710,9 +709,7 @@ export default function VirtualAccountDetailPage() {
                 <div className="h-48 overflow-y-auto scrollbar-hide space-y-3">
                   {strategies.map((strategy, idx) => {
                     const isAccountStrategy = strategy.name === account.strategyName;
-                    const description = isAccountStrategy
-                      ? dbStrategyDescription
-                      : (getStrategyByName(strategy.name)?.description ?? null);
+                    const description = isAccountStrategy ? dbStrategyDescription : null;
                     const isActive = strategy.status === "active";
                     return (
                       <div key={idx} className="py-3">

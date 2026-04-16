@@ -1,6 +1,32 @@
 {
-  "updatedAt": "2026-04-14T00:00:03.833713+09:00",
+  "updatedAt": "2026-04-16T00:00:04.264227+09:00",
   "entries": [
+    {
+      "date": "2026-04-16",
+      "syncedAt": "2026-04-16T00:00:04.264227+09:00",
+      "totalCount": 2658,
+      "kospiCount": 840,
+      "kosdaqCount": 1818,
+      "addedCount": 0,
+      "delistedCount": 2,
+      "added": [],
+      "delisted": [
+        {
+          "symbol": "455310",
+          "name": "한화플러스제4호스팩",
+          "market": "KOSDAQ",
+          "sector": "은행/금융지주",
+          "industry": "금융 지원 서비스업"
+        },
+        {
+          "symbol": "457630",
+          "name": "대신밸런스제16호스팩",
+          "market": "KOSDAQ",
+          "sector": "은행/금융지주",
+          "industry": "금융 지원 서비스업"
+        }
+      ]
+    },
     {
       "date": "2026-04-14",
       "syncedAt": "2026-04-14T00:00:03.833713+09:00",
