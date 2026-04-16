@@ -1191,9 +1191,9 @@
   },
   {
     "symbol": "079550",
-    "name": "LIG넥스원",
+    "name": "LIG디펜스앤에어로스페이스",
     "market": "KOSPI",
-    "sector": "기타 제조업",
+    "sector": "수산",
     "industry": "무기 및 총포탄 제조업"
   },
   {
@@ -2570,7 +2570,7 @@
   },
   {
     "symbol": "036570",
-    "name": "엔씨소프트",
+    "name": "NC",
     "market": "KOSPI",
     "sector": "소프트웨어/플랫폼",
     "industry": "소프트웨어 개발 및 공급업"
@@ -4929,7 +4929,7 @@
   },
   {
     "symbol": "002880",
-    "name": "대유에이텍",
+    "name": "디와이에이",
     "market": "KOSPI",
     "sector": "자동차",
     "industry": "자동차 신품 부품 제조업"
@@ -7274,7 +7274,7 @@
   },
   {
     "symbol": "458870",
-    "name": "씨어스테크놀로지",
+    "name": "씨어스",
     "market": "KOSDAQ",
     "sector": "의료기기",
     "industry": "의료용 기기 제조업"
@@ -7929,20 +7929,6 @@
     "market": "KOSDAQ",
     "sector": "철강/금속",
     "industry": "1차 철강 제조업"
-  },
-  {
-    "symbol": "455310",
-    "name": "한화플러스제4호스팩",
-    "market": "KOSDAQ",
-    "sector": "은행/금융지주",
-    "industry": "금융 지원 서비스업"
-  },
-  {
-    "symbol": "457630",
-    "name": "대신밸런스제16호스팩",
-    "market": "KOSDAQ",
-    "sector": "은행/금융지주",
-    "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "355390",
@@ -15212,7 +15198,7 @@
   },
   {
     "symbol": "073490",
-    "name": "이노와이어리스",
+    "name": "LIG아큐버",
     "market": "KOSDAQ",
     "sector": "IT 하드웨어",
     "industry": "통신 및 방송 장비 제조업"
@@ -15247,7 +15233,7 @@
   },
   {
     "symbol": "079810",
-    "name": "디이엔티",
+    "name": "APS이노베이션",
     "market": "KOSDAQ",
     "sector": "IT 하드웨어",
     "industry": "기타 전기장비 제조업"
@@ -15310,7 +15296,7 @@
   },
   {
     "symbol": "046440",
-    "name": "KG모빌리언스",
+    "name": "KG파이낸셜",
     "market": "KOSDAQ",
     "sector": "소프트웨어/플랫폼",
     "industry": "소프트웨어 개발 및 공급업"

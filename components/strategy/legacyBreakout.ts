@@ -1,6 +1,5 @@
 import { BacktestResult, Condition, StrategyDSL } from "@/types/strategy";
 import { BacktestConfigOptions } from "@/components/strategy/backtest/BacktestConfig";
-import { signalBlocks } from "@/lib/strategy-blocks";
 
 function normalizeLegacyBreakoutCondition(condition: Condition): Condition {
   if (condition.id !== "breakout" || condition.params?.lookbackPeriod !== 52) {
@@ -89,7 +88,7 @@ function describeExitCondition(condition: Condition): string {
       return "RSI 조건";
     }
     default:
-      return signalBlocks[condition.id]?.name ?? condition.id;
+      return condition.id;
   }
 }
 
