@@ -60,6 +60,8 @@ function mapBacktestResponse(raw: any): BacktestResult {
       amount: Number(signal.amount),
     })),
     perAssetStats: raw.perAssetStats,
+    benchmarkLabel: raw.benchmark_label,
+    universeId: raw.universe_id,
     warnings: raw.warnings,
     executionTime: raw.executionTime,
     fromCache: raw.fromCache ?? false,

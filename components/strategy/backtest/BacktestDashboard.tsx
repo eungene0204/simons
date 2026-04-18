@@ -109,16 +109,17 @@ interface BacktestDashboardProps {
   };
 }
 
-const METRIC_DESCRIPTIONS: Record<string, string> = {
+const BASE_METRIC_DESCRIPTIONS: Omit<Record<string, string>, "buyHold"> & { buyHold: (label: string) => string } = {
   cagr: "연평균수익률(Compound Annual Growth Rate). 전체 수익률을 연간 단위로 환산하여 복리 성장을 나타낸 지표입니다.\n\n[ 가이드라인 ]\n🟢 우수: 20% 이상\n🟡 보통: 10% ~ 20%\n🔴 미흡: 10% 미만",
   mdd: "최대 낙폭(Maximum Drawdown). 특정 기간 동안 발생한 전고점 대비 최대 하락 비율로, 전략의 리스크를 측정합니다.\n\n[ 가이드라인 ]\n🟢 안정: 10% 미만\n🟡 보통: 10% ~ 20%\n🔴 위험: 20% 초과",
   sharpe: "샤프 지수. 위험 1단위당 얻은 초과 수익을 나타내며, 수치가 높을수록 위험 대비 수익 효율이 좋습니다.\n\n[ 가이드라인 ]\n🟢 우수: 1.5 이상\n🟡 보통: 1.0 ~ 1.5\n🔴 미흡: 1.0 미만",
   profitFactor: "손익비. 총 이익을 총 손실로 나눈 값으로, 1원 손실당 기대할 수 있는 수익금을 의미합니다.\n\n[ 가이드라인 ]\n🟢 우수: 2.0 이상\n🟡 보통: 1.5 ~ 2.0\n🔴 미흡: 1.5 미만",
   totalReturn: "백테스트 시작 시점부터 종료 시점까지의 전체 자산 변동 비율입니다.",
-  buyHold: "전략을 사용하지 않고 단순히 종목을 매수하여 보유했을 때의 수익률(벤치마크)입니다.\n\n이 수치보다 전략의 수익률(Total Return)이 높아야 전략을 사용하는 의미가 있습니다.",
+  buyHold: (label: string) =>
+    `${label}을 매수 후 보유했을 때의 수익률입니다. 전략을 사용하지 않고 해당 지수를 그대로 보유했을 때의 결과입니다.\n\n이 수치보다 전략의 수익률(Total Return)이 높아야 전략을 사용하는 의미가 있습니다.`,
   volatility: "연간 변동성. 수익률의 표준편차를 연간 단위로 환산한 값으로, 변동폭이 클수록 위험이 높음을 의미합니다.\n\n[ 가이드라인 ]\n🟢 우수: 15% 미만\n🟡 보통: 15% ~ 25%\n🔴 미흡: 25% 초과",
-  sortino: "돈을 잃는 위험 대비 수익을 얼마나 잘 냈는지 보여주는 점수.\n높을수록 손실 없이 안정적으로 수익을 낸 전략입니다.\n\n[ 예 ]\nA 전략: 수익 +30%, 중간에 -20% 폭락 있음 → 소르티노 낮음\nB 전략: 수익 +30%, 내내 조금씩 올라옴 → 소르티노 높음\n\n[ 가이드라인 ]\n🟢 우수: 2.0 이상\n🟡 보통: 1.0 ~ 2.0\n🔴 미흡: 1.0 미만",
-  kelly: "한 번 투자할 때 전체 돈의 몇 %를 넣는 게 가장 효율적인지 알려주는 비율.\n너무 많이 넣으면 한 번 실패로 크게 잃고, 너무 적게 넣으면 수익이 작아집니다.\n\n[ 예 ]\n켈리 15% → 100만원 중 15만원씩 투자하는 게 최적\n켈리 40% → 너무 공격적, 실패 시 손실이 큼\n켈리 3% → 너무 소극적, 수익이 거의 안 남\n\n[ 가이드라인 ]\n🟢 최적: 10% ~ 20%\n🟡 공격적: 20% 이상 (리스크 증가)\n🔴 보수적: 10% 미만"
+  calmar: "칼마 비율(Calmar Ratio). 연평균수익률(CAGR)을 최대낙폭(MDD)으로 나눈 값으로, 낙폭 위험 대비 수익 효율을 나타냅니다.\n\n[ 예 ]\nCAGR +20%, MDD -10% → 칼마 2.0 (낙폭 1%당 2% 수익)\nCAGR +20%, MDD -40% → 칼마 0.5 (낙폭 대비 수익 부족)\n\n[ 가이드라인 ]\n🟢 우수: 1.0 이상\n🟡 보통: 0.5 ~ 1.0\n🔴 미흡: 0.5 미만",
+  avgHoldingDays: "평균 보유일. 포지션을 진입한 후 청산까지 평균적으로 유지한 기간입니다.\n\n전략의 성격을 파악하는 데 유용합니다.\n\n[ 예 ]\n1~3일: 단타/스윙 성격\n5~20일: 중기 스윙\n20일 이상: 중장기 추세 추종"
 };
 
 export default function BacktestDashboard({
@@ -504,7 +505,7 @@ export default function BacktestDashboard({
       englishLabel: "Total Return",
       value: `${result.totalReturn >= 0 ? "+" : ""}${(result.totalReturn || 0).toFixed(2)}%`,
       valueClass: result.totalReturn > 0 ? "text-[var(--main-red)]" : result.totalReturn < 0 ? "text-[var(--main-blue)]" : "text-white",
-      description: METRIC_DESCRIPTIONS.totalReturn,
+      description: BASE_METRIC_DESCRIPTIONS.totalReturn,
     },
     {
       label: "총 거래 수",
@@ -518,34 +519,34 @@ export default function BacktestDashboard({
       englishLabel: "CAGR",
       value: `${result.cagr.toFixed(2)}%`,
       valueClass: result.cagr > 0 ? "text-[var(--main-red)]" : result.cagr < 0 ? "text-[var(--main-blue)]" : "text-white",
-      description: METRIC_DESCRIPTIONS.cagr,
+      description: BASE_METRIC_DESCRIPTIONS.cagr,
     },
     {
       label: "최대낙폭",
       englishLabel: "MDD",
       value: `${result.maxDrawdown.toFixed(2)}%`,
       valueClass: "text-[var(--main-blue)]",
-      description: METRIC_DESCRIPTIONS.mdd,
+      description: BASE_METRIC_DESCRIPTIONS.mdd,
     },
     {
       label: "샤프 비율",
       englishLabel: "Sharpe",
       value: result.sharpe.toFixed(2),
       valueClass: result.sharpe > 0 ? "text-[var(--main-red)]" : result.sharpe < 0 ? "text-[var(--main-blue)]" : "text-white",
-      description: METRIC_DESCRIPTIONS.sharpe,
+      description: BASE_METRIC_DESCRIPTIONS.sharpe,
     },
     {
-      label: "매수 후 보유",
-      englishLabel: "Buy & Hold",
+      label: `매수 후 보유`,
+      englishLabel: result.benchmarkLabel ?? "Buy & Hold",
       value: `${(result.buyAndHoldReturn || 0) >= 0 ? "+" : ""}${(result.buyAndHoldReturn || 0).toFixed(2)}%`,
       valueClass: (result.buyAndHoldReturn || 0) > 0 ? "text-[var(--main-red)]" : (result.buyAndHoldReturn || 0) < 0 ? "text-[var(--main-blue)]" : "text-white",
-      description: METRIC_DESCRIPTIONS.buyHold,
+      description: BASE_METRIC_DESCRIPTIONS.buyHold(result.benchmarkLabel ?? "KODEX 200 (069500)"),
     },
     {
       label: "승률",
       englishLabel: "Win Rate",
       value: `${(result.winRate || 0).toFixed(1)}%`,
-      valueClass: (result.winRate || 0) >= 55 ? "text-white" : (result.winRate || 0) >= 50 ? "text-yellow-400" : "text-red-400",
+      valueClass: (result.winRate || 0) > 0 ? "text-[var(--main-red)]" : "text-white",
       description: "전체 거래 중 수익으로 끝난 거래의 비율입니다.",
     },
     {
@@ -553,7 +554,7 @@ export default function BacktestDashboard({
       englishLabel: "Profit Factor",
       value: result.profitFactor.toFixed(2),
       valueClass: result.profitFactor > 1 ? "text-[var(--main-red)]" : result.profitFactor < 1 ? "text-[var(--main-blue)]" : "text-white",
-      description: METRIC_DESCRIPTIONS.profitFactor,
+      description: BASE_METRIC_DESCRIPTIONS.profitFactor,
     },
   ];
 
@@ -811,6 +812,7 @@ export default function BacktestDashboard({
                           value={metric.value}
                           valueClass={metric.valueClass}
                           className={[
+                            index === 0 ? "col-span-2" : "",
                             index < 4 ? "lg:border-b-0" : "lg:border-b",
                             index < 6 ? "xl:border-b-0" : "xl:border-b",
                           ].join(" ")}
@@ -1009,8 +1011,8 @@ export default function BacktestDashboard({
                     {([
                       { label: "초기 자본", value: formatKRW(result.initialCapital), sub: "원" },
                       { label: "최종 자산", value: formatKRW(result.finalEquity), sub: "원" },
-                      { label: "소르티노 지수", value: result.sortino.toFixed(2), sub: null, desc: METRIC_DESCRIPTIONS.sortino },
-                      { label: "켈리 공식", value: result.kelly.toFixed(2), sub: null, desc: METRIC_DESCRIPTIONS.kelly },
+                      { label: "칼마 비율", value: (result.calmar ?? (result.maxDrawdown !== 0 ? result.cagr / Math.abs(result.maxDrawdown) : 0)).toFixed(2), sub: null, desc: BASE_METRIC_DESCRIPTIONS.calmar },
+                      { label: "평균 보유일", value: `${Math.round(result.avgHoldingDays ?? 0)}일`, sub: null, desc: BASE_METRIC_DESCRIPTIONS.avgHoldingDays },
                     ] as const).map((s) => (
                       <div key={s.label} className="flex-1 flex flex-col gap-1 px-5 py-4">
                         <div className="flex items-center gap-1.5">
@@ -1309,7 +1311,14 @@ function BacktestTerminalLog({
   // 초기화
   logs.push({ level: "INFO", ts: ts(0), message: `백테스트 엔진 초기화 완료` });
   logs.push({ level: "INFO", ts: ts(1), message: `기간: ${start} ~ ${now} (${totalDays}일)` });
-  logs.push({ level: "INFO", ts: ts(2), message: `유니버스: ${symbolCount}개 종목 로드 / 초기자금: ${(result.initialCapital ?? 0).toLocaleString()}원` });
+  const UNIVERSE_NAMES: Record<string, string> = {
+    kospi: "KOSPI", kospi200: "KOSPI 200", kosdaq: "KOSDAQ", kosdaq150: "KOSDAQ 150",
+    kospi_kosdaq: "KOSPI+KOSDAQ", kosdaq_kospi: "KOSPI+KOSDAQ",
+  };
+  const universeLabel = result.universeId
+    ? (UNIVERSE_NAMES[result.universeId] ?? result.universeId.toUpperCase())
+    : "KOSPI";
+  logs.push({ level: "INFO", ts: ts(2), message: `유니버스: ${universeLabel} / 초기자금: ${(result.initialCapital ?? 0).toLocaleString()}원` });
 
   // 매수 신호 통계
   const buyCount = result.tradesList?.filter(t => t.type === "buy").length ?? 0;
@@ -1327,11 +1336,11 @@ function BacktestTerminalLog({
   }
 
   // 리스크 지표
-  logs.push({ level: "INFO", ts: ts(20), message: `MDD: ${(result.maxDrawdown ?? 0).toFixed(2)}% / Sharpe: ${(result.sharpe ?? 0).toFixed(2)} / Sortino: ${(result.sortino ?? 0).toFixed(2)}` });
+  logs.push({ level: "INFO", ts: ts(20), message: `MDD: ${(result.maxDrawdown ?? 0).toFixed(2)}% / Sharpe: ${(result.sharpe ?? 0).toFixed(2)} / Calmar: ${(result.calmar ?? 0).toFixed(2)} / 평균보유일: ${Math.round(result.avgHoldingDays ?? 0)}일` });
   logs.push({ level: "INFO", ts: ts(21), message: `승률: ${(result.winRate ?? 0).toFixed(1)}% / 손익비: ${(result.profitFactor ?? 0).toFixed(2)} / CAGR: ${(result.cagr ?? 0).toFixed(2)}%` });
 
   if ((result.avgProfit ?? 0) !== 0 || (result.avgLoss ?? 0) !== 0) {
-    logs.push({ level: "INFO", ts: ts(22), message: `평균수익: +${(result.avgProfit ?? 0).toFixed(2)}% / 평균손실: ${(result.avgLoss ?? 0).toFixed(2)}%` });
+    logs.push({ level: "INFO", ts: ts(22), message: `평균수익: +${(result.avgProfit ?? 0).toFixed(2)}% / 평균손실: -${(result.avgLoss ?? 0).toFixed(2)}%` });
   }
   if ((result.maxConsecutiveWins ?? 0) > 0 || (result.maxConsecutiveLosses ?? 0) > 0) {
     logs.push({ level: "INFO", ts: ts(23), message: `최대 연속수익: ${result.maxConsecutiveWins ?? 0}회 / 최대 연속손실: ${result.maxConsecutiveLosses ?? 0}회` });
@@ -1344,11 +1353,11 @@ function BacktestTerminalLog({
     const bot3 = sorted.slice(-3).reverse();
     top3.forEach((s, i) => {
       const name = stockMetadata[s.symbol]?.name ?? s.symbol;
-      logs.push({ level: "INFO", ts: ts(30 + i), message: `TOP${i+1} ${name}(${s.symbol}): +${s.profit.toLocaleString()}원 / 수익률 ${s.totalReturn.toFixed(1)}% / ${s.trades}거래` });
+      logs.push({ level: "INFO", ts: ts(30 + i), message: `TOP${i+1} ${name}(${s.symbol}): +${Math.round(s.profit).toLocaleString()}원 / 수익률 ${s.totalReturn.toFixed(1)}% / ${s.trades}거래` });
     });
     bot3.forEach((s, i) => {
       const name = stockMetadata[s.symbol]?.name ?? s.symbol;
-      logs.push({ level: "INFO", ts: ts(33 + i), message: `BOT${i+1} ${name}(${s.symbol}): ${s.profit.toLocaleString()}원 / 수익률 ${s.totalReturn.toFixed(1)}% / ${s.trades}거래` });
+      logs.push({ level: "INFO", ts: ts(33 + i), message: `BOT${i+1} ${name}(${s.symbol}): ${Math.round(s.profit).toLocaleString()}원 / 수익률 ${s.totalReturn.toFixed(1)}% / ${s.trades}거래` });
     });
   }
 
@@ -1439,7 +1448,7 @@ function OverviewMetricCard({
     <div className={`min-h-[110px] border-r border-b border-white/[0.08] px-5 py-5 md:px-6 md:py-6 ${className || ""}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-gray-500">
+          <div className="text-xs font-bold uppercase tracking-[0.16em] text-gray-500">
             {label}
           </div>
           {englishLabel && (

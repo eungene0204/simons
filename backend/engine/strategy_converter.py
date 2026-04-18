@@ -239,8 +239,13 @@ def to_backtest_request(strategy: ParsedStrategy) -> dict:
         "allocation_type": "equal",
     }
 
+    # universe 리스트 → universe_id 문자열 변환
+    # ["KOSDAQ"] → "kosdaq", ["KOSPI", "KOSDAQ"] → "kospi_kosdaq", ["KOSPI200"] → "kospi200"
+    universe_id = "_".join(m.lower() for m in sorted(strategy.universe)) if strategy.universe else "kospi200"
+
     return {
         "symbols": symbols,
+        "universe_id": universe_id,
         "entry": {"conditions": entry_conditions},
         "exit": {"conditions": exit_conditions},
         "risk": risk,

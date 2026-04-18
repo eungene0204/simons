@@ -13,6 +13,41 @@ from engine.nl_parser import (
     _validate_signals,
 )
 
+# ─── 삭제 의도 테스트 ─────────────────────────────────────────────────────────
+
+
+def test_apply_prompt_overrides_deletes_stop_loss_on_explicit_delete():
+    """'손절 -7%를 삭제하자' → stop_loss_pct가 None으로 설정되어야 함"""
+    base = make_base_strategy().model_copy(update={"stop_loss_pct": 7.0})
+    parsed = _apply_prompt_overrides(base, "손절 -7%를 삭제하자")
+
+    assert parsed.stop_loss_pct is None
+
+
+def test_apply_prompt_overrides_deletes_stop_loss_various_delete_keywords():
+    """다양한 삭제 키워드에서 손절이 제거되어야 함"""
+    for prompt in ["손절 없애줘", "손절 제거해줘", "손절 지워줘", "손절 빼줘"]:
+        base = make_base_strategy().model_copy(update={"stop_loss_pct": 10.0})
+        parsed = _apply_prompt_overrides(base, prompt)
+        assert parsed.stop_loss_pct is None, f"prompt={prompt!r}에서 stop_loss_pct가 남아있음"
+
+
+def test_apply_prompt_overrides_deletes_take_profit_on_explicit_delete():
+    """'익절 삭제해줘' → take_profit_pct가 None으로 설정되어야 함"""
+    base = make_base_strategy().model_copy(update={"take_profit_pct": 20.0})
+    parsed = _apply_prompt_overrides(base, "익절 삭제해줘")
+
+    assert parsed.take_profit_pct is None
+
+
+def test_apply_prompt_overrides_does_not_extract_stop_loss_from_delete_prompt():
+    """삭제 요청에서 값이 잘못 추출되어 stop_loss가 재설정되면 안 됨"""
+    base = make_base_strategy().model_copy(update={"stop_loss_pct": 7.0})
+    parsed = _apply_prompt_overrides(base, "손절 -7%를 삭제하자")
+
+    # 7.0이 다시 설정되지 않고 None이어야 함
+    assert parsed.stop_loss_pct is None, "삭제 요청인데 stop_loss_pct가 7.0으로 재설정됨"
+
 
 def make_base_strategy() -> ParsedStrategy:
     return ParsedStrategy(

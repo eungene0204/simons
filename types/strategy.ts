@@ -132,7 +132,7 @@ export interface BacktestResult {
   sortino: number;
   volatility?: number;
   calmar?: number;
-  kelly: number;
+  avgHoldingDays?: number;
   trades: number;
   avgProfit?: number;
   avgLoss?: number;
@@ -170,6 +170,8 @@ export interface BacktestResult {
     winRate: number;
     profit: number;
   }>;
+  benchmarkLabel?: string;
+  universeId?: string;
   warnings?: string[];
   executionTime?: number;
   fromCache?: boolean;
