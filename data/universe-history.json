@@ -1,6 +1,36 @@
 {
-  "updatedAt": "2026-04-16T00:00:04.264227+09:00",
+  "updatedAt": "2026-04-18T00:00:03.971833+09:00",
   "entries": [
+    {
+      "date": "2026-04-18",
+      "syncedAt": "2026-04-18T00:00:03.971833+09:00",
+      "totalCount": 2657,
+      "kospiCount": 839,
+      "kosdaqCount": 1818,
+      "addedCount": 0,
+      "delistedCount": 0,
+      "added": [],
+      "delisted": []
+    },
+    {
+      "date": "2026-04-17",
+      "syncedAt": "2026-04-17T00:00:03.971336+09:00",
+      "totalCount": 2657,
+      "kospiCount": 839,
+      "kosdaqCount": 1818,
+      "addedCount": 0,
+      "delistedCount": 1,
+      "added": [],
+      "delisted": [
+        {
+          "symbol": "138490",
+          "name": "코오롱ENP",
+          "market": "KOSPI",
+          "sector": "화학",
+          "industry": "합성고무 및 플라스틱 물질 제조업"
+        }
+      ]
+    },
     {
       "date": "2026-04-16",
       "syncedAt": "2026-04-16T00:00:04.264227+09:00",

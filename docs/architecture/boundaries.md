@@ -110,6 +110,7 @@ Visualization only (NO business logic)
 
 ### Files
  - components/dashboard/**
+ - components/layout/**
  - components/portfolio/**
  - app/backtest/**
  - app/kospi/**

@@ -33,6 +33,7 @@ class RiskManagement(BaseModel):
 
 class BacktestRequest(BaseModel):
     symbols: List[str]
+    universe_id: Optional[str] = None
     entry: ConditionGroup
     exit: ConditionGroup
     risk: RiskManagement
@@ -69,7 +70,8 @@ class VBTNativeResult(BaseModel):
     profitFactor: float = 0.0
     sharpe: float = 0.0
     sortino: float = 0.0
-    kelly: Optional[float] = 0.0
+    calmar: Optional[float] = 0.0
+    avgHoldingDays: Optional[float] = 0.0
     volatility: float = 0.0
     trades: int = 0
     avgProfit: Optional[float] = 0.0
@@ -93,7 +95,8 @@ class BacktestResponse(BaseModel):
     profitFactor: float
     sharpe: float
     sortino: float
-    kelly: Optional[float] = 0.0
+    calmar: Optional[float] = 0.0
+    avgHoldingDays: Optional[float] = 0.0
     volatility: float
     trades: int
     avgProfit: Optional[float] = 0.0

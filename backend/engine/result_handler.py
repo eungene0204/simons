@@ -27,7 +27,9 @@ class ResultHandler:
     @classmethod
     def format_results(cls, pf, processed_symbols, _all_entries, _all_exits,
                        all_entry_reasons, all_exit_reasons, common_index,
-                       risk_params, exec_type, init_cash) -> Dict[str, Any]:
+                       risk_params, exec_type, init_cash,
+                       benchmark_prices: "pd.Series | None" = None,
+                       benchmark_label: str = "매수 후 보유") -> Dict[str, Any]:
 
         signals_list = []
         sl_pct = float(risk_params.get('stop_loss_pct') or 0)
@@ -268,9 +270,15 @@ class ResultHandler:
             max_consecutive_wins   = 0
             max_consecutive_losses = 0
 
-        r = avg_win / avg_loss if avg_loss > 0 else 0.0
-        w = agg_win_rate / 100
-        kelly = w - (1 - w) / r if r > 0 else 0.0
+        # ── Average holding days ──────────────────────────────────────────────
+        avg_holding_days = 0.0
+        try:
+            if total_trades > 0 and 'entry_idx' in pf.trades.records and 'exit_idx' in pf.trades.records:
+                entry_idxs = pf.trades.records['entry_idx'].values.astype(float)
+                exit_idxs  = pf.trades.records['exit_idx'].values.astype(float)
+                avg_holding_days = float(np.mean(exit_idxs - entry_idxs))
+        except:
+            avg_holding_days = 0.0
 
         # ── Per-Asset Stats — extract to numpy arrays, avoid repeated VBT overhead ──
         per_asset_stats = {}
@@ -305,9 +313,20 @@ class ResultHandler:
             return [cls.safe(x) for x in obj]
 
         # ── Benchmark ─────────────────────────────────────────────────────────
-        bench_rets = pf.benchmark_returns()
-        if isinstance(bench_rets, pd.DataFrame): bench_mean_rets = bench_rets.mean(axis=1)
-        else: bench_mean_rets = bench_rets
+        if benchmark_prices is not None and len(benchmark_prices) > 0:
+            # Align benchmark to common_index
+            bench_aligned = benchmark_prices.reindex(common_index).ffill().bfill()
+            bench_first = bench_aligned.iloc[0]
+            bench_mean_rets = bench_aligned.pct_change().fillna(0.0)
+            if bench_first and bench_first != 0:
+                bench_mean_rets.iloc[0] = 0.0
+        else:
+            # Fallback: equal-weight buy-and-hold of strategy symbols
+            bench_rets = pf.benchmark_returns()
+            if isinstance(bench_rets, pd.DataFrame):
+                bench_mean_rets = bench_rets.mean(axis=1)
+            else:
+                bench_mean_rets = bench_rets
 
         bench_cum_returns = (1 + bench_mean_rets).cumprod()
         bench_total_return = bench_cum_returns.iloc[-1] - 1 if len(bench_cum_returns) > 0 else 0.0
@@ -365,6 +384,7 @@ class ResultHandler:
         _vol = float(_std * np.sqrt(252)) * 100
 
         _mdd    = cls.safe(pf.max_drawdown()) * 100
+        _calmar = cagr_val / abs(_mdd) if _mdd != 0 else 0.0
         _equity = to_list(pf.value())
         _total_profit = cls.safe(pf.total_profit())
 
@@ -391,13 +411,15 @@ class ResultHandler:
             "profitFactor":         _sf(raw_pf),
             "sharpe":               _sf(_sharpe),
             "sortino":              _sf(_sortino),
-            "kelly":                _sf(cls.safe(kelly)),
+            "calmar":               _sf(_calmar),
+            "avgHoldingDays":       _sf(avg_holding_days),
             "volatility":           _sf(_vol),
             "equity":               _equity,
             "benchmark_equity":     to_list(init_cash * bench_cum_returns),
             "dates":                _dates,
             "signals":              signals_list,
             "perAssetStats":        per_asset_stats,
+            "benchmark_label":      benchmark_label,
             "warnings":             list(getattr(cls, '_warnings', set())),
             "version":              "6.6 (vectorized streaks, cached returns, no-sanitize-loop)",
         }

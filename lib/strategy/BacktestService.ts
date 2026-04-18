@@ -19,6 +19,7 @@ export class BacktestService {
 
     const requestBody = {
       symbols,
+      universe_id: strategy.universe.id,
       entry: strategy.entry,
       exit: strategy.exit,
       risk: {
@@ -74,7 +75,8 @@ export class BacktestService {
         profitFactor: pythonResult.profitFactor || 0,
         sharpe: pythonResult.sharpe || 0,
         sortino: Number(pythonResult.sortino),
-        kelly: Number(pythonResult.kelly || 0),
+        calmar: Number(pythonResult.calmar || 0),
+        avgHoldingDays: Number(pythonResult.avgHoldingDays || 0),
         volatility: Number(pythonResult.volatility),
         trades: Number(pythonResult.trades),
         finalEquity: pythonResult.equity[pythonResult.equity.length - 1],
@@ -103,6 +105,8 @@ export class BacktestService {
           amount: Number(s.amount)
         })),
         perAssetStats: pythonResult.perAssetStats,
+        benchmarkLabel: pythonResult.benchmark_label,
+        universeId: pythonResult.universe_id || strategy.universe.id,
         warnings: pythonResult.warnings,
         avgProfit: pythonResult.avgProfit,
         avgLoss: pythonResult.avgLoss,

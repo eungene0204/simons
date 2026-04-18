@@ -210,7 +210,7 @@ function SidebarComponent() {
           >
             <MagnifyingGlass size={16} className="text-gray-500 group-hover:text-gray-300 mr-2 flex-shrink-0" />
             <span className="text-[10px] text-gray-500 font-bold bg-black/40 border border-white/10 rounded px-1.5 py-0.5 mr-2 flex-shrink-0">/</span>
-            <span className="text-xs text-gray-500 group-hover:text-gray-400 font-bold flex-1">Quick Search</span>
+            <span className="text-xs text-gray-500 group-hover:text-gray-400 font-bold flex-1">빠른 검색</span>
           </div>
         </div>
 

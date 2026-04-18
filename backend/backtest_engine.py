@@ -418,8 +418,29 @@ class BacktestEngine:
             _t3 = _time.time()
             print(f"[BT-ENGINE] Simulator 완료: {_t3-_t2:.2f}s", flush=True)
 
+            # 5. Benchmark ETF 로드 (KODEX 200 → 069500, KOSDAQ 전략이면 229200)
+            _universe_id = (req.get('universe_id') or '').lower()
+            _is_kosdaq = 'kosdaq' in _universe_id
+            _benchmark_sym  = "229200" if _is_kosdaq else "069500"
+            _benchmark_name = "KODEX KOSDAQ 150 (229200)" if _is_kosdaq else "KODEX 200 (069500)"
+            benchmark_prices = None
+            try:
+                _bench_df = self.loader.load_symbol_data(_benchmark_sym)
+                if _bench_df is not None:
+                    _bench_pd = self.loader.preprocess_data(_bench_df)
+                    benchmark_prices = _bench_pd['close'].sort_index()
+            except Exception as _be:
+                print(f"[BT-ENGINE] 벤치마크 로드 실패 ({_benchmark_sym}): {_be}", flush=True)
+
             # 5. Format
-            final = self.handler.format_results(pf, processed_symbols, all_entries, all_exits, all_entry_reasons, all_exit_reasons, common_index, risk_params, exec_type, init_cash)
+            final = self.handler.format_results(
+                pf, processed_symbols, all_entries, all_exits,
+                all_entry_reasons, all_exit_reasons, common_index,
+                risk_params, exec_type, init_cash,
+                benchmark_prices=benchmark_prices,
+                benchmark_label=_benchmark_name,
+            )
+            final["universe_id"] = req.get('universe_id') or ''
             _t4 = _time.time()
             print(f"[BT-ENGINE] Format 완료: {_t4-_t3:.2f}s", flush=True)
             print(f"[BT-ENGINE] 총 소요: {_t4-_t0:.2f}s", flush=True)

@@ -813,7 +813,7 @@
   },
   {
     "symbol": "091810",
-    "name": "티웨이항공",
+    "name": "트리니티항공",
     "market": "KOSPI",
     "sector": "우주항공/방산",
     "industry": "항공 여객 운송업"
@@ -1545,13 +1545,6 @@
     "market": "KOSPI",
     "sector": "유통/상사",
     "industry": "섬유, 의복, 신발 및 가죽제품 소매업"
-  },
-  {
-    "symbol": "138490",
-    "name": "코오롱ENP",
-    "market": "KOSPI",
-    "sector": "화학",
-    "industry": "합성고무 및 플라스틱 물질 제조업"
   },
   {
     "symbol": "139480",
@@ -14414,7 +14407,7 @@
   },
   {
     "symbol": "095190",
-    "name": "이엠코리아",
+    "name": "신화프리텍",
     "market": "KOSDAQ",
     "sector": "화학",
     "industry": "기타 금속 가공제품 제조업"
@@ -16689,9 +16682,9 @@
   },
   {
     "symbol": "038870",
-    "name": "에코바이오",
+    "name": "에코심플렉스",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "기타 서비스",
     "industry": "사업시설 유지·관리 서비스업"
   },
   {
@@ -16759,7 +16752,7 @@
   },
   {
     "symbol": "048770",
-    "name": "TPC",
+    "name": "TPC로보틱스",
     "market": "KOSDAQ",
     "sector": "기계/장비",
     "industry": "일반 목적용 기계 제조업"
