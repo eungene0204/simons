@@ -603,7 +603,7 @@ export default function QuickSearchModal({
               spellCheck={false}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="검색어를 입력해주세요"
+              placeholder="빠른 검색"
               className="w-full rounded-xl border border-white/0 bg-white/[0.06] py-2.5 pl-10 pr-10 text-sm font-bold text-white placeholder:text-gray-500 outline-none transition-colors focus:bg-white/[0.10]"
             />
             <button

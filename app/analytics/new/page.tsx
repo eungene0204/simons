@@ -370,6 +370,7 @@ function StrategyLabContent() {
               initialCapital: equity[0] ?? 0,
               equity,
               benchmarkEquity: raw.benchmark_equity,
+              benchmarkLabel: raw.benchmark_label,
               dates: raw.dates ?? [],
               tradesList: (raw.signals ?? []).map((s: any) => ({
                 date: s.date,
@@ -392,6 +393,7 @@ function StrategyLabContent() {
                 amount: Number(s.amount),
               })),
               perAssetStats: raw.perAssetStats,
+              universeId: raw.universe_id,
               warnings: raw.warnings,
               executionTime: raw.executionTime,
               vbtResult: raw.vbtResult ?? undefined,

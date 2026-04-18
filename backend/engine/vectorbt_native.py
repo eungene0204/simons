@@ -121,10 +121,6 @@ class VectorBTNativeEngine:
         max_consecutive_wins = int(safe(pf.trades.winning_streak.max()))
         max_consecutive_losses = int(safe(pf.trades.losing_streak.max()))
 
-        r = avg_win / avg_loss if avg_loss > 0 else 0.0
-        w = win_rate / 100
-        kelly = w - (1 - w) / r if r > 0 else 0.0
-
         total_return_decimal = safe(pf.total_return())
         n_days = len(common_index)
         n_years = n_days / 252.0
@@ -154,17 +150,30 @@ class VectorBTNativeEngine:
 
         equity_list = to_list(pf.value())
         final_equity = equity_list[-1] if equity_list else init_cash
+        mdd_val = safe(pf.max_drawdown()) * 100
+        calmar_val = cagr_val / abs(mdd_val) if mdd_val != 0 else 0.0
+
+        avg_holding_days = 0.0
+        try:
+            if total_trades > 0 and 'entry_idx' in pf.trades.records and 'exit_idx' in pf.trades.records:
+                avg_holding_days = float(np.mean(
+                    pf.trades.records['exit_idx'].values.astype(float) -
+                    pf.trades.records['entry_idx'].values.astype(float)
+                ))
+        except Exception:
+            pass
 
         return {
             "totalReturn": safe(pf.total_return()) * 100,
             "cagr": cagr_val,
             "buyAndHoldReturn": safe(bench_total) * 100,
-            "maxDrawdown": safe(pf.max_drawdown()) * 100,
+            "maxDrawdown": mdd_val,
             "winRate": win_rate,
             "profitFactor": raw_pf,
             "sharpe": safe(pf.sharpe_ratio()),
             "sortino": safe(pf.sortino_ratio()),
-            "kelly": safe(kelly),
+            "calmar": calmar_val,
+            "avgHoldingDays": avg_holding_days,
             "volatility": float(np.nan_to_num(pf.returns(group_by=True).std() * np.sqrt(252), nan=0.0)) * 100,
             "trades": total_trades,
             "avgProfit": avg_win,

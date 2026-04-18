@@ -441,6 +441,17 @@ class NLStrategyParser:
         for field, val in diff.model_dump().items():
             if val is not None:
                 merged[field] = val
+
+        # 삭제 의도 명시 처리: LLM diff는 null="변경없음"으로 표현하므로 별도 감지
+        compact = re.sub(r"\s+", "", user_input.lower())
+        if any(kw in compact for kw in _DELETE_TERMS):
+            if any(kw in compact for kw in ["손절", "stoploss", "스탑로스"]):
+                merged["stop_loss_pct"] = None
+            if any(kw in compact for kw in ["익절", "takeprofit", "익절률"]):
+                merged["take_profit_pct"] = None
+            if any(kw in compact for kw in ["트레일링", "trailingstop"]):
+                merged["trailing_stop_pct"] = None
+
         return _apply_prompt_overrides(ParsedStrategy.model_validate(merged), user_input)
 
     def _modify_mlx(self, user_input: str, previous: dict) -> ParsedStrategyDiff:
@@ -711,6 +722,9 @@ def _merge_signals(
     return merged
 
 
+_DELETE_TERMS = ["삭제", "없애", "제거", "지워", "빼줘", "빼"]
+
+
 def _apply_prompt_overrides(parsed: ParsedStrategy, user_input: str) -> ParsedStrategy:
     updates: dict[str, object] = {}
     explicit_universe = _extract_explicit_universe(user_input)
@@ -718,6 +732,10 @@ def _apply_prompt_overrides(parsed: ParsedStrategy, user_input: str) -> ParsedSt
         updates["universe"] = explicit_universe
 
     compact = re.sub(r"\s+", "", user_input.lower())
+
+    is_deleting = any(kw in compact for kw in _DELETE_TERMS)
+    is_deleting_stop_loss = is_deleting and any(kw in compact for kw in ["손절", "stoploss", "스탑로스"])
+    is_deleting_take_profit = is_deleting and any(kw in compact for kw in ["익절", "takeprofit", "익절률"])
 
     take_profit_patterns = [
         # "수익이 10% 이상 날때도 매도", "수익이 10% 이상이면 매도"
@@ -731,11 +749,14 @@ def _apply_prompt_overrides(parsed: ParsedStrategy, user_input: str) -> ParsedSt
         # "익절 10%", "익절10%"
         r"익절-?(\d+(?:\.\d+)?)%",
     ]
-    for pattern in take_profit_patterns:
-        match = re.search(pattern, compact)
-        if match:
-            updates["take_profit_pct"] = float(match.group(1))
-            break
+    if is_deleting_take_profit:
+        updates["take_profit_pct"] = None
+    else:
+        for pattern in take_profit_patterns:
+            match = re.search(pattern, compact)
+            if match:
+                updates["take_profit_pct"] = float(match.group(1))
+                break
 
     stop_loss_patterns = [
         # "손실 10% 이상이면 매도"
@@ -749,11 +770,14 @@ def _apply_prompt_overrides(parsed: ParsedStrategy, user_input: str) -> ParsedSt
         # "손절 10%", "손절-10%", "손절 -10%"
         r"손절-?(\d+(?:\.\d+)?)%",
     ]
-    for pattern in stop_loss_patterns:
-        match = re.search(pattern, compact)
-        if match:
-            updates["stop_loss_pct"] = float(match.group(1))
-            break
+    if is_deleting_stop_loss:
+        updates["stop_loss_pct"] = None
+    else:
+        for pattern in stop_loss_patterns:
+            match = re.search(pattern, compact)
+            if match:
+                updates["stop_loss_pct"] = float(match.group(1))
+                break
 
     # ── Step 1: LLM 환각 신호 제거 (프롬프트에 언급되지 않은 지표 제거) ──
     validated_entry = _validate_signals(list(parsed.entry_signals), user_input)
