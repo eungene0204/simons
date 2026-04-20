@@ -380,6 +380,14 @@ export default function QuickSearchModal({
     };
   }, [isOpen, trimmedQuery]);
 
+  const incrementSearchCount = (symbol: string, name: string) => {
+    fetch("/api/stock/popular", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol, name }),
+    }).catch(() => {});
+  };
+
   const persistRecentSearch = (term: string) => {
     const normalized = term.trim();
     if (!normalized) {
@@ -486,9 +494,17 @@ export default function QuickSearchModal({
         const selectedItem = items[activeIndex];
         if (selectedItem) {
           persistRecentSearch(selectedItem.title);
+          if (selectedItem.kind === "stock") {
+            const stockResult = stockResults.find(
+              (s) => `stock-${s.symbol}` === selectedItem.id
+            );
+            if (stockResult) {
+              incrementSearchCount(stockResult.symbol, stockResult.name);
+            }
+          }
           router.push(selectedItem.href);
-          onClose();
         }
+        onClose();
       }
     };
 
@@ -536,6 +552,14 @@ export default function QuickSearchModal({
                 onMouseEnter={() => setActiveIndex(offset + index)}
                 onClick={() => {
                   persistRecentSearch(item.title);
+                  if (item.kind === "stock") {
+                    const stockResult = stockResults.find(
+                      (s) => `stock-${s.symbol}` === item.id
+                    );
+                    if (stockResult) {
+                      incrementSearchCount(stockResult.symbol, stockResult.name);
+                    }
+                  }
                   router.push(item.href);
                   onClose();
                 }}
@@ -603,7 +627,7 @@ export default function QuickSearchModal({
               spellCheck={false}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="빠른 검색"
+              placeholder="종목, 전략, 계좌, 백테스트를 검색하세요"
               className="w-full rounded-xl border border-white/0 bg-white/[0.06] py-2.5 pl-10 pr-10 text-sm font-bold text-white placeholder:text-gray-500 outline-none transition-colors focus:bg-white/[0.10]"
             />
             <button
@@ -699,6 +723,7 @@ export default function QuickSearchModal({
                         type="button"
                         onClick={() => {
                           persistRecentSearch(stock.name);
+                          incrementSearchCount(stock.symbol, stock.name);
                           router.push(
                             `/stock-order?symbol=${encodeURIComponent(stock.symbol)}&name=${encodeURIComponent(stock.name)}`
                           );

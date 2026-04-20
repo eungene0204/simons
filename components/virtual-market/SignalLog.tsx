@@ -13,8 +13,9 @@ export default function SignalLog({ logs, symbolNameMap = {} }: SignalLogProps) 
 
   if (logs.length === 0) {
     return (
-      <div className="p-4 text-center text-sm text-gray-400">
-        아직 시그널이 발생하지 않았습니다.
+      <div className="py-8 text-center">
+        <p className="text-sm font-bold text-gray-500">아직 시그널이 발생하지 않았습니다.</p>
+        <p className="text-xs font-bold text-gray-600 mt-1">전략 시그널이 감지되면 여기에 표시됩니다.</p>
       </div>
     );
   }
@@ -27,11 +28,6 @@ export default function SignalLog({ logs, symbolNameMap = {} }: SignalLogProps) 
           className="flex items-center justify-between px-2 py-2 hover:bg-white/[0.02] transition-colors"
         >
           <div className="flex items-center gap-2 min-w-0 flex-1">
-            {log.signalType !== "entry" && (
-              <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold flex-shrink-0 bg-white/[0.06] text-gray-300">
-                청산
-              </span>
-            )}
             <div className="min-w-0">
               <p className="text-xs font-bold text-white truncate leading-tight">
                 {log.stockName ?? symbolNameMap[log.symbol] ?? log.symbol}
@@ -45,9 +41,17 @@ export default function SignalLog({ logs, symbolNameMap = {} }: SignalLogProps) 
             <span className="text-[10px] font-bold text-gray-400 tabular-nums">
               {formatPrice(log.price)}원
             </span>
-            <span className="inline-flex items-center rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-bold text-gray-400">
-              {log.action === "auto_executed" ? "체결" : log.action === "notified" ? "알림" : "스킵"}
-            </span>
+            {log.action === "skipped" ? (
+              <span className="inline-flex items-center rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-bold text-gray-500">
+                스킵
+              </span>
+            ) : (
+              <span className={`inline-flex items-center rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-bold ${
+                log.signalType === "entry" ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"
+              }`}>
+                {log.signalType === "entry" ? "매수" : "매도"}
+              </span>
+            )}
           </div>
         </div>
       ))}

@@ -7,7 +7,7 @@ import time
 from zoneinfo import ZoneInfo
 import pandas as pd
 import polars as pl
-import FinanceDataReader as fdr
+import pykrx.stock as pykrx
 from tqdm import tqdm
 from pathlib import Path
 from datetime import datetime
@@ -118,29 +118,24 @@ def sync_symbols(stocks_path):
         print(f"  KRX KIND: KOSPI={len(kospi_list)}, KOSDAQ={len(kosdaq_list)}")
     except Exception as e:
         print(f"  KRX KIND 실패: {e}")
-        print("  Falling back to FinanceDataReader StockListing...")
+        print("  Falling back to pykrx StockListing...")
         try:
-            kospi_df = fdr.StockListing("KOSPI")
-            kosdaq_df = fdr.StockListing("KOSDAQ")
-            for df, market in ((kospi_df, "KOSPI"), (kosdaq_df, "KOSDAQ")):
-                for _, row in df.iterrows():
-                    symbol = str(row.get("Code", "")).strip().zfill(6)
-                    name = str(row.get("Name", "")).strip()
-                    industry = str(row.get("Industry", "") or "").strip()
-                    if not symbol or not name:
+            for market_code, market_label in (("KOSPI", "KOSPI"), ("KOSDAQ", "KOSDAQ")):
+                tickers = pykrx.get_market_ticker_list(market=market_code)
+                for ticker in tickers:
+                    name = pykrx.get_market_ticker_name(ticker)
+                    if not name:
                         continue
-                    if not symbol.isdigit() or len(symbol) != 6:
-                        continue
-                    sector = get_sector_from_industry(symbol, industry, name)
+                    sector = get_sector_from_industry(ticker, "", name)
                     new_list.append({
-                        "symbol": symbol,
+                        "symbol": ticker,
                         "name": name,
-                        "market": market,
+                        "market": market_label,
                         "sector": sector,
-                        "industry": industry,
+                        "industry": "",
                     })
         except Exception as e2:
-            print(f"  FDR StockListing도 실패: {e2}")
+            print(f"  pykrx StockListing도 실패: {e2}")
 
     if not new_list:
         return [], [], []
@@ -179,70 +174,68 @@ def sync_symbols(stocks_path):
     print(f"Updated {stocks_path} with {len(new_list)} symbols.")
     return new_list, new_symbols_found, delisted_symbols
 
+def _fetch_ohlcv_pykrx(symbol: str, start: str) -> pd.DataFrame:
+    """pykrx로 start~오늘까지 OHLCV를 조회해 표준 컬럼명으로 반환한다.
+
+    숫자+알파벳 혼합 KRX 코드(예: 0007C0)도 지원한다.
+    반환 컬럼: date, open, high, low, close, volume, change
+    """
+    today = datetime.now(KST).strftime("%Y%m%d")
+    start_str = start.replace("-", "")
+    df = pykrx.get_market_ohlcv_by_date(start_str, today, symbol)
+    if df is None or df.empty:
+        return pd.DataFrame()
+    df = df.reset_index()
+    col_map = {
+        "날짜": "date", "시가": "open", "고가": "high",
+        "저가": "low", "종가": "close", "거래량": "volume", "등락률": "change",
+    }
+    df = df.rename(columns=col_map)
+    df["date"] = pd.to_datetime(df["date"])
+    for col in ["open", "high", "low", "close", "volume", "change"]:
+        if col in df.columns:
+            df[col] = df[col].astype(float)
+    return df
+
+
 def update_ohlcv_incremental(symbol, data_dir):
-    """Update parquet file with latest data if exists, else full download."""
+    """Update parquet file with latest data if exists, else full download.
+
+    pykrx를 사용해 숫자 전용 코드와 숫자+알파벳 혼합 코드 모두 지원한다.
+    """
     file_path = os.path.join(data_dir, f"{symbol}.parquet")
-    
+
     if not os.path.exists(file_path):
         return fetch_and_enrich(symbol, data_dir)
-        
-    try:
-        # Load existing
-        df_old = pl.read_parquet(file_path)
-        last_date = df_old['date'].max()
-        if isinstance(last_date, str):
-            last_date = datetime.strptime(last_date, '%Y-%m-%d')
-        
-        # Fetch new data since last date
-        start_date_str = last_date.strftime('%Y-%m-%d')
-        df_new_pd = fdr.DataReader(symbol, start_date_str)
-        
-        if df_new_pd.empty:
-            return True # Already up to date
-            
-        # Convert new data to Polars
-        df_new_pd = df_new_pd.reset_index()
-        df_new_pd.columns = [col.lower().replace(' ', '_') for col in df_new_pd.columns]
 
-        # Cast columns to match typical schema
-        float_cols = ['open', 'high', 'low', 'close', 'adj_close', 'change']
-        for col in float_cols:
-            if col in df_new_pd.columns:
-                df_new_pd[col] = df_new_pd[col].astype(float)
+    try:
+        df_old = pl.read_parquet(file_path)
+        last_date = df_old["date"].max()
+        if isinstance(last_date, str):
+            last_date = datetime.strptime(last_date, "%Y-%m-%d")
+
+        df_new_pd = _fetch_ohlcv_pykrx(symbol, start=last_date.strftime("%Y-%m-%d"))
+        if df_new_pd.empty:
+            return True  # Already up to date
 
         df_new = pl.from_pandas(df_new_pd)
-        if 'date' in df_new.columns:
-            df_new = df_new.with_columns(pl.col('date').cast(pl.Datetime('us')))
+        df_old = df_old.with_columns(pl.col("date").cast(pl.Datetime("us")))
+        df_new = df_new.with_columns(pl.col("date").cast(pl.Datetime("us")))
 
-        # Normalize df_old date to same precision
-        if 'date' in df_old.columns:
-            df_old = df_old.with_columns(pl.col('date').cast(pl.Datetime('us')))
+        # pykrx 응답에는 재무/섹터 컬럼이 없으므로 기존 parquet 컬럼 기준으로 맞춤
+        for col in df_old.columns:
+            if col not in df_new.columns:
+                df_new = df_new.with_columns(pl.lit(None).cast(df_old[col].dtype).alias(col))
+        df_new = df_new.select(df_old.columns)
 
-        # Ensure df_old types match
-        df_old = df_old.with_columns([
-            pl.col(c).cast(pl.Float64) for c in float_cols if c in df_old.columns
-        ])
-        if 'volume' in df_old.columns:
-            df_old = df_old.with_columns(pl.col('volume').cast(pl.Float64))
-        if 'volume' in df_new.columns:
-            df_new = df_new.with_columns(pl.col('volume').cast(pl.Float64))
-
-        # Preserve sector column from old data (new data won't have it)
-        if 'sector' in df_old.columns and 'sector' not in df_new.columns:
-            sector_val = df_old['sector'][0]
-            df_new = df_new.with_columns(pl.lit(sector_val).alias('sector'))
-
-        # Align columns: only keep columns present in df_old
-        common_cols = [c for c in df_old.columns if c in df_new.columns]
-        df_old = df_old.select(common_cols)
-        df_new = df_new.select(common_cols)
-
-        # Combine
-        df_combined = pl.concat([df_old, df_new]).unique(subset=['date'], keep='last').sort('date')
-        
-        # Re-save
+        df_combined = (
+            pl.concat([df_old, df_new])
+            .unique(subset=["date"], keep="last")
+            .sort("date")
+        )
         df_combined.write_parquet(file_path)
         return True
+
     except Exception as e:
         print(f"[WARNING] Failed to update {symbol} incrementally: {e}")
         print(f"[INFO] Attempting full re-download for {symbol}...")

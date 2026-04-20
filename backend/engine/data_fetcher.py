@@ -1,26 +1,48 @@
-import FinanceDataReader as fdr
+import pykrx.stock as pykrx
 import pandas as pd
 import os
 import json
+from datetime import datetime
 from pathlib import Path
 from .sector_mapper import get_sector_from_industry
 from .fundamental_fetcher import fetch_fundamentals, enrich_ohlcv_with_fundamentals
 
+
+def _fetch_ohlcv_pykrx(symbol: str, start: str = "20000101") -> pd.DataFrame:
+    """pykrx로 OHLCV 데이터를 조회해 표준 컬럼명으로 반환한다.
+
+    pykrx는 숫자 전용 코드뿐 아니라 숫자+알파벳 혼합 KRX 코드도 지원한다.
+    반환 컬럼: date, open, high, low, close, volume, change
+    """
+    today = datetime.today().strftime("%Y%m%d")
+    df = pykrx.get_market_ohlcv_by_date(start, today, symbol)
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    df = df.reset_index()
+    col_map = {
+        "날짜": "date", "시가": "open", "고가": "high",
+        "저가": "low", "종가": "close", "거래량": "volume", "등락률": "change",
+    }
+    df = df.rename(columns=col_map)
+    df["date"] = pd.to_datetime(df["date"])
+    for col in ["open", "high", "low", "close", "volume", "change"]:
+        if col in df.columns:
+            df[col] = df[col].astype(float)
+    return df
+
+
 def fetch_and_enrich(symbol, data_dir, skip_fundamentals=False):
     """
-    Downloads OHLCV data from FDR, maps the sector based on krx-stocks.json,
-    enriches with fundamental data (EPS/BPS/PER/PBR/ROE/debt_ratio), and saves as parquet.
+    pykrx로 OHLCV 데이터를 다운로드하고 섹터·재무 데이터를 enrichment한 뒤 parquet으로 저장한다.
+    숫자+알파벳 혼합 KRX 코드(예: 0007C0)도 지원한다.
     """
     try:
-        # 1. Download data
-        # Start from 2000-01-01 to ensure enough history, up to current date (None)
-        df = fdr.DataReader(symbol, '2000-01-01')
+        # 1. Download data via pykrx
+        df = _fetch_ohlcv_pykrx(symbol)
         if df.empty:
-            print(f"[ERROR] FDR returned empty data for {symbol}")
+            print(f"[ERROR] pykrx returned empty data for {symbol}")
             return False
-
-        df = df.reset_index()
-        df.columns = [col.lower() for col in df.columns]
 
         # 2. Get Sector from krx-stocks.json
         # Resolve project root relative to this file (backend/engine/data_fetcher.py → ../../)
