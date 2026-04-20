@@ -136,6 +136,14 @@ model VirtualPosition {
   @@unique([accountId, symbol])
 }
 
+model SearchCount {
+  id        Int      @id @default(autoincrement())
+  symbol    String   @unique
+  name      String
+  count     Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
 model WatchlistGroup {
   id              String            @id
   name            String

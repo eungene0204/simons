@@ -154,7 +154,7 @@ describe("Sidebar quick search", () => {
     fireEvent.keyDown(window, { key: "/" });
 
     const input = await screen.findByPlaceholderText(
-      "검색어를 입력해주세요"
+      "종목, 전략, 계좌, 백테스트를 검색하세요"
     );
     fireEvent.change(input, { target: { value: "삼성" } });
 
@@ -177,7 +177,7 @@ describe("Sidebar quick search", () => {
     fireEvent.keyDown(window, { key: "/" });
 
     const input = await screen.findByPlaceholderText(
-      "검색어를 입력해주세요"
+      "종목, 전략, 계좌, 백테스트를 검색하세요"
     );
     fireEvent.change(input, { target: { value: "삼" } });
 

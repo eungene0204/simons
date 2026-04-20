@@ -41,10 +41,6 @@ export default function WatchlistSnapshot() {
           <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit">
             관심 종목
           </h2>
-          <span className="flex items-center gap-1 text-[10px] text-green-400 font-bold">
-            <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
-            LIVE
-          </span>
         </div>
       </div>
 

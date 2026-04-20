@@ -35,7 +35,7 @@ export default function BidVolume({
               className="relative h-[36px] flex items-center"
             >
               <div
-                className="absolute right-0 top-1/2 -translate-y-1/2 h-[24px] bg-red-500/30 rounded-md"
+                className="absolute right-0 top-1/2 -translate-y-1/2 h-[24px] bg-red-500/30 rounded-l-full"
                 style={{ width: `${pct}%` }}
               />
               <div className="relative z-10 w-full text-left px-3 text-sm text-red-400 tabular-nums tracking-tight">

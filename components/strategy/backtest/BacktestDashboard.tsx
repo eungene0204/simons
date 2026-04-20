@@ -1348,7 +1348,8 @@ function BacktestTerminalLog({
 
   // 상위 종목
   if (result.perAssetStats) {
-    const sorted = Object.values(result.perAssetStats).sort((a, b) => b.profit - a.profit);
+    const traded = Object.values(result.perAssetStats).filter(s => s.trades > 0);
+    const sorted = traded.sort((a, b) => b.profit - a.profit);
     const top3 = sorted.slice(0, 3);
     const bot3 = sorted.slice(-3).reverse();
     top3.forEach((s, i) => {
