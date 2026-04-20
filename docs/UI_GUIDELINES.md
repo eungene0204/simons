@@ -429,22 +429,6 @@ space-y-1    (섹션 간 세로 간격 — 카드가 바짝 붙도록)
 </div>
 ```
 
-### LIVE 인디케이터
-
-실시간 데이터가 갱신되는 섹션 헤더에 사용.
-
-```tsx
-<div className="flex items-center gap-2">
-  <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit">
-    섹션 제목
-  </h2>
-  <span className="flex items-center gap-1 text-[10px] text-green-400 font-bold">
-    <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
-    LIVE
-  </span>
-</div>
-```
-
 ### 시장/종목 그리드 (border 패턴)
 
 시장 지표, 관심 종목처럼 타일형으로 나열할 때 사용.
@@ -724,4 +708,3 @@ className="[&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full 
 - [ ] 로딩 상태에 `animate-pulse` 스켈레톤 구현
 - [ ] `truncate` + `min-w-0` 텍스트 오버플로우 방지
 - [ ] 반응형: 모바일(`grid-cols-1`) → 데스크톱(`lg:grid-cols-10`) 순서
-- [ ] 실시간 데이터 섹션에 LIVE 인디케이터 추가

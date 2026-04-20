@@ -670,13 +670,15 @@ export default function OrderPage() {
   const displayStockName =
     pickStockName(symbol, selectedStockName, stockInfo?.name) ?? symbol;
 
+  const PRICE_HISTORY_COLS = "grid-cols-[96px_1fr_80px_110px_80px_80px_80px]";
+
   if (!symbol) {
     return (
       <DashboardLayout userName="사용자">
-        <div className="p-4 sm:p-6 max-w-7xl mx-auto overflow-x-hidden w-full">
-          <p className="text-gray-500 dark:text-gray-400">
-            종목을 선택해주세요.
-          </p>
+        <div className="w-full min-w-0 border border-white/[0.08]">
+          <div className="py-16 text-center">
+            <p className="text-sm font-bold text-gray-500">종목을 선택해주세요.</p>
+          </div>
         </div>
       </DashboardLayout>
     );
@@ -687,86 +689,82 @@ export default function OrderPage() {
       {/* 주문 결과 모달 */}
       {orderModal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
           onClick={() => setOrderModal(null)}
         >
           <div
-            className="bg-[#1a1a1a] border border-gray-700 rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden"
+            className="bg-[#161616] border border-white/[0.08] rounded-2xl w-full max-w-sm mx-4 overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* 상단 아이콘 */}
             <div className={`flex flex-col items-center pt-8 pb-4 px-6 ${
-              orderModal.type === "success" ? "bg-gradient-to-b from-red-950/40 to-transparent" :
-              orderModal.type === "pending" ? "bg-gradient-to-b from-yellow-950/40 to-transparent" :
-              "bg-gradient-to-b from-gray-900/60 to-transparent"
+              orderModal.type === "success" ? "bg-gradient-to-b from-[var(--main-red)]/10 to-transparent" :
+              orderModal.type === "pending" ? "bg-gradient-to-b from-amber-500/10 to-transparent" :
+              "bg-gradient-to-b from-white/[0.04] to-transparent"
             }`}>
               {orderModal.type === "success" && (
                 <>
-                  <CheckCircle className="w-14 h-14 text-red-400 mb-3" weight="fill" />
-                  <p className="text-lg font-bold text-white">{orderModal.action} 체결 완료</p>
-                  <p className="text-sm text-gray-400 mt-1">{orderModal.stockName}</p>
+                  <CheckCircle size={56} className="text-[var(--main-red)] mb-3" weight="fill" />
+                  <p className="text-lg font-black text-white">{orderModal.action} 체결 완료</p>
+                  <p className="text-sm font-bold text-gray-400 mt-1">{orderModal.stockName}</p>
                 </>
               )}
               {orderModal.type === "pending" && (
                 <>
-                  <Warning className="w-14 h-14 text-yellow-400 mb-3" weight="fill" />
-                  <p className="text-lg font-bold text-white">지정가 대기 중</p>
-                  <p className="text-sm text-gray-400 mt-1">{orderModal.stockName}</p>
+                  <Warning size={56} className="text-amber-400 mb-3" weight="fill" />
+                  <p className="text-lg font-black text-white">지정가 대기 중</p>
+                  <p className="text-sm font-bold text-gray-400 mt-1">{orderModal.stockName}</p>
                 </>
               )}
               {orderModal.type === "error" && (
                 <>
-                  <X className="w-14 h-14 text-gray-400 mb-3" weight="bold" />
-                  <p className="text-lg font-bold text-white">주문 실패</p>
-                  <p className="text-sm text-gray-400 mt-1">{orderModal.stockName}</p>
+                  <X size={56} className="text-gray-500 mb-3" weight="bold" />
+                  <p className="text-lg font-black text-white">주문 실패</p>
+                  <p className="text-sm font-bold text-gray-400 mt-1">{orderModal.stockName}</p>
                 </>
               )}
             </div>
-
-            {/* 내용 */}
             <div className="px-6 pb-6 space-y-3">
               {orderModal.type === "success" && (
-                <div className="bg-[#111] rounded-xl p-4 space-y-2.5 mt-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">수량</span>
-                    <span className="text-white font-medium">{formatPrice(orderModal.qty ?? 0)}주</span>
+                <div className="bg-white/[0.03] rounded-xl p-4 space-y-2 mt-2 border border-white/[0.05]">
+                  <div className="flex justify-between text-xs font-bold">
+                    <span className="text-gray-500">수량</span>
+                    <span className="text-white tabular-nums">{formatPrice(orderModal.qty ?? 0)}주</span>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">체결가</span>
-                    <span className="text-white font-medium">{formatPrice(orderModal.price ?? 0)}원</span>
+                  <div className="flex justify-between text-xs font-bold">
+                    <span className="text-gray-500">체결가</span>
+                    <span className="text-white tabular-nums">{formatPrice(orderModal.price ?? 0)}원</span>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">수수료</span>
-                    <span className="text-gray-300">{formatPrice(orderModal.fee ?? 0)}원</span>
+                  <div className="flex justify-between text-xs font-bold">
+                    <span className="text-gray-500">수수료</span>
+                    <span className="text-gray-400 tabular-nums">{formatPrice(orderModal.fee ?? 0)}원</span>
                   </div>
-                  <div className="border-t border-gray-700 pt-2.5 flex justify-between text-sm font-semibold">
+                  <div className="border-t border-white/[0.06] pt-2 flex justify-between text-sm font-black">
                     <span className="text-gray-300">총액</span>
-                    <span className="text-white">{formatPrice(orderModal.total ?? 0)}원</span>
+                    <span className="text-white tabular-nums font-outfit">{formatPrice(orderModal.total ?? 0)}원</span>
                   </div>
                 </div>
               )}
               {orderModal.type === "pending" && (
-                <div className="bg-[#111] rounded-xl p-4 space-y-2.5 mt-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">수량</span>
-                    <span className="text-white font-medium">{formatPrice(orderModal.qty ?? 0)}주</span>
+                <div className="bg-white/[0.03] rounded-xl p-4 space-y-2 mt-2 border border-white/[0.05]">
+                  <div className="flex justify-between text-xs font-bold">
+                    <span className="text-gray-500">수량</span>
+                    <span className="text-white tabular-nums">{formatPrice(orderModal.qty ?? 0)}주</span>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">지정가</span>
-                    <span className="text-white font-medium">{formatPrice(orderModal.price ?? 0)}원</span>
+                  <div className="flex justify-between text-xs font-bold">
+                    <span className="text-gray-500">지정가</span>
+                    <span className="text-white tabular-nums">{formatPrice(orderModal.price ?? 0)}원</span>
                   </div>
-                  <p className="text-xs text-yellow-400/80 pt-1">가격 도달 시 자동으로 체결됩니다.</p>
+                  <p className="text-xs font-bold text-amber-400/80 pt-1">가격 도달 시 자동으로 체결됩니다.</p>
                 </div>
               )}
               {orderModal.type === "error" && (
-                <div className="bg-[#111] rounded-xl p-4 mt-2">
-                  <p className="text-sm text-gray-300 text-center">{orderModal.message}</p>
+                <div className="bg-white/[0.03] rounded-xl p-4 mt-2 border border-white/[0.05]">
+                  <p className="text-sm font-bold text-gray-300 text-center">{orderModal.message}</p>
                 </div>
               )}
-
               <button
                 onClick={() => setOrderModal(null)}
-                className="w-full py-3 rounded-xl font-semibold text-sm text-white bg-gray-700 hover:bg-gray-600 transition-colors mt-1"
+                className="w-full py-3 rounded-xl text-sm font-bold text-white bg-white/[0.08] hover:bg-white/[0.12] transition-colors"
               >
                 확인
               </button>
@@ -775,76 +773,80 @@ export default function OrderPage() {
         </div>
       )}
 
-      <div className="p-4 md:p-5 lg:p-6 space-y-5 w-full min-w-0 pb-24">
-        <div className="flat-card p-5">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div className="space-y-2">
+      <div className="w-full min-w-0 border border-white/[0.08]">
+        <div className="divide-y divide-white/[0.08]">
+
+        {/* ── 종목 헤더 ── */}
+        <div className="grid grid-cols-1 lg:grid-cols-10 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
+          {/* 좌: 종목명 + 현재가 */}
+          <div className="lg:col-span-4 px-5 py-5">
+            <div className="flex items-start justify-between gap-4">
               <div>
-                <h1 className="text-3xl font-black leading-none text-white">
+                <h1 className="text-2xl font-black text-white font-outfit leading-tight">
                   {displayStockName}
                 </h1>
-                <p className="mt-2 text-sm font-bold uppercase tracking-[0.24em] text-gray-400">
-                  {symbol}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-end gap-3">
-                <span className={`font-outfit text-3xl font-black tabular-nums ${priceTone}`}>
-                  {currentPrice ? `${formatPrice(currentPrice)}원` : "-"}
-                </span>
-                <div className={`pb-0.5 text-sm font-bold tabular-nums ${priceTone}`}>
-                  {priceChange !== undefined && priceChangePercent !== undefined
-                    ? `${priceChange > 0 ? "+" : ""}${formatPrice(priceChange)}원 (${priceChangePercent > 0 ? "+" : ""}${priceChangePercent.toFixed(2)}%)`
-                    : "전일 대비 데이터 없음"}
-                </div>
+                <p className="text-xs font-bold uppercase tracking-widest text-gray-500 mt-1">{symbol}</p>
               </div>
             </div>
-
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:min-w-[460px]">
-              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
-                <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400">전일종가</div>
-                <div className="mt-2 font-outfit text-lg font-black tabular-nums text-white">
-                  {referenceClose ? `${formatPrice(referenceClose)}원` : "-"}
-                </div>
+            <div className="mt-4 flex flex-wrap items-end gap-3">
+              <span className={`font-outfit text-3xl font-black tabular-nums leading-none ${priceTone}`}>
+                {currentPrice ? `${formatPrice(currentPrice)}원` : "—"}
+              </span>
+              <div className={`pb-0.5 text-sm font-bold tabular-nums ${priceTone}`}>
+                {priceChange !== undefined && priceChangePercent !== undefined
+                  ? `${priceChange > 0 ? "+" : ""}${formatPrice(priceChange)}원 (${priceChangePercent > 0 ? "+" : ""}${priceChangePercent.toFixed(2)}%)`
+                  : <span className="text-gray-600 text-xs">전일 대비 집계 중</span>}
               </div>
-              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
-                <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400">시가총액</div>
-                <div className="mt-2 font-outfit text-lg font-black tabular-nums text-white">
-                  {stockInfo?.marketCap ? formatMarketCap(stockInfo.marketCap) : "-"}
-                </div>
-              </div>
-              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
-                <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400">거래량</div>
-                <div className="mt-2 font-outfit text-lg font-black tabular-nums text-white">
-                  {stockInfo?.volume ? formatPrice(stockInfo.volume) : "-"}
-                </div>
-              </div>
-              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
-                <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400">PER / PBR</div>
-                <div className="mt-2 text-lg font-black tabular-nums text-white">
-                  {stockInfo?.pe ? stockInfo.pe.toFixed(2) : "-"} / {stockInfo?.pbr ? stockInfo.pbr.toFixed(2) : "-"}
-                </div>
-              </div>
+            </div>
+          </div>
+          {/* 우: 4개 KPI 타일 */}
+          <div className="lg:col-span-6 grid grid-cols-2 sm:grid-cols-4 border-t border-l border-white/[0.08]">
+            <div className="border-r border-b border-white/[0.08] px-4 py-4">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">전일 종가</p>
+              <p className="mt-2 text-lg font-black tabular-nums font-outfit text-white leading-none">
+                {referenceClose ? `${formatPrice(referenceClose)}` : "—"}
+              </p>
+              <p className="mt-0.5 text-[10px] font-bold text-gray-600">원</p>
+            </div>
+            <div className="border-r border-b border-white/[0.08] px-4 py-4">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">시가총액</p>
+              <p className="mt-2 text-lg font-black tabular-nums font-outfit text-white leading-none">
+                {stockInfo?.marketCap ? formatMarketCap(stockInfo.marketCap) : "—"}
+              </p>
+            </div>
+            <div className="border-r border-b border-white/[0.08] px-4 py-4">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">거래량</p>
+              <p className="mt-2 text-lg font-black tabular-nums font-outfit text-white leading-none">
+                {stockInfo?.volume ? formatPrice(stockInfo.volume) : "—"}
+              </p>
+            </div>
+            <div className="border-r border-b border-white/[0.08] px-4 py-4">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">PER / PBR</p>
+              <p className="mt-2 text-lg font-black tabular-nums font-outfit text-white leading-none">
+                {stockInfo?.pe ? stockInfo.pe.toFixed(1) : "—"} / {stockInfo?.pbr ? stockInfo.pbr.toFixed(2) : "—"}
+              </p>
             </div>
           </div>
         </div>
 
-        <div className="flat-card p-2">
-          <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide">
-            {[
+        {/* ── 탭 네비게이션 ── */}
+        <div className="px-4 py-2 overflow-x-auto scrollbar-hide">
+          <div className="flex items-center gap-1">
+            {([
               ["analysis", "종목 분석"],
               ["chart", "차트 · 호가"],
               ["info", "종목정보"],
               ["news", "뉴스 · 공시"],
               ["trading", "거래현황"],
               ["community", "커뮤니티"],
-            ].map(([tab, label]) => (
+            ] as const).map(([tab, label]) => (
               <button
                 key={tab}
-                onClick={() => setActiveTab(tab as typeof activeTab)}
-                className={`rounded-xl px-4 py-2 text-sm font-bold whitespace-nowrap transition-colors ${
+                onClick={() => setActiveTab(tab)}
+                className={`rounded-xl px-3 py-1.5 text-xs font-bold whitespace-nowrap transition-colors duration-150 ${
                   activeTab === tab
                     ? "bg-white/[0.08] text-white"
-                    : "text-gray-400 hover:bg-white/[0.04] hover:text-white"
+                    : "text-gray-500 hover:text-gray-300"
                 }`}
               >
                 {label}
@@ -853,139 +855,102 @@ export default function OrderPage() {
           </div>
         </div>
 
-        {/* Tab Content */}
+        {/* ── 차트 탭 ── */}
         {activeTab === "chart" && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-10 gap-6 items-stretch">
-              <div className="lg:col-span-6">
-                <div className="flat-card flex h-[620px] flex-col overflow-hidden p-0">
-                  <div className="flex flex-col gap-3 border-b border-white/[0.05] px-5 py-4 md:flex-row md:items-center md:justify-end">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {(["1Y", "3Y", "5Y"] as const).map((range) => (
-                        <button
-                          key={range}
-                          onClick={() => setChartRange(range)}
-                          className={`rounded-xl px-3 py-1.5 text-xs font-bold transition-colors ${
-                            chartRange === range
-                              ? "bg-white/[0.08] text-white"
-                              : "bg-white/[0.03] text-gray-400 hover:text-white"
-                          }`}
-                        >
-                          {range}
-                        </button>
-                      ))}
-                      <div className="mx-1 hidden h-4 border-l border-white/[0.08] md:block" />
-                      {(["day", "week", "month"] as const).map((period) => (
-                        <button
-                          key={period}
-                          onClick={() => setChartPeriod(period)}
-                          className={`rounded-xl px-3 py-1.5 text-xs font-bold transition-colors ${
-                            chartPeriod === period
-                              ? "bg-white/[0.08] text-white"
-                              : "bg-white/[0.03] text-gray-400 hover:text-white"
-                          }`}
-                        >
-                          {period === "day" ? "일봉" : period === "week" ? "주봉" : "월봉"}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="min-h-0 flex-1 overflow-hidden bg-black/20">
-                    {isOhlcvLoading ? (
-                      <div className="flex h-full items-center justify-center text-sm font-bold text-gray-500">
-                        차트 데이터를 불러오는 중...
-                      </div>
-                    ) : (
-                      <CandlestickChart data={candleData} />
-                    )}
-                  </div>
+          <div className="divide-y divide-white/[0.08]">
+            {/* Row 1: 캔들차트 + 호가창 */}
+            <div className="grid grid-cols-1 lg:grid-cols-10 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
+              {/* 캔들차트 */}
+              <div className="lg:col-span-6 flex flex-col" style={{ height: 560 }}>
+                <div className="flex items-center justify-end gap-1 px-4 py-2 border-b border-white/[0.05] flex-wrap">
+                  {(["1Y", "3Y", "5Y"] as const).map((range) => (
+                    <button key={range} onClick={() => setChartRange(range)}
+                      className={`rounded-xl px-3 py-1 text-xs font-bold transition-colors ${chartRange === range ? "bg-white/[0.08] text-white" : "text-gray-500 hover:text-gray-300"}`}>
+                      {range}
+                    </button>
+                  ))}
+                  <div className="w-px h-3 bg-white/[0.08]" />
+                  {(["day", "week", "month"] as const).map((period) => (
+                    <button key={period} onClick={() => setChartPeriod(period)}
+                      className={`rounded-xl px-3 py-1 text-xs font-bold transition-colors ${chartPeriod === period ? "bg-white/[0.08] text-white" : "text-gray-500 hover:text-gray-300"}`}>
+                      {period === "day" ? "일봉" : period === "week" ? "주봉" : "월봉"}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex-1 min-h-0">
+                  {isOhlcvLoading ? (
+                    <div className="flex h-full items-center justify-center text-sm font-bold text-gray-500">차트 데이터를 불러오는 중...</div>
+                  ) : (
+                    <CandlestickChart data={candleData} />
+                  )}
                 </div>
               </div>
-
-              <div className="lg:col-span-4">
-                <div className="h-[620px]">
-                  <OrderBook
-                    symbol={symbol}
-                    currentPrice={currentPrice}
-                    marketStats={realMarketStats}
-                    previousClose={referenceClose}
-                    onPriceSelect={(selectedPrice) => {
-                      setSelectedOrderPrice(selectedPrice);
-                      setPriceType("limit");
-                      setPrice(selectedPrice.toString());
-                    }}
-                  />
-                </div>
+              {/* 호가창 */}
+              <div className="lg:col-span-4" style={{ height: 560 }}>
+                <OrderBook
+                  symbol={symbol}
+                  currentPrice={currentPrice}
+                  marketStats={realMarketStats}
+                  previousClose={referenceClose}
+                  onPriceSelect={(selectedPrice) => {
+                    setSelectedOrderPrice(selectedPrice);
+                    setPriceType("limit");
+                    setPrice(selectedPrice.toString());
+                  }}
+                />
               </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-10 gap-6 items-stretch">
-              <div className="lg:col-span-6">
-                <div className="flat-card h-[600px] overflow-hidden border-0">
-                  <div className="flex items-center justify-between px-5 py-4">
-                    <div className="text-lg font-semibold text-gray-900 dark:text-white">시세</div>
+            {/* Row 2: 시세 테이블 + 주문 패널 */}
+            <div className="grid grid-cols-1 lg:grid-cols-10 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
+              {/* 시세 테이블 */}
+              <div className="lg:col-span-6 flex flex-col" style={{ height: 560 }}>
+                <div className="px-5 py-4 border-b border-white/[0.05] shrink-0">
+                  <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit">시세</h2>
+                  <p className="text-xs text-gray-500 mt-0.5">일별 OHLCV 데이터</p>
+                </div>
+                <div className="flex-1 min-h-0 overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent">
+                  {/* 헤더 */}
+                  <div className={`grid ${PRICE_HISTORY_COLS} gap-2 px-4 py-2 sticky top-0 bg-[var(--background)] border-b border-white/[0.05]`}>
+                    {["일자", "종가", "등락률", "거래량", "시가", "고가", "저가"].map((h, i) => (
+                      <span key={h} className={`text-sm font-bold uppercase tracking-widest text-gray-600 ${i > 0 ? "text-right" : ""}`}>{h}</span>
+                    ))}
                   </div>
-                  <div className="custom-scrollbar h-[calc(100%-73px)] overflow-auto">
-                    <table className="w-full text-sm">
-                      <thead className="sticky top-0 z-10 bg-white/[0.06]">
-                        <tr>
-                          <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-widest text-gray-400 rounded-l-lg">일자</th>
-                          <th className="px-4 py-2 text-right text-xs font-bold uppercase tracking-widest text-gray-400">종가</th>
-                          <th className="px-4 py-2 text-right text-xs font-bold uppercase tracking-widest text-gray-400">등락률</th>
-                          <th className="px-4 py-2 text-right text-xs font-bold uppercase tracking-widest text-gray-400">거래량</th>
-                          <th className="px-4 py-2 text-right text-xs font-bold uppercase tracking-widest text-gray-400">시가</th>
-                          <th className="px-4 py-2 text-right text-xs font-bold uppercase tracking-widest text-gray-400">고가</th>
-                          <th className="px-4 py-2 text-right text-xs font-bold uppercase tracking-widest text-gray-400 rounded-r-lg">저가</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {priceHistoryData.map((row, i) => {
-                          const prevClose = priceHistoryData[i + 1]?.close;
-                          const changeRate = prevClose ? ((row.close - prevClose) / prevClose) * 100 : 0;
-                          const priceColor =
-                            changeRate > 0
-                              ? "text-[var(--main-red)]"
-                              : changeRate < 0
-                              ? "text-[var(--main-blue)]"
-                              : "text-white";
-                          return (
-                            <tr key={row.time} className="hover:bg-white/[0.02]">
-                              <td className="px-4 py-3 text-xs font-bold tabular-nums text-gray-400">{row.time.slice(2).replace(/-/g, ".")}</td>
-                              <td className={`px-4 py-3 text-right font-bold tabular-nums ${priceColor}`}>{formatPrice(row.close)}</td>
-                              <td className={`px-4 py-3 text-right font-bold tabular-nums ${priceColor}`}>
-                                {prevClose ? `${changeRate > 0 ? "+" : ""}${changeRate.toFixed(2)}%` : "-"}
-                              </td>
-                              <td className="px-4 py-3 text-right font-bold tabular-nums text-gray-300">{formatPrice(row.volume)}</td>
-                              <td className="px-4 py-3 text-right font-bold tabular-nums text-gray-300">{formatPrice(row.open)}</td>
-                              <td className="px-4 py-3 text-right font-bold tabular-nums text-[var(--main-red)]">{formatPrice(row.high)}</td>
-                              <td className="px-4 py-3 text-right font-bold tabular-nums text-[var(--main-blue)]">{formatPrice(row.low)}</td>
-                            </tr>
-                          );
-                        })}
-                        {!isOhlcvLoading && priceHistoryData.length === 0 && (
-                          <tr>
-                            <td colSpan={7} className="px-4 py-12 text-center text-sm font-bold text-gray-500">
-                              시세 데이터를 불러오지 못했습니다.
-                            </td>
-                          </tr>
-                        )}
-                        {isOhlcvLoading && (
-                          <tr>
-                            <td colSpan={7} className="px-4 py-12 text-center text-sm font-bold text-gray-500">
-                              시세 데이터를 불러오는 중...
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
+                  {isOhlcvLoading ? (
+                    <div className="py-12 text-center">
+                      <p className="text-sm font-bold text-gray-500">시세 데이터를 불러오는 중...</p>
+                    </div>
+                  ) : priceHistoryData.length === 0 ? (
+                    <div className="py-12 text-center">
+                      <p className="text-sm font-bold text-gray-500">시세 데이터가 없습니다.</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-white/[0.04]">
+                      {priceHistoryData.map((row, i) => {
+                        const prevClose = priceHistoryData[i + 1]?.close;
+                        const changeRate = prevClose ? ((row.close - prevClose) / prevClose) * 100 : 0;
+                        const tone = changeRate > 0 ? "text-[var(--main-red)]" : changeRate < 0 ? "text-[var(--main-blue)]" : "text-white";
+                        return (
+                          <div key={row.time} className={`grid ${PRICE_HISTORY_COLS} gap-2 items-center px-4 py-2.5 hover:bg-white/[0.02] transition-colors duration-150`}>
+                            <span className="text-sm font-bold tabular-nums text-gray-400">{row.time.slice(2).replace(/-/g, ".")}</span>
+                            <span className={`text-sm font-black tabular-nums font-outfit text-right ${tone}`}>{formatPrice(row.close)}</span>
+                            <span className={`text-sm font-bold tabular-nums text-right ${tone}`}>{prevClose ? `${changeRate > 0 ? "+" : ""}${changeRate.toFixed(2)}%` : "—"}</span>
+                            <span className="text-sm font-bold tabular-nums text-right text-gray-400">{formatPrice(row.volume)}</span>
+                            <span className="text-sm font-bold tabular-nums text-right text-gray-400">{formatPrice(row.open)}</span>
+                            <span className="text-sm font-bold tabular-nums text-right text-[var(--main-red)]">{formatPrice(row.high)}</span>
+                            <span className="text-sm font-bold tabular-nums text-right text-[var(--main-blue)]">{formatPrice(row.low)}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
 
-              <div className="lg:col-span-4">
-                <div className="flat-card flex flex-col overflow-hidden" style={{ height: "600px" }}>
+              {/* 주문 패널 */}
+              <div className="lg:col-span-4 flex flex-col" style={{ height: 560 }}>
                   {/* 매수/매도/미체결 탭 */}
-                  <div className="grid grid-cols-3 border-b border-white/[0.06]">
+                  <div className="grid grid-cols-3 border-b border-white/[0.08]">
                     {(["buy", "sell", "pending"] as const).map((type) => {
                       const label = type === "buy" ? "매수" : type === "sell" ? "매도" : `미체결${pendingOrders.length > 0 ? ` ${pendingOrders.length}` : ""}`;
                       const activeColor = type === "buy"
@@ -1026,7 +991,7 @@ export default function OrderPage() {
                         <CaretDown className="h-3.5 w-3.5 shrink-0 text-gray-400" />
                       </button>
                       {isAccountDropdownOpen && (
-                        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-48 overflow-y-auto rounded-xl border border-white/[0.08] bg-[rgb(20,20,20)] p-1.5 shadow-2xl">
+                        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-48 overflow-y-auto rounded-xl border border-white/[0.08] bg-[#161616] p-1.5 shadow-2xl">
                           {virtualAccounts.length === 0 ? (
                             <div className="px-3 py-2 text-xs text-gray-500">가상계좌가 없습니다</div>
                           ) : (
@@ -1346,642 +1311,290 @@ export default function OrderPage() {
                 </div>
               </div>
             </div>
-          </div>
         )}
 
+        {/* ── 종목정보 탭 ── */}
+
         {activeTab === "info" && (
-          <div className="flat-card p-5">
-            <div className="mb-5 border-b border-white/[0.05] pb-4">
-              <p className="mt-1 text-sm text-gray-500">기본 정보와 재무 지표를 한눈에 확인합니다.</p>
-            </div>
+          <div className="divide-y divide-white/[0.08]">
             {stockInfo ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 mb-3">
-                    기본 정보
-                  </h3>
-                  <div className="space-y-2 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-sm text-gray-400">종목명</span>
-                      <span className="font-bold text-white">
-                        {displayStockName}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-sm text-gray-400">종목코드</span>
-                      <span className="font-bold text-white">{symbol}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-sm text-gray-400">섹터</span>
-                      <span className="font-bold text-white">
-                        {stockInfo.sector || "-"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-sm text-gray-400">업종</span>
-                      <span className="font-bold text-white">
-                        {stockInfo.industry || "-"}
-                      </span>
+              <>
+                <div className="grid grid-cols-1 lg:grid-cols-10 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
+                  <div className="lg:col-span-5 p-5">
+                    <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit mb-4">기본 정보</h2>
+                    <div className="divide-y divide-white/[0.05]">
+                      {[
+                        ["종목명", displayStockName],
+                        ["종목코드", symbol],
+                        ["섹터", stockInfo.sector || "—"],
+                        ["업종", stockInfo.industry || "—"],
+                        ["현재가", currentPrice ? `${formatPrice(currentPrice)}원` : "—"],
+                      ].map(([label, value]) => (
+                        <div key={label} className="flex items-center justify-between py-3">
+                          <span className="text-xs font-bold uppercase tracking-widest text-gray-600">{label}</span>
+                          <span className="text-sm font-bold text-white tabular-nums">{value}</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                </div>
-                <div>
-                  <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 mb-3">
-                    재무 정보
-                  </h3>
-                  <div className="space-y-2 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-sm text-gray-400">시가총액</span>
-                      <span className="font-bold text-white">
-                        {stockInfo.marketCap
-                          ? formatMarketCap(stockInfo.marketCap)
-                          : "-"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-sm text-gray-400">PER</span>
-                      <span className="font-bold text-white">
-                        {stockInfo.pe ? stockInfo.pe.toFixed(2) : "-"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-sm text-gray-400">PBR</span>
-                      <span className="font-bold text-white">
-                        {stockInfo.pbr ? stockInfo.pbr.toFixed(2) : "-"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-sm text-gray-400">현재가</span>
-                      <span className="font-bold text-white">
-                        {currentPrice ? formatPrice(currentPrice) : "-"}원
-                      </span>
+                  <div className="lg:col-span-5 p-5">
+                    <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit mb-4">재무 정보</h2>
+                    <div className="divide-y divide-white/[0.05]">
+                      {[
+                        ["시가총액", stockInfo.marketCap ? formatMarketCap(stockInfo.marketCap) : "—"],
+                        ["PER", stockInfo.pe ? stockInfo.pe.toFixed(2) : "—"],
+                        ["PBR", stockInfo.pbr ? stockInfo.pbr.toFixed(2) : "—"],
+                        ["전일 종가", referenceClose ? `${formatPrice(referenceClose)}원` : "—"],
+                        ["거래량", stockInfo.volume ? formatPrice(stockInfo.volume) : "—"],
+                      ].map(([label, value]) => (
+                        <div key={label} className="flex items-center justify-between py-3">
+                          <span className="text-xs font-bold uppercase tracking-widest text-gray-600">{label}</span>
+                          <span className="text-sm font-black text-white tabular-nums font-outfit">{value}</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </div>
                 {stockInfo.description && (
-                  <div className="md:col-span-2">
-                    <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 mb-3">
-                      기업 개요
-                    </h3>
-                    <p className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 text-sm leading-relaxed text-gray-300">
-                      {stockInfo.description}
-                    </p>
+                  <div className="p-5">
+                    <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit mb-3">기업 개요</h2>
+                    <p className="text-sm font-bold leading-relaxed text-gray-400">{stockInfo.description}</p>
                   </div>
                 )}
-              </div>
+              </>
             ) : (
-              <div className="text-center py-12">
-                <p className="text-gray-400">종목 정보를 불러오는 중...</p>
+              <div className="py-16 text-center">
+                <p className="text-sm font-bold text-gray-500">종목 정보를 불러오는 중...</p>
               </div>
             )}
           </div>
         )}
 
+        {/* ── 뉴스·공시 탭 ── */}
         {activeTab === "news" && (
-          <div className="flat-card p-5">
-            <div className="mb-5 border-b border-white/[0.05] pb-4">
-              <p className="mt-1 text-sm text-gray-500">뉴스와 공시 피드를 같은 톤으로 정리합니다.</p>
+          <div className="divide-y divide-white/[0.08]">
+            <div className="px-5 py-4">
+              <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit">뉴스 · 공시</h2>
+              <p className="text-xs text-gray-500 mt-0.5">최신 뉴스와 공시 피드</p>
             </div>
-            <div className="space-y-4">
-              <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
-                <div className="flex items-start justify-between mb-2">
-                  <h3 className="text-sm font-bold text-white">주요 공시</h3>
-                  <span className="text-xs text-gray-500">2024.01.15</span>
+            <div className="p-5 divide-y divide-white/[0.04]">
+              {[["주요 공시", `${displayStockName} 관련 공시사항이 없습니다.`], ["최신 뉴스", `${displayStockName} 관련 최신 뉴스가 없습니다.`]].map(([title, msg]) => (
+                <div key={title} className="py-5 first:pt-0 last:pb-0">
+                  <h3 className="text-sm font-black text-white mb-2">{title}</h3>
+                  <p className="text-sm font-bold text-gray-500">{msg}</p>
                 </div>
-                <p className="text-sm text-gray-300">
-                  {displayStockName} 관련 주요 공시사항이 없습니다.
-                </p>
-              </div>
-              <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
-                <div className="flex items-start justify-between mb-2">
-                  <h3 className="text-sm font-bold text-white">최신 뉴스</h3>
-                  <span className="text-xs text-gray-500">2024.01.15</span>
-                </div>
-                <p className="text-sm text-gray-300">
-                  {displayStockName} 관련 최신 뉴스가 없습니다.
-                </p>
-              </div>
+              ))}
             </div>
           </div>
         )}
 
+        {/* ── 거래현황 탭 ── */}
         {activeTab === "trading" && (
-          <div className="flat-card p-5">
-            <div className="mb-5 border-b border-white/[0.05] pb-4">
-              <p className="mt-1 text-sm text-gray-500">당일 거래 지표와 가격 범위를 확인합니다.</p>
+          <div className="divide-y divide-white/[0.08]">
+            <div className="px-5 py-4">
+              <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit">거래현황</h2>
+              <p className="text-xs text-gray-500 mt-0.5">당일 거래 지표와 가격 범위</p>
             </div>
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
-                  <div className="text-xs text-gray-400 mb-1">일일 거래량</div>
-                  <div className="text-lg font-black tabular-nums text-white">
-                    {stockInfo?.volume ? formatPrice(stockInfo.volume) : "-"}
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
-                  <div className="text-xs text-gray-400 mb-1">거래대금</div>
-                  <div className="text-lg font-black tabular-nums text-white">
-                    {currentPrice && stockInfo?.volume
-                      ? formatPrice(currentPrice * stockInfo.volume)
-                      : "-"}
-                    원
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
-                  <div className="text-xs text-gray-400 mb-1">고가</div>
-                  <div className="text-lg font-black tabular-nums text-[var(--main-red)]">
-                    {stockInfo?.high ? formatPrice(stockInfo.high) : "-"}원
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
-                  <div className="text-xs text-gray-400 mb-1">저가</div>
-                  <div className="text-lg font-black tabular-nums text-[var(--main-blue)]">
-                    {stockInfo?.low ? formatPrice(stockInfo.low) : "-"}원
-                  </div>
-                </div>
+            <div className="grid grid-cols-2 lg:grid-cols-4 border-t border-l border-white/[0.08]">
+              <div className="border-r border-b border-white/[0.08] px-5 py-4">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">일일 거래량</p>
+                <p className="mt-2 text-xl font-black tabular-nums font-outfit text-white leading-none">
+                  {stockInfo?.volume ? formatPrice(stockInfo.volume) : "—"}
+                </p>
               </div>
-              <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
-                <h3 className="mb-3 text-sm font-bold uppercase tracking-widest text-gray-400">
-                  최근 거래 내역
-                </h3>
-                <div className="text-sm text-gray-400">
-                  최근 거래 내역이 없습니다.
-                </div>
+              <div className="border-r border-b border-white/[0.08] px-5 py-4">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">거래대금</p>
+                <p className="mt-2 text-xl font-black tabular-nums font-outfit text-white leading-none">
+                  {currentPrice && stockInfo?.volume ? formatMarketCap(currentPrice * stockInfo.volume) : "—"}
+                </p>
               </div>
+              <div className="border-r border-b border-white/[0.08] px-5 py-4">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">고가</p>
+                <p className="mt-2 text-xl font-black tabular-nums font-outfit text-[var(--main-red)] leading-none">
+                  {stockInfo?.high ? `${formatPrice(stockInfo.high)}원` : "—"}
+                </p>
+              </div>
+              <div className="border-r border-b border-white/[0.08] px-5 py-4">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">저가</p>
+                <p className="mt-2 text-xl font-black tabular-nums font-outfit text-[var(--main-blue)] leading-none">
+                  {stockInfo?.low ? `${formatPrice(stockInfo.low)}원` : "—"}
+                </p>
+              </div>
+            </div>
+            <div className="p-5">
+              <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit mb-3">최근 거래 내역</h2>
+              <p className="text-sm font-bold text-gray-500 py-8 text-center">최근 거래 내역이 없습니다.</p>
             </div>
           </div>
         )}
 
+        {/* ── 커뮤니티 탭 ── */}
         {activeTab === "community" && (
-          <div className="flat-card p-5">
-            <div className="mb-5 border-b border-white/[0.05] pb-4">
-              <p className="mt-1 text-sm text-gray-500">커뮤니티 영역도 동일한 카드 톤을 유지합니다.</p>
+          <div className="divide-y divide-white/[0.08]">
+            <div className="px-5 py-4">
+              <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit">커뮤니티</h2>
+              <p className="text-xs text-gray-500 mt-0.5">투자자 토론 및 의견</p>
             </div>
-            <div className="space-y-4">
-              <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-sm font-bold text-white">
-                    인기 게시글
-                  </h3>
-                  <span className="text-xs text-gray-500">2024.01.15</span>
+            <div className="p-5 divide-y divide-white/[0.04]">
+              {[["인기 게시글", `${displayStockName} 관련 커뮤니티 게시글이 없습니다.`], ["토론", `${displayStockName} 관련 토론이 없습니다.`]].map(([title, msg]) => (
+                <div key={title} className="py-5 first:pt-0 last:pb-0">
+                  <h3 className="text-sm font-black text-white mb-2">{title}</h3>
+                  <p className="text-sm font-bold text-gray-500">{msg}</p>
                 </div>
-                <p className="text-sm text-gray-300">
-                  {displayStockName} 관련 커뮤니티 게시글이 없습니다.
-                </p>
-              </div>
-              <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-sm font-bold text-white">토론</h3>
-                  <span className="text-xs text-gray-500">2024.01.15</span>
-                </div>
-                <p className="text-sm text-gray-300">
-                  {displayStockName} 관련 토론이 없습니다.
-                </p>
-              </div>
+              ))}
             </div>
           </div>
         )}
 
+        {/* ── 종목 분석 탭 ── */}
         {activeTab === "analysis" && (
-          <div className="space-y-6">
-            {/* Stock Header */}
-            <div className="bg-[#1a1a1a] rounded-lg border border-gray-800 p-6">
-              <div className="flex items-start justify-between mb-4">
-                <div>
-                  <h1 className="text-2xl font-bold text-white mb-1">
-                    {displayStockName}
-                  </h1>
-                  <p className="text-sm text-gray-400">{symbol}</p>
-                </div>
-                <div className="text-right">
-                  <div className="text-2xl font-bold text-white mb-1">
-                    {currentPrice ? formatPrice(currentPrice) : "-"}원
-                  </div>
-                  <div
-                    className={`text-sm font-medium ${
-                      currentPrice && stockInfo?.previousClose
-                        ? currentPrice >= stockInfo.previousClose
-                          ? "text-red-400"
-                          : "text-blue-400"
-                        : "text-gray-400"
-                    }`}
-                  >
-                    {currentPrice && stockInfo?.previousClose
-                      ? `${
-                          currentPrice >= stockInfo.previousClose ? "+" : ""
-                        }${(
-                          ((currentPrice - stockInfo.previousClose) /
-                            stockInfo.previousClose) *
-                          100
-                        ).toFixed(2)}%`
-                      : "-"}
-                  </div>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-gray-800">
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">시가총액</div>
-                  <div className="text-sm font-semibold text-white">
-                    {stockInfo?.marketCap
-                      ? formatMarketCap(stockInfo.marketCap)
-                      : "-"}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">거래량</div>
-                  <div className="text-sm font-semibold text-white">
-                    {stockInfo?.volume ? formatPrice(stockInfo.volume) : "-"}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">시장</div>
-                  <div className="text-sm font-semibold text-white">
-                    {stockInfo?.sector || "코스피"}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">PER</div>
-                  <div className="text-sm font-semibold text-white">
-                    {stockInfo?.pe ? stockInfo.pe.toFixed(2) : "-"}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* AI Insight Card */}
-            <div className="bg-[#1a1a1a] rounded-lg border border-gray-800 p-6">
-              <h2 className="text-lg font-semibold text-white mb-4">
-                AI 종합 인사이트
-              </h2>
-              <div className="space-y-4">
-                <div className="p-4 bg-[#0f0f0f] rounded-lg border border-gray-800">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-blue-400">✓</span>
-                    <h3 className="text-sm font-medium text-white">
-                      상승 요인 Top 3
-                    </h3>
-                  </div>
-                  <ul className="space-y-1 text-sm text-gray-300 ml-6">
-                    <li>• 20일 이동평균선 상향 돌파</li>
-                    <li>• 기관 5일 연속 순매수</li>
-                    <li>• 거래량 20일 평균 대비 +230%</li>
-                  </ul>
-                </div>
-                <div className="p-4 bg-[#0f0f0f] rounded-lg border border-gray-800">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-red-400">✗</span>
-                    <h3 className="text-sm font-medium text-white">
-                      하락 요인 Top 3
-                    </h3>
-                  </div>
-                  <ul className="space-y-1 text-sm text-gray-300 ml-6">
-                    <li>• RSI 과매수 구간 진입</li>
-                    <li>• 단기 급등으로 조정 압력</li>
-                    <li>• 외국인 3일 연속 순매도</li>
-                  </ul>
-                </div>
-                <div className="p-4 bg-[#0f0f0f] rounded-lg border border-gray-800">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-yellow-400">⚠</span>
-                    <h3 className="text-sm font-medium text-white">
-                      리스크 요약
-                    </h3>
-                  </div>
-                  <p className="text-sm text-gray-300 ml-6">
-                    변동성 확대, 단기 급등으로 인한 조정 가능성 존재
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Main Chart + Tabs */}
-            <div className="bg-[#1a1a1a] rounded-lg border border-gray-800 p-6">
-              <div className="mb-4">
-                <div className="flex items-center gap-1 mb-2">
+          <div className="divide-y divide-white/[0.08]">
+            {/* 차트 + 기술 지표 */}
+            <div className="p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-1">
                   {(["1Y", "3Y", "5Y"] as const).map((r) => (
-                    <button
-                      key={r}
-                      onClick={() => setChartRange(r)}
-                      className={`px-2.5 py-1 text-xs rounded transition-colors ${
-                        chartRange === r
-                          ? "bg-gray-600 text-white"
-                          : "text-gray-500 hover:text-gray-300"
-                      }`}
-                    >
+                    <button key={r} onClick={() => setChartRange(r)}
+                      className={`rounded-xl px-3 py-1 text-xs font-bold transition-colors ${chartRange === r ? "bg-white/[0.08] text-white" : "text-gray-500 hover:text-gray-300"}`}>
                       {r}
                     </button>
                   ))}
-                  <div className="mx-1 h-3 border-l border-gray-700" />
+                  <div className="w-px h-3 bg-white/[0.08] mx-1" />
                   {(["day", "week", "month"] as const).map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => setChartPeriod(p)}
-                      className={`px-2.5 py-1 text-xs rounded transition-colors ${
-                        chartPeriod === p
-                          ? "bg-gray-600 text-white"
-                          : "text-gray-500 hover:text-gray-300"
-                      }`}
-                    >
-                      {p === "day" ? "일" : p === "week" ? "주" : "월"}
+                    <button key={p} onClick={() => setChartPeriod(p)}
+                      className={`rounded-xl px-3 py-1 text-xs font-bold transition-colors ${chartPeriod === p ? "bg-white/[0.08] text-white" : "text-gray-500 hover:text-gray-300"}`}>
+                      {p === "day" ? "일봉" : p === "week" ? "주봉" : "월봉"}
                     </button>
                   ))}
                 </div>
-                <div className="h-[550px] bg-[#0f0f0f] rounded-lg border border-gray-800 mb-4">
-                  <CandlestickChart data={candleData} />
-                </div>
-
-                {/* Chart Tabs */}
-                <div className="flex items-center gap-2 border-b border-gray-800">
-                  <button
-                    onClick={() => setChartTab("technical")}
-                    className={`px-4 py-2 text-sm font-medium transition-colors ${
-                      chartTab === "technical"
-                        ? "text-white bg-[#252525] border-b-2 border-transparent"
-                        : "text-gray-400 hover:text-white"
-                    }`}
-                  >
-                    기술
-                  </button>
-                  <button
-                    onClick={() => setChartTab("flow")}
-                    className={`px-4 py-2 text-sm font-medium transition-colors ${
-                      chartTab === "flow"
-                        ? "text-white bg-[#252525] border-b-2 border-transparent"
-                        : "text-gray-400 hover:text-white"
-                    }`}
-                  >
-                    수급
-                  </button>
-                  <button
-                    onClick={() => setChartTab("financial")}
-                    className={`px-4 py-2 text-sm font-medium transition-colors ${
-                      chartTab === "financial"
-                        ? "text-white bg-[#252525] border-b-2 border-transparent"
-                        : "text-gray-400 hover:text-white"
-                    }`}
-                  >
-                    재무
-                  </button>
-                  <button
-                    onClick={() => setChartTab("news")}
-                    className={`px-4 py-2 text-sm font-medium transition-colors ${
-                      chartTab === "news"
-                        ? "text-white bg-[#252525] border-b-2 border-transparent"
-                        : "text-gray-400 hover:text-white"
-                    }`}
-                  >
-                    뉴스
-                  </button>
-                </div>
-
-                {/* Tab Content */}
-                <div className="mt-4">
-                  {chartTab === "technical" && (
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <div className="p-3 bg-[#0f0f0f] rounded border border-gray-800">
-                        <div className="text-xs text-gray-400 mb-1">
-                          RSI (14일)
-                        </div>
-                        <div className="text-lg font-semibold text-white">
-                          {currentPrice
-                            ? (45 + Math.random() * 20).toFixed(1)
-                            : "-"}
-                        </div>
-                        <div className="text-xs text-gray-500 mt-1">
-                          중립 구간
-                        </div>
-                      </div>
-                      <div className="p-3 bg-[#0f0f0f] rounded border border-gray-800">
-                        <div className="text-xs text-gray-400 mb-1">MACD</div>
-                        <div className="text-lg font-semibold text-white">
-                          {currentPrice
-                            ? (Math.random() * 1000 - 500).toFixed(2)
-                            : "-"}
-                        </div>
-                        <div className="text-xs text-gray-500 mt-1">
-                          신호선 대비
-                        </div>
-                      </div>
-                      <div className="p-3 bg-[#0f0f0f] rounded border border-gray-800">
-                        <div className="text-xs text-gray-400 mb-1">
-                          볼린저 밴드
-                        </div>
-                        <div className="text-sm text-white">
-                          상단:{" "}
-                          {currentPrice
-                            ? formatPrice(currentPrice * 1.05)
-                            : "-"}
-                          원
-                        </div>
-                        <div className="text-sm text-white">
-                          하단:{" "}
-                          {currentPrice
-                            ? formatPrice(currentPrice * 0.95)
-                            : "-"}
-                          원
-                        </div>
-                      </div>
-                      <div className="p-3 bg-[#0f0f0f] rounded border border-gray-800">
-                        <div className="text-xs text-gray-400 mb-1">
-                          이동평균선
-                        </div>
-                        <div className="text-sm text-white">
-                          5일:{" "}
-                          {currentPrice
-                            ? formatPrice(currentPrice * 0.99)
-                            : "-"}
-                          원
-                        </div>
-                        <div className="text-sm text-white">
-                          20일:{" "}
-                          {currentPrice
-                            ? formatPrice(currentPrice * 0.97)
-                            : "-"}
-                          원
-                        </div>
-                        <div className="text-sm text-white">
-                          60일:{" "}
-                          {currentPrice
-                            ? formatPrice(currentPrice * 0.95)
-                            : "-"}
-                          원
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {chartTab === "flow" && (
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-2 mb-4">
-                        {(["1D", "1W", "1M", "3M", "1Y"] as const).map(
-                          (period) => (
-                            <button
-                              key={period}
-                              onClick={() => setFlowPeriod(period)}
-                              className={`px-3 py-1 text-xs rounded transition-colors ${
-                                flowPeriod === period
-                                  ? "bg-blue-600 text-white"
-                                  : "bg-[#0f0f0f] text-gray-400 hover:text-white"
-                              }`}
-                            >
-                              {period}
-                            </button>
-                          )
-                        )}
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div className="p-4 bg-[#0f0f0f] rounded border border-gray-800">
-                          <div className="text-xs text-gray-400 mb-2">
-                            기관 순매수
-                          </div>
-                          <div className="text-lg font-semibold text-blue-400 mb-2">
-                            +120억원
-                          </div>
-                          <div className="text-xs text-gray-500">5일 연속</div>
-                        </div>
-                        <div className="p-4 bg-[#0f0f0f] rounded border border-gray-800">
-                          <div className="text-xs text-gray-400 mb-2">
-                            외국인 순매수
-                          </div>
-                          <div className="text-lg font-semibold text-red-400 mb-2">
-                            -50억원
-                          </div>
-                          <div className="text-xs text-gray-500">3일 연속</div>
-                        </div>
-                        <div className="p-4 bg-[#0f0f0f] rounded border border-gray-800">
-                          <div className="text-xs text-gray-400 mb-2">
-                            개인 순매수
-                          </div>
-                          <div className="text-lg font-semibold text-blue-400 mb-2">
-                            -70억원
-                          </div>
-                          <div className="text-xs text-gray-500">2일 연속</div>
-                        </div>
-                      </div>
-                      <div className="p-4 bg-[#0f0f0f] rounded border border-gray-800">
-                        <div className="text-xs text-gray-400 mb-2">
-                          수급 그래프
-                        </div>
-                        <div className="h-32 flex items-end gap-1">
-                          {Array.from({ length: 20 }).map((_, i) => (
-                            <div
-                              key={i}
-                              className="flex-1 bg-blue-600 rounded-t"
-                              style={{
-                                height: `${Math.random() * 100}%`,
-                              }}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {chartTab === "financial" && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <h4 className="text-sm font-medium text-gray-400 mb-3">
-                          핵심 지표
-                        </h4>
-                        <div className="space-y-2">
-                          <div className="flex justify-between p-2 bg-[#0f0f0f] rounded">
-                            <span className="text-sm text-gray-400">PER</span>
-                            <span className="text-sm text-white font-medium">
-                              {stockInfo?.pe ? stockInfo.pe.toFixed(2) : "-"}
-                            </span>
-                          </div>
-                          <div className="flex justify-between p-2 bg-[#0f0f0f] rounded">
-                            <span className="text-sm text-gray-400">PBR</span>
-                            <span className="text-sm text-white font-medium">
-                              {stockInfo?.pbr ? stockInfo.pbr.toFixed(2) : "-"}
-                            </span>
-                          </div>
-                          <div className="flex justify-between p-2 bg-[#0f0f0f] rounded">
-                            <span className="text-sm text-gray-400">ROE</span>
-                            <span className="text-sm text-white font-medium">
-                              {stockInfo?.pe
-                                ? (stockInfo.pe * 0.1).toFixed(2)
-                                : "-"}
-                              %
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-medium text-gray-400 mb-3">
-                          실적 트렌드
-                        </h4>
-                        <div className="p-4 bg-[#0f0f0f] rounded border border-gray-800">
-                          <div className="h-32 flex items-end gap-2">
-                            {Array.from({ length: 5 }).map((_, i) => (
-                              <div
-                                key={i}
-                                className="flex-1 bg-blue-600 rounded-t"
-                                style={{
-                                  height: `${60 + Math.random() * 40}%`,
-                                }}
-                              />
-                            ))}
-                          </div>
-                          <div className="text-xs text-gray-400 mt-2 text-center">
-                            최근 5년 매출 추이
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {chartTab === "news" && (
-                    <div className="space-y-3">
-                      {[1, 2, 3].map((i) => (
-                        <div
-                          key={i}
-                          className="p-4 bg-[#0f0f0f] rounded border border-gray-800"
-                        >
-                          <div className="flex items-start justify-between mb-2">
-                            <h4 className="text-sm font-medium text-white">
-                              {displayStockName} 관련 주요 뉴스 {i}
-                            </h4>
-                            <span className="text-xs text-gray-500">
-                              2024.01.{15 + i}
-                            </span>
-                          </div>
-                          <p className="text-sm text-gray-300 mb-2">
-                            {displayStockName} 관련 뉴스 요약 내용...
-                          </p>
-                          <div className="flex items-center gap-2">
-                            <span className="px-2 py-1 text-xs bg-blue-600/20 text-blue-400 rounded">
-                              #AI
-                            </span>
-                            <span className="px-2 py-1 text-xs bg-blue-600/20 text-blue-400 rounded">
-                              긍정 +0.7
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+              </div>
+              <div className="h-[480px]">
+                <CandlestickChart data={candleData} />
               </div>
             </div>
 
-            <div className="bg-[#1a1a1a] rounded-lg border border-gray-800 p-12 text-center">
-              <ChartBar className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-white mb-2">
-                종목 분석
-              </h3>
-              <p className="text-sm text-gray-400 mb-4">
-                종목 분석 기능은 전략연구소에서 이용하실 수 있습니다
-              </p>
+            {/* 분석 서브탭 */}
+            <div className="px-5 py-2 overflow-x-auto scrollbar-hide">
+              <div className="flex gap-1">
+                {(["technical", "flow", "financial", "news"] as const).map((t) => (
+                  <button key={t} onClick={() => setChartTab(t)}
+                    className={`rounded-xl px-3 py-1.5 text-xs font-bold whitespace-nowrap transition-colors ${chartTab === t ? "bg-white/[0.08] text-white" : "text-gray-500 hover:text-gray-300"}`}>
+                    {t === "technical" ? "기술적 분석" : t === "flow" ? "수급" : t === "financial" ? "재무" : "뉴스"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 기술적 분석 */}
+            {chartTab === "technical" && (
+              <div className="grid grid-cols-2 lg:grid-cols-4 border-t border-l border-white/[0.08]">
+                {[
+                  { label: "RSI (14일)", value: currentPrice ? (45 + Math.random() * 20).toFixed(1) : "—", sub: "중립 구간" },
+                  { label: "MACD", value: currentPrice ? (Math.random() * 1000 - 500).toFixed(0) : "—", sub: "신호선 대비" },
+                  { label: "볼린저 상단", value: currentPrice ? `${formatPrice(currentPrice * 1.05)}원` : "—", sub: "+5% 범위" },
+                  { label: "이동평균 (5일)", value: currentPrice ? `${formatPrice(currentPrice * 0.99)}원` : "—", sub: `20일: ${currentPrice ? formatPrice(currentPrice * 0.97) : "—"}` },
+                ].map(({ label, value, sub }) => (
+                  <div key={label} className="border-r border-b border-white/[0.08] px-5 py-4">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">{label}</p>
+                    <p className="mt-2 text-lg font-black tabular-nums font-outfit text-white leading-none">{value}</p>
+                    <p className="mt-1 text-[10px] font-bold text-gray-600">{sub}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* 수급 */}
+            {chartTab === "flow" && (
+              <div className="divide-y divide-white/[0.08]">
+                <div className="px-5 py-3">
+                  <div className="flex gap-1">
+                    {(["1D", "1W", "1M", "3M", "1Y"] as const).map((p) => (
+                      <button key={p} onClick={() => setFlowPeriod(p)}
+                        className={`rounded-xl px-3 py-1 text-xs font-bold transition-colors ${flowPeriod === p ? "bg-white/[0.08] text-white" : "text-gray-500 hover:text-gray-300"}`}>
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 border-t border-l border-white/[0.08]">
+                  {[
+                    { label: "기관 순매수", value: "+120억원", tone: "text-[var(--main-red)]", sub: "5일 연속" },
+                    { label: "외국인 순매수", value: "-50억원", tone: "text-[var(--main-blue)]", sub: "3일 연속" },
+                    { label: "개인 순매수", value: "-70억원", tone: "text-[var(--main-blue)]", sub: "2일 연속" },
+                  ].map(({ label, value, tone, sub }) => (
+                    <div key={label} className="border-r border-b border-white/[0.08] px-5 py-4">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">{label}</p>
+                      <p className={`mt-2 text-lg font-black tabular-nums font-outfit leading-none ${tone}`}>{value}</p>
+                      <p className="mt-1 text-[10px] font-bold text-gray-600">{sub}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 재무 */}
+            {chartTab === "financial" && (
+              <div className="grid grid-cols-1 lg:grid-cols-10 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
+                <div className="lg:col-span-5 p-5">
+                  <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit mb-4">핵심 지표</h2>
+                  <div className="divide-y divide-white/[0.05]">
+                    {[["PER", stockInfo?.pe ? stockInfo.pe.toFixed(2) : "—"], ["PBR", stockInfo?.pbr ? stockInfo.pbr.toFixed(2) : "—"], ["ROE", stockInfo?.pe ? `${(stockInfo.pe * 0.1).toFixed(2)}%` : "—"]].map(([k, v]) => (
+                      <div key={k} className="flex items-center justify-between py-3">
+                        <span className="text-xs font-bold uppercase tracking-widest text-gray-600">{k}</span>
+                        <span className="text-sm font-black tabular-nums font-outfit text-white">{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="lg:col-span-5 p-5">
+                  <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit mb-4">실적 트렌드</h2>
+                  <div className="h-32 flex items-end gap-2">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <div key={i} className="flex-1 bg-[var(--main-blue)]/60 rounded-t" style={{ height: `${60 + (i * 8)}%` }} />
+                    ))}
+                  </div>
+                  <p className="text-[10px] font-bold text-gray-600 mt-2 text-center uppercase tracking-widest">최근 5년 매출 추이</p>
+                </div>
+              </div>
+            )}
+
+            {/* 뉴스 */}
+            {chartTab === "news" && (
+              <div className="divide-y divide-white/[0.04]">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="px-5 py-4 hover:bg-white/[0.02] transition-colors duration-150">
+                    <div className="flex items-start justify-between gap-4 mb-2">
+                      <h4 className="text-sm font-bold text-white">{displayStockName} 관련 주요 뉴스 {i}</h4>
+                      <span className="text-[10px] font-bold text-gray-500 shrink-0">2024.01.{15 + i}</span>
+                    </div>
+                    <p className="text-xs font-bold text-gray-500 mb-2">{displayStockName} 관련 뉴스 요약 내용...</p>
+                    <div className="flex items-center gap-1.5">
+                      <span className="inline-flex items-center px-2 py-0.5 text-xs font-bold rounded-md bg-sky-500/15 text-sky-400">#AI</span>
+                      <span className="inline-flex items-center px-2 py-0.5 text-xs font-bold rounded-md bg-[var(--main-red)]/10 text-[var(--main-red)]">긍정 +0.7</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* 전략연구소 안내 */}
+            <div className="p-5 flex flex-col items-center justify-center py-12 gap-4">
+              <ChartBar size={48} className="text-gray-700" weight="thin" />
+              <div className="text-center">
+                <h3 className="text-base font-black uppercase tracking-widest text-white font-outfit">종목 분석</h3>
+                <p className="text-sm font-bold text-gray-500 mt-1">전략연구소에서 더 깊은 분석을 이용할 수 있습니다</p>
+              </div>
               <button
                 onClick={() => router.push("/analytics")}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-600"
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold hover:shadow-[0_0_15px_rgba(59,130,246,0.4)] transition-all duration-300"
               >
                 전략연구소로 이동
               </button>
             </div>
           </div>
         )}
+
+        </div>
       </div>
     </DashboardLayout>
   );
