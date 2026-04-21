@@ -47,6 +47,11 @@ app.add_middleware(
 engine = BacktestEngine()
 _ = engine.ai_engine  # 서버 시작 시 AI 모델 사전 로드
 
+# Strategy Research Agent routes (premium gated)
+from api.research_routes import router as research_router
+app.include_router(research_router)
+app.state.backtest_engine = engine
+
 # VBT Numba JIT 사전 워밍업 — 첫 백테스트 요청에서 ~4s JIT 컴파일 패널티 제거
 # from_signals(2.0s) + winning_streak(1.2s) + pnl.mean(0.2s) + profit_factor(0.1s)
 # + total_return/per-col(0.16s) + annualized_return(0.12s) + losing_streak(0.17s) = ~3.9s
