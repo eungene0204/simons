@@ -34,6 +34,11 @@ If the request is already structured in this format, use it directly.
 Always keep work inside one boundary.
 Never modify forbidden paths unless explicitly instructed.
 
+If a task is completed and the implementation meaningfully changes project scope, plan, requirements, or architecture, update the relevant documentation if needed:
+- `docs/PROJECT_PLAN.md`
+- `docs/software_architecture.md`
+- `docs/SRS.md`
+
 # Repository Guidelines
 
 ## Project Structure & Module Organization

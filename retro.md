@@ -1,3 +1,45 @@
+# 세션 회고 (2026-04-20 ~ 2026-04-21)
+
+## 작업 내용
+
+Strategy Research Agent 전체 설계 및 구현. 14개 파일 신규 생성, prisma 스키마 확장, main.py 라우터 등록.
+
+### 주요 설계 결정
+
+**HoldoutGuard 구현 방식:**
+DataLoader에 `max_end_date` 파라미터를 추가하는 방식 대신, BacktestEngine이 이미 `req.get('endDate')`를 지원하므로 request 레벨에서 `endDate`를 클램핑하는 방식을 선택. 기존 캐시된 로더에 손대지 않아 backwards-compatible하고 더 단순하다.
+
+**스코어링 스케일 불일치 해결:**
+`CAGR + Sharpe + PF - MDD + Robustness` 수식은 각 항의 스케일이 달라 CAGR(~0.15)이 Sharpe(~1.0)에 묻히는 문제가 있었다. 각 항을 `tanh(x / normalization)`으로 감싸 [-1, 1]로 정규화한 뒤 가중치 합산. robustness+mdd_penalty 가중치(0.50)를 수익 관련(0.50) 이상으로 설정해 "수익보다 견고성 우선" 원칙을 수치로 구현.
+
+**Monte Carlo 미존재 문제:**
+CLAUDE.md에 monte_carlo.py가 언급되어 있었지만 실제로 파일이 없었다. 블록 부트스트랩(block_size=21, log-return 재샘플링) 방식으로 신규 구현.
+
+**Optuna 과적합 방지:**
+n_trials를 `sqrt(search_space_cardinality)`로 상한을 두어 탐색 공간이 작은 템플릿에서 반복 최적화로 인한 in-sample 과적합을 방지.
+
+### 구현된 파일
+- `backend/engine/monte_carlo.py`
+- `backend/research/` (agent, generator, search_space, scoring, safeguards, events, prescreen, robustness, promoter, __init__)
+- `backend/research/templates/` (momentum, mean_reversion, value, volume_breakout, ai_signal, __init__)
+- `backend/api/__init__.py`, `backend/api/research_routes.py`
+- `prisma/schema.prisma` — User.planTier, ResearchRun, ResearchCandidate, ResearchEvent 추가
+
+### 테스트
+- `backend/tests/test_research_agent.py` — 25개 테스트, 전체 통과
+- 기존 백엔드 전체 테스트 330개 — 0 실패 (회귀 없음)
+- pytest 실행 방법: `python -m pytest` (bare `pytest`는 sys.path에 backend/ 미포함)
+
+## 배운 점 / 트러블슈팅
+
+**`ModuleNotFoundError: No module named 'research'`:**
+`cd backend && pytest tests/` 로 실행하면 pytest가 sys.path에 backend/를 추가하지 않아 `engine`, `research` 임포트가 실패한다. `python -m pytest tests/`로 실행하면 cwd가 sys.path에 자동으로 들어가 해결. 기존 테스트들도 동일한 이슈가 있었으나 이번 세션에서 확인됨.
+
+**FastAPI `AssertionError: Status code 204 must not have a response body`:**
+`@router.delete(..., status_code=204)` + `return None`은 FastAPI에서 자동 직렬화를 시도해 오류 발생. `Response(status_code=204)`를 명시적으로 반환하는 방식으로 수정.
+
+---
+
 # 세션 회고 (2026-04-17 ~ 2026-04-20)
 
 ## 배운 점

@@ -6,10 +6,12 @@ sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
 from engine.nl_parser import (
     NLStrategyParser,
     ParsedStrategy,
+    ParsedStrategyDiff,
     TechnicalSignal,
     _apply_prompt_overrides,
     _extract_technical_signals,
     _merge_signals,
+    _parse_model_json_response,
     _validate_signals,
 )
 
@@ -314,6 +316,45 @@ def test_nl_strategy_parser_model_log_label_uses_actual_model_name():
 
     assert parser._model_log_label(parser.model_7b) == "Qwen3.5-9B"
     assert parser._model_log_label("mlx-community/Qwen2.5-7B-Instruct-4bit") == "Qwen2.5-7B"
+
+
+def test_parse_model_json_response_ignores_trailing_im_end_tokens():
+    raw = """{
+  "description": "우리 AI 모델 전략",
+  "universe": ["KOSDAQ"],
+  "fundamental_filters": [],
+  "entry_signals": [{"indicator": "ai_model", "signal_type": "buy", "threshold": 70}],
+  "exit_signals": [{"indicator": "ai_drop_model", "signal_type": "sell", "threshold": 70}],
+  "max_positions": 8,
+  "hold_period_days": 10,
+  "rebalancing_period": "none",
+  "stop_loss_pct": 9.0,
+  "take_profit_pct": null,
+  "trailing_stop_pct": null,
+  "max_mdd_limit_pct": null,
+  "backtest_period": "5y",
+  "initial_capital": 10000000.0,
+  "execution_timing": "next_open",
+  "fee_rate": 0.015,
+  "slippage_rate": 0.05
+}<|im_end|><|im_end|>"""
+
+    parsed = _parse_model_json_response(raw, ParsedStrategy)
+
+    assert parsed.universe == ["KOSDAQ"]
+    assert parsed.max_positions == 8
+    assert parsed.stop_loss_pct == 9.0
+
+
+def test_parse_model_json_response_extracts_diff_object_from_prefixed_text():
+    raw = """assistant
+{"description": null, "universe": ["KOSDAQ"], "fundamental_filters": null, "entry_signals": null, "exit_signals": null, "max_positions": 8, "hold_period_days": 10, "rebalancing_period": null, "stop_loss_pct": 9.0, "take_profit_pct": null, "trailing_stop_pct": null, "max_mdd_limit_pct": null, "backtest_period": null, "initial_capital": null, "execution_timing": null, "fee_rate": null, "slippage_rate": null}</s>"""
+
+    parsed = _parse_model_json_response(raw, ParsedStrategyDiff)
+
+    assert parsed.universe == ["KOSDAQ"]
+    assert parsed.max_positions == 8
+    assert parsed.hold_period_days == 10
 
 
 # ─── LLM 환각 신호 검증 테스트 ──────────────────────────────────────────────

@@ -164,6 +164,14 @@ class ParsedStrategyDiff(BaseModel):
     slippage_rate: Optional[float] = None
 
 
+_MODEL_TRAILING_TOKENS = (
+    "<|im_end|>",
+    "<|im_start|>",
+    "<|endoftext|>",
+    "</s>",
+)
+
+
 MODIFY_PROMPT = """현재 전략 JSON이 주어집니다. 사용자 수정 요청을 적용해 변경된 필드만 JSON으로 출력하세요.
 변경하지 않는 필드는 반드시 null로 출력하세요. 수정 요청에 없는 내용은 절대 바꾸지 마세요.
 
@@ -463,7 +471,7 @@ class NLStrategyParser:
         )
         result = self._diff_generator_7b(prompt, max_tokens=1024)
         if isinstance(result, str):
-            return ParsedStrategyDiff.model_validate_json(result)
+            return _parse_model_json_response(result, ParsedStrategyDiff)
         return result
 
     def _modify_ollama(self, user_input: str, previous: dict) -> ParsedStrategyDiff:
@@ -487,7 +495,7 @@ class NLStrategyParser:
         prompt = f"{SYSTEM_PROMPT}\n\n입력: \"{user_input}\"\n출력:"
         result = self._generator_7b(prompt, max_tokens=1024)
         if isinstance(result, str):
-            return ParsedStrategy.model_validate_json(result)
+            return _parse_model_json_response(result, ParsedStrategy)
         return result
 
     def _parse_ollama(self, user_input: str) -> ParsedStrategy:
@@ -554,6 +562,52 @@ def _mentions_technical_exit_terms(compact_prompt: str) -> bool:
         "이평", "이동평균", "기술적", "시그널", "신호",
     ]
     return any(term in compact_prompt for term in technical_terms)
+
+
+def _trim_model_trailing_tokens(text: str) -> str:
+    trimmed = text.strip()
+    for token in _MODEL_TRAILING_TOKENS:
+        if token in trimmed:
+            trimmed = trimmed.split(token, 1)[0].rstrip()
+    return trimmed
+
+
+def _extract_json_object(text: str) -> str:
+    start = text.find("{")
+    if start == -1:
+        raise ValueError("No JSON object found in model output")
+
+    in_string = False
+    escaped = False
+    depth = 0
+
+    for idx in range(start, len(text)):
+        ch = text[idx]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:idx + 1]
+
+    raise ValueError("Incomplete JSON object in model output")
+
+
+def _parse_model_json_response(raw_text: str, model_cls: type[BaseModel]) -> BaseModel:
+    cleaned = _trim_model_trailing_tokens(raw_text)
+    json_text = _extract_json_object(cleaned)
+    return model_cls.model_validate_json(json_text)
 
 
 # ─── LLM 환각 신호 검증 ─────────────────────────────────────────────────────
