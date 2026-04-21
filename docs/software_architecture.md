@@ -123,6 +123,19 @@ simons/
 │   │   ├── models.py                # PyTorch 모델 정의
 │   │   ├── xai_engine.py            # SHAP 기반 설명 가능 AI
 │   │   └── summarize.py             # 백테스트 결과 AI 요약 (Claude API)
+│   ├── research/                    # Strategy Research Agent
+│   │   ├── agent.py                 # StrategyResearchAgent 오케스트레이터 (상태머신)
+│   │   ├── generator.py             # 후보 전략 생성기 (SHA256 dedup, seeded)
+│   │   ├── search_space.py          # 템플릿별 파라미터 탐색 공간
+│   │   ├── scoring.py               # 복합 스코어 (tanh-bounded, Deflated Sharpe)
+│   │   ├── safeguards.py            # HoldoutGuard / CircuitBreaker / AIModelLeakGuard
+│   │   ├── events.py                # SSE 이벤트 팬아웃 (DB + asyncio.Queue)
+│   │   ├── prescreen.py             # 50종목 샘플 프리스크린
+│   │   ├── robustness.py            # MC + WFA 견고성 검증
+│   │   ├── promoter.py              # VirtualAccount 자동 승격
+│   │   └── templates/               # 전략 템플릿 (momentum/mean_reversion/value/volume_breakout/ai_signal)
+│   ├── api/
+│   │   └── research_routes.py       # FastAPI 연구 에이전트 라우터 (9개 엔드포인트, SSE)
 │   └── tests/                       # 백엔드 단위 테스트
 │
 ├── data/
@@ -261,6 +274,20 @@ interface BacktestResult {
 | GET | `/model/status` | AI 모델 상태 확인 |
 | POST | `/summarize` | 백테스트 결과 AI 요약 (Claude API) |
 
+**Strategy Research Agent (Premium)**
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| GET | `/research/templates` | 지원 전략 템플릿 목록 |
+| POST | `/research/runs` | 리서치 런 시작 (BackgroundTask) |
+| GET | `/research/runs` | 사용자 런 목록 |
+| GET | `/research/runs/{id}` | 런 상태 조회 |
+| DELETE | `/research/runs/{id}` | 런 취소 |
+| GET | `/research/runs/{id}/candidates` | 후보 전략 목록 |
+| GET | `/research/candidates/{id}` | 후보 상세 |
+| POST | `/research/candidates/{id}/promote` | 페이퍼 트레이딩 승격 |
+| GET | `/research/runs/{id}/audit` | 감사 로그 |
+| GET | `/research/runs/{id}/stream` | SSE 실시간 이벤트 스트림 |
+
 ### 4.2 자연어 → 전략 파싱 파이프라인
 
 ```
@@ -366,7 +393,7 @@ VirtualTrader (비동기 루프, FastAPI 메인 스레드 분리)
 ### 5.1 Prisma 스키마 (SQLite)
 
 ```
-User            — 사용자 계정
+User            — 사용자 계정 (planTier: FREE/PREMIUM)
 Strategy        — 저장된 전략 정의 → BacktestResult (1:N)
 BacktestHistory — 백테스트 실행 이력 (cacheKey SHA256으로 중복 방지)
 BacktestResult  — 백테스트 결과 → Strategy (N:1), Stock (N:1)
@@ -380,6 +407,12 @@ VirtualPosition — 현재 보유 포지션 (avgPrice, peakPrice 포함)
 VirtualMarketLog — 가상매매 신호 로그
 
 WatchlistGroup  → WatchlistSymbol (1:N)
+
+ResearchRun     — 리서치 에이전트 런 (status, config JSON, userId)
+                → ResearchCandidate (1:N)
+                → ResearchEvent (1:N)
+ResearchCandidate — 후보 전략 (template, dsl_hash, scores, promoted)
+ResearchEvent   — SSE 이벤트 로그 (type, payload JSON)
 ```
 
 ### 5.2 데이터 파일

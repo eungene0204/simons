@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, Suspense } from "react";
 import dynamic from "next/dynamic";
+import { useRouter, useSearchParams } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { StrategyExampleTabs } from "@/components/strategy/StrategyExampleTabs";
 import { BacktestResult } from "@/types/strategy";
@@ -32,6 +33,20 @@ const BacktestDashboard = dynamic(
 );
 
 type Stage = "idle" | "ready" | "running" | "done";
+type LabMode = "builder" | "research";
+
+interface ResearchTemplateResponse {
+  templates: string[];
+  universes: string[][];
+}
+
+interface ResearchAccessState {
+  status: "loading" | "ready" | "unauthorized" | "locked" | "offline";
+  message: string;
+  userId: number | null;
+  templates: string[];
+  universes: string[][];
+}
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -49,6 +64,13 @@ function FilterBadge({ label }: { label: string }) {
       {label}
     </span>
   );
+}
+
+function getResearchBaseUrl() {
+  if (typeof window === "undefined") {
+    return "http://localhost:8000";
+  }
+  return `${window.location.protocol}//${window.location.hostname}:8000`;
 }
 
 
@@ -134,24 +156,132 @@ function ParsedSummaryBubble({
 }
 
 function StrategyLabContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [inputValue, setInputValue] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [stage, setStage] = useState<Stage>("idle");
+  const [labMode, setLabMode] = useState<LabMode>("builder");
   const [latestParsed, setLatestParsed] = useState<ParsedSummary | null>(null);
   const [backtestReq, setBacktestReq] = useState<any>(null);
   const [currentOptions, setCurrentOptions] = useState<any>(null);
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [modelStatus, setModelStatus] = useState<{ status: string; error: string | null } | null>(null);
+  const [researchAccess, setResearchAccess] = useState<ResearchAccessState>({
+    status: "loading",
+    message: "연구 에이전트 권한을 확인하는 중입니다.",
+    userId: null,
+    templates: [],
+    universes: [],
+  });
+  const [researchGoal, setResearchGoal] = useState("");
+  const [researchTemplates, setResearchTemplates] = useState<string[]>(["momentum", "mean_reversion"]);
+  const [researchUniverse, setResearchUniverse] = useState<string[]>(["KOSPI200"]);
+  const [researchMaxCandidates, setResearchMaxCandidates] = useState(120);
+  const [researchTrials, setResearchTrials] = useState(50);
+  const [researchSplits, setResearchSplits] = useState(5);
+  const [isStartingResearch, setIsStartingResearch] = useState(false);
+  const [researchError, setResearchError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const mode = searchParams.get("mode");
+    setLabMode(mode === "research" ? "research" : "builder");
+  }, [searchParams]);
 
   useEffect(() => {
     fetch("/api/model/status")
       .then((r) => r.json())
       .then(setModelStatus)
       .catch(() => setModelStatus({ status: "failed", error: "서버에 연결할 수 없습니다" }));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadResearchAccess() {
+      try {
+        const userResponse = await fetch("/api/user", { cache: "no-store" });
+        const userData = await userResponse.json();
+        const userId = userData?.user?.id ?? null;
+
+        if (!userId) {
+          if (!cancelled) {
+            setResearchAccess({
+              status: "unauthorized",
+              message: "로그인 후 Premium 플랜에서 연구 에이전트를 사용할 수 있습니다.",
+              userId: null,
+              templates: [],
+              universes: [],
+            });
+          }
+          return;
+        }
+
+        const templateResponse = await fetch(`${getResearchBaseUrl()}/research/templates`, {
+          headers: { "X-User-Id": String(userId) },
+        });
+
+        if (templateResponse.status === 402) {
+          if (!cancelled) {
+            setResearchAccess({
+              status: "locked",
+              message: "연구 에이전트는 Premium 플랜에서만 사용할 수 있습니다.",
+              userId,
+              templates: [],
+              universes: [],
+            });
+          }
+          return;
+        }
+
+        if (!templateResponse.ok) {
+          throw new Error("research templates unavailable");
+        }
+
+        const data = (await templateResponse.json()) as ResearchTemplateResponse;
+        if (!cancelled) {
+          setResearchAccess({
+            status: "ready",
+            message: "연구 에이전트를 실행할 수 있습니다.",
+            userId,
+            templates: data.templates ?? [],
+            universes: data.universes ?? [],
+          });
+          setResearchTemplates((prev) =>
+            prev.filter((item) => (data.templates ?? []).includes(item)).length > 0
+              ? prev.filter((item) => (data.templates ?? []).includes(item))
+              : (data.templates ?? []).slice(0, 2)
+          );
+          if ((data.universes ?? []).length > 0) {
+            setResearchUniverse((prev) => {
+              const matched = (data.universes ?? []).find(
+                (item) => item.join("|") === prev.join("|")
+              );
+              return matched ?? data.universes[0];
+            });
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setResearchAccess({
+            status: "offline",
+            message: "연구 백엔드에 연결할 수 없습니다. 백엔드 서버와 CORS 설정을 확인하세요.",
+            userId: null,
+            templates: [],
+            universes: [],
+          });
+        }
+      }
+    }
+
+    loadResearchAccess();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -423,6 +553,42 @@ function StrategyLabContent() {
     setTimeout(() => textareaRef.current?.focus(), 100);
   };
 
+  const handleStartResearch = async () => {
+    if (researchAccess.status !== "ready" || !researchAccess.userId || researchTemplates.length === 0) {
+      return;
+    }
+
+    setIsStartingResearch(true);
+    setResearchError(null);
+    try {
+      const response = await fetch(`${getResearchBaseUrl()}/research/runs`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-Id": String(researchAccess.userId),
+        },
+        body: JSON.stringify({
+          goal: researchGoal.trim() || null,
+          templates: researchTemplates,
+          universes: [researchUniverse],
+          max_candidates: researchMaxCandidates,
+          optuna_trials: researchTrials,
+          wfa_splits: researchSplits,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data?.detail ?? "연구 실행에 실패했습니다.");
+      }
+      router.push(`/analytics/research/${data.runId}`);
+    } catch (error: any) {
+      setResearchError(error?.message ?? "연구 실행에 실패했습니다.");
+    } finally {
+      setIsStartingResearch(false);
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
@@ -446,6 +612,232 @@ function StrategyLabContent() {
               backtestDsl={backtestReq}
               strategySummary={buildStrategySummary(latestParsed, backtestReq)}
             />
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (labMode === "research") {
+    const canStartResearch = researchAccess.status === "ready" && researchTemplates.length > 0 && !isStartingResearch;
+
+    return (
+      <DashboardLayout userName="">
+        <div className="min-h-full px-4 py-6 md:px-6">
+          <div className="mx-auto max-w-6xl space-y-6">
+            <div className="flex flex-col gap-4 rounded-3xl border border-emerald-500/20 bg-[linear-gradient(135deg,rgba(16,185,129,0.12),rgba(255,255,255,0.02))] p-6 md:flex-row md:items-end md:justify-between">
+              <div className="space-y-3">
+                <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1">
+                  <Sparkle size={12} className="text-emerald-300" weight="fill" />
+                  <span className="text-[11px] font-black uppercase tracking-[0.2em] text-emerald-200">Research Agent</span>
+                </div>
+                <div className="space-y-1">
+                  <h1 className="text-2xl font-black text-white">전략 연구 워크벤치</h1>
+                  <p className="max-w-2xl text-sm font-bold leading-relaxed text-gray-300">
+                    목표와 탐색 범위를 지정하면 후보 생성, 프리스크린, 견고성 검증, 최종 승격 후보 선별까지 연구 런 단위로 진행합니다.
+                  </p>
+                </div>
+              </div>
+              <div className="inline-flex rounded-2xl border border-white/[0.08] bg-black/20 p-1">
+                <button
+                  onClick={() => {
+                    setLabMode("builder");
+                    router.replace("/analytics/new");
+                  }}
+                  className="rounded-xl px-4 py-2 text-xs font-black text-gray-400 transition-colors duration-200 hover:text-white"
+                >
+                  직접 설계
+                </button>
+                <button
+                  className="rounded-xl bg-white/[0.08] px-4 py-2 text-xs font-black text-white"
+                >
+                  연구 에이전트
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+              <div className="rounded-3xl border border-white/[0.08] bg-white/[0.03] p-5 space-y-5">
+                <div className="space-y-1">
+                  <p className="text-[11px] font-black uppercase tracking-[0.2em] text-gray-500">Task</p>
+                  <h2 className="text-lg font-black text-white">연구 목표 정의</h2>
+                </div>
+
+                <label className="block space-y-2">
+                  <span className="text-xs font-black text-gray-300">찾고 싶은 전략</span>
+                  <textarea
+                    value={researchGoal}
+                    onChange={(e) => setResearchGoal(e.target.value)}
+                    rows={4}
+                    placeholder="예: KOSPI200에서 낙폭을 제한하면서 거래 수가 너무 적지 않은 모멘텀 전략"
+                    className="w-full rounded-2xl border border-white/[0.08] bg-black/20 px-4 py-3 text-sm font-bold text-white outline-none placeholder:text-gray-600"
+                  />
+                </label>
+
+                <div className="space-y-3">
+                  <span className="text-xs font-black text-gray-300">탐색 템플릿</span>
+                  <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+                    {(researchAccess.templates.length > 0 ? researchAccess.templates : ["momentum", "mean_reversion"]).map((template) => {
+                      const checked = researchTemplates.includes(template);
+                      return (
+                        <button
+                          key={template}
+                          type="button"
+                          disabled={researchAccess.status !== "ready"}
+                          onClick={() =>
+                            setResearchTemplates((prev) => {
+                              if (prev.includes(template)) {
+                                return prev.length === 1 ? prev : prev.filter((item) => item !== template);
+                              }
+                              return [...prev, template];
+                            })
+                          }
+                          className={`rounded-2xl border px-3 py-3 text-left text-xs font-black transition-colors duration-200 ${
+                            checked
+                              ? "border-emerald-400/40 bg-emerald-400/10 text-white"
+                              : "border-white/[0.08] bg-white/[0.02] text-gray-400 hover:text-white"
+                          }`}
+                        >
+                          {template}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <span className="text-xs font-black text-gray-300">유니버스</span>
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                    {(researchAccess.universes.length > 0 ? researchAccess.universes : [["KOSPI200"], ["KOSPI"], ["KOSDAQ"]]).map((universe) => {
+                      const selected = universe.join("|") === researchUniverse.join("|");
+                      return (
+                        <button
+                          key={universe.join("|")}
+                          type="button"
+                          disabled={researchAccess.status !== "ready"}
+                          onClick={() => setResearchUniverse(universe)}
+                          className={`rounded-2xl border px-4 py-3 text-left transition-colors duration-200 ${
+                            selected
+                              ? "border-sky-400/40 bg-sky-400/10"
+                              : "border-white/[0.08] bg-white/[0.02]"
+                          }`}
+                        >
+                          <p className="text-sm font-black text-white">{universe.join(" + ")}</p>
+                          <p className="mt-1 text-[11px] font-bold text-gray-500">탐색 단위를 이 유니버스로 제한합니다.</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <label className="space-y-2">
+                    <span className="text-xs font-black text-gray-300">후보 수</span>
+                    <input
+                      type="number"
+                      min={10}
+                      max={500}
+                      value={researchMaxCandidates}
+                      onChange={(e) => setResearchMaxCandidates(Number(e.target.value))}
+                      className="w-full rounded-2xl border border-white/[0.08] bg-black/20 px-4 py-3 text-sm font-black text-white outline-none"
+                    />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-xs font-black text-gray-300">Optuna Trials</span>
+                    <input
+                      type="number"
+                      min={10}
+                      max={200}
+                      value={researchTrials}
+                      onChange={(e) => setResearchTrials(Number(e.target.value))}
+                      className="w-full rounded-2xl border border-white/[0.08] bg-black/20 px-4 py-3 text-sm font-black text-white outline-none"
+                    />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-xs font-black text-gray-300">WFA Splits</span>
+                    <input
+                      type="number"
+                      min={3}
+                      max={10}
+                      value={researchSplits}
+                      onChange={(e) => setResearchSplits(Number(e.target.value))}
+                      className="w-full rounded-2xl border border-white/[0.08] bg-black/20 px-4 py-3 text-sm font-black text-white outline-none"
+                    />
+                  </label>
+                </div>
+
+                {researchError && (
+                  <div className="rounded-2xl border border-[var(--error-red)]/20 bg-[var(--error-red)]/10 px-4 py-3 text-xs font-bold text-[var(--error-red)]">
+                    {researchError}
+                  </div>
+                )}
+
+                <div className="flex flex-col gap-3 border-t border-white/[0.06] pt-4 md:flex-row md:items-center md:justify-between">
+                  <p className="text-xs font-bold text-gray-500">
+                    실행 후 연구 런 상세 화면으로 이동해 후보, 탈락 사유, 승격 상태를 확인합니다.
+                  </p>
+                  <button
+                    onClick={handleStartResearch}
+                    disabled={!canStartResearch}
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-sky-500 px-5 py-3 text-sm font-black text-white transition-opacity duration-200 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {isStartingResearch ? <ArrowsClockwise size={14} className="animate-spin" /> : <ChartLineUp size={14} weight="fill" />}
+                    연구 시작
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="rounded-3xl border border-white/[0.08] bg-white/[0.03] p-5 space-y-4">
+                  <div className="space-y-1">
+                    <p className="text-[11px] font-black uppercase tracking-[0.2em] text-gray-500">Status</p>
+                    <h2 className="text-lg font-black text-white">실행 가능 상태</h2>
+                  </div>
+                  <div className={`rounded-2xl border px-4 py-4 ${
+                    researchAccess.status === "ready"
+                      ? "border-emerald-400/20 bg-emerald-400/10"
+                      : "border-white/[0.08] bg-black/20"
+                  }`}>
+                    <p className="text-sm font-black text-white">
+                      {researchAccess.status === "ready" ? "연구 에이전트 사용 가능" : "사전 조건 확인 필요"}
+                    </p>
+                    <p className="mt-1 text-xs font-bold leading-relaxed text-gray-400">{researchAccess.message}</p>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2">
+                    <div className="rounded-2xl border border-white/[0.06] bg-black/20 px-4 py-3">
+                      <p className="text-[11px] font-black uppercase tracking-[0.2em] text-gray-600">Pipeline</p>
+                      <p className="mt-1 text-xs font-bold text-gray-300">Generate → Prescreen → Robustness → Optimize → Holdout → Finalize</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/[0.06] bg-black/20 px-4 py-3">
+                      <p className="text-[11px] font-black uppercase tracking-[0.2em] text-gray-600">Output</p>
+                      <p className="mt-1 text-xs font-bold text-gray-300">후보 비교, 탈락 사유 검토, 가상계좌 승격 후보 선별</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border border-white/[0.08] bg-white/[0.03] p-5 space-y-3">
+                  <div className="space-y-1">
+                    <p className="text-[11px] font-black uppercase tracking-[0.2em] text-gray-500">Tips</p>
+                    <h2 className="text-lg font-black text-white">좋은 입력 예시</h2>
+                  </div>
+                  <div className="space-y-2">
+                    {[
+                      "KOSPI200에서 낙폭이 작은 모멘텀 전략",
+                      "거래 수가 너무 적지 않은 평균회귀 전략",
+                      "홀드아웃에서도 유지되는 가치+거래대금 필터 전략",
+                    ].map((example) => (
+                      <button
+                        key={example}
+                        onClick={() => setResearchGoal(example)}
+                        className="w-full rounded-2xl border border-white/[0.08] bg-black/20 px-4 py-3 text-left text-xs font-bold text-gray-300 transition-colors duration-200 hover:border-white/[0.14] hover:text-white"
+                      >
+                        {example}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </DashboardLayout>

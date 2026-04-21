@@ -52,12 +52,72 @@ model Strategy {
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  email     String   @unique
-  name      String
-  password  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime
+  id          Int           @id @default(autoincrement())
+  email       String        @unique
+  name        String
+  password    String
+  planTier    String        @default("FREE")
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime
+  ResearchRun ResearchRun[]
+}
+
+model ResearchRun {
+  id              String              @id @default(cuid())
+  userId          Int
+  status          String              @default("PENDING")
+  goal            String?
+  config          String
+  holdoutStart    String
+  seed            Int
+  startedAt       DateTime            @default(now())
+  finishedAt      DateTime?
+  errorMessage    String?
+  totalCandidates Int                 @default(0)
+  promotedCount   Int                 @default(0)
+  User            User                @relation(fields: [userId], references: [id])
+  Candidate       ResearchCandidate[]
+  Event           ResearchEvent[]
+
+  @@index([userId, status])
+}
+
+model ResearchCandidate {
+  id                String      @id @default(cuid())
+  runId             String
+  dslHash           String
+  dslJson           String
+  template          String
+  stage             String      @default("GENERATED")
+  rejectionReason   String?
+  prescreenMetrics  String?
+  wfaResult         String?
+  mcResult          String?
+  optunaBest        String?
+  holdoutMetrics    String?
+  compositeScore    Float?
+  robustnessScore   Float?
+  deflatedSharpe    Float?
+  promotedAccountId String?
+  createdAt         DateTime    @default(now())
+  ResearchRun       ResearchRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, dslHash])
+  @@index([runId, stage])
+  @@index([runId, compositeScore])
+}
+
+model ResearchEvent {
+  id          String      @id @default(cuid())
+  runId       String
+  candidateId String?
+  level       String      @default("INFO")
+  event       String
+  payload     String
+  createdAt   DateTime    @default(now())
+  ResearchRun ResearchRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId, createdAt])
 }
 
 model VirtualAccount {

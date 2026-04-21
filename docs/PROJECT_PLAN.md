@@ -810,6 +810,34 @@ WatchlistSymbol {
 | 해결 과정 로그 | 모든 해결 시도를 `resolution_logs`로 프론트엔드 터미널에 실시간 표시 | ✅ 완료 |
 | 유닛 테스트 | 20개 테스트 케이스 (`backend/tests/test_data_resolver.py`) | ✅ 완료 |
 
+### Phase 3.6: Strategy Research Agent — ✅ 완료
+
+> DSL 블록 기반 전략 후보 자동 생성 → 프리스크린 → 워크포워드/몬테카를로 견고성 검증 → Optuna 최적화 → 홀드아웃 검증 → 페이퍼 트레이딩 자동 승격 파이프라인.
+> **설계 원칙:** 수익보다 견고성 우선 (Robustness 가중치 > 수익 관련 가중치).
+
+| 작업 | 상세 | 구현 상태 |
+|------|------|----------|
+| Prisma 스키마 확장 | User.planTier (FREE/PREMIUM), ResearchRun, ResearchCandidate, ResearchEvent | ✅ 완료 |
+| 몬테카를로 엔진 | `backend/engine/monte_carlo.py` — block bootstrap (block_size=21), log-return 재샘플링, 분위수 분포 반환 | ✅ 완료 |
+| 전략 템플릿 | `backend/research/templates/` — momentum, mean_reversion, value, volume_breakout, ai_signal (5종) | ✅ 완료 |
+| 후보 생성기 | `backend/research/generator.py` — SHA256 canonical hash dedup, seeded shuffle, max_n 제한 | ✅ 완료 |
+| 탐색 공간 | `backend/research/search_space.py` — 템플릿별 파라미터 범위, cardinality 계산 | ✅ 완료 |
+| 복합 스코어링 | `backend/research/scoring.py` — tanh-bounded 합성 점수, Deflated Sharpe Ratio, regime_consistency | ✅ 완료 |
+| 안전 장치 | `backend/research/safeguards.py` — HoldoutGuard, CircuitBreaker, AIModelLeakGuard, PrescreenGates | ✅ 완료 |
+| 이벤트 시스템 | `backend/research/events.py` — DB 기록 + asyncio.Queue SSE 팬아웃 | ✅ 완료 |
+| 프리스크린 | `backend/research/prescreen.py` — 50종목 샘플 빠른 백테스트, CircuitBreaker 연동 | ✅ 완료 |
+| 견고성 검증 | `backend/research/robustness.py` — MC + WFA 병합 스코어, regime_consistency | ✅ 완료 |
+| 승격기 | `backend/research/promoter.py` — Strategy + VirtualAccount(auto) + VirtualMarketState(stopped) 트랜잭션 생성 | ✅ 완료 |
+| 에이전트 오케스트레이터 | `backend/research/agent.py` — 상태머신 (_generate→_prescreen→_robustness→_optimize→_holdout→_finalize) | ✅ 완료 |
+| FastAPI 라우터 | `backend/api/research_routes.py` — 9개 엔드포인트, premium 게이팅, SSE 스트림, 일일 예산 5000 | ✅ 완료 |
+| 유닛 테스트 | `backend/tests/test_research_agent.py` — 25개 테스트 (generator/scoring/safeguards/MC/agent/promoter) | ✅ 완료 |
+
+**핵심 설계 결정:**
+- HoldoutGuard: DataLoader 수정 대신 request.endDate 클램핑 방식 (기존 코드 무침)
+- Optuna n_trials 상한: √(search_space_cardinality) — 과적합 방지
+- 승격 후 VirtualMarketState.status = 'stopped' — 사용자 명시적 시작 필요
+- 복합 점수: `tanh(cagr/0.3)×0.15 + tanh(sharpe/2)×0.20 + tanh(pf/2)×0.10 + tanh(wr/0.6)×0.05 - tanh(mdd/0.3)×0.30 + robustness×0.20`
+
 ### Phase 4: 미구현 기능 (향후)
 
 | 작업 | 상세 | 우선순위 |
@@ -923,7 +951,7 @@ cd backend && pytest tests/
 
 ## 9. 기능 실현도 요약
 
-### 전체 진행률: **~85%** (핵심 기능 기준)
+### 전체 진행률: **~90%** (핵심 기능 기준)
 
 | 영역 | 구현 상태 | 실현도 |
 |------|-----------|--------|
@@ -939,6 +967,7 @@ cd backend && pytest tests/
 | 대시보드 & 포트폴리오 | ✅ 대부분 완료 | 90% |
 | 관심종목 | ✅ 전체 완료 | 100% |
 | 테스트 커버리지 | ✅ 양호 (62개 파일) | 85% |
+| Strategy Research Agent | ✅ 전체 완료 | 100% |
 | 고급 분석 (팩터, 상관관계, 섹터) | 🔲 미구현 | 0% |
 | 소셜/마켓플레이스 | 🔲 미구현 | 0% |
 | 인프라 (Docker, CI/CD, 모니터링) | 🔲 미구현 | 0% |

@@ -471,6 +471,58 @@ RiskManagement {
 
 ---
 
+### 3.4b Strategy Research Agent (Premium)
+
+#### 3.4b.1 개요
+
+**FR-RA-001** Strategy Research Agent는 PREMIUM 플랜 사용자만 사용할 수 있어야 한다 (`User.planTier == 'PREMIUM'`, HTTP 헤더 `X-User-Id` 검증).
+
+**FR-RA-002** 에이전트는 다음 단계를 순서대로 실행해야 한다:
+
+```
+1. generate   — DSL 블록 조합으로 후보 전략 생성 (SHA256 dedup)
+2. prescreen  — 50종목 샘플 백테스트로 기초 필터링 (CircuitBreaker 연동)
+3. robustness — MC + WFA 견고성 검증
+4. optimize   — Optuna 파라미터 최적화 (n_trials ≤ √cardinality)
+5. holdout    — 잠금 홀드아웃 구간 검증 (h_sharpe ≥ 0.3 AND sign(h_cagr)==sign(b_cagr))
+6. finalize   — DB 저장 + VirtualAccount 승격 (사용자 명시적 시작 필요)
+```
+
+**FR-RA-003** 에이전트 실행은 BackgroundTask로 비동기 처리되어야 하며, SSE 스트림(`GET /research/runs/{id}/stream`)으로 실시간 진행 상황을 전달해야 한다.
+
+#### 3.4b.2 안전 장치
+
+**FR-RA-010** HoldoutGuard: 모든 백테스트 요청의 `endDate`를 홀드아웃 시작일 전날로 클램핑해야 한다. 이미 홀드아웃 기간을 침범한 요청은 `HoldoutViolation` 예외로 거부해야 한다.
+
+**FR-RA-011** CircuitBreaker: N회 연속 zero-trade 프리스크린 시 자동 차단하여 불필요한 백테스트 실행을 방지해야 한다.
+
+**FR-RA-012** AIModelLeakGuard: `ai_model`/`ai_drop_model` 블록을 포함한 전략의 학습 기간이 AI 모델 훈련 데이터 기간과 겹치면 거부해야 한다.
+
+**FR-RA-013** PrescreenGates: 최소 거래 횟수(30회), 최소 Profit Factor(1.0), 최대 MDD(50%) 기준을 충족하지 못하는 후보는 탈락시켜야 한다.
+
+#### 3.4b.3 스코어링
+
+**FR-RA-020** 복합 점수는 다음 가중치로 계산해야 한다 (robustness+mdd_penalty = 0.50 > 수익 관련 = 0.50):
+
+```
+score = tanh(cagr/0.3)×0.15 + tanh(sharpe/2)×0.20 + tanh(pf/2)×0.10
+      + tanh(wr/0.6)×0.05 - tanh(mdd/0.3)×0.30 + robustness_score×0.20
+```
+
+**FR-RA-021** Deflated Sharpe Ratio(Bailey-López de Prado)를 적용하여 다중 테스팅 편향을 보정해야 한다.
+
+**FR-RA-022** regime_consistency: 에퀴티 커브를 4분위 구간으로 분할하여 최악 분기 / 최선 분기 비율을 계산하고 스코어에 반영해야 한다.
+
+#### 3.4b.4 일일 예산 및 제한
+
+| 항목 | 값 |
+|------|----|
+| 일일 후보 예산 | 5,000건/사용자/일 (`RESEARCH_DAILY_BUDGET`) |
+| 승격 상한 | 활성 auto 계좌 5개 (`RESEARCH_PROMOTION_CAP`) |
+| 에이전트 비활성화 | `RESEARCH_AGENT_DISABLED=true` 환경변수 → 503 |
+
+---
+
 ### 3.5 포트폴리오 관리
 
 #### 3.5.1 홈 대시보드
