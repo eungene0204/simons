@@ -12,4 +12,4 @@ def build_backtest_stream_status(wait_count: int, phases: list[str], poll_interv
         return phases[phase_index]
 
     elapsed_seconds = int(wait_count * poll_interval)
-    return f"AI 모델 추론 및 시뮬레이션 진행 중... ({elapsed_seconds}초 경과)"
+    return f"전략 조건 계산 및 시뮬레이션 진행 중... ({elapsed_seconds}초 경과)"
