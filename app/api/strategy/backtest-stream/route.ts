@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchBackend } from "@/lib/server/backend";
-import { computeCacheKey, findCachedResult, saveCachedResult } from "@/lib/server/backtestCache";
+import { computeCacheKey, findCachedResult, saveCachedResult, resolveStrategyId } from "@/lib/server/backtestCache";
 
 function sseEvent(data: object | string): string {
   const payload = typeof data === "string" ? data : JSON.stringify(data);
@@ -17,6 +17,7 @@ export async function POST(req: NextRequest) {
   }
 
   // ── 캐시 조회: 동일 전략이면 즉시 반환 ──
+  const strategyId = resolveStrategyId(body);
   const cacheKey = computeCacheKey(body);
   const cached = await findCachedResult(cacheKey);
 
@@ -89,7 +90,10 @@ export async function POST(req: NextRequest) {
           try {
             const event = JSON.parse(payload);
             if (event.type === "result" && event.data) {
-              resultData = event.data;
+              resultData = {
+                ...event.data,
+                strategy_id: event.data.strategy_id ?? strategyId ?? cacheKey,
+              };
             }
           } catch {
             // JSON 파싱 실패는 무시

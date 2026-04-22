@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { StrategyDSL } from '@/types/strategy';
 import { inferStrategyType } from '@/lib/strategy-type';
+import { computeStrategyIdFromDsl } from '@/lib/server/backtestCache';
 
 export async function POST(request: Request) {
   try {
@@ -11,14 +12,26 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Strategy name is required' }, { status: 400 });
     }
 
+    const strategyId = computeStrategyIdFromDsl(data);
     const strategyType = inferStrategyType(data.name, data.description ?? "", data);
+    const strategyToSave = {
+      ...data,
+      id: strategyId,
+    };
 
-    const strategy = await prisma.strategy.create({
-      data: {
-        id: data.id || undefined,
+    const strategy = await prisma.strategy.upsert({
+      where: { id: strategyId },
+      create: {
+        id: strategyId,
         name: data.name,
         description: data.description || null,
-        settings: JSON.stringify(data),
+        settings: JSON.stringify(strategyToSave),
+        strategyType,
+      },
+      update: {
+        name: data.name,
+        description: data.description || null,
+        settings: JSON.stringify(strategyToSave),
         strategyType,
       },
     });

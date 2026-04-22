@@ -253,7 +253,7 @@ function StrategyResultContent() {
         <div className="flex-1 overflow-auto">
           <BacktestDashboard
             result={result}
-            onRestart={() => router.push("/analytics")}
+            onRestart={() => router.push("/analytics/new")}
             onRun={handleRun}
             currentOptions={currentOptions}
             isRunning={isRunning}

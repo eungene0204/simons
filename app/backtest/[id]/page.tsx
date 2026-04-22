@@ -86,7 +86,7 @@ export default function BacktestDetailPage() {
       <div className="w-full min-w-0">
         <BacktestDashboard
           result={item.result}
-          onRestart={() => router.back()}
+          onRestart={() => router.push("/analytics/new")}
           disableHistorySave={true}
           promptText={item.strategyName}
           aiSummary={item.metrics.aiSummary}
