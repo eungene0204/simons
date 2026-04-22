@@ -141,40 +141,6 @@ export default function StrategyLabClient({ strategies: initial }: { strategies:
           </div>
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-[1.4fr_1fr] gap-3">
-          <button
-            onClick={() => router.push("/analytics/new")}
-            className="text-left rounded-2xl border border-white/[0.08] bg-white/[0.03] p-5 transition-colors duration-200 hover:border-white/[0.14]"
-          >
-            <div className="flex items-center justify-between gap-3">
-              <div className="space-y-1.5">
-                <p className="text-[11px] font-black uppercase tracking-[0.2em] text-sky-300">Direct Builder</p>
-                <h2 className="text-lg font-black text-white">직접 전략 설계</h2>
-                <p className="text-xs font-bold leading-relaxed text-gray-500">
-                  아이디어를 바로 전략으로 바꾸고, 백테스트까지 한 번에 진행합니다.
-                </p>
-              </div>
-              <ArrowRight size={18} className="text-gray-500" />
-            </div>
-          </button>
-
-          <button
-            onClick={() => router.push("/analytics/new?mode=research")}
-            className="text-left rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5 transition-colors duration-200 hover:border-emerald-400/40"
-          >
-            <div className="flex items-center justify-between gap-3">
-              <div className="space-y-1.5">
-                <p className="text-[11px] font-black uppercase tracking-[0.2em] text-emerald-300">Research Agent</p>
-                <h2 className="text-lg font-black text-white">자동 탐색 맡기기</h2>
-                <p className="text-xs font-bold leading-relaxed text-gray-400">
-                  후보 생성, 프리스크린, 견고성 검증, 승격 전 검토까지 연구 런 단위로 관리합니다.
-                </p>
-              </div>
-              <ArrowRight size={18} className="text-emerald-300" />
-            </div>
-          </button>
-        </div>
-
         {/* 전략 목록 */}
         <div className="space-y-3">
           <div className="flex items-center gap-2">

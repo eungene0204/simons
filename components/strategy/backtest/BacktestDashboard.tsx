@@ -537,7 +537,7 @@ export default function BacktestDashboard({
     },
     {
       label: `매수 후 보유`,
-      englishLabel: result.benchmarkLabel ?? "Buy & Hold",
+      englishLabel: (result.benchmarkLabel ?? "Buy & Hold").replace(/\s*\(\d+\)$/, ""),
       value: `${(result.buyAndHoldReturn || 0) >= 0 ? "+" : ""}${(result.buyAndHoldReturn || 0).toFixed(2)}%`,
       valueClass: (result.buyAndHoldReturn || 0) > 0 ? "text-[var(--main-red)]" : (result.buyAndHoldReturn || 0) < 0 ? "text-[var(--main-blue)]" : "text-white",
       description: BASE_METRIC_DESCRIPTIONS.buyHold(result.benchmarkLabel ?? "KODEX 200 (069500)"),
@@ -704,23 +704,6 @@ export default function BacktestDashboard({
           <span className="text-sm font-mono text-gray-500 font-normal">
             {result.dates[0] && result.dates[result.dates.length-1] && `${result.dates[0]} ~ ${result.dates[result.dates.length-1]}`}
           </span>
-          {promptText && (
-            <div className="relative" ref={promptTooltipRef}>
-              <button
-                type="button"
-                onClick={() => setPromptTooltipOpen((v) => !v)}
-                className="shrink-0 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[11px] font-bold text-gray-300 transition-all duration-200 hover:bg-white/[0.08] hover:text-white"
-              >
-                프롬프트 보기
-              </button>
-              {promptTooltipOpen && (
-                <div className="absolute left-0 top-full mt-2 z-50 w-80 rounded-xl border border-white/[0.08] bg-[#1a1f2e] p-4 shadow-2xl">
-                  <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-500">사용자 프롬프트</p>
-                  <p className="text-xs font-bold text-gray-300 leading-6 whitespace-pre-wrap">{promptText}</p>
-                </div>
-              )}
-            </div>
-          )}
         </div>
 
         <div className="flex items-center justify-between w-full">
@@ -755,6 +738,83 @@ export default function BacktestDashboard({
           </div>
           
           <div className="flex items-center gap-2">
+            {(promptText || strategySummary) && (
+              <div className="relative" ref={promptTooltipRef}>
+                <button
+                  type="button"
+                  onClick={() => setPromptTooltipOpen((v) => !v)}
+                  className="px-4 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] text-gray-300 hover:text-white text-sm font-bold rounded-lg transition-colors border border-white/10 hover:border-white/15 active:scale-95 flex items-center gap-1.5"
+                >
+                  <Info className="w-4 h-4" />
+                  프롬프트
+                </button>
+                {promptTooltipOpen && (
+                  <div className="absolute right-0 top-full mt-2 z-50 w-96 rounded-xl border border-white/[0.10] bg-[#111318] p-4 shadow-2xl space-y-2.5">
+                    {strategySummary && (
+                      <>
+                        {strategySummary.universeName && (
+                          <div className="flex flex-wrap gap-1.5 items-center">
+                            <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0">유니버스</span>
+                            <div className="flex flex-wrap gap-1">
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] text-white text-xs font-bold">
+                                {strategySummary.universeName}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                        {(strategySummary.entryBlocks?.length || strategySummary.blockNames?.length) ? (
+                          <div className="flex flex-wrap gap-1.5 items-center">
+                            <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0">진입 신호</span>
+                            <div className="flex flex-wrap gap-1">
+                              {(strategySummary.entryBlocks?.length ? strategySummary.entryBlocks : strategySummary.blockNames)!.map((name) => (
+                                <span key={name} className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] text-white text-xs font-bold">
+                                  {name}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                        {strategySummary.exitBlocks?.length ? (
+                          <div className="flex flex-wrap gap-1.5 items-center">
+                            <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0">청산 신호</span>
+                            <div className="flex flex-wrap gap-1">
+                              {strategySummary.exitBlocks.map((name) => (
+                                <span key={name} className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] text-white text-xs font-bold">
+                                  {name}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                        {(strategySummary.positionText || strategySummary.riskText) && (
+                          <div className="flex flex-wrap gap-1.5 items-center">
+                            <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0">리스크</span>
+                            <div className="flex flex-wrap gap-1">
+                              {strategySummary.positionText && (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] text-white text-xs font-bold">
+                                  {strategySummary.positionText}
+                                </span>
+                              )}
+                              {strategySummary.riskText && (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] text-white text-xs font-bold">
+                                  {strategySummary.riskText}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                    {promptText && (
+                      <div className="flex flex-wrap gap-1.5 items-start">
+                        <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0 pt-0.5">프롬프트</span>
+                        <p className="flex-1 text-xs text-gray-300 leading-5 whitespace-pre-wrap">{promptText}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             {onWalkForward && (
               <button
                 onClick={() => setIsWFAOpen(true)}
@@ -768,15 +828,8 @@ export default function BacktestDashboard({
               onClick={onRestart}
               className="px-4 py-1.5 bg-white/[0.05] hover:bg-white/10 text-gray-300 hover:text-white text-sm font-bold rounded-lg transition-all border border-white/5 hover:border-white/10 active:scale-95 flex items-center gap-2"
             >
-              <ArrowsClockwise className="w-4 h-4" />
+              <Sparkle className="w-4 h-4" />
               새 전략
-            </button>
-            <button
-              onClick={() => onRun && localOptions && onRun(localOptions)}
-              disabled={isRunning}
-              className={`px-4 py-1.5 bg-[#161616] hover:bg-[#1f1f1f] disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-bold rounded-lg transition-all border border-white/5 hover:border-white/10 active:scale-95`}
-            >
-              {isRunning ? "실행 중..." : "재실행"}
             </button>
             <button
               onClick={handleOpenSaveModal}
