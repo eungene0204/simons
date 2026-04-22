@@ -1,7 +1,7 @@
 # Simons — 종합 투자 시뮬레이션 플랫폼 프로젝트 계획서
 
 > **문서 버전:** v2.0
-> **최종 갱신일:** 2026-04-10
+> **최종 갱신일:** 2026-04-22
 > **프로젝트명:** Simons (시몬스)
 
 ---
@@ -45,7 +45,8 @@
 │  PyTorch · XGBoost · SHAP · MLX (Apple Silicon)        │
 ├─────────────────────────────────────────────────────────┤
 │                    Data Layer                            │
-│  SQLite + Prisma ORM · Parquet Files (4,052 종목)       │
+│  SQLite + Prisma ORM · Content-addressed Strategy IDs   │
+│  Parquet Files (4,052 종목) · BatchRun Checkpoints      │
 │  AI Model Artifacts (Transformer + XGBoost v2)          │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -104,6 +105,7 @@ simons/
 │   └── tests/             # 38개 테스트 파일 (pytest)
 ├── components/            # React 컴포넌트
 │   ├── strategy/          # 전략 빌더 UI (핵심)
+│   │   └── RunAllTestsModal.tsx  # 독립형 Batch Backtest UI
 │   ├── dashboard/         # 홈 대시보드
 │   ├── stock/             # 종목 차트/상세
 │   ├── order/             # 호가/주문
@@ -223,12 +225,33 @@ simons/
 | 항목 | 내용 |
 |------|------|
 | 위치 | `backend/engine/strategy_converter.py` |
-| 기능 | `ParsedStrategy` → `BacktestRequest` 변환 |
+| 기능 | `ParsedStrategy` → `BacktestRequest` 변환 + canonical DSL 기반 `strategy_id` 생성 |
 | 종목 로딩 | `/data/korea-stocks.json` 기반 유니버스별 심볼 매핑 (KOSPI, KOSDAQ, KOSPI200) |
 | 필터 변환 | 펀더멘탈 필터 → `type="filter"` 조건 블록 |
 | 시그널 변환 | 기술적 시그널 → `type="indicator"` 조건 블록 + 파라미터 |
+| Canonicalization | stable JSON key ordering, 의미 없는 metadata 제외, 의미 있는 배열 순서 유지 |
+| Strategy ID | `strategy_id = SHA-256(canonical_strategy_dsl)` |
 
-#### 3.1.1-legacy 전략 빌더 (5-Step Wizard) ✅ 완료
+#### 3.1.2 모두 테스트 (독립형 배치 백테스트) ✅ 완료
+
+> 전략 만들기 채팅 페이지 상단 CTA에서 수십 개의 프롬프트를 한 번에 실행하는 독립형 배치 기능. 기존 Strategy Research Agent와 연동하지 않고 별도 `BatchRun` 저장 구조와 API로 동작한다.
+
+| 단계 | 기능 | 구현 상태 |
+|------|------|-----------|
+| 1. 데이터셋 입력 | 빈 줄 기준 다중 프롬프트 입력 | ✅ 완료 |
+| 2. 배치 실행 시작 | `POST /api/strategy/batch-runs`로 run 생성 | ✅ 완료 |
+| 3. 서버 Queue 처리 | concurrency 제한이 있는 in-process worker 실행 | ✅ 완료 |
+| 4. 진행률 표시 | 전체 진행률, 현재 전략명, 완료/실패/스킵/대기 수 표시 | ✅ 완료 |
+| 5. 실시간 상태 반영 | 폴링 기반 로그/리더보드/실패 목록 스트리밍 | ✅ 완료 |
+| 6. 결과 랭킹 | CAGR 기준 내림차순 정렬, 최고 성과 전략 강조 | ✅ 완료 |
+| 7. 영구 저장 | `BatchRun`, `BatchRunCandidate`, `Strategy`, `BacktestResult`, `BacktestHistory` 저장 | ✅ 완료 |
+| 8. 취소 & 복구 | 취소 요청, 체크포인트 저장, 서버 재시작 후 다음 요청 시 복구 | ✅ 완료 |
+
+**현재 제약:**
+- worker는 별도 프로세스가 아닌 앱 프로세스 내부 큐로 실행된다.
+- 서버 재시작 후 자동 재개는 아니며, 다음 `batch-runs` API 요청 시 DB 상태를 보고 이어서 복구한다.
+
+#### 3.1.3 레거시 전략 빌더 (5-Step Wizard) ✅ 완료
 
 > 블록 조합 방식의 전략 빌더. 고급 사용자 전용 또는 프롬프트 파싱 결과의 상세 편집용.
 
@@ -240,7 +263,7 @@ simons/
 | Step 4 | 백테스트 설정 | 기간, 초기자본, 수수료, 슬리피지 | ✅ 완료 |
 | Step 5 | 결과 리포트 | 수익률, 샤프, MDD, 거래내역, 차트 | ✅ 완료 |
 
-#### 3.1.2 시그널 블록 (29개) ✅ 전체 구현
+#### 3.1.4 시그널 블록 (29개) ✅ 전체 구현
 
 **기술적 지표 (15개)**
 | 블록 ID | 이름 | 파라미터 | 상태 |
@@ -290,7 +313,7 @@ simons/
 | `ai_model` | AI 상승 예측 | threshold, direction | ✅ |
 | `ai_drop_model` | AI 하락 예측 | threshold | ✅ |
 
-#### 3.1.3 리스크 관리 설정
+#### 3.1.5 리스크 관리 설정
 
 ```typescript
 RiskManagement {
@@ -536,7 +559,7 @@ RiskManagement {
 
 ## 4. 데이터베이스 설계
 
-### 4.1 현재 스키마 (SQLite + Prisma) — 12개 모델
+### 4.1 현재 스키마 (SQLite + Prisma)
 
 ```sql
 -- 사용자
@@ -552,8 +575,8 @@ Stock {
 
 -- 전략 정의
 Strategy {
-  id (cuid), name, description, settings (JSON), strategyType, createdAt, updatedAt
-  → BacktestResult[]
+  id (SHA-256 strategy_id), name, description, settings (JSON), strategyType, createdAt, updatedAt
+  → BacktestResult[], BacktestHistory[], BatchRunCandidate[]
 }
 
 -- 백테스트 결과
@@ -563,8 +586,21 @@ BacktestResult {
 
 -- 백테스트 이력 (캐싱 포함)
 BacktestHistory {
-  id (cuid), strategyName, universe, conditions (JSON), metrics (JSON),
+  id (cuid), strategyId→Strategy?, strategyName, universe, conditions (JSON), metrics (JSON),
   result (JSON), cacheKey (unique), isVisible, hitCount, createdAt
+}
+
+-- 배치 실행
+BatchRun {
+  id (run_id), createdAt, totalPrompts, completedCount, failedCount, skippedCount,
+  rankingSnapshot (JSON), logs (JSON)
+  → BatchRunCandidate[]
+}
+
+-- 배치 실행 후보
+BatchRunCandidate {
+  id (cuid), runId→BatchRun, strategyId→Strategy?, prompt, strategyName, status,
+  errorMessage, metrics (JSON), rank, createdAt
 }
 
 -- 가상 계좌
@@ -666,7 +702,7 @@ WatchlistSymbol {
 | GET | `/api/backtest/explain` | XAI 설명 (SHAP) |
 | POST | `/api/backtest/ai-report` | AI 분석 리포트 |
 
-#### 전략 (6개)
+#### 전략 (7개)
 | Method | Endpoint | 기능 |
 |--------|----------|------|
 | GET/POST | `/api/strategy` | 전략 목록/생성 |
@@ -674,6 +710,7 @@ WatchlistSymbol {
 | POST | `/api/strategy/parse` | 자연어 파싱 (MLX/Ollama) |
 | POST | `/api/strategy/backtest-stream` | SSE 백테스트 스트림 |
 | POST | `/api/strategy/save-with-backtest` | 전략 저장 + 백테스트 원자적 실행 |
+| GET/POST | `/api/strategy/batch-runs` | 배치 실행 시작/이력 조회/상세 조회/취소 |
 
 #### 가상 계좌 & 매매 (11개)
 | Method | Endpoint | 기능 |
@@ -766,6 +803,17 @@ WatchlistSymbol {
 | 결과 대시보드 | 에퀴티 커브, 월별 수익, 종목별 통계 | ✅ 완료 |
 | SHAP 설명 AI | 매매 판단 근거 시각화 | ✅ 완료 |
 | AI 요약 생성 | Qwen 7B MLX 기반 자연어 리포트 | ✅ 완료 |
+
+### Phase 1.5: 독립형 배치 테스트 — ✅ 완료
+
+| 작업 | 상세 | 상태 |
+|------|------|------|
+| 모두 테스트 UI | 전략 만들기 채팅 상단 Primary CTA + Batch Results 모달 | ✅ 완료 |
+| 서버 BatchRun API | `/api/strategy/batch-runs` 시작/상세/이력/취소 | ✅ 완료 |
+| 서버 Queue/Worker | concurrency 제한, 상태별 체크포인트 저장 | ✅ 완료 |
+| Content-addressed 저장 | `strategy_id = SHA-256(canonical_strategy_dsl)` 기반 dedupe/cache | ✅ 완료 |
+| 결과 영구 저장 | `Strategy`, `BacktestResult`, `BacktestHistory`, `BatchRun`, `BatchRunCandidate` | ✅ 완료 |
+| 복구 동작 | 서버 재시작 후 다음 요청 시 incomplete run 재등록 | ✅ 완료 |
 
 ### Phase 2: 가상 매매 시스템 — ✅ 완료
 
@@ -956,6 +1004,7 @@ cd backend && pytest tests/
 | 영역 | 구현 상태 | 실현도 |
 |------|-----------|--------|
 | 전략 설계 (프롬프트 + 위자드) | ✅ 전체 완료 | 100% |
+| 전략 배치 테스트 (독립형 Run All Tests) | ✅ 전체 완료 | 100% |
 | 백테스트 엔진 | ✅ 전체 완료 | 100% |
 | 시그널 블록 (29개) | ✅ 전체 완료 | 100% |
 | AI/ML (예측 + XAI + 요약) | ✅ 전체 완료 | 100% |
@@ -1040,8 +1089,11 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 | 모듈 | 파일 |
 |------|------|
 | 전략연구소 UI | `app/analytics/page.tsx` |
+| 전략 만들기 채팅 | `app/analytics/new/page.tsx` |
+| 모두 테스트 모달 | `components/strategy/RunAllTestsModal.tsx` |
 | NL 전략 파서 | `backend/engine/nl_parser.py` |
 | 전략 변환기 | `backend/engine/strategy_converter.py` |
+| 배치 실행 API | `app/api/strategy/batch-runs/route.ts` |
 | 전략 DSL 타입 | `types/strategy.ts` |
 | 시그널 블록 정의 | `lib/strategy-blocks.ts` |
 | 백테스트 엔진 | `backend/backtest_engine.py` |
@@ -1059,4 +1111,4 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 
 ---
 
-*이 문서는 프로젝트의 현재 상태와 향후 계획을 반영합니다. 최종 갱신: 2026-04-10.*
+*이 문서는 프로젝트의 현재 상태와 향후 계획을 반영합니다. 최종 갱신: 2026-04-22.*
