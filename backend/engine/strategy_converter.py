@@ -7,12 +7,13 @@ BacktestRequest 형식으로 변환한다.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 import logging
 import re
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from engine.nl_parser import ParsedStrategy, TechnicalSignal
 
@@ -127,6 +128,98 @@ def _load_universe(markets: List[str]) -> List[str]:
     return sorted(symbols)
 
 
+# ─── Canonical Strategy DSL / Strategy ID ────────────────────────────────────
+
+def _drop_none(value: Any) -> Any:
+    """Recursively remove null fields from canonical payloads."""
+    if isinstance(value, list):
+        return [_drop_none(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _drop_none(item)
+            for key, item in value.items()
+            if item is not None
+        }
+    return value
+
+
+def _canonical_sort_key(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _canonicalize_technical_signal(sig: TechnicalSignal) -> dict:
+    return _drop_none({
+        "indicator": sig.indicator,
+        "signal_type": sig.signal_type,
+        "short_period": sig.short_period,
+        "long_period": sig.long_period,
+        "period": sig.period,
+        "operator": sig.operator,
+        "value": sig.value,
+        "mode": sig.mode,
+        "lookback_period": sig.lookback_period,
+        "threshold": sig.threshold,
+    })
+
+
+def to_canonical_strategy_dsl(strategy: ParsedStrategy) -> dict:
+    """
+    Build a content-addressed strategy payload.
+
+    The original prompt text is excluded so semantically identical strategies
+    hash to the same strategy_id.
+    """
+    canonical = _drop_none({
+        "universe": sorted(strategy.universe),
+        "fundamental_filters": sorted(
+            [
+                {
+                    "metric": item.metric,
+                    "operator": item.operator,
+                    "value": item.value,
+                }
+                for item in strategy.fundamental_filters
+            ],
+            key=_canonical_sort_key,
+        ),
+        "entry_signals": sorted(
+            [_canonicalize_technical_signal(sig) for sig in strategy.entry_signals],
+            key=_canonical_sort_key,
+        ),
+        "exit_signals": sorted(
+            [_canonicalize_technical_signal(sig) for sig in strategy.exit_signals],
+            key=_canonical_sort_key,
+        ),
+        "max_positions": strategy.max_positions,
+        "hold_period_days": strategy.hold_period_days,
+        "rebalancing_period": strategy.rebalancing_period,
+        "stop_loss_pct": strategy.stop_loss_pct,
+        "take_profit_pct": strategy.take_profit_pct,
+        "trailing_stop_pct": strategy.trailing_stop_pct,
+        "max_mdd_limit_pct": strategy.max_mdd_limit_pct,
+        "backtest_period": strategy.backtest_period,
+        "initial_capital": strategy.initial_capital,
+        "execution_timing": strategy.execution_timing,
+        "fee_rate": strategy.fee_rate,
+        "slippage_rate": strategy.slippage_rate,
+    })
+    return canonical
+
+
+def canonical_strategy_json(strategy: ParsedStrategy) -> str:
+    return json.dumps(
+        to_canonical_strategy_dsl(strategy),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def compute_strategy_id(strategy: ParsedStrategy) -> str:
+    canonical_json = canonical_strategy_json(strategy)
+    return hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
+
+
 # ─── 기술 신호 → Condition dict 변환 ─────────────────────────────────────────
 
 def _tech_signal_to_condition(sig: TechnicalSignal) -> dict:
@@ -197,6 +290,9 @@ def to_backtest_request(strategy: ParsedStrategy) -> dict:
     반환값은 BacktestRequest(**result) 또는 engine.run_backtest(result)에 바로 사용 가능.
     """
 
+    strategy_id = compute_strategy_id(strategy)
+    canonical_strategy_dsl = to_canonical_strategy_dsl(strategy)
+
     # 1. 심볼 목록
     symbols = _load_universe(strategy.universe)
 
@@ -244,6 +340,8 @@ def to_backtest_request(strategy: ParsedStrategy) -> dict:
     universe_id = "_".join(m.lower() for m in sorted(strategy.universe)) if strategy.universe else "kospi200"
 
     return {
+        "strategy_id": strategy_id,
+        "canonical_strategy_dsl": canonical_strategy_dsl,
         "symbols": symbols,
         "universe_id": universe_id,
         "entry": {"conditions": entry_conditions},

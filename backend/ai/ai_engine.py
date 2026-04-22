@@ -145,11 +145,12 @@ class AIEngine:
         pdf = engineer_features(pdf)
 
         pdf[FEATURE_LIST] = pdf[FEATURE_LIST].ffill().fillna(0)
+        feature_frame = pdf[FEATURE_LIST].copy()
 
         with warnings.catch_warnings():
             warnings.simplefilter('ignore', UserWarning)
             scaled = np.ascontiguousarray(
-                self.scaler.transform(pdf[FEATURE_LIST].values).astype(np.float32)
+                self.scaler.transform(feature_frame).astype(np.float32)
             )
 
         n_windows = n - self.lookback + 1
@@ -175,6 +176,13 @@ class AIEngine:
 
     def _xgb_predict(self, embeddings: np.ndarray):
         """XGBoost predict → (sig_probs, drop_probs)."""
+        legacy_head = getattr(self, "xgb_head", None)
+        if legacy_head is not None:
+            try:
+                preds = legacy_head.predict_proba(embeddings)
+                return preds[:, 0], preds[:, 1]
+            except Exception:
+                pass
         try:
             sig_probs  = self.xgb_up.predict_proba(embeddings)[:, 1]
         except Exception:
