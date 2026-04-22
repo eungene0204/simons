@@ -9,6 +9,7 @@ datasource db {
 
 model BacktestHistory {
   id           String   @id @default(cuid())
+  strategyId   String?
   strategyName String
   universe     String
   conditions   String
@@ -18,6 +19,9 @@ model BacktestHistory {
   isVisible    Boolean  @default(false)
   hitCount     Int      @default(0)
   createdAt    DateTime @default(now())
+  Strategy     Strategy? @relation(fields: [strategyId], references: [id])
+
+  @@index([strategyId, createdAt])
 }
 
 model BacktestResult {
@@ -29,6 +33,8 @@ model BacktestResult {
   createdAt  DateTime @default(now())
   Strategy   Strategy @relation(fields: [strategyId], references: [id])
   Stock      Stock?   @relation(fields: [stockId], references: [id])
+
+  @@index([strategyId, createdAt])
 }
 
 model Stock {
@@ -41,7 +47,7 @@ model Stock {
 }
 
 model Strategy {
-  id             String           @id @default(cuid())
+  id             String           @id
   name           String
   description    String?
   settings       String
@@ -49,6 +55,41 @@ model Strategy {
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
   BacktestResult BacktestResult[]
+  BacktestHistory BacktestHistory[]
+  BatchRunCandidate BatchRunCandidate[]
+}
+
+model BatchRun {
+  id              String              @id
+  createdAt       DateTime            @default(now())
+  totalPrompts    Int
+  completedCount  Int                 @default(0)
+  failedCount     Int                 @default(0)
+  skippedCount    Int                 @default(0)
+  rankingSnapshot String
+  logs            String?
+  Candidate       BatchRunCandidate[]
+
+  @@index([createdAt])
+}
+
+model BatchRunCandidate {
+  id           String    @id @default(cuid())
+  runId        String
+  strategyId   String?
+  prompt       String
+  strategyName String
+  status       String
+  errorMessage String?
+  metrics      String?
+  rank         Int?
+  createdAt    DateTime  @default(now())
+  BatchRun     BatchRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  Strategy     Strategy? @relation(fields: [strategyId], references: [id])
+
+  @@index([runId, createdAt])
+  @@index([runId, status])
+  @@index([strategyId])
 }
 
 model User {
