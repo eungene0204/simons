@@ -11,6 +11,7 @@ import pykrx.stock as pykrx
 from tqdm import tqdm
 from pathlib import Path
 from datetime import datetime
+import FinanceDataReader as fdr
 
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
 
@@ -65,6 +66,23 @@ _ALNUM_SYMBOL_RE = re.compile(r"^[0-9A-Z]{6}$")
 
 def _is_krx_symbol(symbol: str) -> bool:
     return bool(_ALNUM_SYMBOL_RE.fullmatch(symbol or ""))
+
+
+def fetch_etf_symbols() -> list[str]:
+    """FinanceDataReader로 KRX 전체 ETF 종목 코드를 반환한다.
+
+    pykrx get_etf_ticker_list가 불안정하므로 fdr을 primary로 사용한다.
+    실패 시 빈 리스트를 반환한다.
+    """
+    try:
+        df = fdr.StockListing('ETF/KR')
+        symbols = [str(s).zfill(6) for s in df['Symbol'].dropna().tolist()]
+        symbols = [s for s in symbols if _is_krx_symbol(s)]
+        print(f"  FinanceDataReader ETF/KR: {len(symbols)}개")
+        return symbols
+    except Exception as e:
+        print(f"  [WARNING] ETF 목록 조회 실패 (fdr): {e}")
+        return []
 
 def _fetch_kind_market(market_type: str, market_label: str) -> list[dict]:
     """KRX KIND 상장법인 목록에서 종목 정보를 가져온다.
@@ -333,7 +351,7 @@ def main(argv=None):
             return 2
         return 0
 
-    # 3. Sync OHLCV
+    # 3. Sync OHLCV (일반 종목)
     print(f"Starting OHLCV synchronization for {len(stocks)} symbols...")
     success_count = 0
     fail_count = 0
@@ -344,6 +362,20 @@ def main(argv=None):
             success_count += 1
         else:
             fail_count += 1
+
+    # 3b. Sync ETF OHLCV (Korea ETF — KIND API에 미포함되어 별도 처리)
+    print("\nFetching ETF symbol list...")
+    etf_symbols = fetch_etf_symbols()
+    etf_success, etf_fail = 0, 0
+    if etf_symbols:
+        print(f"Starting ETF OHLCV synchronization for {len(etf_symbols)} ETFs...")
+        for sym in tqdm(etf_symbols, desc="Updating ETF OHLCV"):
+            if update_ohlcv_incremental(sym, str(data_dir)):
+                etf_success += 1
+            else:
+                etf_fail += 1
+    else:
+        print("[WARNING] ETF 목록 조회 실패 — ETF OHLCV 업데이트 건너뜀")
 
     # 4. Fundamental Enrichment (EPS/BPS/PER/PBR/ROE)
     #    캐시 미보유 또는 만료된 종목만 네트워크 요청, 나머지는 캐시 사용
@@ -389,6 +421,7 @@ def main(argv=None):
     print(f"- Delisted symbols removed: {len(delisted_symbols)}")
     print(f"- OHLCV Update Success: {success_count}")
     print(f"- OHLCV Update Failure: {fail_count}")
+    print(f"- ETF OHLCV Success: {etf_success}, Failed: {etf_fail} (total ETFs: {len(etf_symbols)})")
     print(f"- Fundamental Enriched: {fund_success}, Failed: {fund_fail}, Skipped: {fund_skip}")
 
     _notify_backend(

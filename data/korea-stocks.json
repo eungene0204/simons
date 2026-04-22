@@ -7001,7 +7001,7 @@
   },
   {
     "symbol": "475400",
-    "name": "씨메스",
+    "name": "씨메스로보틱스",
     "market": "KOSDAQ",
     "sector": "기계/장비",
     "industry": "특수 목적용 기계 제조업"
@@ -7910,13 +7910,6 @@
     "industry": "소프트웨어 개발 및 공급업"
   },
   {
-    "symbol": "452670",
-    "name": "상상인제4호스팩",
-    "market": "KOSDAQ",
-    "sector": "은행/금융지주",
-    "industry": "금융 지원 서비스업"
-  },
-  {
     "symbol": "146060",
     "name": "율촌",
     "market": "KOSDAQ",
@@ -8492,7 +8485,7 @@
   },
   {
     "symbol": "296640",
-    "name": "이노룰스",
+    "name": "이노에이엑스",
     "market": "KOSDAQ",
     "sector": "소프트웨어/플랫폼",
     "industry": "소프트웨어 개발 및 공급업"
@@ -9717,7 +9710,7 @@
   },
   {
     "symbol": "347890",
-    "name": "엠투아이",
+    "name": "엠엑스온",
     "market": "KOSDAQ",
     "sector": "IT 하드웨어",
     "industry": "측정, 시험, 항해, 제어 및 기타 정밀기기 제조업; 광학기기 제외"
@@ -13217,7 +13210,7 @@
   },
   {
     "symbol": "007820",
-    "name": "에스엠코어",
+    "name": "엠엑스로보틱스",
     "market": "KOSDAQ",
     "sector": "기계/장비",
     "industry": "일반 목적용 기계 제조업"

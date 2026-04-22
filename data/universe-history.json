@@ -1,6 +1,25 @@
 {
-  "updatedAt": "2026-04-21T00:00:03.099475+09:00",
+  "updatedAt": "2026-04-22T00:00:04.333595+09:00",
   "entries": [
+    {
+      "date": "2026-04-22",
+      "syncedAt": "2026-04-22T00:00:04.333595+09:00",
+      "totalCount": 2656,
+      "kospiCount": 839,
+      "kosdaqCount": 1817,
+      "addedCount": 0,
+      "delistedCount": 1,
+      "added": [],
+      "delisted": [
+        {
+          "symbol": "452670",
+          "name": "상상인제4호스팩",
+          "market": "KOSDAQ",
+          "sector": "은행/금융지주",
+          "industry": "금융 지원 서비스업"
+        }
+      ]
+    },
     {
       "date": "2026-04-21",
       "syncedAt": "2026-04-21T00:00:03.099475+09:00",
