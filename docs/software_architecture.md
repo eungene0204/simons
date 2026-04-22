@@ -56,6 +56,11 @@ strategy_converter → BacktestRequest
 simons/
 ├── app/                             # Next.js App Router (페이지 + API 라우트)
 │   ├── api/                         # API 라우트 (Next.js → FastAPI 프록시)
+│   │   └── strategy/
+│   │       ├── batch-runs/route.ts  # 독립형 배치 백테스트 queue/worker + 이력 API
+│   │       ├── backtest-stream/route.ts # 단일 전략 SSE 백테스트 + cache
+│   │       ├── route.ts             # Strategy 저장/조회 (strategy_id 기반)
+│   │       └── save-with-backtest/route.ts # 전략 저장 + 백테스트
 │   ├── analytics/
 │   │   ├── new/page.tsx             # 전략 Lab 메인 (LLM 채팅 + 백테스트)
 │   │   └── [id]/page.tsx            # 저장된 전략 상세 조회
@@ -72,6 +77,7 @@ simons/
 │   ├── dashboard/                   # 대시보드 위젯
 │   ├── strategy/
 │   │   ├── backtest/                # BacktestDashboard, BacktestConfig, BacktestStatsSummary 등
+│   │   ├── RunAllTestsModal.tsx     # 독립형 Batch Backtest Results 모달
 │   │   ├── StrategyExampleTabs.tsx  # 전략 예시 프롬프트 탭
 │   │   └── legacyBreakout.ts        # 레거시 데이터 정규화 유틸
 │   ├── stock/                       # 종목 관련 컴포넌트
@@ -88,6 +94,7 @@ simons/
 │   │   └── pipeline/UniverseResolver.ts  # 유니버스 종목 목록 캐싱
 │   ├── server/
 │   │   ├── backend.ts               # FastAPI 프록시 fetch wrapper
+│   │   ├── backtestCache.ts         # strategy_id 기반 캐시/영구 저장 유틸
 │   │   └── stock-prices.ts          # 서버 사이드 주식 가격 조회
 │   ├── hooks/                       # React Hooks
 │   ├── stock-api/                   # 주식 데이터 API 공급자
@@ -164,7 +171,7 @@ simons/
 | 경로 | 용도 | 핵심 컴포넌트 |
 |------|------|-------------|
 | `/` | 대시보드 홈 | `PortfolioSummaryBar`, `AccountProfitChart`, `VirtualTradingStatus`, `MarketSnapshot` |
-| `/analytics/new` | **전략 Lab** — LLM 채팅으로 전략 설계 + 백테스트 | `StrategyExampleTabs`, `BacktestDashboard` |
+| `/analytics/new` | **전략 Lab** — LLM 채팅으로 전략 설계 + 백테스트 + 독립형 배치 테스트 | `StrategyExampleTabs`, `RunAllTestsModal`, `BacktestDashboard` |
 | `/analytics/[id]` | 저장된 전략 상세 조회 | `BacktestDashboard` |
 | `/backtest/[id]` | 백테스트 결과 상세 | `BacktestDashboard` |
 | `/kospi` | KOSPI 시장 현황 | `MarketSnapshot` |
@@ -180,9 +187,15 @@ simons/
 ```
 StrategyLabPage (app/analytics/new/page.tsx)
 ├── StrategyExampleTabs          — 초보/중급/고급별 예시 프롬프트 제공
+├── Run All Tests CTA            — 독립형 배치 테스트 모달 오픈
 ├── 채팅 입력창
 │   └── handleSend()             — POST /api/strategy/parse
 ├── Clarification UI             — LLM이 추가 정보 요청 시 선택지 표시
+├── RunAllTestsModal
+│   ├── startBatchRun()          — POST /api/strategy/batch-runs
+│   ├── fetchBatchRunDetail()    — GET /api/strategy/batch-runs?runId=...
+│   ├── fetchBatchRunHistory()   — GET /api/strategy/batch-runs
+│   └── cancelBatchRun()         — POST /api/strategy/batch-runs { action: "cancel" }
 └── BacktestDashboard (dynamic import)
     ├── BacktestConfig
     ├── BacktestStatsSummary
@@ -198,7 +211,7 @@ StrategyLabPage (app/analytics/new/page.tsx)
 | React Query (`useQuery`) | 서버 데이터 캐싱 (백테스트 이력, 계좌 목록 등) |
 | React Query (`useMutation`) | 서버 상태 변경 (전략 저장, 주문 체결 등) |
 | React Context (`DrawerContext`) | Drawer 열기/닫기, 선택된 계좌 ID |
-| `useState` | 채팅 메시지 히스토리, 파싱된 전략 상태, 백테스트 결과 |
+| `useState` | 채팅 메시지 히스토리, 파싱된 전략 상태, 백테스트 결과, 배치 실행 UI 상태 |
 
 ### 3.4 핵심 타입 (`types/`)
 
@@ -237,6 +250,14 @@ interface BacktestResult {
   equity: number[]
 }
 ```
+
+### 3.5 독립형 배치 백테스트 UI
+
+- `RunAllTestsModal`은 기존 `backend/research/*`와 연동하지 않는다.
+- 프롬프트 데이터셋은 빈 줄 단위로 분할해 서버 `BatchRun`으로 전달한다.
+- 리더보드는 `CAGR` 기준 기본 내림차순 정렬이며, `Total Return`, `Sharpe`, `MDD`, `Profit Factor`, `Trades` 기준으로도 재정렬 가능하다.
+- 각 후보 상태는 `waiting`, `running`, `computed`, `cache_hit`, `failed`, `skipped` 중 하나로 표시된다.
+- 실행 중 이력 재조회 시 같은 `runId`를 폴링해 계속 진행 상태를 반영한다.
 
 ---
 
@@ -394,9 +415,12 @@ VirtualTrader (비동기 루프, FastAPI 메인 스레드 분리)
 
 ```
 User            — 사용자 계정 (planTier: FREE/PREMIUM)
-Strategy        — 저장된 전략 정의 → BacktestResult (1:N)
-BacktestHistory — 백테스트 실행 이력 (cacheKey SHA256으로 중복 방지)
+Strategy        — 저장된 전략 정의 (id = SHA-256 canonical DSL) → BacktestResult (1:N)
+BacktestHistory — 백테스트 실행 이력 + cache metadata → Strategy (N:1 optional)
 BacktestResult  — 백테스트 결과 → Strategy (N:1), Stock (N:1)
+BatchRun        — 독립형 배치 실행 단위 (run_id, ranking_snapshot, logs)
+                → BatchRunCandidate (1:N)
+BatchRunCandidate — 배치 후보 전략 (status, metrics, error, strategyId)
 Stock           — 종목 메타데이터
 
 VirtualAccount  → VirtualMarketState (1:1)
@@ -414,6 +438,11 @@ ResearchRun     — 리서치 에이전트 런 (status, config JSON, userId)
 ResearchCandidate — 후보 전략 (template, dsl_hash, scores, promoted)
 ResearchEvent   — SSE 이벤트 로그 (type, payload JSON)
 ```
+
+**Strategy 저장 규칙**
+- `Strategy.id`는 surrogate key가 아니라 `strategy_id = SHA-256(canonical_strategy_dsl)` 이다.
+- canonicalization은 stable JSON key ordering을 사용하고, 의미 없는 metadata를 제외한다.
+- 동일 DSL이면 항상 동일 `strategy_id`가 생성되므로, 저장 중복 제거, 백테스트 캐시 키, 결과 조회 키를 하나의 식별자로 통합한다.
 
 ### 5.2 데이터 파일
 
@@ -435,21 +464,47 @@ Client Browser
     ↓
 Next.js API Route (/api/*)
     ├── 요청 검증 + 인증 확인
-    ├── Cache 확인 (BacktestHistory.cacheKey)
-    │   ├── Cache Hit  → 즉시 응답 + hitCount++
+    ├── Strategy canonicalization + strategy_id 계산
+    ├── Cache 확인 (Strategy.id / BacktestHistory.cacheKey)
+    │   ├── Cache Hit  → 즉시 응답 + hitCount++ + status=cache_hit
     │   └── Cache Miss → FastAPI 포워드
     ├── FastAPI (http://localhost:8000)
-    ├── 결과 캐시 저장
+    ├── 결과 영구 저장 (Strategy / BacktestResult / BacktestHistory)
     └── Client 응답
 
 중복 요청 방지: x-trace-id 헤더, 2초 이내 동일 요청 차단
 ```
 
+**배치 실행 흐름**
+
+```
+RunAllTestsModal
+    ↓ POST /api/strategy/batch-runs
+BatchRun row 생성 + BatchRunCandidate waiting 상태 저장
+    ↓
+In-process queue/worker (concurrency 제한)
+    ├── running 상태 체크포인트
+    ├── parse → canonical DSL → strategy_id 계산
+    ├── cache hit 시 기존 결과 재사용
+    └── miss 시 backtest-stream 실행 후 저장
+    ↓
+BatchRun ranking_snapshot / logs / counts 갱신
+    ↓
+Client polling으로 진행률/로그/리더보드 반영
+```
+
+**복구 동작**
+- worker는 앱 프로세스 내부에 있지만, 상태는 `BatchRun`/`BatchRunCandidate`에 계속 저장된다.
+- 서버 재시작 후 다음 `GET/POST /api/strategy/batch-runs` 요청이 들어오면 incomplete run을 재등록해 이어서 실행한다.
+- 재시작 시 `running` 상태 후보는 `waiting`으로 되돌려 재시도하고, 취소 마커가 남은 run은 `skipped`로 정리한다.
+
 ### 6.2 주요 Next.js API 라우트
 
 **전략**
 - `POST /api/strategy/parse` — NL → DSL 파싱 프록시
+- `POST /api/strategy/backtest-stream` — 단일 전략 SSE 백테스트 + strategy_id 캐시 활용
 - `POST /api/strategy/save-with-backtest` — 전략 저장 + 백테스트 동시 실행
+- `GET/POST /api/strategy/batch-runs` — 배치 실행 시작/상세 조회/최근 이력/취소
 
 **백테스트**
 - `POST /api/backtest/run` — 실행 (캐싱 프록시)

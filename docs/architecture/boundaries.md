@@ -66,10 +66,12 @@ Core trading simulation engine.
 - backend/engine/signals.py
 - backend/engine/simulator.py
 - backend/engine/result_handler.py
+- backend/stream_progress.py
 - backend/tests/**
 
 ### Allowed Tasks
 - small bug fixes ONLY
+- backtest progress/status message fixes
 - test additions
 
 ### Strict Rules
@@ -181,11 +183,15 @@ Codex 작업 규칙, boundary 정의, 운영 정책 문서 유지보수.
 - AGENTS.md
 - docs/architecture/**
 - docs/development/**
+- docs/PROJECT_PLAN.md
+- docs/software_architecture.md
+- docs/SRS.md
 
 ### Allowed Tasks
 - boundary 정의 추가 및 수정
 - Codex 작업 규칙 보완
 - 정책 문서 간 정합성 수정
+- 제품 범위/요구사항/아키텍처 문서 업데이트
 
 ### Forbidden
 - 애플리케이션 코드 변경
@@ -194,16 +200,48 @@ Codex 작업 규칙, boundary 정의, 운영 정책 문서 유지보수.
 
 ---
 
+## Boundary I: Strategy Persistence / BatchRun Storage
+
+### Purpose
+전략 저장 구조, 백테스트 결과 영구 저장, BatchRun 이력 저장, strategy_id 기반 식별 체계 정합성 유지.
+
+### Files
+- prisma/**
+- app/api/strategy/**
+- app/api/dashboard/strategy-list/route.ts
+- app/api/quick-search/route.ts
+- lib/server/backtestCache.ts
+- lib/strategy-tracked-symbols.ts
+- lib/prisma.ts
+- backend/tests/**
+
+### Allowed Tasks
+- `strategy_id`를 기준으로 한 PK/FK 정렬
+- Strategy / BacktestResult / BacktestHistory / BatchRun 관련 schema 및 저장 로직 수정
+- 캐시 저장/조회 키를 `strategy_id`와 일치시키는 수정
+- BatchRun 이력 조회용 API 및 저장 정합성 보완
+- persistence 회귀 테스트 추가 및 수정
+
+### Forbidden
+- 백테스트 엔진 알고리즘 변경
+- Strategy UI 변경
+- 인증 로직 변경
+- 범용 스크립트 수정
+
+---
+
 ## Global Forbidden Paths
 
 Codex must NEVER modify:
 
-- prisma/**
 - backend/engine/providers/**
 - app/api/login/**
 - app/api/register/**
 - app/api/user/**
 - scripts/**
+
+Exception:
+- `prisma/**` is allowed only inside `Boundary I: Strategy Persistence / BatchRun Storage`
 
 ---
 

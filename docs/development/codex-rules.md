@@ -24,6 +24,8 @@ Allowed:
 - Backtest Core (limited)
 - AI Summary / Explain
 - Dashboard (read-only UI)
+- Strategy Persistence / BatchRun Storage
+- Governance / Policy Docs
 
 Never mix boundaries in one task.
 
@@ -67,6 +69,10 @@ Codex must NEVER modify:
 - database schema
 
 Unless explicitly instructed.
+
+Exception:
+- `prisma/**` and database schema changes are allowed only when the task explicitly selects `Strategy Persistence / BatchRun Storage`.
+- `docs/PROJECT_PLAN.md`, `docs/software_architecture.md`, `docs/SRS.md` are allowed only when the task explicitly selects `Governance / Policy Docs`.
 
 ---
 
