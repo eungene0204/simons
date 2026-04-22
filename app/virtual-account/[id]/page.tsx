@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import VirtualTradingDashboard from "@/components/dashboard/VirtualTradingDashboard";
@@ -87,6 +87,8 @@ export default function VirtualAccountDetailPage() {
   const [isTrackSearchOpen, setIsTrackSearchOpen] = useState(false);
   const [isStrategyReplaceOpen, setIsStrategyReplaceOpen] = useState(false);
   const [isPromptVisible, setIsPromptVisible] = useState(false);
+  const [promptPos, setPromptPos] = useState<{ top: number; right: number } | null>(null);
+  const promptButtonRef = useRef<HTMLButtonElement>(null);
 
   const trackedSymbolsList = trackedSymbols.map((s) => s.symbol);
   const { data: trackedPriceSnapshots } = useStockPrices(trackedSymbolsList, {
@@ -105,6 +107,13 @@ export default function VirtualAccountDetailPage() {
     if (accountId) loadAccountData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId]);
+
+  useEffect(() => {
+    if (!isPromptVisible) return;
+    const close = () => setIsPromptVisible(false);
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [isPromptVisible]);
 
   useEffect(() => {
     if (!accountId) return;
@@ -543,6 +552,9 @@ export default function VirtualAccountDetailPage() {
                       신호 알림
                     </button>
                   </div>
+                  <span className="text-[11px] font-bold text-gray-600">
+                    개설 {new Date(account.createdAt).toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" })}
+                  </span>
                 </div>
                 <button
                   onClick={async () => {
@@ -698,18 +710,20 @@ export default function VirtualAccountDetailPage() {
                               {description && (
                                 <div className="relative shrink-0">
                                   <button
+                                    ref={promptButtonRef}
                                     type="button"
-                                    onClick={() => setIsPromptVisible((prev) => !prev)}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (!isPromptVisible && promptButtonRef.current) {
+                                        const rect = promptButtonRef.current.getBoundingClientRect();
+                                        setPromptPos({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
+                                      }
+                                      setIsPromptVisible((prev) => !prev);
+                                    }}
                                     className="inline-flex items-center rounded-md bg-white/[0.06] hover:bg-white/[0.1] px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 hover:text-gray-200 transition-colors duration-200"
                                   >
                                     프롬프트
                                   </button>
-                                  {isPromptVisible && (
-                                    <div className="absolute top-full right-0 mt-2 w-64 z-50 rounded-xl border border-white/[0.08] bg-[#1c1c1c] p-3">
-                                      <p className="text-xs font-bold leading-5 text-gray-400 whitespace-pre-wrap">{description}</p>
-                                      <div className="absolute -top-[5px] right-3.5 w-2.5 h-2.5 rotate-45 bg-[#1c1c1c] border-l border-t border-white/[0.08]" />
-                                    </div>
-                                  )}
                                 </div>
                               )}
                             </div>
@@ -1042,6 +1056,15 @@ export default function VirtualAccountDetailPage() {
           onClose={() => setIsTrackSearchOpen(false)}
           onSelect={handleAddTrackedSymbols}
         />
+        {isPromptVisible && promptPos && dbStrategyDescription && (
+          <div
+            className="fixed z-[100] w-64 rounded-xl border border-white/[0.08] bg-[#1c1c1c] p-3 shadow-2xl"
+            style={{ top: promptPos.top, right: promptPos.right }}
+          >
+            <p className="text-xs font-bold leading-5 text-gray-400 whitespace-pre-wrap">{dbStrategyDescription}</p>
+            <div className="absolute -top-[5px] right-3.5 w-2.5 h-2.5 rotate-45 bg-[#1c1c1c] border-l border-t border-white/[0.08]" />
+          </div>
+        )}
         <StrategyReplaceModal
           isOpen={isStrategyReplaceOpen}
           currentStrategyId={account?.strategyId}
