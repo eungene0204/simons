@@ -247,6 +247,53 @@ RiskManagement {
 
 **FR-STR-042** 사용자는 저장된 전략을 불러와 편집하거나 재실행할 수 있어야 한다.
 
+#### 3.1.6 독립형 배치 테스트
+
+**FR-STR-043** 시스템은 `/analytics/new` 전략 만들기 채팅 페이지 상단 메인 액션 영역에 `모두 테스트` 버튼을 제공해야 한다.
+
+**FR-STR-044** 사용자는 미리 준비한 다수의 전략 프롬프트를 데이터셋으로 입력해 하나의 배치 실행으로 시작할 수 있어야 한다.
+
+**FR-STR-045** 시스템은 각 프롬프트를 개별 Strategy DSL로 생성하고, 각 전략에 대해 자동으로 백테스트를 실행해야 한다.
+
+**FR-STR-046** 배치 실행은 queue + worker 방식으로 처리되어야 하며, 동시 실행 개수는 제한 가능한 concurrency 설정을 가져야 한다.
+
+**FR-STR-047** 배치 실행 UI는 다음 정보를 실시간에 가깝게 표시해야 한다:
+- 전체 진행률(%)
+- 현재 실행 전략 이름
+- 완료/실패/스킵/대기 개수
+- 실행 로그
+
+**FR-STR-048** 시스템은 모든 배치 결과를 `CAGR` 기본 내림차순으로 정렬한 leaderboard를 제공해야 하며, 다음 항목을 표시해야 한다:
+- 순위
+- 전략 이름
+- `strategy_id`
+- CAGR
+- Total Return
+- Sharpe
+- MDD
+- Profit Factor
+- Trades
+
+**FR-STR-049** 시스템은 최고 성과 전략을 시각적으로 강조해야 한다.
+
+**FR-STR-050** 일부 전략 생성 또는 백테스트가 실패하더라도 전체 배치 실행은 중단되지 않아야 하며, 실패/스킵 항목을 별도로 표시해야 한다.
+
+**FR-STR-051** 시스템은 배치 실행 이력을 영구 저장하고, 사용자가 과거 run을 다시 조회할 수 있어야 한다.
+
+#### 3.1.7 Content-addressed Strategy ID
+
+**FR-STR-060** 시스템은 `strategy_id = SHA-256(canonical_strategy_dsl)` 규칙을 사용해야 한다.
+
+**FR-STR-061** `Strategy.id`에는 UUID, CUID, surrogate key를 사용해서는 안 되며, `strategy_id`를 Primary Key로 사용해야 한다.
+
+**FR-STR-062** canonicalization은 stable JSON key ordering을 사용하고, 의미 없는 metadata를 제외해야 하며, 의미 있는 배열 순서는 유지해야 한다.
+
+**FR-STR-063** 동일한 Strategy DSL은 항상 동일한 `strategy_id`를 생성해야 한다.
+
+**FR-STR-064** 시스템은 `strategy_id`를 deduplication key, backtest cache key, result lookup key로 재사용해야 한다.
+
+**FR-STR-065** 동일 `strategy_id`가 이미 존재할 경우 시스템은 불필요한 백테스트 재실행을 피하고 기존 결과를 `Cache Hit` 상태로 재사용해야 한다.
+
 ---
 
 ### 3.2 백테스트 엔진
@@ -303,6 +350,10 @@ RiskManagement {
 **FR-BT-030** 시스템은 백테스트 실행 이력을 저장하고 조회할 수 있어야 한다.
 
 **FR-BT-031** 백테스트 이력은 전략명, 유니버스, 조건, 핵심 메트릭(CAGR, MDD, Sharpe), 실행 일시를 포함해야 한다.
+
+**FR-BT-032** 백테스트 이력은 가능하면 `strategy_id`를 참조해야 하며, 캐시 히트 시 `hitCount`를 누적할 수 있어야 한다.
+
+**FR-BT-033** 배치 실행 중 생성된 전략 결과도 일반 단일 백테스트와 동일한 저장 경로로 `Strategy`, `BacktestResult`, `BacktestHistory`에 영구 저장되어야 한다.
 
 #### 3.2.5 DataResolver — 누락 데이터 즉시 해결
 
@@ -601,6 +652,7 @@ score = tanh(cagr/0.3)×0.15 + tanh(sharpe/2)×0.20 + tanh(pf/2)×0.10
 | NFR-PERF-003 | 페이지 초기 로드: LCP 3초 이내 (Next.js SSR/SSG 활용) |
 | NFR-PERF-004 | 가상 시장 시세 갱신: 30초 이내 |
 | NFR-PERF-005 | SignalEngine 벡터화: 전체 시계열을 단일 Polars 연산으로 처리 (루프 없음) |
+| NFR-PERF-006 | 배치 실행 worker는 시스템 자원 고갈을 막기 위해 concurrency 제한을 지원해야 한다 |
 
 ### 4.2 신뢰성
 
@@ -609,6 +661,8 @@ score = tanh(cagr/0.3)×0.15 + tanh(sharpe/2)×0.20 + tanh(pf/2)×0.10
 | NFR-REL-001 | 백테스트 엔진은 개별 종목 오류 발생 시 해당 종목을 건너뛰고 전체 실행을 지속해야 한다 |
 | NFR-REL-002 | 가상 시장 데이터 소스 장애 시 다음 우선순위 소스로 자동 폴백해야 한다 |
 | NFR-REL-003 | DB 트랜잭션 실패 시 롤백 처리해야 한다 |
+| NFR-REL-004 | 배치 실행 상태는 `BatchRun`/`BatchRunCandidate`에 체크포인트 저장되어야 한다 |
+| NFR-REL-005 | 서버 재시작 후 다음 `batch-runs` 요청이 들어오면 incomplete batch를 복구해 재개할 수 있어야 한다 |
 
 ### 4.3 유지보수성
 
@@ -642,6 +696,8 @@ score = tanh(cagr/0.3)×0.15 + tanh(sharpe/2)×0.20 + tanh(pf/2)×0.10
 ```
 User ─────────────────────────────────────── (계정)
 Strategy ──── BacktestResult ──── Stock        (전략·백테스트)
+Strategy ──── BacktestHistory                 (전략 캐시/이력)
+BatchRun ──── BatchRunCandidate ──── Strategy (배치 실행)
 Strategy ──── VirtualAccount                   (전략-가상계좌 연결)
 VirtualAccount ──── VirtualPosition            (가상 포지션)
 VirtualAccount ──── VirtualOrder               (가상 주문)
@@ -666,7 +722,7 @@ BacktestHistory                                (백테스트 이력)
 #### Strategy
 | 컬럼 | 타입 | 설명 |
 |------|------|------|
-| id | String PK | CUID |
+| id | String PK | `strategy_id = SHA-256(canonical_strategy_dsl)` |
 | name | String | 전략명 |
 | description | String? | 전략 설명 |
 | settings | String | JSON (StrategyDSL 직렬화) |
@@ -688,11 +744,42 @@ BacktestHistory                                (백테스트 이력)
 | 컬럼 | 타입 | 설명 |
 |------|------|------|
 | id | String PK | CUID |
+| strategyId | String? FK | Strategy.id |
 | strategyName | String | 전략명 |
 | universe | String | 유니버스 |
 | conditions | String | JSON (조건 요약) |
 | metrics | String | JSON (핵심 메트릭) |
+| result | String? | JSON (전체 결과 스냅샷) |
+| cacheKey | String? UNIQUE | 캐시 조회 키 |
+| isVisible | Boolean | 사용자 노출 여부 |
+| hitCount | Int | cache hit 누적 수 |
 | createdAt | DateTime | 실행일 |
+
+#### BatchRun
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | String PK | run_id |
+| createdAt | DateTime | 실행 생성 시각 |
+| totalPrompts | Int | 입력 프롬프트 수 |
+| completedCount | Int | 성공 완료 수 (`computed` + `cache_hit`) |
+| failedCount | Int | 실패 수 |
+| skippedCount | Int | 스킵 수 |
+| rankingSnapshot | String | JSON leaderboard 스냅샷 |
+| logs | String? | JSON 로그 배열 |
+
+#### BatchRunCandidate
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | String PK | 후보 레코드 ID |
+| runId | String FK | BatchRun.id |
+| strategyId | String? FK | Strategy.id |
+| prompt | String | 원본 프롬프트 |
+| strategyName | String | 생성된 전략 이름 |
+| status | String | waiting / running / computed / cache_hit / failed / skipped |
+| errorMessage | String? | 실패 원인 |
+| metrics | String? | JSON 메트릭 |
+| rank | Int? | 최종 leaderboard 순위 |
+| createdAt | DateTime | 생성 시각 |
 
 #### VirtualAccount
 | 컬럼 | 타입 | 설명 |
@@ -814,7 +901,10 @@ BacktestHistory                                (백테스트 이력)
 |--------|------|------|
 | GET/POST | `/api/strategy` | 전략 목록 조회 / 저장 |
 | GET/PUT/DELETE | `/api/strategy/[id]` | 전략 상세 조회 / 수정 / 삭제 |
+| POST | `/api/strategy/parse` | 자연어 전략 파싱 프록시 |
+| POST | `/api/strategy/backtest-stream` | 단일 전략 백테스트 실행 (SSE) |
 | POST | `/api/strategy/save-with-backtest` | 전략 저장 + 백테스트 결과 함께 저장 |
+| GET/POST | `/api/strategy/batch-runs` | 배치 실행 시작 / 최근 이력 조회 / 상세 조회 / 취소 |
 | GET/POST | `/api/virtual-account` | 가상계좌 목록 조회 / 생성 |
 | GET/PUT/DELETE | `/api/virtual-account/[id]` | 가상계좌 상세 / 수정 / 삭제 |
 | GET/POST | `/api/virtual-market/[accountId]` | 가상 시장 상태 조회 / 시작 |
@@ -833,7 +923,7 @@ BacktestHistory                                (백테스트 이력)
 |------|--------|------|
 | `/` | 홈 대시보드 | 전략/백테스트/가상계좌 허브 |
 | `/analytics` | Strategy Lab | 전략 분석 및 비교 |
-| `/analytics/new` | 새 전략 | 자연어 프롬프트 전략 생성 |
+| `/analytics/new` | 새 전략 | 자연어 프롬프트 전략 생성 + `모두 테스트` 배치 실행 |
 | `/analytics/[id]` | 전략 상세 | 백테스트 결과 및 수정 |
 | `/virtual-account/[id]` | 가상계좌 상세 | 포지션, 주문, 가상매매 |
 | `/kospi` | 시장 현황 | KOSPI/KOSDAQ 지수, 종목 |
@@ -855,6 +945,7 @@ BacktestHistory                                (백테스트 이력)
 - Sidebar: 좌측 네비게이션
 - VirtualAccountDrawer: 우측 슬라이딩 패널 (가상계좌 상세)
 - BacktestDashboard: 백테스트 결과 시각화 전용 컴포넌트
+- RunAllTestsModal: 독립형 배치 백테스트 실행 및 leaderboard/로그 표시 모달
 
 ---
 
