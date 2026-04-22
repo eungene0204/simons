@@ -139,6 +139,13 @@ def run_backtest(http_req: Request, request: BacktestRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Engine error: {str(e)}")
 
+@app.post("/admin/clear-cache")
+def clear_data_cache():
+    """DataLoader 인메모리 캐시를 비웁니다. 파케이트 파일 업데이트 후 서버 재시작 없이 반영할 때 사용."""
+    engine.loader.clear_cache()
+    print("[ADMIN] DataLoader cache cleared.", flush=True)
+    return {"status": "ok", "message": "DataLoader cache cleared"}
+
 @app.post("/optimize", response_model=OptimizationResponse)
 def optimize_strategy(request: OptimizationRequest):
     print(f"\n[DEBUG] BACKEND: Received optimize request. Goal: {request.user_prompt}", flush=True)
