@@ -1,9 +1,9 @@
 # Software Requirements Specification (SRS)
 # Simons — 종합 투자 시뮬레이션 플랫폼
 
-> **문서 버전:** v1.3
+> **문서 버전:** v1.4
 > **작성일:** 2026-04-01
-> **최종 갱신일:** 2026-04-22
+> **최종 갱신일:** 2026-04-23
 > **프로젝트명:** Simons
 > **상태:** 작성 중
 
@@ -150,8 +150,28 @@ Simons는 사용자가 자신만의 주식 투자 전략을 **설계 → 검증 
 **FR-STR-004** 시스템은 파싱 결과 요약 (유니버스, 필터, 시그널, 리스크 설정)을 사용자가 확인할 수 있도록 표시해야 한다.
 
 **FR-STR-005** 지원 LLM 백엔드:
-- MLX (Apple Silicon 최적, 기본값): `mlx-community/Qwen2.5-32B-Instruct-4bit`
-- Ollama (범용): `qwen2.5:32b`
+- MLX (Apple Silicon 최적, 기본값): `mlx-community/Qwen3.5-9B-OptiQ-4bit`
+- Ollama (범용): `qwen3.5:9b`
+
+#### 3.1.1b AI 전략 코치
+
+**FR-STR-006** 시스템은 전략 파싱 완료 직후 AI 전략 코치 응답을 SSE 스트리밍으로 채팅에 표시해야 한다.
+
+**FR-STR-007** 코치 응답은 다음 두 정보를 컨텍스트로 활용해야 한다:
+1. `advisor_insight` — rule-based 전략 진단 (전략 점수, 리스크 점수, 주요 이슈, 추천)
+2. `news_agent_insight` — 뉴스 Impact Agent 분석 결과 (종목별 alpha, risk_alert_level)
+
+**FR-STR-008** `news_agent_insight`가 존재하면 advisor_insight보다 우선 반영해야 한다. `risk_alert_level`이 high인 종목이 전략에 포함되면 리스크 경고를 최우선 조언으로 제시해야 한다.
+
+**FR-STR-009** 코치 응답은 SSE 스트리밍으로 전달되어야 한다:
+- `data: {"type":"delta","message":"누적 텍스트"}` — 토큰 단위 점진적 업데이트
+- `data: {"type":"done","message":"최종 메시지","suggestions":["제안1","제안2","제안3"]}` — 완료
+
+**FR-STR-010** 코치 응답 형식: `{"message": "300자 이내 핵심 조언", "suggestions": ["제안 버튼 1~3개"]}`
+
+**FR-STR-011** 코치는 단 하나의 핵심 조언(Top 1)만 전달해야 하며, 여러 조언을 나열하지 않아야 한다.
+
+**FR-STR-012** 시스템은 rule-based clarification 텍스트를 채팅에 표시하지 않아야 한다. 모든 사용자 안내 텍스트는 AI 코치 응답으로만 제공된다.
 
 #### 3.1.2 블록 기반 전략 빌더 (레거시 / 고급 편집)
 
@@ -976,6 +996,8 @@ BacktestHistory                                (백테스트 이력)
 | POST | `/api/strategy/backtest-stream` | 단일 전략 백테스트 실행 (SSE) |
 | POST | `/api/strategy/save-with-backtest` | 전략 저장 + 백테스트 결과 함께 저장 |
 | GET/POST | `/api/strategy/batch-runs` | 배치 실행 시작 / 최근 이력 조회 / 상세 조회 / 취소 |
+| POST | `/api/strategy/coach` | AI 전략 코치 응답 생성 (단건) |
+| POST | `/api/strategy/coach/stream` | AI 전략 코치 SSE 스트리밍 |
 | GET/POST | `/api/virtual-account` | 가상계좌 목록 조회 / 생성 |
 | GET/PUT/DELETE | `/api/virtual-account/[id]` | 가상계좌 상세 / 수정 / 삭제 |
 | GET/POST | `/api/virtual-market/[accountId]` | 가상 시장 상태 조회 / 시작 |

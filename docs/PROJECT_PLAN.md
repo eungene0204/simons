@@ -216,8 +216,9 @@ simons/
 | 2. AI 파싱 | 로컬 LLM이 자연어 → ParsedStrategy 구조 변환 | ✅ 완료 |
 | 3. 전략 요약 확인 | 파싱된 유니버스, 필터, 시그널, 포트폴리오 설정 표시 | ✅ 완료 |
 | 4. 전략 수정 | 대화형으로 파라미터 점진적 수정 가능 | ✅ 완료 |
-| 5. 백테스트 실행 | SSE 스트림으로 진행률 + 결과 실시간 전달 | ✅ 완료 |
-| 6. 결과 분석 | BacktestDashboard (수익률, 샤프, MDD, 거래내역, 차트) | ✅ 완료 |
+| 5. AI 전략 코치 | 파싱 직후 전략 어드바이저 + 뉴스 시그널 기반 코칭 (SSE 스트리밍) | ✅ 완료 |
+| 6. 백테스트 실행 | SSE 스트림으로 진행률 + 결과 실시간 전달 | ✅ 완료 |
+| 7. 결과 분석 | BacktestDashboard (수익률, 샤프, MDD, 거래내역, 차트) | ✅ 완료 |
 
 **자연어 파서 (NLStrategyParser):**
 
@@ -225,11 +226,38 @@ simons/
 |------|------|
 | 위치 | `backend/engine/nl_parser.py` |
 | 지원 백엔드 | MLX (Apple Silicon 최적, 기본값), Ollama (범용) |
-| 기본 모델 | `mlx-community/Qwen2.5-32B-Instruct-4bit` / `qwen2.5:32b` |
+| 기본 모델 | `mlx-community/Qwen3.5-9B-OptiQ-4bit` |
 | 입력 | 한국어 자연어 전략 설명 |
 | 출력 | `ParsedStrategy` (유니버스, 펀더멘탈 필터, 진입/청산 시그널, 리스크 설정) |
 | 수정 모드 | `previous_parsed` 전달 시 기존 전략 기반 점진적 수정 |
 | 캐시 | 200-item LRU (중복 방지) |
+| 자유 생성 | `chat()` — 코칭 응답 생성 (비구조화 텍스트, MLX 전용) |
+| 스트리밍 | `stream_chat()` — 토큰 단위 SSE 스트리밍 (`mlx_lm.stream_generate`) |
+
+#### 3.1.1b AI 전략 코치 ✅ 완료
+
+> 전략 파싱 완료 직후 StrategyAdvisor(rule-based, ~14ms) + Qwen MLX(LLM) 를 조합하여 맞춤형 코칭 메시지를 채팅에 스트리밍으로 표시.
+
+| 항목 | 내용 |
+|------|------|
+| 백엔드 라우터 | `backend/api/coach_routes.py` |
+| 동기 엔드포인트 | `POST /strategy/coach` — 전체 응답 반환 |
+| 스트리밍 엔드포인트 | `POST /strategy/coach/stream` — SSE 토큰 스트리밍 |
+| Next.js 프록시 | `app/api/strategy/coach/route.ts`, `app/api/strategy/coach/stream/route.ts` |
+| 모델 공유 | `set_parser()` 주입으로 NLParser와 동일 Qwen 9B 모델 재사용 (메모리 절약) |
+| 뉴스 통합 | `news_agent_insight` 우선 반영 — risk_alert_level high 시 리스크 조언 최우선 |
+| advisor 통합 | `advisor_insight` (rule-based 전략 진단) → 코치 컨텍스트로 활용 |
+| UX | 전략 요약 카드 → 즉시 스피너 → 첫 토큰 도착 시 메시지 박스 등장 → 타자처럼 누적 → 완료 시 제안 버튼 표시 |
+| 응답 형식 | `{"message": "...(300자 이내)", "suggestions": ["제안1", "제안2", "제안3"]}` |
+
+**SSE 스트리밍 흐름:**
+```
+POST /api/strategy/coach/stream
+  ├── Step 1: /api/advisor/review (rule-based, ~14ms) → advisor_insight
+  └── Step 2: /strategy/coach/stream (Qwen MLX stream_generate)
+      ├── data: {"type":"delta","message":"안녕하...","text":"..."} (토큰 단위)
+      └── data: {"type":"done","message":"전체 응답","suggestions":[...]}
+```
 
 **전략 변환기 (StrategyConverter):**
 
@@ -713,7 +741,7 @@ WatchlistSymbol {
 | GET | `/api/backtest/explain` | XAI 설명 (SHAP) |
 | POST | `/api/backtest/ai-report` | AI 분석 리포트 |
 
-#### 전략 (7개)
+#### 전략 (9개)
 | Method | Endpoint | 기능 |
 |--------|----------|------|
 | GET/POST | `/api/strategy` | 전략 목록/생성 |
@@ -722,6 +750,8 @@ WatchlistSymbol {
 | POST | `/api/strategy/backtest-stream` | SSE 백테스트 스트림 |
 | POST | `/api/strategy/save-with-backtest` | 전략 저장 + 백테스트 원자적 실행 |
 | GET/POST | `/api/strategy/batch-runs` | 배치 실행 시작/이력 조회/상세 조회/취소 |
+| POST | `/api/strategy/coach` | AI 전략 코치 (단건 응답) |
+| POST | `/api/strategy/coach/stream` | AI 전략 코치 SSE 스트리밍 |
 
 #### 가상 계좌 & 매매 (11개)
 | Method | Endpoint | 기능 |
@@ -799,6 +829,8 @@ WatchlistSymbol {
 | POST | `/market/signals` | 실시간 시그널 평가 |
 | POST | `/strategy/parse` | 자연어 파싱 (LRU 캐시) |
 | POST | `/strategy/backtest-stream` | SSE 백테스트 스트림 |
+| POST | `/strategy/coach` | AI 전략 코치 (단건 응답) |
+| POST | `/strategy/coach/stream` | AI 전략 코치 SSE 스트리밍 (토큰 단위) |
 | GET | `/model/status` | NL 파서 상태 |
 | POST | `/summarize` | AI 요약 생성 |
 | POST | `/sync-stocks` | 유니버스 동기화 |
@@ -908,7 +940,23 @@ WatchlistSymbol {
 - 승격 후 VirtualMarketState.status = 'stopped' — 사용자 명시적 시작 필요
 - 복합 점수: `tanh(cagr/0.3)×0.15 + tanh(sharpe/2)×0.20 + tanh(pf/2)×0.10 + tanh(wr/0.6)×0.05 - tanh(mdd/0.3)×0.30 + robustness×0.20`
 
-### Phase 3.7: 뉴스 Impact AI Agent — ✅ 완료
+### Phase 3.7b: AI 전략 코치 — ✅ 완료
+
+> 전략 파싱 직후 AI 코치가 advisor_insight + news_agent_insight 를 바탕으로 맞춤형 1:1 코칭 메시지를 SSE 스트리밍으로 전달.
+
+| 작업 | 상세 | 구현 상태 |
+|------|------|----------|
+| NLParser `chat()` | 비구조화 텍스트 생성 (MLX `mlx_lm.generate`) | ✅ 완료 |
+| NLParser `stream_chat()` | 토큰 단위 스트리밍 (`mlx_lm.stream_generate`) | ✅ 완료 |
+| coach_routes.py | `POST /strategy/coach` 단건 + `POST /strategy/coach/stream` SSE | ✅ 완료 |
+| 모델 공유 | `set_parser()` — NLParser와 동일 Qwen 9B 모델 참조 공유 (메모리 중복 방지) | ✅ 완료 |
+| 뉴스 우선순위 규칙 | news_agent_insight → risk_alert_level high 시 리스크 조언 최우선 | ✅ 완료 |
+| Next.js 프록시 | `app/api/strategy/coach/stream/route.ts` SSE 패스스루 | ✅ 완료 |
+| 프론트엔드 스트리밍 | `generateCoachResponse()` — ReadableStream 소비, 첫 토큰에 스피너→메시지 전환 | ✅ 완료 |
+| StrategyAdvisorPanel 수정 | race condition 버그 수정 (cleanup에서 lastReqKey 리셋) | ✅ 완료 |
+| clarification 제거 | `/strategy/parse` 에서 rule-based clarification 생성 완전 제거 | ✅ 완료 |
+
+### Phase 3.8: 뉴스 Impact AI Agent — ✅ 완료
 
 > 뉴스/공시 데이터를 수집·중복제거·분류하여 종목별 Alpha 시그널을 생성하고, 종목 상세 페이지의 뉴스·공시 탭에 실시간 표시하는 시스템.
 
@@ -1049,6 +1097,7 @@ cd backend && pytest tests/
 
 | 영역 | 구현 상태 | 실현도 |
 |------|-----------|--------|
+| AI 전략 코치 (SSE 스트리밍) | ✅ 전체 완료 | 100% |
 | 전략 설계 (프롬프트 + 위자드) | ✅ 전체 완료 | 100% |
 | 전략 배치 테스트 (독립형 Run All Tests) | ✅ 전체 완료 | 100% |
 | 백테스트 엔진 | ✅ 전체 완료 | 100% |
@@ -1164,4 +1213,4 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 
 ---
 
-*이 문서는 프로젝트의 현재 상태와 향후 계획을 반영합니다. 최종 갱신: 2026-04-22 (Phase 3.7 뉴스 Impact AI Agent 추가).*
+*이 문서는 프로젝트의 현재 상태와 향후 계획을 반영합니다. 최종 갱신: 2026-04-23 (Phase 3.7b AI 전략 코치 + SSE 스트리밍 추가).*
