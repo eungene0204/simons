@@ -7,12 +7,20 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from main import (
+    _build_company_intro,
+    _fetch_listing_info_from_public_api,
     _extract_latest_debt_ratio,
     _fetch_kis_stock_detail,
     _financial_ratio_cache,
+    _get_cached_company_profile,
+    _get_cached_listing_info,
     _nl_parser_status,
     _nl_parsers,
+    _summarize_company_description,
     _summarize_model,
+    _company_profile_cache,
+    _listing_info_cache,
+    market_stock_detail,
     preload_nl_parser,
     preload_summarize_model,
     startup,
@@ -88,6 +96,174 @@ def test_fetch_kis_stock_detail_includes_debt_ratio(monkeypatch):
     assert result["debtRatio"] == 25.75
     assert result["per"] == 12.5
     assert result["pbr"] == 1.2
+
+
+def test_summarize_company_description_limits_to_brief_summary():
+    text = (
+        "Samsung Electronics Co., Ltd. engages in consumer electronics and semiconductor businesses worldwide. "
+        "The company also develops displays, mobile devices, and network systems. "
+        "It operates additional audio and connected-car businesses."
+    )
+
+    result = _summarize_company_description(text)
+
+    assert "consumer electronics and semiconductor businesses" in result
+    assert "displays, mobile devices, and network systems" in result
+    assert "connected-car businesses" not in result
+
+
+def test_build_company_intro_uses_sector_and_industry():
+    result = _build_company_intro("삼성전자", "정보기술", "반도체")
+
+    assert result == "삼성전자는 정보기술 섹터의 반도체 업종에 속한 상장사입니다."
+
+
+def test_get_cached_company_profile_uses_cache(monkeypatch):
+    _company_profile_cache.clear()
+    calls = {"count": 0}
+
+    def mock_fetch(symbol):
+        calls["count"] += 1
+        return {
+            "name": "Samsung Electronics Co., Ltd.",
+            "description": "Samsung Electronics Co., Ltd. engages in consumer electronics businesses worldwide.",
+            "sector": "Technology",
+            "industry": "Consumer Electronics",
+            "source": f"yahoo_profile:{symbol}.KS",
+        }
+
+    monkeypatch.setattr("main._fetch_yahoo_company_profile", mock_fetch)
+
+    first = _get_cached_company_profile("005930")
+    second = _get_cached_company_profile("005930")
+
+    assert first == second
+    assert calls["count"] == 1
+
+
+def test_fetch_listing_info_from_public_api_returns_listing_date(monkeypatch):
+    monkeypatch.setattr("main._get_public_data_service_key", lambda: "test-key")
+
+    def mock_get(url, params=None, timeout=None):
+        if url.endswith("/GetKrxListedInfoService/getItemInfo"):
+            return _MockResponse(200, {
+                "response": {
+                    "header": {"resultCode": "00"},
+                    "body": {
+                        "items": {
+                            "item": [
+                                {"srtnCd": "005930", "crno": "1301110006246"},
+                            ]
+                        }
+                    },
+                }
+            })
+
+        if url.endswith("/GetStocIssuInfoService/getItemBasiInfo"):
+            return _MockResponse(200, {
+                "response": {
+                    "header": {"resultCode": "00"},
+                    "body": {
+                        "items": {
+                            "item": [
+                                {"crno": "1301110006246", "lstgDt": "19750611"},
+                            ]
+                        }
+                    },
+                }
+            })
+
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    monkeypatch.setattr("main.requests.get", mock_get)
+
+    result = _fetch_listing_info_from_public_api("005930")
+
+    assert result == {
+        "listingDate": "19750611",
+        "source": "fsc_stock_issuance",
+    }
+
+
+def test_get_cached_listing_info_uses_cache(monkeypatch):
+    _listing_info_cache.clear()
+    calls = {"count": 0}
+
+    def mock_fetch(symbol):
+        calls["count"] += 1
+        return {"listingDate": "19750611", "source": f"listing:{symbol}"}
+
+    monkeypatch.setattr("main._fetch_listing_info_from_public_api", mock_fetch)
+
+    first = _get_cached_listing_info("005930")
+    second = _get_cached_listing_info("005930")
+
+    assert first == second
+    assert calls["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_market_stock_detail_uses_company_profile_without_kis(monkeypatch):
+    class _Quote:
+        close = 72500
+        volume = 12500000
+        prev_close = 70770
+        name = "삼성전자"
+
+    async def mock_resolve(_symbol):
+        return _Quote(), "", "", None
+
+    monkeypatch.setattr("main._resolve_kis_orderbook_context", mock_resolve)
+    monkeypatch.setattr("main._get_cached_company_profile", lambda _symbol: {
+        "name": "Samsung Electronics Co., Ltd.",
+        "description": "Samsung Electronics Co., Ltd. engages in consumer electronics and semiconductor businesses worldwide.",
+        "sector": "Technology",
+        "industry": "Consumer Electronics",
+        "source": "yahoo_profile:005930.KS",
+    })
+
+    result = await market_stock_detail("005930")
+
+    assert result["name"] == "Samsung Electronics Co., Ltd."
+    assert result["description"].startswith("Samsung Electronics Co., Ltd.")
+    assert result["sector"] == "Technology"
+    assert result["industry"] == "Consumer Electronics"
+    assert result["currentPrice"] == 72500
+    assert result["source"] == "yahoo_profile:005930.KS"
+
+
+@pytest.mark.asyncio
+async def test_market_stock_detail_can_skip_profile_and_listing(monkeypatch):
+    class _Quote:
+        close = 72500
+        volume = 12500000
+        prev_close = 70770
+        name = "삼성전자"
+
+    async def mock_resolve(_symbol):
+        return _Quote(), "", "", None
+
+    monkeypatch.setattr("main._resolve_kis_orderbook_context", mock_resolve)
+    monkeypatch.setattr("main._get_cached_company_profile", lambda _symbol: {
+        "name": "Samsung Electronics Co., Ltd.",
+        "description": "Company profile should be skipped.",
+        "sector": "Technology",
+        "industry": "Consumer Electronics",
+        "source": "yahoo_profile:005930.KS",
+    })
+    monkeypatch.setattr("main._get_cached_listing_info", lambda _symbol: {
+        "listingDate": "19750611",
+        "source": "fsc_stock_issuance",
+    })
+
+    result = await market_stock_detail("005930", include_profile=False, include_listing=False)
+
+    assert result["description"] == ""
+    assert result["sector"] == ""
+    assert result["industry"] == ""
+    assert result["listingDate"] is None
+    assert result["currentPrice"] == 72500
+    assert result["source"] == "quote_only"
 
 
 @pytest.mark.asyncio

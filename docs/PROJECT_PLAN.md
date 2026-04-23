@@ -56,12 +56,12 @@
 ```
 simons/
 ├── app/                    # Next.js 페이지 & API 라우트
-│   ├── api/               # 60+ REST API 엔드포인트 (17개 도메인)
+│   ├── api/               # 70+ REST API 엔드포인트 (18개 도메인)
 │   ├── analytics/         # 전략연구소 (프롬프트 기반 전략 생성)
 │   ├── backtest/          # 백테스트 이력 & 상세
 │   ├── kospi/             # 시장 대시보드
 │   ├── stock/             # 종목 상세 (차트, 호가, 시그널)
-│   ├── stock-order/       # 수동 주문
+│   ├── stock-order/       # 종목 거래/주문 (차트·호가·뉴스·거래현황 5탭)
 │   ├── watchlist/         # 관심종목
 │   ├── virtual-account/   # 가상계좌 & 가상매매
 │   ├── login/             # 로그인
@@ -102,12 +102,23 @@ simons/
 │   │   ├── models.py      #   HybridAIModel (PyTorch)
 │   │   ├── local_optimization_agent.py  # Optuna 최적화 에이전트
 │   │   └── optimization_agent.py        # 원격 최적화 조율
-│   └── tests/             # 38개 테스트 파일 (pytest)
+│   ├── news/              # 뉴스 Impact AI Agent 모듈
+│   │   ├── schemas.py     #   NormalizedArticle, NewsImpact Pydantic 모델
+│   │   ├── dedup.py       #   중복 제거 (Jaccard 유사도 + body hash)
+│   │   ├── collector.py   #   뉴스 수집 오케스트레이터
+│   │   ├── analyzer.py    #   뉴스 임팩트 분석 (이벤트 분류, alpha 계산)
+│   │   ├── storage.py     #   NewsArticle DB 저장/조회
+│   │   ├── news_routes.py #   FastAPI 라우터 (10개 엔드포인트)
+│   │   └── providers/     #   뉴스 데이터 수집 공급자
+│   │       ├── naver_news.py  # Naver Finance RSS (4개 피드, 키 불요)
+│   │       └── rss_provider.py # 한국경제·연합뉴스·매일경제 RSS
+│   └── tests/             # 39개 테스트 파일 (pytest)
 ├── components/            # React 컴포넌트
 │   ├── strategy/          # 전략 빌더 UI (핵심)
 │   │   └── RunAllTestsModal.tsx  # 독립형 Batch Backtest UI
 │   ├── dashboard/         # 홈 대시보드
 │   ├── stock/             # 종목 차트/상세
+│   │   ├── NewsImpactPanel.tsx   # 뉴스·공시 + Alpha 시그널 패널
 │   ├── order/             # 호가/주문
 │   ├── portfolio/         # 포트폴리오 분석
 │   ├── virtual-account/   # 가상계좌
@@ -749,6 +760,13 @@ WatchlistSymbol {
 | GET/POST | `/api/watchlist/symbols` | 종목 목록 |
 | DELETE/PATCH | `/api/watchlist/symbols/[symbol]` | 종목 삭제/그룹 변경 |
 
+#### 뉴스 & Impact (4개)
+| Method | Endpoint | 기능 |
+|--------|----------|------|
+| GET | `/api/news/top` | 주요 시장 뉴스 피드 |
+| GET | `/api/news/symbol/[symbol]` | 종목별 뉴스 목록 (페이징, 백엔드 미가동 시 seed 데이터) |
+| GET | `/api/news/impact/[symbol]` | 종목 뉴스 Alpha 시그널 (latest_alpha, risk_alert_level) |
+
 #### 기타 (5개)
 | Method | Endpoint | 기능 |
 |--------|----------|------|
@@ -756,12 +774,11 @@ WatchlistSymbol {
 | POST | `/api/stocks/sync` | 종목 동기화 (KRX) |
 | GET | `/api/universe/data` | 유니버스 필터 데이터 |
 | GET | `/api/universe/history` | 유니버스 동기화 이력 |
-| GET | `/api/news/top` | 뉴스 피드 |
 | GET | `/api/model/status` | NL 파서 모델 상태 |
 | GET | `/api/quick-search` | 통합 퀵 서치 |
 | POST | `/api/scheduler` | 스케줄러 배치 (장전/개시/갱신/마감) |
 
-### 5.2 FastAPI Backend 엔드포인트 (15+개)
+### 5.2 FastAPI Backend 엔드포인트 (25+개)
 
 | Method | Endpoint | 기능 |
 |--------|----------|------|
@@ -785,6 +802,11 @@ WatchlistSymbol {
 | GET | `/model/status` | NL 파서 상태 |
 | POST | `/summarize` | AI 요약 생성 |
 | POST | `/sync-stocks` | 유니버스 동기화 |
+| GET | `/news/articles` | 전체 뉴스 목록 (페이징) |
+| POST | `/news/collect` | 뉴스 수집 트리거 |
+| GET | `/news/symbol/{symbol}` | 종목별 뉴스 (페이징, as_of 지원) |
+| GET | `/news/impact/{symbol}` | 종목 뉴스 Alpha 시그널 (latest_alpha) |
+| GET | `/news/top` | 주요 뉴스 (섹터/전체) |
 
 ---
 
@@ -886,6 +908,29 @@ WatchlistSymbol {
 - 승격 후 VirtualMarketState.status = 'stopped' — 사용자 명시적 시작 필요
 - 복합 점수: `tanh(cagr/0.3)×0.15 + tanh(sharpe/2)×0.20 + tanh(pf/2)×0.10 + tanh(wr/0.6)×0.05 - tanh(mdd/0.3)×0.30 + robustness×0.20`
 
+### Phase 3.7: 뉴스 Impact AI Agent — ✅ 완료
+
+> 뉴스/공시 데이터를 수집·중복제거·분류하여 종목별 Alpha 시그널을 생성하고, 종목 상세 페이지의 뉴스·공시 탭에 실시간 표시하는 시스템.
+
+| 작업 | 상세 | 구현 상태 |
+|------|------|----------|
+| 뉴스 수집 Provider | Naver Finance RSS (4개 피드), 한국경제·연합뉴스·매일경제 RSS | ✅ 완료 |
+| 중복 제거 | Jaccard 유사도 + body hash, 24h 시간 윈도우, 배치 내 intra-batch dedup | ✅ 완료 |
+| 뉴스 스키마 | `NormalizedArticle`, `NewsImpact` Pydantic 모델 | ✅ 완료 |
+| Alpha 시그널 | 이벤트 분류 (earnings_beat / analyst_upgrade 등), 방향·confidence·expected_alpha 계산 | ✅ 완료 |
+| FastAPI 라우터 | `news_routes.py` — 5개 엔드포인트 (`/news/symbol`, `/news/impact`, `/news/top` 등) | ✅ 완료 |
+| Next.js API 프록시 | `/api/news/symbol/[symbol]`, `/api/news/impact/[symbol]` (seed 데이터 폴백 포함) | ✅ 완료 |
+| Seed 데이터 | 삼성전자(005930) 5건 뉴스 + Impact 시그널 (백엔드 미가동 시 표시) | ✅ 완료 |
+| NewsImpactPanel | `components/stock/NewsImpactPanel.tsx` — Alpha 배지, 뉴스 목록, 위험 알림 표시 | ✅ 완료 |
+| 종목 페이지 연동 | `app/stock-order/page.tsx` 뉴스·공시 탭에 `NewsImpactPanel` 적용 | ✅ 완료 |
+| 유닛 테스트 | `backend/tests/test_news_dedup.py` — 중복 제거 로직 22개 테스트 케이스 | ✅ 완료 |
+
+**핵심 설계 결정:**
+- 뉴스 Provider는 키 없이 동작하는 RSS 기반 (Naver Finance 4개 피드)
+- 중복 제거: body hash 일치 우선, 24h 내 타이틀 Jaccard ≥ 0.5 시 dup 처리, 10자 미만 짧은 제목 제외
+- 백엔드 미가동 시: Next.js API Route에서 seed 데이터 자동 폴백 (개발/테스트 환경)
+- `app/stock-order/page.tsx`: 5탭 구조(차트·호가/종목정보/뉴스·공시/거래현황/커뮤니티), 뉴스 탭은 NewsImpactPanel 렌더링
+
 ### Phase 4: 미구현 기능 (향후)
 
 | 작업 | 상세 | 우선순위 |
@@ -922,7 +967,7 @@ WatchlistSymbol {
 
 ## 7. 테스트 현황
 
-### 7.1 백엔드 테스트 (38개 파일, pytest)
+### 7.1 백엔드 테스트 (39개 파일, pytest)
 
 | 영역 | 파일 수 | 주요 파일 |
 |------|---------|-----------|
@@ -936,6 +981,7 @@ WatchlistSymbol {
 | API/통합 | 3 | test_api_idempotency, test_api_isolation*, test_backtest_engine* |
 | 유틸리티 | 6 | test_vi_utils, test_universe_history, test_nl_cache, test_summarize, test_stream_progress, test_sync_data_status |
 | 백엔드 통합 | 3 | test_backend, test_backend_v2, test_stream_execution_time |
+| 뉴스 모듈 | 1 | test_news_dedup (22개 테스트 — 중복제거 로직 전체) |
 
 > `*` 표시: 서버/AI 모델 필요 (일반 실행 시 제외)
 
@@ -999,7 +1045,7 @@ cd backend && pytest tests/
 
 ## 9. 기능 실현도 요약
 
-### 전체 진행률: **~90%** (핵심 기능 기준)
+### 전체 진행률: **~92%** (핵심 기능 기준)
 
 | 영역 | 구현 상태 | 실현도 |
 |------|-----------|--------|
@@ -1015,8 +1061,9 @@ cd backend && pytest tests/
 | 워크포워드 + 몬테카를로 | ✅ 전체 완료 | 100% |
 | 대시보드 & 포트폴리오 | ✅ 대부분 완료 | 90% |
 | 관심종목 | ✅ 전체 완료 | 100% |
-| 테스트 커버리지 | ✅ 양호 (62개 파일) | 85% |
+| 테스트 커버리지 | ✅ 양호 (63개 파일) | 85% |
 | Strategy Research Agent | ✅ 전체 완료 | 100% |
+| 뉴스 Impact AI Agent | ✅ 전체 완료 | 100% |
 | 고급 분석 (팩터, 상관관계, 섹터) | 🔲 미구현 | 0% |
 | 소셜/마켓플레이스 | 🔲 미구현 | 0% |
 | 인프라 (Docker, CI/CD, 모니터링) | 🔲 미구현 | 0% |
@@ -1106,9 +1153,15 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 | 가상매매 트레이더 | `backend/engine/virtual_trader.py` |
 | 시세 데이터 | `backend/engine/market_data.py` |
 | KIS Provider | `backend/engine/providers/kis.py` |
+| 뉴스 수집 Provider | `backend/news/providers/naver_news.py`, `backend/news/providers/rss_provider.py` |
+| 뉴스 중복 제거 | `backend/news/dedup.py` |
+| 뉴스 FastAPI 라우터 | `backend/news/news_routes.py` |
+| 뉴스 Impact 패널 | `components/stock/NewsImpactPanel.tsx` |
+| 뉴스 API 프록시 | `app/api/news/symbol/[symbol]/route.ts`, `app/api/news/impact/[symbol]/route.ts` |
+| 종목 거래 페이지 | `app/stock-order/page.tsx` (5탭: 차트·호가/종목정보/뉴스·공시/거래현황/커뮤니티) |
 | 장 스케줄러 | `lib/scheduler.ts` |
 | DB 스키마 | `prisma/schema.prisma` |
 
 ---
 
-*이 문서는 프로젝트의 현재 상태와 향후 계획을 반영합니다. 최종 갱신: 2026-04-22.*
+*이 문서는 프로젝트의 현재 상태와 향후 계획을 반영합니다. 최종 갱신: 2026-04-22 (Phase 3.7 뉴스 Impact AI Agent 추가).*
