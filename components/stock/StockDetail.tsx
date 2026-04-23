@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   CaretUp,
   CaretDown,
 } from "phosphor-react";
-import CandlestickChart, { OHLCV } from "@/components/stock/CandlestickChart";
+import CandlestickChart from "@/components/stock/CandlestickChart";
 import { formatMarketCap } from "@/lib/format-market-cap";
+import NewsImpactPanel from "@/components/stock/NewsImpactPanel";
 
 interface StockDetail {
   symbol: string;
@@ -39,11 +40,12 @@ interface StockDetail {
   }>;
 }
 
-type ChartPeriod = "day" | "week" | "month";
+type TabId = "chart" | "news";
 
 export default function StockDetail({ symbol }: { symbol: string }) {
   const [detail, setDetail] = useState<StockDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<TabId>("chart");
   const router = useRouter();
 
   const fetchDetail = async () => {
@@ -258,26 +260,57 @@ export default function StockDetail({ symbol }: { symbol: string }) {
         </div>
       </div>
 
-      {/* Chart Section */}
-      {detail.candleData && detail.candleData.length > 0 && (
-        <div className="mt-4 p-3 bg-gray-900 rounded-lg">
-          <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-            <h2 className="text-base font-semibold text-white">주가 차트</h2>
+      {/* Tab Bar */}
+      <div className="flex border-b border-white/[0.05] mt-4">
+        <button
+          type="button"
+          onClick={() => setActiveTab("chart")}
+          className={`px-4 py-2.5 text-xs font-bold uppercase tracking-widest border-b-2 -mb-px transition-colors ${
+            activeTab === "chart"
+              ? "border-white/60 text-white"
+              : "border-transparent text-gray-500 hover:text-gray-300"
+          }`}
+        >
+          차트
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("news")}
+          className={`px-4 py-2.5 text-xs font-bold uppercase tracking-widest border-b-2 -mb-px transition-colors ${
+            activeTab === "news"
+              ? "border-white/60 text-white"
+              : "border-transparent text-gray-500 hover:text-gray-300"
+          }`}
+        >
+          뉴스·공시
+        </button>
+      </div>
+
+      {/* Chart Tab — always mounted, hidden when not active */}
+      <div className={activeTab === "chart" ? "block" : "hidden"}>
+        {detail.candleData && detail.candleData.length > 0 && (
+          <div className="mt-4 p-3 bg-gray-900 rounded-lg">
+            <h2 className="text-base font-semibold text-white mb-2">주가 차트</h2>
+            <div className="h-80 sm:h-96">
+              <CandlestickChart
+                data={detail.candleData.map((candle) => ({
+                  time: candle.date,
+                  open: candle.open,
+                  high: candle.high,
+                  low: candle.low,
+                  close: candle.close,
+                  volume: candle.volume,
+                }))}
+              />
+            </div>
           </div>
-          <div className="h-80 sm:h-96">
-            <CandlestickChart
-              data={detail.candleData.map((candle) => ({
-                time: candle.date,
-                open: candle.open,
-                high: candle.high,
-                low: candle.low,
-                close: candle.close,
-                volume: candle.volume,
-              }))}
-            />
-          </div>
-        </div>
-      )}
+        )}
+      </div>
+
+      {/* News Tab — always mounted, hidden when not active */}
+      <div className={activeTab === "news" ? "block" : "hidden"}>
+        <NewsImpactPanel symbol={symbol} />
+      </div>
 
       {/* Bottom Spacing */}
       <div className="h-16"></div>

@@ -122,5 +122,4 @@ BacktestEngine.run_backtest()
 
 ### UI 가이드라인 준수
 새 페이지나 컴포넌트 작성 시 반드시 `docs/UI_GUIDELINES.md`를 참고한다.
-- 기준: `app/page.tsx` 및 `components/dashboard/`의 스타일
-- 기존 페이지 수정 시도 가이드라인과 불일치하는 부분이 있으면 맞춰서 수정할 것
+ 기존 페이지 수정 시도 가이드라인과 불일치하는 부분이 있으면 맞춰서 수정할 것
