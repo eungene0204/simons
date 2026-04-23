@@ -27,6 +27,10 @@ import {
   type ParsedSummary,
 } from "./strategySummary";
 import { mergeStrategyModification } from "./parsedStrategyMerge";
+import {
+  StrategyAdvisorPanel,
+  type AdvisorRequest,
+} from "@/components/strategy/StrategyAdvisorPanel";
 
 const BacktestDashboard = dynamic(
   () => import("@/components/strategy/backtest/BacktestDashboard"),
@@ -37,10 +41,11 @@ type Stage = "idle" | "ready" | "running" | "done";
 
 interface ChatMessage {
   role: "user" | "assistant";
-  content?: string;       // user text
-  parsed?: ParsedSummary; // assistant parsed result
-  clarification?: string; // follow-up question when factors are missing
-  clarificationSuggestions?: string[]; // quick reply options
+  content?: string;
+  parsed?: ParsedSummary;
+  clarification?: string;
+  clarificationSuggestions?: string[];
+  coachLoading?: boolean;  // coach response is being generated
   isLoading?: boolean;
   error?: string;
 }
@@ -147,8 +152,11 @@ function StrategyLabContent() {
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [modelStatus, setModelStatus] = useState<{ status: string; error: string | null } | null>(null);
   const [isRunAllTestsOpen, setIsRunAllTestsOpen] = useState(false);
+  const [advisorRequest, setAdvisorRequest] = useState<AdvisorRequest | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // first user prompt — kept for advisor context
+  const firstPromptRef = useRef<string>("");
 
   useEffect(() => {
     fetch("/api/model/status")
@@ -167,6 +175,26 @@ function StrategyLabContent() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // auto-trigger advisor whenever parsed strategy changes
+  useEffect(() => {
+    if (!latestParsed) return;
+    setAdvisorRequest({
+      user_prompt: firstPromptRef.current,
+      parsed_strategy: latestParsed as unknown as Record<string, unknown>,
+      backtest_result: result
+        ? {
+            cagr: (result as any).cagr ?? null,
+            mdd: (result as any).mdd ?? null,
+            sharpe: (result as any).sharpe ?? null,
+            profit_factor: (result as any).profit_factor ?? null,
+            trade_count: (result as any).trade_count ?? null,
+            win_rate: (result as any).win_rate ?? null,
+          }
+        : null,
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latestParsed, result]);
 
   // period 제안 텍스트 → { parsed: backtest_period 값, options: currentOptions.period 값 }
   // 매칭되지 않으면 null 반환 (AI 파싱 필요)
@@ -227,6 +255,7 @@ function StrategyLabContent() {
     const userText = overrideText ?? inputValue.trim();
     if (!userText || isSending || stage === "running") return;
     if (!overrideText) setInputValue("");
+    if (!firstPromptRef.current) firstPromptRef.current = userText;
     setIsSending(true);
     const previousAssistantMessage = [...messages]
       .reverse()
@@ -264,12 +293,6 @@ function StrategyLabContent() {
 
       const nextParsed = mergedResponse.parsed;
       const nextBacktestReq = mergedResponse.backtestRequest;
-      const clarification = mergedResponse.shouldReusePreviousClarification
-        ? previousAssistantMessage?.clarification
-        : data.clarification_question;
-      const clarificationSuggestions = mergedResponse.shouldReusePreviousClarification
-        ? previousAssistantMessage?.clarificationSuggestions
-        : data.clarification_suggestions;
 
       setLatestParsed(nextParsed);
       setBacktestReq(nextBacktestReq);
@@ -280,20 +303,116 @@ function StrategyLabContent() {
         slippagePct: 0.05,
       });
       setStage("ready");
+
+      // Show parsed strategy card only; coach response is the sole source of clarification text
       setMessages(prev => prev.map((m, i) =>
         i === prev.length - 1 ? {
           role: "assistant",
           parsed: nextParsed,
-          clarification: clarification ?? undefined,
-          clarificationSuggestions: clarificationSuggestions ?? undefined,
+          clarification: undefined,
+          clarificationSuggestions: undefined,
+          coachLoading: true,
         } : m
       ));
+
+      generateCoachResponse({
+        userText,
+        parsed: nextParsed,
+      });
     } catch (e: any) {
       setMessages(prev => prev.map((m, i) =>
         i === prev.length - 1 ? { role: "assistant", error: e.message ?? "알 수 없는 오류" } : m
       ));
     } finally {
       setIsSending(false);
+    }
+  };
+
+  const generateCoachResponse = async ({
+    userText,
+    parsed,
+    newsAgentInsight,
+  }: {
+    userText: string;
+    parsed: ParsedSummary;
+    newsAgentInsight?: Record<string, unknown> | null;
+  }) => {
+    const updateLastAssistant = (patch: Partial<ChatMessage>) => {
+      setMessages(prev => {
+        const lastIdx = prev.map((m, i) => m.role === "assistant" ? i : -1).filter(i => i >= 0).at(-1);
+        if (lastIdx === undefined) return prev;
+        return prev.map((m, i) => i === lastIdx ? { ...m, ...patch } : m);
+      });
+    };
+
+    try {
+      // Step 1: get advisor insight (fast, rule-based ~14ms)
+      const advisorRes = await fetch("/api/advisor/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_prompt: firstPromptRef.current || userText,
+          parsed_strategy: parsed as unknown as Record<string, unknown>,
+        }),
+      });
+      const advisorInsight = advisorRes.ok ? await advisorRes.json() : null;
+
+      // Step 2: stream coaching response (local Qwen MLX)
+      const coachRes = await fetch("/api/strategy/coach/stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_prompt: userText,
+          parsed_strategy: parsed,
+          advisor_insight: advisorInsight,
+          news_agent_insight: newsAgentInsight ?? null,
+        }),
+      });
+      if (!coachRes.ok || !coachRes.body) {
+        updateLastAssistant({ coachLoading: false });
+        return;
+      }
+
+      const reader = coachRes.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let firstDelta = true;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() ?? "";
+
+        for (const chunk of parts) {
+          const line = chunk.split("\n").find(l => l.startsWith("data: "));
+          if (!line) continue;
+          try {
+            const evt = JSON.parse(line.slice(6));
+            if (evt.type === "delta" && evt.message) {
+              if (firstDelta) {
+                firstDelta = false;
+                updateLastAssistant({ coachLoading: false, clarification: evt.message });
+              } else {
+                updateLastAssistant({ clarification: evt.message });
+              }
+            } else if (evt.type === "done") {
+              updateLastAssistant({
+                coachLoading: false,
+                clarification: evt.message || undefined,
+                clarificationSuggestions: evt.suggestions?.length ? evt.suggestions : undefined,
+              });
+            } else if (evt.type === "error") {
+              updateLastAssistant({ coachLoading: false });
+            }
+          } catch {
+            // ignore malformed chunk
+          }
+        }
+      }
+    } catch {
+      updateLastAssistant({ coachLoading: false });
     }
   };
 
@@ -457,12 +576,16 @@ function StrategyLabContent() {
 
   const isIdle = messages.length === 0 && !isSending;
   const isLastAssistant = (i: number) => i === messages.length - 1 && messages[i].role === "assistant";
+  const showAdvisor = !!advisorRequest;
 
   // ── 메인 채팅 화면
   return (
     <DashboardLayout userName="">
-      <div className="h-full flex flex-col items-center justify-center px-4 pt-20 pb-12">
-        <div className="w-full max-w-4xl flex flex-col items-center gap-6">
+      <div className="h-full flex gap-4 px-4 pt-20 pb-12 overflow-hidden">
+
+        {/* ── 왼쪽: 채팅 영역 ── */}
+        <div className={`flex flex-col items-center justify-center transition-all duration-300 ${showAdvisor ? "flex-1 min-w-0" : "w-full items-center justify-center"}`}>
+        <div className={`w-full flex flex-col items-center gap-6 ${showAdvisor ? "" : "max-w-4xl"}`}>
 
           {/* 헤더 */}
           <div className="w-full max-w-3xl">
@@ -521,7 +644,13 @@ function StrategyLabContent() {
                         {msg.parsed && (
                           <>
                             <ParsedSummaryBubble parsed={msg.parsed} backtestRequest={backtestReq} />
-                            {msg.clarification && (
+                            {isLastAssistant(i) && msg.coachLoading && (
+                              <div className="flex items-center gap-2 px-1">
+                                <ArrowsClockwise size={11} className="text-indigo-400 animate-spin flex-shrink-0" />
+                                <span className="text-[11px] font-bold text-gray-600">코치 분석 중...</span>
+                              </div>
+                            )}
+                            {isLastAssistant(i) && !msg.coachLoading && msg.clarification && (
                               <div className="space-y-2">
                                 <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-white/[0.02] border border-yellow-400/40">
                                   <Question size={13} className="text-yellow-400 flex-shrink-0 mt-0.5" weight="fill" />
@@ -542,7 +671,7 @@ function StrategyLabContent() {
                                 )}
                               </div>
                             )}
-                            {isLastAssistant(i) && stage === "ready" && (
+                            {isLastAssistant(i) && stage === "ready" && !msg.coachLoading && (
                               <button
                                 onClick={() => handleRunBacktest()}
                                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-black transition-all duration-300 hover:shadow-[0_0_24px_rgba(59,130,246,0.4)]"
@@ -608,6 +737,18 @@ function StrategyLabContent() {
             <StrategyExampleTabs onSelectExample={setInputValue} />
           )}
         </div>
+        </div>{/* end 채팅 영역 */}
+
+        {/* ── 오른쪽: 전략 코치 패널 ── */}
+        {showAdvisor && (
+          <div className="w-80 flex-shrink-0 pt-0 pb-0 flex flex-col">
+            <StrategyAdvisorPanel
+              request={advisorRequest}
+              onDismiss={() => setAdvisorRequest(null)}
+            />
+          </div>
+        )}
+
       </div>
       <RunAllTestsModal
         isOpen={isRunAllTestsOpen}

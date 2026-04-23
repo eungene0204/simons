@@ -490,6 +490,62 @@ class NLStrategyParser:
         )
         return result
 
+    def chat(self, system_prompt: str, user_message: str, max_tokens: int = 512) -> str:
+        """자유형식 텍스트 생성 — 코치/요약 등 비구조화 응답용 (MLX 전용)."""
+        self._init_mlx_7b()
+        try:
+            import mlx_lm
+        except ImportError:
+            raise RuntimeError("pip install mlx-lm 필요")
+
+        tokenizer = self._tokenizer_7b
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ]
+        if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template:
+            prompt = tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=False,
+            )
+        else:
+            prompt = f"{system_prompt}\n\n{user_message}"
+
+        return mlx_lm.generate(
+            self._mlx_model_7b, tokenizer, prompt=prompt, max_tokens=max_tokens, verbose=False
+        ).strip()
+
+    def stream_chat(self, system_prompt: str, user_message: str, max_tokens: int = 512):
+        """토큰 단위 스트리밍 생성 — 각 yield마다 누적된 전체 텍스트를 반환 (MLX 전용)."""
+        self._init_mlx_7b()
+        try:
+            import mlx_lm
+        except ImportError:
+            raise RuntimeError("pip install mlx-lm 필요")
+
+        tokenizer = self._tokenizer_7b
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ]
+        if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template:
+            prompt = tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=False,
+            )
+        else:
+            prompt = f"{system_prompt}\n\n{user_message}"
+
+        for resp in mlx_lm.stream_generate(
+            self._mlx_model_7b, tokenizer, prompt=prompt, max_tokens=max_tokens
+        ):
+            # resp.text is the incremental delta for this step
+            yield resp.text
+
     def _parse_mlx(self, user_input: str) -> ParsedStrategy:
         self._init_mlx_7b()
         prompt = f"{SYSTEM_PROMPT}\n\n입력: \"{user_input}\"\n출력:"

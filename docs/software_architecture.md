@@ -1,6 +1,7 @@
 # Software Architecture
 
 > 한국/글로벌 주식 퀀트 투자 플랫폼 — Simons
+> **최종 갱신일:** 2026-04-23
 
 ---
 
@@ -153,6 +154,7 @@ simons/
 │   │   ├── promoter.py              # VirtualAccount 자동 승격
 │   │   └── templates/               # 전략 템플릿 (momentum/mean_reversion/value/volume_breakout/ai_signal)
 │   ├── api/
+│   │   ├── coach_routes.py          # FastAPI AI 전략 코치 라우터 (단건 + SSE 스트리밍)
 │   │   └── research_routes.py       # FastAPI 연구 에이전트 라우터 (9개 엔드포인트, SSE)
 │   └── tests/                       # 백엔드 단위 테스트
 │
@@ -281,6 +283,8 @@ interface BacktestResult {
 |--------|------|------|
 | POST | `/strategy/parse` | 자연어 → ParsedStrategy + BacktestRequest 변환 |
 | POST | `/strategy/backtest-stream` | 백테스트 실행 (SSE 스트리밍) |
+| POST | `/strategy/coach` | AI 전략 코치 응답 생성 (단건, Qwen MLX) |
+| POST | `/strategy/coach/stream` | AI 전략 코치 SSE 스트리밍 (토큰 단위, Qwen MLX) |
 
 **백테스트**
 | 메서드 | 경로 | 설명 |
@@ -559,10 +563,25 @@ Client polling으로 진행률/로그/리더보드 반영
 | 항목 | 내용 |
 |------|------|
 | 백엔드 | MLX (Apple Silicon) 또는 Ollama |
+| 기본 모델 | `mlx-community/Qwen3.5-9B-OptiQ-4bit` |
 | 출력 형식 | Structured Output (JSON Schema 강제) |
 | 신규 전략 | `parse(user_input)` → ParsedStrategy |
 | 전략 수정 | `parse_modification(user_input, previous)` → diff 기반 병합 |
-| Clarification | `validate_parsed_strategy()` — 부족 정보 감지 → 선택지 제시 |
+| 자유 생성 | `chat(system_prompt, user_message)` → str (비구조화, MLX 전용) |
+| 스트리밍 | `stream_chat(system_prompt, user_message)` → Generator[str] (토큰 단위 delta yield) |
+
+### 7.1b AI 전략 코치 (`backend/api/coach_routes.py`)
+
+| 항목 | 내용 |
+|------|------|
+| 단건 엔드포인트 | `POST /strategy/coach` — 전체 JSON 응답 |
+| 스트리밍 엔드포인트 | `POST /strategy/coach/stream` — SSE, `{"type":"delta"|"done"|"error"}` |
+| 모델 | NLStrategyParser와 동일 Qwen 9B 모델 공유 (`set_parser()` 주입) |
+| 스트리밍 프록시 | `app/api/strategy/coach/stream/route.ts` — SSE 본문 패스스루 |
+| 입력 | `user_prompt`, `parsed_strategy`, `advisor_insight`, `news_agent_insight` |
+| 출력 | `{"message": "코칭 메시지 (300자 이내)", "suggestions": ["제안1", ...]}` |
+| 뉴스 우선순위 | news_agent_insight 존재 시 최우선 반영, risk_alert_level high → 리스크 조언 강제 |
+| `<think>` 처리 | Qwen3 thinking-mode 아티팩트 자동 제거 (`re.sub`) |
 
 **ParsedStrategy 주요 필드:**
 ```python

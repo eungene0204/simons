@@ -57,6 +57,13 @@ app.include_router(research_router)
 from api.news_routes import router as news_router
 app.include_router(news_router)
 
+# Context-aware Strategy Advisor Agent routes
+from api.advisor_routes import router as advisor_router
+app.include_router(advisor_router)
+
+from api.coach_routes import router as coach_router
+app.include_router(coach_router)
+
 app.state.backtest_engine = engine
 
 # VBT Numba JIT 사전 워밍업 — 첫 백테스트 요청에서 ~4s JIT 컴파일 패널티 제거
@@ -1641,6 +1648,10 @@ def preload_nl_parser():
         _summarize_model["tokenizer"] = parser._tokenizer_7b
         _nl_parser_status["status"] = "ok"
         _nl_parser_status["error"] = None
+
+        from api.coach_routes import set_parser as _set_coach_parser
+        _set_coach_parser(parser)
+
         print(
             f"[startup] NL 파서 모델 로딩 완료: {parser._model_log_label(parser.model_7b)}",
             flush=True,
@@ -1746,17 +1757,14 @@ def parse_nl_strategy(request: NLParseRequest):
         _nl_parser_status["error"] = None
         backtest_req = to_backtest_request(parsed)
 
-        from engine.nl_parser import validate_parsed_strategy
-        clarification_question, clarification_suggestions = validate_parsed_strategy(parsed, request.prompt)
-
-        print(f"[NL-PARSE] filters={len(parsed.fundamental_filters)}, entry={len(parsed.entry_signals)}, symbols={len(backtest_req['symbols'])}, clarification={'yes' if clarification_question else 'no'}", flush=True)
+        print(f"[NL-PARSE] filters={len(parsed.fundamental_filters)}, entry={len(parsed.entry_signals)}, symbols={len(backtest_req['symbols'])}", flush=True)
 
         result = {
             "parsed": parsed.model_dump(),
             "backtest_request": backtest_req,
             "symbol_count": len(backtest_req["symbols"]),
-            "clarification_question": clarification_question,
-            "clarification_suggestions": clarification_suggestions,
+            "clarification_question": None,
+            "clarification_suggestions": None,
         }
 
         # 캐시 저장 (최대 크기 초과 시 가장 오래된 항목 제거)
