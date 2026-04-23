@@ -26,6 +26,8 @@ import threading
 import numpy as np
 import requests
 import json
+import re
+from urllib.parse import unquote
 from fastapi.responses import StreamingResponse
 from market_cap import normalize_market_cap
 
@@ -50,6 +52,11 @@ _ = engine.ai_engine  # 서버 시작 시 AI 모델 사전 로드
 # Strategy Research Agent routes (premium gated)
 from api.research_routes import router as research_router
 app.include_router(research_router)
+
+# News Impact AI Agent routes
+from api.news_routes import router as news_router
+app.include_router(news_router)
+
 app.state.backtest_engine = engine
 
 # VBT Numba JIT 사전 워밍업 — 첫 백테스트 요청에서 ~4s JIT 컴파일 패널티 제거
@@ -255,26 +262,58 @@ async def market_price(symbol: str):
 
 
 @app.get("/market/stock-detail/{symbol}")
-async def market_stock_detail(symbol: str):
+async def market_stock_detail(
+    symbol: str,
+    include_profile: bool = True,
+    include_listing: bool = True,
+):
     """
     KIS 상세 현재가 조회.
     시가총액/거래량 등 종목 매매 페이지용 실데이터를 우선 제공한다.
     """
     quote, app_key, app_secret, token = await _resolve_kis_orderbook_context(symbol)
+    company_profile = _get_cached_company_profile(symbol) if include_profile else None
+    listing_info = _get_cached_listing_info(symbol) if include_listing else None
 
-    if not (app_key and app_secret and token):
+    detail = None
+    if app_key and app_secret and token:
+        detail = _fetch_kis_stock_detail(symbol, app_key, app_secret, token)
+
+    if not detail and not company_profile and not listing_info and not quote:
         raise HTTPException(status_code=503, detail="KIS 상세 시세를 조회할 수 없습니다")
 
-    detail = _fetch_kis_stock_detail(symbol, app_key, app_secret, token)
-    if not detail:
-        raise HTTPException(status_code=503, detail="KIS 상세 시세를 조회할 수 없습니다")
+    company_name = (
+        (detail or {}).get("name")
+        or (company_profile or {}).get("name")
+        or getattr(quote, "name", None)
+        or symbol
+    )
+    sector = (company_profile or {}).get("sector", "")
+    industry = (company_profile or {}).get("industry", "")
+    description = ""
+    if include_profile:
+        description = (
+            (company_profile or {}).get("description")
+            or _build_company_intro(company_name, sector, industry)
+        )
 
-    return {
-        **detail,
-        "currentPrice": detail.get("currentPrice") or quote.close,
-        "volume": detail.get("volume") or quote.volume,
-        "previousClose": detail.get("previousClose") or quote.prev_close,
+    payload = {
+        **(detail or {}),
+        "symbol": symbol,
+        "name": company_name,
+        "currentPrice": (detail or {}).get("currentPrice") or quote.close,
+        "volume": (detail or {}).get("volume") or quote.volume,
+        "previousClose": (detail or {}).get("previousClose") or quote.prev_close,
+        "description": description,
+        "sector": sector,
+        "industry": industry,
+        "profileSource": (company_profile or {}).get("source"),
+        "listingDate": (listing_info or {}).get("listingDate"),
     }
+    if not payload.get("source"):
+        payload["source"] = (company_profile or {}).get("source") or "quote_only"
+
+    return payload
 
 
 @app.post("/market/prices")
@@ -385,6 +424,15 @@ def _extract_latest_debt_ratio(output: list[dict]) -> Optional[float]:
 
 _financial_ratio_cache: dict[str, tuple[Optional[float], float]] = {}
 _FINANCIAL_RATIO_CACHE_TTL = 60.0 * 60.0 * 6.0
+_company_profile_cache: dict[str, tuple[Optional[dict], float]] = {}
+_COMPANY_PROFILE_CACHE_TTL = 60.0 * 60.0 * 6.0
+_listing_info_cache: dict[str, tuple[Optional[dict], float]] = {}
+_LISTING_INFO_CACHE_TTL = 60.0 * 60.0 * 24.0 * 30.0
+_PUBLIC_DATA_SERVICE_KEY_ENV_NAMES = (
+    "PUBLIC_DATA_SERVICE_KEY",
+    "DATA_GO_KR_SERVICE_KEY",
+    "DATA_GO_SERVICE_KEY",
+)
 
 
 def _fetch_kis_debt_ratio(symbol: str, app_key: str, app_secret: str, token: str) -> Optional[float]:
@@ -418,6 +466,221 @@ def _fetch_kis_debt_ratio(symbol: str, app_key: str, app_secret: str, token: str
 
     _financial_ratio_cache[symbol] = (debt_ratio, time.time() + _FINANCIAL_RATIO_CACHE_TTL)
     return debt_ratio
+
+
+def _summarize_company_description(text: Optional[str]) -> str:
+    if not text:
+        return ""
+
+    normalized = re.sub(r"\s+", " ", str(text)).strip()
+    if not normalized:
+        return ""
+
+    sentences = re.split(r"(?<=[.!?])\s+(?=[A-Z])", normalized)
+    brief = " ".join(sentence.strip() for sentence in sentences[:2] if sentence.strip())
+    if len(brief) <= 320:
+        return brief
+    return brief[:317].rstrip() + "..."
+
+
+def _build_company_intro(name: str, sector: Optional[str], industry: Optional[str]) -> str:
+    normalized_name = str(name or "").strip() or "해당 기업"
+    normalized_sector = str(sector or "").strip()
+    normalized_industry = str(industry or "").strip()
+
+    if normalized_sector and normalized_industry:
+        return f"{normalized_name}는 {normalized_sector} 섹터의 {normalized_industry} 업종에 속한 상장사입니다."
+    if normalized_industry:
+        return f"{normalized_name}는 {normalized_industry} 업종에 속한 상장사입니다."
+    if normalized_sector:
+        return f"{normalized_name}는 {normalized_sector} 섹터에 속한 상장사입니다."
+    return f"{normalized_name}는 국내 상장사입니다."
+
+
+def _get_public_data_service_key() -> str:
+    for env_name in _PUBLIC_DATA_SERVICE_KEY_ENV_NAMES:
+        value = os.getenv(env_name, "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _normalize_public_data_items(payload: Optional[dict]) -> List[dict]:
+    if not isinstance(payload, dict):
+        return []
+
+    body = ((payload.get("response") or {}).get("body") or {})
+    items = body.get("items")
+    if isinstance(items, dict):
+        items = items.get("item")
+
+    if isinstance(items, list):
+        return [item for item in items if isinstance(item, dict)]
+    if isinstance(items, dict):
+        return [items]
+    return []
+
+
+def _fetch_public_data_items(url: str, params: dict) -> List[dict]:
+    service_key = _get_public_data_service_key()
+    if not service_key:
+        return []
+
+    candidate_keys = [service_key]
+    decoded_key = unquote(service_key)
+    if decoded_key != service_key:
+        candidate_keys.append(decoded_key)
+
+    for candidate_key in candidate_keys:
+        try:
+            resp = requests.get(
+                url,
+                params={
+                    **params,
+                    "serviceKey": candidate_key,
+                    "resultType": "json",
+                },
+                timeout=5,
+            )
+            if resp.status_code != 200:
+                continue
+
+            payload = resp.json()
+            result_code = str(((payload.get("response") or {}).get("header") or {}).get("resultCode", ""))
+            if result_code not in {"00", "0"}:
+                continue
+
+            items = _normalize_public_data_items(payload)
+            if items:
+                return items
+        except Exception:
+            continue
+
+    return []
+
+
+def _fetch_listing_info_from_public_api(symbol: str) -> Optional[dict]:
+    listed_items = _fetch_public_data_items(
+        "https://apis.data.go.kr/1160100/service/GetKrxListedInfoService/getItemInfo",
+        {
+            "numOfRows": 10,
+            "pageNo": 1,
+            "likeSrtnCd": symbol,
+        },
+    )
+
+    listed_item = next(
+        (
+            item
+            for item in listed_items
+            if str(item.get("srtnCd", "")).strip() == symbol
+        ),
+        None,
+    )
+    if not listed_item:
+        return None
+
+    crno = _first_nonempty_str(listed_item, "crno")
+    if not crno:
+        return None
+
+    issuance_items = _fetch_public_data_items(
+        "https://apis.data.go.kr/1160100/service/GetStocIssuInfoService/getItemBasiInfo",
+        {
+            "numOfRows": 10,
+            "pageNo": 1,
+            "crno": crno,
+        },
+    )
+
+    issuance_item = next(
+        (
+            item
+            for item in issuance_items
+            if str(item.get("crno", "")).strip() == crno and _first_nonempty_str(item, "lstgDt")
+        ),
+        None,
+    )
+    if not issuance_item:
+        return None
+
+    listing_date = _first_nonempty_str(issuance_item, "lstgDt")
+    if not listing_date:
+        return None
+
+    return {
+        "listingDate": listing_date,
+        "source": "fsc_stock_issuance",
+    }
+
+
+def _fetch_yahoo_company_profile(symbol: str) -> Optional[dict]:
+    try:
+        import yfinance as yf
+    except Exception:
+        return None
+
+    candidates = [f"{symbol}.KS", f"{symbol}.KQ", symbol]
+    best_profile: Optional[dict] = None
+    best_score = -1
+
+    for candidate in candidates:
+        try:
+            info = yf.Ticker(candidate).get_info() or {}
+        except Exception:
+            continue
+
+        if not isinstance(info, dict):
+            continue
+
+        name = _first_nonempty_str(info, "longName", "shortName")
+        sector = _first_nonempty_str(info, "sector")
+        industry = _first_nonempty_str(info, "industry")
+        description = _summarize_company_description(
+            _first_nonempty_str(info, "longBusinessSummary", "description")
+        )
+
+        score = (
+            (4 if description else 0)
+            + (2 if sector else 0)
+            + (2 if industry else 0)
+            + (1 if name else 0)
+        )
+        if score <= 0:
+            continue
+
+        profile = {
+            "name": name,
+            "description": description,
+            "sector": sector or "",
+            "industry": industry or "",
+            "source": f"yahoo_profile:{candidate}",
+        }
+        if score > best_score:
+            best_profile = profile
+            best_score = score
+
+    return best_profile
+
+
+def _get_cached_company_profile(symbol: str) -> Optional[dict]:
+    cached = _company_profile_cache.get(symbol)
+    if cached and cached[1] > time.time():
+        return cached[0]
+
+    value = _fetch_yahoo_company_profile(symbol)
+    _company_profile_cache[symbol] = (value, time.time() + _COMPANY_PROFILE_CACHE_TTL)
+    return value
+
+
+def _get_cached_listing_info(symbol: str) -> Optional[dict]:
+    cached = _listing_info_cache.get(symbol)
+    if cached and cached[1] > time.time():
+        return cached[0]
+
+    value = _fetch_listing_info_from_public_api(symbol)
+    _listing_info_cache[symbol] = (value, time.time() + _LISTING_INFO_CACHE_TTL)
+    return value
 
 
 def _fetch_kis_stock_detail(symbol: str, app_key: str, app_secret: str, token: str) -> Optional[dict]:

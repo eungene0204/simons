@@ -81,6 +81,7 @@ simons/
 │   │   ├── StrategyExampleTabs.tsx  # 전략 예시 프롬프트 탭
 │   │   └── legacyBreakout.ts        # 레거시 데이터 정규화 유틸
 │   ├── stock/                       # 종목 관련 컴포넌트
+│   │   └── NewsImpactPanel.tsx      # 뉴스·공시 + Alpha 시그널 패널 (stock-order 뉴스 탭)
 │   ├── portfolio/                   # 포트폴리오 분석 컴포넌트
 │   ├── order/                       # 주문서 및 호가 컴포넌트
 │   ├── layout/                      # 레이아웃 (Navbar, Sidebar, Header)
@@ -130,6 +131,16 @@ simons/
 │   │   ├── models.py                # PyTorch 모델 정의
 │   │   ├── xai_engine.py            # SHAP 기반 설명 가능 AI
 │   │   └── summarize.py             # 백테스트 결과 AI 요약 (Claude API)
+│   ├── news/                        # 뉴스 Impact AI Agent
+│   │   ├── schemas.py               # NormalizedArticle, NewsImpact Pydantic 모델
+│   │   ├── dedup.py                 # 중복 제거 (Jaccard + body hash, 24h 윈도우)
+│   │   ├── collector.py             # 뉴스 수집 오케스트레이터
+│   │   ├── analyzer.py              # 이벤트 분류 + alpha 계산
+│   │   ├── storage.py               # DB 저장/조회
+│   │   ├── news_routes.py           # FastAPI 라우터 (5개 엔드포인트)
+│   │   └── providers/
+│   │       ├── naver_news.py        # Naver Finance RSS (4피드, 무인증)
+│   │       └── rss_provider.py      # 한국경제·연합뉴스·매일경제 RSS
 │   ├── research/                    # Strategy Research Agent
 │   │   ├── agent.py                 # StrategyResearchAgent 오케스트레이터 (상태머신)
 │   │   ├── generator.py             # 후보 전략 생성기 (SHA256 dedup, seeded)
@@ -177,7 +188,7 @@ simons/
 | `/kospi` | KOSPI 시장 현황 | `MarketSnapshot` |
 | `/login`, `/register` | 사용자 인증 | `AuthCard` |
 | `/stock/[symbol]` | 종목 상세 (차트, 호가, 뉴스) | `StockDetail`, `CandlestickChart`, `OrderBook` |
-| `/stock-order` | 가상 주문 실행 | 주문 인터페이스 |
+| `/stock-order` | 종목 거래 (5탭) | 차트·호가 / 종목정보 / 뉴스·공시(`NewsImpactPanel`) / 거래현황 / 커뮤니티 |
 | `/virtual-account` | 가상 계좌 목록 | `VirtualAccountCard` |
 | `/virtual-account/[id]` | 가상 계좌 상세 (포트폴리오) | `VirtualAccountMainView` |
 | `/watchlist` | 관심 종목 관리 | `Watchlist`, `WatchlistDrawer` |
@@ -294,6 +305,15 @@ interface BacktestResult {
 |--------|------|------|
 | GET | `/model/status` | AI 모델 상태 확인 |
 | POST | `/summarize` | 백테스트 결과 AI 요약 (Claude API) |
+
+**뉴스 Impact Agent**
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| GET | `/news/articles` | 전체 뉴스 목록 (페이징) |
+| POST | `/news/collect` | 뉴스 수집 트리거 |
+| GET | `/news/symbol/{symbol}` | 종목별 뉴스 (as_of 지원) |
+| GET | `/news/impact/{symbol}` | 종목 Alpha 시그널 (latest_alpha) |
+| GET | `/news/top` | 주요 뉴스 |
 
 **Strategy Research Agent (Premium)**
 | 메서드 | 경로 | 설명 |
@@ -519,6 +539,11 @@ Client polling으로 진행률/로그/리더보드 반영
 - `POST /api/stock/batch-quotes` — 배치 현재가
 - `GET /api/market/indices` — KOSPI, KOSDAQ, 환율
 
+**뉴스**
+- `GET /api/news/symbol/[symbol]` — 종목별 뉴스 목록 (백엔드 미가동 시 seed 데이터 폴백)
+- `GET /api/news/impact/[symbol]` — 종목 Alpha 시그널 (latest_alpha, risk_alert_level)
+- `GET /api/news/top` — 주요 시장 뉴스 피드
+
 **가상 계좌**
 - `POST /api/virtual-account` — 계좌 생성
 - `POST /api/virtual-account/[id]/orders` — 주문 생성
@@ -598,6 +623,7 @@ Anthropic Claude API — 백테스트 수치를 자연어 요약으로 변환 (�
 | `test_engine_loader.py` | DataLoader: Parquet 로드, 캐싱 |
 | `test_strategy_converter.py` | ParsedStrategy → BacktestRequest 변환 |
 | `test_ai_code_fixes.py` | AI 관련 버그 픽스 회귀 테스트 |
+| `test_news_dedup.py` | 뉴스 중복 제거: Jaccard 유사도·body hash·시간윈도우·intra-batch (22개) |
 
 제외 (서버/모델 필요): `test_backtest_engine`, `test_engine_ai`, `test_ai_sell`, `test_api_isolation`
 

@@ -42,6 +42,12 @@ model Stock {
   symbol         String           @unique
   name           String?
   market         String?
+  sector         String?
+  industry       String?
+  description    String?
+  listingDate    String?
+  profileSource  String?
+  profileUpdatedAt DateTime?
   updatedAt      DateTime
   BacktestResult BacktestResult[]
 }
@@ -260,4 +266,146 @@ model WatchlistSymbol {
   addedAt        DateTime        @default(now())
   groupId        String?
   WatchlistGroup WatchlistGroup? @relation(fields: [groupId], references: [id])
+}
+
+// ─── News Impact AI Agent ─────────────────────────────────────────────────────
+
+model NewsArticle {
+  id            String              @id @default(cuid())
+  title         String
+  summary       String?
+  url           String              @unique
+  source        String
+  author        String?
+  publishedAt   DateTime
+  crawledAt     DateTime            @default(now())
+  category      String?
+  language      String              @default("ko")
+  bodyHash      String?
+  canonicalId   String?
+  isCanonical   Boolean             @default(true)
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  RawArticles   NewsArticleRaw[]
+  SymbolMaps    NewsArticleSymbol[]
+  Event         NewsEvent?
+  Impact        NewsImpact?
+  Signals       NewsSignal[]
+
+  @@index([publishedAt])
+  @@index([source, publishedAt])
+  @@index([canonicalId])
+}
+
+model NewsArticleRaw {
+  id            String       @id @default(cuid())
+  articleId     String?
+  provider      String
+  externalId    String?
+  title         String
+  body          String?
+  url           String
+  source        String
+  author        String?
+  publishedAt   DateTime
+  category      String?
+  rawJson       String
+  crawledAt     DateTime     @default(now())
+  NewsArticle   NewsArticle? @relation(fields: [articleId], references: [id])
+
+  @@index([provider, crawledAt])
+  @@index([articleId])
+  @@index([url])
+}
+
+model NewsArticleSymbol {
+  id          String      @id @default(cuid())
+  articleId   String
+  symbol      String
+  companyName String?
+  scope       String      @default("stock")
+  sector      String?
+  relevance   Float       @default(1.0)
+  createdAt   DateTime    @default(now())
+  NewsArticle NewsArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@index([articleId])
+  @@index([symbol])
+  @@index([symbol, createdAt])
+}
+
+model NewsEvent {
+  id               String      @id @default(cuid())
+  articleId        String      @unique
+  eventType        String
+  sentiment        String
+  severity         Float       @default(0.5)
+  surprise         Float       @default(0.0)
+  credibility      Float       @default(0.5)
+  novelty          Float       @default(0.5)
+  relevance        Float       @default(0.5)
+  summary          String?
+  riskFlags        String?
+  affectedEntities String?
+  expectedHorizon  String?
+  modelVersion     String      @default("v1")
+  createdAt        DateTime    @default(now())
+  NewsArticle      NewsArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@index([eventType])
+  @@index([createdAt])
+}
+
+model NewsImpact {
+  id                 String      @id @default(cuid())
+  articleId          String      @unique
+  symbol             String?
+  impactDirection    String
+  impactScore        Float
+  confidenceScore    Float
+  expectedHorizon    String
+  expectedAlpha1d    Float?
+  expectedAlpha5d    Float?
+  volatilityJumpRisk Float?
+  riskAlertLevel     String
+  modelVersion       String      @default("v1")
+  createdAt          DateTime    @default(now())
+  NewsArticle        NewsArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@index([symbol, createdAt])
+  @@index([riskAlertLevel])
+}
+
+model NewsSignal {
+  id           String      @id @default(cuid())
+  articleId    String
+  symbol       String
+  signalType   String
+  value        Float
+  direction    String
+  confidence   Float
+  validFrom    DateTime
+  validUntil   DateTime?
+  metadata     String?
+  modelVersion String      @default("v1")
+  createdAt    DateTime    @default(now())
+  NewsArticle  NewsArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@index([symbol, validFrom])
+  @@index([symbol, signalType])
+}
+
+model NewsIngestionLog {
+  id           String    @id @default(cuid())
+  provider     String
+  startedAt    DateTime
+  finishedAt   DateTime?
+  status       String
+  fetched      Int       @default(0)
+  deduplicated Int       @default(0)
+  inserted     Int       @default(0)
+  error        String?
+  createdAt    DateTime  @default(now())
+
+  @@index([provider, createdAt])
 }

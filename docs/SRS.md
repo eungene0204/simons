@@ -1,8 +1,9 @@
 # Software Requirements Specification (SRS)
 # Simons — 종합 투자 시뮬레이션 플랫폼
 
-> **문서 버전:** v1.0
+> **문서 버전:** v1.3
 > **작성일:** 2026-04-01
+> **최종 갱신일:** 2026-04-22
 > **프로젝트명:** Simons
 > **상태:** 작성 중
 
@@ -73,7 +74,7 @@ Simons는 사용자가 자신만의 주식 투자 전략을 **설계 → 검증 
 | 레이어 | 기술 |
 |--------|------|
 | **프론트엔드** | Next.js 14 (App Router), React 18, TypeScript, Tailwind CSS, Recharts |
-| **API 레이어** | Next.js API Routes (20개+), FastAPI (Python) |
+| **API 레이어** | Next.js API Routes (70개+), FastAPI (Python) |
 | **백엔드 엔진** | Python FastAPI, Polars/Pandas, vectorbt |
 | **AI/ML** | PyTorch (Transformer), XGBoost, SHAP, Optuna |
 | **DB** | SQLite + Prisma ORM |
@@ -609,13 +610,81 @@ score = tanh(cagr/0.3)×0.15 + tanh(sharpe/2)×0.20 + tanh(pf/2)×0.10
 
 ---
 
-### 3.6 시장 데이터 및 분석
+### 3.6 뉴스 Impact AI Agent
 
-#### 3.6.1 시장 지수
+> 뉴스·공시 데이터를 실시간 수집·분류하여 종목별 Alpha 시그널을 생성하는 시스템.
+
+#### 3.6.1 뉴스 수집
+
+**FR-NEWS-001** 시스템은 다음 뉴스 공급자에서 자동으로 뉴스를 수집해야 한다:
+
+| 공급자 | 유형 | 데이터 |
+|--------|------|--------|
+| Naver Finance RSS | Primary | 4개 피드 (시장전망, 경제, 기업, 글로벌) — API 키 불요 |
+| 한국경제 RSS | Secondary | 경제/증권 뉴스 |
+| 연합뉴스 RSS | Secondary | 시황/기업 뉴스 |
+| 매일경제 RSS | Secondary | 증권/기업 뉴스 |
+
+**FR-NEWS-002** 수집된 뉴스는 `NormalizedArticle` 스키마로 정규화되어야 한다 (id, title, summary, url, source, published_at, body_hash, category, symbols, scope, sector 포함).
+
+#### 3.6.2 뉴스 중복 제거
+
+**FR-NEWS-010** 시스템은 다음 기준으로 중복 뉴스를 제거해야 한다:
+
+| 우선순위 | 방법 | 설명 |
+|---------|------|------|
+| 1 | Body hash 일치 | 동일 본문 해시 → 즉시 dup 처리 |
+| 2 | 제목 Jaccard 유사도 | 24h 내 유사도 ≥ 0.5 → dup 처리 |
+
+**FR-NEWS-011** 10자 미만 짧은 제목은 유사도 검사를 건너뛰어야 한다.
+
+**FR-NEWS-012** 동일 배치 내 중복(intra-batch dedup)도 처리해야 한다.
+
+#### 3.6.3 뉴스 임팩트 분석
+
+**FR-NEWS-020** 시스템은 수집된 뉴스 아이템을 분석하여 다음 정보를 생성해야 한다:
+
+| 필드 | 설명 |
+|------|------|
+| `event_type` | 이벤트 유형 (earnings_beat / analyst_upgrade / share_buyback / guidance_down / large_contract 등) |
+| `sentiment` | 감성 분류 (positive / negative / neutral) |
+| `impact_direction` | 예상 주가 방향 (up / down / neutral) |
+| `impact_score` | 영향 강도 (-1.0 ~ 1.0) |
+| `confidence_score` | 신뢰도 (0.0 ~ 1.0) |
+| `expected_alpha_1d` | 예상 1일 Alpha (%) |
+
+**FR-NEWS-021** 시스템은 종목별 최신 Alpha 시그널(`latest_alpha`)과 위험 경보 수준(`risk_alert_level`)을 제공해야 한다.
+
+#### 3.6.4 뉴스 API
+
+**FR-NEWS-030** 시스템은 다음 API 엔드포인트를 제공해야 한다:
+
+| 엔드포인트 | 설명 |
+|-----------|------|
+| `GET /api/news/symbol/[symbol]` | 종목별 뉴스 목록 (page, page_size, as_of 파라미터) |
+| `GET /api/news/impact/[symbol]` | 종목 Alpha 시그널 (latest_alpha, risk_alert_level) |
+| `GET /api/news/top` | 주요 시장 뉴스 피드 |
+
+**FR-NEWS-031** 백엔드 미가동 시 Next.js API Route는 seed 데이터를 폴백으로 반환해야 한다 (개발/테스트 환경 지원).
+
+#### 3.6.5 뉴스 UI — NewsImpactPanel
+
+**FR-NEWS-040** `NewsImpactPanel` 컴포넌트는 다음을 표시해야 한다:
+- 최신 Alpha 시그널 배지 (방향, 신뢰도, 이벤트 유형)
+- 위험 경보 수준 (low / medium / high)
+- 뉴스 목록 (제목, 출처, 시각, 감성, 임팩트 점수)
+
+**FR-NEWS-041** `app/stock-order/page.tsx`의 "뉴스·공시" 탭은 `NewsImpactPanel`을 사용해야 한다.
+
+---
+
+### 3.7 시장 데이터 및 분석
+
+#### 3.7.1 시장 지수
 
 **FR-MKT-001** KOSPI, KOSDAQ 실시간 지수를 표시해야 한다 (현재값, 등락률, 거래량).
 
-#### 3.6.2 종목 상세
+#### 3.7.2 종목 상세
 
 **FR-MKT-010** 종목 상세 페이지는 다음을 포함해야 한다:
 - 가격 차트 (일봉/주봉/월봉)
@@ -623,7 +692,7 @@ score = tanh(cagr/0.3)×0.15 + tanh(sharpe/2)×0.20 + tanh(pf/2)×0.10
 - 재무 요약 (매출, 영업이익, 당기순이익 추이)
 - 거래량 차트
 
-#### 3.6.3 종목 검색
+#### 3.7.3 종목 검색
 
 **FR-MKT-020** 사용자는 종목명 또는 종목코드로 검색할 수 있어야 한다.
 
@@ -631,9 +700,11 @@ score = tanh(cagr/0.3)×0.15 + tanh(sharpe/2)×0.20 + tanh(pf/2)×0.10
 
 ---
 
-### 3.7 사용자 관리
+### 3.8 사용자 관리
 
 **FR-USR-001** 사용자는 이메일과 비밀번호로 회원가입 및 로그인할 수 있어야 한다.
+
+
 
 **FR-USR-002** 비밀번호는 bcrypt 등의 알고리즘으로 해시하여 저장해야 한다.
 
@@ -912,6 +983,9 @@ BacktestHistory                                (백테스트 이력)
 | GET | `/api/dashboard/strategy-list` | 대시보드용 전략 목록 |
 | GET/POST | `/api/watchlist` | 관심종목 조회 / 추가 |
 | DELETE | `/api/watchlist/[id]` | 관심종목 삭제 |
+| GET | `/api/news/symbol/[symbol]` | 종목별 뉴스 목록 (page, page_size, as_of) |
+| GET | `/api/news/impact/[symbol]` | 종목 Alpha 시그널 (latest_alpha, risk_alert_level) |
+| GET | `/api/news/top` | 주요 시장 뉴스 피드 |
 
 ---
 
@@ -927,6 +1001,7 @@ BacktestHistory                                (백테스트 이력)
 | `/analytics/[id]` | 전략 상세 | 백테스트 결과 및 수정 |
 | `/virtual-account/[id]` | 가상계좌 상세 | 포지션, 주문, 가상매매 |
 | `/kospi` | 시장 현황 | KOSPI/KOSDAQ 지수, 종목 |
+| `/stock-order` | 종목 거래 | 5탭 구조: 차트·호가 / 종목정보 / 뉴스·공시(NewsImpactPanel) / 거래현황 / 커뮤니티 |
 | `/watchlist` | 관심종목 | 관심종목 목록 관리 |
 
 ### 7.2 디자인 시스템
