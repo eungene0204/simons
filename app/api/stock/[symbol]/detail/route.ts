@@ -36,6 +36,8 @@ interface StockDetail {
   description: string;
   sector: string;
   industry: string;
+  companyBasic?: Record<string, string | number | null> | null;
+  summaryFinancials?: Record<string, string | number | null> | null;
   timeSeries?: Array<{ date: string; value: number }>;
   candleData?: Array<{
     date: string;
@@ -59,6 +61,8 @@ interface MarketDetailResponse {
   description?: string;
   sector?: string;
   industry?: string;
+  companyBasic?: Record<string, string | number | null> | null;
+  summaryFinancials?: Record<string, string | number | null> | null;
   per?: number;
   pbr?: number;
   debtRatio?: number | null;
@@ -74,8 +78,8 @@ interface MarketDetailResponse {
 }
 
 const DETAIL_CACHE_TTL_SECONDS = 2;
+const BACKEND_STOCK_DETAIL_TIMEOUT_MS = 5000;
 const MARKET_CAP_CACHE_TTL_SECONDS = 60 * 60 * 6;
-const STOCK_METADATA_REFRESH_INTERVAL_MS = 1000 * 60 * 60 * 24 * 7;
 
 function pickPositiveNumber(...values: Array<number | undefined>): number {
   for (const value of values) {
@@ -84,6 +88,23 @@ function pickPositiveNumber(...values: Array<number | undefined>): number {
     }
   }
   return 0;
+}
+
+function pickStockName(symbol: string, ...values: Array<string | undefined>): string | undefined {
+  const normalizedSymbol = symbol.trim();
+
+  for (const value of values) {
+    if (typeof value !== "string") {
+      continue;
+    }
+
+    const normalizedValue = value.trim();
+    if (normalizedValue && normalizedValue !== normalizedSymbol) {
+      return normalizedValue;
+    }
+  }
+
+  return undefined;
 }
 
 export async function GET(
@@ -235,24 +256,27 @@ export async function GET(
     const quote = priceSnapshots[symbol];
 
     let realDetail: MarketDetailResponse | null = null;
-    const hasStoredProfile = Boolean(
-      storedStock?.description || storedStock?.sector || storedStock?.industry
+    const base = baseData[symbol] || {};
+    const companyNameForLookup = pickStockName(
+      symbol,
+      stockName,
+      storedStock?.name,
+      base.name,
     );
     const hasStoredListing = Boolean(storedStock?.listingDate);
-    const hasFreshProfile = Boolean(
-      storedStock?.profileUpdatedAt &&
-      Date.now() - storedStock.profileUpdatedAt.getTime() < STOCK_METADATA_REFRESH_INTERVAL_MS
-    );
-    const includeProfile = !hasStoredProfile || !hasFreshProfile;
     const includeListing = !hasStoredListing;
     try {
       const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
       const detailUrl = new URL(`${BACKEND_URL}/market/stock-detail/${symbol}`);
-      detailUrl.searchParams.set("include_profile", includeProfile ? "true" : "false");
+      detailUrl.searchParams.set("include_profile", "false");
       detailUrl.searchParams.set("include_listing", includeListing ? "true" : "false");
+      detailUrl.searchParams.set("include_public_info", "true");
+      if (companyNameForLookup) {
+        detailUrl.searchParams.set("company_name", companyNameForLookup);
+      }
 
       const detailRes = await fetch(detailUrl.toString(), {
-        signal: AbortSignal.timeout(1500),
+        signal: AbortSignal.timeout(BACKEND_STOCK_DETAIL_TIMEOUT_MS),
         cache: "no-store",
       });
       if (detailRes.ok) {
@@ -262,7 +286,6 @@ export async function GET(
       realDetail = null;
     }
 
-    const base = baseData[symbol] || {};
     const marketCapCacheKey = `stock:detail:market-cap:${symbol}`;
     const cachedMarketCap = cache.get<number>(marketCapCacheKey) ?? undefined;
     const basePrice =
@@ -294,14 +317,18 @@ export async function GET(
     // 캔들 데이터 생성
     const candleData = generateCandleData(symbol, basePrice, 365);
     const timeSeries = generateTimeSeries(symbol, basePrice, 365);
-    const resolvedName = realDetail?.name || stockName || storedStock?.name || base.name || symbol;
+    const resolvedName = pickStockName(
+      symbol,
+      stockName,
+      realDetail?.name,
+      storedStock?.name,
+      base.name,
+    ) || symbol;
     const resolvedMarket = stockMarket || (storedStock?.market as "KOSPI" | "KOSDAQ" | undefined);
     const resolvedDescription =
       realDetail?.description || storedStock?.description || base.description || "";
-    const resolvedSector =
-      realDetail?.sector || storedStock?.sector || stockSector || base.sector || "";
-    const resolvedIndustry =
-      realDetail?.industry || storedStock?.industry || stockIndustry || base.industry || "";
+    const resolvedIndustry = realDetail?.industry || "";
+    const resolvedSector = realDetail?.sector || "";
     const resolvedListingDate = realDetail?.listingDate || storedStock?.listingDate || "";
 
     const detail: StockDetail = {
@@ -334,6 +361,8 @@ export async function GET(
       description: resolvedDescription,
       sector: resolvedSector,
       industry: resolvedIndustry,
+      companyBasic: realDetail?.companyBasic ?? null,
+      summaryFinancials: realDetail?.summaryFinancials ?? null,
       listingDate: resolvedListingDate,
       timeSeries: timeSeries,
       candleData: candleData,
@@ -342,14 +371,15 @@ export async function GET(
 
     const shouldPersistStockMetadata =
       !storedStock ||
-      includeProfile ||
       includeListing ||
       resolvedName !== (storedStock?.name ?? symbol) ||
+      (resolvedSector || null) !== (storedStock?.sector ?? null) ||
+      (resolvedIndustry || null) !== (storedStock?.industry ?? null) ||
       (resolvedMarket ?? null) !== (storedStock?.market ?? null);
 
     if (useStockMetadataStore && shouldPersistStockMetadata) {
       const metadataTouchedAt =
-        includeProfile || includeListing ? new Date() : storedStock?.profileUpdatedAt ?? null;
+        includeListing ? new Date() : storedStock?.profileUpdatedAt ?? null;
 
       await prisma.stock.upsert({
         where: { symbol },

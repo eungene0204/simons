@@ -9,7 +9,7 @@ All rules operate on normalised inputs from the diagnoser — no raw Pydantic mo
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from .schemas import Issue, Severity
 
@@ -28,11 +28,12 @@ class RuleContext:
     has_take_profit: bool = False
     take_profit_pct: Optional[float] = None
     has_trailing_stop: bool = False
-    max_positions: int = 10
+    max_positions: Optional[int] = None          # None = 미설정
     universe_size_estimate: int = 200            # KOSPI200=200, KOSPI=838, etc.
     entry_signal_count: int = 0
     has_ai_signal: bool = False
     hold_period_days: Optional[int] = None
+    initial_capital: Optional[float] = None      # e.g. 10_000_000
 
     # backtest fields (None = not available)
     cagr: Optional[float] = None
@@ -87,17 +88,50 @@ def rule_too_many_filters(ctx: RuleContext) -> Optional[Issue]:
     return None
 
 
+def _liquidity_suggestion(
+    capital: Optional[float],
+    max_positions: int = 10,
+) -> Optional[tuple[float, str]]:
+    """
+    포지션당 투자금의 10배 = 최소 필요 일평균거래대금 (10% ADV 원칙).
+    의미있는 필터 기준이 나오지 않으면 None 반환 (필터 제안 불필요).
+    """
+    if capital is None:
+        return 10.0, "10억"  # 자본금 미정의 시 보수적 기본값
+
+    per_position = capital / max(max_positions or 10, 1)
+    min_volume = per_position * 10  # 포지션이 일거래량의 10% 이내여야 슬리피지 무시 가능
+
+    # 최소 기준(1억) 미만이면 상장 종목 대부분이 해당 → 의미없는 필터
+    if min_volume < 100_000_000:
+        return None
+
+    if min_volume <= 300_000_000:
+        return 3.0, "3억"
+    if min_volume <= 500_000_000:
+        return 5.0, "5억"
+    if min_volume <= 1_000_000_000:
+        return 10.0, "10억"
+    return 30.0, "30억"
+
+
 def rule_no_liquidity_filter(ctx: RuleContext) -> Optional[Issue]:
-    """유동성 필터(거래대금) 없을 때."""
-    if not ctx.has_liquidity_filter and ctx.universe_size_estimate > 200:
-        return _issue(
-            "NO_LIQUIDITY_FILTER",
-            "medium",
-            "거래대금(유동성) 필터가 없습니다. "
-            "유동성 낮은 종목은 실제 매매 시 슬리피지가 극심해 백테스트와 실거래 괴리가 커집니다. "
-            "'일평균거래대금 10억 이상' 같은 필터를 추가하세요.",
-        )
-    return None
+    """유동성 필터(거래대금) 없을 때 — 포지션 크기 기반으로 필요성 판단."""
+    if ctx.has_liquidity_filter or ctx.universe_size_estimate <= 200:
+        return None
+
+    result = _liquidity_suggestion(ctx.initial_capital, ctx.max_positions)
+    if result is None:
+        return None  # 포지션 크기 대비 의미있는 필터 기준이 없음
+
+    _, label = result
+    return _issue(
+        "NO_LIQUIDITY_FILTER",
+        "medium",
+        f"거래대금(유동성) 필터가 없습니다. "
+        f"유동성 낮은 종목은 실제 매매 시 슬리피지가 극심해 백테스트와 실거래 괴리가 커집니다. "
+        f"일평균거래대금 {label} 이상 필터를 추가하세요.",
+    )
 
 
 def rule_no_entry_signals(ctx: RuleContext) -> Optional[Issue]:
@@ -125,6 +159,21 @@ def rule_no_stop_loss(ctx: RuleContext) -> Optional[Issue]:
     return None
 
 
+def rule_no_take_profit(ctx: RuleContext) -> Optional[Issue]:
+    """손절은 있는데 익절 기준이 없을 때 — 수익 실현 시점 불명확."""
+    if ctx.has_take_profit or ctx.has_trailing_stop or ctx.has_exit_signals:
+        return None  # 명시적 익절 수단이 있음
+    if not ctx.has_stop_loss:
+        return None  # MISSING_EXIT_RULE / NO_STOP_LOSS가 더 우선적으로 다룸
+    return _issue(
+        "NO_TAKE_PROFIT",
+        "low",
+        "익절 기준이 없습니다. 손절은 설정되어 있지만 수익 실현 시점이 불명확합니다. "
+        "주가가 크게 올라도 언제 팔아야 할지 모르면 심리적 판단이 어렵습니다. "
+        "익절 비율 또는 트레일링 스탑 추가를 검토하세요.",
+    )
+
+
 def rule_too_tight_stop(ctx: RuleContext) -> Optional[Issue]:
     """손절이 너무 타이트하면 정상 변동성에서도 잦은 청산 발생."""
     pct = ctx.stop_loss_pct or (ctx.has_trailing_stop and 5.0)
@@ -141,7 +190,7 @@ def rule_too_tight_stop(ctx: RuleContext) -> Optional[Issue]:
 
 def rule_position_overexposed(ctx: RuleContext) -> Optional[Issue]:
     """최대 종목 수가 너무 적으면 개별 종목 위험 집중."""
-    if ctx.max_positions <= 3:
+    if ctx.max_positions is not None and ctx.max_positions <= 3:
         return _issue(
             "POSITION_OVEREXPOSED",
             "medium",
@@ -300,6 +349,7 @@ ALL_RULES = [
     rule_no_entry_signals,
     # risk
     rule_no_stop_loss,
+    rule_no_take_profit,
     rule_too_tight_stop,
     rule_position_overexposed,
     # backtest

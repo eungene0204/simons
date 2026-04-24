@@ -136,6 +136,106 @@ describe("GET /api/stock/[symbol]/detail", () => {
     expect(body.isNew52WeekLow).toBe(false);
   });
 
+  it("sector와 industry를 분리해서 유지한다", async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ lastClose: 69000 }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ subscribed: ["005930"] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          "005930": {
+            close: 70100,
+            open: 69500,
+            high: 70300,
+            low: 69400,
+            volume: 12345678,
+            source: "kis_total",
+            prev_close: 69000,
+            change_rate: 1.59,
+            date: "2026-04-08",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          symbol: "005930",
+          name: "삼성전자",
+          currentPrice: 70100,
+          volume: 12345678,
+          previousClose: 69000,
+          sector: "반도체",
+          industry: "반도체 제조업",
+          source: "fsc_public_company_info",
+        }),
+      });
+
+    const response = await GET(
+      new Request("http://localhost/api/stock/005930/detail"),
+      { params: { symbol: "005930" } }
+    );
+    const body = await response.json();
+
+    expect(body.sector).toBe("반도체");
+    expect(body.industry).toBe("반도체 제조업");
+  });
+
+  it("공공데이터 industry가 비어 있으면 오래된 fallback 값을 섹터로 쓰지 않는다", async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ lastClose: 69000 }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ subscribed: ["005930"] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          "005930": {
+            close: 70100,
+            open: 69500,
+            high: 70300,
+            low: 69400,
+            volume: 12345678,
+            source: "kis_total",
+            prev_close: 69000,
+            change_rate: 1.59,
+            date: "2026-04-08",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          symbol: "005930",
+          name: "삼성전자",
+          currentPrice: 70100,
+          volume: 12345678,
+          previousClose: 69000,
+          sector: "",
+          industry: "",
+          source: "fsc_public_company_info",
+        }),
+      });
+
+    const response = await GET(
+      new Request("http://localhost/api/stock/005930/detail"),
+      { params: { symbol: "005930" } }
+    );
+    const body = await response.json();
+
+    expect(body.sector).toBe("");
+    expect(body.industry).toBe("");
+  });
+
   it("same symbol reuses the last valid market cap when KIS detail temporarily drops it", async () => {
     fetchMock
       .mockResolvedValueOnce({

@@ -273,36 +273,47 @@ async def market_stock_detail(
     symbol: str,
     include_profile: bool = True,
     include_listing: bool = True,
+    include_public_info: bool = True,
+    company_name: Optional[str] = None,
 ):
     """
     KIS 상세 현재가 조회.
     시가총액/거래량 등 종목 매매 페이지용 실데이터를 우선 제공한다.
     """
     quote, app_key, app_secret, token = await _resolve_kis_orderbook_context(symbol)
-    company_profile = _get_cached_company_profile(symbol) if include_profile else None
-    listing_info = _get_cached_listing_info(symbol) if include_listing else None
+    public_company_info = (
+        _get_cached_public_company_info(symbol, company_name)
+        if include_public_info else None
+    )
+    listing_info = (
+        (public_company_info or {}).get("listing")
+        or (_get_cached_listing_info(symbol) if include_listing else None)
+    )
+    company_basic = (public_company_info or {}).get("companyBasic") or {}
+    summary_financials = (public_company_info or {}).get("summaryFinancials") or {}
 
     detail = None
     if app_key and app_secret and token:
         detail = _fetch_kis_stock_detail(symbol, app_key, app_secret, token)
 
-    if not detail and not company_profile and not listing_info and not quote:
+    if not detail and not listing_info and not company_basic and not summary_financials and not quote:
         raise HTTPException(status_code=503, detail="KIS 상세 시세를 조회할 수 없습니다")
 
     company_name = (
         (detail or {}).get("name")
-        or (company_profile or {}).get("name")
+        or company_basic.get("name")
         or getattr(quote, "name", None)
         or symbol
     )
-    sector = (company_profile or {}).get("sector", "")
-    industry = (company_profile or {}).get("industry", "")
+    industry = str(company_basic.get("industry") or "").strip()
+    sector = _resolve_investment_sector(symbol, company_name, industry)
+    public_description = _build_public_company_overview(company_basic, listing_info)
     description = ""
-    if include_profile:
-        description = (
-            (company_profile or {}).get("description")
-            or _build_company_intro(company_name, sector, industry)
-        )
+    if not description:
+        if public_description:
+            description = public_description
+        else:
+            description = _build_company_intro(company_name, sector, industry)
 
     payload = {
         **(detail or {}),
@@ -311,14 +322,20 @@ async def market_stock_detail(
         "currentPrice": (detail or {}).get("currentPrice") or quote.close,
         "volume": (detail or {}).get("volume") or quote.volume,
         "previousClose": (detail or {}).get("previousClose") or quote.prev_close,
+        "debtRatio": (detail or {}).get("debtRatio") or summary_financials.get("debtRatio"),
         "description": description,
         "sector": sector,
         "industry": industry,
-        "profileSource": (company_profile or {}).get("source"),
+        "profileSource": (public_company_info or {}).get("source"),
         "listingDate": (listing_info or {}).get("listingDate"),
+        "companyBasic": company_basic or None,
+        "summaryFinancials": summary_financials or None,
     }
     if not payload.get("source"):
-        payload["source"] = (company_profile or {}).get("source") or "quote_only"
+        payload["source"] = (
+            (public_company_info or {}).get("source")
+            or "quote_only"
+        )
 
     return payload
 
@@ -362,6 +379,15 @@ def _to_int(value) -> int:
         return 0
 
 
+def _to_optional_int(value) -> Optional[int]:
+    if value in (None, "", "-"):
+        return None
+    try:
+        return int(float(str(value).replace(",", "").strip()))
+    except Exception:
+        return None
+
+
 def _to_float(value) -> float:
     if value in (None, "", "-"):
         return 0.0
@@ -369,6 +395,15 @@ def _to_float(value) -> float:
         return float(str(value).replace(",", "").strip())
     except Exception:
         return 0.0
+
+
+def _to_optional_float(value) -> Optional[float]:
+    if value in (None, "", "-"):
+        return None
+    try:
+        return float(str(value).replace(",", "").strip())
+    except Exception:
+        return None
 
 
 def _first_nonzero_int(data: dict, *keys: str) -> int:
@@ -379,12 +414,28 @@ def _first_nonzero_int(data: dict, *keys: str) -> int:
     return 0
 
 
+def _first_int_value(data: dict, *keys: str) -> Optional[int]:
+    for key in keys:
+        value = _to_optional_int(data.get(key))
+        if value is not None:
+            return value
+    return None
+
+
 def _first_nonzero_float(data: dict, *keys: str) -> float:
     for key in keys:
         value = _to_float(data.get(key))
         if value > 0:
             return value
     return 0.0
+
+
+def _first_float_value(data: dict, *keys: str) -> Optional[float]:
+    for key in keys:
+        value = _to_optional_float(data.get(key))
+        if value is not None:
+            return value
+    return None
 
 
 def _first_nonempty_str(data: dict, *keys: str) -> Optional[str]:
@@ -395,6 +446,16 @@ def _first_nonempty_str(data: dict, *keys: str) -> Optional[str]:
         normalized = str(value).strip()
         if normalized and normalized != "-":
             return normalized
+    return None
+
+
+def _first_nonempty_from_dicts(*sources: Optional[dict], keys: tuple[str, ...]) -> Optional[str]:
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        value = _first_nonempty_str(source, *keys)
+        if value:
+            return value
     return None
 
 
@@ -435,6 +496,8 @@ _company_profile_cache: dict[str, tuple[Optional[dict], float]] = {}
 _COMPANY_PROFILE_CACHE_TTL = 60.0 * 60.0 * 6.0
 _listing_info_cache: dict[str, tuple[Optional[dict], float]] = {}
 _LISTING_INFO_CACHE_TTL = 60.0 * 60.0 * 24.0 * 30.0
+_public_company_info_cache: dict[str, tuple[Optional[dict], float]] = {}
+_PUBLIC_COMPANY_INFO_CACHE_TTL = 60.0 * 60.0 * 24.0 * 30.0
 _PUBLIC_DATA_SERVICE_KEY_ENV_NAMES = (
     "PUBLIC_DATA_SERVICE_KEY",
     "DATA_GO_KR_SERVICE_KEY",
@@ -490,6 +553,66 @@ def _summarize_company_description(text: Optional[str]) -> str:
     return brief[:317].rstrip() + "..."
 
 
+def _clean_korean_company_name(name: Optional[str]) -> str:
+    normalized = str(name or "").strip()
+    normalized = re.sub(r"\s*\(주\)\s*", "", normalized)
+    return normalized or "해당 기업"
+
+
+def _normalize_company_name_for_match(name: Optional[str]) -> str:
+    normalized = str(name or "").strip().lower()
+    normalized = re.sub(r"\s+", "", normalized)
+    normalized = normalized.replace("주식회사", "")
+    normalized = normalized.replace("(주)", "")
+    normalized = normalized.replace("㈜", "")
+    normalized = re.sub(r"[().,]", "", normalized)
+    return normalized
+
+
+def _normalize_homepage_url(value: Optional[str]) -> Optional[str]:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return None
+    if re.match(r"^[a-z][a-z0-9+.-]*://", normalized, re.IGNORECASE):
+        return normalized
+    return f"https://{normalized.lstrip('/')}"
+
+
+def _translate_company_description(text: Optional[str], company_name: Optional[str]) -> str:
+    if not text:
+        return ""
+
+    normalized = re.sub(r"\s+", " ", str(text)).strip()
+    if not normalized:
+        return ""
+    if re.search(r"[가-힣]", normalized):
+        return normalized
+
+    display_name = _clean_korean_company_name(company_name)
+
+    translations = [
+        (
+            re.compile(
+                r"^.*? engages in the consumer electronics, information technology and mobile communications, and device solutions businesses worldwide\.?$",
+                re.IGNORECASE,
+            ),
+            f"{display_name}는 전 세계에서 전자제품, 정보기술 및 모바일 커뮤니케이션, 디바이스 솔루션 사업을 영위합니다.",
+        ),
+        (
+            re.compile(
+                r"^.*? engages in consumer electronics and semiconductor businesses worldwide\.?$",
+                re.IGNORECASE,
+            ),
+            f"{display_name}는 전 세계에서 전자제품 및 반도체 사업을 영위합니다.",
+        ),
+    ]
+    for pattern, translated in translations:
+        if pattern.match(normalized):
+            return translated
+
+    return normalized
+
+
 def _build_company_intro(name: str, sector: Optional[str], industry: Optional[str]) -> str:
     normalized_name = str(name or "").strip() or "해당 기업"
     normalized_sector = str(sector or "").strip()
@@ -502,6 +625,75 @@ def _build_company_intro(name: str, sector: Optional[str], industry: Optional[st
     if normalized_sector:
         return f"{normalized_name}는 {normalized_sector} 섹터에 속한 상장사입니다."
     return f"{normalized_name}는 국내 상장사입니다."
+
+
+def _format_public_listing_date(value: Optional[str]) -> Optional[str]:
+    normalized = _normalize_public_listing_date(value)
+    if not normalized or len(normalized) != 8:
+        return normalized
+    return f"{normalized[:4]}년 {normalized[4:6]}월 {normalized[6:8]}일"
+
+
+def _build_public_company_overview(
+    company_basic: Optional[dict],
+    listing_info: Optional[dict],
+) -> str:
+    if not isinstance(company_basic, dict):
+        return ""
+
+    display_name = (
+        company_basic.get("disclosureName")
+        or _clean_korean_company_name(company_basic.get("name"))
+    )
+    if not display_name:
+        return ""
+
+    main_business = str(company_basic.get("mainBusiness") or "").strip()
+    industry = str(company_basic.get("industry") or "").strip()
+    representative_name = str(company_basic.get("representativeName") or "").strip()
+    address = str(company_basic.get("address") or "").strip()
+    listing_date = _format_public_listing_date(
+        (listing_info or {}).get("listingDate")
+        or company_basic.get("exchangeListingDate")
+        or company_basic.get("kosdaqListingDate")
+        or company_basic.get("krxListingDate")
+    )
+
+    sentences = []
+    if main_business:
+        sentences.append(f"{display_name}의 주요 사업은 {main_business}입니다.")
+    elif industry:
+        sentences.append(f"{display_name}는 {industry} 업종에 속한 국내 상장사입니다.")
+    else:
+        sentences.append(f"{display_name}는 국내 상장사입니다.")
+
+    if listing_date:
+        sentences.append(f"상장일은 {listing_date}입니다.")
+    if representative_name:
+        sentences.append(f"대표자는 {representative_name}입니다.")
+    if address:
+        sentences.append(f"본사는 {address}에 있습니다.")
+
+    return " ".join(sentences)
+
+
+def _resolve_investment_sector(
+    symbol: str,
+    company_name: Optional[str],
+    industry: Optional[str],
+) -> str:
+    normalized_industry = str(industry or "").strip()
+    if not normalized_industry:
+        return ""
+
+    try:
+        from engine.sector_mapper import get_sector_from_industry
+
+        return str(
+            get_sector_from_industry(symbol, normalized_industry, company_name or "") or ""
+        ).strip()
+    except Exception:
+        return ""
 
 
 def _get_public_data_service_key() -> str:
@@ -617,7 +809,262 @@ def _fetch_listing_info_from_public_api(symbol: str) -> Optional[dict]:
 
     return {
         "listingDate": listing_date,
+        "crno": crno,
+        "isinCode": _first_nonempty_str(issuance_item, "isinCd"),
+        "stockIssueCompanyName": _first_nonempty_str(issuance_item, "stckIssuCmpyNm"),
+        "issuedShares": _first_nonzero_int(issuance_item, "issuStckCnt"),
+        "parValue": _first_nonzero_int(issuance_item, "stckParPrc"),
+        "delistingDate": _first_nonempty_str(issuance_item, "lstgAbolDt"),
         "source": "fsc_stock_issuance",
+    }
+
+
+def _normalize_company_basic(item: Optional[dict]) -> Optional[dict]:
+    if not isinstance(item, dict):
+        return None
+
+    return {
+        "crno": _first_nonempty_str(item, "crno"),
+        "name": _first_nonempty_str(item, "corpNm", "enpPbanCmpyNm"),
+        "englishName": _first_nonempty_str(item, "corpEnsnNm"),
+        "disclosureName": _first_nonempty_str(item, "enpPbanCmpyNm"),
+        "representativeName": _first_nonempty_str(item, "enpRprFnm"),
+        "businessRegistrationNumber": _first_nonempty_str(item, "bzno"),
+        "establishmentDate": _first_nonempty_str(item, "enpEstbDt"),
+        "exchangeListingDate": _first_nonempty_str(item, "enpXchgLstgDt"),
+        "kosdaqListingDate": _first_nonempty_str(item, "enpKosdaqLstgDt"),
+        "krxListingDate": _first_nonempty_str(item, "enpKrxLstgDt"),
+        "homepageUrl": _normalize_homepage_url(_first_nonempty_str(item, "enpHmpgUrl")),
+        "industry": _first_nonempty_str(item, "sicNm"),
+        "mainBusiness": _first_nonempty_str(item, "enpMainBizNm"),
+        "employeeCount": _first_nonzero_int(item, "enpEmpeCnt"),
+        "averageTenure": _first_nonempty_str(item, "empeAvgCnwkTermCtt"),
+        "averageSalary": _first_nonzero_int(item, "enpPn1AvgSlryAmt"),
+        "settlementMonth": _first_nonempty_str(item, "enpStacMm"),
+        "address": _first_nonempty_str(item, "enpBsadr", "enpDtadr"),
+        "phone": _first_nonempty_str(item, "enpTlno"),
+        "source": "fsc_company_basic",
+    }
+
+
+def _merge_company_basic_items(items: List[dict]) -> Optional[dict]:
+    normalized_items = [
+        _normalize_company_basic(item)
+        for item in items
+        if isinstance(item, dict)
+    ]
+    normalized_items = [item for item in normalized_items if isinstance(item, dict)]
+    if not normalized_items:
+        return None
+
+    merged = dict(normalized_items[0])
+    for item in normalized_items[1:]:
+        for key, value in item.items():
+            if value in (None, "", 0):
+                continue
+            if merged.get(key) in (None, "", 0):
+                merged[key] = value
+
+    return merged
+
+
+def _score_company_basic_item(item: dict, company_name: str) -> tuple[int, str]:
+    normalized_query = _normalize_company_name_for_match(company_name)
+    names = [
+        _first_nonempty_str(item, "enpPbanCmpyNm") or "",
+        _first_nonempty_str(item, "corpNm") or "",
+        _first_nonempty_str(item, "corpEnsnNm") or "",
+    ]
+    normalized_names = [_normalize_company_name_for_match(name) for name in names]
+
+    score = 0
+    if normalized_query:
+        if any(name == normalized_query for name in normalized_names):
+            score += 300
+        elif any(name.startswith(normalized_query) for name in normalized_names):
+            score += 80
+        elif any(normalized_query in name for name in normalized_names):
+            score += 20
+    if _first_nonempty_str(item, "enpPbanCmpyNm"):
+        score += 40
+    if _first_nonempty_str(item, "corpRegMrktDcdNm"):
+        score += 50
+    if _first_nonempty_str(item, "enpXchgLstgDt", "enpKosdaqLstgDt", "enpKrxLstgDt"):
+        score += 40
+    if _first_nonempty_str(item, "fssCorpUnqNo"):
+        score += 30
+    if _first_nonempty_str(item, "sicNm"):
+        score += 35
+    if _first_nonempty_str(item, "enpMainBizNm"):
+        score += 25
+
+    return score, _first_nonempty_str(item, "lastOpegDt", "fstOpegDt") or ""
+
+
+def _fetch_company_basic_from_public_api(
+    crno: Optional[str],
+    company_name: Optional[str] = None,
+) -> Optional[dict]:
+    if not crno and not company_name:
+        return None
+
+    params = {
+        "numOfRows": 100 if company_name and not crno else 10,
+        "pageNo": 1,
+    }
+    if crno:
+        params["crno"] = crno
+    if company_name:
+        params["corpNm"] = company_name
+
+    items = _fetch_public_data_items(
+        "https://apis.data.go.kr/1160100/service/GetCorpBasicInfoService_V2/getCorpOutline_V2",
+        params,
+    )
+    if not items and company_name:
+        items = _fetch_public_data_items(
+            "https://apis.data.go.kr/1160100/service/GetCorpBasicInfoService_V2/getCorpOutline_V2",
+            {
+                "numOfRows": 100,
+                "pageNo": 1,
+                "corpNm": company_name,
+            },
+        )
+
+    item = next(
+        (
+            row
+            for row in items
+            if crno and str(row.get("crno", "")).strip() == crno
+        ),
+        None,
+    )
+    if not item and items:
+        if company_name:
+            item = sorted(
+                items,
+                key=lambda row: _score_company_basic_item(row, company_name),
+                reverse=True,
+            )[0]
+        else:
+            item = items[0]
+
+    if not item:
+        return None
+
+    matching_items = [item]
+    item_crno = _first_nonempty_str(item, "crno")
+    normalized_name = _normalize_company_name_for_match(
+        _first_nonempty_str(item, "enpPbanCmpyNm", "corpNm", "corpEnsnNm")
+    )
+    for row in items:
+        if row is item or not isinstance(row, dict):
+            continue
+        if item_crno and _first_nonempty_str(row, "crno") == item_crno:
+            matching_items.append(row)
+            continue
+        row_name = _normalize_company_name_for_match(
+            _first_nonempty_str(row, "enpPbanCmpyNm", "corpNm", "corpEnsnNm")
+        )
+        if normalized_name and row_name == normalized_name:
+            matching_items.append(row)
+
+    return _merge_company_basic_items(matching_items)
+
+
+def _normalize_summary_financials(item: Optional[dict]) -> Optional[dict]:
+    if not isinstance(item, dict):
+        return None
+
+    return {
+        "crno": _first_nonempty_str(item, "crno"),
+        "baseDate": _first_nonempty_str(item, "basDt"),
+        "businessYear": _first_nonempty_str(item, "bizYear"),
+        "statementTypeCode": _first_nonempty_str(item, "fnclDcd"),
+        "statementType": _first_nonempty_str(item, "fnclDcdNm"),
+        "sales": _first_int_value(item, "enpSaleAmt"),
+        "operatingProfit": _first_int_value(item, "enpBzopPft"),
+        "comprehensiveIncome": _first_int_value(item, "iclsPalClcAmt"),
+        "netIncome": _first_int_value(item, "enpCrtmNpf"),
+        "totalAssets": _first_int_value(item, "enpTastAmt"),
+        "totalLiabilities": _first_int_value(item, "enpTdbtAmt"),
+        "totalEquity": _first_int_value(item, "enpTcptAmt"),
+        "capital": _first_int_value(item, "enpCptlAmt"),
+        "debtRatio": _first_float_value(item, "fnclDebtRto"),
+        "source": "fsc_summary_financials",
+    }
+
+
+def _fetch_summary_financials_from_public_api(crno: str) -> Optional[dict]:
+    items = _fetch_public_data_items(
+        "https://apis.data.go.kr/1160100/service/GetFinaStatInfoService_V2/getSummFinaStat_V2",
+        {
+            "numOfRows": 100,
+            "pageNo": 1,
+            "crno": crno,
+        },
+    )
+    if not items:
+        return None
+
+    def sort_key(item: dict) -> tuple[str, str, int]:
+        statement_name = str(item.get("fnclDcdNm", "") or "")
+        consolidated_rank = 1 if "연결" in statement_name else 0
+        return (
+            str(item.get("bizYear", "") or ""),
+            str(item.get("basDt", "") or ""),
+            consolidated_rank,
+        )
+
+    latest = sorted(items, key=sort_key, reverse=True)[0]
+    return _normalize_summary_financials(latest)
+
+
+def _normalize_public_listing_date(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    digits = re.sub(r"\D", "", str(value))
+    if len(digits) == 6:
+        year_prefix = "19" if int(digits[:2]) > 40 else "20"
+        return year_prefix + digits
+    if len(digits) == 8:
+        return digits
+    return str(value).strip() or None
+
+
+def _fetch_public_company_info(symbol: str, company_name: Optional[str] = None) -> Optional[dict]:
+    listing = _fetch_listing_info_from_public_api(symbol)
+    crno = (listing or {}).get("crno")
+
+    resolved_company_name = (
+        _first_nonempty_from_dicts(listing, keys=("stockIssueCompanyName", "name"))
+        or company_name
+    )
+    company_basic = _fetch_company_basic_from_public_api(crno, resolved_company_name)
+    if not crno:
+        crno = (company_basic or {}).get("crno")
+    summary_financials = _fetch_summary_financials_from_public_api(crno) if crno else None
+
+    if not listing and company_basic:
+        listing_date = _normalize_public_listing_date(
+            company_basic.get("exchangeListingDate")
+            or company_basic.get("kosdaqListingDate")
+            or company_basic.get("krxListingDate")
+        )
+        listing = {
+            "listingDate": listing_date,
+            "crno": crno,
+            "source": "fsc_company_basic",
+        } if listing_date or crno else None
+
+    if not listing and not company_basic and not summary_financials:
+        return None
+
+    return {
+        "listing": listing,
+        "companyBasic": company_basic,
+        "summaryFinancials": summary_financials,
+        "source": "fsc_public_company_info",
     }
 
 
@@ -687,6 +1134,20 @@ def _get_cached_listing_info(symbol: str) -> Optional[dict]:
 
     value = _fetch_listing_info_from_public_api(symbol)
     _listing_info_cache[symbol] = (value, time.time() + _LISTING_INFO_CACHE_TTL)
+    return value
+
+
+def _get_cached_public_company_info(symbol: str, company_name: Optional[str] = None) -> Optional[dict]:
+    cache_key = f"{symbol}:{company_name or ''}"
+    cached = _public_company_info_cache.get(cache_key)
+    if cached and cached[1] > time.time():
+        return cached[0]
+
+    value = _fetch_public_company_info(symbol, company_name)
+    _public_company_info_cache[cache_key] = (
+        value,
+        time.time() + _PUBLIC_COMPANY_INFO_CACHE_TTL,
+    )
     return value
 
 
