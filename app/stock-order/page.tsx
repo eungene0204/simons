@@ -38,6 +38,59 @@ const formatPrice = (price: number) => {
   return new Intl.NumberFormat("ko-KR").format(price);
 };
 
+const toFiniteNumber = (value: unknown): number | undefined => {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : undefined;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value.replace(/,/g, "").trim());
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+};
+
+const formatCompactDate = (value: unknown) => {
+  if (!value) return "—";
+  const digits = String(value).replace(/\D/g, "");
+  if (digits.length === 8) {
+    return `${digits.slice(0, 4)}.${digits.slice(4, 6)}.${digits.slice(6, 8)}`;
+  }
+  return String(value);
+};
+
+const formatCount = (value: unknown, unit: string) => {
+  const number = toFiniteNumber(value);
+  return number !== undefined ? `${formatPrice(number)}${unit}` : "—";
+};
+
+const formatWonMetric = (value: unknown) => {
+  const number = toFiniteNumber(value);
+  if (number === undefined) return "—";
+  if (number === 0) return "0원";
+  const sign = number < 0 ? "-" : "";
+  return `${sign}${formatMarketCap(Math.abs(number))}`;
+};
+
+const translateBusinessPhrase = (value: string) => {
+  return value
+    .replace(/\bthe consumer electronics, information technology and mobile communications, and device solutions businesses\b/gi, "전자제품, 정보기술 및 모바일 커뮤니케이션, 디바이스 솔루션 사업")
+    .replace(/\binformation technology and mobile communications\b/gi, "정보기술 및 모바일 커뮤니케이션")
+    .replace(/\bdevice solutions businesses\b/gi, "디바이스 솔루션 사업")
+    .replace(/\bconsumer electronics\b/gi, "전자제품")
+    .replace(/\bsemiconductor businesses\b/gi, "반도체 사업")
+    .replace(/\bsemiconductors\b/gi, "반도체")
+    .replace(/\bdisplays\b/gi, "디스플레이")
+    .replace(/\bmobile devices\b/gi, "모바일 기기")
+    .replace(/\bnetwork systems\b/gi, "네트워크 시스템")
+    .replace(/\baudio\b/gi, "오디오")
+    .replace(/\bconnected-car businesses\b/gi, "커넥티드카 사업")
+    .replace(/\bbusinesses\b/gi, "사업")
+    .replace(/\bthe\b/gi, "")
+    .replace(/\band\b/gi, "및")
+    .replace(/\s+/g, " ")
+    .replace(/,\s*/g, ", ");
+};
+
 const STOCK_DETAIL_RETRY_DELAYS_MS = [0, 400, 1200];
 
 function applyRealtimeToLatestCandle(
@@ -662,6 +715,8 @@ export default function OrderPage() {
 
   const displayStockName =
     pickStockName(symbol, selectedStockName, stockInfo?.name) ?? symbol;
+  const companyBasic = stockInfo?.companyBasic ?? {};
+  const summaryFinancials = stockInfo?.summaryFinancials ?? {};
 
   const PRICE_HISTORY_COLS = "grid-cols-[96px_1fr_80px_110px_80px_80px_80px]";
 
@@ -1308,43 +1363,96 @@ export default function OrderPage() {
                 <div className="grid grid-cols-1 lg:grid-cols-10 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
                   <div className="lg:col-span-5 p-5">
                     <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit mb-4">기본 정보</h2>
-                    <div className="divide-y divide-white/[0.05]">
+                    <div className="space-y-1">
                       {[
                         ["종목명", displayStockName],
                         ["종목코드", symbol],
+                        ["상장일", formatCompactDate(stockInfo.listingDate)],
+                        ["설립일", formatCompactDate(companyBasic.establishmentDate)],
+                        ["대표자", companyBasic.representativeName || "—"],
                         ["섹터", stockInfo.sector || "—"],
-                        ["업종", stockInfo.industry || "—"],
-                        ["현재가", currentPrice ? `${formatPrice(currentPrice)}원` : "—"],
+                        ["종업원", formatCount(companyBasic.employeeCount, "명")],
+                        [
+                          "홈페이지",
+                          companyBasic.homepageUrl ? (
+                            <a
+                              href={companyBasic.homepageUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-sky-400 hover:text-sky-300"
+                            >
+                              방문
+                            </a>
+                          ) : "—",
+                        ],
                       ].map(([label, value]) => (
                         <div key={label} className="flex items-center justify-between py-3">
-                          <span className="text-xs font-bold uppercase tracking-widest text-gray-600">{label}</span>
-                          <span className="text-sm font-bold text-white tabular-nums">{value}</span>
+                          <span className="text-xs font-bold uppercase tracking-widest text-slate-300">{label}</span>
+                          <span className="max-w-[60%] truncate text-right text-sm font-bold text-white tabular-nums">{value}</span>
                         </div>
                       ))}
                     </div>
                   </div>
                   <div className="lg:col-span-5 p-5">
                     <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit mb-4">재무 정보</h2>
-                    <div className="divide-y divide-white/[0.05]">
+                    <div className="space-y-1">
                       {[
-                        ["시가총액", stockInfo.marketCap ? formatMarketCap(stockInfo.marketCap) : "—"],
+                        ["회계연도", summaryFinancials.businessYear || "—"],
+                        ["재무제표", summaryFinancials.statementType || "—"],
+                        ["매출액", formatWonMetric(summaryFinancials.sales)],
+                        ["영업이익", formatWonMetric(summaryFinancials.operatingProfit)],
+                        ["당기순이익", formatWonMetric(summaryFinancials.netIncome)],
+                        ["총자산", formatWonMetric(summaryFinancials.totalAssets)],
+                        ["총부채", formatWonMetric(summaryFinancials.totalLiabilities)],
+                        ["총자본", formatWonMetric(summaryFinancials.totalEquity)],
+                        [
+                          "부채비율",
+                          summaryFinancials.debtRatio !== undefined && summaryFinancials.debtRatio !== null
+                            ? `${Number(summaryFinancials.debtRatio).toFixed(2)}%`
+                            : stockInfo.debtRatio
+                            ? `${stockInfo.debtRatio.toFixed(2)}%`
+                            : "—",
+                        ],
                         ["PER", stockInfo.pe ? stockInfo.pe.toFixed(2) : "—"],
                         ["PBR", stockInfo.pbr ? stockInfo.pbr.toFixed(2) : "—"],
-                        ["전일 종가", referenceClose ? `${formatPrice(referenceClose)}원` : "—"],
-                        ["거래량", stockInfo.volume ? formatPrice(stockInfo.volume) : "—"],
                       ].map(([label, value]) => (
                         <div key={label} className="flex items-center justify-between py-3">
-                          <span className="text-xs font-bold uppercase tracking-widest text-gray-600">{label}</span>
+                          <span className="text-xs font-bold uppercase tracking-widest text-slate-300">{label}</span>
                           <span className="text-sm font-black text-white tabular-nums font-outfit">{value}</span>
                         </div>
                       ))}
                     </div>
                   </div>
                 </div>
-                {stockInfo.description && (
-                  <div className="p-5">
-                    <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit mb-3">기업 개요</h2>
-                    <p className="text-sm font-bold leading-relaxed text-gray-400">{stockInfo.description}</p>
+                {(companyBasic.englishName || companyBasic.businessRegistrationNumber || companyBasic.address || companyBasic.settlementMonth) && (
+                  <div className="grid grid-cols-1 lg:grid-cols-10 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
+                    <div className="lg:col-span-5 p-5">
+                      <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit mb-4">기업 상세</h2>
+                      <div className="space-y-1">
+                        {[
+                          ["영문명", companyBasic.englishName || "—"],
+                          ["공시회사명", companyBasic.disclosureName || "—"],
+                          ["사업자번호", companyBasic.businessRegistrationNumber || "—"],
+                          ["결산월", companyBasic.settlementMonth ? `${companyBasic.settlementMonth}월` : "—"],
+                        ].map(([label, value]) => (
+                          <div key={label} className="flex items-center justify-between py-3">
+                            <span className="text-xs font-bold uppercase tracking-widest text-slate-300">{label}</span>
+                            <span className="max-w-[60%] truncate text-right text-sm font-bold text-white tabular-nums">{value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="lg:col-span-5 p-5">
+                      <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit mb-4">주소</h2>
+                      <p className="text-sm font-bold leading-relaxed text-gray-400">
+                        {companyBasic.address || "—"}
+                      </p>
+                      {companyBasic.mainBusiness && (
+                        <p className="mt-4 pt-4 text-sm font-bold leading-relaxed text-gray-400">
+                          {companyBasic.mainBusiness}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 )}
               </>

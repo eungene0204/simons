@@ -61,9 +61,10 @@ def _build_rule_context(
         has_fundamental_filters=has_fundamental,
         entry_signal_count=len(entry_signals),
         has_ai_signal=has_ai,
-        max_positions=ps.get("max_positions") or 10,
+        max_positions=ps.get("max_positions"),
         universe_size_estimate=universe_size,
         hold_period_days=hold_days,
+        initial_capital=ps.get("initial_capital"),
         # risk
         has_stop_loss=sl_pct is not None,
         stop_loss_pct=sl_pct,

@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import List, Optional
 
 from .news_adapter import NormalizedNewsSignals
-from .rules import RuleContext
+from .rules import RuleContext, _liquidity_suggestion
 from .schemas import (
     AIModelRecommendation,
     Issue,
@@ -36,6 +36,23 @@ def _rec(
     )
 
 
+def _no_liquidity_rec(ctx: RuleContext) -> Recommendation:
+    result = _liquidity_suggestion(ctx.initial_capital, ctx.max_positions)
+    amount, label = result if result else (10.0, "10억")
+    return _rec(
+        "filter",
+        2,
+        f"거래대금 필터 추가 (일평균 {label} 이상)",
+        "유동성 낮은 종목은 실거래 슬리피지가 커서 백테스트와 실거래 수익이 크게 다릅니다.",
+        ProposedChange(
+            field="fundamental_filters",
+            action="add",
+            value={"metric": "trading_value", "operator": ">=", "value": amount},
+            description=f"일평균거래대금 {label} 이상 필터 추가",
+        ),
+    )
+
+
 # ─── Issue-driven recommendations ────────────────────────────────────────────
 
 _ISSUE_RECS = {
@@ -53,6 +70,18 @@ _ISSUE_RECS = {
         ProposedChange(field="stop_loss_pct", action="set", value=10.0,
                        description="10% 손절 또는 trailing_stop_pct 15% 중 선택"),
     ),
+    "NO_TAKE_PROFIT": lambda _ctx: _rec(
+        "risk_management", 3,
+        "익절 또는 트레일링 스탑 추가",
+        "수익 실현 기준이 없으면 주가가 크게 올라도 언제 팔지 판단하기 어렵습니다. "
+        "고정 익절 또는 트레일링 스탑으로 수익을 자동 확정하세요.",
+        ProposedChange(
+            field="take_profit_pct",
+            action="set",
+            value=20.0,
+            description="20% 익절 설정 또는 trailing_stop_pct 15% 중 선택",
+        ),
+    ),
     "TOO_TIGHT_STOP": lambda ctx: _rec(
         "risk_management", 2,
         f"손절 완화 ({(ctx.stop_loss_pct or 3):.1f}% → 7~10%)",
@@ -60,18 +89,31 @@ _ISSUE_RECS = {
         ProposedChange(field="stop_loss_pct", action="modify", value=8.0,
                        description="손절을 8%로 완화"),
     ),
-    "NO_LIQUIDITY_FILTER": lambda ctx: _rec(
-        "filter",
-        2,
-        "거래대금 필터 추가 (일평균 10억 이상)",
-        "유동성 낮은 종목은 실거래 슬리피지가 커서 백테스트와 실거래 수익이 크게 다릅니다.",
+    "NO_ENTRY_SIGNALS": lambda ctx: _rec(
+        "structure", 1,
+        "진입 신호 추가 — RSI·MA 크로스·MACD 중 하나 이상",
+        "매수 조건이 없으면 전략이 실행되지 않습니다. "
+        "기술적 지표(RSI, MA 크로스오버, MACD 등) 또는 재무 조건 중 하나 이상을 설정하세요.",
+        ProposedChange(
+            field="entry_signals",
+            action="add",
+            value={"indicator": "rsi", "signal_type": "oversold"},
+            description="RSI 30 이하 과매도 매수 신호 추가 (또는 다른 지표로 교체)",
+        ),
+    ),
+    "VALUE_TRAP_RISK": lambda _ctx: _rec(
+        "filter", 3,
+        "가치 함정 방어 — ROE·부채비율 필터 추가",
+        "저평가 지표(PER·PBR)만으로는 실적 악화 종목을 걸러내기 어렵습니다. "
+        "ROE 또는 부채비율 필터를 추가해 질적 요소를 결합하세요.",
         ProposedChange(
             field="fundamental_filters",
             action="add",
-            value={"metric": "trading_value", "operator": ">=", "value": 10.0},
-            description="일평균거래대금 10억 이상 필터 추가",
+            value={"metric": "roe_or_gpa", "operator": ">=", "value": 10.0},
+            description="ROE 10% 이상 필터 추가",
         ),
     ),
+    "NO_LIQUIDITY_FILTER": lambda ctx: _no_liquidity_rec(ctx),
     "TOO_MANY_FILTERS": lambda ctx: _rec(
         "filter", 3,
         f"재무 필터 축소 ({ctx.filter_count}개 → 3개 이하)",
@@ -81,7 +123,7 @@ _ISSUE_RECS = {
     ),
     "POSITION_OVEREXPOSED": lambda ctx: _rec(
         "risk_management", 2,
-        f"최대 종목 수 확대 ({ctx.max_positions}개 → 5~10개)",
+        f"최대 종목 수 확대 ({ctx.max_positions if ctx.max_positions is not None else '미설정'}개 → 5~10개)",
         "집중 포트폴리오는 개별 종목 이벤트에 크게 노출됩니다.",
         ProposedChange(field="max_positions", action="set", value=5,
                        description="최소 5종목 분산 보유"),
@@ -181,11 +223,14 @@ def _build_experiments(
     if not ctx.has_trailing_stop:
         exps.append("트레일링 스탑 15% 추가 후 MDD/Sharpe 변화 비교")
 
-    if ctx.max_positions <= 5:
-        exps.append("max_positions 10개 vs 20개 비교 백테스트 — 분산 효과 정량화")
+    if ctx.max_positions is not None and ctx.max_positions <= 5:
+        exps.append("최대 보유 종목 수 10개 vs 20개 비교 백테스트 — 분산 효과 정량화")
 
     if ctx.universe_size_estimate > 500 and not ctx.has_liquidity_filter:
-        exps.append("거래대금 10억, 50억 필터 적용 후 수익률 및 MDD 비교")
+        result = _liquidity_suggestion(ctx.initial_capital, ctx.max_positions)
+        if result:
+            _, label = result
+            exps.append(f"거래대금 {label} 필터 적용 후 수익률 및 MDD 비교")
 
     if not ctx.has_ai_signal:
         exps.append("ai_model 신호 추가 후 성과 비교 — AI 예측 레이어 효과 검증")

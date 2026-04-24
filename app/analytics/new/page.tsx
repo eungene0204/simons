@@ -651,24 +651,11 @@ function StrategyLabContent() {
                               </div>
                             )}
                             {isLastAssistant(i) && !msg.coachLoading && msg.clarification && (
-                              <div className="space-y-2">
-                                <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-white/[0.02] border border-yellow-400/40">
-                                  <Question size={13} className="text-yellow-400 flex-shrink-0 mt-0.5" weight="fill" />
-                                  <p className="text-xs font-bold text-gray-300 leading-relaxed whitespace-pre-line">{msg.clarification.replace(/\*\*(.*?)\*\*/g, "$1")}</p>
-                                </div>
-                                {msg.clarificationSuggestions && (
-                                  <div className="flex flex-wrap gap-1.5 pl-1">
-                                    {msg.clarificationSuggestions.map((s, si) => (
-                                      <button
-                                        key={si}
-                                        onClick={() => handleSuggestionClick(s)}
-                                        className="px-3 py-1.5 rounded-md bg-white/[0.03] border border-yellow-400/20 hover:border-yellow-400/50 text-xs font-bold text-gray-400 hover:text-white transition-all duration-200"
-                                      >
-                                        {s}
-                                      </button>
-                                    ))}
-                                  </div>
-                                )}
+                              <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-white/[0.02] border border-yellow-400/40">
+                                <Question size={13} className="text-yellow-400 flex-shrink-0 mt-0.5" weight="fill" />
+                                <p className="text-xs font-bold text-gray-300 leading-relaxed whitespace-pre-line">
+                                  {msg.clarification.replace(/\*\*(.*?)\*\*/g, "$1")}
+                                </p>
                               </div>
                             )}
                             {isLastAssistant(i) && stage === "ready" && !msg.coachLoading && (
