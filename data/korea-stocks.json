@@ -5475,7 +5475,7 @@
   },
   {
     "symbol": "005610",
-    "name": "SPC삼립",
+    "name": "삼립",
     "market": "KOSPI",
     "sector": "식품/음료",
     "industry": "기타 식품 제조업"
@@ -5871,6 +5871,13 @@
     "market": "KOSPI",
     "sector": "에너지/원자력",
     "industry": "연료용 가스 제조 및 배관공급업"
+  },
+  {
+    "symbol": "0131D0",
+    "name": "키움히어로제2호스팩",
+    "market": "KOSDAQ",
+    "sector": "수산",
+    "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "0010F0",
@@ -6637,7 +6644,7 @@
   },
   {
     "symbol": "479960",
-    "name": "위너스",
+    "name": "위너스일렉",
     "market": "KOSDAQ",
     "sector": "IT 하드웨어",
     "industry": "기타 전기장비 제조업"

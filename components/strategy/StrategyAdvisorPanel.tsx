@@ -281,7 +281,33 @@ export function StrategyAdvisorPanel({
               </div>
             </div>
 
-            {/* Issues */}
+            {/* Recommendations — 해결 방법 (진단보다 먼저) */}
+            {result.recommendations.length > 0 && (
+              <Section
+                icon={<Lightning size={11} className="text-indigo-400" weight="fill" />}
+                title="해결 방법"
+                count={result.recommendations.length}
+              >
+                <div className="space-y-1.5">
+                  {result.recommendations.slice(0, 5).map((rec, i) => (
+                    <div
+                      key={i}
+                      className="p-2.5 rounded-xl bg-indigo-500/[0.05] border border-indigo-500/20 space-y-1"
+                    >
+                      <p className="text-[11px] font-black text-white">{rec.title}</p>
+                      <p className="text-[10px] font-bold text-gray-400 leading-relaxed">{rec.reason}</p>
+                      {rec.proposed_change && rec.proposed_change.description && (
+                        <p className="text-[10px] font-bold text-indigo-400 leading-relaxed">
+                          → {rec.proposed_change.description}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            )}
+
+            {/* Issues — 진단 (해결 방법 아래) */}
             {result.issues.length > 0 && (
               <Section
                 icon={<Warning size={11} className="text-amber-400" weight="fill" />}
@@ -297,38 +323,7 @@ export function StrategyAdvisorPanel({
                       <div className="flex-shrink-0 mt-0.5">
                         {severityBadge(issue.severity)}
                       </div>
-                      <p className="text-[11px] font-bold text-gray-300 leading-relaxed">{issue.message}</p>
-                    </div>
-                  ))}
-                </div>
-              </Section>
-            )}
-
-            {/* Recommendations */}
-            {result.recommendations.length > 0 && (
-              <Section
-                icon={<Lightning size={11} className="text-indigo-400" weight="fill" />}
-                title="개선 제안"
-                count={result.recommendations.length}
-              >
-                <div className="space-y-1.5">
-                  {result.recommendations.slice(0, 5).map((rec, i) => (
-                    <div
-                      key={i}
-                      className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.05] space-y-1"
-                    >
-                      <div className="flex items-center justify-between">
-                        <p className="text-[11px] font-black text-white">{rec.title}</p>
-                        <span className="text-[9px] font-black text-gray-600 bg-white/[0.04] rounded px-1 py-0.5">
-                          P{rec.priority}
-                        </span>
-                      </div>
-                      <p className="text-[10px] font-bold text-gray-500 leading-relaxed">{rec.reason}</p>
-                      {rec.proposed_change && rec.proposed_change.description && (
-                        <p className="text-[10px] font-bold text-indigo-400/80 leading-relaxed">
-                          → {rec.proposed_change.description}
-                        </p>
-                      )}
+                      <p className="text-[11px] font-bold text-gray-400 leading-relaxed">{issue.message}</p>
                     </div>
                   ))}
                 </div>
