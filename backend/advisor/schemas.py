@@ -96,14 +96,21 @@ class AIModelRecommendation(BaseModel):
     reason: str
 
 
+class AdviceItem(BaseModel):
+    """진단 + 해결 방법을 하나로 합친 조언 항목."""
+    severity: Severity
+    title: str
+    body: str
+    proposed_change: Optional[ProposedChange] = None
+
+
 class AdvisorResponse(BaseModel):
     """Full output of the Strategy Advisor Agent."""
     strategy_score: float = Field(ge=0.0, le=100.0, description="종합 전략 점수 (0-100)")
     risk_score: float = Field(ge=0.0, le=100.0, description="리스크 점수 (높을수록 위험)")
     overfit_risk: OverfitRisk
 
-    issues: List[Issue] = Field(default_factory=list)
-    recommendations: List[Recommendation] = Field(default_factory=list)
+    advice: List[AdviceItem] = Field(default_factory=list)
 
     news_analysis: Optional[NewsAnalysis] = None
     suggested_experiments: List[str] = Field(default_factory=list)

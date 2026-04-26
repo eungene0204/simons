@@ -1,6 +1,28 @@
 {
-  "updatedAt": "2026-04-24T00:00:04.019296+09:00",
+  "updatedAt": "2026-04-26T00:00:04.389265+09:00",
   "entries": [
+    {
+      "date": "2026-04-26",
+      "syncedAt": "2026-04-26T00:00:04.389265+09:00",
+      "totalCount": 2657,
+      "kospiCount": 839,
+      "kosdaqCount": 1818,
+      "addedCount": 0,
+      "delistedCount": 0,
+      "added": [],
+      "delisted": []
+    },
+    {
+      "date": "2026-04-25",
+      "syncedAt": "2026-04-25T00:00:04.175334+09:00",
+      "totalCount": 2657,
+      "kospiCount": 839,
+      "kosdaqCount": 1818,
+      "addedCount": 0,
+      "delistedCount": 0,
+      "added": [],
+      "delisted": []
+    },
     {
       "date": "2026-04-24",
       "syncedAt": "2026-04-24T00:00:04.019296+09:00",

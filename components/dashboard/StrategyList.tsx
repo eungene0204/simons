@@ -53,7 +53,7 @@ export default function StrategyList({ initialData }: { initialData: StrategyLis
       {/* 테이블 헤더 */}
       <div className="grid grid-cols-[minmax(0,1fr)_80px_120px_110px] gap-2 px-2 mb-2">
         {["전략명", "점수", "평균 수익률", "총 수익금"].map((h) => (
-          <span key={h} className="text-xs font-bold uppercase tracking-widest text-gray-600">
+          <span key={h} className="text-xs font-bold uppercase tracking-widest text-gray-500">
             {h}
           </span>
         ))}

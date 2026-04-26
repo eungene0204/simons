@@ -14,25 +14,11 @@ import {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface Issue {
-  code: string;
+interface AdviceItem {
   severity: "low" | "medium" | "high";
-  message: string;
-}
-
-interface ProposedChange {
-  field: string;
-  action: string;
-  value: unknown;
-  description: string;
-}
-
-interface Recommendation {
-  type: string;
-  priority: number;
   title: string;
-  reason: string;
-  proposed_change?: ProposedChange | null;
+  body: string;
+  proposed_change?: { field: string; action: string; value: unknown; description: string } | null;
 }
 
 interface NewsAnalysis {
@@ -50,8 +36,7 @@ export interface AdvisorResult {
   strategy_score: number;
   risk_score: number;
   overfit_risk: "low" | "medium" | "high";
-  issues: Issue[];
-  recommendations: Recommendation[];
+  advice: AdviceItem[];
   news_analysis?: NewsAnalysis | null;
   suggested_experiments: string[];
   ai_model_recommendation: AIModelRecommendation;
@@ -72,70 +57,36 @@ export interface AdvisorRequest {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function scoreColor(score: number) {
-  if (score >= 80) return "text-emerald-400";
-  if (score >= 60) return "text-blue-400";
-  if (score >= 40) return "text-amber-400";
-  return "text-red-400";
-}
-
 function riskColor(level: "low" | "medium" | "high" | string) {
-  if (level === "high") return "text-red-400";
+  if (level === "high") return "text-[var(--main-red)]";
   if (level === "medium") return "text-amber-400";
   return "text-emerald-400";
 }
 
-function severityBadge(sev: "low" | "medium" | "high") {
-  const map = {
-    high: "bg-red-500/15 text-red-400 border-red-500/20",
-    medium: "bg-amber-500/15 text-amber-400 border-amber-500/20",
-    low: "bg-white/[0.05] text-gray-400 border-white/[0.08]",
-  };
-  const label = { high: "높음", medium: "중간", low: "낮음" };
-  return (
-    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black border ${map[sev]}`}>
-      {label[sev]}
-    </span>
-  );
-}
-
 function overfitBadge(risk: "low" | "medium" | "high") {
-  const map = {
-    high: "bg-red-500/15 text-red-400 border-red-500/20",
-    medium: "bg-amber-500/15 text-amber-400 border-amber-500/20",
-    low: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20",
+  const styles = {
+    high: "bg-[var(--main-red)]/10 text-[var(--main-red)]",
+    medium: "bg-amber-500/10 text-amber-400",
+    low: "bg-emerald-500/10 text-emerald-400",
   };
   const label = { high: "높음", medium: "중간", low: "낮음" };
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black border ${map[risk]}`}>
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold ${styles[risk]}`}>
       과최적화 위험 {label[risk]}
     </span>
   );
 }
 
-// ─── Section wrapper ──────────────────────────────────────────────────────────
+// ─── Section label ────────────────────────────────────────────────────────────
 
-function Section({
-  icon,
-  title,
-  count,
-  children,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  count?: number;
-  children: React.ReactNode;
-}) {
+function SectionLabel({ icon, title, count }: { icon: React.ReactNode; title: string; count?: number }) {
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-1.5">
-        {icon}
-        <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">{title}</span>
-        {count !== undefined && count > 0 && (
-          <span className="ml-auto text-[10px] font-black text-gray-600">{count}건</span>
-        )}
-      </div>
-      {children}
+    <div className="flex items-center gap-2 px-4 py-3 border-b border-white/[0.08]">
+      {icon}
+      <span className="text-sm font-black uppercase tracking-widest text-white font-outfit">{title}</span>
+      {count !== undefined && count > 0 && (
+        <span className="ml-auto text-xs font-bold text-gray-500">{count}건</span>
+      )}
     </div>
   );
 }
@@ -153,7 +104,6 @@ export function StrategyAdvisorPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // track last fetched request to avoid duplicate calls
   const lastReqKey = useRef<string | null>(null);
 
   useEffect(() => {
@@ -191,7 +141,6 @@ export function StrategyAdvisorPanel({
 
     return () => {
       cancelled = true;
-      // reset so the next effect can re-fetch if React re-renders before this fetch completes
       lastReqKey.current = null;
     };
   }, [request]);
@@ -199,205 +148,159 @@ export function StrategyAdvisorPanel({
   if (!request) return null;
 
   return (
-    <div className="flex flex-col h-full bg-[var(--card-bg)] border border-white/[0.06] rounded-2xl overflow-hidden">
+    <div className="flex flex-col h-full bg-[var(--card-bg)] border border-white/[0.08] rounded-2xl overflow-hidden">
+
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06] flex-shrink-0">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.08] flex-shrink-0">
         <div className="flex items-center gap-2">
-          <Robot size={13} weight="fill" className="text-indigo-400" />
-          <span className="text-xs font-black text-white">전략 코치</span>
+          <Robot size={16} weight="bold" className="text-gray-500" />
+          <span className="text-sm font-black uppercase tracking-widest text-white font-outfit">전략 코치</span>
         </div>
         <div className="flex items-center gap-2">
           {loading && (
-            <ArrowsClockwise size={11} className="text-indigo-400 animate-spin" />
+            <ArrowsClockwise size={14} className="text-gray-500 animate-spin" />
           )}
           {onDismiss && (
             <button
               onClick={onDismiss}
-              className="text-gray-600 hover:text-gray-400 transition-colors"
+              className="p-1 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-white/10 transition-all duration-200"
             >
-              <X size={13} />
+              <X size={14} />
             </button>
           )}
         </div>
       </div>
 
       {/* Body */}
-      <div className="flex-1 overflow-y-auto scrollbar-hide px-4 py-4 space-y-5">
+      <div className="flex-1 overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent">
 
         {/* Loading skeleton */}
         {loading && !result && (
-          <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
+          <div className="p-4 space-y-2">
+            {[80, 60, 70].map((w, i) => (
               <div
                 key={i}
-                className="h-10 rounded-xl bg-white/[0.03] animate-pulse"
+                className="h-11 bg-white/[0.04] rounded-xl animate-pulse"
                 style={{ animationDelay: `${i * 0.1}s` }}
               />
             ))}
-            <p className="text-[10px] font-bold text-gray-600 text-center pt-1">전략 분석 중...</p>
+            <p className="text-xs font-bold text-gray-600 text-center pt-2">전략 분석 중...</p>
           </div>
         )}
 
         {/* Error */}
         {error && (
-          <div className="flex items-start gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/20">
-            <Warning size={12} className="text-red-400 flex-shrink-0 mt-0.5" weight="fill" />
-            <p className="text-[10px] font-bold text-red-400">{error}</p>
+          <div className="flex items-start gap-2 m-4 p-3 rounded-xl bg-[var(--main-red)]/5 border border-[var(--main-red)]/20">
+            <Warning size={14} weight="bold" className="text-[var(--main-red)] flex-shrink-0 mt-0.5" />
+            <p className="text-sm font-bold text-[var(--main-red)]">{error}</p>
           </div>
         )}
 
         {result && (
-          <>
-            {/* Score bar */}
-            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <p className="text-[10px] font-bold text-gray-500">전략 점수</p>
-                  <p className={`text-2xl font-black ${scoreColor(result.strategy_score)}`}>
-                    {result.strategy_score.toFixed(0)}
-                    <span className="text-xs font-bold text-gray-600 ml-0.5">/ 100</span>
-                  </p>
-                </div>
-                <div className="space-y-0.5 text-right">
-                  <p className="text-[10px] font-bold text-gray-500">리스크 점수</p>
-                  <p className={`text-2xl font-black ${riskColor(result.risk_score >= 60 ? "high" : result.risk_score >= 30 ? "medium" : "low")}`}>
-                    {result.risk_score.toFixed(0)}
-                    <span className="text-xs font-bold text-gray-600 ml-0.5">/ 100</span>
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all duration-700 ${
-                      result.strategy_score >= 80 ? "bg-emerald-500" :
-                      result.strategy_score >= 60 ? "bg-blue-500" :
-                      result.strategy_score >= 40 ? "bg-amber-500" : "bg-red-500"
-                    }`}
-                    style={{ width: `${result.strategy_score}%` }}
-                  />
-                </div>
-                {overfitBadge(result.overfit_risk)}
-              </div>
+          <div className="p-4 space-y-3">
+
+            {/* 과최적화 위험 */}
+            <div className="flex justify-end">
+              {overfitBadge(result.overfit_risk)}
             </div>
 
-            {/* Recommendations — 해결 방법 (진단보다 먼저) */}
-            {result.recommendations.length > 0 && (
-              <Section
-                icon={<Lightning size={11} className="text-indigo-400" weight="fill" />}
-                title="해결 방법"
-                count={result.recommendations.length}
-              >
-                <div className="space-y-1.5">
-                  {result.recommendations.slice(0, 5).map((rec, i) => (
-                    <div
-                      key={i}
-                      className="p-2.5 rounded-xl bg-indigo-500/[0.05] border border-indigo-500/20 space-y-1"
-                    >
-                      <p className="text-[11px] font-black text-white">{rec.title}</p>
-                      <p className="text-[10px] font-bold text-gray-400 leading-relaxed">{rec.reason}</p>
-                      {rec.proposed_change && rec.proposed_change.description && (
-                        <p className="text-[10px] font-bold text-indigo-400 leading-relaxed">
-                          → {rec.proposed_change.description}
+            {/* 조언 드립니다 */}
+            {result.advice.length > 0 && (
+              <div className="border border-white/[0.08] rounded-2xl overflow-hidden">
+                <SectionLabel
+                  icon={<Lightning size={14} weight="bold" className="text-gray-500" />}
+                  title="조언 드립니다"
+                  count={result.advice.length}
+                />
+                <div className="divide-y divide-white/[0.04]">
+                  {result.advice.map((item, i) => (
+                    <div key={i} className="px-4 py-3 hover:bg-white/[0.02] transition-colors duration-150">
+                      <p className="text-sm font-bold text-white leading-snug">{item.title}</p>
+                      {item.body && (
+                        <p className="text-xs font-bold text-gray-500 leading-relaxed mt-1">{item.body}</p>
+                      )}
+                      {item.proposed_change?.description && (
+                        <p className="text-xs font-bold text-indigo-400 leading-relaxed mt-1.5">
+                          → {item.proposed_change.description}
                         </p>
                       )}
                     </div>
                   ))}
                 </div>
-              </Section>
+              </div>
             )}
 
-            {/* Issues — 진단 (해결 방법 아래) */}
-            {result.issues.length > 0 && (
-              <Section
-                icon={<Warning size={11} className="text-amber-400" weight="fill" />}
-                title="진단"
-                count={result.issues.length}
-              >
-                <div className="space-y-1.5">
-                  {result.issues.map((issue, i) => (
-                    <div
-                      key={i}
-                      className="flex items-start gap-2 p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.05]"
-                    >
-                      <div className="flex-shrink-0 mt-0.5">
-                        {severityBadge(issue.severity)}
-                      </div>
-                      <p className="text-[11px] font-bold text-gray-400 leading-relaxed">{issue.message}</p>
-                    </div>
-                  ))}
-                </div>
-              </Section>
-            )}
-
-            {/* News analysis */}
+            {/* 뉴스 리스크 */}
             {result.news_analysis && (
-              <Section
-                icon={<Newspaper size={11} className="text-sky-400" weight="fill" />}
-                title="뉴스 리스크"
-              >
-                <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.05] space-y-2">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] font-bold text-gray-500">리스크 수준</span>
-                    <span className={`text-[10px] font-black ${riskColor(result.news_analysis.risk_level)}`}>
+              <div className="border border-white/[0.08] rounded-2xl overflow-hidden">
+                <SectionLabel
+                  icon={<Newspaper size={14} weight="bold" className="text-gray-500" />}
+                  title="뉴스 리스크"
+                />
+                <div className="px-4 py-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-gray-500">리스크 수준</span>
+                    <span className={`text-xs font-black ${riskColor(result.news_analysis.risk_level)}`}>
                       {result.news_analysis.risk_level === "high" ? "높음" :
                        result.news_analysis.risk_level === "medium" ? "중간" : "낮음"}
                     </span>
                   </div>
-                  <p className="text-[10px] font-bold text-gray-400 leading-relaxed">{result.news_analysis.summary}</p>
+                  <p className="text-sm font-bold text-gray-400 leading-relaxed">
+                    {result.news_analysis.summary}
+                  </p>
                   {result.news_analysis.key_events.length > 0 && (
                     <div className="flex flex-wrap gap-1 pt-0.5">
                       {result.news_analysis.key_events.map((ev, i) => (
-                        <span
-                          key={i}
-                          className="inline-flex items-center px-2 py-0.5 rounded bg-sky-500/10 border border-sky-500/15 text-[9px] font-black text-sky-400"
-                        >
+                        <span key={i} className="px-2 py-0.5 rounded-md text-xs font-bold bg-white/[0.06] text-gray-400">
                           {ev}
                         </span>
                       ))}
                     </div>
                   )}
                 </div>
-              </Section>
+              </div>
             )}
 
-            {/* AI model recommendation */}
-            <Section
-              icon={<Robot size={11} className="text-purple-400" weight="fill" />}
-              title="AI 모델"
-            >
-              <div className="flex items-start gap-2 p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+            {/* AI 모델 */}
+            <div className="border border-white/[0.08] rounded-2xl overflow-hidden">
+              <SectionLabel
+                icon={<Robot size={14} weight="bold" className="text-gray-500" />}
+                title="AI 모델"
+              />
+              <div className="px-4 py-3 flex items-start gap-2">
                 <CheckCircle
-                  size={12}
+                  size={16}
                   weight="fill"
-                  className={`flex-shrink-0 mt-0.5 ${result.ai_model_recommendation.recommended ? "text-purple-400" : "text-gray-600"}`}
+                  className={`flex-shrink-0 mt-0.5 ${result.ai_model_recommendation.recommended ? "text-indigo-400" : "text-gray-600"}`}
                 />
-                <p className="text-[10px] font-bold text-gray-400 leading-relaxed">
+                <p className="text-sm font-bold text-gray-400 leading-relaxed">
                   {result.ai_model_recommendation.reason}
                 </p>
               </div>
-            </Section>
+            </div>
 
-            {/* Suggested experiments */}
+            {/* 추천 실험 */}
             {result.suggested_experiments.length > 0 && (
-              <Section
-                icon={<TestTube size={11} className="text-teal-400" weight="fill" />}
-                title="추천 실험"
-                count={result.suggested_experiments.length}
-              >
-                <div className="space-y-1">
+              <div className="border border-white/[0.08] rounded-2xl overflow-hidden">
+                <SectionLabel
+                  icon={<TestTube size={14} weight="bold" className="text-gray-500" />}
+                  title="추천 실험"
+                  count={result.suggested_experiments.length}
+                />
+                <div className="divide-y divide-white/[0.04]">
                   {result.suggested_experiments.map((exp, i) => (
-                    <div key={i} className="flex items-start gap-2">
-                      <span className="text-[10px] font-black text-teal-600 flex-shrink-0 mt-0.5">
-                        {i + 1}.
+                    <div key={i} className="px-4 py-3 flex items-start gap-3 hover:bg-white/[0.02] transition-colors duration-150">
+                      <span className="text-xs font-black text-gray-600 flex-shrink-0 mt-0.5 tabular-nums font-outfit">
+                        {i + 1}
                       </span>
-                      <p className="text-[10px] font-bold text-gray-500 leading-relaxed">{exp}</p>
+                      <p className="text-sm font-bold text-gray-400 leading-relaxed">{exp}</p>
                     </div>
                   ))}
                 </div>
-              </Section>
+              </div>
             )}
-          </>
+
+          </div>
         )}
       </div>
     </div>
