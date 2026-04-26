@@ -15,10 +15,23 @@ function fmtDate(ts: number): string {
 
 const UNIVERSE_COLOR: Record<string, string> = {
   KOSPI: "bg-sky-500/15 text-sky-400",
-  "KOSPI200": "bg-indigo-500/15 text-indigo-400",
+  KOSPI200: "bg-indigo-500/15 text-indigo-400",
   KOSDAQ: "bg-purple-500/15 text-purple-400",
-  미국주식: "bg-emerald-500/15 text-emerald-400",
 };
+
+const UNIVERSE_LABEL: Record<string, string> = {
+  kospi: "KOSPI",
+  KOSPI: "KOSPI",
+  kospi200: "KOSPI200",
+  KOSPI200: "KOSPI200",
+  "KOSPI 200": "KOSPI200",
+  kosdaq: "KOSDAQ",
+  KOSDAQ: "KOSDAQ",
+};
+
+function normalizeUniverse(raw: string): string | null {
+  return UNIVERSE_LABEL[raw] ?? null;
+}
 
 export default function RecentBacktestList({ initialRecords }: { initialRecords: DashboardBacktestRecord[] }) {
   const [records] = useState<DashboardBacktestRecord[]>(initialRecords.slice(0, 5));
@@ -63,7 +76,8 @@ export default function RecentBacktestList({ initialRecords }: { initialRecords:
           {records.map((r) => {
             const ret = r.metrics.totalReturn ?? 0;
             const isPos = ret >= 0;
-            const universeColor = UNIVERSE_COLOR[r.universe] ?? "bg-white/10 text-gray-400";
+            const universeLabel = normalizeUniverse(r.universe);
+            const universeColor = universeLabel ? UNIVERSE_COLOR[universeLabel] : "";
             return (
               <div
                 key={r.id}
@@ -73,11 +87,13 @@ export default function RecentBacktestList({ initialRecords }: { initialRecords:
                 <p className="text-sm font-bold text-white truncate">{r.strategyName}</p>
 
                 {/* 유니버스 */}
-                <span
-                  className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-md text-center ${universeColor}`}
-                >
-                  {r.universe}
-                </span>
+                {universeLabel ? (
+                  <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-md text-center ${universeColor}`}>
+                    {universeLabel}
+                  </span>
+                ) : (
+                  <span />
+                )}
 
                 {/* 수익률 */}
                 <div className={`flex items-center gap-0.5 ${isPos ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>

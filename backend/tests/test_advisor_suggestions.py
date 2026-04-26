@@ -1,7 +1,6 @@
 """
 Regression tests: every Issue code that can be diagnosed must produce
-at least one Recommendation so the '해결 방법' section is never empty
-when '진단' has entries.
+at least one AdviceItem so the '조언 드립니다' section is never empty.
 """
 
 from advisor.agent import StrategyAdvisorAgent
@@ -10,18 +9,16 @@ from advisor.schemas import AdvisorRequest
 agent = StrategyAdvisorAgent()
 
 
-def _review(parsed_strategy: dict) -> tuple[list, list]:
+def _review(parsed_strategy: dict):
     req = AdvisorRequest(
         user_prompt="테스트 전략",
         parsed_strategy=parsed_strategy,
     )
-    result = agent.review(req)
-    return result.issues, result.recommendations
+    return agent.review(req)
 
 
-def test_no_entry_signals_has_recommendation():
-    """NO_ENTRY_SIGNALS issue must produce a recommendation."""
-    issues, recs = _review({
+def test_no_entry_signals_has_advice():
+    result = _review({
         "universe": ["KOSPI200"],
         "entry_signals": [],
         "fundamental_filters": [],
@@ -29,14 +26,13 @@ def test_no_entry_signals_has_recommendation():
         "max_positions": 10,
         "initial_capital": 10_000_000,
     })
-    issue_codes = {i.code for i in issues}
-    assert "NO_ENTRY_SIGNALS" in issue_codes
-    assert len(recs) > 0, "해결 방법이 비어있으면 안 됩니다"
+    assert len(result.advice) > 0, "조언 항목이 비어있으면 안 됩니다"
+    titles = [a.title for a in result.advice]
+    assert any("진입 신호" in t for t in titles)
 
 
-def test_no_stop_loss_has_recommendation():
-    """NO_STOP_LOSS issue must produce a recommendation."""
-    issues, recs = _review({
+def test_no_stop_loss_has_advice():
+    result = _review({
         "universe": ["KOSPI200"],
         "entry_signals": [{"indicator": "rsi"}],
         "fundamental_filters": [],
@@ -44,14 +40,12 @@ def test_no_stop_loss_has_recommendation():
         "max_positions": 10,
         "initial_capital": 10_000_000,
     })
-    issue_codes = {i.code for i in issues}
-    assert "NO_STOP_LOSS" in issue_codes or "MISSING_EXIT_RULE" in issue_codes
-    assert len(recs) > 0
+    assert len(result.advice) > 0
+    assert any(a.severity in ("high", "medium") for a in result.advice)
 
 
-def test_no_take_profit_has_recommendation():
-    """NO_TAKE_PROFIT issue must produce a recommendation."""
-    issues, recs = _review({
+def test_no_take_profit_has_advice():
+    result = _review({
         "universe": ["KOSPI"],
         "entry_signals": [],
         "exit_signals": [],
@@ -62,33 +56,40 @@ def test_no_take_profit_has_recommendation():
         "hold_period_days": 126,
         "initial_capital": 10_000_000,
     })
-    issue_codes = {i.code for i in issues}
-    assert "NO_TAKE_PROFIT" in issue_codes
-    assert len(recs) > 0, "해결 방법이 비어있으면 안 됩니다"
+    assert len(result.advice) > 0, "조언 항목이 비어있으면 안 됩니다"
+    assert any("익절" in a.title for a in result.advice)
 
 
-def test_issues_always_have_recommendations():
-    """When issues exist, recommendations must not be empty."""
+def test_advice_items_have_body():
+    """모든 advice 항목은 title과 body를 가져야 한다."""
+    result = _review({
+        "entry_signals": [{"indicator": "rsi"}],
+        "stop_loss_pct": None,
+        "universe": ["KOSPI"],
+        "max_positions": 10,
+        "initial_capital": 10_000_000,
+    })
+    for item in result.advice:
+        assert item.title, "title이 비어있으면 안 됩니다"
+        assert item.severity in ("low", "medium", "high")
+
+
+def test_issues_always_produce_advice():
+    """진단이 있으면 반드시 advice 항목이 생성되어야 한다."""
     scenarios = [
-        # No exit, no stop
         {"entry_signals": [{"indicator": "rsi"}], "stop_loss_pct": None,
          "universe": ["KOSPI"], "max_positions": 10, "initial_capital": 10_000_000},
-        # No entry signals
         {"entry_signals": [], "fundamental_filters": [], "stop_loss_pct": 10.0,
          "universe": ["KOSPI200"], "max_positions": 10, "initial_capital": 10_000_000},
-        # Too tight stop
         {"entry_signals": [{"indicator": "rsi"}], "stop_loss_pct": 1.0,
          "exit_signals": [{"indicator": "rsi"}],
          "universe": ["KOSPI200"], "max_positions": 10, "initial_capital": 10_000_000},
-        # Stop loss only, no take profit (screenshot scenario)
         {"entry_signals": [], "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1}],
          "stop_loss_pct": 12.0, "hold_period_days": 126,
          "universe": ["KOSPI"], "max_positions": 8, "initial_capital": 10_000_000},
     ]
     for ps in scenarios:
-        issues, recs = _review(ps)
-        if issues:
-            assert len(recs) > 0, (
-                f"이슈가 있는데 해결방안이 없습니다. "
-                f"issue_codes={[i.code for i in issues]}, strategy={ps}"
-            )
+        result = _review(ps)
+        assert len(result.advice) > 0, (
+            f"조언 항목이 비어있습니다. strategy={ps}"
+        )

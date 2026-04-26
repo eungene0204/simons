@@ -14,6 +14,7 @@ from .news_adapter import NormalizedNewsSignals
 from .rules import RuleContext, _liquidity_suggestion
 from .schemas import (
     AIModelRecommendation,
+    AdviceItem,
     Issue,
     ProposedChange,
     Recommendation,
@@ -260,6 +261,14 @@ def _build_ai_recommendation(ctx: RuleContext) -> AIModelRecommendation:
     )
 
 
+def _priority_to_severity(priority: int) -> str:
+    if priority <= 1:
+        return "high"
+    if priority <= 3:
+        return "medium"
+    return "low"
+
+
 # ─── Public API ───────────────────────────────────────────────────────────────
 
 class SuggestionEngine:
@@ -268,33 +277,48 @@ class SuggestionEngine:
         issues: List[Issue],
         ctx: RuleContext,
         news: NormalizedNewsSignals,
-    ) -> tuple[List[Recommendation], List[str], AIModelRecommendation]:
+    ) -> tuple[List[AdviceItem], List[str], AIModelRecommendation]:
         """
-        Returns (recommendations, suggested_experiments, ai_model_recommendation).
+        Returns (advice, suggested_experiments, ai_model_recommendation).
+        진단(Issue)과 해결 방법(Recommendation)을 AdviceItem으로 통합.
         """
         issue_codes = {i.code for i in issues}
-        recs: List[Recommendation] = []
+        advice: List[AdviceItem] = []
+        seen_titles: set = set()
 
-        # Issue-driven recommendations (deterministic)
         for issue in issues:
             builder = _ISSUE_RECS.get(issue.code)
             if builder:
-                recs.append(builder(ctx))
+                rec = builder(ctx)
+                if rec.title not in seen_titles:
+                    seen_titles.add(rec.title)
+                    advice.append(AdviceItem(
+                        severity=issue.severity,
+                        title=rec.title,
+                        body=rec.reason,
+                        proposed_change=rec.proposed_change,
+                    ))
+            else:
+                if issue.message not in seen_titles:
+                    seen_titles.add(issue.message)
+                    advice.append(AdviceItem(
+                        severity=issue.severity,
+                        title=issue.message,
+                        body="",
+                        proposed_change=None,
+                    ))
 
-        # News-driven recommendations
-        recs.extend(_build_news_recommendations(ctx, news, issue_codes))
-
-        # Deduplicate by (type, title) and sort by priority
-        seen: set = set()
-        unique_recs: List[Recommendation] = []
-        for r in recs:
-            key = (r.type, r.title)
-            if key not in seen:
-                seen.add(key)
-                unique_recs.append(r)
-        unique_recs.sort(key=lambda r: r.priority)
+        for rec in _build_news_recommendations(ctx, news, issue_codes):
+            if rec.title not in seen_titles:
+                seen_titles.add(rec.title)
+                advice.append(AdviceItem(
+                    severity=_priority_to_severity(rec.priority),
+                    title=rec.title,
+                    body=rec.reason,
+                    proposed_change=rec.proposed_change,
+                ))
 
         experiments = _build_experiments(ctx, issues, news)
         ai_rec = _build_ai_recommendation(ctx)
 
-        return unique_recs, experiments, ai_rec
+        return advice, experiments, ai_rec

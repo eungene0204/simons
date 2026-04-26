@@ -89,8 +89,8 @@ export default function PortfolioSummaryBar({ initialStats }: { initialStats: Po
               {/* Top row: icon + label / info */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Icon size={18} weight="bold" className="text-gray-400" />
-                  <span className="text-sm font-bold text-gray-400">{card.label}</span>
+                  <Icon size={18} weight="bold" className="text-gray-500" />
+                  <span className="text-sm font-bold text-gray-500">{card.label}</span>
                 </div>
                 <Info size={16} className="text-gray-600" />
               </div>

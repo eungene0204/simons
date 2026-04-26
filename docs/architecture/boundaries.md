@@ -230,6 +230,35 @@ Codex 작업 규칙, boundary 정의, 운영 정책 문서 유지보수.
 
 ---
 
+## Boundary J: Stock Info Profile Persistence
+
+### Purpose
+`/stock-order` 종목정보 탭에서 사용하는 비실시간 종목 프로필/재무 정보의 저장 및 조회 정합성 유지.
+
+### Files
+- prisma/**
+- app/api/stock/[symbol]/detail/route.ts
+- app/api/stocks/**
+- lib/prisma.ts
+- backend/tests/**
+
+### Allowed Tasks
+- 종목정보 탭 전용 저장 구조 추가 및 수정
+- 전체 종목 대상 종목정보 선적재/동기화 경로 추가
+- 종목 상세 API의 DB-first 조회 전환
+- 종목정보 탭 응답용 `companyBasic`, `summaryFinancials`, `pe`, `pbr`, `listingDate`, `sector`, `name` 정합성 보완
+- persistence 회귀 테스트 추가 및 수정
+
+### Forbidden
+- 실시간 시세(`currentPrice`, `changePercent`, `change`, `open`, `high`, `low`, `volume`) 저장
+- 종목정보 탭에서 사용하지 않는 필드 저장
+- `backend/engine/**` 변경
+- provider 계층(`backend/engine/providers/**`) 변경
+- `app/stock-order/**` UI 구조 변경
+- 범용 스크립트 수정
+
+---
+
 ## Global Forbidden Paths
 
 Codex must NEVER modify:
@@ -242,6 +271,7 @@ Codex must NEVER modify:
 
 Exception:
 - `prisma/**` is allowed only inside `Boundary I: Strategy Persistence / BatchRun Storage`
+ - `prisma/**` is allowed inside `Boundary J: Stock Info Profile Persistence`
 
 ---
 

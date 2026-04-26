@@ -48,9 +48,9 @@
 | 손실 (음수) | `text-[var(--main-blue)]` |
 | 강조 | `text-indigo-400`, `text-sky-500`, `text-purple-400` |
 
-- 카드 내부의 섹션 제목, 차트 제목, 지표 라벨은 기본적으로 `text-gray-400`를 사용한다.
-- `text-gray-500`, `text-gray-600`은 비활성 문구, 힌트, 주석에만 사용하고 핵심 제목/지표 라벨에는 사용하지 않는다.
-- 테이블 컬럼 헤더는 `text-gray-600`을 사용한다 (본문 라벨보다 한 단계 더 흐리게).
+- 카드 내부의 섹션 제목, 차트 제목, 지표 라벨, 테이블 컬럼 헤더, KPI 카드 라벨은 `text-gray-500`으로 통일한다.
+- `text-gray-600`은 보조 설명(sub-text), 힌트, 주석처럼 완전히 부차적인 텍스트에만 사용한다.
+- `text-gray-400` 이상은 주요 텍스트(본문, 값)에만 사용한다.
 
 ### 통계 지표 색상 규칙
 
@@ -233,7 +233,7 @@ space-y-1    (섹션 간 세로 간격 — 카드가 바짝 붙도록)
 {/* 헤더 행 */}
 <div className="grid grid-cols-[minmax(0,1fr)_80px_120px_110px] gap-2 px-2 mb-2">
   {["전략명", "점수", "평균 수익률", "총 수익금"].map((h) => (
-    <span key={h} className="text-xs font-bold uppercase tracking-widest text-gray-600">
+    <span key={h} className="text-xs font-bold uppercase tracking-widest text-gray-500">
       {h}
     </span>
   ))}
@@ -242,7 +242,7 @@ space-y-1    (섹션 간 세로 간격 — 카드가 바짝 붙도록)
 <div className="border-t border-white/[0.05] mb-1" />
 ```
 
-- 컬럼 헤더 텍스트: `text-xs font-bold uppercase tracking-widest text-gray-600`
+- 컬럼 헤더 텍스트: `text-xs font-bold uppercase tracking-widest text-gray-500`
 - 헤더 구분: 배경색 대신 `border-t border-white/[0.05]` 구분선 사용
 - 그리드 컬럼 정의는 `grid-cols-[minmax(0,1fr)_80px_...]` 형태로 가변+고정 혼합
 
@@ -335,8 +335,8 @@ space-y-1    (섹션 간 세로 간격 — 카드가 바짝 붙도록)
     <div key={s.label} className="flex-1 flex flex-col justify-between px-5 py-4">
       {/* 상단: 아이콘 + 라벨 */}
       <div className="flex items-center gap-2">
-        <Icon size={18} weight="bold" className="text-gray-400" />
-        <span className="text-sm font-bold text-gray-400">{s.label}</span>
+        <Icon size={18} weight="bold" className="text-gray-500" />
+        <span className="text-sm font-bold text-gray-500">{s.label}</span>
       </div>
       {/* 하단: 수치 + 배지 */}
       <div className="flex items-end gap-3">
@@ -593,7 +593,7 @@ transition-colors duration-200 (텍스트 색상 변화)
 {/* 헤더 */}
 <div className="grid grid-cols-[minmax(0,1fr)_80px_120px_110px] gap-2 px-2 mb-2">
   {["항목", "값1", "값2", "값3"].map((h) => (
-    <span key={h} className="text-xs font-bold uppercase tracking-widest text-gray-600">
+    <span key={h} className="text-xs font-bold uppercase tracking-widest text-gray-500">
       {h}
     </span>
   ))}
@@ -702,7 +702,7 @@ className="[&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full 
 - [ ] 섹션 제목에 `text-base font-black uppercase tracking-widest font-outfit` 적용
 - [ ] 숫자 수치에 `tabular-nums font-outfit` 적용
 - [ ] 상태 색상에 CSS 커스텀 속성(`var(--main-red)` 등) 사용
-- [ ] 테이블은 div 그리드 기반, 컬럼 헤더 `text-gray-600`, 행 `divide-y divide-white/[0.04]` + `hover:bg-white/[0.02] rounded-xl`
+- [ ] 테이블은 div 그리드 기반, 컬럼 헤더 `text-gray-500`, 행 `divide-y divide-white/[0.04]` + `hover:bg-white/[0.02] rounded-xl`
 - [ ] 아이콘은 `phosphor-react` 사용
 - [ ] `transition-colors duration-150` 행 호버 처리
 - [ ] 로딩 상태에 `animate-pulse` 스켈레톤 구현
