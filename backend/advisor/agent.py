@@ -54,7 +54,7 @@ class StrategyAdvisorAgent:
         overfit_risk = compute_overfit_risk(issues, ctx)
 
         # ── Step 4: suggest ────────────────────────────────────────────────
-        recs, experiments, ai_rec = self._suggestion.generate(issues, ctx, news)
+        advice, experiments, ai_rec = self._suggestion.generate(issues, ctx, news)
 
         # ── Step 5: news analysis summary ─────────────────────────────────
         news_analysis: Optional[NewsAnalysis] = None
@@ -66,16 +66,15 @@ class StrategyAdvisorAgent:
             )
 
         logger.info(
-            "advisor.review done | score=%.1f risk=%.1f overfit=%s issues=%d recs=%d",
-            strategy_score, risk_score, overfit_risk, len(issues), len(recs),
+            "advisor.review done | score=%.1f risk=%.1f overfit=%s advice=%d",
+            strategy_score, risk_score, overfit_risk, len(advice),
         )
 
         return AdvisorResponse(
             strategy_score=strategy_score,
             risk_score=risk_score,
             overfit_risk=overfit_risk,
-            issues=issues,
-            recommendations=recs,
+            advice=advice,
             news_analysis=news_analysis,
             suggested_experiments=experiments,
             ai_model_recommendation=ai_rec,

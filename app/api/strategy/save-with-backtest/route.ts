@@ -164,7 +164,7 @@ export async function POST(request: Request) {
           const historyData = {
             strategyId: strategy.id,
             strategyName: name.trim(),
-            universe: (backtestResult.symbols ?? []).slice(0, 3).join(","),
+            universe: dslToSave?.universe?.id ?? (backtestResult.symbols ?? []).slice(0, 3).join(","),
             conditions: JSON.stringify({ entry: dslToSave.entry ?? null, exit: dslToSave.exit ?? null }),
             metrics: JSON.stringify(metrics),
             result: JSON.stringify({

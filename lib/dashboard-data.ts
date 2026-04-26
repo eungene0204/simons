@@ -53,7 +53,7 @@ async function fetchDashboardFromDB(): Promise<DashboardInitialData> {
       where: { strategyId: { not: null } },
       include: { VirtualPosition: true },
     }),
-    prisma.backtestHistory.findMany({ orderBy: { createdAt: "desc" }, take: 50 }),
+    prisma.backtestHistory.findMany({ where: { isVisible: true }, orderBy: { createdAt: "desc" }, take: 50 }),
     prisma.virtualOrder.findMany({
       where: {
         side: "SELL",

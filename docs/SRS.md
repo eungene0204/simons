@@ -3,7 +3,7 @@
 
 > **문서 버전:** v1.4
 > **작성일:** 2026-04-01
-> **최종 갱신일:** 2026-04-23
+> **최종 갱신일:** 2026-04-25
 > **프로젝트명:** Simons
 > **상태:** 작성 중
 
@@ -122,6 +122,26 @@ Simons는 사용자가 자신만의 주식 투자 전략을 **설계 → 검증 
 ---
 
 ## 3. 기능 요구사항
+
+### 3.0 종목정보 프로필 저장 원칙
+
+**FR-SIP-001** 시스템은 `/stock-order` 종목정보 탭에서 사용하는 비실시간 종목정보를 DB에 저장해야 한다.
+
+**FR-SIP-002** 저장 대상은 다음 필드로 제한해야 한다:
+- 종목 기본 정보: `symbol`, `name`, `listingDate`, `sector`
+- 회사 기본 정보: `establishmentDate`, `representativeName`, `employeeCount`, `homepageUrl`, `englishName`, `disclosureName`, `businessRegistrationNumber`, `settlementMonth`, `address`, `mainBusiness`
+- 재무 요약 정보: `businessYear`, `statementType`, `sales`, `operatingProfit`, `netIncome`, `totalAssets`, `totalLiabilities`, `totalEquity`, `debtRatio`
+- 밸류에이션 정보: `pe`, `pbr`
+
+**FR-SIP-003** 시스템은 전체 종목에 대해 위 종목정보를 선적재할 수 있어야 한다.
+
+**FR-SIP-004** `/api/stock/[symbol]/detail` 는 종목정보 탭 필드에 대해 DB를 우선 조회해야 한다.
+
+**FR-SIP-005** DB 값이 존재하지 않는 경우에만 외부 종목정보 조회를 수행하고, 성공 시 즉시 DB에 저장해야 한다.
+
+**FR-SIP-006** 시스템은 실시간 시세(`currentPrice`, `changePercent`, `change`, `open`, `high`, `low`, `volume`)를 종목정보 프로필 저장 대상에 포함하면 안 된다.
+
+**FR-SIP-007** 시스템은 `52주 고저`, 차트 시계열, 캔들 데이터처럼 종목정보 탭에서 사용하지 않는 필드를 종목정보 프로필 저장 대상에 포함하면 안 된다.
 
 ### 3.1 전략 설계
 

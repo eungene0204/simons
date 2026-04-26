@@ -4,6 +4,13 @@ import { loadStockList } from '@/lib/krx-stocks'
 import { getBasePrice, generateStockPriceData, generateCandleData, generateTimeSeries } from '@/lib/mock-stock-data'
 import { fetchStockPriceSnapshots } from '@/lib/server/stock-prices'
 import { prisma } from '@/lib/prisma'
+import {
+  buildStockInfoProfileFromDetail,
+  hasStoredInfoProfile,
+  persistStockInfoProfile,
+  readStoredStockInfoProfile,
+  type StockInfoProfileDetailResponse,
+} from '@/app/api/stocks/profile-store'
 
 interface StockDetail {
   symbol: string;
@@ -50,7 +57,7 @@ interface StockDetail {
   realLastClose?: number | null;
 }
 
-interface MarketDetailResponse {
+interface MarketDetailResponse extends StockInfoProfileDetailResponse {
   symbol: string;
   name?: string;
   volume?: number;
@@ -193,7 +200,6 @@ export async function GET(
     // 한국 종목 목록에서 이름, 섹터, 업종 정보 가져오기
     let stockName = "";
     let stockSector = "";
-    let stockIndustry = "";
     let stockMarket: "KOSPI" | "KOSDAQ" | undefined;
     const storedStock = useStockMetadataStore
       ? await prisma.stock.findUnique({
@@ -202,13 +208,14 @@ export async function GET(
             name: true,
             market: true,
             sector: true,
-            industry: true,
-            description: true,
             listingDate: true,
             profileSource: true,
             profileUpdatedAt: true,
           },
         }).catch(() => null)
+      : null;
+    const storedProfile = useStockMetadataStore
+      ? await readStoredStockInfoProfile(symbol)
       : null;
 
     try {
@@ -217,7 +224,6 @@ export async function GET(
       if (stock) {
         stockName = stock.name;
         stockSector = stock.sector || "";
-        stockIndustry = stock.industry || "";
         stockMarket = stock.market;
       }
     } catch (error) {
@@ -263,14 +269,15 @@ export async function GET(
       storedStock?.name,
       base.name,
     );
-    const hasStoredListing = Boolean(storedStock?.listingDate);
-    const includeListing = !hasStoredListing;
+    const hasPersistedInfo = hasStoredInfoProfile(
+      storedProfile,
+    );
     try {
       const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
       const detailUrl = new URL(`${BACKEND_URL}/market/stock-detail/${symbol}`);
       detailUrl.searchParams.set("include_profile", "false");
-      detailUrl.searchParams.set("include_listing", includeListing ? "true" : "false");
-      detailUrl.searchParams.set("include_public_info", "true");
+      detailUrl.searchParams.set("include_listing", storedStock?.listingDate ? "false" : "true");
+      detailUrl.searchParams.set("include_public_info", hasPersistedInfo ? "false" : "true");
       if (companyNameForLookup) {
         detailUrl.searchParams.set("company_name", companyNameForLookup);
       }
@@ -319,17 +326,25 @@ export async function GET(
     const timeSeries = generateTimeSeries(symbol, basePrice, 365);
     const resolvedName = pickStockName(
       symbol,
+      storedStock?.name,
       stockName,
       realDetail?.name,
-      storedStock?.name,
       base.name,
     ) || symbol;
     const resolvedMarket = stockMarket || (storedStock?.market as "KOSPI" | "KOSDAQ" | undefined);
-    const resolvedDescription =
-      realDetail?.description || storedStock?.description || base.description || "";
+    const resolvedDescription = realDetail?.description || base.description || "";
     const resolvedIndustry = realDetail?.industry || "";
-    const resolvedSector = realDetail?.sector || "";
-    const resolvedListingDate = realDetail?.listingDate || storedStock?.listingDate || "";
+    const resolvedSector = storedStock?.sector || realDetail?.sector || "";
+    const resolvedListingDate = storedStock?.listingDate || realDetail?.listingDate || "";
+    const resolvedCompanyBasic = storedProfile?.companyBasic ?? realDetail?.companyBasic ?? null;
+    const resolvedSummaryFinancials = storedProfile?.summaryFinancials ?? realDetail?.summaryFinancials ?? null;
+    const resolvedDebtRatioFromSummary =
+      typeof resolvedSummaryFinancials?.debtRatio === "number"
+        ? resolvedSummaryFinancials.debtRatio
+        : undefined;
+    const effectivePe = storedProfile?.pe ?? resolvedPer ?? null;
+    const effectivePbr = storedProfile?.pbr ?? resolvedPbr ?? null;
+    const effectiveDebtRatio = storedProfile?.debtRatio ?? resolvedDebtRatioFromSummary ?? resolvedDebtRatio ?? null;
 
     const detail: StockDetail = {
       symbol,
@@ -346,9 +361,9 @@ export async function GET(
       volume: pickPositiveNumber(quote?.volume, realDetail?.volume, base.volume),
       marketCap: resolvedMarketCap,
       previousClose,
-      pe: resolvedPer ?? null,
-      pbr: resolvedPbr ?? null,
-      debtRatio: resolvedDebtRatio ?? null,
+      pe: effectivePe,
+      pbr: effectivePbr,
+      debtRatio: effectiveDebtRatio,
       week52High: realDetail?.week52High ?? null,
       week52HighDate: realDetail?.week52HighDate ?? null,
       week52HighChangePercent: realDetail?.week52HighChangePercent ?? null,
@@ -361,26 +376,43 @@ export async function GET(
       description: resolvedDescription,
       sector: resolvedSector,
       industry: resolvedIndustry,
-      companyBasic: realDetail?.companyBasic ?? null,
-      summaryFinancials: realDetail?.summaryFinancials ?? null,
+      companyBasic: resolvedCompanyBasic,
+      summaryFinancials: resolvedSummaryFinancials,
       listingDate: resolvedListingDate,
       timeSeries: timeSeries,
       candleData: candleData,
       realLastClose: realLastClose ?? null,
     };
 
-    const shouldPersistStockMetadata =
-      !storedStock ||
-      includeListing ||
-      resolvedName !== (storedStock?.name ?? symbol) ||
-      (resolvedSector || null) !== (storedStock?.sector ?? null) ||
-      (resolvedIndustry || null) !== (storedStock?.industry ?? null) ||
-      (resolvedMarket ?? null) !== (storedStock?.market ?? null);
+    if (useStockMetadataStore && !hasPersistedInfo) {
+      try {
+        const fetchedProfile = realDetail
+          ? buildStockInfoProfileFromDetail(
+              {
+                symbol,
+                name: stockName || storedStock?.name || base.name,
+                market: resolvedMarket,
+                sector: stockSector || storedStock?.sector || undefined,
+              },
+              realDetail,
+            )
+          : null;
 
-    if (useStockMetadataStore && shouldPersistStockMetadata) {
-      const metadataTouchedAt =
-        includeListing ? new Date() : storedStock?.profileUpdatedAt ?? null;
-
+        if (fetchedProfile) {
+          await persistStockInfoProfile(
+            {
+              symbol,
+              name: stockName || storedStock?.name || base.name,
+              market: resolvedMarket,
+              sector: stockSector || storedStock?.sector || undefined,
+            },
+            fetchedProfile,
+          );
+        }
+      } catch (error) {
+        console.error("Failed to persist stock info profile:", error);
+      }
+    } else if (useStockMetadataStore && !storedStock) {
       await prisma.stock.upsert({
         where: { symbol },
         create: {
@@ -388,26 +420,20 @@ export async function GET(
           name: resolvedName,
           market: resolvedMarket ?? null,
           sector: resolvedSector || null,
-          industry: resolvedIndustry || null,
-          description: resolvedDescription || null,
           listingDate: resolvedListingDate || null,
-          profileSource: realDetail?.profileSource || storedStock?.profileSource || null,
-          profileUpdatedAt: metadataTouchedAt,
+          profileSource: storedProfile?.source || storedStock?.profileSource || null,
+          profileUpdatedAt: storedProfile?.updatedAt || storedStock?.profileUpdatedAt || null,
           updatedAt: new Date(),
         },
         update: {
           name: resolvedName,
           market: resolvedMarket ?? null,
           sector: resolvedSector || null,
-          industry: resolvedIndustry || null,
-          description: resolvedDescription || null,
           listingDate: resolvedListingDate || null,
-          profileSource: realDetail?.profileSource || storedStock?.profileSource || null,
-          profileUpdatedAt: metadataTouchedAt,
           updatedAt: new Date(),
         },
       }).catch((error) => {
-        console.error("Failed to persist stock metadata:", error);
+        console.error("Failed to persist stock seed metadata:", error);
       });
     }
 
