@@ -4,7 +4,6 @@ import { useState, useRef, useEffect, Suspense } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
-import RunAllTestsModal from "@/components/strategy/RunAllTestsModal";
 import { StrategyExampleTabs } from "@/components/strategy/StrategyExampleTabs";
 import { BacktestResult } from "@/types/strategy";
 import {
@@ -151,7 +150,6 @@ function StrategyLabContent() {
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [modelStatus, setModelStatus] = useState<{ status: string; error: string | null } | null>(null);
-  const [isRunAllTestsOpen, setIsRunAllTestsOpen] = useState(false);
   const [advisorRequest, setAdvisorRequest] = useState<AdvisorRequest | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -596,13 +594,6 @@ function StrategyLabContent() {
                   투자 아이디어를 말씀해주시면,<br /> AI가 전략으로 설계하고 바로 백테스트해드립니다.
                 </p>
               </div>
-              <button
-                onClick={() => setIsRunAllTestsOpen(true)}
-                className="inline-flex items-center gap-2 rounded-xl bg-[var(--main-blue)] px-4 py-2.5 text-xs font-black text-white transition-opacity duration-200 hover:opacity-90"
-              >
-                <Sparkle size={13} weight="fill" />
-                모두 테스트
-              </button>
             </div>
             {modelStatus?.status === "failed" && (
               <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[var(--main-blue)]/10 border border-[var(--main-blue)]/20 text-[var(--main-blue)] text-xs font-bold">
@@ -737,11 +728,6 @@ function StrategyLabContent() {
         )}
 
       </div>
-      <RunAllTestsModal
-        isOpen={isRunAllTestsOpen}
-        onClose={() => setIsRunAllTestsOpen(false)}
-        currentPrompt={inputValue}
-      />
     </DashboardLayout>
   );
 }

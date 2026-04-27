@@ -52,6 +52,7 @@ class RuleContext:
     news_event_types: List[str] = field(default_factory=list)
     news_high_confidence_negative: int = 0       # count of high-conf negative articles
     has_fundamental_filters: bool = False
+    filter_names: List[str] = field(default_factory=list)   # 사용자 표시용 필터명
     news_available: bool = False
 
 

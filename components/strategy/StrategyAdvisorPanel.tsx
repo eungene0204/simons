@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ArrowsClockwise,
   CheckCircle,
-  Lightning,
+  Lightbulb,
   Newspaper,
   Robot,
   TestTube,
@@ -61,20 +61,6 @@ function riskColor(level: "low" | "medium" | "high" | string) {
   if (level === "high") return "text-[var(--main-red)]";
   if (level === "medium") return "text-amber-400";
   return "text-emerald-400";
-}
-
-function overfitBadge(risk: "low" | "medium" | "high") {
-  const styles = {
-    high: "bg-[var(--main-red)]/10 text-[var(--main-red)]",
-    medium: "bg-amber-500/10 text-amber-400",
-    low: "bg-emerald-500/10 text-emerald-400",
-  };
-  const label = { high: "높음", medium: "중간", low: "낮음" };
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold ${styles[risk]}`}>
-      과최적화 위험 {label[risk]}
-    </span>
-  );
 }
 
 // ─── Section label ────────────────────────────────────────────────────────────
@@ -199,16 +185,11 @@ export function StrategyAdvisorPanel({
         {result && (
           <div className="p-4 space-y-3">
 
-            {/* 과최적화 위험 */}
-            <div className="flex justify-end">
-              {overfitBadge(result.overfit_risk)}
-            </div>
-
             {/* 조언 드립니다 */}
             {result.advice.length > 0 && (
               <div className="border border-white/[0.08] rounded-2xl overflow-hidden">
                 <SectionLabel
-                  icon={<Lightning size={14} weight="bold" className="text-gray-500" />}
+                  icon={<Lightbulb size={14} weight="fill" className="text-yellow-400" />}
                   title="조언 드립니다"
                   count={result.advice.length}
                 />
