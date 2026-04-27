@@ -54,7 +54,7 @@ class StrategyAdvisorAgent:
         overfit_risk = compute_overfit_risk(issues, ctx)
 
         # ── Step 4: suggest ────────────────────────────────────────────────
-        advice, experiments, ai_rec = self._suggestion.generate(issues, ctx, news)
+        advice, experiments, ai_rec = self._suggestion.generate(issues, ctx, news, overfit_risk)
 
         # ── Step 5: news analysis summary ─────────────────────────────────
         news_analysis: Optional[NewsAnalysis] = None

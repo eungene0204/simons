@@ -22,6 +22,22 @@ _UNIVERSE_SIZE: Dict[str, int] = {
 
 _LIQUIDITY_METRICS = {"trading_value"}
 
+_METRIC_LABELS: Dict[str, str] = {
+    "per": "PER",
+    "pbr": "PBR",
+    "roe": "ROE",
+    "debt_ratio": "부채비율",
+    "market_cap": "시가총액",
+    "trading_value": "거래대금",
+    "gpa": "GPA",
+    "roe_or_gpa": "ROE/GPA",
+    "revenue_growth": "매출성장률",
+    "operating_margin": "영업이익률",
+}
+
+def _metric_label(metric: str) -> str:
+    return _METRIC_LABELS.get(metric.lower(), metric)
+
 
 def _build_rule_context(
     req: AdvisorRequest,
@@ -38,6 +54,7 @@ def _build_rule_context(
     filters: List[Dict] = ps.get("fundamental_filters") or []
     has_liquidity = any(f.get("metric") in _LIQUIDITY_METRICS for f in filters)
     has_fundamental = len(filters) > 0
+    filter_names = [_metric_label(f.get("metric", "")) for f in filters]
 
     # ── entry / exit signals ────────────────────────────────────────────────
     entry_signals: List[Dict] = ps.get("entry_signals") or []
@@ -59,6 +76,7 @@ def _build_rule_context(
         filter_count=len(filters),
         has_liquidity_filter=has_liquidity,
         has_fundamental_filters=has_fundamental,
+        filter_names=filter_names,
         entry_signal_count=len(entry_signals),
         has_ai_signal=has_ai,
         max_positions=ps.get("max_positions"),
