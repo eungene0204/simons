@@ -48,3 +48,5 @@ def test_summarize_endpoint_disables_thinking_on_mlx(monkeypatch):
     assert response["strengths"] == ["강점"]
     assert response["weaknesses"] == ["단점"]
     assert response["improvements"] == ["개선점"]
+    assert response["runtime"]["backend"] == "mlx"
+    assert response["runtime"]["total_ms"] >= 0

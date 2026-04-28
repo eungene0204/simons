@@ -322,9 +322,11 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
       }
 
       try {
+        const bgColor = getComputedStyle(document.documentElement)
+          .getPropertyValue("--background").trim() || "#1a1a1a";
         const chart = createChart(container, {
           layout: {
-            background: { type: ColorType.Solid, color: "#1a1a1a" },
+            background: { type: ColorType.Solid, color: bgColor },
             textColor: "#9ca3af",
           },
           localization: {

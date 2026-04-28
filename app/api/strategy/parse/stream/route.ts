@@ -1,0 +1,150 @@
+import { NextRequest, NextResponse } from "next/server";
+import { fetchBackend } from "@/lib/server/backend";
+
+type ParseStreamBody = {
+  prompt?: string;
+  backend?: string;
+  model?: string;
+  previous_parsed?: Record<string, unknown>;
+};
+
+function sseEvent(data: object | string): string {
+  const payload = typeof data === "string" ? data : JSON.stringify(data);
+  return `data: ${payload}\n\n`;
+}
+
+function compactPrompt(prompt: string): string {
+  return prompt.toLowerCase().replace(/\s+/g, "");
+}
+
+function inferUniverse(prompt: string): string[] {
+  const compact = compactPrompt(prompt);
+  if (compact.includes("코스피200") || compact.includes("kospi200")) return ["KOSPI200"];
+  if (
+    compact.includes("전체시장") ||
+    compact.includes("코스피+코스닥") ||
+    compact.includes("kospi+kosdaq")
+  ) {
+    return ["KOSPI", "KOSDAQ"];
+  }
+  if (compact.includes("코스닥") || compact.includes("kosdaq")) return ["KOSDAQ"];
+  if (compact.includes("코스피") || compact.includes("kospi")) return ["KOSPI"];
+  return ["KOSPI200"];
+}
+
+function inferMaxPositions(prompt: string): number | null {
+  const match = compactPrompt(prompt).match(/(?:최대|상위)?(\d+)(?:개|종목)/);
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? Math.max(1, Math.min(100, parsed)) : null;
+}
+
+function inferRecognizedTerms(prompt: string): string[] {
+  const compact = compactPrompt(prompt);
+  const terms: Array<[string, string[]]> = [
+    ["pbr", ["pbr"]],
+    ["per", ["per"]],
+    ["roe", ["roe", "gpa"]],
+    ["ma_crossover", ["골든크로스", "데드크로스", "이동평균", "이평선"]],
+    ["rsi", ["rsi"]],
+    ["macd", ["macd"]],
+    ["bollinger_bands", ["볼린저", "bollinger"]],
+    ["breakout", ["신고가", "브레이크아웃", "breakout"]],
+    ["stop_loss", ["손절", "손실", "하락"]],
+    ["take_profit", ["익절", "수익"]],
+    ["hold_period", ["보유", "리밸런싱"]],
+  ];
+
+  return terms
+    .filter(([, keywords]) => keywords.some((keyword) => compact.includes(keyword)))
+    .map(([term]) => term);
+}
+
+function buildSkeleton(body: ParseStreamBody) {
+  const prompt = String(body.prompt ?? "");
+  const recognizedTerms = inferRecognizedTerms(prompt);
+
+  return {
+    type: "skeleton",
+    data: {
+      description: prompt,
+      universe: inferUniverse(prompt),
+      max_positions: inferMaxPositions(prompt),
+      recognized_terms: recognizedTerms,
+      confidence: recognizedTerms.length > 0 ? "partial" : "low",
+    },
+  };
+}
+
+function streamHeaders() {
+  return {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  };
+}
+
+export async function POST(req: NextRequest) {
+  let body: ParseStreamBody;
+
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ detail: "Invalid JSON" }, { status: 400 });
+  }
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const encoder = new TextEncoder();
+      const send = (event: object | string) => {
+        controller.enqueue(encoder.encode(sseEvent(event)));
+      };
+
+      send({ type: "accepted" });
+      send(buildSkeleton(body));
+
+      try {
+        const res = await fetchBackend("/strategy/parse", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          cache: "no-store",
+          timeoutMs: 120_000,
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ detail: res.statusText }));
+          send({ type: "error", detail: err.detail ?? res.statusText });
+          send("[DONE]");
+          controller.close();
+          return;
+        }
+
+        const data = await res.json();
+        send({
+          type: "parsed_final",
+          parsed: data.parsed,
+          clarification_question: data.clarification_question ?? null,
+          clarification_suggestions: data.clarification_suggestions ?? null,
+        });
+        send({
+          type: "dsl_ready",
+          backtest_request: data.backtest_request,
+          symbol_count: data.symbol_count ?? data.backtest_request?.symbol_count ?? null,
+        });
+        send("[DONE]");
+        controller.close();
+      } catch (error: any) {
+        send({ type: "error", detail: `Strategy parse stream proxy error: ${error.message}` });
+        send("[DONE]");
+        controller.close();
+      }
+    },
+  });
+
+  return new NextResponse(stream, {
+    status: 200,
+    headers: streamHeaders(),
+  });
+}

@@ -316,6 +316,28 @@ SYSTEM_PROMPT = """당신은 한국 주식 퀀트 투자 전략을 JSON으로 �
 }
 """
 
+COMPACT_SYSTEM_PROMPT = """한국 주식 전략 자연어를 ParsedStrategy JSON으로만 변환하세요.
+출력은 JSON 객체 하나만 허용합니다. 설명, markdown, 주석을 쓰지 마세요.
+
+기본값:
+- universe: ["KOSPI200"], max_positions: 10, backtest_period: "5y"
+- initial_capital: 10000000.0, execution_timing: "next_open"
+- fee_rate: 0.015, slippage_rate: 0.05
+- rebalancing_period: "none", 누락된 optional 필드는 null
+
+매핑:
+- PBR/PER/ROE/부채비율/시가총액/거래대금 → fundamental_filters
+- 이하/미만/이상/초과 → <=/< />=/ >
+- 골든크로스/데드크로스 → ma_crossover buy/sell, 기본 5/20
+- RSI 30 이하/70 이상 → rsi buy/sell, 기본 period 14
+- MACD, 볼린저밴드, 신고가 돌파, 거래량 급증, AI 상승/하락 예측을 해당 indicator로 변환
+- 1년/6개월/3개월/1개월 보유 → 252/126/63/21 거래일
+- 매월/분기/매년 리밸런싱 → monthly/quarterly/yearly
+- 손절/익절/트레일링 스탑/MDD 한도를 % 숫자로 변환
+- 1억/5천만원/1000만원 등 자본금은 원 단위 숫자로 변환
+
+반드시 ParsedStrategy 전체 필드를 포함하세요."""
+
 
 # ─── 파서 클래스 ──────────────────────────────────────────────────────────────
 
@@ -431,10 +453,19 @@ class NLStrategyParser:
 
     def parse(self, user_input: str) -> ParsedStrategy:
         """자연어 입력 → ParsedStrategy (7B 사용)"""
-        if self.backend == "mlx":
-            parsed = self._parse_mlx(user_input)
-        else:
-            parsed = self._parse_ollama(user_input)
+        parsed_by_rules = _parse_rule_based_strategy(user_input)
+        if parsed_by_rules is not None:
+            return parsed_by_rules
+
+        try:
+            if self.backend == "mlx":
+                parsed = self._parse_mlx(user_input)
+            else:
+                parsed = self._parse_ollama(user_input)
+        except ValueError as exc:
+            if "JSON object" not in str(exc):
+                raise
+            parsed = _build_fallback_strategy(user_input)
         return _apply_prompt_overrides(parsed, user_input)
 
     def parse_modification(self, user_input: str, previous: dict) -> ParsedStrategy:
@@ -548,7 +579,7 @@ class NLStrategyParser:
 
     def _parse_mlx(self, user_input: str) -> ParsedStrategy:
         self._init_mlx_7b()
-        prompt = f"{SYSTEM_PROMPT}\n\n입력: \"{user_input}\"\n출력:"
+        prompt = f"{COMPACT_SYSTEM_PROMPT}\n\n입력: \"{user_input}\"\n출력:"
         result = self._generator_7b(prompt, max_tokens=1024)
         if isinstance(result, str):
             return _parse_model_json_response(result, ParsedStrategy)
@@ -561,7 +592,7 @@ class NLStrategyParser:
             response_model=ParsedStrategy,
             max_retries=self.max_retries,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": COMPACT_SYSTEM_PROMPT},
                 {"role": "user", "content": user_input},
             ],
         )
@@ -657,7 +688,31 @@ def _extract_json_object(text: str) -> str:
             if depth == 0:
                 return text[start:idx + 1]
 
+    repaired = _repair_incomplete_json_object(text[start:], depth, in_string)
+    if repaired is not None:
+        return repaired
+
     raise ValueError("Incomplete JSON object in model output")
+
+
+def _repair_incomplete_json_object(fragment: str, depth: int, in_string: bool) -> Optional[str]:
+    """Best-effort repair for model outputs truncated only at the tail."""
+    candidate = fragment.rstrip()
+    if not candidate:
+        return None
+
+    if in_string:
+        candidate += '"'
+
+    while candidate and candidate[-1] in [",", ":"]:
+        candidate = candidate[:-1].rstrip()
+
+    candidate += "}" * max(depth, 0)
+    try:
+        json.loads(candidate)
+        return candidate
+    except json.JSONDecodeError:
+        return None
 
 
 def _parse_model_json_response(raw_text: str, model_cls: type[BaseModel]) -> BaseModel:
@@ -805,6 +860,239 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
         entry.append(TechnicalSignal(indicator="volume_spike", signal_type="buy", period=20))
 
     return entry, exit_
+
+
+_FUNDAMENTAL_PATTERN_SPECS = [
+    ("pbr", [r"pbr\s*(\d+(?:\.\d+)?)\s*(이하|미만|이상|초과)?"]),
+    ("per", [r"per\s*(\d+(?:\.\d+)?)\s*(이하|미만|이상|초과)?"]),
+    ("roe_or_gpa", [r"(?:roe|gpa)\s*(\d+(?:\.\d+)?)%?\s*(이하|미만|이상|초과)?"]),
+    ("debt_ratio", [r"(?:부채비율|부채)\s*(\d+(?:\.\d+)?)%?\s*(이하|미만|이상|초과)?"]),
+    ("market_cap", [r"시가총액\s*(\d+(?:\.\d+)?)\s*(억|억원)?\s*(이하|미만|이상|초과)?"]),
+    ("trading_value", [r"(?:거래대금|일평균거래대금)\s*(\d+(?:\.\d+)?)\s*(억|억원)?\s*(이하|미만|이상|초과)?"]),
+]
+
+_OPERATOR_BY_KOREAN = {
+    "이하": "<=",
+    "미만": "<",
+    "이상": ">=",
+    "초과": ">",
+}
+
+
+def _default_operator_for_metric(metric: str) -> str:
+    if metric in {"pbr", "per", "debt_ratio"}:
+        return "<="
+    return ">="
+
+
+def _extract_fundamental_filters(user_input: str) -> list[FundamentalFilter]:
+    compact = re.sub(r"\s+", "", user_input.lower())
+    filters: list[FundamentalFilter] = []
+    seen: set[tuple[str, str, float]] = set()
+
+    for metric, patterns in _FUNDAMENTAL_PATTERN_SPECS:
+        for pattern in patterns:
+            for match in re.finditer(pattern, compact):
+                raw_value = float(match.group(1))
+                op_word = next(
+                    (group for group in match.groups()[1:] if group in _OPERATOR_BY_KOREAN),
+                    None,
+                )
+                operator = _OPERATOR_BY_KOREAN.get(op_word or "", _default_operator_for_metric(metric))
+                value = raw_value
+                key = (metric, operator, value)
+                if key in seen:
+                    continue
+                filters.append(FundamentalFilter(metric=metric, operator=operator, value=value))
+                seen.add(key)
+
+    return filters
+
+
+def _extract_max_positions(user_input: str) -> Optional[int]:
+    compact = re.sub(r"\s+", "", user_input.lower())
+    patterns = [
+        r"(?:최대|상위)?(\d+)(?:개|종목)",
+        r"maxpositions?(\d+)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, compact)
+        if match:
+            return max(1, min(100, int(match.group(1))))
+    return None
+
+
+def _extract_hold_period_days(user_input: str) -> Optional[int]:
+    compact = re.sub(r"\s+", "", user_input.lower())
+    if "1년" in compact or "일년" in compact:
+        return 252
+    if "6개월" in compact or "반년" in compact:
+        return 126
+    if "3개월" in compact:
+        return 63
+    if "1개월" in compact or "한달" in compact:
+        return 21
+
+    match = re.search(r"(\d+)개월", compact)
+    if match:
+        return int(match.group(1)) * 21
+    match = re.search(r"(\d+)일(?:간)?보유", compact)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def _extract_rebalancing_period(user_input: str, hold_period_days: Optional[int]) -> str:
+    compact = re.sub(r"\s+", "", user_input.lower())
+    if "매월" in compact or "월간리밸런싱" in compact:
+        return "monthly"
+    if "분기" in compact:
+        return "quarterly"
+    if "매년" in compact or "연간리밸런싱" in compact:
+        return "yearly"
+    if hold_period_days == 252 and "보유" in compact:
+        return "yearly"
+    return "none"
+
+
+def _extract_backtest_period(user_input: str) -> str:
+    compact = re.sub(r"\s+", "", user_input.lower())
+    if "전체기간" in compact or "full" in compact:
+        return "full"
+    if "1년백테스트" in compact or "1y" in compact:
+        return "1y"
+    if "3년백테스트" in compact or "3y" in compact:
+        return "3y"
+    if "5년백테스트" in compact or "5y" in compact:
+        return "5y"
+    return "5y"
+
+
+def _extract_initial_capital(user_input: str) -> float:
+    compact = re.sub(r"\s+", "", user_input.lower())
+    match = re.search(r"(\d+(?:\.\d+)?)억(?:(\d+(?:\.\d+)?)천?만)?", compact)
+    if match:
+        capital = float(match.group(1)) * 100_000_000
+        if match.group(2):
+            capital += float(match.group(2)) * 10_000_000
+        return capital
+
+    match = re.search(r"(\d+(?:\.\d+)?)천만원", compact)
+    if match:
+        return float(match.group(1)) * 10_000_000
+
+    match = re.search(r"(\d+(?:\.\d+)?)만원", compact)
+    if match:
+        return float(match.group(1)) * 10_000
+
+    return 10_000_000.0
+
+
+def _extract_execution_timing(user_input: str) -> str:
+    compact = re.sub(r"\s+", "", user_input.lower())
+    if "당일종가" in compact or "현재종가" in compact:
+        return "current_close"
+    return "next_open"
+
+
+def _extract_rate(user_input: str, label: str, default: float) -> float:
+    compact = re.sub(r"\s+", "", user_input.lower())
+    match = re.search(rf"{label}(\d+(?:\.\d+)?)%", compact)
+    return float(match.group(1)) if match else default
+
+
+def _extract_trailing_stop_pct(user_input: str) -> Optional[float]:
+    compact = re.sub(r"\s+", "", user_input.lower())
+    patterns = [
+        r"트레일링(?:스탑|스톱)?(\d+(?:\.\d+)?)%",
+        r"최고가대비(\d+(?:\.\d+)?)%하락",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, compact)
+        if match:
+            return float(match.group(1))
+    return None
+
+
+def _extract_max_mdd_limit_pct(user_input: str) -> Optional[float]:
+    compact = re.sub(r"\s+", "", user_input.lower())
+    patterns = [
+        r"mdd(\d+(?:\.\d+)?)%.*?(?:초과|이상)",
+        r"낙폭(\d+(?:\.\d+)?)%.*?(?:초과|이상)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, compact)
+        if match:
+            return float(match.group(1))
+    return None
+
+
+def _parse_rule_based_strategy(user_input: str) -> Optional[ParsedStrategy]:
+    """
+    Fast path for explicit, common strategies.
+
+    This keeps the model unchanged, but avoids model inference when the prompt
+    contains enough deterministic slots to build the same ParsedStrategy shape.
+    Ambiguous prompts still fall through to the LLM.
+    """
+    fundamental_filters = _extract_fundamental_filters(user_input)
+    entry_signals, exit_signals = _extract_technical_signals(user_input)
+    hold_period_days = _extract_hold_period_days(user_input)
+
+    has_entry = bool(fundamental_filters or entry_signals)
+    has_exit = bool(exit_signals or hold_period_days)
+    has_risk_exit = bool(
+        re.search(r"손절|익절|트레일링|최고가대비|mdd|낙폭", re.sub(r"\s+", "", user_input.lower()))
+    )
+    if not has_entry or not (has_exit or has_risk_exit):
+        return None
+
+    parsed = ParsedStrategy(
+        description=user_input,
+        universe=_extract_explicit_universe(user_input) or ["KOSPI200"],
+        fundamental_filters=fundamental_filters,
+        entry_signals=entry_signals,
+        exit_signals=exit_signals,
+        max_positions=_extract_max_positions(user_input) or 10,
+        hold_period_days=hold_period_days,
+        rebalancing_period=_extract_rebalancing_period(user_input, hold_period_days),
+        stop_loss_pct=None,
+        take_profit_pct=None,
+        trailing_stop_pct=_extract_trailing_stop_pct(user_input),
+        max_mdd_limit_pct=_extract_max_mdd_limit_pct(user_input),
+        backtest_period=_extract_backtest_period(user_input),
+        initial_capital=_extract_initial_capital(user_input),
+        execution_timing=_extract_execution_timing(user_input),
+        fee_rate=_extract_rate(user_input, "수수료", 0.015),
+        slippage_rate=_extract_rate(user_input, "슬리피지", 0.05),
+    )
+    return _apply_prompt_overrides(parsed, user_input)
+
+
+def _build_fallback_strategy(user_input: str) -> ParsedStrategy:
+    """Safe non-LLM fallback when structured model output is incomplete."""
+    entry_signals, exit_signals = _extract_technical_signals(user_input)
+    hold_period_days = _extract_hold_period_days(user_input)
+    parsed = ParsedStrategy(
+        description=user_input,
+        universe=_extract_explicit_universe(user_input) or ["KOSPI200"],
+        fundamental_filters=_extract_fundamental_filters(user_input),
+        entry_signals=entry_signals,
+        exit_signals=exit_signals,
+        max_positions=_extract_max_positions(user_input) or 10,
+        hold_period_days=hold_period_days,
+        rebalancing_period=_extract_rebalancing_period(user_input, hold_period_days),
+        stop_loss_pct=None,
+        take_profit_pct=None,
+        trailing_stop_pct=_extract_trailing_stop_pct(user_input),
+        max_mdd_limit_pct=_extract_max_mdd_limit_pct(user_input),
+        backtest_period=_extract_backtest_period(user_input),
+        initial_capital=_extract_initial_capital(user_input),
+        execution_timing=_extract_execution_timing(user_input),
+        fee_rate=_extract_rate(user_input, "수수료", 0.015),
+        slippage_rate=_extract_rate(user_input, "슬리피지", 0.05),
+    )
+    return _apply_prompt_overrides(parsed, user_input)
 
 
 def _merge_signals(

@@ -98,3 +98,24 @@ def test_to_backtest_request_includes_strategy_id_and_canonical_dsl(_mock):
     ]
     assert "description" not in request["canonical_strategy_dsl"]
 
+
+@patch("engine.strategy_converter._load_universe")
+def test_to_backtest_request_can_defer_symbol_resolution(mock_load_universe):
+    strategy = make_strategy(universe=["KOSPI200"])
+
+    request = to_backtest_request(strategy, resolve_symbols=False)
+
+    mock_load_universe.assert_not_called()
+    assert request["symbols"] == []
+    assert request["symbols_resolved"] is False
+    assert request["symbol_count"] == 200
+    assert request["strategy_id"] == compute_strategy_id(strategy)
+
+
+@patch("engine.strategy_converter._load_universe", return_value=["005930", "000660"])
+def test_to_backtest_request_marks_resolved_symbols_by_default(_mock):
+    request = to_backtest_request(make_strategy())
+
+    assert request["symbols"] == ["005930", "000660"]
+    assert request["symbols_resolved"] is True
+    assert request["symbol_count"] == 2
