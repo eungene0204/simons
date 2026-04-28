@@ -1433,6 +1433,71 @@ async def _build_orderbook_payload(symbol: str) -> dict:
     raise HTTPException(status_code=503, detail="실제 호가 데이터를 아직 받지 못했습니다")
 
 
+@app.get("/market/investor-trading/{symbol}")
+async def market_investor_trading(symbol: str):
+    """투자자별 일별 매매동향 (개인/외국인/기관).
+
+    KIS API 우선 (최대 30일, 매수/매도 수량 포함),
+    실패 시 Naver dealTrendInfos 폴백 (최근 5영업일).
+    """
+    # --- KIS 우선 ---
+    kis = next(
+        (p for p in market_data_provider.providers if p.name == "kis"),
+        None,
+    )
+    if kis:
+        kis_rows = await kis.get_investor_trading(symbol)
+        if kis_rows:
+            return {"symbol": symbol, "data": kis_rows, "source": "kis"}
+
+    # --- Naver 폴백 ---
+    def _fetch_naver(symbol: str) -> list[dict]:
+        import requests as _req
+
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+        }
+        resp = _req.get(
+            f"https://m.stock.naver.com/api/stock/{symbol}/integration",
+            headers=headers,
+            timeout=6,
+        )
+        if resp.status_code != 200:
+            return []
+
+        deals = resp.json().get("dealTrendInfos") or []
+
+        def _parse_qty(val: str) -> int:
+            try:
+                return int(str(val).replace(",", "").replace("+", ""))
+            except (ValueError, TypeError):
+                return 0
+
+        rows = []
+        for d in deals:
+            raw = d.get("bizdate", "")
+            date_str = f"{raw[:4]}-{raw[4:6]}-{raw[6:]}" if len(raw) == 8 else raw
+            rows.append({
+                "date": date_str,
+                "individual_net": _parse_qty(d.get("individualPureBuyQuant")),
+                "foreign_net": _parse_qty(d.get("foreignerPureBuyQuant")),
+                "institutional_net": _parse_qty(d.get("organPureBuyQuant")),
+                "close_price": _parse_qty(d.get("closePrice")),
+                "volume": _parse_qty(d.get("accumulatedTradingVolume")),
+                "foreign_hold_ratio": d.get("foreignerHoldRatio", ""),
+            })
+        return rows
+
+    rows = await asyncio.to_thread(_fetch_naver, symbol)
+    if not rows:
+        raise HTTPException(status_code=503, detail="투자자 매매동향 데이터를 가져올 수 없습니다")
+
+    return {"symbol": symbol, "data": rows, "source": "naver"}
+
+
 @app.get("/market/orderbook/{symbol}")
 async def market_orderbook(symbol: str):
     """
@@ -2058,10 +2123,153 @@ class NLParseResponse(BaseModel):
     symbol_count: int
     clarification_question: Optional[str] = None
     clarification_suggestions: Optional[List[str]] = None
+    runtime: Optional[dict] = None
 
 _nl_parsers: dict = {}  # backend → NLStrategyParser (lazy singleton)
 _nl_parser_status: dict = {"status": "loading", "error": None}  # "ok" | "failed" | "loading"
-_mlx_inference_lock = threading.Lock()
+
+
+class PriorityInferenceLock:
+    """Single-device inference gate with priority-aware admission."""
+
+    def __init__(self):
+        self._condition = threading.Condition()
+        self._active = False
+        self._next_ticket = 0
+        self._waiting: list[tuple[int, int]] = []
+
+    def priority(self, priority: int):
+        lock = self
+
+        class _PriorityContext:
+            def __enter__(self):
+                lock.acquire(priority)
+                return self
+
+            def __exit__(self, *_args):
+                lock.release()
+                return False
+
+        return _PriorityContext()
+
+    def acquire(self, priority: int = 1):
+        with self._condition:
+            ticket = self._next_ticket
+            self._next_ticket += 1
+            marker = (priority, ticket)
+            self._waiting.append(marker)
+
+            while self._active or min(self._waiting) != marker:
+                self._condition.wait()
+
+            self._waiting.remove(marker)
+            self._active = True
+
+    def release(self):
+        with self._condition:
+            self._active = False
+            self._condition.notify_all()
+
+    def __enter__(self):
+        self.acquire(priority=1)
+        return self
+
+    def __exit__(self, *_args):
+        self.release()
+        return False
+
+
+_mlx_inference_lock = PriorityInferenceLock()
+
+class RuntimeMetricsStore:
+    """In-process latency summary for AI runtime paths."""
+
+    def __init__(self, max_recent: int = 100):
+        self._lock = threading.Lock()
+        self._max_recent = max_recent
+        self._samples: list[dict] = []
+
+    def record(self, stage: str, runtime: dict | None) -> None:
+        if not runtime:
+            return
+
+        sample = {
+            "stage": stage,
+            "timestamp": time.time(),
+            "runtime": dict(runtime),
+        }
+        with self._lock:
+            self._samples.append(sample)
+            if len(self._samples) > self._max_recent:
+                self._samples = self._samples[-self._max_recent:]
+
+    def reset(self) -> None:
+        with self._lock:
+            self._samples.clear()
+
+    def snapshot(self) -> dict:
+        with self._lock:
+            samples = list(self._samples)
+
+        by_stage: dict[str, list[dict]] = {}
+        for sample in samples:
+            by_stage.setdefault(sample["stage"], []).append(sample["runtime"])
+
+        return {
+            "stages": {
+                stage: self._summarize(stage_samples)
+                for stage, stage_samples in sorted(by_stage.items())
+            },
+            "recent": samples[-20:],
+        }
+
+    def _summarize(self, samples: list[dict]) -> dict:
+        total_values = [
+            float(sample["total_ms"])
+            for sample in samples
+            if isinstance(sample.get("total_ms"), (int, float))
+        ]
+        summary = {
+            "count": len(samples),
+            "cache_hits": sum(1 for sample in samples if sample.get("cache_hit") is True),
+            "cache_misses": sum(1 for sample in samples if sample.get("cache_hit") is False),
+        }
+        if total_values:
+            summary.update({
+                "avg_total_ms": round(sum(total_values) / len(total_values), 2),
+                "p50_total_ms": self._percentile(total_values, 0.50),
+                "p95_total_ms": self._percentile(total_values, 0.95),
+                "last_total_ms": round(total_values[-1], 2),
+            })
+        return summary
+
+    def _percentile(self, values: list[float], percentile: float) -> float:
+        ordered = sorted(values)
+        index = min(len(ordered) - 1, max(0, int(round((len(ordered) - 1) * percentile))))
+        return round(ordered[index], 2)
+
+
+_ai_runtime_metrics = RuntimeMetricsStore()
+
+
+def _record_ai_runtime(stage: str, runtime: dict | None) -> None:
+    _ai_runtime_metrics.record(stage, runtime)
+
+
+def _reset_ai_runtime_metrics_for_tests() -> None:
+    _ai_runtime_metrics.reset()
+
+
+@app.get("/ai/runtime/metrics")
+def get_ai_runtime_metrics():
+    return _ai_runtime_metrics.snapshot()
+
+
+@app.post("/ai/runtime/metrics/reset")
+def reset_ai_runtime_metrics():
+    _ai_runtime_metrics.reset()
+    return {"ok": True}
+
 
 _nl_parse_cache: dict = {}   # cache_key → NLParseResponse dict
 _NL_PARSE_CACHE_MAX = 200    # 최대 200개 항목 유지
@@ -2160,7 +2368,7 @@ def _ensure_summarize_model_loaded():
 def preload_summarize_model():
     """서버 시작 시 AI 요약용 모델도 미리 로드한다."""
     try:
-        with _mlx_inference_lock:
+        with _mlx_inference_lock.priority(2):
             _ensure_summarize_model_loaded()
     except Exception as e:
         print(f"[startup] Summarize 모델 로딩 실패 (무시됨): {e}", flush=True)
@@ -2175,18 +2383,28 @@ def get_model_status():
 @app.post("/strategy/parse", response_model=NLParseResponse)
 def parse_nl_strategy(request: NLParseRequest):
     """자연어 전략 설명을 ParsedStrategy + BacktestRequest로 변환"""
+    request_started = time.perf_counter()
     print(f"\n[NL-PARSE] prompt='{request.prompt}', backend={request.backend}", flush=True)
 
     # 캐시 조회 — 동일 프롬프트면 LLM 재호출 없이 즉시 반환
     cache_key = nl_cache_key(request.prompt, request.backend, request.model, request.previous_parsed)
     if cache_key in _nl_parse_cache:
         print(f"[NL-PARSE] 캐시 히트 → 즉시 반환", flush=True)
-        return _nl_parse_cache[cache_key]
+        cached = dict(_nl_parse_cache[cache_key])
+        runtime = {
+            "cache_hit": True,
+            "backend": request.backend,
+            "total_ms": round((time.perf_counter() - request_started) * 1000, 2),
+        }
+        cached["runtime"] = runtime
+        _record_ai_runtime("parse", runtime)
+        return cached
 
     try:
         from engine.nl_parser import NLStrategyParser
         from engine.strategy_converter import to_backtest_request
 
+        load_started = time.perf_counter()
         backend = request.backend
         if backend not in _nl_parsers:
             _nl_parser_status["status"] = "loading"
@@ -2200,8 +2418,10 @@ def parse_nl_strategy(request: NLParseRequest):
             _nl_parsers[backend] = NLStrategyParser(**kwargs)
 
         parser = _nl_parsers[backend]
+        load_ms = round((time.perf_counter() - load_started) * 1000, 2)
+        parse_started = time.perf_counter()
         if backend == "mlx":
-            with _mlx_inference_lock:
+            with _mlx_inference_lock.priority(0):
                 if request.previous_parsed:
                     print(f"[NL-PARSE] 수정 모드 (diff)", flush=True)
                     parsed = parser.parse_modification(request.prompt, request.previous_parsed)
@@ -2213,20 +2433,33 @@ def parse_nl_strategy(request: NLParseRequest):
                 parsed = parser.parse_modification(request.prompt, request.previous_parsed)
             else:
                 parsed = parser.parse(request.prompt)
+        parse_ms = round((time.perf_counter() - parse_started) * 1000, 2)
 
         _nl_parser_status["status"] = "ok"
         _nl_parser_status["error"] = None
+        convert_started = time.perf_counter()
         backtest_req = to_backtest_request(parsed)
+        convert_ms = round((time.perf_counter() - convert_started) * 1000, 2)
 
         print(f"[NL-PARSE] filters={len(parsed.fundamental_filters)}, entry={len(parsed.entry_signals)}, symbols={len(backtest_req['symbols'])}", flush=True)
 
+        runtime = {
+            "cache_hit": False,
+            "backend": backend,
+            "load_ms": load_ms,
+            "parse_ms": parse_ms,
+            "convert_ms": convert_ms,
+            "total_ms": round((time.perf_counter() - request_started) * 1000, 2),
+        }
         result = {
             "parsed": parsed.model_dump(),
             "backtest_request": backtest_req,
             "symbol_count": len(backtest_req["symbols"]),
             "clarification_question": None,
             "clarification_suggestions": None,
+            "runtime": runtime,
         }
+        _record_ai_runtime("parse", runtime)
 
         # 캐시 저장 (최대 크기 초과 시 가장 오래된 항목 제거)
         if len(_nl_parse_cache) >= _NL_PARSE_CACHE_MAX:
@@ -2342,6 +2575,7 @@ def summarize_backtest(req: SummarizeRequest):
     from ai.summarize import calculate_score, build_prompt, parse_llm_output, normalize_report_items
     import platform
 
+    request_started = time.perf_counter()
     score = calculate_score(req.metrics)
     prompt = build_prompt({"metrics": req.metrics, "strategySummary": req.strategySummary})
 
@@ -2352,7 +2586,7 @@ def summarize_backtest(req: SummarizeRequest):
             from mlx_lm import generate  # type: ignore
             os.environ["HF_HUB_OFFLINE"] = "1"
 
-            with _mlx_inference_lock:
+            with _mlx_inference_lock.priority(2):
                 _ensure_summarize_model_loaded()
 
                 tokenizer = _summarize_model["tokenizer"]
@@ -2374,12 +2608,18 @@ def summarize_backtest(req: SummarizeRequest):
             raw = summarize_ollama(prompt)
 
         parsed = parse_llm_output(raw)
+        runtime = {
+            "backend": "mlx" if is_mac else "ollama",
+            "total_ms": round((time.perf_counter() - request_started) * 1000, 2),
+        }
+        _record_ai_runtime("summary", runtime)
         return {
             "score": score,
             "summary": parsed.get("total_summary", ""),
             "strengths": normalize_report_items(parsed.get("strengths", [])),
             "weaknesses": normalize_report_items(parsed.get("weaknesses", [])),
             "improvements": normalize_report_items(parsed.get("improvements", [])),
+            "runtime": runtime,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Summarize error: {repr(e)}")

@@ -27,7 +27,7 @@ export function PriceRow({
   const getCurrentPriceStyle = () => {
     if (!isCurrent || changePct === undefined) return "";
 
-    return `border-2 border-white bg-transparent rounded-lg ${isPulsing ? "animate-pulse" : ""}`;
+    return isPulsing ? "animate-pulse" : "";
   };
 
   // 가격 색상은 "어느 쪽 호가인가"로 결정한다 (한국 표준).

@@ -14,6 +14,7 @@ import { getBasePrice } from "@/lib/mock-stock-data";
 import { formatMarketCap } from "@/lib/format-market-cap";
 import CandlestickChart, { OHLCV } from "@/components/stock/CandlestickChart";
 import NewsImpactPanel from "@/components/stock/NewsImpactPanel";
+import InvestorTradingPanel from "@/components/order/InvestorTradingPanel";
 import {
   mergeStockInfo,
   pickPositiveNumber,
@@ -718,7 +719,7 @@ export default function OrderPage() {
   const companyBasic = stockInfo?.companyBasic ?? {};
   const summaryFinancials = stockInfo?.summaryFinancials ?? {};
 
-  const PRICE_HISTORY_COLS = "grid-cols-[96px_1fr_80px_110px_80px_80px_80px]";
+  const PRICE_HISTORY_COLS = "grid-cols-[96px_90px_80px_110px_80px_80px_80px]";
 
   if (!symbol) {
     return (
@@ -900,9 +901,9 @@ export default function OrderPage() {
         {activeTab === "chart" && (
           <div className="divide-y divide-white/[0.08]">
             {/* Row 1: 캔들차트 + 호가창 */}
-            <div className="grid grid-cols-1 lg:grid-cols-10 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
+            <div className="grid grid-cols-1 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]" style={{ gridTemplateColumns: "6fr 4fr" }}>
               {/* 캔들차트 */}
-              <div className="lg:col-span-6 flex flex-col" style={{ height: 560 }}>
+              <div className="flex flex-col" style={{ height: 560 }}>
                 <div className="flex items-center justify-end gap-1 px-4 py-2 border-b border-white/[0.05] flex-wrap">
                   {(["1Y", "3Y", "5Y"] as const).map((range) => (
                     <button key={range} onClick={() => setChartRange(range)}
@@ -927,7 +928,7 @@ export default function OrderPage() {
                 </div>
               </div>
               {/* 호가창 */}
-              <div className="lg:col-span-4" style={{ height: 560 }}>
+              <div style={{ height: 560 }}>
                 <OrderBook
                   symbol={symbol}
                   currentPrice={currentPrice}
@@ -942,19 +943,18 @@ export default function OrderPage() {
               </div>
             </div>
 
-            {/* Row 2: 시세 테이블 + 주문 패널 */}
-            <div className="grid grid-cols-1 lg:grid-cols-10 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
+            {/* Row 2: 시세 테이블 + 투자자별 매매동향 + 주문 패널 */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
               {/* 시세 테이블 */}
-              <div className="lg:col-span-6 flex flex-col" style={{ height: 560 }}>
-                <div className="px-5 py-4 border-b border-white/[0.05] shrink-0">
-                  <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit">시세</h2>
-                  <p className="text-xs text-gray-500 mt-0.5">일별 OHLCV 데이터</p>
+              <div className="flex flex-col" style={{ height: 560 }}>
+                <div className="px-4 py-3 border-b border-white/[0.05] shrink-0">
+                  <h2 className="text-sm font-black uppercase tracking-widest text-white font-outfit">시세</h2>
                 </div>
                 <div className="flex-1 min-h-0 overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent">
                   {/* 헤더 */}
                   <div className={`grid ${PRICE_HISTORY_COLS} gap-2 px-4 py-2 sticky top-0 bg-[var(--background)] border-b border-white/[0.05]`}>
                     {["일자", "종가", "등락률", "거래량", "시가", "고가", "저가"].map((h, i) => (
-                      <span key={h} className={`text-sm font-bold uppercase tracking-widest text-gray-600 ${i > 0 ? "text-right" : ""}`}>{h}</span>
+                      <span key={h} className={`text-xs font-bold uppercase tracking-widest text-gray-600 ${i > 0 ? "text-right" : ""}`}>{h}</span>
                     ))}
                   </div>
                   {isOhlcvLoading ? (
@@ -972,14 +972,14 @@ export default function OrderPage() {
                         const changeRate = prevClose ? ((row.close - prevClose) / prevClose) * 100 : 0;
                         const tone = changeRate > 0 ? "text-[var(--main-red)]" : changeRate < 0 ? "text-[var(--main-blue)]" : "text-white";
                         return (
-                          <div key={row.time} className={`grid ${PRICE_HISTORY_COLS} gap-2 items-center px-4 py-2.5 hover:bg-white/[0.02] transition-colors duration-150`}>
-                            <span className="text-sm font-bold tabular-nums text-gray-400">{row.time.slice(2).replace(/-/g, ".")}</span>
-                            <span className={`text-sm font-black tabular-nums font-outfit text-right ${tone}`}>{formatPrice(row.close)}</span>
-                            <span className={`text-sm font-bold tabular-nums text-right ${tone}`}>{prevClose ? `${changeRate > 0 ? "+" : ""}${changeRate.toFixed(2)}%` : "—"}</span>
-                            <span className="text-sm font-bold tabular-nums text-right text-gray-400">{formatPrice(row.volume)}</span>
-                            <span className="text-sm font-bold tabular-nums text-right text-gray-400">{formatPrice(row.open)}</span>
-                            <span className="text-sm font-bold tabular-nums text-right text-[var(--main-red)]">{formatPrice(row.high)}</span>
-                            <span className="text-sm font-bold tabular-nums text-right text-[var(--main-blue)]">{formatPrice(row.low)}</span>
+                          <div key={row.time} className={`grid ${PRICE_HISTORY_COLS} gap-2 items-center px-4 py-3 hover:bg-white/[0.02] transition-colors duration-150`}>
+                            <span className="text-xs font-bold tabular-nums text-gray-400">{row.time.slice(2).replace(/-/g, ".")}</span>
+                            <span className={`text-xs font-black tabular-nums font-outfit text-right ${tone}`}>{formatPrice(row.close)}</span>
+                            <span className={`text-xs font-bold tabular-nums text-right ${tone}`}>{prevClose ? `${changeRate > 0 ? "+" : ""}${changeRate.toFixed(2)}%` : "—"}</span>
+                            <span className="text-xs font-bold tabular-nums text-right text-gray-400">{formatPrice(row.volume)}</span>
+                            <span className="text-xs font-bold tabular-nums text-right text-gray-400">{formatPrice(row.open)}</span>
+                            <span className="text-xs font-bold tabular-nums text-right text-[var(--main-red)]">{formatPrice(row.high)}</span>
+                            <span className="text-xs font-bold tabular-nums text-right text-[var(--main-blue)]">{formatPrice(row.low)}</span>
                           </div>
                         );
                       })}
@@ -988,8 +988,13 @@ export default function OrderPage() {
                 </div>
               </div>
 
+              {/* 투자자별 매매동향 패널 */}
+              <div className="flex flex-col border-t lg:border-t-0 border-white/[0.08]" style={{ height: 560 }}>
+                <InvestorTradingPanel symbol={symbol} />
+              </div>
+
               {/* 주문 패널 */}
-              <div className="lg:col-span-4 flex flex-col" style={{ height: 560 }}>
+              <div className="flex flex-col border-t lg:border-t-0 border-white/[0.08]" style={{ height: 560 }}>
                   {/* 매수/매도/미체결 탭 */}
                   <div className="grid grid-cols-3 border-b border-white/[0.08]">
                     {(["buy", "sell", "pending"] as const).map((type) => {

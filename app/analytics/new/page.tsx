@@ -42,6 +42,7 @@ interface ChatMessage {
   role: "user" | "assistant";
   content?: string;
   parsed?: ParsedSummary;
+  parseSkeleton?: ParseSkeleton;
   clarification?: string;
   clarificationSuggestions?: string[];
   coachLoading?: boolean;  // coach response is being generated
@@ -49,11 +50,163 @@ interface ChatMessage {
   error?: string;
 }
 
+interface ParseSkeleton {
+  description: string;
+  universe: string[];
+  max_positions: number | null;
+  recognized_terms: string[];
+  confidence: "partial" | "low";
+}
+
+interface RuntimeStageMetrics {
+  count: number;
+  cache_hits?: number;
+  cache_misses?: number;
+  avg_total_ms?: number;
+  p50_total_ms?: number;
+  p95_total_ms?: number;
+  last_total_ms?: number;
+}
+
+interface RuntimeMetricsSnapshot {
+  stages?: Record<string, RuntimeStageMetrics>;
+  recent?: Array<{
+    stage: string;
+    timestamp: number;
+    runtime: Record<string, unknown>;
+  }>;
+}
+
 function FilterBadge({ label }: { label: string }) {
   return (
     <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] text-white text-xs font-bold">
       {label}
     </span>
+  );
+}
+
+const SKELETON_TERM_LABELS: Record<string, string> = {
+  pbr: "PBR",
+  per: "PER",
+  roe: "ROE",
+  ma_crossover: "이동평균 크로스",
+  rsi: "RSI",
+  macd: "MACD",
+  bollinger_bands: "볼린저밴드",
+  breakout: "신고가 돌파",
+  stop_loss: "손절",
+  take_profit: "익절",
+  hold_period: "보유 기간",
+};
+
+function ParseSkeletonBubble({ skeleton }: { skeleton: ParseSkeleton }) {
+  return (
+    <div className="bg-white/[0.025] border border-white/[0.07] rounded-2xl rounded-tl-sm p-4 space-y-3">
+      <div className="flex items-center gap-1.5">
+        <ArrowsClockwise size={13} className="text-sky-400 animate-spin" />
+        <span className="text-xs font-black uppercase tracking-widest text-white">전략 구조 분석 중</span>
+      </div>
+      <div className="space-y-2">
+        <div className="flex flex-wrap gap-1.5 items-center">
+          <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0">유니버스</span>
+          <div className="flex flex-wrap gap-1">
+            {skeleton.universe.map((item) => (
+              <FilterBadge key={item} label={item} />
+            ))}
+          </div>
+        </div>
+        {skeleton.max_positions !== null && (
+          <div className="flex flex-wrap gap-1.5 items-center">
+            <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0">포트폴리오</span>
+            <FilterBadge label={`최대 ${skeleton.max_positions}종목`} />
+          </div>
+        )}
+        {skeleton.recognized_terms.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 items-center">
+            <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0">인식 조건</span>
+            <div className="flex flex-wrap gap-1">
+              {skeleton.recognized_terms.map((term) => (
+                <FilterBadge key={term} label={SKELETON_TERM_LABELS[term] ?? term} />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const RUNTIME_STAGE_LABELS: Record<string, string> = {
+  parse: "Parse",
+  summary: "Summary",
+  coach: "Coach",
+  coach_stream: "Coach Stream",
+};
+
+function RuntimeMetricValue({ label, value }: { label: string; value?: number }) {
+  return (
+    <div>
+      <p className="text-[9px] font-black uppercase tracking-widest text-gray-600">{label}</p>
+      <p className="text-xs font-black text-white">{typeof value === "number" ? `${value.toFixed(0)}ms` : "--"}</p>
+    </div>
+  );
+}
+
+function RuntimeMetricsPanel({
+  snapshot,
+  onReset,
+  isResetting,
+}: {
+  snapshot: RuntimeMetricsSnapshot | null;
+  onReset: () => void;
+  isResetting: boolean;
+}) {
+  const stages = Object.entries(snapshot?.stages ?? {});
+
+  return (
+    <div className="w-full max-w-3xl rounded-2xl border border-white/[0.08] bg-white/[0.025] p-3.5">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-sky-300">AI Runtime</p>
+          <p className="text-[11px] font-bold text-gray-500">같은 모델 기준 단계별 latency 집계</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="rounded-full border border-white/[0.08] px-2 py-0.5 text-[10px] font-black text-gray-500">
+            최근 {snapshot?.recent?.length ?? 0}건
+          </span>
+          <button
+            type="button"
+            onClick={onReset}
+            disabled={isResetting}
+            className="rounded-full border border-white/[0.08] px-2 py-0.5 text-[10px] font-black text-gray-500 transition-colors hover:border-sky-400/40 hover:text-sky-300 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {isResetting ? "초기화 중" : "초기화"}
+          </button>
+        </div>
+      </div>
+      {stages.length === 0 ? (
+        <p className="mt-3 text-[11px] font-bold text-gray-600">아직 수집된 런타임 샘플이 없습니다.</p>
+      ) : (
+        <div className="mt-3 grid gap-2 md:grid-cols-2">
+          {stages.map(([stage, metrics]) => (
+            <div key={stage} className="rounded-xl border border-white/[0.07] bg-black/20 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-black text-white">{RUNTIME_STAGE_LABELS[stage] ?? stage}</p>
+                <p className="text-[10px] font-black text-gray-500">
+                  {metrics.count} calls · cache {metrics.cache_hits ?? 0}/{metrics.count}
+                </p>
+              </div>
+              <div className="grid grid-cols-4 gap-2">
+                <RuntimeMetricValue label="avg" value={metrics.avg_total_ms} />
+                <RuntimeMetricValue label="p50" value={metrics.p50_total_ms} />
+                <RuntimeMetricValue label="p95" value={metrics.p95_total_ms} />
+                <RuntimeMetricValue label="last" value={metrics.last_total_ms} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -150,6 +303,8 @@ function StrategyLabContent() {
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [modelStatus, setModelStatus] = useState<{ status: string; error: string | null } | null>(null);
+  const [runtimeMetrics, setRuntimeMetrics] = useState<RuntimeMetricsSnapshot | null>(null);
+  const [isResettingRuntimeMetrics, setIsResettingRuntimeMetrics] = useState(false);
   const [advisorRequest, setAdvisorRequest] = useState<AdvisorRequest | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -162,6 +317,44 @@ function StrategyLabContent() {
       .then(setModelStatus)
       .catch(() => setModelStatus({ status: "failed", error: "서버에 연결할 수 없습니다" }));
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const refreshRuntimeMetrics = () => {
+      fetch("/api/ai/runtime/metrics", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (!cancelled && data) setRuntimeMetrics(data);
+        })
+        .catch(() => {
+          if (!cancelled) setRuntimeMetrics(null);
+        });
+    };
+
+    refreshRuntimeMetrics();
+    const timer = window.setInterval(refreshRuntimeMetrics, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const resetRuntimeMetrics = async () => {
+    if (isResettingRuntimeMetrics) return;
+    setIsResettingRuntimeMetrics(true);
+    try {
+      const res = await fetch("/api/ai/runtime/metrics/reset", {
+        method: "POST",
+        cache: "no-store",
+      });
+      if (res.ok) {
+        setRuntimeMetrics({ stages: {}, recent: [] });
+      }
+    } finally {
+      setIsResettingRuntimeMetrics(false);
+    }
+  };
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -249,15 +442,20 @@ function StrategyLabContent() {
     });
   };
 
+  const updateLastAssistant = (patch: Partial<ChatMessage>) => {
+    setMessages(prev => {
+      const lastIdx = prev.map((m, i) => m.role === "assistant" ? i : -1).filter(i => i >= 0).at(-1);
+      if (lastIdx === undefined) return prev;
+      return prev.map((m, i) => i === lastIdx ? { ...m, ...patch } : m);
+    });
+  };
+
   const handleSend = async (overrideText?: string) => {
     const userText = overrideText ?? inputValue.trim();
     if (!userText || isSending || stage === "running") return;
     if (!overrideText) setInputValue("");
     if (!firstPromptRef.current) firstPromptRef.current = userText;
     setIsSending(true);
-    const previousAssistantMessage = [...messages]
-      .reverse()
-      .find((message) => message.role === "assistant" && message.parsed);
 
     setMessages(prev => [
       ...prev,
@@ -266,7 +464,7 @@ function StrategyLabContent() {
     ]);
 
     try {
-      const res = await fetch("/api/strategy/parse", {
+      const res = await fetch("/api/strategy/parse/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -275,48 +473,90 @@ function StrategyLabContent() {
           ...(latestParsed ? { previous_parsed: latestParsed } : {}),
         }),
       });
-      if (!res.ok) {
+      if (!res.ok || !res.body) {
         const err = await res.json();
         throw new Error(err.detail ?? "파싱 실패");
       }
-      const data = await res.json();
-      const mergedResponse = mergeStrategyModification({
-        previousParsed: latestParsed,
-        nextParsed: data.parsed,
-        previousBacktestRequest: backtestReq,
-        nextBacktestRequest: data.backtest_request,
-        userPrompt: userText,
-        clarificationQuestion: data.clarification_question,
-      });
 
-      const nextParsed = mergedResponse.parsed;
-      const nextBacktestReq = mergedResponse.backtestRequest;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let parsedPayload: any = null;
+      let finalizedParsed: ParsedSummary | null = null;
 
-      setLatestParsed(nextParsed);
-      setBacktestReq(nextBacktestReq);
-      setCurrentOptions({
-        period: nextBacktestReq?.period ?? "5y",
-        initialCapital: nextBacktestReq?.risk?.init_cash ?? 10000000,
-        commissionPct: 0.015,
-        slippagePct: 0.05,
-      });
-      setStage("ready");
+      const finalizeParse = (backtestRequest: any, symbolCount?: number | null) => {
+        if (!parsedPayload) return;
+        const nextBacktestRequest = backtestRequest
+          ? {
+              ...backtestRequest,
+              symbol_count: symbolCount ?? backtestRequest.symbol_count,
+            }
+          : backtestRequest;
+        const mergedResponse = mergeStrategyModification({
+          previousParsed: latestParsed,
+          nextParsed: parsedPayload.parsed,
+          previousBacktestRequest: backtestReq,
+          nextBacktestRequest,
+          userPrompt: userText,
+          clarificationQuestion: parsedPayload.clarification_question,
+        });
 
-      // Show parsed strategy card only; coach response is the sole source of clarification text
-      setMessages(prev => prev.map((m, i) =>
-        i === prev.length - 1 ? {
-          role: "assistant",
+        const nextParsed = mergedResponse.parsed;
+        const nextBacktestReq = mergedResponse.backtestRequest;
+
+        finalizedParsed = nextParsed;
+        setLatestParsed(nextParsed);
+        setBacktestReq(nextBacktestReq);
+        setCurrentOptions({
+          period: nextBacktestReq?.period ?? "5y",
+          initialCapital: nextBacktestReq?.risk?.init_cash ?? 10000000,
+          commissionPct: 0.015,
+          slippagePct: 0.05,
+        });
+        setStage("ready");
+
+        updateLastAssistant({
+          isLoading: false,
+          parseSkeleton: undefined,
           parsed: nextParsed,
           clarification: undefined,
           clarificationSuggestions: undefined,
           coachLoading: true,
-        } : m
-      ));
+        });
+      };
 
-      generateCoachResponse({
-        userText,
-        parsed: nextParsed,
-      });
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() ?? "";
+
+        for (const chunk of parts) {
+          const line = chunk.split("\n").find(l => l.startsWith("data: "));
+          if (!line) continue;
+          const payload = line.slice(6).trim();
+          if (payload === "[DONE]") continue;
+          const evt = JSON.parse(payload);
+
+          if (evt.type === "skeleton" && evt.data) {
+            updateLastAssistant({ isLoading: true, parseSkeleton: evt.data });
+          } else if (evt.type === "parsed_final") {
+            parsedPayload = evt;
+          } else if (evt.type === "dsl_ready") {
+            finalizeParse(evt.backtest_request, evt.symbol_count);
+          } else if (evt.type === "error") {
+            throw new Error(evt.detail ?? "파싱 실패");
+          }
+        }
+      }
+
+      if (finalizedParsed) {
+        generateCoachResponse({
+          userText,
+          parsed: finalizedParsed,
+        });
+      }
     } catch (e: any) {
       setMessages(prev => prev.map((m, i) =>
         i === prev.length - 1 ? { role: "assistant", error: e.message ?? "알 수 없는 오류" } : m
@@ -609,6 +849,12 @@ function StrategyLabContent() {
             )}
           </div>
 
+          <RuntimeMetricsPanel
+            snapshot={runtimeMetrics}
+            onReset={resetRuntimeMetrics}
+            isResetting={isResettingRuntimeMetrics}
+          />
+
           {/* 채팅창 */}
           <div className="w-full flex flex-col gap-2.5">
 
@@ -631,6 +877,9 @@ function StrategyLabContent() {
                             <ArrowsClockwise size={13} className="text-sky-400 animate-spin flex-shrink-0" />
                             <span className="text-xs font-bold text-gray-500">전략 분석 중...</span>
                           </div>
+                        )}
+                        {msg.parseSkeleton && !msg.parsed && (
+                          <ParseSkeletonBubble skeleton={msg.parseSkeleton} />
                         )}
                         {msg.parsed && (
                           <>

@@ -155,6 +155,165 @@ class KISProvider(BaseProvider):
             if isinstance(q, StockQuote) and q is not None
         }
 
+    def _fetch_investor_trading_sync(
+        self, symbol: str, token: str, market_code: str = "J"
+    ) -> Optional[list[dict]]:
+        """투자자별 매매동향 조회 (동기) — TR_ID: FHKST01010900
+
+        API 응답의 `output` 배열(최대 30일)에서 파싱.
+        당일(장중) 행은 투자자 수량이 빈 문자열이므로 제외.
+        """
+        try:
+            headers = {
+                "Content-Type": "application/json; charset=UTF-8",
+                "authorization": f"Bearer {token}",
+                "appkey": self._app_key,
+                "appsecret": self._app_secret,
+                "tr_id": "FHKST01010900",
+                "custtype": "P",
+            }
+            params = {
+                "FID_COND_MRKT_DIV_CODE": market_code,
+                "FID_INPUT_ISCD": symbol,
+            }
+            resp = requests.get(
+                f"{_BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-investor",
+                headers=headers,
+                params=params,
+                timeout=_REQUEST_TIMEOUT,
+            )
+            if resp.status_code != 200:
+                return None
+
+            data = resp.json()
+            if data.get("rt_cd") != "0":
+                return None
+
+            output = data.get("output") or []
+            if not output:
+                return None
+
+            def _parse_int(val: str) -> int:
+                try:
+                    return int(val or "0")
+                except (ValueError, TypeError):
+                    return 0
+
+            rows = []
+            for row in output:
+                # 당일 장중 행은 투자자 수량이 빈 문자열 → 제외
+                if not row.get("prsn_ntby_qty", "").strip():
+                    continue
+
+                date_raw = row.get("stck_bsop_date", "")
+                if len(date_raw) == 8:
+                    date = f"{date_raw[:4]}-{date_raw[4:6]}-{date_raw[6:]}"
+                else:
+                    date = date_raw
+
+                rows.append({
+                    "date": date,
+                    "close_price": _parse_int(row.get("stck_clpr")),
+                    "individual_net": _parse_int(row.get("prsn_ntby_qty")),
+                    "foreign_net": _parse_int(row.get("frgn_ntby_qty")),
+                    "institutional_net": _parse_int(row.get("orgn_ntby_qty")),
+                    "individual_net_amount": _parse_int(row.get("prsn_ntby_tr_pbmn")),
+                    "foreign_net_amount": _parse_int(row.get("frgn_ntby_tr_pbmn")),
+                    "institutional_net_amount": _parse_int(row.get("orgn_ntby_tr_pbmn")),
+                    "individual_buy_vol": _parse_int(row.get("prsn_shnu_vol")),
+                    "foreign_buy_vol": _parse_int(row.get("frgn_shnu_vol")),
+                    "institutional_buy_vol": _parse_int(row.get("orgn_shnu_vol")),
+                    "individual_sell_vol": _parse_int(row.get("prsn_seln_vol")),
+                    "foreign_sell_vol": _parse_int(row.get("frgn_seln_vol")),
+                    "institutional_sell_vol": _parse_int(row.get("orgn_seln_vol")),
+                })
+            return rows if rows else None
+        except Exception as e:
+            print(f"[KISProvider] {symbol} 투자자 매매동향 조회 실패: {e}")
+            return None
+
+    async def get_investor_trading(self, symbol: str) -> Optional[list[dict]]:
+        """투자자별 일별 매매동향 — KOSPI 우선, 실패 시 KOSDAQ 재시도"""
+        if not self.is_configured():
+            return None
+        token = await self._ensure_token()
+        if not token:
+            return None
+
+        for market_code in ("J", "Q"):
+            result = await asyncio.to_thread(
+                self._fetch_investor_trading_sync, symbol, token, market_code
+            )
+            if result:
+                return result
+        return None
+
+    async def get_today_investor(self, symbol: str) -> Optional[dict]:
+        """당일 투자자 누적 매매 집계 — output1에서 파싱 (장중/장후에만 유효)"""
+        if not self.is_configured():
+            return None
+        token = await self._ensure_token()
+        if not token:
+            return None
+
+        def _fetch(symbol: str, token: str, market_code: str) -> Optional[dict]:
+            try:
+                headers = {
+                    "Content-Type": "application/json; charset=UTF-8",
+                    "authorization": f"Bearer {token}",
+                    "appkey": self._app_key,
+                    "appsecret": self._app_secret,
+                    "tr_id": "FHKST01010900",
+                    "custtype": "P",
+                }
+                resp = requests.get(
+                    f"{_BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-investor",
+                    headers=headers,
+                    params={"FID_COND_MRKT_DIV_CODE": market_code, "FID_INPUT_ISCD": symbol},
+                    timeout=_REQUEST_TIMEOUT,
+                )
+                if resp.status_code != 200:
+                    return None
+                data = resp.json()
+                if data.get("rt_cd") != "0":
+                    return None
+                o1 = data.get("output1") or {}
+                if not isinstance(o1, dict):
+                    return None
+
+                def _int(val: str) -> int:
+                    try:
+                        return int(val or "0")
+                    except (ValueError, TypeError):
+                        return 0
+
+                individual = _int(o1.get("prsn_ntby_qty"))
+                foreign = _int(o1.get("frgn_ntby_qty"))
+                institutional = _int(o1.get("orgn_ntby_qty"))
+                # 모두 0이면 장 미개시 상태 → None 반환
+                if individual == 0 and foreign == 0 and institutional == 0:
+                    return None
+
+                from datetime import date
+                return {
+                    "date": date.today().strftime("%Y-%m-%d"),
+                    "individual_net": individual,
+                    "foreign_net": foreign,
+                    "institutional_net": institutional,
+                    "individual_net_amount": _int(o1.get("prsn_ntby_tr_pbmn")),
+                    "foreign_net_amount": _int(o1.get("frgn_ntby_tr_pbmn")),
+                    "institutional_net_amount": _int(o1.get("orgn_ntby_tr_pbmn")),
+                }
+            except Exception as e:
+                print(f"[KISProvider] {symbol} output1 파싱 실패: {e}")
+                return None
+
+        for market_code in ("J", "Q"):
+            result = await asyncio.to_thread(_fetch, symbol, token, market_code)
+            if result:
+                return result
+        return None
+
     async def health_check(self) -> bool:
         if not self.is_configured():
             return False

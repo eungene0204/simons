@@ -12,6 +12,9 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
+from collections import OrderedDict
+from hashlib import sha256
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -23,6 +26,9 @@ router = APIRouter(tags=["coach"])
 
 # Injected by main.py after NLStrategyParser is preloaded
 _parser = None
+_CACHE_MAX = 200
+_coach_response_cache: OrderedDict[str, CoachResponse] = OrderedDict()
+_coach_stream_cache: OrderedDict[str, str] = OrderedDict()
 
 
 def set_parser(parser: Any) -> None:
@@ -89,6 +95,7 @@ class CoachRequest(BaseModel):
 class CoachResponse(BaseModel):
     message: str
     suggestions: List[str] = []
+    runtime: Optional[Dict[str, Any]] = None
 
 
 _MISSING_FIELDS = {
@@ -99,10 +106,63 @@ _MISSING_FIELDS = {
 }
 
 _LARGE_CAP_UNIVERSES = {"KOSPI200", "SP500", "NASDAQ100"}
+_COACH_STRATEGY_FIELDS = (
+    "universe",
+    "fundamental_filters",
+    "entry_signals",
+    "exit_signals",
+    "max_positions",
+    "hold_period_days",
+    "rebalancing_period",
+    "stop_loss_pct",
+    "take_profit_pct",
+    "trailing_stop_pct",
+    "max_mdd_limit_pct",
+    "initial_capital",
+)
 
 
 def _detect_missing(ps: dict) -> list[str]:
     return [label for field, label in _MISSING_FIELDS.items() if ps.get(field) is None]
+
+
+def _remember(cache: OrderedDict[str, Any], key: str, value: Any) -> None:
+    if key in cache:
+        del cache[key]
+    cache[key] = value
+    while len(cache) > _CACHE_MAX:
+        cache.popitem(last=False)
+
+
+def _stable_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _coach_cache_key(req: CoachRequest) -> str:
+    return sha256(_stable_json(req.model_dump()).encode("utf-8")).hexdigest()
+
+
+def _compact_strategy_context(ps: dict) -> dict:
+    return {
+        field: ps.get(field)
+        for field in _COACH_STRATEGY_FIELDS
+        if field in ps and ps.get(field) not in (None, [], {})
+    }
+
+
+def _reset_coach_cache_for_tests() -> None:
+    _coach_response_cache.clear()
+    _coach_stream_cache.clear()
+
+
+def _record_runtime(stage: str, runtime: Dict[str, Any] | None) -> None:
+    try:
+        import main as _main
+        recorder = getattr(_main, "_record_ai_runtime", None)
+        if callable(recorder):
+            recorder(stage, runtime)
+    except Exception:
+        logger.debug("coach runtime metric recording skipped", exc_info=True)
 
 
 def _build_user_message(req: CoachRequest) -> str:
@@ -112,7 +172,7 @@ def _build_user_message(req: CoachRequest) -> str:
 
     if ps:
         parts.append(f"\n[parsed_strategy — 직접 노출 금지. 필드명을 응답에 포함하지 말 것]")
-        parts.append(json.dumps(ps, ensure_ascii=False, indent=2))
+        parts.append(_stable_json(_compact_strategy_context(ps)))
 
         # Missing field analysis
         missing = _detect_missing(ps)
@@ -147,7 +207,7 @@ def _build_user_message(req: CoachRequest) -> str:
             parts.append(f"시장 수준 요약: {ni['market_level_summary']}")
 
         symbols = ni.get("symbols", [])
-        for sym in symbols[:5]:
+        for sym in symbols[:3]:
             alert = sym.get("risk_alert_level", "low")
             alpha = sym.get("latest_alpha", 0)
             summary = sym.get("summary", "")
@@ -156,7 +216,7 @@ def _build_user_message(req: CoachRequest) -> str:
                 parts.append(f"  요약: {summary}")
 
             articles = sym.get("articles", [])
-            for art in articles[:3]:
+            for art in articles[:1]:
                 score = art.get("impact_score", 0) * art.get("confidence_score", 0)
                 parts.append(
                     f"  이벤트: {art.get('event_type')} | {art.get('sentiment')} | "
@@ -172,13 +232,13 @@ def _build_user_message(req: CoachRequest) -> str:
 
         issues = insight.get("issues", [])
         if issues:
-            issue_lines = [f"  - [{i['severity']}] {i['message']}" for i in issues[:3]]
+            issue_lines = [f"  - [{i['severity']}] {i['message']}" for i in issues[:2]]
             parts.append("주요 이슈:\n" + "\n".join(issue_lines))
 
         recs = insight.get("recommendations", [])
         if recs:
             sorted_recs = sorted(recs, key=lambda r: r.get("priority", 99))
-            rec_lines = [f"  - [P{r.get('priority',9)}] {r.get('title')}: {r.get('reason')}" for r in sorted_recs[:2]]
+            rec_lines = [f"  - [P{r.get('priority',9)}] {r.get('title')}: {r.get('reason')}" for r in sorted_recs[:1]]
             parts.append("핵심 제안 (우선순위순):\n" + "\n".join(rec_lines))
 
     return "\n".join(parts)
@@ -213,16 +273,39 @@ async def coach_strategy(req: CoachRequest) -> CoachResponse:
         raise HTTPException(status_code=503, detail="Coach model not loaded yet")
 
     try:
+        request_started = time.perf_counter()
+        cache_key = _coach_cache_key(req)
+        cached = _coach_response_cache.get(cache_key)
+        if cached is not None:
+            _coach_response_cache.move_to_end(cache_key)
+            response = cached.model_copy(deep=True)
+            response.runtime = {
+                "cache_hit": True,
+                "total_ms": round((time.perf_counter() - request_started) * 1000, 2),
+            }
+            _record_runtime("coach", response.runtime)
+            return response
+
         from engine.nl_parser import NLStrategyParser
         parser: NLStrategyParser = _parser
 
         user_msg = _build_user_message(req)
 
+        inference_started = time.perf_counter()
         import main as _main
-        with _main._mlx_inference_lock:
+        with _main._mlx_inference_lock.priority(1):
             raw = parser.chat(COACH_SYSTEM_PROMPT, user_msg, max_tokens=400)
+        inference_ms = round((time.perf_counter() - inference_started) * 1000, 2)
 
-        return _parse_llm_response(raw)
+        response = _parse_llm_response(raw)
+        response.runtime = {
+            "cache_hit": False,
+            "inference_ms": inference_ms,
+            "total_ms": round((time.perf_counter() - request_started) * 1000, 2),
+        }
+        _record_runtime("coach", response.runtime)
+        _remember(_coach_response_cache, cache_key, response.model_copy(deep=True))
+        return response
 
     except Exception as exc:
         logger.exception("coach failed: %s", exc)
@@ -251,16 +334,39 @@ async def coach_strategy_stream(req: CoachRequest):
     if _parser is None:
         raise HTTPException(status_code=503, detail="Coach model not loaded yet")
 
+    request_started = time.perf_counter()
     from engine.nl_parser import NLStrategyParser
     parser: NLStrategyParser = _parser
     user_msg = _build_user_message(req)
+    cache_key = _coach_cache_key(req)
+    cached_stream = _coach_stream_cache.get(cache_key)
+
+    if cached_stream is not None:
+        _coach_stream_cache.move_to_end(cache_key)
+        _record_runtime(
+            "coach_stream",
+            {
+                "cache_hit": True,
+                "total_ms": round((time.perf_counter() - request_started) * 1000, 2),
+            },
+        )
+
+        def _cached_iter():
+            yield cached_stream
+
+        return StreamingResponse(
+            _cached_iter(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     def _iter():
         import main as _main
         buffer = ""
         last_sent = ""
+        emitted: list[str] = []
         try:
-            with _main._mlx_inference_lock:
+            with _main._mlx_inference_lock.priority(1):
                 for delta in parser.stream_chat(COACH_SYSTEM_PROMPT, user_msg, max_tokens=400):
                     if not delta:
                         continue
@@ -271,15 +377,35 @@ async def coach_strategy_stream(req: CoachRequest):
                         added = current[len(last_sent):] if current.startswith(last_sent) else current
                         last_sent = current
                         payload = json.dumps({"type": "delta", "text": added, "message": current}, ensure_ascii=False)
-                        yield f"data: {payload}\n\n"
+                        event = f"data: {payload}\n\n"
+                        emitted.append(event)
+                        yield event
 
             # 최종 파싱: message + suggestions
             final = _parse_llm_response(buffer)
             payload = json.dumps(
-                {"type": "done", "message": final.message, "suggestions": final.suggestions},
+                {
+                    "type": "done",
+                    "message": final.message,
+                    "suggestions": final.suggestions,
+                    "runtime": {
+                        "cache_hit": False,
+                        "total_ms": round((time.perf_counter() - request_started) * 1000, 2),
+                    },
+                },
                 ensure_ascii=False,
             )
-            yield f"data: {payload}\n\n"
+            event = f"data: {payload}\n\n"
+            emitted.append(event)
+            _record_runtime(
+                "coach_stream",
+                {
+                    "cache_hit": False,
+                    "total_ms": round((time.perf_counter() - request_started) * 1000, 2),
+                },
+            )
+            _remember(_coach_stream_cache, cache_key, "".join(emitted))
+            yield event
         except Exception as exc:
             logger.exception("coach stream failed: %s", exc)
             payload = json.dumps({"type": "error", "detail": str(exc)}, ensure_ascii=False)
