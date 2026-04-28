@@ -284,17 +284,27 @@ def _tech_signal_to_condition(sig: TechnicalSignal) -> dict:
 
 # ─── 변환 함수 ────────────────────────────────────────────────────────────────
 
-def to_backtest_request(strategy: ParsedStrategy) -> dict:
+def _estimate_universe_symbol_count(markets: List[str]) -> Optional[int]:
+    """Return cheap counts when available without resolving full symbol lists."""
+    if markets == ["KOSPI200"] or set(markets) == {"KOSPI200"}:
+        return 200
+    return None
+
+
+def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) -> dict:
     """
     ParsedStrategy → BacktestRequest dict 변환.
     반환값은 BacktestRequest(**result) 또는 engine.run_backtest(result)에 바로 사용 가능.
+
+    resolve_symbols=False is the lightweight parse-mode path. It avoids full
+    universe IO and symbol payload serialization until the backtest actually runs.
     """
 
     strategy_id = compute_strategy_id(strategy)
     canonical_strategy_dsl = to_canonical_strategy_dsl(strategy)
 
     # 1. 심볼 목록
-    symbols = _load_universe(strategy.universe)
+    symbols = _load_universe(strategy.universe) if resolve_symbols else []
 
     # 2. 진입 조건 구성
     entry_conditions = []
@@ -343,6 +353,8 @@ def to_backtest_request(strategy: ParsedStrategy) -> dict:
         "strategy_id": strategy_id,
         "canonical_strategy_dsl": canonical_strategy_dsl,
         "symbols": symbols,
+        "symbol_count": len(symbols) if resolve_symbols else _estimate_universe_symbol_count(strategy.universe),
+        "symbols_resolved": resolve_symbols,
         "universe_id": universe_id,
         "entry": {"conditions": entry_conditions},
         "exit": {"conditions": exit_conditions},

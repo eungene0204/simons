@@ -1,4 +1,5 @@
 import copy
+import itertools
 import optuna
 import logging
 from typing import Dict, Any
@@ -77,6 +78,26 @@ class OptunaOptimizer:
                 self.engine.loader.load_symbol_data(sym)
             except Exception:
                 pass
+
+    def _categorical_trial_grid(self, ranges: Dict[str, Any], limit: int) -> list[Dict[str, Any]]:
+        """Return deterministic categorical combinations when the space is small enough."""
+        if limit <= 0 or not ranges:
+            return []
+
+        categorical_items = []
+        for path, spec in ranges.items():
+            if not (isinstance(spec, list) and len(spec) > 0):
+                return []
+            categorical_items.append((path, spec))
+
+        combinations = []
+        paths = [path for path, _ in categorical_items]
+        value_lists = [values for _, values in categorical_items]
+        for values in itertools.product(*value_lists):
+            combinations.append(dict(zip(paths, values)))
+            if len(combinations) >= limit:
+                break
+        return combinations
 
     def _walk_forward_validate(self, base_request: Dict[str, Any], best_params: Dict[str, Any]) -> Dict[str, Any] | None:
         """
@@ -199,8 +220,12 @@ class OptunaOptimizer:
                     raise RuntimeError(f"Aborting: {MAX_CONSECUTIVE_FAILURES} consecutive trial failures")
                 raise optuna.exceptions.TrialPruned()
 
-        # Create Optuna study
-        study = optuna.create_study(direction=direction)
+        # Create Optuna study. Enqueue small categorical spaces so short runs
+        # cover deterministic candidates before the seeded sampler takes over.
+        sampler = optuna.samplers.TPESampler(seed=42)
+        study = optuna.create_study(direction=direction, sampler=sampler)
+        for params in self._categorical_trial_grid(ranges, n_trials):
+            study.enqueue_trial(params)
         try:
             study.optimize(objective, n_trials=n_trials)
         except RuntimeError as e:

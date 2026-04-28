@@ -23,6 +23,8 @@ Allowed:
 - Backtest Transform
 - Backtest Core (limited)
 - AI Summary / Explain
+- AI Runtime Orchestration
+- Optimization Runtime
 - Dashboard (read-only UI)
 - Strategy Persistence / BatchRun Storage
 - Governance / Policy Docs

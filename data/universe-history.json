@@ -1,6 +1,17 @@
 {
-  "updatedAt": "2026-04-27T00:00:29.259514+09:00",
+  "updatedAt": "2026-04-28T00:00:04.740989+09:00",
   "entries": [
+    {
+      "date": "2026-04-28",
+      "syncedAt": "2026-04-28T00:00:04.740989+09:00",
+      "totalCount": 2657,
+      "kospiCount": 839,
+      "kosdaqCount": 1818,
+      "addedCount": 0,
+      "delistedCount": 0,
+      "added": [],
+      "delisted": []
+    },
     {
       "date": "2026-04-27",
       "syncedAt": "2026-04-27T00:00:29.259514+09:00",

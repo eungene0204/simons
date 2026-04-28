@@ -91,6 +91,7 @@ AI predictions, summaries, explainability.
 
 ### Files
 - backend/ai/**
+- backend/api/coach_routes.py
 - app/api/backtest/summarize/**
 - app/api/backtest/explain/**
 - backend/tests/**
@@ -99,6 +100,7 @@ AI predictions, summaries, explainability.
 - output formatting
 - prompt improvement
 - response structure cleanup
+- coach response caching / streaming cleanup
 
 ### Forbidden
 - model architecture changes
@@ -126,6 +128,69 @@ Visualization only (NO business logic)
 
 ### Forbidden
 - trading logic changes
+
+---
+
+## Boundary K: AI Runtime Orchestration
+
+### Purpose
+Runtime coordination for local LLM inference, model preloading, and latency-sensitive AI request scheduling.
+
+### Files
+- backend/main.py
+- backend/api/coach_routes.py
+- app/api/ai/runtime/**
+- backend/tests/**
+- app/api/**/route.test.ts
+
+### Allowed Tasks
+- MLX inference lock coordination
+- AI request priority / queue handling
+- model preload wiring
+- latency instrumentation for AI runtime paths
+- Next.js proxy routes for AI runtime metrics
+
+### Strict Rules
+- Do not change model identifiers or model architecture
+- Preserve public API response contracts
+- Keep changes limited to AI runtime coordination
+
+### Forbidden
+- stock detail response schema changes
+- backtest engine algorithm changes
+- provider layer changes
+- database schema changes
+
+---
+
+## Boundary L: Optimization Runtime
+
+### Purpose
+Strategy parameter optimization orchestration and deterministic optimizer behavior.
+
+### Files
+- backend/engine/optuna_optimizer.py
+- backend/ai/local_optimization_agent.py
+- backend/tests/test_optuna_optimizer.py
+- backend/tests/**
+
+### Allowed Tasks
+- optimizer determinism fixes
+- sampler / trial scheduling stability
+- optimization result ranking and direction handling
+- regression tests for optimizer behavior
+
+### Strict Rules
+- Preserve public optimizer input and output contracts
+- Do not change backtest simulation algorithms
+- Keep optimizer changes deterministic and testable
+
+### Forbidden
+- LLM model changes
+- strategy parser changes
+- provider layer changes
+- database schema changes
+- frontend/API route changes
 
 ---
 

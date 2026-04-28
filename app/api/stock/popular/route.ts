@@ -2,14 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { fetchStockPriceSnapshots } from "@/lib/server/stock-prices";
 
-// DB에 데이터가 없거나 부족할 때 사용하는 폴백 목록
-const FALLBACK_STOCKS = [
-  { symbol: "005930", name: "삼성전자" },
-  { symbol: "000660", name: "SK하이닉스" },
-  { symbol: "373220", name: "LG에너지솔루션" },
-  { symbol: "005380", name: "현대차" },
-  { symbol: "068270", name: "셀트리온" },
-];
 
 export interface PopularStockItem {
   rank: number;
@@ -38,20 +30,7 @@ export async function GET() {
       take: 5,
     });
 
-    // DB 데이터가 5개 미만이면 폴백으로 채움
-    const topStocks =
-      topSearched.length >= 5
-        ? topSearched.map((s) => ({ symbol: s.symbol, name: s.name }))
-        : (() => {
-            const dbSymbols = new Set(topSearched.map((s) => s.symbol));
-            const fallbackFill = FALLBACK_STOCKS.filter(
-              (s) => !dbSymbols.has(s.symbol)
-            );
-            return [
-              ...topSearched.map((s) => ({ symbol: s.symbol, name: s.name })),
-              ...fallbackFill,
-            ].slice(0, 5);
-          })();
+    const topStocks = topSearched.map((s) => ({ symbol: s.symbol, name: s.name }));
 
     const symbols = topStocks.map((s) => s.symbol);
     const data = await fetchStockPriceSnapshots(symbols, {
@@ -73,15 +52,7 @@ export async function GET() {
 
     return NextResponse.json({ stocks, updatedAt } satisfies PopularStocksResponse);
   } catch {
-    // 오류 시 폴백 반환
-    const stocks: PopularStockItem[] = FALLBACK_STOCKS.map((stock, index) => ({
-      rank: index + 1,
-      symbol: stock.symbol,
-      name: stock.name,
-      changePercent: null,
-    }));
-
-    return NextResponse.json({ stocks, updatedAt } satisfies PopularStocksResponse);
+    return NextResponse.json({ stocks: [], updatedAt } satisfies PopularStocksResponse);
   }
 }
 

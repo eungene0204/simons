@@ -77,6 +77,11 @@ function SidebarComponent() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isSearchModalOpen]);
 
+  const searchParamsString = searchParams.toString();
+  useEffect(() => {
+    setIsSearchModalOpen(false);
+  }, [pathname, searchParamsString]);
+
   const handleSearchClick = () => {
     setIsSearchModalOpen(true);
   };

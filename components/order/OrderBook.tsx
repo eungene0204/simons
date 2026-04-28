@@ -230,7 +230,7 @@ export default function OrderBook({
 
   if (!symbol) {
     return (
-      <div className="bg-[#1a1a1a] p-4 border border-gray-800 h-full flex items-center justify-center">
+      <div className="bg-[var(--background)] p-4 h-full flex items-center justify-center">
         <div className="text-center py-8">
           <p className="text-base text-gray-500 dark:text-gray-400">
             종목을 선택하면 호가가 표시됩니다
@@ -242,10 +242,10 @@ export default function OrderBook({
 
   if (!orderBookData) {
     return (
-      <div className="bg-[#1a1a1a] p-4 border border-gray-800 h-full flex items-center justify-center">
+      <div className="bg-[var(--background)] p-4 h-full flex items-center justify-center">
         <div className="text-center py-8">
           <p className="text-base text-gray-500 dark:text-gray-400">
-            {isOrderBookLoading ? "실제 호가를 불러오는 중..." : orderBookError || "실제 호가 데이터를 아직 받지 못했습니다"}
+            {isOrderBookLoading ? "호가 정보 불러오는중..." : orderBookError || "실제 호가 데이터를 아직 받지 못했습니다"}
           </p>
         </div>
       </div>
@@ -351,7 +351,7 @@ export default function OrderBook({
     <section
       className={[
         "mx-auto w-full h-full flex flex-col",
-        "bg-[#1a1a1a] shadow-lg border border-gray-800",
+        "bg-[var(--background)]",
         "text-gray-900 dark:text-gray-200",
         "overflow-hidden",
       ].join(" ")}

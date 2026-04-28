@@ -9,8 +9,10 @@ from engine.nl_parser import (
     ParsedStrategyDiff,
     TechnicalSignal,
     _apply_prompt_overrides,
+    _build_fallback_strategy,
     _extract_technical_signals,
     _merge_signals,
+    _parse_rule_based_strategy,
     _parse_model_json_response,
     _validate_signals,
 )
@@ -318,6 +320,48 @@ def test_nl_strategy_parser_model_log_label_uses_actual_model_name():
     assert parser._model_log_label("mlx-community/Qwen2.5-7B-Instruct-4bit") == "Qwen2.5-7B"
 
 
+def test_rule_based_strategy_parses_explicit_value_hold_prompt_without_llm():
+    parsed = _parse_rule_based_strategy("pbr 1이하 per 7이하 종목을 10개 사서 1년간 보유하는 전략")
+
+    assert parsed is not None
+    assert [(f.metric, f.operator, f.value) for f in parsed.fundamental_filters] == [
+        ("pbr", "<=", 1.0),
+        ("per", "<=", 7.0),
+    ]
+    assert parsed.max_positions == 10
+    assert parsed.hold_period_days == 252
+    assert parsed.rebalancing_period == "yearly"
+
+
+def test_rule_based_strategy_parses_technical_prompt_with_risk_without_llm():
+    parsed = _parse_rule_based_strategy("KOSPI 종목 중 골든크로스 매수, 데드크로스 매도, 손절 8%")
+
+    assert parsed is not None
+    assert parsed.universe == ["KOSPI"]
+    assert [(s.indicator, s.signal_type) for s in parsed.entry_signals] == [("ma_crossover", "buy")]
+    assert [(s.indicator, s.signal_type) for s in parsed.exit_signals] == [("ma_crossover", "sell")]
+    assert parsed.stop_loss_pct == 8.0
+
+
+def test_rule_based_strategy_falls_back_for_ambiguous_prompt():
+    assert _parse_rule_based_strategy("좋은 저평가 전략 만들어줘") is None
+
+
+def test_parse_uses_rule_based_fast_path_before_model(monkeypatch):
+    parser = NLStrategyParser()
+
+    def fail_if_model_called(_prompt):
+        raise AssertionError("LLM path should not be called for explicit fast-path prompts")
+
+    monkeypatch.setattr(parser, "_parse_mlx", fail_if_model_called)
+
+    parsed = parser.parse("RSI 30 이하에서 매수, RSI 70 이상에서 매도, 최대 5종목")
+
+    assert [(s.indicator, s.signal_type) for s in parsed.entry_signals] == [("rsi", "buy")]
+    assert [(s.indicator, s.signal_type) for s in parsed.exit_signals] == [("rsi", "sell")]
+    assert parsed.max_positions == 5
+
+
 def test_parse_model_json_response_ignores_trailing_im_end_tokens():
     raw = """{
   "description": "우리 AI 모델 전략",
@@ -355,6 +399,57 @@ def test_parse_model_json_response_extracts_diff_object_from_prefixed_text():
     assert parsed.universe == ["KOSDAQ"]
     assert parsed.max_positions == 8
     assert parsed.hold_period_days == 10
+
+
+def test_parse_model_json_response_repairs_tail_truncated_object():
+    raw = """{
+  "description": "PBR 전략",
+  "universe": ["KOSPI200"],
+  "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1}],
+  "entry_signals": [],
+  "exit_signals": [],
+  "max_positions": 10,
+  "hold_period_days": 20,
+  "rebalancing_period": "none",
+  "stop_loss_pct": 8.0,
+  "take_profit_pct": null,
+  "trailing_stop_pct": null,
+  "max_mdd_limit_pct": null,
+  "backtest_period": "5y",
+  "initial_capital": 10000000.0,
+  "execution_timing": "next_open",
+  "fee_rate": 0.015,
+  "slippage_rate": 0.05"""
+
+    parsed = _parse_model_json_response(raw, ParsedStrategy)
+
+    assert parsed.fundamental_filters[0].metric == "pbr"
+    assert parsed.hold_period_days == 20
+    assert parsed.stop_loss_pct == 8.0
+
+
+def test_parse_falls_back_when_model_returns_incomplete_json(monkeypatch):
+    parser = NLStrategyParser(backend="mlx")
+
+    def incomplete_model_output(_user_input):
+        raise ValueError("Incomplete JSON object in model output")
+
+    monkeypatch.setattr(parser, "_parse_mlx", incomplete_model_output)
+
+    parsed = parser.parse("KOSPI200에서 ROE 10 이상 종목을 최대 7개 매수하고 손절 8%")
+
+    assert parsed.universe == ["KOSPI200"]
+    assert parsed.max_positions == 7
+    assert parsed.fundamental_filters[0].metric == "roe_or_gpa"
+    assert parsed.stop_loss_pct == 8.0
+
+
+def test_build_fallback_strategy_handles_vague_prompt_without_crashing():
+    parsed = _build_fallback_strategy("좋은 저평가 전략 만들어줘")
+
+    assert parsed.description == "좋은 저평가 전략 만들어줘"
+    assert parsed.universe == ["KOSPI200"]
+    assert parsed.max_positions == 10
 
 
 # ─── LLM 환각 신호 검증 테스트 ──────────────────────────────────────────────

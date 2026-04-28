@@ -7813,9 +7813,9 @@
   },
   {
     "symbol": "221800",
-    "name": "유투바이오",
+    "name": "지구홀딩스",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "기타 서비스",
     "industry": "기타 과학기술 서비스업"
   },
   {
@@ -8632,7 +8632,7 @@
   },
   {
     "symbol": "377460",
-    "name": "위니아에이드",
+    "name": "큐에이드",
     "market": "KOSDAQ",
     "sector": "기타 서비스",
     "industry": "개인 및 가정용품 수리업"
@@ -10529,7 +10529,7 @@
   },
   {
     "symbol": "307750",
-    "name": "국전약품",
+    "name": "국전",
     "market": "KOSDAQ",
     "sector": "바이오/제약",
     "industry": "의약품 제조업"
@@ -14694,7 +14694,7 @@
   },
   {
     "symbol": "090470",
-    "name": "제이스텍",
+    "name": "제이스로보틱스",
     "market": "KOSDAQ",
     "sector": "기계/장비",
     "industry": "특수 목적용 기계 제조업"

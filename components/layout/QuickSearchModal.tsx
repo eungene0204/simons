@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import {
@@ -24,7 +24,7 @@ interface QuickSearchModalProps {
 }
 
 const RECENT_SEARCHES_KEY = "quick-search:recent";
-const MAX_RECENT_SEARCHES = 5;
+const MAX_RECENT_SEARCHES = 10;
 
 // 종목 심볼 → 브랜드 색상
 const STOCK_AVATAR_COLORS: Record<string, string> = {
@@ -40,18 +40,6 @@ const STOCK_AVATAR_COLORS: Record<string, string> = {
   "207940": "#1560BD", // 삼성바이오로직스
 };
 
-// API 응답 전 또는 실패 시 표시할 정적 폴백
-const FALLBACK_POPULAR_STOCKS: PopularStocksResponse["stocks"] = [
-  { rank: 1, symbol: "005930", name: "삼성전자", changePercent: 0 },
-  { rank: 2, symbol: "000660", name: "SK하이닉스", changePercent: 0 },
-  { rank: 3, symbol: "373220", name: "LG에너지솔루션", changePercent: 0 },
-  { rank: 4, symbol: "005380", name: "현대차", changePercent: 0 },
-  { rank: 5, symbol: "068270", name: "셀트리온", changePercent: 0 },
-];
-const POPULAR_STOCKS = FALLBACK_POPULAR_STOCKS.map((stock) => ({
-  symbol: stock.symbol,
-  name: stock.name,
-}));
 const POPULAR_STREAM_URL = "/api/stock/popular-stream";
 const POPULAR_QUERY_KEY = ["quick-search", "popular-stocks"] as const;
 
@@ -78,13 +66,7 @@ function formatPopularUpdatedAt() {
 }
 
 function createFallbackPopularResponse(): PopularQueryData {
-  return {
-    stocks: FALLBACK_POPULAR_STOCKS.map((stock) => ({
-      ...stock,
-      changePercent: null,
-    })),
-    updatedAt: "",
-  };
+  return { stocks: [], updatedAt: "" };
 }
 
 function hasRealtimeSnapshot(snapshot?: StockPriceSnapshot) {
@@ -146,9 +128,8 @@ export function mergePopularStocks(
   current: QuickSearchPopularStock[],
   snapshots: Record<string, StockPriceSnapshot> | undefined
 ): QuickSearchPopularStock[] {
-  return POPULAR_STOCKS.map((stock, index) => {
+  return current.map((stock, index) => {
     const snapshot = snapshots?.[stock.symbol];
-    const previous = current.find((item) => item.symbol === stock.symbol);
 
     return {
       rank: index + 1,
@@ -156,7 +137,7 @@ export function mergePopularStocks(
       name: stock.name,
       changePercent: hasRealtimeSnapshot(snapshot)
         ? snapshot.changePercent
-        : previous?.changePercent ?? null,
+        : stock.changePercent,
     };
   });
 }
@@ -225,6 +206,10 @@ export default function QuickSearchModal({
   const router = useRouter();
   const queryClient = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
+  const setInputRef = useCallback((el: HTMLInputElement | null) => {
+    inputRef.current = el;
+    if (el) el.focus();
+  }, []);
   const panelRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
@@ -266,13 +251,6 @@ export default function QuickSearchModal({
       setRecentSearches([]);
     }
 
-    const focusTimer = window.setTimeout(() => {
-      inputRef.current?.focus();
-    }, 0);
-
-    return () => {
-      window.clearTimeout(focusTimer);
-    };
   }, [isOpen]);
 
   useEffect(() => {
@@ -617,7 +595,7 @@ export default function QuickSearchModal({
               className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500"
             />
             <input
-              ref={inputRef}
+              ref={setInputRef}
               type="text"
               name="quick-search-query"
               inputMode="search"
@@ -628,7 +606,7 @@ export default function QuickSearchModal({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="종목, 전략, 계좌, 백테스트를 검색하세요"
-              className="w-full rounded-xl border border-white/0 bg-white/[0.06] py-2.5 pl-10 pr-10 text-sm font-bold text-white placeholder:text-gray-500 outline-none transition-colors focus:bg-white/[0.10]"
+              className="w-full rounded-xl border-0 bg-white/[0.06] py-2.5 pl-10 pr-10 text-sm font-bold text-white placeholder:text-gray-500 outline-none ring-0 transition-colors focus:bg-white/[0.10] focus:outline-none focus:ring-0"
             />
             <button
               type="button"
@@ -646,7 +624,7 @@ export default function QuickSearchModal({
           )}
         </div>
 
-        <div className="h-[380px] overflow-y-auto px-4 pb-4 pt-1">
+        <div className="h-[480px] overflow-y-auto px-4 pb-4 pt-1">
           {loading ? (
             <div className="flex h-full items-center justify-center text-sm text-gray-500">
               검색 중...
@@ -665,11 +643,11 @@ export default function QuickSearchModal({
                     아직 최근 검색이 없습니다.
                   </p>
                 ) : (
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-2 overflow-hidden" style={{ maxHeight: "68px" }}>
                     {recentSearches.map((recent) => (
                       <div
                         key={recent}
-                        className="flex items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.06] px-4 py-2"
+                        className="flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.06] px-3 py-1"
                       >
                         <button
                           type="button"
@@ -704,6 +682,9 @@ export default function QuickSearchModal({
                     </p>
                   )}
                 </div>
+                {popularStocks.length === 0 ? (
+                  <p className="text-sm font-medium text-gray-500">종목을 검색하세요</p>
+                ) : null}
                 <div className="space-y-0.5">
                   {popularStocks.map((stock) => {
                     const avatarBg = STOCK_AVATAR_COLORS[stock.symbol] ?? "#334155";
@@ -732,7 +713,7 @@ export default function QuickSearchModal({
                         className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-white/[0.04]"
                       >
                         {/* 순위 */}
-                        <span className="w-4 text-center text-xs font-black text-sky-500">
+                        <span className="w-4 text-center text-xs font-black text-white">
                           {stock.rank}
                         </span>
 
