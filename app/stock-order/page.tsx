@@ -899,11 +899,11 @@ export default function OrderPage() {
 
         {/* ── 차트 탭 ── */}
         {activeTab === "chart" && (
-          <div className="divide-y divide-white/[0.08]">
+          <div className="flex flex-col gap-2 p-2">
             {/* Row 1: 캔들차트 + 호가창 */}
-            <div className="grid grid-cols-1 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]" style={{ gridTemplateColumns: "6fr 4fr" }}>
+            <div className="grid grid-cols-1 gap-2 lg:gap-2" style={{ gridTemplateColumns: "6fr 4fr" }}>
               {/* 캔들차트 */}
-              <div className="flex flex-col" style={{ height: 560 }}>
+              <div className="flex flex-col border border-white/[0.08] rounded-xl overflow-hidden" style={{ height: 560 }}>
                 <div className="flex items-center justify-end gap-1 px-4 py-2 border-b border-white/[0.05] flex-wrap">
                   {(["1Y", "3Y", "5Y"] as const).map((range) => (
                     <button key={range} onClick={() => setChartRange(range)}
@@ -928,7 +928,7 @@ export default function OrderPage() {
                 </div>
               </div>
               {/* 호가창 */}
-              <div style={{ height: 560 }}>
+              <div className="border border-white/[0.08] rounded-xl overflow-hidden" style={{ height: 560 }}>
                 <OrderBook
                   symbol={symbol}
                   currentPrice={currentPrice}
@@ -944,9 +944,9 @@ export default function OrderPage() {
             </div>
 
             {/* Row 2: 시세 테이블 + 투자자별 매매동향 + 주문 패널 */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
               {/* 시세 테이블 */}
-              <div className="flex flex-col" style={{ height: 560 }}>
+              <div className="flex flex-col border border-white/[0.08] rounded-xl overflow-hidden" style={{ height: 560 }}>
                 <div className="px-4 py-3 border-b border-white/[0.05] shrink-0">
                   <h2 className="text-sm font-black uppercase tracking-widest text-white font-outfit">시세</h2>
                 </div>
@@ -989,12 +989,12 @@ export default function OrderPage() {
               </div>
 
               {/* 투자자별 매매동향 패널 */}
-              <div className="flex flex-col border-t lg:border-t-0 border-white/[0.08]" style={{ height: 560 }}>
+              <div className="flex flex-col border border-white/[0.08] rounded-xl overflow-hidden" style={{ height: 560 }}>
                 <InvestorTradingPanel symbol={symbol} />
               </div>
 
               {/* 주문 패널 */}
-              <div className="flex flex-col border-t lg:border-t-0 border-white/[0.08]" style={{ height: 560 }}>
+              <div className="flex flex-col border border-white/[0.08] rounded-xl overflow-hidden" style={{ height: 560 }}>
                   {/* 매수/매도/미체결 탭 */}
                   <div className="grid grid-cols-3 border-b border-white/[0.08]">
                     {(["buy", "sell", "pending"] as const).map((type) => {

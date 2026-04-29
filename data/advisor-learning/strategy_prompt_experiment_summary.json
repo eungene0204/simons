@@ -1,0 +1,458 @@
+{
+  "experiment_id": "prompt_exp_seed42_300_samples",
+  "summary": {
+    "best_overall_patterns": [
+      [
+        "adx+ma_crossover+stop_loss",
+        {
+          "combination_count": 2,
+          "count": 2,
+          "success_count": 2,
+          "failure_count": 0,
+          "median_cagr": 0,
+          "mean_cagr": 0,
+          "median_sharpe": 0,
+          "median_mdd": 0,
+          "median_profit_factor": 0,
+          "median_trades": 0,
+          "median_quality_score": 0.1342,
+          "confidence": "low",
+          "best_strategy_id": "fe2dc63f35d8806376205137b80acc56162dce6114005e8e59a7db195e6434eb",
+          "worst_strategy_id": "4e022a784399ecd8cebc08bfe5bd35e59e0f0e6630b0904eee3eaee532f9128f",
+          "recommended_guidance": "adx+ma_crossover+stop_loss 조합은 백테스트 기반 경향으로만 검증하고 리스크 설정을 함께 확인하세요.",
+          "warnings": [
+            "실험 샘플 또는 거래 횟수가 부족합니다."
+          ]
+        }
+      ],
+      [
+        "macd+rsi+take_profit",
+        {
+          "combination_count": 2,
+          "count": 2,
+          "success_count": 2,
+          "failure_count": 0,
+          "median_cagr": 0,
+          "mean_cagr": 0,
+          "median_sharpe": 0,
+          "median_mdd": 0,
+          "median_profit_factor": 0,
+          "median_trades": 0,
+          "median_quality_score": 0.1342,
+          "confidence": "low",
+          "best_strategy_id": "9c33be67270b284993626c8bf6565deefb34328d151e892f493f3fbb5246ec1c",
+          "worst_strategy_id": "907a57deb9410f8ea20a06648333b9cd98f69a2ef3a79fd1c1913cea376852e8",
+          "recommended_guidance": "macd+rsi+take_profit 조합은 백테스트 기반 경향으로만 검증하고 리스크 설정을 함께 확인하세요.",
+          "warnings": [
+            "실험 샘플 또는 거래 횟수가 부족합니다."
+          ]
+        }
+      ],
+      [
+        "ema+trailing_stop+volume_spike",
+        {
+          "combination_count": 2,
+          "count": 2,
+          "success_count": 1,
+          "failure_count": 1,
+          "median_cagr": 0,
+          "mean_cagr": 0,
+          "median_sharpe": 0,
+          "median_mdd": 0,
+          "median_profit_factor": 0,
+          "median_trades": 0,
+          "median_quality_score": 0.1342,
+          "confidence": "low",
+          "best_strategy_id": "66689699e893d0913347b5e1bec1042f3301c0740c0563862cdc912495ce733c",
+          "worst_strategy_id": "66689699e893d0913347b5e1bec1042f3301c0740c0563862cdc912495ce733c",
+          "recommended_guidance": "ema+trailing_stop+volume_spike 조합은 백테스트 기반 경향으로만 검증하고 리스크 설정을 함께 확인하세요.",
+          "warnings": [
+            "실험 샘플 또는 거래 횟수가 부족합니다."
+          ]
+        }
+      ],
+      [
+        "adx+breakout_52w+max_holding_days",
+        {
+          "combination_count": 2,
+          "count": 2,
+          "success_count": 2,
+          "failure_count": 0,
+          "median_cagr": 0,
+          "mean_cagr": 0,
+          "median_sharpe": 0,
+          "median_mdd": 0,
+          "median_profit_factor": 0,
+          "median_trades": 0,
+          "median_quality_score": 0.1342,
+          "confidence": "low",
+          "best_strategy_id": "4e022a784399ecd8cebc08bfe5bd35e59e0f0e6630b0904eee3eaee532f9128f",
+          "worst_strategy_id": "9c33be67270b284993626c8bf6565deefb34328d151e892f493f3fbb5246ec1c",
+          "recommended_guidance": "adx+breakout_52w+max_holding_days 조합은 백테스트 기반 경향으로만 검증하고 리스크 설정을 함께 확인하세요.",
+          "warnings": [
+            "실험 샘플 또는 거래 횟수가 부족합니다."
+          ]
+        }
+      ],
+      [
+        "",
+        {
+          "combination_count": 292,
+          "count": 292,
+          "success_count": 0,
+          "failure_count": 292,
+          "median_cagr": 0,
+          "mean_cagr": 0,
+          "median_sharpe": 0,
+          "median_mdd": 0,
+          "median_profit_factor": 0,
+          "median_trades": 0,
+          "median_quality_score": 0,
+          "confidence": "low",
+          "best_strategy_id": null,
+          "worst_strategy_id": null,
+          "recommended_guidance": " 조합은 백테스트 기반 경향으로만 검증하고 리스크 설정을 함께 확인하세요.",
+          "warnings": [
+            "실험 샘플 또는 거래 횟수가 부족합니다."
+          ]
+        }
+      ]
+    ],
+    "best_single_indicators": {
+      "stop_loss": {
+        "count": 2,
+        "success_count": 2,
+        "failure_count": 0,
+        "median_cagr": 0,
+        "mean_cagr": 0,
+        "median_sharpe": 0,
+        "median_mdd": 0,
+        "median_profit_factor": 0,
+        "median_trades": 0,
+        "median_quality_score": 0.1342,
+        "confidence": "low"
+      },
+      "ma_crossover": {
+        "count": 2,
+        "success_count": 2,
+        "failure_count": 0,
+        "median_cagr": 0,
+        "mean_cagr": 0,
+        "median_sharpe": 0,
+        "median_mdd": 0,
+        "median_profit_factor": 0,
+        "median_trades": 0,
+        "median_quality_score": 0.1342,
+        "confidence": "low"
+      },
+      "adx": {
+        "count": 4,
+        "success_count": 4,
+        "failure_count": 0,
+        "median_cagr": 0,
+        "mean_cagr": 0,
+        "median_sharpe": 0,
+        "median_mdd": 0,
+        "median_profit_factor": 0,
+        "median_trades": 0,
+        "median_quality_score": 0.1342,
+        "confidence": "low"
+      },
+      "take_profit": {
+        "count": 2,
+        "success_count": 2,
+        "failure_count": 0,
+        "median_cagr": 0,
+        "mean_cagr": 0,
+        "median_sharpe": 0,
+        "median_mdd": 0,
+        "median_profit_factor": 0,
+        "median_trades": 0,
+        "median_quality_score": 0.1342,
+        "confidence": "low"
+      },
+      "macd": {
+        "count": 2,
+        "success_count": 2,
+        "failure_count": 0,
+        "median_cagr": 0,
+        "mean_cagr": 0,
+        "median_sharpe": 0,
+        "median_mdd": 0,
+        "median_profit_factor": 0,
+        "median_trades": 0,
+        "median_quality_score": 0.1342,
+        "confidence": "low"
+      },
+      "rsi": {
+        "count": 2,
+        "success_count": 2,
+        "failure_count": 0,
+        "median_cagr": 0,
+        "mean_cagr": 0,
+        "median_sharpe": 0,
+        "median_mdd": 0,
+        "median_profit_factor": 0,
+        "median_trades": 0,
+        "median_quality_score": 0.1342,
+        "confidence": "low"
+      },
+      "trailing_stop": {
+        "count": 2,
+        "success_count": 1,
+        "failure_count": 1,
+        "median_cagr": 0,
+        "mean_cagr": 0,
+        "median_sharpe": 0,
+        "median_mdd": 0,
+        "median_profit_factor": 0,
+        "median_trades": 0,
+        "median_quality_score": 0.1342,
+        "confidence": "low"
+      },
+      "ema": {
+        "count": 2,
+        "success_count": 1,
+        "failure_count": 1,
+        "median_cagr": 0,
+        "mean_cagr": 0,
+        "median_sharpe": 0,
+        "median_mdd": 0,
+        "median_profit_factor": 0,
+        "median_trades": 0,
+        "median_quality_score": 0.1342,
+        "confidence": "low"
+      },
+      "volume_spike": {
+        "count": 2,
+        "success_count": 1,
+        "failure_count": 1,
+        "median_cagr": 0,
+        "mean_cagr": 0,
+        "median_sharpe": 0,
+        "median_mdd": 0,
+        "median_profit_factor": 0,
+        "median_trades": 0,
+        "median_quality_score": 0.1342,
+        "confidence": "low"
+      },
+      "max_holding_days": {
+        "count": 2,
+        "success_count": 2,
+        "failure_count": 0,
+        "median_cagr": 0,
+        "mean_cagr": 0,
+        "median_sharpe": 0,
+        "median_mdd": 0,
+        "median_profit_factor": 0,
+        "median_trades": 0,
+        "median_quality_score": 0.1342,
+        "confidence": "low"
+      },
+      "breakout_52w": {
+        "count": 2,
+        "success_count": 2,
+        "failure_count": 0,
+        "median_cagr": 0,
+        "mean_cagr": 0,
+        "median_sharpe": 0,
+        "median_mdd": 0,
+        "median_profit_factor": 0,
+        "median_trades": 0,
+        "median_quality_score": 0.1342,
+        "confidence": "low"
+      }
+    },
+    "best_indicator_combinations": {
+      "adx+ma_crossover+stop_loss": {
+        "combination_count": 2,
+        "count": 2,
+        "success_count": 2,
+        "failure_count": 0,
+        "median_cagr": 0,
+        "mean_cagr": 0,
+        "median_sharpe": 0,
+        "median_mdd": 0,
+        "median_profit_factor": 0,
+        "median_trades": 0,
+        "median_quality_score": 0.1342,
+        "confidence": "low",
+        "best_strategy_id": "fe2dc63f35d8806376205137b80acc56162dce6114005e8e59a7db195e6434eb",
+        "worst_strategy_id": "4e022a784399ecd8cebc08bfe5bd35e59e0f0e6630b0904eee3eaee532f9128f",
+        "recommended_guidance": "adx+ma_crossover+stop_loss 조합은 백테스트 기반 경향으로만 검증하고 리스크 설정을 함께 확인하세요.",
+        "warnings": [
+          "실험 샘플 또는 거래 횟수가 부족합니다."
+        ]
+      },
+      "macd+rsi+take_profit": {
+        "combination_count": 2,
+        "count": 2,
+        "success_count": 2,
+        "failure_count": 0,
+        "median_cagr": 0,
+        "mean_cagr": 0,
+        "median_sharpe": 0,
+        "median_mdd": 0,
+        "median_profit_factor": 0,
+        "median_trades": 0,
+        "median_quality_score": 0.1342,
+        "confidence": "low",
+        "best_strategy_id": "9c33be67270b284993626c8bf6565deefb34328d151e892f493f3fbb5246ec1c",
+        "worst_strategy_id": "907a57deb9410f8ea20a06648333b9cd98f69a2ef3a79fd1c1913cea376852e8",
+        "recommended_guidance": "macd+rsi+take_profit 조합은 백테스트 기반 경향으로만 검증하고 리스크 설정을 함께 확인하세요.",
+        "warnings": [
+          "실험 샘플 또는 거래 횟수가 부족합니다."
+        ]
+      },
+      "ema+trailing_stop+volume_spike": {
+        "combination_count": 2,
+        "count": 2,
+        "success_count": 1,
+        "failure_count": 1,
+        "median_cagr": 0,
+        "mean_cagr": 0,
+        "median_sharpe": 0,
+        "median_mdd": 0,
+        "median_profit_factor": 0,
+        "median_trades": 0,
+        "median_quality_score": 0.1342,
+        "confidence": "low",
+        "best_strategy_id": "66689699e893d0913347b5e1bec1042f3301c0740c0563862cdc912495ce733c",
+        "worst_strategy_id": "66689699e893d0913347b5e1bec1042f3301c0740c0563862cdc912495ce733c",
+        "recommended_guidance": "ema+trailing_stop+volume_spike 조합은 백테스트 기반 경향으로만 검증하고 리스크 설정을 함께 확인하세요.",
+        "warnings": [
+          "실험 샘플 또는 거래 횟수가 부족합니다."
+        ]
+      },
+      "adx+breakout_52w+max_holding_days": {
+        "combination_count": 2,
+        "count": 2,
+        "success_count": 2,
+        "failure_count": 0,
+        "median_cagr": 0,
+        "mean_cagr": 0,
+        "median_sharpe": 0,
+        "median_mdd": 0,
+        "median_profit_factor": 0,
+        "median_trades": 0,
+        "median_quality_score": 0.1342,
+        "confidence": "low",
+        "best_strategy_id": "4e022a784399ecd8cebc08bfe5bd35e59e0f0e6630b0904eee3eaee532f9128f",
+        "worst_strategy_id": "9c33be67270b284993626c8bf6565deefb34328d151e892f493f3fbb5246ec1c",
+        "recommended_guidance": "adx+breakout_52w+max_holding_days 조합은 백테스트 기반 경향으로만 검증하고 리스크 설정을 함께 확인하세요.",
+        "warnings": [
+          "실험 샘플 또는 거래 횟수가 부족합니다."
+        ]
+      },
+      "": {
+        "combination_count": 292,
+        "count": 292,
+        "success_count": 0,
+        "failure_count": 292,
+        "median_cagr": 0,
+        "mean_cagr": 0,
+        "median_sharpe": 0,
+        "median_mdd": 0,
+        "median_profit_factor": 0,
+        "median_trades": 0,
+        "median_quality_score": 0,
+        "confidence": "low",
+        "best_strategy_id": null,
+        "worst_strategy_id": null,
+        "recommended_guidance": " 조합은 백테스트 기반 경향으로만 검증하고 리스크 설정을 함께 확인하세요.",
+        "warnings": [
+          "실험 샘플 또는 거래 횟수가 부족합니다."
+        ]
+      }
+    },
+    "best_parameter_ranges": {},
+    "weak_patterns": [
+      {
+        "pattern": "missing_exit_rule",
+        "condition": "exit_signals empty and no stop_loss/take_profit/max_holding_days",
+        "coach_message": "청산 조건이 없어 MDD가 커질 가능성이 있습니다. 손절, 익절, 최대 보유기간 중 하나를 추가하는 것이 좋습니다.",
+        "suggestion_buttons": [
+          "손절 8% 추가",
+          "익절 15% 추가",
+          "최대 보유기간 20일 추가"
+        ]
+      }
+    ],
+    "high_risk_patterns": [],
+    "low_confidence_patterns": [
+      {
+        "prompt_id": "prompt_001",
+        "strategy_id": "fe2dc63f35d8806376205137b80acc56162dce6114005e8e59a7db195e6434eb",
+        "trades": 0
+      },
+      {
+        "prompt_id": "prompt_002",
+        "strategy_id": "9c33be67270b284993626c8bf6565deefb34328d151e892f493f3fbb5246ec1c",
+        "trades": 0
+      },
+      {
+        "prompt_id": "prompt_003",
+        "strategy_id": "66689699e893d0913347b5e1bec1042f3301c0740c0563862cdc912495ce733c",
+        "trades": 0
+      },
+      {
+        "prompt_id": "prompt_004",
+        "strategy_id": "4e022a784399ecd8cebc08bfe5bd35e59e0f0e6630b0904eee3eaee532f9128f",
+        "trades": 0
+      },
+      {
+        "prompt_id": "prompt_005",
+        "strategy_id": "4e022a784399ecd8cebc08bfe5bd35e59e0f0e6630b0904eee3eaee532f9128f",
+        "trades": 0
+      },
+      {
+        "prompt_id": "prompt_006",
+        "strategy_id": "907a57deb9410f8ea20a06648333b9cd98f69a2ef3a79fd1c1913cea376852e8",
+        "trades": 0
+      },
+      {
+        "prompt_id": "prompt_007",
+        "strategy_id": "ca948f099f017faf5cb5c424391056f4c6562be0ba9b9ffe6195e3c313cd10de"
+      },
+      {
+        "prompt_id": "prompt_008",
+        "strategy_id": "9c33be67270b284993626c8bf6565deefb34328d151e892f493f3fbb5246ec1c",
+        "trades": 0
+      },
+      {
+        "prompt_id": "prompt_009",
+        "strategy_id": null
+      },
+      {
+        "prompt_id": "prompt_010",
+        "strategy_id": null
+      }
+    ],
+    "parser_failure_patterns": {
+      "timeout": {
+        "count": 293,
+        "sample_prompts": [
+          "KOSPI200에서 20일 이동평균이 60일 이동평균을 상향 돌파하고 ADX가 25 이상이면 매수, 손절 3%와 최대 보유기간 60일을 적용해줘.",
+          "KOSPI200에서 50일 이동평균이 120일 이동평균을 상향 돌파하고 ADX가 25 이상이면 매수, 손절 5%와 최대 보유기간 60일을 적용해줘.",
+          "KOSPI에서 5일 이동평균이 20일 이동평균을 상향 돌파하고 ADX가 25 이상이면 매수, 손절 5%와 최대 보유기간 120일을 적용해줘."
+        ],
+        "likely_cause": "실행 단계에서 후보가 실패했습니다.",
+        "parser_improvement_suggestion": "자주 실패한 표현을 rule-first parser 예제로 추가하세요."
+      }
+    }
+  },
+  "advisor_guidance": {
+    "recommended_default_rules": [
+      "전략 검증 조언에는 유사 실험 수, median Sharpe, median MDD를 함께 포함합니다."
+    ],
+    "risk_warning_rules": [
+      "MDD가 -25%보다 낮거나 거래 횟수가 30회 미만이면 리스크 관리 또는 신뢰도 경고를 우선합니다."
+    ],
+    "parameter_suggestion_rules": [
+      "손절, 익절, 최대 보유기간은 동일 블록 조합 내 중앙값 품질 점수로 비교합니다."
+    ],
+    "prompt_clarification_rules": [
+      "파싱 실패 표현은 매수 조건, 청산 조건, 유니버스를 분리해 되묻습니다."
+    ]
+  }
+}

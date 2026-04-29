@@ -1,0 +1,12 @@
+pattern_key,pattern_type,blocks,parameter_range,sample_count,median_cagr,median_sharpe,median_mdd,median_profit_factor,median_trades,quality_score,confidence,coach_guidance
+stop_loss,single_indicator,stop_loss,,2,0,0,0,0,0,0.1342,low,전략 검증 근거로만 사용하고 리스크 설정을 함께 확인하세요.
+ma_crossover,single_indicator,ma_crossover,,2,0,0,0,0,0,0.1342,low,전략 검증 근거로만 사용하고 리스크 설정을 함께 확인하세요.
+adx,single_indicator,adx,,4,0,0,0,0,0,0.1342,low,전략 검증 근거로만 사용하고 리스크 설정을 함께 확인하세요.
+take_profit,single_indicator,take_profit,,2,0,0,0,0,0,0.1342,low,전략 검증 근거로만 사용하고 리스크 설정을 함께 확인하세요.
+macd,single_indicator,macd,,2,0,0,0,0,0,0.1342,low,전략 검증 근거로만 사용하고 리스크 설정을 함께 확인하세요.
+rsi,single_indicator,rsi,,2,0,0,0,0,0,0.1342,low,전략 검증 근거로만 사용하고 리스크 설정을 함께 확인하세요.
+trailing_stop,single_indicator,trailing_stop,,2,0,0,0,0,0,0.1342,low,전략 검증 근거로만 사용하고 리스크 설정을 함께 확인하세요.
+ema,single_indicator,ema,,2,0,0,0,0,0,0.1342,low,전략 검증 근거로만 사용하고 리스크 설정을 함께 확인하세요.
+volume_spike,single_indicator,volume_spike,,2,0,0,0,0,0,0.1342,low,전략 검증 근거로만 사용하고 리스크 설정을 함께 확인하세요.
+max_holding_days,single_indicator,max_holding_days,,2,0,0,0,0,0,0.1342,low,전략 검증 근거로만 사용하고 리스크 설정을 함께 확인하세요.
+breakout_52w,single_indicator,breakout_52w,,2,0,0,0,0,0,0.1342,low,전략 검증 근거로만 사용하고 리스크 설정을 함께 확인하세요.
