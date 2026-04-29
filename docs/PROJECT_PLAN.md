@@ -1,7 +1,7 @@
 # Simons — 종합 투자 시뮬레이션 플랫폼 프로젝트 계획서
 
 > **문서 버전:** v2.0
-> **최종 갱신일:** 2026-04-25
+> **최종 갱신일:** 2026-04-28
 > **프로젝트명:** Simons (시몬스)
 
 ---
@@ -221,12 +221,13 @@ simons/
 | 단계 | 기능 | 구현 상태 |
 |------|------|-----------|
 | 1. 프롬프트 입력 | 자연어로 전략 설명 (채팅 인터페이스) | ✅ 완료 |
-| 2. AI 파싱 | 로컬 LLM이 자연어 → ParsedStrategy 구조 변환 | ✅ 완료 |
-| 3. 전략 요약 확인 | 파싱된 유니버스, 필터, 시그널, 포트폴리오 설정 표시 | ✅ 완료 |
-| 4. 전략 수정 | 대화형으로 파라미터 점진적 수정 가능 | ✅ 완료 |
-| 5. AI 전략 코치 | 파싱 직후 전략 어드바이저 + 뉴스 시그널 기반 코칭 (SSE 스트리밍) | ✅ 완료 |
-| 6. 백테스트 실행 | SSE 스트림으로 진행률 + 결과 실시간 전달 | ✅ 완료 |
-| 7. 결과 분석 | BacktestDashboard (수익률, 샤프, MDD, 거래내역, 차트) | ✅ 완료 |
+| 2. 즉시 접수 | `/api/strategy/parse/stream` 이 `accepted`/`skeleton` SSE 이벤트를 먼저 반환 | ✅ 완료 |
+| 3. AI 파싱 | 로컬 LLM 또는 rule-first fast path가 자연어 → ParsedStrategy 구조 변환 | ✅ 완료 |
+| 4. 전략 요약 확인 | 파싱된 유니버스, 필터, 시그널, 포트폴리오 설정 표시 | ✅ 완료 |
+| 5. 전략 수정 | 대화형으로 파라미터 점진적 수정 가능 | ✅ 완료 |
+| 6. AI 전략 코치 | 파싱 완료 후 지연 실행하며 전략 어드바이저 + 뉴스 시그널 기반 코칭 (SSE 스트리밍) | ✅ 완료 |
+| 7. 백테스트 실행 | SSE 스트림으로 진행률 + 결과 실시간 전달 | ✅ 완료 |
+| 8. 결과 분석 | BacktestDashboard (수익률, 샤프, MDD, 거래내역, 차트) | ✅ 완료 |
 
 **자연어 파서 (NLStrategyParser):**
 
@@ -239,12 +240,40 @@ simons/
 | 출력 | `ParsedStrategy` (유니버스, 펀더멘탈 필터, 진입/청산 시그널, 리스크 설정) |
 | 수정 모드 | `previous_parsed` 전달 시 기존 전략 기반 점진적 수정 |
 | 캐시 | 200-item LRU (중복 방지) |
+| Fast path | 명확한 정량 조건은 deterministic extractor로 우선 파싱하여 LLM 호출 회피 |
+| 복구 | LLM 출력이 tail-truncated JSON인 경우 보정 후 파싱, 실패 시 안전한 fallback strategy 생성 |
 | 자유 생성 | `chat()` — 코칭 응답 생성 (비구조화 텍스트, MLX 전용) |
 | 스트리밍 | `stream_chat()` — 토큰 단위 SSE 스트리밍 (`mlx_lm.stream_generate`) |
 
+#### 3.1.1a 자연어 전략 생성 성능 최적화 ✅ 완료
+
+> 모델은 `mlx-community/Qwen3.5-9B-OptiQ-4bit`를 유지하고, 프롬프트/파이프라인/런타임 계층만 변경해 사용자 체감 지연을 줄인다.
+
+| 항목 | 구현 내용 |
+|------|-----------|
+| 파이프라인 분리 | parse → 즉시 전략 skeleton 표시 → summary/coach 지연 실행 |
+| SSE parse 프록시 | `app/api/strategy/parse/stream/route.ts` 가 `accepted`, `skeleton`, `parsed_final`, `dsl_ready`, `done` 이벤트를 순차 전달 |
+| UX | `/analytics/new` 에서 skeleton bubble을 즉시 표시하고 백테스트는 사용자가 버튼을 누를 때만 실행 |
+| DSL 변환 | `to_backtest_request(resolve_symbols=False)`로 파싱 직후 불필요한 전체 유니버스 로딩을 회피 |
+| 코치 캐싱 | Next.js 프록시와 FastAPI 코치 라우터 양쪽에서 동일 요청 cache/in-flight dedupe 적용 |
+| 요약 캐싱 | `/api/backtest/summarize` 에 payload hash 기반 LRU cache와 in-flight dedupe 적용 |
+| AI 런타임 조율 | MLX inference priority lock으로 parse(0) → coach(1) → summary/preload(2) 순서 보장 |
+| 관측성 | `/ai/runtime/metrics`, `/api/ai/runtime/metrics` 로 parse/coach/summary latency 기록 및 UI 패널 표시 |
+
+**측정 결과(동일 모델 유지, 로컬 개발 환경):**
+
+| 구간 | 목표 | 측정값 |
+|------|------|--------|
+| Parse first response | 100~300ms | 약 155ms |
+| Parse full response | 300ms 내외(rule-first fast path) | 약 159ms |
+| Backend parse runtime | 300ms 내외 | 약 2.6ms |
+| Coach first token | 5초 이내 | 약 4.3초 |
+| Coach done | 8초 이내 | 약 6.9초 |
+| Summary done | 비동기 지연 실행 | 약 15.2초 |
+
 #### 3.1.1b AI 전략 코치 ✅ 완료
 
-> 전략 파싱 완료 직후 StrategyAdvisor(rule-based, ~14ms) + Qwen MLX(LLM) 를 조합하여 맞춤형 코칭 메시지를 채팅에 스트리밍으로 표시.
+> 전략 파싱 완료 후 StrategyAdvisor(rule-based, ~14ms) + Qwen MLX(LLM) 를 조합하여 맞춤형 코칭 메시지를 비동기 스트리밍으로 표시.
 
 | 항목 | 내용 |
 |------|------|
@@ -253,6 +282,8 @@ simons/
 | 스트리밍 엔드포인트 | `POST /strategy/coach/stream` — SSE 토큰 스트리밍 |
 | Next.js 프록시 | `app/api/strategy/coach/route.ts`, `app/api/strategy/coach/stream/route.ts` |
 | 모델 공유 | `set_parser()` 주입으로 NLParser와 동일 Qwen 9B 모델 재사용 (메모리 절약) |
+| 캐시 | 동일 전략/프롬프트에 대해 JSON 응답과 SSE replay 캐시 적용 |
+| 런타임 우선순위 | parse보다 낮고 summary보다 높은 priority로 MLX 추론 락 획득 |
 | 뉴스 통합 | `news_agent_insight` 우선 반영 — risk_alert_level high 시 리스크 조언 최우선 |
 | advisor 통합 | `advisor_insight` (rule-based 전략 진단) → 코치 컨텍스트로 활용 |
 | UX | 전략 요약 카드 → 즉시 스피너 → 첫 토큰 도착 시 메시지 박스 등장 → 타자처럼 누적 → 완료 시 제안 버튼 표시 |
@@ -749,7 +780,7 @@ WatchlistSymbol {
 | GET | `/api/backtest/explain` | XAI 설명 (SHAP) |
 | POST | `/api/backtest/ai-report` | AI 분석 리포트 |
 
-#### 전략 (9개)
+#### 전략 / AI 런타임 (11개)
 | Method | Endpoint | 기능 |
 |--------|----------|------|
 | GET/POST | `/api/strategy` | 전략 목록/생성 |
@@ -760,6 +791,8 @@ WatchlistSymbol {
 | GET/POST | `/api/strategy/batch-runs` | 배치 실행 시작/이력 조회/상세 조회/취소 |
 | POST | `/api/strategy/coach` | AI 전략 코치 (단건 응답) |
 | POST | `/api/strategy/coach/stream` | AI 전략 코치 SSE 스트리밍 |
+| GET | `/api/ai/runtime/metrics` | AI 런타임 latency 메트릭 조회 |
+| POST | `/api/ai/runtime/metrics/reset` | AI 런타임 메트릭 초기화 (production 비활성화) |
 
 #### 가상 계좌 & 매매 (11개)
 | Method | Endpoint | 기능 |
@@ -840,6 +873,8 @@ WatchlistSymbol {
 | POST | `/strategy/coach` | AI 전략 코치 (단건 응답) |
 | POST | `/strategy/coach/stream` | AI 전략 코치 SSE 스트리밍 (토큰 단위) |
 | GET | `/model/status` | NL 파서 상태 |
+| GET | `/ai/runtime/metrics` | AI 런타임 latency 메트릭 조회 |
+| POST | `/ai/runtime/metrics/reset` | AI 런타임 메트릭 초기화 |
 | POST | `/summarize` | AI 요약 생성 |
 | POST | `/sync-stocks` | 유니버스 동기화 |
 | GET | `/news/articles` | 전체 뉴스 목록 (페이징) |
@@ -950,7 +985,7 @@ WatchlistSymbol {
 
 ### Phase 3.7b: AI 전략 코치 — ✅ 완료
 
-> 전략 파싱 직후 AI 코치가 advisor_insight + news_agent_insight 를 바탕으로 맞춤형 1:1 코칭 메시지를 SSE 스트리밍으로 전달.
+> 전략 파싱 완료 이후 AI 코치가 advisor_insight + news_agent_insight 를 바탕으로 맞춤형 1:1 코칭 메시지를 비동기 SSE 스트리밍으로 전달.
 
 | 작업 | 상세 | 구현 상태 |
 |------|------|----------|
@@ -963,6 +998,8 @@ WatchlistSymbol {
 | 프론트엔드 스트리밍 | `generateCoachResponse()` — ReadableStream 소비, 첫 토큰에 스피너→메시지 전환 | ✅ 완료 |
 | StrategyAdvisorPanel 수정 | race condition 버그 수정 (cleanup에서 lastReqKey 리셋) | ✅ 완료 |
 | clarification 제거 | `/strategy/parse` 에서 rule-based clarification 생성 완전 제거 | ✅ 완료 |
+| 캐시/중복 제거 | Next.js/FastAPI 계층에서 JSON cache, SSE replay cache, in-flight dedupe 적용 | ✅ 완료 |
+| 런타임 우선순위 | MLX priority lock에서 parse보다 낮고 summary보다 높은 priority로 실행 | ✅ 완료 |
 
 ### Phase 3.8: 뉴스 Impact AI Agent — ✅ 완료
 
@@ -1205,6 +1242,8 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 | 시뮬레이터 | `backend/engine/simulator.py` |
 | AI 엔진 | `backend/ai/ai_engine.py` |
 | AI 요약 | `backend/ai/summarize.py` |
+| AI 런타임 메트릭 | `backend/main.py`, `app/api/ai/runtime/metrics/route.ts` |
+| AI 런타임 메트릭 초기화 | `app/api/ai/runtime/metrics/reset/route.ts` |
 | XAI 엔진 | `backend/ai/xai_engine.py` |
 | 최적화 에이전트 | `backend/ai/local_optimization_agent.py` |
 | 가상매매 트레이더 | `backend/engine/virtual_trader.py` |
@@ -1221,4 +1260,4 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 
 ---
 
-*이 문서는 프로젝트의 현재 상태와 향후 계획을 반영합니다. 최종 갱신: 2026-04-23 (Phase 3.7b AI 전략 코치 + SSE 스트리밍 추가).*
+*이 문서는 프로젝트의 현재 상태와 향후 계획을 반영합니다. 최종 갱신: 2026-04-28 (자연어 전략 생성 지연 개선, AI 런타임 계측, 캐싱, fallback 복구 반영).*

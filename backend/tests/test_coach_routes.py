@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
 
 from api import coach_routes
 from api.coach_routes import CoachRequest
+from advisor.schemas import NewsArticleSignal, NewsContext
 
 
 class _DummyLock:
@@ -24,9 +25,11 @@ class _DummyLock:
 class _DummyParser:
     def __init__(self):
         self.chat_calls = 0
+        self.last_user_message = ""
 
     def chat(self, _system_prompt, _user_message, max_tokens=512):
         self.chat_calls += 1
+        self.last_user_message = _user_message
         assert max_tokens == 400
         return '{"message":"캐시된 코치 응답"}'
 
@@ -130,3 +133,39 @@ async def test_coach_strategy_reuses_backend_cache(monkeypatch):
     metrics = sys.modules["main"].get_ai_runtime_metrics()
     assert metrics["stages"]["coach"]["count"] == 2
     assert metrics["stages"]["coach"]["cache_hits"] == 1
+
+
+@pytest.mark.asyncio
+async def test_coach_strategy_auto_injects_news_context(monkeypatch):
+    _install_dummy_main(monkeypatch)
+    parser = _DummyParser()
+    coach_routes.set_parser(parser)
+
+    monkeypatch.setattr(
+        coach_routes,
+        "build_news_context_from_strategy",
+        lambda _parsed: [
+            NewsContext(
+                symbol="005930",
+                latest_alpha=-0.12,
+                risk_alert_level="high",
+                articles=[
+                    NewsArticleSignal(
+                        event_type="earnings_miss",
+                        sentiment="negative",
+                        impact_direction="down",
+                        impact_score=-0.8,
+                        confidence_score=0.9,
+                    )
+                ],
+            )
+        ],
+    )
+
+    req = _make_request(advisor_insight=None, news_agent_insight=None)
+    response = await coach_routes.coach_strategy(req)
+
+    assert response.message == "캐시된 코치 응답"
+    assert "[news_agent_insight" in parser.last_user_message
+    assert "risk_alert=high" in parser.last_user_message
+    assert "earnings_miss" in parser.last_user_message

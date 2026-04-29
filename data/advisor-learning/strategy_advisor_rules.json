@@ -1,0 +1,19 @@
+{
+  "rules": [
+    {
+      "id": "rule_missing_exit_rule",
+      "condition": "missing stop_loss_pct, take_profit_pct, trailing_stop_pct, and max_holding_days",
+      "evidence": {
+        "source": "data/advisor-learning/strategy_prompt_experiment_summary.json",
+        "confidence": "medium"
+      },
+      "advice": "청산 조건이 부족하면 실험 근거와 함께 MDD 확대 가능성을 먼저 설명합니다.",
+      "suggested_actions": [
+        "손절 8% 추가",
+        "익절 15% 추가",
+        "최대 보유기간 20일 추가"
+      ],
+      "confidence": "medium"
+    }
+  ]
+}

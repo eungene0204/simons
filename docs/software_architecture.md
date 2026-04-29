@@ -1,7 +1,7 @@
 # Software Architecture
 
 > 한국/글로벌 주식 퀀트 투자 플랫폼 — Simons
-> **최종 갱신일:** 2026-04-25
+> **최종 갱신일:** 2026-04-28
 
 ---
 
@@ -32,7 +32,7 @@
 | ORM / DB | Prisma + SQLite |
 | 백테스팅 엔진 | VectorBT + Polars + Pandas |
 | AI/ML | PyTorch Transformer + XGBoost + SHAP |
-| 자연어 파싱 | LLM (MLX / Ollama) + Structured Output |
+| 자연어 파싱 | Rule-first parser + LLM (MLX / Ollama) + JSON repair/fallback |
 | 테스트 | Vitest (프론트) + Pytest (백엔드) |
 
 ### 전략 설계 방식
@@ -204,8 +204,9 @@ StrategyLabPage (app/analytics/new/page.tsx)
 ├── StrategyExampleTabs          — 초보/중급/고급별 예시 프롬프트 제공
 ├── Run All Tests CTA            — 독립형 배치 테스트 모달 오픈
 ├── 채팅 입력창
-│   └── handleSend()             — POST /api/strategy/parse
-├── Clarification UI             — LLM이 추가 정보 요청 시 선택지 표시
+│   └── handleSend()             — POST SSE via /api/strategy/parse/stream
+├── Strategy Skeleton UI         — accepted/skeleton 이벤트로 즉시 임시 전략 표시
+├── AI Runtime Metrics Panel     — parse/coach/summary latency 표시
 ├── RunAllTestsModal
 │   ├── startBatchRun()          — POST /api/strategy/batch-runs
 │   ├── fetchBatchRunDetail()    — GET /api/strategy/batch-runs?runId=...
@@ -310,6 +311,8 @@ interface BacktestResult {
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
 | GET | `/model/status` | AI 모델 상태 확인 |
+| GET | `/ai/runtime/metrics` | AI 런타임 latency 메트릭 조회 |
+| POST | `/ai/runtime/metrics/reset` | AI 런타임 메트릭 초기화 |
 | POST | `/summarize` | 백테스트 결과 AI 요약 (Claude API) |
 
 **뉴스 Impact Agent**
@@ -342,8 +345,10 @@ interface BacktestResult {
     │
     ▼
 NLStrategyParser.parse() (backend/engine/nl_parser.py)
+    ├── rule-first fast path: 명확한 정량 조건은 deterministic extractor로 즉시 파싱
     ├── 백엔드 선택: MLX (Mac) 또는 Ollama
-    ├── Structured Output → ParsedStrategy 스키마 강제
+    ├── compact prompt + JSON output → ParsedStrategy 스키마 정규화
+    ├── tail-truncated JSON repair, 실패 시 fallback ParsedStrategy 생성
     └── 수정 모드: parse_modification() — 이전 전략 diff 기반 병합
     │
     ▼
@@ -357,12 +362,12 @@ ParsedStrategy (구조화된 JSON)
     }
     │
     ├── validate_parsed_strategy()
-    │   └── 부족한 정보 감지 → clarification_question + 선택지 반환
-    │       (충분하면 null 반환 → 바로 백테스트로 진행)
+    │   └── 부족한 정보는 안전한 기본값 또는 AI 코치 안내로 처리
     │
     ▼
 strategy_converter.to_backtest_request() (backend/engine/strategy_converter.py)
-    ├── 유니버스 심볼 로딩
+    ├── parse 응답에서는 resolve_symbols=False로 유니버스 전체 로딩 회피
+    ├── 백테스트 실행 시점에 필요한 유니버스 심볼 로딩
     ├── 기술 신호 → Condition dict 변환
     ├── 재무 필터 → filter condition 변환
     └── 리스크 관리 설정 병합
@@ -528,9 +533,12 @@ Client polling으로 진행률/로그/리더보드 반영
 
 **전략**
 - `POST /api/strategy/parse` — NL → DSL 파싱 프록시
+- `POST /api/strategy/parse/stream` — accepted/skeleton/parsed_final/dsl_ready 이벤트를 보내는 자연어 파싱 SSE 프록시
 - `POST /api/strategy/backtest-stream` — 단일 전략 SSE 백테스트 + strategy_id 캐시 활용
 - `POST /api/strategy/save-with-backtest` — 전략 저장 + 백테스트 동시 실행
 - `GET/POST /api/strategy/batch-runs` — 배치 실행 시작/상세 조회/최근 이력/취소
+- `GET /api/ai/runtime/metrics` — AI 런타임 latency 메트릭 조회
+- `POST /api/ai/runtime/metrics/reset` — AI 런타임 메트릭 초기화(production 비활성화)
 
 **백테스트**
 - `POST /api/backtest/run` — 실행 (캐싱 프록시)
@@ -566,11 +574,27 @@ Client polling으로 진행률/로그/리더보드 반영
 |------|------|
 | 백엔드 | MLX (Apple Silicon) 또는 Ollama |
 | 기본 모델 | `mlx-community/Qwen3.5-9B-OptiQ-4bit` |
-| 출력 형식 | Structured Output (JSON Schema 강제) |
+| 출력 형식 | Deterministic extractor 우선, 필요 시 compact JSON LLM output |
 | 신규 전략 | `parse(user_input)` → ParsedStrategy |
 | 전략 수정 | `parse_modification(user_input, previous)` → diff 기반 병합 |
+| JSON 복구 | tail-truncated JSON은 닫는 따옴표/중괄호 보정 후 재파싱 |
+| Fallback | LLM JSON 복구 실패 시 extractor 기반 안전 ParsedStrategy 반환 |
 | 자유 생성 | `chat(system_prompt, user_message)` → str (비구조화, MLX 전용) |
 | 스트리밍 | `stream_chat(system_prompt, user_message)` → Generator[str] (토큰 단위 delta yield) |
+
+### 7.1a AI 런타임 오케스트레이션
+
+로컬 Qwen MLX 모델은 단일 디바이스 리소스를 공유하므로 parse, coach, summary를 동시에 실행하면 대기열 지연이 커진다. FastAPI 런타임은 priority inference lock을 사용해 사용자 입력에 가까운 작업을 먼저 처리한다.
+
+| 항목 | 내용 |
+|------|------|
+| Priority 0 | `/strategy/parse` 자연어 파싱 |
+| Priority 1 | `/strategy/coach`, `/strategy/coach/stream` |
+| Priority 2 | `/summarize`, preload/background AI 작업 |
+| 계측 | `phase`, `elapsed_ms`, `queue_wait_ms`, `status`를 in-memory metrics store에 기록 |
+| FastAPI API | `GET /ai/runtime/metrics`, `POST /ai/runtime/metrics/reset` |
+| Next.js 프록시 | `app/api/ai/runtime/metrics/**` |
+| UI | `/analytics/new` AI Runtime 패널에서 최근 parse/coach/summary latency 확인 |
 
 ### 7.1b AI 전략 코치 (`backend/api/coach_routes.py`)
 
@@ -582,6 +606,8 @@ Client polling으로 진행률/로그/리더보드 반영
 | 스트리밍 프록시 | `app/api/strategy/coach/stream/route.ts` — SSE 본문 패스스루 |
 | 입력 | `user_prompt`, `parsed_strategy`, `advisor_insight`, `news_agent_insight` |
 | 출력 | `{"message": "코칭 메시지 (300자 이내)", "suggestions": ["제안1", ...]}` |
+| 캐시 | JSON 응답 cache/in-flight dedupe, SSE 응답 replay cache |
+| 우선순위 | MLX priority lock에서 parse보다 낮고 summary보다 높은 priority |
 | 뉴스 우선순위 | news_agent_insight 존재 시 최우선 반영, risk_alert_level high → 리스크 조언 강제 |
 | `<think>` 처리 | Qwen3 thinking-mode 아티팩트 자동 제거 (`re.sub`) |
 
@@ -626,9 +652,9 @@ XGBoost Head (v1: 단일 모델 / v2: up/down 분리 모델)
 
 SHAP 기반 — 각 예측에 영향을 준 피처와 기여도 반환, 프론트엔드 `XAIModal`에서 시각화
 
-### 7.4 AI 요약 (`backend/ai/summarize.py`)
+### 7.4 AI 요약 (`backend/ai/summarize.py`, `app/api/backtest/summarize/route.ts`)
 
-Anthropic Claude API — 백테스트 수치를 자연어 요약으로 변환 (강점/약점/개선 방향)
+백테스트 수치를 자연어 요약으로 변환한다. Next.js 프록시 계층은 `metrics + strategySummary` stable hash 기반 LRU cache와 in-flight dedupe를 적용해 동일 결과에 대한 중복 LLM 호출을 제거한다. 요약 생성은 전략 파싱 응답의 critical path에서 제외하고, 백테스트 결과 이후 비동기/지연 실행한다.
 
 ---
 
@@ -744,23 +770,28 @@ npm run test:frontend
                    ▼
 ┌─────────────────────────────────────────────────┐
 │  /analytics/new (Next.js)                        │
-│  handleSend() → POST /api/strategy/parse         │
+│  handleSend() → POST /api/strategy/parse/stream  │
+└──────────────────┬──────────────────────────────┘
+                   │
+                   ▼
+┌─────────────────────────────────────────────────┐
+│  Next.js SSE: accepted → skeleton                │
+│  UI: Strategy Skeleton 즉시 표시                 │
 └──────────────────┬──────────────────────────────┘
                    │
                    ▼
 ┌─────────────────────────────────────────────────┐
 │  FastAPI: /strategy/parse                        │
-│  NLStrategyParser → ParsedStrategy (LLM)         │
-│  strategy_converter → BacktestRequest            │
-│  validate → clarification_question? (없으면 null)│
+│  rule-first parser 또는 NLStrategyParser(LLM)    │
+│  JSON repair/fallback → ParsedStrategy           │
+│  strategy_converter(resolve_symbols=False)       │
 └──────────────────┬──────────────────────────────┘
                    │
           ┌────────┴────────┐
           ▼                 ▼
-    Clarification         바로 진행
-    선택지 표시            백테스트 실행
-    사용자 선택 →
-    parse_modification()
+    Coach/Summary        사용자 버튼
+    지연 실행             백테스트 실행
+    SSE/cache            (자동 실행 없음)
           │
           └──────┐
                  ▼

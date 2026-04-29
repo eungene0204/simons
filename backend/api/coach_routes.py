@@ -21,6 +21,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from advisor.news_enrichment import build_coach_news_insight, build_news_context_from_strategy
+
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["coach"])
 
@@ -274,7 +276,14 @@ async def coach_strategy(req: CoachRequest) -> CoachResponse:
 
     try:
         request_started = time.perf_counter()
-        cache_key = _coach_cache_key(req)
+        effective_req = req
+        if not req.news_agent_insight:
+            news_context = build_news_context_from_strategy(req.parsed_strategy)
+            news_insight = build_coach_news_insight(news_context)
+            if news_insight:
+                effective_req = req.model_copy(update={"news_agent_insight": news_insight})
+
+        cache_key = _coach_cache_key(effective_req)
         cached = _coach_response_cache.get(cache_key)
         if cached is not None:
             _coach_response_cache.move_to_end(cache_key)
@@ -289,7 +298,7 @@ async def coach_strategy(req: CoachRequest) -> CoachResponse:
         from engine.nl_parser import NLStrategyParser
         parser: NLStrategyParser = _parser
 
-        user_msg = _build_user_message(req)
+        user_msg = _build_user_message(effective_req)
 
         inference_started = time.perf_counter()
         import main as _main
@@ -335,10 +344,17 @@ async def coach_strategy_stream(req: CoachRequest):
         raise HTTPException(status_code=503, detail="Coach model not loaded yet")
 
     request_started = time.perf_counter()
+    effective_req = req
+    if not req.news_agent_insight:
+        news_context = build_news_context_from_strategy(req.parsed_strategy)
+        news_insight = build_coach_news_insight(news_context)
+        if news_insight:
+            effective_req = req.model_copy(update={"news_agent_insight": news_insight})
+
     from engine.nl_parser import NLStrategyParser
     parser: NLStrategyParser = _parser
-    user_msg = _build_user_message(req)
-    cache_key = _coach_cache_key(req)
+    user_msg = _build_user_message(effective_req)
+    cache_key = _coach_cache_key(effective_req)
     cached_stream = _coach_stream_cache.get(cache_key)
 
     if cached_stream is not None:
