@@ -3,7 +3,7 @@
 
 > **문서 버전:** v1.4
 > **작성일:** 2026-04-01
-> **최종 갱신일:** 2026-04-25
+> **최종 갱신일:** 2026-04-28
 > **프로젝트명:** Simons
 > **상태:** 작성 중
 
@@ -54,6 +54,8 @@ Simons는 사용자가 자신만의 주식 투자 전략을 **설계 → 검증 
 | CAGR | Compound Annual Growth Rate — 연평균 복리 수익률 |
 | SL/TP/TS | Stop Loss / Take Profit / Trailing Stop |
 | XAI | Explainable AI — 설명 가능 인공지능 |
+| Strategy Skeleton | 파싱 완료 전 사용자에게 즉시 표시하는 임시 전략 카드 |
+| AI Runtime Metrics | parse, coach, summary 등 로컬 LLM 경로의 latency/queue wait 계측값 |
 
 ### 1.4 개요
 
@@ -173,9 +175,19 @@ Simons는 사용자가 자신만의 주식 투자 전략을 **설계 → 검증 
 - MLX (Apple Silicon 최적, 기본값): `mlx-community/Qwen3.5-9B-OptiQ-4bit`
 - Ollama (범용): `qwen3.5:9b`
 
+**FR-STR-013** 시스템은 자연어 전략 파싱 요청을 SSE로 처리할 수 있어야 하며, 파싱 완료 전 `accepted` 및 `skeleton` 이벤트를 반환해야 한다.
+
+**FR-STR-014** 시스템은 명확한 정량 조건(PBR/PER/ROE, 보유 기간, 포지션 수, 손절/익절/트레일링 스탑 등)을 deterministic extractor로 우선 파싱하여 불필요한 LLM 호출을 줄여야 한다.
+
+**FR-STR-015** 시스템은 LLM이 tail-truncated JSON을 반환한 경우 가능한 범위에서 JSON을 복구해야 하며, 복구 실패 시 500 오류 대신 안전한 fallback ParsedStrategy를 반환해야 한다.
+
+**FR-STR-016** 시스템은 파싱 직후 백테스트를 자동 실행하면 안 된다. 백테스트는 사용자가 명시적으로 실행 버튼을 누른 경우에만 시작해야 한다.
+
+**FR-STR-017** 시스템은 파싱 응답 생성 시 불필요한 전체 유니버스 심볼 해석을 지연하고, 실제 백테스트 실행 시점에 필요한 종목 해석을 수행해야 한다.
+
 #### 3.1.1b AI 전략 코치
 
-**FR-STR-006** 시스템은 전략 파싱 완료 직후 AI 전략 코치 응답을 SSE 스트리밍으로 채팅에 표시해야 한다.
+**FR-STR-006** 시스템은 전략 파싱 완료 이후 AI 전략 코치 응답을 비동기 SSE 스트리밍으로 채팅에 표시해야 하며, 파싱 응답의 critical path를 막으면 안 된다.
 
 **FR-STR-007** 코치 응답은 다음 두 정보를 컨텍스트로 활용해야 한다:
 1. `advisor_insight` — rule-based 전략 진단 (전략 점수, 리스크 점수, 주요 이슈, 추천)
@@ -192,6 +204,10 @@ Simons는 사용자가 자신만의 주식 투자 전략을 **설계 → 검증 
 **FR-STR-011** 코치는 단 하나의 핵심 조언(Top 1)만 전달해야 하며, 여러 조언을 나열하지 않아야 한다.
 
 **FR-STR-012** 시스템은 rule-based clarification 텍스트를 채팅에 표시하지 않아야 한다. 모든 사용자 안내 텍스트는 AI 코치 응답으로만 제공된다.
+
+**FR-STR-018** 시스템은 동일한 전략/프롬프트에 대한 코치 응답을 캐시하고, 동시에 들어온 동일 요청은 in-flight dedupe로 하나의 LLM 호출을 공유해야 한다.
+
+**FR-STR-019** 시스템은 코치 SSE 응답을 replay 가능한 형태로 캐시하여 동일 요청의 반복 스트림에서 중복 LLM 추론을 피해야 한다.
 
 #### 3.1.2 블록 기반 전략 빌더 (레거시 / 고급 편집)
 
@@ -764,6 +780,10 @@ score = tanh(cagr/0.3)×0.15 + tanh(sharpe/2)×0.20 + tanh(pf/2)×0.10
 | NFR-PERF-004 | 가상 시장 시세 갱신: 30초 이내 |
 | NFR-PERF-005 | SignalEngine 벡터화: 전체 시계열을 단일 Polars 연산으로 처리 (루프 없음) |
 | NFR-PERF-006 | 배치 실행 worker는 시스템 자원 고갈을 막기 위해 concurrency 제한을 지원해야 한다 |
+| NFR-PERF-007 | 자연어 전략 생성 first response는 `/api/strategy/parse/stream` 기준 100~300ms를 목표로 한다 |
+| NFR-PERF-008 | parse, coach, summary는 하나의 blocking pipeline으로 묶지 않고 parse를 먼저 완료한 뒤 coach/summary를 지연 실행해야 한다 |
+| NFR-PERF-009 | 로컬 MLX 추론은 priority lock을 사용해 parse(0), coach(1), summary/preload(2) 순서로 latency-sensitive 작업을 보호해야 한다 |
+| NFR-PERF-010 | AI 요약 API는 동일 `metrics + strategySummary` payload에 대해 LRU cache 및 in-flight dedupe를 적용해야 한다 |
 
 ### 4.2 신뢰성
 
@@ -774,6 +794,15 @@ score = tanh(cagr/0.3)×0.15 + tanh(sharpe/2)×0.20 + tanh(pf/2)×0.10
 | NFR-REL-003 | DB 트랜잭션 실패 시 롤백 처리해야 한다 |
 | NFR-REL-004 | 배치 실행 상태는 `BatchRun`/`BatchRunCandidate`에 체크포인트 저장되어야 한다 |
 | NFR-REL-005 | 서버 재시작 후 다음 `batch-runs` 요청이 들어오면 incomplete batch를 복구해 재개할 수 있어야 한다 |
+| NFR-REL-006 | LLM JSON 출력이 불완전하거나 schema parsing에 실패해도 자연어 전략 생성 API는 가능한 fallback 결과 또는 사용자 안내 가능한 오류를 반환해야 한다 |
+
+### 4.2a 관측성
+
+| ID | 요구사항 |
+|----|---------|
+| NFR-OBS-001 | 시스템은 AI runtime phase별 `elapsed_ms`, `queue_wait_ms`, `status`를 in-memory로 기록해야 한다 |
+| NFR-OBS-002 | 시스템은 개발/운영 진단을 위해 AI runtime metrics 조회 API를 제공해야 한다 |
+| NFR-OBS-003 | AI runtime metrics reset API는 production 환경에서 비활성화되어야 한다 |
 
 ### 4.3 유지보수성
 
@@ -1004,6 +1033,8 @@ BacktestHistory                                (백테스트 이력)
 | POST | `/backtest` | 백테스트 실행 (일반) |
 | POST | `/backtest-stream` | 백테스트 실행 (SSE 스트림) |
 | POST | `/strategy/parse` | 자연어 전략 파싱 (NLParser) |
+| GET | `/ai/runtime/metrics` | AI 런타임 latency 메트릭 조회 |
+| POST | `/ai/runtime/metrics/reset` | AI 런타임 메트릭 초기화 |
 | GET | `/health` | 서버 헬스체크 |
 
 ### 6.2 Next.js API Routes
@@ -1013,11 +1044,14 @@ BacktestHistory                                (백테스트 이력)
 | GET/POST | `/api/strategy` | 전략 목록 조회 / 저장 |
 | GET/PUT/DELETE | `/api/strategy/[id]` | 전략 상세 조회 / 수정 / 삭제 |
 | POST | `/api/strategy/parse` | 자연어 전략 파싱 프록시 |
+| POST | `/api/strategy/parse/stream` | 자연어 전략 파싱 SSE 프록시 (`accepted`, `skeleton`, `parsed_final`, `dsl_ready`) |
 | POST | `/api/strategy/backtest-stream` | 단일 전략 백테스트 실행 (SSE) |
 | POST | `/api/strategy/save-with-backtest` | 전략 저장 + 백테스트 결과 함께 저장 |
 | GET/POST | `/api/strategy/batch-runs` | 배치 실행 시작 / 최근 이력 조회 / 상세 조회 / 취소 |
 | POST | `/api/strategy/coach` | AI 전략 코치 응답 생성 (단건) |
 | POST | `/api/strategy/coach/stream` | AI 전략 코치 SSE 스트리밍 |
+| GET | `/api/ai/runtime/metrics` | AI 런타임 latency 메트릭 조회 프록시 |
+| POST | `/api/ai/runtime/metrics/reset` | AI 런타임 메트릭 초기화 프록시(production 비활성화) |
 | GET/POST | `/api/virtual-account` | 가상계좌 목록 조회 / 생성 |
 | GET/PUT/DELETE | `/api/virtual-account/[id]` | 가상계좌 상세 / 수정 / 삭제 |
 | GET/POST | `/api/virtual-market/[accountId]` | 가상 시장 상태 조회 / 시작 |

@@ -3,6 +3,11 @@ Regression tests: every Issue code that can be diagnosed must produce
 at least one AdviceItem so the '조언 드립니다' section is never empty.
 """
 
+import os
+import sys
+
+sys.path.append(os.path.join(os.getcwd(), "backend"))
+
 from advisor.agent import StrategyAdvisorAgent
 from advisor.schemas import AdvisorRequest
 
@@ -93,3 +98,56 @@ def test_issues_always_produce_advice():
         assert len(result.advice) > 0, (
             f"조언 항목이 비어있습니다. strategy={ps}"
         )
+
+
+def test_low_overfit_advice_omits_zero_filter_message_without_evidence():
+    req = AdvisorRequest(
+        user_prompt="테스트 전략",
+        parsed_strategy={
+            "universe": ["KOSPI200"],
+            "entry_signals": [{"indicator": "rsi"}],
+            "exit_signals": [{"indicator": "ma_cross"}],
+            "fundamental_filters": [],
+            "stop_loss_pct": 10.0,
+            "take_profit_pct": 15.0,
+            "max_positions": 10,
+            "initial_capital": 10_000_000,
+        },
+    )
+
+    result = agent.review(req)
+
+    assert all(item.title != "과최적화 위험 낮음" for item in result.advice)
+    assert all("필터 조건 0개로 적정합니다" not in item.body for item in result.advice)
+
+
+def test_low_overfit_advice_remains_when_backtest_has_concrete_evidence():
+    req = AdvisorRequest(
+        user_prompt="테스트 전략",
+        parsed_strategy={
+            "universe": ["KOSPI"],
+            "entry_signals": [{"indicator": "rsi"}],
+            "exit_signals": [{"indicator": "ma_cross"}],
+            "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1.0}],
+            "stop_loss_pct": 10.0,
+            "take_profit_pct": 20.0,
+            "max_positions": 10,
+            "initial_capital": 10_000_000,
+        },
+        backtest_result={
+            "cagr": 0.18,
+            "trade_count": 63,
+            "mdd": -0.12,
+            "sharpe": 0.9,
+            "profit_factor": 1.4,
+            "win_rate": 0.57,
+        },
+    )
+
+    result = agent.review(req)
+
+    overfit_items = [item for item in result.advice if item.title == "과최적화 위험 낮음"]
+    assert len(overfit_items) == 1
+    assert "거래 횟수 63회로 통계적 신뢰도가 충분합니다" in overfit_items[0].body
+    assert "필터 조건 1개(PBR)로 적정합니다" in overfit_items[0].body
+    assert "필터 조건 0개로 적정합니다" not in overfit_items[0].body

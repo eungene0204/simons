@@ -112,6 +112,73 @@ model BatchRunCandidate {
   @@index([strategyId])
 }
 
+model StrategyPromptExperiment {
+  id               String                              @id
+  name             String
+  seed             Int
+  totalPrompts     Int
+  status           String
+  config           String
+  summary          String?
+  resultFilePath   String?
+  summaryFilePath  String?
+  datasetFilePath  String?
+  rulesFilePath    String?
+  patternsFilePath String?
+  createdAt        DateTime                            @default(now())
+  updatedAt        DateTime                            @updatedAt
+  candidates       StrategyPromptExperimentCandidate[]
+  insights         StrategyAdvisorLearningInsight[]
+
+  @@index([createdAt])
+  @@index([status])
+}
+
+model StrategyPromptExperimentCandidate {
+  id                  String                   @id @default(cuid())
+  experimentId        String
+  promptId            String
+  prompt              String
+  category            String
+  complexity          String
+  riskProfile         String
+  expectedBlocks      String
+  parsedStrategy      String?
+  strategyDsl         String?
+  strategyId          String?
+  status              String
+  errorType           String?
+  errorMessage        String?
+  metrics             String?
+  qualityScore        Float?
+  extractedBlocks     String?
+  extractedParameters String?
+  coachLearningTags   String?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  experiment          StrategyPromptExperiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+
+  @@unique([experimentId, promptId])
+  @@index([experimentId, createdAt])
+  @@index([experimentId, status])
+  @@index([strategyId])
+  @@index([category])
+}
+
+model StrategyAdvisorLearningInsight {
+  id           String                   @id @default(cuid())
+  experimentId String
+  insightType  String
+  key          String
+  payload      String
+  confidence   String
+  createdAt    DateTime                 @default(now())
+  experiment   StrategyPromptExperiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+
+  @@index([experimentId, insightType])
+  @@index([key])
+}
+
 model User {
   id          Int           @id @default(autoincrement())
   email       String        @unique

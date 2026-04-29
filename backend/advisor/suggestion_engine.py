@@ -269,7 +269,11 @@ def _priority_to_severity(priority: int) -> str:
     return "low"
 
 
-def _overfit_info_advice(overfit_risk: OverfitRisk, ctx: RuleContext, issue_codes: set) -> AdviceItem:
+def _overfit_info_advice(
+    overfit_risk: OverfitRisk,
+    ctx: RuleContext,
+    issue_codes: set,
+) -> Optional[AdviceItem]:
     if overfit_risk == "high":
         body = (
             "거래 횟수 대비 수익률이 지나치게 높거나 과최적화 패턴이 감지되었습니다. "
@@ -295,18 +299,18 @@ def _overfit_info_advice(overfit_risk: OverfitRisk, ctx: RuleContext, issue_code
         reasons.append(f"거래 횟수 {ctx.trade_count}회로 통계적 신뢰도가 충분합니다")
     if ctx.backtest_available and ctx.cagr is not None and ctx.cagr <= 0.35:
         reasons.append(f"CAGR {ctx.cagr*100:.0f}%로 비현실적인 고수익 패턴이 없습니다")
-    if ctx.filter_count < 4:
+    if 0 < ctx.filter_count < 4:
         if ctx.filter_names:
             names = ", ".join(ctx.filter_names)
             reasons.append(f"필터 조건 {ctx.filter_count}개({names})로 적정합니다")
         else:
             reasons.append(f"필터 조건 {ctx.filter_count}개로 적정합니다")
-    reason_text = ", ".join(reasons) + "." if reasons else "과최적화 패턴이 감지되지 않았습니다."
-    body = (
-        f"{reason_text} "
-        "전략 구조가 특정 과거 구간에 과도하게 맞춰졌을 가능성은 낮습니다. "
-        "단, 이는 과최적화 측면만의 평가이며 아래의 리스크 관리·청산 조건 개선과는 별개입니다."
-    )
+
+    if not reasons:
+        return None
+
+    reason_text = ", ".join(reasons) + "."
+    body = f"{reason_text} 현재 입력 정보 기준으로는 전략 구조가 특정 과거 구간에 과도하게 맞춰졌을 가능성이 낮습니다."
     return AdviceItem(severity="low", title="과최적화 위험 낮음", body=body)
 
 
@@ -325,8 +329,11 @@ class SuggestionEngine:
         진단(Issue)과 해결 방법(Recommendation)을 AdviceItem으로 통합.
         """
         issue_codes = {i.code for i in issues}
-        advice: List[AdviceItem] = [_overfit_info_advice(overfit_risk, ctx, issue_codes)]
-        seen_titles: set = {advice[0].title}
+        advice: List[AdviceItem] = []
+        overfit_advice = _overfit_info_advice(overfit_risk, ctx, issue_codes)
+        if overfit_advice is not None:
+            advice.append(overfit_advice)
+        seen_titles: set = {item.title for item in advice}
 
         for issue in issues:
             builder = _ISSUE_RECS.get(issue.code)

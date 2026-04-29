@@ -16,6 +16,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ValidationError
 
 from advisor.agent import StrategyAdvisorAgent
+from advisor.news_enrichment import build_news_context_from_strategy
 from advisor.schemas import AdvisorRequest, AdvisorResponse
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,12 @@ async def review_strategy(req: AdvisorRequest) -> AdvisorResponse:
     - news_context:    News Impact AI Agent 출력 (선택)
     """
     try:
-        return _agent.review(req)
+        effective_req = req
+        if not req.news_context:
+            news_context = build_news_context_from_strategy(req.parsed_strategy)
+            if news_context:
+                effective_req = req.model_copy(update={"news_context": news_context})
+        return _agent.review(effective_req)
     except Exception as exc:
         logger.exception("advisor.review failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc

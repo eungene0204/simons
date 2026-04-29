@@ -91,6 +91,8 @@ AI predictions, summaries, explainability.
 
 ### Files
 - backend/ai/**
+- backend/advisor/**
+- backend/api/advisor_routes.py
 - backend/api/coach_routes.py
 - app/api/backtest/summarize/**
 - app/api/backtest/explain/**
@@ -100,6 +102,7 @@ AI predictions, summaries, explainability.
 - output formatting
 - prompt improvement
 - response structure cleanup
+- strategy advisor recommendation / explanation wording cleanup
 - coach response caching / streaming cleanup
 
 ### Forbidden
