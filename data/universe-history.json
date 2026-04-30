@@ -1,6 +1,25 @@
 {
-  "updatedAt": "2026-04-29T00:00:04.095328+09:00",
+  "updatedAt": "2026-04-30T00:00:04.645300+09:00",
   "entries": [
+    {
+      "date": "2026-04-30",
+      "syncedAt": "2026-04-30T00:00:04.645300+09:00",
+      "totalCount": 2658,
+      "kospiCount": 839,
+      "kosdaqCount": 1819,
+      "addedCount": 1,
+      "delistedCount": 0,
+      "added": [
+        {
+          "symbol": "0011T0",
+          "name": "채비",
+          "market": "KOSDAQ",
+          "sector": "에너지/원자력",
+          "industry": "전동기, 발전기 및 전기 변환 · 공급 · 제어 장치 제조업"
+        }
+      ],
+      "delisted": []
+    },
     {
       "date": "2026-04-29",
       "syncedAt": "2026-04-29T00:00:04.095328+09:00",

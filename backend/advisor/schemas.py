@@ -113,5 +113,6 @@ class AdvisorResponse(BaseModel):
     advice: List[AdviceItem] = Field(default_factory=list)
 
     news_analysis: Optional[NewsAnalysis] = None
+    strategy_experiment_learning: Optional[Dict[str, Any]] = None
     suggested_experiments: List[str] = Field(default_factory=list)
     ai_model_recommendation: AIModelRecommendation
