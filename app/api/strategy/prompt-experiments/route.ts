@@ -954,7 +954,11 @@ function buildExperimentId(seed: number) {
   return `prompt_exp_${Date.now()}_${seed}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-async function enqueueStoredExperiment(experimentId: string, origin: string) {
+async function enqueueStoredExperiment(
+  experimentId: string,
+  origin: string,
+  options: { statuses?: string[]; errorTypes?: string[] } = {}
+) {
   const state = getExecutionState();
   if (state.activeJobs.has(experimentId) || state.queue.some((job) => job.experimentId === experimentId)) {
     return { queued: false, reason: "already_queued" };
@@ -966,8 +970,15 @@ async function enqueueStoredExperiment(experimentId: string, origin: string) {
   }
 
   const storedCandidates = (experiment.candidates ?? []).map(candidateFromRow);
+  const statuses = options.statuses ?? [];
+  const errorTypes = options.errorTypes ?? [];
   const runnableCandidates = storedCandidates
-    .filter((candidate: CandidatePayload) => candidate.status !== "computed" && candidate.status !== "cache_hit")
+    .filter((candidate: CandidatePayload) => {
+      if (candidate.status === "computed" || candidate.status === "cache_hit") return false;
+      if (statuses.length > 0 && !statuses.includes(candidate.status)) return false;
+      if (errorTypes.length > 0 && !errorTypes.includes(String(candidate.error_type ?? ""))) return false;
+      return true;
+    })
     .map((candidate: CandidatePayload) => ({
       ...candidate,
       status: "waiting" as CandidateStatus,
@@ -984,10 +995,17 @@ async function enqueueStoredExperiment(experimentId: string, origin: string) {
     where: { id: experimentId },
     data: { status: "queued", updatedAt: new Date() },
   });
-  await database().strategyPromptExperimentCandidate.updateMany({
-    where: { experimentId, status: { in: ["waiting", "running", "parsed", "failed", "skipped"] } },
-    data: { status: "waiting", errorType: null, errorMessage: null, updatedAt: new Date() },
-  });
+  for (const candidate of runnableCandidates) {
+    await database().strategyPromptExperimentCandidate.update({
+      where: {
+        experimentId_promptId: {
+          experimentId,
+          promptId: candidate.prompt_id,
+        },
+      },
+      data: { status: "waiting", errorType: null, errorMessage: null, updatedAt: new Date() },
+    });
+  }
 
   state.queue.push({
     experimentId,
@@ -1043,6 +1061,22 @@ export async function POST(req: NextRequest) {
       const experimentId = String(body.experimentId ?? body.id ?? "").trim();
       if (!experimentId) return NextResponse.json({ error: "experimentId is required" }, { status: 400 });
       const result = await enqueueStoredExperiment(experimentId, req.nextUrl.origin);
+      if (result.reason === "not_found") {
+        return NextResponse.json({ error: "Experiment not found" }, { status: 404 });
+      }
+      if (result.reason === "nothing_to_run") {
+        return NextResponse.json({ ok: true, experimentId, status: "completed" });
+      }
+      return NextResponse.json({ ok: true, experimentId, status: "queued", reason: result.reason }, { status: 202 });
+    }
+
+    if (body?.action === "start_waiting" || body?.action === "start_failed") {
+      const experimentId = String(body.experimentId ?? body.id ?? "").trim();
+      if (!experimentId) return NextResponse.json({ error: "experimentId is required" }, { status: 400 });
+      const result = await enqueueStoredExperiment(experimentId, req.nextUrl.origin, {
+        statuses: body.action === "start_waiting" ? ["waiting"] : ["failed"],
+        errorTypes: Array.isArray(body.errorTypes) ? body.errorTypes.map(String) : [],
+      });
       if (result.reason === "not_found") {
         return NextResponse.json({ error: "Experiment not found" }, { status: 404 });
       }

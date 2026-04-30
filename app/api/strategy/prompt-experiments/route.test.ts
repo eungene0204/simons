@@ -357,4 +357,66 @@ describe("app/api/strategy/prompt-experiments/route", () => {
     expect(response.status).toBe(202);
     await flushUntil(() => cloneCandidates("prompt_exp_existing")[0]?.status === "computed");
   });
+
+  it("starts only waiting candidates when requested", async () => {
+    await POST(
+      new NextRequest(
+        new Request("http://localhost/api/strategy/prompt-experiments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            experimentId: "prompt_exp_waiting_only",
+            start: false,
+            prompts: [
+              {
+                id: "prompt_001",
+                text: "KOSPI200에서 RSI 30 이하 전략을 테스트해줘.",
+                category: "technical_mean_reversion",
+                complexity: "intermediate",
+                risk_profile: "moderate",
+                expected_blocks: ["rsi", "take_profit"],
+                notes: "waiting path",
+              },
+              {
+                id: "prompt_002",
+                text: "파싱 실패 프롬프트",
+                category: "ambiguous_beginner_prompts",
+                complexity: "beginner",
+                risk_profile: "moderate",
+                expected_blocks: ["rsi"],
+                notes: "preserved failure",
+              },
+            ],
+          }),
+        })
+      )
+    );
+    candidateStore.set("prompt_exp_waiting_only", [
+      { ...cloneCandidates("prompt_exp_waiting_only")[0], status: "waiting" },
+      {
+        ...cloneCandidates("prompt_exp_waiting_only")[1],
+        status: "failed",
+        errorType: "zero_trade",
+        errorMessage: "zero_trade",
+      },
+    ]);
+
+    const response = await POST(
+      new NextRequest(
+        new Request("http://localhost/api/strategy/prompt-experiments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "start_waiting",
+            experimentId: "prompt_exp_waiting_only",
+          }),
+        })
+      )
+    );
+
+    expect(response.status).toBe(202);
+    await flushUntil(() => cloneCandidates("prompt_exp_waiting_only")[0]?.status === "computed");
+    expect(cloneCandidates("prompt_exp_waiting_only")[1]?.status).toBe("failed");
+    expect(cloneCandidates("prompt_exp_waiting_only")[1]?.errorType).toBe("zero_trade");
+  });
 });

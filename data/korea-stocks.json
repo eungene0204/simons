@@ -5873,6 +5873,13 @@
     "industry": "연료용 가스 제조 및 배관공급업"
   },
   {
+    "symbol": "0011T0",
+    "name": "채비",
+    "market": "KOSDAQ",
+    "sector": "에너지/원자력",
+    "industry": "전동기, 발전기 및 전기 변환 · 공급 · 제어 장치 제조업"
+  },
+  {
     "symbol": "0131D0",
     "name": "키움히어로제2호스팩",
     "market": "KOSDAQ",
@@ -10627,7 +10634,7 @@
   },
   {
     "symbol": "290660",
-    "name": "네오펙트",
+    "name": "다이나믹솔루션",
     "market": "KOSDAQ",
     "sector": "의료기기",
     "industry": "의료용 기기 제조업"
