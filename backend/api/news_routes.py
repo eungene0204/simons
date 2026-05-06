@@ -12,10 +12,13 @@ Route prefix: /news  (registered in main.py via app.include_router)
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
+import socket
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+from urllib.parse import urljoin, urlparse
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel
@@ -74,6 +77,43 @@ def _sanitize(text: Optional[str]) -> Optional[str]:
     text = re.sub(r"<[^>]+>", "", text)
     text = unescape(text)
     return re.sub(r"\s+", " ", text).strip() or None
+
+
+def _is_unsafe_article_ip(hostname: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(hostname.strip("[]"))
+    except ValueError:
+        return False
+    return (
+        not ip.is_global
+        or ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    )
+
+
+def _is_safe_article_url(raw_url: str) -> bool:
+    parsed = urlparse(raw_url)
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    if not parsed.hostname or parsed.username or parsed.password:
+        return False
+
+    hostname = parsed.hostname.rstrip(".").lower()
+    if hostname == "localhost" or hostname.endswith(".localhost"):
+        return False
+    if _is_unsafe_article_ip(hostname):
+        return False
+
+    try:
+        addresses = socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
+    except socket.gaierror:
+        return False
+
+    return bool(addresses) and all(not _is_unsafe_article_ip(addr[4][0]) for addr in addresses)
 
 
 def _row_to_response(row: Dict) -> NewsItemResponse:
@@ -435,11 +475,28 @@ async def fetch_article_body(url: str = Query(...)):
         return " ".join(texts)[:400]
 
     try:
-        async with httpx.AsyncClient(headers=_HEADERS, timeout=8.0, follow_redirects=True) as client:
-            res = await client.get(url)
+        current_url = url
+        res = None
+        async with httpx.AsyncClient(headers=_HEADERS, timeout=8.0, follow_redirects=False) as client:
+            for _ in range(4):
+                if not _is_safe_article_url(current_url):
+                    raise HTTPException(status_code=400, detail="Invalid article URL")
+                res = await client.get(current_url)
+                if res.status_code not in {301, 302, 303, 307, 308}:
+                    break
+                location = res.headers.get("location")
+                if not location:
+                    return {"body": None}
+                current_url = urljoin(str(res.url), location)
+            else:
+                return {"body": None}
+        if res is None or not _is_safe_article_url(str(res.url)):
+            raise HTTPException(status_code=400, detail="Invalid article URL")
         if res.status_code != 200:
             return {"body": None}
         body = _extract(res.text)
         return {"body": body or None}
+    except HTTPException:
+        raise
     except Exception:
         return {"body": None}
