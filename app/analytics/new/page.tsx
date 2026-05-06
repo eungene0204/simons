@@ -514,16 +514,14 @@ function StrategyLabContent() {
           );
         }
 
-        await fetch("/api/advisor/review", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            user_prompt: firstPromptRef.current,
-            parsed_strategy: latestParsed as unknown as Record<string, unknown>,
-            backtest_result: beforeBacktest,
+        if (cancelled) return;
+        setAdvisorRequest((current) => {
+          if (!current) return current;
+          return {
+            ...current,
             candidate_backtest_result: candidateBacktest,
             evaluation_context: evaluationContext,
-          }),
+          };
         });
       } catch (error) {
         console.warn("advisor candidate retest skipped", error);

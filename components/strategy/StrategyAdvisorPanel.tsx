@@ -84,6 +84,15 @@ export interface AdvisorRequest {
     trade_count?: number | null;
     win_rate?: number | null;
   } | null;
+  candidate_backtest_result?: {
+    cagr?: number | null;
+    mdd?: number | null;
+    sharpe?: number | null;
+    profit_factor?: number | null;
+    trade_count?: number | null;
+    win_rate?: number | null;
+  } | null;
+  evaluation_context?: Record<string, unknown> | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
