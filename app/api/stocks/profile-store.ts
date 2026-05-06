@@ -114,7 +114,8 @@ function parseJsonMap(value: string | null | undefined): StockInfoMap | null {
 export function hasStoredInfoProfile(
   profile: StoredStockInfoProfile | null,
 ): boolean {
-  return profile !== null;
+  if (profile === null) return false;
+  return profile.companyBasic !== null || profile.summaryFinancials !== null;
 }
 
 export async function readStoredStockInfoProfile(symbol: string): Promise<StoredStockInfoProfile | null> {

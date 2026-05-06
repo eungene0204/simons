@@ -124,15 +124,16 @@ async function fetchDashboardFromDB(): Promise<DashboardInitialData> {
 
   // ── StrategyList ────────────────────────────────────────────
   const strategyItems: StrategyListItem[] = strategies.map((s) => {
-    let type = "기타";
+    let universe = "기타";
     try {
       const settings = JSON.parse(s.settings);
-      const u: string = settings?.universe ?? "";
-      if (u.includes("KOSPI") || u === "KOSPI200" || u === "KOSPI") type = "KOSPI";
-      else if (u.includes("KOSDAQ")) type = "KOSDAQ";
-      else if (u.includes("US") || u.includes("미국") || u.includes("NYSE") || u.includes("NASDAQ")) type = "미국주식";
-      else if (u) type = u;
+      const u: string = settings?.universe?.id ?? settings?.universe ?? "";
+      if (u.toUpperCase().includes("KOSPI") || u === "KOSPI200") universe = "KOSPI";
+      else if (u.toUpperCase().includes("KOSDAQ")) universe = "KOSDAQ";
+      else if (u.includes("US") || u.includes("미국") || u.includes("NYSE") || u.includes("NASDAQ")) universe = "미국주식";
+      else if (u) universe = u;
     } catch {}
+    const type = s.strategyType || "기타";
 
     let aiScore: number | null = null;
     try {
@@ -145,7 +146,19 @@ async function fetchDashboardFromDB(): Promise<DashboardInitialData> {
 
     const accs = strategyAccounts.filter((a) => a.strategyId === s.id);
     if (accs.length === 0) {
-      return { id: s.id, name: s.name, description: s.description ?? null, type, aiScore, avgReturnPct: 0, totalProfit: 0, accountCount: 0, createdAt: s.createdAt.toISOString() };
+      return {
+        id: s.id,
+        name: s.name,
+        description: s.description ?? null,
+        type,
+        universe,
+        aiScore,
+        avgReturnPct: 0,
+        totalProfit: 0,
+        accountCount: 0,
+        autoTradingCount: 0,
+        createdAt: s.createdAt.toISOString(),
+      };
     }
 
     const stats = accs.map((a) => {
@@ -164,10 +177,12 @@ async function fetchDashboardFromDB(): Promise<DashboardInitialData> {
       name: s.name,
       description: s.description ?? null,
       type,
+      universe,
       aiScore,
       avgReturnPct: stats.reduce((s, x) => s + x.returnPct, 0) / stats.length,
       totalProfit: stats.reduce((s, x) => s + x.profit, 0),
       accountCount: accs.length,
+      autoTradingCount: accs.filter((a) => a.tradingMode !== "manual").length,
       createdAt: s.createdAt.toISOString(),
     };
   });
@@ -227,10 +242,10 @@ function getMockDashboardData(): DashboardInitialData {
     accountMonthly: MOCK_ACCOUNT_MONTHLY,
     strategyList: {
       strategies: [
-        { id: "1", name: "모멘텀 전략 v2", description: null, type: "KOSPI",   avgReturnPct: 12.4, totalProfit: 2_480_000, accountCount: 2, createdAt: new Date().toISOString() },
-        { id: "2", name: "RSI 역추세 전략", description: null, type: "KOSDAQ",  avgReturnPct:  7.8, totalProfit:   390_000, accountCount: 1, createdAt: new Date().toISOString() },
-        { id: "3", name: "가치투자 퀀트",  description: null, type: "KOSPI",   avgReturnPct: -3.2, totalProfit:  -320_000, accountCount: 1, createdAt: new Date().toISOString() },
-        { id: "4", name: "AI 예측 기반",   description: null, type: "미국주식", avgReturnPct: 21.5, totalProfit: 6_450_000, accountCount: 3, createdAt: new Date().toISOString() },
+        { id: "1", name: "모멘텀 전략 v2", description: null, type: "모멘텀", universe: "KOSPI", aiScore: null, avgReturnPct: 12.4, totalProfit: 2_480_000, accountCount: 2, autoTradingCount: 1, createdAt: new Date().toISOString() },
+        { id: "2", name: "RSI 역추세 전략", description: null, type: "역추세", universe: "KOSDAQ", aiScore: null, avgReturnPct: 7.8, totalProfit: 390_000, accountCount: 1, autoTradingCount: 1, createdAt: new Date().toISOString() },
+        { id: "3", name: "가치투자 퀀트", description: null, type: "가치투자", universe: "KOSPI", aiScore: null, avgReturnPct: -3.2, totalProfit: -320_000, accountCount: 1, autoTradingCount: 0, createdAt: new Date().toISOString() },
+        { id: "4", name: "AI 예측 기반", description: null, type: "AI전략", universe: "미국주식", aiScore: null, avgReturnPct: 21.5, totalProfit: 6_450_000, accountCount: 3, autoTradingCount: 2, createdAt: new Date().toISOString() },
       ],
     },
     backtestRecords,

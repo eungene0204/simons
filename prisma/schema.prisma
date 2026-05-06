@@ -76,7 +76,83 @@ model Strategy {
   updatedAt      DateTime         @updatedAt
   BacktestResult BacktestResult[]
   BacktestHistory BacktestHistory[]
+  BacktestRun    BacktestRun[]
   BatchRunCandidate BatchRunCandidate[]
+  StrategyEmbedding StrategyEmbedding[]
+  AdviceExperience AdviceExperience[]
+}
+
+model BacktestRun {
+  id                   String   @id @default(cuid())
+  strategyId           String
+  market               String?
+  universe             String?
+  timeframe            String   @default("1d")
+  startDate            String?
+  endDate              String?
+  initialCapital       Float
+  commissionBps        Float    @default(0)
+  slippageBps          Float    @default(0)
+  liquidityPolicy      String?
+  universeSnapshotHash String?
+  resultMetrics        String
+  monthlyReturns       String?
+  rollingMetrics       String?
+  oosMetrics           String?
+  walkForwardResult    String?
+  tradeStats           String?
+  status               String   @default("completed")
+  cacheKey             String   @unique
+  hitCount             Int      @default(0)
+  createdAt            DateTime @default(now())
+  Strategy             Strategy @relation(fields: [strategyId], references: [id])
+
+  @@index([strategyId])
+  @@index([strategyId, createdAt])
+}
+
+model StrategyEmbedding {
+  id            String   @id @default(cuid())
+  strategyId    String
+  embeddingType String
+  sourceText    String
+  vector        Bytes?
+  sparseTokens  String?
+  modelName     String
+  createdAt     DateTime @default(now())
+  Strategy      Strategy @relation(fields: [strategyId], references: [id])
+
+  @@index([strategyId])
+  @@index([embeddingType])
+}
+
+model AdviceExperience {
+  id                 String   @id @default(cuid())
+  strategyId         String
+  createdAt          DateTime @default(now())
+  market             String?
+  universe           String?
+  initialCapital     Float
+  timeframe          String   @default("1d")
+  userPrompt         String
+  strategySummary    String?
+  strategyDsl        String
+  canonicalDsl       String
+  strategyHash       String
+  similarStrategyIds String
+  retrievedCases     String
+  agentAdvice        String
+  beforeBacktest     String
+  afterBacktest      String?
+  evaluation         String
+  lesson             String
+  confidence         String
+  dataCoverage       String?
+  Strategy           Strategy @relation(fields: [strategyId], references: [id])
+
+  @@index([strategyId])
+  @@index([market, universe])
+  @@index([confidence])
 }
 
 model BatchRun {

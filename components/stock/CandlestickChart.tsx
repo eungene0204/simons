@@ -6,6 +6,7 @@ import {
   IChartApi,
   ISeriesApi,
   BusinessDay,
+  Time,
   ColorType,
   CandlestickSeries,
   LineSeries,
@@ -343,7 +344,7 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
             timeVisible: false,
             secondsVisible: false,
             borderColor: "#4b5563",
-            tickMarkFormatter: (time) => {
+            tickMarkFormatter: (time: Time) => {
               if (typeof time === "object" && time !== null && "year" in time) {
                 return formatBusinessDay(time as BusinessDay);
               }

@@ -69,7 +69,7 @@ function createFallbackPopularResponse(): PopularQueryData {
   return { stocks: [], updatedAt: "" };
 }
 
-function hasRealtimeSnapshot(snapshot?: StockPriceSnapshot) {
+function hasRealtimeSnapshot(snapshot?: StockPriceSnapshot): snapshot is StockPriceSnapshot {
   return Boolean(snapshot && snapshot.price > 0);
 }
 
@@ -205,7 +205,7 @@ export default function QuickSearchModal({
 }: QuickSearchModalProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const setInputRef = useCallback((el: HTMLInputElement | null) => {
     inputRef.current = el;
     if (el) el.focus();
@@ -688,9 +688,10 @@ export default function QuickSearchModal({
                 <div className="space-y-0.5">
                   {popularStocks.map((stock) => {
                     const avatarBg = STOCK_AVATAR_COLORS[stock.symbol] ?? "#334155";
-                    const hasChangePercent = typeof stock.changePercent === "number";
-                    const isPositive = hasChangePercent && stock.changePercent > 0;
-                    const isNegative = hasChangePercent && stock.changePercent < 0;
+                    const changePercent =
+                      typeof stock.changePercent === "number" ? stock.changePercent : null;
+                    const isPositive = changePercent !== null && changePercent > 0;
+                    const isNegative = changePercent !== null && changePercent < 0;
                     const changeColor = isPositive
                       ? "text-[#FF4D4F]"
                       : isNegative
@@ -735,8 +736,8 @@ export default function QuickSearchModal({
                           {isPositive && <CaretUp size={10} weight="fill" />}
                           {isNegative && <CaretDown size={10} weight="fill" />}
                           {!isPositive && !isNegative && <Minus size={10} />}
-                          {hasChangePercent
-                            ? `${changeSign}${Math.abs(stock.changePercent).toFixed(2)}%`
+                          {changePercent !== null
+                            ? `${changeSign}${Math.abs(changePercent).toFixed(2)}%`
                             : "--"}
                         </span>
                       </button>

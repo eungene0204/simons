@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowUp, ArrowDown, Minus } from "phosphor-react";
+import { Minus } from "phosphor-react";
 
 interface InvestorRow {
   date: string;
@@ -33,11 +33,8 @@ function NetCell({ value }: { value: number }) {
       : value < 0
       ? "text-[var(--main-blue)]"
       : "text-gray-600";
-  const Icon = value > 0 ? ArrowUp : value < 0 ? ArrowDown : Minus;
-
   return (
-    <div className={`flex items-center justify-end gap-0.5 text-xs font-black tabular-nums ${tone}`}>
-      <Icon size={9} weight="bold" className="shrink-0" />
+    <div className={`flex items-center justify-end text-xs font-black tabular-nums ${tone}`}>
       <span>{fmtQty(value)}</span>
     </div>
   );
@@ -142,11 +139,9 @@ export default function InvestorTradingPanel({ symbol }: Props) {
           )}
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1">
-              <ArrowUp size={8} weight="bold" className="text-[var(--main-red)]" />
               <span className="text-[10px] font-bold text-gray-600">순매수</span>
             </div>
             <div className="flex items-center gap-1">
-              <ArrowDown size={8} weight="bold" className="text-[var(--main-blue)]" />
               <span className="text-[10px] font-bold text-gray-600">순매도</span>
             </div>
             <span className="text-[10px] text-gray-600 ml-auto">최근 5영업일</span>

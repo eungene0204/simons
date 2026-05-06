@@ -138,8 +138,9 @@ export async function GET(
     if (searchParams.get('as_of')) query.set('as_of', searchParams.get('as_of')!)
 
     const q = query.toString()
+    const isRefresh = searchParams.get('_refresh') === '1'
     const url = `${BACKEND}/news/symbol/${params.symbol}${q ? `?${q}` : ''}`
-    const res = await fetch(url, { next: { revalidate: 60 } })
+    const res = await fetch(url, isRefresh ? { cache: 'no-store' } : { next: { revalidate: 60 } })
 
     if (!res.ok) {
       return NextResponse.json(getSeedItems(params.symbol, pageSize))

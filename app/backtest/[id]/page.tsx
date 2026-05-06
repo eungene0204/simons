@@ -29,7 +29,7 @@ export default function BacktestDetailPage() {
 
   if (isLoading) {
     return (
-      <DashboardLayout>
+      <DashboardLayout userName="">
         <div className="p-4 md:p-5 lg:p-6 space-y-5">
           <div className="animate-pulse space-y-3">
             <div className="h-6 bg-white/[0.04] rounded-xl w-48" />
@@ -48,7 +48,7 @@ export default function BacktestDetailPage() {
 
   if (notFound || !item) {
     return (
-      <DashboardLayout>
+      <DashboardLayout userName="">
         <div className="flex flex-col items-center justify-center h-full text-gray-500 gap-4">
           <p className="text-base font-bold">기록을 찾을 수 없습니다.</p>
           <button
@@ -64,7 +64,7 @@ export default function BacktestDetailPage() {
 
   if (!item.result) {
     return (
-      <DashboardLayout>
+      <DashboardLayout userName="">
         <div className="flex flex-col items-center text-gray-500 gap-4 pt-48 pb-32">
           <p className="text-base font-bold">이 기록에는 상세 결과가 저장되어 있지 않습니다.</p>
           <p className="text-sm text-gray-600">새로 실행된 백테스트부터 상세 결과가 저장됩니다.</p>
@@ -82,7 +82,7 @@ export default function BacktestDetailPage() {
   const conds = item.conditions as any;
 
   return (
-    <DashboardLayout>
+    <DashboardLayout userName="">
       <div className="w-full min-w-0">
         <BacktestDashboard
           result={item.result}

@@ -3,13 +3,13 @@
  * app/api/strategy/save-with-backtest/route.ts 회귀 테스트
  *
  * 수정 내용:
- * - Strategy.id, BacktestResult.id에 @default(cuid()) 누락 → Prisma가 id 없이 create 시도 시 오류
+ * - Strategy.id에 @default(cuid()) 없음 → Prisma create 호출 시 deterministic id 필요
  * - Strategy.updatedAt에 @updatedAt 누락 → create 시 updatedAt 필드 오류
  * - 위 두 문제로 "저장에 실패했습니다." 응답이 발생했음
  *
  * 검증 항목:
  * 1. name/dsl 없을 때 400 반환
- * 2. Prisma create 호출 시 id/updatedAt 없이도 정상 호출됨 (스키마 기본값에 의존)
+ * 2. Prisma create 호출 시 Strategy.id를 deterministic hash로 명시하고 updatedAt은 스키마에 의존
  * 3. backtestResult 포함/미포함 모두 처리
  * 4. 성공 시 strategyId, backtestResultId, message 포함 응답
  */
@@ -131,13 +131,12 @@ describe("POST /api/strategy/save-with-backtest", () => {
 
   // ── 핵심 회귀: id/updatedAt 자동 생성 ────────────────────────────────────
 
-  it("strategy.create 호출 시 id를 명시적으로 전달하지 않아야 함 (스키마 @default(cuid()) 의존)", async () => {
+  it("strategy.create 호출 시 deterministic id를 명시적으로 전달해야 함", async () => {
     await POST(makeRequest({ name: "AI 전략", dsl: VALID_DSL }));
 
     expect(mockStrategyCreate).toHaveBeenCalledOnce();
     const createArg = mockStrategyCreate.mock.calls[0][0];
-    // id 필드가 없어야 함 — 있으면 @default(cuid())가 필요 없음
-    expect(createArg.data).not.toHaveProperty("id");
+    expect(createArg.data.id).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it("strategy.create 호출 시 updatedAt을 명시적으로 전달하지 않아야 함 (스키마 @updatedAt 의존)", async () => {

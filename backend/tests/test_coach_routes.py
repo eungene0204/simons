@@ -113,6 +113,64 @@ def test_build_user_message_compacts_strategy_context():
     assert '"fundamental_filters":[{"metric":"pbr","operator":"<=","value":1}]' in msg
 
 
+def test_build_user_message_includes_memory_context_when_supplied():
+    req = _make_request(
+        user_prompt="PBR 1 이하 RSI 30 이하",
+        parsed_strategy={
+            "universe": ["KOSPI200"],
+            "entry_signals": [{"indicator": "rsi", "operator": "<=", "threshold": 30}],
+            "exit_signals": [{"indicator": "rsi", "operator": ">=", "threshold": 70}],
+            "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1}],
+            "max_positions": 10,
+            "initial_capital": 10_000_000,
+        },
+        memory_strategy_cases=[
+            {
+                "strategy_id": "case_rsi_pbr",
+                "user_prompt": "과매도 PBR 저평가 전략",
+                "strategy_summary": "PBR + RSI 평균회귀",
+                "strategy_dsl": {
+                    "universe": ["KOSPI200"],
+                    "entry_signals": [{"indicator": "rsi", "operator": "<=", "threshold": 31}],
+                    "exit_signals": [{"indicator": "rsi", "operator": ">=", "threshold": 69}],
+                    "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1}],
+                    "max_positions": 10,
+                    "initial_capital": 10_000_000,
+                },
+            }
+        ],
+        memory_experiences=[
+            {
+                "strategy_id": "case_rsi_pbr",
+                "before_backtest": {"cagr": 0.04, "mdd": -0.22, "sharpe": 0.4},
+                "after_backtest": {"cagr": 0.07, "mdd": -0.16, "sharpe": 0.7},
+                "evaluation": {"advice_success": True},
+                "lesson": "PBR + RSI 전략은 추세 필터와 비용 민감도 검증이 필요하다.",
+            }
+        ],
+    )
+
+    msg = coach_routes._build_user_message(req)
+
+    assert "[strategy_memory_context" in msg
+    assert "confidence:" in msg
+    assert "similar_strategy_ids: case_rsi_pbr" in msg
+    assert "score=" in msg
+    assert "case=case_rsi_pbr" in msg
+    assert 'before={"cagr":0.04,"mdd":-0.22,"sharpe":0.4}' in msg
+    assert 'after={"cagr":0.07,"mdd":-0.16,"sharpe":0.7}' in msg
+    assert "비용 민감도 검증" in msg
+
+
+def test_system_prompt_requires_memory_evidence_discipline():
+    prompt = coach_routes.COACH_SYSTEM_PROMPT
+
+    assert "strategy_memory_context" in prompt
+    assert "data_sufficiency가 insufficient" in prompt
+    assert "꾸며내지 마라" in prompt
+    assert "백테스트 결과가 없으면" in prompt
+
+
 @pytest.mark.asyncio
 async def test_coach_strategy_reuses_backend_cache(monkeypatch):
     _install_dummy_main(monkeypatch)
@@ -169,3 +227,61 @@ async def test_coach_strategy_auto_injects_news_context(monkeypatch):
     assert "[news_agent_insight" in parser.last_user_message
     assert "risk_alert=high" in parser.last_user_message
     assert "earnings_miss" in parser.last_user_message
+
+
+@pytest.mark.asyncio
+async def test_coach_strategy_auto_injects_memory_context(monkeypatch):
+    _install_dummy_main(monkeypatch)
+    parser = _DummyParser()
+    coach_routes.set_parser(parser)
+
+    monkeypatch.setattr(coach_routes, "build_news_context_from_strategy", lambda _parsed: [])
+    monkeypatch.setattr(
+        coach_routes,
+        "load_advisor_memory",
+        lambda: (
+            [
+                {
+                    "strategy_id": "case_auto_memory",
+                    "user_prompt": "RSI 평균회귀",
+                    "strategy_summary": "RSI 평균회귀",
+                    "strategy_dsl": {
+                        "universe": ["KOSPI200"],
+                        "entry_signals": [{"indicator": "rsi", "operator": "<=", "threshold": 30}],
+                        "exit_signals": [{"indicator": "rsi", "operator": ">=", "threshold": 70}],
+                        "max_positions": 10,
+                        "initial_capital": 10_000_000,
+                    },
+                }
+            ],
+            [
+                {
+                    "strategy_id": "case_auto_memory",
+                    "before_backtest": {"cagr": 0.03, "mdd": -0.25, "sharpe": 0.3},
+                    "after_backtest": {"cagr": 0.06, "mdd": -0.18, "sharpe": 0.6},
+                    "evaluation": {"advice_success": True},
+                    "lesson": "RSI 평균회귀는 장기 추세 필터 검증이 필요하다.",
+                }
+            ],
+        ),
+    )
+
+    req = _make_request(
+        user_prompt="RSI 30 이하 매수, 70 이상 매도",
+        advisor_insight=None,
+        news_agent_insight=None,
+        parsed_strategy={
+            "universe": ["KOSPI200"],
+            "entry_signals": [{"indicator": "rsi", "operator": "<=", "threshold": 30}],
+            "exit_signals": [{"indicator": "rsi", "operator": ">=", "threshold": 70}],
+            "max_positions": 10,
+            "initial_capital": 10_000_000,
+        },
+    )
+
+    response = await coach_routes.coach_strategy(req)
+
+    assert response.message == "캐시된 코치 응답"
+    assert "[strategy_memory_context" in parser.last_user_message
+    assert "case=case_auto_memory" in parser.last_user_message
+    assert "장기 추세 필터" in parser.last_user_message

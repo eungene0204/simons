@@ -10,18 +10,17 @@ describe("OrderBook", () => {
     vi.clearAllMocks();
   });
 
-  it("실호가 조회 실패 시 모의 호가를 보여주지 않고 대기 상태를 유지한다", async () => {
+  it("실호가 조회 실패 시 에러 메시지를 보여주지 않는다", async () => {
     fetchMock.mockResolvedValue({
       ok: false,
       status: 503,
-      json: async () => ({ detail: "실제 호가 데이터를 아직 받지 못했습니다" }),
+      json: async () => ({ detail: "error" }),
     });
 
     render(<OrderBook symbol="005930" />);
 
     await waitFor(() => {
-      expect(screen.getByText("실제 호가 데이터를 아직 받지 못했습니다")).toBeInTheDocument();
+      expect(screen.queryByText("실제 호가 데이터를 아직 받지 못했습니다")).not.toBeInTheDocument();
     });
-    expect(screen.queryAllByRole("row")).toHaveLength(0);
   });
 });

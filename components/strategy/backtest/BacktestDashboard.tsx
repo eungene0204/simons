@@ -109,7 +109,19 @@ interface BacktestDashboardProps {
   };
 }
 
-const BASE_METRIC_DESCRIPTIONS: Omit<Record<string, string>, "buyHold"> & { buyHold: (label: string) => string } = {
+type BaseMetricDescriptions = {
+  cagr: string;
+  mdd: string;
+  sharpe: string;
+  profitFactor: string;
+  totalReturn: string;
+  buyHold: (label: string) => string;
+  volatility: string;
+  calmar: string;
+  avgHoldingDays: string;
+};
+
+const BASE_METRIC_DESCRIPTIONS: BaseMetricDescriptions = {
   cagr: "연평균수익률(Compound Annual Growth Rate). 전체 수익률을 연간 단위로 환산하여 복리 성장을 나타낸 지표입니다.\n\n[ 가이드라인 ]\n🟢 우수: 20% 이상\n🟡 보통: 10% ~ 20%\n🔴 미흡: 10% 미만",
   mdd: "최대 낙폭(Maximum Drawdown). 특정 기간 동안 발생한 전고점 대비 최대 하락 비율로, 전략의 리스크를 측정합니다.\n\n[ 가이드라인 ]\n🟢 안정: 10% 미만\n🟡 보통: 10% ~ 20%\n🔴 위험: 20% 초과",
   sharpe: "샤프 지수. 위험 1단위당 얻은 초과 수익을 나타내며, 수치가 높을수록 위험 대비 수익 효율이 좋습니다.\n\n[ 가이드라인 ]\n🟢 우수: 1.5 이상\n🟡 보통: 1.0 ~ 1.5\n🔴 미흡: 1.0 미만",

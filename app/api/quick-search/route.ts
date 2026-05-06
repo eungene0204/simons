@@ -128,7 +128,7 @@ export async function GET(request: NextRequest) {
             id: account.id,
             name: account.name,
             strategyName: account.strategyName ?? null,
-            tradingMode: account.tradingMode === "auto" ? "auto" : "manual",
+            tradingMode: account.tradingMode === "auto" ? ("auto" as const) : ("manual" as const),
           },
         };
       })

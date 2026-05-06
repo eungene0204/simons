@@ -252,7 +252,7 @@ export async function POST(
       }
     }
     // 리스크 종료 대상인데 signals 배열에 없는 종목 추가
-    for (const [symbol, reason] of riskExits) {
+    riskExits.forEach((reason, symbol) => {
       if (!signals.find((s) => s.symbol === symbol)) {
         const price = priceMap[symbol]?.close;
         signals.push({
@@ -263,7 +263,7 @@ export async function POST(
           exit_reason: reason,
         });
       }
-    }
+    });
 
     // 6. 같은 날 중복 매매 방지를 위한 오늘 실행 이력 조회
     const today = new Date().toISOString().split("T")[0];

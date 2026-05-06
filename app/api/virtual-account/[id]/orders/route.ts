@@ -111,6 +111,7 @@ export async function POST(
 
           return tx.virtualOrder.create({
             data: {
+              id: crypto.randomUUID(),
               accountId: params.id, symbol, name: name ?? symbol,
               side, type: 'MARKET', quantity: qty,
               price: prc, filledPrice, fee, status: 'FILLED', filledAt: new Date(),
@@ -132,6 +133,7 @@ export async function POST(
 
           return tx.virtualOrder.create({
             data: {
+              id: crypto.randomUUID(),
               accountId: params.id, symbol, name: name ?? symbol,
               side, type: 'MARKET', quantity: qty,
               price: prc, filledPrice, fee, tax, avgBuyPrice, realizedPnl,
@@ -161,6 +163,7 @@ export async function POST(
 
           return tx.virtualOrder.create({
             data: {
+              id: crypto.randomUUID(),
               accountId: params.id, symbol, name: name ?? symbol,
               side, type: 'LIMIT', quantity: qty,
               price: limitPrice, filledPrice, fee, status: 'FILLED', filledAt: new Date(),
@@ -182,6 +185,7 @@ export async function POST(
 
           return tx.virtualOrder.create({
             data: {
+              id: crypto.randomUUID(),
               accountId: params.id, symbol, name: name ?? symbol,
               side, type: 'LIMIT', quantity: qty,
               price: limitPrice, filledPrice, fee, tax, avgBuyPrice, realizedPnl,
@@ -210,6 +214,7 @@ export async function POST(
 
       return tx.virtualOrder.create({
         data: {
+          id: crypto.randomUUID(),
           accountId: params.id, symbol, name: name ?? symbol,
           side, type: 'LIMIT', quantity: qty,
           price: limitPrice, filledPrice: null, status: 'PENDING',
@@ -255,7 +260,15 @@ async function upsertPosition(
     });
   } else {
     await tx.virtualPosition.create({
-      data: { accountId, symbol, name: name ?? symbol, quantity: qty, avgPrice: filledPrice },
+      data: {
+        id: crypto.randomUUID(),
+        accountId,
+        symbol,
+        name: name ?? symbol,
+        quantity: qty,
+        avgPrice: filledPrice,
+        updatedAt: new Date(),
+      },
     });
   }
 }

@@ -90,7 +90,8 @@ const fetchMock = vi.fn();
 vi.stubGlobal("fetch", fetchMock);
 
 const routeModule = await import("./route");
-const { GET, POST, __resetBatchRunExecutionStateForTests } = routeModule;
+const { GET, POST } = routeModule;
+const { __resetBatchRunExecutionStateForTests } = await import("./executionState");
 
 function makeStreamResponse(events: Array<Record<string, any>>) {
   const encoder = new TextEncoder();

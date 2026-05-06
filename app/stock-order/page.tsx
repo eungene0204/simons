@@ -10,7 +10,6 @@ import {
 } from "phosphor-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import OrderBook, { MarketStats } from "@/components/order/OrderBook";
-import { getBasePrice } from "@/lib/mock-stock-data";
 import { formatMarketCap } from "@/lib/format-market-cap";
 import CandlestickChart, { OHLCV } from "@/components/stock/CandlestickChart";
 import NewsImpactPanel from "@/components/stock/NewsImpactPanel";
@@ -103,17 +102,15 @@ function applyRealtimeToLatestCandle(
 
   const next = [...candles];
   const last = next[next.length - 1];
-  const today = quote.date || new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Seoul",
-  }).format(new Date());
+  const quoteDate = quote.date; // KIS가 명시적으로 제공한 날짜만 사용 — new Date() 추론 금지
   const realtimeOpen = quote.open && quote.open > 0 ? quote.open : last.close;
   const realtimeHigh = quote.high && quote.high > 0 ? quote.high : Math.max(realtimeOpen, quote.price);
   const realtimeLow = quote.low && quote.low > 0 ? quote.low : Math.min(realtimeOpen, quote.price);
   const realtimeVolume = quote.volume ?? 0;
 
-  if (last.time < today) {
+  if (quoteDate && last.time < quoteDate) {
     next.push({
-      time: today,
+      time: quoteDate,
       open: realtimeOpen,
       high: realtimeHigh,
       low: realtimeLow,
@@ -184,7 +181,7 @@ export default function OrderPage() {
   // ohlcv 실제 데이터 로드 여부 — detail API의 mock 가격이 실제 가격을 덮어쓰는 것 방지
   const hasRealPriceRef = useRef(false);
   const [activeTab, setActiveTab] = useState<
-    "chart" | "info" | "news" | "trading" | "community"
+    "chart" | "info" | "news" | "community"
   >("chart");
   const [realDailyCandles, setRealDailyCandles] = useState<OHLCV[] | null>(null);
   const [realLastClose, setRealLastClose] = useState<number | undefined>(undefined);
@@ -464,8 +461,7 @@ export default function OrderPage() {
             if (data.realLastClose) {
               setRealLastClose(data.realLastClose);
             }
-            // 실제 ohlcv 데이터가 이미 로드됐으면 mock 가격으로 덮어쓰지 않음
-            const nextPrice = pickPositiveNumber(data.currentPrice, getBasePrice(symbol));
+            const nextPrice = pickPositiveNumber(data.currentPrice);
             if (!hasRealPriceRef.current && nextPrice) {
               setCurrentPrice((prev) => prev ?? nextPrice);
               setPrice((prev) => prev || nextPrice.toString());
@@ -478,14 +474,6 @@ export default function OrderPage() {
             if (delayMs === STOCK_DETAIL_RETRY_DELAYS_MS[STOCK_DETAIL_RETRY_DELAYS_MS.length - 1]) {
               console.error("Failed to fetch stock info:", error);
             }
-          }
-        }
-
-        if (!hadSuccessfulResponse && !hasRealPriceRef.current) {
-          const basePrice = getBasePrice(symbol);
-          if (basePrice) {
-            setCurrentPrice((prev) => prev ?? basePrice);
-            setPrice((prev) => prev || basePrice.toString());
           }
         }
 
@@ -852,20 +840,20 @@ export default function OrderPage() {
           <div className="lg:col-span-6 grid grid-cols-2 sm:grid-cols-3 border-t border-l border-white/[0.08]">
             <div className="border-r border-b border-white/[0.08] px-4 py-4">
               <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">전일 종가</p>
-              <p className="mt-2 text-lg font-black tabular-nums font-outfit text-white leading-none">
+              <p className="mt-2 text-2xl font-black tabular-nums font-outfit text-white leading-none">
                 {referenceClose ? `${formatPrice(referenceClose)}` : "—"}
               </p>
               <p className="mt-0.5 text-[10px] font-bold text-gray-600">원</p>
             </div>
             <div className="border-r border-b border-white/[0.08] px-4 py-4">
               <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">시가총액</p>
-              <p className="mt-2 text-lg font-black tabular-nums font-outfit text-white leading-none">
+              <p className="mt-2 text-2xl font-black tabular-nums font-outfit text-white leading-none">
                 {stockInfo?.marketCap ? formatMarketCap(stockInfo.marketCap) : "—"}
               </p>
             </div>
             <div className="border-r border-b border-white/[0.08] px-4 py-4">
               <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">거래량</p>
-              <p className="mt-2 text-lg font-black tabular-nums font-outfit text-white leading-none">
+              <p className="mt-2 text-2xl font-black tabular-nums font-outfit text-white leading-none">
                 {stockInfo?.volume ? formatPrice(stockInfo.volume) : "—"}
               </p>
             </div>
@@ -878,8 +866,7 @@ export default function OrderPage() {
             {([
               ["chart", "차트 · 호가"],
               ["info", "종목정보"],
-              ["news", "뉴스 · 공시"],
-              ["trading", "거래현황"],
+              ["news", "뉴스"],
               ["community", "커뮤니티"],
             ] as const).map(([tab, label]) => (
               <button
@@ -1365,10 +1352,40 @@ export default function OrderPage() {
           <div className="divide-y divide-white/[0.08]">
             {stockInfo ? (
               <>
-                <div className="grid grid-cols-1 lg:grid-cols-10 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
+                {/* 재무 핵심 지표 — border 그리드 패턴 */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 border-t border-l border-white/[0.08]">
+                  {[
+                    { label: "PER", sub: "", value: stockInfo.pe ? stockInfo.pe.toFixed(2) : "—" },
+                    { label: "PBR", sub: "", value: stockInfo.pbr ? stockInfo.pbr.toFixed(2) : "—" },
+                    {
+                      label: "부채비율", sub: "Debt Ratio",
+                      value: summaryFinancials.debtRatio !== undefined && summaryFinancials.debtRatio !== null
+                        ? `${Number(summaryFinancials.debtRatio).toFixed(1)}%`
+                        : stockInfo.debtRatio ? `${stockInfo.debtRatio.toFixed(1)}%` : "—",
+                    },
+                    { label: "매출액", sub: "Revenue", value: formatWonMetric(summaryFinancials.sales) },
+                    { label: "영업이익", sub: "Op. Income", value: formatWonMetric(summaryFinancials.operatingProfit) },
+                    { label: "당기순이익", sub: "Net Income", value: formatWonMetric(summaryFinancials.netIncome) },
+                    { label: "총자산", sub: "Total Assets", value: formatWonMetric(summaryFinancials.totalAssets) },
+                    { label: "총자본", sub: "Equity", value: formatWonMetric(summaryFinancials.totalEquity) },
+                  ].map(({ label, sub, value }) => (
+                    <div key={label} className="border-r border-b border-white/[0.08] p-4 flex flex-col gap-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold uppercase tracking-widest text-gray-500">{label}</span>
+                      </div>
+                      <div>
+                        <p className="text-2xl font-black text-white tabular-nums font-outfit leading-none">{value}</p>
+                        {sub && <p className="text-[10px] uppercase tracking-widest text-gray-600 font-bold mt-1">{sub}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* 기본 정보 + 기업 상세 */}
+                <div className="grid grid-cols-1 lg:grid-cols-10">
                   <div className="lg:col-span-5 p-5">
                     <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit mb-4">기본 정보</h2>
-                    <div className="space-y-1">
+                    <div>
                       {[
                         ["종목명", displayStockName],
                         ["종목코드", symbol],
@@ -1380,84 +1397,46 @@ export default function OrderPage() {
                         [
                           "홈페이지",
                           companyBasic.homepageUrl ? (
-                            <a
-                              href={companyBasic.homepageUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-sky-400 hover:text-sky-300"
-                            >
-                              방문
-                            </a>
+                            <a href={companyBasic.homepageUrl} target="_blank" rel="noreferrer" className="text-sky-400 hover:text-sky-300 transition-colors">방문</a>
                           ) : "—",
                         ],
                       ].map(([label, value]) => (
-                        <div key={label} className="flex items-center justify-between py-3">
-                          <span className="text-xs font-bold uppercase tracking-widest text-slate-300">{label}</span>
+                        <div key={label} className="flex items-center justify-between py-3 hover:bg-white/[0.02] rounded-xl px-1 transition-colors">
+                          <span className="text-xs font-bold uppercase tracking-widest text-gray-500">{label}</span>
                           <span className="max-w-[60%] truncate text-right text-sm font-bold text-white tabular-nums">{value}</span>
                         </div>
                       ))}
                     </div>
                   </div>
                   <div className="lg:col-span-5 p-5">
-                    <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit mb-4">재무 정보</h2>
-                    <div className="space-y-1">
+                    <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit mb-4">기업 상세</h2>
+                    <div>
                       {[
                         ["회계연도", summaryFinancials.businessYear || "—"],
-                        ["재무제표", summaryFinancials.statementType || "—"],
-                        ["매출액", formatWonMetric(summaryFinancials.sales)],
-                        ["영업이익", formatWonMetric(summaryFinancials.operatingProfit)],
-                        ["당기순이익", formatWonMetric(summaryFinancials.netIncome)],
-                        ["총자산", formatWonMetric(summaryFinancials.totalAssets)],
-                        ["총부채", formatWonMetric(summaryFinancials.totalLiabilities)],
-                        ["총자본", formatWonMetric(summaryFinancials.totalEquity)],
-                        [
-                          "부채비율",
-                          summaryFinancials.debtRatio !== undefined && summaryFinancials.debtRatio !== null
-                            ? `${Number(summaryFinancials.debtRatio).toFixed(2)}%`
-                            : stockInfo.debtRatio
-                            ? `${stockInfo.debtRatio.toFixed(2)}%`
-                            : "—",
-                        ],
-                        ["PER", stockInfo.pe ? stockInfo.pe.toFixed(2) : "—"],
-                        ["PBR", stockInfo.pbr ? stockInfo.pbr.toFixed(2) : "—"],
+                        ["결산월", companyBasic.settlementMonth ? `${companyBasic.settlementMonth}월` : "—"],
+                        ["영문명", companyBasic.englishName || "—"],
+                        ["사업자번호", companyBasic.businessRegistrationNumber || "—"],
                       ].map(([label, value]) => (
-                        <div key={label} className="flex items-center justify-between py-3">
-                          <span className="text-xs font-bold uppercase tracking-widest text-slate-300">{label}</span>
-                          <span className="text-sm font-black text-white tabular-nums font-outfit">{value}</span>
+                        <div key={label} className="flex items-center justify-between py-3 hover:bg-white/[0.02] rounded-xl px-1 transition-colors">
+                          <span className="text-xs font-bold uppercase tracking-widest text-gray-500">{label}</span>
+                          <span className="max-w-[60%] truncate text-right text-sm font-bold text-white tabular-nums">{value}</span>
                         </div>
                       ))}
                     </div>
+                    {companyBasic.address && (
+                      <div className="mt-4 pt-4 border-t border-white/[0.04]">
+                        <p className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">주소</p>
+                        <p className="text-sm font-bold text-gray-400 leading-relaxed">{companyBasic.address}</p>
+                      </div>
+                    )}
                   </div>
                 </div>
-                {(companyBasic.englishName || companyBasic.businessRegistrationNumber || companyBasic.address || companyBasic.settlementMonth) && (
-                  <div className="grid grid-cols-1 lg:grid-cols-10 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
-                    <div className="lg:col-span-5 p-5">
-                      <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit mb-4">기업 상세</h2>
-                      <div className="space-y-1">
-                        {[
-                          ["영문명", companyBasic.englishName || "—"],
-                          ["공시회사명", companyBasic.disclosureName || "—"],
-                          ["사업자번호", companyBasic.businessRegistrationNumber || "—"],
-                          ["결산월", companyBasic.settlementMonth ? `${companyBasic.settlementMonth}월` : "—"],
-                        ].map(([label, value]) => (
-                          <div key={label} className="flex items-center justify-between py-3">
-                            <span className="text-xs font-bold uppercase tracking-widest text-slate-300">{label}</span>
-                            <span className="max-w-[60%] truncate text-right text-sm font-bold text-white tabular-nums">{value}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="lg:col-span-5 p-5">
-                      <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit mb-4">주소</h2>
-                      <p className="text-sm font-bold leading-relaxed text-gray-400">
-                        {companyBasic.address || "—"}
-                      </p>
-                      {companyBasic.mainBusiness && (
-                        <p className="mt-4 pt-4 text-sm font-bold leading-relaxed text-gray-400">
-                          {companyBasic.mainBusiness}
-                        </p>
-                      )}
-                    </div>
+
+                {/* 주요 사업 */}
+                {companyBasic.mainBusiness && (
+                  <div className="p-5">
+                    <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit mb-3">주요 사업</h2>
+                    <p className="text-sm font-bold leading-relaxed text-gray-400">{companyBasic.mainBusiness}</p>
                   </div>
                 )}
               </>
@@ -1476,45 +1455,6 @@ export default function OrderPage() {
           </div>
         )}
 
-        {/* ── 거래현황 탭 ── */}
-        {activeTab === "trading" && (
-          <div className="divide-y divide-white/[0.08]">
-            <div className="px-5 py-4">
-              <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit">거래현황</h2>
-              <p className="text-xs text-gray-500 mt-0.5">당일 거래 지표와 가격 범위</p>
-            </div>
-            <div className="grid grid-cols-2 lg:grid-cols-4 border-t border-l border-white/[0.08]">
-              <div className="border-r border-b border-white/[0.08] px-5 py-4">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">일일 거래량</p>
-                <p className="mt-2 text-xl font-black tabular-nums font-outfit text-white leading-none">
-                  {stockInfo?.volume ? formatPrice(stockInfo.volume) : "—"}
-                </p>
-              </div>
-              <div className="border-r border-b border-white/[0.08] px-5 py-4">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">거래대금</p>
-                <p className="mt-2 text-xl font-black tabular-nums font-outfit text-white leading-none">
-                  {currentPrice && stockInfo?.volume ? formatMarketCap(currentPrice * stockInfo.volume) : "—"}
-                </p>
-              </div>
-              <div className="border-r border-b border-white/[0.08] px-5 py-4">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">고가</p>
-                <p className="mt-2 text-xl font-black tabular-nums font-outfit text-[var(--main-red)] leading-none">
-                  {stockInfo?.high ? `${formatPrice(stockInfo.high)}원` : "—"}
-                </p>
-              </div>
-              <div className="border-r border-b border-white/[0.08] px-5 py-4">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">저가</p>
-                <p className="mt-2 text-xl font-black tabular-nums font-outfit text-[var(--main-blue)] leading-none">
-                  {stockInfo?.low ? `${formatPrice(stockInfo.low)}원` : "—"}
-                </p>
-              </div>
-            </div>
-            <div className="p-5">
-              <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit mb-3">최근 거래 내역</h2>
-              <p className="text-sm font-bold text-gray-500 py-8 text-center">최근 거래 내역이 없습니다.</p>
-            </div>
-          </div>
-        )}
 
         {/* ── 커뮤니티 탭 ── */}
         {activeTab === "community" && (

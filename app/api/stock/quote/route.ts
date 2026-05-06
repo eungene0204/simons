@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { cache, cacheKeys, cacheTTL } from '@/lib/cache'
 import { fetchStockPriceSnapshots } from '@/lib/server/stock-prices'
 
+export const dynamic = "force-dynamic";
+
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams

@@ -16,7 +16,7 @@ export async function GET() {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
-    const [totalAccounts, runningCount, autoCount, todayOrders, totalPositions, dailyPnlAgg, evalAgg] =
+    const [totalAccounts, runningCount, autoCount, todayOrders, totalPositions, dailyPnlAgg, accounts] =
       await Promise.all([
         prisma.virtualAccount.count(),
         prisma.virtualMarketState.count({ where: { status: 'running' } }),
@@ -27,8 +27,28 @@ export async function GET() {
           where: { status: 'FILLED', side: 'SELL', filledAt: { gte: todayStart } },
           _sum: { realizedPnl: true },
         }),
-        prisma.virtualAccount.aggregate({ _sum: { totalValue: true } }),
+        prisma.virtualAccount.findMany({
+          select: {
+            currentCash: true,
+            VirtualPosition: {
+              select: {
+                quantity: true,
+                avgPrice: true,
+                currentPrice: true,
+              },
+            },
+          },
+        }),
       ]);
+
+    const totalEvaluation = accounts.reduce((accountSum, account) => {
+      const positionValue = account.VirtualPosition.reduce(
+        (positionSum, position) =>
+          positionSum + position.quantity * (position.currentPrice ?? position.avgPrice),
+        0
+      );
+      return accountSum + account.currentCash + positionValue;
+    }, 0);
 
     return NextResponse.json({
       totalAccounts,
@@ -37,7 +57,7 @@ export async function GET() {
       todayFilledOrders: todayOrders,
       totalPositions,
       dailyPnl: dailyPnlAgg._sum.realizedPnl ?? 0,
-      totalEvaluation: evalAgg._sum.totalValue ?? 0,
+      totalEvaluation,
     } satisfies TradingStatusData);
   } catch (error) {
     console.error('Failed to fetch trading status:', error);

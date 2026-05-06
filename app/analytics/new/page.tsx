@@ -25,9 +25,17 @@ import {
   REBAL_LABELS,
   type ParsedSummary,
 } from "./strategySummary";
-import { mergeStrategyModification } from "./parsedStrategyMerge";
+import {
+  buildAdvisorEvaluationContextFromWalkForward,
+  buildCandidateBacktestRequest,
+  buildWalkForwardRequest,
+  mergeStrategyModification,
+  type AdvisorWalkForwardResult,
+  type AdvisorWalkForwardSettings,
+} from "./parsedStrategyMerge";
 import {
   StrategyAdvisorPanel,
+  type AdvisorResult,
   type AdvisorRequest,
 } from "@/components/strategy/StrategyAdvisorPanel";
 
@@ -75,6 +83,66 @@ interface RuntimeMetricsSnapshot {
     timestamp: number;
     runtime: Record<string, unknown>;
   }>;
+}
+
+interface WalkForwardEvidence {
+  settings: AdvisorWalkForwardSettings;
+  result: AdvisorWalkForwardResult;
+  ranges: Record<string, unknown>;
+  requestKey: string;
+  completedAt: number;
+}
+
+function toAdvisorBacktestSummary(value: any) {
+  if (!value) return null;
+  return {
+    cagr: value.cagr ?? null,
+    mdd: value.mdd ?? value.maxDrawdown ?? null,
+    sharpe: value.sharpe ?? null,
+    sortino: value.sortino ?? null,
+    calmar: value.calmar ?? null,
+    profit_factor: value.profit_factor ?? value.profitFactor ?? null,
+    trade_count: value.trade_count ?? value.trades ?? null,
+    win_rate: value.win_rate ?? value.winRate ?? null,
+    avg_trade_return: value.avg_trade_return ?? value.avgProfit ?? null,
+    max_losing_streak: value.max_losing_streak ?? value.maxConsecutiveLosses ?? null,
+  };
+}
+
+async function readBacktestStreamResult(response: Response) {
+  if (!response.ok || !response.body) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail ?? "후보 백테스트 실패");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: any = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const payload = line.slice(6).trim();
+      if (payload === "[DONE]") continue;
+      const event = JSON.parse(payload);
+      if (event.type === "result") result = event.data;
+      if (event.type === "error") throw new Error(event.message ?? "후보 백테스트 실패");
+    }
+  }
+
+  if (!result) throw new Error("후보 백테스트 결과가 없습니다.");
+  return result;
+}
+
+function backtestRequestKey(value: unknown): string {
+  return JSON.stringify(value ?? null);
 }
 
 function FilterBadge({ label }: { label: string }) {
@@ -306,10 +374,12 @@ function StrategyLabContent() {
   const [runtimeMetrics, setRuntimeMetrics] = useState<RuntimeMetricsSnapshot | null>(null);
   const [isResettingRuntimeMetrics, setIsResettingRuntimeMetrics] = useState(false);
   const [advisorRequest, setAdvisorRequest] = useState<AdvisorRequest | null>(null);
+  const [walkForwardEvidence, setWalkForwardEvidence] = useState<WalkForwardEvidence | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   // first user prompt — kept for advisor context
   const firstPromptRef = useRef<string>("");
+  const candidateEvaluationKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     fetch("/api/model/status")
@@ -373,19 +443,98 @@ function StrategyLabContent() {
     setAdvisorRequest({
       user_prompt: firstPromptRef.current,
       parsed_strategy: latestParsed as unknown as Record<string, unknown>,
-      backtest_result: result
-        ? {
-            cagr: (result as any).cagr ?? null,
-            mdd: (result as any).mdd ?? null,
-            sharpe: (result as any).sharpe ?? null,
-            profit_factor: (result as any).profit_factor ?? null,
-            trade_count: (result as any).trade_count ?? null,
-            win_rate: (result as any).win_rate ?? null,
-          }
-        : null,
+      backtest_result: toAdvisorBacktestSummary(result),
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latestParsed, result]);
+
+  // After the baseline backtest, verify the advisor candidate in the background.
+  useEffect(() => {
+    if (stage !== "done" || !latestParsed || !backtestReq || !result) return;
+
+    const beforeBacktest = toAdvisorBacktestSummary(result);
+    if (!beforeBacktest) return;
+
+    const key = JSON.stringify({
+      parsed: latestParsed,
+      result: (result as any).cacheKey ?? result.executionId ?? result.finalEquity,
+      walkForwardCompletedAt: walkForwardEvidence?.completedAt ?? null,
+    });
+    if (candidateEvaluationKeyRef.current === key) return;
+    candidateEvaluationKeyRef.current = key;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const reviewRes = await fetch("/api/advisor/review", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_prompt: firstPromptRef.current,
+            parsed_strategy: latestParsed as unknown as Record<string, unknown>,
+            backtest_result: beforeBacktest,
+          }),
+        });
+        if (!reviewRes.ok || cancelled) return;
+
+        const review: AdvisorResult = await reviewRes.json();
+        if (!review.candidate_strategy || cancelled) return;
+
+        const candidateReq = buildCandidateBacktestRequest(backtestReq, review.candidate_strategy as any);
+        const candidateRes = await fetch("/api/strategy/backtest-stream", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(candidateReq),
+        });
+        const candidateRaw = await readBacktestStreamResult(candidateRes);
+        const candidateBacktest = toAdvisorBacktestSummary(candidateRaw);
+        if (!candidateBacktest || cancelled) return;
+
+        let evaluationContext = { oos_available: false };
+        if (
+          walkForwardEvidence &&
+          walkForwardEvidence.requestKey === backtestRequestKey(backtestReq)
+        ) {
+          const candidateWalkForwardRes = await fetch("/api/backtest/walk-forward", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(buildWalkForwardRequest(
+              candidateReq,
+              walkForwardEvidence.settings,
+              walkForwardEvidence.ranges,
+            )),
+          });
+          const candidateWalkForward = candidateWalkForwardRes.ok
+            ? await candidateWalkForwardRes.json()
+            : null;
+
+          evaluationContext = buildAdvisorEvaluationContextFromWalkForward(
+            walkForwardEvidence.result,
+            candidateWalkForward,
+          );
+        }
+
+        await fetch("/api/advisor/review", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_prompt: firstPromptRef.current,
+            parsed_strategy: latestParsed as unknown as Record<string, unknown>,
+            backtest_result: beforeBacktest,
+            candidate_backtest_result: candidateBacktest,
+            evaluation_context: evaluationContext,
+          }),
+        });
+      } catch (error) {
+        console.warn("advisor candidate retest skipped", error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, latestParsed, backtestReq, result, walkForwardEvidence]);
 
   // period 제안 텍스트 → { parsed: backtest_period 값, options: currentOptions.period 값 }
   // 매칭되지 않으면 null 반환 (AI 파싱 필요)
@@ -674,6 +823,7 @@ function StrategyLabContent() {
 
     setStage("running");
     setStatusMessage("백테스트 준비 중...");
+    setWalkForwardEvidence(null);
 
     try {
       const res = await fetch("/api/strategy/backtest-stream", {
@@ -773,12 +923,41 @@ function StrategyLabContent() {
     }
   };
 
+  const handleWalkForward = async (settings: AdvisorWalkForwardSettings) => {
+    if (!backtestReq) {
+      throw new Error("워크포워드 분석을 실행할 백테스트 요청이 없습니다.");
+    }
+
+    const ranges: Record<string, unknown> = {};
+    const res = await fetch("/api/backtest/walk-forward", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildWalkForwardRequest(backtestReq, settings, ranges)),
+    });
+
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.detail ?? "워크포워드 분석 실패");
+    }
+
+    const data = await res.json();
+    setWalkForwardEvidence({
+      settings,
+      result: data,
+      ranges,
+      requestKey: backtestRequestKey(backtestReq),
+      completedAt: Date.now(),
+    });
+    return data;
+  };
+
   const handleReset = () => {
     setStage("idle");
     setMessages([]);
     setLatestParsed(null);
     setBacktestReq(null);
     setResult(null);
+    setWalkForwardEvidence(null);
     setIsSending(false);
     setTimeout(() => textareaRef.current?.focus(), 100);
   };
@@ -804,6 +983,7 @@ function StrategyLabContent() {
               currentOptions={currentOptions}
               isRunning={isRunning}
               backtestDsl={backtestReq}
+              onWalkForward={handleWalkForward}
               strategySummary={buildStrategySummary(latestParsed, backtestReq)}
             />
           </div>

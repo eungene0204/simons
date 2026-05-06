@@ -3,6 +3,8 @@ import { getStockAPIProvider } from '@/lib/stock-api'
 import { cache, cacheKeys, cacheTTL } from '@/lib/cache'
 import { StockAPIError } from '@/lib/stock-api/base'
 
+export const dynamic = "force-dynamic";
+
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams
@@ -53,5 +55,4 @@ export async function GET(request: NextRequest) {
     )
   }
 }
-
 

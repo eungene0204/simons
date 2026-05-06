@@ -1078,7 +1078,7 @@ export default function VirtualAccountDetailPage() {
                 : prev
             );
             setDbStrategyDescription(strategy.description ?? null);
-            setDbStrategySettings(strategy as StrategyDSL);
+            setDbStrategySettings(strategy as unknown as StrategyDSL);
             setIsPromptVisible(false);
             await loadAccountData();
           }}

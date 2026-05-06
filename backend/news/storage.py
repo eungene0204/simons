@@ -215,10 +215,13 @@ def upsert_symbol_maps(maps: List[ArticleSymbolMap]) -> None:
     conn = _connect()
     try:
         import uuid
+        article_ids = {m.article_id for m in maps}
+        for article_id in article_ids:
+            conn.execute("DELETE FROM NewsArticleSymbol WHERE articleId = ?", (article_id,))
         for m in maps:
             conn.execute(
                 """
-                INSERT OR IGNORE INTO NewsArticleSymbol
+                INSERT INTO NewsArticleSymbol
                   (id, articleId, symbol, companyName, scope, sector, relevance, createdAt)
                 VALUES (?,?,?,?,?,?,?,?)
                 """,
@@ -556,6 +559,17 @@ def finish_ingestion_log(
 
 
 # ─── Stock name lookup (used by entity_mapper) ────────────────────────────────
+
+def get_stock_by_symbol(symbol: str) -> Optional[Dict[str, Any]]:
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT symbol, name, market FROM Stock WHERE symbol = ?", (symbol,)
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
 
 def get_all_stocks() -> List[Dict[str, Any]]:
     conn = _connect()

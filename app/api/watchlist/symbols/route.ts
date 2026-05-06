@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
   const existing = await prisma.watchlistSymbol.findUnique({ where: { symbol } })
   if (existing) return NextResponse.json({ added: false })
   const item = await prisma.watchlistSymbol.create({
-    data: { symbol, name, groupId: groupId ?? null },
+    data: { id: crypto.randomUUID(), symbol, name, groupId: groupId ?? null },
   })
   return NextResponse.json({ added: true, item })
 }

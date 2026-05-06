@@ -13,9 +13,9 @@ import logging
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, ValidationError
 
 from advisor.agent import StrategyAdvisorAgent
+from advisor.memory_repository import load_advisor_memory, save_advisor_experience
 from advisor.news_enrichment import build_news_context_from_strategy
 from advisor.schemas import AdvisorRequest, AdvisorResponse
 
@@ -42,7 +42,21 @@ async def review_strategy(req: AdvisorRequest) -> AdvisorResponse:
             news_context = build_news_context_from_strategy(req.parsed_strategy)
             if news_context:
                 effective_req = req.model_copy(update={"news_context": news_context})
-        return _agent.review(effective_req)
+        if (
+            effective_req.memory_strategy_cases is None
+            and effective_req.memory_experiences is None
+        ):
+            strategy_cases, experiences = load_advisor_memory()
+            if strategy_cases or experiences:
+                effective_req = effective_req.model_copy(
+                    update={
+                        "memory_strategy_cases": strategy_cases,
+                        "memory_experiences": experiences,
+                    }
+                )
+        response = _agent.review(effective_req)
+        save_advisor_experience(effective_req, response)
+        return response
     except Exception as exc:
         logger.exception("advisor.review failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc

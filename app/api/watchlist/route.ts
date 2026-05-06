@@ -3,6 +3,8 @@ import { cache } from '@/lib/cache'
 import { loadStockList } from '@/lib/krx-stocks'
 import { fetchStockPriceSnapshots } from '@/lib/server/stock-prices'
 
+export const dynamic = "force-dynamic";
+
 interface WatchlistItem {
   symbol: string;
   name: string;

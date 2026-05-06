@@ -9,6 +9,8 @@ export interface StrategyBacktestRequest {
   options?: Record<string, unknown>;
 }
 
+type CandidateStrategy = Partial<ParsedSummary> & Record<string, unknown>;
+
 export type RequestedDomain =
   | "universe"
   | "entry"
@@ -17,13 +19,27 @@ export type RequestedDomain =
   | "portfolio"
   | "backtest";
 
+export interface AdvisorWalkForwardSettings {
+  n_splits: number;
+  train_pct: number;
+  anchor: boolean;
+  target_metric: string;
+  n_trials: number;
+}
+
+export interface AdvisorWalkForwardResult {
+  status?: string;
+  aggregate?: Record<string, unknown>;
+  walk_forward_efficiency?: unknown;
+}
+
 const DOMAIN_PATTERNS: Record<RequestedDomain, RegExp[]> = {
-  universe: [/코스피200|코스피 200|코스피|코스닥|kospi200|kospi|kosdaq|유니버스|전체 시장|시장/iu],
-  entry: [/진입|매수|골든크로스|rsi|macd|볼린저|브레이크아웃|돌파|pbr|per|roe|부채비율|시총|거래대금|필터|저평가|ai/iu],
-  exit: [/청산|매도|보유|데드크로스|하락/iu],
-  risk: [/손절|익절|트레일링|리스크|mdd/iu],
-  portfolio: [/최대\s*\d+\s*종목|\d+\s*개\s*종목|\d+\s*종목|포트폴리오|리밸런싱|리밸런스|분산|집중/iu],
-  backtest: [/백테스트|테스트 기간|전체 데이터|초기자금|자본금|원금|만원|억원?|\d[\d,]*원/iu],
+  universe: [/코스피200|코스피 200|코스피|코스닥|kospi200|kospi|kosdaq|유니버스|전체 시장|시장/i],
+  entry: [/진입|매수|골든크로스|rsi|macd|볼린저|브레이크아웃|돌파|pbr|per|roe|부채비율|시총|거래대금|필터|저평가|ai/i],
+  exit: [/청산|매도|보유|데드크로스|하락/i],
+  risk: [/손절|익절|트레일링|리스크|mdd/i],
+  portfolio: [/최대\s*\d+\s*종목|\d+\s*개\s*종목|\d+\s*종목|포트폴리오|리밸런싱|리밸런스|분산|집중/i],
+  backtest: [/백테스트|테스트 기간|전체 데이터|초기자금|자본금|원금|만원|억원?|\d[\d,]*원/i],
 };
 
 function hasMatch(text: string, patterns: RegExp[]): boolean {
@@ -130,7 +146,7 @@ function clarificationLooksLikeEntryRegression(
     return false;
   }
 
-  return /진입 조건|매수 조건|종목을 선택|어떤 조건으로 종목/u.test(clarificationQuestion);
+  return /진입 조건|매수 조건|종목을 선택|어떤 조건으로 종목/.test(clarificationQuestion);
 }
 
 export function mergeStrategyModification(params: {
@@ -168,5 +184,138 @@ export function mergeStrategyModification(params: {
       params.previousParsed,
       requestedDomains
     ),
+  };
+}
+
+function normalizedPeriod(value: unknown): string | undefined {
+  if (value === "1y") return "1Y";
+  if (value === "3y") return "3Y";
+  if (value === "5y") return "5Y";
+  if (value === "full") return "ALL";
+  return typeof value === "string" ? value : undefined;
+}
+
+function signalToCondition(signal: Record<string, unknown>, fallbackSignalType: string) {
+  const indicator = signal.indicator;
+  if (!indicator || typeof indicator !== "string") return null;
+  return {
+    type: "indicator",
+    id: indicator,
+    params: {
+      ...signal,
+      signalType: signal.signal_type ?? fallbackSignalType,
+      value: signal.value ?? signal.threshold,
+    },
+    weight: 1.0,
+  };
+}
+
+function filterToCondition(filter: Record<string, unknown>) {
+  const metric = filter.metric;
+  if (!metric || typeof metric !== "string") return null;
+  return {
+    type: "filter",
+    id: metric,
+    params: {
+      operator: filter.operator,
+      value: filter.value,
+    },
+    weight: 1.0,
+  };
+}
+
+export function buildCandidateBacktestRequest(
+  previous: StrategyBacktestRequest,
+  candidate: CandidateStrategy
+): StrategyBacktestRequest {
+  const risk = { ...(previous.risk ?? {}) };
+
+  if (candidate.max_positions != null) {
+    risk.max_positions = candidate.max_positions;
+    const count = Number(candidate.max_positions);
+    if (Number.isFinite(count) && count > 0) {
+      risk.position_size_pct = Math.round((10000 / count)) / 100;
+    }
+  }
+  if (candidate.stop_loss_pct !== undefined) risk.stop_loss_pct = candidate.stop_loss_pct;
+  if (candidate.take_profit_pct !== undefined) risk.take_profit_pct = candidate.take_profit_pct;
+  if (candidate.trailing_stop_pct !== undefined) risk.trailing_stop_pct = candidate.trailing_stop_pct;
+  if (candidate.max_mdd_limit_pct !== undefined) risk.max_mdd_limit_pct = candidate.max_mdd_limit_pct;
+  if (candidate.hold_period_days !== undefined) risk.max_holding_days = candidate.hold_period_days;
+  if (candidate.rebalancing_period !== undefined) risk.rebalancing_period = candidate.rebalancing_period;
+  if (candidate.initial_capital !== undefined) risk.init_cash = candidate.initial_capital;
+
+  const entryConditions = [
+    ...((candidate.fundamental_filters ?? []) as Array<Record<string, unknown>>)
+      .map(filterToCondition)
+      .filter(Boolean),
+    ...((candidate.entry_signals ?? []) as Array<Record<string, unknown>>)
+      .map((signal) => signalToCondition(signal, "buy"))
+      .filter(Boolean),
+  ] as Array<Record<string, unknown>>;
+
+  const exitConditions = ((candidate.exit_signals ?? []) as Array<Record<string, unknown>>)
+    .map((signal) => signalToCondition(signal, "sell"))
+    .filter(Boolean) as Array<Record<string, unknown>>;
+
+  return {
+    ...previous,
+    entry: entryConditions.length > 0 ? { conditions: entryConditions } : previous.entry,
+    exit: exitConditions.length > 0 ? { conditions: exitConditions } : previous.exit,
+    risk,
+    period: normalizedPeriod(candidate.backtest_period) ?? previous.period,
+  };
+}
+
+export function buildWalkForwardRequest(
+  baseStrategy: StrategyBacktestRequest,
+  settings: AdvisorWalkForwardSettings,
+  ranges: Record<string, unknown> = {}
+) {
+  return {
+    base_strategy: baseStrategy,
+    ranges,
+    n_splits: settings.n_splits,
+    train_pct: settings.train_pct,
+    anchor: settings.anchor,
+    target_metric: settings.target_metric,
+    n_trials: settings.n_trials,
+  };
+}
+
+function metricNumber(value: unknown): number | null {
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function normalizeReturnScale(value: number): number {
+  return Math.abs(value) > 1 ? value / 100 : value;
+}
+
+function oosCagr(result: AdvisorWalkForwardResult | null | undefined): number | null {
+  const aggregate = result?.aggregate;
+  if (!aggregate) return null;
+  const raw = metricNumber(aggregate.avg_oos_cagr ?? aggregate.avg_oos_totalReturn);
+  return raw === null ? null : normalizeReturnScale(raw);
+}
+
+export function buildAdvisorEvaluationContextFromWalkForward(
+  before: AdvisorWalkForwardResult | null | undefined,
+  after: AdvisorWalkForwardResult | null | undefined
+) {
+  const beforeOosCagr = oosCagr(before);
+  const afterOosCagr = oosCagr(after);
+
+  if (beforeOosCagr === null || afterOosCagr === null) {
+    return { oos_available: false };
+  }
+
+  return {
+    oos_available: true,
+    oos_delta: afterOosCagr - beforeOosCagr,
+    before_oos_cagr: beforeOosCagr,
+    after_oos_cagr: afterOosCagr,
+    before_walk_forward_efficiency: metricNumber(before?.walk_forward_efficiency),
+    after_walk_forward_efficiency: metricNumber(after?.walk_forward_efficiency),
   };
 }

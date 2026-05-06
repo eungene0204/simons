@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getExecutionState, type BatchExecutionJob } from "./executionState";
 
 type CandidateStatus =
   | "waiting"
@@ -32,53 +33,10 @@ type BatchRunSnapshotPayload = {
   candidates: BatchRunCandidatePayload[];
 };
 
-type BatchExecutionJob = {
-  runId: string;
-  origin: string;
-  backend: "mlx" | "ollama";
-  concurrency: number;
-  createdAt: string;
-  candidates: BatchRunCandidatePayload[];
-  logs: string[];
-  persistChain: Promise<void>;
-};
-
-type BatchExecutionState = {
-  queue: BatchExecutionJob[];
-  activeRunIds: Set<string>;
-  activeJobs: Map<string, BatchExecutionJob>;
-  canceledRunIds: Set<string>;
-};
-
 const MAX_ACTIVE_BATCH_RUNS = 2;
 const DEFAULT_CANDIDATE_CONCURRENCY = 2;
 const MAX_CANDIDATE_CONCURRENCY = 4;
 const CANCEL_REQUEST_LOG_MARKER = "[batch-run-cancel-requested]";
-
-function getExecutionState(): BatchExecutionState {
-  const globalScope = globalThis as typeof globalThis & {
-    __strategyBatchExecutionState?: BatchExecutionState;
-  };
-
-  if (!globalScope.__strategyBatchExecutionState) {
-    globalScope.__strategyBatchExecutionState = {
-      queue: [],
-      activeRunIds: new Set<string>(),
-      activeJobs: new Map<string, BatchExecutionJob>(),
-      canceledRunIds: new Set<string>(),
-    };
-  }
-
-  return globalScope.__strategyBatchExecutionState;
-}
-
-export function __resetBatchRunExecutionStateForTests() {
-  const state = getExecutionState();
-  state.queue.length = 0;
-  state.activeRunIds.clear();
-  state.activeJobs.clear();
-  state.canceledRunIds.clear();
-}
 
 function parseJsonField<T>(value: string | null | undefined, fallback: T): T {
   if (!value) return fallback;
@@ -180,7 +138,7 @@ function buildSnapshotFromJob(job: BatchExecutionJob): BatchRunSnapshotPayload {
 
 async function saveBatchRunSnapshot(snapshot: BatchRunSnapshotPayload) {
   await prisma.$transaction(async (tx) => {
-    const createData: Record<string, any> = {
+    const createData = {
       id: snapshot.runId,
       totalPrompts: Number(snapshot.totalPrompts ?? snapshot.candidates.length ?? 0),
       completedCount: Number(snapshot.completedCount ?? 0),
@@ -188,11 +146,8 @@ async function saveBatchRunSnapshot(snapshot: BatchRunSnapshotPayload) {
       skippedCount: Number(snapshot.skippedCount ?? 0),
       rankingSnapshot: JSON.stringify(snapshot.rankingSnapshot ?? []),
       logs: JSON.stringify(snapshot.logs ?? []),
+      ...(snapshot.createdAt ? { createdAt: new Date(snapshot.createdAt) } : {}),
     };
-
-    if (snapshot.createdAt) {
-      createData.createdAt = new Date(snapshot.createdAt);
-    }
 
     await tx.batchRun.upsert({
       where: { id: snapshot.runId },
@@ -351,7 +306,7 @@ function shouldResumeRun(run: any) {
 }
 
 async function recoverCanceledRun(run: any) {
-  const logs = parseJsonField(run.logs, []);
+  const logs = parseJsonField<string[]>(run.logs, []);
   if (!hasCancelMarker(logs)) {
     return run;
   }

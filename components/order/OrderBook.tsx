@@ -240,25 +240,25 @@ export default function OrderBook({
     );
   }
 
-  if (!orderBookData) {
+  if (isOrderBookLoading) {
     return (
       <div className="bg-[var(--background)] p-4 h-full flex items-center justify-center">
         <div className="text-center py-8">
-          <p className="text-base text-gray-500 dark:text-gray-400">
-            {isOrderBookLoading ? "호가 정보 불러오는중..." : orderBookError || "실제 호가 데이터를 아직 받지 못했습니다"}
-          </p>
+          <p className="text-base text-gray-500 dark:text-gray-400">호가 정보 불러오는중...</p>
         </div>
       </div>
     );
   }
 
-  const { sellOrders, buyOrders, vi } = orderBookData;
+  const sellOrders = orderBookData?.sellOrders ?? [];
+  const buyOrders = orderBookData?.buyOrders ?? [];
+  const vi = orderBookData?.vi;
   // 화면에 보이는 10단계 합계가 아니라 거래소가 알려주는 "전체 잔량"이 우선
-  const totalSellVolume = orderBookData.totalAskQty ?? sellOrders.reduce(
+  const totalSellVolume = orderBookData?.totalAskQty ?? sellOrders.reduce(
     (sum, order) => sum + order.quantity,
     0
   );
-  const totalBuyVolume = orderBookData.totalBidQty ?? buyOrders.reduce(
+  const totalBuyVolume = orderBookData?.totalBidQty ?? buyOrders.reduce(
     (sum, order) => sum + order.quantity,
     0
   );

@@ -154,6 +154,7 @@ class NewsItemResponse(BaseModel):
     id: str
     title: str
     summary: Optional[str] = None
+    body: Optional[str] = None
     url: str
     source: str
     published_at: datetime
@@ -190,6 +191,7 @@ class NewsSignalResponse(BaseModel):
 
 class NewsIngestRequest(BaseModel):
     providers: Optional[List[str]] = None   # None = all configured
+    symbols: Optional[List[str]] = None     # specific symbols → Google News per symbol
     max_per_provider: int = 50
 
 
