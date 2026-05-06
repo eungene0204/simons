@@ -264,6 +264,65 @@ async def test_advisor_route_persists_experience_memory(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_advisor_route_does_not_overwrite_existing_strategy(monkeypatch, tmp_path):
+    db_path = tmp_path / "preserve-existing-strategy.db"
+    _create_persistence_db(db_path)
+    monkeypatch.setenv("DATABASE_URL", f"file:{db_path}")
+    monkeypatch.setattr(advisor_routes, "build_news_context_from_strategy", lambda _parsed: [])
+
+    strategy_dsl = {
+        "universe": ["KOSPI200"],
+        "entry_signals": [{"indicator": "rsi", "operator": "<=", "threshold": 30}],
+        "exit_signals": [{"indicator": "rsi", "operator": ">=", "threshold": 70}],
+        "max_positions": 10,
+        "initial_capital": 10_000_000,
+    }
+    strategy_id = strategy_id_for(strategy_dsl)
+
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        INSERT INTO Strategy (
+            id, name, description, settings, strategyType, createdAt, updatedAt
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            strategy_id,
+            "사용자 저장 전략",
+            "사용자가 직접 저장한 설명",
+            json.dumps({"preserve": True}),
+            "custom",
+            "2026-01-01T00:00:00Z",
+            "2026-01-01T00:00:00Z",
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    req = AdvisorRequest(
+        user_prompt="RSI 30 이하 매수, 70 이상 매도",
+        parsed_strategy=strategy_dsl,
+        backtest_result=BacktestSummary(cagr=0.04, mdd=-0.25, sharpe=0.4),
+    )
+
+    await advisor_routes.review_strategy(req)
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    strategy = conn.execute("SELECT * FROM Strategy WHERE id = ?", (strategy_id,)).fetchone()
+    experience_count = conn.execute("SELECT COUNT(*) FROM AdviceExperience").fetchone()[0]
+    conn.close()
+
+    assert strategy["name"] == "사용자 저장 전략"
+    assert strategy["description"] == "사용자가 직접 저장한 설명"
+    assert json.loads(strategy["settings"]) == {"preserve": True}
+    assert strategy["strategyType"] == "custom"
+    assert strategy["updatedAt"] == "2026-01-01T00:00:00Z"
+    assert experience_count == 1
+
+
+@pytest.mark.asyncio
 async def test_advisor_route_persists_then_retrieves_experience_memory(monkeypatch, tmp_path):
     db_path = tmp_path / "persist-then-retrieve-memory.db"
     _create_persistence_db(db_path)

@@ -221,7 +221,7 @@ def _load_experience_rows(
     return strategy_cases, experiences
 
 
-def _upsert_strategy(
+def _insert_strategy_if_absent(
     conn: sqlite3.Connection,
     strategy_id: str,
     strategy_summary: str,
@@ -233,11 +233,7 @@ def _upsert_strategy(
             id, name, description, settings, strategyType, createdAt, updatedAt
         )
         VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        ON CONFLICT(id) DO UPDATE SET
-            name=excluded.name,
-            description=excluded.description,
-            settings=excluded.settings,
-            updatedAt=CURRENT_TIMESTAMP
+        ON CONFLICT(id) DO NOTHING
         """,
         (
             strategy_id,
@@ -300,7 +296,7 @@ def save_advisor_experience(request: Any, response: Any) -> Optional[str]:
         now = datetime.now(timezone.utc)
         experience_id = f"exp_{strategy_hash[:16]}_{int(now.timestamp() * 1_000_000)}"
 
-        _upsert_strategy(conn, strategy_hash, summary, strategy_dsl)
+        _insert_strategy_if_absent(conn, strategy_hash, summary, strategy_dsl)
         conn.execute(
             """
             INSERT INTO AdviceExperience (
