@@ -3,7 +3,7 @@
 
 > **문서 버전:** v1.4
 > **작성일:** 2026-04-01
-> **최종 갱신일:** 2026-04-28
+> **최종 갱신일:** 2026-05-06
 > **프로젝트명:** Simons
 > **상태:** 작성 중
 
@@ -56,6 +56,8 @@ Simons는 사용자가 자신만의 주식 투자 전략을 **설계 → 검증 
 | XAI | Explainable AI — 설명 가능 인공지능 |
 | Strategy Skeleton | 파싱 완료 전 사용자에게 즉시 표시하는 임시 전략 카드 |
 | AI Runtime Metrics | parse, coach, summary 등 로컬 LLM 경로의 latency/queue wait 계측값 |
+| Experience Memory | 과거 전략 조언의 전/후 성과, 성공/실패 평가, 재사용 가능한 lesson 저장소 |
+| RAG | 현재 전략과 유사한 과거 프롬프트/DSL/조언 사례를 검색해 답변 컨텍스트로 사용하는 방식 |
 
 ### 1.4 개요
 
@@ -208,6 +210,40 @@ Simons는 사용자가 자신만의 주식 투자 전략을 **설계 → 검증 
 **FR-STR-018** 시스템은 동일한 전략/프롬프트에 대한 코치 응답을 캐시하고, 동시에 들어온 동일 요청은 in-flight dedupe로 하나의 LLM 호출을 공유해야 한다.
 
 **FR-STR-019** 시스템은 코치 SSE 응답을 replay 가능한 형태로 캐시하여 동일 요청의 반복 스트림에서 중복 LLM 추론을 피해야 한다.
+
+#### 3.1.1c RAG + Experience Memory 전략 Advisor
+
+**FR-ADV-001** 시스템은 사용자 전략 프롬프트와 ParsedStrategy를 기반으로 Strategy DSL JSON을 생성하고 canonical string으로 직렬화해야 한다.
+
+**FR-ADV-002** 시스템은 canonical Strategy DSL의 SHA-256 hash를 `strategy_id`로 사용해야 한다.
+
+**FR-ADV-003** 동일 `strategy_id`의 백테스트 결과가 이미 저장되어 있으면 불필요한 백테스트 재실행 없이 기존 결과를 재사용해야 한다.
+
+**FR-ADV-004** Advisor는 조언 생성 전에 현재 프롬프트, 현재 DSL, 현재 `strategy_id`, 현재 백테스트 결과를 컨텍스트로 포함해야 한다.
+
+**FR-ADV-005** Advisor는 텍스트 기반 유사도 검색을 수행해야 한다. 검색 대상은 `user_prompt`, `strategy_summary`, indicator 이름, entry/exit/risk 설명, 과거 `agent_advice_text`를 포함한다.
+
+**FR-ADV-006** Advisor는 DSL 구조 기반 유사도 검색을 수행해야 한다. 검색 대상은 indicators, entry/exit rules, filters, position sizing, stop loss, take profit, rebalance rule, universe, timeframe, parameter values를 포함한다.
+
+**FR-ADV-007** 텍스트가 유사하더라도 DSL 구조가 다르면 낮은 유사도로 취급해야 하며, 표현이 달라도 DSL 구조가 유사하면 유사 전략으로 취급해야 한다.
+
+**FR-ADV-008** Advisor는 Experience Memory에서 과거 유사 전략의 before/after metrics, 조언 내용, 성공 여부, lesson을 검색해야 한다.
+
+**FR-ADV-009** Advisor는 현재 전략의 백테스트 결과와 과거 유사 사례를 비교하여 핵심 문제점을 진단해야 한다.
+
+**FR-ADV-010** Advisor는 현재 전략에 적용 가능한 개선 후보 Strategy DSL을 생성할 수 있어야 한다.
+
+**FR-ADV-011** 가능하면 개선 후보를 동일 조건으로 재백테스트하고, 개선 전/후 결과를 비교해야 한다.
+
+**FR-ADV-012** Advisor는 조언 성공 여부를 CAGR만으로 판단하면 안 되며, CAGR, MDD, Sharpe, Sortino, Calmar, Profit Factor, win rate, trade count, turnover, 비용/슬리피지, OOS/WFA 결과를 종합 평가해야 한다.
+
+**FR-ADV-013** Advisor는 초기자금, 포지션 크기, 유동성 조건, 거래비용, 슬리피지를 고려해 개인 투자자에게 비현실적인 조언을 피해야 한다.
+
+**FR-ADV-014** Advisor는 모든 조언 결과를 `AdviceExperience`에 저장해야 한다. 저장 정보는 전략, 문제점, 조언, 조언 전/후 성과, 개선/악화 지표, 성공 여부, 실패 이유, 재사용 가능한 lesson을 포함해야 한다.
+
+**FR-ADV-015** Advisor 답변은 다음 순서를 따라야 한다: 전략 요약 → 현재 전략의 문제점 → 과거 유사 전략 사례 → Experience Memory에서 발견한 패턴 → 개선 제안 → 재백테스트 조건 → 주의할 점 → 최종 추천.
+
+**FR-ADV-016** 유사 사례가 부족하면 Advisor는 데이터 부족을 명확히 표시하고, 일반 퀀트 원칙 기반의 낮은/중간 신뢰도 조언으로 제한해야 한다.
 
 #### 3.1.2 블록 기반 전략 빌더 (레거시 / 고급 편집)
 
@@ -720,8 +756,13 @@ score = tanh(cagr/0.3)×0.15 + tanh(sharpe/2)×0.20 + tanh(pf/2)×0.10
 | `GET /api/news/symbol/[symbol]` | 종목별 뉴스 목록 (page, page_size, as_of 파라미터) |
 | `GET /api/news/impact/[symbol]` | 종목 Alpha 시그널 (latest_alpha, risk_alert_level) |
 | `GET /api/news/top` | 주요 시장 뉴스 피드 |
+| `GET /api/news/fetch-body` | 기사 본문 일부 추출 프록시 |
 
 **FR-NEWS-031** 백엔드 미가동 시 Next.js API Route는 seed 데이터를 폴백으로 반환해야 한다 (개발/테스트 환경 지원).
+
+**FR-NEWS-032** 기사 본문 fetch 기능은 `http`/`https` URL만 허용해야 하며, localhost, private IP, loopback, link-local, multicast, reserved, unspecified, non-global IP, userinfo URL을 거부해야 한다.
+
+**FR-NEWS-033** 기사 본문 fetch 기능은 redirect를 자동 추종하기 전에 `Location` URL을 재검증해야 하며, redirect 후 최종 URL도 동일한 SSRF 방어 규칙을 통과해야 한다.
 
 #### 3.6.5 뉴스 UI — NewsImpactPanel
 
@@ -819,6 +860,8 @@ score = tanh(cagr/0.3)×0.15 + tanh(sharpe/2)×0.20 + tanh(pf/2)×0.10
 | NFR-SEC-001 | API 키 등 민감 정보는 `.env` 파일로 관리하며 소스코드에 하드코딩 금지 |
 | NFR-SEC-002 | 사용자 입력(자연어 전략 프롬프트 포함)은 서버 전달 전 길이 제한(최대 2,000자) 적용 |
 | NFR-SEC-003 | SQL Injection 방지: Prisma ORM의 파라미터화된 쿼리 사용 |
+| NFR-SEC-004 | 외부 URL을 fetch하는 API는 SSRF 방어를 위해 scheme, hostname, DNS 해석 IP, redirect target을 검증해야 한다 |
+| NFR-SEC-005 | 뉴스 본문 fetch API는 private/loopback/link-local/non-global IP와 localhost를 직접 또는 redirect 경유로 호출하면 안 된다 |
 
 ### 4.5 확장성
 
@@ -837,6 +880,9 @@ score = tanh(cagr/0.3)×0.15 + tanh(sharpe/2)×0.20 + tanh(pf/2)×0.10
 User ─────────────────────────────────────── (계정)
 Strategy ──── BacktestResult ──── Stock        (전략·백테스트)
 Strategy ──── BacktestHistory                 (전략 캐시/이력)
+Strategy ──── BacktestRun                     (strategy_id 단위 백테스트 실행 캐시)
+Strategy ──── StrategyEmbedding               (RAG 검색 문서/임베딩)
+Strategy ──── AdviceExperience                (조언 경험 메모리)
 BatchRun ──── BatchRunCandidate ──── Strategy (배치 실행)
 Strategy ──── VirtualAccount                   (전략-가상계좌 연결)
 VirtualAccount ──── VirtualPosition            (가상 포지션)
@@ -894,6 +940,60 @@ BacktestHistory                                (백테스트 이력)
 | isVisible | Boolean | 사용자 노출 여부 |
 | hitCount | Int | cache hit 누적 수 |
 | createdAt | DateTime | 실행일 |
+
+#### BacktestRun
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | String PK | 실행 ID |
+| strategyId | String FK | Strategy.id |
+| strategyHash | String | canonical DSL SHA-256 |
+| canonicalDsl | String | canonical Strategy DSL JSON |
+| request | String | JSON 백테스트 요청 |
+| result | String | JSON 백테스트 결과 |
+| metrics | String | JSON 핵심 성과 지표 |
+| market | String? | 시장 구분 |
+| universe | String? | 종목 유니버스 |
+| initialCapital | Float? | 초기자금 |
+| timeframe | String? | 봉 주기 |
+| costModel | String? | 수수료/슬리피지 JSON |
+| createdAt | DateTime | 생성일 |
+| updatedAt | DateTime | 수정일 |
+
+#### StrategyEmbedding
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | String PK | 임베딩 레코드 ID |
+| strategyId | String FK | Strategy.id |
+| embeddingModel | String | 임베딩 모델명 또는 검색 방식 |
+| embeddingVector | String? | JSON/Text 벡터 저장값 |
+| textDocument | String | 텍스트 검색 문서 |
+| structureDocument | String | DSL 구조 검색 문서 |
+| createdAt | DateTime | 생성일 |
+
+#### AdviceExperience
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | String PK | 경험 메모리 ID |
+| strategyId | String FK | Strategy.id |
+| market | String? | KOSPI/KOSDAQ/US/Crypto 등 |
+| universe | String? | 선택 유니버스 |
+| initialCapital | Float | 초기자금 |
+| timeframe | String | 봉 주기 |
+| userPrompt | String | 원본 사용자 전략 프롬프트 |
+| strategySummary | String? | 전략 요약 |
+| strategyDsl | String | JSON Strategy DSL |
+| canonicalDsl | String | canonical DSL string |
+| strategyHash | String | SHA-256 strategy hash |
+| similarStrategyIds | String | JSON 유사 전략 ID 배열 |
+| retrievedCases | String | JSON RAG 검색 사례 |
+| agentAdvice | String | JSON 조언 요약/변경/경고/가정 |
+| beforeBacktest | String | JSON 조언 전 백테스트 지표 |
+| afterBacktest | String? | JSON 조언 후 백테스트 지표 |
+| evaluation | String | JSON 성공 여부, 개선/악화 지표, overfitting risk |
+| lesson | String | 재사용 가능한 교훈 |
+| confidence | String | low / medium / high |
+| dataCoverage | String? | 데이터 부족/충분 상태 |
+| createdAt | DateTime | 생성일 |
 
 #### BatchRun
 | 컬럼 | 타입 | 설명 |
@@ -1033,6 +1133,8 @@ BacktestHistory                                (백테스트 이력)
 | POST | `/backtest` | 백테스트 실행 (일반) |
 | POST | `/backtest-stream` | 백테스트 실행 (SSE 스트림) |
 | POST | `/strategy/parse` | 자연어 전략 파싱 (NLParser) |
+| POST | `/advisor/review` | RAG + Experience Memory 전략 리뷰/개선 조언 |
+| GET | `/news/fetch-body` | 기사 본문 일부 추출 (SSRF 방어 적용) |
 | GET | `/ai/runtime/metrics` | AI 런타임 latency 메트릭 조회 |
 | POST | `/ai/runtime/metrics/reset` | AI 런타임 메트릭 초기화 |
 | GET | `/health` | 서버 헬스체크 |
@@ -1050,6 +1152,7 @@ BacktestHistory                                (백테스트 이력)
 | GET/POST | `/api/strategy/batch-runs` | 배치 실행 시작 / 최근 이력 조회 / 상세 조회 / 취소 |
 | POST | `/api/strategy/coach` | AI 전략 코치 응답 생성 (단건) |
 | POST | `/api/strategy/coach/stream` | AI 전략 코치 SSE 스트리밍 |
+| POST | `/api/advisor/review` | RAG + Experience Memory 전략 리뷰/개선 조언 프록시 |
 | GET | `/api/ai/runtime/metrics` | AI 런타임 latency 메트릭 조회 프록시 |
 | POST | `/api/ai/runtime/metrics/reset` | AI 런타임 메트릭 초기화 프록시(production 비활성화) |
 | GET/POST | `/api/virtual-account` | 가상계좌 목록 조회 / 생성 |
@@ -1062,6 +1165,7 @@ BacktestHistory                                (백테스트 이력)
 | GET | `/api/news/symbol/[symbol]` | 종목별 뉴스 목록 (page, page_size, as_of) |
 | GET | `/api/news/impact/[symbol]` | 종목 Alpha 시그널 (latest_alpha, risk_alert_level) |
 | GET | `/api/news/top` | 주요 시장 뉴스 피드 |
+| GET | `/api/news/fetch-body` | 기사 본문 일부 추출 프록시 (SSRF 방어 적용) |
 
 ---
 
