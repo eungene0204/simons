@@ -249,6 +249,7 @@ OHLCV parquet 수집 후처리 및 펀더멘털 보강(예: PER/PBR/ROE) 적재.
 
 ### Files
 - backend/news/**
+- backend/api/news_routes.py
 - backend/tests/test_news_*.py
 - app/api/news/**
 - components/stock/NewsImpactPanel.tsx
