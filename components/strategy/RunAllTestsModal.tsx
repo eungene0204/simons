@@ -401,6 +401,7 @@ export default function RunAllTestsModal({
       profitFactor: item.result?.profitFactor ?? 0,
       trades: item.result?.trades ?? 0,
     }));
+    const runningItem = nextItems.find((item) => item.status === "running") ?? null;
 
     return {
       runId,
@@ -409,6 +410,10 @@ export default function RunAllTestsModal({
       completedCount: nextItems.filter((item) => item.status === "computed" || item.status === "cache_hit").length,
       failedCount: nextItems.filter((item) => item.status === "failed").length,
       skippedCount: nextItems.filter((item) => item.status === "skipped").length,
+      runStatus: nextItems.some((item) => item.status === "waiting" || item.status === "running")
+        ? "RUNNING"
+        : "COMPLETED",
+      currentStrategyName: runningItem?.name ?? null,
       rankingSnapshot: rankedSnapshot,
       items: nextItems,
       logs: nextLogs,

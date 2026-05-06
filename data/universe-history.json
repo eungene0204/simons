@@ -1,6 +1,66 @@
 {
-  "updatedAt": "2026-04-30T00:00:04.645300+09:00",
+  "updatedAt": "2026-05-06T00:00:04.175934+09:00",
   "entries": [
+    {
+      "date": "2026-05-06",
+      "syncedAt": "2026-05-06T00:00:04.175934+09:00",
+      "totalCount": 2658,
+      "kospiCount": 838,
+      "kosdaqCount": 1820,
+      "addedCount": 0,
+      "delistedCount": 0,
+      "added": [],
+      "delisted": []
+    },
+    {
+      "date": "2026-05-05",
+      "syncedAt": "2026-05-05T00:00:03.946340+09:00",
+      "totalCount": 2658,
+      "kospiCount": 838,
+      "kosdaqCount": 1820,
+      "addedCount": 0,
+      "delistedCount": 1,
+      "added": [],
+      "delisted": [
+        {
+          "symbol": "152550",
+          "name": "한국ANKOR유전",
+          "market": "KOSPI",
+          "sector": "증권/보험",
+          "industry": "신탁업 및 집합투자업"
+        }
+      ]
+    },
+    {
+      "date": "2026-05-02",
+      "syncedAt": "2026-05-02T00:00:03.302386+09:00",
+      "totalCount": 2659,
+      "kospiCount": 839,
+      "kosdaqCount": 1820,
+      "addedCount": 0,
+      "delistedCount": 0,
+      "added": [],
+      "delisted": []
+    },
+    {
+      "date": "2026-05-01",
+      "syncedAt": "2026-05-01T00:00:04.791635+09:00",
+      "totalCount": 2659,
+      "kospiCount": 839,
+      "kosdaqCount": 1820,
+      "addedCount": 1,
+      "delistedCount": 0,
+      "added": [
+        {
+          "symbol": "0129K0",
+          "name": "신한제18호스팩",
+          "market": "KOSDAQ",
+          "sector": "은행/금융지주",
+          "industry": "금융 지원 서비스업"
+        }
+      ],
+      "delisted": []
+    },
     {
       "date": "2026-04-30",
       "syncedAt": "2026-04-30T00:00:04.645300+09:00",

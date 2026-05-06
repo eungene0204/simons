@@ -33,6 +33,50 @@ function stableStringify(value: any): string {
   return JSON.stringify(sortDeep(pruneUndefined(value)));
 }
 
+function sortedSymbols(value: any): string[] {
+  return Array.isArray(value)
+    ? value.map((symbol) => String(symbol)).sort()
+    : [];
+}
+
+function normalizePeriod(value: any): string {
+  return String(value ?? "5Y").toUpperCase();
+}
+
+function buildBacktestCacheConfig(body: any) {
+  const options = body?.options ?? {};
+  const risk = body?.risk ?? {};
+
+  return sortDeep(pruneUndefined({
+    version: 2,
+    market: body?.market ?? null,
+    universe_id: body?.universe_id ?? body?.universeId ?? body?.universe ?? null,
+    universe_snapshot_hash: body?.universe_snapshot_hash ?? body?.universeSnapshotHash ?? null,
+    symbols: sortedSymbols(body?.symbols),
+    symbol_count: body?.symbol_count ?? null,
+    symbols_resolved: body?.symbols_resolved ?? null,
+    timeframe: body?.timeframe ?? body?.interval ?? "1d",
+    period: normalizePeriod(body?.period ?? body?.backtest_period),
+    start_date: body?.start_date ?? body?.startDate ?? options.start_date ?? options.startDate ?? null,
+    end_date: body?.end_date ?? body?.endDate ?? options.end_date ?? options.endDate ?? null,
+    initial_capital:
+      body?.initial_capital ??
+      body?.initialCapital ??
+      risk.init_cash ??
+      risk.initial_capital ??
+      risk.initialCapital ??
+      options.initial_capital ??
+      options.initialCapital ??
+      null,
+    fee_rate: options.fee_rate ?? body?.fee_rate ?? null,
+    slippage_rate: options.slippage_rate ?? body?.slippage_rate ?? null,
+    execution_type: options.execution_type ?? risk.execution_timing ?? null,
+    liquidity_limit_pct: risk.liquidity_limit_pct ?? null,
+    liquidity_policy: body?.liquidity_policy ?? body?.liquidityPolicy ?? null,
+    engine_version: body?.engine_version ?? body?.engineVersion ?? null,
+  }));
+}
+
 export function canonicalizeStrategyDsl(dsl: any): any {
   if (!dsl || typeof dsl !== "object") return {};
 
@@ -79,11 +123,17 @@ export function resolveStrategyId(payload: any): string | null {
 
 export function computeCacheKey(body: any): string {
   const strategyId = resolveStrategyId(body);
+  const backtestConfig = buildBacktestCacheConfig(body);
+
   if (strategyId) {
-    return strategyId;
+    return sha256(stableStringify({
+      strategy_id: strategyId,
+      backtest_config: backtestConfig,
+    }));
   }
 
   const normalized = sortDeep({
+    cache_version: 2,
     symbols: [...(body.symbols ?? [])].sort(),
     entry: {
       conditions: [...(body.entry?.conditions ?? [])].sort((a: any, b: any) =>
@@ -96,8 +146,7 @@ export function computeCacheKey(body: any): string {
       ),
     },
     risk: body.risk ?? {},
-    period: (body.period ?? "5Y").toUpperCase(),
-    options: body.options ?? {},
+    backtest_config: backtestConfig,
   });
 
   return sha256(JSON.stringify(normalized));
@@ -175,12 +224,7 @@ async function upsertStrategyForResult(strategyId: string, body: any) {
 
 export async function findCachedResult(cacheKey: string) {
   const existing = await prisma.backtestHistory.findFirst({
-    where: {
-      OR: [
-        { strategyId: cacheKey },
-        { cacheKey },
-      ],
-    },
+    where: { cacheKey },
     orderBy: { createdAt: "desc" },
   });
   if (!existing?.result) return null;
@@ -198,7 +242,7 @@ export async function findCachedResult(cacheKey: string) {
     strategy_id: existing.strategyId ?? result.strategy_id ?? cacheKey,
     strategyId: existing.strategyId ?? result.strategyId ?? cacheKey,
     fromCache: true,
-    cacheKey: existing.strategyId ?? existing.cacheKey ?? cacheKey,
+    cacheKey: existing.cacheKey ?? cacheKey,
     cachedAt: existing.createdAt,
     aiSummary: metrics.aiSummary ?? null,
     aiScore: metrics.aiScore ?? null,
@@ -246,12 +290,7 @@ export async function saveCachedResult(
     }
 
     const existingHistory = await prisma.backtestHistory.findFirst({
-      where: {
-        OR: [
-          { strategyId },
-          { cacheKey },
-        ],
-      },
+      where: { cacheKey },
       orderBy: { createdAt: "desc" },
     });
 
@@ -264,8 +303,9 @@ export async function saveCachedResult(
       result: JSON.stringify({
         ...result,
         strategy_id: strategyId,
+        cacheKey,
       }),
-      cacheKey: strategyId,
+      cacheKey,
       isVisible: false,
     };
 

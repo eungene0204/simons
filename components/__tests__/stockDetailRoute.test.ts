@@ -109,7 +109,7 @@ describe("GET /api/stock/[symbol]/detail", () => {
     expect(body.isNew52WeekLow).toBe(false);
   });
 
-  it("KIS 상세 시세가 비어도 기존 유효한 시가총액과 거래량을 0으로 덮어쓰지 않는다", async () => {
+  it("백엔드 시세가 없으면 marketCap과 volume은 0이고 이름은 종목 목록에서 온다", async () => {
     fetchMock
       .mockResolvedValueOnce({
         ok: true,
@@ -126,8 +126,8 @@ describe("GET /api/stock/[symbol]/detail", () => {
     );
     const body = await response.json();
 
-    expect(body.marketCap).toBe(432000000000000);
-    expect(body.volume).toBe(12500000);
+    expect(body.marketCap).toBe(0);
+    expect(body.volume).toBe(0);
     expect(body.name).toBe("삼성전자");
     expect(body.week52High).toBeNull();
     expect(body.week52Low).toBeNull();

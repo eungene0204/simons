@@ -97,7 +97,9 @@ class KISProvider(BaseProvider):
                 return None
 
             from datetime import datetime
-            today = datetime.now().strftime("%Y-%m-%d")
+            volume = int(output.get("acml_vol", "0") or "0")
+            # volume == 0 이면 장 미개시(공휴일·주말) → 오늘 날짜를 붙이지 않음
+            trade_date = datetime.now().strftime("%Y-%m-%d") if volume > 0 else None
 
             # PER/PBR/EPS/BPS 파싱 (KIS API 응답 필드)
             def _parse_float(val: str) -> Optional[float]:
@@ -110,12 +112,12 @@ class KISProvider(BaseProvider):
             return StockQuote(
                 symbol=symbol,
                 name=output.get("hts_kor_isnm", symbol),
-                date=today,
+                date=trade_date,
                 open=int(output.get("stck_oprc", "0") or "0"),
                 high=int(output.get("stck_hgpr", "0") or "0"),
                 low=int(output.get("stck_lwpr", "0") or "0"),
                 close=close,
-                volume=int(output.get("acml_vol", "0") or "0"),
+                volume=volume,
                 source="kis_total",
                 timestamp=time.time(),
                 prev_close=int(output.get("stck_sdpr", "0") or "0"),

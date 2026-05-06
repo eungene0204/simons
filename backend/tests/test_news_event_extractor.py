@@ -19,7 +19,9 @@ from news.event_extractor import (
     _match_rules,
     _extract_risk_flags,
     _source_credibility,
+    _llm_enabled,
 )
+from news import llm_extractor
 
 
 def _make_article(title: str, summary: str = "", source: str = "TestSource") -> NormalizedArticle:
@@ -179,6 +181,39 @@ class TestExtractEvent:
         event = extract_event(article)
         # valid_from would equal article.published_at in signals — check model_version tag
         assert event.model_version.startswith("v1")
+
+    def test_llm_disabled_by_default(self, monkeypatch):
+        monkeypatch.delenv("NEWS_EVENT_LLM_ENABLED", raising=False)
+
+        def fail_if_called(*args, **kwargs):
+            raise AssertionError("LLM extractor should be opt-in")
+
+        monkeypatch.setattr(llm_extractor, "extract", fail_if_called)
+
+        article = _make_article("삼성전자 실적 발표")
+        event = extract_event(article)
+
+        assert not _llm_enabled()
+        assert event.model_version == "v1-rules"
+
+    def test_llm_enabled_when_env_is_set(self, monkeypatch):
+        monkeypatch.setenv("NEWS_EVENT_LLM_ENABLED", "1")
+
+        def fake_extract(title, summary=None):
+            return {
+                "event_type": "general_neutral",
+                "sentiment": "neutral",
+                "severity": 0.4,
+                "summary": title,
+            }
+
+        monkeypatch.setattr(llm_extractor, "extract", fake_extract)
+
+        article = _make_article("삼성전자 실적 발표")
+        event = extract_event(article)
+
+        assert _llm_enabled()
+        assert event.model_version == "v2-llm"
 
     def test_schema_completeness(self):
         article = _make_article("임의 제목")

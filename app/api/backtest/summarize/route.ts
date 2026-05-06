@@ -1,6 +1,14 @@
 import { NextResponse } from "next/server";
 import { fetchBackend } from "@/lib/server/backend";
 import { prisma } from "@/lib/prisma";
+import {
+  deleteSummaryInFlight,
+  getSummaryInFlight,
+  getSummaryMemoryCache,
+  rememberSummary,
+  setSummaryInFlight,
+  type SummaryCachePayload,
+} from "./cache";
 
 type SummaryPayload = {
   score: number;
@@ -10,10 +18,6 @@ type SummaryPayload = {
   improvements: string[];
   cached: boolean;
 };
-
-const SUMMARY_CACHE_MAX = 200;
-const summaryMemoryCache = new Map<string, Omit<SummaryPayload, "cached">>();
-const summaryInFlight = new Map<string, Promise<Omit<SummaryPayload, "cached">>>();
 
 class SummarizeBackendError extends Error {
   status: number;
@@ -51,21 +55,10 @@ async function summaryPayloadKey(metrics: unknown, strategySummary: unknown): Pr
   return sha256(stableStringify({ metrics, strategySummary }));
 }
 
-function rememberSummary(key: string, payload: Omit<SummaryPayload, "cached">) {
-  if (summaryMemoryCache.has(key)) {
-    summaryMemoryCache.delete(key);
-  }
-  summaryMemoryCache.set(key, payload);
-  if (summaryMemoryCache.size > SUMMARY_CACHE_MAX) {
-    const oldestKey = summaryMemoryCache.keys().next().value;
-    if (oldestKey) summaryMemoryCache.delete(oldestKey);
-  }
-}
-
 async function fetchSummary(
   metrics: unknown,
   strategySummary: unknown
-): Promise<Omit<SummaryPayload, "cached">> {
+): Promise<SummaryCachePayload> {
   const res = await fetchBackend("/summarize", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -115,17 +108,17 @@ export async function POST(req: Request) {
     }
 
     const payloadKey = await summaryPayloadKey(metrics, strategySummary);
-    const memoryHit = summaryMemoryCache.get(payloadKey);
+    const memoryHit = getSummaryMemoryCache(payloadKey);
     if (memoryHit) {
       return NextResponse.json({ ...memoryHit, cached: true });
     }
 
-    let pending = summaryInFlight.get(payloadKey);
+    let pending = getSummaryInFlight(payloadKey);
     if (!pending) {
       pending = fetchSummary(metrics, strategySummary).finally(() => {
-        summaryInFlight.delete(payloadKey);
+        deleteSummaryInFlight(payloadKey);
       });
-      summaryInFlight.set(payloadKey, pending);
+      setSummaryInFlight(payloadKey, pending);
     }
 
     const generated = await pending;
@@ -170,9 +163,4 @@ export async function POST(req: Request) {
       { status: 500 }
     );
   }
-}
-
-export function __resetSummaryCacheForTests() {
-  summaryMemoryCache.clear();
-  summaryInFlight.clear();
 }

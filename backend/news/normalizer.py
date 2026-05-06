@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from html import unescape
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -25,8 +26,10 @@ from news.storage import compute_body_hash
 def _clean_text(text: Optional[str]) -> Optional[str]:
     if not text:
         return None
-    # Strip HTML tags (providers may include markup in title/body)
+    # Decode entities first, then strip tags (RSS may encode HTML as &lt;a&gt;)
+    text = unescape(text)
     text = re.sub(r"<[^>]+>", "", text)
+    text = unescape(text)
     # Normalize unicode (NFC)
     text = unicodedata.normalize("NFC", text)
     # Collapse whitespace

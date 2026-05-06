@@ -27,6 +27,7 @@ Allowed:
 - Optimization Runtime
 - Dashboard (read-only UI)
 - Strategy Persistence / BatchRun Storage
+- News Impact Pipeline
 - Governance / Policy Docs
 
 Never mix boundaries in one task.

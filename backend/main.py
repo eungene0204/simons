@@ -31,7 +31,24 @@ from urllib.parse import unquote
 from fastapi.responses import StreamingResponse
 from market_cap import normalize_market_cap
 
-app = FastAPI()
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(_app):
+    # 백엔드 시작 시 LLM 모델을 백그라운드 스레드에서 미리 로드
+    def _preload():
+        try:
+            from news import llm_extractor
+            llm_extractor._load()
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("LLM preload failed: %s", e)
+
+    thread = threading.Thread(target=_preload, daemon=True, name="llm-preload")
+    thread.start()
+    yield
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -921,15 +938,14 @@ def _fetch_company_basic_from_public_api(
         "https://apis.data.go.kr/1160100/service/GetCorpBasicInfoService_V2/getCorpOutline_V2",
         params,
     )
-    if not items and company_name:
-        items = _fetch_public_data_items(
-            "https://apis.data.go.kr/1160100/service/GetCorpBasicInfoService_V2/getCorpOutline_V2",
-            {
-                "numOfRows": 100,
-                "pageNo": 1,
-                "corpNm": company_name,
-            },
-        )
+    # 이름 검색 결과 없으면 한글 부분만 추출해서 재시도 (예: "SK하이닉스" → "하이닉스")
+    if not items and company_name and not crno:
+        korean_part = re.sub(r"[A-Za-z0-9&\s]+", "", company_name).strip()
+        if korean_part and korean_part != company_name:
+            items = _fetch_public_data_items(
+                "https://apis.data.go.kr/1160100/service/GetCorpBasicInfoService_V2/getCorpOutline_V2",
+                {"numOfRows": 100, "pageNo": 1, "corpNm": korean_part},
+            )
 
     item = next(
         (

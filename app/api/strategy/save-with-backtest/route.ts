@@ -52,6 +52,7 @@ export async function POST(request: Request) {
             })
           : await tx.strategy.create({
               data: {
+                id: strategyId,
                 name: name.trim(),
                 description: description?.trim() || null,
                 settings: JSON.stringify(dslToSave),

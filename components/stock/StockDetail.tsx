@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   CaretUp,
   CaretDown,
+  Info,
 } from "phosphor-react";
 import CandlestickChart from "@/components/stock/CandlestickChart";
 import { formatMarketCap } from "@/lib/format-market-cap";
@@ -108,7 +109,7 @@ export default function StockDetail({ symbol }: { symbol: string }) {
   }
 
   return (
-    <div className="bg-white dark:bg-gray-800 p-3 sm:p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+    <div className="bg-white dark:bg-gray-800 p-3 sm:p-4 rounded-lg shadow-sm border-t border-x border-gray-200 dark:border-gray-700">
       {/* Header */}
       <div className="flex items-center gap-3 mb-4">
         <button
@@ -197,67 +198,34 @@ export default function StockDetail({ symbol }: { symbol: string }) {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
-        <div className="p-2.5 bg-gray-50 dark:bg-gray-900 rounded-lg">
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">
-            전일종가
-          </p>
-          <p className="text-sm font-semibold text-gray-900 dark:text-white">
-            {formatPrice(detail.previousClose)}
-          </p>
-        </div>
-        <div className="p-2.5 bg-gray-50 dark:bg-gray-900 rounded-lg">
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">
-            시가
-          </p>
-          <p className="text-sm font-semibold text-gray-900 dark:text-white">
-            {formatPrice(detail.open)}
-          </p>
-        </div>
-        <div className="p-2.5 bg-gray-50 dark:bg-gray-900 rounded-lg">
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">
-            고가
-          </p>
-          <p className="text-sm font-semibold text-red-600 dark:text-red-400">
-            {formatPrice(detail.high)}
-          </p>
-        </div>
-        <div className="p-2.5 bg-gray-50 dark:bg-gray-900 rounded-lg">
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">
-            저가
-          </p>
-          <p className="text-sm font-semibold text-blue-500 dark:text-blue-400">
-            {formatPrice(detail.low)}
-          </p>
-        </div>
-        <div className="p-2.5 bg-gray-50 dark:bg-gray-900 rounded-lg">
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">
-            거래량(주)
-          </p>
-          <p className="text-sm font-semibold text-gray-900 dark:text-white">
-            {formatVolume(detail.volume)}
-          </p>
-        </div>
-        <div className="p-2.5 bg-gray-50 dark:bg-gray-900 rounded-lg">
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">
-            시가총액
-          </p>
-          <p className="text-sm font-semibold text-gray-900 dark:text-white">
-            {formatMarketCap(detail.marketCap)}
-          </p>
-        </div>
-        <div className="p-2.5 bg-gray-50 dark:bg-gray-900 rounded-lg">
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">PER</p>
-          <p className="text-sm font-semibold text-gray-900 dark:text-white">
-            {detail.pe.toFixed(2)}
-          </p>
-        </div>
-        <div className="p-2.5 bg-gray-50 dark:bg-gray-900 rounded-lg">
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">PBR</p>
-          <p className="text-sm font-semibold text-gray-900 dark:text-white">
-            {detail.pbr.toFixed(2)}
-          </p>
-        </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+        {[
+          { label: "전일종가", sub: "Prev Close", value: formatPrice(detail.previousClose), color: "white" },
+          { label: "시가", sub: "Open", value: formatPrice(detail.open), color: "white" },
+          { label: "고가", sub: "High", value: formatPrice(detail.high), color: "red" },
+          { label: "저가", sub: "Low", value: formatPrice(detail.low), color: "blue" },
+          { label: "거래량", sub: "Volume", value: formatVolume(detail.volume), color: "white" },
+          { label: "시가총액", sub: "Mkt Cap", value: formatMarketCap(detail.marketCap), color: "white" },
+          { label: "PER", sub: "P/E Ratio", value: detail.pe ? detail.pe.toFixed(2) : "—", color: "white" },
+          { label: "PBR", sub: "P/B Ratio", value: detail.pbr ? detail.pbr.toFixed(2) : "—", color: "white" },
+        ].map(({ label, sub, value, color }) => (
+          <div key={label} className="relative p-3 bg-gray-900 rounded-lg flex flex-col justify-between min-h-[72px]">
+            <div className="flex items-start justify-between mb-1">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">{label}</p>
+                <p className="text-[9px] text-gray-600 uppercase tracking-wider">{sub}</p>
+              </div>
+              <Info size={12} className="text-gray-600 mt-0.5 flex-shrink-0" />
+            </div>
+            <p className={`text-lg font-black tabular-nums font-outfit leading-none ${
+              color === "red" ? "text-red-400" :
+              color === "blue" ? "text-blue-400" :
+              "text-white"
+            }`}>
+              {value}
+            </p>
+          </div>
+        ))}
       </div>
 
       {/* Tab Bar */}
@@ -282,7 +250,7 @@ export default function StockDetail({ symbol }: { symbol: string }) {
               : "border-transparent text-gray-500 hover:text-gray-300"
           }`}
         >
-          뉴스·공시
+          뉴스
         </button>
       </div>
 
@@ -312,8 +280,6 @@ export default function StockDetail({ symbol }: { symbol: string }) {
         <NewsImpactPanel symbol={symbol} />
       </div>
 
-      {/* Bottom Spacing */}
-      <div className="h-16"></div>
     </div>
   );
 }

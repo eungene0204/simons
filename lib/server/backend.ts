@@ -6,7 +6,7 @@ const DEFAULT_BACKEND_URLS = [
 export function getBackendBaseUrls(): string[] {
   const envUrl = process.env.BACKEND_URL?.trim();
   const urls = envUrl ? [envUrl, ...DEFAULT_BACKEND_URLS] : DEFAULT_BACKEND_URLS;
-  return [...new Set(urls)];
+  return Array.from(new Set(urls));
 }
 
 export async function fetchBackend(

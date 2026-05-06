@@ -28,9 +28,14 @@ class BacktestSummary(BaseModel):
     cagr: Optional[float] = None           # e.g. 0.18 = 18%
     mdd: Optional[float] = None            # e.g. -0.32 = -32%
     sharpe: Optional[float] = None
+    sortino: Optional[float] = None
+    calmar: Optional[float] = None
     profit_factor: Optional[float] = None
     trade_count: Optional[int] = None
     win_rate: Optional[float] = None       # e.g. 0.55 = 55%
+    turnover: Optional[float] = None
+    avg_trade_return: Optional[float] = None
+    max_losing_streak: Optional[int] = None
 
 
 class NewsArticleSignal(BaseModel):
@@ -55,7 +60,11 @@ class AdvisorRequest(BaseModel):
     user_prompt: str = Field(description="사용자가 입력한 원문 전략 설명")
     parsed_strategy: Dict[str, Any] = Field(description="NLStrategyParser가 반환한 ParsedStrategy dict")
     backtest_result: Optional[BacktestSummary] = None
+    candidate_backtest_result: Optional[BacktestSummary] = None
+    evaluation_context: Optional[Dict[str, Any]] = None
     news_context: Optional[List[NewsContext]] = None
+    memory_strategy_cases: Optional[List[Dict[str, Any]]] = None
+    memory_experiences: Optional[List[Dict[str, Any]]] = None
 
 
 # ─── Output schemas ───────────────────────────────────────────────────────────
@@ -104,6 +113,12 @@ class AdviceItem(BaseModel):
     proposed_change: Optional[ProposedChange] = None
 
 
+class ResponseSection(BaseModel):
+    """User-facing advisor response section."""
+    title: str
+    body: str
+
+
 class AdvisorResponse(BaseModel):
     """Full output of the Strategy Advisor Agent."""
     strategy_score: float = Field(ge=0.0, le=100.0, description="종합 전략 점수 (0-100)")
@@ -114,5 +129,9 @@ class AdvisorResponse(BaseModel):
 
     news_analysis: Optional[NewsAnalysis] = None
     strategy_experiment_learning: Optional[Dict[str, Any]] = None
+    strategy_memory_context: Optional[Dict[str, Any]] = None
+    candidate_strategy: Optional[Dict[str, Any]] = None
+    advice_evaluation: Optional[Dict[str, Any]] = None
+    response_sections: List[ResponseSection] = Field(default_factory=list)
     suggested_experiments: List[str] = Field(default_factory=list)
     ai_model_recommendation: AIModelRecommendation

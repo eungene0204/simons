@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ArrowsClockwise,
   CheckCircle,
+  GitBranch,
   Lightbulb,
   Newspaper,
   Robot,
@@ -32,12 +33,42 @@ interface AIModelRecommendation {
   reason: string;
 }
 
+interface StrategyMemoryContext {
+  confidence: "low" | "medium" | "high" | string;
+  data_sufficiency: "sufficient" | "insufficient" | string;
+  similar_strategy_ids?: string[];
+  retrieved_cases?: Array<{
+    case_strategy_id?: string;
+    lesson?: string;
+    advice_success?: boolean | null;
+  }>;
+}
+
+interface AdviceEvaluation {
+  advice_success: boolean;
+  improved_metrics: string[];
+  worsened_metrics: string[];
+  net_effect: "positive" | "neutral" | "negative" | string;
+  reason: string;
+  overfitting_risk: "low" | "medium" | "high" | string;
+  oos_validation_required: boolean;
+}
+
+interface ResponseSection {
+  title: string;
+  body: string;
+}
+
 export interface AdvisorResult {
   strategy_score: number;
   risk_score: number;
   overfit_risk: "low" | "medium" | "high";
   advice: AdviceItem[];
   news_analysis?: NewsAnalysis | null;
+  strategy_memory_context?: StrategyMemoryContext | null;
+  candidate_strategy?: Record<string, unknown> | null;
+  advice_evaluation?: AdviceEvaluation | null;
+  response_sections?: ResponseSection[];
   suggested_experiments: string[];
   ai_model_recommendation: AIModelRecommendation;
 }
@@ -61,6 +92,37 @@ function riskColor(level: "low" | "medium" | "high" | string) {
   if (level === "high") return "text-[var(--main-red)]";
   if (level === "medium") return "text-amber-400";
   return "text-emerald-400";
+}
+
+function metricLabel(metric: string) {
+  const labels: Record<string, string> = {
+    cagr: "CAGR",
+    mdd: "MDD",
+    sharpe: "Sharpe",
+    sortino: "Sortino",
+    calmar: "Calmar",
+    profit_factor: "Profit Factor",
+    win_rate: "승률",
+    trade_count: "거래 횟수",
+    turnover: "Turnover",
+    avg_trade_return: "평균 손익",
+    max_losing_streak: "최대 연속 손실",
+  };
+  return labels[metric] ?? metric;
+}
+
+function confidenceLabel(value: string) {
+  if (value === "high") return "높음";
+  if (value === "medium") return "중간";
+  if (value === "low") return "낮음";
+  return value;
+}
+
+function netEffectLabel(value: string) {
+  if (value === "positive") return "개선";
+  if (value === "neutral") return "중립";
+  if (value === "negative") return "악화";
+  return value;
 }
 
 // ─── Section label ────────────────────────────────────────────────────────────
@@ -185,6 +247,36 @@ export function StrategyAdvisorPanel({
         {result && (
           <div className="p-4 space-y-3">
 
+            {/* Structured response */}
+            {(result.response_sections?.length ?? 0) > 0 && (
+              <div className="border border-white/[0.08] rounded-2xl overflow-hidden">
+                <SectionLabel
+                  icon={<CheckCircle size={14} weight="bold" className="text-gray-500" />}
+                  title="전략 리뷰"
+                  count={result.response_sections?.length}
+                />
+                <div className="divide-y divide-white/[0.04]">
+                  {result.response_sections?.map((section, i) => (
+                    <div key={`${section.title}-${i}`} className="px-4 py-3 hover:bg-white/[0.02] transition-colors duration-150">
+                      <div className="flex items-start gap-3">
+                        <span className="text-[10px] font-black text-gray-600 tabular-nums font-outfit mt-0.5">
+                          {String(i + 1).padStart(2, "0")}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-black uppercase tracking-widest text-gray-400 font-outfit">
+                            {section.title}
+                          </p>
+                          <p className="text-sm font-bold text-gray-500 leading-relaxed mt-1">
+                            {section.body}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* 조언 드립니다 */}
             {result.advice.length > 0 && (
               <div className="border border-white/[0.08] rounded-2xl overflow-hidden">
@@ -207,6 +299,133 @@ export function StrategyAdvisorPanel({
                       )}
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* Experience Memory */}
+            {result.strategy_memory_context && (
+              <div className="border border-white/[0.08] rounded-2xl overflow-hidden">
+                <SectionLabel
+                  icon={<GitBranch size={14} weight="bold" className="text-gray-500" />}
+                  title="유사 전략 경험"
+                  count={result.strategy_memory_context.retrieved_cases?.length ?? 0}
+                />
+                <div className="px-4 py-3 space-y-3">
+                  <div className="flex flex-wrap gap-1.5">
+                    <span className={`px-2 py-0.5 rounded-md text-xs font-black bg-white/[0.06] ${riskColor(result.strategy_memory_context.confidence)}`}>
+                      신뢰도 {confidenceLabel(result.strategy_memory_context.confidence)}
+                    </span>
+                    <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-white/[0.06] text-gray-400">
+                      {result.strategy_memory_context.data_sufficiency === "sufficient" ? "사례 충분" : "사례 부족"}
+                    </span>
+                    {(result.strategy_memory_context.similar_strategy_ids?.length ?? 0) > 0 && (
+                      <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-white/[0.06] text-gray-500">
+                        유사 전략 {result.strategy_memory_context.similar_strategy_ids?.length}개
+                      </span>
+                    )}
+                  </div>
+
+                  {result.strategy_memory_context.data_sufficiency !== "sufficient" && (
+                    <p className="text-xs font-bold text-amber-400 leading-relaxed">
+                      저장된 유사 사례가 부족합니다. 현재 조언은 재백테스트 전 가설로만 다뤄야 합니다.
+                    </p>
+                  )}
+
+                  {(result.strategy_memory_context.retrieved_cases?.length ?? 0) > 0 && (
+                    <div className="divide-y divide-white/[0.04] border-t border-white/[0.05]">
+                      {result.strategy_memory_context.retrieved_cases?.slice(0, 3).map((caseItem, i) => (
+                        <div key={`${caseItem.case_strategy_id ?? "case"}-${i}`} className="py-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-black text-gray-600 tabular-nums font-outfit">
+                              {caseItem.case_strategy_id?.slice(0, 10) ?? `case-${i + 1}`}
+                            </span>
+                            {caseItem.advice_success !== null && caseItem.advice_success !== undefined && (
+                              <span className={`text-[10px] font-black ${caseItem.advice_success ? "text-emerald-400" : "text-[var(--main-red)]"}`}>
+                                {caseItem.advice_success ? "성공" : "실패"}
+                              </span>
+                            )}
+                          </div>
+                          {caseItem.lesson && (
+                            <p className="text-xs font-bold text-gray-500 leading-relaxed mt-1">{caseItem.lesson}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Candidate / evaluation */}
+            {(result.candidate_strategy || result.advice_evaluation) && (
+              <div className="border border-white/[0.08] rounded-2xl overflow-hidden">
+                <SectionLabel
+                  icon={<CheckCircle size={14} weight="bold" className="text-gray-500" />}
+                  title="개선 후보 평가"
+                />
+                <div className="px-4 py-3 space-y-3">
+                  {result.candidate_strategy && (
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-widest text-gray-500">후보 전략</p>
+                      <p className="text-sm font-bold text-gray-400 leading-relaxed mt-1">
+                        조언을 반영한 후보 DSL이 생성되었습니다. 동일한 백테스트 조건에서 기존 전략과 비교해야 합니다.
+                      </p>
+                    </div>
+                  )}
+
+                  {result.advice_evaluation && (
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap gap-1.5">
+                        <span className={`px-2 py-0.5 rounded-md text-xs font-black bg-white/[0.06] ${
+                          result.advice_evaluation.net_effect === "positive"
+                            ? "text-emerald-400"
+                            : result.advice_evaluation.net_effect === "neutral"
+                              ? "text-amber-400"
+                              : "text-[var(--main-red)]"
+                        }`}>
+                          {netEffectLabel(result.advice_evaluation.net_effect)}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded-md text-xs font-bold bg-white/[0.06] ${riskColor(result.advice_evaluation.overfitting_risk)}`}>
+                          과최적화 {confidenceLabel(result.advice_evaluation.overfitting_risk)}
+                        </span>
+                        {result.advice_evaluation.oos_validation_required && (
+                          <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-white/[0.06] text-amber-400">
+                            OOS 필요
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="text-sm font-bold text-gray-400 leading-relaxed">
+                        {result.advice_evaluation.reason}
+                      </p>
+
+                      {(result.advice_evaluation.improved_metrics.length > 0 || result.advice_evaluation.worsened_metrics.length > 0) && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                          <div>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-gray-600">개선</p>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {result.advice_evaluation.improved_metrics.map((metric) => (
+                                <span key={metric} className="px-2 py-0.5 rounded-md text-xs font-bold bg-emerald-500/10 text-emerald-400">
+                                  {metricLabel(metric)}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-gray-600">악화</p>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {result.advice_evaluation.worsened_metrics.map((metric) => (
+                                <span key={metric} className="px-2 py-0.5 rounded-md text-xs font-bold bg-[var(--main-red)]/10 text-[var(--main-red)]">
+                                  {metricLabel(metric)}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             )}

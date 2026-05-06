@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cache } from '@/lib/cache'
 import { loadStockList } from '@/lib/krx-stocks'
-import { getBasePrice, generateStockPriceData, generateCandleData, generateTimeSeries } from '@/lib/mock-stock-data'
 import { fetchStockPriceSnapshots } from '@/lib/server/stock-prices'
 import { prisma } from '@/lib/prisma'
 import {
@@ -133,69 +132,6 @@ export async function GET(
 
     console.log(`Generating stock detail for ${symbol}...`);
 
-    // Base prices for generating dynamic mock data
-    const baseData: Record<string, Partial<StockDetail>> = {
-      "005930": {
-        name: "삼성전자",
-        currentPrice: 72500,
-        open: 72000,
-        high: 72800,
-        low: 71800,
-        previousClose: 70770,
-        volume: 12500000,
-        marketCap: 432000000000000,
-        pe: 12.5,
-        pbr: 1.2,
-        description: "삼성전자는 반도체, 디스플레이, 스마트폰 등 다양한 IT 분야에서 세계적인 기업입니다.",
-        sector: "정보기술",
-        industry: "반도체",
-      },
-      "000660": {
-        name: "SK하이닉스",
-        currentPrice: 142000,
-        open: 141000,
-        high: 143500,
-        low: 140500,
-        previousClose: 143746,
-        volume: 3200000,
-        marketCap: 102000000000000,
-        pe: 8.3,
-        pbr: 1.5,
-        description: "SK하이닉스는 메모리 반도체를 생산하는 세계적인 기업입니다.",
-        sector: "정보기술",
-        industry: "반도체",
-      },
-      "035420": {
-        name: "NAVER",
-        currentPrice: 198500,
-        open: 197000,
-        high: 200000,
-        low: 196500,
-        previousClose: 192430,
-        volume: 2100000,
-        marketCap: 31500000000000,
-        pe: 28.5,
-        pbr: 2.8,
-        description: "NAVER는 대한민국 대표 인터넷 포털 및 IT 기업입니다.",
-        sector: "정보기술",
-        industry: "인터넷 서비스",
-      },
-      "035720": {
-        name: "카카오",
-        currentPrice: 54600,
-        open: 54000,
-        high: 55000,
-        low: 53800,
-        previousClose: 53610,
-        volume: 5800000,
-        marketCap: 24500000000000,
-        pe: 35.2,
-        pbr: 1.8,
-        description: "카카오는 모바일 플랫폼과 디지털 콘텐츠 서비스를 제공하는 기업입니다.",
-        sector: "정보기술",
-        industry: "인터넷 서비스",
-      },
-    };
 
     // 한국 종목 목록에서 이름, 섹터, 업종 정보 가져오기
     let stockName = "";
@@ -262,12 +198,10 @@ export async function GET(
     const quote = priceSnapshots[symbol];
 
     let realDetail: MarketDetailResponse | null = null;
-    const base = baseData[symbol] || {};
     const companyNameForLookup = pickStockName(
       symbol,
       stockName,
-      storedStock?.name,
-      base.name,
+      storedStock?.name ?? undefined,
     );
     const hasPersistedInfo = hasStoredInfoProfile(
       storedProfile,
@@ -295,22 +229,15 @@ export async function GET(
 
     const marketCapCacheKey = `stock:detail:market-cap:${symbol}`;
     const cachedMarketCap = cache.get<number>(marketCapCacheKey) ?? undefined;
-    const basePrice =
-      realLastClose ||
-      quote?.price ||
-      base.currentPrice ||
-      getBasePrice(symbol);
-    const priceData = generateStockPriceData(symbol, basePrice);
-    const currentPrice = pickPositiveNumber(quote?.price, priceData.currentPrice);
-    const previousClose = pickPositiveNumber(quote?.previousClose, priceData.previousClose);
+    const currentPrice = pickPositiveNumber(quote?.price, realLastClose);
+    const previousClose = pickPositiveNumber(quote?.previousClose, realLastClose);
     const change = currentPrice - previousClose;
     const changePercent =
       quote?.changePercent ??
-      (previousClose > 0 ? (change / previousClose) * 100 : priceData.changePercent);
+      (previousClose > 0 ? (change / previousClose) * 100 : 0);
     const resolvedMarketCap = pickPositiveNumber(
       realDetail?.marketCap,
       cachedMarketCap,
-      base.marketCap,
     );
 
     const resolvedPer = typeof realDetail?.per === "number" ? realDetail.per : undefined;
@@ -321,18 +248,14 @@ export async function GET(
       cache.set(marketCapCacheKey, resolvedMarketCap, MARKET_CAP_CACHE_TTL_SECONDS);
     }
     
-    // 캔들 데이터 생성
-    const candleData = generateCandleData(symbol, basePrice, 365);
-    const timeSeries = generateTimeSeries(symbol, basePrice, 365);
     const resolvedName = pickStockName(
       symbol,
-      storedStock?.name,
+      storedStock?.name ?? undefined,
       stockName,
       realDetail?.name,
-      base.name,
     ) || symbol;
     const resolvedMarket = stockMarket || (storedStock?.market as "KOSPI" | "KOSDAQ" | undefined);
-    const resolvedDescription = realDetail?.description || base.description || "";
+    const resolvedDescription = realDetail?.description || "";
     const resolvedIndustry = realDetail?.industry || "";
     const resolvedSector = storedStock?.sector || realDetail?.sector || "";
     const resolvedListingDate = storedStock?.listingDate || realDetail?.listingDate || "";
@@ -355,10 +278,10 @@ export async function GET(
       currentPrice,
       changePercent,
       change,
-      open: pickPositiveNumber(quote?.open, priceData.open),
-      high: pickPositiveNumber(quote?.high, priceData.high),
-      low: pickPositiveNumber(quote?.low, priceData.low),
-      volume: pickPositiveNumber(quote?.volume, realDetail?.volume, base.volume),
+      open: pickPositiveNumber(quote?.open),
+      high: pickPositiveNumber(quote?.high),
+      low: pickPositiveNumber(quote?.low),
+      volume: pickPositiveNumber(quote?.volume, realDetail?.volume),
       marketCap: resolvedMarketCap,
       previousClose,
       pe: effectivePe,
@@ -379,8 +302,8 @@ export async function GET(
       companyBasic: resolvedCompanyBasic,
       summaryFinancials: resolvedSummaryFinancials,
       listingDate: resolvedListingDate,
-      timeSeries: timeSeries,
-      candleData: candleData,
+      timeSeries: undefined,
+      candleData: undefined,
       realLastClose: realLastClose ?? null,
     };
 
@@ -390,7 +313,7 @@ export async function GET(
           ? buildStockInfoProfileFromDetail(
               {
                 symbol,
-                name: stockName || storedStock?.name || base.name,
+                name: stockName || storedStock?.name || undefined,
                 market: resolvedMarket,
                 sector: stockSector || storedStock?.sector || undefined,
               },
@@ -402,7 +325,7 @@ export async function GET(
           await persistStockInfoProfile(
             {
               symbol,
-              name: stockName || storedStock?.name || base.name,
+              name: stockName || storedStock?.name || undefined,
               market: resolvedMarket,
               sector: stockSector || storedStock?.sector || undefined,
             },
@@ -421,8 +344,8 @@ export async function GET(
           market: resolvedMarket ?? null,
           sector: resolvedSector || null,
           listingDate: resolvedListingDate || null,
-          profileSource: storedProfile?.source || storedStock?.profileSource || null,
-          profileUpdatedAt: storedProfile?.updatedAt || storedStock?.profileUpdatedAt || null,
+          profileSource: storedProfile?.source || null,
+          profileUpdatedAt: storedProfile?.updatedAt || null,
           updatedAt: new Date(),
         },
         update: {

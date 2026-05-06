@@ -7,7 +7,7 @@ import { useDrawer } from "@/contexts/DrawerContext";
 
 // 탑메뉴바를 memo로 감싸서 리렌더링 방지
 const TopMenuBarContent = memo(function TopMenuBarContent({ subHeader }: { subHeader?: React.ReactNode }) {
-  const { drawerType, isWatchlistOpen, openWatchlist } = useDrawer();
+  const { drawerType } = useDrawer();
   const [drawerWidthPx, setDrawerWidthPx] = useState(0);
   const topMenuBarRef = useRef<HTMLDivElement>(null);
   const [topMenuBarHeight, setTopMenuBarHeight] = useState(76);
@@ -76,10 +76,7 @@ const TopMenuBarContent = memo(function TopMenuBarContent({ subHeader }: { subHe
         id="top-menu-bar"
         ref={topMenuBarRef}
       >
-        <Sidebar 
-          onWatchlistClick={openWatchlist} 
-          isWatchlistOpen={isWatchlistOpen}
-        />
+        <Sidebar />
         {subHeader}
       </div>
     </div>
@@ -89,4 +86,3 @@ const TopMenuBarContent = memo(function TopMenuBarContent({ subHeader }: { subHe
 export default function TopMenuBar({ subHeader }: { subHeader?: React.ReactNode }) {
   return <TopMenuBarContent subHeader={subHeader} />;
 }
-

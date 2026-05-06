@@ -46,7 +46,7 @@ export default function CreateAccountModal({
   if (!isOpen) return null;
 
   const selectedStrategy = strategies.find((s) => s.id === selectedStrategyId);
-  const selectedSummary = buildStrategySummaryFromDsl(selectedStrategy);
+  const selectedSummary = buildStrategySummaryFromDsl(selectedStrategy as unknown as StrategyDSL);
   const summaryChips = selectedSummary
     ? [
         `유니버스 ${selectedSummary.universeName}`,

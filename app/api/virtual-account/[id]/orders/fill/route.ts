@@ -56,11 +56,13 @@ export async function POST(
             } else {
               await tx.virtualPosition.create({
                 data: {
+                  id: crypto.randomUUID(),
                   accountId: params.id,
                   symbol: order.symbol,
                   name: order.name ?? order.symbol,
                   quantity: order.quantity,
                   avgPrice: filledPrice,
+                  updatedAt: new Date(),
                 },
               });
             }

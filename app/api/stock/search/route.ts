@@ -6,6 +6,8 @@ import { loadStockList } from "@/lib/krx-stocks";
 import { scoreSmartMatch, normalizeSearchText } from "@/lib/smart-search";
 import type { StockSearchResult } from "@/types/stock";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;

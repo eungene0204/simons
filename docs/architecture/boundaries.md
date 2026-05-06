@@ -242,6 +242,41 @@ OHLCV parquet 수집 후처리 및 펀더멘털 보강(예: PER/PBR/ROE) 적재.
 
 ---
 
+## Boundary M: News Impact Pipeline
+
+### Purpose
+뉴스 수집, 정규화, 이벤트 추출, 영향도 산정 및 주식 상세 화면 전달 경로 유지보수.
+
+### Files
+- backend/news/**
+- backend/tests/test_news_*.py
+- app/api/news/**
+- components/stock/NewsImpactPanel.tsx
+
+### Allowed Tasks
+- 뉴스 provider 응답 파싱 및 정규화 수정
+- 이벤트 추출, look-ahead 방지, model/version 메타데이터 정합성 수정
+- 뉴스 중복 제거, 심볼 매핑, 영향도 산정 로직 보완
+- 뉴스 저장소와 API 응답 간 schema-compatible 필드 매핑 수정
+- News Impact Panel 표시용 경량 응답 정합성 수정
+- 뉴스 파이프라인 회귀 테스트 추가 및 수정
+
+### Strict Rules
+- Preserve public news API response contracts
+- Keep changes isolated to news impact behavior
+- Tests are required for event extraction, look-ahead, or impact scoring changes
+
+### Forbidden
+- 백테스트 엔진(`backend/engine/**`) 변경
+- 전략 생성/Advisor 로직(`backend/advisor/**`) 변경
+- AI runtime/model orchestration 변경
+- database schema 변경
+- 인증 로직 변경
+- `components/stock/StockDetail.tsx` 구조 변경
+- 범용 스크립트(`scripts/**`, `backend/scripts/**`) 변경
+
+---
+
 ## Boundary G: Governance / Policy Docs
 
 ### Purpose

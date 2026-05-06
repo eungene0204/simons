@@ -64,6 +64,18 @@ def _parse_as_of(as_of: Optional[str]) -> Optional[datetime]:
         raise HTTPException(status_code=400, detail=f"Invalid as_of format: {as_of}")
 
 
+def _sanitize(text: Optional[str]) -> Optional[str]:
+    """Strip HTML tags and decode entities from stored text."""
+    if not text:
+        return None
+    import re
+    from html import unescape
+    text = unescape(text)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = unescape(text)
+    return re.sub(r"\s+", " ", text).strip() or None
+
+
 def _row_to_response(row: Dict) -> NewsItemResponse:
     import json
 
@@ -88,7 +100,8 @@ def _row_to_response(row: Dict) -> NewsItemResponse:
     return NewsItemResponse(
         id=row["id"],
         title=row.get("title", ""),
-        summary=row.get("eventSummary") or row.get("summary"),
+        summary=_sanitize(row.get("eventSummary") or row.get("summary")),
+        body=_sanitize(row.get("summary")),
         url=row.get("url", ""),
         source=row.get("source", ""),
         published_at=_safe_dt(row.get("publishedAt")) or datetime.now(timezone.utc),
@@ -392,3 +405,41 @@ async def get_risk_alerts(
     as_of_dt = _parse_as_of(as_of)
     alerts = news_service.get_risk_alerts_for_virtual_trading(symbol_list, as_of=as_of_dt)
     return {"alerts": alerts, "as_of": (as_of_dt or datetime.now(timezone.utc)).isoformat()}
+
+
+@router.get("/fetch-body", summary="Scrape first paragraphs from a news article URL")
+async def fetch_article_body(url: str = Query(...)):
+    import httpx
+    import re
+    from html import unescape
+
+    _HEADERS = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "ko-KR,ko;q=0.9",
+    }
+
+    def _extract(html: str) -> str:
+        # Remove script/style blocks
+        html = re.sub(r"<(script|style)[^>]*>.*?</(script|style)>", "", html, flags=re.DOTALL | re.IGNORECASE)
+        # Extract <p> tag contents
+        paras = re.findall(r"<p[^>]*>(.*?)</p>", html, re.DOTALL | re.IGNORECASE)
+        texts = []
+        for p in paras:
+            text = re.sub(r"<[^>]+>", "", p)
+            text = unescape(text)
+            text = re.sub(r"\s+", " ", text).strip()
+            if len(text) > 30:
+                texts.append(text)
+            if len(" ".join(texts)) > 300:
+                break
+        return " ".join(texts)[:400]
+
+    try:
+        async with httpx.AsyncClient(headers=_HEADERS, timeout=8.0, follow_redirects=True) as client:
+            res = await client.get(url)
+        if res.status_code != 200:
+            return {"body": None}
+        body = _extract(res.text)
+        return {"body": body or None}
+    except Exception:
+        return {"body": None}

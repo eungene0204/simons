@@ -21,6 +21,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from advisor.memory_repository import load_advisor_memory
+from advisor.memory_retriever import retrieve_memory_context
 from advisor.news_enrichment import build_coach_news_insight, build_news_context_from_strategy
 
 logger = logging.getLogger(__name__)
@@ -50,6 +52,7 @@ COACH_SYSTEM_PROMPT = """당신은 퀀트 트레이딩 전략의 문제점을 �
 1. parsed_strategy — 파싱된 전략 JSON (불완전할 수 있음)
 2. advisor_insight — 사전 계산된 메트릭
 3. news_agent_insight — 뉴스 신호 (선택)
+4. strategy_memory_context — RAG/Experience Memory 검색 결과 (선택)
 
 [핵심 목표]
 가장 중요한 단 하나의 문제를 선택하여, 사용자가 그 심각성을 체감하게 설명하라.
@@ -74,6 +77,13 @@ COACH_SYSTEM_PROMPT = """당신은 퀀트 트레이딩 전략의 문제점을 �
 [뉴스 신호 우선 규칙]
 news_agent_insight에 risk_alert_level이 high인 종목이 있으면 뉴스 리스크 문제를 최우선으로 지적
 
+[RAG / Experience Memory 규칙]
+- strategy_memory_context가 있으면 유사 전략 사례와 과거 조언 성공/실패 교훈을 근거로 판단하라
+- data_sufficiency가 insufficient이면 유사 사례가 부족하다고 보고, 확정적 표현을 피하라
+- retrieved_cases가 비어 있으면 과거 사례가 충분한 것처럼 꾸며내지 마라
+- 백테스트 결과가 없으면 수익성이 좋거나 개선되었다고 단정하지 마라
+- 과거 사례가 있어도 현재 전략의 자본, 거래비용, 슬리피지, OOS 검증 필요성을 무시하지 마라
+
 [금지 사항]
 - 해결 방법, 구체적 수치 제안, 행동 지시 금지 — 문제 설명만 할 것
 - 여러 문제 나열 금지 — 가장 중요한 하나만
@@ -92,6 +102,8 @@ class CoachRequest(BaseModel):
     parsed_strategy: Dict[str, Any]
     advisor_insight: Optional[Dict[str, Any]] = None
     news_agent_insight: Optional[Dict[str, Any]] = None
+    memory_strategy_cases: Optional[List[Dict[str, Any]]] = None
+    memory_experiences: Optional[List[Dict[str, Any]]] = None
 
 
 class CoachResponse(BaseModel):
@@ -243,7 +255,64 @@ def _build_user_message(req: CoachRequest) -> str:
             rec_lines = [f"  - [P{r.get('priority',9)}] {r.get('title')}: {r.get('reason')}" for r in sorted_recs[:1]]
             parts.append("핵심 제안 (우선순위순):\n" + "\n".join(rec_lines))
 
+    if req.memory_strategy_cases or req.memory_experiences:
+        memory_context = retrieve_memory_context(
+            req.user_prompt,
+            req.parsed_strategy,
+            req.memory_strategy_cases or [],
+            req.memory_experiences or [],
+        )
+        parts.append("\n[strategy_memory_context — RAG/Experience Memory, 직접 노출 금지]")
+        parts.append(f"strategy_id: {memory_context['strategy_id']}")
+        parts.append(f"confidence: {memory_context['confidence']}")
+        parts.append(f"data_sufficiency: {memory_context['data_sufficiency']}")
+        similar_ids = memory_context.get("similar_strategy_ids") or []
+        if similar_ids:
+            parts.append(f"similar_strategy_ids: {', '.join(similar_ids[:5])}")
+        for similar in memory_context.get("similar_strategies", [])[:3]:
+            parts.append(
+                "  - similar="
+                f"{similar.get('strategy_id')} "
+                f"score={similar.get('combined_score')} "
+                f"reason={similar.get('similarity_reason')}"
+            )
+        if memory_context["data_sufficiency"] == "insufficient":
+            parts.append("유사 사례 부족: 조언은 낮은 신뢰도로 제한하고 재백테스트 필요성을 명시")
+        for case in memory_context.get("retrieved_cases", [])[:3]:
+            lesson = case.get("lesson") or "lesson 없음"
+            before = _stable_json(case.get("before_metrics") or {})
+            after = _stable_json(case.get("after_metrics") or {})
+            parts.append(
+                "  - case="
+                f"{case.get('case_strategy_id')} "
+                f"success={case.get('advice_success')} "
+                f"before={before} after={after} lesson={lesson}"
+            )
+
     return "\n".join(parts)
+
+
+def _with_auto_context(req: CoachRequest) -> CoachRequest:
+    effective_req = req
+    if not effective_req.news_agent_insight:
+        news_context = build_news_context_from_strategy(effective_req.parsed_strategy)
+        news_insight = build_coach_news_insight(news_context)
+        if news_insight:
+            effective_req = effective_req.model_copy(update={"news_agent_insight": news_insight})
+
+    if (
+        effective_req.memory_strategy_cases is None
+        and effective_req.memory_experiences is None
+    ):
+        strategy_cases, experiences = load_advisor_memory()
+        if strategy_cases or experiences:
+            effective_req = effective_req.model_copy(
+                update={
+                    "memory_strategy_cases": strategy_cases,
+                    "memory_experiences": experiences,
+                }
+            )
+    return effective_req
 
 
 def _parse_llm_response(raw: str) -> CoachResponse:
@@ -276,12 +345,7 @@ async def coach_strategy(req: CoachRequest) -> CoachResponse:
 
     try:
         request_started = time.perf_counter()
-        effective_req = req
-        if not req.news_agent_insight:
-            news_context = build_news_context_from_strategy(req.parsed_strategy)
-            news_insight = build_coach_news_insight(news_context)
-            if news_insight:
-                effective_req = req.model_copy(update={"news_agent_insight": news_insight})
+        effective_req = _with_auto_context(req)
 
         cache_key = _coach_cache_key(effective_req)
         cached = _coach_response_cache.get(cache_key)
@@ -344,12 +408,7 @@ async def coach_strategy_stream(req: CoachRequest):
         raise HTTPException(status_code=503, detail="Coach model not loaded yet")
 
     request_started = time.perf_counter()
-    effective_req = req
-    if not req.news_agent_insight:
-        news_context = build_news_context_from_strategy(req.parsed_strategy)
-        news_insight = build_coach_news_insight(news_context)
-        if news_insight:
-            effective_req = req.model_copy(update={"news_agent_insight": news_insight})
+    effective_req = _with_auto_context(req)
 
     from engine.nl_parser import NLStrategyParser
     parser: NLStrategyParser = _parser

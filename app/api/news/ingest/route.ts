@@ -8,7 +8,11 @@ export async function POST(request: NextRequest) {
     const res = await fetch(`${BACKEND}/news/ingest-and-analyze`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ providers: body.providers ?? null, max_per_provider: body.max_per_provider ?? 50 }),
+      body: JSON.stringify({
+        providers: body.providers ?? null,
+        symbols: body.symbols ?? null,
+        max_per_provider: body.max_per_provider ?? 50,
+      }),
     })
 
     if (!res.ok) {

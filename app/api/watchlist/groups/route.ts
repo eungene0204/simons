@@ -11,7 +11,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const { name, color } = await request.json()
   const group = await prisma.watchlistGroup.create({
-    data: { name, color: color || '#3B82F6' },
+    data: { id: crypto.randomUUID(), name, color: color || '#3B82F6' },
   })
   return NextResponse.json(group)
 }

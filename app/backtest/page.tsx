@@ -93,7 +93,7 @@ export default function BacktestHistoryPage() {
   });
 
   return (
-    <DashboardLayout>
+    <DashboardLayout userName="">
       <div className="p-6 max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">

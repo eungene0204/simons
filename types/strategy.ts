@@ -130,6 +130,7 @@ export interface BacktestResult {
   profitFactor: number;
   sharpe: number;
   sortino: number;
+  kelly?: number;
   volatility?: number;
   calmar?: number;
   avgHoldingDays?: number;

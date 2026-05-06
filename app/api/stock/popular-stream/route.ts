@@ -1,5 +1,7 @@
 import { fetchBackend } from "@/lib/server/backend";
 
+export const dynamic = "force-dynamic";
+
 const POPULAR_SYMBOLS = ["005930", "000660", "373220", "005380", "068270"];
 
 export async function GET() {

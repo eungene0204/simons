@@ -41,6 +41,7 @@ export async function POST(request: NextRequest) {
         email,
         name,
         password: hashedPassword,
+        updatedAt: new Date(),
       },
     })
 
@@ -59,5 +60,4 @@ export async function POST(request: NextRequest) {
     )
   }
 }
-
 

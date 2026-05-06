@@ -19,6 +19,7 @@ from typing import Dict, List, Optional, Tuple, Type
 from news.providers.base import BaseNewsProvider
 from news.providers.naver_news import NaverNewsProvider
 from news.providers.rss_provider import RSSNewsProvider
+from news.providers.google_news import GoogleNewsProvider
 from news import storage
 from news import normalizer as norm_module
 from news import dedup as dedup_module
@@ -26,6 +27,7 @@ from news import entity_mapper
 from news import event_extractor
 from news import impact_model
 from news.schemas import (
+    ArticleSymbolMap,
     NormalizedArticle,
     IngestionStats,
     NewsIngestRequest,
@@ -57,6 +59,19 @@ def _get_providers(names: Optional[List[str]] = None) -> List[BaseNewsProvider]:
     return providers
 
 
+def _get_google_news_provider(symbols: List[str]) -> Optional[GoogleNewsProvider]:
+    """Build a GoogleNewsProvider from symbol codes by looking up company names."""
+    targets = []
+    for symbol in symbols:
+        row = storage.get_stock_by_symbol(symbol)
+        name = row.get("name") if row else None
+        if name and name != symbol:
+            targets.append((symbol, name))
+        else:
+            logger.warning("No company name found for symbol %s, skipping Google News", symbol)
+    return GoogleNewsProvider(targets) if targets else None
+
+
 async def ingest(req: NewsIngestRequest) -> List[IngestionStats]:
     """
     Run a full ingestion cycle across all configured providers.
@@ -68,6 +83,10 @@ async def ingest(req: NewsIngestRequest) -> List[IngestionStats]:
     4. Store canonical articles + raw records
     """
     providers = _get_providers(req.providers)
+    if req.symbols:
+        gp = _get_google_news_provider(req.symbols)
+        if gp:
+            providers = [gp]
     logs: List[IngestionStats] = []
 
     for provider in providers:
@@ -93,12 +112,24 @@ async def ingest(req: NewsIngestRequest) -> List[IngestionStats]:
             logger.info("[%s] %d duplicates removed, %d unique", provider.name, dup_count, len(unique))
 
             # Store
+            raw_by_url = {r.url: r for r in raw_articles}
             inserted = 0
-            for i, article in enumerate(unique):
-                raw = raw_articles[i] if i < len(raw_articles) else None
+            for article in unique:
+                raw = raw_by_url.get(article.url)
                 newly_inserted = storage.upsert_article(article)
                 if newly_inserted:
                     inserted += 1
+                    # Force-map to target symbol if fetched by Google News
+                    if raw and raw.raw_json and "symbol" in raw.raw_json:
+                        storage.upsert_symbol_maps([
+                            ArticleSymbolMap(
+                                article_id=article.id,
+                                symbol=raw.raw_json["symbol"],
+                                company_name=raw.raw_json.get("company_name"),
+                                scope="stock",
+                                relevance=0.8,
+                            )
+                        ])
                     # Also store raw record
                     if raw:
                         storage.upsert_raw_article(

@@ -17,7 +17,8 @@ vi.mock("@/lib/server/backend", () => ({
   fetchBackend: mockFetchBackend,
 }));
 
-const { POST, __resetSummaryCacheForTests } = await import("./route");
+const { POST } = await import("./route");
+const { __resetSummaryCacheForTests } = await import("./cache");
 
 function makeRequest(body: object): Request {
   return new Request("http://localhost/api/backtest/summarize", {
