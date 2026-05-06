@@ -1,7 +1,7 @@
 # Software Architecture
 
 > 한국/글로벌 주식 퀀트 투자 플랫폼 — Simons
-> **최종 갱신일:** 2026-04-28
+> **최종 갱신일:** 2026-05-06
 
 ---
 
@@ -32,6 +32,7 @@
 | ORM / DB | Prisma + SQLite |
 | 백테스팅 엔진 | VectorBT + Polars + Pandas |
 | AI/ML | PyTorch Transformer + XGBoost + SHAP |
+| 전략 조언 | RAG + Experience Memory + 백테스트 개선 전/후 평가 |
 | 자연어 파싱 | Rule-first parser + LLM (MLX / Ollama) + JSON repair/fallback |
 | 테스트 | Vitest (프론트) + Pytest (백엔드) |
 
@@ -132,13 +133,22 @@ simons/
 │   │   ├── models.py                # PyTorch 모델 정의
 │   │   ├── xai_engine.py            # SHAP 기반 설명 가능 AI
 │   │   └── summarize.py             # 백테스트 결과 AI 요약 (Claude API)
+│   ├── advisor/                     # RAG + Experience Memory 전략 조언 Agent
+│   │   ├── agent.py                 # 전략 진단/조언 오케스트레이터
+│   │   ├── strategy_identity.py     # canonical DSL + SHA-256 strategy_id
+│   │   ├── similarity.py            # 텍스트/구조 기반 유사도 계산
+│   │   ├── memory_retriever.py      # 과거 유사 전략/경험 검색
+│   │   ├── memory_repository.py     # AdviceExperience 저장/조회
+│   │   ├── candidate_generator.py   # 개선 후보 전략 생성
+│   │   ├── advice_evaluator.py      # 개선 전/후 성과 평가
+│   │   └── response_composer.py     # 사용자 답변 섹션 구성
 │   ├── news/                        # 뉴스 Impact AI Agent
 │   │   ├── schemas.py               # NormalizedArticle, NewsImpact Pydantic 모델
 │   │   ├── dedup.py                 # 중복 제거 (Jaccard + body hash, 24h 윈도우)
 │   │   ├── collector.py             # 뉴스 수집 오케스트레이터
 │   │   ├── analyzer.py              # 이벤트 분류 + alpha 계산
 │   │   ├── storage.py               # DB 저장/조회
-│   │   ├── news_routes.py           # FastAPI 라우터 (5개 엔드포인트)
+│   │   ├── news_routes.py           # FastAPI 라우터 (6개+ 엔드포인트)
 │   │   └── providers/
 │   │       ├── naver_news.py        # Naver Finance RSS (4피드, 무인증)
 │   │       └── rss_provider.py      # 한국경제·연합뉴스·매일경제 RSS
@@ -155,6 +165,8 @@ simons/
 │   │   └── templates/               # 전략 템플릿 (momentum/mean_reversion/value/volume_breakout/ai_signal)
 │   ├── api/
 │   │   ├── coach_routes.py          # FastAPI AI 전략 코치 라우터 (단건 + SSE 스트리밍)
+│   │   ├── advisor_routes.py        # RAG/Experience Memory 전략 리뷰 라우터
+│   │   ├── news_routes.py           # 뉴스 FastAPI 라우터
 │   │   └── research_routes.py       # FastAPI 연구 에이전트 라우터 (9개 엔드포인트, SSE)
 │   └── tests/                       # 백엔드 단위 테스트
 │
@@ -288,6 +300,7 @@ interface BacktestResult {
 | POST | `/strategy/backtest-stream` | 백테스트 실행 (SSE 스트리밍) |
 | POST | `/strategy/coach` | AI 전략 코치 응답 생성 (단건, Qwen MLX) |
 | POST | `/strategy/coach/stream` | AI 전략 코치 SSE 스트리밍 (토큰 단위, Qwen MLX) |
+| POST | `/advisor/review` | RAG + Experience Memory 기반 전략 진단/개선 조언 |
 
 **백테스트**
 | 메서드 | 경로 | 설명 |
@@ -323,6 +336,7 @@ interface BacktestResult {
 | GET | `/news/symbol/{symbol}` | 종목별 뉴스 (as_of 지원) |
 | GET | `/news/impact/{symbol}` | 종목 Alpha 시그널 (latest_alpha) |
 | GET | `/news/top` | 주요 뉴스 |
+| GET | `/news/fetch-body` | 기사 본문 일부 추출 (SSRF 방어 적용) |
 
 **Strategy Research Agent (Premium)**
 | 메서드 | 경로 | 설명 |
@@ -468,12 +482,17 @@ ResearchRun     — 리서치 에이전트 런 (status, config JSON, userId)
                 → ResearchEvent (1:N)
 ResearchCandidate — 후보 전략 (template, dsl_hash, scores, promoted)
 ResearchEvent   — SSE 이벤트 로그 (type, payload JSON)
+
+BacktestRun     — strategy_id 단위 백테스트 실행 캐시/메트릭 스냅샷
+StrategyEmbedding — RAG 검색용 텍스트/구조 문서 및 임베딩 메타데이터
+AdviceExperience — 조언 전/후 성과, 유사 사례, 평가, reusable lesson 저장
 ```
 
 **Strategy 저장 규칙**
 - `Strategy.id`는 surrogate key가 아니라 `strategy_id = SHA-256(canonical_strategy_dsl)` 이다.
 - canonicalization은 stable JSON key ordering을 사용하고, 의미 없는 metadata를 제외한다.
 - 동일 DSL이면 항상 동일 `strategy_id`가 생성되므로, 저장 중복 제거, 백테스트 캐시 키, 결과 조회 키를 하나의 식별자로 통합한다.
+- Advisor memory는 `Strategy`를 insert-only로 참조한다. 같은 `strategy_id`가 이미 존재하면 사용자 저장 전략의 `name`, `description`, `settings`를 덮어쓰지 않는다.
 
 ### 5.2 데이터 파일
 
@@ -537,6 +556,7 @@ Client polling으로 진행률/로그/리더보드 반영
 - `POST /api/strategy/backtest-stream` — 단일 전략 SSE 백테스트 + strategy_id 캐시 활용
 - `POST /api/strategy/save-with-backtest` — 전략 저장 + 백테스트 동시 실행
 - `GET/POST /api/strategy/batch-runs` — 배치 실행 시작/상세 조회/최근 이력/취소
+- `POST /api/advisor/review` — RAG + Experience Memory 전략 리뷰/개선 조언
 - `GET /api/ai/runtime/metrics` — AI 런타임 latency 메트릭 조회
 - `POST /api/ai/runtime/metrics/reset` — AI 런타임 메트릭 초기화(production 비활성화)
 
@@ -557,6 +577,7 @@ Client polling으로 진행률/로그/리더보드 반영
 - `GET /api/news/symbol/[symbol]` — 종목별 뉴스 목록 (백엔드 미가동 시 seed 데이터 폴백)
 - `GET /api/news/impact/[symbol]` — 종목 Alpha 시그널 (latest_alpha, risk_alert_level)
 - `GET /api/news/top` — 주요 시장 뉴스 피드
+- `GET /api/news/fetch-body` — 기사 본문 일부 추출 프록시. `http/https`만 허용하고 localhost/private/link-local/non-global IP와 userinfo URL을 차단한다.
 
 **가상 계좌**
 - `POST /api/virtual-account` — 계좌 생성
@@ -610,6 +631,38 @@ Client polling으로 진행률/로그/리더보드 반영
 | 우선순위 | MLX priority lock에서 parse보다 낮고 summary보다 높은 priority |
 | 뉴스 우선순위 | news_agent_insight 존재 시 최우선 반영, risk_alert_level high → 리스크 조언 강제 |
 | `<think>` 처리 | Qwen3 thinking-mode 아티팩트 자동 제거 (`re.sub`) |
+
+### 7.1c RAG + Experience Memory 전략 Advisor (`backend/advisor/*`)
+
+전략 Advisor는 현재 전략만 보고 조언하지 않고, 과거 유사 전략과 조언 결과를 검색한 뒤 재사용 가능한 lesson을 반영한다.
+
+```
+user_prompt + parsed_strategy + backtest_result
+    ↓
+canonical DSL → SHA-256 strategy_id
+    ↓
+백테스트 캐시/저장 결과 재사용
+    ↓
+텍스트 유사도 검색 + DSL 구조 유사도 검색
+    ↓
+Experience Memory(AdviceExperience)에서 성공/실패 사례 검색
+    ↓
+현재 성과 진단 + 개선 후보 DSL 생성
+    ↓
+후보 재백테스트 결과와 OOS/WFA 컨텍스트 비교
+    ↓
+advice_evaluation 저장 + 사용자 답변 섹션 생성
+```
+
+| 모듈 | 역할 |
+|------|------|
+| `strategy_identity.py` | Strategy DSL canonical string과 SHA-256 `strategy_id` 생성 |
+| `similarity.py` | user prompt/advice text 기반 텍스트 검색과 DSL 구조 검색 결합 |
+| `memory_retriever.py` | 유사 전략, 과거 조언, before/after metrics, lesson 선별 |
+| `candidate_generator.py` | 현재 전략에 적용 가능한 개선 후보 DSL 생성 |
+| `advice_evaluator.py` | CAGR, MDD, Sharpe, Profit Factor, trade count, OOS/WFA 기반 성공/실패 판단 |
+| `memory_repository.py` | `AdviceExperience` 저장/조회. 기존 사용자 `Strategy` row는 덮어쓰지 않음 |
+| `response_composer.py` | 전략 요약, 문제점, 유사 사례, 패턴, 개선 제안, 재백테스트 조건, 주의사항, 최종 추천 섹션 생성 |
 
 **ParsedStrategy 주요 필드:**
 ```python
@@ -671,6 +724,8 @@ SHAP 기반 — 각 예측에 영향을 준 피처와 기여도 반환, 프론�
 | `test_strategy_converter.py` | ParsedStrategy → BacktestRequest 변환 |
 | `test_ai_code_fixes.py` | AI 관련 버그 픽스 회귀 테스트 |
 | `test_news_dedup.py` | 뉴스 중복 제거: Jaccard 유사도·body hash·시간윈도우·intra-batch (22개) |
+| `test_advisor_*` | RAG memory retrieval, candidate evaluation, response composer, advice evaluation |
+| `test_news_fetch_body_security.py` | 뉴스 본문 fetch SSRF 방어: private URL 직접 요청/redirect 차단 |
 
 제외 (서버/모델 필요): `test_backtest_engine`, `test_engine_ai`, `test_ai_sell`, `test_api_isolation`
 
@@ -693,6 +748,8 @@ cd backend && pytest tests/ \
 | `monthlyReturns.test.ts` | 월별 수익률 계산 로직 |
 | `SidebarQuickSearch.test.tsx` | 검색 사이드바 |
 | `OrderBook.test.tsx` | 호가창 컴포넌트 |
+| `StrategyAdvisorPanel.request.test.tsx` | 후보 백테스트 결과와 evaluation context가 advisor 요청에 포함되는지 검증 |
+| `app/api/news/fetch-body/route.test.ts` | Next.js 뉴스 본문 fetch 프록시 SSRF 입력 차단 |
 
 ```bash
 npm run test:frontend

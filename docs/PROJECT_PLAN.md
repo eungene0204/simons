@@ -1,7 +1,7 @@
 # Simons — 종합 투자 시뮬레이션 플랫폼 프로젝트 계획서
 
 > **문서 버전:** v2.0
-> **최종 갱신일:** 2026-04-28
+> **최종 갱신일:** 2026-05-06
 > **프로젝트명:** Simons (시몬스)
 
 ---
@@ -15,6 +15,7 @@
 | 가치 | 설명 |
 |------|------|
 | **AI 대화형 전략 설계** | 자연어 프롬프트로 투자 전략을 설명하면 AI가 자동으로 퀀트 전략으로 변환 |
+| **RAG 전략 조언** | 과거 유사 전략, 백테스트 결과, 조언 성공/실패 경험을 검색해 검증 가능한 개선안 제시 |
 | **AI 융합** | 자체 개발 Transformer+XGBoost 예측 모델을 전략 블록으로 결합 |
 | **과학적 검증** | 과거 데이터 기반 백테스트 + SHAP 기반 설명 가능 AI |
 | **가상 실전 매매** | 실시간 시장 데이터 기반 페이퍼 트레이딩으로 전략 실전 검증 |
@@ -110,6 +111,15 @@ simons/
 │   │   ├── models.py      #   HybridAIModel (PyTorch)
 │   │   ├── local_optimization_agent.py  # Optuna 최적화 에이전트
 │   │   └── optimization_agent.py        # 원격 최적화 조율
+│   ├── advisor/           # RAG + Experience Memory 기반 전략 조언 Agent
+│   │   ├── agent.py       #   전략 진단 오케스트레이터
+│   │   ├── strategy_identity.py # canonical DSL + SHA-256 strategy_id
+│   │   ├── similarity.py  #   텍스트/구조 기반 유사 전략 검색
+│   │   ├── memory_retriever.py # Experience Memory 검색/선별
+│   │   ├── memory_repository.py # AdviceExperience 저장/조회
+│   │   ├── candidate_generator.py # 개선 후보 전략 생성
+│   │   ├── advice_evaluator.py # 개선 전/후 성과 평가
+│   │   └── response_composer.py # 사용자 답변 섹션 구성
 │   ├── news/              # 뉴스 Impact AI Agent 모듈
 │   │   ├── schemas.py     #   NormalizedArticle, NewsImpact Pydantic 모델
 │   │   ├── dedup.py       #   중복 제거 (Jaccard 유사도 + body hash)
@@ -120,7 +130,7 @@ simons/
 │   │   └── providers/     #   뉴스 데이터 수집 공급자
 │   │       ├── naver_news.py  # Naver Finance RSS (4개 피드, 키 불요)
 │   │       └── rss_provider.py # 한국경제·연합뉴스·매일경제 RSS
-│   └── tests/             # 39개 테스트 파일 (pytest)
+│   └── tests/             # 40+개 테스트 파일 (pytest)
 ├── components/            # React 컴포넌트
 │   ├── strategy/          # 전략 빌더 UI (핵심)
 │   │   └── RunAllTestsModal.tsx  # 독립형 Batch Backtest UI
@@ -136,7 +146,7 @@ simons/
 │   ├── watchlist/         # 관심종목
 │   ├── ui/                # 공통 UI
 │   ├── providers/         # React 프로바이더
-│   └── __tests__/         # 24개 프론트엔드 테스트
+│   └── __tests__/         # 주요 프론트엔드 컴포넌트/API 테스트
 ├── lib/                   # 프론트엔드 유틸리티
 │   ├── strategy-blocks.ts # 29개 시그널 블록 정의
 │   ├── strategy/          # BacktestService, UniverseResolver, SignalEvaluator
@@ -273,7 +283,7 @@ simons/
 
 #### 3.1.1b AI 전략 코치 ✅ 완료
 
-> 전략 파싱 완료 후 StrategyAdvisor(rule-based, ~14ms) + Qwen MLX(LLM) 를 조합하여 맞춤형 코칭 메시지를 비동기 스트리밍으로 표시.
+> 전략 파싱 완료 후 StrategyAdvisor(rule-based) + RAG/Experience Memory + Qwen MLX(LLM) 를 조합하여 맞춤형 코칭 메시지를 비동기 스트리밍으로 표시.
 
 | 항목 | 내용 |
 |------|------|
@@ -286,6 +296,8 @@ simons/
 | 런타임 우선순위 | parse보다 낮고 summary보다 높은 priority로 MLX 추론 락 획득 |
 | 뉴스 통합 | `news_agent_insight` 우선 반영 — risk_alert_level high 시 리스크 조언 최우선 |
 | advisor 통합 | `advisor_insight` (rule-based 전략 진단) → 코치 컨텍스트로 활용 |
+| RAG 통합 | 현재 전략의 텍스트/DSL 구조 유사 사례와 과거 조언 성공/실패 경험을 검색 |
+| 개선 검증 | 후보 전략 생성 후 가능하면 개선 전/후 백테스트와 WFA/OOS 컨텍스트를 비교 |
 | UX | 전략 요약 카드 → 즉시 스피너 → 첫 토큰 도착 시 메시지 박스 등장 → 타자처럼 누적 → 완료 시 제안 버튼 표시 |
 | 응답 형식 | `{"message": "...(300자 이내)", "suggestions": ["제안1", "제안2", "제안3"]}` |
 
@@ -309,6 +321,23 @@ POST /api/strategy/coach/stream
 | 시그널 변환 | 기술적 시그널 → `type="indicator"` 조건 블록 + 파라미터 |
 | Canonicalization | stable JSON key ordering, 의미 없는 metadata 제외, 의미 있는 배열 순서 유지 |
 | Strategy ID | `strategy_id = SHA-256(canonical_strategy_dsl)` |
+
+#### 3.1.1c RAG + Experience Memory 전략 조언 Agent ✅ 완료
+
+> 전략 조언 Agent는 단순 rule-based 문구 생성이 아니라 현재 전략 → 과거 유사 사례 검색 → 경험 데이터 참고 → 개선안 생성 → 재백테스트 비교 → 경험 저장 루프를 수행한다.
+
+| 단계 | 구현 내용 | 상태 |
+|------|-----------|------|
+| Strategy ID | Strategy DSL canonical string 생성 후 SHA-256 hash를 `strategy_id`로 사용 | ✅ 완료 |
+| 백테스트 재사용 | 동일 `strategy_id`/cache key가 존재하면 기존 백테스트 결과를 재사용 | ✅ 완료 |
+| 텍스트 유사도 검색 | prompt, summary, indicator, entry/exit/risk 설명, advice text 기반 검색 | ✅ 완료 |
+| 구조 유사도 검색 | DSL indicators, entry/exit rules, filters, risk, universe, timeframe, parameter 값 비교 | ✅ 완료 |
+| Experience Memory | `AdviceExperience`에 조언 전/후 성과, 유사 사례, 평가, lesson 저장 | ✅ 완료 |
+| 개선 후보 생성 | 현재 전략 문제점과 과거 lesson 기반 후보 DSL 생성 | ✅ 완료 |
+| 개선 효과 평가 | CAGR, MDD, Sharpe, Sortino, Calmar, Profit Factor, trade count, OOS/WFA 컨텍스트 종합 평가 | ✅ 완료 |
+| UI 반영 | 후보 재백테스트 후 advisor panel이 `advice_evaluation`을 다시 조회해 개선 전/후 평가 표시 | ✅ 완료 |
+
+**조언 답변 섹션:** 전략 요약 → 현재 전략의 문제점 → 과거 유사 전략 사례 → Experience Memory에서 발견한 패턴 → 개선 제안 → 재백테스트 조건 → 주의할 점 → 최종 추천
 
 #### 3.1.2 모두 테스트 (독립형 배치 백테스트) ✅ 완료
 
@@ -662,6 +691,27 @@ BacktestResult {
   id (cuid), strategyId→Strategy, stockId→Stock, summary (JSON), trades (JSON), createdAt
 }
 
+-- 전략 단위 백테스트 실행 캐시
+BacktestRun {
+  id, strategyId→Strategy, strategyHash, canonicalDsl, request (JSON), result (JSON),
+  metrics (JSON), market, universe, initialCapital, timeframe, costModel (JSON),
+  createdAt, updatedAt
+}
+
+-- RAG 검색용 전략 임베딩/검색 메타데이터
+StrategyEmbedding {
+  id, strategyId→Strategy, embeddingModel, embeddingVector (JSON/Text),
+  textDocument, structureDocument, createdAt
+}
+
+-- 조언 경험 메모리
+AdviceExperience {
+  id, strategyId→Strategy, userPrompt, strategySummary, strategyDsl, canonicalDsl,
+  strategyHash, similarStrategyIds (JSON), retrievedCases (JSON), agentAdvice (JSON),
+  beforeBacktest (JSON), afterBacktest (JSON), evaluation (JSON),
+  lesson, confidence, market, universe, initialCapital, timeframe, dataCoverage, createdAt
+}
+
 -- 백테스트 이력 (캐싱 포함)
 BacktestHistory {
   id (cuid), strategyId→Strategy?, strategyName, universe, conditions (JSON), metrics (JSON),
@@ -780,7 +830,7 @@ WatchlistSymbol {
 | GET | `/api/backtest/explain` | XAI 설명 (SHAP) |
 | POST | `/api/backtest/ai-report` | AI 분석 리포트 |
 
-#### 전략 / AI 런타임 (11개)
+#### 전략 / AI 런타임 (12개)
 | Method | Endpoint | 기능 |
 |--------|----------|------|
 | GET/POST | `/api/strategy` | 전략 목록/생성 |
@@ -791,6 +841,7 @@ WatchlistSymbol {
 | GET/POST | `/api/strategy/batch-runs` | 배치 실행 시작/이력 조회/상세 조회/취소 |
 | POST | `/api/strategy/coach` | AI 전략 코치 (단건 응답) |
 | POST | `/api/strategy/coach/stream` | AI 전략 코치 SSE 스트리밍 |
+| POST | `/api/advisor/review` | RAG + Experience Memory 전략 리뷰/개선 조언 |
 | GET | `/api/ai/runtime/metrics` | AI 런타임 latency 메트릭 조회 |
 | POST | `/api/ai/runtime/metrics/reset` | AI 런타임 메트릭 초기화 (production 비활성화) |
 
@@ -837,6 +888,7 @@ WatchlistSymbol {
 | GET | `/api/news/top` | 주요 시장 뉴스 피드 |
 | GET | `/api/news/symbol/[symbol]` | 종목별 뉴스 목록 (페이징, 백엔드 미가동 시 seed 데이터) |
 | GET | `/api/news/impact/[symbol]` | 종목 뉴스 Alpha 시그널 (latest_alpha, risk_alert_level) |
+| GET | `/api/news/fetch-body` | 기사 본문 요약 추출 프록시 (SSRF 방어 적용) |
 
 #### 기타 (5개)
 | Method | Endpoint | 기능 |
@@ -872,6 +924,7 @@ WatchlistSymbol {
 | POST | `/strategy/backtest-stream` | SSE 백테스트 스트림 |
 | POST | `/strategy/coach` | AI 전략 코치 (단건 응답) |
 | POST | `/strategy/coach/stream` | AI 전략 코치 SSE 스트리밍 (토큰 단위) |
+| POST | `/advisor/review` | 전략 진단, RAG 검색, Experience Memory 저장 |
 | GET | `/model/status` | NL 파서 상태 |
 | GET | `/ai/runtime/metrics` | AI 런타임 latency 메트릭 조회 |
 | POST | `/ai/runtime/metrics/reset` | AI 런타임 메트릭 초기화 |
@@ -882,6 +935,7 @@ WatchlistSymbol {
 | GET | `/news/symbol/{symbol}` | 종목별 뉴스 (페이징, as_of 지원) |
 | GET | `/news/impact/{symbol}` | 종목 뉴스 Alpha 시그널 (latest_alpha) |
 | GET | `/news/top` | 주요 뉴스 (섹터/전체) |
+| GET | `/news/fetch-body` | 기사 본문 일부 추출 (private/loopback/link-local/non-global URL 차단) |
 
 ---
 
@@ -1001,6 +1055,19 @@ WatchlistSymbol {
 | 캐시/중복 제거 | Next.js/FastAPI 계층에서 JSON cache, SSE replay cache, in-flight dedupe 적용 | ✅ 완료 |
 | 런타임 우선순위 | MLX priority lock에서 parse보다 낮고 summary보다 높은 priority로 실행 | ✅ 완료 |
 
+### Phase 3.7c: RAG + Experience Memory 전략 조언 Agent — ✅ 완료
+
+| 작업 | 상세 | 구현 상태 |
+|------|------|----------|
+| Strategy ID 정합성 | canonical DSL + SHA-256 기반 식별 및 캐시 재사용 | ✅ 완료 |
+| Advisor memory schema | `BacktestRun`, `StrategyEmbedding`, `AdviceExperience` 저장 구조 | ✅ 완료 |
+| 유사 전략 검색 | 텍스트 기반 검색 + DSL 구조 기반 검색 결합 | ✅ 완료 |
+| 경험 검색/선별 | 과거 조언 성공/실패 사례와 lesson을 현재 전략 컨텍스트로 주입 | ✅ 완료 |
+| 개선 후보 생성 | 리스크/성과 문제 기반 후보 DSL 생성 | ✅ 완료 |
+| 후보 재백테스트 | `/analytics/new`에서 후보 백테스트와 WFA/OOS 컨텍스트를 advisor 요청에 반영 | ✅ 완료 |
+| 성공/실패 평가 | 수익률, 위험, 거래 품질, 비용/슬리피지, OOS/WFA 악화 여부 종합 판단 | ✅ 완료 |
+| Memory 저장 안전성 | Advisor 저장은 기존 사용자 `Strategy` row를 덮어쓰지 않는 insert-only 방식 | ✅ 완료 |
+
 ### Phase 3.8: 뉴스 Impact AI Agent — ✅ 완료
 
 > 뉴스/공시 데이터를 수집·중복제거·분류하여 종목별 Alpha 시그널을 생성하고, 종목 상세 페이지의 뉴스·공시 탭에 실시간 표시하는 시스템.
@@ -1011,12 +1078,13 @@ WatchlistSymbol {
 | 중복 제거 | Jaccard 유사도 + body hash, 24h 시간 윈도우, 배치 내 intra-batch dedup | ✅ 완료 |
 | 뉴스 스키마 | `NormalizedArticle`, `NewsImpact` Pydantic 모델 | ✅ 완료 |
 | Alpha 시그널 | 이벤트 분류 (earnings_beat / analyst_upgrade 등), 방향·confidence·expected_alpha 계산 | ✅ 완료 |
-| FastAPI 라우터 | `news_routes.py` — 5개 엔드포인트 (`/news/symbol`, `/news/impact`, `/news/top` 등) | ✅ 완료 |
+| FastAPI 라우터 | `news_routes.py` — 6개+ 엔드포인트 (`/news/symbol`, `/news/impact`, `/news/top`, `/news/fetch-body` 등) | ✅ 완료 |
 | Next.js API 프록시 | `/api/news/symbol/[symbol]`, `/api/news/impact/[symbol]` (seed 데이터 폴백 포함) | ✅ 완료 |
 | Seed 데이터 | 삼성전자(005930) 5건 뉴스 + Impact 시그널 (백엔드 미가동 시 표시) | ✅ 완료 |
 | NewsImpactPanel | `components/stock/NewsImpactPanel.tsx` — Alpha 배지, 뉴스 목록, 위험 알림 표시 | ✅ 완료 |
 | 종목 페이지 연동 | `app/stock-order/page.tsx` 뉴스·공시 탭에 `NewsImpactPanel` 적용 | ✅ 완료 |
 | 유닛 테스트 | `backend/tests/test_news_dedup.py` — 중복 제거 로직 22개 테스트 케이스 | ✅ 완료 |
+| 본문 fetch 보안 | Next.js 프록시와 FastAPI 라우터 모두 private/loopback/link-local/non-global URL 차단 | ✅ 완료 |
 
 **핵심 설계 결정:**
 - 뉴스 Provider는 키 없이 동작하는 RSS 기반 (Naver Finance 4개 피드)
@@ -1060,7 +1128,7 @@ WatchlistSymbol {
 
 ## 7. 테스트 현황
 
-### 7.1 백엔드 테스트 (39개 파일, pytest)
+### 7.1 백엔드 테스트 (40+개 파일, pytest)
 
 | 영역 | 파일 수 | 주요 파일 |
 |------|---------|-----------|
@@ -1078,7 +1146,7 @@ WatchlistSymbol {
 
 > `*` 표시: 서버/AI 모델 필요 (일반 실행 시 제외)
 
-### 7.2 프론트엔드 테스트 (24개 파일, Vitest + jsdom)
+### 7.2 프론트엔드 테스트 (45개 파일, Vitest + jsdom)
 
 | 영역 | 파일 수 | 주요 파일 |
 |------|---------|-----------|
@@ -1132,6 +1200,7 @@ cd backend && pytest tests/
 | 데이터 보호 | 비밀번호 해싱 | 개인정보 암호화, GDPR 준수 |
 | API 보안 | CORS 설정 | Rate Limiting, API Key 관리 |
 | 입력 검증 | Pydantic 스키마 | 프론트엔드 검증 강화 |
+| SSRF 방어 | 뉴스 본문 fetch URL 검증, redirect 후 최종 URL 재검증 | DNS rebinding 방어 강화, allowlist 운영 |
 | 금융 데이터 | 로컬 저장 | 데이터 접근 권한 관리 |
 
 ---
@@ -1155,7 +1224,7 @@ cd backend && pytest tests/
 | 워크포워드 + 몬테카를로 | ✅ 전체 완료 | 100% |
 | 대시보드 & 포트폴리오 | ✅ 대부분 완료 | 90% |
 | 관심종목 | ✅ 전체 완료 | 100% |
-| 테스트 커버리지 | ✅ 양호 (63개 파일) | 85% |
+| 테스트 커버리지 | ✅ 양호 (backend 533 tests, frontend 198 tests 기준) | 85% |
 | Strategy Research Agent | ✅ 전체 완료 | 100% |
 | 뉴스 Impact AI Agent | ✅ 전체 완료 | 100% |
 | 고급 분석 (팩터, 상관관계, 섹터) | 🔲 미구현 | 0% |
