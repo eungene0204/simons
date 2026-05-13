@@ -67,7 +67,7 @@ class StrategyAdvisorAgent:
         learning_insight = self._learning.build_insight(req.parsed_strategy, req.user_prompt)
         learning_body = build_experiment_learning_advice(learning_insight)
         memory_context = self._build_memory_context(req)
-        memory_body = self._build_memory_advice(memory_context)
+        memory_body = self._build_memory_advice(memory_context, req.parsed_strategy)
         high_news_risk = "HIGH_NEWS_RISK_ALERT" in issue_codes and news.max_risk_level == "high"
         if memory_body and not high_news_risk:
             advice.insert(0, AdviceItem(
@@ -165,20 +165,97 @@ class StrategyAdvisorAgent:
         )
 
     @staticmethod
-    def _build_memory_advice(memory_context: dict) -> str:
+    @staticmethod
+    def _metric_value(metrics: dict, key: str) -> Optional[float]:
+        value = metrics.get(key)
+        try:
+            return float(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    @classmethod
+    def _improved_metrics(cls, case: dict) -> list[str]:
+        before = case.get("before_metrics") or {}
+        after = case.get("after_metrics") or {}
+        improved: list[str] = []
+
+        for key, label in (("cagr", "CAGR"), ("sharpe", "Sharpe")):
+            before_value = cls._metric_value(before, key)
+            after_value = cls._metric_value(after, key)
+            if before_value is not None and after_value is not None and after_value > before_value:
+                improved.append(label)
+
+        before_mdd = cls._metric_value(before, "mdd")
+        after_mdd = cls._metric_value(after, "mdd")
+        if before_mdd is not None and after_mdd is not None and after_mdd > before_mdd:
+            improved.append("MDD")
+
+        return improved
+
+    @staticmethod
+    def _memory_experiment_candidates(parsed_strategy: dict) -> list[str]:
+        candidates: list[str] = ["기본안 유지"]
+        if parsed_strategy.get("stop_loss_pct") is None and parsed_strategy.get("trailing_stop_pct") is None:
+            candidates.append("손절 8~10%")
+        if parsed_strategy.get("take_profit_pct") is None and parsed_strategy.get("trailing_stop_pct") is None:
+            candidates.append("익절 15%")
+        if parsed_strategy.get("hold_period_days") is None:
+            candidates.append("최대 보유기간 20일")
+
+        max_positions = parsed_strategy.get("max_positions")
+        if not isinstance(max_positions, (int, float)) or max_positions < 5:
+            candidates.append("종목 수 5~10개 분산")
+
+        lessons = " ".join(
+            str(signal.get("indicator") or signal.get("id") or signal.get("metric") or "")
+            for signal in parsed_strategy.get("entry_signals") or []
+            if isinstance(signal, dict)
+        )
+        if "rsi" in lessons.lower():
+            candidates.append("장기 추세 필터 추가")
+
+        return candidates[:4]
+
+    @classmethod
+    def _build_memory_advice(cls, memory_context: dict, parsed_strategy: dict) -> str:
         if not memory_context:
             return ""
         retrieved = memory_context.get("retrieved_cases") or []
         if not retrieved:
+            return ""
+
+        successful_cases = [
+            case
+            for case in retrieved
+            if case.get("advice_success") is True or cls._improved_metrics(case)
+        ]
+        failed_cases = [
+            case
+            for case in retrieved
+            if case.get("advice_success") is False
+        ]
+        candidates = cls._memory_experiment_candidates(parsed_strategy)
+        comparison_text = ", ".join(candidates)
+
+        if successful_cases:
+            improved = sorted({
+                metric
+                for case in successful_cases
+                for metric in cls._improved_metrics(case)
+            })
+            metric_text = ", ".join(improved) if improved else "위험 대비 성과"
             return (
-                "유사 전략 검색 결과가 부족합니다. 현재 조언은 일반적인 퀀트 원칙에 기반한 낮은 신뢰도의 "
-                "점검으로만 사용하고, 동일 조건의 재백테스트와 OOS 검증을 먼저 수행해야 합니다."
+                f"유사한 과거 전략 중 {len(successful_cases)}건은 조정 후 {metric_text}가 개선되었습니다. "
+                f"이번 백테스트에서는 {comparison_text}을 같은 기간과 비용 조건으로 비교하세요."
             )
 
-        lessons = [case.get("lesson") for case in retrieved if case.get("lesson")]
-        first_lesson = lessons[0] if lessons else "유사 전략의 개선 전후 성과를 함께 비교해야 합니다."
+        if failed_cases:
+            return (
+                f"유사한 과거 전략 {len(failed_cases)}건은 같은 구조의 조정에서 성과 개선이 제한적이었습니다. "
+                f"이번에는 {comparison_text}을 각각 분리해서 돌리고, MDD와 Sharpe가 동시에 개선되는 조합만 후보로 남기세요."
+            )
+
         return (
-            f"유사 전략 {len(retrieved)}건의 Experience Memory를 확인했습니다. "
-            f"재사용 가능한 핵심 교훈은 '{first_lesson}'입니다. 이 근거는 투자 추천이 아니라 "
-            "현재 전략의 개선 후보를 재백테스트하기 위한 비교 기준입니다."
+            "유사한 과거 전략은 개선 성공 여부가 아직 검증되지 않았습니다. "
+            f"이번 백테스트에서는 {comparison_text}을 각각 분리해서 비교하고, 손실 축소 효과가 있는 조건만 다음 후보로 남기세요."
         )

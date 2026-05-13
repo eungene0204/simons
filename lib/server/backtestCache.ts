@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import { spawn } from "child_process";
 import { prisma } from "@/lib/prisma";
 
 function pruneUndefined(val: any): any {
@@ -31,6 +32,66 @@ function sha256(input: string): string {
 
 function stableStringify(value: any): string {
   return JSON.stringify(sortDeep(pruneUndefined(value)));
+}
+
+let vectorMemoryUpsertInFlight = false;
+let vectorMemoryUpsertQueued = false;
+
+export function buildVectorMemoryUpsertCommand(cwd = process.cwd()) {
+  const python = process.env.PYTHON_BIN || process.env.PYTHON || "python3";
+  const script = [
+    "import asyncio, os, sys",
+    "sys.path.insert(0, os.path.join(os.getcwd(), 'backend'))",
+    "from advisor.memory_repository import _connect",
+    "from advisor.vector_memory import migrate_backtest_results_to_chroma",
+    "async def main():",
+    "    conn = _connect()",
+    "    try:",
+    "        await migrate_backtest_results_to_chroma(conn)",
+    "    finally:",
+    "        conn.close()",
+    "asyncio.run(main())",
+  ].join("\n");
+
+  return {
+    command: python,
+    args: ["-c", script],
+    options: {
+      cwd,
+      env: process.env,
+      stdio: "ignore" as const,
+    },
+  };
+}
+
+export function triggerVectorMemoryBacktestUpsert() {
+  if (process.env.ADVISOR_VECTOR_UPSERT_ON_BACKTEST === "0") {
+    return;
+  }
+  if (vectorMemoryUpsertInFlight) {
+    vectorMemoryUpsertQueued = true;
+    return;
+  }
+
+  vectorMemoryUpsertInFlight = true;
+  const { command, args, options } = buildVectorMemoryUpsertCommand();
+  const child = spawn(command, args, options);
+
+  child.on("error", (err) => {
+    vectorMemoryUpsertInFlight = false;
+    console.error("[VectorMemory] ChromaDB upsert trigger failed:", err);
+  });
+  child.on("close", (code) => {
+    vectorMemoryUpsertInFlight = false;
+    if (code && code !== 0) {
+      console.error("[VectorMemory] ChromaDB upsert exited with code:", code);
+    }
+    if (vectorMemoryUpsertQueued) {
+      vectorMemoryUpsertQueued = false;
+      triggerVectorMemoryBacktestUpsert();
+    }
+  });
+  child.unref();
 }
 
 function sortedSymbols(value: any): string[] {
@@ -314,12 +375,15 @@ export async function saveCachedResult(
         where: { id: existingHistory.id },
         data: historyData,
       });
+      triggerVectorMemoryBacktestUpsert();
       return;
     }
 
     await prisma.backtestHistory.create({
       data: historyData,
     });
+
+    triggerVectorMemoryBacktestUpsert();
   } catch (err) {
     console.error("[BacktestHistory] 자동 저장 실패:", err);
   }

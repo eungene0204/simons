@@ -1,6 +1,103 @@
 {
-  "updatedAt": "2026-05-06T00:00:04.175934+09:00",
+  "updatedAt": "2026-05-12T00:00:04.131122+09:00",
   "entries": [
+    {
+      "date": "2026-05-12",
+      "syncedAt": "2026-05-12T00:00:04.131122+09:00",
+      "totalCount": 2656,
+      "kospiCount": 838,
+      "kosdaqCount": 1818,
+      "addedCount": 1,
+      "delistedCount": 0,
+      "added": [
+        {
+          "symbol": "439960",
+          "name": "코스모로보틱스",
+          "market": "KOSDAQ",
+          "sector": "의료기기",
+          "industry": "의료용 기기 제조업"
+        }
+      ],
+      "delisted": []
+    },
+    {
+      "date": "2026-05-11",
+      "syncedAt": "2026-05-11T00:00:04.086241+09:00",
+      "totalCount": 2655,
+      "kospiCount": 838,
+      "kosdaqCount": 1817,
+      "addedCount": 0,
+      "delistedCount": 0,
+      "added": [],
+      "delisted": []
+    },
+    {
+      "date": "2026-05-10",
+      "syncedAt": "2026-05-10T00:00:03.671054+09:00",
+      "totalCount": 2655,
+      "kospiCount": 838,
+      "kosdaqCount": 1817,
+      "addedCount": 0,
+      "delistedCount": 0,
+      "added": [],
+      "delisted": []
+    },
+    {
+      "date": "2026-05-09",
+      "syncedAt": "2026-05-09T00:00:04.229028+09:00",
+      "totalCount": 2655,
+      "kospiCount": 838,
+      "kosdaqCount": 1817,
+      "addedCount": 0,
+      "delistedCount": 2,
+      "added": [],
+      "delisted": [
+        {
+          "symbol": "217620",
+          "name": "선샤인푸드",
+          "market": "KOSDAQ",
+          "sector": "기타 서비스",
+          "industry": "음식점업"
+        },
+        {
+          "symbol": "139050",
+          "name": "BF랩스",
+          "market": "KOSDAQ",
+          "sector": "IT 하드웨어",
+          "industry": "컴퓨터 프로그래밍, 시스템 통합 및 관리업"
+        }
+      ]
+    },
+    {
+      "date": "2026-05-08",
+      "syncedAt": "2026-05-08T00:00:04.686013+09:00",
+      "totalCount": 2657,
+      "kospiCount": 838,
+      "kosdaqCount": 1819,
+      "addedCount": 0,
+      "delistedCount": 1,
+      "added": [],
+      "delisted": [
+        {
+          "symbol": "452980",
+          "name": "신한제11호스팩",
+          "market": "KOSDAQ",
+          "sector": "은행/금융지주",
+          "industry": "금융 지원 서비스업"
+        }
+      ]
+    },
+    {
+      "date": "2026-05-07",
+      "syncedAt": "2026-05-07T00:00:08.049890+09:00",
+      "totalCount": 2658,
+      "kospiCount": 838,
+      "kosdaqCount": 1820,
+      "addedCount": 0,
+      "delistedCount": 0,
+      "added": [],
+      "delisted": []
+    },
     {
       "date": "2026-05-06",
       "syncedAt": "2026-05-06T00:00:04.175934+09:00",

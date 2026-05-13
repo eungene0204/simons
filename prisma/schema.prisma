@@ -177,11 +177,12 @@ model BatchRunCandidate {
   strategyName String
   status       String
   errorMessage String?
-  metrics      String?
-  rank         Int?
-  createdAt    DateTime  @default(now())
-  BatchRun     BatchRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
-  Strategy     Strategy? @relation(fields: [strategyId], references: [id])
+  metrics         String?
+  rank            Int?
+  backtestRequest String?
+  createdAt       DateTime  @default(now())
+  BatchRun        BatchRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  Strategy        Strategy? @relation(fields: [strategyId], references: [id])
 
   @@index([runId, createdAt])
   @@index([runId, status])

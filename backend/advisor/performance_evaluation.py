@@ -181,8 +181,8 @@ def score_response(response: AdvisorResponse) -> ResponseScore:
     similar_count = int(learning.get("similar_strategy_count") or 0)
     has_metrics = any(learning.get(key) is not None for key in ("median_cagr", "median_sharpe", "median_mdd"))
     evidence_coverage = 1.0 if similar_count > 0 and has_metrics else 0.0
-    grounded_advice = 1.0 if ("비슷한" in text and "실험" in text) or "전략 실험 근거" in text else 0.0
-    confidence_disclosure = 1.0 if "confidence" in text or "확신하기 어렵" in text else 0.0
+    grounded_advice = 1.0 if "전략 실험 근거" in text or "실험군의 결과" in text else 0.0
+    confidence_disclosure = 1.0 if "근거 수준" in text or "확신하기 어렵" in text else 0.0
     risk_action_specificity = 1.0 if learning.get("recommended_adjustments") or any(item.proposed_change for item in response.advice) else 0.0
     safety = 0.0 if _has_prohibited_claim(text) else 1.0
     total = (

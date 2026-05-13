@@ -7,6 +7,7 @@ type BatchRunCandidatePayload = {
   errorMessage?: string | null;
   metrics?: any;
   rank?: number | null;
+  backtestRequest?: Record<string, any> | null;
 };
 
 export type BatchExecutionJob = {
@@ -18,12 +19,14 @@ export type BatchExecutionJob = {
   candidates: BatchRunCandidatePayload[];
   logs: string[];
   persistChain: Promise<void>;
+  dirtyCandidateIds: Set<string>;
 };
 
 type BatchExecutionState = {
   queue: BatchExecutionJob[];
   activeRunIds: Set<string>;
   activeJobs: Map<string, BatchExecutionJob>;
+  schedulingRunIds: Set<string>;
   canceledRunIds: Set<string>;
 };
 
@@ -37,6 +40,7 @@ export function getExecutionState(): BatchExecutionState {
       queue: [],
       activeRunIds: new Set<string>(),
       activeJobs: new Map<string, BatchExecutionJob>(),
+      schedulingRunIds: new Set<string>(),
       canceledRunIds: new Set<string>(),
     };
   }
@@ -49,5 +53,6 @@ export function __resetBatchRunExecutionStateForTests() {
   state.queue.length = 0;
   state.activeRunIds.clear();
   state.activeJobs.clear();
+  state.schedulingRunIds.clear();
   state.canceledRunIds.clear();
 }

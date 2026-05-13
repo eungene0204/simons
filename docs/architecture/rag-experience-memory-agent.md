@@ -806,3 +806,912 @@ Boundary: Strategy UI
 - `Strategy DSL` canonicalization versioning 정책을 확정해야 한다.
 - OOS/WFA가 없는 전략에 대해 `advice_success`를 provisional로 둘지 별도 enum을 둘지 schema에서 결정해야 한다.
 - 백테스트 엔진 version과 데이터 snapshot hash를 어디서 계산하고 저장할지 정해야 한다.
+
+---
+
+## 15. ChromaDB Vector Memory MVP 설계
+
+> 선택 boundary: Governance / Policy Docs
+> 이 섹션은 구현 전 실행 스펙과 production-ready 예시 코드이다. 실제 코드는 `AI / XAI Layer`와 신규 vector memory boundary를 분리한 후 추가한다.
+
+Task:
+ChromaDB 기반 backtest result vector memory 아키텍처와 구현 예시를 정의한다.
+
+Boundary:
+Governance / Policy Docs
+
+Files allowed:
+- `docs/architecture/rag-experience-memory-agent.md`
+
+Do not:
+- 애플리케이션 코드, API 라우트, 백테스트 엔진, Prisma schema를 수정하지 않는다.
+- PostgreSQL을 semantic search 저장소로 대체하지 않는다.
+- ChromaDB API를 application service에 직접 노출하지 않는다.
+- raw trade logs, 긴 report 원문, 개인정보, volatile trace 값을 embedding 대상에 넣지 않는다.
+
+Requirements:
+- PostgreSQL은 source of truth로 유지하고 ChromaDB는 semantic retrieval memory로만 사용한다.
+- strategy hash는 normalized Strategy DSL JSON의 stable SHA-256으로 생성한다.
+- 동일 strategy hash와 동일 backtest 조건이 존재하면 백테스트와 ChromaDB upsert를 생략한다.
+- ChromaDB는 `PersistentClient`와 `backtest_results` collection을 사용한다.
+- embedding 생성, vector repository, advisor retrieval은 각각 독립 abstraction으로 둔다.
+- retrieval 결과는 advisor가 historical evidence로 사용할 수 있는 context block으로 변환한다.
+
+Run:
+- `git diff --check`
+
+Deliver:
+- ChromaDB vector memory 설계
+- repository/service/API/test 예시
+- boundary별 구현 분리 계획
+
+### 15.1 Clean architecture module layout
+
+ChromaDB MVP는 다음 모듈 경계를 기준으로 구현한다.
+
+```text
+backend/vector_memory/
+  domain/
+    strategy_hash.py
+    backtest_result.py
+    strategy_summary.py
+
+  application/
+    backtest_service.py
+    vector_memory_service.py
+    advisor_memory_service.py
+    similar_strategy_retriever.py
+
+  infrastructure/
+    db/
+      postgres_client.py
+
+    vector_db/
+      chroma_client.py
+
+    embedding/
+      embedding_client.py
+
+  api/
+    routes/
+      backtest.py
+      advisor.py
+```
+
+Dependency direction:
+
+```text
+api -> application -> domain
+application -> repository protocols
+infrastructure -> repository protocols
+```
+
+Application services depend on protocols, not on ChromaDB, Prisma, SQLAlchemy, or OpenAI-specific clients.
+
+### 15.2 Strategy hash generator
+
+```python
+from __future__ import annotations
+
+import hashlib
+import json
+from decimal import Decimal
+from typing import Any
+
+
+VOLATILE_DSL_KEYS: set[str] = {
+    "id",
+    "name",
+    "label",
+    "description",
+    "created_at",
+    "updated_at",
+    "trace_id",
+    "request_id",
+    "ui_state",
+}
+
+
+def normalize_strategy_dsl(value: Any) -> Any:
+    if isinstance(value, dict):
+        normalized: dict[str, Any] = {}
+        for key, inner in sorted(value.items()):
+            if key in VOLATILE_DSL_KEYS or inner is None:
+                continue
+            normalized[key] = normalize_strategy_dsl(inner)
+        return normalized
+
+    if isinstance(value, list):
+        return [normalize_strategy_dsl(item) for item in value]
+
+    if isinstance(value, float):
+        return float(Decimal(str(value)).normalize())
+
+    return value
+
+
+def canonical_strategy_dsl(strategy_dsl: dict[str, Any]) -> str:
+    normalized = normalize_strategy_dsl(strategy_dsl)
+    return json.dumps(
+        normalized,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def generate_strategy_hash(strategy_dsl: dict[str, Any]) -> str:
+    canonical = canonical_strategy_dsl(strategy_dsl)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+```
+
+Hash rules:
+- `strategy_id == strategy_hash`
+- array order is preserved because rule order can be semantically meaningful.
+- volatile metadata is removed before hashing.
+- future changes to normalization require `canonical_version`.
+
+### 15.3 Domain models
+
+```python
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Literal
+
+
+ResultStatus = Literal["PASS", "FAIL", "WARNING"]
+Recommendation = Literal["RUN", "REVISE", "REJECT"]
+
+
+@dataclass(frozen=True)
+class BacktestMetrics:
+    cagr: float | None
+    total_return: float | None
+    mdd: float | None
+    sharpe: float | None
+    sortino: float | None
+    profit_factor: float | None
+    win_rate: float | None
+    trade_count: int
+    average_holding_period: float | None
+    rolling_sharpe_stability: float | None
+    calmar_ratio: float | None
+
+
+@dataclass(frozen=True)
+class AiEvaluation:
+    result_status: ResultStatus
+    strengths: list[str]
+    weaknesses: list[str]
+    improvement_suggestions: list[str]
+
+
+@dataclass(frozen=True)
+class BacktestMemoryRecord:
+    strategy_id: str
+    strategy_hash: str
+    strategy_family: str
+    original_prompt: str
+    strategy_dsl: dict[str, Any]
+    strategy_summary: str
+    indicators_used: list[str]
+    entry_rules: list[str]
+    exit_rules: list[str]
+    risk_management: list[str]
+    position_sizing: str
+    universe: str
+    timeframe: str
+    initial_capital: float
+    metrics: BacktestMetrics
+    ai_evaluation: AiEvaluation
+    created_at: datetime
+    model_version: str
+    backtest_engine_version: str
+```
+
+### 15.4 Backtest summary document
+
+ChromaDB document는 긴 report 원문이 아니라 검색 목적의 압축 summary여야 한다.
+
+```python
+from __future__ import annotations
+
+
+def build_backtest_memory_document(record: BacktestMemoryRecord) -> str:
+    metrics = record.metrics
+    evaluation = record.ai_evaluation
+
+    return "\n".join(
+        [
+            f"Original prompt: {record.original_prompt}",
+            f"Strategy summary: {record.strategy_summary}",
+            f"Strategy family: {record.strategy_family}",
+            f"Indicators used: {', '.join(record.indicators_used) or 'none'}",
+            f"Entry rules: {'; '.join(record.entry_rules) or 'none'}",
+            f"Exit rules: {'; '.join(record.exit_rules) or 'none'}",
+            f"Risk management: {'; '.join(record.risk_management) or 'none'}",
+            f"Position sizing: {record.position_sizing}",
+            f"Market universe: {record.universe}",
+            f"Timeframe: {record.timeframe}",
+            f"Initial capital: {record.initial_capital}",
+            (
+                "Performance metrics: "
+                f"CAGR={metrics.cagr}, total_return={metrics.total_return}, "
+                f"MDD={metrics.mdd}, sharpe={metrics.sharpe}, "
+                f"sortino={metrics.sortino}, profit_factor={metrics.profit_factor}, "
+                f"win_rate={metrics.win_rate}, trade_count={metrics.trade_count}, "
+                f"average_holding_period={metrics.average_holding_period}, "
+                f"rolling_sharpe_stability={metrics.rolling_sharpe_stability}, "
+                f"calmar_ratio={metrics.calmar_ratio}"
+            ),
+            f"AI evaluation status: {evaluation.result_status}",
+            f"Strengths: {'; '.join(evaluation.strengths) or 'none'}",
+            f"Weaknesses: {'; '.join(evaluation.weaknesses) or 'none'}",
+            (
+                "Improvement suggestions: "
+                f"{'; '.join(evaluation.improvement_suggestions) or 'none'}"
+            ),
+        ]
+    )
+```
+
+### 15.5 Repository and embedding protocols
+
+```python
+from __future__ import annotations
+
+from typing import Protocol, Sequence, TypedDict
+
+
+class SimilarMemory(TypedDict):
+    strategy_id: str
+    similarity_score: float
+    document: str
+    metadata: dict[str, str | int | float | bool | None]
+
+
+class VectorMemoryRepository(Protocol):
+    async def upsert(
+        self,
+        *,
+        strategy_id: str,
+        document: str,
+        embedding: Sequence[float],
+        metadata: dict[str, str | int | float | bool | None],
+    ) -> None:
+        ...
+
+    async def query_similar(
+        self,
+        *,
+        query_embedding: Sequence[float],
+        top_k: int,
+        where: dict[str, str | int | float | bool] | None = None,
+    ) -> list[SimilarMemory]:
+        ...
+
+    async def delete(self, *, strategy_id: str) -> None:
+        ...
+
+    async def exists(self, *, strategy_id: str) -> bool:
+        ...
+
+
+class EmbeddingClient(Protocol):
+    model_version: str
+
+    async def embed_text(self, text: str) -> list[float]:
+        ...
+
+    async def embed_batch(self, texts: Sequence[str]) -> list[list[float]]:
+        ...
+```
+
+### 15.6 ChromaDB PersistentClient adapter
+
+```python
+from __future__ import annotations
+
+import asyncio
+from collections.abc import Sequence
+from pathlib import Path
+
+import chromadb
+from chromadb.api.models.Collection import Collection
+
+
+class ChromaVectorMemoryRepository:
+    def __init__(
+        self,
+        *,
+        persist_path: Path,
+        collection_name: str = "backtest_results",
+    ) -> None:
+        self._client = chromadb.PersistentClient(path=str(persist_path))
+        self._collection: Collection = self._client.get_or_create_collection(
+            name=collection_name,
+            metadata={"hnsw:space": "cosine"},
+        )
+
+    async def upsert(
+        self,
+        *,
+        strategy_id: str,
+        document: str,
+        embedding: Sequence[float],
+        metadata: dict[str, str | int | float | bool | None],
+    ) -> None:
+        clean_metadata = {
+            key: value
+            for key, value in metadata.items()
+            if value is not None
+        }
+        await asyncio.to_thread(
+            self._collection.upsert,
+            ids=[strategy_id],
+            documents=[document],
+            embeddings=[list(embedding)],
+            metadatas=[clean_metadata],
+        )
+
+    async def query_similar(
+        self,
+        *,
+        query_embedding: Sequence[float],
+        top_k: int,
+        where: dict[str, str | int | float | bool] | None = None,
+    ) -> list[SimilarMemory]:
+        result = await asyncio.to_thread(
+            self._collection.query,
+            query_embeddings=[list(query_embedding)],
+            n_results=max(1, min(top_k, 7)),
+            where=where,
+            include=["documents", "metadatas", "distances"],
+        )
+
+        ids = result.get("ids", [[]])[0]
+        documents = result.get("documents", [[]])[0]
+        metadatas = result.get("metadatas", [[]])[0]
+        distances = result.get("distances", [[]])[0]
+
+        memories: list[SimilarMemory] = []
+        for item_id, document, metadata, distance in zip(ids, documents, metadatas, distances):
+            memories.append(
+                {
+                    "strategy_id": item_id,
+                    "similarity_score": max(0.0, 1.0 - float(distance)),
+                    "document": document,
+                    "metadata": metadata,
+                }
+            )
+        return memories
+
+    async def delete(self, *, strategy_id: str) -> None:
+        await asyncio.to_thread(self._collection.delete, ids=[strategy_id])
+
+    async def exists(self, *, strategy_id: str) -> bool:
+        result = await asyncio.to_thread(
+            self._collection.get,
+            ids=[strategy_id],
+            include=[],
+        )
+        return bool(result.get("ids"))
+```
+
+Collection schema:
+
+```python
+def build_chroma_metadata(record: BacktestMemoryRecord) -> dict[str, str | int | float | bool | None]:
+    return {
+        "strategy_id": record.strategy_id,
+        "strategy_hash": record.strategy_hash,
+        "strategy_family": record.strategy_family,
+        "universe": record.universe,
+        "timeframe": record.timeframe,
+        "cagr": record.metrics.cagr,
+        "mdd": record.metrics.mdd,
+        "sharpe": record.metrics.sharpe,
+        "profit_factor": record.metrics.profit_factor,
+        "win_rate": record.metrics.win_rate,
+        "trade_count": record.metrics.trade_count,
+        "result_status": record.ai_evaluation.result_status,
+        "created_at": record.created_at.isoformat(),
+        "model_version": record.model_version,
+        "backtest_engine_version": record.backtest_engine_version,
+    }
+```
+
+### 15.7 Embedding client examples
+
+Embedding clients are independent from ChromaDB. For MVP, a local model such as `bge-m3` can run behind this protocol. OpenAI can be added without changing vector repository code.
+
+```python
+from __future__ import annotations
+
+import asyncio
+from collections.abc import Sequence
+
+
+class SentenceTransformerEmbeddingClient:
+    def __init__(self, *, model_name: str = "BAAI/bge-m3") -> None:
+        from sentence_transformers import SentenceTransformer
+
+        self.model_version = model_name
+        self._model = SentenceTransformer(model_name)
+
+    async def embed_text(self, text: str) -> list[float]:
+        embeddings = await self.embed_batch([text])
+        return embeddings[0]
+
+    async def embed_batch(self, texts: Sequence[str]) -> list[list[float]]:
+        def encode() -> list[list[float]]:
+            vectors = self._model.encode(
+                list(texts),
+                normalize_embeddings=True,
+                show_progress_bar=False,
+            )
+            return [vector.tolist() for vector in vectors]
+
+        return await asyncio.to_thread(encode)
+```
+
+```python
+from __future__ import annotations
+
+from collections.abc import Sequence
+
+from openai import AsyncOpenAI
+
+
+class OpenAIEmbeddingClient:
+    def __init__(
+        self,
+        *,
+        client: AsyncOpenAI,
+        model: str = "text-embedding-3-large",
+    ) -> None:
+        self.model_version = model
+        self._client = client
+
+    async def embed_text(self, text: str) -> list[float]:
+        embeddings = await self.embed_batch([text])
+        return embeddings[0]
+
+    async def embed_batch(self, texts: Sequence[str]) -> list[list[float]]:
+        response = await self._client.embeddings.create(
+            model=self.model_version,
+            input=list(texts),
+        )
+        return [item.embedding for item in response.data]
+```
+
+### 15.8 Vector memory application service
+
+```python
+from __future__ import annotations
+
+from typing import Protocol
+
+
+class BacktestResultRepository(Protocol):
+    async def find_by_strategy_id(self, strategy_id: str) -> BacktestMemoryRecord | None:
+        ...
+
+    async def save_result(self, record: BacktestMemoryRecord) -> None:
+        ...
+
+
+class VectorMemoryService:
+    def __init__(
+        self,
+        *,
+        backtest_repository: BacktestResultRepository,
+        vector_repository: VectorMemoryRepository,
+        embedding_client: EmbeddingClient,
+    ) -> None:
+        self._backtest_repository = backtest_repository
+        self._vector_repository = vector_repository
+        self._embedding_client = embedding_client
+
+    async def store_backtest_memory(self, record: BacktestMemoryRecord) -> None:
+        if await self._vector_repository.exists(strategy_id=record.strategy_id):
+            return
+
+        document = build_backtest_memory_document(record)
+        embedding = await self._embedding_client.embed_text(document)
+        await self._vector_repository.upsert(
+            strategy_id=record.strategy_id,
+            document=document,
+            embedding=embedding,
+            metadata=build_chroma_metadata(record),
+        )
+```
+
+Duplicate prevention flow:
+
+```python
+class BacktestService:
+    def __init__(
+        self,
+        *,
+        backtest_repository: BacktestResultRepository,
+        vector_memory_service: VectorMemoryService,
+        runner: BacktestRunner,
+    ) -> None:
+        self._backtest_repository = backtest_repository
+        self._vector_memory_service = vector_memory_service
+        self._runner = runner
+
+    async def run_or_reuse(
+        self,
+        *,
+        original_prompt: str,
+        strategy_dsl: dict[str, Any],
+        config: BacktestConfig,
+    ) -> BacktestMemoryRecord:
+        strategy_id = generate_strategy_hash(strategy_dsl)
+        existing = await self._backtest_repository.find_by_strategy_id(strategy_id)
+        if existing is not None:
+            return existing
+
+        record = await self._runner.run(
+            strategy_id=strategy_id,
+            original_prompt=original_prompt,
+            strategy_dsl=strategy_dsl,
+            config=config,
+        )
+        await self._backtest_repository.save_result(record)
+        await self._vector_memory_service.store_backtest_memory(record)
+        return record
+```
+
+### 15.9 Similar strategy retriever
+
+```python
+from __future__ import annotations
+
+from typing import Any
+
+
+def build_retrieval_query(
+    *,
+    strategy_prompt: str,
+    strategy_dsl: dict[str, Any],
+    strategy_summary: str,
+) -> str:
+    canonical = canonical_strategy_dsl(strategy_dsl)
+    return "\n".join(
+        [
+            f"Prompt: {strategy_prompt}",
+            f"Strategy summary: {strategy_summary}",
+            f"Canonical strategy DSL: {canonical}",
+        ]
+    )
+
+
+def build_metadata_filter(
+    *,
+    universe: str | None,
+    strategy_family: str | None,
+    timeframe: str | None,
+) -> dict[str, str] | None:
+    where: dict[str, str] = {}
+    if universe:
+        where["universe"] = universe
+    if strategy_family:
+        where["strategy_family"] = strategy_family
+    if timeframe:
+        where["timeframe"] = timeframe
+    return where or None
+
+
+class SimilarStrategyRetriever:
+    def __init__(
+        self,
+        *,
+        vector_repository: VectorMemoryRepository,
+        embedding_client: EmbeddingClient,
+    ) -> None:
+        self._vector_repository = vector_repository
+        self._embedding_client = embedding_client
+
+    async def retrieve(
+        self,
+        *,
+        strategy_prompt: str,
+        strategy_dsl: dict[str, Any],
+        strategy_summary: str,
+        universe: str | None,
+        strategy_family: str | None,
+        timeframe: str | None,
+        top_k: int = 5,
+    ) -> list[SimilarMemory]:
+        query = build_retrieval_query(
+            strategy_prompt=strategy_prompt,
+            strategy_dsl=strategy_dsl,
+            strategy_summary=strategy_summary,
+        )
+        embedding = await self._embedding_client.embed_text(query)
+        return await self._vector_repository.query_similar(
+            query_embedding=embedding,
+            top_k=max(3, min(top_k, 7)),
+            where=build_metadata_filter(
+                universe=universe,
+                strategy_family=strategy_family,
+                timeframe=timeframe,
+            ),
+        )
+```
+
+### 15.10 Advisor retrieval context builder
+
+```python
+from __future__ import annotations
+
+
+def _metadata_text(memory: SimilarMemory, key: str, default: str = "unknown") -> str:
+    value = memory["metadata"].get(key)
+    return default if value is None else str(value)
+
+
+def build_advisor_retrieval_context(memories: list[SimilarMemory]) -> str:
+    if not memories:
+        return "[Retrieved Similar Strategies]\nNo similar historical strategies found."
+
+    sections = ["[Retrieved Similar Strategies]"]
+    for memory in memories:
+        metadata = memory["metadata"]
+        sections.extend(
+            [
+                "",
+                f"Strategy ID: {memory['strategy_id']}",
+                f"Similarity Score: {memory['similarity_score']:.3f}",
+                f"Summary: {memory['document'][:1200]}",
+                f"CAGR: {_metadata_text(memory, 'cagr')}",
+                f"MDD: {_metadata_text(memory, 'mdd')}",
+                f"Sharpe: {_metadata_text(memory, 'sharpe')}",
+                f"Profit Factor: {_metadata_text(memory, 'profit_factor')}",
+                f"Win Rate: {_metadata_text(memory, 'win_rate')}",
+                f"Weaknesses: {_metadata_text(memory, 'weaknesses', 'See summary')}",
+                f"Suggested Improvements: {_metadata_text(memory, 'suggested_improvements', 'See summary')}",
+                f"Result Status: {_metadata_text(memory, 'result_status')}",
+                f"Engine Version: {_metadata_text(memory, 'backtest_engine_version')}",
+            ]
+        )
+    return "\n".join(sections)
+```
+
+Advisor output contract:
+
+```python
+from pydantic import BaseModel, Field
+
+
+class AdvisorMemoryResponse(BaseModel):
+    strategy_diagnosis: str
+    historical_evidence: list[str]
+    expected_weaknesses: list[str]
+    expected_strengths: list[str]
+    risk_warnings: list[str]
+    parameter_improvement_suggestions: list[str]
+    risk_control_suggestions: list[str]
+    recommendation: Recommendation
+    retrieved_context: str = Field(description="Rendered vector memory context used by advisor")
+```
+
+### 15.11 FastAPI endpoint example
+
+Routes should only validate input, inject dependencies, and call application services.
+
+```python
+from __future__ import annotations
+
+from typing import Any
+
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
+
+
+router = APIRouter(prefix="/api/advisor", tags=["advisor"])
+
+
+class AdvisorMemoryRequest(BaseModel):
+    strategy_prompt: str = Field(min_length=1)
+    strategy_dsl: dict[str, Any]
+    strategy_summary: str
+    universe: str | None = None
+    strategy_family: str | None = None
+    timeframe: str | None = None
+    top_k: int = Field(default=5, ge=3, le=7)
+
+
+@router.post("/memory/review", response_model=AdvisorMemoryResponse)
+async def review_strategy_with_memory(
+    request: AdvisorMemoryRequest,
+    advisor_memory_service: AdvisorMemoryService = Depends(get_advisor_memory_service),
+) -> AdvisorMemoryResponse:
+    return await advisor_memory_service.review_strategy(request)
+```
+
+Application service:
+
+```python
+class AdvisorMemoryService:
+    def __init__(
+        self,
+        *,
+        retriever: SimilarStrategyRetriever,
+        advisor: StrategyAdvisor,
+    ) -> None:
+        self._retriever = retriever
+        self._advisor = advisor
+
+    async def review_strategy(self, request: AdvisorMemoryRequest) -> AdvisorMemoryResponse:
+        memories = await self._retriever.retrieve(
+            strategy_prompt=request.strategy_prompt,
+            strategy_dsl=request.strategy_dsl,
+            strategy_summary=request.strategy_summary,
+            universe=request.universe,
+            strategy_family=request.strategy_family,
+            timeframe=request.timeframe,
+            top_k=request.top_k,
+        )
+        context = build_advisor_retrieval_context(memories)
+        return await self._advisor.generate_memory_grounded_review(
+            request=request,
+            retrieved_context=context,
+        )
+```
+
+### 15.12 Performance rules
+
+- Query target latency is 300ms to 800ms for local MVP collections.
+- `top_k` is clamped to 3 through 7.
+- Metadata filters should be applied before semantic ranking where possible.
+- Long backtest reports must be summarized before embedding.
+- Raw trade logs, raw OHLCV, streaming progress logs, and LLM trace text are not embedded.
+- `strategy_family`, `universe`, and `timeframe` are mandatory metadata for production records.
+- Embedding generation should support batch mode for backfills and async wrapping for API paths.
+
+### 15.13 Tests
+
+Hash consistency:
+
+```python
+def test_strategy_hash_is_stable_for_reordered_dict_keys() -> None:
+    left = {"rules": {"entry": [{"indicator": "rsi", "threshold": 30.0}]}}
+    right = {"rules": {"entry": [{"threshold": 30, "indicator": "rsi"}]}}
+
+    assert generate_strategy_hash(left) == generate_strategy_hash(right)
+```
+
+Duplicate prevention:
+
+```python
+async def test_backtest_service_reuses_existing_result(
+    backtest_repository: FakeBacktestRepository,
+    vector_memory_service: FakeVectorMemoryService,
+    runner: FakeBacktestRunner,
+) -> None:
+    existing = make_backtest_memory_record()
+    backtest_repository.saved[existing.strategy_id] = existing
+
+    service = BacktestService(
+        backtest_repository=backtest_repository,
+        vector_memory_service=vector_memory_service,
+        runner=runner,
+    )
+
+    result = await service.run_or_reuse(
+        original_prompt=existing.original_prompt,
+        strategy_dsl=existing.strategy_dsl,
+        config=make_backtest_config(),
+    )
+
+    assert result == existing
+    assert runner.run_count == 0
+    assert vector_memory_service.store_count == 0
+```
+
+ChromaDB insertion:
+
+```python
+async def test_chroma_repository_upserts_and_exists(tmp_path: Path) -> None:
+    repository = ChromaVectorMemoryRepository(persist_path=tmp_path)
+
+    await repository.upsert(
+        strategy_id="strategy-a",
+        document="RSI mean reversion strategy with weak sharpe.",
+        embedding=[0.1, 0.2, 0.3],
+        metadata={
+            "strategy_id": "strategy-a",
+            "strategy_hash": "strategy-a",
+            "strategy_family": "mean_reversion",
+            "universe": "KOSPI200",
+            "timeframe": "1d",
+            "result_status": "WARNING",
+            "trade_count": 42,
+        },
+    )
+
+    assert await repository.exists(strategy_id="strategy-a")
+```
+
+Retrieval and metadata filtering:
+
+```python
+async def test_chroma_repository_filters_by_universe(tmp_path: Path) -> None:
+    repository = ChromaVectorMemoryRepository(persist_path=tmp_path)
+    await repository.upsert(
+        strategy_id="kospi-rsi",
+        document="RSI mean reversion on KOSPI200.",
+        embedding=[1.0, 0.0, 0.0],
+        metadata={"universe": "KOSPI200", "strategy_family": "mean_reversion", "timeframe": "1d"},
+    )
+    await repository.upsert(
+        strategy_id="sp500-rsi",
+        document="RSI mean reversion on S&P 500.",
+        embedding=[1.0, 0.0, 0.0],
+        metadata={"universe": "SP500", "strategy_family": "mean_reversion", "timeframe": "1d"},
+    )
+
+    memories = await repository.query_similar(
+        query_embedding=[1.0, 0.0, 0.0],
+        top_k=5,
+        where={"universe": "KOSPI200"},
+    )
+
+    assert [memory["strategy_id"] for memory in memories] == ["kospi-rsi"]
+```
+
+Advisor context generation:
+
+```python
+def test_advisor_context_includes_required_fields() -> None:
+    context = build_advisor_retrieval_context(
+        [
+            {
+                "strategy_id": "strategy-a",
+                "similarity_score": 0.91,
+                "document": "RSI strategy failed due to high MDD.",
+                "metadata": {
+                    "cagr": -0.02,
+                    "mdd": -0.31,
+                    "sharpe": -0.4,
+                    "profit_factor": 0.7,
+                    "win_rate": 0.42,
+                    "result_status": "FAIL",
+                },
+            }
+        ]
+    )
+
+    assert "Strategy ID: strategy-a" in context
+    assert "Similarity Score: 0.910" in context
+    assert "MDD: -0.31" in context
+    assert "Result Status: FAIL" in context
+```
+
+### 15.14 Boundary implementation plan
+
+Implementation must be split because the repository policy forbids cross-boundary edits in one task.
+
+1. Governance / Policy Docs
+   Define this architecture, acceptance criteria, ChromaDB schema, and phase plan.
+
+2. Boundary update task
+   Add a dedicated `Vector Memory Infrastructure` boundary that allows `backend/vector_memory/**`, ChromaDB tests, and dependency wiring.
+
+3. Vector Memory Infrastructure
+   Add domain models, hash generator, embedding protocol, ChromaDB repository, vector memory service, and unit tests.
+
+4. Strategy Persistence / BatchRun Storage
+   Connect PostgreSQL-backed backtest result lookup and duplicate prevention to existing storage.
+
+5. AI / XAI Layer
+   Integrate advisor retrieval context into `backend/advisor/**` and advisor routes.
+
+6. API proxy/UI tasks
+   Add any Next.js proxy and UI display work in their own boundaries.

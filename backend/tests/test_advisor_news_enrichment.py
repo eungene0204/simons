@@ -369,11 +369,18 @@ async def test_advisor_route_persists_then_retrieves_experience_memory(monkeypat
     assert memory_context["retrieved_cases"][0]["case_strategy_id"] == expected_strategy_id
     assert memory_context["retrieved_cases"][0]["before_metrics"]["cagr"] == 0.04
     assert memory_context["retrieved_cases"][0]["after_metrics"]["cagr"] == 0.08
-    assert "Experience Memory" in next(
+    memory_advice = next(
         item.body
         for item in second_result.advice
         if item.title == "유사 전략 경험 기반 점검"
     )
+    assert "조정 후" in memory_advice
+    assert "CAGR" in memory_advice
+    assert "MDD" in memory_advice
+    assert "Sharpe" in memory_advice
+    assert "같은 기간과 비용 조건" in memory_advice
+    assert "Experience Memory" not in memory_advice
+    assert "투자 추천" not in memory_advice
 
     conn = sqlite3.connect(db_path)
     count = conn.execute("SELECT COUNT(*) FROM AdviceExperience").fetchone()[0]

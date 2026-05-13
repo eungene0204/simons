@@ -345,9 +345,9 @@ async def coach_strategy(req: CoachRequest) -> CoachResponse:
 
     try:
         request_started = time.perf_counter()
+        cache_key = _coach_cache_key(req)
         effective_req = _with_auto_context(req)
 
-        cache_key = _coach_cache_key(effective_req)
         cached = _coach_response_cache.get(cache_key)
         if cached is not None:
             _coach_response_cache.move_to_end(cache_key)

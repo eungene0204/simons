@@ -1,6 +1,15 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { loadStockList } from '@/lib/krx-stocks';
+
+let stockNameCache: Record<string, string> | null = null;
+
+async function getStockNameMap(): Promise<Record<string, string>> {
+  if (stockNameCache) return stockNameCache;
+  const stocks = await loadStockList();
+  stockNameCache = Object.fromEntries(stocks.map((s) => [s.symbol, s.name]));
+  return stockNameCache;
+}
 import {
   calcMarketFilledPrice,
   calcFee,
@@ -56,12 +65,10 @@ export async function GET(
       where.status = statusFilter;
     }
 
-    const orders = await prisma.virtualOrder.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-    });
-    const stocks = await loadStockList();
-    const nameMap = Object.fromEntries(stocks.map((s) => [s.symbol, s.name]));
+    const [orders, nameMap] = await Promise.all([
+      prisma.virtualOrder.findMany({ where, orderBy: { createdAt: 'desc' } }),
+      getStockNameMap(),
+    ]);
     return NextResponse.json(orders.map((o) => mapOrder(o, nameMap)));
   } catch (error) {
     console.error('Failed to fetch orders:', error);

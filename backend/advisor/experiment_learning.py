@@ -20,6 +20,7 @@ _FUNDAMENTAL_BLOCKS = {
     "per",
     "pbr",
     "roe",
+    "roe_or_gpa",
     "debt_ratio",
     "market_cap",
     "trading_value",
@@ -44,10 +45,36 @@ _INDICATOR_ALIASES = {
     "ma_crossover": "ma_crossover",
     "macd": "macd",
     "moving_average": "ma_crossover",
+    "roe_or_gpa": "roe",
     "rsi": "rsi",
     "stochastic": "stochastic",
     "volume": "volume_spike",
     "volume_spike": "volume_spike",
+}
+
+_DISPLAY_LABELS = {
+    "adx": "ADX",
+    "bollinger_band": "볼린저밴드",
+    "bollinger_bands": "볼린저밴드",
+    "breakout": "돌파",
+    "cci": "CCI",
+    "ema": "EMA",
+    "ma_crossover": "이동평균 교차",
+    "macd": "MACD",
+    "market_cap": "시가총액",
+    "max_holding_days": "최대 보유기간",
+    "max_positions": "보유 종목 수",
+    "pbr": "PBR",
+    "per": "PER",
+    "roe": "ROE",
+    "roe_or_gpa": "ROE",
+    "rsi": "RSI",
+    "stochastic": "스토캐스틱",
+    "stop_loss": "손절",
+    "take_profit": "익절",
+    "trading_value": "거래대금",
+    "trailing_stop": "트레일링 스탑",
+    "volume_spike": "거래량 급증",
 }
 
 
@@ -140,7 +167,14 @@ def _confidence_rank(value: str) -> int:
 
 
 def _format_combo_description(combo: str) -> str:
-    return combo.replace("+", " + ")
+    return " + ".join(_DISPLAY_LABELS.get(item, item) for item in combo.split("+") if item)
+
+
+def _humanize_advice_text(text: str) -> str:
+    output = text
+    for key in sorted(_DISPLAY_LABELS, key=len, reverse=True):
+        output = output.replace(key, _DISPLAY_LABELS[key])
+    return output.replace("_", " ")
 
 
 class ExperimentLearningProvider:
@@ -191,10 +225,13 @@ class ExperimentLearningProvider:
             if overlap < 2 and combo_blocks != block_set:
                 continue
             sample_count = int(payload.get("combination_count") or payload.get("count") or 0)
+            similarity = _jaccard(block_set, combo_blocks)
             matches.append({
                 "pattern_key": key,
                 "blocks": sorted(combo_blocks),
                 "overlap": overlap,
+                "similarity": round(similarity, 3),
+                "extra_blocks": sorted(combo_blocks - block_set),
                 "sample_count": sample_count,
                 "median_cagr": payload.get("median_cagr"),
                 "median_sharpe": payload.get("median_sharpe"),
@@ -208,7 +245,12 @@ class ExperimentLearningProvider:
             })
         return sorted(
             matches,
-            key=lambda item: (item["overlap"], _confidence_rank(item["confidence"]), item["sample_count"]),
+            key=lambda item: (
+                item["similarity"],
+                item["overlap"],
+                _confidence_rank(item["confidence"]),
+                item["sample_count"],
+            ),
             reverse=True,
         )
 
@@ -262,6 +304,7 @@ class ExperimentLearningProvider:
         sample_evidence = [sample.get("evidence") or {} for sample in samples]
         return {
             "similar_strategy_count": int(primary.get("sample_count") or primary.get("count") or len(samples)),
+            "similarity": primary.get("similarity"),
             "median_cagr": primary.get("median_cagr") if primary else _safe_median([e.get("median_cagr") for e in sample_evidence]),
             "median_sharpe": primary.get("median_sharpe") if primary else _safe_median([e.get("median_sharpe") for e in sample_evidence]),
             "median_mdd": primary.get("median_mdd") if primary else _safe_median([e.get("median_mdd") for e in sample_evidence]),
@@ -270,7 +313,14 @@ class ExperimentLearningProvider:
 
     def _resolve_confidence(self, evidence: Dict[str, Any], combinations: List[Dict[str, Any]]) -> str:
         if combinations:
-            return combinations[0].get("confidence", "low")
+            confidence = combinations[0].get("confidence", "low")
+            similarity = evidence.get("similarity")
+            if isinstance(similarity, (int, float)):
+                if similarity < 0.5:
+                    return "low"
+                if similarity < 0.75 and confidence == "high":
+                    return "medium"
+            return confidence
         sample_count = int(evidence.get("similar_strategy_count") or 0)
         if sample_count >= 20:
             return "high"
@@ -289,6 +339,13 @@ class ExperimentLearningProvider:
             return [str(rules[0].get("advice") or "청산 조건과 리스크 설정을 먼저 보완하세요.")]
         if not combinations:
             return ["비슷한 실험 데이터가 부족합니다. 현재 전략은 추가 백테스트로 먼저 검증하세요."]
+        extra_blocks = combinations[0].get("extra_blocks") or []
+        if extra_blocks:
+            extra_text = _format_combo_description("+".join(extra_blocks))
+            return [
+                f"가장 가까운 실험군은 {extra_text} 조건을 함께 포함합니다. "
+                "현재 전략과 완전히 같지는 않으므로, 해당 조건을 한 번에 묶지 말고 개별 후보로 분리해 비교하세요."
+            ]
         guidance = combinations[0].get("coach_guidance") or "유사 실험의 중앙값 성과를 기준으로 리스크 설정을 비교하세요."
         if confidence == "low":
             return [f"실험 샘플이 부족해 확신하기 어렵습니다. {guidance}"]
@@ -320,7 +377,7 @@ def build_experiment_learning_advice(insight: Dict[str, Any]) -> Optional[str]:
     sample_count = int(insight.get("similar_strategy_count") or 0)
     if sample_count <= 0:
         return None
-    blocks = " + ".join(insight.get("matched_blocks") or [])
+
     metrics = []
     for label, key in (("CAGR", "median_cagr"), ("Sharpe", "median_sharpe"), ("MDD", "median_mdd")):
         value = insight.get(key)
@@ -328,12 +385,26 @@ def build_experiment_learning_advice(insight: Dict[str, Any]) -> Optional[str]:
             suffix = "%" if label != "Sharpe" else ""
             metrics.append(f"{label} 중앙값 {value:.2f}{suffix}")
     evidence = ", ".join(metrics) if metrics else "성과 중앙값은 제한적으로만 확인됨"
-    advice = (insight.get("recommended_advice") or ["비슷한 실험 데이터가 부족합니다."])[0]
-    if insight.get("confidence") == "low":
-        confidence_note = "실험 데이터의 confidence가 낮아 이 근거만으로는 확신하기 어렵습니다."
+    advice = _humanize_advice_text(
+        (insight.get("recommended_advice") or ["조건별 비교 백테스트를 먼저 진행하세요."])[0]
+    )
+    adjustments = [
+        _humanize_advice_text(str(item))
+        for item in insight.get("recommended_adjustments") or []
+        if str(item).strip()
+    ]
+    adjustment_text = ""
+    if adjustments:
+        adjustment_text = f" 우선 비교할 후보는 {', '.join(adjustments[:3])}입니다."
+    confidence = str(insight.get("confidence") or "low")
+    confidence_label = {"high": "높음", "medium": "중간", "low": "낮음"}.get(confidence, confidence)
+    if confidence == "low":
+        confidence_note = "근거 수준이 낮아 이 결과만으로 결론을 내리면 안 됩니다."
     else:
-        confidence_note = f"confidence는 {insight.get('confidence')}입니다."
+        confidence_note = f"근거 수준은 {confidence_label}입니다."
+
     return (
-        f"비슷한 {sample_count}개 실험에서 {blocks or '유사 블록'} 패턴은 {evidence}였습니다. "
-        f"{confidence_note} {advice} 이 내용은 투자 추천이 아니라 전략 검증/리스크 관리 근거입니다."
+        f"현재 조건과 가까운 실험군의 결과는 {evidence}입니다. "
+        f"{confidence_note}{adjustment_text} 다음 백테스트에서는 현재안과 각 후보를 하나씩만 바꿔 비교하고, "
+        f"MDD와 Sharpe가 동시에 나아지는 쪽만 후보로 남기세요. {advice}"
     )

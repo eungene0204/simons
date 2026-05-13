@@ -26,18 +26,12 @@ import {
   type ParsedSummary,
 } from "./strategySummary";
 import {
-  buildAdvisorEvaluationContextFromWalkForward,
-  buildCandidateBacktestRequest,
   buildWalkForwardRequest,
   mergeStrategyModification,
-  type AdvisorWalkForwardResult,
   type AdvisorWalkForwardSettings,
 } from "./parsedStrategyMerge";
-import {
-  StrategyAdvisorPanel,
-  type AdvisorResult,
-  type AdvisorRequest,
-} from "@/components/strategy/StrategyAdvisorPanel";
+import { formatCoachAdviceBody, formatCoachAdviceTitle } from "./advisorCopy";
+import type { AdvisorResult } from "@/components/strategy/StrategyAdvisorPanel";
 
 const BacktestDashboard = dynamic(
   () => import("@/components/strategy/backtest/BacktestDashboard"),
@@ -51,6 +45,8 @@ interface ChatMessage {
   content?: string;
   parsed?: ParsedSummary;
   parseSkeleton?: ParseSkeleton;
+  coachText?: string;
+  advisorResult?: AdvisorResult;
   clarification?: string;
   clarificationSuggestions?: string[];
   coachLoading?: boolean;  // coach response is being generated
@@ -85,71 +81,38 @@ interface RuntimeMetricsSnapshot {
   }>;
 }
 
-interface WalkForwardEvidence {
-  settings: AdvisorWalkForwardSettings;
-  result: AdvisorWalkForwardResult;
-  ranges: Record<string, unknown>;
-  requestKey: string;
-  completedAt: number;
-}
-
-function toAdvisorBacktestSummary(value: any) {
-  if (!value) return null;
-  return {
-    cagr: value.cagr ?? null,
-    mdd: value.mdd ?? value.maxDrawdown ?? null,
-    sharpe: value.sharpe ?? null,
-    sortino: value.sortino ?? null,
-    calmar: value.calmar ?? null,
-    profit_factor: value.profit_factor ?? value.profitFactor ?? null,
-    trade_count: value.trade_count ?? value.trades ?? null,
-    win_rate: value.win_rate ?? value.winRate ?? null,
-    avg_trade_return: value.avg_trade_return ?? value.avgProfit ?? null,
-    max_losing_streak: value.max_losing_streak ?? value.maxConsecutiveLosses ?? null,
-  };
-}
-
-async function readBacktestStreamResult(response: Response) {
-  if (!response.ok || !response.body) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error(err.detail ?? "후보 백테스트 실패");
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let result: any = null;
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue;
-      const payload = line.slice(6).trim();
-      if (payload === "[DONE]") continue;
-      const event = JSON.parse(payload);
-      if (event.type === "result") result = event.data;
-      if (event.type === "error") throw new Error(event.message ?? "후보 백테스트 실패");
-    }
-  }
-
-  if (!result) throw new Error("후보 백테스트 결과가 없습니다.");
-  return result;
-}
-
-function backtestRequestKey(value: unknown): string {
-  return JSON.stringify(value ?? null);
-}
-
 function FilterBadge({ label }: { label: string }) {
   return (
     <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] text-white text-xs font-bold">
       {label}
     </span>
+  );
+}
+
+function AdvisorResultBubble({ result }: { result: AdvisorResult }) {
+  return (
+    <div className="space-y-3">
+      {result.advice.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[11px] font-black uppercase tracking-widest text-yellow-300">조언 드립니다</p>
+          {result.advice.map((item, i) => (
+            <div key={`${item.title}-${i}`} className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+              <p className="text-xs font-black text-white">{formatCoachAdviceTitle(item.title)}</p>
+              {item.body && (
+                <p className="mt-1 text-xs font-bold leading-relaxed text-gray-400">
+                  {formatCoachAdviceBody(item.body)}
+                </p>
+              )}
+              {item.proposed_change?.description && (
+                <p className="mt-1.5 text-xs font-bold leading-relaxed text-indigo-300">
+                  {item.proposed_change.description}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -289,15 +252,15 @@ function ParsedSummaryBubble({
   const exitLabels = getDisplayExitLabels(parsed);
 
   return (
-    <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl rounded-tl-sm p-4 space-y-3">
-      <div className="flex items-center gap-1.5">
-        <CheckCircle size={13} className="text-gray-400" weight="fill" />
-        <span className="text-xs font-black uppercase tracking-widest text-white">전략 요약</span>
+    <div className="space-y-3 rounded-2xl border border-amber-300/50 p-4">
+      <div className="flex items-center gap-1.5 border-b border-amber-300/20 pb-2">
+        <CheckCircle size={13} className="text-amber-300" weight="fill" />
+        <span className="text-xs font-black uppercase tracking-widest text-amber-100">전략 요약</span>
       </div>
       <div className="space-y-2">
         {parsed.universe.length > 0 && (
           <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0">유니버스</span>
+            <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest w-14 flex-shrink-0">유니버스</span>
             <div className="flex flex-wrap gap-1">
               {universeLabels.map((label, i) => (
                 <FilterBadge key={i} label={label} />
@@ -307,7 +270,7 @@ function ParsedSummaryBubble({
         )}
         {parsed.fundamental_filters.length > 0 && (
           <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0">재무 필터</span>
+            <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest w-14 flex-shrink-0">재무 필터</span>
             <div className="flex flex-wrap gap-1">
               {parsed.fundamental_filters.map((f, i) => (
                 <FilterBadge key={i} label={`${METRIC_LABELS[f.metric] ?? f.metric} ${f.operator} ${f.value}`} />
@@ -317,7 +280,7 @@ function ParsedSummaryBubble({
         )}
         {parsed.entry_signals.length > 0 && (
           <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0">진입 신호</span>
+            <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest w-14 flex-shrink-0">진입 신호</span>
             <div className="flex flex-wrap gap-1">
               {parsed.entry_signals.map((s, i) => (
                 <FilterBadge key={i} label={INDICATOR_LABELS[s.indicator] ?? s.indicator} />
@@ -327,7 +290,7 @@ function ParsedSummaryBubble({
         )}
         {exitLabels.length > 0 && (
           <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0">청산 신호</span>
+            <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest w-14 flex-shrink-0">청산 신호</span>
             <div className="flex flex-wrap gap-1">
               {exitLabels.map((label, i) => (
                 <FilterBadge key={i} label={label} />
@@ -336,7 +299,7 @@ function ParsedSummaryBubble({
           </div>
         )}
         <div className="flex flex-wrap gap-1.5 items-center">
-          <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0">포트폴리오</span>
+          <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest w-14 flex-shrink-0">포트폴리오</span>
           <div className="flex flex-wrap gap-1">
             <FilterBadge label={`최대 ${parsed.max_positions}종목`} />
             {parsed.hold_period_days && <FilterBadge label={`${parsed.hold_period_days}일 보유`} />}
@@ -347,7 +310,7 @@ function ParsedSummaryBubble({
         </div>
         {(parsed.stop_loss_pct || parsed.take_profit_pct) && (
           <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0">리스크</span>
+            <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest w-14 flex-shrink-0">리스크</span>
             <div className="flex flex-wrap gap-1">
               {parsed.stop_loss_pct && <FilterBadge label={`손절 ${parsed.stop_loss_pct}%`} />}
               {parsed.take_profit_pct && <FilterBadge label={`익절 ${parsed.take_profit_pct}%`} />}
@@ -373,13 +336,10 @@ function StrategyLabContent() {
   const [modelStatus, setModelStatus] = useState<{ status: string; error: string | null } | null>(null);
   const [runtimeMetrics, setRuntimeMetrics] = useState<RuntimeMetricsSnapshot | null>(null);
   const [isResettingRuntimeMetrics, setIsResettingRuntimeMetrics] = useState(false);
-  const [advisorRequest, setAdvisorRequest] = useState<AdvisorRequest | null>(null);
-  const [walkForwardEvidence, setWalkForwardEvidence] = useState<WalkForwardEvidence | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   // first user prompt — kept for advisor context
   const firstPromptRef = useRef<string>("");
-  const candidateEvaluationKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     fetch("/api/model/status")
@@ -436,103 +396,6 @@ function StrategyLabContent() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
-
-  // auto-trigger advisor whenever parsed strategy changes
-  useEffect(() => {
-    if (!latestParsed) return;
-    setAdvisorRequest({
-      user_prompt: firstPromptRef.current,
-      parsed_strategy: latestParsed as unknown as Record<string, unknown>,
-      backtest_result: toAdvisorBacktestSummary(result),
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [latestParsed, result]);
-
-  // After the baseline backtest, verify the advisor candidate in the background.
-  useEffect(() => {
-    if (stage !== "done" || !latestParsed || !backtestReq || !result) return;
-
-    const beforeBacktest = toAdvisorBacktestSummary(result);
-    if (!beforeBacktest) return;
-
-    const key = JSON.stringify({
-      parsed: latestParsed,
-      result: (result as any).cacheKey ?? result.executionId ?? result.finalEquity,
-      walkForwardCompletedAt: walkForwardEvidence?.completedAt ?? null,
-    });
-    if (candidateEvaluationKeyRef.current === key) return;
-    candidateEvaluationKeyRef.current = key;
-
-    let cancelled = false;
-    void (async () => {
-      try {
-        const reviewRes = await fetch("/api/advisor/review", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            user_prompt: firstPromptRef.current,
-            parsed_strategy: latestParsed as unknown as Record<string, unknown>,
-            backtest_result: beforeBacktest,
-          }),
-        });
-        if (!reviewRes.ok || cancelled) return;
-
-        const review: AdvisorResult = await reviewRes.json();
-        if (!review.candidate_strategy || cancelled) return;
-
-        const candidateReq = buildCandidateBacktestRequest(backtestReq, review.candidate_strategy as any);
-        const candidateRes = await fetch("/api/strategy/backtest-stream", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(candidateReq),
-        });
-        const candidateRaw = await readBacktestStreamResult(candidateRes);
-        const candidateBacktest = toAdvisorBacktestSummary(candidateRaw);
-        if (!candidateBacktest || cancelled) return;
-
-        let evaluationContext = { oos_available: false };
-        if (
-          walkForwardEvidence &&
-          walkForwardEvidence.requestKey === backtestRequestKey(backtestReq)
-        ) {
-          const candidateWalkForwardRes = await fetch("/api/backtest/walk-forward", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(buildWalkForwardRequest(
-              candidateReq,
-              walkForwardEvidence.settings,
-              walkForwardEvidence.ranges,
-            )),
-          });
-          const candidateWalkForward = candidateWalkForwardRes.ok
-            ? await candidateWalkForwardRes.json()
-            : null;
-
-          evaluationContext = buildAdvisorEvaluationContextFromWalkForward(
-            walkForwardEvidence.result,
-            candidateWalkForward,
-          );
-        }
-
-        if (cancelled) return;
-        setAdvisorRequest((current) => {
-          if (!current) return current;
-          return {
-            ...current,
-            candidate_backtest_result: candidateBacktest,
-            evaluation_context: evaluationContext,
-          };
-        });
-      } catch (error) {
-        console.warn("advisor candidate retest skipped", error);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stage, latestParsed, backtestReq, result, walkForwardEvidence]);
 
   // period 제안 텍스트 → { parsed: backtest_period 값, options: currentOptions.period 값 }
   // 매칭되지 않으면 null 반환 (AI 파싱 필요)
@@ -668,7 +531,6 @@ function StrategyLabContent() {
           parsed: nextParsed,
           clarification: undefined,
           clarificationSuggestions: undefined,
-          coachLoading: true,
         });
       };
 
@@ -699,6 +561,10 @@ function StrategyLabContent() {
       }
 
       if (finalizedParsed) {
+        setMessages(prev => [
+          ...prev,
+          { role: "assistant", coachLoading: true, coachText: "" },
+        ]);
         generateCoachResponse({
           userText,
           parsed: finalizedParsed,
@@ -716,11 +582,9 @@ function StrategyLabContent() {
   const generateCoachResponse = async ({
     userText,
     parsed,
-    newsAgentInsight,
   }: {
     userText: string;
     parsed: ParsedSummary;
-    newsAgentInsight?: Record<string, unknown> | null;
   }) => {
     const updateLastAssistant = (patch: Partial<ChatMessage>) => {
       setMessages(prev => {
@@ -731,7 +595,6 @@ function StrategyLabContent() {
     };
 
     try {
-      // Step 1: get advisor insight (fast, rule-based ~14ms)
       const advisorRes = await fetch("/api/advisor/review", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -740,64 +603,21 @@ function StrategyLabContent() {
           parsed_strategy: parsed as unknown as Record<string, unknown>,
         }),
       });
-      const advisorInsight = advisorRes.ok ? await advisorRes.json() : null;
-
-      // Step 2: stream coaching response (local Qwen MLX)
-      const coachRes = await fetch("/api/strategy/coach/stream", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_prompt: userText,
-          parsed_strategy: parsed,
-          advisor_insight: advisorInsight,
-          news_agent_insight: newsAgentInsight ?? null,
-        }),
-      });
-      if (!coachRes.ok || !coachRes.body) {
-        updateLastAssistant({ coachLoading: false });
+      if (!advisorRes.ok) {
+        updateLastAssistant({
+          coachLoading: false,
+          coachText: "전략 코칭 응답을 가져오지 못했습니다. 전략 요약은 준비되어 있으니 백테스트는 계속 실행할 수 있습니다.",
+        });
         return;
       }
 
-      const reader = coachRes.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let firstDelta = true;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split("\n\n");
-        buffer = parts.pop() ?? "";
-
-        for (const chunk of parts) {
-          const line = chunk.split("\n").find(l => l.startsWith("data: "));
-          if (!line) continue;
-          try {
-            const evt = JSON.parse(line.slice(6));
-            if (evt.type === "delta" && evt.message) {
-              if (firstDelta) {
-                firstDelta = false;
-                updateLastAssistant({ coachLoading: false, clarification: evt.message });
-              } else {
-                updateLastAssistant({ clarification: evt.message });
-              }
-            } else if (evt.type === "done") {
-              updateLastAssistant({
-                coachLoading: false,
-                clarification: evt.message || undefined,
-                clarificationSuggestions: evt.suggestions?.length ? evt.suggestions : undefined,
-              });
-            } else if (evt.type === "error") {
-              updateLastAssistant({ coachLoading: false });
-            }
-          } catch {
-            // ignore malformed chunk
-          }
-        }
-      }
+      const advisorResult: AdvisorResult = await advisorRes.json();
+      updateLastAssistant({ coachLoading: false, advisorResult });
     } catch {
-      updateLastAssistant({ coachLoading: false });
+      updateLastAssistant({
+        coachLoading: false,
+        coachText: "전략 코칭 중 오류가 발생했습니다. 전략 요약은 준비되어 있으니 백테스트는 계속 실행할 수 있습니다.",
+      });
     }
   };
 
@@ -821,7 +641,6 @@ function StrategyLabContent() {
 
     setStage("running");
     setStatusMessage("백테스트 준비 중...");
-    setWalkForwardEvidence(null);
 
     try {
       const res = await fetch("/api/strategy/backtest-stream", {
@@ -939,13 +758,6 @@ function StrategyLabContent() {
     }
 
     const data = await res.json();
-    setWalkForwardEvidence({
-      settings,
-      result: data,
-      ranges,
-      requestKey: backtestRequestKey(backtestReq),
-      completedAt: Date.now(),
-    });
     return data;
   };
 
@@ -955,7 +767,6 @@ function StrategyLabContent() {
     setLatestParsed(null);
     setBacktestReq(null);
     setResult(null);
-    setWalkForwardEvidence(null);
     setIsSending(false);
     setTimeout(() => textareaRef.current?.focus(), 100);
   };
@@ -992,16 +803,15 @@ function StrategyLabContent() {
 
   const isIdle = messages.length === 0 && !isSending;
   const isLastAssistant = (i: number) => i === messages.length - 1 && messages[i].role === "assistant";
-  const showAdvisor = !!advisorRequest;
 
   // ── 메인 채팅 화면
   return (
     <DashboardLayout userName="">
       <div className="h-full flex gap-4 px-4 pt-20 pb-12 overflow-hidden">
 
-        {/* ── 왼쪽: 채팅 영역 ── */}
-        <div className={`flex flex-col items-center justify-center transition-all duration-300 ${showAdvisor ? "flex-1 min-w-0" : "w-full items-center justify-center"}`}>
-        <div className={`w-full flex flex-col items-center gap-6 ${showAdvisor ? "" : "max-w-4xl"}`}>
+        {/* ── 채팅 영역 ── */}
+        <div className="flex flex-col items-center justify-center transition-all duration-300 w-full">
+        <div className="w-full max-w-4xl flex flex-col items-center gap-6">
 
           {/* 헤더 */}
           <div className="w-full max-w-3xl">
@@ -1017,12 +827,6 @@ function StrategyLabContent() {
               <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[var(--main-blue)]/10 border border-[var(--main-blue)]/20 text-[var(--main-blue)] text-xs font-bold">
                 <Warning size={12} weight="fill" />
                 AI 모델 로드 실패 — 전략 생성을 사용할 수 없습니다
-              </div>
-            )}
-            {modelStatus?.status === "loading" && (
-              <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 text-xs font-bold">
-                <ArrowsClockwise size={12} className="animate-spin" />
-                AI 모델 로딩 중...
               </div>
             )}
           </div>
@@ -1062,12 +866,6 @@ function StrategyLabContent() {
                         {msg.parsed && (
                           <>
                             <ParsedSummaryBubble parsed={msg.parsed} backtestRequest={backtestReq} />
-                            {isLastAssistant(i) && msg.coachLoading && (
-                              <div className="flex items-center gap-2 px-1">
-                                <ArrowsClockwise size={11} className="text-indigo-400 animate-spin flex-shrink-0" />
-                                <span className="text-[11px] font-bold text-gray-600">코치 분석 중...</span>
-                              </div>
-                            )}
                             {isLastAssistant(i) && !msg.coachLoading && msg.clarification && (
                               <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-white/[0.02] border border-yellow-400/40">
                                 <Question size={13} className="text-yellow-400 flex-shrink-0 mt-0.5" weight="fill" />
@@ -1093,6 +891,39 @@ function StrategyLabContent() {
                               </div>
                             )}
                           </>
+                        )}
+                        {(msg.coachLoading || msg.coachText || msg.advisorResult) && (
+                          <div className="max-w-[88%] bg-white/[0.025] border border-indigo-400/25 rounded-2xl rounded-tl-sm p-3.5 space-y-2">
+                            <div className="flex items-center gap-2">
+                              {msg.coachLoading && (
+                                <ArrowsClockwise size={12} className="text-indigo-400 animate-spin flex-shrink-0" />
+                              )}
+                              <span className="text-[11px] font-black uppercase tracking-widest text-indigo-300">
+                                전략 코치
+                              </span>
+                              {msg.coachLoading && (
+                                <span className="text-[11px] font-bold text-gray-600">분석 중...</span>
+                              )}
+                            </div>
+                            {msg.coachText && (
+                              <p className="text-xs font-bold text-gray-300 leading-relaxed whitespace-pre-line">
+                                {msg.coachText.replace(/\*\*(.*?)\*\*/g, "$1")}
+                              </p>
+                            )}
+                            {msg.advisorResult && (
+                              <AdvisorResultBubble result={msg.advisorResult} />
+                            )}
+                          </div>
+                        )}
+                        {isLastAssistant(i) && (msg.coachText || msg.advisorResult) && stage === "ready" && !msg.coachLoading && (
+                          <button
+                            onClick={() => handleRunBacktest()}
+                            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-black transition-all duration-300 hover:shadow-[0_0_24px_rgba(59,130,246,0.4)]"
+                          >
+                            <ChartLineUp size={13} weight="fill" />
+                            백테스트 실행
+                            <ArrowRight size={11} />
+                          </button>
                         )}
                         {msg.error && (
                           <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-[var(--error-red)]/10 border border-[var(--error-red)]/20">
@@ -1143,16 +974,6 @@ function StrategyLabContent() {
           )}
         </div>
         </div>{/* end 채팅 영역 */}
-
-        {/* ── 오른쪽: 전략 코치 패널 ── */}
-        {showAdvisor && (
-          <div className="w-80 flex-shrink-0 pt-0 pb-0 flex flex-col">
-            <StrategyAdvisorPanel
-              request={advisorRequest}
-              onDismiss={() => setAdvisorRequest(null)}
-            />
-          </div>
-        )}
 
       </div>
     </DashboardLayout>

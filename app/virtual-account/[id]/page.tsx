@@ -705,9 +705,8 @@ export default function VirtualAccountDetailPage() {
                         const description = isAccountStrategy ? dbStrategyDescription : null;
                         return (
                           <div key={idx} className="py-3">
-                            <div className="flex items-start justify-between gap-2 mb-3">
-                              <span className="truncate text-sm font-black text-white leading-tight">{strategy.name}</span>
-                              {description && (
+                            {description && (
+                              <div className="flex justify-start mb-3">
                                 <div className="relative shrink-0">
                                   <button
                                     ref={promptButtonRef}
@@ -725,14 +724,14 @@ export default function VirtualAccountDetailPage() {
                                     프롬프트
                                   </button>
                                 </div>
-                              )}
-                            </div>
+                              </div>
+                            )}
                             {strategySummaryChips.length > 0 && (
                               <div className="flex flex-wrap gap-1">
                                 {strategySummaryChips.map((chip) => (
                                   <span
                                     key={chip}
-                                    className="inline-flex items-center rounded-md bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-gray-400"
+                                    className="inline-flex items-center rounded-md bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-yellow-500"
                                   >
                                     {chip}
                                   </span>
