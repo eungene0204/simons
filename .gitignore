@@ -73,4 +73,5 @@ node_modules/
 
 # Task files
 # tasks.json
-# tasks/ 
+# ChromaDB indices
+backend/advisor/.chroma/
