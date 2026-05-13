@@ -14,7 +14,14 @@ import os
 import sqlite3
 from typing import Any, Dict, List, Optional, Tuple
 
+from .advice_evaluator import evaluate_advice
+from .similarity import search_similar_strategies
 from .strategy_identity import canonical_strategy_string, strategy_id_for
+from .vector_memory import (
+    migrate_backtest_results_to_chroma,
+    query_chroma_memory,
+    vector_matches_to_memory_cases,
+)
 
 
 def _db_path() -> str:
@@ -37,6 +44,12 @@ def _connect() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA busy_timeout = 5000")
     return conn
+
+
+def _uses_default_database() -> bool:
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    default_path = os.path.join(project_root, "prisma", "prisma", "dev.db")
+    return os.path.abspath(_db_path()) == os.path.abspath(default_path)
 
 
 def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
@@ -84,6 +97,27 @@ def _stringify_field(value: Any) -> Optional[str]:
     if isinstance(value, str):
         return value
     return _json_dumps(value)
+
+
+def _coerce_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_text(value: Any, default: str = "") -> str:
+    if value is None:
+        return default
+    text = str(value).strip()
+    return text or default
+
+
+def _nested_dict(value: Any, key: str) -> Dict[str, Any]:
+    nested = value.get(key) if isinstance(value, dict) else None
+    return nested if isinstance(nested, dict) else {}
 
 
 def _confidence(response: Any) -> str:
@@ -221,6 +255,352 @@ def _load_experience_rows(
     return strategy_cases, experiences
 
 
+def _bootstrap_timeframe(strategy_dsl: Dict[str, Any]) -> str:
+    period = _nested_dict(strategy_dsl, "period")
+    options = _nested_dict(strategy_dsl, "options")
+    return _coerce_text(
+        strategy_dsl.get("timeframe")
+        or strategy_dsl.get("interval")
+        or period.get("timeframe")
+        or period.get("interval")
+        or options.get("timeframe"),
+        "1d",
+    )
+
+
+def _bootstrap_initial_capital(strategy_dsl: Dict[str, Any], summary: Dict[str, Any]) -> float:
+    options = _nested_dict(strategy_dsl, "options")
+    risk = _nested_dict(strategy_dsl, "risk")
+    return _coerce_float(
+        strategy_dsl.get("initial_capital")
+        or strategy_dsl.get("initialCapital")
+        or options.get("initialCapital")
+        or options.get("initial_capital")
+        or risk.get("initialCapital")
+        or summary.get("initialCapital"),
+        0.0,
+    )
+
+
+def _bootstrap_evaluation() -> Dict[str, Any]:
+    return {
+        "advice_success": None,
+        "improved_metrics": [],
+        "worsened_metrics": [],
+        "net_effect": "unverified",
+        "reason": "기존 단일 백테스트 결과만 bootstrap되어 조언 전/후 비교는 아직 없습니다.",
+        "source": "historical_backtest_bootstrap",
+        "oos_validation_required": True,
+    }
+
+
+def _comparison_context() -> Dict[str, Any]:
+    return {
+        "oos_available": False,
+        "comparison_source": "historical_similar_strategy",
+    }
+
+
+def _bootstrap_agent_advice(summary: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "advice_summary": "Historical backtest bootstrap only. No generated advice is attached yet.",
+        "recommended_changes": [],
+        "risk_warnings": summary.get("warnings") if isinstance(summary.get("warnings"), list) else [],
+        "assumptions": [
+            "This memory row was bootstrapped from a stored backtest result without advisor intervention.",
+        ],
+        "confidence": "low",
+    }
+
+
+def _bootstrap_lesson(strategy_summary: str, summary: Dict[str, Any]) -> str:
+    cagr = summary.get("cagr")
+    sharpe = summary.get("sharpe")
+    mdd = summary.get("mdd")
+    if mdd is None:
+        mdd = summary.get("maxDrawdown")
+    if cagr is not None and cagr >= 0:
+        return (
+            f"{strategy_summary} 전략은 과거 백테스트에서 CAGR {cagr:g}, "
+            f"MDD {mdd if mdd is not None else 'N/A'} 수준을 기록했다. "
+            "단일 historical result이므로 동일 개선안을 재사용하기 전에 OOS와 비용 반영 검증이 필요하다."
+        )
+    return (
+        f"{strategy_summary} 전략은 과거 백테스트에서 CAGR {cagr if cagr is not None else 'N/A'}, "
+        f"Sharpe {sharpe if sharpe is not None else 'N/A'}로 부진했다. "
+        "이 메모리는 실패 패턴 참고용이며, 원인 분해 없이 같은 구조를 반복하지 않아야 한다."
+    )
+
+
+def _historical_comparison_lesson(
+    strategy_summary: str,
+    candidate_summary: str,
+    evaluation: Dict[str, Any],
+) -> str:
+    if evaluation.get("advice_success"):
+        improved = ", ".join(evaluation.get("improved_metrics") or [])
+        return (
+            f"{strategy_summary}와 유사한 과거 전략 중 {candidate_summary} 사례에서 "
+            f"{improved or '핵심 성과'} 개선이 확인되었다. "
+            "이 패턴은 historical comparison이므로 실제 적용 전 동일 조건 재백테스트와 OOS 검증이 필요하다."
+        )
+    return (
+        f"{strategy_summary}와 유사한 과거 전략 비교에서 {evaluation.get('reason', '개선 효과가 제한적이었다')} "
+        "같은 구조의 조언을 적용하기 전에 파라미터 민감도와 비용 반영 결과를 먼저 확인해야 한다."
+    )
+
+
+def _comparison_agent_advice(candidate_summary: str, evaluation: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "advice_summary": (
+            f"Historical comparison found a similar strategy: {candidate_summary}. "
+            "Use it as evidence for candidate validation, not as a final recommendation."
+        ),
+        "recommended_changes": [],
+        "risk_warnings": [
+            "Historical comparison is not a direct advisor-generated candidate backtest.",
+            "OOS and cost-adjusted validation are still required.",
+        ],
+        "assumptions": [
+            "The afterBacktest field stores the better similar historical strategy result.",
+        ],
+        "confidence": "medium" if evaluation.get("advice_success") else "low",
+    }
+
+
+def _bootstrap_experience_rows(conn: sqlite3.Connection) -> None:
+    if (
+        not _table_exists(conn, "Strategy")
+        or not _table_exists(conn, "BacktestResult")
+        or not _table_exists(conn, "AdviceExperience")
+    ):
+        return
+
+    existing_count = conn.execute("SELECT COUNT(*) FROM AdviceExperience").fetchone()[0]
+    if existing_count:
+        return
+
+    rows = conn.execute(
+        """
+        SELECT Strategy.id, Strategy.name, Strategy.description, Strategy.settings,
+               BacktestResult.id AS backtestResultId,
+               BacktestResult.summary, BacktestResult.createdAt
+        FROM Strategy
+        JOIN BacktestResult ON BacktestResult.strategyId = Strategy.id
+        ORDER BY Strategy.id ASC, BacktestResult.createdAt DESC
+        """
+    ).fetchall()
+
+    seen_strategy_ids: set[str] = set()
+    inserted = 0
+    for row in rows:
+        strategy_row_id = row["id"]
+        if strategy_row_id in seen_strategy_ids:
+            continue
+        seen_strategy_ids.add(strategy_row_id)
+
+        strategy_dsl = _json_loads(row["settings"], {})
+        summary = _json_loads(row["summary"], {})
+        if not isinstance(strategy_dsl, dict) or not strategy_dsl:
+            continue
+        if not isinstance(summary, dict) or not summary:
+            continue
+
+        strategy_summary = row["description"] or row["name"] or strategy_row_id
+        lesson = _bootstrap_lesson(strategy_summary, summary)
+        evaluation = _bootstrap_evaluation()
+        experience_id = f"bootstrap_{row['backtestResultId']}"
+
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO AdviceExperience (
+                id, strategyId, createdAt, market, universe, initialCapital,
+                timeframe, userPrompt, strategySummary, strategyDsl, canonicalDsl,
+                strategyHash, similarStrategyIds, retrievedCases, agentAdvice,
+                beforeBacktest, afterBacktest, evaluation, lesson, confidence,
+                dataCoverage
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                experience_id,
+                strategy_row_id,
+                _coerce_text(row["createdAt"], datetime.now(timezone.utc).isoformat()),
+                strategy_dsl.get("market"),
+                _stringify_field(strategy_dsl.get("universe") or strategy_dsl.get("symbols")),
+                _bootstrap_initial_capital(strategy_dsl, summary),
+                _bootstrap_timeframe(strategy_dsl),
+                strategy_summary,
+                strategy_summary,
+                _json_dumps(strategy_dsl),
+                canonical_strategy_string(strategy_dsl),
+                strategy_id_for(strategy_dsl),
+                _json_dumps([]),
+                _json_dumps([]),
+                _json_dumps(_bootstrap_agent_advice(summary)),
+                _json_dumps(summary),
+                None,
+                _json_dumps(evaluation),
+                lesson,
+                "low",
+                "bootstrap_backtest_only",
+            ),
+        )
+        inserted += 1
+
+    if inserted:
+        conn.commit()
+
+
+def _load_bootstrap_experiences(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT id, strategyId, userPrompt, strategySummary, strategyDsl,
+               beforeBacktest, afterBacktest
+        FROM AdviceExperience
+        WHERE dataCoverage IN ('bootstrap_backtest_only', 'bootstrap_historical_comparison')
+        """
+    ).fetchall()
+
+    experiences: List[Dict[str, Any]] = []
+    for row in rows:
+        strategy_dsl = _json_loads(row["strategyDsl"], {})
+        before = _json_loads(row["beforeBacktest"], {})
+        if not isinstance(strategy_dsl, dict) or not isinstance(before, dict) or not before:
+            continue
+        experiences.append({
+            "id": row["id"],
+            "strategy_id": row["strategyId"],
+            "user_prompt": row["userPrompt"] or "",
+            "strategy_summary": row["strategySummary"] or row["strategyId"],
+            "strategy_dsl": strategy_dsl,
+            "before_backtest": before,
+            "after_backtest": _json_loads(row["afterBacktest"], {}),
+        })
+    return experiences
+
+
+def _evaluation_rank(evaluation: Dict[str, Any]) -> Tuple[int, int, int]:
+    net_effect = evaluation.get("net_effect")
+    net_rank = {"positive": 3, "neutral": 2, "negative": 1}.get(net_effect, 0)
+    improved = len(evaluation.get("improved_metrics") or [])
+    worsened = len(evaluation.get("worsened_metrics") or [])
+    return net_rank, improved, -worsened
+
+
+def _best_historical_comparator(
+    current: Dict[str, Any],
+    candidates: List[Dict[str, Any]],
+) -> Optional[Tuple[Dict[str, Any], Dict[str, Any]]]:
+    cases = [
+        {
+            "strategy_id": item["strategy_id"],
+            "user_prompt": item["user_prompt"],
+            "strategy_summary": item["strategy_summary"],
+            "strategy_dsl": item["strategy_dsl"],
+            "agent_advice_text": item["strategy_summary"],
+        }
+        for item in candidates
+        if item["strategy_id"] != current["strategy_id"]
+    ]
+    similar = search_similar_strategies(
+        current["user_prompt"],
+        current["strategy_dsl"],
+        cases,
+        top_k=8,
+        min_score=0.35,
+        min_structure_score=0.35,
+    )
+    by_id = {item["strategy_id"]: item for item in candidates}
+
+    best: Optional[Tuple[Dict[str, Any], Dict[str, Any]]] = None
+    best_rank = (0, 0, 0)
+    for item in similar:
+        candidate = by_id.get(item.strategy_id)
+        if not candidate:
+            continue
+        evaluation = evaluate_advice(
+            current["before_backtest"],
+            candidate["before_backtest"],
+            _comparison_context(),
+        )
+        evaluation["source"] = "historical_similar_strategy"
+        evaluation["comparison_strategy_id"] = candidate["strategy_id"]
+        evaluation["similarity"] = {
+            "text_score": item.text_score,
+            "structure_score": item.structure_score,
+            "combined_score": item.combined_score,
+            "reason": item.similarity_reason,
+        }
+        rank = _evaluation_rank(evaluation)
+        if rank > best_rank:
+            best = candidate, evaluation
+            best_rank = rank
+
+    if best and best[1].get("net_effect") == "positive":
+        return best
+    return None
+
+
+def _enrich_bootstrap_comparisons(conn: sqlite3.Connection) -> None:
+    if not _table_exists(conn, "AdviceExperience"):
+        return
+
+    experiences = _load_bootstrap_experiences(conn)
+    if len(experiences) < 2:
+        return
+
+    updated = 0
+    for current in experiences:
+        if current.get("after_backtest"):
+            continue
+        best = _best_historical_comparator(current, experiences)
+        if not best:
+            continue
+
+        candidate, evaluation = best
+        retrieved_cases = [{
+            "case_strategy_id": candidate["strategy_id"],
+            "similarity_reason": evaluation["similarity"]["reason"],
+            "before_metrics": current["before_backtest"],
+            "after_metrics": candidate["before_backtest"],
+            "lesson": _historical_comparison_lesson(
+                current["strategy_summary"],
+                candidate["strategy_summary"],
+                evaluation,
+            ),
+            "advice_success": evaluation.get("advice_success"),
+        }]
+        lesson = retrieved_cases[0]["lesson"]
+        conn.execute(
+            """
+            UPDATE AdviceExperience
+            SET afterBacktest = ?,
+                evaluation = ?,
+                lesson = ?,
+                retrievedCases = ?,
+                agentAdvice = ?,
+                confidence = ?,
+                dataCoverage = ?
+            WHERE id = ?
+            """,
+            (
+                _json_dumps(candidate["before_backtest"]),
+                _json_dumps(evaluation),
+                lesson,
+                _json_dumps(retrieved_cases),
+                _json_dumps(_comparison_agent_advice(candidate["strategy_summary"], evaluation)),
+                "medium",
+                "bootstrap_historical_comparison",
+                current["id"],
+            ),
+        )
+        updated += 1
+
+    if updated:
+        conn.commit()
+
+
 def _insert_strategy_if_absent(
     conn: sqlite3.Connection,
     strategy_id: str,
@@ -245,13 +625,15 @@ def _insert_strategy_if_absent(
     )
 
 
-def load_advisor_memory(limit: int = 100) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+def load_advisor_memory(limit: int = 500) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     try:
         conn = _connect()
     except sqlite3.Error:
         return [], []
 
     try:
+        _bootstrap_experience_rows(conn)
+        _enrich_bootstrap_comparisons(conn)
         strategy_cases = _load_strategy_cases(conn, limit)
         experience_cases, experiences = _load_experience_rows(conn, limit)
         by_id = {
@@ -267,6 +649,48 @@ def load_advisor_memory(limit: int = 100) -> Tuple[List[Dict[str, Any]], List[Di
         return [], []
     finally:
         conn.close()
+
+
+async def load_vector_advisor_memory(
+    user_prompt: str,
+    strategy_dsl: Dict[str, Any],
+    top_k: int = 5,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    Bootstrap historical backtest rows into ChromaDB and retrieve similar cases.
+
+    This is best-effort. Missing ChromaDB, old dev databases, or locked SQLite
+    files must not break advisor responses.
+    """
+    if not os.getenv("ADVISOR_CHROMA_PATH") and not _uses_default_database():
+        return [], []
+
+    try:
+        conn = _connect()
+    except sqlite3.Error:
+        return [], []
+
+    try:
+        _bootstrap_experience_rows(conn)
+        _enrich_bootstrap_comparisons(conn)
+        migration = await migrate_backtest_results_to_chroma(conn)
+        if migration.unavailable or migration.scanned == 0:
+            return [], []
+    except sqlite3.Error:
+        conn.close()
+        return [], []
+    finally:
+        conn.close()
+
+    try:
+        matches = await query_chroma_memory(
+            user_prompt=user_prompt,
+            strategy_dsl=strategy_dsl,
+            top_k=top_k,
+        )
+    except Exception:
+        return [], []
+    return vector_matches_to_memory_cases(matches)
 
 
 def save_advisor_experience(request: Any, response: Any) -> Optional[str]:

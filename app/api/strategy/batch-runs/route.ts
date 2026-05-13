@@ -19,6 +19,7 @@ type BatchRunCandidatePayload = {
   errorMessage?: string | null;
   metrics?: any;
   rank?: number | null;
+  backtestRequest?: Record<string, any> | null;
 };
 
 type BatchRunSnapshotPayload = {
@@ -33,10 +34,32 @@ type BatchRunSnapshotPayload = {
   candidates: BatchRunCandidatePayload[];
 };
 
+type SaveBatchRunSnapshotOptions = {
+  replaceCandidates?: boolean;
+  candidateIds?: Set<string>;
+};
+
 const MAX_ACTIVE_BATCH_RUNS = 2;
 const DEFAULT_CANDIDATE_CONCURRENCY = 2;
 const MAX_CANDIDATE_CONCURRENCY = 4;
 const CANCEL_REQUEST_LOG_MARKER = "[batch-run-cancel-requested]";
+const BATCH_RUN_TRANSACTION_TIMEOUT_MS = 30_000;
+const CANDIDATE_QUERY_PAGE_SIZE = 500;
+const candidateSummarySelect = {
+  id: true,
+  strategyId: true,
+  prompt: true,
+  strategyName: true,
+  status: true,
+  errorMessage: true,
+  metrics: true,
+  rank: true,
+  createdAt: true,
+};
+const candidateResumeSelect = {
+  ...candidateSummarySelect,
+  backtestRequest: true,
+};
 
 function parseJsonField<T>(value: string | null | undefined, fallback: T): T {
   if (!value) return fallback;
@@ -49,6 +72,46 @@ function parseJsonField<T>(value: string | null | undefined, fallback: T): T {
 
 function hasCancelMarker(logs: string[]) {
   return logs.some((log) => log.includes(CANCEL_REQUEST_LOG_MARKER));
+}
+
+async function fetchCandidatesPaged(runId: string, orderBy: any[], select: Record<string, boolean>) {
+  const candidates: any[] = [];
+  for (let skip = 0; ; skip += CANDIDATE_QUERY_PAGE_SIZE) {
+    const page = await prisma.batchRunCandidate.findMany({
+      where: { runId },
+      orderBy,
+      skip,
+      take: CANDIDATE_QUERY_PAGE_SIZE,
+      select,
+    });
+    candidates.push(...page);
+    if (page.length < CANDIDATE_QUERY_PAGE_SIZE) break;
+  }
+  return candidates;
+}
+
+async function fetchRunWithCandidates(runId: string, orderBy: any[], select: Record<string, boolean>) {
+  if (typeof prisma.batchRunCandidate?.findMany !== "function") {
+    return prisma.batchRun.findUnique({
+      where: { id: runId },
+      include: {
+        Candidate: {
+          orderBy,
+          select,
+        },
+      },
+    });
+  }
+
+  const run = await prisma.batchRun.findUnique({
+    where: { id: runId },
+  });
+  if (!run) return null;
+
+  return {
+    ...run,
+    Candidate: await fetchCandidatesPaged(runId, orderBy, select),
+  };
 }
 
 function clampConcurrency(value: unknown) {
@@ -115,6 +178,37 @@ function buildRankingSnapshot(candidates: BatchRunCandidatePayload[]) {
   };
 }
 
+function summarizeMetricsForList(metrics: any) {
+  if (!metrics || typeof metrics !== "object") return null;
+  return {
+    strategy_id: metrics.strategy_id ?? metrics.strategyId,
+    strategyId: metrics.strategyId ?? metrics.strategy_id,
+    totalReturn: metrics.totalReturn,
+    totalProfit: metrics.totalProfit,
+    cagr: metrics.cagr,
+    buyAndHoldReturn: metrics.buyAndHoldReturn,
+    maxDrawdown: metrics.maxDrawdown,
+    winRate: metrics.winRate,
+    trades: metrics.trades,
+    avgProfit: metrics.avgProfit,
+    avgLoss: metrics.avgLoss,
+    maxConsecutiveWins: metrics.maxConsecutiveWins,
+    maxConsecutiveLosses: metrics.maxConsecutiveLosses,
+    profitFactor: metrics.profitFactor,
+    sharpe: metrics.sharpe,
+    sortino: metrics.sortino,
+    calmar: metrics.calmar,
+    avgHoldingDays: metrics.avgHoldingDays,
+    volatility: metrics.volatility,
+    benchmark_label: metrics.benchmark_label,
+    universe_id: metrics.universe_id,
+    executionTime: metrics.executionTime,
+    cacheKey: metrics.cacheKey,
+    fromCache: metrics.fromCache,
+    cachedAt: metrics.cachedAt,
+  };
+}
+
 function buildSnapshotFromJob(job: BatchExecutionJob): BatchRunSnapshotPayload {
   const { rankingSnapshot, candidates } = buildRankingSnapshot(job.candidates);
   const completedCount = candidates.filter(
@@ -136,7 +230,38 @@ function buildSnapshotFromJob(job: BatchExecutionJob): BatchRunSnapshotPayload {
   };
 }
 
-async function saveBatchRunSnapshot(snapshot: BatchRunSnapshotPayload) {
+function buildCandidatePersistenceRow(
+  snapshot: BatchRunSnapshotPayload,
+  candidate: BatchRunCandidatePayload,
+  index: number
+) {
+  return {
+    id:
+      typeof candidate.id === "string" && candidate.id.trim()
+        ? candidate.id.trim()
+        : `${snapshot.runId}_candidate_${index}`,
+    runId: snapshot.runId,
+    strategyId:
+      typeof candidate.strategyId === "string" && candidate.strategyId.trim()
+        ? candidate.strategyId.trim()
+        : null,
+    prompt: String(candidate.prompt ?? ""),
+    strategyName: String(candidate.strategyName ?? `전략 ${index + 1}`),
+    status: String(candidate.status ?? "unknown"),
+    errorMessage:
+      typeof candidate.errorMessage === "string" ? candidate.errorMessage : null,
+    metrics: JSON.stringify(candidate.metrics ?? null),
+    rank: typeof candidate.rank === "number" ? candidate.rank : null,
+    backtestRequest: candidate.backtestRequest
+      ? JSON.stringify(candidate.backtestRequest)
+      : null,
+  };
+}
+
+async function saveBatchRunSnapshot(
+  snapshot: BatchRunSnapshotPayload,
+  options: SaveBatchRunSnapshotOptions = {}
+) {
   await prisma.$transaction(async (tx) => {
     const createData = {
       id: snapshot.runId,
@@ -162,33 +287,56 @@ async function saveBatchRunSnapshot(snapshot: BatchRunSnapshotPayload) {
       },
     });
 
-    await tx.batchRunCandidate.deleteMany({
-      where: { runId: snapshot.runId },
-    });
+    if (options.replaceCandidates) {
+      await tx.batchRunCandidate.deleteMany({
+        where: { runId: snapshot.runId },
+      });
+      if (snapshot.candidates.length > 0) {
+        await tx.batchRunCandidate.createMany({
+          data: snapshot.candidates.map((candidate, index) =>
+            buildCandidatePersistenceRow(snapshot, candidate, index)
+          ),
+        });
+      }
+      return;
+    }
 
-    if (snapshot.candidates.length > 0) {
+    const candidateIds = options.candidateIds;
+    if (!candidateIds || candidateIds.size === 0) {
+      return;
+    }
+
+    if (typeof tx.batchRunCandidate.upsert !== "function") {
+      await tx.batchRunCandidate.deleteMany({
+        where: { runId: snapshot.runId },
+      });
       await tx.batchRunCandidate.createMany({
-        data: snapshot.candidates.map((candidate, index) => ({
-          id:
-            typeof candidate.id === "string" && candidate.id.trim()
-              ? candidate.id.trim()
-              : `${snapshot.runId}_candidate_${index}`,
-          runId: snapshot.runId,
-          strategyId:
-            typeof candidate.strategyId === "string" && candidate.strategyId.trim()
-              ? candidate.strategyId.trim()
-              : null,
-          prompt: String(candidate.prompt ?? ""),
-          strategyName: String(candidate.strategyName ?? `전략 ${index + 1}`),
-          status: String(candidate.status ?? "unknown"),
-          errorMessage:
-            typeof candidate.errorMessage === "string" ? candidate.errorMessage : null,
-          metrics: JSON.stringify(candidate.metrics ?? null),
-          rank: typeof candidate.rank === "number" ? candidate.rank : null,
-        })),
+        data: snapshot.candidates.map((candidate, index) =>
+          buildCandidatePersistenceRow(snapshot, candidate, index)
+        ),
+      });
+      return;
+    }
+
+    for (const [index, candidate] of snapshot.candidates.entries()) {
+      const row = buildCandidatePersistenceRow(snapshot, candidate, index);
+      if (!candidateIds.has(row.id)) continue;
+      await tx.batchRunCandidate.upsert({
+        where: { id: row.id },
+        create: row,
+        update: {
+          strategyId: row.strategyId,
+          prompt: row.prompt,
+          strategyName: row.strategyName,
+          status: row.status,
+          errorMessage: row.errorMessage,
+          metrics: row.metrics,
+          rank: row.rank,
+          backtestRequest: row.backtestRequest,
+        },
       });
     }
-  });
+  }, { timeout: BATCH_RUN_TRANSACTION_TIMEOUT_MS });
 }
 
 function deriveRunStatus(run: {
@@ -245,7 +393,7 @@ function formatRunResponse(run: any) {
         strategyName: candidate.strategyName,
         status: candidate.status,
         errorMessage: candidate.errorMessage,
-        metrics: parseJsonField(candidate.metrics, null),
+        metrics: summarizeMetricsForList(parseJsonField(candidate.metrics, null)),
         rank: candidate.rank,
         createdAt: candidate.createdAt,
       }))
@@ -277,6 +425,39 @@ function formatRunResponse(run: any) {
   };
 }
 
+function buildAdvisorLearningResults(run: any) {
+  const candidates = Array.isArray(run.Candidate)
+    ? run.Candidate.map((candidate: any) => {
+        const metrics = parseJsonField(candidate.metrics, null);
+        const sampleId =
+          typeof metrics?.sample_id === "string" && metrics.sample_id.trim()
+            ? metrics.sample_id.trim()
+            : candidate.id;
+
+        return {
+          sample_id: sampleId,
+          candidate_id: candidate.id,
+          strategy_id: candidate.strategyId,
+          prompt: candidate.prompt,
+          strategy_name: candidate.strategyName,
+          status: candidate.status,
+          metrics,
+        };
+      })
+    : [];
+
+  return {
+    runId: run.id,
+    createdAt: run.createdAt,
+    totalResults: candidates.filter((candidate) =>
+      (candidate.status === "computed" || candidate.status === "cache_hit") && candidate.metrics
+    ).length,
+    results: candidates.filter((candidate) =>
+      (candidate.status === "computed" || candidate.status === "cache_hit") && candidate.metrics
+    ),
+  };
+}
+
 function mapRunToStoredCandidates(run: any): BatchRunCandidatePayload[] {
   return (run.Candidate ?? []).map((candidate: any) => ({
     id: candidate.id,
@@ -287,6 +468,7 @@ function mapRunToStoredCandidates(run: any): BatchRunCandidatePayload[] {
     errorMessage: candidate.errorMessage,
     metrics: parseJsonField(candidate.metrics, null),
     rank: candidate.rank,
+    backtestRequest: parseJsonField(candidate.backtestRequest, null),
   }));
 }
 
@@ -332,18 +514,12 @@ async function recoverCanceledRun(run: any) {
       ? logs
       : [...logs, "취소 요청을 반영해 남은 배치 실행을 종료했습니다."],
     persistChain: Promise.resolve(),
+    dirtyCandidateIds: new Set<string>(),
   });
 
-  await saveBatchRunSnapshot(snapshot);
+  await saveBatchRunSnapshot(snapshot, { replaceCandidates: true });
 
-  return prisma.batchRun.findUnique({
-    where: { id: run.id },
-    include: {
-      Candidate: {
-        orderBy: [{ rank: "asc" }, { createdAt: "asc" }],
-      },
-    },
-  });
+  return fetchRunWithCandidates(run.id, [{ rank: "asc" }, { createdAt: "asc" }], candidateSummarySelect);
 }
 
 function hydrateJobFromStoredRun(run: any, origin: string): BatchExecutionJob {
@@ -362,7 +538,7 @@ function hydrateJobFromStoredRun(run: any, origin: string): BatchExecutionJob {
     runId: run.id,
     origin,
     backend: "mlx",
-    concurrency: DEFAULT_CANDIDATE_CONCURRENCY,
+    concurrency: 1,
     createdAt: run.createdAt.toISOString(),
     candidates,
     logs: candidates.some((candidate) => candidate.status === "waiting") &&
@@ -370,51 +546,84 @@ function hydrateJobFromStoredRun(run: any, origin: string): BatchExecutionJob {
         ? [...logs, "서버 재시작 후 중단된 전략을 다시 대기열에 복구했습니다."]
         : logs,
     persistChain: Promise.resolve(),
+    dirtyCandidateIds: new Set<string>(
+      candidates
+        .filter((candidate) => candidate.status === "waiting" || candidate.status === "running")
+        .map((candidate, index) => candidate.id ?? `${run.id}_candidate_${index}`)
+    ),
   };
+}
+
+function isRunnableCandidate(candidate: BatchRunCandidatePayload) {
+  return candidate.status === "waiting" || candidate.status === "running";
 }
 
 async function ensureRunScheduled(runId: string, origin: string) {
   const state = getExecutionState();
-  if (state.activeRunIds.has(runId) || state.queue.some((job) => job.runId === runId)) {
+  if (
+    state.activeRunIds.has(runId) ||
+    state.schedulingRunIds.has(runId) ||
+    state.queue.some((job) => job.runId === runId)
+  ) {
     return;
   }
+  state.schedulingRunIds.add(runId);
 
-  const run = await prisma.batchRun.findUnique({
-    where: { id: runId },
-    include: {
-      Candidate: {
-        orderBy: [{ createdAt: "asc" }],
-      },
-    },
-  });
+  try {
+    const run = await prisma.batchRun.findUnique({
+      where: { id: runId },
+    });
 
-  if (!run) return;
+    if (!run) return;
 
-  const recoveredRun = await recoverCanceledRun(run);
-  if (!recoveredRun || !shouldResumeRun(recoveredRun)) {
-    return;
+    const logs = parseJsonField<string[]>(run.logs, []);
+    const finishedCount = run.completedCount + run.failedCount + run.skippedCount;
+    if (finishedCount >= run.totalPrompts && !hasCancelMarker(logs)) {
+      return;
+    }
+
+    const runWithCandidates = await fetchRunWithCandidates(runId, [{ createdAt: "asc" }], candidateResumeSelect);
+
+    if (!runWithCandidates) return;
+
+    const recoveredRun = await recoverCanceledRun(runWithCandidates);
+    if (!recoveredRun || !shouldResumeRun(recoveredRun)) {
+      return;
+    }
+
+    if (state.activeRunIds.has(runId) || state.queue.some((job) => job.runId === runId)) {
+      return;
+    }
+
+    enqueueBatchRun(hydrateJobFromStoredRun(recoveredRun, origin));
+    pumpBatchRunQueue();
+  } finally {
+    state.schedulingRunIds.delete(runId);
   }
-
-  enqueueBatchRun(hydrateJobFromStoredRun(recoveredRun, origin));
-  pumpBatchRunQueue();
 }
 
 async function resumeIncompleteRuns(origin: string) {
   const runs = await prisma.batchRun.findMany({
     orderBy: { createdAt: "desc" },
     take: 20,
-    include: {
-      Candidate: {
-        orderBy: [{ createdAt: "asc" }],
-      },
-    },
   });
 
   for (const run of runs) {
-    if (shouldResumeRun(run)) {
+    const logs = parseJsonField<string[]>(run.logs, []);
+    const finishedCount = run.completedCount + run.failedCount + run.skippedCount;
+    if (finishedCount >= run.totalPrompts && !hasCancelMarker(logs)) {
+      continue;
+    }
+
+    const runWithCandidates = await fetchRunWithCandidates(run.id, [{ createdAt: "asc" }], candidateSummarySelect);
+    if (!runWithCandidates) {
+      continue;
+    }
+
+    if (shouldResumeRun(runWithCandidates)) {
       await ensureRunScheduled(run.id, origin);
-    } else if (hasCancelMarker(parseJsonField(run.logs, []))) {
-      await recoverCanceledRun(run);
+    } else if (hasCancelMarker(logs)) {
+      await recoverCanceledRun(runWithCandidates);
     }
   }
 }
@@ -501,14 +710,7 @@ function enqueueBatchRun(job: BatchExecutionJob) {
 }
 
 async function markQueuedRunCanceled(runId: string) {
-  const run = await prisma.batchRun.findUnique({
-    where: { id: runId },
-    include: {
-      Candidate: {
-        orderBy: [{ createdAt: "asc" }],
-      },
-    },
-  });
+  const run = await fetchRunWithCandidates(runId, [{ createdAt: "asc" }], candidateResumeSelect);
 
   if (!run) return;
 
@@ -529,6 +731,7 @@ async function markQueuedRunCanceled(runId: string) {
         : candidate.errorMessage,
     metrics: parseJsonField(candidate.metrics, null),
     rank: candidate.rank,
+    backtestRequest: parseJsonField(candidate.backtestRequest, null),
   }));
 
   const snapshot = buildSnapshotFromJob({
@@ -540,16 +743,23 @@ async function markQueuedRunCanceled(runId: string) {
     candidates,
     logs: nextLogs,
     persistChain: Promise.resolve(),
+    dirtyCandidateIds: new Set<string>(),
   });
 
-  await saveBatchRunSnapshot(snapshot);
+  await saveBatchRunSnapshot(snapshot, { replaceCandidates: true });
 }
 
 async function persistJobState(job: BatchExecutionJob) {
   const snapshot = buildSnapshotFromJob(job);
+  const dirtyCandidateIds = new Set(job.dirtyCandidateIds);
   job.persistChain = job.persistChain
     .catch(() => undefined)
-    .then(() => saveBatchRunSnapshot(snapshot));
+    .then(async () => {
+      await saveBatchRunSnapshot(snapshot, { candidateIds: dirtyCandidateIds });
+      for (const candidateId of dirtyCandidateIds) {
+        job.dirtyCandidateIds.delete(candidateId);
+      }
+    });
   await job.persistChain;
 }
 
@@ -562,6 +772,8 @@ async function executeBatchRun(job: BatchExecutionJob) {
   };
 
   const updateCandidate = (index: number, patch: Partial<BatchRunCandidatePayload>) => {
+    const candidateId = job.candidates[index]?.id ?? `${job.runId}_candidate_${index}`;
+    job.dirtyCandidateIds.add(candidateId);
     job.candidates = job.candidates.map((candidate, candidateIndex) =>
       candidateIndex === index ? { ...candidate, ...patch } : candidate
     );
@@ -584,22 +796,31 @@ async function executeBatchRun(job: BatchExecutionJob) {
       }
 
       const candidate = job.candidates[index];
+      if (!isRunnableCandidate(candidate)) {
+        continue;
+      }
+
       updateCandidate(index, { status: "running", errorMessage: null });
       appendLog(`${index + 1}/${job.candidates.length} 전략 실행 시작`);
       await persistJobState(job);
 
       try {
-        const parsedPayload = await fetchJsonFromApp(job.origin, "/api/strategy/parse", {
-          prompt: candidate.prompt,
-          backend: job.backend,
-        });
-
-        const parsed = parsedPayload?.parsed;
-        const backtestRequest = parsedPayload?.backtest_request;
-        const strategyName = inferStrategyName(candidate.prompt, parsed, index);
+        let strategyName = candidate.strategyName;
+        let backtestRequest = candidate.backtestRequest;
 
         if (!backtestRequest) {
-          throw new Error(parsedPayload?.clarification_question ?? "백테스트 요청을 만들지 못했습니다.");
+          const parsedPayload = await fetchJsonFromApp(job.origin, "/api/strategy/parse", {
+            prompt: candidate.prompt,
+            backend: job.backend,
+          });
+
+          const parsed = parsedPayload?.parsed;
+          backtestRequest = parsedPayload?.backtest_request;
+          strategyName = inferStrategyName(candidate.prompt, parsed, index);
+        }
+
+        if (!backtestRequest) {
+          throw new Error("백테스트 요청을 만들지 못했습니다.");
         }
 
         updateCandidate(index, { strategyName });
@@ -643,6 +864,11 @@ async function executeBatchRun(job: BatchExecutionJob) {
           }
         : candidate
     );
+    for (const [index, candidate] of job.candidates.entries()) {
+      if (candidate.status === "skipped") {
+        job.dirtyCandidateIds.add(candidate.id ?? `${job.runId}_candidate_${index}`);
+      }
+    }
     appendLog("사용자 요청으로 남은 배치 실행을 중단했습니다.");
   } else {
     appendLog("배치 실행이 완료되었습니다.");
@@ -682,27 +908,28 @@ function pumpBatchRunQueue() {
 
 export async function GET(req: NextRequest) {
   try {
-    await resumeIncompleteRuns(req.nextUrl.origin);
     const runId = req.nextUrl.searchParams.get("runId");
 
     if (runId) {
-      const scheduled = await prisma.batchRun.findUnique({
-        where: { id: runId },
-        include: {
-          Candidate: {
-            orderBy: [{ rank: "asc" }, { createdAt: "asc" }],
-          },
-        },
-      });
+      await ensureRunScheduled(runId, req.nextUrl.origin);
+      const scheduled = await fetchRunWithCandidates(
+        runId,
+        [{ rank: "asc" }, { createdAt: "asc" }],
+        candidateSummarySelect
+      );
 
       if (!scheduled) {
         return NextResponse.json({ error: "BatchRun not found" }, { status: 404 });
       }
 
       const run = await recoverCanceledRun(scheduled);
+      if (req.nextUrl.searchParams.get("format") === "advisor-learning-results") {
+        return NextResponse.json(buildAdvisorLearningResults(run));
+      }
       return NextResponse.json(formatRunResponse(run));
     }
 
+    await resumeIncompleteRuns(req.nextUrl.origin);
     const runs = await prisma.batchRun.findMany({
       orderBy: { createdAt: "desc" },
       take: 20,
@@ -746,14 +973,7 @@ export async function POST(req: NextRequest) {
       state.canceledRunIds.add(runId);
       state.queue = state.queue.filter((job) => job.runId !== runId);
 
-      const run = await prisma.batchRun.findUnique({
-        where: { id: runId },
-        include: {
-          Candidate: {
-            orderBy: [{ createdAt: "asc" }],
-          },
-        },
-      });
+      const run = await fetchRunWithCandidates(runId, [{ createdAt: "asc" }], candidateResumeSelect);
 
       if (run) {
         const logs = parseJsonField(run.logs, []);
@@ -779,7 +999,9 @@ export async function POST(req: NextRequest) {
               ? logs
               : [...logs, CANCEL_REQUEST_LOG_MARKER, "사용자 요청으로 배치 실행 취소를 요청했습니다."],
             persistChain: Promise.resolve(),
-          })
+            dirtyCandidateIds: new Set<string>(),
+          }),
+          { replaceCandidates: true }
         );
       }
 
@@ -819,9 +1041,71 @@ export async function POST(req: NextRequest) {
         })),
         logs: [`총 ${prompts.length}개 프롬프트 실행 대기열 등록`],
         persistChain: Promise.resolve(),
+        dirtyCandidateIds: new Set<string>(),
       };
 
-      await saveBatchRunSnapshot(buildSnapshotFromJob(job));
+      await saveBatchRunSnapshot(buildSnapshotFromJob(job), { replaceCandidates: true });
+      enqueueBatchRun(job);
+      pumpBatchRunQueue();
+
+      return NextResponse.json(
+        {
+          ok: true,
+          runId,
+          status: "queued",
+          concurrency: job.concurrency,
+        },
+        { status: 202 }
+      );
+    }
+
+    if (body?.action === "run_backtest_requests" && Array.isArray(body?.candidates)) {
+      const candidates = body.candidates
+        .map((candidate: any, index: number) => ({
+          id:
+            typeof candidate?.id === "string" && candidate.id.trim()
+              ? candidate.id.trim()
+              : undefined,
+          prompt: String(candidate?.prompt ?? candidate?.hypothesis ?? ""),
+          strategyName: String(candidate?.strategyName ?? candidate?.name ?? `전략 ${index + 1}`),
+          backtestRequest:
+            candidate?.backtestRequest && typeof candidate.backtestRequest === "object"
+              ? candidate.backtestRequest
+              : candidate?.backtest_request && typeof candidate.backtest_request === "object"
+                ? candidate.backtest_request
+                : null,
+        }))
+        .filter((candidate: any) => candidate.backtestRequest);
+
+      if (candidates.length === 0) {
+        return NextResponse.json({ error: "candidates with backtestRequest are required" }, { status: 400 });
+      }
+
+      const runId =
+        typeof body.runId === "string" && body.runId.trim() ? body.runId.trim() : buildRunId();
+      const createdAt = new Date().toISOString();
+      const job: BatchExecutionJob = {
+        runId,
+        origin: req.nextUrl.origin,
+        backend: body.backend === "ollama" ? "ollama" : "mlx",
+        concurrency: clampConcurrency(body.concurrency),
+        createdAt,
+        candidates: candidates.map((candidate: any, index: number) => ({
+          id: candidate.id ?? `${runId}_candidate_${index}`,
+          prompt: candidate.prompt,
+          strategyName: candidate.strategyName,
+          status: "waiting",
+          errorMessage: null,
+          metrics: null,
+          rank: null,
+          backtestRequest: candidate.backtestRequest,
+        })),
+        logs: [`총 ${candidates.length}개 사전 구성 백테스트 실행 대기열 등록`],
+        persistChain: Promise.resolve(),
+        dirtyCandidateIds: new Set<string>(),
+      };
+
+      await saveBatchRunSnapshot(buildSnapshotFromJob(job), { replaceCandidates: true });
       enqueueBatchRun(job);
       pumpBatchRunQueue();
 
@@ -843,37 +1127,46 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "runId is required" }, { status: 400 });
     }
 
-    await saveBatchRunSnapshot({
-      runId,
-      createdAt: typeof body.createdAt === "string" ? body.createdAt : undefined,
-      totalPrompts: Number(body.totalPrompts ?? candidates.length ?? 0),
-      completedCount: Number(body.completedCount ?? 0),
-      failedCount: Number(body.failedCount ?? 0),
-      skippedCount: Number(body.skippedCount ?? 0),
-      rankingSnapshot: Array.isArray(body.rankingSnapshot) ? body.rankingSnapshot : [],
-      logs: Array.isArray(body.logs) ? body.logs : [],
-      candidates: candidates.map((candidate: any, index: number) => ({
-        id:
-          typeof candidate?.id === "string" && candidate.id.trim()
-            ? candidate.id.trim()
-            : `${runId}_candidate_${index}`,
-        strategyId:
-          typeof candidate?.strategyId === "string" && candidate.strategyId.trim()
-            ? candidate.strategyId.trim()
-            : null,
-        prompt: String(candidate?.prompt ?? ""),
-        strategyName: String(candidate?.strategyName ?? candidate?.name ?? `전략 ${index + 1}`),
-        status: String(candidate?.status ?? "unknown"),
-        errorMessage:
-          typeof candidate?.errorMessage === "string"
-            ? candidate.errorMessage
-            : typeof candidate?.error === "string"
-              ? candidate.error
+    await saveBatchRunSnapshot(
+      {
+        runId,
+        createdAt: typeof body.createdAt === "string" ? body.createdAt : undefined,
+        totalPrompts: Number(body.totalPrompts ?? candidates.length ?? 0),
+        completedCount: Number(body.completedCount ?? 0),
+        failedCount: Number(body.failedCount ?? 0),
+        skippedCount: Number(body.skippedCount ?? 0),
+        rankingSnapshot: Array.isArray(body.rankingSnapshot) ? body.rankingSnapshot : [],
+        logs: Array.isArray(body.logs) ? body.logs : [],
+        candidates: candidates.map((candidate: any, index: number) => ({
+          id:
+            typeof candidate?.id === "string" && candidate.id.trim()
+              ? candidate.id.trim()
+              : `${runId}_candidate_${index}`,
+          strategyId:
+            typeof candidate?.strategyId === "string" && candidate.strategyId.trim()
+              ? candidate.strategyId.trim()
               : null,
-        metrics: candidate?.metrics ?? candidate?.result ?? null,
-        rank: typeof candidate?.rank === "number" ? candidate.rank : null,
-      })),
-    });
+          prompt: String(candidate?.prompt ?? ""),
+          strategyName: String(candidate?.strategyName ?? candidate?.name ?? `전략 ${index + 1}`),
+          status: String(candidate?.status ?? "unknown"),
+          errorMessage:
+            typeof candidate?.errorMessage === "string"
+              ? candidate.errorMessage
+              : typeof candidate?.error === "string"
+                ? candidate.error
+                : null,
+          metrics: candidate?.metrics ?? candidate?.result ?? null,
+          rank: typeof candidate?.rank === "number" ? candidate.rank : null,
+          backtestRequest:
+            candidate?.backtestRequest && typeof candidate.backtestRequest === "object"
+              ? candidate.backtestRequest
+              : candidate?.backtest_request && typeof candidate.backtest_request === "object"
+                ? candidate.backtest_request
+                : null,
+        })),
+      },
+      { replaceCandidates: true }
+    );
 
     return NextResponse.json({ ok: true, runId });
   } catch (error) {

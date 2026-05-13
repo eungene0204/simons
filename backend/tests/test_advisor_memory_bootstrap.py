@@ -1,0 +1,268 @@
+import json
+import os
+import sqlite3
+import sys
+
+import pytest
+
+sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
+
+from advisor.memory_repository import load_advisor_memory
+from api import advisor_routes
+from advisor.schemas import AdvisorRequest
+
+
+def _create_bootstrap_db(path):
+    conn = sqlite3.connect(path)
+    conn.execute(
+        """
+        CREATE TABLE Strategy (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            settings TEXT NOT NULL,
+            strategyType TEXT NOT NULL,
+            createdAt TEXT NOT NULL,
+            updatedAt TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE BacktestResult (
+            id TEXT PRIMARY KEY,
+            strategyId TEXT NOT NULL,
+            stockId INTEGER,
+            summary TEXT NOT NULL,
+            trades TEXT,
+            createdAt TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE AdviceExperience (
+            id TEXT PRIMARY KEY,
+            strategyId TEXT NOT NULL,
+            createdAt TEXT NOT NULL,
+            market TEXT,
+            universe TEXT,
+            initialCapital REAL NOT NULL,
+            timeframe TEXT NOT NULL,
+            userPrompt TEXT NOT NULL,
+            strategySummary TEXT,
+            strategyDsl TEXT NOT NULL,
+            canonicalDsl TEXT NOT NULL,
+            strategyHash TEXT NOT NULL,
+            similarStrategyIds TEXT NOT NULL,
+            retrievedCases TEXT NOT NULL,
+            agentAdvice TEXT NOT NULL,
+            beforeBacktest TEXT NOT NULL,
+            afterBacktest TEXT,
+            evaluation TEXT NOT NULL,
+            lesson TEXT NOT NULL,
+            confidence TEXT NOT NULL,
+            dataCoverage TEXT
+        )
+        """
+    )
+
+    strategy_rows = [
+        (
+            "legacy_rsi_case",
+            "RSI 평균회귀",
+            "과매도 RSI 매수 후 평균회귀를 노린다",
+            {
+                "universe": ["KOSPI200"],
+                "entry_signals": [{"indicator": "rsi", "operator": "<=", "threshold": 30, "period": 14}],
+                "exit_signals": [{"indicator": "rsi", "operator": ">=", "threshold": 70, "period": 14}],
+                "max_positions": 10,
+                "initial_capital": 10000000,
+                "timeframe": "1d",
+            },
+        ),
+        (
+            "legacy_pbr_case",
+            "PBR 가치전략",
+            "PBR 1배 이하 대형주를 분산 매수한다",
+            {
+                "universe": ["KOSPI"],
+                "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1.0}],
+                "max_positions": 8,
+                "initial_capital": 15000000,
+                "timeframe": "1d",
+            },
+        ),
+    ]
+    for strategy_id, name, description, settings in strategy_rows:
+        conn.execute(
+            """
+            INSERT INTO Strategy (id, name, description, settings, strategyType, createdAt, updatedAt)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                strategy_id,
+                name,
+                description,
+                json.dumps(settings),
+                "legacy",
+                "2026-01-01T00:00:00Z",
+                "2026-01-01T00:00:00Z",
+            ),
+        )
+
+    conn.execute(
+        """
+        INSERT INTO BacktestResult (id, strategyId, summary, createdAt)
+        VALUES (?, ?, ?, ?)
+        """,
+        (
+            "bt_old",
+            "legacy_rsi_case",
+            json.dumps({"cagr": 0.01, "maxDrawdown": -0.30, "sharpe": 0.2}),
+            "2026-01-01T00:00:00Z",
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO BacktestResult (id, strategyId, summary, createdAt)
+        VALUES (?, ?, ?, ?)
+        """,
+        (
+            "bt_new",
+            "legacy_rsi_case",
+            json.dumps({"cagr": 0.06, "maxDrawdown": -0.18, "sharpe": 0.8}),
+            "2026-02-01T00:00:00Z",
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO BacktestResult (id, strategyId, summary, createdAt)
+        VALUES (?, ?, ?, ?)
+        """,
+        (
+            "bt_pbr",
+            "legacy_pbr_case",
+            json.dumps({"cagr": -0.04, "mdd": -0.22, "sharpe": -0.1}),
+            "2026-01-15T00:00:00Z",
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_load_advisor_memory_bootstraps_latest_backtest_results(monkeypatch, tmp_path):
+    db_path = tmp_path / "bootstrap-memory.db"
+    _create_bootstrap_db(db_path)
+    monkeypatch.setenv("DATABASE_URL", f"file:{db_path}")
+
+    strategy_cases, experiences = load_advisor_memory(limit=500)
+
+    assert len(strategy_cases) == 2
+    assert len(experiences) == 2
+    rsi_case = next(item for item in experiences if item["strategy_id"] == "legacy_rsi_case")
+    assert rsi_case["before_backtest"]["cagr"] == 0.06
+    assert rsi_case["evaluation"]["net_effect"] == "unverified"
+
+    conn = sqlite3.connect(db_path)
+    count_after_first = conn.execute("SELECT COUNT(*) FROM AdviceExperience").fetchone()[0]
+    load_advisor_memory(limit=500)
+    count_after_second = conn.execute("SELECT COUNT(*) FROM AdviceExperience").fetchone()[0]
+    conn.close()
+
+    assert count_after_first == 2
+    assert count_after_second == 2
+
+
+def test_load_advisor_memory_enriches_with_better_historical_comparator(monkeypatch, tmp_path):
+    db_path = tmp_path / "bootstrap-comparison.db"
+    _create_bootstrap_db(db_path)
+    monkeypatch.setenv("DATABASE_URL", f"file:{db_path}")
+
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        INSERT INTO Strategy (id, name, description, settings, strategyType, createdAt, updatedAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "legacy_rsi_better_case",
+            "RSI 평균회귀 개선형",
+            "과매도 RSI 매수 후 추세 필터를 함께 확인한다",
+            json.dumps({
+                "universe": ["KOSPI200"],
+                "entry_signals": [{"indicator": "rsi", "operator": "<=", "threshold": 31, "period": 14}],
+                "exit_signals": [{"indicator": "rsi", "operator": ">=", "threshold": 69, "period": 14}],
+                "max_positions": 10,
+                "initial_capital": 10000000,
+                "timeframe": "1d",
+            }),
+            "legacy",
+            "2026-01-01T00:00:00Z",
+            "2026-01-01T00:00:00Z",
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO BacktestResult (id, strategyId, summary, createdAt)
+        VALUES (?, ?, ?, ?)
+        """,
+        (
+            "bt_rsi_better",
+            "legacy_rsi_better_case",
+            json.dumps({"cagr": 0.12, "maxDrawdown": -0.12, "sharpe": 1.1, "trades": 34}),
+            "2026-02-15T00:00:00Z",
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    _, experiences = load_advisor_memory(limit=500)
+
+    rsi_case = next(item for item in experiences if item["strategy_id"] == "legacy_rsi_case")
+    assert rsi_case["after_backtest"]["cagr"] == 0.12
+    assert rsi_case["evaluation"]["net_effect"] == "positive"
+    assert rsi_case["evaluation"]["source"] == "historical_similar_strategy"
+    assert rsi_case["evaluation"]["comparison_strategy_id"] == "legacy_rsi_better_case"
+    assert rsi_case["confidence"] == "medium"
+
+    conn = sqlite3.connect(db_path)
+    coverage = conn.execute(
+        "SELECT dataCoverage FROM AdviceExperience WHERE strategyId = ?",
+        ("legacy_rsi_case",),
+    ).fetchone()[0]
+    conn.close()
+
+    assert coverage == "bootstrap_historical_comparison"
+
+
+@pytest.mark.asyncio
+async def test_advisor_route_uses_bootstrapped_memory(monkeypatch, tmp_path):
+    db_path = tmp_path / "bootstrap-route.db"
+    _create_bootstrap_db(db_path)
+    monkeypatch.setenv("DATABASE_URL", f"file:{db_path}")
+    monkeypatch.setattr(advisor_routes, "build_news_context_from_strategy", lambda _parsed: [])
+
+    req = AdvisorRequest(
+        user_prompt="RSI 30 이하 매수, 70 이상 매도",
+        parsed_strategy={
+            "universe": ["KOSPI200"],
+            "entry_signals": [{"indicator": "rsi", "operator": "<=", "threshold": 31, "period": 14}],
+            "exit_signals": [{"indicator": "rsi", "operator": ">=", "threshold": 69, "period": 14}],
+            "max_positions": 10,
+            "initial_capital": 10000000,
+            "timeframe": "1d",
+        },
+    )
+
+    result = await advisor_routes.review_strategy(req)
+
+    assert result.strategy_memory_context is not None
+    assert result.strategy_memory_context["retrieved_cases"][0]["case_strategy_id"] == "legacy_rsi_case"
+    assert result.strategy_memory_context["retrieved_cases"][0]["before_metrics"]["cagr"] == 0.06
+
+    conn = sqlite3.connect(db_path)
+    count = conn.execute("SELECT COUNT(*) FROM AdviceExperience").fetchone()[0]
+    conn.close()
+
+    assert count == 3

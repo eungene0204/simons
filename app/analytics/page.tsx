@@ -3,11 +3,19 @@ import StrategyLabClient from "./StrategyLabClient";
 
 export default async function StrategyLabPage() {
   const [strategies, accounts] = await Promise.all([
-    prisma.strategy.findMany({ orderBy: { createdAt: "desc" } }),
-    prisma.virtualAccount.findMany({
-      where: { strategyId: { not: null } },
-      include: { VirtualPosition: true },
+    prisma.strategy.findMany({ orderBy: { createdAt: "desc" } }).catch((error) => {
+      console.error("[StrategyLabPage] Failed to load strategies", error);
+      return [];
     }),
+    prisma.virtualAccount
+      .findMany({
+        where: { strategyId: { not: null } },
+        include: { VirtualPosition: true },
+      })
+      .catch((error) => {
+        console.error("[StrategyLabPage] Failed to load virtual accounts", error);
+        return [];
+      }),
   ]);
 
   const strategyList = strategies.map((s) => {

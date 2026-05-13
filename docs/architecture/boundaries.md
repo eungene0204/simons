@@ -96,6 +96,7 @@ AI predictions, summaries, explainability.
 - backend/api/coach_routes.py
 - app/api/backtest/summarize/**
 - app/api/backtest/explain/**
+- data/advisor-learning/**
 - backend/tests/**
 
 ### Allowed Tasks
@@ -104,6 +105,7 @@ AI predictions, summaries, explainability.
 - response structure cleanup
 - strategy advisor recommendation / explanation wording cleanup
 - coach response caching / streaming cleanup
+- advisor learning artifact generation and refresh
 
 ### Forbidden
 - model architecture changes

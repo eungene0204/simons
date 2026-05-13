@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeCacheKey } from "@/lib/server/backtestCache";
+import { buildVectorMemoryUpsertCommand, computeCacheKey } from "@/lib/server/backtestCache";
 
 const baseBody = {
   strategy_id: "strategy_hash_rsi",
@@ -57,5 +57,19 @@ describe("backtest cache key", () => {
     });
 
     expect(lowCost).not.toBe(highCost);
+  });
+});
+
+describe("backtest vector memory upsert", () => {
+  it("builds a Python command that migrates stored backtests into ChromaDB", () => {
+    const command = buildVectorMemoryUpsertCommand("/repo/root");
+
+    expect(command.command).toBe(process.env.PYTHON_BIN || process.env.PYTHON || "python3");
+    expect(command.args).toHaveLength(2);
+    expect(command.args[0]).toBe("-c");
+    expect(command.args[1]).toContain("migrate_backtest_results_to_chroma");
+    expect(command.args[1]).toContain("advisor.vector_memory");
+    expect(command.options.cwd).toBe("/repo/root");
+    expect(command.options.stdio).toBe("ignore");
   });
 });

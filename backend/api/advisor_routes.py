@@ -15,7 +15,11 @@ from typing import Any, Dict
 from fastapi import APIRouter, HTTPException
 
 from advisor.agent import StrategyAdvisorAgent
-from advisor.memory_repository import load_advisor_memory, save_advisor_experience
+from advisor.memory_repository import (
+    load_advisor_memory,
+    load_vector_advisor_memory,
+    save_advisor_experience,
+)
 from advisor.news_enrichment import build_news_context_from_strategy
 from advisor.schemas import AdvisorRequest, AdvisorResponse
 
@@ -46,7 +50,12 @@ async def review_strategy(req: AdvisorRequest) -> AdvisorResponse:
             effective_req.memory_strategy_cases is None
             and effective_req.memory_experiences is None
         ):
-            strategy_cases, experiences = load_advisor_memory()
+            strategy_cases, experiences = await load_vector_advisor_memory(
+                effective_req.user_prompt,
+                effective_req.parsed_strategy,
+            )
+            if not strategy_cases and not experiences:
+                strategy_cases, experiences = load_advisor_memory()
             if strategy_cases or experiences:
                 effective_req = effective_req.model_copy(
                     update={

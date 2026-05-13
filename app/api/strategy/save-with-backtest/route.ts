@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { inferStrategyType } from "@/lib/strategy-type";
 import { getTopAssetStats } from "@/lib/backtest-top-symbols";
-import { computeStrategyIdFromDsl } from "@/lib/server/backtestCache";
+import { computeStrategyIdFromDsl, triggerVectorMemoryBacktestUpsert } from "@/lib/server/backtestCache";
 
 // POST: 전략 DSL + 백테스트 결과를 한 번에 저장
 export async function POST(request: Request) {
@@ -191,6 +191,10 @@ export async function POST(request: Request) {
 
       return { strategy, backtestRecord };
     });
+
+    if (result.backtestRecord) {
+      triggerVectorMemoryBacktestUpsert();
+    }
 
     return NextResponse.json({
       strategyId: result.strategy.id,

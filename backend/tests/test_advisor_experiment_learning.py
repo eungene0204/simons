@@ -125,8 +125,11 @@ def test_advisor_injects_experiment_learning_advice(tmp_path):
     assert result.strategy_experiment_learning is not None
     assert result.strategy_experiment_learning["similar_strategy_count"] == 18
     assert result.advice[0].title == "전략 실험 근거 기반 개선"
-    assert "비슷한 18개 실험" in result.advice[0].body
-    assert "투자 추천이 아니라 전략 검증/리스크 관리 근거" in result.advice[0].body
+    assert "현재 조건과 가까운 실험군의 결과" in result.advice[0].body
+    assert "MDD와 Sharpe가 동시에 나아지는 쪽만 후보" in result.advice[0].body
+    assert "confidence" not in result.advice[0].body
+    assert "stop_loss" not in result.advice[0].body
+    assert "max_holding_days" not in result.advice[0].body
 
 
 def test_high_news_risk_takes_priority_over_learning(tmp_path):

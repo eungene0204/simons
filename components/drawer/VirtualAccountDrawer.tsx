@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, memo } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
 import {
   CaretLeft,
@@ -25,7 +25,6 @@ function VirtualAccountDrawer({
   onAccountSelect,
 }: VirtualAccountDrawerProps) {
   const router = useRouter();
-  const pathname = usePathname();
   const [accounts, setAccounts] = useState<VirtualAccount[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -34,10 +33,10 @@ function VirtualAccountDrawer({
     if (isOpen) {
       loadAccounts();
     }
-  }, [isOpen, pathname]);
+  }, [isOpen]);
 
   const loadAccounts = async () => {
-    setLoading(true);
+    if (accounts.length === 0) setLoading(true);
     const allAccounts = await getAllAccounts();
     setAccounts(allAccounts);
     setLoading(false);
@@ -141,7 +140,8 @@ return (
                     const profit = account.totalValue - account.initialAmount;
                     const profitPercent =
                       (profit / account.initialAmount) * 100;
-                    const isPositive = profit >= 0;
+                    const isPositive = profit > 0;
+                    const isZero = profit === 0;
 
                     return (
                       <div
@@ -159,7 +159,7 @@ return (
                                 alt="NullStock"
                                 width={40}
                                 height={40}
-                                className="w-full h-full object-cover"
+                                className="w-full h-full object-cover mix-blend-screen"
                               />
                             </div>
                             <div className="flex-1 min-w-0">
@@ -169,7 +169,7 @@ return (
                                 </div>
                                 {account.strategyName && (
                                   account.tradingMode === "auto" ? (
-                                    <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-blue-900/40 text-blue-400 rounded text-xs font-medium flex-shrink-0">
+                                    <span className="flex items-center gap-0.5 px-1.5 py-0.5 text-blue-400 rounded text-xs font-medium flex-shrink-0">
                                       <Robot size={10} weight="bold" />
                                       자동
                                     </span>
@@ -181,15 +181,9 @@ return (
                                   )
                                 )}
                               </div>
-                              {account.strategyName ? (
-                                <div className="text-xs text-blue-400 truncate">
-                                  {account.strategyName}
-                                </div>
-                              ) : (
-                                <div className="text-xs text-gray-400">
-                                  잔액: {formatPrice(account.currentBalance)}원
-                                </div>
-                              )}
+                              <div className="text-xs text-gray-400">
+                                잔액: {formatPrice(account.currentBalance)}원
+                              </div>
                             </div>
                           </div>
                           <div className="flex flex-col items-end flex-shrink-0">
@@ -198,7 +192,9 @@ return (
                             </span>
                             <span
                               className={`text-xs mt-0.5 ${
-                                isPositive
+                                isZero
+                                  ? "text-gray-500"
+                                  : isPositive
                                   ? "text-red-400"
                                   : "text-blue-400"
                               }`}

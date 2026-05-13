@@ -224,8 +224,55 @@ def test_advisor_response_includes_memory_context_and_advice(tmp_path):
     assert result.strategy_memory_context["data_sufficiency"] == "sufficient"
     assert any(item.title == "유사 전략 경험 기반 점검" for item in result.advice)
     memory_item = next(item for item in result.advice if item.title == "유사 전략 경험 기반 점검")
-    assert "Experience Memory" in memory_item.body
-    assert "투자 추천이 아니라" in memory_item.body
+    assert "조정 후" in memory_item.body
+    assert "CAGR" in memory_item.body
+    assert "MDD" in memory_item.body
+    assert "Sharpe" in memory_item.body
+    assert "익절 15%" in memory_item.body
+    assert "최대 보유기간 20일" in memory_item.body
+    assert "장기 추세 필터 추가" in memory_item.body
+    assert "Experience Memory" not in memory_item.body
+    assert "투자 추천" not in memory_item.body
+
+
+def test_advisor_memory_advice_does_not_expose_vector_store_lessons(tmp_path):
+    current_dsl = _rsi_dsl()
+    agent = StrategyAdvisorAgent(learning_provider=ExperimentLearningProvider(tmp_path))
+
+    result = agent.review(AdvisorRequest(
+        user_prompt="RSI 30 이하 매수, 70 이상 매도",
+        parsed_strategy=current_dsl,
+        memory_strategy_cases=[
+            {
+                "strategy_id": "case_vector_rsi",
+                "strategy_summary": "RSI 평균회귀 구조",
+                "strategy_dsl": _rsi_dsl(threshold=31, exit_threshold=69),
+            }
+        ],
+        memory_experiences=[
+            {
+                "strategy_id": "case_vector_rsi",
+                "before_backtest": {"cagr": -0.02, "mdd": -0.31, "sharpe": -0.1},
+                "after_backtest": {},
+                "evaluation": {"advice_success": False},
+                "lesson": (
+                    "ChromaDB에서 검색된 과거 백테스트 사례입니다. "
+                    "result_status=FAIL, similarity=0.404. 동일 조건 재백테스트와 OOS 검증 전에는 "
+                    "성과를 확정하지 않습니다."
+                ),
+            }
+        ],
+    ))
+
+    memory_item = next(item for item in result.advice if item.title == "유사 전략 경험 기반 점검")
+
+    assert "성과 개선이 제한적" in memory_item.body
+    assert "각각 분리해서" in memory_item.body
+    assert "MDD와 Sharpe" in memory_item.body
+    assert "ChromaDB" not in memory_item.body
+    assert "result_status" not in memory_item.body
+    assert "similarity" not in memory_item.body
+    assert "OOS" not in memory_item.body
 
 
 def test_advisor_discloses_insufficient_memory_context(tmp_path):
@@ -251,6 +298,4 @@ def test_advisor_discloses_insufficient_memory_context(tmp_path):
     assert result_with_unmatched_memory.strategy_memory_context["data_sufficiency"] == "insufficient"
     assert result_with_unmatched_memory.strategy_memory_context["confidence"] == "low"
     assert result_with_unmatched_memory.strategy_memory_context["search_quality"]["matched_count"] == 0
-    memory_item = next(item for item in result_with_unmatched_memory.advice if item.title == "유사 전략 경험 기반 점검")
-    assert "유사 전략 검색 결과가 부족" in memory_item.body
-    assert "낮은 신뢰도" in memory_item.body
+    assert all(item.title != "유사 전략 경험 기반 점검" for item in result_with_unmatched_memory.advice)
