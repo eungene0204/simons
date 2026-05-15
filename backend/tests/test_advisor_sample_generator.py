@@ -8,6 +8,7 @@ sys.path.append(os.path.join(os.getcwd(), "backend"))
 from advisor.sample_generator import (
     FAMILY_PLANS,
     build_advisor_batch_run_payload,
+    generate_advisor_paired_smoke_samples,
     generate_advisor_smoke_samples,
     serialize_advisor_smoke_samples_jsonl,
 )
@@ -58,6 +59,25 @@ def test_generated_samples_cover_risk_controls_and_parameter_buckets():
     assert any(sample["strategy_dsl"]["take_profit_pct"] is not None for sample in samples)
     assert any(sample["strategy_dsl"]["hold_period_days"] is not None for sample in samples)
     assert any(sample["strategy_dsl"]["trailing_stop_pct"] is not None for sample in samples)
+
+
+def test_generate_advisor_paired_smoke_samples_creates_one_change_groups():
+    samples = generate_advisor_paired_smoke_samples(6)
+
+    assert len(samples) == 24
+    first_group = [sample for sample in samples if sample["paired_experiment"]["pair_id"] == "advisor_pair_0001"]
+    baseline = next(sample for sample in first_group if sample["paired_experiment"]["role"] == "baseline")
+    candidates = [sample for sample in first_group if sample["paired_experiment"]["role"] == "candidate"]
+
+    assert baseline["strategy_dsl"]["stop_loss_pct"] is None
+    assert baseline["strategy_dsl"]["take_profit_pct"] is None
+    assert baseline["strategy_dsl"]["hold_period_days"] is None
+    assert {candidate["paired_experiment"]["change_axis"] for candidate in candidates} == {
+        "stop_loss",
+        "take_profit",
+        "max_holding_days",
+    }
+    assert all(candidate["paired_experiment"]["changed_parameter"] for candidate in candidates)
 
 
 def test_serialize_advisor_smoke_samples_jsonl_round_trips():

@@ -8,6 +8,7 @@ backtests or persist generated rows.
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List
 
@@ -207,6 +208,89 @@ def generate_advisor_smoke_samples(count: int = 300) -> List[Dict[str, Any]]:
                 "slippage_rate": strategy_dsl["slippage_rate"],
             },
         })
+
+    return samples
+
+
+def _paired_sample(
+    *,
+    sample_id: str,
+    plan: StrategyFamilyPlan,
+    bucket: str,
+    strategy_dsl: Dict[str, Any],
+    pair_id: str,
+    role: str,
+    change_axis: str,
+    changed_parameter: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    parsed_blocks = extract_strategy_blocks(strategy_dsl)
+    return {
+        "sample_id": sample_id,
+        "family": plan.family,
+        "hypothesis": plan.hypothesis,
+        "parameter_bucket": bucket,
+        "validation_purpose": f"{plan.validation_purpose}: {change_axis} 단일 변경 비교",
+        "parsed_blocks": parsed_blocks,
+        "strategy_dsl": strategy_dsl,
+        "paired_experiment": {
+            "pair_id": pair_id,
+            "role": role,
+            "change_axis": change_axis,
+            "changed_parameter": changed_parameter or {},
+        },
+        "backtest_settings": {
+            "period": strategy_dsl["backtest_period"],
+            "universe": strategy_dsl["universe"],
+            "initial_capital": strategy_dsl["initial_capital"],
+            "fee_rate": strategy_dsl["fee_rate"],
+            "slippage_rate": strategy_dsl["slippage_rate"],
+        },
+    }
+
+
+def generate_advisor_paired_smoke_samples(pair_count: int = 30) -> List[Dict[str, Any]]:
+    if pair_count < len(FAMILY_PLANS):
+        raise ValueError(f"pair_count must be at least {len(FAMILY_PLANS)}")
+
+    samples: list[dict] = []
+    variants = (
+        ("stop_loss_pct", 8, "stop_loss"),
+        ("take_profit_pct", 15, "take_profit"),
+        ("hold_period_days", 20, "max_holding_days"),
+    )
+    for pair_index in range(pair_count):
+        plan = FAMILY_PLANS[pair_index % len(FAMILY_PLANS)]
+        family_index = pair_index // len(FAMILY_PLANS)
+        bucket = _choice(plan.buckets, family_index)
+        baseline = _build_strategy_dsl(plan, family_index)
+        baseline["stop_loss_pct"] = None
+        baseline["take_profit_pct"] = None
+        baseline["trailing_stop_pct"] = None
+        baseline["hold_period_days"] = None
+        pair_id = f"advisor_pair_{pair_index + 1:04d}"
+
+        samples.append(_paired_sample(
+            sample_id=f"{pair_id}_baseline",
+            plan=plan,
+            bucket=bucket,
+            strategy_dsl=baseline,
+            pair_id=pair_id,
+            role="baseline",
+            change_axis="baseline",
+        ))
+        for field, value, change_axis in variants:
+            candidate = deepcopy(baseline)
+            candidate[field] = value
+            samples.append(_paired_sample(
+                sample_id=f"{pair_id}_{field}",
+                plan=plan,
+                bucket=bucket,
+                strategy_dsl=candidate,
+                pair_id=pair_id,
+                role="candidate",
+                change_axis=change_axis,
+                changed_parameter={field: value},
+            ))
 
     return samples
 

@@ -134,6 +134,34 @@ function netEffectLabel(value: string) {
   return value;
 }
 
+function primaryAdviceBody(body: string) {
+  const normalized = body.replace(/\s+/g, " ").trim();
+  const isExperimentEvidence =
+    normalized.includes("중앙값") &&
+    (
+      normalized.includes("제안 주신 전략과 비슷한 전략") ||
+      normalized.includes("현재 조건과 가까운 실험군") ||
+      (normalized.includes("비슷한 ") && normalized.includes("실험에서"))
+    );
+  if (isExperimentEvidence) {
+    return normalized.replace(
+      "제안 주신 전략과 비슷한 전략의 결과가 ",
+      "입력 하신 전략과 비슷한 전략으로 테스트 해본 결과 "
+    );
+  }
+  const candidateMatch = normalized.match(/우선 비교할 후보는\s+.+?입니다\./);
+  const first = (
+    normalized.match(/^.+?(?:입니다|합니다|됩니다|세요)\./)?.[0] ||
+    normalized.match(/^.+?[!?。]/)?.[0] ||
+    normalized
+  ).trim();
+  return [first, candidateMatch?.[0]?.trim()]
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 // ─── Section label ────────────────────────────────────────────────────────────
 
 function SectionLabel({ icon, title, count }: { icon: React.ReactNode; title: string; count?: number }) {
@@ -291,23 +319,20 @@ export function StrategyAdvisorPanel({
               <div className="border border-white/[0.08] rounded-2xl overflow-hidden">
                 <SectionLabel
                   icon={<Lightbulb size={14} weight="fill" className="text-yellow-400" />}
-                  title="조언 드립니다"
-                  count={result.advice.length}
+                  title="핵심 조언"
+                  count={1}
                 />
-                <div className="divide-y divide-white/[0.04]">
-                  {result.advice.map((item, i) => (
-                    <div key={i} className="px-4 py-3 hover:bg-white/[0.02] transition-colors duration-150">
-                      <p className="text-sm font-bold text-white leading-snug">{item.title}</p>
-                      {item.body && (
-                        <p className="text-xs font-bold text-gray-500 leading-relaxed mt-1">{item.body}</p>
-                      )}
-                      {item.proposed_change?.description && (
-                        <p className="text-xs font-bold text-indigo-400 leading-relaxed mt-1.5">
-                          → {item.proposed_change.description}
-                        </p>
-                      )}
-                    </div>
-                  ))}
+                <div className="px-4 py-3 hover:bg-white/[0.02] transition-colors duration-150">
+                  {result.advice[0].body && (
+                    <p className="text-xs font-bold text-gray-500 leading-relaxed">
+                      {primaryAdviceBody(result.advice[0].body)}
+                    </p>
+                  )}
+                  {result.advice[0].proposed_change?.description && (
+                    <p className="text-xs font-bold text-indigo-400 leading-relaxed mt-1.5">
+                      → {result.advice[0].proposed_change.description}
+                    </p>
+                  )}
                 </div>
               </div>
             )}

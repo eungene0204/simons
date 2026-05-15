@@ -10,7 +10,7 @@ describe("StrategyAdvisorPanel", () => {
     vi.clearAllMocks();
   });
 
-  it("백엔드가 내려준 조언 문구를 그대로 보여준다", async () => {
+  it("백엔드가 내려준 조언 중 첫 핵심 조언만 간단히 보여준다", async () => {
     fetchMock.mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -55,9 +55,11 @@ describe("StrategyAdvisorPanel", () => {
       );
     });
 
-    expect(screen.getByText("과최적화 위험 낮음")).toBeInTheDocument();
-    expect(screen.getByText(/전략 구조가 특정 과거 구간에 과도하게 맞춰졌을 가능성은 낮습니다/)).toBeInTheDocument();
-    expect(screen.getByText("손절 기준 없음")).toBeInTheDocument();
+    expect(screen.getByText("핵심 조언")).toBeInTheDocument();
+    expect(screen.queryByText("과최적화 위험 낮음")).not.toBeInTheDocument();
+    expect(screen.getByText("필터 조건 0개로 적정합니다.")).toBeInTheDocument();
+    expect(screen.queryByText(/전략 구조가 특정 과거 구간에 과도하게 맞춰졌을 가능성은 낮습니다/)).not.toBeInTheDocument();
+    expect(screen.queryByText("손절 기준 없음")).not.toBeInTheDocument();
   });
 
   it("구체 근거가 있는 저위험 과최적화 문구는 유지한다", async () => {
@@ -93,8 +95,51 @@ describe("StrategyAdvisorPanel", () => {
       />
     );
 
-    expect(await screen.findByText("과최적화 위험 낮음")).toBeInTheDocument();
+    expect(await screen.findByText(/거래 횟수 63회로 통계적 신뢰도가 충분합니다/)).toBeInTheDocument();
+    expect(screen.queryByText("과최적화 위험 낮음")).not.toBeInTheDocument();
     expect(screen.getByText(/거래 횟수 63회로 통계적 신뢰도가 충분합니다/)).toBeInTheDocument();
+  });
+
+  it("실험 근거 조언은 소수점에서 자르지 않고 전체 문장을 보여준다", async () => {
+    const body =
+      "제안 주신 전략과 비슷한 전략의 결과가 CAGR 중앙값 4.80%, Sharpe 중앙값 0.95, MDD 중앙값 -16.77%로 나왔습니다. 손절은 12%, 최대 보유기간은 10일, 보유 종목 수는 20개로 각각 바꿔 테스트해 보세요. 테스트 후에는 MDD와 Sharpe가 동시에 좋아지는 설정만 남기세요.";
+
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        strategy_score: 72,
+        risk_score: 48,
+        overfit_risk: "low",
+        advice: [
+          {
+            severity: "medium",
+            title: "전략 실험 근거 기반 개선",
+            body,
+          },
+        ],
+        suggested_experiments: [],
+        ai_model_recommendation: {
+          recommended: false,
+          reason: "현재 규칙 기반 전략만으로도 충분합니다.",
+        },
+      }),
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <StrategyAdvisorPanel
+        request={{
+          user_prompt: "테스트 전략",
+          parsed_strategy: {},
+        }}
+      />
+    );
+
+    expect(await screen.findByText(
+      "입력 하신 전략과 비슷한 전략으로 테스트 해본 결과 CAGR 중앙값 4.80%, Sharpe 중앙값 0.95, MDD 중앙값 -16.77%로 나왔습니다. 손절은 12%, 최대 보유기간은 10일, 보유 종목 수는 20개로 각각 바꿔 테스트해 보세요. 테스트 후에는 MDD와 Sharpe가 동시에 좋아지는 설정만 남기세요."
+    )).toBeInTheDocument();
+    expect(screen.queryByText("제안 주신 전략과 비슷한 전략의 결과가 CAGR 중앙값 4.")).not.toBeInTheDocument();
   });
 
   it("RAG 경험과 개선 후보 평가 결과를 표시한다", async () => {

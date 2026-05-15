@@ -18,6 +18,7 @@ const baseParsed: ParsedSummary = {
   rebalancing_period: "none",
   stop_loss_pct: null,
   take_profit_pct: null,
+  trailing_stop_pct: null,
   backtest_period: "5y",
   initial_capital: 10000000,
 };
@@ -40,6 +41,29 @@ describe("strategySummary", () => {
     });
 
     expect(labels).toEqual(["CCI", "익절 10% 이상 수익시 매도"]);
+  });
+
+  it("손절은 청산 신호 라벨에도 표시한다", () => {
+    const labels = getDisplayExitLabels({
+      ...baseParsed,
+      exit_signals: [{ indicator: "ma_crossover", signal_type: "sell" }],
+      stop_loss_pct: 8,
+    });
+
+    expect(labels).toEqual(["MA 크로스", "손절 -8% 하락시 매도"]);
+  });
+
+  it("트레일링 스탑과 최대 보유기간도 청산 신호 라벨에 포함한다", () => {
+    const labels = getDisplayExitLabels({
+      ...baseParsed,
+      trailing_stop_pct: 10,
+      hold_period_days: 20,
+    });
+
+    expect(labels).toEqual([
+      "트레일링 스탑 -10% 하락시 매도",
+      "최대 20일 보유 후 매도",
+    ]);
   });
 
   it("sell 문맥의 AI 신호는 청산 요약에서 하락 예측으로 표시한다", () => {
@@ -105,6 +129,7 @@ describe("strategySummary", () => {
     expect(summary?.exitBlocks).toEqual([
       "손절 -12% 하락시 매도",
       "익절 10% 이상 수익시 매도",
+      "최대 182일 보유 후 매도",
     ]);
     expect(summary?.positionText).toBe("포지션/비중 최대 8종목 · 182일 보유");
     expect(summary?.riskText).toBe("손절 12%, 익절 10%");

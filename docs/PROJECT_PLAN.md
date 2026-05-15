@@ -1,7 +1,7 @@
 # Simons — 종합 투자 시뮬레이션 플랫폼 프로젝트 계획서
 
 > **문서 버전:** v2.0
-> **최종 갱신일:** 2026-05-06
+> **최종 갱신일:** 2026-05-13
 > **프로젝트명:** Simons (시몬스)
 
 ---
@@ -298,16 +298,18 @@ simons/
 | advisor 통합 | `advisor_insight` (rule-based 전략 진단) → 코치 컨텍스트로 활용 |
 | RAG 통합 | 현재 전략의 텍스트/DSL 구조 유사 사례와 과거 조언 성공/실패 경험을 검색 |
 | 개선 검증 | 후보 전략 생성 후 가능하면 개선 전/후 백테스트와 WFA/OOS 컨텍스트를 비교 |
-| UX | 전략 요약 카드 → 즉시 스피너 → 첫 토큰 도착 시 메시지 박스 등장 → 타자처럼 누적 → 완료 시 제안 버튼 표시 |
+| UX | 전략 요약 카드 → 대화창 내 코치 분석 말풍선 → 핵심 조언 최대 3개 → 완료 시 백테스트 버튼 표시 |
 | 응답 형식 | `{"message": "...(300자 이내)", "suggestions": ["제안1", "제안2", "제안3"]}` |
 
-**SSE 스트리밍 흐름:**
+**코치 표시 흐름:**
 ```
-POST /api/strategy/coach/stream
-  ├── Step 1: /api/advisor/review (rule-based, ~14ms) → advisor_insight
-  └── Step 2: /strategy/coach/stream (Qwen MLX stream_generate)
-      ├── data: {"type":"delta","message":"안녕하...","text":"..."} (토큰 단위)
-      └── data: {"type":"done","message":"전체 응답","suggestions":[...]}
+전략 파싱 완료
+  ├── 전략 요약: 노란 테두리 카드로 표시
+  ├── /api/advisor/review 호출
+  └── 전략 코치 말풍선
+      ├── 사용자에게 과거 사례/RAG 출처를 직접 노출하지 않음
+      ├── 성과 신호 + 비교 후보 중심으로 조언 압축
+      └── 조언은 최대 3개만 우선 표시
 ```
 
 **전략 변환기 (StrategyConverter):**
@@ -335,9 +337,11 @@ POST /api/strategy/coach/stream
 | Experience Memory | `AdviceExperience`에 조언 전/후 성과, 유사 사례, 평가, lesson 저장 | ✅ 완료 |
 | 개선 후보 생성 | 현재 전략 문제점과 과거 lesson 기반 후보 DSL 생성 | ✅ 완료 |
 | 개선 효과 평가 | CAGR, MDD, Sharpe, Sortino, Calmar, Profit Factor, trade count, OOS/WFA 컨텍스트 종합 평가 | ✅ 완료 |
-| UI 반영 | 후보 재백테스트 후 advisor panel이 `advice_evaluation`을 다시 조회해 개선 전/후 평가 표시 | ✅ 완료 |
+| UI 반영 | 오른쪽 advisor panel 제거, `/analytics/new` 대화창 말풍선에서 핵심 조언만 표시 | ✅ 완료 |
+| Advisor 학습 데이터 | KOSPI200 smoke sample 10,000건 백테스트 결과로 learning dataset/summary artifact 갱신 | ✅ 완료 |
+| 조언 표현 정책 | RAG/Experience Memory/유사 사례 출처는 내부 근거로만 사용하고 사용자에게는 행동 가능한 조언만 표시 | ✅ 완료 |
 
-**조언 답변 섹션:** 전략 요약 → 현재 전략의 문제점 → 과거 유사 전략 사례 → Experience Memory에서 발견한 패턴 → 개선 제안 → 재백테스트 조건 → 주의할 점 → 최종 추천
+**조언 답변 정책:** 전략 요약은 별도 카드로 분리하고, 코치 말풍선은 성과 신호 → 비교 후보 → 리스크 관리 조치 중심으로 압축한다. "유사 전략", "과거 사례", "Experience Memory" 같은 내부 근거 출처는 사용자 문구에 직접 노출하지 않는다.
 
 #### 3.1.2 모두 테스트 (독립형 배치 백테스트) ✅ 완료
 
@@ -353,10 +357,12 @@ POST /api/strategy/coach/stream
 | 6. 결과 랭킹 | CAGR 기준 내림차순 정렬, 최고 성과 전략 강조 | ✅ 완료 |
 | 7. 영구 저장 | `BatchRun`, `BatchRunCandidate`, `Strategy`, `BacktestResult`, `BacktestHistory` 저장 | ✅ 완료 |
 | 8. 취소 & 복구 | 취소 요청, 체크포인트 저장, 서버 재시작 후 다음 요청 시 복구 | ✅ 완료 |
+| 9. Advisor learning export | `format=advisor-learning-results` export와 merged resume 결과 기반 artifact 생성 | ✅ 완료 |
 
 **현재 제약:**
 - worker는 별도 프로세스가 아닌 앱 프로세스 내부 큐로 실행된다.
 - 서버 재시작 후 자동 재개는 아니며, 다음 `batch-runs` API 요청 시 DB 상태를 보고 이어서 복구한다.
+- 대형 run은 중단/실패 시 completed 구간과 resume run을 sample_id 기준으로 병합해 하나의 learning artifact로 재생성한다.
 
 #### 3.1.3 레거시 전략 빌더 (5-Step Wizard) ✅ 완료
 
@@ -1054,6 +1060,7 @@ WatchlistSymbol {
 | clarification 제거 | `/strategy/parse` 에서 rule-based clarification 생성 완전 제거 | ✅ 완료 |
 | 캐시/중복 제거 | Next.js/FastAPI 계층에서 JSON cache, SSE replay cache, in-flight dedupe 적용 | ✅ 완료 |
 | 런타임 우선순위 | MLX priority lock에서 parse보다 낮고 summary보다 높은 priority로 실행 | ✅ 완료 |
+| 전략 만들기 UI 정리 | 모델 로딩 배지 제거, 오른쪽 코치 패널 제거, 전략 요약 카드/코치 말풍선 중심으로 단순화 | ✅ 완료 |
 
 ### Phase 3.7c: RAG + Experience Memory 전략 조언 Agent — ✅ 완료
 
@@ -1067,6 +1074,9 @@ WatchlistSymbol {
 | 후보 재백테스트 | `/analytics/new`에서 후보 백테스트와 WFA/OOS 컨텍스트를 advisor 요청에 반영 | ✅ 완료 |
 | 성공/실패 평가 | 수익률, 위험, 거래 품질, 비용/슬리피지, OOS/WFA 악화 여부 종합 판단 | ✅ 완료 |
 | Memory 저장 안전성 | Advisor 저장은 기존 사용자 `Strategy` row를 덮어쓰지 않는 insert-only 방식 | ✅ 완료 |
+| 10,000건 학습 artifact | KOSPI200 smoke sample 10,000건 결과를 `data/advisor-learning` dataset/summary로 반영 | ✅ 완료 |
+| 조언 품질 개선 | flat evidence 감지, 낮은 유사도 confidence downgrade, profit factor/trade count 반영 | ✅ 완료 |
+| 사용자 문구 압축 | 유사 사례/Experience Memory 출처 설명을 숨기고, 비교 후보와 리스크 조치만 표시 | ✅ 완료 |
 
 ### Phase 3.8: 뉴스 Impact AI Agent — ✅ 완료
 
@@ -1329,4 +1339,4 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 
 ---
 
-*이 문서는 프로젝트의 현재 상태와 향후 계획을 반영합니다. 최종 갱신: 2026-04-28 (자연어 전략 생성 지연 개선, AI 런타임 계측, 캐싱, fallback 복구 반영).*
+*이 문서는 프로젝트의 현재 상태와 향후 계획을 반영합니다. 최종 갱신: 2026-05-13 (전략 만들기 코치 UX 단순화, Advisor 10,000건 learning artifact, 조언 문구 압축 반영).*

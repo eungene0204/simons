@@ -225,6 +225,22 @@ def test_full_prompt_golden_dead_cross_with_stoploss():
     assert ("ma_crossover", "buy") in entry_indicators
     # KOSPI 유니버스
     assert parsed.universe == ["KOSPI"]
+    assert parsed.stop_loss_pct == 8.0
+
+
+def test_full_prompt_extracts_stop_loss_with_korean_particle_from_empty_base():
+    prompt = (
+        "차트를 보니까 단기 이동평균선이 장기 이동평균선을 위로 뚫을 때 많이들 들어간다고 하더라고요. "
+        "KOSPI 종목 중 골든크로스가 나오면 매수하고, 반대로 데드크로스가 나오면 매도하는 식으로 "
+        "간단하게 만들어 주세요. 종목은 최대 10개, 손절은 -8%로 부탁드립니다."
+    )
+
+    parsed = _apply_prompt_overrides(make_base_strategy(), prompt)
+
+    assert parsed.stop_loss_pct == 8.0
+    assert parsed.universe == ["KOSPI"]
+    assert ("ma_crossover", "buy") in [(s.indicator, s.signal_type) for s in parsed.entry_signals]
+    assert ("ma_crossover", "sell") in [(s.indicator, s.signal_type) for s in parsed.exit_signals]
 
 
 def test_extract_breakout_uses_252_for_52_week_high_phrase():
@@ -333,6 +349,26 @@ def test_rule_based_strategy_parses_explicit_value_hold_prompt_without_llm():
     assert parsed.rebalancing_period == "yearly"
 
 
+def test_rule_based_strategy_parses_pbr_particle_unit_prompt_without_llm():
+    prompt = (
+        "주식은 아직 초보라서 너무 복잡한 조건 말고 이해하기 쉬운 전략으로 하고 싶어요. "
+        "KOSPI 대형주 중에서 PBR이 1배 이하인 종목만 골라서 8종목 정도 나눠 사고, "
+        "한 번 사면 최소 6개월은 들고 가고 싶습니다. "
+        "큰 손실은 무서우니 -12% 손절만 넣어 주세요."
+    )
+
+    parsed = _parse_rule_based_strategy(prompt)
+
+    assert parsed is not None
+    assert parsed.universe == ["KOSPI"]
+    assert [(f.metric, f.operator, f.value) for f in parsed.fundamental_filters] == [
+        ("pbr", "<=", 1.0),
+    ]
+    assert parsed.max_positions == 8
+    assert parsed.hold_period_days == 126
+    assert parsed.stop_loss_pct == 12.0
+
+
 def test_rule_based_strategy_parses_technical_prompt_with_risk_without_llm():
     parsed = _parse_rule_based_strategy("KOSPI 종목 중 골든크로스 매수, 데드크로스 매도, 손절 8%")
 
@@ -341,6 +377,29 @@ def test_rule_based_strategy_parses_technical_prompt_with_risk_without_llm():
     assert [(s.indicator, s.signal_type) for s in parsed.entry_signals] == [("ma_crossover", "buy")]
     assert [(s.indicator, s.signal_type) for s in parsed.exit_signals] == [("ma_crossover", "sell")]
     assert parsed.stop_loss_pct == 8.0
+
+
+def test_rule_based_strategy_parses_52_week_high_volume_spike_prompt_without_llm():
+    prompt = (
+        "뉴스에 자주 나오는 강한 종목을 짧게 타보는 전략을 써보고 싶어요. "
+        "KOSDAQ에서 52주 신고가를 새로 만들고 거래량도 평소보다 확 늘어난 종목이 나오면 들어가고, "
+        "너무 오래 끌지는 말고 20일 정도 지나면 정리해 주세요. "
+        "최대 6종목, 손절은 -10%로 해주세요."
+    )
+
+    parsed = _parse_rule_based_strategy(prompt)
+
+    assert parsed is not None
+    assert parsed.universe == ["KOSDAQ"]
+    assert [(s.indicator, s.signal_type) for s in parsed.entry_signals] == [
+        ("breakout", "buy"),
+        ("volume_spike", "buy"),
+    ]
+    assert parsed.entry_signals[0].lookback_period == 252
+    assert parsed.entry_signals[1].period == 20
+    assert parsed.hold_period_days == 20
+    assert parsed.max_positions == 6
+    assert parsed.stop_loss_pct == 10.0
 
 
 def test_rule_based_strategy_falls_back_for_ambiguous_prompt():
