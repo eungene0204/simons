@@ -66,8 +66,7 @@ def test_advisor_quality_smoke_for_representative_strategy_prompts():
         result = _review(prompt, parsed_strategy)
         learning_advice = _top_learning_advice(result)
 
-        assert "우선 비교할 후보" in learning_advice
-        assert "각 후보를 하나씩만 바꿔 비교" in learning_advice
+        assert "각각 바꿔 테스트" in learning_advice
         assert "추가 백테스트로 먼저 검증" not in learning_advice
         assert "data_sufficiency" not in learning_advice
         assert "confidence=" not in learning_advice
@@ -88,7 +87,8 @@ def test_advisor_downgrades_broad_experiment_match_confidence():
     insight = result.strategy_experiment_learning or {}
     assert insight["confidence"] == "low"
     assert insight["matched_patterns"][0]["similarity"] < 0.5
-    assert "현재 전략과 완전히 같지는 않으므로" in _top_learning_advice(result)
+    assert "근거 수준" not in _top_learning_advice(result)
+    assert "확신하기 어렵" not in _top_learning_advice(result)
 
 
 def test_advisor_keeps_backtest_specific_risk_advice_visible():

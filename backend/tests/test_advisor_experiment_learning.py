@@ -105,6 +105,239 @@ def test_learning_provider_returns_evidence(tmp_path):
     assert "RSI + PBR + 손절" in insight["recommended_advice"][0]
 
 
+def test_learning_provider_prefers_parameter_near_samples_for_adjustments(tmp_path):
+    summary = {
+        "summary": {
+            "best_indicator_combinations": {},
+            "best_single_indicators": {},
+        }
+    }
+    rows = [
+        {
+            "input": {
+                "user_prompt": "RSI 30 이하, 손절 8%, 익절 15%, 20일 보유",
+                "parsed_blocks": ["rsi", "stop_loss", "take_profit", "max_holding_days"],
+                "extracted_parameters": {
+                    "stop_loss_pct": 8,
+                    "take_profit_pct": 15,
+                    "hold_period_days": 20,
+                    "max_positions": 10,
+                },
+            },
+            "output": {
+                "evidence": {
+                    "median_cagr": 9.0,
+                    "median_sharpe": 0.8,
+                    "median_mdd": -12.0,
+                    "median_profit_factor": 1.4,
+                    "median_trades": 42,
+                },
+                "suggested_actions": ["MDD 확인"],
+            },
+        },
+        {
+            "input": {
+                "user_prompt": "RSI 30 이하, 손절 12%, 익절 25%, 60일 보유",
+                "parsed_blocks": ["rsi", "stop_loss", "take_profit", "max_holding_days"],
+                "extracted_parameters": {
+                    "stop_loss_pct": 12,
+                    "take_profit_pct": 25,
+                    "hold_period_days": 60,
+                    "max_positions": 20,
+                },
+            },
+            "output": {
+                "evidence": {
+                    "median_cagr": 2.0,
+                    "median_sharpe": 0.2,
+                    "median_mdd": -25.0,
+                    "median_profit_factor": 0.9,
+                    "median_trades": 15,
+                },
+                "suggested_actions": ["MDD 확인"],
+            },
+        },
+    ]
+    (tmp_path / "strategy_prompt_experiment_summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    (tmp_path / "strategy_advisor_learning_dataset.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in rows),
+        encoding="utf-8",
+    )
+
+    provider = ExperimentLearningProvider(tmp_path)
+    insight = provider.build_insight({
+        "entry_signals": [{"indicator": "rsi", "threshold": 30}],
+        "max_positions": 10,
+    })
+
+    assert insight["similar_samples"][0]["extracted_parameters"]["stop_loss_pct"] == 8
+    assert insight["similar_samples"][0]["parameter_similarity"] > insight["similar_samples"][1]["parameter_similarity"]
+    assert insight["recommended_adjustments"][:3] == [
+        "RSI 진입 기준 25/30/35 비교",
+        "손절 8% 추가 버전 비교",
+        "익절 15% 추가 버전 비교",
+    ]
+
+
+def test_learning_provider_surfaces_paired_delta_adjustments(tmp_path):
+    summary = {
+        "summary": {
+            "best_indicator_combinations": {},
+            "best_single_indicators": {},
+        }
+    }
+    row = {
+        "input": {
+            "user_prompt": "RSI 30 이하에 손절 8%만 추가",
+            "parsed_blocks": ["rsi", "stop_loss"],
+            "extracted_parameters": {"stop_loss_pct": 8, "max_positions": 10},
+        },
+        "output": {
+            "evidence": {
+                "median_cagr": 7.0,
+                "median_sharpe": 0.7,
+                "median_mdd": -12.0,
+                "median_profit_factor": 1.3,
+                "median_trades": 35,
+            },
+            "paired_delta": {
+                "pair_id": "advisor_pair_0001",
+                "baseline_sample_id": "advisor_pair_0001_baseline",
+                "change_axis": "stop_loss",
+                "changed_parameter": {"stop_loss_pct": 8},
+                "cagr_delta": 3.0,
+                "sharpe_delta": 0.3,
+                "mdd_delta": 8.0,
+                "profit_factor_delta": 0.3,
+                "trade_delta": 5.0,
+                "improves_risk_adjusted": True,
+            },
+        },
+    }
+    (tmp_path / "strategy_prompt_experiment_summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    (tmp_path / "strategy_advisor_learning_dataset.jsonl").write_text(json.dumps(row), encoding="utf-8")
+
+    provider = ExperimentLearningProvider(tmp_path)
+    insight = provider.build_insight({
+        "entry_signals": [{"indicator": "rsi", "threshold": 30}],
+        "max_positions": 10,
+    })
+
+    assert insight["recommended_adjustments"][0] == "손절 8% 추가 버전 비교(CAGR +3.00%p, Sharpe +0.30, MDD +8.00%p, PF +0.30)"
+
+
+def test_learning_provider_prefers_paired_delta_over_missing_exit_rule(tmp_path):
+    summary = {
+        "summary": {
+            "best_indicator_combinations": {},
+            "best_single_indicators": {},
+        }
+    }
+    rules = {
+        "rules": [
+            {
+                "id": "rule_missing_exit_rule",
+                "condition": "missing stop_loss_pct, take_profit_pct, trailing_stop_pct, and max_holding_days",
+                "suggested_actions": ["손절 8% 추가", "익절 15% 추가"],
+            }
+        ]
+    }
+    row = {
+        "input": {
+            "user_prompt": "RSI 30 이하에 손절 8%만 추가",
+            "parsed_blocks": ["rsi", "stop_loss"],
+            "extracted_parameters": {"stop_loss_pct": 8, "max_positions": 10},
+        },
+        "output": {
+            "evidence": {
+                "median_cagr": 7.0,
+                "median_sharpe": 0.7,
+                "median_mdd": -12.0,
+            },
+            "paired_delta": {
+                "change_axis": "stop_loss",
+                "changed_parameter": {"stop_loss_pct": 8},
+                "cagr_delta": 3.0,
+                "sharpe_delta": 0.3,
+                "mdd_delta": 8.0,
+                "improves_risk_adjusted": True,
+            },
+        },
+    }
+    (tmp_path / "strategy_prompt_experiment_summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    (tmp_path / "strategy_advisor_rules.json").write_text(json.dumps(rules), encoding="utf-8")
+    (tmp_path / "strategy_advisor_learning_dataset.jsonl").write_text(json.dumps(row), encoding="utf-8")
+
+    provider = ExperimentLearningProvider(tmp_path)
+    insight = provider.build_insight({
+        "entry_signals": [{"indicator": "rsi", "threshold": 30}],
+        "max_positions": 10,
+    })
+
+    assert insight["matched_rules"]
+    assert insight["recommended_adjustments"][0].startswith("손절 8% 추가 버전 비교(CAGR +3.00%p")
+
+
+def test_learning_provider_uses_strategy_specific_adjustments_before_generic_params(tmp_path):
+    summary = {
+        "summary": {
+            "best_indicator_combinations": {},
+            "best_single_indicators": {},
+        }
+    }
+    row = {
+        "input": {
+            "user_prompt": "공통 리스크 후보",
+            "parsed_blocks": ["max_positions", "stop_loss"],
+            "extracted_parameters": {"stop_loss_pct": 12, "max_positions": 20},
+        },
+        "output": {
+            "evidence": {
+                "median_cagr": 5.0,
+                "median_sharpe": 0.5,
+                "median_mdd": -15.0,
+            },
+        },
+    }
+    (tmp_path / "strategy_prompt_experiment_summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    (tmp_path / "strategy_advisor_learning_dataset.jsonl").write_text(json.dumps(row), encoding="utf-8")
+
+    provider = ExperimentLearningProvider(tmp_path)
+    rsi = provider.build_insight({
+        "entry_signals": [{"indicator": "rsi", "threshold": 30}],
+        "max_positions": 10,
+    })
+    breakout = provider.build_insight({
+        "entry_signals": [{"indicator": "breakout"}, {"indicator": "volume_spike"}],
+        "max_positions": 10,
+    })
+    value = provider.build_insight({
+        "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1}],
+        "max_positions": 10,
+    })
+    macd_volume = provider.build_insight({
+        "entry_signals": [{"indicator": "macd"}, {"indicator": "volume_spike"}],
+        "max_positions": 10,
+    })
+
+    assert rsi["recommended_adjustments"][0] == "RSI 진입 기준 25/30/35 비교"
+    assert breakout["recommended_adjustments"][:2] == [
+        "신고가 기간 120일/252일 비교",
+        "거래량 급증 기준 1.5배/2배 비교",
+    ]
+    assert value["recommended_adjustments"][0] == "PBR 기준 0.8배/1.0배 비교"
+    assert macd_volume["recommended_adjustments"][:2] == [
+        "MACD 확인 조건 신호선 교차/0선 돌파 비교",
+        "거래량 급증 기준 1.5배/2배 비교",
+    ]
+    assert len({
+        rsi["recommended_adjustments"][0],
+        breakout["recommended_adjustments"][0],
+        value["recommended_adjustments"][0],
+        macd_volume["recommended_adjustments"][0],
+    }) == 4
+
+
 def test_advisor_injects_experiment_learning_advice(tmp_path):
     _write_learning_files(tmp_path)
     agent = StrategyAdvisorAgent(learning_provider=ExperimentLearningProvider(tmp_path))
@@ -125,11 +358,58 @@ def test_advisor_injects_experiment_learning_advice(tmp_path):
     assert result.strategy_experiment_learning is not None
     assert result.strategy_experiment_learning["similar_strategy_count"] == 18
     assert result.advice[0].title == "전략 실험 근거 기반 개선"
-    assert "현재 조건과 가까운 실험군의 결과" in result.advice[0].body
-    assert "MDD와 Sharpe가 동시에 나아지는 쪽만 후보" in result.advice[0].body
+    assert "제안 주신 전략과 비슷한 전략의 결과" in result.advice[0].body
+    assert "이 전략에서" in result.advice[0].body
+    assert "각각 바꿔 테스트" in result.advice[0].body
+    assert "MDD와 Sharpe가 동시에 좋아지는 설정만 남기세요" in result.advice[0].body
     assert "confidence" not in result.advice[0].body
+    assert "근거 수준" not in result.advice[0].body
+    assert "확신하기 어렵" not in result.advice[0].body
+    assert "가까운 샘플도 파라미터" not in result.advice[0].body
+    assert "delta만 비교" not in result.advice[0].body
     assert "stop_loss" not in result.advice[0].body
     assert "max_holding_days" not in result.advice[0].body
+
+
+def test_flat_experiment_evidence_is_described_as_weak_signal(tmp_path):
+    summary = {
+        "summary": {
+            "best_indicator_combinations": {
+                "ma_crossover+max_positions+trading_value": {
+                    "combination_count": 40,
+                    "median_cagr": 0.0,
+                    "median_sharpe": 0.0,
+                    "median_mdd": 0.0,
+                    "confidence": "high",
+                    "recommended_guidance": "거래대금 + 이동평균 조합은 기본 성과가 확인됐습니다.",
+                }
+            },
+            "best_single_indicators": {},
+        }
+    }
+    (tmp_path / "strategy_prompt_experiment_summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    (tmp_path / "strategy_advisor_learning_dataset.jsonl").write_text("", encoding="utf-8")
+
+    agent = StrategyAdvisorAgent(learning_provider=ExperimentLearningProvider(tmp_path))
+    result = agent.review(AdvisorRequest(
+        user_prompt="거래대금 100억 이상 종목 중 10일선이 60일선을 돌파하면 매수",
+        parsed_strategy={
+            "universe": ["KOSPI200"],
+            "entry_signals": [{"indicator": "ma_cross"}],
+            "fundamental_filters": [{"metric": "trading_value", "operator": ">=", "value": 10_000_000_000}],
+            "max_positions": 10,
+            "initial_capital": 30_000_000,
+        },
+    ))
+
+    assert result.strategy_experiment_learning["confidence"] == "low"
+    assert "성과 신호가 거의 없었습니다" in result.advice[0].body
+    assert "현재안을 그대로 반복하지 말고" in result.advice[0].body
+    assert "근거 수준" not in result.advice[0].body
+    assert "확신하기 어렵" not in result.advice[0].body
+    assert "가까운 샘플도 파라미터" not in result.advice[0].body
+    assert "delta만 비교" not in result.advice[0].body
+    assert "기본 성과가 확인" not in result.advice[0].body
 
 
 def test_high_news_risk_takes_priority_over_learning(tmp_path):

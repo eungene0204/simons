@@ -294,6 +294,9 @@ def _overfit_info_advice(
         )
         return AdviceItem(severity="medium", title="과최적화 위험 중간", body=body)
     # low
+    if not ctx.backtest_available:
+        return None
+
     reasons = []
     if ctx.backtest_available and ctx.trade_count is not None and ctx.trade_count >= 50:
         reasons.append(f"거래 횟수 {ctx.trade_count}회로 통계적 신뢰도가 충분합니다")

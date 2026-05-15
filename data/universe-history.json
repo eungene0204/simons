@@ -1,6 +1,47 @@
 {
-  "updatedAt": "2026-05-12T00:00:04.131122+09:00",
+  "updatedAt": "2026-05-15T00:00:03.820110+09:00",
   "entries": [
+    {
+      "date": "2026-05-15",
+      "syncedAt": "2026-05-15T00:00:03.820110+09:00",
+      "totalCount": 2657,
+      "kospiCount": 838,
+      "kosdaqCount": 1819,
+      "addedCount": 1,
+      "delistedCount": 0,
+      "added": [
+        {
+          "symbol": "487580",
+          "name": "폴레드",
+          "market": "KOSDAQ",
+          "sector": "기타 제조업",
+          "industry": "가정용 기기 제조업"
+        }
+      ],
+      "delisted": []
+    },
+    {
+      "date": "2026-05-14",
+      "syncedAt": "2026-05-14T00:00:10.122716+09:00",
+      "totalCount": 2656,
+      "kospiCount": 838,
+      "kosdaqCount": 1818,
+      "addedCount": 0,
+      "delistedCount": 0,
+      "added": [],
+      "delisted": []
+    },
+    {
+      "date": "2026-05-13",
+      "syncedAt": "2026-05-13T00:00:04.470432+09:00",
+      "totalCount": 2656,
+      "kospiCount": 838,
+      "kosdaqCount": 1818,
+      "addedCount": 0,
+      "delistedCount": 0,
+      "added": [],
+      "delisted": []
+    },
     {
       "date": "2026-05-12",
       "syncedAt": "2026-05-12T00:00:04.131122+09:00",

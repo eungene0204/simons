@@ -9,6 +9,7 @@ import sys
 sys.path.append(os.path.join(os.getcwd(), "backend"))
 
 from advisor.agent import StrategyAdvisorAgent
+from advisor.performance_evaluation import NullLearningProvider
 from advisor.schemas import AdvisorRequest
 
 agent = StrategyAdvisorAgent()
@@ -65,6 +66,37 @@ def test_no_take_profit_has_advice():
     assert any("익절" in a.title for a in result.advice)
 
 
+def test_existing_stop_loss_does_not_repeat_stop_loss_addition_advice():
+    policy_agent = StrategyAdvisorAgent(learning_provider=NullLearningProvider())
+    result = policy_agent.review(AdvisorRequest(
+        user_prompt="KOSPI 대형주 중 PBR 1배 이하를 8종목 사고 6개월 보유, -12% 손절",
+        parsed_strategy={
+            "universe": ["KOSPI"],
+            "entry_signals": [],
+            "exit_signals": [],
+            "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1}],
+            "max_positions": 8,
+            "stop_loss_pct": 12.0,
+            "take_profit_pct": None,
+            "hold_period_days": 126,
+            "initial_capital": 10_000_000,
+        },
+    ))
+
+    advice_text = " ".join(
+        " ".join([
+            item.title,
+            item.body,
+            item.proposed_change.description if item.proposed_change else "",
+        ])
+        for item in result.advice
+    )
+
+    assert "손절 조건 추가" not in advice_text
+    assert "손절 또는 트레일링 스탑 추가" not in advice_text
+    assert any("익절" in item.title for item in result.advice)
+
+
 def test_advice_items_have_body():
     """모든 advice 항목은 title과 body를 가져야 한다."""
     result = _review({
@@ -119,6 +151,25 @@ def test_low_overfit_advice_omits_zero_filter_message_without_evidence():
 
     assert all(item.title != "과최적화 위험 낮음" for item in result.advice)
     assert all("필터 조건 0개로 적정합니다" not in item.body for item in result.advice)
+
+
+def test_low_overfit_advice_omits_filter_only_message_without_backtest():
+    req = AdvisorRequest(
+        user_prompt="테스트 전략",
+        parsed_strategy={
+            "universe": ["KOSPI200"],
+            "entry_signals": [],
+            "exit_signals": [],
+            "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1.0}],
+            "max_positions": 10,
+            "initial_capital": 10_000_000,
+        },
+    )
+
+    result = agent.review(req)
+
+    assert all(item.title != "과최적화 위험 낮음" for item in result.advice)
+    assert all("필터 조건 1개" not in item.body for item in result.advice)
 
 
 def test_low_overfit_advice_remains_when_backtest_has_concrete_evidence():

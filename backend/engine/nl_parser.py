@@ -840,7 +840,10 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
         exit_.append(TechnicalSignal(indicator="bollinger_bands", signal_type="sell"))
 
     # ── 브레이크아웃 ──
-    breakout_match = re.search(r"(?:(\d+)(주|일)?신고가.*?(?:돌파|매수)|브레이크아웃)", compact)
+    breakout_match = re.search(
+        r"(?:(\d+)(주|일)?신고가.*?(?:돌파|매수|진입|들어가|새로만들)|브레이크아웃)",
+        compact,
+    )
     if breakout_match:
         lookback = 20
         period_text = breakout_match.group(1)
@@ -856,15 +859,22 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
         entry.append(TechnicalSignal(indicator="breakout", signal_type="buy", lookback_period=lookback))
 
     # ── 거래량 급증 ──
-    if "거래량급증" in compact or "거래량폭발" in compact or "volumespike" in compact:
+    if (
+        "거래량급증" in compact
+        or "거래량폭발" in compact
+        or "거래량도평소보다확늘" in compact
+        or "거래량이평소보다확늘" in compact
+        or "거래량평소보다확늘" in compact
+        or "volumespike" in compact
+    ):
         entry.append(TechnicalSignal(indicator="volume_spike", signal_type="buy", period=20))
 
     return entry, exit_
 
 
 _FUNDAMENTAL_PATTERN_SPECS = [
-    ("pbr", [r"pbr\s*(\d+(?:\.\d+)?)\s*(이하|미만|이상|초과)?"]),
-    ("per", [r"per\s*(\d+(?:\.\d+)?)\s*(이하|미만|이상|초과)?"]),
+    ("pbr", [r"pbr(?:이|가|은|는)?\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*(이하|미만|이상|초과)?"]),
+    ("per", [r"per(?:이|가|은|는)?\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*(이하|미만|이상|초과)?"]),
     ("roe_or_gpa", [r"(?:roe|gpa)\s*(\d+(?:\.\d+)?)%?\s*(이하|미만|이상|초과)?"]),
     ("debt_ratio", [r"(?:부채비율|부채)\s*(\d+(?:\.\d+)?)%?\s*(이하|미만|이상|초과)?"]),
     ("market_cap", [r"시가총액\s*(\d+(?:\.\d+)?)\s*(억|억원)?\s*(이하|미만|이상|초과)?"]),
@@ -937,6 +947,9 @@ def _extract_hold_period_days(user_input: str) -> Optional[int]:
     if match:
         return int(match.group(1)) * 21
     match = re.search(r"(\d+)일(?:간)?보유", compact)
+    if match:
+        return int(match.group(1))
+    match = re.search(r"(\d+)일(?:정도)?지나면(?:정리|매도|청산)", compact)
     if match:
         return int(match.group(1))
     return None
@@ -1165,8 +1178,10 @@ def _apply_prompt_overrides(parsed: ParsedStrategy, user_input: str) -> ParsedSt
         r"(\d+(?:\.\d+)?)%하락.*?(?:매도|청산)",
         # "-10% 매도", "-10%에서 매도"
         r"-(\d+(?:\.\d+)?)%.*?(?:매도|청산)",
-        # "손절 10%", "손절-10%", "손절 -10%"
-        r"손절-?(\d+(?:\.\d+)?)%",
+        # "-10% 손절", "-10%에서 손절"
+        r"-(\d+(?:\.\d+)?)%.*?손절",
+        # "손절 10%", "손절은 -10%", "손절률 10%"
+        r"손절(?:은|은요|은\s*|률은|률|선은|선)?-?(\d+(?:\.\d+)?)%",
     ]
     if is_deleting_stop_loss:
         updates["stop_loss_pct"] = None

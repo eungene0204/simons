@@ -1,7 +1,7 @@
 # Software Architecture
 
 > 한국/글로벌 주식 퀀트 투자 플랫폼 — Simons
-> **최종 갱신일:** 2026-05-06
+> **최종 갱신일:** 2026-05-13
 
 ---
 
@@ -218,6 +218,8 @@ StrategyLabPage (app/analytics/new/page.tsx)
 ├── 채팅 입력창
 │   └── handleSend()             — POST SSE via /api/strategy/parse/stream
 ├── Strategy Skeleton UI         — accepted/skeleton 이벤트로 즉시 임시 전략 표시
+├── Strategy Summary Card        — 노란 테두리 카드로 파싱 결과 요약 표시
+├── AdvisorResultBubble          — /api/advisor/review 결과를 핵심 조언 말풍선으로 압축 표시
 ├── AI Runtime Metrics Panel     — parse/coach/summary latency 표시
 ├── RunAllTestsModal
 │   ├── startBatchRun()          — POST /api/strategy/batch-runs
@@ -231,6 +233,8 @@ StrategyLabPage (app/analytics/new/page.tsx)
     ├── WalkForwardModal
     └── XAIModal                 — SHAP 설명
 ```
+
+전략 Lab의 코치 UX는 오른쪽 고정 패널을 사용하지 않는다. 파싱 완료 후 `/api/advisor/review` 결과를 같은 대화 흐름의 말풍선으로 표시하며, 사용자에게 RAG/Experience Memory/유사 사례 출처를 설명하지 않고 성과 신호, 비교 후보, 리스크 조치만 노출한다. 조언은 우선순위 상위 3개만 표시하고 나머지는 백테스트 결과 확인 후 이어서 볼 수 있다는 짧은 안내로 접는다.
 
 ### 3.3 상태 관리
 
@@ -286,6 +290,8 @@ interface BacktestResult {
 - 리더보드는 `CAGR` 기준 기본 내림차순 정렬이며, `Total Return`, `Sharpe`, `MDD`, `Profit Factor`, `Trades` 기준으로도 재정렬 가능하다.
 - 각 후보 상태는 `waiting`, `running`, `computed`, `cache_hit`, `failed`, `skipped` 중 하나로 표시된다.
 - 실행 중 이력 재조회 시 같은 `runId`를 폴링해 계속 진행 상태를 반영한다.
+- Advisor learning용 export는 `format=advisor-learning-results`를 사용한다.
+- 대형 learning run은 실패/중단 시 source run과 resume run을 `advisor_smoke_0001`..`advisor_smoke_10000` sample_id 기준으로 병합해 `data/advisor-learning` artifact를 재생성한다.
 
 ---
 
@@ -634,7 +640,7 @@ Client polling으로 진행률/로그/리더보드 반영
 
 ### 7.1c RAG + Experience Memory 전략 Advisor (`backend/advisor/*`)
 
-전략 Advisor는 현재 전략만 보고 조언하지 않고, 과거 유사 전략과 조언 결과를 검색한 뒤 재사용 가능한 lesson을 반영한다.
+전략 Advisor는 현재 전략만 보고 조언하지 않고, 과거 유사 전략과 조언 결과를 검색한 뒤 재사용 가능한 lesson을 반영한다. 다만 이 근거 출처는 내부 판단에만 사용하며, 최종 사용자 문구는 "유사 사례" 설명이 아니라 바로 실행 가능한 비교 실험 조언으로 압축한다.
 
 ```
 user_prompt + parsed_strategy + backtest_result
@@ -651,7 +657,9 @@ Experience Memory(AdviceExperience)에서 성공/실패 사례 검색
     ↓
 후보 재백테스트 결과와 OOS/WFA 컨텍스트 비교
     ↓
-advice_evaluation 저장 + 사용자 답변 섹션 생성
+advisor learning evidence 반영 + 사용자용 조언 문구 압축
+    ↓
+advice_evaluation 저장 + 대화창 말풍선 응답 생성
 ```
 
 | 모듈 | 역할 |
@@ -662,7 +670,16 @@ advice_evaluation 저장 + 사용자 답변 섹션 생성
 | `candidate_generator.py` | 현재 전략에 적용 가능한 개선 후보 DSL 생성 |
 | `advice_evaluator.py` | CAGR, MDD, Sharpe, Profit Factor, trade count, OOS/WFA 기반 성공/실패 판단 |
 | `memory_repository.py` | `AdviceExperience` 저장/조회. 기존 사용자 `Strategy` row는 덮어쓰지 않음 |
-| `response_composer.py` | 전략 요약, 문제점, 유사 사례, 패턴, 개선 제안, 재백테스트 조건, 주의사항, 최종 추천 섹션 생성 |
+| `experiment_learning.py` | 10,000건 smoke sample 기반 learning artifact에서 조건별 성과 중앙값과 비교 후보를 산출 |
+| `response_composer.py` | 내부 근거를 조합하되 사용자에게는 성과 신호, 비교 후보, 리스크 조치 중심의 짧은 조언 생성 |
+
+**Advisor learning artifact**
+
+- 기준 데이터셋은 KOSPI200 smoke sample 10,000건 백테스트 결과다.
+- 저장 위치는 `data/advisor-learning/strategy_advisor_learning_dataset.jsonl`과 `data/advisor-learning/strategy_prompt_experiment_summary.json`이다.
+- `advisor_smoke_0001`..`advisor_smoke_10000` sample_id를 정규화 키로 사용해 source/resume run 결과를 병합한다.
+- flat evidence(CAGR/Sharpe/MDD 중앙값이 모두 0에 가까움)는 낮은 신뢰도와 "현재안 반복 금지" 조언으로 변환한다.
+- 낮은 유사도 또는 범용 매칭은 confidence를 낮추고, `profit_factor`, `trade_count`를 함께 고려해 조언 품질을 보정한다.
 
 **ParsedStrategy 주요 필드:**
 ```python

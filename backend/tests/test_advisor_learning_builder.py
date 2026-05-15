@@ -13,6 +13,7 @@ from advisor.learning_builder import (
     serialize_learning_dataset_jsonl,
 )
 from advisor.sample_generator import generate_advisor_smoke_samples
+from advisor.sample_generator import generate_advisor_paired_smoke_samples
 
 
 def _result(sample_id: str, cagr: float, sharpe: float, mdd: float, trades: int = 20):
@@ -30,7 +31,16 @@ def _result(sample_id: str, cagr: float, sharpe: float, mdd: float, trades: int 
 def test_build_advisor_learning_artifacts_keeps_sample_result_alignment():
     samples = generate_advisor_smoke_samples(6)
     results = [
-        _result(samples[0]["sample_id"], 8.0, 0.7, -12.0),
+        {
+            **_result(samples[0]["sample_id"], 8.0, 0.7, -12.0),
+            "metrics": {
+                "cagr": 8.0,
+                "sharpe": 0.7,
+                "mdd": -12.0,
+                "profitFactor": 1.35,
+                "tradeCount": 44,
+            },
+        },
         _result(samples[1]["sample_id"], -4.0, -0.2, -35.0),
     ]
 
@@ -41,6 +51,8 @@ def test_build_advisor_learning_artifacts_keeps_sample_result_alignment():
     assert rows[0]["input"]["sample_id"] == samples[0]["sample_id"]
     assert rows[0]["input"]["parsed_blocks"] == samples[0]["parsed_blocks"]
     assert rows[0]["output"]["evidence"]["median_cagr"] == 8.0
+    assert rows[0]["output"]["evidence"]["median_profit_factor"] == 1.35
+    assert rows[0]["output"]["evidence"]["median_trades"] == 44.0
     assert rows[1]["output"]["evidence"]["median_mdd"] == -35.0
     assert "종목 수 분산 비교" in rows[1]["output"]["suggested_actions"]
 
@@ -63,6 +75,46 @@ def test_build_advisor_learning_artifacts_summarizes_combinations_and_singles():
     assert summary["best_indicator_combinations"][combo_key]["median_sharpe"] == 0.8
     assert summary["best_indicator_combinations"][combo_key]["confidence"] == "low"
     assert first_blocks[0] in summary["best_single_indicators"]
+
+
+def test_build_advisor_learning_artifacts_attaches_paired_deltas():
+    samples = generate_advisor_paired_smoke_samples(6)[:4]
+    results = [
+        {
+            **_result(samples[0]["sample_id"], 4.0, 0.4, -20.0, trades=30),
+            "metrics": {
+                "cagr": 4.0,
+                "sharpe": 0.4,
+                "mdd": -20.0,
+                "profitFactor": 1.0,
+                "tradeCount": 30,
+            },
+        },
+        {
+            **_result(samples[1]["sample_id"], 7.0, 0.7, -12.0, trades=35),
+            "metrics": {
+                "cagr": 7.0,
+                "sharpe": 0.7,
+                "mdd": -12.0,
+                "profitFactor": 1.3,
+                "tradeCount": 35,
+            },
+        },
+    ]
+
+    artifacts = build_advisor_learning_artifacts(samples, results)
+    candidate_row = next(row for row in artifacts["learning_dataset"] if row["input"]["sample_id"] == samples[1]["sample_id"])
+    paired_delta = candidate_row["output"]["paired_delta"]
+
+    assert paired_delta["baseline_sample_id"] == samples[0]["sample_id"]
+    assert paired_delta["change_axis"] == "stop_loss"
+    assert paired_delta["cagr_delta"] == 3.0
+    assert paired_delta["sharpe_delta"] == 0.3
+    assert paired_delta["mdd_delta"] == 8.0
+    assert paired_delta["profit_factor_delta"] == 0.3
+    assert paired_delta["trade_delta"] == 5.0
+    assert paired_delta["improves_risk_adjusted"] is True
+    assert artifacts["summary"]["summary"]["paired_deltas"]["stop_loss"]["median_mdd_delta"] == 8.0
 
 
 def test_serialize_learning_dataset_jsonl_round_trips():
@@ -106,6 +158,52 @@ def test_normalize_batch_run_learning_results_keeps_only_completed_rows():
             "candidate_id": "candidate-1",
             "strategy_id": "hash_momentum",
             "metrics": {"cagr": 8.5, "sharpe": 0.7, "maxDrawdown": -14.0},
+        }
+    ]
+
+
+def test_normalize_batch_run_learning_results_accepts_five_digit_sample_ids():
+    rows = normalize_batch_run_learning_results({
+        "results": [
+            {
+                "sample_id": "advisor_smoke_kospi200_10000__advisor_smoke_10000",
+                "candidate_id": "candidate-10000",
+                "strategy_id": "hash_final",
+                "status": "cache_hit",
+                "metrics": {"cagr": 3.2},
+            },
+        ]
+    })
+
+    assert rows == [
+        {
+            "sample_id": "advisor_smoke_10000",
+            "candidate_id": "candidate-10000",
+            "strategy_id": "hash_final",
+            "metrics": {"cagr": 3.2},
+        }
+    ]
+
+
+def test_normalize_batch_run_learning_results_accepts_paired_sample_ids():
+    rows = normalize_batch_run_learning_results({
+        "results": [
+            {
+                "sample_id": "advisor_paired_smoke_0120__advisor_pair_0001_stop_loss_pct",
+                "candidate_id": "candidate-paired",
+                "strategy_id": "hash_pair",
+                "status": "computed",
+                "metrics": {"cagr": 5.5},
+            },
+        ]
+    })
+
+    assert rows == [
+        {
+            "sample_id": "advisor_pair_0001_stop_loss_pct",
+            "candidate_id": "candidate-paired",
+            "strategy_id": "hash_pair",
+            "metrics": {"cagr": 5.5},
         }
     ]
 

@@ -3,7 +3,7 @@
   "summary": {
     "best_indicator_combinations": {
       "adx+ma_crossover+max_holding_days+max_positions+take_profit": {
-        "combination_count": 125,
+        "combination_count": 417,
         "confidence": "high",
         "median_cagr": 14.795102671667681,
         "median_mdd": -16.767692713718198,
@@ -15,7 +15,7 @@
         "warnings": []
       },
       "breakout+max_holding_days+max_positions+stop_loss+take_profit+trailing_stop": {
-        "combination_count": 125,
+        "combination_count": 417,
         "confidence": "high",
         "median_cagr": 26.46625897508894,
         "median_mdd": -21.917947503991208,
@@ -27,7 +27,7 @@
         "warnings": []
       },
       "breakout+max_holding_days+max_positions+stop_loss+volume_spike": {
-        "combination_count": 125,
+        "combination_count": 416,
         "confidence": "high",
         "median_cagr": 16.064322525768816,
         "median_mdd": -11.956377618634361,
@@ -39,7 +39,7 @@
         "warnings": []
       },
       "breakout+max_holding_days+max_positions+take_profit": {
-        "combination_count": 125,
+        "combination_count": 417,
         "confidence": "high",
         "median_cagr": 18.608501707128134,
         "median_mdd": -11.420830599526377,
@@ -51,7 +51,7 @@
         "warnings": []
       },
       "breakout+max_positions+stop_loss+take_profit": {
-        "combination_count": 125,
+        "combination_count": 416,
         "confidence": "high",
         "median_cagr": 12.265870616974283,
         "median_mdd": -10.36398847871417,
@@ -63,7 +63,7 @@
         "warnings": []
       },
       "breakout+max_positions+stop_loss+take_profit+volume_spike": {
-        "combination_count": 125,
+        "combination_count": 417,
         "confidence": "high",
         "median_cagr": 19.209359811359384,
         "median_mdd": -11.986240683761462,
@@ -75,7 +75,7 @@
         "warnings": []
       },
       "cci+max_holding_days+max_positions+stop_loss": {
-        "combination_count": 125,
+        "combination_count": 416,
         "confidence": "high",
         "median_cagr": 11.952677054045102,
         "median_mdd": -10.064845042664295,
@@ -87,7 +87,7 @@
         "warnings": []
       },
       "debt_ratio+max_positions+roe+stop_loss+take_profit": {
-        "combination_count": 125,
+        "combination_count": 417,
         "confidence": "high",
         "median_cagr": 0.0,
         "median_mdd": 0.0,
@@ -99,7 +99,7 @@
         "warnings": []
       },
       "ema+max_holding_days+max_positions+stop_loss": {
-        "combination_count": 125,
+        "combination_count": 416,
         "confidence": "high",
         "median_cagr": 7.221365284905401,
         "median_mdd": -16.775492811587323,
@@ -111,7 +111,7 @@
         "warnings": []
       },
       "ma_crossover+max_holding_days+max_positions+pbr+stop_loss": {
-        "combination_count": 125,
+        "combination_count": 416,
         "confidence": "high",
         "median_cagr": 4.797449590737868,
         "median_mdd": -9.218844487855227,
@@ -123,7 +123,7 @@
         "warnings": []
       },
       "ma_crossover+max_holding_days+max_positions+stop_loss+trading_value": {
-        "combination_count": 125,
+        "combination_count": 416,
         "confidence": "high",
         "median_cagr": 0.0,
         "median_mdd": 0.0,
@@ -135,7 +135,7 @@
         "warnings": []
       },
       "macd+max_holding_days+max_positions+stop_loss+take_profit+volume_spike": {
-        "combination_count": 125,
+        "combination_count": 417,
         "confidence": "high",
         "median_cagr": 26.24814133775173,
         "median_mdd": -13.852613111248003,
@@ -147,7 +147,7 @@
         "warnings": []
       },
       "market_cap+max_holding_days+max_positions+roe+stop_loss+take_profit": {
-        "combination_count": 125,
+        "combination_count": 417,
         "confidence": "high",
         "median_cagr": 17.74117824788284,
         "median_mdd": -12.819657642912642,
@@ -159,7 +159,7 @@
         "warnings": []
       },
       "market_cap+max_holding_days+max_positions+stop_loss+take_profit": {
-        "combination_count": 125,
+        "combination_count": 417,
         "confidence": "high",
         "median_cagr": 16.077477097560045,
         "median_mdd": -10.609070386263875,
@@ -171,7 +171,7 @@
         "warnings": []
       },
       "max_holding_days+max_positions+pbr+per+take_profit": {
-        "combination_count": 125,
+        "combination_count": 417,
         "confidence": "high",
         "median_cagr": 16.789933041669958,
         "median_mdd": -15.685822017646721,
@@ -183,7 +183,7 @@
         "warnings": []
       },
       "max_holding_days+max_positions+pbr+roe+stop_loss": {
-        "combination_count": 125,
+        "combination_count": 416,
         "confidence": "high",
         "median_cagr": 16.44013249500138,
         "median_mdd": -10.389346555543156,
@@ -195,7 +195,7 @@
         "warnings": []
       },
       "max_holding_days+max_positions+pbr+roe+stop_loss+take_profit": {
-        "combination_count": 125,
+        "combination_count": 417,
         "confidence": "high",
         "median_cagr": 18.401954056474736,
         "median_mdd": -12.741112170803358,
@@ -207,7 +207,7 @@
         "warnings": []
       },
       "max_holding_days+max_positions+roe+take_profit+trading_value": {
-        "combination_count": 125,
+        "combination_count": 417,
         "confidence": "high",
         "median_cagr": 0.0,
         "median_mdd": 0.0,
@@ -219,7 +219,7 @@
         "warnings": []
       },
       "max_holding_days+max_positions+rsi+take_profit": {
-        "combination_count": 125,
+        "combination_count": 417,
         "confidence": "high",
         "median_cagr": 14.280475566650065,
         "median_mdd": -16.70540335660179,
@@ -231,7 +231,7 @@
         "warnings": []
       },
       "max_holding_days+max_positions+stop_loss+take_profit": {
-        "combination_count": 125,
+        "combination_count": 417,
         "confidence": "high",
         "median_cagr": 16.50345901915047,
         "median_mdd": -12.358069184044618,
@@ -243,7 +243,7 @@
         "warnings": []
       },
       "max_holding_days+max_positions+take_profit+trading_value": {
-        "combination_count": 125,
+        "combination_count": 417,
         "confidence": "high",
         "median_cagr": 0.0,
         "median_mdd": 0.0,
@@ -255,7 +255,7 @@
         "warnings": []
       },
       "max_positions+per+stop_loss+take_profit+trading_value": {
-        "combination_count": 125,
+        "combination_count": 417,
         "confidence": "high",
         "median_cagr": 0.0,
         "median_mdd": 0.0,
@@ -267,7 +267,7 @@
         "warnings": []
       },
       "max_positions+stochastic+stop_loss+take_profit": {
-        "combination_count": 125,
+        "combination_count": 417,
         "confidence": "high",
         "median_cagr": 31.196239986162922,
         "median_mdd": -8.975725423223535,
@@ -279,7 +279,7 @@
         "warnings": []
       },
       "max_positions+stop_loss+take_profit+volume_spike": {
-        "combination_count": 125,
+        "combination_count": 416,
         "confidence": "high",
         "median_cagr": 16.5857750761381,
         "median_mdd": -7.994792119443916,
@@ -293,7 +293,7 @@
     },
     "best_single_indicators": {
       "adx": {
-        "combination_count": 125,
+        "combination_count": 417,
         "confidence": "high",
         "median_cagr": 14.795102671667681,
         "median_mdd": -16.767692713718198,
@@ -305,7 +305,7 @@
         "warnings": []
       },
       "breakout": {
-        "combination_count": 625,
+        "combination_count": 2083,
         "confidence": "high",
         "median_cagr": 18.608501707128134,
         "median_mdd": -11.956377618634361,
@@ -317,7 +317,7 @@
         "warnings": []
       },
       "cci": {
-        "combination_count": 125,
+        "combination_count": 416,
         "confidence": "high",
         "median_cagr": 11.952677054045102,
         "median_mdd": -10.064845042664295,
@@ -329,7 +329,7 @@
         "warnings": []
       },
       "debt_ratio": {
-        "combination_count": 125,
+        "combination_count": 417,
         "confidence": "high",
         "median_cagr": 0.0,
         "median_mdd": 0.0,
@@ -341,7 +341,7 @@
         "warnings": []
       },
       "ema": {
-        "combination_count": 125,
+        "combination_count": 416,
         "confidence": "high",
         "median_cagr": 7.221365284905401,
         "median_mdd": -16.775492811587323,
@@ -353,7 +353,7 @@
         "warnings": []
       },
       "ma_crossover": {
-        "combination_count": 375,
+        "combination_count": 1249,
         "confidence": "high",
         "median_cagr": 4.797449590737868,
         "median_mdd": -9.218844487855227,
@@ -365,7 +365,7 @@
         "warnings": []
       },
       "macd": {
-        "combination_count": 125,
+        "combination_count": 417,
         "confidence": "high",
         "median_cagr": 26.24814133775173,
         "median_mdd": -13.852613111248003,
@@ -377,19 +377,19 @@
         "warnings": []
       },
       "market_cap": {
-        "combination_count": 250,
+        "combination_count": 834,
         "confidence": "high",
-        "median_cagr": 16.077477097560045,
+        "median_cagr": 16.909327672721442,
         "median_mdd": -11.085973202105542,
         "median_profit_factor": null,
-        "median_quality_score": 0.3464,
-        "median_sharpe": 1.1860265477647525,
+        "median_quality_score": 0.3703,
+        "median_sharpe": 1.2483014890020199,
         "median_trades": null,
         "recommended_guidance": "market_cap 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
         "warnings": []
       },
       "max_holding_days": {
-        "combination_count": 2250,
+        "combination_count": 7500,
         "confidence": "high",
         "median_cagr": 14.795102671667681,
         "median_mdd": -11.871923808312046,
@@ -401,31 +401,31 @@
         "warnings": []
       },
       "max_positions": {
-        "combination_count": 3000,
+        "combination_count": 10000,
         "confidence": "high",
         "median_cagr": 14.280475566650065,
-        "median_mdd": -10.810085287071535,
+        "median_mdd": -10.90627582007907,
         "median_profit_factor": null,
-        "median_quality_score": 0.3025,
+        "median_quality_score": 0.3016,
         "median_sharpe": 1.0713390799650855,
         "median_trades": null,
         "recommended_guidance": "max_positions 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
         "warnings": []
       },
       "pbr": {
-        "combination_count": 500,
+        "combination_count": 1666,
         "confidence": "high",
         "median_cagr": 16.789933041669958,
-        "median_mdd": -11.105434494130783,
+        "median_mdd": -11.873950545475786,
         "median_profit_factor": null,
-        "median_quality_score": 0.372,
+        "median_quality_score": 0.3643,
         "median_sharpe": 1.2605049222493987,
         "median_trades": null,
         "recommended_guidance": "pbr 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
         "warnings": []
       },
       "per": {
-        "combination_count": 250,
+        "combination_count": 834,
         "confidence": "high",
         "median_cagr": 5.522431715408471,
         "median_mdd": -7.237722143740605,
@@ -437,7 +437,7 @@
         "warnings": []
       },
       "roe": {
-        "combination_count": 625,
+        "combination_count": 2084,
         "confidence": "high",
         "median_cagr": 9.76939318501775,
         "median_mdd": -10.389346555543156,
@@ -449,7 +449,7 @@
         "warnings": []
       },
       "rsi": {
-        "combination_count": 125,
+        "combination_count": 417,
         "confidence": "high",
         "median_cagr": 14.280475566650065,
         "median_mdd": -16.70540335660179,
@@ -461,7 +461,7 @@
         "warnings": []
       },
       "stochastic": {
-        "combination_count": 125,
+        "combination_count": 417,
         "confidence": "high",
         "median_cagr": 31.196239986162922,
         "median_mdd": -8.975725423223535,
@@ -473,31 +473,31 @@
         "warnings": []
       },
       "stop_loss": {
-        "combination_count": 2250,
+        "combination_count": 7498,
         "confidence": "high",
-        "median_cagr": 16.070899811664432,
+        "median_cagr": 16.077477097560045,
         "median_mdd": -10.748530201664552,
         "median_profit_factor": null,
-        "median_quality_score": 0.346,
-        "median_sharpe": 1.1712397399766719,
+        "median_quality_score": 0.3498,
+        "median_sharpe": 1.1860265477647525,
         "median_trades": null,
         "recommended_guidance": "stop_loss 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
         "warnings": []
       },
       "take_profit": {
-        "combination_count": 2250,
+        "combination_count": 7504,
         "confidence": "high",
         "median_cagr": 15.436289884613863,
-        "median_mdd": -11.085973202105542,
+        "median_mdd": -11.105434494130783,
         "median_profit_factor": null,
-        "median_quality_score": 0.3124,
+        "median_quality_score": 0.3122,
         "median_sharpe": 1.0755079157551761,
         "median_trades": null,
         "recommended_guidance": "take_profit 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
         "warnings": []
       },
       "trading_value": {
-        "combination_count": 500,
+        "combination_count": 1667,
         "confidence": "high",
         "median_cagr": 0.0,
         "median_mdd": 0.0,
@@ -509,7 +509,7 @@
         "warnings": []
       },
       "trailing_stop": {
-        "combination_count": 125,
+        "combination_count": 417,
         "confidence": "high",
         "median_cagr": 26.46625897508894,
         "median_mdd": -21.917947503991208,
@@ -521,18 +521,52 @@
         "warnings": []
       },
       "volume_spike": {
-        "combination_count": 500,
+        "combination_count": 1666,
         "confidence": "high",
-        "median_cagr": 17.948070359138455,
-        "median_mdd": -11.97130915119791,
+        "median_cagr": 19.209359811359384,
+        "median_mdd": -11.986240683761462,
         "median_profit_factor": null,
-        "median_quality_score": 0.419,
-        "median_sharpe": 1.4369322331409917,
+        "median_quality_score": 0.4405,
+        "median_sharpe": 1.4729974148990033,
         "median_trades": null,
         "recommended_guidance": "volume_spike 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
         "warnings": []
       }
     },
-    "total_samples": 3000
+    "paired_delta_source": {
+      "candidate_delta_count": 90,
+      "run_id": "advisor_paired_smoke_0120",
+      "sample_count": 120
+    },
+    "paired_deltas": {
+      "max_holding_days": {
+        "median_cagr_delta": -2.46725,
+        "median_mdd_delta": 0.46395,
+        "median_profit_factor_delta": -0.004,
+        "median_sharpe_delta": 0.0,
+        "median_trade_delta": 36.0,
+        "risk_adjusted_success_count": 8,
+        "sample_count": 30
+      },
+      "stop_loss": {
+        "median_cagr_delta": 0.0,
+        "median_mdd_delta": 0.0,
+        "median_profit_factor_delta": 0.0,
+        "median_sharpe_delta": 0.0,
+        "median_trade_delta": 4.0,
+        "risk_adjusted_success_count": 10,
+        "sample_count": 30
+      },
+      "take_profit": {
+        "median_cagr_delta": -0.77085,
+        "median_mdd_delta": 3.6473,
+        "median_profit_factor_delta": 0.0,
+        "median_sharpe_delta": 0.0774,
+        "median_trade_delta": 12.5,
+        "risk_adjusted_success_count": 15,
+        "sample_count": 30
+      }
+    },
+    "total_samples": 10120
   }
 }

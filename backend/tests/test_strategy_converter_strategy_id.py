@@ -5,6 +5,7 @@ from unittest.mock import patch
 sys.path.append(os.path.join(os.getcwd(), "backend"))
 
 from engine.nl_parser import FundamentalFilter, ParsedStrategy, TechnicalSignal
+from engine.nl_parser import _apply_prompt_overrides
 from engine.strategy_converter import (
     canonical_strategy_json,
     compute_strategy_id,
@@ -119,3 +120,21 @@ def test_to_backtest_request_marks_resolved_symbols_by_default(_mock):
     assert request["symbols"] == ["005930", "000660"]
     assert request["symbols_resolved"] is True
     assert request["symbol_count"] == 2
+
+
+def test_korean_particle_stop_loss_prompt_reaches_backtest_risk():
+    prompt = (
+        "KOSPI 종목 중 골든크로스가 나오면 매수하고, "
+        "반대로 데드크로스가 나오면 매도하는 식으로 만들어 주세요. "
+        "종목은 최대 10개, 손절은 -8%로 부탁드립니다."
+    )
+    parsed = _apply_prompt_overrides(make_strategy(), prompt)
+
+    request = to_backtest_request(parsed, resolve_symbols=False)
+
+    assert parsed.stop_loss_pct == 8.0
+    assert request["risk"]["stop_loss_pct"] == 8.0
+    assert request["canonical_strategy_dsl"]["stop_loss_pct"] == 8.0
+    assert [(item["id"], item["params"]["signalType"]) for item in request["exit"]["conditions"]] == [
+        ("ma_crossover", "sell")
+    ]

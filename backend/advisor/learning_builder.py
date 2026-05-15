@@ -16,13 +16,13 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 
 METRIC_KEYS = {
-    "cagr": ("cagr",),
-    "sharpe": ("sharpe", "sharpe_ratio", "sharpeRatio"),
-    "mdd": ("mdd", "maxDrawdown", "max_drawdown"),
-    "profit_factor": ("profit_factor", "profitFactor"),
-    "trade_count": ("trade_count", "tradeCount", "trades"),
+    "cagr": ("cagr", "median_cagr"),
+    "sharpe": ("sharpe", "sharpe_ratio", "sharpeRatio", "median_sharpe"),
+    "mdd": ("mdd", "maxDrawdown", "max_drawdown", "median_mdd"),
+    "profit_factor": ("profit_factor", "profitFactor", "median_profit_factor"),
+    "trade_count": ("trade_count", "tradeCount", "trades", "median_trades"),
 }
-SAMPLE_ID_PATTERN = re.compile(r"(advisor_smoke_\d{4}|prompt_\d{3,})")
+SAMPLE_ID_PATTERN = re.compile(r"(advisor_smoke_\d{4,5}|advisor_pair_\d{4}_(?:baseline|stop_loss_pct|take_profit_pct|hold_period_days)|prompt_\d{3,})")
 
 
 def _metric(payload: Dict[str, Any], name: str) -> Optional[float]:
@@ -106,21 +106,30 @@ def _learning_row(sample: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, A
         "median_cagr": _metric(result, "cagr"),
         "median_sharpe": _metric(result, "sharpe"),
         "median_mdd": _metric(result, "mdd"),
+        "median_profit_factor": _metric(result, "profit_factor"),
+        "median_trades": _metric(result, "trade_count"),
     }
+    input_payload = {
+        "sample_id": sample["sample_id"],
+        "user_prompt": sample["hypothesis"],
+        "parsed_blocks": sample["parsed_blocks"],
+        "risk_profile": sample["parameter_bucket"],
+        "category": sample["family"],
+        "validation_purpose": sample["validation_purpose"],
+        "extracted_parameters": {
+            key: value
+            for key, value in (sample.get("strategy_dsl") or {}).items()
+            if key in {"stop_loss_pct", "take_profit_pct", "trailing_stop_pct", "hold_period_days", "max_positions"}
+            and value is not None
+        },
+    }
+    paired_experiment = sample.get("paired_experiment")
+    if isinstance(paired_experiment, dict):
+        input_payload["paired_experiment"] = paired_experiment
+
     return {
         "input": {
-            "sample_id": sample["sample_id"],
-            "user_prompt": sample["hypothesis"],
-            "parsed_blocks": sample["parsed_blocks"],
-            "risk_profile": sample["parameter_bucket"],
-            "category": sample["family"],
-            "validation_purpose": sample["validation_purpose"],
-            "extracted_parameters": {
-                key: value
-                for key, value in (sample.get("strategy_dsl") or {}).items()
-                if key in {"stop_loss_pct", "take_profit_pct", "trailing_stop_pct", "hold_period_days", "max_positions"}
-                and value is not None
-            },
+            **input_payload,
         },
         "output": {
             "analysis": "백테스트 결과를 기반으로 전략 검증과 리스크 관리 관점에서 평가합니다.",
@@ -149,14 +158,19 @@ def build_advisor_learning_artifacts(
         for sample in samples
         if sample.get("sample_id") in result_by_sample
     ]
+    _attach_pair_deltas(rows)
 
     grouped: dict[str, list[dict]] = defaultdict(list)
     single_grouped: dict[str, list[dict]] = defaultdict(list)
+    paired_grouped: dict[str, list[dict]] = defaultdict(list)
     for row in rows:
         blocks = row["input"]["parsed_blocks"]
         grouped[_combo_key(blocks)].append(row)
         for block in blocks:
             single_grouped[str(block)].append(row)
+        paired_delta = row["output"].get("paired_delta")
+        if isinstance(paired_delta, dict):
+            paired_grouped[str(paired_delta.get("change_axis") or "unknown")].append(row)
 
     summary = {
         "experiment_id": "advisor_smoke_backtest_learning",
@@ -164,6 +178,7 @@ def build_advisor_learning_artifacts(
             "total_samples": len(rows),
             "best_indicator_combinations": _summarize_groups(grouped),
             "best_single_indicators": _summarize_groups(single_grouped),
+            "paired_deltas": _summarize_paired_deltas(paired_grouped),
         },
     }
     return {
@@ -259,6 +274,60 @@ def build_advisor_learning_artifacts_from_prompt_experiment_result(
     return build_advisor_learning_artifacts(samples, results)
 
 
+def _delta(candidate: Dict[str, Any], baseline: Dict[str, Any], metric: str) -> Optional[float]:
+    candidate_value = _metric(candidate, metric)
+    baseline_value = _metric(baseline, metric)
+    if candidate_value is None or baseline_value is None:
+        return None
+    return round(candidate_value - baseline_value, 4)
+
+
+def _attach_pair_deltas(rows: Sequence[Dict[str, Any]]) -> None:
+    grouped: dict[str, list[dict]] = defaultdict(list)
+    for row in rows:
+        pair = row.get("input", {}).get("paired_experiment")
+        if isinstance(pair, dict) and pair.get("pair_id"):
+            grouped[str(pair["pair_id"])].append(row)
+
+    for pair_rows in grouped.values():
+        baseline = next(
+            (
+                row
+                for row in pair_rows
+                if row.get("input", {}).get("paired_experiment", {}).get("role") == "baseline"
+            ),
+            None,
+        )
+        if not baseline:
+            continue
+        baseline_evidence = baseline["output"]["evidence"]
+        for row in pair_rows:
+            pair = row.get("input", {}).get("paired_experiment") or {}
+            if pair.get("role") == "baseline":
+                continue
+            evidence = row["output"]["evidence"]
+            cagr_delta = _delta(evidence, baseline_evidence, "cagr")
+            sharpe_delta = _delta(evidence, baseline_evidence, "sharpe")
+            mdd_delta = _delta(evidence, baseline_evidence, "mdd")
+            profit_factor_delta = _delta(evidence, baseline_evidence, "profit_factor")
+            trade_delta = _delta(evidence, baseline_evidence, "trade_count")
+            row["output"]["paired_delta"] = {
+                "pair_id": pair.get("pair_id"),
+                "baseline_sample_id": baseline["input"]["sample_id"],
+                "change_axis": pair.get("change_axis"),
+                "changed_parameter": pair.get("changed_parameter"),
+                "cagr_delta": cagr_delta,
+                "sharpe_delta": sharpe_delta,
+                "mdd_delta": mdd_delta,
+                "profit_factor_delta": profit_factor_delta,
+                "trade_delta": trade_delta,
+                "improves_risk_adjusted": bool(
+                    (sharpe_delta is not None and sharpe_delta > 0)
+                    and (mdd_delta is None or mdd_delta >= 0)
+                ),
+            }
+
+
 def build_advisor_learning_file_payloads(
     samples: Sequence[Dict[str, Any]],
     batch_export: Dict[str, Any],
@@ -295,6 +364,26 @@ def _summarize_groups(groups: Dict[str, Sequence[Dict[str, Any]]]) -> Dict[str, 
             "confidence": _confidence(sample_count),
             "recommended_guidance": _recommended_guidance(key, metrics),
             "warnings": [] if sample_count >= 10 else ["샘플 수가 적어 단정적으로 해석하면 안 됩니다."],
+        }
+    return output
+
+
+def _summarize_paired_deltas(groups: Dict[str, Sequence[Dict[str, Any]]]) -> Dict[str, Dict[str, Any]]:
+    output: Dict[str, Dict[str, Any]] = {}
+    for key, rows in sorted(groups.items()):
+        deltas = [
+            row["output"]["paired_delta"]
+            for row in rows
+            if isinstance(row.get("output", {}).get("paired_delta"), dict)
+        ]
+        output[key] = {
+            "sample_count": len(deltas),
+            "median_cagr_delta": _median([delta.get("cagr_delta") for delta in deltas]),
+            "median_sharpe_delta": _median([delta.get("sharpe_delta") for delta in deltas]),
+            "median_mdd_delta": _median([delta.get("mdd_delta") for delta in deltas]),
+            "median_profit_factor_delta": _median([delta.get("profit_factor_delta") for delta in deltas]),
+            "median_trade_delta": _median([delta.get("trade_delta") for delta in deltas]),
+            "risk_adjusted_success_count": sum(1 for delta in deltas if delta.get("improves_risk_adjusted")),
         }
     return output
 

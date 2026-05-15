@@ -1,0 +1,50 @@
+{
+  "total_samples": 50000,
+  "chunks": [
+    {
+      "run_id": "advisor_smoke_10001_20000",
+      "sample_start": 10001,
+      "sample_end": 20000,
+      "sample_count": 10000,
+      "sample_path": "data/advisor-learning/advisor_smoke_10001_20000_samples.jsonl",
+      "payload_path": "data/advisor-learning/advisor_smoke_10001_20000_batch_payload.json",
+      "candidate_count": 10000
+    },
+    {
+      "run_id": "advisor_smoke_20001_30000",
+      "sample_start": 20001,
+      "sample_end": 30000,
+      "sample_count": 10000,
+      "sample_path": "data/advisor-learning/advisor_smoke_20001_30000_samples.jsonl",
+      "payload_path": "data/advisor-learning/advisor_smoke_20001_30000_batch_payload.json",
+      "candidate_count": 10000
+    },
+    {
+      "run_id": "advisor_smoke_30001_40000",
+      "sample_start": 30001,
+      "sample_end": 40000,
+      "sample_count": 10000,
+      "sample_path": "data/advisor-learning/advisor_smoke_30001_40000_samples.jsonl",
+      "payload_path": "data/advisor-learning/advisor_smoke_30001_40000_batch_payload.json",
+      "candidate_count": 10000
+    },
+    {
+      "run_id": "advisor_smoke_40001_50000",
+      "sample_start": 40001,
+      "sample_end": 50000,
+      "sample_count": 10000,
+      "sample_path": "data/advisor-learning/advisor_smoke_40001_50000_samples.jsonl",
+      "payload_path": "data/advisor-learning/advisor_smoke_40001_50000_batch_payload.json",
+      "candidate_count": 10000
+    },
+    {
+      "run_id": "advisor_smoke_50001_60000",
+      "sample_start": 50001,
+      "sample_end": 60000,
+      "sample_count": 10000,
+      "sample_path": "data/advisor-learning/advisor_smoke_50001_60000_samples.jsonl",
+      "payload_path": "data/advisor-learning/advisor_smoke_50001_60000_batch_payload.json",
+      "candidate_count": 10000
+    }
+  ]
+}

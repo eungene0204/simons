@@ -5866,6 +5866,13 @@
     "industry": "연료용 가스 제조 및 배관공급업"
   },
   {
+    "symbol": "487580",
+    "name": "폴레드",
+    "market": "KOSDAQ",
+    "sector": "기타 제조업",
+    "industry": "가정용 기기 제조업"
+  },
+  {
     "symbol": "439960",
     "name": "코스모로보틱스",
     "market": "KOSDAQ",
@@ -14862,7 +14869,7 @@
   },
   {
     "symbol": "078860",
-    "name": "스테이지원엔터",
+    "name": "아이오케이이엔엠",
     "market": "KOSDAQ",
     "sector": "미디어/엔터",
     "industry": "영화, 비디오물, 방송프로그램 제작 및 배급업"
@@ -18327,7 +18334,7 @@
   },
   {
     "symbol": "018700",
-    "name": "바른손",
+    "name": "졸스",
     "market": "KOSDAQ",
     "sector": "유통/상사",
     "industry": "생활용품 도매업"

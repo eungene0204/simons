@@ -1,0 +1,1403 @@
+{
+  "experiment_id": "advisor_smoke_backtest_learning",
+  "summary": {
+    "best_indicator_combinations": {
+      "adx+ma_crossover+max_holding_days+max_positions": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 35.219054360649025,
+        "median_mdd": -18.715203731842212,
+        "median_profit_factor": 3.5181878119206496,
+        "median_quality_score": 0.5726,
+        "median_sharpe": 1.630239272665543,
+        "median_trades": 51.5,
+        "recommended_guidance": "adx + ma_crossover + max_holding_days + max_positions 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "adx+ma_crossover+max_positions": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 39.0529686512496,
+        "median_mdd": -23.040073065789358,
+        "median_profit_factor": 0.0,
+        "median_quality_score": 0.4952,
+        "median_sharpe": 1.340262605137819,
+        "median_trades": 3.0,
+        "recommended_guidance": "adx + ma_crossover + max_positions 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "adx+ma_crossover+max_positions+stop_loss": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 32.03053726712832,
+        "median_mdd": -18.011452068012737,
+        "median_profit_factor": 3.317995717471216,
+        "median_quality_score": 0.4364,
+        "median_sharpe": 1.1847964809331804,
+        "median_trades": 5.5,
+        "recommended_guidance": "adx + ma_crossover + max_positions + stop_loss 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "adx+ma_crossover+max_positions+take_profit": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 34.31375636386004,
+        "median_mdd": -12.653722689477725,
+        "median_profit_factor": 8.513878681698394,
+        "median_quality_score": 0.6697,
+        "median_sharpe": 1.81222445336246,
+        "median_trades": 13.0,
+        "recommended_guidance": "adx + ma_crossover + max_positions + take_profit 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "breakout+max_holding_days+max_positions": {
+        "combination_count": 4,
+        "confidence": "low",
+        "median_cagr": 18.460049531817425,
+        "median_mdd": -20.37032663283978,
+        "median_profit_factor": 1.7603053835407025,
+        "median_quality_score": 0.2338,
+        "median_sharpe": 1.0114847834200205,
+        "median_trades": 133.5,
+        "recommended_guidance": "breakout + max_holding_days + max_positions 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "breakout+max_holding_days+max_positions+volume_spike": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 23.039225057990336,
+        "median_mdd": -14.690824844101385,
+        "median_profit_factor": 2.0614202625807563,
+        "median_quality_score": 0.4506,
+        "median_sharpe": 1.468562665411071,
+        "median_trades": 339.0,
+        "recommended_guidance": "breakout + max_holding_days + max_positions + volume_spike 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "breakout+max_positions": {
+        "combination_count": 4,
+        "confidence": "low",
+        "median_cagr": 38.83212077076887,
+        "median_mdd": -21.662131636117792,
+        "median_profit_factor": 0.0,
+        "median_quality_score": 0.5071,
+        "median_sharpe": 1.3414733641902457,
+        "median_trades": 4.0,
+        "recommended_guidance": "breakout + max_positions 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "breakout+max_positions+stop_loss": {
+        "combination_count": 4,
+        "confidence": "low",
+        "median_cagr": 24.834264398576867,
+        "median_mdd": -20.091270422599607,
+        "median_profit_factor": 5.135403691866365,
+        "median_quality_score": 0.3105,
+        "median_sharpe": 1.0524232727642648,
+        "median_trades": 13.5,
+        "recommended_guidance": "breakout + max_positions + stop_loss 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "breakout+max_positions+stop_loss+volume_spike": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 46.323055492269056,
+        "median_mdd": -14.469079284336667,
+        "median_profit_factor": 7.79935444712795,
+        "median_quality_score": 0.7208,
+        "median_sharpe": 1.6090297863243759,
+        "median_trades": 30.5,
+        "recommended_guidance": "breakout + max_positions + stop_loss + volume_spike 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "breakout+max_positions+take_profit": {
+        "combination_count": 4,
+        "confidence": "low",
+        "median_cagr": 25.927287504929097,
+        "median_mdd": -12.014244358518972,
+        "median_profit_factor": 10.0,
+        "median_quality_score": 0.5322,
+        "median_sharpe": 1.5722634555269184,
+        "median_trades": 23.0,
+        "recommended_guidance": "breakout + max_positions + take_profit 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "breakout+max_positions+take_profit+volume_spike": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 20.661033321748615,
+        "median_mdd": -9.206871493076441,
+        "median_profit_factor": 5.13516321066658,
+        "median_quality_score": 0.4668,
+        "median_sharpe": 1.4091009734367148,
+        "median_trades": 56.0,
+        "recommended_guidance": "breakout + max_positions + take_profit + volume_spike 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "breakout+max_positions+volume_spike": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 46.37009875035612,
+        "median_mdd": -15.609287890587737,
+        "median_profit_factor": 10.0,
+        "median_quality_score": 0.708,
+        "median_sharpe": 1.6016174249757626,
+        "median_trades": 15.0,
+        "recommended_guidance": "breakout + max_positions + volume_spike 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "cci+max_holding_days+max_positions": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 29.49462482704116,
+        "median_mdd": -6.251587516988144,
+        "median_profit_factor": 2.823627931614569,
+        "median_quality_score": 0.7631,
+        "median_sharpe": 2.1225499071874463,
+        "median_trades": 232.0,
+        "recommended_guidance": "cci + max_holding_days + max_positions 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "cci+max_positions": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 16.040257346406666,
+        "median_mdd": -12.800121934832209,
+        "median_profit_factor": 7.712426391806344,
+        "median_quality_score": 0.266,
+        "median_sharpe": 0.9345898323952835,
+        "median_trades": 20.0,
+        "recommended_guidance": "cci + max_positions 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "cci+max_positions+stop_loss": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 18.395551036899743,
+        "median_mdd": -11.390432868271983,
+        "median_profit_factor": 6.521575228472117,
+        "median_quality_score": 0.3575,
+        "median_sharpe": 1.14993874661634,
+        "median_trades": 32.0,
+        "recommended_guidance": "cci + max_positions + stop_loss 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "cci+max_positions+take_profit": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 18.48755317032324,
+        "median_mdd": -5.541633094256482,
+        "median_profit_factor": 3.3781489937822204,
+        "median_quality_score": 0.5362,
+        "median_sharpe": 1.6271583123226498,
+        "median_trades": 67.0,
+        "recommended_guidance": "cci + max_positions + take_profit 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "debt_ratio+max_holding_days+max_positions+roe": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 0.0,
+        "median_mdd": 0.0,
+        "median_profit_factor": 0.0,
+        "median_quality_score": 0.0,
+        "median_sharpe": 0.0,
+        "median_trades": 0.0,
+        "recommended_guidance": "debt_ratio + max_holding_days + max_positions + roe 조합은 성과 방향이 뚜렷하지 않습니다. 동일 조건 반복보다 리스크 조건별 비교를 우선하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "debt_ratio+max_positions+roe": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 0.0,
+        "median_mdd": 0.0,
+        "median_profit_factor": 0.0,
+        "median_quality_score": 0.0,
+        "median_sharpe": 0.0,
+        "median_trades": 0.0,
+        "recommended_guidance": "debt_ratio + max_positions + roe 조합은 성과 방향이 뚜렷하지 않습니다. 동일 조건 반복보다 리스크 조건별 비교를 우선하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "debt_ratio+max_positions+roe+stop_loss": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 0.0,
+        "median_mdd": 0.0,
+        "median_profit_factor": 0.0,
+        "median_quality_score": 0.0,
+        "median_sharpe": 0.0,
+        "median_trades": 0.0,
+        "recommended_guidance": "debt_ratio + max_positions + roe + stop_loss 조합은 성과 방향이 뚜렷하지 않습니다. 동일 조건 반복보다 리스크 조건별 비교를 우선하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "debt_ratio+max_positions+roe+take_profit": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 0.0,
+        "median_mdd": 0.0,
+        "median_profit_factor": 0.0,
+        "median_quality_score": 0.0,
+        "median_sharpe": 0.0,
+        "median_trades": 0.0,
+        "recommended_guidance": "debt_ratio + max_positions + roe + take_profit 조합은 성과 방향이 뚜렷하지 않습니다. 동일 조건 반복보다 리스크 조건별 비교를 우선하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "ema+max_holding_days+max_positions": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 25.637083823284073,
+        "median_mdd": -8.262620476884742,
+        "median_profit_factor": 2.208412806539174,
+        "median_quality_score": 0.6538,
+        "median_sharpe": 1.9203154039151167,
+        "median_trades": 189.0,
+        "recommended_guidance": "ema + max_holding_days + max_positions 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "ema+max_positions": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 63.15868682525634,
+        "median_mdd": -15.101253262275293,
+        "median_profit_factor": 10.0,
+        "median_quality_score": 1.0483,
+        "median_sharpe": 2.27107891210064,
+        "median_trades": 20.0,
+        "recommended_guidance": "ema + max_positions 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "ema+max_positions+stop_loss": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 69.30534435759284,
+        "median_mdd": -15.064022826112023,
+        "median_profit_factor": 23.949523382537507,
+        "median_quality_score": 1.1645,
+        "median_sharpe": 2.488292753251362,
+        "median_trades": 31.0,
+        "recommended_guidance": "ema + max_positions + stop_loss 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "ema+max_positions+take_profit": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 26.6535977931958,
+        "median_mdd": -5.801093154788428,
+        "median_profit_factor": 3.559141745112824,
+        "median_quality_score": 0.8022,
+        "median_sharpe": 2.374723786544976,
+        "median_trades": 79.0,
+        "recommended_guidance": "ema + max_positions + take_profit 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "ma_crossover+max_holding_days+max_positions+pbr": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 28.771762304397562,
+        "median_mdd": -7.558004671113061,
+        "median_profit_factor": 2.8805550473948283,
+        "median_quality_score": 0.7175,
+        "median_sharpe": 2.021552739096562,
+        "median_trades": 153.0,
+        "recommended_guidance": "ma_crossover + max_holding_days + max_positions + pbr 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "ma_crossover+max_holding_days+max_positions+trading_value": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 0.0,
+        "median_mdd": 0.0,
+        "median_profit_factor": 0.0,
+        "median_quality_score": 0.0,
+        "median_sharpe": 0.0,
+        "median_trades": 0.0,
+        "recommended_guidance": "ma_crossover + max_holding_days + max_positions + trading_value 조합은 성과 방향이 뚜렷하지 않습니다. 동일 조건 반복보다 리스크 조건별 비교를 우선하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "ma_crossover+max_positions+pbr": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 56.11967231016784,
+        "median_mdd": -14.17623431012741,
+        "median_profit_factor": 10.0,
+        "median_quality_score": 0.9349,
+        "median_sharpe": 2.0620099065809696,
+        "median_trades": 20.0,
+        "recommended_guidance": "ma_crossover + max_positions + pbr 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "ma_crossover+max_positions+pbr+stop_loss": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 51.68628401441789,
+        "median_mdd": -13.424461192350357,
+        "median_profit_factor": 10.0,
+        "median_quality_score": 0.889,
+        "median_sharpe": 2.025481803886537,
+        "median_trades": 25.0,
+        "recommended_guidance": "ma_crossover + max_positions + pbr + stop_loss 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "ma_crossover+max_positions+pbr+take_profit": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 27.239844552034747,
+        "median_mdd": -6.9954434089330775,
+        "median_profit_factor": 4.061889702532869,
+        "median_quality_score": 0.7463,
+        "median_sharpe": 2.1753018061440215,
+        "median_trades": 80.0,
+        "recommended_guidance": "ma_crossover + max_positions + pbr + take_profit 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "ma_crossover+max_positions+stop_loss+trading_value": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 0.0,
+        "median_mdd": 0.0,
+        "median_profit_factor": 0.0,
+        "median_quality_score": 0.0,
+        "median_sharpe": 0.0,
+        "median_trades": 0.0,
+        "recommended_guidance": "ma_crossover + max_positions + stop_loss + trading_value 조합은 성과 방향이 뚜렷하지 않습니다. 동일 조건 반복보다 리스크 조건별 비교를 우선하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "ma_crossover+max_positions+take_profit+trading_value": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 0.0,
+        "median_mdd": 0.0,
+        "median_profit_factor": 0.0,
+        "median_quality_score": 0.0,
+        "median_sharpe": 0.0,
+        "median_trades": 0.0,
+        "recommended_guidance": "ma_crossover + max_positions + take_profit + trading_value 조합은 성과 방향이 뚜렷하지 않습니다. 동일 조건 반복보다 리스크 조건별 비교를 우선하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "ma_crossover+max_positions+trading_value": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 0.0,
+        "median_mdd": 0.0,
+        "median_profit_factor": 0.0,
+        "median_quality_score": 0.0,
+        "median_sharpe": 0.0,
+        "median_trades": 0.0,
+        "recommended_guidance": "ma_crossover + max_positions + trading_value 조합은 성과 방향이 뚜렷하지 않습니다. 동일 조건 반복보다 리스크 조건별 비교를 우선하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "macd+max_holding_days+max_positions+volume_spike": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 16.974437108976282,
+        "median_mdd": -12.093950895206163,
+        "median_profit_factor": 1.6409711318147289,
+        "median_quality_score": 0.3516,
+        "median_sharpe": 1.2113717927647636,
+        "median_trades": 300.0,
+        "recommended_guidance": "macd + max_holding_days + max_positions + volume_spike 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "macd+max_positions+stop_loss+volume_spike": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 26.133125474001684,
+        "median_mdd": -9.26100921046138,
+        "median_profit_factor": 2.1538922017769444,
+        "median_quality_score": 0.5745,
+        "median_sharpe": 1.623017192764321,
+        "median_trades": 263.0,
+        "recommended_guidance": "macd + max_positions + stop_loss + volume_spike 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "macd+max_positions+take_profit+volume_spike": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 24.944447418950123,
+        "median_mdd": -12.432487214090182,
+        "median_profit_factor": 1.8773061118642755,
+        "median_quality_score": 0.5169,
+        "median_sharpe": 1.5670011260256032,
+        "median_trades": 293.0,
+        "recommended_guidance": "macd + max_positions + take_profit + volume_spike 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "macd+max_positions+volume_spike": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 23.76547605104198,
+        "median_mdd": -11.318290684928945,
+        "median_profit_factor": 2.2032195708736912,
+        "median_quality_score": 0.5001,
+        "median_sharpe": 1.502597794456107,
+        "median_trades": 248.0,
+        "recommended_guidance": "macd + max_positions + volume_spike 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "market_cap+max_holding_days+max_positions": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 13.21551288774363,
+        "median_mdd": -11.5358973548911,
+        "median_profit_factor": 3.935391787462853,
+        "median_quality_score": 0.2591,
+        "median_sharpe": 0.9693942708483323,
+        "median_trades": 43.0,
+        "recommended_guidance": "market_cap + max_holding_days + max_positions 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "market_cap+max_holding_days+max_positions+roe": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 13.414607597412198,
+        "median_mdd": -13.519789145647266,
+        "median_profit_factor": 3.8962082457709895,
+        "median_quality_score": 0.2437,
+        "median_sharpe": 0.9791330314762056,
+        "median_trades": 39.0,
+        "recommended_guidance": "market_cap + max_holding_days + max_positions + roe 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "market_cap+max_positions": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 12.713219617536552,
+        "median_mdd": -19.416207824224518,
+        "median_profit_factor": 10.0,
+        "median_quality_score": 0.1108,
+        "median_sharpe": 0.7111363278086766,
+        "median_trades": 5.0,
+        "recommended_guidance": "market_cap + max_positions 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "market_cap+max_positions+roe": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 12.713219617536552,
+        "median_mdd": -19.416207824224518,
+        "median_profit_factor": 10.0,
+        "median_quality_score": 0.1108,
+        "median_sharpe": 0.7111363278086766,
+        "median_trades": 5.0,
+        "recommended_guidance": "market_cap + max_positions + roe 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "market_cap+max_positions+roe+stop_loss": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 23.42641908772698,
+        "median_mdd": -15.451003214441727,
+        "median_profit_factor": 9.245385998469134,
+        "median_quality_score": 0.3536,
+        "median_sharpe": 1.0953225029261977,
+        "median_trades": 11.0,
+        "recommended_guidance": "market_cap + max_positions + roe + stop_loss 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "market_cap+max_positions+roe+take_profit": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 20.72666107677894,
+        "median_mdd": -10.634789937796818,
+        "median_profit_factor": 10.0,
+        "median_quality_score": 0.4458,
+        "median_sharpe": 1.3794478599546978,
+        "median_trades": 28.0,
+        "recommended_guidance": "market_cap + max_positions + roe + take_profit 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "market_cap+max_positions+stop_loss": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 16.306463562026806,
+        "median_mdd": -17.99689884758193,
+        "median_profit_factor": 7.080249831188759,
+        "median_quality_score": 0.1967,
+        "median_sharpe": 0.8544475185800116,
+        "median_trades": 10.0,
+        "recommended_guidance": "market_cap + max_positions + stop_loss 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "market_cap+max_positions+take_profit": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 11.056597416384474,
+        "median_mdd": -11.961990016750113,
+        "median_profit_factor": 5.252504971852661,
+        "median_quality_score": 0.2011,
+        "median_sharpe": 0.8406972928006466,
+        "median_trades": 21.0,
+        "recommended_guidance": "market_cap + max_positions + take_profit 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_holding_days+max_positions": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 12.437733502831438,
+        "median_mdd": -16.690349686347982,
+        "median_profit_factor": 1.6316832451195034,
+        "median_quality_score": 0.1874,
+        "median_sharpe": 0.9198009371306979,
+        "median_trades": 186.0,
+        "recommended_guidance": "max_holding_days + max_positions 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_holding_days+max_positions+pbr+per": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 16.411208663704567,
+        "median_mdd": -16.8793170942918,
+        "median_profit_factor": 4.810422778316006,
+        "median_quality_score": 0.2081,
+        "median_sharpe": 0.8509545533804556,
+        "median_trades": 22.0,
+        "recommended_guidance": "max_holding_days + max_positions + pbr + per 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_holding_days+max_positions+pbr+roe": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 28.009369810997423,
+        "median_mdd": -11.968190220163072,
+        "median_profit_factor": 7.073338665427698,
+        "median_quality_score": 0.5526,
+        "median_sharpe": 1.568852387924208,
+        "median_trades": 32.5,
+        "recommended_guidance": "max_holding_days + max_positions + pbr + roe 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_holding_days+max_positions+per+trading_value": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 0.0,
+        "median_mdd": 0.0,
+        "median_profit_factor": 0.0,
+        "median_quality_score": 0.0,
+        "median_sharpe": 0.0,
+        "median_trades": 0.0,
+        "recommended_guidance": "max_holding_days + max_positions + per + trading_value 조합은 성과 방향이 뚜렷하지 않습니다. 동일 조건 반복보다 리스크 조건별 비교를 우선하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_holding_days+max_positions+roe+trading_value": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 0.0,
+        "median_mdd": 0.0,
+        "median_profit_factor": 0.0,
+        "median_quality_score": 0.0,
+        "median_sharpe": 0.0,
+        "median_trades": 0.0,
+        "recommended_guidance": "max_holding_days + max_positions + roe + trading_value 조합은 성과 방향이 뚜렷하지 않습니다. 동일 조건 반복보다 리스크 조건별 비교를 우선하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_holding_days+max_positions+rsi": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 31.660492458072188,
+        "median_mdd": -9.378450312182807,
+        "median_profit_factor": 3.584665730057666,
+        "median_quality_score": 0.6756,
+        "median_sharpe": 1.8111811499600603,
+        "median_trades": 66.0,
+        "recommended_guidance": "max_holding_days + max_positions + rsi 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_holding_days+max_positions+stochastic": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 11.78213084853381,
+        "median_mdd": -12.259198385196157,
+        "median_profit_factor": 1.642188037516858,
+        "median_quality_score": 0.2387,
+        "median_sharpe": 0.9738805125401419,
+        "median_trades": 494.0,
+        "recommended_guidance": "max_holding_days + max_positions + stochastic 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_holding_days+max_positions+trading_value": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 0.0,
+        "median_mdd": 0.0,
+        "median_profit_factor": 0.0,
+        "median_quality_score": 0.0,
+        "median_sharpe": 0.0,
+        "median_trades": 0.0,
+        "recommended_guidance": "max_holding_days + max_positions + trading_value 조합은 성과 방향이 뚜렷하지 않습니다. 동일 조건 반복보다 리스크 조건별 비교를 우선하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_holding_days+max_positions+volume_spike": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 6.9752051722651975,
+        "median_mdd": -17.786030099063645,
+        "median_profit_factor": 1.3789505526687504,
+        "median_quality_score": 0.051,
+        "median_sharpe": 0.6364430148010675,
+        "median_trades": 478.0,
+        "recommended_guidance": "max_holding_days + max_positions + volume_spike 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_positions": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 21.994648256753212,
+        "median_mdd": -11.029757390202931,
+        "median_profit_factor": 3.3180070973853235,
+        "median_quality_score": 0.4819,
+        "median_sharpe": 1.4889480366868266,
+        "median_trades": 95.0,
+        "recommended_guidance": "max_positions 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_positions+pbr+per": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 25.105837045684446,
+        "median_mdd": -16.379669901173976,
+        "median_profit_factor": 0.0,
+        "median_quality_score": 0.3465,
+        "median_sharpe": 1.037017569010254,
+        "median_trades": 3.0,
+        "recommended_guidance": "max_positions + pbr + per 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_positions+pbr+per+stop_loss": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 29.32536736618934,
+        "median_mdd": -17.941478903342286,
+        "median_profit_factor": 5.0,
+        "median_quality_score": 0.4062,
+        "median_sharpe": 1.1695704198990313,
+        "median_trades": 4.5,
+        "recommended_guidance": "max_positions + pbr + per + stop_loss 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_positions+pbr+per+take_profit": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 19.889524955470165,
+        "median_mdd": -13.143708781855512,
+        "median_profit_factor": 9.149774173451593,
+        "median_quality_score": 0.3374,
+        "median_sharpe": 1.0797451183388134,
+        "median_trades": 12.0,
+        "recommended_guidance": "max_positions + pbr + per + take_profit 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_positions+pbr+roe": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 38.162285675692274,
+        "median_mdd": -16.88850204065261,
+        "median_profit_factor": 10.0,
+        "median_quality_score": 0.5887,
+        "median_sharpe": 1.5037078812150042,
+        "median_trades": 12.5,
+        "recommended_guidance": "max_positions + pbr + roe 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_positions+pbr+roe+stop_loss": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 45.83050376627173,
+        "median_mdd": -13.073651606289305,
+        "median_profit_factor": 10.0,
+        "median_quality_score": 0.7698,
+        "median_sharpe": 1.7689567889721083,
+        "median_trades": 14.0,
+        "recommended_guidance": "max_positions + pbr + roe + stop_loss 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_positions+pbr+roe+take_profit": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 31.68099717655227,
+        "median_mdd": -11.123698254777603,
+        "median_profit_factor": 10.390275038806337,
+        "median_quality_score": 0.6441,
+        "median_sharpe": 1.7541252505202916,
+        "median_trades": 29.0,
+        "recommended_guidance": "max_positions + pbr + roe + take_profit 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_positions+per+stop_loss+trading_value": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 0.0,
+        "median_mdd": 0.0,
+        "median_profit_factor": 0.0,
+        "median_quality_score": 0.0,
+        "median_sharpe": 0.0,
+        "median_trades": 0.0,
+        "recommended_guidance": "max_positions + per + stop_loss + trading_value 조합은 성과 방향이 뚜렷하지 않습니다. 동일 조건 반복보다 리스크 조건별 비교를 우선하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_positions+per+take_profit+trading_value": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 0.0,
+        "median_mdd": 0.0,
+        "median_profit_factor": 0.0,
+        "median_quality_score": 0.0,
+        "median_sharpe": 0.0,
+        "median_trades": 0.0,
+        "recommended_guidance": "max_positions + per + take_profit + trading_value 조합은 성과 방향이 뚜렷하지 않습니다. 동일 조건 반복보다 리스크 조건별 비교를 우선하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_positions+per+trading_value": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 0.0,
+        "median_mdd": 0.0,
+        "median_profit_factor": 0.0,
+        "median_quality_score": 0.0,
+        "median_sharpe": 0.0,
+        "median_trades": 0.0,
+        "recommended_guidance": "max_positions + per + trading_value 조합은 성과 방향이 뚜렷하지 않습니다. 동일 조건 반복보다 리스크 조건별 비교를 우선하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_positions+roe+stop_loss+trading_value": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 0.0,
+        "median_mdd": 0.0,
+        "median_profit_factor": 0.0,
+        "median_quality_score": 0.0,
+        "median_sharpe": 0.0,
+        "median_trades": 0.0,
+        "recommended_guidance": "max_positions + roe + stop_loss + trading_value 조합은 성과 방향이 뚜렷하지 않습니다. 동일 조건 반복보다 리스크 조건별 비교를 우선하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_positions+roe+take_profit+trading_value": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 0.0,
+        "median_mdd": 0.0,
+        "median_profit_factor": 0.0,
+        "median_quality_score": 0.0,
+        "median_sharpe": 0.0,
+        "median_trades": 0.0,
+        "recommended_guidance": "max_positions + roe + take_profit + trading_value 조합은 성과 방향이 뚜렷하지 않습니다. 동일 조건 반복보다 리스크 조건별 비교를 우선하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_positions+roe+trading_value": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 0.0,
+        "median_mdd": 0.0,
+        "median_profit_factor": 0.0,
+        "median_quality_score": 0.0,
+        "median_sharpe": 0.0,
+        "median_trades": 0.0,
+        "recommended_guidance": "max_positions + roe + trading_value 조합은 성과 방향이 뚜렷하지 않습니다. 동일 조건 반복보다 리스크 조건별 비교를 우선하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_positions+rsi": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 39.24781466400189,
+        "median_mdd": -8.722087616666258,
+        "median_profit_factor": 6.068937779054979,
+        "median_quality_score": 0.7755,
+        "median_sharpe": 1.8810385828919727,
+        "median_trades": 29.0,
+        "recommended_guidance": "max_positions + rsi 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_positions+rsi+stop_loss": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 22.3252091543589,
+        "median_mdd": -11.63396493292247,
+        "median_profit_factor": 2.876130490195675,
+        "median_quality_score": 0.4573,
+        "median_sharpe": 1.4015718348972719,
+        "median_trades": 39.0,
+        "recommended_guidance": "max_positions + rsi + stop_loss 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_positions+rsi+take_profit": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 27.089506082864318,
+        "median_mdd": -9.35247585888614,
+        "median_profit_factor": 6.114454998431139,
+        "median_quality_score": 0.6075,
+        "median_sharpe": 1.720421413959686,
+        "median_trades": 32.5,
+        "recommended_guidance": "max_positions + rsi + take_profit 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_positions+stochastic": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 6.059347744326593,
+        "median_mdd": -20.143928680146807,
+        "median_profit_factor": 4.593882216245016,
+        "median_quality_score": -0.0369,
+        "median_sharpe": 0.41563232205213935,
+        "median_trades": 10.0,
+        "recommended_guidance": "max_positions + stochastic 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_positions+stochastic+stop_loss": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 52.51057071565857,
+        "median_mdd": -18.489823263565086,
+        "median_profit_factor": 22.062506238084804,
+        "median_quality_score": 0.768,
+        "median_sharpe": 1.7111436601735484,
+        "median_trades": 64.0,
+        "recommended_guidance": "max_positions + stochastic + stop_loss 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_positions+stochastic+take_profit": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 4.744984836269395,
+        "median_mdd": -16.529749494663402,
+        "median_profit_factor": 2.755653228059001,
+        "median_quality_score": -0.0026,
+        "median_sharpe": 0.461148200321076,
+        "median_trades": 41.0,
+        "recommended_guidance": "max_positions + stochastic + take_profit 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_positions+stop_loss": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 19.489235543963844,
+        "median_mdd": -10.534385276128578,
+        "median_profit_factor": 2.1466024889779205,
+        "median_quality_score": 0.4471,
+        "median_sharpe": 1.4302745131954473,
+        "median_trades": 137.0,
+        "recommended_guidance": "max_positions + stop_loss 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_positions+stop_loss+trading_value": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 0.0,
+        "median_mdd": 0.0,
+        "median_profit_factor": 0.0,
+        "median_quality_score": 0.0,
+        "median_sharpe": 0.0,
+        "median_trades": 0.0,
+        "recommended_guidance": "max_positions + stop_loss + trading_value 조합은 성과 방향이 뚜렷하지 않습니다. 동일 조건 반복보다 리스크 조건별 비교를 우선하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_positions+stop_loss+volume_spike": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 14.452291497308089,
+        "median_mdd": -11.81492151374285,
+        "median_profit_factor": 6.919492148348923,
+        "median_quality_score": 0.2571,
+        "median_sharpe": 0.9228482713173571,
+        "median_trades": 37.0,
+        "recommended_guidance": "max_positions + stop_loss + volume_spike 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_positions+take_profit": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 24.52707855602152,
+        "median_mdd": -10.375818430351503,
+        "median_profit_factor": 3.6438732459059695,
+        "median_quality_score": 0.5656,
+        "median_sharpe": 1.6965206509537545,
+        "median_trades": 104.0,
+        "recommended_guidance": "max_positions + take_profit 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_positions+take_profit+trading_value": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 0.0,
+        "median_mdd": 0.0,
+        "median_profit_factor": 0.0,
+        "median_quality_score": 0.0,
+        "median_sharpe": 0.0,
+        "median_trades": 0.0,
+        "recommended_guidance": "max_positions + take_profit + trading_value 조합은 성과 방향이 뚜렷하지 않습니다. 동일 조건 반복보다 리스크 조건별 비교를 우선하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_positions+take_profit+volume_spike": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 7.948484416036128,
+        "median_mdd": -11.112266627500777,
+        "median_profit_factor": 6.123187567866429,
+        "median_quality_score": 0.1687,
+        "median_sharpe": 0.8014697567712706,
+        "median_trades": 49.0,
+        "recommended_guidance": "max_positions + take_profit + volume_spike 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_positions+trading_value": {
+        "combination_count": 2,
+        "confidence": "low",
+        "median_cagr": 0.0,
+        "median_mdd": 0.0,
+        "median_profit_factor": 0.0,
+        "median_quality_score": 0.0,
+        "median_sharpe": 0.0,
+        "median_trades": 0.0,
+        "recommended_guidance": "max_positions + trading_value 조합은 성과 방향이 뚜렷하지 않습니다. 동일 조건 반복보다 리스크 조건별 비교를 우선하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_positions+volume_spike": {
+        "combination_count": 1,
+        "confidence": "low",
+        "median_cagr": 9.290551459548224,
+        "median_mdd": -17.4346039509203,
+        "median_profit_factor": 8.281136302577105,
+        "median_quality_score": 0.0826,
+        "median_sharpe": 0.6560566918550527,
+        "median_trades": 10.0,
+        "recommended_guidance": "max_positions + volume_spike 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      }
+    },
+    "best_single_indicators": {
+      "adx": {
+        "combination_count": 8,
+        "confidence": "low",
+        "median_cagr": 36.71095224086037,
+        "median_mdd": -16.878274447404507,
+        "median_profit_factor": 3.5181878119206496,
+        "median_quality_score": 0.5697,
+        "median_sharpe": 1.4855247901455666,
+        "median_trades": 10.0,
+        "recommended_guidance": "adx 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "breakout": {
+        "combination_count": 24,
+        "confidence": "medium",
+        "median_cagr": 25.113148784709416,
+        "median_mdd": -15.733956168308167,
+        "median_profit_factor": 4.785267200520616,
+        "median_quality_score": 0.4169,
+        "median_sharpe": 1.2926196286003975,
+        "median_trades": 25.5,
+        "recommended_guidance": "breakout 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": []
+      },
+      "cci": {
+        "combination_count": 4,
+        "confidence": "low",
+        "median_cagr": 18.441552103611492,
+        "median_mdd": -8.821010192630062,
+        "median_profit_factor": 4.949862111127169,
+        "median_quality_score": 0.4433,
+        "median_sharpe": 1.388548529469495,
+        "median_trades": 49.5,
+        "recommended_guidance": "cci 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "debt_ratio": {
+        "combination_count": 4,
+        "confidence": "low",
+        "median_cagr": 0.0,
+        "median_mdd": 0.0,
+        "median_profit_factor": 0.0,
+        "median_quality_score": 0.0,
+        "median_sharpe": 0.0,
+        "median_trades": 0.0,
+        "recommended_guidance": "debt_ratio 조합은 성과 방향이 뚜렷하지 않습니다. 동일 조건 반복보다 리스크 조건별 비교를 우선하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "ema": {
+        "combination_count": 4,
+        "confidence": "low",
+        "median_cagr": 44.90614230922607,
+        "median_mdd": -11.663321651498382,
+        "median_profit_factor": 6.7795708725564126,
+        "median_quality_score": 0.9132,
+        "median_sharpe": 2.322901349322808,
+        "median_trades": 55.0,
+        "recommended_guidance": "ema 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "ma_crossover": {
+        "combination_count": 16,
+        "confidence": "medium",
+        "median_cagr": 28.16611592668076,
+        "median_mdd": -13.311148366400062,
+        "median_profit_factor": 2.9071816911270227,
+        "median_quality_score": 0.5199,
+        "median_sharpe": 1.4855247901455666,
+        "median_trades": 10.0,
+        "recommended_guidance": "ma_crossover 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": []
+      },
+      "macd": {
+        "combination_count": 4,
+        "confidence": "low",
+        "median_cagr": 24.354961734996053,
+        "median_mdd": -11.706120790067555,
+        "median_profit_factor": 2.0155991568206097,
+        "median_quality_score": 0.5102,
+        "median_sharpe": 1.5347994602408552,
+        "median_trades": 278.0,
+        "recommended_guidance": "macd 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "market_cap": {
+        "combination_count": 8,
+        "confidence": "low",
+        "median_cagr": 13.315060242577914,
+        "median_mdd": -14.485396180044496,
+        "median_profit_factor": 8.162817914828945,
+        "median_quality_score": 0.2163,
+        "median_sharpe": 0.9119208947141719,
+        "median_trades": 16.0,
+        "recommended_guidance": "market_cap 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "max_holding_days": {
+        "combination_count": 30,
+        "confidence": "high",
+        "median_cagr": 13.50337429294064,
+        "median_mdd": -11.81492412504863,
+        "median_profit_factor": 1.7704408878874398,
+        "median_quality_score": 0.261,
+        "median_sharpe": 0.9765067720081737,
+        "median_trades": 41.0,
+        "recommended_guidance": "max_holding_days 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": []
+      },
+      "max_positions": {
+        "combination_count": 120,
+        "confidence": "high",
+        "median_cagr": 16.64716685923556,
+        "median_mdd": -12.101780366855925,
+        "median_profit_factor": 2.8520914895046987,
+        "median_quality_score": 0.3011,
+        "median_sharpe": 1.022562361757886,
+        "median_trades": 18.0,
+        "recommended_guidance": "max_positions 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": []
+      },
+      "pbr": {
+        "combination_count": 20,
+        "confidence": "medium",
+        "median_cagr": 28.809218513456873,
+        "median_mdd": -14.018111760259078,
+        "median_profit_factor": 10.0,
+        "median_quality_score": 0.465,
+        "median_sharpe": 1.2683425584924368,
+        "median_trades": 20.0,
+        "recommended_guidance": "pbr 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": []
+      },
+      "per": {
+        "combination_count": 12,
+        "confidence": "medium",
+        "median_cagr": 18.80541756288726,
+        "median_mdd": -14.686192523310243,
+        "median_profit_factor": 0.0,
+        "median_quality_score": 0.2855,
+        "median_sharpe": 0.9772137444345705,
+        "median_trades": 3.0,
+        "recommended_guidance": "per 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": []
+      },
+      "roe": {
+        "combination_count": 24,
+        "confidence": "medium",
+        "median_cagr": 6.356609808768276,
+        "median_mdd": -5.317394968898409,
+        "median_profit_factor": 1.9481041228854947,
+        "median_quality_score": 0.0993,
+        "median_sharpe": 0.3555681639043383,
+        "median_trades": 2.5,
+        "recommended_guidance": "roe 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": []
+      },
+      "rsi": {
+        "combination_count": 8,
+        "confidence": "low",
+        "median_cagr": 25.410073297535448,
+        "median_mdd": -9.89954383899252,
+        "median_profit_factor": 2.955192391096431,
+        "median_quality_score": 0.5298,
+        "median_sharpe": 1.4986319758272746,
+        "median_trades": 32.5,
+        "recommended_guidance": "rsi 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "stochastic": {
+        "combination_count": 4,
+        "confidence": "low",
+        "median_cagr": 8.920739296430202,
+        "median_mdd": -17.509786379114246,
+        "median_profit_factor": 3.6747677221520085,
+        "median_quality_score": 0.0935,
+        "median_sharpe": 0.7175143564306089,
+        "median_trades": 52.5,
+        "recommended_guidance": "stochastic 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": [
+          "샘플 수가 적어 단정적으로 해석하면 안 됩니다."
+        ]
+      },
+      "stop_loss": {
+        "combination_count": 30,
+        "confidence": "high",
+        "median_cagr": 18.942393290431795,
+        "median_mdd": -13.721286476304718,
+        "median_profit_factor": 4.785267200520616,
+        "median_quality_score": 0.3329,
+        "median_sharpe": 1.122630624771269,
+        "median_trades": 10.5,
+        "recommended_guidance": "stop_loss 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": []
+      },
+      "take_profit": {
+        "combination_count": 30,
+        "confidence": "high",
+        "median_cagr": 18.867590125882103,
+        "median_mdd": -10.50530418407416,
+        "median_profit_factor": 4.657197337192764,
+        "median_quality_score": 0.3798,
+        "median_sharpe": 1.1846304329036252,
+        "median_trades": 24.0,
+        "recommended_guidance": "take_profit 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": []
+      },
+      "trading_value": {
+        "combination_count": 24,
+        "confidence": "medium",
+        "median_cagr": 0.0,
+        "median_mdd": 0.0,
+        "median_profit_factor": 0.0,
+        "median_quality_score": 0.0,
+        "median_sharpe": 0.0,
+        "median_trades": 0.0,
+        "recommended_guidance": "trading_value 조합은 성과 방향이 뚜렷하지 않습니다. 동일 조건 반복보다 리스크 조건별 비교를 우선하세요.",
+        "warnings": []
+      },
+      "volume_spike": {
+        "combination_count": 16,
+        "confidence": "medium",
+        "median_cagr": 15.713364303142185,
+        "median_mdd": -12.263219054648172,
+        "median_profit_factor": 4.6586512026936155,
+        "median_quality_score": 0.3013,
+        "median_sharpe": 1.0671100320410605,
+        "median_trades": 58.0,
+        "recommended_guidance": "volume_spike 조합은 기본 성과가 확인됐습니다. 비용 반영 후에도 MDD가 유지되는지 검증하세요.",
+        "warnings": []
+      }
+    },
+    "paired_deltas": {
+      "max_holding_days": {
+        "median_cagr_delta": -2.46725,
+        "median_mdd_delta": 0.46395,
+        "median_profit_factor_delta": -0.004,
+        "median_sharpe_delta": 0.0,
+        "median_trade_delta": 36.0,
+        "risk_adjusted_success_count": 8,
+        "sample_count": 30
+      },
+      "stop_loss": {
+        "median_cagr_delta": 0.0,
+        "median_mdd_delta": 0.0,
+        "median_profit_factor_delta": 0.0,
+        "median_sharpe_delta": 0.0,
+        "median_trade_delta": 4.0,
+        "risk_adjusted_success_count": 10,
+        "sample_count": 30
+      },
+      "take_profit": {
+        "median_cagr_delta": -0.77085,
+        "median_mdd_delta": 3.6473,
+        "median_profit_factor_delta": 0.0,
+        "median_sharpe_delta": 0.0774,
+        "median_trade_delta": 12.5,
+        "risk_adjusted_success_count": 15,
+        "sample_count": 30
+      }
+    },
+    "total_samples": 120
+  }
+}

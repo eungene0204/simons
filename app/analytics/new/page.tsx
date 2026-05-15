@@ -30,7 +30,7 @@ import {
   mergeStrategyModification,
   type AdvisorWalkForwardSettings,
 } from "./parsedStrategyMerge";
-import { formatCoachAdviceBody, formatCoachAdviceTitle } from "./advisorCopy";
+import { formatPrimaryCoachAdviceBody } from "./advisorCopy";
 import type { AdvisorResult } from "@/components/strategy/StrategyAdvisorPanel";
 
 const BacktestDashboard = dynamic(
@@ -89,33 +89,54 @@ function FilterBadge({ label }: { label: string }) {
   );
 }
 
+function BacktestRunningStatus({ message }: { message: string }) {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="w-full rounded-2xl border border-sky-400/25 bg-sky-400/[0.06] px-4 py-3 shadow-[0_0_28px_rgba(56,189,248,0.08)]"
+    >
+      <div className="flex items-center gap-3">
+        <ArrowsClockwise size={16} className="text-sky-300 animate-spin flex-shrink-0" />
+        <div className="min-w-0">
+          <p className="text-xs font-black uppercase tracking-widest text-sky-200">백테스트 진행 중</p>
+          <p className="mt-0.5 text-xs font-bold text-gray-300">
+            {message || "백테스트 준비 중..."}
+          </p>
+        </div>
+      </div>
+      <div className="mt-3 h-1 overflow-hidden rounded-full bg-white/[0.06]">
+        <div className="h-full w-1/3 animate-pulse rounded-full bg-sky-300" />
+      </div>
+    </div>
+  );
+}
+
 function AdvisorResultBubble({ result }: { result: AdvisorResult }) {
+  const primaryAdvice = result.advice[0];
+
   return (
     <div className="space-y-3">
-      {result.advice.length > 0 && (
+      {primaryAdvice && (
         <div className="space-y-2">
-          <p className="text-[11px] font-black uppercase tracking-widest text-yellow-300">조언 드립니다</p>
-          {result.advice.map((item, i) => (
-            <div key={`${item.title}-${i}`} className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
-              <p className="text-xs font-black text-white">{formatCoachAdviceTitle(item.title)}</p>
-              {item.body && (
-                <p className="mt-1 text-xs font-bold leading-relaxed text-gray-400">
-                  {formatCoachAdviceBody(item.body)}
-                </p>
-              )}
-              {item.proposed_change?.description && (
-                <p className="mt-1.5 text-xs font-bold leading-relaxed text-indigo-300">
-                  {item.proposed_change.description}
-                </p>
-              )}
-            </div>
-          ))}
+          <p className="text-[11px] font-black uppercase tracking-widest text-yellow-300">핵심 조언</p>
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+            {primaryAdvice.body && (
+              <p className="text-xs font-bold leading-relaxed text-gray-400">
+                {formatPrimaryCoachAdviceBody(primaryAdvice.body)}
+              </p>
+            )}
+            {primaryAdvice.proposed_change?.description && (
+              <p className="mt-1.5 text-xs font-bold leading-relaxed text-indigo-300">
+                {primaryAdvice.proposed_change.description}
+              </p>
+            )}
+          </div>
         </div>
       )}
     </div>
   );
 }
-
 const SKELETON_TERM_LABELS: Record<string, string> = {
   pbr: "PBR",
   per: "PER",
@@ -308,12 +329,13 @@ function ParsedSummaryBubble({
             <FilterBadge label={`초기자금 ${(parsed.initial_capital ?? 10000000).toLocaleString("ko-KR")}원`} />
           </div>
         </div>
-        {(parsed.stop_loss_pct || parsed.take_profit_pct) && (
+        {(parsed.stop_loss_pct || parsed.take_profit_pct || parsed.trailing_stop_pct) && (
           <div className="flex flex-wrap gap-1.5 items-center">
             <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest w-14 flex-shrink-0">리스크</span>
             <div className="flex flex-wrap gap-1">
               {parsed.stop_loss_pct && <FilterBadge label={`손절 ${parsed.stop_loss_pct}%`} />}
               {parsed.take_profit_pct && <FilterBadge label={`익절 ${parsed.take_profit_pct}%`} />}
+              {parsed.trailing_stop_pct && <FilterBadge label={`트레일링 스탑 ${parsed.trailing_stop_pct}%`} />}
             </div>
           </div>
         )}
@@ -785,6 +807,11 @@ function StrategyLabContent() {
       <DashboardLayout userName="">
         <div className="h-full flex flex-col">
           <div className="flex-1 overflow-auto">
+            {isRunning && (
+              <div className="sticky top-0 z-30 mx-4 mt-4 max-w-4xl">
+                <BacktestRunningStatus message={statusMessage} />
+              </div>
+            )}
             <BacktestDashboard
               result={result}
               onRestart={handleReset}
@@ -940,6 +967,10 @@ function StrategyLabContent() {
                 ))}
                 <div ref={messagesEndRef} />
               </div>
+            )}
+
+            {stage === "running" && (
+              <BacktestRunningStatus message={statusMessage} />
             )}
 
             {/* 입력 영역 — 전략 요약이 출력된 이후에만 표시 */}

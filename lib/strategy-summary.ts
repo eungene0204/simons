@@ -11,6 +11,7 @@ export interface ParsedSummary {
   rebalancing_period: string;
   stop_loss_pct: number | null;
   take_profit_pct: number | null;
+  trailing_stop_pct?: number | null;
   backtest_period: string;
   initial_capital: number;
 }
@@ -123,20 +124,25 @@ export function getDisplayUniverseLabels(
 export function getDisplayExitLabels(parsed: ParsedSummary): string[] {
   const labels: string[] = [];
 
-  // 기술적 청산 신호 (데드크로스, RSI 매도 등)
   for (const signal of parsed.exit_signals) {
     labels.push(getSignalLabel(signal, "exit"));
   }
 
-  // 리스크 관리 (손절/익절)
   const takeProfitPct = formatPercent(parsed.take_profit_pct);
   const stopLossPct = formatPercent(parsed.stop_loss_pct);
+  const trailingStopPct = formatPercent(parsed.trailing_stop_pct);
 
   if (stopLossPct) {
     labels.push(`손절 -${stopLossPct}% 하락시 매도`);
   }
   if (takeProfitPct) {
     labels.push(`익절 ${takeProfitPct}% 이상 수익시 매도`);
+  }
+  if (trailingStopPct) {
+    labels.push(`트레일링 스탑 -${trailingStopPct}% 하락시 매도`);
+  }
+  if (parsed.hold_period_days) {
+    labels.push(`최대 ${parsed.hold_period_days}일 보유 후 매도`);
   }
 
   return labels;
@@ -151,6 +157,7 @@ export function buildStrategySummary(
   const exitLabels = getDisplayExitLabels(parsed);
   const stopLossPct = formatPercent(parsed.stop_loss_pct);
   const takeProfitPct = formatPercent(parsed.take_profit_pct);
+  const trailingStopPct = formatPercent(parsed.trailing_stop_pct);
 
   return {
     strategyName: parsed.description,
@@ -172,6 +179,7 @@ export function buildStrategySummary(
     riskText: [
       stopLossPct ? `손절 ${stopLossPct}%` : "",
       takeProfitPct ? `익절 ${takeProfitPct}%` : "",
+      trailingStopPct ? `트레일링 스탑 ${trailingStopPct}%` : "",
     ].filter(Boolean).join(", ") || undefined,
   };
 }
@@ -231,6 +239,7 @@ export function buildStrategySummaryFromDsl(strategy: StrategyDSL | null | undef
     inferUniverseFromLegacyStrategy(strategy);
   const stopLossPct = formatPercent(strategy.risk?.stop_loss_pct);
   const takeProfitPct = formatPercent(strategy.risk?.take_profit_pct);
+  const trailingStopPct = formatPercent(strategy.risk?.trailing_stop_pct);
   const maxHoldingDays = strategy.risk?.max_holding_days;
   const maxPositions = strategy.risk?.max_positions;
   const rebalancingPeriod = strategy.risk?.rebalancing_period;
@@ -247,6 +256,7 @@ export function buildStrategySummaryFromDsl(strategy: StrategyDSL | null | undef
     rebalancing_period: rebalancingPeriod ?? "none",
     stop_loss_pct: strategy.risk?.stop_loss_pct ?? null,
     take_profit_pct: strategy.risk?.take_profit_pct ?? null,
+    trailing_stop_pct: strategy.risk?.trailing_stop_pct ?? null,
     backtest_period: "full",
     initial_capital: 0,
   });
@@ -265,6 +275,7 @@ export function buildStrategySummaryFromDsl(strategy: StrategyDSL | null | undef
     riskText: [
       stopLossPct ? `손절 ${stopLossPct}%` : "",
       takeProfitPct ? `익절 ${takeProfitPct}%` : "",
+      trailingStopPct ? `트레일링 스탑 ${trailingStopPct}%` : "",
     ].filter(Boolean).join(", ") || undefined,
     rebalancingText,
   };
