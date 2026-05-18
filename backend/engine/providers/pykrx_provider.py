@@ -23,23 +23,37 @@ def _fetch_pykrx_prices(symbols: list[str], date: Optional[str] = None) -> dict[
     """pykrx로 종목 시세 조회 (동기)"""
     from pykrx import stock as pykrx_stock
 
-    date = date or _latest_trading_date()
+    end_date = date or _latest_trading_date()
+    # 전일종가 계산을 위해 최근 10 거래일치 데이터를 조회한다
+    start_dt = datetime.strptime(end_date, "%Y%m%d") - timedelta(days=14)
+    start_date = start_dt.strftime("%Y%m%d")
+
     result: dict[str, StockQuote] = {}
     now = time.time()
 
     for sym in symbols:
         try:
-            df = pykrx_stock.get_market_ohlcv_by_date(date, date, sym)
-            if df.empty:
+            df = pykrx_stock.get_market_ohlcv_by_date(start_date, end_date, sym)
+            if df.empty or len(df) < 1:
                 continue
-            row = df.iloc[0]
+
+            row = df.iloc[-1]
             name = pykrx_stock.get_market_ticker_name(sym)
 
             close = int(row.get("종가", 0))
             if close == 0:
                 continue
 
-            date_str = f"{date[:4]}-{date[4:6]}-{date[6:8]}"
+            actual_date = df.index[-1]
+            date_str = actual_date.strftime("%Y-%m-%d") if hasattr(actual_date, "strftime") else str(actual_date)[:10]
+
+            prev_close = 0
+            change_rate = 0.0
+            if len(df) >= 2:
+                prev_row = df.iloc[-2]
+                prev_close = int(prev_row.get("종가", 0))
+                if prev_close > 0:
+                    change_rate = round((close - prev_close) / prev_close * 100, 2)
 
             result[sym] = StockQuote(
                 symbol=sym,
@@ -52,6 +66,8 @@ def _fetch_pykrx_prices(symbols: list[str], date: Optional[str] = None) -> dict[
                 volume=int(row.get("거래량", 0)),
                 source="pykrx",
                 timestamp=now,
+                prev_close=prev_close,
+                change_rate=change_rate,
             )
         except Exception as e:
             print(f"[PykrxProvider] {sym} 조회 실패: {e}")

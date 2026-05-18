@@ -11,7 +11,7 @@ from schemas import (
     WalkForwardRequest, WalkForwardResponse,
 )
 from backtest_engine import BacktestEngine
-from engine.market_data import market_data_provider
+from engine.market_data import market_data_provider, delisted_store
 from engine.live_signal_utils import prepare_signal_dataframe
 from engine.virtual_trader import VirtualTrader
 from engine.vi_utils import build_vi_display
@@ -30,6 +30,14 @@ import re
 from urllib.parse import unquote
 from fastapi.responses import StreamingResponse
 from market_cap import normalize_market_cap
+
+# 외부 API 호출에 사용하는 공용 requests.Session — keep-alive로 TLS handshake 비용 제거.
+_http_session = requests.Session()
+_http_session_adapter = requests.adapters.HTTPAdapter(
+    pool_connections=20, pool_maxsize=50, max_retries=0
+)
+_http_session.mount("https://", _http_session_adapter)
+_http_session.mount("http://", _http_session_adapter)
 
 from contextlib import asynccontextmanager
 
@@ -298,20 +306,37 @@ async def market_stock_detail(
     시가총액/거래량 등 종목 매매 페이지용 실데이터를 우선 제공한다.
     """
     quote, app_key, app_secret, token = await _resolve_kis_orderbook_context(symbol)
-    public_company_info = (
-        _get_cached_public_company_info(symbol, company_name)
-        if include_public_info else None
+
+    async def _fetch_public_info_or_none():
+        if include_public_info:
+            return await _run_blocking(_get_cached_public_company_info, symbol, company_name)
+        return None
+
+    async def _fetch_detail_if_configured():
+        if app_key and app_secret and token:
+            return await _run_blocking(
+                _fetch_kis_stock_detail, symbol, app_key, app_secret, token, False
+            )
+        return None
+
+    async def _fetch_debt_ratio_if_configured():
+        if app_key and app_secret and token:
+            return await _run_blocking(_fetch_kis_debt_ratio, symbol, app_key, app_secret, token)
+        return None
+
+    public_company_info, detail, debt_ratio = await asyncio.gather(
+        _fetch_public_info_or_none(),
+        _fetch_detail_if_configured(),
+        _fetch_debt_ratio_if_configured(),
     )
+    if detail and debt_ratio and debt_ratio > 0:
+        detail = {**detail, "debtRatio": debt_ratio}
     listing_info = (
         (public_company_info or {}).get("listing")
-        or (_get_cached_listing_info(symbol) if include_listing else None)
+        or (await _run_blocking(_get_cached_listing_info, symbol) if include_listing else None)
     )
     company_basic = (public_company_info or {}).get("companyBasic") or {}
     summary_financials = (public_company_info or {}).get("summaryFinancials") or {}
-
-    detail = None
-    if app_key and app_secret and token:
-        detail = _fetch_kis_stock_detail(symbol, app_key, app_secret, token)
 
     if not detail and not listing_info and not company_basic and not summary_financials and not quote:
         raise HTTPException(status_code=503, detail="KIS 상세 시세를 조회할 수 없습니다")
@@ -369,6 +394,27 @@ async def market_prices(body: dict):
         raise HTTPException(status_code=400, detail="symbols 필드가 필요합니다")
     quotes = await market_data_provider.get_prices(symbols)
     return {sym: q.to_dict() for sym, q in quotes.items()}
+
+
+@app.post("/market/delist/{symbol}")
+async def mark_delisted(symbol: str):
+    """상장폐지 종목 등록 — 이후 모든 시세 조회에서 즉시 건너뜀"""
+    added = delisted_store.mark(symbol)
+    market_data_provider.cache.invalidate(symbol)
+    return {"symbol": symbol, "added": added, "delisted": delisted_store.all()}
+
+
+@app.delete("/market/delist/{symbol}")
+async def unmark_delisted(symbol: str):
+    """상장폐지 해제"""
+    removed = delisted_store.unmark(symbol)
+    return {"symbol": symbol, "removed": removed, "delisted": delisted_store.all()}
+
+
+@app.get("/market/delist")
+async def list_delisted():
+    """등록된 상장폐지 종목 목록"""
+    return {"delisted": delisted_store.all()}
 
 
 def _tick_size(price: int) -> int:
@@ -529,7 +575,7 @@ def _fetch_kis_debt_ratio(symbol: str, app_key: str, app_secret: str, token: str
 
     debt_ratio: Optional[float] = None
     try:
-        resp = requests.get(
+        resp = _http_session.get(
             "https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/finance/financial-ratio",
             headers={
                 "Content-Type": "application/json; charset=UTF-8",
@@ -749,7 +795,7 @@ def _fetch_public_data_items(url: str, params: dict) -> List[dict]:
 
     for candidate_key in candidate_keys:
         try:
-            resp = requests.get(
+            resp = _http_session.get(
                 url,
                 params={
                     **params,
@@ -1049,17 +1095,38 @@ def _normalize_public_listing_date(value: Optional[str]) -> Optional[str]:
 
 
 def _fetch_public_company_info(symbol: str, company_name: Optional[str] = None) -> Optional[dict]:
-    listing = _fetch_listing_info_from_public_api(symbol)
-    crno = (listing or {}).get("crno")
+    from concurrent.futures import ThreadPoolExecutor
+
+    # Step 1: listing 조회 + 이름 있으면 company_basic(이름검색)을 병렬로 동시 시도.
+    # listing 결과에서 crno와 stockIssueCompanyName을 얻으므로 일반적으로 첫 step에서 모든 정보 확보.
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        listing_future = ex.submit(_fetch_listing_info_from_public_api, symbol)
+        basic_by_name_future = (
+            ex.submit(_fetch_company_basic_from_public_api, None, company_name)
+            if company_name else None
+        )
+        listing = listing_future.result()
+        basic_by_name = basic_by_name_future.result() if basic_by_name_future else None
+
+    crno = (listing or {}).get("crno") or (basic_by_name or {}).get("crno")
 
     resolved_company_name = (
         _first_nonempty_from_dicts(listing, keys=("stockIssueCompanyName", "name"))
         or company_name
     )
-    company_basic = _fetch_company_basic_from_public_api(crno, resolved_company_name)
-    if not crno:
-        crno = (company_basic or {}).get("crno")
-    summary_financials = _fetch_summary_financials_from_public_api(crno) if crno else None
+
+    # Step 2: crno 확보 후 company_basic(crno검색)과 summary_financials를 병렬 실행.
+    # 이름 검색 결과(basic_by_name)가 이미 있으면 그대로 사용.
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        basic_future = (
+            None if basic_by_name
+            else ex.submit(_fetch_company_basic_from_public_api, crno, resolved_company_name)
+        )
+        summary_future = (
+            ex.submit(_fetch_summary_financials_from_public_api, crno) if crno else None
+        )
+        company_basic = basic_by_name if basic_by_name else (basic_future.result() if basic_future else None)
+        summary_financials = summary_future.result() if summary_future else None
 
     if not listing and company_basic:
         listing_date = _normalize_public_listing_date(
@@ -1167,9 +1234,15 @@ def _get_cached_public_company_info(symbol: str, company_name: Optional[str] = N
     return value
 
 
-def _fetch_kis_stock_detail(symbol: str, app_key: str, app_secret: str, token: str) -> Optional[dict]:
+def _fetch_kis_stock_detail(
+    symbol: str,
+    app_key: str,
+    app_secret: str,
+    token: str,
+    include_debt_ratio: bool = True,
+) -> Optional[dict]:
     try:
-        resp = requests.get(
+        resp = _http_session.get(
             "https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/inquire-price",
             headers={
                 "Content-Type": "application/json; charset=UTF-8",
@@ -1220,7 +1293,7 @@ def _fetch_kis_stock_detail(symbol: str, app_key: str, app_secret: str, token: s
 
         per = _first_nonzero_float(output, "perx", "per")
         pbr = _first_nonzero_float(output, "pbrx", "pbr")
-        debt_ratio = _fetch_kis_debt_ratio(symbol, app_key, app_secret, token)
+        debt_ratio = _fetch_kis_debt_ratio(symbol, app_key, app_secret, token) if include_debt_ratio else None
         week52_high = _first_nonzero_int(output, "w52_hgpr")
         week52_low = _first_nonzero_int(output, "w52_lwpr")
         week52_high_ratio = _first_nonzero_float(output, "w52_hgpr_vrss_prpr_ctrt")
@@ -1259,7 +1332,7 @@ def _fetch_kis_stock_detail(symbol: str, app_key: str, app_secret: str, token: s
 def _fetch_kis_vi_display(symbol: str, app_key: str, app_secret: str, token: str) -> Optional[dict]:
     try:
         today = datetime.now().strftime("%Y%m%d")
-        resp = requests.get(
+        resp = _http_session.get(
             "https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/inquire-vi-status",
             headers={
                 "Content-Type": "application/json; charset=UTF-8",
@@ -1303,7 +1376,7 @@ def _fetch_kis_vi_display(symbol: str, app_key: str, app_secret: str, token: str
 _vi_cache: dict[str, tuple[Optional[dict], float]] = {}
 _trade_strength_cache: dict[str, tuple[Optional[float], float]] = {}
 _VI_CACHE_TTL = 5.0
-_TRADE_STRENGTH_CACHE_TTL = 1.0
+_TRADE_STRENGTH_CACHE_TTL = 10.0
 
 
 def _get_cached_vi_display(symbol: str, app_key: str, app_secret: str, token: str) -> Optional[dict]:
@@ -1317,7 +1390,7 @@ def _get_cached_vi_display(symbol: str, app_key: str, app_secret: str, token: st
 
 def _fetch_kis_trade_strength(symbol: str, app_key: str, app_secret: str, token: str) -> Optional[float]:
     try:
-        resp = requests.get(
+        resp = _http_session.get(
             "https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/inquire-ccnl",
             headers={
                 "Content-Type": "application/json; charset=UTF-8",
@@ -1359,6 +1432,11 @@ def _get_cached_trade_strength(symbol: str, app_key: str, app_secret: str, token
     return value
 
 
+async def _run_blocking(func, *args):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, func, *args)
+
+
 async def _resolve_kis_orderbook_context(symbol: str) -> tuple[Optional[object], str, str, Optional[str]]:
     quote = await market_data_provider.get_price(symbol)
     if not quote:
@@ -1378,6 +1456,50 @@ async def _resolve_kis_orderbook_context(symbol: str) -> tuple[Optional[object],
     return quote, app_key, app_secret, token
 
 
+def _fetch_kis_orderbook_rest(symbol: str, app_key: str, app_secret: str, token: str) -> Optional[dict]:
+    try:
+        resp = _http_session.get(
+            "https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn",
+            headers={
+                "Content-Type": "application/json; charset=UTF-8",
+                "authorization": f"Bearer {token}",
+                "appkey": app_key,
+                "appsecret": app_secret,
+                "tr_id": "FHKST01010200",
+                "custtype": "P",
+            },
+            params={
+                "FID_COND_MRKT_DIV_CODE": "UN",
+                "FID_INPUT_ISCD": symbol,
+            },
+            timeout=5,
+        )
+        if resp.status_code != 200:
+            return None
+        output = resp.json().get("output1", {})
+        sell_orders = []
+        buy_orders = []
+        for level in range(1, 11):
+            ask_price = int(float(output.get(f"askp{level}", 0) or 0))
+            ask_qty = int(float(output.get(f"askp_rsqn{level}", 0) or 0))
+            bid_price = int(float(output.get(f"bidp{level}", 0) or 0))
+            bid_qty = int(float(output.get(f"bidp_rsqn{level}", 0) or 0))
+            if ask_price > 0:
+                sell_orders.append({"price": ask_price, "quantity": ask_qty})
+            if bid_price > 0:
+                buy_orders.append({"price": bid_price, "quantity": bid_qty})
+        if not sell_orders and not buy_orders:
+            return None
+        return {
+            "sellOrders": sell_orders,
+            "buyOrders": buy_orders,
+            "totalAskQty": int(float(output.get("total_askp_rsqn", 0) or 0)),
+            "totalBidQty": int(float(output.get("total_bidp_rsqn", 0) or 0)),
+        }
+    except Exception:
+        return None
+
+
 async def _build_orderbook_payload(symbol: str) -> dict:
     if market_data_provider.ws_provider.is_configured():
         await market_data_provider.subscribe([symbol])
@@ -1385,9 +1507,11 @@ async def _build_orderbook_payload(symbol: str) -> dict:
     quote, app_key, app_secret, token = await _resolve_kis_orderbook_context(symbol)
 
     if app_key and app_secret and token:
-        vi_display = _get_cached_vi_display(symbol, app_key, app_secret, token)
-        trade_strength = _get_cached_trade_strength(symbol, app_key, app_secret, token)
-        ws_orderbook = await market_data_provider.ws_provider.get_orderbook(symbol)
+        vi_display, trade_strength, ws_orderbook = await asyncio.gather(
+            _run_blocking(_get_cached_vi_display, symbol, app_key, app_secret, token),
+            _run_blocking(_get_cached_trade_strength, symbol, app_key, app_secret, token),
+            market_data_provider.ws_provider.get_orderbook(symbol),
+        )
         if ws_orderbook:
             return {
                 **ws_orderbook,
@@ -1398,120 +1522,95 @@ async def _build_orderbook_payload(symbol: str) -> dict:
                 "source": "kis_ws_total_orderbook",
             }
 
-        try:
-            resp = requests.get(
-                "https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn",
-                headers={
-                    "Content-Type": "application/json; charset=UTF-8",
-                    "authorization": f"Bearer {token}",
-                    "appkey": app_key,
-                    "appsecret": app_secret,
-                    "tr_id": "FHKST01010200",
-                    "custtype": "P",
-                },
-                params={
-                    "FID_COND_MRKT_DIV_CODE": "UN",
-                    "FID_INPUT_ISCD": symbol,
-                },
-                timeout=5,
-            )
-            if resp.status_code == 200:
-                output = resp.json().get("output1", {})
-                sell_orders = []
-                buy_orders = []
-                for level in range(1, 11):
-                    ask_price = int(float(output.get(f"askp{level}", 0) or 0))
-                    ask_qty = int(float(output.get(f"askp_rsqn{level}", 0) or 0))
-                    bid_price = int(float(output.get(f"bidp{level}", 0) or 0))
-                    bid_qty = int(float(output.get(f"bidp_rsqn{level}", 0) or 0))
-                    if ask_price > 0:
-                        sell_orders.append({"price": ask_price, "quantity": ask_qty})
-                    if bid_price > 0:
-                        buy_orders.append({"price": bid_price, "quantity": bid_qty})
-
-                if sell_orders or buy_orders:
-                    return {
-                        "symbol": symbol,
-                        "currentPrice": quote.close,
-                        "sellOrders": sell_orders,
-                        "buyOrders": buy_orders,
-                        "totalAskQty": int(float(output.get("total_askp_rsqn", 0) or 0)),
-                        "totalBidQty": int(float(output.get("total_bidp_rsqn", 0) or 0)),
-                        "vi": vi_display,
-                        "recentTrades": ws_orderbook.get("recentTrades", []) if ws_orderbook else [],
-                        "tradeStrength": trade_strength,
-                        "source": "kis_total_orderbook_rest",
-                        "timestamp": time.time(),
-                    }
-        except Exception:
-            pass
+        rest_data = await _run_blocking(_fetch_kis_orderbook_rest, symbol, app_key, app_secret, token)
+        if rest_data:
+            return {
+                "symbol": symbol,
+                "currentPrice": quote.close,
+                **rest_data,
+                "vi": vi_display,
+                "recentTrades": [],
+                "tradeStrength": trade_strength,
+                "source": "kis_total_orderbook_rest",
+                "timestamp": time.time(),
+            }
 
     raise HTTPException(status_code=503, detail="실제 호가 데이터를 아직 받지 못했습니다")
+
+
+def _fetch_naver_investor_trading(symbol: str) -> list[dict]:
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
+    }
+    try:
+        resp = _http_session.get(
+            f"https://m.stock.naver.com/api/stock/{symbol}/integration",
+            headers=headers,
+            timeout=4,
+        )
+        if resp.status_code != 200:
+            return []
+    except Exception:
+        return []
+
+    deals = resp.json().get("dealTrendInfos") or []
+
+    def _parse_qty(val: str) -> int:
+        try:
+            return int(str(val).replace(",", "").replace("+", ""))
+        except (ValueError, TypeError):
+            return 0
+
+    rows = []
+    for d in deals:
+        raw = d.get("bizdate", "")
+        date_str = f"{raw[:4]}-{raw[4:6]}-{raw[6:]}" if len(raw) == 8 else raw
+        rows.append({
+            "date": date_str,
+            "individual_net": _parse_qty(d.get("individualPureBuyQuant")),
+            "foreign_net": _parse_qty(d.get("foreignerPureBuyQuant")),
+            "institutional_net": _parse_qty(d.get("organPureBuyQuant")),
+            "close_price": _parse_qty(d.get("closePrice")),
+            "volume": _parse_qty(d.get("accumulatedTradingVolume")),
+            "foreign_hold_ratio": d.get("foreignerHoldRatio", ""),
+        })
+    return rows
 
 
 @app.get("/market/investor-trading/{symbol}")
 async def market_investor_trading(symbol: str):
     """투자자별 일별 매매동향 (개인/외국인/기관).
 
-    KIS API 우선 (최대 30일, 매수/매도 수량 포함),
-    실패 시 Naver dealTrendInfos 폴백 (최근 5영업일).
+    KIS와 Naver를 병렬로 시도하고 KIS 결과를 우선 사용한다.
+    KIS가 실패하거나 빈 결과를 주면 Naver 결과로 폴백.
     """
-    # --- KIS 우선 ---
     kis = next(
         (p for p in market_data_provider.providers if p.name == "kis"),
         None,
     )
-    if kis:
-        kis_rows = await kis.get_investor_trading(symbol)
-        if kis_rows:
-            return {"symbol": symbol, "data": kis_rows, "source": "kis"}
 
-    # --- Naver 폴백 ---
-    def _fetch_naver(symbol: str) -> list[dict]:
-        import requests as _req
+    async def _try_kis():
+        if not kis:
+            return None
+        try:
+            return await kis.get_investor_trading(symbol)
+        except Exception:
+            return None
 
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            )
-        }
-        resp = _req.get(
-            f"https://m.stock.naver.com/api/stock/{symbol}/integration",
-            headers=headers,
-            timeout=6,
-        )
-        if resp.status_code != 200:
-            return []
+    kis_rows, naver_rows = await asyncio.gather(
+        _try_kis(),
+        asyncio.to_thread(_fetch_naver_investor_trading, symbol),
+    )
 
-        deals = resp.json().get("dealTrendInfos") or []
+    if kis_rows:
+        return {"symbol": symbol, "data": kis_rows, "source": "kis"}
+    if naver_rows:
+        return {"symbol": symbol, "data": naver_rows, "source": "naver"}
 
-        def _parse_qty(val: str) -> int:
-            try:
-                return int(str(val).replace(",", "").replace("+", ""))
-            except (ValueError, TypeError):
-                return 0
-
-        rows = []
-        for d in deals:
-            raw = d.get("bizdate", "")
-            date_str = f"{raw[:4]}-{raw[4:6]}-{raw[6:]}" if len(raw) == 8 else raw
-            rows.append({
-                "date": date_str,
-                "individual_net": _parse_qty(d.get("individualPureBuyQuant")),
-                "foreign_net": _parse_qty(d.get("foreignerPureBuyQuant")),
-                "institutional_net": _parse_qty(d.get("organPureBuyQuant")),
-                "close_price": _parse_qty(d.get("closePrice")),
-                "volume": _parse_qty(d.get("accumulatedTradingVolume")),
-                "foreign_hold_ratio": d.get("foreignerHoldRatio", ""),
-            })
-        return rows
-
-    rows = await asyncio.to_thread(_fetch_naver, symbol)
-    if not rows:
-        raise HTTPException(status_code=503, detail="투자자 매매동향 데이터를 가져올 수 없습니다")
-
-    return {"symbol": symbol, "data": rows, "source": "naver"}
+    raise HTTPException(status_code=503, detail="투자자 매매동향 데이터를 가져올 수 없습니다")
 
 
 @app.get("/market/orderbook/{symbol}")
@@ -1996,7 +2095,7 @@ def sync_stocks():
 
         def _fetch_kind(market_type: str, market_label: str) -> list[dict]:
             import requests, io, pandas as pd
-            r = requests.get(
+            r = _http_session.get(
                 "https://kind.krx.co.kr/corpgeneral/corpList.do",
                 params={"method": "download", "searchType": "13", "marketType": market_type},
                 timeout=15,

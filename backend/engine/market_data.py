@@ -10,7 +10,9 @@
   - MarketDataProvider: 캐시 + 서킷브레이커 + provider 체인 통합
 """
 
+import json
 import time
+from pathlib import Path
 from typing import Optional
 from datetime import datetime, timezone, timedelta
 
@@ -21,6 +23,67 @@ from engine.providers.kis_ws import KISWebSocketProvider
 from engine.providers.yfinance_kr import YFinanceKRProvider
 from engine.providers.pykrx_provider import PykrxProvider
 from engine.providers.krx_api_provider import KRXApiProvider
+
+# ─────────────────────────────────────────────
+# 상장폐지 종목 관리
+# ─────────────────────────────────────────────
+
+_DELISTED_FILE = Path(__file__).resolve().parent.parent.parent / "data" / "delisted-stocks.json"
+
+
+class DelistedSymbolStore:
+    """상장폐지 종목 영구 저장소 — 조회 시 provider 체인 전체를 건너뜀"""
+
+    def __init__(self) -> None:
+        self._symbols: set[str] = set()
+        self._load()
+
+    @staticmethod
+    def _normalize(symbol: str) -> str:
+        """152550.KS / 152550.KQ → 152550 으로 정규화"""
+        for suffix in (".KS", ".KQ"):
+            if symbol.endswith(suffix):
+                return symbol[: -len(suffix)]
+        return symbol
+
+    def _load(self) -> None:
+        if _DELISTED_FILE.exists():
+            try:
+                data = json.loads(_DELISTED_FILE.read_text())
+                self._symbols = {self._normalize(s) for s in data.get("symbols", [])}
+            except Exception:
+                self._symbols = set()
+
+    def _save(self) -> None:
+        _DELISTED_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _DELISTED_FILE.write_text(json.dumps({"symbols": sorted(self._symbols)}, ensure_ascii=False, indent=2))
+
+    def mark(self, symbol: str) -> bool:
+        """상장폐지로 등록. 이미 등록된 경우 False 반환."""
+        key = self._normalize(symbol)
+        if key in self._symbols:
+            return False
+        self._symbols.add(key)
+        self._save()
+        return True
+
+    def unmark(self, symbol: str) -> bool:
+        """상장폐지 해제. 미등록 종목이면 False 반환."""
+        key = self._normalize(symbol)
+        if key not in self._symbols:
+            return False
+        self._symbols.discard(key)
+        self._save()
+        return True
+
+    def is_delisted(self, symbol: str) -> bool:
+        return self._normalize(symbol) in self._symbols
+
+    def all(self) -> list[str]:
+        return sorted(self._symbols)
+
+
+delisted_store = DelistedSymbolStore()
 
 
 # ─────────────────────────────────────────────
@@ -180,6 +243,9 @@ class MarketDataProvider:
 
     async def get_price(self, symbol: str) -> Optional[StockQuote]:
         """단일 종목 현재가 — WebSocket 실시간 캐시 우선, 외부캐시 → provider 체인 순회"""
+        if delisted_store.is_delisted(symbol):
+            return None
+
         # WebSocket 실시간 캐시 최우선
         if self.ws_provider.is_configured():
             ws_quote = await self.ws_provider.get_price(symbol)
@@ -222,6 +288,7 @@ class MarketDataProvider:
 
     async def get_prices(self, symbols: list[str]) -> dict[str, StockQuote]:
         """여러 종목 현재가 — WebSocket 실시간 캐시 우선, 미구독 종목은 외부캐시 → REST 폴백"""
+        symbols = [s for s in symbols if not delisted_store.is_delisted(s)]
         result: dict[str, StockQuote] = {}
 
         # 1. WebSocket 실시간 캐시 최우선 (30초 외부캐시 TTL 무시)

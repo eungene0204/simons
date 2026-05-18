@@ -885,8 +885,8 @@ export default function OrderPage() {
         </div>
 
         {/* ── 차트 탭 ── */}
-        {activeTab === "chart" && (
-          <div className="flex flex-col gap-2 p-2">
+        {(
+          <div className={`flex flex-col gap-2 p-2${activeTab !== "chart" ? " hidden" : ""}`}>
             {/* Row 1: 캔들차트 + 호가창 */}
             <div className="grid grid-cols-1 gap-2 lg:gap-2" style={{ gridTemplateColumns: "6fr 4fr" }}>
               {/* 캔들차트 */}
@@ -1348,8 +1348,8 @@ export default function OrderPage() {
 
         {/* ── 종목정보 탭 ── */}
 
-        {activeTab === "info" && (
-          <div className="divide-y divide-white/[0.08]">
+        {(
+          <div className={`divide-y divide-white/[0.08]${activeTab !== "info" ? " hidden" : ""}`}>
             {stockInfo ? (
               <>
                 {/* 재무 핵심 지표 — border 그리드 패턴 */}
@@ -1449,16 +1449,16 @@ export default function OrderPage() {
         )}
 
         {/* ── 뉴스·공시 탭 ── */}
-        {activeTab === "news" && (
-          <div className="p-5">
+        {(
+          <div className={`p-5${activeTab !== "news" ? " hidden" : ""}`}>
             <NewsImpactPanel symbol={symbol} />
           </div>
         )}
 
 
         {/* ── 커뮤니티 탭 ── */}
-        {activeTab === "community" && (
-          <div className="divide-y divide-white/[0.08]">
+        {(
+          <div className={`divide-y divide-white/[0.08]${activeTab !== "community" ? " hidden" : ""}`}>
             <div className="px-5 py-4">
               <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit">커뮤니티</h2>
               <p className="text-xs text-gray-500 mt-0.5">투자자 토론 및 의견</p>
