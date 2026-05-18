@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cache } from "@/lib/cache";
+
+const CACHE_TTL_SECONDS = 60;
 
 export async function GET(
   _request: NextRequest,
@@ -10,6 +13,12 @@ export async function GET(
 
     if (!symbol) {
       return NextResponse.json({ error: "Symbol parameter is required" }, { status: 400 });
+    }
+
+    const cacheKey = `stock:investor-trading:${symbol}`;
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      return NextResponse.json(cached);
     }
 
     const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
@@ -26,6 +35,7 @@ export async function GET(
     }
 
     const data = await res.json();
+    cache.set(cacheKey, data, CACHE_TTL_SECONDS);
     return NextResponse.json(data);
   } catch (error) {
     return NextResponse.json(

@@ -83,7 +83,7 @@ interface MarketDetailResponse extends StockInfoProfileDetailResponse {
   isNew52WeekLow?: boolean;
 }
 
-const DETAIL_CACHE_TTL_SECONDS = 2;
+const DETAIL_CACHE_TTL_SECONDS = 15;
 const BACKEND_STOCK_DETAIL_TIMEOUT_MS = 5000;
 const MARKET_CAP_CACHE_TTL_SECONDS = 60 * 60 * 6;
 
@@ -133,99 +133,97 @@ export async function GET(
     console.log(`Generating stock detail for ${symbol}...`);
 
 
-    // 한국 종목 목록에서 이름, 섹터, 업종 정보 가져오기
-    let stockName = "";
-    let stockSector = "";
-    let stockMarket: "KOSPI" | "KOSDAQ" | undefined;
-    const storedStock = useStockMetadataStore
-      ? await prisma.stock.findUnique({
-          where: { symbol },
-          select: {
-            name: true,
-            market: true,
-            sector: true,
-            listingDate: true,
-            profileSource: true,
-            profileUpdatedAt: true,
-          },
-        }).catch(() => null)
-      : null;
-    const storedProfile = useStockMetadataStore
-      ? await readStoredStockInfoProfile(symbol)
-      : null;
+    // 로컬 메타데이터 (DB/파일/캐시) 4건을 병렬로 로드
+    const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
 
-    try {
-      const koreaStocks = await loadStockList();
-      const stock = koreaStocks.find((s) => s.symbol === symbol);
-      if (stock) {
-        stockName = stock.name;
-        stockSector = stock.sector || "";
-        stockMarket = stock.market;
-      }
-    } catch (error) {
-      console.error("Failed to load stock list:", error);
-    }
+    const [storedStock, storedProfile, koreaStocksResult, isKospi200] = await Promise.all([
+      useStockMetadataStore
+        ? prisma.stock.findUnique({
+            where: { symbol },
+            select: {
+              name: true,
+              market: true,
+              sector: true,
+              listingDate: true,
+              profileSource: true,
+              profileUpdatedAt: true,
+            },
+          }).catch(() => null)
+        : Promise.resolve(null),
+      useStockMetadataStore
+        ? readStoredStockInfoProfile(symbol).catch(() => null)
+        : Promise.resolve(null),
+      loadStockList().then(
+        (list) => {
+          const stock = list.find((s) => s.symbol === symbol);
+          return stock
+            ? { stockName: stock.name, stockSector: stock.sector || "", stockMarket: stock.market }
+            : { stockName: "", stockSector: "", stockMarket: undefined as "KOSPI" | "KOSDAQ" | undefined };
+        },
+        () => ({ stockName: "", stockSector: "", stockMarket: undefined as "KOSPI" | "KOSDAQ" | undefined })
+      ),
+      (async () => {
+        try {
+          const fs = await import("fs/promises");
+          const path = await import("path");
+          const cachePath = path.join(process.cwd(), "data", "kospi200-cache.json");
+          const raw = await fs.readFile(cachePath, "utf-8");
+          const parsed = JSON.parse(raw) as { symbols?: string[] };
+          return Array.isArray(parsed.symbols) && parsed.symbols.includes(symbol);
+        } catch {
+          return false;
+        }
+      })(),
+    ]);
 
-    let isKospi200 = false;
-    try {
-      const fs = await import("fs/promises");
-      const path = await import("path");
-      const cachePath = path.join(process.cwd(), "data", "kospi200-cache.json");
-      const raw = await fs.readFile(cachePath, "utf-8");
-      const parsed = JSON.parse(raw) as { symbols?: string[] };
-      isKospi200 = Array.isArray(parsed.symbols) && parsed.symbols.includes(symbol);
-    } catch {
-      isKospi200 = false;
-    }
+    const stockName = koreaStocksResult.stockName;
+    const stockSector = koreaStocksResult.stockSector;
+    const stockMarket = koreaStocksResult.stockMarket;
 
-    // 파케이 실제 lastClose 조회 (백엔드 가용 시 우선 사용)
-    let realLastClose: number | undefined;
-    try {
-      const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
-      const ohlcvRes = await fetch(`${BACKEND_URL}/stock/${symbol}/ohlcv?limit=2`, {
-        signal: AbortSignal.timeout(800),
-      });
-      if (ohlcvRes.ok) {
-        const ohlcvData = await ohlcvRes.json();
-        realLastClose = ohlcvData.lastClose;
-      }
-    } catch { /* 백엔드 미실행 시 무시 */ }
-
-    const priceSnapshots = await fetchStockPriceSnapshots([symbol], {
-      subscribe: true,
-      mode: "realtime",
-    });
-    const quote = priceSnapshots[symbol];
-
-    let realDetail: MarketDetailResponse | null = null;
     const companyNameForLookup = pickStockName(
       symbol,
       stockName,
       storedStock?.name ?? undefined,
     );
-    const hasPersistedInfo = hasStoredInfoProfile(
-      storedProfile,
-    );
-    try {
-      const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
-      const detailUrl = new URL(`${BACKEND_URL}/market/stock-detail/${symbol}`);
-      detailUrl.searchParams.set("include_profile", "false");
-      detailUrl.searchParams.set("include_listing", storedStock?.listingDate ? "false" : "true");
-      detailUrl.searchParams.set("include_public_info", hasPersistedInfo ? "false" : "true");
-      if (companyNameForLookup) {
-        detailUrl.searchParams.set("company_name", companyNameForLookup);
-      }
+    const hasPersistedInfo = hasStoredInfoProfile(storedProfile);
 
-      const detailRes = await fetch(detailUrl.toString(), {
+    // 외부 호출 3개(OHLCV, 실시간 시세, KIS 상세)를 병렬로 동시에 시작
+    const ohlcvPromise = Promise.resolve(
+      fetch(`${BACKEND_URL}/stock/${symbol}/ohlcv?limit=2`, {
+        signal: AbortSignal.timeout(800),
+      })
+    )
+      .then((res) => (res && res.ok ? res.json() : null))
+      .then((data) => (data?.lastClose as number | undefined) ?? undefined)
+      .catch(() => undefined);
+
+    const priceSnapshotsPromise = fetchStockPriceSnapshots([symbol], {
+      subscribe: true,
+      mode: "realtime",
+    });
+
+    const detailUrl = new URL(`${BACKEND_URL}/market/stock-detail/${symbol}`);
+    detailUrl.searchParams.set("include_profile", "false");
+    detailUrl.searchParams.set("include_listing", storedStock?.listingDate ? "false" : "true");
+    detailUrl.searchParams.set("include_public_info", hasPersistedInfo ? "false" : "true");
+    if (companyNameForLookup) {
+      detailUrl.searchParams.set("company_name", companyNameForLookup);
+    }
+    const detailPromise = Promise.resolve(
+      fetch(detailUrl.toString(), {
         signal: AbortSignal.timeout(BACKEND_STOCK_DETAIL_TIMEOUT_MS),
         cache: "no-store",
-      });
-      if (detailRes.ok) {
-        realDetail = await detailRes.json();
-      }
-    } catch {
-      realDetail = null;
-    }
+      })
+    )
+      .then((res) => (res && res.ok ? (res.json() as Promise<MarketDetailResponse>) : null))
+      .catch(() => null);
+
+    const [realLastClose, priceSnapshots, realDetail] = await Promise.all([
+      ohlcvPromise,
+      priceSnapshotsPromise,
+      detailPromise,
+    ]);
+    const quote = priceSnapshots[symbol];
 
     const marketCapCacheKey = `stock:detail:market-cap:${symbol}`;
     const cachedMarketCap = cache.get<number>(marketCapCacheKey) ?? undefined;
@@ -364,7 +362,6 @@ export async function GET(
       ...detail,
     };
 
-    // Cache for 2 seconds (for real-time updates)
     cache.set(cacheKey, response, DETAIL_CACHE_TTL_SECONDS);
     return NextResponse.json(response);
   } catch (error) {

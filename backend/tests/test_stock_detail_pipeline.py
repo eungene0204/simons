@@ -90,7 +90,7 @@ def test_fetch_kis_stock_detail_includes_debt_ratio(monkeypatch):
 
         raise AssertionError(f"Unexpected URL: {url}")
 
-    monkeypatch.setattr("main.requests.get", mock_get)
+    monkeypatch.setattr("main._http_session.get", mock_get)
 
     result = _fetch_kis_stock_detail("005930", "app-key", "app-secret", "token")
 
@@ -168,7 +168,7 @@ def test_fetch_listing_info_from_public_api_returns_listing_date(monkeypatch):
 
         raise AssertionError(f"Unexpected URL: {url}")
 
-    monkeypatch.setattr("main.requests.get", mock_get)
+    monkeypatch.setattr("main._http_session.get", mock_get)
 
     result = _fetch_listing_info_from_public_api("005930")
 
@@ -211,7 +211,7 @@ def test_fetch_company_basic_from_public_api_returns_company_outline(monkeypatch
             }
         })
 
-    monkeypatch.setattr("main.requests.get", mock_get)
+    monkeypatch.setattr("main._http_session.get", mock_get)
 
     result = _fetch_company_basic_from_public_api("1301110006246", "삼성전자")
 
@@ -246,7 +246,7 @@ def test_fetch_company_basic_from_public_api_normalizes_homepage_url(monkeypatch
             }
         })
 
-    monkeypatch.setattr("main.requests.get", mock_get)
+    monkeypatch.setattr("main._http_session.get", mock_get)
 
     result = _fetch_company_basic_from_public_api("1301110006246", "삼성전자")
 
@@ -283,7 +283,7 @@ def test_fetch_company_basic_from_public_api_prefers_listed_company_match(monkey
             }
         })
 
-    monkeypatch.setattr("main.requests.get", mock_get)
+    monkeypatch.setattr("main._http_session.get", mock_get)
 
     result = _fetch_company_basic_from_public_api(None, "(주)삼성전자")
 
@@ -321,7 +321,7 @@ def test_fetch_company_basic_from_public_api_merges_sparse_public_rows(monkeypat
             }
         })
 
-    monkeypatch.setattr("main.requests.get", mock_get)
+    monkeypatch.setattr("main._http_session.get", mock_get)
 
     result = _fetch_company_basic_from_public_api(None, "삼성전자")
 
@@ -338,7 +338,7 @@ def test_fetch_company_basic_from_public_api_requires_identifier(monkeypatch):
     def mock_get(url, params=None, timeout=None):
         raise AssertionError(f"Unexpected URL: {url}")
 
-    monkeypatch.setattr("main.requests.get", mock_get)
+    monkeypatch.setattr("main._http_session.get", mock_get)
 
     assert _fetch_company_basic_from_public_api(None, None) is None
 
@@ -379,7 +379,7 @@ def test_fetch_summary_financials_from_public_api_returns_latest_summary(monkeyp
             }
         })
 
-    monkeypatch.setattr("main.requests.get", mock_get)
+    monkeypatch.setattr("main._http_session.get", mock_get)
 
     result = _fetch_summary_financials_from_public_api("1301110006246")
 

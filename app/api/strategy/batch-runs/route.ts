@@ -39,11 +39,12 @@ type SaveBatchRunSnapshotOptions = {
   candidateIds?: Set<string>;
 };
 
-const MAX_ACTIVE_BATCH_RUNS = 2;
+const MAX_ACTIVE_BATCH_RUNS = 1;
 const DEFAULT_CANDIDATE_CONCURRENCY = 2;
 const MAX_CANDIDATE_CONCURRENCY = 4;
 const CANCEL_REQUEST_LOG_MARKER = "[batch-run-cancel-requested]";
 const BATCH_RUN_TRANSACTION_TIMEOUT_MS = 30_000;
+const BATCH_RUN_TRANSACTION_RETRY_LIMIT = 3;
 const CANDIDATE_QUERY_PAGE_SIZE = 500;
 const candidateSummarySelect = {
   id: true,
@@ -68,6 +69,14 @@ function parseJsonField<T>(value: string | null | undefined, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableBatchRunPersistenceError(error: any) {
+  return error?.code === "P1008" || error?.code === "P2034" || error?.code === "P2028";
 }
 
 function hasCancelMarker(logs: string[]) {
@@ -262,81 +271,94 @@ async function saveBatchRunSnapshot(
   snapshot: BatchRunSnapshotPayload,
   options: SaveBatchRunSnapshotOptions = {}
 ) {
-  await prisma.$transaction(async (tx) => {
-    const createData = {
-      id: snapshot.runId,
-      totalPrompts: Number(snapshot.totalPrompts ?? snapshot.candidates.length ?? 0),
-      completedCount: Number(snapshot.completedCount ?? 0),
-      failedCount: Number(snapshot.failedCount ?? 0),
-      skippedCount: Number(snapshot.skippedCount ?? 0),
-      rankingSnapshot: JSON.stringify(snapshot.rankingSnapshot ?? []),
-      logs: JSON.stringify(snapshot.logs ?? []),
-      ...(snapshot.createdAt ? { createdAt: new Date(snapshot.createdAt) } : {}),
-    };
+  for (let attempt = 0; attempt <= BATCH_RUN_TRANSACTION_RETRY_LIMIT; attempt += 1) {
+    try {
+      await prisma.$transaction(async (tx) => {
+        const createData = {
+          id: snapshot.runId,
+          totalPrompts: Number(snapshot.totalPrompts ?? snapshot.candidates.length ?? 0),
+          completedCount: Number(snapshot.completedCount ?? 0),
+          failedCount: Number(snapshot.failedCount ?? 0),
+          skippedCount: Number(snapshot.skippedCount ?? 0),
+          rankingSnapshot: JSON.stringify(snapshot.rankingSnapshot ?? []),
+          logs: JSON.stringify(snapshot.logs ?? []),
+          ...(snapshot.createdAt ? { createdAt: new Date(snapshot.createdAt) } : {}),
+        };
 
-    await tx.batchRun.upsert({
-      where: { id: snapshot.runId },
-      create: createData,
-      update: {
-        totalPrompts: Number(snapshot.totalPrompts ?? snapshot.candidates.length ?? 0),
-        completedCount: Number(snapshot.completedCount ?? 0),
-        failedCount: Number(snapshot.failedCount ?? 0),
-        skippedCount: Number(snapshot.skippedCount ?? 0),
-        rankingSnapshot: JSON.stringify(snapshot.rankingSnapshot ?? []),
-        logs: JSON.stringify(snapshot.logs ?? []),
-      },
-    });
-
-    if (options.replaceCandidates) {
-      await tx.batchRunCandidate.deleteMany({
-        where: { runId: snapshot.runId },
-      });
-      if (snapshot.candidates.length > 0) {
-        await tx.batchRunCandidate.createMany({
-          data: snapshot.candidates.map((candidate, index) =>
-            buildCandidatePersistenceRow(snapshot, candidate, index)
-          ),
+        await tx.batchRun.upsert({
+          where: { id: snapshot.runId },
+          create: createData,
+          update: {
+            totalPrompts: Number(snapshot.totalPrompts ?? snapshot.candidates.length ?? 0),
+            completedCount: Number(snapshot.completedCount ?? 0),
+            failedCount: Number(snapshot.failedCount ?? 0),
+            skippedCount: Number(snapshot.skippedCount ?? 0),
+            rankingSnapshot: JSON.stringify(snapshot.rankingSnapshot ?? []),
+            logs: JSON.stringify(snapshot.logs ?? []),
+          },
         });
+
+        if (options.replaceCandidates) {
+          await tx.batchRunCandidate.deleteMany({
+            where: { runId: snapshot.runId },
+          });
+          if (snapshot.candidates.length > 0) {
+            await tx.batchRunCandidate.createMany({
+              data: snapshot.candidates.map((candidate, index) =>
+                buildCandidatePersistenceRow(snapshot, candidate, index)
+              ),
+            });
+          }
+          return;
+        }
+
+        const candidateIds = options.candidateIds;
+        if (!candidateIds || candidateIds.size === 0) {
+          return;
+        }
+
+        if (typeof tx.batchRunCandidate.upsert !== "function") {
+          await tx.batchRunCandidate.deleteMany({
+            where: { runId: snapshot.runId },
+          });
+          await tx.batchRunCandidate.createMany({
+            data: snapshot.candidates.map((candidate, index) =>
+              buildCandidatePersistenceRow(snapshot, candidate, index)
+            ),
+          });
+          return;
+        }
+
+        for (const [index, candidate] of snapshot.candidates.entries()) {
+          const row = buildCandidatePersistenceRow(snapshot, candidate, index);
+          if (!candidateIds.has(row.id)) continue;
+          await tx.batchRunCandidate.upsert({
+            where: { id: row.id },
+            create: row,
+            update: {
+              strategyId: row.strategyId,
+              prompt: row.prompt,
+              strategyName: row.strategyName,
+              status: row.status,
+              errorMessage: row.errorMessage,
+              metrics: row.metrics,
+              rank: row.rank,
+              backtestRequest: row.backtestRequest,
+            },
+          });
+        }
+      }, { timeout: BATCH_RUN_TRANSACTION_TIMEOUT_MS });
+      return;
+    } catch (error: any) {
+      if (
+        attempt >= BATCH_RUN_TRANSACTION_RETRY_LIMIT ||
+        !isRetryableBatchRunPersistenceError(error)
+      ) {
+        throw error;
       }
-      return;
+      await sleep(500 * (attempt + 1));
     }
-
-    const candidateIds = options.candidateIds;
-    if (!candidateIds || candidateIds.size === 0) {
-      return;
-    }
-
-    if (typeof tx.batchRunCandidate.upsert !== "function") {
-      await tx.batchRunCandidate.deleteMany({
-        where: { runId: snapshot.runId },
-      });
-      await tx.batchRunCandidate.createMany({
-        data: snapshot.candidates.map((candidate, index) =>
-          buildCandidatePersistenceRow(snapshot, candidate, index)
-        ),
-      });
-      return;
-    }
-
-    for (const [index, candidate] of snapshot.candidates.entries()) {
-      const row = buildCandidatePersistenceRow(snapshot, candidate, index);
-      if (!candidateIds.has(row.id)) continue;
-      await tx.batchRunCandidate.upsert({
-        where: { id: row.id },
-        create: row,
-        update: {
-          strategyId: row.strategyId,
-          prompt: row.prompt,
-          strategyName: row.strategyName,
-          status: row.status,
-          errorMessage: row.errorMessage,
-          metrics: row.metrics,
-          rank: row.rank,
-          backtestRequest: row.backtestRequest,
-        },
-      });
-    }
-  }, { timeout: BATCH_RUN_TRANSACTION_TIMEOUT_MS });
+  }
 }
 
 function deriveRunStatus(run: {
