@@ -41,6 +41,25 @@ export async function loadStockList(): Promise<StockListItem[]> {
 }
 
 /**
+ * 종목 코드→이름 매핑을 캐시하여 반환합니다.
+ * global 객체에 보관하여 Next.js HMR로 모듈이 재로드되어도 유지되고,
+ * 동시에 들어오는 여러 요청이 같은 Promise를 공유하도록 합니다 (deduplication).
+ */
+declare global {
+  // eslint-disable-next-line no-var
+  var __stockNameMapPromise: Promise<Record<string, string>> | undefined;
+}
+
+export function getStockNameMap(): Promise<Record<string, string>> {
+  if (!global.__stockNameMapPromise) {
+    global.__stockNameMapPromise = loadStockList().then((stocks) =>
+      Object.fromEntries(stocks.map((s) => [s.symbol, s.name]))
+    );
+  }
+  return global.__stockNameMapPromise;
+}
+
+/**
  * 종목 목록을 파일에 저장합니다
  */
 export async function saveStockList(stocks: StockListItem[]): Promise<void> {

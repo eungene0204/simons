@@ -1,15 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { loadStockList } from '@/lib/krx-stocks';
-
-let stockNameCache: Record<string, string> | null = null;
-
-async function getStockNameMap(): Promise<Record<string, string>> {
-  if (stockNameCache) return stockNameCache;
-  const stocks = await loadStockList();
-  stockNameCache = Object.fromEntries(stocks.map((s) => [s.symbol, s.name]));
-  return stockNameCache;
-}
+import { getStockNameMap } from '@/lib/krx-stocks';
 import {
   calcMarketFilledPrice,
   calcFee,
@@ -229,8 +220,7 @@ export async function POST(
       });
     });
 
-    const stocks = await loadStockList();
-    const nameMap = Object.fromEntries(stocks.map((s) => [s.symbol, s.name]));
+    const nameMap = await getStockNameMap();
     return NextResponse.json(mapOrder(result, nameMap));
   } catch (error: any) {
     const msg = error?.message;

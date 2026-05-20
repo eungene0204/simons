@@ -74,6 +74,7 @@ model Strategy {
   strategyType   String           @default("기타")
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
+  deletedAt      DateTime?
   BacktestResult BacktestResult[]
   BacktestHistory BacktestHistory[]
   BacktestRun    BacktestRun[]
@@ -424,6 +425,17 @@ model WatchlistSymbol {
   addedAt        DateTime        @default(now())
   groupId        String?
   WatchlistGroup WatchlistGroup? @relation(fields: [groupId], references: [id])
+}
+
+// ─── News Fetch Cache ─────────────────────────────────────────────────────────
+
+model NewsFetchCache {
+  symbol        String    @id
+  fetchedAt     DateTime
+  articleCount  Int       @default(0)
+  isFetching    Boolean   @default(false)
+  fetchingUntil DateTime?
+  updatedAt     DateTime  @updatedAt
 }
 
 // ─── News Impact AI Agent ─────────────────────────────────────────────────────

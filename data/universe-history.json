@@ -1,6 +1,40 @@
 {
-  "updatedAt": "2026-05-18T00:00:06.832138+09:00",
+  "updatedAt": "2026-05-20T00:00:04.563570+09:00",
   "entries": [
+    {
+      "date": "2026-05-20",
+      "syncedAt": "2026-05-20T00:00:04.563570+09:00",
+      "totalCount": 2656,
+      "kospiCount": 838,
+      "kosdaqCount": 1818,
+      "addedCount": 1,
+      "delistedCount": 2,
+      "added": [
+        {
+          "symbol": "288180",
+          "name": "케이피항공산업",
+          "market": "KOSDAQ",
+          "sector": "우주항공/방산",
+          "industry": "항공기,우주선 및 부품 제조업"
+        }
+      ],
+      "delisted": [
+        {
+          "symbol": "466910",
+          "name": "엔에이치스팩30호",
+          "market": "KOSDAQ",
+          "sector": "은행/금융지주",
+          "industry": "금융 지원 서비스업"
+        },
+        {
+          "symbol": "462020",
+          "name": "에이치엠씨제6호스팩",
+          "market": "KOSDAQ",
+          "sector": "은행/금융지주",
+          "industry": "금융 지원 서비스업"
+        }
+      ]
+    },
     {
       "date": "2026-05-18",
       "syncedAt": "2026-05-18T00:00:06.832138+09:00",

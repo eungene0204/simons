@@ -75,12 +75,13 @@ const DashboardLayoutContent = memo(function DashboardLayoutContent({
           .getPropertyValue('--top-menu-bar-height')
           .trim()
       ) || 76;
-        setTopMenuBarHeight(height);
+      setTopMenuBarHeight(height);
     };
 
     updateHeight();
-    const interval = setInterval(updateHeight, 100);
-    return () => clearInterval(interval);
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(document.documentElement);
+    return () => observer.disconnect();
   }, []);
 
   return (

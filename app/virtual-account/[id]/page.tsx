@@ -178,14 +178,27 @@ export default function VirtualAccountDetailPage() {
   }, [account?.strategyId]);
 
   const loadAccountData = async () => {
-    const [acc, t] = await Promise.all([
+    const [acc, t, marketState] = await Promise.all([
       getAccount(accountId),
       getTransactionsByAccount(accountId),
+      fetch(`/api/virtual-market/${accountId}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null),
     ]);
     if (!acc) { router.push("/virtual-account"); return; }
     setAccount(acc);
     setHoldings((acc as any).holdings ?? []);
     setTransactions(t.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
+
+    const nextTrackedSymbols = marketState?.symbols?.length
+      ? marketState.symbols.map((sym: string) => ({
+          symbol: sym,
+          name: marketState.symbolNames?.[sym] || sym,
+        }))
+      : [];
+    setTrackedSymbols(nextTrackedSymbols);
+    setIsTrackedSymbolsLoading(false);
+
     if (acc.strategyId) {
       fetch(`/api/strategy/${acc.strategyId}`)
         .then((r) => r.ok ? r.json() : null)
@@ -201,20 +214,6 @@ export default function VirtualAccountDetailPage() {
       setDbStrategyDescription(null);
       setDbStrategySettings(null);
     }
-    setIsTrackedSymbolsLoading(true);
-    fetch(`/api/virtual-market/${accountId}`)
-      .then((r) => r.ok ? r.json() : null)
-      .then((state) => {
-        const nextTrackedSymbols = state?.symbols?.length
-          ? state.symbols.map((sym: string) => ({
-              symbol: sym,
-              name: state.symbolNames?.[sym] || sym,
-            }))
-          : [];
-        setTrackedSymbols(nextTrackedSymbols);
-      })
-      .catch(() => setTrackedSymbols([]))
-      .finally(() => setIsTrackedSymbolsLoading(false));
   };
 
   const loadSignalLogs = async () => {

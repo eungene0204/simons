@@ -1,17 +1,9 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { resolveTrackedSymbolsForStrategy } from '@/lib/strategy-tracked-symbols';
-import { loadStockList } from '@/lib/krx-stocks';
+import { getStockNameMap } from '@/lib/krx-stocks';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
-let stockNameCache: Record<string, string> | null = null;
-
-async function getStockNameMap(): Promise<Record<string, string>> {
-  if (stockNameCache) return stockNameCache;
-  const stocks = await loadStockList();
-  stockNameCache = Object.fromEntries(stocks.map((s) => [s.symbol, s.name]));
-  return stockNameCache;
-}
 
 function resolvePositionName(
   symbol: string,

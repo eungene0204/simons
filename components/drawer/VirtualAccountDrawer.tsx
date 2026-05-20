@@ -29,14 +29,20 @@ function VirtualAccountDrawer({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // 마운트 시 미리 fetch — 드로어를 열었을 때 이미 데이터가 준비된 상태
   useEffect(() => {
-    if (isOpen) {
-      loadAccounts();
+    loadAccounts();
+  }, []);
+
+  // 드로어가 열릴 때는 백그라운드 갱신만 (skeleton 없음)
+  useEffect(() => {
+    if (isOpen && accounts.length > 0) {
+      loadAccounts(false);
     }
   }, [isOpen]);
 
-  const loadAccounts = async () => {
-    if (accounts.length === 0) setLoading(true);
+  const loadAccounts = async (showLoading = true) => {
+    if (showLoading && accounts.length === 0) setLoading(true);
     const allAccounts = await getAllAccounts();
     setAccounts(allAccounts);
     setLoading(false);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Warning } from "phosphor-react";
+import { ArrowClockwise, Warning } from "phosphor-react";
 
 
 interface NewsItem {
@@ -28,17 +28,14 @@ interface NewsItem {
   expected_alpha_1d?: number;
 }
 
+interface FetchResult {
+  articles: NewsItem[];
+  fetchedAt: string | null;
+  cached: boolean;
+  revalidating: boolean;
+  error?: string;
+}
 
-const RISK_FLAG_LABELS: Record<string, string> = {
-  delisting_risk: "상장폐지",
-  accounting_fraud: "회계부정",
-  liquidity_crisis: "유동성위기",
-  legal_dispute: "법적분쟁",
-  regulatory_investigation: "규제조사",
-  management_instability: "경영불안",
-  operational_disruption: "운영중단",
-  dilution_risk: "희석위험",
-};
 
 function _timeAgo(iso: string): string {
   try {
@@ -93,42 +90,38 @@ function RiskBadge({ level }: { level?: string }) {
 export default function NewsImpactPanel({ symbol }: { symbol: string }) {
   const [articles, setArticles] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [meta, setMeta] = useState<{ fetchedAt: string | null; revalidating: boolean }>({
+    fetchedAt: null,
+    revalidating: false,
+  });
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  const fetchNews = useCallback(async (forceRefresh = false) => {
+    if (forceRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+
     try {
-      // 기존 뉴스 먼저 조회
-      const existing = await fetch(`/api/news/symbol/${symbol}?page_size=10`);
-      if (existing.ok) {
-        const data = await existing.json();
-        if ((data.items ?? []).length > 0) {
-          setArticles(data.items);
-          return;
-        }
-      }
-      // 뉴스 없을 때만 수집
-      await fetch('/api/news/ingest', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbols: [symbol], max_per_provider: 30 }),
-        cache: 'no-store',
-      });
-      const url = `/api/news/symbol/${symbol}?page_size=10&as_of=${encodeURIComponent(new Date().toISOString())}`;
-      const res = await fetch(url, { cache: 'no-store' });
-      if (res.ok) {
-        const data = await res.json();
-        setArticles(data.items ?? []);
-      }
+      const url = `/api/news/${symbol}/fetch?page_size=20${forceRefresh ? "&forceRefresh=true" : ""}`;
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) return;
+
+      const data: FetchResult = await res.json();
+      setArticles(data.articles ?? []);
+      setMeta({ fetchedAt: data.fetchedAt, revalidating: data.revalidating ?? false });
     } catch {
-      // silent fail
+      // silent fail — keep existing data
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [symbol]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    fetchNews();
+  }, [fetchNews]);
 
   if (loading) {
     return (
@@ -148,56 +141,77 @@ export default function NewsImpactPanel({ symbol }: { symbol: string }) {
     );
   }
 
-  if (!articles.length) {
-    return (
-      <div className="pt-4">
+  return (
+    <div className="space-y-3">
+      {/* Header: last-updated + refresh */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {meta.fetchedAt && (
+            <span className="text-xs text-gray-500">
+              마지막 업데이트: {_timeAgo(meta.fetchedAt)}
+            </span>
+          )}
+          {meta.revalidating && (
+            <span className="text-xs text-amber-400 animate-pulse">뉴스 업데이트 중...</span>
+          )}
+        </div>
+        <button
+          onClick={() => fetchNews(true)}
+          disabled={refreshing}
+          className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-200 transition-colors disabled:opacity-40"
+        >
+          <ArrowClockwise
+            size={13}
+            weight="bold"
+            className={refreshing ? "animate-spin" : ""}
+          />
+          최신 뉴스 다시 가져오기
+        </button>
+      </div>
+
+      {!articles.length ? (
         <div className="py-10 text-center">
           <p className="text-sm text-gray-500">분석된 뉴스가 없습니다</p>
         </div>
-      </div>
-    );
-  }
+      ) : (
+        <div className="space-y-2">
+          {articles.map((article) => {
+            const hasRisk = article.risk_alert_level && article.risk_alert_level !== "none";
 
-  return (
-    <div className="space-y-2">
-      {articles.map((article) => {
-        const hasRisk = article.risk_alert_level && article.risk_alert_level !== "none";
+            return (
+              <a
+                key={article.id}
+                href={article.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flat-card rounded-2xl border border-white/[0.08] overflow-hidden flex hover:border-white/[0.14] transition-colors"
+              >
+                {/* Left color bar */}
+                <div className={`w-1 shrink-0 ${
+                  article.impact_direction === "up" ? "bg-[var(--main-red)]" :
+                  article.impact_direction === "down" ? "bg-[var(--main-blue)]" :
+                  "bg-green-500/50"
+                }`} />
 
-        return (
-          <a
-            key={article.id}
-            href={article.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flat-card rounded-2xl border border-white/[0.08] overflow-hidden flex hover:border-white/[0.14] transition-colors"
-          >
-            {/* Left color bar */}
-            <div className={`w-1 shrink-0 ${
-              article.impact_direction === "up" ? "bg-[var(--main-red)]" :
-              article.impact_direction === "down" ? "bg-[var(--main-blue)]" :
-              "bg-green-500/50"
-            }`} />
-
-            <div className="flex-1 min-w-0 p-5">
-              {/* Title */}
-              <p className="text-sm font-bold text-gray-200 leading-snug mb-2">
-                {article.title}
-              </p>
-
-              {/* Source · time + badges row */}
-              <div className="flex items-center gap-2">
-                <p className="text-xs text-gray-500 truncate min-w-0 flex-1">
-                  {article.source} · {_timeAgo(article.published_at)}
-                </p>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <ImpactBadge direction={article.impact_direction} score={article.impact_score} />
-                  {hasRisk && <RiskBadge level={article.risk_alert_level} />}
+                <div className="flex-1 min-w-0 p-5">
+                  <p className="text-sm font-bold text-gray-200 leading-snug mb-2">
+                    {article.title}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-gray-500 truncate min-w-0 flex-1">
+                      {article.source} · {_timeAgo(article.published_at)}
+                    </p>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <ImpactBadge direction={article.impact_direction} score={article.impact_score} />
+                      {hasRisk && <RiskBadge level={article.risk_alert_level} />}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-          </a>
-        );
-      })}
+              </a>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
