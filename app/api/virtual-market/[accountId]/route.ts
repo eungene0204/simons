@@ -1,15 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { loadStockList } from "@/lib/krx-stocks";
-
-let stockNameCache: Record<string, string> | null = null;
-
-async function getStockNameMap(): Promise<Record<string, string>> {
-  if (stockNameCache) return stockNameCache;
-  const stocks = await loadStockList();
-  stockNameCache = Object.fromEntries(stocks.map((s) => [s.symbol, s.name]));
-  return stockNameCache;
-}
+import { getStockNameMap } from "@/lib/krx-stocks";
 
 // GET: 가상 계좌 시장 상태 조회
 export async function GET(

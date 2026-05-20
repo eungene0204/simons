@@ -19,8 +19,8 @@ export default function VirtualAccountMainView() {
 
   useEffect(() => {
     if (selectedAccountId) {
-      loadAccountData();
-      const interval = setInterval(loadAccountData, 3000);
+      loadAccountData(true);
+      const interval = setInterval(() => loadAccountData(false), 30000);
       return () => clearInterval(interval);
     } else {
       setAccount(null);
@@ -30,12 +30,12 @@ export default function VirtualAccountMainView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAccountId]);
 
-  const loadAccountData = async () => {
+  const loadAccountData = async (showLoading = false) => {
     if (!selectedAccountId) return;
-    setLoading(true);
+    if (showLoading) setLoading(true);
     const result = await refreshAccountValue(selectedAccountId);
     if (!result) {
-      setLoading(false);
+      if (showLoading) setLoading(false);
       return;
     }
     setAccount(result.account);

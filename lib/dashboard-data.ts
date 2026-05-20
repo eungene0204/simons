@@ -1,3 +1,4 @@
+import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import type { TradingStatusData } from "@/app/api/dashboard/trading-status/route";
 import type { AccountMonthlyData } from "@/app/api/dashboard/account-monthly/route";
@@ -25,6 +26,12 @@ async function fetchDashboardFromDB(): Promise<DashboardInitialData> {
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
 
+  // AccountMonthly 차트는 6개월치만 필요
+  const sixMonthsAgo = new Date();
+  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+  sixMonthsAgo.setDate(1);
+  sixMonthsAgo.setHours(0, 0, 0, 0);
+
   const [
     accounts,
     totalAccounts,
@@ -34,7 +41,6 @@ async function fetchDashboardFromDB(): Promise<DashboardInitialData> {
     totalPositions,
     dailyPnlAgg,
     strategies,
-    strategyAccounts,
     backtestHistory,
     sellOrders,
   ] = await Promise.all([
@@ -49,21 +55,20 @@ async function fetchDashboardFromDB(): Promise<DashboardInitialData> {
       _sum: { realizedPnl: true },
     }),
     prisma.strategy.findMany({ orderBy: { createdAt: "desc" } }),
-    prisma.virtualAccount.findMany({
-      where: { strategyId: { not: null } },
-      include: { VirtualPosition: true },
-    }),
     prisma.backtestHistory.findMany({ where: { isVisible: true }, orderBy: { createdAt: "desc" }, take: 50 }),
     prisma.virtualOrder.findMany({
       where: {
         side: "SELL",
         status: "FILLED",
         realizedPnl: { not: null },
-        filledAt: { not: null },
+        filledAt: { gte: sixMonthsAgo },
       },
       select: { accountId: true, realizedPnl: true, filledAt: true },
     }),
   ]);
+
+  // strategyAccounts: 별도 쿼리 없이 accounts에서 파생
+  const strategyAccounts = accounts.filter((a) => a.strategyId !== null);
 
   // ── PortfolioStats ──────────────────────────────────────────
   const dailyPnl = dailyPnlAgg._sum.realizedPnl ?? 0;
@@ -262,9 +267,15 @@ const MOCK_ACCOUNT_MONTHLY: AccountMonthlyData = {
   ],
 };
 
+const getCachedDashboardData = unstable_cache(
+  fetchDashboardFromDB,
+  ["dashboard-initial-data"],
+  { revalidate: 30 }
+);
+
 export async function getDashboardInitialData(): Promise<DashboardInitialData> {
   if (process.env.DASHBOARD_MOCK === "true") {
     return getMockDashboardData();
   }
-  return fetchDashboardFromDB();
+  return getCachedDashboardData();
 }

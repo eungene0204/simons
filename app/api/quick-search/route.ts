@@ -86,7 +86,6 @@ export async function GET(request: NextRequest) {
       })
       .filter((entry) => entry.score > 0)
       .sort((a, b) => b.score - a.score)
-      .slice(0, 6)
       .map((entry) => entry.item);
 
     const matchedStrategies: StrategyQuickSearchItem[] = strategies

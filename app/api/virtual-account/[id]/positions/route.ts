@@ -1,16 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { fetchStockPriceSnapshots } from '@/lib/server/stock-prices';
-import { loadStockList } from '@/lib/krx-stocks';
-
-let stockNameCache: Record<string, string> | null = null;
-
-async function getStockNameMap(): Promise<Record<string, string>> {
-  if (stockNameCache) return stockNameCache;
-  const stocks = await loadStockList();
-  stockNameCache = Object.fromEntries(stocks.map((s) => [s.symbol, s.name]));
-  return stockNameCache;
-}
+import { getStockNameMap } from '@/lib/krx-stocks';
 
 function resolvePositionName(
   symbol: string,

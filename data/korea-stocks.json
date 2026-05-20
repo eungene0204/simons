@@ -1064,18 +1064,18 @@
     "industry": "신발 및 신발 부분품 제조업"
   },
   {
+    "symbol": "204210",
+    "name": "JK리버스톤리츠",
+    "market": "KOSPI",
+    "sector": "부동산",
+    "industry": "부동산 임대 및 공급업"
+  },
+  {
     "symbol": "229640",
     "name": "LS에코에너지",
     "market": "KOSPI",
     "sector": "에너지/원자력",
     "industry": "기타 금융업"
-  },
-  {
-    "symbol": "204210",
-    "name": "스타에스엠리츠",
-    "market": "KOSPI",
-    "sector": "부동산",
-    "industry": "부동산 임대 및 공급업"
   },
   {
     "symbol": "249420",
@@ -5866,6 +5866,13 @@
     "industry": "연료용 가스 제조 및 배관공급업"
   },
   {
+    "symbol": "288180",
+    "name": "케이피항공산업",
+    "market": "KOSDAQ",
+    "sector": "우주항공/방산",
+    "industry": "항공기,우주선 및 부품 제조업"
+  },
+  {
     "symbol": "487580",
     "name": "폴레드",
     "market": "KOSDAQ",
@@ -7693,13 +7700,6 @@
     "industry": "전자부품 제조업"
   },
   {
-    "symbol": "466910",
-    "name": "엔에이치스팩30호",
-    "market": "KOSDAQ",
-    "sector": "은행/금융지주",
-    "industry": "금융 지원 서비스업"
-  },
-  {
     "symbol": "453860",
     "name": "에이에스텍",
     "market": "KOSDAQ",
@@ -7873,13 +7873,6 @@
     "market": "KOSDAQ",
     "sector": "화학",
     "industry": "기초 화학물질 제조업"
-  },
-  {
-    "symbol": "462020",
-    "name": "에이치엠씨제6호스팩",
-    "market": "KOSDAQ",
-    "sector": "은행/금융지주",
-    "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "451220",
@@ -13735,7 +13728,7 @@
   },
   {
     "symbol": "900100",
-    "name": "애머릿지",
+    "name": "파이온엑스",
     "market": "KOSDAQ",
     "sector": "자동차부품",
     "industry": "자동차 부품 및 내장품 판매업"
