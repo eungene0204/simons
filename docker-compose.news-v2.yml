@@ -1,0 +1,96 @@
+version: "3.9"
+
+# Local infra for news_v2. Spin up with:
+#   docker compose -f docker-compose.news-v2.yml up -d
+#
+# Defaults assume single-host dev. For production, run Redis with sentinel/cluster
+# and PostgreSQL with HA + read replicas.
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: simons-news-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - allkeys-lru
+      - --appendonly
+      - "no"
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: simons-news-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: simons
+      POSTGRES_PASSWORD: simons
+      POSTGRES_DB: simons_news
+    ports:
+      - "5433:5432"      # 5433 host → 5432 container to avoid clashing with system PG
+    volumes:
+      - simons-news-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U simons -d simons_news"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  celery-worker:
+    image: python:3.11-slim
+    container_name: simons-news-worker
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+      - ./prisma:/app/_prisma:ro
+    environment:
+      PYTHONPATH: /app
+      NEWSV2_ENABLED: "true"
+      NEWSV2_REDIS_URL: redis://redis:6379/1
+      NEWSV2_CELERY_BROKER: redis://redis:6379/2
+      NEWSV2_DB_URL: postgresql+asyncpg://simons:simons@postgres:5432/simons_news
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    command: >
+      sh -c "pip install --no-cache-dir -r requirements.txt -r requirements-news-v2.txt &&
+             celery -A news_v2.celery_app.celery_app worker
+             -Q news.collect.high,news.collect.default,news.analyze,news.maintenance
+             --concurrency=4 --loglevel=INFO"
+
+  celery-scheduler:
+    image: python:3.11-slim
+    container_name: simons-news-scheduler
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+    environment:
+      PYTHONPATH: /app
+      NEWSV2_ENABLED: "true"
+      NEWSV2_REDIS_URL: redis://redis:6379/1
+      NEWSV2_CELERY_BROKER: redis://redis:6379/2
+      NEWSV2_DB_URL: postgresql+asyncpg://simons:simons@postgres:5432/simons_news
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    command: >
+      sh -c "pip install --no-cache-dir -r requirements.txt -r requirements-news-v2.txt &&
+             python -m news_v2.scheduler"
+
+volumes:
+  simons-news-pgdata:

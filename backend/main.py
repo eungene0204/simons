@@ -54,7 +54,23 @@ async def lifespan(_app):
 
     thread = threading.Thread(target=_preload, daemon=True, name="llm-preload")
     thread.start()
+
+    # news_v2 — best-effort scheduler bootstrap. Disabled if NEWSV2_ENABLED=false
+    # or if APScheduler isn't installed.
+    try:
+        from news_v2.scheduler import start_scheduler, stop_scheduler
+        start_scheduler()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("news_v2 scheduler startup skipped: %s", e)
+        stop_scheduler = lambda: None  # noqa: E731
+
     yield
+
+    try:
+        stop_scheduler()
+    except Exception:
+        pass
 
 app = FastAPI(lifespan=lifespan)
 
@@ -88,6 +104,14 @@ app.include_router(advisor_router)
 
 from api.coach_routes import router as coach_router
 app.include_router(coach_router)
+
+# news_v2 — pre-fetch & cache architecture
+try:
+    from news_v2.api import router as news_v2_router
+    app.include_router(news_v2_router)
+except Exception as _e:
+    import logging
+    logging.getLogger(__name__).warning("news_v2 router not mounted: %s", _e)
 
 app.state.backtest_engine = engine
 

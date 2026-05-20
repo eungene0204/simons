@@ -579,3 +579,80 @@ model NewsIngestionLog {
 
   @@index([provider, createdAt])
 }
+
+// ─── News v2 — Pre-fetch & Cache architecture ─────────────────────────────────
+//
+// Standalone tables for the new pre-fetched, tier-scheduled, Redis-cached news
+// pipeline that powers the stock-page news tab. Designed to be PostgreSQL-native
+// (run on SQLite for dev with JSON-as-string fallbacks).
+
+model NewsV2Article {
+  id              Int       @id @default(autoincrement())
+  symbol          String
+  title           String
+  normalizedTitle String
+  summary         String?
+  source          String
+  url             String
+  publishedAt     DateTime
+  sentiment       String?
+  sentimentScore  Float?
+  impactLevel     String?
+  marketEffect    String?
+  relatedSymbols  String?
+  aiSummary       String?
+  embedding       Bytes?
+  hash            String
+  status          String    @default("analyzed")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([symbol, hash])
+  @@index([symbol, publishedAt])
+  @@index([hash])
+  @@index([publishedAt])
+}
+
+model NewsV2PriorityScore {
+  symbol          String   @id
+  score           Float    @default(0)
+  tier            Int      @default(3)
+  lastCollected   DateTime?
+  lastViewed      DateTime?
+  viewCount24h    Int      @default(0)
+  watchlistCount  Int      @default(0)
+  searchCount24h  Int      @default(0)
+  volatility      Float    @default(0)
+  turnover        Float    @default(0)
+  aiImportance    Float    @default(0)
+  updatedAt       DateTime @updatedAt
+
+  @@index([tier, score])
+}
+
+model NewsV2CollectionStatus {
+  symbol         String    @id
+  status         String    @default("NOT_COLLECTED")
+  lastSuccessAt  DateTime?
+  lastAttemptAt  DateTime?
+  lastError      String?
+  attemptCount   Int       @default(0)
+  inFlightJobId  String?
+  updatedAt      DateTime  @updatedAt
+}
+
+model NewsV2IngestionLog {
+  id          Int       @id @default(autoincrement())
+  symbol      String
+  provider    String
+  jobId       String?
+  startedAt   DateTime
+  finishedAt  DateTime?
+  fetched     Int       @default(0)
+  deduped     Int       @default(0)
+  inserted    Int       @default(0)
+  status      String
+  error       String?
+
+  @@index([symbol, startedAt])
+}
