@@ -162,7 +162,7 @@ export default function OrderPage() {
   const [transactionType, setTransactionType] = useState<
     "buy" | "sell" | "pending"
   >("buy");
-  const [priceType, setPriceType] = useState<"limit" | "market" | "best_limit" | "conditional">("limit");
+  const [priceType, setPriceType] = useState<"limit" | "market">("limit");
   const [availableAmount, setAvailableAmount] = useState(0); // 구매가능 금액
   const [holdingQty, setHoldingQty] = useState(0); // 보유수량
   const [avgBuyPrice, setAvgBuyPrice] = useState(0); // 평균매수가
@@ -1098,7 +1098,7 @@ export default function OrderPage() {
                           <div className="flex justify-between text-xs">
                             <span className="text-gray-400">주문유형</span>
                             <span className="font-bold text-white">
-                              {priceType === "market" ? "시장가" : priceType === "best_limit" ? "최유리지정가" : priceType === "conditional" ? "조건부지정가" : "지정가"}
+                              {priceType === "market" ? "시장가" : "지정가"}
                             </span>
                           </div>
                           <div className="flex justify-between text-xs">
@@ -1161,65 +1161,36 @@ export default function OrderPage() {
                         {/* 주문유형 */}
                         <div>
                           <div className="mb-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-500">주문유형</div>
-                          <div className="grid grid-cols-2 gap-1.5">
-                            {([
-                              ["limit", "지정가"],
-                              ["market", "시장가"],
-                              ["best_limit", "최유리지정가"],
-                              ["conditional", "조건부지정가"],
-                            ] as const).map(([type, label]) => (
+                          <div className="relative flex rounded-xl bg-white/[0.06] p-1 overflow-hidden">
+                            <div
+                              className={`absolute top-1 bottom-1 w-[calc(50%-4px)] rounded-lg bg-white/20 ${
+                                priceType === "limit" ? "left-1" : "left-[calc(50%+3px)]"
+                              }`}
+                              style={{ transition: "left 280ms cubic-bezier(0.25, 0.46, 0.45, 0.94)" }}
+                            />
+                            {(["limit", "market"] as const).map((type) => (
                               <button
                                 key={type}
                                 onClick={() => {
                                   setPriceType(type);
                                   if (type === "market" && currentPrice) setPrice(currentPrice.toString());
                                 }}
-                                className={`rounded-lg py-1.5 text-xs font-bold transition-colors ${
-                                  priceType === type
-                                    ? transactionType === "buy"
-                                      ? "bg-[var(--main-red)]/15 text-[var(--main-red)]"
-                                      : "bg-[var(--main-blue)]/15 text-[var(--main-blue)]"
-                                    : "border border-white/[0.06] bg-white/[0.02] text-gray-400 hover:text-gray-200"
+                                className={`relative z-10 flex-1 py-1.5 text-xs font-bold transition-colors duration-200 ${
+                                  priceType === type ? "text-white" : "text-gray-500 hover:text-gray-300"
                                 }`}
-                              >{label}</button>
+                              >
+                                {type === "limit" ? "지정가" : "시장가"}
+                              </button>
                             ))}
                           </div>
                         </div>
 
                         {/* 가격 입력 */}
                         <div>
-                          <div className="mb-1.5 flex items-center justify-between">
+                          <div className="mb-1.5">
                             <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
                               {transactionType === "buy" ? "매수가격" : "매도가격"}
                             </span>
-                            {referenceClose && (
-                              <div className="flex items-center gap-1 text-[10px]">
-                                <span className="text-[var(--main-red)] font-bold">상:{upperLimitPrice ? formatPrice(upperLimitPrice) : "-"}</span>
-                                <span className="text-gray-600">|</span>
-                                <span className="text-[var(--main-blue)] font-bold">하:{lowerLimitPrice ? formatPrice(lowerLimitPrice) : "-"}</span>
-                              </div>
-                            )}
-                          </div>
-                          {/* 빠른 가격 버튼 */}
-                          <div className="mb-1.5 flex gap-1">
-                            {upperLimitPrice && (
-                              <button
-                                onClick={() => { setPriceType("limit"); setPrice(upperLimitPrice.toString()); }}
-                                className="flex-1 rounded-md border border-[var(--main-red)]/30 bg-[var(--main-red)]/5 py-1 text-[10px] font-bold text-[var(--main-red)] hover:bg-[var(--main-red)]/10"
-                              >상한가</button>
-                            )}
-                            {currentPrice && (
-                              <button
-                                onClick={() => { setPriceType("limit"); setPrice(currentPrice.toString()); }}
-                                className="flex-1 rounded-md border border-white/[0.08] bg-white/[0.03] py-1 text-[10px] font-bold text-gray-300 hover:text-white"
-                              >현재가</button>
-                            )}
-                            {lowerLimitPrice && (
-                              <button
-                                onClick={() => { setPriceType("limit"); setPrice(lowerLimitPrice.toString()); }}
-                                className="flex-1 rounded-md border border-[var(--main-blue)]/30 bg-[var(--main-blue)]/5 py-1 text-[10px] font-bold text-[var(--main-blue)] hover:bg-[var(--main-blue)]/10"
-                              >하한가</button>
-                            )}
                           </div>
                           <div className="flex gap-1.5">
                             <input
@@ -1227,7 +1198,7 @@ export default function OrderPage() {
                               value={priceType === "market" ? "" : (price ? Number(price).toLocaleString("ko-KR") : "")}
                               onChange={(e) => { const raw = e.target.value.replace(/,/g, ""); if (raw === "" || /^\d+$/.test(raw)) setPrice(raw); }}
                               disabled={priceType === "market"}
-                              className="min-w-0 flex-1 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-sm font-bold text-right tabular-nums text-white placeholder:text-gray-600 disabled:cursor-not-allowed disabled:opacity-40"
+                              className="min-w-0 flex-1 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-sm font-bold text-right tabular-nums text-white placeholder:text-gray-600 disabled:cursor-not-allowed disabled:opacity-40 outline-none focus:outline-none focus:ring-0"
                               placeholder={priceType === "market" ? "시장가" : "0"}
                             />
                             <button
@@ -1241,29 +1212,28 @@ export default function OrderPage() {
                               className="w-9 rounded-lg border border-white/[0.08] bg-white/[0.03] text-base font-black text-gray-300 hover:text-white disabled:opacity-30"
                             >+</button>
                           </div>
-                          {priceType === "limit" && price && referenceClose && Number(price) > 0 && (
-                            <div className={`mt-1 text-right text-[10px] font-bold ${Number(price) > referenceClose ? "text-[var(--main-red)]" : Number(price) < referenceClose ? "text-[var(--main-blue)]" : "text-gray-500"}`}>
-                              전일비 {Number(price) > referenceClose ? "+" : ""}{(((Number(price) - referenceClose) / referenceClose) * 100).toFixed(2)}%
-                            </div>
-                          )}
                         </div>
 
                         {/* 수량 입력 */}
                         <div>
-                          <div className="mb-1.5 flex items-center justify-between">
+                          <div className="mb-1.5">
                             <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">수량</span>
-                            <span className="text-[10px] text-gray-500">
-                              {transactionType === "sell" ? `보유 ${formatPrice(holdingQty)}주` : `가능 ${formatPrice(availableQty)}주`}
-                            </span>
                           </div>
                           <div className="flex gap-1.5">
-                            <input
-                              type="text"
-                              value={quantity}
-                              onChange={(e) => { const v = e.target.value.replace(/[^0-9]/g, ""); setQuantity(v); }}
-                              className="min-w-0 flex-1 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-sm font-bold text-right tabular-nums text-white placeholder:text-gray-600"
-                              placeholder="0"
-                            />
+                            <div className="relative min-w-0 flex-1">
+                              <input
+                                type="text"
+                                value={quantity}
+                                onChange={(e) => { const v = e.target.value.replace(/[^0-9]/g, ""); setQuantity(v); }}
+                                className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] pl-3 pr-3 py-2.5 text-sm font-bold text-right tabular-nums text-white placeholder:text-gray-600 outline-none focus:outline-none focus:ring-0"
+                                placeholder="0"
+                              />
+                              {!quantity && (
+                                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">
+                                  {transactionType === "sell" ? `최대 ${formatPrice(holdingQty)}주` : `최대 ${formatPrice(availableQty)}주`}
+                                </span>
+                              )}
+                            </div>
                             <button
                               onClick={() => setQuantity((prev) => Math.max(0, Number(prev || 0) - 1).toString())}
                               className="w-9 rounded-lg border border-white/[0.08] bg-white/[0.03] text-base font-black text-gray-300 hover:text-white"
@@ -1335,8 +1305,8 @@ export default function OrderPage() {
                           }`}
                         >
                           {transactionType === "buy"
-                            ? priceType === "market" ? "시장가 매수" : priceType === "best_limit" ? "최유리 매수" : priceType === "conditional" ? "조건부 매수" : "지정가 매수"
-                            : priceType === "market" ? "시장가 매도" : priceType === "best_limit" ? "최유리 매도" : priceType === "conditional" ? "조건부 매도" : "지정가 매도"}
+                            ? priceType === "market" ? "시장가 매수" : "지정가 매수"
+                            : priceType === "market" ? "시장가 매도" : "지정가 매도"}
                         </button>
                       </div>
                     )}
