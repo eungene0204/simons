@@ -246,7 +246,22 @@ export default function QuickSearchModal({
 
     try {
       const stored = window.localStorage.getItem(RECENT_SEARCHES_KEY);
-      setRecentSearches(stored ? (JSON.parse(stored) as string[]) : []);
+      const parsed: unknown = stored ? JSON.parse(stored) : [];
+      const normalized = Array.isArray(parsed)
+        ? parsed
+            .map((entry) => {
+              if (typeof entry === "string") return entry;
+              if (entry && typeof entry === "object" && typeof (entry as { title?: unknown }).title === "string") {
+                return (entry as { title: string }).title;
+              }
+              return null;
+            })
+            .filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
+        : [];
+      setRecentSearches(normalized);
+      if (JSON.stringify(normalized) !== stored) {
+        window.localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(normalized));
+      }
     } catch {
       setRecentSearches([]);
     }

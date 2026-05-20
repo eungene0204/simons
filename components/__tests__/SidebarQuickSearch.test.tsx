@@ -230,4 +230,29 @@ describe("Sidebar quick search", () => {
     expect(await screen.findByText("+1.23%")).toBeInTheDocument();
     expect(await screen.findByText("1.83%")).toBeInTheDocument();
   });
+
+  it("localStorage에 {title, href} 객체 형식의 레거시 최근 검색이 있어도 안전하게 렌더된다", async () => {
+    window.localStorage.setItem(
+      "quick-search:recent",
+      JSON.stringify([
+        { title: "삼성전자", href: "/stock-order?symbol=005930" },
+        { title: "SK하이닉스", href: "/stock-order?symbol=000660" },
+        "현대차",
+      ])
+    );
+
+    renderWithQueryClient(<Sidebar />);
+
+    fireEvent.keyDown(window, { key: "/" });
+
+    expect(await screen.findByText("최근 검색")).toBeInTheDocument();
+    expect(screen.getByText("삼성전자")).toBeInTheDocument();
+    expect(screen.getByText("SK하이닉스")).toBeInTheDocument();
+    expect(screen.getByText("현대차")).toBeInTheDocument();
+
+    const stored = window.localStorage.getItem("quick-search:recent");
+    expect(stored).toBe(JSON.stringify(["삼성전자", "SK하이닉스", "현대차"]));
+
+    window.localStorage.removeItem("quick-search:recent");
+  });
 });
