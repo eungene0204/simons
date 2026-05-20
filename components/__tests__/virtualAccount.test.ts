@@ -56,6 +56,10 @@ vi.mock("@/lib/prisma", () => ({
 
 vi.mock("@/lib/krx-stocks", () => ({
   loadStockList: mockLoadStockList,
+  getStockNameMap: async () => {
+    const list = await mockLoadStockList();
+    return Object.fromEntries(list.map((s: { symbol: string; name: string }) => [s.symbol, s.name]));
+  },
 }));
 
 // ── route 핸들러 import (mock 이후) ─────────────────────────────────────────
