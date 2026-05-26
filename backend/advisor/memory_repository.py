@@ -17,11 +17,14 @@ from typing import Any, Dict, List, Optional, Tuple
 from .advice_evaluator import evaluate_advice
 from .similarity import search_similar_strategies
 from .strategy_identity import canonical_strategy_string, strategy_id_for
-from .vector_memory import (
+from vector_memory import (
+    ChromaVectorMemoryRepository,
+    HashingEmbeddingClient,
+    VectorMemoryService,
     migrate_backtest_results_to_chroma,
-    query_chroma_memory,
-    vector_matches_to_memory_cases,
+    normalize_backtest_result,
 )
+from vector_memory.models import VectorMemoryMatch
 
 
 def _db_path() -> str:
@@ -113,6 +116,14 @@ def _coerce_text(value: Any, default: str = "") -> str:
         return default
     text = str(value).strip()
     return text or default
+
+
+def _chroma_path() -> str:
+    configured = os.getenv("ADVISOR_CHROMA_PATH")
+    if configured:
+        return configured
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(project_root, "backend", "advisor", ".chroma")
 
 
 def _nested_dict(value: Any, key: str) -> Dict[str, Any]:
@@ -311,6 +322,149 @@ def _bootstrap_agent_advice(summary: Dict[str, Any]) -> Dict[str, Any]:
         ],
         "confidence": "low",
     }
+
+
+def _extract_strategy_dsl_from_document(document: str) -> Dict[str, Any]:
+    prefix = "Strategy DSL: "
+    for line in document.splitlines():
+        if line.startswith(prefix):
+            value = _json_loads(line[len(prefix):], {})
+            return value if isinstance(value, dict) else {}
+    return {}
+
+
+def _metrics_from_vector_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "return": metadata.get("return"),
+        "cagr": metadata.get("cagr"),
+        "mdd": metadata.get("mdd"),
+        "sharpe": metadata.get("sharpe"),
+        "sortino": metadata.get("sortino"),
+        "profit_factor": metadata.get("profit_factor"),
+        "win_rate": metadata.get("win_rate"),
+        "volatility": metadata.get("volatility"),
+        "turnover": metadata.get("turnover"),
+        "trade_count": metadata.get("trade_count"),
+    }
+
+
+def _vector_memory_lesson(match: VectorMemoryMatch) -> str:
+    metadata = match.metadata
+    success_reason = _coerce_text(metadata.get("successReason"))
+    failure_reason = _coerce_text(metadata.get("failureReason"))
+    risk_level = _coerce_text(metadata.get("riskLevel"), "unknown")
+    if success_reason:
+        return (
+            f"Vector Memory에서 검색된 유사 백테스트 사례입니다. "
+            f"riskLevel={risk_level}, similarity={match.similarity_score:.3f}. "
+            f"성공 원인: {success_reason}"
+        )
+    if failure_reason:
+        return (
+            f"Vector Memory에서 검색된 유사 백테스트 사례입니다. "
+            f"riskLevel={risk_level}, similarity={match.similarity_score:.3f}. "
+            f"실패 원인: {failure_reason}"
+        )
+    return (
+        f"Vector Memory에서 검색된 유사 백테스트 사례입니다. "
+        f"riskLevel={risk_level}, similarity={match.similarity_score:.3f}. "
+        "동일 조건 재백테스트와 OOS 검증 전에는 성과를 확정하지 않습니다."
+    )
+
+
+def _vector_matches_to_memory_cases(
+    matches: List[VectorMemoryMatch],
+    retrieval_categories: Optional[Dict[str, List[str]]] = None,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    strategy_cases: List[Dict[str, Any]] = []
+    experiences: List[Dict[str, Any]] = []
+    for match in matches:
+        metadata = match.metadata
+        strategy_dsl = _extract_strategy_dsl_from_document(match.document)
+        metrics = _metrics_from_vector_metadata(metadata)
+        strategy_id = _coerce_text(metadata.get("strategy_hash"), match.id.split(":", 1)[0])
+        summary = _coerce_text(metadata.get("strategy_summary"), match.document[:240])
+        categories = (retrieval_categories or {}).get(match.id, ["similar"])
+        category_text = ", ".join(categories)
+        strategy_cases.append({
+            "strategy_id": strategy_id,
+            "strategy_summary": summary,
+            "strategy_dsl": strategy_dsl,
+            "agent_advice_text": match.document,
+            "vector_similarity_score": match.similarity_score,
+            "retrieval_categories": categories,
+        })
+        experiences.append({
+            "strategy_id": strategy_id,
+            "strategy_summary": summary,
+            "strategy_dsl": strategy_dsl,
+            "before_backtest": metrics,
+            "after_backtest": {},
+            "evaluation": {
+                "advice_success": None,
+                "net_effect": "unverified",
+                "source": "vector_memory_backtest_results",
+            },
+            "lesson": _vector_memory_lesson(match),
+            "confidence": "medium" if match.similarity_score >= 0.55 else "low",
+            "similarity_reason": (
+                f"Vector memory retrieval categories={category_text}; "
+                f"similarity score {match.similarity_score:.3f}"
+            ),
+            "retrieval_categories": categories,
+        })
+    return strategy_cases, experiences
+
+
+def _record_filter_value(record: Any, field: str) -> Any:
+    value = getattr(record, field)
+    if value in ("", None, 0, 0.0):
+        return None
+    return value
+
+
+async def _query_vector_memory_by_categories(
+    service: VectorMemoryService,
+    query_record: Any,
+    *,
+    top_k: int,
+) -> Tuple[List[VectorMemoryMatch], Dict[str, List[str]]]:
+    filters: List[Tuple[str, Optional[Dict[str, Any]]]] = [
+        ("similar", None),
+        ("successful_low_risk", {"riskLevel": "low"}),
+        ("failed_high_risk", {"riskLevel": "high"}),
+    ]
+    market_regime = _record_filter_value(query_record, "marketRegime")
+    capital = _record_filter_value(query_record, "capital")
+    holding_period = _record_filter_value(query_record, "holdingPeriod")
+    rebalance_frequency = _record_filter_value(query_record, "rebalanceFrequency")
+    if market_regime:
+        filters.append(("same_market_regime", {"marketRegime": market_regime}))
+    if capital:
+        filters.append(("same_capital", {"capital": capital}))
+    if holding_period:
+        filters.append(("same_holding_period", {"holdingPeriod": holding_period}))
+    if rebalance_frequency:
+        filters.append(("same_trade_frequency", {"rebalanceFrequency": rebalance_frequency}))
+
+    by_id: Dict[str, VectorMemoryMatch] = {}
+    categories: Dict[str, List[str]] = {}
+    for category, where in filters:
+        matches = await service.query_similar(
+            record=query_record,
+            top_k=top_k,
+            where=where,
+        )
+        for match in matches:
+            existing = by_id.get(match.id)
+            if existing is None or match.similarity_score > existing.similarity_score:
+                by_id[match.id] = match
+            categories.setdefault(match.id, [])
+            if category not in categories[match.id]:
+                categories[match.id].append(category)
+
+    ordered = sorted(by_id.values(), key=lambda item: item.similarity_score, reverse=True)
+    return ordered[: max(top_k, len(filters))], categories
 
 
 def _bootstrap_lesson(strategy_summary: str, summary: Dict[str, Any]) -> str:
@@ -673,7 +827,10 @@ async def load_vector_advisor_memory(
     try:
         _bootstrap_experience_rows(conn)
         _enrich_bootstrap_comparisons(conn)
-        migration = await migrate_backtest_results_to_chroma(conn)
+        migration = await migrate_backtest_results_to_chroma(
+            conn,
+            persist_path=_chroma_path(),
+        )
         if migration.unavailable or migration.scanned == 0:
             return [], []
     except sqlite3.Error:
@@ -683,14 +840,23 @@ async def load_vector_advisor_memory(
         conn.close()
 
     try:
-        matches = await query_chroma_memory(
-            user_prompt=user_prompt,
+        service = VectorMemoryService(
+            repository=ChromaVectorMemoryRepository(persist_path=_chroma_path()),
+            embedding_client=HashingEmbeddingClient(),
+        )
+        query_record = normalize_backtest_result(
             strategy_dsl=strategy_dsl,
+            metrics={},
+            strategy_summary=user_prompt,
+        )
+        matches, retrieval_categories = await _query_vector_memory_by_categories(
+            service,
+            query_record,
             top_k=top_k,
         )
     except Exception:
         return [], []
-    return vector_matches_to_memory_cases(matches)
+    return _vector_matches_to_memory_cases(matches, retrieval_categories)
 
 
 def save_advisor_experience(request: Any, response: Any) -> Optional[str]:

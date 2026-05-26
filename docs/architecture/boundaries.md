@@ -365,6 +365,41 @@ Codex 작업 규칙, boundary 정의, 운영 정책 문서 유지보수.
 
 ---
 
+## Boundary N: Vector Memory Infrastructure
+
+### Purpose
+Backtest result Experience Memory를 semantic retrieval 용도로 저장하고 검색하는 vector memory infrastructure.
+
+### Files
+- backend/vector_memory/**
+- backend/tests/test_vector_memory_*.py
+- backend/tests/test_advisor_vector_memory.py
+
+### Allowed Tasks
+- normalized backtest memory document 생성 로직 추가 및 수정
+- strategy DSL hash 기반 vector memory key 생성
+- embedding client protocol 및 deterministic/local embedding adapter 추가
+- ChromaDB repository adapter 추가 및 수정
+- vector memory upsert/query service 추가 및 수정
+- metadata filtering, duplicate prevention, strategy version metadata 보완
+- vector memory infrastructure unit test 추가 및 수정
+
+### Strict Rules
+- Vector DB는 semantic retrieval memory로만 사용하고 source of truth로 취급하지 않는다.
+- 백테스트 완료 즉시 upsert wiring은 별도 boundary에서 수행한다.
+- embedding 대상은 압축된 strategy/backtest summary여야 하며 raw trade logs, 개인정보, 긴 report 원문은 저장하지 않는다.
+- ChromaDB, embedding provider, repository 구현은 protocol 뒤에 숨긴다.
+
+### Forbidden
+- 백테스트 엔진(`backend/engine/**`) 변경
+- Prisma schema 또는 DB persistence 변경
+- Advisor 응답 문구/추천 로직(`backend/advisor/**`) 변경
+- API/프론트엔드 route 변경
+- provider 계층(`backend/engine/providers/**`) 변경
+- 범용 스크립트 수정
+
+---
+
 ## Global Forbidden Paths
 
 Codex must NEVER modify:

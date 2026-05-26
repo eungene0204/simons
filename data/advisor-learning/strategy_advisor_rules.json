@@ -1,19 +1,36 @@
 {
   "rules": [
     {
-      "id": "rule_missing_exit_rule",
-      "condition": "missing stop_loss_pct, take_profit_pct, trailing_stop_pct, and max_holding_days",
+      "advice": "필수 전략 구성요소가 빠졌으면 성과 조언보다 누락된 구성요소 보완을 먼저 안내합니다.",
+      "condition": "missing universe, entry_signals, exit_signals, portfolio, or risk rule",
+      "confidence": "high",
       "evidence": {
-        "source": "data/advisor-learning/strategy_prompt_experiment_summary.json",
-        "confidence": "medium"
+        "confidence": "high",
+        "source": "data/advisor-learning/strategy_prompt_experiment_summary.json"
       },
-      "advice": "청산 조건이 부족하면 실험 근거와 함께 MDD 확대 가능성을 먼저 설명합니다.",
+      "id": "rule_missing_required_strategy_part",
       "suggested_actions": [
-        "손절 8% 추가",
-        "익절 15% 추가",
-        "최대 보유기간 20일 추가"
-      ],
-      "confidence": "medium"
+        "유니버스 명확화",
+        "진입 신호 명확화",
+        "청산/리스크 규칙 명확화"
+      ]
+    },
+    {
+      "advice": "입력 전략과 비슷한 전략으로 테스트한 결과를 먼저 짧게 제시하고, MDD와 Sharpe가 동시에 좋아지는 변경만 남기도록 안내합니다.",
+      "condition": "similar learning samples exist with backtest metrics",
+      "confidence": "high",
+      "evidence": {
+        "confidence": "high",
+        "source": "data/advisor-learning/strategy_prompt_experiment_summary.json"
+      },
+      "id": "rule_risk_adjusted_comparison",
+      "suggested_actions": [
+        "손절 비교",
+        "보유기간 비교",
+        "보유 종목 수 비교"
+      ]
     }
-  ]
+  ],
+  "summary_source": "data/advisor-learning/strategy_prompt_experiment_summary.json",
+  "total_learning_samples": 59975
 }

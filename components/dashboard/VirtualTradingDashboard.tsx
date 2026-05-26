@@ -386,11 +386,7 @@ export default function VirtualTradingDashboard({ accountId, initialAmount }: Pr
             <SectionTitle
               title="누적 손익"
               description="일별 누적 실현 손익 추이"
-              right={
-                <span className={`inline-flex items-center rounded-md px-2.5 py-1 text-xs font-bold ${valueTone(stats.totalRealizedPnl)} ${stats.totalRealizedPnl >= 0 ? "bg-[var(--main-red)]/10" : "bg-[var(--main-blue)]/10"}`}>
-                  {stats.totalRealizedPnl >= 0 ? "GAIN" : "LOSS"}
-                </span>
-              }
+              right={undefined}
             />
             {hasTrades ? (
               <ResponsiveContainer width="100%" height={220}>

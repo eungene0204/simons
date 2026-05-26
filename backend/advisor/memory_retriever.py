@@ -52,6 +52,7 @@ def build_retrieved_cases(
             "advice_success": (row.get("evaluation") or {}).get("advice_success")
             if isinstance(row.get("evaluation"), dict)
             else None,
+            "retrieval_categories": row.get("retrieval_categories") or [],
         })
         if len(cases) >= limit:
             break

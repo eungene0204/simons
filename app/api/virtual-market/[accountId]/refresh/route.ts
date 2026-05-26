@@ -489,6 +489,7 @@ async function logSignal(
       accountId,
       date,
       symbol: sig.symbol,
+      stockName: stockNameMap[sig.symbol] ?? null,
       signalType,
       reason: signalType === "entry" ? sig.entry_reason ?? null : sig.exit_reason ?? null,
       price: sig.close ?? 0,

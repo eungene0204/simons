@@ -346,6 +346,7 @@ model VirtualMarketLog {
   accountId  String
   date       String
   symbol     String
+  stockName  String?
   signalType String
   reason     String?
   price      Float

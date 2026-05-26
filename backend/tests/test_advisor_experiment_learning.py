@@ -179,6 +179,80 @@ def test_learning_provider_prefers_parameter_near_samples_for_adjustments(tmp_pa
     ]
 
 
+def test_learning_provider_separates_positive_and_negative_samples(tmp_path):
+    summary = {
+        "summary": {
+            "best_indicator_combinations": {},
+            "best_single_indicators": {},
+        }
+    }
+    rows = [
+        {
+            "input": {
+                "sample_id": "good_rsi_stop",
+                "user_prompt": "RSI 30 이하, 손절 8%, 익절 15%",
+                "parsed_blocks": ["rsi", "stop_loss", "take_profit"],
+                "extracted_parameters": {
+                    "stop_loss_pct": 8,
+                    "take_profit_pct": 15,
+                    "max_positions": 10,
+                },
+            },
+            "output": {
+                "evidence": {
+                    "median_cagr": 10.0,
+                    "median_sharpe": 0.9,
+                    "median_mdd": -12.0,
+                    "median_profit_factor": 1.6,
+                    "median_trades": 35,
+                },
+            },
+        },
+        {
+            "input": {
+                "sample_id": "bad_rsi_stop",
+                "user_prompt": "RSI 30 이하, 손절 20%, 익절 40%",
+                "parsed_blocks": ["rsi", "stop_loss", "take_profit"],
+                "extracted_parameters": {
+                    "stop_loss_pct": 20,
+                    "take_profit_pct": 40,
+                    "max_positions": 10,
+                },
+            },
+            "output": {
+                "evidence": {
+                    "median_cagr": -8.0,
+                    "median_sharpe": -0.4,
+                    "median_mdd": -38.0,
+                    "median_profit_factor": 0.7,
+                    "median_trades": 28,
+                },
+            },
+        },
+    ]
+    (tmp_path / "strategy_prompt_experiment_summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    (tmp_path / "strategy_advisor_learning_dataset.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in rows),
+        encoding="utf-8",
+    )
+
+    provider = ExperimentLearningProvider(tmp_path)
+    insight = provider.build_insight({
+        "entry_signals": [{"indicator": "rsi", "threshold": 30}],
+        "max_positions": 10,
+    })
+
+    assert insight["positive_samples"][0]["sample_id"] == "good_rsi_stop"
+    assert insight["negative_samples"][0]["sample_id"] == "bad_rsi_stop"
+    assert insight["negative_sample_count"] == 1
+    assert insight["recommended_adjustments"][:3] == [
+        "RSI 진입 기준 25/30/35 비교",
+        "손절 8% 추가 버전 비교",
+        "익절 15% 추가 버전 비교",
+    ]
+    assert any("유사 실패 패턴" in warning for warning in insight["warnings"])
+
+
 def test_learning_provider_surfaces_paired_delta_adjustments(tmp_path):
     summary = {
         "summary": {
@@ -358,6 +432,93 @@ def test_advisor_injects_experiment_learning_advice(tmp_path):
     assert result.strategy_experiment_learning is not None
     assert result.strategy_experiment_learning["similar_strategy_count"] == 18
     assert result.advice[0].title == "전략 실험 근거 기반 개선"
+    assert "백테스트 학습 사례 18건" in result.advice[0].body
+
+
+def test_advisor_primary_advice_combines_learning_and_memory_evidence(tmp_path):
+    _write_learning_files(tmp_path)
+    agent = StrategyAdvisorAgent(learning_provider=ExperimentLearningProvider(tmp_path))
+
+    parsed_strategy = {
+        "universe": ["KOSPI200"],
+        "entry_signals": [{"indicator": "rsi"}],
+        "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1}],
+        "stop_loss_pct": 8.0,
+        "take_profit_pct": 15.0,
+        "max_positions": 10,
+        "initial_capital": 10_000_000,
+    }
+
+    result = agent.review(AdvisorRequest(
+        user_prompt="PBR 1 이하, RSI 30 이하, 손절 8%로 검증해줘",
+        parsed_strategy=parsed_strategy,
+        memory_strategy_cases=[
+            {
+                "strategy_id": "case_pbr_rsi",
+                "user_prompt": "PBR 1 이하 RSI 평균회귀",
+                "strategy_summary": "PBR + RSI + 손절",
+                "strategy_dsl": parsed_strategy,
+            }
+        ],
+        memory_experiences=[
+            {
+                "strategy_id": "case_pbr_rsi",
+                "before_backtest": {"cagr": 0.04, "mdd": -0.24, "sharpe": 0.4},
+                "after_backtest": {"cagr": 0.08, "mdd": -0.16, "sharpe": 0.8},
+                "evaluation": {"advice_success": True},
+                "lesson": "PBR + RSI 조합은 손절과 보유기간을 함께 비교해야 한다.",
+            }
+        ],
+    ))
+
+    assert result.advice[0].title == "전략 실험 근거 기반 개선"
+    assert "백테스트 학습 사례 18건" in result.advice[0].body
+    assert "유사 전략 경험까지 보면" in result.advice[0].body
+    assert "조정 후" in result.advice[0].body
+    assert any(item.title == "유사 전략 경험 기반 점검" for item in result.advice)
+
+
+def test_advisor_injects_negative_experiment_warning(tmp_path):
+    summary = {
+        "summary": {
+            "best_indicator_combinations": {},
+            "best_single_indicators": {},
+        }
+    }
+    row = {
+        "input": {
+            "sample_id": "bad_rsi_only",
+            "user_prompt": "RSI 30 이하만 사용",
+            "parsed_blocks": ["rsi"],
+            "extracted_parameters": {"rsi_threshold": 30, "max_positions": 10},
+        },
+        "output": {
+            "evidence": {
+                "median_cagr": -12.0,
+                "median_sharpe": -0.6,
+                "median_mdd": -42.0,
+                "median_trades": 30,
+            },
+        },
+    }
+    (tmp_path / "strategy_prompt_experiment_summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    (tmp_path / "strategy_advisor_learning_dataset.jsonl").write_text(json.dumps(row), encoding="utf-8")
+
+    agent = StrategyAdvisorAgent(learning_provider=ExperimentLearningProvider(tmp_path))
+    result = agent.review(AdvisorRequest(
+        user_prompt="RSI 30 이하 전략을 검토해줘",
+        parsed_strategy={
+            "universe": ["KOSPI200"],
+            "entry_signals": [{"indicator": "rsi", "threshold": 30}],
+            "fundamental_filters": [],
+            "max_positions": 10,
+            "initial_capital": 10_000_000,
+        },
+    ))
+
+    assert result.strategy_experiment_learning is not None
+    assert result.strategy_experiment_learning["negative_sample_count"] == 1
+    assert "유사 실패 패턴" in result.advice[0].body
     assert "제안 주신 전략과 비슷한 전략의 결과" in result.advice[0].body
     assert "이 전략에서" in result.advice[0].body
     assert "각각 바꿔 테스트" in result.advice[0].body

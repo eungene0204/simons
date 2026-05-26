@@ -31,6 +31,12 @@ def test_advisor_response_sections_follow_required_order(tmp_path):
                 "user_prompt": "과매도 매수 과매수 매도",
                 "strategy_summary": "RSI 평균회귀",
                 "strategy_dsl": _rsi_strategy(),
+            },
+            {
+                "strategy_id": "case_rsi_failure",
+                "user_prompt": "RSI 단독 평균회귀 손절 없음",
+                "strategy_summary": "RSI 실패 평균회귀",
+                "strategy_dsl": _rsi_strategy(),
             }
         ],
         memory_experiences=[
@@ -40,16 +46,49 @@ def test_advisor_response_sections_follow_required_order(tmp_path):
                 "after_backtest": {"cagr": 0.07, "mdd": -0.18, "sharpe": 0.7},
                 "evaluation": {"advice_success": True},
                 "lesson": "RSI 평균회귀는 장기 추세 필터와 함께 검증해야 한다.",
+                "retrieval_categories": [
+                    "similar",
+                    "successful_low_risk",
+                    "same_market_regime",
+                    "same_capital",
+                    "same_holding_period",
+                    "same_trade_frequency",
+                ],
+            },
+            {
+                "strategy_id": "case_rsi_failure",
+                "before_backtest": {"cagr": -0.03, "mdd": -0.42, "sharpe": -0.2},
+                "after_backtest": {},
+                "evaluation": {"advice_success": False},
+                "lesson": "손절 없는 RSI 평균회귀는 변동성 확대 구간에서 MDD가 커졌다.",
+                "retrieval_categories": ["failed_high_risk"],
             }
         ],
     ))
 
     assert [section.title for section in result.response_sections] == SECTION_TITLES
     assert "현재 백테스트 결과가 없어 성과는 단정하지 않습니다" in result.response_sections[0].body
-    assert "case_rsi" in result.response_sections[2].body
-    assert "장기 추세 필터" in result.response_sections[3].body
-    assert "개선 후 백테스트 결과가 없어" in result.response_sections[5].body
-    assert "수익성 표현은 금지" in result.response_sections[6].body
+    assert "검색된 유사 전략 수" in result.response_sections[1].body
+    assert "검색 범주" in result.response_sections[1].body
+    assert "유사 성공/저위험" in result.response_sections[1].body
+    assert "유사 실패/고위험" in result.response_sections[1].body
+    assert "case_rsi" in result.response_sections[1].body
+    assert "유사 성공 전략의 공통점" in result.response_sections[2].body
+    assert "장기 추세 필터" in result.response_sections[2].body
+    assert "유사 성공/저위험 검색" in result.response_sections[2].body
+    assert "유사 실패 전략의 공통점" in result.response_sections[3].body
+    assert "유사 실패/고위험 검색" in result.response_sections[3].body
+    assert "시장 레짐별 적합성" in result.response_sections[4].body
+    assert "동일 시장 레짐" in result.response_sections[4].body
+    assert "현재 전략의 위험 요소" in result.response_sections[5].body
+    assert "사용자 조건 적합 검색" in result.response_sections[5].body
+    assert "과최적화 가능성" in result.response_sections[6].body
+    assert "개선해야 할 조건" in result.response_sections[7].body
+    assert "추천 추가 필터" in result.response_sections[8].body
+    assert "ATR stop loss" in result.response_sections[8].body
+    assert "개선 후 백테스트 결과가 없어" in result.response_sections[9].body
+    assert "수익성 표현은 금지" in result.response_sections[9].body
+    assert "다음 백테스트 액션" in result.response_sections[9].body
 
 
 def test_advisor_response_sections_include_evaluation_when_available(tmp_path):
@@ -68,5 +107,5 @@ def test_advisor_response_sections_include_evaluation_when_available(tmp_path):
 
     assert [section.title for section in result.response_sections] == SECTION_TITLES
     assert result.advice_evaluation is not None
-    assert "net_effect=positive" in result.response_sections[6].body
-    assert "OOS 검증" in result.response_sections[7].body
+    assert "net_effect=positive" in result.response_sections[5].body
+    assert "OOS 검증" in result.response_sections[9].body

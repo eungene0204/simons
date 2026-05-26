@@ -36,11 +36,17 @@ export interface AdvisorWalkForwardResult {
 const DOMAIN_PATTERNS: Record<RequestedDomain, RegExp[]> = {
   universe: [/코스피200|코스피 200|코스피|코스닥|kospi200|kospi|kosdaq|유니버스|전체 시장|시장/i],
   entry: [/진입|매수|골든크로스|rsi|macd|볼린저|브레이크아웃|돌파|pbr|per|roe|부채비율|시총|거래대금|필터|저평가|ai/i],
-  exit: [/청산|매도|보유|데드크로스|하락/i],
+  exit: [/청산|매도|팔아|팔까|팔지|보유|데드크로스|하락/i],
   risk: [/손절|익절|트레일링|리스크|mdd/i],
   portfolio: [/최대\s*\d+\s*종목|\d+\s*개\s*종목|\d+\s*종목|포트폴리오|리밸런싱|리밸런스|분산|집중/i],
   backtest: [/백테스트|테스트 기간|전체 데이터|초기자금|자본금|원금|만원|억원?|\d[\d,]*원/i],
 };
+
+const FOLLOW_UP_QUESTION_PATTERN =
+  /어때|어떻게|어디|언제|왜|뭘|뭐를|무엇|추천|조언|괜찮|좋을까|될까|볼까|봐야|팔아야|팔까|사야|살까|매도해야|매수해야|청산해야/i;
+
+const EXPLICIT_MODIFICATION_PATTERN =
+  /바꿔|변경|수정|추가|삭제|제외|빼|넣어|설정|적용|로\s*(해|바꿔|설정)|으로\s*(해|바꿔|설정)/i;
 
 function hasMatch(text: string, patterns: RegExp[]): boolean {
   return patterns.some((pattern) => pattern.test(text));
@@ -59,6 +65,19 @@ export function detectRequestedDomains(prompt: string): Set<RequestedDomain> {
   });
 
   return domains;
+}
+
+export function isAdvisorFollowUpPrompt(prompt: string): boolean {
+  const normalizedPrompt = prompt.trim();
+  if (!normalizedPrompt) return false;
+  if (
+    FOLLOW_UP_QUESTION_PATTERN.test(normalizedPrompt) &&
+    !EXPLICIT_MODIFICATION_PATTERN.test(normalizedPrompt)
+  ) {
+    return true;
+  }
+  if (detectRequestedDomains(normalizedPrompt).size > 0) return false;
+  return /개선|추천|조언|어떻게|어디|뭘|뭐를|다음|후속|보완|고쳐|봐야|볼까/.test(normalizedPrompt);
 }
 
 function mergeParsedSummary(
@@ -159,10 +178,19 @@ export function mergeStrategyModification(params: {
 }) {
   const requestedDomains = detectRequestedDomains(params.userPrompt);
 
-  if (!params.previousParsed || requestedDomains.size === 0) {
+  if (!params.previousParsed) {
     return {
       parsed: params.nextParsed,
       backtestRequest: params.nextBacktestRequest ?? params.previousBacktestRequest ?? null,
+      requestedDomains,
+      shouldReusePreviousClarification: false,
+    };
+  }
+
+  if (requestedDomains.size === 0) {
+    return {
+      parsed: params.previousParsed,
+      backtestRequest: params.previousBacktestRequest ?? params.nextBacktestRequest ?? null,
       requestedDomains,
       shouldReusePreviousClarification: false,
     };

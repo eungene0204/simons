@@ -8,6 +8,7 @@ evidence that can be injected into advisor responses without model fine-tuning.
 from __future__ import annotations
 
 import json
+import heapq
 import re
 from pathlib import Path
 from statistics import median
@@ -196,6 +197,61 @@ _PARAM_DISTANCE_SCALE = {
     "rsi_threshold": 50.0,
 }
 
+_NEGATIVE_MDD_THRESHOLD = -30.0
+_NEGATIVE_SHARPE_THRESHOLD = 0.0
+_LOW_TRADE_THRESHOLD = 5.0
+_RISK_CONTROL_BLOCKS = {
+    "max_holding_days",
+    "max_positions",
+    "stop_loss",
+    "take_profit",
+    "trailing_stop",
+}
+_MAX_MATCHED_SAMPLES = 50
+
+
+def _bounded_quality(value: Any) -> float:
+    numeric = _safe_float(value)
+    if numeric is None:
+        return 0.0
+    return max(-1.0, min(1.0, numeric))
+
+
+def _sample_risk_flags(evidence: Dict[str, Any]) -> List[str]:
+    flags: List[str] = []
+    sharpe = _safe_float(evidence.get("median_sharpe"))
+    mdd = _safe_float(evidence.get("median_mdd"))
+    trades = _safe_float(evidence.get("median_trades"))
+    if sharpe is not None and sharpe < _NEGATIVE_SHARPE_THRESHOLD:
+        flags.append("Sharpe가 0보다 낮음")
+    if mdd is not None and mdd <= _NEGATIVE_MDD_THRESHOLD:
+        flags.append("MDD가 -30% 이하")
+    if trades is not None and trades < _LOW_TRADE_THRESHOLD:
+        flags.append("거래 수 부족")
+    return flags
+
+
+def _is_positive_sample(sample: Dict[str, Any]) -> bool:
+    evidence = sample.get("evidence") or {}
+    cagr = _safe_float(evidence.get("median_cagr"))
+    sharpe = _safe_float(evidence.get("median_sharpe"))
+    mdd = _safe_float(evidence.get("median_mdd"))
+    quality = _safe_float(sample.get("quality_score"))
+    return (
+        (cagr is None or cagr > 0)
+        and (sharpe is None or sharpe >= 0.35)
+        and (mdd is None or mdd > _NEGATIVE_MDD_THRESHOLD)
+        and (quality is None or quality >= 0)
+    )
+
+
+def _is_negative_sample(sample: Dict[str, Any]) -> bool:
+    evidence = sample.get("evidence") or {}
+    if _sample_risk_flags(evidence):
+        return True
+    quality = _safe_float(sample.get("quality_score"))
+    return bool(quality is not None and quality < -0.05)
+
 
 def _parameter_similarity(left: Dict[str, Any], right: Dict[str, Any]) -> float:
     keys = set(left) | set(right)
@@ -374,25 +430,56 @@ def _plain_adjustment_text(adjustments: Sequence[str]) -> str:
     return " 이 전략에서 " + ", ".join(cleaned) + "로 각각 바꿔 테스트해 보세요."
 
 
+def _evidence_judgment(insight: Dict[str, Any]) -> str:
+    sharpe = _safe_float(insight.get("median_sharpe"))
+    mdd = _safe_float(insight.get("median_mdd"))
+    trades = _safe_float(insight.get("median_trades"))
+    negative_count = int(insight.get("negative_sample_count") or 0)
+
+    judgments: List[str] = []
+    if sharpe is not None:
+        if sharpe >= 0.7:
+            judgments.append("위험 대비 수익성은 비교적 양호했습니다")
+        elif sharpe <= 0:
+            judgments.append("위험 대비 수익성은 약했습니다")
+        else:
+            judgments.append("위험 대비 수익성은 아직 확신하기 어렵습니다")
+    if mdd is not None:
+        if mdd <= _NEGATIVE_MDD_THRESHOLD:
+            judgments.append("손실 구간이 깊어 리스크 조건을 먼저 분해해야 합니다")
+        elif mdd > -20:
+            judgments.append("손실 제어는 상대적으로 안정적이었습니다")
+    if trades is not None and trades < _LOW_TRADE_THRESHOLD:
+        judgments.append("거래 수가 적어 통계 신뢰도가 낮습니다")
+    if negative_count > 0:
+        judgments.append("유사 실패 패턴도 함께 확인됐습니다")
+
+    if not judgments:
+        return "성과보다 조건별 민감도 검증이 더 중요합니다"
+    return ", ".join(dict.fromkeys(judgments))
+
+
 class ExperimentLearningProvider:
     def __init__(self, learning_dir: Optional[Path] = None) -> None:
         self.learning_dir = learning_dir or DEFAULT_LEARNING_DIR
+        self._summary_doc = _read_json(self.learning_dir / "strategy_prompt_experiment_summary.json", {})
+        self._rules_doc = _read_json(self.learning_dir / "strategy_advisor_rules.json", {})
+        self._dataset = _read_jsonl(self.learning_dir / "strategy_advisor_learning_dataset.jsonl")
+        self._dataset_by_block = self._build_dataset_index(self._dataset)
 
     def build_insight(self, parsed_strategy: Dict[str, Any], user_prompt: str = "") -> Dict[str, Any]:
-        summary_doc = _read_json(self.learning_dir / "strategy_prompt_experiment_summary.json", {})
-        rules_doc = _read_json(self.learning_dir / "strategy_advisor_rules.json", {})
-        dataset = _read_jsonl(self.learning_dir / "strategy_advisor_learning_dataset.jsonl")
-
         blocks = extract_strategy_blocks(parsed_strategy)
         block_set = set(blocks)
-        summary = summary_doc.get("summary") or {}
+        summary = self._summary_doc.get("summary") or {}
         matched_combinations = self._match_combinations(summary.get("best_indicator_combinations") or {}, block_set)
         matched_indicators = self._match_indicators(summary.get("best_single_indicators") or {}, block_set)
         request_params = _extract_parameters(parsed_strategy)
-        matched_samples = self._match_samples(dataset, block_set, request_params)
-        matched_rules = self._match_rules(rules_doc.get("rules") or [], parsed_strategy)
+        matched_samples = self._match_samples(self._candidate_rows(block_set), block_set, request_params)
+        positive_samples = [sample for sample in matched_samples if _is_positive_sample(sample)]
+        negative_samples = [sample for sample in matched_samples if _is_negative_sample(sample)]
+        matched_rules = self._match_rules(self._rules_doc.get("rules") or [], parsed_strategy)
 
-        evidence = self._build_evidence(matched_combinations, matched_indicators, matched_samples)
+        evidence = self._build_evidence(matched_combinations, matched_indicators, matched_samples, negative_samples)
         confidence = self._resolve_confidence(evidence, matched_combinations)
         recommended = self._build_recommended_advice(matched_combinations, matched_rules, evidence, confidence)
 
@@ -404,18 +491,47 @@ class ExperimentLearningProvider:
             "matched_patterns": matched_combinations[:3],
             "matched_single_indicators": matched_indicators[:5],
             "similar_samples": matched_samples[:5],
+            "positive_samples": positive_samples[:3],
+            "negative_samples": negative_samples[:3],
             "recommended_advice": recommended,
-            "recommended_adjustments": self._suggest_adjustments(parsed_strategy, matched_rules, matched_samples),
-            "warnings": self._build_warnings(confidence, matched_combinations),
+            "recommended_adjustments": self._suggest_adjustments(
+                parsed_strategy,
+                matched_rules,
+                positive_samples or matched_samples,
+            ),
+            "warnings": self._build_warnings(confidence, matched_combinations, negative_samples),
             "confidence": confidence,
             "historical_pattern_quality": evidence.get("quality_score"),
             "similar_strategy_count": evidence.get("similar_strategy_count", 0),
+            "positive_sample_count": evidence.get("positive_sample_count", 0),
+            "negative_sample_count": evidence.get("negative_sample_count", 0),
             "median_cagr": evidence.get("median_cagr"),
             "median_sharpe": evidence.get("median_sharpe"),
             "median_mdd": evidence.get("median_mdd"),
             "median_profit_factor": evidence.get("median_profit_factor"),
             "median_trades": evidence.get("median_trades"),
         }
+
+    @staticmethod
+    def _build_dataset_index(dataset: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+        index: Dict[str, List[Dict[str, Any]]] = {}
+        for row in dataset:
+            input_data = row.get("input") or {}
+            for block in input_data.get("parsed_blocks") or []:
+                index.setdefault(str(block), []).append(row)
+        return index
+
+    def _candidate_rows(self, block_set: Set[str]) -> List[Dict[str, Any]]:
+        selective_blocks = block_set - _RISK_CONTROL_BLOCKS
+        candidate_blocks = selective_blocks or block_set
+        if not candidate_blocks:
+            return self._dataset
+
+        rows: Dict[int, Dict[str, Any]] = {}
+        for block in candidate_blocks:
+            for row in self._dataset_by_block.get(block, []):
+                rows[id(row)] = row
+        return list(rows.values()) or self._dataset
 
     def _match_combinations(self, combinations: Dict[str, Any], block_set: Set[str]) -> List[Dict[str, Any]]:
         matches: List[Dict[str, Any]] = []
@@ -426,12 +542,15 @@ class ExperimentLearningProvider:
                 continue
             sample_count = int(payload.get("combination_count") or payload.get("count") or 0)
             similarity = _jaccard(block_set, combo_blocks)
+            extra_blocks = combo_blocks - block_set
+            if extra_blocks and sample_count < 5:
+                similarity *= overlap / max(len(combo_blocks), 1)
             matches.append({
                 "pattern_key": key,
                 "blocks": sorted(combo_blocks),
                 "overlap": overlap,
                 "similarity": round(similarity, 3),
-                "extra_blocks": sorted(combo_blocks - block_set),
+                "extra_blocks": sorted(extra_blocks),
                 "sample_count": sample_count,
                 "median_cagr": payload.get("median_cagr"),
                 "median_sharpe": payload.get("median_sharpe"),
@@ -481,19 +600,28 @@ class ExperimentLearningProvider:
             evidence = (row.get("output") or {}).get("evidence") or {}
             actions = (row.get("output") or {}).get("suggested_actions") or []
             paired_delta = (row.get("output") or {}).get("paired_delta")
+            quality_score = _metric_quality(evidence)
+            rank_score = round(score * 0.75 + _bounded_quality(quality_score) * 0.25, 4)
             matches.append({
+                "sample_id": input_data.get("sample_id"),
                 "user_prompt": input_data.get("user_prompt", ""),
                 "parsed_blocks": sorted(sample_blocks),
                 "extracted_parameters": sample_params,
                 "similarity": round(score, 3),
                 "block_similarity": round(block_score, 3),
                 "parameter_similarity": round(param_score, 3),
-                "quality_score": _metric_quality(evidence),
+                "quality_score": quality_score,
+                "rank_score": rank_score,
+                "risk_flags": _sample_risk_flags(evidence),
                 "evidence": evidence,
                 "paired_delta": paired_delta if isinstance(paired_delta, dict) else None,
                 "suggested_actions": [str(action) for action in actions],
             })
-        return sorted(matches, key=lambda item: (item["similarity"], item["quality_score"]), reverse=True)
+        return heapq.nlargest(
+            _MAX_MATCHED_SAMPLES,
+            matches,
+            key=lambda item: (item["rank_score"], item["similarity"]),
+        )
 
     def _match_rules(self, rules: List[Dict[str, Any]], parsed_strategy: Dict[str, Any]) -> List[Dict[str, Any]]:
         has_exit = bool(parsed_strategy.get("exit_signals"))
@@ -515,12 +643,16 @@ class ExperimentLearningProvider:
         combinations: List[Dict[str, Any]],
         indicators: List[Dict[str, Any]],
         samples: List[Dict[str, Any]],
+        negative_samples: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         primary = combinations[0] if combinations else (indicators[0] if indicators else {})
         sample_evidence = [sample.get("evidence") or {} for sample in samples]
         sample_quality = _safe_median([sample.get("quality_score") for sample in samples[:10]])
+        positive_count = len([sample for sample in samples if _is_positive_sample(sample)])
         return {
             "similar_strategy_count": int(primary.get("sample_count") or primary.get("count") or len(samples)),
+            "positive_sample_count": positive_count,
+            "negative_sample_count": len(negative_samples),
             "similarity": primary.get("similarity"),
             "sample_similarity": samples[0].get("similarity") if samples else None,
             "parameter_similarity": samples[0].get("parameter_similarity") if samples else None,
@@ -638,12 +770,26 @@ class ExperimentLearningProvider:
             suggestions.append("최대 보유기간 제한 비교")
         return suggestions[:3]
 
-    def _build_warnings(self, confidence: str, combinations: List[Dict[str, Any]]) -> List[str]:
+    def _build_warnings(
+        self,
+        confidence: str,
+        combinations: List[Dict[str, Any]],
+        negative_samples: List[Dict[str, Any]],
+    ) -> List[str]:
         warnings: List[str] = []
         if confidence == "low":
             warnings.append("실험 샘플이 부족해 단정적으로 해석하면 안 됩니다.")
         if combinations:
             warnings.extend(str(item) for item in combinations[0].get("warnings") or [])
+        if negative_samples:
+            flags = []
+            for sample in negative_samples[:5]:
+                flags.extend(str(flag) for flag in sample.get("risk_flags") or [])
+            flag_text = ", ".join(list(dict.fromkeys(flags))[:3])
+            if flag_text:
+                warnings.append(
+                    f"유사 실패 패턴도 확인됐습니다({flag_text}). 같은 조건을 반복하지 말고 리스크 조건을 분리해 비교하세요."
+                )
         return list(dict.fromkeys(warnings))
 
     @staticmethod
@@ -687,17 +833,27 @@ def build_experiment_learning_advice(insight: Dict[str, Any]) -> Optional[str]:
         if str(item).strip()
     ]
     adjustment_text = _plain_adjustment_text(adjustments)
+    judgment = _evidence_judgment(insight)
+    evidence_prefix = f"백테스트 학습 사례 {sample_count}건 기준으로"
 
     if is_flat_evidence:
         return (
-            f"제안 주신 전략과 비슷한 전략은 {evidence}으로 성과 신호가 거의 없었습니다. "
+            f"{evidence_prefix} 제안 주신 전략과 비슷한 전략은 {evidence}으로 성과 신호가 거의 없었습니다. "
+            f"판단하면 {judgment}. "
             f"{adjustment_text} 다음 백테스트에서는 현재안을 그대로 반복하지 말고, "
             "진입 조건 완화, 청산 규칙 추가, 보유기간 제한을 각각 하나씩만 바꿔 비교하세요. "
             "거래가 충분히 발생하고 MDD와 Sharpe가 동시에 개선되는 후보만 남기세요."
         )
 
+    risk_warning = ""
+    if int(insight.get("negative_sample_count") or 0) > 0:
+        warning = next((str(item) for item in insight.get("warnings") or [] if "유사 실패 패턴" in str(item)), "")
+        risk_warning = f" {warning}" if warning else " 유사 실패 패턴도 있으므로 같은 조건 반복은 피하세요."
+
     return (
-        f"제안 주신 전략과 비슷한 전략의 결과가 {evidence}로 나왔습니다. "
+        f"{evidence_prefix} 제안 주신 전략과 비슷한 전략의 결과가 {evidence}로 나왔습니다. "
+        f"판단하면 {judgment}. "
         f"{adjustment_text} "
         f"테스트 후에는 MDD와 Sharpe가 동시에 좋아지는 설정만 남기세요."
+        f"{risk_warning}"
     )

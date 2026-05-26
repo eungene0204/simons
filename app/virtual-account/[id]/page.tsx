@@ -687,7 +687,7 @@ export default function VirtualAccountDetailPage() {
                       전략 교체
                     </button>
                   </div>
-                  <div className="h-48 overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent space-y-3">
+                  <div className="flex-1 min-h-0 overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent space-y-3">
                     {strategies.length === 0 ? (
                       <div className="flex flex-col items-center justify-center h-full gap-2">
                         <p className="text-sm font-bold text-gray-600">연결된 전략이 없습니다</p>
@@ -973,15 +973,6 @@ export default function VirtualAccountDetailPage() {
                             <div>
                               <h2 className="text-base font-black uppercase tracking-widest font-outfit text-white">성과 추이</h2>
                               <p className="mt-0.5 text-xs font-bold text-gray-500">계좌 개설 이후 누적 성과 흐름</p>
-                            </div>
-                            <div className="flex items-center gap-2 text-xs font-bold">
-                              <span className="inline-flex items-center gap-1.5 rounded-md bg-white/[0.06] px-2.5 py-1 text-gray-400">
-                                <span className="inline-block h-2 w-2 rounded-full bg-gray-500" />
-                                Benchmark
-                              </span>
-                              <span className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 ${profitPercent >= 0 ? "bg-[var(--main-red)]/10 text-[var(--main-red)]" : "bg-[var(--main-blue)]/10 text-[var(--main-blue)]"}`}>
-                                {profitPercent >= 0 ? "GAIN" : "LOSS"}
-                              </span>
                             </div>
                           </div>
                           <div className="h-72">
