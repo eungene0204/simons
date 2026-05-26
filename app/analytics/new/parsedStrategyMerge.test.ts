@@ -4,6 +4,7 @@ import {
   buildAdvisorEvaluationContextFromWalkForward,
   buildCandidateBacktestRequest,
   buildWalkForwardRequest,
+  isAdvisorFollowUpPrompt,
   mergeStrategyModification,
 } from "./parsedStrategyMerge";
 
@@ -95,6 +96,56 @@ describe("mergeStrategyModification", () => {
     expect(result.parsed.entry_signals).toEqual(previousParsed.entry_signals);
     expect(result.parsed.stop_loss_pct).toBe(10);
     expect(result.backtestRequest?.risk?.stop_loss_pct).toBe(10);
+  });
+
+  it("후속 개선 질문처럼 수정 domain이 없는 요청은 기존 전략을 유지한다", () => {
+    const result = mergeStrategyModification({
+      previousParsed,
+      nextParsed: {
+        ...previousParsed,
+        entry_signals: [],
+        exit_signals: [],
+        stop_loss_pct: null,
+        max_positions: null,
+      },
+      previousBacktestRequest: {
+        symbols: ["005930", "000660"],
+        entry: { conditions: [{ id: "breakout_52w" }, { id: "volume_spike" }] },
+        exit: { conditions: [] },
+        risk: {
+          max_positions: 6,
+          position_size_pct: 16.67,
+          stop_loss_pct: 10,
+          max_holding_days: 20,
+          init_cash: 10000000,
+        },
+        period: "5y",
+      },
+      nextBacktestRequest: {
+        symbols: [],
+        entry: { conditions: [] },
+        exit: { conditions: [] },
+        risk: {
+          max_positions: null,
+          stop_loss_pct: null,
+          init_cash: 10000000,
+        },
+        period: "5y",
+      },
+      userPrompt: "어디를 개선 해볼까?",
+    });
+
+    expect(result.requestedDomains.size).toBe(0);
+    expect(result.parsed.entry_signals).toEqual(previousParsed.entry_signals);
+    expect(result.parsed.exit_signals).toEqual(previousParsed.exit_signals);
+    expect(result.parsed.stop_loss_pct).toBe(7);
+    expect(result.parsed.max_positions).toBe(5);
+    expect(result.backtestRequest?.entry?.conditions).toEqual([
+      { id: "breakout_52w" },
+      { id: "volume_spike" },
+    ]);
+    expect(result.backtestRequest?.risk?.stop_loss_pct).toBe(10);
+    expect(result.backtestRequest?.risk?.max_holding_days).toBe(20);
   });
 
   it("Advisor 후보 전략을 기존 백테스트 요청에 반영한다", () => {
@@ -189,5 +240,22 @@ describe("mergeStrategyModification", () => {
     expect(buildAdvisorEvaluationContextFromWalkForward(null, { aggregate: { avg_oos_cagr: 8 } })).toEqual({
       oos_available: false,
     });
+  });
+});
+
+describe("isAdvisorFollowUpPrompt", () => {
+  it("전략 수정 domain이 없는 개선 질문을 advisor follow-up으로 분류한다", () => {
+    expect(isAdvisorFollowUpPrompt("어떻게 개선해 볼까?")).toBe(true);
+    expect(isAdvisorFollowUpPrompt("어디를 개선 해볼까?")).toBe(true);
+  });
+
+  it("매도 시점 질문은 기존 전략을 바꾸지 않는 follow-up으로 분류한다", () => {
+    expect(isAdvisorFollowUpPrompt("만약 저 두 종목만 산다면 언제 팔아야 할까?")).toBe(true);
+    expect(isAdvisorFollowUpPrompt("익절은 어느 정도가 좋을까?")).toBe(true);
+  });
+
+  it("명시적인 전략 수정 요청은 follow-up으로 분류하지 않는다", () => {
+    expect(isAdvisorFollowUpPrompt("손절 12%로 바꿔줘")).toBe(false);
+    expect(isAdvisorFollowUpPrompt("KOSPI200으로 바꿔줘")).toBe(false);
   });
 });

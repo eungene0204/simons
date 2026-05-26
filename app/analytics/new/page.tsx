@@ -27,6 +27,7 @@ import {
 } from "./strategySummary";
 import {
   buildWalkForwardRequest,
+  isAdvisorFollowUpPrompt,
   mergeStrategyModification,
   type AdvisorWalkForwardSettings,
 } from "./parsedStrategyMerge";
@@ -360,6 +361,8 @@ function StrategyLabContent() {
   const [isResettingRuntimeMetrics, setIsResettingRuntimeMetrics] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const latestParsedRef = useRef<ParsedSummary | null>(null);
+  const backtestReqRef = useRef<any>(null);
   // first user prompt — kept for advisor context
   const firstPromptRef = useRef<string>("");
 
@@ -418,6 +421,14 @@ function StrategyLabContent() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    latestParsedRef.current = latestParsed;
+  }, [latestParsed]);
+
+  useEffect(() => {
+    backtestReqRef.current = backtestReq;
+  }, [backtestReq]);
 
   // period 제안 텍스트 → { parsed: backtest_period 값, options: currentOptions.period 값 }
   // 매칭되지 않으면 null 반환 (AI 파싱 필요)
@@ -487,7 +498,26 @@ function StrategyLabContent() {
     if (!userText || isSending || stage === "running") return;
     if (!overrideText) setInputValue("");
     if (!firstPromptRef.current) firstPromptRef.current = userText;
+    const currentParsed = latestParsedRef.current ?? latestParsed;
+    const currentBacktestReq = backtestReqRef.current ?? backtestReq;
     setIsSending(true);
+
+    if (currentParsed && isAdvisorFollowUpPrompt(userText)) {
+      setMessages(prev => [
+        ...prev,
+        { role: "user", content: userText },
+        { role: "assistant", parsed: currentParsed, coachLoading: true, coachText: "" },
+      ]);
+      try {
+        await generateFollowUpCoachResponse({
+          userText,
+          parsed: currentParsed,
+        });
+      } finally {
+        setIsSending(false);
+      }
+      return;
+    }
 
     setMessages(prev => [
       ...prev,
@@ -502,7 +532,7 @@ function StrategyLabContent() {
         body: JSON.stringify({
           prompt: userText,
           backend: "mlx",
-          ...(latestParsed ? { previous_parsed: latestParsed } : {}),
+          ...(currentParsed ? { previous_parsed: currentParsed } : {}),
         }),
       });
       if (!res.ok || !res.body) {
@@ -525,9 +555,9 @@ function StrategyLabContent() {
             }
           : backtestRequest;
         const mergedResponse = mergeStrategyModification({
-          previousParsed: latestParsed,
+          previousParsed: currentParsed,
           nextParsed: parsedPayload.parsed,
-          previousBacktestRequest: backtestReq,
+          previousBacktestRequest: currentBacktestReq,
           nextBacktestRequest,
           userPrompt: userText,
           clarificationQuestion: parsedPayload.clarification_question,
@@ -621,7 +651,7 @@ function StrategyLabContent() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          user_prompt: firstPromptRef.current || userText,
+          user_prompt: userText,
           parsed_strategy: parsed as unknown as Record<string, unknown>,
         }),
       });
@@ -635,6 +665,52 @@ function StrategyLabContent() {
 
       const advisorResult: AdvisorResult = await advisorRes.json();
       updateLastAssistant({ coachLoading: false, advisorResult });
+    } catch {
+      updateLastAssistant({
+        coachLoading: false,
+        coachText: "전략 코칭 중 오류가 발생했습니다. 전략 요약은 준비되어 있으니 백테스트는 계속 실행할 수 있습니다.",
+      });
+    }
+  };
+
+  const generateFollowUpCoachResponse = async ({
+    userText,
+    parsed,
+  }: {
+    userText: string;
+    parsed: ParsedSummary;
+  }) => {
+    const updateLastAssistant = (patch: Partial<ChatMessage>) => {
+      setMessages(prev => {
+        const lastIdx = prev.map((m, i) => m.role === "assistant" ? i : -1).filter(i => i >= 0).at(-1);
+        if (lastIdx === undefined) return prev;
+        return prev.map((m, i) => i === lastIdx ? { ...m, ...patch } : m);
+      });
+    };
+
+    try {
+      const coachRes = await fetch("/api/strategy/coach", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_prompt: userText,
+          parsed_strategy: parsed as unknown as Record<string, unknown>,
+        }),
+      });
+
+      if (!coachRes.ok) {
+        updateLastAssistant({
+          coachLoading: false,
+          coachText: "전략 코칭 응답을 가져오지 못했습니다. 전략 요약은 준비되어 있으니 백테스트는 계속 실행할 수 있습니다.",
+        });
+        return;
+      }
+
+      const result: { message?: string } = await coachRes.json();
+      updateLastAssistant({
+        coachLoading: false,
+        coachText: result.message || "현재 질문에 대한 코칭 응답을 생성하지 못했습니다.",
+      });
     } catch {
       updateLastAssistant({
         coachLoading: false,

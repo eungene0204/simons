@@ -68,7 +68,9 @@ describe("backtest vector memory upsert", () => {
     expect(command.args).toHaveLength(2);
     expect(command.args[0]).toBe("-c");
     expect(command.args[1]).toContain("migrate_backtest_results_to_chroma");
-    expect(command.args[1]).toContain("advisor.vector_memory");
+    expect(command.args[1]).toContain("from vector_memory import migrate_backtest_results_to_chroma");
+    expect(command.args[1]).toContain("persist_path=chroma_path()");
+    expect(command.args[1]).not.toContain("advisor.vector_memory");
     expect(command.options.cwd).toBe("/repo/root");
     expect(command.options.stdio).toBe("ignore");
   });

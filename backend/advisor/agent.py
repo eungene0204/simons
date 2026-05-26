@@ -68,6 +68,10 @@ class StrategyAdvisorAgent:
         learning_body = build_experiment_learning_advice(learning_insight)
         memory_context = self._build_memory_context(req)
         memory_body = self._build_memory_advice(memory_context, req.parsed_strategy)
+        primary_learning_body = self._combine_learning_and_memory_advice(
+            learning_body,
+            memory_body,
+        )
         high_news_risk = "HIGH_NEWS_RISK_ALERT" in issue_codes and news.max_risk_level == "high"
         if memory_body and not high_news_risk:
             advice.insert(0, AdviceItem(
@@ -75,11 +79,11 @@ class StrategyAdvisorAgent:
                 title="유사 전략 경험 기반 점검",
                 body=memory_body,
             ))
-        if learning_body and not high_news_risk:
+        if primary_learning_body and not high_news_risk:
             advice.insert(0, AdviceItem(
                 severity="medium" if learning_insight.get("confidence") != "low" else "low",
                 title="전략 실험 근거 기반 개선",
-                body=learning_body,
+                body=primary_learning_body,
             ))
         elif high_news_risk:
             learning_insight.setdefault("warnings", []).insert(
@@ -150,6 +154,17 @@ class StrategyAdvisorAgent:
         ]
         other_items = [item for item in advice if item not in risk_items and item not in other_news_items]
         return risk_items + other_news_items + other_items
+
+    @staticmethod
+    def _combine_learning_and_memory_advice(learning_body: Optional[str], memory_body: str) -> Optional[str]:
+        if not learning_body:
+            return None
+        if not memory_body:
+            return learning_body
+        return (
+            f"{learning_body} "
+            f"유사 전략 경험까지 보면 {memory_body}"
+        )
 
     @staticmethod
     def _build_memory_context(req: AdvisorRequest) -> dict:

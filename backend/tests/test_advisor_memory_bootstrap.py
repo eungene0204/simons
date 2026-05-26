@@ -7,7 +7,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
 
-from advisor.memory_repository import load_advisor_memory
+from advisor.memory_repository import load_advisor_memory, load_vector_advisor_memory
 from api import advisor_routes
 from advisor.schemas import AdvisorRequest
 
@@ -151,6 +151,45 @@ def _create_bootstrap_db(path):
     conn.close()
 
 
+def _insert_strategy_backtest(
+    conn,
+    *,
+    strategy_id,
+    name,
+    description,
+    settings,
+    summary,
+    created_at="2026-02-20T00:00:00Z",
+):
+    conn.execute(
+        """
+        INSERT INTO Strategy (id, name, description, settings, strategyType, createdAt, updatedAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            strategy_id,
+            name,
+            description,
+            json.dumps(settings),
+            "legacy",
+            "2026-01-01T00:00:00Z",
+            "2026-01-01T00:00:00Z",
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO BacktestResult (id, strategyId, summary, createdAt)
+        VALUES (?, ?, ?, ?)
+        """,
+        (
+            f"bt_{strategy_id}",
+            strategy_id,
+            json.dumps(summary),
+            created_at,
+        ),
+    )
+
+
 def test_load_advisor_memory_bootstraps_latest_backtest_results(monkeypatch, tmp_path):
     db_path = tmp_path / "bootstrap-memory.db"
     _create_bootstrap_db(db_path)
@@ -234,6 +273,117 @@ def test_load_advisor_memory_enriches_with_better_historical_comparator(monkeypa
     conn.close()
 
     assert coverage == "bootstrap_historical_comparison"
+
+
+@pytest.mark.asyncio
+async def test_load_vector_advisor_memory_uses_vector_memory_infrastructure(monkeypatch, tmp_path):
+    pytest.importorskip("chromadb")
+    db_path = tmp_path / "vector-bootstrap-route.db"
+    _create_bootstrap_db(db_path)
+    monkeypatch.setenv("DATABASE_URL", f"file:{db_path}")
+    monkeypatch.setenv("ADVISOR_CHROMA_PATH", str(tmp_path / "chroma"))
+
+    strategy_cases, experiences = await load_vector_advisor_memory(
+        "RSI 30 이하 매수, 70 이상 매도",
+        {
+            "universe": ["KOSPI200"],
+            "entry_signals": [{"indicator": "rsi", "operator": "<=", "threshold": 31, "period": 14}],
+            "exit_signals": [{"indicator": "rsi", "operator": ">=", "threshold": 69, "period": 14}],
+            "max_positions": 10,
+            "initial_capital": 10000000,
+            "timeframe": "1d",
+        },
+    )
+
+    assert strategy_cases
+    assert experiences
+    rsi_case = next(case for case in strategy_cases if "rsi" in json.dumps(case["strategy_dsl"]))
+    rsi_experience = next(item for item in experiences if item["strategy_id"] == rsi_case["strategy_id"])
+    assert rsi_experience["before_backtest"]["sharpe"] == 0.8
+    assert rsi_experience["evaluation"]["source"] == "vector_memory_backtest_results"
+    assert "Vector Memory" in rsi_experience["lesson"]
+
+
+@pytest.mark.asyncio
+async def test_load_vector_advisor_memory_retrieves_category_specific_cases(monkeypatch, tmp_path):
+    pytest.importorskip("chromadb")
+    db_path = tmp_path / "vector-category-route.db"
+    _create_bootstrap_db(db_path)
+    conn = sqlite3.connect(db_path)
+    base_strategy = {
+        "universe": ["KOSPI200"],
+        "entry_signals": [{"indicator": "rsi", "operator": "<=", "threshold": 30, "period": 14}],
+        "exit_signals": [{"indicator": "rsi", "operator": ">=", "threshold": 70, "period": 14}],
+        "max_positions": 10,
+        "initial_capital": 10000000,
+        "stop_loss_pct": 8,
+        "hold_period_days": 20,
+        "timeframe": "1d",
+        "marketRegime": "sideways",
+    }
+    _insert_strategy_backtest(
+        conn,
+        strategy_id="rsi_success_low_risk",
+        name="RSI 성공 저위험",
+        description="RSI + ATR stop sideways success",
+        settings=base_strategy,
+        summary={
+            "cagr": 0.14,
+            "mdd": -0.08,
+            "sharpe": 1.2,
+            "sortino": 1.6,
+            "trade_count": 45,
+            "marketRegime": "sideways",
+            "successReason": "ATR stop and trend filter reduced drawdown.",
+        },
+    )
+    _insert_strategy_backtest(
+        conn,
+        strategy_id="rsi_failure_high_risk",
+        name="RSI 실패 고위험",
+        description="RSI no stop high volatility failure",
+        settings={**base_strategy, "stop_loss_pct": None},
+        summary={
+            "cagr": -0.08,
+            "mdd": -0.42,
+            "sharpe": -0.3,
+            "trade_count": 88,
+            "marketRegime": "sideways",
+            "failureReason": "No stop loss caused tail risk during volatility explosion.",
+        },
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.setenv("DATABASE_URL", f"file:{db_path}")
+    monkeypatch.setenv("ADVISOR_CHROMA_PATH", str(tmp_path / "category-chroma"))
+
+    strategy_cases, experiences = await load_vector_advisor_memory(
+        "RSI 30 이하 매수, 70 이상 매도, 20일 보유",
+        base_strategy,
+        top_k=4,
+    )
+
+    assert strategy_cases
+    assert experiences
+    categories = {
+        category
+        for item in experiences
+        for category in item.get("retrieval_categories", [])
+    }
+    assert "similar" in categories
+    assert "successful_low_risk" in categories
+    assert "failed_high_risk" in categories
+    assert "same_market_regime" in categories
+    assert "same_capital" in categories
+    assert "same_holding_period" in categories
+    assert "same_trade_frequency" in categories
+
+    success = next(item for item in experiences if "successful_low_risk" in item.get("retrieval_categories", []))
+    failure = next(item for item in experiences if "failed_high_risk" in item.get("retrieval_categories", []))
+    assert success["before_backtest"]["sharpe"] >= 1.0
+    assert "성공 원인" in success["lesson"]
+    assert failure["before_backtest"]["mdd"] <= -0.30
+    assert "실패 원인" in failure["lesson"]
 
 
 @pytest.mark.asyncio

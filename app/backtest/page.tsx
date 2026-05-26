@@ -34,7 +34,7 @@ export default function BacktestHistoryPage() {
   const [sortField, setSortField] = useState<SortField>("timestamp");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const strategyBadgeClass =
-    "inline-flex items-center min-h-7 px-2.5 rounded-md border border-transparent bg-[#2F80ED] text-[11px] whitespace-nowrap";
+    "inline-flex items-center min-h-7 px-2.5 rounded-md border border-[#FF9933]/25 bg-[#1C1806] text-[11px] whitespace-nowrap";
 
   useEffect(() => {
     fetch("/api/backtest/history")
@@ -175,7 +175,7 @@ export default function BacktestHistoryPage() {
                         className={strategyBadgeClass}
                       >
                         <span className="font-black text-white mr-1">유니버스</span>
-                        <span className="font-bold text-black">{item.universe}</span>
+                        <span className="font-bold text-[#FF9933]">{item.universe}</span>
                       </span>
 
                       {(() => {
@@ -194,7 +194,7 @@ export default function BacktestHistoryPage() {
                             className={strategyBadgeClass}
                           >
                             <span className="font-black text-white mr-1">진입 신호</span>
-                            <span className="font-bold text-black">{name}</span>
+                            <span className="font-bold text-[#FF9933]">{name}</span>
                           </span>
                         ));
                       })()}
@@ -210,7 +210,7 @@ export default function BacktestHistoryPage() {
                             className={strategyBadgeClass}
                           >
                             <span className="font-black text-white mr-1">청산 신호</span>
-                            <span className="font-bold text-black">{name}</span>
+                            <span className="font-bold text-[#FF9933]">{name}</span>
                           </span>
                         ));
                       })()}
@@ -223,7 +223,7 @@ export default function BacktestHistoryPage() {
                             className={strategyBadgeClass}
                           >
                             <span className="font-black text-white mr-1">포지션/비중</span>
-                            <span className="font-bold text-black">{conds.position}</span>
+                            <span className="font-bold text-[#FF9933]">{conds.position}</span>
                           </span>
                         );
                       })()}
@@ -236,7 +236,7 @@ export default function BacktestHistoryPage() {
                             className={strategyBadgeClass}
                           >
                             <span className="font-black text-white mr-1">리스크 관리</span>
-                            <span className="font-bold text-black">{conds.risk}</span>
+                            <span className="font-bold text-[#FF9933]">{conds.risk}</span>
                           </span>
                         );
                       })()}
