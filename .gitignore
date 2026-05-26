@@ -81,3 +81,6 @@ node_modules/
 # tasks.json
 # ChromaDB indices
 backend/advisor/.chroma/
+
+# Advisor smoke test results (auto-generated, large files)
+data/advisor-learning/advisor_smoke_*_results.json
