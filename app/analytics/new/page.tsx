@@ -31,6 +31,7 @@ import {
   mergeStrategyModification,
   type AdvisorWalkForwardSettings,
 } from "./parsedStrategyMerge";
+import { AdvisorResponseSections } from "./AdvisorResponseSections";
 import { formatPrimaryCoachAdviceBody } from "./advisorCopy";
 import type { AdvisorResult } from "@/components/strategy/StrategyAdvisorPanel";
 
@@ -118,6 +119,7 @@ function AdvisorResultBubble({ result }: { result: AdvisorResult }) {
 
   return (
     <div className="space-y-3">
+      <AdvisorResponseSections result={result} />
       {primaryAdvice && (
         <div className="space-y-2">
           <p className="text-[11px] font-black uppercase tracking-widest text-yellow-300">핵심 조언</p>
