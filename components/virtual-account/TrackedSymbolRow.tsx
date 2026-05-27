@@ -2,6 +2,8 @@
 
 import { X } from "phosphor-react";
 import type { StockPriceSnapshot as BatchQuoteItem } from "@/lib/stock-prices";
+import { getStatusBadge, getStatusBadgeClasses } from "@/lib/listing-status";
+import type { ListingStatusValue } from "@/lib/listing-status";
 
 type DelistStatus = "delisted" | "warning" | null;
 
@@ -11,6 +13,7 @@ interface TrackedSymbolRowProps {
   quote?: Pick<BatchQuoteItem, "price" | "changePercent" | "volume">;
   hasHolding: boolean;
   delistStatus?: DelistStatus;
+  listingStatus?: ListingStatusValue | string;
   onSelect: (symbol: string, name: string) => void;
   onRemove: (symbol: string) => void;
   formatPrice: (price: number) => string;
@@ -22,10 +25,18 @@ export default function TrackedSymbolRow({
   quote,
   hasHolding,
   delistStatus,
+  listingStatus,
   onSelect,
   onRemove,
   formatPrice,
 }: TrackedSymbolRowProps) {
+  // listingStatus가 있으면 우선 사용, 없으면 delistStatus로 폴백
+  const effectiveStatus = listingStatus ?? (
+    delistStatus === "delisted" ? "DELISTED" :
+    delistStatus === "warning"  ? "WARNING"  : "NORMAL"
+  );
+  const statusBadge = getStatusBadge(effectiveStatus);
+
   const hasPrice = !!quote && quote.price > 0;
   const changePercent = quote?.changePercent ?? 0;
   const changeColor = changePercent === 0 ? "text-white" : changePercent > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]";
@@ -40,14 +51,9 @@ export default function TrackedSymbolRow({
         <div className="min-w-0">
           <div className="flex items-center gap-1.5 min-w-0">
             <p className="text-xs font-bold text-white truncate">{name}</p>
-            {delistStatus === "delisted" && (
-              <span className="shrink-0 text-[9px] font-black tracking-wide bg-red-500/20 text-red-400 border border-red-500/30 px-1 py-0.5 rounded">
-                상장폐지
-              </span>
-            )}
-            {delistStatus === "warning" && (
-              <span className="shrink-0 text-[9px] font-black tracking-wide bg-yellow-500/15 text-yellow-400 border border-yellow-500/25 px-1 py-0.5 rounded">
-                폐지예정
+            {statusBadge && (
+              <span className={`shrink-0 text-[9px] font-black tracking-wide px-1 py-0.5 rounded ${getStatusBadgeClasses(statusBadge.variant)}`}>
+                {statusBadge.label}
               </span>
             )}
           </div>

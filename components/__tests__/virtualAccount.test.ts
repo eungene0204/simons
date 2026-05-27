@@ -51,6 +51,9 @@ vi.mock("@/lib/prisma", () => ({
       findUnique: mockMarketStateFindUnique,
       upsert: mockMarketStateUpsert,
     },
+    stock: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
   },
 }));
 

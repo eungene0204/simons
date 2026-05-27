@@ -38,19 +38,28 @@ model BacktestResult {
 }
 
 model Stock {
-  id             Int              @id @default(autoincrement())
-  symbol         String           @unique
-  name           String?
-  market         String?
-  sector         String?
-  industry       String?
-  description    String?
-  listingDate    String?
-  profileSource  String?
+  id               Int              @id @default(autoincrement())
+  symbol           String           @unique
+  name             String?
+  market           String?
+  sector           String?
+  industry         String?
+  description      String?
+  listingDate      String?
+  profileSource    String?
   profileUpdatedAt DateTime?
-  updatedAt      DateTime
-  infoProfile    StockInfoProfile?
-  BacktestResult BacktestResult[]
+  updatedAt        DateTime
+  // Listing status fields
+  listingStatus    String           @default("NORMAL")
+  suspensionReason String?
+  delistingDate    String?
+  lastTradableDate String?
+  riskFlags        String?          // JSON array of risk flag strings
+  statusUpdatedAt  DateTime?
+  infoProfile      StockInfoProfile?
+  BacktestResult   BacktestResult[]
+
+  @@index([listingStatus])
 }
 
 model StockInfoProfile {
@@ -334,11 +343,13 @@ model VirtualAccount {
   strategyId         String?
   strategyName       String?
   tradingMode        String              @default("manual")
+  delistingPolicy    String              @default("AUTO_LIQUIDATE")
   createdAt          DateTime            @default(now())
   updatedAt          DateTime
   VirtualMarketState VirtualMarketState?
   VirtualOrder       VirtualOrder[]
   VirtualPosition    VirtualPosition[]
+  DelistingAuditLog  DelistingAuditLog[]
 }
 
 model VirtualMarketLog {
@@ -656,4 +667,23 @@ model NewsV2IngestionLog {
   error       String?
 
   @@index([symbol, startedAt])
+}
+
+// ─── Delisting Risk Management ────────────────────────────────────────────────
+
+model DelistingAuditLog {
+  id             String         @id @default(cuid())
+  accountId      String
+  symbol         String
+  actionType     String         // AUTO_LIQUIDATE | TRADE_BLOCKED | STATUS_CHANGE | FORCED_HOLD
+  previousStatus String?
+  newStatus      String?
+  quantity       Int?
+  executionPrice Float?
+  reason         String?
+  createdAt      DateTime       @default(now())
+  VirtualAccount VirtualAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, createdAt])
+  @@index([symbol, createdAt])
 }

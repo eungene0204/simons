@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from .embedding import EmbeddingClient
 from .models import NormalizedBacktestMemory, VectorMemoryDocument, VectorMemoryMatch
@@ -25,6 +25,15 @@ class VectorMemoryService:
         embedding = await self._embedding_client.embed_text(document.document)
         await self._repository.upsert(item=document, embedding=embedding)
         return document
+
+    async def upsert_backtest_memories(
+        self,
+        records: Sequence[NormalizedBacktestMemory],
+    ) -> list[VectorMemoryDocument]:
+        documents = [build_vector_document(record) for record in records]
+        embeddings = await self._embedding_client.embed_batch([document.document for document in documents])
+        await self._repository.upsert_many(items=documents, embeddings=embeddings)
+        return documents
 
     async def query_similar(
         self,

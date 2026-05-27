@@ -13,6 +13,10 @@ from schemas import (
 from backtest_engine import BacktestEngine
 from engine.market_data import market_data_provider, delisted_store
 from engine.dart_client import fetch_recent_delisting_notices
+from engine.listing_status import (
+    ListingStatus, sync_from_delisted_store, sync_from_dart_notices,
+    get_stocks_by_status, update_stock_listing_status, write_audit_log,
+)
 from engine.live_signal_utils import prepare_signal_dataframe
 from engine.virtual_trader import VirtualTrader
 from engine.vi_utils import build_vi_display
@@ -451,6 +455,7 @@ async def get_dart_delisting_notices(days: int = 7):
     OpenDART에서 최근 N일간 상장폐지 관련 공시를 조회한다.
     상장폐지 결정·정리매매 확정 건은 자동으로 DelistedSymbolStore에 등록된다.
     거래정지·심사 중인 건은 notices에만 포함되고 자동 등록은 하지 않는다.
+    Stock 테이블의 listingStatus도 함께 업데이트된다.
     """
     try:
         notices = fetch_recent_delisting_notices(days=days)
@@ -468,11 +473,124 @@ async def get_dart_delisting_notices(days: int = 7):
                 market_data_provider.cache.invalidate(code)
                 newly_registered.append(code)
 
+    # Stock 테이블 listingStatus 동기화
+    changed = sync_from_dart_notices(notices)
+    sync_from_delisted_store(set(delisted_store.all()))
+
     return {
         "days": days,
         "notices": notices,
         "newly_registered": newly_registered,
+        "status_updated": changed,
     }
+
+
+@app.get("/market/listing-status")
+async def get_listing_status(symbols: str = ""):
+    """심볼 목록(콤마 구분)의 listingStatus 반환. 비어 있으면 비정상 종목 전체 반환."""
+    if symbols:
+        sym_list = [s.strip() for s in symbols.split(",") if s.strip()]
+        results = {}
+        for sym in sym_list:
+            from engine.listing_status import get_stock_listing_status
+            results[sym] = get_stock_listing_status(sym)
+        return {"statuses": results}
+    else:
+        # 비정상 상태 종목 전체
+        non_normal = []
+        for st in [
+            ListingStatus.WARNING, ListingStatus.RISK,
+            ListingStatus.TRADING_SUSPENDED, ListingStatus.DELISTING_REVIEW,
+            ListingStatus.DELISTING_SCHEDULED, ListingStatus.DELISTED,
+        ]:
+            non_normal.extend(get_stocks_by_status(st))
+        return {"statuses": non_normal}
+
+
+@app.post("/market/listing-status/sync")
+async def sync_listing_status():
+    """DelistedSymbolStore → Stock 테이블 listingStatus 동기화 (일배치 후 호출)"""
+    count = sync_from_delisted_store(set(delisted_store.all()))
+    return {"synced": count}
+
+
+@app.post("/virtual-account/{account_id}/force-liquidate/{symbol}")
+async def force_liquidate_position(account_id: str, symbol: str):
+    """
+    특정 보유 포지션 강제청산 — DELISTING_SCHEDULED / DELISTED 종목 대상.
+    마지막 유효 시세로 청산하며 DelistingAuditLog에 기록한다.
+    """
+    import sqlite3 as _sq
+    db_path = (lambda: __import__('os').path.join(
+        __import__('os').path.dirname(__import__('os').path.dirname(__import__('os').path.abspath(__file__))),
+        "prisma", "dev.db"
+    ))()
+
+    db_url = __import__('os').getenv("DATABASE_URL", "")
+    if db_url.startswith("file:"):
+        import os as _os
+        rel = db_url[len("file:"):]
+        prisma_dir = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "prisma")
+        db_path = _os.path.normpath(_os.path.join(prisma_dir, rel))
+
+    con = _sq.connect(db_path)
+    con.row_factory = _sq.Row
+    try:
+        pos = con.execute(
+            "SELECT * FROM VirtualPosition WHERE accountId = ? AND symbol = ?",
+            (account_id, symbol)
+        ).fetchone()
+        if not pos:
+            raise HTTPException(status_code=404, detail="보유 포지션 없음")
+
+        pos = dict(pos)
+        qty = pos["quantity"]
+        avg_price = pos["avgPrice"]
+
+        # 최근 시세 조회
+        try:
+            quote = await market_data_provider.get_price(symbol)
+            price = quote.close if quote and quote.close > 0 else int(avg_price)
+        except Exception:
+            price = int(avg_price)
+
+        # 청산 실행 (시장가)
+        import math, uuid as _uuid
+        from datetime import timezone as _tz
+        fee_rate = 0.00015
+        tax_rate = 0.002
+        filled = int(price * (1 - 0.0005))  # 슬리피지
+        fee = math.floor(filled * qty * fee_rate)
+        tax = math.floor(filled * qty * tax_rate)
+        proceeds = filled * qty - fee - tax
+        pnl = (filled - avg_price) * qty - fee - tax
+        now_iso = __import__('datetime').datetime.now(_tz.utc).isoformat()
+        order_id = str(_uuid.uuid4())
+
+        con.execute("""
+            INSERT INTO VirtualOrder (id, accountId, symbol, name, side, type, quantity, price,
+                filledPrice, fee, tax, avgBuyPrice, realizedPnl, status, filledAt, createdAt)
+            VALUES (?, ?, ?, ?, 'SELL', 'MARKET', ?, ?, ?, ?, ?, ?, ?, 'FILLED', ?, ?)
+        """, (order_id, account_id, symbol, pos.get("name") or symbol,
+              qty, price, filled, fee, tax, avg_price, pnl, now_iso, now_iso))
+
+        con.execute(
+            "UPDATE VirtualAccount SET currentCash = currentCash + ?, updatedAt = ? WHERE id = ?",
+            (proceeds, now_iso, account_id)
+        )
+        con.execute(
+            "DELETE FROM VirtualPosition WHERE accountId = ? AND symbol = ?",
+            (account_id, symbol)
+        )
+        con.commit()
+    finally:
+        con.close()
+
+    # 감사 로그
+    write_audit_log(account_id, symbol, "AUTO_LIQUIDATE", None, None, qty, float(price),
+                    "수동 강제청산 (API)")
+
+    return {"success": True, "symbol": symbol, "quantity": qty, "price": price, "proceeds": proceeds}
 
 
 def _tick_size(price: int) -> int:

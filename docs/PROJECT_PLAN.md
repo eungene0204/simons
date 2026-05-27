@@ -1,7 +1,7 @@
 # Simons — 종합 투자 시뮬레이션 플랫폼 프로젝트 계획서
 
 > **문서 버전:** v2.0
-> **최종 갱신일:** 2026-05-13
+> **최종 갱신일:** 2026-05-28
 > **프로젝트명:** Simons (시몬스)
 
 ---
@@ -159,7 +159,7 @@ simons/
 │   ├── kospi200-cache.json #  KOSPI200 구성종목 캐시
 │   └── universe-history.json # 유니버스 동기화 이력
 ├── prisma/                # DB 스키마 & 마이그레이션
-│   └── schema.prisma      #   12개 모델
+│   └── schema.prisma      #   13개 모델 (DelistingAuditLog 추가)
 ├── types/                 # TypeScript 타입 정의
 │   └── strategy.ts        #   핵심 전략 DSL 타입
 ├── scripts/               # 유틸리티 스크립트
@@ -605,6 +605,32 @@ RiskManagement {
 | 시간 (KST) | 작업 |
 |-------------|------|
 | 00:00 | 일일 OHLCV 데이터 동기화 |
+
+#### 3.4.4 상장폐지 리스크 대응 시스템 ✅ 완료
+
+> 상장폐지·거래정지 등 비정상 종목을 자동 감지하고 가상계좌와 백테스트 엔진 전반에 걸쳐 일관된 리스크 처리를 수행한다.
+
+| 기능 | 설명 | 구현 상태 |
+|------|------|-----------|
+| 상장 상태 머신 | 7단계 상태 (NORMAL → DELISTED), 거래 허용/차단 규칙 정의 | ✅ 완료 |
+| DB 스키마 확장 | Stock 테이블에 listingStatus 외 6개 필드, DelistingAuditLog 모델, VirtualAccount delistingPolicy | ✅ 완료 |
+| DART 공시 분류 | report_nm 키워드 → ListingStatus 자동 매핑 (5개 키워드 그룹) | ✅ 완료 |
+| Stock 테이블 동기화 | DART 공시 수신 시 sync_from_dart_notices(), DelistedSymbolStore → sync_from_delisted_store() | ✅ 완료 |
+| 거래 제한 | orders/route.ts에서 listingStatus 확인 후 차단 + DelistingAuditLog 기록 | ✅ 완료 |
+| 0원 평가 | DELISTED 포지션은 currentPrice=0, totalValue=0 반환 | ✅ 완료 |
+| 강제청산 | DELISTED/DELISTING_SCHEDULED + AUTO_LIQUIDATE 정책: 마지막 시세로 청산 또는 0원 제거 | ✅ 완료 |
+| VirtualTrader 연동 | 매매 사이클마다 상태 체크 → 매수 차단 / 강제청산 신호 주입 | ✅ 완료 |
+| 백테스트 생존자 편향 방지 | _process_symbol() 상단에서 delisted_store 확인 후 종목 제외 | ✅ 완료 |
+| UI 배지 | TrackedSymbolRow에 상태 배지 표시 (red/orange/yellow) | ✅ 완료 |
+| DelistingRiskBanner | 가상계좌 상단 리스크 배너 (D-N 카운트다운, 강제청산 버튼) | ✅ 완료 |
+| 감사 로그 | DelistingAuditLog: AUTO_LIQUIDATE / TRADE_BLOCKED / STATUS_CHANGE 이벤트 기록 | ✅ 완료 |
+| 테스트 | backend 21개 (test_listing_status.py), frontend 35개 (listing-status.test.ts), API 2개 | ✅ 완료 |
+
+**새 API 엔드포인트:**
+- `GET /market/listing-status` — 전체 상장 상태 조회 (backend + DB 통합)
+- `POST /market/listing-status/sync` — 수동 동기화 트리거
+- `POST /virtual-account/{id}/force-liquidate/{symbol}` — 강제청산
+- `GET /api/market/delisting-status` — Next.js 통합 상태 조회 (5개 배열 + details)
 
 ---
 
@@ -1326,6 +1352,12 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 | XAI 엔진 | `backend/ai/xai_engine.py` |
 | 최적화 에이전트 | `backend/ai/local_optimization_agent.py` |
 | 가상매매 트레이더 | `backend/engine/virtual_trader.py` |
+| 상장 상태 머신 (Python) | `backend/engine/listing_status.py` |
+| 상장 상태 유틸 (TS) | `lib/listing-status.ts` |
+| 상장 상태 훅 | `lib/hooks/useDelistingStatus.ts` |
+| 상장폐지 리스크 배너 | `components/virtual-account/DelistingRiskBanner.tsx` |
+| 강제청산 API | `app/api/virtual-account/[id]/liquidate/route.ts` |
+| 상장 상태 조회 API | `app/api/market/delisting-status/route.ts` |
 | 시세 데이터 | `backend/engine/market_data.py` |
 | KIS Provider | `backend/engine/providers/kis.py` |
 | 뉴스 수집 Provider | `backend/news/providers/naver_news.py`, `backend/news/providers/rss_provider.py` |
@@ -1339,4 +1371,4 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 
 ---
 
-*이 문서는 프로젝트의 현재 상태와 향후 계획을 반영합니다. 최종 갱신: 2026-05-13 (전략 만들기 코치 UX 단순화, Advisor 10,000건 learning artifact, 조언 문구 압축 반영).*
+*이 문서는 프로젝트의 현재 상태와 향후 계획을 반영합니다. 최종 갱신: 2026-05-28 (상장폐지 리스크 대응 시스템 구현 완료: 7단계 상태 머신, 거래 제한, 강제청산, VirtualTrader 연동, 백테스트 생존자 편향 방지, UI 배지, 감사 로그).*

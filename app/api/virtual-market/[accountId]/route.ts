@@ -2,6 +2,22 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getStockNameMap } from "@/lib/krx-stocks";
 
+async function resolveSymbolNames(symbols: string[]): Promise<Record<string, string>> {
+  if (symbols.length === 0) return {};
+  const [nameMap, dbStocks] = await Promise.all([
+    getStockNameMap(),
+    prisma.stock.findMany({
+      where: { symbol: { in: symbols }, name: { not: null } },
+      select: { symbol: true, name: true },
+    }),
+  ]);
+  const result: Record<string, string> = {};
+  for (const s of dbStocks) if (s.name) result[s.symbol] = s.name;
+  // korea-stocks.json 우선 (현재 상장 종목이 더 정확)
+  for (const sym of symbols) if (nameMap[sym]) result[sym] = nameMap[sym];
+  return result;
+}
+
 // GET: 가상 계좌 시장 상태 조회
 export async function GET(
   _request: Request,
@@ -14,11 +30,7 @@ export async function GET(
     if (!state) return NextResponse.json(null);
 
     const symbols: string[] = JSON.parse(state.symbols);
-    const nameMap = await getStockNameMap();
-    const symbolNames: Record<string, string> = {};
-    symbols.forEach((sym) => {
-      if (nameMap[sym]) symbolNames[sym] = nameMap[sym];
-    });
+    const symbolNames = await resolveSymbolNames(symbols);
     return NextResponse.json({ ...state, symbols, symbolNames });
   } catch (error) {
     console.error("Failed to get market state:", error);
@@ -66,11 +78,7 @@ export async function POST(
     });
 
     const parsedSymbols: string[] = JSON.parse(state.symbols);
-    const nameMap = await getStockNameMap();
-    const symbolNames: Record<string, string> = {};
-    parsedSymbols.forEach((sym) => {
-      if (nameMap[sym]) symbolNames[sym] = nameMap[sym];
-    });
+    const symbolNames = await resolveSymbolNames(parsedSymbols);
 
     // KIS WebSocket 실시간 구독 등록
     try {
@@ -108,11 +116,7 @@ export async function PATCH(
     });
 
     const patchedSymbols: string[] = JSON.parse(state.symbols);
-    const nameMap = await getStockNameMap();
-    const symbolNames: Record<string, string> = {};
-    patchedSymbols.forEach((sym) => {
-      if (nameMap[sym]) symbolNames[sym] = nameMap[sym];
-    });
+    const symbolNames = await resolveSymbolNames(patchedSymbols);
     return NextResponse.json({ ...state, symbols: patchedSymbols, symbolNames });
   } catch (error) {
     console.error("Failed to update market state:", error);

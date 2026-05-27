@@ -169,6 +169,8 @@ def test_system_prompt_requires_memory_evidence_discipline():
     assert "data_sufficiency가 insufficient" in prompt
     assert "꾸며내지 마라" in prompt
     assert "백테스트 결과가 없으면" in prompt
+    assert "제공되지 않은 백테스트 사례" in prompt
+    assert "검색/계산/판정 엔진이 아니라" in prompt
 
 
 @pytest.mark.asyncio
@@ -219,6 +221,7 @@ async def test_coach_strategy_auto_injects_news_context(monkeypatch):
             )
         ],
     )
+    monkeypatch.setattr(coach_routes, "load_vector_advisor_memory", lambda *_args, **_kwargs: _empty_memory())
 
     req = _make_request(advisor_insight=None, news_agent_insight=None)
     response = await coach_routes.coach_strategy(req)
@@ -236,6 +239,7 @@ async def test_coach_strategy_auto_injects_memory_context(monkeypatch):
     coach_routes.set_parser(parser)
 
     monkeypatch.setattr(coach_routes, "build_news_context_from_strategy", lambda _parsed: [])
+    monkeypatch.setattr(coach_routes, "load_vector_advisor_memory", lambda *_args, **_kwargs: _empty_memory())
     monkeypatch.setattr(
         coach_routes,
         "load_advisor_memory",
@@ -285,3 +289,69 @@ async def test_coach_strategy_auto_injects_memory_context(monkeypatch):
     assert "[strategy_memory_context" in parser.last_user_message
     assert "case=case_auto_memory" in parser.last_user_message
     assert "장기 추세 필터" in parser.last_user_message
+
+
+async def _empty_memory():
+    return [], []
+
+
+@pytest.mark.asyncio
+async def test_coach_strategy_prefers_vector_memory_context(monkeypatch):
+    _install_dummy_main(monkeypatch)
+    parser = _DummyParser()
+    coach_routes.set_parser(parser)
+
+    monkeypatch.setattr(coach_routes, "build_news_context_from_strategy", lambda _parsed: [])
+
+    async def _vector_memory(_user_prompt, _parsed_strategy):
+        return (
+            [
+                {
+                    "strategy_id": "vector_case",
+                    "user_prompt": "RSI vector memory",
+                    "strategy_summary": "Vector RSI memory",
+                    "strategy_dsl": {
+                        "universe": ["KOSPI200"],
+                        "entry_signals": [{"indicator": "rsi", "operator": "<=", "threshold": 30}],
+                        "max_positions": 10,
+                        "initial_capital": 10_000_000,
+                    },
+                }
+            ],
+            [
+                {
+                    "strategy_id": "vector_case",
+                    "before_backtest": {"cagr": 0.02, "mdd": -0.30, "sharpe": 0.2},
+                    "after_backtest": {"cagr": 0.05, "mdd": -0.18, "sharpe": 0.6},
+                    "evaluation": {"advice_success": True},
+                    "lesson": "Vector DB 검색 사례는 변동성 필터 검증이 필요하다.",
+                    "retrieval_categories": ["similar", "successful_low_risk"],
+                }
+            ],
+        )
+
+    monkeypatch.setattr(coach_routes, "load_vector_advisor_memory", _vector_memory)
+    monkeypatch.setattr(
+        coach_routes,
+        "load_advisor_memory",
+        lambda: pytest.fail("load_advisor_memory should not run when vector memory is available"),
+    )
+
+    req = _make_request(
+        user_prompt="RSI 30 이하 매수",
+        advisor_insight=None,
+        news_agent_insight=None,
+        parsed_strategy={
+            "universe": ["KOSPI200"],
+            "entry_signals": [{"indicator": "rsi", "operator": "<=", "threshold": 30}],
+            "max_positions": 10,
+            "initial_capital": 10_000_000,
+        },
+    )
+
+    response = await coach_routes.coach_strategy(req)
+
+    assert response.message == "캐시된 코치 응답"
+    assert "[strategy_memory_context" in parser.last_user_message
+    assert "case=vector_case" in parser.last_user_message
+    assert "변동성 필터 검증" in parser.last_user_message

@@ -11,8 +11,10 @@ from vector_memory import (
     HashingEmbeddingClient,
     InMemoryVectorMemoryRepository,
     VectorMemoryService,
+    load_batch_candidate_memories,
     load_backtest_memories,
     migrate_backtest_results,
+    migrate_backtest_results_to_chroma,
     normalize_backtest_result,
     strategy_hash_for,
     strategy_memory_id,
@@ -133,6 +135,93 @@ def _create_backtest_db(path):
         )
     conn.commit()
     return conn
+
+
+def _add_batch_candidate_table(conn):
+    conn.execute(
+        """
+        CREATE TABLE BatchRunCandidate (
+            id TEXT PRIMARY KEY,
+            runId TEXT NOT NULL,
+            strategyId TEXT,
+            prompt TEXT NOT NULL,
+            strategyName TEXT NOT NULL,
+            status TEXT NOT NULL,
+            errorMessage TEXT,
+            metrics TEXT,
+            rank INTEGER,
+            backtestRequest TEXT,
+            createdAt TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO BatchRunCandidate (
+            id, runId, strategyId, prompt, strategyName, status, errorMessage,
+            metrics, rank, backtestRequest, createdAt
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "candidate_001",
+            "batch_run_001",
+            None,
+            "RSI batch candidate with ATR stop",
+            "mean_reversion / rsi_reversal",
+            "computed",
+            None,
+            json.dumps({
+                **_rsi_metrics(),
+                "equity": [10_000_000, 10_100_000, 10_250_000],
+                "benchmark_equity": [10_000_000, 10_050_000, 10_000_000],
+            }),
+            1,
+            json.dumps({
+                "strategy_id": "candidate_strategy_hash",
+                "canonical_strategy_dsl": {
+                    **_rsi_dsl(25),
+                    "stop_loss_pct": 6,
+                },
+                "symbols": ["005930", "000660"],
+                "period": "1y",
+                "options": {
+                    "fee_rate": 0.00015,
+                    "slippage_rate": 0.0002,
+                },
+            }),
+            "2026-02-02T00:00:00Z",
+        ),
+    )
+    conn.commit()
+
+
+def _insert_failed_batch_candidate(conn):
+    conn.execute(
+        """
+        INSERT INTO BatchRunCandidate (
+            id, runId, strategyId, prompt, strategyName, status, errorMessage,
+            metrics, rank, backtestRequest, createdAt
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "candidate_failed_001",
+            "batch_run_001",
+            None,
+            "Failed RSI batch candidate",
+            "mean_reversion / rsi_reversal",
+            "failed",
+            "Backtest execution failed",
+            json.dumps("failed"),
+            None,
+            json.dumps({
+                "canonical_strategy_dsl": _rsi_dsl(20),
+            }),
+            "2026-02-03T00:00:00Z",
+        ),
+    )
+    conn.commit()
 
 
 def test_strategy_hash_ignores_volatile_fields_and_tracks_version() -> None:
@@ -285,6 +374,51 @@ def test_load_backtest_memories_normalizes_stored_prisma_rows(tmp_path) -> None:
     conn.close()
 
 
+def test_load_batch_candidate_memories_normalizes_batch_rows_without_raw_series(tmp_path) -> None:
+    conn = _create_backtest_db(tmp_path / "memory.db")
+    _add_batch_candidate_table(conn)
+
+    records = load_batch_candidate_memories(conn)
+
+    assert len(records) == 1
+    record = records[0]
+    document = build_vector_document(record)
+
+    assert record.strategySummary == "RSI batch candidate with ATR stop"
+    assert record.strategyVersion == "batch_candidate:candidate_001"
+    assert record.indicators == ["rsi"]
+    assert record.Sharpe == 0.9
+    assert record.successReason.startswith("Batch candidate completed, rank=1")
+    assert "equity" not in document.document
+    assert document.id.endswith(":batch_candidate:candidate_001")
+    conn.close()
+
+
+def test_load_batch_candidate_memories_keeps_failed_rows_with_non_object_metrics(tmp_path) -> None:
+    conn = _create_backtest_db(tmp_path / "memory.db")
+    _add_batch_candidate_table(conn)
+    _insert_failed_batch_candidate(conn)
+
+    records = load_batch_candidate_memories(conn)
+
+    failed = next(record for record in records if record.strategyVersion == "batch_candidate:candidate_failed_001")
+    assert failed.failureReason == "Backtest execution failed"
+    assert failed.Sharpe == 0
+    assert failed.successReason == ""
+    conn.close()
+
+
+def test_load_backtest_memories_includes_backtest_results_and_batch_candidates(tmp_path) -> None:
+    conn = _create_backtest_db(tmp_path / "memory.db")
+    _add_batch_candidate_table(conn)
+
+    records = load_backtest_memories(conn)
+
+    assert len(records) == 3
+    assert any(record.strategyVersion == "batch_candidate:candidate_001" for record in records)
+    conn.close()
+
+
 @pytest.mark.asyncio
 async def test_migrate_backtest_results_upserts_loaded_rows(tmp_path) -> None:
     conn = _create_backtest_db(tmp_path / "memory.db")
@@ -304,4 +438,20 @@ async def test_migrate_backtest_results_upserts_loaded_rows(tmp_path) -> None:
     matches = await service.query_text(text="RSI oversold entry", where={"marketRegime": "sideways"})
     assert matches
     assert matches[0].metadata["sharpe"] == 0.9
+    conn.close()
+
+
+@pytest.mark.asyncio
+async def test_chroma_migration_skips_batch_candidates_when_already_loaded(tmp_path) -> None:
+    pytest.importorskip("chromadb")
+    conn = _create_backtest_db(tmp_path / "memory.db")
+    _add_batch_candidate_table(conn)
+
+    first = await migrate_backtest_results_to_chroma(conn, persist_path=tmp_path / "chroma", batch_size=2)
+    second = await migrate_backtest_results_to_chroma(conn, persist_path=tmp_path / "chroma", batch_size=2)
+
+    assert first.scanned == 3
+    assert first.upserted == 3
+    assert second.scanned == 2
+    assert second.upserted == 2
     conn.close()

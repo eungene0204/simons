@@ -22,6 +22,10 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from engine.live_signal_utils import prepare_signal_dataframe
+from engine.listing_status import (
+    ListingStatus, is_buy_allowed, is_sell_allowed, write_audit_log,
+    get_stock_listing_status,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -260,6 +264,19 @@ class VirtualTrader:
         finally:
             con.close()
 
+    def _fetch_delisting_policy(self, account_id: str) -> str:
+        """계좌의 상장폐지 처리 정책 조회. 기본 AUTO_LIQUIDATE."""
+        con = sqlite3.connect(self._db)
+        try:
+            row = con.execute(
+                "SELECT delistingPolicy FROM VirtualAccount WHERE id = ?", (account_id,)
+            ).fetchone()
+            return row[0] if row and row[0] else "AUTO_LIQUIDATE"
+        except Exception:
+            return "AUTO_LIQUIDATE"
+        finally:
+            con.close()
+
     # ── 계좌 새로고침 ─────────────────────────────────────────────────────────
 
     async def _refresh_account(self, account: dict):
@@ -344,6 +361,44 @@ class VirtualTrader:
                 price = price_map.get(sym, 0)
                 signals.append({"symbol": sym, "close": price, "entry_signal": False, "exit_signal": True, "exit_reason": reason})
 
+        # 4.5. 상장 상태 체크: 거래 제한 + 강제청산
+        delistingPolicy = await asyncio.to_thread(self._fetch_delisting_policy, account_id)
+        for sym in list(symbols):
+            status = await asyncio.to_thread(get_stock_listing_status, sym)
+            if status == ListingStatus.NORMAL:
+                continue
+
+            sig = next((s for s in signals if s["symbol"] == sym), None)
+
+            # 진입 차단: 매수 불허 상태
+            if not is_buy_allowed(status):
+                if sig:
+                    sig["entry_signal"] = False
+                    sig["entry_reason"] = None
+                logger.debug("[VirtualTrader] 진입 차단 %s (상태: %s)", sym, status)
+
+            # 강제청산: DELISTED / DELISTING_SCHEDULED + AUTO_LIQUIDATE 정책
+            if status in (ListingStatus.DELISTED, ListingStatus.DELISTING_SCHEDULED):
+                pos = next((p for p in positions if p["symbol"] == sym), None)
+                if pos and delistingPolicy == "AUTO_LIQUIDATE":
+                    if sig:
+                        sig["exit_signal"] = True
+                        sig["exit_reason"] = f"강제청산 (상장 상태: {status})"
+                    else:
+                        price = price_map.get(sym, 0)
+                        signals.append({
+                            "symbol": sym, "close": price,
+                            "entry_signal": False, "exit_signal": True,
+                            "exit_reason": f"강제청산 (상장 상태: {status})",
+                        })
+                    logger.info("[VirtualTrader] 강제청산 예약 %s %s (상태: %s)", account_id, sym, status)
+
+            # TRADING_SUSPENDED: 매도도 차단 (DB에서 강제청산 불가)
+            if status == ListingStatus.TRADING_SUSPENDED:
+                if sig:
+                    sig["exit_signal"] = False
+                    sig["entry_signal"] = False
+
         # 5. 매매 실행
         executed_today = await asyncio.to_thread(self._fetch_today_logs, account_id, today)
 
@@ -371,6 +426,14 @@ class VirtualTrader:
                             self._log_signal, account_id, today, sym, close,
                             "exit", sig.get("exit_reason"), "auto_executed", order_id
                         )
+                        # 강제청산 감사 로그
+                        exit_reason = sig.get("exit_reason") or ""
+                        if "강제청산" in exit_reason:
+                            await asyncio.to_thread(
+                                write_audit_log, account_id, sym,
+                                "AUTO_LIQUIDATE", None, None,
+                                pos["quantity"], float(close), exit_reason,
+                            )
                         executed_today.add(f"{sym}_exit")
                         logger.info("[VirtualTrader] 매도 %s %s %d주 @%d", account_id, sym, pos["quantity"], close)
                 else:

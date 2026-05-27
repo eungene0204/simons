@@ -9,7 +9,9 @@ from .models import (
 )
 from .migration import (
     VectorMigrationStats,
+    load_batch_candidate_memories,
     load_backtest_memories,
+    load_backtest_result_memories,
     migrate_backtest_results,
     migrate_backtest_results_to_chroma,
 )
@@ -28,7 +30,9 @@ __all__ = [
     "VectorMemoryService",
     "build_embedding_text",
     "canonical_strategy_string",
+    "load_batch_candidate_memories",
     "load_backtest_memories",
+    "load_backtest_result_memories",
     "migrate_backtest_results",
     "migrate_backtest_results_to_chroma",
     "normalize_backtest_result",

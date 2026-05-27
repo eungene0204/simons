@@ -11,7 +11,8 @@ function resolvePositionName(
   stockNameMap: Record<string, string>
 ) {
   if (stockNameMap[symbol]) return stockNameMap[symbol];
-  return storedName && storedName.trim().length > 0 ? storedName : symbol;
+  if (storedName && storedName.trim().length > 0 && storedName !== symbol) return storedName;
+  return symbol;
 }
 
 function mapAccount(a: any, priceMap: Record<string, number>, stockNameMap: Record<string, string>) {
@@ -53,13 +54,24 @@ function mapAccount(a: any, priceMap: Record<string, number>, stockNameMap: Reco
   };
 }
 
+async function buildNameMap(symbols: string[]): Promise<Record<string, string>> {
+  const [stockNameMap, dbStocks] = await Promise.all([
+    getStockNameMap(),
+    symbols.length > 0
+      ? prisma.stock.findMany({ where: { symbol: { in: symbols }, name: { not: null } }, select: { symbol: true, name: true } })
+      : Promise.resolve([]),
+  ]);
+  const merged: Record<string, string> = {};
+  for (const s of dbStocks) if (s.name) merged[s.symbol] = s.name;
+  return { ...merged, ...stockNameMap };
+}
+
 // GET: 계좌 상세 조회
 export async function GET(
   _request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
-    const stockNameMap = await getStockNameMap();
     const account = await prisma.virtualAccount.findUnique({
       where: { id: params.id },
       include: { VirtualPosition: true },
@@ -68,7 +80,9 @@ export async function GET(
       return NextResponse.json({ error: 'Account not found' }, { status: 404 });
     }
 
-    return NextResponse.json(mapAccount(account, {}, stockNameMap));
+    const symbols = account.VirtualPosition.map((p: any) => p.symbol);
+    const nameMap = await buildNameMap(symbols);
+    return NextResponse.json(mapAccount(account, {}, nameMap));
   } catch (error) {
     console.error('Failed to fetch virtual account:', error);
     return NextResponse.json({ error: 'Failed to fetch account' }, { status: 500 });
@@ -81,7 +95,6 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    const stockNameMap = await getStockNameMap();
     const body = await request.json();
     const strategyChanged = typeof body.strategyId === "string" && body.strategyId.trim().length > 0;
     const account = await prisma.virtualAccount.update({
@@ -95,6 +108,9 @@ export async function PATCH(
       },
       include: { VirtualPosition: true },
     });
+
+    const posSymbols = account.VirtualPosition.map((p: any) => p.symbol);
+    const nameMap = await buildNameMap(posSymbols);
 
     if (strategyChanged) {
       const strategy = await prisma.strategy.findUnique({
@@ -142,7 +158,7 @@ export async function PATCH(
         });
 
         return NextResponse.json({
-          ...mapAccount(account, {}, stockNameMap),
+          ...mapAccount(account, {}, nameMap),
           trackedSymbols: topSymbols,
           symbolSource: resolved.source,
           virtualMarketState: {
@@ -153,7 +169,7 @@ export async function PATCH(
       }
     }
 
-    return NextResponse.json(mapAccount(account, {}, stockNameMap));
+    return NextResponse.json(mapAccount(account, {}, nameMap));
   } catch (error) {
     console.error('Failed to update virtual account:', error);
     return NextResponse.json({ error: 'Failed to update account' }, { status: 500 });

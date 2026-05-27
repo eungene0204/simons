@@ -23,6 +23,14 @@ class VectorMemoryRepository(Protocol):
     ) -> None:
         ...
 
+    async def upsert_many(
+        self,
+        *,
+        items: Sequence[VectorMemoryDocument],
+        embeddings: Sequence[Sequence[float]],
+    ) -> None:
+        ...
+
     async def query_similar(
         self,
         *,
@@ -44,6 +52,15 @@ class InMemoryVectorMemoryRepository:
         embedding: Sequence[float],
     ) -> None:
         self._items[item.id] = (item, list(embedding))
+
+    async def upsert_many(
+        self,
+        *,
+        items: Sequence[VectorMemoryDocument],
+        embeddings: Sequence[Sequence[float]],
+    ) -> None:
+        for item, embedding in zip(items, embeddings):
+            self._items[item.id] = (item, list(embedding))
 
     async def query_similar(
         self,
@@ -94,12 +111,22 @@ class ChromaVectorMemoryRepository:
         item: VectorMemoryDocument,
         embedding: Sequence[float],
     ) -> None:
+        await self.upsert_many(items=[item], embeddings=[embedding])
+
+    async def upsert_many(
+        self,
+        *,
+        items: Sequence[VectorMemoryDocument],
+        embeddings: Sequence[Sequence[float]],
+    ) -> None:
+        if not items:
+            return
         await asyncio.to_thread(
             self._collection.upsert,
-            ids=[item.id],
-            documents=[item.document],
-            embeddings=[list(embedding)],
-            metadatas=[item.metadata],
+            ids=[item.id for item in items],
+            documents=[item.document for item in items],
+            embeddings=[list(embedding) for embedding in embeddings],
+            metadatas=[item.metadata for item in items],
         )
 
     async def query_similar(
@@ -132,6 +159,9 @@ class ChromaVectorMemoryRepository:
                 )
             )
         return matches
+
+    def count(self) -> int:
+        return int(self._collection.count())
 
 
 def _matches_where(metadata: dict[str, PrimitiveMetadata], where: Optional[dict[str, Any]]) -> bool:

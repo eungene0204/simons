@@ -1,7 +1,7 @@
 # Software Architecture
 
 > 한국/글로벌 주식 퀀트 투자 플랫폼 — Simons
-> **최종 갱신일:** 2026-05-13
+> **최종 갱신일:** 2026-05-28
 
 ---
 
@@ -99,8 +99,9 @@ simons/
 │   │   ├── backend.ts               # FastAPI 프록시 fetch wrapper
 │   │   ├── backtestCache.ts         # strategy_id 기반 캐시/영구 저장 유틸
 │   │   └── stock-prices.ts          # 서버 사이드 주식 가격 조회
-│   ├── hooks/                       # React Hooks
+│   ├── hooks/                       # React Hooks (useDelistingStatus 포함)
 │   ├── stock-api/                   # 주식 데이터 API 공급자
+│   ├── listing-status.ts            # 상장 상태 유틸 (isBuyAllowed, getStatusBadge 등)
 │   ├── backtest-engine.ts           # 프론트엔드 백테스트 흐름 조율
 │   └── prisma.ts                    # Prisma Client 싱글톤
 │
@@ -124,7 +125,8 @@ simons/
 │   │   ├── nl_parser.py             # 자연어 → ParsedStrategy (LLM)
 │   │   ├── strategy_converter.py    # ParsedStrategy → BacktestRequest
 │   │   ├── data_resolver.py         # 유니버스 필터링
-│   │   ├── virtual_trader.py        # 가상매매 실시간 엔진
+│   │   ├── virtual_trader.py        # 가상매매 실시간 엔진 (상장 상태 체크 포함)
+│   │   ├── listing_status.py        # 상장 상태 머신 (7단계) + DART 분류 + DB 동기화
 │   │   ├── walk_forward.py          # 워크포워드 분석
 │   │   ├── market_data.py           # 시장 데이터 조회
 │   │   └── providers/               # 데이터 공급자 (KIS, pykrx, Naver, yfinance)
@@ -743,6 +745,7 @@ SHAP 기반 — 각 예측에 영향을 준 피처와 기여도 반환, 프론�
 | `test_news_dedup.py` | 뉴스 중복 제거: Jaccard 유사도·body hash·시간윈도우·intra-batch (22개) |
 | `test_advisor_*` | RAG memory retrieval, candidate evaluation, response composer, advice evaluation |
 | `test_news_fetch_body_security.py` | 뉴스 본문 fetch SSRF 방어: private URL 직접 요청/redirect 차단 |
+| `test_listing_status.py` | 상장 상태 머신: 거래 허용 규칙, 0원 평가, 차단 사유, DART 공시 분류, 우선순위 (21개) |
 
 제외 (서버/모델 필요): `test_backtest_engine`, `test_engine_ai`, `test_ai_sell`, `test_api_isolation`
 
@@ -767,6 +770,8 @@ cd backend && pytest tests/ \
 | `OrderBook.test.tsx` | 호가창 컴포넌트 |
 | `StrategyAdvisorPanel.request.test.tsx` | 후보 백테스트 결과와 evaluation context가 advisor 요청에 포함되는지 검증 |
 | `app/api/news/fetch-body/route.test.ts` | Next.js 뉴스 본문 fetch 프록시 SSRF 입력 차단 |
+| `tests/listing-status.test.ts` | 상장 상태 프론트엔드 유틸: 거래 허용 규칙, 배지, 위험 레벨, 카운트다운 (35개) |
+| `app/api/market/delisting-status/route.test.ts` | 상장 상태 API: backend 통합 + prisma mock (2개) |
 
 ```bash
 npm run test:frontend
@@ -904,3 +909,63 @@ npm run test:frontend
 │  VirtualTradingStatus: 포지션/손익 현황           │
 └─────────────────────────────────────────────────┘
 ```
+
+### 11.3 상장폐지 리스크 대응 흐름
+
+```
+┌───────────────────────────────────────────────────┐
+│  DART 공시 / 상폐 데이터 수집                       │
+│  GET /market/dart/notices + GET /market/delist     │
+└────────────────┬──────────────────────────────────┘
+                 ▼
+┌───────────────────────────────────────────────────┐
+│  listing_status.py                                  │
+│  classify_dart_notice() → ListingStatus            │
+│  sync_from_dart_notices() → Stock 테이블 업데이트   │
+│  sync_from_delisted_store() → DELISTED 동기화       │
+└───────┬────────────────────┬───────────────────────┘
+        ▼                    ▼
+┌──────────────┐    ┌──────────────────────────────┐
+│ 백테스트 엔진 │    │  VirtualTrader 루프            │
+│ _process_    │    │  get_stock_listing_status()   │
+│ symbol():    │    │  → 매수 차단 / 강제청산 주입   │
+│ DELISTED →   │    │  → write_audit_log()          │
+│ 종목 제외    │    └──────────────┬───────────────┘
+└──────────────┘                   ▼
+                        ┌──────────────────────┐
+                        │  Next.js API 레이어   │
+                        │  orders/route.ts:     │
+                        │  getTradeBlockReason  │
+                        │  → 403 거래 차단      │
+                        │  positions/route.ts:  │
+                        │  DELISTED → 0원 평가  │
+                        └──────────┬───────────┘
+                                   ▼
+                        ┌──────────────────────┐
+                        │  /virtual-account/id  │
+                        │  DelistingRiskBanner  │
+                        │  (D-N 카운트다운)     │
+                        │  TrackedSymbolRow     │
+                        │  (상태 배지)          │
+                        └──────────────────────┘
+```
+
+**상장 상태 머신 (7단계):**
+
+| 상태 | 매수 | 매도 | 평가 |
+|------|------|------|------|
+| `NORMAL` | ✅ | ✅ | 시장가 |
+| `WARNING` | ✅ | ✅ | 시장가 |
+| `RISK` | ✅ | ✅ | 시장가 |
+| `TRADING_SUSPENDED` | ❌ | ❌ | 시장가 |
+| `DELISTING_REVIEW` | ❌ | ✅ | 시장가 |
+| `DELISTING_SCHEDULED` | ❌ | ✅ (정리매매) | 시장가 |
+| `DELISTED` | ❌ | ❌ | 0원 |
+
+**핵심 모듈:**
+- `backend/engine/listing_status.py` — 상태 머신, DART 키워드 분류, SQLite 동기화, 감사 로그
+- `lib/listing-status.ts` — 프론트엔드 상태 유틸 (`isBuyAllowed`, `getStatusBadge`, `getRiskLevel`, `daysUntil`)
+- `lib/hooks/useDelistingStatus.ts` — 상장 상태 React 훅 (`resolveListingStatus`)
+- `components/virtual-account/DelistingRiskBanner.tsx` — 리스크 배너 (D-N 카운트다운, 강제청산 버튼)
+- `app/api/virtual-account/[id]/liquidate/route.ts` — 강제청산 엔드포인트
+- `app/api/market/delisting-status/route.ts` — 통합 상장 상태 조회 (backend + DB)

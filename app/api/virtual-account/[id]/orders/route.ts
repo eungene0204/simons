@@ -11,6 +11,7 @@ import {
   isImmediateFill,
   roundToTick,
 } from '@/lib/order-engine';
+import { getTradeBlockReason } from '@/lib/listing-status';
 
 
 function mapOrder(o: any, nameMap: Record<string, string>) {
@@ -86,6 +87,21 @@ export async function POST(
 
     if (qty <= 0 || prc <= 0) {
       return NextResponse.json({ error: '올바른 수량/가격을 입력하세요.' }, { status: 400 });
+    }
+
+    // 상장 상태 검증 — TRADING_SUSPENDED / DELISTED 등 거래 차단
+    const stockRecord = await prisma.stock.findUnique({ where: { symbol }, select: { listingStatus: true } });
+    const listingStatus = stockRecord?.listingStatus ?? 'NORMAL';
+    const blockReason = getTradeBlockReason(listingStatus, side.toLowerCase() as 'buy' | 'sell');
+    if (blockReason) {
+      // 감사 로그 기록
+      await prisma.delistingAuditLog.create({
+        data: {
+          accountId: params.id, symbol, actionType: 'TRADE_BLOCKED',
+          previousStatus: listingStatus, reason: blockReason,
+        },
+      });
+      return NextResponse.json({ error: blockReason, listingStatus }, { status: 403 });
     }
 
     const result = await prisma.$transaction(async (tx) => {

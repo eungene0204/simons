@@ -21,7 +21,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from advisor.memory_repository import load_advisor_memory
+from advisor.memory_repository import load_advisor_memory, load_vector_advisor_memory
 from advisor.memory_retriever import retrieve_memory_context
 from advisor.news_enrichment import build_coach_news_insight, build_news_context_from_strategy
 
@@ -83,10 +83,13 @@ news_agent_insight에 risk_alert_level이 high인 종목이 있으면 뉴스 리
 - retrieved_cases가 비어 있으면 과거 사례가 충분한 것처럼 꾸며내지 마라
 - 백테스트 결과가 없으면 수익성이 좋거나 개선되었다고 단정하지 마라
 - 과거 사례가 있어도 현재 전략의 자본, 거래비용, 슬리피지, OOS 검증 필요성을 무시하지 마라
+- 유사 전략 수, 성과 수치, 성공/실패 분류는 제공된 컨텍스트만 사용하라
+- 너는 검색/계산/판정 엔진이 아니라, 이미 계산된 근거를 설명하는 코치다
 
 [금지 사항]
 - 해결 방법, 구체적 수치 제안, 행동 지시 금지 — 문제 설명만 할 것
 - 여러 문제 나열 금지 — 가장 중요한 하나만
+- 제공되지 않은 백테스트 사례, 성과 수치, 개선 효과를 새로 만들지 말 것
 - 내부 필드명(snake_case 변수명) 절대 출력 금지
   → take_profit_pct → "익절 기준", stop_loss_pct → "손절 기준", max_positions → "최대 보유 종목 수", hold_period_days → "보유 기간"
 - advisor JSON 또는 뉴스 JSON 그대로 출력 금지
@@ -292,7 +295,7 @@ def _build_user_message(req: CoachRequest) -> str:
     return "\n".join(parts)
 
 
-def _with_auto_context(req: CoachRequest) -> CoachRequest:
+async def _with_auto_context(req: CoachRequest) -> CoachRequest:
     effective_req = req
     if not effective_req.news_agent_insight:
         news_context = build_news_context_from_strategy(effective_req.parsed_strategy)
@@ -304,7 +307,12 @@ def _with_auto_context(req: CoachRequest) -> CoachRequest:
         effective_req.memory_strategy_cases is None
         and effective_req.memory_experiences is None
     ):
-        strategy_cases, experiences = load_advisor_memory()
+        strategy_cases, experiences = await load_vector_advisor_memory(
+            effective_req.user_prompt,
+            effective_req.parsed_strategy,
+        )
+        if not strategy_cases and not experiences:
+            strategy_cases, experiences = load_advisor_memory()
         if strategy_cases or experiences:
             effective_req = effective_req.model_copy(
                 update={
@@ -346,7 +354,7 @@ async def coach_strategy(req: CoachRequest) -> CoachResponse:
     try:
         request_started = time.perf_counter()
         cache_key = _coach_cache_key(req)
-        effective_req = _with_auto_context(req)
+        effective_req = await _with_auto_context(req)
 
         cached = _coach_response_cache.get(cache_key)
         if cached is not None:
@@ -408,7 +416,7 @@ async def coach_strategy_stream(req: CoachRequest):
         raise HTTPException(status_code=503, detail="Coach model not loaded yet")
 
     request_started = time.perf_counter()
-    effective_req = _with_auto_context(req)
+    effective_req = await _with_auto_context(req)
 
     from engine.nl_parser import NLStrategyParser
     parser: NLStrategyParser = _parser

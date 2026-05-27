@@ -10,6 +10,7 @@ from engine.signals import SignalEngine
 from engine.simulator import Simulator
 from engine.result_handler import ResultHandler
 from engine.data_resolver import DataResolver
+from engine.market_data import delisted_store
 
 class BacktestEngine:
     def __init__(self, data_dir: str = None):
@@ -148,6 +149,11 @@ class BacktestEngine:
 
             def _process_symbol(sym):
                 try:
+                    # 1.0 상장폐지 종목 체크 (생존편향 방지)
+                    if delisted_store.is_delisted(sym):
+                        self.warnings.add(f"{sym}: 상장폐지 종목 — 백테스트 대상에서 제외되었습니다.")
+                        return None
+
                     # 1.1 Load Data
                     df_pl = self.loader.load_symbol_data(sym)
                     if df_pl is None or len(df_pl) == 0:

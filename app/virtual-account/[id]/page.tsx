@@ -28,7 +28,9 @@ import TrackedSymbolRow from "@/components/virtual-account/TrackedSymbolRow";
 import TrackedSymbolsSkeleton from "@/components/virtual-account/TrackedSymbolsSkeleton";
 import SignalLog from "@/components/virtual-market/SignalLog";
 import { useStockPrices } from "@/lib/hooks/useStockPrices";
-import { useDelistingStatus } from "@/lib/hooks/useDelistingStatus";
+import { useDelistingStatus, resolveListingStatus } from "@/lib/hooks/useDelistingStatus";
+import DelistingRiskBanner from "@/components/virtual-account/DelistingRiskBanner";
+import { getStatusBadgeClasses, getStatusBadge } from "@/lib/listing-status";
 import { buildStrategySummaryFromDsl } from "@/lib/strategy-summary";
 import type { StockPriceSnapshot as BatchQuoteItem } from "@/lib/stock-prices";
 import type { StrategyDSL } from "@/types/strategy";
@@ -103,6 +105,47 @@ export default function VirtualAccountDetailPage() {
 
   const delistingStatus = useDelistingStatus();
   const trackedSymbolsList = trackedSymbols.map((s) => s.symbol);
+
+  // 위험 종목 목록 (배너용): 추적 종목 + 보유 종목 중 비정상 상태
+  const riskItems = useMemo(() => {
+    const symbolSet = new Set([
+      ...trackedSymbols.map((s) => s.symbol),
+      ...holdings.map((h) => h.symbol),
+    ]);
+    return Array.from(symbolSet)
+      .map((sym) => {
+        const ls = resolveListingStatus(sym, delistingStatus);
+        if (ls === "NORMAL") return null;
+        const name =
+          holdings.find((h) => h.symbol === sym)?.name ||
+          trackedSymbols.find((t) => t.symbol === sym)?.name ||
+          delistingStatus.names[sym] ||
+          sym;
+        return {
+          symbol: sym,
+          name,
+          listingStatus: ls,
+          detail: delistingStatus.details[sym] ?? null,
+        };
+      })
+      .filter(Boolean) as { symbol: string; name: string; listingStatus: string; detail: any }[];
+  }, [trackedSymbols, holdings, delistingStatus]);
+
+  const handleForceLiquidate = async (symbol: string) => {
+    if (!confirm(`${symbol} 포지션을 강제청산하시겠습니까?`)) return;
+    try {
+      const res = await fetch(`/api/virtual-account/${accountId}/liquidate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbol }),
+      });
+      const data = await res.json();
+      if (!res.ok) { alert(data.error ?? "강제청산에 실패했습니다."); return; }
+      await loadAccountData();
+    } catch {
+      alert("강제청산 중 오류가 발생했습니다.");
+    }
+  };
   const { data: trackedPriceSnapshots } = useStockPrices(trackedSymbolsList, {
     enabled: trackedSymbolsList.length > 0,
     refetchInterval: 2000,
@@ -528,6 +571,14 @@ export default function VirtualAccountDetailPage() {
           <div className="w-full min-w-0 border border-white/[0.08]">
             <div className="divide-y divide-white/[0.08]">
 
+              {/* 리스크 배너 */}
+              {riskItems.length > 0 && (
+                <DelistingRiskBanner
+                  items={riskItems}
+                  onForceLiquidate={handleForceLiquidate}
+                />
+              )}
+
               {/* 헤더 */}
               <div className="flex items-center justify-between px-5 py-4">
                 <div className="flex items-center gap-4">
@@ -666,11 +717,7 @@ export default function VirtualAccountDetailPage() {
                           {trackedSymbols.map(({ symbol, name }) => {
                             const q = trackedPrices[symbol];
                             const holding = holdings.find((h) => h.symbol === symbol);
-                            const delistStatus = delistingStatus.delisted.has(symbol)
-                              ? "delisted"
-                              : delistingStatus.warning.has(symbol)
-                              ? "warning"
-                              : null;
+                            const ls = resolveListingStatus(symbol, delistingStatus);
                             return (
                               <TrackedSymbolRow
                                 key={symbol}
@@ -678,7 +725,7 @@ export default function VirtualAccountDetailPage() {
                                 name={name}
                                 quote={q}
                                 hasHolding={!!holding}
-                                delistStatus={delistStatus}
+                                listingStatus={ls}
                                 onSelect={handleStockSelect}
                                 onRemove={handleRemoveTrackedSymbol}
                                 formatPrice={formatPrice}
@@ -834,42 +881,43 @@ export default function VirtualAccountDetailPage() {
                       <div className="max-h-[360px] overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent">
                         <div className="divide-y divide-white/[0.04]">
                           {holdings.map((h) => {
-                            const pnlColor = h.profitPercent === 0 ? "text-white" : h.profitPercent > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]";
-                            const holdingDelistStatus = delistingStatus.delisted.has(h.symbol)
-                              ? "delisted"
-                              : delistingStatus.warning.has(h.symbol)
-                              ? "warning"
-                              : null;
+                            const ls = resolveListingStatus(h.symbol, delistingStatus);
+                            const isDelisted = ls === "DELISTED";
+                            const isZero = isDelisted;
+                            const displayPrice = isZero ? 0 : h.currentPrice;
+                            const displayProfit = isZero ? -(h.averagePrice * h.quantity) : h.profit;
+                            const displayProfitPct = isZero
+                              ? -100
+                              : h.profitPercent;
+                            const pnlColor = displayProfitPct === 0 ? "text-white" : displayProfitPct > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]";
+                            const badge = getStatusBadge(ls);
                             return (
                               <div
                                 key={h.symbol}
                                 onClick={() => handleStockSelect(h.symbol, h.name || h.symbol)}
-                                className={`grid ${HOLDINGS_COLS} gap-2 items-center px-2 py-3 hover:bg-white/[0.02] rounded-xl transition-colors duration-150 cursor-pointer`}
+                                className={`grid ${HOLDINGS_COLS} gap-2 items-center px-2 py-3 hover:bg-white/[0.02] rounded-xl transition-colors duration-150 cursor-pointer ${isDelisted ? "opacity-60" : ""}`}
                               >
                                 <div className="min-w-0">
                                   <div className="flex items-center gap-1.5 min-w-0">
                                     <p className="text-sm font-bold text-white truncate">{h.name || h.symbol}</p>
-                                    {holdingDelistStatus === "delisted" && (
-                                      <span className="shrink-0 text-[9px] font-black tracking-wide bg-red-500/20 text-red-400 border border-red-500/30 px-1 py-0.5 rounded">
-                                        상장폐지
-                                      </span>
-                                    )}
-                                    {holdingDelistStatus === "warning" && (
-                                      <span className="shrink-0 text-[9px] font-black tracking-wide bg-yellow-500/15 text-yellow-400 border border-yellow-500/25 px-1 py-0.5 rounded">
-                                        폐지예정
+                                    {badge && (
+                                      <span className={`shrink-0 text-[9px] font-black tracking-wide px-1 py-0.5 rounded ${getStatusBadgeClasses(badge.variant)}`}>
+                                        {badge.label}
                                       </span>
                                     )}
                                   </div>
                                   <p className="text-[10px] font-bold text-gray-500">{h.symbol}</p>
                                 </div>
                                 <p className="text-sm font-bold text-gray-400 tabular-nums text-right">{formatPrice(h.averagePrice)}</p>
-                                <p className="text-sm font-black text-white tabular-nums text-right">{formatPrice(h.currentPrice)}</p>
+                                <p className={`text-sm font-black tabular-nums text-right ${isZero ? "text-gray-600 line-through" : "text-white"}`}>
+                                  {isZero ? "0" : formatPrice(displayPrice)}
+                                </p>
                                 <p className="text-sm font-bold text-gray-400 tabular-nums text-right">{h.quantity.toLocaleString()}</p>
                                 <div className={`flex items-center justify-end gap-0.5 ${pnlColor}`}>
-                                  <span className="text-xs font-black tabular-nums font-outfit">{formatSignedPercent(h.profitPercent)}</span>
+                                  <span className="text-xs font-black tabular-nums font-outfit">{formatSignedPercent(displayProfitPct)}</span>
                                 </div>
                                 <p className={`text-sm font-black tabular-nums text-right ${pnlColor}`}>
-                                  {formatSignedPrice(h.profit)}
+                                  {formatSignedPrice(Math.round(displayProfit))}
                                 </p>
                               </div>
                             );

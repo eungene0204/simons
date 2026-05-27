@@ -3,7 +3,7 @@
 
 > **문서 버전:** v1.4
 > **작성일:** 2026-04-01
-> **최종 갱신일:** 2026-05-13
+> **최종 갱신일:** 2026-05-28
 > **프로젝트명:** Simons
 > **상태:** 작성 중
 
@@ -58,6 +58,9 @@ Simons는 사용자가 자신만의 주식 투자 전략을 **설계 → 검증 
 | AI Runtime Metrics | parse, coach, summary 등 로컬 LLM 경로의 latency/queue wait 계측값 |
 | Experience Memory | 과거 전략 조언의 전/후 성과, 성공/실패 평가, 재사용 가능한 lesson 저장소 |
 | RAG | 현재 전략과 유사한 과거 프롬프트/DSL/조언 사례를 검색해 답변 컨텍스트로 사용하는 방식 |
+| ListingStatus | 종목의 상장 상태 — NORMAL/WARNING/RISK/TRADING_SUSPENDED/DELISTING_REVIEW/DELISTING_SCHEDULED/DELISTED 7단계 |
+| DelistingPolicy | 가상계좌의 상장폐지 처리 정책 — AUTO_LIQUIDATE / HOLD_AS_WORTHLESS / HOLD_WITH_MANUAL_REVIEW |
+| DelistingAuditLog | 거래 차단·강제청산·상태 변경 이벤트를 기록하는 감사 로그 |
 
 ### 1.4 개요
 
@@ -625,6 +628,39 @@ RiskManagement {
 
 **FR-VM-051** 거래 내역은 매수/매도 구분, 체결 가격, 수량, 수수료, 실현 손익, 체결 시각을 포함해야 한다.
 
+#### 3.4.7 상장폐지 리스크 대응 ✅ 완료
+
+**FR-VM-060** 시스템은 종목의 상장 상태를 다음 7단계로 추적해야 한다:
+`NORMAL` → `WARNING` → `RISK` → `TRADING_SUSPENDED` → `DELISTING_REVIEW` → `DELISTING_SCHEDULED` → `DELISTED`
+
+**FR-VM-061** 각 상태의 거래 허용 규칙:
+| 상태 | 매수 | 매도 | 비고 |
+|------|------|------|------|
+| NORMAL / WARNING / RISK | ✅ | ✅ | |
+| TRADING_SUSPENDED | ❌ | ❌ | 거래소 정지 |
+| DELISTING_REVIEW | ❌ | ✅ | 청산만 허용 |
+| DELISTING_SCHEDULED | ❌ | ✅ | 정리매매 허용 |
+| DELISTED | ❌ | ❌ | 0원 평가 |
+
+**FR-VM-062** DART 공시 `report_nm`을 수신하면 키워드 기반으로 ListingStatus를 자동 분류하여 Stock 테이블에 반영해야 한다.
+
+**FR-VM-063** 주문 API(`orders/route.ts`)는 주문 전 Stock.listingStatus를 확인하고, 허용되지 않는 상태이면 HTTP 403과 차단 사유 메시지를 반환해야 한다. 차단 이벤트는 `DelistingAuditLog`에 기록해야 한다.
+
+**FR-VM-064** 포지션 조회 API는 DELISTED 종목의 `currentPrice`를 0으로 반환하고 `totalValue = 0`으로 계산해야 한다.
+
+**FR-VM-065** 가상계좌는 `delistingPolicy` 설정을 가져야 한다 (기본값: `AUTO_LIQUIDATE`).
+- `AUTO_LIQUIDATE`: 강제청산 이벤트 발생 시 마지막 시세로 매도 또는 0원 제거
+- `HOLD_AS_WORTHLESS`: 청산 없이 0원으로 보유
+- `HOLD_WITH_MANUAL_REVIEW`: 수동 처리 대기
+
+**FR-VM-066** VirtualTrader 매매 사이클은 매 반복마다 보유/추적 종목의 상장 상태를 확인하고, 비정상 상태에 따라 매수 차단 / 강제청산 신호를 주입해야 한다.
+
+**FR-VM-067** 백테스트 엔진은 `delisted_store.is_delisted(sym)` 확인 후 이미 상폐된 종목을 대상에서 제외하여 생존자 편향을 방지해야 한다.
+
+**FR-VM-068** `/virtual-account/[id]` 페이지는 비정상 상장 상태 종목에 대해 `DelistingRiskBanner`를 표시해야 한다. 배너는 상태 배지, D-N 카운트다운, 강제청산 버튼을 포함해야 한다.
+
+**FR-VM-069** 모든 자동 처리 이벤트(청산, 차단, 상태변경)는 `DelistingAuditLog`에 기록되어야 한다.
+
 ---
 
 ### 3.4b Strategy Research Agent (Premium)
@@ -900,7 +936,9 @@ Strategy ──── VirtualAccount                   (전략-가상계좌 연�
 VirtualAccount ──── VirtualPosition            (가상 포지션)
 VirtualAccount ──── VirtualOrder               (가상 주문)
 VirtualAccount ──── VirtualMarketState         (가상 시장 상태)
+VirtualAccount ──── DelistingAuditLog          (상장폐지 감사 로그)
 VirtualMarketLog                               (시장 갱신 로그)
+Stock                                          (상장 상태 + listingStatus 필드)
 WatchlistGroup ──── WatchlistSymbol            (관심종목)
 BacktestHistory                                (백테스트 이력)
 ```
@@ -1033,6 +1071,32 @@ BacktestHistory                                (백테스트 이력)
 | rank | Int? | 최종 leaderboard 순위 |
 | createdAt | DateTime | 생성 시각 |
 
+#### Stock (상장 상태 관련 필드)
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| listingStatus | String | 상장 상태 (기본값: `NORMAL`) |
+| suspensionReason | String? | 거래정지/상폐 사유 |
+| delistingDate | String? | 상장폐지 예정일 |
+| lastTradableDate | String? | 마지막 거래 가능일 |
+| riskFlags | String? | JSON 리스크 플래그 배열 |
+| statusUpdatedAt | DateTime? | 상태 마지막 갱신 시각 |
+
+> `@@index([listingStatus])` — 상태별 종목 조회 최적화
+
+#### DelistingAuditLog
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | String PK | CUID |
+| accountId | String FK | VirtualAccount.id |
+| symbol | String | 종목 코드 |
+| actionType | String | AUTO_LIQUIDATE / TRADE_BLOCKED / STATUS_CHANGE / FORCED_HOLD |
+| previousStatus | String? | 이전 상태 |
+| newStatus | String? | 새 상태 |
+| quantity | Int? | 처리 수량 |
+| executionPrice | Float? | 체결 가격 |
+| reason | String? | 처리 사유 |
+| createdAt | DateTime | 기록 시각 |
+
 #### VirtualAccount
 | 컬럼 | 타입 | 설명 |
 |------|------|------|
@@ -1043,6 +1107,7 @@ BacktestHistory                                (백테스트 이력)
 | strategyId | String? | 연결된 전략 ID |
 | strategyName | String? | 연결된 전략명 |
 | tradingMode | String | manual / auto / signal |
+| delistingPolicy | String | AUTO_LIQUIDATE / HOLD_AS_WORTHLESS / HOLD_WITH_MANUAL_REVIEW (기본값: AUTO_LIQUIDATE) |
 | createdAt | DateTime | |
 | updatedAt | DateTime | |
 
@@ -1149,6 +1214,9 @@ BacktestHistory                                (백테스트 이력)
 | GET | `/news/fetch-body` | 기사 본문 일부 추출 (SSRF 방어 적용) |
 | GET | `/ai/runtime/metrics` | AI 런타임 latency 메트릭 조회 |
 | POST | `/ai/runtime/metrics/reset` | AI 런타임 메트릭 초기화 |
+| GET | `/market/listing-status` | 전체 상장 상태 조회 (DART + DelistedSymbolStore + DB) |
+| POST | `/market/listing-status/sync` | 수동 상장 상태 동기화 트리거 |
+| POST | `/virtual-account/{account_id}/force-liquidate/{symbol}` | 강제청산 실행 |
 | GET | `/health` | 서버 헬스체크 |
 
 ### 6.2 Next.js API Routes
@@ -1178,6 +1246,8 @@ BacktestHistory                                (백테스트 이력)
 | GET | `/api/news/impact/[symbol]` | 종목 Alpha 시그널 (latest_alpha, risk_alert_level) |
 | GET | `/api/news/top` | 주요 시장 뉴스 피드 |
 | GET | `/api/news/fetch-body` | 기사 본문 일부 추출 프록시 (SSRF 방어 적용) |
+| GET | `/api/market/delisting-status` | 통합 상장 상태 조회 (backend + DB, 5개 배열 + details) |
+| POST | `/api/virtual-account/[id]/liquidate` | 강제청산 프록시 |
 
 ---
 
