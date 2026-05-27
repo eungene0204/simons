@@ -26,12 +26,12 @@ model BacktestHistory {
 
 model BacktestResult {
   id         String   @id @default(cuid())
-  strategyId String
+  strategyId String?
   stockId    Int?
   summary    String
   trades     String?
   createdAt  DateTime @default(now())
-  Strategy   Strategy @relation(fields: [strategyId], references: [id])
+  Strategy   Strategy? @relation(fields: [strategyId], references: [id], onDelete: SetNull)
   Stock      Stock?   @relation(fields: [stockId], references: [id])
 
   @@index([strategyId, createdAt])

@@ -19,7 +19,6 @@ export async function DELETE(_req: Request, { params }: { params: { id: string }
           data: { tradingMode: "manual" },
         });
       }
-      await tx.backtestResult.deleteMany({ where: { strategyId: params.id } });
       await tx.strategy.delete({ where: { id: params.id } });
     });
 
