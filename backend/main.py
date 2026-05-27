@@ -12,6 +12,7 @@ from schemas import (
 )
 from backtest_engine import BacktestEngine
 from engine.market_data import market_data_provider, delisted_store
+from engine.dart_client import fetch_recent_delisting_notices
 from engine.live_signal_utils import prepare_signal_dataframe
 from engine.virtual_trader import VirtualTrader
 from engine.vi_utils import build_vi_display
@@ -439,6 +440,39 @@ async def unmark_delisted(symbol: str):
 async def list_delisted():
     """등록된 상장폐지 종목 목록"""
     return {"delisted": delisted_store.all()}
+
+
+_CONFIRMED_DELIST_KEYWORDS = ["상장폐지결정", "상장폐지 결정", "정리매매", "상장폐지예고"]
+
+
+@app.get("/market/dart/notices")
+async def get_dart_delisting_notices(days: int = 7):
+    """
+    OpenDART에서 최근 N일간 상장폐지 관련 공시를 조회한다.
+    상장폐지 결정·정리매매 확정 건은 자동으로 DelistedSymbolStore에 등록된다.
+    거래정지·심사 중인 건은 notices에만 포함되고 자동 등록은 하지 않는다.
+    """
+    try:
+        notices = fetch_recent_delisting_notices(days=days)
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    newly_registered = []
+    for notice in notices:
+        code = notice["stock_code"]
+        report_nm = notice["report_nm"]
+        if not code:
+            continue
+        if any(kw in report_nm for kw in _CONFIRMED_DELIST_KEYWORDS):
+            if delisted_store.mark(code):
+                market_data_provider.cache.invalidate(code)
+                newly_registered.append(code)
+
+    return {
+        "days": days,
+        "notices": notices,
+        "newly_registered": newly_registered,
+    }
 
 
 def _tick_size(price: int) -> int:

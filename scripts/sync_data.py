@@ -12,6 +12,9 @@ from tqdm import tqdm
 from pathlib import Path
 from datetime import datetime
 import FinanceDataReader as fdr
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
 
@@ -39,6 +42,7 @@ sys.path.append(os.path.join(os.getcwd(), "backend"))
 from backend.engine.data_fetcher import fetch_and_enrich, enrich_existing_parquet
 from backend.engine.sector_mapper import get_sector_from_industry
 from backend.engine.fundamental_fetcher import _read_cache
+from backend.engine.dart_client import fetch_recent_delisting_notices
 from backend.universe_history import (
     build_universe_sync_log_lines,
     load_universe_history,
@@ -344,6 +348,36 @@ def main(argv=None):
     for line in build_universe_sync_log_lines(history_entry, load_universe_history()):
         print(line)
 
+    # 3. DART 상장폐지 공시 체크 (KRX 스냅샷 비교와 독립적으로 실행)
+    _CONFIRMED_DELIST_KEYWORDS = ["상장폐지결정", "상장폐지 결정", "정리매매", "상장폐지예고"]
+    print("\nChecking OpenDART for delisting notices (past 7 days)...")
+    try:
+        dart_notices = fetch_recent_delisting_notices(days=7)
+        print(f"  DART 상장폐지 관련 공시 {len(dart_notices)}건 발견")
+        dart_confirmed = []
+        for notice in dart_notices:
+            code = notice["stock_code"]
+            name = notice["corp_name"]
+            report = notice["report_nm"]
+            date = notice["rcept_dt"]
+            print(f"  - [{date}] {name} ({code}): {report}")
+            # 상장폐지 확정 건만 DelistedSymbolStore에 등록
+            if any(kw in report for kw in _CONFIRMED_DELIST_KEYWORDS):
+                try:
+                    import requests as req_lib
+                    r = req_lib.post(f"{BACKEND_URL}/market/delist/{code}", timeout=3)
+                    if r.status_code == 200 and r.json().get("added"):
+                        dart_confirmed.append({"symbol": code, "name": name})
+                        print(f"    → 상장폐지 등록 완료: {code}")
+                except Exception:
+                    pass
+        if dart_confirmed:
+            _notify_backend("dart_delist", delisted_symbols=dart_confirmed)
+        if not dart_notices:
+            print("  DART 상장폐지 공시 없음")
+    except Exception as e:
+        print(f"  [WARNING] DART 공시 조회 실패: {e}")
+
     if args.symbols_only:
         print(f"\n[--symbols-only] OHLCV 동기화 건너뜀. 종목 목록 업데이트 완료 ({len(stocks)}개)")
         if not symbol_sync_ok:
@@ -351,7 +385,7 @@ def main(argv=None):
             return 2
         return 0
 
-    # 3. Sync OHLCV (일반 종목)
+    # 4. Sync OHLCV (일반 종목)
     print(f"Starting OHLCV synchronization for {len(stocks)} symbols...")
     success_count = 0
     fail_count = 0
@@ -363,7 +397,7 @@ def main(argv=None):
         else:
             fail_count += 1
 
-    # 3b. Sync ETF OHLCV (Korea ETF — KIND API에 미포함되어 별도 처리)
+    # 4b. Sync ETF OHLCV (Korea ETF — KIND API에 미포함되어 별도 처리)
     print("\nFetching ETF symbol list...")
     etf_symbols = fetch_etf_symbols()
     etf_success, etf_fail = 0, 0
@@ -377,7 +411,7 @@ def main(argv=None):
     else:
         print("[WARNING] ETF 목록 조회 실패 — ETF OHLCV 업데이트 건너뜀")
 
-    # 4. Fundamental Enrichment (EPS/BPS/PER/PBR/ROE)
+    # 5. Fundamental Enrichment (EPS/BPS/PER/PBR/ROE)
     #    캐시 미보유 또는 만료된 종목만 네트워크 요청, 나머지는 캐시 사용
     print(f"\nStarting fundamental enrichment for {len(stocks)} symbols...")
     fund_success, fund_fail, fund_skip = 0, 0, 0

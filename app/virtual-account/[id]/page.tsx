@@ -19,7 +19,7 @@ import {
   deleteAccount,
 } from "@/lib/portfolio";
 import { getMarketLogs, type VirtualMarketLog } from "@/lib/virtual-market";
-import { MagnifyingGlass, Robot, Bell, Trash, TrendUp, ArrowUpRight, ArrowDownRight } from "phosphor-react";
+import { Robot, Bell, Trash, TrendUp } from "phosphor-react";
 import StockSearchModal from "@/components/stock/StockSearchModal";
 import OrderBook from "@/components/order/OrderBook";
 import PortfolioPerformanceChart, { PerformancePoint } from "@/components/portfolio/PortfolioPerformanceChart";
@@ -28,12 +28,23 @@ import TrackedSymbolRow from "@/components/virtual-account/TrackedSymbolRow";
 import TrackedSymbolsSkeleton from "@/components/virtual-account/TrackedSymbolsSkeleton";
 import SignalLog from "@/components/virtual-market/SignalLog";
 import { useStockPrices } from "@/lib/hooks/useStockPrices";
+import { useDelistingStatus } from "@/lib/hooks/useDelistingStatus";
 import { buildStrategySummaryFromDsl } from "@/lib/strategy-summary";
 import type { StockPriceSnapshot as BatchQuoteItem } from "@/lib/stock-prices";
 import type { StrategyDSL } from "@/types/strategy";
 
 const formatPrice = (price: number) =>
   new Intl.NumberFormat("ko-KR").format(Math.round(price));
+
+const formatSignedPrice = (value: number) => {
+  if (value === 0) return formatPrice(0);
+  return `${value > 0 ? "+" : "-"}${formatPrice(Math.abs(value))}`;
+};
+
+const formatSignedPercent = (value: number) => {
+  if (value === 0) return "0.00%";
+  return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+};
 
 const formatCompact = (val: number) => {
   if (Math.abs(val) >= 1_000_000) return `${(val / 1_000_000).toFixed(1)}M`;
@@ -90,6 +101,7 @@ export default function VirtualAccountDetailPage() {
   const [promptPos, setPromptPos] = useState<{ top: number; right: number } | null>(null);
   const promptButtonRef = useRef<HTMLButtonElement>(null);
 
+  const delistingStatus = useDelistingStatus();
   const trackedSymbolsList = trackedSymbols.map((s) => s.symbol);
   const { data: trackedPriceSnapshots } = useStockPrices(trackedSymbolsList, {
     enabled: trackedSymbolsList.length > 0,
@@ -586,17 +598,17 @@ export default function VirtualAccountDetailPage() {
                 </div>
                 <div className="border-r border-b border-white/[0.08] px-5 py-4">
                   <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">당일 손익</span>
-                  <p className={`mt-2 text-2xl font-black tabular-nums font-outfit leading-none ${todayPnl >= 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
-                    {todayPnl >= 0 ? "+" : ""}{formatPrice(todayPnl)}
+                  <p className={`mt-2 text-2xl font-black tabular-nums font-outfit leading-none ${todayPnl === 0 ? "text-white" : todayPnl > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
+                    {formatSignedPrice(todayPnl)}
                   </p>
-                  <p className={`mt-1 text-[10px] font-bold tabular-nums ${todayPnl >= 0 ? "text-gray-500" : "text-[var(--main-blue)]"}`}>
-                    {todayPnlPct >= 0 ? "+" : ""}{todayPnlPct.toFixed(2)}%
+                  <p className={`mt-1 text-[10px] font-bold tabular-nums ${todayPnl === 0 ? "text-gray-500" : todayPnl > 0 ? "text-gray-500" : "text-[var(--main-blue)]"}`}>
+                    {formatSignedPercent(todayPnlPct)}
                   </p>
                 </div>
                 <div className="border-r border-b border-white/[0.08] px-5 py-4">
                   <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">누적 수익률</span>
-                  <p className={`mt-2 text-2xl font-black tabular-nums font-outfit leading-none ${profitPercent >= 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
-                    {profitPercent >= 0 ? "+" : ""}{profitPercent.toFixed(2)}%
+                  <p className={`mt-2 text-2xl font-black tabular-nums font-outfit leading-none ${profitPercent === 0 ? "text-white" : profitPercent > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
+                    {formatSignedPercent(profitPercent)}
                   </p>
                   <p className="mt-1 text-[10px] font-bold text-gray-500">초기 자본 대비</p>
                 </div>
@@ -618,7 +630,7 @@ export default function VirtualAccountDetailPage() {
                       </span>
                       <button
                         onClick={() => setIsTrackSearchOpen(true)}
-                        className="flex items-center gap-1 text-xs font-bold text-[var(--main-blue)] border border-sky-400/20 px-2.5 py-1 rounded-lg hover:border-sky-400/40 transition-colors duration-200"
+                        className="flex items-center gap-1 text-xs font-bold text-[var(--main-green)] bg-white/[0.06] px-2.5 py-1 rounded-lg hover:bg-white/[0.1] transition-colors duration-200"
                       >
                         <span className="text-sm leading-none">+</span> 종목 추가
                       </button>
@@ -654,6 +666,11 @@ export default function VirtualAccountDetailPage() {
                           {trackedSymbols.map(({ symbol, name }) => {
                             const q = trackedPrices[symbol];
                             const holding = holdings.find((h) => h.symbol === symbol);
+                            const delistStatus = delistingStatus.delisted.has(symbol)
+                              ? "delisted"
+                              : delistingStatus.warning.has(symbol)
+                              ? "warning"
+                              : null;
                             return (
                               <TrackedSymbolRow
                                 key={symbol}
@@ -661,6 +678,7 @@ export default function VirtualAccountDetailPage() {
                                 name={name}
                                 quote={q}
                                 hasHolding={!!holding}
+                                delistStatus={delistStatus}
                                 onSelect={handleStockSelect}
                                 onRemove={handleRemoveTrackedSymbol}
                                 formatPrice={formatPrice}
@@ -705,7 +723,7 @@ export default function VirtualAccountDetailPage() {
                         return (
                           <div key={idx} className="py-3">
                             {description && (
-                              <div className="flex justify-start mb-3">
+                              <div className="flex justify-end mb-3">
                                 <div className="relative shrink-0">
                                   <button
                                     ref={promptButtonRef}
@@ -718,7 +736,7 @@ export default function VirtualAccountDetailPage() {
                                       }
                                       setIsPromptVisible((prev) => !prev);
                                     }}
-                                    className="inline-flex items-center rounded-md bg-white/[0.06] hover:bg-white/[0.1] px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 hover:text-gray-200 transition-colors duration-200"
+                                    className="inline-flex items-center rounded-md bg-white/[0.06] hover:bg-white/[0.1] px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-[var(--main-green)] transition-colors duration-200"
                                   >
                                     프롬프트
                                   </button>
@@ -793,12 +811,6 @@ export default function VirtualAccountDetailPage() {
                       </span>
                     )}
                   </div>
-                  <button
-                    onClick={() => setIsSearchOpen(true)}
-                    className="flex items-center gap-1.5 text-xs font-bold text-[var(--main-blue)] hover:text-sky-300 transition-colors duration-200"
-                  >
-                    <MagnifyingGlass size={13} weight="bold" />종목 검색
-                  </button>
                 </div>
 
                 {/* 보유 종목 */}
@@ -822,7 +834,12 @@ export default function VirtualAccountDetailPage() {
                       <div className="max-h-[360px] overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent">
                         <div className="divide-y divide-white/[0.04]">
                           {holdings.map((h) => {
-                            const isPos = h.profitPercent >= 0;
+                            const pnlColor = h.profitPercent === 0 ? "text-white" : h.profitPercent > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]";
+                            const holdingDelistStatus = delistingStatus.delisted.has(h.symbol)
+                              ? "delisted"
+                              : delistingStatus.warning.has(h.symbol)
+                              ? "warning"
+                              : null;
                             return (
                               <div
                                 key={h.symbol}
@@ -830,18 +847,29 @@ export default function VirtualAccountDetailPage() {
                                 className={`grid ${HOLDINGS_COLS} gap-2 items-center px-2 py-3 hover:bg-white/[0.02] rounded-xl transition-colors duration-150 cursor-pointer`}
                               >
                                 <div className="min-w-0">
-                                  <p className="text-sm font-bold text-white truncate">{h.name || h.symbol}</p>
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <p className="text-sm font-bold text-white truncate">{h.name || h.symbol}</p>
+                                    {holdingDelistStatus === "delisted" && (
+                                      <span className="shrink-0 text-[9px] font-black tracking-wide bg-red-500/20 text-red-400 border border-red-500/30 px-1 py-0.5 rounded">
+                                        상장폐지
+                                      </span>
+                                    )}
+                                    {holdingDelistStatus === "warning" && (
+                                      <span className="shrink-0 text-[9px] font-black tracking-wide bg-yellow-500/15 text-yellow-400 border border-yellow-500/25 px-1 py-0.5 rounded">
+                                        폐지예정
+                                      </span>
+                                    )}
+                                  </div>
                                   <p className="text-[10px] font-bold text-gray-500">{h.symbol}</p>
                                 </div>
                                 <p className="text-sm font-bold text-gray-400 tabular-nums text-right">{formatPrice(h.averagePrice)}</p>
                                 <p className="text-sm font-black text-white tabular-nums text-right">{formatPrice(h.currentPrice)}</p>
                                 <p className="text-sm font-bold text-gray-400 tabular-nums text-right">{h.quantity.toLocaleString()}</p>
-                                <div className={`flex items-center justify-end gap-0.5 ${isPos ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
-                                  {isPos ? <ArrowUpRight size={11} weight="bold" /> : <ArrowDownRight size={11} weight="bold" />}
-                                  <span className="text-xs font-black tabular-nums font-outfit">{isPos ? "+" : ""}{h.profitPercent.toFixed(2)}%</span>
+                                <div className={`flex items-center justify-end gap-0.5 ${pnlColor}`}>
+                                  <span className="text-xs font-black tabular-nums font-outfit">{formatSignedPercent(h.profitPercent)}</span>
                                 </div>
-                                <p className={`text-sm font-black tabular-nums text-right ${isPos ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
-                                  {isPos ? "+" : "-"}{formatPrice(Math.abs(h.profit))}
+                                <p className={`text-sm font-black tabular-nums text-right ${pnlColor}`}>
+                                  {formatSignedPrice(h.profit)}
                                 </p>
                               </div>
                             );
@@ -862,7 +890,7 @@ export default function VirtualAccountDetailPage() {
                     <div className="overflow-x-auto">
                       {/* 헤더 */}
                       <div className={`grid ${TXN_COLS} gap-2 px-2 mb-1`}>
-                        {["종목", "구분", "체결가", "수량", "거래금액", "수수료", "실현손익", "체결시각"].map((h, i) => (
+                        {["종목", "구분", "체결가", "수량", "거래금액", "수수료", "실현손익", "체결시간"].map((h, i) => (
                           <span key={h} className={`text-xs font-bold uppercase tracking-widest text-gray-600 ${i > 0 ? "text-right" : ""}`}>
                             {h}
                           </span>
@@ -893,19 +921,24 @@ export default function VirtualAccountDetailPage() {
                               <p className="text-sm font-bold text-white tabular-nums text-right">{formatPrice(t.filledPrice ?? t.price)}</p>
                               <p className="text-sm font-bold text-gray-400 tabular-nums text-right">{t.quantity}</p>
                               <p className="text-sm font-bold text-white tabular-nums text-right">{formatPrice(t.totalAmount)}</p>
-                              <p className="text-sm font-bold text-gray-500 tabular-nums text-right">{t.fee != null ? `-${formatPrice(t.fee)}` : "—"}</p>
+                              <p className="text-sm font-bold text-gray-500 tabular-nums text-right">{t.fee != null ? `${formatPrice(t.fee)}원` : "—"}</p>
                               <div className="text-right">
                                 {t.realizedPnl != null ? (
-                                  <span className={`text-sm font-black tabular-nums ${t.realizedPnl >= 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
-                                    {t.realizedPnl >= 0 ? "+" : ""}{formatPrice(Math.round(t.realizedPnl))}
+                                  <span className={`text-sm font-black tabular-nums ${t.realizedPnl === 0 ? "text-white" : t.realizedPnl > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
+                                    {formatSignedPrice(Math.round(t.realizedPnl))}
                                   </span>
                                 ) : (
                                   <span className="text-sm font-bold text-gray-600">—</span>
                                 )}
                               </div>
-                              <p className="text-xs font-bold text-gray-500 text-right">
-                                {new Date(t.filledAt ?? t.timestamp).toLocaleString("ko-KR")}
-                              </p>
+                              <div className="text-right">
+                                <p className="text-[10px] font-bold text-gray-500 tabular-nums">
+                                  {new Date(t.filledAt ?? t.timestamp).toLocaleDateString("ko-KR")}
+                                </p>
+                                <p className="text-[10px] font-bold text-gray-500 tabular-nums">
+                                  {new Date(t.filledAt ?? t.timestamp).toLocaleTimeString("ko-KR")}
+                                </p>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -922,25 +955,25 @@ export default function VirtualAccountDetailPage() {
                       <div className="grid grid-cols-2 xl:grid-cols-6 border-l border-t border-white/[0.08]">
                         <div className="border-r border-b border-white/[0.08] p-5">
                           <p className="text-xs font-bold uppercase tracking-widest text-gray-400">누적 평가손익</p>
-                          <p className={`mt-2 text-2xl font-black font-outfit tabular-nums leading-none ${profit >= 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
-                            {profit >= 0 ? "+" : "-"}{formatPrice(Math.abs(profit))}
+                          <p className={`mt-2 text-2xl font-black font-outfit tabular-nums leading-none ${profit === 0 ? "text-white" : profit > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
+                            {formatSignedPrice(profit)}
                           </p>
                           <p className="mt-1 text-[10px] font-bold text-gray-500">초기 자본 대비</p>
                         </div>
                         <div className="border-r border-b border-white/[0.08] p-5">
                           <p className="text-xs font-bold uppercase tracking-widest text-gray-400">누적 수익률</p>
-                          <p className={`mt-2 text-2xl font-black font-outfit tabular-nums leading-none ${profitPercent >= 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
-                            {profitPercent >= 0 ? "+" : ""}{profitPercent.toFixed(2)}%
+                          <p className={`mt-2 text-2xl font-black font-outfit tabular-nums leading-none ${profitPercent === 0 ? "text-white" : profitPercent > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
+                            {formatSignedPercent(profitPercent)}
                           </p>
                           <p className="mt-1 text-[10px] font-bold text-gray-500">현재 총 자산 기준</p>
                         </div>
                         <div className="border-r border-b border-white/[0.08] p-5">
                           <p className="text-xs font-bold uppercase tracking-widest text-gray-400">당일 실현손익</p>
-                          <p className={`mt-2 text-2xl font-black font-outfit tabular-nums leading-none ${todayPnl >= 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
-                            {todayPnl >= 0 ? "+" : "-"}{formatPrice(Math.abs(todayPnl))}
+                          <p className={`mt-2 text-2xl font-black font-outfit tabular-nums leading-none ${todayPnl === 0 ? "text-white" : todayPnl > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
+                            {formatSignedPrice(todayPnl)}
                           </p>
-                          <p className={`mt-1 text-[10px] font-bold tabular-nums ${todayPnl >= 0 ? "text-gray-500" : "text-[var(--main-blue)]"}`}>
-                            {todayPnlPct >= 0 ? "+" : ""}{todayPnlPct.toFixed(2)}%
+                          <p className={`mt-1 text-[10px] font-bold tabular-nums ${todayPnl === 0 ? "text-gray-500" : todayPnl > 0 ? "text-gray-500" : "text-[var(--main-blue)]"}`}>
+                            {formatSignedPercent(todayPnlPct)}
                           </p>
                         </div>
                         <div className="border-r border-b border-white/[0.08] p-5">

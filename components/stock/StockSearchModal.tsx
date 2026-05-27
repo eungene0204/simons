@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { X, MagnifyingGlass, Star } from "phosphor-react";
+import { X, MagnifyingGlass } from "phosphor-react";
 import type { StockSearchResult } from "@/types/stock";
 
 interface StockSearchModalProps {
@@ -124,13 +124,7 @@ export default function StockSearchModal({
                 <h2 className="text-lg font-black tracking-tight text-white">
                   종목 검색
                 </h2>
-                <span className="rounded-full border border-sky-400/20 bg-sky-400/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-[var(--main-blue)]">
-                  Live
-                </span>
               </div>
-              <p className="mt-1 text-xs font-medium text-gray-500">
-                종목명이나 티커를 입력해 빠르게 찾고 선택하세요.
-              </p>
             </div>
             <button
               onClick={onClose}
@@ -144,10 +138,10 @@ export default function StockSearchModal({
 
         {/* Search Input */}
         <div className="border-b border-white/[0.08] px-5 py-4">
-          <div className="relative">
+          <div className="relative flex items-center bg-white/[0.06] rounded-2xl px-4 py-3">
             <MagnifyingGlass
-              size={18}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"
+              size={16}
+              className="shrink-0 text-gray-500 mr-3"
             />
             <input
               ref={inputRef}
@@ -160,20 +154,14 @@ export default function StockSearchModal({
               spellCheck={false}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-2xl border border-white/[0.08] bg-white/[0.03] py-3 pl-10 pr-4 text-sm font-medium text-white placeholder:text-gray-600 outline-none transition-colors focus:border-sky-400/30 focus:bg-white/[0.05]"
+              className="flex-1 bg-transparent text-sm font-medium text-white placeholder:text-gray-500 outline-none ring-0 focus:ring-0 focus:outline-none"
               placeholder="종목명 또는 종목 코드를 입력하세요"
             />
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <span className="rounded-full bg-white/[0.04] px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-gray-500">
-              종목명
-            </span>
-            <span className="rounded-full bg-white/[0.04] px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-gray-500">
-              티커
-            </span>
-            <span className="rounded-full bg-white/[0.04] px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-gray-500">
-              국내 / 해외
-            </span>
+            {searchQuery && (
+              <button onClick={() => setSearchQuery("")} className="shrink-0 ml-3 text-gray-500 hover:text-gray-300 transition-colors">
+                <X size={14} />
+              </button>
+            )}
           </div>
           {error && (
             <p className="mt-3 text-xs font-bold text-[var(--main-blue)]">
@@ -236,15 +224,6 @@ export default function StockSearchModal({
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex min-w-0 items-start gap-3">
-                        {!singleSelect && (
-                          <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.04]">
-                            {isSelected ? (
-                              <Star size={11} weight="fill" className="text-yellow-500" />
-                            ) : (
-                              <Star size={11} className="text-gray-500" />
-                            )}
-                          </div>
-                        )}
                         <div className="min-w-0">
                           <p className="truncate text-sm font-bold text-white">
                             {stock.name}
