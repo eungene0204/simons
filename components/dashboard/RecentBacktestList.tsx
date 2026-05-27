@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Flask, ArrowUpRight, ArrowDownRight } from "phosphor-react";
+import { Flask } from "phosphor-react";
 import type { DashboardBacktestRecord } from "@/types/dashboard";
 
 function fmtPct(v: number): string {
-  return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
+  if (v === 0) return "0.0%";
+  return `${v > 0 ? "+" : ""}${v.toFixed(1)}%`;
 }
 
 function fmtDate(ts: number): string {
@@ -34,7 +35,7 @@ function normalizeUniverse(raw: string): string | null {
 }
 
 export default function RecentBacktestList({ initialRecords }: { initialRecords: DashboardBacktestRecord[] }) {
-  const [records] = useState<DashboardBacktestRecord[]>(initialRecords.slice(0, 5));
+  const [records] = useState<DashboardBacktestRecord[]>(initialRecords.slice(0, 8));
   const loading = false;
 
   return (
@@ -45,7 +46,7 @@ export default function RecentBacktestList({ initialRecords }: { initialRecords:
           <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit">
             최근 백테스트
           </h2>
-          <p className="text-xs text-gray-500 mt-0.5">최근 5개 실행 결과</p>
+          <p className="text-xs text-gray-500 mt-0.5">최근 8개 실행 결과</p>
         </div>
         <Flask size={20} className="text-gray-600" />
       </div>
@@ -75,7 +76,7 @@ export default function RecentBacktestList({ initialRecords }: { initialRecords:
         <div className="divide-y divide-white/[0.04]">
           {records.map((r) => {
             const ret = r.metrics.totalReturn ?? 0;
-            const isPos = ret >= 0;
+            const retColor = ret === 0 ? "text-white" : ret > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]";
             const universeLabel = normalizeUniverse(r.universe);
             const universeColor = universeLabel ? UNIVERSE_COLOR[universeLabel] : "";
             return (
@@ -96,12 +97,7 @@ export default function RecentBacktestList({ initialRecords }: { initialRecords:
                 )}
 
                 {/* 수익률 */}
-                <div className={`flex items-center gap-0.5 ${isPos ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
-                  {isPos ? (
-                    <ArrowUpRight size={12} weight="bold" />
-                  ) : (
-                    <ArrowDownRight size={12} weight="bold" />
-                  )}
+                <div className={`flex items-center gap-0.5 ${retColor}`}>
                   <span className="text-xs font-black tabular-nums font-outfit">
                     {fmtPct(ret)}
                   </span>
@@ -115,31 +111,6 @@ export default function RecentBacktestList({ initialRecords }: { initialRecords:
         </div>
       )}
 
-      {/* 추가 지표 요약 (첫 번째 기록 기준) */}
-      {!loading && records.length > 0 && (() => {
-        const best = [...records].sort((a, b) => (b.metrics.totalReturn ?? 0) - (a.metrics.totalReturn ?? 0))[0];
-        return (
-          <div className="mt-4 pt-4 border-t border-white/[0.05] flex gap-4">
-            {[
-              { label: "최고 수익", value: fmtPct(best.metrics.totalReturn ?? 0), positive: (best.metrics.totalReturn ?? 0) >= 0 },
-              { label: "Sharpe", value: best.metrics.sharpe != null ? best.metrics.sharpe.toFixed(2) : "--" },
-              { label: "MDD", value: best.metrics.mdd != null ? `${best.metrics.mdd.toFixed(1)}%` : "--" },
-              { label: "점수", value: best.metrics.score != null ? best.metrics.score.toFixed(0) : "--" },
-            ].map((item) => (
-              <div key={item.label} className="flex-1 text-center">
-                <p className="text-[9px] uppercase tracking-widest text-gray-600 font-bold">{item.label}</p>
-                <p className={`text-sm font-black tabular-nums font-outfit mt-0.5 ${
-                  "positive" in item
-                    ? item.positive ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"
-                    : "text-white"
-                }`}>
-                  {item.value}
-                </p>
-              </div>
-            ))}
-          </div>
-        );
-      })()}
     </div>
   );
 }
