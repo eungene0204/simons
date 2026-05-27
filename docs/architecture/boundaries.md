@@ -14,6 +14,8 @@ User-facing strategy builder and prompt interface.
 ### Files
 - app/analytics/**
 - app/virtual-account/**
+- components/virtual-account/**
+- components/stock/StockSearchModal.tsx
 - components/strategy/**
 - components/ui/CreateAccountModal.tsx
 - lib/strategy-summary.ts
