@@ -52,25 +52,25 @@ export default function PortfolioSummaryBar({ initialStats }: { initialStats: Po
       label: "전체 수익률",
       icon: TrendUp,
       value: `${isPositive ? "+" : ""}${stats.totalReturnPct.toFixed(2)}%`,
-      valueColor: "text-white",
-      badge: `${Math.abs(stats.totalReturnPct).toFixed(2)}%`,
+      valueColor: isPositive ? "text-[var(--main-red)]" : "text-[var(--main-blue)]",
+      badge: "",
       badgeIsPositive: isPositive,
-      badgeIsNeutral: false,
+      badgeIsNeutral: true,
     },
     {
       label: "총 수익금",
       icon: CurrencyKrw,
       value: `${isPositive ? "+" : ""}${formatKRW(stats.totalProfit)}원`,
-      valueColor: "text-white",
-      badge: `${Math.abs(stats.totalReturnPct).toFixed(2)}%`,
+      valueColor: isPositive ? "text-[var(--main-red)]" : "text-[var(--main-blue)]",
+      badge: "",
       badgeIsPositive: isPositive,
-      badgeIsNeutral: false,
+      badgeIsNeutral: true,
     },
     {
       label: "일간 손익",
       icon: CalendarBlank,
       value: `${isDailyPos && stats.dailyPnl !== 0 ? "+" : ""}${formatKRW(stats.dailyPnl)}원`,
-      valueColor: "text-white",
+      valueColor: isDailyPos ? "text-[var(--main-red)]" : "text-[var(--main-blue)]",
       badge: "오늘",
       badgeIsPositive: isDailyPos,
       badgeIsNeutral: true,
@@ -104,7 +104,7 @@ export default function PortfolioSummaryBar({ initialStats }: { initialStats: Po
                     {card.value}
                   </span>
                 )}
-                {!loading && (
+                {!loading && card.badge && (
                   card.badgeIsNeutral ? (
                     <span className="inline-flex items-center text-xs font-bold px-2 py-0.5 rounded-md bg-white/[0.06] text-gray-400 mb-0.5">
                       {card.badge}
