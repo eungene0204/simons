@@ -503,6 +503,75 @@ def test_parse_falls_back_when_model_returns_incomplete_json(monkeypatch):
     assert parsed.stop_loss_pct == 8.0
 
 
+def test_parse_modification_keeps_previous_universe_when_prompt_does_not_change_it(monkeypatch):
+    parser = NLStrategyParser(backend="mlx")
+    previous = {
+        "description": "KOSPI PBR strategy",
+        "universe": ["KOSPI"],
+        "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1}],
+        "entry_signals": [],
+        "exit_signals": [],
+        "max_positions": 8,
+        "hold_period_days": 126,
+        "rebalancing_period": "none",
+        "stop_loss_pct": 12,
+        "take_profit_pct": None,
+        "trailing_stop_pct": None,
+        "max_mdd_limit_pct": None,
+        "backtest_period": "5y",
+        "initial_capital": 10_000_000,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05,
+    }
+
+    def hallucinated_diff(_user_input, _previous):
+        return ParsedStrategyDiff(
+            universe=["KOSPI200"],
+            trailing_stop_pct=15,
+        )
+
+    monkeypatch.setattr(parser, "_modify_mlx", hallucinated_diff)
+
+    parsed = parser.parse_modification("트레일링 15% 추가해줘", previous)
+
+    assert parsed.universe == ["KOSPI"]
+    assert parsed.trailing_stop_pct == 15
+    assert parsed.stop_loss_pct == 12
+
+
+def test_parse_modification_changes_universe_when_prompt_explicitly_requests_it(monkeypatch):
+    parser = NLStrategyParser(backend="mlx")
+    previous = {
+        "description": "KOSPI PBR strategy",
+        "universe": ["KOSPI"],
+        "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1}],
+        "entry_signals": [],
+        "exit_signals": [],
+        "max_positions": 8,
+        "hold_period_days": 126,
+        "rebalancing_period": "none",
+        "stop_loss_pct": 12,
+        "take_profit_pct": None,
+        "trailing_stop_pct": None,
+        "max_mdd_limit_pct": None,
+        "backtest_period": "5y",
+        "initial_capital": 10_000_000,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05,
+    }
+
+    def universe_diff(_user_input, _previous):
+        return ParsedStrategyDiff(universe=["KOSPI200"])
+
+    monkeypatch.setattr(parser, "_modify_mlx", universe_diff)
+
+    parsed = parser.parse_modification("KOSPI200으로 바꿔줘", previous)
+
+    assert parsed.universe == ["KOSPI200"]
+
+
 def test_build_fallback_strategy_handles_vague_prompt_without_crashing():
     parsed = _build_fallback_strategy("좋은 저평가 전략 만들어줘")
 

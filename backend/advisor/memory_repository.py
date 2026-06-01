@@ -15,7 +15,7 @@ import sqlite3
 from typing import Any, Dict, List, Optional, Tuple
 
 from .advice_evaluator import evaluate_advice
-from .similarity import search_similar_strategies
+from .similarity import extract_structural_features, search_similar_strategies, structural_similarity
 from .strategy_identity import canonical_strategy_string, strategy_id_for
 from vector_memory import (
     ChromaVectorMemoryRepository,
@@ -423,6 +423,173 @@ def _record_filter_value(record: Any, field: str) -> Any:
     return value
 
 
+def _as_float_or_none(value: Any) -> Optional[float]:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parameter_closeness(query_value: Any, candidate_value: Any) -> float:
+    left = _as_float_or_none(query_value)
+    right = _as_float_or_none(candidate_value)
+    if left is None or right is None:
+        return 0.0
+    return max(0.0, 1.0 - abs(left - right) / max(abs(left), abs(right), 1.0))
+
+
+def _fundamental_filters_by_metric(strategy_dsl: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    result: Dict[str, Dict[str, Any]] = {}
+    for item in strategy_dsl.get("fundamental_filters") or []:
+        if not isinstance(item, dict):
+            continue
+        metric = _coerce_text(item.get("metric")).lower()
+        if metric:
+            result[metric] = item
+    return result
+
+
+def _domain_rerank_score(query_dsl: Dict[str, Any], candidate_dsl: Dict[str, Any]) -> float:
+    query_features = extract_structural_features(query_dsl)
+    candidate_features = extract_structural_features(candidate_dsl)
+    score = 0.0
+    if query_features.universe and query_features.universe == candidate_features.universe:
+        score += 0.10
+    if query_features.indicators:
+        if query_features.indicators <= candidate_features.indicators:
+            score += 0.30
+        elif query_features.indicators & candidate_features.indicators:
+            score += 0.12
+        else:
+            score -= 0.50
+
+    query_filters = _fundamental_filters_by_metric(query_dsl)
+    candidate_filters = _fundamental_filters_by_metric(candidate_dsl)
+    if query_filters:
+        filter_scores: List[float] = []
+        for metric, query_filter in query_filters.items():
+            candidate_filter = candidate_filters.get(metric)
+            if not candidate_filter:
+                filter_scores.append(0.0)
+                continue
+            filter_scores.append(_parameter_closeness(query_filter.get("value"), candidate_filter.get("value")))
+        score += 0.30 * (sum(filter_scores) / len(filter_scores))
+
+    score += 0.10 * _parameter_closeness(query_dsl.get("max_positions"), candidate_dsl.get("max_positions"))
+    score += 0.10 * _parameter_closeness(query_dsl.get("hold_period_days"), candidate_dsl.get("hold_period_days"))
+    score += 0.10 * _parameter_closeness(query_dsl.get("stop_loss_pct"), candidate_dsl.get("stop_loss_pct"))
+    return score
+
+
+def _matches_hard_filters(query_dsl: Dict[str, Any], candidate_dsl: Dict[str, Any]) -> bool:
+    query_filters = _fundamental_filters_by_metric(query_dsl)
+    if not query_filters:
+        return True
+
+    candidate_filters = _fundamental_filters_by_metric(candidate_dsl)
+    for metric, query_filter in query_filters.items():
+        candidate_filter = candidate_filters.get(metric)
+        if not candidate_filter:
+            return False
+        query_value = _as_float_or_none(query_filter.get("value"))
+        candidate_value = _as_float_or_none(candidate_filter.get("value"))
+        if query_value is not None and candidate_value is not None:
+            if _parameter_closeness(query_value, candidate_value) < 0.40:
+                return False
+    return True
+
+
+def _dsl_universe(strategy_dsl: Dict[str, Any]) -> str:
+    value = strategy_dsl.get("universe") or strategy_dsl.get("universe_id")
+    if isinstance(value, list):
+        return ",".join(sorted(str(item).lower() for item in value))
+    return _coerce_text(value).lower()
+
+
+def _prefer_matching_universe(query_dsl: Dict[str, Any], matches: List[VectorMemoryMatch]) -> List[VectorMemoryMatch]:
+    query_universe = _dsl_universe(query_dsl)
+    if not query_universe:
+        return matches
+    filtered = [
+        match
+        for match in matches
+        if _dsl_universe(_extract_strategy_dsl_from_document(match.document)) == query_universe
+    ]
+    return filtered or matches
+
+
+def _rerank_score(query_record: Any, match: VectorMemoryMatch) -> float:
+    candidate_dsl = _extract_strategy_dsl_from_document(match.document)
+    if not candidate_dsl:
+        return match.similarity_score
+    query_dsl = getattr(query_record, "strategyDsl", {}) or {}
+    query_features = extract_structural_features(query_dsl)
+    candidate_features = extract_structural_features(candidate_dsl)
+    structure_score = structural_similarity(query_features, candidate_features)
+    domain_score = _domain_rerank_score(query_dsl, candidate_dsl)
+    return round((0.20 * match.similarity_score) + (0.40 * structure_score) + (0.40 * domain_score), 4)
+
+
+def _rerank_vector_matches(query_record: Any, matches: List[VectorMemoryMatch]) -> List[VectorMemoryMatch]:
+    query_dsl = getattr(query_record, "strategyDsl", {}) or {}
+    best_by_strategy_hash: Dict[str, Tuple[float, VectorMemoryMatch]] = {}
+    for match in matches:
+        strategy_hash = _coerce_text(match.metadata.get("strategy_hash"), match.id.split(":", 1)[0])
+        score = _rerank_score(query_record, match)
+        existing = best_by_strategy_hash.get(strategy_hash)
+        if existing is None or score > existing[0]:
+            best_by_strategy_hash[strategy_hash] = (score, match)
+    ranked = [
+        match
+        for _, match in sorted(
+            best_by_strategy_hash.values(),
+            key=lambda item: (item[0], item[1].similarity_score),
+            reverse=True,
+        )
+    ]
+    hard_filtered = [
+        match
+        for match in ranked
+        if _matches_hard_filters(query_dsl, _extract_strategy_dsl_from_document(match.document))
+    ]
+    filtered = hard_filtered or ranked
+    return _prefer_matching_universe(query_dsl, filtered)
+
+
+def _is_successful_vector_match(match: VectorMemoryMatch) -> bool:
+    metadata = match.metadata
+    if _coerce_text(metadata.get("failureReason")):
+        return False
+    if _coerce_text(metadata.get("successReason")):
+        return True
+    sharpe = _as_float_or_none(metadata.get("sharpe"))
+    cagr = _as_float_or_none(metadata.get("cagr"))
+    mdd = _as_float_or_none(metadata.get("mdd"))
+    return (
+        (sharpe is not None and sharpe > 0)
+        or (cagr is not None and cagr > 0)
+    ) and (mdd is None or mdd > -0.20)
+
+
+def _normalize_vector_categories(
+    matches_by_id: Dict[str, VectorMemoryMatch],
+    categories: Dict[str, List[str]],
+) -> None:
+    for match_id, match in matches_by_id.items():
+        match_categories = categories.setdefault(match_id, [])
+        failure_reason = _coerce_text(match.metadata.get("failureReason"))
+        if failure_reason:
+            if "successful_low_risk" in match_categories:
+                match_categories.remove("successful_low_risk")
+            if "failed_high_risk" not in match_categories:
+                match_categories.append("failed_high_risk")
+            continue
+        if "successful_low_risk" in match_categories and not _is_successful_vector_match(match):
+            match_categories.remove("successful_low_risk")
+
+
 async def _query_vector_memory_by_categories(
     service: VectorMemoryService,
     query_record: Any,
@@ -447,12 +614,13 @@ async def _query_vector_memory_by_categories(
     if rebalance_frequency:
         filters.append(("same_trade_frequency", {"rebalanceFrequency": rebalance_frequency}))
 
+    candidate_top_k = max(top_k * 100, 1000)
     by_id: Dict[str, VectorMemoryMatch] = {}
     categories: Dict[str, List[str]] = {}
     for category, where in filters:
         matches = await service.query_similar(
             record=query_record,
-            top_k=top_k,
+            top_k=candidate_top_k,
             where=where,
         )
         for match in matches:
@@ -463,7 +631,8 @@ async def _query_vector_memory_by_categories(
             if category not in categories[match.id]:
                 categories[match.id].append(category)
 
-    ordered = sorted(by_id.values(), key=lambda item: item.similarity_score, reverse=True)
+    _normalize_vector_categories(by_id, categories)
+    ordered = _rerank_vector_matches(query_record, list(by_id.values()))
     return ordered[: max(top_k, len(filters))], categories
 
 

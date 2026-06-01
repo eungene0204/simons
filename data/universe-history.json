@@ -1,6 +1,39 @@
 {
-  "updatedAt": "2026-05-27T00:00:04.360356+09:00",
+  "updatedAt": "2026-06-01T00:00:04.300995+09:00",
   "entries": [
+    {
+      "date": "2026-06-01",
+      "syncedAt": "2026-06-01T00:00:04.300995+09:00",
+      "totalCount": 2657,
+      "kospiCount": 838,
+      "kosdaqCount": 1819,
+      "addedCount": 0,
+      "delistedCount": 0,
+      "added": [],
+      "delisted": []
+    },
+    {
+      "date": "2026-05-31",
+      "syncedAt": "2026-05-31T00:00:04.533671+09:00",
+      "totalCount": 2657,
+      "kospiCount": 838,
+      "kosdaqCount": 1819,
+      "addedCount": 0,
+      "delistedCount": 0,
+      "added": [],
+      "delisted": []
+    },
+    {
+      "date": "2026-05-30",
+      "syncedAt": "2026-05-30T00:00:04.480022+09:00",
+      "totalCount": 2657,
+      "kospiCount": 838,
+      "kosdaqCount": 1819,
+      "addedCount": 0,
+      "delistedCount": 0,
+      "added": [],
+      "delisted": []
+    },
     {
       "date": "2026-05-27",
       "syncedAt": "2026-05-27T00:00:04.360356+09:00",

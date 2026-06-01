@@ -141,3 +141,105 @@ def test_liquidity_filter(engine):
     # 2024-01-03 signal check D-1 (01-02) vol=10 -> FAIL.
     # So we expect entry at 2024-01-03 (execution of 01-02 signal).
     assert "2024-01-03" in entry_dates
+
+
+def _write_test_ohlcv(path, start_date: str, periods: int):
+    rows = []
+    for index, date in enumerate(pd.date_range(start=start_date, periods=periods, freq="D")):
+        price = 100.0 + index
+        rows.append({
+            "date": date.strftime("%Y-%m-%d"),
+            "open": price,
+            "high": price + 1.0,
+            "low": price - 1.0,
+            "close": price,
+            "volume": 1000000.0,
+        })
+    pl.from_dicts(rows).write_parquet(str(path))
+
+
+def test_symbol_is_included_when_backtest_period_overlaps_available_data(tmp_path):
+    data_dir = tmp_path / "ohlcv"
+    data_dir.mkdir()
+    _write_test_ohlcv(data_dir / "PARTIAL_HISTORY.parquet", "2024-01-01", 5)
+
+    engine = BacktestEngine(data_dir=str(data_dir))
+    result = engine.run_backtest({
+        "symbols": ["PARTIAL_HISTORY"],
+        "entry": {
+            "logic": "AND",
+            "conditions": [{"id": "price", "params": {"value": 50, "operator": ">"}}],
+        },
+        "exit": {"logic": "AND", "conditions": []},
+        "risk": {"position_size_pct": 100, "liquidity_multiplier": 0},
+        "period": "FULL",
+        "startDate": "2024-01-02",
+        "endDate": "2024-01-04",
+    })
+
+    assert any(signal["symbol"] == "PARTIAL_HISTORY" for signal in result["signals"])
+    assert not any(
+        warning.startswith("PARTIAL_HISTORY: 상장폐지 종목")
+        for warning in result["warnings"]
+    )
+
+
+def test_symbol_without_period_overlap_is_not_processed_without_delisting_warning(tmp_path):
+    data_dir = tmp_path / "ohlcv"
+    data_dir.mkdir()
+    _write_test_ohlcv(data_dir / "OLD_HISTORY.parquet", "2023-01-01", 5)
+    _write_test_ohlcv(data_dir / "ACTIVE.parquet", "2024-01-01", 5)
+
+    engine = BacktestEngine(data_dir=str(data_dir))
+    result = engine.run_backtest({
+        "symbols": ["OLD_HISTORY", "ACTIVE"],
+        "entry": {
+            "logic": "AND",
+            "conditions": [{"id": "price", "params": {"value": 50, "operator": ">"}}],
+        },
+        "exit": {"logic": "AND", "conditions": []},
+        "risk": {"position_size_pct": 100, "liquidity_multiplier": 0},
+        "period": "FULL",
+        "startDate": "2024-01-02",
+        "endDate": "2024-01-04",
+    })
+
+    assert any(signal["symbol"] == "ACTIVE" for signal in result["signals"])
+    assert not any(signal["symbol"] == "OLD_HISTORY" for signal in result["signals"])
+    assert not any(
+        warning.startswith("OLD_HISTORY: 상장폐지 종목")
+        for warning in result["warnings"]
+    )
+
+
+def test_symbol_with_partial_period_data_is_included_until_data_ends(tmp_path):
+    data_dir = tmp_path / "ohlcv"
+    data_dir.mkdir()
+    _write_test_ohlcv(data_dir / "PARTIAL_PERIOD.parquet", "2024-01-01", 3)
+    _write_test_ohlcv(data_dir / "ACTIVE.parquet", "2024-01-01", 12)
+
+    engine = BacktestEngine(data_dir=str(data_dir))
+    result = engine.run_backtest({
+        "symbols": ["PARTIAL_PERIOD", "ACTIVE"],
+        "entry": {
+            "logic": "AND",
+            "conditions": [{"id": "price", "params": {"value": 50, "operator": ">"}}],
+        },
+        "exit": {"logic": "AND", "conditions": []},
+        "risk": {"position_size_pct": 40, "liquidity_multiplier": 0},
+        "period": "FULL",
+        "startDate": "2024-01-01",
+        "endDate": "2024-01-20",
+    })
+
+    assert any(signal["symbol"] == "ACTIVE" for signal in result["signals"])
+    partial_signals = [
+        signal for signal in result["signals"]
+        if signal["symbol"] == "PARTIAL_PERIOD"
+    ]
+    assert partial_signals
+    assert max(signal["date"] for signal in partial_signals) <= "2024-01-03"
+    assert not any(
+        warning.startswith("PARTIAL_PERIOD: 상장폐지 종목")
+        for warning in result["warnings"]
+    )

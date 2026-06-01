@@ -10,7 +10,6 @@ from engine.signals import SignalEngine
 from engine.simulator import Simulator
 from engine.result_handler import ResultHandler
 from engine.data_resolver import DataResolver
-from engine.market_data import delisted_store
 
 class BacktestEngine:
     def __init__(self, data_dir: str = None):
@@ -47,6 +46,16 @@ class BacktestEngine:
     def calculate_indicators(self, df_pl: pl.DataFrame, conditions: List[Dict[str, Any]]) -> pl.DataFrame:
         """Compatibility method for tests."""
         return self.indicator_engine.calculate(df_pl, conditions)
+
+    @staticmethod
+    def benchmark_for_universe(universe_id: str) -> tuple[str, str]:
+        normalized = (universe_id or "kospi200").lower()
+        universe_parts = {part for part in normalized.split("_") if part}
+        if "kosdaq" in universe_parts:
+            return "229200", "KODEX KOSDAQ 150 (229200)"
+        if "kospi" in universe_parts:
+            return "226490", "KODEX 코스피 (226490)"
+        return "069500", "KODEX 200 (069500)"
 
     def run_backtest(self, req: Dict[str, Any]) -> Dict[str, Any]:
         try:
@@ -147,13 +156,31 @@ class BacktestEngine:
                     _period_start_str = _period_start_dt.strftime("%Y-%m-%d")
                     _warmup_start_str = (_period_start_dt - pd.DateOffset(days=_WARMUP_CALENDAR_DAYS)).strftime("%Y-%m-%d")
 
+            def _filter_to_backtest_window(df_pl: pl.DataFrame) -> pl.DataFrame:
+                if not _has_period_filter:
+                    return df_pl
+
+                date_col = pl.col("date").cast(pl.Utf8)
+                if _period_start_str is not None:
+                    df_pl = df_pl.filter(date_col >= _period_start_str)
+                return df_pl.filter(date_col <= _end_str)
+
+            def _close_at_last_available_row(entry_signals, exit_signals, exit_reasons):
+                if len(exit_signals) == 0:
+                    return
+                if exec_type == 'next_open':
+                    if len(exit_signals) < 2:
+                        return
+                    exit_idx = len(exit_signals) - 2
+                else:
+                    exit_idx = len(exit_signals) - 1
+                entry_signals[exit_idx:] = False
+                exit_signals[exit_idx] = True
+                if not exit_reasons[exit_idx]:
+                    exit_reasons[exit_idx] = "데이터 종료"
+
             def _process_symbol(sym):
                 try:
-                    # 1.0 상장폐지 종목 체크 (생존편향 방지)
-                    if delisted_store.is_delisted(sym):
-                        self.warnings.add(f"{sym}: 상장폐지 종목 — 백테스트 대상에서 제외되었습니다.")
-                        return None
-
                     # 1.1 Load Data
                     df_pl = self.loader.load_symbol_data(sym)
                     if df_pl is None or len(df_pl) == 0:
@@ -195,11 +222,7 @@ class BacktestEngine:
                     # AI 불필요: 기존 흐름 계속
 
                     # 3.4 Period Filtering (strip warmup rows, apply exact period bounds)
-                    if _has_period_filter:
-                        date_col = pl.col("date").cast(pl.Utf8)
-                        if _period_start_str is not None:
-                            df_pl = df_pl.filter(date_col >= _period_start_str)
-                        df_pl = df_pl.filter(date_col <= _end_str)
+                    df_pl = _filter_to_backtest_window(df_pl)
 
                     if len(df_pl) < 1:
                         return None
@@ -220,6 +243,7 @@ class BacktestEngine:
                     # 3.7 Signal Generation
                     entry_signals, entry_reasons = self.signal_engine.generate_signals(df_pl, req.get('entry'))
                     exit_signals, exit_reasons = self.signal_engine.generate_signals(df_pl, req.get('exit'))
+                    _close_at_last_available_row(entry_signals, exit_signals, exit_reasons)
 
                     # Apply Liquidity Mask
                     if not (skip_risk or skip_pos):
@@ -319,11 +343,7 @@ class BacktestEngine:
                             all_resolution_logs.extend(res_logs)
 
                         # Use pre-computed period strings (data already warmup-pre-filtered in Phase1)
-                        if _has_period_filter:
-                            date_col = pl.col("date").cast(pl.Utf8)
-                            if _period_start_str is not None:
-                                df_pl = df_pl.filter(date_col >= _period_start_str)
-                            df_pl = df_pl.filter(date_col <= _end_str)
+                        df_pl = _filter_to_backtest_window(df_pl)
 
                         if len(df_pl) < 1:
                             return None
@@ -340,6 +360,7 @@ class BacktestEngine:
 
                         entry_signals, entry_reasons = self.signal_engine.generate_signals(df_pl, req.get('entry'))
                         exit_signals, exit_reasons = self.signal_engine.generate_signals(df_pl, req.get('exit'))
+                        _close_at_last_available_row(entry_signals, exit_signals, exit_reasons)
 
                         if not (skip_risk or skip_pos):
                             entry_signals = entry_signals & liquidity_ok
@@ -375,7 +396,9 @@ class BacktestEngine:
             processed_symbols.sort()
             
             # Create DataFrames with explicit sorted column list
-            price_df = pd.DataFrame(all_prices, columns=processed_symbols).sort_index()
+            raw_price_df = pd.DataFrame(all_prices, columns=processed_symbols).sort_index()
+            available_df = raw_price_df.notna()
+            price_df = raw_price_df
             common_index = price_df.index
             
             price_df = price_df.ffill().bfill()
@@ -389,6 +412,8 @@ class BacktestEngine:
             if exec_type == 'next_open':
                 ents_df = ents_df.shift(1, fill_value=False)
                 exts_df = exts_df.shift(1, fill_value=False)
+            ents_df &= available_df
+            exts_df &= available_df
 
             rank_df = None
             skip_pos = risk_params.get('skip_position_setting', False)
@@ -424,11 +449,8 @@ class BacktestEngine:
             _t3 = _time.time()
             print(f"[BT-ENGINE] Simulator 완료: {_t3-_t2:.2f}s", flush=True)
 
-            # 5. Benchmark ETF 로드 (KODEX 200 → 069500, KOSDAQ 전략이면 229200)
-            _universe_id = (req.get('universe_id') or '').lower()
-            _is_kosdaq = 'kosdaq' in _universe_id
-            _benchmark_sym  = "229200" if _is_kosdaq else "069500"
-            _benchmark_name = "KODEX KOSDAQ 150 (229200)" if _is_kosdaq else "KODEX 200 (069500)"
+            # 5. Benchmark ETF 로드
+            _benchmark_sym, _benchmark_name = self.benchmark_for_universe(req.get('universe_id') or '')
             benchmark_prices = None
             try:
                 _bench_df = self.loader.load_symbol_data(_benchmark_sym)

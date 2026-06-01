@@ -98,6 +98,104 @@ describe("mergeStrategyModification", () => {
     expect(result.backtestRequest?.risk?.stop_loss_pct).toBe(10);
   });
 
+  it("리스크 후속 수정은 파서 기본 KOSPI200으로 기존 유니버스를 덮어쓰지 않는다", () => {
+    const result = mergeStrategyModification({
+      previousParsed,
+      nextParsed: {
+        ...previousParsed,
+        universe: ["KOSPI200"],
+        entry_signals: [],
+        exit_signals: [],
+        stop_loss_pct: null,
+        take_profit_pct: null,
+        trailing_stop_pct: 15,
+      },
+      previousBacktestRequest: {
+        universe_id: "kospi",
+        symbols: ["005930", "000660"],
+        entry: { conditions: [{ id: "pbr" }] },
+        exit: { conditions: [] },
+        risk: {
+          max_positions: 5,
+          position_size_pct: 20,
+          stop_loss_pct: 7,
+          init_cash: 10000000,
+        },
+        period: "5y",
+      },
+      nextBacktestRequest: {
+        universe_id: "kospi200",
+        symbols: ["069500"],
+        entry: { conditions: [] },
+        exit: { conditions: [] },
+        risk: {
+          max_positions: null,
+          stop_loss_pct: null,
+          take_profit_pct: null,
+          trailing_stop_pct: 15,
+          init_cash: 10000000,
+        },
+        period: "5y",
+      },
+      userPrompt: "트레일링 15% 추가해줘",
+    });
+
+    expect(result.parsed.universe).toEqual(["KOSPI"]);
+    expect(result.parsed.stop_loss_pct).toBe(7);
+    expect(result.parsed.trailing_stop_pct).toBe(15);
+    expect(result.backtestRequest?.universe_id).toBe("kospi");
+    expect(result.backtestRequest?.symbols).toEqual(["005930", "000660"]);
+    expect(result.backtestRequest?.risk?.stop_loss_pct).toBe(7);
+    expect(result.backtestRequest?.risk?.trailing_stop_pct).toBe(15);
+  });
+
+  it("코치가 트레일링 스탑 비율을 물은 뒤 숫자만 답해도 전략 요약에 반영한다", () => {
+    const result = mergeStrategyModification({
+      previousParsed: {
+        ...previousParsed,
+        stop_loss_pct: 12,
+        trailing_stop_pct: null,
+      },
+      nextParsed: {
+        ...previousParsed,
+        stop_loss_pct: 12,
+        trailing_stop_pct: null,
+      },
+      previousBacktestRequest: {
+        universe_id: "kospi",
+        symbols: ["005930", "000660"],
+        risk: {
+          max_positions: 8,
+          stop_loss_pct: 12,
+          max_holding_days: 126,
+          init_cash: 10000000,
+        },
+        period: "5y",
+      },
+      nextBacktestRequest: {
+        universe_id: "kospi",
+        symbols: ["005930", "000660"],
+        risk: {
+          max_positions: 8,
+          stop_loss_pct: 12,
+          max_holding_days: 126,
+          trailing_stop_pct: null,
+          init_cash: 10000000,
+        },
+        period: "5y",
+      },
+      userPrompt: "15%로 정해줘",
+      previousCoachText:
+        "트레일링 스탑이라는 조건을 추가할 때, 최고가에서 몇 % 내려오면 팔지 정할까요?",
+    });
+
+    expect(result.requestedDomains.has("risk")).toBe(true);
+    expect(result.parsed.trailing_stop_pct).toBe(15);
+    expect(result.parsed.stop_loss_pct).toBe(12);
+    expect(result.backtestRequest?.risk?.trailing_stop_pct).toBe(15);
+    expect(result.backtestRequest?.risk?.stop_loss_pct).toBe(12);
+  });
+
   it("후속 개선 질문처럼 수정 domain이 없는 요청은 기존 전략을 유지한다", () => {
     const result = mergeStrategyModification({
       previousParsed,

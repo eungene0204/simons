@@ -260,17 +260,17 @@ class StrategyAdvisorAgent:
             })
             metric_text = ", ".join(improved) if improved else "위험 대비 성과"
             return (
-                f"유사한 과거 전략 중 {len(successful_cases)}건은 조정 후 {metric_text}가 개선되었습니다. "
-                f"이번 백테스트에서는 {comparison_text}을 같은 기간과 비용 조건으로 비교하세요."
+                f"저장된 유사 사례 {len(successful_cases)}건에서는 조정 후 {metric_text}가 개선되었습니다. "
+                f"{comparison_text}을 같은 기간과 비용 조건으로 비교 백테스트하면 개선 여부를 확인할 수 있습니다."
             )
 
         if failed_cases:
             return (
-                f"유사한 과거 전략 {len(failed_cases)}건은 같은 구조의 조정에서 성과 개선이 제한적이었습니다. "
-                f"이번에는 {comparison_text}을 각각 분리해서 돌리고, MDD와 Sharpe가 동시에 개선되는 조합만 후보로 남기세요."
+                f"저장된 유사 사례 {len(failed_cases)}건은 같은 구조의 조정에서 성과 개선이 제한적이었습니다. "
+                f"{comparison_text}을 각각 분리해 비교 백테스트하면 MDD와 Sharpe가 동시에 개선되는 조합을 확인할 수 있습니다."
             )
 
         return (
-            "유사한 과거 전략은 개선 성공 여부가 아직 검증되지 않았습니다. "
-            f"이번 백테스트에서는 {comparison_text}을 각각 분리해서 비교하고, 손실 축소 효과가 있는 조건만 다음 후보로 남기세요."
+            "저장된 유사 사례만으로는 개선 성공 여부가 아직 검증되지 않았습니다. "
+            f"{comparison_text}을 각각 분리해 비교 백테스트하면 손실 축소 효과가 있는 조건을 확인할 수 있습니다."
         )

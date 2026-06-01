@@ -134,6 +134,13 @@ const BASE_METRIC_DESCRIPTIONS: BaseMetricDescriptions = {
   avgHoldingDays: "평균 보유일. 포지션을 진입한 후 청산까지 평균적으로 유지한 기간입니다.\n\n전략의 성격을 파악하는 데 유용합니다.\n\n[ 예 ]\n1~3일: 단타/스윙 성격\n5~20일: 중기 스윙\n20일 이상: 중장기 추세 추종"
 };
 
+function benchmarkLabelForResult(result: BacktestResult): string {
+  const universeId = result.universeId?.toLowerCase();
+  if (universeId === "kospi") return "KODEX 코스피 (226490)";
+  if (universeId === "kosdaq") return "KODEX KOSDAQ 150 (229200)";
+  return result.benchmarkLabel ?? "KODEX 200 (069500)";
+}
+
 export default function BacktestDashboard({
   result,
   onRestart,
@@ -503,6 +510,7 @@ export default function BacktestDashboard({
     ? `${result.dates[0]} → ${result.dates[result.dates.length - 1]}`
     : "";
   const totalProfit = (result.finalEquity || 0) - (result.initialCapital || 0);
+  const benchmarkLabel = benchmarkLabelForResult(result);
 
   const overviewMetrics = [
     {
@@ -549,10 +557,10 @@ export default function BacktestDashboard({
     },
     {
       label: `매수 후 보유`,
-      englishLabel: (result.benchmarkLabel ?? "Buy & Hold").replace(/\s*\(\d+\)$/, ""),
+      englishLabel: benchmarkLabel.replace(/\s*\(\d+\)$/, ""),
       value: `${(result.buyAndHoldReturn || 0) >= 0 ? "+" : ""}${(result.buyAndHoldReturn || 0).toFixed(2)}%`,
       valueClass: (result.buyAndHoldReturn || 0) > 0 ? "text-[var(--main-red)]" : (result.buyAndHoldReturn || 0) < 0 ? "text-[var(--main-blue)]" : "text-white",
-      description: BASE_METRIC_DESCRIPTIONS.buyHold(result.benchmarkLabel ?? "KODEX 200 (069500)"),
+      description: BASE_METRIC_DESCRIPTIONS.buyHold(benchmarkLabel),
     },
     {
       label: "승률",

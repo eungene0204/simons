@@ -1,8 +1,10 @@
 import os
 import sys
 import types
+import logging
 
 import pytest
+from fastapi import Response
 
 sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
 
@@ -26,12 +28,50 @@ class _DummyParser:
     def __init__(self):
         self.chat_calls = 0
         self.last_user_message = ""
+        self.user_messages = []
 
     def chat(self, _system_prompt, _user_message, max_tokens=512):
         self.chat_calls += 1
         self.last_user_message = _user_message
+        self.user_messages.append(_user_message)
         assert max_tokens == 400
         return '{"message":"캐시된 코치 응답"}'
+
+
+class _FailingParser:
+    def chat(self, *_args, **_kwargs):
+        raise RuntimeError("mlx chat failed for test")
+
+
+class _DummyAdvisorResponse:
+    def model_dump(self, mode="json"):
+        return {
+            "strategy_score": 62,
+            "risk_score": 71,
+            "overfit_risk": "medium",
+            "response_sections": [
+                {"title": "핵심 진단", "body": "손절 기준이 없어 손실 관리가 약합니다."}
+            ],
+            "advice": [
+                {
+                    "severity": "high",
+                    "title": "손절 기준 보강",
+                    "body": "먼저 손실을 어디서 멈출지 정해야 합니다.",
+                }
+            ],
+            "suggested_experiments": ["손절 8% 후보를 비교"],
+            "ai_model_recommendation": {"recommended": False, "reason": "규칙 검증이 먼저 필요"},
+        }
+
+
+class _DummyAdvisor:
+    calls = 0
+
+    def review(self, req):
+        self.__class__.calls += 1
+        assert req.user_prompt
+        assert req.parsed_strategy
+        return _DummyAdvisorResponse()
 
 
 def _install_dummy_main(monkeypatch):
@@ -55,6 +95,20 @@ def _install_dummy_main(monkeypatch):
         _mlx_inference_lock=_DummyLock(),
         _record_ai_runtime=_record_ai_runtime,
         get_ai_runtime_metrics=get_ai_runtime_metrics,
+    )
+    monkeypatch.setitem(sys.modules, "main", dummy_main)
+
+
+def _install_dummy_main_with_parser(monkeypatch, parser):
+    records = []
+
+    def _record_ai_runtime(stage, runtime):
+        records.append({"stage": stage, "runtime": runtime})
+
+    dummy_main = types.SimpleNamespace(
+        _mlx_inference_lock=_DummyLock(),
+        _record_ai_runtime=_record_ai_runtime,
+        _nl_parsers={"mlx": parser},
     )
     monkeypatch.setitem(sys.modules, "main", dummy_main)
 
@@ -98,6 +152,7 @@ def _make_request(**overrides):
 def setup_function():
     coach_routes._reset_coach_cache_for_tests()
     coach_routes.set_parser(None)
+    _DummyAdvisor.calls = 0
     if "main" in sys.modules and hasattr(sys.modules["main"], "_reset_ai_runtime_metrics_for_tests"):
         sys.modules["main"]._reset_ai_runtime_metrics_for_tests()
 
@@ -110,7 +165,34 @@ def test_build_user_message_compacts_strategy_context():
     assert "large prompt metadata" not in msg
     assert "잘려야 하는 이슈" not in msg
     assert "둘째 제안" not in msg
+    assert "[코칭 행동 제약]" in msg
+    assert "과거 데이터 검색" in msg
+    assert "비교 테스트를 진행해 보시겠어요?" in msg
+    assert "추상적으로 묻지 말고" in msg
+    assert "트레일링 스탑을 추가해 보시겠어요?" in msg
     assert '"fundamental_filters":[{"metric":"pbr","operator":"<=","value":1}]' in msg
+
+
+def test_build_user_message_does_not_mark_take_profit_missing_when_exit_signal_exists():
+    req = _make_request(
+        parsed_strategy={
+            "universe": ["KOSPI200"],
+            "entry_signals": [{"indicator": "rsi", "operator": "<=", "threshold": 30}],
+            "exit_signals": [{"indicator": "rsi", "operator": ">=", "threshold": 70}],
+            "max_positions": 10,
+            "hold_period_days": 252,
+            "stop_loss_pct": 10,
+            "take_profit_pct": None,
+            "initial_capital": 10_000_000,
+        },
+    )
+
+    msg = coach_routes._build_user_message(req)
+
+    assert '"exit_signals":[{"indicator":"rsi","operator":">=","threshold":70}]' in msg
+    assert "익절 비율" not in msg
+    assert "청산 기준이 존재합니다" in msg
+    assert "언제 팔아야 할지 기준이 없다" in msg
 
 
 def test_build_user_message_includes_memory_context_when_supplied():
@@ -162,15 +244,228 @@ def test_build_user_message_includes_memory_context_when_supplied():
     assert "비용 민감도 검증" in msg
 
 
+def test_parse_llm_response_extracts_message_from_incomplete_json():
+    response = coach_routes._parse_llm_response(
+        '{"message": "청산 신호가 있으므로 그 기준을 먼저 백테스트로 확인하세요."'
+    )
+
+    assert response.message == "청산 신호가 있으므로 그 기준을 먼저 백테스트로 확인하세요."
+
+
+def test_parse_llm_response_extracts_nested_message_json():
+    response = coach_routes._parse_llm_response(
+        '{"message": "{\\"message\\": \\"안쪽 문장만 보여주세요.\\"}"}'
+    )
+
+    assert response.message == "안쪽 문장만 보여주세요."
+
+
+def test_parse_llm_response_explains_trailing_stop_term_when_missing():
+    response = coach_routes._parse_llm_response(
+        '{"message": "수익을 자동 확정해 주는 트레일링 스탑을 추가해 보시겠어요?"}'
+    )
+
+    assert "트레일링 스탑(" in response.message
+    assert "최고가에서 정한 비율만큼 내려오면 자동으로 파는 조건" in response.message
+    assert "추가해 보시겠어요?" in response.message
+    assert "예를 들면 '트레일링 스탑 15% 설정'이라고 말씀해주시면 바로 추가하겠습니다." in response.message
+
+
+def test_parse_llm_response_does_not_duplicate_trailing_stop_explanation():
+    response = coach_routes._parse_llm_response(
+        '{"message": "트레일링 스탑은 최고가에서 일정 비율 하락하면 파는 조건입니다. 추가해 보시겠어요?"}'
+    )
+
+    assert "(" not in response.message
+    assert response.message.count("최고가에서 일정 비율 하락하면 파는 조건") == 1
+    assert "예를 들면 '트레일링 스탑 15% 설정'이라고 말씀해주시면 바로 추가하겠습니다." in response.message
+
+
+def test_parse_llm_response_does_not_duplicate_trailing_stop_example():
+    response = coach_routes._parse_llm_response(
+        '{"message": "트레일링 스탑은 최고가에서 일정 비율 하락하면 파는 조건입니다. 예를 들면 트레일링 스탑 15% 설정이라고 말해 주세요."}'
+    )
+
+    assert response.message.count("예를 들면") == 1
+
+
+def test_align_response_does_not_suggest_adding_existing_trailing_stop():
+    response = coach_routes._parse_llm_response(
+        '{"message": "트레일링 스탑 15% 조건을 추가해 보시겠어요? 예를 들면 트레일링 스탑 15% 설정이라고 말씀해주시면 바로 추가하겠습니다."}'
+    )
+
+    aligned = coach_routes._align_response_with_strategy(
+        response,
+        {"trailing_stop_pct": 15},
+    )
+
+    assert "전략에 반영했습니다" in aligned.message
+    assert "15% 조건" in aligned.message
+    assert "주가가 오른 뒤" not in aligned.message
+    assert "자동으로 파는 조건" not in aligned.message
+    assert "추가해 보시겠어요" not in aligned.message
+    assert "바로 추가하겠습니다" not in aligned.message
+    assert "예를 들면" not in aligned.message
+
+
+def test_align_response_detects_nested_risk_trailing_stop():
+    response = coach_routes.CoachResponse(
+        message="트레일링 스탑 15% 조건을 추가해 보시겠어요?"
+    )
+
+    aligned = coach_routes._align_response_with_strategy(
+        response,
+        {"risk": {"trailing_stop_pct": 15}},
+    )
+
+    assert "전략에 반영했습니다" in aligned.message
+
+
+def test_build_user_message_includes_advisor_result_and_conversation_context():
+    req = _make_request(
+        advisor_insight=None,
+        advisor_result=_DummyAdvisorResponse().model_dump(),
+        conversation_context=[
+            {"role": "user", "content": "쉽게 설명해줘"},
+            {"role": "assistant", "content": "손실 관리부터 봐야 합니다."},
+        ],
+    )
+
+    msg = coach_routes._build_user_message(req)
+
+    assert "[advisor_result" in msg
+    assert "손절 기준이 없어 손실 관리가 약합니다." in msg
+    assert "[conversation_context" in msg
+    assert "쉽게 설명해줘" in msg
+
+
+def test_build_user_message_requires_trailing_stop_percentage_before_suggesting_value():
+    req = _make_request(
+        user_prompt="트레일링 스탑을 추가해줘",
+        advisor_insight=None,
+        advisor_result={
+            "advice": [
+                {
+                    "severity": "medium",
+                    "title": "트레일링 스탑 추가",
+                    "body": "트레일링 스탑 15% 후보를 비교하세요.",
+                }
+            ],
+        },
+    )
+
+    msg = coach_routes._build_user_message(req)
+
+    assert "[필수 확인 질문]" in msg
+    assert "트레일링 스탑 수치를 말하지 않았습니다" in msg
+    assert "15% 같은 후보가 있어도 임의 수치를 제안하지 말고" in msg
+    assert "몇 %로 설정할지 먼저 물어보십시오" in msg
+
+
+def test_build_user_message_allows_trailing_stop_when_percentage_is_present():
+    req = _make_request(user_prompt="트레일링 스탑 15% 추가해줘")
+
+    msg = coach_routes._build_user_message(req)
+
+    assert "[필수 확인 질문]" not in msg
+
+
+def test_build_user_message_does_not_require_exact_holding_days_for_advice():
+    req = _make_request(
+        user_prompt=(
+            "KOSPI 종목 중 골든크로스가 나오면 매수하고, "
+            "데드크로스가 나오면 매도해 주세요. 손절은 -8%입니다."
+        ),
+        parsed_strategy={
+            "universe": ["KOSPI"],
+            "entry_signals": [{"indicator": "ma_crossover", "signal_type": "buy"}],
+            "exit_signals": [{"indicator": "ma_crossover", "signal_type": "sell"}],
+            "max_positions": 10,
+            "stop_loss_pct": 8,
+            "hold_period_days": None,
+        },
+    )
+
+    msg = coach_routes._build_user_message(req)
+
+    assert "보유 기간은 개선안으로만 제안하십시오" in msg
+    assert "'몇 일로 설정할까요?'처럼 정확한 일수를 요구하지 말고" in msg
+    assert "'보유 기간을 설정할까요?'처럼 추가 여부를 묻는 표현" in msg
+
+
+def test_build_user_message_does_not_require_exact_take_profit_pct_for_advice():
+    req = _make_request(
+        user_prompt="KOSPI 대형주를 사고 손절은 -8%로 해주세요.",
+        parsed_strategy={
+            "universe": ["KOSPI"],
+            "entry_signals": [{"indicator": "ma_crossover", "signal_type": "buy"}],
+            "exit_signals": [],
+            "max_positions": 10,
+            "stop_loss_pct": 8,
+            "take_profit_pct": None,
+        },
+    )
+
+    msg = coach_routes._build_user_message(req)
+
+    assert "익절 비율은 개선안으로만 제안하십시오" in msg
+    assert "'몇 %로 설정할까요?'처럼 정확한 비율을 요구하지 말고" in msg
+    assert "'익절 비율을 설정할까요?'처럼 추가 여부를 묻는 표현" in msg
+
+
+def test_require_parser_logs_debug_state_when_model_is_unavailable(monkeypatch, caplog):
+    _install_dummy_main_with_parser(monkeypatch, None)
+    sys.modules["main"]._nl_parsers.clear()
+    coach_routes.set_parser(None)
+
+    with caplog.at_level(logging.ERROR, logger="api.coach_routes"):
+        with pytest.raises(Exception) as exc_info:
+            coach_routes._require_parser()
+
+    assert getattr(exc_info.value, "status_code", None) == 503
+    assert "coach parser unavailable" in caplog.text
+    assert "main_parser_keys" in caplog.text
+    assert "main_mlx_parser_loaded" in caplog.text
+
+
+def test_generate_coach_response_logs_parser_chat_failure(monkeypatch, caplog):
+    _install_dummy_main(monkeypatch)
+    coach_routes.set_parser(_FailingParser())
+    req = _make_request(advisor_result=_DummyAdvisorResponse().model_dump())
+
+    with caplog.at_level(logging.ERROR, logger="api.coach_routes"):
+        with pytest.raises(RuntimeError, match="mlx chat failed for test"):
+            coach_routes._generate_coach_response(req, 0.0, request_id="testreq")
+
+    assert "coach parser.chat failed" in caplog.text
+    assert "request_id=testreq" in caplog.text
+    assert "parser_state" in caplog.text
+
+
 def test_system_prompt_requires_memory_evidence_discipline():
     prompt = coach_routes.COACH_SYSTEM_PROMPT
 
+    assert "사용자를 주식 초보자라고 생각" in prompt
+    assert "트레일링 스탑 같은 전문 용어" in prompt
+    assert "뜻을 쉬운 말로 덧붙이십시오" in prompt
+    assert "수치가 필요한 조건" in prompt
+    assert "몇 %로 설정할지 먼저 물어보십시오" in prompt
     assert "strategy_memory_context" in prompt
     assert "data_sufficiency가 insufficient" in prompt
     assert "꾸며내지 마라" in prompt
     assert "백테스트 결과가 없으면" in prompt
     assert "제공되지 않은 백테스트 사례" in prompt
     assert "검색/계산/판정 엔진이 아니라" in prompt
+    assert "과거 데이터 검색" in prompt
+    assert "지금 바로 할 수 없는 행동" in prompt
+    assert "비교 테스트를 진행해 보시겠어요?" in prompt
+    assert "트레일링 스탑을 추가해 보시겠어요?" in prompt
+    assert "정확한 수치를 말한 경우에만" in prompt
+    assert "보유 기간을 개선안으로 제안할 때" in prompt
+    assert "보유 기간을 설정할까요?" in prompt
+    assert "익절 비율을 개선안으로 제안할 때" in prompt
+    assert "익절 비율을 설정할까요?" in prompt
+    assert "앱에서" not in prompt
 
 
 @pytest.mark.asyncio
@@ -185,14 +480,150 @@ async def test_coach_strategy_reuses_backend_cache(monkeypatch):
 
     assert first.message == "캐시된 코치 응답"
     assert second.message == "캐시된 코치 응답"
-    assert first.runtime["cache_hit"] is False
-    assert first.runtime["inference_ms"] >= 0
-    assert second.runtime["cache_hit"] is True
     assert parser.chat_calls == 1
 
     metrics = sys.modules["main"].get_ai_runtime_metrics()
     assert metrics["stages"]["coach"]["count"] == 2
     assert metrics["stages"]["coach"]["cache_hits"] == 1
+
+
+@pytest.mark.asyncio
+async def test_coach_strategy_builds_advisor_result_once_when_missing(monkeypatch):
+    _install_dummy_main(monkeypatch)
+    parser = _DummyParser()
+    coach_routes.set_parser(parser)
+    monkeypatch.setattr(coach_routes, "StrategyAdvisorAgent", _DummyAdvisor)
+    monkeypatch.setattr(coach_routes, "build_news_context_from_strategy", lambda _parsed: [])
+    monkeypatch.setattr(coach_routes, "load_vector_advisor_memory", lambda *_args, **_kwargs: _empty_memory())
+
+    req = _make_request(advisor_insight=None, advisor_result=None)
+    first = await coach_routes.coach_strategy(req)
+    second = await coach_routes.coach_strategy(req)
+
+    assert first.model_dump() == {"message": "캐시된 코치 응답"}
+    assert second.model_dump() == {"message": "캐시된 코치 응답"}
+    assert _DummyAdvisor.calls == 1
+    assert parser.chat_calls == 1
+    assert "[advisor_result" in parser.last_user_message
+    assert "손절 기준이 없어 손실 관리가 약합니다." in parser.last_user_message
+
+
+@pytest.mark.asyncio
+async def test_coach_session_stores_advisor_result_and_returns_only_message(monkeypatch):
+    _install_dummy_main(monkeypatch)
+    parser = _DummyParser()
+    coach_routes.set_parser(parser)
+    monkeypatch.setattr(coach_routes, "StrategyAdvisorAgent", _DummyAdvisor)
+    monkeypatch.setattr(coach_routes, "build_news_context_from_strategy", lambda _parsed: [])
+    monkeypatch.setattr(coach_routes, "load_vector_advisor_memory", lambda *_args, **_kwargs: _empty_memory())
+
+    response = Response()
+    result = await coach_routes.create_coach_session(
+        coach_routes.CoachSessionRequest(
+            user_prompt="RSI 전략",
+            parsed_strategy={
+                "universe": ["KOSPI200"],
+                "entry_signals": [{"indicator": "rsi"}],
+                "max_positions": 10,
+            },
+        ),
+        response,
+    )
+
+    session_id = response.headers["X-Coach-Session-Id"]
+    assert result.model_dump() == {"message": "캐시된 코치 응답"}
+    assert session_id in coach_routes._coach_sessions
+    assert "advisor_result" in coach_routes._coach_sessions[session_id]
+    assert _DummyAdvisor.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_coach_session_uses_lazy_parser_from_main_when_not_preloaded(monkeypatch):
+    parser = _DummyParser()
+    _install_dummy_main_with_parser(monkeypatch, parser)
+    coach_routes.set_parser(None)
+    monkeypatch.setattr(coach_routes, "StrategyAdvisorAgent", _DummyAdvisor)
+    monkeypatch.setattr(coach_routes, "build_news_context_from_strategy", lambda _parsed: [])
+    monkeypatch.setattr(coach_routes, "load_vector_advisor_memory", lambda *_args, **_kwargs: _empty_memory())
+
+    response = Response()
+    result = await coach_routes.create_coach_session(
+        coach_routes.CoachSessionRequest(
+            user_prompt="RSI 전략",
+            parsed_strategy={
+                "universe": ["KOSPI200"],
+                "entry_signals": [{"indicator": "rsi"}],
+                "max_positions": 10,
+            },
+        ),
+        response,
+    )
+
+    assert result.model_dump() == {"message": "캐시된 코치 응답"}
+    assert parser.chat_calls == 1
+    assert response.headers["X-Coach-Session-Id"]
+
+
+@pytest.mark.asyncio
+async def test_coach_session_requires_startup_loaded_parser(monkeypatch):
+    _install_dummy_main_with_parser(monkeypatch, None)
+    sys.modules["main"]._nl_parsers.clear()
+    coach_routes.set_parser(None)
+
+    response = Response()
+    with pytest.raises(Exception) as exc_info:
+        await coach_routes.create_coach_session(
+            coach_routes.CoachSessionRequest(
+                user_prompt="RSI 전략",
+                parsed_strategy={
+                    "universe": ["KOSPI200"],
+                    "entry_signals": [{"indicator": "rsi"}],
+                    "max_positions": 10,
+                },
+            ),
+            response,
+        )
+
+    assert getattr(exc_info.value, "status_code", None) == 503
+    assert "Coach model not loaded yet" in str(exc_info.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_coach_session_follow_up_reuses_stored_advisor_result(monkeypatch):
+    _install_dummy_main(monkeypatch)
+    parser = _DummyParser()
+    coach_routes.set_parser(parser)
+    monkeypatch.setattr(coach_routes, "StrategyAdvisorAgent", _DummyAdvisor)
+    monkeypatch.setattr(coach_routes, "build_news_context_from_strategy", lambda _parsed: [])
+    monkeypatch.setattr(coach_routes, "load_vector_advisor_memory", lambda *_args, **_kwargs: _empty_memory())
+
+    response = Response()
+    await coach_routes.create_coach_session(
+        coach_routes.CoachSessionRequest(
+            user_prompt="RSI 전략",
+            parsed_strategy={
+                "universe": ["KOSPI200"],
+                "entry_signals": [{"indicator": "rsi"}],
+                "max_positions": 10,
+            },
+        ),
+        response,
+    )
+    session_id = response.headers["X-Coach-Session-Id"]
+
+    follow_up = await coach_routes.continue_coach_session(
+        coach_routes.CoachSessionFollowUpRequest(
+            session_id=session_id,
+            user_prompt="초보자도 이해하게 설명해줘",
+        )
+    )
+
+    assert follow_up.model_dump() == {"message": "캐시된 코치 응답"}
+    assert _DummyAdvisor.calls == 1
+    assert parser.chat_calls == 2
+    assert "[conversation_context" in parser.last_user_message
+    assert "RSI 전략" in parser.last_user_message
+    assert "손절 기준이 없어 손실 관리가 약합니다." in parser.last_user_message
 
 
 @pytest.mark.asyncio

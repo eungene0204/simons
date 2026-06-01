@@ -17,6 +17,7 @@ import {
 } from "phosphor-react";
 import {
   buildStrategySummary,
+  FUNDAMENTAL_FILTER_SECTION_LABEL,
   getDisplayExitLabels,
   getDisplayUniverseLabels,
   INDICATOR_LABELS,
@@ -31,9 +32,8 @@ import {
   mergeStrategyModification,
   type AdvisorWalkForwardSettings,
 } from "./parsedStrategyMerge";
-import { AdvisorResponseSections } from "./AdvisorResponseSections";
-import { formatPrimaryCoachAdviceBody } from "./advisorCopy";
-import type { AdvisorResult } from "@/components/strategy/StrategyAdvisorPanel";
+import { normalizeCoachMessage } from "./coachMessage";
+import { parseSseBlocks } from "./sseEvents";
 
 const BacktestDashboard = dynamic(
   () => import("@/components/strategy/backtest/BacktestDashboard"),
@@ -41,6 +41,7 @@ const BacktestDashboard = dynamic(
 );
 
 type Stage = "idle" | "ready" | "running" | "done";
+const BACKTEST_ENGINE_VERSION = "benchmark-etf-v2";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -48,7 +49,6 @@ interface ChatMessage {
   parsed?: ParsedSummary;
   parseSkeleton?: ParseSkeleton;
   coachText?: string;
-  advisorResult?: AdvisorResult;
   clarification?: string;
   clarificationSuggestions?: string[];
   coachLoading?: boolean;  // coach response is being generated
@@ -83,6 +83,11 @@ interface RuntimeMetricsSnapshot {
   }>;
 }
 
+type CoachConversationMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
 function FilterBadge({ label }: { label: string }) {
   return (
     <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] text-white text-xs font-bold">
@@ -114,32 +119,6 @@ function BacktestRunningStatus({ message }: { message: string }) {
   );
 }
 
-function AdvisorResultBubble({ result }: { result: AdvisorResult }) {
-  const primaryAdvice = result.advice[0];
-
-  return (
-    <div className="space-y-3">
-      <AdvisorResponseSections result={result} />
-      {primaryAdvice && (
-        <div className="space-y-2">
-          <p className="text-[11px] font-black uppercase tracking-widest text-yellow-300">핵심 조언</p>
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
-            {primaryAdvice.body && (
-              <p className="text-xs font-bold leading-relaxed text-gray-400">
-                {formatPrimaryCoachAdviceBody(primaryAdvice.body)}
-              </p>
-            )}
-            {primaryAdvice.proposed_change?.description && (
-              <p className="mt-1.5 text-xs font-bold leading-relaxed text-indigo-300">
-                {primaryAdvice.proposed_change.description}
-              </p>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 const SKELETON_TERM_LABELS: Record<string, string> = {
   pbr: "PBR",
   per: "PER",
@@ -274,6 +253,10 @@ function ParsedSummaryBubble({
 }) {
   const universeLabels = getDisplayUniverseLabels(parsed, backtestRequest);
   const exitLabels = getDisplayExitLabels(parsed);
+  const entryLabels = [
+    ...parsed.fundamental_filters.map((f) => `${METRIC_LABELS[f.metric] ?? f.metric} ${f.operator} ${f.value}`),
+    ...parsed.entry_signals.map((s) => INDICATOR_LABELS[s.indicator] ?? s.indicator),
+  ];
 
   return (
     <div className="space-y-3 rounded-2xl border border-amber-300/50 p-4">
@@ -292,22 +275,12 @@ function ParsedSummaryBubble({
             </div>
           </div>
         )}
-        {parsed.fundamental_filters.length > 0 && (
+        {entryLabels.length > 0 && (
           <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest w-14 flex-shrink-0">재무 필터</span>
+            <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest w-14 flex-shrink-0">{FUNDAMENTAL_FILTER_SECTION_LABEL}</span>
             <div className="flex flex-wrap gap-1">
-              {parsed.fundamental_filters.map((f, i) => (
-                <FilterBadge key={i} label={`${METRIC_LABELS[f.metric] ?? f.metric} ${f.operator} ${f.value}`} />
-              ))}
-            </div>
-          </div>
-        )}
-        {parsed.entry_signals.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest w-14 flex-shrink-0">진입 신호</span>
-            <div className="flex flex-wrap gap-1">
-              {parsed.entry_signals.map((s, i) => (
-                <FilterBadge key={i} label={INDICATOR_LABELS[s.indicator] ?? s.indicator} />
+              {entryLabels.map((label, i) => (
+                <FilterBadge key={i} label={label} />
               ))}
             </div>
           </div>
@@ -365,6 +338,8 @@ function StrategyLabContent() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const latestParsedRef = useRef<ParsedSummary | null>(null);
   const backtestReqRef = useRef<any>(null);
+  const coachSessionIdRef = useRef<string | null>(null);
+  const coachConversationRef = useRef<CoachConversationMessage[]>([]);
   // first user prompt — kept for advisor context
   const firstPromptRef = useRef<string>("");
 
@@ -495,6 +470,22 @@ function StrategyLabContent() {
     });
   };
 
+  const rememberCoachExchange = (userText: string, coachText: string) => {
+    coachConversationRef.current = [
+      ...coachConversationRef.current,
+      { role: "user", content: userText },
+      { role: "assistant", content: coachText },
+    ].slice(-8);
+  };
+
+  const lastCoachText = () => {
+    for (let i = coachConversationRef.current.length - 1; i >= 0; i--) {
+      const message = coachConversationRef.current[i];
+      if (message.role === "assistant") return message.content;
+    }
+    return null;
+  };
+
   const handleSend = async (overrideText?: string) => {
     const userText = overrideText ?? inputValue.trim();
     if (!userText || isSending || stage === "running") return;
@@ -563,11 +554,14 @@ function StrategyLabContent() {
           nextBacktestRequest,
           userPrompt: userText,
           clarificationQuestion: parsedPayload.clarification_question,
+          previousCoachText: lastCoachText(),
         });
 
         const nextParsed = mergedResponse.parsed;
         const nextBacktestReq = mergedResponse.backtestRequest;
 
+        coachSessionIdRef.current = null;
+        coachConversationRef.current = [];
         finalizedParsed = nextParsed;
         setLatestParsed(nextParsed);
         setBacktestReq(nextBacktestReq);
@@ -649,15 +643,17 @@ function StrategyLabContent() {
     };
 
     try {
-      const advisorRes = await fetch("/api/advisor/review", {
+      const coachRes = await fetch("/api/strategy/coach", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          action: "create_session",
           user_prompt: userText,
           parsed_strategy: parsed as unknown as Record<string, unknown>,
         }),
       });
-      if (!advisorRes.ok) {
+
+      if (!coachRes.ok) {
         updateLastAssistant({
           coachLoading: false,
           coachText: "전략 코칭 응답을 가져오지 못했습니다. 전략 요약은 준비되어 있으니 백테스트는 계속 실행할 수 있습니다.",
@@ -665,8 +661,17 @@ function StrategyLabContent() {
         return;
       }
 
-      const advisorResult: AdvisorResult = await advisorRes.json();
-      updateLastAssistant({ coachLoading: false, advisorResult });
+      coachSessionIdRef.current = coachRes.headers.get("X-Coach-Session-Id");
+      const result: { message?: string } = await coachRes.json();
+      const message = normalizeCoachMessage(
+        result.message,
+        "현재 전략에 대한 코칭 응답을 생성하지 못했습니다."
+      );
+      rememberCoachExchange(userText, message);
+      updateLastAssistant({
+        coachLoading: false,
+        coachText: message,
+      });
     } catch {
       updateLastAssistant({
         coachLoading: false,
@@ -691,13 +696,21 @@ function StrategyLabContent() {
     };
 
     try {
+      const sessionId = coachSessionIdRef.current;
       const coachRes = await fetch("/api/strategy/coach", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_prompt: userText,
-          parsed_strategy: parsed as unknown as Record<string, unknown>,
-        }),
+        body: JSON.stringify(sessionId
+          ? {
+              action: "follow_up",
+              session_id: sessionId,
+              user_prompt: userText,
+            }
+          : {
+              action: "create_session",
+              user_prompt: userText,
+              parsed_strategy: parsed as unknown as Record<string, unknown>,
+            }),
       });
 
       if (!coachRes.ok) {
@@ -708,10 +721,18 @@ function StrategyLabContent() {
         return;
       }
 
+      if (!sessionId) {
+        coachSessionIdRef.current = coachRes.headers.get("X-Coach-Session-Id");
+      }
       const result: { message?: string } = await coachRes.json();
+      const message = normalizeCoachMessage(
+        result.message,
+        "현재 질문에 대한 코칭 응답을 생성하지 못했습니다."
+      );
+      rememberCoachExchange(userText, message);
       updateLastAssistant({
         coachLoading: false,
-        coachText: result.message || "현재 질문에 대한 코칭 응답을 생성하지 못했습니다.",
+        coachText: message,
       });
     } catch {
       updateLastAssistant({
@@ -726,13 +747,17 @@ function StrategyLabContent() {
 
     const effectiveReq = options ? {
       ...backtestReq,
+      engine_version: BACKTEST_ENGINE_VERSION,
       period: options.period ?? backtestReq.period,
       risk: { ...backtestReq.risk, init_cash: options.initialCapital ?? backtestReq.risk?.init_cash },
       options: {
         fee_rate: (options.commissionPct ?? 0.015) / 100,
         slippage_rate: (options.slippagePct ?? 0.05) / 100,
       },
-    } : backtestReq;
+    } : {
+      ...backtestReq,
+      engine_version: BACKTEST_ENGINE_VERSION,
+    };
 
     if (options) {
       setCurrentOptions(options);
@@ -756,79 +781,95 @@ function StrategyLabContent() {
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let streamDone = false;
+
+      const processPayload = (payload: string) => {
+        if (payload === "[DONE]") {
+          streamDone = true;
+          return;
+        }
+
+        const event = JSON.parse(payload);
+        if (event.type === "status") {
+          setStatusMessage(event.message);
+        } else if (event.type === "result") {
+          const raw = event.data;
+          const equity: number[] = raw.equity ?? [];
+          setResult({
+            executionId: `nl_${Date.now()}`,
+            strategyId: "nl_strategy",
+            symbols: raw.symbols,
+            totalReturn: raw.totalReturn ?? 0,
+            cagr: raw.cagr ?? 0,
+            buyAndHoldReturn: raw.buyAndHoldReturn ?? 0,
+            maxDrawdown: raw.maxDrawdown ?? 0,
+            winRate: raw.winRate ?? 0,
+            profitFactor: raw.profitFactor ?? 0,
+            sharpe: raw.sharpe ?? 0,
+            sortino: raw.sortino ?? 0,
+            kelly: raw.kelly ?? 0,
+            volatility: raw.volatility ?? 0,
+            trades: raw.trades ?? 0,
+            avgProfit: raw.avgProfit ?? 0,
+            avgLoss: raw.avgLoss ?? 0,
+            maxConsecutiveWins: raw.maxConsecutiveWins ?? 0,
+            maxConsecutiveLosses: raw.maxConsecutiveLosses ?? 0,
+            finalEquity: equity[equity.length - 1] ?? 0,
+            initialCapital: equity[0] ?? 0,
+            equity,
+            benchmarkEquity: raw.benchmark_equity,
+            benchmarkLabel: raw.benchmark_label,
+            dates: raw.dates ?? [],
+            tradesList: (raw.signals ?? []).map((s: any) => ({
+              date: s.date,
+              symbol: s.symbol,
+              type: s.type as "buy" | "sell",
+              price: s.price,
+              quantity: s.quantity ?? 0,
+              amount: s.amount ?? 0,
+              reason: s.condition,
+            })),
+            monthlyReturns: {},
+            yearlyReturns: {},
+            signals: (raw.signals ?? []).map((s: any) => ({
+              date: s.date,
+              symbol: s.symbol,
+              type: s.type === "buy" ? "entry" : "exit",
+              condition: s.condition,
+              price: Number(s.price),
+              quantity: Number(s.quantity),
+              amount: Number(s.amount),
+            })),
+            perAssetStats: raw.perAssetStats,
+            universeId: raw.universe_id,
+            warnings: raw.warnings,
+            executionTime: raw.executionTime,
+            vbtResult: raw.vbtResult ?? undefined,
+          });
+          setStage("done");
+        } else if (event.type === "error") {
+          throw new Error(event.message);
+        }
+      };
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
+        if (done) {
+          const parsed = parseSseBlocks(buffer + decoder.decode(), true);
+          for (const event of parsed.events) processPayload(event.payload);
+          break;
+        }
 
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const payload = line.slice(6).trim();
-          if (payload === "[DONE]") break;
-          const event = JSON.parse(payload);
-          if (event.type === "status") {
-            setStatusMessage(event.message);
-          } else if (event.type === "result") {
-            const raw = event.data;
-            const equity: number[] = raw.equity ?? [];
-            setResult({
-              executionId: `nl_${Date.now()}`,
-              strategyId: "nl_strategy",
-              symbols: raw.symbols,
-              totalReturn: raw.totalReturn ?? 0,
-              cagr: raw.cagr ?? 0,
-              buyAndHoldReturn: raw.buyAndHoldReturn ?? 0,
-              maxDrawdown: raw.maxDrawdown ?? 0,
-              winRate: raw.winRate ?? 0,
-              profitFactor: raw.profitFactor ?? 0,
-              sharpe: raw.sharpe ?? 0,
-              sortino: raw.sortino ?? 0,
-              kelly: raw.kelly ?? 0,
-              volatility: raw.volatility ?? 0,
-              trades: raw.trades ?? 0,
-              avgProfit: raw.avgProfit ?? 0,
-              avgLoss: raw.avgLoss ?? 0,
-              maxConsecutiveWins: raw.maxConsecutiveWins ?? 0,
-              maxConsecutiveLosses: raw.maxConsecutiveLosses ?? 0,
-              finalEquity: equity[equity.length - 1] ?? 0,
-              initialCapital: equity[0] ?? 0,
-              equity,
-              benchmarkEquity: raw.benchmark_equity,
-              benchmarkLabel: raw.benchmark_label,
-              dates: raw.dates ?? [],
-              tradesList: (raw.signals ?? []).map((s: any) => ({
-                date: s.date,
-                symbol: s.symbol,
-                type: s.type as "buy" | "sell",
-                price: s.price,
-                quantity: s.quantity ?? 0,
-                amount: s.amount ?? 0,
-                reason: s.condition,
-              })),
-              monthlyReturns: {},
-              yearlyReturns: {},
-              signals: (raw.signals ?? []).map((s: any) => ({
-                date: s.date,
-                symbol: s.symbol,
-                type: s.type === "buy" ? "entry" : "exit",
-                condition: s.condition,
-                price: Number(s.price),
-                quantity: Number(s.quantity),
-                amount: Number(s.amount),
-              })),
-              perAssetStats: raw.perAssetStats,
-              universeId: raw.universe_id,
-              warnings: raw.warnings,
-              executionTime: raw.executionTime,
-              vbtResult: raw.vbtResult ?? undefined,
-            });
-            setStage("done");
-          } else if (event.type === "error") {
-            throw new Error(event.message);
-          }
+        buffer += decoder.decode(value, { stream: true });
+        const parsed = parseSseBlocks(buffer);
+        buffer = parsed.remaining;
+
+        for (const event of parsed.events) {
+          processPayload(event.payload);
+        }
+
+        if (streamDone) {
+          break;
         }
       }
     } catch (e: any) {
@@ -868,6 +909,9 @@ function StrategyLabContent() {
     setBacktestReq(null);
     setResult(null);
     setIsSending(false);
+    coachSessionIdRef.current = null;
+    coachConversationRef.current = [];
+    firstPromptRef.current = "";
     setTimeout(() => textareaRef.current?.focus(), 100);
   };
 
@@ -959,7 +1003,7 @@ function StrategyLabContent() {
                     )}
                     {msg.role === "assistant" && (
                       <div className="space-y-3">
-                        {msg.isLoading && (
+                        {msg.isLoading && !msg.parseSkeleton && (
                           <div className="flex items-center gap-2 px-1">
                             <ArrowsClockwise size={13} className="text-sky-400 animate-spin flex-shrink-0" />
                             <span className="text-xs font-bold text-gray-500">전략 분석 중...</span>
@@ -997,7 +1041,7 @@ function StrategyLabContent() {
                             )}
                           </>
                         )}
-                        {(msg.coachLoading || msg.coachText || msg.advisorResult) && (
+                        {(msg.coachLoading || msg.coachText) && (
                           <div className="max-w-[88%] bg-white/[0.025] border border-indigo-400/25 rounded-2xl rounded-tl-sm p-3.5 space-y-2">
                             <div className="flex items-center gap-2">
                               {msg.coachLoading && (
@@ -1015,12 +1059,9 @@ function StrategyLabContent() {
                                 {msg.coachText.replace(/\*\*(.*?)\*\*/g, "$1")}
                               </p>
                             )}
-                            {msg.advisorResult && (
-                              <AdvisorResultBubble result={msg.advisorResult} />
-                            )}
                           </div>
                         )}
-                        {isLastAssistant(i) && (msg.coachText || msg.advisorResult) && stage === "ready" && !msg.coachLoading && (
+                        {isLastAssistant(i) && msg.coachText && stage === "ready" && !msg.coachLoading && (
                           <button
                             onClick={() => handleRunBacktest()}
                             className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-black transition-all duration-300 hover:shadow-[0_0_24px_rgba(59,130,246,0.4)]"

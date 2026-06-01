@@ -34,8 +34,8 @@ function stableStringify(value: any): string {
   return JSON.stringify(sortDeep(pruneUndefined(value)));
 }
 
-let vectorMemoryUpsertInFlight = false;
-let vectorMemoryUpsertQueued = false;
+let vectorMemoryUpsertChain: Promise<void> = Promise.resolve();
+const BACKTEST_CACHE_VERSION = 3;
 
 export function buildVectorMemoryUpsertCommand(cwd = process.cwd()) {
   const python = process.env.PYTHON_BIN || process.env.PYTHON || "python3";
@@ -77,34 +77,45 @@ export function buildVectorMemoryUpsertCommand(cwd = process.cwd()) {
   };
 }
 
-export function triggerVectorMemoryBacktestUpsert() {
+function spawnVectorMemoryBacktestUpsert(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const { command, args, options } = buildVectorMemoryUpsertCommand();
+    const child = spawn(command, args, options);
+
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code && code !== 0) {
+        reject(new Error(`ChromaDB upsert exited with code ${code}`));
+        return;
+      }
+      resolve();
+    });
+    child.unref();
+  });
+}
+
+export async function runVectorMemoryBacktestUpsert(options: { throwOnFailure?: boolean } = {}) {
   if (process.env.ADVISOR_VECTOR_UPSERT_ON_BACKTEST === "0") {
     return;
   }
-  if (vectorMemoryUpsertInFlight) {
-    vectorMemoryUpsertQueued = true;
-    return;
+
+  const upsert = vectorMemoryUpsertChain
+    .catch(() => undefined)
+    .then(spawnVectorMemoryBacktestUpsert);
+  vectorMemoryUpsertChain = upsert.catch(() => undefined);
+
+  try {
+    await upsert;
+  } catch (err) {
+    console.error("[VectorMemory] ChromaDB upsert failed:", err);
+    if (options.throwOnFailure) {
+      throw err;
+    }
   }
+}
 
-  vectorMemoryUpsertInFlight = true;
-  const { command, args, options } = buildVectorMemoryUpsertCommand();
-  const child = spawn(command, args, options);
-
-  child.on("error", (err) => {
-    vectorMemoryUpsertInFlight = false;
-    console.error("[VectorMemory] ChromaDB upsert trigger failed:", err);
-  });
-  child.on("close", (code) => {
-    vectorMemoryUpsertInFlight = false;
-    if (code && code !== 0) {
-      console.error("[VectorMemory] ChromaDB upsert exited with code:", code);
-    }
-    if (vectorMemoryUpsertQueued) {
-      vectorMemoryUpsertQueued = false;
-      triggerVectorMemoryBacktestUpsert();
-    }
-  });
-  child.unref();
+export function triggerVectorMemoryBacktestUpsert() {
+  void runVectorMemoryBacktestUpsert();
 }
 
 function sortedSymbols(value: any): string[] {
@@ -122,7 +133,7 @@ function buildBacktestCacheConfig(body: any) {
   const risk = body?.risk ?? {};
 
   return sortDeep(pruneUndefined({
-    version: 2,
+    version: BACKTEST_CACHE_VERSION,
     market: body?.market ?? null,
     universe_id: body?.universe_id ?? body?.universeId ?? body?.universe ?? null,
     universe_snapshot_hash: body?.universe_snapshot_hash ?? body?.universeSnapshotHash ?? null,
@@ -207,7 +218,7 @@ export function computeCacheKey(body: any): string {
   }
 
   const normalized = sortDeep({
-    cache_version: 2,
+    cache_version: BACKTEST_CACHE_VERSION,
     symbols: [...(body.symbols ?? [])].sort(),
     entry: {
       conditions: [...(body.entry?.conditions ?? [])].sort((a: any, b: any) =>
@@ -328,7 +339,8 @@ export async function findCachedResult(cacheKey: string) {
 export async function saveCachedResult(
   cacheKey: string,
   body: any,
-  result: any
+  result: any,
+  options: { awaitVectorUpsert?: boolean } = {}
 ) {
   try {
     const strategyId = resolveStrategyId({
@@ -388,7 +400,11 @@ export async function saveCachedResult(
         where: { id: existingHistory.id },
         data: historyData,
       });
-      triggerVectorMemoryBacktestUpsert();
+      if (options.awaitVectorUpsert) {
+        await runVectorMemoryBacktestUpsert({ throwOnFailure: true });
+      } else {
+        triggerVectorMemoryBacktestUpsert();
+      }
       return;
     }
 
@@ -396,8 +412,15 @@ export async function saveCachedResult(
       data: historyData,
     });
 
-    triggerVectorMemoryBacktestUpsert();
+    if (options.awaitVectorUpsert) {
+      await runVectorMemoryBacktestUpsert({ throwOnFailure: true });
+    } else {
+      triggerVectorMemoryBacktestUpsert();
+    }
   } catch (err) {
     console.error("[BacktestHistory] 자동 저장 실패:", err);
+    if (options.awaitVectorUpsert) {
+      throw err;
+    }
   }
 }

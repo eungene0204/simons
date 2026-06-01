@@ -3,6 +3,7 @@ export {
   buildStrategySummaryFromDsl,
   getDisplayExitLabels,
   getDisplayUniverseLabels,
+  FUNDAMENTAL_FILTER_SECTION_LABEL,
   INDICATOR_LABELS,
   METRIC_LABELS,
   PERIOD_LABELS,

@@ -58,6 +58,12 @@ describe("backtest cache key", () => {
 
     expect(lowCost).not.toBe(highCost);
   });
+
+  it("separates current engine results from legacy cache generations", () => {
+    const legacyV2Key = "2e19acbfb06c4644f251b3cc8a0aa036acbed3e3a6d11d6dc7f8da2e5309a168";
+
+    expect(computeCacheKey(baseBody)).not.toBe(legacyV2Key);
+  });
 });
 
 describe("backtest vector memory upsert", () => {

@@ -34,20 +34,31 @@ CATEGORY_LABELS = {
 }
 
 
+def _clip(text: str, limit: int = 140) -> str:
+    text = " ".join(str(text or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"
+
+
 def _strategy_summary(req: AdvisorRequest) -> str:
     strategy = req.parsed_strategy or {}
     universe = strategy.get("universe") or strategy.get("universe_id") or "미정"
     entry = strategy.get("entry_signals") or strategy.get("entry") or []
+    fundamental_filters = strategy.get("fundamental_filters") or []
     exit_rules = strategy.get("exit_signals") or strategy.get("exit") or []
     capital = strategy.get("initial_capital")
+    entry_count = len(entry) + len(fundamental_filters)
     parts = [
-        f"사용자 전략은 '{req.user_prompt}'입니다.",
-        f"유니버스는 {universe}이며 진입 조건 {len(entry)}개, 청산 조건 {len(exit_rules)}개로 해석했습니다.",
+        (
+            f"유니버스 {universe}, 진입 신호 {entry_count}개, "
+            f"청산 {len(exit_rules)}개로 해석했습니다."
+        ),
     ]
     if capital:
-        parts.append(f"초기자금은 {capital:,}원 기준으로 현실성을 점검합니다.")
+        parts.append(f"초기자금 {capital:,}원 기준입니다.")
     if req.backtest_result is None:
-        parts.append("현재 백테스트 결과가 없어 성과는 단정하지 않습니다.")
+        parts.append("백테스트 전이라 성과는 미확정입니다.")
     return " ".join(parts)
 
 
@@ -133,7 +144,7 @@ def _lesson_summary(cases: Sequence[Dict[str, Any]], fallback: str) -> str:
         if str(case.get("lesson") or "").strip()
     ]
     if lessons:
-        return " ".join(lessons[:2])
+        return _clip(lessons[0], 120)
     return fallback
 
 
@@ -158,7 +169,17 @@ def _category_summary(cases: Sequence[Dict[str, Any]]) -> str:
         for category in CATEGORY_LABELS
         if counts.get(category)
     ]
-    return "검색 범주: " + ", ".join(parts) + "."
+    return ", ".join(parts)
+
+
+def _metric_summary(metrics: Dict[str, Any]) -> str:
+    values = [
+        ("Sharpe", _metric_value(metrics, "sharpe", "Sharpe")),
+        ("CAGR", _metric_value(metrics, "cagr", "CAGR", "return")),
+        ("MDD", _metric_value(metrics, "mdd", "MDD", "maxDrawdown")),
+        ("PF", _metric_value(metrics, "profit_factor", "profitFactor", "ProfitFactor")),
+    ]
+    return ", ".join(f"{label}={value:g}" for label, value in values if value is not None)
 
 
 def _similar_case_summary(memory_context: Dict[str, Any] | None) -> str:
@@ -170,34 +191,14 @@ def _similar_case_summary(memory_context: Dict[str, Any] | None) -> str:
     retrieved_count = int(search_quality.get("retrieved_count") or len(cases))
     if not cases:
         return (
-            f"검색된 유사 전략 수: {matched_count}개, Experience Memory 사례: 0개. "
-            "RAG 검색 결과가 부족해 현재 조언은 낮은 신뢰도의 구조 점검으로 제한합니다."
+            f"검색된 유사 전략 수: {matched_count}개, 저장된 사례: 0개. "
+            "근거 부족: 구조 점검만 가능합니다."
         )
-    lines = []
-    for case in _ranked_cases(cases)[:3]:
-        metrics = _case_metrics(case)
-        metric_text = (
-            f"Sharpe={_metric_value(metrics, 'sharpe', 'Sharpe')}, "
-            f"Sortino={_metric_value(metrics, 'sortino', 'Sortino')}, "
-            f"CAGR={_metric_value(metrics, 'cagr', 'CAGR', 'return')}, "
-            f"MDD={_metric_value(metrics, 'mdd', 'MDD', 'maxDrawdown')}, "
-            f"Win Rate={_metric_value(metrics, 'win_rate', 'winRate', 'WinRate')}, "
-            f"Profit Factor={_metric_value(metrics, 'profit_factor', 'profitFactor', 'ProfitFactor')}, "
-            f"Volatility={_metric_value(metrics, 'volatility', 'Volatility')}, "
-            f"Turnover={_metric_value(metrics, 'turnover', 'Turnover')}, "
-            f"Trade Count={_metric_value(metrics, 'trade_count', 'tradeCount', 'trades')}"
-        )
-        lines.append(
-            f"{case.get('case_strategy_id')}: "
-            f"성공={case.get('advice_success')} "
-            f"{metric_text} "
-            f"교훈={case.get('lesson') or '기록된 교훈 없음'}"
-        )
+    top_metrics = _metric_summary(_case_metrics(_ranked_cases(cases)[0]))
+    category_text = _category_summary(cases)
     return (
-        f"검색된 유사 전략 수: {matched_count}개, Experience Memory 사례: {retrieved_count}개. "
-        f"{_category_summary(cases)} "
-        f"Sharpe, Sortino, CAGR, MDD, Win Rate, Profit Factor, Turnover 우선순위로 재정렬했습니다. "
-        + " ".join(lines)
+        f"검색된 유사 전략 수: {matched_count}개, 사례 {retrieved_count}개. "
+        f"상위 사례: {top_metrics or '지표 없음'}. 범주: {category_text or '없음'}."
     )
 
 
@@ -211,12 +212,9 @@ def _failure_summary(memory_context: Dict[str, Any] | None) -> str:
         failed = list({id(case): case for case in failed + high_risk}.values())
     if not failed:
         return "유사 실패 전략의 공통점: 명시적으로 실패로 평가된 사례가 부족합니다. 실패 공통점은 단정하지 않습니다."
-    category_note = f" 유사 실패/고위험 검색 {len(high_risk)}건을 포함했습니다." if high_risk else ""
     return (
         f"유사 실패 전략의 공통점: {_lesson_summary(failed, '기록된 실패 교훈 없음')}. "
-        f"{category_note} "
-        "Overfitting, Data leakage, Regime collapse, Excessive turnover, Low liquidity, Tail risk, "
-        "Volatility explosion, Trend dependency, Sideways market weakness를 재백테스트에서 분리 확인해야 합니다."
+        f"고위험 검색 {len(high_risk)}건. MDD, 회전율, 레짐 붕괴를 우선 확인하세요."
     )
 
 
@@ -230,12 +228,11 @@ def _success_summary(memory_context: Dict[str, Any] | None) -> str:
         successful = list({id(case): case for case in successful + low_risk_success}.values())
     if not successful:
         return "유사 성공 전략의 공통점: 검증된 성공 사례가 부족합니다. 개선 후보 백테스트 전까지 성공 가능성을 단정하지 않습니다."
-    improved = sorted({metric for case in successful for metric in _improved_metrics(case)})
+    improved = sorted({metric for case in successful for metric in _improved_metrics(case)})[:3]
     metric_text = ", ".join(improved) if improved else "위험 대비 성과"
-    category_note = f" 유사 성공/저위험 검색 {len(low_risk_success)}건을 포함했습니다." if low_risk_success else ""
     return (
         f"유사 성공 전략의 공통점: {_lesson_summary(successful, '기록된 성공 교훈 없음')}. "
-        f"이 사례들은 조정 후 {metric_text} 개선 신호가 있었습니다.{category_note}"
+        f"개선 신호: {metric_text}. 저위험 검색 {len(low_risk_success)}건."
     )
 
 
@@ -256,24 +253,20 @@ def _regime_summary(req: AdvisorRequest, memory_context: Dict[str, Any] | None) 
     ]
     if same_regime_cases:
         return (
-            f"시장 레짐별 적합성: 동일 시장 레짐으로 검색된 유사 백테스트 {len(same_regime_cases)}건이 있습니다. "
-            "bull, bear, sideways, high volatility, low volatility, crisis 조건별 성과를 같은 비용 조건으로 분리 확인해야 합니다."
+            f"시장 레짐 적합성: 동일 레짐 사례 {len(same_regime_cases)}건. 비용 동일 조건으로 bull/bear/sideways를 분리 검증하세요."
         )
     if regime_values:
         counts = {regime: regime_values.count(regime) for regime in sorted(set(regime_values))}
         summary = ", ".join(f"{regime} {count}건" for regime, count in counts.items())
         return (
-            f"시장 레짐별 적합성: 검색 사례의 레짐 분포는 {summary}입니다. "
-            "bull, bear, sideways, high volatility, low volatility, crisis 조건별 성과를 같은 비용 조건으로 분리 확인해야 합니다."
+            f"시장 레짐 적합성: {summary}. 레짐별 성과 차이를 확인해야 합니다."
         )
     if explicit_regime:
         return (
-            f"시장 레짐별 적합성: 현재 전략은 {explicit_regime} 조건으로 해석됐지만, "
-            "유사 백테스트의 레짐 태그가 부족해 강한 환경과 약한 환경을 확정하지 않습니다."
+            f"시장 레짐 적합성: {explicit_regime} 조건으로 해석. 유사 레짐 근거 부족으로 강약은 미확정입니다."
         )
     return (
-        "시장 레짐별 적합성: bull, bear, sideways, high volatility, low volatility, crisis 태그가 검색 근거에 부족합니다. "
-        "레짐별 성과를 분리 백테스트하기 전에는 특정 시장에서 강하다고 말하지 않습니다."
+        "시장 레짐 적합성: 레짐 태그 부족. bull/bear/sideways 분리 백테스트 전까지 강한 시장은 미확정입니다."
     )
 
 
@@ -283,23 +276,18 @@ def _risk_summary(
     advice_evaluation: Dict[str, Any] | None,
     memory_context: Dict[str, Any] | None,
 ) -> str:
-    parts = [f"현재 전략의 위험 요소: {_problem_summary(issues)}"]
+    parts = [f"위험 요소: {_problem_summary(issues)}"]
     if req.backtest_result is not None:
         bt = req.backtest_result
         parts.append(
-            "현재 백테스트 지표: "
-            f"Sharpe={bt.sharpe}, Sortino={bt.sortino}, CAGR={bt.cagr}, MDD={bt.mdd}, "
-            f"Win Rate={bt.win_rate}, Profit Factor={bt.profit_factor}, Turnover={bt.turnover}, trades={bt.trade_count}."
+            f"지표: Sharpe={bt.sharpe}, CAGR={bt.cagr}, MDD={bt.mdd}, PF={bt.profit_factor}, trades={bt.trade_count}."
         )
     else:
-        parts.append("현재 백테스트 결과가 없어 Sharpe, Sortino, CAGR, MDD, Win Rate, Profit Factor, Turnover 위험을 수치로 확정하지 않습니다.")
+        parts.append("백테스트 전이라 Sharpe, CAGR, MDD 위험은 미확정입니다.")
     if advice_evaluation:
-        parts.append(
-            f"개선안 평가 net_effect={advice_evaluation.get('net_effect')}, "
-            f"OOS 필요={advice_evaluation.get('oos_validation_required')}입니다."
-        )
+        parts.append(f"개선안 net_effect={advice_evaluation.get('net_effect')}, OOS={advice_evaluation.get('oos_validation_required')}.")
     else:
-        parts.append("OOS 또는 Walk-forward 검증 전에는 과최적화와 레짐 의존 위험을 낮게 보지 않습니다.")
+        parts.append("OOS 전까지 과최적화 위험은 낮게 보지 않습니다.")
     fit_context = _fit_context_summary(memory_context)
     if fit_context:
         parts.append(fit_context)
@@ -327,16 +315,14 @@ def _overfit_summary(
 ) -> str:
     overfit_items = [item for item in advice if "과최적화" in item.title or "과최적화" in item.body]
     if overfit_items:
-        return "과최적화 가능성: " + " ".join(f"{item.title}: {item.body}" for item in overfit_items[:2])
+        return "과최적화 가능성: " + _clip(f"{overfit_items[0].title}: {overfit_items[0].body}", 140)
     if req.backtest_result is None:
         return (
-            "과최적화 가능성: 현재 백테스트 결과가 없어 거래 횟수, CAGR, MDD, 필터 수 기반의 과최적화 판단을 보류합니다. "
-            "Walk-forward와 OOS 구간 검증 전에는 낮은 위험으로 보지 않습니다."
+            "과최적화 가능성: 백테스트 전이라 보류. Walk-forward/OOS 전에는 낮게 보지 않습니다."
         )
     if advice_evaluation:
         return (
-            f"과최적화 가능성: 개선안 평가 net_effect={advice_evaluation.get('net_effect')}입니다. "
-            "OOS 성과가 유지될 때만 개선안을 채택하세요."
+            f"과최적화 가능성: net_effect={advice_evaluation.get('net_effect')}. OOS 유지 시에만 채택하세요."
         )
     return "과최적화 가능성: 명시적 고위험 신호는 제한적이지만, OOS 또는 Walk-forward 검증 전에는 확정하지 않습니다."
 
@@ -345,13 +331,11 @@ def _improvement_summary(advice: Iterable[AdviceItem]) -> str:
     items = list(advice)
     if not items:
         return "개선해야 할 조건: 현재 자동 생성된 개선 제안이 없습니다. 먼저 백테스트 입력과 리스크 조건을 보강해야 합니다."
-    lines = []
-    for item in items[:3]:
-        change = ""
-        if item.proposed_change is not None:
-            change = f" 제안 변경: {item.proposed_change.description or item.proposed_change.field}."
-        lines.append(f"{item.title}: {item.body}{change}")
-    return "개선해야 할 조건: " + " ".join(lines)
+    item = items[0]
+    change = ""
+    if item.proposed_change is not None:
+        change = f" 변경: {item.proposed_change.description or item.proposed_change.field}."
+    return "개선 조건: " + _clip(f"{item.title}: {item.body}{change}", 150)
 
 
 def _recommended_filter_summary(
@@ -364,12 +348,6 @@ def _recommended_filter_summary(
         "Volume filter",
         "Volatility filter",
         "Market trend filter",
-        "Position sizing 개선",
-        "Holding period 조정",
-        "Sector filter",
-        "Risk management 개선",
-        "Trade frequency 감소",
-        "Regime filter",
     ]
     proposed = [
         item.proposed_change.description or item.proposed_change.field
@@ -379,14 +357,11 @@ def _recommended_filter_summary(
     evidence = "검색 근거가 부족하므로 각 필터는 한 번에 하나씩만 추가해 비교해야 합니다."
     cases = (memory_context or {}).get("retrieved_cases") or []
     if cases:
-        evidence = f"Experience Memory {len(cases)}건과 {_category_summary(cases)} 근거로 후보 필터를 분리 검증합니다."
+        evidence = f"Memory {len(cases)}건 근거로 1개씩 검증."
     if req.backtest_result is None:
-        evidence += " 현재 백테스트 결과가 없어 개선 효과 수치는 아직 확정하지 않습니다."
+        evidence += " 효과 수치는 미확정."
     proposed_text = ", ".join(proposed[:3]) if proposed else "자동 proposed_change 없음"
-    return (
-        f"추천 추가 필터: {', '.join(filter_candidates)}. "
-        f"현재 agent 제안: {proposed_text}. {evidence}"
-    )
+    return f"추천 필터: {', '.join(filter_candidates)}. 현재 제안: {proposed_text}. {evidence}"
 
 
 def _retest_summary(
@@ -395,42 +370,40 @@ def _retest_summary(
     suggested_experiments: Sequence[str],
 ) -> str:
     conditions = [
-        "동일 기간, 동일 유니버스, 동일 초기자금, 동일 거래비용/슬리피지 조건으로 비교해야 합니다.",
+        "동일 기간/유니버스/자본/비용으로 비교.",
     ]
     if candidate_strategy is not None:
-        conditions.append("candidate_strategy를 개선 후보로 재백테스트해야 합니다.")
+        conditions.append("후보 전략 재백테스트.")
     else:
-        conditions.append("아직 개선 후보 DSL이 없어 후보 생성 후 재백테스트가 필요합니다.")
+        conditions.append("개선안 조건 정리 필요.")
     if req.candidate_backtest_result is None:
-        conditions.append("개선 후 백테스트 결과가 없어 조언 성공 여부는 미확정입니다.")
+        conditions.append("개선 효과 미확정.")
     if suggested_experiments:
-        conditions.append(f"우선 실험: {suggested_experiments[0]}")
+        conditions.append(f"우선 실험: {_clip(suggested_experiments[0], 60)}")
     return " ".join(conditions)
 
 
 def _warning_summary(req: AdvisorRequest, advice_evaluation: Dict[str, Any] | None) -> str:
     warnings = [
-        "CAGR만으로 성공을 판단하지 말고 MDD, Sharpe, Calmar, 거래 횟수, 비용 반영 결과를 함께 봐야 합니다.",
-        "초기자금 대비 과도한 유동성 필터나 잦은 매매는 개인 투자자에게 비현실적일 수 있습니다.",
+        "CAGR 단독 판단 금지. MDD, Sharpe, 거래비용을 함께 확인.",
     ]
     if req.backtest_result is None:
-        warnings.append("현재 백테스트 결과가 없으므로 수익성 표현은 금지합니다.")
+        warnings.append("백테스트 전 수익성 표현 금지.")
     if advice_evaluation:
         warnings.append(
-            f"평가 결과 net_effect={advice_evaluation.get('net_effect')}이며 "
-            f"OOS 필요={advice_evaluation.get('oos_validation_required')}입니다."
+            f"net_effect={advice_evaluation.get('net_effect')}, OOS={advice_evaluation.get('oos_validation_required')}."
         )
     else:
-        warnings.append("OOS 또는 Walk-forward 검증 전에는 확정적 추천을 하지 않습니다.")
+        warnings.append("OOS 전 확정 추천 금지.")
     return " ".join(warnings)
 
 
 def _final_recommendation(advice: Sequence[AdviceItem], advice_evaluation: Dict[str, Any] | None) -> str:
     if advice_evaluation and advice_evaluation.get("net_effect") == "positive":
-        return "다음 백테스트 액션: 개선 전/후 백테스트에서 위험 대비 성과 개선이 유지되는지 OOS 검증을 먼저 완료하세요."
+        return "다음 액션: OOS 비교 백테스트로 개선 유지 여부 확인."
     if advice:
-        return f"다음 백테스트 액션: 가장 먼저 '{advice[0].title}' 항목을 검증 가능한 후보 전략으로 만들고 재백테스트하세요."
-    return "다음 백테스트 액션: 전략 조건과 백테스트 설정을 먼저 완성한 뒤 RAG 검색과 재백테스트를 다시 실행하세요."
+        return f"다음 액션: '{advice[0].title}' 조건으로 비교 백테스트해 개선 여부 확인."
+    return "다음 액션: 조건 보완 후 백테스트로 확인."
 
 
 def compose_response_sections(

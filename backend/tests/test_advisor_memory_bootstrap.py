@@ -7,9 +7,16 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
 
-from advisor.memory_repository import load_advisor_memory, load_vector_advisor_memory
+from advisor.memory_repository import (
+    _normalize_vector_categories,
+    _rerank_vector_matches,
+    load_advisor_memory,
+    load_vector_advisor_memory,
+)
 from api import advisor_routes
 from advisor.schemas import AdvisorRequest
+from vector_memory import normalize_backtest_result
+from vector_memory.models import VectorMemoryMatch
 
 
 def _create_bootstrap_db(path):
@@ -188,6 +195,170 @@ def _insert_strategy_backtest(
             created_at,
         ),
     )
+
+
+def _vector_match(*, item_id, dsl, similarity, strategy_hash):
+    return VectorMemoryMatch(
+        id=item_id,
+        similarity_score=similarity,
+        document=f"Strategy DSL: {json.dumps(dsl, ensure_ascii=False, sort_keys=True)}\nStrategy summary: test",
+        metadata={"strategy_hash": strategy_hash},
+    )
+
+
+def _vector_match_with_metadata(*, item_id, dsl, similarity, strategy_hash, metadata):
+    match = _vector_match(
+        item_id=item_id,
+        dsl=dsl,
+        similarity=similarity,
+        strategy_hash=strategy_hash,
+    )
+    match.metadata.update(metadata)
+    return match
+
+
+def test_vector_memory_reranker_prioritizes_matching_dsl_over_raw_similarity():
+    query_record = normalize_backtest_result(
+        strategy_dsl={
+            "universe": ["KOSPI200"],
+            "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1}],
+            "max_positions": 8,
+            "hold_period_days": 126,
+            "stop_loss_pct": 12,
+            "initial_capital": 10000000,
+        },
+        metrics={},
+        strategy_summary="PBR 1 이하 대형주 8종목 6개월 보유 -12% 손절",
+    )
+    cci_match = _vector_match(
+        item_id="cci:1",
+        strategy_hash="cci_hash",
+        similarity=0.90,
+        dsl={
+            "universe": ["KOSPI200"],
+            "entry_signals": [{"indicator": "cci", "operator": "<=", "value": -100}],
+            "max_positions": 20,
+            "hold_period_days": 10,
+            "stop_loss_pct": 12,
+            "initial_capital": 10000000,
+        },
+    )
+    pbr_match = _vector_match(
+        item_id="pbr:1",
+        strategy_hash="pbr_hash",
+        similarity=0.55,
+        dsl={
+            "universe": ["KOSPI200"],
+            "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1}],
+            "max_positions": 8,
+            "hold_period_days": 120,
+            "stop_loss_pct": 12,
+            "initial_capital": 10000000,
+        },
+    )
+
+    ranked = _rerank_vector_matches(query_record, [cci_match, pbr_match])
+
+    assert ranked[0].id == "pbr:1"
+
+
+def test_vector_memory_reranker_deduplicates_same_strategy_hash():
+    query_record = normalize_backtest_result(
+        strategy_dsl={
+            "universe": ["KOSPI200"],
+            "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1}],
+        },
+        metrics={},
+    )
+    first = _vector_match(
+        item_id="pbr:old",
+        strategy_hash="same_pbr_hash",
+        similarity=0.40,
+        dsl={"universe": ["KOSPI200"], "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1}]},
+    )
+    second = _vector_match(
+        item_id="pbr:new",
+        strategy_hash="same_pbr_hash",
+        similarity=0.70,
+        dsl={"universe": ["KOSPI200"], "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1}]},
+    )
+
+    ranked = _rerank_vector_matches(query_record, [first, second])
+
+    assert [item.id for item in ranked] == ["pbr:new"]
+
+
+def test_vector_memory_reranker_hard_filters_required_fundamental_metric():
+    query_record = normalize_backtest_result(
+        strategy_dsl={
+            "universe": ["KOSPI200"],
+            "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1}],
+        },
+        metrics={},
+    )
+    pbr_match = _vector_match(
+        item_id="pbr:1",
+        strategy_hash="pbr_hash",
+        similarity=0.55,
+        dsl={"universe": ["KOSPI200"], "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1.2}]},
+    )
+    cci_match = _vector_match(
+        item_id="cci:1",
+        strategy_hash="cci_hash",
+        similarity=0.95,
+        dsl={"universe": ["KOSPI200"], "entry_signals": [{"indicator": "cci", "operator": "<=", "value": -100}]},
+    )
+
+    ranked = _rerank_vector_matches(query_record, [cci_match, pbr_match])
+
+    assert [item.id for item in ranked] == ["pbr:1"]
+
+
+def test_vector_memory_reranker_prefers_matching_universe_when_available():
+    query_record = normalize_backtest_result(
+        strategy_dsl={
+            "universe": ["KOSPI200"],
+            "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1}],
+        },
+        metrics={},
+    )
+    kosdaq_match = _vector_match(
+        item_id="pbr:kosdaq",
+        strategy_hash="kosdaq_pbr_hash",
+        similarity=0.95,
+        dsl={"universe": ["KOSDAQ"], "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1}]},
+    )
+    kospi200_match = _vector_match(
+        item_id="pbr:kospi200",
+        strategy_hash="kospi200_pbr_hash",
+        similarity=0.50,
+        dsl={"universe": ["KOSPI200"], "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1.2}]},
+    )
+
+    ranked = _rerank_vector_matches(query_record, [kosdaq_match, kospi200_match])
+
+    assert [item.id for item in ranked] == ["pbr:kospi200"]
+
+
+def test_vector_memory_categories_do_not_mark_failed_results_successful():
+    failed_match = _vector_match_with_metadata(
+        item_id="failed:pbr",
+        strategy_hash="failed_pbr_hash",
+        similarity=0.60,
+        dsl={"universe": ["KOSPI200"], "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1}]},
+        metadata={
+            "riskLevel": "low",
+            "failureReason": "백테스트 실행에 실패했습니다.",
+            "sharpe": 0,
+            "cagr": 0,
+            "mdd": 0,
+        },
+    )
+    categories = {"failed:pbr": ["similar", "successful_low_risk"]}
+
+    _normalize_vector_categories({"failed:pbr": failed_match}, categories)
+
+    assert categories["failed:pbr"] == ["similar", "failed_high_risk"]
 
 
 def test_load_advisor_memory_bootstraps_latest_backtest_results(monkeypatch, tmp_path):

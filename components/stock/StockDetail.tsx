@@ -64,8 +64,38 @@ export default function StockDetail({ symbol }: { symbol: string }) {
     }
   };
 
+  const fetchPrice = async () => {
+    try {
+      const response = await fetch(`/api/stock/${symbol}/price`);
+      if (!response.ok) return;
+      const data = await response.json();
+      setDetail((prev) =>
+        prev
+          ? {
+              ...prev,
+              currentPrice: data.price,
+              change: data.change,
+              changePercent: data.changePercent,
+              open: data.open ?? prev.open,
+              high: data.high ?? prev.high,
+              low: data.low ?? prev.low,
+              volume: data.volume ?? prev.volume,
+            }
+          : prev
+      );
+    } catch {
+      // 폴링 실패는 무시
+    }
+  };
+
   useEffect(() => {
     fetchDetail();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol]);
+
+  useEffect(() => {
+    const id = setInterval(fetchPrice, 1000);
+    return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol]);
 

@@ -475,9 +475,13 @@ class NLStrategyParser:
         else:
             diff = self._modify_ollama(user_input, previous)
 
+        explicit_universe = _extract_explicit_universe(user_input)
+
         # diff의 non-null 필드만 previous에 덮어씀
         merged = {**previous}
         for field, val in diff.model_dump().items():
+            if field == "universe" and explicit_universe is None:
+                continue
             if val is not None:
                 merged[field] = val
 

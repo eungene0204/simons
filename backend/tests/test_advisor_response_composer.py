@@ -67,28 +67,57 @@ def test_advisor_response_sections_follow_required_order(tmp_path):
     ))
 
     assert [section.title for section in result.response_sections] == SECTION_TITLES
-    assert "현재 백테스트 결과가 없어 성과는 단정하지 않습니다" in result.response_sections[0].body
+    assert "RSI 30 이하 매수, 70 이상 매도" not in result.response_sections[0].body
+    assert "백테스트 전이라 성과는 미확정" in result.response_sections[0].body
     assert "검색된 유사 전략 수" in result.response_sections[1].body
-    assert "검색 범주" in result.response_sections[1].body
     assert "유사 성공/저위험" in result.response_sections[1].body
     assert "유사 실패/고위험" in result.response_sections[1].body
-    assert "case_rsi" in result.response_sections[1].body
+    assert "case_rsi" not in result.response_sections[1].body
     assert "유사 성공 전략의 공통점" in result.response_sections[2].body
     assert "장기 추세 필터" in result.response_sections[2].body
-    assert "유사 성공/저위험 검색" in result.response_sections[2].body
+    assert "저위험 검색" in result.response_sections[2].body
     assert "유사 실패 전략의 공통점" in result.response_sections[3].body
-    assert "유사 실패/고위험 검색" in result.response_sections[3].body
-    assert "시장 레짐별 적합성" in result.response_sections[4].body
-    assert "동일 시장 레짐" in result.response_sections[4].body
-    assert "현재 전략의 위험 요소" in result.response_sections[5].body
+    assert "고위험 검색" in result.response_sections[3].body
+    assert "시장 레짐 적합성" in result.response_sections[4].body
+    assert "동일 레짐" in result.response_sections[4].body
+    assert "위험 요소" in result.response_sections[5].body
     assert "사용자 조건 적합 검색" in result.response_sections[5].body
     assert "과최적화 가능성" in result.response_sections[6].body
-    assert "개선해야 할 조건" in result.response_sections[7].body
-    assert "추천 추가 필터" in result.response_sections[8].body
+    assert "개선 조건" in result.response_sections[7].body
+    assert "추천 필터" in result.response_sections[8].body
     assert "ATR stop loss" in result.response_sections[8].body
-    assert "개선 후 백테스트 결과가 없어" in result.response_sections[9].body
-    assert "수익성 표현은 금지" in result.response_sections[9].body
-    assert "다음 백테스트 액션" in result.response_sections[9].body
+    assert "개선 효과 미확정" in result.response_sections[9].body
+    assert "수익성 표현 금지" in result.response_sections[9].body
+    assert "조건으로 비교 백테스트해 개선 여부 확인" in result.response_sections[9].body
+    assert "앱에서" not in result.response_sections[9].body
+    assert "RAG 검색" not in result.response_sections[9].body
+
+
+def test_advisor_summary_counts_fundamental_filters_as_entry_signals(tmp_path):
+    agent = StrategyAdvisorAgent(learning_provider=ExperimentLearningProvider(tmp_path))
+
+    result = agent.review(AdvisorRequest(
+        user_prompt="KOSPI 대형주 중 PBR 1배 이하 8종목을 6개월 보유하고 -12% 손절",
+        parsed_strategy={
+            "universe": ["KOSPI200"],
+            "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1}],
+            "entry_signals": [],
+            "exit_signals": [],
+            "max_positions": 8,
+            "hold_period_days": 126,
+            "stop_loss_pct": 12,
+            "initial_capital": 10_000_000,
+        },
+    ))
+
+    summary = result.response_sections[0].body
+    assert "진입 신호 1개" in summary
+    assert "매수 대상 필터" not in summary
+    assert "타이밍 진입 신호" not in summary
+    assert "다음 액션" in result.response_sections[9].body
+    assert "조건으로 비교 백테스트해 개선 여부 확인" in result.response_sections[9].body
+    assert "앱에서" not in result.response_sections[9].body
+    assert all(len(section.body) <= 240 for section in result.response_sections)
 
 
 def test_advisor_response_sections_include_evaluation_when_available(tmp_path):
@@ -108,4 +137,6 @@ def test_advisor_response_sections_include_evaluation_when_available(tmp_path):
     assert [section.title for section in result.response_sections] == SECTION_TITLES
     assert result.advice_evaluation is not None
     assert "net_effect=positive" in result.response_sections[5].body
-    assert "OOS 검증" in result.response_sections[9].body
+    assert "OOS" in result.response_sections[9].body
+    assert "OOS 비교 백테스트로 개선 유지 여부 확인" in result.response_sections[9].body
+    assert "앱에서" not in result.response_sections[9].body

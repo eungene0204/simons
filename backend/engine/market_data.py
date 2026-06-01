@@ -253,6 +253,8 @@ class MarketDataProvider:
                 self.cache.put(symbol, ws_quote)
                 self._update_health(self.ws_provider.name, True, 0)
                 return ws_quote
+            # 캐시 미스: 자동 구독 — 다음 호출부터 실시간 반영
+            await self.ws_provider.subscribe([symbol])
 
         # 외부 캐시 (REST 폴백용)
         cached = self.cache.get(symbol)
@@ -299,6 +301,11 @@ class MarketDataProvider:
                 self.cache.put(sym, quote)  # 외부캐시도 갱신
             if ws_data:
                 self._update_health(self.ws_provider.name, True, 0)
+
+            # WebSocket 캐시에 없는 종목은 자동 구독 — 다음 폴링부터 실시간 반영
+            ws_uncached = [s for s in symbols if s not in ws_data]
+            if ws_uncached:
+                await self.ws_provider.subscribe(ws_uncached)
 
         # 2. WS에서 못 구한 종목은 외부캐시 → REST 폴백
         uncached: list[str] = []

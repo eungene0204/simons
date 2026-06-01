@@ -17,7 +17,14 @@ function compactPrompt(prompt: string): string {
   return prompt.toLowerCase().replace(/\s+/g, "");
 }
 
-function inferUniverse(prompt: string): string[] {
+function previousUniverse(body: ParseStreamBody): string[] | null {
+  const universe = body.previous_parsed?.universe;
+  if (!Array.isArray(universe)) return null;
+  const normalized = universe.filter((item): item is string => typeof item === "string" && item.length > 0);
+  return normalized.length > 0 ? normalized : null;
+}
+
+function inferUniverse(prompt: string, body?: ParseStreamBody): string[] {
   const compact = compactPrompt(prompt);
   if (compact.includes("코스피200") || compact.includes("kospi200")) return ["KOSPI200"];
   if (
@@ -29,6 +36,8 @@ function inferUniverse(prompt: string): string[] {
   }
   if (compact.includes("코스닥") || compact.includes("kosdaq")) return ["KOSDAQ"];
   if (compact.includes("코스피") || compact.includes("kospi")) return ["KOSPI"];
+  const inherited = body ? previousUniverse(body) : null;
+  if (inherited) return inherited;
   return ["KOSPI200"];
 }
 
@@ -68,7 +77,7 @@ function buildSkeleton(body: ParseStreamBody) {
     type: "skeleton",
     data: {
       description: prompt,
-      universe: inferUniverse(prompt),
+      universe: inferUniverse(prompt, body),
       max_positions: inferMaxPositions(prompt),
       recognized_terms: recognizedTerms,
       confidence: recognizedTerms.length > 0 ? "partial" : "low",

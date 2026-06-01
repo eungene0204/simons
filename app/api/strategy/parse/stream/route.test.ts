@@ -78,6 +78,77 @@ describe("POST /api/strategy/parse/stream", () => {
     expect(events[4]).toBe("[DONE]");
   });
 
+  it("uses previous parsed universe for modification skeleton when prompt omits universe", async () => {
+    fetchBackend.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        parsed: {
+          description: "KOSPI PBR strategy",
+          universe: ["KOSPI"],
+          trailing_stop_pct: 15,
+        },
+        backtest_request: {
+          strategy_id: "hash_value",
+          universe_id: "kospi",
+          symbols: ["005930"],
+          symbol_count: 1,
+        },
+        symbol_count: 1,
+      }),
+    });
+
+    const response = await POST(makeRequest({
+      prompt: "트레일링 15% 추가해줘",
+      backend: "mlx",
+      previous_parsed: {
+        universe: ["KOSPI"],
+      },
+    }));
+
+    const events = await readEvents(response);
+    expect(JSON.parse(events[1])).toMatchObject({
+      type: "skeleton",
+      data: {
+        universe: ["KOSPI"],
+      },
+    });
+  });
+
+  it("uses explicit prompt universe over previous parsed universe", async () => {
+    fetchBackend.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        parsed: {
+          description: "KOSPI200 strategy",
+          universe: ["KOSPI200"],
+        },
+        backtest_request: {
+          strategy_id: "hash_value",
+          universe_id: "kospi200",
+          symbols: ["069500"],
+          symbol_count: 1,
+        },
+        symbol_count: 1,
+      }),
+    });
+
+    const response = await POST(makeRequest({
+      prompt: "KOSPI200으로 바꿔줘",
+      backend: "mlx",
+      previous_parsed: {
+        universe: ["KOSPI"],
+      },
+    }));
+
+    const events = await readEvents(response);
+    expect(JSON.parse(events[1])).toMatchObject({
+      type: "skeleton",
+      data: {
+        universe: ["KOSPI200"],
+      },
+    });
+  });
+
   it("forwards backend parse errors as SSE error events", async () => {
     fetchBackend.mockResolvedValueOnce({
       ok: false,

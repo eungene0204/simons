@@ -2,6 +2,7 @@ import type { ParsedSummary } from "./strategySummary";
 
 export interface StrategyBacktestRequest {
   symbols?: string[];
+  universe_id?: string;
   entry?: { conditions?: Array<Record<string, unknown>> };
   exit?: { conditions?: Array<Record<string, unknown>> };
   risk?: Record<string, unknown>;
@@ -48,8 +49,35 @@ const FOLLOW_UP_QUESTION_PATTERN =
 const EXPLICIT_MODIFICATION_PATTERN =
   /바꿔|변경|수정|추가|삭제|제외|빼|넣어|설정|적용|로\s*(해|바꿔|설정)|으로\s*(해|바꿔|설정)/i;
 
+type PendingRiskChange = {
+  trailing_stop_pct?: number;
+};
+
 function hasMatch(text: string, patterns: RegExp[]): boolean {
   return patterns.some((pattern) => pattern.test(text));
+}
+
+function extractPercentage(text: string): number | null {
+  const match = text.match(/(\d+(?:\.\d+)?)\s*%/);
+  if (!match) return null;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value) || value <= 0 || value > 100) return null;
+  return value;
+}
+
+function inferPendingRiskChange(userPrompt: string, previousCoachText?: string | null): PendingRiskChange | null {
+  if (!previousCoachText) return null;
+  const percentage = extractPercentage(userPrompt);
+  if (percentage === null) return null;
+
+  const promptLooksLikeAnswer = /정해|설정|해줘|해주세요|로\s*해|으로\s*해|추가|적용/.test(userPrompt);
+  if (!promptLooksLikeAnswer) return null;
+
+  if (/트레일링\s*스[탑톱]|trailing/i.test(previousCoachText) && /몇\s*%|퍼센트|비율/.test(previousCoachText)) {
+    return { trailing_stop_pct: percentage };
+  }
+
+  return null;
 }
 
 export function detectRequestedDomains(prompt: string): Set<RequestedDomain> {
@@ -83,7 +111,8 @@ export function isAdvisorFollowUpPrompt(prompt: string): boolean {
 function mergeParsedSummary(
   previous: ParsedSummary,
   next: ParsedSummary,
-  requestedDomains: Set<RequestedDomain>
+  requestedDomains: Set<RequestedDomain>,
+  pendingRiskChange?: PendingRiskChange | null
 ): ParsedSummary {
   return {
     ...next,
@@ -94,8 +123,11 @@ function mergeParsedSummary(
     max_positions: requestedDomains.has("portfolio") ? next.max_positions : previous.max_positions,
     hold_period_days: requestedDomains.has("exit") ? next.hold_period_days : previous.hold_period_days,
     rebalancing_period: requestedDomains.has("portfolio") ? next.rebalancing_period : previous.rebalancing_period,
-    stop_loss_pct: requestedDomains.has("risk") ? next.stop_loss_pct : previous.stop_loss_pct,
-    take_profit_pct: requestedDomains.has("risk") ? next.take_profit_pct : previous.take_profit_pct,
+    stop_loss_pct: requestedDomains.has("risk") ? (next.stop_loss_pct ?? previous.stop_loss_pct) : previous.stop_loss_pct,
+    take_profit_pct: requestedDomains.has("risk") ? (next.take_profit_pct ?? previous.take_profit_pct) : previous.take_profit_pct,
+    trailing_stop_pct: pendingRiskChange?.trailing_stop_pct ?? (requestedDomains.has("risk")
+      ? (next.trailing_stop_pct ?? previous.trailing_stop_pct)
+      : previous.trailing_stop_pct),
     backtest_period: requestedDomains.has("backtest") ? next.backtest_period : previous.backtest_period,
     initial_capital: requestedDomains.has("backtest") ? next.initial_capital : previous.initial_capital,
   };
@@ -104,7 +136,8 @@ function mergeParsedSummary(
 function mergeBacktestRequest(
   previous: StrategyBacktestRequest | null | undefined,
   next: StrategyBacktestRequest | null | undefined,
-  requestedDomains: Set<RequestedDomain>
+  requestedDomains: Set<RequestedDomain>,
+  pendingRiskChange?: PendingRiskChange | null
 ): StrategyBacktestRequest | null {
   if (!next) return previous ?? null;
   if (!previous) return next;
@@ -129,15 +162,26 @@ function mergeBacktestRequest(
     mergedRisk.take_profit_pct = previous.risk?.take_profit_pct;
     mergedRisk.trailing_stop_pct = previous.risk?.trailing_stop_pct;
     mergedRisk.max_mdd_limit_pct = previous.risk?.max_mdd_limit_pct;
+  } else {
+    for (const field of ["stop_loss_pct", "take_profit_pct", "trailing_stop_pct", "max_mdd_limit_pct"]) {
+      if (next.risk?.[field] == null && previous.risk?.[field] !== undefined) {
+        mergedRisk[field] = previous.risk[field];
+      }
+    }
   }
 
   if (!requestedDomains.has("backtest")) {
     mergedRisk.init_cash = previous.risk?.init_cash;
   }
 
+  if (pendingRiskChange?.trailing_stop_pct !== undefined) {
+    mergedRisk.trailing_stop_pct = pendingRiskChange.trailing_stop_pct;
+  }
+
   return {
     ...previous,
     ...next,
+    universe_id: requestedDomains.has("universe") ? (next.universe_id ?? previous.universe_id) : previous.universe_id,
     symbols: requestedDomains.has("universe") ? (next.symbols ?? previous.symbols) : previous.symbols,
     entry: requestedDomains.has("entry") ? (next.entry ?? previous.entry) : previous.entry,
     exit: requestedDomains.has("exit") ? (next.exit ?? previous.exit) : previous.exit,
@@ -175,13 +219,28 @@ export function mergeStrategyModification(params: {
   nextBacktestRequest?: StrategyBacktestRequest | null;
   userPrompt: string;
   clarificationQuestion?: string | null;
+  previousCoachText?: string | null;
 }) {
   const requestedDomains = detectRequestedDomains(params.userPrompt);
+  const pendingRiskChange = inferPendingRiskChange(params.userPrompt, params.previousCoachText);
+
+  if (pendingRiskChange) {
+    requestedDomains.add("risk");
+  }
 
   if (!params.previousParsed) {
     return {
-      parsed: params.nextParsed,
-      backtestRequest: params.nextBacktestRequest ?? params.previousBacktestRequest ?? null,
+      parsed: pendingRiskChange ? { ...params.nextParsed, ...pendingRiskChange } : params.nextParsed,
+      backtestRequest: pendingRiskChange
+        ? {
+            ...(params.nextBacktestRequest ?? params.previousBacktestRequest ?? {}),
+            risk: {
+              ...((params.previousBacktestRequest ?? params.nextBacktestRequest)?.risk ?? {}),
+              ...((params.nextBacktestRequest ?? params.previousBacktestRequest)?.risk ?? {}),
+              ...pendingRiskChange,
+            },
+          }
+        : params.nextBacktestRequest ?? params.previousBacktestRequest ?? null,
       requestedDomains,
       shouldReusePreviousClarification: false,
     };
@@ -196,11 +255,12 @@ export function mergeStrategyModification(params: {
     };
   }
 
-  const parsed = mergeParsedSummary(params.previousParsed, params.nextParsed, requestedDomains);
+  const parsed = mergeParsedSummary(params.previousParsed, params.nextParsed, requestedDomains, pendingRiskChange);
   const backtestRequest = mergeBacktestRequest(
     params.previousBacktestRequest,
     params.nextBacktestRequest,
-    requestedDomains
+    requestedDomains,
+    pendingRiskChange
   );
 
   return {

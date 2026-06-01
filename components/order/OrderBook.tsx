@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { type OrderBookItem } from "@/lib/mock-stock-data";
 import PriceList from "./PriceList";
 import MarketSummary from "./MarketSummary";
@@ -118,10 +118,19 @@ export default function OrderBook({
     setPreviousPrice(undefined);
   }, [symbol]);
 
+  // prop 값을 ref에 보관 — SSE useEffect가 prop 변화로 재실행되어 끊기는 것 방지
+  const currentPriceRef = useRef<number | undefined>(currentPrice);
+  useEffect(() => {
+    currentPriceRef.current = currentPrice;
+  }, [currentPrice]);
+
+  // 최초 prop 값으로 초기 박스 표시 (stream 연결 전 fallback)
   useEffect(() => {
     if (!symbol || !currentPrice || currentPrice <= 0) return;
     syncDisplayedPrice(currentPrice);
-  }, [symbol, currentPrice, syncDisplayedPrice]);
+    // symbol만 의존성에 둔다 — currentPrice 변화로는 재실행하지 않음
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol]);
 
   useEffect(() => {
     if (!symbol) return;
@@ -131,9 +140,20 @@ export default function OrderBook({
 
     const applyOrderbookData = (data: any) => {
       if (isCancelled) return;
-      const resolvedPrice = currentPrice && currentPrice > 0
-        ? currentPrice
-        : data.currentPrice;
+      // 우선순위: 가장 최근 체결가(recentTrades[0]) → stream currentPrice → prop fallback
+      const tradePrice =
+        Array.isArray(data.recentTrades) && data.recentTrades.length > 0
+          ? Number(data.recentTrades[0]?.price) || 0
+          : 0;
+      const streamPrice = Number(data.currentPrice) || 0;
+      const propPrice = currentPriceRef.current && currentPriceRef.current > 0
+        ? currentPriceRef.current
+        : 0;
+      const resolvedPrice =
+        tradePrice > 0 ? tradePrice :
+        streamPrice > 0 ? streamPrice :
+        propPrice > 0 ? propPrice :
+        undefined;
 
       syncDisplayedPrice(resolvedPrice);
       setOrderBookData({
@@ -218,7 +238,9 @@ export default function OrderBook({
       if (eventSource) eventSource.close();
       if (pollInterval) clearInterval(pollInterval);
     };
-  }, [symbol, currentPrice, syncDisplayedPrice]);
+    // symbol만 의존성 — currentPrice는 ref로 읽으므로 재실행 불필요
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol]);
 
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat("ko-KR").format(price);
@@ -407,6 +429,8 @@ export default function OrderBook({
               midPrice={midPrice}
               tickSize={tickSize}
               previousClose={previousClose}
+              latestTradeType={recentTrades[0]?.type}
+              latestTradePrice={recentTrades[0]?.price}
             />
           </div>
 

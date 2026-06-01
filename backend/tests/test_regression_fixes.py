@@ -84,6 +84,24 @@ def test_period_filter_start_date_applies_correctly(tmp_path):
     assert result["dates"][0] >= req["startDate"]
 
 
+def test_kospi_universe_uses_kodex_kospi_benchmark():
+    """KOSPI 전체 전략의 매수 후 보유 벤치마크는 KODEX 코스피여야 한다."""
+    from backtest_engine import BacktestEngine
+
+    assert BacktestEngine.benchmark_for_universe("kospi") == (
+        "226490",
+        "KODEX 코스피 (226490)",
+    )
+    assert BacktestEngine.benchmark_for_universe("kospi200") == (
+        "069500",
+        "KODEX 200 (069500)",
+    )
+    assert BacktestEngine.benchmark_for_universe("kosdaq") == (
+        "229200",
+        "KODEX KOSDAQ 150 (229200)",
+    )
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Fix 9: init_cash / liquidity_limit 0값이 기본값으로 교체되지 않음
 # ──────────────────────────────────────────────────────────────────────────────

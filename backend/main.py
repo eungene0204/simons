@@ -46,9 +46,9 @@ _http_session.mount("http://", _http_session_adapter)
 
 from contextlib import asynccontextmanager
 
-@asynccontextmanager
-async def lifespan(_app):
-    # 백엔드 시작 시 LLM 모델을 백그라운드 스레드에서 미리 로드
+
+def _start_news_llm_preload_thread() -> None:
+    # 백엔드 시작 시 뉴스 LLM 모델을 백그라운드 스레드에서 미리 로드
     def _preload():
         try:
             from news import llm_extractor
@@ -59,6 +59,16 @@ async def lifespan(_app):
 
     thread = threading.Thread(target=_preload, daemon=True, name="llm-preload")
     thread.start()
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    preload_nl_parser()
+    preload_summarize_model()
+    await startup()
+    log_universe_status_on_startup()
+
+    _start_news_llm_preload_thread()
 
     # news_v2 — best-effort scheduler bootstrap. Disabled if NEWSV2_ENABLED=false
     # or if APScheduler isn't installed.
@@ -76,6 +86,7 @@ async def lifespan(_app):
         stop_scheduler()
     except Exception:
         pass
+    await shutdown()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -1614,7 +1625,15 @@ async def _run_blocking(func, *args):
 
 
 async def _resolve_kis_orderbook_context(symbol: str) -> tuple[Optional[object], str, str, Optional[str]]:
-    quote = await market_data_provider.get_price(symbol)
+    # 호가창 스트림 컨텍스트에서는 stale 외부캐시(30s TTL) 우회 — WS 실시간 캐시 우선,
+    # 없으면 market_data_provider 폴백
+    quote: Optional[object] = None
+    if market_data_provider.ws_provider.is_configured():
+        quote = await market_data_provider.ws_provider.get_price(symbol)
+        if not quote:
+            await market_data_provider.ws_provider.subscribe([symbol])
+    if not quote:
+        quote = await market_data_provider.get_price(symbol)
     if not quote:
         raise HTTPException(status_code=404, detail=f"{symbol} 시세 없음")
 
@@ -2619,7 +2638,8 @@ def preload_nl_parser():
     except Exception as e:
         _nl_parser_status["status"] = "failed"
         _nl_parser_status["error"] = str(e)
-        print(f"[startup] NL 파서 로딩 실패 (무시됨): {e}", flush=True)
+        print(f"[startup] NL 파서 로딩 실패: {e}", flush=True)
+        raise
 
 
 def _ensure_summarize_model_loaded():
@@ -2698,6 +2718,11 @@ def parse_nl_strategy(request: NLParseRequest):
         load_started = time.perf_counter()
         backend = request.backend
         if backend not in _nl_parsers:
+            if backend == "mlx":
+                raise HTTPException(
+                    status_code=503,
+                    detail="NL parser model was not loaded at startup",
+                )
             _nl_parser_status["status"] = "loading"
             _nl_parser_status["error"] = None
             kwargs = {"backend": backend}
@@ -2709,6 +2734,9 @@ def parse_nl_strategy(request: NLParseRequest):
             _nl_parsers[backend] = NLStrategyParser(**kwargs)
 
         parser = _nl_parsers[backend]
+        if backend == "mlx":
+            from api.coach_routes import set_parser as _set_coach_parser
+            _set_coach_parser(parser)
         load_ms = round((time.perf_counter() - load_started) * 1000, 2)
         parse_started = time.perf_counter()
         if backend == "mlx":
@@ -2759,6 +2787,8 @@ def parse_nl_strategy(request: NLParseRequest):
         _nl_parse_cache[cache_key] = result
 
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         _nl_parser_status["status"] = "failed"
         _nl_parser_status["error"] = str(e)

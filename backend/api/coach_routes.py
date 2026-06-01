@@ -1,7 +1,7 @@
 """
 FastAPI routes for the Strategy Coach — conversational AI layer.
 
-POST /strategy/coach   — generate a coaching response using advisor_insight
+POST /strategy/coach   — generate a coaching response using advisor_result
 
 Uses the same Qwen MLX model already loaded by NLStrategyParser (no extra memory cost).
 main.py calls set_parser() after preloading to wire the shared model reference.
@@ -16,14 +16,17 @@ import time
 from collections import OrderedDict
 from hashlib import sha256
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from advisor.agent import StrategyAdvisorAgent
 from advisor.memory_repository import load_advisor_memory, load_vector_advisor_memory
 from advisor.memory_retriever import retrieve_memory_context
 from advisor.news_enrichment import build_coach_news_insight, build_news_context_from_strategy
+from advisor.schemas import AdvisorRequest
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["coach"])
@@ -31,8 +34,11 @@ router = APIRouter(tags=["coach"])
 # Injected by main.py after NLStrategyParser is preloaded
 _parser = None
 _CACHE_MAX = 200
+_SESSION_MAX = 200
+_COACH_CACHE_VERSION = "2026-06-01-exit-context-v2"
 _coach_response_cache: OrderedDict[str, CoachResponse] = OrderedDict()
 _coach_stream_cache: OrderedDict[str, str] = OrderedDict()
+_coach_sessions: OrderedDict[str, Dict[str, Any]] = OrderedDict()
 
 
 def set_parser(parser: Any) -> None:
@@ -40,69 +46,94 @@ def set_parser(parser: Any) -> None:
     _parser = parser
 
 
-COACH_SYSTEM_PROMPT = """당신은 퀀트 트레이딩 전략의 문제점을 짚어주는 전문 코치입니다.
+def _parser_debug_state() -> Dict[str, Any]:
+    state: Dict[str, Any] = {
+        "injected_parser": _parser is not None,
+        "injected_parser_type": type(_parser).__name__ if _parser is not None else None,
+    }
+    try:
+        import main as _main
+        parsers = getattr(_main, "_nl_parsers", {})
+        status = getattr(_main, "_nl_parser_status", None)
+        state.update({
+            "main_parser_keys": sorted(parsers.keys()) if isinstance(parsers, dict) else None,
+            "main_mlx_parser_loaded": isinstance(parsers, dict) and parsers.get("mlx") is not None,
+            "main_parser_status": status,
+            "main_has_inference_lock": hasattr(_main, "_mlx_inference_lock"),
+        })
+    except Exception as exc:
+        state["main_lookup_error"] = repr(exc)
+    return state
 
-당신의 역할은 전략에서 가장 중요한 문제 하나를 발견하고,
-사용자가 왜 그것이 문제인지 직관적으로 이해하도록 설명하는 것입니다.
 
-해결 방법은 별도 패널에서 안내되므로, 당신은 문제 설명에만 집중하세요.
+def _get_parser() -> Any:
+    global _parser
+    if _parser is not None:
+        return _parser
 
-[입력 컨텍스트]
-시스템은 다음 내부 정보를 제공합니다 (사용자에게 직접 노출 금지):
-1. parsed_strategy — 파싱된 전략 JSON (불완전할 수 있음)
-2. advisor_insight — 사전 계산된 메트릭
-3. news_agent_insight — 뉴스 신호 (선택)
-4. strategy_memory_context — RAG/Experience Memory 검색 결과 (선택)
+    try:
+        import main as _main
+        parser = getattr(_main, "_nl_parsers", {}).get("mlx")
+        if parser is not None:
+            _parser = parser
+            return parser
+    except Exception:
+        logger.debug("coach parser lookup from main failed", exc_info=True)
+    return None
 
-[핵심 목표]
-가장 중요한 단 하나의 문제를 선택하여, 사용자가 그 심각성을 체감하게 설명하라.
-우선순위:
-1. 실행 불가능한 구조
-2. 전략의 불완전성 (missing parameters)
-3. 자본 대비 비현실적인 설정
-4. 리스크 정의 부족
-5. 성과상의 문제
 
-[Missing 정보 탐지]
-다음 항목이 parsed_strategy에 없으면 반드시 우선 지적하라:
-- 최대 보유 종목 수 (max_positions)
-- 손절 기준 (stop_loss_pct)
-- 익절 기준 (take_profit_pct)
-- 보유 기간 (hold_period_days)
+def _require_parser() -> Any:
+    parser = _get_parser()
+    if parser is None:
+        logger.error("coach parser unavailable | state=%s", _parser_debug_state())
+        raise HTTPException(status_code=503, detail="Coach model not loaded yet")
+    return parser
 
-[자본 기반 판단]
-- initial_capital 기준으로 실행 가능성을 판단하라
-- max_positions가 없으면 "자금 배분 기준이 불명확하다"는 문제로 접근
 
-[뉴스 신호 우선 규칙]
-news_agent_insight에 risk_alert_level이 high인 종목이 있으면 뉴스 리스크 문제를 최우선으로 지적
+COACH_SYSTEM_PROMPT = """당신은 퀀트 투자 전략 코칭 전문가입니다.
 
-[RAG / Experience Memory 규칙]
-- strategy_memory_context가 있으면 유사 전략 사례와 과거 조언 성공/실패 교훈을 근거로 판단하라
-- data_sufficiency가 insufficient이면 유사 사례가 부족하다고 보고, 확정적 표현을 피하라
-- retrieved_cases가 비어 있으면 과거 사례가 충분한 것처럼 꾸며내지 마라
-- 백테스트 결과가 없으면 수익성이 좋거나 개선되었다고 단정하지 마라
-- 과거 사례가 있어도 현재 전략의 자본, 거래비용, 슬리피지, OOS 검증 필요성을 무시하지 마라
-- 유사 전략 수, 성과 수치, 성공/실패 분류는 제공된 컨텍스트만 사용하라
-- 너는 검색/계산/판정 엔진이 아니라, 이미 계산된 근거를 설명하는 코치다
+당신은 다음 내부 컨텍스트를 받습니다.
+1. 원본 사용자 입력
+2. parsed_strategy
+3. advisor_result
+4. conversation_context
 
-[금지 사항]
-- 해결 방법, 구체적 수치 제안, 행동 지시 금지 — 문제 설명만 할 것
-- 여러 문제 나열 금지 — 가장 중요한 하나만
-- 제공되지 않은 백테스트 사례, 성과 수치, 개선 효과를 새로 만들지 말 것
-- 내부 필드명(snake_case 변수명) 절대 출력 금지
-  → take_profit_pct → "익절 기준", stop_loss_pct → "손절 기준", max_positions → "최대 보유 종목 수", hold_period_days → "보유 기간"
-- advisor JSON 또는 뉴스 JSON 그대로 출력 금지
-- 이미 전략에 포함된 내용 문제로 지적 금지
+당신의 역할은 advisor_result를 사용자가 이해하기 쉬운 자연어 코칭으로 변환하는 것입니다.
+사용자를 주식 초보자라고 생각하고 설명하십시오.
+사용자는 전략 입력 초보자라고 가정하고, 전문 용어는 쉬운 말로 풀어 설명하십시오.
+트레일링 스탑 같은 전문 용어를 사용할 때는 그 표현만 단독으로 쓰지 말고, 바로 뒤에 뜻을 쉬운 말로 덧붙이십시오.
+트레일링 스탑처럼 수치가 필요한 조건을 사용자가 숫자 없이 요청하면 임의의 수치를 제안하거나 추정하지 말고, 몇 %로 설정할지 먼저 물어보십시오.
+advisor_result에 포함된 리뷰와 추천 내용을 우선적으로 반영하십시오.
+parsed_strategy는 전략 구조를 이해하기 위한 보조 정보로 사용하십시오.
+원본 사용자 입력은 사용자의 의도와 표현을 이해하기 위한 참고 정보로 사용하십시오.
+advisor_result에 없는 백테스트 결과, 수익률, 위험 수치, 뉴스 분석, 시장 레짐 판단을 새로 만들어내지 마십시오.
+strategy_memory_context가 있으면 유사 전략 사례와 과거 조언 성공/실패 교훈을 근거로 삼되, data_sufficiency가 insufficient이면 확정적 표현을 피하십시오.
+retrieved_cases가 비어 있으면 과거 사례가 충분한 것처럼 꾸며내지 마라.
+백테스트 결과가 없으면 수익성이 좋거나 개선되었다고 단정하지 마십시오.
+제공되지 않은 백테스트 사례, 성과 수치, 개선 효과를 새로 만들지 마십시오.
+당신은 검색/계산/판정 엔진이 아니라, 이미 계산된 근거를 사용자에게 설명하는 코치입니다.
+사용자에게 내부 필드명인 parsed_strategy, advisor_result, rule_context, internal_analysis 같은 용어를 노출하지 마십시오.
+사용자는 최종 코칭 문장만 봐야 합니다.
+응답은 짧고 실용적이며, 다음 행동을 제안하는 방식으로 작성하십시오.
+사용자에게 과거 데이터 검색, 유사 전략 탐색, 외부 자료 확인을 숙제로 주지 마십시오.
+사용자가 지금 바로 할 수 없는 행동(외부 조사, 수동 계산, 별도 데이터 확인)을 다음 행동으로 제안하지 마십시오.
+다음 행동을 물을 때는 "비교 테스트를 진행해 보시겠어요?"처럼 추상적으로 묻지 말고, "트레일링 스탑을 추가해 보시겠어요?"처럼 추가할 조건을 직접 물어보십시오.
+사용자가 "트레일링 스탑 15%"처럼 정확한 수치를 말한 경우에만 해당 조건으로 비교 백테스트를 안내하십시오.
+사용자가 "트레일링 스탑을 추가해줘"처럼 수치를 말하지 않았으면 "트레일링 스탑은 최고가에서 몇 % 내려오면 팔지 정하는 조건입니다. 몇 %로 설정할까요?"처럼 먼저 물어보십시오.
+보유 기간을 개선안으로 제안할 때는 "몇 일로 설정할까요?"처럼 정확한 일수를 요구하지 말고, "보유 기간을 설정할까요?"처럼 사용자가 추가 여부를 선택하게 물어보십시오.
+익절 비율을 개선안으로 제안할 때는 "몇 %로 설정할까요?"처럼 정확한 비율을 요구하지 말고, "익절 비율을 설정할까요?"처럼 사용자가 추가 여부를 선택하게 물어보십시오.
 
 [응답 형식]
 반드시 아래 JSON 형식으로만 응답하라. JSON 외에 다른 텍스트를 출력하지 마라:
-{"message": "문제 설명 텍스트 (200자 이내, 왜 이것이 문제인지 사용자가 체감하도록)"}"""
+{"message": "짧고 실용적인 코칭 문장"}"""
 
 
 class CoachRequest(BaseModel):
     user_prompt: str
     parsed_strategy: Dict[str, Any]
+    advisor_result: Optional[Dict[str, Any]] = None
+    conversation_context: Optional[List[Dict[str, Any]]] = None
+    # Backward compatibility for existing callers that pass a compact advisor payload.
     advisor_insight: Optional[Dict[str, Any]] = None
     news_agent_insight: Optional[Dict[str, Any]] = None
     memory_strategy_cases: Optional[List[Dict[str, Any]]] = None
@@ -111,8 +142,18 @@ class CoachRequest(BaseModel):
 
 class CoachResponse(BaseModel):
     message: str
-    suggestions: List[str] = []
-    runtime: Optional[Dict[str, Any]] = None
+
+
+class CoachSessionRequest(BaseModel):
+    user_prompt: str
+    parsed_strategy: Dict[str, Any]
+    memory_strategy_cases: Optional[List[Dict[str, Any]]] = None
+    memory_experiences: Optional[List[Dict[str, Any]]] = None
+
+
+class CoachSessionFollowUpRequest(BaseModel):
+    session_id: str
+    user_prompt: str
 
 
 _MISSING_FIELDS = {
@@ -140,7 +181,16 @@ _COACH_STRATEGY_FIELDS = (
 
 
 def _detect_missing(ps: dict) -> list[str]:
-    return [label for field, label in _MISSING_FIELDS.items() if ps.get(field) is None]
+    has_exit_signal = bool(ps.get("exit_signals"))
+    has_trailing_stop = ps.get("trailing_stop_pct") is not None
+    missing: list[str] = []
+    for field, label in _MISSING_FIELDS.items():
+        if ps.get(field) is not None:
+            continue
+        if field == "take_profit_pct" and (has_exit_signal or has_trailing_stop):
+            continue
+        missing.append(label)
+    return missing
 
 
 def _remember(cache: OrderedDict[str, Any], key: str, value: Any) -> None:
@@ -151,12 +201,24 @@ def _remember(cache: OrderedDict[str, Any], key: str, value: Any) -> None:
         cache.popitem(last=False)
 
 
+def _remember_session(session_id: str, value: Dict[str, Any]) -> None:
+    if session_id in _coach_sessions:
+        del _coach_sessions[session_id]
+    _coach_sessions[session_id] = value
+    while len(_coach_sessions) > _SESSION_MAX:
+        _coach_sessions.popitem(last=False)
+
+
 def _stable_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 def _coach_cache_key(req: CoachRequest) -> str:
-    return sha256(_stable_json(req.model_dump()).encode("utf-8")).hexdigest()
+    payload = {
+        "version": _COACH_CACHE_VERSION,
+        "request": req.model_dump(),
+    }
+    return sha256(_stable_json(payload).encode("utf-8")).hexdigest()
 
 
 def _compact_strategy_context(ps: dict) -> dict:
@@ -167,9 +229,85 @@ def _compact_strategy_context(ps: dict) -> dict:
     }
 
 
+def _compact_advisor_result(advisor_result: Dict[str, Any] | None) -> Dict[str, Any]:
+    if not advisor_result:
+        return {}
+
+    compact: Dict[str, Any] = {
+        "strategy_score": advisor_result.get("strategy_score"),
+        "risk_score": advisor_result.get("risk_score"),
+        "overfit_risk": advisor_result.get("overfit_risk"),
+    }
+
+    sections = advisor_result.get("response_sections") or []
+    if sections:
+        compact["response_sections"] = [
+            {
+                "title": section.get("title"),
+                "body": section.get("body"),
+            }
+            for section in sections[:4]
+            if isinstance(section, dict)
+        ]
+
+    advice = advisor_result.get("advice") or []
+    if advice:
+        compact["advice"] = [
+            {
+                "severity": item.get("severity"),
+                "title": item.get("title"),
+                "body": item.get("body"),
+            }
+            for item in advice[:3]
+            if isinstance(item, dict)
+        ]
+
+    news = advisor_result.get("news_analysis")
+    if isinstance(news, dict):
+        compact["news_analysis"] = {
+            "summary": news.get("summary"),
+            "risk_level": news.get("risk_level"),
+            "key_events": (news.get("key_events") or [])[:3],
+        }
+
+    memory = advisor_result.get("strategy_memory_context")
+    if isinstance(memory, dict):
+        compact["strategy_memory_context"] = {
+            "confidence": memory.get("confidence"),
+            "data_sufficiency": memory.get("data_sufficiency"),
+            "similar_strategy_ids": (memory.get("similar_strategy_ids") or [])[:5],
+            "retrieved_cases": (memory.get("retrieved_cases") or [])[:3],
+        }
+
+    experiments = advisor_result.get("suggested_experiments") or []
+    if experiments:
+        compact["suggested_experiments"] = experiments[:3]
+
+    ai_rec = advisor_result.get("ai_model_recommendation")
+    if isinstance(ai_rec, dict):
+        compact["ai_model_recommendation"] = ai_rec
+
+    return {key: value for key, value in compact.items() if value not in (None, [], {})}
+
+
+def _compact_conversation_context(context: List[Dict[str, Any]] | None) -> List[Dict[str, Any]]:
+    if not context:
+        return []
+    compact: list[dict[str, Any]] = []
+    for item in context[-6:]:
+        if not isinstance(item, dict):
+            continue
+        role = item.get("role")
+        content = str(item.get("content") or item.get("message") or "").strip()
+        if role and content:
+            compact.append({"role": role, "content": content[:500]})
+    return compact
+
+
 def _reset_coach_cache_for_tests() -> None:
     _coach_response_cache.clear()
     _coach_stream_cache.clear()
+    _coach_sessions.clear()
 
 
 def _record_runtime(stage: str, runtime: Dict[str, Any] | None) -> None:
@@ -182,20 +320,60 @@ def _record_runtime(stage: str, runtime: Dict[str, Any] | None) -> None:
         logger.debug("coach runtime metric recording skipped", exc_info=True)
 
 
+def _needs_trailing_stop_percentage(prompt: str) -> bool:
+    compact = re.sub(r"\s+", "", prompt.lower())
+    if "트레일링" not in compact and "trailing" not in compact:
+        return False
+    return re.search(r"\d+(?:\.\d+)?%?", compact) is None
+
+
 def _build_user_message(req: CoachRequest) -> str:
-    parts: list[str] = [f'사용자 입력: "{req.user_prompt}"']
+    parts: list[str] = [f'원본 사용자 입력(출력 금지): "{req.user_prompt}"']
+    parts.append("\n[코칭 행동 제약]")
+    parts.append(
+        "사용자에게 과거 데이터 검색, 유사 전략 탐색, 외부 자료 확인을 숙제로 주지 마십시오. "
+        "다음 행동은 '비교 테스트를 진행해 보시겠어요?'처럼 추상적으로 묻지 말고, "
+        "'트레일링 스탑을 추가해 보시겠어요?'처럼 추가할 조건을 직접 물어보십시오."
+    )
+    if _needs_trailing_stop_percentage(req.user_prompt):
+        parts.append("\n[필수 확인 질문]")
+        parts.append(
+            "사용자가 트레일링 스탑 수치를 말하지 않았습니다. "
+            "advisor_result에 15% 같은 후보가 있어도 임의 수치를 제안하지 말고, 몇 %로 설정할지 먼저 물어보십시오."
+        )
 
     ps = req.parsed_strategy or {}
 
     if ps:
-        parts.append(f"\n[parsed_strategy — 직접 노출 금지. 필드명을 응답에 포함하지 말 것]")
+        parts.append("\n[parsed_strategy — 내부 컨텍스트, 직접 노출 금지]")
         parts.append(_stable_json(_compact_strategy_context(ps)))
+
+        has_exit_signal = bool(ps.get("exit_signals"))
+        has_risk_exit = any(
+            ps.get(field) is not None
+            for field in ("stop_loss_pct", "take_profit_pct", "trailing_stop_pct", "hold_period_days")
+        )
+        if has_exit_signal or has_risk_exit:
+            parts.append("\n[청산 규칙 판단]")
+            parts.append("청산 기준이 존재합니다. '언제 팔아야 할지 기준이 없다'고 말하지 마십시오.")
 
         # Missing field analysis
         missing = _detect_missing(ps)
         if missing:
             parts.append(f"\n[누락 필드 분석]")
             parts.append(f"미정의 항목: {', '.join(missing)}")
+            if "익절 비율" in missing:
+                parts.append(
+                    "익절 비율은 개선안으로만 제안하십시오. "
+                    "'몇 %로 설정할까요?'처럼 정확한 비율을 요구하지 말고, "
+                    "'익절 비율을 설정할까요?'처럼 추가 여부를 묻는 표현을 사용하십시오."
+                )
+            if "보유 기간" in missing:
+                parts.append(
+                    "보유 기간은 개선안으로만 제안하십시오. "
+                    "'몇 일로 설정할까요?'처럼 정확한 일수를 요구하지 말고, "
+                    "'보유 기간을 설정할까요?'처럼 추가 여부를 묻는 표현을 사용하십시오."
+                )
 
         # Capital-based feasibility
         capital = ps.get("initial_capital")
@@ -240,9 +418,14 @@ def _build_user_message(req: CoachRequest) -> str:
                     f"impact×conf={score:.2f} | alpha_1d={art.get('expected_alpha_1d', 0):.3f}"
                 )
 
-    if req.advisor_insight:
+    advisor_result = req.advisor_result or req.advisor_insight
+    if advisor_result:
+        parts.append("\n[advisor_result — 최우선 내부 컨텍스트, 직접 노출 금지]")
+        parts.append(_stable_json(_compact_advisor_result(advisor_result)))
+
+    if req.advisor_insight and not req.advisor_result:
         insight = req.advisor_insight
-        parts.append("\n[advisor_insight — 참고용, 직접 노출 금지]")
+        parts.append("\n[legacy_advisor_insight — 참고용, 직접 노출 금지]")
         parts.append(f"전략 점수: {insight.get('strategy_score', 'N/A')} / 100")
         parts.append(f"리스크 점수: {insight.get('risk_score', 'N/A')} / 100")
         parts.append(f"과최적화 위험: {insight.get('overfit_risk', 'N/A')}")
@@ -257,6 +440,11 @@ def _build_user_message(req: CoachRequest) -> str:
             sorted_recs = sorted(recs, key=lambda r: r.get("priority", 99))
             rec_lines = [f"  - [P{r.get('priority',9)}] {r.get('title')}: {r.get('reason')}" for r in sorted_recs[:1]]
             parts.append("핵심 제안 (우선순위순):\n" + "\n".join(rec_lines))
+
+    conversation_context = _compact_conversation_context(req.conversation_context)
+    if conversation_context:
+        parts.append("\n[conversation_context — 이전 대화, 직접 노출 금지]")
+        parts.append(_stable_json(conversation_context))
 
     if req.memory_strategy_cases or req.memory_experiences:
         memory_context = retrieve_memory_context(
@@ -280,7 +468,10 @@ def _build_user_message(req: CoachRequest) -> str:
                 f"reason={similar.get('similarity_reason')}"
             )
         if memory_context["data_sufficiency"] == "insufficient":
-            parts.append("유사 사례 부족: 조언은 낮은 신뢰도로 제한하고 재백테스트 필요성을 명시")
+            parts.append(
+                "유사 사례 부족: 조언은 낮은 신뢰도로 제한하고, "
+                "사용자에게 외부 데이터를 찾게 하지 말고 조건 추가 후 비교 백테스트만 제안"
+            )
         for case in memory_context.get("retrieved_cases", [])[:3]:
             lesson = case.get("lesson") or "lesson 없음"
             before = _stable_json(case.get("before_metrics") or {})
@@ -295,11 +486,54 @@ def _build_user_message(req: CoachRequest) -> str:
     return "\n".join(parts)
 
 
-async def _with_auto_context(req: CoachRequest) -> CoachRequest:
+def _build_advisor_result(req: CoachRequest, request_id: str | None = None) -> Dict[str, Any]:
+    started = time.perf_counter()
+    logger.info(
+        "coach advisor build start | request_id=%s prompt_len=%d universe=%s",
+        request_id,
+        len(req.user_prompt or ""),
+        req.parsed_strategy.get("universe"),
+    )
+    advisor = StrategyAdvisorAgent()
+    news_context = build_news_context_from_strategy(req.parsed_strategy)
+    advisor_req = AdvisorRequest(
+        user_prompt=req.user_prompt,
+        parsed_strategy=req.parsed_strategy,
+        news_context=news_context or None,
+        memory_strategy_cases=req.memory_strategy_cases,
+        memory_experiences=req.memory_experiences,
+    )
+    result = advisor.review(advisor_req).model_dump(mode="json")
+    logger.info(
+        "coach advisor build done | request_id=%s elapsed_ms=%.2f advice_count=%d",
+        request_id,
+        (time.perf_counter() - started) * 1000,
+        len(result.get("advice") or []),
+    )
+    return result
+
+
+async def _with_auto_context(req: CoachRequest, request_id: str | None = None) -> CoachRequest:
+    started = time.perf_counter()
+    logger.info(
+        "coach context build start | request_id=%s has_advisor=%s has_memory=%s has_news=%s",
+        request_id,
+        bool(req.advisor_result or req.advisor_insight),
+        req.memory_strategy_cases is not None or req.memory_experiences is not None,
+        bool(req.news_agent_insight),
+    )
     effective_req = req
     if not effective_req.news_agent_insight:
+        news_started = time.perf_counter()
         news_context = build_news_context_from_strategy(effective_req.parsed_strategy)
         news_insight = build_coach_news_insight(news_context)
+        logger.info(
+            "coach news context done | request_id=%s elapsed_ms=%.2f context_count=%d has_insight=%s",
+            request_id,
+            (time.perf_counter() - news_started) * 1000,
+            len(news_context or []),
+            bool(news_insight),
+        )
         if news_insight:
             effective_req = effective_req.model_copy(update={"news_agent_insight": news_insight})
 
@@ -307,12 +541,23 @@ async def _with_auto_context(req: CoachRequest) -> CoachRequest:
         effective_req.memory_strategy_cases is None
         and effective_req.memory_experiences is None
     ):
+        memory_started = time.perf_counter()
         strategy_cases, experiences = await load_vector_advisor_memory(
             effective_req.user_prompt,
             effective_req.parsed_strategy,
         )
+        source = "vector"
         if not strategy_cases and not experiences:
             strategy_cases, experiences = load_advisor_memory()
+            source = "file"
+        logger.info(
+            "coach memory load done | request_id=%s elapsed_ms=%.2f source=%s strategy_cases=%d experiences=%d",
+            request_id,
+            (time.perf_counter() - memory_started) * 1000,
+            source,
+            len(strategy_cases or []),
+            len(experiences or []),
+        )
         if strategy_cases or experiences:
             effective_req = effective_req.model_copy(
                 update={
@@ -320,7 +565,73 @@ async def _with_auto_context(req: CoachRequest) -> CoachRequest:
                     "memory_experiences": experiences,
                 }
             )
+    if not effective_req.advisor_result and not effective_req.advisor_insight:
+        effective_req = effective_req.model_copy(
+            update={"advisor_result": _build_advisor_result(effective_req, request_id)}
+        )
+    logger.info(
+        "coach context build done | request_id=%s elapsed_ms=%.2f has_advisor=%s",
+        request_id,
+        (time.perf_counter() - started) * 1000,
+        bool(effective_req.advisor_result or effective_req.advisor_insight),
+    )
     return effective_req
+
+
+def _extract_message_value(raw: str) -> str | None:
+    match = re.search(r'"message"\s*:\s*"((?:\\.|[^"\\])*)', raw)
+    if not match:
+        return None
+    try:
+        return json.loads(f'"{match.group(1)}"').strip()
+    except Exception:
+        return match.group(1).strip()
+
+
+def _ensure_explained_terms(message: str, *, include_trailing_example: bool = True) -> str:
+    if "트레일링 스탑" not in message:
+        return message
+    original = message
+    if re.search(r"트레일링 스탑[^.?!。]*?(최고가|고점|일정 비율|하락|내려오면|팔아)", message):
+        explained = message
+    else:
+        explained = message.replace(
+            "트레일링 스탑",
+            "트레일링 스탑(주가가 오른 뒤 최고가에서 정한 비율만큼 내려오면 자동으로 파는 조건)",
+            1,
+        )
+    if "예를 들면 트레일링 스탑" in original:
+        return explained
+    if not include_trailing_example:
+        return explained
+    return f"{explained} 예를 들면 '트레일링 스탑 15% 설정'이라고 말씀해주시면 바로 추가하겠습니다."
+
+
+def _strategy_trailing_stop_pct(strategy: Dict[str, Any] | None) -> Any:
+    if not isinstance(strategy, dict):
+        return None
+    if strategy.get("trailing_stop_pct") is not None:
+        return strategy.get("trailing_stop_pct")
+    risk = strategy.get("risk")
+    if isinstance(risk, dict):
+        return risk.get("trailing_stop_pct")
+    return None
+
+
+def _align_response_with_strategy(response: CoachResponse, strategy: Dict[str, Any]) -> CoachResponse:
+    trailing_stop_pct = _strategy_trailing_stop_pct(strategy)
+    message = response.message or ""
+    if trailing_stop_pct is None or "트레일링 스탑" not in message:
+        return response
+    if not re.search(r"추가|설정.*말씀|바로 추가", message):
+        return response
+
+    return CoachResponse(
+        message=(
+            f"트레일링 스탑 {trailing_stop_pct}% 조건을 전략에 반영했습니다. "
+            "이 조건으로 백테스트를 실행할 수 있습니다."
+        )[:300]
+    )
 
 
 def _parse_llm_response(raw: str) -> CoachResponse:
@@ -338,58 +649,208 @@ def _parse_llm_response(raw: str) -> CoachResponse:
         raw = m.group(0)
     try:
         data = json.loads(raw)
-        return CoachResponse(
-            message=data.get("message", "")[:400],
-            suggestions=data.get("suggestions", [])[:1],
-        )
+        message = data.get("message", "")
+        if isinstance(message, str):
+            nested = _extract_message_value(message)
+            return CoachResponse(message=_ensure_explained_terms((nested or message).strip())[:300])
+        return CoachResponse(message="")
     except Exception:
-        return CoachResponse(message=raw[:400], suggestions=[])
+        message = _extract_message_value(raw)
+        return CoachResponse(message=_ensure_explained_terms((message or raw).strip())[:300])
+
+
+def _generate_coach_response(
+    effective_req: CoachRequest,
+    request_started: float,
+    request_id: str | None = None,
+) -> CoachResponse:
+    from engine.nl_parser import NLStrategyParser
+
+    parser: NLStrategyParser = _require_parser()
+    user_msg = _build_user_message(effective_req)
+
+    inference_started = time.perf_counter()
+    import main as _main
+    lock = getattr(_main, "_mlx_inference_lock", None)
+    if lock is None:
+        logger.error(
+            "coach inference lock missing | request_id=%s state=%s",
+            request_id,
+            _parser_debug_state(),
+        )
+        raise RuntimeError("MLX inference lock is not available")
+
+    logger.info(
+        "coach inference waiting | request_id=%s parser_type=%s user_msg_len=%d state=%s",
+        request_id,
+        type(parser).__name__,
+        len(user_msg),
+        _parser_debug_state(),
+    )
+    with _main._mlx_inference_lock.priority(1):
+        lock_wait_ms = round((time.perf_counter() - inference_started) * 1000, 2)
+        logger.info("coach inference lock acquired | request_id=%s wait_ms=%.2f", request_id, lock_wait_ms)
+        chat_started = time.perf_counter()
+        try:
+            raw = parser.chat(COACH_SYSTEM_PROMPT, user_msg, max_tokens=400)
+        except Exception:
+            logger.exception(
+                "coach parser.chat failed | request_id=%s chat_elapsed_ms=%.2f parser_state=%s",
+                request_id,
+                (time.perf_counter() - chat_started) * 1000,
+                _parser_debug_state(),
+            )
+            raise
+    inference_ms = round((time.perf_counter() - inference_started) * 1000, 2)
+
+    response = _align_response_with_strategy(_parse_llm_response(raw), effective_req.parsed_strategy)
+    logger.info(
+        "coach inference done | request_id=%s inference_ms=%.2f raw_len=%d message_len=%d",
+        request_id,
+        inference_ms,
+        len(raw or ""),
+        len(response.message or ""),
+    )
+    runtime = {
+        "cache_hit": False,
+        "inference_ms": inference_ms,
+        "total_ms": round((time.perf_counter() - request_started) * 1000, 2),
+    }
+    _record_runtime("coach", runtime)
+    return response
 
 
 @router.post("/strategy/coach", response_model=CoachResponse)
 async def coach_strategy(req: CoachRequest) -> CoachResponse:
-    if _parser is None:
-        raise HTTPException(status_code=503, detail="Coach model not loaded yet")
+    _require_parser()
+    request_id = uuid4().hex[:12]
 
     try:
         request_started = time.perf_counter()
+        logger.info("coach request start | request_id=%s mode=legacy", request_id)
         cache_key = _coach_cache_key(req)
-        effective_req = await _with_auto_context(req)
-
         cached = _coach_response_cache.get(cache_key)
         if cached is not None:
             _coach_response_cache.move_to_end(cache_key)
             response = cached.model_copy(deep=True)
-            response.runtime = {
+            runtime = {
                 "cache_hit": True,
                 "total_ms": round((time.perf_counter() - request_started) * 1000, 2),
             }
-            _record_runtime("coach", response.runtime)
+            _record_runtime("coach", runtime)
+            logger.info("coach request cache hit | request_id=%s total_ms=%.2f", request_id, runtime["total_ms"])
             return response
 
-        from engine.nl_parser import NLStrategyParser
-        parser: NLStrategyParser = _parser
-
-        user_msg = _build_user_message(effective_req)
-
-        inference_started = time.perf_counter()
-        import main as _main
-        with _main._mlx_inference_lock.priority(1):
-            raw = parser.chat(COACH_SYSTEM_PROMPT, user_msg, max_tokens=400)
-        inference_ms = round((time.perf_counter() - inference_started) * 1000, 2)
-
-        response = _parse_llm_response(raw)
-        response.runtime = {
-            "cache_hit": False,
-            "inference_ms": inference_ms,
-            "total_ms": round((time.perf_counter() - request_started) * 1000, 2),
-        }
-        _record_runtime("coach", response.runtime)
+        effective_req = await _with_auto_context(req, request_id)
+        response = _generate_coach_response(effective_req, request_started, request_id)
         _remember(_coach_response_cache, cache_key, response.model_copy(deep=True))
+        logger.info(
+            "coach request done | request_id=%s total_ms=%.2f",
+            request_id,
+            (time.perf_counter() - request_started) * 1000,
+        )
         return response
 
     except Exception as exc:
-        logger.exception("coach failed: %s", exc)
+        logger.exception("coach failed | request_id=%s error=%s state=%s", request_id, exc, _parser_debug_state())
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/strategy/coach/sessions", response_model=CoachResponse)
+async def create_coach_session(req: CoachSessionRequest, response: Response) -> CoachResponse:
+    _require_parser()
+    request_id = uuid4().hex[:12]
+
+    try:
+        request_started = time.perf_counter()
+        session_id = uuid4().hex
+        logger.info("coach request start | request_id=%s mode=create_session session_id=%s", request_id, session_id)
+        coach_req = CoachRequest(
+            user_prompt=req.user_prompt,
+            parsed_strategy=req.parsed_strategy,
+            memory_strategy_cases=req.memory_strategy_cases,
+            memory_experiences=req.memory_experiences,
+        )
+        effective_req = await _with_auto_context(coach_req, request_id)
+        coach_response = _generate_coach_response(effective_req, request_started, request_id)
+
+        _remember_session(
+            session_id,
+            {
+                "parsed_strategy": effective_req.parsed_strategy,
+                "advisor_result": effective_req.advisor_result or effective_req.advisor_insight,
+                "memory_strategy_cases": effective_req.memory_strategy_cases,
+                "memory_experiences": effective_req.memory_experiences,
+                "news_agent_insight": effective_req.news_agent_insight,
+                "conversation_context": [
+                    {"role": "user", "content": req.user_prompt},
+                    {"role": "assistant", "content": coach_response.message},
+                ],
+            },
+        )
+        response.headers["X-Coach-Session-Id"] = session_id
+        logger.info(
+            "coach request done | request_id=%s mode=create_session session_id=%s total_ms=%.2f",
+            request_id,
+            session_id,
+            (time.perf_counter() - request_started) * 1000,
+        )
+        return coach_response
+    except Exception as exc:
+        logger.exception(
+            "coach session create failed | request_id=%s error=%s state=%s",
+            request_id,
+            exc,
+            _parser_debug_state(),
+        )
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/strategy/coach/sessions/follow-up", response_model=CoachResponse)
+async def continue_coach_session(req: CoachSessionFollowUpRequest) -> CoachResponse:
+    _require_parser()
+    request_id = uuid4().hex[:12]
+
+    session = _coach_sessions.get(req.session_id)
+    if session is None:
+        logger.warning("coach follow-up session missing | request_id=%s session_id=%s", request_id, req.session_id)
+        raise HTTPException(status_code=404, detail="Coach session not found")
+    _coach_sessions.move_to_end(req.session_id)
+
+    try:
+        request_started = time.perf_counter()
+        logger.info("coach request start | request_id=%s mode=follow_up session_id=%s", request_id, req.session_id)
+        coach_req = CoachRequest(
+            user_prompt=req.user_prompt,
+            parsed_strategy=session["parsed_strategy"],
+            advisor_result=session.get("advisor_result"),
+            news_agent_insight=session.get("news_agent_insight"),
+            memory_strategy_cases=session.get("memory_strategy_cases"),
+            memory_experiences=session.get("memory_experiences"),
+            conversation_context=session.get("conversation_context") or [],
+        )
+        coach_response = _generate_coach_response(coach_req, request_started, request_id)
+        session["conversation_context"] = [
+            *(session.get("conversation_context") or []),
+            {"role": "user", "content": req.user_prompt},
+            {"role": "assistant", "content": coach_response.message},
+        ][-8:]
+        _remember_session(req.session_id, session)
+        logger.info(
+            "coach request done | request_id=%s mode=follow_up session_id=%s total_ms=%.2f",
+            request_id,
+            req.session_id,
+            (time.perf_counter() - request_started) * 1000,
+        )
+        return coach_response
+    except Exception as exc:
+        logger.exception(
+            "coach session follow-up failed | request_id=%s session_id=%s error=%s state=%s",
+            request_id,
+            req.session_id,
+            exc,
+            _parser_debug_state(),
+        )
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -412,18 +873,11 @@ def _extract_message_so_far(buffer: str) -> str:
 
 @router.post("/strategy/coach/stream")
 async def coach_strategy_stream(req: CoachRequest):
-    if _parser is None:
-        raise HTTPException(status_code=503, detail="Coach model not loaded yet")
+    _require_parser()
 
     request_started = time.perf_counter()
-    effective_req = await _with_auto_context(req)
-
-    from engine.nl_parser import NLStrategyParser
-    parser: NLStrategyParser = _parser
-    user_msg = _build_user_message(effective_req)
-    cache_key = _coach_cache_key(effective_req)
+    cache_key = _coach_cache_key(req)
     cached_stream = _coach_stream_cache.get(cache_key)
-
     if cached_stream is not None:
         _coach_stream_cache.move_to_end(cache_key)
         _record_runtime(
@@ -442,6 +896,12 @@ async def coach_strategy_stream(req: CoachRequest):
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+
+    effective_req = await _with_auto_context(req)
+
+    from engine.nl_parser import NLStrategyParser
+    parser: NLStrategyParser = _require_parser()
+    user_msg = _build_user_message(effective_req)
 
     def _iter():
         import main as _main
@@ -470,11 +930,6 @@ async def coach_strategy_stream(req: CoachRequest):
                 {
                     "type": "done",
                     "message": final.message,
-                    "suggestions": final.suggestions,
-                    "runtime": {
-                        "cache_hit": False,
-                        "total_ms": round((time.perf_counter() - request_started) * 1000, 2),
-                    },
                 },
                 ensure_ascii=False,
             )

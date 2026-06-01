@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildStrategySummary,
   buildStrategySummaryFromDsl,
+  FUNDAMENTAL_FILTER_SECTION_LABEL,
   getDisplayExitLabels,
   getDisplayUniverseLabels,
   type ParsedSummary,
@@ -24,6 +25,10 @@ const baseParsed: ParsedSummary = {
 };
 
 describe("strategySummary", () => {
+  it("재무 조건 섹션도 UI에서는 진입 신호로 표시한다", () => {
+    expect(FUNDAMENTAL_FILTER_SECTION_LABEL).toBe("진입 신호");
+  });
+
   it("실행 심볼 수가 KOSPI 규모면 KOSPI200 대신 KOSPI로 표시한다", () => {
     const labels = getDisplayUniverseLabels(
       { ...baseParsed, universe: ["KOSPI200"] },

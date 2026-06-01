@@ -53,6 +53,8 @@ export const REBAL_LABELS: Record<string, string> = {
   yearly: "매년",
 };
 
+export const FUNDAMENTAL_FILTER_SECTION_LABEL = "진입 신호";
+
 export const INDICATOR_LABELS: Record<string, string> = {
   ma_crossover: "MA 크로스",
   rsi: "RSI",
