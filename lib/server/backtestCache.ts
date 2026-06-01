@@ -35,7 +35,7 @@ function stableStringify(value: any): string {
 }
 
 let vectorMemoryUpsertChain: Promise<void> = Promise.resolve();
-const BACKTEST_CACHE_VERSION = 3;
+const BACKTEST_CACHE_VERSION = 4;
 
 export function buildVectorMemoryUpsertCommand(cwd = process.cwd()) {
   const python = process.env.PYTHON_BIN || process.env.PYTHON || "python3";
@@ -212,6 +212,7 @@ export function computeCacheKey(body: any): string {
 
   if (strategyId) {
     return sha256(stableStringify({
+      cache_version: BACKTEST_CACHE_VERSION,
       strategy_id: strategyId,
       backtest_config: backtestConfig,
     }));

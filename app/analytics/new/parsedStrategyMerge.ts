@@ -53,6 +53,15 @@ type PendingRiskChange = {
   trailing_stop_pct?: number;
 };
 
+type RiskField = "stop_loss_pct" | "take_profit_pct" | "trailing_stop_pct" | "max_mdd_limit_pct";
+
+const RISK_FIELD_PATTERNS: Record<RiskField, RegExp[]> = {
+  stop_loss_pct: [/손절|stop\s*loss/i],
+  take_profit_pct: [/익절|take\s*profit|목표\s*수익|수익\s*(확정|실현)|수익[^0-9]*(\d+(?:\.\d+)?)\s*%/i],
+  trailing_stop_pct: [/트레일링\s*스[탑톱]?|trailing|최고가\s*대비/i],
+  max_mdd_limit_pct: [/mdd|낙폭/i],
+};
+
 function hasMatch(text: string, patterns: RegExp[]): boolean {
   return patterns.some((pattern) => pattern.test(text));
 }
@@ -67,13 +76,19 @@ function extractPercentage(text: string): number | null {
 
 function inferPendingRiskChange(userPrompt: string, previousCoachText?: string | null): PendingRiskChange | null {
   if (!previousCoachText) return null;
+  const requestedRiskFields = detectRequestedRiskFields(userPrompt);
+  if (requestedRiskFields.size > 0 && !requestedRiskFields.has("trailing_stop_pct")) return null;
+
   const percentage = extractPercentage(userPrompt);
   if (percentage === null) return null;
 
   const promptLooksLikeAnswer = /정해|설정|해줘|해주세요|로\s*해|으로\s*해|추가|적용/.test(userPrompt);
   if (!promptLooksLikeAnswer) return null;
 
-  if (/트레일링\s*스[탑톱]|trailing/i.test(previousCoachText) && /몇\s*%|퍼센트|비율/.test(previousCoachText)) {
+  const coachAskedTrailingPercentage =
+    /트레일링\s*스[탑톱][^.?!。]*(몇\s*%|몇\s*퍼센트)|(?:몇\s*%|몇\s*퍼센트)[^.?!。]*트레일링\s*스[탑톱]/i
+      .test(previousCoachText);
+  if (coachAskedTrailingPercentage) {
     return { trailing_stop_pct: percentage };
   }
 
@@ -95,6 +110,21 @@ export function detectRequestedDomains(prompt: string): Set<RequestedDomain> {
   return domains;
 }
 
+export function detectRequestedRiskFields(prompt: string): Set<RiskField> {
+  const normalizedPrompt = prompt.trim();
+  const fields = new Set<RiskField>();
+
+  if (!normalizedPrompt) return fields;
+
+  (Object.keys(RISK_FIELD_PATTERNS) as RiskField[]).forEach((field) => {
+    if (hasMatch(normalizedPrompt, RISK_FIELD_PATTERNS[field])) {
+      fields.add(field);
+    }
+  });
+
+  return fields;
+}
+
 export function isAdvisorFollowUpPrompt(prompt: string): boolean {
   const normalizedPrompt = prompt.trim();
   if (!normalizedPrompt) return false;
@@ -112,8 +142,15 @@ function mergeParsedSummary(
   previous: ParsedSummary,
   next: ParsedSummary,
   requestedDomains: Set<RequestedDomain>,
+  requestedRiskFields: Set<RiskField>,
   pendingRiskChange?: PendingRiskChange | null
 ): ParsedSummary {
+  const shouldUseRiskField = (field: RiskField) => {
+    if (!requestedDomains.has("risk")) return false;
+    if (requestedRiskFields.size === 0) return true;
+    return requestedRiskFields.has(field);
+  };
+
   return {
     ...next,
     universe: requestedDomains.has("universe") ? next.universe : previous.universe,
@@ -123,9 +160,9 @@ function mergeParsedSummary(
     max_positions: requestedDomains.has("portfolio") ? next.max_positions : previous.max_positions,
     hold_period_days: requestedDomains.has("exit") ? next.hold_period_days : previous.hold_period_days,
     rebalancing_period: requestedDomains.has("portfolio") ? next.rebalancing_period : previous.rebalancing_period,
-    stop_loss_pct: requestedDomains.has("risk") ? (next.stop_loss_pct ?? previous.stop_loss_pct) : previous.stop_loss_pct,
-    take_profit_pct: requestedDomains.has("risk") ? (next.take_profit_pct ?? previous.take_profit_pct) : previous.take_profit_pct,
-    trailing_stop_pct: pendingRiskChange?.trailing_stop_pct ?? (requestedDomains.has("risk")
+    stop_loss_pct: shouldUseRiskField("stop_loss_pct") ? (next.stop_loss_pct ?? previous.stop_loss_pct) : previous.stop_loss_pct,
+    take_profit_pct: shouldUseRiskField("take_profit_pct") ? (next.take_profit_pct ?? previous.take_profit_pct) : previous.take_profit_pct,
+    trailing_stop_pct: pendingRiskChange?.trailing_stop_pct ?? (shouldUseRiskField("trailing_stop_pct")
       ? (next.trailing_stop_pct ?? previous.trailing_stop_pct)
       : previous.trailing_stop_pct),
     backtest_period: requestedDomains.has("backtest") ? next.backtest_period : previous.backtest_period,
@@ -137,6 +174,7 @@ function mergeBacktestRequest(
   previous: StrategyBacktestRequest | null | undefined,
   next: StrategyBacktestRequest | null | undefined,
   requestedDomains: Set<RequestedDomain>,
+  requestedRiskFields: Set<RiskField>,
   pendingRiskChange?: PendingRiskChange | null
 ): StrategyBacktestRequest | null {
   if (!next) return previous ?? null;
@@ -162,6 +200,14 @@ function mergeBacktestRequest(
     mergedRisk.take_profit_pct = previous.risk?.take_profit_pct;
     mergedRisk.trailing_stop_pct = previous.risk?.trailing_stop_pct;
     mergedRisk.max_mdd_limit_pct = previous.risk?.max_mdd_limit_pct;
+  } else if (requestedRiskFields.size > 0) {
+    for (const field of ["stop_loss_pct", "take_profit_pct", "trailing_stop_pct", "max_mdd_limit_pct"] as RiskField[]) {
+      if (!requestedRiskFields.has(field)) {
+        mergedRisk[field] = previous.risk?.[field];
+      } else if (next.risk?.[field] == null && previous.risk?.[field] !== undefined) {
+        mergedRisk[field] = previous.risk[field];
+      }
+    }
   } else {
     for (const field of ["stop_loss_pct", "take_profit_pct", "trailing_stop_pct", "max_mdd_limit_pct"]) {
       if (next.risk?.[field] == null && previous.risk?.[field] !== undefined) {
@@ -222,10 +268,12 @@ export function mergeStrategyModification(params: {
   previousCoachText?: string | null;
 }) {
   const requestedDomains = detectRequestedDomains(params.userPrompt);
+  const requestedRiskFields = detectRequestedRiskFields(params.userPrompt);
   const pendingRiskChange = inferPendingRiskChange(params.userPrompt, params.previousCoachText);
 
   if (pendingRiskChange) {
     requestedDomains.add("risk");
+    requestedRiskFields.add("trailing_stop_pct");
   }
 
   if (!params.previousParsed) {
@@ -255,11 +303,18 @@ export function mergeStrategyModification(params: {
     };
   }
 
-  const parsed = mergeParsedSummary(params.previousParsed, params.nextParsed, requestedDomains, pendingRiskChange);
+  const parsed = mergeParsedSummary(
+    params.previousParsed,
+    params.nextParsed,
+    requestedDomains,
+    requestedRiskFields,
+    pendingRiskChange
+  );
   const backtestRequest = mergeBacktestRequest(
     params.previousBacktestRequest,
     params.nextBacktestRequest,
     requestedDomains,
+    requestedRiskFields,
     pendingRiskChange
   );
 

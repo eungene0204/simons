@@ -196,6 +196,99 @@ describe("mergeStrategyModification", () => {
     expect(result.backtestRequest?.risk?.stop_loss_pct).toBe(12);
   });
 
+  it("익절 비율만 명시한 요청은 이전 코치 문장에 트레일링 스탑이 있어도 트레일링 스탑을 설정하지 않는다", () => {
+    const result = mergeStrategyModification({
+      previousParsed: {
+        ...previousParsed,
+        stop_loss_pct: 12,
+        take_profit_pct: null,
+        trailing_stop_pct: null,
+        hold_period_days: 126,
+      },
+      nextParsed: {
+        ...previousParsed,
+        stop_loss_pct: 12,
+        take_profit_pct: 30,
+        trailing_stop_pct: 30,
+        hold_period_days: 126,
+      },
+      previousBacktestRequest: {
+        universe_id: "kospi",
+        risk: {
+          max_positions: 8,
+          stop_loss_pct: 12,
+          take_profit_pct: null,
+          trailing_stop_pct: null,
+          max_holding_days: 126,
+          init_cash: 10000000,
+        },
+        period: "5y",
+      },
+      nextBacktestRequest: {
+        universe_id: "kospi",
+        risk: {
+          max_positions: 8,
+          stop_loss_pct: 12,
+          take_profit_pct: 30,
+          trailing_stop_pct: 30,
+          max_holding_days: 126,
+          init_cash: 10000000,
+        },
+        period: "5y",
+      },
+      userPrompt: "익절 비율을 30%로 설정해줘",
+      previousCoachText:
+        "익절 비율을 추가해 보시겠어요? 아니면 트레일링 스탑을 추가해 보시겠어요? 예를 들면 '트레일링 스탑 15% 설정'이라고 말씀해주세요.",
+    });
+
+    expect(result.requestedDomains.has("risk")).toBe(true);
+    expect(result.parsed.take_profit_pct).toBe(30);
+    expect(result.parsed.trailing_stop_pct).toBeNull();
+    expect(result.backtestRequest?.risk?.take_profit_pct).toBe(30);
+    expect(result.backtestRequest?.risk?.trailing_stop_pct).toBeNull();
+  });
+
+  it("기존 트레일링 스탑이 있는 전략에서 익절만 바꾸면 기존 트레일링 스탑 값을 유지한다", () => {
+    const result = mergeStrategyModification({
+      previousParsed: {
+        ...previousParsed,
+        take_profit_pct: 20,
+        trailing_stop_pct: 15,
+      },
+      nextParsed: {
+        ...previousParsed,
+        take_profit_pct: 30,
+        trailing_stop_pct: 30,
+      },
+      previousBacktestRequest: {
+        risk: {
+          stop_loss_pct: 7,
+          take_profit_pct: 20,
+          trailing_stop_pct: 15,
+          init_cash: 10000000,
+        },
+        period: "5y",
+      },
+      nextBacktestRequest: {
+        risk: {
+          stop_loss_pct: 7,
+          take_profit_pct: 30,
+          trailing_stop_pct: 30,
+          init_cash: 10000000,
+        },
+        period: "5y",
+      },
+      userPrompt: "익절 30%로 바꿔줘",
+      previousCoachText:
+        "트레일링 스탑이라는 조건을 추가할 때, 최고가에서 몇 % 내려오면 팔지 정할까요?",
+    });
+
+    expect(result.parsed.take_profit_pct).toBe(30);
+    expect(result.parsed.trailing_stop_pct).toBe(15);
+    expect(result.backtestRequest?.risk?.take_profit_pct).toBe(30);
+    expect(result.backtestRequest?.risk?.trailing_stop_pct).toBe(15);
+  });
+
   it("후속 개선 질문처럼 수정 domain이 없는 요청은 기존 전략을 유지한다", () => {
     const result = mergeStrategyModification({
       previousParsed,

@@ -64,6 +64,12 @@ describe("backtest cache key", () => {
 
     expect(computeCacheKey(baseBody)).not.toBe(legacyV2Key);
   });
+
+  it("separates strategy_id cache keys from versionless cache generations", () => {
+    const versionlessStrategyKey = "79c5fbb10ea562e55e5cb535d8120c9027241720d7b7e2b3e609f9854e79f1b6";
+
+    expect(computeCacheKey(baseBody)).not.toBe(versionlessStrategyKey);
+  });
 });
 
 describe("backtest vector memory upsert", () => {

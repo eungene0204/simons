@@ -35,7 +35,7 @@ router = APIRouter(tags=["coach"])
 _parser = None
 _CACHE_MAX = 200
 _SESSION_MAX = 200
-_COACH_CACHE_VERSION = "2026-06-01-exit-context-v2"
+_COACH_CACHE_VERSION = "2026-06-02-backtest-option-v1"
 _coach_response_cache: OrderedDict[str, CoachResponse] = OrderedDict()
 _coach_stream_cache: OrderedDict[str, str] = OrderedDict()
 _coach_sessions: OrderedDict[str, Dict[str, Any]] = OrderedDict()
@@ -102,8 +102,14 @@ COACH_SYSTEM_PROMPT = """당신은 퀀트 투자 전략 코칭 전문가입니�
 사용자를 주식 초보자라고 생각하고 설명하십시오.
 사용자는 전략 입력 초보자라고 가정하고, 전문 용어는 쉬운 말로 풀어 설명하십시오.
 트레일링 스탑 같은 전문 용어를 사용할 때는 그 표현만 단독으로 쓰지 말고, 바로 뒤에 뜻을 쉬운 말로 덧붙이십시오.
+단, 같은 대화에서 이미 설명한 전문 용어는 다시 설명하지 말고 용어만 사용하십시오.
 트레일링 스탑처럼 수치가 필요한 조건을 사용자가 숫자 없이 요청하면 임의의 수치를 제안하거나 추정하지 말고, 몇 %로 설정할지 먼저 물어보십시오.
+익절 비율과 트레일링 스탑은 서로 다른 전문 용어입니다.
+익절 비율은 매수가 대비 정한 수익률에 도달하면 매도하는 고정 목표 수익 조건입니다.
+트레일링 스탑은 보유 중 최고가에서 정한 비율만큼 내려오면 매도해 이미 난 수익을 보호하는 조건입니다.
+트레일링 스탑을 뜻하면서 익절 비율이라고 부르지 말고, 반드시 "트레일링 스탑"이라는 정확한 용어와 쉬운 설명을 함께 쓰십시오.
 advisor_result에 포함된 리뷰와 추천 내용을 우선적으로 반영하십시오.
+advisor_result의 advice가 1순위 근거입니다. suggested_experiments는 보조 후보일 뿐이며, advice의 핵심 조언보다 먼저 최종 행동으로 고르지 마십시오.
 parsed_strategy는 전략 구조를 이해하기 위한 보조 정보로 사용하십시오.
 원본 사용자 입력은 사용자의 의도와 표현을 이해하기 위한 참고 정보로 사용하십시오.
 advisor_result에 없는 백테스트 결과, 수익률, 위험 수치, 뉴스 분석, 시장 레짐 판단을 새로 만들어내지 마십시오.
@@ -117,11 +123,13 @@ retrieved_cases가 비어 있으면 과거 사례가 충분한 것처럼 꾸며�
 응답은 짧고 실용적이며, 다음 행동을 제안하는 방식으로 작성하십시오.
 사용자에게 과거 데이터 검색, 유사 전략 탐색, 외부 자료 확인을 숙제로 주지 마십시오.
 사용자가 지금 바로 할 수 없는 행동(외부 조사, 수동 계산, 별도 데이터 확인)을 다음 행동으로 제안하지 마십시오.
-다음 행동을 물을 때는 "비교 테스트를 진행해 보시겠어요?"처럼 추상적으로 묻지 말고, "트레일링 스탑을 추가해 보시겠어요?"처럼 추가할 조건을 직접 물어보십시오.
+다음 행동을 물을 때는 "비교 테스트를 진행해 보시겠어요?"처럼 추상적으로 묻지 말고, "익절 비율을 설정할까요?"처럼 추가할 조건을 직접 물어보십시오.
+단, 트레일링 스탑을 모든 전략의 기본 개선안처럼 제안하지 마십시오. 명확한 매도 조건이 이미 있으면 suggested_experiments에 있더라도 트레일링 스탑을 최종 다음 행동으로 우선 제안하지 마십시오.
 사용자가 "트레일링 스탑 15%"처럼 정확한 수치를 말한 경우에만 해당 조건으로 비교 백테스트를 안내하십시오.
 사용자가 "트레일링 스탑을 추가해줘"처럼 수치를 말하지 않았으면 "트레일링 스탑은 최고가에서 몇 % 내려오면 팔지 정하는 조건입니다. 몇 %로 설정할까요?"처럼 먼저 물어보십시오.
 보유 기간을 개선안으로 제안할 때는 "몇 일로 설정할까요?"처럼 정확한 일수를 요구하지 말고, "보유 기간을 설정할까요?"처럼 사용자가 추가 여부를 선택하게 물어보십시오.
 익절 비율을 개선안으로 제안할 때는 "몇 %로 설정할까요?"처럼 정확한 비율을 요구하지 말고, "익절 비율을 설정할까요?"처럼 사용자가 추가 여부를 선택하게 물어보십시오.
+추가 조건을 제안할 때는 반드시 "아니면 지금 조건으로 바로 백테스트를 진행하셔도 됩니다."라고 덧붙여, 사용자가 꼭 뭔가를 추가해야 하는 것은 아님을 알려주십시오.
 
 [응답 형식]
 반드시 아래 JSON 형식으로만 응답하라. JSON 외에 다른 텍스트를 출력하지 마라:
@@ -304,6 +312,19 @@ def _compact_conversation_context(context: List[Dict[str, Any]] | None) -> List[
     return compact
 
 
+def _explained_terms_from_context(context: List[Dict[str, Any]] | None) -> set[str]:
+    explained: set[str] = set()
+    for item in context or []:
+        if not isinstance(item, dict) or item.get("role") != "assistant":
+            continue
+        content = str(item.get("content") or item.get("message") or "")
+        if re.search(r"익절 비율\(|익절 비율은.*?(매수가|목표 수익|정한 수익률|도달하면|고정)", content):
+            explained.add("take_profit")
+        if re.search(r"트레일링 스탑\(|트레일링 스탑은.*?(최고가|고점|하락|내려오면|팔아)", content):
+            explained.add("trailing_stop")
+    return explained
+
+
 def _reset_coach_cache_for_tests() -> None:
     _coach_response_cache.clear()
     _coach_stream_cache.clear()
@@ -329,12 +350,22 @@ def _needs_trailing_stop_percentage(prompt: str) -> bool:
 
 def _build_user_message(req: CoachRequest) -> str:
     parts: list[str] = [f'원본 사용자 입력(출력 금지): "{req.user_prompt}"']
+    explained_terms = _explained_terms_from_context(req.conversation_context)
     parts.append("\n[코칭 행동 제약]")
     parts.append(
         "사용자에게 과거 데이터 검색, 유사 전략 탐색, 외부 자료 확인을 숙제로 주지 마십시오. "
         "다음 행동은 '비교 테스트를 진행해 보시겠어요?'처럼 추상적으로 묻지 말고, "
-        "'트레일링 스탑을 추가해 보시겠어요?'처럼 추가할 조건을 직접 물어보십시오."
+        "'익절 비율을 설정할까요?'처럼 추가할 조건을 직접 물어보십시오. "
+        "트레일링 스탑은 모든 전략의 기본 개선안이 아니므로 advisor_result의 핵심 조언이 아닌 경우 우선 제안하지 마십시오."
     )
+    if explained_terms:
+        labels = []
+        if "take_profit" in explained_terms:
+            labels.append("익절 비율")
+        if "trailing_stop" in explained_terms:
+            labels.append("트레일링 스탑")
+        parts.append("\n[전문용어 설명 반복 금지]")
+        parts.append(f"이미 설명한 용어: {', '.join(labels)}. 이 용어는 다시 뜻을 풀이하지 말고 용어만 사용하십시오.")
     if _needs_trailing_stop_percentage(req.user_prompt):
         parts.append("\n[필수 확인 질문]")
         parts.append(
@@ -356,6 +387,11 @@ def _build_user_message(req: CoachRequest) -> str:
         if has_exit_signal or has_risk_exit:
             parts.append("\n[청산 규칙 판단]")
             parts.append("청산 기준이 존재합니다. '언제 팔아야 할지 기준이 없다'고 말하지 마십시오.")
+            if has_exit_signal:
+                parts.append(
+                    "명확한 매도 신호가 이미 있습니다. suggested_experiments에 트레일링 스탑이 있더라도 "
+                    "advisor_result의 1순위 advice가 아니라면 트레일링 스탑을 최종 다음 행동으로 고르지 마십시오."
+                )
 
         # Missing field analysis
         missing = _detect_missing(ps)
@@ -365,6 +401,9 @@ def _build_user_message(req: CoachRequest) -> str:
             if "익절 비율" in missing:
                 parts.append(
                     "익절 비율은 개선안으로만 제안하십시오. "
+                    "단, 트레일링 스탑과 혼동하지 마십시오. "
+                    "익절 비율은 매수가 대비 정한 수익률에 도달하면 매도하는 고정 목표 수익 조건이고, "
+                    "트레일링 스탑은 보유 중 최고가에서 정한 비율만큼 내려오면 매도하는 조건입니다. "
                     "'몇 %로 설정할까요?'처럼 정확한 비율을 요구하지 말고, "
                     "'익절 비율을 설정할까요?'처럼 추가 여부를 묻는 표현을 사용하십시오."
                 )
@@ -588,8 +627,40 @@ def _extract_message_value(raw: str) -> str | None:
         return match.group(1).strip()
 
 
-def _ensure_explained_terms(message: str, *, include_trailing_example: bool = True) -> str:
+def _strip_repeated_term_explanations(message: str, explained_terms: set[str]) -> str:
+    if "take_profit" in explained_terms:
+        message = re.sub(r"익절 비율\([^)]*\)", "익절 비율", message)
+    if "trailing_stop" in explained_terms:
+        message = re.sub(r"트레일링 스탑\([^)]*\)", "트레일링 스탑", message)
+        message = re.sub(
+            r"\s*예를 들면\s*'트레일링 스탑[^']*'[^.?!。]*(?:[.?!。]|$)",
+            "",
+            message,
+        )
+    return message.strip()
+
+
+def _ensure_explained_terms(
+    message: str,
+    *,
+    include_trailing_example: bool = True,
+    explained_terms: set[str] | None = None,
+) -> str:
+    explained_terms = explained_terms or set()
+    message = _strip_repeated_term_explanations(message, explained_terms)
+    if (
+        "익절 비율" in message
+        and "take_profit" not in explained_terms
+        and not re.search(r"익절 비율[^.?!。]*?(매수가|목표 수익|정한 수익률|도달하면|고정)", message)
+    ):
+        message = message.replace(
+            "익절 비율",
+            "익절 비율(매수가 대비 정한 수익률에 도달하면 자동으로 파는 고정 목표 수익 조건)",
+            1,
+        )
     if "트레일링 스탑" not in message:
+        return message
+    if "trailing_stop" in explained_terms:
         return message
     original = message
     if re.search(r"트레일링 스탑[^.?!。]*?(최고가|고점|일정 비율|하락|내려오면|팔아)", message):
@@ -605,6 +676,14 @@ def _ensure_explained_terms(message: str, *, include_trailing_example: bool = Tr
     if not include_trailing_example:
         return explained
     return f"{explained} 예를 들면 '트레일링 스탑 15% 설정'이라고 말씀해주시면 바로 추가하겠습니다."
+
+
+def _ensure_backtest_option(message: str) -> str:
+    if "백테스트" in message and re.search(r"바로|진행|실행|할 수", message):
+        return message
+    if not re.search(r"(설정|추가|반영|변경|조정|보유 기간|익절 비율|트레일링 스탑)[^.!?。]*[?？]", message):
+        return message
+    return f"{message.rstrip()} 아니면 지금 조건으로 바로 백테스트를 진행하셔도 됩니다."
 
 
 def _strategy_trailing_stop_pct(strategy: Dict[str, Any] | None) -> Any:
@@ -634,7 +713,71 @@ def _align_response_with_strategy(response: CoachResponse, strategy: Dict[str, A
     )
 
 
-def _parse_llm_response(raw: str) -> CoachResponse:
+def _strategy_has_explicit_sell_rule(strategy: Dict[str, Any] | None) -> bool:
+    if not isinstance(strategy, dict):
+        return False
+    return bool(strategy.get("exit_signals")) or any(
+        strategy.get(field) is not None
+        for field in ("take_profit_pct", "trailing_stop_pct", "hold_period_days")
+    )
+
+
+def _advisor_primary_recommends_trailing_stop(advisor_result: Dict[str, Any] | None) -> bool:
+    if not isinstance(advisor_result, dict):
+        return False
+    advice = advisor_result.get("advice") or []
+    if not advice:
+        return False
+    primary = advice[0]
+    if not isinstance(primary, dict):
+        return False
+    proposed_change = primary.get("proposed_change")
+    proposed_text = _stable_json(proposed_change) if isinstance(proposed_change, dict) else str(proposed_change or "")
+    primary_text = " ".join([
+        str(primary.get("title") or ""),
+        str(primary.get("body") or ""),
+        proposed_text,
+    ])
+    return "트레일링" in primary_text or "trailing" in primary_text.lower()
+
+
+def _first_non_trailing_advice_message(advisor_result: Dict[str, Any] | None) -> str:
+    if not isinstance(advisor_result, dict):
+        return ""
+    for item in advisor_result.get("advice") or []:
+        if not isinstance(item, dict):
+            continue
+        body = str(item.get("body") or "").strip()
+        if body and "트레일링" not in body and "trailing" not in body.lower():
+            return body[:300]
+    return ""
+
+
+def _align_response_with_advisor_priority(
+    response: CoachResponse,
+    strategy: Dict[str, Any],
+    advisor_result: Dict[str, Any] | None,
+) -> CoachResponse:
+    message = response.message or ""
+    if "트레일링 스탑" not in message and "trailing" not in message.lower():
+        return response
+    if not _strategy_has_explicit_sell_rule(strategy):
+        return response
+    if _advisor_primary_recommends_trailing_stop(advisor_result):
+        return response
+
+    fallback = _first_non_trailing_advice_message(advisor_result)
+    if fallback:
+        return CoachResponse(message=fallback)
+    return CoachResponse(
+        message=(
+            "현재 전략에는 이미 매도 기준이 있습니다. 트레일링 스탑을 기본으로 추가하기보다 "
+            "우선 개선 후보를 하나씩만 바꿔 같은 기간과 비용 조건으로 백테스트하세요."
+        )
+    )
+
+
+def _parse_llm_response(raw: str, explained_terms: set[str] | None = None) -> CoachResponse:
     """LLM 응답에서 JSON 추출. 실패 시 전체 텍스트를 message로 사용."""
     raw = raw.strip()
     # strip <think>...</think> blocks (Qwen3 thinking mode artifact)
@@ -652,11 +795,19 @@ def _parse_llm_response(raw: str) -> CoachResponse:
         message = data.get("message", "")
         if isinstance(message, str):
             nested = _extract_message_value(message)
-            return CoachResponse(message=_ensure_explained_terms((nested or message).strip())[:300])
+            return CoachResponse(
+                message=_ensure_backtest_option(
+                    _ensure_explained_terms((nested or message).strip(), explained_terms=explained_terms)
+                )[:300]
+            )
         return CoachResponse(message="")
     except Exception:
         message = _extract_message_value(raw)
-        return CoachResponse(message=_ensure_explained_terms((message or raw).strip())[:300])
+        return CoachResponse(
+            message=_ensure_backtest_option(
+                _ensure_explained_terms((message or raw).strip(), explained_terms=explained_terms)
+            )[:300]
+        )
 
 
 def _generate_coach_response(
@@ -703,7 +854,16 @@ def _generate_coach_response(
             raise
     inference_ms = round((time.perf_counter() - inference_started) * 1000, 2)
 
-    response = _align_response_with_strategy(_parse_llm_response(raw), effective_req.parsed_strategy)
+    explained_terms = _explained_terms_from_context(effective_req.conversation_context)
+    response = _align_response_with_strategy(
+        _parse_llm_response(raw, explained_terms=explained_terms),
+        effective_req.parsed_strategy,
+    )
+    response = _align_response_with_advisor_priority(
+        response,
+        effective_req.parsed_strategy,
+        effective_req.advisor_result or effective_req.advisor_insight,
+    )
     logger.info(
         "coach inference done | request_id=%s inference_ms=%.2f raw_len=%d message_len=%d",
         request_id,
@@ -925,7 +1085,10 @@ async def coach_strategy_stream(req: CoachRequest):
                         yield event
 
             # 최종 파싱: message + suggestions
-            final = _parse_llm_response(buffer)
+            final = _parse_llm_response(
+                buffer,
+                explained_terms=_explained_terms_from_context(effective_req.conversation_context),
+            )
             payload = json.dumps(
                 {
                     "type": "done",

@@ -62,7 +62,9 @@ class ResultHandler:
                 if idx.tz is not None:
                     idx = idx.tz_localize(None)
                 idx = idx.normalize()
-                ts_vals = idx.asi8  # vectorized int64, no Python loop
+                # Pandas can preserve microsecond-backed indexes from Polars.
+                # Cast to ns so these values are comparable with Timestamp.value.
+                ts_vals = idx.astype("datetime64[ns]").asi8
                 sort_idx = np.argsort(ts_vals)
                 return {'timestamps': ts_vals[sort_idx], 'values': valid.values[sort_idx]}
 

@@ -1,0 +1,62 @@
+import { BacktestResult } from "@/types/strategy";
+
+/**
+ * 백테스트 SSE `result` 이벤트의 raw payload를 프론트엔드 BacktestResult로 매핑한다.
+ * 인라인 매핑이 필드를 누락하면(예: avgHoldingDays) 대시보드가 0으로 표시되는 버그를
+ * 막기 위해 순수 함수로 분리해 단위 테스트로 검증한다.
+ */
+export function mapRawBacktestResult(raw: any, executionId: string): BacktestResult {
+  const equity: number[] = raw.equity ?? [];
+  return {
+    executionId,
+    strategyId: "nl_strategy",
+    symbols: raw.symbols,
+    totalReturn: raw.totalReturn ?? 0,
+    cagr: raw.cagr ?? 0,
+    buyAndHoldReturn: raw.buyAndHoldReturn ?? 0,
+    maxDrawdown: raw.maxDrawdown ?? 0,
+    winRate: raw.winRate ?? 0,
+    profitFactor: raw.profitFactor ?? 0,
+    sharpe: raw.sharpe ?? 0,
+    sortino: raw.sortino ?? 0,
+    kelly: raw.kelly ?? 0,
+    volatility: raw.volatility ?? 0,
+    avgHoldingDays: raw.avgHoldingDays ?? 0,
+    trades: raw.trades ?? 0,
+    avgProfit: raw.avgProfit ?? 0,
+    avgLoss: raw.avgLoss ?? 0,
+    maxConsecutiveWins: raw.maxConsecutiveWins ?? 0,
+    maxConsecutiveLosses: raw.maxConsecutiveLosses ?? 0,
+    finalEquity: equity[equity.length - 1] ?? 0,
+    initialCapital: equity[0] ?? 0,
+    equity,
+    benchmarkEquity: raw.benchmark_equity,
+    benchmarkLabel: raw.benchmark_label,
+    dates: raw.dates ?? [],
+    tradesList: (raw.signals ?? []).map((s: any) => ({
+      date: s.date,
+      symbol: s.symbol,
+      type: s.type as "buy" | "sell",
+      price: s.price,
+      quantity: s.quantity ?? 0,
+      amount: s.amount ?? 0,
+      reason: s.condition,
+    })),
+    monthlyReturns: {},
+    yearlyReturns: {},
+    signals: (raw.signals ?? []).map((s: any) => ({
+      date: s.date,
+      symbol: s.symbol,
+      type: s.type === "buy" ? "entry" : "exit",
+      condition: s.condition,
+      price: Number(s.price),
+      quantity: Number(s.quantity),
+      amount: Number(s.amount),
+    })),
+    perAssetStats: raw.perAssetStats,
+    universeId: raw.universe_id,
+    warnings: raw.warnings,
+    executionTime: raw.executionTime,
+    vbtResult: raw.vbtResult ?? undefined,
+  };
+}

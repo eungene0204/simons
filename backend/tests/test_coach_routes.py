@@ -169,7 +169,8 @@ def test_build_user_message_compacts_strategy_context():
     assert "과거 데이터 검색" in msg
     assert "비교 테스트를 진행해 보시겠어요?" in msg
     assert "추상적으로 묻지 말고" in msg
-    assert "트레일링 스탑을 추가해 보시겠어요?" in msg
+    assert "익절 비율을 설정할까요?" in msg
+    assert "트레일링 스탑은 모든 전략의 기본 개선안이 아니므로" in msg
     assert '"fundamental_filters":[{"metric":"pbr","operator":"<=","value":1}]' in msg
 
 
@@ -190,9 +191,11 @@ def test_build_user_message_does_not_mark_take_profit_missing_when_exit_signal_e
     msg = coach_routes._build_user_message(req)
 
     assert '"exit_signals":[{"indicator":"rsi","operator":">=","threshold":70}]' in msg
-    assert "익절 비율" not in msg
+    assert "미정의 항목: 익절 비율" not in msg
     assert "청산 기준이 존재합니다" in msg
     assert "언제 팔아야 할지 기준이 없다" in msg
+    assert "명확한 매도 신호가 이미 있습니다" in msg
+    assert "트레일링 스탑을 최종 다음 행동으로 고르지 마십시오" in msg
 
 
 def test_build_user_message_includes_memory_context_when_supplied():
@@ -271,6 +274,51 @@ def test_parse_llm_response_explains_trailing_stop_term_when_missing():
     assert "예를 들면 '트레일링 스탑 15% 설정'이라고 말씀해주시면 바로 추가하겠습니다." in response.message
 
 
+def test_parse_llm_response_explains_take_profit_term_when_missing():
+    response = coach_routes._parse_llm_response(
+        '{"message": "현재 전략은 손절 기준만 있어 주가가 크게 오르면 언제 팔아야 할지 기준이 없습니다. 수익을 자동 확정해 주는 익절 비율을 추가해 보시겠어요?"}'
+    )
+
+    assert "익절 비율(" in response.message
+    assert "매수가 대비 정한 수익률에 도달하면 자동으로 파는 고정 목표 수익 조건" in response.message
+    assert "트레일링 스탑" not in response.message
+
+
+def test_parse_llm_response_does_not_repeat_known_take_profit_explanation():
+    response = coach_routes._parse_llm_response(
+        '{"message": "익절 비율(매수가 대비 정한 수익률에 도달하면 자동으로 파는 고정 목표 수익 조건)을 30%로 설정할까요?"}',
+        explained_terms={"take_profit"},
+    )
+
+    assert response.message == "익절 비율을 30%로 설정할까요? 아니면 지금 조건으로 바로 백테스트를 진행하셔도 됩니다."
+
+
+def test_parse_llm_response_does_not_repeat_known_trailing_stop_explanation():
+    response = coach_routes._parse_llm_response(
+        "{\"message\": \"트레일링 스탑(주가가 오른 뒤 최고가에서 정한 비율만큼 내려오면 자동으로 파는 조건)을 추가해 보시겠어요? 예를 들면 '트레일링 스탑 15% 설정'이라고 말씀해주시면 바로 추가하겠습니다.\"}",
+        explained_terms={"trailing_stop"},
+    )
+
+    assert response.message == "트레일링 스탑을 추가해 보시겠어요? 아니면 지금 조건으로 바로 백테스트를 진행하셔도 됩니다."
+
+
+def test_parse_llm_response_adds_backtest_option_when_suggesting_extra_condition():
+    response = coach_routes._parse_llm_response(
+        '{"message": "현재 전략은 이동평균선 교차로 매도하는 방식입니다. 이 조건을 유지하면서, 보유 기간을 설정해 볼까요?"}',
+    )
+
+    assert "보유 기간을 설정해 볼까요?" in response.message
+    assert "아니면 지금 조건으로 바로 백테스트를 진행하셔도 됩니다." in response.message
+
+
+def test_parse_llm_response_does_not_duplicate_existing_backtest_option():
+    response = coach_routes._parse_llm_response(
+        '{"message": "익절 비율을 설정할까요? 아니면 지금 조건으로 바로 백테스트를 진행하셔도 됩니다."}',
+    )
+
+    assert response.message.count("바로 백테스트") == 1
+
+
 def test_parse_llm_response_does_not_duplicate_trailing_stop_explanation():
     response = coach_routes._parse_llm_response(
         '{"message": "트레일링 스탑은 최고가에서 일정 비율 하락하면 파는 조건입니다. 추가해 보시겠어요?"}'
@@ -321,6 +369,56 @@ def test_align_response_detects_nested_risk_trailing_stop():
     assert "전략에 반영했습니다" in aligned.message
 
 
+def test_align_response_does_not_prioritize_trailing_stop_when_exit_signal_exists():
+    response = coach_routes.CoachResponse(
+        message=(
+            "현재 전략은 이동평균선 교차로 매수/매도하는 방식인데, "
+            "트레일링 스탑을 추가해 보시겠어요?"
+        )
+    )
+
+    aligned = coach_routes._align_response_with_advisor_priority(
+        response,
+        {
+            "exit_signals": [{"indicator": "ma_crossover", "signal_type": "sell"}],
+            "stop_loss_pct": 8,
+            "take_profit_pct": None,
+            "trailing_stop_pct": None,
+        },
+        {
+            "advice": [
+                {
+                    "title": "전략 실험 근거 기반 개선",
+                    "body": "이동평균 기간과 손절 폭을 각각 바꿔 테스트해 보세요.",
+                }
+            ],
+            "suggested_experiments": ["트레일링 스탑 15% 추가 후 MDD/Sharpe 변화 비교"],
+        },
+    )
+
+    assert "트레일링 스탑" not in aligned.message
+    assert "이동평균 기간과 손절 폭" in aligned.message
+
+
+def test_align_response_allows_trailing_stop_when_primary_advice_recommends_it():
+    response = coach_routes.CoachResponse(message="트레일링 스탑을 추가해 보시겠어요?")
+
+    aligned = coach_routes._align_response_with_advisor_priority(
+        response,
+        {"exit_signals": [{"indicator": "ma_crossover", "signal_type": "sell"}]},
+        {
+            "advice": [
+                {
+                    "title": "트레일링 스탑 추가",
+                    "body": "이벤트 변동성이 커서 트레일링 스탑을 비교하세요.",
+                }
+            ],
+        },
+    )
+
+    assert aligned.message == response.message
+
+
 def test_build_user_message_includes_advisor_result_and_conversation_context():
     req = _make_request(
         advisor_insight=None,
@@ -337,6 +435,27 @@ def test_build_user_message_includes_advisor_result_and_conversation_context():
     assert "손절 기준이 없어 손실 관리가 약합니다." in msg
     assert "[conversation_context" in msg
     assert "쉽게 설명해줘" in msg
+
+
+def test_build_user_message_marks_already_explained_terms():
+    req = _make_request(
+        conversation_context=[
+            {
+                "role": "assistant",
+                "content": "익절 비율(매수가 대비 정한 수익률에 도달하면 자동으로 파는 고정 목표 수익 조건)을 설정할까요?",
+            },
+            {
+                "role": "assistant",
+                "content": "트레일링 스탑(주가가 오른 뒤 최고가에서 정한 비율만큼 내려오면 자동으로 파는 조건)을 추가할까요?",
+            },
+        ],
+    )
+
+    msg = coach_routes._build_user_message(req)
+
+    assert "[전문용어 설명 반복 금지]" in msg
+    assert "이미 설명한 용어: 익절 비율, 트레일링 스탑" in msg
+    assert "다시 뜻을 풀이하지 말고" in msg
 
 
 def test_build_user_message_requires_trailing_stop_percentage_before_suggesting_value():
@@ -459,12 +578,18 @@ def test_system_prompt_requires_memory_evidence_discipline():
     assert "과거 데이터 검색" in prompt
     assert "지금 바로 할 수 없는 행동" in prompt
     assert "비교 테스트를 진행해 보시겠어요?" in prompt
-    assert "트레일링 스탑을 추가해 보시겠어요?" in prompt
+    assert "익절 비율을 설정할까요?" in prompt
+    assert "트레일링 스탑을 모든 전략의 기본 개선안처럼 제안하지 마십시오" in prompt
     assert "정확한 수치를 말한 경우에만" in prompt
+    assert "익절 비율과 트레일링 스탑은 서로 다른 전문 용어" in prompt
+    assert "익절 비율은 매수가 대비 정한 수익률에 도달하면 매도하는 고정 목표 수익 조건" in prompt
+    assert "트레일링 스탑은 보유 중 최고가에서 정한 비율만큼 내려오면 매도" in prompt
+    assert "트레일링 스탑을 뜻하면서 익절 비율이라고 부르지 말고" in prompt
     assert "보유 기간을 개선안으로 제안할 때" in prompt
     assert "보유 기간을 설정할까요?" in prompt
     assert "익절 비율을 개선안으로 제안할 때" in prompt
     assert "익절 비율을 설정할까요?" in prompt
+    assert "아니면 지금 조건으로 바로 백테스트를 진행하셔도 됩니다." in prompt
     assert "앱에서" not in prompt
 
 

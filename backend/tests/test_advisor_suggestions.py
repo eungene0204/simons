@@ -97,6 +97,31 @@ def test_existing_stop_loss_does_not_repeat_stop_loss_addition_advice():
     assert any("익절" in item.title for item in result.advice)
 
 
+def test_ma_crossover_with_exit_does_not_default_to_trailing_stop_experiment():
+    policy_agent = StrategyAdvisorAgent(learning_provider=NullLearningProvider())
+    result = policy_agent.review(AdvisorRequest(
+        user_prompt=(
+            "KOSPI 종목 중 골든크로스가 나오면 매수하고, "
+            "데드크로스가 나오면 매도합니다. 최대 10개, 손절은 -8%입니다."
+        ),
+        parsed_strategy={
+            "universe": ["KOSPI"],
+            "entry_signals": [{"indicator": "ma_crossover", "signal_type": "buy"}],
+            "exit_signals": [{"indicator": "ma_crossover", "signal_type": "sell"}],
+            "fundamental_filters": [],
+            "max_positions": 10,
+            "stop_loss_pct": 8.0,
+            "take_profit_pct": None,
+            "trailing_stop_pct": None,
+            "hold_period_days": None,
+            "initial_capital": 10_000_000,
+        },
+    ))
+
+    assert all("트레일링 스탑" not in experiment for experiment in result.suggested_experiments)
+    assert all("언제 팔아야 할지" not in item.body for item in result.advice)
+
+
 def test_advice_items_have_body():
     """모든 advice 항목은 title과 body를 가져야 한다."""
     result = _review({

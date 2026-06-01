@@ -221,7 +221,21 @@ def _build_experiments(
     if "OVERFIT_SUSPECT" in issue_codes or ctx.filter_count >= 3:
         exps.append("Walk-forward 검증 — IS 기간 3년 + OOS 기간 1년으로 실제 예측력 검증")
 
-    if not ctx.has_trailing_stop:
+    has_explicit_exit = (
+        ctx.has_exit_signals
+        or ctx.has_take_profit
+        or ctx.hold_period_days is not None
+    )
+    if (
+        not ctx.has_trailing_stop
+        and not has_explicit_exit
+        and (
+            "MISSING_EXIT_RULE" in issue_codes
+            or "NO_STOP_LOSS" in issue_codes
+            or "NO_TAKE_PROFIT" in issue_codes
+            or "EVENT_DRIVEN_VOLATILITY" in issue_codes
+        )
+    ):
         exps.append("트레일링 스탑 15% 추가 후 MDD/Sharpe 변화 비교")
 
     if ctx.max_positions is not None and ctx.max_positions <= 5:

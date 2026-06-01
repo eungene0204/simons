@@ -1,6 +1,7 @@
 import os
 import sys
 
+import numpy as np
 import pandas as pd
 
 sys.path.append(os.path.join(os.getcwd(), "backend"))
@@ -160,3 +161,40 @@ def test_format_results_marks_final_day_exit_as_backtest_end_over_max_hold():
     assert sell_signals[0]["date"] == common_index[-1].strftime("%Y-%m-%d")
     assert "백테스트 종료" in sell_signals[0]["condition"]
     assert "보유 기간 만료" not in sell_signals[0]["condition"]
+
+
+def test_format_results_matches_exit_reason_when_reason_index_uses_microseconds():
+    pf = _Portfolio(
+        trades=_Trades(
+            exit_types=[0, 0],
+            entry_timestamps=["2022-01-05", "2022-01-06"],
+            exit_timestamps=["2022-01-13", "2022-01-14"],
+        )
+    )
+    common_index = pd.to_datetime(["2022-01-05", "2022-01-13", "2026-05-29"])
+    reason_index = pd.DatetimeIndex(
+        np.array(["2022-01-13", "2026-05-28"], dtype="datetime64[us]")
+    )
+
+    result = ResultHandler.format_results(
+        pf=pf,
+        processed_symbols=["005930"],
+        _all_entries=None,
+        _all_exits=None,
+        all_entry_reasons={},
+        all_exit_reasons={
+            "005930": pd.Series(
+                ["5일선-20일선 데드크로스", "데이터 종료"],
+                index=reason_index,
+            )
+        },
+        common_index=common_index,
+        risk_params={},
+        exec_type="close",
+        init_cash=10_000_000,
+    )
+
+    sell_signals = [signal for signal in result["signals"] if signal["type"] == "sell"]
+
+    assert "5일선-20일선 데드크로스" in sell_signals[0]["condition"]
+    assert "데이터 종료" not in sell_signals[0]["condition"]

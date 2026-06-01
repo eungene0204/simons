@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { StrategyExampleTabs } from "@/components/strategy/StrategyExampleTabs";
 import { BacktestResult } from "@/types/strategy";
+import { mapRawBacktestResult } from "./backtestResultMapper";
 import {
   Sparkle,
   ArrowRight,
@@ -793,59 +794,7 @@ function StrategyLabContent() {
         if (event.type === "status") {
           setStatusMessage(event.message);
         } else if (event.type === "result") {
-          const raw = event.data;
-          const equity: number[] = raw.equity ?? [];
-          setResult({
-            executionId: `nl_${Date.now()}`,
-            strategyId: "nl_strategy",
-            symbols: raw.symbols,
-            totalReturn: raw.totalReturn ?? 0,
-            cagr: raw.cagr ?? 0,
-            buyAndHoldReturn: raw.buyAndHoldReturn ?? 0,
-            maxDrawdown: raw.maxDrawdown ?? 0,
-            winRate: raw.winRate ?? 0,
-            profitFactor: raw.profitFactor ?? 0,
-            sharpe: raw.sharpe ?? 0,
-            sortino: raw.sortino ?? 0,
-            kelly: raw.kelly ?? 0,
-            volatility: raw.volatility ?? 0,
-            trades: raw.trades ?? 0,
-            avgProfit: raw.avgProfit ?? 0,
-            avgLoss: raw.avgLoss ?? 0,
-            maxConsecutiveWins: raw.maxConsecutiveWins ?? 0,
-            maxConsecutiveLosses: raw.maxConsecutiveLosses ?? 0,
-            finalEquity: equity[equity.length - 1] ?? 0,
-            initialCapital: equity[0] ?? 0,
-            equity,
-            benchmarkEquity: raw.benchmark_equity,
-            benchmarkLabel: raw.benchmark_label,
-            dates: raw.dates ?? [],
-            tradesList: (raw.signals ?? []).map((s: any) => ({
-              date: s.date,
-              symbol: s.symbol,
-              type: s.type as "buy" | "sell",
-              price: s.price,
-              quantity: s.quantity ?? 0,
-              amount: s.amount ?? 0,
-              reason: s.condition,
-            })),
-            monthlyReturns: {},
-            yearlyReturns: {},
-            signals: (raw.signals ?? []).map((s: any) => ({
-              date: s.date,
-              symbol: s.symbol,
-              type: s.type === "buy" ? "entry" : "exit",
-              condition: s.condition,
-              price: Number(s.price),
-              quantity: Number(s.quantity),
-              amount: Number(s.amount),
-            })),
-            perAssetStats: raw.perAssetStats,
-            universeId: raw.universe_id,
-            warnings: raw.warnings,
-            executionTime: raw.executionTime,
-            vbtResult: raw.vbtResult ?? undefined,
-          });
+          setResult(mapRawBacktestResult(event.data, `nl_${Date.now()}`));
           setStage("done");
         } else if (event.type === "error") {
           throw new Error(event.message);
