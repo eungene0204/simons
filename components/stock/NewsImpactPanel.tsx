@@ -3,7 +3,7 @@
 import { ArrowClockwise, Warning } from "phosphor-react";
 
 import { useStockNews } from "@/lib/hooks/useStockNews";
-import type { ImpactLevel, NewsItemV2, NewsStatus, Sentiment } from "@/types/news-v2";
+import type { Importance, NewsItemV2, NewsStatus, Sentiment } from "@/types/news-v2";
 
 function timeAgo(iso: string | null | undefined): string {
   if (!iso) return "";
@@ -18,7 +18,7 @@ function timeAgo(iso: string | null | undefined): string {
   }
 }
 
-function SentimentBadge({ sentiment, score }: { sentiment?: Sentiment | null; score?: number | null }) {
+function SentimentBadge({ sentiment }: { sentiment?: Sentiment | null }) {
   if (!sentiment) return null;
   const cfg = sentiment === "positive"
     ? "text-[var(--main-red)] border-[var(--main-red)]/30"
@@ -26,24 +26,24 @@ function SentimentBadge({ sentiment, score }: { sentiment?: Sentiment | null; sc
       ? "text-[var(--main-blue)] border-[var(--main-blue)]/30"
       : "text-green-400 border-green-400/30";
   const label = sentiment === "positive" ? "긍정" : sentiment === "negative" ? "부정" : "중립";
-  const display = typeof score === "number" ? `${label} ${(score * 100).toFixed(0)}%` : label;
   return (
     <span className={`inline-flex items-center gap-0.5 text-xs font-bold px-2 py-0.5 rounded-md border ${cfg}`}>
-      {display}
+      {label}
     </span>
   );
 }
 
-function ImpactBadge({ level }: { level?: ImpactLevel | null }) {
-  if (!level || level === "low") return null;
-  const cfg = level === "high"
+function ImpactBadge({ importance, score }: { importance: Importance; score: number }) {
+  const cfg = importance === "high"
     ? "bg-red-500/10 text-red-400"
-    : "bg-amber-500/10 text-amber-400";
-  const label = level === "high" ? "고영향" : "중영향";
+    : importance === "medium"
+      ? "bg-amber-500/10 text-amber-400"
+      : "bg-white/[0.04] text-gray-400";
+  const label = importance === "high" ? "중요" : importance === "medium" ? "관심" : "일반";
   return (
     <span className={`inline-flex items-center gap-0.5 text-xs font-bold px-2 py-0.5 rounded-md ${cfg}`}>
-      <Warning size={10} weight="fill" />
-      {label}
+      {importance !== "low" && <Warning size={10} weight="fill" />}
+      {label} {(Math.max(0, Math.min(score, 1)) * 100).toFixed(0)}%
     </span>
   );
 }
@@ -81,9 +81,9 @@ function StatusBanner({ status, message }: { status: NewsStatus; message?: strin
       <div className="rounded-xl border border-amber-400/20 bg-amber-400/[0.04] p-4 text-center">
         <p className="text-sm text-amber-300 mb-1">
           <span className="inline-block w-2 h-2 bg-amber-400 rounded-full animate-pulse mr-2" />
-          {message ?? "뉴스를 수집하고 있습니다."}
+          {message ?? "최근 뉴스가 준비 중입니다."}
         </p>
-        <p className="text-xs text-gray-500">수 초 안에 자동으로 갱신됩니다.</p>
+        <p className="text-xs text-gray-500">준비된 캐시가 생기면 새로고침 시 바로 표시됩니다.</p>
       </div>
     );
   }
@@ -105,30 +105,33 @@ function StatusBanner({ status, message }: { status: NewsStatus; message?: strin
 }
 
 function ArticleCard({ article }: { article: NewsItemV2 }) {
+  const highImportance = article.importance === "high";
   return (
     <a
       href={article.url}
       target="_blank"
       rel="noopener noreferrer"
-      className="flat-card rounded-2xl border border-white/[0.08] overflow-hidden flex hover:border-white/[0.14] transition-colors"
+      className={`flat-card rounded-2xl border overflow-hidden flex hover:border-white/[0.16] transition-colors ${
+        highImportance ? "border-red-400/30 bg-red-500/[0.03]" : "border-white/[0.08]"
+      }`}
     >
       <ImpactStripe sentiment={article.sentiment} />
       <div className="flex-1 min-w-0 p-5">
         <p className="text-sm font-bold text-gray-200 leading-snug mb-1.5">
           {article.title}
         </p>
-        {article.ai_summary && (
+        {article.summary && (
           <p className="text-xs text-gray-400 leading-snug mb-2 line-clamp-2">
-            {article.ai_summary}
+            {article.summary}
           </p>
         )}
         <div className="flex items-center gap-2">
           <p className="text-xs text-gray-500 truncate min-w-0 flex-1">
-            {article.source} · {timeAgo(article.published_at)}
+            {article.source} · {timeAgo(article.publishedAt)}
           </p>
           <div className="flex items-center gap-1.5 shrink-0">
-            <SentimentBadge sentiment={article.sentiment} score={article.sentiment_score} />
-            <ImpactBadge level={article.impact_level} />
+            <SentimentBadge sentiment={article.sentiment} />
+            <ImpactBadge importance={article.importance} score={article.impactScore} />
           </div>
         </div>
       </div>
@@ -137,27 +140,27 @@ function ArticleCard({ article }: { article: NewsItemV2 }) {
 }
 
 export default function NewsImpactPanel({ symbol }: { symbol: string }) {
-  const { data, status, isLoading, isRevalidating, refresh } = useStockNews(symbol);
+  const { data, status, isLoading, isRevalidating, error, refresh } = useStockNews(symbol);
 
   if (isLoading && !data?.items?.length) {
     return <SkeletonList />;
   }
 
   const items = data?.items ?? [];
-  const headerStale = data?.stale ?? false;
+  const headerStale = data?.isStale ?? false;
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          {data?.fetched_at && (
+          {data?.lastUpdatedAt && (
             <span className="text-xs text-gray-500">
-              마지막 업데이트: {timeAgo(data.fetched_at)}
+              마지막 업데이트: {timeAgo(data.lastUpdatedAt)}
             </span>
           )}
           {(isRevalidating || headerStale) && (
             <span className="text-xs text-amber-400 animate-pulse">
-              {headerStale ? "최신 뉴스 확인 중..." : "갱신 중..."}
+              {headerStale ? "캐시가 오래되었습니다" : "갱신 중..."}
             </span>
           )}
         </div>
@@ -175,11 +178,21 @@ export default function NewsImpactPanel({ symbol }: { symbol: string }) {
         <StatusBanner status={status} message={data?.message} />
       ) : null}
 
+      {error && items.length === 0 ? (
+        <div className="rounded-xl border border-red-500/20 bg-red-500/[0.04] p-4 text-center">
+          <p className="text-sm text-red-400">뉴스 캐시를 읽지 못했습니다.</p>
+        </div>
+      ) : null}
+
       {items.length > 0 ? (
         <div className="space-y-2">
           {items.map((article) => (
-            <ArticleCard key={article.id} article={article} />
+            <ArticleCard key={article.newsId} article={article} />
           ))}
+        </div>
+      ) : status === "READY" || status === "STALE" ? (
+        <div className="py-10 text-center">
+          <p className="text-sm text-gray-500">최근 뉴스가 없습니다.</p>
         </div>
       ) : null}
     </div>

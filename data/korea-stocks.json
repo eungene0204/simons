@@ -5866,6 +5866,13 @@
     "industry": "연료용 가스 제조 및 배관공급업"
   },
   {
+    "symbol": "0134X0",
+    "name": "대신밸런스제20호스팩",
+    "market": "KOSDAQ",
+    "sector": "은행/금융지주",
+    "industry": "금융 지원 서비스업"
+  },
+  {
     "symbol": "477850",
     "name": "마키나락스",
     "market": "KOSDAQ",
@@ -11828,13 +11835,6 @@
     "market": "KOSDAQ",
     "sector": "IT 하드웨어",
     "industry": "통신 및 방송 장비 제조업"
-  },
-  {
-    "symbol": "230980",
-    "name": "비유테크놀러지",
-    "market": "KOSDAQ",
-    "sector": "소프트웨어/플랫폼",
-    "industry": "소프트웨어 개발 및 공급업"
   },
   {
     "symbol": "115180",

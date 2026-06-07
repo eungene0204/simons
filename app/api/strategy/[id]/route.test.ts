@@ -5,12 +5,18 @@ const virtualAccountUpdateMany = vi.fn();
 const virtualMarketStateDeleteMany = vi.fn();
 const strategyDelete = vi.fn();
 const backtestResultDeleteMany = vi.fn();
+const strategyEmbeddingDeleteMany = vi.fn();
+const adviceExperienceDeleteMany = vi.fn();
+const backtestRunDeleteMany = vi.fn();
 const transaction = vi.fn(async (callback: any) =>
   callback({
     virtualAccount: { updateMany: virtualAccountUpdateMany },
     virtualMarketState: { deleteMany: virtualMarketStateDeleteMany },
     strategy: { delete: strategyDelete },
     backtestResult: { deleteMany: backtestResultDeleteMany },
+    strategyEmbedding: { deleteMany: strategyEmbeddingDeleteMany },
+    adviceExperience: { deleteMany: adviceExperienceDeleteMany },
+    backtestRun: { deleteMany: backtestRunDeleteMany },
   })
 );
 
@@ -38,6 +44,9 @@ describe("app/api/strategy/[id]/route DELETE", () => {
     virtualMarketStateDeleteMany.mockResolvedValue({ count: 0 });
     strategyDelete.mockResolvedValue({});
     backtestResultDeleteMany.mockResolvedValue({ count: 0 });
+    strategyEmbeddingDeleteMany.mockResolvedValue({ count: 0 });
+    adviceExperienceDeleteMany.mockResolvedValue({ count: 0 });
+    backtestRunDeleteMany.mockResolvedValue({ count: 0 });
   });
 
   it("deletes the strategy without deleting preserved backtest results", async () => {

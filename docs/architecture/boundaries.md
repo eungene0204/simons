@@ -253,10 +253,16 @@ OHLCV parquet 수집 후처리 및 펀더멘털 보강(예: PER/PBR/ROE) 적재.
 
 ### Files
 - backend/news/**
+- backend/news_v2/**
 - backend/api/news_routes.py
 - backend/tests/test_news_*.py
 - app/api/news/**
+- app/api/stocks/[symbol]/news/route.ts
+- lib/hooks/useStockNews.ts
+- types/news-v2.ts
 - components/stock/NewsImpactPanel.tsx
+- components/stock/StockDetail.tsx
+- prisma/**
 
 ### Allowed Tasks
 - 뉴스 provider 응답 파싱 및 정규화 수정
@@ -265,19 +271,28 @@ OHLCV parquet 수집 후처리 및 펀더멘털 보강(예: PER/PBR/ROE) 적재.
 - 뉴스 저장소와 API 응답 간 schema-compatible 필드 매핑 수정
 - News Impact Panel 표시용 경량 응답 정합성 수정
 - 뉴스 파이프라인 회귀 테스트 추가 및 수정
+- 뉴스 v2 캐시 조회 API, 백그라운드 수집/분석 worker, queue/scheduler wiring 정합성 수정
+- 뉴스탭 전용 React Query/SWR hook, proxy route, response type 정합성 수정
+- 종목 상세 페이지의 뉴스탭 prefetch wiring 추가 및 수정
+- 뉴스 전용 Prisma model/migration/index 추가 및 수정
+- 뉴스 전용 raw news, analysis, symbol mapping, stock news cache 저장 구조 추가 및 수정
 
 ### Strict Rules
-- Preserve public news API response contracts
+- Preserve public news API response contracts unless the task explicitly defines the replacement contract.
 - Keep changes isolated to news impact behavior
 - Tests are required for event extraction, look-ahead, or impact scoring changes
+- News tab read APIs must not run crawlers, scrapers, external news search, or LLM/news agent analysis inline.
+- News agent and crawler execution must stay in scheduler, queue worker, or explicit admin refresh paths.
+- `prisma/**` changes inside this boundary are limited to news-only models, migrations, and indexes.
+- Required news cache indexes must be declared in the schema or migration when adding news cache storage.
 
 ### Forbidden
 - 백테스트 엔진(`backend/engine/**`) 변경
 - 전략 생성/Advisor 로직(`backend/advisor/**`) 변경
 - AI runtime/model orchestration 변경
-- database schema 변경
+- non-news database schema 변경
 - 인증 로직 변경
-- `components/stock/StockDetail.tsx` 구조 변경
+- `components/stock/StockDetail.tsx`의 뉴스 prefetch wiring 외 구조 변경
 - 범용 스크립트(`scripts/**`, `backend/scripts/**`) 변경
 
 ---
@@ -414,7 +429,8 @@ Codex must NEVER modify:
 
 Exception:
 - `prisma/**` is allowed only inside `Boundary I: Strategy Persistence / BatchRun Storage`
- - `prisma/**` is allowed inside `Boundary J: Stock Info Profile Persistence`
+- `prisma/**` is allowed inside `Boundary J: Stock Info Profile Persistence`
+- `prisma/**` is allowed inside `Boundary M: News Impact Pipeline` only for news-specific models, migrations, and indexes
 
 ---
 

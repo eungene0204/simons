@@ -136,6 +136,7 @@ export async function POST(req: NextRequest) {
           parsed: data.parsed,
           clarification_question: data.clarification_question ?? null,
           clarification_suggestions: data.clarification_suggestions ?? null,
+          risk_overrides: data.risk_overrides ?? null,
         });
         send({
           type: "dsl_ready",

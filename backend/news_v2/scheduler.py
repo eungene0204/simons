@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -24,12 +25,28 @@ from news_v2.config import get_settings
 from news_v2.db import get_session_maker
 from news_v2.logging_setup import get_logger
 from news_v2.repository import NewsRepository
+from news_v2.service import NewsService
 
 log = get_logger(__name__)
 
 _scheduler: Optional[AsyncIOScheduler] = None
 _LEADER_LOCK_KEY = "news:scheduler:leader"
 _LEADER_LEASE_S = 90
+
+
+class _InlineQueue:
+    """Force worker-path analysis to run inside the scheduler background job."""
+
+    enabled = False
+
+    def enqueue_collect(self, symbol: str, priority: str = "default") -> None:
+        return None
+
+    def enqueue_refresh(self, symbol: str) -> None:
+        return None
+
+    def enqueue_analyze(self, news_id: str) -> None:
+        return None
 
 
 async def _acquire_leader_lease() -> bool:
@@ -90,6 +107,57 @@ async def _enqueue_tier(tier: int) -> None:
     log.info("scheduler_tier_dispatched", tier=tier, count=len(symbols))
 
 
+async def _resolve_startup_symbols(repo: NewsRepository) -> list[str]:
+    cfg = get_settings()
+    symbols: list[str] = []
+    seen: set[str] = set()
+    for tier in (1, 2, 3):
+        for symbol in await repo.list_symbols_in_tier(tier, limit=cfg.bootstrap_collect_limit):
+            if symbol and symbol not in seen:
+                seen.add(symbol)
+                symbols.append(symbol)
+            if len(symbols) >= cfg.bootstrap_collect_limit:
+                break
+        if len(symbols) >= cfg.bootstrap_collect_limit:
+            break
+    if not symbols:
+        symbols = list(cfg.bootstrap_symbols)
+
+    seen.clear()
+    deduped: list[str] = []
+    for symbol in symbols:
+        if symbol and symbol not in seen:
+            seen.add(symbol)
+            deduped.append(symbol)
+        if len(deduped) >= cfg.bootstrap_collect_limit:
+            break
+    return deduped
+
+
+async def _startup_collect() -> None:
+    """Run actual collection once after backend startup, outside the UI path."""
+    cfg = get_settings()
+    if not cfg.enabled or not cfg.startup_collect_enabled:
+        return
+
+    maker = get_session_maker()
+    async with maker() as session:
+        repo = NewsRepository(session)
+        symbols = await _resolve_startup_symbols(repo)
+        if not symbols:
+            log.info("startup_collect_no_symbols")
+            return
+
+        service = NewsService(session=session, queue=_InlineQueue())
+        collected = 0
+        for symbol in symbols:
+            try:
+                collected += await service.run_collect(symbol)
+            except Exception as exc:
+                log.exception("startup_collect_symbol_failed", symbol=symbol, error=str(exc))
+        log.info("startup_collect_done", symbols=len(symbols), inserted=collected)
+
+
 async def _recompute_priority() -> None:
     try:
         from news_v2.celery_app import celery_app
@@ -143,6 +211,13 @@ async def _guarded_prune() -> None:
     await _prune()
 
 
+async def _guarded_startup_collect() -> None:
+    if not await _acquire_leader_lease():
+        return
+    await _refresh_leader_lease()
+    await _startup_collect()
+
+
 def start_scheduler() -> AsyncIOScheduler:
     global _scheduler
     if _scheduler is not None:
@@ -164,6 +239,15 @@ def start_scheduler() -> AsyncIOScheduler:
                       id="priority", max_instances=1, coalesce=True)
     scheduler.add_job(_guarded_prune, "cron", hour=3,
                       id="prune", max_instances=1, coalesce=True)
+    if cfg.startup_collect_enabled:
+        scheduler.add_job(
+            _guarded_startup_collect,
+            "date",
+            run_date=datetime.now(timezone.utc) + timedelta(seconds=cfg.startup_collect_delay_s),
+            id="startup_collect",
+            max_instances=1,
+            coalesce=True,
+        )
 
     scheduler.start()
     _scheduler = scheduler

@@ -267,8 +267,8 @@ def test_advisor_memory_advice_does_not_expose_vector_store_lessons(tmp_path):
     memory_item = next(item for item in result.advice if item.title == "유사 전략 경험 기반 점검")
 
     assert "성과 개선이 제한적" in memory_item.body
-    assert "각각 분리해서" in memory_item.body
-    assert "MDD와 Sharpe" in memory_item.body
+    assert "한 번에 하나씩만 바꿔" in memory_item.body
+    assert "MDD와 Sharpe" not in memory_item.body
     assert "ChromaDB" not in memory_item.body
     assert "result_status" not in memory_item.body
     assert "similarity" not in memory_item.body

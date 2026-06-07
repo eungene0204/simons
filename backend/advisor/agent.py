@@ -267,7 +267,7 @@ class StrategyAdvisorAgent:
         if failed_cases:
             return (
                 f"저장된 유사 사례 {len(failed_cases)}건은 같은 구조의 조정에서 성과 개선이 제한적이었습니다. "
-                f"{comparison_text}을 각각 분리해서 비교 백테스트하면 MDD와 Sharpe가 동시에 개선되는 조합을 확인할 수 있습니다."
+                f"{comparison_text}은 한 번에 하나씩만 바꿔 같은 기간과 비용 조건으로 비교하세요."
             )
 
         return (

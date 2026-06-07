@@ -8,6 +8,7 @@ LLM 백엔드: Ollama (instructor) 또는 MLX (outlines)
 from __future__ import annotations
 
 import json
+import os
 import re
 from typing import List, Literal, Optional
 from pydantic import BaseModel, Field
@@ -86,6 +87,19 @@ class ParsedStrategy(BaseModel):
         description="매도 청산 기술 조건. 보유기간 청산이면 빈 배열 []"
     )
 
+    # ── 종목 선정 랭킹 (횡단면)
+    ranking_metric: Optional[Literal["return"]] = Field(
+        default=None,
+        description=(
+            "종목 간 순위로 선정하는 방식. 'return'=최근 수익률 상위 종목 선정(상대강도/모멘텀 랭킹). "
+            "예: '최근 60일 수익률 높은 상위 N종목'. 진입 신호 없이 순위 자체가 진입. 없으면 null"
+        ),
+    )
+    ranking_lookback_days: Optional[int] = Field(
+        default=None,
+        description="랭킹 산정 기간(거래일). 예: '60거래일 수익률'=60. ranking_metric이 있을 때만. 없으면 null(기본 60)",
+    )
+
     # ── 포트폴리오
     max_positions: int = Field(
         default=10, ge=1, le=100,
@@ -150,6 +164,8 @@ class ParsedStrategyDiff(BaseModel):
     fundamental_filters: Optional[List[FundamentalFilter]] = None
     entry_signals: Optional[List[TechnicalSignal]] = None
     exit_signals: Optional[List[TechnicalSignal]] = None
+    ranking_metric: Optional[Literal["return"]] = None
+    ranking_lookback_days: Optional[int] = None
     max_positions: Optional[int] = Field(default=None, ge=1, le=100)
     hold_period_days: Optional[int] = None
     rebalancing_period: Optional[Literal["none", "monthly", "quarterly", "yearly"]] = None
@@ -222,10 +238,14 @@ SYSTEM_PROMPT = """당신은 한국 주식 퀀트 투자 전략을 JSON으로 �
 - 데드크로스 → indicator: "ma_crossover", signal_type: "sell", short_period: 5, long_period: 20
 - RSI 30 이하 → indicator: "rsi", signal_type: "buy", period: 14, operator: "<=", value: 30
 - RSI 70 이상 → indicator: "rsi", signal_type: "sell", period: 14, operator: ">=", value: 70
+- 'RSI가 30 아래로 내려갔다가 다시 올라오는' / 'RSI 과매도 후 반등' 같은 구어체 반등 표현도 RSI 매수로 처리: operator "<=", value 30
+- 매도 동사는 '매도/청산'뿐 아니라 '팔고/팔아/팔면' 같은 구어체도 동일하게 처리
 - MACD 크로스 → indicator: "macd", signal_type: "buy", mode: "crossover"
 - 볼린저밴드 하단 → indicator: "bollinger_bands", signal_type: "buy"
 - 볼린저밴드 상단 → indicator: "bollinger_bands", signal_type: "sell"
 - 52주 신고가 돌파 → indicator: "breakout", signal_type: "buy", lookback_period: 252
+- '박스권을 위로 돌파' / 'N일 고점 돌파' / '20일 고점을 넘기면 매수' → indicator: "breakout", signal_type: "buy", lookback_period: N (기간 없이 '박스권'만 언급 시 20)
+- '다시 박스 안으로 내려오면 매도' / 'N일 저점 이탈 시 매도' → indicator: "breakout", signal_type: "sell"
 - AI 상승 예측 매수 / AI 모델 매수 → indicator: "ai_model", signal_type: "buy", threshold: 70
 - AI 하락 예측 매도 / AI 모델 매도 → indicator: "ai_drop_model", signal_type: "sell", threshold: 70
 - AI 모델이 X% 이상 확률로 상승 예측 → indicator: "ai_model", signal_type: "buy", threshold: X
@@ -314,6 +334,30 @@ SYSTEM_PROMPT = """당신은 한국 주식 퀀트 투자 전략을 JSON으로 �
   "fee_rate": 0.015,
   "slippage_rate": 0.05
 }
+
+입력: "KOSPI에서 PER 10 이하인 종목 중 RSI가 30 아래로 내려갔다가 다시 올라오는 종목만 매수. 8종목 제한, 수익이 15% 나면 팔고 손절은 -8%"
+출력:
+{
+  "description": "KOSPI에서 PER 10 이하인 종목 중 RSI가 30 아래로 내려갔다가 다시 올라오는 종목만 매수. 8종목 제한, 수익이 15% 나면 팔고 손절은 -8%",
+  "universe": ["KOSPI"],
+  "fundamental_filters": [
+    {"metric": "per", "operator": "<=", "value": 10.0}
+  ],
+  "entry_signals": [{"indicator": "rsi", "signal_type": "buy", "period": 14, "operator": "<=", "value": 30}],
+  "exit_signals": [],
+  "max_positions": 8,
+  "hold_period_days": null,
+  "rebalancing_period": "none",
+  "stop_loss_pct": 8.0,
+  "take_profit_pct": 15.0,
+  "trailing_stop_pct": null,
+  "max_mdd_limit_pct": null,
+  "backtest_period": "5y",
+  "initial_capital": 10000000.0,
+  "execution_timing": "next_open",
+  "fee_rate": 0.015,
+  "slippage_rate": 0.05
+}
 """
 
 COMPACT_SYSTEM_PROMPT = """한국 주식 전략 자연어를 ParsedStrategy JSON으로만 변환하세요.
@@ -330,7 +374,10 @@ COMPACT_SYSTEM_PROMPT = """한국 주식 전략 자연어를 ParsedStrategy JSON
 - 이하/미만/이상/초과 → <=/< />=/ >
 - 골든크로스/데드크로스 → ma_crossover buy/sell, 기본 5/20
 - RSI 30 이하/70 이상 → rsi buy/sell, 기본 period 14
+- 'RSI가 30 아래로 내려갔다가 다시 올라오는' / 'RSI 과매도 반등' 구어체도 rsi buy (operator "<=", value 30)
+- 매도 동사: '매도/청산' 외 '팔고/팔아/팔면' 구어체도 동일 처리
 - MACD, 볼린저밴드, 신고가 돌파, 거래량 급증, AI 상승/하락 예측을 해당 indicator로 변환
+- 박스권/N일 고점 위로 돌파 → breakout buy (기간 없으면 lookback 20), 다시 박스 안/저점 아래로 이탈 시 매도 → breakout sell
 - 1년/6개월/3개월/1개월 보유 → 252/126/63/21 거래일
 - 매월/분기/매년 리밸런싱 → monthly/quarterly/yearly
 - 손절/익절/트레일링 스탑/MDD 한도를 % 숫자로 변환
@@ -357,33 +404,36 @@ class NLStrategyParser:
     def __init__(
         self,
         backend: Literal["ollama", "mlx"] = "mlx",
-        model_7b: str = "mlx-community/Qwen3.5-9B-OptiQ-4bit",
-        model_32b: str = "mlx-community/Qwen3.5-9B-OptiQ-4bit",
-        ollama_model_7b: str = "qwen3.5:9b",
-        ollama_model_32b: str = "qwen3.5:9b",
+        # 모델은 크기에 종속되지 않는다. 기본은 4B이며, 환경변수로 9B 등 다른 모델로 교체해
+        # A/B 비교할 수 있다(코드 수정 없이): NL_MLX_MODEL / NL_OLLAMA_MODEL.
+        # 환경변수는 import 시점이 아니라 인스턴스 생성 시점에 읽어, 테스트가 격리할 수 있게 한다.
+        mlx_model: Optional[str] = None,
+        model_32b: str = "mlx-community/Qwen3.5-4B-4bit",
+        ollama_model: Optional[str] = None,
+        ollama_model_32b: str = "qwen3.5:4b",
         max_retries: int = 3,
     ):
         self.backend = backend
-        self.model_7b = model_7b
+        self.mlx_model = mlx_model or os.environ.get("NL_MLX_MODEL", "mlx-community/Qwen3.5-4B-4bit")
         self.model_32b = model_32b
-        self.ollama_model_7b = ollama_model_7b
+        self.ollama_model = ollama_model or os.environ.get("NL_OLLAMA_MODEL", "qwen3.5:4b")
         self.ollama_model_32b = ollama_model_32b
         self.max_retries = max_retries
         self._client = None
-        # MLX: 7B (parse + modification용), 32B (미사용)
-        self._generator_7b = None
-        self._diff_generator_7b = None
+        # MLX: 기본 모델(parse + modification + coach용, 서버 시작 시 로드), 32B 슬롯(미사용)
+        self._generator = None
+        self._diff_generator = None
         self._generator_32b = None
         self._diff_generator_32b = None
-        self._mlx_model_7b = None
-        self._tokenizer_7b = None
+        self._mlx_model = None
+        self._tokenizer = None
         self._mlx_model_32b = None
         self._tokenizer_32b = None
 
     def _model_log_label(self, model_name: str) -> str:
         """로그에 표시할 사람이 읽기 쉬운 모델 라벨을 만든다."""
         model_id = model_name.split("/")[-1]
-        normalized = model_id.replace("-OptiQ-4bit", "").replace("-Instruct-4bit", "")
+        normalized = model_id.replace("-OptiQ-4bit", "").replace("-Instruct-4bit", "").replace("-4bit", "")
         return normalized or model_name
 
     # ── Lazy init ────────────────────────────────────────────────────────────
@@ -403,9 +453,9 @@ class NLStrategyParser:
             mode=instructor.Mode.JSON,
         )
 
-    def _init_mlx_7b(self):
-        """기본 MLX 모델 초기화 (parse + modification용, 서버 시작 시 로드)"""
-        if self._generator_7b is not None:
+    def _init_mlx(self):
+        """기본 MLX 모델 초기화 (4B, parse + modification용, 서버 시작 시 로드)"""
+        if self._generator is not None:
             return
         try:
             import outlines
@@ -414,14 +464,14 @@ class NLStrategyParser:
         except ImportError:
             raise RuntimeError("pip install outlines mlx-lm 필요")
 
-        log_label = self._model_log_label(self.model_7b)
-        print(f"[NLParser] {log_label} 모델 로딩: {self.model_7b} ...", flush=True)
-        mlx_model, tokenizer = mlx_lm.load(self.model_7b)
-        self._mlx_model_7b = mlx_model
-        self._tokenizer_7b = tokenizer
-        self._outlines_model_7b = models.from_mlxlm(mlx_model, tokenizer)
-        self._generator_7b = outlines.Generator(self._outlines_model_7b, ParsedStrategy)
-        self._diff_generator_7b = outlines.Generator(self._outlines_model_7b, ParsedStrategyDiff)
+        log_label = self._model_log_label(self.mlx_model)
+        print(f"[NLParser] {log_label} 모델 로딩: {self.mlx_model} ...", flush=True)
+        mlx_model, tokenizer = mlx_lm.load(self.mlx_model)
+        self._mlx_model = mlx_model
+        self._tokenizer = tokenizer
+        self._outlines_model = models.from_mlxlm(mlx_model, tokenizer)
+        self._generator = outlines.Generator(self._outlines_model, ParsedStrategy)
+        self._diff_generator = outlines.Generator(self._outlines_model, ParsedStrategyDiff)
         print(f"[NLParser] {log_label} 모델 로딩 완료", flush=True)
 
     def _init_mlx_32b(self):
@@ -445,14 +495,18 @@ class NLStrategyParser:
         self._diff_generator_32b = outlines.Generator(self._outlines_model_32b, ParsedStrategyDiff)
         print(f"[NLParser] {log_label} 모델 로딩 완료", flush=True)
 
-    # 하위 호환: preload_nl_parser에서 _init_mlx() 호출 지원
-    def _init_mlx(self):
-        self._init_mlx_7b()
-
     # ── 파싱 ─────────────────────────────────────────────────────────────────
 
+    def parse_rule_based(self, user_input: str) -> Optional[ParsedStrategy]:
+        """LLM 없이 규칙 기반으로만 파싱한다.
+
+        슬롯이 충분하면 ParsedStrategy를, 모호하면 None을 반환한다. 모델·추론 락이
+        전혀 필요 없으므로, 호출 측이 코치 LLM 생성과 무관하게 즉시 결과를 받을 수 있다.
+        None이면 호출 측이 LLM 폴백(parse)을 결정한다."""
+        return _parse_rule_based_strategy(user_input)
+
     def parse(self, user_input: str) -> ParsedStrategy:
-        """자연어 입력 → ParsedStrategy (7B 사용)"""
+        """자연어 입력 → ParsedStrategy (규칙 기반 우선, 모호하면 4B 사용)"""
         parsed_by_rules = _parse_rule_based_strategy(user_input)
         if parsed_by_rules is not None:
             return parsed_by_rules
@@ -498,13 +552,13 @@ class NLStrategyParser:
         return _apply_prompt_overrides(ParsedStrategy.model_validate(merged), user_input)
 
     def _modify_mlx(self, user_input: str, previous: dict) -> ParsedStrategyDiff:
-        self._init_mlx_7b()
+        self._init_mlx()
         prompt = (
             f"{MODIFY_PROMPT}\n\n"
             f"현재 전략:\n{json.dumps(previous, ensure_ascii=False)}\n\n"
             f"수정 요청: \"{user_input}\"\n출력:"
         )
-        result = self._diff_generator_7b(prompt, max_tokens=1024)
+        result = self._diff_generator(prompt, max_tokens=1024)
         if isinstance(result, str):
             return _parse_model_json_response(result, ParsedStrategyDiff)
         return result
@@ -512,7 +566,7 @@ class NLStrategyParser:
     def _modify_ollama(self, user_input: str, previous: dict) -> ParsedStrategyDiff:
         self._init_ollama()
         result = self._client.chat.completions.create(
-            model=self.ollama_model_7b,
+            model=self.ollama_model,
             response_model=ParsedStrategyDiff,
             max_retries=self.max_retries,
             messages=[
@@ -525,15 +579,33 @@ class NLStrategyParser:
         )
         return result
 
-    def chat(self, system_prompt: str, user_message: str, max_tokens: int = 512) -> str:
-        """자유형식 텍스트 생성 — 코치/요약 등 비구조화 응답용 (MLX 전용)."""
-        self._init_mlx_7b()
+    @staticmethod
+    def _sampler_kwargs(temperature: float, top_p: float) -> dict:
+        """temperature>0이면 샘플러를 만들어 generate에 넘길 kwargs를 반환한다.
+        temperature<=0이면 빈 dict → 기존 greedy(deterministic) 동작 유지."""
+        if temperature <= 0:
+            return {}
+        from mlx_lm.sample_utils import make_sampler
+
+        return {"sampler": make_sampler(temp=temperature, top_p=top_p)}
+
+    def chat(
+        self,
+        system_prompt: str,
+        user_message: str,
+        max_tokens: int = 512,
+        temperature: float = 0.0,
+        top_p: float = 1.0,
+    ) -> str:
+        """자유형식 텍스트 생성 — 코치/요약 등 비구조화 응답용 (MLX 전용).
+        temperature>0이면 표현이 매번 달라지도록 샘플링한다(코치용)."""
+        self._init_mlx()
         try:
             import mlx_lm
         except ImportError:
             raise RuntimeError("pip install mlx-lm 필요")
 
-        tokenizer = self._tokenizer_7b
+        tokenizer = self._tokenizer
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
@@ -549,18 +621,31 @@ class NLStrategyParser:
             prompt = f"{system_prompt}\n\n{user_message}"
 
         return mlx_lm.generate(
-            self._mlx_model_7b, tokenizer, prompt=prompt, max_tokens=max_tokens, verbose=False
+            self._mlx_model,
+            tokenizer,
+            prompt=prompt,
+            max_tokens=max_tokens,
+            verbose=False,
+            **self._sampler_kwargs(temperature, top_p),
         ).strip()
 
-    def stream_chat(self, system_prompt: str, user_message: str, max_tokens: int = 512):
-        """토큰 단위 스트리밍 생성 — 각 yield마다 누적된 전체 텍스트를 반환 (MLX 전용)."""
-        self._init_mlx_7b()
+    def stream_chat(
+        self,
+        system_prompt: str,
+        user_message: str,
+        max_tokens: int = 512,
+        temperature: float = 0.0,
+        top_p: float = 1.0,
+    ):
+        """토큰 단위 스트리밍 생성 — 각 yield마다 누적된 전체 텍스트를 반환 (MLX 전용).
+        temperature>0이면 표현이 매번 달라지도록 샘플링한다(코치용)."""
+        self._init_mlx()
         try:
             import mlx_lm
         except ImportError:
             raise RuntimeError("pip install mlx-lm 필요")
 
-        tokenizer = self._tokenizer_7b
+        tokenizer = self._tokenizer
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
@@ -576,15 +661,19 @@ class NLStrategyParser:
             prompt = f"{system_prompt}\n\n{user_message}"
 
         for resp in mlx_lm.stream_generate(
-            self._mlx_model_7b, tokenizer, prompt=prompt, max_tokens=max_tokens
+            self._mlx_model,
+            tokenizer,
+            prompt=prompt,
+            max_tokens=max_tokens,
+            **self._sampler_kwargs(temperature, top_p),
         ):
             # resp.text is the incremental delta for this step
             yield resp.text
 
     def _parse_mlx(self, user_input: str) -> ParsedStrategy:
-        self._init_mlx_7b()
+        self._init_mlx()
         prompt = f"{COMPACT_SYSTEM_PROMPT}\n\n입력: \"{user_input}\"\n출력:"
-        result = self._generator_7b(prompt, max_tokens=1024)
+        result = self._generator(prompt, max_tokens=1024)
         if isinstance(result, str):
             return _parse_model_json_response(result, ParsedStrategy)
         return result
@@ -592,7 +681,7 @@ class NLStrategyParser:
     def _parse_ollama(self, user_input: str) -> ParsedStrategy:
         self._init_ollama()
         result = self._client.chat.completions.create(
-            model=self.ollama_model_7b,
+            model=self.ollama_model,
             response_model=ParsedStrategy,
             max_retries=self.max_retries,
             messages=[
@@ -743,18 +832,33 @@ _INDICATOR_KEYWORDS: dict[str, list[str]] = {
     "ai_drop_model": ["ai", "인공지능"],
 }
 
+# 패턴/서술형 신호: 표현이 무한히 다양해(박스권 돌파, 이평선 위로 뚫음, 거래량 터짐…)
+# 고정 키워드 화이트리스트로 거르면 모델이 맞게 뽑은 신호까지 잘라낸다. 따라서 이들은
+# 키워드 검증을 건너뛰고 모델/결정적 추출을 신뢰한다. 반대로 이름이 고정된 지표
+# (rsi/macd/cci/adx/stochastic/bollinger/ema/ai)는 사용자가 그 이름을 직접 써야 하므로
+# 환각 방지를 위해 키워드 검증을 유지한다.
+_DESCRIPTIVE_INDICATORS = {"ma_crossover", "breakout", "volume_spike"}
+
 
 def _validate_signals(
     signals: list[TechnicalSignal],
     user_input: str,
 ) -> list[TechnicalSignal]:
     """
-    LLM이 생성한 신호 중 프롬프트에 실제로 언급된 지표만 남긴다.
-    프롬프트에 키워드가 없는 지표는 LLM 환각으로 간주하고 제거한다.
+    LLM이 생성한 신호 중 환각으로 의심되는 것만 제거한다.
+
+    이름이 고정된 지표(rsi/macd/cci 등)는 사용자가 그 이름을 직접 써야 하므로, 키워드가
+    없으면 환각으로 보고 제거한다. 반면 서술형 신호(_DESCRIPTIVE_INDICATORS)는 표현이
+    무한히 다양해 키워드로 거르면 오히려 정답을 잘라내므로, 검증 없이 신뢰한다.
+    (놓친 표현은 키워드를 늘리는 대신 LLM 프롬프트 예시로 일반화한다.)
     """
     compact = re.sub(r"\s+", "", user_input.lower())
     validated: list[TechnicalSignal] = []
     for sig in signals:
+        if sig.indicator in _DESCRIPTIVE_INDICATORS:
+            # 서술형 신호는 표현이 다양해 키워드 검증을 건너뛰고 신뢰한다.
+            validated.append(sig)
+            continue
         keywords = _INDICATOR_KEYWORDS.get(sig.indicator, [])
         if not keywords:
             # 알 수 없는 지표는 일단 유지
@@ -816,13 +920,22 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
         ))
 
     # ── RSI 매수/매도 ──
-    rsi_buy_match = re.search(r"rsi\s*(\d+)\s*이하.*?매수|rsi.*?과매도.*?매수", compact)
+    # 조사("rsi가30") + "이하/미만/아래/밑" + 매수/진입/반등/올라오는(과매도 반등) 표현 허용
+    rsi_buy_match = re.search(
+        r"rsi(?:가|이|은|는|을|를)?\s*(\d+)\s*(?:이하|미만|아래|밑).*?(?:매수|진입|반등|올라)"
+        r"|rsi.*?과매도.*?(?:매수|반등|올라)",
+        compact,
+    )
     if rsi_buy_match:
         val = int(rsi_buy_match.group(1)) if rsi_buy_match.group(1) else 30
         entry.append(TechnicalSignal(
             indicator="rsi", signal_type="buy", period=14, operator="<=", value=float(val),
         ))
-    rsi_sell_match = re.search(r"rsi\s*(\d+)\s*이상.*?매도|rsi.*?과매수.*?매도", compact)
+    rsi_sell_match = re.search(
+        r"rsi(?:가|이|은|는|을|를)?\s*(\d+)\s*(?:이상|초과|위).*?(?:매도|청산)"
+        r"|rsi.*?과매수.*?(?:매도|청산)",
+        compact,
+    )
     if rsi_sell_match:
         val = int(rsi_sell_match.group(1)) if rsi_sell_match.group(1) else 70
         exit_.append(TechnicalSignal(
@@ -843,24 +956,29 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
     if re.search(r"볼린저.*?상단.*?매도|볼린저밴드.*?매도", compact):
         exit_.append(TechnicalSignal(indicator="bollinger_bands", signal_type="sell"))
 
-    # ── 브레이크아웃 ──
-    breakout_match = re.search(
-        r"(?:(\d+)(주|일)?신고가.*?(?:돌파|매수|진입|들어가|새로만들)|브레이크아웃)",
-        compact,
+    # ── 브레이크아웃 (신고가 / 박스권 위로 돌파 / N일 고점 돌파) ──
+    breakout_lookback = _extract_breakout_lookback(compact)
+    has_high_breakout = bool(
+        re.search(r"(?:\d+(?:주|일)?)?신고가.*?(?:돌파|매수|진입|들어가|새로만들)", compact)
+        or "브레이크아웃" in compact
+        or re.search(r"박스권?.{0,8}돌파", compact)
+        or re.search(r"\d+일고점.{0,6}(?:돌파|넘|상향|위로|매수)", compact)
+        or re.search(r"고점.{0,4}돌파", compact)
     )
-    if breakout_match:
-        lookback = 20
-        period_text = breakout_match.group(1)
-        period_unit = breakout_match.group(2)
-        if period_text:
-            period_value = int(period_text)
-            if period_unit == "주":
-                lookback = period_value * 5 if period_value < 52 else 252
-            elif period_unit == "일":
-                lookback = period_value
-            else:
-                lookback = 252 if period_value == 52 else period_value
-        entry.append(TechnicalSignal(indicator="breakout", signal_type="buy", lookback_period=lookback))
+    if has_high_breakout:
+        entry.append(TechnicalSignal(
+            indicator="breakout", signal_type="buy", lookback_period=breakout_lookback,
+        ))
+
+    # ── 박스권 이탈 매도 (박스 하단/저점 하향 이탈 → breakout sell) ──
+    has_box_breakdown = bool(
+        re.search(r"박스권?.{0,6}(?:안으로|내려|아래|하단|이탈).{0,8}(?:매도|청산|팔)", compact)
+        or re.search(r"\d+일저점.{0,6}(?:이탈|깨|하향|무너).{0,8}(?:매도|청산|팔)", compact)
+    )
+    if has_box_breakdown:
+        exit_.append(TechnicalSignal(
+            indicator="breakout", signal_type="sell", lookback_period=breakout_lookback,
+        ))
 
     # ── 거래량 급증 ──
     if (
@@ -874,6 +992,21 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
         entry.append(TechnicalSignal(indicator="volume_spike", signal_type="buy", period=20))
 
     return entry, exit_
+
+
+def _extract_breakout_lookback(compact: str) -> int:
+    """브레이크아웃 기준 기간(거래일)을 추출한다. 신고가/최고가/고점/저점 앞의 숫자를
+    사용하고, '주'는 거래일로 환산(52주=252)한다. 숫자가 없으면 박스권 기본값 20일."""
+    match = re.search(r"(\d+)(주|일)?(?:신고가|최고가|고점|저점)", compact)
+    if not match:
+        return 20
+    value = int(match.group(1))
+    unit = match.group(2)
+    if unit == "주":
+        return value * 5 if value < 52 else 252
+    if unit == "일":
+        return value
+    return 252 if value == 52 else value
 
 
 _FUNDAMENTAL_PATTERN_SPECS = [
@@ -923,6 +1056,31 @@ def _extract_fundamental_filters(user_input: str) -> list[FundamentalFilter]:
     return filters
 
 
+def _extract_ranking(user_input: str) -> tuple[Optional[str], Optional[int]]:
+    """상대강도(수익률 순위) 랭킹 의도를 (metric, lookback_days)로 추출한다.
+
+    '최근 60거래일 수익률이 높은 상위 N종목' / '모멘텀 상위' 류를 ('return', 60)로 매핑한다.
+    종목 간 횡단면 순위 선정이라 진입 신호 없이 순위 자체가 진입이 된다. 없으면 (None, None).
+    """
+    compact = re.sub(r"\s+", "", user_input.lower())
+    if not _mentions_relative_strength_ranking(compact):
+        return (None, None)
+    # 기간 추출: "60거래일", "60일 수익률", "최근 3개월" 등 → 거래일로 환산
+    lookback: Optional[int] = None
+    match = re.search(r"(\d+)거래일", compact)
+    if match:
+        lookback = int(match.group(1))
+    else:
+        match = re.search(r"(\d+)일.{0,4}(?:수익률|상승률|등락률|모멘텀)", compact)
+        if match:
+            lookback = int(match.group(1))
+        else:
+            match = re.search(r"(\d+)개월.{0,6}(?:수익률|상승률|오른|모멘텀)", compact)
+            if match:
+                lookback = int(match.group(1)) * 21
+    return ("return", lookback or 60)
+
+
 def _extract_max_positions(user_input: str) -> Optional[int]:
     compact = re.sub(r"\s+", "", user_input.lower())
     patterns = [
@@ -961,7 +1119,7 @@ def _extract_hold_period_days(user_input: str) -> Optional[int]:
 
 def _extract_rebalancing_period(user_input: str, hold_period_days: Optional[int]) -> str:
     compact = re.sub(r"\s+", "", user_input.lower())
-    if "매월" in compact or "월간리밸런싱" in compact:
+    if "매월" in compact or "월간리밸런싱" in compact or re.search(r"한달에한번|달에한번|월1회|매달", compact):
         return "monthly"
     if "분기" in compact:
         return "quarterly"
@@ -1055,13 +1213,18 @@ def _parse_rule_based_strategy(user_input: str) -> Optional[ParsedStrategy]:
     fundamental_filters = _extract_fundamental_filters(user_input)
     entry_signals, exit_signals = _extract_technical_signals(user_input)
     hold_period_days = _extract_hold_period_days(user_input)
+    ranking_metric, ranking_lookback_days = _extract_ranking(user_input)
 
-    has_entry = bool(fundamental_filters or entry_signals)
+    has_entry = bool(fundamental_filters or entry_signals or ranking_metric)
     has_exit = bool(exit_signals or hold_period_days)
     has_risk_exit = bool(
-        re.search(r"손절|익절|트레일링|최고가대비|mdd|낙폭", re.sub(r"\s+", "", user_input.lower()))
+        re.search(
+            r"손절|익절|트레일링|최고가대비|mdd|낙폭|수익실현|수익확정|목표수익",
+            re.sub(r"\s+", "", user_input.lower()),
+        )
     )
-    if not has_entry or not (has_exit or has_risk_exit):
+    # 랭킹 전략은 정기 리밸런싱으로 회전하므로(보유기간/리스크가 없어도) 청산 요건을 충족한 것으로 본다.
+    if not has_entry or not (has_exit or has_risk_exit or ranking_metric):
         return None
 
     parsed = ParsedStrategy(
@@ -1070,6 +1233,8 @@ def _parse_rule_based_strategy(user_input: str) -> Optional[ParsedStrategy]:
         fundamental_filters=fundamental_filters,
         entry_signals=entry_signals,
         exit_signals=exit_signals,
+        ranking_metric=ranking_metric,
+        ranking_lookback_days=ranking_lookback_days,
         max_positions=_extract_max_positions(user_input) or 10,
         hold_period_days=hold_period_days,
         rebalancing_period=_extract_rebalancing_period(user_input, hold_period_days),
@@ -1090,12 +1255,15 @@ def _build_fallback_strategy(user_input: str) -> ParsedStrategy:
     """Safe non-LLM fallback when structured model output is incomplete."""
     entry_signals, exit_signals = _extract_technical_signals(user_input)
     hold_period_days = _extract_hold_period_days(user_input)
+    ranking_metric, ranking_lookback_days = _extract_ranking(user_input)
     parsed = ParsedStrategy(
         description=user_input,
         universe=_extract_explicit_universe(user_input) or ["KOSPI200"],
         fundamental_filters=_extract_fundamental_filters(user_input),
         entry_signals=entry_signals,
         exit_signals=exit_signals,
+        ranking_metric=ranking_metric,
+        ranking_lookback_days=ranking_lookback_days,
         max_positions=_extract_max_positions(user_input) or 10,
         hold_period_days=hold_period_days,
         rebalancing_period=_extract_rebalancing_period(user_input, hold_period_days),
@@ -1139,6 +1307,99 @@ def _merge_signals(
 
 _DELETE_TERMS = ["삭제", "없애", "제거", "지워", "빼줘", "빼"]
 
+# 리스크 % 값을 표현별 정규식 없이 '필드 키워드 + 퍼센트' 한 규칙으로 추출하기 위한 cue.
+# 키워드와 숫자가 인접하지 않아도("익절 비율을 30%로"), 같은 절(다른 % 미포함) 안이면 연결한다.
+_TAKE_PROFIT_CUE = r"(?:익절|수익실현|수익확정|목표수익)"
+_STOP_LOSS_CUE = r"손절"
+_TRAILING_CUE = r"(?:트레일링(?:스탑|스톱)?|최고가대비)"
+# 다른 리스크 필드 키워드를 사이에 두고는 연결하지 않아 오인식("손절 없이 익절 10%")을 막는다.
+_STOP_LOSS_BLOCK = r"익절|수익실현|수익확정|목표수익|트레일링"
+_TAKE_PROFIT_BLOCK = r"손절|손실|트레일링"
+_TRAILING_BLOCK = r"손절|익절"
+
+
+# "매도/청산" 외에 구어체 "팔고/팔아/팔자/팔래/팔면/팔게/팔까"도 매도 동사로 인정
+_SELL_VERB = r"(?:매도|청산|팔[고아자래면게까])"
+
+# 필드 키워드가 없는 동사형 표현(주로 최초 입력) 폴백 패턴.
+_TAKE_PROFIT_VERB_PATTERNS = (
+    rf"수익이?(\d+(?:\.\d+)?)%이상.*?{_SELL_VERB}",
+    rf"(\d+(?:\.\d+)?)%이상수익.*?{_SELL_VERB}",
+    rf"(\d+(?:\.\d+)?)%수익.*?{_SELL_VERB}",
+    rf"수익이?(\d+(?:\.\d+)?)%.*?{_SELL_VERB}",
+)
+_STOP_LOSS_VERB_PATTERNS = (
+    r"손실이?(\d+(?:\.\d+)?)%이상.*?(?:매도|청산)",
+    r"(\d+(?:\.\d+)?)%이상하락.*?(?:매도|청산)",
+    r"(\d+(?:\.\d+)?)%하락.*?(?:매도|청산)",
+    r"-(\d+(?:\.\d+)?)%.*?(?:매도|청산)",
+)
+
+
+def _match_risk_pct(compact: str, cue: str, blocker: str = "") -> Optional[float]:
+    """필드 키워드(cue)와 퍼센트가 떨어져 있어도 같은 절 안이면 값을 추출한다.
+
+    표현별 패턴을 늘리는 대신 '키워드 ~ %' / '% ~ 키워드' 두 방향 한 규칙으로 일반화한다.
+    blocker(다른 리스크 필드 키워드)가 사이에 끼면 연결하지 않아 오인식을 막는다.
+    compact는 공백 제거·소문자화된 입력이다."""
+    gap = rf"(?:(?!{blocker})[^%])*?" if blocker else r"[^%]*?"
+    for pattern in (rf"{cue}{gap}-?(\d+(?:\.\d+)?)%", rf"-?(\d+(?:\.\d+)?)%{gap}{cue}"):
+        match = re.search(pattern, compact)
+        if match:
+            return float(match.group(1))
+    return None
+
+
+def _first_pct_match(compact: str, patterns: tuple[str, ...]) -> Optional[float]:
+    for pattern in patterns:
+        match = re.search(pattern, compact)
+        if match:
+            return float(match.group(1))
+    return None
+
+
+def extract_risk_field_overrides(user_input: str) -> dict[str, Optional[float]]:
+    """프롬프트에서 '규칙 기반으로 결정적으로' 바뀐 리스크 필드만 추출한다.
+
+    이것이 리스크 필드(손절/익절/트레일링)의 **단일 진실 소스**다. 값이 잡히면
+    {field: value}, 삭제 의도면 {field: None}, 못 찾으면 키 없음.
+    파서(_apply_prompt_overrides)와 API가 공유하여, 프론트가 자체 정규식으로
+    리스크 변경을 다시 추측하지 않고 이 결과를 그대로 신뢰하게 한다.
+    """
+    compact = re.sub(r"\s+", "", user_input.lower())
+    is_deleting = any(kw in compact for kw in _DELETE_TERMS)
+    out: dict[str, Optional[float]] = {}
+
+    # ── 익절(take_profit): 키워드(익절/수익실현/수익확정/목표수익) → 동사형 폴백 ──
+    if is_deleting and any(kw in compact for kw in ["익절", "takeprofit", "익절률"]):
+        out["take_profit_pct"] = None
+    else:
+        value = _match_risk_pct(compact, _TAKE_PROFIT_CUE, blocker=_TAKE_PROFIT_BLOCK)
+        if value is None:
+            value = _first_pct_match(compact, _TAKE_PROFIT_VERB_PATTERNS)
+        if value is not None:
+            out["take_profit_pct"] = value
+
+    # ── 손절(stop_loss): "손절" 키워드 → "손실·하락+매도", "-N% 매도" 폴백 ──
+    if is_deleting and any(kw in compact for kw in ["손절", "stoploss", "스탑로스"]):
+        out["stop_loss_pct"] = None
+    else:
+        value = _match_risk_pct(compact, _STOP_LOSS_CUE, blocker=_STOP_LOSS_BLOCK)
+        if value is None:
+            value = _first_pct_match(compact, _STOP_LOSS_VERB_PATTERNS)
+        if value is not None:
+            out["stop_loss_pct"] = value
+
+    # ── 트레일링 스탑: "트레일링/최고가대비" 키워드 + % ──
+    if is_deleting and any(kw in compact for kw in ["트레일링", "trailingstop", "최고가대비"]):
+        out["trailing_stop_pct"] = None
+    else:
+        value = _match_risk_pct(compact, _TRAILING_CUE, blocker=_TRAILING_BLOCK)
+        if value is not None:
+            out["trailing_stop_pct"] = value
+
+    return out
+
 
 def _apply_prompt_overrides(parsed: ParsedStrategy, user_input: str) -> ParsedStrategy:
     updates: dict[str, object] = {}
@@ -1146,55 +1407,15 @@ def _apply_prompt_overrides(parsed: ParsedStrategy, user_input: str) -> ParsedSt
     if explicit_universe is not None:
         updates["universe"] = explicit_universe
 
-    compact = re.sub(r"\s+", "", user_input.lower())
+    # 리스크 필드(손절/익절/트레일링)는 단일 진실 소스에서 가져온다.
+    updates.update(extract_risk_field_overrides(user_input))
 
-    is_deleting = any(kw in compact for kw in _DELETE_TERMS)
-    is_deleting_stop_loss = is_deleting and any(kw in compact for kw in ["손절", "stoploss", "스탑로스"])
-    is_deleting_take_profit = is_deleting and any(kw in compact for kw in ["익절", "takeprofit", "익절률"])
-
-    take_profit_patterns = [
-        # "수익이 10% 이상 날때도 매도", "수익이 10% 이상이면 매도"
-        r"수익이?(\d+(?:\.\d+)?)%이상.*?(?:매도|청산)",
-        # "10% 이상 수익이면 매도", "10% 이상 수익시 매도"
-        r"(\d+(?:\.\d+)?)%이상수익.*?(?:매도|청산)",
-        # "10% 수익이면 매도"
-        r"(\d+(?:\.\d+)?)%수익.*?(?:매도|청산)",
-        # "수익 10%에서 매도", "수익 10% 매도"
-        r"수익이?(\d+(?:\.\d+)?)%.*?(?:매도|청산)",
-        # "익절 10%", "익절10%"
-        r"익절-?(\d+(?:\.\d+)?)%",
-    ]
-    if is_deleting_take_profit:
-        updates["take_profit_pct"] = None
-    else:
-        for pattern in take_profit_patterns:
-            match = re.search(pattern, compact)
-            if match:
-                updates["take_profit_pct"] = float(match.group(1))
-                break
-
-    stop_loss_patterns = [
-        # "손실 10% 이상이면 매도"
-        r"손실이?(\d+(?:\.\d+)?)%이상.*?(?:매도|청산)",
-        # "10% 이상 하락시 매도", "10% 이상 하락하면 매도"
-        r"(\d+(?:\.\d+)?)%이상하락.*?(?:매도|청산)",
-        # "10% 하락시 매도", "10% 하락하면 매도"
-        r"(\d+(?:\.\d+)?)%하락.*?(?:매도|청산)",
-        # "-10% 매도", "-10%에서 매도"
-        r"-(\d+(?:\.\d+)?)%.*?(?:매도|청산)",
-        # "-10% 손절", "-10%에서 손절"
-        r"-(\d+(?:\.\d+)?)%.*?손절",
-        # "손절 10%", "손절은 -10%", "손절률 10%"
-        r"손절(?:은|은요|은\s*|률은|률|선은|선)?-?(\d+(?:\.\d+)?)%",
-    ]
-    if is_deleting_stop_loss:
-        updates["stop_loss_pct"] = None
-    else:
-        for pattern in stop_loss_patterns:
-            match = re.search(pattern, compact)
-            if match:
-                updates["stop_loss_pct"] = float(match.group(1))
-                break
+    # 상대강도(수익률 순위) 랭킹도 프롬프트에서 결정적으로 추출(LLM이 놓쳐도 보장).
+    # 언급이 없으면 기존 값을 덮어쓰지 않는다(수정 모드 보호).
+    ranking_metric, ranking_lookback_days = _extract_ranking(user_input)
+    if ranking_metric is not None:
+        updates["ranking_metric"] = ranking_metric
+        updates["ranking_lookback_days"] = ranking_lookback_days
 
     # ── Step 1: LLM 환각 신호 제거 (프롬프트에 언급되지 않은 지표 제거) ──
     validated_entry = _validate_signals(list(parsed.entry_signals), user_input)
@@ -1216,6 +1437,71 @@ def _apply_prompt_overrides(parsed: ParsedStrategy, user_input: str) -> ParsedSt
     if not updates:
         return parsed
     return parsed.model_copy(update=updates)
+
+
+# 상대강도(수익률 순위) 랭킹 의도 감지용 cue — "수익률 높은 상위 N종목" 류.
+# 이 선정 방식은 종목 간 횡단면 순위라 현재 엔진(종목별 신호/필터)으로 표현 불가하다.
+_RELATIVE_STRENGTH_RANKING_CUES = (
+    r"수익률.{0,6}(?:상위|높은|좋은|top)",
+    r"(?:상위|높은|좋은).{0,6}수익률",
+    r"등락률.{0,6}(?:상위|높은)",
+    r"수익률.{0,4}순위",
+    r"상대강도",
+    r"모멘텀.{0,5}(?:상위|순위|랭킹|상위권)",
+    r"(?:상승률|많이오른|꾸준히오른).{0,8}(?:상위|상위권|순)",
+)
+
+
+def _mentions_relative_strength_ranking(compact: str) -> bool:
+    return any(re.search(pattern, compact) for pattern in _RELATIVE_STRENGTH_RANKING_CUES)
+
+
+# 진입 규칙을 하나도 구조화하지 못했을 때 쓰는 일반 안내(재무 필터/기술 신호 미언급).
+_MISSING_ENTRY_QUESTION = (
+    "어떤 조건으로 종목을 선택할까요? 진입 조건을 알려주세요.\n\n"
+    "예시:\n"
+    "• **재무 필터**: \"PBR 1 이하\", \"ROE 15% 이상\", \"PER 10 이하\"\n"
+    "• **기술적 신호**: \"골든크로스 발생 시 매수\", \"RSI 30 이하에서 매수\""
+)
+_MISSING_ENTRY_SUGGESTIONS = [
+    "PBR 1 이하, PER 10 이하 저평가 종목",
+    "골든크로스(5일/20일) 발생 시 매수",
+    "RSI 30 이하 과매도 구간에서 매수",
+    "AI 모델 상승 예측 종목 매수",
+]
+
+# 상대강도 랭킹을 말했지만 표현이 불가능할 때: 가까운 추세추종으로 바꾸도록 안내.
+_RELATIVE_STRENGTH_QUESTION = (
+    "'수익률이 높은 종목을 골라 담는' **상대강도(모멘텀) 랭킹** 방식을 말씀하신 것 같아요.\n\n"
+    "이 선정 방식은 아직 직접 지원되지 않아요. 대신 비슷하게 '꾸준히 오르는 추세'를 "
+    "**추세추종 신호**로 바꿔서 만들 수 있어요. 아래에서 가까운 방식을 골라 다시 말씀해 주세요."
+)
+_RELATIVE_STRENGTH_SUGGESTIONS = [
+    "20일선이 60일선을 상향 돌파하면 매수, 데드크로스 시 매도",
+    "60일 신고가를 돌파하면 매수",
+    "골든크로스(5일/20일) 매수, 데드크로스 매도",
+]
+
+
+def detect_missing_entry_clarification(
+    parsed: ParsedStrategy,
+    user_prompt: str = "",
+) -> tuple[Optional[str], Optional[List[str]]]:
+    """진입(종목 선정) 규칙을 하나도 구조화하지 못했을 때만 되묻는다.
+
+    파서가 사용자의 진입 의도를 표현하지 못하면 — 미지원 전략 유형이라 못 잡은 경우 포함 —
+    조용히 버리지 않고 명시적으로 확인한다. 상대강도(수익률 순위) 랭킹처럼 아직 지원 안 되는
+    유형은 가까운 추세추종으로 바꿀 수 있게 안내한다. 진입 규칙이 있으면 (None, None).
+
+    유니버스·초기자금 등 다른 누락은 일부러 묻지 않는다(기본값이 있어 노이즈만 됨).
+    여기서는 '진입을 통째로 잃는' 침묵 누락만 막는다.
+    """
+    if parsed.fundamental_filters or parsed.entry_signals or parsed.ranking_metric:
+        return (None, None)
+    compact = re.sub(r"\s+", "", user_prompt.lower())
+    if _mentions_relative_strength_ranking(compact):
+        return (_RELATIVE_STRENGTH_QUESTION, list(_RELATIVE_STRENGTH_SUGGESTIONS))
+    return (_MISSING_ENTRY_QUESTION, list(_MISSING_ENTRY_SUGGESTIONS))
 
 
 def validate_parsed_strategy(

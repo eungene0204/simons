@@ -66,7 +66,10 @@ def test_advisor_quality_smoke_for_representative_strategy_prompts():
         result = _review(prompt, parsed_strategy)
         learning_advice = _top_learning_advice(result)
 
-        assert "각각 바꿔 테스트" in learning_advice
+        assert "한 번에 하나씩만 비교" in learning_advice
+        assert "각각 바꿔 테스트" not in learning_advice
+        assert "백테스트 학습 사례" not in learning_advice
+        assert "중앙값" not in learning_advice
         assert "추가 백테스트로 먼저 검증" not in learning_advice
         assert "data_sufficiency" not in learning_advice
         assert "confidence=" not in learning_advice

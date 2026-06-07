@@ -531,7 +531,7 @@ export default function BacktestDashboard({
       label: "총 거래 수",
       englishLabel: "Trades",
       value: `${result.trades || 0}회`,
-      valueClass: "text-white",
+      valueClass: "text-[#FF9933]",
       description: "백테스트 동안 발생한 전체 거래 횟수입니다.",
     },
     {

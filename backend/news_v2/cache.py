@@ -15,7 +15,7 @@ from typing import Optional
 
 from news_v2.config import Settings, get_settings
 from news_v2.logging_setup import get_logger
-from news_v2.repository import ArticleDTO
+from news_v2.repository import CachedNewsDTO
 
 log = get_logger(__name__)
 
@@ -27,20 +27,27 @@ except ImportError:  # pragma: no cover
     _HAS_REDIS = False
 
 
-def _serialize_article(a: ArticleDTO) -> dict:
+def _serialize_article(a: CachedNewsDTO) -> dict:
     d = asdict(a)
     d["published_at"] = a.published_at.isoformat() if a.published_at else None
+    d["cached_at"] = a.cached_at.isoformat() if a.cached_at else None
     return d
 
 
-def _deserialize_article(d: dict) -> ArticleDTO:
+def _deserialize_article(d: dict) -> CachedNewsDTO:
     pub = d.get("published_at")
     if isinstance(pub, str):
         try:
             d["published_at"] = datetime.fromisoformat(pub)
         except ValueError:
             d["published_at"] = datetime.utcnow()
-    return ArticleDTO(**d)
+    cached = d.get("cached_at")
+    if isinstance(cached, str):
+        try:
+            d["cached_at"] = datetime.fromisoformat(cached)
+        except ValueError:
+            d["cached_at"] = datetime.utcnow()
+    return CachedNewsDTO(**d)
 
 
 class NewsCache:
@@ -89,7 +96,7 @@ class NewsCache:
     def _key_circuit(provider: str) -> str:
         return f"news:circuit:{provider}"
 
-    async def get_articles(self, symbol: str) -> Optional[list[ArticleDTO]]:
+    async def get_articles(self, symbol: str) -> Optional[list[CachedNewsDTO]]:
         c = await self.client()
         if c is None:
             return None
@@ -103,7 +110,7 @@ class NewsCache:
             return None
 
     async def set_articles(
-        self, symbol: str, items: list[ArticleDTO], ttl_s: Optional[int] = None
+        self, symbol: str, items: list[CachedNewsDTO], ttl_s: Optional[int] = None
     ) -> None:
         c = await self.client()
         if c is None:

@@ -432,7 +432,10 @@ def test_advisor_injects_experiment_learning_advice(tmp_path):
     assert result.strategy_experiment_learning is not None
     assert result.strategy_experiment_learning["similar_strategy_count"] == 18
     assert result.advice[0].title == "전략 실험 근거 기반 개선"
-    assert "백테스트 학습 사례 18건" in result.advice[0].body
+    assert "유사 실험 근거는 내부 참고용" in result.advice[0].body
+    assert "현재 전략은 먼저 같은 기간과 비용 조건으로 백테스트" in result.advice[0].body
+    assert "백테스트 학습 사례" not in result.advice[0].body
+    assert "중앙값" not in result.advice[0].body
 
 
 def test_advisor_primary_advice_combines_learning_and_memory_evidence(tmp_path):
@@ -472,9 +475,11 @@ def test_advisor_primary_advice_combines_learning_and_memory_evidence(tmp_path):
     ))
 
     assert result.advice[0].title == "전략 실험 근거 기반 개선"
-    assert "백테스트 학습 사례 18건" in result.advice[0].body
+    assert "유사 실험 근거는 내부 참고용" in result.advice[0].body
     assert "유사 전략 경험까지 보면" in result.advice[0].body
     assert "조정 후" in result.advice[0].body
+    assert "백테스트 학습 사례" not in result.advice[0].body
+    assert "중앙값" not in result.advice[0].body
     assert any(item.title == "유사 전략 경험 기반 점검" for item in result.advice)
 
 
@@ -519,10 +524,11 @@ def test_advisor_injects_negative_experiment_warning(tmp_path):
     assert result.strategy_experiment_learning is not None
     assert result.strategy_experiment_learning["negative_sample_count"] == 1
     assert "유사 실패 패턴" in result.advice[0].body
-    assert "제안 주신 전략과 비슷한 전략의 결과" in result.advice[0].body
-    assert "이 전략에서" in result.advice[0].body
-    assert "각각 바꿔 테스트" in result.advice[0].body
-    assert "MDD와 Sharpe가 동시에 좋아지는 설정만 남기세요" in result.advice[0].body
+    assert "제안 주신 전략과 비슷한 전략의 결과" not in result.advice[0].body
+    assert "이 전략에서" not in result.advice[0].body
+    assert "각각 바꿔 테스트" not in result.advice[0].body
+    assert "MDD와 Sharpe가 동시에 좋아지는 설정만 남기세요" not in result.advice[0].body
+    assert "중앙값" not in result.advice[0].body
     assert "confidence" not in result.advice[0].body
     assert "근거 수준" not in result.advice[0].body
     assert "확신하기 어렵" not in result.advice[0].body
@@ -564,8 +570,11 @@ def test_flat_experiment_evidence_is_described_as_weak_signal(tmp_path):
     ))
 
     assert result.strategy_experiment_learning["confidence"] == "low"
-    assert "성과 신호가 거의 없었습니다" in result.advice[0].body
-    assert "현재안을 그대로 반복하지 말고" in result.advice[0].body
+    assert "성과 신호가 약하므로" in result.advice[0].body
+    assert "한 번에 하나씩만 비교하세요" in result.advice[0].body
+    assert "성과 신호가 거의 없었습니다" not in result.advice[0].body
+    assert "현재안을 그대로 반복하지 말고" not in result.advice[0].body
+    assert "중앙값" not in result.advice[0].body
     assert "근거 수준" not in result.advice[0].body
     assert "확신하기 어렵" not in result.advice[0].body
     assert "가까운 샘플도 파라미터" not in result.advice[0].body

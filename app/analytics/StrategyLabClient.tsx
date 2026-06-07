@@ -27,11 +27,13 @@ function DeleteConfirmModal({
   onConfirm,
   onCancel,
   isDeleting,
+  error,
 }: {
   strategy: StrategyListItem;
   onConfirm: () => void;
   onCancel: () => void;
   isDeleting: boolean;
+  error: string | null;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -58,7 +60,7 @@ function DeleteConfirmModal({
 
         {/* 본문 */}
         <p className="text-xs font-bold text-gray-500 leading-relaxed">
-          이 전략을 영구적으로 삭제합니다. 백테스트 결과도 함께 삭제되며 복구할 수 없습니다.
+          이 전략을 영구적으로 삭제합니다. 복구할 수 없습니다.
         </p>
 
         {/* 자동매매 경고 */}
@@ -73,6 +75,17 @@ function DeleteConfirmModal({
               <span className="font-black text-white">{strategy.autoTradingCount}개 계좌</span>의
               자동매매가 즉시 중지됩니다.
             </p>
+          </div>
+        )}
+
+        {/* 에러 */}
+        {error && (
+          <div
+            className="flex items-start gap-3 rounded-xl border-2 bg-[var(--main-red)]/5 px-4 py-3"
+            style={{ borderColor: "var(--main-red)" }}
+          >
+            <Warning size={14} className="text-[var(--main-red)] mt-0.5 shrink-0" weight="fill" />
+            <p className="text-xs font-bold text-gray-300 leading-relaxed">{error}</p>
           </div>
         )}
 
@@ -103,22 +116,31 @@ export default function StrategyLabClient({ strategies: initial }: { strategies:
   const [strategies, setStrategies] = useState(initial);
   const [deleteTarget, setDeleteTarget] = useState<StrategyListItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   function openDeleteModal(e: React.MouseEvent, strategy: StrategyListItem) {
     e.stopPropagation();
+    setDeleteError(null);
     setDeleteTarget(strategy);
+  }
+
+  function closeDeleteModal() {
+    setDeleteTarget(null);
+    setDeleteError(null);
   }
 
   async function confirmDelete() {
     if (!deleteTarget) return;
     setIsDeleting(true);
+    setDeleteError(null);
     try {
       const res = await fetch(`/api/strategy/${deleteTarget.id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Delete failed");
       setStrategies((prev) => prev.filter((s) => s.id !== deleteTarget.id));
-      setDeleteTarget(null);
+      closeDeleteModal();
     } catch {
-      setDeleteTarget(null);
+      // 실패 시 모달을 닫지 않고 에러를 보여줘 재시도할 수 있게 한다
+      setDeleteError("삭제에 실패했습니다. 잠시 후 다시 시도해 주세요.");
     } finally {
       setIsDeleting(false);
     }
@@ -260,8 +282,9 @@ export default function StrategyLabClient({ strategies: initial }: { strategies:
         <DeleteConfirmModal
           strategy={deleteTarget}
           onConfirm={confirmDelete}
-          onCancel={() => !isDeleting && setDeleteTarget(null)}
+          onCancel={() => !isDeleting && closeDeleteModal()}
           isDeleting={isDeleting}
+          error={deleteError}
         />
       )}
     </DashboardLayout>

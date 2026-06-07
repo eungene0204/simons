@@ -1,7 +1,7 @@
 # Software Architecture
 
 > 한국/글로벌 주식 퀀트 투자 플랫폼 — Simons
-> **최종 갱신일:** 2026-05-28
+> **최종 갱신일:** 2026-06-02
 
 ---
 
@@ -236,7 +236,7 @@ StrategyLabPage (app/analytics/new/page.tsx)
     └── XAIModal                 — SHAP 설명
 ```
 
-전략 Lab의 코치 UX는 오른쪽 고정 패널을 사용하지 않는다. 파싱 완료 후 `/api/advisor/review` 결과를 같은 대화 흐름의 말풍선으로 표시하며, 사용자에게 RAG/Experience Memory/유사 사례 출처를 설명하지 않고 성과 신호, 비교 후보, 리스크 조치만 노출한다. 조언은 우선순위 상위 3개만 표시하고 나머지는 백테스트 결과 확인 후 이어서 볼 수 있다는 짧은 안내로 접는다.
+전략 Lab의 코치 UX는 오른쪽 고정 패널을 사용하지 않는다. 파싱 완료 후 `/api/advisor/review` 결과를 같은 대화 흐름의 말풍선으로 표시하며, 사용자에게 RAG/Experience Memory/유사 사례 출처를 설명하지 않고 성과 신호, 비교 후보, 리스크 조치만 노출한다. 조언은 우선순위 상위 3개만 표시하고 나머지는 백테스트 결과 확인 후 이어서 볼 수 있다는 짧은 안내로 접는다. advisor learning evidence는 내부 참고용이며, "백테스트 학습 사례 N건", 성과 중앙값, 복수 파라미터 후보를 나열하는 옛 템플릿 문장은 코치 입력 압축 단계와 최종 응답 파싱 단계에서 차단한다.
 
 ### 3.3 상태 관리
 
@@ -638,11 +638,12 @@ Client polling으로 진행률/로그/리더보드 반영
 | 캐시 | JSON 응답 cache/in-flight dedupe, SSE 응답 replay cache |
 | 우선순위 | MLX priority lock에서 parse보다 낮고 summary보다 높은 priority |
 | 뉴스 우선순위 | news_agent_insight 존재 시 최우선 반영, risk_alert_level high → 리스크 조언 강제 |
+| learning evidence 가드 | advisor_result의 표본 수/중앙값/복수 후보 나열형 옛 템플릿 문장을 LLM 컨텍스트에서 제거하고, LLM 최종 출력에서도 동일 패턴을 대체 |
 | `<think>` 처리 | Qwen3 thinking-mode 아티팩트 자동 제거 (`re.sub`) |
 
 ### 7.1c RAG + Experience Memory 전략 Advisor (`backend/advisor/*`)
 
-전략 Advisor는 현재 전략만 보고 조언하지 않고, 과거 유사 전략과 조언 결과를 검색한 뒤 재사용 가능한 lesson을 반영한다. 다만 이 근거 출처는 내부 판단에만 사용하며, 최종 사용자 문구는 "유사 사례" 설명이 아니라 바로 실행 가능한 비교 실험 조언으로 압축한다.
+전략 Advisor는 현재 전략만 보고 조언하지 않고, 과거 유사 전략과 조언 결과를 검색한 뒤 재사용 가능한 lesson을 반영한다. 다만 이 근거 출처는 내부 판단에만 사용하며, 최종 사용자 문구는 "유사 사례" 설명이 아니라 바로 실행 가능한 비교 실험 조언으로 압축한다. 10,000건 learning artifact의 집계 지표는 confidence와 위험 판단에만 쓰고, 사용자에게 표본 수, `CAGR/Sharpe/MDD/Profit Factor` 중앙값, 거래 수 중앙값을 나열하지 않는다.
 
 ```
 user_prompt + parsed_strategy + backtest_result
@@ -672,7 +673,7 @@ advice_evaluation 저장 + 대화창 말풍선 응답 생성
 | `candidate_generator.py` | 현재 전략에 적용 가능한 개선 후보 DSL 생성 |
 | `advice_evaluator.py` | CAGR, MDD, Sharpe, Profit Factor, trade count, OOS/WFA 기반 성공/실패 판단 |
 | `memory_repository.py` | `AdviceExperience` 저장/조회. 기존 사용자 `Strategy` row는 덮어쓰지 않음 |
-| `experiment_learning.py` | 10,000건 smoke sample 기반 learning artifact에서 조건별 성과 중앙값과 비교 후보를 산출 |
+| `experiment_learning.py` | 10,000건 smoke sample 기반 learning artifact에서 내부 confidence와 위험 판단을 산출하되, 사용자 문구에는 표본 수/중앙값 나열을 노출하지 않음 |
 | `response_composer.py` | 내부 근거를 조합하되 사용자에게는 성과 신호, 비교 후보, 리스크 조치 중심의 짧은 조언 생성 |
 
 **Advisor learning artifact**
@@ -682,6 +683,7 @@ advice_evaluation 저장 + 대화창 말풍선 응답 생성
 - `advisor_smoke_0001`..`advisor_smoke_10000` sample_id를 정규화 키로 사용해 source/resume run 결과를 병합한다.
 - flat evidence(CAGR/Sharpe/MDD 중앙값이 모두 0에 가까움)는 낮은 신뢰도와 "현재안 반복 금지" 조언으로 변환한다.
 - 낮은 유사도 또는 범용 매칭은 confidence를 낮추고, `profit_factor`, `trade_count`를 함께 고려해 조언 품질을 보정한다.
+- 사용자 응답 정책상 learning artifact의 표본 수와 중앙값은 직접 노출하지 않는다. 변경 제안은 여러 값을 동시에 던지는 방식이 아니라 "같은 기간과 비용 조건에서 변경은 한 번에 하나씩 비교"하는 안내로 제한한다.
 
 **ParsedStrategy 주요 필드:**
 ```python

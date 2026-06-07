@@ -65,29 +65,67 @@ interface ParseSkeleton {
   confidence: "partial" | "low";
 }
 
-interface RuntimeStageMetrics {
-  count: number;
-  cache_hits?: number;
-  cache_misses?: number;
-  avg_total_ms?: number;
-  p50_total_ms?: number;
-  p95_total_ms?: number;
-  last_total_ms?: number;
-}
-
-interface RuntimeMetricsSnapshot {
-  stages?: Record<string, RuntimeStageMetrics>;
-  recent?: Array<{
-    stage: string;
-    timestamp: number;
-    runtime: Record<string, unknown>;
-  }>;
-}
-
 type CoachConversationMessage = {
   role: "user" | "assistant";
   content: string;
 };
+
+const USER_CHAT_BUBBLE_CLASS = "rounded-2xl bg-[#171717]";
+const COACH_CHAT_BUBBLE_CLASS = "rounded-2xl bg-[#171717]";
+
+function ShimmerStatusText({
+  children,
+  className = "",
+}: {
+  children: string;
+  className?: string;
+}) {
+  return (
+    <>
+      <span className={`loading-shimmer-text ${className}`}>{children}</span>
+      <style jsx>{`
+        .loading-shimmer-text {
+          color: transparent;
+          background-image: linear-gradient(
+            90deg,
+            rgba(255, 255, 255, 0.28) 0%,
+            rgba(255, 255, 255, 0.28) 42%,
+            rgba(255, 255, 255, 0.98) 50%,
+            rgba(255, 255, 255, 0.28) 58%,
+            rgba(255, 255, 255, 0.28) 100%
+          );
+          background-size: 260% 100%;
+          background-position: 180% 0;
+          -webkit-background-clip: text;
+          background-clip: text;
+          animation: loading-shine 1.5s linear infinite;
+        }
+
+        @keyframes loading-shine {
+          0% {
+            background-position: 180% 0;
+          }
+          100% {
+            background-position: -180% 0;
+          }
+        }
+      `}</style>
+    </>
+  );
+}
+
+function AnalysisStatusBubble({ title }: { title: string }) {
+  return (
+    <div className={`max-w-[88%] rounded-tl-sm p-3.5 space-y-2 ${COACH_CHAT_BUBBLE_CLASS}`}>
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] font-black uppercase tracking-widest text-white">
+          {title}
+        </span>
+        <ShimmerStatusText className="text-sm font-bold">분석 중...</ShimmerStatusText>
+      </div>
+    </div>
+  );
+}
 
 function FilterBadge({ label }: { label: string }) {
   return (
@@ -102,19 +140,15 @@ function BacktestRunningStatus({ message }: { message: string }) {
     <div
       role="status"
       aria-live="polite"
-      className="w-full rounded-2xl border border-sky-400/25 bg-sky-400/[0.06] px-4 py-3 shadow-[0_0_28px_rgba(56,189,248,0.08)]"
+      className={`w-full rounded-2xl px-4 py-3 ${COACH_CHAT_BUBBLE_CLASS}`}
     >
       <div className="flex items-center gap-3">
-        <ArrowsClockwise size={16} className="text-sky-300 animate-spin flex-shrink-0" />
         <div className="min-w-0">
-          <p className="text-xs font-black uppercase tracking-widest text-sky-200">백테스트 진행 중</p>
-          <p className="mt-0.5 text-xs font-bold text-gray-300">
+          <p className="text-xs font-black uppercase tracking-widest text-white">백테스트 진행 중</p>
+          <p className="mt-0.5 text-sm font-bold text-white">
             {message || "백테스트 준비 중..."}
           </p>
         </div>
-      </div>
-      <div className="mt-3 h-1 overflow-hidden rounded-full bg-white/[0.06]">
-        <div className="h-full w-1/3 animate-pulse rounded-full bg-sky-300" />
       </div>
     </div>
   );
@@ -167,80 +201,6 @@ function ParseSkeletonBubble({ skeleton }: { skeleton: ParseSkeleton }) {
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-const RUNTIME_STAGE_LABELS: Record<string, string> = {
-  parse: "Parse",
-  summary: "Summary",
-  coach: "Coach",
-  coach_stream: "Coach Stream",
-};
-
-function RuntimeMetricValue({ label, value }: { label: string; value?: number }) {
-  return (
-    <div>
-      <p className="text-[9px] font-black uppercase tracking-widest text-gray-600">{label}</p>
-      <p className="text-xs font-black text-white">{typeof value === "number" ? `${value.toFixed(0)}ms` : "--"}</p>
-    </div>
-  );
-}
-
-function RuntimeMetricsPanel({
-  snapshot,
-  onReset,
-  isResetting,
-}: {
-  snapshot: RuntimeMetricsSnapshot | null;
-  onReset: () => void;
-  isResetting: boolean;
-}) {
-  const stages = Object.entries(snapshot?.stages ?? {});
-
-  return (
-    <div className="w-full max-w-3xl rounded-2xl border border-white/[0.08] bg-white/[0.025] p-3.5">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-sky-300">AI Runtime</p>
-          <p className="text-[11px] font-bold text-gray-500">같은 모델 기준 단계별 latency 집계</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="rounded-full border border-white/[0.08] px-2 py-0.5 text-[10px] font-black text-gray-500">
-            최근 {snapshot?.recent?.length ?? 0}건
-          </span>
-          <button
-            type="button"
-            onClick={onReset}
-            disabled={isResetting}
-            className="rounded-full border border-white/[0.08] px-2 py-0.5 text-[10px] font-black text-gray-500 transition-colors hover:border-sky-400/40 hover:text-sky-300 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {isResetting ? "초기화 중" : "초기화"}
-          </button>
-        </div>
-      </div>
-      {stages.length === 0 ? (
-        <p className="mt-3 text-[11px] font-bold text-gray-600">아직 수집된 런타임 샘플이 없습니다.</p>
-      ) : (
-        <div className="mt-3 grid gap-2 md:grid-cols-2">
-          {stages.map(([stage, metrics]) => (
-            <div key={stage} className="rounded-xl border border-white/[0.07] bg-black/20 p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-xs font-black text-white">{RUNTIME_STAGE_LABELS[stage] ?? stage}</p>
-                <p className="text-[10px] font-black text-gray-500">
-                  {metrics.count} calls · cache {metrics.cache_hits ?? 0}/{metrics.count}
-                </p>
-              </div>
-              <div className="grid grid-cols-4 gap-2">
-                <RuntimeMetricValue label="avg" value={metrics.avg_total_ms} />
-                <RuntimeMetricValue label="p50" value={metrics.p50_total_ms} />
-                <RuntimeMetricValue label="p95" value={metrics.p95_total_ms} />
-                <RuntimeMetricValue label="last" value={metrics.last_total_ms} />
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -333,8 +293,6 @@ function StrategyLabContent() {
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [modelStatus, setModelStatus] = useState<{ status: string; error: string | null } | null>(null);
-  const [runtimeMetrics, setRuntimeMetrics] = useState<RuntimeMetricsSnapshot | null>(null);
-  const [isResettingRuntimeMetrics, setIsResettingRuntimeMetrics] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const latestParsedRef = useRef<ParsedSummary | null>(null);
@@ -350,44 +308,6 @@ function StrategyLabContent() {
       .then(setModelStatus)
       .catch(() => setModelStatus({ status: "failed", error: "서버에 연결할 수 없습니다" }));
   }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const refreshRuntimeMetrics = () => {
-      fetch("/api/ai/runtime/metrics", { cache: "no-store" })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((data) => {
-          if (!cancelled && data) setRuntimeMetrics(data);
-        })
-        .catch(() => {
-          if (!cancelled) setRuntimeMetrics(null);
-        });
-    };
-
-    refreshRuntimeMetrics();
-    const timer = window.setInterval(refreshRuntimeMetrics, 5000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, []);
-
-  const resetRuntimeMetrics = async () => {
-    if (isResettingRuntimeMetrics) return;
-    setIsResettingRuntimeMetrics(true);
-    try {
-      const res = await fetch("/api/ai/runtime/metrics/reset", {
-        method: "POST",
-        cache: "no-store",
-      });
-      if (res.ok) {
-        setRuntimeMetrics({ stages: {}, recent: [] });
-      }
-    } finally {
-      setIsResettingRuntimeMetrics(false);
-    }
-  };
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -472,11 +392,12 @@ function StrategyLabContent() {
   };
 
   const rememberCoachExchange = (userText: string, coachText: string) => {
-    coachConversationRef.current = [
+    const next: CoachConversationMessage[] = [
       ...coachConversationRef.current,
       { role: "user", content: userText },
       { role: "assistant", content: coachText },
-    ].slice(-8);
+    ];
+    coachConversationRef.current = next.slice(-8);
   };
 
   const lastCoachText = () => {
@@ -539,6 +460,9 @@ function StrategyLabContent() {
       let buffer = "";
       let parsedPayload: any = null;
       let finalizedParsed: ParsedSummary | null = null;
+      // 최초 파싱에서 진입 규칙을 못 잡아 되묻는 경우. 이때는 코치를 돌리지 않는다
+      // (불완전한 전략을 평가하면 안내 박스와 모순됨).
+      let parseClarification: string | null = null;
 
       const finalizeParse = (backtestRequest: any, symbolCount?: number | null) => {
         if (!parsedPayload) return;
@@ -556,13 +480,14 @@ function StrategyLabContent() {
           userPrompt: userText,
           clarificationQuestion: parsedPayload.clarification_question,
           previousCoachText: lastCoachText(),
+          riskOverrides: parsedPayload.risk_overrides ?? null,
         });
 
         const nextParsed = mergedResponse.parsed;
         const nextBacktestReq = mergedResponse.backtestRequest;
 
         coachSessionIdRef.current = null;
-        coachConversationRef.current = [];
+        // 전략을 수정해도 코치 대화 기록은 유지한다 — 이미 설명한 전문용어를 다시 설명하지 않도록.
         finalizedParsed = nextParsed;
         setLatestParsed(nextParsed);
         setBacktestReq(nextBacktestReq);
@@ -574,12 +499,18 @@ function StrategyLabContent() {
         });
         setStage("ready");
 
+        // 최초 파싱에서 진입(종목 선정) 규칙을 통째로 못 잡았으면, 조용히 넘기지 않고
+        // 백엔드가 보낸 안내를 노란 박스로 드러낸다(상대강도 랭킹 등 미지원 유형 포함).
+        const isFirstParse = !currentParsed;
+        parseClarification = isFirstParse ? (parsedPayload.clarification_question ?? null) : null;
         updateLastAssistant({
           isLoading: false,
           parseSkeleton: undefined,
           parsed: nextParsed,
-          clarification: undefined,
-          clarificationSuggestions: undefined,
+          clarification: isFirstParse ? (parsedPayload.clarification_question ?? undefined) : undefined,
+          clarificationSuggestions: isFirstParse
+            ? (parsedPayload.clarification_suggestions ?? undefined)
+            : undefined,
         });
       };
 
@@ -609,7 +540,7 @@ function StrategyLabContent() {
         }
       }
 
-      if (finalizedParsed) {
+      if (finalizedParsed && !parseClarification) {
         setMessages(prev => [
           ...prev,
           { role: "assistant", coachLoading: true, coachText: "" },
@@ -651,6 +582,10 @@ function StrategyLabContent() {
           action: "create_session",
           user_prompt: userText,
           parsed_strategy: parsed as unknown as Record<string, unknown>,
+          // 직전까지의 코치 대화를 넘겨 이미 설명한 전문용어를 다시 설명하지 않도록 한다.
+          ...(coachConversationRef.current.length > 0
+            ? { conversation_context: coachConversationRef.current }
+            : {}),
         }),
       });
 
@@ -929,12 +864,6 @@ function StrategyLabContent() {
             )}
           </div>
 
-          <RuntimeMetricsPanel
-            snapshot={runtimeMetrics}
-            onReset={resetRuntimeMetrics}
-            isResetting={isResettingRuntimeMetrics}
-          />
-
           {/* 채팅창 */}
           <div className="w-full flex flex-col gap-2.5">
 
@@ -945,18 +874,15 @@ function StrategyLabContent() {
                   <div key={i}>
                     {msg.role === "user" && (
                       <div className="flex justify-end">
-                        <div className="max-w-[80%] bg-sky-500/15 border border-sky-500/20 rounded-2xl rounded-tr-sm px-4 py-2.5">
-                          <p className="text-xs font-bold text-white leading-relaxed">{msg.content}</p>
+                        <div className={`max-w-[80%] rounded-tr-sm px-4 py-2.5 ${USER_CHAT_BUBBLE_CLASS}`}>
+                          <p className="text-sm font-bold text-white leading-relaxed">{msg.content}</p>
                         </div>
                       </div>
                     )}
                     {msg.role === "assistant" && (
                       <div className="space-y-3">
                         {msg.isLoading && !msg.parseSkeleton && (
-                          <div className="flex items-center gap-2 px-1">
-                            <ArrowsClockwise size={13} className="text-sky-400 animate-spin flex-shrink-0" />
-                            <span className="text-xs font-bold text-gray-500">전략 분석 중...</span>
-                          </div>
+                          <AnalysisStatusBubble title="전략 분석" />
                         )}
                         {msg.parseSkeleton && !msg.parsed && (
                           <ParseSkeletonBubble skeleton={msg.parseSkeleton} />
@@ -965,14 +891,29 @@ function StrategyLabContent() {
                           <>
                             <ParsedSummaryBubble parsed={msg.parsed} backtestRequest={backtestReq} />
                             {isLastAssistant(i) && !msg.coachLoading && msg.clarification && (
-                              <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-white/[0.02] border border-yellow-400/40">
-                                <Question size={13} className="text-yellow-400 flex-shrink-0 mt-0.5" weight="fill" />
-                                <p className="text-xs font-bold text-gray-300 leading-relaxed whitespace-pre-line">
-                                  {msg.clarification.replace(/\*\*(.*?)\*\*/g, "$1")}
-                                </p>
+                              <div className="flex flex-col gap-2.5 p-3.5 rounded-xl bg-white/[0.02] border border-yellow-400/40">
+                                <div className="flex items-start gap-2.5">
+                                  <Question size={13} className="text-yellow-400 flex-shrink-0 mt-0.5" weight="fill" />
+                                  <p className="text-xs font-bold text-gray-300 leading-relaxed whitespace-pre-line">
+                                    {msg.clarification.replace(/\*\*(.*?)\*\*/g, "$1")}
+                                  </p>
+                                </div>
+                                {msg.clarificationSuggestions && msg.clarificationSuggestions.length > 0 && (
+                                  <div className="flex flex-wrap gap-2 pl-6">
+                                    {msg.clarificationSuggestions.map((suggestion) => (
+                                      <button
+                                        key={suggestion}
+                                        onClick={() => handleSuggestionClick(suggestion)}
+                                        className="px-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/10 hover:border-yellow-400/50 hover:bg-yellow-400/[0.06] text-xs font-bold text-gray-300 transition-all duration-200 text-left"
+                                      >
+                                        {suggestion}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                             )}
-                            {isLastAssistant(i) && stage === "ready" && !msg.coachLoading && (
+                            {isLastAssistant(i) && stage === "ready" && !msg.coachLoading && !msg.clarification && (
                               <button
                                 onClick={() => handleRunBacktest()}
                                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-black transition-all duration-300 hover:shadow-[0_0_24px_rgba(59,130,246,0.4)]"
@@ -991,20 +932,17 @@ function StrategyLabContent() {
                           </>
                         )}
                         {(msg.coachLoading || msg.coachText) && (
-                          <div className="max-w-[88%] bg-white/[0.025] border border-indigo-400/25 rounded-2xl rounded-tl-sm p-3.5 space-y-2">
+                          <div className={`max-w-[88%] rounded-tl-sm p-3.5 space-y-2 ${COACH_CHAT_BUBBLE_CLASS}`}>
                             <div className="flex items-center gap-2">
-                              {msg.coachLoading && (
-                                <ArrowsClockwise size={12} className="text-indigo-400 animate-spin flex-shrink-0" />
-                              )}
-                              <span className="text-[11px] font-black uppercase tracking-widest text-indigo-300">
+                              <span className="text-[11px] font-black uppercase tracking-widest text-white">
                                 전략 코치
                               </span>
                               {msg.coachLoading && (
-                                <span className="text-[11px] font-bold text-gray-600">분석 중...</span>
+                                <ShimmerStatusText className="text-sm font-bold">분석 중...</ShimmerStatusText>
                               )}
                             </div>
                             {msg.coachText && (
-                              <p className="text-xs font-bold text-gray-300 leading-relaxed whitespace-pre-line">
+                              <p className="text-sm font-bold text-white leading-relaxed whitespace-pre-line">
                                 {msg.coachText.replace(/\*\*(.*?)\*\*/g, "$1")}
                               </p>
                             )}

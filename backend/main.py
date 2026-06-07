@@ -2433,6 +2433,9 @@ class NLParseResponse(BaseModel):
     symbol_count: int
     clarification_question: Optional[str] = None
     clarification_suggestions: Optional[List[str]] = None
+    # 이번 프롬프트에서 규칙 기반으로 결정적으로 바뀐 리스크 필드 {field: value|null}.
+    # 프론트가 자체 정규식으로 재추측하지 말고 이 값을 그대로 신뢰하도록 단일 진실 소스로 제공.
+    risk_overrides: Optional[dict] = None
     runtime: Optional[dict] = None
 
 _nl_parsers: dict = {}  # backend → NLStrategyParser (lazy singleton)
@@ -2623,8 +2626,8 @@ def preload_nl_parser():
         parser = NLStrategyParser(backend="mlx")
         parser._init_mlx()  # 모델 로딩 (최초 1회)
         _nl_parsers["mlx"] = parser
-        _summarize_model["model"] = parser._mlx_model_7b
-        _summarize_model["tokenizer"] = parser._tokenizer_7b
+        _summarize_model["model"] = parser._mlx_model
+        _summarize_model["tokenizer"] = parser._tokenizer
         _nl_parser_status["status"] = "ok"
         _nl_parser_status["error"] = None
 
@@ -2632,7 +2635,7 @@ def preload_nl_parser():
         _set_coach_parser(parser)
 
         print(
-            f"[startup] NL 파서 모델 로딩 완료: {parser._model_log_label(parser.model_7b)}",
+            f"[startup] NL 파서 모델 로딩 완료: {parser._model_log_label(parser.mlx_model)}",
             flush=True,
         )
     except Exception as e:
@@ -2655,11 +2658,11 @@ def _ensure_summarize_model_loaded():
     shared_parser = _nl_parsers.get("mlx")
     if shared_parser is not None:
         shared_parser._init_mlx()
-        if shared_parser._mlx_model_7b is not None and shared_parser._tokenizer_7b is not None:
-            _summarize_model["model"] = shared_parser._mlx_model_7b
-            _summarize_model["tokenizer"] = shared_parser._tokenizer_7b
+        if shared_parser._mlx_model is not None and shared_parser._tokenizer is not None:
+            _summarize_model["model"] = shared_parser._mlx_model
+            _summarize_model["tokenizer"] = shared_parser._tokenizer
             print(
-                f"[startup] Summarize 모델이 NL 파서 모델을 공유합니다: {shared_parser._model_log_label(shared_parser.model_7b)}",
+                f"[startup] Summarize 모델이 NL 파서 모델을 공유합니다: {shared_parser._model_log_label(shared_parser.mlx_model)}",
                 flush=True,
             )
             return
@@ -2712,7 +2715,11 @@ def parse_nl_strategy(request: NLParseRequest):
         return cached
 
     try:
-        from engine.nl_parser import NLStrategyParser
+        from engine.nl_parser import (
+            NLStrategyParser,
+            detect_missing_entry_clarification,
+            extract_risk_field_overrides,
+        )
         from engine.strategy_converter import to_backtest_request
 
         load_started = time.perf_counter()
@@ -2740,12 +2747,20 @@ def parse_nl_strategy(request: NLParseRequest):
         load_ms = round((time.perf_counter() - load_started) * 1000, 2)
         parse_started = time.perf_counter()
         if backend == "mlx":
-            with _mlx_inference_lock.priority(0):
-                if request.previous_parsed:
-                    print(f"[NL-PARSE] 수정 모드 (diff)", flush=True)
+            if request.previous_parsed:
+                print(f"[NL-PARSE] 수정 모드 (diff)", flush=True)
+                with _mlx_inference_lock.priority(0):
                     parsed = parser.parse_modification(request.prompt, request.previous_parsed)
+            else:
+                # 규칙 기반으로 먼저 시도 — 추론 락이 필요 없어 코치 LLM 생성과 무관하게
+                # 즉시 반환된다(전략 요약 박스가 바로 뜨도록). 모호한 입력만 LLM 폴백.
+                parsed = parser.parse_rule_based(request.prompt)
+                if parsed is None:
+                    print(f"[NL-PARSE] 규칙 기반 미충족 → LLM 폴백", flush=True)
+                    with _mlx_inference_lock.priority(0):
+                        parsed = parser.parse(request.prompt)
                 else:
-                    parsed = parser.parse(request.prompt)
+                    print(f"[NL-PARSE] 규칙 기반 즉시 파싱 (락 미사용)", flush=True)
         else:
             if request.previous_parsed:
                 print(f"[NL-PARSE] 수정 모드 (diff)", flush=True)
@@ -2770,12 +2785,20 @@ def parse_nl_strategy(request: NLParseRequest):
             "convert_ms": convert_ms,
             "total_ms": round((time.perf_counter() - request_started) * 1000, 2),
         }
+        # 이번 프롬프트에서 결정적으로 바뀐 리스크 필드(단일 진실 소스). 프론트가 그대로 신뢰한다.
+        risk_overrides = extract_risk_field_overrides(request.prompt) or None
+        # 진입(종목 선정) 규칙을 통째로 잃었으면 조용히 넘기지 않고 되묻는다.
+        # 상대강도 랭킹 등 미지원 유형은 가까운 추세추종으로 바꾸도록 안내.
+        clarification_question, clarification_suggestions = detect_missing_entry_clarification(
+            parsed, request.prompt
+        )
         result = {
             "parsed": parsed.model_dump(),
             "backtest_request": backtest_req,
             "symbol_count": len(backtest_req["symbols"]),
-            "clarification_question": None,
-            "clarification_suggestions": None,
+            "clarification_question": clarification_question,
+            "clarification_suggestions": clarification_suggestions,
+            "risk_overrides": risk_overrides,
             "runtime": runtime,
         }
         _record_ai_runtime("parse", runtime)

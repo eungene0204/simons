@@ -23,7 +23,7 @@ export async function GET(
 ) {
   const { symbol } = params;
   const { searchParams } = request.nextUrl;
-  const limit = searchParams.get("limit") ?? "20";
+  const limit = searchParams.get("limit") ?? "30";
 
   const url = new URL(`${BACKEND}/v2/news/${encodeURIComponent(symbol)}`);
   url.searchParams.set("limit", limit);
@@ -34,11 +34,12 @@ export async function GET(
     const res = await fetchWithTimeout(url.toString(), TIMEOUT_MS);
     if (!res.ok) {
       const fallback: NewsResponseV2 = {
+        symbol,
+        items: [],
+        lastUpdatedAt: null,
+        isStale: false,
         status: "FAILED",
         source: "queue",
-        stale: false,
-        items: [],
-        fetched_at: null,
         message: `백엔드 응답 오류 (${res.status})`,
       };
       return NextResponse.json(fallback, { status: 200 });
@@ -47,11 +48,12 @@ export async function GET(
     return NextResponse.json(data);
   } catch (err: unknown) {
     const fallback: NewsResponseV2 = {
+      symbol,
+      items: [],
+      lastUpdatedAt: null,
+      isStale: false,
       status: "COLLECTING",
       source: "queue",
-      stale: false,
-      items: [],
-      fetched_at: null,
       message: "뉴스 서비스에 연결할 수 없습니다.",
     };
     return NextResponse.json(fallback, { status: 200 });

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   CaretUp,
@@ -11,6 +12,7 @@ import {
 import CandlestickChart from "@/components/stock/CandlestickChart";
 import { formatMarketCap } from "@/lib/format-market-cap";
 import NewsImpactPanel from "@/components/stock/NewsImpactPanel";
+import { fetchStockNews, STOCK_NEWS_LIMIT, stockNewsQueryKey } from "@/lib/hooks/useStockNews";
 
 interface StockDetail {
   symbol: string;
@@ -48,6 +50,7 @@ export default function StockDetail({ symbol }: { symbol: string }) {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabId>("chart");
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   const fetchDetail = async () => {
     try {
@@ -92,6 +95,14 @@ export default function StockDetail({ symbol }: { symbol: string }) {
     fetchDetail();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol]);
+
+  useEffect(() => {
+    void queryClient.prefetchQuery({
+      queryKey: stockNewsQueryKey(symbol),
+      queryFn: () => fetchStockNews(symbol, STOCK_NEWS_LIMIT),
+      staleTime: 60_000,
+    });
+  }, [queryClient, symbol]);
 
   useEffect(() => {
     const id = setInterval(fetchPrice, 1000);

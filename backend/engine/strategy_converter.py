@@ -190,6 +190,8 @@ def to_canonical_strategy_dsl(strategy: ParsedStrategy) -> dict:
             [_canonicalize_technical_signal(sig) for sig in strategy.exit_signals],
             key=_canonical_sort_key,
         ),
+        "ranking_metric": strategy.ranking_metric,
+        "ranking_lookback_days": strategy.ranking_lookback_days,
         "max_positions": strategy.max_positions,
         "hold_period_days": strategy.hold_period_days,
         "rebalancing_period": strategy.rebalancing_period,
@@ -218,6 +220,12 @@ def canonical_strategy_json(strategy: ParsedStrategy) -> str:
 def compute_strategy_id(strategy: ParsedStrategy) -> str:
     canonical_json = canonical_strategy_json(strategy)
     return hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
+
+
+def _percent_to_rate(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return float(value) / 100.0
 
 
 # ─── 기술 신호 → Condition dict 변환 ─────────────────────────────────────────
@@ -328,6 +336,13 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
     # 4. 리스크 관리 설정
     position_size_pct = round(100.0 / strategy.max_positions, 2)
 
+    # 상대강도 랭킹 전략: 보유기간이 따로 없으면 리밸런싱 주기로 회전을 구동한다.
+    # (엔진에 별도 리밸런싱 로직이 없어, max_holding_days 만료가 재선정 시점이 된다.)
+    _REBALANCE_DAYS = {"monthly": 21, "quarterly": 63, "yearly": 252}
+    max_holding_days = strategy.hold_period_days
+    if strategy.ranking_metric == "return" and max_holding_days is None:
+        max_holding_days = _REBALANCE_DAYS.get(strategy.rebalancing_period, 21)
+
     risk = {
         "position_size_pct": position_size_pct,
         "max_positions": strategy.max_positions,
@@ -335,12 +350,14 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         "take_profit_pct": strategy.take_profit_pct,
         "trailing_stop_pct": strategy.trailing_stop_pct,
         "max_mdd_limit_pct": strategy.max_mdd_limit_pct,
-        "max_holding_days": strategy.hold_period_days,
+        "max_holding_days": max_holding_days,
         "rebalancing_period": strategy.rebalancing_period,
         "init_cash": strategy.initial_capital,
         "ranking_enabled": True,
         "ranking_weight_value": 0.5,
         "ranking_weight_quality": 0.5,
+        "ranking_metric": strategy.ranking_metric,
+        "ranking_lookback_days": strategy.ranking_lookback_days or (60 if strategy.ranking_metric else None),
         "execution_timing": strategy.execution_timing,
         "allocation_type": "equal",
     }
@@ -361,7 +378,7 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         "risk": risk,
         "period": strategy.backtest_period,
         "options": {
-            "fee_rate": strategy.fee_rate,
-            "slippage_rate": strategy.slippage_rate,
+            "fee_rate": _percent_to_rate(strategy.fee_rate),
+            "slippage_rate": _percent_to_rate(strategy.slippage_rate),
         },
     }

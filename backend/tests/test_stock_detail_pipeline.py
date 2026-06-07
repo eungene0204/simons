@@ -666,13 +666,13 @@ def test_preload_nl_parser_preloads_shared_parser_and_updates_status(monkeypatch
     class _DummyParser:
         def __init__(self, backend="mlx"):
             self.backend = backend
-            self.model_7b = "mlx-community/Qwen3.5-4B-OptiQ-4bit"
-            self._mlx_model_7b = None
-            self._tokenizer_7b = None
+            self.mlx_model = "mlx-community/Qwen3.5-4B-OptiQ-4bit"
+            self._mlx_model = None
+            self._tokenizer = None
 
         def _init_mlx(self):
-            self._mlx_model_7b = object()
-            self._tokenizer_7b = object()
+            self._mlx_model = object()
+            self._tokenizer = object()
 
         def _model_log_label(self, model_name: str) -> str:
             return "Qwen3.5-4B"
@@ -687,17 +687,17 @@ def test_preload_nl_parser_preloads_shared_parser_and_updates_status(monkeypatch
     preload_nl_parser()
 
     assert "mlx" in _nl_parsers
-    assert _summarize_model["model"] is _nl_parsers["mlx"]._mlx_model_7b
-    assert _summarize_model["tokenizer"] is _nl_parsers["mlx"]._tokenizer_7b
+    assert _summarize_model["model"] is _nl_parsers["mlx"]._mlx_model
+    assert _summarize_model["tokenizer"] is _nl_parsers["mlx"]._tokenizer
     assert _nl_parser_status == {"status": "ok", "error": None}
 
 
 def test_preload_summarize_model_uses_shared_nl_parser(monkeypatch):
     class _SharedParser:
         def __init__(self):
-            self.model_7b = "mlx-community/Qwen3.5-4B-OptiQ-4bit"
-            self._mlx_model_7b = object()
-            self._tokenizer_7b = object()
+            self.mlx_model = "mlx-community/Qwen3.5-4B-OptiQ-4bit"
+            self._mlx_model = object()
+            self._tokenizer = object()
 
         def _init_mlx(self):
             return None
@@ -714,5 +714,5 @@ def test_preload_summarize_model_uses_shared_nl_parser(monkeypatch):
 
     preload_summarize_model()
 
-    assert _summarize_model["model"] is _nl_parsers["mlx"]._mlx_model_7b
-    assert _summarize_model["tokenizer"] is _nl_parsers["mlx"]._tokenizer_7b
+    assert _summarize_model["model"] is _nl_parsers["mlx"]._mlx_model
+    assert _summarize_model["tokenizer"] is _nl_parsers["mlx"]._tokenizer

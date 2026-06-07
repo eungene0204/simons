@@ -14,8 +14,8 @@ import platform
 import re
 import ast
 
-MLX_MODEL = "mlx-community/Qwen3.5-9B-OptiQ-4bit"
-OLLAMA_MODEL = "qwen3.5:9b"
+MLX_MODEL = "mlx-community/Qwen3.5-4B-4bit"
+OLLAMA_MODEL = "qwen3.5:4b"
 OLLAMA_URL = "http://localhost:11434/api/generate"
 FALLBACK_SUMMARY = "모델 출력 형식이 올바르지 않아 요약을 생성하지 못했습니다. 다시 시도해 주세요."
 

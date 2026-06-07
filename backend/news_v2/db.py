@@ -14,6 +14,7 @@ from typing import AsyncIterator, Optional
 
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from news_v2.config import get_settings
 
@@ -27,12 +28,14 @@ def _get_engine() -> AsyncEngine:
         cfg = get_settings()
         is_sqlite = cfg.db_url.startswith("sqlite")
         connect_args = {"timeout": 30} if is_sqlite else {}
+        pool_kwargs = {} if is_sqlite else {"poolclass": NullPool}
         _engine = create_async_engine(
             cfg.db_url,
             future=True,
             pool_pre_ping=True,
             echo=False,
             connect_args=connect_args,
+            **pool_kwargs,
         )
         if is_sqlite:
             # WAL mode + 30s busy timeout — SQLite is shared with Next.js (Prisma)

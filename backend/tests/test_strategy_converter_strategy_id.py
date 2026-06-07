@@ -122,6 +122,17 @@ def test_to_backtest_request_marks_resolved_symbols_by_default(_mock):
     assert request["symbol_count"] == 2
 
 
+def test_to_backtest_request_converts_percent_costs_to_engine_rates():
+    strategy = make_strategy(fee_rate=0.015, slippage_rate=0.05)
+
+    request = to_backtest_request(strategy, resolve_symbols=False)
+
+    assert request["canonical_strategy_dsl"]["fee_rate"] == 0.015
+    assert request["canonical_strategy_dsl"]["slippage_rate"] == 0.05
+    assert request["options"]["fee_rate"] == 0.00015
+    assert request["options"]["slippage_rate"] == 0.0005
+
+
 def test_korean_particle_stop_loss_prompt_reaches_backtest_risk():
     prompt = (
         "KOSPI 종목 중 골든크로스가 나오면 매수하고, "

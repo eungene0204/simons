@@ -8,7 +8,9 @@ task lands in `news.dlq` (declared in celery_app) and we mark the symbol FAILED.
 
 from __future__ import annotations
 
+import atexit
 import asyncio
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -22,39 +24,44 @@ from news_v2.repository import NewsRepository
 from news_v2.service import NewsService
 
 log = get_logger(__name__)
+_task_loop: Optional[asyncio.AbstractEventLoop] = None
+_task_loop_pid: Optional[int] = None
 
 
-def _reset_engine() -> None:
-    """Drop the cached async engine so the next task builds a fresh one bound
-    to its own event loop. Each Celery task call creates a new asyncio loop
-    via asyncio.run(); reusing an engine from a closed loop produces
-    'attached to a different loop' RuntimeErrors deep inside asyncpg.
-    """
-    from news_v2 import db
+def _close_task_loop() -> None:
+    global _task_loop, _task_loop_pid
+    if _task_loop is not None and not _task_loop.is_closed():
+        _task_loop.close()
+    _task_loop = None
+    _task_loop_pid = None
 
-    if db._engine is not None:
-        try:
-            db._engine.sync_engine.dispose()
-        except Exception:  # pragma: no cover
-            pass
-    db._engine = None
-    db._session_maker = None
+
+def _get_task_loop() -> asyncio.AbstractEventLoop:
+    global _task_loop, _task_loop_pid
+    current_pid = os.getpid()
+    if (
+        _task_loop is None
+        or _task_loop.is_closed()
+        or _task_loop_pid != current_pid
+    ):
+        _close_task_loop()
+        _task_loop = asyncio.new_event_loop()
+        _task_loop_pid = current_pid
+    return _task_loop
+
+
+atexit.register(_close_task_loop)
 
 
 def _run(coro):
-    """Run an async coroutine from a sync Celery task. Coroutine bodies only
-    execute on await, so resetting the engine before asyncio.run() ensures
-    that the body's first get_session_maker() call builds a fresh engine on
-    the new loop.
+    """Run task coroutines on one persistent loop per worker process.
+
+    Reusing the same loop keeps asyncpg connections bound to a live event loop
+    across task invocations, so we don't need to tear down the SQLAlchemy async
+    engine between every Celery task.
     """
-    _reset_engine()
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            return asyncio.run_coroutine_threadsafe(coro, loop).result()
-    except RuntimeError:
-        pass
-    return asyncio.run(coro)
+    loop = _get_task_loop()
+    return loop.run_until_complete(coro)
 
 
 # ─── collect ───────────────────────────────────────────────────────────────────
@@ -105,21 +112,21 @@ def refresh_stale_news(symbol: str) -> dict:
     retry_jitter=True,
     max_retries=3,
 )
-def analyze_news(self, article_id: int) -> dict:
+def analyze_news(self, news_id: str) -> dict:
     async def _do():
         maker = get_session_maker()
         async with maker() as session:
             service = NewsService(session)
-            await service.run_analyze(article_id)
-            return {"article_id": article_id}
+            await service.run_analyze(news_id, raise_on_failure=True)
+            return {"news_id": news_id}
 
     return _run(_do())
 
 
 @celery_app.task(name="news_v2.tasks.update_sentiment")
-def update_sentiment(article_id: int) -> dict:
+def update_sentiment(news_id: str) -> dict:
     """Re-run AI analysis on an existing article. Same impl as analyze_news for now."""
-    return analyze_news.apply(args=[article_id]).result  # type: ignore[no-any-return]
+    return analyze_news.apply(args=[news_id]).result  # type: ignore[no-any-return]
 
 
 # ─── dedup maintenance ─────────────────────────────────────────────────────────

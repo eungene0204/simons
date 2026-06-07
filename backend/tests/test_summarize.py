@@ -141,12 +141,14 @@ def test_build_prompt_includes_metric_hints():
     assert "승률 56.00%" in prompt
 
 
-def test_summarize_models_point_to_qwen35_9b():
-    assert MLX_MODEL == "mlx-community/Qwen3.5-9B-OptiQ-4bit"
-    assert OLLAMA_MODEL == "qwen3.5:9b"
+def test_summarize_models_point_to_qwen35_4b():
+    assert MLX_MODEL == "mlx-community/Qwen3.5-4B-4bit"
+    assert OLLAMA_MODEL == "qwen3.5:4b"
 
 
-def test_summarize_uses_same_mlx_model_as_shared_nl_parser_runtime():
+def test_summarize_uses_same_mlx_model_as_shared_nl_parser_runtime(monkeypatch):
+    # 환경변수가 없을 때 요약 모델과 NL 파서 기본 모델이 같은지 검증한다.
+    monkeypatch.delenv("NL_MLX_MODEL", raising=False)
     parser = NLStrategyParser()
 
-    assert parser.model_7b == MLX_MODEL
+    assert parser.mlx_model == MLX_MODEL

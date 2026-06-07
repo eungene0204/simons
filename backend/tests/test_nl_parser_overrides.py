@@ -1,6 +1,8 @@
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
 
 from engine.nl_parser import (
@@ -10,11 +12,20 @@ from engine.nl_parser import (
     TechnicalSignal,
     _apply_prompt_overrides,
     _build_fallback_strategy,
+    detect_missing_entry_clarification,
     _extract_technical_signals,
+    _match_risk_pct,
+    extract_risk_field_overrides,
     _merge_signals,
     _parse_rule_based_strategy,
     _parse_model_json_response,
     _validate_signals,
+    _STOP_LOSS_CUE,
+    _STOP_LOSS_BLOCK,
+    _TAKE_PROFIT_CUE,
+    _TAKE_PROFIT_BLOCK,
+    _TRAILING_CUE,
+    _TRAILING_BLOCK,
 )
 
 # ─── 삭제 의도 테스트 ─────────────────────────────────────────────────────────
@@ -166,6 +177,29 @@ def test_extract_rsi_buy_sell():
     assert any(s.indicator == "rsi" and s.signal_type == "sell" for s in exit_)
 
 
+def test_extract_rsi_buy_from_oversold_rebound_phrase():
+    """'RSI가 30 아래로 내려갔다가 다시 올라오는 종목만 매수' 같은 구어체 반등 표현에서 RSI 매수 추출
+
+    조사('RSI가')와 '아래로'(이하 대신), 반등 서술('내려갔다가 다시 올라오는')이 섞여도
+    LLM/정규식이 놓치던 케이스 — 전략요약에 RSI 진입 신호가 누락되던 버그 재현.
+    """
+    entry, _ = _extract_technical_signals(
+        "RSI가 30 아래로 내려갔다가 다시 올라오는 종목만 매수"
+    )
+    rsi_buy = [s for s in entry if s.indicator == "rsi" and s.signal_type == "buy"]
+    assert len(rsi_buy) == 1
+    assert rsi_buy[0].value == 30.0
+    assert rsi_buy[0].operator == "<="
+
+
+def test_extract_rsi_sell_with_particle():
+    """'RSI가 70 이상이면 매도' — 조사가 끼어도 RSI 매도 추출"""
+    _, exit_ = _extract_technical_signals("RSI가 70 이상이면 매도")
+    rsi_sell = [s for s in exit_ if s.indicator == "rsi" and s.signal_type == "sell"]
+    assert len(rsi_sell) == 1
+    assert rsi_sell[0].value == 70.0
+
+
 def test_extract_bollinger_bands():
     entry, exit_ = _extract_technical_signals("볼린저밴드 하단에서 매수, 상단에서 매도")
     assert any(s.indicator == "bollinger_bands" and s.signal_type == "buy" for s in entry)
@@ -266,6 +300,54 @@ def test_extract_breakout_keeps_day_period_for_60_day_high_phrase():
     assert entry[0].lookback_period == 60
 
 
+def test_extract_breakout_recognizes_box_breakout_entry():
+    """'박스권을 위로 돌파' 표현을 신고가 키워드 없이도 breakout 매수로 인식한다."""
+    entry, _ = _extract_technical_signals(
+        "최근 한 달 박스권을 위로 돌파하는 종목만 매수하고 싶어요"
+    )
+
+    assert len(entry) == 1
+    assert entry[0].indicator == "breakout"
+    assert entry[0].signal_type == "buy"
+    assert entry[0].lookback_period == 20
+
+
+def test_extract_breakout_recognizes_n_day_high_breakout_entry():
+    """'20일 고점을 넘기는 날 매수' → breakout 매수, lookback 20."""
+    entry, _ = _extract_technical_signals("20일 고점을 넘기는 날 매수")
+
+    assert len(entry) == 1
+    assert entry[0].indicator == "breakout"
+    assert entry[0].lookback_period == 20
+
+
+def test_extract_breakout_recognizes_box_breakdown_exit():
+    """'다시 박스 안으로 내려오면 매도' → breakout 매도(박스 하단 이탈)."""
+    _, exit_ = _extract_technical_signals("다시 박스 안으로 내려오면 매도해 주세요")
+
+    assert len(exit_) == 1
+    assert exit_[0].indicator == "breakout"
+    assert exit_[0].signal_type == "sell"
+
+
+def test_rule_based_parses_box_breakout_full_prompt():
+    """스크린샷 프롬프트: 박스권 돌파 매수 + 박스 이탈 매도가 진입/청산 신호로 잡힌다."""
+    prompt = (
+        "복잡한 지표는 아직 어려워서 최근 한 달 동안 가격이 갇혀 있던 박스권을 위로 "
+        "돌파하는 종목만 사고 싶어요. KOSPI 종목 중 20일 고점을 넘기는 날 매수하고 "
+        "다시 박스 안으로 내려오면 매도해 주세요. 최대 8종목, 손절은 -7%로 부탁드립니다."
+    )
+
+    parsed = _parse_rule_based_strategy(prompt)
+
+    assert parsed is not None
+    assert ("breakout", "buy") in [(s.indicator, s.signal_type) for s in parsed.entry_signals]
+    assert ("breakout", "sell") in [(s.indicator, s.signal_type) for s in parsed.exit_signals]
+    assert parsed.universe == ["KOSPI"]
+    assert parsed.max_positions == 8
+    assert parsed.stop_loss_pct == 7.0
+
+
 def test_apply_prompt_overrides_replaces_wrong_breakout_period_from_existing_signal():
     base = make_base_strategy().model_copy(
         update={
@@ -320,19 +402,39 @@ def test_take_profit_korean_shorthand():
     assert parsed.take_profit_pct == 20.0
 
 
-def test_nl_strategy_parser_defaults_point_to_qwen35_9b():
+def test_take_profit_from_colloquial_sell_verb():
+    """'수익이 15% 나면 팔고' — '매도/청산' 대신 구어체 '팔고'에서 익절 추출
+
+    전략요약에서 익절이 누락되던 버그 재현 — '팔고/팔아/팔면' 등 구어체 매도 동사 미인식.
+    """
+    parsed = _apply_prompt_overrides(make_base_strategy(), "수익이 15% 나면 팔고 싶어")
+
+    assert parsed.take_profit_pct == 15.0
+
+
+def test_nl_strategy_parser_defaults_point_to_qwen35_4b(monkeypatch):
+    # 환경변수(NL_MLX_MODEL)가 없을 때의 코드 기본값을 검증한다.
+    monkeypatch.delenv("NL_MLX_MODEL", raising=False)
+    monkeypatch.delenv("NL_OLLAMA_MODEL", raising=False)
     parser = NLStrategyParser()
 
-    assert parser.model_7b == "mlx-community/Qwen3.5-9B-OptiQ-4bit"
-    assert parser.model_32b == "mlx-community/Qwen3.5-9B-OptiQ-4bit"
-    assert parser.ollama_model_7b == "qwen3.5:9b"
-    assert parser.ollama_model_32b == "qwen3.5:9b"
+    assert parser.mlx_model == "mlx-community/Qwen3.5-4B-4bit"
+    assert parser.model_32b == "mlx-community/Qwen3.5-4B-4bit"
+    assert parser.ollama_model == "qwen3.5:4b"
+    assert parser.ollama_model_32b == "qwen3.5:4b"
 
 
-def test_nl_strategy_parser_model_log_label_uses_actual_model_name():
+def test_nl_strategy_parser_env_overrides_mlx_model(monkeypatch):
+    # 환경변수로 모델을 교체할 수 있어야 한다(코드 수정 없이 9B 등으로 A/B).
+    monkeypatch.setenv("NL_MLX_MODEL", "mlx-community/Qwen3.5-9B-OptiQ-4bit")
+    assert NLStrategyParser().mlx_model == "mlx-community/Qwen3.5-9B-OptiQ-4bit"
+
+
+def test_nl_strategy_parser_model_log_label_uses_actual_model_name(monkeypatch):
+    monkeypatch.delenv("NL_MLX_MODEL", raising=False)
     parser = NLStrategyParser()
 
-    assert parser._model_log_label(parser.model_7b) == "Qwen3.5-9B"
+    assert parser._model_log_label(parser.mlx_model) == "Qwen3.5-4B"
     assert parser._model_log_label("mlx-community/Qwen2.5-7B-Instruct-4bit") == "Qwen2.5-7B"
 
 
@@ -404,6 +506,162 @@ def test_rule_based_strategy_parses_52_week_high_volume_spike_prompt_without_llm
 
 def test_rule_based_strategy_falls_back_for_ambiguous_prompt():
     assert _parse_rule_based_strategy("좋은 저평가 전략 만들어줘") is None
+
+
+def _base_strategy() -> ParsedStrategy:
+    return ParsedStrategy(
+        description="x",
+        universe=["KOSPI"],
+        fundamental_filters=[],
+        entry_signals=[],
+        exit_signals=[],
+        max_positions=10,
+        hold_period_days=None,
+        rebalancing_period="none",
+        stop_loss_pct=12.0,
+        take_profit_pct=None,
+        trailing_stop_pct=None,
+        max_mdd_limit_pct=None,
+        backtest_period="5y",
+        initial_capital=10000000.0,
+    )
+
+
+def test_apply_overrides_extracts_take_profit_from_profit_realization_phrasing():
+    # "수익 실현"은 매도 동사가 없어도 익절로 인식되어야 한다 (사용자 후속 수정 시나리오)
+    result = _apply_prompt_overrides(_base_strategy(), "30% 상승시 수익 실현 하게 설정해")
+    assert result.take_profit_pct == 30.0
+    assert result.stop_loss_pct == 12.0  # 기존 손절은 유지
+
+
+def test_apply_overrides_extracts_take_profit_from_target_profit_phrasing():
+    result = _apply_prompt_overrides(_base_strategy(), "목표 수익 25%로 설정")
+    assert result.take_profit_pct == 25.0
+
+
+def test_apply_overrides_extracts_take_profit_with_ratio_word_between():
+    # "익절 비율 30%"처럼 '익절'과 숫자 사이에 '비율'이 끼어도 추출되어야 한다(추천 칩 문구)
+    result = _apply_prompt_overrides(_base_strategy(), "익절 비율 30% 설정")
+    assert result.take_profit_pct == 30.0
+
+
+def test_apply_overrides_extracts_take_profit_with_ratio_and_josa():
+    result = _apply_prompt_overrides(_base_strategy(), "익절 비율을 20%로 설정해줘")
+    assert result.take_profit_pct == 20.0
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "익절 30%",
+        "익절 비율 30%",
+        "익절률 30%",
+        "익절 비율을 30%로 설정해줘",
+        "익절 기준 30%",
+        "수익 실현 30%로 설정",
+        "30% 상승시 수익 실현 하게 설정해",
+        "목표 수익 30%",
+        "목표 수익률 30%",
+        "30% 수익시 매도",
+        "30% 수익 나면 팔아",
+    ],
+)
+def test_take_profit_phrasings_all_extract_30(prompt):
+    # 표현이 달라도 '익절류 키워드 + 30%'면 한 규칙으로 전부 추출되어야 한다
+    assert _apply_prompt_overrides(_base_strategy(), prompt).take_profit_pct == 30.0
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "손절 8%",
+        "손절 비율 8%",
+        "손절률 8%",
+        "손절을 8%로 설정해줘",
+        "손절 기준 8%",
+        "-8% 손절",
+        "8% 하락시 매도",
+        "8% 하락하면 청산",
+    ],
+)
+def test_stop_loss_phrasings_all_extract_8(prompt):
+    base = _base_strategy()
+    base = base.model_copy(update={"stop_loss_pct": None})
+    assert _apply_prompt_overrides(base, prompt).stop_loss_pct == 8.0
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "트레일링 스탑 15%",
+        "트레일링 15%",
+        "트레일링 비율 15%",
+        "트레일링을 15%로 설정해줘",
+        "최고가 대비 15% 하락",
+    ],
+)
+def test_trailing_stop_phrasings_all_extract_15(prompt):
+    assert _apply_prompt_overrides(_base_strategy(), prompt).trailing_stop_pct == 15.0
+
+
+def test_multi_field_prompt_associates_each_pct_to_correct_field():
+    base = _base_strategy().model_copy(update={"stop_loss_pct": None})
+    result = _apply_prompt_overrides(base, "손절 10% 익절 20%")
+    assert result.stop_loss_pct == 10.0
+    assert result.take_profit_pct == 20.0
+
+
+def test_blocker_prevents_cross_field_false_match():
+    # "손절 없이 익절 10%"에서 손절에 10%가 잘못 붙으면 안 된다(블로커로 차단)
+    base = _base_strategy().model_copy(update={"stop_loss_pct": None})
+    result = _apply_prompt_overrides(base, "손절 없이 익절 10%")
+    assert result.take_profit_pct == 10.0
+    assert result.stop_loss_pct is None
+
+
+def test_extract_risk_field_overrides_is_single_source_of_truth():
+    # API가 프론트에 넘겨줄 '결정적으로 바뀐 리스크 필드' 단일 진실 소스.
+    assert extract_risk_field_overrides("익절 비율 30% 설정") == {"take_profit_pct": 30.0}
+    assert extract_risk_field_overrides("30% 수익시 매도") == {"take_profit_pct": 30.0}
+    assert extract_risk_field_overrides("10% 하락시 매도") == {"stop_loss_pct": 10.0}
+    assert extract_risk_field_overrides("트레일링 비율 15%") == {"trailing_stop_pct": 15.0}
+    assert extract_risk_field_overrides("손절 8% 익절 20%") == {
+        "stop_loss_pct": 8.0,
+        "take_profit_pct": 20.0,
+    }
+    # 삭제 의도는 None으로 표현
+    assert extract_risk_field_overrides("익절 빼줘") == {"take_profit_pct": None}
+    # 리스크 변경이 없으면 빈 dict
+    assert extract_risk_field_overrides("보유 기간 20일로 바꿔줘") == {}
+
+
+def test_match_risk_pct_keyword_and_number_not_adjacent():
+    assert _match_risk_pct("익절비율을30%로", _TAKE_PROFIT_CUE, _TAKE_PROFIT_BLOCK) == 30.0
+    assert _match_risk_pct("30%수익실현", _TAKE_PROFIT_CUE, _TAKE_PROFIT_BLOCK) == 30.0
+    assert _match_risk_pct("손절비율8%", _STOP_LOSS_CUE, _STOP_LOSS_BLOCK) == 8.0
+    assert _match_risk_pct("트레일링비율15%", _TRAILING_CUE, _TRAILING_BLOCK) == 15.0
+    assert _match_risk_pct("손절없이익절10%", _STOP_LOSS_CUE, _STOP_LOSS_BLOCK) is None
+
+
+def test_parse_rule_based_returns_strategy_without_touching_model(monkeypatch):
+    parser = NLStrategyParser()
+
+    def fail_if_model_called(_prompt):
+        raise AssertionError("parse_rule_based must never invoke the LLM")
+
+    monkeypatch.setattr(parser, "_parse_mlx", fail_if_model_called)
+
+    parsed = parser.parse_rule_based(
+        "KOSPI 종목 중 골든크로스 매수, 데드크로스 매도, 손절 8%"
+    )
+
+    assert parsed is not None
+    assert parsed.stop_loss_pct == 8.0
+
+
+def test_parse_rule_based_returns_none_for_ambiguous_prompt():
+    parser = NLStrategyParser()
+    assert parser.parse_rule_based("좋은 저평가 전략 만들어줘") is None
 
 
 def test_parse_uses_rule_based_fast_path_before_model(monkeypatch):
@@ -580,6 +838,52 @@ def test_build_fallback_strategy_handles_vague_prompt_without_crashing():
     assert parsed.max_positions == 10
 
 
+# ─── 진입 누락 되묻기(미지원 전략 유형 포함) 테스트 ──────────────────────────
+
+
+def test_missing_entry_clarification_none_when_entry_present():
+    """진입 규칙(재무 필터/기술 신호)이 있으면 되묻지 않는다."""
+    base = make_base_strategy().model_copy(
+        update={"entry_signals": [TechnicalSignal(indicator="ma_crossover", signal_type="buy")]}
+    )
+
+    question, suggestions = detect_missing_entry_clarification(base, "골든크로스 매수")
+
+    assert question is None
+    assert suggestions is None
+
+
+def test_missing_entry_clarification_generic_when_no_entry_and_no_ranking():
+    """진입이 전혀 없고 랭킹 의도도 아니면 일반 진입 조건 안내를 한다."""
+    base = make_base_strategy().model_copy(update={"stop_loss_pct": 9.0})
+
+    question, suggestions = detect_missing_entry_clarification(base, "손절 9%로 해줘")
+
+    assert question is not None
+    assert "진입 조건" in question
+    assert suggestions and len(suggestions) > 0
+
+
+def test_missing_entry_clarification_flags_relative_strength_ranking():
+    """스크린샷 프롬프트: 수익률 상위 랭킹은 미지원 → 추세추종 전환을 안내한다."""
+    prompt = (
+        "최근 3개월 동안 꾸준히 오른 종목을 따라가는 전략을 써보고 싶어요. "
+        "KOSDAQ에서 최근 60거래일 수익률이 높은 종목 상위권만 골라서 6종목 정도 나눠 사고, "
+        "한 달에 한 번씩 다시 순위를 확인해 주세요. 손절은 -9%로 해주세요."
+    )
+    base = make_base_strategy().model_copy(
+        update={"universe": ["KOSDAQ"], "max_positions": 6, "stop_loss_pct": 9.0}
+    )
+
+    question, suggestions = detect_missing_entry_clarification(base, prompt)
+
+    assert question is not None
+    assert "상대강도" in question
+    # 가까운 추세추종 대안을 제시한다.
+    assert suggestions is not None
+    assert any("골든크로스" in s or "신고가" in s or "돌파" in s for s in suggestions)
+
+
 # ─── LLM 환각 신호 검증 테스트 ──────────────────────────────────────────────
 
 
@@ -604,6 +908,30 @@ def test_validate_signals_keeps_mentioned_indicator():
 
     assert len(validated) == 1
     assert validated[0].indicator == "cci"
+
+
+def test_validate_signals_trusts_descriptive_breakout_without_keyword():
+    """서술형 신호(breakout)는 '돌파/신고가' 키워드가 없어도(예: '위로 뚫으면') 유지한다.
+
+    하이브리드: 표현이 무한히 다양한 패턴 신호는 키워드로 거르지 않고 모델을 신뢰한다.
+    """
+    signals = [TechnicalSignal(indicator="breakout", signal_type="buy", lookback_period=20)]
+
+    validated = _validate_signals(signals, "최근 한 달 박스권을 위로 뚫으면 매수")
+
+    assert len(validated) == 1
+    assert validated[0].indicator == "breakout"
+
+
+def test_validate_signals_still_strips_named_indicator_hallucination():
+    """이름이 고정된 지표(adx)는 프롬프트에 미언급 시 여전히 환각으로 제거한다."""
+    signals = [
+        TechnicalSignal(indicator="adx", signal_type="sell", period=14, operator=">=", value=25),
+    ]
+
+    validated = _validate_signals(signals, "박스권 돌파하면 매수")
+
+    assert len(validated) == 0
 
 
 def test_validate_signals_mixed_valid_and_invalid():

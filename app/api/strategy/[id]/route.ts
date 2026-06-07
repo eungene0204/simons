@@ -19,8 +19,12 @@ export async function DELETE(_req: Request, { params }: { params: { id: string }
           data: { tradingMode: "manual" },
         });
       }
+      // 필수 FK를 가진 연관 레코드 삭제 (BacktestResult는 SetNull이므로 보존됨)
+      await tx.strategyEmbedding.deleteMany({ where: { strategyId: params.id } });
+      await tx.adviceExperience.deleteMany({ where: { strategyId: params.id } });
+      await tx.backtestRun.deleteMany({ where: { strategyId: params.id } });
       await tx.strategy.delete({ where: { id: params.id } });
-    });
+    }, { timeout: 15000 });
 
     return NextResponse.json({ ok: true, stoppedAccounts: autoTradingAccounts });
   } catch (error) {

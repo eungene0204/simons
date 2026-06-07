@@ -94,6 +94,79 @@ class Article(Base):
     )
 
 
+class NewsRaw(Base):
+    __tablename__ = "news_raw"
+
+    news_id: Mapped[str] = mapped_column("newsId", String(64), primary_key=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_title: Mapped[str] = mapped_column("normalizedTitle", Text, nullable=False)
+    title_hash: Mapped[str] = mapped_column("titleHash", String(64), nullable=False)
+    url: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    published_at: Mapped[datetime] = mapped_column("publishedAt", DateTime, nullable=False)
+    raw_content: Mapped[Optional[str]] = mapped_column("rawContent", Text)
+    content_quality: Mapped[float] = mapped_column("contentQuality", Float, default=0.0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column("createdAt", DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_news_raw_published", "publishedAt"),
+        Index("idx_news_raw_title_hash", "titleHash"),
+        Index("idx_news_raw_source_published", "source", "publishedAt"),
+    )
+
+
+class NewsAnalysis(Base):
+    __tablename__ = "news_analysis"
+
+    news_id: Mapped[str] = mapped_column("newsId", String(64), primary_key=True)
+    sentiment: Mapped[Optional[str]] = mapped_column(String(16))
+    impact_score: Mapped[Optional[float]] = mapped_column("impactScore", Float)
+    importance: Mapped[Optional[str]] = mapped_column(String(16))
+    summary: Mapped[Optional[str]] = mapped_column(Text)
+    market_effect: Mapped[Optional[str]] = mapped_column("marketEffect", Text)
+    related_symbols: Mapped[list] = mapped_column("relatedSymbols", JSONList, default=list)
+    status: Mapped[str] = mapped_column(String(16), default="analyzed", nullable=False)
+    error: Mapped[Optional[str]] = mapped_column(Text)
+    analyzed_at: Mapped[datetime] = mapped_column("analyzedAt", DateTime, default=datetime.utcnow)
+
+    __table_args__ = (Index("idx_news_analysis_analyzed", "analyzedAt"),)
+
+
+class NewsSymbolMap(Base):
+    __tablename__ = "news_symbol_map"
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    news_id: Mapped[str] = mapped_column("newsId", String(64), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(16), nullable=False)
+    company_name: Mapped[Optional[str]] = mapped_column("companyName", String(128))
+    relevance: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
+    evidence: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column("createdAt", DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("newsId", "symbol", name="uq_news_symbol_map_news_symbol"),
+        Index("idx_news_symbol_map_symbol", "symbol"),
+        Index("idx_news_symbol_map_news", "newsId"),
+    )
+
+
+class StockNewsCache(Base):
+    __tablename__ = "stock_news_cache"
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    symbol: Mapped[str] = mapped_column(String(16), nullable=False)
+    news_id: Mapped[str] = mapped_column("newsId", String(64), nullable=False)
+    published_at: Mapped[datetime] = mapped_column("publishedAt", DateTime, nullable=False)
+    rank_score: Mapped[float] = mapped_column("rankScore", Float, default=0.0, nullable=False)
+    cached_at: Mapped[datetime] = mapped_column("cachedAt", DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("symbol", "newsId", name="uq_stock_news_cache_symbol_news"),
+        Index("idx_stock_news_cache_symbol_published", "symbol", "publishedAt"),
+        Index("idx_stock_news_cache_symbol_rank", "symbol", "rankScore"),
+    )
+
+
 class PriorityScore(Base):
     __tablename__ = "NewsV2PriorityScore"
 

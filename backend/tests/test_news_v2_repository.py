@@ -6,7 +6,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from news_v2.models import Base, Status
+from news_v2.models import Base, NewsAnalysis, NewsRaw, StockNewsCache, Status
 from news_v2.repository import NewsRepository
 
 
@@ -165,3 +165,83 @@ async def test_delete_older_than(session):
     assert removed == 1
     rows = await repo.list_recent("005930")
     assert [r.title for r in rows] == ["new"]
+
+
+@pytest.mark.asyncio
+async def test_upsert_raw_news_dedups_by_url_and_title_hash(session):
+    repo = NewsRepository(session)
+    now = _utcnow()
+    payload = {
+        "title": "삼성전자 어닝 서프라이즈",
+        "normalized_title": "삼성전자 어닝 서프라이즈",
+        "title_hash": "a" * 64,
+        "url": "https://news/1",
+        "source": "한국경제",
+        "published_at": now,
+        "raw_content": "본문",
+        "content_quality": 0.8,
+    }
+
+    news_id, inserted = await repo.upsert_raw_news(payload)
+    assert inserted is True
+
+    same_url_id, inserted = await repo.upsert_raw_news({**payload, "title_hash": "b" * 64})
+    same_title_id, inserted_title = await repo.upsert_raw_news({**payload, "url": "https://news/2"})
+
+    assert same_url_id == news_id
+    assert same_title_id == news_id
+    assert inserted is False
+    assert inserted_title is False
+
+
+@pytest.mark.asyncio
+async def test_list_cached_news_reads_final_cache_projection(session):
+    repo = NewsRepository(session)
+    now = _utcnow()
+    session.add_all(
+        [
+            NewsRaw(
+                news_id="n1",
+                title="old",
+                normalized_title="old",
+                title_hash="o" * 64,
+                url="https://news/old",
+                source="연합뉴스",
+                published_at=now - timedelta(hours=1),
+                raw_content="old body",
+                content_quality=0.2,
+            ),
+            NewsRaw(
+                news_id="n2",
+                title="new",
+                normalized_title="new",
+                title_hash="n" * 64,
+                url="https://news/new",
+                source="연합뉴스",
+                published_at=now,
+                raw_content="new body",
+                content_quality=0.9,
+            ),
+            NewsAnalysis(
+                news_id="n2",
+                sentiment="positive",
+                impact_score=0.72,
+                importance="high",
+                summary="요약",
+                related_symbols=["000660"],
+            ),
+            StockNewsCache(symbol="005930", news_id="n1", published_at=now - timedelta(hours=1), rank_score=0.1),
+            StockNewsCache(symbol="005930", news_id="n2", published_at=now, rank_score=0.9),
+        ]
+    )
+    await session.commit()
+
+    rows = await repo.list_cached_news("005930", limit=10)
+
+    assert [r.news_id for r in rows] == ["n2", "n1"]
+    assert rows[0].summary == "요약"
+    assert rows[0].sentiment == "positive"
+    assert rows[0].impact_score == 0.72
+    assert rows[0].importance == "high"
+    assert rows[1].sentiment == "neutral"
+    assert rows[1].importance == "low"

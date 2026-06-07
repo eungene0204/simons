@@ -248,6 +248,168 @@ describe("mergeStrategyModification", () => {
     expect(result.backtestRequest?.risk?.trailing_stop_pct).toBeNull();
   });
 
+  it("'수익 실현' 표현으로 익절을 설정하면 risk 도메인으로 인식해 반영한다", () => {
+    const result = mergeStrategyModification({
+      previousParsed: {
+        ...previousParsed,
+        stop_loss_pct: 12,
+        take_profit_pct: null,
+      },
+      nextParsed: {
+        ...previousParsed,
+        stop_loss_pct: 12,
+        take_profit_pct: 30,
+      },
+      previousBacktestRequest: {
+        universe_id: "kospi",
+        risk: { max_positions: 5, stop_loss_pct: 12, take_profit_pct: null, init_cash: 10000000 },
+        period: "5y",
+      },
+      nextBacktestRequest: {
+        universe_id: "kospi",
+        risk: { max_positions: 5, stop_loss_pct: 12, take_profit_pct: 30, init_cash: 10000000 },
+        period: "5y",
+      },
+      userPrompt: "30% 상승시 수익 실현 하게 설정해",
+      previousCoachText: "익절 비율 설정을 추천드립니다. 아니면 지금 조건으로 바로 백테스트를 진행하셔도 됩니다.",
+    });
+
+    expect(result.requestedDomains.has("risk")).toBe(true);
+    expect(result.parsed.take_profit_pct).toBe(30);
+    expect(result.parsed.stop_loss_pct).toBe(12);
+    expect(result.backtestRequest?.risk?.take_profit_pct).toBe(30);
+  });
+
+  it("'수익 실현' 설정 요청은 후속 질문이 아니라 전략 수정으로 분류된다", () => {
+    expect(isAdvisorFollowUpPrompt("30% 상승시 수익 실현 하게 설정해")).toBe(false);
+  });
+
+  it("'30% 수익시 매도'를 익절(risk)로 인식해 백엔드 추출값을 반영한다", () => {
+    const result = mergeStrategyModification({
+      previousParsed: { ...previousParsed, stop_loss_pct: 10, take_profit_pct: null },
+      nextParsed: { ...previousParsed, stop_loss_pct: 10, take_profit_pct: 30 },
+      previousBacktestRequest: {
+        universe_id: "kosdaq",
+        risk: { max_positions: 6, stop_loss_pct: 10, take_profit_pct: null, init_cash: 10000000 },
+        period: "5y",
+      },
+      nextBacktestRequest: {
+        universe_id: "kosdaq",
+        risk: { max_positions: 6, stop_loss_pct: 10, take_profit_pct: 30, init_cash: 10000000 },
+        period: "5y",
+      },
+      userPrompt: "30% 수익시 매도",
+      previousCoachText: "수익 실현 비율 설정을 추천드립니다. 아니면 지금 조건으로 바로 백테스트를 진행하셔도 됩니다.",
+    });
+
+    expect(result.requestedDomains.has("risk")).toBe(true);
+    expect(result.parsed.take_profit_pct).toBe(30);
+    expect(result.parsed.stop_loss_pct).toBe(10);
+    expect(result.backtestRequest?.risk?.take_profit_pct).toBe(30);
+  });
+
+  it("백엔드 riskOverrides는 프론트가 프롬프트에서 risk를 못 읽어도 그대로 신뢰해 반영한다", () => {
+    // 프론트 정규식이 'risk'로 분류하지 못하는 임의 문구라도, 백엔드가 결정적으로 뽑은 값이면 적용.
+    const result = mergeStrategyModification({
+      previousParsed: { ...previousParsed, stop_loss_pct: 10, take_profit_pct: null },
+      nextParsed: { ...previousParsed, stop_loss_pct: 10, take_profit_pct: null },
+      previousBacktestRequest: {
+        universe_id: "kosdaq",
+        risk: { max_positions: 6, stop_loss_pct: 10, take_profit_pct: null, init_cash: 10000000 },
+        period: "5y",
+      },
+      nextBacktestRequest: {
+        universe_id: "kosdaq",
+        risk: { max_positions: 6, stop_loss_pct: 10, take_profit_pct: null, init_cash: 10000000 },
+        period: "5y",
+      },
+      userPrompt: "그러면 그렇게 해줘",
+      riskOverrides: { take_profit_pct: 30 },
+    });
+
+    expect(result.requestedDomains.has("risk")).toBe(true);
+    expect(result.parsed.take_profit_pct).toBe(30);
+    expect(result.parsed.stop_loss_pct).toBe(10);
+    expect(result.backtestRequest?.risk?.take_profit_pct).toBe(30);
+  });
+
+  it("백엔드 riskOverrides의 null은 해당 리스크 필드 삭제로 반영한다", () => {
+    const result = mergeStrategyModification({
+      previousParsed: { ...previousParsed, stop_loss_pct: 10, take_profit_pct: 30 },
+      nextParsed: { ...previousParsed, stop_loss_pct: 10, take_profit_pct: 30 },
+      previousBacktestRequest: {
+        universe_id: "kosdaq",
+        risk: { max_positions: 6, stop_loss_pct: 10, take_profit_pct: 30, init_cash: 10000000 },
+        period: "5y",
+      },
+      nextBacktestRequest: {
+        universe_id: "kosdaq",
+        risk: { max_positions: 6, stop_loss_pct: 10, take_profit_pct: 30, init_cash: 10000000 },
+        period: "5y",
+      },
+      userPrompt: "익절 빼줘",
+      riskOverrides: { take_profit_pct: null },
+    });
+
+    expect(result.parsed.take_profit_pct).toBeNull();
+    expect(result.parsed.stop_loss_pct).toBe(10);
+    expect(result.backtestRequest?.risk?.take_profit_pct).toBeNull();
+  });
+
+  it("'10% 하락시 매도'를 손절(risk)로 인식해 백엔드 추출값을 반영한다", () => {
+    const result = mergeStrategyModification({
+      previousParsed: { ...previousParsed, stop_loss_pct: null, take_profit_pct: null },
+      nextParsed: { ...previousParsed, stop_loss_pct: 10, take_profit_pct: null },
+      previousBacktestRequest: {
+        universe_id: "kosdaq",
+        risk: { max_positions: 6, stop_loss_pct: null, init_cash: 10000000 },
+        period: "5y",
+      },
+      nextBacktestRequest: {
+        universe_id: "kosdaq",
+        risk: { max_positions: 6, stop_loss_pct: 10, init_cash: 10000000 },
+        period: "5y",
+      },
+      userPrompt: "10% 하락시 매도",
+      previousCoachText: "손절 조건을 추가해 보세요.",
+    });
+
+    expect(result.requestedDomains.has("risk")).toBe(true);
+    expect(result.parsed.stop_loss_pct).toBe(10);
+  });
+
+  it("코치가 손절을 맥락으로 언급하며 익절을 물은 뒤 '30%로 설정해줘'라고 답하면 익절에 반영한다", () => {
+    const result = mergeStrategyModification({
+      previousParsed: {
+        ...previousParsed,
+        stop_loss_pct: 12,
+        take_profit_pct: null,
+      },
+      nextParsed: {
+        ...previousParsed,
+        stop_loss_pct: 12,
+        take_profit_pct: null,
+      },
+      previousBacktestRequest: {
+        universe_id: "kospi",
+        risk: { max_positions: 8, stop_loss_pct: 12, take_profit_pct: null, init_cash: 10000000 },
+        period: "5y",
+      },
+      nextBacktestRequest: {
+        universe_id: "kospi",
+        risk: { max_positions: 8, stop_loss_pct: 12, take_profit_pct: null, init_cash: 10000000 },
+        period: "5y",
+      },
+      userPrompt: "30%로 설정해줘",
+      previousCoachText:
+        "손절 12%는 매수가 대비 12% 하락 시 매도하는 조건으로 설정하셨으니, 큰 손실 방지에는 도움이 됩니다. 익절 비율 설정을 추천드립니다. 몇 %로 설정할까요?",
+    });
+
+    expect(result.parsed.take_profit_pct).toBe(30);
+    expect(result.parsed.stop_loss_pct).toBe(12);
+    expect(result.backtestRequest?.risk?.take_profit_pct).toBe(30);
+  });
+
   it("기존 트레일링 스탑이 있는 전략에서 익절만 바꾸면 기존 트레일링 스탑 값을 유지한다", () => {
     const result = mergeStrategyModification({
       previousParsed: {
@@ -287,6 +449,56 @@ describe("mergeStrategyModification", () => {
     expect(result.parsed.trailing_stop_pct).toBe(15);
     expect(result.backtestRequest?.risk?.take_profit_pct).toBe(30);
     expect(result.backtestRequest?.risk?.trailing_stop_pct).toBe(15);
+  });
+
+  it("이전 코치가 익절만 언급한 뒤 퍼센트로 다시 조정하면 익절 문맥으로 해석한다", () => {
+    const result = mergeStrategyModification({
+      previousParsed: {
+        ...previousParsed,
+        stop_loss_pct: 12,
+        take_profit_pct: 30,
+        hold_period_days: 126,
+        max_positions: 8,
+      },
+      nextParsed: {
+        ...previousParsed,
+        stop_loss_pct: 12,
+        take_profit_pct: 30,
+        hold_period_days: 126,
+        max_positions: 8,
+      },
+      previousBacktestRequest: {
+        universe_id: "kospi",
+        risk: {
+          max_positions: 8,
+          stop_loss_pct: 12,
+          take_profit_pct: 30,
+          max_holding_days: 126,
+          init_cash: 10000000,
+        },
+        period: "5y",
+      },
+      nextBacktestRequest: {
+        universe_id: "kospi",
+        risk: {
+          max_positions: 8,
+          stop_loss_pct: 12,
+          take_profit_pct: 30,
+          max_holding_days: 126,
+          init_cash: 10000000,
+        },
+        period: "5y",
+      },
+      userPrompt: "20%로 다시 조정",
+      previousCoachText:
+        "익절 비율(매수가 대비 정한 수익률에 도달하면 자동으로 파는 고정 목표 수익 조건)을 30%로 조정해 주신 요청을 반영하여, 현재 조건과 비교 테스트를 진행해 보시겠어요?",
+    });
+
+    expect(result.requestedDomains.has("risk")).toBe(true);
+    expect(result.parsed.stop_loss_pct).toBe(12);
+    expect(result.parsed.take_profit_pct).toBe(20);
+    expect(result.backtestRequest?.risk?.stop_loss_pct).toBe(12);
+    expect(result.backtestRequest?.risk?.take_profit_pct).toBe(20);
   });
 
   it("후속 개선 질문처럼 수정 domain이 없는 요청은 기존 전략을 유지한다", () => {

@@ -417,11 +417,34 @@ class BacktestEngine:
 
             rank_df = None
             skip_pos = risk_params.get('skip_position_setting', False)
-            if (not skip_pos) and risk_params.get('ranking_enabled', True) and all_ranks['pbr'] and all_ranks['roe']:
+            ranking_metric = risk_params.get('ranking_metric')
+            if ranking_metric == 'return':
+                # 상대강도(모멘텀) 랭킹: N일 수익률 순위로 상위 종목 선정.
+                # 종목 간 횡단면 순위라 진입 신호 없이 순위 자체가 진입이 된다. 회전(월간 등)은
+                # max_holding_days 만료로 구동(엔진에 별도 리밸런싱 로직 없음).
+                try:
+                    lookback = int(risk_params.get('ranking_lookback_days') or 60)
+                    momentum = price_df.pct_change(lookback)
+                    rank_df = momentum.rank(axis=1, pct=True)
+                    if exec_type == 'next_open':
+                        rank_df = rank_df.shift(1)
+                    rank_df = rank_df.fillna(0.0)
+                    # 진입 신호가 없으면(선정=진입) 전 종목을 후보로 만들어 순위로 상위 K를 채운다.
+                    _entry_conditions = (req.get('entry') or {}).get('conditions') or []
+                    if not _entry_conditions:
+                        ents_df = available_df.copy()
+                        if exec_type == 'next_open':
+                            ents_df = ents_df.shift(1, fill_value=False)
+                        ents_df &= available_df
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning(f"[BacktestEngine] 수익률 랭킹 계산 실패: {e}")
+                    rank_df = None
+            elif (not skip_pos) and risk_params.get('ranking_enabled', True) and all_ranks['pbr'] and all_ranks['roe']:
                 try:
                     pbr_df = pd.DataFrame(all_ranks['pbr'], index=common_index, columns=processed_symbols).ffill().fillna(1.0)
                     roe_df = pd.DataFrame(all_ranks['roe'], index=common_index, columns=processed_symbols).ffill().fillna(0.0)
-                    
+
                     if exec_type == 'next_open':
                         pbr_df = pbr_df.shift(1).ffill()
                         roe_df = roe_df.shift(1).ffill()

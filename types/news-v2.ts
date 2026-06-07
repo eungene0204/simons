@@ -13,29 +13,27 @@ export type NewsStatus =
 
 export type NewsSource = "redis" | "postgres" | "queue";
 export type Sentiment = "positive" | "neutral" | "negative";
-export type ImpactLevel = "low" | "medium" | "high";
+export type Importance = "low" | "medium" | "high";
 
 export interface NewsItemV2 {
-  id: number;
+  newsId: string;
   title: string;
-  summary?: string | null;
-  source: string;
   url: string;
-  published_at: string;
+  source: string;
+  publishedAt: string;
+  summary?: string | null;
   sentiment?: Sentiment | null;
-  sentiment_score?: number | null;
-  impact_level?: ImpactLevel | null;
-  market_effect?: string | null;
-  related_symbols: string[];
-  ai_summary?: string | null;
+  impactScore: number;
+  importance: Importance;
 }
 
 export interface NewsResponseV2 {
+  symbol: string;
+  items: NewsItemV2[];
+  lastUpdatedAt?: string | null;
+  isStale: boolean;
   status: NewsStatus;
   source: NewsSource;
-  stale: boolean;
-  items: NewsItemV2[];
-  fetched_at?: string | null;
   message?: string | null;
 }
 

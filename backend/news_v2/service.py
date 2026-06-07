@@ -8,7 +8,7 @@ Collect path (worker):
     run_collect(symbol) → providers.fetch → normalize → dedup → persist → analyze
 
 Analysis path (worker):
-    run_analyze(article_id) → AINewsAgent → persist analysis fields → invalidate cache
+    run_analyze(news_id) → AINewsAgent → persist analysis fields → update cache
 """
 
 from __future__ import annotations
@@ -28,7 +28,8 @@ from news_v2.config import Settings, get_settings
 from news_v2.logging_setup import get_logger
 from news_v2.models import Status
 from news_v2.providers import fetch_for_symbol
-from news_v2.repository import ArticleDTO, NewsRepository
+from news_v2.repository import CachedNewsDTO, NewsRepository
+from news_v2.symbol_mapping import map_symbols_from_text
 
 log = get_logger(__name__)
 
@@ -42,7 +43,7 @@ class NewsResponse:
     status: str
     source: str
     stale: bool
-    items: list[ArticleDTO]
+    items: list[CachedNewsDTO]
     fetched_at: Optional[datetime]
     message: Optional[str] = None
 
@@ -90,11 +91,11 @@ class Queue:
         )
         return result.id
 
-    def enqueue_analyze(self, article_id: int) -> Optional[str]:
+    def enqueue_analyze(self, news_id: str) -> Optional[str]:
         if not self.enabled:
             return None
         result = self._celery_app.send_task(
-            "news_v2.tasks.analyze_news", args=[article_id], queue="news.analyze"
+            "news_v2.tasks.analyze_news", args=[news_id], queue="news.analyze"
         )
         return result.id
 
@@ -125,12 +126,7 @@ class NewsService:
     ) -> NewsResponse:
         page_size = min(limit or self.cfg.default_page_size, self.cfg.max_page_size)
 
-        # 1) Always bump view counters — both Redis (fast aggregate) and PG (persisted).
-        await self.cache.incr_views(symbol)
-        await self.repo.bump_priority(symbol, delta=self.cfg.view_bonus)
-        await self.session.commit()
-
-        # 2) Redis HIT
+        # 1) Redis HIT. This is a prepared cache store, so it is safe for the tab hot path.
         cached = await self.cache.get_articles(symbol)
         if cached is not None:
             metrics.cache_hits.labels(layer="redis").inc()
@@ -147,13 +143,12 @@ class NewsService:
                 fetched_at=_utcnow(),
             )
 
-        # 3) PG HIT
-        rows = await self.repo.list_recent(symbol, limit=page_size)
+        # 2) DB cache HIT. Read only the final stock_news_cache projection.
+        rows = await self.repo.list_cached_news(symbol, limit=page_size)
         if rows:
             metrics.cache_hits.labels(layer="postgres").inc()
-            priority = await self.repo.get_priority(symbol)
-            last_collected = priority.last_collected if priority else None
-            stale = self._is_stale(last_collected)
+            last_updated = await self.repo.get_cache_last_updated(symbol)
+            stale = self._is_stale(last_updated)
             await self.cache.set_articles(
                 symbol,
                 rows,
@@ -169,28 +164,26 @@ class NewsService:
                 source="postgres",
                 stale=stale,
                 items=rows,
-                fetched_at=rows[0].published_at if rows else None,
+                fetched_at=last_updated,
             )
 
-        # 4) MISS → enqueue + return COLLECTING
+        status_row = await self.repo.get_status(symbol)
+        if status_row and status_row.status == Status.NO_NEWS_FOUND and not self._is_stale(status_row.last_success_at):
+            metrics.request_total.labels(status=Status.NO_NEWS_FOUND, source="queue").inc()
+            return NewsResponse(
+                status=Status.NO_NEWS_FOUND,
+                source="queue",
+                stale=False,
+                items=[],
+                fetched_at=status_row.last_success_at,
+                message="최근 뉴스를 찾지 못했습니다.",
+            )
+
+        # 3) MISS → enqueue only. Never collect/analyze inline on the UI request path.
         if await self.cache.acquire_collect_lock(symbol):
             job_id = self.queue.enqueue_collect(symbol, priority="high")
             await self.repo.set_status(symbol, Status.COLLECTING, job_id=job_id)
             await self.session.commit()
-            if not self.queue.enabled:
-                # No broker → run inline so dev still works (slower request).
-                await self.run_collect(symbol, company_name=company_name)
-                rows = await self.repo.list_recent(symbol, limit=page_size)
-                status = Status.READY if rows else Status.NO_NEWS_FOUND
-                metrics.request_total.labels(status=status, source="postgres").inc()
-                return NewsResponse(
-                    status=status,
-                    source="postgres",
-                    stale=False,
-                    items=rows,
-                    fetched_at=_utcnow(),
-                    message=None if rows else "최근 뉴스를 찾지 못했습니다.",
-                )
 
         await self.cache.set_status(symbol, Status.COLLECTING)
         metrics.request_total.labels(status=Status.COLLECTING, source="queue").inc()
@@ -208,7 +201,7 @@ class NewsService:
     async def run_collect(
         self, symbol: str, *, company_name: Optional[str] = None, job_id: Optional[str] = None
     ) -> int:
-        """Collect from providers, dedup, persist. Returns count of NEW articles."""
+        """Collect from providers, dedup, map symbols, and update the tab cache."""
         started = _utcnow()
         job_id = job_id or uuid.uuid4().hex
         await self.repo.set_status(symbol, Status.COLLECTING, job_id=job_id)
@@ -236,10 +229,11 @@ class NewsService:
             return 0
 
         fetched = len(articles)
-        inserted_ids: list[int] = []
+        inserted_ids: list[str] = []
         deduped = 0
 
         for a in articles:
+            normalized_title = dedup_mod.normalize_title(a.title)
             h = dedup_mod.title_hash(a.title)
             # Storage uses naive-UTC. Providers occasionally hand back tz-aware
             # datetimes; PostgreSQL with TIMESTAMP WITHOUT TIME ZONE rejects
@@ -247,33 +241,30 @@ class NewsService:
             pub = a.published_at
             if pub is not None and pub.tzinfo is not None:
                 pub = pub.astimezone(timezone.utc).replace(tzinfo=None)
+            raw_content = a.body or a.summary
+            content_quality = _content_quality(a.title, raw_content)
             payload = {
-                "symbol": symbol,
                 "title": a.title,
-                "normalized_title": dedup_mod.normalize_title(a.title),
-                "summary": a.summary,
+                "normalized_title": normalized_title,
+                "title_hash": h,
                 "source": a.source,
                 "url": a.url,
                 "published_at": pub,
-                "hash": h,
-                "status": "raw",
-                "related_symbols": [],
+                "raw_content": raw_content,
+                "content_quality": content_quality,
             }
-            inserted = await self.repo.upsert_article(payload)
+            news_id, inserted = await self.repo.upsert_raw_news(payload)
+            mapped = await self._map_symbols(news_id, symbol, name, a.title, raw_content)
+            await self.repo.upsert_news_symbol_maps(news_id, mapped)
+            for item in mapped:
+                await self.repo.upsert_stock_news_cache(
+                    symbol=item["symbol"],
+                    news_id=news_id,
+                    published_at=pub,
+                    rank_score=_rank_score(pub, content_quality, None),
+                )
             if inserted:
-                await self.session.flush()  # populate id
-                # Re-fetch to get the assigned id deterministically:
-                from sqlalchemy import select
-                from news_v2.models import Article
-
-                new_id = (
-                    await self.session.execute(
-                        select(Article.id).where(
-                            Article.symbol == symbol, Article.hash == h
-                        )
-                    )
-                ).scalar_one()
-                inserted_ids.append(new_id)
+                inserted_ids.append(news_id)
             else:
                 deduped += 1
 
@@ -299,43 +290,81 @@ class NewsService:
         await self.cache.invalidate(symbol)
         await self.cache.release_collect_lock(symbol)
 
-        # Enqueue analysis for newly inserted articles (or run inline if no queue).
-        for aid in inserted_ids:
+        # Enqueue analysis for newly inserted articles (or run inline in worker/scheduler mode).
+        for news_id in inserted_ids:
             if self.queue.enabled:
-                self.queue.enqueue_analyze(aid)
+                self.queue.enqueue_analyze(news_id)
             else:
-                await self.run_analyze(aid)
+                await self.run_analyze(news_id)
 
         return len(inserted_ids)
 
-    async def run_analyze(self, article_id: int) -> None:
-        from sqlalchemy import select
-
-        from news_v2.models import Article
-
-        article = (
-            await self.session.execute(select(Article).where(Article.id == article_id))
-        ).scalar_one_or_none()
-        if article is None:
+    async def run_analyze(self, news_id: str, *, raise_on_failure: bool = False) -> None:
+        raw = await self.repo.get_raw_news(str(news_id))
+        if raw is None:
             return
 
-        result = await self.agent.analyze(
-            title=article.title, body=article.summary, symbol=article.symbol
-        )
-        await self.repo.update_analysis(
-            article_id,
-            {
-                "sentiment": result.sentiment,
-                "sentiment_score": result.sentiment_score,
-                "impact_level": result.impact_level,
-                "market_effect": result.market_effect,
-                "related_symbols": result.related_symbols,
-                "ai_summary": result.summary,
-                "status": "analyzed",
-            },
-        )
-        await self.session.commit()
-        await self.cache.invalidate(article.symbol)
+        maps = await self.repo.get_symbols_for_news(raw.news_id)
+        primary_symbol = maps[0].symbol if maps else ""
+        try:
+            result = await self.agent.analyze(
+                title=raw.title, body=raw.raw_content, symbol=primary_symbol
+            )
+            impact_score = abs(float(result.sentiment_score or 0.0))
+            importance = result.impact_level if result.impact_level in {"low", "medium", "high"} else "low"
+            await self.repo.upsert_news_analysis(
+                raw.news_id,
+                {
+                    "sentiment": result.sentiment,
+                    "impact_score": max(0.0, min(1.0, impact_score)),
+                    "importance": importance,
+                    "summary": result.summary,
+                    "market_effect": result.market_effect,
+                    "related_symbols": result.related_symbols,
+                    "status": "analyzed",
+                    "error": None,
+                },
+            )
+            for m in maps:
+                await self.repo.upsert_stock_news_cache(
+                    symbol=m.symbol,
+                    news_id=raw.news_id,
+                    published_at=raw.published_at,
+                    rank_score=_rank_score(raw.published_at, raw.content_quality, importance),
+                )
+                await self.cache.invalidate(m.symbol)
+            await self.session.commit()
+        except Exception as exc:
+            log.exception("analyze_failed", news_id=raw.news_id)
+            symbol_for_log = primary_symbol or "__unknown__"
+            await self.repo.upsert_news_analysis(
+                raw.news_id,
+                {
+                    "sentiment": None,
+                    "impact_score": None,
+                    "importance": None,
+                    "summary": None,
+                    "market_effect": None,
+                    "related_symbols": [],
+                    "status": "failed",
+                    "error": str(exc),
+                },
+            )
+            await self.repo.log_ingestion(
+                symbol=symbol_for_log,
+                provider="news_agent_analysis",
+                job_id=raw.news_id,
+                started_at=_utcnow(),
+                finished_at=_utcnow(),
+                fetched=0,
+                deduped=0,
+                inserted=0,
+                status="retry",
+                error=str(exc),
+            )
+            await self.session.commit()
+            if raise_on_failure:
+                raise
 
     # ─── helpers ───────────────────────────────────────────────────────────────
 
@@ -368,3 +397,35 @@ class NewsService:
             return row[0] if row else None
         except Exception:
             return None
+
+    async def _map_symbols(
+        self,
+        news_id: str,
+        symbol: str,
+        company_name: str,
+        title: str,
+        body: Optional[str],
+    ) -> list[dict]:
+        text = f"{title} {body or ''}"
+        return [
+            {"news_id": news_id, **item}
+            for item in map_symbols_from_text(
+                text=text,
+                target_symbol=symbol,
+                target_name=company_name,
+            )
+        ]
+
+
+def _content_quality(title: str, body: Optional[str]) -> float:
+    length = len((body or "").strip())
+    title_bonus = min(len((title or "").strip()) / 120.0, 1.0)
+    body_score = min(length / 1500.0, 1.0)
+    return round((title_bonus * 0.35) + (body_score * 0.65), 4)
+
+
+def _rank_score(published_at: datetime, content_quality: float, importance: Optional[str]) -> float:
+    importance_bonus = {"high": 0.35, "medium": 0.18, "low": 0.0}.get(importance or "low", 0.0)
+    age_hours = max((_utcnow() - published_at.replace(tzinfo=None)).total_seconds() / 3600.0, 0.0)
+    recency = max(0.0, 1.0 - min(age_hours / 168.0, 1.0))
+    return round((recency * 0.55) + (content_quality * 0.10) + importance_bonus, 4)

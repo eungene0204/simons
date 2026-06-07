@@ -181,13 +181,6 @@ def _format_combo_description(combo: str) -> str:
     return " + ".join(_DISPLAY_LABELS.get(item, item) for item in combo.split("+") if item)
 
 
-def _humanize_advice_text(text: str) -> str:
-    output = text
-    for key in sorted(_DISPLAY_LABELS, key=len, reverse=True):
-        output = output.replace(key, _DISPLAY_LABELS[key])
-    return output.replace("_", " ")
-
-
 _PARAM_DISTANCE_SCALE = {
     "stop_loss_pct": 15.0,
     "take_profit_pct": 30.0,
@@ -389,45 +382,6 @@ def _strategy_specific_candidates(parsed_strategy: Dict[str, Any], block_set: Se
             candidates.append("PBR 기준 1.0배 이하 비교")
 
     return candidates[:2]
-
-
-def _plain_adjustment_text(adjustments: Sequence[str]) -> str:
-    if not adjustments:
-        return ""
-
-    def to_setting_text(item: str) -> str:
-        text = re.sub(r"\([^)]*\)", "", item).strip()
-        text = text.replace("기준안과 ", "")
-        text = text.replace(" 버전 비교", "")
-        text = text.replace(" 조건 비교", "")
-        text = text.replace(" 비교", "")
-        text = text.replace(" 추가", "")
-        labels = {
-            "거래량 급증 기준": "거래량 급증 기준은",
-            "신고가 기간": "신고가 기간은",
-            "이동평균 기간": "이동평균 기간은",
-            "MACD 확인 조건": "MACD 확인 조건은",
-            "PBR 기준": "PBR 기준은",
-            "RSI 진입 기준": "RSI 진입 기준은",
-            "트레일링 스탑": "트레일링 스탑은",
-            "최대 보유기간": "최대 보유기간은",
-            "보유 종목 수": "보유 종목 수는",
-            "손절": "손절은",
-            "익절": "익절은",
-        }
-        for label, replacement in labels.items():
-            if text.startswith(label):
-                return text.replace(label, replacement, 1)
-        return text
-
-    cleaned = list(dict.fromkeys(
-        to_setting_text(str(item))
-        for item in adjustments
-        if str(item).strip()
-    ))[:3]
-    if not cleaned:
-        return ""
-    return " 이 전략에서 " + ", ".join(cleaned) + "로 각각 바꿔 테스트해 보세요."
 
 
 def _evidence_judgment(insight: Dict[str, Any]) -> str:
@@ -807,42 +761,17 @@ def build_experiment_learning_advice(insight: Dict[str, Any]) -> Optional[str]:
     if sample_count <= 0:
         return None
 
-    metrics = []
-    for label, key in (
-        ("CAGR", "median_cagr"),
-        ("Sharpe", "median_sharpe"),
-        ("MDD", "median_mdd"),
-        ("Profit Factor", "median_profit_factor"),
-        ("거래 수", "median_trades"),
-    ):
-        value = insight.get(key)
-        if isinstance(value, (int, float)):
-            suffix = "%" if label in {"CAGR", "MDD"} else ""
-            if label == "거래 수":
-                metrics.append(f"{label} 중앙값 {value:.0f}회")
-            else:
-                metrics.append(f"{label} 중앙값 {value:.2f}{suffix}")
-    evidence = ", ".join(metrics) if metrics else "성과 중앙값은 제한적으로만 확인됨"
     is_flat_evidence = all(
         isinstance(insight.get(key), (int, float)) and abs(insight.get(key)) < 1e-9
         for key in ("median_cagr", "median_sharpe", "median_mdd")
     )
-    adjustments = [
-        _humanize_advice_text(str(item))
-        for item in insight.get("recommended_adjustments") or []
-        if str(item).strip()
-    ]
-    adjustment_text = _plain_adjustment_text(adjustments)
     judgment = _evidence_judgment(insight)
-    evidence_prefix = f"백테스트 학습 사례 {sample_count}건 기준으로"
 
     if is_flat_evidence:
         return (
-            f"{evidence_prefix} 제안 주신 전략과 비슷한 전략은 {evidence}으로 성과 신호가 거의 없었습니다. "
-            f"판단하면 {judgment}. "
-            f"{adjustment_text} 다음 백테스트에서는 현재안을 그대로 반복하지 말고, "
-            "진입 조건 완화, 청산 규칙 추가, 보유기간 제한을 각각 하나씩만 바꿔 비교하세요. "
-            "거래가 충분히 발생하고 MDD와 Sharpe가 동시에 개선되는 후보만 남기세요."
+            f"유사 실험 근거는 내부 참고용으로만 사용하세요. 판단하면 {judgment}. "
+            "성과 신호가 약하므로 현재 전략은 먼저 같은 기간과 비용 조건으로 백테스트하고, "
+            "이후 진입 조건, 청산 규칙, 보유기간 변경은 한 번에 하나씩만 비교하세요."
         )
 
     risk_warning = ""
@@ -851,9 +780,8 @@ def build_experiment_learning_advice(insight: Dict[str, Any]) -> Optional[str]:
         risk_warning = f" {warning}" if warning else " 유사 실패 패턴도 있으므로 같은 조건 반복은 피하세요."
 
     return (
-        f"{evidence_prefix} 제안 주신 전략과 비슷한 전략의 결과가 {evidence}로 나왔습니다. "
-        f"판단하면 {judgment}. "
-        f"{adjustment_text} "
-        f"테스트 후에는 MDD와 Sharpe가 동시에 좋아지는 설정만 남기세요."
+        f"유사 실험 근거는 내부 참고용으로만 사용하세요. 판단하면 {judgment}. "
+        "현재 전략은 먼저 같은 기간과 비용 조건으로 백테스트하고, "
+        "이후 변경은 한 번에 하나씩만 비교하세요."
         f"{risk_warning}"
     )

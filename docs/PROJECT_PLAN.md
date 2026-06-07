@@ -1,7 +1,7 @@
 # Simons — 종합 투자 시뮬레이션 플랫폼 프로젝트 계획서
 
 > **문서 버전:** v2.0
-> **최종 갱신일:** 2026-05-28
+> **최종 갱신일:** 2026-06-02
 > **프로젝트명:** Simons (시몬스)
 
 ---
@@ -300,6 +300,7 @@ simons/
 | 개선 검증 | 후보 전략 생성 후 가능하면 개선 전/후 백테스트와 WFA/OOS 컨텍스트를 비교 |
 | UX | 전략 요약 카드 → 대화창 내 코치 분석 말풍선 → 핵심 조언 최대 3개 → 완료 시 백테스트 버튼 표시 |
 | 응답 형식 | `{"message": "...(300자 이내)", "suggestions": ["제안1", "제안2", "제안3"]}` |
+| 옛 조언 템플릿 차단 | `백테스트 학습 사례 N건`, `CAGR/Sharpe/MDD 중앙값`, `각각 바꿔 테스트` 같은 내부 learning 템플릿 문구는 LLM 입력/최종 응답 양쪽에서 필터링 |
 
 **코치 표시 흐름:**
 ```
@@ -311,6 +312,8 @@ simons/
       ├── 성과 신호 + 비교 후보 중심으로 조언 압축
       └── 조언은 최대 3개만 우선 표시
 ```
+
+**코치 응답 가드레일:** 코치는 advisor learning evidence를 내부 판단 근거로만 사용한다. 사용자 응답에는 학습 표본 수, 성과 중앙값, Profit Factor 중앙값, 거래 수 중앙값, 여러 파라미터 후보를 한꺼번에 나열하는 옛 템플릿을 노출하지 않는다. 동일 패턴이 advisor_result에 포함되거나 LLM이 그대로 출력하더라도 최종 응답에서는 제거하고, "같은 기간과 비용 조건으로 먼저 백테스트한 뒤 변경은 한 번에 하나씩 비교"하는 실행 가능한 안내로 대체한다.
 
 **전략 변환기 (StrategyConverter):**
 
@@ -340,8 +343,9 @@ simons/
 | UI 반영 | 오른쪽 advisor panel 제거, `/analytics/new` 대화창 말풍선에서 핵심 조언만 표시 | ✅ 완료 |
 | Advisor 학습 데이터 | KOSPI200 smoke sample 10,000건 백테스트 결과로 learning dataset/summary artifact 갱신 | ✅ 완료 |
 | 조언 표현 정책 | RAG/Experience Memory/유사 사례 출처는 내부 근거로만 사용하고 사용자에게는 행동 가능한 조언만 표시 | ✅ 완료 |
+| 옛 learning 문구 제거 | 표본 수/중앙값/복수 파라미터 후보를 그대로 나열하는 과거 조언 패턴 제거 | ✅ 완료 |
 
-**조언 답변 정책:** 전략 요약은 별도 카드로 분리하고, 코치 말풍선은 성과 신호 → 비교 후보 → 리스크 관리 조치 중심으로 압축한다. "유사 전략", "과거 사례", "Experience Memory" 같은 내부 근거 출처는 사용자 문구에 직접 노출하지 않는다.
+**조언 답변 정책:** 전략 요약은 별도 카드로 분리하고, 코치 말풍선은 성과 신호 → 비교 후보 → 리스크 관리 조치 중심으로 압축한다. "유사 전략", "과거 사례", "Experience Memory" 같은 내부 근거 출처는 사용자 문구에 직접 노출하지 않는다. 또한 "백테스트 학습 사례 N건 기준", "CAGR 중앙값", "Sharpe 중앙값", "MDD 중앙값", "Profit Factor 중앙값", "거래 수 중앙값", "각각 바꿔 테스트", "MDD와 Sharpe가 동시에 좋아지는 설정" 같은 옛 템플릿 문구는 사용자 문구로 생성하거나 전달하지 않는다.
 
 #### 3.1.2 모두 테스트 (독립형 배치 백테스트) ✅ 완료
 
@@ -1087,6 +1091,7 @@ WatchlistSymbol {
 | 캐시/중복 제거 | Next.js/FastAPI 계층에서 JSON cache, SSE replay cache, in-flight dedupe 적용 | ✅ 완료 |
 | 런타임 우선순위 | MLX priority lock에서 parse보다 낮고 summary보다 높은 priority로 실행 | ✅ 완료 |
 | 전략 만들기 UI 정리 | 모델 로딩 배지 제거, 오른쪽 코치 패널 제거, 전략 요약 카드/코치 말풍선 중심으로 단순화 | ✅ 완료 |
+| 옛 learning 템플릿 차단 | advisor_result 입력 필터와 최종 응답 가드로 표본 수/중앙값 나열형 조언 노출 방지 | ✅ 완료 |
 
 ### Phase 3.7c: RAG + Experience Memory 전략 조언 Agent — ✅ 완료
 
@@ -1103,6 +1108,7 @@ WatchlistSymbol {
 | 10,000건 학습 artifact | KOSPI200 smoke sample 10,000건 결과를 `data/advisor-learning` dataset/summary로 반영 | ✅ 완료 |
 | 조언 품질 개선 | flat evidence 감지, 낮은 유사도 confidence downgrade, profit factor/trade count 반영 | ✅ 완료 |
 | 사용자 문구 압축 | 유사 사례/Experience Memory 출처 설명을 숨기고, 비교 후보와 리스크 조치만 표시 | ✅ 완료 |
+| 옛 조언 패턴 제거 | learning evidence는 내부 참고용으로만 사용하고, 조건 변경은 한 번에 하나씩 비교하도록 안내 | ✅ 완료 |
 
 ### Phase 3.8: 뉴스 Impact AI Agent — ✅ 완료
 

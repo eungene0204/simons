@@ -625,6 +625,69 @@ model NewsV2Article {
   @@index([publishedAt])
 }
 
+model NewsRaw {
+  newsId          String   @id
+  title           String
+  normalizedTitle String
+  titleHash       String
+  url             String   @unique
+  source          String
+  publishedAt     DateTime
+  rawContent      String?
+  contentQuality  Float    @default(0)
+  createdAt       DateTime @default(now())
+
+  @@index([publishedAt])
+  @@index([titleHash])
+  @@index([source, publishedAt])
+  @@map("news_raw")
+}
+
+model NewsAnalysisV2 {
+  newsId         String   @id
+  sentiment      String?
+  impactScore    Float?
+  importance     String?
+  summary        String?
+  marketEffect   String?
+  relatedSymbols String?
+  status         String   @default("analyzed")
+  error          String?
+  analyzedAt     DateTime @default(now())
+
+  @@index([analyzedAt])
+  @@map("news_analysis")
+}
+
+model NewsSymbolMapV2 {
+  id          Int      @id @default(autoincrement())
+  newsId      String
+  symbol      String
+  companyName String?
+  relevance   Float    @default(1)
+  evidence    String?
+  createdAt   DateTime @default(now())
+
+  @@unique([newsId, symbol])
+  @@index([symbol])
+  @@index([newsId])
+  @@map("news_symbol_map")
+}
+
+model StockNewsCache {
+  id          Int      @id @default(autoincrement())
+  symbol      String
+  newsId      String
+  publishedAt DateTime
+  rankScore   Float    @default(0)
+  cachedAt    DateTime @default(now())
+
+  @@unique([symbol, newsId])
+  @@index([symbol, publishedAt])
+  @@index([symbol, rankScore])
+  @@map("stock_news_cache")
+}
+
 model NewsV2PriorityScore {
   symbol          String   @id
   score           Float    @default(0)

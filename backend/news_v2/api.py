@@ -34,26 +34,24 @@ router = APIRouter(prefix="/v2/news", tags=["news_v2"])
 
 
 class NewsItemOut(BaseModel):
-    id: int
+    newsId: str
     title: str
-    summary: Optional[str] = None
-    source: str
     url: str
-    published_at: datetime
+    source: str
+    publishedAt: datetime
+    summary: Optional[str] = None
     sentiment: Optional[Literal["positive", "neutral", "negative"]] = None
-    sentiment_score: Optional[float] = None
-    impact_level: Optional[Literal["low", "medium", "high"]] = None
-    market_effect: Optional[str] = None
-    related_symbols: list[str] = Field(default_factory=list)
-    ai_summary: Optional[str] = None
+    impactScore: float = Field(ge=0.0, le=1.0)
+    importance: Literal["high", "medium", "low"] = "low"
 
 
 class NewsResponseOut(BaseModel):
+    symbol: str
+    items: list[NewsItemOut]
+    lastUpdatedAt: Optional[datetime] = None
+    isStale: bool
     status: Literal["READY", "STALE", "COLLECTING", "NOT_COLLECTED", "NO_NEWS_FOUND", "FAILED"]
     source: Literal["redis", "postgres", "queue"]
-    stale: bool
-    items: list[NewsItemOut]
-    fetched_at: Optional[datetime] = None
     message: Optional[str] = None
 
 
@@ -96,7 +94,7 @@ async def health(session: AsyncSession = Depends(get_session)) -> HealthOut:
 @router.get("/{symbol}", response_model=NewsResponseOut)
 async def get_news(
     symbol: str = Path(..., min_length=1, max_length=16, description="KR ticker"),
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(30, ge=1, le=100),
     company_name: Optional[str] = Query(None, description="Optional override"),
     session: AsyncSession = Depends(get_session),
 ) -> NewsResponseOut:
@@ -114,27 +112,25 @@ async def get_news(
         metrics.request_latency.labels(route="get_news").observe(time.perf_counter() - started)
 
     return NewsResponseOut(
-        status=result.status,
-        source=result.source,
-        stale=result.stale,
+        symbol=symbol,
         items=[
             NewsItemOut(
-                id=a.id,
+                newsId=a.news_id,
                 title=a.title,
-                summary=a.summary,
-                source=a.source,
                 url=a.url,
-                published_at=a.published_at,
+                source=a.source,
+                publishedAt=a.published_at,
+                summary=a.summary,
                 sentiment=a.sentiment,  # type: ignore[arg-type]
-                sentiment_score=a.sentiment_score,
-                impact_level=a.impact_level,  # type: ignore[arg-type]
-                market_effect=a.market_effect,
-                related_symbols=a.related_symbols,
-                ai_summary=a.ai_summary,
+                impactScore=a.impact_score,
+                importance=a.importance,  # type: ignore[arg-type]
             )
             for a in result.items
         ],
-        fetched_at=result.fetched_at,
+        lastUpdatedAt=result.fetched_at,
+        isStale=result.stale,
+        status=result.status,
+        source=result.source,
         message=result.message,
     )
 

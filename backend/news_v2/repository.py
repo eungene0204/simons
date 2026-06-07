@@ -7,16 +7,27 @@ do NOT live here. This module only knows how to read and write the four tables.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Iterable, Optional
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from news_v2 import models
-from news_v2.models import Article, CollectionStatus, IngestionLog, PriorityScore, Status
+from news_v2.models import (
+    Article,
+    CollectionStatus,
+    IngestionLog,
+    NewsAnalysis,
+    NewsRaw,
+    NewsSymbolMap,
+    PriorityScore,
+    Status,
+    StockNewsCache,
+)
 
 
 @dataclass
@@ -58,8 +69,31 @@ class ArticleDTO:
         )
 
 
+@dataclass
+class CachedNewsDTO:
+    """Final stock-news-tab row, already materialized for immediate rendering."""
+
+    news_id: str
+    title: str
+    url: str
+    source: str
+    published_at: datetime
+    summary: Optional[str]
+    sentiment: str
+    impact_score: float
+    importance: str
+    market_effect: Optional[str]
+    related_symbols: list[str]
+    rank_score: float
+    cached_at: datetime
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def make_news_id(url: str, title_hash: str) -> str:
+    return hashlib.sha256(f"{url.strip()}|{title_hash}".encode("utf-8")).hexdigest()
 
 
 class NewsRepository:
@@ -77,6 +111,149 @@ class NewsRepository:
         )
         rows = (await self.session.execute(stmt)).scalars().all()
         return [ArticleDTO.from_orm(r) for r in rows]
+
+    async def list_cached_news(self, symbol: str, limit: int = 30) -> list[CachedNewsDTO]:
+        stmt = (
+            select(StockNewsCache, NewsRaw, NewsAnalysis)
+            .join(NewsRaw, NewsRaw.news_id == StockNewsCache.news_id)
+            .outerjoin(NewsAnalysis, NewsAnalysis.news_id == StockNewsCache.news_id)
+            .where(StockNewsCache.symbol == symbol)
+            .order_by(StockNewsCache.published_at.desc(), StockNewsCache.rank_score.desc())
+            .limit(limit)
+        )
+        rows = (await self.session.execute(stmt)).all()
+        return [
+            CachedNewsDTO(
+                news_id=raw.news_id,
+                title=raw.title,
+                url=raw.url,
+                source=raw.source,
+                published_at=cache.published_at,
+                summary=(analysis.summary if analysis else None),
+                sentiment=(analysis.sentiment if analysis and analysis.sentiment else "neutral"),
+                impact_score=float(analysis.impact_score if analysis and analysis.impact_score is not None else 0.0),
+                importance=(analysis.importance if analysis and analysis.importance else "low"),
+                market_effect=(analysis.market_effect if analysis else None),
+                related_symbols=list(analysis.related_symbols or []) if analysis else [],
+                rank_score=float(cache.rank_score or 0.0),
+                cached_at=cache.cached_at,
+            )
+            for cache, raw, analysis in rows
+        ]
+
+    async def get_cache_last_updated(self, symbol: str) -> Optional[datetime]:
+        stmt = select(func.max(StockNewsCache.cached_at)).where(StockNewsCache.symbol == symbol)
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def get_raw_news(self, news_id: str) -> Optional[NewsRaw]:
+        return (
+            await self.session.execute(select(NewsRaw).where(NewsRaw.news_id == news_id))
+        ).scalar_one_or_none()
+
+    async def get_symbols_for_news(self, news_id: str) -> list[NewsSymbolMap]:
+        rows = (
+            await self.session.execute(
+                select(NewsSymbolMap).where(NewsSymbolMap.news_id == news_id)
+            )
+        ).scalars().all()
+        return list(rows)
+
+    async def upsert_raw_news(self, payload: dict) -> tuple[str, bool]:
+        """Insert canonical raw news, deduping by URL first, then normalized title hash."""
+        existing = (
+            await self.session.execute(
+                select(NewsRaw).where(
+                    or_(
+                        NewsRaw.url == payload["url"],
+                        NewsRaw.title_hash == payload["title_hash"],
+                    )
+                )
+            )
+        ).scalars().first()
+        if existing is not None:
+            if _is_better_representative(payload, existing):
+                existing.title = payload["title"]
+                existing.normalized_title = payload["normalized_title"]
+                existing.title_hash = payload["title_hash"]
+                existing.url = payload["url"]
+                existing.source = payload["source"]
+                existing.published_at = payload["published_at"]
+                existing.raw_content = payload.get("raw_content")
+                existing.content_quality = payload.get("content_quality", 0.0)
+            return existing.news_id, False
+
+        news_id = payload.get("news_id") or make_news_id(payload["url"], payload["title_hash"])
+        self.session.add(
+            NewsRaw(
+                news_id=news_id,
+                title=payload["title"],
+                normalized_title=payload["normalized_title"],
+                title_hash=payload["title_hash"],
+                url=payload["url"],
+                source=payload["source"],
+                published_at=payload["published_at"],
+                raw_content=payload.get("raw_content"),
+                content_quality=payload.get("content_quality", 0.0),
+            )
+        )
+        return news_id, True
+
+    async def upsert_news_symbol_maps(self, news_id: str, maps: Iterable[dict]) -> None:
+        await self.session.execute(delete(NewsSymbolMap).where(NewsSymbolMap.news_id == news_id))
+        for item in maps:
+            self.session.add(
+                NewsSymbolMap(
+                    news_id=news_id,
+                    symbol=item["symbol"],
+                    company_name=item.get("company_name"),
+                    relevance=item.get("relevance", 1.0),
+                    evidence=item.get("evidence"),
+                )
+            )
+
+    async def upsert_news_analysis(self, news_id: str, fields: dict) -> None:
+        row = (
+            await self.session.execute(
+                select(NewsAnalysis).where(NewsAnalysis.news_id == news_id)
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            self.session.add(NewsAnalysis(news_id=news_id, **fields))
+            return
+        for key, value in fields.items():
+            setattr(row, key, value)
+        row.analyzed_at = _utcnow()
+
+    async def upsert_stock_news_cache(
+        self,
+        *,
+        symbol: str,
+        news_id: str,
+        published_at: datetime,
+        rank_score: float,
+    ) -> None:
+        row = (
+            await self.session.execute(
+                select(StockNewsCache).where(
+                    StockNewsCache.symbol == symbol,
+                    StockNewsCache.news_id == news_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            self.session.add(
+                StockNewsCache(
+                    symbol=symbol,
+                    news_id=news_id,
+                    published_at=published_at,
+                    rank_score=rank_score,
+                    cached_at=_utcnow(),
+                )
+            )
+            return
+        row.published_at = published_at
+        row.rank_score = rank_score
+        row.cached_at = _utcnow()
 
     async def get_latest_published_at(self, symbol: str) -> Optional[datetime]:
         stmt = select(func.max(Article.published_at)).where(Article.symbol == symbol)
@@ -191,7 +368,7 @@ class NewsRepository:
         if error is not None:
             row.last_error = error
             row.attempt_count = (row.attempt_count or 0) + 1
-        if status == Status.READY:
+        if status in {Status.READY, Status.NO_NEWS_FOUND}:
             row.last_success_at = now
             row.attempt_count = 0
             row.last_error = None
@@ -230,3 +407,31 @@ class NewsRepository:
                 error=error,
             )
         )
+
+
+_SOURCE_PRIORITY = {
+    "연합뉴스": 100,
+    "한국경제": 90,
+    "매일경제": 88,
+    "머니투데이": 84,
+    "이데일리": 82,
+    "google_news": 50,
+}
+
+
+def _source_priority(source: str) -> int:
+    return _SOURCE_PRIORITY.get(source, 10)
+
+
+def _is_better_representative(payload: dict, existing: NewsRaw) -> bool:
+    existing_score = (
+        existing.published_at,
+        _source_priority(existing.source),
+        float(existing.content_quality or 0.0),
+    )
+    incoming_score = (
+        payload.get("published_at") or datetime.min,
+        _source_priority(payload.get("source") or ""),
+        float(payload.get("content_quality") or 0.0),
+    )
+    return incoming_score > existing_score

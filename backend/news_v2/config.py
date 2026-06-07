@@ -34,6 +34,31 @@ def _env_float(key: str, default: float) -> float:
     return float(raw)
 
 
+def _env_list(key: str, default: list[str]) -> list[str]:
+    raw = os.getenv(key)
+    if raw is None or raw.strip() == "":
+        return default
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def _default_db_url() -> str:
+    explicit = os.getenv("NEWSV2_DB_URL")
+    if explicit:
+        return explicit
+
+    prisma_url = os.getenv("DATABASE_URL")
+    if prisma_url and prisma_url.startswith("file:"):
+        path = prisma_url.replace("file:", "", 1)
+        if not os.path.isabs(path):
+            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+            path = os.path.abspath(os.path.join(project_root, path))
+        return "sqlite+aiosqlite:///" + path
+
+    return "sqlite+aiosqlite:///" + os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "prisma", "dev.db")
+    )
+
+
 @dataclass(frozen=True)
 class PriorityWeights:
     turnover: float = 0.30
@@ -49,15 +74,7 @@ class Settings:
     enabled: bool = field(default_factory=lambda: _env_bool("NEWSV2_ENABLED", True))
 
     # Storage
-    db_url: str = field(
-        default_factory=lambda: os.getenv(
-            "NEWSV2_DB_URL",
-            # default to local sqlite shared with prisma for dev convenience.
-            "sqlite+aiosqlite:///" + os.path.abspath(
-                os.path.join(os.path.dirname(__file__), "..", "..", "prisma", "prisma", "dev.db")
-            ),
-        )
-    )
+    db_url: str = field(default_factory=_default_db_url)
 
     # Redis (cache + celery broker). Empty → degraded mode (no cache, in-process tasks).
     redis_url: Optional[str] = field(
@@ -74,6 +91,15 @@ class Settings:
     tier1_interval_s: int = field(default_factory=lambda: _env_int("NEWSV2_TIER1_INTERVAL_S", 120))
     tier2_interval_s: int = field(default_factory=lambda: _env_int("NEWSV2_TIER2_INTERVAL_S", 600))
     tier3_interval_s: int = field(default_factory=lambda: _env_int("NEWSV2_TIER3_INTERVAL_S", 3600))
+    startup_collect_enabled: bool = field(default_factory=lambda: _env_bool("NEWSV2_STARTUP_COLLECT_ENABLED", True))
+    startup_collect_delay_s: int = field(default_factory=lambda: _env_int("NEWSV2_STARTUP_COLLECT_DELAY_S", 5))
+    bootstrap_symbols: list[str] = field(
+        default_factory=lambda: _env_list(
+            "NEWSV2_BOOTSTRAP_SYMBOLS",
+            ["005930", "000660", "035420", "005380", "051910"],
+        )
+    )
+    bootstrap_collect_limit: int = field(default_factory=lambda: _env_int("NEWSV2_BOOTSTRAP_COLLECT_LIMIT", 20))
 
     # Tier thresholds (priority score)
     tier1_threshold: float = field(default_factory=lambda: _env_float("NEWSV2_TIER1_THRESHOLD", 1000))

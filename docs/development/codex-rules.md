@@ -75,6 +75,7 @@ Unless explicitly instructed.
 
 Exception:
 - `prisma/**` and database schema changes are allowed only when the task explicitly selects `Strategy Persistence / BatchRun Storage`.
+- News-specific `prisma/**` and database schema changes are allowed only when the task explicitly selects `News Impact Pipeline`.
 - `docs/PROJECT_PLAN.md`, `docs/software_architecture.md`, `docs/SRS.md` are allowed only when the task explicitly selects `Governance / Policy Docs`.
 
 ---
