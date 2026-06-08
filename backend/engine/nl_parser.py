@@ -109,9 +109,9 @@ class ParsedStrategy(BaseModel):
         default=None,
         description="최대 보유 기간(거래일). 1년=252, 6개월=126, 3개월=63, 1개월=21. 없으면 null"
     )
-    rebalancing_period: Literal["none", "monthly", "quarterly", "yearly"] = Field(
+    rebalancing_period: Literal["none", "daily", "monthly", "quarterly", "yearly"] = Field(
         default="none",
-        description="정기 리밸런싱 주기. '매월'=monthly, '분기'=quarterly, '매년/1년마다'=yearly, 언급없음=none"
+        description="정기 리밸런싱 주기. '매일'=daily, '매월'=monthly, '분기'=quarterly, '매년/1년마다'=yearly, 언급없음=none"
     )
 
     # ── 리스크 관리
@@ -168,7 +168,7 @@ class ParsedStrategyDiff(BaseModel):
     ranking_lookback_days: Optional[int] = None
     max_positions: Optional[int] = Field(default=None, ge=1, le=100)
     hold_period_days: Optional[int] = None
-    rebalancing_period: Optional[Literal["none", "monthly", "quarterly", "yearly"]] = None
+    rebalancing_period: Optional[Literal["none", "daily", "monthly", "quarterly", "yearly"]] = None
     stop_loss_pct: Optional[float] = None
     take_profit_pct: Optional[float] = None
     trailing_stop_pct: Optional[float] = None
@@ -1084,7 +1084,7 @@ def _extract_ranking(user_input: str) -> tuple[Optional[str], Optional[int]]:
 def _extract_max_positions(user_input: str) -> Optional[int]:
     compact = re.sub(r"\s+", "", user_input.lower())
     patterns = [
-        r"(?:최대|상위)?(\d+)(?:개|종목)",
+        r"(?:최대|상위)?(\d+)(?:개(?!월)|종목)",  # '3개월'의 '3개'를 종목 수로 오인하지 않도록 개월 제외
         r"maxpositions?(\d+)",
     ]
     for pattern in patterns:
@@ -1119,6 +1119,8 @@ def _extract_hold_period_days(user_input: str) -> Optional[int]:
 
 def _extract_rebalancing_period(user_input: str, hold_period_days: Optional[int]) -> str:
     compact = re.sub(r"\s+", "", user_input.lower())
+    if re.search(r"매일|일간리밸런싱|날마다|하루에한번", compact):
+        return "daily"
     if "매월" in compact or "월간리밸런싱" in compact or re.search(r"한달에한번|달에한번|월1회|매달", compact):
         return "monthly"
     if "분기" in compact:
@@ -1227,6 +1229,15 @@ def _parse_rule_based_strategy(user_input: str) -> Optional[ParsedStrategy]:
     if not has_entry or not (has_exit or has_risk_exit or ranking_metric):
         return None
 
+    rebalancing_period = _extract_rebalancing_period(user_input, hold_period_days)
+    # 랭킹 전략은 정기 리밸런싱으로 재선정해야 의미가 있다. 주기 언급이 없으면 월간을 기본값으로.
+    if ranking_metric and rebalancing_period == "none":
+        rebalancing_period = "monthly"
+    # 랭킹 전략의 회전은 리밸런싱 주기로 구동한다. 모멘텀 설명에 섞인 'N개월'(예: '최근 3개월
+    # 동안 오른')이 보유기간으로 오인되지 않도록, 리밸런싱이 있으면 보유기간을 비운다.
+    if ranking_metric and rebalancing_period != "none":
+        hold_period_days = None
+
     parsed = ParsedStrategy(
         description=user_input,
         universe=_extract_explicit_universe(user_input) or ["KOSPI200"],
@@ -1237,7 +1248,7 @@ def _parse_rule_based_strategy(user_input: str) -> Optional[ParsedStrategy]:
         ranking_lookback_days=ranking_lookback_days,
         max_positions=_extract_max_positions(user_input) or 10,
         hold_period_days=hold_period_days,
-        rebalancing_period=_extract_rebalancing_period(user_input, hold_period_days),
+        rebalancing_period=rebalancing_period,
         stop_loss_pct=None,
         take_profit_pct=None,
         trailing_stop_pct=_extract_trailing_stop_pct(user_input),

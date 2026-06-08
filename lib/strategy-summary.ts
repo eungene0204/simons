@@ -6,6 +6,8 @@ export interface ParsedSummary {
   fundamental_filters: Array<{ metric: string; operator: string; value: number }>;
   entry_signals: Array<{ indicator: string; signal_type?: string | null }>;
   exit_signals: Array<{ indicator: string; signal_type?: string | null }>;
+  ranking_metric?: "return" | null;
+  ranking_lookback_days?: number | null;
   max_positions: number;
   hold_period_days: number | null;
   rebalancing_period: string;
@@ -48,6 +50,7 @@ export const PERIOD_LABELS: Record<string, string> = {
 
 export const REBAL_LABELS: Record<string, string> = {
   none: "없음",
+  daily: "매일",
   monthly: "매월",
   quarterly: "분기",
   yearly: "매년",
@@ -121,6 +124,14 @@ export function getDisplayUniverseLabels(
   }
 
   return normalizedUniverses.map((universe) => UNIVERSE_LABELS[universe] ?? universe);
+}
+
+export function getRankingLabel(parsed: ParsedSummary): string | null {
+  if (parsed.ranking_metric === "return") {
+    const days = parsed.ranking_lookback_days ?? 60;
+    return `${days}일 수익률 상위`;
+  }
+  return null;
 }
 
 export function getDisplayExitLabels(parsed: ParsedSummary): string[] {

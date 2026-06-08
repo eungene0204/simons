@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -12,7 +12,12 @@ import {
 import CandlestickChart from "@/components/stock/CandlestickChart";
 import { formatMarketCap } from "@/lib/format-market-cap";
 import NewsImpactPanel from "@/components/stock/NewsImpactPanel";
-import { fetchStockNews, STOCK_NEWS_LIMIT, stockNewsQueryKey } from "@/lib/hooks/useStockNews";
+import {
+  fetchStockNews,
+  recordStockNewsPriorityEvent,
+  STOCK_NEWS_LIMIT,
+  stockNewsQueryKey,
+} from "@/lib/hooks/useStockNews";
 
 interface StockDetail {
   symbol: string;
@@ -51,6 +56,7 @@ export default function StockDetail({ symbol }: { symbol: string }) {
   const [activeTab, setActiveTab] = useState<TabId>("chart");
   const router = useRouter();
   const queryClient = useQueryClient();
+  const recordedPrioritySymbols = useRef(new Set<string>());
 
   const fetchDetail = async () => {
     try {
@@ -97,6 +103,15 @@ export default function StockDetail({ symbol }: { symbol: string }) {
   }, [symbol]);
 
   useEffect(() => {
+    if (!recordedPrioritySymbols.current.has(symbol)) {
+      recordedPrioritySymbols.current.add(symbol);
+      void recordStockNewsPriorityEvent(symbol, "current_view", {
+        surface: "stock_detail",
+      }).catch(() => {
+        // Priority events are best-effort; never block stock detail rendering.
+      });
+    }
+
     void queryClient.prefetchQuery({
       queryKey: stockNewsQueryKey(symbol),
       queryFn: () => fetchStockNews(symbol, STOCK_NEWS_LIMIT),

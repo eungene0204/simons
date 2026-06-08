@@ -3,7 +3,7 @@
 
 > **문서 버전:** v1.4
 > **작성일:** 2026-04-01
-> **최종 갱신일:** 2026-06-02
+> **최종 갱신일:** 2026-06-08
 > **프로젝트명:** Simons
 > **상태:** 작성 중
 
@@ -61,6 +61,11 @@ Simons는 사용자가 자신만의 주식 투자 전략을 **설계 → 검증 
 | ListingStatus | 종목의 상장 상태 — NORMAL/WARNING/RISK/TRADING_SUSPENDED/DELISTING_REVIEW/DELISTING_SCHEDULED/DELISTED 7단계 |
 | DelistingPolicy | 가상계좌의 상장폐지 처리 정책 — AUTO_LIQUIDATE / HOLD_AS_WORTHLESS / HOLD_WITH_MANUAL_REVIEW |
 | DelistingAuditLog | 거래 차단·강제청산·상태 변경 이벤트를 기록하는 감사 로그 |
+| News Raw DB | 수집된 원본 뉴스 저장소. title, url, source, published_at, raw_content, created_at 저장 |
+| News Analysis | news_id 기준 뉴스 요약, 감성, 중요도, 영향도 분석 결과 |
+| StockNewsCache | 종목 뉴스탭이 즉시 읽는 최종 캐시 저장소 |
+| News Priority Engine | 사용자 행동과 시장 데이터를 조합해 종목별 뉴스 수집 우선순위를 계산하는 엔진 |
+| Hot/Warm/Cold Queue | 뉴스 수집 주기를 우선순위별로 분리한 queue 계층 |
 
 ### 1.4 개요
 
@@ -165,8 +170,10 @@ Simons는 사용자가 자신만의 주식 투자 전략을 **설계 → 검증 
 | `entry_signals` | `List[TechnicalSignal]` | 매수 조건 (MA, RSI, MACD, 볼린저 등) |
 | `exit_signals` | `List[TechnicalSignal]` | 매도 조건 |
 | `max_positions` | `int` | 최대 동시 보유 종목 수 |
-| `hold_period_days` | `int` | 보유 기간 (일) |
-| `rebalancing_period` | `Optional[str]` | 리밸런싱 주기 (`monthly` / `quarterly` 등) |
+| `hold_period_days` | `Optional[int]` | 보유 기간 (일). 랭킹 전략에서 `rebalancing_period`가 활성화되면 회전이 리밸런싱으로 구동되므로 `None` 처리 |
+| `ranking_metric` | `Optional[Literal["return"]]` | 종목 선정 기준 (현재 "최근 N일 수익률 상위" 모멘텀 랭킹만 지원) |
+| `ranking_lookback_days` | `Optional[int]` | 모멘텀 랭킹 수익률 계산 기간 (일). 미지정 시 60일 기본 |
+| `rebalancing_period` | `Literal["none","daily","monthly","quarterly","yearly"]` | 달력 기준 리밸런싱 주기. `none`이 아니면 매 주기 첫 거래일에 목표 집합(상위 K)을 재구성(reconstitution)한다 |
 | `stop_loss_pct` | `Optional[float]` | 손절선 (%) |
 | `take_profit_pct` | `Optional[float]` | 익절선 (%) |
 | `backtest_period` | `str` | 백테스트 기간 (`1y` / `3y` / `5y`) |
@@ -189,6 +196,14 @@ Simons는 사용자가 자신만의 주식 투자 전략을 **설계 → 검증 
 **FR-STR-016** 시스템은 파싱 직후 백테스트를 자동 실행하면 안 된다. 백테스트는 사용자가 명시적으로 실행 버튼을 누른 경우에만 시작해야 한다.
 
 **FR-STR-017** 시스템은 파싱 응답 생성 시 불필요한 전체 유니버스 심볼 해석을 지연하고, 실제 백테스트 실행 시점에 필요한 종목 해석을 수행해야 한다.
+
+**FR-STR-018** 시스템은 "박스권을 위로 돌파", "N일 고점/신고가 돌파" 등 서술형 돌파 표현을 `breakout` 진입/청산 신호로 인식하고, 표현에서 lookback 기간(N일, 명시 없으면 박스권 기본 20일/52주는 252일)을 추출해야 한다.
+
+**FR-STR-019** 자연어 표현/키워드 대응은 케이스별 정규식을 무한정 추가하는 방식이 아니라 하이브리드로 처리해야 한다: 핵심·빈출 시그널(`ma_crossover`, `breakout`, `volume_spike` 등 서술형 지표)은 결정적 규칙으로 빠르게 처리하고, 긴 꼬리 표현은 LLM 프롬프트의 few-shot 예시로 위임한다. 이때 LLM 환각 방지 키워드 검증은 서술형 지표에 대해서는 건너뛰고 모델 출력을 신뢰해야 한다 (과도한 검증이 올바른 서술형 파싱 결과를 거부하는 것을 방지).
+
+**FR-STR-021** 시스템은 "최근 N일/N거래일/N개월 수익률이 높은 종목 상위 K개"와 같은 상대강도(모멘텀) 랭킹 표현을 인식하여 `ranking_metric="return"`과 `ranking_lookback_days`(미지정 시 60일 기본)를 추출해야 하며, 랭킹 전략에 리밸런싱 주기가 명시되지 않은 경우 `monthly`를 기본값으로 적용해야 한다.
+
+**FR-STR-022** 시스템은 진입 의도가 있는 자연어 입력에서 파싱 결과에 진입 신호/펀더멘털 필터/랭킹 기준이 모두 비어 조용히 누락된 경우, 사용자에게 명확화 질문과 대안 제안(클릭 가능한 칩)을 표시해야 한다. 이때 일반적인 누락 사례와 "엔진이 아직 지원하지 않는 상대강도 랭킹 표현" 사례를 구분하여 각각 다른 안내 문구와 대안을 제공해야 한다 (서로 다른 원인이므로 동일한 메시지로 뭉뚱그리면 안 됨). 이 명확화는 최초 파싱에서만 표시하며, 이후 점진적 수정에서는 표시하지 않는다.
 
 #### 3.1.1b AI 전략 코치
 
@@ -438,7 +453,11 @@ RiskManagement {
 
 **FR-BT-012** 트레일링 스탑은 `peak_price` 배열로 추적하며, 진입 시 초기화하고 청산 시 리셋해야 한다.
 
-**FR-BT-013** 다중 종목 동시 진입 시그널 발생 시 스코어 기반 랭킹으로 우선순위를 결정해야 한다.
+**FR-BT-013** 다중 종목 동시 진입 시그널 발생 시 스코어 기반 랭킹으로 우선순위를 결정해야 한다 (PBR/ROE 복합 스코어 또는 `ranking_metric="return"` 모멘텀 — 최근 N일 수익률 상위 K종목 선정).
+
+**FR-BT-014** 시스템은 `rebalancing_period`(daily/monthly/quarterly/yearly)가 지정된 전략에 대해 달력 기준 리밸런싱(reconstitution)을 수행해야 한다: 각 주기의 첫 거래일에 후보를 랭킹 상위 K로 재선정하고, 목표 집합에서 빠진 보유 종목은 매도, 신규 편입 종목은 매수, 유지 종목은 그대로 둬야 한다.
+
+**FR-BT-015** 리밸런싱 실행 방식은 전략의 봉중간 리스크 관리(SL/TP/트레일링 스탑/최대 보유기간) 사용 여부에 따라 분기해야 한다: 봉중간 리스크가 없는 순수 리밸런싱은 비중 리셋이 정확한 네이티브 목표비중 방식(vbt `from_orders(size_type='targetpercent')`)으로 처리하고, 봉중간 리스크가 혼재하면 현실적 체결(다음 봉 가격 청산)을 보존하는 커스텀 reconstitution 루프(`from_signals`)로 처리해야 한다.
 
 #### 3.2.3 성능 메트릭
 
@@ -829,6 +848,115 @@ score = tanh(cagr/0.3)×0.15 + tanh(sharpe/2)×0.20 + tanh(pf/2)×0.10
 
 **FR-NEWS-041** `app/stock-order/page.tsx`의 "뉴스·공시" 탭은 `NewsImpactPanel`을 사용해야 한다.
 
+#### 3.6.6 종목 상세 뉴스탭 캐시 API
+
+**FR-NEWS-050** 종목 상세 뉴스탭은 조회 전용 UI여야 한다. 사용자가 뉴스탭을 클릭할 때 크롤링, 외부 뉴스 검색, scraper, LLM summarizer, news agent 분석을 실행하면 안 된다.
+
+**FR-NEWS-051** 시스템은 `GET /api/stocks/{symbol}/news?limit=30` API를 제공해야 한다.
+
+**FR-NEWS-052** `GET /api/stocks/{symbol}/news`는 `stock_news_cache` 또는 동등한 캐시 저장소만 조회해야 하며, API 내부에서 news agent, crawler, scraper, LLM summarizer를 직접 실행하면 안 된다.
+
+**FR-NEWS-053** `GET /api/stocks/{symbol}/news` 응답은 다음 필드를 포함해야 한다:
+
+| 필드 | 설명 |
+|------|------|
+| `symbol` | 조회 종목 코드 |
+| `items[].newsId` | 뉴스 고유 ID |
+| `items[].title` | 뉴스 제목 |
+| `items[].url` | 원문 URL |
+| `items[].source` | 언론사 |
+| `items[].publishedAt` | 발행 시각 |
+| `items[].summary` | 분석 또는 raw fallback 요약 |
+| `items[].sentiment` | positive / neutral / negative |
+| `items[].impactScore` | 0~1 범위 영향도 점수 |
+| `items[].importance` | high / medium / low |
+| `lastUpdatedAt` | 캐시 마지막 갱신 시각 |
+| `isStale` | 캐시 stale 여부 |
+
+**FR-NEWS-054** 캐시가 없는 경우 API는 즉시 빈 `items` 배열을 반환하고, 해당 symbol refresh job을 queue에 넣어야 한다. API 요청은 수집/분석 완료까지 blocking하면 안 된다.
+
+**FR-NEWS-055** 뉴스탭 프론트엔드는 종목 상세 페이지 진입 시 React Query로 `["stock-news", symbol]` query를 prefetch해야 한다. 기본 설정은 `staleTime=60초`, `refetchOnWindowFocus=false`, `enabled=!!symbol`이어야 한다.
+
+**FR-NEWS-056** 뉴스탭 UI는 최신 뉴스가 위에 오도록 정렬하고, 각 뉴스 카드에 제목, 언론사, 발행 시간, 요약, 감성, 영향도 점수, 중요도를 표시해야 한다.
+
+**FR-NEWS-057** 뉴스탭 UI는 loading, empty, stale, error 상태를 구분해야 하며, 캐시가 없으면 "최근 뉴스가 준비 중입니다" 또는 "최근 뉴스가 없습니다" 상태를 표시해야 한다.
+
+#### 3.6.7 뉴스 수집 백그라운드 파이프라인
+
+**FR-NEWS-060** 시스템은 다음 파이프라인으로 뉴스를 처리해야 한다:
+
+```
+News Collector
+→ Raw News DB
+→ Deduplication
+→ Symbol Mapping
+→ News Agent Analysis
+→ StockNewsCache
+→ News Tab API
+```
+
+**FR-NEWS-061** 원본 뉴스 저장소는 최소 `title`, `url`, `source`, `published_at`, `raw_content`, `created_at` 필드를 저장해야 한다.
+
+**FR-NEWS-062** 분석 결과 저장소는 `news_id` 기준으로 `sentiment`, `impact_score`, `importance`, `summary`, `analyzed_at`을 저장해야 한다.
+
+**FR-NEWS-063** 종목 뉴스 캐시는 `symbol`, `news_id`, `published_at`, `rank_score`, `cached_at`을 저장해야 한다.
+
+**FR-NEWS-064** 동일 URL은 중복 저장하면 안 된다.
+
+**FR-NEWS-065** URL이 달라도 제목이 거의 같은 뉴스는 title hash 또는 normalized title 기준으로 중복 제거해야 한다.
+
+**FR-NEWS-066** 중복 뉴스가 여러 언론사에 존재하면 `published_at`, source priority, content quality 기준으로 대표 뉴스를 선택해야 한다.
+
+**FR-NEWS-067** Symbol Mapping은 뉴스 제목과 본문에서 종목명, 종목코드, 별칭, 섹터성 표현을 기준으로 관련 종목을 매핑해야 한다.
+
+**FR-NEWS-068** 하나의 뉴스는 여러 종목에 연결될 수 있어야 한다.
+
+**FR-NEWS-069** news agent는 scheduler 또는 queue worker 같은 백그라운드 작업에서만 실행되어야 한다.
+
+**FR-NEWS-070** news agent 분석 실패 시 raw news만이라도 cache에 노출할 수 있어야 하며, 실패는 로그와 retry queue에 기록해야 한다.
+
+#### 3.6.8 News Collection Priority Engine
+
+**FR-NEWS-080** 시스템은 모든 종목의 뉴스를 동일 주기로 수집하지 않고, 사용자 수요 기반으로 종목별 priority score를 계산해야 한다.
+
+**FR-NEWS-081** priority score는 현재 조회 종목, 관심종목, 가상계좌 보유 종목, 최근 조회 수, 검색 수, 거래대금, 뉴스 velocity, 시장 지수 편입, 시가총액을 조합해야 한다.
+
+**FR-NEWS-082** 현재 보고 있는 종목은 가장 높은 우선순위를 가져야 한다.
+
+**FR-NEWS-083** 관심종목과 가상계좌 보유 종목은 시가총액보다 높은 우선순위를 가져야 한다.
+
+**FR-NEWS-084** 사용자 행동 데이터는 시장 데이터보다 우선해야 한다.
+
+**FR-NEWS-085** 시스템은 다음 사용자 행동 이벤트를 수집할 수 있어야 한다:
+- 종목 페이지 진입
+- 관심종목 추가
+- 관심종목 제거
+- 가상계좌 보유 종목 변화
+- 종목 검색
+- 종목 상세 조회
+
+**FR-NEWS-086** Priority Engine은 5분 단위 또는 설정 가능한 주기로 score를 재계산해야 한다.
+
+**FR-NEWS-087** 시스템은 score에 따라 종목을 Hot Queue, Warm Queue, Cold Queue로 자동 배치해야 한다.
+
+**FR-NEWS-088** Hot Queue는 현재 조회 중 종목, 관심종목, 보유종목, 최근 조회 급증 종목을 대상으로 1~5분 주기로 수집해야 한다.
+
+**FR-NEWS-089** Warm Queue는 거래대금 상위, 시가총액 상위, 주요 지수 편입 종목을 대상으로 10~30분 주기로 수집해야 한다.
+
+**FR-NEWS-090** Cold Queue는 나머지 전체 종목을 대상으로 1~6시간 주기로 순회 수집해야 한다.
+
+**FR-NEWS-091** News Velocity Score는 최근 1시간 뉴스 수를 최근 24시간 평균 뉴스 수와 비교해 계산해야 한다.
+
+**FR-NEWS-092** 조회 수 급증, 뉴스 발생량 급증, 거래대금 급증, 관심종목 추가 급증 중 하나 이상을 만족하는 종목은 trending stock으로 분류하고 Hot Queue로 승격해야 한다.
+
+**FR-NEWS-093** 사용자 데이터가 충분하지 않은 경우 KOSPI200, KOSDAQ150, 거래대금 상위, 시가총액 상위 순서로 fallback 수집 대상을 선정해야 한다.
+
+**FR-NEWS-094** 백엔드 news scheduler가 시작되면 설정에 따라 Celery worker를 자동 기동할 수 있어야 한다.
+
+**FR-NEWS-095** worker autostart는 중복 worker 방지를 위해 pid lock file과 broker active queue inspect를 사용해야 한다.
+
+**FR-NEWS-096** 운영 환경에서 별도 worker manager를 사용하는 경우 `NEWSV2_WORKER_AUTOSTART_ENABLED=false`로 내장 autostart를 비활성화할 수 있어야 한다.
+
 ---
 
 ### 3.7 시장 데이터 및 분석
@@ -881,6 +1009,10 @@ score = tanh(cagr/0.3)×0.15 + tanh(sharpe/2)×0.20 + tanh(pf/2)×0.10
 | NFR-PERF-008 | parse, coach, summary는 하나의 blocking pipeline으로 묶지 않고 parse를 먼저 완료한 뒤 coach/summary를 지연 실행해야 한다 |
 | NFR-PERF-009 | 로컬 MLX 추론은 priority lock을 사용해 parse(0), coach(1), summary/preload(2) 순서로 latency-sensitive 작업을 보호해야 한다 |
 | NFR-PERF-010 | AI 요약 API는 동일 `metrics + strategySummary` payload에 대해 LRU cache 및 in-flight dedupe를 적용해야 한다 |
+| NFR-PERF-011 | 종목 뉴스탭 API는 캐시 조회만 수행해야 하며, 정상 캐시 hit 기준 300ms 이하 응답을 목표로 해야 한다 |
+| NFR-PERF-012 | `stock_news_cache`는 `symbol + published_at` 기준 index를 가져야 한다 |
+| NFR-PERF-013 | 뉴스 수집/분석/LLM 실행 시간은 뉴스탭 API 응답 시간에 포함되면 안 된다 |
+| NFR-PERF-014 | 뉴스 수집 priority engine은 3,000개 이상 종목에서도 동작해야 하며, 사용자 관심 종목에 수집 리소스를 집중해 외부 API 비용을 줄여야 한다 |
 
 ### 4.2 신뢰성
 
@@ -892,6 +1024,9 @@ score = tanh(cagr/0.3)×0.15 + tanh(sharpe/2)×0.20 + tanh(pf/2)×0.10
 | NFR-REL-004 | 배치 실행 상태는 `BatchRun`/`BatchRunCandidate`에 체크포인트 저장되어야 한다 |
 | NFR-REL-005 | 서버 재시작 후 다음 `batch-runs` 요청이 들어오면 incomplete batch를 복구해 재개할 수 있어야 한다 |
 | NFR-REL-006 | LLM JSON 출력이 불완전하거나 schema parsing에 실패해도 자연어 전략 생성 API는 가능한 fallback 결과 또는 사용자 안내 가능한 오류를 반환해야 한다 |
+| NFR-REL-007 | 외부 뉴스 수집 실패 시 기존 `stock_news_cache`를 유지해야 한다 |
+| NFR-REL-008 | news agent 분석 실패 시 raw news 기반 fallback cache를 제공하고 실패 내용을 로그와 retry queue에 기록해야 한다 |
+| NFR-REL-009 | 백엔드 startup worker autostart는 pid lock file과 broker active queue inspect로 중복 worker 생성을 방지해야 한다 |
 
 ### 4.2a 관측성
 
@@ -1220,6 +1355,9 @@ BacktestHistory                                (백테스트 이력)
 | POST | `/strategy/parse` | 자연어 전략 파싱 (NLParser) |
 | POST | `/advisor/review` | RAG + Experience Memory 전략 리뷰/개선 조언 |
 | GET | `/news/fetch-body` | 기사 본문 일부 추출 (SSRF 방어 적용) |
+| GET | `/v2/news/{symbol}` | 종목 뉴스탭 캐시 조회. 수집/분석을 실행하지 않고 cache only로 응답 |
+| POST | `/v2/news/events` | 종목 조회/검색/관심/보유 등 뉴스 priority event 기록 |
+| GET | `/v2/news/priority` | 종목별 priority score와 Hot/Warm/Cold queue 상태 조회 |
 | GET | `/ai/runtime/metrics` | AI 런타임 latency 메트릭 조회 |
 | POST | `/ai/runtime/metrics/reset` | AI 런타임 메트릭 초기화 |
 | GET | `/market/listing-status` | 전체 상장 상태 조회 (DART + DelistedSymbolStore + DB) |
@@ -1254,6 +1392,7 @@ BacktestHistory                                (백테스트 이력)
 | GET | `/api/news/impact/[symbol]` | 종목 Alpha 시그널 (latest_alpha, risk_alert_level) |
 | GET | `/api/news/top` | 주요 시장 뉴스 피드 |
 | GET | `/api/news/fetch-body` | 기사 본문 일부 추출 프록시 (SSRF 방어 적용) |
+| GET | `/api/stocks/[symbol]/news` | 종목 상세 뉴스탭용 캐시 전용 뉴스 목록 (`limit`, stale 상태 포함) |
 | GET | `/api/market/delisting-status` | 통합 상장 상태 조회 (backend + DB, 5개 배열 + details) |
 | POST | `/api/virtual-account/[id]/liquidate` | 강제청산 프록시 |
 

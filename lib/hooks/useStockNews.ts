@@ -5,6 +5,13 @@ import { useQuery } from "@tanstack/react-query";
 import type { NewsResponseV2, NewsStatus } from "@/types/news-v2";
 
 export const STOCK_NEWS_LIMIT = 30;
+const STOCK_NEWS_PENDING_REFETCH_MS = 3000;
+const STOCK_NEWS_PENDING_STATUSES: NewsStatus[] = ["COLLECTING", "NOT_COLLECTED"];
+
+export type StockNewsPriorityEventType =
+  | "current_view"
+  | "stock_view"
+  | "stock_detail_view";
 
 export function stockNewsQueryKey(symbol: string) {
   return ["stock-news", symbol] as const;
@@ -43,6 +50,20 @@ export async function fetchStockNews(symbol: string, limit: number): Promise<New
   return (await res.json()) as NewsResponseV2;
 }
 
+export async function recordStockNewsPriorityEvent(
+  symbol: string,
+  eventType: StockNewsPriorityEventType,
+  metadata: Record<string, unknown> = {}
+): Promise<void> {
+  const res = await fetch(`/api/stocks/${encodeURIComponent(symbol)}/news`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ eventType, metadata }),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
 export function useStockNews(
   symbol: string | null | undefined,
   opts: UseStockNewsOptions = {}
@@ -53,6 +74,14 @@ export function useStockNews(
     queryKey: enabled ? stockNewsQueryKey(symbol as string) : ["stock-news", symbol],
     queryFn: () => fetchStockNews(symbol as string, limit),
     staleTime: 60_000,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!enabled || !data) return false;
+      if (data.items.length > 0) return false;
+      return STOCK_NEWS_PENDING_STATUSES.includes(data.status)
+        ? STOCK_NEWS_PENDING_REFETCH_MS
+        : false;
+    },
     refetchOnWindowFocus: false,
     enabled,
     placeholderData: enabled ? emptyResponse(symbol as string) : undefined,

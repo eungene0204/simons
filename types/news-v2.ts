@@ -22,6 +22,7 @@ export interface NewsItemV2 {
   source: string;
   publishedAt: string;
   summary?: string | null;
+  bodyPreview?: string | null;
   sentiment?: Sentiment | null;
   impactScore: number;
   importance: Importance;

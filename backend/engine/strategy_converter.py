@@ -336,12 +336,11 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
     # 4. 리스크 관리 설정
     position_size_pct = round(100.0 / strategy.max_positions, 2)
 
-    # 상대강도 랭킹 전략: 보유기간이 따로 없으면 리밸런싱 주기로 회전을 구동한다.
-    # (엔진에 별도 리밸런싱 로직이 없어, max_holding_days 만료가 재선정 시점이 된다.)
-    _REBALANCE_DAYS = {"monthly": 21, "quarterly": 63, "yearly": 252}
+    # 리밸런싱 주기가 있으면 회전은 엔진의 달력 기준 리밸런싱이 구동한다(reconstitution).
+    # 이때 max_holding_days(보유기간 만료)는 중복 회전을 막기 위해 끈다. SL/TP/트레일링은 그대로.
     max_holding_days = strategy.hold_period_days
-    if strategy.ranking_metric == "return" and max_holding_days is None:
-        max_holding_days = _REBALANCE_DAYS.get(strategy.rebalancing_period, 21)
+    if strategy.rebalancing_period and strategy.rebalancing_period != "none":
+        max_holding_days = None
 
     risk = {
         "position_size_pct": position_size_pct,

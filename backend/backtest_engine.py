@@ -426,16 +426,17 @@ class BacktestEngine:
                     lookback = int(risk_params.get('ranking_lookback_days') or 60)
                     momentum = price_df.pct_change(lookback)
                     rank_df = momentum.rank(axis=1, pct=True)
+                    # 수익률이 정의되지 않은 초기 lookback 구간(NaN)에는 종목을 후보에서 제외한다.
+                    # 그러지 않으면 순위가 0으로 동률이 되어 임의 종목을 사서 들고 있게 된다.
+                    valid = momentum.notna()
                     if exec_type == 'next_open':
                         rank_df = rank_df.shift(1)
+                        valid = valid.shift(1, fill_value=False)
                     rank_df = rank_df.fillna(0.0)
-                    # 진입 신호가 없으면(선정=진입) 전 종목을 후보로 만들어 순위로 상위 K를 채운다.
+                    # 진입 신호가 없으면(선정=진입) 수익률이 정의된 전 종목을 후보로 만들어 상위 K를 채운다.
                     _entry_conditions = (req.get('entry') or {}).get('conditions') or []
                     if not _entry_conditions:
-                        ents_df = available_df.copy()
-                        if exec_type == 'next_open':
-                            ents_df = ents_df.shift(1, fill_value=False)
-                        ents_df &= available_df
+                        ents_df = available_df & valid
                 except Exception as e:
                     import logging
                     logging.getLogger(__name__).warning(f"[BacktestEngine] 수익률 랭킹 계산 실패: {e}")

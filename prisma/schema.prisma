@@ -692,17 +692,56 @@ model NewsV2PriorityScore {
   symbol          String   @id
   score           Float    @default(0)
   tier            Int      @default(3)
+  queue           String   @default("cold")
+  reason          String?
+  isTrending      Boolean  @default(false)
   lastCollected   DateTime?
   lastViewed      DateTime?
+  currentViewUntil DateTime?
   viewCount24h    Int      @default(0)
   watchlistCount  Int      @default(0)
+  holdingCount    Int      @default(0)
   searchCount24h  Int      @default(0)
   volatility      Float    @default(0)
   turnover        Float    @default(0)
+  marketCap       Float    @default(0)
+  tradingValue    Float    @default(0)
+  newsCount1h     Int      @default(0)
+  newsCount24h    Int      @default(0)
+  newsVelocity    Float    @default(0)
+  indexMember     Int      @default(0)
   aiImportance    Float    @default(0)
   updatedAt       DateTime @updatedAt
 
   @@index([tier, score])
+  @@index([queue, score])
+  @@index([isTrending, score])
+}
+
+model NewsV2PriorityEvent {
+  id           Int      @id @default(autoincrement())
+  symbol       String
+  eventType    String
+  userId       String?
+  weight       Float    @default(1)
+  metadataJson String?
+  createdAt    DateTime @default(now())
+
+  @@index([symbol, createdAt])
+  @@index([eventType, createdAt])
+}
+
+model NewsV2CollectionQueueItem {
+  symbol      String   @id
+  queue       String
+  score       Float    @default(0)
+  reason      String?
+  isTrending  Boolean  @default(false)
+  enqueuedAt  DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([queue, score])
+  @@index([updatedAt])
 }
 
 model NewsV2CollectionStatus {

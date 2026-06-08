@@ -149,3 +149,62 @@ def test_korean_particle_stop_loss_prompt_reaches_backtest_risk():
     assert [(item["id"], item["params"]["signalType"]) for item in request["exit"]["conditions"]] == [
         ("ma_crossover", "sell")
     ]
+
+
+def test_ranking_strategy_passes_return_ranking_into_risk_params():
+    """상대강도 랭킹 전략: ranking_metric/lookback이 risk로 전달되고, 회전은 리밸런싱이 구동."""
+    parsed = make_strategy(
+        universe=["KOSDAQ"],
+        ranking_metric="return",
+        ranking_lookback_days=60,
+        rebalancing_period="monthly",
+        max_positions=6,
+        stop_loss_pct=9.0,
+    )
+
+    request = to_backtest_request(parsed, resolve_symbols=False)
+    risk = request["risk"]
+
+    assert risk["ranking_metric"] == "return"
+    assert risk["ranking_lookback_days"] == 60
+    assert risk["rebalancing_period"] == "monthly"
+    # 리밸런싱이 회전을 구동하므로 보유기간 만료는 끈다(중복 회전 방지).
+    assert risk["max_holding_days"] is None
+    assert request["canonical_strategy_dsl"]["ranking_metric"] == "return"
+    # 진입 조건은 비어 있음 — 선정 자체가 진입.
+    assert request["entry"]["conditions"] == []
+
+
+def test_ranking_strategy_defaults_lookback():
+    """lookback 미지정 시 60으로 기본."""
+    parsed = make_strategy(ranking_metric="return", ranking_lookback_days=None)
+
+    risk = to_backtest_request(parsed, resolve_symbols=False)["risk"]
+
+    assert risk["ranking_lookback_days"] == 60
+
+
+def test_rebalancing_period_disables_holding_turnover():
+    """리밸런싱 주기가 있으면 max_holding_days는 None(달력 리밸런싱이 회전 구동)."""
+    parsed = make_strategy(hold_period_days=252, rebalancing_period="yearly")
+
+    risk = to_backtest_request(parsed, resolve_symbols=False)["risk"]
+
+    assert risk["rebalancing_period"] == "yearly"
+    assert risk["max_holding_days"] is None
+
+
+def test_no_rebalancing_keeps_holding_period():
+    """리밸런싱이 없으면 보유기간은 그대로 max_holding_days로 유지."""
+    parsed = make_strategy(hold_period_days=126, rebalancing_period="none")
+
+    risk = to_backtest_request(parsed, resolve_symbols=False)["risk"]
+
+    assert risk["max_holding_days"] == 126
+
+
+def test_non_ranking_strategy_has_null_ranking_metric():
+    """랭킹이 아닌 전략은 ranking_metric이 None."""
+    risk = to_backtest_request(make_strategy(), resolve_symbols=False)["risk"]
+
+    assert risk["ranking_metric"] is None

@@ -19,7 +19,7 @@ from news_v2.config import get_settings
 from news_v2.db import get_session_maker
 from news_v2.logging_setup import get_logger
 from news_v2.models import Status
-from news_v2.priority import PriorityFeatures, assign_tier, compute_score, recompute_cohort
+from news_v2.priority import PriorityFeatures, decide_priority, recompute_cohort
 from news_v2.repository import NewsRepository
 from news_v2.service import NewsService
 
@@ -163,11 +163,26 @@ def deduplicate_news(symbol: Optional[str] = None) -> dict:
 @celery_app.task(name="news_v2.tasks.recompute_priority")
 def recompute_priority() -> dict:
     async def _do():
-        cfg = get_settings()
         maker = get_session_maker()
         async with maker() as session:
+            cfg = get_settings()
             repo = NewsRepository(session)
+            for event, sync in [
+                ("priority_stock_universe_sync_skipped", repo.ensure_stock_universe_priority_rows),
+                ("priority_watchlist_sync_skipped", repo.sync_watchlist_counts_from_db),
+                ("priority_search_sync_skipped", repo.sync_search_counts_from_db),
+                ("priority_holding_sync_skipped", repo.sync_holding_counts_from_virtual_positions),
+            ]:
+                try:
+                    await sync()
+                    await session.commit()
+                except Exception as exc:
+                    await session.rollback()
+                    log.warning(event, error=str(exc))
             rows = await repo.list_all_priorities()
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            counts_1h = await repo.news_counts_by_symbol(since=now - timedelta(hours=1))
+            counts_24h = await repo.news_counts_by_symbol(since=now - timedelta(hours=24))
             features = [
                 PriorityFeatures(
                     symbol=r.symbol,
@@ -175,15 +190,38 @@ def recompute_priority() -> dict:
                     volatility=r.volatility or 0.0,
                     view_count_24h=r.view_count_24h or 0,
                     watchlist_count=r.watchlist_count or 0,
+                    holding_count=r.holding_count or 0,
                     search_count_24h=r.search_count_24h or 0,
+                    trading_value=r.trading_value or 0.0,
+                    market_cap=r.market_cap or 0.0,
+                    news_count_1h=counts_1h.get(r.symbol, 0),
+                    news_count_24h=counts_24h.get(r.symbol, 0),
+                    news_velocity=r.news_velocity or 0.0,
+                    index_member=r.index_member or 0,
                     ai_importance=r.ai_importance or 0.0,
+                    last_viewed=r.last_viewed,
+                    current_view_until=r.current_view_until,
                 )
                 for r in rows
             ]
             cohort = recompute_cohort(features)
             for f, r in zip(features, rows):
-                r.score = compute_score(f, cohort, cfg.priority_weights)
-                r.tier = assign_tier(r.score, cfg)
+                decision = decide_priority(f, cohort, cfg)
+                r.score = decision.score
+                r.tier = decision.tier
+                r.queue = decision.queue
+                r.reason = decision.reason
+                r.is_trending = decision.is_trending
+                r.news_count_1h = f.news_count_1h
+                r.news_count_24h = f.news_count_24h
+                r.news_velocity = decision.news_velocity
+                await repo.upsert_collection_queue(
+                    symbol=r.symbol,
+                    queue=decision.queue,
+                    score=decision.score,
+                    reason=decision.reason,
+                    is_trending=decision.is_trending,
+                )
             await session.commit()
             return {"updated": len(rows)}
 

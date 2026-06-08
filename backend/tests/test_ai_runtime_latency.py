@@ -11,6 +11,7 @@ import main
 class _DummyParsed:
     fundamental_filters = []
     entry_signals = []
+    ranking_metric = None
 
     def model_dump(self):
         return {"universe": ["KOSPI200"]}

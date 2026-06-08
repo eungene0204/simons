@@ -34,6 +34,7 @@ def _make_app():
         task_queues=(
             KQueue("news.collect.high"),
             KQueue("news.collect.default"),
+            KQueue("news.collect.cold"),
             KQueue("news.analyze"),
             KQueue("news.maintenance"),
             KQueue("news.dlq"),

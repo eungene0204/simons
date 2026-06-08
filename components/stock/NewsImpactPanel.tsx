@@ -1,14 +1,15 @@
 "use client";
 
-import { ArrowClockwise, Warning } from "phosphor-react";
+import { ArrowClockwise } from "phosphor-react";
 
 import { useStockNews } from "@/lib/hooks/useStockNews";
-import type { Importance, NewsItemV2, NewsStatus, Sentiment } from "@/types/news-v2";
+import type { NewsItemV2, NewsStatus, Sentiment } from "@/types/news-v2";
 
 function timeAgo(iso: string | null | undefined): string {
   if (!iso) return "";
   try {
-    const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+    const timestamp = /(?:Z|[+-]\d{2}:?\d{2})$/.test(iso) ? iso : `${iso}Z`;
+    const diff = (Date.now() - new Date(timestamp).getTime()) / 1000;
     if (diff < 60) return "방금";
     if (diff < 3600) return `${Math.floor(diff / 60)}분 전`;
     if (diff < 86400) return `${Math.floor(diff / 3600)}시간 전`;
@@ -18,43 +19,55 @@ function timeAgo(iso: string | null | undefined): string {
   }
 }
 
+function normalizePreviewText(text: string | null | undefined): string {
+  return (text ?? "").replace(/\s+/g, " ").trim();
+}
+
+function stripTrailingSource(text: string, source: string): string {
+  const normalizedSource = normalizePreviewText(source);
+  const candidate = normalizePreviewText(text);
+  if (!normalizedSource) return candidate;
+  if (!candidate.endsWith(normalizedSource)) return candidate;
+  return candidate.slice(0, -normalizedSource.length).replace(/[-:|/\s]+$/, "").trim();
+}
+
+function canonicalizePreviewText(text: string | null | undefined, source: string): string {
+  return stripTrailingSource(normalizePreviewText(text), source)
+    .replace(/[\s"'`.,:;!?()[\]{}<>|/-]+/g, "")
+    .toLowerCase();
+}
+
+function getArticlePreview(article: NewsItemV2): string | null {
+  const title = normalizePreviewText(article.title);
+  const preview = stripTrailingSource(article.bodyPreview ?? article.summary ?? "", article.source);
+  if (!preview) return null;
+  if (canonicalizePreviewText(preview, article.source) === canonicalizePreviewText(title, article.source)) {
+    return null;
+  }
+  if (title && preview.startsWith(title)) {
+    const remainder = preview.slice(title.length).replace(/^[-:|/\s]+/, "").trim();
+    if (!remainder) return null;
+    if (canonicalizePreviewText(remainder, article.source) === canonicalizePreviewText(title, article.source)) {
+      return null;
+    }
+    return remainder;
+  }
+  return preview;
+}
+
 function SentimentBadge({ sentiment }: { sentiment?: Sentiment | null }) {
   if (!sentiment) return null;
   const cfg = sentiment === "positive"
-    ? "text-[var(--main-red)] border-[var(--main-red)]/30"
+    ? "text-[var(--main-red)] border-white/[0.16]"
     : sentiment === "negative"
-      ? "text-[var(--main-blue)] border-[var(--main-blue)]/30"
-      : "text-green-400 border-green-400/30";
+      ? "text-[var(--main-blue)] border-white/[0.16]"
+      : "text-green-400 border-white/[0.16]";
   const label = sentiment === "positive" ? "긍정" : sentiment === "negative" ? "부정" : "중립";
   return (
     <span className={`inline-flex items-center gap-0.5 text-xs font-bold px-2 py-0.5 rounded-md border ${cfg}`}>
       {label}
     </span>
   );
-}
-
-function ImpactBadge({ importance, score }: { importance: Importance; score: number }) {
-  const cfg = importance === "high"
-    ? "bg-red-500/10 text-red-400"
-    : importance === "medium"
-      ? "bg-amber-500/10 text-amber-400"
-      : "bg-white/[0.04] text-gray-400";
-  const label = importance === "high" ? "중요" : importance === "medium" ? "관심" : "일반";
-  return (
-    <span className={`inline-flex items-center gap-0.5 text-xs font-bold px-2 py-0.5 rounded-md ${cfg}`}>
-      {importance !== "low" && <Warning size={10} weight="fill" />}
-      {label} {(Math.max(0, Math.min(score, 1)) * 100).toFixed(0)}%
-    </span>
-  );
-}
-
-function ImpactStripe({ sentiment }: { sentiment?: Sentiment | null }) {
-  const cls = sentiment === "positive"
-    ? "bg-[var(--main-red)]"
-    : sentiment === "negative"
-      ? "bg-[var(--main-blue)]"
-      : "bg-green-500/50";
-  return <div className={`w-1 shrink-0 ${cls}`} />;
 }
 
 function SkeletonList() {
@@ -78,12 +91,12 @@ function SkeletonList() {
 function StatusBanner({ status, message }: { status: NewsStatus; message?: string | null }) {
   if (status === "COLLECTING" || status === "NOT_COLLECTED") {
     return (
-      <div className="rounded-xl border border-amber-400/20 bg-amber-400/[0.04] p-4 text-center">
+      <div className="rounded-xl border border-amber-400/20 p-4 text-center">
         <p className="text-sm text-amber-300 mb-1">
           <span className="inline-block w-2 h-2 bg-amber-400 rounded-full animate-pulse mr-2" />
           {message ?? "최근 뉴스가 준비 중입니다."}
         </p>
-        <p className="text-xs text-gray-500">준비된 캐시가 생기면 새로고침 시 바로 표시됩니다.</p>
+        <p className="text-xs text-gray-500">준비된 캐시가 생기면 자동으로 표시됩니다.</p>
       </div>
     );
   }
@@ -106,6 +119,7 @@ function StatusBanner({ status, message }: { status: NewsStatus; message?: strin
 
 function ArticleCard({ article }: { article: NewsItemV2 }) {
   const highImportance = article.importance === "high";
+  const preview = getArticlePreview(article);
   return (
     <a
       href={article.url}
@@ -115,14 +129,13 @@ function ArticleCard({ article }: { article: NewsItemV2 }) {
         highImportance ? "border-red-400/30 bg-red-500/[0.03]" : "border-white/[0.08]"
       }`}
     >
-      <ImpactStripe sentiment={article.sentiment} />
       <div className="flex-1 min-w-0 p-5">
         <p className="text-sm font-bold text-gray-200 leading-snug mb-1.5">
           {article.title}
         </p>
-        {article.summary && (
+        {preview && (
           <p className="text-xs text-gray-400 leading-snug mb-2 line-clamp-2">
-            {article.summary}
+            {preview}
           </p>
         )}
         <div className="flex items-center gap-2">
@@ -131,7 +144,6 @@ function ArticleCard({ article }: { article: NewsItemV2 }) {
           </p>
           <div className="flex items-center gap-1.5 shrink-0">
             <SentimentBadge sentiment={article.sentiment} />
-            <ImpactBadge importance={article.importance} score={article.impactScore} />
           </div>
         </div>
       </div>
@@ -147,7 +159,6 @@ export default function NewsImpactPanel({ symbol }: { symbol: string }) {
   }
 
   const items = data?.items ?? [];
-  const headerStale = data?.isStale ?? false;
 
   return (
     <div className="space-y-3">
@@ -158,9 +169,9 @@ export default function NewsImpactPanel({ symbol }: { symbol: string }) {
               마지막 업데이트: {timeAgo(data.lastUpdatedAt)}
             </span>
           )}
-          {(isRevalidating || headerStale) && (
+          {isRevalidating && (
             <span className="text-xs text-amber-400 animate-pulse">
-              {headerStale ? "캐시가 오래되었습니다" : "갱신 중..."}
+              갱신 중...
             </span>
           )}
         </div>

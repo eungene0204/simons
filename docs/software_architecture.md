@@ -1,7 +1,7 @@
 # Software Architecture
 
 > 한국/글로벌 주식 퀀트 투자 플랫폼 — Simons
-> **최종 갱신일:** 2026-06-02
+> **최종 갱신일:** 2026-06-08
 
 ---
 
@@ -120,7 +120,8 @@ simons/
 │   │   ├── loader.py                # DataLoader (OHLCV 로드 + 캐싱)
 │   │   ├── indicators.py            # IndicatorEngine (지표 계산)
 │   │   ├── signals.py               # SignalEngine (조건 평가, 벡터화)
-│   │   ├── simulator.py             # Simulator (VectorBT 시뮬레이션)
+│   │   ├── simulator.py             # Simulator (VectorBT 시뮬레이션, 랭킹/리밸런싱 라우팅)
+│   │   ├── rebalance.py             # 달력 기준 리밸런싱일 계산 (vbt 비의존)
 │   │   ├── result_handler.py        # ResultHandler (지표 계산 + 직렬화)
 │   │   ├── nl_parser.py             # 자연어 → ParsedStrategy (LLM)
 │   │   ├── strategy_converter.py    # ParsedStrategy → BacktestRequest
@@ -144,17 +145,25 @@ simons/
 │   │   ├── candidate_generator.py   # 개선 후보 전략 생성
 │   │   ├── advice_evaluator.py      # 개선 전/후 성과 평가
 │   │   └── response_composer.py     # 사용자 답변 섹션 구성
-│   ├── news/                        # 뉴스 Impact AI Agent
-│   │   ├── schemas.py               # NormalizedArticle, NewsImpact Pydantic 모델
-│   │   ├── dedup.py                 # 중복 제거 (Jaccard + body hash, 24h 윈도우)
-│   │   ├── collector.py             # 뉴스 수집 오케스트레이터
+    │   ├── news/                        # 뉴스 Impact AI Agent
+    │   │   ├── schemas.py               # NormalizedArticle, NewsImpact Pydantic 모델
+    │   │   ├── dedup.py                 # 중복 제거 (Jaccard + body hash, 24h 윈도우)
+    │   │   ├── collector.py             # 뉴스 수집 오케스트레이터
 │   │   ├── analyzer.py              # 이벤트 분류 + alpha 계산
 │   │   ├── storage.py               # DB 저장/조회
 │   │   ├── news_routes.py           # FastAPI 라우터 (6개+ 엔드포인트)
-│   │   └── providers/
-│   │       ├── naver_news.py        # Naver Finance RSS (4피드, 무인증)
-│   │       └── rss_provider.py      # 한국경제·연합뉴스·매일경제 RSS
-│   ├── research/                    # Strategy Research Agent
+    │   │   └── providers/
+    │   │       ├── naver_news.py        # Naver Finance RSS (4피드, 무인증)
+    │   │       └── rss_provider.py      # 한국경제·연합뉴스·매일경제 RSS
+    │   ├── news_v2/                     # 종목 뉴스탭 캐시 파이프라인
+    │   │   ├── models.py                # raw/analysis/cache/priority/queue 모델
+    │   │   ├── repository.py            # 캐시 조회, dedup, mapping, priority 저장소
+    │   │   ├── service.py               # collector→analysis→cache 오케스트레이션
+    │   │   ├── priority.py              # 사용자 수요 기반 Priority Engine
+    │   │   ├── tasks.py                 # Celery collect/analyze/maintenance tasks
+    │   │   ├── scheduler.py             # Hot/Warm/Cold queue scheduler + worker autostart
+    │   │   └── routes.py                # 캐시 전용 종목 뉴스 API
+    │   ├── research/                    # Strategy Research Agent
 │   │   ├── agent.py                 # StrategyResearchAgent 오케스트레이터 (상태머신)
 │   │   ├── generator.py             # 후보 전략 생성기 (SHA256 dedup, seeded)
 │   │   ├── search_space.py          # 템플릿별 파라미터 탐색 공간
@@ -346,6 +355,13 @@ interface BacktestResult {
 | GET | `/news/top` | 주요 뉴스 |
 | GET | `/news/fetch-body` | 기사 본문 일부 추출 (SSRF 방어 적용) |
 
+**종목 뉴스탭 캐시 API (news_v2)**
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| GET | `/v2/news/{symbol}` | FastAPI 캐시 전용 종목 뉴스 조회. `stock_news_cache`만 읽고 crawler/agent/LLM을 실행하지 않음 |
+| POST | `/v2/news/events` | 종목 조회/검색/관심종목/보유종목 등 priority event 기록 |
+| GET | `/v2/news/priority` | Priority score, Hot/Warm/Cold queue 상태 모니터링 |
+
 **Strategy Research Agent (Premium)**
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
@@ -427,11 +443,16 @@ BacktestEngine.run_backtest(request)
 │
 ├── Phase 5: 포트폴리오 시뮬레이션
 │   └── Simulator.run()
-│       ├── VectorBT Portfolio.from_signals()
-│       ├── 리스크 관리:
+│       ├── 달력 기준 리밸런싱 라우팅 (rebalance_mode 판정 — compute_rebalance_dates)
+│       │   ├── 순수 리밸런싱(봉중간 리스크 없음) → _run_target_rebalance()
+│       │   │   └── VectorBT Portfolio.from_orders(size_type='targetpercent') — 목표비중 reconstitution, 비중 리셋 O
+│       │   └── 리밸런싱 + 봉중간 리스크 혼재 / 일반 전략 → 커스텀 루프 + Portfolio.from_signals()
+│       ├── 리스크 관리 (커스텀 루프):
 │       │   ├── StopLoss / TakeProfit: 당일 close 감지 → 당일 close 청산
 │       │   ├── TrailingStop: peak_price[] 배열로 추적
-│       │   └── MaxHoldingDays: 보유 기간 초과 시 청산
+│       │   ├── MaxHoldingDays: 보유 기간 초과 시 청산
+│       │   └── Rebalance dropout: 리밸런싱일에 목표 집합 밖 보유 매도, 빈 슬롯 신규 편입
+│       ├── Ranking: rank_df로 후보 재정렬 (PBR/ROE 복합 또는 모멘텀 ranking_metric="return")
 │       ├── Position Limiting: 최대 동시 포지션 수 제한
 │       └── Liquidity Check: 거래대금 기준 필터
 │
@@ -446,7 +467,9 @@ BacktestEngine.run_backtest(request)
 
 **Simulator 핵심 설계 원칙:**
 - 리스크 종료: 당일 close 감지 → `exits_values[i]`에 당일 close 주입 (현실적 일봉 시뮬레이션)
-- 벡터화 Step 순서 고정: **Step1 퇴장처리 → Step2 리스크 평가/주입 → Step3 진입처리**
+- 벡터화 Step 순서 고정: **Step1 퇴장처리 → Step2 리스크 평가/주입 → Rebalance(목표 집합 재구성/탈락 매도) → Step3 진입처리**
+- 같은 날 매도+매수(리밸런싱 reconstitution)가 겹칠 때는 부기(active_mask/active_count/peak_price)도 즉시 갱신해야 한다 — 그렇지 않으면 빈 슬롯이 "아직 점유 중"으로 보여 신규 편입이 영구 차단되는 고스트 포지션 버그가 발생한다
+- 달력 기준 리밸런싱: `compute_rebalance_dates()`로 주기별 첫 거래일 판정 → 봉중간 리스크 유무로 `from_orders(targetpercent)` / `from_signals` reconstitution 경로를 자동 분기 (하이브리드 라우팅)
 
 ### 4.4 가상매매 엔진 (`engine/virtual_trader.py`)
 
@@ -586,6 +609,7 @@ Client polling으로 진행률/로그/리더보드 반영
 - `GET /api/news/impact/[symbol]` — 종목 Alpha 시그널 (latest_alpha, risk_alert_level)
 - `GET /api/news/top` — 주요 시장 뉴스 피드
 - `GET /api/news/fetch-body` — 기사 본문 일부 추출 프록시. `http/https`만 허용하고 localhost/private/link-local/non-global IP와 userinfo URL을 차단한다.
+- `GET /api/stocks/[symbol]/news?limit=30` — 종목 상세 뉴스탭용 캐시 전용 API. 캐시 미스 시 빈 배열을 즉시 반환하고 백그라운드 refresh job만 enqueue한다.
 
 **가상 계좌**
 - `POST /api/virtual-account` — 계좌 생성
@@ -596,6 +620,58 @@ Client polling으로 진행률/로그/리더보드 반영
 ---
 
 ## 7. AI/ML 파이프라인
+
+### 7.0 종목 뉴스탭 백그라운드 파이프라인
+
+종목 상세 뉴스탭은 조회 전용 UI다. 사용자가 뉴스탭을 클릭할 때 외부 뉴스 검색, 크롤링, scraper, LLM summarizer, news agent 분석을 실행하지 않는다. UI 요청 경로는 이미 생성된 `stock_news_cache`를 읽는 것으로 제한한다.
+
+```
+User Activity
+    ↓
+Priority Engine
+    ↓
+Stock Priority Ranking
+    ↓
+Hot Queue / Warm Queue / Cold Queue
+    ↓
+News Collector
+    ↓
+Raw News DB (news_raw)
+    ↓
+Deduplication
+    ↓
+Symbol Mapping
+    ↓
+News Agent Analysis (background only)
+    ↓
+StockNewsCache
+    ↓
+GET /api/stocks/[symbol]/news
+    ↓
+News Tab UI
+```
+
+**저장소 역할**
+
+| 저장소 | 역할 |
+|--------|------|
+| `news_raw` | 원본 뉴스 저장: title, url, source, published_at, raw_content, created_at |
+| `news_analysis` | news_id 기준 분석 결과: sentiment, impact_score, importance, summary, analyzed_at |
+| `stock_news_cache` | 종목 뉴스탭에서 즉시 읽는 최종 캐시: symbol, news_id, published_at, rank_score, cached_at |
+
+**수집 우선순위**
+
+| Queue | 대상 | 기본 주기 |
+|-------|------|----------|
+| Hot Queue | 현재 조회 중 종목, 관심종목, 가상계좌 보유 종목, 최근 조회 급증 종목 | 1~5분 |
+| Warm Queue | 거래대금 상위, 시가총액 상위, KOSPI200/KOSDAQ150 등 주요 지수 편입 종목 | 10~30분 |
+| Cold Queue | 나머지 전체 종목 순회 수집 | 1~6시간 |
+
+Priority score는 현재 조회, 관심종목, 보유종목, 최근 조회/검색, 거래대금, 뉴스 velocity, 지수 편입, 시가총액을 합산하되 사용자 행동 데이터가 시장 데이터보다 우선한다. 현재 보고 있는 종목이 가장 높은 우선순위를 갖고, 관심종목/보유종목은 시가총액보다 우선한다.
+
+**Worker lifecycle**
+
+FastAPI startup에서 news scheduler가 시작되면 Celery worker를 자동 기동할 수 있다. 중복 worker 방지를 위해 autostart 전 pid lock file을 획득하고, broker에 이미 동일 queue를 구독하는 worker가 있으면 새 worker를 시작하지 않는다. 운영 환경에서 별도 process manager를 사용하는 경우 `NEWSV2_WORKER_AUTOSTART_ENABLED=false`로 내장 autostart를 비활성화한다.
 
 ### 7.1 자연어 파싱 LLM (`backend/engine/nl_parser.py`)
 
@@ -697,6 +773,9 @@ class ParsedStrategy(BaseModel):
     trailing_stop_pct: Optional[float]
     max_positions: int
     hold_period_days: Optional[int]
+    ranking_metric: Optional[Literal["return"]]       # 모멘텀 랭킹 — "최근 N일 수익률 상위" 선정
+    ranking_lookback_days: Optional[int]              # 모멘텀 계산 기간 (기본 60일)
+    rebalancing_period: Literal["none", "daily", "monthly", "quarterly", "yearly"]
     backtest_period: Literal["1y", "3y", "5y", "full"]
     initial_capital: float
 ```
@@ -741,6 +820,8 @@ SHAP 기반 — 각 예측에 영향을 준 피처와 기여도 반환, 프론�
 | `test_engine_signals.py` | SignalEngine: MA 교차, RSI, MACD, BB, Breakout 신호 평가 |
 | `test_engine_indicators.py` | IndicatorEngine: 지표 계산 정확성 |
 | `test_simulator.py` | Simulator: SL/TP/TS/MaxHold 리스크 관리 |
+| `test_simulator_ranking.py` | Simulator: 모멘텀 랭킹(상위 K 선정) + 달력 기준 리밸런싱 회전 — 순수 리밸런싱(`from_orders`)/리스크 혼재(`from_signals`) 두 라우팅 경로 검증 |
+| `test_rebalance_dates.py` | `compute_rebalance_dates()`: 일/월/분기/년 주기별 리밸런싱일 계산 (vbt 비의존, pandas만) |
 | `test_engine_loader.py` | DataLoader: Parquet 로드, 캐싱 |
 | `test_strategy_converter.py` | ParsedStrategy → BacktestRequest 변환 |
 | `test_ai_code_fixes.py` | AI 관련 버그 픽스 회귀 테스트 |

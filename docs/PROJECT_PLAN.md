@@ -1,7 +1,7 @@
 # Simons — 종합 투자 시뮬레이션 플랫폼 프로젝트 계획서
 
 > **문서 버전:** v2.0
-> **최종 갱신일:** 2026-06-02
+> **최종 갱신일:** 2026-06-08
 > **프로젝트명:** Simons (시몬스)
 
 ---
@@ -130,6 +130,14 @@ simons/
 │   │   └── providers/     #   뉴스 데이터 수집 공급자
 │   │       ├── naver_news.py  # Naver Finance RSS (4개 피드, 키 불요)
 │   │       └── rss_provider.py # 한국경제·연합뉴스·매일경제 RSS
+│   ├── news_v2/           # 종목 뉴스탭 캐시·백그라운드 수집 파이프라인
+│   │   ├── models.py      #   news_raw/news_analysis/stock_news_cache 등 저장 모델
+│   │   ├── repository.py  #   캐시 조회, dedup, symbol mapping, priority 저장소
+│   │   ├── service.py     #   수집→분석→캐시 갱신 오케스트레이션
+│   │   ├── priority.py    #   사용자 수요 기반 Priority Engine
+│   │   ├── tasks.py       #   Celery background task
+│   │   ├── scheduler.py   #   Hot/Warm/Cold queue scheduler + worker autostart
+│   │   └── routes.py      #   캐시 전용 종목 뉴스 API
 │   └── tests/             # 40+개 테스트 파일 (pytest)
 ├── components/            # React 컴포넌트
 │   ├── strategy/          # 전략 빌더 UI (핵심)
@@ -390,7 +398,7 @@ simons/
 | `macd` | MACD 크로스오버 | fastPeriod, slowPeriod, signalPeriod | ✅ |
 | `bollinger_bands` | 볼린저밴드 이탈/반등 | period, stdDev, signalType | ✅ |
 | `volume_spike` | OBV 기반 거래량 급증 | period, signalType | ✅ |
-| `breakout` | 52주 신고가/신저가 돌파 | lookbackPeriod, signalType | ✅ |
+| `breakout` | 52주 신고가/신저가 돌파 (NL: "박스권 돌파", "N일 고점 돌파" 등 서술형 표현도 인식) | lookbackPeriod, signalType | ✅ |
 | `ema` | 지수이동평균 | period | ✅ |
 | `stochastic` | 스토캐스틱 | kPeriod, dPeriod | ✅ |
 | `cci` | 상품채널지수 | period | ✅ |
@@ -491,7 +499,8 @@ RiskManagement {
 - **리스크 종료:** 당일 close 감지 → 당일 close 체결 (일봉 기반 현실적 시뮬레이션)
 - **트레일링 스탑:** peak_price 배열로 추적, 진입 시 초기화
 - **처리 순서:** Exit → Risk → Entry (벡터화, 순서 고정)
-- **랭킹:** 다중 종목 동시 시그널 시 스코어 기반 우선순위 배정
+- **랭킹:** 다중 종목 동시 시그널 시 스코어 기반 우선순위 배정 (PBR/ROE 또는 모멘텀 `ranking_metric="return"` — N일 수익률 상위 K종목 선정)
+- **달력 기준 리밸런싱:** `rebalancing_period`(daily/monthly/quarterly/yearly) 지정 시 리밸런싱일마다 목표 집합(상위 K) 재구성(reconstitution). 순수 리밸런싱은 vbt 네이티브 `from_orders(targetpercent)`, 봉중간 리스크(SL/TP/TS) 혼재 시 커스텀 `from_signals` 루프로 하이브리드 라우팅
 
 #### 3.2.4 SSE 스트리밍 ✅ 완료
 
@@ -918,13 +927,14 @@ WatchlistSymbol {
 | GET/POST | `/api/watchlist/symbols` | 종목 목록 |
 | DELETE/PATCH | `/api/watchlist/symbols/[symbol]` | 종목 삭제/그룹 변경 |
 
-#### 뉴스 & Impact (4개)
+#### 뉴스 & Impact (5개)
 | Method | Endpoint | 기능 |
 |--------|----------|------|
 | GET | `/api/news/top` | 주요 시장 뉴스 피드 |
 | GET | `/api/news/symbol/[symbol]` | 종목별 뉴스 목록 (페이징, 백엔드 미가동 시 seed 데이터) |
 | GET | `/api/news/impact/[symbol]` | 종목 뉴스 Alpha 시그널 (latest_alpha, risk_alert_level) |
 | GET | `/api/news/fetch-body` | 기사 본문 요약 추출 프록시 (SSRF 방어 적용) |
+| GET | `/api/stocks/[symbol]/news` | 종목 상세 뉴스탭 캐시 전용 API (`stock_news_cache` 조회 only) |
 
 #### 기타 (5개)
 | Method | Endpoint | 기능 |
@@ -971,6 +981,9 @@ WatchlistSymbol {
 | GET | `/news/symbol/{symbol}` | 종목별 뉴스 (페이징, as_of 지원) |
 | GET | `/news/impact/{symbol}` | 종목 뉴스 Alpha 시그널 (latest_alpha) |
 | GET | `/news/top` | 주요 뉴스 (섹터/전체) |
+| GET | `/v2/news/{symbol}` | 종목 뉴스탭 캐시 조회 (crawler/agent/LLM 실행 없음) |
+| POST | `/v2/news/events` | 뉴스 priority 사용자 행동 이벤트 기록 |
+| GET | `/v2/news/priority` | priority score 및 queue 상태 모니터링 |
 | GET | `/news/fetch-body` | 기사 본문 일부 추출 (private/loopback/link-local/non-global URL 차단) |
 
 ---
@@ -1134,13 +1147,62 @@ WatchlistSymbol {
 - 백엔드 미가동 시: Next.js API Route에서 seed 데이터 자동 폴백 (개발/테스트 환경)
 - `app/stock-order/page.tsx`: 5탭 구조(차트·호가/종목정보/뉴스·공시/거래현황/커뮤니티), 뉴스 탭은 NewsImpactPanel 렌더링
 
+### Phase 3.8b: 종목 뉴스탭 캐시 파이프라인 + 우선순위 수집 엔진 — ✅ 완료
+
+> 종목 상세 뉴스탭에서 크롤러/LLM을 기다리지 않고 이미 준비된 캐시를 즉시 렌더링하도록, 뉴스 수집과 분석을 백그라운드 파이프라인으로 분리했다.
+
+| 작업 | 상세 | 구현 상태 |
+|------|------|----------|
+| 캐시 전용 뉴스탭 API | `GET /api/stocks/{symbol}/news?limit=30`는 `stock_news_cache`만 조회하고 news agent/crawler/LLM을 직접 실행하지 않음 | ✅ 완료 |
+| 저장소 분리 | `news_raw`, `news_analysis`, `stock_news_cache`, symbol mapping/priority/queue 관련 저장 구조 분리 | ✅ 완료 |
+| 중복 제거 v2 | 동일 URL 중복 방지, normalized title/hash 기반 유사 제목 dedup, 대표 뉴스 선별 기준 적용 | ✅ 완료 |
+| Symbol Mapping | 제목/본문에서 종목명, 종목코드, 별칭, 섹터성 표현을 매핑하고 하나의 뉴스가 여러 종목에 연결 가능 | ✅ 완료 |
+| 백그라운드 분석 | News Collector → Raw News DB → Deduplication → Symbol Mapping → News Agent Analysis → StockNewsCache 경로로 처리 | ✅ 완료 |
+| 캐시 미스 처리 | API는 즉시 빈 배열을 반환하고 refresh job만 queue에 넣어 UI 요청을 blocking하지 않음 | ✅ 완료 |
+| 프론트엔드 prefetch | 종목 상세 진입 시 React Query `["stock-news", symbol]`로 prefetch, 뉴스탭 클릭 시 캐시된 데이터 렌더링 | ✅ 완료 |
+| 뉴스탭 상태 UI | loading, empty, stale, error 상태와 중요도/감성/impact score 표시 | ✅ 완료 |
+| Priority Engine | 현재 조회 종목, 관심종목, 가상계좌 보유 종목, 최근 조회/검색, 거래대금, 뉴스 velocity, 지수 편입 기반 priority score 계산 | ✅ 완료 |
+| Hot/Warm/Cold Queue | Hot 1~5분, Warm 10~30분, Cold 1~6시간 계층으로 수집 대상 자동 배치 | ✅ 완료 |
+| Trending Detection | 조회 수, 뉴스 발생량, 거래대금, 관심종목 추가 급증 조건으로 Hot Queue 승격 | ✅ 완료 |
+| Queue Scheduler | priority 5분 재계산, Hot/Warm/Cold queue 주기 dispatch, startup bootstrap collect 지원 | ✅ 완료 |
+| Worker autostart | 백엔드 news scheduler 시작 시 Celery worker 자동 기동, shutdown 시 worker 종료 | ✅ 완료 |
+| 중복 worker 방지 | pid lock file + Celery broker active queue inspect로 같은 머신/같은 broker 중복 worker autostart 방지 | ✅ 완료 |
+| 장애 대응 | 외부 수집 실패 시 기존 캐시 유지, 분석 실패 시 raw news 기반 캐시 노출 및 retry/log 기록 | ✅ 완료 |
+
+**핵심 설계 결정:**
+- 뉴스탭 클릭 시점에는 절대 크롤링, 외부 뉴스 검색, LLM 분석을 실행하지 않는다.
+- 사용자 행동 데이터가 시장 데이터보다 우선한다. 현재 조회 종목 > 관심종목/보유종목 > 최근 조회/검색 > 거래대금/뉴스 velocity/지수 편입 순으로 수집 자원을 배분한다.
+- `NEWSV2_WORKER_AUTOSTART_ENABLED=false`로 운영 환경의 외부 worker manager와 충돌을 피할 수 있으며, 기본 autostart는 lock과 broker inspect로 중복 실행을 방지한다.
+
+### Phase 3.9: 모멘텀 랭킹 전략 + 달력 기준 리밸런싱 — ✅ 완료
+
+> "박스권 돌파 매수" 같은 서술형 시그널과 "최근 N일 수익률 상위 K종목" 같은 상대강도(모멘텀) 랭킹 전략을 자연어로 인식하고, 실제 달력 기준(일/월/분기/년) 리밸런싱(reconstitution)으로 백테스트할 수 있도록 파서·스키마·엔진을 확장했다.
+
+| 작업 | 상세 | 구현 상태 |
+|------|------|----------|
+| 박스권 돌파 NL 인식 | "박스권을 위로 돌파", "N일 고점 돌파/신고가" 등 서술형 표현을 `breakout` 진입/청산 신호로 일반화 인식 (`_extract_breakout_lookback`로 lookback 추출, 기본 20/52주=252) | ✅ 완료 |
+| 하이브리드 검증 원칙 | `_DESCRIPTIVE_INDICATORS`(ma_crossover/breakout/volume_spike)는 LLM 서술 신뢰, 나머지 지표는 키워드 검증 — case-by-case 정규식 추가 대신 핵심만 결정적 규칙, 긴 꼬리는 LLM 프롬프트 예시로 위임 | ✅ 완료 |
+| 모멘텀 랭킹 스키마 | `ParsedStrategy.ranking_metric`("return"), `ranking_lookback_days`, `rebalancing_period`(none/daily/monthly/quarterly/yearly) 필드 추가 | ✅ 완료 |
+| 모멘텀 랭킹 NL 추출 | "최근 N거래일/N일/N개월 수익률 상위 K종목" → `_extract_ranking()`으로 `ranking_metric="return"` + lookback 결정적 추출, 미지정 시 60일 기본 | ✅ 완료 |
+| 진입 신호 누락 안전장치 | `detect_missing_entry_clarification()` — 진입 의도가 파싱에서 조용히 누락된 경우 명확화 질문 + 제안 칩 표시. 일반 누락과 "미지원 상대강도 랭킹 표현"을 구분해 각각 다른 안내 제공 | ✅ 완료 |
+| 엔진 rank_df (모멘텀) | `backtest_engine.py` — `ranking_metric=="return"`이면 `price_df.pct_change(lookback)` 기반 `rank_df` 계산, 진입 신호 없으면 `available_df & valid`(초기 lookback NaN 구간 제외)로 후보군 구성 | ✅ 완료 |
+| 달력 기준 리밸런싱 (reconstitution) | `engine/rebalance.py: compute_rebalance_dates()` — 주기별 첫 거래일 boolean (vbt 비의존, 단위테스트 가능). 시뮬레이터 커스텀 루프에서 리밸런싱일마다 목표 집합(상위 K) 재구성 → 목표 밖 보유 매도, 신규 편입, 유지 종목 그대로 | ✅ 완료 |
+| 하이브리드 라우팅 | 순수 리밸런싱(SL/TP/TS/보유기간 없음) → `vbt.Portfolio.from_orders(size_type='targetpercent')` 네이티브 목표비중(비중 리셋 O); 리밸런싱+봉중간 리스크 혼재 → 기존 `from_signals` reconstitution 커스텀 루프(현실적 체결 유지, 비중 리셋 v1 미지원) | ✅ 완료 |
+| UI 표시 | `getRankingLabel()` — "선정: N일 수익률 상위" 배지, `REBAL_LABELS`에 `daily: 매일` 추가 | ✅ 완료 |
+| 컨버터 연동 | `rebalancing_period != "none"`이면 `max_holding_days=None`(리밸런싱이 회전 구동, 중복 방지); 랭킹 전략은 미지정 시 monthly 기본 | ✅ 완료 |
+| 유닛 테스트 | `test_rebalance_dates.py`(6개, pandas만), `test_simulator_ranking.py`(랭킹 선정 + 두 라우팅 경로 회전 검증), `test_nl_parser_overrides.py`/`test_strategy_converter_strategy_id.py` 신규 케이스 추가 | ✅ 완료 |
+
+**핵심 설계 결정:**
+- "수익률 상위 K종목" 같은 상대강도 랭킹은 기존 per-stock boolean 시그널과 본질이 다른 cross-sectional 선정 — `rank_df`로 후보 재정렬 메커니즘을 재사용해 새 스키마 필드만 추가
+- 비중 리셋이 필요 없는 순수 리밸런싱은 vbt 네이티브 `from_orders(targetpercent)`로, 봉중간 리스크 관리(SL/TP/트레일링)가 섞인 경우는 현실적 체결을 보존하는 커스텀 `from_signals` 루프로 — 두 경로를 자동 분기
+- vbt 실행 환경은 `.venv`가 아니라 pyenv 3.11.2(`vectorbt 0.28.2`)이며, 실제 실행 검증으로 reconstitution 루프의 "고스트 포지션" 버그(같은 날 매도+매수 시 active_count 갱신 지연으로 빈 슬롯이 영구 차단)를 발견·수정함
+
 ### Phase 4: 미구현 기능 (향후)
 
 | 작업 | 상세 | 우선순위 |
 |------|------|----------|
 | 팩터 분석 | Fama-French, 모멘텀, 밸류 팩터 분해 | P2 |
 | 상관관계 분석 | 종목 간 상관계수 히트맵, 최적 분산 포트폴리오 | P2 |
-| 리밸런싱 시뮬레이션 | 주기적 리밸런싱 전략 백테스트 | P2 |
 | 벤치마크 비교 | KOSPI/S&P500 대비 알파/베타 분석 | P2 |
 | NL 파서 고도화 | 복합 전략 해석, 다중 진입/청산 조건 조합 | P2 |
 | 전략 템플릿 | 인기 전략 프롬프트 템플릿 (가치투자, 모멘텀 등) | P2 |
@@ -1175,7 +1237,7 @@ WatchlistSymbol {
 | 영역 | 파일 수 | 주요 파일 |
 |------|---------|-----------|
 | 시그널 엔진 | 5 | test_engine_signals, test_signal_robustness, test_or_isolation, test_live_signal_utils, test_specific_exit_reasons |
-| 시뮬레이터 | 5 | test_engine_simulator, test_time_exit, test_ranking_logic, test_multi_reasons, test_multi_symbol_reasons |
+| 시뮬레이터 | 7 | test_engine_simulator, test_time_exit, test_ranking_logic, test_multi_reasons, test_multi_symbol_reasons, test_simulator_ranking(모멘텀 랭킹+리밸런싱 라우팅), test_rebalance_dates(달력 기준 리밸런싱일 계산) |
 | AI/ML | 3 | test_ai_code_fixes, test_engine_ai*, test_ai_sell* |
 | 최적화 | 2 | test_optuna_optimizer, test_optimizer |
 | 데이터/로더 | 3 | test_engine_loader, test_loader_preprocess, test_vbt |

@@ -40,6 +40,7 @@ class NewsItemOut(BaseModel):
     source: str
     publishedAt: datetime
     summary: Optional[str] = None
+    bodyPreview: Optional[str] = None
     sentiment: Optional[Literal["positive", "neutral", "negative"]] = None
     impactScore: float = Field(ge=0.0, le=1.0)
     importance: Literal["high", "medium", "low"] = "low"
@@ -70,6 +71,43 @@ class HealthOut(BaseModel):
     db_ok: bool
 
 
+class PriorityEventIn(BaseModel):
+    symbol: str = Field(min_length=1, max_length=16)
+    eventType: Literal[
+        "current_view",
+        "stock_view",
+        "stock_detail_view",
+        "watchlist_add",
+        "watchlist_remove",
+        "holding_buy",
+        "holding_sell",
+        "stock_search",
+        "search",
+    ]
+    userId: Optional[str] = None
+    weight: float = Field(default=1.0, ge=0.0, le=100.0)
+    metadata: dict = Field(default_factory=dict)
+
+
+class PriorityEventOut(BaseModel):
+    accepted: bool
+    symbol: str
+    eventType: str
+
+
+class QueueItemOut(BaseModel):
+    symbol: str
+    queue: Literal["hot", "warm", "cold"]
+    score: float
+    reason: Optional[str] = None
+    isTrending: bool
+    updatedAt: datetime
+
+
+class QueueMonitorOut(BaseModel):
+    items: list[QueueItemOut]
+
+
 # ─── Endpoints ─────────────────────────────────────────────────────────────────
 
 
@@ -88,6 +126,51 @@ async def health(session: AsyncSession = Depends(get_session)) -> HealthOut:
         cache_enabled=cfg.cache_enabled,
         queue_enabled=cfg.queue_enabled,
         db_ok=db_ok,
+    )
+
+
+@router.post("/priority/events", response_model=PriorityEventOut)
+async def record_priority_event(
+    payload: PriorityEventIn,
+    session: AsyncSession = Depends(get_session),
+) -> PriorityEventOut:
+    from news_v2.repository import NewsRepository
+
+    repo = NewsRepository(session)
+    await repo.record_priority_event(
+        symbol=payload.symbol,
+        event_type=payload.eventType,
+        user_id=payload.userId,
+        weight=payload.weight,
+        metadata=payload.metadata,
+        current_view_ttl_s=get_settings().current_view_ttl_s,
+    )
+    await session.commit()
+    return PriorityEventOut(accepted=True, symbol=payload.symbol, eventType=payload.eventType)
+
+
+@router.get("/priority/queues", response_model=QueueMonitorOut)
+async def get_priority_queues(
+    queue: Optional[Literal["hot", "warm", "cold"]] = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    session: AsyncSession = Depends(get_session),
+) -> QueueMonitorOut:
+    from news_v2.repository import NewsRepository
+
+    repo = NewsRepository(session)
+    rows = await repo.list_queue_monitor(queue=queue, limit=limit)
+    return QueueMonitorOut(
+        items=[
+            QueueItemOut(
+                symbol=row.symbol,
+                queue=row.queue,  # type: ignore[arg-type]
+                score=row.score,
+                reason=row.reason,
+                isTrending=row.is_trending,
+                updatedAt=row.updated_at,
+            )
+            for row in rows
+        ]
     )
 
 
@@ -121,6 +204,7 @@ async def get_news(
                 source=a.source,
                 publishedAt=a.published_at,
                 summary=a.summary,
+                bodyPreview=a.body_preview,
                 sentiment=a.sentiment,  # type: ignore[arg-type]
                 impactScore=a.impact_score,
                 importance=a.importance,  # type: ignore[arg-type]

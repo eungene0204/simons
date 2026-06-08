@@ -18,6 +18,7 @@ from news_v2.models import Base, IngestionLog, NewsAnalysis, NewsRaw, NewsSymbol
 from news_v2.providers import CollectedArticle
 from news_v2.config import Settings
 from news_v2.service import NewsService
+from news_v2 import service as service_mod
 
 
 def _make_service(cache_ttl_s: int = 600) -> NewsService:
@@ -176,6 +177,23 @@ async def test_get_for_symbol_recent_no_news_returns_empty_without_requeue(sessi
     assert result.status == Status.NO_NEWS_FOUND
     assert result.items == []
     assert queue.collects == []
+
+
+@pytest.mark.asyncio
+async def test_resolve_company_name_falls_back_to_stock_json(session, monkeypatch, tmp_path):
+    stocks_path = tmp_path / "korea-stocks.json"
+    stocks_path.write_text(
+        '[{"symbol": "005380", "name": "현대자동차"}]',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(service_mod, "_STOCKS_JSON_PATH", stocks_path)
+    service_mod._load_stock_name_map.cache_clear()
+
+    service = NewsService(session=session, cache=_NoopCache(), queue=_QueueDisabled())
+
+    assert await service._resolve_company_name("005380") == "현대자동차"
+
+    service_mod._load_stock_name_map.cache_clear()
 
 
 @pytest.mark.asyncio

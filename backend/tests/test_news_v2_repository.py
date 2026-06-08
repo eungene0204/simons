@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy import text
 
 from news_v2.models import Base, NewsAnalysis, NewsRaw, StockNewsCache, Status
 from news_v2.repository import NewsRepository
@@ -125,6 +126,138 @@ async def test_list_symbols_in_tier_ordered_by_score(session):
     assert tier1 == ["HIGH", "MED"]
     tier3 = await repo.list_symbols_in_tier(3)
     assert tier3 == ["LOW"]
+
+
+@pytest.mark.asyncio
+async def test_record_priority_event_updates_materialized_counters(session):
+    repo = NewsRepository(session)
+
+    await repo.record_priority_event(symbol="005930", event_type="current_view", current_view_ttl_s=300)
+    await repo.record_priority_event(symbol="005930", event_type="watchlist_add")
+    await repo.record_priority_event(symbol="005930", event_type="holding_buy")
+    await repo.record_priority_event(symbol="005930", event_type="stock_search")
+    await session.commit()
+
+    row = await repo.get_priority("005930")
+    assert row is not None
+    assert row.view_count_24h == 1
+    assert row.watchlist_count == 1
+    assert row.holding_count == 1
+    assert row.search_count_24h == 1
+    assert row.current_view_until is not None
+
+
+@pytest.mark.asyncio
+async def test_collection_queue_monitor_orders_by_score(session):
+    repo = NewsRepository(session)
+
+    await repo.upsert_collection_queue(
+        symbol="LOW",
+        queue="warm",
+        score=100,
+        reason="trading_value",
+        is_trending=False,
+    )
+    await repo.upsert_collection_queue(
+        symbol="HIGH",
+        queue="hot",
+        score=900,
+        reason="current_view",
+        is_trending=True,
+    )
+    await session.commit()
+
+    hot = await repo.list_symbols_in_queue("hot")
+    rows = await repo.list_queue_monitor()
+    assert hot == ["HIGH"]
+    assert [row.symbol for row in rows] == ["HIGH", "LOW"]
+    assert rows[0].is_trending is True
+
+
+@pytest.mark.asyncio
+async def test_sync_holding_counts_reads_actual_virtual_positions(session):
+    repo = NewsRepository(session)
+    await session.execute(
+        text(
+            'CREATE TABLE "VirtualPosition" ('
+            '"id" TEXT PRIMARY KEY, '
+            '"accountId" TEXT NOT NULL, '
+            '"symbol" TEXT NOT NULL, '
+            '"quantity" INTEGER NOT NULL)'
+        )
+    )
+    await session.execute(
+        text(
+            'INSERT INTO "VirtualPosition" ("id", "accountId", "symbol", "quantity") '
+            'VALUES '
+            "('p1', 'a1', '005930', 10), "
+            "('p2', 'a2', '005930', 3), "
+            "('p3', 'a1', '000660', 0)"
+        )
+    )
+    await session.commit()
+
+    synced = await repo.sync_holding_counts_from_virtual_positions()
+    await session.commit()
+
+    samsung = await repo.get_priority("005930")
+    hynix = await repo.get_priority("000660")
+    assert synced == 1
+    assert samsung is not None
+    assert samsung.holding_count == 2
+    assert hynix is None
+
+
+@pytest.mark.asyncio
+async def test_sync_watchlist_search_and_stock_universe_demand(session):
+    repo = NewsRepository(session)
+    await session.execute(text('CREATE TABLE "Stock" ("symbol" TEXT PRIMARY KEY)'))
+    await session.execute(
+        text(
+            'CREATE TABLE "WatchlistSymbol" ('
+            '"id" TEXT PRIMARY KEY, '
+            '"symbol" TEXT NOT NULL)'
+        )
+    )
+    await session.execute(
+        text(
+            'CREATE TABLE "SearchCount" ('
+            '"id" INTEGER PRIMARY KEY, '
+            '"symbol" TEXT NOT NULL, '
+            '"count" INTEGER NOT NULL)'
+        )
+    )
+    await session.execute(text('INSERT INTO "Stock" ("symbol") VALUES (\'005930\'), (\'000660\')'))
+    await session.execute(
+        text(
+            'INSERT INTO "WatchlistSymbol" ("id", "symbol") '
+            "VALUES ('w1', '005930'), ('w2', '000660')"
+        )
+    )
+    await session.execute(
+        text(
+            'INSERT INTO "SearchCount" ("id", "symbol", "count") '
+            "VALUES (1, '005930', 7)"
+        )
+    )
+    await session.commit()
+
+    created = await repo.ensure_stock_universe_priority_rows()
+    watched = await repo.sync_watchlist_counts_from_db()
+    searched = await repo.sync_search_counts_from_db()
+    await session.commit()
+
+    samsung = await repo.get_priority("005930")
+    hynix = await repo.get_priority("000660")
+    assert created == 2
+    assert watched == 2
+    assert searched == 1
+    assert samsung is not None
+    assert samsung.watchlist_count == 1
+    assert samsung.search_count_24h == 7
+    assert hynix is not None
+    assert hynix.watchlist_count == 1
+    assert hynix.search_count_24h == 0
 
 
 @pytest.mark.asyncio

@@ -79,6 +79,33 @@ def _parse_items(xml: str) -> List[dict]:
     return items
 
 
+def _company_aliases(company_name: str) -> list[str]:
+    name = re.sub(r"\s+", " ", (company_name or "").strip())
+    if not name:
+        return []
+
+    aliases = [name]
+    if name.endswith("자동차") and len(name) > len("자동차"):
+        aliases.append(f"{name[:-len('자동차')]}차")
+
+    unique_aliases: list[str] = []
+    seen: set[str] = set()
+    for alias in aliases:
+        if alias and alias not in seen:
+            seen.add(alias)
+            unique_aliases.append(alias)
+    return unique_aliases
+
+
+def _build_search_queries(company_name: str) -> list[str]:
+    aliases = _company_aliases(company_name)
+    if not aliases:
+        return []
+    if len(aliases) == 1:
+        return [aliases[0]]
+    return [" OR ".join(aliases), aliases[0]]
+
+
 class GoogleNewsProvider(BaseNewsProvider):
     """
     Fetches stock-specific news from Google News RSS.
@@ -105,39 +132,49 @@ class GoogleNewsProvider(BaseNewsProvider):
 
         async with httpx.AsyncClient(headers=_HEADERS, timeout=self._timeout, follow_redirects=True) as client:
             for symbol, company_name in self._targets:
-                query = quote(f"{company_name} 주식")
-                url = _RSS_BASE.format(query=query)
-                try:
-                    resp = await client.get(url)
-                    if resp.status_code != 200:
-                        logger.warning("Google News RSS %s returned %d", company_name, resp.status_code)
-                        continue
-
-                    items = _parse_items(resp.text)
-                    for item in items[:per_symbol]:
-                        if item["url"] in seen_urls:
+                target_articles: list[RawArticle] = []
+                for raw_query in _build_search_queries(company_name):
+                    query = quote(raw_query)
+                    url = _RSS_BASE.format(query=query)
+                    try:
+                        resp = await client.get(url)
+                        if resp.status_code != 200:
+                            logger.warning("Google News RSS %s returned %d", company_name, resp.status_code)
                             continue
-                        seen_urls.add(item["url"])
 
-                        articles.append(
-                            RawArticle(
-                                provider=self.name,
-                                external_id=None,
-                                title=item["title"],
-                                body=item.get("description"),
-                                url=item["url"],
-                                source=item["source"],
-                                author=None,
-                                published_at=item["published_at"],
-                                category="주식",
-                                raw_json={"symbol": symbol, "company_name": company_name},
+                        items = _parse_items(resp.text)
+                        for item in items[:per_symbol]:
+                            if item["url"] in seen_urls:
+                                continue
+                            seen_urls.add(item["url"])
+
+                            target_articles.append(
+                                RawArticle(
+                                    provider=self.name,
+                                    external_id=None,
+                                    title=item["title"],
+                                    body=item.get("description"),
+                                    url=item["url"],
+                                    source=item["source"],
+                                    author=None,
+                                    published_at=item["published_at"],
+                                    category="뉴스",
+                                    raw_json={
+                                        "symbol": symbol,
+                                        "company_name": company_name,
+                                        "query": raw_query,
+                                    },
+                                )
                             )
-                        )
 
-                    logger.info("[google_news] %s(%s): %d articles", company_name, symbol, len(items))
-                    await asyncio.sleep(0.5)
+                        logger.info("[google_news] %s(%s): %d articles", raw_query, symbol, len(items))
+                        await asyncio.sleep(0.25)
 
-                except Exception as exc:
-                    logger.warning("Google News fetch failed for %s: %s", company_name, exc)
+                    except Exception as exc:
+                        logger.warning("Google News fetch failed for %s: %s", raw_query, exc)
+
+                articles.extend(
+                    sorted(target_articles, key=lambda item: item.published_at, reverse=True)[:per_symbol]
+                )
 
         return articles[:max_articles]

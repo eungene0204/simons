@@ -61,12 +61,17 @@ def _default_db_url() -> str:
 
 @dataclass(frozen=True)
 class PriorityWeights:
-    turnover: float = 0.30
-    volatility: float = 0.20
-    view_count: float = 0.20
-    watchlist: float = 0.15
-    search_count: float = 0.10
-    ai_importance: float = 0.05
+    current_view: float = 1200.0
+    watchlist: float = 650.0
+    holding: float = 600.0
+    view_count: float = 18.0
+    search_count: float = 60.0
+    turnover: float = 120.0
+    news_velocity: float = 180.0
+    index_member: float = 90.0
+    market_cap: float = 40.0
+    volatility: float = 25.0
+    ai_importance: float = 50.0
 
 
 @dataclass(frozen=True)
@@ -86,11 +91,38 @@ class Settings:
     celery_broker: Optional[str] = field(
         default_factory=lambda: os.getenv("NEWSV2_CELERY_BROKER") or None
     )
+    worker_autostart_enabled: bool = field(
+        default_factory=lambda: _env_bool("NEWSV2_WORKER_AUTOSTART_ENABLED", True)
+    )
+    worker_concurrency: int = field(
+        default_factory=lambda: _env_int("NEWSV2_WORKER_CONCURRENCY", 2)
+    )
+    worker_lock_path: str = field(
+        default_factory=lambda: os.getenv("NEWSV2_WORKER_LOCK_PATH", "/tmp/simons_news_v2_worker.lock")
+    )
+    worker_queues: list[str] = field(
+        default_factory=lambda: _env_list(
+            "NEWSV2_WORKER_QUEUES",
+            [
+                "news.collect.high",
+                "news.collect.default",
+                "news.collect.cold",
+                "news.analyze",
+                "news.maintenance",
+            ],
+        )
+    )
 
-    # Tier cadences (seconds)
-    tier1_interval_s: int = field(default_factory=lambda: _env_int("NEWSV2_TIER1_INTERVAL_S", 120))
-    tier2_interval_s: int = field(default_factory=lambda: _env_int("NEWSV2_TIER2_INTERVAL_S", 600))
-    tier3_interval_s: int = field(default_factory=lambda: _env_int("NEWSV2_TIER3_INTERVAL_S", 3600))
+    # Collection queue cadences (seconds). Tier names are kept as compatibility aliases.
+    hot_interval_s: int = field(
+        default_factory=lambda: _env_int("NEWSV2_HOT_INTERVAL_S", _env_int("NEWSV2_TIER1_INTERVAL_S", 120))
+    )
+    warm_interval_s: int = field(
+        default_factory=lambda: _env_int("NEWSV2_WARM_INTERVAL_S", _env_int("NEWSV2_TIER2_INTERVAL_S", 600))
+    )
+    cold_interval_s: int = field(
+        default_factory=lambda: _env_int("NEWSV2_COLD_INTERVAL_S", _env_int("NEWSV2_TIER3_INTERVAL_S", 3600))
+    )
     startup_collect_enabled: bool = field(default_factory=lambda: _env_bool("NEWSV2_STARTUP_COLLECT_ENABLED", True))
     startup_collect_delay_s: int = field(default_factory=lambda: _env_int("NEWSV2_STARTUP_COLLECT_DELAY_S", 5))
     bootstrap_symbols: list[str] = field(
@@ -113,7 +145,25 @@ class Settings:
 
     # Priority
     view_bonus: float = field(default_factory=lambda: _env_float("NEWSV2_VIEW_BONUS", 50.0))
+    priority_recompute_interval_s: int = field(
+        default_factory=lambda: _env_int("NEWSV2_PRIORITY_RECOMPUTE_INTERVAL_S", 300)
+    )
+    current_view_ttl_s: int = field(
+        default_factory=lambda: _env_int("NEWSV2_CURRENT_VIEW_TTL_S", 600)
+    )
     priority_weights: PriorityWeights = field(default_factory=PriorityWeights)
+
+    @property
+    def tier1_interval_s(self) -> int:
+        return self.hot_interval_s
+
+    @property
+    def tier2_interval_s(self) -> int:
+        return self.warm_interval_s
+
+    @property
+    def tier3_interval_s(self) -> int:
+        return self.cold_interval_s
 
     # AI agent
     ai_daily_budget: int = field(default_factory=lambda: _env_int("NEWSV2_AI_DAILY_BUDGET", 2000))

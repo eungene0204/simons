@@ -838,6 +838,56 @@ def test_build_fallback_strategy_handles_vague_prompt_without_crashing():
     assert parsed.max_positions == 10
 
 
+# ─── 상대강도(수익률 순위) 랭킹 파싱 테스트 ─────────────────────────────────
+
+
+def test_rule_based_parses_relative_strength_ranking_full_prompt():
+    """스크린샷 프롬프트: 수익률 상위 랭킹이 ranking_metric으로 잡히고 진입 누락이 아님."""
+    prompt = (
+        "최근 3개월 동안 꾸준히 오른 종목을 따라가는 전략을 써보고 싶어요. "
+        "KOSDAQ에서 최근 60거래일 수익률이 높은 종목 상위권만 골라서 6종목 정도 나눠 사고, "
+        "한 달에 한 번씩 다시 순위를 확인해 주세요. 손절은 -9%로 해주세요."
+    )
+
+    parsed = _parse_rule_based_strategy(prompt)
+
+    assert parsed is not None
+    assert parsed.ranking_metric == "return"
+    assert parsed.ranking_lookback_days == 60
+    assert parsed.universe == ["KOSDAQ"]
+    assert parsed.max_positions == 6  # '3개월'의 '3개'를 종목 수로 오인하지 않음
+    assert parsed.rebalancing_period == "monthly"
+    # 모멘텀 설명의 '3개월'이 보유기간으로 잡히면 안 됨(회전은 리밸런싱이 구동).
+    assert parsed.hold_period_days is None
+    assert parsed.stop_loss_pct == 9.0
+
+
+def test_extract_max_positions_ignores_months_phrase():
+    """'3개월'의 '3개'를 종목 수로 오인하지 않는다."""
+    from engine.nl_parser import _extract_max_positions
+
+    assert _extract_max_positions("최근 3개월 동안 6종목 매수") == 6
+
+
+def test_ranking_lookback_from_trading_day_phrase():
+    from engine.nl_parser import _extract_ranking
+
+    assert _extract_ranking("최근 60거래일 수익률 상위 종목") == ("return", 60)
+
+
+def test_ranking_none_when_no_ranking_intent():
+    from engine.nl_parser import _extract_ranking
+
+    assert _extract_ranking("골든크로스 매수, 데드크로스 매도") == (None, None)
+
+
+def test_ranking_metric_counts_as_entry_for_clarification():
+    """ranking_metric만 있어도 진입 누락으로 되묻지 않는다."""
+    base = make_base_strategy().model_copy(update={"ranking_metric": "return", "ranking_lookback_days": 60})
+
+    assert detect_missing_entry_clarification(base, "수익률 상위 종목") == (None, None)
+
+
 # ─── 진입 누락 되묻기(미지원 전략 유형 포함) 테스트 ──────────────────────────
 
 

@@ -7,11 +7,15 @@ const TIMEOUT_MS = 1500;
 
 export const dynamic = "force-dynamic";
 
-async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
+async function fetchWithTimeout(
+  url: string,
+  timeoutMs: number,
+  init?: RequestInit
+): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { cache: "no-store", signal: controller.signal });
+    return await fetch(url, { cache: "no-store", ...init, signal: controller.signal });
   } finally {
     clearTimeout(timer);
   }
@@ -58,4 +62,49 @@ export async function GET(
     };
     return NextResponse.json(fallback, { status: 200 });
   }
+}
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { symbol: string } }
+) {
+  const { symbol } = params;
+  let body: Record<string, unknown> = {};
+  try {
+    body = await request.json();
+  } catch {
+    body = {};
+  }
+
+  const payload = {
+    ...body,
+    symbol,
+    eventType: body.eventType ?? "current_view",
+    metadata: {
+      ...(typeof body.metadata === "object" && body.metadata !== null ? body.metadata : {}),
+      proxy: "stock_news_route",
+    },
+  };
+
+  try {
+    const res = await fetchWithTimeout(
+      `${BACKEND}/v2/news/priority/events`,
+      TIMEOUT_MS,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }
+    );
+    if (res.ok) {
+      return NextResponse.json(await res.json());
+    }
+  } catch {
+    // Priority events are best-effort and must not affect stock detail rendering.
+  }
+
+  return NextResponse.json(
+    { accepted: false, symbol, eventType: payload.eventType },
+    { status: 202 }
+  );
 }

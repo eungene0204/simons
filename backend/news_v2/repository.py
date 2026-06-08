@@ -7,21 +7,24 @@ do NOT live here. This module only knows how to read and write the four tables.
 
 from __future__ import annotations
 
+import html
 import hashlib
+import json
+import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional
 
-from sqlalchemy import delete, func, or_, select, update
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy import delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from news_v2 import models
 from news_v2.models import (
     Article,
     CollectionStatus,
     IngestionLog,
+    CollectionQueueItem,
     NewsAnalysis,
+    PriorityEvent,
     NewsRaw,
     NewsSymbolMap,
     PriorityScore,
@@ -86,6 +89,94 @@ class CachedNewsDTO:
     related_symbols: list[str]
     rank_score: float
     cached_at: datetime
+    body_preview: Optional[str] = None
+
+
+_HTML_BREAK_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+_MULTISPACE_RE = re.compile(r"\s+")
+_COMPARE_NORMALIZE_RE = re.compile(r"[\s\"'`.,:;!?()\[\]{}<>|/\-]+")
+
+
+def _normalize_preview_lines(text: Optional[str]) -> list[str]:
+    if not text:
+        return []
+    cleaned = html.unescape(text).replace("\xa0", " ")
+    cleaned = _HTML_BREAK_RE.sub("\n", cleaned)
+    cleaned = _HTML_TAG_RE.sub(" ", cleaned)
+    lines = [
+        _MULTISPACE_RE.sub(" ", line).strip(" -:|/\t")
+        for line in cleaned.splitlines()
+    ]
+    return [line for line in lines if line]
+
+
+def _normalize_preview_text(text: Optional[str]) -> Optional[str]:
+    lines = _normalize_preview_lines(text)
+    return lines[0] if lines else None
+
+
+def _strip_trailing_source(text: str, source: str) -> str:
+    normalized_source = _normalize_preview_text(source) or ""
+    candidate = text.strip()
+    if not normalized_source:
+        return candidate
+    if candidate.endswith(normalized_source):
+        candidate = candidate[: -len(normalized_source)].rstrip(" -:|/")
+    return candidate.strip()
+
+
+def _canonicalize_compare(text: Optional[str], source: str) -> str:
+    normalized = _strip_trailing_source(_normalize_preview_text(text) or "", source)
+    return _COMPARE_NORMALIZE_RE.sub("", normalized).lower()
+
+
+def _build_body_preview(
+    title: str,
+    raw_content: Optional[str],
+    summary: Optional[str],
+    source: str,
+) -> Optional[str]:
+    title_key = _canonicalize_compare(title, source)
+    for text in (raw_content, summary):
+        for line in _normalize_preview_lines(text):
+            candidate = _strip_trailing_source(line, source)
+            if not candidate:
+                continue
+            if _canonicalize_compare(candidate, source) == title_key:
+                continue
+            if title and candidate.startswith(title):
+                remainder = candidate[len(title):].lstrip(" -:|/")
+                if not remainder:
+                    continue
+                candidate = remainder
+            if _canonicalize_compare(candidate, source) == title_key:
+                continue
+            return candidate[:240]
+        candidate = _normalize_preview_text(text)
+        if not candidate:
+            continue
+        candidate = _strip_trailing_source(candidate, source)
+        if _canonicalize_compare(candidate, source) == title_key:
+            continue
+        if title and candidate.startswith(title):
+            candidate = candidate[len(title):].lstrip(" -:|/")
+            if not candidate:
+                continue
+        if _canonicalize_compare(candidate, source) == title_key:
+            continue
+        return candidate[:240]
+    return None
+
+
+@dataclass
+class QueueMonitorDTO:
+    symbol: str
+    queue: str
+    score: float
+    reason: Optional[str]
+    is_trending: bool
+    updated_at: datetime
 
 
 def _utcnow() -> datetime:
@@ -137,6 +228,12 @@ class NewsRepository:
                 related_symbols=list(analysis.related_symbols or []) if analysis else [],
                 rank_score=float(cache.rank_score or 0.0),
                 cached_at=cache.cached_at,
+                body_preview=_build_body_preview(
+                    raw.title,
+                    raw.raw_content,
+                    analysis.summary if analysis else None,
+                    raw.source,
+                ),
             )
             for cache, raw, analysis in rows
         ]
@@ -317,6 +414,49 @@ class NewsRepository:
             row.last_viewed = now
             row.view_count_24h = (row.view_count_24h or 0) + 1
 
+    async def record_priority_event(
+        self,
+        *,
+        symbol: str,
+        event_type: str,
+        user_id: Optional[str] = None,
+        weight: float = 1.0,
+        metadata: Optional[dict] = None,
+        current_view_ttl_s: int = 600,
+    ) -> None:
+        """Append the user-demand event and update the materialized counters."""
+        now = _utcnow()
+        self.session.add(
+            PriorityEvent(
+                symbol=symbol,
+                event_type=event_type,
+                user_id=user_id,
+                weight=max(float(weight or 1.0), 0.0),
+                metadata_json=json.dumps(metadata or {}, ensure_ascii=False),
+                created_at=now,
+            )
+        )
+        row = await self.get_priority(symbol)
+        if row is None:
+            row = PriorityScore(symbol=symbol)
+            self.session.add(row)
+
+        if event_type in {"current_view", "stock_view", "stock_detail_view"}:
+            row.last_viewed = now
+            row.current_view_until = now + timedelta(seconds=current_view_ttl_s)
+            row.view_count_24h = (row.view_count_24h or 0) + int(max(weight, 1.0))
+        elif event_type == "watchlist_add":
+            row.watchlist_count = max((row.watchlist_count or 0) + int(max(weight, 1.0)), 0)
+        elif event_type == "watchlist_remove":
+            row.watchlist_count = max((row.watchlist_count or 0) - int(max(weight, 1.0)), 0)
+        elif event_type == "holding_buy":
+            row.holding_count = max((row.holding_count or 0) + int(max(weight, 1.0)), 0)
+        elif event_type == "holding_sell":
+            row.holding_count = max((row.holding_count or 0) - int(max(weight, 1.0)), 0)
+        elif event_type in {"stock_search", "search"}:
+            row.search_count_24h = (row.search_count_24h or 0) + int(max(weight, 1.0))
+        row.updated_at = now
+
     async def set_priority(self, symbol: str, **fields) -> None:
         row = await self.get_priority(symbol)
         if row is None:
@@ -334,10 +474,164 @@ class NewsRepository:
         )
         return list((await self.session.execute(stmt)).scalars().all())
 
+    async def list_symbols_in_queue(self, queue: str, limit: int = 500) -> list[str]:
+        stmt = (
+            select(CollectionQueueItem.symbol)
+            .where(CollectionQueueItem.queue == queue)
+            .order_by(CollectionQueueItem.score.desc())
+            .limit(limit)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def upsert_collection_queue(
+        self,
+        *,
+        symbol: str,
+        queue: str,
+        score: float,
+        reason: Optional[str],
+        is_trending: bool,
+    ) -> None:
+        row = (
+            await self.session.execute(
+                select(CollectionQueueItem).where(CollectionQueueItem.symbol == symbol)
+            )
+        ).scalar_one_or_none()
+        now = _utcnow()
+        if row is None:
+            self.session.add(
+                CollectionQueueItem(
+                    symbol=symbol,
+                    queue=queue,
+                    score=score,
+                    reason=reason,
+                    is_trending=bool(is_trending),
+                    enqueued_at=now,
+                    updated_at=now,
+                )
+            )
+            return
+        row.queue = queue
+        row.score = score
+        row.reason = reason
+        row.is_trending = bool(is_trending)
+        row.updated_at = now
+
+    async def list_queue_monitor(self, queue: Optional[str] = None, limit: int = 100) -> list[QueueMonitorDTO]:
+        stmt = select(CollectionQueueItem)
+        if queue:
+            stmt = stmt.where(CollectionQueueItem.queue == queue)
+        stmt = stmt.order_by(CollectionQueueItem.score.desc()).limit(limit)
+        rows = (await self.session.execute(stmt)).scalars().all()
+        return [
+            QueueMonitorDTO(
+                symbol=row.symbol,
+                queue=row.queue,
+                score=row.score,
+                reason=row.reason,
+                is_trending=bool(row.is_trending),
+                updated_at=row.updated_at,
+            )
+            for row in rows
+        ]
+
     async def list_all_priorities(self) -> list[PriorityScore]:
         return list(
             (await self.session.execute(select(PriorityScore))).scalars().all()
         )
+
+    async def sync_holding_counts_from_virtual_positions(self) -> int:
+        """Mirror actual virtual-account holdings into priority rows.
+
+        This reads committed positions, not order intents. A symbol is treated
+        as held when at least one virtual account has quantity > 0.
+        """
+        rows = (
+            await self.session.execute(
+                text(
+                    'SELECT "symbol", COUNT(DISTINCT "accountId") '
+                    'FROM "VirtualPosition" '
+                    'WHERE "quantity" > 0 '
+                    'GROUP BY "symbol"'
+                )
+            )
+        ).all()
+        await self.session.execute(update(PriorityScore).values(holding_count=0))
+        for symbol, count in rows:
+            row = await self.get_priority(str(symbol))
+            if row is None:
+                self.session.add(PriorityScore(symbol=str(symbol), holding_count=int(count)))
+            else:
+                row.holding_count = int(count)
+                row.updated_at = _utcnow()
+        return len(rows)
+
+    async def sync_watchlist_counts_from_db(self) -> int:
+        """Mirror watchlist membership into priority rows."""
+        rows = (
+            await self.session.execute(
+                text(
+                    'SELECT "symbol", COUNT(*) '
+                    'FROM "WatchlistSymbol" '
+                    'GROUP BY "symbol"'
+                )
+            )
+        ).all()
+        await self.session.execute(update(PriorityScore).values(watchlist_count=0))
+        for symbol, count in rows:
+            row = await self.get_priority(str(symbol))
+            if row is None:
+                self.session.add(PriorityScore(symbol=str(symbol), watchlist_count=int(count)))
+            else:
+                row.watchlist_count = int(count)
+                row.updated_at = _utcnow()
+        return len(rows)
+
+    async def sync_search_counts_from_db(self) -> int:
+        """Mirror aggregate stock search counts into priority rows."""
+        rows = (
+            await self.session.execute(
+                text(
+                    'SELECT "symbol", "count" '
+                    'FROM "SearchCount" '
+                    'WHERE "count" > 0'
+                )
+            )
+        ).all()
+        await self.session.execute(update(PriorityScore).values(search_count_24h=0))
+        for symbol, count in rows:
+            row = await self.get_priority(str(symbol))
+            if row is None:
+                self.session.add(PriorityScore(symbol=str(symbol), search_count_24h=int(count)))
+            else:
+                row.search_count_24h = int(count)
+                row.updated_at = _utcnow()
+        return len(rows)
+
+    async def ensure_stock_universe_priority_rows(self, limit: int = 5000) -> int:
+        """Ensure cold-queue coverage exists for the known stock universe."""
+        rows = (
+            await self.session.execute(
+                text('SELECT "symbol" FROM "Stock" WHERE "symbol" IS NOT NULL LIMIT :limit'),
+                {"limit": limit},
+            )
+        ).all()
+        created = 0
+        for (symbol,) in rows:
+            if not symbol:
+                continue
+            if await self.get_priority(str(symbol)) is None:
+                self.session.add(PriorityScore(symbol=str(symbol)))
+                created += 1
+        return created
+
+    async def news_counts_by_symbol(self, *, since: datetime) -> dict[str, int]:
+        stmt = (
+            select(StockNewsCache.symbol, func.count(StockNewsCache.news_id))
+            .where(StockNewsCache.published_at >= since)
+            .group_by(StockNewsCache.symbol)
+        )
+        return {symbol: int(count) for symbol, count in (await self.session.execute(stmt)).all()}
 
     # ─── status ────────────────────────────────────────────────────────────────
 
@@ -347,6 +641,23 @@ class NewsRepository:
                 select(CollectionStatus).where(CollectionStatus.symbol == symbol)
             )
         ).scalar_one_or_none()
+
+    async def list_collecting_symbols(
+        self,
+        *,
+        older_than: datetime,
+        limit: int = 20,
+    ) -> list[str]:
+        stmt = (
+            select(CollectionStatus.symbol)
+            .where(
+                CollectionStatus.status == Status.COLLECTING,
+                CollectionStatus.last_attempt_at <= older_than,
+            )
+            .order_by(CollectionStatus.last_attempt_at.asc())
+            .limit(limit)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
 
     async def set_status(
         self,

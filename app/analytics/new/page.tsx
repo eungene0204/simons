@@ -21,6 +21,7 @@ import {
   FUNDAMENTAL_FILTER_SECTION_LABEL,
   getDisplayExitLabels,
   getDisplayUniverseLabels,
+  getRankingLabel,
   INDICATOR_LABELS,
   METRIC_LABELS,
   PERIOD_LABELS,
@@ -214,6 +215,7 @@ function ParsedSummaryBubble({
 }) {
   const universeLabels = getDisplayUniverseLabels(parsed, backtestRequest);
   const exitLabels = getDisplayExitLabels(parsed);
+  const rankingLabel = getRankingLabel(parsed);
   const entryLabels = [
     ...parsed.fundamental_filters.map((f) => `${METRIC_LABELS[f.metric] ?? f.metric} ${f.operator} ${f.value}`),
     ...parsed.entry_signals.map((s) => INDICATOR_LABELS[s.indicator] ?? s.indicator),
@@ -243,6 +245,14 @@ function ParsedSummaryBubble({
               {entryLabels.map((label, i) => (
                 <FilterBadge key={i} label={label} />
               ))}
+            </div>
+          </div>
+        )}
+        {rankingLabel && (
+          <div className="flex flex-wrap gap-1.5 items-center">
+            <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest w-14 flex-shrink-0">선정</span>
+            <div className="flex flex-wrap gap-1">
+              <FilterBadge label={rankingLabel} />
             </div>
           </div>
         )}

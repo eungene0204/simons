@@ -13,9 +13,12 @@ Analysis path (worker):
 
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from functools import lru_cache
+from pathlib import Path
 from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,10 +35,31 @@ from news_v2.repository import CachedNewsDTO, NewsRepository
 from news_v2.symbol_mapping import map_symbols_from_text
 
 log = get_logger(__name__)
+_STOCKS_JSON_PATH = Path(__file__).resolve().parents[2] / "data" / "korea-stocks.json"
 
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _needs_body_preview_hydration(items: list[CachedNewsDTO]) -> bool:
+    return any(item.summary and not item.body_preview for item in items)
+
+
+@lru_cache(maxsize=1)
+def _load_stock_name_map() -> dict[str, str]:
+    try:
+        with _STOCKS_JSON_PATH.open("r", encoding="utf-8") as f:
+            rows = json.load(f)
+    except Exception:
+        return {}
+    if not isinstance(rows, list):
+        return {}
+    return {
+        str(row.get("symbol")): str(row.get("name"))
+        for row in rows
+        if isinstance(row, dict) and row.get("symbol") and row.get("name")
+    }
 
 
 @dataclass
@@ -128,7 +152,7 @@ class NewsService:
 
         # 1) Redis HIT. This is a prepared cache store, so it is safe for the tab hot path.
         cached = await self.cache.get_articles(symbol)
-        if cached is not None:
+        if cached is not None and not _needs_body_preview_hydration(cached):
             metrics.cache_hits.labels(layer="redis").inc()
             status = await self.cache.get_status(symbol) or Status.READY
             stale = status == Status.STALE
@@ -394,9 +418,11 @@ class NewsService:
                     {"s": symbol},
                 )
             ).first()
-            return row[0] if row else None
+            if row and row[0]:
+                return row[0]
         except Exception:
-            return None
+            pass
+        return _load_stock_name_map().get(symbol)
 
     async def _map_symbols(
         self,
