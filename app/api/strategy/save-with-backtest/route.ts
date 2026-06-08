@@ -3,10 +3,20 @@ import { prisma } from "@/lib/prisma";
 import { inferStrategyType } from "@/lib/strategy-type";
 import { getTopAssetStats } from "@/lib/backtest-top-symbols";
 import { computeStrategyIdFromDsl, triggerVectorMemoryBacktestUpsert } from "@/lib/server/backtestCache";
+import {
+  getOwnershipContext,
+  isUnauthorizedAccessError,
+} from "@/lib/get-user";
+
+function buildOwnedStrategyId(userId: number | null, dsl: any) {
+  const baseId = computeStrategyIdFromDsl(dsl);
+  return userId == null ? baseId : `${userId}:${baseId}`;
+}
 
 // POST: 전략 DSL + 백테스트 결과를 한 번에 저장
 export async function POST(request: Request) {
   try {
+    const { userId } = await getOwnershipContext();
     const body = await request.json();
     const { name, description, dsl, backtestResult, aiSummary, aiScore, aiStrengths, aiRisks, score } = body;
 
@@ -17,7 +27,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "전략 설정 정보가 없습니다." }, { status: 400 });
     }
 
-    const strategyId = computeStrategyIdFromDsl(dsl);
+    const strategyId = buildOwnedStrategyId(userId, dsl);
 
     // 전략 DSL에 이름/설명 반영
     const dslToSave = {
@@ -38,12 +48,14 @@ export async function POST(request: Request) {
               where: { id: strategyId },
               create: {
                 id: strategyId,
+                ...(userId != null && { userId }),
                 name: name.trim(),
                 description: description?.trim() || null,
                 settings: JSON.stringify(dslToSave),
                 strategyType,
               },
               update: {
+                ...(userId != null && { userId }),
                 name: name.trim(),
                 description: description?.trim() || null,
                 settings: JSON.stringify(dslToSave),
@@ -53,6 +65,7 @@ export async function POST(request: Request) {
           : await tx.strategy.create({
               data: {
                 id: strategyId,
+                ...(userId != null && { userId }),
                 name: name.trim(),
                 description: description?.trim() || null,
                 settings: JSON.stringify(dslToSave),
@@ -202,6 +215,9 @@ export async function POST(request: Request) {
       message: "전략과 백테스트 결과가 저장되었습니다.",
     });
   } catch (error) {
+    if (isUnauthorizedAccessError(error)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     console.error("Failed to save strategy with backtest:", error);
     return NextResponse.json(
       { error: "저장에 실패했습니다." },

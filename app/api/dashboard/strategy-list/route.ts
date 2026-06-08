@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import {
+  getOwnershipContext,
+  isUnauthorizedAccessError,
+  withOwnership,
+} from "@/lib/get-user";
 
 function calcScore(m: { cagr?: number; maxDrawdown?: number; sharpe?: number; profitFactor?: number; winRate?: number }): number {
   const scoreCagr = (v?: number) => { if (v == null) return 50; if (v >= 20) return 100; if (v >= 10) return 70; return Math.max(0, Math.round(v / 10 * 70)); };
@@ -30,13 +35,15 @@ export interface StrategyListData {
 
 export async function GET() {
   try {
+    const { userId } = await getOwnershipContext();
     const [strategies, accounts, backtestHistories] = await Promise.all([
       prisma.strategy.findMany({
+        where: withOwnership({}, userId),
         orderBy: { createdAt: "desc" },
         include: { BacktestResult: { orderBy: { createdAt: "desc" }, take: 1 } },
       }),
       prisma.virtualAccount.findMany({
-        where: { strategyId: { not: null } },
+        where: withOwnership({ strategyId: { not: null } }, userId),
         include: { VirtualPosition: true },
       }),
       prisma.backtestHistory.findMany({ orderBy: { createdAt: "desc" } }),
@@ -60,7 +67,9 @@ export async function GET() {
       // score 우선순위: BacktestHistory.metrics.score → BacktestResult.summary.score → aiScore → 지표 재계산
       let aiScore: number | null = null;
       try {
-        const historyItem = backtestHistories.find((h) => h.strategyName === s.name);
+        const historyItem =
+          backtestHistories.find((h) => h.strategyId === s.id) ??
+          backtestHistories.find((h) => h.strategyName === s.name);
         if (historyItem) {
           const hMetrics = JSON.parse(historyItem.metrics);
           if (hMetrics.score != null) {
@@ -113,6 +122,9 @@ export async function GET() {
 
     return NextResponse.json({ strategies: result } satisfies StrategyListData);
   } catch (error) {
+    if (isUnauthorizedAccessError(error)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     console.error("Failed to fetch strategy list:", error);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }

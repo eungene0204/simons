@@ -1,12 +1,84 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { verifyPassword, generateToken } from '@/lib/auth'
+import {
+  generateToken,
+  hashPassword,
+  verifySupabaseAccessToken,
+  verifyPassword,
+} from '@/lib/auth'
+import { ensureUserBootstrap } from '@/lib/get-user'
 import { cookies } from 'next/headers'
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { email, password } = body
+    const { email, password, supabaseAccessToken } = body
+
+    if (supabaseAccessToken) {
+      try {
+        const identity = await verifySupabaseAccessToken(supabaseAccessToken)
+
+        if (!identity.email || !identity.emailVerified) {
+          return NextResponse.json(
+            { error: 'Google 계정 이메일을 확인할 수 없습니다.' },
+            { status: 401 }
+          )
+        }
+
+        let user = await prisma.user.findUnique({
+          where: { email: identity.email },
+        })
+
+        if (!user) {
+          user = await prisma.user.create({
+            data: {
+              email: identity.email,
+              name: identity.name || identity.email.split('@')[0],
+              password: await hashPassword(
+                `google-oauth:${identity.uid}:${crypto.randomUUID()}`
+              ),
+              updatedAt: new Date(),
+            },
+          })
+        }
+
+        await ensureUserBootstrap(user.id)
+
+        const token = generateToken(user.id)
+
+        const cookieStore = await cookies()
+        cookieStore.set('token', token, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          maxAge: 60 * 60 * 24 * 7,
+        })
+
+        return NextResponse.json(
+          {
+            message: '로그인 성공',
+            user: { id: user.id, email: user.email, name: user.name },
+          },
+          { status: 200 }
+        )
+      } catch (supabaseError) {
+        const message =
+          supabaseError instanceof Error
+            ? supabaseError.message
+            : 'Google 로그인 검증에 실패했습니다.'
+        const status = message.includes('not configured') ? 500 : 401
+
+        return NextResponse.json(
+          {
+            error:
+              status === 500
+                ? 'Supabase 서버 설정이 완료되지 않았습니다.'
+                : 'Google 로그인 검증에 실패했습니다.',
+          },
+          { status }
+        )
+      }
+    }
 
     // Validation
     if (!email || !password) {
@@ -38,6 +110,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    await ensureUserBootstrap(user.id)
+
     // Generate token
     const token = generateToken(user.id)
 
@@ -65,5 +139,3 @@ export async function POST(request: NextRequest) {
     )
   }
 }
-
-

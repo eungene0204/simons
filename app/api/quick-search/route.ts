@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { loadStockList } from "@/lib/krx-stocks";
 import { scoreSmartMatch, normalizeSearchText } from "@/lib/smart-search";
+import {
+  getOwnershipContext,
+  isUnauthorizedAccessError,
+  withOwnership,
+} from "@/lib/get-user";
 import type {
   QuickSearchStockItem,
   QuickSearchResponse,
@@ -53,12 +58,15 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const { userId } = await getOwnershipContext();
     const [stocks, strategies, accounts] = await Promise.all([
       loadStockList(),
       prisma.strategy.findMany({
+        where: withOwnership({}, userId),
         orderBy: { createdAt: "desc" },
       }),
       prisma.virtualAccount.findMany({
+        where: withOwnership({}, userId),
         orderBy: { createdAt: "desc" },
       }),
     ]);
@@ -142,6 +150,12 @@ export async function GET(request: NextRequest) {
       virtualAccounts: matchedAccounts,
     } satisfies QuickSearchResponse);
   } catch (error) {
+    if (isUnauthorizedAccessError(error)) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
     console.error("Quick search API error:", error);
     return NextResponse.json(
       { error: "Failed to search quick items" },

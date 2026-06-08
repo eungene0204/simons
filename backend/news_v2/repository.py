@@ -352,6 +352,12 @@ class NewsRepository:
         row.rank_score = rank_score
         row.cached_at = _utcnow()
 
+    async def delete_stock_news_cache(self, symbol: str) -> int:
+        result = await self.session.execute(
+            delete(StockNewsCache).where(StockNewsCache.symbol == symbol)
+        )
+        return result.rowcount or 0
+
     async def get_latest_published_at(self, symbol: str) -> Optional[datetime]:
         stmt = select(func.max(Article.published_at)).where(Article.symbol == symbol)
         return (await self.session.execute(stmt)).scalar_one_or_none()

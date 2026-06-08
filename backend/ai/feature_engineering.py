@@ -157,7 +157,12 @@ def engineer_features(pdf: pd.DataFrame) -> pd.DataFrame:
     direction.iloc[0] = 0
     obv = (direction * v).cumsum()
     pdf['obv'] = obv
-    pdf['ret_obv'] = _safe_log_return(obv.replace(0, np.nan).ffill())
+    # OBV daily change normalized by recent volume scale (signed). The previous
+    # log-return of the signed *cumulative* OBV was undefined whenever OBV
+    # crossed zero (log of a negative ratio → NaN, frequent in practice);
+    # this is finite, bounded, and keeps the directional volume information.
+    obv_vol_scale = v.rolling(20, min_periods=1).mean()
+    pdf['ret_obv'] = obv.diff() / (obv_vol_scale + 1e-10)
 
     # ── Momentum ─────────────────────────────────────────────────────────────
     pdf['rsi_7']  = _rsi(c, 7)

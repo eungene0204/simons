@@ -1,6 +1,25 @@
 {
-  "updatedAt": "2026-06-08T00:00:03.731760+09:00",
+  "updatedAt": "2026-06-09T00:00:04.099785+09:00",
   "entries": [
+    {
+      "date": "2026-06-09",
+      "syncedAt": "2026-06-09T00:00:04.099785+09:00",
+      "totalCount": 2658,
+      "kospiCount": 838,
+      "kosdaqCount": 1820,
+      "addedCount": 1,
+      "delistedCount": 0,
+      "added": [
+        {
+          "symbol": "0117P0",
+          "name": "피스피스스튜디오",
+          "market": "KOSDAQ",
+          "sector": "유통/상사",
+          "industry": "섬유, 의복, 신발 및 가죽제품 소매업"
+        }
+      ],
+      "delisted": []
+    },
     {
       "date": "2026-06-08",
       "syncedAt": "2026-06-08T00:00:03.731760+09:00",

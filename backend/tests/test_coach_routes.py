@@ -249,6 +249,37 @@ def test_build_user_message_includes_memory_context_when_supplied():
     assert "비용 민감도 검증" in msg
 
 
+def test_build_user_message_directs_concrete_example_for_indicator_setup_question():
+    req = _make_request(
+        user_prompt="rsi 몇으로 설정 할까?",
+        parsed_strategy={
+            "universe": ["KOSDAQ"],
+            "entry_signals": [],
+            "exit_signals": [],
+            "stop_loss_pct": 9,
+            "max_positions": 6,
+            "initial_capital": 10_000_000,
+        },
+    )
+
+    msg = coach_routes._build_user_message(req)
+
+    assert "[지표 조건 설정 — 구체적 예시 필수]" in msg
+    assert "구체적인 예시를 1~2개 제시" in msg
+    assert "조건을 먼저 확정해 주세요" in msg  # 떠넘기지 말라는 부정 지침으로 포함
+    assert "RSI가 30 이하로 떨어졌을 때 매수" in msg
+
+
+def test_asks_indicator_setup_detection():
+    assert coach_routes._asks_indicator_setup("rsi 몇으로 설정 할까?") is True
+    assert coach_routes._asks_indicator_setup("골든크로스는 어떻게 잡아요?") is True
+    assert coach_routes._asks_indicator_setup("macd 추천해줘") is True
+    # 손절 비율은 리스크 조건이라 구체적 예시 강제 대상이 아니다.
+    assert coach_routes._asks_indicator_setup("손절 몇 %로 할까?") is False
+    # 이미 구체적으로 진술한 경우(질문 의도 없음)는 발동하지 않는다.
+    assert coach_routes._asks_indicator_setup("RSI 30 이하에서 매수") is False
+
+
 def test_parse_llm_response_extracts_message_from_incomplete_json():
     response = coach_routes._parse_llm_response(
         '{"message": "청산 신호가 있으므로 그 기준을 먼저 백테스트로 확인하세요."'

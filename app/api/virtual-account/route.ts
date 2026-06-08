@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { resolveTrackedSymbolsForStrategy } from '@/lib/strategy-tracked-symbols';
+import {
+  getOwnershipContext,
+  isUnauthorizedAccessError,
+  withOwnership,
+} from '@/lib/get-user';
 
 function mapAccount(a: any, priceMap: Record<string, number>) {
   const totalValue =
@@ -26,13 +31,18 @@ function mapAccount(a: any, priceMap: Record<string, number>) {
 // GET: 모든 가상계좌 목록
 export async function GET() {
   try {
+    const { userId } = await getOwnershipContext();
     const accounts = await prisma.virtualAccount.findMany({
+      where: withOwnership({}, userId),
       include: { VirtualPosition: true },
       orderBy: { createdAt: 'desc' },
     });
 
     return NextResponse.json(accounts.map((a) => mapAccount(a, {})));
   } catch (error) {
+    if (isUnauthorizedAccessError(error)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     console.error('Failed to fetch virtual accounts:', error);
     return NextResponse.json({ error: 'Failed to fetch accounts' }, { status: 500 });
   }
@@ -41,6 +51,7 @@ export async function GET() {
 // POST: 가상계좌 생성
 export async function POST(request: Request) {
   try {
+    const { userId } = await getOwnershipContext();
     const { name, initialAmount, strategyId, strategyName, tradingMode } = await request.json();
 
     if (!name || !initialAmount) {
@@ -57,13 +68,19 @@ export async function POST(request: Request) {
       );
     }
 
-    const strategy = await prisma.strategy.findUnique({
-      where: { id: strategyId },
-    });
+    const strategy =
+      userId == null
+        ? await prisma.strategy.findUnique({
+            where: { id: strategyId },
+          })
+        : await prisma.strategy.findFirst({
+            where: withOwnership({ id: strategyId }, userId),
+          });
 
     const account = await prisma.virtualAccount.create({
       data: {
         id: crypto.randomUUID(),
+        ...(userId != null && { userId }),
         name,
         initialCash: initialAmount,
         currentCash: initialAmount,
@@ -106,6 +123,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json(mapAccount(account, {}));
   } catch (error) {
+    if (isUnauthorizedAccessError(error)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     console.error('Failed to create virtual account:', error);
     return NextResponse.json({ error: 'Failed to create account' }, { status: 500 });
   }

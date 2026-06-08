@@ -106,6 +106,14 @@ def _build_search_queries(company_name: str) -> list[str]:
     return [" OR ".join(aliases), aliases[0]]
 
 
+def _matches_company(item: dict, company_name: str) -> bool:
+    aliases = _company_aliases(company_name)
+    if not aliases:
+        return False
+    text = f"{item.get('title') or ''} {item.get('description') or ''}"
+    return any(alias in text for alias in aliases)
+
+
 class GoogleNewsProvider(BaseNewsProvider):
     """
     Fetches stock-specific news from Google News RSS.
@@ -144,6 +152,8 @@ class GoogleNewsProvider(BaseNewsProvider):
 
                         items = _parse_items(resp.text)
                         for item in items[:per_symbol]:
+                            if not _matches_company(item, company_name):
+                                continue
                             if item["url"] in seen_urls:
                                 continue
                             seen_urls.add(item["url"])

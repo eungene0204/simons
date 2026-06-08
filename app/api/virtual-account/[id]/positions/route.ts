@@ -3,6 +3,11 @@ import { prisma } from '@/lib/prisma';
 import { fetchStockPriceSnapshots } from '@/lib/server/stock-prices';
 import { getStockNameMap } from '@/lib/krx-stocks';
 import { isZeroValuation } from '@/lib/listing-status';
+import {
+  getOwnershipContext,
+  isUnauthorizedAccessError,
+  withOwnership,
+} from '@/lib/get-user';
 
 function resolvePositionName(
   symbol: string,
@@ -20,6 +25,15 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    const { userId } = await getOwnershipContext();
+    const account = await prisma.virtualAccount.findFirst({
+      where: withOwnership({ id: params.id }, userId),
+      select: { id: true },
+    });
+    if (!account) {
+      return NextResponse.json({ error: 'Account not found' }, { status: 404 });
+    }
+
     const positions = await prisma.virtualPosition.findMany({
       where: { accountId: params.id },
       orderBy: { openedAt: 'asc' },
@@ -90,6 +104,9 @@ export async function GET(
 
     return NextResponse.json(result);
   } catch (error) {
+    if (isUnauthorizedAccessError(error)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     console.error('Failed to fetch positions:', error);
     return NextResponse.json({ error: 'Failed to fetch positions' }, { status: 500 });
   }

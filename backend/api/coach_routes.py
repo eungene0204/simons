@@ -671,6 +671,27 @@ def _needs_trailing_stop_percentage(prompt: str) -> bool:
     return re.search(r"\d+(?:\.\d+)?%?", compact) is None
 
 
+# 기술적 지표(진입 신호) 후보. RSI·MACD·이동평균처럼 사용자가 "몇으로 설정할지" 물을 때는
+# 손절·트레일링 스탑과 달리 임의 수치를 피하지 말고, 바로 쓸 수 있는 구체적 예시를 제시해야 한다.
+_INDICATOR_SETUP_TERMS = re.compile(
+    r"rsi|macd|이동\s*평균|이평|골든\s*크로스|데드\s*크로스|크로스오버|ma\s*크로스|"
+    r"볼린저|스토캐스틱|stochastic|cci|adx|돌파|breakout|모멘텀",
+    re.IGNORECASE,
+)
+_INDICATOR_SETUP_INTENT = re.compile(
+    r"몇|어떻게|얼마|어떤|어느|추천|뭐로|뭐가|좋을까|정할까|설정\s*할까|어떤\s*값",
+    re.IGNORECASE,
+)
+
+
+def _asks_indicator_setup(prompt: str) -> bool:
+    """사용자가 기술적 지표 진입 조건을 어떻게/몇으로 설정할지 묻는지 감지한다."""
+    text = prompt or ""
+    if not _INDICATOR_SETUP_TERMS.search(text):
+        return False
+    return bool(_INDICATOR_SETUP_INTENT.search(text))
+
+
 def _build_user_message(req: CoachRequest) -> str:
     parts: list[str] = [f'원본 사용자 입력(출력 금지): "{req.user_prompt}"']
     explained_terms = _explained_terms_from_context(req.conversation_context)
@@ -706,6 +727,19 @@ def _build_user_message(req: CoachRequest) -> str:
         parts.append(
             "사용자가 트레일링 스탑 수치를 말하지 않았습니다. "
             "advisor_result에 15% 같은 후보가 있어도 임의 수치를 제안하지 말고, 몇 %로 설정할지 먼저 물어보십시오."
+        )
+
+    if _asks_indicator_setup(req.user_prompt):
+        parts.append("\n[지표 조건 설정 — 구체적 예시 필수]")
+        parts.append(
+            "사용자가 RSI·MACD·이동평균 같은 기술적 지표 진입 조건을 어떻게/몇으로 설정할지 묻고 있습니다. "
+            "'조건을 먼저 확정해 주세요'처럼 결정을 사용자에게 떠넘기지 말고, "
+            "바로 전략에 추가할 수 있는 구체적인 예시를 1~2개 제시하십시오. "
+            "각 예시에는 정확한 기준값과 매수/매도 방향, 그리고 한 줄짜리 이유를 함께 쓰십시오. "
+            "(예: 'RSI가 30 이하로 떨어졌을 때 매수 — 과매도 구간에서 반등을 노리는 진입입니다', "
+            "'단기 이동평균이 장기 이동평균을 위로 뚫는 골든크로스에서 매수'). "
+            "수치는 일반적으로 많이 쓰는 값을 기본 예시로 제안하되, 사용자가 원하면 조정할 수 있다고 알려주십시오. "
+            "이는 임의 수치를 피해야 하는 손절·트레일링 스탑 같은 리스크 조건과 다릅니다."
         )
 
     ps = req.parsed_strategy or {}

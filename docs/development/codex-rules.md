@@ -26,7 +26,9 @@ Allowed:
 - AI Runtime Orchestration
 - Optimization Runtime
 - Dashboard (read-only UI)
+- Landing / Auth Entry Experience
 - Strategy Persistence / BatchRun Storage
+- User Personalization / Ownership Persistence
 - News Impact Pipeline
 - Governance / Policy Docs
 
@@ -74,7 +76,9 @@ Codex must NEVER modify:
 Unless explicitly instructed.
 
 Exception:
+- `app/api/login/**`, `app/api/user/**`, and authentication logic are allowed only when the task explicitly selects `Landing / Auth Entry Experience` or `User Personalization / Ownership Persistence`.
 - `prisma/**` and database schema changes are allowed only when the task explicitly selects `Strategy Persistence / BatchRun Storage`.
+- User-personalization-specific `prisma/**` and database schema changes are allowed only when the task explicitly selects `User Personalization / Ownership Persistence`.
 - News-specific `prisma/**` and database schema changes are allowed only when the task explicitly selects `News Impact Pipeline`.
 - `docs/PROJECT_PLAN.md`, `docs/software_architecture.md`, `docs/SRS.md` are allowed only when the task explicitly selects `Governance / Policy Docs`.
 

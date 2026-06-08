@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import {
+  getOwnershipContext,
+  isUnauthorizedAccessError,
+  withOwnership,
+} from '@/lib/get-user';
 
 export interface DashboardStats {
   // 종합 성과
@@ -36,8 +41,9 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const account = await prisma.virtualAccount.findUnique({
-      where: { id: params.id },
+    const { userId } = await getOwnershipContext();
+    const account = await prisma.virtualAccount.findFirst({
+      where: withOwnership({ id: params.id }, userId),
     });
     if (!account) {
       return NextResponse.json({ error: 'Account not found' }, { status: 404 });
@@ -143,6 +149,9 @@ export async function GET(
 
     return NextResponse.json(stats);
   } catch (error) {
+    if (isUnauthorizedAccessError(error)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     console.error('Failed to fetch dashboard stats:', error);
     return NextResponse.json({ error: 'Failed to fetch dashboard stats' }, { status: 500 });
   }

@@ -2,6 +2,11 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { resolveTrackedSymbolsForStrategy } from '@/lib/strategy-tracked-symbols';
 import { getStockNameMap } from '@/lib/krx-stocks';
+import {
+  getOwnershipContext,
+  isUnauthorizedAccessError,
+  withOwnership,
+} from '@/lib/get-user';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
 
@@ -66,14 +71,47 @@ async function buildNameMap(symbols: string[]): Promise<Record<string, string>> 
   return { ...merged, ...stockNameMap };
 }
 
+async function findOwnedAccountById(
+  id: string,
+  userId: number | null,
+  options: Record<string, unknown> = {}
+) {
+  if (userId == null) {
+    return prisma.virtualAccount.findUnique({
+      where: { id },
+      ...options,
+    });
+  }
+
+  return prisma.virtualAccount.findFirst({
+    where: withOwnership({ id }, userId),
+    ...options,
+  });
+}
+
+async function findOwnedStrategyById(
+  id: string,
+  userId: number | null
+) {
+  if (userId == null) {
+    return prisma.strategy.findUnique({
+      where: { id },
+    });
+  }
+
+  return prisma.strategy.findFirst({
+    where: withOwnership({ id }, userId),
+  });
+}
+
 // GET: 계좌 상세 조회
 export async function GET(
   _request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
-    const account = await prisma.virtualAccount.findUnique({
-      where: { id: params.id },
+    const { userId } = await getOwnershipContext();
+    const account = await findOwnedAccountById(params.id, userId, {
       include: { VirtualPosition: true },
     });
     if (!account) {
@@ -84,6 +122,9 @@ export async function GET(
     const nameMap = await buildNameMap(symbols);
     return NextResponse.json(mapAccount(account, {}, nameMap));
   } catch (error) {
+    if (isUnauthorizedAccessError(error)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     console.error('Failed to fetch virtual account:', error);
     return NextResponse.json({ error: 'Failed to fetch account' }, { status: 500 });
   }
@@ -95,6 +136,14 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
+    const { userId } = await getOwnershipContext();
+    const ownedAccount = await findOwnedAccountById(params.id, userId, {
+      select: { id: true },
+    });
+    if (!ownedAccount) {
+      return NextResponse.json({ error: 'Account not found' }, { status: 404 });
+    }
+
     const body = await request.json();
     const strategyChanged = typeof body.strategyId === "string" && body.strategyId.trim().length > 0;
     const account = await prisma.virtualAccount.update({
@@ -113,9 +162,7 @@ export async function PATCH(
     const nameMap = await buildNameMap(posSymbols);
 
     if (strategyChanged) {
-      const strategy = await prisma.strategy.findUnique({
-        where: { id: body.strategyId },
-      });
+      const strategy = await findOwnedStrategyById(body.strategyId, userId);
 
       const resolved = strategy
         ? await resolveTrackedSymbolsForStrategy({
@@ -171,6 +218,9 @@ export async function PATCH(
 
     return NextResponse.json(mapAccount(account, {}, nameMap));
   } catch (error) {
+    if (isUnauthorizedAccessError(error)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     console.error('Failed to update virtual account:', error);
     return NextResponse.json({ error: 'Failed to update account' }, { status: 500 });
   }
@@ -182,9 +232,21 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    await prisma.virtualAccount.delete({ where: { id: params.id } });
+    const { userId } = await getOwnershipContext();
+    if (userId == null) {
+      await prisma.virtualAccount.delete({
+        where: { id: params.id },
+      });
+    } else {
+      await prisma.virtualAccount.deleteMany({
+        where: withOwnership({ id: params.id }, userId),
+      });
+    }
     return NextResponse.json({ message: 'Account deleted' });
   } catch (error) {
+    if (isUnauthorizedAccessError(error)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     console.error('Failed to delete virtual account:', error);
     return NextResponse.json({ error: 'Failed to delete account' }, { status: 500 });
   }

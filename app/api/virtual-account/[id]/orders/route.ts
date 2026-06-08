@@ -12,6 +12,11 @@ import {
   roundToTick,
 } from '@/lib/order-engine';
 import { getTradeBlockReason } from '@/lib/listing-status';
+import {
+  getOwnershipContext,
+  isUnauthorizedAccessError,
+  withOwnership,
+} from '@/lib/get-user';
 
 
 function mapOrder(o: any, nameMap: Record<string, string>) {
@@ -47,8 +52,16 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    const { userId } = await getOwnershipContext();
     const { searchParams } = new URL(request.url);
     const statusFilter = searchParams.get('status')?.toUpperCase();
+    const account = await prisma.virtualAccount.findFirst({
+      where: withOwnership({ id: params.id }, userId),
+      select: { id: true },
+    });
+    if (!account) {
+      return NextResponse.json({ error: 'Account not found' }, { status: 404 });
+    }
 
     const where: any = { accountId: params.id };
     if (!statusFilter || statusFilter === 'FILLED') {
@@ -63,6 +76,9 @@ export async function GET(
     ]);
     return NextResponse.json(orders.map((o) => mapOrder(o, nameMap)));
   } catch (error) {
+    if (isUnauthorizedAccessError(error)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     console.error('Failed to fetch orders:', error);
     return NextResponse.json({ error: 'Failed to fetch orders' }, { status: 500 });
   }
@@ -74,6 +90,7 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
+    const { userId } = await getOwnershipContext();
     const { type, symbol, name, quantity, price, orderType = 'MARKET' } = await request.json();
 
     if (!type || !symbol || !quantity || !price) {
@@ -105,7 +122,9 @@ export async function POST(
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      const account = await tx.virtualAccount.findUnique({ where: { id: params.id } });
+      const account = await tx.virtualAccount.findFirst({
+        where: withOwnership({ id: params.id }, userId),
+      });
       if (!account) throw new Error('ACCOUNT_NOT_FOUND');
 
       // ── 시장가 주문 ───────────────────────────────────────────────────────
@@ -239,6 +258,9 @@ export async function POST(
     const nameMap = await getStockNameMap();
     return NextResponse.json(mapOrder(result, nameMap));
   } catch (error: any) {
+    if (isUnauthorizedAccessError(error)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     const msg = error?.message;
     if (msg === 'INSUFFICIENT_BALANCE')
       return NextResponse.json({ error: '잔액이 부족합니다.' }, { status: 400 });

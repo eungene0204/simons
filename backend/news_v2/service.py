@@ -256,6 +256,9 @@ class NewsService:
         inserted_ids: list[str] = []
         deduped = 0
 
+        if articles:
+            await self.repo.delete_stock_news_cache(symbol)
+
         for a in articles:
             normalized_title = dedup_mod.normalize_title(a.title)
             h = dedup_mod.title_hash(a.title)

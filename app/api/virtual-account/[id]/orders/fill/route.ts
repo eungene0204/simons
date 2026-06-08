@@ -7,6 +7,11 @@ import {
   calcSellProceeds,
   calcRealizedPnl,
 } from '@/lib/order-engine';
+import {
+  getOwnershipContext,
+  isUnauthorizedAccessError,
+  withOwnership,
+} from '@/lib/get-user';
 
 // POST: 현재가 기준으로 해당 계좌의 PENDING 주문 체결 시도
 // body: { symbol: string, currentPrice: number }
@@ -15,12 +20,20 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
+    const { userId } = await getOwnershipContext();
     const { symbol, currentPrice } = await request.json();
     if (!symbol || !currentPrice) {
       return NextResponse.json({ error: 'Missing symbol or currentPrice' }, { status: 400 });
     }
 
     const price = Number(currentPrice);
+    const account = await prisma.virtualAccount.findFirst({
+      where: withOwnership({ id: params.id }, userId),
+      select: { id: true },
+    });
+    if (!account) {
+      return NextResponse.json({ error: 'Account not found' }, { status: 404 });
+    }
 
     // 해당 계좌의 해당 종목 PENDING 주문 전체 조회
     const pendingOrders = await prisma.virtualOrder.findMany({
@@ -124,6 +137,9 @@ export async function POST(
 
     return NextResponse.json({ filled, count: filled.length });
   } catch (error) {
+    if (isUnauthorizedAccessError(error)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     console.error('Failed to fill pending orders:', error);
     return NextResponse.json({ error: 'Failed to fill pending orders' }, { status: 500 });
   }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/get-user'
 import { cache } from '@/lib/cache'
+import { prisma } from '@/lib/prisma'
 
 export async function GET(request: NextRequest) {
   try {
@@ -21,18 +22,46 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(cached)
     }
 
-    // Generate mock user info data
-    // In a real application, this would come from the database
-    const userInfo: any = {
-      watchlistCount: Math.floor(Math.random() * 50) + 10, // 10-60개
-      accountCount: Math.floor(Math.random() * 5) + 1, // 1-6개
-      currentReturnRate: (Math.random() * 20 - 10).toFixed(2), // -10% ~ +10%
-      returnRateRank: Math.floor(Math.random() * 1000) + 1, // 1-1000위
-      totalUsers: 10000, // 전체 사용자 수
-    }
+    const [watchlistCount, accounts, totalUsers] = await Promise.all([
+      prisma.watchlistSymbol.count({
+        where: { userId: user.id },
+      }),
+      prisma.virtualAccount.findMany({
+        where: { userId: user.id },
+        include: {
+          VirtualPosition: {
+            select: {
+              quantity: true,
+              avgPrice: true,
+              currentPrice: true,
+            },
+          },
+        },
+      }),
+      prisma.user.count(),
+    ])
 
-    // Convert return rate to number
-    userInfo.currentReturnRate = parseFloat(userInfo.currentReturnRate as any)
+    const accountCount = accounts.length
+    const totalInitialCash = accounts.reduce((sum, account) => sum + account.initialCash, 0)
+    const totalValue = accounts.reduce((sum, account) => {
+      const positionsValue = account.VirtualPosition.reduce((positionSum, position) => {
+        const currentPrice = position.currentPrice ?? position.avgPrice
+        return positionSum + position.quantity * currentPrice
+      }, 0)
+
+      return sum + account.currentCash + positionsValue
+    }, 0)
+
+    const currentReturnRate =
+      totalInitialCash > 0 ? ((totalValue - totalInitialCash) / totalInitialCash) * 100 : 0
+
+    const userInfo = {
+      watchlistCount,
+      accountCount,
+      currentReturnRate,
+      returnRateRank: null,
+      totalUsers,
+    }
 
     // Cache for 30 seconds
     cache.set(cacheKey, userInfo, 30)
@@ -45,4 +74,3 @@ export async function GET(request: NextRequest) {
     )
   }
 }
-

@@ -68,7 +68,7 @@ export async function getBestBacktestSymbols(
   }
 
   const latestHistory = await prisma.backtestHistory.findFirst({
-    where: { strategyName },
+    where: { strategyId },
     orderBy: { createdAt: "desc" },
   });
   if (!latestHistory) return null;

@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy import select
 
 from news_v2.models import Base, IngestionLog, NewsAnalysis, NewsRaw, NewsSymbolMap, Status
+from news_v2.models import StockNewsCache
 from news_v2.providers import CollectedArticle
 from news_v2.config import Settings
 from news_v2.service import NewsService
@@ -257,6 +258,52 @@ async def test_run_collect_maps_alias_and_sector_symbols(session, monkeypatch):
     hynix = await service.repo.list_cached_news("000660", limit=10)
     assert len(preferred) == 1
     assert len(hynix) == 1
+
+
+@pytest.mark.asyncio
+async def test_run_collect_replaces_target_symbol_cache(session, monkeypatch):
+    now = _utcnow_naive()
+    session.add(
+        NewsRaw(
+            news_id="stale-affiliate",
+            title="현대엔지니어링, 건설산업 협약 체결",
+            normalized_title="현대엔지니어링 건설산업 협약 체결",
+            title_hash="s" * 64,
+            url="https://news/stale-affiliate",
+            source="Hyundai Motor Group",
+            published_at=now,
+            raw_content=None,
+            content_quality=0.3,
+        )
+    )
+    session.add(
+        StockNewsCache(
+            symbol="005380",
+            news_id="stale-affiliate",
+            published_at=now,
+            rank_score=0.9,
+        )
+    )
+    await session.commit()
+
+    async def _fake_fetch(_symbol, _company_name, max_articles=30):
+        return [
+            CollectedArticle(
+                title="현대차, 모빌리티 기술인력 신규 채용",
+                url="https://news/hyundai-new",
+                source="연합뉴스",
+                published_at=now,
+                summary="현대차 신규 채용 기사",
+            )
+        ]
+
+    monkeypatch.setattr("news_v2.service.fetch_for_symbol", _fake_fetch)
+    service = NewsService(session=session, cache=_NoopCache(), queue=_QueueEnabled())
+
+    await service.run_collect("005380", company_name="현대자동차")
+
+    rows = await service.repo.list_cached_news("005380", limit=10)
+    assert [row.title for row in rows] == ["현대차, 모빌리티 기술인력 신규 채용"]
 
 
 @pytest.mark.asyncio

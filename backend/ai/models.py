@@ -1,41 +1,69 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 # ── Rotary Positional Encoding (RoPE) ──────────────────────────────────────
-
-class RotaryPositionalEncoding(nn.Module):
-    """RoPE: encodes relative position directly into attention via rotation."""
-
-    def __init__(self, d_model: int, max_len: int = 2048):
-        super().__init__()
-        inv_freq = 1.0 / (10000 ** (torch.arange(0, d_model, 2).float() / d_model))
-        self.register_buffer("inv_freq", inv_freq)
-        self.max_len = max_len
-        self._build_cache(max_len)
-
-    def _build_cache(self, seq_len: int):
-        t = torch.arange(seq_len, dtype=self.inv_freq.dtype)
-        freqs = torch.einsum("i,j->ij", t, self.inv_freq)
-        emb = torch.cat([freqs, freqs], dim=-1)  # (seq_len, d_model)
-        self.register_buffer("cos_cached", emb.cos().unsqueeze(0), persistent=False)
-        self.register_buffer("sin_cached", emb.sin().unsqueeze(0), persistent=False)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """x: (batch, seq_len, d_model) → same shape with rotary encoding applied."""
-        seq_len = x.size(1)
-        if seq_len > self.cos_cached.size(1):
-            self._build_cache(seq_len)
-        return _apply_rotary(x, self.cos_cached[:, :seq_len], self.sin_cached[:, :seq_len])
-
 
 def _rotate_half(x: torch.Tensor) -> torch.Tensor:
     x1, x2 = x.chunk(2, dim=-1)
     return torch.cat([-x2, x1], dim=-1)
 
 
-def _apply_rotary(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
-    return x * cos + _rotate_half(x) * sin
+class RoPEMultiheadAttention(nn.Module):
+    """Multi-head self-attention with rotary position embedding applied to
+    Q and K *after* projection.
+
+    This is the correct RoPE formulation: rotating Q/K post-projection yields
+    the relative-position property ⟨R_m·q, R_n·k⟩ = f(m-n). (Applying rotation
+    to the token embeddings before the Q/K projection — the previous
+    implementation — does not, and degenerates to a one-shot absolute signal.)
+
+    Position 0 rotates by angle 0 (identity), so a prepended [CLS] token at
+    index 0 is left unrotated automatically.
+    """
+
+    def __init__(self, d_model: int, nhead: int, dropout: float = 0.0):
+        super().__init__()
+        if d_model % nhead != 0:
+            raise ValueError(f"d_model ({d_model}) must be divisible by nhead ({nhead})")
+        self.nhead = nhead
+        self.head_dim = d_model // nhead
+        if self.head_dim % 2 != 0:
+            raise ValueError(f"head_dim ({self.head_dim}) must be even for RoPE")
+        self.q_proj = nn.Linear(d_model, d_model)
+        self.k_proj = nn.Linear(d_model, d_model)
+        self.v_proj = nn.Linear(d_model, d_model)
+        self.out_proj = nn.Linear(d_model, d_model)
+        self.dropout = dropout
+
+        inv_freq = 1.0 / (10000 ** (torch.arange(0, self.head_dim, 2).float() / self.head_dim))
+        self.register_buffer("inv_freq", inv_freq, persistent=False)
+
+    def _rope_cos_sin(self, seq_len: int, device, dtype):
+        t = torch.arange(seq_len, device=device, dtype=self.inv_freq.dtype)
+        freqs = torch.einsum("i,j->ij", t, self.inv_freq)
+        emb = torch.cat([freqs, freqs], dim=-1)  # (seq_len, head_dim)
+        return emb.cos().to(dtype), emb.sin().to(dtype)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """x: (batch, seq_len, d_model) → (batch, seq_len, d_model)."""
+        B, T, C = x.shape
+        q = self.q_proj(x).view(B, T, self.nhead, self.head_dim).transpose(1, 2)  # (B, h, T, hd)
+        k = self.k_proj(x).view(B, T, self.nhead, self.head_dim).transpose(1, 2)
+        v = self.v_proj(x).view(B, T, self.nhead, self.head_dim).transpose(1, 2)
+
+        cos, sin = self._rope_cos_sin(T, x.device, q.dtype)
+        cos = cos[None, None]  # (1, 1, T, head_dim)
+        sin = sin[None, None]
+        q = q * cos + _rotate_half(q) * sin
+        k = k * cos + _rotate_half(k) * sin
+
+        out = F.scaled_dot_product_attention(
+            q, k, v, dropout_p=self.dropout if self.training else 0.0
+        )
+        out = out.transpose(1, 2).reshape(B, T, C)
+        return self.out_proj(out)
 
 
 # ── Conv1D Feature Stem ─────────────────────────────────────────────────────
@@ -45,6 +73,8 @@ class Conv1DStem(nn.Module):
 
     def __init__(self, input_dim: int, d_model: int, dropout: float = 0.1):
         super().__init__()
+        if d_model % 2 != 0:
+            raise ValueError(f"d_model must be even for Conv1DStem (got {d_model})")
         mid = d_model // 2
 
         # Short-range patterns (3-day)
@@ -76,7 +106,7 @@ class PreNormEncoderLayer(nn.Module):
                  stochastic_depth_prob: float = 0.0):
         super().__init__()
         self.norm1 = nn.LayerNorm(d_model)
-        self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=True)
+        self.self_attn = RoPEMultiheadAttention(d_model, nhead, dropout=dropout)
         self.norm2 = nn.LayerNorm(d_model)
         self.ff = nn.Sequential(
             nn.Linear(d_model, dim_feedforward),
@@ -93,10 +123,10 @@ class PreNormEncoderLayer(nn.Module):
         keep = torch.rand(x.size(0), 1, 1, device=x.device) > self.drop_path_prob
         return x * keep / (1 - self.drop_path_prob)
 
-    def forward(self, src: torch.Tensor, src_mask=None, src_key_padding_mask=None) -> torch.Tensor:
+    def forward(self, src: torch.Tensor) -> torch.Tensor:
         # Pre-LN: normalize before attention/FF
         h = self.norm1(src)
-        attn_out, _ = self.self_attn(h, h, h, attn_mask=src_mask, key_padding_mask=src_key_padding_mask)
+        attn_out = self.self_attn(h)
         src = src + self._drop_path(attn_out)
         h = self.norm2(src)
         src = src + self._drop_path(self.ff(h))
@@ -130,10 +160,8 @@ class TimeSeriesTransformer(nn.Module):
         # Learnable [CLS] token for aggregation
         self.cls_token = nn.Parameter(torch.randn(1, 1, d_model) * 0.02)
 
-        # Rotary positional encoding
-        self.rope = RotaryPositionalEncoding(d_model, max_len=2048)
-
-        # Pre-LN Transformer encoder with stochastic depth
+        # Pre-LN Transformer encoder with stochastic depth.
+        # RoPE is applied inside each attention layer (see RoPEMultiheadAttention).
         drop_probs = [stochastic_depth * i / max(num_layers - 1, 1) for i in range(num_layers)]
         self.layers = nn.ModuleList([
             PreNormEncoderLayer(d_model, nhead, dim_feedforward, dropout, dp)
@@ -176,10 +204,7 @@ class TimeSeriesTransformer(nn.Module):
         # Conv1D stem → (batch, seq_len, d_model)
         h = self.stem(src)
 
-        # Apply RoPE
-        h = self.rope(h)
-
-        # Prepend [CLS] token
+        # Prepend [CLS] token (index 0 → RoPE rotation is identity there).
         cls = self.cls_token.expand(B, -1, -1)
         h = torch.cat([cls, h], dim=1)  # (batch, 1+seq_len, d_model)
 

@@ -417,6 +417,103 @@ Backtest result Experience Memory를 semantic retrieval 용도로 저장하고 �
 
 ---
 
+## Boundary O: Landing / Auth Entry Experience
+
+### Purpose
+Public landing page, sign-in entry flow, and session bootstrap into the existing dashboard.
+
+### Files
+- app/page.tsx
+- app/login/page.tsx
+- app/dashboard/page.tsx
+- app/api/auth/**
+- app/api/login/route.ts
+- app/api/logout/route.ts
+- app/api/user/route.ts
+- app/api/user/info/route.ts
+- components/landing/**
+- components/ui/AuthCard.tsx
+- components/providers/**
+- lib/auth.ts
+- lib/firebase.ts
+- lib/get-user.ts
+- .env.local
+- package.json
+- backend/tests/**
+
+### Allowed Tasks
+- 랜딩페이지 UI/카피/레이아웃 개선
+- 로그인 페이지를 랜딩 진입점과 통합하는 수정
+- OAuth provider client bootstrap 추가 및 수정
+- 로그인 성공 후 dashboard 진입 redirect/wiring 수정
+- auth session bootstrap, cookie/session token wiring, logout 흐름 정합성 보완
+- landing/auth entry 전용 SEO, metadata, accessibility 개선
+- landing/auth entry 회귀 테스트 추가 및 수정
+
+### Strict Rules
+- Preserve existing dashboard business logic and data contracts.
+- Keep auth changes limited to entry/session bootstrap needed for landing and login.
+- Do not introduce signup, billing, or profile-management flows in this boundary.
+- Do not change Prisma schema or backend provider logic.
+- If a task introduces a new auth dependency, keep the diff limited to the dependency manifest and files in this boundary.
+- Secret or credential updates in `.env.local` are allowed only for local development setup explicitly requested by the user and must never be moved into tracked source files.
+
+### Forbidden
+- `prisma/**` 변경
+- backend Python 코드 변경
+- 전략/백테스트/뉴스/종목 상세 기능 변경
+- dashboard 내부 시각화/비즈니스 로직 변경
+- 범용 스크립트(`scripts/**`, `backend/scripts/**`) 변경
+
+---
+
+## Boundary P: User Personalization / Ownership Persistence
+
+### Purpose
+로그인 직후 사용자 bootstrap, 사용자별 기본 설정 생성, 그리고 전략/관심종목/가상계좌/대시보드 데이터의 `user_id` 소유권 분리 정합성 유지.
+
+### Files
+- prisma/**
+- app/api/login/route.ts
+- app/api/logout/route.ts
+- app/api/user/**
+- app/api/strategy/**
+- app/api/watchlist/**
+- app/api/virtual-account/**
+- app/api/dashboard/**
+- app/api/quick-search/route.ts
+- lib/auth.ts
+- lib/get-user.ts
+- lib/prisma.ts
+- lib/server/backtestCache.ts
+- lib/strategy-tracked-symbols.ts
+- backend/tests/**
+
+### Allowed Tasks
+- 로그인 성공 시 사용자 프로필/bootstrap row 생성 또는 upsert
+- 사용자별 기본 설정, onboarding 상태, 기본 watchlist/기본 데이터 초기화
+- 전략/백테스트/관심종목/가상계좌/대시보드 조회를 현재 사용자 기준으로 제한
+- 기존 shared/guest 가정 로직을 `user_id` ownership 기반으로 정리
+- personalization/ownership 회귀 테스트 추가 및 수정
+- user-owned entity에 필요한 Prisma model/field/index/FK 추가 및 수정
+
+### Strict Rules
+- Preserve public API response contracts unless the task explicitly defines the replacement contract.
+- Authentication provider selection itself is not the focus; keep auth changes limited to user bootstrap and ownership enforcement.
+- Any schema change must be directly tied to user personalization or ownership isolation.
+- Bootstrap must be idempotent and safe on repeated login.
+- Ownership checks must deny cross-user reads and writes by default.
+- Keep changes away from backtest engine algorithms and provider implementations.
+
+### Forbidden
+- 백테스트 엔진(`backend/engine/**`) 변경
+- provider 계층(`backend/engine/providers/**`) 변경
+- 랜딩페이지 UI/카피 변경
+- 뉴스/종목 상세 전용 파이프라인 변경
+- 범용 스크립트(`scripts/**`, `backend/scripts/**`) 변경
+
+---
+
 ## Global Forbidden Paths
 
 Codex must NEVER modify:
@@ -428,7 +525,10 @@ Codex must NEVER modify:
 - scripts/**
 
 Exception:
+- `app/api/login/**`, `app/api/user/**`, and authentication logic are allowed only inside `Boundary O: Landing / Auth Entry Experience`, limited to sign-in/session bootstrap work explicitly requested by the task.
+- `app/api/login/**`, `app/api/user/**`, and authentication logic are allowed inside `Boundary P: User Personalization / Ownership Persistence` only for user bootstrap, ownership enforcement, and idempotent personalization setup.
 - `prisma/**` is allowed only inside `Boundary I: Strategy Persistence / BatchRun Storage`
+- `prisma/**` is allowed inside `Boundary P: User Personalization / Ownership Persistence` only for user personalization models, ownership fields/FKs, and indexes required for per-user isolation.
 - `prisma/**` is allowed inside `Boundary J: Stock Info Profile Persistence`
 - `prisma/**` is allowed inside `Boundary M: News Impact Pipeline` only for news-specific models, migrations, and indexes
 

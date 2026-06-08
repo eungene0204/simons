@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import {
+  getOwnershipContext,
+  isUnauthorizedAccessError,
+  withOwnership,
+} from "@/lib/get-user";
 
 export interface AccountMonthlyData {
   months: string[];           // ["2025/01", "2025/02", ...]
@@ -13,7 +18,9 @@ export interface AccountMonthlyData {
 
 export async function GET() {
   try {
+    const { userId } = await getOwnershipContext();
     const accounts = await prisma.virtualAccount.findMany({
+      where: withOwnership({}, userId),
       orderBy: { createdAt: "asc" },
     });
 
@@ -70,6 +77,9 @@ export async function GET() {
 
     return NextResponse.json({ months, accounts: result } satisfies AccountMonthlyData);
   } catch (error) {
+    if (isUnauthorizedAccessError(error)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     console.error("Failed to fetch account monthly data:", error);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }

@@ -77,6 +77,7 @@ model StockInfoProfile {
 
 model Strategy {
   id             String           @id
+  userId         Int?
   name           String
   description    String?
   settings       String
@@ -84,12 +85,15 @@ model Strategy {
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
   deletedAt      DateTime?
+  User           User?            @relation(fields: [userId], references: [id])
   BacktestResult BacktestResult[]
   BacktestHistory BacktestHistory[]
   BacktestRun    BacktestRun[]
   BatchRunCandidate BatchRunCandidate[]
   StrategyEmbedding StrategyEmbedding[]
   AdviceExperience AdviceExperience[]
+
+  @@index([userId, createdAt])
 }
 
 model BacktestRun {
@@ -267,14 +271,18 @@ model StrategyAdvisorLearningInsight {
 }
 
 model User {
-  id          Int           @id @default(autoincrement())
-  email       String        @unique
-  name        String
-  password    String
-  planTier    String        @default("FREE")
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime
-  ResearchRun ResearchRun[]
+  id             Int              @id @default(autoincrement())
+  email          String           @unique
+  name           String
+  password       String
+  planTier       String           @default("FREE")
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime
+  ResearchRun    ResearchRun[]
+  Strategy       Strategy[]
+  VirtualAccount VirtualAccount[]
+  WatchlistGroup WatchlistGroup[]
+  WatchlistSymbol WatchlistSymbol[]
 }
 
 model ResearchRun {
@@ -337,6 +345,7 @@ model ResearchEvent {
 
 model VirtualAccount {
   id                 String              @id
+  userId             Int?
   name               String
   initialCash        Float
   currentCash        Float
@@ -346,10 +355,13 @@ model VirtualAccount {
   delistingPolicy    String              @default("AUTO_LIQUIDATE")
   createdAt          DateTime            @default(now())
   updatedAt          DateTime
+  User               User?               @relation(fields: [userId], references: [id])
   VirtualMarketState VirtualMarketState?
   VirtualOrder       VirtualOrder[]
   VirtualPosition    VirtualPosition[]
   DelistingAuditLog  DelistingAuditLog[]
+
+  @@index([userId, createdAt])
 }
 
 model VirtualMarketLog {
@@ -424,19 +436,28 @@ model SearchCount {
 
 model WatchlistGroup {
   id              String            @id
+  userId          Int?
   name            String
   color           String            @default("#3B82F6")
   createdAt       DateTime          @default(now())
+  User            User?             @relation(fields: [userId], references: [id])
   WatchlistSymbol WatchlistSymbol[]
+
+  @@index([userId, createdAt])
 }
 
 model WatchlistSymbol {
   id             String          @id
-  symbol         String          @unique
+  userId         Int?
+  symbol         String
   name           String
   addedAt        DateTime        @default(now())
   groupId        String?
+  User           User?           @relation(fields: [userId], references: [id])
   WatchlistGroup WatchlistGroup? @relation(fields: [groupId], references: [id])
+
+  @@unique([userId, symbol])
+  @@index([userId, addedAt])
 }
 
 // ─── News Fetch Cache ─────────────────────────────────────────────────────────

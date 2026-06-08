@@ -16,6 +16,7 @@ import logging
 import random
 import concurrent.futures
 import warnings
+from collections import OrderedDict
 
 import torch
 import xgboost as xgb
@@ -46,7 +47,13 @@ class AIEngine:
 
         self.model_dir  = model_dir
         self.model_lock = threading.Lock()
-        self._score_cache: dict = {}
+        # Bounded LRU cache (keyed per symbol) — prevents unbounded memory growth
+        # in a long-running server that scores many symbols over many requests.
+        self._score_cache: "OrderedDict[tuple, tuple]" = OrderedDict()
+        self._cache_max = 8192
+        # Max windows processed per transformer/XGBoost flush — bounds peak
+        # memory during full-universe batches (streamed, not all at once).
+        self._window_budget = 8192
 
         # Determinism
         torch.manual_seed(seed)
@@ -87,10 +94,19 @@ class AIEngine:
         if isinstance(expected, int) and expected != N_FEATURES:
             raise ValueError(f"Scaler expects {expected} features, but FEATURE_LIST has {N_FEATURES}")
 
-        # Transformer dimensions
-        d_model       = self.meta.get('d_model', 256)
-        nhead         = self.meta.get('nhead', 4)
-        num_layers    = self.meta.get('num_layers', 7)
+        # Transformer dimensions. These must match the trained checkpoint;
+        # defaults mirror the shipped v3 model so an incomplete meta degrades
+        # safely instead of silently building a mismatched network (which would
+        # otherwise surface only as a cryptic load_state_dict shape error).
+        shape_keys = ('d_model', 'nhead', 'num_layers', 'dim_feedforward')
+        missing = [k for k in shape_keys if k not in self.meta]
+        if missing:
+            logger.warning("model_meta.json missing architecture keys %s — "
+                           "falling back to shipped v3 defaults (128/8/3); "
+                           "checkpoint load will fail if the real values differ.", missing)
+        d_model       = self.meta.get('d_model', 128)
+        nhead         = self.meta.get('nhead', 8)
+        num_layers    = self.meta.get('num_layers', 3)
         dim_ff        = self.meta.get('dim_feedforward', 1024)
         dropout       = self.meta.get('dropout', 0.2)
         stoch_depth   = self.meta.get('stochastic_depth', 0.1)
@@ -133,6 +149,13 @@ class AIEngine:
                     f"ModelDir={model_dir}")
 
     # ── Internal helpers ──────────────────────────────────────────────────────
+
+    def _cache_put(self, key: tuple, value: tuple):
+        """Insert into the bounded LRU score cache, evicting the oldest if full."""
+        self._score_cache[key] = value
+        self._score_cache.move_to_end(key)
+        while len(self._score_cache) > self._cache_max:
+            self._score_cache.popitem(last=False)
 
     def _preprocess_for_ai(self, df: pd.DataFrame):
         """Feature engineering + scaling + sliding windows. No lock needed."""
@@ -213,8 +236,20 @@ class AIEngine:
             (lookback-1) bars that have no complete window.
         """
         def _cache_key(sym: str, df: pd.DataFrame) -> tuple:
+            # Include a content fingerprint, not just (sym, last_index, len):
+            # the single-symbol path always passes sym='_single', so two
+            # different frames with the same length and last index would
+            # otherwise collide and return the wrong cached scores.
             idx = df.index
-            return (sym, str(idx[-1]) if len(idx) else '', len(df))
+            last_idx = str(idx[-1]) if len(idx) else ''
+            close_col = next((c for c in df.columns if c.lower() == 'close'), None)
+            n = len(df)
+            if close_col is not None and n:
+                col = df[close_col]
+                fp = (float(col.iloc[0]), float(col.iloc[n // 2]), float(col.iloc[-1]))
+            else:
+                fp = (0.0, 0.0, 0.0)
+            return (sym, last_idx, n) + fp
 
         # Cache check
         results: dict = {}
@@ -222,6 +257,7 @@ class AIEngine:
         for sym, df in dfs.items():
             key = _cache_key(sym, df)
             if key in self._score_cache:
+                self._score_cache.move_to_end(key)
                 results[sym] = self._score_cache[key]
             else:
                 uncached[sym] = df
@@ -244,36 +280,48 @@ class AIEngine:
         valid = {s: d for s, d in prep.items() if d is not None}
         sym_order = list(valid.keys())
 
-        # Phase 2: Transformer + XGBoost (single lock)
+        # Phase 2: Transformer + XGBoost (single lock).
+        # Stream symbols through the model in bounded chunks rather than
+        # materializing every window of every symbol at once — a full-universe
+        # batch would otherwise allocate tens of GB before inference starts.
         if sym_order:
             with self.model_lock:
-                windows_list = []
-                sym_meta = {}
+                window_budget = self._window_budget
+
+                def _flush(buf_windows, buf_meta):
+                    batch = np.concatenate(buf_windows, axis=0)
+                    emb = self._infer_windows(batch)
+                    sig_all, drop_all = self._xgb_predict(emb)
+                    off = 0
+                    for sym, n_windows, n in buf_meta:
+                        sig  = sig_all[off:off + n_windows]
+                        drop = drop_all[off:off + n_windows]
+                        off += n_windows
+
+                        probs      = np.zeros(n)
+                        probs_drop = np.zeros(n)
+                        probs[self.lookback - 1:]      = sig
+                        probs_drop[self.lookback - 1:] = drop
+
+                        scored = (probs, probs_drop)
+                        results[sym] = scored
+                        self._cache_put(_cache_key(sym, uncached[sym]), scored)
+
+                buf_windows: list = []
+                buf_meta: list = []
+                buf_count = 0
                 for sym in sym_order:
                     _, n, windows, n_windows = valid[sym]
-                    windows_list.append(np.ascontiguousarray(windows))
-                    sym_meta[sym] = (n_windows, n)
-
-                all_windows   = np.concatenate(windows_list, axis=0)
-                logger.info(f"[AI-Batch] Transformer: {len(all_windows)} windows ({len(sym_order)} symbols)")
-                all_embeddings = self._infer_windows(all_windows)
-                all_sig, all_drop = self._xgb_predict(all_embeddings)
-
-                offset = 0
-                for sym in sym_order:
-                    n_windows, n = sym_meta[sym]
-                    sig  = all_sig[offset:offset + n_windows]
-                    drop = all_drop[offset:offset + n_windows]
-                    offset += n_windows
-
-                    probs      = np.zeros(n)
-                    probs_drop = np.zeros(n)
-                    probs[self.lookback - 1:]      = sig
-                    probs_drop[self.lookback - 1:] = drop
-
-                    scored = (probs, probs_drop)
-                    results[sym] = scored
-                    self._score_cache[_cache_key(sym, uncached[sym])] = scored
+                    buf_windows.append(np.ascontiguousarray(windows))
+                    buf_meta.append((sym, n_windows, n))
+                    buf_count += n_windows
+                    if buf_count >= window_budget:
+                        logger.info(f"[AI-Batch] Transformer flush: {buf_count} windows ({len(buf_meta)} symbols)")
+                        _flush(buf_windows, buf_meta)
+                        buf_windows, buf_meta, buf_count = [], [], 0
+                if buf_windows:
+                    logger.info(f"[AI-Batch] Transformer flush: {buf_count} windows ({len(buf_meta)} symbols)")
+                    _flush(buf_windows, buf_meta)
 
         # Fill missing symbols
         for sym, df in dfs.items():

@@ -4,6 +4,11 @@ import {
   calcFee, calcTransactionTax, calcSellProceeds, calcRealizedPnl,
 } from '@/lib/order-engine';
 import { isSellAllowed } from '@/lib/listing-status';
+import {
+  getOwnershipContext,
+  isUnauthorizedAccessError,
+  withOwnership,
+} from '@/lib/get-user';
 
 // POST /api/virtual-account/[id]/liquidate
 // body: { symbol: string }
@@ -13,6 +18,15 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
+    const { userId } = await getOwnershipContext();
+    const account = await prisma.virtualAccount.findFirst({
+      where: withOwnership({ id: params.id }, userId),
+      select: { id: true },
+    });
+    if (!account) {
+      return NextResponse.json({ error: 'Account not found' }, { status: 404 });
+    }
+
     const { symbol } = await request.json();
     if (!symbol) {
       return NextResponse.json({ error: '종목 코드가 필요합니다.' }, { status: 400 });
@@ -115,6 +129,9 @@ export async function POST(
 
     return NextResponse.json({ success: true, symbol, quantity: qty, executionPrice: filledPrice, proceeds });
   } catch (error: any) {
+    if (isUnauthorizedAccessError(error)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     console.error('Forced liquidation failed:', error);
     return NextResponse.json({ error: 'Failed to liquidate position' }, { status: 500 });
   }

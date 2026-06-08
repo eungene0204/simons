@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import {
+  getOwnershipContext,
+  isUnauthorizedAccessError,
+  withOwnership,
+} from "@/lib/get-user";
 
 // POST: 전략 자동 실행 중지
 export async function POST(
@@ -7,8 +12,9 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
-    const account = await prisma.virtualAccount.findUnique({
-      where: { id: params.id },
+    const { userId } = await getOwnershipContext();
+    const account = await prisma.virtualAccount.findFirst({
+      where: withOwnership({ id: params.id }, userId),
     });
     if (!account) {
       return NextResponse.json({ error: "Account not found" }, { status: 404 });
@@ -29,6 +35,9 @@ export async function POST(
 
     return NextResponse.json({ message: "전략 자동 실행이 중지되었습니다." });
   } catch (error) {
+    if (isUnauthorizedAccessError(error)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     console.error("Strategy stop error:", error);
     return NextResponse.json(
       { error: "전략 자동 실행 중지에 실패했습니다." },

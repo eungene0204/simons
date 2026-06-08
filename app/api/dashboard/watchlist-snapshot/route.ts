@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { fetchStockPriceSnapshots } from '@/lib/server/stock-prices';
+import {
+  getOwnershipContext,
+  isUnauthorizedAccessError,
+  withOwnership,
+} from '@/lib/get-user';
 
 export interface WatchlistSnapshotItem {
   symbol: string;
@@ -12,7 +17,9 @@ export interface WatchlistSnapshotItem {
 
 export async function GET() {
   try {
+    const { userId } = await getOwnershipContext();
     const symbols = await prisma.watchlistSymbol.findMany({
+      where: withOwnership({}, userId),
       take: 12,
       orderBy: { addedAt: 'desc' },
     });
@@ -42,6 +49,9 @@ export async function GET() {
 
     return NextResponse.json(items);
   } catch (error) {
+    if (isUnauthorizedAccessError(error)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     console.error('Failed to fetch watchlist snapshot:', error);
     return NextResponse.json({ error: 'Failed to fetch watchlist snapshot' }, { status: 500 });
   }
