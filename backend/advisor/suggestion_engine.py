@@ -247,8 +247,8 @@ def _build_experiments(
             _, label = result
             exps.append(f"거래대금 {label} 필터 적용 후 수익률 및 MDD 비교")
 
-    if not ctx.has_ai_signal:
-        exps.append("AI 예측 신호 추가 후 성과 비교 — AI 예측 레이어 효과 검증")
+    # 정책: AI 예측 모델은 추천하지 않으므로 실험 제안에서도 제외한다.
+    # (검증 결과 알파 없음 — project_ai_auxiliary_usage 참고)
 
     if news.available and abs(news.weighted_impact) > 0.2:
         exps.append("뉴스 임팩트 점수 임계값(0.3) 기반 진입 필터 추가 후 Sharpe 변화 확인")
@@ -257,21 +257,15 @@ def _build_experiments(
 
 
 def _build_ai_recommendation(ctx: RuleContext) -> AIModelRecommendation:
-    if ctx.has_ai_signal:
-        return AIModelRecommendation(
-            recommended=True,
-            reason="이미 AI 신호를 활용 중입니다. AI 예측 임계값을 60~70%로 조정해 정밀도를 높이세요.",
-        )
-    if ctx.entry_signal_count <= 1 or (ctx.cagr is not None and ctx.cagr < 0.10):
-        return AIModelRecommendation(
-            recommended=True,
-            reason="진입 신호가 단순하거나 수익률이 낮습니다. "
-                   "AI 예측 신호(상승 확률 70% 이상) 조건을 추가하면 정밀도를 크게 높일 수 있습니다.",
-        )
+    # 정책: AI 예측 모델은 전략 도구로 추천하지 않는다.
+    # 워크포워드(2018~2025)·breadth 오버레이 검증에서 AI 모델은 진입/청산/위험
+    # 오버레이 어느 방식으로도 바이앤홀드 대비 알파를 내지 못했다. 따라서 조언
+    # 엔진은 AI 모델 추가를 절대 제안하지 않으며, 항상 recommended=False를 반환한다.
     return AIModelRecommendation(
         recommended=False,
-        reason="현재 전략 구조로도 충분한 진입 필터가 있습니다. "
-               "AI 예측 신호 추가 시 거래 횟수가 줄어들 수 있으므로 비교 테스트 후 결정하세요.",
+        reason="AI 예측 모델은 현재 전략 도구로 권장하지 않습니다. "
+               "검증 결과 진입·청산·위험 관리 어느 용도로도 바이앤홀드/재무·기술 신호 대비 "
+               "성과 개선이 확인되지 않았습니다. 재무 필터·기술적 신호·리스크 관리에 집중하세요.",
     )
 
 

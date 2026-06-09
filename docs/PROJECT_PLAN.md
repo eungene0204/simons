@@ -1,7 +1,7 @@
 # Simons — 종합 투자 시뮬레이션 플랫폼 프로젝트 계획서
 
-> **문서 버전:** v2.0
-> **최종 갱신일:** 2026-06-08
+> **문서 버전:** v2.1
+> **최종 갱신일:** 2026-06-09
 > **프로젝트명:** Simons (시몬스)
 
 ---
@@ -432,11 +432,13 @@ simons/
 | `max_holding_days` | 최대 보유기간 | value | ✅ |
 | `trailing_stop` | 트레일링 스탑 | percentage | ✅ |
 
-**AI/ML (2개)**
+**AI/ML (2개)** — ⚠️ 검증 결과 비권장 (Phase 3.10 참고)
 | 블록 ID | 이름 | 파라미터 | 상태 |
 |---------|------|----------|------|
-| `ai_model` | AI 상승 예측 | threshold, direction | ✅ |
-| `ai_drop_model` | AI 하락 예측 | threshold | ✅ |
+| `ai_model` | AI 상승 예측 | threshold, direction | ⚠️ 동작하나 비권장 |
+| `ai_drop_model` | AI 하락 예측 | threshold | ⚠️ 동작하나 비권장 |
+
+> 블록 자체는 엔진/DSL에 그대로 남아 사용자가 직접 명시하면 동작한다. 다만 워크포워드·breadth 오버레이 검증에서 알파가 확인되지 않아(Phase 3.10), **조언/코치 에이전트와 전략연구소 예시는 AI 모델을 더 이상 추천·노출하지 않는다.**
 
 #### 3.1.5 리스크 관리 설정
 
@@ -534,6 +536,8 @@ RiskManagement {
     │
     └─ 출력: 10일 내 상승/하락 확률 (0~1) 분리 예측
 ```
+
+> ⚠️ **전략 도구 활용 비권장 (2026-06-09 검증):** 모델 추론 자체는 동작하나, 백테스트 검증(Phase 3.10)에서 진입/청산/위험 오버레이 어느 방식으로도 바이앤홀드 대비 알파가 확인되지 않았다. 조언/코치/전략연구소 예시는 AI 모델을 추천하지 않는다. 전략 도구로 되살리려면 사용법 튜닝이 아니라 라벨링/캘리브레이션부터의 모델 재설계가 필요하다.
 
 #### 3.3.2 설명 가능 AI (XAI) ✅ 완료
 
@@ -1196,6 +1200,26 @@ WatchlistSymbol {
 - "수익률 상위 K종목" 같은 상대강도 랭킹은 기존 per-stock boolean 시그널과 본질이 다른 cross-sectional 선정 — `rank_df`로 후보 재정렬 메커니즘을 재사용해 새 스키마 필드만 추가
 - 비중 리셋이 필요 없는 순수 리밸런싱은 vbt 네이티브 `from_orders(targetpercent)`로, 봉중간 리스크 관리(SL/TP/트레일링)가 섞인 경우는 현실적 체결을 보존하는 커스텀 `from_signals` 루프로 — 두 경로를 자동 분기
 - vbt 실행 환경은 `.venv`가 아니라 pyenv 3.11.2(`vectorbt 0.28.2`)이며, 실제 실행 검증으로 reconstitution 루프의 "고스트 포지션" 버그(같은 날 매도+매수 시 active_count 갱신 지연으로 빈 슬롯이 영구 차단)를 발견·수정함
+
+### Phase 3.10: AI 예측 모델 보조 활용 검증 + 추천 비활성화 — ✅ 완료
+
+> "AI 모델 단독으로는 수익을 못 내니 보조 도구로 어떻게 써야 최대 수익이 나는가"를 백테스트로 검증했다. 결론: **어떤 사용 방식으로도 바이앤홀드 대비 알파가 확인되지 않았다.** 이에 따라 조언/코치 에이전트와 전략연구소 예시에서 AI 모델 추천·노출을 전면 제거했다.
+
+| 작업 | 상세 | 구현 상태 |
+|------|------|----------|
+| 점수 분포 진단 | AI 점수가 보정 안 된 좁은 분포(상승 0.20~0.30, 하락 0.33~0.40)에 밀집 → UI/파서 기본 threshold=70은 0거래. 분포 퍼센타일 기반 threshold 필요 | ✅ 완료 |
+| per-stock 보조 활용 실험 | `backend/experiment_ai_auxiliary.py` — AI를 진입 필터/청산 타이밍/리스크 결합 등 15개 조합으로 비교. AI 선택적 청산(C1/C3)이 단일 3Y 구간에선 최고 위험조정수익 | ✅ 완료 |
+| 워크포워드 검증 | `backend/experiment_ai_walkforward.py` — 2018~2025 연도별 8구간(약세장 2018·2022 포함). 전 구간 평균 B&H +15.2%/년이 모든 능동전략 압도, C1/C3는 8년 중 1년만 B&H 초과. 3Y 호성과는 강세장/생존편향이었음 | ✅ 완료 |
+| breadth 위험 오버레이 검증 | `backend/experiment_ai_breadth_overlay.py` — 다수 종목 AI-하락 동시발화 시 전량 현금화(레짐 필터). 모든 임계값에서 B&H를 절대수익·CAGR·Sharpe에서 하회 | ✅ 완료 |
+| Polars 데드락 수정 | AI in-process 백테스트가 polars rayon latch에서 무한정지 → 실행 시 `POLARS_MAX_THREADS=1` 필수(+ XGBoost segfault 회피 `KMP_DUPLICATE_LIB_OK`/`OMP_NUM_THREADS`) | ✅ 완료 |
+| 조언 엔진 추천 비활성화 | `advisor/suggestion_engine.py::_build_ai_recommendation` 항상 `recommended=False`, `_build_experiments`에서 "AI 예측 신호 추가" 실험 제거 | ✅ 완료 |
+| 코치 추천 차단 | `api/coach_routes.py` — `ai_model_recommendation`을 코치 LLM 컨텍스트에 미전달 + `COACH_SYSTEM_PROMPT`에 AI 모델 추천 금지 지시 추가 | ✅ 완료 |
+| NL 파서 제안 정리 | `engine/nl_parser.py` 진입 누락 안내/빠른 제안 칩에서 "AI 모델 상승 예측" 제거(돌파·거래대금 신호로 대체) | ✅ 완료 |
+| 전략연구소 예시 교체 | `components/strategy/StrategyExampleTabs.tsx` — AI 모델 예시 11개(초3/중4/전4) 전부 비AI 전략으로 교체, "AI 전략" 카테고리 제거 | ✅ 완료 |
+
+**핵심 결론:**
+- AI 모델은 진입/청산/위험 오버레이 어느 방식으로도 사이클 전체에서 알파 없음. 유일한 관찰은 휩쏘성 기술적 매매(-65%/년)의 과매매 출혈을 청산으로 줄여주는 것뿐이며 그조차 B&H 미달.
+- 사용자가 직접 "AI 모델"을 입력하면 파서·엔진은 여전히 인식·실행한다(기존 저장 전략 호환). 시스템이 **먼저 권하지 않을 뿐**이다.
 
 ### Phase 4: 미구현 기능 (향후)
 

@@ -362,6 +362,46 @@ def test_remove_meaningless_filler_drops_unknown_phrase():
     assert "익절을 추가해 보세요." in out
 
 
+def test_strip_internal_context_leak_drops_internal_instruction_echo():
+    # QA(GRD-008)에서 실제로 관측된 내부 지시문 누출을 제거한다.
+    out = coach_routes._strip_internal_context_leak(
+        "유사 실험 근거는 내부 참고용으로만 사용하세요. "
+        "판단하면 위험 대비 수익성은 비교적 양호했습니다. "
+        "현재 전략은 먼저 같은 기간과 비용 조건으로 백테스트하세요."
+    )
+    assert "내부 참고용" not in out
+    assert "판단하면" not in out
+    assert "백테스트" in out
+
+
+def test_strip_internal_context_leak_drops_field_name_exposure():
+    out = coach_routes._strip_internal_context_leak(
+        "advisor_result를 참고하면 손절이 없습니다. 손절을 추가하세요."
+    )
+    assert "advisor_result" not in out
+    assert "손절을 추가하세요." in out
+
+
+def test_strip_internal_context_leak_keeps_normal_message():
+    text = "손절 조건이 없어 위험합니다. 손절을 추가하시겠어요?"
+    assert coach_routes._strip_internal_context_leak(text) == text
+
+
+def test_strip_internal_context_leak_keeps_message_when_only_leak():
+    # 전체가 누출이면 빈 응답 대신 원본을 유지한다(다운스트림이 처리).
+    only_leak = "직접 노출 금지 컨텍스트입니다."
+    assert coach_routes._strip_internal_context_leak(only_leak) == only_leak
+
+
+def test_apply_postprocessing_removes_internal_leak_end_to_end():
+    out = coach_routes._apply_coach_postprocessing(
+        "유사 실험 근거는 내부 참고용으로만 사용하세요. 손절을 추가하시겠어요?",
+        set(),
+    )
+    assert "내부 참고용" not in out
+    assert "손절" in out
+
+
 def test_simplify_set_condition_restatement_shortens_definition_echo():
     out = coach_routes._simplify_set_condition_restatement(
         "손절 10%는 매수가 대비 10% 하락 시 자동으로 파는 조건으로 설정해 계신군요. 손실 제한에 도움이 됩니다."
@@ -1295,6 +1335,82 @@ async def test_coach_strategy_auto_injects_news_context(monkeypatch):
     assert "[news_agent_insight" in parser.last_user_message
     assert "risk_alert=high" in parser.last_user_message
     assert "earnings_miss" in parser.last_user_message
+
+
+def test_news_source_url_returns_first_real_article_url():
+    insight = {
+        "symbols": [
+            {"symbol": "005930", "articles": [{"url": "", "title": "제목 없음"}]},
+            {
+                "symbol": "000660",
+                "articles": [
+                    {"url": "https://news.example.com/a1", "title": "삼성 실적"},
+                    {"url": "https://news.example.com/a2", "title": "두번째"},
+                ],
+            },
+        ]
+    }
+    assert coach_routes._news_source_url(insight) == "https://news.example.com/a1"
+
+
+def test_news_source_url_none_when_no_links():
+    assert coach_routes._news_source_url(None) is None
+    assert coach_routes._news_source_url({"symbols": []}) is None
+    assert (
+        coach_routes._news_source_url(
+            {"symbols": [{"articles": [{"url": "", "title": "x"}]}]}
+        )
+        is None
+    )
+
+
+def test_attach_news_source_link_links_first_news_word():
+    insight = {"symbols": [{"articles": [{"url": "https://news.example.com/a1"}]}]}
+    msg = "뉴스 분석 결과 긍정과 부정 정보가 혼재되어 익절 비율 설정을 고려해 보세요."
+    out = coach_routes._attach_news_source_link(msg, insight)
+    assert out.startswith("[뉴스](https://news.example.com/a1) 분석 결과")
+    # 첫 '뉴스'만 링크로 변환 — 두 번째 이후는 평문 유지
+    assert out.count("[뉴스](") == 1
+
+
+def test_attach_news_source_link_noop_without_url():
+    msg = "뉴스 분석 결과를 참고하세요."
+    # 실제 URL이 없으면 메시지를 그대로 둔다 (링크를 만들지 않는다)
+    assert coach_routes._attach_news_source_link(msg, {"symbols": []}) == msg
+    assert coach_routes._attach_news_source_link(msg, None) == msg
+
+
+def test_attach_news_source_link_noop_without_news_mention():
+    insight = {"symbols": [{"articles": [{"url": "https://news.example.com/a1"}]}]}
+    msg = "손절 기준을 추가해 보세요."
+    assert coach_routes._attach_news_source_link(msg, insight) == msg
+
+
+def test_build_coach_news_insight_carries_article_url():
+    from advisor.news_enrichment import build_coach_news_insight
+
+    insight = build_coach_news_insight(
+        [
+            NewsContext(
+                symbol="005930",
+                latest_alpha=-0.1,
+                risk_alert_level="high",
+                articles=[
+                    NewsArticleSignal(
+                        event_type="earnings_miss",
+                        sentiment="negative",
+                        impact_score=-0.8,
+                        confidence_score=0.9,
+                        title="삼성전자 실적 미스",
+                        url="https://news.example.com/samsung",
+                    )
+                ],
+            )
+        ]
+    )
+    article = insight["symbols"][0]["articles"][0]
+    assert article["url"] == "https://news.example.com/samsung"
+    assert article["title"] == "삼성전자 실적 미스"
 
 
 @pytest.mark.asyncio

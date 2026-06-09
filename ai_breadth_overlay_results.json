@@ -1,0 +1,90 @@
+{
+  "down_th": 0.403,
+  "switch_cost": 0.003,
+  "start": "2017-01-01",
+  "end": "2025-12-31",
+  "breadth_mean_pct": 1.79,
+  "best_overlay": "overlay_breadth>25%",
+  "results": [
+    {
+      "strategy": "buy_and_hold",
+      "total": 196.7,
+      "cagr": 12.9,
+      "mdd": -40.6,
+      "sharpe": 0.78,
+      "vol": 18.1,
+      "cash_pct": 0.0,
+      "switches": 0
+    },
+    {
+      "strategy": "overlay_breadth>5%",
+      "total": 89.1,
+      "cagr": 7.3,
+      "mdd": -34.9,
+      "sharpe": 0.53,
+      "vol": 16.4,
+      "cash_pct": 10.6,
+      "switches": 146
+    },
+    {
+      "strategy": "overlay_breadth>8%",
+      "total": 124.2,
+      "cagr": 9.4,
+      "mdd": -38.6,
+      "sharpe": 0.61,
+      "vol": 17.7,
+      "cash_pct": 3.4,
+      "switches": 46
+    },
+    {
+      "strategy": "overlay_breadth>10%",
+      "total": 124.2,
+      "cagr": 9.4,
+      "mdd": -38.6,
+      "sharpe": 0.61,
+      "vol": 17.7,
+      "cash_pct": 3.4,
+      "switches": 46
+    },
+    {
+      "strategy": "overlay_breadth>12%",
+      "total": 167.5,
+      "cagr": 11.6,
+      "mdd": -41.1,
+      "sharpe": 0.72,
+      "vol": 17.9,
+      "cash_pct": 1.2,
+      "switches": 22
+    },
+    {
+      "strategy": "overlay_breadth>15%",
+      "total": 178.4,
+      "cagr": 12.1,
+      "mdd": -40.6,
+      "sharpe": 0.74,
+      "vol": 18.1,
+      "cash_pct": 0.2,
+      "switches": 8
+    },
+    {
+      "strategy": "overlay_breadth>20%",
+      "total": 190.5,
+      "cagr": 12.6,
+      "mdd": -40.6,
+      "sharpe": 0.76,
+      "vol": 18.1,
+      "cash_pct": 0.0,
+      "switches": 2
+    },
+    {
+      "strategy": "overlay_breadth>25%",
+      "total": 196.7,
+      "cagr": 12.9,
+      "mdd": -40.6,
+      "sharpe": 0.78,
+      "vol": 18.1,
+      "cash_pct": 0.0,
+      "switches": 0
+    }
+  ]
+}

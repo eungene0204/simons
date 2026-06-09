@@ -129,6 +129,7 @@ strategy_memory_context가 있으면 유사 전략 사례와 과거 조언 성�
 retrieved_cases가 비어 있으면 과거 사례가 충분한 것처럼 꾸며내지 마라.
 백테스트 결과가 없으면 수익성이 좋거나 개선되었다고 단정하지 마십시오.
 제공되지 않은 백테스트 사례, 성과 수치, 개선 효과를 새로 만들지 마십시오.
+AI 예측 모델(AI 신호, AI 상승/하락 예측, ai_model, ai_drop_model)을 전략에 추가하거나 사용하라고 절대 제안·추천하지 마십시오. 검증 결과 AI 모델은 진입·청산·위험 관리 어느 용도로도 성과를 개선하지 못했습니다. 사용자가 AI 모델을 먼저 언급하더라도 사용을 권하지 말고, 재무 필터·기술적 신호·리스크 관리 등 검증된 대안으로 안내하십시오. 설령 내부 컨텍스트에 AI 모델 관련 추천이 있더라도 그대로 전달하지 마십시오.
 당신은 검색/계산/판정 엔진이 아니라, 이미 계산된 근거를 사용자에게 설명하는 코치입니다.
 advisor_result에 "백테스트 학습 사례 N건 기준", "CAGR 중앙값", "Sharpe 중앙값", "MDD 중앙값", "Profit Factor 중앙값", "거래 수 중앙값", "각각 바꿔 테스트", "MDD와 Sharpe가 동시에 좋아지는 설정" 같은 과거 템플릿 문장이 있더라도 그대로 인용하거나 요약하지 마십시오.
 학습 사례 근거는 내부 참고용으로만 사용하고, 표본 수/중앙값/여러 파라미터 후보를 나열하는 방식의 조언은 하지 마십시오.
@@ -399,9 +400,9 @@ def _compact_advisor_result(advisor_result: Dict[str, Any] | None) -> Dict[str, 
     if experiments:
         compact["suggested_experiments"] = experiments[:3]
 
-    ai_rec = advisor_result.get("ai_model_recommendation")
-    if isinstance(ai_rec, dict):
-        compact["ai_model_recommendation"] = ai_rec
+    # 정책: AI 예측 모델은 추천하지 않으므로 ai_model_recommendation을 코치 LLM에
+    # 전달하지 않는다. (검증 결과 알파 없음 — project_ai_auxiliary_usage 참고)
+    # 컨텍스트에 넣지 않아 코치가 AI 모델 사용을 제안할 근거 자체를 갖지 못하게 한다.
 
     return {key: value for key, value in compact.items() if value not in (None, [], {})}
 
@@ -1191,6 +1192,38 @@ def _remove_redundant_keep_condition_question(message: str) -> str:
     return re.sub(r"\s{2,}", " ", message).strip()
 
 
+# 프롬프트의 내부 라벨/지시문(직접 노출 금지로 표시된 컨텍스트, 필드명, '내부 참고용으로만
+# 사용하라'는 식의 메타 지시)을 모델이 그대로 따라 써서 사용자에게 새어 나온 문장을 제거한다.
+# 이런 문장은 어떤 경우에도 사용자 응답에 등장해서는 안 된다.
+_INTERNAL_LEAK_MARKERS = (
+    r"내부\s*참고용|참고용으로만|직접\s*노출|노출\s*금지|출력\s*금지|내부\s*컨텍스트|내부\s*지시문?|"
+    r"parsed_strategy|advisor_result|news_agent_insight|legacy_advisor_insight|"
+    r"conversation_context|strategy_memory_context"
+)
+
+
+def _strip_internal_context_leak(message: str) -> str:
+    """내부 컨텍스트 라벨/지시문이 새어 나온 문장을 통째로 제거한다.
+    제거 후 남은 본문이 비면 원본을 유지해 응답이 통째로 비는 것을 막는다."""
+    # 1) 마커를 포함하는 완결 문장(종결부호까지) 제거
+    cleaned = re.sub(
+        rf"(?:(?<=[.?!。])|^)\s*[^.?!。]*?(?:{_INTERNAL_LEAK_MARKERS})[^.?!。]*?[.?!。]",
+        "",
+        message,
+    )
+    # 2) 종결부호 없이 끝에 붙은 누출 조각 제거
+    cleaned = re.sub(
+        rf"(?:(?<=[.?!。])|^)\s*[^.?!。]*?(?:{_INTERNAL_LEAK_MARKERS})[^.?!。]*$",
+        "",
+        cleaned,
+    )
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    cleaned = re.sub(r"\s+([.?!。])", r"\1", cleaned).strip()
+    # 3) 누출 문장 제거 후 앞에 남는 매달린 접속어 정리(예: "판단하면 …")
+    cleaned = re.sub(r"^(?:판단하면|보면|라고\s*보면|그러면|따라서)\s*,?\s*", "", cleaned).strip()
+    return cleaned or message.strip()
+
+
 def _block_legacy_experiment_learning_copy(message: str) -> str:
     if not _is_legacy_experiment_learning_copy(message):
         return message
@@ -1394,8 +1427,35 @@ def _align_response_with_advisor_priority(
     )
 
 
+def _news_source_url(news_agent_insight: Optional[Dict[str, Any]]) -> Optional[str]:
+    """news_agent_insight에 실제 출처 기사 URL이 있으면 첫 번째 URL을 반환한다.
+    URL이 없으면(또는 인사이트가 없으면) None — 링크를 달지 않는다."""
+    if not isinstance(news_agent_insight, dict):
+        return None
+    for sym in news_agent_insight.get("symbols") or []:
+        for art in sym.get("articles") or []:
+            url = str(art.get("url") or "").strip()
+            if url.startswith("http"):
+                return url
+    return None
+
+
+def _attach_news_source_link(message: str, news_agent_insight: Optional[Dict[str, Any]]) -> str:
+    """코치 메시지가 '뉴스'를 언급하고 실제 출처 URL이 존재하면, 첫 '뉴스'를 마크다운
+    링크([뉴스](url))로 만든다. 실제 링크가 없으면 메시지를 그대로 둔다."""
+    if not message or "뉴스" not in message:
+        return message
+    if "](http" in message:  # 이미 링크가 달려 있으면 중복 처리하지 않는다
+        return message
+    url = _news_source_url(news_agent_insight)
+    if not url:
+        return message
+    return message.replace("뉴스", f"[뉴스]({url})", 1)
+
+
 def _apply_coach_postprocessing(text: str, explained_terms: set[str] | None) -> str:
     """코치 메시지 후처리 파이프라인 (순서 중요). 두 추출 경로가 공유한다."""
+    text = _strip_internal_context_leak(text)               # 내부 라벨/지시문 누출 문장 제거
     text = _ensure_explained_terms(text, explained_terms=explained_terms)
     text = _collapse_nested_term_explanation(text)          # 이중 괄호 평탄화
     text = _simplify_set_condition_restatement(text)        # 설정 조건 정의 복창 → 짧은 확인
@@ -1501,6 +1561,9 @@ def _generate_coach_response(
         response,
         effective_req.parsed_strategy,
         effective_req.advisor_result or effective_req.advisor_insight,
+    )
+    response = CoachResponse(
+        message=_attach_news_source_link(response.message, effective_req.news_agent_insight)
     )
     logger.info(
         "coach inference done | request_id=%s inference_ms=%.2f raw_len=%d message_len=%d",
@@ -1736,10 +1799,11 @@ async def coach_strategy_stream(req: CoachRequest):
                 buffer,
                 explained_terms=_explained_terms_from_context(effective_req.conversation_context),
             )
+            final_message = _attach_news_source_link(final.message, effective_req.news_agent_insight)
             payload = json.dumps(
                 {
                     "type": "done",
-                    "message": final.message,
+                    "message": final_message,
                 },
                 ensure_ascii=False,
             )

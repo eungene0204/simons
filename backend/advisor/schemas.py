@@ -45,6 +45,9 @@ class NewsArticleSignal(BaseModel):
     impact_direction: ImpactDirection = "neutral"
     impact_score: float = Field(default=0.0, ge=-1.0, le=1.0)
     confidence_score: float = Field(default=0.5, ge=0.0, le=1.0)
+    # 출처 기사 — 코치가 '뉴스'를 언급할 때 실제 링크를 달기 위한 용도 (신호 계산에는 사용 안 함)
+    title: Optional[str] = None
+    url: Optional[str] = None
 
 
 class NewsContext(BaseModel):

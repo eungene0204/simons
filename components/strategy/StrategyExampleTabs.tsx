@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type ExampleCategory = "가치투자" | "기술분석" | "모멘텀" | "복합전략" | "AI 전략";
+type ExampleCategory = "가치투자" | "기술분석" | "모멘텀" | "복합전략";
 type ExampleLevel = "beginner" | "intermediate" | "expert";
 
 interface Example {
@@ -41,9 +41,9 @@ const EXAMPLES: Example[] = [
   },
   {
     level: "beginner",
-    category: "AI 전략",
-    title: "AI가 고른 상승 후보 따라가기",
-    prompt: "아직 직접 종목을 고를 자신은 없어서 우리 AI 모델이 단기 상승 가능성이 높다고 판단하는 종목만 따라가 보고 싶어요. KOSPI 종목 중 AI가 매수 후보로 보는 종목을 5개 정도만 골라서 사고, AI가 하락으로 바뀌면 바로 팔아 주세요. 너무 큰 손실은 싫어서 손절은 -7%로 부탁드립니다.",
+    category: "복합전략",
+    title: "거래대금 많은 저평가주 담기",
+    prompt: "종목을 직접 분석할 자신은 없지만 너무 안 알려진 종목은 피하고 싶어요. KOSPI에서 PBR이 1배 이하면서 하루 거래대금이 100억 원 이상으로 활발한 종목만 골라 6종목 정도 나눠 사고 싶습니다. 한 번 사면 3개월은 들고 가고, 손절은 -8%로 부탁드립니다.",
   },
   {
     level: "beginner",
@@ -71,9 +71,9 @@ const EXAMPLES: Example[] = [
   },
   {
     level: "beginner",
-    category: "AI 전략",
-    title: "AI 추천주 주간 점검",
-    prompt: "AI가 좋다고 보는 종목을 너무 자주 바꾸지 않고 주간 단위로 따라가고 싶어요. KOSPI에서 AI가 상승 후보로 분류한 종목 중 상위 5개만 매수하고, 매주 한 번씩 다시 점검해서 순위가 밀리면 교체해 주세요. 손절은 -6%로 부탁드립니다.",
+    category: "모멘텀",
+    title: "수익률 상위 종목 주간 교체",
+    prompt: "잘 나가는 종목을 따라가되 너무 자주 바꾸지는 않고 싶어요. KOSPI에서 최근 한 달 수익률이 높은 종목 상위 5개만 사고, 매주 한 번씩 순위를 다시 확인해서 밀린 종목은 교체해 주세요. 손절은 -6%로 부탁드립니다.",
   },
   {
     level: "beginner",
@@ -101,9 +101,9 @@ const EXAMPLES: Example[] = [
   },
   {
     level: "beginner",
-    category: "AI 전략",
-    title: "AI + 거래량 확인 입문형",
-    prompt: "AI 추천만 그대로 따르기보다는 시장 관심이 붙은 종목만 들어가고 싶어요. KOSDAQ에서 AI가 상승으로 보는 종목 중 거래량이 최근 평균보다 많은 경우만 진입하게 해주세요. 종목은 5개만 보유하고 AI가 약세로 바뀌면 매도, 손절은 -7%로 설정해 주세요.",
+    category: "기술분석",
+    title: "거래량 늘어난 20일선 위 종목",
+    prompt: "추세가 살아 있는 종목만 안전하게 사고 싶어요. KOSDAQ에서 종가가 20일 이동평균선 위에 있고 거래량이 최근 평균보다 늘어난 종목만 5개 정도 매수해 주세요. 20일선 아래로 내려오면 정리하고, 손절은 -7%로 설정해 주세요.",
   },
   {
     level: "beginner",
@@ -131,9 +131,9 @@ const EXAMPLES: Example[] = [
   },
   {
     level: "intermediate",
-    category: "AI 전략",
-    title: "AI 예측 + 재무 건전성 필터",
-    prompt: "AI 예측을 그대로 믿기보다는 기본 재무 필터를 같이 걸고 싶습니다. KOSPI 종목 중 ROE 10% 이상, 부채비율 150% 이하인 기업만 남긴 뒤 AI가 상승 확률이 높다고 보는 종목에만 들어가 주세요. AI가 하락으로 바뀌면 바로 매도하고, 종목 수는 10개, 손절은 -10%로 운영하고 싶습니다.",
+    category: "복합전략",
+    title: "재무 건전성 + 추세 확인 매매",
+    prompt: "재무가 튼튼한 종목 중에서 추세가 살아 있는 종목만 담고 싶습니다. KOSPI 종목 중 ROE 10% 이상, 부채비율 150% 이하인 기업만 남긴 뒤 5일 EMA가 20일 EMA 위에 있는 종목에만 들어가 주세요. 5일 EMA가 20일 EMA 아래로 내려오면 매도하고, 종목 수는 10개, 손절은 -10%로 운영하고 싶습니다.",
   },
   {
     level: "intermediate",
@@ -143,9 +143,9 @@ const EXAMPLES: Example[] = [
   },
   {
     level: "intermediate",
-    category: "AI 전략",
-    title: "AI + 돌파매매 확인",
-    prompt: "우리 AI 모델이 상승 가능성이 높다고 보는 종목 중에서도 너무 이른 진입은 피하고 싶습니다. KOSDAQ에서 AI 매수 신호가 나온 후보 가운데 20일 신고가를 돌파한 종목만 진입하게 해주세요. AI가 하락으로 바뀌거나 돌파 후 10거래일 안에 힘을 못 쓰면 정리하고, 최대 8종목, 손절은 -9%로 운영하고 싶습니다.",
+    category: "모멘텀",
+    title: "돌파 후 거래량 확인 매매",
+    prompt: "신고가를 뚫는 종목 중에서도 진짜 힘이 실린 종목만 들어가고 싶습니다. KOSDAQ에서 20일 신고가를 돌파하면서 당일 거래대금이 최근 20일 평균보다 많은 종목만 진입하게 해주세요. 돌파 후 10거래일 안에 힘을 못 쓰거나 20일선을 이탈하면 정리하고, 최대 8종목, 손절은 -9%로 운영하고 싶습니다.",
   },
   {
     level: "intermediate",
@@ -173,9 +173,9 @@ const EXAMPLES: Example[] = [
   },
   {
     level: "intermediate",
-    category: "AI 전략",
-    title: "AI 예측 + 변동성 필터",
-    prompt: "AI가 상승으로 보는 종목 중에서도 하루 변동성이 너무 큰 종목은 제외하고 싶습니다. KOSDAQ 종목에서 최근 20일 변동성이 과도하지 않은 종목만 남긴 뒤 AI 매수 신호가 유지되는 동안 보유하게 해주세요. 최대 8종목, 주간 리밸런싱, 손절 -8%로 설정해 주세요.",
+    category: "복합전략",
+    title: "저변동 우량주 스윙",
+    prompt: "변동성이 너무 큰 종목은 부담스러워서 비교적 안정적으로 움직이는 종목만 담고 싶습니다. KOSDAQ 종목 중 최근 20일 변동성이 과도하지 않으면서 ROE가 양호한 종목만 남긴 뒤 5일선이 20일선 위에 있을 때 매수해 주세요. 5일선이 20일선 아래로 내려오면 청산하고, 최대 8종목, 주간 리밸런싱, 손절 -8%로 설정해 주세요.",
   },
   {
     level: "intermediate",
@@ -203,9 +203,9 @@ const EXAMPLES: Example[] = [
   },
   {
     level: "intermediate",
-    category: "AI 전략",
-    title: "AI + 이동평균 추세 유지",
-    prompt: "AI 상승 예측이 나온 종목 중 20일 EMA가 60일 EMA 위에 있는 경우만 매수해 주세요. AI 신호만으로 진입하지 않고 기본 추세가 유지되는 종목만 담고 싶습니다. AI 하락 전환 또는 20일 EMA 이탈 시 청산, 최대 10종목, 손절 -9%로 부탁드립니다.",
+    category: "기술분석",
+    title: "이중 이동평균 추세 유지",
+    prompt: "추세가 확실히 잡힌 종목만 따라가고 싶습니다. KOSPI 종목 중 20일 EMA가 60일 EMA 위에 있고 종가가 20일 EMA를 회복한 시점에만 매수해 주세요. 20일 EMA를 이탈하면 청산하고, 최대 10종목, 손절 -9%로 부탁드립니다.",
   },
   {
     level: "expert",
@@ -227,9 +227,9 @@ const EXAMPLES: Example[] = [
   },
   {
     level: "expert",
-    category: "AI 전략",
-    title: "AI 예측과 기술 신호 이중 확인",
-    prompt: "AI 상승 예측 신호를 메인 알파로 쓰되 노이즈를 줄이기 위해 기술 조건을 추가하고 싶습니다. KOSPI 종목 중 AI가 상승으로 분류한 후보 가운데 5일 EMA가 20일 EMA를 상향 돌파한 경우에만 진입해 주세요. 청산은 AI 하락 전환 또는 EMA 데드크로스 중 먼저 도달하는 조건으로 하고, 포트폴리오는 최대 10종목, 손절은 -8%, 익절 +18%, 월간 리밸런싱으로 부탁드립니다.",
+    category: "복합전략",
+    title: "이중 기술 신호 확인 스윙",
+    prompt: "노이즈를 줄이기 위해 두 가지 기술 신호가 함께 확인될 때만 진입하고 싶습니다. KOSPI 종목 중 MACD 골든크로스가 발생하면서 5일 EMA가 20일 EMA를 상향 돌파한 경우에만 매수해 주세요. 청산은 EMA 데드크로스 또는 MACD 데드크로스 중 먼저 도달하는 조건으로 하고, 포트폴리오는 최대 10종목, 손절은 -8%, 익절 +18%, 월간 리밸런싱으로 부탁드립니다.",
   },
   {
     level: "expert",
@@ -239,9 +239,9 @@ const EXAMPLES: Example[] = [
   },
   {
     level: "expert",
-    category: "AI 전략",
-    title: "AI 신호 기반 월간 로테이션",
-    prompt: "KOSPI와 KOSDAQ 전체 유니버스에서 일평균 거래대금 50억 원 이상인 종목만 남긴 뒤, AI 모델이 상승 예측한 종목에 매수 진입해 주세요. AI가 하락으로 전환하면 즉시 청산하고, 매월 리밸런싱으로 포트폴리오를 재정비합니다. 최대 15종목 동일 비중으로 운용하고 종목별 손절은 -8%로 제한해 주세요.",
+    category: "모멘텀",
+    title: "거래대금 필터 월간 모멘텀 로테이션",
+    prompt: "KOSPI와 KOSDAQ 전체 유니버스에서 일평균 거래대금 50억 원 이상인 종목만 남긴 뒤, 최근 60거래일 수익률 상위 종목에 매수 진입해 주세요. 매월 리밸런싱으로 순위를 다시 매겨 상위 15종목 동일 비중을 유지하고, 종목별 손절은 -8%로 제한해 주세요.",
   },
   {
     level: "expert",
@@ -269,9 +269,9 @@ const EXAMPLES: Example[] = [
   },
   {
     level: "expert",
-    category: "AI 전략",
-    title: "AI 확률 점수 기반 랭킹 포트폴리오",
-    prompt: "AI 모델이 산출하는 상승 확률 점수를 알파로 사용하되, KOSPI 유니버스 중 일평균 거래대금 100억 원 이상 종목만 대상으로 해주세요. 매주 상위 점수 10종목만 동일 비중으로 보유하고, 점수가 하위 30%로 밀리면 교체하는 랭킹 전략으로 구성해 주세요. 개별 손절 -7%, 포트폴리오 현금 5% 유지 조건을 반영해 주세요.",
+    category: "모멘텀",
+    title: "상대강도 점수 기반 주간 랭킹",
+    prompt: "상대강도 점수를 알파로 사용하되, KOSPI 유니버스 중 일평균 거래대금 100억 원 이상 종목만 대상으로 해주세요. 매주 최근 120거래일 상대강도 상위 10종목만 동일 비중으로 보유하고, 순위가 하위 30%로 밀리면 교체하는 랭킹 전략으로 구성해 주세요. 개별 손절 -7%, 포트폴리오 현금 5% 유지 조건을 반영해 주세요.",
   },
   {
     level: "expert",
@@ -299,9 +299,9 @@ const EXAMPLES: Example[] = [
   },
   {
     level: "expert",
-    category: "AI 전략",
-    title: "AI + 팩터 필터 멀티알파 전략",
-    prompt: "AI 상승 예측 신호를 기본으로 하되, KOSPI/KOSDAQ 공통 유니버스에서 ROE 12% 이상, 최근 60거래일 상대강도 상위 30%, 일평균 거래대금 50억 원 이상 조건을 동시에 만족하는 종목만 편입해 주세요. 매주 점수를 재산출해 상위 12종목 동일 비중 포트폴리오를 유지하고, AI 하락 전환 또는 손절 -8% 도달 시 청산하도록 구성해 주세요.",
+    category: "복합전략",
+    title: "멀티팩터(퀄리티+모멘텀+밸류) 결합",
+    prompt: "여러 팩터를 결합한 멀티팩터 전략을 만들고 싶습니다. KOSPI/KOSDAQ 공통 유니버스에서 ROE 12% 이상, PBR 1.5배 이하, 최근 60거래일 상대강도 상위 30%, 일평균 거래대금 50억 원 이상 조건을 동시에 만족하는 종목만 편입해 주세요. 매주 점수를 재산출해 상위 12종목 동일 비중 포트폴리오를 유지하고, 20일선 이탈 또는 손절 -8% 도달 시 청산하도록 구성해 주세요.",
   },
   {
     level: "expert",
@@ -316,7 +316,6 @@ const CATEGORY_STYLE: Record<ExampleCategory, { label: string; color: string; bg
   기술분석: { label: "기술분석", color: "text-blue-400", bg: "bg-blue-500/10", border: "border-blue-500/20" },
   모멘텀: { label: "모멘텀", color: "text-violet-400", bg: "bg-violet-500/10", border: "border-violet-500/20" },
   복합전략: { label: "복합전략", color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/20" },
-  "AI 전략": { label: "AI 전략", color: "text-pink-400", bg: "bg-pink-500/10", border: "border-pink-500/20" },
 };
 
 const LEVEL_META: Record<ExampleLevel, { label: string; description: string }> = {

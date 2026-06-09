@@ -107,6 +107,8 @@ def build_news_context_from_strategy(
 
         articles: List[NewsArticleSignal] = []
         for row in article_rows:
+            url = str(row.get("url") or "").strip() or None
+            title = str(row.get("title") or "").strip() or None
             articles.append(
                 NewsArticleSignal(
                     event_type=str(row.get("eventType") or "general_neutral"),
@@ -114,6 +116,8 @@ def build_news_context_from_strategy(
                     impact_direction=_normalize_direction(row.get("impactDirection")),
                     impact_score=_coerce_float(row.get("impactScore")),
                     confidence_score=_coerce_float(row.get("confidenceScore"), 0.5),
+                    title=title,
+                    url=url,
                 )
             )
 

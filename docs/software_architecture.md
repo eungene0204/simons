@@ -1,7 +1,7 @@
 # Software Architecture
 
 > 한국/글로벌 주식 퀀트 투자 플랫폼 — Simons
-> **최종 갱신일:** 2026-06-08
+> **최종 갱신일:** 2026-06-09
 
 ---
 
@@ -224,7 +224,7 @@ simons/
 
 ```
 StrategyLabPage (app/analytics/new/page.tsx)
-├── StrategyExampleTabs          — 초보/중급/고급별 예시 프롬프트 제공
+├── StrategyExampleTabs          — 초보/중급/고급별 예시 프롬프트 제공 (가치투자·기술분석·모멘텀·복합전략 4개 카테고리; AI 모델 예시·"AI 전략" 카테고리는 2026-06-09 제거)
 ├── Run All Tests CTA            — 독립형 배치 테스트 모달 오픈
 ├── 채팅 입력창
 │   └── handleSend()             — POST SSE via /api/strategy/parse/stream
@@ -715,6 +715,7 @@ FastAPI startup에서 news scheduler가 시작되면 Celery worker를 자동 기
 | 우선순위 | MLX priority lock에서 parse보다 낮고 summary보다 높은 priority |
 | 뉴스 우선순위 | news_agent_insight 존재 시 최우선 반영, risk_alert_level high → 리스크 조언 강제 |
 | learning evidence 가드 | advisor_result의 표본 수/중앙값/복수 후보 나열형 옛 템플릿 문장을 LLM 컨텍스트에서 제거하고, LLM 최종 출력에서도 동일 패턴을 대체 |
+| AI 모델 추천 가드 (2026-06-09) | `ai_model_recommendation`을 코치 LLM 컨텍스트에 넣지 않고, `COACH_SYSTEM_PROMPT`에 "AI 모델 추천 금지" 지시를 추가해 사용자가 먼저 언급해도 AI 모델 사용을 권하지 않음 |
 | `<think>` 처리 | Qwen3 thinking-mode 아티팩트 자동 제거 (`re.sub`) |
 
 ### 7.1c RAG + Experience Memory 전략 Advisor (`backend/advisor/*`)
@@ -751,6 +752,8 @@ advice_evaluation 저장 + 대화창 말풍선 응답 생성
 | `memory_repository.py` | `AdviceExperience` 저장/조회. 기존 사용자 `Strategy` row는 덮어쓰지 않음 |
 | `experiment_learning.py` | 10,000건 smoke sample 기반 learning artifact에서 내부 confidence와 위험 판단을 산출하되, 사용자 문구에는 표본 수/중앙값 나열을 노출하지 않음 |
 | `response_composer.py` | 내부 근거를 조합하되 사용자에게는 성과 신호, 비교 후보, 리스크 조치 중심의 짧은 조언 생성 |
+
+**AI 모델 추천 비활성화 (2026-06-09):** 검증 결과 AI 예측 모델이 알파를 내지 못하므로(7.2 참고) Advisor는 AI 모델 사용을 절대 추천하지 않는다. `suggestion_engine.py::_build_ai_recommendation`은 항상 `recommended=False`를 반환하고, `_build_experiments`는 "AI 예측 신호 추가" 실험을 제안하지 않는다.
 
 **Advisor learning artifact**
 
@@ -800,6 +803,12 @@ XGBoost Head (v1: 단일 모델 / v2: up/down 분리 모델)
 ```
 
 조건 블록 ID: `ai_model` (매수 신호), `ai_drop_model` (매도 신호)
+
+> ⚠️ **전략 도구 활용 비권장 (2026-06-09 검증):** 예측 모델은 추론은 정상 동작하나, 백테스트 검증에서 전략 도구로서의 가치가 확인되지 않았다.
+> - **점수 분포:** 보정 안 된 좁은 분포(상승 0.20~0.30, 하락 0.33~0.40)라 UI/파서 기본 threshold=70은 신호 0건. 사용 시 분포 퍼센타일 기반 threshold가 필요하다.
+> - **검증 결과:** per-stock 진입/청산(워크포워드 2018~2025), 포트폴리오 breadth 위험 오버레이 모두 바이앤홀드(+15.2%/년) 대비 알파 없음. 재현 스크립트: `backend/experiment_ai_auxiliary.py`, `experiment_ai_walkforward.py`, `experiment_ai_breadth_overlay.py`.
+> - **정책:** 조언/코치 에이전트(7.1b, 7.1c)와 전략연구소 예시(3.2)는 AI 모델을 추천·노출하지 않는다. 사용자가 직접 명시하면 엔진/파서는 여전히 인식·실행한다.
+> - **실행 주의:** AI 조건이 포함된 in-process 백테스트는 polars rayon 스레드풀 데드락을 피하기 위해 `POLARS_MAX_THREADS=1`로 실행해야 한다(+ XGBoost segfault 회피 `KMP_DUPLICATE_LIB_OK=TRUE`/`OMP_NUM_THREADS=1`).
 
 ### 7.3 설명 가능 AI (`backend/ai/xai_engine.py`)
 

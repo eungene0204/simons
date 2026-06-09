@@ -35,6 +35,7 @@ import {
   type AdvisorWalkForwardSettings,
 } from "./parsedStrategyMerge";
 import { normalizeCoachMessage } from "./coachMessage";
+import { parseCoachSegments } from "./coachText";
 import { parseSseBlocks } from "./sseEvents";
 
 const BacktestDashboard = dynamic(
@@ -953,7 +954,21 @@ function StrategyLabContent() {
                             </div>
                             {msg.coachText && (
                               <p className="text-sm font-bold text-white leading-relaxed whitespace-pre-line">
-                                {msg.coachText.replace(/\*\*(.*?)\*\*/g, "$1")}
+                                {parseCoachSegments(msg.coachText).map((seg, segIdx) =>
+                                  seg.type === "link" ? (
+                                    <a
+                                      key={segIdx}
+                                      href={seg.href}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="underline text-sky-300 hover:text-sky-200"
+                                    >
+                                      {seg.value}
+                                    </a>
+                                  ) : (
+                                    <span key={segIdx}>{seg.value}</span>
+                                  )
+                                )}
                               </p>
                             )}
                           </div>
