@@ -1355,6 +1355,7 @@ cd backend && pytest tests/
 | 테스트 커버리지 | ✅ 양호 (backend 533 tests, frontend 198 tests 기준) | 85% |
 | Strategy Research Agent | ✅ 전체 완료 | 100% |
 | 뉴스 Impact AI Agent | ✅ 전체 완료 | 100% |
+| 개별 종목 질문 대응 (Intent 분류 + Stock Analysis Agent) | ✅ 전체 완료 | 100% |
 | 고급 분석 (팩터, 상관관계, 섹터) | 🔲 미구현 | 0% |
 | 소셜/마켓플레이스 | 🔲 미구현 | 0% |
 | 인프라 (Docker, CI/CD, 모니터링) | 🔲 미구현 | 0% |

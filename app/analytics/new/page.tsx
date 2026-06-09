@@ -37,6 +37,7 @@ import {
 import { normalizeCoachMessage } from "./coachMessage";
 import { parseCoachSegments } from "./coachText";
 import { parseSseBlocks } from "./sseEvents";
+import StockAnalysisPanel, { type StockAnalysisResult } from "@/components/strategy/StockAnalysisPanel";
 
 const BacktestDashboard = dynamic(
   () => import("@/components/strategy/backtest/BacktestDashboard"),
@@ -57,6 +58,10 @@ interface ChatMessage {
   coachLoading?: boolean;  // coach response is being generated
   isLoading?: boolean;
   error?: string;
+  // 개별 종목 질문 / 일반 투자 질문 응답
+  stockAnalysis?: StockAnalysisResult;
+  stockLoading?: boolean;
+  infoText?: string;  // 일반 투자 답변 또는 종목 명확화 안내
 }
 
 interface ParseSkeleton {
@@ -310,6 +315,8 @@ function StrategyLabContent() {
   const backtestReqRef = useRef<any>(null);
   const coachSessionIdRef = useRef<string | null>(null);
   const coachConversationRef = useRef<CoachConversationMessage[]>([]);
+  // 직전 분석 종목 — '이 종목 팔까?' 같은 anaphora 해석용
+  const lastAnalyzedSymbolRef = useRef<string | null>(null);
   // first user prompt — kept for advisor context
   const firstPromptRef = useRef<string>("");
 
@@ -419,6 +426,86 @@ function StrategyLabContent() {
     return null;
   };
 
+  // 개별 종목 질문 / 일반 투자 질문을 전략 흐름과 분리해 처리한다.
+  // 처리했으면 true(전략 파싱으로 넘어가지 않음), 아니면 false(기존 전략 흐름).
+  const maybeRouteNonStrategyQuery = async (
+    userText: string,
+    currentParsed: ParsedSummary | null,
+  ): Promise<boolean> => {
+    let intent = "STRATEGY_ADVICE";
+    let symbol: string | null = null;
+    try {
+      const res = await fetch("/api/query/classify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: userText, last_symbol: lastAnalyzedSymbolRef.current }),
+      });
+      if (!res.ok) return false;  // 분류 실패 시 기존 전략 흐름으로 폴백
+      const data = await res.json();
+      intent = data.intent;
+      symbol = data.symbols?.[0]?.symbol ?? null;
+    } catch {
+      return false;
+    }
+
+    // 개별 종목 질문 → Stock Analysis Agent
+    if (intent === "STOCK_ANALYSIS") {
+      setMessages(prev => [
+        ...prev,
+        { role: "user", content: userText },
+        { role: "assistant", stockLoading: true },
+      ]);
+      if (!symbol) {
+        updateLastAssistant({
+          stockLoading: false,
+          infoText: "어떤 종목을 분석할까요? 종목명을 알려주시면 분석해 드리겠습니다.",
+        });
+        return true;
+      }
+      try {
+        const res = await fetch("/api/stock/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbol, query: userText }),
+        });
+        if (!res.ok) throw new Error();
+        const result: StockAnalysisResult = await res.json();
+        lastAnalyzedSymbolRef.current = result.symbol;
+        updateLastAssistant({ stockLoading: false, stockAnalysis: result });
+      } catch {
+        updateLastAssistant({
+          stockLoading: false,
+          error: "종목 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
+        });
+      }
+      return true;
+    }
+
+    // 일반 투자 지식 질문 → 전략 작성 중이 아닐 때만 가로챈다.
+    if (intent === "GENERAL_INVESTMENT" && !currentParsed) {
+      setMessages(prev => [
+        ...prev,
+        { role: "user", content: userText },
+        { role: "assistant", isLoading: true },
+      ]);
+      try {
+        const res = await fetch("/api/query/general", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: userText }),
+        });
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        updateLastAssistant({ isLoading: false, infoText: data.answer });
+      } catch {
+        updateLastAssistant({ isLoading: false, error: "답변을 가져오지 못했습니다." });
+      }
+      return true;
+    }
+
+    return false;
+  };
+
   const handleSend = async (overrideText?: string) => {
     const userText = overrideText ?? inputValue.trim();
     if (!userText || isSending || stage === "running") return;
@@ -427,6 +514,12 @@ function StrategyLabContent() {
     const currentParsed = latestParsedRef.current ?? latestParsed;
     const currentBacktestReq = backtestReqRef.current ?? backtestReq;
     setIsSending(true);
+
+    const routed = await maybeRouteNonStrategyQuery(userText, currentParsed);
+    if (routed) {
+      setIsSending(false);
+      return;
+    }
 
     if (currentParsed && isAdvisorFollowUpPrompt(userText)) {
       setMessages(prev => [
@@ -894,6 +987,41 @@ function StrategyLabContent() {
                       <div className="space-y-3">
                         {msg.isLoading && !msg.parseSkeleton && (
                           <AnalysisStatusBubble title="전략 분석" />
+                        )}
+                        {msg.stockLoading && <AnalysisStatusBubble title="종목 분석" />}
+                        {msg.stockAnalysis && (
+                          <div className="space-y-3">
+                            <div className={`max-w-[88%] rounded-tl-sm p-3.5 space-y-2 ${COACH_CHAT_BUBBLE_CLASS}`}>
+                              <span className="text-[11px] font-black uppercase tracking-widest text-white">
+                                종목 분석
+                              </span>
+                              <p className="text-sm font-bold text-white leading-relaxed whitespace-pre-line">
+                                {parseCoachSegments(msg.stockAnalysis.explanation).map((seg, segIdx) =>
+                                  seg.type === "link" ? (
+                                    <a
+                                      key={segIdx}
+                                      href={seg.href}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="underline text-sky-300 hover:text-sky-200"
+                                    >
+                                      {seg.value}
+                                    </a>
+                                  ) : (
+                                    <span key={segIdx}>{seg.value}</span>
+                                  )
+                                )}
+                              </p>
+                            </div>
+                            <StockAnalysisPanel result={msg.stockAnalysis} />
+                          </div>
+                        )}
+                        {msg.infoText && (
+                          <div className={`max-w-[88%] rounded-tl-sm p-3.5 space-y-2 ${COACH_CHAT_BUBBLE_CLASS}`}>
+                            <p className="text-sm font-bold text-white leading-relaxed whitespace-pre-line">
+                              {msg.infoText}
+                            </p>
+                          </div>
                         )}
                         {msg.parseSkeleton && !msg.parsed && (
                           <ParseSkeletonBubble skeleton={msg.parseSkeleton} />

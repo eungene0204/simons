@@ -121,6 +121,9 @@ app.include_router(advisor_router)
 from api.coach_routes import router as coach_router
 app.include_router(coach_router)
 
+from api.stock_analysis_routes import router as stock_analysis_router
+app.include_router(stock_analysis_router)
+
 # news_v2 — pre-fetch & cache architecture
 try:
     from news_v2.api import router as news_v2_router

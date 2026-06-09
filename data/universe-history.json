@@ -1,6 +1,25 @@
 {
-  "updatedAt": "2026-06-09T00:00:04.099785+09:00",
+  "updatedAt": "2026-06-10T00:00:04.208182+09:00",
   "entries": [
+    {
+      "date": "2026-06-10",
+      "syncedAt": "2026-06-10T00:00:04.208182+09:00",
+      "totalCount": 2657,
+      "kospiCount": 838,
+      "kosdaqCount": 1819,
+      "addedCount": 0,
+      "delistedCount": 1,
+      "added": [],
+      "delisted": [
+        {
+          "symbol": "464680",
+          "name": "KB제27호스팩",
+          "market": "KOSDAQ",
+          "sector": "은행/금융지주",
+          "industry": "금융 지원 서비스업"
+        }
+      ]
+    },
     {
       "date": "2026-06-09",
       "syncedAt": "2026-06-09T00:00:04.099785+09:00",
