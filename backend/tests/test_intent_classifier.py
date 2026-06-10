@@ -23,6 +23,25 @@ def test_spec_examples(query, expected):
     assert classify(query).intent == expected
 
 
+@pytest.mark.parametrize(
+    "query",
+    [
+        "PBR 1 이하, PER 10 이하 저평가 종목",  # 실제 버그 재현 케이스
+        "저평가 종목",
+        "고배당주 추천해줘",
+        "ROE 15 이상 우량주",
+        "거래량 100만 이상 종목",
+        "시총 1조 이상인 종목",
+    ],
+)
+def test_fundamental_screening_is_strategy(query):
+    # 특정 종목명 없는 '조건/필터로 종목 고르기'는 전략 설계(스크리닝)다.
+    # 종목 분석(STOCK_ANALYSIS)으로 빠지면 "어떤 종목?" 막다른 길이 된다.
+    result = classify(query)  # llm 없이도 결정적으로 잡혀야 한다
+    assert result.intent == QueryIntent.STRATEGY_ADVICE
+    assert result.deterministic is True
+
+
 def test_stock_question_extracts_symbol():
     result = classify("지금 삼성전자 사도 될까요?")
     assert result.intent == QueryIntent.STOCK_ANALYSIS

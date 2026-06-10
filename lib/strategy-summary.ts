@@ -51,7 +51,9 @@ export const PERIOD_LABELS: Record<string, string> = {
 export const REBAL_LABELS: Record<string, string> = {
   none: "없음",
   daily: "매일",
+  weekly: "매주",
   monthly: "매월",
+  bimonthly: "격월",
   quarterly: "분기",
   yearly: "매년",
 };

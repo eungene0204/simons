@@ -770,6 +770,12 @@ export default function BacktestDashboard({
                 </button>
                 {promptTooltipOpen && (
                   <div className="absolute right-0 top-full mt-2 z-50 w-96 rounded-xl border border-white/[0.10] bg-[#111318] p-4 shadow-2xl space-y-2.5">
+                    {promptText && (
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest">프롬프트</span>
+                        <p className="text-xs text-gray-200 leading-5 whitespace-pre-wrap">{promptText}</p>
+                      </div>
+                    )}
                     {strategySummary && (
                       <>
                         {strategySummary.universeName && (
@@ -825,17 +831,12 @@ export default function BacktestDashboard({
                         )}
                       </>
                     )}
-                    {promptText && (
-                      <div className="flex flex-wrap gap-1.5 items-start">
-                        <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0 pt-0.5">프롬프트</span>
-                        <p className="flex-1 text-xs text-gray-300 leading-5 whitespace-pre-wrap">{promptText}</p>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
             )}
-            {onWalkForward && (
+            {/* 워크포워드 버튼은 일시적으로 숨김 (기능은 유지) */}
+            {false && onWalkForward && (
               <button
                 onClick={() => setIsWFAOpen(true)}
                 className="px-4 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] text-gray-200 text-sm font-bold rounded-lg transition-colors border border-white/10 hover:border-white/15 active:scale-95 flex items-center gap-1.5"

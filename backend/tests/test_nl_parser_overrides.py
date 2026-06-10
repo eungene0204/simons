@@ -14,6 +14,8 @@ from engine.nl_parser import (
     _build_fallback_strategy,
     detect_missing_entry_clarification,
     _extract_technical_signals,
+    _extract_fundamental_filters,
+    _extract_rebalancing_period,
     _match_risk_pct,
     extract_risk_field_overrides,
     _merge_signals,
@@ -471,6 +473,62 @@ def test_rule_based_strategy_parses_pbr_particle_unit_prompt_without_llm():
     assert parsed.stop_loss_pct == 12.0
 
 
+def test_rule_based_strategy_parses_trading_value_particle_prompt_without_llm():
+    # '거래대금이 100억 원 이상' 처럼 조사(이/가)가 붙은 표현도 trading_value 필터로 인식해야 한다.
+    prompt = (
+        "KOSPI에서 PBR이 1배 이하면서 하루 거래대금이 100억 원 이상으로 활발한 종목만 골라 "
+        "6종목 정도 나눠 사고 싶습니다. 한 번 사면 3개월은 들고 가고, 손절은 -8%로 부탁드립니다."
+    )
+
+    parsed = _parse_rule_based_strategy(prompt)
+
+    assert parsed is not None
+    assert [(f.metric, f.operator, f.value) for f in parsed.fundamental_filters] == [
+        ("pbr", "<=", 1.0),
+        ("trading_value", ">=", 100.0),
+    ]
+    assert parsed.max_positions == 6
+    assert parsed.hold_period_days == 63
+    assert parsed.stop_loss_pct == 8.0
+
+
+def test_extract_fundamental_filters_keeps_operator_after_won_suffix():
+    # '억원'의 '원'이 끼어들어도 뒤따르는 연산자(이하/이상)를 놓치지 않아야 한다.
+    # 기존 (억|억원) 교대는 '억'을 먼저 잡아 '원'이 남고 연산자 매칭이 깨졌다.
+    filters = _extract_fundamental_filters(
+        "거래대금 100억원 이하, 시가총액 5000억원 이상 종목"
+    )
+
+    assert [(f.metric, f.operator, f.value) for f in filters] == [
+        ("market_cap", ">=", 5000.0),
+        ("trading_value", "<=", 100.0),
+    ]
+
+
+def test_extract_fundamental_filters_converts_jo_unit_to_eok():
+    # '조' 단위는 억원 단위로 환산해야 한다(1조 = 10000억). 소수 '조'도 지원.
+    filters = _extract_fundamental_filters(
+        "시가총액이 1조 이상, 거래대금 1.5조 이상 종목"
+    )
+
+    assert [(f.metric, f.operator, f.value) for f in filters] == [
+        ("market_cap", ">=", 10000.0),
+        ("trading_value", ">=", 15000.0),
+    ]
+
+
+def test_extract_fundamental_filters_sums_jo_eok_combo():
+    # '2조5000억'처럼 조+억 콤보는 (조×10000)+억으로 합산해야 한다.
+    filters = _extract_fundamental_filters(
+        "시가총액 2조5000억 이상, 거래대금 1조2000억 이하 종목"
+    )
+
+    assert [(f.metric, f.operator, f.value) for f in filters] == [
+        ("market_cap", ">=", 25000.0),
+        ("trading_value", "<=", 12000.0),
+    ]
+
+
 def test_rule_based_strategy_parses_technical_prompt_with_risk_without_llm():
     parsed = _parse_rule_based_strategy("KOSPI 종목 중 골든크로스 매수, 데드크로스 매도, 손절 8%")
 
@@ -502,6 +560,44 @@ def test_rule_based_strategy_parses_52_week_high_volume_spike_prompt_without_llm
     assert parsed.hold_period_days == 20
     assert parsed.max_positions == 6
     assert parsed.stop_loss_pct == 10.0
+
+
+def test_rule_based_strategy_parses_price_above_ma_with_volume_prompt_without_llm():
+    # '종가가 20일선 위 + 거래량 평균보다 증가'를 진입 신호로, '20일선 아래로'를 청산으로 잡아야 한다.
+    # 가격 vs MA는 ma_crossover(short=1, long=N)로 표현된다(close_1_sma=close).
+    prompt = (
+        "추세가 살아 있는 종목만 안전하게 사고 싶어요. "
+        "KOSDAQ에서 종가가 20일 이동평균선 위에 있고 거래량이 최근 평균보다 늘어난 종목만 "
+        "5개 정도 매수해 주세요. 20일선 아래로 내려오면 정리하고, 손절은 -7%로 설정해 주세요."
+    )
+
+    parsed = _parse_rule_based_strategy(prompt)
+
+    assert parsed is not None
+    assert parsed.universe == ["KOSDAQ"]
+    assert [(s.indicator, s.signal_type, s.short_period, s.long_period) for s in parsed.entry_signals] == [
+        ("ma_crossover", "buy", 1, 20),
+        ("volume_spike", "buy", None, None),
+    ]
+    assert [(s.indicator, s.signal_type, s.short_period, s.long_period) for s in parsed.exit_signals] == [
+        ("ma_crossover", "sell", 1, 20),
+    ]
+    assert parsed.max_positions == 5
+    assert parsed.stop_loss_pct == 7.0
+
+
+def test_extract_technical_signals_volume_rising_phrasings():
+    # 거래량 증가 표현은 문구가 다양해도(급증/폭발/터짐/평균보다 늘…) 모두 volume_spike로 잡아야 한다.
+    for phrase in ["거래량 급증", "거래량이 터진", "거래량이 평소보다 늘어난", "거래량이 최근 평균보다 증가한"]:
+        entry, _ = _extract_technical_signals(f"{phrase} 종목 매수")
+        assert [s.indicator for s in entry] == ["volume_spike"], phrase
+
+
+def test_extract_technical_signals_golden_cross_keeps_default_periods():
+    # 가격 vs MA(short=1) 추가가 골든/데드 크로스 기본 기간(5/20)을 침범하지 않아야 한다.
+    entry, exit_ = _extract_technical_signals("골든크로스 매수, 데드크로스 매도")
+    assert [(s.indicator, s.short_period, s.long_period) for s in entry] == [("ma_crossover", 5, 20)]
+    assert [(s.indicator, s.short_period, s.long_period) for s in exit_] == [("ma_crossover", 5, 20)]
 
 
 def test_rule_based_strategy_falls_back_for_ambiguous_prompt():
@@ -862,6 +958,28 @@ def test_rule_based_parses_relative_strength_ranking_full_prompt():
     assert parsed.stop_loss_pct == 9.0
 
 
+def test_rebalancing_bimonthly_phrasings():
+    """'두 달에 한 번/격월/2개월마다'는 bimonthly. monthly의 '달에한번'에 삼켜지지 않는다."""
+    assert _extract_rebalancing_period("두 달에 한 번 점검", None) == "bimonthly"
+    assert _extract_rebalancing_period("격월 리밸런싱", None) == "bimonthly"
+    assert _extract_rebalancing_period("2개월마다 다시 본다", None) == "bimonthly"
+    # 한 달에 한 번은 그대로 monthly
+    assert _extract_rebalancing_period("한 달에 한 번 점검", None) == "monthly"
+
+
+def test_parse_rule_based_bimonthly_inspection():
+    """스크린샷 프롬프트: '점검은 두 달에 한 번' → bimonthly 리밸런싱으로 잡힌다."""
+    prompt = (
+        "KOSPI 종목 중 PBR 1 이하 PER 10 이하 종목을 8개 사고, "
+        "점검은 두 달에 한 번이면 좋겠습니다. 손절은 -10%."
+    )
+
+    parsed = _parse_rule_based_strategy(prompt)
+
+    assert parsed is not None
+    assert parsed.rebalancing_period == "bimonthly"
+
+
 def test_extract_max_positions_ignores_months_phrase():
     """'3개월'의 '3개'를 종목 수로 오인하지 않는다."""
     from engine.nl_parser import _extract_max_positions
@@ -879,6 +997,48 @@ def test_ranking_none_when_no_ranking_intent():
     from engine.nl_parser import _extract_ranking
 
     assert _extract_ranking("골든크로스 매수, 데드크로스 매도") == (None, None)
+
+
+def test_ranking_lookback_from_korean_month_phrase():
+    """'최근 한 달 수익률'은 60 기본값이 아니라 ~21거래일로 환산해야 한다."""
+    from engine.nl_parser import _extract_ranking
+
+    assert _extract_ranking("최근 한 달 수익률이 높은 상위 5개") == ("return", 21)
+    assert _extract_ranking("최근 세 달 수익률 상위 종목") == ("return", 63)
+
+
+def test_ranking_lookback_from_week_phrase():
+    from engine.nl_parser import _extract_ranking
+
+    assert _extract_ranking("최근 2주 수익률 상위 종목") == ("return", 10)
+    assert _extract_ranking("일주일 수익률 상위 종목") == ("return", 5)
+
+
+def test_rebalancing_period_detects_weekly():
+    from engine.nl_parser import _extract_rebalancing_period
+
+    assert _extract_rebalancing_period("매주 한 번씩 순위를 다시 확인해서 교체", None) == "weekly"
+    assert _extract_rebalancing_period("주간 리밸런싱으로 운용", None) == "weekly"
+    # 기존 주기는 그대로 유지(회귀 방지)
+    assert _extract_rebalancing_period("매월 리밸런싱", None) == "monthly"
+
+
+def test_rule_based_strategy_parses_weekly_momentum_ranking_prompt_without_llm():
+    """'최근 한 달 수익률 상위 5종목 + 매주 교체 + 손절 -6%' 전체 결정적 파싱."""
+    prompt = (
+        "KOSPI에서 최근 한 달 수익률이 높은 종목 상위 5개만 사고, "
+        "매주 한 번씩 순위를 다시 확인해서 밀린 종목은 교체해 주세요. 손절은 -6%로 부탁드립니다."
+    )
+    parsed = _parse_rule_based_strategy(prompt)
+    assert parsed is not None
+    assert parsed.universe == ["KOSPI"]
+    assert parsed.ranking_metric == "return"
+    assert parsed.ranking_lookback_days == 21
+    assert parsed.max_positions == 5
+    assert parsed.rebalancing_period == "weekly"
+    assert parsed.stop_loss_pct == 6.0
+    # 랭킹 전략은 리밸런싱이 회전을 구동하므로 보유기간은 비운다.
+    assert parsed.hold_period_days is None
 
 
 def test_ranking_metric_counts_as_entry_for_clarification():
@@ -912,6 +1072,30 @@ def test_missing_entry_clarification_generic_when_no_entry_and_no_ranking():
     assert question is not None
     assert "진입 조건" in question
     assert suggestions and len(suggestions) > 0
+
+
+def test_missing_entry_clarification_asks_numbers_for_qualitative_metrics():
+    """스크린샷 프롬프트: 'PER이 낮고 부채비율이 낮은' — 지표만 말하고 숫자가 없으면
+    그 지표별로 구체적 숫자를 예시와 함께 되묻는다."""
+    prompt = (
+        "KOSPI 종목 중 PER이 낮고 부채비율이 낮은 기업만 남긴 뒤 8종목 정도 동일하게 "
+        "투자해 주세요. 손절은 -10%."
+    )
+    base = make_base_strategy().model_copy(
+        update={"universe": ["KOSPI"], "max_positions": 8, "stop_loss_pct": 10.0}
+    )
+
+    question, suggestions = detect_missing_entry_clarification(base, prompt)
+
+    assert question is not None
+    # 언급한 두 지표를 숫자로 되묻는다.
+    assert "PER은 몇 이하" in question
+    assert "부채비율은 몇 % 이하" in question
+    # 언급 안 한 지표는 묻지 않는다.
+    assert "ROE" not in question
+    # 클릭 시 바로 완성되는 숫자 예시 칩을 제공한다.
+    assert suggestions is not None
+    assert any("PER 10 이하" in s and "부채비율 100% 이하" in s for s in suggestions)
 
 
 def test_missing_entry_clarification_flags_relative_strength_ranking():

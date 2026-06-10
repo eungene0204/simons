@@ -483,6 +483,43 @@ def test_remove_meta_suggestion_sentence_keeps_normal_suggestion():
     assert coach_routes._remove_meta_suggestion_sentence(text) == text
 
 
+def test_move_backtest_cta_to_end_relocates_mid_sentence_offer():
+    # 백테스트 안내가 본문 중간에 있고 그 뒤에 조건 추가 제안이 오면 안내를 맨 끝으로 옮긴다.
+    ex = (
+        "손절 -6%로 설정하셨군요. 손절 조건이 위험 관리에 도움이 될 것 같습니다. "
+        "아니면 지금 조건으로 바로 백테스트를 진행하셔도 됩니다. "
+        "예를 들면 '트레일링 스탑 15% 설정'이라고 말씀해주시면 바로 추가하겠습니다."
+    )
+    out = coach_routes._move_backtest_cta_to_end(ex)
+    assert out.endswith("아니면 지금 조건으로 바로 백테스트를 진행하셔도 됩니다.")
+    # 안내 앞에 조건 추가 예시가 먼저 와야 한다.
+    assert out.index("말씀해주시면 바로 추가하겠습니다.") < out.index("바로 백테스트를 진행하셔도 됩니다.")
+    # 안내 문장은 한 번만 등장한다.
+    assert out.count("바로 백테스트를 진행하셔도 됩니다") == 1
+
+
+def test_move_backtest_cta_to_end_is_noop_when_already_last():
+    text = "익절 비율 30% 설정을 추천드립니다. 아니면 지금 조건으로 바로 백테스트를 진행하셔도 됩니다."
+    assert coach_routes._move_backtest_cta_to_end(text) == text
+
+
+def test_move_backtest_cta_to_end_noop_without_offer():
+    text = "손절 8% 설정을 추천드립니다."
+    assert coach_routes._move_backtest_cta_to_end(text) == text
+
+
+def test_apply_postprocessing_keeps_backtest_offer_last_after_trailing_example():
+    # 종단: LLM이 본문 중간에 백테스트 안내를 넣어도 최종 메시지는 안내가 마지막이어야 한다.
+    out = coach_routes._apply_coach_postprocessing(
+        "손절 -6%로 설정하셨군요. 아니면 지금 조건으로 바로 백테스트를 진행하셔도 됩니다. "
+        "수익을 자동 확정해 주는 트레일링 스탑을 추가해 보시겠어요?",
+        set(),
+    )
+    assert out.rstrip().endswith("바로 백테스트를 진행하셔도 됩니다.")
+    assert "예를 들면 '트레일링 스탑 15% 설정'이라고 말씀해주시면 바로 추가하겠습니다." in out
+    assert out.count("바로 백테스트를 진행하셔도 됩니다") == 1
+
+
 def test_parse_llm_response_flattens_nested_term_explanation_parentheses():
     # '수익 실현 비율(익절 비율(설명))' 이중 괄호 → '수익 실현 비율(설명)' 한 겹으로 평탄화.
     response = coach_routes._parse_llm_response(

@@ -8,7 +8,8 @@ RecommendationEngine — 규칙 기반 최종 판정(단일 책임: 추천 결�
 가중치 원칙:
 - 추세(기술적)와 밸류에이션이 1차 근거.
 - 뉴스는 보조.
-- AI 예측(forecast)은 검증상 알파가 약해 최저 가중치(project_ai_auxiliary_usage).
+- AI 예측(forecast)은 **추천을 결정하지 않는다** — 검증상 방향 알파가 없어
+  점수에서 제외하고 순수 보조 게이지로만 노출한다(project_ai_auxiliary_usage).
 - 위험도(risk)는 점수가 아니라 '상한 게이트' — high면 공격적 추천을 막는다.
 """
 
@@ -29,13 +30,8 @@ _TREND_SCORE = {
 }
 _VALUATION_SCORE = {"cheap": 1.0, "neutral": 0.0, "expensive": -1.0}
 _NEWS_SCORE = {"positive": 1.0, "neutral": 0.0, "negative": -1.0}
-_FORECAST_SCORE = {
-    "positive": 0.3,
-    "slightly_positive": 0.15,
-    "neutral": 0.0,
-    "slightly_negative": -0.15,
-    "negative": -0.3,
-}
+# 신호 충실도(coverage) 분모 — 점수에 반영되는 신호 수(추세·밸류·뉴스). forecast 제외.
+_MAX_SIGNALS = 3
 
 
 @dataclass
@@ -61,9 +57,7 @@ class RecommendationEngine:
         score += _NEWS_SCORE.get(signals.news_sentiment or "", 0.0)
         if signals.news_sentiment is not None:
             present += 1
-        score += _FORECAST_SCORE.get(signals.forecast or "", 0.0)
-        if signals.forecast is not None:
-            present += 1
+        # AI 예측(forecast)은 점수에 반영하지 않는다 — 보조 게이지 전용.
 
         base = self._score_to_recommendation(score)
         gated = self._apply_risk_gate(base, signals.risk)
@@ -98,8 +92,8 @@ class RecommendationEngine:
     def _confidence(score: float, present: int, risk: str | None, rec: Recommendation) -> float:
         if rec == Recommendation.INSUFFICIENT_DATA:
             return 0.0
-        # 신호 충실도(최대 4개) + 점수 강도.
-        coverage = present / 4.0
+        # 신호 충실도(추세·밸류·뉴스) + 점수 강도.
+        coverage = present / _MAX_SIGNALS
         strength = min(abs(score) / 2.5, 1.0)
         conf = 0.35 + 0.4 * coverage + 0.25 * strength
         if risk == "high":

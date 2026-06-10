@@ -33,8 +33,7 @@ describe("StockAnalysisPanel", () => {
   });
 
   it("데이터가 없는 신호는 '데이터 없음'으로 표시한다", () => {
-    render(<StockAnalysisPanel result={makeResult()} />);
-    // forecast(AI 예측)는 null → 데이터 없음
+    render(<StockAnalysisPanel result={makeResult({ signals: { trend: null, valuation: null, news_sentiment: null, risk: null } })} />);
     expect(screen.getAllByText("데이터 없음").length).toBeGreaterThan(0);
   });
 
@@ -47,4 +46,25 @@ describe("StockAnalysisPanel", () => {
     render(<StockAnalysisPanel result={makeResult()} />);
     expect(screen.getByText(/반도체 업황 리스크/)).toBeInTheDocument();
   });
+
+  it("AI 예측은 up/down 퍼센타일 중 더 높은 쪽을 표시한다 (상승 우위)", () => {
+    render(<StockAnalysisPanel result={makeResult({
+      ai_forecast: { down_risk_level: "calm", up_pctl: 80, down_pctl: 40 },
+    })} />);
+    expect(screen.getByText("상승 우위")).toBeInTheDocument();
+  });
+
+  it("AI 예측 — down_pctl이 더 높으면 하락 우위", () => {
+    render(<StockAnalysisPanel result={makeResult({
+      ai_forecast: { down_risk_level: "elevated", up_pctl: 40, down_pctl: 92 },
+    })} />);
+    expect(screen.getByText("하락 우위")).toBeInTheDocument();
+  });
+
+  it("AI 예측 데이터가 없으면 '데이터 없음'", () => {
+    render(<StockAnalysisPanel result={makeResult({ ai_forecast: null })} />);
+    expect(screen.getByText("AI 예측")).toBeInTheDocument();
+    expect(screen.getAllByText("데이터 없음").length).toBeGreaterThan(0);
+  });
+
 });

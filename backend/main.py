@@ -104,7 +104,6 @@ app.add_middleware(
 )
 
 engine = BacktestEngine()
-_ = engine.ai_engine  # 서버 시작 시 AI 모델 사전 로드
 
 # Strategy Research Agent routes (premium gated)
 from api.research_routes import router as research_router

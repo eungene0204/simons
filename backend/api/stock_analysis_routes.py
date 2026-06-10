@@ -67,6 +67,23 @@ def _llm_available() -> bool:
     return getattr(main_mod, "_nl_parsers", {}).get("mlx") is not None
 
 
+# ─── AI 예측 보조 엔진 ────────────────────────────────────────────────────────────
+
+# 서버가 이미 로드한 AI 엔진(main.engine.ai_engine)을 재사용한다. 모델을 다시 로드하지
+# 않아 메모리/시간 비용이 없다. standalone/테스트에선 main이 없어 None → '데이터 없음' 폴백.
+# 예측 자체는 매매를 결정하지 않는 보조 게이지로만 쓰인다(project_ai_auxiliary_usage).
+def _forecast_engine():
+    main_mod = _main_module()
+    if main_mod is None:
+        return None
+    try:
+        engine = getattr(main_mod, "engine", None)
+        return getattr(engine, "ai_engine", None) if engine is not None else None
+    except Exception:
+        logger.debug("AI 예측 엔진 조회 실패 — 데이터 없음 폴백", exc_info=True)
+        return None
+
+
 # ─── /query/classify ────────────────────────────────────────────────────────────
 
 @router.post("/query/classify", response_model=IntentResult)
@@ -100,8 +117,9 @@ async def analyze_stock(req: StockAnalysisRequest) -> StockAnalysisResult:
     if ref is None:
         raise HTTPException(status_code=422, detail="분석할 종목을 찾을 수 없습니다. 종목명을 알려주세요.")
     llm = _mlx_llm if _llm_available() else None
-    # 예측 엔진은 v1에서 미연결(알파 없음·polars 데드락 리스크) → forecast '데이터 없음'.
-    agent = StockAnalysisAgent(llm=llm)
+    # AI 예측은 매매를 결정하지 않는 '보조 게이지'로만 노출한다(추천 점수 제외).
+    # 1차 메시지는 자기 시계열 퍼센타일 기반 하방 리스크 수준(project_ai_auxiliary_usage).
+    agent = StockAnalysisAgent(llm=llm, forecast_engine=_forecast_engine())
     try:
         return await asyncio.to_thread(agent.analyze, ref)
     except Exception as exc:

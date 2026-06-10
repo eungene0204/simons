@@ -78,6 +78,7 @@ def _build_rule_context(
         has_fundamental_filters=has_fundamental,
         filter_names=filter_names,
         entry_signal_count=len(entry_signals),
+        has_ranking_entry=bool(ps.get("ranking_metric")),
         has_ai_signal=has_ai,
         max_positions=ps.get("max_positions"),
         universe_size_estimate=universe_size,

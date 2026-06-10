@@ -46,17 +46,29 @@ def _default_db_url() -> str:
     if explicit:
         return explicit
 
+    # Prisma resolves `file:` URLs relative to the directory holding schema.prisma
+    # (<repo>/prisma), NOT the repo root. We must match that exactly or news_v2 ends
+    # up on a different file than the rest of the app (Prisma, news.storage) reads —
+    # which silently splits the news pipeline across two SQLite files.
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    prisma_dir = os.path.join(repo_root, "prisma")
+
     prisma_url = os.getenv("DATABASE_URL")
     if prisma_url and prisma_url.startswith("file:"):
-        path = prisma_url.replace("file:", "", 1)
-        if not os.path.isabs(path):
-            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-            path = os.path.abspath(os.path.join(project_root, path))
-        return "sqlite+aiosqlite:///" + path
+        rel = prisma_url.replace("file:", "", 1)
+        if os.path.isabs(rel):
+            return "sqlite+aiosqlite:///" + rel
+        # Mirror news.storage._db_path() resolution so both land on the same file:
+        # schema-relative first (Prisma's rule), then repo-root-relative as a fallback.
+        schema_rel = os.path.abspath(os.path.join(prisma_dir, rel))
+        if os.path.exists(schema_rel):
+            return "sqlite+aiosqlite:///" + schema_rel
+        root_rel = os.path.abspath(os.path.join(repo_root, rel.lstrip("./")))
+        if os.path.exists(root_rel):
+            return "sqlite+aiosqlite:///" + root_rel
+        return "sqlite+aiosqlite:///" + schema_rel
 
-    return "sqlite+aiosqlite:///" + os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..", "..", "prisma", "dev.db")
-    )
+    return "sqlite+aiosqlite:///" + os.path.join(prisma_dir, "prisma", "dev.db")
 
 
 @dataclass(frozen=True)

@@ -23,6 +23,7 @@ from .news_service import NewsAnalysisService
 from .recommendation_engine import RecommendationEngine
 from .risk_service import RiskScoringService
 from .schemas import (
+    AIForecastGauge,
     Recommendation,
     StockAnalysisResult,
     StockMetrics,
@@ -97,6 +98,7 @@ class StockAnalysisAgent:
 
         risk_factors = list(dict.fromkeys([*risk.factors, *news.risk_factors]))
         missing = self._collect_missing(data.missing, signals)
+        ai_forecast = self._build_gauge(forecast)
 
         result = StockAnalysisResult(
             symbol=data.symbol,
@@ -106,6 +108,7 @@ class StockAnalysisAgent:
             summary=self._summary(signals, outcome.recommendation),
             signals=signals,
             metrics=metrics,
+            ai_forecast=ai_forecast,
             news_summary=news.summary,
             news_url=news.source_url,
             risk_factors=risk_factors,
@@ -113,6 +116,17 @@ class StockAnalysisAgent:
         )
         result.explanation = self._explainer.generate(result)
         return result
+
+    @staticmethod
+    def _build_gauge(forecast) -> Optional[AIForecastGauge]:
+        """AI 보조 게이지 구성. 예측 데이터가 없으면 None('데이터 없음')."""
+        if forecast.down_risk_level is None:
+            return None
+        return AIForecastGauge(
+            down_risk_level=forecast.down_risk_level,
+            down_pctl=forecast.down_pctl,
+            up_pctl=forecast.up_pctl,
+        )
 
     @staticmethod
     def _collect_missing(data_missing: list[str], signals: StockSignals) -> list[str]:

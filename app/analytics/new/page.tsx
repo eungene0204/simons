@@ -317,6 +317,8 @@ function StrategyLabContent() {
   const coachConversationRef = useRef<CoachConversationMessage[]>([]);
   // 직전 분석 종목 — '이 종목 팔까?' 같은 anaphora 해석용
   const lastAnalyzedSymbolRef = useRef<string | null>(null);
+  // '다른 종목 분석' 버튼으로 종목명을 묻는 중 — 다음 입력을 분석으로 받는다.
+  const awaitingStockAnalysisRef = useRef(false);
   // first user prompt — kept for advisor context
   const firstPromptRef = useRef<string>("");
 
@@ -426,6 +428,49 @@ function StrategyLabContent() {
     return null;
   };
 
+  // 종목 분석 요청을 보내고 마지막 assistant 메시지에 결과/에러를 렌더한다(분류 경로·
+  // '다른 종목 분석' 경로 공용). symbol 없이 query만 주면 백엔드가 종목명을 해석한다.
+  const renderStockAnalysisResult = async (
+    body: { symbol?: string; query: string; last_symbol?: string | null },
+  ): Promise<void> => {
+    try {
+      const res = await fetch("/api/stock/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (res.status === 422) {
+        // 종목을 특정하지 못함 → 다시 묻고 다음 입력을 분석으로 받는다.
+        awaitingStockAnalysisRef.current = true;
+        updateLastAssistant({
+          stockLoading: false,
+          infoText: "종목을 찾지 못했어요. 정확한 종목명이나 코드를 알려주세요.",
+        });
+        setTimeout(() => textareaRef.current?.focus(), 100);
+        return;
+      }
+      if (!res.ok) throw new Error();
+      const result: StockAnalysisResult = await res.json();
+      lastAnalyzedSymbolRef.current = result.symbol;
+      updateLastAssistant({ stockLoading: false, stockAnalysis: result });
+    } catch {
+      updateLastAssistant({
+        stockLoading: false,
+        error: "종목 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
+      });
+    }
+  };
+
+  // '다른 종목 분석' 버튼 — 종목명을 묻고, 다음 사용자 입력을 종목 분석으로 받는다.
+  const handleAnalyzeAnotherStock = () => {
+    awaitingStockAnalysisRef.current = true;
+    setMessages(prev => [
+      ...prev,
+      { role: "assistant", infoText: "어떤 종목을 분석해 드릴까요? 종목명을 입력해 주세요." },
+    ]);
+    setTimeout(() => textareaRef.current?.focus(), 100);
+  };
+
   // 개별 종목 질문 / 일반 투자 질문을 전략 흐름과 분리해 처리한다.
   // 처리했으면 true(전략 파싱으로 넘어가지 않음), 아니면 false(기존 전략 흐름).
   const maybeRouteNonStrategyQuery = async (
@@ -450,6 +495,10 @@ function StrategyLabContent() {
 
     // 개별 종목 질문 → Stock Analysis Agent
     if (intent === "STOCK_ANALYSIS") {
+      // 전략 작성 중인데 종목이 특정되지 않은 STOCK_ANALYSIS는 대개 오분류다
+      // (예: "PBR 1 이하 종목"). "어떤 종목을 분석할까요?" 막다른 길 대신
+      // 전략 다듬기 흐름으로 흘려보낸다.
+      if (!symbol && currentParsed) return false;
       setMessages(prev => [
         ...prev,
         { role: "user", content: userText },
@@ -462,22 +511,7 @@ function StrategyLabContent() {
         });
         return true;
       }
-      try {
-        const res = await fetch("/api/stock/analyze", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ symbol, query: userText }),
-        });
-        if (!res.ok) throw new Error();
-        const result: StockAnalysisResult = await res.json();
-        lastAnalyzedSymbolRef.current = result.symbol;
-        updateLastAssistant({ stockLoading: false, stockAnalysis: result });
-      } catch {
-        updateLastAssistant({
-          stockLoading: false,
-          error: "종목 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
-        });
-      }
+      await renderStockAnalysisResult({ symbol, query: userText });
       return true;
     }
 
@@ -514,6 +548,19 @@ function StrategyLabContent() {
     const currentParsed = latestParsedRef.current ?? latestParsed;
     const currentBacktestReq = backtestReqRef.current ?? backtestReq;
     setIsSending(true);
+
+    // '다른 종목 분석'으로 종목명을 묻는 중이면, 다음 입력은 분류 없이 바로 분석한다.
+    if (awaitingStockAnalysisRef.current) {
+      awaitingStockAnalysisRef.current = false;
+      setMessages(prev => [
+        ...prev,
+        { role: "user", content: userText },
+        { role: "assistant", stockLoading: true },
+      ]);
+      await renderStockAnalysisResult({ query: userText, last_symbol: lastAnalyzedSymbolRef.current });
+      setIsSending(false);
+      return;
+    }
 
     const routed = await maybeRouteNonStrategyQuery(userText, currentParsed);
     if (routed) {
@@ -930,6 +977,7 @@ function StrategyLabContent() {
               isRunning={isRunning}
               backtestDsl={backtestReq}
               onWalkForward={handleWalkForward}
+              promptText={firstPromptRef.current || undefined}
               strategySummary={buildStrategySummary(latestParsed, backtestReq)}
             />
           </div>
@@ -939,6 +987,8 @@ function StrategyLabContent() {
   }
 
   const isIdle = messages.length === 0 && !isSending;
+  // 전략 작성 맥락(시작 화면 또는 전략 요약 존재)에서만 '전략 생성', 그 외(종목 분석·안내)는 '전송'.
+  const isStrategyInput = isIdle || messages.some((m) => m.parsed);
   const isLastAssistant = (i: number) => i === messages.length - 1 && messages[i].role === "assistant";
 
   // ── 메인 채팅 화면
@@ -1014,6 +1064,22 @@ function StrategyLabContent() {
                               </p>
                             </div>
                             <StockAnalysisPanel result={msg.stockAnalysis} />
+                            {isLastAssistant(i) && (
+                              <div className="flex flex-wrap gap-2 pt-1">
+                                <button
+                                  onClick={handleReset}
+                                  className="px-4 py-2 rounded-xl bg-white/[0.03] border border-white/10 hover:border-white/30 hover:bg-white/[0.06] text-xs font-bold text-gray-300 transition-all duration-200"
+                                >
+                                  돌아가기
+                                </button>
+                                <button
+                                  onClick={handleAnalyzeAnotherStock}
+                                  className="px-4 py-2 rounded-xl bg-white/[0.03] border border-white/10 hover:border-yellow-400/50 hover:bg-yellow-400/[0.06] text-xs font-bold text-gray-200 transition-all duration-200"
+                                >
+                                  다른 종목 분석
+                                </button>
+                              </div>
+                            )}
                           </div>
                         )}
                         {msg.infoText && (
@@ -1132,8 +1198,8 @@ function StrategyLabContent() {
               <BacktestRunningStatus message={statusMessage} />
             )}
 
-            {/* 입력 영역 — 전략 요약이 출력된 이후에만 표시 */}
-            {(isIdle || messages.some((m) => m.parsed)) && (
+            {/* 입력 영역 — 시작 화면, 전략 요약 출력 후, 또는 종목 분석·안내 대화 중 표시 */}
+            {(isIdle || messages.some((m) => m.parsed || m.stockAnalysis || m.infoText)) && (
             <div className="relative w-full rounded-2xl border border-[var(--glass-border)] bg-white/[0.02]">
               <textarea
                 ref={textareaRef}
@@ -1151,7 +1217,7 @@ function StrategyLabContent() {
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-30 disabled:cursor-not-allowed text-white text-xs font-black transition-all duration-300 hover:shadow-[0_0_15px_rgba(59,130,246,0.4)]"
                 >
                   <Sparkle size={12} weight="fill" />
-                  전략 생성
+                  {isStrategyInput ? "전략 생성" : "전송"}
                 </button>
               </div>
             </div>

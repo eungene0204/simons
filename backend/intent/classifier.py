@@ -34,6 +34,19 @@ _STRATEGY_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+# 펀더멘털/지표 스크리닝은 이 플랫폼 전략의 핵심 카테고리다 — 특정 종목이 아니라
+# '조건에 맞는 종목 바스켓'을 고르는 전략 설계 신호다(phrasing 긴 꼬리가 아니라
+# 카테고리 단위 신호이므로 결정적으로 처리, feedback_nl_parser_hybrid 부합).
+#   · 지표+숫자 필터: "PBR 1 이하", "PER 10", "ROE 15 이상"
+#   · 가치/배당/규모 스크리닝 + 바스켓 명사: "저평가 종목", "고배당주", "우량주"
+#   · 비교 필터 + 종목: "~이하인 종목", "거래량 ~이상 종목"
+_SCREENING_SIGNAL = re.compile(
+    r"(?:per|pbr|psr|roe|roa|eps|bps|배당수익률|배당률|시가총액|시총|부채비율|거래량|거래대금)\s*\d"
+    r"|(?:저평가|고평가|고배당|우량|가치|성장|배당|소형|대형|중소형)\s*(?:된|인)?\s*(?:종목|주식|주)"
+    r"|(?:이하|이상|미만|초과)\s*(?:인|의)?\s*종목",
+    re.IGNORECASE,
+)
+
 # 개별 종목에 대한 행동/판단 질문 동사.
 _STOCK_QUESTION = re.compile(
     r"사도|살까|사야|매수|들어가|들어가도|진입|팔아|팔까|매도|손절|"
@@ -54,10 +67,12 @@ _ANAPHORA = re.compile(r"이\s*종목|이\s*주식|그\s*종목|저\s*종목|얘
 
 _CLASSIFIER_SYSTEM_PROMPT = (
     "너는 투자 챗봇 입력을 4가지 의도로 분류한다. "
-    "STRATEGY_ADVICE(투자 전략·지표 조합·백테스트·매매 규칙), "
-    "STOCK_ANALYSIS(특정 종목의 매수·매도·보유·전망·리스크), "
+    "STRATEGY_ADVICE(투자 전략·지표 조합·백테스트·매매 규칙, 그리고 "
+    "'PBR 1 이하·PER 10 이하·저평가/고배당 종목'처럼 조건에 맞는 종목을 고르는 스크리닝), "
+    "STOCK_ANALYSIS(이름이 명시된 '특정 한 종목'의 매수·매도·보유·전망·리스크), "
     "GENERAL_INVESTMENT(일반 투자 지식·용어 정의), "
     "UNKNOWN(분류 불가). "
+    "특정 종목명이 없는 '조건/필터로 종목 고르기'는 STOCK_ANALYSIS가 아니라 STRATEGY_ADVICE다. "
     '반드시 {"intent": "..."} JSON 한 줄로만 답하라.'
 )
 
@@ -70,16 +85,17 @@ def _classify_deterministic(query: str, last_symbol: Optional[str]) -> Optional[
     text = query or ""
     refs = find_in_text(text)
     has_strategy_kw = bool(_STRATEGY_KEYWORDS.search(text))
+    has_screening = bool(_SCREENING_SIGNAL.search(text))
     has_stock_q = bool(_STOCK_QUESTION.search(text))
     has_def_q = bool(_DEFINITION_QUESTION.search(text))
 
-    # 1) 전략 키워드가 있으면 전략 설계 질문으로 본다(종목명이 섞여 있어도).
-    if has_strategy_kw:
+    # 1) 전략 키워드 또는 스크리닝 조건이 있으면 전략 설계로 본다(종목명이 섞여 있어도).
+    if has_strategy_kw or has_screening:
         return IntentResult(
             intent=QueryIntent.STRATEGY_ADVICE,
             symbols=_to_detected(refs),
             confidence=0.9,
-            reason="전략 설계 키워드 감지",
+            reason="전략 설계 키워드 감지" if has_strategy_kw else "종목 스크리닝 조건 감지",
         )
 
     # 2) 특정 종목 + 행동/판단 질문 → 종목 분석.

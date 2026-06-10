@@ -109,9 +109,9 @@ class ParsedStrategy(BaseModel):
         default=None,
         description="최대 보유 기간(거래일). 1년=252, 6개월=126, 3개월=63, 1개월=21. 없으면 null"
     )
-    rebalancing_period: Literal["none", "daily", "monthly", "quarterly", "yearly"] = Field(
+    rebalancing_period: Literal["none", "daily", "weekly", "monthly", "bimonthly", "quarterly", "yearly"] = Field(
         default="none",
-        description="정기 리밸런싱 주기. '매일'=daily, '매월'=monthly, '분기'=quarterly, '매년/1년마다'=yearly, 언급없음=none"
+        description="정기 리밸런싱 주기. '매일'=daily, '매주/주간'=weekly, '매월'=monthly, '격월/두 달에 한 번'=bimonthly, '분기'=quarterly, '매년/1년마다'=yearly, 언급없음=none"
     )
 
     # ── 리스크 관리
@@ -168,7 +168,7 @@ class ParsedStrategyDiff(BaseModel):
     ranking_lookback_days: Optional[int] = None
     max_positions: Optional[int] = Field(default=None, ge=1, le=100)
     hold_period_days: Optional[int] = None
-    rebalancing_period: Optional[Literal["none", "daily", "monthly", "quarterly", "yearly"]] = None
+    rebalancing_period: Optional[Literal["none", "daily", "weekly", "monthly", "bimonthly", "quarterly", "yearly"]] = None
     stop_loss_pct: Optional[float] = None
     take_profit_pct: Optional[float] = None
     trailing_stop_pct: Optional[float] = None
@@ -253,7 +253,9 @@ SYSTEM_PROMPT = """당신은 한국 주식 퀀트 투자 전략을 JSON으로 �
 ### 보유기간 / 리밸런싱
 - '1년 보유' → hold_period_days: 252, rebalancing_period: "yearly"
 - '6개월 보유' → hold_period_days: 126, rebalancing_period: "none"
+- '매주/주간 리밸런싱' → rebalancing_period: "weekly"
 - '매월 리밸런싱' → rebalancing_period: "monthly"
+- '격월/두 달에 한 번/2개월마다 리밸런싱(점검)' → rebalancing_period: "bimonthly"
 - 기술적 청산 없이 기간 보유면 exit_signals: []
 
 ### 종목 수
@@ -379,7 +381,7 @@ COMPACT_SYSTEM_PROMPT = """한국 주식 전략 자연어를 ParsedStrategy JSON
 - MACD, 볼린저밴드, 신고가 돌파, 거래량 급증, AI 상승/하락 예측을 해당 indicator로 변환
 - 박스권/N일 고점 위로 돌파 → breakout buy (기간 없으면 lookback 20), 다시 박스 안/저점 아래로 이탈 시 매도 → breakout sell
 - 1년/6개월/3개월/1개월 보유 → 252/126/63/21 거래일
-- 매월/분기/매년 리밸런싱 → monthly/quarterly/yearly
+- 매주/매월/격월/분기/매년 리밸런싱 → weekly/monthly/bimonthly/quarterly/yearly
 - 손절/익절/트레일링 스탑/MDD 한도를 % 숫자로 변환
 - 1억/5천만원/1000만원 등 자본금은 원 단위 숫자로 변환
 
@@ -919,6 +921,27 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
             long_period=ma_long or 20,
         ))
 
+    # ── 가격이 이동평균선 위/아래 (추세 필터) ──
+    # "종가가 20일선 위에 있으면 매수" → ma_crossover(short=1, long=N) 골든(종가가 MA 상향)
+    # "20일선 아래로 내려오면 매도"   → ma_crossover(short=1, long=N) 데드(종가가 MA 하향)
+    # short=1은 종가 자체(close_1_sma=close)라 '가격 vs MA' 교차로 표현된다.
+    # 골든/데드 크로스가 이미 잡혔으면 ma_crossover 충돌을 피해 건너뛴다.
+    ma_token = r"(?:이동평균선|이동평균|이평선|이평|선)"
+    if not has_golden:
+        above_ma = re.search(rf"(\d+)일{ma_token}(?:을|를)?(?:위|상회|넘|돌파|올라)", compact)
+        if above_ma:
+            entry.append(TechnicalSignal(
+                indicator="ma_crossover", signal_type="buy",
+                short_period=1, long_period=int(above_ma.group(1)),
+            ))
+    if not has_dead:
+        below_ma = re.search(rf"(\d+)일{ma_token}(?:을|를)?(?:아래|밑|하회|이탈)", compact)
+        if below_ma:
+            exit_.append(TechnicalSignal(
+                indicator="ma_crossover", signal_type="sell",
+                short_period=1, long_period=int(below_ma.group(1)),
+            ))
+
     # ── RSI 매수/매도 ──
     # 조사("rsi가30") + "이하/미만/아래/밑" + 매수/진입/반등/올라오는(과매도 반등) 표현 허용
     rsi_buy_match = re.search(
@@ -980,15 +1003,14 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
             indicator="breakout", signal_type="sell", lookback_period=breakout_lookback,
         ))
 
-    # ── 거래량 급증 ──
-    if (
-        "거래량급증" in compact
-        or "거래량폭발" in compact
-        or "거래량도평소보다확늘" in compact
-        or "거래량이평소보다확늘" in compact
-        or "거래량평소보다확늘" in compact
+    # ── 거래량 급증 / 평균 대비 증가 ──
+    # 문구가 다양해(급증/폭발/터짐/평소보다 늘…) 고정 문자열 대신 패턴으로 일반화한다.
+    volume_rising = bool(
+        re.search(r"거래량.{0,5}(?:급증|폭발|터[지진졌짐])", compact)
+        or re.search(r"거래량.{0,12}(?:평균|평소).{0,6}(?:늘|증가|많|상회|높)", compact)
         or "volumespike" in compact
-    ):
+    )
+    if volume_rising:
         entry.append(TechnicalSignal(indicator="volume_spike", signal_type="buy", period=20))
 
     return entry, exit_
@@ -1014,9 +1036,13 @@ _FUNDAMENTAL_PATTERN_SPECS = [
     ("per", [r"per(?:이|가|은|는)?\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*(이하|미만|이상|초과)?"]),
     ("roe_or_gpa", [r"(?:roe|gpa)\s*(\d+(?:\.\d+)?)%?\s*(이하|미만|이상|초과)?"]),
     ("debt_ratio", [r"(?:부채비율|부채)\s*(\d+(?:\.\d+)?)%?\s*(이하|미만|이상|초과)?"]),
-    ("market_cap", [r"시가총액\s*(\d+(?:\.\d+)?)\s*(억|억원)?\s*(이하|미만|이상|초과)?"]),
-    ("trading_value", [r"(?:거래대금|일평균거래대금)\s*(\d+(?:\.\d+)?)\s*(억|억원)?\s*(이하|미만|이상|초과)?"]),
+    # 금액 지표(억원 단위)는 '조'+'억' 콤보를 결정적으로 합산한다: (조 부분)?(억 부분)?(연산자)?.
+    ("market_cap", [r"시가총액(?:이|가|은|는)?\s*(?:(\d+(?:\.\d+)?)조)?\s*(?:(\d+(?:\.\d+)?)(?:억원|억)?)?\s*(이하|미만|이상|초과)?"]),
+    ("trading_value", [r"(?:거래대금|일평균거래대금)(?:이|가|은|는)?\s*(?:(\d+(?:\.\d+)?)조)?\s*(?:(\d+(?:\.\d+)?)(?:억원|억)?)?\s*(이하|미만|이상|초과)?"]),
 ]
+
+# 금액 지표는 값을 (조 부분 × 10000) + (억 부분)으로 합산한다. 그 외는 group(1) 단일 값.
+_AMOUNT_METRICS = {"market_cap", "trading_value"}
 
 _OPERATOR_BY_KOREAN = {
     "이하": "<=",
@@ -1032,6 +1058,18 @@ def _default_operator_for_metric(metric: str) -> str:
     return ">="
 
 
+def _extract_amount_value(match: "re.Match") -> Optional[float]:
+    """금액 지표 매치에서 (조 부분 × 10000) + (억 부분)을 억원 단위로 합산한다.
+
+    group(1)=조 부분, group(2)=억 부분. 둘 다 없으면 숫자 없는 매치이므로 None.
+    예: '2조5000억' → 25000, '1.5조' → 15000, '100억원' → 100.
+    """
+    jo, eok = match.group(1), match.group(2)
+    if jo is None and eok is None:
+        return None
+    return (float(jo) * 10000.0 if jo else 0.0) + (float(eok) if eok else 0.0)
+
+
 def _extract_fundamental_filters(user_input: str) -> list[FundamentalFilter]:
     compact = re.sub(r"\s+", "", user_input.lower())
     filters: list[FundamentalFilter] = []
@@ -1040,13 +1078,17 @@ def _extract_fundamental_filters(user_input: str) -> list[FundamentalFilter]:
     for metric, patterns in _FUNDAMENTAL_PATTERN_SPECS:
         for pattern in patterns:
             for match in re.finditer(pattern, compact):
-                raw_value = float(match.group(1))
+                if metric in _AMOUNT_METRICS:
+                    value = _extract_amount_value(match)
+                    if value is None:
+                        continue
+                else:
+                    value = float(match.group(1))
                 op_word = next(
-                    (group for group in match.groups()[1:] if group in _OPERATOR_BY_KOREAN),
+                    (group for group in match.groups() if group in _OPERATOR_BY_KOREAN),
                     None,
                 )
                 operator = _OPERATOR_BY_KOREAN.get(op_word or "", _default_operator_for_metric(metric))
-                value = raw_value
                 key = (metric, operator, value)
                 if key in seen:
                     continue
@@ -1078,7 +1120,26 @@ def _extract_ranking(user_input: str) -> tuple[Optional[str], Optional[int]]:
             match = re.search(r"(\d+)개월.{0,6}(?:수익률|상승률|오른|모멘텀)", compact)
             if match:
                 lookback = int(match.group(1)) * 21
+    if lookback is None:
+        lookback = _korean_duration_to_trading_days(compact)
     return ("return", lookback or 60)
+
+
+# 한글 숫자 표현 → 개월 수 (예: '한 달'=1, '세 달'=3).
+_KOREAN_MONTH_WORDS = {"한": 1, "두": 2, "세": 3, "석": 3, "네": 4, "넉": 4, "다섯": 5, "여섯": 6}
+
+
+def _korean_duration_to_trading_days(compact: str) -> Optional[int]:
+    """'한 달'/'두 달'/'1주일' 같은 한글 기간 표현을 거래일 수로 환산한다. 없으면 None."""
+    week_match = re.search(r"(\d+)주(?:일)?", compact)
+    if week_match:
+        return int(week_match.group(1)) * 5
+    if re.search(r"(?:일주일|한주|1주)", compact):
+        return 5
+    month_match = re.search(r"(한|두|세|석|네|넉|다섯|여섯)달", compact)
+    if month_match:
+        return _KOREAN_MONTH_WORDS[month_match.group(1)] * 21
+    return None
 
 
 def _extract_max_positions(user_input: str) -> Optional[int]:
@@ -1121,6 +1182,11 @@ def _extract_rebalancing_period(user_input: str, hold_period_days: Optional[int]
     compact = re.sub(r"\s+", "", user_input.lower())
     if re.search(r"매일|일간리밸런싱|날마다|하루에한번", compact):
         return "daily"
+    if re.search(r"매주|주간리밸런싱|일주일에한번|한주에한번|주1회|주에한번", compact):
+        return "weekly"
+    # 격월은 반드시 monthly보다 먼저 — monthly의 '달에한번'이 '두달에한번'을 삼키기 때문.
+    if re.search(r"격월|두달에한번|2개월에한번|2달에한번|두달마다|2개월마다|2달마다", compact):
+        return "bimonthly"
     if "매월" in compact or "월간리밸런싱" in compact or re.search(r"한달에한번|달에한번|월1회|매달", compact):
         return "monthly"
     if "분기" in compact:
@@ -1481,6 +1547,44 @@ _MISSING_ENTRY_SUGGESTIONS = [
     "거래대금 100억 이상 종목 중 60일 신고가 돌파 매수",
 ]
 
+# 지표는 말했지만 숫자(임계값)를 안 준 정성 표현("PER이 낮은", "부채비율이 낮은")을 감지해
+# 그 지표별로 구체적 숫자를 예시와 함께 되묻기 위한 표.
+# (키, 키워드 패턴들, 되묻기 문구, 느슨한 예시 칩, 엄격한 예시 칩)
+_QUALITATIVE_METRIC_SPECS: tuple[tuple[str, tuple[str, ...], str, str, str], ...] = (
+    ("per", (r"per", r"주가수익비율"),
+     "PER은 몇 이하로 할까요? (예: 10 이하)", "PER 10 이하", "PER 7 이하"),
+    ("pbr", (r"pbr", r"주가순자산"),
+     "PBR은 몇 이하로 할까요? (예: 1 이하)", "PBR 1 이하", "PBR 0.8 이하"),
+    ("roe", (r"roe", r"자기자본이익"),
+     "ROE는 몇 % 이상으로 할까요? (예: 15% 이상)", "ROE 15% 이상", "ROE 20% 이상"),
+    ("debt_ratio", (r"부채",),
+     "부채비율은 몇 % 이하로 할까요? (예: 100% 이하)", "부채비율 100% 이하", "부채비율 50% 이하"),
+    ("market_cap", (r"시가총액", r"시총"),
+     "시가총액은 몇 억 이상으로 할까요? (예: 1000억 이상)", "시가총액 1000억 이상", "시가총액 5000억 이상"),
+    ("trading_value", (r"거래대금",),
+     "거래대금은 몇 억 이상으로 할까요? (예: 100억 이상)", "거래대금 100억 이상", "거래대금 300억 이상"),
+)
+
+
+def _detect_qualitative_metrics(compact: str) -> list[tuple[str, str, str, str]]:
+    """언급된 재무 지표 spec들을 입력 순서대로 반환한다.
+
+    이 헬퍼는 진입 규칙이 하나도 구조화되지 않았을 때만 쓰이므로(호출부의 가드 참고),
+    여기서 잡히는 지표는 모두 '이름만 말하고 숫자는 안 준' 미구조화 지표다.
+    반환 튜플: (되묻기 문구, 느슨한 칩, 엄격한 칩, 키).
+    """
+    found: list[tuple[int, tuple[str, str, str, str]]] = []
+    for key, patterns, ask, loose, strict in _QUALITATIVE_METRIC_SPECS:
+        pos = min(
+            (m.start() for p in patterns if (m := re.search(p, compact))),
+            default=-1,
+        )
+        if pos >= 0:
+            found.append((pos, (ask, loose, strict, key)))
+    found.sort(key=lambda x: x[0])
+    return [spec for _, spec in found]
+
+
 # 상대강도 랭킹을 말했지만 표현이 불가능할 때: 가까운 추세추종으로 바꾸도록 안내.
 _RELATIVE_STRENGTH_QUESTION = (
     "'수익률이 높은 종목을 골라 담는' **상대강도(모멘텀) 랭킹** 방식을 말씀하신 것 같아요.\n\n"
@@ -1512,6 +1616,18 @@ def detect_missing_entry_clarification(
     compact = re.sub(r"\s+", "", user_prompt.lower())
     if _mentions_relative_strength_ranking(compact):
         return (_RELATIVE_STRENGTH_QUESTION, list(_RELATIVE_STRENGTH_SUGGESTIONS))
+    # 지표는 말했지만 숫자가 빠진 경우("PER이 낮고 부채비율이 낮은") — 그 지표별로 숫자를 되묻는다.
+    metrics = _detect_qualitative_metrics(compact)
+    if metrics:
+        asks = "\n".join(f"• {ask}" for ask, _, _, _ in metrics)
+        question = (
+            "말씀하신 조건을 숫자로 구체화해 주세요. 어느 정도를 기준으로 할까요?\n\n"
+            f"{asks}"
+        )
+        loose = ", ".join(loose for _, loose, _, _ in metrics)
+        strict = ", ".join(strict for _, _, strict, _ in metrics)
+        suggestions = [loose, strict] if loose != strict else [loose]
+        return (question, suggestions)
     return (_MISSING_ENTRY_QUESTION, list(_MISSING_ENTRY_SUGGESTIONS))
 
 

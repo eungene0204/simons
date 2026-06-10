@@ -20,6 +20,12 @@ export interface StockSignals {
   risk?: string | null;
 }
 
+export interface AIForecastGauge {
+  down_risk_level?: string | null; // elevated | moderate | calm
+  down_pctl?: number | null;
+  up_pctl?: number | null;
+}
+
 export interface StockMetrics {
   current_price?: number | null;
   change_pct?: number | null;
@@ -44,6 +50,7 @@ export interface StockAnalysisResult {
   explanation: string;
   signals: StockSignals;
   metrics: StockMetrics;
+  ai_forecast?: AIForecastGauge | null;
   news_summary?: string | null;
   news_url?: string | null;
   risk_factors: string[];
@@ -70,11 +77,15 @@ const TREND_LABEL: Record<string, string> = {
 };
 const VALUATION_LABEL: Record<string, string> = { cheap: "저평가", neutral: "적정", expensive: "고평가" };
 const SENTIMENT_LABEL: Record<string, string> = { positive: "긍정", neutral: "중립", negative: "부정" };
-const FORECAST_LABEL: Record<string, string> = {
-  positive: "상승 우위", slightly_positive: "약한 상승", neutral: "중립",
-  slightly_negative: "약한 하락", negative: "하락 우위",
-};
 const RISK_LABEL: Record<string, string> = { low: "낮음", medium: "보통", high: "높음" };
+
+// AI 예측 — 상승/하락 신호를 종목 자기 이력 대비 퍼센타일로 보정한 뒤 더 두드러진 쪽을
+// 보여준다. raw 확률은 down>up로 구조적 편향이 있어(거의 항상 하락) 퍼센타일로 비교한다.
+function aiForecastDisplay(f?: AIForecastGauge | null): { value: string; missing: boolean } {
+  if (!f || f.up_pctl == null || f.down_pctl == null) return { value: NO_DATA, missing: true };
+  if (f.up_pctl === f.down_pctl) return { value: "중립", missing: false };
+  return { value: `${f.up_pctl > f.down_pctl ? "상승" : "하락"} 우위`, missing: false };
+}
 
 function label(map: Record<string, string>, value?: string | null): string {
   if (!value) return NO_DATA;
@@ -102,6 +113,7 @@ function Row({ label: rowLabel, value, missing }: { label: string; value: string
 export default function StockAnalysisPanel({ result }: { result: StockAnalysisResult }) {
   const m = result.metrics;
   const s = result.signals;
+  const ai = aiForecastDisplay(result.ai_forecast);
   const rec = REC_META[result.recommendation] ?? REC_META.INSUFFICIENT_DATA;
   const changeColor =
     m.change_pct == null ? "text-slate-500" : m.change_pct >= 0 ? "text-red-400" : "text-blue-400";
@@ -138,7 +150,7 @@ export default function StockAnalysisPanel({ result }: { result: StockAnalysisRe
         <Row label="추세" value={label(TREND_LABEL, s.trend)} missing={!s.trend} />
         <Row label="밸류에이션" value={label(VALUATION_LABEL, s.valuation)} missing={!s.valuation} />
         <Row label="뉴스 감성" value={label(SENTIMENT_LABEL, s.news_sentiment)} missing={!s.news_sentiment} />
-        <Row label="AI 예측" value={label(FORECAST_LABEL, s.forecast)} missing={!s.forecast} />
+        <Row label="AI 예측" value={ai.value} missing={ai.missing} />
         <Row label="위험도" value={label(RISK_LABEL, s.risk)} missing={!s.risk} />
       </div>
 

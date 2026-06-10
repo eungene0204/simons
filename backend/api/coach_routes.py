@@ -249,6 +249,8 @@ _COACH_STRATEGY_FIELDS = (
     "universe",
     "fundamental_filters",
     "entry_signals",
+    "ranking_metric",
+    "ranking_lookback_days",
     "exit_signals",
     "max_positions",
     "hold_period_days",
@@ -1293,6 +1295,28 @@ def _ensure_backtest_option(message: str) -> str:
     return f"{message.rstrip()} 아니면 지금 조건으로 바로 백테스트를 진행하셔도 됩니다."
 
 
+# '바로 백테스트를 진행하셔도 됩니다' 안내 문장(선택적 '아니면/지금 조건으로' 접두 포함).
+_BACKTEST_CTA_RE = re.compile(
+    r"(?:아니면\s*)?(?:지금\s*조건으로\s*)?바로\s*백테스트를\s*진행하셔도\s*됩니다\s*[.]?"
+)
+
+
+def _move_backtest_cta_to_end(message: str) -> str:
+    """'바로 백테스트를 진행하셔도 됩니다' 안내는 항상 마지막 마무리 문장이어야 한다.
+    이 문장 뒤에 또 조건 추가를 권하면 '백테스트하셔도 됩니다 → 그런데 이걸 추가하세요'가 되어
+    앞뒤가 안 맞는다. LLM이나 다른 후처리가 본문 중간에 넣었더라도 맨 끝으로 옮긴다.
+    안내가 없으면 그대로 둔다."""
+    if not _BACKTEST_CTA_RE.search(message):
+        return message
+    body = _BACKTEST_CTA_RE.sub("", message)
+    body = re.sub(r"\s{2,}", " ", body)
+    body = re.sub(r"\s+([.?!。])", r"\1", body).strip()
+    cta = "지금 조건으로 바로 백테스트를 진행하셔도 됩니다."
+    if not body:
+        return cta
+    return f"{body} 아니면 {cta}"
+
+
 def _format_pct(value: Any) -> str:
     try:
         num = float(value)
@@ -1470,6 +1494,7 @@ def _apply_coach_postprocessing(text: str, explained_terms: set[str] | None) -> 
     text = _prefer_take_profit_recommendation_wording(text)  # 망설이는 질문 → 확신형 추천
     text = _fix_contradictory_backtest_option(text)
     text = _block_legacy_experiment_learning_copy(text)
+    text = _move_backtest_cta_to_end(text)              # 백테스트 안내는 항상 마지막 마무리 문장
     return text[:300]
 
 

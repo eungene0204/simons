@@ -187,6 +187,34 @@ def test_internal_variable_names_not_exposed():
     assert "cheap" not in result.explanation
 
 
+def test_ai_gauge_populated_but_not_in_recommendation():
+    # AI 게이지(하방 리스크)는 결과에 노출되지만 추천 점수는 바꾸지 않는다(보조 전용).
+    forecast = ForecastResult(forecast="slightly_negative", up_prob=0.25, down_prob=0.41,
+                              up_pctl=40, down_pctl=92, down_risk_level="elevated")
+    agent = StockAnalysisAgent(llm=None)
+    _wire(agent, data=_good_data(), technical=TechnicalResult(trend="up", volatility_pct=18.0),
+          fundamental=FundamentalResult(valuation="neutral"), forecast=forecast)
+    result = agent.analyze(StockRef(symbol="005930", name="삼성전자"))
+    assert result.ai_forecast is not None
+    assert result.ai_forecast.down_risk_level == "elevated"
+    assert result.ai_forecast.down_pctl == 92
+    # forecast가 없을 때와 추천이 동일해야 한다(게이지는 추천에 무영향).
+    agent2 = StockAnalysisAgent(llm=None)
+    _wire(agent2, data=_good_data(), technical=TechnicalResult(trend="up", volatility_pct=18.0),
+          fundamental=FundamentalResult(valuation="neutral"))
+    base = agent2.analyze(StockRef(symbol="005930", name="삼성전자"))
+    assert result.recommendation == base.recommendation
+    assert result.confidence == base.confidence
+
+
+def test_ai_gauge_none_when_no_forecast():
+    agent = StockAnalysisAgent(llm=None)
+    _wire(agent, data=_good_data(), technical=TechnicalResult(trend="up", volatility_pct=18.0),
+          fundamental=FundamentalResult(valuation="neutral"))  # forecast 기본 None
+    result = agent.analyze(StockRef(symbol="005930", name="삼성전자"))
+    assert result.ai_forecast is None
+
+
 def test_english_recommendation_not_exposed():
     # ACCUMULATE 같은 영어 enum 값이 설명에 노출되면 안 된다.
     # LLM context에 "분할 매수" 같은 한글 라벨만 보내므로, LLM도 한글만 볼 수 있다.

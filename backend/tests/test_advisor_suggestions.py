@@ -37,6 +37,25 @@ def test_no_entry_signals_has_advice():
     assert any("진입 신호" in t for t in titles)
 
 
+def test_ranking_strategy_not_flagged_as_missing_entry():
+    """모멘텀 랭킹(수익률 상위 선정)은 순위 자체가 진입 — '진입 신호 없음' 코칭 금지."""
+    result = _review({
+        "universe": ["KOSPI"],
+        "entry_signals": [],
+        "fundamental_filters": [],
+        "ranking_metric": "return",
+        "ranking_lookback_days": 21,
+        "rebalancing_period": "weekly",
+        "stop_loss_pct": 6.0,
+        "max_positions": 5,
+        "initial_capital": 10_000_000,
+    })
+    titles = [a.title for a in result.advice]
+    assert not any("진입 신호" in t for t in titles), (
+        f"랭킹 전략에 진입 신호 추가 조언이 나오면 안 됩니다: {titles}"
+    )
+
+
 def test_no_stop_loss_has_advice():
     result = _review({
         "universe": ["KOSPI200"],

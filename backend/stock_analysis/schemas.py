@@ -48,6 +48,17 @@ class StockMetrics(BaseModel):
     as_of: Optional[str] = None              # 데이터 기준일(YYYY-MM-DD)
 
 
+class AIForecastGauge(BaseModel):
+    """AI 모델 보조 게이지 — 매매 결정에 쓰지 않는 참고용. 자기 시계열 퍼센타일 보정.
+
+    검증상 방향 알파는 없고 약세장 하방 방어만 입증됐다(project_ai_auxiliary_usage).
+    그래서 1차 메시지는 '하방 리스크 수준'이다.
+    """
+    down_risk_level: Optional[str] = None  # elevated | moderate | calm
+    down_pctl: Optional[int] = None        # 오늘 하락확률의 자기 시계열 퍼센타일(0~100)
+    up_pctl: Optional[int] = None          # 오늘 상승확률의 자기 시계열 퍼센타일
+
+
 class StockAnalysisResult(BaseModel):
     intent: str = "STOCK_ANALYSIS"
     symbol: str
@@ -58,6 +69,7 @@ class StockAnalysisResult(BaseModel):
     explanation: str = ""            # LLM 자연어 설명(스펙 §5 구조). 없으면 빈 문자열.
     signals: StockSignals = Field(default_factory=StockSignals)
     metrics: StockMetrics = Field(default_factory=StockMetrics)
+    ai_forecast: Optional[AIForecastGauge] = None  # AI 보조 게이지(없으면 데이터 없음)
     news_summary: Optional[str] = None
     news_url: Optional[str] = None    # 대표 출처 기사 URL(설명의 '뉴스'에 링크)
     risk_factors: List[str] = Field(default_factory=list)

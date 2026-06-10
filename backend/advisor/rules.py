@@ -31,6 +31,7 @@ class RuleContext:
     max_positions: Optional[int] = None          # None = 미설정
     universe_size_estimate: int = 200            # KOSPI200=200, KOSPI=838, etc.
     entry_signal_count: int = 0
+    has_ranking_entry: bool = False           # 모멘텀/상대강도 랭킹(수익률 상위) — 순위 자체가 진입
     has_ai_signal: bool = False
     hold_period_days: Optional[int] = None
     initial_capital: Optional[float] = None      # e.g. 10_000_000
@@ -136,8 +137,16 @@ def rule_no_liquidity_filter(ctx: RuleContext) -> Optional[Issue]:
 
 
 def rule_no_entry_signals(ctx: RuleContext) -> Optional[Issue]:
-    """진입 신호가 전혀 없을 때 (재무 필터만 있는 경우)."""
-    if ctx.entry_signal_count == 0 and not ctx.has_fundamental_filters:
+    """진입 신호가 전혀 없을 때.
+
+    재무 필터, 기술적 신호, 또는 모멘텀/상대강도 랭킹(수익률 상위 선정) 중
+    하나라도 있으면 진입 규칙이 정의된 것으로 본다. 랭킹은 순위 자체가 진입이다.
+    """
+    if (
+        ctx.entry_signal_count == 0
+        and not ctx.has_fundamental_filters
+        and not ctx.has_ranking_entry
+    ):
         return _issue(
             "NO_ENTRY_SIGNALS",
             "high",

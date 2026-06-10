@@ -50,8 +50,12 @@ def test_partial_data_still_decides():
     assert out.recommendation != Recommendation.INSUFFICIENT_DATA
 
 
-def test_forecast_is_low_weight():
-    # forecast만으로는 추천을 STRONG_BUY로 끌어올리지 못한다(보조 신호).
-    out = engine.decide(StockSignals(trend="neutral", forecast="positive"))
-    assert out.recommendation in {Recommendation.HOLD, Recommendation.ACCUMULATE}
-    assert out.recommendation != Recommendation.STRONG_BUY
+def test_forecast_does_not_affect_recommendation():
+    # AI 예측은 매매를 결정하지 않는다(점수 제외) — forecast 유무가 추천·confidence를 바꾸지 않는다.
+    base = StockSignals(trend="up", valuation="neutral", news_sentiment="neutral", risk="low")
+    without = engine.decide(base)
+    with_pos = engine.decide(base.model_copy(update={"forecast": "positive"}))
+    with_neg = engine.decide(base.model_copy(update={"forecast": "negative"}))
+    assert with_pos.recommendation == without.recommendation
+    assert with_neg.recommendation == without.recommendation
+    assert with_pos.confidence == without.confidence == with_neg.confidence
