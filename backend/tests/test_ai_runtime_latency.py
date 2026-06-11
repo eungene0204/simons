@@ -79,6 +79,7 @@ def test_mlx_parse_requires_startup_loaded_model():
 
 
 def test_preload_nl_parser_fails_startup_when_model_load_fails(monkeypatch):
+    monkeypatch.setenv("LLM_BACKEND", "mlx")  # MLX 모드에서만 startup이 모델 로드 실패를 전파
     class _FailingParser:
         def __init__(self, backend="mlx"):
             self.backend = backend

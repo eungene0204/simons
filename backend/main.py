@@ -2464,11 +2464,20 @@ class PriorityInferenceLock:
 
         class _PriorityContext:
             def __enter__(self):
-                lock.acquire(priority)
+                # Ollama는 별도 서버 프로세스가 동시성을 처리하므로(OLLAMA_NUM_PARALLEL)
+                # 인프로세스 직렬화가 불필요·유해하다. MLX(인프로세스 단일 모델, 동시 호출
+                # 불안전)일 때만 게이트를 건다. 이로써 모든 호출부가 백엔드에 따라 자동으로
+                # 조건부가 된다 — 호출부 수정 불필요.
+                from llm_backend import resolve_llm_backend
+
+                self._engaged = resolve_llm_backend() == "mlx"
+                if self._engaged:
+                    lock.acquire(priority)
                 return self
 
             def __exit__(self, *_args):
-                lock.release()
+                if getattr(self, "_engaged", False):
+                    lock.release()
                 return False
 
         return _PriorityContext()

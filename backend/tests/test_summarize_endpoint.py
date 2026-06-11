@@ -19,6 +19,7 @@ class _DummyTokenizer:
 
 
 def test_summarize_endpoint_disables_thinking_on_mlx(monkeypatch):
+    monkeypatch.setenv("LLM_BACKEND", "mlx")  # 이 테스트는 MLX 요약 경로를 검증한다
     tokenizer = _DummyTokenizer()
     original_model = main._summarize_model["model"]
     original_tokenizer = main._summarize_model["tokenizer"]
@@ -53,6 +54,7 @@ def test_summarize_endpoint_disables_thinking_on_mlx(monkeypatch):
 
 
 def test_summarize_endpoint_uses_advisor_for_improvements_when_parsed_strategy(monkeypatch):
+    monkeypatch.setenv("LLM_BACKEND", "mlx")  # MLX 요약 경로 위에서 advisor 통합 검증
     """parsed_strategy 가 있으면 advisor 가 improvements/점수를 결정론적으로 채우고 LLM 출력을 덮어쓴다."""
     tokenizer = _DummyTokenizer()
     original_model = main._summarize_model["model"]
@@ -117,6 +119,7 @@ def test_summarize_endpoint_uses_advisor_for_improvements_when_parsed_strategy(m
 
 
 def test_summarize_endpoint_falls_back_to_llm_only_when_advisor_fails(monkeypatch):
+    monkeypatch.setenv("LLM_BACKEND", "mlx")  # MLX 요약 경로 위에서 LLM 단독 폴백 검증
     """advisor 가 None 을 반환(실패)하면 기존 LLM 단독 경로로 폴백한다."""
     tokenizer = _DummyTokenizer()
     original_model = main._summarize_model["model"]

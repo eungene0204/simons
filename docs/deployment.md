@@ -21,7 +21,7 @@ Simons는 **상태(stateful) + 상시 실행 + 무거운 컴퓨팅 + 로컬파�
 - **Next.js가 python을 직접 실행**: `app/api/backtest/explain/route.ts`가 `python backend/ai/xai_engine.py`를 spawn하고, 여러 라우트가 `data/` 파일을 `fs`로 읽음 → 웹·백엔드가 **node+python+코드+데이터를 한 파일시스템에서 공유**해야 함(=합본 이미지).
 - **로컬 parquet 직접 읽기**: `data/ohlcv/*`(324MB), `data/training_data_v3.parquet`(144MB) → 영속 디스크.
 - **상시 데몬 2개**: 스케줄러(`scripts/scheduler.py`, 매일 00:00 KST OHLCV 동기화) + VirtualTrader(`backend/engine/virtual_trader.py`, FastAPI 인프로세스 자동매매).
-- **로컬 LLM**: 코치/NL파서가 Ollama로 9B를 호출(`OLLAMA_HOST`로 주소 결정, 리눅스는 자동 Ollama 경로).
+- **로컬 LLM**: 코치/NL파서/요약이 **기본적으로 Ollama**로 9B를 호출(`resolve_llm_backend()`가 백엔드 결정, 기본값 ollama. `OLLAMA_HOST`로 주소 지정). MLX는 맥 dev에서 `LLM_BACKEND=mlx`로 옵트인할 때만.
 
 → 서버리스(Vercel) 불가, 앱 티어 다중 분리 불가. **GPU 박스 1대 + Docker**가 정답.
 
@@ -84,7 +84,7 @@ GEX44는 EU 전용이라 한국 사용자·KIS/KRX/DART API까지 ~250ms.
 ### 동시 처리량(현실 인지)
 - **둘러보기**(페이지/조회): 수십~100명 쾌적
 - **백테스트**: 약 4~8건 동시(코어 수). 데드락 가드로 각 건은 단일 스레드
-- **코치(LLM)**: 전역 추론 락으로 **사실상 직렬**. GPU라 1건 8~15초 → 분당 수 건. 동시 호출이 몰리면 대기 → 진짜 천장(§13에서 `OLLAMA_NUM_PARALLEL`로 완화)
+- **코치(LLM)**: 앱 레벨 전역 추론 락은 **Ollama에선 no-op**(MLX 전용)이라 동시 코칭이 가능하다. 동시 처리량은 호스트의 **`OLLAMA_NUM_PARALLEL` + VRAM**이 결정(9B 1건 8~15초). 천장을 더 올리려면 §13.
 
 ---
 
@@ -204,7 +204,7 @@ BACKEND_URL="http://backend:8000"
 APP_URL="https://simons.example.com"
 
 # --- 로컬 LLM (Ollama) ---
-LLM_BACKEND="ollama"                      # 리눅스 강제(자동감지도 됨)
+# LLM_BACKEND 기본값이 ollama라 보통 불필요. 맥 dev에서 MLX를 쓸 때만 LLM_BACKEND=mlx
 OLLAMA_HOST="http://host.docker.internal:11434"
 NL_OLLAMA_MODEL="<YOUR_9B_MODEL>"
 
@@ -314,7 +314,7 @@ curl -s http://localhost:8000/model/status   # LLM 로딩 상태
 
 현재 구성은 **단일 박스·단일 백엔드 프로세스**까지 안전. 트래픽이 커지면:
 
-1. **코치 동시성** — 전역 추론 락 + Ollama 직렬이 천장. `OLLAMA_NUM_PARALLEL` 상향(VRAM 한도 내) → 그래도 부족하면 **Ollama를 별도 GPU 인스턴스/서버리스로 분리**(`OLLAMA_HOST`만 변경).
+1. **코치 동시성** — 앱 레벨 전역 락은 Ollama에서 이미 해제(no-op)됨. 천장은 호스트 `OLLAMA_NUM_PARALLEL` + VRAM. 상향해도 부족하면 **Ollama를 별도 GPU 인스턴스/서버리스로 분리**(`OLLAMA_HOST`만 변경).
 2. **11GB SQLite 무한 증가** — `BacktestResult`가 백테스트마다 누적. 쓰기 락 경합·백업 부담이 커지면 **그 테이블만 Postgres로 분리**(뉴스 PG에 합침, 단 코치 `sqlite3` 직접 조회라 코드 변경). 더 가벼운 대안: 오래된 결과 **아카이브/프루닝**.
 3. **앱 수평 확장** — 웹/API를 여러 대로 늘리려면 SQLite→Postgres 이관 + **VirtualTrader·스케줄러는 반드시 단일 워커**로 분리(중복 주문/중복 동기화 방지).
 

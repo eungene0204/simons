@@ -453,7 +453,7 @@ class NLStrategyParser:
             raise RuntimeError("pip install instructor openai 필요")
 
         self._client = instructor.from_openai(
-            OpenAI(base_url="http://localhost:11434/v1", api_key="ollama"),
+            OpenAI(base_url=f"{OLLAMA_BASE_URL}/v1", api_key="ollama"),
             mode=instructor.Mode.JSON,
         )
 

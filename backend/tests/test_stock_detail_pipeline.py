@@ -663,6 +663,7 @@ async def test_startup_does_not_warm_popular_stock_cache(monkeypatch):
 
 
 def test_preload_nl_parser_preloads_shared_parser_and_updates_status(monkeypatch):
+    monkeypatch.setenv("LLM_BACKEND", "mlx")  # MLX 모드 공유 모델 preload 메커니즘을 검증
     class _DummyParser:
         def __init__(self, backend="mlx"):
             self.backend = backend
