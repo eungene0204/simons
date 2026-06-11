@@ -1,0 +1,7 @@
+# 브라우저 트래픽은 전부 Next.js(web:3000)로 보낸다.
+# FastAPI 백엔드(backend:8000)는 Next 서버가 내부에서만 호출하므로 외부 노출하지 않는다.
+# DOMAIN 환경변수는 compose가 .env에서 주입한다 (예: DOMAIN=simons.example.com).
+# 로컬 테스트 시 DOMAIN 미설정이면 localhost로 동작(자체서명 인증서).
+{$DOMAIN:localhost} {
+	reverse_proxy web:3000
+}

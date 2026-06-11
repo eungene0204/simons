@@ -1,0 +1,154 @@
+# Simons 통합 배포 compose — 단일 GPU 박스 1대에 전부 기동
+# ─────────────────────────────────────────────────────────────────────────────
+# 메인 앱(web/backend/scheduler) + 뉴스 시스템(redis/postgres/celery) + Caddy(TLS)를
+# 한 번에 띄운다. Ollama(9B, GPU)만 호스트에 직접 설치 — 컨테이너 밖에서 GPU 네이티브 사용.
+#
+# 사용:
+#   docker compose build          # 합본 이미지 1회 빌드
+#   docker compose up -d          # 전체 기동
+#   docker compose logs -f backend
+#
+# ⚠️ 초안. 아래 "운영 메모"(파일 하단)와 docs/deployment.md를 함께 볼 것.
+# ⚠️ 기존 docker-compose.news-v2.yml은 이 파일로 대체된다(로컬 dev용으로만 남겨둘 것).
+# ─────────────────────────────────────────────────────────────────────────────
+name: simons
+
+services:
+  # ───────────────── 인프라 ─────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  postgres:                       # 뉴스(news_v2) 전용 Postgres. Supabase로 빼려면 이 서비스를 지우고
+    image: postgres:16-alpine     # .env의 NEWSV2_DB_URL을 Supabase 주소로 바꾸면 된다.
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: simons
+      POSTGRES_PASSWORD: ${NEWSV2_PG_PASSWORD:-simons}
+      POSTGRES_DB: simons_news
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U simons -d simons_news"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ───────────────── 메인 앱 (합본 이미지 공유) ─────────────────
+  backend:                        # FastAPI + VirtualTrader (인프로세스 자동매매)
+    build: .                      # 합본 이미지를 여기서 1회 빌드
+    image: simons-app:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      OLLAMA_HOST: http://host.docker.internal:11434   # 호스트의 Ollama(9B/GPU)
+      KMP_DUPLICATE_LIB_OK: "TRUE"                      # ↓ 기동 데드락 가드(필수)
+      OMP_NUM_THREADS: "1"
+      POLARS_MAX_THREADS: "1"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"            # 컨테이너→호스트 Ollama 접근
+    volumes:
+      - ./prisma/prisma:/app/prisma/prisma             # 11GB SQLite (호스트 bind = 시드/백업 용이)
+      - ./data:/app/data                               # 9GB parquet/json + chroma
+    depends_on:
+      postgres:
+        condition: service_healthy
+    working_dir: /app/backend
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+
+  web:                            # Next.js (프론트 + 86개 API 라우트). xai_engine.py spawn·fs 읽기 때문에
+    image: simons-app:latest      # python·data가 필요 → 합본 이미지 + data 볼륨 공유
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      BACKEND_URL: http://backend:8000
+    volumes:
+      - ./prisma/prisma:/app/prisma/prisma             # Prisma → 동일 SQLite
+      - ./data:/app/data                               # fs 읽기 + xai_engine.py 실행에 필요
+    depends_on:
+      - backend
+    working_dir: /app
+    command: npm run start
+
+  scheduler:                      # 매일 00:00 KST OHLCV 동기화 (단일 인스턴스 — 중복 금지)
+    image: simons-app:latest
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+    working_dir: /app
+    command: python3 scripts/scheduler.py
+
+  news-worker:                    # 뉴스 수집/분석 Celery 워커
+    image: simons-app:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NEWSV2_ENABLED: "true"
+      NEWSV2_REDIS_URL: redis://redis:6379/1
+      NEWSV2_CELERY_BROKER: redis://redis:6379/2
+      NEWSV2_DB_URL: postgresql+asyncpg://simons:${NEWSV2_PG_PASSWORD:-simons}@postgres:5432/simons_news
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    working_dir: /app/backend
+    command: >
+      celery -A news_v2.celery_app.celery_app worker
+      -Q news.collect.high,news.collect.default,news.analyze,news.maintenance
+      --concurrency=4 --loglevel=INFO
+
+  news-scheduler:                 # 뉴스 주기 작업 비트
+    image: simons-app:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NEWSV2_ENABLED: "true"
+      NEWSV2_REDIS_URL: redis://redis:6379/1
+      NEWSV2_CELERY_BROKER: redis://redis:6379/2
+      NEWSV2_DB_URL: postgresql+asyncpg://simons:${NEWSV2_PG_PASSWORD:-simons}@postgres:5432/simons_news
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    working_dir: /app/backend
+    command: python3 -m news_v2.scheduler
+
+  # ───────────────── 리버스 프록시 + 자동 TLS ─────────────────
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    env_file: .env                # DOMAIN 주입
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+    depends_on:
+      - web
+
+volumes:
+  pgdata:
+  caddy_data:
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 운영 메모 (no-ops 친화)
+# 1) Ollama는 호스트에 설치하고 0.0.0.0으로 떠야 컨테이너가 닿는다:
+#      sudo systemctl edit ollama  →  [Service] Environment="OLLAMA_HOST=0.0.0.0:11434"
+#      (기본 127.0.0.1이면 host.docker.internal에서 접속 불가)
+# 2) .env에 뉴스 DB 주소를 컨테이너 호스트명으로:
+#      NEWSV2_DB_URL=postgresql+asyncpg://simons:simons@postgres:5432/simons_news
+#    (Supabase로 빼면 그 주소로 교체하고 postgres 서비스 삭제)
+# 3) 11GB SQLite는 ./prisma/prisma/dev.db 로 호스트에 두고 bind 마운트 → rsync 시드/백업 쉬움
+# 4) DOMAIN 미설정 시 Caddy는 localhost(자체서명)로 동작 — 실서비스는 .env에 DOMAIN 지정
+# ─────────────────────────────────────────────────────────────────────────────

@@ -1,0 +1,26 @@
+# 빌드 컨텍스트에서 제외 — 이게 없으면 docker build가 26GB를 통째로 전송해 매우 느려진다.
+node_modules
+.next
+.venv
+venv
+ENV
+.git
+.gitignore
+
+# 대용량 런타임 데이터 — 이미지에 굽지 않고 볼륨으로 마운트한다 (compose 참고)
+data
+prisma/prisma/*.db
+prisma/prisma/*.db-wal
+prisma/prisma/*.db-shm
+prisma/dev.db
+prisma/*.db
+
+# 캐시/잡동사니
+**/__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.DS_Store
+.env
+.env.*
+npm-debug.log
