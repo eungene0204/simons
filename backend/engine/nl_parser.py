@@ -13,6 +13,8 @@ import re
 from typing import List, Literal, Optional
 from pydantic import BaseModel, Field
 
+from llm_backend import OLLAMA_BASE_URL
+
 
 # ─── 스키마 정의 ──────────────────────────────────────────────────────────────
 
@@ -599,8 +601,11 @@ class NLStrategyParser:
         temperature: float = 0.0,
         top_p: float = 1.0,
     ) -> str:
-        """자유형식 텍스트 생성 — 코치/요약 등 비구조화 응답용 (MLX 전용).
-        temperature>0이면 표현이 매번 달라지도록 샘플링한다(코치용)."""
+        """자유형식 텍스트 생성 — 코치/요약 등 비구조화 응답용.
+        temperature>0이면 표현이 매번 달라지도록 샘플링한다(코치용).
+        MLX를 쓸 수 없는 환경(리눅스 등)에서는 Ollama HTTP API로 폴백한다."""
+        if self.backend != "mlx":
+            return self._chat_ollama(system_prompt, user_message, max_tokens, temperature, top_p)
         self._init_mlx()
         try:
             import mlx_lm
@@ -639,8 +644,12 @@ class NLStrategyParser:
         temperature: float = 0.0,
         top_p: float = 1.0,
     ):
-        """토큰 단위 스트리밍 생성 — 각 yield마다 누적된 전체 텍스트를 반환 (MLX 전용).
-        temperature>0이면 표현이 매번 달라지도록 샘플링한다(코치용)."""
+        """토큰 단위 스트리밍 생성 — 각 yield마다 증분 델타를 반환.
+        temperature>0이면 표현이 매번 달라지도록 샘플링한다(코치용).
+        MLX를 쓸 수 없는 환경(리눅스 등)에서는 Ollama HTTP API로 폴백한다."""
+        if self.backend != "mlx":
+            yield from self._stream_chat_ollama(system_prompt, user_message, max_tokens, temperature, top_p)
+            return
         self._init_mlx()
         try:
             import mlx_lm
@@ -671,6 +680,75 @@ class NLStrategyParser:
         ):
             # resp.text is the incremental delta for this step
             yield resp.text
+
+    def _chat_ollama(
+        self,
+        system_prompt: str,
+        user_message: str,
+        max_tokens: int,
+        temperature: float,
+        top_p: float,
+    ) -> str:
+        """Ollama /api/chat 동기 호출 — chat()의 비-MLX 폴백."""
+        import urllib.request
+
+        body = json.dumps({
+            "model": self.ollama_model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            "stream": False,
+            "options": {"temperature": temperature, "top_p": top_p, "num_predict": max_tokens},
+        }).encode()
+        req = urllib.request.Request(
+            f"{OLLAMA_BASE_URL}/api/chat",
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            data = json.loads(resp.read())
+        return (data.get("message") or {}).get("content", "").strip()
+
+    def _stream_chat_ollama(
+        self,
+        system_prompt: str,
+        user_message: str,
+        max_tokens: int,
+        temperature: float,
+        top_p: float,
+    ):
+        """Ollama /api/chat 스트리밍 호출 — stream_chat()의 비-MLX 폴백.
+        각 yield는 증분 델타(MLX 경로와 동일)."""
+        import urllib.request
+
+        body = json.dumps({
+            "model": self.ollama_model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            "stream": True,
+            "options": {"temperature": temperature, "top_p": top_p, "num_predict": max_tokens},
+        }).encode()
+        req = urllib.request.Request(
+            f"{OLLAMA_BASE_URL}/api/chat",
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            for line in resp:
+                line = line.strip()
+                if not line:
+                    continue
+                obj = json.loads(line)
+                delta = (obj.get("message") or {}).get("content", "")
+                if delta:
+                    yield delta
+                if obj.get("done"):
+                    break
 
     def _parse_mlx(self, user_input: str) -> ParsedStrategy:
         self._init_mlx()

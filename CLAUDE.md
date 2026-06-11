@@ -51,6 +51,12 @@ npm run test:frontend
 ### 계획서 완료 표시 자동 업데이트
 작업 완료 시 `docs/PROJECT_PLAN.md`의 해당 항목을 자동으로 `✅ 완료`로 업데이트한다.
 
+### 작업 완료 후 관련 문서 자동 업데이트
+작업이 끝날 때마다 작업 내용을 관련 문서에 반영한다. 최소한 아래 문서들 중 해당되는 문서를 검토하고 업데이트한다.
+- `docs/PROJECT_PLAN.md`
+- `docs/software_architecture.md`
+- `docs/SRS.md`
+
 ### UI 가이드라인 준수
 새 페이지나 컴포넌트 작성 시 반드시 `docs/UI_GUIDELINES.md`를 참고한다.
  기존 페이지 수정 시도 가이드라인과 불일치하는 부분이 있으면 맞춰서 수정할 것

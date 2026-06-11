@@ -78,7 +78,8 @@ def _get_parser() -> Any:
 
     try:
         import main as _main
-        parser = getattr(_main, "_nl_parsers", {}).get("mlx")
+        active = getattr(_main, "_active_nl_parser", None)
+        parser = active() if callable(active) else getattr(_main, "_nl_parsers", {}).get("mlx")
         if parser is not None:
             _parser = parser
             return parser

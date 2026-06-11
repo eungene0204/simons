@@ -8,15 +8,15 @@
   { "score": 72, "summary": "..." }
 """
 
+import os
 import sys
 import json
-import platform
 import re
 import ast
 
 MLX_MODEL = "mlx-community/Qwen3.5-4B-4bit"
-OLLAMA_MODEL = "qwen3.5:4b"
-OLLAMA_URL = "http://localhost:11434/api/generate"
+OLLAMA_MODEL = os.environ.get("NL_OLLAMA_MODEL", "qwen3.5:4b")
+OLLAMA_URL = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/") + "/api/generate"
 FALLBACK_SUMMARY = "모델 출력 형식이 올바르지 않아 요약을 생성하지 못했습니다. 다시 시도해 주세요."
 
 
@@ -669,8 +669,9 @@ def main():
     prompt = build_prompt(payload)
 
     try:
-        is_mac = platform.system() == "Darwin"
-        raw = summarize_mlx(prompt) if is_mac else summarize_ollama(prompt)
+        from llm_backend import resolve_llm_backend
+        use_mlx = resolve_llm_backend() == "mlx"
+        raw = summarize_mlx(prompt) if use_mlx else summarize_ollama(prompt)
         parsed = parse_llm_output(raw)
         print(json.dumps({
             "score": score,

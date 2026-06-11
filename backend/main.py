@@ -2444,6 +2444,12 @@ _nl_parsers: dict = {}  # backend → NLStrategyParser (lazy singleton)
 _nl_parser_status: dict = {"status": "loading", "error": None}  # "ok" | "failed" | "loading"
 
 
+def _active_nl_parser():
+    """등록된 NL 파서를 우선순위(mlx → ollama)로 하나 반환. 없으면 None.
+    코치/종목분석이 백엔드와 무관하게 공유 파서를 찾을 때 쓴다."""
+    return _nl_parsers.get("mlx") or _nl_parsers.get("ollama")
+
+
 class PriorityInferenceLock:
     """Single-device inference gate with priority-aware admission."""
 
@@ -2621,30 +2627,40 @@ async def shutdown():
 
 @app.on_event("startup")
 def preload_nl_parser():
-    """서버 시작 시 NL 파서 모델을 미리 로드 (첫 요청 지연 방지)"""
-    try:
-        from engine.nl_parser import NLStrategyParser
+    """서버 시작 시 NL 파서 모델을 미리 로드 (첫 요청 지연 방지).
 
-        parser = NLStrategyParser(backend="mlx")
-        parser._init_mlx()  # 모델 로딩 (최초 1회)
-        _nl_parsers["mlx"] = parser
-        _summarize_model["model"] = parser._mlx_model
-        _summarize_model["tokenizer"] = parser._tokenizer
+    MLX를 쓸 수 없는 환경(리눅스 배포 등)에서는 Ollama 백엔드로 등록한다.
+    """
+    from engine.nl_parser import NLStrategyParser
+    from llm_backend import resolve_llm_backend
+
+    backend = resolve_llm_backend()
+    try:
+        parser = NLStrategyParser(backend=backend)
+        if backend == "mlx":
+            parser._init_mlx()  # 모델 로딩 (최초 1회)
+            _summarize_model["model"] = parser._mlx_model
+            _summarize_model["tokenizer"] = parser._tokenizer
+            label = parser._model_log_label(parser.mlx_model)
+        else:
+            parser._init_ollama()  # HTTP 클라이언트 준비 (모델 다운로드/접속은 첫 호출 시)
+            label = parser.ollama_model
+        _nl_parsers[backend] = parser
         _nl_parser_status["status"] = "ok"
         _nl_parser_status["error"] = None
 
         from api.coach_routes import set_parser as _set_coach_parser
         _set_coach_parser(parser)
 
-        print(
-            f"[startup] NL 파서 모델 로딩 완료: {parser._model_log_label(parser.mlx_model)}",
-            flush=True,
-        )
+        print(f"[startup] NL 파서 로딩 완료 (backend={backend}): {label}", flush=True)
     except Exception as e:
         _nl_parser_status["status"] = "failed"
         _nl_parser_status["error"] = str(e)
-        print(f"[startup] NL 파서 로딩 실패: {e}", flush=True)
-        raise
+        print(f"[startup] NL 파서 로딩 실패 (backend={backend}): {e}", flush=True)
+        # MLX는 서버 시작 시 모델 로딩이 필수 전제라 실패를 전파한다. Ollama는 서버가
+        # 떠 있지 않아도(첫 호출 시 접속) 앱 기동을 막지 않는다.
+        if backend == "mlx":
+            raise
 
 
 def _ensure_summarize_model_loaded():
@@ -2699,17 +2715,23 @@ def get_model_status():
 @app.post("/strategy/parse", response_model=NLParseResponse)
 def parse_nl_strategy(request: NLParseRequest):
     """자연어 전략 설명을 ParsedStrategy + BacktestRequest로 변환"""
+    from llm_backend import resolve_llm_backend
+
     request_started = time.perf_counter()
-    print(f"\n[NL-PARSE] prompt='{request.prompt}', backend={request.backend}", flush=True)
+    # MLX를 쓸 수 없는 환경이면 요청이 "mlx"여도 ollama로 강등한다(프론트 변경 불필요).
+    resolved_backend = resolve_llm_backend(request.backend)
+    if resolved_backend != request.backend:
+        print(f"[NL-PARSE] backend '{request.backend}' 사용 불가 → '{resolved_backend}'로 폴백", flush=True)
+    print(f"\n[NL-PARSE] prompt='{request.prompt}', backend={resolved_backend}", flush=True)
 
     # 캐시 조회 — 동일 프롬프트면 LLM 재호출 없이 즉시 반환
-    cache_key = nl_cache_key(request.prompt, request.backend, request.model, request.previous_parsed)
+    cache_key = nl_cache_key(request.prompt, resolved_backend, request.model, request.previous_parsed)
     if cache_key in _nl_parse_cache:
         print(f"[NL-PARSE] 캐시 히트 → 즉시 반환", flush=True)
         cached = dict(_nl_parse_cache[cache_key])
         runtime = {
             "cache_hit": True,
-            "backend": request.backend,
+            "backend": resolved_backend,
             "total_ms": round((time.perf_counter() - request_started) * 1000, 2),
         }
         cached["runtime"] = runtime
@@ -2725,7 +2747,7 @@ def parse_nl_strategy(request: NLParseRequest):
         from engine.strategy_converter import to_backtest_request
 
         load_started = time.perf_counter()
-        backend = request.backend
+        backend = resolved_backend
         if backend not in _nl_parsers:
             if backend == "mlx":
                 raise HTTPException(
@@ -2957,7 +2979,6 @@ def summarize_backtest(req: SummarizeRequest):
         parse_llm_output,
         normalize_report_items,
     )
-    import platform
 
     request_started = time.perf_counter()
     score = calculate_score(req.metrics)
@@ -2977,8 +2998,9 @@ def summarize_backtest(req: SummarizeRequest):
         prompt = build_prompt(payload)
 
     try:
-        is_mac = platform.system() == "Darwin"
-        if is_mac:
+        from llm_backend import resolve_llm_backend
+        use_mlx = resolve_llm_backend() == "mlx"
+        if use_mlx:
             import os
             from mlx_lm import generate  # type: ignore
             os.environ["HF_HUB_OFFLINE"] = "1"
@@ -3006,7 +3028,7 @@ def summarize_backtest(req: SummarizeRequest):
 
         parsed = parse_llm_output(raw)
         runtime = {
-            "backend": "mlx" if is_mac else "ollama",
+            "backend": "mlx" if use_mlx else "ollama",
             "total_ms": round((time.perf_counter() - request_started) * 1000, 2),
         }
         _record_ai_runtime("summary", runtime)

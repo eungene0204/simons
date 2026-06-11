@@ -140,9 +140,15 @@ def build_advisor_result(prompt: str, ps_: dict, bt_) -> Dict[str, Any]:
 
 
 def main() -> None:
-    print("[QA] Loading Qwen MLX model (coach)...", flush=True)
-    parser = NLStrategyParser(backend="mlx")
-    parser._init_mlx()
+    from llm_backend import resolve_llm_backend
+
+    backend = resolve_llm_backend()
+    print(f"[QA] Loading coach model (backend={backend})...", flush=True)
+    parser = NLStrategyParser(backend=backend)
+    if backend == "mlx":
+        parser._init_mlx()
+    else:
+        parser._init_ollama()
     cr._parser_ref = parser  # not strictly needed; we call chat() directly
     print("[QA] Model loaded. Running", len(CASES), "real LLM generations.\n", flush=True)
 

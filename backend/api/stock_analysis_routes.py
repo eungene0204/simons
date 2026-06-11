@@ -44,12 +44,14 @@ def _main_module():
 
 
 def _mlx_llm(system_prompt: str, user_msg: str, *, max_tokens: int = 400) -> str:
-    """coach와 동일한 공유 parser를 inference lock 안에서 호출한다. 없으면 빈 문자열."""
+    """coach와 동일한 공유 parser를 inference lock 안에서 호출한다. 없으면 빈 문자열.
+    백엔드(mlx/ollama)와 무관하게 등록된 공유 파서를 사용한다."""
     main_mod = _main_module()
     if main_mod is None:
         return ""
     try:
-        parser = getattr(main_mod, "_nl_parsers", {}).get("mlx")
+        active = getattr(main_mod, "_active_nl_parser", None)
+        parser = active() if callable(active) else getattr(main_mod, "_nl_parsers", {}).get("mlx")
         lock = getattr(main_mod, "_mlx_inference_lock", None)
         if parser is None or lock is None:
             return ""
@@ -64,6 +66,9 @@ def _llm_available() -> bool:
     main_mod = _main_module()
     if main_mod is None:
         return False
+    active = getattr(main_mod, "_active_nl_parser", None)
+    if callable(active):
+        return active() is not None
     return getattr(main_mod, "_nl_parsers", {}).get("mlx") is not None
 
 

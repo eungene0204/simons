@@ -304,6 +304,7 @@ Codex 작업 규칙, boundary 정의, 운영 정책 문서 유지보수.
 
 ### Files
 - AGENTS.md
+- CLAUDE.md
 - docs/architecture/**
 - docs/development/**
 - docs/PROJECT_PLAN.md

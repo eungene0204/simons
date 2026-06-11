@@ -35,7 +35,7 @@ Always keep work inside one boundary.
 Never modify forbidden paths unless explicitly instructed.
 When creating a new UI, always review and follow `docs/UI_GUIDELINES.md`.
 
-If a task is completed and the implementation meaningfully changes project scope, plan, requirements, or architecture, update the relevant documentation if needed:
+Whenever a task is completed, update the work details in the relevant documentation before finishing the task. At minimum, review and update any applicable documents such as:
 - `docs/PROJECT_PLAN.md`
 - `docs/software_architecture.md`
 - `docs/SRS.md`
