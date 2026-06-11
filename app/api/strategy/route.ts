@@ -39,6 +39,7 @@ export async function POST(request: Request) {
         description: data.description || null,
         settings: JSON.stringify(strategyToSave),
         strategyType,
+        isSaved: true,
       },
       update: {
         ...(userId != null && { userId }),
@@ -46,6 +47,8 @@ export async function POST(request: Request) {
         description: data.description || null,
         settings: JSON.stringify(strategyToSave),
         strategyType,
+        isSaved: true,
+        deletedAt: null,
       },
     });
 
@@ -63,7 +66,7 @@ export async function GET() {
   try {
     const { userId } = await getOwnershipContext();
     const strategies = await prisma.strategy.findMany({
-      where: withOwnership({}, userId),
+      where: withOwnership({ isSaved: true }, userId),
       orderBy: { createdAt: 'desc' },
     });
     

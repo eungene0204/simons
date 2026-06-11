@@ -73,6 +73,9 @@ function mapBacktestResponse(raw: any): BacktestResult {
     aiStrengths: raw.aiStrengths ?? undefined,
     aiWeaknesses: raw.aiWeaknesses ?? undefined,
     aiImprovements: raw.aiImprovements ?? undefined,
+    advisorScore: raw.advisorScore ?? null,
+    riskScore: raw.riskScore ?? null,
+    overfitRisk: raw.overfitRisk ?? null,
   };
 }
 
@@ -95,6 +98,9 @@ function StrategyResultContent() {
   const [aiStrengths, setAiStrengths] = useState<string[]>([]);
   const [aiWeaknesses, setAiWeaknesses] = useState<string[]>([]);
   const [aiImprovements, setAiImprovements] = useState<string[]>([]);
+  const [advisorScore, setAdvisorScore] = useState<number | null>(null);
+  const [riskScore, setRiskScore] = useState<number | null>(null);
+  const [overfitRisk, setOverfitRisk] = useState<string | null>(null);
 
   useEffect(() => {
     const loadStrategy = async () => {
@@ -120,6 +126,9 @@ function StrategyResultContent() {
         setAiStrengths(data.backtestResult.aiStrengths ?? []);
         setAiWeaknesses(data.backtestResult.aiWeaknesses ?? []);
         setAiImprovements(data.backtestResult.aiImprovements ?? []);
+        setAdvisorScore(data.backtestResult.advisorScore ?? null);
+        setRiskScore(data.backtestResult.riskScore ?? null);
+        setOverfitRisk(data.backtestResult.overfitRisk ?? null);
 
         // strategySummary 구성
         if (normalizedSettings) {
@@ -253,7 +262,7 @@ function StrategyResultContent() {
         <div className="flex-1 overflow-auto">
           <BacktestDashboard
             result={result}
-            onRestart={() => router.push("/analytics/new")}
+            onRestart={() => router.push("/analytics")}
             onRun={handleRun}
             currentOptions={currentOptions}
             isRunning={isRunning}
@@ -264,6 +273,9 @@ function StrategyResultContent() {
             aiStrengths={aiStrengths}
             aiWeaknesses={aiWeaknesses}
             aiImprovements={aiImprovements}
+            advisorScore={advisorScore}
+            riskScore={riskScore}
+            overfitRisk={overfitRisk}
             disableHistorySave={true}
           />
         </div>

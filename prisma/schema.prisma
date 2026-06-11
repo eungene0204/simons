@@ -20,8 +20,24 @@ model BacktestHistory {
   hitCount     Int      @default(0)
   createdAt    DateTime @default(now())
   Strategy     Strategy? @relation(fields: [strategyId], references: [id])
+  UserBacktestHistory UserBacktestHistory[]
 
   @@index([strategyId, createdAt])
+}
+
+// 사용자별 "내 백테스트 목록" — 공유 BacktestHistory(중복 방지 캐시)를 그대로 두고
+// 어떤 사용자가 자신의 목록에 담았는지만 기록한다. 목록에서 삭제하면 이 조인 row만
+// 지우고 공유 결과는 보존된다.
+model UserBacktestHistory {
+  id                String          @id @default(cuid())
+  userId            Int
+  backtestHistoryId String
+  savedAt           DateTime        @default(now())
+  User              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  BacktestHistory   BacktestHistory @relation(fields: [backtestHistoryId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, backtestHistoryId])
+  @@index([userId, savedAt])
 }
 
 model BacktestResult {
@@ -82,6 +98,7 @@ model Strategy {
   description    String?
   settings       String
   strategyType   String           @default("기타")
+  isSaved        Boolean          @default(false)
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
   deletedAt      DateTime?
@@ -283,6 +300,7 @@ model User {
   VirtualAccount VirtualAccount[]
   WatchlistGroup WatchlistGroup[]
   WatchlistSymbol WatchlistSymbol[]
+  UserBacktestHistory UserBacktestHistory[]
 }
 
 model ResearchRun {

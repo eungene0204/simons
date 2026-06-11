@@ -139,6 +139,13 @@ describe("POST /api/strategy/save-with-backtest", () => {
     expect(createArg.data.id).toMatch(/^[a-f0-9]{64}$/);
   });
 
+  it("명시적 저장이면 strategy.create에 isSaved: true를 전달해야 함 (캐시 자동생성과 구분)", async () => {
+    await POST(makeRequest({ name: "AI 전략", dsl: VALID_DSL }));
+
+    const createArg = mockStrategyCreate.mock.calls[0][0];
+    expect(createArg.data.isSaved).toBe(true);
+  });
+
   it("strategy.create 호출 시 updatedAt을 명시적으로 전달하지 않아야 함 (스키마 @updatedAt 의존)", async () => {
     await POST(makeRequest({ name: "AI 전략", dsl: VALID_DSL }));
 
@@ -238,6 +245,32 @@ describe("POST /api/strategy/save-with-backtest", () => {
     expect(summary.aiScore).toBe(87);
     expect(summary.aiStrengths).toEqual(["강점 1", "강점 2"]);
     expect(summary.aiRisks).toEqual(["리스크 1"]);
+  });
+
+  it("단점·개선안·advisor 진단(리스크/과적합)도 summary에 함께 저장됨", async () => {
+    await POST(
+      makeRequest({
+        name: "AI 전략",
+        dsl: VALID_DSL,
+        backtestResult: VALID_BACKTEST_RESULT,
+        aiSummary: "리포트 요약",
+        aiScore: 87,
+        aiStrengths: ["강점 1"],
+        aiWeaknesses: ["단점 1", "단점 2"],
+        aiImprovements: ["손절 8% 설정을 고려해보세요."],
+        advisorScore: 64,
+        riskScore: 38,
+        overfitRisk: "medium",
+      })
+    );
+
+    const createArg = mockBacktestResultCreate.mock.calls[0][0];
+    const summary = JSON.parse(createArg.data.summary);
+    expect(summary.aiWeaknesses).toEqual(["단점 1", "단점 2"]);
+    expect(summary.aiImprovements).toEqual(["손절 8% 설정을 고려해보세요."]);
+    expect(summary.advisorScore).toBe(64);
+    expect(summary.riskScore).toBe(38);
+    expect(summary.overfitRisk).toBe("medium");
   });
 
   it("summary에 수익률 상위 10개 종목과 해당 스탯이 저장됨", async () => {

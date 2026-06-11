@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildStrategySummary,
   buildStrategySummaryFromDsl,
+  formatFundamentalFilter,
+  formatInitialCapital,
   FUNDAMENTAL_FILTER_SECTION_LABEL,
   getDisplayExitLabels,
   getDisplayUniverseLabels,
@@ -27,6 +29,38 @@ const baseParsed: ParsedSummary = {
 describe("strategySummary", () => {
   it("재무 조건 섹션도 UI에서는 진입 신호로 표시한다", () => {
     expect(FUNDAMENTAL_FILTER_SECTION_LABEL).toBe("진입 신호");
+  });
+
+  it("시총 배지는 원 단위 숫자를 한글 단위(억/조)로 표시한다", () => {
+    expect(formatFundamentalFilter({ metric: "market_cap", operator: ">=", value: 10_000_000_000 }))
+      .toBe("시총 >= 100억");
+    expect(formatFundamentalFilter({ metric: "market_cap", operator: ">=", value: 1_000_000_000_000 }))
+      .toBe("시총 >= 1조");
+    expect(formatFundamentalFilter({ metric: "market_cap", operator: ">=", value: 300_000_000_000 }))
+      .toBe("시총 >= 3,000억");
+    expect(formatFundamentalFilter({ metric: "market_cap", operator: "<=", value: 1_500_000_000_000 }))
+      .toBe("시총 <= 1조 5,000억");
+  });
+
+  it("시총 외 지표(PER 등)는 숫자를 그대로 표시한다", () => {
+    expect(formatFundamentalFilter({ metric: "per", operator: "<=", value: 10 })).toBe("PER <= 10");
+    expect(formatFundamentalFilter({ metric: "roe_or_gpa", operator: ">=", value: 15 })).toBe("ROE >= 15");
+  });
+
+  it("거래대금 배지는 억 단위 숫자에 '억'을 붙여 표시한다", () => {
+    expect(formatFundamentalFilter({ metric: "trading_value", operator: ">=", value: 50 }))
+      .toBe("거래대금 >= 50억");
+    expect(formatFundamentalFilter({ metric: "trading_value", operator: ">=", value: 1000 }))
+      .toBe("거래대금 >= 1,000억");
+  });
+
+  it("초기자금 배지는 1억 이상이면 한글 단위(억/조)로 표시한다", () => {
+    expect(formatInitialCapital(5_000_000_000)).toBe("50억원");
+    expect(formatInitialCapital(1_000_000_000_000)).toBe("1조원");
+  });
+
+  it("초기자금 배지는 1억 미만이면 콤마 포함 원 단위로 표시한다", () => {
+    expect(formatInitialCapital(10_000_000)).toBe("10,000,000원");
   });
 
   it("실행 심볼 수가 KOSPI 규모면 KOSPI200 대신 KOSPI로 표시한다", () => {

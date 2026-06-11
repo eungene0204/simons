@@ -4,6 +4,9 @@ export type SummaryCachePayload = {
   strengths: string[];
   weaknesses: string[];
   improvements: string[];
+  advisorScore?: number | null;
+  riskScore?: number | null;
+  overfitRisk?: string | null;
 };
 
 const SUMMARY_CACHE_MAX = 200;

@@ -120,4 +120,48 @@ describe("POST /api/backtest/summarize", () => {
       cached: false,
     });
   });
+
+  it("parsedStrategy/userPrompt를 백엔드로 전달하고 advisor 부가 필드를 반환해야 함", async () => {
+    mockFindUnique.mockResolvedValue(null);
+    mockFetchBackend.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        score: 70,
+        summary: "advisor 요약",
+        strengths: ["강점"],
+        weaknesses: ["단점"],
+        improvements: ["손절 8% 설정을 고려해보세요."],
+        advisorScore: 64,
+        riskScore: 38,
+        overfitRisk: "medium",
+      }),
+    });
+
+    const response = await POST(
+      makeRequest({
+        metrics: { cagr: 16 },
+        strategySummary: { strategyName: "전략" },
+        parsedStrategy: { entry_signals: [] },
+        userPrompt: "안정적인 전략",
+      })
+    );
+
+    expect(response.status).toBe(200);
+    // 백엔드 호출 바디에 snake_case 로 전달
+    const sentBody = JSON.parse(mockFetchBackend.mock.calls[0][1].body);
+    expect(sentBody.parsed_strategy).toEqual({ entry_signals: [] });
+    expect(sentBody.user_prompt).toBe("안정적인 전략");
+
+    await expect(response.json()).resolves.toEqual({
+      score: 70,
+      summary: "advisor 요약",
+      strengths: ["강점"],
+      weaknesses: ["단점"],
+      improvements: ["손절 8% 설정을 고려해보세요."],
+      advisorScore: 64,
+      riskScore: 38,
+      overfitRisk: "medium",
+      cached: false,
+    });
+  });
 });

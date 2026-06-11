@@ -41,6 +41,51 @@ export const METRIC_LABELS: Record<string, string> = {
   trading_value: "거래대금",
 };
 
+const KO_NUMBER_FORMAT = new Intl.NumberFormat("ko-KR");
+
+// 시총처럼 원 단위 큰 금액(>=1억)을 '100억' / '1조' / '1조 5,000억' 형태로 표시한다.
+// 1억 미만이거나 숫자가 아니면 원본을 그대로 둔다(단위가 모호한 값 오변환 방지).
+function formatMarketCapValue(value: number): string {
+  if (!Number.isFinite(value) || value < 100_000_000) return String(value);
+
+  const roundedEok = Math.round(value / 100_000_000);
+  if (roundedEok < 10_000) {
+    return `${KO_NUMBER_FORMAT.format(roundedEok)}억`;
+  }
+
+  const jo = Math.floor(roundedEok / 10_000);
+  const remainderEok = roundedEok % 10_000;
+  return remainderEok === 0
+    ? `${KO_NUMBER_FORMAT.format(jo)}조`
+    : `${KO_NUMBER_FORMAT.format(jo)}조 ${KO_NUMBER_FORMAT.format(remainderEok)}억`;
+}
+
+// 펀더멘털 필터 배지 문자열을 만든다. 시총은 한글 단위로, 거래대금은 억 단위 표시, 나머지는 원본 숫자로 표시.
+export function formatFundamentalFilter(filter: {
+  metric: string;
+  operator: string;
+  value: number;
+}): string {
+  const label = METRIC_LABELS[filter.metric] ?? filter.metric;
+  let value: string;
+  if (filter.metric === "market_cap") {
+    value = formatMarketCapValue(filter.value);
+  } else if (filter.metric === "trading_value") {
+    value = `${KO_NUMBER_FORMAT.format(filter.value)}억`;
+  } else {
+    value = String(filter.value);
+  }
+  return `${label} ${filter.operator} ${value}`;
+}
+
+// 초기자금 배지 문자열을 만든다. 1억 이상이면 '50억원'처럼 한글 단위로, 미만이면 콤마 포함 원 단위로 표시.
+export function formatInitialCapital(value: number): string {
+  if (Number.isFinite(value) && value >= 100_000_000) {
+    return `${formatMarketCapValue(value)}원`;
+  }
+  return `${KO_NUMBER_FORMAT.format(value)}원`;
+}
+
 export const PERIOD_LABELS: Record<string, string> = {
   "1y": "1년",
   "3y": "3년",
@@ -178,9 +223,7 @@ export function buildStrategySummary(
     strategyName: parsed.description,
     universeName: getDisplayUniverseLabels(parsed, backtestRequest).join(", "),
     blockNames: [
-      ...parsed.fundamental_filters.map(
-        (filter) => `${METRIC_LABELS[filter.metric] ?? filter.metric} ${filter.operator} ${filter.value}`
-      ),
+      ...parsed.fundamental_filters.map(formatFundamentalFilter),
       ...parsed.entry_signals.map(
         (signal) => getSignalLabel(signal, "entry")
       ),

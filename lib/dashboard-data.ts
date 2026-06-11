@@ -1,5 +1,6 @@
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { withOwnership } from "@/lib/get-user";
 import type { TradingStatusData } from "@/app/api/dashboard/trading-status/route";
 import type { AccountMonthlyData } from "@/app/api/dashboard/account-monthly/route";
 import type { StrategyListData, StrategyListItem } from "@/app/api/dashboard/strategy-list/route";
@@ -22,7 +23,7 @@ export interface DashboardInitialData {
   backtestRecords: DashboardBacktestRecord[];
 }
 
-async function fetchDashboardFromDB(): Promise<DashboardInitialData> {
+async function fetchDashboardFromDB(userId: number | null): Promise<DashboardInitialData> {
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
 
@@ -32,42 +33,61 @@ async function fetchDashboardFromDB(): Promise<DashboardInitialData> {
   sixMonthsAgo.setDate(1);
   sixMonthsAgo.setHours(0, 0, 0, 0);
 
+  // 사용자 소유 계좌를 먼저 조회 → 주문/포지션/시장상태 집계를 이 계좌들로 한정한다.
+  const accounts = await prisma.virtualAccount.findMany({
+    where: withOwnership({}, userId),
+    include: { VirtualPosition: true },
+  });
+  const accountIds = accounts.map((a) => a.id);
+  // userId==null(비인증/테스트)이면 기존처럼 전역 집계를 유지한다.
+  const accountScope = userId == null ? {} : { accountId: { in: accountIds } };
+
+  // 백테스트 목록은 사용자별 "내 목록"(UserBacktestHistory)에서 가져온다.
+  // userId==null(비인증/테스트)이면 레거시 전역(isVisible) 조회로 폴백한다.
+  const backtestHistoryPromise =
+    userId == null
+      ? prisma.backtestHistory.findMany({ where: { isVisible: true }, orderBy: { createdAt: "desc" }, take: 50 })
+      : prisma.userBacktestHistory
+          .findMany({
+            where: { userId },
+            orderBy: { savedAt: "desc" },
+            take: 50,
+            include: { BacktestHistory: true },
+          })
+          .then((links) => links.map((link) => link.BacktestHistory));
+
   const [
-    accounts,
-    totalAccounts,
     runningAccounts,
-    autoAccounts,
     todayFilledOrders,
-    totalPositions,
     dailyPnlAgg,
     strategies,
     backtestHistory,
     sellOrders,
   ] = await Promise.all([
-    prisma.virtualAccount.findMany({ include: { VirtualPosition: true } }),
-    prisma.virtualAccount.count(),
-    prisma.virtualMarketState.count({ where: { status: "running" } }),
-    prisma.virtualAccount.count({ where: { tradingMode: "auto" } }),
-    prisma.virtualOrder.count({ where: { status: "FILLED", filledAt: { gte: todayStart } } }),
-    prisma.virtualPosition.count(),
+    prisma.virtualMarketState.count({ where: { status: "running", ...accountScope } }),
+    prisma.virtualOrder.count({ where: { status: "FILLED", filledAt: { gte: todayStart }, ...accountScope } }),
     prisma.virtualOrder.aggregate({
-      where: { status: "FILLED", side: "SELL", filledAt: { gte: todayStart } },
+      where: { status: "FILLED", side: "SELL", filledAt: { gte: todayStart }, ...accountScope },
       _sum: { realizedPnl: true },
     }),
-    prisma.strategy.findMany({ orderBy: { createdAt: "desc" } }),
-    prisma.backtestHistory.findMany({ where: { isVisible: true }, orderBy: { createdAt: "desc" }, take: 50 }),
+    prisma.strategy.findMany({ where: withOwnership({ isSaved: true }, userId), orderBy: { createdAt: "desc" } }),
+    backtestHistoryPromise,
     prisma.virtualOrder.findMany({
       where: {
         side: "SELL",
         status: "FILLED",
         realizedPnl: { not: null },
         filledAt: { gte: sixMonthsAgo },
+        ...accountScope,
       },
       select: { accountId: true, realizedPnl: true, filledAt: true },
     }),
   ]);
 
-  // strategyAccounts: 별도 쿼리 없이 accounts에서 파생
+  // 계좌 단위 집계는 별도 쿼리 없이 accounts에서 파생
+  const totalAccounts = accounts.length;
+  const autoAccounts = accounts.filter((a) => a.tradingMode === "auto").length;
+  const totalPositions = accounts.reduce((s, a) => s + (a.VirtualPosition?.length ?? 0), 0);
   const strategyAccounts = accounts.filter((a) => a.strategyId !== null);
 
   // ── PortfolioStats ──────────────────────────────────────────
@@ -267,15 +287,18 @@ const MOCK_ACCOUNT_MONTHLY: AccountMonthlyData = {
   ],
 };
 
+// userId를 인자로 받아 캐시 키가 사용자별로 분리되게 한다(전역 캐시 누출 방지).
 const getCachedDashboardData = unstable_cache(
-  fetchDashboardFromDB,
+  (userId: number | null) => fetchDashboardFromDB(userId),
   ["dashboard-initial-data"],
   { revalidate: 30 }
 );
 
-export async function getDashboardInitialData(): Promise<DashboardInitialData> {
+export async function getDashboardInitialData(
+  userId: number | null
+): Promise<DashboardInitialData> {
   if (process.env.DASHBOARD_MOCK === "true") {
     return getMockDashboardData();
   }
-  return getCachedDashboardData();
+  return getCachedDashboardData(userId);
 }

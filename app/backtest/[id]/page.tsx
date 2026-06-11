@@ -94,6 +94,9 @@ export default function BacktestDetailPage() {
           aiStrengths={item.metrics.aiStrengths}
           aiWeaknesses={item.metrics.aiWeaknesses}
           aiImprovements={item.metrics.aiImprovements}
+          advisorScore={item.metrics.advisorScore}
+          riskScore={item.metrics.riskScore}
+          overfitRisk={item.metrics.overfitRisk}
           strategySummary={{
             universeName: item.universe,
             blockNames: conds?.entry?.names || conds?.names || [],

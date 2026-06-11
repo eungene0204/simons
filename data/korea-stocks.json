@@ -1512,13 +1512,6 @@
     "industry": "섬유, 의복, 신발 및 가죽제품 소매업"
   },
   {
-    "symbol": "140910",
-    "name": "에이리츠",
-    "market": "KOSPI",
-    "sector": "부동산",
-    "industry": "부동산 임대 및 공급업"
-  },
-  {
     "symbol": "047810",
     "name": "한국항공우주",
     "market": "KOSPI",
@@ -5866,6 +5859,13 @@
     "industry": "연료용 가스 제조 및 배관공급업"
   },
   {
+    "symbol": "0017J0",
+    "name": "세미티에스",
+    "market": "KOSDAQ",
+    "sector": "기계/장비",
+    "industry": "특수 목적용 기계 제조업"
+  },
+  {
     "symbol": "0117P0",
     "name": "피스피스스튜디오",
     "market": "KOSDAQ",
@@ -8083,13 +8083,6 @@
     "market": "KOSDAQ",
     "sector": "소프트웨어/플랫폼",
     "industry": "소프트웨어 개발 및 공급업"
-  },
-  {
-    "symbol": "451700",
-    "name": "엔에이치스팩29호",
-    "market": "KOSDAQ",
-    "sector": "은행/금융지주",
-    "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "303360",

@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     const [stocks, strategies, accounts] = await Promise.all([
       loadStockList(),
       prisma.strategy.findMany({
-        where: withOwnership({}, userId),
+        where: withOwnership({ isSaved: true }, userId),
         orderBy: { createdAt: "desc" },
       }),
       prisma.virtualAccount.findMany({

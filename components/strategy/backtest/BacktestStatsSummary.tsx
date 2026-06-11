@@ -148,9 +148,10 @@ export default function BacktestStatsSummary({ result }: Props) {
           color: returnColor(result.avgProfit),
         },
         {
+          // 백엔드는 평균 손실을 양수(절댓값)로 내려보내므로, 손실임을 드러내도록 음수로 표시
           label: "평균 손실",
-          value: result.avgLoss != null ? pct(result.avgLoss) : "—",
-          color: returnColor(result.avgLoss),
+          value: result.avgLoss != null ? pct(-result.avgLoss) : "—",
+          color: returnColor(result.avgLoss != null ? -result.avgLoss : undefined),
         },
         {
           label: "최대 연속승 / 연속패",

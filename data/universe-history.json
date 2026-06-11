@@ -1,6 +1,40 @@
 {
-  "updatedAt": "2026-06-10T00:00:04.208182+09:00",
+  "updatedAt": "2026-06-11T00:00:03.674458+09:00",
   "entries": [
+    {
+      "date": "2026-06-11",
+      "syncedAt": "2026-06-11T00:00:03.674458+09:00",
+      "totalCount": 2656,
+      "kospiCount": 837,
+      "kosdaqCount": 1819,
+      "addedCount": 1,
+      "delistedCount": 2,
+      "added": [
+        {
+          "symbol": "0017J0",
+          "name": "세미티에스",
+          "market": "KOSDAQ",
+          "sector": "기계/장비",
+          "industry": "특수 목적용 기계 제조업"
+        }
+      ],
+      "delisted": [
+        {
+          "symbol": "140910",
+          "name": "에이리츠",
+          "market": "KOSPI",
+          "sector": "부동산",
+          "industry": "부동산 임대 및 공급업"
+        },
+        {
+          "symbol": "451700",
+          "name": "엔에이치스팩29호",
+          "market": "KOSDAQ",
+          "sector": "은행/금융지주",
+          "industry": "금융 지원 서비스업"
+        }
+      ]
+    },
     {
       "date": "2026-06-10",
       "syncedAt": "2026-06-10T00:00:04.208182+09:00",

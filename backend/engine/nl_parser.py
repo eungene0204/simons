@@ -942,6 +942,29 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
                 short_period=1, long_period=int(below_ma.group(1)),
             ))
 
+    # ── EMA 크로스 (단기 EMA가 장기 EMA 위/아래) ──
+    # "20일 EMA가 60일 EMA 위에 있고" → ema 골든(단기>장기, 진입).
+    # "20일 EMA가 60일 EMA 아래로" → ema 데드(청산). 두 기간은 min/max로 단기/장기를 정한다.
+    # 기간 사이 공백 구간은 숫자를 포함하지 않게 [^0-9]로 막아 '60'이 '6'+'0'으로 쪼개지지 않도록 한다.
+    ema_above = re.search(
+        r"(\d+)일?ema[^0-9]{0,6}(\d+)일?ema[^0-9]{0,6}(?:위|상회|넘|돌파|상향|이상|높)", compact
+    )
+    if ema_above:
+        p1, p2 = int(ema_above.group(1)), int(ema_above.group(2))
+        entry.append(TechnicalSignal(
+            indicator="ema", signal_type="buy",
+            short_period=min(p1, p2), long_period=max(p1, p2),
+        ))
+    ema_below = re.search(
+        r"(\d+)일?ema[^0-9]{0,6}(\d+)일?ema[^0-9]{0,6}(?:아래|밑|하회|이탈|하향)", compact
+    )
+    if ema_below:
+        p1, p2 = int(ema_below.group(1)), int(ema_below.group(2))
+        exit_.append(TechnicalSignal(
+            indicator="ema", signal_type="sell",
+            short_period=min(p1, p2), long_period=max(p1, p2),
+        ))
+
     # ── RSI 매수/매도 ──
     # 조사("rsi가30") + "이하/미만/아래/밑" + 매수/진입/반등/올라오는(과매도 반등) 표현 허용
     rsi_buy_match = re.search(
@@ -1003,15 +1026,20 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
             indicator="breakout", signal_type="sell", lookback_period=breakout_lookback,
         ))
 
-    # ── 거래량 급증 / 평균 대비 증가 ──
+    # ── 거래량/거래대금 급증 또는 이동평균 대비 증가 ──
     # 문구가 다양해(급증/폭발/터짐/평소보다 늘…) 고정 문자열 대신 패턴으로 일반화한다.
+    # '거래대금'도 포함하되, '거래대금 N억 이상'(정적 필터)과 달리 '평균보다 높은' 류는 동적 신호다.
+    volume_term = r"(?:거래량|거래대금)"
     volume_rising = bool(
-        re.search(r"거래량.{0,5}(?:급증|폭발|터[지진졌짐])", compact)
-        or re.search(r"거래량.{0,12}(?:평균|평소).{0,6}(?:늘|증가|많|상회|높)", compact)
+        re.search(rf"{volume_term}.{{0,5}}(?:급증|폭발|터[지진졌짐])", compact)
+        or re.search(rf"{volume_term}.{{0,12}}(?:평균|평소).{{0,6}}(?:늘|증가|많|상회|높)", compact)
         or "volumespike" in compact
     )
     if volume_rising:
-        entry.append(TechnicalSignal(indicator="volume_spike", signal_type="buy", period=20))
+        # "30일 평균보다 높은" 처럼 명시된 기간이 있으면 그 기간을, 없으면 20일을 쓴다.
+        vol_period_match = re.search(r"(\d+)일.{0,4}평균", compact)
+        vol_period = int(vol_period_match.group(1)) if vol_period_match else 20
+        entry.append(TechnicalSignal(indicator="volume_spike", signal_type="buy", period=vol_period))
 
     return entry, exit_
 
@@ -1037,8 +1065,8 @@ _FUNDAMENTAL_PATTERN_SPECS = [
     ("roe_or_gpa", [r"(?:roe|gpa)\s*(\d+(?:\.\d+)?)%?\s*(이하|미만|이상|초과)?"]),
     ("debt_ratio", [r"(?:부채비율|부채)\s*(\d+(?:\.\d+)?)%?\s*(이하|미만|이상|초과)?"]),
     # 금액 지표(억원 단위)는 '조'+'억' 콤보를 결정적으로 합산한다: (조 부분)?(억 부분)?(연산자)?.
-    ("market_cap", [r"시가총액(?:이|가|은|는)?\s*(?:(\d+(?:\.\d+)?)조)?\s*(?:(\d+(?:\.\d+)?)(?:억원|억)?)?\s*(이하|미만|이상|초과)?"]),
-    ("trading_value", [r"(?:거래대금|일평균거래대금)(?:이|가|은|는)?\s*(?:(\d+(?:\.\d+)?)조)?\s*(?:(\d+(?:\.\d+)?)(?:억원|억)?)?\s*(이하|미만|이상|초과)?"]),
+    ("market_cap", [r"시가총액(?:이|가|은|는)?\s*(?:(\d+(?:\.\d+)?)조)?\s*(?:(\d+(?:\.\d+)?)(?:억원|억))?\s*(이하|미만|이상|초과)?"]),
+    ("trading_value", [r"(?:거래대금|일평균거래대금)(?:이|가|은|는)?\s*(?:(\d+(?:\.\d+)?)조)?\s*(?:(\d+(?:\.\d+)?)(?:억원|억))?\s*(이하|미만|이상|초과)?"]),
 ]
 
 # 금액 지표는 값을 (조 부분 × 10000) + (억 부분)으로 합산한다. 그 외는 group(1) 단일 값.
@@ -1211,8 +1239,24 @@ def _extract_backtest_period(user_input: str) -> str:
     return "5y"
 
 
+def _strip_amount_filter_phrases(compact: str) -> str:
+    """거래대금/시가총액처럼 '억' 단위 펀더멘털 필터 표현을 비운다.
+
+    초기자금 추출 정규식이 '거래대금 50억' 같은 필터 수치를 자본금으로 오인하지 않도록,
+    금액 지표(market_cap/trading_value) 매치 구간을 공백으로 치환한 텍스트를 돌려준다.
+    """
+    for metric, patterns in _FUNDAMENTAL_PATTERN_SPECS:
+        if metric not in _AMOUNT_METRICS:
+            continue
+        for pattern in patterns:
+            compact = re.sub(pattern, " ", compact)
+    return compact
+
+
 def _extract_initial_capital(user_input: str) -> float:
     compact = re.sub(r"\s+", "", user_input.lower())
+    # 거래대금/시가총액 필터의 '억' 수치를 초기자금으로 오인하지 않도록 먼저 제거한다.
+    compact = _strip_amount_filter_phrases(compact)
     match = re.search(r"(\d+(?:\.\d+)?)억(?:(\d+(?:\.\d+)?)천?만)?", compact)
     if match:
         capital = float(match.group(1)) * 100_000_000

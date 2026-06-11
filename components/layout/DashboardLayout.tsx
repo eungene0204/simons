@@ -93,8 +93,8 @@ const DashboardLayoutContent = memo(function DashboardLayoutContent({
         clearOrderStock,
       }}
     >
-      <div className="min-h-screen bg-[#0f0f0f] text-white flex flex-col relative">
-        <TopMenuBar subHeader={subHeader} />
+      <div className="min-h-screen bg-[#050505] text-white flex flex-col relative">
+        <TopMenuBar subHeader={subHeader} userName={_userName} />
         <main
           className="flex-1 overflow-y-auto overflow-x-hidden max-w-full"
           style={{

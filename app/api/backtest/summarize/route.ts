@@ -16,6 +16,9 @@ type SummaryPayload = {
   strengths: string[];
   weaknesses: string[];
   improvements: string[];
+  advisorScore?: number | null;
+  riskScore?: number | null;
+  overfitRisk?: string | null;
   cached: boolean;
 };
 
@@ -51,18 +54,30 @@ async function sha256(input: string): Promise<string> {
     .join("");
 }
 
-async function summaryPayloadKey(metrics: unknown, strategySummary: unknown): Promise<string> {
-  return sha256(stableStringify({ metrics, strategySummary }));
+async function summaryPayloadKey(
+  metrics: unknown,
+  strategySummary: unknown,
+  parsedStrategy: unknown,
+  userPrompt: unknown
+): Promise<string> {
+  return sha256(stableStringify({ metrics, strategySummary, parsedStrategy, userPrompt }));
 }
 
 async function fetchSummary(
   metrics: unknown,
-  strategySummary: unknown
+  strategySummary: unknown,
+  parsedStrategy: unknown,
+  userPrompt: unknown
 ): Promise<SummaryCachePayload> {
   const res = await fetchBackend("/summarize", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ metrics, strategySummary }),
+    body: JSON.stringify({
+      metrics,
+      strategySummary,
+      parsed_strategy: parsedStrategy,
+      user_prompt: userPrompt,
+    }),
     cache: "no-store",
     timeoutMs: 120_000,
   });
@@ -73,19 +88,24 @@ async function fetchSummary(
   }
 
   const result = await res.json();
-  return {
+  const payload: SummaryCachePayload = {
     score: result.score,
     summary: result.summary,
     strengths: result.strengths ?? [],
     weaknesses: result.weaknesses ?? [],
     improvements: result.improvements ?? [],
   };
+  // advisor 진단이 수행된 경우에만 부가 필드를 포함한다(LLM 단독 폴백 경로와 응답 형태 동일 유지).
+  if (result.advisorScore != null) payload.advisorScore = result.advisorScore;
+  if (result.riskScore != null) payload.riskScore = result.riskScore;
+  if (result.overfitRisk != null) payload.overfitRisk = result.overfitRisk;
+  return payload;
 }
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { metrics, strategySummary, cacheKey } = body;
+    const { metrics, strategySummary, parsedStrategy, userPrompt, cacheKey } = body;
 
     if (!metrics) {
       return NextResponse.json({ error: "Missing metrics" }, { status: 400 });
@@ -107,7 +127,7 @@ export async function POST(req: Request) {
       }
     }
 
-    const payloadKey = await summaryPayloadKey(metrics, strategySummary);
+    const payloadKey = await summaryPayloadKey(metrics, strategySummary, parsedStrategy, userPrompt);
     const memoryHit = getSummaryMemoryCache(payloadKey);
     if (memoryHit) {
       return NextResponse.json({ ...memoryHit, cached: true });
@@ -115,7 +135,7 @@ export async function POST(req: Request) {
 
     let pending = getSummaryInFlight(payloadKey);
     if (!pending) {
-      pending = fetchSummary(metrics, strategySummary).finally(() => {
+      pending = fetchSummary(metrics, strategySummary, parsedStrategy, userPrompt).finally(() => {
         deleteSummaryInFlight(payloadKey);
       });
       setSummaryInFlight(payloadKey, pending);

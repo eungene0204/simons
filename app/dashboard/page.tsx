@@ -12,14 +12,13 @@ import RecentBacktestList from "@/components/dashboard/RecentBacktestList";
 import WatchlistSnapshot from "@/components/dashboard/WatchlistSnapshot";
 
 export default async function DashboardPage() {
-  const [user, dashData] = await Promise.all([
-    getCurrentUser(),
-    getDashboardInitialData(),
-  ]);
+  const user = await getCurrentUser();
 
   if (!user) {
     redirect("/");
   }
+
+  const dashData = await getDashboardInitialData(user.id);
 
   const userName = user.name || "게스트";
 

@@ -2,9 +2,11 @@
 
 import { useState, useRef, useEffect, Suspense } from "react";
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { StrategyExampleTabs } from "@/components/strategy/StrategyExampleTabs";
+import { StrategyWaveBackground } from "@/components/strategy/StrategyWaveBackground";
+import { PENDING_STRATEGY_PROMPT_KEY } from "@/components/strategy/strategyTemplateSession";
 import { BacktestResult } from "@/types/strategy";
 import { mapRawBacktestResult } from "./backtestResultMapper";
 import {
@@ -19,11 +21,12 @@ import {
 import {
   buildStrategySummary,
   FUNDAMENTAL_FILTER_SECTION_LABEL,
+  formatFundamentalFilter,
+  formatInitialCapital,
   getDisplayExitLabels,
   getDisplayUniverseLabels,
   getRankingLabel,
   INDICATOR_LABELS,
-  METRIC_LABELS,
   PERIOD_LABELS,
   REBAL_LABELS,
   type ParsedSummary,
@@ -136,7 +139,7 @@ function AnalysisStatusBubble({ title }: { title: string }) {
 
 function FilterBadge({ label }: { label: string }) {
   return (
-    <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] text-white text-xs font-bold">
+    <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-[#171717] border border-white/[0.08] text-white text-xs font-bold">
       {label}
     </span>
   );
@@ -177,7 +180,7 @@ const SKELETON_TERM_LABELS: Record<string, string> = {
 
 function ParseSkeletonBubble({ skeleton }: { skeleton: ParseSkeleton }) {
   return (
-    <div className="bg-white/[0.025] border border-white/[0.07] rounded-2xl rounded-tl-sm p-4 space-y-3">
+    <div className="bg-[#111111] border border-white/[0.07] rounded-2xl rounded-tl-sm p-4 space-y-3">
       <div className="flex items-center gap-1.5">
         <ArrowsClockwise size={13} className="text-sky-400 animate-spin" />
         <span className="text-xs font-black uppercase tracking-widest text-white">전략 구조 분석 중</span>
@@ -223,12 +226,12 @@ function ParsedSummaryBubble({
   const exitLabels = getDisplayExitLabels(parsed);
   const rankingLabel = getRankingLabel(parsed);
   const entryLabels = [
-    ...parsed.fundamental_filters.map((f) => `${METRIC_LABELS[f.metric] ?? f.metric} ${f.operator} ${f.value}`),
+    ...parsed.fundamental_filters.map(formatFundamentalFilter),
     ...parsed.entry_signals.map((s) => INDICATOR_LABELS[s.indicator] ?? s.indicator),
   ];
 
   return (
-    <div className="space-y-3 rounded-2xl border border-amber-300/50 p-4">
+    <div className="space-y-3 rounded-2xl border border-amber-300/50 bg-[#101010] p-4">
       <div className="flex items-center gap-1.5 border-b border-amber-300/20 pb-2">
         <CheckCircle size={13} className="text-amber-300" weight="fill" />
         <span className="text-xs font-black uppercase tracking-widest text-amber-100">전략 요약</span>
@@ -279,7 +282,7 @@ function ParsedSummaryBubble({
             {parsed.hold_period_days && <FilterBadge label={`${parsed.hold_period_days}일 보유`} />}
             {parsed.rebalancing_period !== "none" && <FilterBadge label={`${REBAL_LABELS[parsed.rebalancing_period]} 리밸런싱`} />}
             <FilterBadge label={`백테스트 ${PERIOD_LABELS[parsed.backtest_period]}`} />
-            <FilterBadge label={`초기자금 ${(parsed.initial_capital ?? 10000000).toLocaleString("ko-KR")}원`} />
+            <FilterBadge label={`초기자금 ${formatInitialCapital(parsed.initial_capital ?? 10000000)}`} />
           </div>
         </div>
         {(parsed.stop_loss_pct || parsed.take_profit_pct || parsed.trailing_stop_pct) && (
@@ -299,6 +302,9 @@ function ParsedSummaryBubble({
 
 function StrategyLabContent() {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const isChatPage = pathname === "/analytics/chat" || searchParams.get("chat") === "1";
   const [inputValue, setInputValue] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isSending, setIsSending] = useState(false);
@@ -315,6 +321,8 @@ function StrategyLabContent() {
   const backtestReqRef = useRef<any>(null);
   const coachSessionIdRef = useRef<string | null>(null);
   const coachConversationRef = useRef<CoachConversationMessage[]>([]);
+  const pendingPromptConsumedRef = useRef(false);
+  const handleSendRef = useRef<(overrideText?: string) => Promise<void>>();
   // 직전 분석 종목 — '이 종목 팔까?' 같은 anaphora 해석용
   const lastAnalyzedSymbolRef = useRef<string | null>(null);
   // '다른 종목 분석' 버튼으로 종목명을 묻는 중 — 다음 입력을 분석으로 받는다.
@@ -543,6 +551,14 @@ function StrategyLabContent() {
   const handleSend = async (overrideText?: string) => {
     const userText = overrideText ?? inputValue.trim();
     if (!userText || isSending || stage === "running") return;
+
+    if (!overrideText && !isChatPage && messages.length === 0) {
+      sessionStorage.setItem(PENDING_STRATEGY_PROMPT_KEY, userText);
+      setInputValue("");
+      router.push("/analytics/chat");
+      return;
+    }
+
     if (!overrideText) setInputValue("");
     if (!firstPromptRef.current) firstPromptRef.current = userText;
     const currentParsed = latestParsedRef.current ?? latestParsed;
@@ -709,6 +725,22 @@ function StrategyLabContent() {
       setIsSending(false);
     }
   };
+
+  handleSendRef.current = handleSend;
+
+  useEffect(() => {
+    if (!isChatPage || pendingPromptConsumedRef.current || messages.length > 0 || isSending) {
+      return;
+    }
+
+    const pendingPrompt = sessionStorage.getItem(PENDING_STRATEGY_PROMPT_KEY);
+    if (!pendingPrompt) return;
+
+    pendingPromptConsumedRef.current = true;
+    sessionStorage.removeItem(PENDING_STRATEGY_PROMPT_KEY);
+    setInputValue("");
+    void handleSendRef.current?.(pendingPrompt);
+  }, [isChatPage, messages.length, isSending]);
 
   const generateCoachResponse = async ({
     userText,
@@ -947,6 +979,10 @@ function StrategyLabContent() {
     coachSessionIdRef.current = null;
     coachConversationRef.current = [];
     firstPromptRef.current = "";
+    pendingPromptConsumedRef.current = false;
+    if (isChatPage) {
+      router.push("/analytics");
+    }
     setTimeout(() => textareaRef.current?.focus(), 100);
   };
 
@@ -962,7 +998,10 @@ function StrategyLabContent() {
   if ((stage === "done" || isRunning) && result) {
     return (
       <DashboardLayout userName="">
-        <div className="h-full flex flex-col">
+        <div
+          className="flex flex-col"
+          style={{ minHeight: "calc(100vh - var(--top-menu-bar-height, 76px))" }}
+        >
           <div className="flex-1 overflow-auto">
             {isRunning && (
               <div className="sticky top-0 z-30 mx-4 mt-4 max-w-4xl">
@@ -979,6 +1018,7 @@ function StrategyLabContent() {
               onWalkForward={handleWalkForward}
               promptText={firstPromptRef.current || undefined}
               strategySummary={buildStrategySummary(latestParsed, backtestReq)}
+              parsedStrategy={latestParsed as unknown as Record<string, unknown>}
             />
           </div>
         </div>
@@ -987,6 +1027,7 @@ function StrategyLabContent() {
   }
 
   const isIdle = messages.length === 0 && !isSending;
+  const shouldShowIntro = isIdle && !isChatPage;
   // 전략 작성 맥락(시작 화면 또는 전략 요약 존재)에서만 '전략 생성', 그 외(종목 분석·안내)는 '전송'.
   const isStrategyInput = isIdle || messages.some((m) => m.parsed);
   const isLastAssistant = (i: number) => i === messages.length - 1 && messages[i].role === "assistant";
@@ -994,19 +1035,26 @@ function StrategyLabContent() {
   // ── 메인 채팅 화면
   return (
     <DashboardLayout userName="">
-      <div className="h-full flex gap-4 px-4 pt-20 pb-12 overflow-hidden">
+      <div
+        className="relative flex gap-4 overflow-hidden px-4 pt-20 pb-12"
+        style={{ minHeight: "calc(100vh - var(--top-menu-bar-height, 76px))" }}
+      >
+        {shouldShowIntro && <StrategyWaveBackground />}
 
         {/* ── 채팅 영역 ── */}
-        <div className="flex flex-col items-center justify-center transition-all duration-300 w-full">
+        <div className={`relative z-10 flex w-full flex-col items-center transition-all duration-300 ${shouldShowIntro ? "justify-center" : "justify-start"}`}>
         <div className="w-full max-w-4xl flex flex-col items-center gap-6">
 
           {/* 헤더 */}
+          {shouldShowIntro && (
           <div className="w-full max-w-3xl">
-            <div className="flex flex-col items-center gap-3 text-center md:flex-row md:items-start md:justify-between md:text-left">
-              <div className="space-y-2">
-                <h1 className="text-2xl font-black text-white">전략 만들기</h1>
-                <p className="text-sm font-bold text-gray-400 max-w-md leading-relaxed">
-                  투자 아이디어를 말씀해주시면,<br /> AI가 전략으로 설계하고 바로 백테스트해드립니다.
+            <div className="flex flex-col items-center gap-3 text-center">
+              <div className="space-y-4">
+                <p className="max-w-5xl text-5xl font-black leading-tight text-white">
+                  투자 아이디어를 전략으로<br /> 전략을 검증 가능한 결과로
+                </p>
+                <p className="text-base font-bold leading-relaxed text-gray-400">
+                  AI가 조건을 설계하고 과거 데이터로 바로 백테스트합니다
                 </p>
               </div>
             </div>
@@ -1017,13 +1065,14 @@ function StrategyLabContent() {
               </div>
             )}
           </div>
+          )}
 
           {/* 채팅창 */}
           <div className="w-full flex flex-col gap-2.5">
 
             {/* 대화 히스토리 */}
             {messages.length > 0 && (
-              <div className="w-full rounded-2xl border border-white/[0.08] bg-white/[0.02] px-5 py-5 space-y-4 max-h-[60vh] overflow-y-auto scrollbar-hide">
+              <div className="w-full rounded-2xl border border-white/[0.08] bg-[#101010] px-5 py-5 space-y-4 max-h-[60vh] overflow-y-auto scrollbar-hide">
                 {messages.map((msg, i) => (
                   <div key={i}>
                     {msg.role === "user" && (
@@ -1068,13 +1117,13 @@ function StrategyLabContent() {
                               <div className="flex flex-wrap gap-2 pt-1">
                                 <button
                                   onClick={handleReset}
-                                  className="px-4 py-2 rounded-xl bg-white/[0.03] border border-white/10 hover:border-white/30 hover:bg-white/[0.06] text-xs font-bold text-gray-300 transition-all duration-200"
+                                  className="px-4 py-2 rounded-xl bg-[#171717] border border-white/10 hover:border-white/30 hover:bg-[#202020] text-xs font-bold text-gray-300 transition-all duration-200"
                                 >
                                   돌아가기
                                 </button>
                                 <button
                                   onClick={handleAnalyzeAnotherStock}
-                                  className="px-4 py-2 rounded-xl bg-white/[0.03] border border-white/10 hover:border-yellow-400/50 hover:bg-yellow-400/[0.06] text-xs font-bold text-gray-200 transition-all duration-200"
+                                  className="px-4 py-2 rounded-xl bg-[#171717] border border-white/10 hover:border-yellow-400/50 hover:bg-[#202020] text-xs font-bold text-gray-200 transition-all duration-200"
                                 >
                                   다른 종목 분석
                                 </button>
@@ -1096,7 +1145,7 @@ function StrategyLabContent() {
                           <>
                             <ParsedSummaryBubble parsed={msg.parsed} backtestRequest={backtestReq} />
                             {isLastAssistant(i) && !msg.coachLoading && msg.clarification && (
-                              <div className="flex flex-col gap-2.5 p-3.5 rounded-xl bg-white/[0.02] border border-yellow-400/40">
+                              <div className="flex flex-col gap-2.5 p-3.5 rounded-xl bg-[#111111] border border-yellow-400/40">
                                 <div className="flex items-start gap-2.5">
                                   <Question size={13} className="text-yellow-400 flex-shrink-0 mt-0.5" weight="fill" />
                                   <p className="text-xs font-bold text-gray-300 leading-relaxed whitespace-pre-line">
@@ -1109,7 +1158,7 @@ function StrategyLabContent() {
                                       <button
                                         key={suggestion}
                                         onClick={() => handleSuggestionClick(suggestion)}
-                                        className="px-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/10 hover:border-yellow-400/50 hover:bg-yellow-400/[0.06] text-xs font-bold text-gray-300 transition-all duration-200 text-left"
+                                        className="px-3 py-1.5 rounded-lg bg-[#171717] border border-white/10 hover:border-yellow-400/50 hover:bg-[#202020] text-xs font-bold text-gray-300 transition-all duration-200 text-left"
                                       >
                                         {suggestion}
                                       </button>
@@ -1200,7 +1249,7 @@ function StrategyLabContent() {
 
             {/* 입력 영역 — 시작 화면, 전략 요약 출력 후, 또는 종목 분석·안내 대화 중 표시 */}
             {(isIdle || messages.some((m) => m.parsed || m.stockAnalysis || m.infoText)) && (
-            <div className="relative w-full rounded-2xl border border-[var(--glass-border)] bg-white/[0.02]">
+            <div className="relative w-full rounded-2xl border border-[var(--glass-border)] bg-[#101010]">
               <textarea
                 ref={textareaRef}
                 value={inputValue}
@@ -1225,8 +1274,10 @@ function StrategyLabContent() {
           </div>
 
           {/* 예시 프롬프트 */}
-          {isIdle && (
-            <StrategyExampleTabs onSelectExample={setInputValue} />
+          {shouldShowIntro && (
+            <div className="w-[min(calc(100vw_-_2rem),80rem)]">
+              <StrategyExampleTabs onSelectExample={(prompt) => void handleSend(prompt)} />
+            </div>
           )}
         </div>
         </div>{/* end 채팅 영역 */}

@@ -2911,6 +2911,37 @@ async def backtest_stream(request: BacktestRequest):
 class SummarizeRequest(BaseModel):
     metrics: dict
     strategySummary: Optional[dict] = None
+    parsed_strategy: Optional[dict] = None
+    user_prompt: Optional[str] = None
+
+
+def _run_advisor_for_report(parsed_strategy: dict, user_prompt: Optional[str], metrics: dict) -> Optional[dict]:
+    """백테스트 리포트용 advisor 진단을 실행한다(동기). 실패 시 None 을 반환해 LLM 단독 경로로 폴백한다."""
+    try:
+        from api.advisor_routes import _agent as _advisor_agent
+        from advisor.news_enrichment import build_news_context_from_strategy
+        from advisor.memory_repository import load_advisor_memory
+        from advisor.schemas import AdvisorRequest, BacktestSummary
+        from ai.summarize import to_advisor_backtest_summary
+
+        req = AdvisorRequest(
+            user_prompt=user_prompt or "",
+            parsed_strategy=parsed_strategy,
+            backtest_result=BacktestSummary(**to_advisor_backtest_summary(metrics)),
+        )
+        news_context = build_news_context_from_strategy(parsed_strategy)
+        if news_context:
+            req = req.model_copy(update={"news_context": news_context})
+        strategy_cases, experiences = load_advisor_memory()
+        if strategy_cases or experiences:
+            req = req.model_copy(update={
+                "memory_strategy_cases": strategy_cases,
+                "memory_experiences": experiences,
+            })
+        return _advisor_agent.review(req).model_dump()
+    except Exception as e:
+        print(f"[summarize] advisor review skipped: {repr(e)}", flush=True)
+        return None
 
 # 모델 싱글턴 (최초 1회 로드, 이후 재사용)
 _summarize_model = {"model": None, "tokenizer": None}
@@ -2918,12 +2949,32 @@ _summarize_model = {"model": None, "tokenizer": None}
 @app.post("/summarize")
 def summarize_backtest(req: SummarizeRequest):
     """백테스트 결과를 AI로 요약. 모델을 프로세스 내에서 재사용 → 로드 시간 제거."""
-    from ai.summarize import calculate_score, build_prompt, parse_llm_output, normalize_report_items
+    from ai.summarize import (
+        calculate_score,
+        build_prompt,
+        build_advisor_grounded_prompt,
+        build_report_from_advisor,
+        parse_llm_output,
+        normalize_report_items,
+    )
     import platform
 
     request_started = time.perf_counter()
     score = calculate_score(req.metrics)
-    prompt = build_prompt({"metrics": req.metrics, "strategySummary": req.strategySummary})
+
+    # 하이브리드: parsed_strategy 가 있으면 advisor 가 진단/개선안을 결정론적으로 만들고,
+    # LLM 은 그 근거 위에서 총평·강점·단점만 서술한다.
+    payload = {"metrics": req.metrics, "strategySummary": req.strategySummary}
+    advisor_report = None
+    if req.parsed_strategy:
+        advisor_resp = _run_advisor_for_report(req.parsed_strategy, req.user_prompt, req.metrics)
+        if advisor_resp is not None:
+            advisor_report = build_report_from_advisor(advisor_resp)
+
+    if advisor_report is not None:
+        prompt = build_advisor_grounded_prompt(payload, advisor_report)
+    else:
+        prompt = build_prompt(payload)
 
     try:
         is_mac = platform.system() == "Darwin"
@@ -2959,7 +3010,7 @@ def summarize_backtest(req: SummarizeRequest):
             "total_ms": round((time.perf_counter() - request_started) * 1000, 2),
         }
         _record_ai_runtime("summary", runtime)
-        return {
+        result = {
             "score": score,
             "summary": parsed.get("total_summary", ""),
             "strengths": normalize_report_items(parsed.get("strengths", [])),
@@ -2967,6 +3018,13 @@ def summarize_backtest(req: SummarizeRequest):
             "improvements": normalize_report_items(parsed.get("improvements", [])),
             "runtime": runtime,
         }
+        if advisor_report is not None:
+            # advisor 가 결정론적으로 만든 개선안·점수로 덮어쓴다(LLM 환각 방지).
+            result["improvements"] = advisor_report["improvements"]
+            result["advisorScore"] = advisor_report["advisorScore"]
+            result["riskScore"] = advisor_report["riskScore"]
+            result["overfitRisk"] = advisor_report["overfitRisk"]
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Summarize error: {repr(e)}")
 

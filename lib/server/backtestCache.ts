@@ -295,6 +295,7 @@ async function upsertStrategyForResult(strategyId: string, body: any) {
 
   await prisma.strategy.upsert({
     where: { id: strategyId },
+    // update는 isSaved를 건드리지 않아 이미 저장된 전략의 노출 상태를 유지한다
     update: {
       settings: settingsPayload,
     },
@@ -304,6 +305,7 @@ async function upsertStrategyForResult(strategyId: string, body: any) {
       description: null,
       settings: settingsPayload,
       strategyType: "기타",
+      isSaved: false,
     },
   });
 }

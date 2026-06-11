@@ -94,8 +94,12 @@ interface BacktestDashboardProps {
   aiStrengths?: string[];
   aiWeaknesses?: string[];
   aiImprovements?: string[];
+  advisorScore?: number | null;
+  riskScore?: number | null;
+  overfitRisk?: string | null;
   disableHistorySave?: boolean; // true이면 히스토리 자동 저장 비활성화 (저장된 전략 조회 시)
   promptText?: string; // 사용자 프롬프트 (툴팁으로 표시)
+  parsedStrategy?: Record<string, unknown>; // NLStrategyParser 결과 — AI 리포트 advisor 진단에 사용
   strategySummary?: {
     universeName: string;
     blockNames: string[];
@@ -155,9 +159,13 @@ export default function BacktestDashboard({
   aiStrengths: initialAiStrengthsProp,
   aiWeaknesses: initialAiWeaknessesProp,
   aiImprovements: initialAiImprovementsProp,
+  advisorScore: initialAdvisorScoreProp,
+  riskScore: initialRiskScoreProp,
+  overfitRisk: initialOverfitRiskProp,
   strategySummary,
   disableHistorySave,
   promptText,
+  parsedStrategy,
 }: BacktestDashboardProps) {
   const [activeTab, setActiveTab] = useState<"chart" | "log" | "assets" | "report">("chart");
   const [isWFAOpen, setIsWFAOpen] = useState(false);
@@ -188,6 +196,15 @@ export default function BacktestDashboard({
   );
   const [cachedImprovements, setCachedImprovements] = useState<string[]>(
     initialAiImprovementsProp ?? result.aiImprovements ?? []
+  );
+  const [cachedAdvisorScore, setCachedAdvisorScore] = useState<number | null>(
+    initialAdvisorScoreProp ?? result.advisorScore ?? null
+  );
+  const [cachedRiskScore, setCachedRiskScore] = useState<number | null>(
+    initialRiskScoreProp ?? result.riskScore ?? null
+  );
+  const [cachedOverfitRisk, setCachedOverfitRisk] = useState<string | null>(
+    initialOverfitRiskProp ?? result.overfitRisk ?? null
   );
 
   // 전략 저장 모달
@@ -251,6 +268,8 @@ export default function BacktestDashboard({
           finalEquity: result.finalEquity,
         },
         strategySummary,
+        parsedStrategy,
+        userPrompt: promptText,
       }),
     })
       .then((res) => res.json())
@@ -261,6 +280,9 @@ export default function BacktestDashboard({
           setCachedStrengths(data.strengths ?? []);
           setCachedWeaknesses(data.weaknesses ?? []);
           setCachedImprovements(data.improvements ?? []);
+          setCachedAdvisorScore(data.advisorScore ?? null);
+          setCachedRiskScore(data.riskScore ?? null);
+          setCachedOverfitRisk(data.overfitRisk ?? null);
           if (result.cacheKey) {
             fetch("/api/backtest/ai-report", {
               method: "PATCH",
@@ -272,6 +294,9 @@ export default function BacktestDashboard({
                 aiStrengths: data.strengths ?? [],
                 aiWeaknesses: data.weaknesses ?? [],
                 aiImprovements: data.improvements ?? [],
+                advisorScore: data.advisorScore ?? null,
+                riskScore: data.riskScore ?? null,
+                overfitRisk: data.overfitRisk ?? null,
               }),
             }).catch(() => {});
           }
@@ -411,6 +436,11 @@ export default function BacktestDashboard({
       let finalSummary = cachedAiSummary;
       let finalScore = cachedAiScore;
       let finalStrengths = cachedStrengths;
+      let finalWeaknesses = cachedWeaknesses;
+      let finalImprovements = cachedImprovements;
+      let finalAdvisorScore = cachedAdvisorScore;
+      let finalRiskScore = cachedRiskScore;
+      let finalOverfitRisk = cachedOverfitRisk;
       if (!finalSummary) {
         try {
           const sumRes = await fetch("/api/backtest/summarize", {
@@ -428,6 +458,8 @@ export default function BacktestDashboard({
                 finalEquity: result.finalEquity,
               },
               strategySummary,
+              parsedStrategy,
+              userPrompt: promptText,
             }),
           });
           if (sumRes.ok) {
@@ -435,9 +467,19 @@ export default function BacktestDashboard({
             finalSummary = sumData.summary;
             finalScore = sumData.score;
             finalStrengths = sumData.strengths ?? [];
+            finalWeaknesses = sumData.weaknesses ?? [];
+            finalImprovements = sumData.improvements ?? [];
+            finalAdvisorScore = sumData.advisorScore ?? null;
+            finalRiskScore = sumData.riskScore ?? null;
+            finalOverfitRisk = sumData.overfitRisk ?? null;
             setCachedAiSummary(finalSummary);
             setCachedAiScore(finalScore);
             setCachedStrengths(finalStrengths);
+            setCachedWeaknesses(finalWeaknesses);
+            setCachedImprovements(finalImprovements);
+            setCachedAdvisorScore(finalAdvisorScore);
+            setCachedRiskScore(finalRiskScore);
+            setCachedOverfitRisk(finalOverfitRisk);
           }
         } catch {
           // AI 요약 실패는 저장 자체를 막지 않음
@@ -455,6 +497,11 @@ export default function BacktestDashboard({
           aiSummary: finalSummary,
           aiScore: finalScore,
           aiStrengths: finalStrengths,
+          aiWeaknesses: finalWeaknesses,
+          aiImprovements: finalImprovements,
+          advisorScore: finalAdvisorScore,
+          riskScore: finalRiskScore,
+          overfitRisk: finalOverfitRisk,
           score: calculateScore(result),
         }),
       });
@@ -489,6 +536,11 @@ export default function BacktestDashboard({
               aiSummary: finalSummary ?? null,
               aiScore: finalScore ?? null,
               aiStrengths: finalStrengths,
+              aiWeaknesses: finalWeaknesses,
+              aiImprovements: finalImprovements,
+              advisorScore: finalAdvisorScore,
+              riskScore: finalRiskScore,
+              overfitRisk: finalOverfitRisk,
             },
             result,
             cacheKey: result.cacheKey,  // 기존 숨김 레코드를 isVisible=true 로 승격
@@ -1113,8 +1165,10 @@ export default function BacktestDashboard({
                   <div className="flex divide-x divide-white/[0.08]">
                     {[
                       { label: "총 매매 횟수", value: result.trades.toString(), sub: "회" },
-                      { label: "평균 수익", value: formatKRW(result.avgProfit || 0), sub: "원" },
-                      { label: "평균 손실", value: formatKRW(result.avgLoss || 0), sub: "원" },
+                      // avgProfit/avgLoss는 거래별 평균 수익률·손실률(%)이다. 원이 아닌 %로 표시한다.
+                      // (손실은 백엔드에서 양수 절댓값으로 내려오므로 음수로 표시)
+                      { label: "평균 수익", value: `+${(result.avgProfit || 0).toFixed(2)}`, sub: "%" },
+                      { label: "평균 손실", value: `-${(result.avgLoss || 0).toFixed(2)}`, sub: "%" },
                       { label: "최대 연속 수익", value: `${result.maxConsecutiveWins || 0}`, sub: "회" },
                       { label: "최대 연속 손실", value: `${result.maxConsecutiveLosses || 0}`, sub: "회" },
                     ].map((s) => (
@@ -1144,12 +1198,20 @@ export default function BacktestDashboard({
                  initialStrengths={cachedStrengths}
                  initialWeaknesses={cachedWeaknesses}
                  initialImprovements={cachedImprovements}
-                 onSummaryReady={(s, sc, st, wk, im) => {
+                 initialAdvisorScore={cachedAdvisorScore}
+                 initialRiskScore={cachedRiskScore}
+                 initialOverfitRisk={cachedOverfitRisk}
+                 parsedStrategy={parsedStrategy}
+                 promptText={promptText}
+                 onSummaryReady={(s, sc, st, wk, im, adv, rsk, ovf) => {
                    setCachedAiSummary(s);
                    setCachedAiScore(sc);
                    setCachedStrengths(st);
                    setCachedWeaknesses(wk);
                    setCachedImprovements(im);
+                   setCachedAdvisorScore(adv);
+                   setCachedRiskScore(rsk);
+                   setCachedOverfitRisk(ovf);
                    if (result.cacheKey) {
                      fetch("/api/backtest/ai-report", {
                        method: "PATCH",
@@ -1161,6 +1223,9 @@ export default function BacktestDashboard({
                          aiStrengths: st,
                          aiWeaknesses: wk,
                          aiImprovements: im,
+                         advisorScore: adv,
+                         riskScore: rsk,
+                         overfitRisk: ovf,
                        }),
                      }).catch(() => {/* 저장 실패는 무시 */});
                    }

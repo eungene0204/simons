@@ -7,7 +7,13 @@ type SupabaseIdentity = {
   email: string
   emailVerified: boolean
   name: string | null
+  avatarUrl: string | null
   uid: string
+}
+
+export type AuthTokenPayload = {
+  userId: number
+  avatarUrl?: string | null
 }
 
 export async function hashPassword(password: string): Promise<string> {
@@ -21,13 +27,16 @@ export async function verifyPassword(
   return bcrypt.compare(password, hashedPassword)
 }
 
-export function generateToken(userId: number): string {
-  return jwt.sign({ userId }, JWT_SECRET, { expiresIn: '7d' })
+export function generateToken(
+  userId: number,
+  profile?: { avatarUrl?: string | null }
+): string {
+  return jwt.sign({ userId, avatarUrl: profile?.avatarUrl ?? null }, JWT_SECRET, { expiresIn: '7d' })
 }
 
-export function verifyToken(token: string): { userId: number } | null {
+export function verifyToken(token: string): AuthTokenPayload | null {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: number }
+    const decoded = jwt.verify(token, JWT_SECRET) as AuthTokenPayload
     return decoded
   } catch {
     return null
@@ -79,6 +88,13 @@ export async function verifySupabaseAccessToken(
     (typeof data.user.user_metadata?.name === 'string'
       ? data.user.user_metadata.name
       : null)
+  const avatarUrl =
+    (typeof data.user.user_metadata?.avatar_url === 'string'
+      ? data.user.user_metadata.avatar_url
+      : null) ||
+    (typeof data.user.user_metadata?.picture === 'string'
+      ? data.user.user_metadata.picture
+      : null)
 
   return {
     email,
@@ -86,6 +102,7 @@ export async function verifySupabaseAccessToken(
       data.user.email_confirmed_at || data.user.confirmed_at
     ),
     name,
+    avatarUrl,
     uid: data.user.id,
   }
 }

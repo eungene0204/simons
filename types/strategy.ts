@@ -184,6 +184,9 @@ export interface BacktestResult {
   aiStrengths?: string[];
   aiWeaknesses?: string[];
   aiImprovements?: string[];
+  advisorScore?: number | null;
+  riskScore?: number | null;
+  overfitRisk?: string | null;
 }
 
 
@@ -224,6 +227,9 @@ export interface BacktestHistoryItem {
     aiStrengths?: string[];
     aiWeaknesses?: string[];
     aiImprovements?: string[];
+    advisorScore?: number | null;
+    riskScore?: number | null;
+    overfitRisk?: string | null;
   };
   result?: BacktestResult;
 }

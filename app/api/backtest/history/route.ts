@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import {
+  getOwnershipContext,
+  isUnauthorizedAccessError,
+} from "@/lib/get-user";
 
 function formatItem(item: any) {
   return {
@@ -13,16 +17,34 @@ function formatItem(item: any) {
   };
 }
 
-// 저장 목록: isVisible=true 인 항목만 반환
+// 저장 목록: 로그인 사용자가 자신의 목록에 담은 기록만 반환한다(UserBacktestHistory 조인).
+// 비인증/테스트(userId=null)는 레거시 전역(isVisible) 조회로 폴백한다.
 export async function GET() {
   try {
-    const history = await prisma.backtestHistory.findMany({
-      where: { isVisible: true },
-      orderBy: { createdAt: "desc" },
+    const { userId } = await getOwnershipContext();
+
+    if (userId == null) {
+      const history = await prisma.backtestHistory.findMany({
+        where: { isVisible: true },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      });
+      return NextResponse.json(history.map(formatItem));
+    }
+
+    const links = await prisma.userBacktestHistory.findMany({
+      where: { userId },
+      orderBy: { savedAt: "desc" },
       take: 50,
+      include: { BacktestHistory: true },
     });
-    return NextResponse.json(history.map(formatItem));
+    return NextResponse.json(
+      links.map((link) => formatItem(link.BacktestHistory))
+    );
   } catch (error) {
+    if (isUnauthorizedAccessError(error)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     console.error("Failed to fetch backtest history:", error);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
@@ -30,12 +52,16 @@ export async function GET() {
 
 // 저장 버튼 클릭 시 호출
 // cacheKey 가 있으면 기존 숨김 레코드를 isVisible=true 로 업데이트,
-// 없거나 레코드가 없으면 새로 생성
+// 없거나 레코드가 없으면 새로 생성한 뒤,
+// 로그인 사용자의 "내 목록"(UserBacktestHistory)에 연결한다.
 // isAutoSave=true 인 경우: 기존 레코드에 이미 이름이 있으면 이름을 덮어쓰지 않음
 export async function POST(request: Request) {
   try {
+    const { userId } = await getOwnershipContext();
     const body = await request.json();
     const { strategyName, universe, conditions, metrics, result, cacheKey, isAutoSave } = body;
+
+    let saved: any = null;
 
     if (cacheKey) {
       const existing = await prisma.backtestHistory.findUnique({ where: { cacheKey } });
@@ -45,7 +71,7 @@ export async function POST(request: Request) {
             ? existing.result ?? (result ? JSON.stringify(result) : existing.result)
             : (result ? JSON.stringify(result) : existing.result);
 
-        const updated = await prisma.backtestHistory.update({
+        saved = await prisma.backtestHistory.update({
           where: { cacheKey },
           data: {
             // 자동 저장 시 기존에 사용자가 지정한 이름이 있으면 유지
@@ -58,42 +84,72 @@ export async function POST(request: Request) {
             isVisible: true,
           },
         });
-        return NextResponse.json(formatItem(updated));
       }
     }
 
     // cacheKey 없거나 레코드 없을 때 새 레코드 생성
-    const newItem = await prisma.backtestHistory.create({
-      data: {
-        strategyName,
-        universe,
-        conditions: JSON.stringify(conditions),
-        metrics: JSON.stringify(metrics),
-        result: result ? JSON.stringify(result) : null,
-        cacheKey: cacheKey ?? null,
-        isVisible: true,
-      },
-    });
-    return NextResponse.json(formatItem(newItem));
+    if (!saved) {
+      saved = await prisma.backtestHistory.create({
+        data: {
+          strategyName,
+          universe,
+          conditions: JSON.stringify(conditions),
+          metrics: JSON.stringify(metrics),
+          result: result ? JSON.stringify(result) : null,
+          cacheKey: cacheKey ?? null,
+          isVisible: true,
+        },
+      });
+    }
+
+    // 로그인 사용자의 "내 목록"에 연결(이미 있으면 유지)
+    if (userId != null) {
+      await prisma.userBacktestHistory.upsert({
+        where: { userId_backtestHistoryId: { userId, backtestHistoryId: saved.id } },
+        create: { userId, backtestHistoryId: saved.id },
+        update: {},
+      });
+    }
+
+    return NextResponse.json(formatItem(saved));
   } catch (error) {
+    if (isUnauthorizedAccessError(error)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     console.error("Failed to save backtest history:", error);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }
 
+// 목록에서 제거: 사용자의 연결(UserBacktestHistory)만 끊고 공유 결과는 DB에 보존한다.
+// 비인증/테스트(userId=null)는 레거시 동작(isVisible=false 토글)로 폴백한다.
 export async function DELETE(request: Request) {
   try {
+    const { userId } = await getOwnershipContext();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
+    if (userId == null) {
+      if (id) {
+        await prisma.backtestHistory.update({ where: { id }, data: { isVisible: false } });
+      } else {
+        await prisma.backtestHistory.updateMany({ data: { isVisible: false } });
+      }
+      return NextResponse.json({ success: true });
+    }
+
     if (id) {
-      await prisma.backtestHistory.delete({ where: { id } });
+      await prisma.userBacktestHistory.deleteMany({
+        where: { userId, backtestHistoryId: id },
+      });
     } else {
-      // "전체 삭제"는 목록 노출 여부와 무관하게 DB의 백테스트 기록을 모두 제거한다.
-      await prisma.backtestHistory.deleteMany();
+      await prisma.userBacktestHistory.deleteMany({ where: { userId } });
     }
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (isUnauthorizedAccessError(error)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     console.error("Failed to delete backtest history:", error);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }

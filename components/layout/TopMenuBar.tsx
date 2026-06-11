@@ -6,7 +6,13 @@ import DashboardHeader from "./DashboardHeader";
 import { useDrawer } from "@/contexts/DrawerContext";
 
 // 탑메뉴바를 memo로 감싸서 리렌더링 방지
-const TopMenuBarContent = memo(function TopMenuBarContent({ subHeader }: { subHeader?: React.ReactNode }) {
+const TopMenuBarContent = memo(function TopMenuBarContent({
+  subHeader,
+  userName,
+}: {
+  subHeader?: React.ReactNode;
+  userName?: string;
+}) {
   const { drawerType } = useDrawer();
   const [drawerWidthPx, setDrawerWidthPx] = useState(0);
   const topMenuBarRef = useRef<HTMLDivElement>(null);
@@ -76,13 +82,19 @@ const TopMenuBarContent = memo(function TopMenuBarContent({ subHeader }: { subHe
         id="top-menu-bar"
         ref={topMenuBarRef}
       >
-        <Sidebar />
+        <Sidebar userName={userName} />
         {subHeader}
       </div>
     </div>
   );
 });
 
-export default function TopMenuBar({ subHeader }: { subHeader?: React.ReactNode }) {
-  return <TopMenuBarContent subHeader={subHeader} />;
+export default function TopMenuBar({
+  subHeader,
+  userName,
+}: {
+  subHeader?: React.ReactNode;
+  userName?: string;
+}) {
+  return <TopMenuBarContent subHeader={subHeader} userName={userName} />;
 }

@@ -38,7 +38,7 @@ export async function GET() {
     const { userId } = await getOwnershipContext();
     const [strategies, accounts, backtestHistories] = await Promise.all([
       prisma.strategy.findMany({
-        where: withOwnership({}, userId),
+        where: withOwnership({ isSaved: true }, userId),
         orderBy: { createdAt: "desc" },
         include: { BacktestResult: { orderBy: { createdAt: "desc" }, take: 1 } },
       }),

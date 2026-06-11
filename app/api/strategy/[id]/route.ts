@@ -39,14 +39,19 @@ export async function DELETE(_req: Request, { params }: { params: { id: string }
           data: { tradingMode: "manual" },
         });
       }
-      // 필수 FK를 가진 연관 레코드 삭제 (BacktestResult는 SetNull이므로 보존됨)
-      await tx.strategyEmbedding.deleteMany({ where: { strategyId: params.id } });
-      await tx.adviceExperience.deleteMany({ where: { strategyId: params.id } });
-      await tx.backtestRun.deleteMany({ where: { strategyId: params.id } });
+      // 소프트 삭제: 사용자 목록에서만 숨기고(isSaved=false) DB 레코드는 보존한다.
+      // 백테스트 결과(BacktestHistory/BacktestResult/BacktestRun)는 공유 캐시이자
+      // 코칭 agent 학습 데이터이므로 절대 삭제하지 않는다.
       if (userId == null) {
-        await tx.strategy.delete({ where: { id: params.id } });
+        await tx.strategy.update({
+          where: { id: params.id },
+          data: { isSaved: false, deletedAt: new Date() },
+        });
       } else {
-        await tx.strategy.deleteMany({ where: withOwnership({ id: params.id }, userId) });
+        await tx.strategy.updateMany({
+          where: withOwnership({ id: params.id }, userId),
+          data: { isSaved: false, deletedAt: new Date() },
+        });
       }
     }, { timeout: 15000 });
 
@@ -123,7 +128,12 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
         aiSummary: summary.aiSummary ?? null,
         aiScore: summary.aiScore ?? null,
         aiStrengths: summary.aiStrengths ?? [],
+        aiWeaknesses: summary.aiWeaknesses ?? [],
+        aiImprovements: summary.aiImprovements ?? [],
         aiRisks: summary.aiRisks ?? [],
+        advisorScore: summary.advisorScore ?? null,
+        riskScore: summary.riskScore ?? null,
+        overfitRisk: summary.overfitRisk ?? null,
       };
     }
 

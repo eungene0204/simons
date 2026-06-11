@@ -15,6 +15,7 @@ from engine.nl_parser import (
     detect_missing_entry_clarification,
     _extract_technical_signals,
     _extract_fundamental_filters,
+    _extract_initial_capital,
     _extract_rebalancing_period,
     _match_risk_pct,
     extract_risk_field_overrides,
@@ -526,6 +527,104 @@ def test_extract_fundamental_filters_sums_jo_eok_combo():
     assert [(f.metric, f.operator, f.value) for f in filters] == [
         ("market_cap", ">=", 25000.0),
         ("trading_value", "<=", 12000.0),
+    ]
+
+
+def test_extract_initial_capital_ignores_trading_value_filter_amount():
+    # '거래대금 50억' 같은 펀더멘털 필터 수치를 초기자금으로 오인하면 안 된다(기본값 유지).
+    assert (
+        _extract_initial_capital("일평균 거래대금 50억 원 이상 종목만 편입")
+        == 10_000_000.0
+    )
+
+
+def test_extract_initial_capital_ignores_market_cap_filter_amount():
+    # '시가총액 1000억'도 초기자금으로 오인하면 안 된다.
+    assert (
+        _extract_initial_capital("시가총액 1000억 이상, 거래대금 50억 이상")
+        == 10_000_000.0
+    )
+
+
+def test_extract_initial_capital_still_reads_explicit_capital():
+    # 실제 초기자금 표현은 그대로 추출해야 한다(필터 제거가 자본금까지 지우면 안 됨).
+    assert (
+        _extract_initial_capital("거래대금 50억 이상 종목, 초기자금 1억으로 백테스트")
+        == 100_000_000.0
+    )
+
+
+def test_rule_based_strategy_multifactor_prompt_keeps_default_capital():
+    # 사용자 멀티팩터 프롬프트에는 초기자금 언급이 없으므로 기본값이어야 한다.
+    prompt = (
+        "KOSPI/KOSDAQ 공통 유니버스에서 ROE 12% 이상, PBR 1.5배 이하, "
+        "최근 60거래일 상대강도 상위 30%, 일평균 거래대금 50억 원 이상 조건을 "
+        "동시에 만족하는 종목만 편입해 주세요. 매주 점수를 재산출해 상위 12종목 "
+        "동일 비중 포트폴리오를 유지하고, 20일선 이탈 또는 손절 -8% 도달 시 청산하도록 구성해 주세요."
+    )
+
+    parsed = _parse_rule_based_strategy(prompt)
+
+    assert parsed is not None
+    assert parsed.initial_capital == 10_000_000.0
+
+
+def test_extract_technical_signals_catches_ema_crossover_entry():
+    # "20일 EMA가 60일 EMA 위에 있고" → ema 골든(단기 20 / 장기 60) 진입 신호.
+    entry, exit_ = _extract_technical_signals(
+        "20일 EMA가 60일 EMA 위에 있고 진입"
+    )
+    ema = [s for s in entry if s.indicator == "ema"]
+    assert len(ema) == 1
+    assert (ema[0].signal_type, ema[0].short_period, ema[0].long_period) == ("buy", 20, 60)
+
+
+def test_extract_technical_signals_catches_ema_cross_below_exit():
+    # "20일 EMA가 60일 EMA 아래로" → ema 데드(청산) 신호.
+    entry, exit_ = _extract_technical_signals(
+        "20일 EMA가 60일 EMA 아래로 내려오면 매도"
+    )
+    ema = [s for s in exit_ if s.indicator == "ema"]
+    assert len(ema) == 1
+    assert (ema[0].signal_type, ema[0].short_period, ema[0].long_period) == ("sell", 20, 60)
+
+
+def test_extract_technical_signals_catches_trading_value_above_average():
+    # "거래대금이 30일 평균보다 높은" → volume_spike(period=30) 진입 신호.
+    entry, exit_ = _extract_technical_signals(
+        "최근 거래대금이 30일 평균보다 높은 경우만 진입"
+    )
+    vol = [s for s in entry if s.indicator == "volume_spike"]
+    assert len(vol) == 1
+    assert (vol[0].signal_type, vol[0].period) == ("buy", 30)
+
+
+def test_extract_fundamental_filters_ignores_moving_average_window():
+    # '거래대금이 30일 평균보다' 의 '30일'을 '30억' 정적 필터로 오인하면 안 된다.
+    filters = _extract_fundamental_filters(
+        "거래대금이 30일 평균보다 높은 종목"
+    )
+    assert [(f.metric, f.operator, f.value) for f in filters] == []
+
+
+def test_rule_based_strategy_multifactor_ema_prompt_catches_entry_signals():
+    # 사용자 멀티팩터 프롬프트: EMA 크로스 + 거래대금 평균 상회 진입 신호를 모두 잡아야 한다.
+    prompt = (
+        "KOSDAQ 중 시가총액 2000억 원 이상 종목에서 매출 성장률이 양호하고 PBR이 과도하게 "
+        "높지 않은 기업만 먼저 고르고 싶습니다. 이후 20일 EMA가 60일 EMA 위에 있고 최근 "
+        "거래대금이 30일 평균보다 높은 경우만 진입하는 방식으로 설계해 주세요. "
+        "주간 리밸런싱, 최대 9종목, 손절 -7%, 익절 +24% 조건으로 부탁드립니다."
+    )
+
+    parsed = _parse_rule_based_strategy(prompt)
+
+    assert parsed is not None
+    entry_indicators = {s.indicator for s in parsed.entry_signals}
+    assert "ema" in entry_indicators
+    assert "volume_spike" in entry_indicators
+    # '거래대금 30일'이 거래대금 >= 30억 정적 필터로 새지 않아야 한다.
+    assert [(f.metric, f.operator, f.value) for f in parsed.fundamental_filters] == [
+        ("market_cap", ">=", 2000.0),
     ]
 
 

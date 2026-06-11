@@ -68,7 +68,7 @@ export default function GoogleLoginButton({
         }
 
         startTransition(() => {
-          router.push("/dashboard");
+          router.push("/analytics");
           router.refresh();
         });
       } catch (redirectError) {

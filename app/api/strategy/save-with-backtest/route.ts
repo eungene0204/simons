@@ -18,7 +18,22 @@ export async function POST(request: Request) {
   try {
     const { userId } = await getOwnershipContext();
     const body = await request.json();
-    const { name, description, dsl, backtestResult, aiSummary, aiScore, aiStrengths, aiRisks, score } = body;
+    const {
+      name,
+      description,
+      dsl,
+      backtestResult,
+      aiSummary,
+      aiScore,
+      aiStrengths,
+      aiWeaknesses,
+      aiImprovements,
+      aiRisks,
+      advisorScore,
+      riskScore,
+      overfitRisk,
+      score,
+    } = body;
 
     if (!name?.trim()) {
       return NextResponse.json({ error: "전략 이름을 입력해주세요." }, { status: 400 });
@@ -53,6 +68,7 @@ export async function POST(request: Request) {
                 description: description?.trim() || null,
                 settings: JSON.stringify(dslToSave),
                 strategyType,
+                isSaved: true,
               },
               update: {
                 ...(userId != null && { userId }),
@@ -60,6 +76,8 @@ export async function POST(request: Request) {
                 description: description?.trim() || null,
                 settings: JSON.stringify(dslToSave),
                 strategyType,
+                isSaved: true,
+                deletedAt: null,
               },
             })
           : await tx.strategy.create({
@@ -70,6 +88,7 @@ export async function POST(request: Request) {
                 description: description?.trim() || null,
                 settings: JSON.stringify(dslToSave),
                 strategyType,
+                isSaved: true,
               },
             });
 
@@ -107,7 +126,12 @@ export async function POST(request: Request) {
           aiSummary: aiSummary ?? null,
           aiScore: aiScore ?? null,
           aiStrengths: aiStrengths ?? [],
+          aiWeaknesses: aiWeaknesses ?? [],
+          aiImprovements: aiImprovements ?? [],
           aiRisks: aiRisks ?? [],
+          advisorScore: advisorScore ?? null,
+          riskScore: riskScore ?? null,
+          overfitRisk: overfitRisk ?? null,
         };
 
         if (
@@ -159,7 +183,12 @@ export async function POST(request: Request) {
           aiSummary: aiSummary ?? null,
           aiScore: aiScore ?? null,
           aiStrengths: aiStrengths ?? [],
+          aiWeaknesses: aiWeaknesses ?? [],
+          aiImprovements: aiImprovements ?? [],
           aiRisks: aiRisks ?? [],
+          advisorScore: advisorScore ?? null,
+          riskScore: riskScore ?? null,
+          overfitRisk: overfitRisk ?? null,
           perAssetStats: backtestResult.perAssetStats ?? null,
           topSymbols: topAssetStats.map((stat) => stat.symbol),
         };
@@ -189,14 +218,29 @@ export async function POST(request: Request) {
             isVisible: true,
           };
 
+          let savedHistory: { id: string } | null = null;
           if (existingHistory && typeof tx.backtestHistory.update === "function") {
-            await tx.backtestHistory.update({
+            savedHistory = await tx.backtestHistory.update({
               where: { id: existingHistory.id },
               data: historyData,
             });
           } else if (typeof tx.backtestHistory.create === "function") {
-            await tx.backtestHistory.create({
+            savedHistory = await tx.backtestHistory.create({
               data: historyData,
+            });
+          }
+
+          // 저장한 백테스트를 로그인 사용자의 "내 목록"에 연결한다.
+          if (
+            userId != null &&
+            savedHistory &&
+            tx.userBacktestHistory &&
+            typeof tx.userBacktestHistory.upsert === "function"
+          ) {
+            await tx.userBacktestHistory.upsert({
+              where: { userId_backtestHistoryId: { userId, backtestHistoryId: savedHistory.id } },
+              create: { userId, backtestHistoryId: savedHistory.id },
+              update: {},
             });
           }
         }

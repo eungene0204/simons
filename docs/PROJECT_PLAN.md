@@ -553,6 +553,7 @@ RiskManagement {
 - **위치:** `backend/ai/summarize.py`
 - **모델:** Qwen 7B MLX (macOS) 또는 추론 서비스
 - **기능:** 백테스트 결과를 자연어 리포트로 변환 (점수, 요약, 추천)
+- **advisor 하이브리드 ✅ 완료:** `parsed_strategy`가 전달되면 `StrategyAdvisorAgent`가 개선안(improvements)·점수·과적합 위험을 결정론적으로 산출하고, LLM은 그 진단을 근거로 총평·강점·단점만 서술한다(환각 차단). `parsed_strategy` 미전달·advisor 실패 시 기존 LLM 단독 경로로 폴백.
 
 #### 3.3.4 전략 최적화 (Optuna) ✅ 완료
 

@@ -5,6 +5,8 @@ export {
   getDisplayUniverseLabels,
   getRankingLabel,
   FUNDAMENTAL_FILTER_SECTION_LABEL,
+  formatFundamentalFilter,
+  formatInitialCapital,
   INDICATOR_LABELS,
   METRIC_LABELS,
   PERIOD_LABELS,

@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
 
         await ensureUserBootstrap(user.id)
 
-        const token = generateToken(user.id)
+        const token = generateToken(user.id, { avatarUrl: identity.avatarUrl })
 
         const cookieStore = await cookies()
         cookieStore.set('token', token, {
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           {
             message: '로그인 성공',
-            user: { id: user.id, email: user.email, name: user.name },
+            user: { id: user.id, email: user.email, name: user.name, avatarUrl: identity.avatarUrl },
           },
           { status: 200 }
         )
@@ -127,7 +127,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         message: '로그인 성공',
-        user: { id: user.id, email: user.email, name: user.name },
+        user: { id: user.id, email: user.email, name: user.name, avatarUrl: null },
       },
       { status: 200 }
     )

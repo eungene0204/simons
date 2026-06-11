@@ -22,7 +22,7 @@ export default async function LandingPage() {
   const user = await getCurrentUser();
 
   if (user) {
-    redirect("/dashboard");
+    redirect("/analytics");
   }
 
   return (

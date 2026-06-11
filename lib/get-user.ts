@@ -28,7 +28,7 @@ export async function getCurrentUser() {
       select: { id: true, email: true, name: true },
     })
 
-    return user
+    return user ? { ...user, avatarUrl: decoded.avatarUrl ?? null } : null
   } catch {
     return null
   }
@@ -83,4 +83,3 @@ export async function ensureUserBootstrap(userId: number) {
     })
   }
 }
-

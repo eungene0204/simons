@@ -18,7 +18,21 @@ interface BacktestSummaryCardProps {
   initialStrengths?: string[];
   initialWeaknesses?: string[];
   initialImprovements?: string[];
-  onSummaryReady?: (summary: string, score: number, strengths: string[], weaknesses: string[], improvements: string[]) => void;
+  initialAdvisorScore?: number | null;
+  initialRiskScore?: number | null;
+  initialOverfitRisk?: string | null;
+  parsedStrategy?: Record<string, unknown>;
+  promptText?: string;
+  onSummaryReady?: (
+    summary: string,
+    score: number,
+    strengths: string[],
+    weaknesses: string[],
+    improvements: string[],
+    advisorScore: number | null,
+    riskScore: number | null,
+    overfitRisk: string | null
+  ) => void;
 }
 
 function scoreColor(score: number): string {
@@ -58,6 +72,32 @@ function scoreLevel(score: number): string {
 
 function clampScore(score: number): number {
   return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+// 리스크 점수: 높을수록 위험하므로 색을 반전한다.
+function riskScoreColor(score: number): string {
+  if (score >= 70) return "text-red-400";
+  if (score >= 40) return "text-orange-400";
+  return "text-emerald-400";
+}
+
+function riskScoreLabel(score: number): string {
+  if (score >= 70) return "위험";
+  if (score >= 40) return "주의";
+  return "안정";
+}
+
+function overfitMeta(level: string): { label: string; color: string } {
+  switch (level) {
+    case "high":
+      return { label: "높음", color: "text-red-400" };
+    case "medium":
+      return { label: "보통", color: "text-orange-400" };
+    case "low":
+      return { label: "낮음", color: "text-emerald-400" };
+    default:
+      return { label: level, color: "text-gray-400" };
+  }
 }
 
 function metricToScore(
@@ -125,6 +165,11 @@ export default function BacktestSummaryCard({
   initialStrengths,
   initialWeaknesses,
   initialImprovements,
+  initialAdvisorScore,
+  initialRiskScore,
+  initialOverfitRisk,
+  parsedStrategy,
+  promptText,
   onSummaryReady,
 }: BacktestSummaryCardProps) {
   const gaugeLength = 251.2;
@@ -134,6 +179,9 @@ export default function BacktestSummaryCard({
   const [strengths, setStrengths] = useState<string[]>(initialStrengths ?? []);
   const [weaknesses, setWeaknesses] = useState<string[]>(initialWeaknesses ?? []);
   const [improvements, setImprovements] = useState<string[]>(initialImprovements ?? []);
+  const [advisorScore, setAdvisorScore] = useState<number | null>(initialAdvisorScore ?? null);
+  const [riskScore, setRiskScore] = useState<number | null>(initialRiskScore ?? null);
+  const [overfitRisk, setOverfitRisk] = useState<string | null>(initialOverfitRisk ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -145,6 +193,9 @@ export default function BacktestSummaryCard({
     setStrengths([]);
     setWeaknesses([]);
     setImprovements([]);
+    setAdvisorScore(null);
+    setRiskScore(null);
+    setOverfitRisk(null);
 
     try {
       const res = await fetch("/api/backtest/summarize", {
@@ -168,6 +219,8 @@ export default function BacktestSummaryCard({
             finalEquity: result.finalEquity,
           },
           strategySummary,
+          parsedStrategy,
+          userPrompt: promptText,
         }),
       });
 
@@ -178,8 +231,20 @@ export default function BacktestSummaryCard({
       setStrengths(data.strengths ?? []);
       setWeaknesses(data.weaknesses ?? []);
       setImprovements(data.improvements ?? []);
+      setAdvisorScore(data.advisorScore ?? null);
+      setRiskScore(data.riskScore ?? null);
+      setOverfitRisk(data.overfitRisk ?? null);
       if (data.summary && data.score != null) {
-        onSummaryReady?.(data.summary, data.score, data.strengths ?? [], data.weaknesses ?? [], data.improvements ?? []);
+        onSummaryReady?.(
+          data.summary,
+          data.score,
+          data.strengths ?? [],
+          data.weaknesses ?? [],
+          data.improvements ?? [],
+          data.advisorScore ?? null,
+          data.riskScore ?? null,
+          data.overfitRisk ?? null
+        );
       }
     } catch (e: any) {
       setError(e.message ?? "요약 생성에 실패했습니다.");
@@ -443,6 +508,56 @@ export default function BacktestSummaryCard({
                       </div>
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* 전략 리스크 진단 (advisor) */}
+            {(riskScore != null || overfitRisk != null) && (
+              <div className={reportCardClass}>
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-center gap-2">
+                    <Warning className="w-4 h-4 text-[#62A8CB]" weight="bold" />
+                    <p className={reportCardTitleClass}>전략 리스크 진단</p>
+                  </div>
+                  <div className="h-px w-full bg-white/10" />
+                  <div className="grid grid-cols-2 gap-4 sm:gap-6">
+                    {riskScore != null && (
+                      <div className="flex flex-col items-center justify-between text-center">
+                        <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
+                          리스크 점수
+                        </span>
+                        <div className="flex flex-col items-center gap-1">
+                          <span className={`text-3xl font-black tabular-nums leading-none ${riskScoreColor(riskScore)}`}>
+                            {clampScore(riskScore)}
+                          </span>
+                          <span className={`text-xs font-bold h-5 flex items-center ${riskScoreColor(riskScore)}`}>
+                            {riskScoreLabel(riskScore)}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-gray-600">높을수록 위험</span>
+                      </div>
+                    )}
+                    {overfitRisk != null && (
+                      <div className="flex flex-col items-center justify-between text-center">
+                        <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
+                          과적합 위험
+                        </span>
+                        <div className="flex flex-col items-center gap-1">
+                          <span className={`text-3xl font-black leading-none ${overfitMeta(overfitRisk).color}`}>
+                            {overfitMeta(overfitRisk).label}
+                          </span>
+                          <span className="h-5" />
+                        </div>
+                        <span className="text-[10px] text-gray-600">과거에만 맞춘 전략일 위험</span>
+                      </div>
+                    )}
+                  </div>
+                  {advisorScore != null && (
+                    <p className="text-sm text-gray-500 text-center">
+                      Advisor 전략 평가 점수: <span className="font-bold text-gray-300">{clampScore(advisorScore)}점</span>
+                    </p>
+                  )}
                 </div>
               </div>
             )}

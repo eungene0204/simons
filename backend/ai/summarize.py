@@ -209,6 +209,158 @@ def build_prompt(payload: dict) -> str:
     )
 
 
+# ── Advisor 연동 (하이브리드 리포트) ──────────────────────────────────────────
+#
+# advisor 에이전트가 결정론적으로 진단/조언을 만들고, LLM 은 그 위에서 총평·강점·
+# 단점만 서술한다. improvements(구체적 개선 조치)는 advisor 결과를 그대로 쓴다.
+
+
+def _to_float(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def to_advisor_backtest_summary(metrics: dict) -> dict:
+    """프론트 퍼센트 지표(cagr=18.0)를 advisor BacktestSummary(분수, cagr=0.18)로 변환한다."""
+    metrics = metrics or {}
+
+    def pct(key):
+        f = _to_float(metrics.get(key))
+        return f / 100.0 if f is not None else None
+
+    mdd = pct("maxDrawdown")
+    if mdd is not None and mdd > 0:
+        mdd = -mdd  # advisor 는 MDD 를 음수로 받는다
+
+    trades = metrics.get("trades")
+    try:
+        trade_count = int(trades) if trades is not None else None
+    except (TypeError, ValueError):
+        trade_count = None
+
+    return {
+        "cagr": pct("cagr"),
+        "mdd": mdd,
+        "sharpe": _to_float(metrics.get("sharpe")),
+        "sortino": _to_float(metrics.get("sortino")),
+        "profit_factor": _to_float(metrics.get("profitFactor")),
+        "trade_count": trade_count,
+        "win_rate": pct("winRate"),
+    }
+
+
+def build_report_from_advisor(advisor: dict) -> dict:
+    """AdvisorResponse(dict) → 리포트의 결정론적 부분(improvements + 점수 + 근거)으로 매핑한다."""
+    advisor = advisor or {}
+    advice = advisor.get("advice") or []
+    severity_order = {"high": 0, "medium": 1, "low": 2}
+    advice_sorted = sorted(
+        advice, key=lambda a: severity_order.get((a or {}).get("severity"), 9)
+    )
+
+    improvements: list[str] = []
+    for item in advice_sorted:
+        item = item or {}
+        change = item.get("proposed_change") or {}
+        text = (
+            str(change.get("description") or "").strip()
+            or str(item.get("title") or "").strip()
+            or str(item.get("body") or "").strip()
+        )
+        if text:
+            improvements.append(text)
+    for exp in advisor.get("suggested_experiments") or []:
+        exp = str(exp or "").strip()
+        if exp:
+            improvements.append(exp)
+
+    # weaknesses 서술의 환각을 막기 위한 근거 — LLM 프롬프트에 주입한다.
+    advice_titles = [
+        str((item or {}).get("title") or "").strip()
+        for item in advice_sorted
+        if str((item or {}).get("title") or "").strip()
+    ]
+    sections = [
+        {
+            "title": str((s or {}).get("title") or "").strip(),
+            "body": str((s or {}).get("body") or "").strip(),
+        }
+        for s in advisor.get("response_sections") or []
+    ]
+
+    return {
+        "improvements": normalize_report_items(improvements[:3]),
+        "advisorScore": advisor.get("strategy_score"),
+        "riskScore": advisor.get("risk_score"),
+        "overfitRisk": advisor.get("overfit_risk"),
+        "advice_titles": advice_titles,
+        "response_sections": sections,
+    }
+
+
+def _build_advisor_grounding(report: dict) -> str:
+    """advisor 진단을 LLM 프롬프트용 텍스트 블록으로 직렬화한다."""
+    report = report or {}
+    lines: list[str] = []
+
+    score = report.get("advisorScore")
+    risk = report.get("riskScore")
+    overfit = report.get("overfitRisk")
+    if score is not None:
+        lines.append(f"- 전략 종합 점수: {float(score):.0f}/100")
+    if risk is not None:
+        lines.append(f"- 리스크 점수: {float(risk):.0f}/100 (높을수록 위험)")
+    if overfit:
+        lines.append(f"- 과적합 위험: {overfit}")
+
+    titles = report.get("advice_titles") or []
+    if titles:
+        lines.append("진단된 문제/조언:")
+        lines.extend(f"  - {t}" for t in titles[:6])
+
+    sections = report.get("response_sections") or []
+    if sections:
+        lines.append("추가 분석:")
+        for section in sections[:4]:
+            title = section.get("title") or ""
+            body = (section.get("body") or "").strip()
+            if not body:
+                continue
+            if len(body) > 160:
+                body = body[:160].rstrip() + "…"
+            lines.append(f"  - {title}: {body}" if title else f"  - {body}")
+
+    if not lines:
+        return "- 진단된 추가 근거가 없습니다."
+    return "\n".join(lines)
+
+
+def build_advisor_grounded_prompt(payload: dict, advisor_report: dict) -> str:
+    """하이브리드 프롬프트 — advisor 진단을 근거로 total_summary/strengths/weaknesses만 서술하게 한다.
+
+    improvements 는 advisor 가 결정론적으로 채우므로 LLM 에 요청하지 않는다.
+    """
+    base = build_prompt(payload)
+    grounding = _build_advisor_grounding(advisor_report)
+
+    instructions = (
+        "\n\n[중요] 위 지표에 더해 아래 'advisor 진단 근거'가 제공됩니다. "
+        "weaknesses(단점)는 반드시 아래 진단된 문제에서만 도출하고, 진단에 없는 새로운 문제를 "
+        "지어내지 마세요. improvements 는 별도 시스템이 채우므로 출력하지 마세요.\n\n"
+        "advisor 진단 근거:\n"
+        f"{grounding}\n\n"
+        "출력 형식 (JSON만 출력, improvements 키 없음):\n"
+        "{\n"
+        '  "total_summary": "전략 전체 총평 5~7문장. 수익성/안정성/효율성/거래 신뢰도 다각도 분석",\n'
+        '  "strengths": ["강점1 - 2~3문장, 지표 수치 포함", "강점2 - 2~3문장", "강점3 - 2~3문장"],\n'
+        '  "weaknesses": ["단점1 - 진단 근거 기반 1~2문장", "단점2 - 1~2문장", "단점3 - 1~2문장"]\n'
+        "}"
+    )
+    return base + instructions
+
+
 def _extract_json_objects(text: str) -> list[str]:
     objects: list[str] = []
     stack = 0
