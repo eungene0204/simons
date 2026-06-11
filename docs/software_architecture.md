@@ -1,7 +1,7 @@
 # Software Architecture
 
 > 한국/글로벌 주식 퀀트 투자 플랫폼 — Simons
-> **최종 갱신일:** 2026-06-09
+> **최종 갱신일:** 2026-06-12
 
 ---
 
@@ -81,6 +81,7 @@ simons/
 │   │   ├── backtest/                # BacktestDashboard, BacktestConfig, BacktestStatsSummary 등
 │   │   ├── RunAllTestsModal.tsx     # 독립형 Batch Backtest Results 모달
 │   │   ├── StrategyExampleTabs.tsx  # 전략 예시 프롬프트 탭
+│   │   ├── StockAnalysisPanel.tsx   # 개별 종목 분석 결과 패널 (Stock Analysis Agent)
 │   │   └── legacyBreakout.ts        # 레거시 데이터 정규화 유틸
 │   ├── stock/                       # 종목 관련 컴포넌트
 │   │   └── NewsImpactPanel.tsx      # 뉴스·공시 + Alpha 시그널 패널 (stock-order 뉴스 탭)
@@ -174,10 +175,23 @@ simons/
 │   │   ├── robustness.py            # MC + WFA 견고성 검증
 │   │   ├── promoter.py              # VirtualAccount 자동 승격
 │   │   └── templates/               # 전략 템플릿 (momentum/mean_reversion/value/volume_breakout/ai_signal)
+│   ├── intent/                      # 사용자 질문 의도 분류 (STRATEGY / STOCK_ANALYSIS / …)
+│   │   ├── classifier.py            # 결정적 하이브리드 분류기 (규칙 + LLM 폴백)
+│   │   └── schemas.py               # IntentResult Pydantic 모델
+│   ├── stock_analysis/              # 개별 종목 분석 Agent (LLM은 설명만, 추천은 규칙엔진)
+│   │   ├── agent.py                 # 종목 분석 오케스트레이터
+│   │   ├── stock_master.py          # 종목 마스터 (Ground Truth) + 별칭/티커 해석
+│   │   ├── symbol_resolver.py       # 자연어 → 종목코드 해석 (find_in_text)
+│   │   ├── data_service.py / technical_service.py / fundamental_service.py  # 1차 소스 로컬 parquet
+│   │   ├── news_service.py          # news_v2 DB(감성) async 조회
+│   │   ├── forecast_service.py      # AI 하방 리스크 게이지 (매매 결정 제외)
+│   │   ├── risk_service.py / recommendation_engine.py / guardrails.py
+│   │   └── explanation.py           # 결과 자연어 설명 생성
 │   ├── api/
 │   │   ├── coach_routes.py          # FastAPI AI 전략 코치 라우터 (단건 + SSE 스트리밍)
 │   │   ├── advisor_routes.py        # RAG/Experience Memory 전략 리뷰 라우터
 │   │   ├── news_routes.py           # 뉴스 FastAPI 라우터
+│   │   ├── stock_analysis_routes.py # 개별 종목 분석 API (/stock/analyze)
 │   │   └── research_routes.py       # FastAPI 연구 에이전트 라우터 (9개 엔드포인트, SSE)
 │   └── tests/                       # 백엔드 단위 테스트
 │
@@ -344,6 +358,13 @@ interface BacktestResult {
 | GET | `/ai/runtime/metrics` | AI 런타임 latency 메트릭 조회 |
 | POST | `/ai/runtime/metrics/reset` | AI 런타임 메트릭 초기화 |
 | POST | `/summarize` | 백테스트 결과 AI 요약 (Claude API) |
+
+**개별 종목 분석 (Stock Analysis Agent)**
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| POST | `/query/classify` | 사용자 질문 의도 분류 (STRATEGY / STOCK_ANALYSIS / GENERAL) |
+| POST | `/stock/analyze` | 개별 종목 분석 — 로컬 parquet 1차 소스, 규칙 기반 추천 + LLM 설명, 종목 미해석 시 422 |
+| POST | `/query/general` | 분류·종목 비매칭 일반 질문 응답 |
 
 **뉴스 Impact Agent**
 | 메서드 | 경로 | 설명 |

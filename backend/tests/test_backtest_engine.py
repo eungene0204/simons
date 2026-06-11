@@ -6,13 +6,16 @@ import os
 import polars as pl
 from backtest_engine import BacktestEngine
 
+_TESTS_DIR = os.path.dirname(__file__)
+_DATA_DIR = os.path.join(_TESTS_DIR, "data")
+
 @pytest.fixture
 def engine():
-    return BacktestEngine(data_dir="backend/tests/data")
+    return BacktestEngine(data_dir=_DATA_DIR)
 
 @pytest.fixture
 def reference_data():
-    path = "backend/tests/tradingview_reference.json"
+    path = os.path.join(_TESTS_DIR, "tradingview_reference.json")
     with open(path, 'r') as f:
         return json.load(f)
 
@@ -31,9 +34,9 @@ def test_indicator_sma(engine, reference_data):
         assert pytest.approx(calc, abs=0.5) == val
 
 def test_trade_signals_and_execution(engine, reference_data):
-    os.makedirs("backend/tests/data", exist_ok=True)
+    os.makedirs(_DATA_DIR, exist_ok=True)
     df_pl = pl.from_dicts(reference_data['ohlcv'])
-    df_pl.write_parquet("backend/tests/data/VALIDATION_STOCK.parquet")
+    df_pl.write_parquet(os.path.join(_DATA_DIR, "VALIDATION_STOCK.parquet"))
     
     req = {
         "symbols": ["VALIDATION_STOCK"],
@@ -52,9 +55,9 @@ def test_trade_signals_and_execution(engine, reference_data):
     assert any(pytest.approx(first_entry['price'], rel=0.1) == d['open'] for d in reference_data['ohlcv'])
 
 def test_performance_metrics(engine, reference_data):
-    os.makedirs("backend/tests/data", exist_ok=True)
+    os.makedirs(_DATA_DIR, exist_ok=True)
     df_pl = pl.from_dicts(reference_data['ohlcv'])
-    df_pl.write_parquet("backend/tests/data/VALIDATION_STOCK.parquet")
+    df_pl.write_parquet(os.path.join(_DATA_DIR, "VALIDATION_STOCK.parquet"))
     
     req = {
         "symbols": ["VALIDATION_STOCK"],
@@ -80,9 +83,9 @@ def test_configurable_options(engine):
         {"date": "2024-01-02", "open": 105.0, "high": 120.0, "low": 100.0, "close": 115.0, "volume": 1000000.0},
         {"date": "2024-01-03", "open": 115.0, "high": 130.0, "low": 110.0, "close": 125.0, "volume": 1000000.0},
     ]
-    os.makedirs("backend/tests/data", exist_ok=True)
+    os.makedirs(_DATA_DIR, exist_ok=True)
     df_pl = pl.from_dicts(ohlcv)
-    df_pl.write_parquet("backend/tests/data/CONFIG_TEST.parquet")
+    df_pl.write_parquet(os.path.join(_DATA_DIR, "CONFIG_TEST.parquet"))
     
     req = {
         "symbols": ["CONFIG_TEST"],
@@ -114,9 +117,9 @@ def test_liquidity_filter(engine):
         {"date": "2024-01-04", "open": 100.0, "high": 100.0, "low": 100.0, "close": 100.0, "volume": 1000000.0},
         {"date": "2024-01-05", "open": 100.0, "high": 100.0, "low": 100.0, "close": 100.0, "volume": 1000000.0},
     ]
-    os.makedirs("backend/tests/data", exist_ok=True)
+    os.makedirs(_DATA_DIR, exist_ok=True)
     df_pl = pl.from_dicts(ohlcv)
-    df_pl.write_parquet("backend/tests/data/LIQUIDITY_TEST.parquet")
+    df_pl.write_parquet(os.path.join(_DATA_DIR, "LIQUIDITY_TEST.parquet"))
     
     req = {
         "symbols": ["LIQUIDITY_TEST"],

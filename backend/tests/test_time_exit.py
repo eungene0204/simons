@@ -15,7 +15,7 @@ def test_time_based_exit_reasons():
             "open": float(p), "high": float(p+1), "low": float(p-1), "close": float(p), "volume": 1000000.0
         })
         
-    data_dir = "backend/tests/data"
+    data_dir = os.path.join(os.path.dirname(__file__), "data")
     os.makedirs(data_dir, exist_ok=True)
     pl.from_dicts(ohlcv).write_parquet(f"{data_dir}/TIME_EXIT_TEST_V2.parquet")
     

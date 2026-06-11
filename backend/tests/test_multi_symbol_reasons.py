@@ -4,7 +4,7 @@ import os
 from backtest_engine import BacktestEngine
 
 def test_multi_symbol_reasons():
-    data_dir = "backend/tests/data"
+    data_dir = os.path.join(os.path.dirname(__file__), "data")
     os.makedirs(data_dir, exist_ok=True)
     
     def get_prices():

@@ -32,7 +32,7 @@ def test_specific_exit_reasons():
             "open": float(p), "high": float(p+1), "low": float(p-1), "close": float(p), "volume": 1000000.0
         })
         
-    data_dir = "backend/tests/data"
+    data_dir = os.path.join(os.path.dirname(__file__), "data")
     os.makedirs(data_dir, exist_ok=True)
     pl.from_dicts(ohlcv).write_parquet(f"{data_dir}/SPECIFIC_EXIT_FINAL_V2.parquet")
     

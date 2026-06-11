@@ -37,7 +37,7 @@ def _write_series(data_dir: str, symbol: str, prices: list[float], dates) -> Non
 def test_return_ranking_selects_only_top_k_by_momentum():
     """4종목 중 최근 수익률 상위 2종목(WIN_A/WIN_B)만 매수되고, 하락/횡보주는 매수되지 않는다."""
     dates = pd.date_range(start="2024-01-01", periods=40, freq="D")
-    data_dir = "backend/tests/data"
+    data_dir = os.path.join(os.path.dirname(__file__), "data")
     os.makedirs(data_dir, exist_ok=True)
 
     # 상승주: 꾸준히 오름 → 높은 N일 수익률. 횡보/하락주: 낮은 수익률.
@@ -75,7 +75,7 @@ def test_return_ranking_selects_only_top_k_by_momentum():
 def test_monthly_rebalancing_rotates_dropouts():
     """월간 리밸런싱: 다음 달 순위에서 빠진 종목은 매도되고, 새로 오른 종목이 편입된다."""
     dates = pd.date_range(start="2024-01-01", periods=100, freq="D")  # Jan~Apr
-    data_dir = "backend/tests/data"
+    data_dir = os.path.join(os.path.dirname(__file__), "data")
     os.makedirs(data_dir, exist_ok=True)
 
     # STEADY: 내내 상승 → 항상 상위.
@@ -121,7 +121,7 @@ def test_monthly_rebalancing_with_stoploss_uses_signal_path():
     SL을 발동 안 하게 느슨히(-90%) 둬도 회전/재선정은 동일하게 동작해야 한다.
     """
     dates = pd.date_range(start="2024-01-01", periods=100, freq="D")
-    data_dir = "backend/tests/data"
+    data_dir = os.path.join(os.path.dirname(__file__), "data")
     os.makedirs(data_dir, exist_ok=True)
 
     _write_series(data_dir, "RBS_STEADY", [100 + 1.0 * i for i in range(100)], dates)

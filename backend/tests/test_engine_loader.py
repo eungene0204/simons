@@ -1,3 +1,4 @@
+import os
 import pytest
 import polars as pl
 import pandas as pd
@@ -6,7 +7,7 @@ from engine.loader import DataLoader
 
 @pytest.fixture
 def loader():
-    return DataLoader(data_dir="backend/tests/data")
+    return DataLoader(data_dir=os.path.join(os.path.dirname(__file__), "data"))
 
 def test_preprocess_data_adj_close(loader):
     # Test if adj_close is correctly applied to OHLC
