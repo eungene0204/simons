@@ -1,0 +1,29 @@
+{
+  "_doc": "종목 인식 회귀 데이터셋. 한 번 실패한 사례는 반드시 여기에 추가한다. test_stock_recognition_regressions.py 가 매 배포마다 자동 실행한다.",
+  "recognition": [
+    {"input": "SK하이닉스 분석해줘", "expected_ticker": "000660", "note": "이닉스와 혼동 금지(longest-first)"},
+    {"input": "이닉스 분석해줘", "expected_ticker": "452400", "note": "SK하이닉스 substring이지만 자기 티커여야 함"},
+    {"input": "하이닉스 분석해줘", "expected_ticker": "000660", "note": "통칭 별칭 recall — 과거 무매칭이던 회귀"},
+    {"input": "에스케이하이닉스 어때", "expected_ticker": "000660", "note": "한글 풀어쓴 별칭"},
+    {"input": "네이버 분석해줘", "expected_ticker": "035420", "note": "등록명은 'NAVER' — 통칭 '네이버' recall 회귀"},
+    {"input": "현대차 분석해줘", "expected_ticker": "005380", "note": "등록명은 '현대자동차' — 통칭 '현대차' recall 회귀"},
+    {"input": "삼성전자는 어때?", "expected_ticker": "005930", "note": "조사 결합"},
+    {"input": "sk하이닉스는 어떠?", "expected_ticker": "000660", "note": "소문자 + 조사"},
+    {"input": "0126Z0 분석해줘", "expected_ticker": "0126Z0", "note": "영문 포함 종목코드(삼성에피스홀딩스) — \\d{6} regex가 놓치던 회귀"},
+    {"input": "005930 분석해줘", "expected_ticker": "005930", "note": "숫자 6자리 코드"}
+  ],
+  "ambiguous": [
+    {"input": "삼성 분석해줘", "note": "삼성전자/전기/SDI 등 — 임의 선택 금지"},
+    {"input": "현대 분석해줘", "note": "현대차/모비스/오토에버 등 — 임의 선택 금지"},
+    {"input": "닉스 분석해줘", "note": "부분 문자열만으로 결정 금지"},
+    {"input": "엘지 분석해줘", "note": "LG 계열 모호"}
+  ],
+  "intent": [
+    {"input": "삼성전자 분석해줘", "expected_intent": "STOCK_ANALYSIS", "note": "'분석' 동사 — 과거 UNKNOWN으로 빠지던 회귀"},
+    {"input": "삼성전자 전망 알려줘", "expected_intent": "STOCK_ANALYSIS"},
+    {"input": "하이닉스 분석해줘", "expected_intent": "STOCK_ANALYSIS"},
+    {"input": "저평가 종목 분석해줘", "expected_intent": "STRATEGY_ADVICE", "note": "스크리닝은 종목분석 아님"},
+    {"input": "PBR 1 이하 종목 분석", "expected_intent": "STRATEGY_ADVICE"},
+    {"input": "시장 분석해줘", "expected_intent": "UNKNOWN", "note": "특정 종목 없는 '분석'은 종목분석 아님"}
+  ]
+}

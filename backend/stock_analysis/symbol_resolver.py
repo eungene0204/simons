@@ -37,6 +37,20 @@ _OVERSEAS_ALIASES: dict[str, str] = {
     "메타": "META",
 }
 
+# 국내 종목의 '등록명이 아닌 흔한 통칭'. korea-stocks.json의 등록명만으로는 못 잡는
+# 일상 표현을 보강한다(예: '현대차'=현대자동차, '네이버'=NAVER, '하이닉스'=SK하이닉스).
+# 충돌 안전성은 별칭도 등록명과 함께 '가장 긴 이름 우선' 인덱스(_match_index)에 넣어
+# 보장한다(예: '하이닉스'(4) > '이닉스'(3)이므로 '이닉스'를 잘못 집지 않는다).
+# 보수적으로, 모호하지 않은 통칭만 등록한다. '삼성'·'현대'·'LG'처럼 그 자체로 여러
+# 계열사를 가리키는 접두어는 일부러 넣지 않는다(애매 입력은 무매칭이 안전).
+_KOREAN_ALIASES: dict[str, str] = {
+    "현대차": "005380",          # 현대자동차
+    "네이버": "035420",          # NAVER
+    "하이닉스": "000660",        # SK하이닉스
+    "에스케이하이닉스": "000660",
+    "sk hynix": "000660",
+}
+
 
 @dataclass(frozen=True)
 class StockRef:
@@ -60,10 +74,21 @@ def _load_stocks() -> list[dict]:
 
 
 @lru_cache(maxsize=1)
-def _name_index() -> tuple[tuple[str, dict], ...]:
-    """이름 길이 내림차순으로 정렬된 (name, row) 목록 — 가장 긴 이름이 우선 매칭된다."""
+def _match_index() -> tuple[tuple[str, dict], ...]:
+    """매칭 문자열 길이 내림차순으로 정렬된 (match_str, row) 목록.
+
+    등록명과 국내 통칭(_KOREAN_ALIASES)을 한 인덱스에 합쳐 '가장 긴 이름 우선'으로
+    매칭한다. 별칭도 같은 길이 정렬을 거치므로 '하이닉스'가 '이닉스'보다 먼저 잡혀
+    충돌이 발생하지 않는다(별칭은 해당 등록 row로 해석된다)."""
     rows = _load_stocks()
-    indexed = [(str(row["name"]).strip(), row) for row in rows if len(str(row["name"]).strip()) >= 2]
+    by_symbol = {str(row["symbol"]).strip(): row for row in rows}
+    indexed: list[tuple[str, dict]] = [
+        (str(row["name"]).strip(), row) for row in rows if len(str(row["name"]).strip()) >= 2
+    ]
+    for alias, ticker in _KOREAN_ALIASES.items():
+        row = by_symbol.get(ticker)
+        if row is not None and len(alias) >= 2:
+            indexed.append((alias, row))
     indexed.sort(key=lambda item: len(item[0]), reverse=True)
     return tuple(indexed)
 
@@ -125,26 +150,27 @@ def find_in_text(text: str) -> list[StockRef]:
     seen: set[str] = set()
     remaining = text
 
-    # 1) 국내 종목명(가장 긴 이름부터) — 단어 경계를 고려해 정확히 매칭 (대소문자 무시)
+    # 1) 국내 종목명·통칭(가장 긴 이름부터) — 단어 경계를 고려해 정확히 매칭 (대소문자 무시)
     remaining_lower = text.lower()
-    for name, row in _name_index():
+    for match_str, row in _match_index():
         # 대소문자 무시 substring 검색
-        name_lower = name.lower()
+        match_lower = match_str.lower()
         idx = 0
         while True:
-            idx = remaining_lower.find(name_lower, idx)
+            idx = remaining_lower.find(match_lower, idx)
             if idx == -1:
                 break
             # 앞 경계 검사 (원본 텍스트 기준)
             before_valid = _is_valid_boundary(text, idx - 1, is_after=False)
             # 뒤 경계 검사 (원본 텍스트 기준)
-            after_valid = _is_valid_boundary(text, idx + len(name), is_after=True)
+            after_valid = _is_valid_boundary(text, idx + len(match_str), is_after=True)
 
             if before_valid and after_valid and row["symbol"] not in seen:
+                # 별칭으로 매칭됐더라도 항상 등록명(canonical)을 반환한다.
                 found.append(
                     StockRef(
                         symbol=str(row["symbol"]).strip(),
-                        name=name,
+                        name=str(row["name"]).strip(),
                         market=row.get("market"),
                         sector=row.get("sector"),
                         industry=row.get("industry"),
@@ -152,13 +178,15 @@ def find_in_text(text: str) -> list[StockRef]:
                 )
                 seen.add(row["symbol"])
                 # 매칭된 부분만 공백으로 치환 (remaining_lower와 text 동시 갱신)
-                remaining_lower = remaining_lower[:idx] + " " * len(name) + remaining_lower[idx + len(name):]
-                text = text[:idx] + " " * len(name) + text[idx + len(name):]
-                break  # 같은 종목명은 한 번만 추가
+                remaining_lower = remaining_lower[:idx] + " " * len(match_str) + remaining_lower[idx + len(match_str):]
+                text = text[:idx] + " " * len(match_str) + text[idx + len(match_str):]
+                break  # 같은 종목은 한 번만 추가
             idx += 1
 
-    # 2) 6자리 종목코드 직접 입력
-    for code in re.findall(r"\b\d{6}\b", remaining):
+    # 2) 6자리 종목코드 직접 입력 — 숫자 6자리 + 일부 종목(스팩/신규상장 등)의
+    #    영문 포함 코드(예: '0126Z0')도 인식한다. 첫 글자가 숫자라 영단어 오탐을 피한다.
+    for code in re.findall(r"\b\d[0-9A-Za-z]{5}\b", remaining):
+        code = code.upper()
         if code not in seen and code in _symbol_index():
             ref = resolve_by_symbol(code)
             if ref:

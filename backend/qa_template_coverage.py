@@ -60,7 +60,8 @@ def load_templates() -> list[Template]:
     )
     templates: list[Template] = []
     for m in obj_re.finditer(body):
-        prompt = m.group("prompt").encode().decode("unicode_escape")
+        # JS 문자열 이스케이프만 되돌린다(unicode_escape는 UTF-8 한글을 깨뜨리므로 사용 금지).
+        prompt = m.group("prompt").replace('\\"', '"').replace("\\n", "\n").replace("\\\\", "\\")
         templates.append(
             Template(
                 level=m.group("level"),
@@ -267,6 +268,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", type=str, default=None, help="마크다운 리포트 출력 경로")
     ap.add_argument("--limit", type=int, default=None, help="앞에서 N개만 실행")
+    ap.add_argument("--start", type=int, default=0, help="앞에서 N개 건너뛰고 그 뒤부터 실행(새 템플릿만 돌릴 때)")
     ap.add_argument("--no-coach", action="store_true", help="코칭 호출 생략(파싱만)")
     args = ap.parse_args()
 
@@ -282,9 +284,11 @@ def main() -> int:
         return 1
 
     templates = load_templates()
+    if args.start:
+        templates = templates[args.start:]
     if args.limit:
         templates = templates[: args.limit]
-    print(f"템플릿 {len(templates)}개 로드됨\n", file=sys.stderr)
+    print(f"템플릿 {len(templates)}개 로드됨 (start={args.start})\n", file=sys.stderr)
 
     lines: list[str] = ["# 전략 템플릿 일괄 QA 리포트\n"]
     lines.append(f"- 대상: {len(templates)}개 템플릿")
@@ -293,7 +297,7 @@ def main() -> int:
     problem_rows: list[str] = []
     n_missing = n_value = n_coach = 0
 
-    for i, tpl in enumerate(templates, 1):
+    for i, tpl in enumerate(templates, args.start + 1):
         t0 = time.perf_counter()
         parse_err = coach_err = None
         parse_res: dict = {}
@@ -313,7 +317,7 @@ def main() -> int:
                 coach_err = str(e)
 
         dt = time.perf_counter() - t0
-        print(f"[{i:>2}/{len(templates)}] {tpl.title}  ({dt:.1f}s)", file=sys.stderr)
+        print(f"[{i:>2}/{args.start + len(templates)}] {tpl.title}  ({dt:.1f}s)", file=sys.stderr)
 
         lines.append(f"\n## {i}. [{tpl.category}/{tpl.level}] {tpl.title}\n")
         lines.append(f"> {tpl.prompt}\n")

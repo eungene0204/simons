@@ -124,6 +124,7 @@ parsed_strategy는 전략 구조를 이해하기 위한 보조 정보로 사용�
 원본 사용자 입력은 사용자의 의도와 표현을 이해하기 위한 참고 정보로 사용하십시오.
 사용자의 현재 질문에 먼저 직접 답하는 것이 최우선입니다. conversation_context의 직전 대화 흐름을 반드시 이어가십시오.
 사용자가 특정 조건(예: 보유 기간, 익절 비율, 손절, 종목 수)에 대해 물으면 그 조건을 중심으로 답하고, 사용자가 묻지 않은 다른 개선안으로 주제를 돌리지 마십시오. advisor_result의 조언이 다른 주제라도, 사용자가 방금 물은 주제에 먼저 답한 뒤에만 보조적으로 덧붙이십시오.
+parsed_strategy에 실제로 존재하는 조건만 전략에 반영된 것으로 보고 평가하십시오. 사용자가 원본 입력에서 어떤 지표(RSI·MACD·ADX·볼린저밴드 등)나 재무 조건을 말했더라도, parsed_strategy에 그 조건이 없으면 '설정되어 있다', '잡혀 있다', '반영되어 있다'고 말하지 마십시오. 원본 입력에 있는 표현을 전략에 들어간 것처럼 단정하면 사용자가 잘못된 백테스트를 신뢰하게 됩니다. 누락된 조건은 아직 반영되지 않았다고 사실대로 알리고 추가를 제안하십시오.
 advisor_result에 없는 백테스트 결과, 수익률, 위험 수치, 뉴스 분석, 시장 레짐 판단을 새로 만들어내지 마십시오.
 strategy_memory_context가 있으면 유사 전략 사례와 과거 조언 성공/실패 교훈을 근거로 삼되, data_sufficiency가 insufficient이면 확정적 표현을 피하십시오.
 retrieved_cases가 비어 있으면 과거 사례가 충분한 것처럼 꾸며내지 마라.
@@ -274,6 +275,49 @@ def _detect_missing(ps: dict) -> list[str]:
             continue
         missing.append(label)
     return missing
+
+
+# 사용자가 프롬프트에서 명시한 지표/재무 조건이 parsed_strategy에 반영됐는지 검사하기 위한 표.
+# (표시 라벨, 프롬프트 정규식, parsed_strategy에서 존재 여부를 판정하는 술어)
+def _has_signal_indicator(ps: dict, indicator: str) -> bool:
+    signals = (ps.get("entry_signals") or []) + (ps.get("exit_signals") or [])
+    return any(isinstance(s, dict) and s.get("indicator") == indicator for s in signals)
+
+
+def _has_fundamental(ps: dict, metric: str) -> bool:
+    return any(
+        isinstance(f, dict) and f.get("metric") == metric
+        for f in (ps.get("fundamental_filters") or [])
+    )
+
+
+_UNPARSED_MENTION_SPECS: tuple[tuple[str, str, Any], ...] = (
+    ("RSI", r"rsi", lambda ps: _has_signal_indicator(ps, "rsi")),
+    ("MACD", r"macd", lambda ps: _has_signal_indicator(ps, "macd")),
+    ("ADX", r"adx", lambda ps: _has_signal_indicator(ps, "adx")),
+    ("볼린저밴드", r"볼린저", lambda ps: _has_signal_indicator(ps, "bollinger_bands")),
+    ("스토캐스틱", r"스토캐스틱|stochastic", lambda ps: _has_signal_indicator(ps, "stochastic")),
+    ("CCI", r"\bcci\b", lambda ps: _has_signal_indicator(ps, "cci")),
+    ("PER", r"per", lambda ps: _has_fundamental(ps, "per")),
+    ("PBR", r"pbr", lambda ps: _has_fundamental(ps, "pbr")),
+    ("ROE", r"roe", lambda ps: _has_fundamental(ps, "roe_or_gpa")),
+    ("부채비율", r"부채비율", lambda ps: _has_fundamental(ps, "debt_ratio")),
+)
+
+
+def _unparsed_mentions(user_prompt: str, parsed_strategy: dict) -> list[str]:
+    """사용자가 말했지만 parsed_strategy에 반영되지 않은 지표/재무 조건의 라벨을 반환한다.
+
+    코치가 누락된 조건을 '설정되어 있다/잘 잡혀 있다'고 거짓 확언(confabulation)하는 것을 막기 위해,
+    프롬프트에 등장했으나 전략 구조에 없는 항목을 명시적으로 경고 컨텍스트로 넘긴다.
+    """
+    text = (user_prompt or "").lower()
+    ps = parsed_strategy or {}
+    dropped: list[str] = []
+    for label, pattern, present in _UNPARSED_MENTION_SPECS:
+        if re.search(pattern, text, re.IGNORECASE) and not present(ps):
+            dropped.append(label)
+    return dropped
 
 
 def _remember(cache: OrderedDict[str, Any], key: str, value: Any) -> None:
@@ -764,6 +808,17 @@ def _build_user_message(req: CoachRequest) -> str:
                     "명확한 매도 신호가 이미 있습니다. suggested_experiments에 트레일링 스탑이 있더라도 "
                     "advisor_result의 1순위 advice가 아니라면 트레일링 스탑을 최종 다음 행동으로 고르지 마십시오."
                 )
+
+        # 사용자가 말했지만 전략에 반영되지 않은 지표 — '설정돼 있다'고 거짓 확언하지 않도록 경고.
+        dropped = _unparsed_mentions(req.user_prompt, ps)
+        if dropped:
+            parts.append("\n[미반영 조건 — 경고]")
+            parts.append(
+                f"사용자는 '{', '.join(dropped)}'을(를) 언급했지만 현재 전략에는 반영되지 않았습니다. "
+                "이 조건들이 '설정되어 있다', '잘 잡혀 있다', '반영되어 있다', '명확하게 잡혀 있다'고 절대 말하지 마십시오. "
+                "아직 전략에 들어가지 않았다고 사실대로 알리고, 추가할 수 있는 구체적 설정 예시를 제시하거나 추가할지 물어보십시오. "
+                "전략을 평가할 때는 실제로 반영된 조건만 근거로 삼으십시오."
+            )
 
         # Missing field analysis
         missing = _detect_missing(ps)

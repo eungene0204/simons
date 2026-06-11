@@ -996,10 +996,23 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
     if any(re.search(p, compact) for p in macd_sell_patterns):
         exit_.append(TechnicalSignal(indicator="macd", signal_type="sell", mode="crossover"))
 
+    # ── ADX (추세 강도 필터) ──
+    # 'ADX가 25 이상' 류를 진입 조건으로 잡는다. ADX는 단독 트리거보다 추세 강도 확인용이지만,
+    # 규칙 기반에서 통째로 누락하면 코치가 '없는 조건을 있다'고 오인하므로 명시적으로 포착한다.
+    adx_match = re.search(r"adx(?:가|이|은|는)?\s*(\d+(?:\.\d+)?)\s*(이상|초과|이하|미만)?", compact)
+    if adx_match:
+        op_word = adx_match.group(2)
+        entry.append(TechnicalSignal(
+            indicator="adx", signal_type="buy", period=14,
+            operator=_OPERATOR_BY_KOREAN.get(op_word or "", ">="),
+            value=float(adx_match.group(1)),
+        ))
+
     # ── 볼린저밴드 ──
-    if re.search(r"볼린저.*?하단.*?매수|볼린저밴드.*?매수", compact):
+    # 하단/중심선 회복 매수(평균회귀)뿐 아니라 상단 돌파 진입(추세)·하단 도달 청산도 포착한다.
+    if re.search(r"볼린저.*?(?:하단|중심선).*?(?:매수|진입)|볼린저밴드.*?(?:매수|진입)|볼린저.*?상단.*?돌파", compact):
         entry.append(TechnicalSignal(indicator="bollinger_bands", signal_type="buy"))
-    if re.search(r"볼린저.*?상단.*?매도|볼린저밴드.*?매도", compact):
+    if re.search(r"볼린저.*?상단.*?(?:매도|청산)|볼린저.*?하단.*?(?:매도|청산|닿|도달)", compact):
         exit_.append(TechnicalSignal(indicator="bollinger_bands", signal_type="sell"))
 
     # ── 브레이크아웃 (신고가 / 박스권 위로 돌파 / N일 고점 돌파) ──
@@ -1032,7 +1045,9 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
     volume_term = r"(?:거래량|거래대금)"
     volume_rising = bool(
         re.search(rf"{volume_term}.{{0,5}}(?:급증|폭발|터[지진졌짐])", compact)
-        or re.search(rf"{volume_term}.{{0,12}}(?:평균|평소).{{0,6}}(?:늘|증가|많|상회|높)", compact)
+        or re.search(rf"{volume_term}.{{0,12}}(?:평균|평소).{{0,6}}(?:늘|증가|많|상회|높|\d+배)", compact)
+        # '거래대금이 크게 늘고'처럼 평균 언급 없이 증가만 표현한 경우도 동적 신호로 본다.
+        or re.search(rf"{volume_term}.{{0,6}}(?:크게|확|많이|부쩍)?(?:늘|불어|증가)", compact)
         or "volumespike" in compact
     )
     if volume_rising:
@@ -1062,8 +1077,8 @@ def _extract_breakout_lookback(compact: str) -> int:
 _FUNDAMENTAL_PATTERN_SPECS = [
     ("pbr", [r"pbr(?:이|가|은|는)?\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*(이하|미만|이상|초과)?"]),
     ("per", [r"per(?:이|가|은|는)?\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*(이하|미만|이상|초과)?"]),
-    ("roe_or_gpa", [r"(?:roe|gpa)\s*(\d+(?:\.\d+)?)%?\s*(이하|미만|이상|초과)?"]),
-    ("debt_ratio", [r"(?:부채비율|부채)\s*(\d+(?:\.\d+)?)%?\s*(이하|미만|이상|초과)?"]),
+    ("roe_or_gpa", [r"(?:roe|gpa)(?:이|가|은|는)?\s*(\d+(?:\.\d+)?)%?\s*(이하|미만|이상|초과)?"]),
+    ("debt_ratio", [r"(?:부채비율|부채)(?:이|가|은|는)?\s*(\d+(?:\.\d+)?)%?\s*(이하|미만|이상|초과)?"]),
     # 금액 지표(억원 단위)는 '조'+'억' 콤보를 결정적으로 합산한다: (조 부분)?(억 부분)?(연산자)?.
     ("market_cap", [r"시가총액(?:이|가|은|는)?\s*(?:(\d+(?:\.\d+)?)조)?\s*(?:(\d+(?:\.\d+)?)(?:억원|억))?\s*(이하|미만|이상|초과)?"]),
     ("trading_value", [r"(?:거래대금|일평균거래대금)(?:이|가|은|는)?\s*(?:(\d+(?:\.\d+)?)조)?\s*(?:(\d+(?:\.\d+)?)(?:억원|억))?\s*(이하|미만|이상|초과)?"]),
@@ -1170,13 +1185,34 @@ def _korean_duration_to_trading_days(compact: str) -> Optional[int]:
     return None
 
 
+# '개' 뒤에 와서 종목 수가 아님을 뜻하는 단위(개월/개 분기) — '3개월'·'4개 분기'의 '3개'·'4개'
+# 를 종목 수로 오인하지 않도록 부정 전망으로 막는다.
+_NOT_POSITION_COUNT_UNIT = r"(?!월|분기|분)"
+
+
 def _extract_max_positions(user_input: str) -> Optional[int]:
     compact = re.sub(r"\s+", "", user_input.lower())
-    patterns = [
-        r"(?:최대|상위)?(\d+)(?:개(?!월)|종목)",  # '3개월'의 '3개'를 종목 수로 오인하지 않도록 개월 제외
-        r"maxpositions?(\d+)",
+    # 유니버스 규모(KOSPI 200 / KOSDAQ 150)의 숫자가 '200종목'처럼 종목 수로 오인되지 않도록 제거.
+    compact = re.sub(r"(?:kospi|코스피)\s*200|(?:kosdaq|코스닥)\s*150", " ", compact)
+    # 섹터/업종당 보유 제한('동일 업종 최대 2종목')은 포트폴리오 전체 종목 수가 아니므로 제거.
+    compact = re.sub(r"(?:동일)?(?:업종|섹터)(?:별|당)?(?:최대)?\d+종목", " ", compact)
+
+    pos = rf"(\d+)(?:개{_NOT_POSITION_COUNT_UNIT}|종목)"
+    # 우선순위 1: 포트폴리오 크기를 명시한 표현. '총 N종목'은 '최대 N종목'(섹터 제한일 수 있음)보다 우선.
+    priority_patterns = [
+        rf"총{pos}",
+        rf"(\d+)종목(?:동일|집중|포트폴리오|제한|유지|동일가중|동일비중)",
+        r"동시보유(?:는)?(?:최대)?(\d+)종목",
+        rf"최대{pos}",
+        rf"상위{pos}",
+        rf"{pos}(?:정도)?(?:씩)?나눠",
     ]
-    for pattern in patterns:
+    for pattern in priority_patterns:
+        match = re.search(pattern, compact)
+        if match:
+            return max(1, min(100, int(match.group(1))))
+    # 우선순위 2: 일반 'N종목'/'N개'(개월·분기 제외)
+    for pattern in [pos, r"maxpositions?(\d+)"]:
         match = re.search(pattern, compact)
         if match:
             return max(1, min(100, int(match.group(1))))
@@ -1185,6 +1221,11 @@ def _extract_max_positions(user_input: str) -> Optional[int]:
 
 def _extract_hold_period_days(user_input: str) -> Optional[int]:
     compact = re.sub(r"\s+", "", user_input.lower())
+    # 'N개월마다 점검/리밸런싱'은 보유기간이 아니라 정기 재선정 주기다. 보유 동사가 없으면 보유기간으로 잡지 않는다.
+    periodic = re.search(r"개월마다|달마다|마다.{0,4}(?:점검|재확인|리밸런)", compact)
+    holding_verb = re.search(r"보유|들고|가지고|가져가|유지|지나면", compact)
+    if periodic and not holding_verb:
+        return None
     if "1년" in compact or "일년" in compact:
         return 252
     if "6개월" in compact or "반년" in compact:
@@ -1223,6 +1264,12 @@ def _extract_rebalancing_period(user_input: str, hold_period_days: Optional[int]
         return "yearly"
     if hold_period_days == 252 and "보유" in compact:
         return "yearly"
+    # 'N개월마다 (점검/재확인/리밸런싱)' → 주기. 보유기간이 아니라 정기 재선정 의도.
+    n_month = re.search(r"(\d+)(?:개월|달)마다", compact)
+    if n_month:
+        return {1: "monthly", 2: "bimonthly", 3: "quarterly", 12: "yearly"}.get(
+            int(n_month.group(1)), "monthly"
+        )
     return "none"
 
 
