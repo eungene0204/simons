@@ -77,9 +77,14 @@ def _get_parser() -> Any:
         return _parser
 
     try:
+        from llm_backend import resolve_llm_backend
         import main as _main
         active = getattr(_main, "_active_nl_parser", None)
-        parser = active() if callable(active) else getattr(_main, "_nl_parsers", {}).get("mlx")
+        if callable(active):
+            parser = active()
+        else:
+            backend = resolve_llm_backend()
+            parser = getattr(_main, "_nl_parsers", {}).get(backend)
         if parser is not None:
             _parser = parser
             return parser

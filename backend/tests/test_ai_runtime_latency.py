@@ -27,6 +27,7 @@ class _DummyParser:
 
 
 def test_parse_nl_strategy_reports_runtime_and_cache_hit(monkeypatch):
+    monkeypatch.setenv("LLM_BACKEND", "ollama")  # 테스트는 ollama 파서를 주입하므로 환경도 ollama로 고정
     parser = _DummyParser()
     main._nl_parsers["ollama"] = parser
     main._nl_parse_cache.clear()
