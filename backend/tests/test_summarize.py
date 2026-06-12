@@ -141,9 +141,19 @@ def test_build_prompt_includes_metric_hints():
     assert "승률 56.00%" in prompt
 
 
-def test_summarize_models_point_to_qwen35_4b():
-    assert MLX_MODEL == "mlx-community/Qwen3.5-4B-4bit"
-    assert OLLAMA_MODEL == "qwen3:8b"
+def test_summarize_models_point_to_qwen35_4b(monkeypatch):
+    # OLLAMA_MODEL은 NL_OLLAMA_MODEL 환경변수로 오버라이드된다(.env가 9B를 가리킴).
+    # 여기서는 환경변수가 없을 때의 코드 폴백 기본값을 검증한다.
+    import importlib
+    import ai.summarize as summarize_mod
+
+    monkeypatch.delenv("NL_OLLAMA_MODEL", raising=False)
+    importlib.reload(summarize_mod)
+    try:
+        assert summarize_mod.MLX_MODEL == "mlx-community/Qwen3.5-4B-4bit"
+        assert summarize_mod.OLLAMA_MODEL == "qwen3:8b"
+    finally:
+        importlib.reload(summarize_mod)  # 원래 환경 기준으로 복원
 
 
 def test_summarize_uses_same_mlx_model_as_shared_nl_parser_runtime(monkeypatch):

@@ -636,7 +636,8 @@ def summarize_ollama(prompt: str) -> str:
             "model": OLLAMA_MODEL,
             "prompt": prompt,
             "stream": False,
-            "options": {"temperature": 0.3, "num_predict": 600},
+            # MLX(summarize_mlx) 경로와 동일하게 greedy/결정론적으로 생성한다.
+            "options": {"temperature": 0, "num_predict": 600},
         }
     ).encode()
 

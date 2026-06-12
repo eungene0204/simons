@@ -573,6 +573,8 @@ class NLStrategyParser:
             model=self.ollama_model,
             response_model=ParsedStrategyDiff,
             max_retries=self.max_retries,
+            # MLX(outlines) 경로와 동일하게 greedy/결정론적으로 추출한다.
+            temperature=0,
             messages=[
                 {"role": "system", "content": MODIFY_PROMPT},
                 {"role": "user", "content": (
@@ -764,6 +766,8 @@ class NLStrategyParser:
             model=self.ollama_model,
             response_model=ParsedStrategy,
             max_retries=self.max_retries,
+            # MLX(outlines) 경로와 동일하게 greedy/결정론적으로 추출한다.
+            temperature=0,
             messages=[
                 {"role": "system", "content": COMPACT_SYSTEM_PROMPT},
                 {"role": "user", "content": user_input},
