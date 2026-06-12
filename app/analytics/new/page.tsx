@@ -202,6 +202,37 @@ function FilterBadge({ label }: { label: string }) {
   );
 }
 
+function buildAnimatedHeadline(lines: string[], visibleCount: number) {
+  let remaining = visibleCount;
+
+  return lines.map((line, lineIndex) => {
+    const visibleChars = Math.max(0, Math.min(line.length, remaining));
+    remaining -= visibleChars;
+
+    return (
+      <span key={`${line}-${lineIndex}`} className="block min-h-[1em] whitespace-nowrap">
+        {line.split("").map((char, charIndex) => {
+          const isVisible = charIndex < visibleChars;
+
+          return (
+            <span
+              key={`${line}-${lineIndex}-${charIndex}`}
+              className="inline-block transition-all duration-300 ease-out"
+              style={{
+                opacity: isVisible ? 1 : 0,
+                transform: isVisible ? "translateY(0)" : "translateY(8px)",
+                filter: isVisible ? "blur(0)" : "blur(6px)",
+              }}
+            >
+              {char === " " ? "\u00A0" : char}
+            </span>
+          );
+        })}
+      </span>
+    );
+  });
+}
+
 function BacktestRunningStatus({ message }: { message: string }) {
   return (
     <div
@@ -375,6 +406,7 @@ function StrategyLabContent() {
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [modelStatus, setModelStatus] = useState<{ status: string; error: string | null } | null>(null);
+  const [visibleHeadlineChars, setVisibleHeadlineChars] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const latestParsedRef = useRef<ParsedSummary | null>(null);
@@ -1149,6 +1181,34 @@ function StrategyLabContent() {
     }
   };
 
+  const isIdle = messages.length === 0 && !isSending;
+  const shouldShowIntro = isIdle && !isChatPage;
+  const headlineLines = ["투자 아이디어를 전략으로 만들고", "전략을 시뮬레이션 하세요"];
+  const totalHeadlineChars = headlineLines.reduce((sum, line) => sum + line.length, 0);
+
+  // 훅은 early return 위에 있어야 한다 — 결과 화면으로 early return 시 훅 개수가
+  // 줄어들어 "Rendered fewer hooks than expected" 에러가 나기 때문.
+  useEffect(() => {
+    if (!shouldShowIntro) {
+      setVisibleHeadlineChars(0);
+      return;
+    }
+
+    setVisibleHeadlineChars(0);
+    const timer = window.setInterval(() => {
+      setVisibleHeadlineChars((current) => {
+        if (current >= totalHeadlineChars) {
+          window.clearInterval(timer);
+          return current;
+        }
+
+        return current + 1;
+      });
+    }, 38);
+
+    return () => window.clearInterval(timer);
+  }, [shouldShowIntro, totalHeadlineChars]);
+
   // ── 결과 화면
   const isRunning = stage === "running";
   if ((stage === "done" || isRunning) && result) {
@@ -1182,8 +1242,6 @@ function StrategyLabContent() {
     );
   }
 
-  const isIdle = messages.length === 0 && !isSending;
-  const shouldShowIntro = isIdle && !isChatPage;
   // 전략 작성 맥락(시작 화면 또는 전략 요약 존재)에서만 '전략 생성', 그 외(종목 분석·안내)는 '전송'.
   const isStrategyInput = isIdle || messages.some((m) => m.parsed);
   const isLastAssistant = (i: number) => i === messages.length - 1 && messages[i].role === "assistant";
@@ -1206,8 +1264,11 @@ function StrategyLabContent() {
           <div className="w-full max-w-3xl">
             <div className="flex flex-col items-center gap-3 text-center">
               <div className="space-y-4">
-                <p className="max-w-5xl text-5xl font-black leading-tight text-white">
-                  투자 아이디어를 전략으로<br /> 전략을 검증 가능한 결과로
+                <p
+                  className="max-w-5xl text-6xl leading-none tracking-tight text-[#fcfdff] md:text-7xl [font-weight:950]"
+                  style={{ textShadow: "0 0 24px rgba(255, 255, 255, 0.18)" }}
+                >
+                  {buildAnimatedHeadline(headlineLines, visibleHeadlineChars)}
                 </p>
                 <p className="text-base font-bold leading-relaxed text-gray-400">
                   AI가 조건을 설계하고 과거 데이터로 바로 백테스트합니다
