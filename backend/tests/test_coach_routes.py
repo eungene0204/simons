@@ -107,10 +107,14 @@ def _install_dummy_main_with_parser(monkeypatch, parser):
     def _record_ai_runtime(stage, runtime):
         records.append({"stage": stage, "runtime": runtime})
 
+    def _active_nl_parser():
+        return parser
+
     dummy_main = types.SimpleNamespace(
         _mlx_inference_lock=_DummyLock(),
         _record_ai_runtime=_record_ai_runtime,
-        _nl_parsers={"mlx": parser},
+        _nl_parsers={"ollama": parser},
+        _active_nl_parser=_active_nl_parser,
     )
     monkeypatch.setitem(sys.modules, "main", dummy_main)
 

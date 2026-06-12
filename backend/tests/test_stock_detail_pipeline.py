@@ -663,57 +663,28 @@ async def test_startup_does_not_warm_popular_stock_cache(monkeypatch):
 
 
 def test_preload_nl_parser_preloads_shared_parser_and_updates_status(monkeypatch):
-    monkeypatch.setenv("LLM_BACKEND", "mlx")  # MLX 모드 공유 모델 preload 메커니즘을 검증
+    """Ollama 모드 파서 preload 메커니즘을 검증"""
+    monkeypatch.setenv("LLM_BACKEND", "ollama")
     class _DummyParser:
-        def __init__(self, backend="mlx"):
+        def __init__(self, backend="ollama"):
             self.backend = backend
-            self.mlx_model = "mlx-community/Qwen3.5-4B-OptiQ-4bit"
-            self._mlx_model = None
-            self._tokenizer = None
+            self.ollama_model = "qwen:9b"
 
-        def _init_mlx(self):
-            self._mlx_model = object()
-            self._tokenizer = object()
-
-        def _model_log_label(self, model_name: str) -> str:
-            return "Qwen3.5-4B"
+        def _init_ollama(self):
+            pass
 
     monkeypatch.setattr("engine.nl_parser.NLStrategyParser", _DummyParser)
     _nl_parsers.clear()
-    _summarize_model["model"] = None
-    _summarize_model["tokenizer"] = None
     _nl_parser_status["status"] = "loading"
     _nl_parser_status["error"] = None
 
     preload_nl_parser()
 
-    assert "mlx" in _nl_parsers
-    assert _summarize_model["model"] is _nl_parsers["mlx"]._mlx_model
-    assert _summarize_model["tokenizer"] is _nl_parsers["mlx"]._tokenizer
+    assert "ollama" in _nl_parsers
     assert _nl_parser_status == {"status": "ok", "error": None}
 
 
+@pytest.mark.skip(reason="Ollama 모드에서는 _summarize_model 프로세스 로드 불필요")
 def test_preload_summarize_model_uses_shared_nl_parser(monkeypatch):
-    class _SharedParser:
-        def __init__(self):
-            self.mlx_model = "mlx-community/Qwen3.5-4B-OptiQ-4bit"
-            self._mlx_model = object()
-            self._tokenizer = object()
-
-        def _init_mlx(self):
-            return None
-
-        def _model_log_label(self, model_name: str) -> str:
-            return "Qwen3.5-4B"
-
-    monkeypatch.setattr("platform.system", lambda: "Darwin")
-
-    _nl_parsers.clear()
-    _nl_parsers["mlx"] = _SharedParser()
-    _summarize_model["model"] = None
-    _summarize_model["tokenizer"] = None
-
-    preload_summarize_model()
-
-    assert _summarize_model["model"] is _nl_parsers["mlx"]._mlx_model
-    assert _summarize_model["tokenizer"] is _nl_parsers["mlx"]._tokenizer
+    """과거 MLX 기반 요약 모델 로드 메커니즘. Ollama 전환으로 인한 불필요 테스트."""
+    pass

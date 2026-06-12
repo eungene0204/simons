@@ -2425,7 +2425,7 @@ def sync_stocks():
 
 class NLParseRequest(BaseModel):
     prompt: str
-    backend: str = "mlx"  # "mlx" | "ollama"
+    backend: str = "ollama"  # "mlx" | "ollama" — 기본값은 ollama (배포 환경 parity)
     model: Optional[str] = None  # None = 기본값 사용
     previous_parsed: Optional[dict] = None  # 수정 모드: 이전 파싱 결과
 
@@ -2636,9 +2636,10 @@ async def shutdown():
 
 @app.on_event("startup")
 def preload_nl_parser():
-    """서버 시작 시 NL 파서 모델을 미리 로드 (첫 요청 지연 방지).
+    """서버 시작 시 Ollama 기반 NL 파서를 준비한다.
 
-    MLX를 쓸 수 없는 환경(리눅스 배포 등)에서는 Ollama 백엔드로 등록한다.
+    Ollama는 첫 호출 시 모델을 다운로드/로드하므로, startup에서는 HTTP 클라이언트만 초기화한다.
+    Ollama 서버가 없어도 앱 기동을 막지 않는다(첫 파싱 호출 시 에러 발생).
     """
     from engine.nl_parser import NLStrategyParser
     from llm_backend import resolve_llm_backend
@@ -2646,14 +2647,13 @@ def preload_nl_parser():
     backend = resolve_llm_backend()
     try:
         parser = NLStrategyParser(backend=backend)
-        if backend == "mlx":
-            parser._init_mlx()  # 모델 로딩 (최초 1회)
-            _summarize_model["model"] = parser._mlx_model
-            _summarize_model["tokenizer"] = parser._tokenizer
-            label = parser._model_log_label(parser.mlx_model)
-        else:
+        if backend == "ollama":
             parser._init_ollama()  # HTTP 클라이언트 준비 (모델 다운로드/접속은 첫 호출 시)
             label = parser.ollama_model
+        else:
+            # MLX 명시 사용 (LLM_BACKEND=mlx 환경변수 설정 시)
+            parser._init_mlx()
+            label = parser._model_log_label(parser.mlx_model)
         _nl_parsers[backend] = parser
         _nl_parser_status["status"] = "ok"
         _nl_parser_status["error"] = None
@@ -2661,48 +2661,23 @@ def preload_nl_parser():
         from api.coach_routes import set_parser as _set_coach_parser
         _set_coach_parser(parser)
 
-        print(f"[startup] NL 파서 로딩 완료 (backend={backend}): {label}", flush=True)
+        print(f"[startup] NL 파서 준비 완료 (backend={backend}): {label}", flush=True)
     except Exception as e:
         _nl_parser_status["status"] = "failed"
         _nl_parser_status["error"] = str(e)
-        print(f"[startup] NL 파서 로딩 실패 (backend={backend}): {e}", flush=True)
-        # MLX는 서버 시작 시 모델 로딩이 필수 전제라 실패를 전파한다. Ollama는 서버가
-        # 떠 있지 않아도(첫 호출 시 접속) 앱 기동을 막지 않는다.
+        print(f"[startup] NL 파서 준비 실패 (backend={backend}): {e}", flush=True)
+        # Ollama 서버가 없으면 첫 호출 시 에러, 앱 기동은 진행
+        # MLX는 명시적 요청 시에만 사용 (LLM_BACKEND=mlx)
         if backend == "mlx":
             raise
 
 
 def _ensure_summarize_model_loaded():
-    """요약용 Qwen MLX 모델을 프로세스 시작 시 1회 로드한다."""
-    import platform
+    """Ollama 기반 요약 모델은 첫 호출 시 로드되므로 startup 사전 로드 불필요.
 
-    if platform.system() != "Darwin":
-        return
-
-    if _summarize_model["model"] is not None:
-        return
-
-    shared_parser = _nl_parsers.get("mlx")
-    if shared_parser is not None:
-        shared_parser._init_mlx()
-        if shared_parser._mlx_model is not None and shared_parser._tokenizer is not None:
-            _summarize_model["model"] = shared_parser._mlx_model
-            _summarize_model["tokenizer"] = shared_parser._tokenizer
-            print(
-                f"[startup] Summarize 모델이 NL 파서 모델을 공유합니다: {shared_parser._model_log_label(shared_parser.mlx_model)}",
-                flush=True,
-            )
-            return
-
-    from ai.summarize import MLX_MODEL
-    from mlx_lm import load  # type: ignore
-
-    model_label = shared_parser._model_log_label(MLX_MODEL) if shared_parser is not None else MLX_MODEL.split("/")[-1].replace("-OptiQ-4bit", "")
-    print(f"[startup] Summarize 모델 최초 로드 중: {model_label}", flush=True)
-    m, t = load(MLX_MODEL)
-    _summarize_model["model"] = m
-    _summarize_model["tokenizer"] = t
-    print(f"[startup] Summarize 모델 로드 완료: {model_label}", flush=True)
+    과거 MLX 기반 코드는 제거됨. Ollama는 HTTP 엔드포인트로 접속하므로
+    프로세스 메모리에 모델을 로드할 필요가 없다."""
+    pass  # Ollama 사용 시 사전 로드 불필요
 
 
 @app.on_event("startup")
@@ -2979,7 +2954,7 @@ _summarize_model = {"model": None, "tokenizer": None}
 
 @app.post("/summarize")
 def summarize_backtest(req: SummarizeRequest):
-    """백테스트 결과를 AI로 요약. 모델을 프로세스 내에서 재사용 → 로드 시간 제거."""
+    """백테스트 결과를 Ollama 기반 AI로 요약한다."""
     from ai.summarize import (
         calculate_score,
         build_prompt,
@@ -3007,37 +2982,12 @@ def summarize_backtest(req: SummarizeRequest):
         prompt = build_prompt(payload)
 
     try:
-        from llm_backend import resolve_llm_backend
-        use_mlx = resolve_llm_backend() == "mlx"
-        if use_mlx:
-            import os
-            from mlx_lm import generate  # type: ignore
-            os.environ["HF_HUB_OFFLINE"] = "1"
-
-            with _mlx_inference_lock.priority(2):
-                _ensure_summarize_model_loaded()
-
-                tokenizer = _summarize_model["tokenizer"]
-                if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template:
-                    formatted = tokenizer.apply_chat_template(
-                        [{"role": "user", "content": prompt}],
-                        tokenize=False,
-                        add_generation_prompt=True,
-                        enable_thinking=False,
-                    )
-                else:
-                    formatted = prompt
-
-                raw = generate(
-                    _summarize_model["model"], tokenizer, prompt=formatted, max_tokens=1200, verbose=False
-                ).strip()
-        else:
-            from ai.summarize import summarize_ollama
-            raw = summarize_ollama(prompt)
+        from ai.summarize import summarize_ollama
+        raw = summarize_ollama(prompt)
 
         parsed = parse_llm_output(raw)
         runtime = {
-            "backend": "mlx" if use_mlx else "ollama",
+            "backend": "ollama",
             "total_ms": round((time.perf_counter() - request_started) * 1000, 2),
         }
         _record_ai_runtime("summary", runtime)

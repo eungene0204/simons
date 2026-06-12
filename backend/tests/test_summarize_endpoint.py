@@ -19,61 +19,33 @@ class _DummyTokenizer:
 
 
 def test_summarize_endpoint_disables_thinking_on_mlx(monkeypatch):
-    monkeypatch.setenv("LLM_BACKEND", "mlx")  # 이 테스트는 MLX 요약 경로를 검증한다
-    tokenizer = _DummyTokenizer()
-    original_model = main._summarize_model["model"]
-    original_tokenizer = main._summarize_model["tokenizer"]
-    main._summarize_model["model"] = object()
-    main._summarize_model["tokenizer"] = tokenizer
+    # Ollama 요약 경로 검증 (과거 MLX 경로는 제거됨)
+    monkeypatch.setenv("LLM_BACKEND", "ollama")
 
-    fake_mlx_lm = types.ModuleType("mlx_lm")
-
-    def fake_generate(model, tokenizer_arg, prompt, max_tokens, verbose):  # pragma: no cover - assertions below validate call
-        assert tokenizer_arg is tokenizer
-        assert prompt == "FORMATTED_PROMPT"
+    def fake_summarize_ollama(prompt):
         return '{"total_summary":"요약 성공","strengths":["강점"],"weaknesses":["단점"],"improvements":["개선점"]}'
 
-    fake_mlx_lm.generate = fake_generate
-    monkeypatch.setitem(sys.modules, "mlx_lm", fake_mlx_lm)
-    monkeypatch.setattr("platform.system", lambda: "Darwin")
+    monkeypatch.setattr("ai.summarize.summarize_ollama", fake_summarize_ollama)
 
-    try:
-        response = main.summarize_backtest(main.SummarizeRequest(metrics={}))
-    finally:
-        main._summarize_model["model"] = original_model
-        main._summarize_model["tokenizer"] = original_tokenizer
+    response = main.summarize_backtest(main.SummarizeRequest(metrics={}))
 
-    assert tokenizer.kwargs is not None
-    assert tokenizer.kwargs.get("enable_thinking") is False
     assert response["summary"] == "요약 성공"
     assert response["strengths"] == ["강점"]
     assert response["weaknesses"] == ["단점"]
     assert response["improvements"] == ["개선점"]
-    assert response["runtime"]["backend"] == "mlx"
+    assert response["runtime"]["backend"] == "ollama"
     assert response["runtime"]["total_ms"] >= 0
 
 
 def test_summarize_endpoint_uses_advisor_for_improvements_when_parsed_strategy(monkeypatch):
-    monkeypatch.setenv("LLM_BACKEND", "mlx")  # MLX 요약 경로 위에서 advisor 통합 검증
     """parsed_strategy 가 있으면 advisor 가 improvements/점수를 결정론적으로 채우고 LLM 출력을 덮어쓴다."""
-    tokenizer = _DummyTokenizer()
-    original_model = main._summarize_model["model"]
-    original_tokenizer = main._summarize_model["tokenizer"]
-    main._summarize_model["model"] = object()
-    main._summarize_model["tokenizer"] = tokenizer
+    monkeypatch.setenv("LLM_BACKEND", "ollama")
 
-    fake_mlx_lm = types.ModuleType("mlx_lm")
-
-    captured = {}
-
-    def fake_generate(model, tokenizer_arg, prompt, max_tokens, verbose):
-        captured["prompt"] = prompt
+    def fake_summarize_ollama(prompt):
         # LLM 이 엉뚱한 improvements 를 내도 advisor 가 덮어써야 한다
         return '{"total_summary":"총평","strengths":["강점"],"weaknesses":["단점"],"improvements":["LLM환각개선"]}'
 
-    fake_mlx_lm.generate = fake_generate
-    monkeypatch.setitem(sys.modules, "mlx_lm", fake_mlx_lm)
-    monkeypatch.setattr("platform.system", lambda: "Darwin")
+    monkeypatch.setattr("ai.summarize.summarize_ollama", fake_summarize_ollama)
 
     # advisor 호출을 가짜 응답으로 대체 (DB/모델 의존 제거)
     fake_advisor_resp = {
@@ -93,17 +65,13 @@ def test_summarize_endpoint_uses_advisor_for_improvements_when_parsed_strategy(m
     }
     monkeypatch.setattr(main, "_run_advisor_for_report", lambda ps, up, m: fake_advisor_resp)
 
-    try:
-        response = main.summarize_backtest(
-            main.SummarizeRequest(
-                metrics={"cagr": 16.0, "maxDrawdown": -11.0},
-                parsed_strategy={"entry_signals": []},
-                user_prompt="안정적인 전략",
-            )
+    response = main.summarize_backtest(
+        main.SummarizeRequest(
+            metrics={"cagr": 16.0, "maxDrawdown": -11.0},
+            parsed_strategy={"entry_signals": []},
+            user_prompt="안정적인 전략",
         )
-    finally:
-        main._summarize_model["model"] = original_model
-        main._summarize_model["tokenizer"] = original_tokenizer
+    )
 
     # advisor 결정론 결과로 덮어쓰기
     assert response["improvements"] == ["손절 8% 설정을 고려해보세요.", "손절 8~10% 비교 백테스트"]
@@ -113,35 +81,21 @@ def test_summarize_endpoint_uses_advisor_for_improvements_when_parsed_strategy(m
     # LLM 서술은 유지
     assert response["summary"] == "총평"
     assert response["strengths"] == ["강점"]
-    # tokenizer 가 포맷팅한 프롬프트(근거 주입 포함)를 사용
-    assert captured["prompt"] == "FORMATTED_PROMPT"
-    assert tokenizer.kwargs is not None
 
 
 def test_summarize_endpoint_falls_back_to_llm_only_when_advisor_fails(monkeypatch):
-    monkeypatch.setenv("LLM_BACKEND", "mlx")  # MLX 요약 경로 위에서 LLM 단독 폴백 검증
-    """advisor 가 None 을 반환(실패)하면 기존 LLM 단독 경로로 폴백한다."""
-    tokenizer = _DummyTokenizer()
-    original_model = main._summarize_model["model"]
-    original_tokenizer = main._summarize_model["tokenizer"]
-    main._summarize_model["model"] = object()
-    main._summarize_model["tokenizer"] = tokenizer
+    """advisor 가 None 을 반환(실패)하면 LLM 단독 결과를 사용한다."""
+    monkeypatch.setenv("LLM_BACKEND", "ollama")
 
-    fake_mlx_lm = types.ModuleType("mlx_lm")
-    fake_mlx_lm.generate = lambda model, tokenizer_arg, prompt, max_tokens, verbose: (
-        '{"total_summary":"폴백","strengths":["s"],"weaknesses":["w"],"improvements":["i"]}'
-    )
-    monkeypatch.setitem(sys.modules, "mlx_lm", fake_mlx_lm)
-    monkeypatch.setattr("platform.system", lambda: "Darwin")
+    def fake_summarize_ollama(prompt):
+        return '{"total_summary":"폴백","strengths":["s"],"weaknesses":["w"],"improvements":["i"]}'
+
+    monkeypatch.setattr("ai.summarize.summarize_ollama", fake_summarize_ollama)
     monkeypatch.setattr(main, "_run_advisor_for_report", lambda ps, up, m: None)
 
-    try:
-        response = main.summarize_backtest(
-            main.SummarizeRequest(metrics={}, parsed_strategy={"entry_signals": []})
-        )
-    finally:
-        main._summarize_model["model"] = original_model
-        main._summarize_model["tokenizer"] = original_tokenizer
+    response = main.summarize_backtest(
+        main.SummarizeRequest(metrics={}, parsed_strategy={"entry_signals": []})
+    )
 
     assert response["improvements"] == ["i"]
     assert "advisorScore" not in response
