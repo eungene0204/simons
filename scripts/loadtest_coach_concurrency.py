@@ -50,6 +50,25 @@ def _build_payload(base: dict, idx: int) -> dict:
     return p
 
 
+def _build_ollama_payload(model: str, idx: int) -> dict:
+    """Ollama /api/chat 직접 모드용 payload (백엔드/락을 거치지 않고 Ollama 동시성만 측정).
+
+    temp=0 + 고정 num_predict로 요청 간 생성 길이를 균일하게 만들어, overlap 지표가
+    응답 길이 편차에 흔들리지 않게 한다(직렬/병렬 판정을 깨끗하게)."""
+    return {
+        "model": model,
+        "messages": [{
+            "role": "user",
+            "content": (
+                "한국 주식 퀀트 투자에 대해 멈추지 말고 길고 자세히 설명해줘. "
+                f"(req#{idx} {uuid.uuid4().hex[:8]})"
+            ),
+        }],
+        "stream": True,
+        "options": {"num_predict": 256, "temperature": 0.0},
+    }
+
+
 class Result:
     def __init__(self, idx: int):
         self.idx = idx
@@ -109,21 +128,28 @@ def main() -> None:
     ap.add_argument("-n", "--concurrency", type=int, default=2)
     ap.add_argument("--timeout", type=float, default=180.0)
     ap.add_argument("--payload-file", default=None, help="커스텀 CoachRequest JSON 파일")
+    ap.add_argument("--ollama-model", default=None,
+                    help="설정 시 코치 대신 Ollama /api/chat에 직접 동시 요청(백엔드/락 우회, Ollama 동시성만 측정)")
     args = ap.parse_args()
 
-    base = DEFAULT_PAYLOAD
-    if args.payload_file:
-        with open(args.payload_file, encoding="utf-8") as f:
-            base = json.load(f)
-
-    full_url = args.url.rstrip("/") + args.endpoint
     n = args.concurrency
-    print(f"▶ 대상: {full_url}")
+    if args.ollama_model:
+        full_url = args.url.rstrip("/") + "/api/chat"
+        payloads = [_build_ollama_payload(args.ollama_model, i) for i in range(n)]
+        print(f"▶ 대상(Ollama 직접): {full_url}  model={args.ollama_model}")
+    else:
+        base = DEFAULT_PAYLOAD
+        if args.payload_file:
+            with open(args.payload_file, encoding="utf-8") as f:
+                base = json.load(f)
+        full_url = args.url.rstrip("/") + args.endpoint
+        payloads = [_build_payload(base, i) for i in range(n)]
+        print(f"▶ 대상(코치): {full_url}")
     print(f"▶ 동시 요청: {n}개 (캐시 우회 nonce 적용)\n")
 
     results = [Result(i) for i in range(n)]
     threads = [
-        threading.Thread(target=_fire, args=(full_url, _build_payload(base, i), args.timeout, results[i]))
+        threading.Thread(target=_fire, args=(full_url, payloads[i], args.timeout, results[i]))
         for i in range(n)
     ]
 
@@ -153,14 +179,18 @@ def main() -> None:
 
     print("\n── 동시성 판정 ──")
     print(f"  성공 {len(ok)}/{n} | 전체 벽시계 {wall:.1f}s | 개별 평균 {mean(durs):.1f}s")
-    print(f"  동시 진입 최대치(peak in-flight): {peak}")
+    print(f"  동시 진입 최대치(peak in-flight): {peak} / {n}")
     print(f"  overlap = Σ개별({sum_dur:.1f}s) / 벽시계({wall:.1f}s) = {overlap:.2f}")
-    if overlap >= n * 0.7:
-        verdict = f"✅ 병렬 처리됨 (overlap≈{overlap:.1f}, 목표 {n}) — 동시 코칭 OK"
-    elif overlap <= 1.4:
-        verdict = "⚠️ 직렬 처리됨 (overlap≈1) — 락 또는 단일 슬롯. MLX 모드이거나 OLLAMA_NUM_PARALLEL=1?"
+    # 1차 신호: peak in-flight (응답 길이 편차에 강건). 2차: overlap.
+    if peak >= n and overlap >= n * 0.6:
+        verdict = f"✅ 병렬 처리됨 (peak={peak}/{n}, overlap≈{overlap:.1f}) — 동시 처리 OK"
+    elif peak >= n:
+        verdict = (f"✅ 동시 진입 확인(peak={peak}/{n}) — 병렬. "
+                   f"overlap({overlap:.1f})이 낮으면 응답 길이 편차 때문(벽시계<Σ면 병렬)")
+    elif peak <= 1:
+        verdict = "⚠️ 직렬 (한 번에 하나씩) — 락 또는 단일 슬롯(MLX 모드 / OLLAMA_NUM_PARALLEL=1?)"
     else:
-        verdict = f"부분 병렬 (overlap≈{overlap:.1f}/{n}) — 슬롯/VRAM 한도 점검"
+        verdict = f"부분 병렬 (peak={peak}/{n}) — 슬롯/VRAM 한도 점검"
     print(f"  → {verdict}")
 
 
