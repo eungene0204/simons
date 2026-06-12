@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, Suspense } from "react";
 import dynamic from "next/dynamic";
+import { createClient } from "@supabase/supabase-js";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { StrategyExampleTabs } from "@/components/strategy/StrategyExampleTabs";
@@ -17,6 +18,7 @@ import {
   Warning,
   ChartLineUp,
   Question,
+  GoogleLogo,
 } from "phosphor-react";
 import {
   buildStrategySummary,
@@ -49,6 +51,13 @@ const BacktestDashboard = dynamic(
 
 type Stage = "idle" | "ready" | "running" | "done";
 const BACKTEST_ENGINE_VERSION = "benchmark-etf-v2";
+const OAUTH_QUERY_PARAMS = {
+  access_type: "offline",
+  prompt: "select_account",
+};
+let analyticsSupabaseClient:
+  | ReturnType<typeof createClient>
+  | null = null;
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -135,6 +144,54 @@ function AnalysisStatusBubble({ title }: { title: string }) {
       </div>
     </div>
   );
+}
+
+type AuthState = "loading" | "authenticated" | "anonymous";
+
+type CurrentUserResponse = {
+  user?: {
+    name?: string | null;
+    email?: string | null;
+    avatarUrl?: string | null;
+  } | null;
+};
+
+type LoginResponse = {
+  error?: string;
+  user?: {
+    name?: string | null;
+    email?: string | null;
+    avatarUrl?: string | null;
+  } | null;
+};
+
+function isSupabaseConfigured() {
+  return Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL &&
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  );
+}
+
+function getSupabaseBrowserClient() {
+  if (!isSupabaseConfigured()) {
+    throw new Error("Supabase client environment variables are not configured.");
+  }
+
+  if (!analyticsSupabaseClient) {
+    analyticsSupabaseClient = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL as string,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string,
+      {
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: true,
+        },
+      }
+    );
+  }
+
+  return analyticsSupabaseClient;
 }
 
 function FilterBadge({ label }: { label: string }) {
@@ -308,6 +365,9 @@ function StrategyLabContent() {
   const [inputValue, setInputValue] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isSending, setIsSending] = useState(false);
+  const [authState, setAuthState] = useState<AuthState>("loading");
+  const [isStartingGoogleLogin, setIsStartingGoogleLogin] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [stage, setStage] = useState<Stage>("idle");
   const [latestParsed, setLatestParsed] = useState<ParsedSummary | null>(null);
   const [backtestReq, setBacktestReq] = useState<any>(null);
@@ -335,6 +395,66 @@ function StrategyLabContent() {
       .then((r) => r.json())
       .then(setModelStatus)
       .catch(() => setModelStatus({ status: "failed", error: "서버에 연결할 수 없습니다" }));
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const hydrateAuthState = async () => {
+      try {
+        const response = await fetch("/api/user", {
+          cache: "no-store",
+          credentials: "same-origin",
+        });
+        const data = (await response.json()) as CurrentUserResponse;
+
+        if (!isMounted) return;
+        if (data.user) {
+          setAuthState("authenticated");
+          return;
+        }
+      } catch {
+        // Fall through to Supabase session fallback below.
+      }
+
+      if (!isSupabaseConfigured()) {
+        if (isMounted) setAuthState("anonymous");
+        return;
+      }
+
+      try {
+        const { data } = await getSupabaseBrowserClient().auth.getSession();
+        const accessToken = data.session?.access_token;
+
+        if (!accessToken) {
+          if (isMounted) setAuthState("anonymous");
+          return;
+        }
+
+        const loginResponse = await fetch("/api/login", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "same-origin",
+          body: JSON.stringify({ supabaseAccessToken: accessToken }),
+        });
+        const loginData = (await loginResponse.json()) as LoginResponse;
+
+        if (!isMounted) return;
+        setAuthState(loginResponse.ok && loginData.user ? "authenticated" : "anonymous");
+      } catch {
+        if (isMounted) {
+          setAuthState("anonymous");
+        }
+      }
+    };
+
+    void hydrateAuthState();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -552,6 +672,13 @@ function StrategyLabContent() {
     const userText = overrideText ?? inputValue.trim();
     if (!userText || isSending || stage === "running") return;
 
+    if (authState !== "authenticated" && isStrategyInput) {
+      sessionStorage.setItem(PENDING_STRATEGY_PROMPT_KEY, userText);
+      if (!overrideText) setInputValue("");
+      setIsAuthModalOpen(true);
+      return;
+    }
+
     if (!overrideText && !isChatPage && messages.length === 0) {
       sessionStorage.setItem(PENDING_STRATEGY_PROMPT_KEY, userText);
       setInputValue("");
@@ -613,7 +740,7 @@ function StrategyLabContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: userText,
-          backend: "mlx",
+          backend: "ollama",
           ...(currentParsed ? { previous_parsed: currentParsed } : {}),
         }),
       });
@@ -728,8 +855,37 @@ function StrategyLabContent() {
 
   handleSendRef.current = handleSend;
 
+  const handleGoogleStart = async () => {
+    if (isStartingGoogleLogin || !isSupabaseConfigured()) return;
+
+    setIsStartingGoogleLogin(true);
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: window.location.href,
+          queryParams: OAUTH_QUERY_PARAMS,
+        },
+      });
+
+      if (error) {
+        throw error;
+      }
+    } finally {
+      setIsAuthModalOpen(false);
+      setIsStartingGoogleLogin(false);
+    }
+  };
+
   useEffect(() => {
-    if (!isChatPage || pendingPromptConsumedRef.current || messages.length > 0 || isSending) {
+    if (
+      !isChatPage ||
+      authState !== "authenticated" ||
+      pendingPromptConsumedRef.current ||
+      messages.length > 0 ||
+      isSending
+    ) {
       return;
     }
 
@@ -740,7 +896,7 @@ function StrategyLabContent() {
     sessionStorage.removeItem(PENDING_STRATEGY_PROMPT_KEY);
     setInputValue("");
     void handleSendRef.current?.(pendingPrompt);
-  }, [isChatPage, messages.length, isSending]);
+  }, [authState, isChatPage, messages.length, isSending]);
 
   const generateCoachResponse = async ({
     userText,
@@ -1283,6 +1439,50 @@ function StrategyLabContent() {
         </div>{/* end 채팅 영역 */}
 
       </div>
+
+      {isAuthModalOpen && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="strategy-auth-modal-title"
+        >
+          <div className="w-full max-w-md rounded-3xl border border-white/[0.08] bg-[#0b0b0b] p-6 text-center shadow-2xl shadow-black/50">
+            <div className="space-y-3">
+              <p
+                id="strategy-auth-modal-title"
+                className="text-2xl font-black tracking-tight text-white"
+              >
+                아이디어를 전략으로 만들어 드립니다
+              </p>
+              <p className="text-sm font-bold leading-relaxed text-gray-400">
+                Google로 3초만에 시작하세요
+              </p>
+            </div>
+            <div className="mt-6 flex flex-col items-center gap-3">
+              <p className="text-xs font-black text-[#ff6b6b]">
+                카드 등록 불필요
+              </p>
+              <button
+                type="button"
+                onClick={() => void handleGoogleStart()}
+                disabled={isStartingGoogleLogin}
+                className="flex items-center gap-2 rounded-full border border-white/[0.08] bg-white px-4 py-2 text-sm font-black text-black transition-colors duration-200 hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <GoogleLogo size={18} weight="fill" />
+                <span>{isStartingGoogleLogin ? "로그인 준비 중..." : "Google로 시작하기"}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsAuthModalOpen(false)}
+                className="text-sm font-black text-gray-400 transition-colors hover:text-white"
+              >
+                취소
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 }

@@ -6,6 +6,7 @@ import { buildStrategySummaryFromDsl } from "@/lib/strategy-summary";
 import type { StrategyDSL } from "@/types/strategy";
 
 type Strategy = Pick<StrategyDSL, "id" | "name" | "description" | "universe" | "entry" | "exit" | "risk">;
+const NO_STRATEGY_ID = "__none__";
 
 interface CreateAccountModalProps {
   isOpen: boolean;
@@ -45,6 +46,7 @@ export default function CreateAccountModal({
 
   if (!isOpen) return null;
 
+  const isNoStrategySelected = selectedStrategyId === NO_STRATEGY_ID;
   const selectedStrategy = strategies.find((s) => s.id === selectedStrategyId);
   const selectedSummary = buildStrategySummaryFromDsl(selectedStrategy as unknown as StrategyDSL);
   const summaryChips = selectedSummary
@@ -92,9 +94,9 @@ export default function CreateAccountModal({
     onCreate(
       name.trim(),
       amountInWon,
-      selectedStrategyId,
-      selectedStrategy?.name,
-      tradingMode
+      isNoStrategySelected ? undefined : selectedStrategyId,
+      isNoStrategySelected ? undefined : selectedStrategy?.name,
+      isNoStrategySelected ? "manual" : tradingMode
     );
     setName("");
     setAmount("");
@@ -115,15 +117,15 @@ export default function CreateAccountModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md mx-4">
-        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+    <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50">
+      <div className="bg-[#111111] border border-white/[0.08] rounded-lg shadow-xl w-full max-w-md mx-4">
+        <div className="flex items-center justify-between p-4 border-b border-white/[0.08]">
+          <h2 className="text-lg font-semibold text-white">
             가상계좌 만들기
           </h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+            className="text-gray-400 hover:text-white"
           >
             <X size={20} />
           </button>
@@ -131,21 +133,21 @@ export default function CreateAccountModal({
 
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label className="block text-sm font-medium text-gray-300 mb-1">
               계좌 이름
             </label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-white/[0.08] rounded-lg bg-[#171717] text-white placeholder:text-gray-600 focus:outline-none focus:border-white/[0.2]"
               placeholder="예: 바이오, 반도체,..."
               maxLength={20}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label className="block text-sm font-medium text-gray-300 mb-1">
               투자금액 (단위: 만원)
             </label>
             <div className="relative">
@@ -153,37 +155,39 @@ export default function CreateAccountModal({
                 type="text"
                 value={formatAmount(amount)}
                 onChange={handleAmountChange}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-white/[0.08] rounded-lg bg-[#171717] text-white placeholder:text-gray-600 focus:outline-none focus:border-white/[0.2]"
                 placeholder="100"
               />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400 text-sm">
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
                 만원
               </span>
             </div>
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            <p className="mt-1 text-xs text-gray-500">
               최소 100만원 ~ 최대 1000만원
             </p>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label className="block text-sm font-medium text-gray-300 mb-1">
               전략 선택
             </label>
             <div className="relative">
               <button
                 type="button"
                 onClick={() => setIsDropdownOpen((prev) => !prev)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-white/[0.08] rounded-lg bg-[#171717] text-left flex items-center justify-between focus:outline-none focus:border-white/[0.2]"
               >
                 <span
                   className={
                     selectedStrategy
-                      ? "text-gray-900 dark:text-white text-sm"
-                      : "text-gray-400 dark:text-gray-500 text-sm"
+                      ? "text-white text-sm"
+                      : "text-gray-500 text-sm"
                   }
                 >
                   {loadingStrategies
                     ? "로딩 중..."
+                    : isNoStrategySelected
+                    ? "전략 없음"
                     : selectedStrategy
                     ? selectedStrategy.name
                     : "전략을 선택하세요"}
@@ -195,9 +199,24 @@ export default function CreateAccountModal({
               </button>
 
               {isDropdownOpen && (
-                <div className="absolute z-10 mt-1 w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                <div className="absolute z-10 mt-1 w-full bg-[#171717] border border-white/[0.08] rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedStrategyId(NO_STRATEGY_ID);
+                      setTradingMode("manual");
+                      setIsDropdownOpen(false);
+                    }}
+                    className={`w-full px-3 py-2 text-left text-sm hover:bg-white/[0.06] ${
+                      isNoStrategySelected
+                        ? "text-blue-400 bg-blue-500/10"
+                        : "text-white"
+                    }`}
+                  >
+                    전략 없음
+                  </button>
                   {strategies.length === 0 ? (
-                    <div className="px-3 py-2 text-sm text-gray-400 dark:text-gray-500">
+                    <div className="px-3 py-2 text-sm text-gray-500">
                       저장된 전략이 없습니다
                     </div>
                   ) : (
@@ -209,10 +228,10 @@ export default function CreateAccountModal({
                           setSelectedStrategyId(strategy.id);
                           setIsDropdownOpen(false);
                         }}
-                        className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-600 ${
+                        className={`w-full px-3 py-2 text-left text-sm hover:bg-white/[0.06] ${
                           selectedStrategyId === strategy.id
-                            ? "text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20"
-                            : "text-gray-900 dark:text-white"
+                            ? "text-blue-400 bg-blue-500/10"
+                            : "text-white"
                         }`}
                       >
                         {strategy.name}
@@ -225,13 +244,13 @@ export default function CreateAccountModal({
           </div>
 
           {selectedStrategy && (
-            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900/60">
+            <div className="rounded-lg border border-white/[0.08] bg-[#171717] p-3">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                  <p className="text-sm font-semibold text-white">
                     운용 전략
                   </p>
-                  <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  <p className="mt-0.5 text-xs text-gray-500">
                     선택한 전략의 핵심 조건을 먼저 확인합니다.
                   </p>
                 </div>
@@ -239,7 +258,7 @@ export default function CreateAccountModal({
                   <button
                     type="button"
                     onClick={() => setIsPromptVisible((prev) => !prev)}
-                    className="shrink-0 rounded-md border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                    className="shrink-0 rounded-md border border-white/[0.08] px-2.5 py-1 text-xs font-medium text-gray-300 transition-colors hover:bg-white/[0.06]"
                   >
                     {isPromptVisible ? "프롬프트 숨기기" : "프롬프트 보기"}
                   </button>
@@ -251,7 +270,7 @@ export default function CreateAccountModal({
                   {summaryChips.map((chip) => (
                     <span
                       key={chip}
-                      className="rounded-full border border-blue-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 dark:border-blue-900/70 dark:bg-gray-800 dark:text-gray-200"
+                      className="rounded-full border border-blue-500/20 bg-blue-500/10 px-3 py-1.5 text-xs font-semibold text-gray-200"
                     >
                       {chip}
                     </span>
@@ -260,11 +279,11 @@ export default function CreateAccountModal({
               )}
 
               {isPromptVisible && selectedStrategy.description && (
-                <div className="mt-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-800">
-                  <p className="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400">
+                <div className="mt-3 rounded-lg border border-white/[0.08] bg-[#111111] p-3">
+                  <p className="mb-1 text-xs font-semibold text-gray-500">
                     사용자 프롬프트
                   </p>
-                  <p className="whitespace-pre-wrap text-sm leading-6 text-gray-700 dark:text-gray-200">
+                  <p className="whitespace-pre-wrap text-sm leading-6 text-gray-300">
                     {selectedStrategy.description}
                   </p>
                 </div>
@@ -273,9 +292,9 @@ export default function CreateAccountModal({
           )}
 
           {/* 매매 모드 선택 — 전략을 선택했을 때만 표시 */}
-          {selectedStrategyId && (
+          {selectedStrategyId && !isNoStrategySelected && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-gray-300 mb-2">
                 매매 방식
               </label>
               <div className="grid grid-cols-2 gap-3">
@@ -284,19 +303,19 @@ export default function CreateAccountModal({
                   onClick={() => setTradingMode("auto")}
                   className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all ${
                     tradingMode === "auto"
-                      ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
-                      : "border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500"
+                      ? "border-blue-500 bg-blue-500/10"
+                      : "border-white/[0.08] hover:border-white/[0.18]"
                   }`}
                 >
                   <Robot
                     size={24}
-                    className={tradingMode === "auto" ? "text-blue-500" : "text-gray-400 dark:text-gray-500"}
+                    className={tradingMode === "auto" ? "text-blue-400" : "text-gray-500"}
                   />
                   <div className="text-center">
-                    <p className={`text-sm font-semibold ${tradingMode === "auto" ? "text-blue-600 dark:text-blue-400" : "text-gray-700 dark:text-gray-300"}`}>
+                    <p className={`text-sm font-semibold ${tradingMode === "auto" ? "text-blue-400" : "text-gray-300"}`}>
                       자동매매
                     </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    <p className="text-xs text-gray-500 mt-0.5">
                       신호 발생 시 자동 주문
                     </p>
                   </div>
@@ -307,31 +326,31 @@ export default function CreateAccountModal({
                   onClick={() => setTradingMode("manual")}
                   className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all ${
                     tradingMode === "manual"
-                      ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
-                      : "border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500"
+                      ? "border-blue-500 bg-blue-500/10"
+                      : "border-white/[0.08] hover:border-white/[0.18]"
                   }`}
                 >
                   <Bell
                     size={24}
-                    className={tradingMode === "manual" ? "text-blue-500" : "text-gray-400 dark:text-gray-500"}
+                    className={tradingMode === "manual" ? "text-blue-400" : "text-gray-500"}
                   />
                   <div className="text-center">
-                    <p className={`text-sm font-semibold ${tradingMode === "manual" ? "text-blue-600 dark:text-blue-400" : "text-gray-700 dark:text-gray-300"}`}>
+                    <p className={`text-sm font-semibold ${tradingMode === "manual" ? "text-blue-400" : "text-gray-300"}`}>
                       신호 알림만
                     </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    <p className="text-xs text-gray-500 mt-0.5">
                       알림 받고 직접 매매
                     </p>
                   </div>
                 </button>
               </div>
               {tradingMode === "auto" && (
-                <p className="mt-2 text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 rounded px-2 py-1.5">
+                <p className="mt-2 text-xs text-blue-400 bg-blue-500/10 rounded px-2 py-1.5">
                   전략 신호가 발생하면 현재가로 자동 주문이 실행됩니다.
                 </p>
               )}
               {tradingMode === "manual" && (
-                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700 rounded px-2 py-1.5">
+                <p className="mt-2 text-xs text-gray-400 bg-white/[0.04] rounded px-2 py-1.5">
                   신호 발생 시 알림을 받고, 직접 매매 여부를 결정합니다.
                 </p>
               )}
@@ -339,8 +358,8 @@ export default function CreateAccountModal({
           )}
 
           {error && (
-            <div className="p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-              <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+            <div className="p-2 bg-red-500/10 border border-red-500/30 rounded-lg">
+              <p className="text-sm text-red-400">{error}</p>
             </div>
           )}
 
@@ -348,13 +367,13 @@ export default function CreateAccountModal({
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              className="flex-1 px-4 py-2 border border-white/[0.08] rounded-lg text-gray-300 hover:bg-white/[0.06] transition-colors"
             >
               취소
             </button>
             <button
               type="submit"
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-600 transition-colors"
+              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition-colors"
             >
               만들기
             </button>

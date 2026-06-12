@@ -61,21 +61,15 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!strategyId) {
-      return NextResponse.json(
-        { error: '전략을 선택해야 계좌를 생성할 수 있습니다.' },
-        { status: 400 }
-      );
-    }
-
-    const strategy =
-      userId == null
+    const strategy = strategyId
+      ? userId == null
         ? await prisma.strategy.findUnique({
             where: { id: strategyId },
           })
         : await prisma.strategy.findFirst({
             where: withOwnership({ id: strategyId }, userId),
-          });
+          })
+      : null;
 
     const account = await prisma.virtualAccount.create({
       data: {

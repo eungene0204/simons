@@ -4,9 +4,18 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Sidebar from "@/components/layout/Sidebar";
 import { mergePopularStocks } from "@/components/layout/QuickSearchModal";
 
+const { pathnameMock } = vi.hoisted(() => ({
+  pathnameMock: { current: "/" },
+}));
+
 const pushMock = vi.fn();
+const replaceMock = vi.fn();
 const openVirtualAccountMock = vi.fn();
 const fetchMock = vi.fn();
+const getSessionMock = vi.fn();
+const signOutMock = vi.fn();
+const signInWithOAuthMock = vi.fn();
+const isSupabaseConfiguredMock = vi.fn();
 
 vi.mock("next/image", () => ({
   default: (props: React.ImgHTMLAttributes<HTMLImageElement>) => (
@@ -29,11 +38,24 @@ vi.mock("next/link", () => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/",
+  usePathname: () => pathnameMock.current,
   useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({
     push: pushMock,
+    replace: replaceMock,
+    refresh: vi.fn(),
   }),
+}));
+
+vi.mock("@/lib/firebase", () => ({
+  getSupabaseBrowserClient: () => ({
+    auth: {
+      getSession: getSessionMock,
+      signOut: signOutMock,
+      signInWithOAuth: signInWithOAuthMock,
+    },
+  }),
+  isSupabaseConfigured: () => isSupabaseConfiguredMock(),
 }));
 
 vi.mock("@/contexts/DrawerContext", () => ({
@@ -87,9 +109,21 @@ describe("Sidebar quick search", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     MockEventSource.instances = [];
+    pathnameMock.current = "/";
+    isSupabaseConfiguredMock.mockReturnValue(true);
+    getSessionMock.mockResolvedValue({ data: { session: null } });
+    signOutMock.mockResolvedValue(undefined);
+    signInWithOAuthMock.mockResolvedValue({ error: null });
 
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
+
+      if (url === "/api/user") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ user: null }),
+        });
+      }
 
       if (url.startsWith("/api/quick-search")) {
         return Promise.resolve({
@@ -169,6 +203,139 @@ describe("Sidebar quick search", () => {
     fireEvent.click(screen.getByText("삼성 테스트 계좌"));
 
     expect(pushMock).toHaveBeenCalledWith("/virtual-account/account-1");
+  });
+
+  it("루트 경로에서는 전략연구소 메뉴를 활성 상태로 표시한다", async () => {
+    pathnameMock.current = "/";
+
+    renderWithQueryClient(<Sidebar />);
+
+    const analyticsLink = await screen.findByRole("link", { name: /전략연구소/i });
+    const dashboardLink = screen.getByRole("link", { name: /대시보드/i });
+
+    expect(analyticsLink.className).toContain("bg-white/10");
+    expect(dashboardLink.className).not.toContain("bg-white/10");
+  });
+
+  it("비로그인 상태에서는 프로필 버튼 대신 Google 로그인 버튼을 보여준다", async () => {
+    renderWithQueryClient(<Sidebar />);
+
+    const loginButton = await screen.findByRole("button", {
+      name: "Google 로그인",
+    });
+
+    expect(loginButton).toBeInTheDocument();
+    expect(screen.queryByLabelText(/사용자 메뉴/)).not.toBeInTheDocument();
+
+    fireEvent.click(loginButton);
+
+    await waitFor(() => {
+      expect(signInWithOAuthMock).toHaveBeenCalledWith({
+        provider: "google",
+        options: {
+          redirectTo: window.location.origin,
+          queryParams: {
+            access_type: "offline",
+            prompt: "select_account",
+          },
+        },
+      });
+    });
+  });
+
+  it("비로그인 상태에서 가상계좌, 백테스트, 대시보드 메뉴를 누르면 로그인 모달을 보여준다", async () => {
+    renderWithQueryClient(<Sidebar />);
+
+    await screen.findByRole("button", {
+      name: "Google 로그인",
+    });
+
+    fireEvent.click(screen.getByRole("link", { name: /가상계좌/i }));
+
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText("로그인 후 이용할 수 있습니다")).toBeInTheDocument();
+    expect(screen.getByText("Google로 3초만에 시작하세요")).toBeInTheDocument();
+    expect(screen.getByText("카드 등록 불필요")).toBeInTheDocument();
+    expect(openVirtualAccountMock).not.toHaveBeenCalled();
+    expect(pushMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("link", { name: /백테스트/i }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
+
+    fireEvent.click(screen.getByRole("link", { name: /대시보드/i }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Google로 시작하기" }));
+    await waitFor(() => {
+      expect(signInWithOAuthMock).toHaveBeenCalledWith({
+        provider: "google",
+        options: {
+          redirectTo: window.location.origin,
+          queryParams: {
+            access_type: "offline",
+            prompt: "select_account",
+          },
+        },
+      });
+    });
+  });
+
+  it("로그인된 상태에서는 사용자 프로필 버튼과 드롭다운 메뉴를 보여준다", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url === "/api/user") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            user: {
+              name: "홍길동",
+              email: "hong@example.com",
+              avatarUrl: null,
+            },
+          }),
+        });
+      }
+
+      if (url === "/api/stock/popular") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            stocks: [],
+            updatedAt: "09:00:00",
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          stocks: [],
+          strategies: [],
+          virtualAccounts: [],
+        }),
+      });
+    });
+
+    renderWithQueryClient(<Sidebar />);
+
+    const profileButton = await screen.findByRole("button", {
+      name: "홍길동 사용자 메뉴",
+    });
+
+    expect(profileButton).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Google 로그인" })).not.toBeInTheDocument();
+
+    fireEvent.click(profileButton);
+
+    expect(await screen.findByText("hong@example.com")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "로그아웃" })).toBeInTheDocument();
   });
 
   it("몇 글자만 입력해도 바로 추천 결과를 보여준다", async () => {

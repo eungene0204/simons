@@ -9,10 +9,11 @@
  *
  * 검증 항목:
  * 1. POST: id(UUID)와 updatedAt(Date)을 명시적으로 create에 전달
- * 2. POST: name/initialAmount/strategyId 없을 때 400 반환
- * 3. POST: 성공 시 매핑된 계좌 반환
- * 4. PATCH: updatedAt을 명시적으로 update에 전달
- * 5. PATCH: strategyId/strategyName으로 전략 교체 가능
+ * 2. POST: name/initialAmount 없을 때 400 반환
+ * 3. POST: strategyId 없이 수동 계좌 생성 가능
+ * 4. POST: 성공 시 매핑된 계좌 반환
+ * 5. PATCH: updatedAt을 명시적으로 update에 전달
+ * 6. PATCH: strategyId/strategyName으로 전략 교체 가능
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -211,14 +212,18 @@ describe("POST /api/virtual-account", () => {
     expect(mockAccountCreate).not.toHaveBeenCalled();
   });
 
-  it("strategyId가 없으면 400 반환", async () => {
+  it("strategyId가 없어도 수동 계좌를 생성할 수 있음", async () => {
     const res = await POST(
       makePostRequest({ name: "테스트", initialAmount: 1000000 })
     );
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toBeTruthy();
-    expect(mockAccountCreate).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(mockStrategyFindUnique).not.toHaveBeenCalled();
+    expect(mockMarketStateUpsert).not.toHaveBeenCalled();
+
+    const createArg = mockAccountCreate.mock.calls[0][0];
+    expect(createArg.data.strategyId).toBeNull();
+    expect(createArg.data.strategyName).toBeNull();
+    expect(createArg.data.tradingMode).toBe("manual");
   });
 
   // ── 성공 케이스 ────────────────────────────────────────────────────────────

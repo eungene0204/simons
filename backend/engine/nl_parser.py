@@ -407,20 +407,20 @@ class NLStrategyParser:
 
     def __init__(
         self,
-        backend: Literal["ollama", "mlx"] = "mlx",
-        # 모델은 크기에 종속되지 않는다. 기본은 4B이며, 환경변수로 9B 등 다른 모델로 교체해
+        backend: Literal["ollama", "mlx"] = "ollama",
+        # 모델은 크기에 종속되지 않는다. 환경변수로 다른 모델로 교체해
         # A/B 비교할 수 있다(코드 수정 없이): NL_MLX_MODEL / NL_OLLAMA_MODEL.
         # 환경변수는 import 시점이 아니라 인스턴스 생성 시점에 읽어, 테스트가 격리할 수 있게 한다.
         mlx_model: Optional[str] = None,
         model_32b: str = "mlx-community/Qwen3.5-4B-4bit",
         ollama_model: Optional[str] = None,
-        ollama_model_32b: str = "qwen3.5:4b",
+        ollama_model_32b: str = "qwen3:8b",
         max_retries: int = 3,
     ):
         self.backend = backend
         self.mlx_model = mlx_model or os.environ.get("NL_MLX_MODEL", "mlx-community/Qwen3.5-4B-4bit")
         self.model_32b = model_32b
-        self.ollama_model = ollama_model or os.environ.get("NL_OLLAMA_MODEL", "qwen3.5:4b")
+        self.ollama_model = ollama_model or os.environ.get("NL_OLLAMA_MODEL", "qwen3:8b")
         self.ollama_model_32b = ollama_model_32b
         self.max_retries = max_retries
         self._client = None

@@ -13,6 +13,7 @@ import {
   ChartLineUp,
   Clock,
   CaretDown,
+  GoogleLogo,
   SignOut,
 } from "phosphor-react";
 import QuickSearchModal from "./QuickSearchModal";
@@ -58,6 +59,17 @@ type CurrentUserResponse = {
   } | null;
 };
 
+type LoginResponse = {
+  error?: string;
+  user?: {
+    name?: string | null;
+    email?: string | null;
+    avatarUrl?: string | null;
+  } | null;
+};
+
+type AuthState = "loading" | "authenticated" | "anonymous";
+
 function isSpecificUserName(value: string) {
   return Boolean(value && value !== "사용자" && value !== "게스트");
 }
@@ -74,15 +86,20 @@ function SidebarComponent({ userName }: { userName?: string }) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isStartingLogin, setIsStartingLogin] = useState(false);
+  const [authState, setAuthState] = useState<AuthState>(
+    isSpecificUserName(userName?.trim() || "") ? "authenticated" : "loading"
+  );
   const [userProfile, setUserProfile] = useState<UserProfile>({
     name: userName?.trim() || "사용자",
   });
   const profileButtonRef = useRef<HTMLButtonElement>(null);
   const profileMenuRef = useRef<HTMLDivElement>(null);
 
-  const { isVirtualAccountOpen, openVirtualAccount } = useDrawer();
+  const { isVirtualAccountOpen } = useDrawer();
 
   useEffect(() => {
     let isMounted = true;
@@ -106,6 +123,7 @@ function SidebarComponent({ userName }: { userName?: string }) {
           const serverAvatarUrl = currentUser.avatarUrl?.trim();
 
           if (isMounted) {
+            setAuthState("authenticated");
             setUserProfile({
               name:
                 serverName ||
@@ -124,7 +142,10 @@ function SidebarComponent({ userName }: { userName?: string }) {
       }
 
       if (!isSupabaseConfigured()) {
-        if (isMounted) setUserProfile(fallbackProfile);
+        if (isMounted) {
+          setUserProfile(fallbackProfile);
+          setAuthState("anonymous");
+        }
         return;
       }
 
@@ -132,34 +153,50 @@ function SidebarComponent({ userName }: { userName?: string }) {
         const { data } = await getSupabaseBrowserClient().auth.getSession();
         if (!isMounted) return;
 
-        const sessionUser = data.session?.user;
-        const metadata = sessionUser?.user_metadata ?? {};
-        const metadataName =
-          typeof metadata.full_name === "string"
-            ? metadata.full_name
-            : typeof metadata.name === "string"
-              ? metadata.name
-              : "";
-        const avatarUrl =
-          typeof metadata.avatar_url === "string"
-            ? metadata.avatar_url
-            : typeof metadata.picture === "string"
-              ? metadata.picture
-              : undefined;
+        const accessToken = data.session?.access_token;
+        if (!accessToken) {
+          setUserProfile(fallbackProfile);
+          setAuthState("anonymous");
+          return;
+        }
 
+        const loginResponse = await fetch("/api/login", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "same-origin",
+          body: JSON.stringify({ supabaseAccessToken: accessToken }),
+        });
+        const loginData = (await loginResponse.json()) as LoginResponse;
+
+        if (!isMounted) return;
+
+        if (!loginResponse.ok || !loginData.user) {
+          setUserProfile(fallbackProfile);
+          setAuthState("anonymous");
+          return;
+        }
+
+        const hydratedName = loginData.user.name?.trim();
+        const hydratedEmail = loginData.user.email?.trim();
+        const hydratedAvatarUrl = loginData.user.avatarUrl?.trim();
+
+        setAuthState("authenticated");
         setUserProfile({
           name:
+            hydratedName ||
+            hydratedEmail?.split("@")[0] ||
             (isSpecificUserName(providedName) ? providedName : "") ||
-            metadataName ||
-            sessionUser?.email?.split("@")[0] ||
             providedName ||
             "사용자",
-          email: sessionUser?.email,
-          avatarUrl,
+          email: hydratedEmail,
+          avatarUrl: hydratedAvatarUrl || undefined,
         });
       } catch {
         if (isMounted) {
           setUserProfile(fallbackProfile);
+          setAuthState("anonymous");
         }
       }
     };
@@ -231,6 +268,32 @@ function SidebarComponent({ userName }: { userName?: string }) {
     setIsSearchModalOpen(true);
   };
 
+  const handleGoogleLogin = async () => {
+    if (isStartingLogin || !isSupabaseConfigured()) return;
+
+    setIsStartingLogin(true);
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: window.location.origin,
+          queryParams: {
+            access_type: "offline",
+            prompt: "select_account",
+          },
+        },
+      });
+
+      if (error) {
+        throw error;
+      }
+    } finally {
+      setIsLoginModalOpen(false);
+      setIsStartingLogin(false);
+    }
+  };
+
   const handleLogout = async () => {
     if (isLoggingOut) return;
 
@@ -255,22 +318,24 @@ function SidebarComponent({ userName }: { userName?: string }) {
     item: (typeof menuItems)[0],
     e: React.MouseEvent
   ) => {
-    if (item.id === "virtual-account") {
+    if (authState === "anonymous" && item.id !== "analytics") {
       e.preventDefault();
-      openVirtualAccount();
-    } else {
-      const isVirtualAccountDrawerOpen =
-        isVirtualAccountOpen || searchParams.get("virtualAccount") === "open";
-
-      e.preventDefault();
-      if (isVirtualAccountDrawerOpen) {
-        const url = new URL(item.href, window.location.origin);
-        url.searchParams.set("virtualAccount", "open");
-        router.push(url.pathname + url.search);
-      } else {
-        router.push(item.href);
-      }
+      setIsLoginModalOpen(true);
+      return;
     }
+
+    const isVirtualAccountDrawerOpen =
+      isVirtualAccountOpen || searchParams.get("virtualAccount") === "open";
+
+    e.preventDefault();
+    if (item.id !== "virtual-account" && isVirtualAccountDrawerOpen) {
+      const url = new URL(item.href, window.location.origin);
+      url.searchParams.set("virtualAccount", "open");
+      router.push(url.pathname + url.search);
+      return;
+    }
+
+    router.push(item.href);
   };
 
   const virtualAccountParam = searchParams.get("virtualAccount");
@@ -278,7 +343,11 @@ function SidebarComponent({ userName }: { userName?: string }) {
   const activeMenuItemId = useMemo(() => {
     if (!pathname) return null;
 
-    if (pathname === "/" || pathname === "/dashboard") {
+    if (pathname === "/") {
+      return "analytics";
+    }
+
+    if (pathname === "/dashboard") {
       return "dashboard";
     }
 
@@ -375,35 +444,52 @@ function SidebarComponent({ userName }: { userName?: string }) {
         </div>
 
         {/* User Profile */}
-        <button
-          ref={profileButtonRef}
-          type="button"
-          aria-label={`${userProfile.name} 사용자 메뉴`}
-          aria-expanded={isProfileMenuOpen}
-          onClick={() => setIsProfileMenuOpen((open) => !open)}
-          className="flex flex-shrink-0 items-center gap-3 rounded-full border border-white/[0.08] bg-black/40 py-1.5 pl-1.5 pr-3 text-white transition-colors duration-200 hover:border-white/[0.16] hover:bg-white/[0.04]"
-        >
-          <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border border-white/[0.12] bg-white/[0.08] text-xs font-black text-white">
-            {userProfile.avatarUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={userProfile.avatarUrl}
-                alt=""
-                className="h-full w-full object-cover"
-                referrerPolicy="no-referrer"
-              />
-            ) : (
-              getInitials(userProfile.name)
-            )}
-          </span>
-          <span className="max-w-[120px] truncate text-sm font-black tracking-tight text-white">
-            {userProfile.name}
-          </span>
-          <CaretDown size={16} weight="bold" className="text-gray-400" />
-        </button>
+        {authState === "authenticated" ? (
+          <button
+            ref={profileButtonRef}
+            type="button"
+            aria-label={`${userProfile.name} 사용자 메뉴`}
+            aria-expanded={isProfileMenuOpen}
+            onClick={() => setIsProfileMenuOpen((open) => !open)}
+            className="flex flex-shrink-0 items-center gap-3 rounded-full border border-white/[0.08] bg-black/40 py-1.5 pl-1.5 pr-3 text-white transition-colors duration-200 hover:border-white/[0.16] hover:bg-white/[0.04]"
+          >
+            <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border border-white/[0.12] bg-white/[0.08] text-xs font-black text-white">
+              {userProfile.avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={userProfile.avatarUrl}
+                  alt=""
+                  className="h-full w-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                getInitials(userProfile.name)
+              )}
+            </span>
+            <span className="max-w-[120px] truncate text-sm font-black tracking-tight text-white">
+              {userProfile.name}
+            </span>
+            <CaretDown size={16} weight="bold" className="text-gray-400" />
+          </button>
+        ) : authState === "anonymous" ? (
+          <button
+            type="button"
+            onClick={handleGoogleLogin}
+            disabled={isStartingLogin || !isSupabaseConfigured()}
+            className="flex flex-shrink-0 items-center gap-2 rounded-full border border-white/[0.08] bg-white px-4 py-2 text-sm font-black text-black transition-colors duration-200 hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <GoogleLogo size={18} weight="fill" />
+            <span>{isStartingLogin ? "로그인 준비 중..." : "Google 로그인"}</span>
+          </button>
+        ) : (
+          <div
+            aria-hidden="true"
+            className="h-[44px] w-[160px] flex-shrink-0 rounded-full border border-white/[0.08] bg-black/30"
+          />
+        )}
       </nav>
 
-      {isProfileMenuOpen && (
+      {authState === "authenticated" && isProfileMenuOpen && (
         <div
           ref={profileMenuRef}
           className="fixed right-6 top-[64px] z-[60] w-56 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#050505] shadow-2xl shadow-black/40"
@@ -432,6 +518,50 @@ function SidebarComponent({ userName }: { userName?: string }) {
         isOpen={isSearchModalOpen}
         onClose={() => setIsSearchModalOpen(false)}
       />
+
+      {isLoginModalOpen && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="sidebar-login-modal-title"
+        >
+          <div className="w-full max-w-md rounded-3xl border border-white/[0.08] bg-[#0b0b0b] p-6 text-center shadow-2xl shadow-black/50">
+            <div className="space-y-3">
+              <p
+                id="sidebar-login-modal-title"
+                className="text-2xl font-black tracking-tight text-white"
+              >
+                로그인 후 이용할 수 있습니다
+              </p>
+              <p className="text-sm font-bold leading-relaxed text-gray-400">
+                Google로 3초만에 시작하세요
+              </p>
+            </div>
+            <div className="mt-6 flex flex-col items-center gap-3">
+              <p className="text-xs font-black text-[#ff6b6b]">
+                카드 등록 불필요
+              </p>
+              <button
+                type="button"
+                onClick={() => void handleGoogleLogin()}
+                disabled={isStartingLogin || !isSupabaseConfigured()}
+                className="flex items-center gap-2 rounded-full border border-white/[0.08] bg-white px-4 py-2 text-sm font-black text-black transition-colors duration-200 hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <GoogleLogo size={18} weight="fill" />
+                <span>{isStartingLogin ? "로그인 준비 중..." : "Google로 시작하기"}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsLoginModalOpen(false)}
+                className="text-sm font-black text-gray-400 transition-colors hover:text-white"
+              >
+                취소
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

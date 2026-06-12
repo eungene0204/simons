@@ -143,7 +143,7 @@ def test_build_prompt_includes_metric_hints():
 
 def test_summarize_models_point_to_qwen35_4b():
     assert MLX_MODEL == "mlx-community/Qwen3.5-4B-4bit"
-    assert OLLAMA_MODEL == "qwen3.5:4b"
+    assert OLLAMA_MODEL == "qwen3:8b"
 
 
 def test_summarize_uses_same_mlx_model_as_shared_nl_parser_runtime(monkeypatch):

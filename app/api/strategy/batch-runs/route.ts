@@ -528,7 +528,7 @@ async function recoverCanceledRun(run: any) {
   const snapshot = buildSnapshotFromJob({
     runId: run.id,
     origin: "",
-    backend: "mlx",
+    backend: "ollama",
     concurrency: 1,
     createdAt: run.createdAt.toISOString(),
     candidates,
@@ -559,7 +559,7 @@ function hydrateJobFromStoredRun(run: any, origin: string): BatchExecutionJob {
   return {
     runId: run.id,
     origin,
-    backend: "mlx",
+    backend: "ollama",
     concurrency: 1,
     createdAt: run.createdAt.toISOString(),
     candidates,
@@ -759,7 +759,7 @@ async function markQueuedRunCanceled(runId: string) {
   const snapshot = buildSnapshotFromJob({
     runId,
     origin: "",
-    backend: "mlx",
+    backend: "ollama",
     concurrency: 1,
     createdAt: run.createdAt.toISOString(),
     candidates,
@@ -1013,7 +1013,7 @@ export async function POST(req: NextRequest) {
           buildSnapshotFromJob({
             runId,
             origin: "",
-            backend: "mlx",
+            backend: "ollama",
             concurrency: 1,
             createdAt: run.createdAt.toISOString(),
             candidates,
@@ -1049,7 +1049,7 @@ export async function POST(req: NextRequest) {
       const job: BatchExecutionJob = {
         runId,
         origin: req.nextUrl.origin,
-        backend: body.backend === "ollama" ? "ollama" : "mlx",
+        backend: body.backend === "mlx" ? "mlx" : "ollama",
         concurrency: clampConcurrency(body.concurrency),
         createdAt,
         candidates: prompts.map((prompt: string, index: number) => ({
@@ -1109,7 +1109,7 @@ export async function POST(req: NextRequest) {
       const job: BatchExecutionJob = {
         runId,
         origin: req.nextUrl.origin,
-        backend: body.backend === "ollama" ? "ollama" : "mlx",
+        backend: body.backend === "mlx" ? "mlx" : "ollama",
         concurrency: clampConcurrency(body.concurrency),
         createdAt,
         candidates: candidates.map((candidate: any, index: number) => ({

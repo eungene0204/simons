@@ -15,7 +15,7 @@ import re
 import ast
 
 MLX_MODEL = "mlx-community/Qwen3.5-4B-4bit"
-OLLAMA_MODEL = os.environ.get("NL_OLLAMA_MODEL", "qwen3.5:4b")
+OLLAMA_MODEL = os.environ.get("NL_OLLAMA_MODEL", "qwen3:8b")
 OLLAMA_URL = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/") + "/api/generate"
 FALLBACK_SUMMARY = "모델 출력 형식이 올바르지 않아 요약을 생성하지 못했습니다. 다시 시도해 주세요."
 

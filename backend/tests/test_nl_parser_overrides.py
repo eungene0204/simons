@@ -423,8 +423,9 @@ def test_nl_strategy_parser_defaults_point_to_qwen35_4b(monkeypatch):
 
     assert parser.mlx_model == "mlx-community/Qwen3.5-4B-4bit"
     assert parser.model_32b == "mlx-community/Qwen3.5-4B-4bit"
-    assert parser.ollama_model == "qwen3.5:4b"
-    assert parser.ollama_model_32b == "qwen3.5:4b"
+    # Ollama 기본값은 레지스트리에 존재하는 9B급 모델 qwen3:8b
+    assert parser.ollama_model == "qwen3:8b"
+    assert parser.ollama_model_32b == "qwen3:8b"
 
 
 def test_nl_strategy_parser_env_overrides_mlx_model(monkeypatch):

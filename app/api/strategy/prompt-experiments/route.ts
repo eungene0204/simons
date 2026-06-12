@@ -824,7 +824,7 @@ async function executeCandidate(job: ExperimentJob, candidate: CandidatePayload)
   try {
     const parsedPayload = await fetchJsonFromApp(job.origin, "/api/strategy/parse", {
       prompt: candidate.prompt,
-      backend: "mlx",
+      backend: "ollama",
     }, job.timeoutMs);
     const strategyDsl = parsedPayload?.backtest_request;
     if (!strategyDsl) throw new Error(parsedPayload?.clarification_question ?? "백테스트 가능한 Strategy DSL을 만들지 못했습니다.");
