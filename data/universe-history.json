@@ -1,6 +1,36 @@
 {
-  "updatedAt": "2026-06-12T00:00:03.803705+09:00",
+  "updatedAt": "2026-06-14T00:16:13.687155+09:00",
   "entries": [
+    {
+      "date": "2026-06-14",
+      "syncedAt": "2026-06-14T00:16:13.687155+09:00",
+      "totalCount": 2655,
+      "kospiCount": 836,
+      "kosdaqCount": 1819,
+      "addedCount": 0,
+      "delistedCount": 0,
+      "added": [],
+      "delisted": []
+    },
+    {
+      "date": "2026-06-13",
+      "syncedAt": "2026-06-13T00:00:05.002078+09:00",
+      "totalCount": 2655,
+      "kospiCount": 836,
+      "kosdaqCount": 1819,
+      "addedCount": 0,
+      "delistedCount": 1,
+      "added": [],
+      "delisted": [
+        {
+          "symbol": "204210",
+          "name": "JK리버스톤리츠",
+          "market": "KOSPI",
+          "sector": "부동산",
+          "industry": "부동산 임대 및 공급업"
+        }
+      ]
+    },
     {
       "date": "2026-06-12",
       "syncedAt": "2026-06-12T00:00:03.803705+09:00",

@@ -1,7 +1,7 @@
 {
     "version": 3,
-    "buy_threshold": 0.3345879316329956,
-    "sell_threshold": 0.3945085406303406,
+    "buy_threshold": 0.4628296494483948,
+    "sell_threshold": 0.5,
     "horizon": 10,
     "lookback": 60,
     "features": [
@@ -53,32 +53,32 @@
     ],
     "n_features": 45,
     "d_model": 128,
-    "nhead": 4,
-    "num_layers": 4,
+    "nhead": 8,
+    "num_layers": 7,
     "dim_feedforward": 1024,
-    "dropout": 0.2600246234372244,
-    "stochastic_depth": 0.08191029448116241,
+    "dropout": 0.21472578867028946,
+    "stochastic_depth": 0.0003443082581451484,
     "xgb_up_params": {
-        "n_estimators": 1200,
-        "max_depth": 7,
-        "learning_rate": 0.007400642997893779,
-        "subsample": 0.6736766970847872,
-        "colsample_bytree": 0.5071432855624991,
-        "min_child_weight": 8,
-        "gamma": 1.108957822981487,
-        "reg_alpha": 0.012778142096598718,
-        "reg_lambda": 0.0002247145102485352
+        "n_estimators": 1500,
+        "max_depth": 3,
+        "learning_rate": 0.037247918125879034,
+        "subsample": 0.970167079903252,
+        "colsample_bytree": 0.7131876671243201,
+        "min_child_weight": 5,
+        "gamma": 2.426510235658136,
+        "reg_alpha": 0.012107667896763225,
+        "reg_lambda": 0.10212710642264831
     },
     "xgb_down_params": {
-        "n_estimators": 1000,
-        "max_depth": 4,
-        "learning_rate": 0.008612149809721635,
-        "subsample": 0.5817193082803246,
-        "colsample_bytree": 0.5683879111222933,
-        "min_child_weight": 5,
-        "gamma": 1.771186987272151,
-        "reg_alpha": 0.016144155118926595,
-        "reg_lambda": 0.37196468744020167
+        "n_estimators": 1100,
+        "max_depth": 3,
+        "learning_rate": 0.002459687508797567,
+        "subsample": 0.5006013895968462,
+        "colsample_bytree": 0.5010446935156174,
+        "min_child_weight": 7,
+        "gamma": 2.167764154140108,
+        "reg_alpha": 0.00463585507672982,
+        "reg_lambda": 1.620743086784235e-08
     },
     "label_scheme": "triple_barrier",
     "upper_barrier": 0.07,
@@ -86,6 +86,6 @@
     "train_end": "2023-01-01",
     "val_range": "2023-01-21 ~ 2024-07-01",
     "test_start": "2024-07-21",
-    "total_params": 1399298,
-    "trained_at": "2026-06-09 03:57:24.119204"
+    "total_params": 2388866,
+    "trained_at": "2026-06-14 11:52:23.364584"
 }

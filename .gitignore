@@ -94,3 +94,9 @@ data/advisor-learning/advisor_paired_smoke_results.json
 data/advisor-learning/advisor_paired_smoke_batch_payload.json
 data/advisor-learning/advisor_paired_smoke_samples.jsonl
 data/advisor-learning/strategy_prompt_experiment_result.json
+
+# Model backups and candidates
+model/v3_candidate/
+model/v3_pre_promote_*
+model/v3_pre_resync_*
+top200.txt

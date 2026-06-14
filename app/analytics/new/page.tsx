@@ -91,6 +91,12 @@ type CoachConversationMessage = {
 
 const USER_CHAT_BUBBLE_CLASS = "rounded-2xl bg-[#171717]";
 const COACH_CHAT_BUBBLE_CLASS = "rounded-2xl bg-[#171717]";
+const SOFT_MESSAGE_ENTER_STYLE = {
+  animation: "softChatCardEnter 780ms cubic-bezier(0.19, 1, 0.22, 1) both",
+};
+const SOFT_MESSAGE_ENTER_LATE_STYLE = {
+  animation: "softChatCardEnter 860ms cubic-bezier(0.19, 1, 0.22, 1) 140ms both",
+};
 
 function ShimmerStatusText({
   children,
@@ -135,7 +141,10 @@ function ShimmerStatusText({
 
 function AnalysisStatusBubble({ title }: { title: string }) {
   return (
-    <div className={`max-w-[88%] rounded-tl-sm p-3.5 space-y-2 ${COACH_CHAT_BUBBLE_CLASS}`}>
+    <div
+      className={`max-w-[88%] rounded-tl-sm p-3.5 space-y-2 ${COACH_CHAT_BUBBLE_CLASS}`}
+      style={SOFT_MESSAGE_ENTER_LATE_STYLE}
+    >
       <div className="flex items-center gap-2">
         <span className="text-[11px] font-black uppercase tracking-widest text-white">
           {title}
@@ -268,7 +277,10 @@ const SKELETON_TERM_LABELS: Record<string, string> = {
 
 function ParseSkeletonBubble({ skeleton }: { skeleton: ParseSkeleton }) {
   return (
-    <div className="bg-[#111111] border border-white/[0.07] rounded-2xl rounded-tl-sm p-4 space-y-3">
+    <div
+      className="bg-[#111111] border border-white/[0.07] rounded-2xl rounded-tl-sm p-4 space-y-3"
+      style={SOFT_MESSAGE_ENTER_STYLE}
+    >
       <div className="flex items-center gap-1.5">
         <ArrowsClockwise size={13} className="text-sky-400 animate-spin" />
         <span className="text-xs font-black uppercase tracking-widest text-white">전략 구조 분석 중</span>
@@ -319,7 +331,10 @@ function ParsedSummaryBubble({
   ];
 
   return (
-    <div className="space-y-3 rounded-2xl border border-amber-300/50 bg-[#101010] p-4">
+    <div
+      className="space-y-3 rounded-2xl border border-amber-300/50 bg-[#101010] p-4"
+      style={SOFT_MESSAGE_ENTER_STYLE}
+    >
       <div className="flex items-center gap-1.5 border-b border-amber-300/20 pb-2">
         <CheckCircle size={13} className="text-amber-300" weight="fill" />
         <span className="text-xs font-black uppercase tracking-widest text-amber-100">전략 요약</span>
@@ -497,8 +512,12 @@ function StrategyLabContent() {
   }, [inputValue]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    const animationFrame = window.requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    });
+
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [messages.length]);
 
   useEffect(() => {
     latestParsedRef.current = latestParsed;
@@ -1185,6 +1204,12 @@ function StrategyLabContent() {
   const shouldShowIntro = isIdle && !isChatPage;
   const headlineLines = ["투자 아이디어를 전략으로 만들고", "전략을 시뮬레이션 하세요"];
   const totalHeadlineChars = headlineLines.reduce((sum, line) => sum + line.length, 0);
+  const softEnterStyle = {
+    animation: "softChatSurfaceEnter 720ms cubic-bezier(0.19, 1, 0.22, 1) both",
+  };
+  const softEnterLateStyle = {
+    animation: "softChatSurfaceEnter 820ms cubic-bezier(0.19, 1, 0.22, 1) 120ms both",
+  };
 
   // 훅은 early return 위에 있어야 한다 — 결과 화면으로 early return 시 훅 개수가
   // 줄어들어 "Rendered fewer hooks than expected" 에러가 나기 때문.
@@ -1249,6 +1274,29 @@ function StrategyLabContent() {
   // ── 메인 채팅 화면
   return (
     <DashboardLayout userName="">
+      <style>{`
+        @keyframes softChatSurfaceEnter {
+          from {
+            opacity: 0;
+            transform: translate3d(0, 6px, 0);
+          }
+          to {
+            opacity: 1;
+            transform: translate3d(0, 0, 0);
+          }
+        }
+
+        @keyframes softChatCardEnter {
+          from {
+            opacity: 0;
+            transform: translate3d(0, 5px, 0) scale(0.995);
+          }
+          to {
+            opacity: 1;
+            transform: translate3d(0, 0, 0) scale(1);
+          }
+        }
+      `}</style>
       <div
         className="relative flex gap-4 overflow-hidden px-4 pt-20 pb-12"
         style={{ minHeight: "calc(100vh - var(--top-menu-bar-height, 76px))" }}
@@ -1256,7 +1304,11 @@ function StrategyLabContent() {
         {shouldShowIntro && <StrategyWaveBackground />}
 
         {/* ── 채팅 영역 ── */}
-        <div className={`relative z-10 flex w-full flex-col items-center transition-all duration-300 ${shouldShowIntro ? "justify-center" : "justify-start"}`}>
+        <div
+          key={isChatPage ? "strategy-chat-page" : "strategy-intro-page"}
+          className={`relative z-10 flex w-full flex-col items-center transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] ${shouldShowIntro ? "justify-center" : "justify-start"}`}
+          style={softEnterStyle}
+        >
         <div className="w-full max-w-4xl flex flex-col items-center gap-6">
 
           {/* 헤더 */}
@@ -1289,11 +1341,14 @@ function StrategyLabContent() {
 
             {/* 대화 히스토리 */}
             {messages.length > 0 && (
-              <div className="w-full rounded-2xl border border-white/[0.08] bg-[#101010] px-5 py-5 space-y-4 max-h-[60vh] overflow-y-auto scrollbar-hide">
+              <div
+                className="w-full rounded-2xl border border-white/[0.08] bg-[#101010] px-5 py-5 space-y-4 max-h-[60vh] overflow-y-auto scrollbar-hide"
+                style={softEnterStyle}
+              >
                 {messages.map((msg, i) => (
                   <div key={i}>
                     {msg.role === "user" && (
-                      <div className="flex justify-end">
+                      <div className="flex justify-end" style={SOFT_MESSAGE_ENTER_STYLE}>
                         <div className={`max-w-[80%] rounded-tr-sm px-4 py-2.5 ${USER_CHAT_BUBBLE_CLASS}`}>
                           <p className="text-sm font-bold text-white leading-relaxed">{msg.content}</p>
                         </div>
@@ -1306,7 +1361,7 @@ function StrategyLabContent() {
                         )}
                         {msg.stockLoading && <AnalysisStatusBubble title="종목 분석" />}
                         {msg.stockAnalysis && (
-                          <div className="space-y-3">
+                          <div className="space-y-3" style={SOFT_MESSAGE_ENTER_STYLE}>
                             <div className={`max-w-[88%] rounded-tl-sm p-3.5 space-y-2 ${COACH_CHAT_BUBBLE_CLASS}`}>
                               <span className="text-[11px] font-black uppercase tracking-widest text-white">
                                 종목 분석
@@ -1349,7 +1404,10 @@ function StrategyLabContent() {
                           </div>
                         )}
                         {msg.infoText && (
-                          <div className={`max-w-[88%] rounded-tl-sm p-3.5 space-y-2 ${COACH_CHAT_BUBBLE_CLASS}`}>
+                          <div
+                            className={`max-w-[88%] rounded-tl-sm p-3.5 space-y-2 ${COACH_CHAT_BUBBLE_CLASS}`}
+                            style={SOFT_MESSAGE_ENTER_STYLE}
+                          >
                             <p className="text-sm font-bold text-white leading-relaxed whitespace-pre-line">
                               {msg.infoText}
                             </p>
@@ -1362,7 +1420,10 @@ function StrategyLabContent() {
                           <>
                             <ParsedSummaryBubble parsed={msg.parsed} backtestRequest={backtestReq} />
                             {isLastAssistant(i) && !msg.coachLoading && msg.clarification && (
-                              <div className="flex flex-col gap-2.5 p-3.5 rounded-xl bg-[#111111] border border-yellow-400/40">
+                              <div
+                                className="flex flex-col gap-2.5 p-3.5 rounded-xl bg-[#111111] border border-yellow-400/40"
+                                style={SOFT_MESSAGE_ENTER_LATE_STYLE}
+                              >
                                 <div className="flex items-start gap-2.5">
                                   <Question size={13} className="text-yellow-400 flex-shrink-0 mt-0.5" weight="fill" />
                                   <p className="text-xs font-bold text-gray-300 leading-relaxed whitespace-pre-line">
@@ -1403,7 +1464,10 @@ function StrategyLabContent() {
                           </>
                         )}
                         {(msg.coachLoading || msg.coachText) && (
-                          <div className={`max-w-[88%] rounded-tl-sm p-3.5 space-y-2 ${COACH_CHAT_BUBBLE_CLASS}`}>
+                          <div
+                            className={`max-w-[88%] rounded-tl-sm p-3.5 space-y-2 ${COACH_CHAT_BUBBLE_CLASS}`}
+                            style={SOFT_MESSAGE_ENTER_LATE_STYLE}
+                          >
                             <div className="flex items-center gap-2">
                               <span className="text-[11px] font-black uppercase tracking-widest text-white">
                                 전략 코치
@@ -1444,7 +1508,10 @@ function StrategyLabContent() {
                           </button>
                         )}
                         {msg.error && (
-                          <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-[var(--error-red)]/10 border border-[var(--error-red)]/20">
+                          <div
+                            className="flex items-start gap-2.5 p-3.5 rounded-xl bg-[var(--error-red)]/10 border border-[var(--error-red)]/20"
+                            style={SOFT_MESSAGE_ENTER_STYLE}
+                          >
                             <Warning size={13} className="text-[var(--error-red)] flex-shrink-0 mt-0.5" weight="fill" />
                             <div className="space-y-1 flex-1">
                               <p className="text-xs font-black text-[var(--error-red)]">오류 발생</p>
@@ -1466,7 +1533,11 @@ function StrategyLabContent() {
 
             {/* 입력 영역 — 시작 화면, 전략 요약 출력 후, 또는 종목 분석·안내 대화 중 표시 */}
             {(isIdle || messages.some((m) => m.parsed || m.stockAnalysis || m.infoText)) && (
-            <div className="relative w-full rounded-2xl border border-[var(--glass-border)] bg-[#101010]">
+            <div
+              key={shouldShowIntro ? "intro-chat-input" : "active-chat-input"}
+              className="relative w-full rounded-2xl border border-[var(--glass-border)] bg-[#101010]"
+              style={softEnterLateStyle}
+            >
               <textarea
                 ref={textareaRef}
                 value={inputValue}
@@ -1503,12 +1574,15 @@ function StrategyLabContent() {
 
       {isAuthModalOpen && (
         <div
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm animate-fade-in"
           role="dialog"
           aria-modal="true"
           aria-labelledby="strategy-auth-modal-title"
         >
-          <div className="w-full max-w-md rounded-3xl border border-white/[0.08] bg-[#0b0b0b] p-6 text-center shadow-2xl shadow-black/50">
+          <div
+            className="w-full max-w-md rounded-3xl border border-white/[0.08] bg-[#0b0b0b] p-6 text-center shadow-2xl shadow-black/50"
+            style={softEnterStyle}
+          >
             <div className="space-y-3">
               <p
                 id="strategy-auth-modal-title"

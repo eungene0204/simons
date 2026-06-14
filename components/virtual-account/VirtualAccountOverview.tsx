@@ -5,8 +5,12 @@ import Link from "next/link";
 import { Bell, Robot } from "phosphor-react";
 import { StrategyWaveBackground } from "@/components/strategy/StrategyWaveBackground";
 import CreateAccountModal from "@/components/ui/CreateAccountModal";
-import { createAccount, getAllAccounts } from "@/lib/portfolio";
+import { createAccount } from "@/lib/portfolio";
 import type { VirtualAccount } from "@/types/portfolio";
+import {
+  getCachedVirtualAccounts,
+  refreshVirtualAccountOverviewCache,
+} from "./virtualAccountOverviewCache";
 
 const formatPrice = (value: number) =>
   new Intl.NumberFormat("ko-KR").format(Math.round(value));
@@ -15,19 +19,44 @@ const formatSignedPercent = (value: number) =>
   `${value > 0 ? "+" : value < 0 ? "-" : ""}${Math.abs(value).toFixed(2)}%`;
 
 export default function VirtualAccountOverview() {
-  const [accounts, setAccounts] = useState<VirtualAccount[]>([]);
-  const [loading, setLoading] = useState(true);
+  const initialAccounts = getCachedVirtualAccounts();
+  const [accounts, setAccounts] = useState<VirtualAccount[]>(initialAccounts ?? []);
+  const [loading, setLoading] = useState(!initialAccounts);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
-  const loadAccounts = async () => {
-    setLoading(true);
-    const nextAccounts = await getAllAccounts();
+  const loadAccounts = async (options?: { showLoading?: boolean; force?: boolean }) => {
+    const shouldShowLoading = options?.showLoading ?? !getCachedVirtualAccounts();
+    if (shouldShowLoading) setLoading(true);
+    const nextAccounts = await refreshVirtualAccountOverviewCache({
+      force: options?.force,
+    });
     setAccounts(nextAccounts);
     setLoading(false);
   };
 
   useEffect(() => {
-    void loadAccounts();
+    let isMounted = true;
+    const cachedAccounts = getCachedVirtualAccounts();
+
+    if (cachedAccounts) {
+      setAccounts(cachedAccounts);
+      setLoading(false);
+    }
+
+    refreshVirtualAccountOverviewCache()
+      .then((nextAccounts) => {
+        if (!isMounted) return;
+        setAccounts(nextAccounts);
+        setLoading(false);
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
     // Initial fetch only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -40,7 +69,7 @@ export default function VirtualAccountOverview() {
     tradingMode?: "auto" | "manual"
   ) => {
     await createAccount(name, amount, strategyId, strategyName, tradingMode);
-    await loadAccounts();
+    await loadAccounts({ showLoading: false, force: true });
   };
 
   return (

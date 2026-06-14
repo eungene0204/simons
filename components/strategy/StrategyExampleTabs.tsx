@@ -546,12 +546,13 @@ export function StrategyTemplatePreviewModal({
   }, [example.prompt]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm animate-fade-in">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="strategy-template-preview-title"
         className="w-full max-w-2xl rounded-[1.75rem] border border-white/[0.08] bg-[#101010] p-5 shadow-[0_32px_90px_rgba(0,0,0,0.55)]"
+        style={{ animation: "fadeInUp 720ms cubic-bezier(0.19, 1, 0.22, 1) both" }}
       >
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-2">
