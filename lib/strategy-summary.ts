@@ -22,6 +22,19 @@ interface BacktestRequestLike {
   symbols?: string[];
 }
 
+type LegacyStrategySummaryFields = {
+  universe?: string | string[] | { id?: string; filters?: Record<string, unknown> };
+  fundamental_filters?: Array<{ metric: string; operator: string; value: number }>;
+  entry_signals?: Array<{ indicator: string; signal_type?: string | null }>;
+  exit_signals?: Array<{ indicator: string; signal_type?: string | null }>;
+  max_positions?: number | null;
+  hold_period_days?: number | null;
+  rebalancing_period?: string | null;
+  stop_loss_pct?: number | null;
+  take_profit_pct?: number | null;
+  trailing_stop_pct?: number | null;
+};
+
 export const UNIVERSE_LABELS: Record<string, string> = {
   kospi: "KOSPI",
   kosdaq: "KOSDAQ",
@@ -242,8 +255,69 @@ export function buildStrategySummary(
   };
 }
 
+export interface StrategySummaryDisplay {
+  universeName?: string | null;
+  entryBlocks?: string[] | null;
+  exitBlocks?: string[] | null;
+  positionText?: string | null;
+  rebalancingText?: string | null;
+  riskText?: string | null;
+}
+
+function isRawSymbolUniverseName(value: string): boolean {
+  const tokens = value.split(/[,\s]+/).map((token) => token.trim()).filter(Boolean);
+  return tokens.length > 0 && tokens.every((token) => /^\d{6}$/.test(token));
+}
+
+export function buildStrategySummaryChips(
+  summary: StrategySummaryDisplay | null | undefined
+): string[] {
+  if (!summary) return [];
+
+  const chips: Array<string | undefined | null> = [];
+  const universeName = summary.universeName?.trim();
+  if (universeName && universeName !== "미정" && !isRawSymbolUniverseName(universeName)) {
+    chips.push(`유니버스 ${universeName}`);
+  }
+
+  chips.push(
+    ...(summary.entryBlocks ?? []),
+    ...(summary.exitBlocks ?? []),
+    summary.positionText,
+    summary.rebalancingText,
+    summary.riskText ? `리스크 관리 ${summary.riskText}` : undefined
+  );
+
+  return chips.filter((value): value is string => Boolean(value));
+}
+
 function getIndicatorLabel(indicator: string): string {
   return INDICATOR_LABELS[indicator] ?? indicator;
+}
+
+function uniqueLabels(labels: string[]): string[] {
+  return Array.from(new Set(labels.filter(Boolean)));
+}
+
+function conditionToEntryLabel(condition: {
+  id?: string;
+  type?: string;
+  params?: Record<string, unknown>;
+}): string | null {
+  if (!condition.id) return null;
+
+  const metric = condition.id;
+  const rawValue = condition.params?.value;
+  const value = typeof rawValue === "number" ? rawValue : Number(rawValue);
+  if ((condition.type === "filter" || METRIC_LABELS[metric]) && Number.isFinite(value)) {
+    return formatFundamentalFilter({
+      metric,
+      operator: String(condition.params?.operator ?? "<="),
+      value,
+    });
+  }
+
+  return getIndicatorLabel(metric);
 }
 
 function inferUniverseFromLegacyStrategy(strategy: StrategyDSL | null | undefined): string {
@@ -284,10 +358,13 @@ function inferUniverseFromLegacyStrategy(strategy: StrategyDSL | null | undefine
 export function buildStrategySummaryFromDsl(strategy: StrategyDSL | null | undefined) {
   if (!strategy) return undefined;
 
+  const legacyStrategy = strategy as StrategyDSL & LegacyStrategySummaryFields;
   const rawUniverse =
-    typeof strategy.universe === "string"
-      ? strategy.universe
-      : strategy.universe?.id;
+    Array.isArray(legacyStrategy.universe)
+      ? legacyStrategy.universe[0]
+      : typeof legacyStrategy.universe === "string"
+        ? legacyStrategy.universe
+        : legacyStrategy.universe?.id;
   const normalizedUniverse =
     (rawUniverse ? UNIVERSE_LABELS[rawUniverse] : undefined) ??
     UNIVERSE_LABELS[normalizeUniverseId(rawUniverse ?? "")];
@@ -295,26 +372,42 @@ export function buildStrategySummaryFromDsl(strategy: StrategyDSL | null | undef
     normalizedUniverse ??
     (rawUniverse || undefined) ??
     inferUniverseFromLegacyStrategy(strategy);
-  const stopLossPct = formatPercent(strategy.risk?.stop_loss_pct);
-  const takeProfitPct = formatPercent(strategy.risk?.take_profit_pct);
-  const trailingStopPct = formatPercent(strategy.risk?.trailing_stop_pct);
-  const maxHoldingDays = strategy.risk?.max_holding_days;
-  const maxPositions = strategy.risk?.max_positions;
-  const rebalancingPeriod = strategy.risk?.rebalancing_period;
-  const exitSignalBlocks =
-    strategy.exit?.conditions?.map((condition) => getIndicatorLabel(condition.id)) ?? [];
+  const stopLossValue = strategy.risk?.stop_loss_pct ?? legacyStrategy.stop_loss_pct;
+  const takeProfitValue = strategy.risk?.take_profit_pct ?? legacyStrategy.take_profit_pct;
+  const trailingStopValue = strategy.risk?.trailing_stop_pct ?? legacyStrategy.trailing_stop_pct;
+  const maxHoldingDays = strategy.risk?.max_holding_days ?? legacyStrategy.hold_period_days;
+  const maxPositions = strategy.risk?.max_positions ?? legacyStrategy.max_positions;
+  const rebalancingPeriod = strategy.risk?.rebalancing_period ?? legacyStrategy.rebalancing_period;
+  const stopLossPct = formatPercent(stopLossValue);
+  const takeProfitPct = formatPercent(takeProfitValue);
+  const trailingStopPct = formatPercent(trailingStopValue);
+  const conditionEntryBlocks =
+    strategy.entry?.conditions?.map(conditionToEntryLabel).filter((label): label is string => Boolean(label)) ?? [];
+  const legacyFundamentalBlocks =
+    legacyStrategy.fundamental_filters?.map(formatFundamentalFilter) ?? [];
+  const legacyEntryBlocks =
+    legacyStrategy.entry_signals?.map((signal) => getSignalLabel(signal, "entry")) ?? [];
+  const entryBlocks = uniqueLabels([
+    ...conditionEntryBlocks,
+    ...legacyFundamentalBlocks,
+    ...legacyEntryBlocks,
+  ]);
+  const exitSignalBlocks = [
+    ...(strategy.exit?.conditions?.map((condition) => ({ indicator: getIndicatorLabel(condition.id) })) ?? []),
+    ...(legacyStrategy.exit_signals ?? []),
+  ];
   const exitBlocks = getDisplayExitLabels({
     description: strategy.description,
     universe: [rawUniverse ?? ""],
     fundamental_filters: [],
     entry_signals: [],
-    exit_signals: exitSignalBlocks.map((indicator) => ({ indicator })),
+    exit_signals: exitSignalBlocks,
     max_positions: maxPositions ?? 0,
     hold_period_days: maxHoldingDays ?? null,
     rebalancing_period: rebalancingPeriod ?? "none",
-    stop_loss_pct: strategy.risk?.stop_loss_pct ?? null,
-    take_profit_pct: strategy.risk?.take_profit_pct ?? null,
-    trailing_stop_pct: strategy.risk?.trailing_stop_pct ?? null,
+    stop_loss_pct: stopLossValue ?? null,
+    take_profit_pct: takeProfitValue ?? null,
+    trailing_stop_pct: trailingStopValue ?? null,
     backtest_period: "full",
     initial_capital: 0,
   });
@@ -326,6 +419,8 @@ export function buildStrategySummaryFromDsl(strategy: StrategyDSL | null | undef
   return {
     strategyName: strategy.name,
     universeName,
+    blockNames: [...entryBlocks, ...exitBlocks],
+    entryBlocks,
     exitBlocks,
     positionText: maxPositions
       ? `포지션/비중 최대 ${maxPositions}종목${maxHoldingDays ? ` · ${maxHoldingDays}일 보유` : ""}`

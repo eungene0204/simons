@@ -6,6 +6,85 @@ import {
   withOwnership,
 } from "@/lib/get-user";
 
+function parseJsonField(value: string | null | undefined, fallback: any) {
+  if (!value) return fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function hasUsableHistoryConditions(conditions: any) {
+  if (!conditions || typeof conditions !== "object") return false;
+  const entryNames = conditions.entry?.names;
+  const exitNames = conditions.exit?.names;
+  const entryConditions = conditions.entry?.conditions;
+  const exitConditions = conditions.exit?.conditions;
+
+  return (
+    (Array.isArray(entryNames) && entryNames.length > 0) ||
+    (Array.isArray(exitNames) && exitNames.length > 0) ||
+    (Array.isArray(entryConditions) && entryConditions.length > 0) ||
+    (Array.isArray(exitConditions) && exitConditions.length > 0) ||
+    Boolean(conditions.position) ||
+    Boolean(conditions.risk)
+  );
+}
+
+function historyToSummary(history: any) {
+  if (!history) return null;
+  const conditions = parseJsonField(history.conditions, {});
+  if (!hasUsableHistoryConditions(conditions)) return null;
+
+  return {
+    id: history.id,
+    strategyName: history.strategyName,
+    universeName: history.universe,
+    entryLogic: conditions.entry?.logic ?? "AND",
+    exitLogic: conditions.exit?.logic ?? "AND",
+    entryBlocks: conditions.entry?.names ?? [],
+    exitBlocks: conditions.exit?.names ?? [],
+    positionText: conditions.position,
+    riskText: conditions.risk,
+    conditions,
+  };
+}
+
+async function findBacktestHistorySummary(strategy: any, strategyId: string, userId: number | null) {
+  const directHistory = await prisma.backtestHistory.findFirst({
+    where: { OR: [{ strategyId }, { cacheKey: strategyId }] },
+    orderBy: { createdAt: "desc" },
+  });
+  const directSummary = historyToSummary(directHistory);
+  if (directSummary) return directSummary;
+
+  if (userId != null) {
+    const userHistoryLink = await prisma.userBacktestHistory.findFirst({
+      where: {
+        userId,
+        BacktestHistory: {
+          strategyName: strategy.name,
+          isVisible: true,
+        },
+      },
+      orderBy: { savedAt: "desc" },
+      include: { BacktestHistory: true },
+    });
+    const userSummary = historyToSummary(userHistoryLink?.BacktestHistory);
+    if (userSummary) return userSummary;
+  }
+
+  const visibleHistory = await prisma.backtestHistory.findFirst({
+    where: {
+      strategyName: strategy.name,
+      isVisible: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  return historyToSummary(visibleHistory) ?? historyToSummary(directHistory);
+}
+
 export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
   try {
     const { userId } = await getOwnershipContext()
@@ -97,6 +176,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     try {
       settings = JSON.parse(strategy.settings);
     } catch {}
+    const historySummary = await findBacktestHistorySummary(strategy, strategy.id, userId);
 
     let backtestResult = null;
     if (strategy.BacktestResult.length > 0) {
@@ -142,6 +222,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       name: strategy.name,
       description: strategy.description,
       settings,
+      historySummary,
       backtestResult,
     });
   } catch (error) {

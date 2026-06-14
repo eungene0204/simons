@@ -664,9 +664,9 @@ export function StrategyExampleTabs({ onSelectExample }: { onSelectExample: (pro
                 key={tab}
                 type="button"
                 onClick={() => setActiveTab(tab)}
-                className={`flex-1 rounded-xl px-3 py-2.5 text-xs font-black transition-all duration-200 ${
+                className={`flex-1 rounded-xl px-3 py-2.5 text-xs font-black ${
                   isActive
-                    ? "bg-[var(--main-blue)] text-white shadow-[0_8px_30px_rgba(59,130,246,0.28)]"
+                    ? "bg-[var(--main-blue)] text-white"
                     : "text-gray-400 hover:bg-[#171717] hover:text-white"
                   }`}
               >
@@ -714,14 +714,8 @@ export function StrategyExampleTabs({ onSelectExample }: { onSelectExample: (pro
           )}
         </>
       ) : (
-        <div className="rounded-2xl border border-white/[0.05] bg-[#101010] p-4">
-          {isLoadingStrategies ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-              {[...Array(4)].map((_, index) => (
-                <div key={index} className="h-28 rounded-2xl bg-[#171717] animate-pulse" />
-              ))}
-            </div>
-          ) : strategiesError ? (
+        <>
+          {isLoadingStrategies ? null : strategiesError ? (
             <div className="py-8 text-center">
               <p className="text-sm font-black text-white">전략 목록을 불러올 수 없습니다</p>
               <p className="mt-1 text-xs font-bold text-gray-500">{strategiesError}</p>
@@ -742,11 +736,7 @@ export function StrategyExampleTabs({ onSelectExample }: { onSelectExample: (pro
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-black text-white/85 group-hover:text-white">{strategy.name}</p>
-                      <p className="mt-1 text-xs font-bold text-gray-500">{strategy.universe} · {strategy.type}</p>
                     </div>
-                    <span className="shrink-0 rounded-lg border border-white/[0.08] bg-[#171717] px-2 py-1 text-[10px] font-black text-gray-400">
-                      {strategy.aiScore == null ? "점수 없음" : `${strategy.aiScore}점`}
-                    </span>
                   </div>
                   <p className="mt-3 line-clamp-2 text-xs font-bold leading-relaxed text-gray-400">
                     {strategy.description || "저장된 전략 상세 결과로 이동합니다."}
@@ -759,7 +749,7 @@ export function StrategyExampleTabs({ onSelectExample }: { onSelectExample: (pro
               ))}
             </div>
           )}
-        </div>
+        </>
       )}
 
       {selectedExample && (

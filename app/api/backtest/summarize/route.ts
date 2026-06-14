@@ -22,6 +22,8 @@ type SummaryPayload = {
   cached: boolean;
 };
 
+const SUMMARY_CACHE_GENERATION = "ai-report-parser-v2";
+
 class SummarizeBackendError extends Error {
   status: number;
 
@@ -60,7 +62,23 @@ async function summaryPayloadKey(
   parsedStrategy: unknown,
   userPrompt: unknown
 ): Promise<string> {
-  return sha256(stableStringify({ metrics, strategySummary, parsedStrategy, userPrompt }));
+  return sha256(stableStringify({
+    generation: SUMMARY_CACHE_GENERATION,
+    metrics,
+    strategySummary,
+    parsedStrategy,
+    userPrompt,
+  }));
+}
+
+function hasReportFormattingArtifact(summary: unknown): boolean {
+  if (typeof summary !== "string") return false;
+  const value = summary.trim();
+  if (!value) return false;
+
+  return (
+    /^'?\s*\{/.test(value) && /["'](?:total_summary|totalSummary|strengths|weaknesses|improvements)["']\s*:/.test(value)
+  ) || /<\/?think>/i.test(value) || /```(?:json)?/i.test(value);
 }
 
 async function fetchSummary(
@@ -115,7 +133,11 @@ export async function POST(req: Request) {
       const existing = await prisma.backtestHistory.findUnique({ where: { cacheKey } });
       const existingMetrics = existing?.metrics ? JSON.parse(existing.metrics) : null;
 
-      if (existingMetrics?.aiSummary && existingMetrics?.aiScore != null) {
+      if (
+        existingMetrics?.aiSummary &&
+        existingMetrics?.aiScore != null &&
+        !hasReportFormattingArtifact(existingMetrics.aiSummary)
+      ) {
         return NextResponse.json({
           score: existingMetrics.aiScore,
           summary: existingMetrics.aiSummary,

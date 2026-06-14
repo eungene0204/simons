@@ -282,6 +282,39 @@ function buildBacktestSummary(result: any) {
   };
 }
 
+export function resolveHistoryUniverseLabel(body: any, result: any = {}): string {
+  const rawUniverse =
+    body?.universe_id ??
+    body?.universeId ??
+    body?.universe ??
+    result?.universe_id ??
+    result?.universeId ??
+    result?.universe;
+
+  const normalize = (value: unknown): string | null => {
+    if (Array.isArray(value)) {
+      const labels = value.map(normalize).filter(Boolean);
+      return labels.length > 0 ? labels.join(", ") : null;
+    }
+
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    if (/^\d{6}(?:\s*,\s*\d{6})*$/.test(trimmed)) {
+      return "선택 종목";
+    }
+
+    const normalized = trimmed.toLowerCase().replace(/[\s_-]/g, "");
+    if (normalized === "kospi200") return "KOSPI200";
+    if (normalized === "kospi") return "KOSPI";
+    if (normalized === "kosdaq") return "KOSDAQ";
+    return trimmed;
+  };
+
+  return normalize(rawUniverse) ?? (Array.isArray(body?.symbols) && body.symbols.length > 0 ? "선택 종목" : "기타");
+}
+
 async function upsertStrategyForResult(strategyId: string, body: any) {
   const canonicalDsl = body?.canonical_strategy_dsl ?? body?.canonicalStrategyDsl;
   if (!canonicalDsl) return;
@@ -386,7 +419,7 @@ export async function saveCachedResult(
     const historyData = {
       strategyId,
       strategyName: body?.strategy_name ?? `전략 ${strategyId.slice(0, 8)}`,
-      universe: body?.universe_id ?? (body.symbols ?? []).slice(0, 3).join(","),
+      universe: resolveHistoryUniverseLabel(body, result),
       conditions: JSON.stringify({ entry: body.entry, exit: body.exit }),
       metrics: JSON.stringify(metrics),
       result: JSON.stringify({

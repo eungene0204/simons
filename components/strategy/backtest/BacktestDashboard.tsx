@@ -422,7 +422,7 @@ export default function BacktestDashboard({
 
   const handleOpenSaveModal = () => {
     setSaveStrategyName("");
-    setSaveDescription(strategySummary?.strategyName || "");
+    setSaveDescription(promptText || strategySummary?.strategyName || "");
     setSaveResult(null);
     setIsSaveModalOpen(true);
   };
@@ -671,6 +671,12 @@ export default function BacktestDashboard({
               {/* 저장될 주요 지표 미리보기 */}
               <div className="grid grid-cols-3 gap-3 mb-5 p-4 bg-white/[0.03] rounded-xl border border-white/5">
                 <div className="text-center">
+                  <p className="text-xs text-gray-500 mb-1">총 수익률</p>
+                  <p className={`text-xl font-black ${metricValueColor(result.totalReturn)}`}>
+                    {result.totalReturn >= 0 ? "+" : ""}{result.totalReturn.toFixed(1)}%
+                  </p>
+                </div>
+                <div className="text-center">
                   <p className="text-xs text-gray-500 mb-1">CAGR</p>
                   <p className={`text-xl font-black ${metricValueColor(result.cagr)}`}>
                     {result.cagr >= 0 ? "+" : ""}{result.cagr.toFixed(1)}%
@@ -679,12 +685,6 @@ export default function BacktestDashboard({
                 <div className="text-center">
                   <p className="text-xs text-gray-500 mb-1">MDD</p>
                   <p className={`text-xl font-black ${metricValueColor(result.maxDrawdown)}`}>{result.maxDrawdown.toFixed(1)}%</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-xs text-gray-500 mb-1">Sharpe</p>
-                  <p className={`text-xl font-black ${metricValueColor(result.sharpe)}`}>
-                    {result.sharpe.toFixed(2)}
-                  </p>
                 </div>
                 <div className="text-center">
                   <p className="text-xs text-gray-500 mb-1">점수</p>
@@ -715,7 +715,7 @@ export default function BacktestDashboard({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-gray-400 mb-1.5">설명 (선택)</label>
+                  <label className="block text-xs font-bold text-gray-400 mb-1.5">전략 프롬프트</label>
                   <textarea
                     value={saveDescription}
                     onChange={(e) => setSaveDescription(e.target.value)}

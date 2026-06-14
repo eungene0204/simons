@@ -484,6 +484,115 @@ def _parse_json_candidate(candidate: str) -> dict | None:
     return None
 
 
+def _find_json_value_start(source: str, key: str) -> int | None:
+    match = re.search(rf"['\"]{re.escape(key)}['\"]\s*:\s*", source)
+    return match.end() if match else None
+
+
+def _read_quoted_fragment(source: str, start: int) -> tuple[str, int] | None:
+    if start >= len(source) or source[start] not in ("'", '"'):
+        return None
+
+    quote = source[start]
+    idx = start + 1
+    escape = False
+    raw_chars: list[str] = []
+
+    while idx < len(source):
+        ch = source[idx]
+        if escape:
+            raw_chars.append("\\" + ch)
+            escape = False
+            idx += 1
+            continue
+        if ch == "\\":
+            escape = True
+            idx += 1
+            continue
+        if ch == quote:
+            raw = "".join(raw_chars)
+            try:
+                decoded = json.loads(f'"{raw}"') if quote == '"' else ast.literal_eval(f"'{raw}'")
+            except (json.JSONDecodeError, ValueError, SyntaxError):
+                decoded = raw.replace('\\"', '"').replace("\\'", "'")
+            return str(decoded).strip(), idx + 1
+        raw_chars.append(ch)
+        idx += 1
+
+    return None
+
+
+def _extract_string_field(source: str, keys: list[str]) -> str | None:
+    for key in keys:
+        start = _find_json_value_start(source, key)
+        if start is None:
+            continue
+        while start < len(source) and source[start].isspace():
+            start += 1
+        value = _read_quoted_fragment(source, start)
+        if value and value[0]:
+            return value[0]
+    return None
+
+
+def _extract_array_field(source: str, keys: list[str]) -> list[str]:
+    for key in keys:
+        start = _find_json_value_start(source, key)
+        if start is None:
+            continue
+        while start < len(source) and source[start].isspace():
+            start += 1
+        if start >= len(source):
+            continue
+        if source[start] in ("'", '"'):
+            value = _read_quoted_fragment(source, start)
+            return [value[0]] if value and value[0] else []
+        if source[start] != "[":
+            continue
+
+        values: list[str] = []
+        idx = start + 1
+        while idx < len(source):
+            ch = source[idx]
+            if ch == "]":
+                break
+            if ch in ("'", '"'):
+                value = _read_quoted_fragment(source, idx)
+                if value is None:
+                    break
+                if value[0]:
+                    values.append(value[0])
+                idx = value[1]
+                continue
+            idx += 1
+        return values
+    return []
+
+
+def _extract_partial_json_report(text: str) -> dict | None:
+    start = text.find("{")
+    if start == -1:
+        return None
+
+    source = text[start:]
+    if not re.search(r"['\"](?:total_summary|totalSummary|summary|strengths|weaknesses|improvements)['\"]\s*:", source):
+        return None
+
+    summary = _extract_string_field(
+        source,
+        ["total_summary", "totalSummary", "summary", "overall_summary", "overallSummary"],
+    )
+    if not summary:
+        return None
+
+    return {
+        "total_summary": summary,
+        "strengths": _extract_array_field(source, ["strengths", "pros", "advantages", "장점"]),
+        "weaknesses": _extract_array_field(source, ["weaknesses", "단점", "cons"]),
+        "improvements": _extract_array_field(source, ["improvements", "개선점", "recommendations", "suggestions"]),
+    }
+
+
 def _extract_report_from_sections(text: str) -> dict | None:
     section_key_map = {
         "총평": "summary",
@@ -584,6 +693,10 @@ def parse_llm_output(text: str) -> dict:
         if normalized:
             return normalized
 
+    partial_json = _extract_partial_json_report(text)
+    if partial_json:
+        return partial_json
+
     section_based = _extract_report_from_sections(text)
     if section_based:
         return section_based
@@ -624,7 +737,7 @@ def summarize_mlx(prompt: str) -> str:
     else:
         formatted = prompt
 
-    result = generate(model, tokenizer, prompt=formatted, max_tokens=600, verbose=False)
+    result = generate(model, tokenizer, prompt=formatted, max_tokens=1200, verbose=False)
     return result.strip()
 
 
@@ -637,7 +750,7 @@ def summarize_ollama(prompt: str) -> str:
             "prompt": prompt,
             "stream": False,
             # MLX(summarize_mlx) 경로와 동일하게 greedy/결정론적으로 생성한다.
-            "options": {"temperature": 0, "num_predict": 600},
+            "options": {"temperature": 0, "num_predict": 1200},
         }
     ).encode()
 

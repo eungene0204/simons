@@ -17,7 +17,18 @@ vi.mock("@/components/layout/DashboardLayout", () => ({
 }));
 
 vi.mock("@/components/strategy/backtest/BacktestDashboard", () => ({
-  default: () => <div data-testid="backtest-dashboard">backtest dashboard</div>,
+  default: ({ promptText, strategySummary }: { promptText?: string; strategySummary?: any }) => (
+    <div
+      data-testid="backtest-dashboard"
+      data-prompt={promptText ?? ""}
+      data-entry-blocks={(strategySummary?.entryBlocks ?? []).join(",")}
+      data-exit-blocks={(strategySummary?.exitBlocks ?? []).join(",")}
+      data-position={strategySummary?.positionText ?? ""}
+      data-risk={strategySummary?.riskText ?? ""}
+    >
+      backtest dashboard
+    </div>
+  ),
 }));
 
 describe("StrategyResultPage", () => {
@@ -31,7 +42,9 @@ describe("StrategyResultPage", () => {
           ok: true,
           json: async () => ({
             name: "레거시 전략",
+            description: "전략 이름처럼 보이는 fallback 설명",
             settings: {
+              description: "KOSPI 대형주 중 PBR 1 이하만 골라서 전략을 만들어줘.",
               universe: { id: "kospi", filters: {} },
               entry: {
                 conditions: [
@@ -44,6 +57,14 @@ describe("StrategyResultPage", () => {
               },
               exit: { conditions: [] },
               risk: { max_positions: 3, init_cash: 10000000 },
+            },
+            historySummary: {
+              strategyName: "레거시 전략",
+              universeName: "KOSPI",
+              entryBlocks: ["PBR <= 1"],
+              exitBlocks: ["손절 -12% 하락시 매도"],
+              positionText: "최대 8종목 · 126일 보유",
+              riskText: "손절 12%",
             },
             backtestResult: {
               symbols: ["005930", "000660"],
@@ -74,7 +95,16 @@ describe("StrategyResultPage", () => {
     render(<StrategyResultPage />);
 
     expect(await screen.findByText("레거시 전략")).toBeInTheDocument();
-    expect(await screen.findByTestId("backtest-dashboard")).toBeInTheDocument();
+    const dashboard = await screen.findByTestId("backtest-dashboard");
+    expect(dashboard).toBeInTheDocument();
+    expect(dashboard).toHaveAttribute(
+      "data-prompt",
+      "KOSPI 대형주 중 PBR 1 이하만 골라서 전략을 만들어줘."
+    );
+    expect(dashboard).toHaveAttribute("data-entry-blocks", "PBR <= 1");
+    expect(dashboard).toHaveAttribute("data-exit-blocks", "손절 -12% 하락시 매도");
+    expect(dashboard).toHaveAttribute("data-position", "최대 8종목 · 126일 보유");
+    expect(dashboard).toHaveAttribute("data-risk", "손절 12%");
     expect(
       screen.getByText("기존 52일 breakout 버그가 감지되었습니다. 필요하면 재실행 버튼으로 252일 기준 결과를 다시 계산해 주세요.")
     ).toBeInTheDocument();

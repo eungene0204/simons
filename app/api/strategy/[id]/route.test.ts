@@ -5,6 +5,10 @@ const virtualAccountUpdateMany = vi.fn();
 const virtualMarketStateDeleteMany = vi.fn();
 const strategyUpdate = vi.fn();
 const strategyUpdateMany = vi.fn();
+const strategyFindUnique = vi.fn();
+const strategyFindFirst = vi.fn();
+const backtestHistoryFindFirst = vi.fn();
+const userBacktestHistoryFindFirst = vi.fn();
 const strategyDelete = vi.fn();
 const backtestResultDeleteMany = vi.fn();
 const strategyEmbeddingDeleteMany = vi.fn();
@@ -25,6 +29,16 @@ const transaction = vi.fn(async (callback: any) =>
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     $transaction: transaction,
+    strategy: {
+      findUnique: strategyFindUnique,
+      findFirst: strategyFindFirst,
+    },
+    backtestHistory: {
+      findFirst: backtestHistoryFindFirst,
+    },
+    userBacktestHistory: {
+      findFirst: userBacktestHistoryFindFirst,
+    },
     virtualAccount: {
       findMany: virtualAccountFindMany,
     },
@@ -32,15 +46,82 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 let DELETE: any;
+let GET: any;
 
 beforeAll(async () => {
   const routeModule = await import("./route");
   DELETE = routeModule.DELETE;
+  GET = routeModule.GET;
+});
+
+describe("app/api/strategy/[id]/route GET", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    strategyFindUnique.mockResolvedValue({
+      id: "strategy_a",
+      name: "첫번째 전략",
+      description: "프롬프트 원문",
+      settings: JSON.stringify({ description: "프롬프트 원문" }),
+      BacktestResult: [],
+    });
+    backtestHistoryFindFirst
+      .mockResolvedValueOnce({
+        id: "hist-direct",
+        strategyId: "strategy_a",
+        strategyName: "첫번째 전략",
+        universe: "000020,000040,000050",
+        conditions: JSON.stringify({ entry: null, exit: null }),
+        createdAt: new Date("2026-06-14T15:00:00Z"),
+      })
+      .mockResolvedValueOnce({
+        id: "hist-visible",
+        strategyId: null,
+        strategyName: "첫번째 전략",
+        universe: "KOSPI",
+        conditions: JSON.stringify({
+          entry: { logic: "AND", names: ["PBR <= 1"] },
+          exit: { logic: "AND", names: ["손절 -12% 하락시 매도"] },
+          position: "최대 8종목 · 126일 보유",
+          risk: "손절 12%",
+        }),
+        createdAt: new Date("2026-06-14T15:00:01Z"),
+      });
+    userBacktestHistoryFindFirst.mockResolvedValue(null);
+  });
+
+  it("strategyId 히스토리 조건이 비어 있으면 저장 목록의 조건 SOT를 fallback으로 반환한다", async () => {
+    const response = await GET(new Request("http://localhost/api/strategy/strategy_a"), {
+      params: { id: "strategy_a" },
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(backtestHistoryFindFirst).toHaveBeenNthCalledWith(1, {
+      where: { OR: [{ strategyId: "strategy_a" }, { cacheKey: "strategy_a" }] },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(backtestHistoryFindFirst).toHaveBeenNthCalledWith(2, {
+      where: {
+        strategyName: "첫번째 전략",
+        isVisible: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(payload.historySummary).toMatchObject({
+      id: "hist-visible",
+      universeName: "KOSPI",
+      entryBlocks: ["PBR <= 1"],
+      exitBlocks: ["손절 -12% 하락시 매도"],
+      positionText: "최대 8종목 · 126일 보유",
+      riskText: "손절 12%",
+    });
+  });
 });
 
 describe("app/api/strategy/[id]/route DELETE", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    strategyFindFirst.mockResolvedValue({ id: "strategy_a" });
     virtualAccountFindMany.mockResolvedValue([]);
     virtualAccountUpdateMany.mockResolvedValue({ count: 0 });
     virtualMarketStateDeleteMany.mockResolvedValue({ count: 0 });

@@ -141,6 +141,10 @@ const getTickSize = (p: number): number => {
   return 1000;
 };
 
+const SHOW_ORDER_BOOK = false;
+const SHOW_TRADE_PANEL = false;
+const SHOW_COMMUNITY_TAB = false;
+
 export default function OrderPage() {
   const searchParams = useSearchParams();
   const symbol = searchParams.get("symbol") || "";
@@ -864,11 +868,13 @@ export default function OrderPage() {
         <div className="px-4 py-2 overflow-x-auto scrollbar-hide">
           <div className="flex items-center gap-1">
             {([
-              ["chart", "차트 · 호가"],
+              ["chart", "차트"],
               ["info", "종목정보"],
               ["news", "뉴스"],
               ["community", "커뮤니티"],
-            ] as const).map(([tab, label]) => (
+            ] as const)
+              .filter(([tab]) => SHOW_COMMUNITY_TAB || tab !== "community")
+              .map(([tab, label]) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -888,7 +894,10 @@ export default function OrderPage() {
         {(
           <div className={`flex flex-col gap-2 p-2${activeTab !== "chart" ? " hidden" : ""}`}>
             {/* Row 1: 캔들차트 + 호가창 */}
-            <div className="grid grid-cols-1 gap-2 lg:gap-2" style={{ gridTemplateColumns: "6fr 4fr" }}>
+            <div
+              className="grid grid-cols-1 gap-2 lg:gap-2"
+              style={{ gridTemplateColumns: SHOW_ORDER_BOOK ? "6fr 4fr" : "1fr" }}
+            >
               {/* 캔들차트 */}
               <div className="flex flex-col border border-white/[0.08] rounded-xl overflow-hidden" style={{ height: 560 }}>
                 <div className="flex items-center justify-end gap-1 px-4 py-2 border-b border-white/[0.05] flex-wrap">
@@ -915,23 +924,25 @@ export default function OrderPage() {
                 </div>
               </div>
               {/* 호가창 */}
-              <div className="border border-white/[0.08] rounded-xl overflow-hidden" style={{ height: 560 }}>
-                <OrderBook
-                  symbol={symbol}
-                  currentPrice={currentPrice}
-                  marketStats={realMarketStats}
-                  previousClose={referenceClose}
-                  onPriceSelect={(selectedPrice) => {
-                    setSelectedOrderPrice(selectedPrice);
-                    setPriceType("limit");
-                    setPrice(selectedPrice.toString());
-                  }}
-                />
-              </div>
+              {SHOW_ORDER_BOOK && (
+                <div className="border border-white/[0.08] rounded-xl overflow-hidden" style={{ height: 560 }}>
+                  <OrderBook
+                    symbol={symbol}
+                    currentPrice={currentPrice}
+                    marketStats={realMarketStats}
+                    previousClose={referenceClose}
+                    onPriceSelect={(selectedPrice) => {
+                      setSelectedOrderPrice(selectedPrice);
+                      setPriceType("limit");
+                      setPrice(selectedPrice.toString());
+                    }}
+                  />
+                </div>
+              )}
             </div>
 
             {/* Row 2: 시세 테이블 + 투자자별 매매동향 + 주문 패널 */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
+            <div className={`grid grid-cols-1 ${SHOW_TRADE_PANEL ? "lg:grid-cols-3" : "lg:grid-cols-2"} gap-2`}>
               {/* 시세 테이블 */}
               <div className="flex flex-col border border-white/[0.08] rounded-xl overflow-hidden" style={{ height: 560 }}>
                 <div className="px-4 py-3 border-b border-white/[0.05] shrink-0">
@@ -981,7 +992,8 @@ export default function OrderPage() {
               </div>
 
               {/* 주문 패널 */}
-              <div className="flex flex-col border border-white/[0.08] rounded-xl overflow-hidden" style={{ height: 560 }}>
+              {SHOW_TRADE_PANEL && (
+                <div className="flex flex-col border border-white/[0.08] rounded-xl overflow-hidden" style={{ height: 560 }}>
                   {/* 매수/매도/미체결 탭 */}
                   <div className="grid grid-cols-3 border-b border-white/[0.08]">
                     {(["buy", "sell", "pending"] as const).map((type) => {
@@ -1312,8 +1324,9 @@ export default function OrderPage() {
                     )}
                   </div>
                 </div>
-              </div>
+              )}
             </div>
+          </div>
         )}
 
         {/* ── 종목정보 탭 ── */}
@@ -1427,7 +1440,7 @@ export default function OrderPage() {
 
 
         {/* ── 커뮤니티 탭 ── */}
-        {(
+        {SHOW_COMMUNITY_TAB && (
           <div className={`divide-y divide-white/[0.08]${activeTab !== "community" ? " hidden" : ""}`}>
             <div className="px-5 py-4">
               <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit">커뮤니티</h2>

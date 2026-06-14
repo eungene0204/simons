@@ -96,6 +96,20 @@ describe("StrategyExampleTabs", () => {
     expect(await screen.findByText("아직 저장된 전략이 없습니다")).toBeInTheDocument();
   });
 
+  it("내 전략 로딩 중에는 빈 카드 placeholder를 보여주지 않는다", async () => {
+    const onSelectExample = vi.fn();
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise(() => {})));
+
+    const { container } = render(<StrategyExampleTabs onSelectExample={onSelectExample} />);
+
+    await act(async () => {
+      await user.click(screen.getByRole("button", { name: "내 전략" }));
+    });
+
+    expect(container.querySelector(".animate-pulse")).not.toBeInTheDocument();
+  });
+
   it("예시 카드를 누르면 편집 가능한 모달을 보여주고 전략 생성 시 편집된 프롬프트를 보낸다", async () => {
     const onSelectExample = vi.fn();
     const user = userEvent.setup();

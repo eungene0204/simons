@@ -11,6 +11,7 @@ import {
   inferBacktestOptionsFromResult,
   normalizeLegacyBreakoutStrategy,
 } from "@/components/strategy/legacyBreakout";
+import { buildStrategySummaryFromDsl } from "@/lib/strategy-summary";
 
 function mapBacktestResponse(raw: any): BacktestResult {
   const equity: number[] = raw.equity ?? [];
@@ -92,6 +93,7 @@ function StrategyResultContent() {
   const [currentOptions, setCurrentOptions] = useState<BacktestConfigOptions | undefined>();
   const [isRunning, setIsRunning] = useState(false);
   const [legacyNotice, setLegacyNotice] = useState<string | null>(null);
+  const [strategyPrompt, setStrategyPrompt] = useState("");
   const [strategySummary, setStrategySummary] = useState<any>(null);
   const [aiSummary, setAiSummary] = useState<string | undefined>();
   const [aiScore, setAiScore] = useState<number | undefined>();
@@ -117,9 +119,17 @@ function StrategyResultContent() {
         const rawSettings = data.settings;
         const normalizedSettings = rawSettings ? normalizeLegacyBreakoutStrategy(rawSettings) : null;
         const options = inferBacktestOptionsFromResult(data.backtestResult);
+        const settingsPrompt =
+          typeof normalizedSettings?.description === "string"
+            ? normalizedSettings.description.trim()
+            : "";
+        const fallbackPrompt =
+          typeof data.description === "string" ? data.description.trim() : "";
+        const sourcePrompt = settingsPrompt || fallbackPrompt;
 
         setBacktestDsl(normalizedSettings);
         setCurrentOptions(options);
+        setStrategyPrompt(sourcePrompt);
 
         if (data.backtestResult.aiSummary) setAiSummary(data.backtestResult.aiSummary);
         if (data.backtestResult.aiScore != null) setAiScore(data.backtestResult.aiScore);
@@ -130,28 +140,14 @@ function StrategyResultContent() {
         setRiskScore(data.backtestResult.riskScore ?? null);
         setOverfitRisk(data.backtestResult.overfitRisk ?? null);
 
-        // strategySummary 구성
-        if (normalizedSettings) {
-          // universe는 V2: { id: "kospi", filters: {...} } 또는 NL: 없음
-          const universeId = normalizedSettings.universe?.id ?? normalizedSettings.universe;
-          const UNIVERSE_NAMES: Record<string, string> = {
-            kospi: "KOSPI", kosdaq: "KOSDAQ", kospi200: "KOSPI 200",
-            KOR_KOSPI200: "KOSPI 200", KOR_KOSDAQ150: "KOSDAQ 150",
-            US_TECH_TOP10: "미국 테크 Top 10", CRYPTO_TOP10: "크립토 Top 10",
-          };
-          const universeName = (typeof universeId === "string" && universeId)
-            ? (UNIVERSE_NAMES[universeId] ?? universeId)
-            : "";
-          setStrategySummary({
-            strategyName: data.name,
-            universeName: universeName || "—",
-            blockNames: [],
-            positionText: normalizedSettings.risk?.max_positions ? `최대 ${normalizedSettings.risk.max_positions}종목` : undefined,
-            riskText: [
-              normalizedSettings.risk?.stop_loss_pct ? `손절 ${normalizedSettings.risk.stop_loss_pct}%` : "",
-              normalizedSettings.risk?.take_profit_pct ? `익절 ${normalizedSettings.risk.take_profit_pct}%` : "",
-            ].filter(Boolean).join(", ") || undefined,
-          });
+        if (data.historySummary) {
+          setStrategySummary(data.historySummary);
+        } else if (normalizedSettings) {
+          setStrategySummary(buildStrategySummaryFromDsl({
+            ...normalizedSettings,
+            name: data.name,
+            description: sourcePrompt,
+          }));
         }
 
         if (normalizedSettings !== rawSettings) {
@@ -268,6 +264,7 @@ function StrategyResultContent() {
             isRunning={isRunning}
             backtestDsl={backtestDsl}
             strategySummary={strategySummary}
+            promptText={strategyPrompt || undefined}
             aiSummary={aiSummary}
             aiScore={aiScore}
             aiStrengths={aiStrengths}

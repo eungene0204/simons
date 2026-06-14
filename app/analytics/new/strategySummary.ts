@@ -1,5 +1,6 @@
 export {
   buildStrategySummary,
+  buildStrategySummaryChips,
   buildStrategySummaryFromDsl,
   getDisplayExitLabels,
   getDisplayUniverseLabels,
@@ -13,4 +14,5 @@ export {
   REBAL_LABELS,
   UNIVERSE_LABELS,
   type ParsedSummary,
+  type StrategySummaryDisplay,
 } from "@/lib/strategy-summary";

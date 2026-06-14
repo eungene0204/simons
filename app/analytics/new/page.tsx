@@ -247,9 +247,15 @@ function BacktestRunningStatus({ message }: { message: string }) {
     <div
       role="status"
       aria-live="polite"
-      className={`w-full rounded-2xl px-4 py-3 ${COACH_CHAT_BUBBLE_CLASS}`}
+      className={`relative isolate w-full overflow-hidden rounded-2xl border border-white/[0.08] px-4 py-3 ${COACH_CHAT_BUBBLE_CLASS}`}
     >
-      <div className="flex items-center gap-3">
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0">
+        <span className="backtest-aurora backtest-aurora-blue" />
+        <span className="backtest-aurora backtest-aurora-mint" />
+        <span className="backtest-aurora backtest-aurora-gold" />
+        <span className="absolute inset-0 bg-[#171717]/45" />
+      </div>
+      <div className="relative z-10 flex items-center gap-3">
         <div className="min-w-0">
           <p className="text-xs font-black uppercase tracking-widest text-white">백테스트 진행 중</p>
           <p className="mt-0.5 text-sm font-bold text-white">
@@ -257,6 +263,70 @@ function BacktestRunningStatus({ message }: { message: string }) {
           </p>
         </div>
       </div>
+      <style jsx>{`
+        .backtest-aurora {
+          position: absolute;
+          display: block;
+          width: 58%;
+          height: 190%;
+          border-radius: 999px;
+          filter: blur(26px);
+          mix-blend-mode: screen;
+          opacity: 0.68;
+          animation: backtestAuroraDrift 7s ease-in-out infinite;
+        }
+
+        .backtest-aurora-blue {
+          left: -10%;
+          top: -92%;
+          background: radial-gradient(
+            ellipse at center,
+            rgba(125, 211, 252, 0.72) 0%,
+            rgba(59, 130, 246, 0.3) 38%,
+            rgba(59, 130, 246, 0) 72%
+          );
+        }
+
+        .backtest-aurora-mint {
+          right: 14%;
+          bottom: -118%;
+          background: radial-gradient(
+            ellipse at center,
+            rgba(167, 243, 208, 0.58) 0%,
+            rgba(34, 197, 94, 0.22) 36%,
+            rgba(34, 197, 94, 0) 74%
+          );
+          animation-delay: -2.4s;
+        }
+
+        .backtest-aurora-gold {
+          right: -12%;
+          top: -96%;
+          background: radial-gradient(
+            ellipse at center,
+            rgba(253, 224, 71, 0.45) 0%,
+            rgba(245, 158, 11, 0.18) 34%,
+            rgba(245, 158, 11, 0) 74%
+          );
+          animation-delay: -4.8s;
+        }
+
+        @keyframes backtestAuroraDrift {
+          0%,
+          100% {
+            transform: translate3d(-2%, 0, 0) rotate(-8deg) scale(1);
+          }
+          50% {
+            transform: translate3d(5%, 6%, 0) rotate(8deg) scale(1.08);
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .backtest-aurora {
+            animation: none;
+          }
+        }
+      `}</style>
     </div>
   );
 }
@@ -517,7 +587,7 @@ function StrategyLabContent() {
     });
 
     return () => window.cancelAnimationFrame(animationFrame);
-  }, [messages.length]);
+  }, [messages]);
 
   useEffect(() => {
     latestParsedRef.current = latestParsed;

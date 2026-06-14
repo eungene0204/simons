@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildStrategySummary,
+  buildStrategySummaryChips,
   buildStrategySummaryFromDsl,
   formatFundamentalFilter,
   formatInitialCapital,
@@ -165,6 +166,8 @@ describe("strategySummary", () => {
     });
 
     expect(summary?.universeName).toBe("KOSPI");
+    expect(summary?.entryBlocks).toEqual(["MA 크로스"]);
+    expect(summary?.blockNames).toContain("MA 크로스");
     expect(summary?.exitBlocks).toEqual([
       "손절 -12% 하락시 매도",
       "익절 10% 이상 수익시 매도",
@@ -197,5 +200,51 @@ describe("strategySummary", () => {
     } as any);
 
     expect(summary?.universeName).toBe("KOSPI");
+  });
+
+  it("저장된 parsed 형태 전략에서도 필터, 포지션, 보유기간, 손절 배지를 복원한다", () => {
+    const summary = buildStrategySummaryFromDsl({
+      id: "strategy-parsed",
+      name: "저PBR 대형주",
+      description: "KOSPI 대형주 중에서 PBR이 1배 이하인 종목만 골라서 8종목 정도 나눠 사고 최소 6개월 보유, -12% 손절",
+      version: "1",
+      universe: ["KOSPI"],
+      fundamental_filters: [{ metric: "pbr", operator: "<=", value: 1 }],
+      entry_signals: [],
+      exit_signals: [],
+      max_positions: 8,
+      hold_period_days: 182,
+      stop_loss_pct: 12,
+      risk: {} as any,
+      entry: { conditions: [] },
+      exit: { conditions: [] },
+      created_at: "",
+      updated_at: "",
+    } as any);
+
+    expect(summary?.universeName).toBe("KOSPI");
+    expect(summary?.entryBlocks).toEqual(["PBR <= 1"]);
+    expect(summary?.exitBlocks).toContain("최대 182일 보유 후 매도");
+    expect(summary?.exitBlocks).toContain("손절 -12% 하락시 매도");
+    expect(summary?.positionText).toBe("포지션/비중 최대 8종목 · 182일 보유");
+    expect(summary?.riskText).toBe("손절 12%");
+  });
+
+  it("심볼 CSV는 운용 전략 유니버스 배지로 표시하지 않는다", () => {
+    const chips = buildStrategySummaryChips({
+      universeName: "000020,000040,000050",
+      entryBlocks: ["PBR <= 1"],
+      exitBlocks: ["손절 -12% 하락시 매도"],
+      positionText: "최대 8종목 · 126일 보유",
+      riskText: "손절 12%",
+    });
+
+    expect(chips).not.toContain("유니버스 000020,000040,000050");
+    expect(chips).toEqual([
+      "PBR <= 1",
+      "손절 -12% 하락시 매도",
+      "최대 8종목 · 126일 보유",
+      "리스크 관리 손절 12%",
+    ]);
   });
 });

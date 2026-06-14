@@ -37,14 +37,17 @@ export async function GET(
   try {
     const res = await fetchWithTimeout(url.toString(), TIMEOUT_MS);
     if (!res.ok) {
+      const isTransientBackendError = res.status >= 500;
       const fallback: NewsResponseV2 = {
         symbol,
         items: [],
         lastUpdatedAt: null,
         isStale: false,
-        status: "FAILED",
+        status: isTransientBackendError ? "COLLECTING" : "FAILED",
         source: "queue",
-        message: `백엔드 응답 오류 (${res.status})`,
+        message: isTransientBackendError
+          ? "뉴스 서비스가 일시적으로 응답하지 않아 다시 시도하고 있습니다."
+          : "뉴스를 불러오지 못했습니다.",
       };
       return NextResponse.json(fallback, { status: 200 });
     }

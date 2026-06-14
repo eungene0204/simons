@@ -92,4 +92,53 @@ describe("POST /api/backtest/summarize cache", () => {
     await expect(responses[0].json()).resolves.toMatchObject({ summary: "동시 요약" });
     await expect(responses[1].json()).resolves.toMatchObject({ summary: "동시 요약" });
   });
+
+  it("regenerates a DB cached summary that contains raw report JSON", async () => {
+    mockFindUnique
+      .mockResolvedValueOnce({
+        cacheKey: "cache-json-artifact",
+        metrics: JSON.stringify({
+          aiSummary: `'{ "total_summary": "잘린 요약", "strengths": ["강점"]`,
+          aiScore: 64,
+        }),
+      })
+      .mockResolvedValueOnce({
+        cacheKey: "cache-json-artifact",
+        metrics: JSON.stringify({ totalReturn: 52.4 }),
+      });
+    mockFetchBackend.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        score: 79,
+        summary: "정상 요약",
+        strengths: ["강점"],
+        weaknesses: ["단점"],
+        improvements: ["개선"],
+      }),
+    });
+
+    const response = await POST(
+      makeRequest({
+        cacheKey: "cache-json-artifact",
+        metrics: { totalReturn: 52.4 },
+        strategySummary: { strategyName: "전략" },
+      })
+    );
+
+    expect(mockFetchBackend).toHaveBeenCalledOnce();
+    expect(mockUpdate).toHaveBeenCalledWith({
+      where: { cacheKey: "cache-json-artifact" },
+      data: {
+        metrics: JSON.stringify({
+          totalReturn: 52.4,
+          aiSummary: "정상 요약",
+          aiScore: 79,
+          aiStrengths: ["강점"],
+          aiWeaknesses: ["단점"],
+          aiImprovements: ["개선"],
+        }),
+      },
+    });
+    await expect(response.json()).resolves.toMatchObject({ summary: "정상 요약", cached: false });
+  });
 });

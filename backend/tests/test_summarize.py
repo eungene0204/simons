@@ -11,6 +11,7 @@ from ai.summarize import (
     build_prompt,
     normalize_report_items,
     parse_llm_output,
+    summarize_ollama,
 )
 
 
@@ -79,6 +80,19 @@ def test_parse_llm_output_supports_single_quote_json_with_trailing_comma():
         "weaknesses": ["단점1"],
         "improvements": ["개선점1"],
     }
+
+
+def test_parse_llm_output_recovers_closed_fields_from_truncated_json():
+    text = """'{ "total_summary": "총 수익률 52.40%를 기록했지만 바이앤홀드 대비 낮습니다.",
+"strengths": ["손익비가 2.91로 우수합니다.", "MDD가 -21.47%로 제한되었습니다."],
+"weaknesses": ["총 수익률이 바이앤홀드보다 낮습니다.", "승률이 49.09%입니다.", "샤프 지수 0.68과 소르티노 지수 0.96은 위험 대비 성과가 개선될 여지가 크"""
+
+    result = parse_llm_output(text)
+
+    assert result["total_summary"] == "총 수익률 52.40%를 기록했지만 바이앤홀드 대비 낮습니다."
+    assert result["strengths"] == ["손익비가 2.91로 우수합니다.", "MDD가 -21.47%로 제한되었습니다."]
+    assert result["weaknesses"] == ["총 수익률이 바이앤홀드보다 낮습니다.", "승률이 49.09%입니다."]
+    assert "total_summary" not in result["total_summary"]
 
 
 def test_parse_llm_output_supports_section_based_text():
@@ -162,3 +176,30 @@ def test_summarize_uses_same_mlx_model_as_shared_nl_parser_runtime(monkeypatch):
     parser = NLStrategyParser()
 
     assert parser.mlx_model == MLX_MODEL
+
+
+def test_summarize_ollama_allows_full_report_length(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return b'{"response":"{}"}'
+
+    def fake_urlopen(req, timeout):
+        captured["body"] = req.data
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    summarize_ollama("prompt")
+
+    body = __import__("json").loads(captured["body"])
+    assert body["options"]["num_predict"] == 1200
+    assert captured["timeout"] == 60

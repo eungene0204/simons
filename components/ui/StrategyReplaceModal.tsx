@@ -121,8 +121,8 @@ export default function StrategyReplaceModal({
                     onClick={() => setSelectedStrategyId(strategy.id)}
                     className={`w-full rounded-xl border p-4 text-left transition-all duration-200 ${
                       isSelected
-                        ? "border-sky-400/40 bg-sky-400/10"
-                        : "border-white/[0.06] bg-white/[0.03] hover:bg-white/[0.05]"
+                        ? "border-sky-400/40"
+                        : "border-white/[0.06] hover:border-white/[0.12]"
                     }`}
                   >
                     <div className="flex items-start justify-between gap-3">

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildVectorMemoryUpsertCommand, computeCacheKey } from "@/lib/server/backtestCache";
+import {
+  buildVectorMemoryUpsertCommand,
+  computeCacheKey,
+  resolveHistoryUniverseLabel,
+} from "@/lib/server/backtestCache";
 
 const baseBody = {
   strategy_id: "strategy_hash_rsi",
@@ -85,5 +89,18 @@ describe("backtest vector memory upsert", () => {
     expect(command.args[1]).not.toContain("advisor.vector_memory");
     expect(command.options.cwd).toBe("/repo/root");
     expect(command.options.stdio).toBe("ignore");
+  });
+});
+
+describe("backtest history universe label", () => {
+  it("does not store resolved stock codes as the universe badge", () => {
+    expect(resolveHistoryUniverseLabel({ symbols: ["000020", "000040", "000050"] })).toBe("선택 종목");
+    expect(resolveHistoryUniverseLabel({ universe_id: "000020,000040,000050" })).toBe("선택 종목");
+  });
+
+  it("normalizes known universe ids for history badges", () => {
+    expect(resolveHistoryUniverseLabel({ universe_id: "kospi" })).toBe("KOSPI");
+    expect(resolveHistoryUniverseLabel({ universeId: "kosdaq" })).toBe("KOSDAQ");
+    expect(resolveHistoryUniverseLabel({ universe: "kospi200" })).toBe("KOSPI200");
   });
 });

@@ -32,7 +32,10 @@ import { useStockPrices } from "@/lib/hooks/useStockPrices";
 import { useDelistingStatus, resolveListingStatus } from "@/lib/hooks/useDelistingStatus";
 import DelistingRiskBanner from "@/components/virtual-account/DelistingRiskBanner";
 import { getStatusBadgeClasses, getStatusBadge } from "@/lib/listing-status";
-import { buildStrategySummaryFromDsl } from "@/lib/strategy-summary";
+import {
+  buildStrategySummaryChips,
+  buildStrategySummaryFromDsl,
+} from "@/lib/strategy-summary";
 import { colorTokens } from "@/components/strategy/colorTokens";
 import type { StockPriceSnapshot as BatchQuoteItem } from "@/lib/stock-prices";
 import type { StrategyDSL } from "@/types/strategy";
@@ -94,6 +97,7 @@ export default function VirtualAccountDetailPage() {
   const [activeTab, setActiveTab] = useState<"holdings" | "transactions" | "performance">("holdings");
   const [dbStrategyDescription, setDbStrategyDescription] = useState<string | null>(null);
   const [dbStrategySettings, setDbStrategySettings] = useState<StrategyDSL | null>(null);
+  const [dbStrategyHistorySummary, setDbStrategyHistorySummary] = useState<any>(null);
   const [trackedSymbols, setTrackedSymbols] = useState<{ symbol: string; name: string }[]>([]);
   const [trackedPrices, setTrackedPrices] = useState<Record<string, BatchQuoteItem>>({});
   const [isTrackedSymbolsLoading, setIsTrackedSymbolsLoading] = useState(true);
@@ -273,14 +277,17 @@ export default function VirtualAccountDetailPage() {
         .then((s) => {
           setDbStrategyDescription(s?.description ?? null);
           setDbStrategySettings((s?.settings as StrategyDSL | null) ?? null);
+          setDbStrategyHistorySummary(s?.historySummary ?? null);
         })
         .catch(() => {
           setDbStrategyDescription(null);
           setDbStrategySettings(null);
+          setDbStrategyHistorySummary(null);
         });
     } else {
       setDbStrategyDescription(null);
       setDbStrategySettings(null);
+      setDbStrategyHistorySummary(null);
     }
   };
 
@@ -315,6 +322,14 @@ export default function VirtualAccountDetailPage() {
   const handleAutoTradingClick = async () => {
     setIsCheckingAutoTradingStrategy(true);
     try {
+      if (account?.tradingMode === "auto") {
+        const updated = await updateTradingMode(accountId, "manual");
+        setAccount((prev) =>
+          prev ? { ...prev, tradingMode: updated.tradingMode } : prev
+        );
+        return;
+      }
+
       const response = await fetch("/api/strategy");
       const strategies = response.ok ? await response.json() : [];
 
@@ -420,16 +435,9 @@ export default function VirtualAccountDetailPage() {
   }
 
   const shouldShowOrderPage = showOrderPage || selectedSymbol;
-  const strategySummary = buildStrategySummaryFromDsl(dbStrategySettings);
-  const strategySummaryChips = strategySummary
-    ? [
-        `유니버스 ${strategySummary.universeName}`,
-        ...strategySummary.exitBlocks,
-        strategySummary.positionText,
-        strategySummary.rebalancingText,
-        strategySummary.riskText ? `리스크 관리 ${strategySummary.riskText}` : undefined,
-      ].filter((value): value is string => Boolean(value))
-    : [];
+  const strategySettingsSummary = buildStrategySummaryFromDsl(dbStrategySettings);
+  const strategySummary = strategySettingsSummary ?? dbStrategyHistorySummary;
+  const strategySummaryChips = buildStrategySummaryChips(strategySummary);
 
   const strategies = account.strategyName
     ? [{ name: account.strategyName, status: "active" as const }]
@@ -609,19 +617,33 @@ export default function VirtualAccountDetailPage() {
               <div className="flex items-center justify-between px-5 py-4">
                 <div className="flex items-center gap-4">
                   <h1 className="text-2xl font-black text-white font-outfit">{account.name}</h1>
-                  <div className="flex items-center border border-white/[0.08] rounded-lg overflow-hidden">
-                    <button
-                      onClick={handleAutoTradingClick}
-                      disabled={isCheckingAutoTradingStrategy}
-                      className={`flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold transition-colors duration-200 ${
-                        account.tradingMode === "auto"
-                          ? "bg-white/[0.08] text-white"
-                          : "bg-transparent text-gray-500 hover:text-gray-300"
-                      } disabled:cursor-not-allowed disabled:opacity-60`}
-                    >
-                      <Robot size={11} weight="bold" />
-                      자동매매
-                    </button>
+                  <div className="flex items-center gap-1.5">
+                    <div className="flex items-center border border-white/[0.08] rounded-lg overflow-hidden">
+                      <button
+                        onClick={handleAutoTradingClick}
+                        disabled={isCheckingAutoTradingStrategy}
+                        style={
+                          account.tradingMode === "auto"
+                            ? { textShadow: "0 0 6px rgba(251, 146, 60, 0.65), 0 0 14px rgba(251, 146, 60, 0.35)" }
+                            : undefined
+                        }
+                        className={`flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold transition-colors duration-200 ${
+                          account.tradingMode === "auto"
+                            ? "bg-transparent text-orange-300"
+                            : "bg-transparent text-gray-500 hover:text-gray-300"
+                        } disabled:cursor-not-allowed disabled:opacity-60`}
+                      >
+                        <Robot size={11} weight="bold" />
+                        자동매매
+                      </button>
+                    </div>
+                    <div className="group relative flex h-[26px] w-5 cursor-help items-center justify-center text-[11px] font-black text-gray-500 transition-colors duration-200 hover:text-white">
+                      <span aria-label="자동매매 설명">?</span>
+                      <div className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 w-56 -translate-x-1/2 rounded-lg border border-white/[0.08] bg-[#1c1c1c] px-3 py-2 text-xs font-bold leading-5 text-gray-300 opacity-0 shadow-xl transition-opacity duration-150 group-hover:opacity-100">
+                        전략 조건에 만족하면 자동으로 매매가 이루어 집니다
+                        <div className="absolute -top-[5px] left-1/2 h-2.5 w-2.5 -translate-x-1/2 rotate-45 border-l border-t border-white/[0.08] bg-[#1c1c1c]" />
+                      </div>
+                    </div>
                   </div>
                   <span className="text-[11px] font-bold text-gray-600">
                     개설 {new Date(account.createdAt).toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" })}
@@ -856,8 +878,8 @@ export default function VirtualAccountDetailPage() {
               </div>
 
               {/* 보유 종목 / 거래 내역 / 성과 분석 탭 */}
-              <div className="p-5">
-                <div className="flex items-center justify-between mb-5">
+              <div className={activeTab === "performance" ? "" : "p-5"}>
+                <div className={`flex items-center justify-between mb-5 ${activeTab === "performance" ? "px-5 pt-5" : ""}`}>
                   <div className="flex items-center gap-3">
                     <div className="flex gap-1">
                       {(["holdings", "transactions", "performance"] as const).map((tab) => (
@@ -1024,8 +1046,7 @@ export default function VirtualAccountDetailPage() {
 
                 {/* 성과 분석 */}
                 {activeTab === "performance" && (
-                  <div className="border border-white/[0.08]">
-                    <div className="divide-y divide-white/[0.08]">
+                  <div className="divide-y divide-white/[0.08]">
                       {/* 성과 KPI 6개 */}
                       <div className="grid grid-cols-2 xl:grid-cols-6 border-l border-t border-white/[0.08]">
                         <div className="border-r border-b border-white/[0.08] p-5">
@@ -1074,66 +1095,65 @@ export default function VirtualAccountDetailPage() {
                         </div>
                       </div>
 
-                      {/* 성과 차트 + 분석 요약 */}
-                      <div className="grid grid-cols-1 lg:grid-cols-10 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
-                        <div className="lg:col-span-7 p-5">
-                          <div className="flex items-start justify-between gap-4 mb-5">
-                            <div>
-                              <h2 className="text-base font-black uppercase tracking-widest font-outfit text-white">성과 추이</h2>
-                              <p className="mt-0.5 text-xs font-bold text-gray-500">계좌 개설 이후 누적 성과 흐름</p>
-                            </div>
-                          </div>
-                          <div className="h-72">
-                            <PortfolioPerformanceChart data={performanceData} />
-                          </div>
-                        </div>
-                        <div className="lg:col-span-3 p-5">
-                          <div className="mb-5">
-                            <h2 className="text-base font-black uppercase tracking-widest font-outfit text-white">분석 요약</h2>
-                            <p className="mt-0.5 text-xs font-bold text-gray-500">성과 해석에 필요한 현재 상태</p>
-                          </div>
-                          <div className="divide-y divide-white/[0.08] border-y border-white/[0.08]">
-                            <div className="py-3">
-                              <p className="text-xs font-bold uppercase tracking-widest text-gray-600">계좌 개설일</p>
-                              <p className="mt-1 text-sm font-black text-white">{new Date(account.createdAt).toLocaleDateString("ko-KR")}</p>
-                            </div>
-                            <div className="py-3">
-                              <p className="text-xs font-bold uppercase tracking-widest text-gray-600">초기 투자금</p>
-                              <p className="mt-1 text-sm font-black font-outfit tabular-nums text-white">{formatPrice(account.initialAmount)}원</p>
-                            </div>
-                            <div className="py-3">
-                              <p className="text-xs font-bold uppercase tracking-widest text-gray-600">현재 투자 금액</p>
-                              <p className="mt-1 text-sm font-black font-outfit tabular-nums text-white">{formatPrice(investedValue)}원</p>
-                            </div>
-                            <div className="py-3">
-                              <p className="text-xs font-bold uppercase tracking-widest text-gray-600">보유 종목 수</p>
-                              <p className="mt-1 text-sm font-black font-outfit tabular-nums text-white">{holdings.length}개</p>
-                            </div>
-                          </div>
-                          <div className="mt-5 space-y-2">
-                            <span className="inline-flex items-center rounded-md bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-gray-400">
-                              벤치마크: KOSPI 200
-                            </span>
-                            <p className="text-xs font-bold leading-5 text-gray-500">
-                              성과 차트는 계좌 개설일부터 누적 흐름을 기준으로 표시됩니다.
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* 세부 성과 리포트 */}
-                      <div className="p-5">
-                        <div className="flex items-start justify-between gap-4 mb-4">
+                    {/* 성과 차트 + 분석 요약 */}
+                    <div className="grid grid-cols-1 lg:grid-cols-10 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
+                      <div className="lg:col-span-7 p-5">
+                        <div className="flex items-start justify-between gap-4 mb-5">
                           <div>
-                            <h2 className="text-base font-black uppercase tracking-widest font-outfit text-white">세부 성과 리포트</h2>
-                            <p className="mt-0.5 text-xs font-bold text-gray-500">실현 손익, 승률, 일별 PnL, 종목별 성과</p>
+                            <h2 className="text-base font-black uppercase tracking-widest font-outfit text-white">성과 추이</h2>
+                            <p className="mt-0.5 text-xs font-bold text-gray-500">계좌 개설 이후 누적 성과 흐름</p>
                           </div>
-                          <span className="inline-flex items-center rounded-md bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-gray-400">
-                            DETAIL
-                          </span>
                         </div>
-                        <VirtualTradingDashboard accountId={accountId} initialAmount={account.initialAmount} />
+                        <div className="h-72">
+                          <PortfolioPerformanceChart data={performanceData} />
+                        </div>
                       </div>
+                      <div className="lg:col-span-3 p-5">
+                        <div className="mb-5">
+                          <h2 className="text-base font-black uppercase tracking-widest font-outfit text-white">분석 요약</h2>
+                          <p className="mt-0.5 text-xs font-bold text-gray-500">성과 해석에 필요한 현재 상태</p>
+                        </div>
+                        <div className="divide-y divide-white/[0.08] border-y border-white/[0.08]">
+                          <div className="py-3">
+                            <p className="text-xs font-bold uppercase tracking-widest text-gray-600">계좌 개설일</p>
+                            <p className="mt-1 text-sm font-black text-white">{new Date(account.createdAt).toLocaleDateString("ko-KR")}</p>
+                          </div>
+                          <div className="py-3">
+                            <p className="text-xs font-bold uppercase tracking-widest text-gray-600">초기 투자금</p>
+                            <p className="mt-1 text-sm font-black font-outfit tabular-nums text-white">{formatPrice(account.initialAmount)}원</p>
+                          </div>
+                          <div className="py-3">
+                            <p className="text-xs font-bold uppercase tracking-widest text-gray-600">현재 투자 금액</p>
+                            <p className="mt-1 text-sm font-black font-outfit tabular-nums text-white">{formatPrice(investedValue)}원</p>
+                          </div>
+                          <div className="py-3">
+                            <p className="text-xs font-bold uppercase tracking-widest text-gray-600">보유 종목 수</p>
+                            <p className="mt-1 text-sm font-black font-outfit tabular-nums text-white">{holdings.length}개</p>
+                          </div>
+                        </div>
+                        <div className="mt-5 space-y-2">
+                          <span className="inline-flex items-center rounded-md bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-gray-400">
+                            벤치마크: KOSPI 200
+                          </span>
+                          <p className="text-xs font-bold leading-5 text-gray-500">
+                            성과 차트는 계좌 개설일부터 누적 흐름을 기준으로 표시됩니다.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 세부 성과 리포트 */}
+                    <div className="p-5">
+                      <div className="flex items-start justify-between gap-4 mb-4">
+                        <div>
+                          <h2 className="text-base font-black uppercase tracking-widest font-outfit text-white">세부 성과 리포트</h2>
+                          <p className="mt-0.5 text-xs font-bold text-gray-500">실현 손익, 승률, 일별 PnL, 종목별 성과</p>
+                        </div>
+                        <span className="inline-flex items-center rounded-md bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-gray-400">
+                          DETAIL
+                        </span>
+                      </div>
+                      <VirtualTradingDashboard accountId={accountId} initialAmount={account.initialAmount} />
                     </div>
                   </div>
                 )}
@@ -1165,6 +1185,7 @@ export default function VirtualAccountDetailPage() {
             );
             setDbStrategyDescription(strategy.description ?? null);
             setDbStrategySettings(strategy as unknown as StrategyDSL);
+            setDbStrategyHistorySummary(null);
             setIsPromptVisible(false);
             await loadAccountData();
           }}
