@@ -684,11 +684,23 @@ RiskManagement {
 
 **FR-VM-066** VirtualTrader 매매 사이클은 매 반복마다 보유/추적 종목의 상장 상태를 확인하고, 비정상 상태에 따라 매수 차단 / 강제청산 신호를 주입해야 한다.
 
-**FR-VM-067** 백테스트 엔진은 `delisted_store.is_delisted(sym)` 확인 후 이미 상폐된 종목을 대상에서 제외하여 생존자 편향을 방지해야 한다.
+**FR-VM-067** 백테스트 엔진은 생존자 편향(survivorship bias)을 제거하기 위해 **시점 기준(point-in-time) 유니버스**를 사용해야 한다.
+- `data/stock-master.json`(FDR 현행상장 + KRX-DELISTING 병합: 시장·상장일·상폐일·상장주식수·상폐사유)을 진실 소스로 사용한다.
+- `engine/universe_pit.resolve_symbols(universe_id, start, end)`는 백테스트 구간에 **실제 상장·거래되던** 종목을 반환한다(상폐일이 구간 내인 종목 포함). 규칙: `market 일치 AND hasOhlcv AND dataStart ≤ end AND dataEnd ≥ start`.
+- 상폐 종목의 OHLCV는 `scripts/backfill_delisted_ohlcv.py`로 FDR에서 백필한다(정리매매 종가까지).
+- 상폐 종목의 펀더멘털(EPS/BPS/PER/PBR/ROE/부채비율)은 `scripts/backfill_delisted_fundamentals.py`로 DART(전자공시) 연간 재무(자본총계/부채총계/당기순이익 ÷ 상장주식수)에서 도출해 OHLCV에 baked-in한다. 이로써 PBR≤1 등 펀더멘털 필터가 상폐 가치주(예: 락앤락 PBR 0.75)도 정상 선택한다.
+- 보유 중 상폐된 종목은 마지막 거래일에 강제청산되며(`_close_at_last_available_row`), 청산 사유는 "상장폐지"로 기록된다.
+- "대형주"/KOSPI200은 정적 현재 명부 대신 **매 시점 시총 상위 N**(close×상장주식수, `LARGE_CAP_TOP_N=200`)으로 재정의하여 지수편입 멤버십 편향도 제거한다.
+- (※ 구 명세: `delisted_store.is_delisted`로 상폐 종목을 *제외* — 이는 생존편향을 오히려 유발했고 백테스트 엔진에 미구현 상태였음. 위 시점 유니버스 방식으로 대체.)
 
 **FR-VM-068** `/virtual-account/[id]` 페이지는 비정상 상장 상태 종목에 대해 `DelistingRiskBanner`를 표시해야 한다. 배너는 상태 배지, D-N 카운트다운, 강제청산 버튼을 포함해야 한다.
 
 **FR-VM-069** 모든 자동 처리 이벤트(청산, 차단, 상태변경)는 `DelistingAuditLog`에 기록되어야 한다.
+
+**FR-VM-070** 백테스트 엔진은 **수정주가(adjusted price)**를 연속적으로 반영해야 한다. 소스 데이터는 정방향 액면분할만 조정돼 있고 역분할·감자·정지후재개·단일 오류프린트는 미조정이라 ±30% 가격제한을 넘는 불가능한 일간 점프가 남는다(가짜 손절·수익 유발). `loader._sanitize_corporate_actions`(`preprocess_data` 내)가 이를 처리한다:
+- 단일 오류프린트(다음 바 반등) → 양옆 보간 중립화.
+- 지속 레벨변화(역분할/감자/정지재개) → 점프 비율로 과거 전체를 역조정(OHLC 동일 스케일).
+- 정리매매(시계열 끝 하락 크래시, `_CA_TAIL_GUARD`바 내)는 역조정하지 않는다 — 상장폐지 손실이 수익곡선에 남아야 한다.
 
 ---
 

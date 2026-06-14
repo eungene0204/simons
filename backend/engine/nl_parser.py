@@ -696,6 +696,9 @@ class NLStrategyParser:
 
         body = json.dumps({
             "model": self.ollama_model,
+            # MLX 경로의 enable_thinking=False와 동치 — 끄지 않으면 Qwen3 thinking 모델이
+            # num_predict 토큰을 전부 <think> 추론에 소진해 content가 빈 채 length로 잘린다.
+            "think": False,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message},
@@ -727,6 +730,9 @@ class NLStrategyParser:
 
         body = json.dumps({
             "model": self.ollama_model,
+            # MLX 경로의 enable_thinking=False와 동치 — 스트리밍에서도 thinking을 꺼야
+            # <think> 추론이 토큰을 소진해 실제 JSON이 안 나오는 것을 막는다.
+            "think": False,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message},
@@ -800,6 +806,10 @@ def _extract_explicit_universe(user_input: str) -> Optional[List[str]]:
     mentions_kospi200 = "kospi200" in compact or "코스피200" in compact
     mentions_kosdaq = "kosdaq" in compact or "코스닥" in compact
     mentions_kospi = not mentions_kospi200 and ("kospi" in compact or "코스피" in compact)
+    # "대형주"는 시가총액 기준 분류(KRX: 시총 상위 100위권)이므로 표준 대형주 지수인
+    # KOSPI200으로 매핑한다. 단 코스닥 단독 맥락에서는 적용하지 않는다 — 코스닥 대형주
+    # 전용 유니버스가 없어 KOSPI200으로 매핑하면 시장 자체가 바뀌는 오매핑이 된다.
+    mentions_large_cap = "대형주" in compact or "대형" in compact
     mentions_all_market = (
         "전체시장" in compact or
         "코스피+코스닥" in compact or
@@ -811,6 +821,8 @@ def _extract_explicit_universe(user_input: str) -> Optional[List[str]]:
     if mentions_all_market or (mentions_kospi and mentions_kosdaq):
         return ["KOSPI", "KOSDAQ"]
     if mentions_kospi200:
+        return ["KOSPI200"]
+    if mentions_large_cap and not (mentions_kosdaq and not mentions_kospi):
         return ["KOSPI200"]
     if mentions_kospi:
         return ["KOSPI"]

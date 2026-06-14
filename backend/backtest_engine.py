@@ -10,6 +10,7 @@ from engine.signals import SignalEngine
 from engine.simulator import Simulator
 from engine.result_handler import ResultHandler
 from engine.data_resolver import DataResolver
+from engine import universe_pit
 
 class BacktestEngine:
     def __init__(self, data_dir: str = None):
@@ -156,6 +157,20 @@ class BacktestEngine:
                     _period_start_str = _period_start_dt.strftime("%Y-%m-%d")
                     _warmup_start_str = (_period_start_dt - pd.DateOffset(days=_WARMUP_CALENDAR_DAYS)).strftime("%Y-%m-%d")
 
+            # ── Survivorship-bias-free universe (point-in-time membership) ──
+            # When the request targets a market universe (kospi/kosdaq/kospi200), re-resolve
+            # the symbol list from the point-in-time stock master so that names which delisted
+            # *during* the window are included for the period they were alive. The legacy caller
+            # passes only currently-listed symbols, which silently drops every delisted name and
+            # inflates returns. universe_id=None (custom symbol set) leaves the list untouched.
+            _markets, _is_large_cap = universe_pit.parse_universe_markets(req.get('universe_id'))
+            if _markets:
+                _aof_symbols = universe_pit.resolve_symbols(req.get('universe_id'), _period_start_str, _end_str)
+                if _aof_symbols:
+                    symbols = _aof_symbols
+                    print(f"[BT-ENGINE] PIT universe: {len(symbols)}종목 "
+                          f"(markets={_markets}, large_cap={_is_large_cap})", flush=True)
+
             def _filter_to_backtest_window(df_pl: pl.DataFrame) -> pl.DataFrame:
                 if not _has_period_filter:
                     return df_pl
@@ -165,7 +180,11 @@ class BacktestEngine:
                     df_pl = df_pl.filter(date_col >= _period_start_str)
                 return df_pl.filter(date_col <= _end_str)
 
-            def _close_at_last_available_row(entry_signals, exit_signals, exit_reasons):
+            # Delisted names (per point-in-time master): their OHLCV ends at the delisting
+            # day, so the forced exit there is a real liquidation, labelled accordingly.
+            _delisted_dates = universe_pit.get_delisting_dates(symbols)
+
+            def _close_at_last_available_row(entry_signals, exit_signals, exit_reasons, sym=None):
                 if len(exit_signals) == 0:
                     return
                 if exec_type == 'next_open':
@@ -177,7 +196,7 @@ class BacktestEngine:
                 entry_signals[exit_idx:] = False
                 exit_signals[exit_idx] = True
                 if not exit_reasons[exit_idx]:
-                    exit_reasons[exit_idx] = "데이터 종료"
+                    exit_reasons[exit_idx] = "상장폐지" if sym in _delisted_dates else "데이터 종료"
 
             def _process_symbol(sym):
                 try:
@@ -243,7 +262,7 @@ class BacktestEngine:
                     # 3.7 Signal Generation
                     entry_signals, entry_reasons = self.signal_engine.generate_signals(df_pl, req.get('entry'))
                     exit_signals, exit_reasons = self.signal_engine.generate_signals(df_pl, req.get('exit'))
-                    _close_at_last_available_row(entry_signals, exit_signals, exit_reasons)
+                    _close_at_last_available_row(entry_signals, exit_signals, exit_reasons, sym)
 
                     # Apply Liquidity Mask
                     if not (skip_risk or skip_pos):
@@ -360,7 +379,7 @@ class BacktestEngine:
 
                         entry_signals, entry_reasons = self.signal_engine.generate_signals(df_pl, req.get('entry'))
                         exit_signals, exit_reasons = self.signal_engine.generate_signals(df_pl, req.get('exit'))
-                        _close_at_last_available_row(entry_signals, exit_signals, exit_reasons)
+                        _close_at_last_available_row(entry_signals, exit_signals, exit_reasons, sym)
 
                         if not (skip_risk or skip_pos):
                             entry_signals = entry_signals & liquidity_ok
@@ -414,6 +433,22 @@ class BacktestEngine:
                 exts_df = exts_df.shift(1, fill_value=False)
             ents_df &= available_df
             exts_df &= available_df
+
+            # ── "대형주" / KOSPI200 = point-in-time top-N by market cap ──
+            # Static current KOSPI200 membership is itself survivorship-biased, so we define the
+            # large-cap universe as the daily top-LARGE_CAP_TOP_N alive KOSPI names by market cap
+            # (close × listed shares). Market cap is evaluated only where price data is actually
+            # available that day, so delisted names drop out of the ranking once they stop trading.
+            if _is_large_cap:
+                shares_map = universe_pit.get_shares(processed_symbols)
+                shares_vec = pd.Series(
+                    {s: shares_map.get(s, np.nan) for s in processed_symbols},
+                    dtype=float,
+                )
+                mcap = price_df.mul(shares_vec, axis=1).where(available_df)
+                mcap_rank = mcap.rank(axis=1, ascending=False, method="first")
+                large_cap_mask = (mcap_rank <= universe_pit.LARGE_CAP_TOP_N).fillna(False)
+                ents_df &= large_cap_mask
 
             rank_df = None
             skip_pos = risk_params.get('skip_position_setting', False)

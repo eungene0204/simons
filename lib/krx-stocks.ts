@@ -60,6 +60,30 @@ export function getStockNameMap(): Promise<Record<string, string>> {
 }
 
 /**
+ * 상폐 종목까지 포함한 코드→이름 매핑을 stock-master.json에서 읽어옵니다.
+ * korea-stocks.json은 현재 상장분만 담고 있어, 상폐 종목은 이름 대신 코드가 노출된다.
+ * (생존편향 제거로 백테스트에 상폐 종목이 편입되므로 거래내역에 이름이 필요함.)
+ */
+export async function loadStockMasterNameMap(): Promise<Record<string, string>> {
+  try {
+    const fs = await import('fs/promises');
+    const path = await import('path');
+
+    const filePath = path.join(process.cwd(), 'data', 'stock-master.json');
+    const data = await fs.readFile(filePath, 'utf-8');
+    const parsed = JSON.parse(data) as { stocks?: Array<{ symbol: string; name: string }> };
+    const map: Record<string, string> = {};
+    (parsed.stocks ?? []).forEach((s) => {
+      if (s.symbol && s.name) map[s.symbol] = s.name;
+    });
+    return map;
+  } catch {
+    // 파일이 아직 없으면(스크립트 미실행) 빈 맵 — 현재 상장분 이름은 그대로 동작
+    return {};
+  }
+}
+
+/**
  * 종목 목록을 파일에 저장합니다
  */
 export async function saveStockList(stocks: StockListItem[]): Promise<void> {

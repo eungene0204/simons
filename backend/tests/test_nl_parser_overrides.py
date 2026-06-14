@@ -11,6 +11,7 @@ from engine.nl_parser import (
     ParsedStrategyDiff,
     TechnicalSignal,
     _apply_prompt_overrides,
+    _extract_explicit_universe,
     _build_fallback_strategy,
     detect_missing_entry_clarification,
     _extract_technical_signals,
@@ -93,6 +94,25 @@ def test_apply_prompt_overrides_respects_explicit_kospi_universe():
     parsed = _apply_prompt_overrides(make_base_strategy(), "kospi 종목으로 해줘")
 
     assert parsed.universe == ["KOSPI"]
+
+
+def test_large_cap_maps_to_kospi200():
+    # "대형주"는 시총 기준 분류 → 표준 대형주 지수 KOSPI200으로 매핑.
+    assert _extract_explicit_universe("KOSPI 대형주 중에서 PBR 1배 이하") == ["KOSPI200"]
+    assert _extract_explicit_universe("대형주 위주로 담고 싶어") == ["KOSPI200"]
+
+
+def test_large_cap_overrides_plain_kospi():
+    # "코스피 대형주"는 코스피 전체가 아니라 대형주(KOSPI200)로 좁혀야 한다.
+    parsed = _apply_prompt_overrides(make_base_strategy(), "코스피 대형주로 해줘")
+
+    assert parsed.universe == ["KOSPI200"]
+
+
+def test_kosdaq_large_cap_does_not_mismap_to_kospi200():
+    # 코스닥 단독 맥락의 대형주는 KOSPI200으로 매핑하면 시장이 바뀌는 오매핑이다.
+    # 코스닥 대형주 전용 유니버스가 없으므로 KOSDAQ을 유지한다.
+    assert _extract_explicit_universe("코스닥 대형주 중에서 골라줘") == ["KOSDAQ"]
 
 
 def test_apply_prompt_overrides_extracts_take_profit_from_profit_sell_phrase():
@@ -466,7 +486,8 @@ def test_rule_based_strategy_parses_pbr_particle_unit_prompt_without_llm():
     parsed = _parse_rule_based_strategy(prompt)
 
     assert parsed is not None
-    assert parsed.universe == ["KOSPI"]
+    # "KOSPI 대형주"는 코스피 전체가 아니라 대형주(표준 대형주 지수 KOSPI200)로 좁혀야 한다.
+    assert parsed.universe == ["KOSPI200"]
     assert [(f.metric, f.operator, f.value) for f in parsed.fundamental_filters] == [
         ("pbr", "<=", 1.0),
     ]
@@ -1307,3 +1328,49 @@ def test_full_prompt_profit_sell_without_hallucinated_cci():
     assert parsed.take_profit_pct == 10.0
     # 기존 손절 유지
     assert parsed.stop_loss_pct == 8.0
+
+
+# ─── Ollama chat: thinking 비활성화 회귀 ──────────────────────────────────────
+
+
+def _capture_ollama_chat_body(monkeypatch, *, streaming: bool) -> dict:
+    """_chat_ollama / _stream_chat_ollama가 실제로 보낸 요청 body를 가로채 반환한다."""
+    import json as _json
+    from contextlib import contextmanager
+
+    captured: dict = {}
+
+    class _FakeResp:
+        def read(self):
+            return b'{"message": {"content": "{\\"message\\": \\"ok\\"}"}}'
+
+        def __iter__(self):
+            return iter([b'{"message": {"content": "ok"}, "done": true}'])
+
+    @contextmanager
+    def _fake_urlopen(req, timeout=120):
+        captured["body"] = _json.loads(req.data.decode())
+        yield _FakeResp()
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+    parser = NLStrategyParser(backend="ollama")
+    if streaming:
+        list(parser.stream_chat("sys", "user", max_tokens=400, temperature=0.3, top_p=0.9))
+    else:
+        parser.chat("sys", "user", max_tokens=400, temperature=0.3, top_p=0.9)
+    return captured["body"]
+
+
+def test_chat_ollama_disables_thinking(monkeypatch):
+    """Qwen3 thinking 모델이 <think>로 토큰을 소진해 빈 응답을 내지 않도록 think=False를 보내야 한다.
+
+    회귀: MLX→Ollama 마이그레이션 때 enable_thinking=False 대응이 빠져 코치가
+    '코칭 응답을 생성하지 못했습니다'를 출력했다.
+    """
+    body = _capture_ollama_chat_body(monkeypatch, streaming=False)
+    assert body["think"] is False
+
+
+def test_stream_chat_ollama_disables_thinking(monkeypatch):
+    body = _capture_ollama_chat_body(monkeypatch, streaming=True)
+    assert body["think"] is False
