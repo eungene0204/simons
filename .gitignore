@@ -99,4 +99,5 @@ data/advisor-learning/strategy_prompt_experiment_result.json
 model/v3_candidate/
 model/v3_pre_promote_*
 model/v3_pre_resync_*
+model/v3/model_meta.pre_recalib_*
 top200.txt

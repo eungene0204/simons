@@ -82,6 +82,45 @@ def test_evaluate_condition_ai_drop_model(signal_engine):
     assert signal_engine.evaluate_condition(cond_sell_80, 1, df) == False # 0.6 >= 0.8 (False)
     assert signal_engine.evaluate_condition(cond_sell_80, 2, df) == True  # 0.9 >= 0.8
 
+
+def test_ai_signal_default_threshold_is_calibrated_not_dead(signal_engine):
+    """Regression: an AI signal block with NO explicit threshold must default to
+    the model's val-calibrated threshold (in-distribution), not the legacy 0.70.
+
+    The DOWN head's scores top out near ~0.38, so the old hardcoded 70 (=0.70)
+    default — and the dead 0.50 meta fallback — never fired. The default must now
+    sit below the head's score range so the signal is usable."""
+    from engine.signals import _ai_calibrated_thresholds
+    buy_thr, sell_thr = _ai_calibrated_thresholds()
+    # Both calibrated defaults must be in-distribution (the dead-signal regression).
+    assert sell_thr < 0.5, "sell_threshold default must be < 0.5 (DOWN scores max ~0.38)"
+    assert buy_thr < 0.5, "buy_threshold default must be < 0.5"
+
+    just_below = round(sell_thr - 0.02, 4)
+    just_above = round(sell_thr + 0.005, 4)
+    df = pl.DataFrame({"ai_drop_score": [just_below, just_above]})
+    # ai_drop_model defaults: targetType='down', signalType='sell', no threshold given.
+    cond = {"id": "ai_drop_model", "params": {}}
+    assert list(signal_engine._eval_vec(cond, df)) == [False, True]
+    # Row-by-row (test-compat) path must agree with the vectorized path.
+    assert signal_engine.evaluate_condition(cond, 0, df) == False
+    assert signal_engine.evaluate_condition(cond, 1, df) == True
+
+    # An explicit threshold (frontend 'threshold' or legacy 'minProbability') still wins.
+    cond_explicit = {"id": "ai_drop_model", "params": {"threshold": 70}}
+    assert list(signal_engine._eval_vec(cond_explicit, df)) == [False, False]
+
+
+def test_ai_drop_model_rank_mode_suppresses_per_symbol_exit(signal_engine):
+    """exitMode='rank' is handled cross-sectionally by backtest_engine; the
+    per-symbol signal evaluator must emit no exits (all False), even for scores
+    that would clear an absolute threshold."""
+    df = pl.DataFrame({"ai_drop_score": [0.1, 0.38, 0.9]})
+    cond = {"id": "ai_drop_model", "params": {"exitMode": "rank", "rankPercentile": 0.1}}
+    assert list(signal_engine._eval_vec(cond, df)) == [False, False, False]
+    for i in range(3):
+        assert signal_engine.evaluate_condition(cond, i, df) == False
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Fix 3: ema / macd / stochastic / cci / adx 평가자 누락 회귀 방지 테스트
 # ──────────────────────────────────────────────────────────────────────────────

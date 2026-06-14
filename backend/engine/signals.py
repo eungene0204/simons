@@ -1,6 +1,44 @@
 from typing import List, Dict, Any, Tuple, Optional
+import os
+import json
+import functools
 import polars as pl
 import numpy as np
+
+
+@functools.lru_cache(maxsize=1)
+def _ai_calibrated_thresholds() -> Tuple[float, float]:
+    """(buy_threshold, sell_threshold) from the live model's model_meta.json.
+
+    Used as the *default* AI signal threshold when a strategy block omits one.
+    A hardcoded default (the legacy 0.70) sits far above the heads' actual score
+    range — the DOWN head maxes out near 0.38 — so it never fires. Defaulting to
+    the model's own val-calibrated thresholds keeps the signal in-distribution.
+    """
+    base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    for ver in ('v3', 'v2'):
+        meta_path = os.path.join(base, 'model', ver, 'model_meta.json')
+        if os.path.exists(meta_path):
+            try:
+                with open(meta_path) as f:
+                    m = json.load(f)
+                return float(m.get('buy_threshold', 0.5)), float(m.get('sell_threshold', 0.5))
+            except (ValueError, OSError):
+                break
+    return 0.5, 0.5
+
+
+def _ai_threshold(p: Dict[str, Any], target_type: str) -> float:
+    """Resolve an AI signal threshold (0–1) from block params, falling back to
+    the model's calibrated default for the given direction when none is given."""
+    buy_thr, sell_thr = _ai_calibrated_thresholds()
+    raw = p.get('threshold')
+    if raw is None:
+        raw = p.get('minProbability')
+    if raw is None:
+        return sell_thr if target_type == 'down' else buy_thr
+    thr = float(raw)
+    return thr / 100.0 if thr > 1.0 else thr
 
 
 class SignalEngine:
@@ -273,6 +311,10 @@ class SignalEngine:
             return res
 
         elif cid in ['ai_model', 'ai_drop_model']:
+            # 횡단면 랭킹 청산(exitMode='rank')은 종목 간 비교가 필요해 엔진에서 일괄 처리.
+            # 압축된 하락점수에 절대 임계값을 쓰지 않고 유니버스 상위 X%를 청산하는 모드.
+            if cid == 'ai_drop_model' and p.get('exitMode') == 'rank':
+                return result  # all False — backtest_engine이 drop_df 횡단면으로 주입
             target_type = p.get('targetType')
             if cid == 'ai_drop_model' and not target_type:
                 target_type = 'down'
@@ -283,10 +325,9 @@ class SignalEngine:
             if score is None:
                 return result
             sig_type = p.get('signalType', 'sell' if target_type == 'down' else 'buy')
-            # 프론트엔드는 'threshold', 구형 DSL은 'minProbability' 키 사용
-            threshold = float(p.get('threshold') or p.get('minProbability') or 70)
-            if threshold > 1.0:
-                threshold /= 100.0
+            # 프론트엔드는 'threshold', 구형 DSL은 'minProbability' 키 사용.
+            # 둘 다 없으면 모델 meta의 보정 임계값으로 폴백(하드코딩 70 → 발화 0건 회피)
+            threshold = _ai_threshold(p, target_type)
             with np.errstate(invalid='ignore'):
                 if target_type == 'up':
                     return score >= threshold if sig_type == 'buy' else score <= threshold
@@ -541,6 +582,9 @@ class SignalEngine:
             return False
 
         elif cid in ['ai_model', 'ai_drop_model']:
+            # 횡단면 랭킹 청산은 엔진에서 일괄 처리 — 행별 평가에선 항상 False
+            if cid == 'ai_drop_model' and p.get('exitMode') == 'rank':
+                return False
             target_type = p.get('targetType')
             if cid == 'ai_drop_model' and not target_type:
                 target_type = 'down'
@@ -551,9 +595,7 @@ class SignalEngine:
             if score is None:
                 return False
             sig_type = p.get('signalType', 'sell' if target_type == 'down' else 'buy')
-            threshold = float(p.get('threshold') or p.get('minProbability') or 70)
-            if threshold > 1.0:
-                threshold /= 100.0
+            threshold = _ai_threshold(p, target_type)
             if target_type == 'up':
                 return score >= threshold if sig_type == 'buy' else score <= threshold
             else:

@@ -118,14 +118,25 @@ class CosineWarmupScheduler(optim.lr_scheduler._LRScheduler):
 # ── Threshold calibration ─────────────────────────────────────────────────────
 
 def calibrate_threshold(y_true: np.ndarray, y_prob: np.ndarray,
-                         target_precision: float = 0.55) -> float:
-    """Find lowest threshold achieving target_precision on val set."""
+                         target_precision: float = 0.55,
+                         min_fire_rate: float = 0.02) -> float:
+    """Threshold for a probability head, calibrated on the val set.
+
+    Picks the lowest threshold reaching ``target_precision``, but clamps it so
+    it always fires on at least ``min_fire_rate`` of the val set. A poorly
+    separated head (e.g. the heavily regularized DOWN XGBoost, whose scores
+    compress into a narrow band well below 0.5) would otherwise get either no
+    qualifying threshold — the old ``return 0.5`` fallback, *above the head's
+    max score* → a permanently dead signal — or one so high it never fires.
+    The fire-rate floor guarantees a usable, in-distribution threshold.
+    """
+    fire_cap = float(np.quantile(y_prob, 1.0 - min_fire_rate))
     precisions, _, thresholds = precision_recall_curve(y_true, y_prob)
     # precision_recall_curve returns one extra precision/recall point
     for prec, thr in zip(precisions[:-1], thresholds):
         if prec >= target_precision:
-            return float(thr)
-    return 0.5  # fallback
+            return min(float(thr), fire_cap)
+    return fire_cap  # precision target unreachable → fire on the top min_fire_rate
 
 
 # ── Main training pipeline ────────────────────────────────────────────────────

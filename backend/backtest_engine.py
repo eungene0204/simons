@@ -104,12 +104,30 @@ class BacktestEngine:
             
             ai_needed = check_ai_needed(req.get('entry')) or check_ai_needed(req.get('exit'))
 
+            # 횡단면 AI 하락 랭킹 청산: exit에 ai_drop_model(exitMode='rank')이 있으면 매일
+            # 유니버스 상위 X% 하락위험 종목을 청산. 상위 비율(0~1, %는 자동 환산)을 추출.
+            def _detect_rank_drop_exit(group):
+                if not group:
+                    return None
+                for c in group.get('conditions', []):
+                    if c.get('id') == 'ai_drop_model' and (c.get('params') or {}).get('exitMode') == 'rank':
+                        pp = c.get('params') or {}
+                        pct = float(pp.get('rankPercentile', pp.get('percentile', 0.1)) or 0.1)
+                        return pct / 100.0 if pct > 1.0 else pct
+                    if 'conditions' in c:
+                        found = _detect_rank_drop_exit(c)
+                        if found is not None:
+                            return found
+                return None
+            drop_rank_pct = _detect_rank_drop_exit(req.get('exit'))
+
             # Reference date for relative periods
             ref_date = pd.to_datetime(end_date_req) if end_date_req else pd.to_datetime('today').normalize()
 
             # 2. Data Structures for Vectorbt
             all_prices, all_exec_prices, all_entries, all_exits = {}, {}, {}, {}
             all_entry_reasons, all_exit_reasons = {}, {}
+            all_drop_scores: dict = {}  # sym → ai_drop_score 시계열 (횡단면 랭킹 청산용)
             all_ranks = {'pbr': {}, 'roe': {}}
             all_resolution_logs: List[Dict[str, str]] = []
             processed_symbols = []
@@ -312,6 +330,7 @@ class BacktestEngine:
                     all_exit_reasons[sym] = data["exit_reasons"]
                     if "pbr" in data: all_ranks['pbr'][sym] = data["pbr"]
                     if "roe" in data: all_ranks['roe'][sym] = data["roe"]
+                    if "ai_drop_score" in data: all_drop_scores[sym] = data["ai_drop_score"]
                     processed_symbols.append(sym)
 
             # Phase 1: 병렬 데이터 로드 + 지표 계산
@@ -399,6 +418,8 @@ class BacktestEngine:
                         }
                         if 'pbr' in pdf.columns: res["pbr"] = pdf['pbr']
                         if 'roe_or_gpa' in pdf.columns: res["roe"] = pdf['roe_or_gpa']
+                        if drop_rank_pct is not None and 'ai_drop_score' in pdf.columns:
+                            res["ai_drop_score"] = pdf['ai_drop_score']
                         return ("success", res)
                     except Exception as e:
                         return ("warning", f"{sym}: 처리 오류 ({e})")
@@ -433,6 +454,17 @@ class BacktestEngine:
                 exts_df = exts_df.shift(1, fill_value=False)
             ents_df &= available_df
             exts_df &= available_df
+
+            # 횡단면 AI 하락 랭킹 청산 주입: 매일 유니버스 상위 X% 하락위험 종목을 청산 신호로.
+            # 시뮬레이터는 보유 종목에만 청산을 적용하므로 유니버스 전체에 신호를 켜도 안전.
+            if drop_rank_pct is not None and all_drop_scores:
+                from engine.rank_exit import compute_topk_drop_exits
+                drop_df = pd.DataFrame(all_drop_scores, index=common_index, columns=processed_symbols)
+                rank_exits = compute_topk_drop_exits(drop_df, drop_rank_pct, available_df)
+                if rank_exits is not None:
+                    if exec_type == 'next_open':
+                        rank_exits = rank_exits.shift(1, fill_value=False)
+                    exts_df = (exts_df | rank_exits.astype(bool)) & available_df
 
             # ── "대형주" / KOSPI200 = point-in-time top-N by market cap ──
             # Static current KOSPI200 membership is itself survivorship-biased, so we define the

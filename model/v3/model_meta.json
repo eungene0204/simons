@@ -1,7 +1,7 @@
 {
     "version": 3,
-    "buy_threshold": 0.4628296494483948,
-    "sell_threshold": 0.5,
+    "buy_threshold": 0.36562204360961914,
+    "sell_threshold": 0.3830426037311554,
     "horizon": 10,
     "lookback": 60,
     "features": [
