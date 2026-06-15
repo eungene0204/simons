@@ -14,8 +14,9 @@ LLM(코치 / 뉴스요약 / NL 전략파서 / 설명생성)만 이 Modal 함수�
 돌리고 포트 11434를 @modal.web_server로 그대로 노출하면 /api/chat·/v1·/api/tags 가 전부
 투명하게 동작 → 앱은 .env의 OLLAMA_HOST 한 줄만 이 함수의 URL로 바꾸면 끝.
 
-모델은 앱 기본값과 일치해야 한다 (불일치 시 Ollama가 "model not found"):
-  앱 .env: NL_OLLAMA_MODEL=qwen3:8b  ==  아래 MODEL
+모델은 앱 설정과 일치해야 한다 (불일치 시 Ollama가 "model not found"):
+  앱 .env: NL_OLLAMA_MODEL=hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M  ==  아래 MODEL
+  (코드 기본값 qwen3:8b가 아니라 .env 오버라이드 값이 실제 사용 모델)
 
 배포
 ────
@@ -46,7 +47,7 @@ import urllib.request
 import modal
 
 # ── 설정 ──────────────────────────────────────────────────────────────────────
-MODEL = "qwen3:8b"          # 앱의 NL_OLLAMA_MODEL과 반드시 동일
+MODEL = "hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M"  # 앱의 NL_OLLAMA_MODEL(.env)과 반드시 동일
 GPU = "L4"                  # 8B Q4(~6GB)엔 L4(24GB)면 충분. 더 싸게: "T4"(16GB), 더 빠르게: "A10G"
 OLLAMA_PORT = 11434
 SCALEDOWN_WINDOW = 300      # 마지막 요청 후 5분 warm 유지 → 테스트 세션 중 콜드스타트 감소(비용 trade-off)
@@ -57,7 +58,7 @@ OLLAMA_VERSION = "0.5.7"    # 핀: 빌드 재현성
 # ── 이미지: Ollama 설치 ────────────────────────────────────────────────────────
 image = (
     modal.Image.debian_slim()
-    .apt_install("curl")
+    .apt_install("curl", "zstd")  # zstd: 최신 ollama 설치 스크립트가 추출에 요구
     .run_commands(
         "curl -fsSL https://ollama.com/install.sh | sh",
     )
