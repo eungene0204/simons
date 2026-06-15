@@ -23,3 +23,9 @@ torch==2.12.0            # ai/ai_engine.py, ai/models.py (AIEngine 기동 시 �
 xgboost==3.2.0           # ai/ai_engine.py
 joblib==1.5.3            # ai/ai_engine.py 모델 로드
 shap==0.51.0             # ai/xai_engine.py (XAI 설명)
+
+# NL 전략 생성 — Ollama 백엔드(배포 기본값) deps. engine/nl_parser.py _init_ollama가
+# instructor.from_openai로 Ollama의 OpenAI 호환 엔드포인트(/v1) 호출. 없으면 전략 생성 비활성.
+# (Mac dev는 MLX 백엔드라 outlines/mlx-lm 사용 — 그쪽은 이미지에 미포함)
+openai==2.41.0
+instructor==1.15.3
