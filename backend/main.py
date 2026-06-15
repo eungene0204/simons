@@ -73,6 +73,11 @@ async def lifespan(_app):
     # news_v2 — best-effort scheduler bootstrap. Disabled if NEWSV2_ENABLED=false
     # or if APScheduler isn't installed.
     try:
+        from news_v2.config import get_settings
+        if get_settings().enabled:
+            # fresh postgres/sqlite 스키마 초기화(idempotent) — alembic 없음, create_all이 단일 소스
+            from news_v2.db import init_models
+            await init_models()
         from news_v2.scheduler import start_scheduler, stop_scheduler
         start_scheduler()
     except Exception as e:

@@ -74,6 +74,19 @@ async def get_session() -> AsyncIterator[AsyncSession]:
             raise
 
 
+async def init_models() -> None:
+    """news_v2 테이블을 없으면 생성한다(idempotent).
+
+    news_v2엔 alembic이 없고 create_all이 스키마의 단일 소스다(테스트도 동일).
+    fresh postgres/sqlite 배포에서 startup 시 호출해 'relation does not exist'를 막는다.
+    """
+    from news_v2.models import Base
+
+    engine = _get_engine()
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+
 async def dispose() -> None:
     global _engine, _session_maker
     if _engine is not None:
