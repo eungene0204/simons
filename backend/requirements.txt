@@ -18,6 +18,8 @@ langchain_google_genai==4.2.4
 numpy==2.4.4
 stockstats==0.6.8        # engine/indicators.py
 pykrx==1.2.8             # engine/data_fetcher.py
+finance-datareader==0.9.202  # scripts/sync_data.py — 스케줄러 일일 OHLCV/상폐 동기화(top-level import, 누락 시 sync 기동 실패)
+tqdm==4.68.1             # scripts/sync_data.py 진행바
 httpx==0.28.1            # news providers
 torch==2.12.0            # ai/ai_engine.py, ai/models.py — 앱박스는 GPU 없음. Dockerfile이 CPU 휠로 선설치(2.12.0+cpu)
 xgboost==3.2.0           # ai/ai_engine.py
