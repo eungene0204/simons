@@ -8,6 +8,8 @@ import {
   FUNDAMENTAL_FILTER_SECTION_LABEL,
   getDisplayExitLabels,
   getDisplayUniverseLabels,
+  isRawSymbolUniverseName,
+  resolveUniverseDisplayName,
   type ParsedSummary,
 } from "./strategySummary";
 
@@ -202,6 +204,24 @@ describe("strategySummary", () => {
     expect(summary?.universeName).toBe("KOSPI");
   });
 
+  it("universe가 심볼 CSV로 저장돼도 description에서 유니버스 라벨을 복원한다", () => {
+    const summary = buildStrategySummaryFromDsl({
+      id: "strategy-csv-universe",
+      name: "골든크로스",
+      description:
+        "KOSPI 종목 중 골든크로스가 나오면 매수하고 데드크로스가 나오면 매도. 최대 10종목, 손절 -8%.",
+      version: "1",
+      universe: "000020,000040,000050" as any,
+      entry: { conditions: [] },
+      exit: { conditions: [] },
+      risk: { max_positions: 10, stop_loss_pct: 8 },
+      created_at: "",
+      updated_at: "",
+    } as any);
+
+    expect(summary?.universeName).toBe("KOSPI");
+  });
+
   it("저장된 parsed 형태 전략에서도 필터, 포지션, 보유기간, 손절 배지를 복원한다", () => {
     const summary = buildStrategySummaryFromDsl({
       id: "strategy-parsed",
@@ -246,5 +266,32 @@ describe("strategySummary", () => {
       "최대 8종목 · 126일 보유",
       "리스크 관리 손절 12%",
     ]);
+  });
+
+  it("심볼 CSV 유니버스명은 raw 심볼로 판별한다 (프롬프트 배지 가드용)", () => {
+    expect(isRawSymbolUniverseName("000020,000040,000050")).toBe(true);
+    expect(isRawSymbolUniverseName("000020, 000040, 000050")).toBe(true);
+    expect(isRawSymbolUniverseName("KOSPI")).toBe(false);
+    expect(isRawSymbolUniverseName("KOSPI 200")).toBe(false);
+    expect(isRawSymbolUniverseName("")).toBe(false);
+  });
+
+  it("심볼 CSV 유니버스명은 프롬프트에서 라벨을 복원해 표시한다", () => {
+    expect(
+      resolveUniverseDisplayName(
+        "000020,000040,000050",
+        "KOSPI 종목 중 골든크로스가 나오면 매수"
+      )
+    ).toBe("KOSPI");
+    expect(
+      resolveUniverseDisplayName("000020,000040,000050", "KOSDAQ 신고가 돌파")
+    ).toBe("KOSDAQ");
+  });
+
+  it("실제 라벨은 그대로 두고, 라벨을 복원할 수 없으면 null", () => {
+    expect(resolveUniverseDisplayName("KOSPI", "프롬프트")).toBe("KOSPI");
+    expect(resolveUniverseDisplayName("KOSPI 200", null)).toBe("KOSPI 200");
+    expect(resolveUniverseDisplayName("000020,000040", "유니버스 언급 없음")).toBeNull();
+    expect(resolveUniverseDisplayName("미정", "유니버스 언급 없음")).toBeNull();
   });
 });

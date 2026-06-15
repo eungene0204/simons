@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { CaretUp, CaretDown } from "phosphor-react";
 import type { MarketSnapshotItem } from "@/types/dashboard";
 
@@ -29,6 +30,7 @@ function formatValue(value: number, symbol: string): string {
 }
 
 export default function MarketSnapshot() {
+  const pathname = usePathname();
   const [items, setItems] = useState<MarketSnapshotItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
@@ -61,10 +63,18 @@ export default function MarketSnapshot() {
   };
 
   useEffect(() => {
+    if (pathname === "/dashboard") {
+      return;
+    }
+
     fetchData();
     const id = setInterval(fetchData, 30000);
     return () => clearInterval(id);
-  }, []);
+  }, [pathname]);
+
+  if (pathname === "/dashboard") {
+    return null;
+  }
 
   if (loading) {
     return (

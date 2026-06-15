@@ -125,6 +125,33 @@ describe("POST /api/backtest/history (legacy, 비인증)", () => {
     expect(mockCreate).toHaveBeenCalledOnce();
     expect(mockCreate.mock.calls[0][0].data.result).toBe(JSON.stringify(result));
   });
+
+  it("새 레코드 생성 시 프롬프트 원문을 스냅샷으로 함께 저장한다", async () => {
+    mockCreate.mockResolvedValue({
+      id: "hist-3",
+      strategyName: "전략",
+      prompt: "KOSPI 골든크로스 매수 전략",
+      universe: "KOSPI",
+      conditions: "{}",
+      metrics: "{}",
+      result: null,
+      createdAt: new Date("2026-04-06T00:00:00Z"),
+    });
+
+    const response = await POST(
+      makeRequest({
+        strategyName: "전략",
+        prompt: "KOSPI 골든크로스 매수 전략",
+        universe: "KOSPI",
+        conditions: {},
+        metrics: {},
+        isAutoSave: true,
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockCreate.mock.calls[0][0].data.prompt).toBe("KOSPI 골든크로스 매수 전략");
+  });
 });
 
 describe("POST /api/backtest/history (로그인 사용자)", () => {

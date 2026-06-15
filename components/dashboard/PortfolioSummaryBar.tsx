@@ -12,6 +12,12 @@ function formatKRW(v: number): string {
   return `${sign}${abs.toLocaleString("ko-KR")}`;
 }
 
+function profitColorClass(value: number): string {
+  if (value > 0) return "text-[var(--main-red)]";
+  if (value < 0) return "text-[var(--main-blue)]";
+  return "text-white";
+}
+
 function Badge({ value, isPositive }: { value: string; isPositive: boolean }) {
   return (
     <span
@@ -35,12 +41,13 @@ export default function PortfolioSummaryBar({ initialStats }: { initialStats: Po
   const [stats] = useState<PortfolioStats>(initialStats);
   const loading = false;
 
-  const isPositive = stats.totalProfit >= 0;
-  const isDailyPos = stats.dailyPnl >= 0;
+  const isPositive = stats.totalProfit > 0;
+  const isDailyPos = stats.dailyPnl > 0;
 
   const cards = [
     {
       label: "총 투자금",
+      description: "전체 가상계좌에 설정된 초기 투자금 합계입니다.",
       icon: Wallet,
       value: `${formatKRW(stats.totalInvested)}원`,
       valueColor: "text-white",
@@ -50,27 +57,30 @@ export default function PortfolioSummaryBar({ initialStats }: { initialStats: Po
     },
     {
       label: "전체 수익률",
+      description: "총 수익금을 총 투자금으로 나눈 전체 평가 수익률입니다.",
       icon: TrendUp,
       value: `${isPositive ? "+" : ""}${stats.totalReturnPct.toFixed(2)}%`,
-      valueColor: isPositive ? "text-[var(--main-red)]" : "text-[var(--main-blue)]",
+      valueColor: profitColorClass(stats.totalReturnPct),
       badge: "",
       badgeIsPositive: isPositive,
       badgeIsNeutral: true,
     },
     {
       label: "총 수익금",
+      description: "현재 현금과 보유 포지션 평가액을 합산한 뒤 총 투자금을 뺀 평가손익입니다.",
       icon: CurrencyKrw,
       value: `${isPositive ? "+" : ""}${formatKRW(stats.totalProfit)}원`,
-      valueColor: isPositive ? "text-[var(--main-red)]" : "text-[var(--main-blue)]",
+      valueColor: profitColorClass(stats.totalProfit),
       badge: "",
       badgeIsPositive: isPositive,
       badgeIsNeutral: true,
     },
     {
       label: "일간 손익",
+      description: "오늘 매도 체결로 확정된 실현손익 합계입니다.",
       icon: CalendarBlank,
       value: `${isDailyPos && stats.dailyPnl !== 0 ? "+" : ""}${formatKRW(stats.dailyPnl)}원`,
-      valueColor: isDailyPos ? "text-[var(--main-red)]" : "text-[var(--main-blue)]",
+      valueColor: profitColorClass(stats.dailyPnl),
       badge: "오늘",
       badgeIsPositive: isDailyPos,
       badgeIsNeutral: true,
@@ -92,7 +102,19 @@ export default function PortfolioSummaryBar({ initialStats }: { initialStats: Po
                   <Icon size={18} weight="bold" className="text-gray-500" />
                   <span className="text-sm font-bold text-gray-500">{card.label}</span>
                 </div>
-                <Info size={16} className="text-gray-600" />
+                <span
+                  className="group relative inline-flex h-5 w-5 items-center justify-center rounded-full text-gray-600 transition-colors hover:text-gray-300 focus-visible:text-gray-300"
+                  tabIndex={0}
+                  aria-label={`${card.label} 설명`}
+                >
+                  <Info size={16} />
+                  <span
+                    role="tooltip"
+                    className="pointer-events-none absolute right-0 top-7 z-20 w-64 rounded-md border border-white/[0.08] bg-[#111111] px-3 py-2 text-left text-[11px] font-bold leading-relaxed text-gray-300 opacity-0 shadow-xl shadow-black/40 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100"
+                  >
+                    {card.description}
+                  </span>
+                </span>
               </div>
 
               {/* Bottom row: value + badge */}

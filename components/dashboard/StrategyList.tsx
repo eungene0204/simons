@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import type { StrategyListData, StrategyListItem } from "@/app/api/dashboard/strategy-list/route";
+import { useRouter } from "next/navigation";
+import type { StrategyListData } from "@/app/api/dashboard/strategy-list/route";
+import type { BacktestHistoryItem } from "@/types/strategy";
 
 function formatKRW(v: number): string {
   const abs = Math.abs(v);
@@ -15,44 +17,58 @@ function fmtPct(v: number): string {
   return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
 }
 
-function ScoreBadge({ score }: { score: number | null }) {
-  if (score == null) return <span className="text-xs text-gray-600">-</span>;
-  const color =
-    score >= 80 ? "text-emerald-400" :
-    score >= 60 ? "text-blue-400" :
-    score >= 40 ? "text-amber-400" :
-    "text-red-400";
-  return (
-    <span className={`text-sm font-black tabular-nums font-outfit ${color}`}>
-      {score.toFixed(0)}
-    </span>
-  );
+function normalizeName(value: string): string {
+  return value.trim().toLowerCase();
 }
 
 export default function StrategyList({ initialData }: { initialData: StrategyListData }) {
+  const router = useRouter();
   const [data] = useState<StrategyListData>(initialData);
   const loading = false;
 
   const strategies = data?.strategies ?? [];
+
+  const openLatestBacktest = async (strategy: StrategyListData["strategies"][number]) => {
+    try {
+      const response = await fetch("/api/backtest/history");
+      if (!response.ok) {
+        router.push("/backtest");
+        return;
+      }
+
+      const history = (await response.json()) as Array<BacktestHistoryItem & { strategyId?: string | null }>;
+      const matched =
+        history.find((item) => item.strategyId === strategy.id) ??
+        history.find((item) => normalizeName(item.strategyName) === normalizeName(strategy.name));
+
+      router.push(matched ? `/backtest/${matched.id}` : "/backtest");
+    } catch {
+      router.push("/backtest");
+    }
+  };
 
   return (
     <div className="flat-card p-5 h-full">
       {/* 헤더 */}
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit">
+          <h2 className="text-base font-black uppercase tracking-widest text-gray-400 font-outfit">
             전략 목록
           </h2>
           <p className="text-xs text-gray-500 mt-0.5">계좌 연결 전략별 수익 현황</p>
         </div>
-        <button className="text-xs font-bold text-indigo-400 hover:text-indigo-300 transition-colors">
+        <button
+          type="button"
+          onClick={() => router.push("/backtest")}
+          className="text-xs font-bold text-indigo-400 hover:text-indigo-300 transition-colors"
+        >
           전체 보기
         </button>
       </div>
 
       {/* 테이블 헤더 */}
-      <div className="grid grid-cols-[minmax(0,1fr)_80px_120px_110px] gap-2 px-2 mb-2">
-        {["전략명", "점수", "평균 수익률", "총 수익금"].map((h) => (
+      <div className="grid grid-cols-[minmax(0,1fr)_120px_110px] gap-2 px-2 mb-2">
+        {["전략명", "평균 수익률", "총 수익금"].map((h) => (
           <span key={h} className="text-xs font-bold uppercase tracking-widest text-gray-500">
             {h}
           </span>
@@ -80,19 +96,16 @@ export default function StrategyList({ initialData }: { initialData: StrategyLis
       ) : (
         <div className="divide-y divide-white/[0.04] overflow-y-auto max-h-64 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent">
           {strategies.map((s) => (
-            <div
+            <button
               key={s.id}
-              className="grid grid-cols-[minmax(0,1fr)_80px_120px_110px] gap-2 items-center px-2 py-3 hover:bg-white/[0.02] rounded-xl transition-colors cursor-pointer"
+              type="button"
+              onClick={() => void openLatestBacktest(s)}
+              className="grid w-full grid-cols-[minmax(0,1fr)_120px_110px] gap-2 items-center px-2 py-3 text-left hover:bg-white/[0.02] rounded-xl transition-colors cursor-pointer"
             >
               {/* 전략명 */}
               <div className="min-w-0">
                 <p className="text-base font-bold text-white truncate">{s.name}</p>
                 <p className="text-xs text-gray-600 mt-0.5">{s.accountCount}개 계좌</p>
-              </div>
-
-              {/* 점수 */}
-              <div>
-                <ScoreBadge score={s.aiScore} />
               </div>
 
               {/* 평균 수익률 */}
@@ -108,7 +121,7 @@ export default function StrategyList({ initialData }: { initialData: StrategyLis
               >
                 {formatKRW(s.totalProfit)}원
               </span>
-            </div>
+            </button>
           ))}
         </div>
       )}

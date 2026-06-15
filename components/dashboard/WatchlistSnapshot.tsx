@@ -38,7 +38,7 @@ export default function WatchlistSnapshot() {
     <div>
       <div className="flex items-center justify-between px-5 pt-4 mb-4">
         <div className="flex items-center gap-2">
-          <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit">
+          <h2 className="text-base font-black uppercase tracking-widest text-gray-400 font-outfit">
             관심 종목
           </h2>
         </div>

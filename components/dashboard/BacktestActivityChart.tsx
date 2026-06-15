@@ -41,7 +41,7 @@ export default function BacktestActivityChart({ initialRecords }: { initialRecor
     <div className="flat-card p-5 h-full flex flex-col">
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit">
+          <h2 className="text-base font-black uppercase tracking-widest text-gray-400 font-outfit">
             백테스트 활동
           </h2>
           <p className="text-xs text-gray-500 mt-0.5">최근 7일 실행 횟수</p>

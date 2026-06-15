@@ -158,7 +158,7 @@ export default function AccountProfitChart({ initialData }: { initialData: Accou
       {/* Header */}
       <div className="flex items-start justify-between mb-4">
         <div>
-          <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit">
+          <h2 className="text-base font-black uppercase tracking-widest text-gray-400 font-outfit">
             계좌별 수익률
           </h2>
           <p className="text-xs text-gray-500 mt-0.5">누적 실현 수익률 변화</p>

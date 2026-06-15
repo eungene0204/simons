@@ -11,7 +11,7 @@ import {
   inferBacktestOptionsFromResult,
   normalizeLegacyBreakoutStrategy,
 } from "@/components/strategy/legacyBreakout";
-import { buildStrategySummaryFromDsl } from "@/lib/strategy-summary";
+import { buildStrategySummaryFromDsl, resolveStrategyPrompt } from "@/lib/strategy-summary";
 
 function mapBacktestResponse(raw: any): BacktestResult {
   const equity: number[] = raw.equity ?? [];
@@ -119,13 +119,7 @@ function StrategyResultContent() {
         const rawSettings = data.settings;
         const normalizedSettings = rawSettings ? normalizeLegacyBreakoutStrategy(rawSettings) : null;
         const options = inferBacktestOptionsFromResult(data.backtestResult);
-        const settingsPrompt =
-          typeof normalizedSettings?.description === "string"
-            ? normalizedSettings.description.trim()
-            : "";
-        const fallbackPrompt =
-          typeof data.description === "string" ? data.description.trim() : "";
-        const sourcePrompt = settingsPrompt || fallbackPrompt;
+        const sourcePrompt = resolveStrategyPrompt(normalizedSettings, data.description);
 
         setBacktestDsl(normalizedSettings);
         setCurrentOptions(options);

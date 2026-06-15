@@ -43,7 +43,7 @@ export default function RecentBacktestList({ initialRecords }: { initialRecords:
       {/* 헤더 */}
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit">
+          <h2 className="text-base font-black uppercase tracking-widest text-gray-400 font-outfit">
             최근 백테스트
           </h2>
           <p className="text-xs text-gray-500 mt-0.5">최근 8개 실행 결과</p>
