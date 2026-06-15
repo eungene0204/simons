@@ -1,6 +1,14 @@
 "use client";
 
-import { ReactNode, useState, useEffect, createContext, useContext, memo } from "react";
+import {
+  ReactNode,
+  useState,
+  useEffect,
+  createContext,
+  useContext,
+  memo,
+} from "react";
+import { usePathname } from "next/navigation";
 import { useDrawer } from "@/contexts/DrawerContext";
 import TopMenuBar from "./TopMenuBar";
 
@@ -32,11 +40,22 @@ const DashboardLayoutContent = memo(function DashboardLayoutContent({
   userName: string;
   subHeader?: ReactNode;
 }) {
+  const pathname = usePathname();
   const { drawerType } = useDrawer();
   const [drawerWidthPx, setDrawerWidthPx] = useState(0);
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [selectedStockName, setSelectedStockName] = useState<string | null>(null);
   const [topMenuBarHeight, setTopMenuBarHeight] = useState(76);
+  const dashboardFillClass = [
+    "min-h-[calc(100vh-var(--top-menu-bar-height,76px))]",
+    "[&>*]:min-h-[inherit]",
+    "[&>*]:flex",
+    "[&>*]:flex-col",
+    "[&>*>*]:flex-1",
+    "[&>*>*]:flex",
+    "[&>*>*]:flex-col",
+    "[&>*>*>:last-child]:flex-1",
+  ].join(" ");
 
   // 드로어 너비 계산 (20vw, 최소 300px, 최대 400px)
   useEffect(() => {
@@ -102,7 +121,7 @@ const DashboardLayoutContent = memo(function DashboardLayoutContent({
             paddingTop: `${topMenuBarHeight}px`,
           }}
         >
-          <div className="relative">
+          <div className={`relative ${pathname === "/dashboard" ? dashboardFillClass : ""}`}>
             {children}
           </div>
           
