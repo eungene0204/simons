@@ -47,10 +47,16 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      OLLAMA_HOST: http://host.docker.internal:11434   # 호스트의 Ollama(9B/GPU)
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}  # Modal LLM 엔드포인트(.env에서 지정)
       KMP_DUPLICATE_LIB_OK: "TRUE"                      # ↓ 기동 데드락 가드(필수)
       OMP_NUM_THREADS: "1"
       POLARS_MAX_THREADS: "1"
+      # news_v2 — main.py가 startup에서 스케줄러+celery 워커 서브프로세스를 직접 spawn한다.
+      # 컨테이너 호스트명으로 redis/postgres에 연결(없으면 localhost로 붙어 실패).
+      NEWSV2_ENABLED: "true"
+      NEWSV2_REDIS_URL: redis://redis:6379/1
+      NEWSV2_CELERY_BROKER: redis://redis:6379/2
+      NEWSV2_DB_URL: postgresql+asyncpg://simons:${NEWSV2_PG_PASSWORD:-simons}@postgres:5432/simons_news
     extra_hosts:
       - "host.docker.internal:host-gateway"            # 컨테이너→호스트 Ollama 접근
     volumes:
@@ -58,6 +64,8 @@ services:
       - ./data:/app/data                               # 9GB parquet/json + chroma
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     working_dir: /app/backend
     command: uvicorn main:app --host 0.0.0.0 --port 8000
@@ -86,42 +94,10 @@ services:
     working_dir: /app
     command: python3 scripts/scheduler.py
 
-  news-worker:                    # 뉴스 수집/분석 Celery 워커
-    image: simons-app:latest
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      NEWSV2_ENABLED: "true"
-      NEWSV2_REDIS_URL: redis://redis:6379/1
-      NEWSV2_CELERY_BROKER: redis://redis:6379/2
-      NEWSV2_DB_URL: postgresql+asyncpg://simons:${NEWSV2_PG_PASSWORD:-simons}@postgres:5432/simons_news
-    depends_on:
-      redis:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-    working_dir: /app/backend
-    command: >
-      celery -A news_v2.celery_app.celery_app worker
-      -Q news.collect.high,news.collect.default,news.analyze,news.maintenance
-      --concurrency=4 --loglevel=INFO
-
-  news-scheduler:                 # 뉴스 주기 작업 비트
-    image: simons-app:latest
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      NEWSV2_ENABLED: "true"
-      NEWSV2_REDIS_URL: redis://redis:6379/1
-      NEWSV2_CELERY_BROKER: redis://redis:6379/2
-      NEWSV2_DB_URL: postgresql+asyncpg://simons:${NEWSV2_PG_PASSWORD:-simons}@postgres:5432/simons_news
-    depends_on:
-      redis:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-    working_dir: /app/backend
-    command: python3 -m news_v2.scheduler
+  # 참고: 뉴스 celery 워커 + 스케줄러는 backend가 startup에서 직접 spawn한다
+  # (news_v2/scheduler.py start_scheduler → APScheduler + celery worker 서브프로세스).
+  # 따라서 별도 news-worker/news-scheduler 서비스는 중복(이중 디스패치+RAM 낭비)이라 제거했다.
+  # 워커를 분리하려면 backend의 NEWSV2_ENABLED를 false로 두고 아래 두 서비스를 되살린다.
 
   # ───────────────── 리버스 프록시 + 자동 TLS ─────────────────
   caddy:

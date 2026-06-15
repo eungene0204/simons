@@ -19,10 +19,11 @@ numpy==2.4.4
 stockstats==0.6.8        # engine/indicators.py
 pykrx==1.2.8             # engine/data_fetcher.py
 httpx==0.28.1            # news providers
-torch==2.12.0            # ai/ai_engine.py, ai/models.py (AIEngine 기동 시 로드)
+torch==2.12.0            # ai/ai_engine.py, ai/models.py — 앱박스는 GPU 없음. Dockerfile이 CPU 휠로 선설치(2.12.0+cpu)
 xgboost==3.2.0           # ai/ai_engine.py
 joblib==1.5.3            # ai/ai_engine.py 모델 로드
 shap==0.51.0             # ai/xai_engine.py (XAI 설명)
+chromadb==1.5.9          # advisor/vector_memory.py — 코치 RAG 메모리(Chroma 벡터스토어)
 
 # NL 전략 생성 — Ollama 백엔드(배포 기본값) deps. engine/nl_parser.py _init_ollama가
 # instructor.from_openai로 Ollama의 OpenAI 호환 엔드포인트(/v1) 호출. 없으면 전략 생성 비활성.

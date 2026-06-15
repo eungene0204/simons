@@ -21,6 +21,15 @@ WORKDIR /app
 
 # ---------- Python 의존성 (레이어 캐시를 위해 코드보다 먼저) ----------
 COPY backend/requirements.txt backend/requirements-news-v2.txt ./backend/
+# torch는 GPU 없는 앱박스용 CPU 휠로 설치(GPU는 Modal에만).
+# amd64(배포 타깃): PyPI 기본 torch는 ~2.5GB CUDA 빌드라 낭비 → +cpu 휠 선설치.
+#   이후 requirements의 torch==2.12.0이 2.12.0+cpu로 충족되어 재설치 안 됨.
+# arm64 linux: PyPI torch가 이미 CPU-only(+cpu 휠 없음) → 건너뛰고 requirements가 설치.
+ARG TARGETARCH
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+        pip3 install --no-cache-dir --break-system-packages \
+            torch==2.12.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu ; \
+    fi
 RUN pip3 install --no-cache-dir --break-system-packages \
         -r backend/requirements.txt -r backend/requirements-news-v2.txt
 
