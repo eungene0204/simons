@@ -38,6 +38,13 @@ RUN npm ci
 # ---------- 앱 코드 ----------
 COPY . .
 
+# NEXT_PUBLIC_* 는 next build 시점에 클라이언트 번들로 인라인된다(런타임 env로는 주입 불가).
+# Supabase 브라우저 클라이언트(구글 로그인)용 공개 키 → 빌드 인자로 받아 build 동안 노출.
+ARG NEXT_PUBLIC_SUPABASE_URL
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
+ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL \
+    NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
+
 # Prisma 클라이언트 생성 + Next 프로덕션 빌드
 RUN npx prisma generate && npm run build
 

@@ -42,7 +42,11 @@ services:
 
   # ───────────────── 메인 앱 (합본 이미지 공유) ─────────────────
   backend:                        # FastAPI + VirtualTrader (인프로세스 자동매매)
-    build: .                      # 합본 이미지를 여기서 1회 빌드
+    build:                        # 합본 이미지를 여기서 1회 빌드
+      context: .
+      args:                       # NEXT_PUBLIC_* 는 build 시점에 번들로 인라인됨(.env에서 주입)
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
     image: simons-app:latest
     restart: unless-stopped
     env_file: .env
