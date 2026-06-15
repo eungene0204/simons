@@ -1,0 +1,77 @@
+name: CI/CD
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:   # 수동 재배포용
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm ci
+      - run: npx prisma generate          # lint/vitest가 @prisma/client 타입 필요
+      - run: npm run lint
+      - run: npm run test:frontend
+
+  backend:
+    runs-on: ubuntu-latest
+    env:                                   # polars/torch 데드락·중복 OpenMP 가드 (起動 데드락 회피)
+      KMP_DUPLICATE_LIB_OK: 'TRUE'
+      OMP_NUM_THREADS: '1'
+      POLARS_MAX_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install deps (torch CPU wheel first, Dockerfile와 동일 전략)
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch==2.12.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
+          pip install -r backend/requirements.txt -r backend/requirements-news-v2.txt
+      - name: Run safe test subset (CLAUDE.md 문서화 명령)
+        working-directory: backend
+        run: |
+          pytest tests/ \
+            --ignore=tests/test_backtest_engine.py \
+            --ignore=tests/test_engine_ai.py \
+            --ignore=tests/test_ai_sell.py \
+            --ignore=tests/test_api_isolation.py \
+            -q
+
+  deploy:
+    needs: [frontend, backend]
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.ref == 'refs/heads/main'
+    concurrency:
+      group: deploy-vultr           # 배포 중첩 방지
+      cancel-in-progress: false
+    steps:
+      - name: Deploy to Vultr box over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VULTR_SSH_HOST }}
+          username: ${{ secrets.VULTR_SSH_USER }}
+          key: ${{ secrets.VULTR_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd /opt/simons
+            git fetch origin main
+            git reset --hard origin/main      # 박스 로컬 드리프트 무시, main과 정합
+            docker compose build
+            docker compose up -d
+            docker compose ps
