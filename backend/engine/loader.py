@@ -50,8 +50,13 @@ class DataLoader:
         """Clear the in-memory data cache."""
         self._cache.clear()
 
-    def preprocess_data(self, df_pl: pl.DataFrame) -> pd.DataFrame:
-        """OHLCV basic alignment and adjusting prices if needed."""
+    def preprocess_data(self, df_pl: pl.DataFrame, apply_dividends: bool = False) -> pd.DataFrame:
+        """OHLCV basic alignment and adjusting prices if needed.
+
+        ``apply_dividends`` opt-in: when a ``dividends`` column is present, fold
+        reinvested cash dividends into the OHLC series (total-return). No-op when
+        the column is absent, so default behaviour is unchanged.
+        """
         pdf = df_pl.to_pandas()
 
         # 1. Handle Adjustment
@@ -61,6 +66,14 @@ class DataLoader:
             pdf['high'] *= factor
             pdf['low'] *= factor
             pdf['close'] = pdf['adj_close']
+
+        # 1.5 Dividend total-return adjustment (prototype, opt-in & data-driven).
+        if apply_dividends and 'dividends' in pdf.columns:
+            from .dividends import dividend_adjust_factor
+            div_factor = dividend_adjust_factor(pdf['close'], pdf['dividends'])
+            for c in ('open', 'high', 'low', 'close'):
+                if c in pdf.columns:
+                    pdf[c] = pdf[c] * div_factor.to_numpy()
 
         # 2. Robust Price Sanitization (vectorized across all price columns at once)
         price_cols = [c for c in ['open', 'high', 'low', 'close'] if c in pdf.columns]

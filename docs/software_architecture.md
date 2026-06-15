@@ -444,7 +444,12 @@ BacktestEngine.run_backtest(request)
 │   └── DataLoader.load_symbol_data()
 │       ├── data/ohlcv/{symbol}.parquet 읽기 (Polars)
 │       ├── in-memory 캐싱 (_cache dict)
-│       └── 재무 지표 enrichment (ROE, EPS, BPS 병합)
+│       ├── 재무 지표 enrichment (ROE, EPS, BPS 병합)
+│       └── preprocess_data(): 수정주가/오류프린트 정규화
+│           └── 배당 재투자 토탈리턴 보정 (engine/dividends.py) — **기본 ON**(options.total_return,
+│               기본 True; False면 가격리턴 호환). 전략·벤치마크 양쪽 동일 적용(비교 일관성).
+│               dividends 컬럼 없으면 no-op. 컬럼 백필: scripts/backfill_dividends.py
+│               (KIS 예탁원 배당 API, face_val 액면분할 역조정)
 │
 ├── Phase 2: 지표 계산
 │   └── IndicatorEngine.calculate()
@@ -487,6 +492,7 @@ BacktestEngine.run_backtest(request)
 ```
 
 **Simulator 핵심 설계 원칙:**
+- 체결 시점: 기본·권장은 `next_open`(신호 bar 다음날 시가 체결, 룩어헤드 없음). `same_close`는 당일 종가 신호를 당일 종가에 체결하는 비현실적 모드 — 엔진이 결과에 룩어헤드 경고를 자동 첨부(연구용). 독립 엔진(backtrader) 교차검증으로 `next_open` 체결 일치 확인됨
 - 리스크 종료: 당일 close 감지 → `exits_values[i]`에 당일 close 주입 (현실적 일봉 시뮬레이션)
 - 벡터화 Step 순서 고정: **Step1 퇴장처리 → Step2 리스크 평가/주입 → Rebalance(목표 집합 재구성/탈락 매도) → Step3 진입처리**
 - 같은 날 매도+매수(리밸런싱 reconstitution)가 겹칠 때는 부기(active_mask/active_count/peak_price)도 즉시 갱신해야 한다 — 그렇지 않으면 빈 슬롯이 "아직 점유 중"으로 보여 신규 편입이 영구 차단되는 고스트 포지션 버그가 발생한다
@@ -514,6 +520,7 @@ VirtualTrader (비동기 루프, FastAPI 메인 스레드 분리)
 User            — 사용자 계정 (planTier: FREE/PREMIUM)
 Strategy        — 저장된 전략 정의 (id = SHA-256 canonical DSL) → BacktestResult (1:N)
 BacktestHistory — 백테스트 실행 이력 + cache metadata → Strategy (N:1 optional)
+                  (prompt: 원문 프롬프트 스냅샷 — 표시용 SOT, conditions/metrics와 함께 기록에 보존)
 BacktestResult  — 백테스트 결과 → Strategy (N:1), Stock (N:1)
 BatchRun        — 독립형 배치 실행 단위 (run_id, ranking_snapshot, logs)
                 → BatchRunCandidate (1:N)
@@ -853,6 +860,11 @@ SHAP 기반 — 각 예측에 영향을 준 피처와 기여도 반환, 프론�
 | `test_simulator_ranking.py` | Simulator: 모멘텀 랭킹(상위 K 선정) + 달력 기준 리밸런싱 회전 — 순수 리밸런싱(`from_orders`)/리스크 혼재(`from_signals`) 두 라우팅 경로 검증 |
 | `test_rebalance_dates.py` | `compute_rebalance_dates()`: 일/월/분기/년 주기별 리밸런싱일 계산 (vbt 비의존, pandas만) |
 | `test_engine_loader.py` | DataLoader: Parquet 로드, 캐싱 |
+| `test_simulator_validation.py` | 검증 회귀: 핸드칼크·비용 양방향·결정론·next_open 체결·현금 음수 없음·중복 포지션 없음 |
+| `test_reference_engine_crosscheck.py` | 레퍼런스 엔진 교차검증(#13): Simulator vs **backtrader** 진입/청산일·체결가·수량·최종자산 일치(무비용/비용) |
+| `test_lookahead_no_prelisting_trades.py` | bfill 룩어헤드 가드(상장 전 미체결) + same_close 경고 발생 검증 |
+| `test_random_strategy_stress.py` | 랜덤 전략 스트레스(#14): 예외/현금음수/비정상 NAV 없음 (N_STRESS env로 수천 건 확장) |
+| `test_dividends.py` / `test_backfill_dividends.py` | 배당 토탈리턴 보정 + parquet 백필(스텁 provider 라운드트립) |
 | `test_strategy_converter.py` | ParsedStrategy → BacktestRequest 변환 |
 | `test_ai_code_fixes.py` | AI 관련 버그 픽스 회귀 테스트 |
 | `test_news_dedup.py` | 뉴스 중복 제거: Jaccard 유사도·body hash·시간윈도우·intra-batch (22개) |

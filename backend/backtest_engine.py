@@ -87,7 +87,22 @@ class BacktestEngine:
             liquid_limit = float(liquid_limit_raw) if liquid_limit_raw is not None else 10.0
             
             options = req.get('options', {})
-            exec_type = options.get('execution_type', 'next_open') 
+            exec_type = options.get('execution_type', 'next_open')
+            # 배당 재투자(토탈리턴)를 기본값으로 한다 — 가격리턴은 배당을 누락해
+            # 수익을 과소평가하고 배당락을 가짜 손실로 오인한다(검증 #8). 전략과
+            # 벤치마크 양쪽에 동일 적용해 비교 일관성을 유지한다. total_return=False로
+            # 명시하면 과거 호환(가격리턴)으로 되돌릴 수 있다.
+            apply_dividends = bool(options.get('total_return', True))
+
+            # same_close fills a signal derived from bar i's close at that same
+            # close — not realistically tradable (the close is only known once the
+            # market has closed). next_open is the realistic default; warn loudly
+            # when results are produced under the optimistic same_close model.
+            if exec_type == 'same_close':
+                self.warnings.add(
+                    "체결 방식이 'same_close'입니다 — 당일 종가 신호를 당일 종가에 체결하는 "
+                    "비현실적 가정(룩어헤드)입니다. 실거래 판단에는 'next_open' 사용을 권장합니다."
+                )
             
             period_req = (req.get('period') or '5Y').upper()
             start_date_req = req.get('startDate')
@@ -265,7 +280,7 @@ class BacktestEngine:
                         return None
 
                     # 3.5 Preprocessing (Adjusted Prices)
-                    pdf = self.loader.preprocess_data(df_pl)
+                    pdf = self.loader.preprocess_data(df_pl, apply_dividends=apply_dividends)
                     
                     # 3.6 Liquidity Check
                     skip_risk = risk_params.get('skip_risk_management', False)
@@ -386,7 +401,7 @@ class BacktestEngine:
                         if len(df_pl) < 1:
                             return None
 
-                        pdf = self.loader.preprocess_data(df_pl)
+                        pdf = self.loader.preprocess_data(df_pl, apply_dividends=apply_dividends)
                         skip_risk = risk_params.get('skip_risk_management', False)
                         skip_pos = risk_params.get('skip_position_setting', False)
 
@@ -437,10 +452,18 @@ class BacktestEngine:
             
             # Create DataFrames with explicit sorted column list
             raw_price_df = pd.DataFrame(all_prices, columns=processed_symbols).sort_index()
+            # available_df is captured from the RAW (pre-fill) frame, so it is True
+            # only where a real price existed. ffill/bfill below make the price grid
+            # NaN-free for VectorBT, but bfill pulls a symbol's first listing price
+            # *backward* into its pre-listing slots — a potential look-ahead leak.
+            # That leak is neutralised by masking every entry/exit signal AND the
+            # ranking candidate pool with available_df (see &= available_df below and
+            # the ranking blocks): no trade can occur in a back-filled region.
+            # test_lookahead_no_prelisting_trades.py locks this invariant.
             available_df = raw_price_df.notna()
             price_df = raw_price_df
             common_index = price_df.index
-            
+
             price_df = price_df.ffill().bfill()
             exec_px_df = pd.DataFrame(all_exec_prices, index=common_index, columns=processed_symbols).ffill().bfill()
             _raw_ents = pd.DataFrame(all_entries, index=common_index, columns=processed_symbols)
@@ -546,7 +569,7 @@ class BacktestEngine:
             try:
                 _bench_df = self.loader.load_symbol_data(_benchmark_sym)
                 if _bench_df is not None:
-                    _bench_pd = self.loader.preprocess_data(_bench_df)
+                    _bench_pd = self.loader.preprocess_data(_bench_df, apply_dividends=apply_dividends)
                     benchmark_prices = _bench_pd['close'].sort_index()
             except Exception as _be:
                 print(f"[BT-ENGINE] 벤치마크 로드 실패 ({_benchmark_sym}): {_be}", flush=True)
