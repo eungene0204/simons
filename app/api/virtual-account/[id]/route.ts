@@ -118,7 +118,7 @@ export async function GET(
       return NextResponse.json({ error: 'Account not found' }, { status: 404 });
     }
 
-    const symbols = account.VirtualPosition.map((p: any) => p.symbol);
+    const symbols = (account as any).VirtualPosition.map((p: any) => p.symbol);
     const nameMap = await buildNameMap(symbols);
     return NextResponse.json(mapAccount(account, {}, nameMap));
   } catch (error) {

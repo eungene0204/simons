@@ -450,7 +450,7 @@ function formatRunResponse(run: any) {
 function buildAdvisorLearningResults(run: any) {
   const candidates = Array.isArray(run.Candidate)
     ? run.Candidate.map((candidate: any) => {
-        const metrics = parseJsonField(candidate.metrics, null);
+        const metrics = parseJsonField<any>(candidate.metrics, null);
         const sampleId =
           typeof metrics?.sample_id === "string" && metrics.sample_id.trim()
             ? metrics.sample_id.trim()
@@ -471,10 +471,10 @@ function buildAdvisorLearningResults(run: any) {
   return {
     runId: run.id,
     createdAt: run.createdAt,
-    totalResults: candidates.filter((candidate) =>
+    totalResults: candidates.filter((candidate: any) =>
       (candidate.status === "computed" || candidate.status === "cache_hit") && candidate.metrics
     ).length,
-    results: candidates.filter((candidate) =>
+    results: candidates.filter((candidate: any) =>
       (candidate.status === "computed" || candidate.status === "cache_hit") && candidate.metrics
     ),
   };

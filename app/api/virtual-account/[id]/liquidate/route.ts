@@ -36,7 +36,7 @@ export async function POST(
       prisma.virtualPosition.findUnique({
         where: { accountId_symbol: { accountId: params.id, symbol } },
       }),
-      prisma.stock.findUnique({ where: { symbol }, select: { listingStatus: true, currentPrice: true } }),
+      prisma.stock.findUnique({ where: { symbol }, select: { listingStatus: true } }),
     ]);
 
     if (!position) {

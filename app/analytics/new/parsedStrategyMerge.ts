@@ -81,7 +81,7 @@ function extractPercentage(text: string): number | null {
 
 function isRiskFieldSet(parsed: ParsedSummary | null | undefined, field: RiskField): boolean {
   if (!parsed) return false;
-  const value = (parsed as Record<string, unknown>)[field];
+  const value = (parsed as unknown as Record<string, unknown>)[field];
   return typeof value === "number" && Number.isFinite(value);
 }
 
@@ -190,11 +190,11 @@ function mergeParsedSummary(
   };
 
   // 우선순위: 백엔드 결정적 추출(riskOverrides) > 코치 맥락 추론(pendingRiskChange) > 프론트 정규식 게이트.
-  const resolveRisk = (field: "stop_loss_pct" | "take_profit_pct" | "trailing_stop_pct") => {
+  const resolveRisk = (field: "stop_loss_pct" | "take_profit_pct" | "trailing_stop_pct"): number | null => {
     if (hasOverride(riskOverrides, field)) return riskOverrides![field] ?? null;
     const pending = pendingRiskChange?.[field];
     if (pending != null) return pending;
-    return shouldUseRiskField(field) ? (next[field] ?? previous[field]) : previous[field];
+    return (shouldUseRiskField(field) ? (next[field] ?? previous[field]) : previous[field]) ?? null;
   };
 
   return {
