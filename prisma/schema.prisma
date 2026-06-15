@@ -11,6 +11,7 @@ model BacktestHistory {
   id           String   @id @default(cuid())
   strategyId   String?
   strategyName String
+  prompt       String?
   universe     String
   conditions   String
   metrics      String
