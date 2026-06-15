@@ -754,10 +754,11 @@ def summarize_ollama(prompt: str) -> str:
         }
     ).encode()
 
+    from llm_backend import ollama_auth_headers  # Modal proxy-auth (배포 시)
     req = urllib.request.Request(
         OLLAMA_URL,
         data=body,
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", **ollama_auth_headers()},
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=60) as resp:

@@ -13,7 +13,7 @@ import re
 from typing import List, Literal, Optional
 from pydantic import BaseModel, Field
 
-from llm_backend import OLLAMA_BASE_URL
+from llm_backend import OLLAMA_BASE_URL, ollama_auth_headers
 
 
 # ─── 스키마 정의 ──────────────────────────────────────────────────────────────
@@ -453,7 +453,11 @@ class NLStrategyParser:
             raise RuntimeError("pip install instructor openai 필요")
 
         self._client = instructor.from_openai(
-            OpenAI(base_url=f"{OLLAMA_BASE_URL}/v1", api_key="ollama"),
+            OpenAI(
+                base_url=f"{OLLAMA_BASE_URL}/v1",
+                api_key="ollama",
+                default_headers=ollama_auth_headers(),  # Modal proxy-auth (배포 시)
+            ),
             mode=instructor.Mode.JSON,
         )
 
@@ -709,7 +713,7 @@ class NLStrategyParser:
         req = urllib.request.Request(
             f"{OLLAMA_BASE_URL}/api/chat",
             data=body,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", **ollama_auth_headers()},
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=120) as resp:
@@ -743,7 +747,7 @@ class NLStrategyParser:
         req = urllib.request.Request(
             f"{OLLAMA_BASE_URL}/api/chat",
             data=body,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", **ollama_auth_headers()},
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=120) as resp:

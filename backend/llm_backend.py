@@ -23,6 +23,20 @@ Backend = Literal["mlx", "ollama"]
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
 
 
+def ollama_auth_headers() -> dict[str, str]:
+    """Ollama 요청에 실을 인증 헤더.
+
+    배포 시 Ollama를 Modal serverless GPU(requires_proxy_auth=True)로 빼면 모든
+    요청에 Modal proxy-auth 헤더가 필요하다. MODAL_KEY/MODAL_SECRET 가 설정돼 있으면
+    헤더를 반환하고, 없으면(로컬 Ollama·MLX) 빈 dict → 기존 동작 그대로.
+    """
+    key = os.environ.get("MODAL_KEY")
+    secret = os.environ.get("MODAL_SECRET")
+    if key and secret:
+        return {"Modal-Key": key, "Modal-Secret": secret}
+    return {}
+
+
 def mlx_available() -> bool:
     """현재 프로세스에서 MLX 추론이 가능한지 판단한다 (Apple Silicon + mlx_lm 설치)."""
     if platform.system() != "Darwin":
