@@ -127,3 +127,18 @@ def download_model() -> None:
     proc = _start_ollama_and_pull()
     print(f"✅ {MODEL} 볼륨 캐시 완료")
     proc.terminate()
+
+
+@app.function(
+    image=image,                       # GPU 불필요 — ollama rm은 파일 작업
+    volumes={VOLUME_PATH: model_volume},
+    timeout=10 * 60,
+)
+def remove_model(name: str) -> None:
+    """볼륨에서 모델 삭제.  실행: modal run modal_ollama.py::remove_model --name qwen3:8b"""
+    proc = subprocess.Popen(["ollama", "serve"])
+    _wait_until_ready()
+    subprocess.run(["ollama", "rm", name], check=True)
+    model_volume.commit()
+    proc.terminate()
+    print(f"✅ removed {name}")
