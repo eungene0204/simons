@@ -204,6 +204,8 @@ export interface BacktestHistoryItem {
   id: string;
   timestamp: number;
   strategyName: string;
+  // 원천 Strategy에서 해석한 원문 프롬프트(상세 조회 API에서만 채워짐)
+  prompt?: string;
   universe: string;
   conditions: string[] | {
     names?: string[];

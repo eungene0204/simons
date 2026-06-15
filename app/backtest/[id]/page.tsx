@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft } from "phosphor-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import BacktestDashboard from "@/components/strategy/backtest/BacktestDashboard";
+import { buildHistorySummary } from "@/lib/backtest-history";
 import { BacktestHistoryItem } from "@/types/strategy";
 
 export default function BacktestDetailPage() {
@@ -79,7 +80,11 @@ export default function BacktestDetailPage() {
     );
   }
 
-  const conds = item.conditions as any;
+  const strategySummary = buildHistorySummary({
+    conditions: item.conditions,
+    universeName: item.universe,
+    strategyName: item.strategyName,
+  });
 
   return (
     <DashboardLayout userName="">
@@ -88,7 +93,7 @@ export default function BacktestDetailPage() {
           result={item.result}
           onRestart={() => router.push("/analytics/new")}
           disableHistorySave={true}
-          promptText={item.strategyName}
+          promptText={item.prompt || item.strategyName}
           aiSummary={item.metrics.aiSummary}
           aiScore={item.metrics.aiScore}
           aiStrengths={item.metrics.aiStrengths}
@@ -97,17 +102,7 @@ export default function BacktestDetailPage() {
           advisorScore={item.metrics.advisorScore}
           riskScore={item.metrics.riskScore}
           overfitRisk={item.metrics.overfitRisk}
-          strategySummary={{
-            universeName: item.universe,
-            blockNames: conds?.entry?.names || conds?.names || [],
-            strategyName: item.strategyName,
-            entryLogic: conds?.entry?.logic,
-            exitLogic: conds?.exit?.logic,
-            entryBlocks: conds?.entry?.names || conds?.names || [],
-            exitBlocks: conds?.exit?.names || [],
-            positionText: conds?.position,
-            riskText: conds?.risk,
-          }}
+          strategySummary={{ ...strategySummary, universeName: strategySummary.universeName ?? "", strategyName: strategySummary.strategyName ?? "" }}
         />
       </div>
     </DashboardLayout>

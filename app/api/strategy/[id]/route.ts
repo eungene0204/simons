@@ -5,6 +5,7 @@ import {
   isUnauthorizedAccessError,
   withOwnership,
 } from "@/lib/get-user";
+import { buildHistorySummary, historySummaryHasContent } from "@/lib/backtest-history";
 
 function parseJsonField(value: string | null | undefined, fallback: any) {
   if (!value) return fallback;
@@ -15,40 +16,19 @@ function parseJsonField(value: string | null | undefined, fallback: any) {
   }
 }
 
-function hasUsableHistoryConditions(conditions: any) {
-  if (!conditions || typeof conditions !== "object") return false;
-  const entryNames = conditions.entry?.names;
-  const exitNames = conditions.exit?.names;
-  const entryConditions = conditions.entry?.conditions;
-  const exitConditions = conditions.exit?.conditions;
-
-  return (
-    (Array.isArray(entryNames) && entryNames.length > 0) ||
-    (Array.isArray(exitNames) && exitNames.length > 0) ||
-    (Array.isArray(entryConditions) && entryConditions.length > 0) ||
-    (Array.isArray(exitConditions) && exitConditions.length > 0) ||
-    Boolean(conditions.position) ||
-    Boolean(conditions.risk)
-  );
-}
-
 function historyToSummary(history: any) {
   if (!history) return null;
   const conditions = parseJsonField(history.conditions, {});
-  if (!hasUsableHistoryConditions(conditions)) return null;
-
-  return {
-    id: history.id,
-    strategyName: history.strategyName,
-    universeName: history.universe,
-    entryLogic: conditions.entry?.logic ?? "AND",
-    exitLogic: conditions.exit?.logic ?? "AND",
-    entryBlocks: conditions.entry?.names ?? [],
-    exitBlocks: conditions.exit?.names ?? [],
-    positionText: conditions.position,
-    riskText: conditions.risk,
+  const summary = buildHistorySummary({
     conditions,
-  };
+    universeName: history.universe,
+    strategyName: history.strategyName,
+  });
+  // 표시용 배지를 만들지 못하는 행(raw DSL conditions만 가진 save-with-backtest 행 등)은
+  // SOT로 채택하지 않고 다음 후보(표시용 names를 가진 auto-save 행)로 넘긴다.
+  if (!historySummaryHasContent(summary)) return null;
+
+  return { id: history.id, ...summary, conditions };
 }
 
 async function findBacktestHistorySummary(strategy: any, strategyId: string, userId: number | null) {

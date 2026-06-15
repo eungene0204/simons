@@ -59,7 +59,7 @@ export async function POST(request: Request) {
   try {
     const { userId } = await getOwnershipContext();
     const body = await request.json();
-    const { strategyName, universe, conditions, metrics, result, cacheKey, isAutoSave } = body;
+    const { strategyName, prompt, universe, conditions, metrics, result, cacheKey, isAutoSave } = body;
 
     let saved: any = null;
 
@@ -76,6 +76,8 @@ export async function POST(request: Request) {
           data: {
             // 자동 저장 시 기존에 사용자가 지정한 이름이 있으면 유지
             strategyName: isAutoSave && existing.strategyName ? existing.strategyName : strategyName,
+            // 프롬프트 스냅샷은 비어 있을 때만 보완(기존 값 보존)
+            prompt: existing.prompt ?? (prompt || null),
             universe,
             conditions: JSON.stringify(conditions),
             metrics: JSON.stringify(metrics),
@@ -92,6 +94,7 @@ export async function POST(request: Request) {
       saved = await prisma.backtestHistory.create({
         data: {
           strategyName,
+          prompt: prompt || null,
           universe,
           conditions: JSON.stringify(conditions),
           metrics: JSON.stringify(metrics),

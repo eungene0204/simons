@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { BacktestHistoryItem } from "@/types/strategy";
+import { resolveUniverseDisplayName } from "@/lib/strategy-summary";
 import {
   Clock,
   Trash,
@@ -171,12 +172,16 @@ export default function BacktestHistoryPage() {
                       <span className="text-base font-black text-white">{item.strategyName}</span>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <span
-                        className={strategyBadgeClass}
-                      >
-                        <span className="font-black text-white mr-1">유니버스</span>
-                        <span className="font-bold text-[#FF9933]">{item.universe}</span>
-                      </span>
+                      {(() => {
+                        const universeLabel = resolveUniverseDisplayName(item.universe, item.strategyName);
+                        if (!universeLabel) return null;
+                        return (
+                          <span className={strategyBadgeClass}>
+                            <span className="font-black text-white mr-1">유니버스</span>
+                            <span className="font-bold text-[#FF9933]">{universeLabel}</span>
+                          </span>
+                        );
+                      })()}
 
                       {(() => {
                         const conds = item.conditions as any;

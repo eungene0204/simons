@@ -264,7 +264,7 @@ export interface StrategySummaryDisplay {
   riskText?: string | null;
 }
 
-function isRawSymbolUniverseName(value: string): boolean {
+export function isRawSymbolUniverseName(value: string): boolean {
   const tokens = value.split(/[,\s]+/).map((token) => token.trim()).filter(Boolean);
   return tokens.length > 0 && tokens.every((token) => /^\d{6}$/.test(token));
 }
@@ -320,28 +320,53 @@ function conditionToEntryLabel(condition: {
   return getIndicatorLabel(metric);
 }
 
+// 서술형 텍스트(프롬프트/설명)에서 유니버스 라벨을 추론한다. 키워드가 없으면 null.
+// 전략 프롬프트(원문 자연어)를 결정하는 단일 로직.
+// settings.description(파싱 시 보존된 원문)을 우선하고, 없으면 Strategy.description으로 폴백한다.
+// /analytics/[id]와 /backtest/[id]가 같은 경로·같은 로직으로 프롬프트 SOT를 공유하도록 통일.
+export function resolveStrategyPrompt(
+  settings: { description?: unknown } | null | undefined,
+  description?: string | null
+): string {
+  const fromSettings =
+    typeof settings?.description === "string" ? settings.description.trim() : "";
+  const fromDescription = typeof description === "string" ? description.trim() : "";
+  return fromSettings || fromDescription;
+}
+
+export function inferUniverseFromText(text: string | null | undefined): string | null {
+  const normalized = (text ?? "").toUpperCase().replace(/\s+/g, "");
+  if (!normalized) return null;
+  if (normalized.includes("KOSPI200")) return "KOSPI 200";
+  if (normalized.includes("KOSDAQ150")) return "KOSDAQ 150";
+  if (normalized.includes("KOSDAQ")) return "KOSDAQ";
+  if (normalized.includes("KOSPI")) return "KOSPI";
+  return null;
+}
+
+// 표시용 유니버스명을 만든다. 실제 라벨이면 그대로, 심볼 CSV/"미정"이면 컨텍스트에서 라벨을 추론한다.
+// 라벨을 만들 수 없으면 null(배지 숨김).
+export function resolveUniverseDisplayName(
+  universeName: string | null | undefined,
+  contextText?: string | null
+): string | null {
+  const trimmed = universeName?.trim();
+  if (trimmed && trimmed !== "미정" && !isRawSymbolUniverseName(trimmed)) {
+    return trimmed;
+  }
+  return inferUniverseFromText(contextText);
+}
+
 function inferUniverseFromLegacyStrategy(strategy: StrategyDSL | null | undefined): string {
   if (!strategy) return "미정";
 
   const legacyStrategy = strategy as StrategyDSL & {
     symbols?: string[];
   };
-  const description = strategy.description ?? "";
-  const normalizedDescription = description.toUpperCase().replace(/\s+/g, "");
-  const symbolCount = legacyStrategy.symbols?.length ?? 0;
+  const fromText = inferUniverseFromText(strategy.description);
+  if (fromText) return fromText;
 
-  if (normalizedDescription.includes("KOSPI200")) {
-    return "KOSPI 200";
-  }
-  if (normalizedDescription.includes("KOSDAQ150")) {
-    return "KOSDAQ 150";
-  }
-  if (normalizedDescription.includes("KOSDAQ")) {
-    return "KOSDAQ";
-  }
-  if (normalizedDescription.includes("KOSPI")) {
-    return "KOSPI";
-  }
+  const symbolCount = legacyStrategy.symbols?.length ?? 0;
   if (symbolCount >= 180 && symbolCount <= 260) {
     return "KOSPI 200";
   }
@@ -368,9 +393,11 @@ export function buildStrategySummaryFromDsl(strategy: StrategyDSL | null | undef
   const normalizedUniverse =
     (rawUniverse ? UNIVERSE_LABELS[rawUniverse] : undefined) ??
     UNIVERSE_LABELS[normalizeUniverseId(rawUniverse ?? "")];
+  const displayableRawUniverse =
+    rawUniverse && !isRawSymbolUniverseName(rawUniverse) ? rawUniverse : undefined;
   const universeName =
     normalizedUniverse ??
-    (rawUniverse || undefined) ??
+    displayableRawUniverse ??
     inferUniverseFromLegacyStrategy(strategy);
   const stopLossValue = strategy.risk?.stop_loss_pct ?? legacyStrategy.stop_loss_pct;
   const takeProfitValue = strategy.risk?.take_profit_pct ?? legacyStrategy.take_profit_pct;

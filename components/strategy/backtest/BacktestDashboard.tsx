@@ -27,6 +27,7 @@ import XAIModal from "./XAIModal";
 import WalkForwardModal, { WalkForwardSettings } from "./WalkForwardModal";
 import BacktestSummaryCard from "./BacktestSummaryCard";
 import { buildAutoSaveHistoryPayload } from "@/lib/backtest-history";
+import { resolveUniverseDisplayName } from "@/lib/strategy-summary";
 import { buildMonthlyReturnTableData } from "./monthlyReturns";
 import {
   normalizeLegacyBreakoutStrategy,
@@ -240,7 +241,7 @@ export default function BacktestDashboard({
     fetch("/api/backtest/history", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildAutoSaveHistoryPayload(result, strategySummary)),
+      body: JSON.stringify(buildAutoSaveHistoryPayload(result, strategySummary, promptText)),
     }).catch(() => {/* 자동 저장 실패는 무시 */});
   }, [result.executionId]);
 
@@ -515,6 +516,7 @@ export default function BacktestDashboard({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             strategyName: saveStrategyName.trim() || strategySummary.strategyName || "이름 없는 전략",
+            prompt: promptText?.trim() || undefined,
             universe: strategySummary.universeName,
             conditions: {
               entry: { logic: strategySummary.entryLogic || "AND", names: strategySummary.entryBlocks || [] },
@@ -830,16 +832,20 @@ export default function BacktestDashboard({
                     )}
                     {strategySummary && (
                       <>
-                        {strategySummary.universeName && (
-                          <div className="flex flex-wrap gap-1.5 items-center">
-                            <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0">유니버스</span>
-                            <div className="flex flex-wrap gap-1">
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] text-white text-xs font-bold">
-                                {strategySummary.universeName}
-                              </span>
+                        {(() => {
+                          const universeLabel = resolveUniverseDisplayName(strategySummary.universeName, promptText);
+                          if (!universeLabel) return null;
+                          return (
+                            <div className="flex flex-wrap gap-1.5 items-center">
+                              <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0">유니버스</span>
+                              <div className="flex flex-wrap gap-1">
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] text-white text-xs font-bold">
+                                  {universeLabel}
+                                </span>
+                              </div>
                             </div>
-                          </div>
-                        )}
+                          );
+                        })()}
                         {(strategySummary.entryBlocks?.length || strategySummary.blockNames?.length) ? (
                           <div className="flex flex-wrap gap-1.5 items-center">
                             <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0">진입 신호</span>

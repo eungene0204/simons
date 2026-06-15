@@ -116,6 +116,52 @@ describe("app/api/strategy/[id]/route GET", () => {
       riskText: "손절 12%",
     });
   });
+
+  it("strategyId 직결 히스토리가 raw DSL conditions만(표시용 names 없음) 가진 경우, 표시용 names를 가진 행으로 fallback한다", async () => {
+    // 재현: save-with-backtest 행(Row1)은 strategyId로 직결되지만 entry.conditions(raw DSL)만 있고
+    // 화면 배지에 필요한 names/position/risk가 없어 유니버스 배지만 보이는 SOT 위반 버그.
+    backtestHistoryFindFirst.mockReset();
+    backtestHistoryFindFirst
+      .mockResolvedValueOnce({
+        id: "hist-direct-raw",
+        strategyId: "strategy_a",
+        strategyName: "첫번째 전략",
+        universe: "KOSPI",
+        conditions: JSON.stringify({
+          entry: { conditions: [{ type: "indicator", id: "ma_crossover", params: { signalType: "buy", shortMA: 5, longMA: 20 } }] },
+          exit: { conditions: [{ type: "indicator", id: "ma_crossover", params: { signalType: "sell", shortMA: 5, longMA: 20 } }] },
+        }),
+        createdAt: new Date("2026-06-14T15:00:00Z"),
+      })
+      .mockResolvedValueOnce({
+        id: "hist-visible",
+        strategyId: null,
+        strategyName: "첫번째 전략",
+        universe: "KOSPI",
+        conditions: JSON.stringify({
+          entry: { logic: "AND", names: ["MA 크로스"] },
+          exit: { logic: "AND", names: ["MA 크로스", "손절 -8% 하락시 매도", "익절 30% 이상 수익시 매도"] },
+          position: "최대 10종목",
+          risk: "손절 8%, 익절 30%",
+        }),
+        createdAt: new Date("2026-06-14T15:00:01Z"),
+      });
+
+    const response = await GET(new Request("http://localhost/api/strategy/strategy_a"), {
+      params: { id: "strategy_a" },
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.historySummary).toMatchObject({
+      id: "hist-visible",
+      universeName: "KOSPI",
+      entryBlocks: ["MA 크로스"],
+      exitBlocks: ["MA 크로스", "손절 -8% 하락시 매도", "익절 30% 이상 수익시 매도"],
+      positionText: "최대 10종목",
+      riskText: "손절 8%, 익절 30%",
+    });
+  });
 });
 
 describe("app/api/strategy/[id]/route DELETE", () => {
