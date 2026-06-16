@@ -7,12 +7,11 @@ derive a minimal per-symbol news context directly from the parsed strategy.
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from news import storage
+from stock_analysis.news_service import NewsAnalysisService, load_articles_for_symbols
 
 from .news_adapter import adapt_news, build_news_summary
 from .schemas import NewsArticleSignal, NewsContext
@@ -20,7 +19,6 @@ from .schemas import NewsArticleSignal, NewsContext
 logger = logging.getLogger(__name__)
 
 _VALID_SENTIMENTS = {"positive", "negative", "neutral"}
-_VALID_DIRECTIONS = {"up", "down", "neutral"}
 _VALID_RISK_LEVELS = {"none", "low", "medium", "high"}
 _MAX_AUTO_NEWS_SYMBOLS = 200
 
@@ -28,11 +26,6 @@ _MAX_AUTO_NEWS_SYMBOLS = 200
 def _normalize_sentiment(value: Any) -> str:
     value = str(value or "neutral").lower()
     return value if value in _VALID_SENTIMENTS else "neutral"
-
-
-def _normalize_direction(value: Any) -> str:
-    value = str(value or "neutral").lower()
-    return value if value in _VALID_DIRECTIONS else "neutral"
 
 
 def _normalize_risk_level(value: Any) -> str:
@@ -67,6 +60,20 @@ def _extract_symbols(parsed_strategy: Dict[str, Any]) -> List[str]:
         return []
 
 
+def _direction_from_sentiment(sentiment: str) -> str:
+    return {"positive": "up", "negative": "down"}.get(sentiment, "neutral")
+
+
+def _signed_impact(raw: Any, sentiment: str) -> float:
+    """news_v2 impactScore(크기)를 감성 방향으로 부호화해 -1..1로 클램프한다."""
+    score = min(abs(_coerce_float(raw)), 1.0)
+    if sentiment == "negative":
+        return -score
+    if sentiment == "positive":
+        return score
+    return 0.0
+
+
 def build_news_context_from_strategy(
     parsed_strategy: Dict[str, Any],
     *,
@@ -77,57 +84,39 @@ def build_news_context_from_strategy(
         return []
 
     cutoff = as_of or datetime.now(timezone.utc)
+    # 종목분석 에이전트와 동일한 news_v2 저장소(NEWSV2_DB_URL)를 읽는다 — 운영/로컬 단일 소스.
+    articles_by_symbol = load_articles_for_symbols(symbols, cutoff, limit=3)
+
     contexts: List[NewsContext] = []
-
     for symbol in symbols:
-        alpha_signals = storage.get_signals_for_symbol(
-            symbol=symbol,
-            as_of=cutoff,
-            signal_type="news_alpha_score",
-            limit=3,
-        )
-        risk_signals = storage.get_signals_for_symbol(
-            symbol=symbol,
-            as_of=cutoff,
-            signal_type="news_risk_alert",
-            limit=3,
-        )
-        article_rows = storage.get_articles_for_symbol(symbol=symbol, as_of=cutoff, limit=3)
+        rows = articles_by_symbol.get(symbol) or []
+        if not rows:
+            continue
 
-        latest_alpha = _coerce_float(alpha_signals[0].get("value")) if alpha_signals else 0.0
-        risk_level = "none"
-        if risk_signals:
-            try:
-                metadata = json.loads(risk_signals[0].get("metadata") or "{}")
-            except Exception:
-                metadata = {}
-            risk_level = _normalize_risk_level(metadata.get("risk_alert"))
-        elif article_rows:
-            risk_level = _normalize_risk_level(article_rows[0].get("riskAlertLevel"))
+        risk_alert, _factors = NewsAnalysisService._risk_from_negatives(rows)
+        risk_level = _normalize_risk_level(risk_alert)
 
         articles: List[NewsArticleSignal] = []
-        for row in article_rows:
-            url = str(row.get("url") or "").strip() or None
+        for row in rows:
+            sentiment = _normalize_sentiment(row.get("sentiment"))
             title = str(row.get("title") or "").strip() or None
+            url = str(row.get("url") or "").strip() or None
             articles.append(
                 NewsArticleSignal(
-                    event_type=str(row.get("eventType") or "general_neutral"),
-                    sentiment=_normalize_sentiment(row.get("sentiment")),
-                    impact_direction=_normalize_direction(row.get("impactDirection")),
-                    impact_score=_coerce_float(row.get("impactScore")),
-                    confidence_score=_coerce_float(row.get("confidenceScore"), 0.5),
+                    event_type="general_neutral",
+                    sentiment=sentiment,
+                    impact_direction=_direction_from_sentiment(sentiment),
+                    impact_score=_signed_impact(row.get("impactScore"), sentiment),
+                    confidence_score=0.5,
                     title=title,
                     url=url,
                 )
             )
 
-        if not articles and risk_level == "none" and latest_alpha == 0.0:
-            continue
-
         contexts.append(
             NewsContext(
                 symbol=symbol,
-                latest_alpha=latest_alpha,
+                latest_alpha=0.0,
                 risk_alert_level=risk_level,
                 articles=articles,
             )

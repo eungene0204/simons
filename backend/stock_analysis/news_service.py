@@ -59,46 +59,81 @@ _ARTICLES_SQL = """
 """
 
 
-async def _async_load(url: str, symbol: str, limit: int) -> list[dict[str, Any]]:
+def _news_v2_db_url() -> Optional[str]:
+    """news_v2 설정에서 저장소 URL을 가져온다(운영 PostgreSQL / 개발 sqlite, 동일 DB)."""
+    try:
+        from news_v2.config import get_settings
+
+        return get_settings().db_url
+    except Exception:
+        logger.debug("news_v2 설정 로드 실패 — 뉴스 데이터 없음", exc_info=True)
+        return None
+
+
+def _run_async(coro: Any) -> Any:
+    """실행 중 이벤트 루프 유무와 무관하게 코루틴을 끝까지 돌린다.
+
+    동기 워커 스레드(루프 없음, 종목분석 에이전트)에서는 asyncio.run을, async 요청
+    핸들러(루프 실행 중, 코치)에서는 별도 워커 스레드에서 실행해
+    'cannot be called from a running event loop'를 피한다.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
+
+
+async def _async_load_many(
+    url: str, symbols: list[str], limit: int
+) -> dict[str, list[dict[str, Any]]]:
+    """단일 엔진/커넥션으로 여러 종목 기사를 조회한다(종목당 엔진 생성 방지)."""
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import create_async_engine
 
     engine = create_async_engine(url)
+    out: dict[str, list[dict[str, Any]]] = {}
     try:
         async with engine.connect() as conn:
-            res = await conn.execute(text(_ARTICLES_SQL), {"symbol": symbol, "limit": limit})
-            return [dict(row._mapping) for row in res]
+            for symbol in symbols:
+                res = await conn.execute(text(_ARTICLES_SQL), {"symbol": symbol, "limit": limit})
+                out[symbol] = [dict(row._mapping) for row in res]
     finally:
         await engine.dispose()
+    return out
+
+
+def load_articles_for_symbols(
+    symbols: list[str], as_of: datetime, limit: int = 30
+) -> dict[str, list[dict[str, Any]]]:
+    """여러 종목의 news_v2 기사를 일괄 조회한다(look-ahead 적용).
+
+    저장소 URL은 news_v2 설정(`NEWSV2_DB_URL`)을 그대로 따른다 — 코치와 종목분석이
+    바로 그 동일 DB(운영 PostgreSQL / 개발 sqlite)를 공유한다. 루프 실행 여부와
+    무관하게 동작하므로 동기 워커 스레드와 async 핸들러 양쪽에서 호출할 수 있다.
+    """
+    url = _news_v2_db_url()
+    if not url or not symbols:
+        return {}
+    try:
+        raw = _run_async(_async_load_many(url, list(symbols), limit))
+    except Exception:
+        logger.debug("news_v2 store 조회 실패 — 뉴스 데이터 없음", exc_info=True)
+        return {}
+    # look-ahead 차단: as_of 이후 기사는 제외(백테스트 안전).
+    return {
+        symbol: [a for a in articles if _published_at_or_none(a.get("publishedAt"), as_of) is not None]
+        for symbol, articles in raw.items()
+    }
 
 
 def _load_v2_articles(symbol: str, as_of: datetime, limit: int = 30) -> list[dict[str, Any]]:
-    """news_v2 라이브 스키마에서 종목별 최근 기사를 읽는다.
-
-    `stock_news_cache`(종목→기사 매핑) + `news_raw`(본문/발행일) + `news_analysis`
-    (감성/영향도)를 조인한다. 저장소 URL은 news_v2 설정에서 그대로 가져와
-    에이전트가 쓰는 바로 그 DB(운영 PostgreSQL / 개발 sqlite)를 읽는다.
-    look-ahead(as_of) 및 최신순 정렬은 호출부(파이썬)에서 처리한다.
-
-    동기 컨텍스트(에이전트는 asyncio.to_thread로 실행됨)에서 호출되므로
-    asyncio.run으로 비동기 조회를 돌린다 — 실행 중 루프가 없는 워커 스레드 전제.
-    """
-    try:
-        from news_v2.config import get_settings
-
-        url = get_settings().db_url
-    except Exception:
-        logger.debug("news_v2 설정 로드 실패 — 뉴스 데이터 없음", exc_info=True)
-        return []
-
-    try:
-        articles = asyncio.run(_async_load(url, symbol, limit))
-    except Exception:
-        logger.debug("news_v2 store 조회 실패 — 뉴스 데이터 없음", exc_info=True)
-        return []
-
-    # look-ahead 차단: as_of 이후 기사는 제외(백테스트 안전).
-    return [a for a in articles if _published_at_or_none(a.get("publishedAt"), as_of) is not None]
+    """news_v2 라이브 스키마에서 종목 하나의 최근 기사를 읽는다(look-ahead 적용)."""
+    return load_articles_for_symbols([symbol], as_of, limit).get(symbol, [])
 
 
 def _published_at_or_none(published_at: Any, as_of: datetime) -> Optional[datetime]:
