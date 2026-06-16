@@ -1349,7 +1349,11 @@ def _capture_ollama_chat_body(monkeypatch, *, streaming: bool) -> dict:
 
     @contextmanager
     def _fake_urlopen(req, timeout=120):
-        captured["body"] = _json.loads(req.data.decode())
+        # _chat_ollama/_stream_chat_ollama는 POST 전에 본문 없는 GET /api/tags로 컨테이너를
+        # 깨운다(_ollama_ensure_warm). 그 warmup GET(req.data is None)은 건너뛰고, 본문이 있는
+        # /api/chat POST만 캡처한다.
+        if req.data is not None:
+            captured["body"] = _json.loads(req.data.decode())
         yield _FakeResp()
 
     monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
