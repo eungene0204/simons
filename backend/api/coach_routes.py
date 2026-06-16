@@ -967,7 +967,11 @@ def _build_advisor_result(req: CoachRequest, request_id: str | None = None) -> D
         req.parsed_strategy.get("universe"),
     )
     advisor = StrategyAdvisorAgent()
-    news_context = build_news_context_from_strategy(req.parsed_strategy)
+    try:
+        news_context = build_news_context_from_strategy(req.parsed_strategy)
+    except Exception:
+        logger.exception("coach advisor news context skipped | request_id=%s", request_id)
+        news_context = []
     advisor_req = AdvisorRequest(
         user_prompt=req.user_prompt,
         parsed_strategy=req.parsed_strategy,
@@ -997,8 +1001,17 @@ async def _with_auto_context(req: CoachRequest, request_id: str | None = None) -
     effective_req = req
     if not effective_req.news_agent_insight:
         news_started = time.perf_counter()
-        news_context = build_news_context_from_strategy(effective_req.parsed_strategy)
-        news_insight = build_coach_news_insight(news_context)
+        try:
+            news_context = build_news_context_from_strategy(effective_req.parsed_strategy)
+            news_insight = build_coach_news_insight(news_context)
+        except Exception:
+            logger.exception(
+                "coach news context skipped | request_id=%s elapsed_ms=%.2f",
+                request_id,
+                (time.perf_counter() - news_started) * 1000,
+            )
+            news_context = []
+            news_insight = None
         logger.info(
             "coach news context done | request_id=%s elapsed_ms=%.2f context_count=%d has_insight=%s",
             request_id,

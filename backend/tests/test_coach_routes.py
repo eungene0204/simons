@@ -1216,6 +1216,37 @@ async def test_coach_session_stores_advisor_result_and_returns_only_message(monk
 
 
 @pytest.mark.asyncio
+async def test_coach_session_continues_when_auto_news_context_fails(monkeypatch):
+    _install_dummy_main(monkeypatch)
+    parser = _DummyParser()
+    coach_routes.set_parser(parser)
+    monkeypatch.setattr(coach_routes, "StrategyAdvisorAgent", _DummyAdvisor)
+
+    def fail_news_context(_parsed):
+        raise RuntimeError("no such table: NewsSignal")
+
+    monkeypatch.setattr(coach_routes, "build_news_context_from_strategy", fail_news_context)
+    monkeypatch.setattr(coach_routes, "load_vector_advisor_memory", lambda *_args, **_kwargs: _empty_memory())
+
+    response = Response()
+    result = await coach_routes.create_coach_session(
+        coach_routes.CoachSessionRequest(
+            user_prompt="PBR 저평가 전략",
+            parsed_strategy={
+                "universe": ["KOSPI200"],
+                "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1}],
+                "max_positions": 8,
+            },
+        ),
+        response,
+    )
+
+    assert result.model_dump() == {"message": "캐시된 코치 응답"}
+    assert response.headers["X-Coach-Session-Id"] in coach_routes._coach_sessions
+    assert parser.chat_calls == 1
+
+
+@pytest.mark.asyncio
 async def test_coach_session_uses_lazy_parser_from_main_when_not_preloaded(monkeypatch):
     parser = _DummyParser()
     _install_dummy_main_with_parser(monkeypatch, parser)
