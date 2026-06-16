@@ -1374,6 +1374,8 @@ def test_chat_ollama_disables_thinking(monkeypatch):
     """
     body = _capture_ollama_chat_body(monkeypatch, streaming=False)
     assert body.get("think") is False, "thinking 우회는 think:false로 해야 함"
+    # 코치 prompt(~5.8K토큰)가 기본 num_ctx(4096)를 넘어 400 나는 것을 막아야 한다.
+    assert body["options"]["num_ctx"] >= 8192, "코치 prompt를 담을 num_ctx가 설정돼야 함"
     messages = body["messages"]
     # 마지막 메시지는 user여야 한다 — assistant prefill은 template 400을 유발하므로 금지.
     assert messages[-1]["role"] == "user"
