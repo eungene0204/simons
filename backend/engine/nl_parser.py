@@ -751,14 +751,16 @@ class NLStrategyParser:
         """Ollama /api/chat 동기 호출 — chat()의 비-MLX 폴백."""
         import urllib.request
 
+        # Qwen3 thinking 모델: `think: false`는 Ollama 0.30.x에서 model capabilities에
+        # 'thinking'이 없으면 크래시(HTTP 000) → 보내지 않는다.
+        # 대신 assistant prefill `<think>\n\n</think>\n`으로 thinking 블록을 즉시 닫아
+        # 모델이 곧바로 content를 생성하게 한다(2~3s vs 40+s).
         body = json.dumps({
             "model": self.ollama_model,
-            # MLX 경로의 enable_thinking=False와 동치 — 끄지 않으면 Qwen3 thinking 모델이
-            # num_predict 토큰을 전부 <think> 추론에 소진해 content가 빈 채 length로 잘린다.
-            "think": False,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message},
+                {"role": "assistant", "content": "<think>\n\n</think>\n"},
             ],
             "stream": False,
             "options": {"temperature": temperature, "top_p": top_p, "num_predict": max_tokens},
@@ -785,14 +787,13 @@ class NLStrategyParser:
         각 yield는 증분 델타(MLX 경로와 동일)."""
         import urllib.request
 
+        # 동기 경로와 동일하게 assistant prefill로 thinking 우회.
         body = json.dumps({
             "model": self.ollama_model,
-            # MLX 경로의 enable_thinking=False와 동치 — 스트리밍에서도 thinking을 꺼야
-            # <think> 추론이 토큰을 소진해 실제 JSON이 안 나오는 것을 막는다.
-            "think": False,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message},
+                {"role": "assistant", "content": "<think>\n\n</think>\n"},
             ],
             "stream": True,
             "options": {"temperature": temperature, "top_p": top_p, "num_predict": max_tokens},
