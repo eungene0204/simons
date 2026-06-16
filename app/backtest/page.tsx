@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
+import { StrategyWaveBackground } from "@/components/strategy/StrategyWaveBackground";
 import { BacktestHistoryItem } from "@/types/strategy";
 import { resolveUniverseDisplayName } from "@/lib/strategy-summary";
 import {
@@ -12,6 +13,31 @@ import {
 } from "phosphor-react";
 
 type SortField = 'timestamp' | 'totalReturn' | 'cagr' | 'mdd' | 'profitFactor' | 'trades' | 'score';
+const HISTORY_CACHE_KEY = "simons.backtestHistory";
+
+function readCachedHistory() {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.sessionStorage.getItem(HISTORY_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    return parsed as BacktestHistoryItem[];
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedHistory(nextHistory: BacktestHistoryItem[]) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.sessionStorage.setItem(HISTORY_CACHE_KEY, JSON.stringify(nextHistory));
+  } catch {
+    // Cache writes are best effort only.
+  }
+}
 
 function HistoryMetric({
   label,
@@ -30,8 +56,8 @@ function HistoryMetric({
 
 export default function BacktestHistoryPage() {
   const router = useRouter();
-  const [history, setHistory] = useState<BacktestHistoryItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [history, setHistory] = useState<BacktestHistoryItem[]>(() => readCachedHistory() ?? []);
+  const [isLoading, setIsLoading] = useState(() => readCachedHistory() === null);
   const [sortField, setSortField] = useState<SortField>("timestamp");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const strategyBadgeClass =
@@ -42,6 +68,7 @@ export default function BacktestHistoryPage() {
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => {
         setHistory(data);
+        writeCachedHistory(data);
         setIsLoading(false);
       })
       .catch(() => setIsLoading(false));
@@ -54,7 +81,11 @@ export default function BacktestHistoryPage() {
         method: "DELETE",
       });
       if (response.ok) {
-        setHistory((prev) => prev.filter((item) => item.id !== id));
+        setHistory((prev) => {
+          const nextHistory = prev.filter((item) => item.id !== id);
+          writeCachedHistory(nextHistory);
+          return nextHistory;
+        });
       }
     } catch (error) {
       console.error("Failed to delete history item:", error);
@@ -67,6 +98,7 @@ export default function BacktestHistoryPage() {
       const response = await fetch("/api/backtest/history", { method: "DELETE" });
       if (response.ok) {
         setHistory([]);
+        writeCachedHistory([]);
       }
     } catch (error) {
       console.error("Failed to clear history:", error);
@@ -92,6 +124,48 @@ export default function BacktestHistoryPage() {
     }
     return sortDir === "asc" ? av - bv : bv - av;
   });
+
+  if (!isLoading && sortedHistory.length === 0) {
+    return (
+      <DashboardLayout userName="">
+        <div className="min-h-[calc(100vh-var(--top-menu-bar-height,76px))]">
+          <div className="relative flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] flex-col items-center justify-center overflow-hidden px-5 py-8 text-center">
+            <StrategyWaveBackground />
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(15,15,15,0.18)_0%,rgba(15,15,15,0.72)_72%)]" />
+            <p className="relative z-10 max-w-4xl text-4xl font-black leading-tight text-white md:text-6xl">
+              전략을 만들고
+              <br />
+              백테스트 해보세요
+            </p>
+            <div className="relative z-10 mt-8">
+              <div className="pointer-events-none absolute -inset-x-8 -inset-y-4 bg-[radial-gradient(ellipse_at_center,rgba(55,122,244,0.28)_0%,rgba(34,197,94,0.12)_38%,rgba(15,15,15,0)_72%)] blur-2xl" />
+              <button
+                type="button"
+                onClick={() => router.push("/analytics")}
+                className="relative rounded-lg border border-white/[0.12] bg-[#111111] px-7 py-4 text-base font-black text-white transition-colors hover:bg-[#181818]"
+              >
+                전략 만들기
+              </button>
+            </div>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <DashboardLayout userName="">
+        <div className="min-h-[calc(100vh-var(--top-menu-bar-height,76px))]">
+          <div className="relative flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] items-center justify-center overflow-hidden px-5 py-8 text-center">
+            <StrategyWaveBackground />
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(15,15,15,0.18)_0%,rgba(15,15,15,0.72)_72%)]" />
+            <p className="relative z-10 text-sm font-bold text-gray-500">불러오는 중...</p>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout userName="">
@@ -154,11 +228,7 @@ export default function BacktestHistoryPage() {
         )}
 
         {/* Content */}
-        {isLoading ? (
-          <div className="h-[300px] flex items-center justify-center text-gray-500">
-            <p className="text-sm font-bold">불러오는 중...</p>
-          </div>
-        ) : sortedHistory.length > 0 ? (
+        {sortedHistory.length > 0 ? (
           <div className="space-y-4">
             {sortedHistory.map((item) => (
               <div
@@ -279,15 +349,7 @@ export default function BacktestHistoryPage() {
               </div>
             ))}
           </div>
-        ) : (
-          <div className="h-[300px] flex flex-col items-center justify-center text-gray-600 space-y-3">
-            <div className="p-4 bg-white/5 rounded-full border border-white/5">
-              <Clock className="w-10 h-10 opacity-20" />
-            </div>
-            <p className="text-base font-bold">기록된 테스트가 없습니다</p>
-            <p className="text-sm text-gray-500">백테스트를 실행하면 이곳에 자동으로 기록됩니다.</p>
-          </div>
-        )}
+        ) : null}
       </div>
     </DashboardLayout>
   );

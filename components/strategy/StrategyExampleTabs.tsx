@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Sparkle } from "phosphor-react";
 
 export type ExampleCategory = "가치투자" | "기술분석" | "모멘텀" | "복합전략";
@@ -545,8 +546,11 @@ export function StrategyTemplatePreviewModal({
     setPromptText(example.prompt);
   }, [example.prompt]);
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm animate-fade-in">
+  const modal = (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-[12px] [backdrop-filter:blur(12px)] [-webkit-backdrop-filter:blur(12px)] animate-fade-in"
+      data-testid="strategy-template-preview-backdrop"
+    >
       <div
         role="dialog"
         aria-modal="true"
@@ -605,9 +609,18 @@ export function StrategyTemplatePreviewModal({
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") return modal;
+  return createPortal(modal, document.body);
 }
 
-export function StrategyExampleTabs({ onSelectExample }: { onSelectExample: (prompt: string) => void }) {
+export function StrategyExampleTabs({
+  onSelectExample,
+  onPreviewOpenChange,
+}: {
+  onSelectExample: (prompt: string) => void;
+  onPreviewOpenChange?: (isOpen: boolean) => void;
+}) {
   const [activeTab, setActiveTab] = useState<StrategyTab>("examples");
   const [myStrategies, setMyStrategies] = useState<SavedStrategy[]>([]);
   const [isLoadingStrategies, setIsLoadingStrategies] = useState(false);
@@ -651,114 +664,137 @@ export function StrategyExampleTabs({ onSelectExample }: { onSelectExample: (pro
     };
   }, [activeTab, hasLoadedStrategies]);
 
+  useEffect(() => {
+    return () => {
+      onPreviewOpenChange?.(false);
+    };
+  }, [onPreviewOpenChange]);
+
   const hasMoreExamples = DEFAULT_VISIBLE_COUNT < EXAMPLES.length;
+
+  const isPreviewOpen = Boolean(selectedExample);
+  const backgroundBlurClass = isPreviewOpen
+    ? "pointer-events-none select-none blur-[6px] transition-[filter,opacity] duration-200"
+    : "transition-[filter,opacity] duration-200";
 
   return (
     <div className="w-full space-y-3">
-      <div className="space-y-2 text-center">
-        <div className="mx-auto inline-flex w-full max-w-2xl rounded-2xl border border-white/[0.06] bg-[#101010] p-1">
-          {(Object.keys(TAB_META) as StrategyTab[]).map((tab) => {
-            const isActive = tab === activeTab;
-            return (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setActiveTab(tab)}
-                className={`flex-1 rounded-xl px-3 py-2.5 text-xs font-black ${
-                  isActive
-                    ? "bg-[var(--main-blue)] text-white"
-                    : "text-gray-400 hover:bg-[#171717] hover:text-white"
-                  }`}
-              >
-                {TAB_META[tab].label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {activeTab === "examples" ? (
-        <>
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
-            {visibleExamples.map((example) => {
-              const style = CATEGORY_STYLE[example.category];
+      <div
+        className={`space-y-3 ${backgroundBlurClass}`}
+        data-testid="strategy-example-tabs-background"
+      >
+        <div className="space-y-2 text-center">
+          <div className="mx-auto inline-flex w-full max-w-2xl rounded-2xl border border-white/[0.06] bg-[#101010] p-1">
+            {(Object.keys(TAB_META) as StrategyTab[]).map((tab) => {
+              const isActive = tab === activeTab;
               return (
                 <button
-                  key={example.title}
+                  key={tab}
                   type="button"
-                  onClick={() => setSelectedExample(example)}
-                  className="group space-y-1.5 rounded-2xl border border-white/[0.05] bg-[#121212] px-3 py-3 text-left transition-all duration-200 hover:border-white/[0.12] hover:bg-[#171717]"
-                  data-testid="strategy-example-card"
+                  onClick={() => setActiveTab(tab)}
+                  className={`flex-1 rounded-xl px-3 py-2.5 text-xs font-black ${
+                    isActive
+                      ? "bg-[var(--main-blue)] text-white"
+                      : "text-gray-400 hover:bg-[#171717] hover:text-white"
+                    }`}
                 >
-                  <span className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[9px] font-black ${style.bg} ${style.border} ${style.color}`}>
-                    {style.label}
-                  </span>
-                  <p className="text-xs font-black leading-snug text-white/85 group-hover:text-white">{example.title}</p>
-                  <p className="line-clamp-3 text-[11px] font-bold leading-relaxed text-gray-400 group-hover:text-gray-300">
-                    {example.prompt}
-                  </p>
+                  {TAB_META[tab].label}
                 </button>
               );
             })}
           </div>
+        </div>
 
-          {hasMoreExamples && (
-            <div className="flex justify-center">
-              <Link
-                href="/analytics/templates"
-                className="rounded-2xl border border-white/[0.08] bg-[#121212] px-4 py-2 text-xs font-black text-gray-300 transition-colors duration-200 hover:border-white/[0.14] hover:bg-[#171717] hover:text-white"
-              >
-                전체 보기
-              </Link>
+        {activeTab === "examples" ? (
+          <>
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
+              {visibleExamples.map((example) => {
+                const style = CATEGORY_STYLE[example.category];
+                return (
+                  <button
+                    key={example.title}
+                    type="button"
+                    onClick={() => {
+                      setSelectedExample(example);
+                      onPreviewOpenChange?.(true);
+                    }}
+                    className="group space-y-1.5 rounded-2xl border border-white/[0.05] bg-[#121212] px-3 py-3 text-left transition-all duration-200 hover:border-white/[0.12] hover:bg-[#171717]"
+                    data-testid="strategy-example-card"
+                  >
+                    <span className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[9px] font-black ${style.bg} ${style.border} ${style.color}`}>
+                      {style.label}
+                    </span>
+                    <p className="text-xs font-black leading-snug text-white/85 group-hover:text-white">{example.title}</p>
+                    <p className="line-clamp-3 text-[11px] font-bold leading-relaxed text-gray-400 group-hover:text-gray-300">
+                      {example.prompt}
+                    </p>
+                  </button>
+                );
+              })}
             </div>
-          )}
-        </>
-      ) : (
-        <>
-          {isLoadingStrategies ? null : strategiesError ? (
-            <div className="py-8 text-center">
-              <p className="text-sm font-black text-white">전략 목록을 불러올 수 없습니다</p>
-              <p className="mt-1 text-xs font-bold text-gray-500">{strategiesError}</p>
-            </div>
-          ) : myStrategies.length === 0 ? (
-            <div className="py-8 text-center">
-              <p className="text-sm font-black text-white">아직 저장된 전략이 없습니다</p>
-              <p className="mt-1 text-xs font-bold text-gray-500">전략을 생성하고 저장하면 여기에서 확인할 수 있습니다.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-              {myStrategies.map((strategy) => (
-                <a
-                  key={strategy.id}
-                  href={`/analytics/${strategy.id}`}
-                  className="group rounded-2xl border border-white/[0.05] bg-[#121212] px-4 py-4 transition-all duration-200 hover:border-white/[0.12] hover:bg-[#171717]"
+
+            {hasMoreExamples && (
+              <div className="flex justify-center">
+                <Link
+                  href="/analytics/templates"
+                  className="rounded-2xl border border-white/[0.08] bg-[#121212] px-4 py-2 text-xs font-black text-gray-300 transition-colors duration-200 hover:border-white/[0.14] hover:bg-[#171717] hover:text-white"
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-black text-white/85 group-hover:text-white">{strategy.name}</p>
+                  전체 보기
+                </Link>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            {isLoadingStrategies ? null : strategiesError ? (
+              <div className="py-8 text-center">
+                <p className="text-sm font-black text-white">전략 목록을 불러올 수 없습니다</p>
+                <p className="mt-1 text-xs font-bold text-gray-500">{strategiesError}</p>
+              </div>
+            ) : myStrategies.length === 0 ? (
+              <div className="py-8 text-center">
+                <p className="text-sm font-black text-white">아직 저장된 전략이 없습니다</p>
+                <p className="mt-1 text-xs font-bold text-gray-500">전략을 생성하고 저장하면 여기에서 확인할 수 있습니다.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                {myStrategies.map((strategy) => (
+                  <a
+                    key={strategy.id}
+                    href={`/analytics/${strategy.id}`}
+                    className="group rounded-2xl border border-white/[0.05] bg-[#121212] px-4 py-4 transition-all duration-200 hover:border-white/[0.12] hover:bg-[#171717]"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-black text-white/85 group-hover:text-white">{strategy.name}</p>
+                      </div>
                     </div>
-                  </div>
-                  <p className="mt-3 line-clamp-2 text-xs font-bold leading-relaxed text-gray-400">
-                    {strategy.description || "저장된 전략 상세 결과로 이동합니다."}
-                  </p>
-                  <div className="mt-3 flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-gray-600">
-                    <span>{strategy.accountCount}개 계좌 연결</span>
-                    <span>{new Date(strategy.createdAt).toLocaleDateString("ko-KR")}</span>
-                  </div>
-                </a>
-              ))}
-            </div>
-          )}
-        </>
-      )}
+                    <p className="mt-3 line-clamp-2 text-xs font-bold leading-relaxed text-gray-400">
+                      {strategy.description || "저장된 전략 상세 결과로 이동합니다."}
+                    </p>
+                    <div className="mt-3 flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-gray-600">
+                      <span>{strategy.accountCount}개 계좌 연결</span>
+                      <span>{new Date(strategy.createdAt).toLocaleDateString("ko-KR")}</span>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
       {selectedExample && (
         <StrategyTemplatePreviewModal
           example={selectedExample}
-          onCancel={() => setSelectedExample(null)}
+          onCancel={() => {
+            setSelectedExample(null);
+            onPreviewOpenChange?.(false);
+          }}
           onGenerateStrategy={(prompt) => {
             onSelectExample(prompt);
             setSelectedExample(null);
+            onPreviewOpenChange?.(false);
           }}
         />
       )}

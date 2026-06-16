@@ -71,6 +71,11 @@ describe("StrategyTemplatesPage", () => {
     expect(sessionStorage.getItem("simons.pendingStrategyPrompt")).toBeNull();
     expect(push).not.toHaveBeenCalled();
     const dialog = screen.getByRole("dialog", { name: "이평선 골든크로스 따라가기" });
+    const backdrop = screen.getByTestId("strategy-template-preview-backdrop");
+    expect(backdrop.className).toContain("backdrop-blur-[12px]");
+    expect(backdrop.className).toContain("[backdrop-filter:blur(12px)]");
+    expect(backdrop.className).toContain("[-webkit-backdrop-filter:blur(12px)]");
+    expect(screen.getByTestId("strategy-templates-page-background").className).toContain("blur-[6px]");
     const promptInput = within(dialog).getByLabelText("전략 내용");
     expect((promptInput as HTMLTextAreaElement).value).toContain("골든크로스");
 

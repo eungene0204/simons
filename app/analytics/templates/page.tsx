@@ -31,6 +31,9 @@ export default function StrategyTemplatesPage() {
   const visibleExamples = activeCategory === "전체"
     ? EXAMPLES
     : EXAMPLES.filter((example) => example.category === activeCategory);
+  const backgroundBlurClass = selectedExample
+    ? "pointer-events-none select-none blur-[6px] transition-[filter,opacity] duration-200"
+    : "transition-[filter,opacity] duration-200";
 
   const handleSelectTemplate = (prompt: string) => {
     sessionStorage.setItem(PENDING_STRATEGY_PROMPT_KEY, prompt);
@@ -43,7 +46,10 @@ export default function StrategyTemplatesPage() {
         className="px-6 py-12"
         style={{ minHeight: "calc(100vh - var(--top-menu-bar-height, 76px))" }}
       >
-        <div className="mx-auto w-full max-w-[80rem] space-y-8">
+        <div
+          className={`mx-auto w-full max-w-[80rem] space-y-8 ${backgroundBlurClass}`}
+          data-testid="strategy-templates-page-background"
+        >
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div className="space-y-3">
               <Link
