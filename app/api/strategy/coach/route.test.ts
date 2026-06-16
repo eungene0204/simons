@@ -74,7 +74,7 @@ describe("strategy coach proxy cache", () => {
 
     expect(fetchBackend).toHaveBeenCalledWith("/strategy/coach/sessions", expect.objectContaining({
       method: "POST",
-      timeoutMs: 180_000,
+      timeoutMs: 340_000,
       body: JSON.stringify({
         user_prompt: "rsi 전략",
         parsed_strategy: { entry_signals: [{ indicator: "rsi" }] },
@@ -104,7 +104,7 @@ describe("strategy coach proxy cache", () => {
 
     expect(fetchBackend).toHaveBeenNthCalledWith(1, "/strategy/coach/sessions", expect.any(Object));
     expect(fetchBackend).toHaveBeenNthCalledWith(2, "/strategy/coach", expect.objectContaining({
-      timeoutMs: 180_000,
+      timeoutMs: 340_000,
       body: JSON.stringify({
         user_prompt: "rsi 전략",
         parsed_strategy: { entry_signals: [{ indicator: "rsi" }] },
@@ -128,7 +128,7 @@ describe("strategy coach proxy cache", () => {
 
     expect(fetchBackend).toHaveBeenCalledWith("/strategy/coach/sessions/follow-up", expect.objectContaining({
       method: "POST",
-      timeoutMs: 180_000,
+      timeoutMs: 340_000,
       body: JSON.stringify({
         user_prompt: "쉽게 설명해줘",
         session_id: "session_1",
