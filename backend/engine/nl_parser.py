@@ -20,13 +20,17 @@ from llm_backend import OLLAMA_BASE_URL, ollama_auth_headers
 logger = logging.getLogger(__name__)
 
 # Modal serverless GPU 콜드스타트 내성.
-# Ollama를 Modal에 scale-to-zero로 띄우면, 잠든 컨테이너를 깨우는 첫 요청은 모델을
-# VRAM에 로딩하는 ~60초 동안 프록시가 일시적 실패(400/5xx/타임아웃)를 낼 수 있다.
-# 그 한 번의 콜드스타트 실패로 코칭을 포기하지 말고, 모델이 뜰 때까지 짧은 백오프로
-# 재시도한다. 예산은 프론트 코치 타임아웃(120s) 안에 들어오도록 잡는다.
+# Ollama를 Modal에 scale-to-zero로 띄우면, 잠든 컨테이너를 깨우는 첫 요청이
+# 모델 VRAM 로딩(~60초) 중 HTTP 400/5xx 또는 읽기 타임아웃으로 실패한다.
+# 재시도 전략:
+#   - 예산: 100s (프론트 코치 타임아웃 120s 안에 들어와야 함)
+#   - 시도당 timeout: 40s 상한 — warm inference는 prefill 덕분에 2~10s이므로
+#     충분하고, cold-start hang이 예산 전체를 소비하는 것을 막는다.
+#   - 백오프: 3s (콜드스타트 중 연속 요청으로 Modal을 압박하지 않음)
 _OLLAMA_COLD_START_STATUSES = {400, 408, 425, 429, 500, 502, 503, 504}
 _OLLAMA_RETRY_BUDGET_S = 100.0
 _OLLAMA_RETRY_BACKOFF_S = 3.0
+_OLLAMA_MAX_ATTEMPT_TIMEOUT_S = 40  # warm inference는 2~10s; cold-start hang 방지
 
 
 def _ollama_open_with_retry(req, timeout: int):
@@ -44,7 +48,9 @@ def _ollama_open_with_retry(req, timeout: int):
     while time.monotonic() < deadline:
         attempt += 1
         remaining = deadline - time.monotonic()
-        attempt_timeout = max(15, min(timeout, int(remaining)))
+        # 시도당 timeout을 40s로 제한: warm inference(2~10s)엔 충분하고
+        # cold-start hang이 예산 전부를 소비해 재시도가 막히는 것을 방지한다.
+        attempt_timeout = max(15, min(_OLLAMA_MAX_ATTEMPT_TIMEOUT_S, int(remaining)))
         try:
             return urllib.request.urlopen(req, timeout=attempt_timeout)
         except urllib.error.HTTPError as e:
