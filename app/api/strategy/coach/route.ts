@@ -13,11 +13,11 @@ type CoachProxyBody = {
   session_id?: string
 }
 
-// Modal serverless GPU cold-start 실측(2026-06): VRAM 로드 ~60s + 첫 추론 워밍업 ~70s.
-// 게다가 로딩 구간 HTTP 400 → 백엔드 재시도(_ollama_open_with_retry) → 콜드 추론까지
-// 합치면 한 요청이 ~200s+ 걸릴 수 있다. 백엔드 재시도 예산(_OLLAMA_RETRY_BUDGET_S=320s)을
-// 프록시가 먼저 끊지 않도록 그보다 넉넉히 크게 둔다.
-const COACH_TIMEOUT_MS = 340_000
+// Modal serverless GPU cold-start 실측(2026-06): 콜드 컨테이너로의 첫 POST는 body가 유실되어
+// 백엔드가 (1) 본문 없는 GET으로 컨테이너를 깨우고(_ollama_ensure_warm, 예산 200s) → (2) 그
+// 다음 POST를 재시도(_OLLAMA_RETRY_BUDGET_S=320s)한다. 콜드 추론(로드~60s+첫추론~70s)까지
+// 합치면 한 요청 worst-case ~520s. 프록시가 백엔드보다 먼저 끊지 않도록 넉넉히 크게 둔다.
+const COACH_TIMEOUT_MS = 560_000
 
 async function forwardLegacyCoach(body: unknown) {
   const res = await fetchBackend('/strategy/coach', {

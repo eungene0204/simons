@@ -21,30 +21,30 @@ logger = logging.getLogger(__name__)
 
 # Modal serverless GPU 콜드스타트 내성.
 #
-# Modal scale-to-zero 컨테이너를 깨우는 첫 요청의 두 가지 실패 패턴:
-#   A) HTTP 4xx/5xx 즉시 반환 → 재시도로 해결
-#   B) 연결 hold(hang) ~90s 후 모델 로딩 완료 → 정상 응답
-#      ∵ 재시도 × : 여러 번 짧게 timeout → 예산 소진, cold-start 완료 전 포기
-#      ∴ 단일 long timeout으로 hang이 풀릴 때까지 기다린다
+# ★ 근본원인(프로덕션 실측 2026-06): Modal scale-to-zero 컨테이너로의 **첫 POST는 요청
+#   본문이 유실된다**. 콜드스타트 프록시가 컨테이너를 깨우는 동안 POST body를 버퍼링/재전송
+#   하지 못해, ollama에는 본문 없는 요청이 도착하고 `{"error":"missing request body"}` (HTTP
+#   400) 또는 `Missing request, possibly due to expiry or cancellation` (HTTP 408)이 반환된다.
+#   같은 POST를 재시도해도 컨테이너가 완전히 뜰 때까지 계속 body가 유실돼 실패한다(실측: 320s
+#   동안 400 29회 연속).
 #
-# 프로덕션 실측(2026-06):
-#   - 콜드스타트 첫 /api/chat: 모델 VRAM 로드 ~60s + 첫 추론 워밍업 ~70s = ~130s+
-#   - 그 ~60s 로딩 구간에 ollama가 **HTTP 400**을 반환하는 케이스가 있다. 모델이 뜨면
-#     동일 요청이 200을 돌려주므로(웜 상태 9s) 이 400은 영구 오류가 아니라 콜드스타트
-#     일시 오류다 → 400도 재시도 대상에 포함한다.
-#   - 단, 설정 오류로 인한 영구 400(모델명 누락/없음)은 재시도해도 소용없으므로 즉시 raise.
+# ★ 해결: 본문이 없는 **GET /api/tags로 컨테이너를 먼저 깨운다**(_ollama_ensure_warm). GET은
+#   유실될 body가 없어 콜드스타트에도 안전하게 통과하고, 한 번 200을 받으면 컨테이너가 RUNNING
+#   상태가 되어 이후 POST는 body가 보존된다(실측: tags→chat 순서면 콜드에서도 chat 200).
+#   POST 자체에도 재시도(_ollama_open_with_retry)를 백업으로 둔다.
 #
-# 전략:
+# 콜드스타트 후 첫 /api/chat은 모델 VRAM 로드 ~60s + 첫 추론 워밍업 ~70s = ~130s+ 가 더 걸린다.
+#
+# 재시도 전략(_ollama_open_with_retry):
 #   - TimeoutError / OSError → 재시도 않고 즉시 raise (hang은 단일 long timeout으로 대기)
 #   - URLError(연결거부 등) → 재시도
-#   - HTTP 4xx/5xx(400 포함, 영구 400 제외) → 재시도
-#   - attempt_timeout = 240s: 콜드스타트 단일 요청(로드+첫추론 ~130s+)이 한 번에 끝나도록 커버
-#   - budget = 320s: 400 반환(~60s) → 재시도 → 콜드 추론(~130s+) 전체를 담는다
-#   ※ 프론트 코치 타임아웃(app/api/strategy/coach/route.ts)을 이 budget보다 크게 유지해야 함
+#   - HTTP 4xx/5xx(400/408 body-drop 포함, 영구 400 제외) → 재시도
+#   ※ 프론트 코치 타임아웃(app/api/strategy/coach/route.ts)을 warmup+POST 예산 합보다 크게 유지
 _OLLAMA_COLD_START_STATUSES = {400, 408, 425, 429, 500, 502, 503, 504}
 _OLLAMA_RETRY_BUDGET_S = 320.0
 _OLLAMA_RETRY_BACKOFF_S = 3.0
 _OLLAMA_MAX_ATTEMPT_TIMEOUT_S = 240  # 콜드스타트 단일 요청(VRAM 로드 ~60s + 첫 추론 ~70s) 커버
+_OLLAMA_WARMUP_BUDGET_S = 200.0  # 본문 없는 GET으로 콜드 컨테이너를 깨우는 예산
 # 콜드스타트 일시 400과 구별할 영구 400(설정 오류) 시그니처 — 이런 본문은 재시도하지 않는다.
 _OLLAMA_PERMANENT_400_SIGNATURES = ("model is required", "not found", "no such model")
 
@@ -60,6 +60,43 @@ def _http_400_is_permanent(err) -> bool:
     except Exception:
         return False
     return any(sig in body for sig in _OLLAMA_PERMANENT_400_SIGNATURES)
+
+
+def _ollama_ensure_warm(budget_s: float = _OLLAMA_WARMUP_BUDGET_S) -> None:
+    """본문 없는 GET /api/tags로 Modal 콜드 컨테이너를 먼저 깨운다.
+
+    콜드스타트 프록시는 첫 POST의 body를 유실시키지만(missing request body), body가 없는
+    GET은 안전하게 통과한다. GET이 200을 받으면 컨테이너가 RUNNING 상태가 되어 이후 POST는
+    body가 보존된다. 예산 안에서 깨우지 못하면 마지막 예외를 올린다. 로컬 Ollama처럼 이미
+    떠 있으면 첫 GET이 즉시 200이라 비용이 거의 없다.
+    """
+    import urllib.error
+    import urllib.request
+
+    url = f"{OLLAMA_BASE_URL}/api/tags"
+    deadline = time.monotonic() + budget_s
+    last_err: Exception | None = None
+    while time.monotonic() < deadline:
+        remaining = deadline - time.monotonic()
+        attempt_timeout = max(10, min(60, int(remaining)))
+        req = urllib.request.Request(url, headers=ollama_auth_headers(), method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=attempt_timeout) as resp:
+                resp.read()
+                return  # 컨테이너가 깨어남 → 이후 POST는 body가 보존된다
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError) as e:
+            last_err = e
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        logger.info(
+            "ollama warmup waiting for Modal container | err=%r remaining_s=%.0f",
+            last_err,
+            remaining,
+        )
+        time.sleep(min(_OLLAMA_RETRY_BACKOFF_S, remaining))
+    if last_err is not None:
+        raise last_err
 
 
 def _ollama_open_with_retry(req, timeout: int):
@@ -805,6 +842,8 @@ class NLStrategyParser:
             "stream": False,
             "options": {"temperature": temperature, "top_p": top_p, "num_predict": max_tokens},
         }).encode()
+        # Modal 콜드스타트 프록시가 POST body를 유실시키므로, 본문 없는 GET으로 먼저 깨운다.
+        _ollama_ensure_warm()
         req = urllib.request.Request(
             f"{OLLAMA_BASE_URL}/api/chat",
             data=body,
@@ -838,6 +877,8 @@ class NLStrategyParser:
             "stream": True,
             "options": {"temperature": temperature, "top_p": top_p, "num_predict": max_tokens},
         }).encode()
+        # Modal 콜드스타트 프록시가 POST body를 유실시키므로, 본문 없는 GET으로 먼저 깨운다.
+        _ollama_ensure_warm()
         req = urllib.request.Request(
             f"{OLLAMA_BASE_URL}/api/chat",
             data=body,

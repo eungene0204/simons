@@ -19,7 +19,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
 
 import engine.nl_parser as nl_parser
-from engine.nl_parser import _ollama_open_with_retry
+from engine.nl_parser import _ollama_ensure_warm, _ollama_open_with_retry
 
 
 class _FakeResp:
@@ -28,6 +28,9 @@ class _FakeResp:
 
     def __exit__(self, *a):
         return False
+
+    def read(self):
+        return b""
 
 
 def _http_503():
@@ -42,6 +45,38 @@ def _http_400(body: bytes = b""):
     return urllib.error.HTTPError(
         url="http://x/api/chat", code=400, msg="Bad Request", hdrs=None, fp=io.BytesIO(body)
     )
+
+
+def test_warmup_returns_when_tags_ok(monkeypatch):
+    """본문 없는 GET /api/tags가 바로 200이면 warmup이 한 번만 호출하고 끝난다."""
+    calls = {"n": 0}
+
+    def fake_urlopen(req, timeout):  # noqa: ARG001
+        calls["n"] += 1
+        return _FakeResp()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr(nl_parser.time, "sleep", lambda s: None)
+
+    _ollama_ensure_warm(budget_s=30)
+    assert calls["n"] == 1
+
+
+def test_warmup_retries_until_container_up(monkeypatch):
+    """콜드 컨테이너가 깰 때까지(URLError) GET을 재시도하고, 200을 받으면 반환한다."""
+    calls = {"n": 0}
+
+    def fake_urlopen(req, timeout):  # noqa: ARG001
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise urllib.error.URLError("connection refused")
+        return _FakeResp()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr(nl_parser.time, "sleep", lambda s: None)
+
+    _ollama_ensure_warm(budget_s=30)
+    assert calls["n"] == 3
 
 
 def test_retry_recovers_from_cold_start_503(monkeypatch):
