@@ -16,7 +16,7 @@ from typing import Optional
 
 from news_v2.celery_app import celery_app
 from news_v2.config import get_settings
-from news_v2.db import get_session_maker
+from news_v2.db import get_app_session_maker, get_session_maker
 from news_v2.logging_setup import get_logger
 from news_v2.models import Status
 from news_v2.priority import PriorityFeatures, decide_priority, recompute_cohort
@@ -164,14 +164,21 @@ def deduplicate_news(symbol: Optional[str] = None) -> dict:
 def recompute_priority() -> dict:
     async def _do():
         maker = get_session_maker()
-        async with maker() as session:
+        app_maker = get_app_session_maker()
+        async with maker() as session, app_maker() as app_session:
             cfg = get_settings()
             repo = NewsRepository(session)
+            # 앱 수요 신호(watchlist/search/holding/stock)는 앱 DB(app_session)에서 읽고,
+            # PriorityScore는 news DB(session)에 쓴다 — news DB가 Postgres로 갈려도 동작.
             for event, sync in [
-                ("priority_stock_universe_sync_skipped", repo.ensure_stock_universe_priority_rows),
-                ("priority_watchlist_sync_skipped", repo.sync_watchlist_counts_from_db),
-                ("priority_search_sync_skipped", repo.sync_search_counts_from_db),
-                ("priority_holding_sync_skipped", repo.sync_holding_counts_from_virtual_positions),
+                ("priority_stock_universe_sync_skipped",
+                 lambda: repo.ensure_stock_universe_priority_rows(reader=app_session)),
+                ("priority_watchlist_sync_skipped",
+                 lambda: repo.sync_watchlist_counts_from_db(reader=app_session)),
+                ("priority_search_sync_skipped",
+                 lambda: repo.sync_search_counts_from_db(reader=app_session)),
+                ("priority_holding_sync_skipped",
+                 lambda: repo.sync_holding_counts_from_virtual_positions(reader=app_session)),
             ]:
                 try:
                     await sync()

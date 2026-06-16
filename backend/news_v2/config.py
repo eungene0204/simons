@@ -41,15 +41,16 @@ def _env_list(key: str, default: list[str]) -> list[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
-def _default_db_url() -> str:
-    explicit = os.getenv("NEWSV2_DB_URL")
-    if explicit:
-        return explicit
+def _app_db_url() -> str:
+    """앱(Prisma) DB의 SQLAlchemy async URL — news DB와 무관하게 DATABASE_URL을 해석한다.
 
-    # Prisma resolves `file:` URLs relative to the directory holding schema.prisma
-    # (<repo>/prisma), NOT the repo root. We must match that exactly or news_v2 ends
-    # up on a different file than the rest of the app (Prisma, news.storage) reads —
-    # which silently splits the news pipeline across two SQLite files.
+    Priority sync가 앱 수요 신호(WatchlistSymbol/SearchCount/VirtualPosition/Stock)를
+    읽을 때 쓴다. NEWSV2_DB_URL이 Postgres로 갈려 있어도 이 앱 테이블들은 여기
+    (Prisma sqlite)에 있으므로, news 세션이 아니라 앱 DB에서 읽어야 한다.
+
+    Prisma는 `file:` URL을 schema.prisma가 있는 디렉터리(<repo>/prisma) 기준으로
+    해석한다 — news.storage._db_path()와 동일 규칙으로 같은 파일을 가리키게 한다.
+    """
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     prisma_dir = os.path.join(repo_root, "prisma")
 
@@ -58,7 +59,6 @@ def _default_db_url() -> str:
         rel = prisma_url.replace("file:", "", 1)
         if os.path.isabs(rel):
             return "sqlite+aiosqlite:///" + rel
-        # Mirror news.storage._db_path() resolution so both land on the same file:
         # schema-relative first (Prisma's rule), then repo-root-relative as a fallback.
         schema_rel = os.path.abspath(os.path.join(prisma_dir, rel))
         if os.path.exists(schema_rel):
@@ -69,6 +69,14 @@ def _default_db_url() -> str:
         return "sqlite+aiosqlite:///" + schema_rel
 
     return "sqlite+aiosqlite:///" + os.path.join(prisma_dir, "prisma", "dev.db")
+
+
+def _default_db_url() -> str:
+    # news_v2 저장소: 명시 NEWSV2_DB_URL(운영 Postgres) 우선, 없으면 앱 sqlite와 동일 파일.
+    explicit = os.getenv("NEWSV2_DB_URL")
+    if explicit:
+        return explicit
+    return _app_db_url()
 
 
 @dataclass(frozen=True)
