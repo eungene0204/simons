@@ -31,11 +31,12 @@ logger = logging.getLogger(__name__)
 #   - TimeoutError / OSError → 재시도 않고 즉시 raise
 #   - URLError(연결거부 등) → 재시도
 #   - HTTP 4xx/5xx → 재시도
-#   - attempt_timeout = 110s: cold-start hang(~90s) + inference(~5s) = ~95s 커버
+#   - attempt_timeout = 150s: cold-start hang(측정값 ~110-120s) + inference(~5s) 커버
+#     프론트 코치 타임아웃도 180s로 같이 올려야 함 (app/api/strategy/coach/route.ts)
 _OLLAMA_COLD_START_STATUSES = {408, 425, 429, 500, 502, 503, 504}
 _OLLAMA_RETRY_BUDGET_S = 230.0
 _OLLAMA_RETRY_BACKOFF_S = 3.0
-_OLLAMA_MAX_ATTEMPT_TIMEOUT_S = 110  # cold-start hang(~90s) + inference(~5s) 커버
+_OLLAMA_MAX_ATTEMPT_TIMEOUT_S = 150  # cold-start hang(~110-120s) + inference(~5s) 커버
 
 
 def _ollama_open_with_retry(req, timeout: int):

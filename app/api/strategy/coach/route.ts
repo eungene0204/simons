@@ -13,7 +13,9 @@ type CoachProxyBody = {
   session_id?: string
 }
 
-const COACH_TIMEOUT_MS = 120_000
+// Modal serverless GPU cold-start은 ~110-120s 소요 → inference ~5s → 총 ~125s.
+// 120s 타임아웃이면 cold-start 직후 요청이 잘리므로 180s로 설정.
+const COACH_TIMEOUT_MS = 180_000
 
 async function forwardLegacyCoach(body: unknown) {
   const res = await fetchBackend('/strategy/coach', {

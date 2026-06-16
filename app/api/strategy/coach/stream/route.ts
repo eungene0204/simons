@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       cache: 'no-store',
-      timeoutMs: 120_000,
+      timeoutMs: 180_000,
     })
 
     if (!res.ok || !res.body) {
