@@ -209,6 +209,51 @@ async def test_sync_holding_counts_reads_actual_virtual_positions(session):
 
 
 @pytest.mark.asyncio
+async def test_sync_reads_demand_from_separate_app_db_not_news_session(session):
+    """회귀: priority sync는 앱 수요 테이블을 reader(앱 DB)에서 읽고 PriorityScore는
+    news 세션(self.session)에 쓴다.
+
+    news DB가 Postgres로 갈리면 앱 테이블(VirtualPosition 등)이 거기 없어
+    self.session으로 읽던 기존 코드가 UndefinedTableError로 터졌다(priority_*_sync_skipped).
+    reader로 앱 DB를 넘기면 앱 테이블이 news 세션에 없어도 정상 동작해야 한다.
+    """
+    # 앱 DB(news 세션과 별개) — 여기에만 VirtualPosition이 있다.
+    app_engine = create_async_engine("sqlite+aiosqlite:///:memory:", future=True)
+    async with app_engine.begin() as conn:
+        await conn.execute(
+            text(
+                'CREATE TABLE "VirtualPosition" ("id" TEXT PRIMARY KEY, '
+                '"accountId" TEXT NOT NULL, "symbol" TEXT NOT NULL, "quantity" INTEGER NOT NULL)'
+            )
+        )
+        await conn.execute(
+            text(
+                'INSERT INTO "VirtualPosition" ("id", "accountId", "symbol", "quantity") '
+                "VALUES ('p1', 'a1', '005930', 10), ('p2', 'a2', '005930', 3)"
+            )
+        )
+    app_maker = async_sessionmaker(app_engine, expire_on_commit=False)
+
+    repo = NewsRepository(session)  # news 세션엔 VirtualPosition 테이블이 없다.
+
+    # reader 없이 self.session(news)으로 읽으면 테이블이 없어 실패한다 — 기존 버그 재현.
+    with pytest.raises(Exception):
+        await repo.sync_holding_counts_from_virtual_positions()
+    await session.rollback()
+
+    # reader(앱 DB)를 넘기면 앱 DB에서 읽어 정상 동작하고, 쓰기는 news 세션에 반영된다.
+    async with app_maker() as app_session:
+        synced = await repo.sync_holding_counts_from_virtual_positions(reader=app_session)
+    await session.commit()
+
+    row = await repo.get_priority("005930")
+    assert synced == 1
+    assert row is not None
+    assert row.holding_count == 2
+    await app_engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_sync_watchlist_search_and_stock_universe_demand(session):
     repo = NewsRepository(session)
     await session.execute(text('CREATE TABLE "Stock" ("symbol" TEXT PRIMARY KEY)'))

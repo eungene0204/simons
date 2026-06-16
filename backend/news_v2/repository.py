@@ -546,14 +546,20 @@ class NewsRepository:
             (await self.session.execute(select(PriorityScore))).scalars().all()
         )
 
-    async def sync_holding_counts_from_virtual_positions(self) -> int:
+    async def sync_holding_counts_from_virtual_positions(
+        self, reader: Optional[AsyncSession] = None
+    ) -> int:
         """Mirror actual virtual-account holdings into priority rows.
 
         This reads committed positions, not order intents. A symbol is treated
         as held when at least one virtual account has quantity > 0.
+
+        `reader`(주어지면)에서 앱 테이블을 읽고 PriorityScore는 self.session(news DB)에
+        쓴다 — news DB가 Postgres로 갈려 앱 테이블이 없을 때 앱 DB에서 읽기 위함.
         """
+        src = reader or self.session
         rows = (
-            await self.session.execute(
+            await src.execute(
                 text(
                     'SELECT "symbol", COUNT(DISTINCT "accountId") '
                     'FROM "VirtualPosition" '
@@ -572,10 +578,11 @@ class NewsRepository:
                 row.updated_at = _utcnow()
         return len(rows)
 
-    async def sync_watchlist_counts_from_db(self) -> int:
-        """Mirror watchlist membership into priority rows."""
+    async def sync_watchlist_counts_from_db(self, reader: Optional[AsyncSession] = None) -> int:
+        """Mirror watchlist membership into priority rows (reads app DB when given)."""
+        src = reader or self.session
         rows = (
-            await self.session.execute(
+            await src.execute(
                 text(
                     'SELECT "symbol", COUNT(*) '
                     'FROM "WatchlistSymbol" '
@@ -593,10 +600,11 @@ class NewsRepository:
                 row.updated_at = _utcnow()
         return len(rows)
 
-    async def sync_search_counts_from_db(self) -> int:
-        """Mirror aggregate stock search counts into priority rows."""
+    async def sync_search_counts_from_db(self, reader: Optional[AsyncSession] = None) -> int:
+        """Mirror aggregate stock search counts into priority rows (reads app DB when given)."""
+        src = reader or self.session
         rows = (
-            await self.session.execute(
+            await src.execute(
                 text(
                     'SELECT "symbol", "count" '
                     'FROM "SearchCount" '
@@ -614,10 +622,13 @@ class NewsRepository:
                 row.updated_at = _utcnow()
         return len(rows)
 
-    async def ensure_stock_universe_priority_rows(self, limit: int = 5000) -> int:
-        """Ensure cold-queue coverage exists for the known stock universe."""
+    async def ensure_stock_universe_priority_rows(
+        self, limit: int = 5000, reader: Optional[AsyncSession] = None
+    ) -> int:
+        """Ensure cold-queue coverage exists for the known stock universe (reads app DB when given)."""
+        src = reader or self.session
         rows = (
-            await self.session.execute(
+            await src.execute(
                 text('SELECT "symbol" FROM "Stock" WHERE "symbol" IS NOT NULL LIMIT :limit'),
                 {"limit": limit},
             )
