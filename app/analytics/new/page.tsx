@@ -484,6 +484,7 @@ function StrategyLabContent() {
   const [authState, setAuthState] = useState<AuthState>("loading");
   const [isStartingGoogleLogin, setIsStartingGoogleLogin] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isStrategyPreviewModalOpen, setIsStrategyPreviewModalOpen] = useState(false);
   const [stage, setStage] = useState<Stage>("idle");
   const [latestParsed, setLatestParsed] = useState<ParsedSummary | null>(null);
   const [backtestReq, setBacktestReq] = useState<any>(null);
@@ -1274,6 +1275,9 @@ function StrategyLabContent() {
   const shouldShowIntro = isIdle && !isChatPage;
   const headlineLines = ["투자 아이디어를 전략으로 만들고", "전략을 시뮬레이션 하세요"];
   const totalHeadlineChars = headlineLines.reduce((sum, line) => sum + line.length, 0);
+  const strategyPreviewBackgroundClass = isStrategyPreviewModalOpen
+    ? "pointer-events-none select-none blur-[6px] transition-[filter,opacity] duration-200"
+    : "transition-[filter,opacity] duration-200";
   const softEnterStyle = {
     animation: "softChatSurfaceEnter 720ms cubic-bezier(0.19, 1, 0.22, 1) both",
   };
@@ -1368,7 +1372,8 @@ function StrategyLabContent() {
         }
       `}</style>
       <div
-        className="relative flex gap-4 overflow-hidden px-4 pt-20 pb-12"
+        className={`relative flex gap-4 overflow-hidden px-4 pt-20 pb-12 ${strategyPreviewBackgroundClass}`}
+        data-testid="strategy-lab-background"
         style={{ minHeight: "calc(100vh - var(--top-menu-bar-height, 76px))" }}
       >
         {shouldShowIntro && <StrategyWaveBackground />}
@@ -1634,7 +1639,10 @@ function StrategyLabContent() {
           {/* 예시 프롬프트 */}
           {shouldShowIntro && (
             <div className="w-[min(calc(100vw_-_2rem),80rem)]">
-              <StrategyExampleTabs onSelectExample={(prompt) => void handleSend(prompt)} />
+              <StrategyExampleTabs
+                onSelectExample={(prompt) => void handleSend(prompt)}
+                onPreviewOpenChange={setIsStrategyPreviewModalOpen}
+              />
             </div>
           )}
         </div>

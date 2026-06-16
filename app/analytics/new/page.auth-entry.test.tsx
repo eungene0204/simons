@@ -18,7 +18,21 @@ vi.mock("@/components/layout/DashboardLayout", () => ({
 }));
 
 vi.mock("@/components/strategy/StrategyExampleTabs", () => ({
-  StrategyExampleTabs: () => <div>예시 전략</div>,
+  StrategyExampleTabs: ({
+    onPreviewOpenChange,
+  }: {
+    onPreviewOpenChange?: (isOpen: boolean) => void;
+  }) => (
+    <div>
+      예시 전략
+      <button type="button" onClick={() => onPreviewOpenChange?.(true)}>
+        미리보기 열기
+      </button>
+      <button type="button" onClick={() => onPreviewOpenChange?.(false)}>
+        미리보기 닫기
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock("@/components/strategy/StrategyWaveBackground", () => ({
@@ -109,5 +123,21 @@ describe("StrategyLab auth entry", () => {
     expect(window.sessionStorage.getItem("simons.pendingStrategyPrompt")).toBe(
       "PER 10 이하 종목 전략 만들어줘"
     );
+  });
+
+  it("blurs the strategy lab background while a template preview is open", async () => {
+    render(<StrategyLabPage />);
+
+    const background = await screen.findByTestId("strategy-lab-background");
+    expect(background.className).not.toContain("blur-[6px]");
+
+    fireEvent.click(screen.getByRole("button", { name: "미리보기 열기" }));
+
+    expect(background.className).toContain("blur-[6px]");
+    expect(background.className).toContain("pointer-events-none");
+
+    fireEvent.click(screen.getByRole("button", { name: "미리보기 닫기" }));
+
+    expect(background.className).not.toContain("blur-[6px]");
   });
 });
