@@ -20,24 +20,30 @@ from llm_backend import OLLAMA_BASE_URL, ollama_auth_headers
 logger = logging.getLogger(__name__)
 
 # Modal serverless GPU 콜드스타트 내성.
-# Ollama를 Modal에 scale-to-zero로 띄우면, 잠든 컨테이너를 깨우는 첫 요청이
-# 모델 VRAM 로딩(~60초) 중 HTTP 400/5xx 또는 읽기 타임아웃으로 실패한다.
-# 재시도 전략:
-#   - 예산: 100s (프론트 코치 타임아웃 120s 안에 들어와야 함)
-#   - 시도당 timeout: 40s 상한 — warm inference는 prefill 덕분에 2~10s이므로
-#     충분하고, cold-start hang이 예산 전체를 소비하는 것을 막는다.
-#   - 백오프: 3s (콜드스타트 중 연속 요청으로 Modal을 압박하지 않음)
-_OLLAMA_COLD_START_STATUSES = {400, 408, 425, 429, 500, 502, 503, 504}
-_OLLAMA_RETRY_BUDGET_S = 100.0
+#
+# Modal scale-to-zero 컨테이너를 깨우는 첫 요청의 두 가지 실패 패턴:
+#   A) HTTP 4xx/5xx 즉시 반환 → 재시도로 해결
+#   B) 연결 hold(hang) ~90s 후 모델 로딩 완료 → 정상 응답
+#      ∵ 재시도 × : 여러 번 짧게 timeout → 예산 소진, cold-start 완료 전 포기
+#      ∴ 단일 long timeout으로 hang이 풀릴 때까지 기다린다
+#
+# 전략:
+#   - TimeoutError / OSError → 재시도 않고 즉시 raise
+#   - URLError(연결거부 등) → 재시도
+#   - HTTP 4xx/5xx → 재시도
+#   - attempt_timeout = 110s: cold-start hang(~90s) + inference(~5s) = ~95s 커버
+_OLLAMA_COLD_START_STATUSES = {408, 425, 429, 500, 502, 503, 504}
+_OLLAMA_RETRY_BUDGET_S = 230.0
 _OLLAMA_RETRY_BACKOFF_S = 3.0
-_OLLAMA_MAX_ATTEMPT_TIMEOUT_S = 40  # warm inference는 2~10s; cold-start hang 방지
+_OLLAMA_MAX_ATTEMPT_TIMEOUT_S = 110  # cold-start hang(~90s) + inference(~5s) 커버
 
 
 def _ollama_open_with_retry(req, timeout: int):
     """Ollama(Modal) HTTP 요청을 콜드스타트 내성 있게 연다.
 
-    transient 실패(콜드스타트 400/5xx/연결오류/타임아웃)면 예산(_OLLAMA_RETRY_BUDGET_S)
-    안에서 재시도하고, 영구 실패거나 예산을 넘기면 마지막 예외를 그대로 올린다.
+    HTTP 4xx/5xx·연결오류는 예산 안에서 재시도한다.
+    TimeoutError는 재시도하지 않는다 — Modal cold-start hang의 경우 단일 long
+    timeout(110s)으로 기다리는 것이 반복 재시도보다 효과적이기 때문이다.
     """
     import urllib.error
     import urllib.request
@@ -48,17 +54,18 @@ def _ollama_open_with_retry(req, timeout: int):
     while time.monotonic() < deadline:
         attempt += 1
         remaining = deadline - time.monotonic()
-        # 시도당 timeout을 40s로 제한: warm inference(2~10s)엔 충분하고
-        # cold-start hang이 예산 전부를 소비해 재시도가 막히는 것을 방지한다.
         attempt_timeout = max(15, min(_OLLAMA_MAX_ATTEMPT_TIMEOUT_S, int(remaining)))
         try:
             return urllib.request.urlopen(req, timeout=attempt_timeout)
         except urllib.error.HTTPError as e:
             last_err = e
             transient = e.code in _OLLAMA_COLD_START_STATUSES
-        except (urllib.error.URLError, TimeoutError, OSError) as e:
+        except urllib.error.URLError as e:
             last_err = e
             transient = True
+        except (TimeoutError, OSError) as e:
+            # cold-start hang이 attempt_timeout을 초과한 것 — 재시도하면 역효과
+            raise e
         if not transient:
             raise last_err
         remaining = deadline - time.monotonic()
