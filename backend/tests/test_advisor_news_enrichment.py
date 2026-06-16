@@ -83,6 +83,46 @@ def _create_memory_db(path):
     conn.close()
 
 
+def test_build_news_context_reads_v2_store_and_keeps_article_url(monkeypatch):
+    """회귀: 코치 '뉴스' 링크는 news_v2 저장소(load_articles_for_symbols)에서 와야 한다.
+
+    이전엔 비어 있는 레거시 sqlite NewsArticle 테이블을 읽어 url이 사라졌다 →
+    '뉴스' 단어에 링크가 안 걸렸다. v2 기사 dict가 NewsContext.articles[].url로
+    그대로 흘러가고, 부정 기사 importance로 위험경보를 산정하는지 확인한다.
+    """
+    from advisor import news_enrichment
+
+    rows = {
+        "005930": [
+            {
+                "sentiment": "negative",
+                "importance": "high",
+                "impactScore": 0.6,
+                "title": "삼성전자 리콜 이슈",
+                "url": "https://news.example.com/x",
+                "publishedAt": "2026-06-15T00:00:00Z",
+            }
+        ]
+    }
+    monkeypatch.setattr(
+        news_enrichment,
+        "load_articles_for_symbols",
+        lambda symbols, as_of, limit=3: {s: rows.get(s, []) for s in symbols},
+    )
+
+    contexts = news_enrichment.build_news_context_from_strategy({"symbols": ["005930"]})
+
+    assert len(contexts) == 1
+    ctx = contexts[0]
+    assert ctx.symbol == "005930"
+    assert ctx.risk_alert_level == "high"
+    article = ctx.articles[0]
+    assert article.url == "https://news.example.com/x"
+    assert article.sentiment == "negative"
+    assert article.impact_direction == "down"
+    assert article.impact_score == -0.6
+
+
 @pytest.mark.asyncio
 async def test_advisor_route_auto_injects_news_context(monkeypatch, tmp_path):
     db_path = tmp_path / "no-memory-tables.db"

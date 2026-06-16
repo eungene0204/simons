@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 from stock_analysis import news_service
@@ -89,3 +90,25 @@ def test_unparseable_date_excluded(monkeypatch):
         {"publishedAt": "", "sentiment": "negative", "url": "https://x", "title": "t"},
     ])
     assert NewsAnalysisService().analyze("005930", as_of=NOW).sentiment is None
+
+
+# ─── _run_async: 루프-안전 v2 로더 (코치 async 핸들러에서 호출되던 경로) ───────────────
+# 회귀: 코치는 async 요청 핸들러 안에서 v2 로더를 동기 호출한다. asyncio.run을 그대로
+# 쓰면 'cannot be called from a running event loop'로 터져 뉴스가 통째로 비고 '뉴스'
+# 링크가 사라졌다. _run_async는 루프 실행 여부와 무관하게 코루틴을 끝까지 돌려야 한다.
+
+def test_run_async_without_running_loop():
+    async def coro():
+        return 7
+
+    assert news_service._run_async(coro()) == 7
+
+
+def test_run_async_inside_running_loop():
+    async def coro():
+        return 42
+
+    async def main():
+        return news_service._run_async(coro())
+
+    assert asyncio.run(main()) == 42
