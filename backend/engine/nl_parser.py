@@ -8,12 +8,65 @@ LLM 백엔드: Ollama (instructor) 또는 MLX (outlines)
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
+import time
 from typing import List, Literal, Optional
 from pydantic import BaseModel, Field
 
 from llm_backend import OLLAMA_BASE_URL, ollama_auth_headers
+
+logger = logging.getLogger(__name__)
+
+# Modal serverless GPU 콜드스타트 내성.
+# Ollama를 Modal에 scale-to-zero로 띄우면, 잠든 컨테이너를 깨우는 첫 요청은 모델을
+# VRAM에 로딩하는 ~60초 동안 프록시가 일시적 실패(400/5xx/타임아웃)를 낼 수 있다.
+# 그 한 번의 콜드스타트 실패로 코칭을 포기하지 말고, 모델이 뜰 때까지 짧은 백오프로
+# 재시도한다. 예산은 프론트 코치 타임아웃(120s) 안에 들어오도록 잡는다.
+_OLLAMA_COLD_START_STATUSES = {400, 408, 425, 429, 500, 502, 503, 504}
+_OLLAMA_RETRY_BUDGET_S = 100.0
+_OLLAMA_RETRY_BACKOFF_S = 3.0
+
+
+def _ollama_open_with_retry(req, timeout: int):
+    """Ollama(Modal) HTTP 요청을 콜드스타트 내성 있게 연다.
+
+    transient 실패(콜드스타트 400/5xx/연결오류/타임아웃)면 예산(_OLLAMA_RETRY_BUDGET_S)
+    안에서 재시도하고, 영구 실패거나 예산을 넘기면 마지막 예외를 그대로 올린다.
+    """
+    import urllib.error
+    import urllib.request
+
+    deadline = time.monotonic() + _OLLAMA_RETRY_BUDGET_S
+    attempt = 0
+    last_err: Exception | None = None
+    while time.monotonic() < deadline:
+        attempt += 1
+        remaining = deadline - time.monotonic()
+        attempt_timeout = max(15, min(timeout, int(remaining)))
+        try:
+            return urllib.request.urlopen(req, timeout=attempt_timeout)
+        except urllib.error.HTTPError as e:
+            last_err = e
+            transient = e.code in _OLLAMA_COLD_START_STATUSES
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            last_err = e
+            transient = True
+        if not transient:
+            raise last_err
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        logger.warning(
+            "ollama transient failure (Modal cold start?), retrying | attempt=%d err=%r remaining_s=%.0f",
+            attempt,
+            last_err,
+            remaining,
+        )
+        time.sleep(min(_OLLAMA_RETRY_BACKOFF_S, remaining))
+    assert last_err is not None
+    raise last_err
 
 
 # ─── 스키마 정의 ──────────────────────────────────────────────────────────────
@@ -716,7 +769,7 @@ class NLStrategyParser:
             headers={"Content-Type": "application/json", **ollama_auth_headers()},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with _ollama_open_with_retry(req, timeout=120) as resp:
             data = json.loads(resp.read())
         return (data.get("message") or {}).get("content", "").strip()
 
@@ -750,7 +803,7 @@ class NLStrategyParser:
             headers={"Content-Type": "application/json", **ollama_auth_headers()},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with _ollama_open_with_retry(req, timeout=120) as resp:
             for line in resp:
                 line = line.strip()
                 if not line:
