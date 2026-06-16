@@ -36,6 +36,14 @@ def _http_503():
     )
 
 
+def _http_400(body: bytes = b""):
+    import io
+
+    return urllib.error.HTTPError(
+        url="http://x/api/chat", code=400, msg="Bad Request", hdrs=None, fp=io.BytesIO(body)
+    )
+
+
 def test_retry_recovers_from_cold_start_503(monkeypatch):
     """콜드스타트 503 한 번 뒤 모델이 뜨면(200) 재시도가 성공을 돌려준다."""
     calls = {"n": 0}
@@ -52,6 +60,43 @@ def test_retry_recovers_from_cold_start_503(monkeypatch):
 
     assert _ollama_open_with_retry(object(), timeout=120) is ok
     assert calls["n"] == 2
+
+
+def test_retry_recovers_from_cold_start_400(monkeypatch):
+    """Modal 콜드스타트 중 모델 로딩 전 반환되는 HTTP 400은 일시 오류 → 재시도로 성공한다.
+
+    프로덕션 실측: 콜드스타트 ~60s 로딩 구간에 400이 나고, 모델이 뜨면 같은 요청이 200을 준다.
+    """
+    calls = {"n": 0}
+    ok = _FakeResp()
+
+    def fake_urlopen(req, timeout):  # noqa: ARG001
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise _http_400(b"")  # 본문 없는 콜드스타트 프록시 400
+        return ok
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr(nl_parser.time, "sleep", lambda s: None)
+
+    assert _ollama_open_with_retry(object(), timeout=120) is ok
+    assert calls["n"] == 2
+
+
+def test_no_retry_on_permanent_400_model_required(monkeypatch):
+    """설정 오류로 인한 영구 400(모델명 누락)은 재시도하지 않고 즉시 올린다."""
+    calls = {"n": 0}
+
+    def fake_urlopen(req, timeout):  # noqa: ARG001
+        calls["n"] += 1
+        raise _http_400(b'{"error":"model is required"}')
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr(nl_parser.time, "sleep", lambda s: None)
+
+    with pytest.raises(urllib.error.HTTPError):
+        _ollama_open_with_retry(object(), timeout=120)
+    assert calls["n"] == 1  # 재시도 없이 1번만
 
 
 def test_no_retry_on_permanent_error(monkeypatch):

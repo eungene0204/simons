@@ -56,7 +56,8 @@ export async function POST(req: NextRequest) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       cache: 'no-store',
-      timeoutMs: 180_000,
+      // 비-스트림 코치(route.ts)와 동일하게 Modal 콜드스타트 + 백엔드 재시도(320s)를 커버한다.
+      timeoutMs: 340_000,
     })
 
     if (!res.ok || !res.body) {

@@ -27,16 +27,39 @@ logger = logging.getLogger(__name__)
 #      ∵ 재시도 × : 여러 번 짧게 timeout → 예산 소진, cold-start 완료 전 포기
 #      ∴ 단일 long timeout으로 hang이 풀릴 때까지 기다린다
 #
+# 프로덕션 실측(2026-06):
+#   - 콜드스타트 첫 /api/chat: 모델 VRAM 로드 ~60s + 첫 추론 워밍업 ~70s = ~130s+
+#   - 그 ~60s 로딩 구간에 ollama가 **HTTP 400**을 반환하는 케이스가 있다. 모델이 뜨면
+#     동일 요청이 200을 돌려주므로(웜 상태 9s) 이 400은 영구 오류가 아니라 콜드스타트
+#     일시 오류다 → 400도 재시도 대상에 포함한다.
+#   - 단, 설정 오류로 인한 영구 400(모델명 누락/없음)은 재시도해도 소용없으므로 즉시 raise.
+#
 # 전략:
-#   - TimeoutError / OSError → 재시도 않고 즉시 raise
+#   - TimeoutError / OSError → 재시도 않고 즉시 raise (hang은 단일 long timeout으로 대기)
 #   - URLError(연결거부 등) → 재시도
-#   - HTTP 4xx/5xx → 재시도
-#   - attempt_timeout = 150s: cold-start hang(측정값 ~110-120s) + inference(~5s) 커버
-#     프론트 코치 타임아웃도 180s로 같이 올려야 함 (app/api/strategy/coach/route.ts)
-_OLLAMA_COLD_START_STATUSES = {408, 425, 429, 500, 502, 503, 504}
-_OLLAMA_RETRY_BUDGET_S = 230.0
+#   - HTTP 4xx/5xx(400 포함, 영구 400 제외) → 재시도
+#   - attempt_timeout = 240s: 콜드스타트 단일 요청(로드+첫추론 ~130s+)이 한 번에 끝나도록 커버
+#   - budget = 320s: 400 반환(~60s) → 재시도 → 콜드 추론(~130s+) 전체를 담는다
+#   ※ 프론트 코치 타임아웃(app/api/strategy/coach/route.ts)을 이 budget보다 크게 유지해야 함
+_OLLAMA_COLD_START_STATUSES = {400, 408, 425, 429, 500, 502, 503, 504}
+_OLLAMA_RETRY_BUDGET_S = 320.0
 _OLLAMA_RETRY_BACKOFF_S = 3.0
-_OLLAMA_MAX_ATTEMPT_TIMEOUT_S = 150  # cold-start hang(~110-120s) + inference(~5s) 커버
+_OLLAMA_MAX_ATTEMPT_TIMEOUT_S = 240  # 콜드스타트 단일 요청(VRAM 로드 ~60s + 첫 추론 ~70s) 커버
+# 콜드스타트 일시 400과 구별할 영구 400(설정 오류) 시그니처 — 이런 본문은 재시도하지 않는다.
+_OLLAMA_PERMANENT_400_SIGNATURES = ("model is required", "not found", "no such model")
+
+
+def _http_400_is_permanent(err) -> bool:
+    """HTTP 400이 콜드스타트 일시 오류가 아니라 영구 설정 오류(모델명 누락/없음)인지 판정한다.
+
+    본문을 읽어 영구 시그니처가 있으면 True. 본문을 못 읽으면(콜드스타트 프록시 400 등)
+    보수적으로 False(=일시 오류로 보고 재시도)를 반환한다.
+    """
+    try:
+        body = err.read().decode("utf-8", "replace").lower()
+    except Exception:
+        return False
+    return any(sig in body for sig in _OLLAMA_PERMANENT_400_SIGNATURES)
 
 
 def _ollama_open_with_retry(req, timeout: int):
@@ -61,6 +84,9 @@ def _ollama_open_with_retry(req, timeout: int):
         except urllib.error.HTTPError as e:
             last_err = e
             transient = e.code in _OLLAMA_COLD_START_STATUSES
+            # 콜드스타트 400은 재시도하면 풀리지만, 설정 오류로 인한 영구 400은 즉시 올린다.
+            if transient and e.code == 400 and _http_400_is_permanent(e):
+                transient = False
         except urllib.error.URLError as e:
             last_err = e
             transient = True
