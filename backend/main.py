@@ -2639,6 +2639,27 @@ async def shutdown():
     await _virtual_trader.stop()
 
 
+def _kick_ollama_warmup() -> None:
+    """배포/재시작 직후 첫 코치 요청이 Modal 콜드스타트(~2분)를 통째로 떠안지 않도록,
+    백그라운드 스레드에서 본문 없는 GET으로 Modal 컨테이너를 미리 깨운다(논블로킹).
+
+    워밍업이 실패하거나 느려도 기동·요청 경로에는 영향이 없다.
+    첫 코치 요청은 기존의 요청 내 lazy 워밍업(_ollama_ensure_warm)으로 폴백한다.
+    """
+    import threading
+
+    from engine.nl_parser import _ollama_ensure_warm
+
+    def _run() -> None:
+        try:
+            _ollama_ensure_warm()
+            print("[startup] Modal LLM 워밍업 완료", flush=True)
+        except Exception as e:  # noqa: BLE001 — 워밍업 실패는 비치명적
+            print(f"[startup] Modal LLM 워밍업 실패 (무시됨, 첫 요청 시 재시도): {e}", flush=True)
+
+    threading.Thread(target=_run, name="ollama-warmup", daemon=True).start()
+
+
 @app.on_event("startup")
 def preload_nl_parser():
     """서버 시작 시 Ollama 기반 NL 파서를 준비한다.
@@ -2667,6 +2688,9 @@ def preload_nl_parser():
         _set_coach_parser(parser)
 
         print(f"[startup] NL 파서 준비 완료 (backend={backend}): {label}", flush=True)
+
+        if backend == "ollama":
+            _kick_ollama_warmup()
     except Exception as e:
         _nl_parser_status["status"] = "failed"
         _nl_parser_status["error"] = str(e)
