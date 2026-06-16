@@ -828,18 +828,20 @@ class NLStrategyParser:
         """Ollama /api/chat 동기 호출 — chat()의 비-MLX 폴백."""
         import urllib.request
 
-        # Qwen3 thinking 모델: `think: false`는 Ollama 0.30.x에서 model capabilities에
-        # 'thinking'이 없으면 크래시(HTTP 000) → 보내지 않는다.
-        # 대신 assistant prefill `<think>\n\n</think>\n`으로 thinking 블록을 즉시 닫아
-        # 모델이 곧바로 content를 생성하게 한다(2~3s vs 40+s).
+        # Qwen3 thinking 모델 thinking 우회: `think: false`를 쓴다.
+        # (과거엔 assistant prefill `<think>\n\n</think>\n`을 마지막 메시지로 넣었으나, 현재
+        #  Modal ollama가 받는 Qwen3.5 chat template이 마지막 메시지가 assistant면
+        #  "No user query found in messages" Jinja 예외로 HTTP 400을 던진다. prefill은 폐기.)
+        # `think: false`는 thinking 지원 모델(Qwen3.5)+현행 ollama에서 정상 동작한다(실측 2~3s,
+        #  정상 content). think 파라미터를 아예 안 보내면 thinking이 토큰을 소진해 빈 응답이 된다.
         body = json.dumps({
             "model": self.ollama_model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message},
-                {"role": "assistant", "content": "<think>\n\n</think>\n"},
             ],
             "stream": False,
+            "think": False,
             "options": {"temperature": temperature, "top_p": top_p, "num_predict": max_tokens},
         }).encode()
         # Modal 콜드스타트 프록시가 POST body를 유실시키므로, 본문 없는 GET으로 먼저 깨운다.
@@ -866,15 +868,16 @@ class NLStrategyParser:
         각 yield는 증분 델타(MLX 경로와 동일)."""
         import urllib.request
 
-        # 동기 경로와 동일하게 assistant prefill로 thinking 우회.
+        # 동기 경로와 동일하게 `think: false`로 thinking 우회(assistant prefill은 현행 Qwen3.5
+        # chat template과 충돌해 400을 유발하므로 폐기 — _chat_ollama 주석 참고).
         body = json.dumps({
             "model": self.ollama_model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message},
-                {"role": "assistant", "content": "<think>\n\n</think>\n"},
             ],
             "stream": True,
+            "think": False,
             "options": {"temperature": temperature, "top_p": top_p, "num_predict": max_tokens},
         }).encode()
         # Modal 콜드스타트 프록시가 POST body를 유실시키므로, 본문 없는 GET으로 먼저 깨운다.

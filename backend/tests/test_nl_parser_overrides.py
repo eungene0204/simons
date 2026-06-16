@@ -1366,23 +1366,24 @@ def _capture_ollama_chat_body(monkeypatch, *, streaming: bool) -> dict:
 
 
 def test_chat_ollama_disables_thinking(monkeypatch):
-    """Qwen3 thinking 모델이 <think>로 토큰을 소진해 빈 응답을 내지 않도록 thinking을 우회해야 한다.
+    """Qwen3 thinking 모델 thinking 우회는 `think: false`로 한다.
 
-    회귀: `think: false`는 Ollama 0.30.x에서 capabilities에 'thinking' 없는 모델에 보내면
-    크래시(HTTP 000) → assistant prefill `<think>\n\n</think>\n`으로 thinking 블록을 즉시 닫는다.
+    회귀: 과거엔 assistant prefill `<think>\n\n</think>\n`을 마지막 메시지로 넣었으나, 현행
+    Modal ollama의 Qwen3.5 chat template이 마지막 메시지가 assistant면 "No user query found in
+    messages" Jinja 예외로 HTTP 400을 던진다(프로덕션 실측). prefill 폐기 + think:false 사용.
     """
     body = _capture_ollama_chat_body(monkeypatch, streaming=False)
-    # think 파라미터 대신 마지막 assistant 메시지 prefill로 thinking 우회
-    assert "think" not in body, "think 파라미터는 Ollama 0.30.x에서 크래시 유발 — 보내지 않아야 함"
+    assert body.get("think") is False, "thinking 우회는 think:false로 해야 함"
     messages = body["messages"]
-    assert messages[-1]["role"] == "assistant"
-    assert "<think>" in messages[-1]["content"]
+    # 마지막 메시지는 user여야 한다 — assistant prefill은 template 400을 유발하므로 금지.
+    assert messages[-1]["role"] == "user"
+    assert all(m["role"] != "assistant" for m in messages)
 
 
 def test_stream_chat_ollama_disables_thinking(monkeypatch):
-    """스트리밍 경로도 동일하게 assistant prefill로 thinking을 우회해야 한다."""
+    """스트리밍 경로도 동일하게 think:false로 thinking을 우회한다(assistant prefill 금지)."""
     body = _capture_ollama_chat_body(monkeypatch, streaming=True)
-    assert "think" not in body
+    assert body.get("think") is False
     messages = body["messages"]
-    assert messages[-1]["role"] == "assistant"
-    assert "<think>" in messages[-1]["content"]
+    assert messages[-1]["role"] == "user"
+    assert all(m["role"] != "assistant" for m in messages)
