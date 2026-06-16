@@ -432,7 +432,10 @@ def test_advisor_injects_experiment_learning_advice(tmp_path):
     assert result.strategy_experiment_learning is not None
     assert result.strategy_experiment_learning["similar_strategy_count"] == 18
     assert result.advice[0].title == "전략 실험 근거 기반 개선"
-    assert "유사 실험 근거는 내부 참고용" in result.advice[0].body
+    # 코치가 그대로 복창하면 사용자에게 새는 내부 지시문/매달린 접속어를 advice에 넣지 않는다.
+    assert "내부 참고용" not in result.advice[0].body
+    assert "판단하면" not in result.advice[0].body
+    assert "비슷한 전략들의 과거 사례를 보면" in result.advice[0].body
     assert "현재 전략은 먼저 같은 기간과 비용 조건으로 백테스트" in result.advice[0].body
     assert "백테스트 학습 사례" not in result.advice[0].body
     assert "중앙값" not in result.advice[0].body
@@ -475,7 +478,9 @@ def test_advisor_primary_advice_combines_learning_and_memory_evidence(tmp_path):
     ))
 
     assert result.advice[0].title == "전략 실험 근거 기반 개선"
-    assert "유사 실험 근거는 내부 참고용" in result.advice[0].body
+    assert "내부 참고용" not in result.advice[0].body
+    assert "판단하면" not in result.advice[0].body
+    assert "비슷한 전략들의 과거 사례를 보면" in result.advice[0].body
     assert "유사 전략 경험까지 보면" in result.advice[0].body
     assert "조정 후" in result.advice[0].body
     assert "백테스트 학습 사례" not in result.advice[0].body

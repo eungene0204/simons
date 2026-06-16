@@ -769,7 +769,7 @@ def build_experiment_learning_advice(insight: Dict[str, Any]) -> Optional[str]:
 
     if is_flat_evidence:
         return (
-            f"유사 실험 근거는 내부 참고용으로만 사용하세요. 판단하면 {judgment}. "
+            f"비슷한 전략들의 과거 사례를 보면 {judgment}. "
             "성과 신호가 약하므로 현재 전략은 먼저 같은 기간과 비용 조건으로 백테스트하고, "
             "이후 진입 조건, 청산 규칙, 보유기간 변경은 한 번에 하나씩만 비교하세요."
         )
@@ -780,7 +780,7 @@ def build_experiment_learning_advice(insight: Dict[str, Any]) -> Optional[str]:
         risk_warning = f" {warning}" if warning else " 유사 실패 패턴도 있으므로 같은 조건 반복은 피하세요."
 
     return (
-        f"유사 실험 근거는 내부 참고용으로만 사용하세요. 판단하면 {judgment}. "
+        f"비슷한 전략들의 과거 사례를 보면 {judgment}. "
         "현재 전략은 먼저 같은 기간과 비용 조건으로 백테스트하고, "
         "이후 변경은 한 번에 하나씩만 비교하세요."
         f"{risk_warning}"
