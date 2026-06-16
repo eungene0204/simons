@@ -5,3 +5,10 @@
 {$DOMAIN:localhost} {
 	reverse_proxy web:3000
 }
+
+# apex(www 없는) 도메인을 canonical(www) 호스트로 영구 리다이렉트한다.
+# 미설정 시 apex.localhost로 동작(내부 인증서) — 로컬 compose에서 ACME 발급 시도 방지.
+# 예: APEX_DOMAIN=nullstock.im → https://www.nullstock.im 로 리다이렉트(+ apex 인증서 발급).
+{$APEX_DOMAIN:apex.localhost} {
+	redir https://{$DOMAIN:localhost}{uri} permanent
+}
