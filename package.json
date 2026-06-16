@@ -50,7 +50,8 @@
     "react-markdown": "^10.1.0",
     "recharts": "^2.10.3",
     "tailwind-merge": "^3.4.0",
-    "task-master-ai": "^0.42.0"
+    "task-master-ai": "^0.42.0",
+    "undici": "^7.28.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.1.5",
