@@ -424,6 +424,7 @@ Backtest result Experience Memory를 semantic retrieval 용도로 저장하고 �
 Public landing page, sign-in entry flow, and session bootstrap into the existing dashboard.
 
 ### Files
+- app/layout.tsx
 - app/page.tsx
 - app/login/page.tsx
 - app/dashboard/page.tsx

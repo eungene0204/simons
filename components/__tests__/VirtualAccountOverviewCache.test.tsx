@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import VirtualAccountOverview from "@/components/virtual-account/VirtualAccountOverview";
 import {
@@ -23,6 +23,13 @@ const cachedAccount: VirtualAccount = {
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
 
+const autoAccount: VirtualAccount = {
+  ...cachedAccount,
+  id: "auto-account",
+  name: "자동 계좌",
+  tradingMode: "auto",
+};
+
 afterEach(() => {
   clearVirtualAccountOverviewCache();
   vi.unstubAllGlobals();
@@ -39,5 +46,39 @@ describe("VirtualAccountOverview cache", () => {
     expect(screen.queryByText("계좌를 불러오는 중입니다.")).not.toBeInTheDocument();
     expect(screen.getByText("캐시 계좌")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/virtual-account");
+  });
+
+  it("keeps the initial amount box size while positioning the trading mode badge above it", () => {
+    setCachedVirtualAccounts([autoAccount]);
+    const fetchMock = vi.fn(() => new Promise<Response>(() => undefined));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<VirtualAccountOverview />);
+
+    const initialAmountLabel = screen.getByText("초기 투자금");
+    const initialAmountCard = initialAmountLabel.parentElement;
+    expect(initialAmountCard).not.toBeNull();
+    expect(initialAmountCard).toHaveClass("relative", "rounded-md", "p-3");
+
+    const badge = within(initialAmountCard as HTMLDivElement).getByText("자동");
+    expect(badge).toHaveClass("absolute", "-top-8");
+    expect(badge.compareDocumentPosition(initialAmountLabel)).toBeTruthy();
+    expect(badge.compareDocumentPosition(initialAmountLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("renders an x badge in the account card header with a red hover state", () => {
+    setCachedVirtualAccounts([autoAccount]);
+    const fetchMock = vi.fn(() => new Promise<Response>(() => undefined));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<VirtualAccountOverview />);
+
+    const closeBadge = screen.getByLabelText("계좌 카드 닫기 배지");
+    expect(closeBadge).toHaveClass(
+      "bg-white/[0.06]",
+      "text-gray-500",
+      "hover:bg-[var(--main-red)]/15",
+      "hover:text-[var(--main-red)]"
+    );
   });
 });
