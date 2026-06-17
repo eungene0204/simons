@@ -9,17 +9,37 @@ export type StockMetadataMap = Record<
   | undefined
 >;
 
+function getMetadataName(symbol: string, stockMetadata: StockMetadataMap) {
+  const metadata = stockMetadata[symbol];
+  const metadataName =
+    typeof metadata === "string" ? metadata : metadata?.name ?? "";
+  return metadataName.trim();
+}
+
+function resolvePreferredStockName(
+  symbol: string,
+  stockMetadata: StockMetadataMap
+) {
+  if (!/^\d{6}$/.test(symbol) || !symbol.endsWith("5")) {
+    return "";
+  }
+
+  const commonStockSymbol = `${symbol.slice(0, 5)}0`;
+  const commonStockName = getMetadataName(commonStockSymbol, stockMetadata);
+  return commonStockName ? `${commonStockName}우` : "";
+}
+
 export function resolveStockDisplayName(
   symbol: string,
   currentName: string | null | undefined,
   stockMetadata: StockMetadataMap
 ) {
-  const metadata = stockMetadata[symbol];
-  const metadataName =
-    typeof metadata === "string" ? metadata : metadata?.name ?? "";
-  const trimmedMetadataName = metadataName.trim();
+  const trimmedMetadataName = getMetadataName(symbol, stockMetadata);
 
   if (trimmedMetadataName) return trimmedMetadataName;
+
+  const preferredStockName = resolvePreferredStockName(symbol, stockMetadata);
+  if (preferredStockName) return preferredStockName;
 
   const trimmedCurrentName = currentName?.trim() ?? "";
   if (trimmedCurrentName && trimmedCurrentName !== symbol) {

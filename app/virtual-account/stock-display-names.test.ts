@@ -28,6 +28,20 @@ describe("virtual account stock display names", () => {
     );
   });
 
+  it("derives preferred stock names from common stock metadata when preferred metadata is missing", () => {
+    const metadataWithoutPreferredStocks = {
+      "001750": { name: "한양증권" },
+      "019170": { name: "신풍제약" },
+    };
+
+    expect(
+      resolveStockDisplayName("001755", "001755", metadataWithoutPreferredStocks)
+    ).toBe("한양증권우");
+    expect(
+      resolveStockDisplayName("019175", "019175", metadataWithoutPreferredStocks)
+    ).toBe("신풍제약우");
+  });
+
   it("applies preferred stock names to holdings and tracked symbols", () => {
     const holdings: PortfolioHolding[] = [
       {
