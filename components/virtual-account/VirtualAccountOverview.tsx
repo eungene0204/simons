@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Bell, Robot } from "phosphor-react";
+import { Bell, Robot, X } from "phosphor-react";
 import { StrategyWaveBackground } from "@/components/strategy/StrategyWaveBackground";
 import CreateAccountModal from "@/components/ui/CreateAccountModal";
 import { createAccount } from "@/lib/portfolio";
@@ -135,7 +135,7 @@ export default function VirtualAccountOverview() {
                   className="group max-w-lg rounded-lg border border-white/[0.08] bg-[#111111] p-4 transition-colors hover:bg-[#151515]"
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <h2 className="truncate text-lg font-black tracking-tight text-white">
                         {account.name}
                       </h2>
@@ -143,22 +143,12 @@ export default function VirtualAccountOverview() {
                         {account.strategyName || "전략 미연결"}
                       </p>
                     </div>
-                    {account.strategyName ? (
-                      <span
-                        className={`inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-bold ${
-                          account.tradingMode === "auto"
-                            ? "bg-sky-500/15 text-sky-400"
-                            : "bg-white/[0.06] text-gray-400"
-                        }`}
-                      >
-                        {account.tradingMode === "auto" ? (
-                          <Robot size={12} weight="bold" />
-                        ) : (
-                          <Bell size={12} weight="bold" />
-                        )}
-                        {account.tradingMode === "auto" ? "자동" : "알림"}
-                      </span>
-                    ) : null}
+                    <span
+                      aria-label="계좌 카드 닫기 배지"
+                      className="inline-flex shrink-0 items-center justify-center rounded-md bg-white/[0.06] p-2 text-gray-500 transition-colors hover:bg-[var(--main-red)]/15 hover:text-[var(--main-red)]"
+                    >
+                      <X size={14} weight="bold" />
+                    </span>
                   </div>
 
                   <div className="mt-5">
@@ -195,7 +185,23 @@ export default function VirtualAccountOverview() {
                         {formatPrice(account.currentBalance)}원
                       </p>
                     </div>
-                    <div className="rounded-md border border-white/[0.06] bg-white/[0.02] p-3">
+                    <div className="relative rounded-md border border-white/[0.06] bg-white/[0.02] p-3">
+                      {account.strategyName ? (
+                        <span
+                          className={`absolute -top-8 right-0 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-bold ${
+                            account.tradingMode === "auto"
+                              ? "bg-sky-500/15 text-sky-400"
+                              : "bg-white/[0.06] text-gray-400"
+                          }`}
+                        >
+                          {account.tradingMode === "auto" ? (
+                            <Robot size={12} weight="bold" />
+                          ) : (
+                            <Bell size={12} weight="bold" />
+                          )}
+                          {account.tradingMode === "auto" ? "자동" : "알림"}
+                        </span>
+                      ) : null}
                       <p className="text-[10px] font-black uppercase tracking-[0.24em] text-gray-500">
                         초기 투자금
                       </p>

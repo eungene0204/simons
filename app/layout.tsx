@@ -11,8 +11,8 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const outfit = Outfit({ subsets: ["latin"], variable: "--font-outfit" });
 
 export const metadata: Metadata = {
-  title: "널스탁 - 주식투자 도움",
-  description: "주식투자에 도움을 주는 웹사이트",
+  title: "널스탁",
+  description: "",
 };
 
 export default function RootLayout({
