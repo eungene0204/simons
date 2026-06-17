@@ -3,6 +3,12 @@ import { prisma } from '@/lib/prisma';
 import { resolveTrackedSymbolsForStrategy } from '@/lib/strategy-tracked-symbols';
 import { getStockNameMap } from '@/lib/krx-stocks';
 import {
+  closeAccountWithSettlement,
+  fetchSettlementPriceMap,
+  moneyToNumber,
+  toMoney,
+} from '@/lib/server/assetService';
+import {
   getOwnershipContext,
   isUnauthorizedAccessError,
   withOwnership,
@@ -22,22 +28,24 @@ function resolvePositionName(
 
 function mapAccount(a: any, priceMap: Record<string, number>, stockNameMap: Record<string, string>) {
   const positions = a.VirtualPosition ?? [];
+  const currentCash = moneyToNumber(a.currentCash);
   const totalValue =
-    a.currentCash +
+    currentCash +
     positions.reduce((sum: number, p: any) => {
-      const currentPrice = priceMap[p.symbol] ?? p.currentPrice ?? p.avgPrice;
+      const currentPrice = priceMap[p.symbol] ?? moneyToNumber(p.currentPrice ?? p.avgPrice);
       return sum + p.quantity * currentPrice;
     }, 0);
   const holdings = positions.map((p: any) => {
-    const currentPrice = priceMap[p.symbol] ?? p.currentPrice ?? p.avgPrice;
-    const cost = p.quantity * p.avgPrice;
+    const avgPrice = moneyToNumber(p.avgPrice);
+    const currentPrice = priceMap[p.symbol] ?? moneyToNumber(p.currentPrice ?? p.avgPrice);
+    const cost = p.quantity * avgPrice;
     const totalVal = p.quantity * currentPrice;
     const profit = totalVal - cost;
     return {
       symbol: p.symbol,
       name: resolvePositionName(p.symbol, p.name, stockNameMap),
       quantity: p.quantity,
-      averagePrice: p.avgPrice,
+      averagePrice: avgPrice,
       currentPrice,
       totalValue: totalVal,
       profit,
@@ -47,14 +55,16 @@ function mapAccount(a: any, priceMap: Record<string, number>, stockNameMap: Reco
   return {
     id: a.id,
     name: a.name,
-    initialAmount: a.initialCash,
-    currentBalance: a.currentCash,
+    initialAmount: moneyToNumber(a.initialCash),
+    currentBalance: currentCash,
     totalValue,
+    status: a.status ?? "ACTIVE",
     strategyId: a.strategyId ?? undefined,
     strategyName: a.strategyName ?? undefined,
     tradingMode: (a.tradingMode ?? "manual") as "auto" | "manual",
     createdAt: a.createdAt.toISOString(),
     updatedAt: a.updatedAt.toISOString(),
+    closedAt: a.closedAt ? a.closedAt.toISOString() : undefined,
     holdings,
   };
 }
@@ -138,10 +148,13 @@ export async function PATCH(
   try {
     const { userId } = await getOwnershipContext();
     const ownedAccount = await findOwnedAccountById(params.id, userId, {
-      select: { id: true },
+      select: { id: true, status: true },
     });
     if (!ownedAccount) {
       return NextResponse.json({ error: 'Account not found' }, { status: 404 });
+    }
+    if ((ownedAccount as any).status === "CLOSED") {
+      return NextResponse.json({ error: 'Account is closed' }, { status: 400 });
     }
 
     const body = await request.json();
@@ -149,7 +162,7 @@ export async function PATCH(
     const account = await prisma.virtualAccount.update({
       where: { id: params.id },
       data: {
-        ...(body.currentBalance !== undefined && { currentCash: body.currentBalance }),
+        ...(body.currentBalance !== undefined && { currentCash: toMoney(body.currentBalance) }),
         ...(body.tradingMode !== undefined && { tradingMode: body.tradingMode }),
         ...(body.strategyId !== undefined && { strategyId: body.strategyId }),
         ...(body.strategyName !== undefined && { strategyName: body.strategyName }),
@@ -226,7 +239,7 @@ export async function PATCH(
   }
 }
 
-// DELETE: 계좌 삭제 (positions, orders cascade)
+// DELETE: 계좌 삭제/정산
 export async function DELETE(
   _request: Request,
   { params }: { params: { id: string } }
@@ -237,15 +250,47 @@ export async function DELETE(
       await prisma.virtualAccount.delete({
         where: { id: params.id },
       });
-    } else {
-      await prisma.virtualAccount.deleteMany({
-        where: withOwnership({ id: params.id }, userId),
-      });
+      return NextResponse.json({ message: 'Account deleted' });
     }
-    return NextResponse.json({ message: 'Account deleted' });
+
+    const account = await prisma.virtualAccount.findFirst({
+      where: withOwnership({ id: params.id }, userId),
+      include: { VirtualPosition: true },
+    });
+    if (!account) {
+      return NextResponse.json({ error: 'Account not found' }, { status: 404 });
+    }
+    if (account.status === "CLOSED") {
+      return NextResponse.json({ error: 'Account is closed' }, { status: 400 });
+    }
+
+    const priceMap = await fetchSettlementPriceMap(account.VirtualPosition);
+    const result = await prisma.$transaction((tx) =>
+      closeAccountWithSettlement(tx, {
+        userId,
+        accountId: params.id,
+        priceMap,
+      })
+    );
+
+    return NextResponse.json({
+      message: 'Account closed',
+      returnedAmount: result.returnedAmount.toNumber(),
+      availableCash: result.availableCash.toNumber(),
+      account: mapAccount(result.account, {}, {}),
+    });
   } catch (error) {
     if (isUnauthorizedAccessError(error)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    if (error instanceof Error && error.message === "ACCOUNT_CLOSED") {
+      return NextResponse.json({ error: 'Account is closed' }, { status: 400 });
+    }
+    if (error instanceof Error && error.message === "PRICE_UNAVAILABLE") {
+      return NextResponse.json({ error: 'Settlement price unavailable' }, { status: 502 });
+    }
+    if (error instanceof Error && error.message === "ACCOUNT_NOT_FOUND") {
+      return NextResponse.json({ error: 'Account not found' }, { status: 404 });
     }
     console.error('Failed to delete virtual account:', error);
     return NextResponse.json({ error: 'Failed to delete account' }, { status: 500 });

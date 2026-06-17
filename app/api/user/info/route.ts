@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/get-user'
 import { cache } from '@/lib/cache'
 import { prisma } from '@/lib/prisma'
+import { moneyToNumber } from '@/lib/server/assetService'
 
 export async function GET(request: NextRequest) {
   try {
@@ -42,14 +43,14 @@ export async function GET(request: NextRequest) {
     ])
 
     const accountCount = accounts.length
-    const totalInitialCash = accounts.reduce((sum, account) => sum + account.initialCash, 0)
+    const totalInitialCash = accounts.reduce((sum, account) => sum + moneyToNumber(account.initialCash), 0)
     const totalValue = accounts.reduce((sum, account) => {
       const positionsValue = account.VirtualPosition.reduce((positionSum, position) => {
-        const currentPrice = position.currentPrice ?? position.avgPrice
+        const currentPrice = moneyToNumber(position.currentPrice ?? position.avgPrice)
         return positionSum + position.quantity * currentPrice
       }, 0)
 
-      return sum + account.currentCash + positionsValue
+      return sum + moneyToNumber(account.currentCash) + positionsValue
     }, 0)
 
     const currentReturnRate =

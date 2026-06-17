@@ -12,6 +12,7 @@ import {
   roundToTick,
 } from '@/lib/order-engine';
 import { getTradeBlockReason } from '@/lib/listing-status';
+import { moneyToNumber, toMoney } from '@/lib/server/assetService';
 import {
   getOwnershipContext,
   isUnauthorizedAccessError,
@@ -20,7 +21,8 @@ import {
 
 
 function mapOrder(o: any, nameMap: Record<string, string>) {
-  const filledPrice = o.filledPrice ?? undefined;
+  const filledPrice = o.filledPrice == null ? undefined : moneyToNumber(o.filledPrice);
+  const price = moneyToNumber(o.price);
   const fee = o.fee ?? (filledPrice ? calcFee(filledPrice, o.quantity) : undefined);
   // name이 없거나 symbol과 동일한 경우 korea-stocks.json에서 조회
   const storedName = o.name as string | null | undefined;
@@ -32,13 +34,13 @@ function mapOrder(o: any, nameMap: Record<string, string>) {
     symbol: o.symbol,
     name: resolvedName,
     quantity: o.quantity,
-    price: o.price,
+    price,
     filledPrice,
-    fee,
-    tax: o.tax ?? undefined,
-    avgBuyPrice: o.avgBuyPrice ?? undefined,
-    realizedPnl: o.realizedPnl ?? undefined,
-    totalAmount: filledPrice ? filledPrice * o.quantity : o.price * o.quantity,
+    fee: fee == null ? undefined : moneyToNumber(fee),
+    tax: o.tax == null ? undefined : moneyToNumber(o.tax),
+    avgBuyPrice: o.avgBuyPrice == null ? undefined : moneyToNumber(o.avgBuyPrice),
+    realizedPnl: o.realizedPnl == null ? undefined : moneyToNumber(o.realizedPnl),
+    totalAmount: (filledPrice ?? price) * o.quantity,
     orderType: o.type as 'MARKET' | 'LIMIT',
     status: o.status as 'PENDING' | 'FILLED' | 'CANCELLED',
     timestamp: o.createdAt.toISOString(),
@@ -126,6 +128,7 @@ export async function POST(
         where: withOwnership({ id: params.id }, userId),
       });
       if (!account) throw new Error('ACCOUNT_NOT_FOUND');
+      if (account.status === 'CLOSED') throw new Error('ACCOUNT_CLOSED');
 
       // ── 시장가 주문 ───────────────────────────────────────────────────────
       if (oType === 'MARKET') {
@@ -134,12 +137,13 @@ export async function POST(
 
         if (side === 'BUY') {
           const cost = calcBuyCost(filledPrice, qty);
-          if (account.currentCash < cost) throw new Error('INSUFFICIENT_BALANCE');
+          const currentCash = moneyToNumber(account.currentCash);
+          if (currentCash < cost) throw new Error('INSUFFICIENT_BALANCE');
 
           await upsertPosition(tx, params.id, symbol, name, qty, filledPrice);
           await tx.virtualAccount.update({
             where: { id: params.id },
-            data: { currentCash: account.currentCash - cost },
+            data: { currentCash: toMoney(currentCash - cost) },
           });
 
           return tx.virtualOrder.create({
@@ -147,21 +151,21 @@ export async function POST(
               id: crypto.randomUUID(),
               accountId: params.id, symbol, name: name ?? symbol,
               side, type: 'MARKET', quantity: qty,
-              price: prc, filledPrice, fee, status: 'FILLED', filledAt: new Date(),
+              price: toMoney(prc), filledPrice: toMoney(filledPrice), fee: toMoney(fee), status: 'FILLED', filledAt: new Date(),
             },
           });
         } else {
           const pos = await tx.virtualPosition.findUnique({
             where: { accountId_symbol: { accountId: params.id, symbol } },
           });
-          const avgBuyPrice = pos?.avgPrice ?? filledPrice;
+          const avgBuyPrice = pos ? moneyToNumber(pos.avgPrice) : filledPrice;
           const tax = calcTransactionTax(filledPrice, qty);
           const realizedPnl = calcRealizedPnl(filledPrice, avgBuyPrice, qty, fee, tax);
           const proceeds = calcSellProceeds(filledPrice, qty);
           await reducePosition(tx, params.id, symbol, qty);
           await tx.virtualAccount.update({
             where: { id: params.id },
-            data: { currentCash: account.currentCash + proceeds },
+            data: { currentCash: toMoney(moneyToNumber(account.currentCash) + proceeds) },
           });
 
           return tx.virtualOrder.create({
@@ -169,7 +173,7 @@ export async function POST(
               id: crypto.randomUUID(),
               accountId: params.id, symbol, name: name ?? symbol,
               side, type: 'MARKET', quantity: qty,
-              price: prc, filledPrice, fee, tax, avgBuyPrice, realizedPnl,
+              price: toMoney(prc), filledPrice: toMoney(filledPrice), fee: toMoney(fee), tax: toMoney(tax), avgBuyPrice: toMoney(avgBuyPrice), realizedPnl: toMoney(realizedPnl),
               status: 'FILLED', filledAt: new Date(),
             },
           });
@@ -187,11 +191,12 @@ export async function POST(
 
         if (side === 'BUY') {
           const cost = calcBuyCost(filledPrice, qty);
-          if (account.currentCash < cost) throw new Error('INSUFFICIENT_BALANCE');
+          const currentCash = moneyToNumber(account.currentCash);
+          if (currentCash < cost) throw new Error('INSUFFICIENT_BALANCE');
           await upsertPosition(tx, params.id, symbol, name, qty, filledPrice);
           await tx.virtualAccount.update({
             where: { id: params.id },
-            data: { currentCash: account.currentCash - cost },
+            data: { currentCash: toMoney(currentCash - cost) },
           });
 
           return tx.virtualOrder.create({
@@ -199,21 +204,21 @@ export async function POST(
               id: crypto.randomUUID(),
               accountId: params.id, symbol, name: name ?? symbol,
               side, type: 'LIMIT', quantity: qty,
-              price: limitPrice, filledPrice, fee, status: 'FILLED', filledAt: new Date(),
+              price: toMoney(limitPrice), filledPrice: toMoney(filledPrice), fee: toMoney(fee), status: 'FILLED', filledAt: new Date(),
             },
           });
         } else {
           const pos = await tx.virtualPosition.findUnique({
             where: { accountId_symbol: { accountId: params.id, symbol } },
           });
-          const avgBuyPrice = pos?.avgPrice ?? filledPrice;
+          const avgBuyPrice = pos ? moneyToNumber(pos.avgPrice) : filledPrice;
           const tax = calcTransactionTax(filledPrice, qty);
           const realizedPnl = calcRealizedPnl(filledPrice, avgBuyPrice, qty, fee, tax);
           const proceeds = calcSellProceeds(filledPrice, qty);
           await reducePosition(tx, params.id, symbol, qty);
           await tx.virtualAccount.update({
             where: { id: params.id },
-            data: { currentCash: account.currentCash + proceeds },
+            data: { currentCash: toMoney(moneyToNumber(account.currentCash) + proceeds) },
           });
 
           return tx.virtualOrder.create({
@@ -221,7 +226,7 @@ export async function POST(
               id: crypto.randomUUID(),
               accountId: params.id, symbol, name: name ?? symbol,
               side, type: 'LIMIT', quantity: qty,
-              price: limitPrice, filledPrice, fee, tax, avgBuyPrice, realizedPnl,
+              price: toMoney(limitPrice), filledPrice: toMoney(filledPrice), fee: toMoney(fee), tax: toMoney(tax), avgBuyPrice: toMoney(avgBuyPrice), realizedPnl: toMoney(realizedPnl),
               status: 'FILLED', filledAt: new Date(),
             },
           });
@@ -232,10 +237,11 @@ export async function POST(
       if (side === 'BUY') {
         // 매수 지정가: 예약 현금 차감 (수수료 추정 포함)
         const reserved = calcBuyCost(limitPrice, qty);
-        if (account.currentCash < reserved) throw new Error('INSUFFICIENT_BALANCE');
+        const currentCash = moneyToNumber(account.currentCash);
+        if (currentCash < reserved) throw new Error('INSUFFICIENT_BALANCE');
         await tx.virtualAccount.update({
           where: { id: params.id },
-          data: { currentCash: account.currentCash - reserved },
+          data: { currentCash: toMoney(currentCash - reserved) },
         });
       } else {
         // 매도 지정가: 포지션 수량만 검증 (잠금 없이)
@@ -250,7 +256,7 @@ export async function POST(
           id: crypto.randomUUID(),
           accountId: params.id, symbol, name: name ?? symbol,
           side, type: 'LIMIT', quantity: qty,
-          price: limitPrice, filledPrice: null, status: 'PENDING',
+          price: toMoney(limitPrice), filledPrice: null, status: 'PENDING',
         },
       });
     });
@@ -268,6 +274,8 @@ export async function POST(
       return NextResponse.json({ error: '보유 수량이 부족합니다.' }, { status: 400 });
     if (msg === 'ACCOUNT_NOT_FOUND')
       return NextResponse.json({ error: '계좌를 찾을 수 없습니다.' }, { status: 404 });
+    if (msg === 'ACCOUNT_CLOSED')
+      return NextResponse.json({ error: '닫힌 계좌에서는 매매할 수 없습니다.' }, { status: 400 });
     console.error('Failed to execute order:', error);
     return NextResponse.json({ error: 'Failed to execute order' }, { status: 500 });
   }
@@ -288,10 +296,11 @@ async function upsertPosition(
   });
   if (existing) {
     const newQty = existing.quantity + qty;
-    const newAvgPrice = (existing.avgPrice * existing.quantity + filledPrice * qty) / newQty;
+    const existingAvgPrice = moneyToNumber(existing.avgPrice);
+    const newAvgPrice = (existingAvgPrice * existing.quantity + filledPrice * qty) / newQty;
     await tx.virtualPosition.update({
       where: { accountId_symbol: { accountId, symbol } },
-      data: { quantity: newQty, avgPrice: newAvgPrice, name: name ?? existing.name },
+      data: { quantity: newQty, avgPrice: toMoney(newAvgPrice), name: name ?? existing.name },
     });
   } else {
     await tx.virtualPosition.create({
@@ -301,7 +310,7 @@ async function upsertPosition(
         symbol,
         name: name ?? symbol,
         quantity: qty,
-        avgPrice: filledPrice,
+        avgPrice: toMoney(filledPrice),
         updatedAt: new Date(),
       },
     });

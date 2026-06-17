@@ -299,9 +299,20 @@ model User {
   ResearchRun    ResearchRun[]
   Strategy       Strategy[]
   VirtualAccount VirtualAccount[]
+  UserAsset      UserAsset?
+  AssetLedger    AssetLedger[]
   WatchlistGroup WatchlistGroup[]
   WatchlistSymbol WatchlistSymbol[]
   UserBacktestHistory UserBacktestHistory[]
+}
+
+model UserAsset {
+  userId             Int      @id
+  availableCash      Decimal  @default(10000000)
+  initialGrantAmount Decimal  @default(10000000)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  User               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model ResearchRun {
@@ -366,21 +377,41 @@ model VirtualAccount {
   id                 String              @id
   userId             Int?
   name               String
-  initialCash        Float
-  currentCash        Float
+  initialCash        Decimal
+  currentCash        Decimal
+  status             String              @default("ACTIVE")
   strategyId         String?
   strategyName       String?
   tradingMode        String              @default("manual")
   delistingPolicy    String              @default("AUTO_LIQUIDATE")
   createdAt          DateTime            @default(now())
   updatedAt          DateTime
+  closedAt           DateTime?
   User               User?               @relation(fields: [userId], references: [id])
   VirtualMarketState VirtualMarketState?
   VirtualOrder       VirtualOrder[]
   VirtualPosition    VirtualPosition[]
   DelistingAuditLog  DelistingAuditLog[]
+  AssetLedger        AssetLedger[]
 
   @@index([userId, createdAt])
+  @@index([userId, status])
+}
+
+model AssetLedger {
+  id             String          @id @default(cuid())
+  userId         Int
+  accountId      String?
+  type           String
+  amount         Decimal
+  balanceAfter   Decimal
+  createdAt      DateTime        @default(now())
+  User           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  VirtualAccount VirtualAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([accountId, createdAt])
+  @@index([type])
 }
 
 model VirtualMarketLog {
@@ -417,15 +448,15 @@ model VirtualOrder {
   side           String
   type           String
   quantity       Int
-  price          Float
-  filledPrice    Float?
+  price          Decimal
+  filledPrice    Decimal?
   status         String
   filledAt       DateTime?
   createdAt      DateTime       @default(now())
-  avgBuyPrice    Float?
-  fee            Float?
-  realizedPnl    Float?
-  tax            Float?
+  avgBuyPrice    Decimal?
+  fee            Decimal?
+  realizedPnl    Decimal?
+  tax            Decimal?
   VirtualAccount VirtualAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
 }
 
@@ -435,11 +466,11 @@ model VirtualPosition {
   symbol         String
   name           String
   quantity       Int
-  avgPrice       Float
-  currentPrice   Float?
+  avgPrice       Decimal
+  currentPrice   Decimal?
   openedAt       DateTime       @default(now())
   updatedAt      DateTime
-  peakPrice      Float?
+  peakPrice      Decimal?
   VirtualAccount VirtualAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@unique([accountId, symbol])

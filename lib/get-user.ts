@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers'
 import { verifyToken } from './auth'
 import { prisma } from './prisma'
+import { ensureUserAsset } from './server/assetService'
 
 export class UnauthorizedAccessError extends Error {
   constructor(message = 'Unauthorized') {
@@ -67,19 +68,23 @@ export function isUnauthorizedAccessError(error: unknown): boolean {
 }
 
 export async function ensureUserBootstrap(userId: number) {
-  const existingGroup = await prisma.watchlistGroup.findFirst({
-    where: { userId },
-    select: { id: true },
-  })
+  await prisma.$transaction(async (tx) => {
+    await ensureUserAsset(tx, userId)
 
-  if (!existingGroup) {
-    await prisma.watchlistGroup.create({
-      data: {
-        id: crypto.randomUUID(),
-        userId,
-        name: '기본 관심종목',
-        color: '#3B82F6',
-      },
+    const existingGroup = await tx.watchlistGroup.findFirst({
+      where: { userId },
+      select: { id: true },
     })
-  }
+
+    if (!existingGroup) {
+      await tx.watchlistGroup.create({
+        data: {
+          id: crypto.randomUUID(),
+          userId,
+          name: '기본 관심종목',
+          color: '#3B82F6',
+        },
+      })
+    }
+  })
 }

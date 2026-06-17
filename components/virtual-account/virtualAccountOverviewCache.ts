@@ -24,7 +24,11 @@ export async function refreshVirtualAccountOverviewCache(options?: {
   }
 
   inFlightRequest = fetch("/api/virtual-account")
-    .then((response) => (response.ok ? response.json() : cachedAccounts ?? []))
+    .then((response) => {
+      if (response.ok) return response.json();
+      if (cachedAccounts) return cachedAccounts;
+      throw new Error("Failed to load virtual accounts");
+    })
     .then((accounts: unknown) => {
       const nextAccounts = Array.isArray(accounts)
         ? (accounts as VirtualAccount[])
@@ -32,7 +36,10 @@ export async function refreshVirtualAccountOverviewCache(options?: {
       cachedAccounts = nextAccounts;
       return nextAccounts;
     })
-    .catch(() => cachedAccounts ?? [])
+    .catch((error) => {
+      if (cachedAccounts) return cachedAccounts;
+      throw error;
+    })
     .finally(() => {
       inFlightRequest = null;
     });

@@ -5,6 +5,7 @@ import {
   isUnauthorizedAccessError,
   withOwnership,
 } from "@/lib/get-user";
+import { moneyToNumber } from "@/lib/server/assetService";
 
 export interface AccountMonthlyData {
   months: string[];           // ["2025/01", "2025/02", ...]
@@ -62,15 +63,16 @@ export async function GET() {
         // 해당 월 말까지의 누적 실현손익
         const cumPnl = accOrders
           .filter((o) => o.filledAt && o.filledAt.getTime() < monthEnd)
-          .reduce((sum, o) => sum + (o.realizedPnl ?? 0), 0);
+          .reduce((sum, o) => sum + moneyToNumber(o.realizedPnl), 0);
 
-        return acc.initialCash > 0 ? (cumPnl / acc.initialCash) * 100 : 0;
+        const initialCash = moneyToNumber(acc.initialCash);
+        return initialCash > 0 ? (cumPnl / initialCash) * 100 : 0;
       });
 
       return {
         id: acc.id,
         name: acc.name,
-        initialCash: acc.initialCash,
+        initialCash: moneyToNumber(acc.initialCash),
         monthlyProfitPct,
       };
     });

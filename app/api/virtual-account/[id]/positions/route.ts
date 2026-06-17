@@ -8,6 +8,7 @@ import {
   isUnauthorizedAccessError,
   withOwnership,
 } from '@/lib/get-user';
+import { moneyToNumber } from '@/lib/server/assetService';
 
 function resolvePositionName(
   symbol: string,
@@ -80,10 +81,11 @@ export async function GET(
       if (isZeroValuation(listingStatus)) {
         currentPrice = 0;
       } else {
-        currentPrice = livePrices[p.symbol] ?? p.currentPrice ?? p.avgPrice;
+        currentPrice = livePrices[p.symbol] ?? moneyToNumber(p.currentPrice ?? p.avgPrice);
       }
 
-      const cost = p.quantity * p.avgPrice;
+      const averagePrice = moneyToNumber(p.avgPrice);
+      const cost = p.quantity * averagePrice;
       const totalValue = p.quantity * currentPrice;
       const profit = totalValue - cost;
       const profitPercent = cost > 0 ? (profit / cost) * 100 : 0;
@@ -91,7 +93,7 @@ export async function GET(
         symbol: p.symbol,
         name: resolvePositionName(p.symbol, p.name, mergedNameMap),
         quantity: p.quantity,
-        averagePrice: p.avgPrice,
+        averagePrice,
         currentPrice,
         totalValue,
         profit,

@@ -9,6 +9,7 @@ import {
   isUnauthorizedAccessError,
   withOwnership,
 } from '@/lib/get-user';
+import { moneyToNumber, toMoney } from '@/lib/server/assetService';
 
 // POST /api/virtual-account/[id]/liquidate
 // body: { symbol: string }
@@ -78,7 +79,7 @@ export async function POST(
 
     // DELISTING_SCHEDULED 등: 마지막 유효 시세 기준 청산
     const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
-    let executionPrice = position.currentPrice ?? position.avgPrice;
+    let executionPrice = moneyToNumber(position.currentPrice ?? position.avgPrice);
     try {
       const priceRes = await fetch(`${BACKEND_URL}/market/price/${symbol}`);
       if (priceRes.ok) {
@@ -92,7 +93,8 @@ export async function POST(
     const fee = calcFee(filledPrice, qty);
     const tax = calcTransactionTax(filledPrice, qty);
     const proceeds = calcSellProceeds(filledPrice, qty);
-    const realizedPnl = calcRealizedPnl(filledPrice, position.avgPrice, qty, fee, tax);
+    const avgPrice = moneyToNumber(position.avgPrice);
+    const realizedPnl = calcRealizedPnl(filledPrice, avgPrice, qty, fee, tax);
 
     await prisma.$transaction(async (tx) => {
       await tx.virtualOrder.create({
@@ -100,15 +102,15 @@ export async function POST(
           id: crypto.randomUUID(),
           accountId: params.id, symbol, name: position.name,
           side: 'SELL', type: 'MARKET',
-          quantity: qty, price: executionPrice, filledPrice,
-          fee, tax, avgBuyPrice: position.avgPrice, realizedPnl,
+          quantity: qty, price: toMoney(executionPrice), filledPrice: toMoney(filledPrice),
+          fee: toMoney(fee), tax: toMoney(tax), avgBuyPrice: toMoney(avgPrice), realizedPnl: toMoney(realizedPnl),
           status: 'FILLED', filledAt: new Date(),
         },
       });
 
       await tx.virtualAccount.update({
         where: { id: params.id },
-        data: { currentCash: { increment: proceeds }, updatedAt: new Date() },
+        data: { currentCash: { increment: toMoney(proceeds) }, updatedAt: new Date() },
       });
 
       await tx.virtualPosition.delete({

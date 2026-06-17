@@ -1,0 +1,363 @@
+import { Prisma } from "@prisma/client";
+import { calcFee, calcRealizedPnl, calcSellProceeds, calcTransactionTax } from "@/lib/order-engine";
+import { fetchStockPriceSnapshots } from "@/lib/server/stock-prices";
+
+export const INITIAL_GRANT_AMOUNT = new Prisma.Decimal(10_000_000);
+
+type AssetTx = Prisma.TransactionClient;
+
+type AccountWithPositions = {
+  id: string;
+  userId: number | null;
+  name: string;
+  initialCash: Prisma.Decimal.Value;
+  currentCash: Prisma.Decimal.Value;
+  status?: string;
+  strategyId: string | null;
+  strategyName: string | null;
+  tradingMode: string;
+  createdAt: Date;
+  updatedAt: Date;
+  closedAt?: Date | null;
+  VirtualPosition?: Array<{
+    symbol: string;
+    name: string;
+    quantity: number;
+    avgPrice: Prisma.Decimal.Value;
+    currentPrice?: Prisma.Decimal.Value | null;
+  }>;
+};
+
+export function toMoney(value: Prisma.Decimal.Value) {
+  return new Prisma.Decimal(value);
+}
+
+export function moneyToNumber(value: Prisma.Decimal.Value | null | undefined) {
+  if (value == null) return 0;
+  return new Prisma.Decimal(value).toNumber();
+}
+
+function assertPositiveAmount(amount: Prisma.Decimal, errorCode = "INVALID_AMOUNT") {
+  if (!amount.isFinite() || amount.lte(0)) {
+    throw new Error(errorCode);
+  }
+}
+
+function positionPrice(
+  position: NonNullable<AccountWithPositions["VirtualPosition"]>[number],
+  priceMap: Record<string, Prisma.Decimal>
+) {
+  return (
+    priceMap[position.symbol] ??
+    (position.currentPrice && toMoney(position.currentPrice).gt(0)
+      ? toMoney(position.currentPrice)
+      : toMoney(position.avgPrice))
+  );
+}
+
+export function calculateAccountValue(
+  account: AccountWithPositions,
+  priceMap: Record<string, Prisma.Decimal> = {}
+) {
+  return (account.VirtualPosition ?? []).reduce(
+    (sum, position) =>
+      sum.plus(positionPrice(position, priceMap).mul(position.quantity)),
+    toMoney(account.currentCash)
+  );
+}
+
+export async function ensureUserAsset(tx: AssetTx, userId: number) {
+  const existing = await tx.userAsset.findUnique({ where: { userId } });
+  if (existing) {
+    return reconcileLegacyAccountAllocations(tx, userId, existing);
+  }
+
+  const asset = await tx.userAsset.create({
+    data: {
+      userId,
+      availableCash: INITIAL_GRANT_AMOUNT,
+      initialGrantAmount: INITIAL_GRANT_AMOUNT,
+    },
+  });
+
+  await tx.assetLedger.create({
+    data: {
+      userId,
+      type: "INITIAL_GRANT",
+      amount: INITIAL_GRANT_AMOUNT,
+      balanceAfter: INITIAL_GRANT_AMOUNT,
+    },
+  });
+
+  return reconcileLegacyAccountAllocations(tx, userId, asset);
+}
+
+async function reconcileLegacyAccountAllocations(
+  tx: AssetTx,
+  userId: number,
+  asset: {
+    userId: number;
+    availableCash: Prisma.Decimal.Value;
+    initialGrantAmount: Prisma.Decimal.Value;
+  }
+) {
+  const activeAccounts = await tx.virtualAccount.findMany({
+    where: { userId, status: "ACTIVE" },
+    select: { id: true, initialCash: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  let availableCash = toMoney(asset.availableCash);
+  let changed = false;
+
+  for (const account of activeAccounts) {
+    const existingAllocation = await tx.assetLedger.findFirst({
+      where: {
+        userId,
+        accountId: account.id,
+        type: "ACCOUNT_ALLOCATION",
+      },
+      select: { id: true },
+    });
+
+    if (existingAllocation) continue;
+
+    const allocation = toMoney(account.initialCash);
+    if (allocation.lte(0)) continue;
+
+    availableCash = Prisma.Decimal.max(availableCash.minus(allocation), toMoney(0));
+    changed = true;
+
+    await tx.assetLedger.create({
+      data: {
+        userId,
+        accountId: account.id,
+        type: "ACCOUNT_ALLOCATION",
+        amount: allocation.negated(),
+        balanceAfter: availableCash,
+      },
+    });
+  }
+
+  if (!changed) return asset;
+
+  return tx.userAsset.update({
+    where: { userId },
+    data: { availableCash },
+  });
+}
+
+export async function createFundedAccount(
+  tx: AssetTx,
+  params: {
+    userId: number;
+    name: string;
+    initialAmount: Prisma.Decimal.Value;
+    strategyId?: string | null;
+    strategyName?: string | null;
+    tradingMode?: string | null;
+  }
+) {
+  const allocation = toMoney(params.initialAmount);
+  assertPositiveAmount(allocation);
+
+  const asset = await ensureUserAsset(tx, params.userId);
+  if (toMoney(asset.availableCash).lt(allocation)) {
+    throw new Error("INSUFFICIENT_ASSET_CASH");
+  }
+
+  const nextAvailableCash = toMoney(asset.availableCash).minus(allocation);
+  const account = await tx.virtualAccount.create({
+    data: {
+      id: crypto.randomUUID(),
+      userId: params.userId,
+      name: params.name,
+      initialCash: allocation,
+      currentCash: allocation,
+      status: "ACTIVE",
+      strategyId: params.strategyId || null,
+      strategyName: params.strategyName || null,
+      tradingMode: params.tradingMode || "manual",
+      updatedAt: new Date(),
+    },
+    include: { VirtualPosition: true },
+  });
+
+  await tx.userAsset.update({
+    where: { userId: params.userId },
+    data: { availableCash: nextAvailableCash },
+  });
+
+  await tx.assetLedger.create({
+    data: {
+      userId: params.userId,
+      accountId: account.id,
+      type: "ACCOUNT_ALLOCATION",
+      amount: allocation.negated(),
+      balanceAfter: nextAvailableCash,
+    },
+  });
+
+  return account;
+}
+
+export async function getUserAssetSummary(
+  tx: AssetTx,
+  userId: number
+) {
+  const asset = await ensureUserAsset(tx, userId);
+  const accounts = await tx.virtualAccount.findMany({
+    where: { userId, status: "ACTIVE" },
+    include: { VirtualPosition: true },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const activeAccountValue = accounts.reduce(
+    (sum, account) => sum.plus(calculateAccountValue(account)),
+    toMoney(0)
+  );
+  const availableCash = toMoney(asset.availableCash);
+  const initialGrantAmount = toMoney(asset.initialGrantAmount);
+  const totalAssets = availableCash.plus(activeAccountValue);
+
+  return {
+    availableCash,
+    activeAccountValue,
+    initialGrantAmount,
+    totalAssets,
+    totalProfitLoss: totalAssets.minus(initialGrantAmount),
+    accounts,
+  };
+}
+
+export async function closeAccountWithSettlement(
+  tx: AssetTx,
+  params: {
+    userId: number;
+    accountId: string;
+    priceMap: Record<string, Prisma.Decimal>;
+  }
+) {
+  const account = await tx.virtualAccount.findFirst({
+    where: { id: params.accountId, userId: params.userId },
+    include: { VirtualPosition: true },
+  });
+  if (!account) throw new Error("ACCOUNT_NOT_FOUND");
+  if (account.status !== "ACTIVE") throw new Error("ACCOUNT_CLOSED");
+
+  const asset = await ensureUserAsset(tx, params.userId);
+  let settlementCash = toMoney(account.currentCash);
+
+  for (const position of account.VirtualPosition) {
+    const executionPrice = params.priceMap[position.symbol];
+    if (!executionPrice || executionPrice.lte(0)) {
+      throw new Error("PRICE_UNAVAILABLE");
+    }
+
+    const priceNumber = executionPrice.toNumber();
+    const fee = calcFee(priceNumber, position.quantity);
+    const tax = calcTransactionTax(priceNumber, position.quantity);
+    const proceeds = toMoney(calcSellProceeds(priceNumber, position.quantity));
+    const realizedPnl = calcRealizedPnl(
+      priceNumber,
+      moneyToNumber(position.avgPrice),
+      position.quantity,
+      fee,
+      tax
+    );
+
+    settlementCash = settlementCash.plus(proceeds);
+
+    await tx.virtualOrder.create({
+      data: {
+        id: crypto.randomUUID(),
+        accountId: account.id,
+        symbol: position.symbol,
+        name: position.name,
+        side: "SELL",
+        type: "MARKET",
+        quantity: position.quantity,
+        price: toMoney(priceNumber),
+        filledPrice: toMoney(priceNumber),
+        fee: toMoney(fee),
+        tax: toMoney(tax),
+        avgBuyPrice: toMoney(position.avgPrice),
+        realizedPnl: toMoney(realizedPnl),
+        status: "FILLED",
+        filledAt: new Date(),
+      },
+    });
+
+    await tx.assetLedger.create({
+      data: {
+        userId: params.userId,
+        accountId: account.id,
+        type: "FORCE_SELL",
+        amount: proceeds,
+        balanceAfter: asset.availableCash,
+      },
+    });
+  }
+
+  const nextAvailableCash = toMoney(asset.availableCash).plus(settlementCash);
+
+  await tx.virtualPosition.deleteMany({ where: { accountId: account.id } });
+  await tx.virtualMarketState.deleteMany({ where: { accountId: account.id } });
+  await tx.virtualOrder.updateMany({
+    where: { accountId: account.id, status: "PENDING" },
+    data: { status: "CANCELLED" },
+  });
+  const closedAccount = await tx.virtualAccount.update({
+    where: { id: account.id },
+    data: {
+      currentCash: toMoney(0),
+      status: "CLOSED",
+      closedAt: new Date(),
+      updatedAt: new Date(),
+    },
+    include: { VirtualPosition: true },
+  });
+  await tx.userAsset.update({
+    where: { userId: params.userId },
+    data: { availableCash: nextAvailableCash },
+  });
+  await tx.assetLedger.create({
+    data: {
+      userId: params.userId,
+      accountId: account.id,
+      type: "ACCOUNT_LIQUIDATION_RETURN",
+      amount: settlementCash,
+      balanceAfter: nextAvailableCash,
+    },
+  });
+
+  return {
+    account: closedAccount,
+    returnedAmount: settlementCash,
+    availableCash: nextAvailableCash,
+  };
+}
+
+export async function fetchSettlementPriceMap(
+  positions: Array<{ symbol: string; avgPrice: Prisma.Decimal.Value; currentPrice?: Prisma.Decimal.Value | null }>
+) {
+  const symbols = [...new Set(positions.map((position) => position.symbol))];
+  if (symbols.length === 0) return {};
+
+  const snapshots = await fetchStockPriceSnapshots(symbols, {
+    mode: "realtime",
+    subscribe: false,
+  });
+
+  return Object.fromEntries(
+    positions.map((position) => {
+      const snapshotPrice = snapshots[position.symbol]?.price;
+      const storedPrice = moneyToNumber(position.currentPrice ?? position.avgPrice);
+      const price = snapshotPrice && snapshotPrice > 0 ? snapshotPrice : storedPrice;
+      if (!price || price <= 0) {
+        throw new Error("PRICE_UNAVAILABLE");
+      }
+      return [position.symbol, toMoney(price)];
+    })
+  );
+}

@@ -474,7 +474,7 @@ describe("PATCH /api/virtual-account/[id]", () => {
     );
 
     const updateArg = mockAccountUpdate.mock.calls[0][0];
-    expect(updateArg.data.currentCash).toBe(500000);
+    expect(updateArg.data.currentCash.toString()).toBe("500000");
   });
 
   it("성공 시 200과 매핑된 계좌 반환", async () => {

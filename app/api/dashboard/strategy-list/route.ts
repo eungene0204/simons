@@ -5,6 +5,7 @@ import {
   isUnauthorizedAccessError,
   withOwnership,
 } from "@/lib/get-user";
+import { moneyToNumber } from "@/lib/server/assetService";
 
 function calcScore(m: { cagr?: number; maxDrawdown?: number; sharpe?: number; profitFactor?: number; winRate?: number }): number {
   const scoreCagr = (v?: number) => { if (v == null) return 50; if (v >= 20) return 100; if (v >= 10) return 70; return Math.max(0, Math.round(v / 10 * 70)); };
@@ -92,12 +93,13 @@ export async function GET() {
 
       const stats = accs.map((a) => {
         const posValue = (a.VirtualPosition ?? []).reduce(
-          (sum, p) => sum + p.quantity * (p.currentPrice ?? p.avgPrice),
+          (sum, p) => sum + p.quantity * moneyToNumber(p.currentPrice ?? p.avgPrice),
           0
         );
-        const totalValue = a.currentCash + posValue;
-        const profit = totalValue - a.initialCash;
-        const returnPct = a.initialCash > 0 ? (profit / a.initialCash) * 100 : 0;
+        const initialCash = moneyToNumber(a.initialCash);
+        const totalValue = moneyToNumber(a.currentCash) + posValue;
+        const profit = totalValue - initialCash;
+        const returnPct = initialCash > 0 ? (profit / initialCash) * 100 : 0;
         return { profit, returnPct };
       });
 

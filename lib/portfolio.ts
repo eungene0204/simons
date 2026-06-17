@@ -65,7 +65,11 @@ export async function updateAccount(account: VirtualAccount): Promise<void> {
 }
 
 export async function deleteAccount(id: string): Promise<void> {
-  await fetch(`/api/virtual-account/${id}`, { method: "DELETE" });
+  const res = await fetch(`/api/virtual-account/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || "Failed to delete account");
+  }
 }
 
 // ─── 보유 종목 관리 ───────────────────────────────────────────────────────────

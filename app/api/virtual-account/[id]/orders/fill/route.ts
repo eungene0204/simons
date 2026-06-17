@@ -12,6 +12,7 @@ import {
   isUnauthorizedAccessError,
   withOwnership,
 } from '@/lib/get-user';
+import { moneyToNumber, toMoney } from '@/lib/server/assetService';
 
 // POST: 현재가 기준으로 해당 계좌의 PENDING 주문 체결 시도
 // body: { symbol: string, currentPrice: number }
@@ -44,14 +45,15 @@ export async function POST(
     const filled: string[] = [];
 
     for (const order of pendingOrders) {
-      if (!isPendingFillable(order.side as 'BUY' | 'SELL', order.price, price)) continue;
+      const orderPrice = moneyToNumber(order.price);
+      if (!isPendingFillable(order.side as 'BUY' | 'SELL', orderPrice, price)) continue;
 
       try {
         await prisma.$transaction(async (tx) => {
           const account = await tx.virtualAccount.findUnique({ where: { id: params.id } });
           if (!account) throw new Error('ACCOUNT_NOT_FOUND');
 
-          const filledPrice = order.price; // 지정가로 체결
+          const filledPrice = orderPrice; // 지정가로 체결
           const fee = calcFee(filledPrice, order.quantity);
 
           if (order.side === 'BUY') {
@@ -61,10 +63,11 @@ export async function POST(
             });
             if (pos) {
               const newQty = pos.quantity + order.quantity;
-              const newAvgPrice = (pos.avgPrice * pos.quantity + filledPrice * order.quantity) / newQty;
+              const avgPrice = moneyToNumber(pos.avgPrice);
+              const newAvgPrice = (avgPrice * pos.quantity + filledPrice * order.quantity) / newQty;
               await tx.virtualPosition.update({
                 where: { accountId_symbol: { accountId: params.id, symbol: order.symbol } },
-                data: { quantity: newQty, avgPrice: newAvgPrice },
+                data: { quantity: newQty, avgPrice: toMoney(newAvgPrice) },
               });
             } else {
               await tx.virtualPosition.create({
@@ -74,7 +77,7 @@ export async function POST(
                   symbol: order.symbol,
                   name: order.name ?? order.symbol,
                   quantity: order.quantity,
-                  avgPrice: filledPrice,
+                  avgPrice: toMoney(filledPrice),
                   updatedAt: new Date(),
                 },
               });
@@ -94,7 +97,7 @@ export async function POST(
               return;
             }
 
-            const avgBuyPrice = pos.avgPrice;
+            const avgBuyPrice = moneyToNumber(pos.avgPrice);
             const tax = calcTransactionTax(filledPrice, order.quantity);
             const realizedPnl = calcRealizedPnl(filledPrice, avgBuyPrice, order.quantity, fee, tax);
 
@@ -113,19 +116,19 @@ export async function POST(
             const proceeds = calcSellProceeds(filledPrice, order.quantity);
             await tx.virtualAccount.update({
               where: { id: params.id },
-              data: { currentCash: account.currentCash + proceeds },
+              data: { currentCash: toMoney(moneyToNumber(account.currentCash) + proceeds) },
             });
 
             await tx.virtualOrder.update({
               where: { id: order.id },
-              data: { status: 'FILLED', filledPrice, filledAt: new Date(), fee, tax, avgBuyPrice, realizedPnl },
+              data: { status: 'FILLED', filledPrice: toMoney(filledPrice), filledAt: new Date(), fee: toMoney(fee), tax: toMoney(tax), avgBuyPrice: toMoney(avgBuyPrice), realizedPnl: toMoney(realizedPnl) },
             });
             return;
           }
 
           await tx.virtualOrder.update({
             where: { id: order.id },
-            data: { status: 'FILLED', filledPrice, filledAt: new Date(), fee },
+            data: { status: 'FILLED', filledPrice: toMoney(filledPrice), filledAt: new Date(), fee: toMoney(fee) },
           });
         });
 

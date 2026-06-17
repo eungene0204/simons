@@ -1,6 +1,7 @@
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { withOwnership } from "@/lib/get-user";
+import { moneyToNumber } from "@/lib/server/assetService";
 import type { TradingStatusData } from "@/app/api/dashboard/trading-status/route";
 import type { AccountMonthlyData } from "@/app/api/dashboard/account-monthly/route";
 import type { StrategyListData, StrategyListItem } from "@/app/api/dashboard/strategy-list/route";
@@ -91,14 +92,14 @@ async function fetchDashboardFromDB(userId: number | null): Promise<DashboardIni
   const strategyAccounts = accounts.filter((a) => a.strategyId !== null);
 
   // ── PortfolioStats ──────────────────────────────────────────
-  const dailyPnl = dailyPnlAgg._sum.realizedPnl ?? 0;
-  const totalInvested = accounts.reduce((s, a) => s + a.initialCash, 0);
+  const dailyPnl = moneyToNumber(dailyPnlAgg._sum.realizedPnl);
+  const totalInvested = accounts.reduce((s, a) => s + moneyToNumber(a.initialCash), 0);
   const totalValue = accounts.reduce((s, a) => {
     const posValue = (a.VirtualPosition ?? []).reduce(
-      (sum, p) => sum + p.quantity * (p.currentPrice ?? p.avgPrice),
+      (sum, p) => sum + p.quantity * moneyToNumber(p.currentPrice ?? p.avgPrice),
       0
     );
-    return s + a.currentCash + posValue;
+    return s + moneyToNumber(a.currentCash) + posValue;
   }, 0);
   const totalProfit = totalValue - totalInvested;
   const totalReturnPct = totalInvested > 0 ? (totalProfit / totalInvested) * 100 : 0;
@@ -140,10 +141,11 @@ async function fetchDashboardFromDB(userId: number | null): Promise<DashboardIni
         const monthEnd = new Date(y, m, 1).getTime();
         const cumPnl = accOrders
           .filter((o) => o.filledAt && o.filledAt.getTime() < monthEnd)
-          .reduce((sum, o) => sum + (o.realizedPnl ?? 0), 0);
-        return acc.initialCash > 0 ? (cumPnl / acc.initialCash) * 100 : 0;
+          .reduce((sum, o) => sum + moneyToNumber(o.realizedPnl), 0);
+        const initialCash = moneyToNumber(acc.initialCash);
+        return initialCash > 0 ? (cumPnl / initialCash) * 100 : 0;
       });
-      return { id: acc.id, name: acc.name, initialCash: acc.initialCash, monthlyProfitPct };
+      return { id: acc.id, name: acc.name, initialCash: moneyToNumber(acc.initialCash), monthlyProfitPct };
     }),
   };
 
@@ -188,12 +190,13 @@ async function fetchDashboardFromDB(userId: number | null): Promise<DashboardIni
 
     const stats = accs.map((a) => {
       const posValue = (a.VirtualPosition ?? []).reduce(
-        (sum, p) => sum + p.quantity * (p.currentPrice ?? p.avgPrice),
+        (sum, p) => sum + p.quantity * moneyToNumber(p.currentPrice ?? p.avgPrice),
         0
       );
-      const tv = a.currentCash + posValue;
-      const profit = tv - a.initialCash;
-      const returnPct = a.initialCash > 0 ? (profit / a.initialCash) * 100 : 0;
+      const initialCash = moneyToNumber(a.initialCash);
+      const tv = moneyToNumber(a.currentCash) + posValue;
+      const profit = tv - initialCash;
+      const returnPct = initialCash > 0 ? (profit / initialCash) * 100 : 0;
       return { profit, returnPct };
     });
 

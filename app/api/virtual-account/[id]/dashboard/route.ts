@@ -5,6 +5,7 @@ import {
   isUnauthorizedAccessError,
   withOwnership,
 } from '@/lib/get-user';
+import { moneyToNumber } from '@/lib/server/assetService';
 
 export interface DashboardStats {
   // 종합 성과
@@ -58,24 +59,25 @@ export async function GET(
     const sellOrders = orders.filter((o) => o.side === 'SELL');
 
     // ── 종합 성과 ────────────────────────────────────────────────────────────
-    const wins = sellOrders.filter((o) => (o.realizedPnl ?? 0) > 0);
-    const losses = sellOrders.filter((o) => (o.realizedPnl ?? 0) <= 0);
+    const wins = sellOrders.filter((o) => moneyToNumber(o.realizedPnl) > 0);
+    const losses = sellOrders.filter((o) => moneyToNumber(o.realizedPnl) <= 0);
 
-    const totalRealizedPnl = sellOrders.reduce((s, o) => s + (o.realizedPnl ?? 0), 0);
-    const totalReturn = account.initialCash > 0 ? (totalRealizedPnl / account.initialCash) * 100 : 0;
+    const initialCash = moneyToNumber(account.initialCash);
+    const totalRealizedPnl = sellOrders.reduce((s, o) => s + moneyToNumber(o.realizedPnl), 0);
+    const totalReturn = initialCash > 0 ? (totalRealizedPnl / initialCash) * 100 : 0;
 
-    const totalWinPnl = wins.reduce((s, o) => s + (o.realizedPnl ?? 0), 0);
-    const totalLossPnl = Math.abs(losses.reduce((s, o) => s + (o.realizedPnl ?? 0), 0));
+    const totalWinPnl = wins.reduce((s, o) => s + moneyToNumber(o.realizedPnl), 0);
+    const totalLossPnl = Math.abs(losses.reduce((s, o) => s + moneyToNumber(o.realizedPnl), 0));
     const profitFactor = totalLossPnl > 0 ? totalWinPnl / totalLossPnl : totalWinPnl > 0 ? 999 : 0;
 
-    const totalFees = orders.reduce((s, o) => s + (o.fee ?? 0), 0);
-    const totalTax = orders.reduce((s, o) => s + (o.tax ?? 0), 0);
+    const totalFees = orders.reduce((s, o) => s + moneyToNumber(o.fee), 0);
+    const totalTax = orders.reduce((s, o) => s + moneyToNumber(o.tax), 0);
 
     // ── 일별 PnL ─────────────────────────────────────────────────────────────
     const dailyMap: Record<string, number> = {};
     for (const o of sellOrders) {
       const dt = (o.filledAt ?? o.createdAt).toISOString().slice(0, 10);
-      dailyMap[dt] = (dailyMap[dt] ?? 0) + (o.realizedPnl ?? 0);
+      dailyMap[dt] = (dailyMap[dt] ?? 0) + moneyToNumber(o.realizedPnl);
     }
 
     // 최근 90일 날짜 목록 생성
@@ -96,7 +98,7 @@ export async function GET(
     for (const o of sellOrders) {
       const month = (o.filledAt ?? o.createdAt).toISOString().slice(0, 7);
       if (!monthlyMap[month]) monthlyMap[month] = { pnl: 0, trades: 0 };
-      monthlyMap[month].pnl += o.realizedPnl ?? 0;
+      monthlyMap[month].pnl += moneyToNumber(o.realizedPnl);
       monthlyMap[month].trades += 1;
     }
 
@@ -115,8 +117,9 @@ export async function GET(
       if (!symbolMap[o.symbol]) {
         symbolMap[o.symbol] = { name: o.name ?? o.symbol, wins: 0, losses: 0, pnl: 0 };
       }
-      symbolMap[o.symbol].pnl += o.realizedPnl ?? 0;
-      if ((o.realizedPnl ?? 0) > 0) symbolMap[o.symbol].wins += 1;
+      const realizedPnl = moneyToNumber(o.realizedPnl);
+      symbolMap[o.symbol].pnl += realizedPnl;
+      if (realizedPnl > 0) symbolMap[o.symbol].wins += 1;
       else symbolMap[o.symbol].losses += 1;
     }
 

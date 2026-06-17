@@ -5,6 +5,7 @@ import {
   isUnauthorizedAccessError,
   withOwnership,
 } from '@/lib/get-user';
+import { moneyToNumber } from '@/lib/server/assetService';
 
 export interface TradingStatusData {
   totalAccounts: number;
@@ -85,10 +86,10 @@ export async function GET() {
     const totalEvaluation = accounts.reduce((accountSum, account) => {
       const positionValue = account.VirtualPosition.reduce(
         (positionSum, position) =>
-          positionSum + position.quantity * (position.currentPrice ?? position.avgPrice),
+          positionSum + position.quantity * moneyToNumber(position.currentPrice ?? position.avgPrice),
         0
       );
-      return accountSum + account.currentCash + positionValue;
+      return accountSum + moneyToNumber(account.currentCash) + positionValue;
     }, 0);
 
     return NextResponse.json({
@@ -97,7 +98,7 @@ export async function GET() {
       autoAccounts: autoCount,
       todayFilledOrders: todayOrders,
       totalPositions,
-      dailyPnl: dailyPnlAgg._sum.realizedPnl ?? 0,
+      dailyPnl: moneyToNumber(dailyPnlAgg._sum.realizedPnl),
       totalEvaluation,
     } satisfies TradingStatusData);
   } catch (error) {

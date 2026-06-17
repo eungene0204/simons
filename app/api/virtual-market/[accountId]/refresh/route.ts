@@ -25,6 +25,7 @@ import {
 } from "@/lib/order-engine";
 import koreaStocks from "@/data/korea-stocks.json";
 import { fetchStockPriceSnapshots } from "@/lib/server/stock-prices";
+import { moneyToNumber, toMoney } from "@/lib/server/assetService";
 
 const stockNameMap: Record<string, string> = Object.fromEntries(
   (koreaStocks as Array<{ symbol: string; name: string }>).map((s) => [s.symbol, s.name])
@@ -199,10 +200,11 @@ export async function POST(
     const freshPositions = account.VirtualPosition;
 
     for (const pos of freshPositions) {
-      const currentPrice = priceMap[pos.symbol]?.close ?? pos.currentPrice;
+      const currentPrice = priceMap[pos.symbol]?.close ?? moneyToNumber(pos.currentPrice);
       if (!currentPrice) continue;
+      const avgPrice = moneyToNumber(pos.avgPrice);
 
-      const pnlPct = ((currentPrice - pos.avgPrice) / pos.avgPrice) * 100;
+      const pnlPct = ((currentPrice - avgPrice) / avgPrice) * 100;
 
       // 손절 (Stop Loss)
       if (stopLossPct > 0 && pnlPct <= -stopLossPct) {
@@ -218,7 +220,7 @@ export async function POST(
 
       // 트레일링 스톱 (Trailing Stop)
       if (trailingStopPct > 0) {
-        const peakPrice = pos.peakPrice ?? pos.avgPrice;
+        const peakPrice = moneyToNumber(pos.peakPrice ?? pos.avgPrice);
         const drawdownPct = ((currentPrice - peakPrice) / peakPrice) * 100;
         if (drawdownPct <= -trailingStopPct) {
           riskExits.set(
@@ -337,7 +339,7 @@ export async function POST(
           loggedToday.add(`${sig.symbol}_entry`);
           logs.push({ symbol: sig.symbol, type: "entry", action: "skipped", reason: "최대 보유 종목 초과" });
         } else if (latestAccount.tradingMode === "auto") {
-          const result = await executeBuy(params.accountId, sig.symbol, sig.close, latestAccount.currentCash, positionSizePct);
+          const result = await executeBuy(params.accountId, sig.symbol, sig.close, moneyToNumber(latestAccount.currentCash), positionSizePct);
           if (result) {
             await logSignal(params.accountId, today, sig, "entry", "auto_executed", result.orderId);
             loggedToday.add(`${sig.symbol}_entry`);
@@ -364,7 +366,8 @@ export async function POST(
       if (!currentPrice) continue;
 
       const side = order.side as "BUY" | "SELL";
-      if (!isPendingFillable(side, order.price, currentPrice)) continue;
+      const orderPrice = moneyToNumber(order.price);
+      if (!isPendingFillable(side, orderPrice, currentPrice)) continue;
 
       if (side === "BUY") {
         const pendingAccount = await prisma.virtualAccount.findUnique({
@@ -372,14 +375,14 @@ export async function POST(
         });
         if (!pendingAccount) break;
 
-        const filledPrice = order.price; // 지정가로 체결
+        const filledPrice = orderPrice; // 지정가로 체결
         const fee = calcFee(filledPrice, order.quantity);
         const cost = calcBuyCost(filledPrice, order.quantity);
 
         // 예약금은 이미 차감되었으므로 잔액 확인 불필요 — 바로 체결
         await prisma.virtualOrder.update({
           where: { id: order.id },
-          data: { status: "FILLED", filledPrice, fee, filledAt: new Date() },
+          data: { status: "FILLED", filledPrice: toMoney(filledPrice), fee: toMoney(fee), filledAt: new Date() },
         });
 
         const name = stockNameMap[order.symbol] || order.symbol;
@@ -388,17 +391,18 @@ export async function POST(
         });
         if (existing) {
           const newQty = existing.quantity + order.quantity;
-          const newAvg = (existing.avgPrice * existing.quantity + filledPrice * order.quantity) / newQty;
+          const existingAvg = moneyToNumber(existing.avgPrice);
+          const newAvg = (existingAvg * existing.quantity + filledPrice * order.quantity) / newQty;
           await prisma.virtualPosition.update({
             where: { accountId_symbol: { accountId: params.accountId, symbol: order.symbol } },
-            data: { quantity: newQty, avgPrice: newAvg, currentPrice, peakPrice: Math.max(newAvg, currentPrice), updatedAt: new Date() },
+            data: { quantity: newQty, avgPrice: toMoney(newAvg), currentPrice: toMoney(currentPrice), peakPrice: toMoney(Math.max(newAvg, currentPrice)), updatedAt: new Date() },
           });
         } else {
           await prisma.virtualPosition.create({
             data: {
               id: crypto.randomUUID(),
               accountId: params.accountId, symbol: order.symbol, name, quantity: order.quantity,
-              avgPrice: filledPrice, currentPrice, peakPrice: Math.max(filledPrice, currentPrice),
+              avgPrice: toMoney(filledPrice), currentPrice: toMoney(currentPrice), peakPrice: toMoney(Math.max(filledPrice, currentPrice)),
               updatedAt: new Date(),
             },
           });
@@ -412,20 +416,21 @@ export async function POST(
         });
         if (!pos || pos.quantity < order.quantity) continue;
 
-        const filledPrice = order.price;
+        const filledPrice = orderPrice;
         const fee = calcFee(filledPrice, order.quantity);
         const tax = calcTransactionTax(filledPrice, order.quantity);
         const proceeds = calcSellProceeds(filledPrice, order.quantity);
-        const realizedPnl = calcRealizedPnl(filledPrice, pos.avgPrice, order.quantity, fee, tax);
+        const avgPrice = moneyToNumber(pos.avgPrice);
+        const realizedPnl = calcRealizedPnl(filledPrice, avgPrice, order.quantity, fee, tax);
 
         await prisma.virtualOrder.update({
           where: { id: order.id },
-          data: { status: "FILLED", filledPrice, fee, tax, avgBuyPrice: pos.avgPrice, realizedPnl, filledAt: new Date() },
+          data: { status: "FILLED", filledPrice: toMoney(filledPrice), fee: toMoney(fee), tax: toMoney(tax), avgBuyPrice: toMoney(avgPrice), realizedPnl: toMoney(realizedPnl), filledAt: new Date() },
         });
 
         await prisma.virtualAccount.update({
           where: { id: params.accountId },
-          data: { currentCash: { increment: proceeds }, updatedAt: new Date() },
+          data: { currentCash: { increment: toMoney(proceeds) }, updatedAt: new Date() },
         });
 
         const newQty = pos.quantity - order.quantity;
@@ -452,10 +457,10 @@ export async function POST(
       const price = priceMap[pos.symbol]?.close;
       if (price) {
         const highPrice = priceMap[pos.symbol]?.high ?? price;
-        const newPeak = Math.max(pos.peakPrice ?? pos.avgPrice, highPrice);
+        const newPeak = Math.max(moneyToNumber(pos.peakPrice ?? pos.avgPrice), highPrice);
         await prisma.virtualPosition.update({
           where: { accountId_symbol: { accountId: params.accountId, symbol: pos.symbol } },
-          data: { currentPrice: price, peakPrice: newPeak, updatedAt: new Date() },
+          data: { currentPrice: toMoney(price), peakPrice: toMoney(newPeak), updatedAt: new Date() },
         });
       }
     }
@@ -522,14 +527,14 @@ async function executeBuy(
       id: crypto.randomUUID(),
       accountId, symbol, name,
       side: "BUY", type: "MARKET",
-      quantity, price, filledPrice, fee,
+      quantity, price: toMoney(price), filledPrice: toMoney(filledPrice), fee: toMoney(fee),
       status: "FILLED", filledAt: new Date(),
     },
   });
 
   await prisma.virtualAccount.update({
     where: { id: accountId },
-    data: { currentCash: { decrement: cost }, updatedAt: new Date() },
+    data: { currentCash: { decrement: toMoney(cost) }, updatedAt: new Date() },
   });
 
   const existing = await prisma.virtualPosition.findUnique({
@@ -537,18 +542,19 @@ async function executeBuy(
   });
   if (existing) {
     const newQty = existing.quantity + quantity;
-    const newAvg = (existing.avgPrice * existing.quantity + filledPrice * quantity) / newQty;
+    const existingAvg = moneyToNumber(existing.avgPrice);
+    const newAvg = (existingAvg * existing.quantity + filledPrice * quantity) / newQty;
     await prisma.virtualPosition.update({
       where: { accountId_symbol: { accountId, symbol } },
-      data: { quantity: newQty, avgPrice: newAvg, peakPrice: Math.max(existing.peakPrice ?? newAvg, price), updatedAt: new Date() },
+      data: { quantity: newQty, avgPrice: toMoney(newAvg), peakPrice: toMoney(Math.max(moneyToNumber(existing.peakPrice ?? newAvg), price)), updatedAt: new Date() },
     });
   } else {
     await prisma.virtualPosition.create({
       data: {
         id: crypto.randomUUID(),
         accountId, symbol, name, quantity,
-        avgPrice: filledPrice,
-        peakPrice: Math.max(filledPrice, price),
+        avgPrice: toMoney(filledPrice),
+        peakPrice: toMoney(Math.max(filledPrice, price)),
         updatedAt: new Date(),
       },
     });
@@ -572,7 +578,8 @@ async function executeSell(
   const fee = calcFee(filledPrice, quantity);
   const tax = calcTransactionTax(filledPrice, quantity);
   const proceeds = calcSellProceeds(filledPrice, quantity);
-  const realizedPnl = calcRealizedPnl(filledPrice, pos.avgPrice, quantity, fee, tax);
+  const avgPrice = moneyToNumber(pos.avgPrice);
+  const realizedPnl = calcRealizedPnl(filledPrice, avgPrice, quantity, fee, tax);
 
   const order = await prisma.virtualOrder.create({
     data: {
@@ -580,15 +587,15 @@ async function executeSell(
       accountId, symbol,
       name: stockNameMap[symbol] || symbol,
       side: "SELL", type: "MARKET",
-      quantity, price, filledPrice,
-      fee, tax, avgBuyPrice: pos.avgPrice, realizedPnl,
+      quantity, price: toMoney(price), filledPrice: toMoney(filledPrice),
+      fee: toMoney(fee), tax: toMoney(tax), avgBuyPrice: toMoney(avgPrice), realizedPnl: toMoney(realizedPnl),
       status: "FILLED", filledAt: new Date(),
     },
   });
 
   await prisma.virtualAccount.update({
     where: { id: accountId },
-    data: { currentCash: { increment: proceeds }, updatedAt: new Date() },
+    data: { currentCash: { increment: toMoney(proceeds) }, updatedAt: new Date() },
   });
 
   const newQty = pos.quantity - quantity;
