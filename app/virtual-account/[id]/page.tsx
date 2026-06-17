@@ -24,6 +24,10 @@ import OrderBook from "@/components/order/OrderBook";
 import PortfolioPerformanceChart, { PerformancePoint } from "@/components/portfolio/PortfolioPerformanceChart";
 import StrategyReplaceModal from "@/components/ui/StrategyReplaceModal";
 import AutoTradingStrategyMissingModal from "@/components/virtual-account/AutoTradingStrategyMissingModal";
+import {
+  forgetVirtualAccountDetail,
+  rememberVirtualAccountDetail,
+} from "@/components/virtual-account/virtualAccountDetailMemory";
 import { refreshVirtualAccountOverviewCache } from "@/components/virtual-account/virtualAccountOverviewCache";
 import TrackedSymbolRow from "@/components/virtual-account/TrackedSymbolRow";
 import TrackedSymbolsSkeleton from "@/components/virtual-account/TrackedSymbolsSkeleton";
@@ -160,6 +164,10 @@ export default function VirtualAccountDetailPage() {
 
   const delistingStatus = useDelistingStatus();
   const trackedSymbolsList = trackedSymbols.map((s) => s.symbol);
+
+  useEffect(() => {
+    rememberVirtualAccountDetail(accountId);
+  }, [accountId]);
 
   // 위험 종목 목록 (배너용): 추적 종목 + 보유 종목 중 비정상 상태
   const riskItems = useMemo(() => {
@@ -744,6 +752,7 @@ export default function VirtualAccountDetailPage() {
                   onClick={async () => {
                     if (!confirm(`'${account.name}' 계좌를 삭제하시겠습니까?`)) return;
                     await deleteAccount(accountId);
+                    forgetVirtualAccountDetail(accountId);
                     router.push("/virtual-account");
                   }}
                   className="flex items-center gap-1.5 px-3 py-1.5 border border-white/[0.08] rounded-xl text-xs font-bold text-gray-500 hover:text-[var(--main-red)] hover:border-[var(--main-red)]/30 transition-all duration-200"
