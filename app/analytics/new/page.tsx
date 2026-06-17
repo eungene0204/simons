@@ -1398,7 +1398,7 @@ function StrategyLabContent() {
                   {buildAnimatedHeadline(headlineLines, visibleHeadlineChars)}
                 </p>
                 <p className="text-base font-bold leading-relaxed text-gray-400">
-                  AI가 조건을 설계하고 과거 데이터로 바로 백테스트합니다
+                  AI와 함께 전략을 설계하고, 바로 백테스트 하세요
                 </p>
               </div>
             </div>
