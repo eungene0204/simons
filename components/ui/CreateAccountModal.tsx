@@ -76,11 +76,6 @@ export default function CreateAccountModal({
       return;
     }
 
-    if (amountNum > 1000) {
-      setError("최대 투자금액은 1000만원입니다.");
-      return;
-    }
-
     if (!selectedStrategyId) {
       setError("전략을 선택해주세요.");
       return;
@@ -136,7 +131,7 @@ export default function CreateAccountModal({
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="w-full px-3 py-2 border border-white/[0.08] rounded-lg bg-[#171717] text-white placeholder:text-gray-600 focus:outline-none focus:border-white/[0.2]"
-              placeholder="예: 바이오, 반도체,..."
+              placeholder="예: 저PBR 전략, 모멘텀 전략, 가치주 전략..."
               maxLength={20}
             />
           </div>
@@ -158,7 +153,7 @@ export default function CreateAccountModal({
               </span>
             </div>
             <p className="mt-1 text-xs text-gray-500">
-              최소 100만원 ~ 최대 1000만원
+              최소 100만원
             </p>
           </div>
 

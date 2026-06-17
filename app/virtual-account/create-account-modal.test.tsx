@@ -60,12 +60,12 @@ describe("CreateAccountModal trading mode", () => {
     return onCreate;
   }
 
-  function fillAndSubmit() {
-    fireEvent.change(screen.getByPlaceholderText("예: 바이오, 반도체,..."), {
+  function fillAndSubmit(amount = "100") {
+    fireEvent.change(screen.getByPlaceholderText("예: 저PBR 전략, 모멘텀 전략, 가치주 전략..."), {
       target: { value: "자동 계좌" },
     });
     fireEvent.change(screen.getByPlaceholderText("100"), {
-      target: { value: "100" },
+      target: { value: amount },
     });
     fireEvent.click(screen.getByRole("button", { name: "만들기" }));
   }
@@ -92,6 +92,25 @@ describe("CreateAccountModal trading mode", () => {
       savedStrategy.name,
       "manual"
     );
+  });
+
+  it("allows investment amounts above 1000만원", async () => {
+    const onCreate = await renderAndSelectStrategy();
+
+    expect(screen.getByText("최소 100만원")).toBeInTheDocument();
+
+    await act(async () => {
+      fillAndSubmit("1,500");
+    });
+
+    expect(onCreate).toHaveBeenCalledWith(
+      "자동 계좌",
+      15_000_000,
+      savedStrategy.id,
+      savedStrategy.name,
+      "manual"
+    );
+    expect(screen.queryByText("최대 투자금액은 1000만원입니다.")).not.toBeInTheDocument();
   });
 
   it("creates strategy accounts with auto mode after turning the toggle on", async () => {
