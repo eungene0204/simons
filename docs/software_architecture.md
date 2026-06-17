@@ -234,6 +234,10 @@ simons/
 
 `/stock-order`의 종목정보 탭은 실시간 시세와 분리된 비실시간 종목 프로필 레이어를 사용한다. 종목명, 상장일, 섹터, 회사 기본 정보, 재무 요약, PER/PBR 같은 저빈도 갱신 값은 DB에 저장하고, 현재가/등락률/거래량 등 실시간 값은 기존 실시간 시세 경로에서 조회한다.
 
+사용자 자산은 `UserAsset`과 `AssetLedger`로 관리한다. 신규 사용자 bootstrap 시 기본 가상 자산 10,000,000원을 지급하고 `INITIAL_GRANT` 원장을 남긴다. 가상계좌 생성은 `availableCash`를 차감하고 계좌 `currentCash`를 초기화하는 단일 트랜잭션으로 처리한다. 가상계좌 삭제 요청은 실제 즉시 삭제 대신 보유 포지션을 현재가 기준으로 강제 매도하고, 남은 현금을 사용자 `availableCash`로 반환한 뒤 계좌를 `CLOSED` 상태로 전환한다. `totalAssets`는 저장하지 않고 `availableCash + ACTIVE 가상계좌 현재 가치 합계`로 계산한다.
+자산 시스템 도입 전 생성된 ACTIVE 가상계좌에 `ACCOUNT_ALLOCATION` 원장이 없으면 사용자 자산 bootstrap/조회 시 계좌 `initialCash`만큼 `availableCash`에서 한 번만 차감해 기존 계좌 배정 상태를 보정한다.
+가상계좌 목록 카드의 삭제 버튼은 즉시 삭제하지 않고 정산 확인 모달을 먼저 표시한다. 사용자가 확인해야만 `DELETE /api/virtual-account/[id]`가 호출되며, 이 요청은 위 정산 로직을 통해 현재가 기준 강제 매도와 자산 반환을 처리한다.
+
 ### 3.2 전략 Lab 컴포넌트 구조 (`/analytics/new`)
 
 ```
@@ -269,6 +273,17 @@ StrategyLabPage (app/analytics/new/page.tsx)
 | React Query (`useMutation`) | 서버 상태 변경 (전략 저장, 주문 체결 등) |
 | React Context (`DrawerContext`) | Drawer 열기/닫기, 선택된 계좌 ID |
 | `useState` | 채팅 메시지 히스토리, 파싱된 전략 상태, 백테스트 결과, 배치 실행 UI 상태 |
+
+### 3.3.1 사용자 자산 API
+
+| 메서드 | 경로 | 역할 |
+|--------|------|------|
+| GET | `/api/user/assets` | 사용 가능 자산, 활성 계좌 평가금액 합계, 계산된 총자산, 활성 계좌 목록 조회 |
+| GET | `/api/user/assets/ledger` | `INITIAL_GRANT`, `ACCOUNT_ALLOCATION`, `ACCOUNT_LIQUIDATION_RETURN`, `FORCE_SELL` 등 자산 이동 내역 조회 |
+| POST | `/api/virtual-account` | 사용 가능 자산 검증 후 계좌 초기 투자금 배정 |
+| DELETE | `/api/virtual-account/[id]` | 포지션 강제청산, 자산 반환, 계좌 `CLOSED` 처리 |
+
+프로필 메뉴의 `자산` 항목은 현재 위치에서 자산 요약 모달을 열고 `/api/user/assets` 계산값을 표시한다. `/assets` 화면도 저장된 총자산 값을 사용하지 않고 같은 자산 조회 로직을 서버에서 다시 계산해 상세 내역을 표시한다.
 
 ### 3.4 핵심 타입 (`types/`)
 

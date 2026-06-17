@@ -775,6 +775,28 @@ score = tanh(cagr/0.3)×0.15 + tanh(sharpe/2)×0.20 + tanh(pf/2)×0.10
 
 **FR-PF-012** 총 자산 추이를 차트로 표시해야 한다.
 
+#### 3.5.2a 사용자 자산 지갑
+
+**FR-ASSET-001** 신규 사용자는 최초 bootstrap 시 기본 가상 자산 10,000,000원을 지급받아야 한다.
+
+**FR-ASSET-002** 사용자는 사용 가능 자산 범위 안에서만 가상계좌 초기 투자금을 배정할 수 있어야 한다.
+
+**FR-ASSET-003** 가상계좌 생성 시 초기 투자금은 사용자 `availableCash`에서 차감되고, 동일 금액이 계좌 `currentCash`로 설정되어야 한다.
+
+**FR-ASSET-004** 총 자산은 저장값이 아니라 `availableCash + 모든 ACTIVE 가상계좌 현재 가치 합계`로 계산해야 한다.
+
+**FR-ASSET-005** 가상계좌 삭제 요청은 포지션 강제 매도, 계좌 현금 합산, 사용자 `availableCash` 반환, 계좌 `CLOSED` 전환을 하나의 트랜잭션으로 처리해야 한다.
+
+**FR-ASSET-005a** 가상계좌 카드의 삭제 버튼을 누르면 삭제 전 확인 모달을 표시해야 하며, 모달은 보유 종목이 현재가 기준으로 강제 매도된다는 경고를 명확히 알려야 한다.
+
+**FR-ASSET-006** 자산 이동 내역은 `AssetLedger`에 `INITIAL_GRANT`, `ACCOUNT_ALLOCATION`, `ACCOUNT_LIQUIDATION_RETURN`, `FORCE_SELL` 타입으로 기록해야 한다.
+
+**FR-ASSET-007** `availableCash`, 계좌 현금, 평가금액은 음수가 될 수 없으며 잘못된 입력은 즉시 거부해야 한다.
+
+**FR-ASSET-008** `CLOSED` 계좌는 신규 주문과 재정산 요청을 거부해야 한다.
+
+**FR-ASSET-009** 사용자는 프로필 메뉴의 `자산` 항목에서 총 자산, 사용 가능 자산, 가상계좌 운용 중 자산, 총 수익/손실을 모달로 조회할 수 있어야 한다. 전용 자산 화면에서는 자산 이동 내역까지 조회할 수 있어야 한다.
+
 #### 3.5.3 관심 종목
 
 **FR-PF-020** 사용자는 종목을 관심 목록에 추가/삭제하고 그룹으로 관리할 수 있어야 한다.
@@ -1274,15 +1296,38 @@ BacktestHistory                                (백테스트 이력)
 | 컬럼 | 타입 | 설명 |
 |------|------|------|
 | id | String PK | |
+| userId | Int? FK | User.id |
 | name | String | 계좌명 |
 | initialCash | Float | 초기 투자금 |
 | currentCash | Float | 현재 잔고 |
+| status | String | ACTIVE / CLOSED |
 | strategyId | String? | 연결된 전략 ID |
 | strategyName | String? | 연결된 전략명 |
 | tradingMode | String | manual / auto / signal |
 | delistingPolicy | String | AUTO_LIQUIDATE / HOLD_AS_WORTHLESS / HOLD_WITH_MANUAL_REVIEW (기본값: AUTO_LIQUIDATE) |
+| closedAt | DateTime? | 정산 완료 시각 |
 | createdAt | DateTime | |
 | updatedAt | DateTime | |
+
+#### UserAsset
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| userId | Int PK/FK | User.id |
+| availableCash | Decimal | 가상계좌에 아직 배정하지 않은 사용 가능 자산 |
+| initialGrantAmount | Decimal | 최초 지급 가상 자산 |
+| createdAt | DateTime | 생성 시각 |
+| updatedAt | DateTime | 갱신 시각 |
+
+#### AssetLedger
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | String PK | CUID |
+| userId | Int FK | User.id |
+| accountId | String? FK | VirtualAccount.id |
+| type | String | INITIAL_GRANT / ACCOUNT_ALLOCATION / ACCOUNT_LIQUIDATION_RETURN / BUY / SELL / FORCE_SELL |
+| amount | Decimal | 자산 이동 금액. 배정 차감은 음수, 반환/지급은 양수 |
+| balanceAfter | Decimal | 거래 후 사용자 availableCash |
+| createdAt | DateTime | 기록 시각 |
 
 #### VirtualMarketState
 | 컬럼 | 타입 | 설명 |
@@ -1411,8 +1456,10 @@ BacktestHistory                                (백테스트 이력)
 | POST | `/api/advisor/review` | RAG + Experience Memory 전략 리뷰/개선 조언 프록시 |
 | GET | `/api/ai/runtime/metrics` | AI 런타임 latency 메트릭 조회 프록시 |
 | POST | `/api/ai/runtime/metrics/reset` | AI 런타임 메트릭 초기화 프록시(production 비활성화) |
+| GET | `/api/user/assets` | 내 사용 가능 자산, 활성 계좌 평가금액 합계, 총 자산, 활성 계좌 목록 조회 |
+| GET | `/api/user/assets/ledger` | 내 자산 이동 내역 조회 |
 | GET/POST | `/api/virtual-account` | 가상계좌 목록 조회 / 생성 |
-| GET/PUT/DELETE | `/api/virtual-account/[id]` | 가상계좌 상세 / 수정 / 삭제 |
+| GET/PUT/DELETE | `/api/virtual-account/[id]` | 가상계좌 상세 / 수정 / 정산 후 CLOSED 처리 |
 | GET/POST | `/api/virtual-market/[accountId]` | 가상 시장 상태 조회 / 시작 |
 | POST | `/api/virtual-market/[accountId]/refresh` | 가상 시장 수동 갱신 |
 | GET | `/api/dashboard/strategy-list` | 대시보드용 전략 목록 |

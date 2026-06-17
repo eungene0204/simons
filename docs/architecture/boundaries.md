@@ -476,19 +476,30 @@ Public landing page, sign-in entry flow, and session bootstrap into the existing
 
 ### Files
 - prisma/**
+- app/assets/**
 - app/api/login/route.ts
 - app/api/logout/route.ts
 - app/api/user/**
 - app/api/strategy/**
 - app/api/watchlist/**
 - app/api/virtual-account/**
+- app/api/virtual-market/**
+- app/virtual-account/**
 - app/api/dashboard/**
 - app/api/quick-search/route.ts
 - lib/auth.ts
+- lib/dashboard-data.ts
 - lib/get-user.ts
+- lib/order-engine.ts
 - lib/prisma.ts
+- lib/server/assetService.ts
 - lib/server/backtestCache.ts
 - lib/strategy-tracked-symbols.ts
+- components/layout/Sidebar.tsx
+- components/__tests__/SidebarQuickSearch.test.tsx
+- components/virtual-account/**
+- components/__tests__/VirtualAccountOverviewCache.test.tsx
+- app/virtual-account/*.test.tsx
 - backend/tests/**
 
 ### Allowed Tasks
@@ -498,6 +509,10 @@ Public landing page, sign-in entry flow, and session bootstrap into the existing
 - 기존 shared/guest 가정 로직을 `user_id` ownership 기반으로 정리
 - personalization/ownership 회귀 테스트 추가 및 수정
 - user-owned entity에 필요한 Prisma model/field/index/FK 추가 및 수정
+- 사용자 자산 지갑, 자산 원장, 가상계좌 배정/정산에 필요한 금액 타입 및 계산 정합성 수정
+- 사용자 소유 가상계좌의 주문/가상시장 체결 경로에서 `Decimal`/`Numeric` 기반 금액 저장 정합성 수정
+- 사용자 자산 지갑 조회 화면/모달 및 기존 사용자 메뉴 진입점 연결
+- 사용자 소유 가상계좌 목록 조회 실패가 빈 목록으로 오인되지 않도록 UI/cache 오류 처리 보강
 
 ### Strict Rules
 - Preserve public API response contracts unless the task explicitly defines the replacement contract.
@@ -505,6 +520,7 @@ Public landing page, sign-in entry flow, and session bootstrap into the existing
 - Any schema change must be directly tied to user personalization or ownership isolation.
 - Bootstrap must be idempotent and safe on repeated login.
 - Ownership checks must deny cross-user reads and writes by default.
+- User asset, account cash, order amount, and position valuation persistence must avoid Float fields when tied to user-owned assets.
 - Keep changes away from backtest engine algorithms and provider implementations.
 
 ### Forbidden

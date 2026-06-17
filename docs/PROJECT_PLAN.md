@@ -682,6 +682,7 @@ RiskManagement {
 |------|------|-----------|
 | 홈 대시보드 | 전략/백테스트/가상계좌 허브 (WelcomeSection, 시장 스냅샷, 관심종목, 전략/백테스트 이력, 가상매매 현황) | ✅ 완료 |
 | 포트폴리오 대시보드 | 전체 자산 현황, 수익률 추이, 포지션 분포, 품질 게이지 | ✅ 완료 |
+| 사용자 자산 지갑 | 신규 사용자 1,000만원 지급, 가상계좌 배정 차감, 계좌 종료 정산 반환, AssetLedger 이동 내역, 프로필 메뉴 자산 요약 모달 | ✅ 완료 |
 | 관심종목 | 종목 추가/삭제, 그룹 관리 (색상), DB 영구 저장, 드로어 UI | ✅ 완료 |
 | 월별 수익률 | 히트맵 시각화 | ✅ 완료 |
 | 종목별 비중 | 파이차트, 섹터별 분산도 | ✅ 완료 |
@@ -774,9 +775,22 @@ BatchRunCandidate {
 
 -- 가상 계좌
 VirtualAccount {
-  id, name, initialCash, currentCash, strategyId, strategyName,
-  tradingMode ("manual"/"auto"), createdAt, updatedAt
+  id, userId, name, initialCash, currentCash, status ("ACTIVE"/"CLOSED"),
+  strategyId, strategyName, tradingMode ("manual"/"auto"), closedAt,
+  createdAt, updatedAt
   → VirtualMarketState, VirtualOrder[], VirtualPosition[]
+}
+
+-- 사용자 자산 지갑
+UserAsset {
+  userId→User, availableCash (Decimal), initialGrantAmount (Decimal),
+  createdAt, updatedAt
+}
+
+-- 사용자 자산 원장
+AssetLedger {
+  id, userId→User, accountId→VirtualAccount?, type, amount (Decimal),
+  balanceAfter (Decimal), createdAt
 }
 
 -- 가상 시장 상태
