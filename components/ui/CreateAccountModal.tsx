@@ -31,6 +31,7 @@ export default function CreateAccountModal({
   const [loadingStrategies, setLoadingStrategies] = useState(false);
   const [tradingMode, setTradingMode] = useState<"auto" | "manual">("manual");
   const [isPromptVisible, setIsPromptVisible] = useState(false);
+  const [availableCash, setAvailableCash] = useState<number | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -40,6 +41,11 @@ export default function CreateAccountModal({
       .then((data: Strategy[]) => setStrategies(data))
       .catch(() => setStrategies([]))
       .finally(() => setLoadingStrategies(false));
+
+    fetch("/api/user/assets")
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => setAvailableCash(data?.availableCash ?? null))
+      .catch(() => setAvailableCash(null));
   }, [isOpen]);
 
   useEffect(() => {
@@ -73,6 +79,11 @@ export default function CreateAccountModal({
 
     if (amountNum < 100) {
       setError("최소 투자금액은 100만원입니다.");
+      return;
+    }
+
+    if (availableCash !== null && amountInWon > availableCash) {
+      setError("투자가능 금액을 초과했습니다.");
       return;
     }
 
@@ -145,16 +156,32 @@ export default function CreateAccountModal({
                 type="text"
                 value={formatAmount(amount)}
                 onChange={handleAmountChange}
-                className="w-full px-3 py-2 border border-white/[0.08] rounded-lg bg-[#171717] text-white placeholder:text-gray-600 focus:outline-none focus:border-white/[0.2]"
+                className={`w-full px-3 py-2 border rounded-lg bg-[#171717] text-white placeholder:text-gray-600 focus:outline-none ${
+                  availableCash !== null && amount && parseInt(amount) * 10000 > availableCash
+                    ? "border-red-500/60 focus:border-red-500"
+                    : "border-white/[0.08] focus:border-white/[0.2]"
+                }`}
                 placeholder="100"
               />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
                 만원
               </span>
             </div>
-            <p className="mt-1 text-xs text-gray-500">
-              최소 100만원
-            </p>
+            <div className="mt-1 flex items-center justify-between">
+              <p className={`text-xs ${availableCash !== null && amount && parseInt(amount) * 10000 > availableCash ? "text-red-400" : "text-gray-500"}`}>
+                {availableCash !== null && amount && parseInt(amount) * 10000 > availableCash
+                  ? "투자가능 금액을 초과했습니다"
+                  : "최소 100만원"}
+              </p>
+              {availableCash !== null && (
+                <p className="text-xs text-gray-400">
+                  투자가능 금액:{" "}
+                  <span className="font-semibold text-gray-300">
+                    {availableCash.toLocaleString("ko-KR")}원
+                  </span>
+                </p>
+              )}
+            </div>
           </div>
 
           <div>
@@ -338,9 +365,7 @@ export default function CreateAccountModal({
           )}
 
           {error && (
-            <div className="p-2 bg-red-500/10 border border-red-500/30 rounded-lg">
-              <p className="text-sm text-red-400">{error}</p>
-            </div>
+            <p className="text-sm text-red-400">{error}</p>
           )}
 
           <div className="flex gap-2 pt-2">
