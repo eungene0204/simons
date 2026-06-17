@@ -313,6 +313,19 @@ describe("Sidebar quick search", () => {
         });
       }
 
+      if (url === "/api/user/assets") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            availableCash: 7_000_000,
+            activeAccountValue: 3_700_000,
+            totalAssets: 10_700_000,
+            totalProfitLoss: 700_000,
+            accounts: [],
+          }),
+        });
+      }
+
       return Promise.resolve({
         ok: true,
         json: async () => ({
@@ -335,7 +348,20 @@ describe("Sidebar quick search", () => {
     fireEvent.click(profileButton);
 
     expect(await screen.findByText("hong@example.com")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "자산" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "로그아웃" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "자산" }));
+    expect(await screen.findByRole("dialog", { name: "자산" })).toBeInTheDocument();
+    expect(screen.getByText("총 자산")).toBeInTheDocument();
+    expect(screen.getByText("10,700,000원")).toBeInTheDocument();
+    expect(screen.getByText("사용 가능 자산")).toBeInTheDocument();
+    expect(screen.getByText("7,000,000원")).toBeInTheDocument();
+    expect(screen.getByText("가상계좌 운용 중 자산")).toBeInTheDocument();
+    expect(screen.getByText("3,700,000원")).toBeInTheDocument();
+    expect(screen.getByText("총 수익/손실")).toBeInTheDocument();
+    expect(screen.getByText("+700,000원")).toBeInTheDocument();
+    expect(pushMock).not.toHaveBeenCalledWith("/assets");
   });
 
   it("몇 글자만 입력해도 바로 추천 결과를 보여준다", async () => {

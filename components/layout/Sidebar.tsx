@@ -15,6 +15,7 @@ import {
   CaretDown,
   GoogleLogo,
   SignOut,
+  X,
 } from "phosphor-react";
 import QuickSearchModal from "./QuickSearchModal";
 
@@ -70,6 +71,17 @@ type LoginResponse = {
 
 type AuthState = "loading" | "authenticated" | "anonymous";
 
+type AssetSummary = {
+  availableCash: number;
+  activeAccountValue: number;
+  totalAssets: number;
+  totalProfitLoss: number;
+};
+
+function formatWon(value: number) {
+  return `${Math.round(value).toLocaleString("ko-KR")}원`;
+}
+
 function isSpecificUserName(value: string) {
   return Boolean(value && value !== "사용자" && value !== "게스트");
 }
@@ -88,6 +100,10 @@ function SidebarComponent({ userName }: { userName?: string }) {
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [isAssetModalOpen, setIsAssetModalOpen] = useState(false);
+  const [assetSummary, setAssetSummary] = useState<AssetSummary | null>(null);
+  const [isAssetLoading, setIsAssetLoading] = useState(false);
+  const [assetError, setAssetError] = useState<string | null>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isStartingLogin, setIsStartingLogin] = useState(false);
   const [authState, setAuthState] = useState<AuthState>(
@@ -314,6 +330,31 @@ function SidebarComponent({ userName }: { userName?: string }) {
     }
   };
 
+  const handleAssetsClick = async () => {
+    setIsProfileMenuOpen(false);
+    setIsAssetModalOpen(true);
+    setIsAssetLoading(true);
+    setAssetError(null);
+
+    try {
+      const response = await fetch("/api/user/assets", {
+        cache: "no-store",
+        credentials: "same-origin",
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to load assets");
+      }
+
+      const data = (await response.json()) as AssetSummary;
+      setAssetSummary(data);
+    } catch {
+      setAssetError("자산 정보를 불러오지 못했습니다.");
+    } finally {
+      setIsAssetLoading(false);
+    }
+  };
+
   const handleMenuClick = (
     item: (typeof menuItems)[0],
     e: React.MouseEvent
@@ -504,6 +545,14 @@ function SidebarComponent({ userName }: { userName?: string }) {
           </div>
           <button
             type="button"
+            onClick={() => void handleAssetsClick()}
+            className="flex w-full items-center gap-2 px-4 py-3 text-left text-xs font-black text-gray-300 transition-colors duration-200 hover:bg-white/[0.04] hover:text-white"
+          >
+            <Bank size={16} weight="bold" className="text-gray-500" />
+            <span>자산</span>
+          </button>
+          <button
+            type="button"
             onClick={handleLogout}
             disabled={isLoggingOut}
             className="flex w-full items-center gap-2 px-4 py-3 text-left text-xs font-black text-gray-300 transition-colors duration-200 hover:bg-white/[0.04] hover:text-white disabled:cursor-wait disabled:opacity-60"
@@ -511,6 +560,102 @@ function SidebarComponent({ userName }: { userName?: string }) {
             <SignOut size={16} weight="bold" className="text-gray-500" />
             <span>{isLoggingOut ? "로그아웃 중..." : "로그아웃"}</span>
           </button>
+        </div>
+      )}
+
+      {authState === "authenticated" && isAssetModalOpen && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="asset-summary-modal-title"
+        >
+          <div className="w-full max-w-lg overflow-hidden rounded-3xl border border-white/[0.08] bg-[#050505] shadow-2xl shadow-black/60">
+            <div className="flex items-start justify-between gap-4 border-b border-white/[0.08] px-6 py-5">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-blue-300/70">
+                  Asset Wallet
+                </p>
+                <h2
+                  id="asset-summary-modal-title"
+                  className="mt-2 text-2xl font-black tracking-tight text-white"
+                >
+                  자산
+                </h2>
+              </div>
+              <button
+                type="button"
+                aria-label="자산 모달 닫기"
+                onClick={() => setIsAssetModalOpen(false)}
+                className="rounded-full border border-white/[0.08] p-2 text-gray-500 transition-colors hover:bg-white/[0.06] hover:text-white"
+              >
+                <X size={16} weight="bold" />
+              </button>
+            </div>
+
+            {isAssetLoading ? (
+              <div className="px-6 py-12 text-center text-sm font-bold text-gray-500">
+                자산 정보를 불러오는 중입니다.
+              </div>
+            ) : assetError ? (
+              <div className="px-6 py-12 text-center">
+                <p className="text-sm font-black text-red-300">{assetError}</p>
+                <button
+                  type="button"
+                  onClick={() => void handleAssetsClick()}
+                  className="mt-5 rounded-xl border border-white/[0.1] px-4 py-2 text-xs font-black text-white transition-colors hover:bg-white/[0.06]"
+                >
+                  다시 불러오기
+                </button>
+              </div>
+            ) : assetSummary ? (
+              <div className="grid grid-cols-1 divide-y divide-white/[0.08]">
+                <div className="px-6 py-5">
+                  <p className="text-xs font-black uppercase tracking-[0.22em] text-gray-500">
+                    총 자산
+                  </p>
+                  <p className="mt-2 text-3xl font-black text-white">
+                    {formatWon(assetSummary.totalAssets)}
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 divide-y divide-white/[0.08] sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+                  <div className="px-6 py-5">
+                    <p className="text-xs font-black uppercase tracking-[0.18em] text-gray-500">
+                      사용 가능 자산
+                    </p>
+                    <p className="mt-2 text-xl font-black text-emerald-300">
+                      {formatWon(assetSummary.availableCash)}
+                    </p>
+                  </div>
+                  <div className="px-6 py-5">
+                    <p className="text-xs font-black uppercase tracking-[0.18em] text-gray-500">
+                      가상계좌 운용 중 자산
+                    </p>
+                    <p className="mt-2 text-xl font-black text-blue-200">
+                      {formatWon(assetSummary.activeAccountValue)}
+                    </p>
+                  </div>
+                </div>
+                <div className="px-6 py-5">
+                  <p className="text-xs font-black uppercase tracking-[0.22em] text-gray-500">
+                    총 수익/손실
+                  </p>
+                  <p
+                    className={`mt-2 text-2xl font-black ${
+                      assetSummary.totalProfitLoss > 0
+                        ? "text-emerald-300"
+                        : assetSummary.totalProfitLoss < 0
+                          ? "text-red-300"
+                          : "text-gray-300"
+                    }`}
+                  >
+                    {assetSummary.totalProfitLoss > 0 ? "+" : ""}
+                    {formatWon(assetSummary.totalProfitLoss)}
+                  </p>
+                </div>
+              </div>
+            ) : null}
+          </div>
         </div>
       )}
 
