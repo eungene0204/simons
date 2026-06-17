@@ -1,0 +1,13 @@
+# 스모크 테스트 전용 오버라이드 (임시 — 배포엔 사용 안 함)
+# 축소 스택: redis + postgres + backend + web 만. caddy/scheduler/news-* 제외.
+# 포트를 직접 노출해 호스트에서 헬스체크 가능하게 한다.
+# 사용 (이미 빌드된 simons-app:latest 사용 — --no-build로 재빌드 방지):
+#   docker compose -f docker-compose.yml -f docker-compose.smoke.yml up -d --no-build redis postgres backend web
+services:
+  backend:
+    ports:
+      - "8000:8000"
+
+  web:
+    ports:
+      - "3000:3000"

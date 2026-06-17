@@ -748,18 +748,29 @@ export default function VirtualAccountDetailPage() {
                     개설 {new Date(account.createdAt).toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" })}
                   </span>
                 </div>
-                <button
-                  onClick={async () => {
-                    if (!confirm(`'${account.name}' 계좌를 삭제하시겠습니까?`)) return;
-                    await deleteAccount(accountId);
-                    forgetVirtualAccountDetail(accountId);
-                    router.push("/virtual-account");
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 border border-white/[0.08] rounded-xl text-xs font-bold text-gray-500 hover:text-[var(--main-red)] hover:border-[var(--main-red)]/30 transition-all duration-200"
-                >
-                  <Trash size={13} />
-                  삭제
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      forgetVirtualAccountDetail(accountId);
+                      router.push("/virtual-account");
+                    }}
+                    className="flex items-center gap-1.5 rounded-xl border border-white/[0.08] px-3 py-1.5 text-xs font-bold text-gray-500 transition-all duration-200 hover:border-white/[0.18] hover:text-gray-300"
+                  >
+                    계좌닫기
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!confirm(`'${account.name}' 계좌를 삭제하시겠습니까?`)) return;
+                      await deleteAccount(accountId);
+                      forgetVirtualAccountDetail(accountId);
+                      router.push("/virtual-account");
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 border border-white/[0.08] rounded-xl text-xs font-bold text-gray-500 hover:text-[var(--main-red)] hover:border-[var(--main-red)]/30 transition-all duration-200"
+                  >
+                    <Trash size={13} />
+                    삭제
+                  </button>
+                </div>
               </div>
 
               {/* KPI 4개 */}
