@@ -30,6 +30,10 @@ const autoAccount: VirtualAccount = {
   tradingMode: "auto",
 };
 
+beforeEach(() => {
+  clearVirtualAccountOverviewCache();
+});
+
 afterEach(() => {
   clearVirtualAccountOverviewCache();
   vi.unstubAllGlobals();
