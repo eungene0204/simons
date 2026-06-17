@@ -48,6 +48,20 @@ describe("VirtualAccountOverview cache", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/virtual-account");
   });
 
+  it("shows a load error instead of the empty account state when the account request fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+      })
+    );
+
+    render(<VirtualAccountOverview />);
+
+    expect(await screen.findByText("가상계좌를 불러오지 못했습니다")).toBeInTheDocument();
+    expect(screen.queryByText("가상계좌를 만들고")).not.toBeInTheDocument();
+  });
+
   it("keeps the initial amount box size while positioning the trading mode badge above it", () => {
     setCachedVirtualAccounts([autoAccount]);
     const fetchMock = vi.fn(() => new Promise<Response>(() => undefined));
@@ -66,15 +80,15 @@ describe("VirtualAccountOverview cache", () => {
     expect(badge.compareDocumentPosition(initialAmountLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("renders an x badge in the account card header with a red hover state", () => {
+  it("renders an account delete button in the account card header with a red hover state", () => {
     setCachedVirtualAccounts([autoAccount]);
     const fetchMock = vi.fn(() => new Promise<Response>(() => undefined));
     vi.stubGlobal("fetch", fetchMock);
 
     render(<VirtualAccountOverview />);
 
-    const closeBadge = screen.getByLabelText("계좌 카드 닫기 배지");
-    expect(closeBadge).toHaveClass(
+    const deleteButton = screen.getByRole("button", { name: "자동 계좌 계좌 삭제" });
+    expect(deleteButton).toHaveClass(
       "bg-white/[0.06]",
       "text-gray-500",
       "hover:bg-[var(--main-red)]/15",
