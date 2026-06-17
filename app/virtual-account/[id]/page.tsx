@@ -27,6 +27,12 @@ import AutoTradingStrategyMissingModal from "@/components/virtual-account/AutoTr
 import { refreshVirtualAccountOverviewCache } from "@/components/virtual-account/virtualAccountOverviewCache";
 import TrackedSymbolRow from "@/components/virtual-account/TrackedSymbolRow";
 import TrackedSymbolsSkeleton from "@/components/virtual-account/TrackedSymbolsSkeleton";
+import {
+  resolveHoldingDisplayNames,
+  resolveStockDisplayName,
+  resolveTrackedDisplayNames,
+  type StockMetadataMap,
+} from "@/components/virtual-account/stockDisplayNames";
 import SignalLog from "@/components/virtual-market/SignalLog";
 import { useStockPrices } from "@/lib/hooks/useStockPrices";
 import { useDelistingStatus, resolveListingStatus } from "@/lib/hooks/useDelistingStatus";
@@ -99,6 +105,7 @@ export default function VirtualAccountDetailPage() {
   const [dbStrategySettings, setDbStrategySettings] = useState<StrategyDSL | null>(null);
   const [dbStrategyHistorySummary, setDbStrategyHistorySummary] = useState<any>(null);
   const [trackedSymbols, setTrackedSymbols] = useState<{ symbol: string; name: string }[]>([]);
+  const [stockMetadata, setStockMetadata] = useState<StockMetadataMap>({});
   const [trackedPrices, setTrackedPrices] = useState<Record<string, BatchQuoteItem>>({});
   const [isTrackedSymbolsLoading, setIsTrackedSymbolsLoading] = useState(true);
   const [signalLogs, setSignalLogs] = useState<VirtualMarketLog[]>([]);
@@ -175,6 +182,31 @@ export default function VirtualAccountDetailPage() {
   }, [accountId]);
 
   useEffect(() => {
+    let isMounted = true;
+
+    fetch("/api/stocks/names")
+      .then((res) => (res.ok ? res.json() : {}))
+      .then((metadata: StockMetadataMap) => {
+        if (!isMounted) return;
+        setStockMetadata(metadata);
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setStockMetadata({});
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (Object.keys(stockMetadata).length === 0) return;
+    setHoldings((prev) => resolveHoldingDisplayNames(prev, stockMetadata));
+    setTrackedSymbols((prev) => resolveTrackedDisplayNames(prev, stockMetadata));
+  }, [stockMetadata]);
+
+  useEffect(() => {
     if (!isPromptVisible) return;
     const close = () => setIsPromptVisible(false);
     document.addEventListener("click", close);
@@ -187,10 +219,10 @@ export default function VirtualAccountDetailPage() {
       const result = await refreshAccountValue(accountId);
       if (!result) return;
       setAccount(result.account);
-      setHoldings(result.holdings);
+      setHoldings(resolveHoldingDisplayNames(result.holdings, stockMetadata));
     }, 3000);
     return () => clearInterval(interval);
-  }, [accountId]);
+  }, [accountId, stockMetadata]);
 
   useEffect(() => {
     if (!accountId) return;
@@ -259,13 +291,13 @@ export default function VirtualAccountDetailPage() {
     ]);
     if (!acc) { router.push("/virtual-account"); return; }
     setAccount(acc);
-    setHoldings((acc as any).holdings ?? []);
+    setHoldings(resolveHoldingDisplayNames((acc as any).holdings ?? [], stockMetadata));
     setTransactions(t.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
 
     const nextTrackedSymbols = marketState?.symbols?.length
       ? marketState.symbols.map((sym: string) => ({
           symbol: sym,
-          name: marketState.symbolNames?.[sym] || sym,
+          name: resolveStockDisplayName(sym, marketState.symbolNames?.[sym], stockMetadata),
         }))
       : [];
     setTrackedSymbols(nextTrackedSymbols);
@@ -637,7 +669,7 @@ export default function VirtualAccountDetailPage() {
                         자동매매
                       </button>
                     </div>
-                    <div className="group relative flex h-[26px] w-5 cursor-help items-center justify-center text-[11px] font-black text-gray-500 transition-colors duration-200 hover:text-white">
+                    <div className="group relative flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-white/[0.14] text-[10px] font-black text-gray-500 transition-colors duration-200 hover:border-white/[0.28] hover:text-white">
                       <span aria-label="자동매매 설명">?</span>
                       <div className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 w-56 -translate-x-1/2 rounded-lg border border-white/[0.08] bg-[#1c1c1c] px-3 py-2 text-xs font-bold leading-5 text-gray-300 opacity-0 shadow-xl transition-opacity duration-150 group-hover:opacity-100">
                         전략 조건에 만족하면 자동으로 매매가 이루어 집니다
@@ -718,12 +750,21 @@ export default function VirtualAccountDetailPage() {
                 <div className="p-5">
                   <div className="flex items-center justify-between mb-4">
                     <div>
-                      <h2
-                        className="text-base font-black uppercase tracking-widest font-outfit"
-                        style={{ color: colorTokens.title_main }}
-                      >
-                        추적 종목
-                      </h2>
+                      <div className="flex items-center gap-1.5">
+                        <h2
+                          className="text-base font-black uppercase tracking-widest font-outfit"
+                          style={{ color: colorTokens.title_main }}
+                        >
+                          추적 종목
+                        </h2>
+                        <div className="group relative flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-white/[0.14] text-[10px] font-black text-gray-500 transition-colors duration-200 hover:border-white/[0.28] hover:text-white">
+                          <span aria-label="추적 종목 설명">?</span>
+                          <div className="pointer-events-none absolute left-full top-full z-30 ml-2 mt-2 w-64 rounded-lg border border-white/[0.08] bg-[#1c1c1c] px-3 py-2 text-xs font-bold leading-5 text-gray-300 opacity-0 shadow-xl transition-opacity duration-150 group-hover:opacity-100">
+                            계좌에 연결된 전략의 백테스트 결과에서 수익률 상위 10개 종목 입니다
+                            <div className="absolute -left-[5px] top-2 h-2.5 w-2.5 rotate-45 border-b border-l border-white/[0.08] bg-[#1c1c1c]" />
+                          </div>
+                        </div>
+                      </div>
                       <p className="text-xs text-gray-500 mt-0.5">전략이 시그널을 모니터링 중인 종목</p>
                     </div>
                     <div className="flex items-center gap-2">

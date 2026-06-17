@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 import Link from "next/link";
 import { Bell, Robot, X } from "phosphor-react";
 import { StrategyWaveBackground } from "@/components/strategy/StrategyWaveBackground";
 import CreateAccountModal from "@/components/ui/CreateAccountModal";
-import { createAccount } from "@/lib/portfolio";
+import { createAccount, getAccount } from "@/lib/portfolio";
 import type { VirtualAccount } from "@/types/portfolio";
 import {
   getCachedVirtualAccounts,
@@ -23,6 +23,7 @@ export default function VirtualAccountOverview() {
   const [accounts, setAccounts] = useState<VirtualAccount[]>(initialAccounts ?? []);
   const [loading, setLoading] = useState(!initialAccounts);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [openingAccountId, setOpeningAccountId] = useState<string | null>(null);
 
   const loadAccounts = async (options?: { showLoading?: boolean; force?: boolean }) => {
     const shouldShowLoading = options?.showLoading ?? !getCachedVirtualAccounts();
@@ -70,6 +71,38 @@ export default function VirtualAccountOverview() {
   ) => {
     await createAccount(name, amount, strategyId, strategyName, tradingMode);
     await loadAccounts({ showLoading: false, force: true });
+  };
+
+  const handleAccountClick = async (
+    event: MouseEvent<HTMLAnchorElement>,
+    accountId: string
+  ) => {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey ||
+      openingAccountId
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    setOpeningAccountId(accountId);
+
+    try {
+      const account = await getAccount(accountId);
+      if (!account) {
+        await loadAccounts({ showLoading: false, force: true });
+        return;
+      }
+
+      window.location.assign(`/virtual-account/${accountId}`);
+    } finally {
+      setOpeningAccountId((current) => (current === accountId ? null : current));
+    }
   };
 
   return (
@@ -132,7 +165,11 @@ export default function VirtualAccountOverview() {
                 <Link
                   key={account.id}
                   href={`/virtual-account/${account.id}`}
-                  className="group max-w-lg rounded-lg border border-white/[0.08] bg-[#111111] p-4 transition-colors hover:bg-[#151515]"
+                  onClick={(event) => void handleAccountClick(event, account.id)}
+                  aria-disabled={openingAccountId === account.id}
+                  className={`group block max-w-lg rounded-lg border border-white/[0.08] bg-[#111111] p-4 text-left transition-colors hover:bg-[#151515] ${
+                    openingAccountId === account.id ? "pointer-events-none opacity-70" : ""
+                  }`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
