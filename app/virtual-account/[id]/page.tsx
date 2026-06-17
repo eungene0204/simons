@@ -46,6 +46,13 @@ import { colorTokens } from "@/components/strategy/colorTokens";
 import type { StockPriceSnapshot as BatchQuoteItem } from "@/lib/stock-prices";
 import type { StrategyDSL } from "@/types/strategy";
 
+type AccountDetailCache = {
+  account: VirtualAccount;
+  holdings: PortfolioHolding[];
+  transactions: Transaction[];
+  trackedSymbols: { symbol: string; name: string }[];
+};
+
 const formatPrice = (price: number) =>
   new Intl.NumberFormat("ko-KR").format(Math.round(price));
 
@@ -77,6 +84,36 @@ function generatePerformanceData(startDate: Date, days: number, cumulativeReturn
     data.push({ time, portfolio: benchmark, benchmark });
   }
   return data;
+}
+
+const getAccountDetailCacheKey = (accountId: string) =>
+  `virtual-account-detail:${accountId}`;
+
+function readAccountDetailCache(accountId: string): AccountDetailCache | null {
+  if (typeof window === "undefined" || !accountId) return null;
+
+  try {
+    const raw = window.sessionStorage.getItem(getAccountDetailCacheKey(accountId));
+    return raw ? (JSON.parse(raw) as AccountDetailCache) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeAccountDetailCache(
+  accountId: string,
+  cache: AccountDetailCache
+) {
+  if (typeof window === "undefined" || !accountId) return;
+
+  try {
+    window.sessionStorage.setItem(
+      getAccountDetailCacheKey(accountId),
+      JSON.stringify(cache)
+    );
+  } catch {
+    // Non-critical: the live API response remains the source of truth.
+  }
 }
 
 export default function VirtualAccountDetailPage() {
@@ -175,6 +212,17 @@ export default function VirtualAccountDetailPage() {
       refetchInterval: 2000,
     }
   );
+
+  useEffect(() => {
+    const cached = readAccountDetailCache(accountId);
+    if (!cached) return;
+
+    setAccount(cached.account);
+    setHoldings(cached.holdings);
+    setTransactions(cached.transactions);
+    setTrackedSymbols(cached.trackedSymbols);
+    setIsTrackedSymbolsLoading(false);
+  }, [accountId]);
 
   useEffect(() => {
     if (accountId) loadAccountData();
@@ -289,10 +337,15 @@ export default function VirtualAccountDetailPage() {
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null),
     ]);
-    if (!acc) { router.push("/virtual-account"); return; }
+    if (!acc) {
+      setIsTrackedSymbolsLoading(false);
+      return;
+    }
     setAccount(acc);
-    setHoldings(resolveHoldingDisplayNames((acc as any).holdings ?? [], stockMetadata));
-    setTransactions(t.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
+    const nextHoldings = resolveHoldingDisplayNames((acc as any).holdings ?? [], stockMetadata);
+    const nextTransactions = t.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    setHoldings(nextHoldings);
+    setTransactions(nextTransactions);
 
     const nextTrackedSymbols = marketState?.symbols?.length
       ? marketState.symbols.map((sym: string) => ({
@@ -302,6 +355,12 @@ export default function VirtualAccountDetailPage() {
       : [];
     setTrackedSymbols(nextTrackedSymbols);
     setIsTrackedSymbolsLoading(false);
+    writeAccountDetailCache(accountId, {
+      account: acc,
+      holdings: nextHoldings,
+      transactions: nextTransactions,
+      trackedSymbols: nextTrackedSymbols,
+    });
 
     if (acc.strategyId) {
       fetch(`/api/strategy/${acc.strategyId}`)
