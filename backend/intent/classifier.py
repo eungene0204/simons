@@ -21,6 +21,13 @@ from typing import Callable, Optional
 from stock_analysis.symbol_resolver import StockRef, find_in_text, resolve_by_symbol
 
 from .schemas import DetectedSymbol, IntentResult, QueryIntent
+from .scope import (
+    OFFTOPIC_REFUSAL,
+    greeting_reply,
+    has_finance_cue,
+    is_greeting_only,
+    is_offtopic,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -66,13 +73,16 @@ _DEFINITION_QUESTION = re.compile(
 _ANAPHORA = re.compile(r"이\s*종목|이\s*주식|그\s*종목|저\s*종목|얘|이거", re.IGNORECASE)
 
 _CLASSIFIER_SYSTEM_PROMPT = (
-    "너는 투자 챗봇 입력을 4가지 의도로 분류한다. "
+    "너는 투자 챗봇 입력을 의도로 분류한다. "
     "STRATEGY_ADVICE(투자 전략·지표 조합·백테스트·매매 규칙, 그리고 "
     "'PBR 1 이하·PER 10 이하·저평가/고배당 종목'처럼 조건에 맞는 종목을 고르는 스크리닝), "
-    "STOCK_ANALYSIS(이름이 명시된 '특정 한 종목'의 매수·매도·보유·전망·리스크), "
+    "STOCK_ANALYSIS(이름이 명시된 '특정 한 종목'의 매수·매도·보유·전망·리스크·분석), "
     "GENERAL_INVESTMENT(일반 투자 지식·용어 정의), "
-    "UNKNOWN(분류 불가). "
+    "GREETING(인사·짧은 사회적 표현), "
+    "OFF_TOPIC(투자와 무관한 잡담·사적 대화·일반 상식·날씨·건강·프로그래밍·정치 등 역할 밖 질문), "
+    "UNKNOWN(투자 관련이지만 위 어디에도 안 맞아 분류 불가). "
     "특정 종목명이 없는 '조건/필터로 종목 고르기'는 STOCK_ANALYSIS가 아니라 STRATEGY_ADVICE다. "
+    "투자와 직접 관련이 없으면 STRATEGY_ADVICE나 UNKNOWN으로 추측하지 말고 OFF_TOPIC으로 분류하라. "
     '반드시 {"intent": "..."} JSON 한 줄로만 답하라.'
 )
 
@@ -83,6 +93,23 @@ def _to_detected(refs: list[StockRef]) -> list[DetectedSymbol]:
 
 def _classify_deterministic(query: str, last_symbol: Optional[str]) -> Optional[IntentResult]:
     text = query or ""
+
+    # 0) 역할 범위 가드 — 인사/역할 밖 질문은 전략으로 파싱하지 않고 정해진 응답으로 안내한다.
+    if is_greeting_only(text):
+        return IntentResult(
+            intent=QueryIntent.GREETING,
+            suggested_reply=greeting_reply(text),
+            confidence=0.95,
+            reason="인사 감지",
+        )
+    if is_offtopic(text):
+        return IntentResult(
+            intent=QueryIntent.OFF_TOPIC,
+            suggested_reply=OFFTOPIC_REFUSAL,
+            confidence=0.9,
+            reason="역할 밖 질문 감지",
+        )
+
     refs = find_in_text(text)
     has_strategy_kw = bool(_STRATEGY_KEYWORDS.search(text))
     has_screening = bool(_SCREENING_SIGNAL.search(text))
@@ -117,8 +144,9 @@ def _classify_deterministic(query: str, last_symbol: Optional[str]) -> Optional[
             reason="직전 종목 참조('이 종목') + 행동 질문",
         )
 
-    # 3) 정의형 질문 → 일반 투자 지식.
-    if has_def_q and not refs:
+    # 3) 정의형 질문 → 일반 투자 지식. 단, 투자 신호가 있어야 한다
+    #    ('너 이름이 뭐야'처럼 투자 맥락 없는 '뭐야'는 잡담이므로 LLM 폴백으로 넘긴다).
+    if has_def_q and not refs and has_finance_cue(text):
         return IntentResult(
             intent=QueryIntent.GENERAL_INVESTMENT,
             confidence=0.85,
@@ -136,14 +164,23 @@ def _classify_with_llm(query: str, llm: LLMFn) -> Optional[IntentResult]:
     except Exception:
         logger.exception("intent LLM 폴백 실패")
         return None
-    match = re.search(r'"intent"\s*:\s*"(STRATEGY_ADVICE|STOCK_ANALYSIS|GENERAL_INVESTMENT|UNKNOWN)"', raw or "")
+    match = re.search(
+        r'"intent"\s*:\s*"(STRATEGY_ADVICE|STOCK_ANALYSIS|GENERAL_INVESTMENT|GREETING|OFF_TOPIC|UNKNOWN)"',
+        raw or "",
+    )
     if not match:
         return None
     intent = QueryIntent(match.group(1))
+    suggested_reply = None
+    if intent == QueryIntent.GREETING:
+        suggested_reply = greeting_reply(query)
+    elif intent == QueryIntent.OFF_TOPIC:
+        suggested_reply = OFFTOPIC_REFUSAL
     refs = find_in_text(query) if intent == QueryIntent.STOCK_ANALYSIS else []
     return IntentResult(
         intent=intent,
         symbols=_to_detected(refs),
+        suggested_reply=suggested_reply,
         confidence=0.6,
         reason="LLM 폴백 분류",
         deterministic=False,

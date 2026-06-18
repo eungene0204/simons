@@ -729,6 +729,7 @@ function StrategyLabContent() {
   ): Promise<boolean> => {
     let intent = "STRATEGY_ADVICE";
     let symbol: string | null = null;
+    let suggestedReply: string | null = null;
     try {
       const res = await fetch("/api/query/classify", {
         method: "POST",
@@ -739,8 +740,23 @@ function StrategyLabContent() {
       const data = await res.json();
       intent = data.intent;
       symbol = data.symbols?.[0]?.symbol ?? null;
+      suggestedReply = data.suggested_reply ?? null;
     } catch {
       return false;
+    }
+
+    // 인사 / 역할 밖 질문 → 전략으로 파싱하지 않고 정해진 안내를 바로 보여준다.
+    if (intent === "GREETING" || intent === "OFF_TOPIC") {
+      const fallback =
+        intent === "GREETING"
+          ? "안녕하세요. 오늘은 어떤 전략을 연구해 볼까요?"
+          : "저는 투자 전략 및 투자 분석 전용 모델입니다. 현재 질문에는 도움을 드릴 수 없습니다. 대신 투자 전략, 백테스트, 종목 분석과 관련된 질문은 도와드릴 수 있습니다.";
+      setMessages(prev => [
+        ...prev,
+        { role: "user", content: userText },
+        { role: "assistant", infoText: suggestedReply ?? fallback },
+      ]);
+      return true;
     }
 
     // 개별 종목 질문 → Stock Analysis Agent

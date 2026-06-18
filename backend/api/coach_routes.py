@@ -28,6 +28,13 @@ from advisor.memory_repository import load_advisor_memory, load_vector_advisor_m
 from advisor.memory_retriever import retrieve_memory_context
 from advisor.news_enrichment import build_coach_news_insight, build_news_context_from_strategy
 from advisor.schemas import AdvisorRequest
+from intent.scope import (
+    GREETING_REPLIES,
+    OFFTOPIC_REFUSAL,
+    greeting_reply,
+    is_greeting_only,
+    is_offtopic,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["coach"])
@@ -112,6 +119,14 @@ COACH_SYSTEM_PROMPT = """[역할 정의]
 당신은 검색/계산/판정 엔진이 아니라, 이미 계산된 근거를 사용자에게 설명하는 코치입니다.
 사용자를 주식 초보자라고 생각하고 설명하십시오.
 사용자는 전략 입력 초보자라고 가정하고, 전문 용어는 쉬운 말로 풀어 설명하십시오.
+
+[응답 범위와 거절 규칙]
+당신은 투자 전략 및 투자 분석 전용 AI이며 범용 챗봇이 아닙니다. 항상 투자라는 역할 안에서만 답변하십시오.
+입력을 먼저 다음 세 가지로 분류한 뒤 그에 맞게 행동하십시오.
+- GREETING(간단한 인사·짧은 사회적 표현): 자연스럽게 응답하되 곧바로 어떤 전략을 연구할지 되물어 대화를 역할 안으로 이끄십시오. (예: "안녕하세요. 어떤 투자 아이디어를 가지고 계신가요?")
+- INVESTMENT(투자 관련 질문): 정상적으로 답변하십시오. 여기에는 투자 전략 설계, 백테스트 결과 해석, 성과 지표 설명(CAGR·MDD·샤프 지수 등), 위험 관리, 과최적화 평가, 전략의 강건성·투자 가능성 검토, 거래 빈도 검토, 전략 개선 아이디어, 개별 종목 분석, 투자 관련 뉴스 및 정보가 모두 포함됩니다. "이 질문이 서비스의 핵심 기능(투자)과 직접 관련되어 있는가?"가 기준이며, 관련되어 있으면 INVESTMENT로 봅니다.
+- OUT_OF_SCOPE(투자와 무관한 질문 — 날씨, 일반 상식, 역사, 정치, 건강, 프로그래밍, 수학, 잡담 등): 질문의 실제 내용에는 답변하지 말고 추측·예외 없이 정확히 다음과 같이 짧고 정중하게 안내하십시오: "저는 투자 전략 및 투자 분석 전용 모델입니다. 현재 질문에는 도움을 드릴 수 없습니다. 대신 투자 전략, 백테스트, 종목 분석과 관련된 질문은 도와드릴 수 있습니다."
+인사와 거절도 반드시 아래 [출력 형식]의 JSON으로만 출력하십시오.
 
 [핵심 투자 철학]
 # 좋은 전략의 4가지 기준
@@ -758,6 +773,30 @@ def _asks_indicator_setup(prompt: str) -> bool:
     if not _INDICATOR_SETUP_TERMS.search(text):
         return False
     return bool(_INDICATOR_SETUP_INTENT.search(text))
+
+
+# ── 코칭 역할 범위 가드 (결정적 빠른 경로) ──────────────────────────────
+# 작은 로컬 모델은 거대한 '전략 코치' 프롬프트를 받으면 역할 밖 질문(날씨·코드 등)에도
+# 전략 이야기로 응답하거나 환각하기 쉽다. 명확한 인사/역할 밖/개별 종목 질문은 여기서
+# 결정적으로 가로채 정해진 문장으로 답하고, 비싼 advisor 빌드와 LLM 추론을 건너뛴다.
+# 애매한 긴 꼬리는 가로채지 않고 시스템 프롬프트(LLM)에 맡긴다.
+# 인사/역할밖 감지·문구는 intent.scope와 공유한다(입력 게이트와 동일 기준).
+_COACH_GREETING_REPLIES = GREETING_REPLIES
+_COACH_OFFTOPIC_REFUSAL = OFFTOPIC_REFUSAL
+
+
+def _coach_scope_guard(prompt: str) -> Optional[str]:
+    """역할 범위를 벗어난 입력을 결정적으로 가로채 정해진 응답을 반환한다.
+    가로챌 게 없으면 None을 반환해 일반 코칭 경로(LLM)로 넘긴다.
+    개별 종목 분석은 역할 안(투자 분석)이므로 가로채지 않는다."""
+    text = (prompt or "").strip()
+    if not text:
+        return None
+    if is_greeting_only(text):
+        return greeting_reply(text)
+    if is_offtopic(text):
+        return _COACH_OFFTOPIC_REFUSAL
+    return None
 
 
 def _build_user_message(req: CoachRequest) -> str:
@@ -1703,6 +1742,10 @@ async def coach_strategy(req: CoachRequest) -> CoachResponse:
     try:
         request_started = time.perf_counter()
         logger.info("coach request start | request_id=%s mode=legacy", request_id)
+        guard_message = _coach_scope_guard(req.user_prompt)
+        if guard_message is not None:
+            logger.info("coach scope guard hit | request_id=%s mode=legacy", request_id)
+            return CoachResponse(message=guard_message)
         cache_key = _coach_cache_key(req)
         cached = _coach_response_cache.get(cache_key)
         if cached is not None:
@@ -1741,6 +1784,31 @@ async def create_coach_session(req: CoachSessionRequest, response: Response) -> 
         session_id = uuid4().hex
         logger.info("coach request start | request_id=%s mode=create_session session_id=%s", request_id, session_id)
         prior_context = req.conversation_context or []
+        guard_message = _coach_scope_guard(req.user_prompt)
+        if guard_message is not None:
+            coach_response = CoachResponse(message=guard_message)
+            _remember_session(
+                session_id,
+                {
+                    "parsed_strategy": req.parsed_strategy,
+                    "advisor_result": None,
+                    "memory_strategy_cases": req.memory_strategy_cases,
+                    "memory_experiences": req.memory_experiences,
+                    "news_agent_insight": None,
+                    "conversation_context": [
+                        *prior_context,
+                        {"role": "user", "content": req.user_prompt},
+                        {"role": "assistant", "content": coach_response.message},
+                    ][-8:],
+                },
+            )
+            response.headers["X-Coach-Session-Id"] = session_id
+            logger.info(
+                "coach scope guard hit | request_id=%s mode=create_session session_id=%s",
+                request_id,
+                session_id,
+            )
+            return coach_response
         coach_req = CoachRequest(
             user_prompt=req.user_prompt,
             parsed_strategy=req.parsed_strategy,
@@ -1798,6 +1866,21 @@ async def continue_coach_session(req: CoachSessionFollowUpRequest) -> CoachRespo
     try:
         request_started = time.perf_counter()
         logger.info("coach request start | request_id=%s mode=follow_up session_id=%s", request_id, req.session_id)
+        guard_message = _coach_scope_guard(req.user_prompt)
+        if guard_message is not None:
+            coach_response = CoachResponse(message=guard_message)
+            session["conversation_context"] = [
+                *(session.get("conversation_context") or []),
+                {"role": "user", "content": req.user_prompt},
+                {"role": "assistant", "content": coach_response.message},
+            ][-8:]
+            _remember_session(req.session_id, session)
+            logger.info(
+                "coach scope guard hit | request_id=%s mode=follow_up session_id=%s",
+                request_id,
+                req.session_id,
+            )
+            return coach_response
         coach_req = CoachRequest(
             user_prompt=req.user_prompt,
             parsed_strategy=session["parsed_strategy"],
@@ -1852,6 +1935,18 @@ def _extract_message_so_far(buffer: str) -> str:
 @router.post("/strategy/coach/stream")
 async def coach_strategy_stream(req: CoachRequest):
     _require_parser()
+
+    guard_message = _coach_scope_guard(req.user_prompt)
+    if guard_message is not None:
+        def _guard_iter():
+            payload = json.dumps({"type": "done", "message": guard_message}, ensure_ascii=False)
+            yield f"data: {payload}\n\n"
+
+        return StreamingResponse(
+            _guard_iter(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     request_started = time.perf_counter()
     cache_key = _coach_cache_key(req)

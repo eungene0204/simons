@@ -99,3 +99,58 @@ def test_substring_match_bug_sk_hynix_not_confused_with_inix():
         f"SK하이닉스 코드는 000660이어야 하는데, 찾은 symbol: {[s.symbol for s in result.symbols]}"
     assert not any(s.symbol == "452400" for s in result.symbols), \
         "이닉스(452400)이 잘못 매칭되면 안 된다"
+
+
+@pytest.mark.parametrize(
+    "query",
+    ["안녕", "안녕하세요", "좋은 아침", "하이!", "ㅎㅇ"],
+)
+def test_greeting_is_detected(query):
+    result = classify(query)
+    assert result.intent == QueryIntent.GREETING
+    assert result.deterministic is True
+    assert result.suggested_reply  # 곧바로 보여줄 인사 문구가 채워진다
+
+
+def test_greeting_with_strategy_question_is_strategy():
+    # 인사 + 전략 질문이 섞이면 인사로 가로채지 않고 전략 설계로 분류한다.
+    result = classify("안녕하세요 RSI 30 이하 매수 전략 어때요?")
+    assert result.intent == QueryIntent.STRATEGY_ADVICE
+
+
+@pytest.mark.parametrize(
+    "query",
+    ["오늘 날씨 어때?", "파이썬 코드를 작성해줘.", "대통령이 누구야?", "감기에 좋은 약 알려줘"],
+)
+def test_offtopic_is_refused(query):
+    result = classify(query)
+    assert result.intent == QueryIntent.OFF_TOPIC
+    assert result.deterministic is True
+    assert "투자 전략 및 투자 분석 전용" in (result.suggested_reply or "")
+
+
+def test_offtopic_with_finance_cue_is_not_refused():
+    # 금융 신호가 있으면 역할 밖으로 보지 않는다(오탐 방지).
+    result = classify("이 전략은 변동성이 날씨처럼 들쭉날쭉해요")
+    assert result.intent != QueryIntent.OFF_TOPIC
+
+
+def test_llm_fallback_offtopic_sets_refusal_reply():
+    # 결정적 cue로 못 잡는 잡담('없어 그냥 너랑 놀려고')은 LLM이 OFF_TOPIC으로 잡고
+    # 곧바로 보여줄 거절 문구가 채워진다 — 전략 생성으로 새지 않는다.
+    result = classify("없어 그냥 너랑 놀려고", llm=lambda s, u: '{"intent": "OFF_TOPIC"}')
+    assert result.intent == QueryIntent.OFF_TOPIC
+    assert "투자 전략 및 투자 분석 전용" in (result.suggested_reply or "")
+
+
+def test_llm_fallback_greeting_sets_reply():
+    result = classify("어이~ 반가워이", llm=lambda s, u: '{"intent": "GREETING"}')
+    assert result.intent == QueryIntent.GREETING
+    assert result.suggested_reply
+
+
+def test_definition_without_finance_cue_is_not_general_investment():
+    # 투자 맥락 없는 '뭐야'('너 이름이 뭐야')는 결정적으로 GENERAL_INVESTMENT가 되지 않고
+    # LLM 폴백으로 넘어가 OFF_TOPIC으로 분류된다.
+    result = classify("너 이름이 뭐야", llm=lambda s, u: '{"intent": "OFF_TOPIC"}')
+    assert result.intent == QueryIntent.OFF_TOPIC

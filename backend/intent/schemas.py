@@ -12,6 +12,8 @@ class QueryIntent(str, Enum):
     STRATEGY_ADVICE = "STRATEGY_ADVICE"
     STOCK_ANALYSIS = "STOCK_ANALYSIS"
     GENERAL_INVESTMENT = "GENERAL_INVESTMENT"
+    GREETING = "GREETING"
+    OFF_TOPIC = "OFF_TOPIC"
     UNKNOWN = "UNKNOWN"
 
 
@@ -28,6 +30,8 @@ class IntentResult(BaseModel):
     reason: str = ""
     # 결정적 규칙으로 끝났는지(테스트/디버깅용). LLM 폴백을 거쳤으면 False.
     deterministic: bool = True
+    # GREETING/OFF_TOPIC처럼 곧바로 보여줄 정해진 응답 문구(없으면 None).
+    suggested_reply: Optional[str] = None
 
 
 class IntentRequest(BaseModel):

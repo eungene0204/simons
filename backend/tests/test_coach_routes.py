@@ -1608,3 +1608,85 @@ async def test_coach_strategy_prefers_vector_memory_context(monkeypatch):
     assert "[strategy_memory_context" in parser.last_user_message
     assert "case=vector_case" in parser.last_user_message
     assert "변동성 필터 검증" in parser.last_user_message
+
+
+# ── 코칭 역할 범위 가드 ────────────────────────────────────────────────
+def test_scope_guard_greeting_only_returns_greeting():
+    for greeting in ["안녕", "안녕하세요", "좋은 아침", "하이!", "ㅎㅇ"]:
+        msg = coach_routes._coach_scope_guard(greeting)
+        assert msg in coach_routes._COACH_GREETING_REPLIES, greeting
+
+
+def test_scope_guard_greeting_is_deterministic():
+    assert coach_routes._coach_scope_guard("안녕하세요") == coach_routes._coach_scope_guard("안녕하세요")
+
+
+def test_scope_guard_greeting_with_strategy_question_passes_through():
+    # 인사 + 전략 질문이 섞이면 가로채지 않고 일반 코칭 경로(LLM)로 넘긴다.
+    assert coach_routes._coach_scope_guard("안녕하세요 RSI 전략 어때요?") is None
+
+
+def test_scope_guard_offtopic_returns_refusal():
+    for prompt in ["오늘 날씨 어때?", "파이썬 코드를 작성해줘.", "대통령이 누구야?", "감기에 좋은 약 알려줘"]:
+        assert coach_routes._coach_scope_guard(prompt) == coach_routes._COACH_OFFTOPIC_REFUSAL, prompt
+
+
+def test_scope_guard_offtopic_with_finance_cue_passes_through():
+    # 금융 신호가 있으면 역할 밖으로 보지 않는다(오탐 방지).
+    assert coach_routes._coach_scope_guard("이 전략은 변동성이 날씨처럼 들쭉날쭉해요") is None
+
+
+def test_scope_guard_strategy_question_passes_through():
+    for prompt in [
+        "최근 20일 수익률 상위 종목을 매수하는 전략은 어떨까?",
+        "MDD가 너무 큰데 왜 그럴까?",
+        "RSI 30 이하 매수 전략 백테스트 결과 좀 봐줘",
+    ]:
+        assert coach_routes._coach_scope_guard(prompt) is None, prompt
+
+
+def test_scope_guard_individual_stock_advice_passes_through():
+    # 개별 종목 분석은 역할 안(투자 분석)이므로 가로채지 않고 통과시킨다.
+    assert coach_routes._coach_scope_guard("삼성전자 지금 사도 될까?") is None
+
+
+def test_scope_guard_stock_name_without_advice_intent_passes_through():
+    # 종목명이 있어도 매수/매도 판단 의도가 없으면(전략 구성용) 가로채지 않는다.
+    assert coach_routes._coach_scope_guard("삼성전자를 유니버스에 넣어 백테스트하고 싶어") is None
+
+
+def test_scope_guard_empty_prompt_passes_through():
+    assert coach_routes._coach_scope_guard("") is None
+    assert coach_routes._coach_scope_guard("   ") is None
+
+
+@pytest.mark.asyncio
+async def test_coach_strategy_offtopic_short_circuits_without_llm(monkeypatch):
+    _install_dummy_main(monkeypatch)
+    parser = _DummyParser()
+    coach_routes.set_parser(parser)
+
+    result = await coach_routes.coach_strategy(_make_request(user_prompt="오늘 날씨 어때?"))
+
+    assert result.message == coach_routes._COACH_OFFTOPIC_REFUSAL
+    assert parser.chat_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_coach_session_greeting_short_circuits_and_records_context(monkeypatch):
+    _install_dummy_main(monkeypatch)
+    parser = _DummyParser()
+    coach_routes.set_parser(parser)
+
+    response = Response()
+    result = await coach_routes.create_coach_session(
+        coach_routes.CoachSessionRequest(user_prompt="안녕하세요", parsed_strategy={}),
+        response,
+    )
+
+    assert result.message in coach_routes._COACH_GREETING_REPLIES
+    assert parser.chat_calls == 0
+    session_id = response.headers["X-Coach-Session-Id"]
+    session = coach_routes._coach_sessions[session_id]
+    assert session["conversation_context"][-1]["role"] == "assistant"
+    assert session["conversation_context"][-1]["content"] == result.message
