@@ -74,11 +74,24 @@ jobs:
           host: ${{ secrets.VULTR_SSH_HOST }}
           username: ${{ secrets.VULTR_SSH_USER }}
           key: ${{ secrets.VULTR_SSH_KEY }}
+          command_timeout: 30m
           script: |
             set -euo pipefail
             cd /opt/simons
             git fetch origin main
             git reset --hard origin/main      # 박스 로컬 드리프트 무시, main과 정합
-            docker compose build
-            docker compose up -d
+
+            # Keep only the active deployment image. Do not prune volumes; app data may live there.
+            docker builder prune -af || true
+            docker image prune -af || true
+            docker container prune -f || true
+
+            docker compose build --pull --force-rm
+            docker compose up -d --remove-orphans
+
+            # Remove all build cache and images not used by the newly running containers.
+            docker builder prune -af || true
+            docker image prune -af || true
+            docker container prune -f || true
+
             docker compose ps

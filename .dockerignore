@@ -14,8 +14,12 @@ data
 prisma/prisma/*.db
 prisma/prisma/*.db-wal
 prisma/prisma/*.db-shm
+prisma/prisma/*.db.bak*
 prisma/dev.db
 prisma/*.db
+prisma/*.db.bak*
+backend/advisor/.chroma
+logs
 
 # 캐시/잡동사니
 **/__pycache__
