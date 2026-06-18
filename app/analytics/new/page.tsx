@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, Suspense } from "react";
+import { flushSync } from "react-dom";
 import dynamic from "next/dynamic";
 import { createClient } from "@supabase/supabase-js";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -11,7 +12,7 @@ import { PENDING_STRATEGY_PROMPT_KEY } from "@/components/strategy/strategyTempl
 import { BacktestResult } from "@/types/strategy";
 import { mapRawBacktestResult } from "./backtestResultMapper";
 import {
-  Sparkle,
+  ArrowUp,
   ArrowRight,
   ArrowsClockwise,
   CheckCircle,
@@ -598,6 +599,19 @@ function StrategyLabContent() {
     backtestReqRef.current = backtestReq;
   }, [backtestReq]);
 
+  const isIdle = messages.length === 0 && !isSending;
+  const shouldShowChatInput = isIdle || messages.some((m) => m.parsed || m.stockAnalysis || m.infoText);
+
+  useEffect(() => {
+    if (!shouldShowChatInput || stage === "running" || result) return;
+
+    const animationFrame = window.requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+    });
+
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [shouldShowChatInput, stage, result]);
+
   // period 제안 텍스트 → { parsed: backtest_period 값, options: currentOptions.period 값 }
   // 매칭되지 않으면 null 반환 (AI 파싱 필요)
   const resolvePeriodSuggestion = (text: string): { parsed: string; options: string } | "keep" | null => {
@@ -659,6 +673,14 @@ function StrategyLabContent() {
       if (lastIdx === undefined) return prev;
       return prev.map((m, i) => i === lastIdx ? { ...m, ...patch } : m);
     });
+  };
+
+  const appendUserThenAssistant = async (userText: string, assistant: ChatMessage) => {
+    flushSync(() => {
+      setMessages(prev => [...prev, { role: "user", content: userText }]);
+    });
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+    setMessages(prev => [...prev, assistant]);
   };
 
   const rememberCoachExchange = (userText: string, coachText: string) => {
@@ -751,11 +773,7 @@ function StrategyLabContent() {
         intent === "GREETING"
           ? "안녕하세요. 오늘은 어떤 전략을 연구해 볼까요?"
           : "저는 투자 전략 및 투자 분석 전용 모델입니다. 현재 질문에는 도움을 드릴 수 없습니다. 대신 투자 전략, 백테스트, 종목 분석과 관련된 질문은 도와드릴 수 있습니다.";
-      setMessages(prev => [
-        ...prev,
-        { role: "user", content: userText },
-        { role: "assistant", infoText: suggestedReply ?? fallback },
-      ]);
+      await appendUserThenAssistant(userText, { role: "assistant", infoText: suggestedReply ?? fallback });
       return true;
     }
 
@@ -765,11 +783,7 @@ function StrategyLabContent() {
       // (예: "PBR 1 이하 종목"). "어떤 종목을 분석할까요?" 막다른 길 대신
       // 전략 다듬기 흐름으로 흘려보낸다.
       if (!symbol && currentParsed) return false;
-      setMessages(prev => [
-        ...prev,
-        { role: "user", content: userText },
-        { role: "assistant", stockLoading: true },
-      ]);
+      await appendUserThenAssistant(userText, { role: "assistant", stockLoading: true });
       if (!symbol) {
         updateLastAssistant({
           stockLoading: false,
@@ -783,11 +797,7 @@ function StrategyLabContent() {
 
     // 일반 투자 지식 질문 → 전략 작성 중이 아닐 때만 가로챈다.
     if (intent === "GENERAL_INVESTMENT" && !currentParsed) {
-      setMessages(prev => [
-        ...prev,
-        { role: "user", content: userText },
-        { role: "assistant", isLoading: true },
-      ]);
+      await appendUserThenAssistant(userText, { role: "assistant", isLoading: true });
       try {
         const res = await fetch("/api/query/general", {
           method: "POST",
@@ -833,11 +843,7 @@ function StrategyLabContent() {
     // '다른 종목 분석'으로 종목명을 묻는 중이면, 다음 입력은 분류 없이 바로 분석한다.
     if (awaitingStockAnalysisRef.current) {
       awaitingStockAnalysisRef.current = false;
-      setMessages(prev => [
-        ...prev,
-        { role: "user", content: userText },
-        { role: "assistant", stockLoading: true },
-      ]);
+      await appendUserThenAssistant(userText, { role: "assistant", stockLoading: true });
       await renderStockAnalysisResult({ query: userText, last_symbol: lastAnalyzedSymbolRef.current });
       setIsSending(false);
       return;
@@ -850,11 +856,12 @@ function StrategyLabContent() {
     }
 
     if (currentParsed && isAdvisorFollowUpPrompt(userText)) {
-      setMessages(prev => [
-        ...prev,
-        { role: "user", content: userText },
-        { role: "assistant", parsed: currentParsed, coachLoading: true, coachText: "" },
-      ]);
+      await appendUserThenAssistant(userText, {
+        role: "assistant",
+        parsed: currentParsed,
+        coachLoading: true,
+        coachText: "",
+      });
       try {
         await generateFollowUpCoachResponse({
           userText,
@@ -866,11 +873,7 @@ function StrategyLabContent() {
       return;
     }
 
-    setMessages(prev => [
-      ...prev,
-      { role: "user", content: userText },
-      { role: "assistant", isLoading: true },
-    ]);
+    await appendUserThenAssistant(userText, { role: "assistant", isLoading: true });
 
     try {
       const res = await fetch("/api/strategy/parse/stream", {
@@ -1287,7 +1290,6 @@ function StrategyLabContent() {
     }
   };
 
-  const isIdle = messages.length === 0 && !isSending;
   const shouldShowIntro = isIdle && !isChatPage;
   const headlineLines = ["투자 아이디어를 전략으로 만들고", "전략을 시뮬레이션 하세요"];
   const totalHeadlineChars = headlineLines.reduce((sum, line) => sum + line.length, 0);
@@ -1359,6 +1361,10 @@ function StrategyLabContent() {
 
   // 전략 작성 맥락(시작 화면 또는 전략 요약 존재)에서만 '전략 생성', 그 외(종목 분석·안내)는 '전송'.
   const isStrategyInput = isIdle || messages.some((m) => m.parsed);
+  const hasTypedInput = inputValue.length > 0;
+  const canSubmitInput = !!inputValue.trim() && !isSending && stage !== "running";
+  const isLlmWorking = isSending;
+  const hasChatStarted = messages.length > 0;
   const isLastAssistant = (i: number) => i === messages.length - 1 && messages[i].role === "assistant";
 
   // ── 메인 채팅 화면
@@ -1388,7 +1394,7 @@ function StrategyLabContent() {
         }
       `}</style>
       <div
-        className={`relative flex gap-4 overflow-hidden px-4 pt-20 pb-12 ${strategyPreviewBackgroundClass}`}
+        className={`relative flex gap-4 overflow-x-hidden px-4 pt-20 ${hasChatStarted ? "pb-36" : "pb-12"} ${strategyPreviewBackgroundClass}`}
         data-testid="strategy-lab-background"
         style={{ minHeight: "calc(100vh - var(--top-menu-bar-height, 76px))" }}
       >
@@ -1397,10 +1403,14 @@ function StrategyLabContent() {
         {/* ── 채팅 영역 ── */}
         <div
           key={isChatPage ? "strategy-chat-page" : "strategy-intro-page"}
-          className={`relative z-10 flex w-full flex-col items-center transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] ${shouldShowIntro ? "justify-center" : "justify-start"}`}
+          className="relative z-10 flex min-h-[calc(100vh-var(--top-menu-bar-height,76px)-5rem)] w-full flex-col items-center justify-start transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)]"
           style={softEnterStyle}
         >
-        <div className="w-full max-w-4xl flex flex-col items-center gap-6">
+        <div className={`w-full max-w-4xl flex flex-col items-center gap-6 ${
+          hasChatStarted
+            ? "min-h-[calc(100vh-var(--top-menu-bar-height,76px)-5rem)]"
+            : "min-h-[calc(100vh-var(--top-menu-bar-height,76px)-5rem)] justify-end pb-10"
+        }`}>
 
           {/* 헤더 */}
           {shouldShowIntro && (
@@ -1433,7 +1443,7 @@ function StrategyLabContent() {
             {/* 대화 히스토리 */}
             {messages.length > 0 && (
               <div
-                className="w-full rounded-2xl border border-white/[0.08] bg-[#101010] px-5 py-5 space-y-4 max-h-[60vh] overflow-y-auto scrollbar-hide"
+                className="w-full space-y-4 px-1 py-2"
                 style={softEnterStyle}
               >
                 {messages.map((msg, i) => (
@@ -1623,10 +1633,10 @@ function StrategyLabContent() {
             )}
 
             {/* 입력 영역 — 시작 화면, 전략 요약 출력 후, 또는 종목 분석·안내 대화 중 표시 */}
-            {(isIdle || messages.some((m) => m.parsed || m.stockAnalysis || m.infoText)) && (
+            {shouldShowChatInput && !hasChatStarted && (
             <div
               key={shouldShowIntro ? "intro-chat-input" : "active-chat-input"}
-              className="relative w-full rounded-2xl border border-[var(--glass-border)] bg-[#101010]"
+              className="relative w-full rounded-[28px] border border-[var(--glass-border)] bg-[#101010]"
               style={softEnterLateStyle}
             >
               <textarea
@@ -1636,16 +1646,28 @@ function StrategyLabContent() {
                 onKeyDown={handleKeyDown}
                 disabled={stage === "running"}
                 rows={2}
-                className="w-full bg-transparent text-white placeholder-gray-600 text-sm font-bold resize-none outline-none focus:outline-none focus:ring-0 px-5 pt-4 pb-12 leading-relaxed"
+                placeholder="어떤 투자 아이디어를 테스트해볼까요?"
+                className="w-full resize-none bg-transparent px-5 pt-4 pb-12 text-sm font-bold leading-relaxed text-white outline-none placeholder-gray-600 focus:outline-none focus:ring-0"
               />
               <div className="absolute bottom-3 right-3 flex items-center gap-2">
                 <button
                   onClick={() => handleSend()}
-                  disabled={!inputValue.trim() || isSending || stage === "running"}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-30 disabled:cursor-not-allowed text-white text-xs font-black transition-all duration-300 hover:shadow-[0_0_15px_rgba(59,130,246,0.4)]"
+                  disabled={!canSubmitInput}
+                  aria-label={isLlmWorking ? (isStrategyInput ? "전략 생성 중" : "전송 중") : (isStrategyInput ? "전략 생성" : "전송")}
+                  title={isLlmWorking ? (isStrategyInput ? "전략 생성 중" : "전송 중") : (isStrategyInput ? "전략 생성" : "전송")}
+                  className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-300 ${
+                    isLlmWorking
+                      ? "cursor-wait bg-[#f3f1ec]"
+                      : hasTypedInput
+                        ? "bg-[#f3f1ec] text-[#2b2b2b] hover:bg-white disabled:cursor-not-allowed"
+                        : "cursor-not-allowed bg-[#595959] text-[#bdbdbd]"
+                  }`}
                 >
-                  <Sparkle size={12} weight="fill" />
-                  {isStrategyInput ? "전략 생성" : "전송"}
+                  {isLlmWorking ? (
+                    <span className="h-3 w-3 rounded-[3px] bg-[#3a3a3a]" aria-hidden="true" />
+                  ) : (
+                    <ArrowUp size={15} weight="bold" />
+                  )}
                 </button>
               </div>
             </div>
@@ -1663,6 +1685,46 @@ function StrategyLabContent() {
           )}
         </div>
         </div>{/* end 채팅 영역 */}
+
+        {shouldShowChatInput && hasChatStarted && (
+          <div
+            key="fixed-chat-input"
+            className="fixed bottom-4 left-4 right-4 z-40 mx-auto max-w-4xl rounded-[28px] border border-[var(--glass-border)] bg-[#101010]"
+            style={softEnterLateStyle}
+          >
+            <textarea
+              ref={textareaRef}
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={stage === "running"}
+              rows={2}
+              placeholder="어떤 투자 아이디어를 테스트해볼까요?"
+              className="w-full resize-none bg-transparent px-5 pt-4 pb-12 text-sm font-bold leading-relaxed text-white outline-none placeholder-gray-600 focus:outline-none focus:ring-0"
+            />
+            <div className="absolute bottom-3 right-3 flex items-center gap-2">
+              <button
+                onClick={() => handleSend()}
+                disabled={!canSubmitInput}
+                aria-label={isLlmWorking ? (isStrategyInput ? "전략 생성 중" : "전송 중") : (isStrategyInput ? "전략 생성" : "전송")}
+                title={isLlmWorking ? (isStrategyInput ? "전략 생성 중" : "전송 중") : (isStrategyInput ? "전략 생성" : "전송")}
+                className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-300 ${
+                  isLlmWorking
+                    ? "cursor-wait bg-[#f3f1ec]"
+                    : hasTypedInput
+                      ? "bg-[#f3f1ec] text-[#2b2b2b] hover:bg-white disabled:cursor-not-allowed"
+                      : "cursor-not-allowed bg-[#595959] text-[#bdbdbd]"
+                }`}
+              >
+                {isLlmWorking ? (
+                  <span className="h-3 w-3 rounded-[3px] bg-[#3a3a3a]" aria-hidden="true" />
+                ) : (
+                  <ArrowUp size={15} weight="bold" />
+                )}
+              </button>
+            </div>
+          </div>
+        )}
 
       </div>
 
