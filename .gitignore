@@ -85,6 +85,10 @@ node_modules/
 # ChromaDB indices
 backend/advisor/.chroma/
 
+# 코퍼스 빌드 데이터 산출물(스크립트 재생성 — build_strategy_corpus.py)
+backend/advisor/extracted_dsls.jsonl
+backend/advisor/corpus_backtests.jsonl
+
 # Advisor smoke test data (auto-generated, large files)
 data/advisor-learning/advisor_smoke_*_results.json
 data/advisor-learning/advisor_smoke_*_batch_payload.json

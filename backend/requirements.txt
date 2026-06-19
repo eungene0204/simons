@@ -26,6 +26,7 @@ xgboost==3.2.0           # ai/ai_engine.py
 joblib==1.5.3            # ai/ai_engine.py 모델 로드
 shap==0.51.0             # ai/xai_engine.py (XAI 설명)
 chromadb==1.5.9          # advisor/vector_memory.py — 코치 RAG 메모리(Chroma 벡터스토어)
+sentence-transformers==5.6.0  # vector_memory/embedding.py — bge-m3 의미 임베딩(코퍼스 적재·쿼리). transformers 5.x 호환(mlx-lm과 공존)
 
 # NL 전략 생성 — Ollama 백엔드(배포 기본값) deps. engine/nl_parser.py _init_ollama가
 # instructor.from_openai로 Ollama의 OpenAI 호환 엔드포인트(/v1) 호출. 없으면 전략 생성 비활성.

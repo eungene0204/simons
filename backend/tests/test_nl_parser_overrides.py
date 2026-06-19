@@ -1389,3 +1389,32 @@ def test_stream_chat_ollama_disables_thinking(monkeypatch):
     messages = body["messages"]
     assert messages[-1]["role"] == "user"
     assert all(m["role"] != "assistant" for m in messages)
+
+
+# ─── 펀더멘털 스크리닝 fast-path 테스트 ──────────────────────────────────────
+# 회귀: 'PBR<1 종목에 투자'처럼 청산 규칙을 안 적은 가치주 스크리닝이 rule-based에서
+# None을 반환해 LLM 폴백(Modal 콜드스타트 시 수십 초~120s timeout)으로 새던 버그.
+# 펀더멘털 필터만 있어도 정기 리밸런싱 전략으로 완결 처리해 즉시(수 ms) 파싱돼야 한다.
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "pbr 1이라 종목에 투자 하고 싶어",
+        "PBR 0.8 이하 종목 투자",
+        "roe 15% 이상 종목 사고싶어",
+        "per 10 이하이고 roe 15 이상인 종목",
+    ],
+)
+def test_fundamental_screen_parses_without_llm(prompt):
+    """펀더멘털 필터만 있는 스크리닝 전략은 LLM 없이 rule-based로 파싱돼야 한다."""
+    parsed = _parse_rule_based_strategy(prompt)
+    assert parsed is not None, f"prompt={prompt!r}가 None을 반환해 LLM 폴백으로 샘"
+    assert len(parsed.fundamental_filters) >= 1
+    # 청산 언급이 없으면 정기 리밸런싱(월간)으로 회전을 완결한다.
+    assert parsed.rebalancing_period == "monthly"
+
+
+def test_technical_entry_without_exit_still_falls_back():
+    """기술적 진입 신호만 있고 청산이 없으면 모호한 입력이라 rule-based가 None을 반환한다."""
+    assert _parse_rule_based_strategy("골든크로스 매수") is None

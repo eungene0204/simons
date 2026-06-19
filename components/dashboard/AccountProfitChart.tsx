@@ -67,7 +67,34 @@ export default function AccountProfitChart({ initialData }: { initialData: Accou
     );
   }
 
-  if (!data) return null;
+  if (nAccounts === 0 || nMonths === 0) {
+    const emptyStateMessage =
+      nAccounts === 0 ? "개설된 계좌가 없습니다." : "표시할 수익률 데이터가 없습니다.";
+    const emptyStateDescription =
+      nAccounts === 0
+        ? "계좌를 개설하면 여기서 수익률을 확인할 수 있습니다"
+        : "수익률 데이터가 쌓이면 여기서 확인할 수 있습니다";
+
+    return (
+      <div className="flat-card p-5 h-full">
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <h2 className="text-base font-black uppercase tracking-widest text-gray-400 font-outfit">
+              계좌별 수익률
+            </h2>
+            <p className="text-xs text-gray-500 mt-0.5">누적 실현 수익률 변화</p>
+          </div>
+        </div>
+
+        <div className="flex items-start justify-center pt-6 text-center" style={{ height: totalH }}>
+          <div data-testid="account-profit-empty-state">
+            <p className="text-lg font-medium text-gray-500">{emptyStateMessage}</p>
+            <p className="mt-3 text-base font-medium text-gray-600">{emptyStateDescription}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   /* ── Geometry ─────────────────────────────── */
   // 모든 값의 절대값 합계 중 최대 (스택 높이 기준)

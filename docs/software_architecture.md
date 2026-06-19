@@ -32,7 +32,7 @@
 | ORM / DB | Prisma + SQLite |
 | 백테스팅 엔진 | VectorBT + Polars + Pandas |
 | AI/ML | PyTorch Transformer + XGBoost + SHAP |
-| 전략 조언 | RAG + Experience Memory + 백테스트 개선 전/후 평가 |
+| 전략 조언 | RAG (bge-m3 의미 임베딩 + ChromaDB 벡터 코퍼스) + Experience Memory + 백테스트 개선 전/후 평가 |
 | 자연어 파싱 | Rule-first parser + LLM (MLX / Ollama) + JSON repair/fallback |
 | 테스트 | Vitest (프론트) + Pytest (백엔드) |
 
@@ -146,6 +146,12 @@ simons/
 │   │   ├── candidate_generator.py   # 개선 후보 전략 생성
 │   │   ├── advice_evaluator.py      # 개선 전/후 성과 평가
 │   │   └── response_composer.py     # 사용자 답변 섹션 구성
+│   ├── vector_memory/               # ChromaDB 벡터 메모리(적재/쿼리 스키마·정규화·임베딩)
+│   │   └── embedding.py             # bge-m3 의미 임베딩(1024차원) + 해싱 폴백
+│   ├── corpus/                      # RAG 코퍼스 생성기(비-AI 전략 + NL 템플릿 설명)
+│   │   ├── generator.py             # 다양한 비-AI 전략 DSL 샘플링(strategy_hash dedup)
+│   │   └── nl_templates.py          # DSL→한국어 설명 결정적 렌더러
+│   ├── scripts/build_strategy_corpus.py  # 생성→병렬 백테스트→bge-m3 임베딩→Chroma 적재
     │   ├── news/                        # 뉴스 Impact AI Agent
     │   │   ├── schemas.py               # NormalizedArticle, NewsImpact Pydantic 모델
     │   │   ├── dedup.py                 # 중복 제거 (Jaccard + body hash, 24h 윈도우)

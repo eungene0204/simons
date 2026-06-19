@@ -1631,13 +1631,16 @@ def _parse_rule_based_strategy(user_input: str) -> Optional[ParsedStrategy]:
             re.sub(r"\s+", "", user_input.lower()),
         )
     )
-    # 랭킹 전략은 정기 리밸런싱으로 회전하므로(보유기간/리스크가 없어도) 청산 요건을 충족한 것으로 본다.
-    if not has_entry or not (has_exit or has_risk_exit or ranking_metric):
+    # 펀더멘털 스크리닝·랭킹 전략은 정기 리밸런싱으로 회전하므로(명시적 청산/보유기간이 없어도)
+    # 청산 요건을 충족한 것으로 본다. 'PBR<1 종목에 투자'처럼 가치주 스크리닝은 그 자체로 완결된
+    # 전략인데, 청산을 따로 안 적었다는 이유로 LLM 폴백(콜드스타트 시 수십 초)으로 새지 않게 한다.
+    periodic_rebalance = bool(ranking_metric or fundamental_filters)
+    if not has_entry or not (has_exit or has_risk_exit or periodic_rebalance):
         return None
 
     rebalancing_period = _extract_rebalancing_period(user_input, hold_period_days)
-    # 랭킹 전략은 정기 리밸런싱으로 재선정해야 의미가 있다. 주기 언급이 없으면 월간을 기본값으로.
-    if ranking_metric and rebalancing_period == "none":
+    # 정기 리밸런싱 전략은 주기적으로 재선정해야 의미가 있다. 주기 언급이 없으면 월간을 기본값으로.
+    if periodic_rebalance and rebalancing_period == "none":
         rebalancing_period = "monthly"
     # 랭킹 전략의 회전은 리밸런싱 주기로 구동한다. 모멘텀 설명에 섞인 'N개월'(예: '최근 3개월
     # 동안 오른')이 보유기간으로 오인되지 않도록, 리밸런싱이 있으면 보유기간을 비운다.

@@ -56,26 +56,56 @@ function HistoryMetric({
 
 export default function BacktestHistoryPage() {
   const router = useRouter();
-  const [history, setHistory] = useState<BacktestHistoryItem[]>(() => readCachedHistory() ?? []);
-  const [isLoading, setIsLoading] = useState(() => readCachedHistory() === null);
+  const [history, setHistory] = useState<BacktestHistoryItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [sortField, setSortField] = useState<SortField>("timestamp");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [deleteTarget, setDeleteTarget] = useState<BacktestHistoryItem | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const strategyBadgeClass =
     "inline-flex items-center min-h-7 px-2.5 rounded-md border border-[#FF9933]/25 bg-[#1C1806] text-[11px] whitespace-nowrap";
 
   useEffect(() => {
+    let isActive = true;
+    const cachedHistory = readCachedHistory();
+    if (cachedHistory) {
+      setHistory(cachedHistory);
+      setIsLoading(false);
+    }
+
     fetch("/api/backtest/history")
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => {
+        if (!isActive) return;
         setHistory(data);
         writeCachedHistory(data);
         setIsLoading(false);
       })
-      .catch(() => setIsLoading(false));
+      .catch(() => {
+        if (!isActive) return;
+        setIsLoading(false);
+      });
+
+    return () => {
+      isActive = false;
+    };
   }, []);
 
-  const handleDeleteItem = async (id: string, e: React.MouseEvent) => {
+  const handleRequestDeleteItem = (item: BacktestHistoryItem, e: React.MouseEvent) => {
     e.stopPropagation();
+    setDeleteTarget(item);
+  };
+
+  const handleCancelDeleteItem = () => {
+    if (isDeleting) return;
+    setDeleteTarget(null);
+  };
+
+  const handleConfirmDeleteItem = async () => {
+    if (!deleteTarget) return;
+    const id = deleteTarget.id;
+    setIsDeleting(true);
+
     try {
       const response = await fetch(`/api/backtest/history?id=${id}`, {
         method: "DELETE",
@@ -86,9 +116,12 @@ export default function BacktestHistoryPage() {
           writeCachedHistory(nextHistory);
           return nextHistory;
         });
+        setDeleteTarget(null);
       }
     } catch (error) {
       console.error("Failed to delete history item:", error);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -319,8 +352,9 @@ export default function BacktestHistoryPage() {
                   </div>
                   <div className="flex flex-col items-end gap-2">
                     <button
-                      onClick={(e) => handleDeleteItem(item.id, e)}
+                      onClick={(e) => handleRequestDeleteItem(item, e)}
                       className="p-1.5 text-red-500 border border-red-500/30 bg-transparent rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                      aria-label={`${item.strategyName} 기록 삭제`}
                       title="기록 삭제"
                     >
                       <X className="w-4 h-4" />
@@ -350,6 +384,46 @@ export default function BacktestHistoryPage() {
             ))}
           </div>
         ) : null}
+
+        {deleteTarget && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-backtest-history-title"
+            onClick={handleCancelDeleteItem}
+          >
+            <div
+              className="w-full max-w-sm rounded-2xl border border-white/[0.08] bg-[#111111] p-5 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h2 id="delete-backtest-history-title" className="text-lg font-black text-white">
+                백테스트 기록을 삭제할까요?
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-gray-400">
+                백테스트 기록이 삭제됩니다. 삭제한 기록은 다시 복구할 수 없습니다.
+              </p>
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={handleCancelDeleteItem}
+                  disabled={isDeleting}
+                  className="rounded-lg border border-white/[0.10] px-4 py-2 text-sm font-bold text-gray-300 transition-colors hover:border-white/[0.18] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDeleteItem}
+                  disabled={isDeleting}
+                  className="rounded-lg border border-white/[0.10] bg-[var(--main-red)]/10 px-4 py-2 text-sm font-bold text-[var(--main-red)] transition-colors hover:border-white/[0.18] hover:bg-[var(--main-red)]/15 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isDeleting ? "삭제 중..." : "삭제"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </DashboardLayout>
   );

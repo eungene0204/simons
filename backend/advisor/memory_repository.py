@@ -19,12 +19,22 @@ from .similarity import extract_structural_features, search_similar_strategies, 
 from .strategy_identity import canonical_strategy_string, strategy_id_for
 from vector_memory import (
     ChromaVectorMemoryRepository,
-    HashingEmbeddingClient,
     VectorMemoryService,
     migrate_backtest_results_to_chroma,
     normalize_backtest_result,
 )
+from vector_memory.embedding import BgeM3EmbeddingClient
 from vector_memory.models import VectorMemoryMatch
+
+# bge-m3 쿼리 임베딩 싱글턴 — 코퍼스 적재와 동일 모델이어야 검색이 성립한다.
+_QUERY_EMBEDDING_CLIENT: Optional[BgeM3EmbeddingClient] = None
+
+
+def _query_embedding_client() -> BgeM3EmbeddingClient:
+    global _QUERY_EMBEDDING_CLIENT
+    if _QUERY_EMBEDDING_CLIENT is None:
+        _QUERY_EMBEDDING_CLIENT = BgeM3EmbeddingClient()
+    return _QUERY_EMBEDDING_CLIENT
 
 
 def _db_path() -> str:
@@ -980,38 +990,53 @@ async def load_vector_advisor_memory(
     top_k: int = 5,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
-    Bootstrap historical backtest rows into ChromaDB and retrieve similar cases.
+    Retrieve similar cases from the pre-built bge-m3 vector corpus.
 
-    This is best-effort. Missing ChromaDB, old dev databases, or locked SQLite
-    files must not break advisor responses.
+    사전구축 코퍼스(build_strategy_corpus.py)가 있으면 SQLite 재마이그레이션 없이 바로
+    쿼리한다. 코퍼스가 비어있을 때만 과거 SQLite BacktestResult를 부트스트랩 폴백으로
+    적재한다(둘 다 bge-m3로 임베딩해 쿼리와 일관성 유지).
+
+    best-effort: ChromaDB 부재, 구버전 dev DB, 잠긴 SQLite가 코치 응답을 깨면 안 된다.
     """
     if not os.getenv("ADVISOR_CHROMA_PATH") and not _uses_default_database():
         return [], []
 
     try:
-        conn = _connect()
-    except sqlite3.Error:
+        repository = ChromaVectorMemoryRepository(persist_path=_chroma_path())
+    except Exception:
         return [], []
 
     try:
-        _bootstrap_experience_rows(conn)
-        _enrich_bootstrap_comparisons(conn)
-        migration = await migrate_backtest_results_to_chroma(
-            conn,
-            persist_path=_chroma_path(),
-        )
-        if migration.unavailable or migration.scanned == 0:
+        prebuilt = repository.count() > 0
+    except Exception:
+        prebuilt = False
+
+    if not prebuilt:
+        # 폴백: 사전구축 코퍼스가 없는 환경(개발/신규 배포)에서만 SQLite를 bge-m3로 부트스트랩.
+        try:
+            conn = _connect()
+        except sqlite3.Error:
             return [], []
-    except sqlite3.Error:
-        conn.close()
-        return [], []
-    finally:
-        conn.close()
+        try:
+            _bootstrap_experience_rows(conn)
+            _enrich_bootstrap_comparisons(conn)
+            migration = await migrate_backtest_results_to_chroma(
+                conn,
+                persist_path=_chroma_path(),
+                embedding_client=_query_embedding_client(),
+            )
+            if migration.unavailable or migration.scanned == 0:
+                return [], []
+        except sqlite3.Error:
+            conn.close()
+            return [], []
+        finally:
+            conn.close()
 
     try:
         service = VectorMemoryService(
-            repository=ChromaVectorMemoryRepository(persist_path=_chroma_path()),
-            embedding_client=HashingEmbeddingClient(),
+            repository=repository,
+            embedding_client=_query_embedding_client(),
         )
         query_record = normalize_backtest_result(
             strategy_dsl=strategy_dsl,

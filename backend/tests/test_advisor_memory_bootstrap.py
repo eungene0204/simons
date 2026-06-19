@@ -7,6 +7,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
 
+import advisor.memory_repository as memory_repository
 from advisor.memory_repository import (
     _normalize_vector_categories,
     _rerank_vector_matches,
@@ -15,8 +16,16 @@ from advisor.memory_repository import (
 )
 from api import advisor_routes
 from advisor.schemas import AdvisorRequest
-from vector_memory import normalize_backtest_result
+from vector_memory import HashingEmbeddingClient, normalize_backtest_result
 from vector_memory.models import VectorMemoryMatch
+
+
+def _use_light_embeddings(monkeypatch):
+    """인프라 배선 검증 테스트는 무거운 bge-m3 대신 결정적 해싱 임베딩을 주입한다.
+
+    적재(부트스트랩 마이그레이션)와 쿼리가 같은 클라이언트를 쓰므로 차원이 내부 정합한다.
+    """
+    monkeypatch.setattr(memory_repository, "_query_embedding_client", lambda: HashingEmbeddingClient())
 
 
 def _create_bootstrap_db(path):
@@ -453,6 +462,7 @@ async def test_load_vector_advisor_memory_uses_vector_memory_infrastructure(monk
     _create_bootstrap_db(db_path)
     monkeypatch.setenv("DATABASE_URL", f"file:{db_path}")
     monkeypatch.setenv("ADVISOR_CHROMA_PATH", str(tmp_path / "chroma"))
+    _use_light_embeddings(monkeypatch)
 
     strategy_cases, experiences = await load_vector_advisor_memory(
         "RSI 30 이하 매수, 70 이상 매도",
@@ -527,6 +537,7 @@ async def test_load_vector_advisor_memory_retrieves_category_specific_cases(monk
     conn.close()
     monkeypatch.setenv("DATABASE_URL", f"file:{db_path}")
     monkeypatch.setenv("ADVISOR_CHROMA_PATH", str(tmp_path / "category-chroma"))
+    _use_light_embeddings(monkeypatch)
 
     strategy_cases, experiences = await load_vector_advisor_memory(
         "RSI 30 이하 매수, 70 이상 매도, 20일 보유",
