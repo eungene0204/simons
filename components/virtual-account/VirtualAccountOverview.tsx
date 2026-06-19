@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Bell, Robot, X } from "phosphor-react";
 import { StrategyWaveBackground } from "@/components/strategy/StrategyWaveBackground";
 import CreateAccountModal from "@/components/ui/CreateAccountModal";
+import VirtualAccountSimulationNotice from "@/components/virtual-account/VirtualAccountSimulationNotice";
 import { createAccount, deleteAccount, getAccount } from "@/lib/portfolio";
 import type { VirtualAccount } from "@/types/portfolio";
 import {
@@ -325,6 +326,7 @@ export default function VirtualAccountOverview() {
             })}
           </div>
         )}
+        <VirtualAccountSimulationNotice />
       </div>
 
       <CreateAccountModal

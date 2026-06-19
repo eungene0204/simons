@@ -105,6 +105,12 @@ describe("VirtualAccountOverview navigation", () => {
       expect(mockedGetAccount).toHaveBeenCalledWith("cached-account");
       expect(assignMock).toHaveBeenCalledWith("/virtual-account/cached-account");
     });
+
+    expect(
+      screen.getByText(
+        "가상계좌의 자산과 거래 내역은 시뮬레이션 결과입니다. 실제 주문은 발생하지 않으며, 전략 검증 목적으로 제공됩니다."
+      )
+    ).toBeInTheDocument();
   });
 
   it("refreshes the list instead of navigating when the selected cached account no longer exists", async () => {

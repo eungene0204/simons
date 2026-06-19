@@ -24,6 +24,7 @@ import OrderBook from "@/components/order/OrderBook";
 import PortfolioPerformanceChart, { PerformancePoint } from "@/components/portfolio/PortfolioPerformanceChart";
 import StrategyReplaceModal from "@/components/ui/StrategyReplaceModal";
 import AutoTradingStrategyMissingModal from "@/components/virtual-account/AutoTradingStrategyMissingModal";
+import VirtualAccountSimulationNotice from "@/components/virtual-account/VirtualAccountSimulationNotice";
 import {
   forgetVirtualAccountDetail,
   rememberVirtualAccountDetail,
@@ -1322,6 +1323,7 @@ export default function VirtualAccountDetailPage() {
             });
           }}
         />
+        <VirtualAccountSimulationNotice />
       </div>
     </DashboardLayout>
   );

@@ -1385,6 +1385,12 @@ export default function BacktestDashboard({
         </div>
       </div>
 
+      <div className="border-t border-white/[0.08] px-6 py-4">
+        <p className="text-center text-xs font-bold leading-relaxed text-gray-500">
+          모든 결과는 과거 데이터의 모의 시뮬레이션 결과이며 미래 수익을 보장하지 않습니다.
+        </p>
+      </div>
+
       {hoveredMetric && (
         <div 
           className="fixed z-[1000] pointer-events-none" 
