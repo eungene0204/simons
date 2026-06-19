@@ -18,14 +18,22 @@ describe("StrategyExampleTabs", () => {
     vi.unstubAllGlobals();
   });
 
-  it("전략 템플릿과 내 전략 2개 탭을 보여주고 기본으로 예시 20개를 노출한다", () => {
+  it("백테스트 예시와 내 전략 2개 탭을 보여주고 기본으로 예시 20개를 노출한다", () => {
     const onSelectExample = vi.fn();
 
     render(<StrategyExampleTabs onSelectExample={onSelectExample} />);
 
-    expect(screen.getByRole("button", { name: "전략 템플릿" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "백테스트 예시" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "내 전략" })).toBeInTheDocument();
     expect(screen.getAllByTestId("strategy-example-card")).toHaveLength(20);
+    const usageNotice = screen.getByRole("contentinfo", { name: "전략연구소 이용 안내" });
+    expect(within(usageNotice).getByText(
+      "널스탁에서 제공하는 투자 정보는 고객의 투자 판단을 위한 단순 참고용일 뿐입니다. 백테스트 입력 예시에 쓰인 수치는 단순 예시값이며, 투자 추천이나 미래 성과를 의미하지 않습니다."
+    )).toBeInTheDocument();
+    expect(within(usageNotice).getByText(
+      "모든 투자 판단과 그에 따른 책임은 이용자 본인에게 있습니다"
+    )).toBeInTheDocument();
+    expect(usageNotice.querySelector("p")).toHaveClass("max-w-5xl");
 
     const categoryBadge = within(screen.getAllByTestId("strategy-example-card")[0]).getByText("가치투자");
     expect(categoryBadge.className).toContain("bg-black");
@@ -66,7 +74,7 @@ describe("StrategyExampleTabs", () => {
 
     render(<StrategyExampleTabs onSelectExample={onSelectExample} />);
 
-    const examplesTab = screen.getByRole("button", { name: "전략 템플릿" });
+    const examplesTab = screen.getByRole("button", { name: "백테스트 예시" });
     expect(examplesTab.className).toContain("bg-[var(--main-blue)]");
     expect(examplesTab.className).toContain("text-white");
 
@@ -110,7 +118,7 @@ describe("StrategyExampleTabs", () => {
     expect(container.querySelector(".animate-pulse")).not.toBeInTheDocument();
   });
 
-  it("예시 카드를 누르면 편집 가능한 모달을 보여주고 전략 생성 시 편집된 프롬프트를 보낸다", async () => {
+  it("예시 카드를 누르면 안내가 포함된 편집 모달을 보여주고 시작 시 편집된 프롬프트를 보낸다", async () => {
     const onSelectExample = vi.fn();
     const user = userEvent.setup();
     const editedPrompt = "KOSPI 대형주 중 PBR 1 이하만 골라서 5종목으로 전략을 만들어줘.";
@@ -124,7 +132,10 @@ describe("StrategyExampleTabs", () => {
     expect(onSelectExample).not.toHaveBeenCalled();
     const dialog = screen.getByRole("dialog", { name: "이평선 골든크로스 따라가기" });
     expect(dialog).toBeInTheDocument();
-    const promptInput = within(dialog).getByLabelText("전략 내용");
+    expect(within(dialog).getByText(
+      "백테스트 입력 예시에 쓰인 수치는 단순 예시값이며, 투자 추천이나 미래 성과를 의미하지 않습니다."
+    )).toBeInTheDocument();
+    const promptInput = within(dialog).getByLabelText("백테스트 예시 내용");
     expect((promptInput as HTMLTextAreaElement).value).toContain("골든크로스");
 
     await act(async () => {
@@ -132,7 +143,7 @@ describe("StrategyExampleTabs", () => {
     });
 
     await act(async () => {
-      await user.click(screen.getByRole("button", { name: "전략 생성" }));
+      await user.click(screen.getByRole("button", { name: "예시로 시작" }));
     });
 
     expect(screen.queryByRole("button", { name: "템플릿 사용" })).not.toBeInTheDocument();

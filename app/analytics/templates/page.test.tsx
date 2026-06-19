@@ -33,11 +33,16 @@ describe("StrategyTemplatesPage", () => {
   it("전략 종류별 탭을 보여주고 선택한 종류의 템플릿만 보여준다", async () => {
     render(<StrategyTemplatesPage />);
 
-    expect(screen.getByRole("button", { name: "전체 전략 템플릿 보기" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "가치투자 전략 템플릿 보기" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "기술분석 전략 템플릿 보기" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "모멘텀 전략 템플릿 보기" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "복합전략 전략 템플릿 보기" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "백테스트 입력 예시" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "전체 백테스트 예시 보기" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "가치투자 백테스트 예시 보기" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "기술분석 백테스트 예시 보기" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "모멘텀 백테스트 예시 보기" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "복합전략 백테스트 예시 보기" })).toBeInTheDocument();
+    const exampleNotice = screen.getByRole("contentinfo", { name: "백테스트 입력 예시 안내" });
+    expect(within(exampleNotice).getByText(
+      "백테스트 입력 예시에 쓰인 수치는 단순 예시값이며, 투자 추천이나 미래 성과를 의미하지 않습니다."
+    )).toBeInTheDocument();
     expect(screen.queryByText("49개")).not.toBeInTheDocument();
     expect(screen.queryByText(/개의 전략 템플릿/)).not.toBeInTheDocument();
 
@@ -50,19 +55,19 @@ describe("StrategyTemplatesPage", () => {
     expect(categoryBadge.className).toContain("text-emerald-300");
     expect(categoryBadge.className).not.toContain("border");
 
-    fireEvent.click(screen.getByRole("button", { name: "기술분석 전략 템플릿 보기" }));
+    fireEvent.click(screen.getByRole("button", { name: "기술분석 백테스트 예시 보기" }));
 
     expect(screen.getByText("이평선 골든크로스 따라가기")).toBeInTheDocument();
     expect(screen.queryByText("저PBR 대형주 장기보유")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "모멘텀 전략 템플릿 보기" }));
+    fireEvent.click(screen.getByRole("button", { name: "모멘텀 백테스트 예시 보기" }));
 
     expect(screen.getByText("신고가 돌파주 짧게 보유")).toBeInTheDocument();
     expect(screen.queryByText("이평선 골든크로스 따라가기")).not.toBeInTheDocument();
   });
 
-  it("템플릿을 누르면 편집 가능한 모달을 보여주고 전략 생성 시 전략 채팅으로 이동한다", async () => {
-    const editedPrompt = "편집한 전략 내용으로 바로 전략 생성";
+  it("예시를 누르면 편집 가능한 모달을 보여주고 시작 시 전략 채팅으로 이동한다", async () => {
+    const editedPrompt = "편집한 백테스트 예시로 시작";
 
     render(<StrategyTemplatesPage />);
 
@@ -76,11 +81,12 @@ describe("StrategyTemplatesPage", () => {
     expect(backdrop.className).toContain("[backdrop-filter:blur(12px)]");
     expect(backdrop.className).toContain("[-webkit-backdrop-filter:blur(12px)]");
     expect(screen.getByTestId("strategy-templates-page-background").className).toContain("blur-[6px]");
-    const promptInput = within(dialog).getByLabelText("전략 내용");
+    expect(within(dialog).getByText(/백테스트 입력 예시에 쓰인 수치는 단순 예시값/)).toBeInTheDocument();
+    const promptInput = within(dialog).getByLabelText("백테스트 예시 내용");
     expect((promptInput as HTMLTextAreaElement).value).toContain("골든크로스");
 
     fireEvent.change(promptInput, { target: { value: editedPrompt } });
-    fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
+    fireEvent.click(screen.getByRole("button", { name: "예시로 시작" }));
 
     expect(screen.queryByRole("button", { name: "템플릿 사용" })).not.toBeInTheDocument();
     expect(sessionStorage.getItem("simons.pendingStrategyPrompt")).toBe(editedPrompt);

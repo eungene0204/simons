@@ -47,25 +47,25 @@ export const EXAMPLES: Example[] = [
     level: "beginner",
     category: "모멘텀",
     title: "신고가 돌파주 짧게 보유",
-    prompt: "뉴스에 자주 나오는 강한 종목을 짧게 타보는 전략을 써보고 싶어요. KOSDAQ에서 52주 신고가를 새로 만들고 거래량도 평소보다 확 늘어난 종목이 나오면 들어가고, 너무 오래 끌지는 말고 20일 정도 지나면 정리해 주세요. 최대 6종목, 손절은 -10%로 해주세요.",
+    prompt: "KOSDAQ에서 52주 신고가를 새로 만들고 거래량이 최근 평균보다 늘어난 종목을 진입 대상으로 설정해 주세요. 최대 보유 기간은 20일, 최대 보유 종목은 6개, 손절 예시값은 -10%로 설정해 주세요.",
   },
   {
     level: "beginner",
     category: "복합전략",
-    title: "저평가 + RSI 과매도 반등",
-    prompt: "완전 단타보다는 어느 정도 싼 종목을 조금 더 안전하게 사고 싶습니다. KOSPI에서 PER 10 이하인 종목 중 RSI가 30 아래로 내려갔다가 다시 올라오는 종목만 매수하게 해주세요. 종목 수는 8개 정도로 제한하고, 수익이 15% 나면 팔고 손절은 -8%면 좋겠습니다.",
+    title: "PER·RSI 반등 조건",
+    prompt: "KOSPI에서 PER 10 이하인 종목 중 RSI가 30 아래로 내려갔다가 다시 올라오는 종목을 매수 조건으로 설정해 주세요. 최대 보유 종목은 8개, 익절 예시값은 +15%, 손절 예시값은 -8%로 설정해 주세요.",
   },
   {
     level: "beginner",
     category: "복합전략",
-    title: "거래대금 많은 저평가주 담기",
+    title: "PBR·거래대금 조건",
     prompt: "종목을 직접 분석할 자신은 없지만 너무 안 알려진 종목은 피하고 싶어요. KOSPI에서 PBR이 1배 이하면서 하루 거래대금이 100억 원 이상으로 활발한 종목만 골라 6종목 정도 나눠 사고 싶습니다. 한 번 사면 3개월은 들고 가고, 손절은 -8%로 부탁드립니다.",
   },
   {
     level: "beginner",
     category: "가치투자",
-    title: "우량주 천천히 모으기",
-    prompt: "너무 급하게 사고파는 건 자신이 없어서 실적이 괜찮은 큰 회사들 위주로 천천히 투자하고 싶어요. KOSPI에서 ROE 10% 이상이고 부채비율이 100% 이하인 종목만 골라서 10종목 정도 나눠 사고, 3개월마다 다시 점검해 주세요. 손절은 -10% 정도로만 넣어 주세요.",
+    title: "ROE·부채비율 분기 점검",
+    prompt: "KOSPI에서 ROE 10% 이상이고 부채비율이 100% 이하인 종목을 대상으로 설정해 주세요. 최대 보유 종목은 10개, 점검 주기는 3개월, 손절 예시값은 -10%로 설정해 주세요.",
   },
   {
     level: "beginner",
@@ -76,20 +76,20 @@ export const EXAMPLES: Example[] = [
   {
     level: "beginner",
     category: "모멘텀",
-    title: "최근 수익률 좋은 종목만 담기",
+    title: "60일 수익률 상위 조건",
     prompt: "최근 3개월 동안 꾸준히 오른 종목을 따라가는 전략을 써보고 싶어요. KOSDAQ에서 최근 60거래일 수익률이 높은 종목 상위권만 골라서 6종목 정도 나눠 사고, 한 달에 한 번씩 다시 순위를 확인해 주세요. 손절은 -9%로 해주세요.",
   },
   {
     level: "beginner",
     category: "복합전략",
     title: "배당주 + 눌림목 진입",
-    prompt: "배당도 어느 정도 주는 안정적인 종목을 사고 싶은데 너무 비싸게 사고 싶지는 않아요. KOSPI에서 배당수익률이 높은 종목 중 20일 이동평균선 근처로 눌린 종목만 매수하게 해주세요. 종목 수는 8개 정도, 손절은 -8%, 보유 기간은 3개월 정도로 설정해 주세요.",
+    prompt: "KOSPI에서 배당수익률이 높은 종목 중 20일 이동평균선 근처에 있는 종목을 매수 조건으로 설정해 주세요. 최대 보유 종목은 8개, 손절 예시값은 -8%, 최대 보유 기간은 3개월로 설정해 주세요.",
   },
   {
     level: "beginner",
     category: "모멘텀",
     title: "수익률 상위 종목 주간 교체",
-    prompt: "잘 나가는 종목을 따라가되 너무 자주 바꾸지는 않고 싶어요. KOSPI에서 최근 한 달 수익률이 높은 종목 상위 5개만 사고, 매주 한 번씩 순위를 다시 확인해서 밀린 종목은 교체해 주세요. 손절은 -6%로 부탁드립니다.",
+    prompt: "KOSPI에서 최근 한 달 수익률 상위 5개 종목을 편입하고, 매주 순위를 다시 산정해 기준에서 벗어난 종목을 교체해 주세요. 손절 예시값은 -6%로 설정해 주세요.",
   },
   {
     level: "beginner",
@@ -106,31 +106,31 @@ export const EXAMPLES: Example[] = [
   {
     level: "beginner",
     category: "모멘텀",
-    title: "거래대금 붙은 상승주만 추종",
-    prompt: "갑자기 움직이는 종목 중에서도 실제로 돈이 많이 들어오는 종목만 따라가고 싶어요. KOSPI에서 최근 거래대금이 크게 늘고 주가가 5일 연속 강한 종목만 매수해 주세요. 최대 6종목, 15거래일 정도 보유하고 손절은 -9%로 부탁드립니다.",
+    title: "거래대금·5일 상승 조건",
+    prompt: "KOSPI에서 최근 거래대금이 증가하고 주가가 5거래일 연속 상승한 종목을 매수 조건으로 설정해 주세요. 최대 보유 종목은 6개, 최대 보유 기간은 15거래일, 손절 예시값은 -9%로 설정해 주세요.",
   },
   {
     level: "beginner",
     category: "복합전략",
-    title: "실적 괜찮은 종목의 단순 추세 추종",
-    prompt: "아예 테마주보다는 실적이 나오는 종목 중에 차트도 괜찮은 종목을 사고 싶어요. KOSPI에서 ROE가 양호한 기업 중 5일선이 20일선 위에 있는 종목만 매수하고, 추세가 꺾이면 매도해 주세요. 최대 8종목, 손절 -8%, 익절 +15%로 부탁드립니다.",
+    title: "ROE·이동평균 추세 조건",
+    prompt: "KOSPI에서 ROE 조건을 충족하고 5일선이 20일선 위에 있는 종목을 매수 조건으로 설정해 주세요. 5일선이 20일선 아래로 내려오면 매도하고, 최대 보유 종목은 8개, 손절 예시값은 -8%, 익절 예시값은 +15%로 설정해 주세요.",
   },
   {
     level: "beginner",
     category: "기술분석",
     title: "거래량 늘어난 20일선 위 종목",
-    prompt: "추세가 살아 있는 종목만 안전하게 사고 싶어요. KOSDAQ에서 종가가 20일 이동평균선 위에 있고 거래량이 최근 평균보다 늘어난 종목만 5개 정도 매수해 주세요. 20일선 아래로 내려오면 정리하고, 손절은 -7%로 설정해 주세요.",
+    prompt: "KOSDAQ에서 종가가 20일 이동평균선 위에 있고 거래량이 최근 평균보다 늘어난 종목을 매수 조건으로 설정해 주세요. 최대 보유 종목은 5개, 20일선 이탈 시 청산, 손절 예시값은 -7%로 설정해 주세요.",
   },
   {
     level: "beginner",
     category: "가치투자",
-    title: "낮은 부채비율 우량주 보유",
-    prompt: "안정적인 회사에 분산 투자하고 싶어서 빚이 적은 회사 위주로 골라주세요. KOSPI에서 부채비율이 낮고 ROE가 너무 나쁘지 않은 종목을 10개 정도 선정해서 3개월 이상 보유하는 전략으로 만들어 주세요. 손절은 -10%로만 넣어 주세요.",
+    title: "부채비율·ROE 보유 조건",
+    prompt: "KOSPI에서 부채비율과 ROE 조건을 충족하는 종목을 대상으로 설정해 주세요. 최대 보유 종목은 10개, 최소 보유 기간은 3개월, 손절 예시값은 -10%로 설정해 주세요.",
   },
   {
     level: "intermediate",
     category: "가치투자",
-    title: "저PBR 우량주 분기 점검",
+    title: "PBR·ROE 분기 점검",
     prompt: "KOSPI 종목 중 PBR이 1.5배 이하이고 ROE가 8% 이상인 기업만 골라서 12종목 정도로 포트폴리오를 만들고 싶습니다. 너무 잦은 매매는 피하고 싶으니 분기마다 조건을 다시 확인해서 리밸런싱해 주세요. 손절은 -12%로 설정해 주세요.",
   },
   {
@@ -142,7 +142,7 @@ export const EXAMPLES: Example[] = [
   {
     level: "intermediate",
     category: "복합전략",
-    title: "저평가 업종 내 거래대금 필터",
+    title: "PBR·거래대금 돌파 조건",
     prompt: "KOSPI에서 PBR 1.2배 이하이면서 최근 20일 평균 거래대금이 30억 원 이상인 종목만 대상으로 보고 싶습니다. 너무 거래가 없는 종목은 제외하고 싶고, 그 안에서 20일 신고가 돌파가 나오면 진입하는 방식으로 구성해 주세요. 최대 12종목, 월간 리밸런싱, 손절 -10%, 익절 +20% 조건으로 백테스트할 수 있게 해주세요.",
   },
   {
@@ -161,12 +161,12 @@ export const EXAMPLES: Example[] = [
     level: "intermediate",
     category: "모멘텀",
     title: "돌파 후 거래량 확인 매매",
-    prompt: "신고가를 뚫는 종목 중에서도 진짜 힘이 실린 종목만 들어가고 싶습니다. KOSDAQ에서 20일 신고가를 돌파하면서 당일 거래대금이 최근 20일 평균보다 많은 종목만 진입하게 해주세요. 돌파 후 10거래일 안에 힘을 못 쓰거나 20일선을 이탈하면 정리하고, 최대 8종목, 손절은 -9%로 운영하고 싶습니다.",
+    prompt: "KOSDAQ에서 20일 신고가를 돌파하면서 당일 거래대금이 최근 20일 평균보다 많은 종목을 진입 조건으로 설정해 주세요. 진입 후 10거래일 경과 또는 20일선 이탈 시 청산하고, 최대 보유 종목은 8개, 손절 예시값은 -9%로 설정해 주세요.",
   },
   {
     level: "intermediate",
     category: "가치투자",
-    title: "현금흐름 + 저평가 조합",
+    title: "현금흐름·PBR 조건",
     prompt: "KOSPI 종목 중 PBR 1.3배 이하이면서 영업활동현금흐름이 최근 분기 기준 흑자인 기업만 보고 싶습니다. 너무 오래 묶이기만 하는 종목은 피하고 싶어서 최근 60일 수익률이 시장보다 너무 약한 종목은 제외해 주세요. 최대 10종목, 분기 리밸런싱, 손절 -11%로 구성해 주세요.",
   },
   {
@@ -185,13 +185,13 @@ export const EXAMPLES: Example[] = [
     level: "intermediate",
     category: "복합전략",
     title: "퀄리티 필터 후 추세 진입",
-    prompt: "KOSPI에서 ROE 12% 이상, 부채비율 120% 이하 종목을 먼저 고른 뒤 20일 EMA가 60일 EMA 위에 있는 종목만 담고 싶습니다. 재무가 괜찮은 종목 중 추세가 살아 있는 경우만 매수하는 전략입니다. 월간 리밸런싱, 최대 12종목, 손절 -10%, 익절 +18%로 부탁드립니다.",
+    prompt: "KOSPI에서 ROE 12% 이상, 부채비율 120% 이하이면서 20일 EMA가 60일 EMA 위에 있는 종목을 매수 조건으로 설정해 주세요. 월간 리밸런싱, 최대 보유 종목은 12개, 손절 예시값은 -10%, 익절 예시값은 +18%로 설정해 주세요.",
   },
   {
     level: "intermediate",
     category: "복합전략",
-    title: "저변동 우량주 스윙",
-    prompt: "변동성이 너무 큰 종목은 부담스러워서 비교적 안정적으로 움직이는 종목만 담고 싶습니다. KOSDAQ 종목 중 최근 20일 변동성이 과도하지 않으면서 ROE가 양호한 종목만 남긴 뒤 5일선이 20일선 위에 있을 때 매수해 주세요. 5일선이 20일선 아래로 내려오면 청산하고, 최대 8종목, 주간 리밸런싱, 손절 -8%로 설정해 주세요.",
+    title: "변동성·ROE 이동평균 조건",
+    prompt: "KOSDAQ에서 최근 20일 변동성과 ROE 조건을 충족하고 5일선이 20일선 위에 있는 종목을 매수 조건으로 설정해 주세요. 5일선이 20일선 아래로 내려오면 청산하고, 최대 보유 종목은 8개, 주간 리밸런싱, 손절 예시값은 -8%로 설정해 주세요.",
   },
   {
     level: "intermediate",
@@ -209,7 +209,7 @@ export const EXAMPLES: Example[] = [
     level: "intermediate",
     category: "모멘텀",
     title: "신고가 후 눌림목 재진입",
-    prompt: "KOSDAQ에서 60일 신고가를 만든 뒤 5거래일 안에 크게 무너지지 않고 다시 거래량이 붙는 종목만 매수하고 싶습니다. 강한 종목의 2차 진입 구간을 노리는 전략입니다. 보유는 최대 15거래일, 동시 보유 8종목, 손절 -8%로 설정해 주세요.",
+    prompt: "KOSDAQ에서 60일 신고가를 만든 뒤 5거래일 안에 거래량이 다시 증가한 종목을 매수 조건으로 설정해 주세요. 최대 보유 기간은 15거래일, 최대 보유 종목은 8개, 손절 예시값은 -8%로 설정해 주세요.",
   },
   {
     level: "intermediate",
@@ -238,8 +238,8 @@ export const EXAMPLES: Example[] = [
   {
     level: "expert",
     category: "가치투자",
-    title: "현금흐름 중심 저평가 포트폴리오",
-    prompt: "KOSPI 200 종목 중 PER 15배 이하, PBR 1.3배 이하, ROE 14% 이상 조건을 만족하는 기업을 먼저 선별하고 싶습니다. 여기에 최근 4개 분기 기준으로 수익성이 안정적이라고 볼 수 있는 종목만 담는다는 가정으로 분기 리밸런싱 전략을 구성해 주세요. 20종목 동일 비중으로 편입하고, 시장 급락 구간 대응을 위해 종목별 손절은 -12%로 제한하겠습니다.",
+    title: "현금흐름·밸류 조건 포트폴리오",
+    prompt: "KOSPI 200에서 PER 15배 이하, PBR 1.3배 이하, ROE 14% 이상이고 최근 4개 분기 수익성 변동이 제한된 종목을 대상으로 설정해 주세요. 분기 리밸런싱, 20종목 동일 비중, 손절 예시값은 -12%로 설정해 주세요.",
   },
   {
     level: "expert",
@@ -310,7 +310,7 @@ export const EXAMPLES: Example[] = [
   {
     level: "expert",
     category: "복합전략",
-    title: "저평가 성장주 추세 지속 전략",
+    title: "매출성장·PBR 추세 조건",
     prompt: "KOSDAQ 중 시가총액 2000억 원 이상 종목에서 매출 성장률이 양호하고 PBR이 과도하게 높지 않은 기업만 먼저 고르고 싶습니다. 이후 20일 EMA가 60일 EMA 위에 있고 최근 거래대금이 30일 평균보다 높은 경우만 진입하는 방식으로 설계해 주세요. 주간 리밸런싱, 최대 9종목, 손절 -7%, 익절 +24% 조건으로 부탁드립니다.",
   },
   {
@@ -329,8 +329,8 @@ export const EXAMPLES: Example[] = [
   {
     level: "beginner",
     category: "가치투자",
-    title: "재무 우량주 반년 보유",
-    prompt: "KOSPI 종목 중 ROE가 12% 이상이고 부채비율이 80% 이하인 탄탄한 회사만 골라 8종목으로 나눠 담고 싶습니다. 한 번 사면 6개월 정도는 보유하고, 큰 손실만 막게 손절은 -10%로 넣어 주세요.",
+    title: "ROE·부채비율 반년 보유",
+    prompt: "KOSPI에서 ROE 12% 이상이고 부채비율 80% 이하인 종목을 대상으로 설정해 주세요. 최대 보유 종목은 8개, 보유 기간은 6개월, 손절 예시값은 -10%로 설정해 주세요.",
   },
   {
     level: "beginner",
@@ -347,20 +347,20 @@ export const EXAMPLES: Example[] = [
   {
     level: "intermediate",
     category: "가치투자",
-    title: "대형 가치 우량주 월간",
+    title: "대형주 PBR·ROE 월간 조건",
     prompt: "KOSPI에서 시가총액 1조 원 이상 대형주 중 PBR 1배 이하, ROE 10% 이상인 종목만 10종목으로 추려 주세요. 매월 한 번 리밸런싱하고 손절은 -10%로 운영하고 싶습니다.",
   },
   {
     level: "intermediate",
     category: "가치투자",
-    title: "PER·PBR 동시 저평가 + 유동성",
+    title: "PER·PBR·거래대금 조건",
     prompt: "KOSPI200에서 PER 12 이하이면서 PBR 1.2배 이하를 동시에 만족하고, 거래대금이 50억 원 이상으로 거래가 활발한 종목만 12종목 담고 싶어요. 분기 리밸런싱, 손절 -11%로 부탁드립니다.",
   },
   {
     level: "intermediate",
     category: "가치투자",
-    title: "재무 건전 우량주 격월 점검",
-    prompt: "KOSPI 종목 중 부채비율이 50% 이하이고 ROE가 15% 이상인 재무가 우량한 기업만 10종목 선정해 주세요. 두 달마다 한 번씩 점검하고 손절은 -10%로 설정해 주세요.",
+    title: "부채비율·ROE 격월 조건",
+    prompt: "KOSPI에서 부채비율 50% 이하이고 ROE 15% 이상인 종목을 대상으로 설정해 주세요. 최대 보유 종목은 10개, 점검 주기는 두 달, 손절 예시값은 -10%로 설정해 주세요.",
   },
   {
     level: "expert",
@@ -479,8 +479,8 @@ export const EXAMPLES: Example[] = [
   {
     level: "beginner",
     category: "복합전략",
-    title: "우량주 골든크로스 결합",
-    prompt: "KOSPI에서 ROE가 10% 이상인 실적이 괜찮은 종목 중 골든크로스가 나오면 매수하고 데드크로스에 매도하고 싶어요. 8종목, 손절 -8%로 부탁드립니다.",
+    title: "ROE·골든크로스 조건",
+    prompt: "KOSPI에서 ROE 10% 이상인 종목 중 골든크로스가 나오면 매수하고 데드크로스가 나오면 매도하도록 설정해 주세요. 최대 보유 종목은 8개, 손절 예시값은 -8%로 설정해 주세요.",
   },
   {
     level: "beginner",
@@ -491,7 +491,7 @@ export const EXAMPLES: Example[] = [
   {
     level: "intermediate",
     category: "복합전략",
-    title: "저평가 + 신고가 돌파",
+    title: "PER·ROE 신고가 조건",
     prompt: "KOSPI 종목 중 PER 12 이하, ROE 10% 이상인 종목 가운데 20일 신고가를 돌파하는 종목을 매수하고 싶어요. 월간 리밸런싱, 12종목, 손절 -10%, 익절 +18%로 부탁드립니다.",
   },
   {
@@ -523,7 +523,7 @@ export const CATEGORY_STYLE: Record<ExampleCategory, { label: string; color: str
 
 const TAB_META: Record<StrategyTab, { label: string }> = {
   examples: {
-    label: "전략 템플릿",
+    label: "백테스트 예시",
   },
   "my-strategies": {
     label: "내 전략",
@@ -566,6 +566,9 @@ export function StrategyTemplatePreviewModal({
             <h2 id="strategy-template-preview-title" className="text-xl font-black text-white">
               {example.title}
             </h2>
+            <p className="max-w-xl text-xs font-bold leading-relaxed text-gray-500">
+              백테스트 입력 예시에 쓰인 수치는 단순 예시값이며, 투자 추천이나 미래 성과를 의미하지 않습니다.
+            </p>
           </div>
           <button
             type="button"
@@ -580,7 +583,7 @@ export function StrategyTemplatePreviewModal({
         <div className="mt-5 rounded-2xl bg-black px-4 py-4">
           <textarea
             id="strategy-template-prompt"
-            aria-label="전략 내용"
+            aria-label="백테스트 예시 내용"
             value={promptText}
             onChange={(event) => setPromptText(event.target.value)}
             rows={8}
@@ -603,7 +606,7 @@ export function StrategyTemplatePreviewModal({
             className="inline-flex items-center gap-1.5 rounded-[1.15rem] bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2 text-xs font-black text-white shadow-[0_12px_26px_rgba(59,130,246,0.24)] transition-all duration-200 hover:from-blue-500 hover:to-indigo-500 hover:shadow-[0_14px_30px_rgba(79,70,229,0.3)] disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Sparkle size={14} weight="fill" />
-            전략 생성
+            예시로 시작
           </button>
         </div>
       </div>
@@ -782,6 +785,20 @@ export function StrategyExampleTabs({
             )}
           </>
         )}
+
+        <footer
+          aria-label="전략연구소 이용 안내"
+          className="border-t border-white/[0.06] pt-4 text-center"
+        >
+          <p className="mx-auto max-w-5xl text-xs font-bold leading-relaxed text-gray-600">
+            <span className="block">
+              널스탁에서 제공하는 투자 정보는 고객의 투자 판단을 위한 단순 참고용일 뿐입니다. 백테스트 입력 예시에 쓰인 수치는 단순 예시값이며, 투자 추천이나 미래 성과를 의미하지 않습니다.
+            </span>
+            <span className="mt-1 block">
+              모든 투자 판단과 그에 따른 책임은 이용자 본인에게 있습니다
+            </span>
+          </p>
+        </footer>
       </div>
 
       {selectedExample && (

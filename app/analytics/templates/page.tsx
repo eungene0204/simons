@@ -59,9 +59,9 @@ export default function StrategyTemplatesPage() {
                 전략연구소로 돌아가기
               </Link>
               <div className="space-y-2">
-                <h1 className="text-3xl font-black text-white">전략 템플릿 전체 보기</h1>
+                <h1 className="text-3xl font-black text-white">백테스트 입력 예시</h1>
                 <p className="text-sm font-bold text-gray-500">
-                  전략 템플릿 중 하나를 선택하면 바로 전략 채팅을 시작합니다
+                  가정한 조건을 선택하고 직접 수정한 뒤 과거 데이터로 실험할 수 있습니다
                 </p>
               </div>
             </div>
@@ -76,7 +76,7 @@ export default function StrategyTemplatesPage() {
                 <button
                   key={category}
                   type="button"
-                  aria-label={`${category} 전략 템플릿 보기`}
+                  aria-label={`${category} 백테스트 예시 보기`}
                   aria-pressed={isActive}
                   onClick={() => setActiveCategory(category)}
                   className={`h-10 rounded-[1.15rem] px-3 text-sm font-black transition-all duration-200 ${
@@ -115,6 +115,15 @@ export default function StrategyTemplatesPage() {
               );
             })}
           </div>
+
+          <footer
+            aria-label="백테스트 입력 예시 안내"
+            className="border-t border-white/[0.06] pt-5 text-center"
+          >
+            <p className="text-xs font-bold leading-relaxed text-gray-600">
+              백테스트 입력 예시에 쓰인 수치는 단순 예시값이며, 투자 추천이나 미래 성과를 의미하지 않습니다.
+            </p>
+          </footer>
         </div>
 
         {selectedExample && (
