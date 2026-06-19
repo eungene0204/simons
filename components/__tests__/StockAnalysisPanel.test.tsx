@@ -26,10 +26,10 @@ function makeResult(overrides: Partial<StockAnalysisResult> = {}): StockAnalysis
 }
 
 describe("StockAnalysisPanel", () => {
-  it("종목명과 Recommendation 배지를 표시한다", () => {
+  it("종목명은 표시하고 Recommendation 배지는 표시하지 않는다", () => {
     render(<StockAnalysisPanel result={makeResult()} />);
     expect(screen.getByText("삼성전자")).toBeInTheDocument();
-    expect(screen.getByText("분할 매수")).toBeInTheDocument();  // ACCUMULATE 라벨
+    expect(screen.queryByText("분할 매수")).not.toBeInTheDocument();
   });
 
   it("데이터가 없는 신호는 '데이터 없음'으로 표시한다", () => {
@@ -37,9 +37,9 @@ describe("StockAnalysisPanel", () => {
     expect(screen.getAllByText("데이터 없음").length).toBeGreaterThan(0);
   });
 
-  it("INSUFFICIENT_DATA는 '데이터 부족' 배지로 표시한다", () => {
+  it("INSUFFICIENT_DATA도 Recommendation 배지를 표시하지 않는다", () => {
     render(<StockAnalysisPanel result={makeResult({ recommendation: "INSUFFICIENT_DATA" })} />);
-    expect(screen.getByText("데이터 부족")).toBeInTheDocument();
+    expect(screen.queryByText("데이터 부족")).not.toBeInTheDocument();
   });
 
   it("리스크 요인을 나열한다", () => {

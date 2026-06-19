@@ -1468,21 +1468,7 @@ function StrategyLabContent() {
                                 종목 분석
                               </span>
                               <p className="text-sm font-bold text-white leading-relaxed whitespace-pre-line">
-                                {parseCoachSegments(msg.stockAnalysis.explanation).map((seg, segIdx) =>
-                                  seg.type === "link" ? (
-                                    <a
-                                      key={segIdx}
-                                      href={seg.href}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="underline text-sky-300 hover:text-sky-200"
-                                    >
-                                      {seg.value}
-                                    </a>
-                                  ) : (
-                                    <span key={segIdx}>{seg.value}</span>
-                                  )
-                                )}
+                                요청한 종목의 데이터 기반 지표와 위험 요인을 정리했습니다. 아래 내용은 매수·매도 추천이 아닙니다.
                               </p>
                             </div>
                             <StockAnalysisPanel result={msg.stockAnalysis} />

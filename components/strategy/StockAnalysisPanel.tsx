@@ -58,18 +58,9 @@ export interface StockAnalysisResult {
   disclaimer: string;
 }
 
-// ─── 라벨/색상 매핑 ──────────────────────────────────────────────────────────────
+// ─── 라벨 매핑 ──────────────────────────────────────────────────────────────────
 
 const NO_DATA = "데이터 없음";
-
-const REC_META: Record<Recommendation, { label: string; cls: string }> = {
-  STRONG_BUY: { label: "강한 긍정", cls: "text-emerald-300 border-emerald-500/40" },
-  ACCUMULATE: { label: "분할 매수", cls: "text-teal-300 border-teal-500/40" },
-  HOLD: { label: "보유/관망", cls: "text-gray-300 border-gray-500/40" },
-  CAUTION: { label: "주의", cls: "text-amber-300 border-amber-500/40" },
-  AVOID: { label: "회피", cls: "text-red-300 border-red-500/40" },
-  INSUFFICIENT_DATA: { label: "데이터 부족", cls: "text-slate-300 border-slate-500/40" },
-};
 
 const TREND_LABEL: Record<string, string> = {
   strong_up: "강한 상승", up: "상승", neutral_positive: "중립 이상", neutral: "중립",
@@ -114,21 +105,17 @@ export default function StockAnalysisPanel({ result }: { result: StockAnalysisRe
   const m = result.metrics;
   const s = result.signals;
   const ai = aiForecastDisplay(result.ai_forecast);
-  const rec = REC_META[result.recommendation] ?? REC_META.INSUFFICIENT_DATA;
   const changeColor =
     m.change_pct == null ? "text-slate-500" : m.change_pct >= 0 ? "text-red-400" : "text-blue-400";
 
   return (
     <div className="w-full rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4 space-y-3">
-      {/* 헤더: 종목명 + Recommendation 배지 */}
-      <div className="flex items-center justify-between gap-2">
+      {/* 헤더: 종목 식별 정보 */}
+      <div className="flex items-center gap-2">
         <div className="flex items-baseline gap-2">
           <h3 className="text-sm font-black text-white">{result.name}</h3>
           <span className="text-[11px] font-bold text-gray-500">{result.symbol}</span>
         </div>
-        <span className={`px-2.5 py-1 rounded-full border text-[11px] font-black ${rec.cls}`}>
-          {rec.label}
-        </span>
       </div>
 
       {/* 현재가 / 등락률 */}
