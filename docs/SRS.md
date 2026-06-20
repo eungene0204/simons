@@ -374,6 +374,8 @@ RiskManagement {
 
 **FR-STR-042** 사용자는 저장된 전략을 불러와 편집하거나 재실행할 수 있어야 한다.
 
+**FR-STR-066** 시스템은 전략 채팅(`/analytics/chat`) 진입 직전에 전략연구소(`/analytics`)를 브라우저 히스토리에 포함해야 하며, 채팅에서 뒤로가기를 실행하면 직전 방문 페이지와 관계없이 전략연구소로 돌아가야 한다.
+
 #### 3.1.5 독립형 배치 테스트
 
 **FR-STR-043** 시스템은 `/analytics/new` 전략 만들기 채팅 페이지 상단 메인 액션 영역에 `모두 테스트` 버튼을 제공해야 한다.
@@ -1503,8 +1505,9 @@ BacktestHistory                                (백테스트 이력)
 | 베이스 배경 | Raisin Black | `#272626` |
 
 **공통 컴포넌트**
-- Sidebar: 좌측 네비게이션
-- VirtualAccountDrawer: 우측 슬라이딩 패널 (가상계좌 상세)
+- TopMenuBar: 전역에서 한 번 렌더링되는 상단 앱 셸
+- TopNavigation: 전략연구소, 가상계좌, 백테스트, 대시보드 상단 네비게이션
+- OrderAccountContext: 주문 페이지에서 공유하는 선택 계좌 상태
 - BacktestDashboard: 백테스트 결과 시각화 전용 컴포넌트
 - RunAllTestsModal: 독립형 배치 백테스트 실행 및 leaderboard/로그 표시 모달
 

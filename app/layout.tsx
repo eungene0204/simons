@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import DrawerProviderWrapper from "@/components/drawer/DrawerProviderWrapper";
-import DrawerPortal from "@/components/drawer/DrawerPortal";
 import TopMenuBar from "@/components/layout/TopMenuBar";
 import ScrollToTop from "@/components/layout/ScrollToTop";
 import QueryProvider from "@/components/providers/QueryProvider";
+import { OrderAccountProvider } from "@/contexts/OrderAccountContext";
 import { Inter, Outfit } from "next/font/google";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -25,12 +24,10 @@ export default function RootLayout({
       <body className="page-transition bg-[#050505] text-white font-inter antialiased">
         <QueryProvider>
           <ScrollToTop />
-          <DrawerProviderWrapper>
+          <OrderAccountProvider>
             <TopMenuBar />
             {children}
-            {/* Portal을 사용하여 drawer를 body에 직접 렌더링 - Context 리렌더링 영향 없음 */}
-            <DrawerPortal />
-          </DrawerProviderWrapper>
+          </OrderAccountProvider>
         </QueryProvider>
       </body>
     </html>

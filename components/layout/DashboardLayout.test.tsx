@@ -10,14 +10,6 @@ vi.mock("next/navigation", () => ({
   usePathname: () => usePathname(),
 }));
 
-vi.mock("@/contexts/DrawerContext", () => ({
-  useDrawer: () => ({ drawerType: null }),
-}));
-
-vi.mock("./TopMenuBar", () => ({
-  default: ({ userName }: { userName?: string }) => <div>TopMenuBar {userName}</div>,
-}));
-
 describe("DashboardLayout", () => {
   beforeEach(() => {
     usePathname.mockReturnValue("/dashboard");
@@ -43,7 +35,7 @@ describe("DashboardLayout", () => {
       </DashboardLayout>
     );
 
-    expect(screen.getByText("TopMenuBar tester")).toBeInTheDocument();
+    expect(screen.getByText("content")).toBeInTheDocument();
 
     const wrapper = container.querySelector(
       ".relative.min-h-\\[calc\\(100vh-var\\(--top-menu-bar-height\\,76px\\)\\)\\]"

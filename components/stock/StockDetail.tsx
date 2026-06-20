@@ -49,6 +49,7 @@ interface StockDetail {
 }
 
 type TabId = "chart" | "news";
+const NEWS_TAB_ENABLED = process.env.NEXT_PUBLIC_NEWS_TAB_ENABLED === "true";
 
 export default function StockDetail({ symbol }: { symbol: string }) {
   const [detail, setDetail] = useState<StockDetail | null>(null);
@@ -103,6 +104,8 @@ export default function StockDetail({ symbol }: { symbol: string }) {
   }, [symbol]);
 
   useEffect(() => {
+    if (!NEWS_TAB_ENABLED) return;
+
     if (!recordedPrioritySymbols.current.has(symbol)) {
       recordedPrioritySymbols.current.add(symbol);
       void recordStockNewsPriorityEvent(symbol, "current_view", {
@@ -297,17 +300,19 @@ export default function StockDetail({ symbol }: { symbol: string }) {
         >
           차트
         </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("news")}
-          className={`px-4 py-2.5 text-xs font-bold uppercase tracking-widest border-b-2 -mb-px transition-colors ${
-            activeTab === "news"
-              ? "border-white/60 text-white"
-              : "border-transparent text-gray-500 hover:text-gray-300"
-          }`}
-        >
-          뉴스
-        </button>
+        {NEWS_TAB_ENABLED && (
+          <button
+            type="button"
+            onClick={() => setActiveTab("news")}
+            className={`px-4 py-2.5 text-xs font-bold uppercase tracking-widest border-b-2 -mb-px transition-colors ${
+              activeTab === "news"
+                ? "border-white/60 text-white"
+                : "border-transparent text-gray-500 hover:text-gray-300"
+            }`}
+          >
+            뉴스
+          </button>
+        )}
       </div>
 
       {/* Chart Tab — always mounted, hidden when not active */}
@@ -331,10 +336,11 @@ export default function StockDetail({ symbol }: { symbol: string }) {
         )}
       </div>
 
-      {/* News Tab — always mounted, hidden when not active */}
-      <div className={activeTab === "news" ? "block" : "hidden"}>
-        <NewsImpactPanel symbol={symbol} />
-      </div>
+      {NEWS_TAB_ENABLED && (
+        <div className={activeTab === "news" ? "block" : "hidden"}>
+          <NewsImpactPanel symbol={symbol} />
+        </div>
+      )}
 
     </div>
   );

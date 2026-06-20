@@ -30,6 +30,13 @@ def _make_service(cache_ttl_s: int = 600) -> NewsService:
     return NewsService(session=MagicMock(), cfg=cfg)
 
 
+def _make_cfg(*, cache_ttl_s: int = 600, collection_enabled: bool = True) -> Settings:
+    cfg = Settings()
+    object.__setattr__(cfg, "cache_ttl_s", cache_ttl_s)
+    object.__setattr__(cfg, "collection_enabled", collection_enabled)
+    return cfg
+
+
 @pytest_asyncio.fixture
 async def session():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", future=True)
@@ -181,6 +188,29 @@ async def test_get_for_symbol_recent_no_news_returns_empty_without_requeue(sessi
 
 
 @pytest.mark.asyncio
+async def test_get_for_symbol_returns_paused_when_collection_disabled(session):
+    queue = _QueueDisabled()
+    service = NewsService(
+        session=session,
+        cache=_NoopCache(),
+        queue=queue,
+        cfg=_make_cfg(collection_enabled=False),
+    )
+    service.run_collect = AsyncMock()  # type: ignore[method-assign]
+
+    result = await service.get_for_symbol("005930", company_name="삼성전자", limit=30)
+    status_row = await service.repo.get_status("005930")
+
+    assert result.status == Status.NOT_COLLECTED
+    assert result.items == []
+    assert result.message == "뉴스 수집이 일시 중지되었습니다."
+    assert queue.collects == []
+    assert status_row is not None
+    assert status_row.status == Status.NOT_COLLECTED
+    service.run_collect.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_resolve_company_name_falls_back_to_stock_json(session, monkeypatch, tmp_path):
     stocks_path = tmp_path / "korea-stocks.json"
     stocks_path.write_text(
@@ -258,6 +288,24 @@ async def test_run_collect_maps_alias_and_sector_symbols(session, monkeypatch):
     hynix = await service.repo.list_cached_news("000660", limit=10)
     assert len(preferred) == 1
     assert len(hynix) == 1
+
+
+@pytest.mark.asyncio
+async def test_run_collect_skips_provider_fetch_when_collection_disabled(session, monkeypatch):
+    fetch_mock = AsyncMock()
+    monkeypatch.setattr("news_v2.service.fetch_for_symbol", fetch_mock)
+
+    service = NewsService(
+        session=session,
+        cache=_NoopCache(),
+        queue=_QueueEnabled(),
+        cfg=_make_cfg(collection_enabled=False),
+    )
+
+    inserted = await service.run_collect("005930", company_name="삼성전자")
+
+    assert inserted == 0
+    fetch_mock.assert_not_awaited()
 
 
 @pytest.mark.asyncio

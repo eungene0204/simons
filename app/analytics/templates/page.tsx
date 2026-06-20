@@ -11,7 +11,7 @@ import {
   type Example,
   type ExampleCategory,
 } from "@/components/strategy/StrategyExampleTabs";
-import { PENDING_STRATEGY_PROMPT_KEY } from "@/components/strategy/strategyTemplateSession";
+import { beginStrategyChatNavigation } from "../new/chatNavigation";
 
 type TemplateCategoryTab = "전체" | ExampleCategory;
 
@@ -36,8 +36,7 @@ export default function StrategyTemplatesPage() {
     : "transition-[filter,opacity] duration-200";
 
   const handleSelectTemplate = (prompt: string) => {
-    sessionStorage.setItem(PENDING_STRATEGY_PROMPT_KEY, prompt);
-    router.push("/analytics/chat");
+    beginStrategyChatNavigation(prompt, (url) => router.push(url));
   };
 
   return (

@@ -3,6 +3,8 @@
 import os
 import sys
 from dataclasses import dataclass
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -15,6 +17,7 @@ from news_v2 import scheduler
 @dataclass(frozen=True)
 class _DummySettings:
     enabled: bool = True
+    collection_enabled: bool = True
     queue_enabled: bool = True
     startup_collect_enabled: bool = True
     worker_autostart_enabled: bool = True
@@ -78,6 +81,17 @@ def test_env_list_parses_comma_separated_values(monkeypatch):
     monkeypatch.setenv("NEWSV2_BOOTSTRAP_SYMBOLS", "005930, 000660,,035420 ")
 
     assert config.Settings().bootstrap_symbols == ["005930", "000660", "035420"]
+
+
+def test_collection_disabled_keeps_cache_but_disables_queue(monkeypatch):
+    monkeypatch.setenv("NEWSV2_COLLECTION_ENABLED", "false")
+    monkeypatch.setenv("NEWSV2_REDIS_URL", "redis://redis:6379/1")
+    monkeypatch.setenv("NEWSV2_CELERY_BROKER", "redis://redis:6379/2")
+
+    cfg = config.Settings()
+
+    assert cfg.cache_enabled is True
+    assert cfg.queue_enabled is False
 
 
 def test_collection_queue_names_are_separated():
@@ -158,3 +172,20 @@ async def test_pending_collect_runs_inline_when_worker_missing(monkeypatch):
     await scheduler._collect_pending_inline()
 
     assert collected == ["011790"]
+
+
+@pytest.mark.asyncio
+async def test_maintenance_tasks_skip_celery_when_collection_disabled(monkeypatch):
+    send_task = Mock()
+    celery_module = SimpleNamespace(celery_app=SimpleNamespace(send_task=send_task))
+    monkeypatch.setattr(
+        scheduler,
+        "get_settings",
+        lambda: _DummySettings(collection_enabled=False, queue_enabled=False),
+    )
+    monkeypatch.setitem(sys.modules, "news_v2.celery_app", celery_module)
+
+    await scheduler._recompute_priority()
+    await scheduler._prune()
+
+    send_task.assert_not_called()

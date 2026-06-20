@@ -5,10 +5,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import StrategyTemplatesPage from "./page";
 
+const beginStrategyChatNavigation = vi.fn();
 const push = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
+}));
+
+vi.mock("../new/chatNavigation", () => ({
+  beginStrategyChatNavigation: (
+    prompt: string,
+    navigate: (url: string) => void
+  ) => {
+    beginStrategyChatNavigation(prompt);
+    navigate("/analytics/chat");
+  },
 }));
 
 vi.mock("next/link", () => ({
@@ -26,6 +37,7 @@ vi.mock("@/components/layout/DashboardLayout", () => ({
 describe("StrategyTemplatesPage", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    beginStrategyChatNavigation.mockClear();
     push.mockClear();
     sessionStorage.clear();
   });
@@ -74,7 +86,7 @@ describe("StrategyTemplatesPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /이평선 골든크로스 따라가기/i }));
 
     expect(sessionStorage.getItem("simons.pendingStrategyPrompt")).toBeNull();
-    expect(push).not.toHaveBeenCalled();
+    expect(beginStrategyChatNavigation).not.toHaveBeenCalled();
     const dialog = screen.getByRole("dialog", { name: "이평선 골든크로스 따라가기" });
     const backdrop = screen.getByTestId("strategy-template-preview-backdrop");
     expect(backdrop.className).toContain("backdrop-blur-[12px]");
@@ -89,7 +101,7 @@ describe("StrategyTemplatesPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "예시로 시작" }));
 
     expect(screen.queryByRole("button", { name: "템플릿 사용" })).not.toBeInTheDocument();
-    expect(sessionStorage.getItem("simons.pendingStrategyPrompt")).toBe(editedPrompt);
+    expect(beginStrategyChatNavigation).toHaveBeenCalledWith(editedPrompt);
     expect(push).toHaveBeenCalledWith("/analytics/chat");
   });
 
@@ -101,6 +113,6 @@ describe("StrategyTemplatesPage", () => {
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(sessionStorage.getItem("simons.pendingStrategyPrompt")).toBeNull();
-    expect(push).not.toHaveBeenCalled();
+    expect(beginStrategyChatNavigation).not.toHaveBeenCalled();
   });
 });

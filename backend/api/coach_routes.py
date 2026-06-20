@@ -23,6 +23,7 @@ from fastapi import APIRouter, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from ai.strategy_validation_agent import StrategyValidationAgent
 from advisor.agent import StrategyAdvisorAgent
 from advisor.memory_repository import load_advisor_memory, load_vector_advisor_memory
 from advisor.memory_retriever import retrieve_memory_context
@@ -41,6 +42,8 @@ router = APIRouter(tags=["coach"])
 
 # Injected by main.py after NLStrategyParser is preloaded
 _parser = None
+_STRATEGY_AGENT_MODE = "validation"
+_strategy_validation_agent = StrategyValidationAgent()
 _CACHE_MAX = 200
 _SESSION_MAX = 200
 _COACH_CACHE_VERSION = "2026-06-08-no-unsupported-technique-suggestion-v4"
@@ -233,6 +236,43 @@ class CoachSessionRequest(BaseModel):
 class CoachSessionFollowUpRequest(BaseModel):
     session_id: str
     user_prompt: str
+
+
+def _validation_payload(parsed_strategy: Dict[str, Any]) -> Dict[str, Any]:
+    """Add only defaults that the current backtest transform applies deterministically."""
+    payload = dict(parsed_strategy or {})
+
+    if not payload.get("entry_rule"):
+        entry_rule = payload.get("entry_signals") or payload.get("fundamental_filters")
+        if not entry_rule and payload.get("ranking_metric"):
+            entry_rule = {"ranking_metric": payload["ranking_metric"]}
+        if entry_rule:
+            payload["entry_rule"] = entry_rule
+
+    if not payload.get("exit_rule") and not payload.get("exit_signals") and not payload.get("hold_period_days"):
+        risk_exits = [
+            {"id": field, "value": payload[field]}
+            for field in ("stop_loss_pct", "take_profit_pct", "trailing_stop_pct", "max_mdd_limit_pct")
+            if payload.get(field) is not None
+        ]
+        if risk_exits:
+            payload["exit_rule"] = risk_exits
+
+    max_positions = payload.get("max_positions")
+    if not payload.get("position_sizing") and isinstance(max_positions, (int, float)) and max_positions > 0:
+        payload["position_sizing"] = {
+            "method": "equal_weight",
+            "position_size_pct": round(100.0 / max_positions, 2),
+        }
+
+    payload.setdefault("data_frequency", "daily")
+    return payload
+
+
+def _generate_validation_response(parsed_strategy: Dict[str, Any]) -> CoachResponse:
+    return CoachResponse(
+        message=_strategy_validation_agent.validate_json(_validation_payload(parsed_strategy))
+    )
 
 
 _MISSING_FIELDS = {
@@ -1736,6 +1776,9 @@ def _generate_coach_response(
 
 @router.post("/strategy/coach", response_model=CoachResponse)
 async def coach_strategy(req: CoachRequest) -> CoachResponse:
+    if _STRATEGY_AGENT_MODE == "validation":
+        return _generate_validation_response(req.parsed_strategy)
+
     _require_parser()
     request_id = uuid4().hex[:12]
 
@@ -1776,6 +1819,27 @@ async def coach_strategy(req: CoachRequest) -> CoachResponse:
 
 @router.post("/strategy/coach/sessions", response_model=CoachResponse)
 async def create_coach_session(req: CoachSessionRequest, response: Response) -> CoachResponse:
+    if _STRATEGY_AGENT_MODE == "validation":
+        session_id = uuid4().hex
+        validation_response = _generate_validation_response(req.parsed_strategy)
+        _remember_session(
+            session_id,
+            {
+                "parsed_strategy": req.parsed_strategy,
+                "advisor_result": None,
+                "memory_strategy_cases": req.memory_strategy_cases,
+                "memory_experiences": req.memory_experiences,
+                "news_agent_insight": None,
+                "conversation_context": [
+                    *(req.conversation_context or []),
+                    {"role": "user", "content": req.user_prompt},
+                    {"role": "assistant", "content": validation_response.message},
+                ][-8:],
+            },
+        )
+        response.headers["X-Coach-Session-Id"] = session_id
+        return validation_response
+
     _require_parser()
     request_id = uuid4().hex[:12]
 
@@ -1854,6 +1918,19 @@ async def create_coach_session(req: CoachSessionRequest, response: Response) -> 
 
 @router.post("/strategy/coach/sessions/follow-up", response_model=CoachResponse)
 async def continue_coach_session(req: CoachSessionFollowUpRequest) -> CoachResponse:
+    if _STRATEGY_AGENT_MODE == "validation":
+        session = _coach_sessions.get(req.session_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="Coach session not found")
+        validation_response = _generate_validation_response(session["parsed_strategy"])
+        session["conversation_context"] = [
+            *(session.get("conversation_context") or []),
+            {"role": "user", "content": req.user_prompt},
+            {"role": "assistant", "content": validation_response.message},
+        ][-8:]
+        _remember_session(req.session_id, session)
+        return validation_response
+
     _require_parser()
     request_id = uuid4().hex[:12]
 
@@ -1934,6 +2011,22 @@ def _extract_message_so_far(buffer: str) -> str:
 
 @router.post("/strategy/coach/stream")
 async def coach_strategy_stream(req: CoachRequest):
+    if _STRATEGY_AGENT_MODE == "validation":
+        validation_response = _generate_validation_response(req.parsed_strategy)
+
+        def _validation_iter():
+            payload = json.dumps(
+                {"type": "done", "message": validation_response.message},
+                ensure_ascii=False,
+            )
+            yield f"data: {payload}\n\n"
+
+        return StreamingResponse(
+            _validation_iter(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
     _require_parser()
 
     guard_message = _coach_scope_guard(req.user_prompt)

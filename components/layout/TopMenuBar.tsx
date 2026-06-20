@@ -1,9 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef, memo } from "react";
-import Sidebar from "./Sidebar";
-import DashboardHeader from "./DashboardHeader";
-import { useDrawer } from "@/contexts/DrawerContext";
+import { useEffect, useRef, memo } from "react";
+import TopNavigation from "./TopNavigation";
 
 // 탑메뉴바를 memo로 감싸서 리렌더링 방지
 const TopMenuBarContent = memo(function TopMenuBarContent({
@@ -13,29 +11,7 @@ const TopMenuBarContent = memo(function TopMenuBarContent({
   subHeader?: React.ReactNode;
   userName?: string;
 }) {
-  const { drawerType } = useDrawer();
-  const [drawerWidthPx, setDrawerWidthPx] = useState(0);
   const topMenuBarRef = useRef<HTMLDivElement>(null);
-  const [topMenuBarHeight, setTopMenuBarHeight] = useState(76);
-
-  // 드로어 너비 계산 (20vw, 최소 300px, 최대 400px)
-  useEffect(() => {
-    const calculateDrawerWidth = () => {
-      if (drawerType !== null) {
-        const width = Math.min(Math.max(window.innerWidth * 0.2, 300), 400);
-        setDrawerWidthPx(width);
-      } else {
-        setDrawerWidthPx(0);
-      }
-    };
-
-    calculateDrawerWidth();
-    
-    if (drawerType !== null) {
-      window.addEventListener("resize", calculateDrawerWidth);
-      return () => window.removeEventListener("resize", calculateDrawerWidth);
-    }
-  }, [drawerType]);
 
   // CSS Custom Property로 높이 공유 (ResizeObserver 사용)
   useEffect(() => {
@@ -46,7 +22,6 @@ const TopMenuBarContent = memo(function TopMenuBarContent({
       const height = topMenuBar.offsetHeight;
       if (height > 0) {
         document.documentElement.style.setProperty('--top-menu-bar-height', `${height}px`);
-        setTopMenuBarHeight(height);
       }
     };
 
@@ -70,7 +45,6 @@ const TopMenuBarContent = memo(function TopMenuBarContent({
     <div
       className="fixed top-0 left-0 right-0 z-50 border-b border-white/5"
       style={{
-        marginLeft: `${drawerWidthPx}px`,
         position: 'fixed',
         top: 0,
         left: 0,
@@ -82,7 +56,7 @@ const TopMenuBarContent = memo(function TopMenuBarContent({
         id="top-menu-bar"
         ref={topMenuBarRef}
       >
-        <Sidebar userName={userName} />
+        <TopNavigation userName={userName} />
         {subHeader}
       </div>
     </div>

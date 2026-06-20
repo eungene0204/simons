@@ -225,6 +225,9 @@ def _start_worker_process() -> None:
     cfg = get_settings()
     if not cfg.enabled or not cfg.queue_enabled:
         return
+    if not getattr(cfg, "collection_enabled", True):
+        log.info("worker_autostart_skipped_collection_disabled")
+        return
     if not getattr(cfg, "worker_autostart_enabled", True):
         log.info("worker_autostart_disabled")
         return
@@ -270,7 +273,7 @@ def _stop_worker_process() -> None:
 
 async def _enqueue_collection_queue(queue_label: str, limit: int = 500) -> None:
     cfg = get_settings()
-    if not cfg.enabled:
+    if not cfg.enabled or not getattr(cfg, "collection_enabled", True):
         return
     maker = get_session_maker()
     async with maker() as session:
@@ -312,7 +315,7 @@ async def _enqueue_collection_queue(queue_label: str, limit: int = 500) -> None:
 async def _collect_pending_inline() -> None:
     """Fallback for dev/local runs where broker is configured but no worker is alive."""
     cfg = get_settings()
-    if not cfg.enabled:
+    if not cfg.enabled or not getattr(cfg, "collection_enabled", True):
         return
     if _collection_worker_available(cfg):
         return
@@ -372,7 +375,11 @@ async def _resolve_startup_symbols(repo: NewsRepository) -> list[str]:
 async def _startup_collect() -> None:
     """Run actual collection once after backend startup, outside the UI path."""
     cfg = get_settings()
-    if not cfg.enabled or not cfg.startup_collect_enabled:
+    if (
+        not cfg.enabled
+        or not getattr(cfg, "collection_enabled", True)
+        or not cfg.startup_collect_enabled
+    ):
         return
 
     maker = get_session_maker()
@@ -394,6 +401,8 @@ async def _startup_collect() -> None:
 
 
 async def _recompute_priority() -> None:
+    if not get_settings().collection_enabled:
+        return
     try:
         from news_v2.celery_app import celery_app
 
@@ -403,6 +412,8 @@ async def _recompute_priority() -> None:
 
 
 async def _prune() -> None:
+    if not get_settings().collection_enabled:
+        return
     try:
         from news_v2.celery_app import celery_app
 

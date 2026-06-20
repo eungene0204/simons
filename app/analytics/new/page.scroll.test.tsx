@@ -178,7 +178,7 @@ describe("StrategyLabPage scroll behavior", () => {
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "어떻게 개선할까?" } });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
 
-    expect(await screen.findByText("분석 중...")).toBeInTheDocument();
+    expect(await screen.findByText("검증 중...")).toBeInTheDocument();
     scrollIntoViewMock.mockClear();
 
     followUpResponse.resolve(

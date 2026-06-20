@@ -43,6 +43,10 @@ import {
 import { normalizeCoachMessage } from "./coachMessage";
 import { parseCoachSegments } from "./coachText";
 import { parseSseBlocks } from "./sseEvents";
+import {
+  beginStrategyChatNavigation,
+  shouldBeginStrategyChatNavigation,
+} from "./chatNavigation";
 import StockAnalysisPanel, { type StockAnalysisResult } from "@/components/strategy/StockAnalysisPanel";
 
 const BacktestDashboard = dynamic(
@@ -827,10 +831,9 @@ function StrategyLabContent() {
       return;
     }
 
-    if (!overrideText && !isChatPage && messages.length === 0) {
-      sessionStorage.setItem(PENDING_STRATEGY_PROMPT_KEY, userText);
-      setInputValue("");
-      router.push("/analytics/chat");
+    if (shouldBeginStrategyChatNavigation(isChatPage, messages.length)) {
+      if (!overrideText) setInputValue("");
+      beginStrategyChatNavigation(userText, (url) => router.push(url));
       return;
     }
 
@@ -1072,7 +1075,7 @@ function StrategyLabContent() {
       if (!coachRes.ok) {
         updateLastAssistant({
           coachLoading: false,
-          coachText: "전략 코칭 응답을 가져오지 못했습니다. 전략 요약은 준비되어 있으니 백테스트는 계속 실행할 수 있습니다.",
+          coachText: "전략 검증 결과를 가져오지 못했습니다. 전략 요약은 준비되어 있으니 백테스트는 계속 실행할 수 있습니다.",
         });
         return;
       }
@@ -1081,7 +1084,7 @@ function StrategyLabContent() {
       const result: { message?: string } = await coachRes.json();
       const message = normalizeCoachMessage(
         result.message,
-        "현재 전략에 대한 코칭 응답을 생성하지 못했습니다."
+        "현재 전략을 검증하지 못했습니다."
       );
       rememberCoachExchange(userText, message);
       updateLastAssistant({
@@ -1091,7 +1094,7 @@ function StrategyLabContent() {
     } catch {
       updateLastAssistant({
         coachLoading: false,
-        coachText: "전략 코칭 중 오류가 발생했습니다. 전략 요약은 준비되어 있으니 백테스트는 계속 실행할 수 있습니다.",
+        coachText: "전략 검증 중 오류가 발생했습니다. 전략 요약은 준비되어 있으니 백테스트는 계속 실행할 수 있습니다.",
       });
     }
   };
@@ -1132,7 +1135,7 @@ function StrategyLabContent() {
       if (!coachRes.ok) {
         updateLastAssistant({
           coachLoading: false,
-          coachText: "전략 코칭 응답을 가져오지 못했습니다. 전략 요약은 준비되어 있으니 백테스트는 계속 실행할 수 있습니다.",
+          coachText: "전략 검증 결과를 가져오지 못했습니다. 전략 요약은 준비되어 있으니 백테스트는 계속 실행할 수 있습니다.",
         });
         return;
       }
@@ -1143,7 +1146,7 @@ function StrategyLabContent() {
       const result: { message?: string } = await coachRes.json();
       const message = normalizeCoachMessage(
         result.message,
-        "현재 질문에 대한 코칭 응답을 생성하지 못했습니다."
+        "현재 전략을 검증하지 못했습니다."
       );
       rememberCoachExchange(userText, message);
       updateLastAssistant({
@@ -1153,7 +1156,7 @@ function StrategyLabContent() {
     } catch {
       updateLastAssistant({
         coachLoading: false,
-        coachText: "전략 코칭 중 오류가 발생했습니다. 전략 요약은 준비되어 있으니 백테스트는 계속 실행할 수 있습니다.",
+        coachText: "전략 검증 중 오류가 발생했습니다. 전략 요약은 준비되어 있으니 백테스트는 계속 실행할 수 있습니다.",
       });
     }
   };
@@ -1557,10 +1560,10 @@ function StrategyLabContent() {
                           >
                             <div className="flex items-center gap-2">
                               <span className="text-[11px] font-black uppercase tracking-widest text-white">
-                                전략 코치
+                                전략 검증
                               </span>
                               {msg.coachLoading && (
-                                <ShimmerStatusText className="text-sm font-bold">분석 중...</ShimmerStatusText>
+                                <ShimmerStatusText className="text-sm font-bold">검증 중...</ShimmerStatusText>
                               )}
                             </div>
                             {msg.coachText && (

@@ -9,8 +9,6 @@ import {
   memo,
 } from "react";
 import { usePathname } from "next/navigation";
-import { useDrawer } from "@/contexts/DrawerContext";
-import TopMenuBar from "./TopMenuBar";
 
 // 주문 페이지 컨텍스트
 interface OrderContextType {
@@ -30,19 +28,13 @@ export function useOrder() {
   return context;
 }
 
-// 내부 컴포넌트 - memo로 감싸서 children이나 userName이 변경되지 않으면 리렌더링 방지
+// 내부 컴포넌트 - memo로 감싸서 children이 변경되지 않으면 리렌더링 방지
 const DashboardLayoutContent = memo(function DashboardLayoutContent({
   children,
-  userName: _userName,
-  subHeader,
 }: {
   children: ReactNode;
-  userName: string;
-  subHeader?: ReactNode;
 }) {
   const pathname = usePathname();
-  const { drawerType } = useDrawer();
-  const [drawerWidthPx, setDrawerWidthPx] = useState(0);
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [selectedStockName, setSelectedStockName] = useState<string | null>(null);
   const [topMenuBarHeight, setTopMenuBarHeight] = useState(76);
@@ -56,25 +48,6 @@ const DashboardLayoutContent = memo(function DashboardLayoutContent({
     "[&>*>*]:flex-col",
     "[&>*>*>:last-child]:flex-1",
   ].join(" ");
-
-  // 드로어 너비 계산 (20vw, 최소 300px, 최대 400px)
-  useEffect(() => {
-    const calculateDrawerWidth = () => {
-      if (drawerType !== null) {
-        const width = Math.min(Math.max(window.innerWidth * 0.2, 300), 400);
-        setDrawerWidthPx(width);
-      } else {
-        setDrawerWidthPx(0);
-      }
-    };
-
-    calculateDrawerWidth();
-    
-    if (drawerType !== null) {
-      window.addEventListener("resize", calculateDrawerWidth);
-      return () => window.removeEventListener("resize", calculateDrawerWidth);
-    }
-  }, [drawerType]);
 
   const setOrderStock = (symbol: string, name: string) => {
     setSelectedSymbol(symbol);
@@ -113,11 +86,9 @@ const DashboardLayoutContent = memo(function DashboardLayoutContent({
       }}
     >
       <div className="min-h-screen bg-[#050505] text-white flex flex-col relative">
-        <TopMenuBar subHeader={subHeader} userName={_userName} />
         <main
           className="flex-1 overflow-y-auto overflow-x-hidden max-w-full"
           style={{
-            marginLeft: `${drawerWidthPx}px`,
             paddingTop: `${topMenuBarHeight}px`,
           }}
         >
@@ -138,19 +109,12 @@ const DashboardLayoutContent = memo(function DashboardLayoutContent({
   );
 });
 
-// DrawerProvider는 app/layout.tsx에서 전역으로 제공됨
 export default function DashboardLayout({
   children,
-  userName,
-  subHeader,
 }: {
   children: ReactNode;
   userName: string;
   subHeader?: ReactNode;
 }) {
-  return (
-    <DashboardLayoutContent userName={userName} subHeader={subHeader}>
-      {children}
-    </DashboardLayoutContent>
-  );
+  return <DashboardLayoutContent>{children}</DashboardLayoutContent>;
 }

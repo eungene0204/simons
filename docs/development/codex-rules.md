@@ -30,6 +30,7 @@ Allowed:
 - Strategy Persistence / BatchRun Storage
 - User Personalization / Ownership Persistence
 - News Impact Pipeline
+- App Shell / Navigation
 - Governance / Policy Docs
 
 Never mix boundaries in one task.

@@ -2,6 +2,7 @@ import os
 import sys
 import types
 import logging
+import json
 
 import pytest
 from fastapi import Response
@@ -156,6 +157,7 @@ def _make_request(**overrides):
 
 
 def setup_function():
+    coach_routes._STRATEGY_AGENT_MODE = "coach"
     coach_routes._reset_coach_cache_for_tests()
     coach_routes.set_parser(None)
     _DummyAdvisor.calls = 0
@@ -1690,3 +1692,65 @@ async def test_coach_session_greeting_short_circuits_and_records_context(monkeyp
     session = coach_routes._coach_sessions[session_id]
     assert session["conversation_context"][-1]["role"] == "assistant"
     assert session["conversation_context"][-1]["content"] == result.message
+
+
+def _validation_request() -> CoachRequest:
+    request = _make_request(advisor_result=None, advisor_insight=None)
+    parsed_strategy = {
+        **request.parsed_strategy,
+        "rebalancing_period": "monthly",
+        "backtest_period": "5y",
+        "stop_loss_pct": 10,
+        "take_profit_pct": 20,
+    }
+    return request.model_copy(update={"parsed_strategy": parsed_strategy})
+
+
+@pytest.mark.asyncio
+async def test_validation_mode_replaces_legacy_coach_without_loaded_parser():
+    coach_routes._STRATEGY_AGENT_MODE = "validation"
+
+    response = await coach_routes.coach_strategy(_validation_request())
+    result = json.loads(response.message)
+
+    assert result == {"is_valid": True, "issues": []}
+    assert _DummyAdvisor.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_validation_mode_preserves_session_contract_without_coaching():
+    coach_routes._STRATEGY_AGENT_MODE = "validation"
+    http_response = Response()
+    request = _validation_request()
+
+    created = await coach_routes.create_coach_session(
+        coach_routes.CoachSessionRequest(
+            user_prompt=request.user_prompt,
+            parsed_strategy=request.parsed_strategy,
+        ),
+        http_response,
+    )
+    session_id = http_response.headers["X-Coach-Session-Id"]
+    followed_up = await coach_routes.continue_coach_session(
+        coach_routes.CoachSessionFollowUpRequest(
+            session_id=session_id,
+            user_prompt="현재 전략을 다시 검증해줘",
+        )
+    )
+
+    assert json.loads(created.message) == {"is_valid": True, "issues": []}
+    assert followed_up.message == created.message
+    assert coach_routes._coach_sessions[session_id]["advisor_result"] is None
+    assert _DummyAdvisor.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_validation_mode_stream_returns_validation_json_without_llm():
+    coach_routes._STRATEGY_AGENT_MODE = "validation"
+
+    response = await coach_routes.coach_strategy_stream(_validation_request())
+    chunks = [chunk async for chunk in response.body_iterator]
+    event = json.loads("".join(chunks).removeprefix("data: ").strip())
+
+    assert event["type"] == "done"
+    assert json.loads(event["message"]) == {"is_valid": True, "issues": []}

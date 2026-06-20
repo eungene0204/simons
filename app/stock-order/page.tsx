@@ -22,7 +22,7 @@ import {
 } from "@/app/stock-order/stock-info";
 import { useStockPrices } from "@/lib/hooks/useStockPrices";
 import type { StockPriceSnapshot as BatchQuoteItem } from "@/lib/stock-prices";
-import { useDrawer } from "@/contexts/DrawerContext";
+import { useOrderAccount } from "@/contexts/OrderAccountContext";
 import {
   getAllAccounts,
   getAccount,
@@ -144,12 +144,13 @@ const getTickSize = (p: number): number => {
 const SHOW_ORDER_BOOK = false;
 const SHOW_TRADE_PANEL = false;
 const SHOW_COMMUNITY_TAB = false;
+const SHOW_NEWS_TAB = process.env.NEXT_PUBLIC_NEWS_TAB_ENABLED === "true";
 
 export default function OrderPage() {
   const searchParams = useSearchParams();
   const symbol = searchParams.get("symbol") || "";
   const name = searchParams.get("name") || "";
-  const { selectedAccountId, setSelectedAccountId } = useDrawer();
+  const { selectedAccountId, setSelectedAccountId } = useOrderAccount();
 
   const [selectedStockName, setSelectedStockName] = useState(
     pickStockName(symbol, name) ?? ""
@@ -873,7 +874,11 @@ export default function OrderPage() {
               ["news", "뉴스"],
               ["community", "커뮤니티"],
             ] as const)
-              .filter(([tab]) => SHOW_COMMUNITY_TAB || tab !== "community")
+              .filter(
+                ([tab]) =>
+                  (SHOW_NEWS_TAB || tab !== "news") &&
+                  (SHOW_COMMUNITY_TAB || tab !== "community")
+              )
               .map(([tab, label]) => (
               <button
                 key={tab}
@@ -1432,7 +1437,7 @@ export default function OrderPage() {
         )}
 
         {/* ── 뉴스·공시 탭 ── */}
-        {(
+        {SHOW_NEWS_TAB && (
           <div className={`p-5${activeTab !== "news" ? " hidden" : ""}`}>
             <NewsImpactPanel symbol={symbol} />
           </div>

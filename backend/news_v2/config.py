@@ -97,6 +97,9 @@ class PriorityWeights:
 @dataclass(frozen=True)
 class Settings:
     enabled: bool = field(default_factory=lambda: _env_bool("NEWSV2_ENABLED", True))
+    collection_enabled: bool = field(
+        default_factory=lambda: _env_bool("NEWSV2_COLLECTION_ENABLED", True)
+    )
 
     # Storage
     db_url: str = field(default_factory=_default_db_url)
@@ -200,7 +203,7 @@ class Settings:
 
     @property
     def queue_enabled(self) -> bool:
-        return self.enabled and self.celery_broker is not None
+        return self.enabled and self.collection_enabled and self.celery_broker is not None
 
 
 _settings: Optional[Settings] = None

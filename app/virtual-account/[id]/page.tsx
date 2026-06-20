@@ -548,7 +548,8 @@ export default function VirtualAccountDetailPage() {
 
   return (
     <DashboardLayout userName="사용자">
-      <div className="w-full min-w-0">
+      <div className="flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] w-full min-w-0 flex-col">
+        <div className="flex-1">
 
         {/* ── 주문 패널 ── */}
         {shouldShowOrderPage && (
@@ -1283,6 +1284,8 @@ export default function VirtualAccountDetailPage() {
           </div>
         )}
 
+        </div>
+
         {isPromptVisible && promptPos && dbStrategyDescription && (
           <div
             className="fixed z-[100] w-64 rounded-xl border border-white/[0.08] bg-[#1c1c1c] p-3 shadow-2xl"
@@ -1323,7 +1326,7 @@ export default function VirtualAccountDetailPage() {
             });
           }}
         />
-        <VirtualAccountSimulationNotice />
+        <VirtualAccountSimulationNotice className="mt-auto" />
       </div>
     </DashboardLayout>
   );

@@ -94,7 +94,7 @@ simons/
 │   │   └── NewsImpactPanel.tsx      # 뉴스·공시 + Alpha 시그널 패널 (stock-order 뉴스 탭)
 │   ├── portfolio/                   # 포트폴리오 분석 컴포넌트
 │   ├── order/                       # 주문서 및 호가 컴포넌트
-│   ├── layout/                      # 레이아웃 (Navbar, Sidebar, Header)
+│   ├── layout/                      # 전역 레이아웃 (TopMenuBar, TopNavigation)
 │   ├── ui/                          # 기본 UI (Input, Button, Modal 등)
 │   ├── virtual-account/             # 가상 계좌 컴포넌트
 │   └── watchlist/                   # 관심 종목 컴포넌트
@@ -222,7 +222,7 @@ simons/
 │
 ├── prisma/schema.prisma             # DB 스키마
 ├── scripts/                         # 유틸 스크립트 (scheduler, sync, train)
-└── contexts/DrawerContext.tsx       # Drawer 전역 상태
+└── contexts/OrderAccountContext.tsx # 주문 페이지 선택 계좌 상태
 ```
 
 ---
@@ -243,7 +243,7 @@ simons/
 | `/stock-order` | 종목 거래 (5탭) | 차트·호가 / 종목정보 / 뉴스·공시(`NewsImpactPanel`) / 거래현황 / 커뮤니티 |
 | `/virtual-account` | 가상 계좌 목록 | `VirtualAccountCard` |
 | `/virtual-account/[id]` | 가상 계좌 상세 (포트폴리오) | `VirtualAccountMainView` |
-| `/watchlist` | 관심 종목 관리 | `Watchlist`, `WatchlistDrawer` |
+| `/watchlist` | 관심 종목 관리 | `Watchlist` |
 
 `/stock-order`의 종목정보 탭은 실시간 시세와 분리된 비실시간 종목 프로필 레이어를 사용한다. 종목명, 상장일, 섹터, 회사 기본 정보, 재무 요약, PER/PBR 같은 저빈도 갱신 값은 DB에 저장하고, 현재가/등락률/거래량 등 실시간 값은 기존 실시간 시세 경로에서 조회한다.
 
@@ -284,7 +284,7 @@ StrategyLabPage (app/analytics/new/page.tsx)
 |------|------|
 | React Query (`useQuery`) | 서버 데이터 캐싱 (백테스트 이력, 계좌 목록 등) |
 | React Query (`useMutation`) | 서버 상태 변경 (전략 저장, 주문 체결 등) |
-| React Context (`DrawerContext`) | Drawer 열기/닫기, 선택된 계좌 ID |
+| React Context (`OrderAccountContext`) | 주문 페이지에서 공유하는 선택된 계좌 ID |
 | `useState` | 채팅 메시지 히스토리, 파싱된 전략 상태, 백테스트 결과, 배치 실행 UI 상태 |
 
 ### 3.3.1 사용자 자산 API
@@ -919,7 +919,7 @@ cd backend && pytest tests/ \
 | `backtestHistoryRoute.test.ts` | 백테스트 이력 API 라우트 |
 | `backtestSummarizeRoute.test.ts` | 백테스트 요약 API 라우트 |
 | `monthlyReturns.test.ts` | 월별 수익률 계산 로직 |
-| `SidebarQuickSearch.test.tsx` | 검색 사이드바 |
+| `TopNavigationQuickSearch.test.tsx` | 상단 내비게이션 및 빠른 검색 |
 | `OrderBook.test.tsx` | 호가창 컴포넌트 |
 | `StrategyAdvisorPanel.request.test.tsx` | 후보 백테스트 결과와 evaluation context가 advisor 요청에 포함되는지 검증 |
 | `app/api/news/fetch-body/route.test.ts` | Next.js 뉴스 본문 fetch 프록시 SSRF 입력 차단 |

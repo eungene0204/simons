@@ -151,8 +151,7 @@ simons/
 │   ├── portfolio/         # 포트폴리오 분석
 │   ├── virtual-account/   # 가상계좌
 │   ├── virtual-market/    # 가상매매 패널
-│   ├── layout/            # 네비게이션, 사이드바
-│   ├── drawer/            # 관심종목/계좌 드로어
+│   ├── layout/            # 전역 상단 내비게이션
 │   ├── watchlist/         # 관심종목
 │   ├── ui/                # 공통 UI
 │   ├── providers/         # React 프로바이더
@@ -1288,7 +1287,7 @@ WatchlistSymbol {
 
 | 영역 | 파일 수 | 주요 파일 |
 |------|---------|-----------|
-| 컴포넌트 | 7 | OrderBook, PriceRow, TrackedSymbolRow, TrackedSymbolsSkeleton, SidebarQuickSearch, AnalyticsStrategySummary, StrategyExampleTabs |
+| 컴포넌트 | 7 | OrderBook, PriceRow, TrackedSymbolRow, TrackedSymbolsSkeleton, TopNavigationQuickSearch, AnalyticsStrategySummary, StrategyExampleTabs |
 | API 라우트 | 10 | backtestHistory*, backtestSummarize*, batchQuotes*, stockDetail*, strategyApiGet, saveWithBacktest, xaiExplain*, universeHistory*, virtualAccount, virtualMarket* |
 | 유틸리티 | 4 | monthlyReturns, formatMarketCap, orderbookDisplay, viPrice |
 | 기타 | 3 | sample, backtestHistoryPayload, virtualMarketUnread, virtualMarketStockName |

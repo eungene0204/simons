@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { VirtualAccount, PortfolioHolding } from "@/types/portfolio";
 import { refreshAccountValue } from "@/lib/portfolio";
-import { useDrawer } from "@/contexts/DrawerContext";
+import { useOrderAccount } from "@/contexts/OrderAccountContext";
 import CandlestickChart, { OHLCV } from "@/components/stock/CandlestickChart";
 
 const formatPrice = (price: number) => {
@@ -11,7 +11,7 @@ const formatPrice = (price: number) => {
 };
 
 export default function VirtualAccountMainView() {
-  const { selectedAccountId } = useDrawer();
+  const { selectedAccountId } = useOrderAccount();
   const [account, setAccount] = useState<VirtualAccount | null>(null);
   const [holdings, setHoldings] = useState<PortfolioHolding[]>([]);
   const [loading, setLoading] = useState(true);

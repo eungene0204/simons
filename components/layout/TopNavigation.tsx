@@ -3,7 +3,6 @@
 import { useMemo, memo, useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
-import { useDrawer } from "@/contexts/DrawerContext";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/firebase";
 import Image from "next/image";
 import {
@@ -93,7 +92,7 @@ function getInitials(value: string) {
   return compact.slice(0, Math.min(2, compact.length)).toUpperCase();
 }
 
-function SidebarComponent({ userName }: { userName?: string }) {
+function TopNavigationComponent({ userName }: { userName?: string }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -114,8 +113,6 @@ function SidebarComponent({ userName }: { userName?: string }) {
   });
   const profileButtonRef = useRef<HTMLButtonElement>(null);
   const profileMenuRef = useRef<HTMLDivElement>(null);
-
-  const { isVirtualAccountOpen } = useDrawer();
 
   useEffect(() => {
     let isMounted = true;
@@ -365,21 +362,9 @@ function SidebarComponent({ userName }: { userName?: string }) {
       return;
     }
 
-    const isVirtualAccountDrawerOpen =
-      isVirtualAccountOpen || searchParams.get("virtualAccount") === "open";
-
     e.preventDefault();
-    if (item.id !== "virtual-account" && isVirtualAccountDrawerOpen) {
-      const url = new URL(item.href, window.location.origin);
-      url.searchParams.set("virtualAccount", "open");
-      router.push(url.pathname + url.search);
-      return;
-    }
-
     router.push(item.href);
   };
-
-  const virtualAccountParam = searchParams.get("virtualAccount");
 
   const activeMenuItemId = useMemo(() => {
     if (!pathname) return null;
@@ -412,12 +397,8 @@ function SidebarComponent({ userName }: { userName?: string }) {
       return bestMatch.id;
     }
 
-    if (isVirtualAccountOpen || virtualAccountParam === "open") {
-      return "virtual-account";
-    }
-
     return null;
-  }, [pathname, virtualAccountParam, isVirtualAccountOpen]);
+  }, [pathname]);
 
 
   return (
@@ -712,4 +693,4 @@ function SidebarComponent({ userName }: { userName?: string }) {
 }
 
 // memo로 감싸서 props가 변경되지 않으면 리렌더링 방지
-export default memo(SidebarComponent);
+export default memo(TopNavigationComponent);

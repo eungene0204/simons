@@ -1,16 +1,16 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import Sidebar from "@/components/layout/Sidebar";
+import TopNavigation from "@/components/layout/TopNavigation";
 import { mergePopularStocks } from "@/components/layout/QuickSearchModal";
 
-const { pathnameMock } = vi.hoisted(() => ({
+const { pathnameMock, searchParamsMock } = vi.hoisted(() => ({
   pathnameMock: { current: "/" },
+  searchParamsMock: { current: "" },
 }));
 
 const pushMock = vi.fn();
 const replaceMock = vi.fn();
-const openVirtualAccountMock = vi.fn();
 const fetchMock = vi.fn();
 const getSessionMock = vi.fn();
 const signOutMock = vi.fn();
@@ -39,7 +39,7 @@ vi.mock("next/link", () => ({
 
 vi.mock("next/navigation", () => ({
   usePathname: () => pathnameMock.current,
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(searchParamsMock.current),
   useRouter: () => ({
     push: pushMock,
     replace: replaceMock,
@@ -56,16 +56,6 @@ vi.mock("@/lib/firebase", () => ({
     },
   }),
   isSupabaseConfigured: () => isSupabaseConfiguredMock(),
-}));
-
-vi.mock("@/contexts/DrawerContext", () => ({
-  useDrawer: () => ({
-    drawerType: null,
-    isWatchlistOpen: false,
-    openWatchlist: vi.fn(),
-    isVirtualAccountOpen: false,
-    openVirtualAccount: openVirtualAccountMock,
-  }),
 }));
 
 vi.stubGlobal("fetch", fetchMock);
@@ -105,11 +95,12 @@ function renderWithQueryClient(ui: React.ReactElement) {
   );
 }
 
-describe("Sidebar quick search", () => {
+describe("TopNavigation quick search", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     MockEventSource.instances = [];
     pathnameMock.current = "/";
+    searchParamsMock.current = "";
     isSupabaseConfiguredMock.mockReturnValue(true);
     getSessionMock.mockResolvedValue({ data: { session: null } });
     signOutMock.mockResolvedValue(undefined);
@@ -183,7 +174,7 @@ describe("Sidebar quick search", () => {
   });
 
   it("슬래시 퀵서치에서 종목, 전략, 가상계좌를 검색하고 이동할 수 있다", async () => {
-    renderWithQueryClient(<Sidebar />);
+    renderWithQueryClient(<TopNavigation />);
 
     fireEvent.keyDown(window, { key: "/" });
 
@@ -208,7 +199,7 @@ describe("Sidebar quick search", () => {
   it("루트 경로에서는 전략연구소 메뉴를 활성 상태로 표시한다", async () => {
     pathnameMock.current = "/";
 
-    renderWithQueryClient(<Sidebar />);
+    renderWithQueryClient(<TopNavigation />);
 
     const analyticsLink = await screen.findByRole("link", { name: /전략연구소/i });
     const dashboardLink = screen.getByRole("link", { name: /대시보드/i });
@@ -218,7 +209,7 @@ describe("Sidebar quick search", () => {
   });
 
   it("비로그인 상태에서는 프로필 버튼 대신 Google 로그인 버튼을 보여준다", async () => {
-    renderWithQueryClient(<Sidebar />);
+    renderWithQueryClient(<TopNavigation />);
 
     const loginButton = await screen.findByRole("button", {
       name: "Google 로그인",
@@ -244,7 +235,7 @@ describe("Sidebar quick search", () => {
   });
 
   it("비로그인 상태에서 가상계좌, 백테스트, 대시보드 메뉴를 누르면 로그인 모달을 보여준다", async () => {
-    renderWithQueryClient(<Sidebar />);
+    renderWithQueryClient(<TopNavigation />);
 
     await screen.findByRole("button", {
       name: "Google 로그인",
@@ -256,7 +247,6 @@ describe("Sidebar quick search", () => {
     expect(screen.getByText("로그인 후 이용할 수 있습니다")).toBeInTheDocument();
     expect(screen.getByText("Google로 3초만에 시작하세요")).toBeInTheDocument();
     expect(screen.getByText("카드 등록 불필요")).toBeInTheDocument();
-    expect(openVirtualAccountMock).not.toHaveBeenCalled();
     expect(pushMock).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "취소" }));
@@ -284,6 +274,18 @@ describe("Sidebar quick search", () => {
         },
       });
     });
+  });
+
+  it("가상계좌 query가 남아 있어도 전략연구소의 정식 경로로 이동한다", async () => {
+    pathnameMock.current = "/analytics/chat";
+    searchParamsMock.current = "virtualAccount=open";
+
+    renderWithQueryClient(<TopNavigation />);
+
+    fireEvent.click(await screen.findByRole("link", { name: /전략연구소/i }));
+
+    expect(pushMock).toHaveBeenCalledWith("/analytics");
+    expect(pushMock).not.toHaveBeenCalledWith("/analytics?virtualAccount=open");
   });
 
   it("로그인된 상태에서는 사용자 프로필 버튼과 드롭다운 메뉴를 보여준다", async () => {
@@ -336,7 +338,7 @@ describe("Sidebar quick search", () => {
       });
     });
 
-    renderWithQueryClient(<Sidebar />);
+    renderWithQueryClient(<TopNavigation />);
 
     const profileButton = await screen.findByRole("button", {
       name: "홍길동 사용자 메뉴",
@@ -365,7 +367,7 @@ describe("Sidebar quick search", () => {
   });
 
   it("몇 글자만 입력해도 바로 추천 결과를 보여준다", async () => {
-    renderWithQueryClient(<Sidebar />);
+    renderWithQueryClient(<TopNavigation />);
 
     fireEvent.keyDown(window, { key: "/" });
 
@@ -403,7 +405,7 @@ describe("Sidebar quick search", () => {
   });
 
   it("인기 검색은 SSE 이벤트를 받으면 즉시 등락률을 갱신한다", async () => {
-    renderWithQueryClient(<Sidebar />);
+    renderWithQueryClient(<TopNavigation />);
 
     fireEvent.keyDown(window, { key: "/" });
 
@@ -434,7 +436,7 @@ describe("Sidebar quick search", () => {
       ])
     );
 
-    renderWithQueryClient(<Sidebar />);
+    renderWithQueryClient(<TopNavigation />);
 
     fireEvent.keyDown(window, { key: "/" });
 

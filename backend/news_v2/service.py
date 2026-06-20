@@ -143,6 +143,19 @@ class NewsService:
         self.agent = agent or build_agent(self.cfg)
         self.session = session
 
+    def _collection_paused_response(
+        self, symbol: str, fetched_at: Optional[datetime] = None
+    ) -> NewsResponse:
+        metrics.request_total.labels(status=Status.NOT_COLLECTED, source="queue").inc()
+        return NewsResponse(
+            status=Status.NOT_COLLECTED,
+            source="queue",
+            stale=False,
+            items=[],
+            fetched_at=fetched_at,
+            message="뉴스 수집이 일시 중지되었습니다.",
+        )
+
     # ─── public: read path ─────────────────────────────────────────────────────
 
     async def get_for_symbol(
@@ -156,7 +169,7 @@ class NewsService:
             metrics.cache_hits.labels(layer="redis").inc()
             status = await self.cache.get_status(symbol) or Status.READY
             stale = status == Status.STALE
-            if stale:
+            if stale and self.cfg.collection_enabled:
                 self.queue.enqueue_refresh(symbol)
             metrics.request_total.labels(status=status, source="redis").inc()
             return NewsResponse(
@@ -180,7 +193,7 @@ class NewsService:
             )
             status = Status.STALE if stale else Status.READY
             await self.cache.set_status(symbol, status)
-            if stale:
+            if stale and self.cfg.collection_enabled:
                 self.queue.enqueue_refresh(symbol)
             metrics.request_total.labels(status=status, source="postgres").inc()
             return NewsResponse(
@@ -201,6 +214,15 @@ class NewsService:
                 items=[],
                 fetched_at=status_row.last_success_at,
                 message="최근 뉴스를 찾지 못했습니다.",
+            )
+
+        if not self.cfg.collection_enabled:
+            await self.repo.set_status(symbol, Status.NOT_COLLECTED)
+            await self.session.commit()
+            await self.cache.set_status(symbol, Status.NOT_COLLECTED)
+            return self._collection_paused_response(
+                symbol,
+                fetched_at=status_row.last_success_at if status_row else None,
             )
 
         # 3) MISS → enqueue only. Never collect/analyze inline on the UI request path.
@@ -226,6 +248,10 @@ class NewsService:
         self, symbol: str, *, company_name: Optional[str] = None, job_id: Optional[str] = None
     ) -> int:
         """Collect from providers, dedup, map symbols, and update the tab cache."""
+        if not self.cfg.collection_enabled:
+            log.info("collection_disabled_skip", symbol=symbol)
+            return 0
+
         started = _utcnow()
         job_id = job_id or uuid.uuid4().hex
         await self.repo.set_status(symbol, Status.COLLECTING, job_id=job_id)

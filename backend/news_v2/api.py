@@ -247,6 +247,18 @@ async def force_refresh(
     cfg = get_settings()
     if not cfg.enabled:
         raise HTTPException(status_code=503, detail="news_v2 is disabled")
+    if not cfg.collection_enabled:
+        from news_v2.repository import NewsRepository
+
+        repo = NewsRepository(session)
+        row = await repo.get_status(symbol)
+        return StatusOut(
+            symbol=symbol,
+            status=Status.NOT_COLLECTED,
+            last_success_at=row.last_success_at if row else None,
+            last_attempt_at=row.last_attempt_at if row else None,
+            attempt_count=row.attempt_count if row else 0,
+        )
 
     service = NewsService(session)
     # Bypass cache lock entirely — admin-style action.

@@ -495,8 +495,8 @@ Public landing page, sign-in entry flow, and session bootstrap into the existing
 - lib/server/assetService.ts
 - lib/server/backtestCache.ts
 - lib/strategy-tracked-symbols.ts
-- components/layout/Sidebar.tsx
-- components/__tests__/SidebarQuickSearch.test.tsx
+- components/layout/TopNavigation.tsx
+- components/__tests__/TopNavigationQuickSearch.test.tsx
 - components/virtual-account/**
 - components/__tests__/VirtualAccountOverviewCache.test.tsx
 - app/virtual-account/*.test.tsx
@@ -529,6 +529,42 @@ Public landing page, sign-in entry flow, and session bootstrap into the existing
 - 랜딩페이지 UI/카피 변경
 - 뉴스/종목 상세 전용 파이프라인 변경
 - 범용 스크립트(`scripts/**`, `backend/scripts/**`) 변경
+
+---
+
+## Boundary Q: App Shell / Navigation
+
+### Purpose
+전역 앱 셸, 상단 내비게이션, 그리고 앱 셸에서 공유되는 주문 계좌 선택 상태의 구조 정합성 유지.
+
+### Files
+- app/layout.tsx
+- app/stock-order/**
+- components/layout/**
+- components/portfolio/**
+- components/__tests__/TopNavigationQuickSearch.test.tsx
+- contexts/OrderAccountContext.tsx
+
+### Allowed Tasks
+- 전역 상단 내비게이션 중복 렌더링 제거
+- `TopNavigation`과 `TopMenuBar` 역할 및 명칭 정합성 유지
+- 레거시 drawer query parameter가 다시 전파되지 않도록 내비게이션 정리
+- 주문 계좌 선택 상태의 전용 context 유지
+- 앱 셸 레이아웃, 높이, 오프셋, 전환 동작 정리
+- 관련 회귀 테스트 추가 및 수정
+
+### Strict Rules
+- 주문 페이지의 선택 계좌 동작과 공개 컴포넌트 계약을 보존한다.
+- 전역 내비게이션은 한 번만 렌더링한다.
+- 제거된 drawer UI와 context API를 다시 도입하지 않는다.
+- 한 작업의 diff가 5개 파일 또는 200줄을 넘으면 이름/레이아웃 정리와 drawer/context 제거를 별도 작업으로 분리한다.
+
+### Forbidden
+- API route 변경
+- 인증 또는 사용자 소유권 로직 변경
+- 주문 체결, 자산 계산, 백테스트 알고리즘 변경
+- 데이터베이스 스키마 변경
+- backend 코드 변경
 
 ---
 
