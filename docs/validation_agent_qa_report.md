@@ -1,8 +1,7 @@
 # 검증(Validation) Agent QA 리포트
 
 - 대상 예시: **80개**
-- PASS(통과): **76** · CLARIFY(파서 되물음=의도됨): **2** · WARN(예상 밖 경고): **0** · FAIL(에러=차단): **0**
-- 파싱 실패: 2 · 검증 호출 실패: 0
+- PASS(통과): **78** · CLARIFY(파서 되물음=의도됨): **2** · WARN(예상 밖 경고): **0** · FAIL(에러=차단): **0**
 
 ## ⚠️ 경고 코드 빈도
 
@@ -14,20 +13,6 @@
 
 - **11. 저PER 현금 많은 기업 고르기** — 말씀하신 조건을 숫자로 구체화해 주세요. 어느 정도를 기준으로 할까요?
 - **16. 부채비율·ROE 보유 조건** — 말씀하신 조건을 숫자로 구체화해 주세요. 어느 정도를 기준으로 할까요?
-
-## 🔎 점검 대상 상세
-
-### 31. [복합전략/intermediate] 가치 + 모멘텀 혼합 리밸런싱 — **PARSE_ERROR**
-
-> KOSPI 종목 중 PER과 PBR이 낮은 편이면서 최근 60거래일 수익률도 양호한 종목을 함께 보고 싶습니다. 너무 단순한 저평가 함정은 피하고 싶은 의도입니다. 월 1회 리밸런싱으로 상위 10종목을 유지하고, 손절 -10%, 익절 +20%를 적용해 주세요.
-
-- detail: 캐시 없음(--local은 캐시만 사용)
-
-### 40. [기술분석/expert] 다중 시간축 EMA 정렬 추세 전략 — **PARSE_ERROR**
-
-> KOSDAQ 유니버스에서 5일, 20일, 60일 EMA가 순차적으로 정배열된 종목만 매수 후보로 보겠습니다. 단기 눌림 후 재상승 구간만 진입하기 위해 종가가 5일 EMA를 회복한 시점에만 진입하고, 20일 EMA 이탈 또는 25거래일 경과 시 청산해 주세요. 동시 보유 8종목, 손절 -6%, 익절 +21% 조건으로 설정해 주세요.
-
-- detail: 캐시 없음(--local은 캐시만 사용)
 
 ## 전체 결과
 
@@ -63,7 +48,7 @@
 | 28 | 가치투자/intermediate | 배당 + 저PBR 월간 점검 | PASS | — | `MISSING_TAKE_PROFIT`(take_profit_pct) |
 | 29 | 기술분석/intermediate | 이격도 과열 회피형 추세 추종 | PASS | — | — |
 | 30 | 모멘텀/intermediate | 신고가 후 눌림목 재진입 | PASS | — | `MISSING_TAKE_PROFIT`(take_profit_pct) |
-| 31 | 복합전략/intermediate | 가치 + 모멘텀 혼합 리밸런싱 | PARSE_ERROR | 캐시 없음(--local은 캐시만 사용) | |
+| 31 | 복합전략/intermediate | 가치 + 모멘텀 혼합 리밸런싱 | PASS | — | — |
 | 32 | 기술분석/intermediate | 이중 이동평균 추세 유지 | PASS | — | `MISSING_TAKE_PROFIT`(take_profit_pct) |
 | 33 | 복합전략/expert | 중형주 퀄리티-밸류-모멘텀 결합 | PASS | — | — |
 | 34 | 모멘텀/expert | ADX 추세 강도 기반 스윙 | PASS | — | `MISSING_TAKE_PROFIT`(take_profit_pct) |
@@ -72,7 +57,7 @@
 | 37 | 기술분석/expert | 볼린저밴드 상단 돌파 + 거래량 확인 | PASS | — | — |
 | 38 | 모멘텀/expert | 거래대금 필터 월간 모멘텀 로테이션 | PASS | — | `MISSING_TAKE_PROFIT`(take_profit_pct) |
 | 39 | 가치투자/expert | 퀄리티 밸류 저변동 포트폴리오 | PASS | — | `MISSING_TAKE_PROFIT`(take_profit_pct) |
-| 40 | 기술분석/expert | 다중 시간축 EMA 정렬 추세 전략 | PARSE_ERROR | 캐시 없음(--local은 캐시만 사용) | |
+| 40 | 기술분석/expert | 다중 시간축 EMA 정렬 추세 전략 | PASS | — | — |
 | 41 | 모멘텀/expert | 상대강도 + 유동성 가중 로테이션 | PASS | — | `MISSING_TAKE_PROFIT`(take_profit_pct) |
 | 42 | 복합전략/expert | 섹터 중립 퀄리티 모멘텀 | PASS | — | — |
 | 43 | 모멘텀/expert | 상대강도 점수 기반 주간 랭킹 | PASS | — | `MISSING_TAKE_PROFIT`(take_profit_pct) |

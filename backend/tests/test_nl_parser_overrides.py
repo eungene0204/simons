@@ -1463,6 +1463,56 @@ def test_fundamental_screen_parses_without_llm(prompt):
     assert parsed.rebalancing_period == "monthly"
 
 
+def test_value_screen_with_hold_period_does_not_inject_rebalancing():
+    """회귀: 보유기간·손절을 명시한 가치주 스크리닝에 월간 리밸런싱을 임의 주입하면 안 된다.
+
+    스크린샷 프롬프트: 'PBR<=1, 8종목, 6개월 보유, -12% 손절'은 보유기간이 회전/청산
+    수단이므로 요청하지 않은 '매월 리밸런싱'이 들어가서는 안 된다.
+    """
+    prompt = (
+        "KOSPI 대형주 중에서 PBR이 1배 이하인 종목만 골라서 8종목 정도 나눠 사고, "
+        "한 번 사면 최소 6개월은 들고 가고 싶습니다. 큰 손실은 무서우니 -12% 손절만 넣어 주세요."
+    )
+
+    parsed = _parse_rule_based_strategy(prompt)
+
+    assert parsed is not None
+    assert parsed.hold_period_days == 126
+    assert parsed.rebalancing_period == "none"
+
+
+def test_inspection_cycle_n_months_maps_to_rebalancing_not_hold():
+    """'점검 주기는 N개월'·'N개월 주기'는 보유기간이 아니라 정기 리밸런싱 주기다."""
+    from engine.nl_parser import _extract_hold_period_days, _extract_rebalancing_period
+
+    # 보유기간으로 오인하지 않는다.
+    assert _extract_hold_period_days("점검 주기는 3개월") is None
+    assert _extract_hold_period_days("3개월 주기로 재선정") is None
+    # 주기로 인식한다.
+    assert _extract_rebalancing_period("점검 주기는 3개월", None) == "quarterly"
+    assert _extract_rebalancing_period("점검 주기는 1개월", None) == "monthly"
+    assert _extract_rebalancing_period("2개월 주기", None) == "bimonthly"
+    # 한글 수사 주기('두 달'=격월)도 인식한다.
+    assert _extract_hold_period_days("점검 주기는 두 달") is None
+    assert _extract_rebalancing_period("점검 주기는 두 달", None) == "bimonthly"
+    assert _extract_rebalancing_period("세 달 주기로 점검", None) == "quarterly"
+
+
+def test_value_screen_inspection_cycle_parses_quarterly_rebalancing():
+    """회귀: 'ROE·부채비율, 점검 주기는 3개월'은 분기 리밸런싱으로 잡히고
+    '3개월'이 보유기간(63일)으로 오인되지 않는다."""
+    prompt = (
+        "KOSPI에서 ROE 10% 이상이고 부채비율이 100% 이하인 종목을 대상으로 설정해 주세요. "
+        "최대 보유 종목은 10개, 점검 주기는 3개월, 손절 예시값은 -10%로 설정해 주세요."
+    )
+
+    parsed = _parse_rule_based_strategy(prompt)
+
+    assert parsed is not None
+    assert parsed.rebalancing_period == "quarterly"
+    assert parsed.hold_period_days is None
+
+
 def test_technical_entry_without_exit_still_falls_back():
     """기술적 진입 신호만 있고 청산이 없으면 모호한 입력이라 rule-based가 None을 반환한다."""
     assert _parse_rule_based_strategy("골든크로스 매수") is None

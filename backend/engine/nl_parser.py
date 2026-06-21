@@ -1444,6 +1444,27 @@ def _korean_duration_to_trading_days(compact: str) -> Optional[int]:
     return None
 
 
+def _extract_cycle_months(compact: str) -> Optional[int]:
+    """정기 재선정 주기를 개월 수로 환산한다. 'N개월마다'·'점검/리밸런싱 주기는 N개월'·
+    'N개월 주기'를 모두 인식하고, 한글 수사('두 달')도 처리한다. 주기 표현이 없으면 None.
+    (입력은 공백을 제거한 compact 문자열)"""
+    digit = (
+        re.search(r"(\d+)(?:개월|달)마다", compact)
+        or re.search(r"주기[는은]?(\d+)(?:개월|달)", compact)
+        or re.search(r"(\d+)(?:개월|달)주기", compact)
+    )
+    if digit:
+        return int(digit.group(1))
+    kw = "|".join(_KOREAN_MONTH_WORDS)
+    korean = (
+        re.search(rf"주기[는은]?({kw})달", compact)
+        or re.search(rf"({kw})달(?:주기|마다)", compact)
+    )
+    if korean:
+        return _KOREAN_MONTH_WORDS[korean.group(1)]
+    return None
+
+
 # '개' 뒤에 와서 종목 수가 아님을 뜻하는 단위(개월/개 분기) — '3개월'·'4개 분기'의 '3개'·'4개'
 # 를 종목 수로 오인하지 않도록 부정 전망으로 막는다.
 _NOT_POSITION_COUNT_UNIT = r"(?!월|분기|분)"
@@ -1480,9 +1501,13 @@ def _extract_max_positions(user_input: str) -> Optional[int]:
 
 def _extract_hold_period_days(user_input: str) -> Optional[int]:
     compact = re.sub(r"\s+", "", user_input.lower())
-    # 'N개월마다 점검/리밸런싱'은 보유기간이 아니라 정기 재선정 주기다. 보유 동사가 없으면 보유기간으로 잡지 않는다.
-    periodic = re.search(r"개월마다|달마다|마다.{0,4}(?:점검|재확인|리밸런)", compact)
-    holding_verb = re.search(r"보유|들고|가지고|가져가|유지|지나면", compact)
+    # 'N개월마다 점검/리밸런싱'·'점검 주기는 N개월'·'N개월 주기'는 보유기간이 아니라 정기 재선정
+    # 주기다. 보유 동사가 없으면 보유기간으로 잡지 않는다.
+    periodic = _extract_cycle_months(compact) is not None or re.search(
+        r"마다.{0,4}(?:점검|재확인|리밸런)", compact
+    )
+    # '보유 종목/주식'은 보유 '기간'이 아니라 종목 '수' 맥락이므로 보유 동사로 보지 않는다.
+    holding_verb = re.search(r"보유(?!종목|주식)|들고|가지고|가져가|유지|지나면", compact)
     if periodic and not holding_verb:
         return None
     if "1년" in compact or "일년" in compact:
@@ -1523,11 +1548,12 @@ def _extract_rebalancing_period(user_input: str, hold_period_days: Optional[int]
         return "yearly"
     if hold_period_days == 252 and "보유" in compact:
         return "yearly"
-    # 'N개월마다 (점검/재확인/리밸런싱)' → 주기. 보유기간이 아니라 정기 재선정 의도.
-    n_month = re.search(r"(\d+)(?:개월|달)마다", compact)
-    if n_month:
+    # 'N개월마다 (점검/재확인/리밸런싱)'·'점검 주기는 N개월'·'N개월 주기'(한글 수사 포함)
+    # → 정기 재선정 주기. 보유기간이 아니라 주기적 회전 의도.
+    cycle = _extract_cycle_months(compact)
+    if cycle is not None:
         return {1: "monthly", 2: "bimonthly", 3: "quarterly", 12: "yearly"}.get(
-            int(n_month.group(1)), "monthly"
+            cycle, "monthly"
         )
     return "none"
 
@@ -1681,8 +1707,11 @@ def _parse_rule_based_strategy(user_input: str) -> Optional[ParsedStrategy]:
         return None
 
     rebalancing_period = _extract_rebalancing_period(user_input, hold_period_days)
-    # 정기 리밸런싱 전략은 주기적으로 재선정해야 의미가 있다. 주기 언급이 없으면 월간을 기본값으로.
-    if periodic_rebalance and rebalancing_period == "none":
+    # 회전 수단이 없는 스크리닝 전략은 주기적 재선정이 필요하므로 주기 언급이 없으면 월간을
+    # 기본값으로 둔다. 단, 사용자가 보유기간이나 청산 신호를 직접 지정했다면 그게 회전/청산
+    # 수단이므로 요청하지 않은 리밸런싱을 임의로 주입하지 않는다. (랭킹 전략의 회전은 리밸런싱이
+    # 구동하므로 유지; '3개월' 같은 룩백이 보유기간으로 오인돼도 아래에서 보유기간을 비운다.)
+    if periodic_rebalance and rebalancing_period == "none" and (ranking_metric or not has_exit):
         rebalancing_period = "monthly"
     # 랭킹 전략의 회전은 리밸런싱 주기로 구동한다. 모멘텀 설명에 섞인 'N개월'(예: '최근 3개월
     # 동안 오른')이 보유기간으로 오인되지 않도록, 리밸런싱이 있으면 보유기간을 비운다.
