@@ -2449,6 +2449,20 @@ _nl_parsers: dict = {}  # backend → NLStrategyParser (lazy singleton)
 _nl_parser_status: dict = {"status": "loading", "error": None}  # "ok" | "failed" | "loading"
 
 
+def _downgrade_unloaded_mlx(resolved: str) -> str:
+    """mlx로 결정됐지만 모델이 startup에 로드되지 않았고 강제(LLM_BACKEND=mlx)도 아니면
+    ollama로 강등한다. resolve_llm_backend는 mlx_lm 라이브러리 임포트 가능 여부만 보므로,
+    라이브러리는 있어도 모델 미로드인 로컬 dev 환경에서 mlx로 결정되면 파스 라우트가 503을
+    낸다. 라우트 상단 주석의 '강등' 의도를 실제로 실현한다."""
+    if (
+        resolved == "mlx"
+        and "mlx" not in _nl_parsers
+        and os.environ.get("LLM_BACKEND", "").strip().lower() != "mlx"
+    ):
+        return "ollama"
+    return resolved
+
+
 def _active_nl_parser():
     """등록된 NL 파서를 우선순위(mlx → ollama)로 하나 반환. 없으면 None.
     코치/종목분석이 백엔드와 무관하게 공유 파서를 찾을 때 쓴다."""
@@ -2683,14 +2697,7 @@ def preload_nl_parser():
         _nl_parsers[backend] = parser
         _nl_parser_status["status"] = "ok"
         _nl_parser_status["error"] = None
-
-        from api.coach_routes import set_parser as _set_coach_parser
-        _set_coach_parser(parser)
-
         print(f"[startup] NL 파서 준비 완료 (backend={backend}): {label}", flush=True)
-
-        if backend == "ollama":
-            _kick_ollama_warmup()
     except Exception as e:
         _nl_parser_status["status"] = "failed"
         _nl_parser_status["error"] = str(e)
@@ -2699,6 +2706,18 @@ def preload_nl_parser():
         # MLX는 명시적 요청 시에만 사용 (LLM_BACKEND=mlx)
         if backend == "mlx":
             raise
+        return
+
+    # 코치 파서 주입은 NL 파서 상태와 분리한다 — 코치/검증 모듈 import 실패가
+    # NL 모델 로드 실패로 오인돼 "AI 모델 로드 실패" 배너가 뜨는 것을 막는다.
+    try:
+        from api.coach_routes import set_parser as _set_coach_parser
+        _set_coach_parser(parser)
+    except Exception as coach_err:
+        print(f"[startup] 코치 파서 주입 실패 (무시됨): {coach_err}", flush=True)
+
+    if backend == "ollama":
+        _kick_ollama_warmup()
 
 
 def _ensure_summarize_model_loaded():
@@ -2725,6 +2744,24 @@ def get_model_status():
     return _nl_parser_status
 
 
+def _is_llm_connection_error(exc: BaseException) -> bool:
+    """예외 체인을 따라가며 LLM 서버(Ollama/Modal) 연결 실패인지 판별한다."""
+    markers = (
+        "APIConnectionError", "Connection error", "ConnectionError",
+        "Connection refused", "Max retries", "Failed to establish",
+        "Errno 61", "Errno 111",
+    )
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        text = f"{type(current).__name__}: {current}"
+        if any(marker in text for marker in markers):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
 @app.post("/strategy/parse", response_model=NLParseResponse)
 def parse_nl_strategy(request: NLParseRequest):
     """자연어 전략 설명을 ParsedStrategy + BacktestRequest로 변환"""
@@ -2732,7 +2769,7 @@ def parse_nl_strategy(request: NLParseRequest):
 
     request_started = time.perf_counter()
     # MLX를 쓸 수 없는 환경이면 요청이 "mlx"여도 ollama로 강등한다(프론트 변경 불필요).
-    resolved_backend = resolve_llm_backend(request.backend)
+    resolved_backend = _downgrade_unloaded_mlx(resolve_llm_backend(request.backend))
     if resolved_backend != request.backend:
         print(f"[NL-PARSE] backend '{request.backend}' 사용 불가 → '{resolved_backend}'로 폴백", flush=True)
     print(f"\n[NL-PARSE] prompt='{request.prompt}', backend={resolved_backend}", flush=True)
@@ -2850,11 +2887,21 @@ def parse_nl_strategy(request: NLParseRequest):
     except HTTPException:
         raise
     except Exception as e:
-        _nl_parser_status["status"] = "failed"
-        _nl_parser_status["error"] = str(e)
         import traceback
         print(f"[NL-PARSE ERROR]\n{traceback.format_exc()}", flush=True)
-        raise HTTPException(status_code=500, detail=f"NL parse error: {repr(e)}")
+        if _is_llm_connection_error(e):
+            # LLM 서버 연결 실패 — 모델 미가용으로 표시하고 사용자에겐 친화적 메시지를 준다.
+            _nl_parser_status["status"] = "failed"
+            _nl_parser_status["error"] = str(e)
+            raise HTTPException(
+                status_code=503,
+                detail="전략 분석 서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+            )
+        # 일회성 파싱 오류(잘못된 입력 등)는 전역 모델 상태를 건드리지 않는다.
+        raise HTTPException(
+            status_code=500,
+            detail="전략을 해석하지 못했습니다. 입력을 바꿔 다시 시도해 주세요.",
+        )
 
 
 @app.post("/strategy/backtest-stream")

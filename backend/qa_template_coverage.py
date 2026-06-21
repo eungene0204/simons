@@ -86,7 +86,8 @@ def _post(path: str, body: dict, timeout: float = 180.0) -> dict:
 
 
 def parse_strategy(prompt: str) -> dict:
-    return _post("/strategy/parse", {"prompt": prompt, "backend": "mlx"})
+    # dev/배포 기본값은 ollama. mlx는 로컬 dev에 모델이 로드돼 있지 않아 503이 난다.
+    return _post("/strategy/parse", {"prompt": prompt, "backend": "ollama"})
 
 
 def coach_strategy(prompt: str, parsed: dict) -> dict:

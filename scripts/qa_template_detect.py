@@ -59,7 +59,8 @@ def load_templates() -> list[Template]:
 
 
 def parse_strategy(prompt: str) -> dict:
-    data = json.dumps({"prompt": prompt, "backend": "mlx"}).encode()
+    # dev/배포 기본값은 ollama. mlx는 로컬 dev에 모델이 로드돼 있지 않아 503이 난다.
+    data = json.dumps({"prompt": prompt, "backend": "ollama"}).encode()
     req = urllib.request.Request(
         f"{BACKEND}/strategy/parse", data=data,
         headers={"Content-Type": "application/json"}, method="POST",

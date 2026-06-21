@@ -64,7 +64,13 @@ def test_parse_nl_strategy_reports_runtime_and_cache_hit(monkeypatch):
     assert parse_metrics["avg_total_ms"] >= 0
 
 
-def test_mlx_parse_requires_startup_loaded_model():
+def test_forced_mlx_parse_requires_startup_loaded_model(monkeypatch):
+    """LLM_BACKEND=mlx 로 명시 강제했는데 모델이 startup에 로드되지 않았으면 503.
+
+    (강제가 아닌 일반 backend='mlx' 요청은 ollama로 강등된다 —
+    test_nl_parser_status_isolation.test_unloaded_mlx_downgrades_to_ollama 참조.)
+    """
+    monkeypatch.setenv("LLM_BACKEND", "mlx")
     existing = main._nl_parsers.pop("mlx", None)
     main._nl_parse_cache.clear()
     try:
