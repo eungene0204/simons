@@ -30,7 +30,7 @@ def build(params: Dict[str, float], universe: List[str]) -> ParsedStrategy:
         exit_signals=[],
         max_positions=params.get("max_positions", 10),
         hold_period_days=int(params["hold_days"]),
-        rebalancing_period="yearly" if params["hold_days"] >= 252 else "quarterly",
+        rebalancing_period="none",
         stop_loss_pct=None,
         take_profit_pct=None,
         trailing_stop_pct=None,
