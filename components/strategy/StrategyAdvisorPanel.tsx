@@ -1,5 +1,8 @@
 "use client";
 
+// '전략 코치' UI. 현재 전략 연구소는 검증 모드만 노출하므로 렌더되지 않는다(AdvisorResponseSections 미사용).
+// 추후 코치 모드 재도입 시 다시 연결할 예정이므로 의도적으로 보존한다 — 死 코드로 제거하지 말 것.
+
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowsClockwise,

@@ -15,6 +15,8 @@ export interface ParsedSummary {
   take_profit_pct: number | null;
   trailing_stop_pct?: number | null;
   backtest_period: string;
+  backtest_start_date?: string | null;
+  backtest_end_date?: string | null;
   initial_capital: number;
 }
 

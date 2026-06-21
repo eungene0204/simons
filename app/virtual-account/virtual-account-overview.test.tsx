@@ -86,6 +86,24 @@ describe("VirtualAccountOverview navigation", () => {
     });
   });
 
+  it("shows only a centered indicator while loading the initial account list", () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
+
+    render(<VirtualAccountOverview />);
+
+    const loadingIndicator = screen.getByRole("status", {
+      name: "가상계좌 불러오는 중",
+    });
+    expect(loadingIndicator).toHaveClass(
+      "min-h-[calc(100vh-var(--top-menu-bar-height,76px))]",
+      "items-center",
+      "justify-center"
+    );
+    expect(screen.queryByText("계좌를 불러오는 중입니다.")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("virtual-account-overview-root")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("virtual-account-simulation-notice")).not.toBeInTheDocument();
+  });
+
   it("navigates to the account detail page after validating the selected account", async () => {
     setCachedVirtualAccounts([cachedAccount]);
     vi.stubGlobal(

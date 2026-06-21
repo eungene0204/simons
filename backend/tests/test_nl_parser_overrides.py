@@ -102,6 +102,54 @@ def test_large_cap_maps_to_kospi200():
     assert _extract_explicit_universe("대형주 위주로 담고 싶어") == ["KOSPI200"]
 
 
+# ─── 명시적 백테스트 연도 범위 ────────────────────────────────────────────────
+
+
+def test_extract_backtest_dates_full_range():
+    from engine.nl_parser import _extract_backtest_dates
+    assert _extract_backtest_dates("2002년부터 2005년까지만 테스트 해줘") == ("2002-01-01", "2005-12-31")
+    assert _extract_backtest_dates("2002~2005 테스트") == ("2002-01-01", "2005-12-31")
+    assert _extract_backtest_dates("2003년만 돌려줘") == ("2003-01-01", "2003-12-31")
+
+
+def test_extract_backtest_dates_open_ended_and_none():
+    from engine.nl_parser import _extract_backtest_dates
+    assert _extract_backtest_dates("2010년부터 테스트") == ("2010-01-01", None)
+    assert _extract_backtest_dates("2008년까지 보고싶어") == (None, "2008-12-31")
+    assert _extract_backtest_dates("PBR 1 이하 5종목") == (None, None)
+
+
+def test_apply_prompt_overrides_sets_backtest_dates():
+    parsed = _apply_prompt_overrides(make_base_strategy(), "2002년부터 2005년까지만 테스트 해줘")
+    assert parsed.backtest_start_date == "2002-01-01"
+    assert parsed.backtest_end_date == "2005-12-31"
+
+
+def test_apply_prompt_overrides_preserves_dates_when_unmentioned():
+    # 날짜 미언급 후속 수정에서는 기존 명시 기간을 보존한다(수정 모드 보호).
+    base = make_base_strategy().model_copy(
+        update={"backtest_start_date": "2002-01-01", "backtest_end_date": "2005-12-31"}
+    )
+    parsed = _apply_prompt_overrides(base, "초기자금 2천만원으로 바꿔줘")
+    assert parsed.backtest_start_date == "2002-01-01"
+    assert parsed.backtest_end_date == "2005-12-31"
+
+
+def test_backtest_dates_flow_into_request_and_change_strategy_id():
+    from engine.strategy_converter import to_backtest_request, compute_strategy_id
+    base = make_base_strategy()
+    dated = base.model_copy(update={"backtest_start_date": "2002-01-01", "backtest_end_date": "2005-12-31"})
+
+    req = to_backtest_request(dated, resolve_symbols=False)
+    assert req["startDate"] == "2002-01-01"
+    assert req["endDate"] == "2005-12-31"
+
+    # 명시 기간이 다르면 strategy_id(캐시 키)도 달라져 과거 결과가 잘못 재사용되지 않는다.
+    assert compute_strategy_id(base) != compute_strategy_id(dated)
+    # 명시 기간이 없으면 canonical DSL에 키가 없어 기존 전략 해시는 불변.
+    assert "startDate" not in to_backtest_request(base, resolve_symbols=False)
+
+
 def test_large_cap_overrides_plain_kospi():
     # "코스피 대형주"는 코스피 전체가 아니라 대형주(KOSPI200)로 좁혀야 한다.
     parsed = _apply_prompt_overrides(make_base_strategy(), "코스피 대형주로 해줘")

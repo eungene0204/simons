@@ -19,7 +19,7 @@ import {
   deleteAccount,
 } from "@/lib/portfolio";
 import { getMarketLogs, type VirtualMarketLog } from "@/lib/virtual-market";
-import { Robot, Trash, TrendUp } from "phosphor-react";
+import { Robot, Spinner, Trash, TrendUp } from "phosphor-react";
 import OrderBook from "@/components/order/OrderBook";
 import PortfolioPerformanceChart, { PerformancePoint } from "@/components/portfolio/PortfolioPerformanceChart";
 import StrategyReplaceModal from "@/components/ui/StrategyReplaceModal";
@@ -527,8 +527,12 @@ export default function VirtualAccountDetailPage() {
   if (!account) {
     return (
       <DashboardLayout userName="사용자">
-        <div className="p-4 flex flex-col items-center justify-center min-h-48 gap-3">
-          <p className="text-sm font-bold text-gray-500">계좌를 불러오는 중...</p>
+        <div
+          role="status"
+          aria-label="가상계좌 상세 불러오는 중"
+          className="flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] items-center justify-center"
+        >
+          <Spinner size={32} className="animate-spin text-gray-500" aria-hidden="true" />
         </div>
       </DashboardLayout>
     );

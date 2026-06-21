@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import BacktestDashboard from "@/components/strategy/backtest/BacktestDashboard";
 import { BacktestResult } from "@/types/strategy";
-import { ChartLineUp, ArrowLeft, ArrowsClockwise, Warning } from "phosphor-react";
+import { ChartLineUp, ArrowLeft, Spinner, Warning } from "phosphor-react";
 import { BacktestConfigOptions } from "@/components/strategy/backtest/BacktestConfig";
 import {
   inferBacktestOptionsFromResult,
@@ -201,9 +201,12 @@ function StrategyResultContent() {
   if (loading) {
     return (
       <DashboardLayout userName="">
-        <div className="flex items-center justify-center h-full gap-2 text-gray-500">
-          <ArrowsClockwise size={16} className="animate-spin" />
-          <span className="text-sm font-bold">불러오는 중...</span>
+        <div
+          role="status"
+          aria-label="전략 결과 불러오는 중"
+          className="flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] items-center justify-center"
+        >
+          <Spinner size={32} className="animate-spin text-gray-500" aria-hidden="true" />
         </div>
       </DashboardLayout>
     );

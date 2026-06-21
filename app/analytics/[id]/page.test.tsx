@@ -91,6 +91,22 @@ describe("StrategyResultPage", () => {
     vi.stubGlobal("fetch", fetchMock);
   });
 
+  it("전략 결과를 불러오는 동안 중앙 회전 인디케이터만 보여준다", () => {
+    fetchMock.mockImplementation(() => new Promise<Response>(() => undefined));
+
+    render(<StrategyResultPage />);
+
+    const loadingIndicator = screen.getByRole("status", {
+      name: "전략 결과 불러오는 중",
+    });
+    expect(loadingIndicator).toHaveClass(
+      "min-h-[calc(100vh-var(--top-menu-bar-height,76px))]",
+      "items-center",
+      "justify-center"
+    );
+    expect(screen.queryByText("불러오는 중...")).not.toBeInTheDocument();
+  });
+
   it("페이지 로드만으로는 백테스트를 자동 재실행하지 않는다", async () => {
     render(<StrategyResultPage />);
 

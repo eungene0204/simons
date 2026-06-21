@@ -4642,7 +4642,7 @@
   },
   {
     "symbol": "006490",
-    "name": "인스코비",
+    "name": "프리티",
     "market": "KOSPI",
     "sector": "통신/유틸리티",
     "industry": "전기 통신업"
@@ -5850,6 +5850,13 @@
     "market": "KOSPI",
     "sector": "에너지/원자력",
     "industry": "연료용 가스 제조 및 배관공급업"
+  },
+  {
+    "symbol": "0165X0",
+    "name": "메리츠제2호스팩",
+    "market": "KOSDAQ",
+    "sector": "부동산",
+    "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "0017J0",
@@ -7775,13 +7782,6 @@
     "market": "KOSDAQ",
     "sector": "반도체",
     "industry": "반도체 제조업"
-  },
-  {
-    "symbol": "464440",
-    "name": "한국제13호스팩",
-    "market": "KOSDAQ",
-    "sector": "은행/금융지주",
-    "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "446540",

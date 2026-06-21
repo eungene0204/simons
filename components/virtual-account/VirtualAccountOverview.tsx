@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type MouseEvent } from "react";
 import Link from "next/link";
-import { Bell, Robot, X } from "phosphor-react";
+import { Bell, Robot, Spinner, X } from "phosphor-react";
 import { StrategyWaveBackground } from "@/components/strategy/StrategyWaveBackground";
 import CreateAccountModal from "@/components/ui/CreateAccountModal";
 import VirtualAccountSimulationNotice from "@/components/virtual-account/VirtualAccountSimulationNotice";
@@ -145,6 +145,18 @@ export default function VirtualAccountOverview() {
     }
   };
 
+  if (loading) {
+    return (
+      <div
+        role="status"
+        aria-label="가상계좌 불러오는 중"
+        className="flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] items-center justify-center"
+      >
+        <Spinner size={32} className="animate-spin text-gray-500" aria-hidden="true" />
+      </div>
+    );
+  }
+
   return (
     <>
       <div
@@ -152,13 +164,7 @@ export default function VirtualAccountOverview() {
         className="flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] flex-col px-2 pb-2 md:px-3 md:pb-3"
       >
         <div className="flex-1">
-          {loading ? (
-            <div className="flex h-full min-h-full flex-col border border-white/[0.08]">
-              <div className="flex flex-1 items-center justify-center">
-                <p className="text-sm font-bold text-gray-500">계좌를 불러오는 중입니다.</p>
-              </div>
-            </div>
-          ) : loadError ? (
+          {loadError ? (
             <div className="flex h-full min-h-full flex-col border border-white/[0.08]">
               <div className="flex flex-1 flex-col items-center justify-center gap-4 px-5 text-center">
                 <p className="text-3xl font-black tracking-tight text-white">

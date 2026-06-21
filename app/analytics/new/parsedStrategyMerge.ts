@@ -41,7 +41,8 @@ const DOMAIN_PATTERNS: Record<RequestedDomain, RegExp[]> = {
   // 백엔드의 익절/손절 결정적 추출과 보조를 맞춘다: '수익…매도'(익절), '하락…매도'·'손실'(손절)도 risk로 인식.
   risk: [/손절|익절|트레일링|리스크|mdd|낙폭|목표\s*수익|수익\s*(?:확정|실현)|수익[^.]{0,8}(?:매도|팔)|손실|하락[^.]{0,8}(?:매도|팔)|stop\s*loss|take\s*profit|trailing/i],
   portfolio: [/최대\s*\d+\s*종목|\d+\s*개\s*종목|\d+\s*종목|포트폴리오|리밸런싱|리밸런스|분산|집중/i],
-  backtest: [/백테스트|테스트 기간|전체 데이터|초기자금|자본금|원금|만원|억원?|\d[\d,]*원/i],
+  // 명시적 연도 범위('2002년부터 2005년까지', '2002~2005')도 백테스트 기간 변경으로 인식한다.
+  backtest: [/백테스트|테스트 기간|전체 데이터|초기자금|자본금|원금|만원|억원?|\d[\d,]*원|(?:19|20)\d{2}\s*년?\s*(?:부터|까지|~|에서)|(?:19|20)\d{2}\s*[~\-]\s*(?:19|20)\d{2}/i],
 };
 
 const FOLLOW_UP_QUESTION_PATTERN =
@@ -210,6 +211,10 @@ function mergeParsedSummary(
     take_profit_pct: resolveRisk("take_profit_pct"),
     trailing_stop_pct: resolveRisk("trailing_stop_pct"),
     backtest_period: requestedDomains.has("backtest") ? next.backtest_period : previous.backtest_period,
+    // 명시적 기간은 백엔드가 previous_parsed와 병합해 권위 있는 값을 내려주므로 그대로 따른다
+    // (coarse한 backtest 도메인으로 게이트하면 '초기자금 변경' 같은 무관한 수정에 날짜가 지워진다).
+    backtest_start_date: next.backtest_start_date ?? previous.backtest_start_date,
+    backtest_end_date: next.backtest_end_date ?? previous.backtest_end_date,
     initial_capital: requestedDomains.has("backtest") ? next.initial_capital : previous.initial_capital,
   };
 }

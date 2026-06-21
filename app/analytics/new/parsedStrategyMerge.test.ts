@@ -75,6 +75,77 @@ describe("mergeStrategyModification", () => {
     expect(result.shouldReusePreviousClarification).toBe(true);
   });
 
+  it("명시적 연도 범위 후속 요청은 백테스트 시작/종료일을 전략과 요청에 반영한다", () => {
+    const result = mergeStrategyModification({
+      previousParsed,
+      nextParsed: {
+        ...previousParsed,
+        backtest_start_date: "2002-01-01",
+        backtest_end_date: "2005-12-31",
+      },
+      previousBacktestRequest: {
+        symbols: ["005930", "000660"],
+        entry: { conditions: [{ id: "ai_model" }] },
+        exit: { conditions: [{ id: "ai_drop_model" }] },
+        risk: { max_positions: 5, position_size_pct: 20, init_cash: 10000000 },
+        period: "5y",
+        options: { fee_rate: 0.015, slippage_rate: 0.05 },
+      },
+      nextBacktestRequest: {
+        symbols: ["005930", "000660"],
+        entry: { conditions: [{ id: "ai_model" }] },
+        exit: { conditions: [{ id: "ai_drop_model" }] },
+        risk: { max_positions: 5, position_size_pct: 20, init_cash: 10000000 },
+        period: "5y",
+        startDate: "2002-01-01",
+        endDate: "2005-12-31",
+        options: { fee_rate: 0.015, slippage_rate: 0.05 },
+      },
+      userPrompt: "2002년부터 2005년까지만 테스트 해줘",
+    });
+
+    expect(result.parsed.backtest_start_date).toBe("2002-01-01");
+    expect(result.parsed.backtest_end_date).toBe("2005-12-31");
+    expect(result.backtestRequest?.startDate).toBe("2002-01-01");
+    expect(result.backtestRequest?.endDate).toBe("2005-12-31");
+  });
+
+  it("날짜와 무관한 후속 수정(초기자금)에서는 기존 명시 기간을 유지한다", () => {
+    const dated: ParsedSummary = {
+      ...previousParsed,
+      backtest_start_date: "2002-01-01",
+      backtest_end_date: "2005-12-31",
+    };
+    const result = mergeStrategyModification({
+      previousParsed: dated,
+      nextParsed: { ...dated, initial_capital: 20000000 },
+      previousBacktestRequest: {
+        symbols: ["005930"],
+        entry: { conditions: [{ id: "ai_model" }] },
+        exit: { conditions: [] },
+        risk: { max_positions: 5, position_size_pct: 20, init_cash: 10000000 },
+        period: "5y",
+        startDate: "2002-01-01",
+        endDate: "2005-12-31",
+        options: {},
+      },
+      nextBacktestRequest: {
+        symbols: ["005930"],
+        entry: { conditions: [{ id: "ai_model" }] },
+        exit: { conditions: [] },
+        risk: { max_positions: 5, position_size_pct: 20, init_cash: 20000000 },
+        period: "5y",
+        startDate: "2002-01-01",
+        endDate: "2005-12-31",
+        options: {},
+      },
+      userPrompt: "초기자금 2천만원으로 바꿔줘",
+    });
+
+    expect(result.parsed.backtest_start_date).toBe("2002-01-01");
+    expect(result.parsed.backtest_end_date).toBe("2005-12-31");
+  });
+
   it("리스크 수정 요청은 새로운 손절 값을 적용한다", () => {
     const result = mergeStrategyModification({
       previousParsed,

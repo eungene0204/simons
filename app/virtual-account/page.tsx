@@ -2,15 +2,24 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Spinner } from "phosphor-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import VirtualAccountOverview from "@/components/virtual-account/VirtualAccountOverview";
-import { readLastVirtualAccountDetail } from "@/components/virtual-account/virtualAccountDetailMemory";
+import {
+  readLastVirtualAccountDetail,
+  shouldRestoreLastVirtualAccountDetail,
+} from "@/components/virtual-account/virtualAccountDetailMemory";
 
 export default function VirtualAccountPage() {
   const router = useRouter();
   const [isRestoringDetail, setIsRestoringDetail] = useState(true);
 
   useEffect(() => {
+    if (!shouldRestoreLastVirtualAccountDetail()) {
+      setIsRestoringDetail(false);
+      return;
+    }
+
     const lastAccountId = readLastVirtualAccountDetail();
 
     if (lastAccountId) {
@@ -24,8 +33,12 @@ export default function VirtualAccountPage() {
   return (
     <DashboardLayout userName="사용자">
       {isRestoringDetail ? (
-        <div className="min-h-screen bg-[#050505] px-6 py-10 text-sm font-bold text-gray-500">
-          계좌 페이지로 이동 중입니다...
+        <div
+          role="status"
+          aria-label="가상계좌 불러오는 중"
+          className="flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] items-center justify-center"
+        >
+          <Spinner size={32} className="animate-spin text-gray-500" aria-hidden="true" />
         </div>
       ) : (
         <VirtualAccountOverview />

@@ -42,6 +42,10 @@ router = APIRouter(tags=["coach"])
 
 # Injected by main.py after NLStrategyParser is preloaded
 _parser = None
+# 전략 연구소의 사용자 대면 동작 모드.
+#   "validation" — 결정론적 구조/실행가능성 검증만 노출 (유사투자자문업 회피, 현재 기본값)
+#   "coach"      — LLM 코칭(StrategyAdvisorAgent 등) 경로
+# 아래 코치 코드 경로는 의도적으로 보존한다. 추후 "coach"로 되살릴 예정이므로 死 코드로 제거하지 말 것.
 _STRATEGY_AGENT_MODE = "validation"
 _strategy_validation_agent = StrategyValidationAgent()
 _CACHE_MAX = 200

@@ -216,6 +216,25 @@ function FilterBadge({ label }: { label: string }) {
   );
 }
 
+// 백테스트 기간 배지 라벨. 명시적 연도 범위가 있으면 '백테스트 2002~2005'처럼,
+// 없으면 상대 기간('백테스트 5년')으로 표시한다.
+function backtestPeriodLabel(parsed: ParsedSummary): string {
+  const startYear = parsed.backtest_start_date?.slice(0, 4);
+  const endYear = parsed.backtest_end_date?.slice(0, 4);
+  if (startYear || endYear) {
+    const range =
+      startYear && endYear
+        ? startYear === endYear
+          ? startYear
+          : `${startYear}~${endYear}`
+        : startYear
+          ? `${startYear}~`
+          : `~${endYear}`;
+    return `백테스트 ${range}`;
+  }
+  return `백테스트 ${PERIOD_LABELS[parsed.backtest_period]}`;
+}
+
 function buildAnimatedHeadline(lines: string[], visibleCount: number) {
   let remaining = visibleCount;
 
@@ -459,7 +478,7 @@ function ParsedSummaryBubble({
             <FilterBadge label={`최대 ${parsed.max_positions}종목`} />
             {parsed.hold_period_days && <FilterBadge label={`${parsed.hold_period_days}일 보유`} />}
             {parsed.rebalancing_period !== "none" && <FilterBadge label={`${REBAL_LABELS[parsed.rebalancing_period]} 리밸런싱`} />}
-            <FilterBadge label={`백테스트 ${PERIOD_LABELS[parsed.backtest_period]}`} />
+            <FilterBadge label={backtestPeriodLabel(parsed)} />
             <FilterBadge label={`초기자금 ${formatInitialCapital(parsed.initial_capital ?? 10000000)}`} />
           </div>
         </div>
@@ -679,10 +698,15 @@ function StrategyLabContent() {
     });
   };
 
-  const appendUserThenAssistant = async (userText: string, assistant: ChatMessage) => {
+  // 사용자 입력 버블은 어떤 네트워크 호출(분류/파싱)보다 먼저, 즉시 그린다.
+  const appendUserMessage = (userText: string) => {
     flushSync(() => {
       setMessages(prev => [...prev, { role: "user", content: userText }]);
     });
+  };
+
+  // 사용자 버블이 이미 그려진 뒤, assistant 자리표시자를 한 틱 늦게 추가한다(등장 스태거).
+  const appendAssistant = async (assistant: ChatMessage) => {
     await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
     setMessages(prev => [...prev, assistant]);
   };
@@ -777,7 +801,7 @@ function StrategyLabContent() {
         intent === "GREETING"
           ? "안녕하세요. 오늘은 어떤 전략을 연구해 볼까요?"
           : "저는 투자 전략 및 투자 분석 전용 모델입니다. 현재 질문에는 도움을 드릴 수 없습니다. 대신 투자 전략, 백테스트, 종목 분석과 관련된 질문은 도와드릴 수 있습니다.";
-      await appendUserThenAssistant(userText, { role: "assistant", infoText: suggestedReply ?? fallback });
+      await appendAssistant({ role: "assistant", infoText: suggestedReply ?? fallback });
       return true;
     }
 
@@ -787,7 +811,7 @@ function StrategyLabContent() {
       // (예: "PBR 1 이하 종목"). "어떤 종목을 분석할까요?" 막다른 길 대신
       // 전략 다듬기 흐름으로 흘려보낸다.
       if (!symbol && currentParsed) return false;
-      await appendUserThenAssistant(userText, { role: "assistant", stockLoading: true });
+      await appendAssistant({ role: "assistant", stockLoading: true });
       if (!symbol) {
         updateLastAssistant({
           stockLoading: false,
@@ -801,7 +825,7 @@ function StrategyLabContent() {
 
     // 일반 투자 지식 질문 → 전략 작성 중이 아닐 때만 가로챈다.
     if (intent === "GENERAL_INVESTMENT" && !currentParsed) {
-      await appendUserThenAssistant(userText, { role: "assistant", isLoading: true });
+      await appendAssistant({ role: "assistant", isLoading: true });
       try {
         const res = await fetch("/api/query/general", {
           method: "POST",
@@ -842,11 +866,13 @@ function StrategyLabContent() {
     const currentParsed = latestParsedRef.current ?? latestParsed;
     const currentBacktestReq = backtestReqRef.current ?? backtestReq;
     setIsSending(true);
+    // 분류/파싱 호출이 시작되기 전에 사용자 입력을 화면에 즉시 반영한다.
+    appendUserMessage(userText);
 
     // '다른 종목 분석'으로 종목명을 묻는 중이면, 다음 입력은 분류 없이 바로 분석한다.
     if (awaitingStockAnalysisRef.current) {
       awaitingStockAnalysisRef.current = false;
-      await appendUserThenAssistant(userText, { role: "assistant", stockLoading: true });
+      await appendAssistant({ role: "assistant", stockLoading: true });
       await renderStockAnalysisResult({ query: userText, last_symbol: lastAnalyzedSymbolRef.current });
       setIsSending(false);
       return;
@@ -859,7 +885,7 @@ function StrategyLabContent() {
     }
 
     if (currentParsed && isAdvisorFollowUpPrompt(userText)) {
-      await appendUserThenAssistant(userText, {
+      await appendAssistant({
         role: "assistant",
         parsed: currentParsed,
         coachLoading: true,
@@ -876,7 +902,7 @@ function StrategyLabContent() {
       return;
     }
 
-    await appendUserThenAssistant(userText, { role: "assistant", isLoading: true });
+    await appendAssistant({ role: "assistant", isLoading: true });
 
     try {
       const res = await fetch("/api/strategy/parse/stream", {

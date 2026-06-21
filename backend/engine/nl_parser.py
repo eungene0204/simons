@@ -272,6 +272,14 @@ class ParsedStrategy(BaseModel):
         default="5y",
         description="백테스트 기간. 언급 없으면 '5y'"
     )
+    backtest_start_date: Optional[str] = Field(
+        default=None,
+        description="명시적 백테스트 시작일(YYYY-MM-DD). 시스템이 '2002년부터' 같은 표현에서 자동 추출하므로 직접 채우지 말 것"
+    )
+    backtest_end_date: Optional[str] = Field(
+        default=None,
+        description="명시적 백테스트 종료일(YYYY-MM-DD). 시스템이 '2005년까지' 같은 표현에서 자동 추출하므로 직접 채우지 말 것"
+    )
     initial_capital: float = Field(
         default=10_000_000.0,
         description="초기 자본금(원). 언급 없으면 10000000 (1천만원)"
@@ -309,6 +317,8 @@ class ParsedStrategyDiff(BaseModel):
     trailing_stop_pct: Optional[float] = None
     max_mdd_limit_pct: Optional[float] = None
     backtest_period: Optional[Literal["1y", "3y", "5y", "full"]] = None
+    backtest_start_date: Optional[str] = None
+    backtest_end_date: Optional[str] = None
     initial_capital: Optional[float] = None
     execution_timing: Optional[Literal["next_open", "current_close"]] = None
     fee_rate: Optional[float] = None
@@ -1535,6 +1545,38 @@ def _extract_backtest_period(user_input: str) -> str:
     return "5y"
 
 
+_YEAR = r"((?:19|20)\d{2})"
+
+
+def _extract_backtest_dates(user_input: str) -> tuple[Optional[str], Optional[str]]:
+    """'2002년부터 2005년까지' 같은 명시적 연도 범위를 (시작일, 종료일) ISO로 추출한다.
+
+    상대 기간(1y/3y/5y)과 달리 명시적 연·범위는 결정적으로 처리한다(LLM 비의존).
+    없으면 (None, None). 시작만/종료만 언급되면 한쪽만 채운다.
+    """
+    compact = re.sub(r"\s+", "", user_input)
+
+    # YYYY (부터|~|-|에서) YYYY (까지)?  — 양끝 모두 명시
+    span = re.search(rf"{_YEAR}년?(?:부터|에서|~|-|–|—){_YEAR}년?(?:까지)?", compact)
+    if span:
+        y1, y2 = int(span.group(1)), int(span.group(2))
+        if y1 > y2:
+            y1, y2 = y2, y1
+        return f"{y1}-01-01", f"{y2}-12-31"
+
+    # 'YYYY년만' — 단일 연도
+    only = re.search(rf"{_YEAR}년?만", compact)
+    if only:
+        y = int(only.group(1))
+        return f"{y}-01-01", f"{y}-12-31"
+
+    start_match = re.search(rf"{_YEAR}년?부터", compact)
+    end_match = re.search(rf"{_YEAR}년?까지", compact)
+    start = f"{int(start_match.group(1))}-01-01" if start_match else None
+    end = f"{int(end_match.group(1))}-12-31" if end_match else None
+    return start, end
+
+
 def _strip_amount_filter_phrases(compact: str) -> str:
     """거래대금/시가총액처럼 '억' 단위 펀더멘털 필터 표현을 비운다.
 
@@ -1836,6 +1878,14 @@ def _apply_prompt_overrides(parsed: ParsedStrategy, user_input: str) -> ParsedSt
     if ranking_metric is not None:
         updates["ranking_metric"] = ranking_metric
         updates["ranking_lookback_days"] = ranking_lookback_days
+
+    # 명시적 백테스트 연도 범위('2002년부터 2005년까지')를 결정적으로 추출.
+    # 언급이 없으면 기존 값을 덮어쓰지 않는다(수정 모드 보호).
+    start_date, end_date = _extract_backtest_dates(user_input)
+    if start_date is not None:
+        updates["backtest_start_date"] = start_date
+    if end_date is not None:
+        updates["backtest_end_date"] = end_date
 
     # ── Step 1: LLM 환각 신호 제거 (프롬프트에 언급되지 않은 지표 제거) ──
     validated_entry = _validate_signals(list(parsed.entry_signals), user_input)

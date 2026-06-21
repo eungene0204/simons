@@ -180,7 +180,8 @@ Simons는 사용자가 자신만의 주식 투자 전략을 **설계 → 검증 
 | `rebalancing_period` | `Literal["none","daily","monthly","quarterly","yearly"]` | 달력 기준 리밸런싱 주기. `none`이 아니면 매 주기 첫 거래일에 목표 집합(상위 K)을 재구성(reconstitution)한다 |
 | `stop_loss_pct` | `Optional[float]` | 손절선 (%) |
 | `take_profit_pct` | `Optional[float]` | 익절선 (%) |
-| `backtest_period` | `str` | 백테스트 기간 (`1y` / `3y` / `5y`) |
+| `backtest_period` | `str` | 백테스트 기간 (`1y` / `3y` / `5y` / `full`) |
+| `backtest_start_date` / `backtest_end_date` | `Optional[str]` | 명시적 연도 범위(`"2002년부터 2005년까지"`)에서 결정적으로 추출한 `YYYY-MM-DD`. 있으면 상대 기간 대신 이 창으로 백테스트(엔진 `startDate`/`endDate`) |
 | `initial_capital` | `int` | 초기 투자금 (원) |
 
 **FR-STR-003** 사용자는 파싱된 전략을 대화형으로 수정할 수 있어야 한다 (점진적 수정 모드).

@@ -200,6 +200,8 @@ def to_canonical_strategy_dsl(strategy: ParsedStrategy) -> dict:
         "trailing_stop_pct": strategy.trailing_stop_pct,
         "max_mdd_limit_pct": strategy.max_mdd_limit_pct,
         "backtest_period": strategy.backtest_period,
+        "backtest_start_date": strategy.backtest_start_date,
+        "backtest_end_date": strategy.backtest_end_date,
         "initial_capital": strategy.initial_capital,
         "execution_timing": strategy.execution_timing,
         "fee_rate": strategy.fee_rate,
@@ -376,6 +378,9 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         "exit": {"conditions": exit_conditions},
         "risk": risk,
         "period": strategy.backtest_period,
+        # 명시적 연도 범위가 있으면 엔진이 상대 기간 대신 이 창으로 백테스트한다.
+        **({"startDate": strategy.backtest_start_date} if strategy.backtest_start_date else {}),
+        **({"endDate": strategy.backtest_end_date} if strategy.backtest_end_date else {}),
         "options": {
             "fee_rate": _percent_to_rate(strategy.fee_rate),
             "slippage_rate": _percent_to_rate(strategy.slippage_rate),

@@ -20,6 +20,20 @@ export function readLastVirtualAccountDetail() {
   }
 }
 
+export function shouldRestoreLastVirtualAccountDetail() {
+  if (typeof window === "undefined") return false;
+
+  try {
+    const [navigationEntry] = window.performance.getEntriesByType(
+      "navigation"
+    ) as PerformanceNavigationTiming[];
+
+    return navigationEntry?.type === "navigate";
+  } catch {
+    return false;
+  }
+}
+
 export function forgetVirtualAccountDetail(accountId?: string) {
   if (typeof window === "undefined") return;
 
