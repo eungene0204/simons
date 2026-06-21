@@ -173,7 +173,10 @@ describe("StrategyLabPage scroll behavior", () => {
     fireEvent.change(textarea, { target: { value: "PER 10 이하 전략 만들어줘" } });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
 
-    expect(await screen.findByText("첫 번째 코치 응답입니다.")).toBeInTheDocument();
+    // 전략 검증은 의도된 최소 지연(~2.4s) 후 응답을 노출하므로 타임아웃을 넉넉히 둔다.
+    expect(
+      await screen.findByText("첫 번째 코치 응답입니다.", undefined, { timeout: 5000 })
+    ).toBeInTheDocument();
 
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "어떻게 개선할까?" } });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
@@ -186,7 +189,9 @@ describe("StrategyLabPage scroll behavior", () => {
     );
 
     expect(
-      await screen.findByText("후속 코치 응답입니다. 손절 기준을 더 명확히 해보세요.")
+      await screen.findByText("후속 코치 응답입니다. 손절 기준을 더 명확히 해보세요.", undefined, {
+        timeout: 5000,
+      })
     ).toBeInTheDocument();
 
     await waitFor(() => {

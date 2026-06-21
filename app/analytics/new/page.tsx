@@ -74,6 +74,7 @@ interface ChatMessage {
   clarificationSuggestions?: string[];
   coachLoading?: boolean;  // coach response is being generated
   isLoading?: boolean;
+  loadingTitle?: string;  // 분석 중 상태 버블의 라벨 (기본 "전략 분석")
   error?: string;
   // 개별 종목 질문 / 일반 투자 질문 응답
   stockAnalysis?: StockAnalysisResult;
@@ -102,6 +103,19 @@ const SOFT_MESSAGE_ENTER_STYLE = {
 const SOFT_MESSAGE_ENTER_LATE_STYLE = {
   animation: "softChatCardEnter 860ms cubic-bezier(0.19, 1, 0.22, 1) 140ms both",
 };
+
+// 전략 검증은 규칙 기반이라 즉시 응답하지만, 분석이 진행 중임을 사용자가 인지하도록
+// 최소 노출 시간을 둔다. 응답이 더 오래 걸리면 추가 지연 없이 그대로 표시한다.
+const MIN_VALIDATION_DELAY_MS = 2400;
+
+const sleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+
+async function enforceMinValidationDelay(startedAt: number) {
+  const elapsed = Date.now() - startedAt;
+  if (elapsed < MIN_VALIDATION_DELAY_MS) {
+    await sleep(MIN_VALIDATION_DELAY_MS - elapsed);
+  }
+}
 
 function ShimmerStatusText({
   children,
@@ -902,7 +916,13 @@ function StrategyLabContent() {
       return;
     }
 
-    await appendAssistant({ role: "assistant", isLoading: true });
+    // 후속 입력(전략 수정)은 '입력 분석 중...'만 노출하고 구조 분석 박스는 생략한다.
+    const isFollowUpModification = Boolean(currentParsed);
+    await appendAssistant({
+      role: "assistant",
+      isLoading: true,
+      ...(isFollowUpModification ? { loadingTitle: "입력" } : {}),
+    });
 
     try {
       const res = await fetch("/api/strategy/parse/stream", {
@@ -993,7 +1013,10 @@ function StrategyLabContent() {
           const evt = JSON.parse(payload);
 
           if (evt.type === "skeleton" && evt.data) {
-            updateLastAssistant({ isLoading: true, parseSkeleton: evt.data });
+            // 후속 수정에서는 구조 분석 박스 대신 '입력 분석 중...' 상태만 유지한다.
+            if (!isFollowUpModification) {
+              updateLastAssistant({ isLoading: true, parseSkeleton: evt.data });
+            }
           } else if (evt.type === "parsed_final") {
             parsedPayload = evt;
           } else if (evt.type === "dsl_ready") {
@@ -1083,6 +1106,7 @@ function StrategyLabContent() {
       });
     };
 
+    const startedAt = Date.now();
     try {
       const coachRes = await fetch("/api/strategy/coach", {
         method: "POST",
@@ -1097,6 +1121,8 @@ function StrategyLabContent() {
             : {}),
         }),
       });
+
+      await enforceMinValidationDelay(startedAt);
 
       if (!coachRes.ok) {
         updateLastAssistant({
@@ -1118,6 +1144,7 @@ function StrategyLabContent() {
         coachText: message,
       });
     } catch {
+      await enforceMinValidationDelay(startedAt);
       updateLastAssistant({
         coachLoading: false,
         coachText: "전략 검증 중 오류가 발생했습니다. 전략 요약은 준비되어 있으니 백테스트는 계속 실행할 수 있습니다.",
@@ -1140,6 +1167,7 @@ function StrategyLabContent() {
       });
     };
 
+    const startedAt = Date.now();
     try {
       const sessionId = coachSessionIdRef.current;
       const coachRes = await fetch("/api/strategy/coach", {
@@ -1157,6 +1185,8 @@ function StrategyLabContent() {
               parsed_strategy: parsed as unknown as Record<string, unknown>,
             }),
       });
+
+      await enforceMinValidationDelay(startedAt);
 
       if (!coachRes.ok) {
         updateLastAssistant({
@@ -1180,6 +1210,7 @@ function StrategyLabContent() {
         coachText: message,
       });
     } catch {
+      await enforceMinValidationDelay(startedAt);
       updateLastAssistant({
         coachLoading: false,
         coachText: "전략 검증 중 오류가 발생했습니다. 전략 요약은 준비되어 있으니 백테스트는 계속 실행할 수 있습니다.",
@@ -1487,7 +1518,7 @@ function StrategyLabContent() {
                     {msg.role === "assistant" && (
                       <div className="space-y-3">
                         {msg.isLoading && !msg.parseSkeleton && (
-                          <AnalysisStatusBubble title="전략 분석" />
+                          <AnalysisStatusBubble title={msg.loadingTitle ?? "전략 분석"} />
                         )}
                         {msg.stockLoading && <AnalysisStatusBubble title="종목 분석" />}
                         {msg.stockAnalysis && (
