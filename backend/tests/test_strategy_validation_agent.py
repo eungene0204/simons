@@ -167,6 +167,35 @@ def test_unsupported_indicator_and_price_field_are_errors():
     assert all(issue["category"] == "unsupported_field" for issue in result["issues"])
 
 
+def test_trailing_stop_only_exit_is_not_flagged_unsupported():
+    """트레일링 스탑만으로 청산하는 전략은 차단되면 안 된다.
+
+    coach_routes._validation_payload는 청산 신호·보유기간이 없을 때 리스크 청산
+    필드(stop_loss_pct/take_profit_pct/trailing_stop_pct/max_mdd_limit_pct)로
+    exit_rule을 합성한다. 이 중 trailing_stop_pct가 지원 목록에 빠져 있어 유효한
+    트레일링 전략이 UNSUPPORTED_FIELD 에러로 잘못 차단되던 회귀를 막는다.
+    """
+    from api.coach_routes import _validation_payload
+
+    parsed = {
+        "universe": ["KOSPI200"],
+        "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 0.8}],
+        "entry_signals": [],
+        "exit_signals": [],
+        "max_positions": 5,
+        "rebalancing_period": "monthly",
+        "backtest_period": "5y",
+        "trailing_stop_pct": 10.0,
+        "stop_loss_pct": None,
+        "take_profit_pct": None,
+    }
+    result = StrategyValidationAgent().validate(_validation_payload(parsed))
+
+    assert result["is_valid"] is True
+    assert "UNSUPPORTED_FIELD_TRAILING_STOP_PCT" not in _codes(result)
+    assert not any(issue["severity"] == "error" for issue in result["issues"])
+
+
 def test_invalid_parameters_are_reported_without_advice():
     result = StrategyValidationAgent().validate(_valid_strategy(
         max_positions=0,

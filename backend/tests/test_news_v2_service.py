@@ -22,6 +22,17 @@ from news_v2.service import NewsService
 from news_v2 import service as service_mod
 
 
+@pytest.fixture(autouse=True)
+def _force_collection_enabled(monkeypatch):
+    """cfg 없이 NewsService를 만드는 테스트는 get_settings()의 전역 캐시를 쓴다.
+    다른 모듈의 .env 로드(예: sync_data.main)로 NEWSV2_COLLECTION_ENABLED가 false로
+    오염되고, 그 상태로 get_settings()가 먼저 캐시되면 이 모듈 테스트가 깨진다.
+    수집 활성화를 명시하고 settings 캐시를 무효화해 환경에 독립적으로 만든다."""
+    import news_v2.config as cfg_mod
+    monkeypatch.setenv("NEWSV2_COLLECTION_ENABLED", "true")
+    monkeypatch.setattr(cfg_mod, "_settings", None)
+
+
 def _make_service(cache_ttl_s: int = 600) -> NewsService:
     cfg = Settings()
     # Cannot freeze tuple-style cfg; tweak attribute via object.__setattr__

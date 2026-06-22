@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Sparkle } from "phosphor-react";
 
@@ -630,6 +630,8 @@ export function StrategyExampleTabs({
   const [hasLoadedStrategies, setHasLoadedStrategies] = useState(false);
   const [strategiesError, setStrategiesError] = useState<string | null>(null);
   const [selectedExample, setSelectedExample] = useState<Example | null>(null);
+  const [exampleContentHeight, setExampleContentHeight] = useState<number | null>(null);
+  const examplesContentRef = useRef<HTMLDivElement>(null);
 
   const visibleExamples = EXAMPLES.slice(0, DEFAULT_VISIBLE_COUNT);
 
@@ -673,6 +675,25 @@ export function StrategyExampleTabs({
     };
   }, [onPreviewOpenChange]);
 
+  useEffect(() => {
+    if (activeTab !== "examples" || !examplesContentRef.current) return;
+
+    const examplesContent = examplesContentRef.current;
+    const updateHeight = () => {
+      const nextHeight = examplesContent.getBoundingClientRect().height;
+      if (nextHeight > 0) {
+        setExampleContentHeight(nextHeight);
+      }
+    };
+
+    updateHeight();
+    if (typeof ResizeObserver === "undefined") return;
+
+    const resizeObserver = new ResizeObserver(updateHeight);
+    resizeObserver.observe(examplesContent);
+    return () => resizeObserver.disconnect();
+  }, [activeTab]);
+
   const hasMoreExamples = DEFAULT_VISIBLE_COUNT < EXAMPLES.length;
 
   const isPreviewOpen = Boolean(selectedExample);
@@ -694,7 +715,12 @@ export function StrategyExampleTabs({
                 <button
                   key={tab}
                   type="button"
-                  onClick={() => setActiveTab(tab)}
+                  onClick={() => {
+                    if (tab === "my-strategies" && !hasLoadedStrategies) {
+                      setIsLoadingStrategies(true);
+                    }
+                    setActiveTab(tab);
+                  }}
                   className={`flex-1 rounded-xl px-3 py-2.5 text-xs font-black ${
                     isActive
                       ? "bg-[var(--main-blue)] text-white"
@@ -708,83 +734,90 @@ export function StrategyExampleTabs({
           </div>
         </div>
 
-        {activeTab === "examples" ? (
-          <>
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
-              {visibleExamples.map((example) => {
-                const style = CATEGORY_STYLE[example.category];
-                return (
-                  <button
-                    key={example.title}
-                    type="button"
-                    onClick={() => {
-                      setSelectedExample(example);
-                      onPreviewOpenChange?.(true);
-                    }}
-                    className="group space-y-1.5 rounded-2xl border border-white/[0.05] bg-[#121212] px-3 py-3 text-left transition-all duration-200 hover:border-white/[0.12] hover:bg-[#171717]"
-                    data-testid="strategy-example-card"
-                  >
-                    <span className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[9px] font-black ${style.bg} ${style.border} ${style.color}`}>
-                      {style.label}
-                    </span>
-                    <p className="text-xs font-black leading-snug text-white/85 group-hover:text-white">{example.title}</p>
-                    <p className="line-clamp-3 text-[11px] font-bold leading-relaxed text-gray-400 group-hover:text-gray-300">
-                      {example.prompt}
-                    </p>
-                  </button>
-                );
-              })}
-            </div>
+        <div
+          data-testid="strategy-tab-content"
+          style={activeTab === "my-strategies" && exampleContentHeight
+            ? { height: `${exampleContentHeight}px` }
+            : undefined}
+        >
+          {activeTab === "examples" ? (
+            <div ref={examplesContentRef} className="space-y-3" data-testid="strategy-examples-content">
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
+                {visibleExamples.map((example) => {
+                  const style = CATEGORY_STYLE[example.category];
+                  return (
+                    <button
+                      key={example.title}
+                      type="button"
+                      onClick={() => {
+                        setSelectedExample(example);
+                        onPreviewOpenChange?.(true);
+                      }}
+                      className="group space-y-1.5 rounded-2xl border border-white/[0.05] bg-[#121212] px-3 py-3 text-left transition-all duration-200 hover:border-white/[0.12] hover:bg-[#171717]"
+                      data-testid="strategy-example-card"
+                    >
+                      <span className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[9px] font-black ${style.bg} ${style.border} ${style.color}`}>
+                        {style.label}
+                      </span>
+                      <p className="text-xs font-black leading-snug text-white/85 group-hover:text-white">{example.title}</p>
+                      <p className="line-clamp-3 text-[11px] font-bold leading-relaxed text-gray-400 group-hover:text-gray-300">
+                        {example.prompt}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
 
-            {hasMoreExamples && (
-              <div className="flex justify-center">
-                <Link
-                  href="/analytics/templates"
-                  className="rounded-2xl border border-white/[0.08] bg-[#121212] px-4 py-2 text-xs font-black text-gray-300 transition-colors duration-200 hover:border-white/[0.14] hover:bg-[#171717] hover:text-white"
-                >
-                  전체 보기
-                </Link>
-              </div>
-            )}
-          </>
-        ) : (
-          <>
-            {isLoadingStrategies ? null : strategiesError ? (
-              <div className="py-8 text-center">
-                <p className="text-sm font-black text-white">전략 목록을 불러올 수 없습니다</p>
-                <p className="mt-1 text-xs font-bold text-gray-500">{strategiesError}</p>
-              </div>
-            ) : myStrategies.length === 0 ? (
-              <div className="py-8 text-center">
-                <p className="text-sm font-black text-white">아직 저장된 전략이 없습니다</p>
-                <p className="mt-1 text-xs font-bold text-gray-500">전략을 생성하고 저장하면 여기에서 확인할 수 있습니다.</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                {myStrategies.map((strategy) => (
-                  <a
-                    key={strategy.id}
-                    href={`/analytics/${strategy.id}`}
-                    className="group rounded-2xl border border-white/[0.05] bg-[#121212] px-4 py-4 transition-all duration-200 hover:border-white/[0.12] hover:bg-[#171717]"
+              {hasMoreExamples && (
+                <div className="flex justify-center">
+                  <Link
+                    href="/analytics/templates"
+                    className="rounded-2xl border border-white/[0.08] bg-[#121212] px-4 py-2 text-xs font-black text-gray-300 transition-colors duration-200 hover:border-white/[0.14] hover:bg-[#171717] hover:text-white"
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-black text-white/85 group-hover:text-white">{strategy.name}</p>
+                    전체 보기
+                  </Link>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="h-full overflow-y-auto" data-testid="strategy-my-content">
+              {isLoadingStrategies ? null : strategiesError ? (
+                <div className="py-8 text-center">
+                  <p className="text-sm font-black text-white">전략 목록을 불러올 수 없습니다</p>
+                  <p className="mt-1 text-xs font-bold text-gray-500">{strategiesError}</p>
+                </div>
+              ) : myStrategies.length === 0 ? (
+                <div className="py-8 text-center">
+                  <p className="text-sm font-black text-white">아직 저장된 전략이 없습니다</p>
+                  <p className="mt-1 text-xs font-bold text-gray-500">전략을 생성하고 저장하면 여기에서 확인할 수 있습니다.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  {myStrategies.map((strategy) => (
+                    <a
+                      key={strategy.id}
+                      href={`/analytics/${strategy.id}`}
+                      className="group rounded-2xl border border-white/[0.05] bg-[#121212] px-4 py-4 transition-all duration-200 hover:border-white/[0.12] hover:bg-[#171717]"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-black text-white/85 group-hover:text-white">{strategy.name}</p>
+                        </div>
                       </div>
-                    </div>
-                    <p className="mt-3 line-clamp-2 text-xs font-bold leading-relaxed text-gray-400">
-                      {strategy.description || "저장된 전략 상세 결과로 이동합니다."}
-                    </p>
-                    <div className="mt-3 flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-gray-600">
-                      <span>{strategy.accountCount}개 계좌 연결</span>
-                      <span>{new Date(strategy.createdAt).toLocaleDateString("ko-KR")}</span>
-                    </div>
-                  </a>
-                ))}
-              </div>
-            )}
-          </>
-        )}
+                      <p className="mt-3 line-clamp-2 text-xs font-bold leading-relaxed text-gray-400">
+                        {strategy.description || "저장된 전략 상세 결과로 이동합니다."}
+                      </p>
+                      <div className="mt-3 flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-gray-600">
+                        <span>{strategy.accountCount}개 계좌 연결</span>
+                        <span>{new Date(strategy.createdAt).toLocaleDateString("ko-KR")}</span>
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         <footer
           aria-label="전략연구소 이용 안내"

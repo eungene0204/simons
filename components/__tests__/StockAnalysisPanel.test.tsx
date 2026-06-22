@@ -47,24 +47,37 @@ describe("StockAnalysisPanel", () => {
     expect(screen.getByText(/반도체 업황 리스크/)).toBeInTheDocument();
   });
 
-  it("AI 예측은 up/down 퍼센타일 중 더 높은 쪽을 표시한다 (상승 우위)", () => {
-    render(<StockAnalysisPanel result={makeResult({
-      ai_forecast: { down_risk_level: "calm", up_pctl: 80, down_pctl: 40 },
-    })} />);
-    expect(screen.getByText("상승 우위")).toBeInTheDocument();
-  });
-
-  it("AI 예측 — down_pctl이 더 높으면 하락 우위", () => {
+  // 규제(유사투자자문업) 회피 — AI 예측/뉴스 감성은 화면에 노출하지 않는다(코드/데이터는 보존).
+  it("AI 예측은 방향 예측(상승/하락 우위)을 노출하지 않는다", () => {
     render(<StockAnalysisPanel result={makeResult({
       ai_forecast: { down_risk_level: "elevated", up_pctl: 40, down_pctl: 92 },
     })} />);
-    expect(screen.getByText("하락 우위")).toBeInTheDocument();
+    expect(screen.queryByText("AI 예측")).not.toBeInTheDocument();
+    expect(screen.queryByText("하락 우위")).not.toBeInTheDocument();
+    expect(screen.queryByText("상승 우위")).not.toBeInTheDocument();
   });
 
-  it("AI 예측 데이터가 없으면 '데이터 없음'", () => {
-    render(<StockAnalysisPanel result={makeResult({ ai_forecast: null })} />);
-    expect(screen.getByText("AI 예측")).toBeInTheDocument();
-    expect(screen.getAllByText("데이터 없음").length).toBeGreaterThan(0);
+  it("뉴스 감성은 노출하지 않는다", () => {
+    render(<StockAnalysisPanel result={makeResult({
+      signals: { trend: "up", valuation: "neutral", news_sentiment: "positive", forecast: null, risk: "medium" },
+    })} />);
+    expect(screen.queryByText("뉴스 감성")).not.toBeInTheDocument();
+  });
+
+  it("뉴스에서 파생된 리스크 요인은 표시하지 않고, 나머지는 표시한다", () => {
+    render(<StockAnalysisPanel result={makeResult({
+      risk_factors: ["높은 변동성(연율 79%)", "부정적 뉴스 흐름", "뉴스 고위험 경보"],
+    })} />);
+    expect(screen.getByText(/높은 변동성/)).toBeInTheDocument();
+    expect(screen.queryByText(/부정적 뉴스 흐름/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/뉴스 고위험 경보/)).not.toBeInTheDocument();
+  });
+
+  it("뉴스 리스크 요인만 있으면 리스크 요인 섹션을 숨긴다", () => {
+    render(<StockAnalysisPanel result={makeResult({
+      risk_factors: ["부정적 뉴스 흐름"],
+    })} />);
+    expect(screen.queryByText("리스크 요인")).not.toBeInTheDocument();
   });
 
 });

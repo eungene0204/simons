@@ -37,6 +37,7 @@ class StrategyValidationAgent:
         "take_profit_pct",
         "trading_value",
         "trailing_stop",
+        "trailing_stop_pct",
         "volume_spike",
     }
     _SUPPORTED_PRICE_FIELDS = {"open", "high", "low", "close", "volume"}

@@ -208,6 +208,35 @@ describe("TopNavigation quick search", () => {
     expect(dashboardLink.className).not.toContain("bg-white/10");
   });
 
+  it("상단 로고는 원본 이미지 기반의 투명 NS 마크를 표시한다", async () => {
+    renderWithQueryClient(<TopNavigation />);
+
+    const homeLink = await screen.findByRole("link", { name: /널스탁/i });
+    const logoMark = screen.getByTestId("nullstock-logo-mark");
+    const sourceImage = logoMark.querySelector("image");
+
+    expect(homeLink).toContainElement(logoMark);
+    expect(homeLink).toHaveTextContent("OPEN BETA");
+    expect(sourceImage).toHaveAttribute("href", "/nullStock.png");
+    expect(sourceImage).toHaveAttribute(
+      "filter",
+      "url(#nullstock-transparent-background)"
+    );
+    expect(screen.queryByAltText("NullStock Logo")).not.toBeInTheDocument();
+  });
+
+  it("데스크톱에서 탑메뉴 묶음을 화면 가운데에 배치한다", async () => {
+    renderWithQueryClient(<TopNavigation />);
+
+    const menu = await screen.findByTestId("top-navigation-menu");
+
+    expect(menu).toHaveClass(
+      "xl:absolute",
+      "xl:left-1/2",
+      "xl:-translate-x-1/2"
+    );
+  });
+
   it("비로그인 상태에서는 프로필 버튼 대신 Google 로그인 버튼을 보여준다", async () => {
     renderWithQueryClient(<TopNavigation />);
 

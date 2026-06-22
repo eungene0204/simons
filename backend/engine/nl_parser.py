@@ -1267,6 +1267,55 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
             value=float(adx_match.group(1)),
         ))
 
+    # ── 스토캐스틱 (과매도 매수 / 과매수 매도) ──
+    # RSI와 동형: 'N 이하 ... 매수'(과매도 반등) / 'N 이상 ... 매도'(과매수). 숫자가 없으면
+    # 과매도=20 / 과매수=80 기본값. 엔진·컨버터가 이미 stochastic을 지원하므로 추출만 추가한다.
+    stoch_term = r"(?:스토캐스틱|stochastic)"
+    stoch_buy = re.search(
+        rf"{stoch_term}(?:가|이|은|는|을|를)?\s*(\d+)\s*(?:이하|미만|아래|밑).*?(?:매수|진입|반등|올라)"
+        rf"|{stoch_term}.*?과매도.*?(?:매수|반등|올라)",
+        compact,
+    )
+    if stoch_buy:
+        val = int(stoch_buy.group(1)) if stoch_buy.group(1) else 20
+        entry.append(TechnicalSignal(
+            indicator="stochastic", signal_type="buy", operator="<=", value=float(val),
+        ))
+    stoch_sell = re.search(
+        rf"{stoch_term}(?:가|이|은|는|을|를)?\s*(\d+)\s*(?:이상|초과|위).*?(?:매도|청산)"
+        rf"|{stoch_term}.*?과매수.*?(?:매도|청산)",
+        compact,
+    )
+    if stoch_sell:
+        val = int(stoch_sell.group(1)) if stoch_sell.group(1) else 80
+        exit_.append(TechnicalSignal(
+            indicator="stochastic", signal_type="sell", operator=">=", value=float(val),
+        ))
+
+    # ── CCI (과매도 매수 / 과매수 매도) ──
+    # 값이 음수일 수 있어 부호를 포함해 추출한다(예: 'CCI -100 이하'). 숫자가 없으면
+    # 과매도=-100 / 과매수=100 기본값.
+    cci_buy = re.search(
+        r"cci(?:가|이|은|는|을|를)?\s*(-?\d+)\s*(?:이하|미만|아래|밑).*?(?:매수|진입|반등|올라)"
+        r"|cci.*?과매도.*?(?:매수|반등|올라)",
+        compact,
+    )
+    if cci_buy:
+        val = int(cci_buy.group(1)) if cci_buy.group(1) else -100
+        entry.append(TechnicalSignal(
+            indicator="cci", signal_type="buy", period=14, operator="<=", value=float(val),
+        ))
+    cci_sell = re.search(
+        r"cci(?:가|이|은|는|을|를)?\s*(-?\d+)\s*(?:이상|초과|위).*?(?:매도|청산)"
+        r"|cci.*?과매수.*?(?:매도|청산)",
+        compact,
+    )
+    if cci_sell:
+        val = int(cci_sell.group(1)) if cci_sell.group(1) else 100
+        exit_.append(TechnicalSignal(
+            indicator="cci", signal_type="sell", period=14, operator=">=", value=float(val),
+        ))
+
     # ── 볼린저밴드 ──
     # 하단/중심선 회복 매수(평균회귀)뿐 아니라 상단 돌파 진입(추세)·하단 도달 청산도 포착한다.
     if re.search(r"볼린저.*?(?:하단|중심선).*?(?:매수|진입)|볼린저밴드.*?(?:매수|진입)|볼린저.*?상단.*?돌파", compact):
@@ -1531,6 +1580,20 @@ def _extract_hold_period_days(user_input: str) -> Optional[int]:
     return None
 
 
+def _has_explicit_day_holding(user_input: str) -> bool:
+    """일(日) 단위로 명시된 보유기간 표현이 있는지 본다('20일 보유'·'30일 지나면 매도').
+
+    개월/년 키워드(3개월·1년)는 모멘텀 룩백('최근 3개월 오른')과 구분이 안 되지만,
+    'N일 보유'/'N일 지나면 정리'는 명백한 고정 보유기간이다. 랭킹 전략에서 보유기간을
+    비울 때 이 명시적 표현은 보존하기 위한 판별자다.
+    """
+    compact = re.sub(r"\s+", "", user_input.lower())
+    return bool(
+        re.search(r"(\d+)일(?:간)?보유", compact)
+        or re.search(r"(\d+)일(?:정도)?지나면(?:정리|매도|청산)", compact)
+    )
+
+
 def _extract_rebalancing_period(user_input: str, hold_period_days: Optional[int]) -> str:
     compact = re.sub(r"\s+", "", user_input.lower())
     if re.search(r"매일|일간리밸런싱|날마다|하루에한번", compact):
@@ -1558,17 +1621,24 @@ def _extract_rebalancing_period(user_input: str, hold_period_days: Optional[int]
     return "none"
 
 
-def _extract_backtest_period(user_input: str) -> str:
+def _extract_backtest_period(user_input: str) -> Optional[str]:
+    """백테스트 기간을 결정적으로 추출한다. 언급이 없으면 None(기본값은 호출부에서 결정)."""
     compact = re.sub(r"\s+", "", user_input.lower())
     if "전체기간" in compact or "full" in compact:
         return "full"
-    if "1년백테스트" in compact or "1y" in compact:
+    if "1y" in compact:
         return "1y"
-    if "3년백테스트" in compact or "3y" in compact:
+    if "3y" in compact:
         return "3y"
-    if "5년백테스트" in compact or "5y" in compact:
+    if "5y" in compact:
         return "5y"
-    return "5y"
+    # '백테스트 기간은 3년만', '3년간 백테스트', '5년 백테스트' 처럼 백테스트 근처의 'N년'.
+    # 보유기간('1년 보유')이 잡히지 않도록 '백테스트'와 'N년'이 인접(비숫자 몇 글자)할 때만.
+    m = re.search(r"백테스트\D{0,8}(\d+)년|(\d+)년(?:간|동안)?\D{0,6}백테스트", compact)
+    if m:
+        years = m.group(1) or m.group(2)
+        return {"1": "1y", "3": "3y", "5": "5y"}.get(years)
+    return None
 
 
 _YEAR = r"((?:19|20)\d{2})"
@@ -1702,20 +1772,29 @@ def _parse_rule_based_strategy(user_input: str) -> Optional[ParsedStrategy]:
     # 펀더멘털 스크리닝·랭킹 전략은 정기 리밸런싱으로 회전하므로(명시적 청산/보유기간이 없어도)
     # 청산 요건을 충족한 것으로 본다. 'PBR<1 종목에 투자'처럼 가치주 스크리닝은 그 자체로 완결된
     # 전략인데, 청산을 따로 안 적었다는 이유로 LLM 폴백(콜드스타트 시 수십 초)으로 새지 않게 한다.
+    # (기술적 진입 신호만 있고 청산이 없는 경우는 의도적으로 LLM에 위임한다 —
+    #  test_technical_entry_without_exit_still_falls_back 참고.)
     periodic_rebalance = bool(ranking_metric or fundamental_filters)
     if not has_entry or not (has_exit or has_risk_exit or periodic_rebalance):
         return None
 
     rebalancing_period = _extract_rebalancing_period(user_input, hold_period_days)
     # 회전 수단이 없는 스크리닝 전략은 주기적 재선정이 필요하므로 주기 언급이 없으면 월간을
-    # 기본값으로 둔다. 단, 사용자가 보유기간이나 청산 신호를 직접 지정했다면 그게 회전/청산
-    # 수단이므로 요청하지 않은 리밸런싱을 임의로 주입하지 않는다. (랭킹 전략의 회전은 리밸런싱이
-    # 구동하므로 유지; '3개월' 같은 룩백이 보유기간으로 오인돼도 아래에서 보유기간을 비운다.)
-    if periodic_rebalance and rebalancing_period == "none" and (ranking_metric or not has_exit):
+    # 기본값으로 둔다. 단, 사용자가 보유기간·청산 신호·리스크 청산(손절/익절/트레일링)을 직접
+    # 지정했다면 그게 회전/청산 수단이므로 요청하지 않은 리밸런싱을 임의로 주입하지 않는다.
+    # (랭킹 전략의 회전은 리밸런싱이 구동하므로 유지; '3개월' 같은 룩백이 보유기간으로 오인돼도
+    # 아래에서 보유기간을 비운다.)
+    if (
+        periodic_rebalance
+        and rebalancing_period == "none"
+        and (ranking_metric or not (has_exit or has_risk_exit))
+    ):
         rebalancing_period = "monthly"
     # 랭킹 전략의 회전은 리밸런싱 주기로 구동한다. 모멘텀 설명에 섞인 'N개월'(예: '최근 3개월
     # 동안 오른')이 보유기간으로 오인되지 않도록, 리밸런싱이 있으면 보유기간을 비운다.
-    if ranking_metric and rebalancing_period != "none":
+    # 단, '20일 보유'처럼 일 단위로 명시한 고정 보유기간은 모멘텀 룩백과 혼동될 수 없으므로
+    # 그대로 보존한다(사용자가 명시한 보유기간 배지가 사라지지 않게).
+    if ranking_metric and rebalancing_period != "none" and not _has_explicit_day_holding(user_input):
         hold_period_days = None
 
     parsed = ParsedStrategy(
@@ -1733,7 +1812,7 @@ def _parse_rule_based_strategy(user_input: str) -> Optional[ParsedStrategy]:
         take_profit_pct=None,
         trailing_stop_pct=_extract_trailing_stop_pct(user_input),
         max_mdd_limit_pct=_extract_max_mdd_limit_pct(user_input),
-        backtest_period=_extract_backtest_period(user_input),
+        backtest_period=_extract_backtest_period(user_input) or "5y",
         initial_capital=_extract_initial_capital(user_input),
         execution_timing=_extract_execution_timing(user_input),
         fee_rate=_extract_rate(user_input, "수수료", 0.015),
@@ -1762,7 +1841,7 @@ def _build_fallback_strategy(user_input: str) -> ParsedStrategy:
         take_profit_pct=None,
         trailing_stop_pct=_extract_trailing_stop_pct(user_input),
         max_mdd_limit_pct=_extract_max_mdd_limit_pct(user_input),
-        backtest_period=_extract_backtest_period(user_input),
+        backtest_period=_extract_backtest_period(user_input) or "5y",
         initial_capital=_extract_initial_capital(user_input),
         execution_timing=_extract_execution_timing(user_input),
         fee_rate=_extract_rate(user_input, "수수료", 0.015),
@@ -1915,6 +1994,12 @@ def _apply_prompt_overrides(parsed: ParsedStrategy, user_input: str) -> ParsedSt
         updates["backtest_start_date"] = start_date
     if end_date is not None:
         updates["backtest_end_date"] = end_date
+
+    # 백테스트 기간('3년만 하자')도 결정적으로 추출해 LLM 값을 덮어쓴다.
+    # 언급이 없으면 기존 값을 유지한다(수정 모드 보호).
+    backtest_period = _extract_backtest_period(user_input)
+    if backtest_period is not None:
+        updates["backtest_period"] = backtest_period
 
     # ── Step 1: LLM 환각 신호 제거 (프롬프트에 언급되지 않은 지표 제거) ──
     validated_entry = _validate_signals(list(parsed.entry_signals), user_input)

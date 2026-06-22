@@ -46,6 +46,7 @@ describe("StrategyTemplatesPage", () => {
     render(<StrategyTemplatesPage />);
 
     expect(screen.getByRole("heading", { name: "백테스트 입력 예시" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "전략연구소로 돌아가기" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "전체 백테스트 예시 보기" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "가치투자 백테스트 예시 보기" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "기술분석 백테스트 예시 보기" })).toBeInTheDocument();

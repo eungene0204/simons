@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
@@ -51,12 +50,6 @@ export default function StrategyTemplatesPage() {
         >
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div className="space-y-3">
-              <Link
-                href="/analytics"
-                className="inline-flex text-xs font-black text-gray-500 transition-colors duration-200 hover:text-white"
-              >
-                전략연구소로 돌아가기
-              </Link>
               <div className="space-y-2">
                 <h1 className="text-3xl font-black text-white">백테스트 입력 예시</h1>
                 <p className="text-sm font-bold text-gray-500">

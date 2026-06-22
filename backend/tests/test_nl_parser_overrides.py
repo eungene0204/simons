@@ -271,6 +271,54 @@ def test_extract_rsi_sell_with_particle():
     assert rsi_sell[0].value == 70.0
 
 
+def test_extract_stochastic_buy_sell():
+    """스토캐스틱 과매도 매수 / 과매수 매도를 규칙 기반으로 추출(엔진·컨버터는 이미 지원).
+
+    구조적 프롬프트는 LLM 없이 규칙 기반으로만 파싱되는데 스토캐스틱 추출기가 없어
+    배지에서 조용히 누락되던 미탐지 버그 재현(qa_parse_badges_1000).
+    """
+    entry, exit_ = _extract_technical_signals(
+        "스토캐스틱 20 이하에서 매수, 스토캐스틱 80 이상에서 매도"
+    )
+    buy = [s for s in entry if s.indicator == "stochastic" and s.signal_type == "buy"]
+    sell = [s for s in exit_ if s.indicator == "stochastic" and s.signal_type == "sell"]
+    assert len(buy) == 1 and buy[0].value == 20.0 and buy[0].operator == "<="
+    assert len(sell) == 1 and sell[0].value == 80.0 and sell[0].operator == ">="
+
+
+def test_extract_cci_buy_with_negative_value():
+    """'CCI -100 이하에서 매수' — 음수 값을 포함해 CCI 매수 추출."""
+    entry, _ = _extract_technical_signals("CCI -100 이하에서 매수")
+    cci_buy = [s for s in entry if s.indicator == "cci" and s.signal_type == "buy"]
+    assert len(cci_buy) == 1
+    assert cci_buy[0].value == -100.0
+    assert cci_buy[0].operator == "<="
+
+
+def test_ranking_keeps_explicit_day_holding_period():
+    """모멘텀 랭킹과 '20일 보유 후 매도'를 함께 쓰면 명시적 보유기간을 보존한다.
+
+    랭킹 회전을 리밸런싱으로 구동하며 보유기간을 비우던 로직이, 일 단위로 명시된
+    고정 보유기간까지 삭제해 배지에서 사라지던 문제(qa_parse_badges_1000) 회귀 방지.
+    """
+    parsed = _parse_rule_based_strategy(
+        "코스피200에서 최근 60거래일 수익률 상위 종목을 20일 보유 후 매도, 최대 5종목"
+    )
+    assert parsed is not None
+    assert parsed.ranking_metric == "return"
+    assert parsed.hold_period_days == 20
+
+
+def test_ranking_still_drops_momentum_lookback_as_holding_period():
+    """반대로 '최근 3개월 오른' 같은 모멘텀 룩백은 보유기간으로 잡지 않는다(기존 동작 유지)."""
+    parsed = _parse_rule_based_strategy(
+        "최근 3개월 동안 많이 오른 모멘텀 상위 종목을 매수, 분기마다 리밸런싱, 최대 10종목"
+    )
+    assert parsed is not None
+    assert parsed.ranking_metric == "return"
+    assert parsed.hold_period_days is None
+
+
 def test_extract_bollinger_bands():
     entry, exit_ = _extract_technical_signals("볼린저밴드 하단에서 매수, 상단에서 매도")
     assert any(s.indicator == "bollinger_bands" and s.signal_type == "buy" for s in entry)
@@ -1479,6 +1527,39 @@ def test_value_screen_with_hold_period_does_not_inject_rebalancing():
     assert parsed is not None
     assert parsed.hold_period_days == 126
     assert parsed.rebalancing_period == "none"
+
+
+def test_value_screen_with_take_profit_does_not_inject_rebalancing():
+    """회귀: 익절(리스크 청산)만 명시한 가치주 스크리닝에 월간 리밸런싱을 임의 주입하면 안 된다.
+
+    스크린샷 프롬프트: 'PBR<=1, 10종목, 30% 익절'은 익절이 회전/청산 수단이므로
+    사용자가 요청하지 않은 '매월 리밸런싱'이 들어가서는 안 된다.
+    """
+    prompt = "pbr 1이하의 종목을 10개만 매수하고 30% 수익이 나면 익절하는 전략이야. 백테스트 기간은 3년만 하자."
+
+    parsed = _parse_rule_based_strategy(prompt)
+
+    assert parsed is not None
+    assert len(parsed.fundamental_filters) >= 1
+    assert parsed.take_profit_pct == 30.0
+    assert parsed.rebalancing_period == "none"
+    # '백테스트 기간은 3년만 하자' → 3y (기본값 5y로 떨어지면 안 된다).
+    assert parsed.backtest_period == "3y"
+
+
+def test_extract_backtest_period_phrasings():
+    """'백테스트 기간은 N년' 같은 서술형 기간 표현을 인접 'N년'에서 추출한다."""
+    from engine.nl_parser import _extract_backtest_period
+
+    assert _extract_backtest_period("백테스트 기간은 3년만 하자") == "3y"
+    assert _extract_backtest_period("최근 5년 백테스트 해줘") == "5y"
+    assert _extract_backtest_period("3년간 백테스트") == "3y"
+    assert _extract_backtest_period("1y 백테스트") == "1y"
+    assert _extract_backtest_period("전체기간으로 돌려줘") == "full"
+    # 언급 없으면 None(호출부에서 기본값 5y 결정).
+    assert _extract_backtest_period("PBR 1 이하 종목 매수") is None
+    # 보유기간 '1년 보유'를 백테스트 기간으로 오인하지 않는다.
+    assert _extract_backtest_period("PBR 1 이하, 1년 보유") is None
 
 
 def test_inspection_cycle_n_months_maps_to_rebalancing_not_hold():

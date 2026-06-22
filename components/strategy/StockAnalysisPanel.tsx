@@ -92,7 +92,7 @@ function num(value: number | null | undefined, suffix = "", digits = 1): string 
 
 function Row({ label: rowLabel, value, missing }: { label: string; value: string; missing?: boolean }) {
   return (
-    <div className="flex items-center justify-between py-1.5 border-b border-white/[0.04] last:border-0">
+    <div className="flex items-center justify-between py-1.5">
       <span className="text-xs font-bold text-gray-500">{rowLabel}</span>
       <span className={`text-xs font-bold ${missing ? "text-slate-500" : "text-white"}`}>{value}</span>
     </div>
@@ -104,7 +104,11 @@ function Row({ label: rowLabel, value, missing }: { label: string; value: string
 export default function StockAnalysisPanel({ result }: { result: StockAnalysisResult }) {
   const m = result.metrics;
   const s = result.signals;
-  const ai = aiForecastDisplay(result.ai_forecast);
+  // 규제 회피로 AI 예측 행을 노출하지 않음 — 재노출 시 주석 해제(aiForecastDisplay 보존).
+  // const ai = aiForecastDisplay(result.ai_forecast);
+  // 위험도 점수 산출에는 뉴스가 반영되지만(보존), 뉴스 비노출 방침에 따라
+  // 뉴스에서 파생된 리스크 요인 항목은 화면에 표시하지 않는다.
+  const visibleRiskFactors = result.risk_factors.filter((f) => !f.includes("뉴스"));
   const changeColor =
     m.change_pct == null ? "text-slate-500" : m.change_pct >= 0 ? "text-red-400" : "text-blue-400";
 
@@ -132,17 +136,14 @@ export default function StockAnalysisPanel({ result }: { result: StockAnalysisRe
         {m.as_of && <span className="text-[10px] font-bold text-gray-600 ml-auto">{m.as_of} 기준</span>}
       </div>
 
-      {/* 신호 요약 */}
+      {/* 신호 요약 + 핵심 지표 (단일 테이블) */}
       <div className="rounded-xl bg-white/[0.02] px-3 py-1">
         <Row label="추세" value={label(TREND_LABEL, s.trend)} missing={!s.trend} />
         <Row label="밸류에이션" value={label(VALUATION_LABEL, s.valuation)} missing={!s.valuation} />
-        <Row label="뉴스 감성" value={label(SENTIMENT_LABEL, s.news_sentiment)} missing={!s.news_sentiment} />
-        <Row label="AI 예측" value={ai.value} missing={ai.missing} />
+        {/* 규제(유사투자자문업) 회피 — 뉴스 감성/AI 예측은 노출하지 않는다(코드/데이터는 보존). */}
+        {/* <Row label="뉴스 감성" value={label(SENTIMENT_LABEL, s.news_sentiment)} missing={!s.news_sentiment} /> */}
+        {/* <Row label="AI 예측" value={ai.value} missing={ai.missing} /> */}
         <Row label="위험도" value={label(RISK_LABEL, s.risk)} missing={!s.risk} />
-      </div>
-
-      {/* 핵심 지표 */}
-      <div className="rounded-xl bg-white/[0.02] px-3 py-1">
         <Row label="PER" value={num(m.per, "배")} missing={m.per == null} />
         <Row label="PBR" value={num(m.pbr, "배")} missing={m.pbr == null} />
         <Row label="ROE" value={num(m.roe, "%")} missing={m.roe == null} />
@@ -151,11 +152,11 @@ export default function StockAnalysisPanel({ result }: { result: StockAnalysisRe
       </div>
 
       {/* 리스크 요인 */}
-      {result.risk_factors.length > 0 && (
+      {visibleRiskFactors.length > 0 && (
         <div className="flex flex-col gap-1.5 p-3 rounded-xl border border-amber-500/20">
           <span className="text-[11px] font-black text-amber-300">리스크 요인</span>
           <ul className="space-y-0.5">
-            {result.risk_factors.map((f, i) => (
+            {visibleRiskFactors.map((f, i) => (
               <li key={i} className="text-xs font-bold text-gray-300 leading-relaxed">• {f}</li>
             ))}
           </ul>

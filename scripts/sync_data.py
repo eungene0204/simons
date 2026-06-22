@@ -14,17 +14,13 @@ from datetime import datetime
 import FinanceDataReader as fdr
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
-
-BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
-
-
 def _notify_backend(event: str, **kwargs):
     """백엔드 서버에 동기화 이벤트를 알린다. 서버가 꺼져 있으면 조용히 무시한다."""
     try:
         import requests
+        backend_url = os.environ.get("BACKEND_URL", "http://localhost:8000")
         requests.post(
-            f"{BACKEND_URL}/internal/sync/event",
+            f"{backend_url}/internal/sync/event",
             json={"event": event, **kwargs},
             timeout=3,
         )
@@ -285,6 +281,8 @@ def validate_stock_list(stocks: list) -> list[str]:
 
 
 def main(argv=None):
+    # .env 로드는 실행 시점에만(import 부작용으로 전역 env를 오염시키지 않도록).
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
     parser = argparse.ArgumentParser(description="Sync Korean stock data")
     parser.add_argument(
         "--symbols-only",
@@ -365,7 +363,8 @@ def main(argv=None):
             if any(kw in report for kw in _CONFIRMED_DELIST_KEYWORDS):
                 try:
                     import requests as req_lib
-                    r = req_lib.post(f"{BACKEND_URL}/market/delist/{code}", timeout=3)
+                    backend_url = os.environ.get("BACKEND_URL", "http://localhost:8000")
+                    r = req_lib.post(f"{backend_url}/market/delist/{code}", timeout=3)
                     if r.status_code == 200 and r.json().get("added"):
                         dart_confirmed.append({"symbol": code, "name": name})
                         print(f"    → 상장폐지 등록 완료: {code}")
