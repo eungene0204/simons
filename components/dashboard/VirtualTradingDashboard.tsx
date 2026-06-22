@@ -30,12 +30,33 @@ const fmtShort = (n: number) => {
   return fmt(n);
 };
 
-const pnlColor = (v: number) => (v >= 0 ? "#f87171" : "#60a5fa");
+type MetricTone = "positive" | "negative" | "neutral";
+
+const metricTone = (value: number): MetricTone =>
+  value > 0 ? "positive" : value < 0 ? "negative" : "neutral";
+
+const formatSignedCurrency = (
+  value: number,
+  formatter: (amount: number) => string = fmt
+) => {
+  const normalized = Object.is(value, -0) ? 0 : value;
+  return `${normalized > 0 ? "+" : ""}${formatter(normalized)}원`;
+};
+
+const formatSignedPercent = (value: number) =>
+  `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+
+const pnlColor = (v: number) =>
+  v > 0 ? "#f87171" : v < 0 ? "#60a5fa" : "#ffffff";
 
 const axisStyle = { fill: "#6b7280", fontSize: 10 };
 
 const valueTone = (v: number) =>
-  v >= 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]";
+  v > 0
+    ? "text-[var(--main-red)]"
+    : v < 0
+    ? "text-[var(--main-blue)]"
+    : "text-white";
 
 function MetricCell({
   label,
@@ -46,7 +67,7 @@ function MetricCell({
   label: string;
   value: string;
   sub?: string;
-  tone?: "positive" | "negative" | "neutral";
+  tone?: MetricTone;
 }) {
   const toneClass =
     tone === "positive"
@@ -99,11 +120,9 @@ function EmptyChartState() {
 function SymbolList({
   items,
   emptyLabel,
-  profit,
 }: {
   items: DashboardStats["bySymbol"];
   emptyLabel: string;
-  profit: boolean;
 }) {
   if (items.length === 0) {
     return <p className="text-xs font-bold text-gray-500">{emptyLabel}</p>;
@@ -130,8 +149,8 @@ function SymbolList({
             </div>
             <p className="text-right text-sm font-bold text-gray-400 tabular-nums">{item.trades}</p>
             <p className="text-right text-sm font-bold text-white tabular-nums">{item.winRate.toFixed(0)}%</p>
-            <p className={`text-right text-sm font-black font-outfit tabular-nums ${profit ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
-              {profit ? "+" : ""}{fmtShort(Math.round(item.pnl))}원
+            <p className={`text-right text-sm font-black font-outfit tabular-nums ${valueTone(item.pnl)}`}>
+              {formatSignedCurrency(Math.round(item.pnl), fmtShort)}
             </p>
           </div>
         ))}
@@ -193,19 +212,21 @@ export default function VirtualTradingDashboard({ accountId, initialAmount }: Pr
   }));
   const topSymbols = stats.bySymbol.slice(0, 5);
   const bottomSymbols = [...stats.bySymbol].reverse().slice(0, 5).filter((s) => s.pnl < 0);
+  const totalFees = -Math.abs(stats.totalFees);
+  const totalTax = -Math.abs(stats.totalTax);
   const metricRows = [
     [
       {
         label: "총 실현 손익",
-        value: `${stats.totalRealizedPnl >= 0 ? "+" : ""}${fmt(Math.round(stats.totalRealizedPnl))}원`,
+        value: formatSignedCurrency(Math.round(stats.totalRealizedPnl)),
         sub: "누적 매도 체결 기준",
-        tone: stats.totalRealizedPnl >= 0 ? "positive" : "negative",
+        tone: metricTone(stats.totalRealizedPnl),
       },
       {
         label: "실현 수익률",
-        value: `${stats.totalReturn >= 0 ? "+" : ""}${stats.totalReturn.toFixed(2)}%`,
+        value: formatSignedPercent(stats.totalReturn),
         sub: `초기 자본 ${fmtShort(initialAmount)}원 기준`,
-        tone: stats.totalReturn >= 0 ? "positive" : "negative",
+        tone: metricTone(stats.totalReturn),
       },
       {
         label: "승률",
@@ -223,27 +244,27 @@ export default function VirtualTradingDashboard({ accountId, initialAmount }: Pr
     [
       {
         label: "평균 수익",
-        value: hasTrades && stats.winCount > 0 ? `+${fmtShort(stats.avgWin)}원` : "-",
+        value: formatSignedCurrency(stats.avgWin, fmtShort),
         sub: "이익 거래 평균",
-        tone: hasTrades && stats.winCount > 0 ? "positive" : "neutral",
+        tone: metricTone(stats.avgWin),
       },
       {
         label: "평균 손실",
-        value: hasTrades && stats.lossCount > 0 ? `${fmtShort(stats.avgLoss)}원` : "-",
+        value: formatSignedCurrency(stats.avgLoss, fmtShort),
         sub: "손실 거래 평균",
-        tone: hasTrades && stats.lossCount > 0 ? "negative" : "neutral",
+        tone: metricTone(stats.avgLoss),
       },
       {
         label: "총 수수료",
-        value: `-${fmt(Math.round(stats.totalFees))}원`,
+        value: formatSignedCurrency(Math.round(totalFees)),
         sub: "누적 비용",
-        tone: "neutral",
+        tone: metricTone(totalFees),
       },
       {
         label: "총 증권거래세",
-        value: `-${fmt(Math.round(stats.totalTax))}원`,
+        value: formatSignedCurrency(Math.round(totalTax)),
         sub: "누적 비용",
-        tone: "neutral",
+        tone: metricTone(totalTax),
       },
     ],
   ] as const;
@@ -363,14 +384,14 @@ export default function VirtualTradingDashboard({ accountId, initialAmount }: Pr
                 <div className="divide-y divide-white/[0.08]">
                   <div className="py-3 flex items-center justify-between gap-4">
                     <p className="text-xs font-bold uppercase tracking-widest text-gray-600">평균 수익</p>
-                    <p className="text-sm font-black font-outfit tabular-nums text-[var(--main-red)]">
-                      +{fmtShort(stats.avgWin)}원
+                    <p className={`text-sm font-black font-outfit tabular-nums ${valueTone(stats.avgWin)}`}>
+                      {formatSignedCurrency(stats.avgWin, fmtShort)}
                     </p>
                   </div>
                   <div className="py-3 flex items-center justify-between gap-4">
                     <p className="text-xs font-bold uppercase tracking-widest text-gray-600">평균 손실</p>
-                    <p className="text-sm font-black font-outfit tabular-nums text-[var(--main-blue)]">
-                      {fmtShort(stats.avgLoss)}원
+                    <p className={`text-sm font-black font-outfit tabular-nums ${valueTone(stats.avgLoss)}`}>
+                      {formatSignedCurrency(stats.avgLoss, fmtShort)}
                     </p>
                   </div>
                 </div>
@@ -453,7 +474,7 @@ export default function VirtualTradingDashboard({ accountId, initialAmount }: Pr
               title="수익 상위 종목"
               description="실현 손익 기준 상위 5개"
             />
-            <SymbolList items={topSymbols} emptyLabel="수익 종목이 없습니다." profit={true} />
+            <SymbolList items={topSymbols} emptyLabel="수익 종목이 없습니다." />
           </div>
 
           <div className="lg:col-span-5 p-5">
@@ -461,7 +482,7 @@ export default function VirtualTradingDashboard({ accountId, initialAmount }: Pr
               title="손실 하위 종목"
               description="실현 손익 기준 하위 5개"
             />
-            <SymbolList items={bottomSymbols} emptyLabel="손실 종목이 없습니다." profit={false} />
+            <SymbolList items={bottomSymbols} emptyLabel="손실 종목이 없습니다." />
           </div>
         </div>
     </div>

@@ -1214,6 +1214,46 @@ def test_parse_modification_complex_request_defers_to_llm(monkeypatch):
     assert parsed.max_positions == 3
 
 
+def test_parse_falls_back_when_llm_output_fails_validation(monkeypatch):
+    """LLM이 스키마 위반 JSON을 내면 500 대신 결정론 폴백으로 전환한다.
+
+    회귀: 복잡한 서술형 전략에서 LLM이 description 누락·잘못된 enum(biweekly/2y)·
+    null 배열을 내 ValidationError가 parse()에서 재발생 → 프로덕션 500.
+    """
+    parser = NLStrategyParser(backend="ollama")
+    # 룰베이스가 처리하지 못하게 강제 → LLM 경로로 진입
+    monkeypatch.setattr("engine.nl_parser._parse_rule_based_strategy", lambda _u: None)
+
+    def _bad_llm(_user_input):
+        ParsedStrategy.model_validate({})  # 필수 필드(description 등) 누락 → ValidationError
+
+    monkeypatch.setattr(parser, "_parse_ollama", _bad_llm)
+
+    parsed = parser.parse("코스피200에서 분위기 좋은 종목 알아서 담는 전략, 최대 8종목, 초기자금 2억원")
+
+    # 결정론 폴백이 구체 파라미터를 정확히 복구
+    assert parsed.universe == ["KOSPI200"]
+    assert parsed.max_positions == 8
+    assert parsed.initial_capital == 200_000_000.0
+
+
+def test_parse_modification_falls_back_when_llm_diff_fails_validation(monkeypatch):
+    """LLM diff가 스키마 위반(잘못된 enum 등)이면 이전 전략을 보존하고 결정론 오버라이드만 적용."""
+    parser = NLStrategyParser(backend="ollama")
+
+    def _bad_diff(_user_input, _previous):
+        ParsedStrategyDiff.model_validate({"rebalancing_period": "biweekly"})  # 잘못된 enum
+
+    monkeypatch.setattr(parser, "_modify_ollama", _bad_diff)
+
+    # _modify_rule_based가 None을 반환하는 복합 입력 → LLM 경로
+    parsed = parser.parse_modification("변동성 낮은 종목으로 바꿔줘", dict(_MODIFY_PREVIOUS))
+
+    assert parsed.max_positions == 8  # 이전 값 보존
+    assert parsed.universe == ["KOSPI200"]
+    assert parsed.stop_loss_pct == 12
+
+
 def test_build_fallback_strategy_handles_vague_prompt_without_crashing():
     parsed = _build_fallback_strategy("좋은 저평가 전략 만들어줘")
 
@@ -1709,3 +1749,266 @@ def test_modify_ollama_uses_native_endpoint_with_num_ctx(monkeypatch):
     assert captured["url"].endswith("/api/chat")
     assert captured["body"]["options"]["num_ctx"] == nlp._OLLAMA_NUM_CTX
     assert nlp._OLLAMA_NUM_CTX > 4096
+
+
+# ─── 복잡 전략 LLM 파싱 QA에서 발견한 결정적 추출 회귀 ──────────────────────────
+# (scripts/qa_complex_llm_parse.py 의 100개 복잡 전략 검증에서 드러난 누락/오인식 수정)
+
+
+def _sig_tuples(signals):
+    return [(s.indicator, s.signal_type) for s in signals]
+
+
+def _find(signals, indicator, signal_type):
+    return next((s for s in signals if s.indicator == indicator and s.signal_type == signal_type), None)
+
+
+def test_ai_model_buy_and_drop_sell_with_thresholds():
+    """AI 상승/하락 예측은 결정적으로 추출되고, 임계값(%)은 키워드 근처에서 잡힌다."""
+    entry, exit_ = _extract_technical_signals(
+        "AI가 상승 확률 75% 이상으로 본 종목 중 거래대금 150억 넘는 것만 매수, AI 하락 예측 65% 이상이면 매도"
+    )
+    buy = _find(entry, "ai_model", "buy")
+    sell = _find(exit_, "ai_drop_model", "sell")
+    assert buy is not None and buy.threshold == 75.0
+    assert sell is not None and sell.threshold == 65.0
+
+
+def test_ai_model_buy_defaults_threshold_70():
+    entry, exit_ = _extract_technical_signals(
+        "AI 모델이 상승을 예측한 종목을 매수하고 AI가 하락을 예측하면 매도"
+    )
+    assert _find(entry, "ai_model", "buy").threshold == 70.0
+    assert _find(exit_, "ai_drop_model", "sell").threshold == 70.0
+
+
+def test_ai_drop_model_from_risk_signal_phrase():
+    """'AI 하락 예측 모델이 위험 신호를 주면 청산' → ai_drop_model sell."""
+    _, exit_ = _extract_technical_signals(
+        "골든크로스로 매수하되 AI 하락 예측 모델이 위험 신호를 주면 즉시 청산하는 방어적 전략"
+    )
+    assert _find(exit_, "ai_drop_model", "sell") is not None
+
+
+def test_ema_cross_handles_ema_before_number():
+    """'EMA 10이 EMA 30 위에 있고' 처럼 EMA가 숫자 앞에 오는 어순도 인식한다."""
+    entry, _ = _extract_technical_signals("EMA 10이 EMA 30 위에 있으면 매수")
+    buy = _find(entry, "ema", "buy")
+    assert buy is not None and buy.short_period == 10 and buy.long_period == 30
+
+
+def test_ema_cross_mirror_sell_when_periods_omitted():
+    """진입만 기간이 적히고 청산은 '다시 아래로 내려오면 매도'처럼 기간 생략 시 미러링한다."""
+    entry, exit_ = _extract_technical_signals(
+        "20일 EMA가 60일 EMA 위로 올라서면 매수, 다시 아래로 내려오면 매도"
+    )
+    assert _find(entry, "ema", "buy").long_period == 60
+    sell = _find(exit_, "ema", "sell")
+    assert sell is not None and sell.short_period == 20 and sell.long_period == 60
+
+
+def test_ema_dead_cross_maps_to_ema_not_ma():
+    """'EMA 데드크로스에 매도'는 ema sell이지 ma_crossover sell이 아니다."""
+    entry, exit_ = _extract_technical_signals(
+        "EMA 12가 EMA 26 위로 올라오면 매수, EMA 데드크로스에 매도"
+    )
+    assert _find(exit_, "ema", "sell") is not None
+    assert _find(exit_, "ma_crossover", "sell") is None
+
+
+def test_macd_golden_cross_is_macd_not_ma():
+    """'MACD 골든크로스'는 macd buy이며 ma_crossover를 만들지 않는다."""
+    entry, exit_ = _extract_technical_signals(
+        "MACD 골든크로스에 매수하고 MACD 데드크로스에 매도"
+    )
+    assert _find(entry, "macd", "buy") is not None
+    assert _find(exit_, "macd", "sell") is not None
+    assert _find(entry, "ma_crossover", "buy") is None
+    assert _find(exit_, "ma_crossover", "sell") is None
+
+
+def test_macd_signal_line_crossover_phrasing():
+    """'MACD가 시그널선을 상향 돌파'는 macd buy(crossover)."""
+    entry, _ = _extract_technical_signals("MACD가 시그널선을 상향 돌파할 때 매수")
+    buy = _find(entry, "macd", "buy")
+    assert buy is not None and buy.mode == "crossover"
+
+
+def test_macd_zero_line_breakout_phrasing():
+    """'MACD가 0선을 상향 돌파'는 macd buy(zero)."""
+    entry, _ = _extract_technical_signals("MACD가 0선을 상향 돌파하면 진입")
+    buy = _find(entry, "macd", "buy")
+    assert buy is not None and buy.mode == "zero"
+
+
+def test_ma_periods_from_seonkwa_phrasing():
+    """'20일선과 60일선의 골든크로스'에서 20/60 기간을 뽑는다(인접하지 않은 N일)."""
+    entry, _ = _extract_technical_signals("20일선과 60일선의 골든크로스로 진입")
+    buy = _find(entry, "ma_crossover", "buy")
+    assert buy.short_period == 20 and buy.long_period == 60
+
+
+def test_bare_opposite_threshold_stochastic_sell():
+    """'스토캐스틱 20 아래 매수, 80 위로 매도'에서 80을 stochastic 청산으로 귀속한다."""
+    entry, exit_ = _extract_technical_signals(
+        "스토캐스틱이 20 아래로 떨어졌다가 다시 올라오면 매수, 80 위로 올라가면 매도"
+    )
+    sell = _find(exit_, "stochastic", "sell")
+    assert sell is not None and sell.value == 80.0
+
+
+def test_bare_opposite_threshold_cci_sell_with_particle():
+    """'CCI -100 밑 진입, +100을 넘어서면 청산' — 숫자와 연산자 사이 조사(을)도 허용."""
+    entry, exit_ = _extract_technical_signals(
+        "CCI가 -100 밑으로 내려가면 진입하고 +100을 넘어서면 청산"
+    )
+    assert _find(exit_, "cci", "sell").value == 100.0
+
+
+def test_rsi_sell_reverse_order_cheongsan_first():
+    """'청산은 RSI 70 이상에서'처럼 청산 동사가 먼저 와도 rsi sell을 잡는다."""
+    _, exit_ = _extract_technical_signals(
+        "골든크로스 매수, 청산은 RSI 70 이상에서"
+    )
+    sell = _find(exit_, "rsi", "sell")
+    assert sell is not None and sell.value == 70.0
+
+
+def test_rsi_colloquial_bottom_rebound_and_overheat():
+    """'RSI 바닥 찍고 반등 매수 / 과열되면 매도' 구어체를 rsi buy/sell로 처리한다."""
+    entry, exit_ = _extract_technical_signals(
+        "RSI가 바닥을 찍고 반등하는 종목을 사고, 충분히 올라 과열되면 팔래"
+    )
+    assert _find(entry, "rsi", "buy") is not None
+    assert _find(exit_, "rsi", "sell") is not None
+
+
+def test_no_spurious_rsi_sell_across_clause():
+    """'RSI 50 위에 있으면 매수, 데드크로스 매도'에서 50을 rsi 청산으로 오인하지 않는다."""
+    entry, exit_ = _extract_technical_signals(
+        "골든크로스가 나오고 RSI가 50 위에 있으면 매수하고, 데드크로스가 발생하면 매도"
+    )
+    assert _find(exit_, "rsi", "sell") is None
+    assert _find(exit_, "ma_crossover", "sell") is not None
+
+
+def test_volume_spike_from_separated_teojim_phrase():
+    """'거래량이 평소보다 크게 터지면서'처럼 급증 동사가 떨어져 있어도 volume_spike."""
+    entry, _ = _extract_technical_signals(
+        "거래량이 평소보다 크게 터지면서 박스권을 위로 돌파하면 매수"
+    )
+    assert _find(entry, "volume_spike", "buy") is not None
+    assert _find(entry, "breakout", "buy") is not None
+
+
+def test_ma_line_with_adverb_and_break_verb():
+    """'60일 이동평균선을 강하게 상향 돌파' / '20일선 깨면 매도' 부사·구어체 동사 허용."""
+    entry, exit_ = _extract_technical_signals(
+        "주가가 60일 이동평균선을 강하게 상향 돌파하면 진입하고, 60일선을 하향 이탈하면 청산"
+    )
+    assert _find(entry, "ma_crossover", "buy").long_period == 60
+    assert _find(exit_, "ma_crossover", "sell").long_period == 60
+    _, exit2 = _extract_technical_signals("20일선 위에 있으면 매수, 20일선 깨면 매도")
+    assert _find(exit2, "ma_crossover", "sell") is not None
+
+
+def test_fundamental_operator_colloquial_synonyms():
+    """'100% 아래'→<, '15%보다 높은'→> 구어체 연산자 동의어를 매핑한다."""
+    filters = _extract_fundamental_filters("부채비율 100% 아래에 ROE는 15%보다 높은 곳")
+    by_metric = {f.metric: (f.operator, f.value) for f in filters}
+    assert by_metric["debt_ratio"] == ("<", 100.0)
+    assert by_metric["roe_or_gpa"] == (">", 15.0)
+
+
+def test_max_mdd_limit_neommyeon_and_hando():
+    """'MDD 30% 넘으면'·'MDD 30% 한도'·'낙폭 20% 이상이면 중단' 모두 추출한다."""
+    from engine.nl_parser import _extract_max_mdd_limit_pct
+    assert _extract_max_mdd_limit_pct("MDD가 30% 넘으면 전량 청산") == 30.0
+    assert _extract_max_mdd_limit_pct("MDD 30% 한도") == 30.0
+    assert _extract_max_mdd_limit_pct("낙폭이 20% 이상이면 전체 중단") == 20.0
+
+
+def test_hold_period_days_passed_phrase_with_particle():
+    """'35일이 지나면 무조건 정리' → 35 거래일 보유."""
+    from engine.nl_parser import _extract_hold_period_days
+    assert _extract_hold_period_days("35일이 지나면 무조건 정리하는 전략") == 35
+
+
+def test_apply_overrides_corrects_portfolio_fields_on_llm_path():
+    """LLM이 종목수/MDD/체결시점을 틀려도 결정적 오버레이가 보정한다(명시값만)."""
+    # LLM이 잘못 채운 베이스(종목수 10, MDD 없음, next_open)를 가정.
+    base = make_base_strategy()
+    out = _apply_prompt_overrides(
+        base,
+        "골든크로스 매수, 최대 7종목, MDD 30% 넘으면 전량 청산, 당일 종가 체결",
+    )
+    assert out.max_positions == 7
+    assert out.max_mdd_limit_pct == 30.0
+    assert out.execution_timing == "current_close"
+
+
+def test_apply_overrides_does_not_clobber_capital_without_mention():
+    """자금 언급 없는 수정 프롬프트는 initial_capital을 건드리지 않는다."""
+    base = make_base_strategy().model_copy(update={"initial_capital": 50000000.0})
+    out = _apply_prompt_overrides(base, "손절 10%로 바꿔줘")
+    assert out.initial_capital == 50000000.0
+
+
+def test_bollinger_sell_not_created_for_unrelated_exit_clause():
+    """'볼린저 상단 돌파 매수, 데드크로스 청산'에서 볼린저 청산을 잘못 만들지 않는다."""
+    entry, exit_ = _extract_technical_signals(
+        "볼린저밴드 상단을 돌파하면 추세 매수, 데드크로스 청산"
+    )
+    assert _find(entry, "bollinger_bands", "buy") is not None
+    assert _find(exit_, "bollinger_bands", "sell") is None
+    assert _find(exit_, "ma_crossover", "sell") is not None
+
+
+def test_adx_with_do_particle_and_neom_operator():
+    """'ADX도 25를 넘어' — 조사 '도'와 동사 '넘어'에도 adx buy(>=25)를 잡는다."""
+    entry, _ = _extract_technical_signals("MACD가 0선 위로 올라오고 ADX도 25를 넘어 추세가 살아있을 때 진입")
+    adx = _find(entry, "adx", "buy")
+    assert adx is not None and adx.value == 25.0 and adx.operator == ">="
+
+
+def test_cci_buy_with_do_particle_and_jinip_verb():
+    """'CCI도 -100 아래일 때만 진입' — 조사 '도' + '진입' 동사."""
+    entry, _ = _extract_technical_signals("스토캐스틱 과매도 매수에 CCI도 -100 아래일 때만 진입")
+    assert _find(entry, "cci", "buy").value == -100.0
+    assert _find(entry, "stochastic", "buy") is not None
+
+
+def test_stochastic_oversold_entry_with_jinip_verb():
+    """'스토캐스틱 과매도 동시 충족 시 진입' — '진입' 동사로도 stochastic buy."""
+    entry, _ = _extract_technical_signals("볼린저밴드 하단 매수 + 스토캐스틱 과매도 동시 충족 시 진입")
+    assert _find(entry, "stochastic", "buy") is not None
+
+
+def test_bare_overbought_word_sell_without_number():
+    """'스토캐스틱 과매도 매수, 과매수에서 매도' — 숫자 없는 '과매수' 청산도 귀속(기본 80)."""
+    entry, exit_ = _extract_technical_signals(
+        "스토캐스틱 과매도에서 매수, 과매수에서 매도, 최대 6종목"
+    )
+    sell = _find(exit_, "stochastic", "sell")
+    assert sell is not None and sell.value == 80.0
+
+
+def test_rsi_numeric_threshold_preferred_over_colloquial():
+    """'RSI 다이버전스 바닥 ... RSI 28 이하 진입' — 구어체보다 명시 숫자 28을 우선."""
+    entry, _ = _extract_technical_signals(
+        "RSI 다이버전스로 바닥 신호가 나오면 매수, RSI 28 이하 과매도에서 진입"
+    )
+    buy = _find(entry, "rsi", "buy")
+    assert buy is not None and buy.value == 28.0
+
+
+def test_macd_golden_does_not_create_spurious_macd_sell_from_far_deadcross():
+    """'MACD 골든크로스 진입 ... 데드크로스 청산'에서 데드크로스는 ma_crossover sell이며,
+    멀리 떨어진 데드크로스가 macd sell을 만들지 않는다."""
+    entry, exit_ = _extract_technical_signals(
+        "MACD 골든크로스로 진입, RSI가 75를 넘으면 익절하고 데드크로스에서 청산"
+    )
+    assert _find(entry, "macd", "buy") is not None
+    assert _find(exit_, "macd", "sell") is None
+    assert _find(exit_, "ma_crossover", "sell") is not None
+    assert _find(exit_, "rsi", "sell").value == 75.0

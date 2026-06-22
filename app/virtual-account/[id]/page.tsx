@@ -19,9 +19,10 @@ import {
   deleteAccount,
 } from "@/lib/portfolio";
 import { getMarketLogs, type VirtualMarketLog } from "@/lib/virtual-market";
-import { Robot, Spinner, Trash, TrendUp } from "phosphor-react";
+import { Plus, Robot, Spinner, Trash, TrendUp } from "phosphor-react";
 import OrderBook from "@/components/order/OrderBook";
 import PortfolioPerformanceChart, { PerformancePoint } from "@/components/portfolio/PortfolioPerformanceChart";
+import StockSearchModal from "@/components/stock/StockSearchModal";
 import StrategyReplaceModal from "@/components/ui/StrategyReplaceModal";
 import AutoTradingStrategyMissingModal from "@/components/virtual-account/AutoTradingStrategyMissingModal";
 import VirtualAccountSimulationNotice from "@/components/virtual-account/VirtualAccountSimulationNotice";
@@ -150,6 +151,8 @@ export default function VirtualAccountDetailPage() {
   const [stockMetadata, setStockMetadata] = useState<StockMetadataMap>({});
   const [trackedPrices, setTrackedPrices] = useState<Record<string, BatchQuoteItem>>({});
   const [isTrackedSymbolsLoading, setIsTrackedSymbolsLoading] = useState(true);
+  const [isStockSearchOpen, setIsStockSearchOpen] = useState(false);
+  const [isAddingTrackedSymbols, setIsAddingTrackedSymbols] = useState(false);
   const [signalLogs, setSignalLogs] = useState<VirtualMarketLog[]>([]);
   const [isStrategyReplaceOpen, setIsStrategyReplaceOpen] = useState(false);
   const [isMissingStrategyModalOpen, setIsMissingStrategyModalOpen] = useState(false);
@@ -412,6 +415,46 @@ export default function VirtualAccountDetailPage() {
       setTrackedSymbols(merged);
     } catch (e) {
       console.error("Failed to remove tracked symbol:", e);
+    }
+  };
+
+  const handleAddTrackedSymbols = async (
+    selected: { symbol: string; name: string }[]
+  ) => {
+    if (!account) return;
+
+    const existingSymbols = new Set(trackedSymbols.map(({ symbol }) => symbol));
+    const additions = selected.filter(({ symbol }) => {
+      if (existingSymbols.has(symbol)) return false;
+      existingSymbols.add(symbol);
+      return true;
+    });
+    if (additions.length === 0) return;
+
+    const merged = [...trackedSymbols, ...additions];
+    setIsAddingTrackedSymbols(true);
+    try {
+      const response = await fetch(`/api/virtual-market/${accountId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbols: merged.map(({ symbol }) => symbol) }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to add tracked symbols");
+      }
+
+      setTrackedSymbols(merged);
+      writeAccountDetailCache(accountId, {
+        account,
+        holdings,
+        transactions,
+        trackedSymbols: merged,
+      });
+    } catch (error) {
+      console.error("Failed to add tracked symbols:", error);
+    } finally {
+      setIsAddingTrackedSymbols(false);
     }
   };
 
@@ -745,7 +788,7 @@ export default function VirtualAccountDetailPage() {
                     <div className="group relative flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-white/[0.14] text-[10px] font-black text-gray-500 transition-colors duration-200 hover:border-white/[0.28] hover:text-white">
                       <span aria-label="자동매매 설명">?</span>
                       <div className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 w-56 -translate-x-1/2 rounded-lg border border-white/[0.08] bg-[#1c1c1c] px-3 py-2 text-xs font-bold leading-5 text-gray-300 opacity-0 shadow-xl transition-opacity duration-150 group-hover:opacity-100">
-                        전략 조건에 만족하면 자동으로 매매가 이루어 집니다
+                        전략 조건을 만족하면 자동으로 거래가 실행됩니다.
                         <div className="absolute -top-[5px] left-1/2 h-2.5 w-2.5 -translate-x-1/2 rotate-45 border-l border-t border-white/[0.08] bg-[#1c1c1c]" />
                       </div>
                     </div>
@@ -840,12 +883,12 @@ export default function VirtualAccountDetailPage() {
                           className="text-base font-black uppercase tracking-widest font-outfit"
                           style={{ color: colorTokens.title_main }}
                         >
-                          추적 종목
+                          모니터링 종목
                         </h2>
                         <div className="group relative flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-white/[0.14] text-[10px] font-black text-gray-500 transition-colors duration-200 hover:border-white/[0.28] hover:text-white">
-                          <span aria-label="추적 종목 설명">?</span>
+                          <span aria-label="모니터링 종목 설명">?</span>
                           <div className="pointer-events-none absolute left-full top-full z-30 ml-2 mt-2 w-64 rounded-lg border border-white/[0.08] bg-[#1c1c1c] px-3 py-2 text-xs font-bold leading-5 text-gray-300 opacity-0 shadow-xl transition-opacity duration-150 group-hover:opacity-100">
-                            계좌에 연결된 전략의 백테스트 결과에서 수익률 상위 10개 종목 입니다
+                            연결된 전략의 백테스트에서 성과가 높았던 종목들 입니다.
                             <div className="absolute -left-[5px] top-2 h-2.5 w-2.5 rotate-45 border-b border-l border-white/[0.08] bg-[#1c1c1c]" />
                           </div>
                         </div>
@@ -856,6 +899,15 @@ export default function VirtualAccountDetailPage() {
                       <span className="text-xs font-bold text-gray-500 bg-white/[0.05] px-2.5 py-0.5 rounded-md">
                         {trackedSymbols.length}개
                       </span>
+                      <button
+                        type="button"
+                        onClick={() => setIsStockSearchOpen(true)}
+                        disabled={isAddingTrackedSymbols}
+                        className="flex items-center gap-1.5 rounded-lg border border-white/[0.08] px-2.5 py-1 text-xs font-bold text-gray-400 transition-colors duration-200 hover:border-white/[0.16] hover:bg-white/[0.04] hover:text-white disabled:cursor-wait disabled:opacity-50"
+                      >
+                        <Plus size={13} weight="bold" />
+                        종목 추가
+                      </button>
                     </div>
                   </div>
                   {isTrackedSymbolsLoading ? (
@@ -1012,7 +1064,7 @@ export default function VirtualAccountDetailPage() {
                         <button
                           key={tab}
                           onClick={() => setActiveTab(tab)}
-                          className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all duration-200 ${
+                          className={`px-3 py-1.5 text-sm font-bold rounded-lg transition-all duration-200 ${
                             activeTab === tab
                               ? "bg-white/[0.08] text-white"
                               : "text-gray-500 hover:text-gray-300"
@@ -1299,6 +1351,11 @@ export default function VirtualAccountDetailPage() {
             <div className="absolute -top-[5px] right-3.5 w-2.5 h-2.5 rotate-45 bg-[#1c1c1c] border-l border-t border-white/[0.08]" />
           </div>
         )}
+        <StockSearchModal
+          isOpen={isStockSearchOpen}
+          onClose={() => setIsStockSearchOpen(false)}
+          onSelect={handleAddTrackedSymbols}
+        />
         <StrategyReplaceModal
           isOpen={isStrategyReplaceOpen}
           currentStrategyId={account?.strategyId}

@@ -13,7 +13,7 @@ import os
 import re
 import time
 from typing import List, Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from llm_backend import OLLAMA_BASE_URL, ollama_auth_headers
 
@@ -667,6 +667,10 @@ class NLStrategyParser:
                 parsed = self._parse_mlx(user_input)
             else:
                 parsed = self._parse_ollama(user_input)
+        except ValidationError:
+            # LLM이 JSON은 냈지만 스키마 위반(필수 필드 누락·잘못된 enum·null 배열 등).
+            # 복잡한 서술형 전략에서 흔하다 → 500 대신 결정론 폴백으로 graceful 전환.
+            parsed = _build_fallback_strategy(user_input)
         except ValueError as exc:
             if "JSON object" not in str(exc):
                 raise
@@ -683,10 +687,15 @@ class NLStrategyParser:
         if rule_based is not None:
             return rule_based
 
-        if self.backend == "mlx":
-            diff = self._modify_mlx(user_input, previous)
-        else:
-            diff = self._modify_ollama(user_input, previous)
+        try:
+            if self.backend == "mlx":
+                diff = self._modify_mlx(user_input, previous)
+            else:
+                diff = self._modify_ollama(user_input, previous)
+        except ValidationError:
+            # LLM diff가 스키마 위반(잘못된 enum 등) → 이전 전략을 보존하고 결정론으로
+            # 추출 가능한 변경만 적용한다(500 대신 graceful 폴백).
+            return _apply_prompt_overrides(ParsedStrategy.model_validate(previous), user_input)
 
         explicit_universe = _extract_explicit_universe(user_input)
 
@@ -1175,6 +1184,37 @@ def _validate_signals(
     return validated
 
 
+def _nearest_pct(compact: str, idx: int, window: int = 16) -> Optional[float]:
+    """compact 문자열에서 위치 idx 근처(±window)에 있는 가장 가까운 퍼센트 값을 찾는다.
+
+    AI 모델 신뢰도 임계값처럼 '상승/하락' 키워드 주변의 '80% 이상' 류를 결정적으로
+    뽑기 위한 헬퍼. 키워드 양쪽 어디에 있어도 거리가 가장 가까운 %를 택한다.
+    """
+    best: Optional[float] = None
+    best_dist = window + 1
+    for m in re.finditer(r"(\d+(?:\.\d+)?)\s*%", compact):
+        dist = abs(m.start() - idx)
+        if dist < best_dist:
+            best_dist = dist
+            best = float(m.group(1))
+    return best
+
+
+def _extract_ema_periods(compact: str) -> Optional[tuple[int, int]]:
+    """EMA 기간 두 개를 어순에 무관하게 추출한다.
+
+    'N일 EMA'(숫자 먼저)와 'EMA N'(EMA 먼저) 표현을 모두 인식한다. 앞에서부터 두 개를
+    찾아 (단기, 장기)로 정렬해 돌려준다. 두 개 미만이면 None.
+    """
+    nums: list[int] = []
+    for a, b in re.findall(r"(?:(\d+)일?\s*ema|ema\s*(\d+)일?)", compact):
+        nums.append(int(a or b))
+    if len(nums) < 2:
+        return None
+    p1, p2 = nums[0], nums[1]
+    return (min(p1, p2), max(p1, p2))
+
+
 def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], list[TechnicalSignal]]:
     """
     프롬프트에서 기술적 진입/청산 신호를 deterministic하게 추출한다.
@@ -1188,26 +1228,36 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
     exit_: list[TechnicalSignal] = []
 
     # ── 골든크로스 / 데드크로스 (MA 크로스오버) ──
-    # 기간 추출: "5일/20일", "5일20일", "단기5장기20" 등
+    # 기간 추출: "5일/20일", "5일20일", "20일선과 60일선", "5일선이 20일선" 등.
+    # 두 'N일' 사이에 조사·'선' 등이 끼어도(비숫자 4글자 이내) 잡는다.
     ma_short, ma_long = None, None
-    ma_period_match = re.search(r"(\d+)일[/,]?(\d+)일", compact)
+    ma_period_match = re.search(r"(\d+)일선?[^0-9]{0,4}(\d+)일", compact)
     if ma_period_match:
         p1, p2 = int(ma_period_match.group(1)), int(ma_period_match.group(2))
         ma_short, ma_long = min(p1, p2), max(p1, p2)
 
-    golden_patterns = ["골든크로스", "goldencross", "golden_cross"]
-    dead_patterns = ["데드크로스", "deadcross", "dead_cross"]
+    # "MACD 골든크로스" / "EMA 데드크로스"처럼 크로스 앞에 지표명이 붙으면 그 지표의
+    # 크로스다(MA 크로스오버가 아니라). 해당 지표 블록에서 처리하도록 MA에서는 제외한다.
+    golden_macd = bool(re.search(r"macd.{0,3}골든크로스", compact))
+    dead_macd = bool(re.search(r"macd.{0,3}데드크로스", compact))
+    golden_ema = bool(re.search(r"ema.{0,3}골든크로스", compact))
+    dead_ema = bool(re.search(r"ema.{0,3}데드크로스", compact))
 
-    has_golden = any(p in compact for p in golden_patterns)
-    has_dead = any(p in compact for p in dead_patterns)
+    has_golden_raw = any(p in compact for p in ["골든크로스", "goldencross", "golden_cross"])
+    has_dead_raw = any(p in compact for p in ["데드크로스", "deadcross", "dead_cross"])
+    has_golden = has_golden_raw and not (golden_macd or golden_ema)
+    has_dead = has_dead_raw and not (dead_macd or dead_ema)
 
     # "크로스오버" / "이동평균 크로스" 같은 일반 표현 + 매수/매도 언급
-    if not has_golden and not has_dead:
-        crossover_terms = ["이동평균선을위로뚫", "이동평균크로스", "ma크로스", "이평선크로스"]
+    if not has_golden and not has_dead and not has_golden_raw and not has_dead_raw:
+        crossover_terms = [
+            "이동평균선을위로뚫", "이동평균크로스", "ma크로스", "이평선크로스",
+            "이동평균을뚫고올라", "장기이동평균을뚫고올라", "이동평균을상향돌파",
+        ]
         if any(t in compact for t in crossover_terms):
             has_golden = True
-            # "반대로" / "매도" 가 함께 있으면 데드크로스도 포함
-            if "반대로" in compact or ("매도" in compact and "매수" in compact):
+            # "반대로" / "아래로" / "매도" 가 함께 있으면 데드크로스(하향 교차)도 포함
+            if "반대로" in compact or "아래로뚫" in compact or ("매도" in compact and "매수" in compact) or ("팔" in compact and "사" in compact):
                 has_dead = True
 
     if has_golden:
@@ -1230,16 +1280,17 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
     # "20일선 아래로 내려오면 매도"   → ma_crossover(short=1, long=N) 데드(종가가 MA 하향)
     # short=1은 종가 자체(close_1_sma=close)라 '가격 vs MA' 교차로 표현된다.
     # 골든/데드 크로스가 이미 잡혔으면 ma_crossover 충돌을 피해 건너뛴다.
+    # 방향어 앞에 부사가 끼어도("강하게 상향 돌파") 잡도록 .{0,5} 허용.
     ma_token = r"(?:이동평균선|이동평균|이평선|이평|선)"
     if not has_golden:
-        above_ma = re.search(rf"(\d+)일{ma_token}(?:을|를)?(?:위|상회|넘|돌파|올라)", compact)
+        above_ma = re.search(rf"(\d+)일{ma_token}(?:을|를)?.{{0,5}}(?:위|상회|넘|돌파|올라|상향)", compact)
         if above_ma:
             entry.append(TechnicalSignal(
                 indicator="ma_crossover", signal_type="buy",
                 short_period=1, long_period=int(above_ma.group(1)),
             ))
     if not has_dead:
-        below_ma = re.search(rf"(\d+)일{ma_token}(?:을|를)?(?:아래|밑|하회|이탈)", compact)
+        below_ma = re.search(rf"(\d+)일{ma_token}(?:을|를)?.{{0,5}}(?:아래|밑|하회|이탈|하향|깨)", compact)
         if below_ma:
             exit_.append(TechnicalSignal(
                 indicator="ma_crossover", signal_type="sell",
@@ -1247,63 +1298,100 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
             ))
 
     # ── EMA 크로스 (단기 EMA가 장기 EMA 위/아래) ──
-    # "20일 EMA가 60일 EMA 위에 있고" → ema 골든(단기>장기, 진입).
-    # "20일 EMA가 60일 EMA 아래로" → ema 데드(청산). 두 기간은 min/max로 단기/장기를 정한다.
-    # 기간 사이 공백 구간은 숫자를 포함하지 않게 [^0-9]로 막아 '60'이 '6'+'0'으로 쪼개지지 않도록 한다.
-    ema_above = re.search(
-        r"(\d+)일?ema[^0-9]{0,6}(\d+)일?ema[^0-9]{0,6}(?:위|상회|넘|돌파|상향|이상|높)", compact
-    )
-    if ema_above:
-        p1, p2 = int(ema_above.group(1)), int(ema_above.group(2))
-        entry.append(TechnicalSignal(
-            indicator="ema", signal_type="buy",
-            short_period=min(p1, p2), long_period=max(p1, p2),
-        ))
-    ema_below = re.search(
-        r"(\d+)일?ema[^0-9]{0,6}(\d+)일?ema[^0-9]{0,6}(?:아래|밑|하회|이탈|하향)", compact
-    )
-    if ema_below:
-        p1, p2 = int(ema_below.group(1)), int(ema_below.group(2))
-        exit_.append(TechnicalSignal(
-            indicator="ema", signal_type="sell",
-            short_period=min(p1, p2), long_period=max(p1, p2),
-        ))
+    # "20일 EMA가 60일 EMA 위에 있고" 와 "EMA 20이 EMA 60 위로" 양쪽 어순을 모두 인식한다
+    # (_extract_ema_periods). 진입은 상향(위/돌파/상향)·'ema 골든크로스', 청산은 하향
+    # (아래/이탈/하향)·'ema 데드크로스'. 진입만 기간이 적히고 청산은 "다시 아래로 내려오면"
+    # 처럼 기간을 생략하는 경우가 많아, 진입이 잡히면 하향+매도 표현을 같은 기간으로 미러링한다.
+    ema_periods = _extract_ema_periods(compact)
+    if ema_periods:
+        ema_s, ema_l = ema_periods
+        ema_buy = bool(
+            golden_ema
+            or re.search(r"ema.{0,14}(?:위|상회|넘|돌파|상향|이상|높|올라)", compact)
+        )
+        ema_sell_explicit = bool(
+            dead_ema
+            or re.search(r"ema.{0,14}(?:아래|밑|하회|이탈|하향|내려)", compact)
+        )
+        # 진입 후 "다시 아래로 내려오면 매도" 같은 미러 청산(기간 생략).
+        ema_sell_mirror = bool(
+            ema_buy
+            and re.search(r"(?:아래|하향|이탈|내려|데드)[^,]{0,8}(?:매도|청산|정리)", compact)
+        )
+        if ema_buy:
+            entry.append(TechnicalSignal(
+                indicator="ema", signal_type="buy", short_period=ema_s, long_period=ema_l,
+            ))
+        if ema_sell_explicit or ema_sell_mirror:
+            exit_.append(TechnicalSignal(
+                indicator="ema", signal_type="sell", short_period=ema_s, long_period=ema_l,
+            ))
 
     # ── RSI 매수/매도 ──
-    # 조사("rsi가30") + "이하/미만/아래/밑" + 매수/진입/반등/올라오는(과매도 반등) 표현 허용
-    rsi_buy_match = re.search(
-        r"rsi(?:가|이|은|는|을|를)?\s*(\d+)\s*(?:이하|미만|아래|밑).*?(?:매수|진입|반등|올라)"
-        r"|rsi.*?과매도.*?(?:매수|반등|올라)",
+    # 조사("rsi가30") + "이하/미만/아래/밑" + 매수/진입/반등/올라오는(과매도 반등) 표현 허용.
+    # 숫자 없이 'RSI가 바닥을 찍고 반등' 같은 구어체 과매도 반등도 기본 30으로 매수 처리.
+    # 명시 숫자('RSI 28 이하')를 구어체('바닥 찍고 반등')보다 우선해, 둘이 같은 문장에 섞여도
+    # 정확한 임계값을 쓴다. 숫자형이 없을 때만 구어체 과매도 반등(기본 30)으로 매수 처리.
+    rsi_buy_numeric = re.search(
+        r"rsi(?:가|이|은|는|을|를)?\s*(\d+)\s*(?:을|를)?\s*(?:이하|미만|아래|밑).*?(?:매수|진입|반등|올라)",
         compact,
     )
-    if rsi_buy_match:
-        val = int(rsi_buy_match.group(1)) if rsi_buy_match.group(1) else 30
+    rsi_buy_colloquial = re.search(
+        r"rsi.*?(?:과매도|바닥|저점).*?(?:매수|반등|올라|사)", compact
+    )
+    if rsi_buy_numeric:
         entry.append(TechnicalSignal(
-            indicator="rsi", signal_type="buy", period=14, operator="<=", value=float(val),
+            indicator="rsi", signal_type="buy", period=14, operator="<=", value=float(rsi_buy_numeric.group(1)),
         ))
+    elif rsi_buy_colloquial:
+        entry.append(TechnicalSignal(
+            indicator="rsi", signal_type="buy", period=14, operator="<=", value=30.0,
+        ))
+    # 'rsi 70 이상 ... 매도'(정방향)와 '청산은 ... rsi 70 이상'(역방향=청산 동사가 먼저)을
+    # 모두 인식한다. 절(쉼표) 경계를 넘지 않게 [^,]로 막아, 다른 절의 매도 동사를 잘못
+    # 끌어오지 않는다. '넘'(넘어서면)도 '이상' 동의어로 처리한다.
     rsi_sell_match = re.search(
-        r"rsi(?:가|이|은|는|을|를)?\s*(\d+)\s*(?:이상|초과|위).*?(?:매도|청산)"
-        r"|rsi.*?과매수.*?(?:매도|청산)",
+        r"rsi(?:가|이|은|는|을|를)?\s*(\d+)\s*(?:을|를)?\s*(?:이상|초과|위|넘)[^,]*?(?:매도|청산)"
+        r"|(?:매도|청산)[^,]*?rsi(?:가|이|은|는|을|를)?\s*(\d+)\s*(?:을|를)?\s*(?:이상|초과|위|넘)"
+        r"|rsi[^,]*?과매수[^,]*?(?:매도|청산)",
         compact,
     )
     if rsi_sell_match:
-        val = int(rsi_sell_match.group(1)) if rsi_sell_match.group(1) else 70
+        raw = rsi_sell_match.group(1) or rsi_sell_match.group(2)
+        val = int(raw) if raw else 70
         exit_.append(TechnicalSignal(
             indicator="rsi", signal_type="sell", period=14, operator=">=", value=float(val),
         ))
+    elif any(s.indicator == "rsi" and s.signal_type == "buy" for s in entry) and re.search(
+        r"(?:과열|충분히올라|많이올라).{0,8}(?:매도|청산|팔)", compact
+    ):
+        # 'RSI 과매도 반등 매수 / 과열되면 매도' 구어체 미러 청산(숫자 없으면 기본 70).
+        exit_.append(TechnicalSignal(
+            indicator="rsi", signal_type="sell", period=14, operator=">=", value=70.0,
+        ))
 
     # ── MACD ──
-    macd_buy_patterns = ["macd크로스.*?매수", "macd.*?골든", "macd시그널.*?매수"]
-    if any(re.search(p, compact) for p in macd_buy_patterns):
-        entry.append(TechnicalSignal(indicator="macd", signal_type="buy", mode="crossover"))
-    macd_sell_patterns = ["macd크로스.*?매도", "macd.*?데드", "macd시그널.*?매도"]
-    if any(re.search(p, compact) for p in macd_sell_patterns):
-        exit_.append(TechnicalSignal(indicator="macd", signal_type="sell", mode="crossover"))
+    # 시그널선 교차/돌파(crossover)와 0선(제로선) 돌파/양수(zero)를 모두 인식한다. macd와
+    # '시그널'·'0선' 사이에 조사가 끼어도(예: 'macd가 시그널을') 잡도록 .{0,6} 허용.
+    macd_signal_buy = bool(re.search(r"macd.{0,6}시그널.{0,6}(?:상향|위|돌파|교차|크로스|넘)", compact))
+    macd_zero_buy = bool(re.search(r"macd.{0,6}(?:0선|영선|제로|제로선|0\s*라인).{0,6}(?:상향|위|돌파|올라|넘)", compact)
+                         or re.search(r"macd.{0,4}양수", compact))
+    macd_buy_legacy = any(re.search(p, compact) for p in ["macd크로스.{0,6}매수", "macd.{0,4}골든", "macd시그널.{0,6}매수"])
+    if golden_macd or macd_signal_buy or macd_zero_buy or macd_buy_legacy:
+        mode = "zero" if (macd_zero_buy and not (golden_macd or macd_signal_buy)) else "crossover"
+        entry.append(TechnicalSignal(indicator="macd", signal_type="buy", mode=mode))
+
+    macd_signal_sell = bool(re.search(r"macd.{0,6}시그널.{0,6}(?:하향|아래|이탈|데드)", compact))
+    macd_zero_sell = bool(re.search(r"macd.{0,6}(?:0선|영선|제로|제로선|0\s*라인).{0,6}(?:하향|아래|이탈|내려)", compact))
+    macd_sell_legacy = any(re.search(p, compact) for p in ["macd크로스.{0,6}매도", "macd.{0,4}데드", "macd시그널.{0,6}매도"])
+    if dead_macd or macd_signal_sell or macd_zero_sell or macd_sell_legacy:
+        mode = "zero" if (macd_zero_sell and not (dead_macd or macd_signal_sell)) else "crossover"
+        exit_.append(TechnicalSignal(indicator="macd", signal_type="sell", mode=mode))
 
     # ── ADX (추세 강도 필터) ──
     # 'ADX가 25 이상' 류를 진입 조건으로 잡는다. ADX는 단독 트리거보다 추세 강도 확인용이지만,
     # 규칙 기반에서 통째로 누락하면 코치가 '없는 조건을 있다'고 오인하므로 명시적으로 포착한다.
-    adx_match = re.search(r"adx(?:가|이|은|는)?\s*(\d+(?:\.\d+)?)\s*(이상|초과|이하|미만)?", compact)
+    adx_match = re.search(r"adx(?:가|이|은|는|도)?\s*(\d+(?:\.\d+)?)\s*(?:를|을)?\s*(이상|초과|이하|미만)?", compact)
     if adx_match:
         op_word = adx_match.group(2)
         entry.append(TechnicalSignal(
@@ -1317,8 +1405,8 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
     # 과매도=20 / 과매수=80 기본값. 엔진·컨버터가 이미 stochastic을 지원하므로 추출만 추가한다.
     stoch_term = r"(?:스토캐스틱|stochastic)"
     stoch_buy = re.search(
-        rf"{stoch_term}(?:가|이|은|는|을|를)?\s*(\d+)\s*(?:이하|미만|아래|밑).*?(?:매수|진입|반등|올라)"
-        rf"|{stoch_term}.*?과매도.*?(?:매수|반등|올라)",
+        rf"{stoch_term}(?:가|이|은|는|을|를|도)?\s*(\d+)\s*(?:을|를)?\s*(?:이하|미만|아래|밑).*?(?:매수|진입|반등|올라)"
+        rf"|{stoch_term}.*?과매도.*?(?:매수|진입|반등|올라)",
         compact,
     )
     if stoch_buy:
@@ -1327,8 +1415,8 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
             indicator="stochastic", signal_type="buy", operator="<=", value=float(val),
         ))
     stoch_sell = re.search(
-        rf"{stoch_term}(?:가|이|은|는|을|를)?\s*(\d+)\s*(?:이상|초과|위).*?(?:매도|청산)"
-        rf"|{stoch_term}.*?과매수.*?(?:매도|청산)",
+        rf"{stoch_term}(?:가|이|은|는|을|를|도)?\s*(\d+)\s*(?:을|를)?\s*(?:이상|초과|위|넘)[^,]*?(?:매도|청산)"
+        rf"|{stoch_term}[^,]*?과매수[^,]*?(?:매도|청산)",
         compact,
     )
     if stoch_sell:
@@ -1341,8 +1429,8 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
     # 값이 음수일 수 있어 부호를 포함해 추출한다(예: 'CCI -100 이하'). 숫자가 없으면
     # 과매도=-100 / 과매수=100 기본값.
     cci_buy = re.search(
-        r"cci(?:가|이|은|는|을|를)?\s*(-?\d+)\s*(?:이하|미만|아래|밑).*?(?:매수|진입|반등|올라)"
-        r"|cci.*?과매도.*?(?:매수|반등|올라)",
+        r"cci(?:가|이|은|는|을|를|도)?\s*(-?\d+)\s*(?:을|를)?\s*(?:이하|미만|아래|밑).*?(?:매수|진입|반등|올라)"
+        r"|cci.*?과매도.*?(?:매수|진입|반등|올라)",
         compact,
     )
     if cci_buy:
@@ -1351,8 +1439,8 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
             indicator="cci", signal_type="buy", period=14, operator="<=", value=float(val),
         ))
     cci_sell = re.search(
-        r"cci(?:가|이|은|는|을|를)?\s*(-?\d+)\s*(?:이상|초과|위).*?(?:매도|청산)"
-        r"|cci.*?과매수.*?(?:매도|청산)",
+        r"cci(?:가|이|은|는|을|를|도)?\s*(-?\d+)\s*(?:을|를)?\s*(?:이상|초과|위|넘)[^,]*?(?:매도|청산)"
+        r"|cci[^,]*?과매수[^,]*?(?:매도|청산)",
         compact,
     )
     if cci_sell:
@@ -1365,7 +1453,10 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
     # 하단/중심선 회복 매수(평균회귀)뿐 아니라 상단 돌파 진입(추세)·하단 도달 청산도 포착한다.
     if re.search(r"볼린저.*?(?:하단|중심선).*?(?:매수|진입)|볼린저밴드.*?(?:매수|진입)|볼린저.*?상단.*?돌파", compact):
         entry.append(TechnicalSignal(indicator="bollinger_bands", signal_type="buy"))
-    if re.search(r"볼린저.*?상단.*?(?:매도|청산)|볼린저.*?하단.*?(?:매도|청산|닿|도달)", compact):
+    # 청산은 밴드 경계(상단/하단/중심선)가 매도/청산 동사와 같은 절(쉼표 미포함) 안에서 가까이
+    # 있을 때만 잡는다. '볼린저'가 청산 절에 다시 안 나와도 되지만('하단에 닿으면 청산'), 청산
+    # 절이 밴드와 무관하면(예: "상단 돌파 매수, 데드크로스 청산") 잘못 만들지 않는다.
+    if "볼린저" in compact and re.search(r"(?:상단|하단|중심선)[^,]{0,10}(?:매도|청산|닿|도달)", compact):
         exit_.append(TechnicalSignal(indicator="bollinger_bands", signal_type="sell"))
 
     # ── 브레이크아웃 (신고가 / 박스권 위로 돌파 / N일 고점 돌파) ──
@@ -1374,6 +1465,9 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
         re.search(r"(?:\d+(?:주|일)?)?신고가.*?(?:돌파|매수|진입|들어가|새로만들)", compact)
         or "브레이크아웃" in compact
         or re.search(r"박스권?.{0,8}돌파", compact)
+        # "박스권에서 횡보하다가 ... 위로 치고 올라가면" 같은 구어체 상방 돌파(박스권과 방향
+        # 표현이 떨어져 있어도 인식). breakout은 서술형 신뢰 지표라 다소 넓게 잡아도 안전하다.
+        or re.search(r"박스권?.{0,18}위로.{0,8}(?:돌파|치고|올라|뚫)", compact)
         or re.search(r"\d+일고점.{0,6}(?:돌파|넘|상향|위로|매수)", compact)
         or re.search(r"고점.{0,4}돌파", compact)
     )
@@ -1384,8 +1478,8 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
 
     # ── 박스권 이탈 매도 (박스 하단/저점 하향 이탈 → breakout sell) ──
     has_box_breakdown = bool(
-        re.search(r"박스권?.{0,6}(?:안으로|내려|아래|하단|이탈).{0,8}(?:매도|청산|팔)", compact)
-        or re.search(r"\d+일저점.{0,6}(?:이탈|깨|하향|무너).{0,8}(?:매도|청산|팔)", compact)
+        re.search(r"박스권?.{0,8}(?:안으로|내려|아래|밑|하단|이탈|빠).{0,8}(?:매도|청산|팔|손절)", compact)
+        or re.search(r"\d+일저점.{0,6}(?:이탈|깨|하향|무너).{0,8}(?:매도|청산|팔|손절)", compact)
     )
     if has_box_breakdown:
         exit_.append(TechnicalSignal(
@@ -1398,6 +1492,8 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
     volume_term = r"(?:거래량|거래대금)"
     volume_rising = bool(
         re.search(rf"{volume_term}.{{0,5}}(?:급증|폭발|터[지진졌짐])", compact)
+        # "거래량이 평소보다 크게 터지면서"처럼 급증 동사(터지)가 거래량과 떨어져 있어도 인식.
+        or re.search(rf"{volume_term}.{{0,12}}터[지진졌짐]", compact)
         or re.search(rf"{volume_term}.{{0,12}}(?:평균|평소).{{0,6}}(?:늘|증가|많|상회|높|\d+배)", compact)
         # '거래대금이 크게 늘고'처럼 평균 언급 없이 증가만 표현한 경우도 동적 신호로 본다.
         or re.search(rf"{volume_term}.{{0,6}}(?:크게|확|많이|부쩍)?(?:늘|불어|증가)", compact)
@@ -1408,6 +1504,53 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
         vol_period_match = re.search(r"(\d+)일.{0,4}평균", compact)
         vol_period = int(vol_period_match.group(1)) if vol_period_match else 20
         entry.append(TechnicalSignal(indicator="volume_spike", signal_type="buy", period=vol_period))
+
+    # ── AI 상승/하락 예측 모델 ──
+    # 'AI(인공지능)' 언급 + '상승 ...예측/확률/신호' → ai_model 매수, '하락 ...예측/신호/위험' →
+    # ai_drop_model 매도. 신뢰도 임계값은 '상승'/'하락' 키워드 근처의 'N%'를 결정적으로 잡고,
+    # 없으면 기본 70. AI 신호는 종목별 신호라 LLM이 자주 누락해 결정적 추출이 특히 중요하다.
+    if "ai" in compact or "인공지능" in compact:
+        up = re.search(r"상승", compact)
+        if up and re.search(
+            r"상승.{0,6}(?:예측|예상|확률|신호|전망|기대)|(?:ai|인공지능).{0,4}매수|상승을예측", compact
+        ):
+            thr = _nearest_pct(compact, up.start())
+            entry.append(TechnicalSignal(
+                indicator="ai_model", signal_type="buy", threshold=thr if thr is not None else 70.0,
+            ))
+        down = re.search(r"하락", compact)
+        if down and re.search(
+            r"하락.{0,6}(?:예측|예상|확률|신호|전망|위험)|(?:ai|인공지능).{0,4}매도|하락을예측|위험.{0,2}신호", compact
+        ):
+            thr = _nearest_pct(compact, down.start())
+            exit_.append(TechnicalSignal(
+                indicator="ai_drop_model", signal_type="sell", threshold=thr if thr is not None else 70.0,
+            ))
+
+    # ── 오실레이터(rsi/stochastic/cci)의 '맨숫자' 반대편 청산 ──
+    # "스토캐스틱 20 이하 매수, 80 이상 매도"처럼 청산 임계값에 지표명을 다시 붙이지 않는
+    # 경우가 흔하다. 진입에 오실레이터가 정확히 하나 잡혔고 그 청산이 아직 없으면, 'N 이상/
+    # 넘으면 ... 매도/청산'(맨숫자)을 그 지표의 청산으로 귀속한다(한 규칙으로 일반화).
+    _osc = {"rsi", "stochastic", "cci"}
+    osc_buy_inds = {s.indicator for s in entry if s.indicator in _osc}
+    osc_sell_inds = {s.indicator for s in exit_ if s.indicator in _osc}
+    _OSC_OVERBOUGHT_DEFAULT = {"rsi": 70.0, "stochastic": 80.0, "cci": 100.0}
+    if len(osc_buy_inds) == 1:
+        ind = next(iter(osc_buy_inds))
+        if ind not in osc_sell_inds:
+            m = re.search(r"(-?\d+)\s*(?:을|를|이|은|는)?\s*(?:이상|초과|위|넘)[^,]{0,8}(?:매도|청산)", compact)
+            if m:
+                value = float(m.group(1))
+            elif re.search(r"과매수[^,]{0,6}(?:매도|청산)", compact):
+                # "스토캐스틱 과매도 매수, 과매수에서 매도"처럼 청산이 '과매수'(맨숫자 없음)인 경우.
+                value = _OSC_OVERBOUGHT_DEFAULT[ind]
+            else:
+                value = None
+            if value is not None:
+                sig = TechnicalSignal(indicator=ind, signal_type="sell", operator=">=", value=value)
+                if ind in {"rsi", "cci"}:
+                    sig.period = 14
+                exit_.append(sig)
 
     return entry, exit_
 
@@ -1427,14 +1570,18 @@ def _extract_breakout_lookback(compact: str) -> int:
     return 252 if value == 52 else value
 
 
+# 연산자 한국어 표현(부등호). '이하/미만/이상/초과' 외에 구어체 '아래/밑'(<), '넘는/보다 높은'
+# (>)도 인식한다. 긴 토큰(보다높/보다낮)을 짧은 것보다 먼저 둬 부분매칭을 방지한다.
+_OP_ALT = r"(보다높|보다많|보다낮|보다적|이하|미만|이상|초과|아래|밑|이내|넘는|넘어)"
+
 _FUNDAMENTAL_PATTERN_SPECS = [
-    ("pbr", [r"pbr(?:이|가|은|는)?\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*(이하|미만|이상|초과)?"]),
-    ("per", [r"per(?:이|가|은|는)?\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*(이하|미만|이상|초과)?"]),
-    ("roe_or_gpa", [r"(?:roe|gpa)(?:이|가|은|는)?\s*(\d+(?:\.\d+)?)%?\s*(이하|미만|이상|초과)?"]),
-    ("debt_ratio", [r"(?:부채비율|부채)(?:이|가|은|는)?\s*(\d+(?:\.\d+)?)%?\s*(이하|미만|이상|초과)?"]),
+    ("pbr", [rf"pbr(?:이|가|은|는)?\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*{_OP_ALT}?"]),
+    ("per", [rf"per(?:이|가|은|는)?\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*{_OP_ALT}?"]),
+    ("roe_or_gpa", [rf"(?:roe|gpa)(?:이|가|은|는)?\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
+    ("debt_ratio", [rf"(?:부채비율|부채)(?:이|가|은|는)?\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
     # 금액 지표(억원 단위)는 '조'+'억' 콤보를 결정적으로 합산한다: (조 부분)?(억 부분)?(연산자)?.
-    ("market_cap", [r"시가총액(?:이|가|은|는)?\s*(?:(\d+(?:\.\d+)?)조)?\s*(?:(\d+(?:\.\d+)?)(?:억원|억))?\s*(이하|미만|이상|초과)?"]),
-    ("trading_value", [r"(?:거래대금|일평균거래대금)(?:이|가|은|는)?\s*(?:(\d+(?:\.\d+)?)조)?\s*(?:(\d+(?:\.\d+)?)(?:억원|억))?\s*(이하|미만|이상|초과)?"]),
+    ("market_cap", [rf"시가총액(?:이|가|은|는)?\s*(?:(\d+(?:\.\d+)?)조)?\s*(?:(\d+(?:\.\d+)?)(?:억원|억))?\s*{_OP_ALT}?"]),
+    ("trading_value", [rf"(?:거래대금|일평균거래대금)(?:이|가|은|는)?\s*(?:(\d+(?:\.\d+)?)조)?\s*(?:(\d+(?:\.\d+)?)(?:억원|억))?\s*{_OP_ALT}?"]),
 ]
 
 # 금액 지표는 값을 (조 부분 × 10000) + (억 부분)으로 합산한다. 그 외는 group(1) 단일 값.
@@ -1445,6 +1592,16 @@ _OPERATOR_BY_KOREAN = {
     "미만": "<",
     "이상": ">=",
     "초과": ">",
+    # 구어체 동의어
+    "아래": "<",
+    "밑": "<",
+    "이내": "<=",
+    "보다낮": "<",
+    "보다적": "<",
+    "넘는": ">",
+    "넘어": ">",
+    "보다높": ">",
+    "보다많": ">",
 }
 
 
@@ -1619,7 +1776,7 @@ def _extract_hold_period_days(user_input: str) -> Optional[int]:
     match = re.search(r"(\d+)일(?:간)?보유", compact)
     if match:
         return int(match.group(1))
-    match = re.search(r"(\d+)일(?:정도)?지나면(?:정리|매도|청산)", compact)
+    match = re.search(r"(\d+)일(?:정도|이|을|를)?지나면(?:무조건|바로|전량)?(?:정리|매도|청산)", compact)
     if match:
         return int(match.group(1))
     return None
@@ -1782,9 +1939,11 @@ def _extract_trailing_stop_pct(user_input: str) -> Optional[float]:
 
 def _extract_max_mdd_limit_pct(user_input: str) -> Optional[float]:
     compact = re.sub(r"\s+", "", user_input.lower())
+    # 'MDD 30% 넘으면'·'낙폭 20% 이상'·'MDD 30% 한도'를 모두 인식한다. mdd/낙폭과 숫자 사이
+    # 조사가 끼어도 잡고('mdd가30%'), 절 경계는 넘지 않는다([^,]).
     patterns = [
-        r"mdd(\d+(?:\.\d+)?)%.*?(?:초과|이상)",
-        r"낙폭(\d+(?:\.\d+)?)%.*?(?:초과|이상)",
+        r"mdd(?:가|이|은|는)?\s*(\d+(?:\.\d+)?)%[^,]*?(?:초과|이상|넘|한도)",
+        r"낙폭(?:이|은|는)?\s*(\d+(?:\.\d+)?)%[^,]*?(?:초과|이상|넘|한도|중단)",
     ]
     for pattern in patterns:
         match = re.search(pattern, compact)
@@ -2069,7 +2228,9 @@ def _match_risk_pct(compact: str, cue: str, blocker: str = "") -> Optional[float
     표현별 패턴을 늘리는 대신 '키워드 ~ %' / '% ~ 키워드' 두 방향 한 규칙으로 일반화한다.
     blocker(다른 리스크 필드 키워드)가 사이에 끼면 연결하지 않아 오인식을 막는다.
     compact는 공백 제거·소문자화된 입력이다."""
-    gap = rf"(?:(?!{blocker})[^%])*?" if blocker else r"[^%]*?"
+    # 절(쉼표) 경계를 넘지 않게 ','도 제외 — "수익이 30% 나면 익절, 15% 빠지면 손절"에서
+    # 익절이 다른 절의 15%를 끌어오지 않도록 한다.
+    gap = rf"(?:(?!{blocker})[^%,])*?" if blocker else r"[^%,]*?"
     for pattern in (rf"{cue}{gap}-?(\d+(?:\.\d+)?)%", rf"-?(\d+(?:\.\d+)?)%{gap}{cue}"):
         match = re.search(pattern, compact)
         if match:
@@ -2158,6 +2319,42 @@ def _apply_prompt_overrides(parsed: ParsedStrategy, user_input: str) -> ParsedSt
     if backtest_period is not None:
         updates["backtest_period"] = backtest_period
 
+    # ── 포트폴리오/리스크 한도 필드 결정적 보정 ──
+    # 규칙 기반 fast-path가 처리하지 못해 LLM 폴백으로 새는 복잡한 프롬프트의 경우, LLM이
+    # 이 필드들(종목수/보유기간/리밸런싱/MDD/자본금/체결시점/수수료)을 자주 틀린다. 프롬프트에
+    # '명시적으로' 값이 있을 때만 결정적 추출로 덮어써, LLM 오류를 보정한다(기본값 클로버 방지).
+    max_positions = _extract_max_positions(user_input)
+    if max_positions is not None:
+        updates["max_positions"] = max_positions
+
+    max_mdd = _extract_max_mdd_limit_pct(user_input)
+    if max_mdd is not None:
+        updates["max_mdd_limit_pct"] = max_mdd
+
+    # 보유기간: 랭킹 전략에서는 모멘텀 룩백('최근 3개월')이 보유기간으로 오인되므로,
+    # 일(日) 단위로 명시한 경우에만 덮어쓴다(규칙 기반과 동일한 가드).
+    hold = _extract_hold_period_days(user_input)
+    if hold is not None and (ranking_metric is None or _has_explicit_day_holding(user_input)):
+        updates["hold_period_days"] = hold
+
+    rebalancing = _extract_rebalancing_period(user_input, hold)
+    if rebalancing != "none":
+        updates["rebalancing_period"] = rebalancing
+
+    compact_in = re.sub(r"\s+", "", user_input.lower())
+    if re.search(r"\d+(?:\.\d+)?(?:억|천만|백만|만원)|초기자금|자본금|시드", compact_in):
+        capital = _extract_initial_capital(user_input)
+        if capital != 10_000_000.0:
+            updates["initial_capital"] = capital
+
+    if _extract_execution_timing(user_input) == "current_close":
+        updates["execution_timing"] = "current_close"
+
+    if "수수료" in compact_in:
+        updates["fee_rate"] = _extract_rate(user_input, "수수료", 0.015)
+    if "슬리피지" in compact_in:
+        updates["slippage_rate"] = _extract_rate(user_input, "슬리피지", 0.05)
+
     # ── Step 1: LLM 환각 신호 제거 (프롬프트에 언급되지 않은 지표 제거) ──
     validated_entry = _validate_signals(list(parsed.entry_signals), user_input)
     validated_exit = _validate_signals(list(parsed.exit_signals), user_input)
@@ -2189,7 +2386,9 @@ _RELATIVE_STRENGTH_RANKING_CUES = (
     r"수익률.{0,4}순위",
     r"상대강도",
     r"모멘텀.{0,5}(?:상위|순위|랭킹|상위권)",
-    r"(?:상승률|많이오른|꾸준히오른).{0,8}(?:상위|상위권|순)",
+    r"(?:상승률|많이오른|꾸준히오른|강하게오른|강하게상승|가장오른).{0,8}(?:상위|상위권|순)",
+    # "가장 강하게 오른 종목 N개" 처럼 '상위'가 떨어져 있어도 강한 상승 표현은 모멘텀 랭킹으로 본다.
+    r"(?:가장|제일).{0,4}(?:강하게|많이).{0,2}(?:오른|상승)",
 )
 
 

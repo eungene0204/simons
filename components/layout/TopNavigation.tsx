@@ -310,6 +310,9 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
     if (isLoggingOut) return;
 
     setIsLoggingOut(true);
+    setIsProfileMenuOpen(false);
+    setUserProfile({ name: "사용자" });
+    setAuthState("anonymous");
     try {
       await fetch("/api/logout", {
         method: "POST",
@@ -320,7 +323,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
         await getSupabaseBrowserClient().auth.signOut().catch(() => undefined);
       }
     } finally {
-      setIsProfileMenuOpen(false);
+      setIsLoggingOut(false);
       router.replace("/");
       router.refresh();
     }

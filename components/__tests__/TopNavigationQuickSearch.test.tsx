@@ -393,6 +393,21 @@ describe("TopNavigation quick search", () => {
     expect(screen.getByText("총 수익/손실")).toBeInTheDocument();
     expect(screen.getByText("+700,000원")).toBeInTheDocument();
     expect(pushMock).not.toHaveBeenCalledWith("/assets");
+
+    fireEvent.click(screen.getByRole("button", { name: "자산 모달 닫기" }));
+    fireEvent.click(profileButton);
+    fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
+
+    expect(
+      await screen.findByRole("button", { name: "Google 로그인" })
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText(/사용자 메뉴/)).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith("/api/logout", {
+      method: "POST",
+      credentials: "same-origin",
+    });
+    expect(signOutMock).toHaveBeenCalledOnce();
+    expect(replaceMock).toHaveBeenCalledWith("/");
   });
 
   it("몇 글자만 입력해도 바로 추천 결과를 보여준다", async () => {

@@ -218,7 +218,7 @@ export default function StockSearchModal({
                     onClick={() => handleToggleSelect(stock.symbol, stock.name)}
                     className={`group w-full rounded-2xl border px-4 py-3 text-left transition-all duration-200 ${
                       isSelected
-                        ? "border-sky-400/40 bg-sky-400/10 shadow-[0_0_0_1px_rgba(56,189,248,0.12)]"
+                        ? "border-sky-400/40 shadow-[0_0_0_1px_rgba(56,189,248,0.12)]"
                         : "border-white/[0.06] bg-white/[0.03] hover:border-white/[0.12] hover:bg-white/[0.05]"
                     }`}
                   >
