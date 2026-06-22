@@ -80,7 +80,6 @@ interface ChatMessage {
   clarificationSuggestions?: string[];
   coachLoading?: boolean;  // coach response is being generated
   isLoading?: boolean;
-  loadingTitle?: string;  // 분석 중 상태 버블의 라벨 (기본 "전략 분석")
   error?: string;
   // 개별 종목 질문 / 일반 투자 질문 응답
   stockAnalysis?: StockAnalysisResult;
@@ -164,16 +163,18 @@ function ShimmerStatusText({
   );
 }
 
-function AnalysisStatusBubble({ title }: { title: string }) {
+function AnalysisStatusBubble({ title }: { title?: string }) {
   return (
     <div
       className={`max-w-[88%] rounded-tl-sm p-3.5 space-y-2 ${COACH_CHAT_BUBBLE_CLASS}`}
       style={SOFT_MESSAGE_ENTER_LATE_STYLE}
     >
       <div className="flex items-center gap-2">
-        <span className="text-[11px] font-black uppercase tracking-widest text-white">
-          {title}
-        </span>
+        {title && (
+          <span className="text-[11px] font-black uppercase tracking-widest text-white">
+            {title}
+          </span>
+        )}
         <ShimmerStatusText className="text-sm font-bold">분석 중...</ShimmerStatusText>
       </div>
     </div>
@@ -889,8 +890,8 @@ function StrategyLabContent() {
       const fallback =
         intent === "GREETING"
           ? "안녕하세요. 오늘은 어떤 전략을 연구해 볼까요?"
-          : "저는 투자 전략 및 투자 분석 전용 모델입니다. 현재 질문에는 도움을 드릴 수 없습니다. 대신 투자 전략, 백테스트, 종목 분석과 관련된 질문은 도와드릴 수 있습니다.";
-      await appendAssistant({ role: "assistant", infoText: suggestedReply ?? fallback });
+          : "저는 투자 전략 및 분석 전용 모델입니다. 현재 질문에는 도움을 드릴 수 없습니다. 대신 투자 전략, 백테스트, 종목 분석과 관련된 질문은 도와드릴 수 있습니다.";
+      updateLastAssistant({ isLoading: false, infoText: suggestedReply ?? fallback });
       return true;
     }
 
@@ -898,9 +899,9 @@ function StrategyLabContent() {
     if (intent === "STOCK_ANALYSIS") {
       // 전략 작성 중인데 종목이 특정되지 않은 STOCK_ANALYSIS는 대개 오분류다
       // (예: "PBR 1 이하 종목"). "어떤 종목을 분석할까요?" 막다른 길 대신
-      // 전략 다듬기 흐름으로 흘려보낸다.
+      // 전략 다듐기 흐름으로 흘려보낸다.
       if (!symbol && currentParsed) return false;
-      await appendAssistant({ role: "assistant", stockLoading: true });
+      updateLastAssistant({ stockLoading: true, isLoading: false });
       if (!symbol) {
         updateLastAssistant({
           stockLoading: false,
@@ -914,7 +915,6 @@ function StrategyLabContent() {
 
     // 일반 투자 지식 질문 → 전략 작성 중이 아닐 때만 가로챈다.
     if (intent === "GENERAL_INVESTMENT" && !currentParsed) {
-      await appendAssistant({ role: "assistant", isLoading: true });
       try {
         const res = await fetch("/api/query/general", {
           method: "POST",
@@ -967,6 +967,10 @@ function StrategyLabContent() {
       return;
     }
 
+    // 분류/파싱 호출 전에 '분석 중...' 로딩을 즉시 보여준다 (딜레이 동안 사용자 피드백 제공).
+    // 이후 분기들은 이 버블을 updateLastAssistant로 변형해 재사용한다(새 버블 생성 금지).
+    await appendAssistant({ role: "assistant", isLoading: true });
+
     const routed = await maybeRouteNonStrategyQuery(userText, currentParsed);
     if (routed) {
       setIsSending(false);
@@ -974,8 +978,8 @@ function StrategyLabContent() {
     }
 
     if (currentParsed && isAdvisorFollowUpPrompt(userText)) {
-      await appendAssistant({
-        role: "assistant",
+      updateLastAssistant({
+        isLoading: false,
         parsed: currentParsed,
         coachLoading: true,
         coachText: "",
@@ -991,13 +995,9 @@ function StrategyLabContent() {
       return;
     }
 
-    // 후속 입력(전략 수정)은 '입력 분석 중...'만 노출하고 구조 분석 박스는 생략한다.
+    // 후속 입력(전략 수정)은 '분석 중...'만 노출하고 구조 분석 박스는 생략한다.
+    // (로딩 버블은 위에서 이미 띄웠고, 스트리밍이 이 버블에 parseSkeleton을 채운다.)
     const isFollowUpModification = Boolean(currentParsed);
-    await appendAssistant({
-      role: "assistant",
-      isLoading: true,
-      ...(isFollowUpModification ? { loadingTitle: "입력" } : {}),
-    });
 
     try {
       const res = await fetch("/api/strategy/parse/stream", {
@@ -1598,7 +1598,7 @@ function StrategyLabContent() {
                     {msg.role === "assistant" && (
                       <div className="space-y-3">
                         {msg.isLoading && !msg.parseSkeleton && (
-                          <AnalysisStatusBubble title={msg.loadingTitle ?? "전략 분석"} />
+                          <AnalysisStatusBubble />
                         )}
                         {msg.stockLoading && <AnalysisStatusBubble title="종목 분석" />}
                         {msg.stockAnalysis && (
