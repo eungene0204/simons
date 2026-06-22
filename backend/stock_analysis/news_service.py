@@ -70,8 +70,8 @@ def _news_v2_db_url() -> Optional[str]:
         return None
 
 
-def _run_async(coro: Any) -> Any:
-    """실행 중 이벤트 루프 유무와 무관하게 코루틴을 끝까지 돌린다.
+def _run_async(coro: Any, timeout_sec: float = 15.0) -> Any:
+    """실행 중 이벤트 루프 유무와 무관하게 코루틴을 끝까지 돌린다(timeout 포함).
 
     동기 워커 스레드(루프 없음, 종목분석 에이전트)에서는 asyncio.run을, async 요청
     핸들러(루프 실행 중, 코치)에서는 별도 워커 스레드에서 실행해
@@ -80,12 +80,20 @@ def _run_async(coro: Any) -> Any:
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        return asyncio.run(coro)
+        try:
+            return asyncio.run(asyncio.wait_for(coro, timeout=timeout_sec))
+        except asyncio.TimeoutError:
+            logger.error(f"뉴스 조회 timeout ({timeout_sec}s 초과)")
+            raise TimeoutError(f"뉴스 조회 시간 초과 ({timeout_sec}초)") from None
 
     import concurrent.futures
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(asyncio.run, coro).result()
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(asyncio.run, asyncio.wait_for(coro, timeout=timeout_sec)).result(timeout=timeout_sec + 2)
+    except concurrent.futures.TimeoutError:
+        logger.error(f"뉴스 조회 timeout (스레드 실행 {timeout_sec}s 초과)")
+        raise TimeoutError(f"뉴스 조회 시간 초과 ({timeout_sec}초)") from None
 
 
 async def _async_load_many(
@@ -118,11 +126,15 @@ def load_articles_for_symbols(
     """
     url = _news_v2_db_url()
     if not url or not symbols:
+        logger.debug(f"뉴스 DB 설정 없음 (url={url}, symbols={len(symbols) if symbols else 0})")
         return {}
     try:
         raw = _run_async(_async_load_many(url, list(symbols), limit))
-    except Exception:
-        logger.debug("news_v2 store 조회 실패 — 뉴스 데이터 없음", exc_info=True)
+    except TimeoutError as e:
+        logger.warning(f"뉴스 조회 timeout: {e}")
+        return {}
+    except Exception as e:
+        logger.warning(f"news_v2 store 조회 실패: {type(e).__name__}: {e}", exc_info=True)
         return {}
     # look-ahead 차단: as_of 이후 기사는 제외(백테스트 안전).
     return {
