@@ -6,7 +6,7 @@ import StrategyLabPage from "./page";
 
 const push = vi.fn();
 const fetchMock = vi.fn();
-const scrollIntoViewMock = vi.fn();
+const scrollToMock = vi.fn();
 
 const parsedStrategy = {
   description: "PER 저평가 전략",
@@ -117,7 +117,11 @@ describe("StrategyLabPage scroll behavior", () => {
       return 1;
     });
     vi.stubGlobal("cancelAnimationFrame", vi.fn());
-    window.HTMLElement.prototype.scrollIntoView = scrollIntoViewMock;
+    // 모킹된 DashboardLayout에는 <main>이 없어 스크롤은 window 폴백 경로를 탄다.
+    // 메시지 끝이 입력창에 가리는 상황(delta > 0)을 만들기 위해 bottom을 크게 잡는다.
+    window.HTMLElement.prototype.getBoundingClientRect = () =>
+      ({ bottom: 10000, top: 0, left: 0, right: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    vi.stubGlobal("scrollTo", scrollToMock);
   });
 
   afterEach(() => {
@@ -182,7 +186,7 @@ describe("StrategyLabPage scroll behavior", () => {
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
 
     expect(await screen.findByText("검증 중...")).toBeInTheDocument();
-    scrollIntoViewMock.mockClear();
+    scrollToMock.mockClear();
 
     followUpResponse.resolve(
       createJsonResponse({ message: "후속 코치 응답입니다. 손절 기준을 더 명확히 해보세요." })
@@ -195,7 +199,7 @@ describe("StrategyLabPage scroll behavior", () => {
     ).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(scrollIntoViewMock).toHaveBeenCalled();
+      expect(scrollToMock).toHaveBeenCalled();
     });
   });
 });

@@ -8,7 +8,10 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { StrategyExampleTabs } from "@/components/strategy/StrategyExampleTabs";
 import { StrategyWaveBackground } from "@/components/strategy/StrategyWaveBackground";
-import { PENDING_STRATEGY_PROMPT_KEY } from "@/components/strategy/strategyTemplateSession";
+import {
+  PENDING_STRATEGY_PROMPT_KEY,
+  STRATEGY_CHAT_STATE_KEY,
+} from "@/components/strategy/strategyTemplateSession";
 import { BacktestResult } from "@/types/strategy";
 import { mapRawBacktestResult } from "./backtestResultMapper";
 import {
@@ -20,6 +23,7 @@ import {
   ChartLineUp,
   Question,
   GoogleLogo,
+  X,
 } from "phosphor-react";
 import {
   buildStrategySummary,
@@ -40,11 +44,13 @@ import {
   mergeStrategyModification,
   type AdvisorWalkForwardSettings,
 } from "./parsedStrategyMerge";
+import { computeChatScrollDelta } from "./chatScroll";
 import { normalizeCoachMessage } from "./coachMessage";
 import { parseCoachSegments } from "./coachText";
 import { parseSseBlocks } from "./sseEvents";
 import {
   beginStrategyChatNavigation,
+  selectPersistableChatMessages,
   shouldBeginStrategyChatNavigation,
 } from "./chatNavigation";
 import StockAnalysisPanel, { type StockAnalysisResult } from "@/components/strategy/StockAnalysisPanel";
@@ -538,6 +544,8 @@ function StrategyLabContent() {
   const coachSessionIdRef = useRef<string | null>(null);
   const coachConversationRef = useRef<CoachConversationMessage[]>([]);
   const pendingPromptConsumedRef = useRef(false);
+  // 진행 중이던 채팅을 한 번만 복원하기 위한 가드.
+  const chatRestoredRef = useRef(false);
   const handleSendRef = useRef<(overrideText?: string) => Promise<void>>();
   // 직전 분석 종목 — '이 종목 팔까?' 같은 anaphora 해석용
   const lastAnalyzedSymbolRef = useRef<string | null>(null);
@@ -551,6 +559,32 @@ function StrategyLabContent() {
       .then((r) => r.json())
       .then(setModelStatus)
       .catch(() => setModelStatus({ status: "failed", error: "서버에 연결할 수 없습니다" }));
+  }, []);
+
+  // 진행 중이던 채팅 복원 — 대시보드 등 다른 페이지로 갔다가 돌아와도 대화가 유지되도록.
+  useEffect(() => {
+    if (chatRestoredRef.current) return;
+    chatRestoredRef.current = true;
+    // 새 채팅을 막 시작하는 중(대기 프롬프트 존재)이면 옛 상태를 복원하지 않는다.
+    if (sessionStorage.getItem(PENDING_STRATEGY_PROMPT_KEY)) return;
+    try {
+      const raw = sessionStorage.getItem(STRATEGY_CHAT_STATE_KEY);
+      if (!raw) return;
+      const snapshot = JSON.parse(raw);
+      if (!Array.isArray(snapshot.messages) || snapshot.messages.length === 0) return;
+      setMessages(snapshot.messages as ChatMessage[]);
+      setLatestParsed(snapshot.latestParsed ?? null);
+      setBacktestReq(snapshot.backtestReq ?? null);
+      setCurrentOptions(snapshot.currentOptions ?? null);
+      setStage(snapshot.stage ?? "idle");
+      setResult(snapshot.result ?? null);
+      firstPromptRef.current = snapshot.firstPrompt ?? "";
+      coachConversationRef.current = snapshot.coachConversation ?? [];
+      coachSessionIdRef.current = snapshot.coachSessionId ?? null;
+      lastAnalyzedSymbolRef.current = snapshot.lastAnalyzedSymbol ?? null;
+    } catch {
+      // 손상된 스냅샷은 무시한다.
+    }
   }, []);
 
   useEffect(() => {
@@ -613,6 +647,31 @@ function StrategyLabContent() {
     };
   }, []);
 
+  // 채팅 상태를 세션에 저장해, 페이지를 떠났다가 돌아와도 복원할 수 있게 한다.
+  useEffect(() => {
+    if (messages.length === 0) return;
+    try {
+      const persistableMessages = selectPersistableChatMessages(messages);
+      if (persistableMessages.length === 0) return;
+      const snapshot = {
+        messages: persistableMessages,
+        latestParsed,
+        backtestReq,
+        currentOptions,
+        // 진행 중이던 백테스트는 복원할 수 없으므로 ready로 강등한다.
+        stage: stage === "running" ? "ready" : stage,
+        result,
+        firstPrompt: firstPromptRef.current,
+        coachConversation: coachConversationRef.current,
+        coachSessionId: coachSessionIdRef.current,
+        lastAnalyzedSymbol: lastAnalyzedSymbolRef.current,
+      };
+      sessionStorage.setItem(STRATEGY_CHAT_STATE_KEY, JSON.stringify(snapshot));
+    } catch {
+      // 용량 초과 등은 무시한다 — 복원은 best-effort.
+    }
+  }, [messages, latestParsed, backtestReq, currentOptions, stage, result]);
+
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -622,7 +681,23 @@ function StrategyLabContent() {
 
   useEffect(() => {
     const animationFrame = window.requestAnimationFrame(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+      if (!messagesEndRef.current) return;
+      const main = document.querySelector("main");
+      const endRect = messagesEndRef.current.getBoundingClientRect();
+
+      // 메시지 끝이 고정 입력창에 가리면 그만큼만 아래로 스크롤한다(과스크롤로 상단이
+      // 잘리지 않도록 현재 위치 기준 상대 스크롤).
+      if (main && main.scrollHeight > main.clientHeight) {
+        const delta = computeChatScrollDelta(endRect.bottom, main.getBoundingClientRect().bottom);
+        if (delta > 0) {
+          main.scrollTo({ top: main.scrollTop + delta, behavior: "smooth" });
+        }
+      } else {
+        const delta = computeChatScrollDelta(endRect.bottom, window.innerHeight);
+        if (delta > 0) {
+          window.scrollTo({ top: window.scrollY + delta, behavior: "smooth" });
+        }
+      }
     });
 
     return () => window.cancelAnimationFrame(animationFrame);
@@ -1337,6 +1412,11 @@ function StrategyLabContent() {
     coachConversationRef.current = [];
     firstPromptRef.current = "";
     pendingPromptConsumedRef.current = false;
+    try {
+      sessionStorage.removeItem(STRATEGY_CHAT_STATE_KEY);
+    } catch {
+      // 무시
+    }
     if (isChatPage) {
       router.push("/analytics");
     }
@@ -1454,7 +1534,7 @@ function StrategyLabContent() {
         }
       `}</style>
       <div
-        className={`relative flex gap-4 overflow-x-hidden px-4 pt-20 ${hasChatStarted ? "pb-36" : "pb-12"} ${strategyPreviewBackgroundClass}`}
+        className={`relative flex flex-col items-center gap-4 overflow-x-hidden px-4 pt-20 ${hasChatStarted ? "pb-56" : "pb-12"} ${strategyPreviewBackgroundClass}`}
         data-testid="strategy-lab-background"
         style={{ minHeight: "calc(100vh - var(--top-menu-bar-height, 76px))" }}
       >
@@ -1748,6 +1828,14 @@ function StrategyLabContent() {
               placeholder="어떤 투자 아이디어를 테스트해볼까요?"
               className="w-full resize-none bg-transparent px-5 pt-4 pb-12 text-sm font-bold leading-relaxed text-white outline-none placeholder-gray-600 focus:outline-none focus:ring-0"
             />
+            <button
+              type="button"
+              onClick={handleReset}
+              className="absolute bottom-3 left-3 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-[#171717] px-3 py-1.5 text-xs font-bold text-gray-400 transition-all duration-200 hover:border-white/30 hover:bg-[#202020] hover:text-white"
+            >
+              <X size={12} weight="bold" />
+              대화 종료
+            </button>
             <div className="absolute bottom-3 right-3 flex items-center gap-2">
               <button
                 onClick={() => handleSend()}
