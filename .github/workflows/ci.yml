@@ -81,6 +81,14 @@ jobs:
             git fetch origin main
             git reset --hard origin/main      # 박스 로컬 드리프트 무시, main과 정합
 
+            # .env 환경 변수 자동 업데이트 (중복 방지)
+            if ! grep -q "NEWSV2_COLLECTION_ENABLED" .env; then
+              echo "" >> .env
+              echo "# 뉴스 수집 기능 비활성화 — celery worker 자동기동 및 수집/큐 적재 전부 중단" >> .env
+              echo "NEWSV2_COLLECTION_ENABLED=false" >> .env
+              echo "NEWSV2_WORKER_AUTOSTART_ENABLED=false" >> .env
+            fi
+
             # Keep only the active deployment image. Do not prune volumes; app data may live there.
             docker builder prune -af || true
             docker image prune -af || true
