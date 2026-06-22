@@ -1143,6 +1143,77 @@ def test_parse_modification_changes_universe_when_prompt_explicitly_requests_it(
     assert parsed.universe == ["KOSPI200"]
 
 
+_MODIFY_PREVIOUS = {
+    "description": "KOSPI200 PBR strategy",
+    "universe": ["KOSPI200"],
+    "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1}],
+    "entry_signals": [],
+    "exit_signals": [],
+    "max_positions": 8,
+    "hold_period_days": 126,
+    "rebalancing_period": "none",
+    "stop_loss_pct": 12,
+    "take_profit_pct": None,
+    "trailing_stop_pct": None,
+    "max_mdd_limit_pct": None,
+    "backtest_period": "5y",
+    "initial_capital": 10_000_000,
+    "execution_timing": "next_open",
+    "fee_rate": 0.015,
+    "slippage_rate": 0.05,
+}
+
+
+def test_parse_modification_simple_field_uses_rule_based_not_llm(monkeypatch):
+    """단순 필드 수정('30% 익절 설정')은 LLM 호출 없이 결정론 fast-path로 처리된다.
+
+    회귀: 이 입력이 LLM/RAG 경로로 가서 num_ctx 초과·의존성 누락으로 죽던 버그.
+    """
+    parser = NLStrategyParser(backend="ollama")
+
+    def _must_not_call_llm(_user_input, _previous):
+        raise AssertionError("단순 수정은 LLM을 호출하면 안 된다")
+
+    monkeypatch.setattr(parser, "_modify_ollama", _must_not_call_llm)
+
+    parsed = parser.parse_modification("30% 익절 설정", dict(_MODIFY_PREVIOUS))
+
+    assert parsed.take_profit_pct == 30
+    assert parsed.stop_loss_pct == 12  # 기존 값 보존
+    assert parsed.universe == ["KOSPI200"]
+
+
+def test_parse_modification_delete_uses_rule_based(monkeypatch):
+    """리스크 필드 삭제('손절 빼줘')도 fast-path가 LLM 없이 처리한다."""
+    parser = NLStrategyParser(backend="ollama")
+
+    def _must_not_call_llm(_user_input, _previous):
+        raise AssertionError("삭제 수정은 LLM을 호출하면 안 된다")
+
+    monkeypatch.setattr(parser, "_modify_ollama", _must_not_call_llm)
+
+    parsed = parser.parse_modification("손절 빼줘", dict(_MODIFY_PREVIOUS))
+
+    assert parsed.stop_loss_pct is None
+
+
+def test_parse_modification_complex_request_defers_to_llm(monkeypatch):
+    """인식 못 한 복합·모호한 수정은 LLM 경로로 위임된다."""
+    parser = NLStrategyParser(backend="ollama")
+    called = {"llm": False}
+
+    def _llm_diff(_user_input, _previous):
+        called["llm"] = True
+        return ParsedStrategyDiff(max_positions=3)
+
+    monkeypatch.setattr(parser, "_modify_ollama", _llm_diff)
+
+    parsed = parser.parse_modification("변동성 낮은 종목으로 바꿔줘", dict(_MODIFY_PREVIOUS))
+
+    assert called["llm"] is True
+    assert parsed.max_positions == 3
+
+
 def test_build_fallback_strategy_handles_vague_prompt_without_crashing():
     parsed = _build_fallback_strategy("좋은 저평가 전략 만들어줘")
 

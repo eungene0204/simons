@@ -674,7 +674,15 @@ class NLStrategyParser:
         return _apply_prompt_overrides(parsed, user_input)
 
     def parse_modification(self, user_input: str, previous: dict) -> ParsedStrategy:
-        """수정 요청: diff만 LLM으로 추출 후 previous와 병합 (32B 사용)"""
+        """수정 요청: 규칙 기반 우선, 못 풀면 LLM으로 diff 추출 후 previous와 병합.
+
+        단순 필드 수정(손절/익절/종목수/유니버스 등)은 결정론 fast-path가 LLM 없이
+        즉답한다(초기 parse와 동일한 하이브리드 구조). 복합·모호한 수정만 LLM으로 위임.
+        """
+        rule_based = _modify_rule_based(user_input, previous)
+        if rule_based is not None:
+            return rule_based
+
         if self.backend == "mlx":
             diff = self._modify_mlx(user_input, previous)
         else:
@@ -1856,6 +1864,118 @@ def _parse_rule_based_strategy(user_input: str) -> Optional[ParsedStrategy]:
         slippage_rate=_extract_rate(user_input, "슬리피지", 0.05),
     )
     return _apply_prompt_overrides(parsed, user_input)
+
+
+# ── 수정 요청 fast-path: 인식 cue/필러/단위 ──────────────────────────────────
+# 변경된 필드의 cue만 잔여 판정에서 차감한다(필드별, 표현별 정규식 증식 방지).
+_MODIFY_FIELD_CUES: dict[str, list[str]] = {
+    "stop_loss_pct": ["손절선", "손절라인", "손절", "스탑로스", "stoploss", "손실", "하락", "매도"],
+    "take_profit_pct": ["목표수익률", "목표수익", "수익실현", "수익확정", "익절률", "익절", "takeprofit", "수익"],
+    "trailing_stop_pct": ["트레일링스탑", "트레일링", "최고가대비", "trailingstop"],
+    "max_mdd_limit_pct": ["최대낙폭", "낙폭", "드로우다운", "드로다운", "mdd"],
+    "max_positions": ["동시보유", "maxpositions", "종목", "포지션", "최대", "총", "상위", "나눠"],
+    "hold_period_days": ["보유기간", "보유", "들고", "홀딩", "가지고", "가져가", "지나면", "유지"],
+    "rebalancing_period": ["리밸런싱", "리밸런스", "리밸", "재조정", "재선정", "rebalanc", "주기", "마다", "점검", "분기"],
+    "initial_capital": ["초기자금", "투자금", "자본", "자금", "초기투자", "초기", "시드", "seed", "시작"],
+    "universe": ["코스피200", "코스피", "코스닥", "kospi200", "kospi", "kosdaq", "대형주", "전체시장", "전체", "유니버스", "시장"],
+    "backtest_period": ["백테스트", "기간", "최근", "테스트", "전체기간", "동안"],
+    "backtest_start_date": ["부터", "년", "월", "일"],
+    "backtest_end_date": ["까지", "년", "월", "일"],
+}
+# 필드 무관 일반 동사·조사·단위(항상 차감).
+_MODIFY_FILLER = [
+    "설정해줘", "설정해", "설정", "변경해줘", "변경", "바꿔줘", "바꿔주세요", "바꿔", "바꾸",
+    "해주세요", "해줘", "주세요", "넣어줘", "넣어", "추가해줘", "추가", "진행", "그대로",
+    "빼줘", "빼주세요", "빼", "삭제", "없애줘", "없애", "제거해줘", "제거", "지워줘", "지워",
+    "제한", "한도", "끄기", "끄고", "중단",
+    "으로", "로", "만", "좀", "정도", "약", "더", "하고", "해",
+    "을", "를", "은", "는", "이", "가", "의", "에", "도", "와", "과", "랑", "에서", "간", "동안",
+]
+_MODIFY_UNIT_FILLER = [
+    "억", "천만원", "천만", "백만원", "만원", "만", "원", "개월", "달", "개", "일", "주", "년",
+    "종목", "퍼센트", "프로", "배",
+]
+_MODIFY_CAPITAL_CUES = ["초기자금", "자금", "자본", "투자금", "초기투자", "시드", "seed"]
+_MODIFY_REBALANCE_CUES = ["리밸런싱", "리밸런스", "리밸", "재조정", "재선정", "rebalanc"]
+
+
+def _modify_residual_is_clean(user_input: str, changed_fields) -> bool:
+    """변경된 필드의 cue·숫자·필러·단위를 모두 차감한 뒤 남는 콘텐츠가 없으면 True.
+
+    인식하지 못한 내용(예: '변동성 큰 종목 빼줘')이 남으면 False → LLM에 위임한다.
+    표현별 정규식을 늘리는 대신 'cue/필러/단위 차감 후 잔여 콘텐츠' 한 규칙으로 일반화한다.
+    """
+    residual = re.sub(r"\s+", "", user_input.lower())
+    residual = residual.replace("%", "")
+    residual = re.sub(r"-?\d+(?:\.\d+)?", "", residual)  # 숫자 제거
+    cues: list[str] = []
+    for field in changed_fields:
+        cues.extend(_MODIFY_FIELD_CUES.get(field, []))
+    # 긴 키워드부터 제거(짧은 키워드가 긴 표현을 부분 절단하는 것 방지)
+    for kw in sorted(set(cues) | set(_MODIFY_FILLER) | set(_MODIFY_UNIT_FILLER), key=len, reverse=True):
+        residual = residual.replace(kw, "")
+    return not re.search(r"[가-힣a-z0-9]", residual)
+
+
+def _modify_rule_based(user_input: str, previous: dict) -> Optional[ParsedStrategy]:
+    """수정 요청의 결정론 fast-path.
+
+    단순 필드(손절/익절/트레일링/유니버스/종목수/보유기간/리밸런싱/초기자금/MDD/백테스트
+    기간·날짜)만 바꾸는 요청을 LLM 없이 처리한다. 인식 못 한 잔여 콘텐츠가 있으면 None을
+    반환해 LLM 경로로 위임한다(핵심만 결정적, 긴 꼬리는 LLM). 기술/펀더멘털 신호 추가 같은
+    복합 수정은 의도적으로 LLM에 맡긴다.
+    """
+    compact = re.sub(r"\s+", "", user_input.lower())
+    changes: dict[str, object] = {}
+
+    # 리스크 필드(손절/익절/트레일링) — 단일 진실 소스, 삭제 의도는 None으로 인코딩.
+    changes.update(extract_risk_field_overrides(user_input))
+
+    universe = _extract_explicit_universe(user_input)
+    if universe is not None:
+        changes["universe"] = universe
+
+    max_positions = _extract_max_positions(user_input)
+    if max_positions is not None:
+        changes["max_positions"] = max_positions
+
+    max_mdd = _extract_max_mdd_limit_pct(user_input)
+    if max_mdd is not None:
+        changes["max_mdd_limit_pct"] = max_mdd
+
+    hold = _extract_hold_period_days(user_input)
+    if hold is not None:
+        changes["hold_period_days"] = hold
+
+    if any(cue in compact for cue in _MODIFY_CAPITAL_CUES) and re.search(r"\d|억|천만|만원", compact):
+        changes["initial_capital"] = _extract_initial_capital(user_input)
+
+    if any(cue in compact for cue in _MODIFY_REBALANCE_CUES):
+        rebalancing = _extract_rebalancing_period(user_input, hold)
+        if rebalancing != "none":
+            changes["rebalancing_period"] = rebalancing
+        elif re.search(r"없|안하|안함|끄|중단", compact):
+            changes["rebalancing_period"] = "none"
+
+    period = _extract_backtest_period(user_input)
+    if period is not None:
+        changes["backtest_period"] = period
+
+    start_date, end_date = _extract_backtest_dates(user_input)
+    if start_date is not None:
+        changes["backtest_start_date"] = start_date
+    if end_date is not None:
+        changes["backtest_end_date"] = end_date
+
+    if not changes:
+        return None
+    if not _modify_residual_is_clean(user_input, changes.keys()):
+        return None
+
+    merged = {**previous}
+    for field, value in changes.items():
+        merged[field] = value  # 리스크 삭제는 None으로 인코딩됨(의도적)
+    return _apply_prompt_overrides(ParsedStrategy.model_validate(merged), user_input)
 
 
 def _build_fallback_strategy(user_input: str) -> ParsedStrategy:
