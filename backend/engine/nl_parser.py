@@ -761,8 +761,12 @@ class NLStrategyParser:
         return _parse_model_json_response(content, model_cls)
 
     def _modify_ollama(self, user_input: str, previous: dict) -> ParsedStrategyDiff:
+        from engine.modify_rag import build_dynamic_modify_prompt
+
+        # 사용자 요청과 유사한 예시만 검색해서 프롬프트 생성
+        dynamic_prompt = build_dynamic_modify_prompt(user_input, k=2)
         return self._structured_ollama(
-            MODIFY_PROMPT,
+            dynamic_prompt,
             f"현재 전략:\n{json.dumps(previous, ensure_ascii=False)}\n\n"
             f"수정 요청: \"{user_input}\"",
             ParsedStrategyDiff,
