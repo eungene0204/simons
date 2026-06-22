@@ -714,23 +714,59 @@ class NLStrategyParser:
             return _parse_model_json_response(result, ParsedStrategyDiff)
         return result
 
-    def _modify_ollama(self, user_input: str, previous: dict) -> ParsedStrategyDiff:
-        self._init_ollama()
-        result = self._client.chat.completions.create(
-            model=self.ollama_model,
-            response_model=ParsedStrategyDiff,
-            max_retries=self.max_retries,
-            # MLX(outlines) 경로와 동일하게 greedy/결정론적으로 추출한다.
-            temperature=0,
-            messages=[
-                {"role": "system", "content": MODIFY_PROMPT},
-                {"role": "user", "content": (
-                    f"현재 전략:\n{json.dumps(previous, ensure_ascii=False)}\n\n"
-                    f"수정 요청: \"{user_input}\""
-                )},
+    def _structured_ollama(
+        self,
+        system_prompt: str,
+        user_message: str,
+        model_cls: type[BaseModel],
+    ) -> BaseModel:
+        """Ollama 네이티브 /api/chat로 구조화 JSON을 생성한다.
+
+        OpenAI 호환(/v1) 엔드포인트는 options.num_ctx를 무시하므로, 긴 수정 프롬프트
+        (MODIFY_PROMPT ~4KB + 현재 전략 JSON)가 기본 num_ctx(4096)를 넘으면
+        "exceeds the available context size" 400을 던진다(프로덕션 실측). 네이티브
+        엔드포인트는 코치 경로(_chat_ollama)와 동일하게 options.num_ctx를 받으므로
+        16384로 올린다. format="json"으로 JSON 출력을 강제하되, JSON 스키마 제약
+        디코딩은 이 모델에서 출력을 조기 절단시키므로 쓰지 않는다(format="json"만).
+        """
+        import urllib.request
+
+        body = json.dumps({
+            "model": self.ollama_model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
             ],
+            "stream": False,
+            "think": False,
+            "format": "json",
+            # greedy/결정론(temperature 0) — MLX(outlines) 경로와 동일.
+            "options": {
+                "temperature": 0,
+                "num_ctx": _OLLAMA_NUM_CTX,
+                "num_predict": 1024,
+            },
+        }).encode()
+        # Modal 콜드스타트 프록시가 POST body를 유실시키므로, 본문 없는 GET으로 먼저 깨운다.
+        _ollama_ensure_warm()
+        req = urllib.request.Request(
+            f"{OLLAMA_BASE_URL}/api/chat",
+            data=body,
+            headers={"Content-Type": "application/json", **ollama_auth_headers()},
+            method="POST",
         )
-        return result
+        with _ollama_open_with_retry(req, timeout=120) as resp:
+            data = json.loads(resp.read())
+        content = (data.get("message") or {}).get("content", "")
+        return _parse_model_json_response(content, model_cls)
+
+    def _modify_ollama(self, user_input: str, previous: dict) -> ParsedStrategyDiff:
+        return self._structured_ollama(
+            MODIFY_PROMPT,
+            f"현재 전략:\n{json.dumps(previous, ensure_ascii=False)}\n\n"
+            f"수정 요청: \"{user_input}\"",
+            ParsedStrategyDiff,
+        )
 
     @staticmethod
     def _sampler_kwargs(temperature: float, top_p: float) -> dict:
@@ -932,19 +968,7 @@ class NLStrategyParser:
         return result
 
     def _parse_ollama(self, user_input: str) -> ParsedStrategy:
-        self._init_ollama()
-        result = self._client.chat.completions.create(
-            model=self.ollama_model,
-            response_model=ParsedStrategy,
-            max_retries=self.max_retries,
-            # MLX(outlines) 경로와 동일하게 greedy/결정론적으로 추출한다.
-            temperature=0,
-            messages=[
-                {"role": "system", "content": COMPACT_SYSTEM_PROMPT},
-                {"role": "user", "content": user_input},
-            ],
-        )
-        return result
+        return self._structured_ollama(COMPACT_SYSTEM_PROMPT, user_input, ParsedStrategy)
 
 
 # ─── 누락 팩터 검증 ────────────────────────────────────────────────────────────

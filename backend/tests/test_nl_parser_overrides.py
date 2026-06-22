@@ -1597,3 +1597,44 @@ def test_value_screen_inspection_cycle_parses_quarterly_rebalancing():
 def test_technical_entry_without_exit_still_falls_back():
     """기술적 진입 신호만 있고 청산이 없으면 모호한 입력이라 rule-based가 None을 반환한다."""
     assert _parse_rule_based_strategy("골든크로스 매수") is None
+
+
+def test_modify_ollama_uses_native_endpoint_with_num_ctx(monkeypatch):
+    """회귀: 수정 모드 LLM 호출은 OpenAI 호환(/v1)이 아니라 네이티브 /api/chat을
+    써야 한다. /v1은 num_ctx를 무시해, 긴 수정 프롬프트(MODIFY_PROMPT + 현재 전략
+    JSON)가 기본 4096토큰을 넘으면 'exceeds context size' 400을 던졌다(프로덕션 장애).
+    네이티브 엔드포인트 + options.num_ctx=16384로 컨텍스트 한도를 올려 해결한다."""
+    import json as _json
+
+    import engine.nl_parser as nlp
+
+    captured: dict = {}
+
+    class _FakeResp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return _json.dumps(
+                {"message": {"content": _json.dumps({"take_profit_pct": 30.0})}}
+            ).encode()
+
+    def _fake_open(req, timeout):
+        captured["url"] = req.full_url
+        captured["body"] = _json.loads(req.data.decode())
+        return _FakeResp()
+
+    monkeypatch.setattr(nlp, "_ollama_ensure_warm", lambda: None)
+    monkeypatch.setattr(nlp, "_ollama_open_with_retry", _fake_open)
+
+    parser = NLStrategyParser(backend="ollama")
+    diff = parser._modify_ollama("30% 익절 설정", {"description": "테스트", "stop_loss_pct": 12})
+
+    assert diff.take_profit_pct == 30.0
+    # 네이티브 엔드포인트여야 num_ctx가 적용된다.
+    assert captured["url"].endswith("/api/chat")
+    assert captured["body"]["options"]["num_ctx"] == nlp._OLLAMA_NUM_CTX
+    assert nlp._OLLAMA_NUM_CTX > 4096
