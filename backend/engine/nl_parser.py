@@ -700,7 +700,16 @@ class NLStrategyParser:
             if any(kw in compact for kw in ["트레일링", "trailingstop"]):
                 merged["trailing_stop_pct"] = None
 
-        return _apply_prompt_overrides(ParsedStrategy.model_validate(merged), user_input)
+        result = _apply_prompt_overrides(ParsedStrategy.model_validate(merged), user_input)
+
+        # 성공한 수정 요청을 학습 코퍼스에 기록 (best-effort, 실패해도 무시)
+        try:
+            from engine.modify_rag import record_example as _record_modify_example
+            _record_modify_example(user_input, diff.model_dump())
+        except Exception:
+            pass
+
+        return result
 
     def _modify_mlx(self, user_input: str, previous: dict) -> ParsedStrategyDiff:
         self._init_mlx()
