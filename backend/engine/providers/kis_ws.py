@@ -183,6 +183,25 @@ class KISWebSocketProvider(BaseProvider):
         await ws.send(self._make_subscribe_msg(_TRADE_TR_ID, symbol, "2"))
         await ws.send(self._make_subscribe_msg(_ORDERBOOK_TR_ID, symbol, "2"))
 
+    def _log_subscribe_ack(self, raw: str) -> None:
+        """KIS 구독 등록/해제 응답(JSON)의 성공/실패 코드를 로깅한다."""
+        try:
+            msg = json.loads(raw)
+        except (ValueError, TypeError):
+            return
+        header = msg.get("header") or {}
+        body = msg.get("body") or {}
+        inp = body.get("input") or {}
+        rt_cd = body.get("rt_cd")
+        tr_key = header.get("tr_key") or inp.get("tr_key")
+        tr_id = header.get("tr_id") or inp.get("tr_id")
+        # rt_cd가 "0"이 아니면 등록 거부(상한·미지원 등) → 틱이 안 오는 직접 원인.
+        # 진단을 위해 일단 모든 응답을 WARNING으로 남긴다(프로덕션은 INFO를 필터).
+        logger.warning(
+            "[KIS_WS][ACK] tr_id=%s tr_key=%s rt_cd=%s msg_cd=%s msg1=%s",
+            tr_id, tr_key, rt_cd, body.get("msg_cd"), body.get("msg1"),
+        )
+
     async def _drain_pending(self, ws) -> None:
         """대기 중인 LRU 해제·신규 구독 큐를 WebSocket으로 전송한다(해제 먼저)."""
         while not self._pending_unsubscribe.empty():
@@ -392,6 +411,13 @@ class KISWebSocketProvider(BaseProvider):
                         # PINGPONG 처리
                         if raw.startswith("PINGPONG"):
                             await ws.send("PINGPONG")
+                            continue
+
+                        # 구독 등록/해제 응답(JSON) — 성공/실패 코드를 로깅한다.
+                        # KIS는 등록 거부(상한 초과·미지원 등) 시에도 데이터만 안 보낼 뿐
+                        # 연결은 유지하므로, 이 응답을 봐야 '왜 틱이 안 오는지' 알 수 있다.
+                        if raw.startswith("{"):
+                            self._log_subscribe_ack(raw)
                             continue
 
                         # 체결가 파싱 및 캐시 업데이트
