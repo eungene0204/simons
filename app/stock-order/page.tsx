@@ -22,6 +22,7 @@ import {
 } from "@/app/stock-order/stock-info";
 import { useStockPrices } from "@/lib/hooks/useStockPrices";
 import type { StockPriceSnapshot as BatchQuoteItem } from "@/lib/stock-prices";
+import { applyRealtimeToLatestCandle } from "@/app/stock-order/market-candles";
 import { useOrderAccount } from "@/contexts/OrderAccountContext";
 import {
   getAllAccounts,
@@ -92,44 +93,6 @@ const translateBusinessPhrase = (value: string) => {
 };
 
 const STOCK_DETAIL_RETRY_DELAYS_MS = [0, 400, 1200];
-
-function applyRealtimeToLatestCandle(
-  candles: OHLCV[] | null,
-  quote?: BatchQuoteItem | null
-): OHLCV[] {
-  if (!candles || candles.length === 0) return [];
-  if (!quote?.price || quote.price <= 0) return candles;
-
-  const next = [...candles];
-  const last = next[next.length - 1];
-  const quoteDate = quote.date; // KIS가 명시적으로 제공한 날짜만 사용 — new Date() 추론 금지
-  const realtimeOpen = quote.open && quote.open > 0 ? quote.open : last.close;
-  const realtimeHigh = quote.high && quote.high > 0 ? quote.high : Math.max(realtimeOpen, quote.price);
-  const realtimeLow = quote.low && quote.low > 0 ? quote.low : Math.min(realtimeOpen, quote.price);
-  const realtimeVolume = quote.volume ?? 0;
-
-  if (quoteDate && last.time < quoteDate) {
-    next.push({
-      time: quoteDate,
-      open: realtimeOpen,
-      high: realtimeHigh,
-      low: realtimeLow,
-      close: quote.price,
-      volume: realtimeVolume,
-    });
-    return next;
-  }
-
-  next[next.length - 1] = {
-    ...last,
-    open: realtimeOpen,
-    close: quote.price,
-    high: Math.max(last.high, realtimeHigh),
-    low: Math.min(last.low, realtimeLow),
-    volume: Math.max(last.volume, realtimeVolume),
-  };
-  return next;
-}
 
 const getTickSize = (p: number): number => {
   if (p < 1000) return 1;
@@ -897,136 +860,141 @@ export default function OrderPage() {
 
         {/* ── 차트 탭 ── */}
         {(
-          <div className={`flex flex-col gap-2 p-2${activeTab !== "chart" ? " hidden" : ""}`}>
-            {/* Row 1: 캔들차트 + 호가창 */}
-            <div
-              className="grid grid-cols-1 gap-2 lg:gap-2"
-              style={{ gridTemplateColumns: SHOW_ORDER_BOOK ? "6fr 4fr" : "1fr" }}
-            >
-              {/* 캔들차트 */}
-              <div className="flex flex-col border border-white/[0.08] rounded-xl overflow-hidden" style={{ height: 560 }}>
-                <div className="flex items-center justify-end gap-1 px-4 py-2 border-b border-white/[0.05] flex-wrap">
-                  {(["1Y", "3Y", "5Y"] as const).map((range) => (
-                    <button key={range} onClick={() => setChartRange(range)}
-                      className={`rounded-xl px-3 py-1 text-xs font-bold transition-colors ${chartRange === range ? "bg-white/[0.08] text-white" : "text-gray-500 hover:text-gray-300"}`}>
-                      {range}
-                    </button>
-                  ))}
-                  <div className="w-px h-3 bg-white/[0.08]" />
-                  {(["day", "week", "month"] as const).map((period) => (
-                    <button key={period} onClick={() => setChartPeriod(period)}
-                      className={`rounded-xl px-3 py-1 text-xs font-bold transition-colors ${chartPeriod === period ? "bg-white/[0.08] text-white" : "text-gray-500 hover:text-gray-300"}`}>
-                      {period === "day" ? "일봉" : period === "week" ? "주봉" : "월봉"}
-                    </button>
-                  ))}
+          <div className={`border-t border-white/[0.08]${activeTab !== "chart" ? " hidden" : ""}`}>
+            <div className="divide-y divide-white/[0.08]">
+              {/* Row 1: 캔들차트 + 호가창 */}
+              <div
+                className="grid grid-cols-1 divide-y divide-white/[0.08] lg:grid-cols-10 lg:divide-x lg:divide-y-0"
+              >
+                {/* 캔들차트 */}
+                <div
+                  className={`flex flex-col overflow-hidden ${SHOW_ORDER_BOOK ? "lg:col-span-6" : "lg:col-span-10"}`}
+                  style={{ height: 560 }}
+                >
+                  <div className="flex items-center justify-end gap-1 px-4 py-2 border-b border-white/[0.05] flex-wrap">
+                    {(["1Y", "3Y", "5Y"] as const).map((range) => (
+                      <button key={range} onClick={() => setChartRange(range)}
+                        className={`rounded-xl px-3 py-1 text-xs font-bold transition-colors ${chartRange === range ? "bg-white/[0.08] text-white" : "text-gray-500 hover:text-gray-300"}`}>
+                        {range}
+                      </button>
+                    ))}
+                    <div className="w-px h-3 bg-white/[0.08]" />
+                    {(["day", "week", "month"] as const).map((period) => (
+                      <button key={period} onClick={() => setChartPeriod(period)}
+                        className={`rounded-xl px-3 py-1 text-xs font-bold transition-colors ${chartPeriod === period ? "bg-white/[0.08] text-white" : "text-gray-500 hover:text-gray-300"}`}>
+                        {period === "day" ? "일봉" : period === "week" ? "주봉" : "월봉"}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex-1 min-h-0">
+                    {isOhlcvLoading ? (
+                      <div className="flex h-full items-center justify-center text-sm font-bold text-gray-500">차트 데이터를 불러오는 중...</div>
+                    ) : (
+                      <CandlestickChart data={candleData} />
+                    )}
+                  </div>
                 </div>
-                <div className="flex-1 min-h-0">
-                  {isOhlcvLoading ? (
-                    <div className="flex h-full items-center justify-center text-sm font-bold text-gray-500">차트 데이터를 불러오는 중...</div>
-                  ) : (
-                    <CandlestickChart data={candleData} />
-                  )}
-                </div>
+                {/* 호가창 */}
+                {SHOW_ORDER_BOOK && (
+                  <div className="overflow-hidden lg:col-span-4" style={{ height: 560 }}>
+                    <OrderBook
+                      symbol={symbol}
+                      currentPrice={currentPrice}
+                      marketStats={realMarketStats}
+                      previousClose={referenceClose}
+                      onPriceSelect={(selectedPrice) => {
+                        setSelectedOrderPrice(selectedPrice);
+                        setPriceType("limit");
+                        setPrice(selectedPrice.toString());
+                      }}
+                    />
+                  </div>
+                )}
               </div>
-              {/* 호가창 */}
-              {SHOW_ORDER_BOOK && (
-                <div className="border border-white/[0.08] rounded-xl overflow-hidden" style={{ height: 560 }}>
-                  <OrderBook
-                    symbol={symbol}
-                    currentPrice={currentPrice}
-                    marketStats={realMarketStats}
-                    previousClose={referenceClose}
-                    onPriceSelect={(selectedPrice) => {
-                      setSelectedOrderPrice(selectedPrice);
-                      setPriceType("limit");
-                      setPrice(selectedPrice.toString());
-                    }}
-                  />
-                </div>
-              )}
-            </div>
 
-            {/* Row 2: 시세 테이블 + 투자자별 매매동향 + 주문 패널 */}
-            <div className={`grid grid-cols-1 ${SHOW_TRADE_PANEL ? "lg:grid-cols-3" : "lg:grid-cols-2"} gap-2`}>
-              {/* 시세 테이블 */}
-              <div className="flex flex-col border border-white/[0.08] rounded-xl overflow-hidden" style={{ height: 560 }}>
+              {/* Row 2: 시세 테이블 + 투자자별 매매동향 + 주문 패널 */}
+              <div className={`grid grid-cols-1 divide-y divide-white/[0.08] lg:divide-y-0 lg:divide-x ${SHOW_TRADE_PANEL ? "lg:grid-cols-3" : "lg:grid-cols-2"}`}>
+                {/* 시세 테이블 */}
+                <div className="flex flex-col overflow-hidden" style={{ height: 560 }}>
                 <div className="px-4 py-3 border-b border-white/[0.05] shrink-0">
                   <h2 className="text-sm font-black uppercase tracking-widest text-white font-outfit">시세</h2>
                 </div>
-                <div className="flex-1 min-h-0 overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent">
+                <div className="flex flex-1 min-h-0 flex-col">
                   {/* 헤더 */}
-                  <div className={`grid ${PRICE_HISTORY_COLS} gap-2 px-4 py-2 sticky top-0 bg-[var(--background)] border-b border-white/[0.05]`}>
+                  <div className={`grid ${PRICE_HISTORY_COLS} gap-2 px-4 py-2 border-b border-white/[0.05] shrink-0`}>
                     {["일자", "종가", "등락률", "거래량", "시가", "고가", "저가"].map((h, i) => (
                       <span key={h} className={`text-xs font-bold uppercase tracking-widest text-gray-600 ${i > 0 ? "text-right" : ""}`}>{h}</span>
                     ))}
                   </div>
-                  {isOhlcvLoading ? (
-                    <div className="py-12 text-center">
-                      <p className="text-sm font-bold text-gray-500">시세 데이터를 불러오는 중...</p>
-                    </div>
-                  ) : priceHistoryData.length === 0 ? (
-                    <div className="py-12 text-center">
-                      <p className="text-sm font-bold text-gray-500">시세 데이터가 없습니다.</p>
-                    </div>
-                  ) : (
-                    <div className="divide-y divide-white/[0.04]">
-                      {priceHistoryData.map((row, i) => {
-                        const prevClose = priceHistoryData[i + 1]?.close;
-                        const changeRate = prevClose ? ((row.close - prevClose) / prevClose) * 100 : 0;
-                        const tone = changeRate > 0 ? "text-[var(--main-red)]" : changeRate < 0 ? "text-[var(--main-blue)]" : "text-white";
+                  <div className="flex-1 min-h-0 overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent">
+                    {isOhlcvLoading ? (
+                      <div className="py-12 text-center">
+                        <p className="text-sm font-bold text-gray-500">시세 데이터를 불러오는 중...</p>
+                      </div>
+                    ) : priceHistoryData.length === 0 ? (
+                      <div className="py-12 text-center">
+                        <p className="text-sm font-bold text-gray-500">시세 데이터가 없습니다.</p>
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-white/[0.04]">
+                        {priceHistoryData.map((row, i) => {
+                          const prevClose = priceHistoryData[i + 1]?.close;
+                          const changeRate = prevClose ? ((row.close - prevClose) / prevClose) * 100 : 0;
+                          const tone = changeRate > 0 ? "text-[var(--main-red)]" : changeRate < 0 ? "text-[var(--main-blue)]" : "text-white";
+                          return (
+                            <div key={row.time} className={`grid ${PRICE_HISTORY_COLS} gap-2 items-center px-4 py-3 hover:bg-white/[0.02] transition-colors duration-150`}>
+                              <span className="text-xs font-bold tabular-nums text-gray-400">{row.time.slice(2).replace(/-/g, ".")}</span>
+                              <span className={`text-xs font-black tabular-nums font-outfit text-right ${tone}`}>{formatPrice(row.close)}</span>
+                              <span className={`text-xs font-bold tabular-nums text-right ${tone}`}>{prevClose ? `${changeRate > 0 ? "+" : ""}${changeRate.toFixed(2)}%` : "—"}</span>
+                              <span className="text-xs font-bold tabular-nums text-right text-gray-400">{formatPrice(row.volume)}</span>
+                              <span className="text-xs font-bold tabular-nums text-right text-gray-400">{formatPrice(row.open)}</span>
+                              <span className="text-xs font-bold tabular-nums text-right text-[var(--main-red)]">{formatPrice(row.high)}</span>
+                              <span className="text-xs font-bold tabular-nums text-right text-[var(--main-blue)]">{formatPrice(row.low)}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                </div>
+
+                {/* 투자자별 매매동향 패널 */}
+                <div className="flex flex-col overflow-hidden" style={{ height: 560 }}>
+                  <InvestorTradingPanel symbol={symbol} />
+                </div>
+
+                {/* 주문 패널 */}
+                {SHOW_TRADE_PANEL && (
+                  <div className="flex flex-col overflow-hidden" style={{ height: 560 }}>
+                    {/* 매수/매도/미체결 탭 */}
+                    <div className="grid grid-cols-3 border-b border-white/[0.08]">
+                      {(["buy", "sell", "pending"] as const).map((type) => {
+                        const label = type === "buy" ? "매수" : type === "sell" ? "매도" : `미체결${pendingOrders.length > 0 ? ` ${pendingOrders.length}` : ""}`;
+                        const activeColor = type === "buy"
+                          ? "border-b-2 border-[var(--main-red)] text-[var(--main-red)]"
+                          : type === "sell"
+                          ? "border-b-2 border-[var(--main-blue)] text-[var(--main-blue)]"
+                          : "border-b-2 border-amber-400 text-amber-300";
                         return (
-                          <div key={row.time} className={`grid ${PRICE_HISTORY_COLS} gap-2 items-center px-4 py-3 hover:bg-white/[0.02] transition-colors duration-150`}>
-                            <span className="text-xs font-bold tabular-nums text-gray-400">{row.time.slice(2).replace(/-/g, ".")}</span>
-                            <span className={`text-xs font-black tabular-nums font-outfit text-right ${tone}`}>{formatPrice(row.close)}</span>
-                            <span className={`text-xs font-bold tabular-nums text-right ${tone}`}>{prevClose ? `${changeRate > 0 ? "+" : ""}${changeRate.toFixed(2)}%` : "—"}</span>
-                            <span className="text-xs font-bold tabular-nums text-right text-gray-400">{formatPrice(row.volume)}</span>
-                            <span className="text-xs font-bold tabular-nums text-right text-gray-400">{formatPrice(row.open)}</span>
-                            <span className="text-xs font-bold tabular-nums text-right text-[var(--main-red)]">{formatPrice(row.high)}</span>
-                            <span className="text-xs font-bold tabular-nums text-right text-[var(--main-blue)]">{formatPrice(row.low)}</span>
-                          </div>
+                          <button
+                            key={type}
+                            onClick={() => {
+                              setTransactionType(type);
+                              setOrderConfirmStep(false);
+                              if (type === "pending") loadPendingOrders();
+                            }}
+                            className={`py-3 text-sm font-black transition-colors ${
+                              transactionType === type ? activeColor : "text-gray-500 hover:text-gray-300"
+                            }`}
+                          >
+                            {label}
+                          </button>
                         );
                       })}
                     </div>
-                  )}
-                </div>
-              </div>
 
-              {/* 투자자별 매매동향 패널 */}
-              <div className="flex flex-col border border-white/[0.08] rounded-xl overflow-hidden" style={{ height: 560 }}>
-                <InvestorTradingPanel symbol={symbol} />
-              </div>
-
-              {/* 주문 패널 */}
-              {SHOW_TRADE_PANEL && (
-                <div className="flex flex-col border border-white/[0.08] rounded-xl overflow-hidden" style={{ height: 560 }}>
-                  {/* 매수/매도/미체결 탭 */}
-                  <div className="grid grid-cols-3 border-b border-white/[0.08]">
-                    {(["buy", "sell", "pending"] as const).map((type) => {
-                      const label = type === "buy" ? "매수" : type === "sell" ? "매도" : `미체결${pendingOrders.length > 0 ? ` ${pendingOrders.length}` : ""}`;
-                      const activeColor = type === "buy"
-                        ? "border-b-2 border-[var(--main-red)] text-[var(--main-red)]"
-                        : type === "sell"
-                        ? "border-b-2 border-[var(--main-blue)] text-[var(--main-blue)]"
-                        : "border-b-2 border-amber-400 text-amber-300";
-                      return (
-                        <button
-                          key={type}
-                          onClick={() => {
-                            setTransactionType(type);
-                            setOrderConfirmStep(false);
-                            if (type === "pending") loadPendingOrders();
-                          }}
-                          className={`py-3 text-sm font-black transition-colors ${
-                            transactionType === type ? activeColor : "text-gray-500 hover:text-gray-300"
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <div className="flex flex-1 flex-col overflow-y-auto px-4 py-3 space-y-3">
+                    <div className="flex flex-1 flex-col overflow-y-auto px-4 py-3 space-y-3">
                     {/* 계좌 선택 */}
                     <div className="relative" ref={accountDropdownRef}>
                       <button
@@ -1331,6 +1299,7 @@ export default function OrderPage() {
                 </div>
               )}
             </div>
+          </div>
           </div>
         )}
 

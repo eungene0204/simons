@@ -45,6 +45,7 @@ import {
   type AdvisorWalkForwardSettings,
 } from "./parsedStrategyMerge";
 import { computeChatScrollDelta } from "./chatScroll";
+import { isBacktestConfirmation, isBacktestPrompt } from "./backtestConfirmation";
 import { normalizeCoachMessage } from "./coachMessage";
 import { parseCoachSegments } from "./coachText";
 import { parseSseBlocks } from "./sseEvents";
@@ -964,6 +965,19 @@ function StrategyLabContent() {
       await appendAssistant({ role: "assistant", stockLoading: true });
       await renderStockAnalysisResult({ query: userText, last_symbol: lastAnalyzedSymbolRef.current });
       setIsSending(false);
+      return;
+    }
+
+    // 검증이 "백테스트를 진행하시겠습니까?"로 끝났고 사용자가 "네"·"진행해줘"로 긍정하면,
+    // 분류/재파싱을 건너뛰고 곧바로 백테스트를 실행한다(엉뚱한 인사·재파싱 방지).
+    if (
+      stage === "ready" &&
+      currentBacktestReq &&
+      isBacktestPrompt(lastCoachText()) &&
+      isBacktestConfirmation(userText)
+    ) {
+      setIsSending(false);
+      await handleRunBacktest();
       return;
     }
 

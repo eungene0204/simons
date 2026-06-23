@@ -24,7 +24,7 @@ export function normalizeCoachMessage(value: unknown, fallback: string): string 
           .filter((message: string | null): message is string => message !== null);
 
         if (messages.length > 0) {
-          return `${messages.join("\n")}\n\n현재 조건으로 백테스트를 진행하시겠습니까?`;
+          return `${messages.join("\n")}\n\n현재 조건으로도 백테스트를 진행 할 수 있습니다. 진행 할까요?`;
         }
 
         return parsed.is_valid

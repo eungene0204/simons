@@ -317,6 +317,21 @@ describe("TopNavigation quick search", () => {
     expect(pushMock).not.toHaveBeenCalledWith("/analytics?virtualAccount=open");
   });
 
+  it("백테스트 결과 화면에서 전략연구소 메뉴를 누르면 이전 채팅 스냅샷을 지우고 새 랜딩으로 이동한다", async () => {
+    pathnameMock.current = "/analytics/new";
+    sessionStorage.setItem(
+      "simons.strategyChatState",
+      JSON.stringify({ messages: [{ role: "user", content: "PBR 1 이하" }], stage: "done" })
+    );
+
+    renderWithQueryClient(<TopNavigation />);
+
+    fireEvent.click(await screen.findByRole("link", { name: /전략연구소/i }));
+
+    expect(sessionStorage.getItem("simons.strategyChatState")).toBeNull();
+    expect(pushMock).toHaveBeenCalledWith("/analytics");
+  });
+
   it("로그인된 상태에서는 사용자 프로필 버튼과 드롭다운 메뉴를 보여준다", async () => {
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);

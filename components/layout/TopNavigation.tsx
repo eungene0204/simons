@@ -4,6 +4,7 @@ import { useMemo, memo, useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/firebase";
+import { STRATEGY_CHAT_STATE_KEY } from "@/components/strategy/strategyTemplateSession";
 import {
   SquaresFour,
   Bank,
@@ -362,6 +363,12 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
       e.preventDefault();
       setIsLoginModalOpen(true);
       return;
+    }
+
+    // 전략연구소 메뉴는 항상 새 랜딩에서 시작한다 — 백테스트 결과 등 이전 채팅 스냅샷이
+    // 복원되어 보여지지 않도록 진입 전에 지운다.
+    if (item.id === "analytics") {
+      sessionStorage.removeItem(STRATEGY_CHAT_STATE_KEY);
     }
 
     e.preventDefault();
