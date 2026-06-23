@@ -109,6 +109,100 @@ describe("GET /api/stock/[symbol]/detail", () => {
     expect(body.isNew52WeekLow).toBe(false);
   });
 
+  it("KIS 시세가 있으면 전일종가·등락률을 로컬 OHLCV와 섞지 않고 KIS 값 기준으로 일치시킨다", async () => {
+    // 실시간 시세(KIS)에 prev_close가 빠지고 change_rate만 오는 경우,
+    // 로컬 OHLCV lastClose(66667)를 전일종가로 끌어다 쓰면 KIS 현재가와 기준이 어긋난다.
+    // KIS 등락률(5.0%)을 그대로 쓰고 전일종가는 그 등락률로 역산해야 한다.
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ lastClose: 66667 }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ subscribed: ["005930"] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          "005930": {
+            close: 70100,
+            open: 69500,
+            high: 70300,
+            low: 69400,
+            volume: 12345678,
+            source: "naver",
+            // prev_close 없음 — change_rate만 제공되는 경우
+            change_rate: 5.0,
+            date: "2026-04-08",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          symbol: "005930",
+          name: "삼성전자",
+          currentPrice: 70100,
+        }),
+      });
+
+    const response = await GET(
+      new Request("http://localhost/api/stock/005930/detail"),
+      { params: { symbol: "005930" } }
+    );
+    const body = await response.json();
+
+    const expectedPrev = Math.round(70100 / 1.05);
+    expect(body.currentPrice).toBe(70100);
+    expect(body.changePercent).toBe(5.0); // KIS 등락률 그대로
+    expect(body.previousClose).toBe(expectedPrev); // OHLCV(66667)가 아니라 KIS 등락률로 역산
+    expect(body.change).toBe(70100 - expectedPrev);
+  });
+
+  it("KIS prev_close가 있으면 그대로 전일종가로 쓰고 OHLCV로 덮지 않는다", async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ lastClose: 114300 }), // 하루 뒤처진 OHLCV
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ subscribed: ["005930"] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          "005930": {
+            close: 124700,
+            open: 133300,
+            high: 133300,
+            low: 123500,
+            volume: 1487773,
+            source: "kis_total",
+            prev_close: 134000,
+            change_rate: -6.94,
+            date: "2026-06-23",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ symbol: "005930", name: "삼성전자" }),
+      });
+
+    const response = await GET(
+      new Request("http://localhost/api/stock/005930/detail"),
+      { params: { symbol: "005930" } }
+    );
+    const body = await response.json();
+
+    expect(body.currentPrice).toBe(124700);
+    expect(body.previousClose).toBe(134000); // KIS prev_close, OHLCV 114300 아님
+    expect(body.change).toBe(124700 - 134000);
+    expect(body.changePercent).toBe(-6.94);
+  });
+
   it("백엔드 시세가 없으면 marketCap과 volume은 0이고 이름은 종목 목록에서 온다", async () => {
     fetchMock
       .mockResolvedValueOnce({

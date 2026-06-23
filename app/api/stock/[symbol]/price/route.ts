@@ -19,15 +19,33 @@ export async function GET(
       return NextResponse.json({ error: "Price unavailable" }, { status: 404 });
     }
 
-    return NextResponse.json({
-      price: quote.price,
-      change: quote.price - (quote.previousClose ?? quote.price),
-      changePercent: quote.changePercent,
-      open: quote.open,
-      high: quote.high,
-      low: quote.low,
-      volume: quote.volume,
-    });
+    // 실시간 가격·등락률은 KIS 값을 그대로 사용한다.
+    // 전일종가가 빠진 경우에만 KIS 등락률로 역산한다(로컬 OHLCV와 섞지 않는다).
+    const changePercent = quote.changePercent ?? 0;
+    const kisPrevClose =
+      typeof quote.previousClose === "number" && quote.previousClose > 0
+        ? quote.previousClose
+        : null;
+    const previousClose =
+      kisPrevClose ??
+      (changePercent !== 0
+        ? Math.round(quote.price / (1 + changePercent / 100))
+        : quote.price);
+    const change = quote.price - previousClose;
+
+    return NextResponse.json(
+      {
+        price: quote.price,
+        change,
+        changePercent,
+        previousClose,
+        open: quote.open,
+        high: quote.high,
+        low: quote.low,
+        volume: quote.volume,
+      },
+      { headers: { "Cache-Control": "no-store, must-revalidate" } }
+    );
   } catch {
     return NextResponse.json({ error: "Failed to fetch price" }, { status: 500 });
   }
