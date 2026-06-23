@@ -25,9 +25,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import XAIModal from "./XAIModal";
 import WalkForwardModal, { WalkForwardSettings } from "./WalkForwardModal";
 import BacktestSummaryCard from "./BacktestSummaryCard";
-import CreateAccountModal from "@/components/ui/CreateAccountModal";
 import { buildAutoSaveHistoryPayload } from "@/lib/backtest-history";
-import { createAccount } from "@/lib/portfolio";
 import { resolveUniverseDisplayName } from "@/lib/strategy-summary";
 import { buildMonthlyReturnTableData } from "./monthlyReturns";
 import {
@@ -207,8 +205,6 @@ export default function BacktestDashboard({
   const [cachedOverfitRisk, setCachedOverfitRisk] = useState<string | null>(
     initialOverfitRiskProp ?? result.overfitRisk ?? null
   );
-
-  const [isCreateAccountModalOpen, setIsCreateAccountModalOpen] = useState(false);
 
   // 전략 저장 모달
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
@@ -428,25 +424,6 @@ export default function BacktestDashboard({
     setSaveDescription(promptText || strategySummary?.strategyName || "");
     setSaveResult(null);
     setIsSaveModalOpen(true);
-  };
-
-  const handleCreateAccount = async (
-    name: string,
-    amount: number,
-    strategyId?: string,
-    strategyName?: string,
-    tradingMode?: "auto" | "manual"
-  ) => {
-    const account = await createAccount(
-      name,
-      amount,
-      strategyId,
-      strategyName,
-      tradingMode
-    );
-    if (account?.id) {
-      window.location.assign(`/virtual-account/${account.id}`);
-    }
   };
 
   const handleSaveStrategy = async () => {
@@ -724,11 +701,11 @@ export default function BacktestDashboard({
                 <div className="text-center">
                   <p className="text-xs text-gray-500 mb-1">종목 수</p>
                   <p className="text-xl font-black text-white">{result.symbols?.length ?? 0}개</p>
-	                </div>
-	              </div>
+                </div>
+              </div>
 
               {(modalPromptPreview || strategySummary) && (
-                <div className="mb-5 space-y-3 rounded-xl border border-white/5 bg-[#0d1016] p-4">
+                <div className="mb-5 space-y-3 rounded-xl border border-white/5 bg-white/[0.03] p-4">
                   {modalPromptPreview && (
                     <div className="space-y-1.5">
                       <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-gray-600">
@@ -747,8 +724,8 @@ export default function BacktestDashboard({
                           <span className="w-16 flex-shrink-0 pt-1 text-[10px] font-bold uppercase tracking-widest text-gray-600">
                             유니버스
                           </span>
-                          <div className="flex flex-1 flex-wrap gap-2">
-                            <span className="inline-flex items-center rounded-xl border border-white/[0.08] bg-white/[0.05] px-3 py-1.5 text-sm font-black text-white">
+                          <div className="flex flex-1 flex-wrap gap-1">
+                            <span className="inline-flex items-center rounded-md border border-white/[0.08] bg-white/[0.05] px-2 py-0.5 text-[11px] font-black text-white">
                               {modalUniverseLabel}
                             </span>
                           </div>
@@ -760,14 +737,14 @@ export default function BacktestDashboard({
                           <span className="w-16 flex-shrink-0 pt-1 text-[10px] font-bold uppercase tracking-widest text-gray-600">
                             진입 신호
                           </span>
-                          <div className="flex flex-1 flex-wrap gap-2">
+                          <div className="flex flex-1 flex-wrap gap-1">
                             {(strategySummary.entryBlocks?.length
                               ? strategySummary.entryBlocks
                               : strategySummary.blockNames
                             )!.map((name) => (
                               <span
                                 key={`save-entry-${name}`}
-                                className="inline-flex items-center rounded-xl border border-white/[0.08] bg-white/[0.05] px-3 py-1.5 text-sm font-black text-white"
+                                className="inline-flex items-center rounded-md border border-white/[0.08] bg-white/[0.05] px-2 py-0.5 text-[11px] font-black text-white"
                               >
                                 {name}
                               </span>
@@ -781,11 +758,11 @@ export default function BacktestDashboard({
                           <span className="w-16 flex-shrink-0 pt-1 text-[10px] font-bold uppercase tracking-widest text-gray-600">
                             청산 신호
                           </span>
-                          <div className="flex flex-1 flex-wrap gap-2">
+                          <div className="flex flex-1 flex-wrap gap-1">
                             {strategySummary.exitBlocks.map((name) => (
                               <span
                                 key={`save-exit-${name}`}
-                                className="inline-flex items-center rounded-xl border border-white/[0.08] bg-white/[0.05] px-3 py-1.5 text-sm font-black text-white"
+                                className="inline-flex items-center rounded-md border border-white/[0.08] bg-white/[0.05] px-2 py-0.5 text-[11px] font-black text-white"
                               >
                                 {name}
                               </span>
@@ -799,14 +776,14 @@ export default function BacktestDashboard({
                           <span className="w-16 flex-shrink-0 pt-1 text-[10px] font-bold uppercase tracking-widest text-gray-600">
                             리스크
                           </span>
-                          <div className="flex flex-1 flex-wrap gap-2">
+                          <div className="flex flex-1 flex-wrap gap-1">
                             {strategySummary.positionText && (
-                              <span className="inline-flex items-center rounded-xl border border-white/[0.08] bg-white/[0.05] px-3 py-1.5 text-sm font-black text-white">
+                              <span className="inline-flex items-center rounded-md border border-white/[0.08] bg-white/[0.05] px-2 py-0.5 text-[11px] font-black text-white">
                                 {strategySummary.positionText}
                               </span>
                             )}
                             {strategySummary.riskText && (
-                              <span className="inline-flex items-center rounded-xl border border-white/[0.08] bg-white/[0.05] px-3 py-1.5 text-sm font-black text-white">
+                              <span className="inline-flex items-center rounded-md border border-white/[0.08] bg-white/[0.05] px-2 py-0.5 text-[11px] font-black text-white">
                                 {strategySummary.riskText}
                               </span>
                             )}
@@ -818,7 +795,7 @@ export default function BacktestDashboard({
                 </div>
               )}
 
-	              <div className="space-y-3 mb-5">
+              <div className="space-y-3 mb-5">
                 <div>
                   <label className="block text-xs font-bold text-gray-400 mb-1.5">전략 이름 *</label>
                   <input
@@ -830,17 +807,6 @@ export default function BacktestDashboard({
                     maxLength={50}
                     className="w-full px-3 py-2.5 bg-[#1a1a1a] border border-white/10 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:border-white/20 transition-colors"
                     autoFocus
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-gray-400 mb-1.5">전략 프롬프트</label>
-                  <textarea
-                    value={saveDescription}
-                    onChange={(e) => setSaveDescription(e.target.value)}
-                    placeholder="전략에 대한 간단한 설명"
-                    maxLength={200}
-                    rows={4}
-                    className="min-h-[120px] w-full px-3 py-2.5 bg-[#1a1a1a] border border-white/10 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:border-white/20 resize-none transition-colors"
                   />
                 </div>
               </div>
@@ -885,12 +851,6 @@ export default function BacktestDashboard({
           </motion.div>
         )}
       </AnimatePresence>
-
-      <CreateAccountModal
-        isOpen={isCreateAccountModalOpen}
-        onClose={() => setIsCreateAccountModalOpen(false)}
-        onCreate={handleCreateAccount}
-      />
 
       <div className="pt-8 px-6 pb-4 flex flex-col gap-1">
         <h2 className="text-3xl font-black text-white tracking-tight">
@@ -1025,13 +985,6 @@ export default function BacktestDashboard({
                 워크포워드
               </button>
             )}
-            <button
-              onClick={() => setIsCreateAccountModalOpen(true)}
-              className="px-4 py-1.5 bg-white/[0.05] hover:bg-white/10 text-gray-300 hover:text-white text-sm font-bold rounded-lg transition-all border border-white/5 hover:border-white/10 active:scale-95 flex items-center gap-2"
-            >
-              <ShieldCheck className="w-4 h-4" />
-              가상계좌 만들기
-            </button>
             <button
               onClick={handleOpenSaveModal}
               disabled={isRunning}
