@@ -5,7 +5,7 @@ describe("isBacktestPrompt", () => {
   it("detects the proceed-with-backtest confirmation question", () => {
     expect(
       isBacktestPrompt(
-        "익절 조건이 정의되어 있지 않습니다.\n\n현재 조건으로도 백테스트를 진행 할 수 있습니다. 진행 할까요?",
+        "전략이 아직 완전히 구성되지는 않았습니다.\n\n손절, 익절, 청산 조건이 비어 있지만 현재 상태로도 백테스트를 실행할 수 있습니다.\n\n먼저 결과를 확인해 보고, 필요하면 나중에 조건을 추가해 보세요.\n\n백테스트를 시작할까요?",
       ),
     ).toBe(true);
   });
