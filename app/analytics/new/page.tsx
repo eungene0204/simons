@@ -448,10 +448,10 @@ function ParsedSummaryBubble({
 
   return (
     <div
-      className="space-y-3 rounded-2xl border border-amber-300/50 bg-[#101010] p-4"
+      className="space-y-3 rounded-2xl border border-gray-300/30 bg-[#101010] p-4"
       style={SOFT_MESSAGE_ENTER_STYLE}
     >
-      <div className="flex items-center gap-1.5 border-b border-amber-300/20 pb-2">
+      <div className="flex items-center gap-1.5 border-b border-gray-300/20 pb-2">
         <CheckCircle size={13} className="text-amber-300" weight="fill" />
         <span className="text-xs font-black uppercase tracking-widest text-amber-100">전략 요약</span>
       </div>
