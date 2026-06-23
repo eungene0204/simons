@@ -11,6 +11,7 @@
 """
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import Optional
@@ -231,6 +232,12 @@ class MarketDataProvider:
 
     async def start_ws(self) -> None:
         """KIS WebSocket 백그라운드 루프 시작"""
+        # KIS는 appkey당 WS 세션이 1개뿐이라, 같은 키를 쓰는 로컬 개발 백엔드가 켜져
+        # 있으면 프로덕션 세션을 가로채 양쪽 다 끊김 루프에 빠진다. 로컬은 KIS_WS_DISABLED로
+        # WS를 끄고 REST/프록시만 쓴다(프로덕션에는 설정하지 않음).
+        if os.environ.get("KIS_WS_DISABLED", "").strip().lower() in ("1", "true", "yes"):
+            print("[MarketData] KIS_WS_DISABLED 설정 — WebSocket 비활성화 (REST/프록시만 사용)")
+            return
         await self.ws_provider.start()
 
     async def stop_ws(self) -> None:
