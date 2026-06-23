@@ -269,9 +269,9 @@ simons/
 
 | 항목 | 구현 내용 |
 |------|-----------|
-| 파이프라인 분리 | parse → 즉시 전략 skeleton 표시 → summary/coach 지연 실행 |
-| SSE parse 프록시 | `app/api/strategy/parse/stream/route.ts` 가 `accepted`, `skeleton`, `parsed_final`, `dsl_ready`, `done` 이벤트를 순차 전달 |
-| UX | `/analytics/new` 에서 skeleton bubble을 즉시 표시하고 백테스트는 사용자가 버튼을 누를 때만 실행 |
+| 파이프라인 분리 | parse → '분석 중...' 로딩 표시 → 파싱 완료 시 전략 요약 → summary/coach 지연 실행 |
+| SSE parse 프록시 | `app/api/strategy/parse/stream/route.ts` 가 `accepted`, `skeleton`, `parsed_final`, `dsl_ready`, `done` 이벤트를 순차 전달 (`skeleton`은 클라이언트에서 표시하지 않음) |
+| UX | `/analytics/new` 에서 파싱 완료 전까지 '분석 중...' 로딩만 표시하고(구조 스켈레톤 박스 미표시), 백테스트는 사용자가 버튼을 누를 때만 실행 |
 | DSL 변환 | `to_backtest_request(resolve_symbols=False)`로 파싱 직후 불필요한 전체 유니버스 로딩을 회피 |
 | 코치 캐싱 | Next.js 프록시와 FastAPI 코치 라우터 양쪽에서 동일 요청 cache/in-flight dedupe 적용 |
 | 요약 캐싱 | `/api/backtest/summarize` 에 payload hash 기반 LRU cache와 in-flight dedupe 적용 |
