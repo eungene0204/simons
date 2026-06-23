@@ -227,12 +227,32 @@ export async function GET(
 
     const marketCapCacheKey = `stock:detail:market-cap:${symbol}`;
     const cachedMarketCap = cache.get<number>(marketCapCacheKey) ?? undefined;
-    const currentPrice = pickPositiveNumber(quote?.price, realLastClose);
-    const previousClose = pickPositiveNumber(quote?.previousClose, realLastClose);
+    // KIS 실시간 시세가 있으면 현재가·전일종가·등락률을 모두 같은 quote에서 가져온다.
+    // (KIS 현재가와 로컬 OHLCV 전일종가를 섞으면 등락률이 어긋난다 — 실시간은 KIS 값 그대로.)
+    const hasLiveQuote = pickPositiveNumber(quote?.price) > 0;
+    const currentPrice = hasLiveQuote
+      ? quote!.price
+      : pickPositiveNumber(realLastClose);
+
+    let previousClose: number;
+    let changePercent: number;
+    if (hasLiveQuote) {
+      changePercent = quote!.changePercent ?? 0;
+      const kisPrevClose = pickPositiveNumber(quote!.previousClose);
+      previousClose =
+        kisPrevClose > 0
+          ? kisPrevClose
+          : changePercent !== 0
+            ? Math.round(currentPrice / (1 + changePercent / 100))
+            : currentPrice;
+    } else {
+      previousClose = pickPositiveNumber(realLastClose);
+      changePercent =
+        previousClose > 0
+          ? ((currentPrice - previousClose) / previousClose) * 100
+          : 0;
+    }
     const change = currentPrice - previousClose;
-    const changePercent =
-      quote?.changePercent ??
-      (previousClose > 0 ? (change / previousClose) * 100 : 0);
     const resolvedMarketCap = pickPositiveNumber(
       realDetail?.marketCap,
       cachedMarketCap,

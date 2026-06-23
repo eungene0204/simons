@@ -62,7 +62,9 @@ export default function StockDetail({ symbol }: { symbol: string }) {
   const fetchDetail = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/stock/${symbol}/detail`);
+      const response = await fetch(`/api/stock/${symbol}/detail`, {
+        cache: "no-store",
+      });
       if (response.ok) {
         const data = await response.json();
         setDetail(data);
@@ -76,7 +78,9 @@ export default function StockDetail({ symbol }: { symbol: string }) {
 
   const fetchPrice = async () => {
     try {
-      const response = await fetch(`/api/stock/${symbol}/price`);
+      const response = await fetch(`/api/stock/${symbol}/price`, {
+        cache: "no-store",
+      });
       if (!response.ok) return;
       const data = await response.json();
       setDetail((prev) =>
@@ -86,6 +90,7 @@ export default function StockDetail({ symbol }: { symbol: string }) {
               currentPrice: data.price,
               change: data.change,
               changePercent: data.changePercent,
+              previousClose: data.previousClose ?? prev.previousClose,
               open: data.open ?? prev.open,
               high: data.high ?? prev.high,
               low: data.low ?? prev.low,
