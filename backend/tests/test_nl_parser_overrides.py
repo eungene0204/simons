@@ -1214,6 +1214,46 @@ def test_parse_modification_complex_request_defers_to_llm(monkeypatch):
     assert parsed.max_positions == 3
 
 
+def test_parse_modification_adds_explicit_fundamental_filters_without_llm(monkeypatch):
+    """매수 기준이 없던 전략에 '숫자가 명시된 펀더멘털 조건'을 추가하는 수정은 LLM 없이 처리한다.
+
+    회귀: 'PBR 1 이하, PER 10 이하 저평가 종목'처럼 명확한 숫자를 줬는데도 수정 fast-path가
+    펀더멘털 추출을 안 해 LLM으로 위임 → LLM이 빈 diff를 내 필터가 안 잡히고 '숫자로 구체화해
+    주세요'를 다시 묻던 버그.
+    """
+    parser = NLStrategyParser(backend="ollama")
+
+    def _must_not_call_llm(_user_input, _previous):
+        raise AssertionError("명시적 펀더멘털 조건 추가는 LLM을 호출하면 안 된다")
+
+    monkeypatch.setattr(parser, "_modify_ollama", _must_not_call_llm)
+
+    previous = {**_MODIFY_PREVIOUS, "fundamental_filters": []}
+    parsed = parser.parse_modification("PBR 1 이하, PER 10 이하 저평가 종목", previous)
+
+    filters = {(f.metric, f.operator, f.value) for f in parsed.fundamental_filters}
+    assert filters == {("pbr", "<=", 1.0), ("per", "<=", 10.0)}
+    assert parsed.universe == ["KOSPI200"]  # 기존 유니버스 보존
+
+
+def test_parse_modification_fundamental_filter_replaces_same_metric(monkeypatch):
+    """같은 지표 조건을 다시 주면 값을 교체하고, 다른 지표 조건은 보존한다."""
+    parser = NLStrategyParser(backend="ollama")
+    monkeypatch.setattr(
+        parser, "_modify_ollama",
+        lambda *_: (_ for _ in ()).throw(AssertionError("LLM 호출 금지")),
+    )
+
+    previous = {
+        **_MODIFY_PREVIOUS,
+        "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 2.0}],
+    }
+    parsed = parser.parse_modification("PBR 1 이하", previous)
+
+    filters = {(f.metric, f.operator, f.value) for f in parsed.fundamental_filters}
+    assert filters == {("pbr", "<=", 1.0)}
+
+
 def test_parse_falls_back_when_llm_output_fails_validation(monkeypatch):
     """LLM이 스키마 위반 JSON을 내면 500 대신 결정론 폴백으로 전환한다.
 

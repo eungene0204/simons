@@ -2040,6 +2040,14 @@ _MODIFY_FIELD_CUES: dict[str, list[str]] = {
     "backtest_period": ["백테스트", "기간", "최근", "테스트", "전체기간", "동안"],
     "backtest_start_date": ["부터", "년", "월", "일"],
     "backtest_end_date": ["까지", "년", "월", "일"],
+    # 펀더멘털 지표명·연산자·통상 수식어. 숫자/단위/필러는 공통 차감 규칙이 처리한다.
+    "fundamental_filters": [
+        "주가순자산비율", "주가수익비율", "주가순자산", "주가수익", "자기자본이익률",
+        "일평균거래대금", "거래대금", "시가총액", "시총", "부채비율", "부채",
+        "pbr", "per", "roe", "gpa",
+        "이하", "미만", "이상", "초과", "이내",
+        "저평가", "고평가", "우량", "가치주", "성장주", "종목", "주식",
+    ],
 }
 # 필드 무관 일반 동사·조사·단위(항상 차감).
 _MODIFY_FILLER = [
@@ -2076,19 +2084,50 @@ def _modify_residual_is_clean(user_input: str, changed_fields) -> bool:
     return not re.search(r"[가-힣a-z0-9]", residual)
 
 
+def _merge_fundamental_filters(
+    existing: list[FundamentalFilter],
+    extracted: list[FundamentalFilter],
+) -> list[FundamentalFilter]:
+    """같은 지표는 새 값으로 덮어쓰고, 새 지표는 추가한다(_merge_signals와 동형).
+
+    "PBR 1 이하, PER 10 이하"처럼 새 펀더멘털 조건을 줄 때, 기존 다른 지표 조건은 보존하고
+    같은 지표 조건만 갱신한다(예: 기존 PBR<2 → PBR<1로 교체).
+    """
+    merged = list(existing)
+    index_by_metric = {f.metric: idx for idx, f in enumerate(merged)}
+    for f in extracted:
+        idx = index_by_metric.get(f.metric)
+        if idx is None:
+            merged.append(f)
+            index_by_metric[f.metric] = len(merged) - 1
+        elif merged[idx] != f:
+            merged[idx] = f
+    return merged
+
+
 def _modify_rule_based(user_input: str, previous: dict) -> Optional[ParsedStrategy]:
     """수정 요청의 결정론 fast-path.
 
     단순 필드(손절/익절/트레일링/유니버스/종목수/보유기간/리밸런싱/초기자금/MDD/백테스트
-    기간·날짜)만 바꾸는 요청을 LLM 없이 처리한다. 인식 못 한 잔여 콘텐츠가 있으면 None을
-    반환해 LLM 경로로 위임한다(핵심만 결정적, 긴 꼬리는 LLM). 기술/펀더멘털 신호 추가 같은
-    복합 수정은 의도적으로 LLM에 맡긴다.
+    기간·날짜)와 숫자가 명시된 펀더멘털 조건(PBR/PER/ROE/부채비율/시총/거래대금)을 LLM 없이
+    처리한다. 인식 못 한 잔여 콘텐츠가 있으면 None을 반환해 LLM 경로로 위임한다(핵심만 결정적,
+    긴 꼬리는 LLM). 기술적 신호 추가 같은 복합 수정은 의도적으로 LLM에 맡긴다.
     """
     compact = re.sub(r"\s+", "", user_input.lower())
     changes: dict[str, object] = {}
 
     # 리스크 필드(손절/익절/트레일링) — 단일 진실 소스, 삭제 의도는 None으로 인코딩.
     changes.update(extract_risk_field_overrides(user_input))
+
+    # 숫자가 명시된 펀더멘털 조건은 결정적 추출이 신뢰할 수 있으므로 LLM을 거치지 않는다.
+    # ('PBR 낮은' 같은 정성 표현은 숫자가 없어 추출되지 않으므로 자연히 LLM/되묻기로 빠진다.)
+    extracted_filters = _extract_fundamental_filters(user_input)
+    if extracted_filters:
+        existing_filters = [
+            FundamentalFilter(**f) for f in (previous.get("fundamental_filters") or [])
+        ]
+        merged_filters = _merge_fundamental_filters(existing_filters, extracted_filters)
+        changes["fundamental_filters"] = [f.model_dump() for f in merged_filters]
 
     universe = _extract_explicit_universe(user_input)
     if universe is not None:
