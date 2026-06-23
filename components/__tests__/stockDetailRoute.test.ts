@@ -158,6 +158,8 @@ describe("GET /api/stock/[symbol]/detail", () => {
     expect(body.changePercent).toBe(5.0); // KIS 등락률 그대로
     expect(body.previousClose).toBe(expectedPrev); // OHLCV(66667)가 아니라 KIS 등락률로 역산
     expect(body.change).toBe(70100 - expectedPrev);
+    // 실시간 시세가 섞인 응답이라 캐시되면 안 된다(stale 전일종가 방지).
+    expect(response.headers.get("cache-control")).toContain("no-store");
   });
 
   it("KIS prev_close가 있으면 그대로 전일종가로 쓰고 OHLCV로 덮지 않는다", async () => {

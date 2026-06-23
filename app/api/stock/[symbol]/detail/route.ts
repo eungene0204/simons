@@ -127,7 +127,9 @@ export async function GET(
     const cached = cache.get(cacheKey);
     if (cached) {
       console.log(`Returning cached stock detail for ${symbol}`);
-      return NextResponse.json(cached);
+      return NextResponse.json(cached, {
+        headers: { "Cache-Control": "no-store, must-revalidate" },
+      });
     }
 
     console.log(`Generating stock detail for ${symbol}...`);
@@ -383,7 +385,10 @@ export async function GET(
     };
 
     cache.set(cacheKey, response, DETAIL_CACHE_TTL_SECONDS);
-    return NextResponse.json(response);
+    // 실시간 시세가 섞인 응답이라 중간 프록시/브라우저가 캐시하지 않도록 한다(price 라우트와 동일).
+    return NextResponse.json(response, {
+      headers: { "Cache-Control": "no-store, must-revalidate" },
+    });
   } catch (error) {
     console.error('Stock detail API error:', error);
     return NextResponse.json(
