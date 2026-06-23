@@ -27,6 +27,8 @@ from .scope import (
     has_finance_cue,
     is_greeting_only,
     is_offtopic,
+    is_stock_pick_request,
+    stock_pick_reply,
 )
 
 logger = logging.getLogger(__name__)
@@ -77,6 +79,8 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     "STRATEGY_ADVICE(투자 전략·지표 조합·백테스트·매매 규칙, 그리고 "
     "'PBR 1 이하·PER 10 이하·저평가/고배당 종목'처럼 조건에 맞는 종목을 고르는 스크리닝), "
     "STOCK_ANALYSIS(이름이 명시된 '특정 한 종목'의 매수·매도·보유·전망·리스크·분석), "
+    "STOCK_PICK(특정 종목명도 정량 조건도 없이 '무엇을 사야 하나·종목 추천·살 만한 종목·돈 될 종목'처럼 "
+    "매수 대상을 골라 달라는 열린 추천 요청), "
     "GENERAL_INVESTMENT(일반 투자 지식·용어 정의), "
     "GREETING(인사·짧은 사회적 표현), "
     "OFF_TOPIC(투자와 무관한 잡담·사적 대화·일반 상식·날씨·건강·프로그래밍·정치 등 역할 밖 질문), "
@@ -125,6 +129,16 @@ def _classify_deterministic(query: str, last_symbol: Optional[str]) -> Optional[
             reason="전략 설계 키워드 감지" if has_strategy_kw else "종목 스크리닝 조건 감지",
         )
 
+    # 1-b) [규제 안전] 특정 종목명·조건 없이 '무엇을 사야 하나'라는 열린 추천 요청 → 추천하지 않고
+    #      전략 설계로 대화를 전환한다. 종목명이 특정됐으면 종목 분석(아래)으로 흘려보낸다.
+    if not refs and is_stock_pick_request(text):
+        return IntentResult(
+            intent=QueryIntent.STOCK_PICK,
+            suggested_reply=stock_pick_reply(text),
+            confidence=0.9,
+            reason="열린 종목 추천 요청 감지 — 전략 설계로 전환",
+        )
+
     # 2) 특정 종목 + 행동/판단 질문 → 종목 분석.
     if refs and has_stock_q:
         return IntentResult(
@@ -165,7 +179,7 @@ def _classify_with_llm(query: str, llm: LLMFn) -> Optional[IntentResult]:
         logger.exception("intent LLM 폴백 실패")
         return None
     match = re.search(
-        r'"intent"\s*:\s*"(STRATEGY_ADVICE|STOCK_ANALYSIS|GENERAL_INVESTMENT|GREETING|OFF_TOPIC|UNKNOWN)"',
+        r'"intent"\s*:\s*"(STRATEGY_ADVICE|STOCK_ANALYSIS|STOCK_PICK|GENERAL_INVESTMENT|GREETING|OFF_TOPIC|UNKNOWN)"',
         raw or "",
     )
     if not match:
@@ -176,6 +190,8 @@ def _classify_with_llm(query: str, llm: LLMFn) -> Optional[IntentResult]:
         suggested_reply = greeting_reply(query)
     elif intent == QueryIntent.OFF_TOPIC:
         suggested_reply = OFFTOPIC_REFUSAL
+    elif intent == QueryIntent.STOCK_PICK:
+        suggested_reply = stock_pick_reply(query)
     refs = find_in_text(query) if intent == QueryIntent.STOCK_ANALYSIS else []
     return IntentResult(
         intent=intent,

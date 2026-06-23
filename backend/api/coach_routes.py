@@ -35,7 +35,10 @@ from intent.scope import (
     greeting_reply,
     is_greeting_only,
     is_offtopic,
+    is_stock_pick_request,
+    stock_pick_reply,
 )
+from stock_analysis.symbol_resolver import find_in_text
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["coach"])
@@ -840,6 +843,10 @@ def _coach_scope_guard(prompt: str) -> Optional[str]:
         return greeting_reply(text)
     if is_offtopic(text):
         return _COACH_OFFTOPIC_REFUSAL
+    # [규제 안전] 특정 종목을 골라/추천해 달라는 열린 요청은 추천하지 않고 전략 설계로 전환한다.
+    # 특정 종목명이 섞여 있으면(개별 종목 분석은 역할 안) 가로채지 않는다.
+    if is_stock_pick_request(text) and not find_in_text(text):
+        return stock_pick_reply(text)
     return None
 
 

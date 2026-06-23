@@ -1008,6 +1008,8 @@ News Collector
 
 **FR-SA-002** 펀더멘털 스크리닝 표현("PBR 1 이하 저평가 종목 찾아줘")은 `STOCK_ANALYSIS`가 아니라 `STRATEGY`로 분류해야 한다 (조건으로 종목을 고르는 것은 스크리닝이므로).
 
+**FR-SA-002b** 특정 종목명·정량 조건 없이 매수 대상을 골라 달라는 **열린 추천 요청**("어떤 주식을 사야 하나요?", "추천 종목 있나요?", "수익 날 종목 있나요?")은 특정 종목을 추천하지 않고, 투자 아이디어를 전략으로 정의·백테스트하도록 대화를 전환하는 안내(`QueryIntent.STOCK_PICK` + `suggested_reply`)로 응답해야 한다 (규제 안전 — 유사투자자문업 회피). 결정적 감지는 입력 게이트(`intent/classifier.py`)와 코치 가드(`coach_routes._coach_scope_guard`)가 공유하며(`intent/scope.py::is_stock_pick_request`), 정량 스크리닝·전략 키워드·특정 종목명이 섞이면 가로채지 않는다.
+
 **FR-SA-003** 종목 분석은 자연어에서 종목을 해석(`symbol_resolver.find_in_text`, 별칭/영문티커 포함)하고, 해석에 실패하면 422로 "종목을 찾지 못했어요" 재질문을 반환해야 한다. 종목 마스터(`stock_master.py`)를 Ground Truth로 사용한다.
 
 **FR-SA-004** 분석의 1차 데이터 소스는 로컬 parquet(가격/기술/펀더멘털)이며, 데이터가 없으면 임의 생성 없이 '데이터 없음'/`INSUFFICIENT_DATA`로 표시해야 한다. 뉴스 감성은 news_v2 저장소를 조회한다.

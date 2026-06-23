@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
 from api import coach_routes
 from api.coach_routes import CoachRequest
 from advisor.schemas import NewsArticleSignal, NewsContext
+from intent.scope import STOCK_PICK_REDIRECT
 
 
 class _DummyLock:
@@ -1655,6 +1656,29 @@ def test_scope_guard_individual_stock_advice_passes_through():
 def test_scope_guard_stock_name_without_advice_intent_passes_through():
     # 종목명이 있어도 매수/매도 판단 의도가 없으면(전략 구성용) 가로채지 않는다.
     assert coach_routes._coach_scope_guard("삼성전자를 유니버스에 넣어 백테스트하고 싶어") is None
+
+
+def test_scope_guard_open_stock_pick_redirects_to_strategy():
+    # [규제 안전] 특정 종목명 없는 열린 추천 요청은 추천하지 않고 전략 설계로 전환 안내한다.
+    for prompt in [
+        "어떤 종목을 사야 하나요?",
+        "추천 종목이 있나요?",
+        "지금 살 만한 종목이 있나요?",
+        "AI 관련주 추천해 주세요.",
+        "수익이 잘 날 종목이 있나요?",
+    ]:
+        msg = coach_routes._coach_scope_guard(prompt)
+        assert msg in STOCK_PICK_REDIRECT, prompt
+
+
+def test_scope_guard_named_stock_recommend_passes_through():
+    # 종목명이 특정되면(개별 종목 분석은 역할 안) 추천 거절로 가로채지 않는다.
+    assert coach_routes._coach_scope_guard("삼성전자 사야 할까?") is None
+
+
+def test_scope_guard_screening_basket_passes_through():
+    # 고배당주 같은 스크리닝 카테고리는 전략 설계이므로 추천 거절로 가로채지 않는다.
+    assert coach_routes._coach_scope_guard("고배당주 추천해줘") is None
 
 
 def test_scope_guard_empty_prompt_passes_through():

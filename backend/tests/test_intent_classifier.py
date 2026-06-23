@@ -42,6 +42,39 @@ def test_fundamental_screening_is_strategy(query):
     assert result.deterministic is True
 
 
+@pytest.mark.parametrize(
+    "query",
+    [
+        "어떤 주식을 사야 할까요?",
+        "어떤 종목을 사야 하나요?",
+        "추천 종목이 있나요?",
+        "지금 살 만한 종목이 있나요?",
+        "뭐를 사면 좋을까요?",
+        "AI 관련주 추천해 주세요.",
+        "수익이 잘 날 종목이 있나요?",
+    ],
+)
+def test_open_stock_pick_is_redirected(query):
+    # [규제 안전] 특정 종목명·조건 없이 '무엇을 사야 하나'라는 열린 추천 요청은
+    # 추천하지 않고 전략 설계로 전환하는 안내(STOCK_PICK + suggested_reply)로 잡혀야 한다.
+    result = classify(query)  # llm 없이도 결정적으로
+    assert result.intent == QueryIntent.STOCK_PICK
+    assert result.deterministic is True
+    assert result.suggested_reply
+    assert "전략" in result.suggested_reply
+
+
+def test_named_stock_is_not_pick_redirect():
+    # 종목명이 특정된 매수 질문은 추천 거절이 아니라 종목 분석으로 가야 한다.
+    result = classify("삼성전자 사야 할까요?")
+    assert result.intent == QueryIntent.STOCK_ANALYSIS
+
+
+def test_screening_basket_recommend_is_strategy():
+    # '고배당주 추천'은 열린 추천이 아니라 스크리닝 전략 설계로 분류돼야 한다.
+    assert classify("고배당주 추천해줘").intent == QueryIntent.STRATEGY_ADVICE
+
+
 def test_stock_question_extracts_symbol():
     result = classify("지금 삼성전자 사도 될까요?")
     assert result.intent == QueryIntent.STOCK_ANALYSIS

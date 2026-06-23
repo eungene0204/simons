@@ -11,6 +11,8 @@ from pydantic import BaseModel, Field
 class QueryIntent(str, Enum):
     STRATEGY_ADVICE = "STRATEGY_ADVICE"
     STOCK_ANALYSIS = "STOCK_ANALYSIS"
+    # 특정 종목을 골라/추천해 달라는 열린 요청 — 추천 대신 전략 설계로 전환(suggested_reply).
+    STOCK_PICK = "STOCK_PICK"
     GENERAL_INVESTMENT = "GENERAL_INVESTMENT"
     GREETING = "GREETING"
     OFF_TOPIC = "OFF_TOPIC"
