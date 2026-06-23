@@ -178,6 +178,26 @@ describe("strategySummary", () => {
     expect(summary?.riskText).toBe("손절 7%, 익절 10%");
   });
 
+  it("재무 필터 단독 전략도 진입 신호(entryBlocks)에 필터를 포함한다 (청산 배지 누출 방지)", () => {
+    const summary = buildStrategySummary({
+      ...baseParsed,
+      fundamental_filters: [{ metric: "pbr", operator: "<=", value: 1 }],
+      max_positions: 8,
+      hold_period_days: 126,
+      stop_loss_pct: 12,
+    });
+
+    // 진입 신호는 PBR 필터만 — 손절/보유기간 청산 배지가 섞이면 안 된다.
+    expect(summary?.entryBlocks).toEqual(["PBR <= 1"]);
+    expect(summary?.exitBlocks).toEqual([
+      "손절 -12% 하락시 매도",
+      "최대 126일 보유 후 매도",
+    ]);
+    // entryBlocks가 비지 않으므로 결과 화면이 blockNames 폴백을 쓰지 않는다.
+    expect(summary?.entryBlocks).not.toContain("손절 -12% 하락시 매도");
+    expect(summary?.entryBlocks).not.toContain("최대 126일 보유 후 매도");
+  });
+
   it("리스크 기반 청산이 없으면 기존 기술적 청산 레이블을 유지한다", () => {
     const summary = buildStrategySummary({
       ...baseParsed,

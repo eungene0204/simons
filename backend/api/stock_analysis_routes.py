@@ -17,10 +17,11 @@ import sys
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from intent.classifier import classify
 from intent.schemas import IntentRequest, IntentResult
+from intent import strategy_builder
 from stock_analysis import guardrails
 from stock_analysis.agent import StockAnalysisAgent
 from stock_analysis.schemas import (
@@ -95,6 +96,21 @@ def _forecast_engine():
 async def classify_query(req: IntentRequest) -> IntentResult:
     llm = (lambda s, u: _mlx_llm(s, u, max_tokens=40)) if _llm_available() else None
     return await asyncio.to_thread(classify, req.query, last_symbol=req.last_symbol, llm=llm)
+
+
+# ─── /strategy/builder/step ──────────────────────────────────────────────────────
+# [규제 안전] 열린 종목 추천(STOCK_PICK) 전환 직후 진입하는 전략 빌더 대화의 한 턴.
+# 짧은 답변을 전략 필드로 누적하고, 완성되면 백테스트 프롬프트를 합성한다(결정적·LLM 불필요).
+
+
+class BuilderStepRequest(BaseModel):
+    state: strategy_builder.BuilderState = Field(default_factory=strategy_builder.BuilderState)
+    input: str
+
+
+@router.post("/strategy/builder/step", response_model=strategy_builder.StepResult)
+async def strategy_builder_step(req: BuilderStepRequest) -> strategy_builder.StepResult:
+    return strategy_builder.step(req.state, req.input)
 
 
 # ─── /stock/analyze ──────────────────────────────────────────────────────────────

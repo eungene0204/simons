@@ -17,7 +17,6 @@ import {
   X,
   FloppyDisk,
   Spinner,
-  Sparkle,
 } from "phosphor-react";
 
 
@@ -26,7 +25,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import XAIModal from "./XAIModal";
 import WalkForwardModal, { WalkForwardSettings } from "./WalkForwardModal";
 import BacktestSummaryCard from "./BacktestSummaryCard";
+import CreateAccountModal from "@/components/ui/CreateAccountModal";
 import { buildAutoSaveHistoryPayload } from "@/lib/backtest-history";
+import { createAccount } from "@/lib/portfolio";
 import { resolveUniverseDisplayName } from "@/lib/strategy-summary";
 import { buildMonthlyReturnTableData } from "./monthlyReturns";
 import {
@@ -148,7 +149,6 @@ function benchmarkLabelForResult(result: BacktestResult): string {
 
 export default function BacktestDashboard({
   result,
-  onRestart,
   onRun,
   onSave,
   onWalkForward,
@@ -207,6 +207,8 @@ export default function BacktestDashboard({
   const [cachedOverfitRisk, setCachedOverfitRisk] = useState<string | null>(
     initialOverfitRiskProp ?? result.overfitRisk ?? null
   );
+
+  const [isCreateAccountModalOpen, setIsCreateAccountModalOpen] = useState(false);
 
   // 전략 저장 모달
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
@@ -426,6 +428,25 @@ export default function BacktestDashboard({
     setSaveDescription(promptText || strategySummary?.strategyName || "");
     setSaveResult(null);
     setIsSaveModalOpen(true);
+  };
+
+  const handleCreateAccount = async (
+    name: string,
+    amount: number,
+    strategyId?: string,
+    strategyName?: string,
+    tradingMode?: "auto" | "manual"
+  ) => {
+    const account = await createAccount(
+      name,
+      amount,
+      strategyId,
+      strategyName,
+      tradingMode
+    );
+    if (account?.id) {
+      window.location.assign(`/virtual-account/${account.id}`);
+    }
   };
 
   const handleSaveStrategy = async () => {
@@ -723,8 +744,8 @@ export default function BacktestDashboard({
                     onChange={(e) => setSaveDescription(e.target.value)}
                     placeholder="전략에 대한 간단한 설명"
                     maxLength={200}
-                    rows={2}
-                    className="w-full px-3 py-2.5 bg-[#1a1a1a] border border-white/10 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:border-white/20 resize-none transition-colors"
+                    rows={4}
+                    className="min-h-[120px] w-full px-3 py-2.5 bg-[#1a1a1a] border border-white/10 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:border-white/20 resize-none transition-colors"
                   />
                 </div>
               </div>
@@ -769,6 +790,12 @@ export default function BacktestDashboard({
           </motion.div>
         )}
       </AnimatePresence>
+
+      <CreateAccountModal
+        isOpen={isCreateAccountModalOpen}
+        onClose={() => setIsCreateAccountModalOpen(false)}
+        onCreate={handleCreateAccount}
+      />
 
       <div className="pt-8 px-6 pb-4 flex flex-col gap-1">
         <h2 className="text-3xl font-black text-white tracking-tight">
@@ -904,16 +931,16 @@ export default function BacktestDashboard({
               </button>
             )}
             <button
-              onClick={onRestart}
+              onClick={() => setIsCreateAccountModalOpen(true)}
               className="px-4 py-1.5 bg-white/[0.05] hover:bg-white/10 text-gray-300 hover:text-white text-sm font-bold rounded-lg transition-all border border-white/5 hover:border-white/10 active:scale-95 flex items-center gap-2"
             >
-              <Sparkle className="w-4 h-4" />
-              새 전략
+              <ShieldCheck className="w-4 h-4" />
+              가상계좌 만들기
             </button>
             <button
               onClick={handleOpenSaveModal}
               disabled={isRunning}
-              className="px-4 py-1.5 bg-[var(--main-blue)] text-white hover:opacity-90 disabled:opacity-50 text-sm font-bold rounded-lg transition-colors flex items-center gap-2 active:scale-95"
+              className="px-4 py-1.5 bg-white/[0.05] hover:bg-white/10 text-gray-300 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed text-sm font-bold rounded-lg transition-all border border-white/5 hover:border-white/10 flex items-center gap-2 active:scale-95"
             >
               <FloppyDisk className="w-4 h-4" />
               전략 저장

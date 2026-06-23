@@ -390,9 +390,10 @@ interface BacktestResult {
 **개별 종목 분석 (Stock Analysis Agent)**
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
-| POST | `/query/classify` | 사용자 질문 의도 분류 (STRATEGY / STOCK_ANALYSIS / GENERAL) |
+| POST | `/query/classify` | 사용자 질문 의도 분류 (STRATEGY / STOCK_ANALYSIS / STOCK_PICK / GENERAL) |
 | POST | `/stock/analyze` | 개별 종목 분석 — 로컬 parquet 1차 소스, 규칙 기반 추천 + LLM 설명, 종목 미해석 시 422 |
 | POST | `/query/general` | 분류·종목 비매칭 일반 질문 응답 |
+| POST | `/strategy/builder/step` | 전략 빌더 모드 한 턴 — 열린 추천(STOCK_PICK) 전환 직후 짧은 답변을 전략 필드로 누적하고, 완성 시 백테스트 프롬프트 합성. 결정적 상태 머신 `intent/strategy_builder.py`(무상태). 프론트 `builderModeRef`/`builderStateRef`가 상태 보관·재전송 |
 
 **뉴스 Impact Agent**
 | 메서드 | 경로 | 설명 |

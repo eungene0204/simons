@@ -263,7 +263,7 @@ describe("TopNavigation quick search", () => {
     });
   });
 
-  it("비로그인 상태에서 가상계좌, 백테스트, 대시보드 메뉴를 누르면 로그인 모달을 보여준다", async () => {
+  it("비로그인 상태에서 가상계좌, 전략모음, 대시보드 메뉴를 누르면 로그인 모달을 보여준다", async () => {
     renderWithQueryClient(<TopNavigation />);
 
     await screen.findByRole("button", {
@@ -283,7 +283,7 @@ describe("TopNavigation quick search", () => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("link", { name: /백테스트/i }));
+    fireEvent.click(screen.getByRole("link", { name: /전략모음/i }));
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "취소" }));
 

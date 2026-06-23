@@ -247,19 +247,19 @@ export function buildStrategySummary(
   const takeProfitPct = formatPercent(parsed.take_profit_pct);
   const trailingStopPct = formatPercent(parsed.trailing_stop_pct);
 
+  // 재무 필터(PBR 등)도 매수 기준이므로 진입 신호 배지에 포함한다.
+  // 기술적 진입 신호만 넣으면, 재무 필터 단독 전략에서 entryBlocks가 비어
+  // 백테스트 결과 화면이 blockNames(진입+청산 혼합) 폴백으로 청산 배지를 진입에 잘못 노출한다.
+  const entryLabels = [
+    ...parsed.fundamental_filters.map(formatFundamentalFilter),
+    ...parsed.entry_signals.map((signal) => getSignalLabel(signal, "entry")),
+  ];
+
   return {
     strategyName: parsed.description,
     universeName: getDisplayUniverseLabels(parsed, backtestRequest).join(", "),
-    blockNames: [
-      ...parsed.fundamental_filters.map(formatFundamentalFilter),
-      ...parsed.entry_signals.map(
-        (signal) => getSignalLabel(signal, "entry")
-      ),
-      ...exitLabels,
-    ],
-    entryBlocks: parsed.entry_signals.map(
-      (signal) => getSignalLabel(signal, "entry")
-    ),
+    blockNames: [...entryLabels, ...exitLabels],
+    entryBlocks: entryLabels,
     exitBlocks: exitLabels,
     positionText: `최대 ${parsed.max_positions}종목${parsed.hold_period_days ? ` · ${parsed.hold_period_days}일 보유` : ""}`,
     riskText: [

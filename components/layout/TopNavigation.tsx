@@ -10,7 +10,7 @@ import {
   Bank,
   MagnifyingGlass,
   ChartLineUp,
-  Clock,
+  SlidersHorizontal,
   CaretDown,
   GoogleLogo,
   SignOut,
@@ -32,10 +32,10 @@ const menuItems = [
     Icon: Bank,
   },
   {
-    label: "백테스트",
+    label: "전략모음",
     href: "/backtest",
     id: "backtest",
-    Icon: Clock,
+    Icon: SlidersHorizontal,
   },
   {
     label: "대시보드",

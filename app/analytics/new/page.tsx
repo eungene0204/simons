@@ -86,6 +86,7 @@ interface ChatMessage {
   stockAnalysis?: StockAnalysisResult;
   stockLoading?: boolean;
   infoText?: string;  // 일반 투자 답변 또는 종목 명확화 안내
+  infoSuggestions?: string[];  // 전략 빌더 옵션 칩(클릭 시 그 답으로 전송)
 }
 
 type CoachConversationMessage = {
@@ -506,6 +507,10 @@ function StrategyLabContent() {
   const awaitingStockAnalysisRef = useRef(false);
   // first user prompt — kept for advisor context
   const firstPromptRef = useRef<string>("");
+  // [규제 안전] 열린 종목 추천(STOCK_PICK) 전환 직후 진입하는 전략 빌더 모드.
+  // 짧은 답변을 전략 필드로 누적하는 동안 true. 상태는 백엔드 step에 그대로 재전송한다.
+  const builderModeRef = useRef(false);
+  const builderStateRef = useRef<Record<string, any>>({});
 
   useEffect(() => {
     fetch("/api/model/status")
@@ -535,6 +540,8 @@ function StrategyLabContent() {
       coachConversationRef.current = snapshot.coachConversation ?? [];
       coachSessionIdRef.current = snapshot.coachSessionId ?? null;
       lastAnalyzedSymbolRef.current = snapshot.lastAnalyzedSymbol ?? null;
+      builderModeRef.current = snapshot.builderMode ?? false;
+      builderStateRef.current = snapshot.builderState ?? {};
     } catch {
       // 손상된 스냅샷은 무시한다.
     }
@@ -618,6 +625,8 @@ function StrategyLabContent() {
         coachConversation: coachConversationRef.current,
         coachSessionId: coachSessionIdRef.current,
         lastAnalyzedSymbol: lastAnalyzedSymbolRef.current,
+        builderMode: builderModeRef.current,
+        builderState: builderStateRef.current,
       };
       sessionStorage.setItem(STRATEGY_CHAT_STATE_KEY, JSON.stringify(snapshot));
     } catch {
@@ -846,6 +855,11 @@ function StrategyLabContent() {
           : intent === "STOCK_PICK"
             ? "특정 종목을 추천하지는 않지만, 투자 아이디어를 전략으로 만들어 과거 데이터로 검증하도록 도와드릴 수 있어요.\n\n예를 들어 이렇게 시작해볼 수 있어요:\n• RSI가 30 이하로 떨어지면 매수하고 70 이상에서 파는 '과매도 반등' 전략\n• 20일 이동평균이 60일 이동평균을 위로 뚫는 골든크로스에서 매수하는 추세 전략\n• PBR은 낮고 ROE는 높은 저평가 우량주를 고르는 가치 전략\n\n끌리는 아이디어가 있거나 평소 관심 있던 매매 방식이 있다면 말씀해 주세요 — 바로 전략으로 만들어 백테스트해 드릴게요."
             : "저는 투자 전략 및 분석 전용 모델입니다. 현재 질문에는 도움을 드릴 수 없습니다. 대신 투자 전략, 백테스트, 종목 분석과 관련된 질문은 도와드릴 수 있습니다.";
+      // 열린 종목 추천 전환 직후 전략 빌더 모드로 들어가, 다음 짧은 답변부터 전략 필드로 누적한다.
+      if (intent === "STOCK_PICK") {
+        builderModeRef.current = true;
+        builderStateRef.current = {};
+      }
       updateLastAssistant({ isLoading: false, infoText: suggestedReply ?? fallback });
       return true;
     }
@@ -886,6 +900,128 @@ function StrategyLabContent() {
     }
 
     return false;
+  };
+
+  // 전략 프롬프트를 파싱→백테스트 준비→코치까지 스트리밍 처리한다. 일반 입력과
+  // 전략 빌더 확정(합성 프롬프트) 양쪽에서 공유한다. isSending은 호출 측이 관리한다.
+  const runStrategyParseFlow = async (
+    promptText: string,
+    currentParsed: ParsedSummary | null,
+    currentBacktestReq: any,
+  ) => {
+    const res = await fetch("/api/strategy/parse/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt: promptText,
+        backend: "ollama",
+        ...(currentParsed ? { previous_parsed: currentParsed } : {}),
+      }),
+    });
+    if (!res.ok || !res.body) {
+      const err = await res.json();
+      throw new Error(err.detail ?? "파싱 실패");
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let parsedPayload: any = null;
+    let finalizedParsed: ParsedSummary | null = null;
+    // 최초 파싱에서 진입 규칙을 못 잡아 되묻는 경우. 이때는 코치를 돌리지 않는다
+    // (불완전한 전략을 평가하면 안내 박스와 모순됨).
+    let parseClarification: string | null = null;
+
+    const finalizeParse = (backtestRequest: any, symbolCount?: number | null) => {
+      if (!parsedPayload) return;
+      const nextBacktestRequest = backtestRequest
+        ? {
+            ...backtestRequest,
+            symbol_count: symbolCount ?? backtestRequest.symbol_count,
+          }
+        : backtestRequest;
+      const mergedResponse = mergeStrategyModification({
+        previousParsed: currentParsed,
+        nextParsed: parsedPayload.parsed,
+        previousBacktestRequest: currentBacktestReq,
+        nextBacktestRequest,
+        userPrompt: promptText,
+        clarificationQuestion: parsedPayload.clarification_question,
+        previousCoachText: lastCoachText(),
+        riskOverrides: parsedPayload.risk_overrides ?? null,
+      });
+
+      const nextParsed = mergedResponse.parsed;
+      const nextBacktestReq = mergedResponse.backtestRequest;
+
+      coachSessionIdRef.current = null;
+      // 전략을 수정해도 코치 대화 기록은 유지한다 — 이미 설명한 전문용어를 다시 설명하지 않도록.
+      finalizedParsed = nextParsed;
+      setLatestParsed(nextParsed);
+      setBacktestReq(nextBacktestReq);
+      setCurrentOptions({
+        period: nextBacktestReq?.period ?? "5y",
+        initialCapital: nextBacktestReq?.risk?.init_cash ?? 10000000,
+        commissionPct: 0.015,
+        slippagePct: 0.05,
+      });
+      setStage("ready");
+
+      // 매수(종목 선정) 기준이 전혀 없으면 백테스트는 0매매로 끝나므로, 실행을 막고
+      // 최소 조건을 입력하도록 되묻는다. 이 판정은 실제 백테스트로 보낼 '병합된 전략'
+      // (nextParsed)을 기준으로 하므로 최초 파싱·후속 수정 모두에서 동작한다.
+      const missingBuyCriteria = !hasBuyCriteria(nextParsed);
+      const clarificationText = missingBuyCriteria
+        ? (parsedPayload.clarification_question ?? MISSING_BUY_CRITERIA_QUESTION)
+        : null;
+      const clarificationSuggestions = missingBuyCriteria
+        ? (parsedPayload.clarification_suggestions ?? MISSING_BUY_CRITERIA_SUGGESTIONS)
+        : undefined;
+      parseClarification = clarificationText;
+      updateLastAssistant({
+        isLoading: false,
+        parsed: nextParsed,
+        clarification: clarificationText ?? undefined,
+        clarificationSuggestions: clarificationText ? clarificationSuggestions : undefined,
+      });
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split("\n\n");
+      buffer = parts.pop() ?? "";
+
+      for (const chunk of parts) {
+        const line = chunk.split("\n").find(l => l.startsWith("data: "));
+        if (!line) continue;
+        const payload = line.slice(6).trim();
+        if (payload === "[DONE]") continue;
+        const evt = JSON.parse(payload);
+
+        if (evt.type === "skeleton") {
+          // 구조 분석 스켈레톤은 표시하지 않는다 — 파싱이 끝날 때까지 '분석 중...'만 노출한다.
+        } else if (evt.type === "parsed_final") {
+          parsedPayload = evt;
+        } else if (evt.type === "dsl_ready") {
+          finalizeParse(evt.backtest_request, evt.symbol_count);
+        } else if (evt.type === "error") {
+          throw new Error(evt.detail ?? "파싱 실패");
+        }
+      }
+    }
+
+    if (finalizedParsed && !parseClarification) {
+      setMessages(prev => [
+        ...prev,
+        { role: "assistant", coachLoading: true, coachText: "" },
+      ]);
+      generateCoachResponse({
+        userText: promptText,
+        parsed: finalizedParsed,
+      });
+    }
   };
 
   const handleSend = async (overrideText?: string) => {
@@ -939,6 +1075,51 @@ function StrategyLabContent() {
     // 이후 분기들은 이 버블을 updateLastAssistant로 변형해 재사용한다(새 버블 생성 금지).
     await appendAssistant({ role: "assistant", isLoading: true });
 
+    // 전략 빌더 모드: 짧은 답변을 전략 필드로 누적한다(분류/거절보다 먼저 실행).
+    if (builderModeRef.current) {
+      try {
+        const res = await fetch("/api/strategy/builder/step", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ state: builderStateRef.current, input: userText }),
+        });
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        builderStateRef.current = data.state ?? {};
+
+        if (data.status === "confirmed" && data.prompt) {
+          // 전략 완성 → 빌더 종료 후 합성 프롬프트로 기존 백테스트 파이프라인 실행.
+          builderModeRef.current = false;
+          builderStateRef.current = {};
+          updateLastAssistant({ isLoading: true, infoText: undefined });
+          try {
+            await runStrategyParseFlow(data.prompt, null, null);
+          } catch (e: any) {
+            updateLastAssistant({ isLoading: false, error: e.message ?? "알 수 없는 오류" });
+          }
+          setIsSending(false);
+          return;
+        }
+        if (data.status === "exited") {
+          builderModeRef.current = false;
+          builderStateRef.current = {};
+        }
+        updateLastAssistant({
+          isLoading: false,
+          infoText: data.reply,
+          infoSuggestions: data.suggestions?.length ? data.suggestions : undefined,
+        });
+      } catch {
+        // 빌더 호출 실패 시 거절하지 않고 자연스럽게 다시 묻는다.
+        updateLastAssistant({
+          isLoading: false,
+          infoText: "조건을 한 번 더 말씀해 주시겠어요?",
+        });
+      }
+      setIsSending(false);
+      return;
+    }
+
     const routed = await maybeRouteNonStrategyQuery(userText, currentParsed);
     if (routed) {
       setIsSending(false);
@@ -964,121 +1145,7 @@ function StrategyLabContent() {
     }
 
     try {
-      const res = await fetch("/api/strategy/parse/stream", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: userText,
-          backend: "ollama",
-          ...(currentParsed ? { previous_parsed: currentParsed } : {}),
-        }),
-      });
-      if (!res.ok || !res.body) {
-        const err = await res.json();
-        throw new Error(err.detail ?? "파싱 실패");
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let parsedPayload: any = null;
-      let finalizedParsed: ParsedSummary | null = null;
-      // 최초 파싱에서 진입 규칙을 못 잡아 되묻는 경우. 이때는 코치를 돌리지 않는다
-      // (불완전한 전략을 평가하면 안내 박스와 모순됨).
-      let parseClarification: string | null = null;
-
-      const finalizeParse = (backtestRequest: any, symbolCount?: number | null) => {
-        if (!parsedPayload) return;
-        const nextBacktestRequest = backtestRequest
-          ? {
-              ...backtestRequest,
-              symbol_count: symbolCount ?? backtestRequest.symbol_count,
-            }
-          : backtestRequest;
-        const mergedResponse = mergeStrategyModification({
-          previousParsed: currentParsed,
-          nextParsed: parsedPayload.parsed,
-          previousBacktestRequest: currentBacktestReq,
-          nextBacktestRequest,
-          userPrompt: userText,
-          clarificationQuestion: parsedPayload.clarification_question,
-          previousCoachText: lastCoachText(),
-          riskOverrides: parsedPayload.risk_overrides ?? null,
-        });
-
-        const nextParsed = mergedResponse.parsed;
-        const nextBacktestReq = mergedResponse.backtestRequest;
-
-        coachSessionIdRef.current = null;
-        // 전략을 수정해도 코치 대화 기록은 유지한다 — 이미 설명한 전문용어를 다시 설명하지 않도록.
-        finalizedParsed = nextParsed;
-        setLatestParsed(nextParsed);
-        setBacktestReq(nextBacktestReq);
-        setCurrentOptions({
-          period: nextBacktestReq?.period ?? "5y",
-          initialCapital: nextBacktestReq?.risk?.init_cash ?? 10000000,
-          commissionPct: 0.015,
-          slippagePct: 0.05,
-        });
-        setStage("ready");
-
-        // 매수(종목 선정) 기준이 전혀 없으면 백테스트는 0매매로 끝나므로, 실행을 막고
-        // 최소 조건을 입력하도록 되묻는다. 이 판정은 실제 백테스트로 보낼 '병합된 전략'
-        // (nextParsed)을 기준으로 하므로 최초 파싱·후속 수정 모두에서 동작한다.
-        // 첫 파싱은 백엔드가 보낸 구체적 안내(상대강도 랭킹·정성 지표 등)를 우선 사용하고,
-        // 백엔드가 문구를 주지 못한 후속 수정에서는 일반 폴백 안내를 쓴다.
-        const missingBuyCriteria = !hasBuyCriteria(nextParsed);
-        const clarificationText = missingBuyCriteria
-          ? (parsedPayload.clarification_question ?? MISSING_BUY_CRITERIA_QUESTION)
-          : null;
-        const clarificationSuggestions = missingBuyCriteria
-          ? (parsedPayload.clarification_suggestions ?? MISSING_BUY_CRITERIA_SUGGESTIONS)
-          : undefined;
-        parseClarification = clarificationText;
-        updateLastAssistant({
-          isLoading: false,
-          parsed: nextParsed,
-          clarification: clarificationText ?? undefined,
-          clarificationSuggestions: clarificationText ? clarificationSuggestions : undefined,
-        });
-      };
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split("\n\n");
-        buffer = parts.pop() ?? "";
-
-        for (const chunk of parts) {
-          const line = chunk.split("\n").find(l => l.startsWith("data: "));
-          if (!line) continue;
-          const payload = line.slice(6).trim();
-          if (payload === "[DONE]") continue;
-          const evt = JSON.parse(payload);
-
-          if (evt.type === "skeleton") {
-            // 구조 분석 스켈레톤은 표시하지 않는다 — 파싱이 끝날 때까지 '분석 중...'만 노출한다.
-          } else if (evt.type === "parsed_final") {
-            parsedPayload = evt;
-          } else if (evt.type === "dsl_ready") {
-            finalizeParse(evt.backtest_request, evt.symbol_count);
-          } else if (evt.type === "error") {
-            throw new Error(evt.detail ?? "파싱 실패");
-          }
-        }
-      }
-
-      if (finalizedParsed && !parseClarification) {
-        setMessages(prev => [
-          ...prev,
-          { role: "assistant", coachLoading: true, coachText: "" },
-        ]);
-        generateCoachResponse({
-          userText,
-          parsed: finalizedParsed,
-        });
-      }
+      await runStrategyParseFlow(userText, currentParsed, currentBacktestReq);
     } catch (e: any) {
       setMessages(prev => prev.map((m, i) =>
         i === prev.length - 1 ? { role: "assistant", error: e.message ?? "알 수 없는 오류" } : m
@@ -1621,6 +1688,19 @@ function StrategyLabContent() {
                             <p className="text-sm font-bold text-white leading-relaxed whitespace-pre-line">
                               {msg.infoText}
                             </p>
+                            {isLastAssistant(i) && msg.infoSuggestions && msg.infoSuggestions.length > 0 && (
+                              <div className="flex flex-wrap gap-2 pt-1">
+                                {msg.infoSuggestions.map((suggestion) => (
+                                  <button
+                                    key={suggestion}
+                                    onClick={() => handleSend(suggestion)}
+                                    className="px-3 py-1.5 rounded-lg bg-[#171717] border border-white/10 hover:border-yellow-400/50 hover:bg-[#202020] text-xs font-bold text-gray-300 transition-all duration-200 text-left"
+                                  >
+                                    {suggestion}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         )}
                         {msg.parsed && (
