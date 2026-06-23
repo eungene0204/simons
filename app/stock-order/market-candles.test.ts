@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { OHLCV } from "@/components/stock/CandlestickChart";
 import type { StockPriceSnapshot } from "@/lib/stock-prices";
-import { applyRealtimeToLatestCandle } from "@/app/stock-order/market-candles";
+import {
+  applyRealtimeToLatestCandle,
+  resolveMarketPreviousClose,
+} from "@/app/stock-order/market-candles";
 
 const parquetCandles: OHLCV[] = [
   {
@@ -93,5 +96,33 @@ describe("applyRealtimeToLatestCandle", () => {
     );
 
     expect(result).toBe(parquetCandles);
+  });
+});
+
+describe("resolveMarketPreviousClose", () => {
+  it("uses the last candle (직전 거래일) when a REST live quote is newer than the last candle", () => {
+    // kis_total 라이브: 오늘 봉이 캔들에 추가되지 않음 → 마지막 캔들(월) 종가가 전일 종가.
+    // 직전 캔들(금, 353_500)을 쓰면 안 된다.
+    const restQuote = { ...realtimeQuote, source: "kis_total", previousClose: undefined };
+    expect(resolveMarketPreviousClose(parquetCandles, restQuote)).toBe(356_500);
+  });
+
+  it("prefers the KIS previousClose when the live quote provides it", () => {
+    const restQuote = { ...realtimeQuote, source: "kis_total", previousClose: 356_500 };
+    expect(resolveMarketPreviousClose(parquetCandles, restQuote)).toBe(356_500);
+  });
+
+  it("uses the prior candle when today's candle is already appended (WS)", () => {
+    const appended = applyRealtimeToLatestCandle(
+      parquetCandles,
+      realtimeQuote,
+      new Date("2026-06-22T23:05:00.000Z")
+    );
+    // 캔들 = [금, 월, 화(오늘)]. 오늘(화) 기준 전일 종가는 월(356_500).
+    expect(resolveMarketPreviousClose(appended, realtimeQuote)).toBe(356_500);
+  });
+
+  it("falls back to the prior candle when there is no live quote", () => {
+    expect(resolveMarketPreviousClose(parquetCandles, null)).toBe(353_500);
   });
 });

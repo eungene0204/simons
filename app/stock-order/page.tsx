@@ -22,7 +22,10 @@ import {
 } from "@/app/stock-order/stock-info";
 import { useStockPrices } from "@/lib/hooks/useStockPrices";
 import type { StockPriceSnapshot as BatchQuoteItem } from "@/lib/stock-prices";
-import { applyRealtimeToLatestCandle } from "@/app/stock-order/market-candles";
+import {
+  applyRealtimeToLatestCandle,
+  resolveMarketPreviousClose,
+} from "@/app/stock-order/market-candles";
 import { useOrderAccount } from "@/contexts/OrderAccountContext";
 import {
   getAllAccounts,
@@ -549,14 +552,16 @@ export default function OrderPage() {
     if (!realDailyCandles || realDailyCandles.length < 2) return undefined;
     const candles = applyRealtimeToLatestCandle(realDailyCandles, liveQuote);
     const last = candles[candles.length - 1];
-    const prev = candles[candles.length - 2];
     const year252 = candles.slice(-252);
     return {
       open: last.open,
       high: last.high,
       low: last.low,
       volume: last.volume,
-      previousClose: prev.close,
+      // 오늘 봉이 아직 OHLCV에 없는 라이브 상황에서 '이틀 전' 종가를 전일 종가로
+      // 쓰지 않도록 한다(직전 거래일 종가/ KIS previousClose 사용).
+      previousClose:
+        resolveMarketPreviousClose(candles, liveQuote) ?? last.close,
       week52High: Math.max(...year252.map((c) => c.high)),
       week52Low: Math.min(...year252.map((c) => c.low)),
     };
