@@ -32,7 +32,7 @@ class BuilderState(BaseModel):
     holding_count: Optional[int] = None
     rebalance_cycle: Optional[RebalanceCycle] = None
     entry_rule: Optional[str] = None           # custom 유형의 사용자 서술 진입 조건
-    # 청산 조건(모두 선택) — 마지막 단계에서 한 번 묻고, 답하면 risk_done=True로 완료 처리.
+    # 청산 조건(필수) — 마지막 단계에서 묻고, 하나 이상 인식되면 risk_done=True로 완료 처리.
     stop_loss_pct: Optional[float] = None
     take_profit_pct: Optional[float] = None
     trailing_stop_pct: Optional[float] = None
@@ -157,8 +157,9 @@ def _parse_hold_days(text: str) -> Optional[int]:
 
 
 def _parse_risk(text: str) -> dict:
-    """청산 조건 단계의 답변을 파싱한다. 무엇을 답하든(없음 포함) risk_done=True — 한 번만 묻는다."""
-    patch: dict = {"risk_done": True}
+    """청산 조건 단계의 답변을 파싱한다. 청산 조건은 필수이므로, 손절·익절·트레일링·보유기간을
+    하나 이상 인식했을 때만 risk_done=True로 완료 처리한다(없으면 같은 질문을 다시 한다)."""
+    patch: dict = {}
     sl = _STOP_LOSS_RE.search(text)
     if sl:
         patch["stop_loss_pct"] = float(sl.group(1))
@@ -171,6 +172,8 @@ def _parse_risk(text: str) -> dict:
     hold = _parse_hold_days(text)
     if hold:
         patch["hold_period_days"] = hold
+    if patch:
+        patch["risk_done"] = True
     return patch
 
 
@@ -309,7 +312,9 @@ def next_question(state: BuilderState) -> tuple[str, list[str]]:
             "• RSI 과매도에서 반등을 노리는 전략\n"
             "• 직접 아이디어를 설명하기"
         )
-        return (msg, ["모멘텀", "돌파", "거래량 급증", "과매도 반등"])
+        # "직접 설명하기"는 자유 서술(custom) 진입로 — 선택 시 entry_rule 질문(칩 없음)으로
+        # 넘어가 프론트가 채팅창을 다시 보여준다. 가장 오른쪽 칩으로 노출한다.
+        return (msg, ["모멘텀", "돌파", "거래량 급증", "과매도 반등", "직접 설명하기"])
     if field == "lookback_days":
         if state.strategy_type == "breakout":
             return (prefix + "며칠 신고가(박스권 상단) 돌파를 기준으로 볼까요?", ["20일", "60일", "120일"])
@@ -328,12 +333,16 @@ def next_question(state: BuilderState) -> tuple[str, list[str]]:
         return (prefix + "얼마나 자주 종목을 교체(리밸런싱)할까요?", ["매주", "매월", "분기마다", "안 함"])
     if field == "risk":
         msg = (
-            prefix + "마지막으로 청산 조건을 더할까요? 손절·익절·트레일링 스탑·보유기간을 "
-            "자유롭게 말씀해 주세요.\n"
-            "(예: '10% 손절', '20% 익절', '최고가 대비 10% 하락 시 청산', '20일 보유 후 청산')\n"
-            "필요 없으면 '청산 조건 없음'을 선택하세요."
+            prefix + "마지막으로 청산 조건을 정해 주세요. 손절·익절·트레일링 스탑·보유기간 중 "
+            "하나 이상을 자유롭게 말씀해 주세요.\n"
+            "(예: '10% 손절', '20% 익절', '최고가 대비 10% 하락 시 청산', '20일 보유 후 청산')"
         )
-        return (msg, ["10% 손절", "10% 손절·20% 익절", "최고가 대비 10% 하락 시 청산", "청산 조건 없음"])
+        # "직접 입력"은 빌더 답변이 아니라 프론트에서 채팅창을 다시 띄우는 토글 칩이다
+        # (청산 조건은 자유 서술을 인라인으로 받으므로 별도 질문 없이 사용자가 직접 타이핑).
+        return (
+            msg,
+            ["10% 손절", "10% 손절·20% 익절", "최고가 대비 10% 하락 시 청산", "직접 입력"],
+        )
     # 필드가 다 찼으면 step()이 confirmed로 보내므로 여기 도달하지 않는다.
     return ("", [])
 
@@ -409,7 +418,17 @@ RESTART_PREFIX = "처음부터 새로 구성해볼게요.\n\n"
 # ─── 오케스트레이션 ──────────────────────────────────────────────────────────────
 
 def step(state: BuilderState, text: str) -> StepResult:
-    """빌더 모드의 한 턴을 처리한다."""
+    """빌더 모드의 한 턴을 처리한다.
+
+    빈 입력은 상태를 바꾸지 않고 현재(첫) 질문을 그대로 보여준다 — 빌더 진입 직후
+    사용자의 후속 입력을 기다리지 않고 첫 질문을 능동적으로 띄우는 데 쓴다.
+    """
+    if not (text or "").strip():
+        if required_missing(state) is None:
+            return StepResult(state=state, status="confirmed", prompt=synthesize_prompt(state))
+        msg, sug = next_question(state)
+        return StepResult(state=state, reply=msg, suggestions=sug, status="collecting")
+
     ctrl = detect_control(text)
     if ctrl == "cancel":
         return StepResult(state=BuilderState(), reply=CANCEL_REPLY, status="exited")

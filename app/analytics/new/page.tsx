@@ -50,6 +50,7 @@ import { isBacktestConfirmation, isBacktestPrompt } from "./backtestConfirmation
 import { normalizeCoachMessage } from "./coachMessage";
 import { parseCoachSegments } from "./coachText";
 import { parseSseBlocks } from "./sseEvents";
+import { installBacktestResultBackHandler } from "./backtestResultHistory";
 import {
   beginStrategyChatNavigation,
   selectPersistableChatMessages,
@@ -106,6 +107,11 @@ const SOFT_MESSAGE_ENTER_LATE_STYLE = {
 // 전략 검증은 규칙 기반이라 즉시 응답하지만, 분석이 진행 중임을 사용자가 인지하도록
 // 최소 노출 시간을 둔다. 응답이 더 오래 걸리면 추가 지연 없이 그대로 표시한다.
 const MIN_VALIDATION_DELAY_MS = 2400;
+
+// [전략 빌더] 칩-only 단계(예: 청산 조건)에서 사용자가 직접 값을 타이핑하도록 채팅창을
+// 다시 띄우는 '직접 입력' 칩. 빌더 답변으로 전송하지 않고 입력창만 노출한다.
+// 백엔드 `strategy_builder.next_question`이 내려보내는 칩 문자열과 정확히 일치해야 한다.
+const BUILDER_FREE_INPUT_CHIP = "직접 입력";
 
 // 매수(종목 선정) 기준이 전혀 없을 때 보여줄 안내. 백엔드 파서가 clarification을 주지 못한
 // 후속 수정(follow-up) 경로에서 폴백으로 쓴다(첫 파싱은 백엔드 문구를 그대로 사용).
@@ -511,6 +517,8 @@ function StrategyLabContent() {
   // 짧은 답변을 전략 필드로 누적하는 동안 true. 상태는 백엔드 step에 그대로 재전송한다.
   const builderModeRef = useRef(false);
   const builderStateRef = useRef<Record<string, any>>({});
+  // 빌더 칩-only 단계에서 '직접 입력'을 눌러 채팅창을 다시 띄운 상태(빌더는 진행하지 않음).
+  const [builderFreeTextRequested, setBuilderFreeTextRequested] = useState(false);
 
   useEffect(() => {
     fetch("/api/model/status")
@@ -674,7 +682,19 @@ function StrategyLabContent() {
   }, [backtestReq]);
 
   const isIdle = messages.length === 0 && !isSending;
-  const shouldShowChatInput = isIdle || messages.some((m) => m.parsed || m.stockAnalysis || m.infoText);
+  // 전략 빌더가 옵션 칩을 보여주는 동안에는 채팅창을 숨겨 사용자가 선택에 집중하게 한다.
+  // 칩(infoSuggestions)은 빌더만 사용하므로, 마지막 어시스턴트 메시지에 칩이 있으면 입력창을 가린다.
+  // '직접 설명하기'를 고르면 진입 조건(자유 입력) 질문은 칩이 없어 입력창이 다시 나타난다.
+  const lastAssistantMessage = (() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "assistant") return messages[i];
+    }
+    return undefined;
+  })();
+  const builderAwaitingChoice = (lastAssistantMessage?.infoSuggestions?.length ?? 0) > 0;
+  const shouldShowChatInput =
+    (isIdle || messages.some((m) => m.parsed || m.stockAnalysis || m.infoText)) &&
+    (!builderAwaitingChoice || builderFreeTextRequested);
 
   useEffect(() => {
     if (!shouldShowChatInput || stage === "running" || result) return;
@@ -822,6 +842,31 @@ function StrategyLabContent() {
     setTimeout(() => textareaRef.current?.focus(), 100);
   };
 
+  // 열린 종목 추천(STOCK_PICK) 전환 직후, 사용자의 후속 입력을 기다리지 않고 곧바로
+  // 전략 빌더의 첫 질문(시장 선택)을 띄운다. 질문·옵션 칩은 백엔드 빌더가 단일 출처로
+  // 결정하므로(빈 입력 step = 현재 질문 조회) 프론트에서 하드코딩하지 않는다.
+  const startStrategyBuilder = async () => {
+    await appendAssistant({ role: "assistant", isLoading: true });
+    try {
+      const res = await fetch("/api/strategy/builder/step", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ state: builderStateRef.current, input: "" }),
+      });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      builderStateRef.current = data.state ?? {};
+      updateLastAssistant({
+        isLoading: false,
+        infoText: data.reply,
+        infoSuggestions: data.suggestions?.length ? data.suggestions : undefined,
+      });
+    } catch {
+      // 호출 실패 시 거절하지 않는다 — 빌더 모드는 유지되어 다음 입력부터 정상 진행된다.
+      updateLastAssistant({ isLoading: false, infoText: "어떤 시장을 대상으로 할까요?" });
+    }
+  };
+
   // 개별 종목 질문 / 일반 투자 질문을 전략 흐름과 분리해 처리한다.
   // 처리했으면 true(전략 파싱으로 넘어가지 않음), 아니면 false(기존 전략 흐름).
   const maybeRouteNonStrategyQuery = async (
@@ -855,12 +900,14 @@ function StrategyLabContent() {
           : intent === "STOCK_PICK"
             ? "특정 종목을 추천하지는 않지만, 투자 아이디어를 전략으로 만들어 과거 데이터로 검증하도록 도와드릴 수 있어요.\n\n예를 들어 이렇게 시작해볼 수 있어요:\n• RSI가 30 이하로 떨어지면 매수하고 70 이상에서 파는 '과매도 반등' 전략\n• 20일 이동평균이 60일 이동평균을 위로 뚫는 골든크로스에서 매수하는 추세 전략\n• PBR은 낮고 ROE는 높은 저평가 우량주를 고르는 가치 전략\n\n끌리는 아이디어가 있거나 평소 관심 있던 매매 방식이 있다면 말씀해 주세요 — 바로 전략으로 만들어 백테스트해 드릴게요."
             : "저는 투자 전략 및 분석 전용 모델입니다. 현재 질문에는 도움을 드릴 수 없습니다. 대신 투자 전략, 백테스트, 종목 분석과 관련된 질문은 도와드릴 수 있습니다.";
-      // 열린 종목 추천 전환 직후 전략 빌더 모드로 들어가, 다음 짧은 답변부터 전략 필드로 누적한다.
+      updateLastAssistant({ isLoading: false, infoText: suggestedReply ?? fallback });
+      // 열린 종목 추천 전환 직후 전략 빌더 모드로 들어간다. 사용자의 후속 입력을 기다리지 않고
+      // 곧바로 빌더의 첫 질문을 띄워, 함께 전략을 구성하기 시작한다(다음 답변부터 전략 필드로 누적).
       if (intent === "STOCK_PICK") {
         builderModeRef.current = true;
         builderStateRef.current = {};
+        await startStrategyBuilder();
       }
-      updateLastAssistant({ isLoading: false, infoText: suggestedReply ?? fallback });
       return true;
     }
 
@@ -1027,6 +1074,8 @@ function StrategyLabContent() {
   const handleSend = async (overrideText?: string) => {
     const userText = overrideText ?? inputValue.trim();
     if (!userText || isSending || stage === "running") return;
+    // 메시지를 보내는 순간 '직접 입력' 노출 토글을 해제한다(다음 빌더 단계는 다시 칩 집중).
+    setBuilderFreeTextRequested(false);
 
     if (authState !== "authenticated" && isStrategyInput) {
       sessionStorage.setItem(PENDING_STRATEGY_PROMPT_KEY, userText);
@@ -1518,7 +1567,16 @@ function StrategyLabContent() {
 
   // ── 결과 화면
   const isRunning = stage === "running";
-  if ((stage === "done" || isRunning) && result) {
+  const showingBacktestResult = (stage === "done" || isRunning) && !!result;
+
+  // 결과 화면에서 브라우저 뒤로가기 → 페이지 이탈 대신 대화창으로 복귀(결과·대화 유지).
+  // showingBacktestResult(boolean) 변화에만 반응하므로 running↔done 전환 시 중복 push가 없다.
+  useEffect(() => {
+    if (!showingBacktestResult) return;
+    return installBacktestResultBackHandler(() => setStage("ready"));
+  }, [showingBacktestResult]);
+
+  if (showingBacktestResult) {
     return (
       <DashboardLayout userName="">
         <div
@@ -1693,7 +1751,15 @@ function StrategyLabContent() {
                                 {msg.infoSuggestions.map((suggestion) => (
                                   <button
                                     key={suggestion}
-                                    onClick={() => handleSend(suggestion)}
+                                    onClick={() => {
+                                      // '직접 입력'은 빌더 답변이 아니라 입력창을 다시 띄우는 토글이다.
+                                      if (suggestion === BUILDER_FREE_INPUT_CHIP) {
+                                        setBuilderFreeTextRequested(true);
+                                        setTimeout(() => textareaRef.current?.focus(), 0);
+                                        return;
+                                      }
+                                      void handleSend(suggestion);
+                                    }}
                                     className="px-3 py-1.5 rounded-lg bg-[#171717] border border-white/10 hover:border-yellow-400/50 hover:bg-[#202020] text-xs font-bold text-gray-300 transition-all duration-200 text-left"
                                   >
                                     {suggestion}

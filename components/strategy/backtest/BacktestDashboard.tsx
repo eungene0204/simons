@@ -586,6 +586,10 @@ export default function BacktestDashboard({
     : "";
   const totalProfit = (result.finalEquity || 0) - (result.initialCapital || 0);
   const benchmarkLabel = benchmarkLabelForResult(result);
+  const modalPromptPreview = saveDescription.trim() || promptText?.trim() || "";
+  const modalUniverseLabel = strategySummary
+    ? resolveUniverseDisplayName(strategySummary.universeName, modalPromptPreview)
+    : null;
 
   const overviewMetrics = [
     {
@@ -692,7 +696,7 @@ export default function BacktestDashboard({
               </div>
 
               {/* 저장될 주요 지표 미리보기 */}
-              <div className="grid grid-cols-3 gap-3 mb-5 p-4 bg-white/[0.03] rounded-xl border border-white/5">
+	              <div className="grid grid-cols-3 gap-3 mb-5 p-4 bg-white/[0.03] rounded-xl border border-white/5">
                 <div className="text-center">
                   <p className="text-xs text-gray-500 mb-1">총 수익률</p>
                   <p className={`text-xl font-black ${metricValueColor(result.totalReturn)}`}>
@@ -720,10 +724,101 @@ export default function BacktestDashboard({
                 <div className="text-center">
                   <p className="text-xs text-gray-500 mb-1">종목 수</p>
                   <p className="text-xl font-black text-white">{result.symbols?.length ?? 0}개</p>
-                </div>
-              </div>
+	                </div>
+	              </div>
 
-              <div className="space-y-3 mb-5">
+              {(modalPromptPreview || strategySummary) && (
+                <div className="mb-5 space-y-3 rounded-xl border border-white/5 bg-[#0d1016] p-4">
+                  {modalPromptPreview && (
+                    <div className="space-y-1.5">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-gray-600">
+                        프롬프트
+                      </p>
+                      <p className="whitespace-pre-wrap text-sm font-bold leading-6 text-white">
+                        {modalPromptPreview}
+                      </p>
+                    </div>
+                  )}
+
+                  {strategySummary && (
+                    <div className="space-y-2.5">
+                      {modalUniverseLabel && (
+                        <div className="flex flex-wrap items-start gap-2">
+                          <span className="w-16 flex-shrink-0 pt-1 text-[10px] font-bold uppercase tracking-widest text-gray-600">
+                            유니버스
+                          </span>
+                          <div className="flex flex-1 flex-wrap gap-2">
+                            <span className="inline-flex items-center rounded-xl border border-white/[0.08] bg-white/[0.05] px-3 py-1.5 text-sm font-black text-white">
+                              {modalUniverseLabel}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      {(strategySummary.entryBlocks?.length || strategySummary.blockNames?.length) && (
+                        <div className="flex flex-wrap items-start gap-2">
+                          <span className="w-16 flex-shrink-0 pt-1 text-[10px] font-bold uppercase tracking-widest text-gray-600">
+                            진입 신호
+                          </span>
+                          <div className="flex flex-1 flex-wrap gap-2">
+                            {(strategySummary.entryBlocks?.length
+                              ? strategySummary.entryBlocks
+                              : strategySummary.blockNames
+                            )!.map((name) => (
+                              <span
+                                key={`save-entry-${name}`}
+                                className="inline-flex items-center rounded-xl border border-white/[0.08] bg-white/[0.05] px-3 py-1.5 text-sm font-black text-white"
+                              >
+                                {name}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {strategySummary.exitBlocks?.length ? (
+                        <div className="flex flex-wrap items-start gap-2">
+                          <span className="w-16 flex-shrink-0 pt-1 text-[10px] font-bold uppercase tracking-widest text-gray-600">
+                            청산 신호
+                          </span>
+                          <div className="flex flex-1 flex-wrap gap-2">
+                            {strategySummary.exitBlocks.map((name) => (
+                              <span
+                                key={`save-exit-${name}`}
+                                className="inline-flex items-center rounded-xl border border-white/[0.08] bg-white/[0.05] px-3 py-1.5 text-sm font-black text-white"
+                              >
+                                {name}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {(strategySummary.positionText || strategySummary.riskText) && (
+                        <div className="flex flex-wrap items-start gap-2">
+                          <span className="w-16 flex-shrink-0 pt-1 text-[10px] font-bold uppercase tracking-widest text-gray-600">
+                            리스크
+                          </span>
+                          <div className="flex flex-1 flex-wrap gap-2">
+                            {strategySummary.positionText && (
+                              <span className="inline-flex items-center rounded-xl border border-white/[0.08] bg-white/[0.05] px-3 py-1.5 text-sm font-black text-white">
+                                {strategySummary.positionText}
+                              </span>
+                            )}
+                            {strategySummary.riskText && (
+                              <span className="inline-flex items-center rounded-xl border border-white/[0.08] bg-white/[0.05] px-3 py-1.5 text-sm font-black text-white">
+                                {strategySummary.riskText}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+	              <div className="space-y-3 mb-5">
                 <div>
                   <label className="block text-xs font-bold text-gray-400 mb-1.5">전략 이름 *</label>
                   <input
@@ -873,11 +968,11 @@ export default function BacktestDashboard({
                             </div>
                           );
                         })()}
-                        {(strategySummary.entryBlocks?.length || strategySummary.blockNames?.length) ? (
+                        {strategySummary.entryBlocks?.length ? (
                           <div className="flex flex-wrap gap-1.5 items-center">
                             <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0">진입 신호</span>
                             <div className="flex flex-wrap gap-1">
-                              {(strategySummary.entryBlocks?.length ? strategySummary.entryBlocks : strategySummary.blockNames)!.map((name) => (
+                              {strategySummary.entryBlocks.map((name) => (
                                 <span key={name} className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] text-white text-xs font-bold">
                                   {name}
                                 </span>
