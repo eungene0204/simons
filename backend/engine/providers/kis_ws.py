@@ -18,6 +18,7 @@ import os
 import time
 import requests
 import logging
+from collections import OrderedDict
 from typing import Optional
 from datetime import datetime
 
@@ -32,6 +33,18 @@ _REST_BASE = "https://openapi.koreainvestment.com:9443"
 _WS_URL = "ws://ops.koreainvestment.com:21000"
 _TRADE_TR_ID = "H0UNCNT0"
 _ORDERBOOK_TR_ID = "H0UNASP0"
+
+# KIS WS는 세션당 실시간 등록 건수에 상한이 있다(종목당 체결+호가 2건).
+# 상한을 넘으면 초과 종목은 조용히 틱이 안 들어온다. 그래서 구독 종목을 LRU로
+# 관리해 최근 조회 종목이 항상 등록되도록 하고, 초과 시 가장 오래된 종목을 해제한다.
+_DEFAULT_MAX_WS_SYMBOLS = 14
+
+
+def _max_ws_symbols() -> int:
+    try:
+        return max(1, int(os.getenv("KIS_WS_MAX_SYMBOLS", str(_DEFAULT_MAX_WS_SYMBOLS))))
+    except (TypeError, ValueError):
+        return _DEFAULT_MAX_WS_SYMBOLS
 
 # H0UNCNT0 응답 필드 인덱스 (KIS 공식 문서 기준)
 # 0:유가증권단축종목코드 1:주식체결시간 2:주식현재가 3:전일대비부호 4:전일대비
@@ -81,11 +94,15 @@ class KISWebSocketProvider(BaseProvider):
         # 승인키 (WebSocket 전용, REST 토큰과 다름)
         self._approval_key: Optional[str] = None
 
-        # 구독 중인 종목 집합
-        self._subscribed: set[str] = set()
+        # 구독 중인 종목 (LRU 순서: 앞=가장 오래됨, 뒤=가장 최근). 값은 미사용.
+        self._subscribed: "OrderedDict[str, None]" = OrderedDict()
+        # 세션당 최대 구독 종목 수 (KIS 등록 상한 보호)
+        self._max_symbols = _max_ws_symbols()
 
         # 신규 구독 요청 큐 (ws_loop에서 실시간 처리)
         self._pending_subscribe: asyncio.Queue[str] = asyncio.Queue()
+        # LRU 초과로 해제할 종목 큐
+        self._pending_unsubscribe: asyncio.Queue[str] = asyncio.Queue()
 
         # 인메모리 시세 캐시: symbol → StockQuote
         self._cache: dict[str, StockQuote] = {}
@@ -157,6 +174,28 @@ class KISWebSocketProvider(BaseProvider):
                 },
             },
         })
+
+    async def _send_register(self, ws, symbol: str) -> None:
+        await ws.send(self._make_subscribe_msg(_TRADE_TR_ID, symbol, "1"))
+        await ws.send(self._make_subscribe_msg(_ORDERBOOK_TR_ID, symbol, "1"))
+
+    async def _send_unregister(self, ws, symbol: str) -> None:
+        await ws.send(self._make_subscribe_msg(_TRADE_TR_ID, symbol, "2"))
+        await ws.send(self._make_subscribe_msg(_ORDERBOOK_TR_ID, symbol, "2"))
+
+    async def _drain_pending(self, ws) -> None:
+        """대기 중인 LRU 해제·신규 구독 큐를 WebSocket으로 전송한다(해제 먼저)."""
+        while not self._pending_unsubscribe.empty():
+            sym = self._pending_unsubscribe.get_nowait()
+            await self._send_unregister(ws, sym)
+            logger.info("[KIS_WS] 실시간 구독 해제(LRU 초과): %s", sym)
+        while not self._pending_subscribe.empty():
+            sym = self._pending_subscribe.get_nowait()
+            # 큐에 있었지만 그새 LRU로 밀려난 종목은 건너뜀
+            if sym not in self._subscribed:
+                continue
+            await self._send_register(ws, sym)
+            logger.info("[KIS_WS] 실시간 구독 등록: %s", sym)
 
     # ------------------------------------------------------------------ #
     #  메시지 파싱                                                          #
@@ -326,23 +365,16 @@ class KISWebSocketProvider(BaseProvider):
                     self._reconnect_delay = 5  # 연결 성공 시 리셋
                     logger.info("[KIS_WS] WebSocket 연결 성공")
 
-                    # 기존 구독 종목 재등록
+                    # 기존 구독 종목 재등록 (LRU 순서 유지)
                     async with self._cache_lock:
                         symbols_to_subscribe = list(self._subscribed)
 
                     for sym in symbols_to_subscribe:
-                        await ws.send(self._make_subscribe_msg(_TRADE_TR_ID, sym, "1"))
-                        await ws.send(self._make_subscribe_msg(_ORDERBOOK_TR_ID, sym, "1"))
+                        await self._send_register(ws, sym)
                         logger.info("[KIS_WS] 통합 체결/호가 구독 등록: %s", sym)
 
-                    # 큐에 남아있는 pending 구독도 처리
-                    while not self._pending_subscribe.empty():
-                        sym = self._pending_subscribe.get_nowait()
-                        if sym not in self._subscribed:
-                            continue
-                        await ws.send(self._make_subscribe_msg(_TRADE_TR_ID, sym, "1"))
-                        await ws.send(self._make_subscribe_msg(_ORDERBOOK_TR_ID, sym, "1"))
-                        logger.info("[KIS_WS] 큐 통합 체결/호가 구독 등록: %s", sym)
+                    # 큐에 남아있는 pending 해제/구독도 처리
+                    await self._drain_pending(ws)
 
                     # 메시지 수신 루프 (pending 구독도 병행 처리)
                     while self._running:
@@ -350,12 +382,8 @@ class KISWebSocketProvider(BaseProvider):
                         try:
                             raw = await asyncio.wait_for(ws.recv(), timeout=0.5)
                         except asyncio.TimeoutError:
-                            # 타임아웃: pending 큐만 처리하고 다시 recv
-                            while not self._pending_subscribe.empty():
-                                sym = self._pending_subscribe.get_nowait()
-                                await ws.send(self._make_subscribe_msg(_TRADE_TR_ID, sym, "1"))
-                                await ws.send(self._make_subscribe_msg(_ORDERBOOK_TR_ID, sym, "1"))
-                                logger.info("[KIS_WS] 실시간 통합 체결/호가 구독 추가: %s", sym)
+                            # 타임아웃: pending 해제/구독 큐만 처리하고 다시 recv
+                            await self._drain_pending(ws)
                             continue
 
                         if isinstance(raw, bytes):
@@ -386,12 +414,8 @@ class KISWebSocketProvider(BaseProvider):
                                 async with self._cache_lock:
                                     self._orderbook_cache[orderbook["symbol"]] = orderbook
 
-                        # recv 사이사이에 pending 큐 처리
-                        while not self._pending_subscribe.empty():
-                            sym = self._pending_subscribe.get_nowait()
-                            await ws.send(self._make_subscribe_msg(_TRADE_TR_ID, sym, "1"))
-                            await ws.send(self._make_subscribe_msg(_ORDERBOOK_TR_ID, sym, "1"))
-                            logger.info("[KIS_WS] 실시간 통합 체결/호가 구독 추가: %s", sym)
+                        # recv 사이사이에 pending 해제/구독 큐 처리
+                        await self._drain_pending(ws)
 
             except ConnectionClosed as e:
                 logger.warning("[KIS_WS] 연결 종료: %s", e)
@@ -433,13 +457,37 @@ class KISWebSocketProvider(BaseProvider):
 
     async def subscribe(self, symbols: list[str]):
         """
-        종목 구독 추가.
-        WebSocket이 연결된 상태라면 큐를 통해 즉시 구독 메시지 전송.
+        종목 구독 추가 (LRU).
+        - 이미 구독 중이면 최근 사용으로 갱신(move_to_end)해 LRU에서 살아남게 한다.
+        - 신규 종목은 등록 큐에 넣고, 상한 초과 시 가장 오래된 종목을 해제 큐로 보낸다.
+        WebSocket이 연결된 상태라면 큐를 통해 다음 루프에서 즉시 전송된다.
         """
+        new_symbols: list[str] = []
+        evicted: list[str] = []
+        # 이번 호출에서 새로 들어온 종목은 보호(자기 자신을 evict 하지 않도록)
+        incoming = set(symbols)
         async with self._cache_lock:
-            new_symbols = [s for s in symbols if s not in self._subscribed]
-            self._subscribed.update(symbols)
+            for s in symbols:
+                if s in self._subscribed:
+                    self._subscribed.move_to_end(s)  # 최근 사용 갱신
+                    continue
+                self._subscribed[s] = None  # 신규 = 가장 최근
+                new_symbols.append(s)
+                # 상한 초과 시 가장 오래된(LRU) 종목부터 해제
+                while len(self._subscribed) > self._max_symbols:
+                    oldest = next(iter(self._subscribed))
+                    if oldest in incoming:
+                        # 이번에 추가된 종목들만 남았으면 더 못 줄임 — 중단
+                        break
+                    self._subscribed.pop(oldest, None)
+                    self._cache.pop(oldest, None)
+                    self._orderbook_cache.pop(oldest, None)
+                    self._recent_trades.pop(oldest, None)
+                    evicted.append(oldest)
 
+        for sym in evicted:
+            await self._pending_unsubscribe.put(sym)
+            logger.info("[KIS_WS] LRU 초과 해제 큐 추가: %s", sym)
         for sym in new_symbols:
             await self._pending_subscribe.put(sym)
             logger.info("[KIS_WS] 구독 큐 추가: %s", sym)
@@ -448,7 +496,7 @@ class KISWebSocketProvider(BaseProvider):
         """종목 구독 해제"""
         async with self._cache_lock:
             for s in symbols:
-                self._subscribed.discard(s)
+                self._subscribed.pop(s, None)
                 self._cache.pop(s, None)
                 self._orderbook_cache.pop(s, None)
                 self._recent_trades.pop(s, None)
