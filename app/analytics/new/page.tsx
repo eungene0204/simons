@@ -33,6 +33,7 @@ import {
   getDisplayExitLabels,
   getDisplayUniverseLabels,
   getRankingLabel,
+  hasBuyCriteria,
   INDICATOR_LABELS,
   PERIOD_LABELS,
   REBAL_LABELS,
@@ -75,7 +76,6 @@ interface ChatMessage {
   role: "user" | "assistant";
   content?: string;
   parsed?: ParsedSummary;
-  parseSkeleton?: ParseSkeleton;
   coachText?: string;
   clarification?: string;
   clarificationSuggestions?: string[];
@@ -86,14 +86,6 @@ interface ChatMessage {
   stockAnalysis?: StockAnalysisResult;
   stockLoading?: boolean;
   infoText?: string;  // 일반 투자 답변 또는 종목 명확화 안내
-}
-
-interface ParseSkeleton {
-  description: string;
-  universe: string[];
-  max_positions: number | null;
-  recognized_terms: string[];
-  confidence: "partial" | "low";
 }
 
 type CoachConversationMessage = {
@@ -113,6 +105,19 @@ const SOFT_MESSAGE_ENTER_LATE_STYLE = {
 // 전략 검증은 규칙 기반이라 즉시 응답하지만, 분석이 진행 중임을 사용자가 인지하도록
 // 최소 노출 시간을 둔다. 응답이 더 오래 걸리면 추가 지연 없이 그대로 표시한다.
 const MIN_VALIDATION_DELAY_MS = 2400;
+
+// 매수(종목 선정) 기준이 전혀 없을 때 보여줄 안내. 백엔드 파서가 clarification을 주지 못한
+// 후속 수정(follow-up) 경로에서 폴백으로 쓴다(첫 파싱은 백엔드 문구를 그대로 사용).
+const MISSING_BUY_CRITERIA_QUESTION =
+  "백테스트를 실행하려면 최소한 '매수(종목 선정) 조건'이 필요합니다. 어떤 조건으로 종목을 고를까요?\n\n" +
+  "예시:\n" +
+  "• 재무 필터: \"PBR 1 이하\", \"ROE 15% 이상\", \"PER 10 이하\"\n" +
+  "• 기술적 신호: \"골든크로스 발생 시 매수\", \"RSI 30 이하에서 매수\"";
+const MISSING_BUY_CRITERIA_SUGGESTIONS = [
+  "PBR 1 이하, PER 10 이하 저평가 종목",
+  "골든크로스(5일/20일) 발생 시 매수",
+  "RSI 30 이하 과매도 구간에서 매수",
+];
 
 const sleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 
@@ -373,60 +378,6 @@ function BacktestRunningStatus({ message }: { message: string }) {
           }
         }
       `}</style>
-    </div>
-  );
-}
-
-const SKELETON_TERM_LABELS: Record<string, string> = {
-  pbr: "PBR",
-  per: "PER",
-  roe: "ROE",
-  ma_crossover: "이동평균 크로스",
-  rsi: "RSI",
-  macd: "MACD",
-  bollinger_bands: "볼린저밴드",
-  breakout: "신고가 돌파",
-  stop_loss: "손절",
-  take_profit: "익절",
-  hold_period: "보유 기간",
-};
-
-function ParseSkeletonBubble({ skeleton }: { skeleton: ParseSkeleton }) {
-  return (
-    <div
-      className="bg-[#111111] border border-white/[0.07] rounded-2xl rounded-tl-sm p-4 space-y-3"
-      style={SOFT_MESSAGE_ENTER_STYLE}
-    >
-      <div className="flex items-center gap-1.5">
-        <ArrowsClockwise size={13} className="text-sky-400 animate-spin" />
-        <span className="text-xs font-black uppercase tracking-widest text-white">전략 구조 분석 중</span>
-      </div>
-      <div className="space-y-2">
-        <div className="flex flex-wrap gap-1.5 items-center">
-          <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0">유니버스</span>
-          <div className="flex flex-wrap gap-1">
-            {skeleton.universe.map((item) => (
-              <FilterBadge key={item} label={item} />
-            ))}
-          </div>
-        </div>
-        {skeleton.max_positions !== null && (
-          <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0">포트폴리오</span>
-            <FilterBadge label={`최대 ${skeleton.max_positions}종목`} />
-          </div>
-        )}
-        {skeleton.recognized_terms.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0">인식 조건</span>
-            <div className="flex flex-wrap gap-1">
-              {skeleton.recognized_terms.map((term) => (
-                <FilterBadge key={term} label={SKELETON_TERM_LABELS[term] ?? term} />
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
     </div>
   );
 }
@@ -1009,10 +960,6 @@ function StrategyLabContent() {
       return;
     }
 
-    // 후속 입력(전략 수정)은 '분석 중...'만 노출하고 구조 분석 박스는 생략한다.
-    // (로딩 버블은 위에서 이미 띄웠고, 스트리밍이 이 버블에 parseSkeleton을 채운다.)
-    const isFollowUpModification = Boolean(currentParsed);
-
     try {
       const res = await fetch("/api/strategy/parse/stream", {
         method: "POST",
@@ -1072,18 +1019,24 @@ function StrategyLabContent() {
         });
         setStage("ready");
 
-        // 최초 파싱에서 진입(종목 선정) 규칙을 통째로 못 잡았으면, 조용히 넘기지 않고
-        // 백엔드가 보낸 안내를 노란 박스로 드러낸다(상대강도 랭킹 등 미지원 유형 포함).
-        const isFirstParse = !currentParsed;
-        parseClarification = isFirstParse ? (parsedPayload.clarification_question ?? null) : null;
+        // 매수(종목 선정) 기준이 전혀 없으면 백테스트는 0매매로 끝나므로, 실행을 막고
+        // 최소 조건을 입력하도록 되묻는다. 이 판정은 실제 백테스트로 보낼 '병합된 전략'
+        // (nextParsed)을 기준으로 하므로 최초 파싱·후속 수정 모두에서 동작한다.
+        // 첫 파싱은 백엔드가 보낸 구체적 안내(상대강도 랭킹·정성 지표 등)를 우선 사용하고,
+        // 백엔드가 문구를 주지 못한 후속 수정에서는 일반 폴백 안내를 쓴다.
+        const missingBuyCriteria = !hasBuyCriteria(nextParsed);
+        const clarificationText = missingBuyCriteria
+          ? (parsedPayload.clarification_question ?? MISSING_BUY_CRITERIA_QUESTION)
+          : null;
+        const clarificationSuggestions = missingBuyCriteria
+          ? (parsedPayload.clarification_suggestions ?? MISSING_BUY_CRITERIA_SUGGESTIONS)
+          : undefined;
+        parseClarification = clarificationText;
         updateLastAssistant({
           isLoading: false,
-          parseSkeleton: undefined,
           parsed: nextParsed,
-          clarification: isFirstParse ? (parsedPayload.clarification_question ?? undefined) : undefined,
-          clarificationSuggestions: isFirstParse
-            ? (parsedPayload.clarification_suggestions ?? undefined)
-            : undefined,
+          clarification: clarificationText ?? undefined,
+          clarificationSuggestions: clarificationText ? clarificationSuggestions : undefined,
         });
       };
 
@@ -1101,11 +1054,8 @@ function StrategyLabContent() {
           if (payload === "[DONE]") continue;
           const evt = JSON.parse(payload);
 
-          if (evt.type === "skeleton" && evt.data) {
-            // 후속 수정에서는 구조 분석 박스 대신 '입력 분석 중...' 상태만 유지한다.
-            if (!isFollowUpModification) {
-              updateLastAssistant({ isLoading: true, parseSkeleton: evt.data });
-            }
+          if (evt.type === "skeleton") {
+            // 구조 분석 스켈레톤은 표시하지 않는다 — 파싱이 끝날 때까지 '분석 중...'만 노출한다.
           } else if (evt.type === "parsed_final") {
             parsedPayload = evt;
           } else if (evt.type === "dsl_ready") {
@@ -1309,6 +1259,22 @@ function StrategyLabContent() {
 
   const handleRunBacktest = async (options?: any) => {
     if (!backtestReq) return;
+
+    // 매수 기준이 없는 전략은 0매매로 끝나므로 실행을 막고 안내한다(버튼은 이미 숨겨지지만,
+    // 확인 응답 등 다른 경로로 도달하는 경우를 위한 최종 방어선).
+    const currentParsed = latestParsedRef.current ?? latestParsed;
+    if (!hasBuyCriteria(currentParsed)) {
+      setMessages(prev => [
+        ...prev,
+        {
+          role: "assistant",
+          parsed: currentParsed ?? undefined,
+          clarification: MISSING_BUY_CRITERIA_QUESTION,
+          clarificationSuggestions: MISSING_BUY_CRITERIA_SUGGESTIONS,
+        },
+      ]);
+      return;
+    }
 
     const effectiveReq = options ? {
       ...backtestReq,
@@ -1611,7 +1577,7 @@ function StrategyLabContent() {
                     )}
                     {msg.role === "assistant" && (
                       <div className="space-y-3">
-                        {msg.isLoading && !msg.parseSkeleton && (
+                        {msg.isLoading && (
                           <AnalysisStatusBubble />
                         )}
                         {msg.stockLoading && <AnalysisStatusBubble title="종목 분석" />}
@@ -1653,9 +1619,6 @@ function StrategyLabContent() {
                               {msg.infoText}
                             </p>
                           </div>
-                        )}
-                        {msg.parseSkeleton && !msg.parsed && (
-                          <ParseSkeletonBubble skeleton={msg.parseSkeleton} />
                         )}
                         {msg.parsed && (
                           <>

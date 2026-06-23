@@ -8,6 +8,7 @@ import {
   FUNDAMENTAL_FILTER_SECTION_LABEL,
   getDisplayExitLabels,
   getDisplayUniverseLabels,
+  hasBuyCriteria,
   isRawSymbolUniverseName,
   resolveUniverseDisplayName,
   type ParsedSummary,
@@ -28,6 +29,52 @@ const baseParsed: ParsedSummary = {
   backtest_period: "5y",
   initial_capital: 10000000,
 };
+
+describe("hasBuyCriteria", () => {
+  it("유니버스·최대 종목만 있고 매수 기준이 없으면 false", () => {
+    expect(hasBuyCriteria(baseParsed)).toBe(false);
+  });
+
+  it("재무 필터가 있으면 true", () => {
+    expect(
+      hasBuyCriteria({
+        ...baseParsed,
+        fundamental_filters: [{ metric: "pbr", operator: "<=", value: 1 }],
+      })
+    ).toBe(true);
+  });
+
+  it("기술적 진입 신호가 있으면 true", () => {
+    expect(
+      hasBuyCriteria({
+        ...baseParsed,
+        entry_signals: [{ indicator: "ma_crossover" }],
+      })
+    ).toBe(true);
+  });
+
+  it("랭킹(상대강도) 선정이 있으면 true", () => {
+    expect(
+      hasBuyCriteria({ ...baseParsed, ranking_metric: "return" })
+    ).toBe(true);
+  });
+
+  it("청산/리스크 설정만 있고 매수 기준이 없으면 false", () => {
+    expect(
+      hasBuyCriteria({
+        ...baseParsed,
+        exit_signals: [{ indicator: "rsi" }],
+        stop_loss_pct: 5,
+        take_profit_pct: 10,
+      })
+    ).toBe(false);
+  });
+
+  it("null/undefined는 false", () => {
+    expect(hasBuyCriteria(null)).toBe(false);
+    expect(hasBuyCriteria(undefined)).toBe(false);
+  });
+});
 
 describe("strategySummary", () => {
   it("재무 조건 섹션도 UI에서는 진입 신호로 표시한다", () => {

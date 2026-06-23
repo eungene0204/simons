@@ -188,6 +188,19 @@ export function getDisplayUniverseLabels(
   return normalizedUniverses.map((universe) => UNIVERSE_LABELS[universe] ?? universe);
 }
 
+// 백테스트가 실제로 매매를 만들어내려면 최소한 하나의 '매수(종목 선정) 기준'이 있어야 한다.
+// 매수 기준 없이 유니버스·최대 종목만 있으면 진입 시그널이 전혀 발생하지 않아 0매매로 끝난다
+// (backend/engine/signals.py: 조건 없는 그룹은 all-False 시그널 반환). 청산·리스크 설정만으로는
+// 살 종목을 고를 수 없으므로 매수 기준 판정에서 제외한다.
+export function hasBuyCriteria(parsed: ParsedSummary | null | undefined): boolean {
+  if (!parsed) return false;
+  return (
+    (parsed.entry_signals?.length ?? 0) > 0 ||
+    (parsed.fundamental_filters?.length ?? 0) > 0 ||
+    parsed.ranking_metric != null
+  );
+}
+
 export function getRankingLabel(parsed: ParsedSummary): string | null {
   if (parsed.ranking_metric === "return") {
     const days = parsed.ranking_lookback_days ?? 60;

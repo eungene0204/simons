@@ -5,6 +5,7 @@ export {
   getDisplayExitLabels,
   getDisplayUniverseLabels,
   getRankingLabel,
+  hasBuyCriteria,
   isRawSymbolUniverseName,
   inferUniverseFromText,
   resolveUniverseDisplayName,
