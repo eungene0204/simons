@@ -31,8 +31,11 @@ logger = logging.getLogger(__name__)
 
 _REST_BASE = "https://openapi.koreainvestment.com:9443"
 _WS_URL = "ws://ops.koreainvestment.com:21000"
-_TRADE_TR_ID = "H0UNCNT0"
-_ORDERBOOK_TR_ID = "H0UNASP0"
+# KRX 단독 체결/호가 피드. 통합(H0UNCNT0/H0UNASP0)은 NXT(넥스트레이드) 미참여
+# 종목(예: 080220 제주반도체)에 대해 구독은 SUCCESS여도 틱을 전혀 안 보낸다.
+# 모든 상장종목은 KRX에 있으므로 KRX 피드가 커버리지가 가장 넓다.
+_TRADE_TR_ID = "H0STCNT0"
+_ORDERBOOK_TR_ID = "H0STASP0"
 
 # KIS WS는 세션당 실시간 등록 건수에 상한이 있다(종목당 체결+호가 2건).
 # 상한을 넘으면 초과 종목은 조용히 틱이 안 들어온다. 그래서 구독 종목을 LRU로
@@ -184,7 +187,8 @@ class KISWebSocketProvider(BaseProvider):
         await ws.send(self._make_subscribe_msg(_ORDERBOOK_TR_ID, symbol, "2"))
 
     def _log_subscribe_ack(self, raw: str) -> None:
-        """KIS 구독 등록/해제 응답(JSON)의 성공/실패 코드를 로깅한다."""
+        """KIS 구독 등록/해제 응답(JSON)의 성공/실패 코드를 로깅한다.
+        등록 거부(rt_cd!=0)는 WARNING(틱 미수신의 직접 원인), 성공은 INFO."""
         try:
             msg = json.loads(raw)
         except (ValueError, TypeError):
@@ -193,14 +197,17 @@ class KISWebSocketProvider(BaseProvider):
         body = msg.get("body") or {}
         inp = body.get("input") or {}
         rt_cd = body.get("rt_cd")
+        if rt_cd is None:
+            return  # 구독 응답이 아닌 기타 제어 프레임
         tr_key = header.get("tr_key") or inp.get("tr_key")
         tr_id = header.get("tr_id") or inp.get("tr_id")
-        # rt_cd가 "0"이 아니면 등록 거부(상한·미지원 등) → 틱이 안 오는 직접 원인.
-        # 진단을 위해 일단 모든 응답을 WARNING으로 남긴다(프로덕션은 INFO를 필터).
-        logger.warning(
-            "[KIS_WS][ACK] tr_id=%s tr_key=%s rt_cd=%s msg_cd=%s msg1=%s",
-            tr_id, tr_key, rt_cd, body.get("msg_cd"), body.get("msg1"),
-        )
+        if rt_cd != "0":
+            logger.warning(
+                "[KIS_WS] 구독 응답 실패 tr_id=%s tr_key=%s rt_cd=%s msg_cd=%s msg1=%s",
+                tr_id, tr_key, rt_cd, body.get("msg_cd"), body.get("msg1"),
+            )
+        else:
+            logger.info("[KIS_WS] 구독 응답 OK tr_id=%s tr_key=%s", tr_id, tr_key)
 
     async def _drain_pending(self, ws) -> None:
         """대기 중인 LRU 해제·신규 구독 큐를 WebSocket으로 전송한다(해제 먼저)."""
@@ -408,16 +415,18 @@ class KISWebSocketProvider(BaseProvider):
                         if isinstance(raw, bytes):
                             raw = raw.decode("utf-8")
 
-                        # PINGPONG 처리
+                        # PINGPONG 처리 (평문)
                         if raw.startswith("PINGPONG"):
                             await ws.send("PINGPONG")
                             continue
 
-                        # 구독 등록/해제 응답(JSON) — 성공/실패 코드를 로깅한다.
-                        # KIS는 등록 거부(상한 초과·미지원 등) 시에도 데이터만 안 보낼 뿐
-                        # 연결은 유지하므로, 이 응답을 봐야 '왜 틱이 안 오는지' 알 수 있다.
+                        # JSON 제어 프레임: PINGPONG(keepalive) 또는 구독 등록/해제 응답
                         if raw.startswith("{"):
-                            self._log_subscribe_ack(raw)
+                            if '"PINGPONG"' in raw:
+                                await ws.send(raw)  # keepalive 에코
+                            else:
+                                # 등록 거부(상한·미지원 등)면 WARNING으로 원인을 남긴다.
+                                self._log_subscribe_ack(raw)
                             continue
 
                         # 체결가 파싱 및 캐시 업데이트
