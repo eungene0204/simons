@@ -221,9 +221,9 @@ export default function VirtualAccountOverview() {
                   가상계좌 추가하기
                 </span>
                 <span className="relative mt-3 max-w-56 text-sm font-bold leading-relaxed text-gray-500">
-                  전략과 가상계좌를 연결해서
+                  전략과 가상계좌를 연결해
                   <br />
-                  실제 시장에서 시뮬레이션 하세요
+                  실시간 시장 데이터로 전략을 시뮬레이션해 보세요
                 </span>
               </button>
               {accounts.map((account) => {
