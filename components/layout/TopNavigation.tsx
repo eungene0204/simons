@@ -81,6 +81,12 @@ function formatWon(value: number) {
   return `${Math.round(value).toLocaleString("ko-KR")}원`;
 }
 
+function getProfitLossTextClass(value: number) {
+  if (value > 0) return "text-[var(--main-red)]";
+  if (value < 0) return "text-[var(--main-blue)]";
+  return "text-white";
+}
+
 function isSpecificUserName(value: string) {
   return Boolean(value && value !== "사용자" && value !== "게스트");
 }
@@ -598,12 +604,9 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
           <div className="w-full max-w-lg overflow-hidden rounded-3xl border border-white/[0.08] bg-[#050505] shadow-2xl shadow-black/60">
             <div className="flex items-start justify-between gap-4 border-b border-white/[0.08] px-6 py-5">
               <div>
-                <p className="text-xs font-black uppercase tracking-[0.24em] text-blue-300/70">
-                  Asset Wallet
-                </p>
                 <h2
                   id="asset-summary-modal-title"
-                  className="mt-2 text-2xl font-black tracking-tight text-white"
+                  className="text-2xl font-black tracking-tight text-white"
                 >
                   자산
                 </h2>
@@ -645,10 +648,10 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                 </div>
                 <div className="grid grid-cols-1 divide-y divide-white/[0.08] sm:grid-cols-2 sm:divide-x sm:divide-y-0">
                   <div className="px-6 py-5">
-                    <p className="text-xs font-black uppercase tracking-[0.18em] text-gray-500">
+                    <p className="text-xs font-black uppercase tracking-[0.18em] text-white">
                       사용 가능 자산
                     </p>
-                    <p className="mt-2 text-xl font-black text-emerald-300">
+                    <p className="mt-2 text-xl font-black text-white">
                       {formatWon(assetSummary.availableCash)}
                     </p>
                   </div>
@@ -665,15 +668,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                   <p className="text-xs font-black uppercase tracking-[0.22em] text-gray-500">
                     총 수익/손실
                   </p>
-                  <p
-                    className={`mt-2 text-2xl font-black ${
-                      assetSummary.totalProfitLoss > 0
-                        ? "text-emerald-300"
-                        : assetSummary.totalProfitLoss < 0
-                          ? "text-red-300"
-                          : "text-gray-300"
-                    }`}
-                  >
+                  <p className={`mt-2 text-2xl font-black ${getProfitLossTextClass(assetSummary.totalProfitLoss)}`}>
                     {assetSummary.totalProfitLoss > 0 ? "+" : ""}
                     {formatWon(assetSummary.totalProfitLoss)}
                   </p>

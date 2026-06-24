@@ -14,7 +14,13 @@ function formatKRW(v: number): string {
 }
 
 function fmtPct(v: number): string {
-  return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
+  return `${v > 0 ? "+" : ""}${v.toFixed(1)}%`;
+}
+
+function getValueColorClass(v: number): string {
+  if (v > 0) return "text-[var(--main-red)]";
+  if (v < 0) return "text-[var(--main-blue)]";
+  return "text-white";
 }
 
 function normalizeName(value: string): string {
@@ -109,15 +115,13 @@ export default function StrategyList({ initialData }: { initialData: StrategyLis
               </div>
 
               {/* 평균 수익률 */}
-              <span className={`text-sm font-bold tabular-nums font-outfit ${s.avgReturnPct >= 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
+              <span className={`text-sm font-bold tabular-nums font-outfit ${getValueColorClass(s.avgReturnPct)}`}>
                 {fmtPct(s.avgReturnPct)}
               </span>
 
               {/* 총 수익금 */}
               <span
-                className={`text-base font-bold tabular-nums font-outfit ${
-                  s.totalProfit >= 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"
-                }`}
+                className={`text-base font-bold tabular-nums font-outfit ${getValueColorClass(s.totalProfit)}`}
               >
                 {formatKRW(s.totalProfit)}원
               </span>
