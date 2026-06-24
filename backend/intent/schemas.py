@@ -13,6 +13,8 @@ class QueryIntent(str, Enum):
     STOCK_ANALYSIS = "STOCK_ANALYSIS"
     # 특정 종목을 골라/추천해 달라는 열린 요청 — 추천 대신 전략 설계로 전환(suggested_reply).
     STOCK_PICK = "STOCK_PICK"
+    # 무엇을 해야 할지 모르는 막연한 도움 요청('어떻게 시작하지?') — 전략 빌더로 유도(suggested_reply).
+    ONBOARDING = "ONBOARDING"
     GENERAL_INVESTMENT = "GENERAL_INVESTMENT"
     GREETING = "GREETING"
     OFF_TOPIC = "OFF_TOPIC"

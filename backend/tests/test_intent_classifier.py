@@ -187,3 +187,43 @@ def test_definition_without_finance_cue_is_not_general_investment():
     # LLM 폴백으로 넘어가 OFF_TOPIC으로 분류된다.
     result = classify("너 이름이 뭐야", llm=lambda s, u: '{"intent": "OFF_TOPIC"}')
     assert result.intent == QueryIntent.OFF_TOPIC
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "어떻게 시작하지?",
+        "뭐부터 해야 해?",
+        "처음인데 어떻게 써요?",
+        "어디서부터 시작해야 할지 모르겠어요",
+        "사용법 알려줘",
+        "초보인데 도와주세요",
+    ],
+)
+def test_onboarding_help_is_routed_to_builder(query):
+    # [온보딩] 무엇을 해야 할지 막막한 도움 요청은 거절하거나 빈 전략 카드를 띄우지 않고
+    # 전략 빌더로 유도한다(ONBOARDING + suggested_reply). LLM 없이 결정적으로 잡혀야 한다.
+    result = classify(query)
+    assert result.intent == QueryIntent.ONBOARDING
+    assert result.deterministic is True
+    assert result.suggested_reply
+
+
+def test_onboarding_with_finance_cue_is_not_onboarding():
+    # 구체적인 지표가 섞인 '어떻게' 질문은 막연한 요청이 아니므로 ONBOARDING으로 잡지 않는다
+    # (기존 전략/코칭 흐름이 더 잘 처리한다).
+    result = classify("RSI 어떻게 설정해?")
+    assert result.intent != QueryIntent.ONBOARDING
+
+
+def test_onboarding_does_not_steal_strategy_question():
+    # '전략 어떻게 만들어?'처럼 전략 키워드가 있으면 전략 설계로 분류된다(온보딩보다 우선).
+    result = classify("골든크로스 전략 어떻게 만들어?")
+    assert result.intent == QueryIntent.STRATEGY_ADVICE
+
+
+def test_llm_fallback_onboarding_sets_reply():
+    # 결정적 cue로 못 잡는 막막한 입력도 LLM이 ONBOARDING으로 잡으면 안내 문구가 채워진다.
+    result = classify("나 이런 거 잘 못하는데", llm=lambda s, u: '{"intent": "ONBOARDING"}')
+    assert result.intent == QueryIntent.ONBOARDING
+    assert result.suggested_reply

@@ -113,18 +113,16 @@ const MIN_VALIDATION_DELAY_MS = 2400;
 // 백엔드 `strategy_builder.next_question`이 내려보내는 칩 문자열과 정확히 일치해야 한다.
 const BUILDER_FREE_INPUT_CHIP = "직접 입력";
 
-// 매수(종목 선정) 기준이 전혀 없을 때 보여줄 안내. 백엔드 파서가 clarification을 주지 못한
-// 후속 수정(follow-up) 경로에서 폴백으로 쓴다(첫 파싱은 백엔드 문구를 그대로 사용).
-const MISSING_BUY_CRITERIA_QUESTION =
-  "백테스트를 실행하려면 최소한 '매수(종목 선정) 조건'이 필요합니다. 어떤 조건으로 종목을 고를까요?\n\n" +
-  "예시:\n" +
-  "• 재무 필터: \"PBR 1 이하\", \"ROE 15% 이상\", \"PER 10 이하\"\n" +
-  "• 기술적 신호: \"골든크로스 발생 시 매수\", \"RSI 30 이하에서 매수\"";
-const MISSING_BUY_CRITERIA_SUGGESTIONS = [
-  "PBR 1 이하, PER 10 이하 저평가 종목",
-  "골든크로스(5일/20일) 발생 시 매수",
-  "RSI 30 이하 과매도 구간에서 매수",
-];
+// 매수(종목 선정) 기준을 하나도 못 잡은 '빈 전략'의 진입 조건 되묻기인지 판별한다.
+// 이런 케이스는 빈 전략 요약 카드/제안 박스를 띄우지 않고 전략 빌더로 전환한다.
+// 정성 지표("PER을 몇 이하로?")·상대강도 안내처럼 사용자 의도가 담긴 구체적 되묻기는 제외한다.
+function isEmptyEntryClarification(question?: string | null): boolean {
+  if (!question) return true;  // 백엔드가 구체 안내를 못 준 진짜 빈 전략
+  return (
+    question.startsWith("어떤 조건으로 종목을 선택할까요") ||
+    question.startsWith("백테스트를 실행하려면 최소한")
+  );
+}
 
 const sleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 
@@ -845,8 +843,12 @@ function StrategyLabContent() {
   // 열린 종목 추천(STOCK_PICK) 전환 직후, 사용자의 후속 입력을 기다리지 않고 곧바로
   // 전략 빌더의 첫 질문(시장 선택)을 띄운다. 질문·옵션 칩은 백엔드 빌더가 단일 출처로
   // 결정하므로(빈 입력 step = 현재 질문 조회) 프론트에서 하드코딩하지 않는다.
-  const startStrategyBuilder = async () => {
-    await appendAssistant({ role: "assistant", isLoading: true });
+  const startStrategyBuilder = async ({ reuseExisting = false }: { reuseExisting?: boolean } = {}) => {
+    // reuseExisting=true면 이미 떠 있는 '분석 중...' 자리표시자를 그대로 빌더 첫 질문으로 바꾼다
+    // (빈 전략 파싱에서 전환할 때 빈 버블이 추가되지 않도록).
+    if (!reuseExisting) {
+      await appendAssistant({ role: "assistant", isLoading: true });
+    }
     try {
       const res = await fetch("/api/strategy/builder/step", {
         method: "POST",
@@ -891,19 +893,27 @@ function StrategyLabContent() {
       return false;
     }
 
-    // 인사 / 역할 밖 질문 / 열린 종목 추천 요청 → 전략으로 파싱하지 않고 정해진 안내를 바로 보여준다.
+    // 인사 / 역할 밖 질문 / 열린 종목 추천 / 막연한 도움 요청 → 전략으로 파싱하지 않고 정해진 안내를 바로 보여준다.
     // STOCK_PICK은 특정 종목 추천 대신 전략 설계로 전환하는 안내다([규제 안전]).
-    if (intent === "GREETING" || intent === "OFF_TOPIC" || intent === "STOCK_PICK") {
+    // ONBOARDING은 "어떻게 시작하지?"처럼 막막해하는 입력으로, 빈 전략 카드 대신 전략 빌더로 유도한다.
+    if (
+      intent === "GREETING" ||
+      intent === "OFF_TOPIC" ||
+      intent === "STOCK_PICK" ||
+      intent === "ONBOARDING"
+    ) {
       const fallback =
         intent === "GREETING"
           ? "안녕하세요. 오늘은 어떤 전략을 연구해 볼까요?"
           : intent === "STOCK_PICK"
             ? "특정 종목을 추천하지는 않지만, 투자 아이디어를 전략으로 만들어 과거 데이터로 검증하도록 도와드릴 수 있어요.\n\n예를 들어 이렇게 시작해볼 수 있어요:\n• RSI가 30 이하로 떨어지면 매수하고 70 이상에서 파는 '과매도 반등' 전략\n• 20일 이동평균이 60일 이동평균을 위로 뚫는 골든크로스에서 매수하는 추세 전략\n• PBR은 낮고 ROE는 높은 저평가 우량주를 고르는 가치 전략\n\n끌리는 아이디어가 있거나 평소 관심 있던 매매 방식이 있다면 말씀해 주세요 — 바로 전략으로 만들어 백테스트해 드릴게요."
-            : "저는 투자 전략 및 분석 전용 모델입니다. 현재 질문에는 도움을 드릴 수 없습니다. 대신 투자 전략, 백테스트, 종목 분석과 관련된 질문은 도와드릴 수 있습니다.";
+            : intent === "ONBOARDING"
+              ? "처음이시거나 어디서부터 시작할지 막막하시면 제가 단계별로 함께 전략을 만들어 드릴게요. 몇 가지만 골라 주시면 바로 백테스트까지 이어집니다."
+              : "저는 투자 전략 및 분석 전용 모델입니다. 현재 질문에는 도움을 드릴 수 없습니다. 대신 투자 전략, 백테스트, 종목 분석과 관련된 질문은 도와드릴 수 있습니다.";
       updateLastAssistant({ isLoading: false, infoText: suggestedReply ?? fallback });
-      // 열린 종목 추천 전환 직후 전략 빌더 모드로 들어간다. 사용자의 후속 입력을 기다리지 않고
-      // 곧바로 빌더의 첫 질문을 띄워, 함께 전략을 구성하기 시작한다(다음 답변부터 전략 필드로 누적).
-      if (intent === "STOCK_PICK") {
+      // 열린 종목 추천·막연한 도움 요청 직후 전략 빌더 모드로 들어간다. 사용자의 후속 입력을
+      // 기다리지 않고 곧바로 빌더의 첫 질문을 띄워, 함께 전략을 구성하기 시작한다.
+      if (intent === "STOCK_PICK" || intent === "ONBOARDING") {
         builderModeRef.current = true;
         builderStateRef.current = {};
         await startStrategyBuilder();
@@ -978,6 +988,8 @@ function StrategyLabContent() {
     // 최초 파싱에서 진입 규칙을 못 잡아 되묻는 경우. 이때는 코치를 돌리지 않는다
     // (불완전한 전략을 평가하면 안내 박스와 모순됨).
     let parseClarification: string | null = null;
+    // 매수 기준을 하나도 못 잡은 빈 전략 → 제안 박스 대신 전략 빌더로 전환한다(스트림 종료 후 시작).
+    let enterBuilderForEmptyStrategy = false;
 
     const finalizeParse = (backtestRequest: any, symbolCount?: number | null) => {
       if (!parsedPayload) return;
@@ -1001,6 +1013,15 @@ function StrategyLabContent() {
       const nextParsed = mergedResponse.parsed;
       const nextBacktestReq = mergedResponse.backtestRequest;
 
+      // [전략 빌더 전환] 매수(종목 선정) 기준을 하나도 못 잡았고, 구체적 되묻기(정성 지표·상대강도)도
+      // 아니면 빈 전략 요약 카드와 진입 조건 제안 박스를 띄우지 않고 곧바로 전략 빌더로 전환한다.
+      // 스트림 종료 후 startStrategyBuilder를 호출하므로 여기서는 플래그만 세우고 빠진다
+      // (상태 설정·메시지 갱신을 건너뛰어 빈 요약/제안 박스가 그려지지 않게 한다).
+      if (!hasBuyCriteria(nextParsed) && isEmptyEntryClarification(parsedPayload.clarification_question)) {
+        enterBuilderForEmptyStrategy = true;
+        return;
+      }
+
       coachSessionIdRef.current = null;
       // 전략을 수정해도 코치 대화 기록은 유지한다 — 이미 설명한 전문용어를 다시 설명하지 않도록.
       finalizedParsed = nextParsed;
@@ -1014,15 +1035,12 @@ function StrategyLabContent() {
       });
       setStage("ready");
 
-      // 매수(종목 선정) 기준이 전혀 없으면 백테스트는 0매매로 끝나므로, 실행을 막고
-      // 최소 조건을 입력하도록 되묻는다. 이 판정은 실제 백테스트로 보낼 '병합된 전략'
-      // (nextParsed)을 기준으로 하므로 최초 파싱·후속 수정 모두에서 동작한다.
+      // 여기까지 왔다면 매수 기준이 있거나(=정상), 매수 기준은 없지만 구체적 되묻기
+      // (정성 지표·상대강도)가 있는 경우다. 빈 전략(구체 안내 없음)은 위에서 빌더로 전환했다.
       const missingBuyCriteria = !hasBuyCriteria(nextParsed);
-      const clarificationText = missingBuyCriteria
-        ? (parsedPayload.clarification_question ?? MISSING_BUY_CRITERIA_QUESTION)
-        : null;
+      const clarificationText = missingBuyCriteria ? parsedPayload.clarification_question : null;
       const clarificationSuggestions = missingBuyCriteria
-        ? (parsedPayload.clarification_suggestions ?? MISSING_BUY_CRITERIA_SUGGESTIONS)
+        ? parsedPayload.clarification_suggestions
         : undefined;
       parseClarification = clarificationText;
       updateLastAssistant({
@@ -1057,6 +1075,15 @@ function StrategyLabContent() {
           throw new Error(evt.detail ?? "파싱 실패");
         }
       }
+    }
+
+    // 빈 전략으로 판정되면(매수 기준 전무) 현재 '분석 중...' 버블을 그대로 빌더 첫 질문으로
+    // 바꿔 전략 빌더를 시작한다. 코치는 돌리지 않는다(아래 finalizedParsed가 비어 있음).
+    if (enterBuilderForEmptyStrategy) {
+      builderModeRef.current = true;
+      builderStateRef.current = {};
+      await startStrategyBuilder({ reuseExisting: true });
+      return;
     }
 
     if (finalizedParsed && !parseClarification) {
@@ -1379,19 +1406,13 @@ function StrategyLabContent() {
   const handleRunBacktest = async (options?: any) => {
     if (!backtestReq) return;
 
-    // 매수 기준이 없는 전략은 0매매로 끝나므로 실행을 막고 안내한다(버튼은 이미 숨겨지지만,
-    // 확인 응답 등 다른 경로로 도달하는 경우를 위한 최종 방어선).
+    // 매수 기준이 없는 전략은 0매매로 끝나므로 실행을 막고 전략 빌더로 전환한다(버튼은 이미
+    // 숨겨지지만, 확인 응답 등 다른 경로로 도달하는 경우를 위한 최종 방어선).
     const currentParsed = latestParsedRef.current ?? latestParsed;
     if (!hasBuyCriteria(currentParsed)) {
-      setMessages(prev => [
-        ...prev,
-        {
-          role: "assistant",
-          parsed: currentParsed ?? undefined,
-          clarification: MISSING_BUY_CRITERIA_QUESTION,
-          clarificationSuggestions: MISSING_BUY_CRITERIA_SUGGESTIONS,
-        },
-      ]);
+      builderModeRef.current = true;
+      builderStateRef.current = {};
+      await startStrategyBuilder();
       return;
     }
 

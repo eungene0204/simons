@@ -22,11 +22,13 @@ from stock_analysis.symbol_resolver import StockRef, find_in_text, resolve_by_sy
 
 from .schemas import DetectedSymbol, IntentResult, QueryIntent
 from .scope import (
+    ONBOARDING_REPLY,
     OFFTOPIC_REFUSAL,
     greeting_reply,
     has_finance_cue,
     is_greeting_only,
     is_offtopic,
+    is_onboarding_help_request,
     is_stock_pick_request,
     stock_pick_reply,
 )
@@ -81,6 +83,8 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     "STOCK_ANALYSIS(이름이 명시된 '특정 한 종목'의 매수·매도·보유·전망·리스크·분석), "
     "STOCK_PICK(특정 종목명도 정량 조건도 없이 '무엇을 사야 하나·종목 추천·살 만한 종목·돈 될 종목'처럼 "
     "매수 대상을 골라 달라는 열린 추천 요청), "
+    "ONBOARDING(구체적인 전략·지표·종목 없이 '어떻게 시작하지·뭐부터 해야 해·처음인데 어떻게 써'처럼 "
+    "무엇을 해야 할지 막막해 도움을 청하는 요청), "
     "GENERAL_INVESTMENT(일반 투자 지식·용어 정의), "
     "GREETING(인사·짧은 사회적 표현), "
     "OFF_TOPIC(투자와 무관한 잡담·사적 대화·일반 상식·날씨·건강·프로그래밍·정치 등 역할 밖 질문), "
@@ -167,6 +171,17 @@ def _classify_deterministic(query: str, last_symbol: Optional[str]) -> Optional[
             reason="용어 정의형 질문 감지",
         )
 
+    # 4) [온보딩] 위 어디에도 안 맞은(구체 전략·종목·조건이 없는) 막연한 도움 요청
+    #    ('어떻게 시작하지?')은 빈 전략 카드를 띄우거나 LLM에 넘기지 않고, 전략 빌더로
+    #    유도한다. has_finance_cue가 있으면 구체 질문이므로 여기서 잡지 않는다(위 게이트).
+    if is_onboarding_help_request(text):
+        return IntentResult(
+            intent=QueryIntent.ONBOARDING,
+            suggested_reply=ONBOARDING_REPLY,
+            confidence=0.85,
+            reason="막연한 도움 요청 감지 — 전략 빌더로 유도",
+        )
+
     # 종목명만 단독 등장(행동 동사 없음, 예: '삼성전자 전망' 은 위 2에서 처리됨).
     # 행동 동사도 정의형도 없으면 결정 불가 → LLM 폴백.
     return None
@@ -179,7 +194,7 @@ def _classify_with_llm(query: str, llm: LLMFn) -> Optional[IntentResult]:
         logger.exception("intent LLM 폴백 실패")
         return None
     match = re.search(
-        r'"intent"\s*:\s*"(STRATEGY_ADVICE|STOCK_ANALYSIS|STOCK_PICK|GENERAL_INVESTMENT|GREETING|OFF_TOPIC|UNKNOWN)"',
+        r'"intent"\s*:\s*"(STRATEGY_ADVICE|STOCK_ANALYSIS|STOCK_PICK|ONBOARDING|GENERAL_INVESTMENT|GREETING|OFF_TOPIC|UNKNOWN)"',
         raw or "",
     )
     if not match:
@@ -192,6 +207,8 @@ def _classify_with_llm(query: str, llm: LLMFn) -> Optional[IntentResult]:
         suggested_reply = OFFTOPIC_REFUSAL
     elif intent == QueryIntent.STOCK_PICK:
         suggested_reply = stock_pick_reply(query)
+    elif intent == QueryIntent.ONBOARDING:
+        suggested_reply = ONBOARDING_REPLY
     refs = find_in_text(query) if intent == QueryIntent.STOCK_ANALYSIS else []
     return IntentResult(
         intent=intent,
