@@ -161,11 +161,20 @@ export default function VirtualAccountOverview() {
     <>
       <div
         data-testid="virtual-account-overview-root"
-        className="flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] flex-col px-2 pb-2 md:px-3 md:pb-3"
+        className="relative flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] flex-col overflow-hidden"
       >
+        {!loadError && accounts.length === 0 ? (
+          <>
+            <StrategyWaveBackground />
+            <div
+              data-testid="virtual-account-empty-background"
+              className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(15,15,15,0.18)_0%,rgba(15,15,15,0.72)_72%)]"
+            />
+          </>
+        ) : null}
         <div
           data-testid="virtual-account-overview-content"
-          className="flex flex-1 flex-col"
+          className="relative z-10 flex flex-1 flex-col"
         >
           {loadError ? (
             <div className="flex flex-1 flex-col border border-white/[0.08]">
@@ -188,10 +197,8 @@ export default function VirtualAccountOverview() {
           ) : accounts.length === 0 ? (
             <div
               data-testid="virtual-account-empty-state"
-              className="relative flex flex-1 flex-col items-center justify-center gap-6 overflow-hidden px-5 py-8 text-center"
+              className="relative flex flex-1 flex-col items-center justify-center gap-6 px-5 py-8 text-center"
             >
-              <StrategyWaveBackground />
-              <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(15,15,15,0.18)_0%,rgba(15,15,15,0.72)_72%)]" />
               <p className="relative z-10 max-w-4xl text-4xl font-black leading-tight text-white md:text-6xl">
                 가상계좌를 만들고
                 <br />
@@ -343,7 +350,7 @@ export default function VirtualAccountOverview() {
             </div>
           )}
         </div>
-        <VirtualAccountSimulationNotice className="mt-auto" />
+        <VirtualAccountSimulationNotice className="relative z-10 mt-auto" />
       </div>
 
       <CreateAccountModal

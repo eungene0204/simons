@@ -115,13 +115,23 @@ describe("VirtualAccountOverview navigation", () => {
 
     render(<VirtualAccountOverview />);
 
-    expect(await screen.findByTestId("virtual-account-empty-state")).toHaveClass("flex-1");
+    const emptyBackground = await screen.findByTestId("virtual-account-empty-background");
+    const root = screen.getByTestId("virtual-account-overview-root");
+
+    expect(screen.getByTestId("virtual-account-empty-state")).toHaveClass("flex-1");
     expect(screen.getByTestId("virtual-account-overview-content")).toHaveClass(
       "flex",
       "flex-1",
       "flex-col"
     );
-    expect(screen.getByTestId("virtual-account-simulation-notice")).toHaveClass("mt-auto");
+    expect(emptyBackground.parentElement).toBe(root);
+    expect(root.className).not.toContain("px-");
+    expect(root.className).not.toContain("pb-");
+    expect(screen.getByTestId("virtual-account-simulation-notice")).toHaveClass(
+      "relative",
+      "z-10",
+      "mt-auto"
+    );
   });
 
   it("navigates to the account detail page after validating the selected account", async () => {
