@@ -33,8 +33,8 @@ import {
   getDisplayExitLabels,
   getDisplayUniverseLabels,
   getRankingLabel,
+  getSignalLabel,
   hasBuyCriteria,
-  INDICATOR_LABELS,
   PERIOD_LABELS,
   REBAL_LABELS,
   type ParsedSummary,
@@ -399,7 +399,7 @@ function ParsedSummaryBubble({
   const rankingLabel = getRankingLabel(parsed);
   const entryLabels = [
     ...parsed.fundamental_filters.map(formatFundamentalFilter),
-    ...parsed.entry_signals.map((s) => INDICATOR_LABELS[s.indicator] ?? s.indicator),
+    ...parsed.entry_signals.map((s) => getSignalLabel(s, "entry")),
   ];
 
   return (

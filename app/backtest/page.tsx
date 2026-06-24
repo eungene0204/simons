@@ -208,7 +208,7 @@ export default function BacktestHistoryPage() {
           <div>
             <h1 className="text-2xl font-black text-white flex items-center gap-3">
               <Clock className="w-7 h-7 text-main-blue" />
-              백테스트 기록
+              전략 백테스트 기록
             </h1>
             <p className="text-sm text-gray-500 mt-1">최근 50개 기록</p>
           </div>

@@ -8,6 +8,7 @@ import {
   FUNDAMENTAL_FILTER_SECTION_LABEL,
   getDisplayExitLabels,
   getDisplayUniverseLabels,
+  getSignalLabel,
   hasBuyCriteria,
   isRawSymbolUniverseName,
   resolveUniverseDisplayName,
@@ -29,6 +30,44 @@ const baseParsed: ParsedSummary = {
   backtest_period: "5y",
   initial_capital: 10000000,
 };
+
+describe("getSignalLabel — 크로스 방향 구체화", () => {
+  it("이동평균 크로스를 방향별 골든/데드크로스로 라벨링한다", () => {
+    expect(getSignalLabel({ indicator: "ma_crossover", signal_type: "buy" }, "entry")).toBe(
+      "MA 골든크로스"
+    );
+    expect(getSignalLabel({ indicator: "ma_crossover", signal_type: "sell" }, "exit")).toBe(
+      "MA 데드크로스"
+    );
+  });
+
+  it("signal_type이 없으면 진입은 골든, 청산은 데드로 본다", () => {
+    expect(getSignalLabel({ indicator: "ma_crossover" }, "entry")).toBe("MA 골든크로스");
+    expect(getSignalLabel({ indicator: "ma_crossover" }, "exit")).toBe("MA 데드크로스");
+  });
+
+  it("EMA·MACD 크로스도 방향별로 구체화한다", () => {
+    expect(getSignalLabel({ indicator: "ema", signal_type: "buy" }, "entry")).toBe(
+      "EMA 골든크로스"
+    );
+    expect(getSignalLabel({ indicator: "macd", signal_type: "sell" }, "exit")).toBe(
+      "MACD 데드크로스"
+    );
+  });
+
+  it("MACD 제로선 모드는 제로선 돌파로 라벨링한다", () => {
+    expect(getSignalLabel({ indicator: "macd", signal_type: "buy", mode: "zero" }, "entry")).toBe(
+      "MACD 제로선 상향 돌파"
+    );
+    expect(getSignalLabel({ indicator: "macd", signal_type: "sell", mode: "zero" }, "exit")).toBe(
+      "MACD 제로선 하향 돌파"
+    );
+  });
+
+  it("크로스가 아닌 지표는 기존 라벨을 유지한다", () => {
+    expect(getSignalLabel({ indicator: "rsi", signal_type: "buy" }, "entry")).toBe("RSI");
+  });
+});
 
 describe("hasBuyCriteria", () => {
   it("유니버스·최대 종목만 있고 매수 기준이 없으면 false", () => {
@@ -139,7 +178,7 @@ describe("strategySummary", () => {
       stop_loss_pct: 8,
     });
 
-    expect(labels).toEqual(["MA 크로스", "손절 -8% 하락시 매도"]);
+    expect(labels).toEqual(["MA 데드크로스", "손절 -8% 하락시 매도"]);
   });
 
   it("트레일링 스탑과 최대 보유기간도 청산 신호 라벨에 포함한다", () => {

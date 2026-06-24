@@ -261,6 +261,17 @@ def test_extract_rsi_buy_from_oversold_rebound_phrase():
     assert len(rsi_buy) == 1
     assert rsi_buy[0].value == 30.0
     assert rsi_buy[0].operator == "<="
+    # '다시 올라오는'은 단순 과매도 진입이 아니라 30선 재돌파 반등 → mode='rebound'
+    assert rsi_buy[0].mode == "rebound"
+
+
+def test_extract_rsi_plain_threshold_has_no_rebound_mode():
+    """단순 'RSI 30 이하 매수'(과매도 구간 진입)는 반등이 아니므로 mode가 없어야 한다.
+    반등 표현과 구분되지 않으면 진입 타이밍(돌파 vs 구간)이 뒤바뀐다."""
+    entry, _ = _extract_technical_signals("RSI 30 이하면 매수")
+    rsi_buy = [s for s in entry if s.indicator == "rsi" and s.signal_type == "buy"]
+    assert len(rsi_buy) == 1
+    assert rsi_buy[0].mode is None
 
 
 def test_extract_rsi_sell_with_particle():
@@ -609,6 +620,24 @@ def test_rule_based_strategy_parses_trading_value_particle_prompt_without_llm():
     assert parsed.max_positions == 6
     assert parsed.hold_period_days == 63
     assert parsed.stop_loss_pct == 8.0
+
+
+@pytest.mark.parametrize(
+    "prompt,expected",
+    [
+        ("roe를 5% 이상으로 해줘", ("roe_or_gpa", ">=", 5.0)),
+        ("pbr을 1.2 이하로 바꿔줘", ("pbr", "<=", 1.2)),
+        ("per를 10 이하로", ("per", "<=", 10.0)),
+        ("부채비율을 50% 미만으로", ("debt_ratio", "<", 50.0)),
+        ("시가총액을 1조 이상으로", ("market_cap", ">=", 10000.0)),
+        ("거래대금을 30억 이상으로", ("trading_value", ">=", 30.0)),
+    ],
+)
+def test_extract_fundamental_filters_allows_object_particle(prompt, expected):
+    # 회귀: 'roe를 5%'처럼 지표와 숫자 사이 목적격 조사(을/를)가 끼면 필터를 통째로 놓쳐
+    # 수정이 무시되고(빈 추출) 분류가 OFF_TOPIC으로 새던 버그.
+    filters = _extract_fundamental_filters(prompt)
+    assert [(f.metric, f.operator, f.value) for f in filters] == [expected]
 
 
 def test_extract_fundamental_filters_keeps_operator_after_won_suffix():
@@ -1195,6 +1224,98 @@ def test_parse_modification_delete_uses_rule_based(monkeypatch):
     parsed = parser.parse_modification("손절 빼줘", dict(_MODIFY_PREVIOUS))
 
     assert parsed.stop_loss_pct is None
+
+
+def test_parse_modification_removes_rebalancing_with_delete_verb(monkeypatch):
+    """회귀: '리밸런싱 빼줘'가 제거 의도로 인식돼 rebalancing_period가 none이 된다.
+
+    삭제 감지 정규식이 '없/안하/끄/중단'만 보고 '빼/제거/삭제/지워'를 놓쳐, 기존
+    monthly 리밸런싱이 그대로 남던 버그.
+    """
+    parser = NLStrategyParser(backend="ollama")
+
+    def _must_not_call_llm(_user_input, _previous):
+        raise AssertionError("리밸런싱 삭제 수정은 LLM을 호출하면 안 된다")
+
+    monkeypatch.setattr(parser, "_modify_ollama", _must_not_call_llm)
+
+    previous = {**_MODIFY_PREVIOUS, "rebalancing_period": "monthly"}
+    parsed = parser.parse_modification("리밸런싱 빼줘", previous)
+
+    assert parsed.rebalancing_period == "none"
+
+
+def test_parse_modification_removes_rebalancing_on_llm_path_when_diff_is_null(monkeypatch):
+    """회귀: rule-based가 못 잡아 LLM 경로로 빠지고 LLM이 rebalancing_period=null('변경없음')을
+    내도, 삭제 의도가 있으면 none으로 보정한다.
+
+    diff 병합은 null을 '변경없음'으로 무시하는데, 리밸런싱의 '끔'은 null이 아니라 enum 'none'
+    이라 삭제 보정 블록이 손절/익절/트레일링만 보고 리밸런싱을 빠뜨려 monthly가 남던 버그.
+    """
+    parser = NLStrategyParser(backend="ollama")
+
+    def _llm_returns_null_rebalance(_user_input, _previous):
+        # LLM은 제거 의도를 변경없음(null)으로 오인 — 가장 흔한 실패 모드.
+        return ParsedStrategyDiff(rebalancing_period=None)
+
+    monkeypatch.setattr(parser, "_modify_ollama", _llm_returns_null_rebalance)
+
+    previous = {**_MODIFY_PREVIOUS, "rebalancing_period": "monthly"}
+    # '변동성 큰 종목'이라는 미인식 잔여가 있어 rule-based는 None → LLM 경로로 위임된다.
+    parsed = parser.parse_modification("변동성 큰 종목은 리밸런싱에서 제거", previous)
+
+    assert parsed.rebalancing_period == "none"
+
+
+@pytest.mark.parametrize("prompt", ["보유기간 빼줘", "보유기간 없애줘"])
+def test_parse_modification_removes_hold_period_with_delete_verb(monkeypatch, prompt):
+    """회귀: '보유기간 빼줘'가 해제로 인식돼 hold_period_days가 null이 된다.
+
+    해제 상태가 null인데 LLM diff 병합이 null을 '변경없음'으로 무시하던 클래스 버그
+    (리밸런싱과 동형). rule-based 결정론으로 처리해 LLM도 거치지 않는다."""
+    parser = NLStrategyParser(backend="ollama")
+
+    def _must_not_call_llm(_user_input, _previous):
+        raise AssertionError("보유기간 해제는 LLM을 호출하면 안 된다")
+
+    monkeypatch.setattr(parser, "_modify_ollama", _must_not_call_llm)
+
+    previous = {**_MODIFY_PREVIOUS, "hold_period_days": 252}
+    parsed = parser.parse_modification(prompt, previous)
+
+    assert parsed.hold_period_days is None
+
+
+@pytest.mark.parametrize("prompt", ["MDD 제한 빼줘", "최대낙폭 한도 없애줘"])
+def test_parse_modification_removes_mdd_limit_with_delete_verb(monkeypatch, prompt):
+    """회귀: 'MDD 제한 빼줘'가 해제로 인식돼 max_mdd_limit_pct가 null이 된다(보유기간과 동형)."""
+    parser = NLStrategyParser(backend="ollama")
+
+    def _must_not_call_llm(_user_input, _previous):
+        raise AssertionError("MDD 한도 해제는 LLM을 호출하면 안 된다")
+
+    monkeypatch.setattr(parser, "_modify_ollama", _must_not_call_llm)
+
+    previous = {**_MODIFY_PREVIOUS, "max_mdd_limit_pct": 20.0}
+    parsed = parser.parse_modification(prompt, previous)
+
+    assert parsed.max_mdd_limit_pct is None
+
+
+def test_parse_modification_does_not_clear_hold_from_unrelated_delete(monkeypatch):
+    """오탐 가드: '보유'가 보유기간이 아닌 맥락(보유 중)에서 다른 필드 삭제 시 hold가 유지된다."""
+    parser = NLStrategyParser(backend="ollama")
+
+    def _llm_diff(_user_input, _previous):
+        return ParsedStrategyDiff()  # 변경없음
+
+    monkeypatch.setattr(parser, "_modify_ollama", _llm_diff)
+
+    previous = {**_MODIFY_PREVIOUS, "hold_period_days": 252}
+    parsed = parser.parse_modification("20종목 보유 중인데 손절만 빼줘", previous)
+
+    assert parsed.hold_period_days == 252  # 보유기간은 건드리지 않음
+    assert parsed.stop_loss_pct is None  # 손절만 해제
 
 
 def test_parse_modification_complex_request_defers_to_llm(monkeypatch):

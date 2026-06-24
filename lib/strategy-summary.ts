@@ -4,8 +4,8 @@ export interface ParsedSummary {
   description: string;
   universe: string[];
   fundamental_filters: Array<{ metric: string; operator: string; value: number }>;
-  entry_signals: Array<{ indicator: string; signal_type?: string | null }>;
-  exit_signals: Array<{ indicator: string; signal_type?: string | null }>;
+  entry_signals: Array<{ indicator: string; signal_type?: string | null; mode?: string | null }>;
+  exit_signals: Array<{ indicator: string; signal_type?: string | null; mode?: string | null }>;
   ranking_metric?: "return" | null;
   ranking_lookback_days?: number | null;
   max_positions: number;
@@ -27,8 +27,8 @@ interface BacktestRequestLike {
 type LegacyStrategySummaryFields = {
   universe?: string | string[] | { id?: string; filters?: Record<string, unknown> };
   fundamental_filters?: Array<{ metric: string; operator: string; value: number }>;
-  entry_signals?: Array<{ indicator: string; signal_type?: string | null }>;
-  exit_signals?: Array<{ indicator: string; signal_type?: string | null }>;
+  entry_signals?: Array<{ indicator: string; signal_type?: string | null; mode?: string | null }>;
+  exit_signals?: Array<{ indicator: string; signal_type?: string | null; mode?: string | null }>;
   max_positions?: number | null;
   hold_period_days?: number | null;
   rebalancing_period?: string | null;
@@ -135,8 +135,16 @@ export const INDICATOR_LABELS: Record<string, string> = {
   ai_drop_model: "AI 하락 예측",
 };
 
-function getSignalLabel(
-  signal: { indicator: string; signal_type?: string | null },
+// 크로스 계열(이동평균/EMA/MACD)은 방향에 따라 골든/데드로 구체화한다.
+// 매수(buy)/진입=상향 돌파=골든크로스, 매도(sell)/청산=하향 돌파=데드크로스.
+const DIRECTIONAL_CROSS_LABELS: Record<string, { golden: string; dead: string }> = {
+  ma_crossover: { golden: "MA 골든크로스", dead: "MA 데드크로스" },
+  ema: { golden: "EMA 골든크로스", dead: "EMA 데드크로스" },
+  macd: { golden: "MACD 골든크로스", dead: "MACD 데드크로스" },
+};
+
+export function getSignalLabel(
+  signal: { indicator: string; signal_type?: string | null; mode?: string | null },
   context: "entry" | "exit"
 ): string {
   if (signal.indicator === "ai_drop_model") {
@@ -145,6 +153,17 @@ function getSignalLabel(
 
   if (signal.indicator === "ai_model" && (context === "exit" || signal.signal_type === "sell")) {
     return INDICATOR_LABELS.ai_drop_model;
+  }
+
+  const cross = DIRECTIONAL_CROSS_LABELS[signal.indicator];
+  if (cross) {
+    // signal_type이 없으면 청산 컨텍스트를 하향(데드)으로 본다.
+    const isDown =
+      signal.signal_type === "sell" || (signal.signal_type == null && context === "exit");
+    if (signal.indicator === "macd" && signal.mode === "zero") {
+      return isDown ? "MACD 제로선 하향 돌파" : "MACD 제로선 상향 돌파";
+    }
+    return isDown ? cross.dead : cross.golden;
   }
 
   return INDICATOR_LABELS[signal.indicator] ?? signal.indicator;

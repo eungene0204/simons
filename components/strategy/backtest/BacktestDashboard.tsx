@@ -543,7 +543,10 @@ export default function BacktestDashboard({
               overfitRisk: finalOverfitRisk,
             },
             result,
-            cacheKey: result.cacheKey,  // 기존 숨김 레코드를 isVisible=true 로 승격
+            // result.cacheKey 가 없으면 save-with-backtest 가 strategy.id(=data.strategyId)를
+            // cacheKey 로 써서 행을 만든다. 동일 fallback 을 써야 그 행을 찾아 표시용 배지
+            // conditions 로 갱신한다(미일치 시 배지 없는 중복 카드가 생성됨).
+            cacheKey: result.cacheKey ?? data.strategyId,  // 기존 숨김/raw DSL 레코드를 표시용으로 승격
           }),
         }).catch(() => {/* 히스토리 저장 실패는 무시 */});
       }

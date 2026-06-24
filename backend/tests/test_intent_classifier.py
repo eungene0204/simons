@@ -32,6 +32,11 @@ def test_spec_examples(query, expected):
         "ROE 15 이상 우량주",
         "거래량 100만 이상 종목",
         "시총 1조 이상인 종목",
+        # 지표와 숫자 사이에 목적격 조사(을/를)가 끼는 수정 표현도 전략으로 잡혀야 한다.
+        "roe를 5% 이상으로 해줘",
+        "pbr을 1.2 이하로 바꿔줘",
+        "per를 10 이하로",
+        "부채비율을 50% 미만으로",
     ],
 )
 def test_fundamental_screening_is_strategy(query):
@@ -174,6 +179,15 @@ def test_llm_fallback_offtopic_sets_refusal_reply():
     result = classify("없어 그냥 너랑 놀려고", llm=lambda s, u: '{"intent": "OFF_TOPIC"}')
     assert result.intent == QueryIntent.OFF_TOPIC
     assert "투자 전략 및 투자 분석 전용" in (result.suggested_reply or "")
+
+
+def test_llm_fallback_offtopic_overridden_when_finance_cue_present():
+    # [안전망] 결정 규칙이 못 잡아 LLM 폴백으로 갔는데 LLM이 OFF_TOPIC으로 오판해도,
+    # 입력에 금융 신호(cagr 등)가 있으면 거절하지 않고 전략 흐름으로 넘긴다.
+    # ('cagr'은 스크리닝 지표가 아니라 결정 규칙엔 안 잡혀 LLM 폴백 경로를 실제로 탄다.)
+    result = classify("cagr 위주로 평가해줘", llm=lambda s, u: '{"intent": "OFF_TOPIC"}')
+    assert result.intent != QueryIntent.OFF_TOPIC
+    assert result.suggested_reply is None
 
 
 def test_llm_fallback_greeting_sets_reply():

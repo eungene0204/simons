@@ -70,7 +70,7 @@ describe("BacktestHistoryPage", () => {
     render(<BacktestHistoryPage />);
 
     expect(screen.getByRole("button", { name: "전략 만들기" })).toBeInTheDocument();
-    expect(screen.queryByText("백테스트 기록")).not.toBeInTheDocument();
+    expect(screen.queryByText("전략 백테스트 기록")).not.toBeInTheDocument();
     expect(screen.queryByText("최근 50개 기록")).not.toBeInTheDocument();
   });
 
@@ -83,7 +83,7 @@ describe("BacktestHistoryPage", () => {
       expect(document.body).toHaveTextContent("전략을 만들고");
       expect(document.body).toHaveTextContent("백테스트 해보세요");
     });
-    expect(screen.queryByText("백테스트 기록")).not.toBeInTheDocument();
+    expect(screen.queryByText("전략 백테스트 기록")).not.toBeInTheDocument();
     expect(screen.queryByText("최근 50개 기록")).not.toBeInTheDocument();
 
     fireEvent.click(ctaButton);
@@ -103,6 +103,7 @@ describe("BacktestHistoryPage", () => {
 
     render(<BacktestHistoryPage />);
 
+    expect(screen.getByRole("heading", { name: "전략 백테스트 기록" })).toBeInTheDocument();
     expect(screen.getByText("모멘텀 전략")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "모멘텀 전략 기록 삭제" }));

@@ -153,7 +153,15 @@ class SignalEngine:
         elif cid == 'rsi':
             period = p.get('period', p.get('rsi_period', 14))
             r = get_col(f'rsi_{period}')
-            return compare_vec(r, p.get('operator', '<'), float(p.get('value', 30)))
+            value = float(p.get('value', 30))
+            if p.get('mode') == 'rebound':
+                # 과매도/과매수 임계선을 '다시 돌파'하는 반등: 매수=상향 돌파, 매도=하향 돌파.
+                if r is None:
+                    return np.zeros(data_len, dtype=bool)
+                const = np.full(data_len, value)
+                direction = 'dead' if p.get('signalType') == 'sell' else 'golden'
+                return crossover(r, const, direction)
+            return compare_vec(r, p.get('operator', '<'), value)
 
         elif cid == 'ema':
             # Fix 3: EMA 평가자 — 듀얼 EMA 크로스오버 또는 가격 vs EMA 크로스오버
@@ -438,6 +446,14 @@ class SignalEngine:
             period = p.get('period', p.get('rsi_period', 14))
             r = safe_get(f'rsi_{period}', idx)
             val, op = p.get('value', 30), p.get('operator', '<')
+            if p.get('mode') == 'rebound':
+                # 임계선 재돌파 반등: 직전 봉과 비교해 매수=상향 돌파, 매도=하향 돌파.
+                if idx == 0 or r is None:
+                    return False
+                pr = safe_get(f'rsi_{period}', idx - 1)
+                if pr is None:
+                    return False
+                return (pr >= val and r < val) if p.get('signalType') == 'sell' else (pr <= val and r > val)
             return compare(r, op, val)
 
         elif cid == 'ema':
@@ -617,6 +633,8 @@ class SignalEngine:
             return f"{short}일선-{long_}일선 골든크로스" if p.get('signalType') != 'sell' else f"{short}일선-{long_}일선 데드크로스"
         elif cid == 'rsi':
             val = p.get('value', 30)
+            if p.get('mode') == 'rebound':
+                return f"RSI {val} 상향 돌파(과매도 반등)" if p.get('signalType') != 'sell' else f"RSI {val} 하향 돌파"
             return f"RSI {val} {op_kr}"
         elif cid == 'ema':
             short_p = p.get('shortPeriod', p.get('short'))

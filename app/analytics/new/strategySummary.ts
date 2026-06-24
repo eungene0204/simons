@@ -3,6 +3,7 @@ export {
   buildStrategySummaryChips,
   buildStrategySummaryFromDsl,
   getDisplayExitLabels,
+  getSignalLabel,
   getDisplayUniverseLabels,
   getRankingLabel,
   hasBuyCriteria,

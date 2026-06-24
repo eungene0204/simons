@@ -123,7 +123,11 @@ describe("CreateAccountModal trading mode", () => {
 
     const enabledAutoTradingButton = screen.getByRole("button", { name: "자동매매 ON" });
     expect(enabledAutoTradingButton).toHaveAttribute("aria-pressed", "true");
+    expect(enabledAutoTradingButton.className).not.toContain("bg-blue-500/10");
     expect(screen.getByText("ON")).toBeInTheDocument();
+    expect(
+      screen.getByText("전략 신호가 발생하면 현재가로 자동 주문이 실행됩니다.").className
+    ).not.toContain("bg-blue-500/10");
 
     await act(async () => {
       fillAndSubmit();

@@ -35,6 +35,32 @@ def test_evaluate_condition_rsi(signal_engine):
     cond_over_70 = {"id": "rsi", "params": {"period": 14, "value": 70, "operator": ">="}}
     assert signal_engine.evaluate_condition(cond_over_70, 3, df) == True
 
+def test_rsi_rebound_buy_is_cross_up_not_threshold(signal_engine):
+    # 'RSI 30 아래로 갔다가 다시 올라오는' 반등 = 30선 상향 돌파(직전 봉 <=30, 당일 >30).
+    # 단순 임계값(RSI<=30, 과매도 구간)과 달리 돌파하는 봉에서만 True여야 한다.
+    df = pl.DataFrame({"rsi_14": [25.0, 28.0, 32.0, 40.0]})
+    cond = {"id": "rsi", "params": {"period": 14, "value": 30, "mode": "rebound", "signalType": "buy"}}
+
+    # 행별 평가자
+    assert signal_engine.evaluate_condition(cond, 0, df) == False  # 첫 봉(직전 없음)
+    assert signal_engine.evaluate_condition(cond, 1, df) == False  # 28: 아직 30 미돌파
+    assert signal_engine.evaluate_condition(cond, 2, df) == True   # 28→32: 상향 돌파
+    assert signal_engine.evaluate_condition(cond, 3, df) == False  # 이미 30 위
+
+    # 벡터화 평가자도 동일해야 한다
+    assert list(signal_engine._eval_vec(cond, df)) == [False, False, True, False]
+
+    # 같은 데이터를 단순 임계값(RSI<=30)으로 보면 결과가 다르다(반등과 구분됨)
+    cond_threshold = {"id": "rsi", "params": {"period": 14, "value": 30, "operator": "<="}}
+    assert list(signal_engine._eval_vec(cond_threshold, df)) == [True, True, False, False]
+
+def test_rsi_rebound_sell_is_cross_down(signal_engine):
+    # 매도 반등(과매수 후 하향 돌파): 직전 봉 >=70, 당일 <70인 봉에서만 True.
+    df = pl.DataFrame({"rsi_14": [75.0, 72.0, 68.0, 60.0]})
+    cond = {"id": "rsi", "params": {"period": 14, "value": 70, "mode": "rebound", "signalType": "sell"}}
+    assert list(signal_engine._eval_vec(cond, df)) == [False, False, True, False]
+    assert signal_engine.evaluate_condition(cond, 2, df) == True
+
 def test_evaluate_condition_price_limit_exit(signal_engine):
     data = {"close": [100.0, 120.0, 80.0]}
     df = pl.DataFrame(data)

@@ -244,6 +244,8 @@ def _tech_signal_to_condition(sig: TechnicalSignal) -> dict:
         params["period"] = sig.period or 14
         params["operator"] = sig.operator or ("<" if sig.signal_type == "buy" else ">")
         params["value"] = sig.value if sig.value is not None else (30 if sig.signal_type == "buy" else 70)
+        if sig.mode:  # rebound=임계선 재돌파(crossover). 없으면 단순 임계값 비교(기존 동작).
+            params["mode"] = sig.mode
 
     elif sig.indicator == "ema":
         if sig.short_period and sig.long_period:

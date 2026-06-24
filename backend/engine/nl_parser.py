@@ -185,8 +185,8 @@ class TechnicalSignal(BaseModel):
     operator: Optional[Literal["<", ">", "<=", ">="]] = Field(default=None, description="비교 연산자 (rsi, cci, adx)")
     value: Optional[float] = Field(default=None, description="비교 기준값 (rsi, cci, adx)")
 
-    # MACD
-    mode: Optional[Literal["crossover", "zero"]] = Field(default=None, description="MACD 모드: crossover=시그널 크로스, zero=제로선 돌파")
+    # MACD / RSI 모드. rsi 'rebound'=과매도/과매수 임계선을 다시 돌파하는 반등(단순 임계값 비교가 아님).
+    mode: Optional[Literal["crossover", "zero", "rebound"]] = Field(default=None, description="MACD: crossover=시그널 크로스, zero=제로선 돌파. RSI: rebound=임계선 재돌파 반등")
 
     # 브레이크아웃
     lookback_period: Optional[int] = Field(default=None, description="브레이크아웃 기준 기간 (breakout)")
@@ -383,7 +383,7 @@ SYSTEM_PROMPT = """당신은 한국 주식 퀀트 투자 전략을 JSON으로 �
 - 데드크로스 → indicator: "ma_crossover", signal_type: "sell", short_period: 5, long_period: 20
 - RSI 30 이하 → indicator: "rsi", signal_type: "buy", period: 14, operator: "<=", value: 30
 - RSI 70 이상 → indicator: "rsi", signal_type: "sell", period: 14, operator: ">=", value: 70
-- 'RSI가 30 아래로 내려갔다가 다시 올라오는' / 'RSI 과매도 후 반등' 같은 구어체 반등 표현도 RSI 매수로 처리: operator "<=", value 30
+- 'RSI가 30 아래로 내려갔다가 다시 올라오는' / 'RSI 과매도 후 반등' 같은 반등 표현 → RSI 매수에 mode "rebound" 추가: operator "<=", value 30, mode "rebound" (단순 'RSI 30 이하 매수'는 mode 없음)
 - 매도 동사는 '매도/청산'뿐 아니라 '팔고/팔아/팔면' 같은 구어체도 동일하게 처리
 - MACD 크로스 → indicator: "macd", signal_type: "buy", mode: "crossover"
 - 볼린저밴드 하단 → indicator: "bollinger_bands", signal_type: "buy"
@@ -490,7 +490,7 @@ SYSTEM_PROMPT = """당신은 한국 주식 퀀트 투자 전략을 JSON으로 �
   "fundamental_filters": [
     {"metric": "per", "operator": "<=", "value": 10.0}
   ],
-  "entry_signals": [{"indicator": "rsi", "signal_type": "buy", "period": 14, "operator": "<=", "value": 30}],
+  "entry_signals": [{"indicator": "rsi", "signal_type": "buy", "period": 14, "operator": "<=", "value": 30, "mode": "rebound"}],
   "exit_signals": [],
   "max_positions": 8,
   "hold_period_days": null,
@@ -521,7 +521,7 @@ COMPACT_SYSTEM_PROMPT = """한국 주식 전략 자연어를 ParsedStrategy JSON
 - 이하/미만/이상/초과 → <=/< />=/ >
 - 골든크로스/데드크로스 → ma_crossover buy/sell, 기본 5/20
 - RSI 30 이하/70 이상 → rsi buy/sell, 기본 period 14
-- 'RSI가 30 아래로 내려갔다가 다시 올라오는' / 'RSI 과매도 반등' 구어체도 rsi buy (operator "<=", value 30)
+- 'RSI가 30 아래로 내려갔다가 다시 올라오는' / 'RSI 과매도 반등' → rsi buy + mode "rebound" (operator "<=", value 30)
 - 매도 동사: '매도/청산' 외 '팔고/팔아/팔면' 구어체도 동일 처리
 - MACD, 볼린저밴드, 신고가 돌파, 거래량 급증, AI 상승/하락 예측을 해당 indicator로 변환
 - 박스권/N일 고점 위로 돌파 → breakout buy (기간 없으면 lookback 20), 다시 박스 안/저점 아래로 이탈 시 매도 → breakout sell
@@ -716,6 +716,15 @@ class NLStrategyParser:
                 merged["take_profit_pct"] = None
             if any(kw in compact for kw in ["트레일링", "trailingstop"]):
                 merged["trailing_stop_pct"] = None
+            # 리밸런싱은 '끔'을 null이 아니라 enum "none"으로 표현하므로, LLM이 null을
+            # 내도(=변경없음으로 해석돼 무시) 삭제 의도를 별도로 none으로 보정한다.
+            if any(kw in compact for kw in _MODIFY_REBALANCE_CUES):
+                merged["rebalancing_period"] = "none"
+            # 보유기간·MDD 한도도 '해제'가 null인데 병합이 null을 무시하므로 동일하게 보정한다.
+            if any(kw in compact for kw in _MODIFY_HOLD_CUES):
+                merged["hold_period_days"] = None
+            if any(kw in compact for kw in _MODIFY_MDD_CUES):
+                merged["max_mdd_limit_pct"] = None
 
         result = _apply_prompt_overrides(ParsedStrategy.model_validate(merged), user_input)
 
@@ -1339,13 +1348,21 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
     rsi_buy_colloquial = re.search(
         r"rsi.*?(?:과매도|바닥|저점).*?(?:매수|반등|올라|사)", compact
     )
+    # 과매도 '반등'(임계선 아래로 갔다가 다시 상향 돌파) vs 단순 '과매도 구간 진입'(RSI<=30) 구분.
+    # 임계선 아래/과매도 언급 뒤에 '다시/반등/회복/올라'가 따라오면 반등 → mode='rebound'.
+    rsi_buy_rebound = bool(
+        re.search(r"rsi[^.]*?(?:이하|미만|아래|밑)[^.]*?(?:다시|반등|반전|회복|올라|튀|튕)", compact)
+        or re.search(r"rsi[^.]*?(?:과매도|바닥|저점)[^.]*?(?:다시|반등|반전|회복|올라)", compact)
+    )
     if rsi_buy_numeric:
         entry.append(TechnicalSignal(
-            indicator="rsi", signal_type="buy", period=14, operator="<=", value=float(rsi_buy_numeric.group(1)),
+            indicator="rsi", signal_type="buy", period=14, operator="<=",
+            value=float(rsi_buy_numeric.group(1)), mode="rebound" if rsi_buy_rebound else None,
         ))
     elif rsi_buy_colloquial:
         entry.append(TechnicalSignal(
             indicator="rsi", signal_type="buy", period=14, operator="<=", value=30.0,
+            mode="rebound" if rsi_buy_rebound else None,
         ))
     # 'rsi 70 이상 ... 매도'(정방향)와 '청산은 ... rsi 70 이상'(역방향=청산 동사가 먼저)을
     # 모두 인식한다. 절(쉼표) 경계를 넘지 않게 [^,]로 막아, 다른 절의 매도 동사를 잘못
@@ -1574,14 +1591,18 @@ def _extract_breakout_lookback(compact: str) -> int:
 # (>)도 인식한다. 긴 토큰(보다높/보다낮)을 짧은 것보다 먼저 둬 부분매칭을 방지한다.
 _OP_ALT = r"(보다높|보다많|보다낮|보다적|이하|미만|이상|초과|아래|밑|이내|넘는|넘어)"
 
+# 지표명과 숫자 사이 조사. 주격(이/가)·주제(은/는)뿐 아니라 목적격(을/를)도 인정한다
+# ('roe를 5% 이상으로', 'pbr을 1.2 이하로'처럼 값을 목적어로 표현하는 수정 요청 대응).
+_NUM_PARTICLE = r"(?:이|가|은|는|을|를)?"
+
 _FUNDAMENTAL_PATTERN_SPECS = [
-    ("pbr", [rf"pbr(?:이|가|은|는)?\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*{_OP_ALT}?"]),
-    ("per", [rf"per(?:이|가|은|는)?\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*{_OP_ALT}?"]),
-    ("roe_or_gpa", [rf"(?:roe|gpa)(?:이|가|은|는)?\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
-    ("debt_ratio", [rf"(?:부채비율|부채)(?:이|가|은|는)?\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
+    ("pbr", [rf"pbr{_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*{_OP_ALT}?"]),
+    ("per", [rf"per{_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*{_OP_ALT}?"]),
+    ("roe_or_gpa", [rf"(?:roe|gpa){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
+    ("debt_ratio", [rf"(?:부채비율|부채){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
     # 금액 지표(억원 단위)는 '조'+'억' 콤보를 결정적으로 합산한다: (조 부분)?(억 부분)?(연산자)?.
-    ("market_cap", [rf"시가총액(?:이|가|은|는)?\s*(?:(\d+(?:\.\d+)?)조)?\s*(?:(\d+(?:\.\d+)?)(?:억원|억))?\s*{_OP_ALT}?"]),
-    ("trading_value", [rf"(?:거래대금|일평균거래대금)(?:이|가|은|는)?\s*(?:(\d+(?:\.\d+)?)조)?\s*(?:(\d+(?:\.\d+)?)(?:억원|억))?\s*{_OP_ALT}?"]),
+    ("market_cap", [rf"시가총액{_NUM_PARTICLE}\s*(?:(\d+(?:\.\d+)?)조)?\s*(?:(\d+(?:\.\d+)?)(?:억원|억))?\s*{_OP_ALT}?"]),
+    ("trading_value", [rf"(?:거래대금|일평균거래대금){_NUM_PARTICLE}\s*(?:(\d+(?:\.\d+)?)조)?\s*(?:(\d+(?:\.\d+)?)(?:억원|억))?\s*{_OP_ALT}?"]),
 ]
 
 # 금액 지표는 값을 (조 부분 × 10000) + (억 부분)으로 합산한다. 그 외는 group(1) 단일 값.
@@ -2064,6 +2085,11 @@ _MODIFY_UNIT_FILLER = [
 ]
 _MODIFY_CAPITAL_CUES = ["초기자금", "자금", "자본", "투자금", "초기투자", "시드", "seed"]
 _MODIFY_REBALANCE_CUES = ["리밸런싱", "리밸런스", "리밸", "재조정", "재선정", "rebalanc"]
+# 제거/해제 의도. '빼/제거/삭제/지워'(_DELETE_TERMS)에 더해 '없이/안 함/끄/중단'도 포함.
+_REMOVE_INTENT_RE = re.compile(r"없|안하|안함|끄|중단|빼|제거|삭제|지워")
+# 해제 시 null로 비워야 하는 Optional 필드의 cue(쉼표·공백 제거된 compact 기준).
+_MODIFY_HOLD_CUES = ["보유기간", "보유일", "홀딩기간"]
+_MODIFY_MDD_CUES = ["mdd", "최대낙폭", "낙폭", "드로우다운", "드로다운"]
 
 
 def _modify_residual_is_clean(user_input: str, changed_fields) -> bool:
@@ -2137,13 +2163,19 @@ def _modify_rule_based(user_input: str, previous: dict) -> Optional[ParsedStrate
     if max_positions is not None:
         changes["max_positions"] = max_positions
 
+    removing = bool(_REMOVE_INTENT_RE.search(compact))
+
     max_mdd = _extract_max_mdd_limit_pct(user_input)
     if max_mdd is not None:
         changes["max_mdd_limit_pct"] = max_mdd
+    elif removing and any(cue in compact for cue in _MODIFY_MDD_CUES):
+        changes["max_mdd_limit_pct"] = None  # 해제: null로 비움(Optional)
 
     hold = _extract_hold_period_days(user_input)
     if hold is not None:
         changes["hold_period_days"] = hold
+    elif removing and any(cue in compact for cue in _MODIFY_HOLD_CUES):
+        changes["hold_period_days"] = None  # 해제: null로 비움(Optional)
 
     if any(cue in compact for cue in _MODIFY_CAPITAL_CUES) and re.search(r"\d|억|천만|만원", compact):
         changes["initial_capital"] = _extract_initial_capital(user_input)
@@ -2152,7 +2184,7 @@ def _modify_rule_based(user_input: str, previous: dict) -> Optional[ParsedStrate
         rebalancing = _extract_rebalancing_period(user_input, hold)
         if rebalancing != "none":
             changes["rebalancing_period"] = rebalancing
-        elif re.search(r"없|안하|안함|끄|중단", compact):
+        elif removing:
             changes["rebalancing_period"] = "none"
 
     period = _extract_backtest_period(user_input)

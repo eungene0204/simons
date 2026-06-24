@@ -324,7 +324,7 @@ export default function CreateAccountModal({
                 }}
                 className={`flex w-full items-center gap-3 rounded-lg border-2 p-3 text-left transition-all ${
                   tradingMode === "auto"
-                    ? "border-blue-500 bg-blue-500/10"
+                    ? "border-blue-500"
                     : "border-white/[0.08] hover:border-white/[0.18]"
                 }`}
               >
@@ -354,7 +354,7 @@ export default function CreateAccountModal({
               </button>
               <p className={`mt-2 rounded px-2 py-1.5 text-xs ${
                 tradingMode === "auto"
-                  ? "bg-blue-500/10 text-blue-400"
+                  ? "text-blue-400"
                   : "bg-white/[0.04] text-gray-400"
               }`}>
                 {tradingMode === "auto"

@@ -22,6 +22,7 @@ from stock_analysis.symbol_resolver import StockRef, find_in_text, resolve_by_sy
 
 from .schemas import DetectedSymbol, IntentResult, QueryIntent
 from .scope import (
+    METRIC_NUM_GAP,
     ONBOARDING_REPLY,
     OFFTOPIC_REFUSAL,
     greeting_reply,
@@ -51,8 +52,10 @@ _STRATEGY_KEYWORDS = re.compile(
 #   · 지표+숫자 필터: "PBR 1 이하", "PER 10", "ROE 15 이상"
 #   · 가치/배당/규모 스크리닝 + 바스켓 명사: "저평가 종목", "고배당주", "우량주"
 #   · 비교 필터 + 종목: "~이하인 종목", "거래량 ~이상 종목"
+# 지표명과 숫자 사이에 조사('roe를 5')·연산자가 끼어도 인식하도록 METRIC_NUM_GAP을 쓴다.
 _SCREENING_SIGNAL = re.compile(
-    r"(?:per|pbr|psr|roe|roa|eps|bps|배당수익률|배당률|시가총액|시총|부채비율|거래량|거래대금)\s*\d"
+    r"(?:per|pbr|psr|roe|roa|eps|bps|배당수익률|배당률|시가총액|시총|부채비율|거래량|거래대금)"
+    + METRIC_NUM_GAP + r"\d"
     r"|(?:저평가|고평가|고배당|우량|가치|성장|배당|소형|대형|중소형)\s*(?:된|인)?\s*(?:종목|주식|주)"
     r"|(?:이하|이상|미만|초과)\s*(?:인|의)?\s*종목",
     re.IGNORECASE,
@@ -200,6 +203,11 @@ def _classify_with_llm(query: str, llm: LLMFn) -> Optional[IntentResult]:
     if not match:
         return None
     intent = QueryIntent(match.group(1))
+    # [안전망] LLM이 OFF_TOPIC으로 분류해도 입력에 금융 신호(PER/PBR/ROE/CAGR 등)가 있으면
+    # 거절하지 않는다. 'roe를 5% 이상으로'처럼 짧은 전략 수정은 문맥이 적어 작은 모델이 자주
+    # 역할 밖으로 오판하는데, 금융 용어가 있으면 전략 흐름으로 넘겨 파싱이 처리하게 한다.
+    if intent == QueryIntent.OFF_TOPIC and has_finance_cue(query):
+        intent = QueryIntent.STRATEGY_ADVICE
     suggested_reply = None
     if intent == QueryIntent.GREETING:
         suggested_reply = greeting_reply(query)
