@@ -837,7 +837,7 @@ export default function BacktestDashboard({
                   {isSavingStrategy ? (
                     <>
                       <Spinner size={14} className="animate-spin" />
-                      {!cachedAiSummary ? "AI 요약 생성 중..." : "저장 중..."}
+                      {!cachedAiSummary ? "AI 리포트 생성 중..." : "저장 중..."}
                     </>
                   ) : (
                     <>
