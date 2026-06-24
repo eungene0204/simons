@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from intent import strategy_builder as sb
 from intent.scope import OFFTOPIC_REFUSAL
 
@@ -27,9 +29,13 @@ def test_parse_universe_variants():
 def test_parse_strategy_type_variants():
     assert sb._parse_strategy_type("모멘텀") == "momentum"
     assert sb._parse_strategy_type("최근 오른 종목") == "momentum"
+    assert sb._parse_strategy_type("골든크로스") == "golden_cross"
+    assert sb._parse_strategy_type("이동평균 교차") == "golden_cross"
+    assert sb._parse_strategy_type("MACD") == "macd"
     assert sb._parse_strategy_type("전고점 돌파") == "breakout"
     assert sb._parse_strategy_type("거래량 급증") == "volume_spike"
     assert sb._parse_strategy_type("과매도 반등") == "mean_reversion"
+    assert sb._parse_strategy_type("저평가 가치주") == "value"
     assert sb._parse_strategy_type("직접 설명할게") == "custom"
 
 
@@ -222,6 +228,44 @@ def test_synthesize_breakout_volume_meanrev():
     mr = sb.BuilderState(universe="KOSPI", strategy_type="mean_reversion",
                          holding_count=10, rebalance_cycle="weekly")
     assert "RSI가 30 이하" in sb.synthesize_prompt(mr)
+
+
+def test_synthesize_golden_macd_value():
+    gc = sb.BuilderState(universe="KOSPI", strategy_type="golden_cross",
+                         holding_count=10, rebalance_cycle="weekly")
+    assert "골든크로스" in sb.synthesize_prompt(gc)
+
+    macd = sb.BuilderState(universe="KOSDAQ", strategy_type="macd",
+                           holding_count=5, rebalance_cycle="monthly")
+    assert "MACD" in sb.synthesize_prompt(macd)
+    assert "코스닥" in sb.synthesize_prompt(macd)
+
+    val = sb.BuilderState(universe="KOSPI", strategy_type="value",
+                          holding_count=10, rebalance_cycle="quarterly")
+    assert "PBR 1 이하" in sb.synthesize_prompt(val)
+    assert "ROE 10% 이상" in sb.synthesize_prompt(val)
+
+
+def test_new_strategy_types_skip_lookback_question():
+    # 골든크로스·MACD·가치는 기준기간(lookback) 질문 없이 곧장 보유 종목 수로 넘어간다
+    # (모멘텀·돌파만 lookback 필수).
+    for stype in ("golden_cross", "macd", "value"):
+        state = sb.BuilderState(universe="KOSPI", strategy_type=stype)
+        assert sb.required_missing(state) == "holding_count"
+
+
+@pytest.mark.parametrize("stype", ["golden_cross", "macd", "value"])
+def test_new_strategy_types_synthesize_parses_to_buy_criteria(stype):
+    # [회귀] 새 전략 유형의 합성 프롬프트는 반드시 매수 기준(진입 신호/재무 필터)으로 파싱돼야 한다.
+    # 그렇지 않으면 빈 전략으로 판정돼 다시 빌더로 되돌아가는 무한루프가 생긴다.
+    from engine.nl_parser import _extract_fundamental_filters, _extract_technical_signals
+
+    state = sb.BuilderState(universe="KOSPI", strategy_type=stype,
+                            holding_count=10, rebalance_cycle="weekly")
+    prompt = sb.synthesize_prompt(state)
+    buy, _sell = _extract_technical_signals(prompt)
+    fund = _extract_fundamental_filters(prompt)
+    assert buy or fund, f"{stype} 합성 프롬프트가 매수 기준으로 파싱되지 않음: {prompt}"
 
 
 def test_custom_flow_captures_entry_rule():

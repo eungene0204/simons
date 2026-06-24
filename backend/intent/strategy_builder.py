@@ -76,9 +76,12 @@ _UNIV_KOSDAQ_RE = re.compile(r"코스닥|kosdaq", re.IGNORECASE)
 _UNIV_KOSPI_RE = re.compile(r"코스피|kospi", re.IGNORECASE)
 
 _TYPE_MOMENTUM_RE = re.compile(r"모멘텀|momentum|최근\s*(?:오른|강한|상승)|수익률\s*상위|상대\s*강도", re.IGNORECASE)
+_TYPE_GOLDEN_RE = re.compile(r"골든\s*크로스|golden\s*cross|이동\s*평균\s*교차|이평\s*교차|이동\s*평균선?\s*교차", re.IGNORECASE)
+_TYPE_MACD_RE = re.compile(r"macd", re.IGNORECASE)
 _TYPE_BREAKOUT_RE = re.compile(r"돌파|전고점|신고가|박스권|breakout", re.IGNORECASE)
 _TYPE_VOLUME_RE = re.compile(r"거래량|거래\s*급증|volume", re.IGNORECASE)
 _TYPE_MEANREV_RE = re.compile(r"과매도|반등|평균\s*회귀|역추세|rsi|mean\s*reversion", re.IGNORECASE)
+_TYPE_VALUE_RE = re.compile(r"저평가|가치주?|우량주?|저\s*pbr|밸류|value", re.IGNORECASE)
 _TYPE_CUSTOM_RE = re.compile(r"직접|아이디어|내가|제가\s*설명|설명할게|따로\s*있", re.IGNORECASE)
 
 _MONTHS_RE = re.compile(r"(\d+)\s*개월", re.IGNORECASE)
@@ -126,12 +129,18 @@ def _parse_universe(text: str) -> Optional[Universe]:
 def _parse_strategy_type(text: str) -> Optional[StrategyType]:
     if _TYPE_MOMENTUM_RE.search(text):
         return "momentum"
+    if _TYPE_GOLDEN_RE.search(text):
+        return "golden_cross"
+    if _TYPE_MACD_RE.search(text):
+        return "macd"
     if _TYPE_BREAKOUT_RE.search(text):
         return "breakout"
     if _TYPE_VOLUME_RE.search(text):
         return "volume_spike"
     if _TYPE_MEANREV_RE.search(text):
         return "mean_reversion"
+    if _TYPE_VALUE_RE.search(text):
+        return "value"
     if _TYPE_CUSTOM_RE.search(text):
         return "custom"
     return None
@@ -271,9 +280,12 @@ def required_missing(state: BuilderState) -> Optional[str]:
 _UNIVERSE_LABEL = {"KOSPI": "코스피", "KOSDAQ": "코스닥", "KOSPI_KOSDAQ": "코스피·코스닥 전체"}
 _TYPE_LABEL = {
     "momentum": "모멘텀",
+    "golden_cross": "골든크로스",
+    "macd": "MACD",
     "breakout": "돌파",
     "volume_spike": "거래량 급증",
     "mean_reversion": "과매도 반등",
+    "value": "저평가 가치주",
     "custom": "직접 설계",
 }
 _REBAL_LABEL = {
@@ -307,14 +319,20 @@ def next_question(state: BuilderState) -> tuple[str, list[str]]:
         msg = (
             prefix + "어떤 방식으로 종목을 고를까요?\n\n"
             "• 최근 강한 종목을 추종하는 모멘텀 전략\n"
+            "• 단기 이동평균이 장기 이동평균을 뚫는 골든크로스 전략\n"
+            "• MACD가 시그널선을 돌파할 때 잡는 전략\n"
             "• 전고점(신고가)을 돌파할 때 잡는 돌파 전략\n"
             "• 거래량이 급증한 종목을 찾는 전략\n"
             "• RSI 과매도에서 반등을 노리는 전략\n"
+            "• PBR 낮고 ROE 높은 저평가 우량주를 고르는 가치 전략\n"
             "• 직접 아이디어를 설명하기"
         )
         # "직접 설명하기"는 자유 서술(custom) 진입로 — 선택 시 entry_rule 질문(칩 없음)으로
         # 넘어가 프론트가 채팅창을 다시 보여준다. 가장 오른쪽 칩으로 노출한다.
-        return (msg, ["모멘텀", "돌파", "거래량 급증", "과매도 반등", "직접 설명하기"])
+        return (
+            msg,
+            ["모멘텀", "골든크로스", "MACD", "돌파", "거래량 급증", "과매도 반등", "저평가 가치주", "직접 설명하기"],
+        )
     if field == "lookback_days":
         if state.strategy_type == "breakout":
             return (prefix + "며칠 신고가(박스권 상단) 돌파를 기준으로 볼까요?", ["20일", "60일", "120일"])
@@ -381,6 +399,15 @@ def synthesize_prompt(state: BuilderState) -> str:
 
     if state.strategy_type == "momentum":
         core = f"{universe} 종목 중 최근 {days}일 수익률 상위 {n}개 종목을 매수"
+    elif state.strategy_type == "golden_cross":
+        core = (
+            f"{universe} 종목 중 20일 이동평균이 60일 이동평균을 상향 돌파하는 골든크로스에서 "
+            f"매수하고 데드크로스에서 매도, 최대 {n}종목 보유"
+        )
+    elif state.strategy_type == "macd":
+        core = f"{universe} 종목 중 MACD 골든크로스에서 매수, MACD 데드크로스에서 매도, 최대 {n}종목 보유"
+    elif state.strategy_type == "value":
+        core = f"{universe} 종목 중 PBR 1 이하, ROE 10% 이상인 저평가 우량주를 최대 {n}종목 매수"
     elif state.strategy_type == "breakout":
         core = f"{universe} 종목 중 최근 {days}일 신고가를 돌파하면 매수, 최대 {n}종목 보유"
     elif state.strategy_type == "volume_spike":
