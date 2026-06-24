@@ -163,9 +163,12 @@ export default function VirtualAccountOverview() {
         data-testid="virtual-account-overview-root"
         className="flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] flex-col px-2 pb-2 md:px-3 md:pb-3"
       >
-        <div className="flex-1">
+        <div
+          data-testid="virtual-account-overview-content"
+          className="flex flex-1 flex-col"
+        >
           {loadError ? (
-            <div className="flex h-full min-h-full flex-col border border-white/[0.08]">
+            <div className="flex flex-1 flex-col border border-white/[0.08]">
               <div className="flex flex-1 flex-col items-center justify-center gap-4 px-5 text-center">
                 <p className="text-3xl font-black tracking-tight text-white">
                   가상계좌를 불러오지 못했습니다
@@ -183,7 +186,10 @@ export default function VirtualAccountOverview() {
               </div>
             </div>
           ) : accounts.length === 0 ? (
-            <div className="relative flex h-full min-h-full flex-col items-center justify-center gap-6 overflow-hidden px-5 py-8 text-center">
+            <div
+              data-testid="virtual-account-empty-state"
+              className="relative flex flex-1 flex-col items-center justify-center gap-6 overflow-hidden px-5 py-8 text-center"
+            >
               <StrategyWaveBackground />
               <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(15,15,15,0.18)_0%,rgba(15,15,15,0.72)_72%)]" />
               <p className="relative z-10 max-w-4xl text-4xl font-black leading-tight text-white md:text-6xl">
@@ -215,9 +221,9 @@ export default function VirtualAccountOverview() {
                   가상계좌 추가하기
                 </span>
                 <span className="relative mt-3 max-w-56 text-sm font-bold leading-relaxed text-gray-500">
-                  가상계좌를 추가해서
+                  전략과 가상계좌를 연결해서
                   <br />
-                  전략을 시뮬레이션 하세요
+                  실제 시장에서 시뮬레이션 하세요
                 </span>
               </button>
               {accounts.map((account) => {

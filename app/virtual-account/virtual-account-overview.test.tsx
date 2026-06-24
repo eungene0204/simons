@@ -104,6 +104,26 @@ describe("VirtualAccountOverview navigation", () => {
     expect(screen.queryByTestId("virtual-account-simulation-notice")).not.toBeInTheDocument();
   });
 
+  it("fills the available page height when there are no virtual accounts", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => [],
+      })
+    );
+
+    render(<VirtualAccountOverview />);
+
+    expect(await screen.findByTestId("virtual-account-empty-state")).toHaveClass("flex-1");
+    expect(screen.getByTestId("virtual-account-overview-content")).toHaveClass(
+      "flex",
+      "flex-1",
+      "flex-col"
+    );
+    expect(screen.getByTestId("virtual-account-simulation-notice")).toHaveClass("mt-auto");
+  });
+
   it("navigates to the account detail page after validating the selected account", async () => {
     setCachedVirtualAccounts([cachedAccount]);
     vi.stubGlobal(
