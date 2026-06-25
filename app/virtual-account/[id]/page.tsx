@@ -590,6 +590,8 @@ export default function VirtualAccountDetailPage() {
     ? [{ name: account.strategyName, status: "active" as const }]
     : [];
 
+  const isClosedAccount = account.status === "CLOSED";
+
   const HOLDINGS_COLS = "grid-cols-[minmax(0,1fr)_100px_100px_56px_88px_110px]";
   const TXN_COLS = "grid-cols-[minmax(0,1fr)_56px_100px_56px_110px_88px_100px_130px]";
 
@@ -765,37 +767,48 @@ export default function VirtualAccountDetailPage() {
               <div className="flex items-center justify-between px-5 py-4">
                 <div className="flex items-center gap-4">
                   <h1 className="text-2xl font-black text-white font-outfit">{account.name}</h1>
-                  <div className="flex items-center gap-1.5">
-                    <div className="flex items-center border border-white/[0.08] rounded-lg overflow-hidden">
-                      <button
-                        onClick={handleAutoTradingClick}
-                        disabled={isCheckingAutoTradingStrategy}
-                        style={
-                          account.tradingMode === "auto"
-                            ? { textShadow: "0 0 6px rgba(251, 146, 60, 0.65), 0 0 14px rgba(251, 146, 60, 0.35)" }
-                            : undefined
-                        }
-                        className={`flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold transition-colors duration-200 ${
-                          account.tradingMode === "auto"
-                            ? "bg-transparent text-orange-300"
-                            : "bg-transparent text-gray-500 hover:text-gray-300"
-                        } disabled:cursor-not-allowed disabled:opacity-60`}
-                      >
-                        <Robot size={11} weight="bold" />
-                        자동매매
-                      </button>
-                    </div>
-                    <div className="group relative flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-white/[0.14] text-[10px] font-black text-gray-500 transition-colors duration-200 hover:border-white/[0.28] hover:text-white">
-                      <span aria-label="자동매매 설명">?</span>
-                      <div className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 w-56 -translate-x-1/2 rounded-lg border border-white/[0.08] bg-[#1c1c1c] px-3 py-2 text-xs font-bold leading-5 text-gray-300 opacity-0 shadow-xl transition-opacity duration-150 group-hover:opacity-100">
-                        전략 조건을 만족하면 자동으로 거래가 실행됩니다.
-                        <div className="absolute -top-[5px] left-1/2 h-2.5 w-2.5 -translate-x-1/2 rotate-45 border-l border-t border-white/[0.08] bg-[#1c1c1c]" />
+                  {isClosedAccount ? (
+                    <span className="inline-flex items-center rounded-lg border border-white/[0.08] px-2.5 py-1 text-[11px] font-bold text-gray-500">
+                      삭제된 계좌
+                    </span>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      <div className="flex items-center border border-white/[0.08] rounded-lg overflow-hidden">
+                        <button
+                          onClick={handleAutoTradingClick}
+                          disabled={isCheckingAutoTradingStrategy}
+                          style={
+                            account.tradingMode === "auto"
+                              ? { textShadow: "0 0 6px rgba(251, 146, 60, 0.65), 0 0 14px rgba(251, 146, 60, 0.35)" }
+                              : undefined
+                          }
+                          className={`flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold transition-colors duration-200 ${
+                            account.tradingMode === "auto"
+                              ? "bg-transparent text-orange-300"
+                              : "bg-transparent text-gray-500 hover:text-gray-300"
+                          } disabled:cursor-not-allowed disabled:opacity-60`}
+                        >
+                          <Robot size={11} weight="bold" />
+                          자동매매
+                        </button>
+                      </div>
+                      <div className="group relative flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-white/[0.14] text-[10px] font-black text-gray-500 transition-colors duration-200 hover:border-white/[0.28] hover:text-white">
+                        <span aria-label="자동매매 설명">?</span>
+                        <div className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 w-56 -translate-x-1/2 rounded-lg border border-white/[0.08] bg-[#1c1c1c] px-3 py-2 text-xs font-bold leading-5 text-gray-300 opacity-0 shadow-xl transition-opacity duration-150 group-hover:opacity-100">
+                          전략 조건을 만족하면 자동으로 거래가 실행됩니다.
+                          <div className="absolute -top-[5px] left-1/2 h-2.5 w-2.5 -translate-x-1/2 rotate-45 border-l border-t border-white/[0.08] bg-[#1c1c1c]" />
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  )}
                   <span className="text-[11px] font-bold text-gray-600">
                     개설 {new Date(account.createdAt).toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" })}
                   </span>
+                  {isClosedAccount && account.closedAt && (
+                    <span className="text-[11px] font-bold text-gray-600">
+                      해지 {new Date(account.closedAt).toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" })}
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -807,18 +820,20 @@ export default function VirtualAccountDetailPage() {
                   >
                     계좌닫기
                   </button>
-                  <button
-                    onClick={async () => {
-                      if (!confirm(`'${account.name}' 계좌를 삭제하시겠습니까?`)) return;
-                      await deleteAccount(accountId);
-                      forgetVirtualAccountDetail(accountId);
-                      router.push("/virtual-account");
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 border border-white/[0.08] rounded-xl text-xs font-bold text-gray-500 hover:text-[var(--main-red)] hover:border-[var(--main-red)]/30 transition-all duration-200"
-                  >
-                    <Trash size={13} />
-                    삭제
-                  </button>
+                  {!isClosedAccount && (
+                    <button
+                      onClick={async () => {
+                        if (!confirm(`'${account.name}' 계좌를 삭제하시겠습니까?`)) return;
+                        await deleteAccount(accountId);
+                        forgetVirtualAccountDetail(accountId);
+                        router.push("/virtual-account");
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 border border-white/[0.08] rounded-xl text-xs font-bold text-gray-500 hover:text-[var(--main-red)] hover:border-[var(--main-red)]/30 transition-all duration-200"
+                    >
+                      <Trash size={13} />
+                      삭제
+                    </button>
+                  )}
                 </div>
               </div>
 

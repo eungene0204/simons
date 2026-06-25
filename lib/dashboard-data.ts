@@ -1,10 +1,10 @@
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { withOwnership } from "@/lib/get-user";
-import { moneyToNumber } from "@/lib/server/assetService";
+import { getAccountSettlementValues, moneyToNumber, resolveAccountTotalValue } from "@/lib/server/assetService";
 import type { TradingStatusData } from "@/app/api/dashboard/trading-status/route";
 import type { AccountMonthlyData } from "@/app/api/dashboard/account-monthly/route";
-import type { StrategyListData, StrategyListItem } from "@/app/api/dashboard/strategy-list/route";
+import type { VirtualAccountListData, VirtualAccountListItem } from "@/app/api/dashboard/virtual-account-list/route";
 import type { DashboardBacktestRecord } from "@/types/dashboard";
 
 export interface PortfolioStats {
@@ -20,7 +20,7 @@ export interface DashboardInitialData {
   portfolioStats: PortfolioStats;
   tradingStatus: TradingStatusData;
   accountMonthly: AccountMonthlyData;
-  strategyList: StrategyListData;
+  accountList: VirtualAccountListData;
   backtestRecords: DashboardBacktestRecord[];
 }
 
@@ -61,7 +61,6 @@ async function fetchDashboardFromDB(userId: number | null): Promise<DashboardIni
     runningAccounts,
     todayFilledOrders,
     dailyPnlAgg,
-    strategies,
     backtestHistory,
     sellOrders,
   ] = await Promise.all([
@@ -71,7 +70,6 @@ async function fetchDashboardFromDB(userId: number | null): Promise<DashboardIni
       where: { status: "FILLED", side: "SELL", filledAt: { gte: todayStart }, ...accountScope },
       _sum: { realizedPnl: true },
     }),
-    prisma.strategy.findMany({ where: withOwnership({ isSaved: true }, userId), orderBy: { createdAt: "desc" } }),
     backtestHistoryPromise,
     prisma.virtualOrder.findMany({
       where: {
@@ -89,7 +87,9 @@ async function fetchDashboardFromDB(userId: number | null): Promise<DashboardIni
   const totalAccounts = accounts.length;
   const autoAccounts = accounts.filter((a) => a.tradingMode === "auto").length;
   const totalPositions = accounts.reduce((s, a) => s + (a.VirtualPosition?.length ?? 0), 0);
-  const strategyAccounts = accounts.filter((a) => a.strategyId !== null);
+
+  // CLOSED 계좌는 정산 후 currentCash/포지션이 0/삭제되므로, 정산금(ACCOUNT_LIQUIDATION_RETURN)을 대신 사용한다.
+  const settlementValues = await getAccountSettlementValues(prisma, accountIds);
 
   // ── PortfolioStats ──────────────────────────────────────────
   const dailyPnl = moneyToNumber(dailyPnlAgg._sum.realizedPnl);
@@ -99,7 +99,8 @@ async function fetchDashboardFromDB(userId: number | null): Promise<DashboardIni
       (sum, p) => sum + p.quantity * moneyToNumber(p.currentPrice ?? p.avgPrice),
       0
     );
-    return s + moneyToNumber(a.currentCash) + posValue;
+    const liveValue = moneyToNumber(a.currentCash) + posValue;
+    return s + resolveAccountTotalValue(a, liveValue, settlementValues);
   }, 0);
   const totalProfit = totalValue - totalInvested;
   const totalReturnPct = totalInvested > 0 ? (totalProfit / totalInvested) * 100 : 0;
@@ -149,69 +150,29 @@ async function fetchDashboardFromDB(userId: number | null): Promise<DashboardIni
     }),
   };
 
-  // ── StrategyList ────────────────────────────────────────────
-  const strategyItems: StrategyListItem[] = strategies.map((s) => {
-    let universe = "기타";
-    try {
-      const settings = JSON.parse(s.settings);
-      const u: string = settings?.universe?.id ?? settings?.universe ?? "";
-      if (u.toUpperCase().includes("KOSPI") || u === "KOSPI200") universe = "KOSPI";
-      else if (u.toUpperCase().includes("KOSDAQ")) universe = "KOSDAQ";
-      else if (u.includes("US") || u.includes("미국") || u.includes("NYSE") || u.includes("NASDAQ")) universe = "미국주식";
-      else if (u) universe = u;
-    } catch {}
-    const type = s.strategyType || "기타";
-
-    let aiScore: number | null = null;
-    try {
-      const historyItem = backtestHistory.find((h) => h.strategyName === s.name);
-      if (historyItem) {
-        const m = JSON.parse(historyItem.metrics);
-        if (m.score != null) aiScore = m.score;
-      }
-    } catch {}
-
-    const accs = strategyAccounts.filter((a) => a.strategyId === s.id);
-    if (accs.length === 0) {
-      return {
-        id: s.id,
-        name: s.name,
-        description: s.description ?? null,
-        type,
-        universe,
-        aiScore,
-        avgReturnPct: 0,
-        totalProfit: 0,
-        accountCount: 0,
-        autoTradingCount: 0,
-        createdAt: s.createdAt.toISOString(),
-      };
-    }
-
-    const stats = accs.map((a) => {
-      const posValue = (a.VirtualPosition ?? []).reduce(
-        (sum, p) => sum + p.quantity * moneyToNumber(p.currentPrice ?? p.avgPrice),
-        0
-      );
-      const initialCash = moneyToNumber(a.initialCash);
-      const tv = moneyToNumber(a.currentCash) + posValue;
-      const profit = tv - initialCash;
-      const returnPct = initialCash > 0 ? (profit / initialCash) * 100 : 0;
-      return { profit, returnPct };
-    });
+  // ── VirtualAccountList ──────────────────────────────────────
+  const accountItems: VirtualAccountListItem[] = accounts.map((a) => {
+    const posValue = (a.VirtualPosition ?? []).reduce(
+      (sum, p) => sum + p.quantity * moneyToNumber(p.currentPrice ?? p.avgPrice),
+      0
+    );
+    const initialAmount = moneyToNumber(a.initialCash);
+    const liveValue = moneyToNumber(a.currentCash) + posValue;
+    const tv = resolveAccountTotalValue(a, liveValue, settlementValues);
+    const profit = tv - initialAmount;
+    const returnPct = initialAmount > 0 ? (profit / initialAmount) * 100 : 0;
 
     return {
-      id: s.id,
-      name: s.name,
-      description: s.description ?? null,
-      type,
-      universe,
-      aiScore,
-      avgReturnPct: stats.reduce((s, x) => s + x.returnPct, 0) / stats.length,
-      totalProfit: stats.reduce((s, x) => s + x.profit, 0),
-      accountCount: accs.length,
-      autoTradingCount: accs.filter((a) => a.tradingMode !== "manual").length,
-      createdAt: s.createdAt.toISOString(),
+      id: a.id,
+      name: a.name,
+      status: a.status === "CLOSED" ? "CLOSED" : "ACTIVE",
+      strategyName: a.strategyName ?? null,
+      initialAmount,
+      totalValue: tv,
+      profit,
+      returnPct,
+      createdAt: a.createdAt.toISOString(),
+      closedAt: a.closedAt ? a.closedAt.toISOString() : null,
     };
   });
 
@@ -229,7 +190,7 @@ async function fetchDashboardFromDB(userId: number | null): Promise<DashboardIni
     portfolioStats,
     tradingStatus,
     accountMonthly,
-    strategyList: { strategies: strategyItems },
+    accountList: { accounts: accountItems },
     backtestRecords,
   };
 }
@@ -268,12 +229,12 @@ function getMockDashboardData(): DashboardInitialData {
       totalEvaluation: 29_320_000,
     },
     accountMonthly: MOCK_ACCOUNT_MONTHLY,
-    strategyList: {
-      strategies: [
-        { id: "1", name: "모멘텀 전략 v2", description: null, type: "모멘텀", universe: "KOSPI", aiScore: null, avgReturnPct: 12.4, totalProfit: 2_480_000, accountCount: 2, autoTradingCount: 1, createdAt: new Date().toISOString() },
-        { id: "2", name: "RSI 역추세 전략", description: null, type: "역추세", universe: "KOSDAQ", aiScore: null, avgReturnPct: 7.8, totalProfit: 390_000, accountCount: 1, autoTradingCount: 1, createdAt: new Date().toISOString() },
-        { id: "3", name: "가치투자 퀀트", description: null, type: "가치투자", universe: "KOSPI", aiScore: null, avgReturnPct: -3.2, totalProfit: -320_000, accountCount: 1, autoTradingCount: 0, createdAt: new Date().toISOString() },
-        { id: "4", name: "AI 예측 기반", description: null, type: "AI전략", universe: "미국주식", aiScore: null, avgReturnPct: 21.5, totalProfit: 6_450_000, accountCount: 3, autoTradingCount: 2, createdAt: new Date().toISOString() },
+    accountList: {
+      accounts: [
+        { id: "1", name: "계좌 A", status: "ACTIVE", strategyName: "모멘텀 전략 v2", initialAmount: 10_000_000, totalValue: 12_480_000, profit: 2_480_000, returnPct: 24.8, createdAt: new Date().toISOString(), closedAt: null },
+        { id: "2", name: "계좌 B", status: "ACTIVE", strategyName: "RSI 역추세 전략", initialAmount: 5_000_000, totalValue: 5_390_000, profit: 390_000, returnPct: 7.8, createdAt: new Date().toISOString(), closedAt: null },
+        { id: "3", name: "계좌 C", status: "CLOSED", strategyName: "가치투자 퀀트", initialAmount: 8_000_000, totalValue: 7_680_000, profit: -320_000, returnPct: -4.0, createdAt: new Date().toISOString(), closedAt: new Date().toISOString() },
+        { id: "4", name: "계좌 D", status: "ACTIVE", strategyName: "AI 예측 기반", initialAmount: 3_000_000, totalValue: 9_450_000, profit: 6_450_000, returnPct: 215.0, createdAt: new Date().toISOString(), closedAt: null },
       ],
     },
     backtestRecords,

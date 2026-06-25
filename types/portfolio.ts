@@ -9,8 +9,10 @@ export interface VirtualAccount {
   strategyId?: string; // 연결된 전략 ID
   strategyName?: string; // 연결된 전략 이름
   tradingMode?: "auto" | "manual"; // "auto": 자동매매, "manual": 신호 알림 + 수동매매
+  status?: "ACTIVE" | "CLOSED";
   createdAt: string;
   updatedAt: string;
+  closedAt?: string;
 }
 
 export interface PortfolioHolding {

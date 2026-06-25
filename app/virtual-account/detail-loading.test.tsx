@@ -185,4 +185,41 @@ describe("VirtualAccountDetailPage loading", () => {
       { symbol: "005930", name: "삼성전자" },
     ]);
   });
+
+  it("shows a 삭제된 계좌 badge and hides the 삭제 button for a CLOSED account", async () => {
+    window.sessionStorage.setItem(
+      "virtual-account-detail:account-123",
+      JSON.stringify({
+        account: {
+          id: "account-123",
+          name: "테스트 계좌",
+          initialAmount: 10_000_000,
+          currentBalance: 10_000_000,
+          totalValue: 10_000_000,
+          tradingMode: "manual",
+          status: "CLOSED",
+          createdAt: "2026-06-01T00:00:00.000Z",
+          updatedAt: "2026-06-01T00:00:00.000Z",
+          closedAt: "2026-06-20T00:00:00.000Z",
+        },
+        holdings: [],
+        transactions: [],
+        trackedSymbols: [],
+      })
+    );
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      if (String(input) === "/api/stocks/names") {
+        return Promise.resolve({ ok: true, json: async () => ({}) } as Response);
+      }
+      return new Promise<Response>(() => undefined);
+    });
+
+    render(<VirtualAccountDetailPage />);
+
+    expect(await screen.findByText("삭제된 계좌")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "자동매매" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "삭제" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "계좌닫기" })).toBeInTheDocument();
+    expect(screen.getByText(/해지 2026\.\s?06\.\s?20\.?/)).toBeInTheDocument();
+  });
 });

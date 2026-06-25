@@ -5,6 +5,7 @@ import { getStockNameMap } from '@/lib/krx-stocks';
 import {
   closeAccountWithSettlement,
   fetchSettlementPriceMap,
+  getAccountSettlementValues,
   moneyToNumber,
   toMoney,
 } from '@/lib/server/assetService';
@@ -26,15 +27,22 @@ function resolvePositionName(
   return symbol;
 }
 
-function mapAccount(a: any, priceMap: Record<string, number>, stockNameMap: Record<string, string>) {
+function mapAccount(
+  a: any,
+  priceMap: Record<string, number>,
+  stockNameMap: Record<string, string>,
+  settlementValue?: number
+) {
   const positions = a.VirtualPosition ?? [];
   const currentCash = moneyToNumber(a.currentCash);
-  const totalValue =
+  const liveValue =
     currentCash +
     positions.reduce((sum: number, p: any) => {
       const currentPrice = priceMap[p.symbol] ?? moneyToNumber(p.currentPrice ?? p.avgPrice);
       return sum + p.quantity * currentPrice;
     }, 0);
+  // CLOSED 계좌는 강제 정산 후 currentCash/포지션이 0/삭제되므로, 정산 시점 금액을 그대로 보여준다.
+  const totalValue = a.status === "CLOSED" && settlementValue != null ? settlementValue : liveValue;
   const holdings = positions.map((p: any) => {
     const avgPrice = moneyToNumber(p.avgPrice);
     const currentPrice = priceMap[p.symbol] ?? moneyToNumber(p.currentPrice ?? p.avgPrice);
@@ -130,7 +138,8 @@ export async function GET(
 
     const symbols = (account as any).VirtualPosition.map((p: any) => p.symbol);
     const nameMap = await buildNameMap(symbols);
-    return NextResponse.json(mapAccount(account, {}, nameMap));
+    const settlementValues = await getAccountSettlementValues(prisma, [account.id]);
+    return NextResponse.json(mapAccount(account, {}, nameMap, settlementValues[account.id]));
   } catch (error) {
     if (isUnauthorizedAccessError(error)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -277,7 +286,7 @@ export async function DELETE(
       message: 'Account closed',
       returnedAmount: result.returnedAmount.toNumber(),
       availableCash: result.availableCash.toNumber(),
-      account: mapAccount(result.account, {}, {}),
+      account: mapAccount(result.account, {}, {}, result.returnedAmount.toNumber()),
     });
   } catch (error) {
     if (isUnauthorizedAccessError(error)) {

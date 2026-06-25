@@ -6,8 +6,10 @@ import {
   closeAccountWithSettlement,
   createFundedAccount,
   ensureUserAsset,
+  getAccountSettlementValues,
   INITIAL_GRANT_AMOUNT,
   moneyToNumber,
+  resolveAccountTotalValue,
 } from "@/lib/server/assetService";
 
 function createTx(overrides: Record<string, any> = {}) {
@@ -31,7 +33,7 @@ function createTx(overrides: Record<string, any> = {}) {
       deleteMany: vi.fn(),
     },
     virtualMarketState: {
-      deleteMany: vi.fn(),
+      updateMany: vi.fn(),
     },
     virtualOrder: {
       create: vi.fn(),
@@ -236,6 +238,32 @@ describe("asset service", () => {
     expect(moneyToNumber(updateArg.data.currentCash)).toBe(0);
   });
 
+  it("계좌 삭제 시 모니터링 종목 이력(VirtualMarketState)을 지우지 않고 추적만 멈춘다", async () => {
+    const tx = createTx();
+    tx.userAsset.findUnique.mockResolvedValue({
+      userId: 1,
+      availableCash: new Prisma.Decimal(7_000_000),
+    });
+    tx.virtualAccount.findMany.mockResolvedValue([]);
+    tx.virtualAccount.findFirst.mockResolvedValue(activeAccount);
+    tx.virtualAccount.update.mockResolvedValue({
+      ...activeAccount,
+      status: "CLOSED",
+      VirtualPosition: [],
+    });
+
+    await closeAccountWithSettlement(tx, {
+      userId: 1,
+      accountId: "account-1",
+      priceMap: { "005930": new Prisma.Decimal(350_000) },
+    });
+
+    expect(tx.virtualMarketState.updateMany).toHaveBeenCalledWith({
+      where: { accountId: "account-1" },
+      data: expect.objectContaining({ status: "stopped" }),
+    });
+  });
+
   it("수익이 난 계좌 삭제 후 사용자 총 자산이 증가한다", async () => {
     const tx = createTx();
     tx.userAsset.findUnique.mockResolvedValue({
@@ -317,5 +345,45 @@ describe("asset service", () => {
         priceMap: { "005930": new Prisma.Decimal(350_000) },
       })
     ).rejects.toThrow("ACCOUNT_CLOSED");
+  });
+
+  it("거래가 없던 계좌(0% 수익률)를 닫아도 정산금이 그대로 totalValue가 되어 -100%로 계산되지 않는다", () => {
+    const settlementValues = { "account-1": 5_000_000 };
+    const totalValue = resolveAccountTotalValue(
+      { id: "account-1", status: "CLOSED" },
+      0, // 정산 후 currentCash=0, 포지션 없음
+      settlementValues
+    );
+
+    expect(totalValue).toBe(5_000_000);
+  });
+
+  it("ACTIVE 계좌는 정산금 맵과 무관하게 현재 평가금액(liveValue)을 그대로 쓴다", () => {
+    const totalValue = resolveAccountTotalValue(
+      { id: "account-1", status: "ACTIVE" },
+      3_700_000,
+      { "account-1": 5_000_000 }
+    );
+
+    expect(totalValue).toBe(3_700_000);
+  });
+
+  it("getAccountSettlementValues는 ACCOUNT_LIQUIDATION_RETURN 원장에서 계좌별 정산금을 가져온다", async () => {
+    const client = {
+      assetLedger: {
+        findMany: vi.fn().mockResolvedValue([
+          { accountId: "account-1", amount: new Prisma.Decimal(5_000_000) },
+          { accountId: "account-2", amount: new Prisma.Decimal(8_568_751) },
+        ]),
+      },
+    };
+
+    const result = await getAccountSettlementValues(client, ["account-1", "account-2"]);
+
+    expect(result).toEqual({ "account-1": 5_000_000, "account-2": 8_568_751 });
+    expect(client.assetLedger.findMany).toHaveBeenCalledWith({
+      where: { accountId: { in: ["account-1", "account-2"] }, type: "ACCOUNT_LIQUIDATION_RETURN" },
+      orderBy: { createdAt: "desc" },
+    });
   });
 });

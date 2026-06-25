@@ -6,7 +6,7 @@ import PortfolioSummaryBar from "@/components/dashboard/PortfolioSummaryBar";
 import BacktestActivityChart from "@/components/dashboard/BacktestActivityChart";
 import AccountProfitChart from "@/components/dashboard/AccountProfitChart";
 import MarketSnapshot from "@/components/dashboard/MarketSnapshot";
-import StrategyList from "@/components/dashboard/StrategyList";
+import VirtualAccountList from "@/components/dashboard/VirtualAccountList";
 import VirtualTradingStatus from "@/components/dashboard/VirtualTradingStatus";
 import RecentBacktestList from "@/components/dashboard/RecentBacktestList";
 import WatchlistSnapshot from "@/components/dashboard/WatchlistSnapshot";
@@ -33,7 +33,7 @@ export default async function DashboardPage() {
               <AccountProfitChart initialData={dashData.accountMonthly} />
             </div>
             <div className="lg:col-span-4">
-              <StrategyList initialData={dashData.strategyList} />
+              <VirtualAccountList initialData={dashData.accountList} />
             </div>
           </div>
 

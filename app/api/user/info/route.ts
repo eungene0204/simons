@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/get-user'
 import { cache } from '@/lib/cache'
 import { prisma } from '@/lib/prisma'
-import { moneyToNumber } from '@/lib/server/assetService'
+import { getAccountSettlementValues, moneyToNumber, resolveAccountTotalValue } from '@/lib/server/assetService'
 
 export async function GET(request: NextRequest) {
   try {
@@ -42,6 +42,8 @@ export async function GET(request: NextRequest) {
       prisma.user.count(),
     ])
 
+    const settlementValues = await getAccountSettlementValues(prisma, accounts.map((account) => account.id))
+
     const accountCount = accounts.length
     const totalInitialCash = accounts.reduce((sum, account) => sum + moneyToNumber(account.initialCash), 0)
     const totalValue = accounts.reduce((sum, account) => {
@@ -50,7 +52,8 @@ export async function GET(request: NextRequest) {
         return positionSum + position.quantity * currentPrice
       }, 0)
 
-      return sum + moneyToNumber(account.currentCash) + positionsValue
+      const liveValue = moneyToNumber(account.currentCash) + positionsValue
+      return sum + resolveAccountTotalValue(account, liveValue, settlementValues)
     }, 0)
 
     const currentReturnRate =

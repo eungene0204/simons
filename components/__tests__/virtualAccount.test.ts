@@ -55,6 +55,9 @@ vi.mock("@/lib/prisma", () => ({
     stock: {
       findMany: vi.fn().mockResolvedValue([]),
     },
+    assetLedger: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
   },
 }));
 

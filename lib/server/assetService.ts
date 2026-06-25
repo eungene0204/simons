@@ -1,10 +1,11 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { calcFee, calcRealizedPnl, calcSellProceeds, calcTransactionTax } from "@/lib/order-engine";
 import { fetchStockPriceSnapshots } from "@/lib/server/stock-prices";
 
 export const INITIAL_GRANT_AMOUNT = new Prisma.Decimal(10_000_000);
 
 type AssetTx = Prisma.TransactionClient;
+type AssetLedgerReader = Pick<PrismaClient, "assetLedger"> | Pick<AssetTx, "assetLedger">;
 
 type AccountWithPositions = {
   id: string;
@@ -64,6 +65,39 @@ export function calculateAccountValue(
       sum.plus(positionPrice(position, priceMap).mul(position.quantity)),
     toMoney(account.currentCash)
   );
+}
+
+// CLOSED 계좌는 강제 정산 후 currentCash/VirtualPosition이 0/삭제되므로,
+// 그 값을 그대로 totalValue로 쓰면 -100% 수익률처럼 보인다.
+// 닫힌 시점에 실제로 자산으로 돌아간 정산금(ACCOUNT_LIQUIDATION_RETURN)을 대신 사용해야 한다.
+export async function getAccountSettlementValues(
+  client: AssetLedgerReader,
+  accountIds: string[]
+): Promise<Record<string, number>> {
+  if (accountIds.length === 0) return {};
+  const entries = await client.assetLedger.findMany({
+    where: { accountId: { in: accountIds }, type: "ACCOUNT_LIQUIDATION_RETURN" },
+    orderBy: { createdAt: "desc" },
+  });
+  const result: Record<string, number> = {};
+  for (const entry of entries) {
+    if (entry.accountId && !(entry.accountId in result)) {
+      result[entry.accountId] = moneyToNumber(entry.amount);
+    }
+  }
+  return result;
+}
+
+// CLOSED 계좌면 정산금(settlementValues)을, 아니면 currentCash+포지션 평가금(liveValue)을 totalValue로 쓴다.
+export function resolveAccountTotalValue(
+  account: { id: string; status?: string | null },
+  liveValue: number,
+  settlementValues: Record<string, number>
+): number {
+  if (account.status === "CLOSED" && account.id in settlementValues) {
+    return settlementValues[account.id];
+  }
+  return liveValue;
 }
 
 export async function ensureUserAsset(tx: AssetTx, userId: number) {
@@ -302,7 +336,11 @@ export async function closeAccountWithSettlement(
   const nextAvailableCash = toMoney(asset.availableCash).plus(settlementCash);
 
   await tx.virtualPosition.deleteMany({ where: { accountId: account.id } });
-  await tx.virtualMarketState.deleteMany({ where: { accountId: account.id } });
+  // symbols 추적 이력은 보존하고 추적만 멈춘다 (계좌 닫기 후에도 모니터링 종목 목록을 조회할 수 있어야 함)
+  await tx.virtualMarketState.updateMany({
+    where: { accountId: account.id },
+    data: { status: "stopped", updatedAt: new Date() },
+  });
   await tx.virtualOrder.updateMany({
     where: { accountId: account.id, status: "PENDING" },
     data: { status: "CANCELLED" },

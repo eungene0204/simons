@@ -5,7 +5,7 @@ import {
   isUnauthorizedAccessError,
   withOwnership,
 } from "@/lib/get-user";
-import { moneyToNumber } from "@/lib/server/assetService";
+import { getAccountSettlementValues, moneyToNumber, resolveAccountTotalValue } from "@/lib/server/assetService";
 
 function calcScore(m: { cagr?: number; maxDrawdown?: number; sharpe?: number; profitFactor?: number; winRate?: number }): number {
   const scoreCagr = (v?: number) => { if (v == null) return 50; if (v >= 20) return 100; if (v >= 10) return 70; return Math.max(0, Math.round(v / 10 * 70)); };
@@ -49,6 +49,8 @@ export async function GET() {
       }),
       prisma.backtestHistory.findMany({ orderBy: { createdAt: "desc" } }),
     ]);
+
+    const settlementValues = await getAccountSettlementValues(prisma, accounts.map((a) => a.id));
 
     const result: StrategyListItem[] = strategies.map((s) => {
       // universe: settings에서 파싱
@@ -97,7 +99,8 @@ export async function GET() {
           0
         );
         const initialCash = moneyToNumber(a.initialCash);
-        const totalValue = moneyToNumber(a.currentCash) + posValue;
+        const liveValue = moneyToNumber(a.currentCash) + posValue;
+        const totalValue = resolveAccountTotalValue(a, liveValue, settlementValues);
         const profit = totalValue - initialCash;
         const returnPct = initialCash > 0 ? (profit / initialCash) * 100 : 0;
         return { profit, returnPct };

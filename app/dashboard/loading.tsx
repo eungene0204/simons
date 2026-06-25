@@ -16,7 +16,7 @@ export default function DashboardLoading() {
           ))}
         </div>
 
-        {/* AccountProfitChart + StrategyList */}
+        {/* AccountProfitChart + VirtualAccountList */}
         <div className="grid grid-cols-1 lg:grid-cols-10 lg:divide-x lg:divide-white/[0.08]">
           <div className="lg:col-span-6 p-5">
             <div className="h-3 w-32 rounded bg-white/5 mb-4" />
