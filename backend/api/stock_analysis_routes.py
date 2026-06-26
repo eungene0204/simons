@@ -110,7 +110,11 @@ class BuilderStepRequest(BaseModel):
 
 @router.post("/strategy/builder/step", response_model=strategy_builder.StepResult)
 async def strategy_builder_step(req: BuilderStepRequest) -> strategy_builder.StepResult:
-    return strategy_builder.step(req.state, req.input)
+    # 청산 조건 자유 입력 단계에서 정규식이 놓친 값은 공유 LLM 파서로 보강·검증한다.
+    risk_extractor = None
+    if _llm_available():
+        risk_extractor = lambda text: strategy_builder.llm_extract_risk(text, _mlx_llm)
+    return await asyncio.to_thread(strategy_builder.step, req.state, req.input, risk_extractor)
 
 
 # ─── /stock/analyze ──────────────────────────────────────────────────────────────

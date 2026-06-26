@@ -2,8 +2,6 @@ import { Prisma, PrismaClient } from "@prisma/client";
 import { calcFee, calcRealizedPnl, calcSellProceeds, calcTransactionTax } from "@/lib/order-engine";
 import { fetchStockPriceSnapshots } from "@/lib/server/stock-prices";
 
-export const INITIAL_GRANT_AMOUNT = new Prisma.Decimal(10_000_000);
-
 type AssetTx = Prisma.TransactionClient;
 type AssetLedgerReader = Pick<PrismaClient, "assetLedger"> | Pick<AssetTx, "assetLedger">;
 
@@ -100,87 +98,8 @@ export function resolveAccountTotalValue(
   return liveValue;
 }
 
-export async function ensureUserAsset(tx: AssetTx, userId: number) {
-  const existing = await tx.userAsset.findUnique({ where: { userId } });
-  if (existing) {
-    return reconcileLegacyAccountAllocations(tx, userId, existing);
-  }
-
-  const asset = await tx.userAsset.create({
-    data: {
-      userId,
-      availableCash: INITIAL_GRANT_AMOUNT,
-      initialGrantAmount: INITIAL_GRANT_AMOUNT,
-    },
-  });
-
-  await tx.assetLedger.create({
-    data: {
-      userId,
-      type: "INITIAL_GRANT",
-      amount: INITIAL_GRANT_AMOUNT,
-      balanceAfter: INITIAL_GRANT_AMOUNT,
-    },
-  });
-
-  return reconcileLegacyAccountAllocations(tx, userId, asset);
-}
-
-async function reconcileLegacyAccountAllocations(
-  tx: AssetTx,
-  userId: number,
-  asset: {
-    userId: number;
-    availableCash: Prisma.Decimal.Value;
-    initialGrantAmount: Prisma.Decimal.Value;
-  }
-) {
-  const activeAccounts = await tx.virtualAccount.findMany({
-    where: { userId, status: "ACTIVE" },
-    select: { id: true, initialCash: true },
-    orderBy: { createdAt: "asc" },
-  });
-
-  let availableCash = toMoney(asset.availableCash);
-  let changed = false;
-
-  for (const account of activeAccounts) {
-    const existingAllocation = await tx.assetLedger.findFirst({
-      where: {
-        userId,
-        accountId: account.id,
-        type: "ACCOUNT_ALLOCATION",
-      },
-      select: { id: true },
-    });
-
-    if (existingAllocation) continue;
-
-    const allocation = toMoney(account.initialCash);
-    if (allocation.lte(0)) continue;
-
-    availableCash = Prisma.Decimal.max(availableCash.minus(allocation), toMoney(0));
-    changed = true;
-
-    await tx.assetLedger.create({
-      data: {
-        userId,
-        accountId: account.id,
-        type: "ACCOUNT_ALLOCATION",
-        amount: allocation.negated(),
-        balanceAfter: availableCash,
-      },
-    });
-  }
-
-  if (!changed) return asset;
-
-  return tx.userAsset.update({
-    where: { userId },
-    data: { availableCash },
-  });
-}
-
+// 가상계좌를 플랜의 초기 투자금(initialAmount)으로 독립 생성한다.
+// 공유 자산 풀에서 차감하지 않으며, 계좌마다 정해진 초기 투자금만 부여한다.
 export async function createFundedAccount(
   tx: AssetTx,
   params: {
@@ -195,13 +114,7 @@ export async function createFundedAccount(
   const allocation = toMoney(params.initialAmount);
   assertPositiveAmount(allocation);
 
-  const asset = await ensureUserAsset(tx, params.userId);
-  if (toMoney(asset.availableCash).lt(allocation)) {
-    throw new Error("INSUFFICIENT_ASSET_CASH");
-  }
-
-  const nextAvailableCash = toMoney(asset.availableCash).minus(allocation);
-  const account = await tx.virtualAccount.create({
+  return tx.virtualAccount.create({
     data: {
       id: crypto.randomUUID(),
       userId: params.userId,
@@ -216,52 +129,6 @@ export async function createFundedAccount(
     },
     include: { VirtualPosition: true },
   });
-
-  await tx.userAsset.update({
-    where: { userId: params.userId },
-    data: { availableCash: nextAvailableCash },
-  });
-
-  await tx.assetLedger.create({
-    data: {
-      userId: params.userId,
-      accountId: account.id,
-      type: "ACCOUNT_ALLOCATION",
-      amount: allocation.negated(),
-      balanceAfter: nextAvailableCash,
-    },
-  });
-
-  return account;
-}
-
-export async function getUserAssetSummary(
-  tx: AssetTx,
-  userId: number
-) {
-  const asset = await ensureUserAsset(tx, userId);
-  const accounts = await tx.virtualAccount.findMany({
-    where: { userId, status: "ACTIVE" },
-    include: { VirtualPosition: true },
-    orderBy: { createdAt: "desc" },
-  });
-
-  const activeAccountValue = accounts.reduce(
-    (sum, account) => sum.plus(calculateAccountValue(account)),
-    toMoney(0)
-  );
-  const availableCash = toMoney(asset.availableCash);
-  const initialGrantAmount = toMoney(asset.initialGrantAmount);
-  const totalAssets = availableCash.plus(activeAccountValue);
-
-  return {
-    availableCash,
-    activeAccountValue,
-    initialGrantAmount,
-    totalAssets,
-    totalProfitLoss: totalAssets.minus(initialGrantAmount),
-    accounts,
-  };
 }
 
 export async function closeAccountWithSettlement(
@@ -279,7 +146,6 @@ export async function closeAccountWithSettlement(
   if (!account) throw new Error("ACCOUNT_NOT_FOUND");
   if (account.status !== "ACTIVE") throw new Error("ACCOUNT_CLOSED");
 
-  const asset = await ensureUserAsset(tx, params.userId);
   let settlementCash = toMoney(account.currentCash);
 
   for (const position of account.VirtualPosition) {
@@ -328,12 +194,10 @@ export async function closeAccountWithSettlement(
         accountId: account.id,
         type: "FORCE_SELL",
         amount: proceeds,
-        balanceAfter: asset.availableCash,
+        balanceAfter: settlementCash,
       },
     });
   }
-
-  const nextAvailableCash = toMoney(asset.availableCash).plus(settlementCash);
 
   await tx.virtualPosition.deleteMany({ where: { accountId: account.id } });
   // symbols 추적 이력은 보존하고 추적만 멈춘다 (계좌 닫기 후에도 모니터링 종목 목록을 조회할 수 있어야 함)
@@ -355,24 +219,21 @@ export async function closeAccountWithSettlement(
     },
     include: { VirtualPosition: true },
   });
-  await tx.userAsset.update({
-    where: { userId: params.userId },
-    data: { availableCash: nextAvailableCash },
-  });
+  // 계좌 정산값을 기록한다(닫힌 계좌의 최종 평가금액/수익률 조회용).
+  // 남은 현금·평가금액은 다른 계좌나 사용자 자산으로 이전하지 않는다.
   await tx.assetLedger.create({
     data: {
       userId: params.userId,
       accountId: account.id,
       type: "ACCOUNT_LIQUIDATION_RETURN",
       amount: settlementCash,
-      balanceAfter: nextAvailableCash,
+      balanceAfter: settlementCash,
     },
   });
 
   return {
     account: closedAccount,
     returnedAmount: settlementCash,
-    availableCash: nextAvailableCash,
   };
 }
 

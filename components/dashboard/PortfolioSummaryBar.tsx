@@ -46,8 +46,8 @@ export default function PortfolioSummaryBar({ initialStats }: { initialStats: Po
 
   const cards = [
     {
-      label: "총 투자금",
-      description: "전체 가상계좌에 설정된 초기 투자금 합계입니다.",
+      label: "총 모의 투자금",
+      description: "전체 가상계좌에 설정된 초기 모의 투자금 합계입니다.",
       icon: Wallet,
       value: `${formatKRW(stats.totalInvested)}원`,
       valueColor: "text-white",
@@ -57,7 +57,7 @@ export default function PortfolioSummaryBar({ initialStats }: { initialStats: Po
     },
     {
       label: "전체 수익률",
-      description: "총 수익금을 총 투자금으로 나눈 전체 평가 수익률입니다.",
+      description: "총 수익금을 총 모의 투자금으로 나눈 전체 평가 수익률입니다.",
       icon: TrendUp,
       value: `${isPositive ? "+" : ""}${stats.totalReturnPct.toFixed(2)}%`,
       valueColor: profitColorClass(stats.totalReturnPct),
@@ -67,7 +67,7 @@ export default function PortfolioSummaryBar({ initialStats }: { initialStats: Po
     },
     {
       label: "총 수익금",
-      description: "현재 현금과 보유 포지션 평가액을 합산한 뒤 총 투자금을 뺀 평가손익입니다.",
+      description: "현재 현금과 보유 포지션 평가액을 합산한 뒤 총 모의 투자금을 뺀 평가손익입니다.",
       icon: CurrencyKrw,
       value: `${isPositive ? "+" : ""}${formatKRW(stats.totalProfit)}원`,
       valueColor: profitColorClass(stats.totalProfit),

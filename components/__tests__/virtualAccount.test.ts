@@ -207,12 +207,15 @@ describe("POST /api/virtual-account", () => {
     expect(mockAccountCreate).not.toHaveBeenCalled();
   });
 
-  it("initialAmount가 없으면 400 반환", async () => {
+  it("initialAmount는 무시되고 플랜(FREE) 초기 투자금으로 계좌를 생성한다", async () => {
     const res = await POST(
-      makePostRequest({ name: "테스트", strategyId: "s-1" })
+      makePostRequest({ name: "테스트", initialAmount: 1234, strategyId: "s-1" })
     );
-    expect(res.status).toBe(400);
-    expect(mockAccountCreate).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    const createArg = mockAccountCreate.mock.calls[0][0];
+    // FREE 플랜 계좌당 초기 투자금 = 10,000,000원 (클라이언트가 보낸 1234는 무시)
+    expect(Number(createArg.data.initialCash)).toBe(10_000_000);
+    expect(Number(createArg.data.currentCash)).toBe(10_000_000);
   });
 
   it("strategyId가 없어도 수동 계좌를 생성할 수 있음", async () => {

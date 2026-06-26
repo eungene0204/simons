@@ -12,8 +12,9 @@
 
 from __future__ import annotations
 
+import json
 import re
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -104,8 +105,14 @@ _REBAL_RE: tuple[tuple[str, "re.Pattern[str]"], ...] = (
     )),
 )
 
-_STOP_LOSS_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%?\s*(?:손절|스탑\s*로스|stop\s*loss)", re.IGNORECASE)
-_TAKE_PROFIT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%?\s*(?:익절|목표\s*수익|take\s*profit)", re.IGNORECASE)
+# "15%에 손절", "15%로 익절"처럼 퍼센트와 키워드 사이에 조사(에/에서/로/으로)가 끼어도 인식한다.
+_PARTICLE = r"(?:에서?|으?로)?\s*"
+_STOP_LOSS_RE = re.compile(
+    rf"(\d+(?:\.\d+)?)\s*%?\s*{_PARTICLE}(?:손절|스탑\s*로스|stop\s*loss)", re.IGNORECASE
+)
+_TAKE_PROFIT_RE = re.compile(
+    rf"(\d+(?:\.\d+)?)\s*%?\s*{_PARTICLE}(?:익절|목표\s*수익|take\s*profit)", re.IGNORECASE
+)
 _TRAILING_RE = re.compile(
     r"(?:트레일링(?:\s*스탑)?|최고가\s*대비)\s*(\d+(?:\.\d+)?)\s*%", re.IGNORECASE
 )
@@ -184,6 +191,82 @@ def _parse_risk(text: str) -> dict:
     if patch:
         patch["risk_done"] = True
     return patch
+
+
+# ─── 청산 조건 LLM 검증/보강(정규식 우선, 누락만 LLM으로 채움) ──────────────────────
+# [feedback_nl_parser_hybrid] 자유 입력 단계는 결정론 regex로 핵심을 잡되, regex가 키워드는
+# 봤지만 값을 못 뽑은 경우에만 LLM 파서로 보강한다. regex가 깨끗이 잡으면 LLM을 호출하지
+# 않아(비용/지연 절감) 결정론을 유지한다.
+
+RISK_FIELDS: tuple[str, ...] = (
+    "stop_loss_pct", "take_profit_pct", "trailing_stop_pct", "hold_period_days",
+)
+
+# 청산 키워드별 대상 필드 — 키워드가 있는데 해당 값이 비어 있으면 LLM 검증을 트리거한다.
+_RISK_KEYWORD_FIELDS: tuple[tuple["re.Pattern[str]", str], ...] = (
+    (re.compile(r"손절|스탑\s*로스|stop\s*loss", re.IGNORECASE), "stop_loss_pct"),
+    (re.compile(r"익절|목표\s*수익|take\s*profit", re.IGNORECASE), "take_profit_pct"),
+    (re.compile(r"트레일링|최고가\s*대비", re.IGNORECASE), "trailing_stop_pct"),
+    (re.compile(r"보유|후\s*청산|지나면", re.IGNORECASE), "hold_period_days"),
+)
+
+RISK_LLM_SYSTEM_PROMPT = (
+    "너는 한국어 투자 전략의 '청산 조건' 문장에서 수치만 뽑아내는 파서다.\n"
+    "다음 네 필드를 JSON으로만 출력한다(언급 없으면 null):\n"
+    "- stop_loss_pct: 손절(손실 제한) 비율 %. 예 '15%에 손절'→15, '이십프로 손절'→20\n"
+    "- take_profit_pct: 익절(목표 수익) 비율 %. 예 '30% 익절'→30\n"
+    "- trailing_stop_pct: 트레일링 스탑/최고가 대비 하락 비율 %. 예 '최고가 대비 10% 하락'→10\n"
+    "- hold_period_days: 보유 후 청산까지 거래일 수. '3개월'→63, '20일'→20\n"
+    "설명·코드블록 없이 JSON 객체만 출력한다. "
+    '예: {"stop_loss_pct": 15, "take_profit_pct": 30, "trailing_stop_pct": null, "hold_period_days": null}'
+)
+
+
+def _risk_needs_llm(text: str, regex_patch: dict) -> bool:
+    """정규식이 청산 키워드는 봤으나 그 값을 못 뽑은 경우 True(=LLM 보강 필요)."""
+    for pat, field in _RISK_KEYWORD_FIELDS:
+        if pat.search(text) and regex_patch.get(field) is None:
+            return True
+    return False
+
+
+def _parse_llm_risk(raw: str) -> dict:
+    """LLM이 반환한 JSON에서 청산 필드를 안전하게 추출한다(잘못된 출력은 무시)."""
+    m = re.search(r"\{.*\}", raw or "", re.DOTALL)
+    if not m:
+        return {}
+    try:
+        data = json.loads(m.group(0))
+    except (ValueError, TypeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    out: dict = {}
+    for field in ("stop_loss_pct", "take_profit_pct", "trailing_stop_pct"):
+        v = data.get(field)
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0:
+            out[field] = float(v)
+    h = data.get("hold_period_days")
+    if isinstance(h, (int, float)) and not isinstance(h, bool) and h > 0:
+        out["hold_period_days"] = int(h)
+    return out
+
+
+def llm_extract_risk(text: str, chat: Callable[..., str]) -> dict:
+    """LLM 파서로 청산 조건을 추출한다. chat은 (system, user, *, max_tokens)->str."""
+    raw = chat(RISK_LLM_SYSTEM_PROMPT, text, max_tokens=120)
+    return _parse_llm_risk(raw)
+
+
+def _merge_risk(regex_patch: dict, llm_patch: dict) -> dict:
+    """정규식 결과를 우선하고, 정규식이 놓친 청산 필드만 LLM 결과로 채운다."""
+    merged = dict(regex_patch)
+    for field in RISK_FIELDS:
+        if merged.get(field) is None and llm_patch.get(field) is not None:
+            merged[field] = llm_patch[field]
+    if any(merged.get(field) is not None for field in RISK_FIELDS):
+        merged["risk_done"] = True
+    return merged
 
 
 def parse_input(text: str, state: BuilderState, expecting: Optional[str]) -> dict:
@@ -444,11 +527,18 @@ RESTART_PREFIX = "처음부터 새로 구성해볼게요.\n\n"
 
 # ─── 오케스트레이션 ──────────────────────────────────────────────────────────────
 
-def step(state: BuilderState, text: str) -> StepResult:
+def step(
+    state: BuilderState,
+    text: str,
+    risk_extractor: Optional[Callable[[str], dict]] = None,
+) -> StepResult:
     """빌더 모드의 한 턴을 처리한다.
 
     빈 입력은 상태를 바꾸지 않고 현재(첫) 질문을 그대로 보여준다 — 빌더 진입 직후
     사용자의 후속 입력을 기다리지 않고 첫 질문을 능동적으로 띄우는 데 쓴다.
+
+    risk_extractor: 청산 조건 자유 입력 단계에서 정규식이 키워드는 봤지만 값을 못 뽑았을
+    때 호출하는 LLM 보강 파서(text -> 청산 필드 dict). None이면 정규식만으로 동작한다.
     """
     if not (text or "").strip():
         if required_missing(state) is None:
@@ -468,6 +558,15 @@ def step(state: BuilderState, text: str) -> StepResult:
 
     expecting = required_missing(state)
     patch = parse_input(text, state, expecting)
+
+    # 청산 조건 자유 입력: 정규식이 키워드를 봤는데 값을 못 뽑았으면 LLM으로 보강·검증한다.
+    if expecting == "risk" and risk_extractor is not None and _risk_needs_llm(text, patch):
+        try:
+            llm_patch = risk_extractor(text) or {}
+        except Exception:  # noqa: BLE001 — LLM 실패 시 정규식 결과로 안전 폴백
+            llm_patch = {}
+        patch = _merge_risk(patch, llm_patch)
+
     new_state = state.model_copy(update=patch)
 
     # 필수 필드가 모두 채워지면 중간 요약 없이 곧바로 합성→백테스트 파싱으로 넘긴다.

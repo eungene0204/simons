@@ -23,7 +23,6 @@ export default function CreateAccountModal({
   onCreate,
 }: CreateAccountModalProps) {
   const [name, setName] = useState("");
-  const [amount, setAmount] = useState("");
   const [error, setError] = useState("");
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [selectedStrategyId, setSelectedStrategyId] = useState("");
@@ -31,7 +30,11 @@ export default function CreateAccountModal({
   const [loadingStrategies, setLoadingStrategies] = useState(false);
   const [tradingMode, setTradingMode] = useState<"auto" | "manual">("manual");
   const [isPromptVisible, setIsPromptVisible] = useState(false);
-  const [availableCash, setAvailableCash] = useState<number | null>(null);
+  const [planInfo, setPlanInfo] = useState<{
+    initialInvestmentAmount: number;
+    accountsUsed: number;
+    accountsLimit: number;
+  } | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -42,10 +45,20 @@ export default function CreateAccountModal({
       .catch(() => setStrategies([]))
       .finally(() => setLoadingStrategies(false));
 
-    fetch("/api/user/assets")
+    fetch("/api/user/plan")
       .then((res) => res.ok ? res.json() : null)
-      .then((data) => setAvailableCash(data?.availableCash ?? null))
-      .catch(() => setAvailableCash(null));
+      .then((data) =>
+        setPlanInfo(
+          data
+            ? {
+                initialInvestmentAmount: data.plan.initialInvestmentAmount,
+                accountsUsed: data.accounts.used,
+                accountsLimit: data.accounts.limit,
+              }
+            : null
+        )
+      )
+      .catch(() => setPlanInfo(null));
   }, [isOpen]);
 
   useEffect(() => {
@@ -60,6 +73,9 @@ export default function CreateAccountModal({
   const selectedSummary = buildStrategySummaryFromDsl(selectedStrategy as unknown as StrategyDSL);
   const summaryChips = buildStrategySummaryChips(selectedSummary);
 
+  const accountLimitReached =
+    planInfo !== null && planInfo.accountsUsed >= planInfo.accountsLimit;
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -69,21 +85,8 @@ export default function CreateAccountModal({
       return;
     }
 
-    const amountNum = parseFloat(amount.replace(/,/g, ""));
-    if (isNaN(amountNum)) {
-      setError("투자금액을 올바르게 입력해주세요.");
-      return;
-    }
-
-    const amountInWon = amountNum * 10000;
-
-    if (amountNum < 100) {
-      setError("최소 투자금액은 100만원입니다.");
-      return;
-    }
-
-    if (availableCash !== null && amountInWon > availableCash) {
-      setError("투자가능 금액을 초과했습니다.");
+    if (accountLimitReached) {
+      setError("현재 플랜의 가상계좌 수 한도에 도달했습니다.");
       return;
     }
 
@@ -92,29 +95,21 @@ export default function CreateAccountModal({
       return;
     }
 
+    // 초기 투자금은 서버가 플랜 기준으로 결정한다. 표시 일관성을 위해 플랜 금액을 전달한다.
+    const initialInvestment = planInfo?.initialInvestmentAmount ?? 0;
+
     onCreate(
       name.trim(),
-      amountInWon,
+      initialInvestment,
       isNoStrategySelected ? undefined : selectedStrategyId,
       isNoStrategySelected ? undefined : selectedStrategy?.name,
       isNoStrategySelected ? "manual" : tradingMode
     );
     setName("");
-    setAmount("");
     setSelectedStrategyId("");
     setTradingMode("manual");
     setIsPromptVisible(false);
     onClose();
-  };
-
-  const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value.replace(/[^0-9]/g, "");
-    setAmount(value);
-  };
-
-  const formatAmount = (value: string) => {
-    if (!value) return "";
-    return parseInt(value).toLocaleString("ko-KR");
   };
 
   return (
@@ -147,41 +142,26 @@ export default function CreateAccountModal({
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">
-              투자금액 (단위: 만원)
-            </label>
-            <div className="relative">
-              <input
-                type="text"
-                value={formatAmount(amount)}
-                onChange={handleAmountChange}
-                className={`w-full px-3 py-2 border rounded-lg bg-[#171717] text-white placeholder:text-gray-600 focus:outline-none ${
-                  availableCash !== null && amount && parseInt(amount) * 10000 > availableCash
-                    ? "border-red-500/60 focus:border-red-500"
-                    : "border-white/[0.08] focus:border-white/[0.2]"
-                }`}
-                placeholder="100"
-              />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
-                만원
+          <div className="rounded-lg border border-white/[0.08] bg-[#171717] p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-gray-300">계좌당 초기 모의 투자금</span>
+              <span className="text-sm font-semibold text-white">
+                {planInfo
+                  ? `${planInfo.initialInvestmentAmount.toLocaleString("ko-KR")}원`
+                  : "—"}
               </span>
             </div>
-            <div className="mt-1 flex items-center justify-between">
-              <p className={`text-xs ${availableCash !== null && amount && parseInt(amount) * 10000 > availableCash ? "text-red-400" : "text-gray-500"}`}>
-                {availableCash !== null && amount && parseInt(amount) * 10000 > availableCash
-                  ? "투자가능 금액을 초과했습니다"
-                  : "최소 100만원"}
-              </p>
-              {availableCash !== null && (
-                <p className="text-xs text-gray-400">
-                  투자가능 금액:{" "}
-                  <span className="font-semibold text-gray-300">
-                    {availableCash.toLocaleString("ko-KR")}원
-                  </span>
-                </p>
-              )}
+            <div className="mt-2 flex items-center justify-between">
+              <span className="text-xs text-gray-500">사용 중인 계좌</span>
+              <span className={`text-xs font-semibold ${accountLimitReached ? "text-red-400" : "text-gray-400"}`}>
+                {planInfo ? `${planInfo.accountsUsed} / ${planInfo.accountsLimit}개` : "—"}
+              </span>
             </div>
+            {accountLimitReached && (
+              <p className="mt-2 text-xs text-red-400">
+                현재 플랜의 가상계좌 수 한도에 도달했습니다. 요금제를 업그레이드하면 더 많은 계좌를 만들 수 있습니다.
+              </p>
+            )}
           </div>
 
           <div>
@@ -378,7 +358,8 @@ export default function CreateAccountModal({
             </button>
             <button
               type="submit"
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition-colors"
+              disabled={accountLimitReached}
+              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             >
               만들기
             </button>

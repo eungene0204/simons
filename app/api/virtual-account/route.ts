@@ -2,6 +2,13 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { resolveTrackedSymbolsForStrategy } from '@/lib/strategy-tracked-symbols';
 import { createFundedAccount, moneyToNumber, toMoney } from '@/lib/server/assetService';
+import { getPlan } from '@/lib/plans';
+import {
+  assertCanCreateAccount,
+  getUserPlan,
+  PLAN_LIMIT_ACCOUNTS,
+  PLAN_LIMIT_MESSAGES,
+} from '@/lib/server/planLimits';
 import {
   getOwnershipContext,
   isUnauthorizedAccessError,
@@ -55,11 +62,11 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const { userId } = await getOwnershipContext();
-    const { name, initialAmount, strategyId, strategyName, tradingMode } = await request.json();
+    const { name, strategyId, strategyName, tradingMode } = await request.json();
 
-    if (!name || !initialAmount) {
+    if (!name) {
       return NextResponse.json(
-        { error: 'name and initialAmount are required' },
+        { error: 'name is required' },
         { status: 400 }
       );
     }
@@ -74,13 +81,10 @@ export async function POST(request: Request) {
           })
       : null;
 
-    const amount = Number(initialAmount);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      return NextResponse.json(
-        { error: 'initialAmount must be positive' },
-        { status: 400 }
-      );
-    }
+    // 초기 투자금은 사용자의 현재 플랜에서 서버가 결정한다(클라이언트 금액 무시).
+    // 비로그인은 FREE 플랜 기준.
+    const plan = userId == null ? getPlan("FREE") : await getUserPlan(prisma, userId);
+    const amount = plan.initialInvestmentAmount;
 
     const account =
       userId == null
@@ -98,16 +102,17 @@ export async function POST(request: Request) {
             },
             include: { VirtualPosition: true },
           })
-        : await prisma.$transaction((tx) =>
-            createFundedAccount(tx, {
+        : await prisma.$transaction(async (tx) => {
+            await assertCanCreateAccount(tx, userId);
+            return createFundedAccount(tx, {
               userId,
               name,
               initialAmount: amount,
               strategyId: strategyId || null,
               strategyName: strategyName || null,
               tradingMode: tradingMode || "manual",
-            })
-          );
+            });
+          });
 
     if (strategy) {
       const resolved = await resolveTrackedSymbolsForStrategy({
@@ -143,11 +148,11 @@ export async function POST(request: Request) {
     if (isUnauthorizedAccessError(error)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    if (error instanceof Error && error.message === "INSUFFICIENT_ASSET_CASH") {
-      return NextResponse.json({ error: 'Insufficient available assets' }, { status: 400 });
-    }
-    if (error instanceof Error && error.message === "INVALID_AMOUNT") {
-      return NextResponse.json({ error: 'initialAmount must be positive' }, { status: 400 });
+    if (error instanceof Error && error.message === PLAN_LIMIT_ACCOUNTS) {
+      return NextResponse.json(
+        { error: 'Account limit reached', code: PLAN_LIMIT_ACCOUNTS, message: PLAN_LIMIT_MESSAGES[PLAN_LIMIT_ACCOUNTS] },
+        { status: 403 }
+      );
     }
     console.error('Failed to create virtual account:', error);
     return NextResponse.json({ error: 'Failed to create account' }, { status: 500 });

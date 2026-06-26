@@ -73,7 +73,7 @@ function renderWithQueryClient(ui: ReactNode) {
   );
 }
 
-function mockAuthenticatedAssetSummary(totalProfitLoss: number) {
+function mockAuthenticatedPlanUsage() {
   fetchMock.mockImplementation((input: RequestInfo | URL) => {
     const url = String(input);
 
@@ -90,14 +90,18 @@ function mockAuthenticatedAssetSummary(totalProfitLoss: number) {
       });
     }
 
-    if (url === "/api/user/assets") {
+    if (url === "/api/user/plan") {
       return Promise.resolve({
         ok: true,
         json: async () => ({
-          availableCash: 4_280_797,
-          activeAccountValue: 5_000_000,
-          totalAssets: 9_280_797,
-          totalProfitLoss,
+          plan: {
+            planId: "PRO",
+            name: "Pro",
+            initialInvestmentAmount: 50_000_000,
+          },
+          accounts: { used: 3, limit: 10 },
+          strategies: { used: 12, limit: 50, unlimited: false },
+          backtests: { used: 7, limit: 100 },
         }),
       });
     }
@@ -119,20 +123,20 @@ function mockAuthenticatedAssetSummary(totalProfitLoss: number) {
   });
 }
 
-async function openAssetModal(totalProfitLoss: number) {
-  mockAuthenticatedAssetSummary(totalProfitLoss);
+async function openPlanModal() {
+  mockAuthenticatedPlanUsage();
 
   renderWithQueryClient(<TopNavigation />);
 
   fireEvent.click(
     await screen.findByRole("button", { name: "홍길동 사용자 메뉴" })
   );
-  fireEvent.click(screen.getByRole("button", { name: "자산" }));
+  fireEvent.click(screen.getByRole("button", { name: "내 플랜" }));
 
-  return screen.findByRole("dialog", { name: "자산" });
+  return screen.findByRole("dialog", { name: "내 플랜" });
 }
 
-describe("TopNavigation asset modal", () => {
+describe("TopNavigation plan modal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     isSupabaseConfiguredMock.mockReturnValue(true);
@@ -141,29 +145,28 @@ describe("TopNavigation asset modal", () => {
     signInWithOAuthMock.mockResolvedValue({ error: null });
   });
 
-  it("hides the Asset Wallet eyebrow and renders available cash in white", async () => {
-    await openAssetModal(0);
+  it("현재 플랜과 계좌당 초기 투자금을 표시한다", async () => {
+    await openPlanModal();
 
-    expect(screen.queryByText(/asset wallet/i)).not.toBeInTheDocument();
-    expect(screen.getByText("사용 가능 자산")).toHaveClass("text-white");
-    expect(screen.getByText("4,280,797원")).toHaveClass("text-white");
+    expect(await screen.findByText("Pro")).toBeInTheDocument();
+    expect(screen.getByText("계좌당 초기 모의 투자금")).toBeInTheDocument();
+    expect(screen.getByText("50,000,000원")).toBeInTheDocument();
   });
 
-  it("renders positive total profit/loss in red with a leading plus sign", async () => {
-    await openAssetModal(719_203);
+  it("계좌/전략/백테스트 사용량을 표시한다", async () => {
+    await openPlanModal();
 
-    expect(screen.getByText("+719,203원")).toHaveClass("text-[var(--main-red)]");
+    expect(await screen.findByText("사용 중인 계좌")).toBeInTheDocument();
+    expect(screen.getByText("3 / 10")).toBeInTheDocument();
+    expect(screen.getByText("12 / 50")).toBeInTheDocument();
+    expect(screen.getByText("7 / 100")).toBeInTheDocument();
   });
 
-  it("renders negative total profit/loss in blue", async () => {
-    await openAssetModal(-719_203);
+  it("자산 관련 표현을 사용하지 않는다", async () => {
+    await openPlanModal();
 
-    expect(screen.getByText("-719,203원")).toHaveClass("text-[var(--main-blue)]");
-  });
-
-  it("renders zero total profit/loss in white without a leading plus sign", async () => {
-    await openAssetModal(0);
-
-    expect(screen.getByText("0원")).toHaveClass("text-white");
+    await screen.findByText("Pro");
+    expect(screen.queryByText(/총 자산/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/사용 가능 자산/)).not.toBeInTheDocument();
   });
 });

@@ -247,9 +247,9 @@ simons/
 
 `/stock-order`의 종목정보 탭은 실시간 시세와 분리된 비실시간 종목 프로필 레이어를 사용한다. 종목명, 상장일, 섹터, 회사 기본 정보, 재무 요약, PER/PBR 같은 저빈도 갱신 값은 DB에 저장하고, 현재가/등락률/거래량 등 실시간 값은 기존 실시간 시세 경로에서 조회한다.
 
-사용자 자산은 `UserAsset`과 `AssetLedger`로 관리한다. 신규 사용자 bootstrap 시 기본 가상 자산 10,000,000원을 지급하고 `INITIAL_GRANT` 원장을 남긴다. 가상계좌 생성은 `availableCash`를 차감하고 계좌 `currentCash`를 초기화하는 단일 트랜잭션으로 처리한다. 가상계좌 삭제 요청은 실제 즉시 삭제 대신 보유 포지션을 현재가 기준으로 강제 매도하고, 남은 현금을 사용자 `availableCash`로 반환한 뒤 계좌를 `CLOSED` 상태로 전환한다. `totalAssets`는 저장하지 않고 `availableCash + ACTIVE 가상계좌 현재 가치 합계`로 계산한다.
-자산 시스템 도입 전 생성된 ACTIVE 가상계좌에 `ACCOUNT_ALLOCATION` 원장이 없으면 사용자 자산 bootstrap/조회 시 계좌 `initialCash`만큼 `availableCash`에서 한 번만 차감해 기존 계좌 배정 상태를 보정한다.
-가상계좌 목록 카드의 삭제 버튼은 즉시 삭제하지 않고 정산 확인 모달을 먼저 표시한다. 사용자가 확인해야만 `DELETE /api/virtual-account/[id]`가 호출되며, 이 요청은 위 정산 로직을 통해 현재가 기준 강제 매도와 자산 반환을 처리한다.
+요금제 & 플랜 제한 시스템(`lib/plans.ts`, `lib/server/planLimits.ts`)이 가상계좌의 자금과 사용량 한도를 결정한다. 과거의 공유 "자산 지갑" 풀(`UserAsset.availableCash`에서 차감·반환) 모델은 폐기되었다. 각 가상계좌는 사용자의 현재 플랜(`User.planTier`, FREE/PRO/PREMIUM)에 정의된 **계좌당 초기 투자금**으로 독립 생성되며(`createFundedAccount`는 풀 차감 없이 계좌만 생성), 클라이언트가 보낸 금액은 무시하고 서버가 플랜 기준으로 결정한다. 플랜별 한도는 가상계좌 수(`assertCanCreateAccount`)·저장 전략 수(`assertCanSaveStrategy`)·월 백테스트 횟수(`consumeBacktestQuota`, `User.backtestUsageMonth`/`backtestCountThisMonth`로 달력 월 기준 초기화)로 enforce한다. 플랜 변경(`POST /api/user/plan`)은 `planTier`만 변경하며 이미 생성된 계좌의 초기 투자금·잔고는 소급 변경하지 않는다.
+가상계좌 해지 요청(`DELETE /api/virtual-account/[id]`)은 보유 포지션을 현재가 기준으로 강제 매도하고 계좌를 `CLOSED`로 전환하되, 남은 현금·평가금액을 다른 계좌나 사용자 자산으로 **이전하지 않는다**. 정산값은 `ACCOUNT_LIQUIDATION_RETURN` 원장에만 기록되어 닫힌 계좌의 최종 평가금액/수익률 조회(`getAccountSettlementValues`)에 쓰인다.
+가상계좌 목록 카드의 해지 버튼은 즉시 삭제하지 않고 해지 확인 모달("남은 현금과 보유 종목은 다른 계좌로 이전되지 않습니다")을 먼저 표시하며, 사용자가 확인해야만 위 해지 로직이 실행된다.
 
 ### 3.2 전략 Lab 컴포넌트 구조 (`/analytics/new`)
 

@@ -132,7 +132,7 @@ export default function VirtualAccountMainView() {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <div className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">초기 투자금액</div>
+            <div className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">초기 모의 투자금액</div>
             <div className="text-xl font-black text-white tabular-nums leading-none">
               {formatPrice(account.initialAmount)}<span className="text-xs font-bold text-gray-500 ml-1">원</span>
             </div>

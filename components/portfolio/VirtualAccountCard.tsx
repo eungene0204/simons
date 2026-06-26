@@ -41,9 +41,9 @@ export default function VirtualAccountCard({ account }: VirtualAccountCardProps)
           </p>
         </div>
 
-        {/* 초기 투자금액 */}
+        {/* 초기 모의 투자금액 */}
         <div className="mb-3">
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">초기 투자금액</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">초기 모의 투자금액</p>
           <p className="text-base font-medium text-gray-700 dark:text-gray-300">
             {formatPrice(account.initialAmount)} 원
           </p>

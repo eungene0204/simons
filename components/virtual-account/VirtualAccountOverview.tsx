@@ -139,7 +139,7 @@ export default function VirtualAccountOverview() {
       setAccountPendingDeletion(null);
       await loadAccounts({ showLoading: false, force: true });
     } catch {
-      setDeleteError("계좌 정산에 실패했습니다. 현재가 조회 또는 정산 상태를 확인해 주세요.");
+      setDeleteError("계좌 해지에 실패했습니다. 현재가 조회 또는 계좌 상태를 확인해 주세요.");
     } finally {
       setIsDeletingAccount(false);
     }
@@ -266,7 +266,7 @@ export default function VirtualAccountOverview() {
                       </Link>
                       <button
                         type="button"
-                        aria-label={`${account.name} 계좌 삭제`}
+                        aria-label={`${account.name} 계좌 해지`}
                         onClick={(event) => handleDeleteClick(event, account)}
                         className="inline-flex shrink-0 items-center justify-center rounded-md bg-white/[0.06] p-2 text-gray-500 transition-colors hover:bg-[var(--main-red)]/15 hover:text-[var(--main-red)]"
                       >
@@ -332,7 +332,7 @@ export default function VirtualAccountOverview() {
                             </span>
                           ) : null}
                           <p className="text-[10px] font-black uppercase tracking-[0.24em] text-gray-500">
-                            초기 투자금
+                            초기 모의 투자금
                           </p>
                           <p className="mt-2 text-sm font-black tabular-nums text-white">
                             {formatPrice(account.initialAmount)}원
@@ -372,11 +372,11 @@ export default function VirtualAccountOverview() {
                 id="delete-account-modal-title"
                 className="text-2xl font-black tracking-tight text-white"
               >
-                계좌 삭제
+                계좌 해지
               </h2>
               <p className="mt-5 text-sm font-bold leading-7 text-gray-400">
-                계좌의 보유 종목은 현재가 기준으로 강제 매도됩니다. 매도 대금과 남은 현금은
-                회원님 자산으로 반환됩니다.
+                이 계좌를 해지하면 해당 계좌의 시뮬레이션은 종료됩니다. 남은 현금과 보유 종목은
+                다른 계좌로 이전되지 않습니다.
               </p>
               {deleteError ? (
                 <p className="mt-4 text-sm font-black text-[var(--main-red)]">{deleteError}</p>
@@ -401,7 +401,7 @@ export default function VirtualAccountOverview() {
                 disabled={isDeletingAccount}
                 className="rounded-xl border border-white/[0.08] px-5 py-3 text-sm font-black text-[var(--main-red)] transition-colors hover:bg-white/[0.04] disabled:cursor-wait disabled:opacity-60"
               >
-                {isDeletingAccount ? "정산 중..." : "계좌 삭제"}
+                {isDeletingAccount ? "해지 중..." : "계좌 해지"}
               </button>
             </div>
           </div>

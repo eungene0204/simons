@@ -1,7 +1,6 @@
 import { cookies } from 'next/headers'
 import { verifyToken } from './auth'
 import { prisma } from './prisma'
-import { ensureUserAsset } from './server/assetService'
 
 export class UnauthorizedAccessError extends Error {
   constructor(message = 'Unauthorized') {
@@ -69,8 +68,6 @@ export function isUnauthorizedAccessError(error: unknown): boolean {
 
 export async function ensureUserBootstrap(userId: number) {
   await prisma.$transaction(async (tx) => {
-    await ensureUserAsset(tx, userId)
-
     const existingGroup = await tx.watchlistGroup.findFirst({
       where: { userId },
       select: { id: true },

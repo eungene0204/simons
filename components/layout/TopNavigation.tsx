@@ -15,6 +15,7 @@ import {
   GoogleLogo,
   SignOut,
   X,
+  Receipt,
 } from "phosphor-react";
 import QuickSearchModal from "./QuickSearchModal";
 
@@ -43,6 +44,12 @@ const menuItems = [
     id: "dashboard",
     Icon: SquaresFour,
   },
+  {
+    label: "요금제",
+    href: "/pricing",
+    id: "pricing",
+    Icon: Receipt,
+  },
 ];
 
 type UserProfile = {
@@ -70,21 +77,23 @@ type LoginResponse = {
 
 type AuthState = "loading" | "authenticated" | "anonymous";
 
-type AssetSummary = {
-  availableCash: number;
-  activeAccountValue: number;
-  totalAssets: number;
-  totalProfitLoss: number;
+type PlanUsageSummary = {
+  plan: {
+    planId: string;
+    name: string;
+    initialInvestmentAmount: number;
+  };
+  accounts: { used: number; limit: number };
+  strategies: { used: number; limit: number | null; unlimited: boolean };
+  backtests: { used: number; limit: number };
 };
 
 function formatWon(value: number) {
   return `${Math.round(value).toLocaleString("ko-KR")}원`;
 }
 
-function getProfitLossTextClass(value: number) {
-  if (value > 0) return "text-[var(--main-red)]";
-  if (value < 0) return "text-[var(--main-blue)]";
-  return "text-white";
+function formatLimit(limit: number | null) {
+  return limit == null ? "무제한" : `${limit.toLocaleString("ko-KR")}`;
 }
 
 function isSpecificUserName(value: string) {
@@ -105,10 +114,10 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
-  const [isAssetModalOpen, setIsAssetModalOpen] = useState(false);
-  const [assetSummary, setAssetSummary] = useState<AssetSummary | null>(null);
-  const [isAssetLoading, setIsAssetLoading] = useState(false);
-  const [assetError, setAssetError] = useState<string | null>(null);
+  const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
+  const [planUsage, setPlanUsage] = useState<PlanUsageSummary | null>(null);
+  const [isPlanLoading, setIsPlanLoading] = useState(false);
+  const [planError, setPlanError] = useState<string | null>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isStartingLogin, setIsStartingLogin] = useState(false);
   const [authState, setAuthState] = useState<AuthState>(
@@ -336,28 +345,28 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
     }
   };
 
-  const handleAssetsClick = async () => {
+  const handlePlanClick = async () => {
     setIsProfileMenuOpen(false);
-    setIsAssetModalOpen(true);
-    setIsAssetLoading(true);
-    setAssetError(null);
+    setIsPlanModalOpen(true);
+    setIsPlanLoading(true);
+    setPlanError(null);
 
     try {
-      const response = await fetch("/api/user/assets", {
+      const response = await fetch("/api/user/plan", {
         cache: "no-store",
         credentials: "same-origin",
       });
 
       if (!response.ok) {
-        throw new Error("Failed to load assets");
+        throw new Error("Failed to load plan");
       }
 
-      const data = (await response.json()) as AssetSummary;
-      setAssetSummary(data);
+      const data = (await response.json()) as PlanUsageSummary;
+      setPlanUsage(data);
     } catch {
-      setAssetError("자산 정보를 불러오지 못했습니다.");
+      setPlanError("플랜 정보를 불러오지 못했습니다.");
     } finally {
-      setIsAssetLoading(false);
+      setIsPlanLoading(false);
     }
   };
 
@@ -576,11 +585,11 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
           </div>
           <button
             type="button"
-            onClick={() => void handleAssetsClick()}
+            onClick={() => void handlePlanClick()}
             className="flex w-full items-center gap-2 px-4 py-3 text-left text-xs font-black text-gray-300 transition-colors duration-200 hover:bg-white/[0.04] hover:text-white"
           >
             <Bank size={16} weight="bold" className="text-gray-500" />
-            <span>자산</span>
+            <span>내 플랜</span>
           </button>
           <button
             type="button"
@@ -594,84 +603,100 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
         </div>
       )}
 
-      {authState === "authenticated" && isAssetModalOpen && (
+      {authState === "authenticated" && isPlanModalOpen && (
         <div
           className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="asset-summary-modal-title"
+          aria-labelledby="plan-summary-modal-title"
         >
           <div className="w-full max-w-lg overflow-hidden rounded-3xl border border-white/[0.08] bg-[#050505] shadow-2xl shadow-black/60">
             <div className="flex items-start justify-between gap-4 border-b border-white/[0.08] px-6 py-5">
               <div>
                 <h2
-                  id="asset-summary-modal-title"
+                  id="plan-summary-modal-title"
                   className="text-2xl font-black tracking-tight text-white"
                 >
-                  자산
+                  내 플랜
                 </h2>
               </div>
               <button
                 type="button"
-                aria-label="자산 모달 닫기"
-                onClick={() => setIsAssetModalOpen(false)}
+                aria-label="내 플랜 모달 닫기"
+                onClick={() => setIsPlanModalOpen(false)}
                 className="rounded-full border border-white/[0.08] p-2 text-gray-500 transition-colors hover:bg-white/[0.06] hover:text-white"
               >
                 <X size={16} weight="bold" />
               </button>
             </div>
 
-            {isAssetLoading ? (
+            {isPlanLoading ? (
               <div className="px-6 py-12 text-center text-sm font-bold text-gray-500">
-                자산 정보를 불러오는 중입니다.
+                플랜 정보를 불러오는 중입니다.
               </div>
-            ) : assetError ? (
+            ) : planError ? (
               <div className="px-6 py-12 text-center">
-                <p className="text-sm font-black text-red-300">{assetError}</p>
+                <p className="text-sm font-black text-red-300">{planError}</p>
                 <button
                   type="button"
-                  onClick={() => void handleAssetsClick()}
+                  onClick={() => void handlePlanClick()}
                   className="mt-5 rounded-xl border border-white/[0.1] px-4 py-2 text-xs font-black text-white transition-colors hover:bg-white/[0.06]"
                 >
                   다시 불러오기
                 </button>
               </div>
-            ) : assetSummary ? (
+            ) : planUsage ? (
               <div className="grid grid-cols-1 divide-y divide-white/[0.08]">
+                <div className="flex items-center justify-between px-6 py-5">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.22em] text-gray-500">
+                      현재 플랜
+                    </p>
+                    <p className="mt-2 text-3xl font-black text-white">
+                      {planUsage.plan.name}
+                    </p>
+                  </div>
+                  <Link
+                    href="/pricing"
+                    onClick={() => setIsPlanModalOpen(false)}
+                    className="rounded-xl border border-white/[0.1] px-4 py-2 text-xs font-black text-white transition-colors hover:bg-white/[0.06]"
+                  >
+                    요금제 보기
+                  </Link>
+                </div>
                 <div className="px-6 py-5">
-                  <p className="text-xs font-black uppercase tracking-[0.22em] text-gray-500">
-                    총 자산
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-gray-500">
+                    계좌당 초기 모의 투자금
                   </p>
-                  <p className="mt-2 text-3xl font-black text-white">
-                    {formatWon(assetSummary.totalAssets)}
+                  <p className="mt-2 text-xl font-black text-white">
+                    {formatWon(planUsage.plan.initialInvestmentAmount)}
                   </p>
                 </div>
-                <div className="grid grid-cols-1 divide-y divide-white/[0.08] sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+                <div className="grid grid-cols-1 divide-y divide-white/[0.08] sm:grid-cols-3 sm:divide-x sm:divide-y-0">
                   <div className="px-6 py-5">
-                    <p className="text-xs font-black uppercase tracking-[0.18em] text-white">
-                      사용 가능 자산
+                    <p className="text-xs font-black tracking-[0.06em] text-gray-500">
+                      사용 중인 계좌
                     </p>
                     <p className="mt-2 text-xl font-black text-white">
-                      {formatWon(assetSummary.availableCash)}
+                      {planUsage.accounts.used} / {planUsage.accounts.limit}
                     </p>
                   </div>
                   <div className="px-6 py-5">
-                    <p className="text-xs font-black uppercase tracking-[0.18em] text-gray-500">
-                      가상계좌 운용 중 자산
+                    <p className="text-xs font-black tracking-[0.06em] text-gray-500">
+                      저장 가능 전략
                     </p>
-                    <p className="mt-2 text-xl font-black text-blue-200">
-                      {formatWon(assetSummary.activeAccountValue)}
+                    <p className="mt-2 text-xl font-black text-white">
+                      {planUsage.strategies.used} / {formatLimit(planUsage.strategies.limit)}
                     </p>
                   </div>
-                </div>
-                <div className="px-6 py-5">
-                  <p className="text-xs font-black uppercase tracking-[0.22em] text-gray-500">
-                    총 수익/손실
-                  </p>
-                  <p className={`mt-2 text-2xl font-black ${getProfitLossTextClass(assetSummary.totalProfitLoss)}`}>
-                    {assetSummary.totalProfitLoss > 0 ? "+" : ""}
-                    {formatWon(assetSummary.totalProfitLoss)}
-                  </p>
+                  <div className="px-6 py-5">
+                    <p className="text-xs font-black tracking-[0.06em] text-gray-500">
+                      이번 달 백테스트
+                    </p>
+                    <p className="mt-2 text-xl font-black text-white">
+                      {planUsage.backtests.used} / {planUsage.backtests.limit}
+                    </p>
+                  </div>
                 </div>
               </div>
             ) : null}

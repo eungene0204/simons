@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { computeCacheKey, findCachedResult, saveCachedResult } from "@/lib/server/backtestCache";
+import { getCurrentUser } from "@/lib/get-user";
+import { prisma } from "@/lib/prisma";
+import {
+  consumeBacktestQuota,
+  PLAN_LIMIT_BACKTESTS,
+  PLAN_LIMIT_MESSAGES,
+} from "@/lib/server/planLimits";
 
 export async function POST(req: NextRequest) {
   let body: any;
@@ -7,6 +14,22 @@ export async function POST(req: NextRequest) {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  // 로그인 사용자는 월 백테스트 한도를 검사하고 1회 소비한다(캐시 히트도 실행 1회로 집계).
+  const user = await getCurrentUser();
+  if (user) {
+    try {
+      await consumeBacktestQuota(prisma, user.id);
+    } catch (err: any) {
+      if (err instanceof Error && err.message === PLAN_LIMIT_BACKTESTS) {
+        return NextResponse.json(
+          { error: "Backtest limit reached", code: PLAN_LIMIT_BACKTESTS, message: PLAN_LIMIT_MESSAGES[PLAN_LIMIT_BACKTESTS] },
+          { status: 429 }
+        );
+      }
+      throw err;
+    }
   }
 
   const cacheKey = computeCacheKey(body);

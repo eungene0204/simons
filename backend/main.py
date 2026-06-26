@@ -2792,7 +2792,7 @@ def parse_nl_strategy(request: NLParseRequest):
         from engine.nl_parser import (
             NLStrategyParser,
             detect_missing_entry_clarification,
-            extract_risk_field_overrides,
+            synthesize_risk_overrides,
         )
         from engine.strategy_converter import to_backtest_request
 
@@ -2859,8 +2859,11 @@ def parse_nl_strategy(request: NLParseRequest):
             "convert_ms": convert_ms,
             "total_ms": round((time.perf_counter() - request_started) * 1000, 2),
         }
-        # 이번 프롬프트에서 결정적으로 바뀐 리스크 필드(단일 진실 소스). 프론트가 그대로 신뢰한다.
-        risk_overrides = extract_risk_field_overrides(request.prompt) or None
+        # 이번 프롬프트에서 바뀐 리스크 필드(단일 진실 소스). 프론트가 그대로 신뢰한다.
+        # 결정적 추출이 놓친 구어체("10% 이익 나면 팔아줘")는 파서(LLM 포함) 결과로 보완한다.
+        risk_overrides = synthesize_risk_overrides(
+            request.prompt, parsed, request.previous_parsed
+        )
         # 진입(종목 선정) 규칙을 통째로 잃었으면 조용히 넘기지 않고 되묻는다.
         # 상대강도 랭킹 등 미지원 유형은 가까운 추세추종으로 바꾸도록 안내.
         clarification_question, clarification_suggestions = detect_missing_entry_clarification(

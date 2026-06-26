@@ -208,20 +208,18 @@ describe("VirtualAccountOverview navigation", () => {
 
     render(<VirtualAccountOverview />);
 
-    fireEvent.click(screen.getByRole("button", { name: "캐시 계좌 계좌 삭제" }));
+    fireEvent.click(screen.getByRole("button", { name: "캐시 계좌 계좌 해지" }));
 
-    expect(await screen.findByRole("dialog", { name: "계좌 삭제" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "계좌 삭제" })).toBeInTheDocument();
-    expect(screen.queryByText("가상계좌를 정산하고 삭제할까요?")).not.toBeInTheDocument();
-    expect(screen.getByText(/계좌의 보유 종목은 현재가 기준으로 강제 매도됩니다/)).toBeInTheDocument();
-    expect(screen.getByText(/회원님 자산으로 반환됩니다/)).toBeInTheDocument();
-    expect(screen.queryByText(/삭제 전에 현재가 기준/)).not.toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "계좌 해지" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "계좌 해지" })).toBeInTheDocument();
+    expect(
+      screen.getByText(/남은 현금과 보유 종목은 다른 계좌로 이전되지 않습니다/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/회원님 자산으로 반환됩니다/)).not.toBeInTheDocument();
     expect(screen.queryByText(/사용자 자산으로 반환/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/CLOSED 상태로 전환/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/이 작업은 일부만 진행될 수 없으며/)).not.toBeInTheDocument();
     expect(assignMock).not.toHaveBeenCalled();
 
-    const confirmDeleteButton = screen.getByRole("button", { name: "계좌 삭제" });
+    const confirmDeleteButton = screen.getByRole("button", { name: "계좌 해지" });
     expect(confirmDeleteButton).toHaveClass("border", "border-white/[0.08]", "text-[var(--main-red)]");
     expect(confirmDeleteButton.className).not.toContain("bg-black");
 

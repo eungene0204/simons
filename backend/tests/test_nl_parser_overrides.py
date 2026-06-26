@@ -20,6 +20,8 @@ from engine.nl_parser import (
     _extract_rebalancing_period,
     _match_risk_pct,
     extract_risk_field_overrides,
+    synthesize_risk_overrides,
+    ParsedStrategy,
     _merge_signals,
     _parse_rule_based_strategy,
     _parse_model_json_response,
@@ -975,6 +977,29 @@ def test_extract_risk_field_overrides_is_single_source_of_truth():
     assert extract_risk_field_overrides("익절 빼줘") == {"take_profit_pct": None}
     # 리스크 변경이 없으면 빈 dict
     assert extract_risk_field_overrides("보유 기간 20일로 바꿔줘") == {}
+
+
+def test_synthesize_risk_overrides_supplements_parser_when_regex_misses():
+    # "10% 이익 나면 팔아줘"는 결정적 추출이 놓치지만(구어체 "이익"), 파서(LLM)가
+    # take_profit_pct=10으로 해석했다면 그 결과를 override로 surface 해야 한다.
+    # 그렇지 않으면 프론트의 결정적 게이트에 막혀 익절이 화면에서 사라진다.
+    previous = {"stop_loss_pct": 10.0, "take_profit_pct": None, "trailing_stop_pct": None}
+    parsed = ParsedStrategy(description="x", stop_loss_pct=10.0, take_profit_pct=10.0)
+    assert extract_risk_field_overrides("10% 이익 나면 팔아줘") == {}  # 결정적은 못 잡음
+    assert synthesize_risk_overrides("10% 이익 나면 팔아줘", parsed, previous) == {
+        "take_profit_pct": 10.0
+    }
+
+
+def test_synthesize_risk_overrides_keeps_deterministic_and_ignores_unchanged():
+    # 결정적 추출이 잡은 값은 그대로 우선, 안 바뀐 필드는 override에 넣지 않는다.
+    previous = {"stop_loss_pct": 10.0, "take_profit_pct": None, "trailing_stop_pct": None}
+    # 비-리스크 수정: 파서가 previous risk를 보존 → override 없음
+    parsed_no_change = ParsedStrategy(description="x", stop_loss_pct=10.0)
+    assert synthesize_risk_overrides("종목 5개로 바꿔줘", parsed_no_change, previous) is None
+    # 결정적으로 잡히는 명시 표현은 그대로
+    parsed_tp = ParsedStrategy(description="x", stop_loss_pct=10.0, take_profit_pct=30.0)
+    assert synthesize_risk_overrides("익절 30%", parsed_tp, previous) == {"take_profit_pct": 30.0}
 
 
 def test_match_risk_pct_keyword_and_number_not_adjacent():

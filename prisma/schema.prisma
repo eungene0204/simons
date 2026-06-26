@@ -294,6 +294,8 @@ model User {
   name           String
   password       String
   planTier       String           @default("FREE")
+  backtestUsageMonth     String?
+  backtestCountThisMonth Int       @default(0)
   createdAt      DateTime         @default(now())
   updatedAt      DateTime
   ResearchRun    ResearchRun[]

@@ -397,9 +397,11 @@ function ParsedSummaryBubble({
   const universeLabels = getDisplayUniverseLabels(parsed, backtestRequest);
   const exitLabels = getDisplayExitLabels(parsed);
   const rankingLabel = getRankingLabel(parsed);
+  // 종목 선정(모멘텀 랭킹)도 진입(종목 선정) 기준이므로 '진입 신호'로 통일해 함께 표시한다.
   const entryLabels = [
     ...parsed.fundamental_filters.map(formatFundamentalFilter),
     ...parsed.entry_signals.map((s) => getSignalLabel(s, "entry")),
+    ...(rankingLabel ? [rankingLabel] : []),
   ];
 
   return (
@@ -429,14 +431,6 @@ function ParsedSummaryBubble({
               {entryLabels.map((label, i) => (
                 <FilterBadge key={i} label={label} />
               ))}
-            </div>
-          </div>
-        )}
-        {rankingLabel && (
-          <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest w-14 flex-shrink-0">선정</span>
-            <div className="flex flex-wrap gap-1">
-              <FilterBadge label={rankingLabel} />
             </div>
           </div>
         )}

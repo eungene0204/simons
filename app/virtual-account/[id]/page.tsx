@@ -1312,7 +1312,7 @@ export default function VirtualAccountDetailPage() {
                             <p className="mt-1 text-sm font-black text-white">{new Date(account.createdAt).toLocaleDateString("ko-KR")}</p>
                           </div>
                           <div className="py-3">
-                            <p className="text-xs font-bold uppercase tracking-widest text-gray-600">초기 투자금</p>
+                            <p className="text-xs font-bold uppercase tracking-widest text-gray-600">초기 모의 투자금</p>
                             <p className="mt-1 text-sm font-black font-outfit tabular-nums text-white">{formatPrice(account.initialAmount)}원</p>
                           </div>
                           <div className="py-3">

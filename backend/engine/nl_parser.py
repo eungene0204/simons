@@ -2360,6 +2360,32 @@ def extract_risk_field_overrides(user_input: str) -> dict[str, Optional[float]]:
     return out
 
 
+_RISK_OVERRIDE_FIELDS = ("stop_loss_pct", "take_profit_pct", "trailing_stop_pct")
+
+
+def synthesize_risk_overrides(
+    user_input: str,
+    parsed: "ParsedStrategy",
+    previous_parsed: Optional[dict] = None,
+) -> Optional[dict[str, Optional[float]]]:
+    """프론트가 신뢰할 '바뀐 리스크 필드' 단일 진실 소스를 합성한다.
+
+    1차로 결정적 추출(extract_risk_field_overrides)을 쓰고, 그것이 놓친 구어체
+    ("10% 이익 나면 팔아줘")는 파서(LLM 포함)가 previous 대비 실제로 바꾼 값으로
+    보완한다. 그렇지 않으면 LLM이 올바로 해석한 risk 값이 프론트의 결정적 게이트에
+    막혀 사라진다. 결정적 추출이 이미 처리한 필드(삭제 None 포함)는 그대로 둔다.
+    """
+    overrides = extract_risk_field_overrides(user_input)
+    baseline = previous_parsed or {}
+    for field in _RISK_OVERRIDE_FIELDS:
+        if field in overrides:
+            continue
+        new_val = getattr(parsed, field)
+        if new_val != baseline.get(field):
+            overrides[field] = new_val
+    return overrides or None
+
+
 def _apply_prompt_overrides(parsed: ParsedStrategy, user_input: str) -> ParsedStrategy:
     updates: dict[str, object] = {}
     explicit_universe = _extract_explicit_universe(user_input)

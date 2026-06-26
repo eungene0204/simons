@@ -681,7 +681,7 @@ RiskManagement {
 |------|------|-----------|
 | 홈 대시보드 | 전략/백테스트/가상계좌 허브 (WelcomeSection, 시장 스냅샷, 관심종목, 전략/백테스트 이력, 가상매매 현황) | ✅ 완료 |
 | 포트폴리오 대시보드 | 전체 자산 현황, 수익률 추이, 포지션 분포, 품질 게이지 | ✅ 완료 |
-| 사용자 자산 지갑 | 신규 사용자 1,000만원 지급, 가상계좌 배정 차감, 계좌 종료 정산 반환, AssetLedger 이동 내역, 프로필 메뉴 자산 요약 모달 | ✅ 완료 |
+| 요금제 & 플랜 제한 | Free/Pro/Premium 플랜별 계좌당 초기 투자금·가상계좌 수·저장 전략 수·월 백테스트 한도. 계좌는 플랜의 초기 투자금으로 독립 생성(공유 풀 폐기), 계좌 해지 시 금액 미이전. 요금제 페이지(무료 플랜 변경), 내 플랜/사용량 모달·페이지 | ✅ 완료 |
 | 관심종목 | 종목 추가/삭제, 그룹 관리 (색상), DB 영구 저장, 드로어 UI | ✅ 완료 |
 | 월별 수익률 | 히트맵 시각화 | ✅ 완료 |
 | 종목별 비중 | 파이차트, 섹터별 분산도 | ✅ 완료 |
@@ -780,13 +780,18 @@ VirtualAccount {
   → VirtualMarketState, VirtualOrder[], VirtualPosition[]
 }
 
--- 사용자 자산 지갑
+-- 사용자 플랜 / 월 백테스트 사용량 (User 모델 필드)
+--   planTier ("FREE"/"PRO"/"PREMIUM"), backtestUsageMonth ("YYYY-MM"),
+--   backtestCountThisMonth (Int) — 달력 월 기준 초기화. 플랜 정의는 lib/plans.ts.
+
+-- (레거시) UserAsset / AssetLedger: 공유 자산 풀 모델은 폐기됨.
+--   풀 펀딩/정산-반환 로직은 제거(계좌는 플랜별 초기 투자금으로 독립 생성).
+--   AssetLedger는 계좌 정산값 기록(ACCOUNT_LIQUIDATION_RETURN, 닫힌 계좌 수익률 조회용)
+--   및 매수/매도 거래 기록 용도로만 보존. UserAsset은 미사용(테이블 유지).
 UserAsset {
   userId→User, availableCash (Decimal), initialGrantAmount (Decimal),
   createdAt, updatedAt
 }
-
--- 사용자 자산 원장
 AssetLedger {
   id, userId→User, accountId→VirtualAccount?, type, amount (Decimal),
   balanceAfter (Decimal), createdAt

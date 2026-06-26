@@ -45,9 +45,13 @@ export class BacktestService {
 
       if (!response.ok) {
         const errorData = await response.json();
+        // 플랜 한도 초과(429) 등 message 필드가 있으면 사용자 메시지로 그대로 노출
+        if (errorData.message && typeof errorData.message === "string") {
+          throw new Error(errorData.message);
+        }
         const detail = errorData.detail;
         let errorMessage = "Failed to run backtest in Python engine";
-        
+
         if (typeof detail === "string") {
           errorMessage = detail;
         } else if (Array.isArray(detail)) {

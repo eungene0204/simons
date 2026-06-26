@@ -8,6 +8,11 @@ import {
   isUnauthorizedAccessError,
   withOwnership,
 } from '@/lib/get-user';
+import {
+  assertCanSaveStrategy,
+  PLAN_LIMIT_STRATEGIES,
+  PLAN_LIMIT_MESSAGES,
+} from '@/lib/server/planLimits';
 
 function buildOwnedStrategyId(userId: number | null, data: StrategyDSL) {
   const baseId = computeStrategyIdFromDsl(data);
@@ -29,6 +34,17 @@ export async function POST(request: Request) {
       ...data,
       id: strategyId,
     };
+
+    // 신규 저장(기존 전략 업데이트가 아닌 경우)만 플랜 한도를 검사한다.
+    if (userId != null) {
+      const existing = await prisma.strategy.findFirst({
+        where: { id: strategyId, isSaved: true },
+        select: { id: true },
+      });
+      if (!existing) {
+        await assertCanSaveStrategy(prisma, userId);
+      }
+    }
 
     const strategy = await prisma.strategy.upsert({
       where: { id: strategyId },
@@ -56,6 +72,12 @@ export async function POST(request: Request) {
   } catch (error) {
     if (isUnauthorizedAccessError(error)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    if (error instanceof Error && error.message === PLAN_LIMIT_STRATEGIES) {
+      return NextResponse.json(
+        { error: 'Strategy limit reached', code: PLAN_LIMIT_STRATEGIES, message: PLAN_LIMIT_MESSAGES[PLAN_LIMIT_STRATEGIES] },
+        { status: 403 }
+      );
     }
     console.error('Failed to save strategy:', error);
     return NextResponse.json({ error: 'Failed to save strategy' }, { status: 500 });

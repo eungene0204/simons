@@ -73,7 +73,7 @@ describe("VirtualAccountOverview cache", () => {
 
     render(<VirtualAccountOverview />);
 
-    const initialAmountLabel = screen.getByText("초기 투자금");
+    const initialAmountLabel = screen.getByText("초기 모의 투자금");
     const initialAmountCard = initialAmountLabel.parentElement;
     expect(initialAmountCard).not.toBeNull();
     expect(initialAmountCard).toHaveClass("relative", "rounded-md", "p-3");
@@ -91,7 +91,7 @@ describe("VirtualAccountOverview cache", () => {
 
     render(<VirtualAccountOverview />);
 
-    const deleteButton = screen.getByRole("button", { name: "자동 계좌 계좌 삭제" });
+    const deleteButton = screen.getByRole("button", { name: "자동 계좌 계좌 해지" });
     expect(deleteButton).toHaveClass(
       "bg-white/[0.06]",
       "text-gray-500",

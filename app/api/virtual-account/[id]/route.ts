@@ -285,7 +285,6 @@ export async function DELETE(
     return NextResponse.json({
       message: 'Account closed',
       returnedAmount: result.returnedAmount.toNumber(),
-      availableCash: result.availableCash.toNumber(),
       account: mapAccount(result.account, {}, {}, result.returnedAmount.toNumber()),
     });
   } catch (error) {

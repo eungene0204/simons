@@ -25,6 +25,33 @@ const savedStrategy = {
   },
 };
 
+const planUsage = {
+  plan: { planId: "FREE", name: "Free", initialInvestmentAmount: 10_000_000 },
+  accounts: { used: 0, limit: 1 },
+  strategies: { used: 0, limit: 3, unlimited: false },
+  backtests: { used: 0, limit: 30 },
+};
+
+function mockFetch(accountsUsed = 0, accountsLimit = 1) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/user/plan") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            ...planUsage,
+            accounts: { used: accountsUsed, limit: accountsLimit },
+          }),
+        });
+      }
+      // /api/strategy
+      return Promise.resolve({ ok: true, json: async () => [savedStrategy] });
+    })
+  );
+}
+
 describe("CreateAccountModal trading mode", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -32,13 +59,7 @@ describe("CreateAccountModal trading mode", () => {
 
   async function renderAndSelectStrategy() {
     const onCreate = vi.fn();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => [savedStrategy],
-      })
-    );
+    mockFetch();
 
     render(
       <CreateAccountModal
@@ -60,12 +81,9 @@ describe("CreateAccountModal trading mode", () => {
     return onCreate;
   }
 
-  function fillAndSubmit(amount = "100") {
+  function fillNameAndSubmit() {
     fireEvent.change(screen.getByPlaceholderText("예: 저PBR 전략, 모멘텀 전략, 가치주 전략..."), {
       target: { value: "자동 계좌" },
-    });
-    fireEvent.change(screen.getByPlaceholderText("100"), {
-      target: { value: amount },
     });
     fireEvent.click(screen.getByRole("button", { name: "만들기" }));
   }
@@ -77,40 +95,38 @@ describe("CreateAccountModal trading mode", () => {
     const autoTradingButton = screen.getByRole("button", { name: "자동매매 OFF" });
     expect(autoTradingButton).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByText("OFF")).toBeInTheDocument();
-    expect(screen.queryByText("신호 알림만")).not.toBeInTheDocument();
-    expect(screen.queryByText("알림 받고 직접 매매")).not.toBeInTheDocument();
     expect(screen.getByText("자동매매는 꺼져 있습니다. 계좌 생성 후에도 직접 켤 수 있습니다.")).toBeInTheDocument();
 
     await act(async () => {
-      fillAndSubmit();
+      fillNameAndSubmit();
     });
 
     expect(onCreate).toHaveBeenCalledWith(
       "자동 계좌",
-      1_000_000,
+      10_000_000,
       savedStrategy.id,
       savedStrategy.name,
       "manual"
     );
   });
 
-  it("allows investment amounts above 1000만원", async () => {
+  it("계좌당 초기 투자금을 플랜 기준으로 표시하고 그 금액으로 생성한다", async () => {
     const onCreate = await renderAndSelectStrategy();
 
-    expect(screen.getByText("최소 100만원")).toBeInTheDocument();
+    expect(screen.getByText("계좌당 초기 모의 투자금")).toBeInTheDocument();
+    expect(screen.getByText("10,000,000원")).toBeInTheDocument();
 
     await act(async () => {
-      fillAndSubmit("1,500");
+      fillNameAndSubmit();
     });
 
     expect(onCreate).toHaveBeenCalledWith(
       "자동 계좌",
-      15_000_000,
+      10_000_000,
       savedStrategy.id,
       savedStrategy.name,
       "manual"
     );
-    expect(screen.queryByText("최대 투자금액은 1000만원입니다.")).not.toBeInTheDocument();
   });
 
   it("creates strategy accounts with auto mode after turning the toggle on", async () => {
@@ -123,22 +139,33 @@ describe("CreateAccountModal trading mode", () => {
 
     const enabledAutoTradingButton = screen.getByRole("button", { name: "자동매매 ON" });
     expect(enabledAutoTradingButton).toHaveAttribute("aria-pressed", "true");
-    expect(enabledAutoTradingButton.className).not.toContain("bg-blue-500/10");
     expect(screen.getByText("ON")).toBeInTheDocument();
-    expect(
-      screen.getByText("전략 신호가 발생하면 현재가로 자동 주문이 실행됩니다.").className
-    ).not.toContain("bg-blue-500/10");
 
     await act(async () => {
-      fillAndSubmit();
+      fillNameAndSubmit();
     });
 
     expect(onCreate).toHaveBeenCalledWith(
       "자동 계좌",
-      1_000_000,
+      10_000_000,
       savedStrategy.id,
       savedStrategy.name,
       "auto"
     );
+  });
+
+  it("계좌 한도에 도달하면 만들기 버튼을 비활성화한다", async () => {
+    const onCreate = vi.fn();
+    mockFetch(1, 1);
+
+    render(
+      <CreateAccountModal isOpen={true} onClose={vi.fn()} onCreate={onCreate} />
+    );
+
+    const submit = await screen.findByRole("button", { name: "만들기" });
+    expect(submit).toBeDisabled();
+    expect(
+      screen.getByText(/가상계좌 수 한도에 도달/),
+    ).toBeInTheDocument();
   });
 });

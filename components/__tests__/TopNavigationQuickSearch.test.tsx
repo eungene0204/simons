@@ -359,15 +359,14 @@ describe("TopNavigation quick search", () => {
         });
       }
 
-      if (url === "/api/user/assets") {
+      if (url === "/api/user/plan") {
         return Promise.resolve({
           ok: true,
           json: async () => ({
-            availableCash: 7_000_000,
-            activeAccountValue: 3_700_000,
-            totalAssets: 10_700_000,
-            totalProfitLoss: 700_000,
-            accounts: [],
+            plan: { planId: "FREE", name: "Free", initialInvestmentAmount: 10_000_000 },
+            accounts: { used: 0, limit: 1 },
+            strategies: { used: 0, limit: 3, unlimited: false },
+            backtests: { used: 0, limit: 30 },
           }),
         });
       }
@@ -394,22 +393,18 @@ describe("TopNavigation quick search", () => {
     fireEvent.click(profileButton);
 
     expect(await screen.findByText("hong@example.com")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "자산" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "내 플랜" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "로그아웃" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "자산" }));
-    expect(await screen.findByRole("dialog", { name: "자산" })).toBeInTheDocument();
-    expect(screen.getByText("총 자산")).toBeInTheDocument();
-    expect(screen.getByText("10,700,000원")).toBeInTheDocument();
-    expect(screen.getByText("사용 가능 자산")).toBeInTheDocument();
-    expect(screen.getByText("7,000,000원")).toBeInTheDocument();
-    expect(screen.getByText("가상계좌 운용 중 자산")).toBeInTheDocument();
-    expect(screen.getByText("3,700,000원")).toBeInTheDocument();
-    expect(screen.getByText("총 수익/손실")).toBeInTheDocument();
-    expect(screen.getByText("+700,000원")).toBeInTheDocument();
-    expect(pushMock).not.toHaveBeenCalledWith("/assets");
+    fireEvent.click(screen.getByRole("button", { name: "내 플랜" }));
+    expect(await screen.findByRole("dialog", { name: "내 플랜" })).toBeInTheDocument();
+    expect(screen.getByText("현재 플랜")).toBeInTheDocument();
+    expect(screen.getByText("Free")).toBeInTheDocument();
+    expect(screen.getByText("계좌당 초기 모의 투자금")).toBeInTheDocument();
+    expect(screen.getByText("10,000,000원")).toBeInTheDocument();
+    expect(screen.getByText("사용 중인 계좌")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "자산 모달 닫기" }));
+    fireEvent.click(screen.getByRole("button", { name: "내 플랜 모달 닫기" }));
     fireEvent.click(profileButton);
     fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
 

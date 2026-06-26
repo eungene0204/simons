@@ -313,6 +313,65 @@ def test_risk_step_free_text_after_direct_input_parses_custom_value():
     assert "15% 손절" in r.prompt
 
 
+def test_risk_step_parses_stop_loss_with_korean_particle():
+    """'15%에 손절 30% 익절'처럼 퍼센트와 키워드 사이에 조사(에)가 끼어도 손절을 인식한다."""
+    r = _step(_ready_for_risk(), "15%에 손절 30% 익절")
+    assert r.status == "confirmed"
+    assert r.state.stop_loss_pct == 15.0
+    assert r.state.take_profit_pct == 30.0
+    assert "15% 손절" in r.prompt and "30% 익절" in r.prompt
+
+
+def test_risk_step_llm_recovers_value_regex_missed():
+    """정규식이 키워드(손절)는 봤지만 값을 못 뽑으면 LLM 보강 파서로 값을 채운다."""
+    calls = []
+
+    def fake_extractor(text: str) -> dict:
+        calls.append(text)
+        return {"stop_loss_pct": 20.0}
+
+    # '이십프로 손절'은 정규식이 수치를 못 뽑지만 키워드는 있어 LLM 보강이 트리거된다.
+    r = sb.step(_ready_for_risk(), "이십프로 손절", fake_extractor)
+    assert calls == ["이십프로 손절"]
+    assert r.status == "confirmed"
+    assert r.state.stop_loss_pct == 20.0
+    assert "20% 손절" in r.prompt
+
+
+def test_risk_step_regex_match_skips_llm():
+    """정규식이 깨끗이 잡으면 LLM 보강 파서를 호출하지 않는다(비용/지연 절감)."""
+    calls = []
+
+    def fake_extractor(text: str) -> dict:
+        calls.append(text)
+        return {}
+
+    r = sb.step(_ready_for_risk(), "10% 손절", fake_extractor)
+    assert calls == []  # LLM 미호출
+    assert r.state.stop_loss_pct == 10.0
+
+
+def test_risk_step_regex_takes_priority_over_llm():
+    """정규식이 잡은 필드는 LLM 결과로 덮어쓰지 않는다(결정론 우선)."""
+    # 손절은 정규식이 잡고(15), 익절은 '삼십프로'라 정규식이 놓쳐 LLM이 채운다(30).
+    r = sb.step(
+        _ready_for_risk(),
+        "15% 손절에 삼십프로 익절",
+        lambda _t: {"stop_loss_pct": 99.0, "take_profit_pct": 30.0},
+    )
+    assert r.state.stop_loss_pct == 15.0  # 정규식 값 유지(LLM 99 무시)
+    assert r.state.take_profit_pct == 30.0  # 정규식이 놓친 값만 LLM 보강
+
+
+def test_risk_step_llm_failure_falls_back_to_regex():
+    """LLM 보강이 예외를 던져도 정규식 결과로 안전하게 폴백한다."""
+    def boom(_t: str) -> dict:
+        raise RuntimeError("LLM down")
+
+    r = sb.step(_ready_for_risk(), "15%에 손절", boom)
+    assert r.state.stop_loss_pct == 15.0  # 정규식이 이미 잡음
+
+
 def test_risk_step_parses_stop_take_trailing_hold():
     state = _ready_for_risk()
 
