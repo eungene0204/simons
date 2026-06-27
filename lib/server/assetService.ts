@@ -1,6 +1,7 @@
 import { Prisma, PrismaClient } from "@prisma/client";
 import { calcFee, calcRealizedPnl, calcSellProceeds, calcTransactionTax } from "@/lib/order-engine";
 import { fetchStockPriceSnapshots } from "@/lib/server/stock-prices";
+import type { StockPriceSnapshot } from "@/lib/stock-prices";
 
 type AssetTx = Prisma.TransactionClient;
 type AssetLedgerReader = Pick<PrismaClient, "assetLedger"> | Pick<AssetTx, "assetLedger">;
@@ -246,7 +247,7 @@ export async function fetchSettlementPriceMap(
   const snapshots = await fetchStockPriceSnapshots(symbols, {
     mode: "realtime",
     subscribe: false,
-  }).catch(() => ({}));
+  }).catch((): Record<string, StockPriceSnapshot> => ({}));
 
   return Object.fromEntries(
     positions.map((position) => {
