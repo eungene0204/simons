@@ -31,6 +31,7 @@ Allowed:
 - User Personalization / Ownership Persistence
 - News Impact Pipeline
 - App Shell / Navigation
+- Pricing / Plan UI
 - Governance / Policy Docs
 
 Never mix boundaries in one task.

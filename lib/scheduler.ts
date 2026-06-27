@@ -11,10 +11,10 @@
  *   15:30 KST  — 장 마감: 실행 중인 계좌 일시정지 (평일)
  */
 
+import { runSchedulerAction } from "@/lib/server/scheduler-actions";
+
 const REFRESH_INTERVAL_MIN = 1;
 const CHECK_INTERVAL_MS = 60_000; // 1분마다 체크
-
-const APP_URL = process.env.APP_URL || "http://localhost:3000";
 
 const firedToday = new Set<string>();
 let intervalId: ReturnType<typeof setInterval> | null = null;
@@ -30,30 +30,28 @@ function formatKST(d: Date): string {
   return d.toISOString().replace("T", " ").slice(0, 19);
 }
 
-async function callSchedulerAPI(action: string): Promise<void> {
-  const url = `${APP_URL}/api/scheduler`;
+// 스케줄러 액션을 인-프로세스로 직접 실행한다.
+// 예전에는 자기 자신의 /api/scheduler 라우트를 HTTP 로 self-fetch 했는데,
+// dev 모드에서 HMR 재컴파일이 일어나면 그 라우트가 일시적으로 404(HTML)를 반환해
+// "Unexpected token '<'" SyntaxError 가 반복 발생했다. 이제 로직(runSchedulerAction)을
+// 직접 호출하므로 HTTP 왕복도, 라우트 재컴파일 의존성도 없다.
+export async function callSchedulerAPI(action: string): Promise<void> {
+  const ts = formatKST(nowKST());
   try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action }),
-    });
-    const body = await res.json();
-    const ts = formatKST(nowKST());
+    const result = await runSchedulerAction(action);
 
     if (action === "market-open") {
-      const count = body.results?.length ?? 0;
+      const count = Array.isArray(result.results) ? result.results.length : 0;
       console.log(`[Scheduler] ${ts} KST — 장 개장 처리 완료 — ${count}개 계좌`);
     } else if (action === "market-refresh") {
-      const count = body.results?.length ?? 0;
+      const count = Array.isArray(result.results) ? result.results.length : 0;
       console.log(`[Scheduler] ${ts} KST — 시세 새로고침 완료 — ${count}개 계좌`);
     } else if (action === "market-close") {
-      const count = body.paused ?? 0;
+      const count = typeof result.paused === "number" ? result.paused : 0;
       console.log(`[Scheduler] ${ts} KST — 장 마감 처리 완료 — ${count}개 계좌 일시정지`);
     }
   } catch (e) {
-    const ts = formatKST(nowKST());
-    console.error(`[Scheduler] ${ts} KST — API 호출 실패 (${action}):`, e);
+    console.error(`[Scheduler] ${ts} KST — 스케줄러 액션 실패 (${action}):`, e);
   }
 }
 
@@ -114,7 +112,7 @@ export function startScheduler(): void {
 
   const kst = nowKST();
   console.log(`[Scheduler] 스케줄러 시작 (KST: ${formatKST(kst)})`);
-  console.log(`[Scheduler] APP_URL: ${APP_URL}`);
+  console.log(`[Scheduler] 인-프로세스 직접 실행 (HTTP self-fetch 제거됨)`);
   console.log(`[Scheduler] 새로고침 간격: ${REFRESH_INTERVAL_MIN}분`);
 
   // 시작 직후 한 번 실행 (서버 재시작 시 놓친 이벤트 처리)

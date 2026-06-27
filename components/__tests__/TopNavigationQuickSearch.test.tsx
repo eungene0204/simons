@@ -263,14 +263,14 @@ describe("TopNavigation quick search", () => {
     });
   });
 
-  it("비로그인 상태에서 가상계좌, 전략모음, 대시보드 메뉴를 누르면 로그인 모달을 보여준다", async () => {
+  it("비로그인 상태에서 모의투자, 전략모음, 대시보드 메뉴를 누르면 로그인 모달을 보여준다", async () => {
     renderWithQueryClient(<TopNavigation />);
 
     await screen.findByRole("button", {
       name: "Google 로그인",
     });
 
-    fireEvent.click(screen.getByRole("link", { name: /가상계좌/i }));
+    fireEvent.click(screen.getByRole("link", { name: /모의투자/i }));
 
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("로그인 후 이용할 수 있습니다")).toBeInTheDocument();

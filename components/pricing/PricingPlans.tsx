@@ -13,6 +13,13 @@ function formatCount(value: number) {
   return value.toLocaleString("ko-KR");
 }
 
+function formatInitialInvestmentAmount(value: number) {
+  if (value === 10_000_000) return "천 만원";
+  if (value === 50_000_000) return "5천 만원";
+  if (value === 100_000_000) return "1억원";
+  return formatWon(value);
+}
+
 const PLAN_ICONS: Record<PlanId, typeof Lightning> = {
   FREE: Lightning,
   PRO: Rocket,
@@ -23,8 +30,11 @@ type FeatureRow = { label: string; included: boolean };
 
 function planFeatures(plan: Plan): FeatureRow[] {
   return [
-    { label: `계좌당 초기 모의 투자금 ${formatWon(plan.initialInvestmentAmount)}`, included: true },
-    { label: `가상계좌 ${formatCount(plan.maxVirtualAccounts)}개`, included: true },
+    {
+      label: `계좌당 초기 모의 투자금 ${formatInitialInvestmentAmount(plan.initialInvestmentAmount)}`,
+      included: true,
+    },
+    { label: `가상계좌 최대 ${formatCount(plan.maxVirtualAccounts)}개`, included: true },
     {
       label: plan.isUnlimitedStrategies
         ? "전략 무제한 저장"
@@ -33,6 +43,16 @@ function planFeatures(plan: Plan): FeatureRow[] {
     },
     { label: `월 백테스트 ${formatCount(plan.monthlyBacktestLimit)}회`, included: true },
   ];
+}
+
+function planDescription(plan: Plan): string {
+  if (plan.planId === "PRO") {
+    return "전략을 본격적으로 만들고 검증하는 플랜";
+  }
+  if (plan.planId === "PREMIUM") {
+    return "여러 전략을 동시에 연구하고 검증하는 플랜";
+  }
+  return plan.description;
 }
 
 interface PricingPlansProps {
@@ -69,7 +89,10 @@ export default function PricingPlans({ currentPlanId }: PricingPlansProps) {
       {error ? (
         <p className="mb-4 text-sm font-black text-[var(--main-red)]">{error}</p>
       ) : null}
-      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-3">
+      <div
+        data-testid="pricing-plan-grid"
+        className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-3"
+      >
         {PLAN_ORDER.map((planId) => {
           const plan = PLANS[planId];
           const Icon = PLAN_ICONS[planId];
@@ -79,7 +102,8 @@ export default function PricingPlans({ currentPlanId }: PricingPlansProps) {
           return (
             <div
               key={planId}
-              className="relative flex flex-col rounded-3xl border border-white/[0.08] bg-[#0a0a0a] p-10"
+              data-testid={`pricing-plan-card-${planId}`}
+              className="relative flex h-full flex-col rounded-3xl border border-white/[0.08] bg-[#0a0a0a] p-10 transition-transform duration-200 ease-out hover:-translate-y-1.5"
             >
               {/* 헤더: 아이콘 + 플랜명 */}
               <div className="flex items-center gap-3">
@@ -90,7 +114,7 @@ export default function PricingPlans({ currentPlanId }: PricingPlansProps) {
               </div>
 
               <p className="mt-6 text-sm font-bold leading-relaxed text-gray-400">
-                {plan.description}
+                {planDescription(plan)}
               </p>
 
               {/* 가격 */}
@@ -99,6 +123,7 @@ export default function PricingPlans({ currentPlanId }: PricingPlansProps) {
                   {formatWon(plan.monthlyPrice)}
                 </span>
                 <span className="pb-1 text-sm font-bold text-gray-500">/ 월</span>
+                <span className="pb-1 text-sm font-bold text-gray-500">(VAT 포함)</span>
               </div>
 
               {/* 기능 목록 */}
@@ -129,8 +154,6 @@ export default function PricingPlans({ currentPlanId }: PricingPlansProps) {
                 className={`mt-10 w-full rounded-2xl px-4 py-4 text-sm font-black transition-colors disabled:cursor-not-allowed ${
                   isCurrent
                     ? "bg-white/[0.04] text-gray-500"
-                    : planId === "PREMIUM"
-                    ? "bg-white text-black hover:bg-white/90 disabled:opacity-60"
                     : "border border-white/[0.12] text-white hover:bg-white/[0.06] disabled:opacity-60"
                 }`}
               >

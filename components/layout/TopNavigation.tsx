@@ -10,6 +10,7 @@ import {
   Bank,
   MagnifyingGlass,
   ChartLineUp,
+  Flask,
   SlidersHorizontal,
   CaretDown,
   GoogleLogo,
@@ -24,13 +25,13 @@ const menuItems = [
     label: "전략연구소",
     href: "/analytics",
     id: "analytics",
-    Icon: ChartLineUp,
+    Icon: Flask,
   },
   {
-    label: "가상계좌",
+    label: "모의투자",
     href: "/virtual-account",
     id: "virtual-account",
-    Icon: Bank,
+    Icon: ChartLineUp,
   },
   {
     label: "전략모음",
@@ -514,14 +515,20 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
 
         {/* Search Bar */}
         <div className="flex items-center gap-2 ml-auto mr-4">
-          <div
+          <button
+            type="button"
             onClick={handleSearchClick}
-            className="relative flex items-center bg-white/5 border border-white/5 rounded-xl px-4 py-1.5 min-w-[220px] cursor-pointer hover:bg-white/10 transition-all group"
+            className="group relative flex min-w-[180px] items-center rounded-xl border border-white/[0.1] bg-[#111116] px-2.5 py-1 text-left shadow-[0_8px_22px_rgba(0,0,0,0.22)] transition-all duration-200 hover:border-white/[0.18] hover:bg-[#17171d]"
+            aria-label="검색 열기"
           >
-            <MagnifyingGlass size={16} className="text-gray-500 group-hover:text-gray-300 mr-2 flex-shrink-0" />
-            <span className="text-[10px] text-gray-500 font-bold bg-black/40 border border-white/10 rounded px-1.5 py-0.5 mr-2 flex-shrink-0">/</span>
-            <span className="text-xs text-gray-500 group-hover:text-gray-400 font-bold flex-1">빠른 검색</span>
-          </div>
+            <MagnifyingGlass size={18} className="mr-2.5 flex-shrink-0 text-gray-500 group-hover:text-gray-300" />
+            <span className="mr-2 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-white/[0.07] text-xs font-black text-gray-400">
+              /
+            </span>
+            <span className="min-w-0 flex-1 truncate text-xs font-bold tracking-tight text-gray-500 group-hover:text-gray-300">
+              를 눌러 검색하세요
+            </span>
+          </button>
         </div>
 
         {/* User Profile */}

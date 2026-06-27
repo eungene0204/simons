@@ -494,6 +494,10 @@ Public landing page, sign-in entry flow, and session bootstrap into the existing
 - lib/prisma.ts
 - lib/server/assetService.ts
 - lib/server/backtestCache.ts
+- lib/server/virtual-market-refresh.ts
+- lib/server/strategy-start.ts
+- lib/server/scheduler-actions.ts
+- lib/scheduler.ts
 - lib/strategy-tracked-symbols.ts
 - components/layout/TopNavigation.tsx
 - components/__tests__/TopNavigationQuickSearch.test.tsx
@@ -563,6 +567,35 @@ Public landing page, sign-in entry flow, and session bootstrap into the existing
 - API route 변경
 - 인증 또는 사용자 소유권 로직 변경
 - 주문 체결, 자산 계산, 백테스트 알고리즘 변경
+- 데이터베이스 스키마 변경
+- backend 코드 변경
+
+---
+
+## Boundary R: Pricing / Plan UI
+
+### Purpose
+요금제 페이지와 플랜 카드 UI의 표시, 레이아웃, 상호작용 정합성 유지.
+
+### Files
+- app/pricing/**
+- components/pricing/**
+
+### Allowed Tasks
+- 요금제 페이지 UI/카피/레이아웃 개선
+- 플랜 카드 표시, hover/focus 상태, CTA 스타일 정리
+- 플랜 한도와 가격 표시 문구 정합성 보완
+- pricing UI 회귀 테스트 추가 및 수정
+
+### Strict Rules
+- 실제 결제, 구독 생성, 플랜 변경 API 계약은 변경하지 않는다.
+- 플랜 한도 계산과 사용자 소유권 로직은 변경하지 않는다.
+- 투자 추천, 수익 보장, 개인 맞춤 조언으로 해석될 수 있는 문구를 추가하지 않는다.
+
+### Forbidden
+- API route 변경
+- 인증 또는 사용자 소유권 로직 변경
+- 플랜 한도 계산 로직 변경
 - 데이터베이스 스키마 변경
 - backend 코드 변경
 
