@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { loadStockList } from "@/lib/krx-stocks";
 import { getTopSymbolsFromSummary } from "@/lib/backtest-top-symbols";
+import delistedStocks from "@/data/delisted-stocks.json";
 
 const KOSPI200_TOP = [
   "005930", "000660", "373220", "207940", "005380",
@@ -12,8 +13,49 @@ const KOSPI200_TOP = [
 const MAX_SYMBOLS = 20;
 const BACKTEST_TOP_SYMBOLS = 10;
 const MIN_BACKTEST_SYMBOLS = 3;
+const LOCAL_DELISTED_SYMBOLS = new Set(
+  ((delistedStocks as { symbols?: string[] }).symbols ?? []).map((symbol) =>
+    symbol.trim()
+  )
+);
 
 export type TrackedSymbolSource = "backtest" | "universe";
+
+function normalizeUniqueSymbols(symbols: string[]): string[] {
+  const seen = new Set<string>();
+  return symbols
+    .map((symbol) => String(symbol).trim())
+    .filter((symbol) => {
+      if (!symbol || seen.has(symbol)) return false;
+      seen.add(symbol);
+      return true;
+    });
+}
+
+export async function filterMonitorableSymbols(symbols: string[]): Promise<string[]> {
+  const normalized = normalizeUniqueSymbols(symbols);
+  if (normalized.length === 0) return [];
+
+  const blocked = new Set<string>();
+  normalized.forEach((symbol) => {
+    if (LOCAL_DELISTED_SYMBOLS.has(symbol)) blocked.add(symbol);
+  });
+
+  try {
+    const dbDelisted = await prisma.stock.findMany({
+      where: {
+        symbol: { in: normalized },
+        listingStatus: "DELISTED",
+      },
+      select: { symbol: true },
+    });
+    dbDelisted.forEach((stock) => blocked.add(stock.symbol));
+  } catch (error) {
+    console.warn("Failed to filter DB delisted symbols:", error);
+  }
+
+  return normalized.filter((symbol) => !blocked.has(symbol));
+}
 
 export async function resolveUniverseSymbols(
   universeId: string,
@@ -97,7 +139,10 @@ export async function resolveTrackedSymbolsForStrategy(params: {
 }): Promise<{ symbols: string[]; source: TrackedSymbolSource }> {
   const backtestBest = await getBestBacktestSymbols(params.strategyId, params.strategyName);
   if (backtestBest) {
-    return backtestBest;
+    return {
+      symbols: await filterMonitorableSymbols(backtestBest.symbols),
+      source: backtestBest.source,
+    };
   }
 
   let settings: any = null;
@@ -116,7 +161,7 @@ export async function resolveTrackedSymbolsForStrategy(params: {
   );
 
   return {
-    symbols,
+    symbols: await filterMonitorableSymbols(symbols),
     source: "universe",
   };
 }

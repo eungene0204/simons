@@ -3,9 +3,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import VirtualAccountDetailPage from "@/app/virtual-account/[id]/page";
 
-const { fetchMock, getAccountMock } = vi.hoisted(() => ({
+const {
+  fetchMock,
+  getAccountMock,
+  refreshOverviewCacheMock,
+  updateTradingModeMock,
+} = vi.hoisted(() => ({
   fetchMock: vi.fn(),
   getAccountMock: vi.fn(),
+  refreshOverviewCacheMock: vi.fn(),
+  updateTradingModeMock: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -27,7 +34,11 @@ vi.mock("@/lib/portfolio", () => ({
   getTransactionsByAccount: vi.fn().mockResolvedValue([]),
   refreshAccountValue: vi.fn(),
   updateAccountStrategy: vi.fn(),
-  updateTradingMode: vi.fn(),
+  updateTradingMode: updateTradingModeMock,
+}));
+
+vi.mock("@/components/virtual-account/virtualAccountOverviewCache", () => ({
+  refreshVirtualAccountOverviewCache: refreshOverviewCacheMock,
 }));
 
 vi.mock("@/components/stock/StockSearchModal", () => ({
@@ -88,6 +99,9 @@ describe("VirtualAccountDetailPage loading", () => {
     window.sessionStorage.clear();
     getAccountMock.mockReset();
     getAccountMock.mockImplementation(() => new Promise(() => undefined));
+    refreshOverviewCacheMock.mockReset();
+    refreshOverviewCacheMock.mockResolvedValue([]);
+    updateTradingModeMock.mockReset();
     fetchMock.mockReset();
     fetchMock.mockImplementation(() => new Promise<Response>(() => undefined));
     vi.stubGlobal("fetch", fetchMock);
@@ -105,6 +119,34 @@ describe("VirtualAccountDetailPage loading", () => {
       "justify-center"
     );
     expect(screen.queryByText("계좌를 불러오는 중...")).not.toBeInTheDocument();
+  });
+
+  it("renders the account detail from a cached overview snapshot while live data is loading", async () => {
+    window.sessionStorage.setItem(
+      "virtual-account-detail:account-123",
+      JSON.stringify({
+        account: {
+          id: "account-123",
+          name: "테스트 계좌",
+          initialAmount: 10_000_000,
+          currentBalance: 10_000_000,
+          totalValue: 10_000_000,
+          strategyName: "초보자 전략",
+          tradingMode: "auto",
+          createdAt: "2026-06-01T00:00:00.000Z",
+          updatedAt: "2026-06-01T00:00:00.000Z",
+        },
+        holdings: [],
+        transactions: [],
+        trackedSymbols: [],
+      })
+    );
+
+    render(<VirtualAccountDetailPage />);
+
+    expect(await screen.findByRole("heading", { name: "테스트 계좌" })).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "가상계좌 상세 불러오는 중" })).not.toBeInTheDocument();
+    expect(screen.getByText("총 자산")).toBeInTheDocument();
   });
 
   it("adds selected stocks to the tracked symbol list without duplicates", async () => {
@@ -150,7 +192,7 @@ describe("VirtualAccountDetailPage loading", () => {
     render(<VirtualAccountDetailPage />);
 
     expect(
-      await screen.findByText("전략 조건을 만족하면 자동으로 거래가 실행됩니다.")
+      await screen.findByText("ON이면 전략 조건을 만족할 때 가상 거래가 실행됩니다.")
     ).toBeInTheDocument();
     expect(
       screen.getByText("연결된 전략의 백테스트에서 성과가 높았던 종목들 입니다.")
@@ -186,6 +228,66 @@ describe("VirtualAccountDetailPage loading", () => {
     ]);
   });
 
+  it("turns simulation off and refreshes the overview cache", async () => {
+    window.sessionStorage.setItem(
+      "virtual-account-detail:account-123",
+      JSON.stringify({
+        account: {
+          id: "account-123",
+          name: "테스트 계좌",
+          initialAmount: 10_000_000,
+          currentBalance: 10_000_000,
+          totalValue: 10_000_000,
+          strategyName: "초보자 전략",
+          tradingMode: "auto",
+          createdAt: "2026-06-01T00:00:00.000Z",
+          updatedAt: "2026-06-01T00:00:00.000Z",
+        },
+        holdings: [],
+        transactions: [],
+        trackedSymbols: [],
+      })
+    );
+    updateTradingModeMock.mockResolvedValue({
+      id: "account-123",
+      name: "테스트 계좌",
+      initialAmount: 10_000_000,
+      currentBalance: 10_000_000,
+      totalValue: 10_000_000,
+      strategyName: "초보자 전략",
+      tradingMode: "manual",
+      createdAt: "2026-06-01T00:00:00.000Z",
+      updatedAt: "2026-06-01T00:00:00.000Z",
+    });
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      if (String(input) === "/api/stocks/names") {
+        return Promise.resolve({ ok: true, json: async () => ({}) } as Response);
+      }
+      return new Promise<Response>(() => undefined);
+    });
+
+    render(<VirtualAccountDetailPage />);
+
+    const toggle = await screen.findByRole("button", { name: "시뮬레이션 ON" });
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(updateTradingModeMock).toHaveBeenCalledWith("account-123", "manual");
+    });
+    expect(refreshOverviewCacheMock).toHaveBeenCalledWith({ force: true });
+    expect(await screen.findByRole("button", { name: "시뮬레이션 OFF" })).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    );
+    expect(
+      JSON.parse(
+        window.sessionStorage.getItem("virtual-account-detail:account-123") || "{}"
+      ).account.tradingMode
+    ).toBe("manual");
+  });
+
   it("shows a 삭제된 계좌 badge and hides the 삭제 button for a CLOSED account", async () => {
     window.sessionStorage.setItem(
       "virtual-account-detail:account-123",
@@ -217,7 +319,7 @@ describe("VirtualAccountDetailPage loading", () => {
     render(<VirtualAccountDetailPage />);
 
     expect(await screen.findByText("삭제된 계좌")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "자동매매" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /시뮬레이션/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "삭제" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "계좌닫기" })).toBeInTheDocument();
     expect(screen.getByText(/해지 2026\.\s?06\.\s?20\.?/)).toBeInTheDocument();

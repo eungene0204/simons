@@ -7,7 +7,7 @@ import {
   clearVirtualAccountOverviewCache,
   setCachedVirtualAccounts,
 } from "@/components/virtual-account/virtualAccountOverviewCache";
-import { deleteAccount, getAccount } from "@/lib/portfolio";
+import { deleteAccount } from "@/lib/portfolio";
 import type { VirtualAccount } from "@/types/portfolio";
 
 const assignMock = vi.fn();
@@ -46,7 +46,6 @@ vi.mock("@/lib/portfolio", async () => {
   };
 });
 
-const mockedGetAccount = vi.mocked(getAccount);
 const mockedDeleteAccount = vi.mocked(deleteAccount);
 
 const cachedAccount: VirtualAccount = {
@@ -65,6 +64,7 @@ describe("VirtualAccountOverview navigation", () => {
   const originalLocation = window.location;
 
   beforeEach(() => {
+    window.sessionStorage.clear();
     Object.defineProperty(window, "location", {
       configurable: true,
       value: {
@@ -77,7 +77,6 @@ describe("VirtualAccountOverview navigation", () => {
   afterEach(() => {
     clearVirtualAccountOverviewCache();
     assignMock.mockReset();
-    mockedGetAccount.mockReset();
     mockedDeleteAccount.mockReset();
     vi.unstubAllGlobals();
     Object.defineProperty(window, "location", {
@@ -134,7 +133,7 @@ describe("VirtualAccountOverview navigation", () => {
     );
   });
 
-  it("navigates to the account detail page after validating the selected account", async () => {
+  it("renders the add account prompt as two fixed text lines", async () => {
     setCachedVirtualAccounts([cachedAccount]);
     vi.stubGlobal(
       "fetch",
@@ -143,15 +142,80 @@ describe("VirtualAccountOverview navigation", () => {
         json: async () => [cachedAccount],
       })
     );
-    mockedGetAccount.mockResolvedValue(cachedAccount);
 
     render(<VirtualAccountOverview />);
 
-    fireEvent.click(screen.getByRole("link", { name: /캐시 계좌/i }));
+    const firstLine = await screen.findByText("전략과 가상계좌를 연결해");
+    const secondLine = screen.getByText("실시간 시장 데이터로 전략을 시뮬레이션해 보세요");
 
-    await waitFor(() => {
-      expect(mockedGetAccount).toHaveBeenCalledWith("cached-account");
-      expect(assignMock).toHaveBeenCalledWith("/virtual-account/cached-account");
+    expect(firstLine).toHaveClass("block", "whitespace-nowrap");
+    expect(secondLine).toHaveClass("block", "whitespace-nowrap");
+    expect(firstLine.parentElement).toBe(secondLine.parentElement);
+  });
+
+  it("renders auto accounts with the strategy simulation badge", async () => {
+    const autoAccount = { ...cachedAccount, tradingMode: "auto" as const };
+    setCachedVirtualAccounts([autoAccount]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => [autoAccount],
+      })
+    );
+
+    render(<VirtualAccountOverview />);
+
+    const badge = await screen.findByText("전략 시뮬레이션 중");
+    expect(badge).toHaveClass(
+      "border-amber-400/25",
+      "bg-[#1a1208]/90",
+      "text-amber-300",
+      "text-[11px]"
+    );
+    expect(screen.queryByText("자동")).not.toBeInTheDocument();
+  });
+
+  it("does not render the strategy simulation badge for manual accounts", async () => {
+    setCachedVirtualAccounts([cachedAccount]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => [cachedAccount],
+      })
+    );
+
+    render(<VirtualAccountOverview />);
+
+    expect(await screen.findByText("캐시 계좌")).toBeInTheDocument();
+    expect(screen.queryByText("전략 시뮬레이션 중")).not.toBeInTheDocument();
+  });
+
+  it("navigates to the account detail page when the selected account link is clicked", async () => {
+    setCachedVirtualAccounts([cachedAccount]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => [cachedAccount],
+      })
+    );
+
+    render(<VirtualAccountOverview />);
+
+    fireEvent.click(await screen.findByRole("link", { name: "캐시 계좌 상세 보기" }));
+
+    expect(assignMock).toHaveBeenCalledWith("/virtual-account/cached-account");
+    expect(
+      JSON.parse(
+        window.sessionStorage.getItem("virtual-account-detail:cached-account") || "{}"
+      )
+    ).toMatchObject({
+      account: cachedAccount,
+      holdings: [],
+      transactions: [],
+      trackedSymbols: [],
     });
 
     expect(
@@ -163,32 +227,31 @@ describe("VirtualAccountOverview navigation", () => {
     expect(screen.getByTestId("virtual-account-simulation-notice")).toHaveClass("mt-auto");
   });
 
-  it("refreshes the list instead of navigating when the selected cached account no longer exists", async () => {
+  it("navigates when clicking the account card body", async () => {
     setCachedVirtualAccounts([cachedAccount]);
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
         ok: true,
         json: async () => [cachedAccount],
       })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => [],
-      });
-    vi.stubGlobal("fetch", fetchMock);
-    mockedGetAccount.mockResolvedValue(null);
+    );
 
     render(<VirtualAccountOverview />);
 
-    fireEvent.click(screen.getByRole("link", { name: /캐시 계좌/i }));
+    fireEvent.click(screen.getByTestId("virtual-account-card-cached-account"));
 
-    await waitFor(() => {
-      expect(mockedGetAccount).toHaveBeenCalledWith("cached-account");
-      expect(assignMock).not.toHaveBeenCalled();
-      expect(screen.queryByText("캐시 계좌")).not.toBeInTheDocument();
+    expect(assignMock).toHaveBeenCalledWith("/virtual-account/cached-account");
+    expect(
+      JSON.parse(
+        window.sessionStorage.getItem("virtual-account-detail:cached-account") || "{}"
+      )
+    ).toMatchObject({
+      account: cachedAccount,
+      holdings: [],
+      transactions: [],
+      trackedSymbols: [],
     });
-
-    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("opens a liquidation warning modal from the x button and deletes after confirmation", async () => {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getStockNameMap } from "@/lib/krx-stocks";
+import { filterMonitorableSymbols } from "@/lib/strategy-tracked-symbols";
 
 async function resolveSymbolNames(symbols: string[]): Promise<Record<string, string>> {
   if (symbols.length === 0) return {};
@@ -57,6 +58,14 @@ export async function POST(
       return NextResponse.json({ error: "Account not found" }, { status: 404 });
     }
 
+    const monitorableSymbols = await filterMonitorableSymbols(symbols);
+    if (monitorableSymbols.length === 0) {
+      return NextResponse.json(
+        { error: "모니터링 가능한 종목이 없습니다." },
+        { status: 400 }
+      );
+    }
+
     const today = new Date().toISOString().split("T")[0];
 
     const state = await prisma.virtualMarketState.upsert({
@@ -66,13 +75,13 @@ export async function POST(
         accountId: params.accountId,
         startDate: today,
         status: "running",
-        symbols: JSON.stringify(symbols),
+        symbols: JSON.stringify(monitorableSymbols),
         updatedAt: new Date(),
       },
       update: {
         startDate: today,
         status: "running",
-        symbols: JSON.stringify(symbols),
+        symbols: JSON.stringify(monitorableSymbols),
         updatedAt: new Date(),
       },
     });
@@ -108,7 +117,9 @@ export async function PATCH(
     const data: Record<string, unknown> = { updatedAt: new Date() };
 
     if (body.status !== undefined) data.status = body.status;
-    if (body.symbols !== undefined) data.symbols = JSON.stringify(body.symbols);
+    if (body.symbols !== undefined) {
+      data.symbols = JSON.stringify(await filterMonitorableSymbols(body.symbols));
+    }
 
     const state = await prisma.virtualMarketState.update({
       where: { accountId: params.accountId },

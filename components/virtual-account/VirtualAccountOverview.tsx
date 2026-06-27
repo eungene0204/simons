@@ -2,11 +2,11 @@
 
 import { useEffect, useState, type MouseEvent } from "react";
 import Link from "next/link";
-import { Bell, Robot, Spinner, X } from "phosphor-react";
+import { Robot, Spinner, X } from "phosphor-react";
 import { StrategyWaveBackground } from "@/components/strategy/StrategyWaveBackground";
 import CreateAccountModal from "@/components/ui/CreateAccountModal";
 import VirtualAccountSimulationNotice from "@/components/virtual-account/VirtualAccountSimulationNotice";
-import { createAccount, deleteAccount, getAccount } from "@/lib/portfolio";
+import { createAccount, deleteAccount } from "@/lib/portfolio";
 import type { VirtualAccount } from "@/types/portfolio";
 import {
   getCachedVirtualAccounts,
@@ -18,6 +18,24 @@ const formatPrice = (value: number) =>
 
 const formatSignedPercent = (value: number) =>
   `${value > 0 ? "+" : value < 0 ? "-" : ""}${Math.abs(value).toFixed(2)}%`;
+
+const cacheAccountDetailSnapshot = (account: VirtualAccount) => {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.sessionStorage.setItem(
+      `virtual-account-detail:${account.id}`,
+      JSON.stringify({
+        account,
+        holdings: [],
+        transactions: [],
+        trackedSymbols: [],
+      })
+    );
+  } catch {
+    // Non-critical: the detail page will still request live data.
+  }
+};
 
 export default function VirtualAccountOverview() {
   const initialAccounts = getCachedVirtualAccounts();
@@ -86,10 +104,12 @@ export default function VirtualAccountOverview() {
     await loadAccounts({ showLoading: false, force: true });
   };
 
-  const handleAccountClick = async (
-    event: MouseEvent<HTMLAnchorElement>,
-    accountId: string
+  const handleAccountClick = (
+    event: MouseEvent<HTMLElement>,
+    account: VirtualAccount
   ) => {
+    const accountPath = `/virtual-account/${account.id}`;
+
     if (
       event.defaultPrevented ||
       event.button !== 0 ||
@@ -103,19 +123,17 @@ export default function VirtualAccountOverview() {
     }
 
     event.preventDefault();
-    setOpeningAccountId(accountId);
+    cacheAccountDetailSnapshot(account);
+    setOpeningAccountId(account.id);
+    window.location.assign(accountPath);
+  };
 
-    try {
-      const account = await getAccount(accountId);
-      if (!account) {
-        await loadAccounts({ showLoading: false, force: true });
-        return;
-      }
-
-      window.location.assign(`/virtual-account/${accountId}`);
-    } finally {
-      setOpeningAccountId((current) => (current === accountId ? null : current));
-    }
+  const handleAccountCardClick = (
+    event: MouseEvent<HTMLElement>,
+    account: VirtualAccount
+  ) => {
+    if ((event.target as HTMLElement).closest("a,button")) return;
+    handleAccountClick(event, account);
   };
 
   const handleDeleteClick = (
@@ -227,10 +245,11 @@ export default function VirtualAccountOverview() {
                 <span className="relative text-xl font-black tracking-tight text-white">
                   가상계좌 추가하기
                 </span>
-                <span className="relative mt-3 max-w-56 text-sm font-bold leading-relaxed text-gray-500">
-                  전략과 가상계좌를 연결해
-                  <br />
-                  실시간 시장 데이터로 전략을 시뮬레이션해 보세요
+                <span className="relative mt-3 max-w-full text-sm font-bold leading-relaxed text-gray-500">
+                  <span className="block whitespace-nowrap">전략과 가상계좌를 연결해</span>
+                  <span className="block whitespace-nowrap text-[13px] sm:text-sm">
+                    실시간 시장 데이터로 전략을 시뮬레이션해 보세요
+                  </span>
                 </span>
               </button>
               {accounts.map((account) => {
@@ -248,38 +267,45 @@ export default function VirtualAccountOverview() {
                 return (
                   <article
                     key={account.id}
-                    className={`group max-w-lg rounded-lg border border-white/[0.08] bg-[#111111] p-4 text-left transition-colors hover:bg-[#151515] ${accountLinkClass}`}
+                    data-testid={`virtual-account-card-${account.id}`}
+                    onClick={(event) => handleAccountCardClick(event, account)}
+                    className={`group relative max-w-lg rounded-lg border border-white/[0.08] bg-[#111111] p-4 text-left transition-colors hover:bg-[#151515] ${accountLinkClass}`}
                   >
+                    <Link
+                      href={`/virtual-account/${account.id}`}
+                      onClick={(event) => handleAccountClick(event, account)}
+                      aria-disabled={openingAccountId === account.id}
+                      aria-label={`${account.name} 상세 보기`}
+                      className="absolute inset-0 z-10 rounded-lg focus:outline-none focus:ring-2 focus:ring-white/30"
+                    />
                     <div className="flex items-start justify-between gap-3">
-                      <Link
-                        href={`/virtual-account/${account.id}`}
-                        onClick={(event) => void handleAccountClick(event, account.id)}
-                        aria-disabled={openingAccountId === account.id}
-                        className="min-w-0 flex-1"
-                      >
+                      <div className="min-w-0 flex-1">
                         <h2 className="truncate text-lg font-black tracking-tight text-white">
                           {account.name}
                         </h2>
                         <p className="mt-1 truncate text-xs font-bold text-gray-500">
                           {account.strategyName || "전략 미연결"}
                         </p>
-                      </Link>
-                      <button
-                        type="button"
-                        aria-label={`${account.name} 계좌 해지`}
-                        onClick={(event) => handleDeleteClick(event, account)}
-                        className="inline-flex shrink-0 items-center justify-center rounded-md bg-white/[0.06] p-2 text-gray-500 transition-colors hover:bg-[var(--main-red)]/15 hover:text-[var(--main-red)]"
-                      >
-                        <X size={14} weight="bold" />
-                      </button>
+                      </div>
+                      <div className="relative z-20 flex shrink-0 items-center gap-2">
+                        {account.strategyName && account.tradingMode === "auto" ? (
+                          <span className="inline-flex items-center gap-1 rounded-lg border border-amber-400/25 bg-[#1a1208]/90 px-2 py-1 text-[11px] font-black text-amber-300 shadow-[0_0_18px_rgba(245,158,11,0.22)]">
+                            <Robot size={11} weight="bold" />
+                            전략 시뮬레이션 중
+                          </span>
+                        ) : null}
+                        <button
+                          type="button"
+                          aria-label={`${account.name} 계좌 해지`}
+                          onClick={(event) => handleDeleteClick(event, account)}
+                          className="inline-flex shrink-0 items-center justify-center rounded-md bg-white/[0.06] p-2 text-gray-500 transition-colors hover:bg-[var(--main-red)]/15 hover:text-[var(--main-red)]"
+                        >
+                          <X size={14} weight="bold" />
+                        </button>
+                      </div>
                     </div>
 
-                    <Link
-                      href={`/virtual-account/${account.id}`}
-                      onClick={(event) => void handleAccountClick(event, account.id)}
-                      aria-disabled={openingAccountId === account.id}
-                      className="block"
-                    >
+                    <div>
                       <div className="mt-5">
                         <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">
                           총 자산 가치
@@ -314,23 +340,7 @@ export default function VirtualAccountOverview() {
                             {formatPrice(account.currentBalance)}원
                           </p>
                         </div>
-                        <div className="relative rounded-md border border-white/[0.06] bg-white/[0.02] p-3">
-                          {account.strategyName ? (
-                            <span
-                              className={`absolute -top-8 right-0 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-bold ${
-                                account.tradingMode === "auto"
-                                  ? "bg-sky-500/15 text-sky-400"
-                                  : "bg-white/[0.06] text-gray-400"
-                              }`}
-                            >
-                              {account.tradingMode === "auto" ? (
-                                <Robot size={12} weight="bold" />
-                              ) : (
-                                <Bell size={12} weight="bold" />
-                              )}
-                              {account.tradingMode === "auto" ? "자동" : "알림"}
-                            </span>
-                          ) : null}
+                        <div className="rounded-md border border-white/[0.06] bg-white/[0.02] p-3">
                           <p className="text-[10px] font-black uppercase tracking-[0.24em] text-gray-500">
                             초기 모의 투자금
                           </p>
@@ -343,7 +353,7 @@ export default function VirtualAccountOverview() {
                       <p className="mt-4 border-t border-white/[0.06] pt-3 text-right text-xs font-bold text-gray-500">
                         {new Date(account.createdAt).toLocaleDateString("ko-KR")}
                       </p>
-                    </Link>
+                    </div>
                   </article>
                 );
               })}

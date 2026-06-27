@@ -1681,6 +1681,7 @@ function StrategyLabContent() {
             <div className="flex flex-col items-center gap-3 text-center">
               <div className="space-y-4">
                 <p
+                  data-testid="strategy-lab-headline"
                   className="max-w-5xl text-6xl leading-none tracking-tight text-[#fcfdff] md:text-7xl [font-weight:950]"
                   style={{ textShadow: "0 0 24px rgba(255, 255, 255, 0.18)" }}
                 >

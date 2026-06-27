@@ -158,9 +158,19 @@ export default function CreateAccountModal({
               </span>
             </div>
             {accountLimitReached && (
-              <p className="mt-2 text-xs text-red-400">
-                현재 플랜의 가상계좌 수 한도에 도달했습니다. 요금제를 업그레이드하면 더 많은 계좌를 만들 수 있습니다.
-              </p>
+              <div className="mt-2 text-xs leading-5 text-red-400">
+                <p>
+                  현재 플랜의 가상계좌 수 한도에 도달했습니다. 요금제를 업그레이드하면 더 많은 계좌를 만들 수 있습니다.
+                </p>
+                <div className="mt-1 flex justify-end">
+                  <a
+                    href="/pricing"
+                    className="inline-flex items-center rounded-[4px] border border-gray-500/50 px-1.5 py-px text-[9px] font-black text-gray-300 transition-colors hover:border-gray-300/70 hover:text-white"
+                  >
+                    업그레이드
+                  </a>
+                </div>
+              </div>
             )}
           </div>
 
@@ -297,7 +307,7 @@ export default function CreateAccountModal({
               </label>
               <button
                 type="button"
-                aria-label={`자동매매 ${tradingMode === "auto" ? "ON" : "OFF"}`}
+                aria-label={`전략 시뮬레이션 ${tradingMode === "auto" ? "ON" : "OFF"}`}
                 aria-pressed={tradingMode === "auto"}
                 onClick={() => {
                   setTradingMode((prev) => prev === "auto" ? "manual" : "auto");
@@ -315,7 +325,7 @@ export default function CreateAccountModal({
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <p className={`text-sm font-semibold ${tradingMode === "auto" ? "text-blue-400" : "text-gray-300"}`}>
-                      자동매매
+                      전략 시뮬레이션
                     </p>
                     <span
                       className={`rounded-full px-2 py-0.5 text-[10px] font-black tracking-wider ${
@@ -328,7 +338,7 @@ export default function CreateAccountModal({
                     </span>
                   </div>
                   <p className="mt-0.5 text-xs text-gray-500">
-                    신호 발생 시 자동 주문
+                    전략 신호 기반 자동매매
                   </p>
                 </div>
               </button>
@@ -338,8 +348,8 @@ export default function CreateAccountModal({
                   : "bg-white/[0.04] text-gray-400"
               }`}>
                 {tradingMode === "auto"
-                  ? "전략 신호가 발생하면 현재가로 자동 주문이 실행됩니다."
-                  : "자동매매는 꺼져 있습니다. 계좌 생성 후에도 직접 켤 수 있습니다."}
+                  ? "전략 신호가 발생하면 현재가로 모의 주문이 실행됩니다."
+                  : "전략 시뮬레이션은 꺼져 있습니다. 계좌 생성 후에도 직접 켤 수 있습니다."}
               </p>
             </div>
           )}

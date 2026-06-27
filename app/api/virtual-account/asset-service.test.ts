@@ -1,10 +1,18 @@
 // @ts-nocheck
 import { Prisma } from "@prisma/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mockFetchStockPriceSnapshots = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/server/stock-prices", () => ({
+  fetchStockPriceSnapshots: mockFetchStockPriceSnapshots,
+}));
+
 import {
   calculateAccountValue,
   closeAccountWithSettlement,
   createFundedAccount,
+  fetchSettlementPriceMap,
   getAccountSettlementValues,
   moneyToNumber,
   resolveAccountTotalValue,
@@ -62,6 +70,7 @@ const activeAccount = {
 describe("asset service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockFetchStockPriceSnapshots.mockResolvedValue({});
   });
 
   it("계좌는 전달된 초기 투자금으로 생성되며 공유 자산 풀에서 차감하지 않는다", async () => {
@@ -175,6 +184,34 @@ describe("asset service", () => {
 
     expect(tx.virtualPosition.deleteMany).not.toHaveBeenCalled();
     expect(tx.virtualAccount.update).not.toHaveBeenCalled();
+  });
+
+  it("실시간 정산 시세 조회가 실패하면 저장된 현재가로 정산 가격을 만든다", async () => {
+    mockFetchStockPriceSnapshots.mockRejectedValue(new Error("quote provider down"));
+
+    const priceMap = await fetchSettlementPriceMap([
+      {
+        symbol: "005930",
+        avgPrice: new Prisma.Decimal(300_000),
+        currentPrice: new Prisma.Decimal(350_000),
+      },
+    ]);
+
+    expect(priceMap["005930"].toNumber()).toBe(350_000);
+  });
+
+  it("실시간 정산 시세와 저장된 현재가가 모두 없으면 평단가로 정산 가격을 만든다", async () => {
+    mockFetchStockPriceSnapshots.mockResolvedValue({});
+
+    const priceMap = await fetchSettlementPriceMap([
+      {
+        symbol: "005930",
+        avgPrice: new Prisma.Decimal(300_000),
+        currentPrice: null,
+      },
+    ]);
+
+    expect(priceMap["005930"].toNumber()).toBe(300_000);
   });
 
   it("CLOSED 계좌는 다시 해지할 수 없다", async () => {

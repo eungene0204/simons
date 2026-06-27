@@ -444,12 +444,28 @@ export default function VirtualAccountDetailPage() {
         throw new Error("Failed to add tracked symbols");
       }
 
-      setTrackedSymbols(merged);
+      const marketState = await response.json();
+      const selectedNameMap: Record<string, string> = Object.fromEntries(
+        merged.map(({ symbol, name }) => [symbol, name])
+      );
+      const savedSymbols =
+        Array.isArray(marketState?.symbols) && marketState.symbols.length > 0
+          ? marketState.symbols.map((sym: string) => ({
+              symbol: sym,
+              name: resolveStockDisplayName(
+                sym,
+                marketState.symbolNames?.[sym] ?? selectedNameMap[sym],
+                stockMetadata
+              ),
+            }))
+          : [];
+
+      setTrackedSymbols(savedSymbols);
       writeAccountDetailCache(accountId, {
         account,
         holdings,
         transactions,
-        trackedSymbols: merged,
+        trackedSymbols: savedSymbols,
       });
     } catch (error) {
       console.error("Failed to add tracked symbols:", error);
@@ -467,9 +483,15 @@ export default function VirtualAccountDetailPage() {
     try {
       if (account?.tradingMode === "auto") {
         const updated = await updateTradingMode(accountId, "manual");
-        setAccount((prev) =>
-          prev ? { ...prev, tradingMode: updated.tradingMode } : prev
-        );
+        const nextAccount = { ...account, ...updated, tradingMode: updated.tradingMode };
+        setAccount(nextAccount);
+        writeAccountDetailCache(accountId, {
+          account: nextAccount,
+          holdings,
+          transactions,
+          trackedSymbols,
+        });
+        void refreshVirtualAccountOverviewCache({ force: true });
         return;
       }
 
@@ -484,9 +506,17 @@ export default function VirtualAccountDetailPage() {
       }
 
       const updated = await updateTradingMode(accountId, "auto");
-      setAccount((prev) =>
-        prev ? { ...prev, tradingMode: updated.tradingMode } : prev
-      );
+      const nextAccount = account
+        ? { ...account, ...updated, tradingMode: updated.tradingMode }
+        : updated;
+      setAccount(nextAccount);
+      writeAccountDetailCache(accountId, {
+        account: nextAccount,
+        holdings,
+        transactions,
+        trackedSymbols,
+      });
+      void refreshVirtualAccountOverviewCache({ force: true });
     } catch {
       alert("저장된 전략을 확인하지 못했습니다.");
     } finally {
@@ -773,29 +803,29 @@ export default function VirtualAccountDetailPage() {
                     </span>
                   ) : (
                     <div className="flex items-center gap-1.5">
-                      <div className="flex items-center border border-white/[0.08] rounded-lg overflow-hidden">
-                        <button
-                          onClick={handleAutoTradingClick}
-                          disabled={isCheckingAutoTradingStrategy}
-                          style={
-                            account.tradingMode === "auto"
-                              ? { textShadow: "0 0 6px rgba(251, 146, 60, 0.65), 0 0 14px rgba(251, 146, 60, 0.35)" }
-                              : undefined
-                          }
-                          className={`flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold transition-colors duration-200 ${
-                            account.tradingMode === "auto"
-                              ? "bg-transparent text-orange-300"
-                              : "bg-transparent text-gray-500 hover:text-gray-300"
-                          } disabled:cursor-not-allowed disabled:opacity-60`}
-                        >
-                          <Robot size={11} weight="bold" />
-                          자동매매
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={handleAutoTradingClick}
+                        disabled={isCheckingAutoTradingStrategy}
+                        aria-pressed={account.tradingMode === "auto"}
+                        style={
+                          account.tradingMode === "auto"
+                            ? { textShadow: "0 0 6px rgba(251, 146, 60, 0.65), 0 0 14px rgba(251, 146, 60, 0.35)" }
+                            : undefined
+                        }
+                        className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-black transition-colors duration-200 ${
+                          account.tradingMode === "auto"
+                            ? "border-amber-400/25 bg-[#1a1208]/90 text-amber-300 shadow-[0_0_18px_rgba(245,158,11,0.22)]"
+                            : "border-white/[0.08] bg-white/[0.03] text-gray-500 hover:border-white/[0.16] hover:text-gray-300"
+                        } disabled:cursor-not-allowed disabled:opacity-60`}
+                      >
+                        <Robot size={10} weight="bold" />
+                        {account.tradingMode === "auto" ? "시뮬레이션 ON" : "시뮬레이션 OFF"}
+                      </button>
                       <div className="group relative flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-white/[0.14] text-[10px] font-black text-gray-500 transition-colors duration-200 hover:border-white/[0.28] hover:text-white">
-                        <span aria-label="자동매매 설명">?</span>
+                        <span aria-label="시뮬레이션 토글 설명">?</span>
                         <div className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 w-56 -translate-x-1/2 rounded-lg border border-white/[0.08] bg-[#1c1c1c] px-3 py-2 text-xs font-bold leading-5 text-gray-300 opacity-0 shadow-xl transition-opacity duration-150 group-hover:opacity-100">
-                          전략 조건을 만족하면 자동으로 거래가 실행됩니다.
+                          ON이면 전략 조건을 만족할 때 가상 거래가 실행됩니다.
                           <div className="absolute -top-[5px] left-1/2 h-2.5 w-2.5 -translate-x-1/2 rotate-45 border-l border-t border-white/[0.08] bg-[#1c1c1c]" />
                         </div>
                       </div>

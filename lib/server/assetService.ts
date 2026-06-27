@@ -246,7 +246,7 @@ export async function fetchSettlementPriceMap(
   const snapshots = await fetchStockPriceSnapshots(symbols, {
     mode: "realtime",
     subscribe: false,
-  });
+  }).catch(() => ({}));
 
   return Object.fromEntries(
     positions.map((position) => {

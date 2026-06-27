@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import StrategyLabPage from "./page";
 
@@ -87,12 +87,41 @@ describe("StrategyLab auth entry", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     window.sessionStorage.clear();
   });
 
+  it("reveals the headline letters with the original fade animation", async () => {
+    vi.useFakeTimers();
+    render(<StrategyLabPage />);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const headline = screen.getByTestId("strategy-lab-headline");
+    expect(headline).toHaveTextContent(
+      "투자 아이디어를 전략으로 만들고전략을 시뮬레이션 하세요"
+    );
+
+    const firstAnimatedChar = headline.querySelector("span span");
+    expect(firstAnimatedChar).toHaveStyle({ opacity: "0" });
+
+    await act(async () => {
+      vi.advanceTimersByTime(38);
+      await Promise.resolve();
+    });
+
+    expect(firstAnimatedChar).toHaveStyle({ opacity: "1" });
+  });
+
   it("opens a Google start modal when an anonymous user tries to generate a strategy", async () => {
     render(<StrategyLabPage />);
+
+    expect(await screen.findByTestId("strategy-lab-headline")).toHaveTextContent(
+      "투자 아이디어를 전략으로 만들고전략을 시뮬레이션 하세요"
+    );
 
     const textarea = await screen.findByRole("textbox");
     fireEvent.change(textarea, { target: { value: "PER 10 이하 종목 전략 만들어줘" } });

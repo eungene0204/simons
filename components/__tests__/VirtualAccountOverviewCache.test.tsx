@@ -66,7 +66,7 @@ describe("VirtualAccountOverview cache", () => {
     expect(screen.queryByText("가상계좌를 만들고")).not.toBeInTheDocument();
   });
 
-  it("keeps the initial amount box size while positioning the trading mode badge above it", () => {
+  it("positions the strategy simulation badge to the left of the delete button", () => {
     setCachedVirtualAccounts([autoAccount]);
     const fetchMock = vi.fn(() => new Promise<Response>(() => undefined));
     vi.stubGlobal("fetch", fetchMock);
@@ -76,12 +76,23 @@ describe("VirtualAccountOverview cache", () => {
     const initialAmountLabel = screen.getByText("초기 모의 투자금");
     const initialAmountCard = initialAmountLabel.parentElement;
     expect(initialAmountCard).not.toBeNull();
-    expect(initialAmountCard).toHaveClass("relative", "rounded-md", "p-3");
+    expect(initialAmountCard).toHaveClass("rounded-md", "p-3");
+    expect(initialAmountCard).not.toHaveClass("relative");
 
-    const badge = within(initialAmountCard as HTMLDivElement).getByText("자동");
-    expect(badge).toHaveClass("absolute", "-top-8");
-    expect(badge.compareDocumentPosition(initialAmountLabel)).toBeTruthy();
-    expect(badge.compareDocumentPosition(initialAmountLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const deleteButton = screen.getByRole("button", { name: "자동 계좌 계좌 해지" });
+    const headerActions = deleteButton.parentElement;
+    expect(headerActions).not.toBeNull();
+
+    const badge = within(headerActions as HTMLDivElement).getByText("전략 시뮬레이션 중");
+    expect(badge).toHaveClass(
+      "inline-flex",
+      "border-amber-400/25",
+      "bg-[#1a1208]/90",
+      "text-amber-300",
+      "text-[11px]"
+    );
+    expect(badge.compareDocumentPosition(deleteButton)).toBeTruthy();
+    expect(badge.compareDocumentPosition(deleteButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("renders an account delete button in the account card header with a red hover state", () => {
