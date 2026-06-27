@@ -2380,7 +2380,7 @@ def synthesize_risk_overrides(
     for field in _RISK_OVERRIDE_FIELDS:
         if field in overrides:
             continue
-        new_val = getattr(parsed, field)
+        new_val = getattr(parsed, field, baseline.get(field))
         if new_val != baseline.get(field):
             overrides[field] = new_val
     return overrides or None
