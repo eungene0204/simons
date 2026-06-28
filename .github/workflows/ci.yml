@@ -95,6 +95,14 @@ jobs:
             docker container prune -f || true
 
             docker compose build --pull --force-rm
+
+            # 스키마 마이그레이션 자동 적용. 이 DB는 `prisma migrate` CLI가 막혀
+            # sqlite3로 직접 적용한다(scripts/apply-prisma-migrations.sh, 멱등).
+            # 쓰기 컨테이너를 잠깐 정지한 뒤 적용하고 아래 up에서 재기동한다.
+            command -v sqlite3 >/dev/null || (apt-get update -y && apt-get install -y sqlite3)
+            docker compose stop web scheduler backend || true
+            bash scripts/apply-prisma-migrations.sh prisma/prisma/dev.db prisma/migrations
+
             docker compose up -d --remove-orphans
 
             # Remove all build cache and images not used by the newly running containers.

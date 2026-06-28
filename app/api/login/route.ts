@@ -15,52 +15,12 @@ export async function POST(request: NextRequest) {
     const { email, password, supabaseAccessToken } = body
 
     if (supabaseAccessToken) {
+      // 토큰 검증만 별도 try로 격리한다. 검증 이후의 DB 작업(유저 조회/생성,
+      // 부트스트랩) 오류가 "토큰 검증 실패(401)"로 둔갑하면 안 되므로, DB 오류는
+      // 바깥 catch로 흘려보내 500 서버 오류로 드러나게 한다.
+      let identity
       try {
-        const identity = await verifySupabaseAccessToken(supabaseAccessToken)
-
-        if (!identity.email || !identity.emailVerified) {
-          return NextResponse.json(
-            { error: 'Google 계정 이메일을 확인할 수 없습니다.' },
-            { status: 401 }
-          )
-        }
-
-        let user = await prisma.user.findUnique({
-          where: { email: identity.email },
-        })
-
-        if (!user) {
-          user = await prisma.user.create({
-            data: {
-              email: identity.email,
-              name: identity.name || identity.email.split('@')[0],
-              password: await hashPassword(
-                `google-oauth:${identity.uid}:${crypto.randomUUID()}`
-              ),
-              updatedAt: new Date(),
-            },
-          })
-        }
-
-        await ensureUserBootstrap(user.id)
-
-        const token = generateToken(user.id, { avatarUrl: identity.avatarUrl })
-
-        const cookieStore = await cookies()
-        cookieStore.set('token', token, {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax',
-          maxAge: 60 * 60 * 24 * 7,
-        })
-
-        return NextResponse.json(
-          {
-            message: '로그인 성공',
-            user: { id: user.id, email: user.email, name: user.name, avatarUrl: identity.avatarUrl },
-          },
-          { status: 200 }
-        )
+        identity = await verifySupabaseAccessToken(supabaseAccessToken)
       } catch (supabaseError) {
         const message =
           supabaseError instanceof Error
@@ -78,6 +38,50 @@ export async function POST(request: NextRequest) {
           { status }
         )
       }
+
+      if (!identity.email || !identity.emailVerified) {
+        return NextResponse.json(
+          { error: 'Google 계정 이메일을 확인할 수 없습니다.' },
+          { status: 401 }
+        )
+      }
+
+      let user = await prisma.user.findUnique({
+        where: { email: identity.email },
+      })
+
+      if (!user) {
+        user = await prisma.user.create({
+          data: {
+            email: identity.email,
+            name: identity.name || identity.email.split('@')[0],
+            password: await hashPassword(
+              `google-oauth:${identity.uid}:${crypto.randomUUID()}`
+            ),
+            updatedAt: new Date(),
+          },
+        })
+      }
+
+      await ensureUserBootstrap(user.id)
+
+      const token = generateToken(user.id, { avatarUrl: identity.avatarUrl })
+
+      const cookieStore = await cookies()
+      cookieStore.set('token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 60 * 60 * 24 * 7,
+      })
+
+      return NextResponse.json(
+        {
+          message: '로그인 성공',
+          user: { id: user.id, email: user.email, name: user.name, avatarUrl: identity.avatarUrl },
+        },
+        { status: 200 }
+      )
     }
 
     // Validation
