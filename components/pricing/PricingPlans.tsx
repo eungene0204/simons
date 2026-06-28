@@ -34,7 +34,7 @@ function planFeatures(plan: Plan): FeatureRow[] {
       label: `계좌당 초기 모의 투자금 ${formatInitialInvestmentAmount(plan.initialInvestmentAmount)}`,
       included: true,
     },
-    { label: `가상계좌 최대 ${formatCount(plan.maxVirtualAccounts)}개`, included: true },
+    { label: `시뮬레이션 가상계좌 ${formatCount(plan.maxVirtualAccounts)}개`, included: true },
     {
       label: plan.isUnlimitedStrategies
         ? "전략 무제한 저장"
@@ -43,16 +43,6 @@ function planFeatures(plan: Plan): FeatureRow[] {
     },
     { label: `월 백테스트 ${formatCount(plan.monthlyBacktestLimit)}회`, included: true },
   ];
-}
-
-function planDescription(plan: Plan): string {
-  if (plan.planId === "PRO") {
-    return "전략을 본격적으로 만들고 검증하는 플랜";
-  }
-  if (plan.planId === "PREMIUM") {
-    return "여러 전략을 동시에 연구하고 검증하는 플랜";
-  }
-  return plan.description;
 }
 
 interface PricingPlansProps {
@@ -107,14 +97,18 @@ export default function PricingPlans({ currentPlanId }: PricingPlansProps) {
             >
               {/* 헤더: 아이콘 + 플랜명 */}
               <div className="flex items-center gap-3">
-                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/[0.06] text-white">
+                <span
+                  className={`flex h-11 w-11 items-center justify-center rounded-xl bg-white/[0.06] ${
+                    isCurrent ? "text-blue-400" : "text-white"
+                  }`}
+                >
                   <Icon size={22} weight="fill" />
                 </span>
                 <h2 className="text-xl font-black tracking-tight text-white">{plan.name}</h2>
               </div>
 
               <p className="mt-6 text-sm font-bold leading-relaxed text-gray-400">
-                {planDescription(plan)}
+                {plan.description}
               </p>
 
               {/* 가격 */}

@@ -131,7 +131,7 @@ describe("planLimits — 사용량 요약", () => {
     expect(usage.plan.planId).toBe("PRO");
     expect(usage.accounts).toEqual({ used: 3, limit: 10 });
     expect(usage.strategies).toEqual({ used: 12, limit: 50, unlimited: false });
-    expect(usage.backtests).toEqual({ used: 7, limit: 100 });
+    expect(usage.backtests).toEqual({ used: 7, limit: 200 });
   });
 
   it("지난 달 사용량은 이번 달 used=0으로 보고한다", async () => {
