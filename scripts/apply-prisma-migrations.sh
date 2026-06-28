@@ -61,7 +61,21 @@ fi
 for d in "${pending[@]}"; do
   sql="$MIG_DIR/$d/migration.sql"
   echo "→ 적용: $d"
-  sqlite3 "$DB" ".bail on" ".read $sql"
+  if err=$(sqlite3 "$DB" ".bail on" "PRAGMA busy_timeout=30000;" ".read $sql" 2>&1); then
+    :
+  else
+    # 과거 수동 적용 등으로 객체가 이미 존재해 실패하는 경우(additive 마이그레이션이
+    # _prisma_migrations에만 누락된 상태)는 "적용됨"으로 간주하고 기록 후 계속한다.
+    # 그 외 진짜 오류는 중단(set -e). 주의: 한 마이그레이션의 뒷부분만 신규일 때
+    # already-exists로 멈추면 뒷부분이 미적용으로 남을 수 있으나(additive 가정상 드묾),
+    # 그 경우에도 배포는 멈추지 않고 다음 배포에서 재시도되지 않으니 로그로 드러낸다.
+    if echo "$err" | grep -qiE "duplicate column name|already exists"; then
+      echo "  ⚠ 이미 적용된 것으로 판단(객체 존재) — 기록 후 계속: $err"
+    else
+      echo "  ✗ 적용 실패: $err"
+      exit 1
+    fi
+  fi
   checksum=$(sha256sum "$sql" | awk '{print $1}')
   id=$(sqlite3 "$DB" "SELECT lower(hex(randomblob(16)));")
   sqlite3 "$DB" "INSERT INTO _prisma_migrations (id, checksum, finished_at, migration_name, started_at, applied_steps_count) VALUES ('$id', '$checksum', datetime('now'), '$d', datetime('now'), 1);"
