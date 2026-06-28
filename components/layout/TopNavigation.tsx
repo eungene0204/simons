@@ -4,7 +4,10 @@ import { useMemo, memo, useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/firebase";
-import { STRATEGY_CHAT_STATE_KEY } from "@/components/strategy/strategyTemplateSession";
+import {
+  PENDING_STRATEGY_PROMPT_KEY,
+  STRATEGY_CHAT_STATE_KEY,
+} from "@/components/strategy/strategyTemplateSession";
 import {
   SquaresFour,
   Bank,
@@ -330,6 +333,14 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
     setIsProfileMenuOpen(false);
     setUserProfile({ name: "사용자" });
     setAuthState("anonymous");
+    // 로그아웃 후 랜딩으로 이동할 때 이전 채팅 스냅샷이 복원되어 채팅 화면이
+    // 다시 보이지 않도록 세션에 저장된 전략연구소 채팅 상태를 지운다.
+    try {
+      sessionStorage.removeItem(STRATEGY_CHAT_STATE_KEY);
+      sessionStorage.removeItem(PENDING_STRATEGY_PROMPT_KEY);
+    } catch {
+      // sessionStorage 접근 불가 시 무시 — 정리는 best-effort.
+    }
     try {
       await fetch("/api/logout", {
         method: "POST",

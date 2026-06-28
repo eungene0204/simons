@@ -420,6 +420,47 @@ describe("TopNavigation quick search", () => {
     expect(replaceMock).toHaveBeenCalledWith("/");
   });
 
+  it("전략연구소 채팅 중 로그아웃하면 채팅 스냅샷을 지우고 랜딩으로 이동한다", async () => {
+    pathnameMock.current = "/analytics/chat";
+    sessionStorage.setItem(
+      "simons.strategyChatState",
+      JSON.stringify({ messages: [{ role: "user", content: "PBR 1 이하" }], stage: "done" })
+    );
+    sessionStorage.setItem("simons.pendingStrategyPrompt", "PBR 1 이하");
+
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url === "/api/user") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            user: { name: "홍길동", email: "hong@example.com", avatarUrl: null },
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ stocks: [], strategies: [], virtualAccounts: [] }),
+      });
+    });
+
+    renderWithQueryClient(<TopNavigation />);
+
+    const profileButton = await screen.findByRole("button", {
+      name: "홍길동 사용자 메뉴",
+    });
+    fireEvent.click(profileButton);
+    fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
+
+    await screen.findByRole("button", { name: "Google 로그인" });
+
+    expect(sessionStorage.getItem("simons.strategyChatState")).toBeNull();
+    expect(sessionStorage.getItem("simons.pendingStrategyPrompt")).toBeNull();
+    expect(replaceMock).toHaveBeenCalledWith("/");
+  });
+
   it("몇 글자만 입력해도 바로 추천 결과를 보여준다", async () => {
     renderWithQueryClient(<TopNavigation />);
 
