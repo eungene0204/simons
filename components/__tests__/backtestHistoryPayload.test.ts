@@ -53,6 +53,27 @@ describe("buildAutoSaveHistoryPayload", () => {
     expect(payload.result).toBeUndefined();
   });
 
+  it("전략명이 있으면 전략명을 이름으로 사용한다", () => {
+    expect(
+      buildAutoSaveHistoryPayload(baseResult, summary, "코스피 골든크로스").strategyName
+    ).toBe("테스트 전략");
+  });
+
+  it("전략명이 없으면 사용자 프롬프트를 이름으로 사용한다", () => {
+    const unsavedSummary = { ...summary, strategyName: "" };
+    expect(
+      buildAutoSaveHistoryPayload(baseResult, unsavedSummary, "  코스피 골든크로스  ").strategyName
+    ).toBe("코스피 골든크로스");
+  });
+
+  it("전략명·프롬프트 모두 없을 때만 기본 이름으로 폴백한다", () => {
+    const unsavedSummary = { ...summary, strategyName: "" };
+    expect(buildAutoSaveHistoryPayload(baseResult, unsavedSummary).strategyName).toBe("이름 없는 전략");
+    expect(
+      buildAutoSaveHistoryPayload(baseResult, unsavedSummary, "   ").strategyName
+    ).toBe("이름 없는 전략");
+  });
+
   it("프롬프트 원문을 스냅샷으로 함께 저장한다(trim, 빈 값은 undefined)", () => {
     expect(
       buildAutoSaveHistoryPayload(baseResult, summary, "  KOSPI 골든크로스 전략  ").prompt
