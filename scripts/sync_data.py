@@ -422,12 +422,14 @@ def main(argv=None):
             fund_skip += 1
             continue
 
-        # 이미 ROE 데이터가 있고 캐시가 유효하면 건너뜀
+        # 이미 종합 펀더멘털(roa=신규 팩터 sentinel)이 있고 캐시가 유효하면 건너뜀.
+        # (roe만 보면 구버전 컬럼만 가진 종목이 영구 스킵되어 신규 팩터가 안 채워진다.
+        #  캐시 만료(분기 공시 주기)나 신규 상장 시 자동으로 다시 보강된다.)
         try:
             df_check = pd.read_parquet(parquet_path)
-            has_roe = "roe_or_gpa" in df_check.columns and df_check["roe_or_gpa"].notna().any()
+            has_roa = "roa" in df_check.columns and df_check["roa"].notna().any()
             has_valid_cache = _read_cache(symbol) is not None
-            if has_roe and has_valid_cache:
+            if has_roa and has_valid_cache:
                 fund_skip += 1
                 continue
         except Exception:

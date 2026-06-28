@@ -121,79 +121,101 @@ def _parse_kis_stac_yymm(value: str) -> Optional[str]:
         return None
 
 
-def _parse_kis_financial_ratio_output(output: list[dict]) -> Optional[List[Dict]]:
-    if not isinstance(output, list) or not output:
-        return None
+# Annual fundamental metrics stored per parquet (forward-filled from year-end reports).
+# eps/bps/roe/debt_ratio are the originals; the rest were added to expose growth,
+# profitability and stability factors that the same KIS calls already return.
+ANNUAL_FUNDAMENTAL_KEYS = [
+    "eps", "bps", "roe_or_gpa", "debt_ratio",
+    "sps", "revenue_growth", "operating_income_growth", "net_income_growth", "reserve_ratio",
+    "roa", "net_margin", "gross_margin", "current_ratio", "quick_ratio",
+]
 
-    result: List[Dict] = []
-    seen_dates: set[str] = set()
+# KIS finance endpoints → {response_field: our_key}. Three endpoints, merged by year-end.
+_KIS_FINANCIAL_RATIO_MAP = {
+    "eps": "eps", "bps": "bps", "roe_val": "roe_or_gpa", "lblt_rate": "debt_ratio",
+    "sps": "sps", "grs": "revenue_growth", "bsop_prfi_inrt": "operating_income_growth",
+    "ntin_inrt": "net_income_growth", "rsrv_rate": "reserve_ratio",
+}
+_KIS_PROFIT_RATIO_MAP = {
+    "cptl_ntin_rate": "roa", "sale_ntin_rate": "net_margin", "sale_totl_rate": "gross_margin",
+}
+_KIS_STABILITY_RATIO_MAP = {
+    "crnt_rate": "current_ratio", "quck_rate": "quick_ratio",
+}
+_KIS_FINANCE_ENDPOINTS = [
+    ("financial-ratio", "FHKST66430300", _KIS_FINANCIAL_RATIO_MAP),
+    ("profit-ratio", "FHKST66430400", _KIS_PROFIT_RATIO_MAP),
+    ("stability-ratio", "FHKST66430600", _KIS_STABILITY_RATIO_MAP),
+]
 
+
+def _parse_kis_ratio_output(output: list, field_map: Dict[str, str]) -> Dict[str, Dict]:
+    """KIS finance output rows → {year_end: {our_key: value}} per ``field_map``."""
+    by_year: Dict[str, Dict] = {}
+    if not isinstance(output, list):
+        return by_year
     for row in output:
         if not isinstance(row, dict):
             continue
-
         year_end = _parse_kis_stac_yymm(str(row.get("stac_yymm", "")).strip())
-        if not year_end or year_end in seen_dates:
+        if not year_end:
             continue
+        bucket = by_year.setdefault(year_end, {})
+        for src, key in field_map.items():
+            if key in bucket:  # first endpoint to provide a key wins (no overwrite)
+                continue
+            val = _parse_number(str(row.get(src, "")).strip())
+            if val is not None:
+                bucket[key] = val
+    return by_year
 
-        entry = {"year_end": year_end}
-        eps = _parse_number(str(row.get("eps", "")).strip())
-        bps = _parse_number(str(row.get("bps", "")).strip())
-        roe = _parse_number(str(row.get("roe_val", "")).strip())
-        debt_ratio = _parse_number(str(row.get("lblt_rate", "")).strip())
 
-        if eps is not None:
-            entry["eps"] = eps
-        if bps is not None:
-            entry["bps"] = bps
-        if roe is not None:
-            entry["roe_or_gpa"] = roe
-        if debt_ratio is not None:
-            entry["debt_ratio"] = debt_ratio
-
-        if len(entry) > 1:
-            result.append(entry)
-            seen_dates.add(year_end)
-
+def _parse_kis_financial_ratio_output(output: list[dict]) -> Optional[List[Dict]]:
+    """Parse a single financial-ratio output into the fundamentals list (kept for callers)."""
+    by_year = _parse_kis_ratio_output(output, _KIS_FINANCIAL_RATIO_MAP)
+    result = [{"year_end": d, **vals} for d, vals in sorted(by_year.items(), reverse=True) if vals]
     return result or None
 
 
+def _fetch_kis_finance(symbol: str, headers: dict, path: str) -> list:
+    """GET one KIS finance endpoint; return its ``output`` list ([] on failure)."""
+    params = {"FID_DIV_CLS_CODE": "0", "fid_cond_mrkt_div_code": "J", "fid_input_iscd": symbol}
+    try:
+        resp = requests.get(
+            f"{_KIS_BASE_URL}/uapi/domestic-stock/v1/finance/{path}",
+            headers=headers, params=params, timeout=_REQUEST_TIMEOUT,
+        )
+        if resp.status_code != 200:
+            logger.warning("[%s] KIS %s failed: %s", symbol, path, resp.status_code)
+            return []
+        return resp.json().get("output", []) or []
+    except Exception as e:
+        logger.warning("[%s] KIS %s failed: %s", symbol, path, e)
+        return []
+
+
 def _fetch_fundamentals_from_kis(symbol: str) -> Optional[List[Dict]]:
+    """Merge financial-ratio + profit-ratio + stability-ratio into one per-year list."""
     token = _get_kis_token()
     if not token:
         return None
 
-    app_key = os.getenv("KIS_APP_KEY", "").strip()
-    app_secret = os.getenv("KIS_APP_SECRET", "").strip()
     headers = {
         "Content-Type": "application/json; charset=UTF-8",
         "authorization": f"Bearer {token}",
-        "appkey": app_key,
-        "appsecret": app_secret,
-        "tr_id": "FHKST66430300",
+        "appkey": os.getenv("KIS_APP_KEY", "").strip(),
+        "appsecret": os.getenv("KIS_APP_SECRET", "").strip(),
         "custtype": "P",
     }
-    params = {
-        "FID_DIV_CLS_CODE": "0",
-        "fid_cond_mrkt_div_code": "J",
-        "fid_input_iscd": symbol,
-    }
 
-    try:
-        resp = requests.get(
-            f"{_KIS_BASE_URL}/uapi/domestic-stock/v1/finance/financial-ratio",
-            headers=headers,
-            params=params,
-            timeout=_REQUEST_TIMEOUT,
-        )
-        if resp.status_code != 200:
-            logger.warning("[%s] KIS financial-ratio failed: %s", symbol, resp.status_code)
-            return None
+    merged: Dict[str, Dict] = {}
+    for path, tr_id, field_map in _KIS_FINANCE_ENDPOINTS:
+        output = _fetch_kis_finance(symbol, {**headers, "tr_id": tr_id}, path)
+        for year_end, vals in _parse_kis_ratio_output(output, field_map).items():
+            merged.setdefault(year_end, {}).update(vals)
 
-        return _parse_kis_financial_ratio_output(resp.json().get("output", []))
-    except Exception as e:
-        logger.warning("[%s] KIS financial-ratio failed: %s", symbol, e)
-        return None
+    result = [{"year_end": d, **vals} for d, vals in sorted(merged.items(), reverse=True) if vals]
+    return result or None
 
 
 def fetch_fundamentals(symbol: str, retry: int = 2, use_cache: bool = True) -> Optional[List[Dict]]:
@@ -338,6 +360,29 @@ def _parse_fundamentals(html: str) -> Optional[List[Dict]]:
     return None
 
 
+def fetch_shares_outstanding(symbol: str) -> Optional[int]:
+    """Naver Finance에서 상장주식수를 조회한다. 실패 시 None.
+
+    시가총액 = close × 상장주식수. 현재 주식수를 전 기간에 적용하는 근사로, 엔진의
+    런타임 market_cap 계산(data_resolver._resolve_market_cap)과 동일한 방식이다.
+    """
+    try:
+        r = requests.get(_NAVER_URL.format(symbol=symbol), headers=_HEADERS, timeout=15)
+        if r.status_code != 200:
+            return None
+        soup = BeautifulSoup(r.text, "html.parser")
+        for th in soup.find_all(["th", "td"]):
+            if "상장주식수" in th.get_text(strip=True):
+                sib = th.find_next_sibling(["td", "em"]) or th.find_next(["td", "em"])
+                if sib:
+                    num = sib.get_text(strip=True).replace(",", "").replace("주", "")
+                    if num.isdigit():
+                        return int(num)
+    except Exception as e:
+        logger.debug("[%s] shares fetch failed: %s", symbol, e)
+    return None
+
+
 def _parse_number(s: str) -> Optional[float]:
     """'52,002' → 52002.0, '-12,517' → -12517.0, '' → None"""
     s = s.strip().replace(",", "")
@@ -364,14 +409,15 @@ def enrich_ohlcv_with_fundamentals(
     if not fundamentals:
         return df
 
+    import numpy as _np
+
     df = df.copy()
 
-    # 결산일 기준 EPS/BPS 시리즈 생성
+    # 결산일 기준 연간 펀더멘털 시리즈 생성
     fund_df = pd.DataFrame(fundamentals)
     fund_df["year_end"] = pd.to_datetime(fund_df["year_end"])
     fund_df = fund_df.sort_values("year_end")
 
-    # date 컬럼을 datetime으로 변환
     date_col = pd.to_datetime(df["date"])
 
     # 각 거래일에 대해 가장 최근 결산 데이터 매핑 (forward-fill 방식)
@@ -379,37 +425,28 @@ def enrich_ohlcv_with_fundamentals(
     # (실적 발표 전 look-ahead bias 방지)
     _PUBLISH_DELAY_DAYS = 90
 
-    eps_series = pd.Series(index=df.index, dtype=float)
-    bps_series = pd.Series(index=df.index, dtype=float)
-    roe_series = pd.Series(index=df.index, dtype=float)
-    debt_ratio_series = pd.Series(index=df.index, dtype=float)
+    # 원본 4개(eps/bps/roe/debt_ratio)는 데이터에 없어도 항상 컬럼을 생성하고(하위호환),
+    # 추가 지표는 데이터에 존재할 때만 컬럼을 만든다.
+    _base = ["eps", "bps", "roe_or_gpa", "debt_ratio"]
+    present_keys = list(dict.fromkeys(
+        _base + [k for k in ANNUAL_FUNDAMENTAL_KEYS if k in fund_df.columns]
+    ))
+    series = {k: pd.Series(index=df.index, dtype=float) for k in present_keys}
 
     for _, row in fund_df.iterrows():
-        effective_date = row["year_end"] + pd.Timedelta(days=_PUBLISH_DELAY_DAYS)
-        mask = date_col >= effective_date
-        if "eps" in row and pd.notna(row.get("eps")):
-            eps_series[mask] = row["eps"]
-        if "bps" in row and pd.notna(row.get("bps")):
-            bps_series[mask] = row["bps"]
-        if "roe_or_gpa" in row and pd.notna(row.get("roe_or_gpa")):
-            roe_series[mask] = row["roe_or_gpa"]
-        if "debt_ratio" in row and pd.notna(row.get("debt_ratio")):
-            debt_ratio_series[mask] = row["debt_ratio"]
+        mask = date_col >= row["year_end"] + pd.Timedelta(days=_PUBLISH_DELAY_DAYS)
+        for k in present_keys:
+            if pd.notna(row.get(k)):
+                series[k][mask] = row[k]
 
-    df["eps"] = eps_series
-    df["bps"] = bps_series
-    df["roe_or_gpa"] = roe_series
-    df["debt_ratio"] = debt_ratio_series
+    for k in present_keys:
+        df[k] = series[k]
 
-    # PER = close / EPS, PBR = close / BPS
+    # 가격 기반 밸류에이션 비율: PER=close/EPS, PBR=close/BPS, PSR=close/SPS
     close = df["close"].astype(float)
-    eps_valid = df["eps"].notna() & (df["eps"] != 0)
-    bps_valid = df["bps"].notna() & (df["bps"] != 0)
-    per = (close / df["eps"]).where(eps_valid)
-    pbr = (close / df["bps"]).where(bps_valid)
-    # inf → NaN
-    import numpy as _np
-    df["per"] = per.replace([_np.inf, -_np.inf], _np.nan)
-    df["pbr"] = pbr.replace([_np.inf, -_np.inf], _np.nan)
+    for ratio, denom in (("per", "eps"), ("pbr", "bps"), ("psr", "sps")):
+        if denom in df.columns:
+            valid = df[denom].notna() & (df[denom] != 0)
+            df[ratio] = (close / df[denom]).where(valid).replace([_np.inf, -_np.inf], _np.nan)
 
     return df

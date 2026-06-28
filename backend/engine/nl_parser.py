@@ -153,11 +153,19 @@ def _ollama_open_with_retry(req, timeout: int):
 
 class FundamentalFilter(BaseModel):
     """재무 지표 필터 조건"""
-    metric: Literal["per", "pbr", "roe_or_gpa", "debt_ratio", "market_cap", "trading_value"] = Field(
+    metric: Literal[
+        "per", "pbr", "psr", "roe_or_gpa", "roa", "debt_ratio", "current_ratio", "quick_ratio",
+        "reserve_ratio", "net_margin", "gross_margin", "revenue_growth",
+        "operating_income_growth", "net_income_growth", "market_cap", "trading_value",
+    ] = Field(
         description=(
             "재무 지표 종류. "
-            "per=주가수익비율, pbr=주가순자산비율, roe_or_gpa=자기자본이익률(%), "
-            "debt_ratio=부채비율(%), market_cap=시가총액(억원), trading_value=일평균거래대금(억원)"
+            "per=주가수익비율, pbr=주가순자산비율, psr=주가매출비율, roe_or_gpa=자기자본이익률(%), "
+            "roa=총자본순이익률(%), debt_ratio=부채비율(%), current_ratio=유동비율(%), "
+            "quick_ratio=당좌비율(%), reserve_ratio=유보율(%), net_margin=순이익률(%), "
+            "gross_margin=매출총이익률(%), revenue_growth=매출액증가율(%), "
+            "operating_income_growth=영업이익증가율(%), net_income_growth=순이익증가율(%), "
+            "market_cap=시가총액(억원), trading_value=일평균거래대금(억원)"
         )
     )
     operator: Literal["<", ">", "<=", ">="] = Field(
@@ -375,6 +383,12 @@ SYSTEM_PROMPT = """당신은 한국 주식 퀀트 투자 전략을 JSON으로 �
 - PER 7 미만 → {"metric": "per", "operator": "<", "value": 7.0}
 - ROE 15% 이상 → {"metric": "roe_or_gpa", "operator": ">=", "value": 15.0}
 - 부채비율 100% 이하 → {"metric": "debt_ratio", "operator": "<=", "value": 100.0}
+- ROA 5% 이상 → {"metric": "roa", "operator": ">=", "value": 5.0}
+- PSR 2 이하 → {"metric": "psr", "operator": "<=", "value": 2.0}
+- 유동비율 150% 이상 → {"metric": "current_ratio", "operator": ">=", "value": 150.0}
+- 매출액증가율 20% 이상 → {"metric": "revenue_growth", "operator": ">=", "value": 20.0}
+- 영업이익증가율 10% 이상 → {"metric": "operating_income_growth", "operator": ">=", "value": 10.0}
+- 순이익률 10% 이상 → {"metric": "net_margin", "operator": ">=", "value": 10.0}
 - 시가총액 1000억 이상 → {"metric": "market_cap", "operator": ">=", "value": 1000.0}
 - '이하'='<=', '미만'='<', '이상'='>=', '초과'='>'
 
@@ -1599,7 +1613,18 @@ _FUNDAMENTAL_PATTERN_SPECS = [
     ("pbr", [rf"pbr{_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*{_OP_ALT}?"]),
     ("per", [rf"per{_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*{_OP_ALT}?"]),
     ("roe_or_gpa", [rf"(?:roe|gpa){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
+    ("roa", [rf"roa{_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
     ("debt_ratio", [rf"(?:부채비율|부채){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
+    ("current_ratio", [rf"유동비율{_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
+    ("quick_ratio", [rf"당좌비율{_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
+    ("reserve_ratio", [rf"유보율{_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
+    ("gross_margin", [rf"(?:매출액총이익률|매출총이익률){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
+    ("net_margin", [rf"(?:매출액순이익률|순이익률){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
+    ("revenue_growth", [rf"(?:매출액증가율|매출증가율|매출액성장률|매출성장률){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
+    ("operating_income_growth", [rf"영업이익(?:증가율|성장률){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
+    ("net_income_growth", [rf"(?:순이익|당기순이익)(?:증가율|성장률){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
+    # psr=주가매출비율(낮을수록 저평가), per/pbr과 동일 형식.
+    ("psr", [rf"psr{_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*{_OP_ALT}?"]),
     # 금액 지표(억원 단위)는 '조'+'억' 콤보를 결정적으로 합산한다: (조 부분)?(억 부분)?(연산자)?.
     ("market_cap", [rf"시가총액{_NUM_PARTICLE}\s*(?:(\d+(?:\.\d+)?)조)?\s*(?:(\d+(?:\.\d+)?)(?:억원|억))?\s*{_OP_ALT}?"]),
     ("trading_value", [rf"(?:거래대금|일평균거래대금){_NUM_PARTICLE}\s*(?:(\d+(?:\.\d+)?)조)?\s*(?:(\d+(?:\.\d+)?)(?:억원|억))?\s*{_OP_ALT}?"]),
@@ -1627,7 +1652,8 @@ _OPERATOR_BY_KOREAN = {
 
 
 def _default_operator_for_metric(metric: str) -> str:
-    if metric in {"pbr", "per", "debt_ratio"}:
+    # 낮을수록 우량/저평가인 지표는 '<=', 높을수록 우량인 지표는 '>=' 기본값.
+    if metric in {"pbr", "per", "psr", "debt_ratio"}:
         return "<="
     return ">="
 

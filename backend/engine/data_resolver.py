@@ -13,6 +13,8 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
+from .signals import FUNDAMENTAL_CIDS, FUNDAMENTAL_LABELS
+
 logger = logging.getLogger(__name__)
 
 
@@ -30,7 +32,7 @@ class ResolutionLog:
 # 각 조건이 signal evaluation에서 참조하는 컬럼을 정의.
 # 파라미터에 따라 동적으로 결정되는 컬럼은 _get_required_columns에서 처리.
 
-FUNDAMENTAL_IDS = {'per', 'pbr', 'roe_or_gpa', 'debt_ratio', 'market_cap'}
+FUNDAMENTAL_IDS = set(FUNDAMENTAL_CIDS)
 
 # 기술적 지표: IndicatorEngine이 계산해야 할 것들
 TECHNICAL_IDS = {
@@ -93,7 +95,7 @@ def _get_required_columns(cond: Dict) -> List[str]:
         return [f'high_{period}_max', f'low_{period}_min']
     elif cid == 'trading_value':
         return ['trading_value_20_sma']  # fallback: close, volume
-    elif cid in ('per', 'pbr', 'roe_or_gpa', 'debt_ratio', 'market_cap'):
+    elif cid in FUNDAMENTAL_IDS:
         return [cid]
     elif cid in ('ai_model', 'ai_drop_model'):
         return ['ai_score'] if cid == 'ai_model' else ['ai_drop_score']
@@ -181,11 +183,7 @@ class DataResolver:
         still_missing = {col for col in missing_cols if col not in df_pl.columns or self._is_all_null(df_pl, col)}
         if still_missing:
             # 조건 ID로 변환하여 사용자 친화적 메시지 생성
-            cond_labels = {
-                'per': 'PER', 'pbr': 'PBR', 'roe_or_gpa': 'ROE',
-                'debt_ratio': '부채비율', 'market_cap': '시가총액',
-                'trading_value_20_sma': '거래대금(20일평균)',
-            }
+            cond_labels = {**FUNDAMENTAL_LABELS, 'trading_value_20_sma': '거래대금(20일평균)'}
             readable = [cond_labels.get(c, c) for c in sorted(still_missing)]
             self._log("WARN", f"[{symbol}] 미해결 데이터: {', '.join(readable)} — 해당 필터는 통과 처리됩니다")
 
@@ -218,21 +216,19 @@ class DataResolver:
         return df_pl
 
     def _resolve_fundamentals(self, symbol: str, df_pl: pl.DataFrame, missing: set) -> pl.DataFrame:
-        """per/pbr/roe_or_gpa/debt_ratio: fundamental_fetcher로 즉시 보충."""
-        fund_cols = {'per', 'pbr', 'roe_or_gpa', 'debt_ratio', 'eps', 'bps'}
-        needed_fund = missing & fund_cols
+        """연간 펀더멘털(roe/부채비율/roa/유동비율/성장률…)과 per/pbr/psr를 즉시 보충."""
+        from .fundamental_fetcher import (
+            fetch_fundamentals, enrich_ohlcv_with_fundamentals, ANNUAL_FUNDAMENTAL_KEYS,
+        )
+        resolvable = set(ANNUAL_FUNDAMENTAL_KEYS) | {'per', 'pbr', 'psr', 'eps', 'bps'}
+        needed_fund = missing & resolvable
         if not needed_fund:
             return df_pl
 
-        labels = {'per': 'PER', 'pbr': 'PBR', 'roe_or_gpa': 'ROE', 'debt_ratio': '부채비율'}
-        readable = [labels.get(c, c) for c in sorted(needed_fund & {'per', 'pbr', 'roe_or_gpa', 'debt_ratio'})]
-        if not readable:
-            return df_pl
-
+        readable = [FUNDAMENTAL_LABELS.get(c, c) for c in sorted(needed_fund)]
         self._log("INFO", f"[{symbol}] 펀더멘털 데이터({', '.join(readable)}) 조회 시작...")
 
         try:
-            from .fundamental_fetcher import fetch_fundamentals, enrich_ohlcv_with_fundamentals
             t0 = time.time()
             fundamentals = fetch_fundamentals(symbol)
             elapsed = time.time() - t0
@@ -243,21 +239,14 @@ class DataResolver:
 
             self._log("INFO", f"[{symbol}] 펀더멘털 원시 데이터 수신 ({len(fundamentals)}개 연도, {elapsed:.1f}s)")
 
-            # enrich 적용
-            pdf = df_pl.to_pandas()
-            pdf_enriched = enrich_ohlcv_with_fundamentals(pdf, fundamentals)
+            pdf_enriched = enrich_ohlcv_with_fundamentals(df_pl.to_pandas(), fundamentals)
 
-            # polars로 변환
             enriched_cols = []
-            for col in ['eps', 'bps', 'per', 'pbr', 'roe_or_gpa', 'debt_ratio']:
-                if col in pdf_enriched.columns and col in missing:
-                    non_null = pdf_enriched[col].notna().sum()
-                    if non_null > 0:
-                        df_pl = df_pl.with_columns(
-                            pl.Series(col, pdf_enriched[col].values)
-                        )
-                        enriched_cols.append(labels.get(col, col))
-                        missing.discard(col)
+            for col in sorted(needed_fund):
+                if col in pdf_enriched.columns and pdf_enriched[col].notna().any():
+                    df_pl = df_pl.with_columns(pl.Series(col, pdf_enriched[col].values))
+                    enriched_cols.append(FUNDAMENTAL_LABELS.get(col, col))
+                    missing.discard(col)
 
             if enriched_cols:
                 self._log("SUCCESS", f"[{symbol}] 펀더멘털 보충 완료: {', '.join(enriched_cols)} ✓")

@@ -88,22 +88,27 @@ def fetch_and_enrich(symbol, data_dir, skip_fundamentals=False):
 
 
 def enrich_existing_parquet(symbol, data_dir):
-    """기존 parquet 파일에 재무 데이터(EPS/BPS/PER/PBR/ROE/debt_ratio)를 추가한다."""
+    """기존 parquet에 펀더멘털(EPS/BPS/PER/PBR/PSR/ROE/ROA/부채·유동·당좌비율/성장률 등)과
+    market_cap을 비파괴적으로 보강한다(기존 값 보존, 결측만 채움)."""
     target_path = os.path.join(data_dir, f"{symbol}.parquet")
     if not os.path.exists(target_path):
         print(f"[ERROR] Parquet file not found: {target_path}")
         return False
 
     try:
+        from .fundamental_backfill import refresh_symbol, SENTINEL_COL
+
         df = pd.read_parquet(target_path)
-        fundamentals = fetch_fundamentals(symbol)
-        if not fundamentals:
+        merged = refresh_symbol(df, symbol)
+        # 연간 펀더멘털도 시총도 못 얻었으면 변화 없음 — 쓰지 않는다.
+        got_annual = SENTINEL_COL in merged.columns and merged[SENTINEL_COL].notna().any()
+        got_market_cap = "market_cap" in merged.columns and merged["market_cap"].notna().any()
+        if not got_annual and not got_market_cap:
             print(f"[WARNING] Could not fetch fundamentals for {symbol}")
             return False
 
-        df = enrich_ohlcv_with_fundamentals(df, fundamentals)
-        df.to_parquet(target_path)
-        print(f"[INFO] Enriched existing parquet {symbol} with fundamentals")
+        merged.to_parquet(target_path)
+        print(f"[INFO] Enriched existing parquet {symbol} with fundamentals + market_cap")
         return True
 
     except Exception as e:

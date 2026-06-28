@@ -6,6 +6,21 @@ import polars as pl
 import numpy as np
 
 
+# Fundamental filter metrics. The condition id equals the parquet column name, so the
+# eval branches are fully generic (get_col(cid) / safe_get(cid)). Single source of truth
+# for which metrics are filterable and how their badges read.
+FUNDAMENTAL_LABELS = {
+    "per": "PER", "pbr": "PBR", "psr": "PSR", "roe_or_gpa": "ROE", "roa": "ROA",
+    "debt_ratio": "부채비율", "current_ratio": "유동비율", "quick_ratio": "당좌비율",
+    "reserve_ratio": "유보율", "net_margin": "순이익률", "gross_margin": "매출총이익률",
+    "revenue_growth": "매출액증가율", "operating_income_growth": "영업이익증가율",
+    "net_income_growth": "순이익증가율", "market_cap": "시가총액",
+}
+FUNDAMENTAL_CIDS = list(FUNDAMENTAL_LABELS)
+# Metrics whose value is an amount (억원), not a ratio — for badge suffixing.
+FUNDAMENTAL_AMOUNT_CIDS = {"market_cap"}
+
+
 @functools.lru_cache(maxsize=1)
 def _ai_calibrated_thresholds() -> Tuple[float, float]:
     """(buy_threshold, sell_threshold) from the live model's model_meta.json.
@@ -295,7 +310,7 @@ class SignalEngine:
                     curr_val = c * v
             return compare_vec(curr_val, p.get('operator', '>='), val)
 
-        elif cid in ['per', 'pbr', 'roe_or_gpa', 'debt_ratio', 'market_cap']:
+        elif cid in FUNDAMENTAL_CIDS:
             val = float(p.get('value') or 0)
             curr = get_col(cid)
             if curr is None:
@@ -575,7 +590,7 @@ class SignalEngine:
                     curr_val = c * v
             return compare(curr_val, op, val)
 
-        elif cid in ['per', 'pbr', 'roe_or_gpa', 'debt_ratio', 'market_cap']:
+        elif cid in FUNDAMENTAL_CIDS:
             val, op = float(p.get('value') or 0), p.get('operator', '<')
             curr = safe_get(cid, idx)
             if curr is None:
@@ -711,10 +726,9 @@ class SignalEngine:
         elif cid == 'trailing_stop':
             pct = p.get('pips', 0)
             return f"트레일링 스탑 {pct}%"
-        elif cid in ['per', 'pbr', 'roe_or_gpa', 'debt_ratio', 'market_cap']:
-            labels = {"per": "PER", "pbr": "PBR", "roe_or_gpa": "ROE", "debt_ratio": "부채비율", "market_cap": "시가총액"}
-            label = labels.get(cid, cid.upper())
-            suffix = "억" if cid == 'market_cap' else ""
+        elif cid in FUNDAMENTAL_CIDS:
+            label = FUNDAMENTAL_LABELS.get(cid, cid.upper())
+            suffix = "억" if cid in FUNDAMENTAL_AMOUNT_CIDS else ""
             return f"{label} {p.get('value')}{suffix} {op_kr}"
 
         return cid
