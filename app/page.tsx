@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import StrategyLabPage from "./analytics/page";
+import { TermsOfServicePage } from "@/components/landing/TermsOfServicePage";
 
 export const metadata: Metadata = {
   title: "nullStock",
@@ -11,6 +12,20 @@ export const metadata: Metadata = {
   },
 };
 
-export default function HomePage() {
+type HomePageProps = {
+  searchParams?: {
+    legal?: string | string[];
+  };
+};
+
+export default function HomePage({ searchParams }: HomePageProps) {
+  const legalView = Array.isArray(searchParams?.legal)
+    ? searchParams.legal[0]
+    : searchParams?.legal;
+
+  if (legalView === "terms") {
+    return <TermsOfServicePage />;
+  }
+
   return <StrategyLabPage />;
 }
