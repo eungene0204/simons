@@ -6,14 +6,16 @@
  *
  * 스케줄:
  *   08:50 KST  — 장전 데이터 워밍 (평일)
- *   09:00 KST  — 장 개장: auto 모드 계좌 자동 시작 (평일)
- *   09:05~15:25 KST — 1분 간격 시세/시그널 새로고침 (평일)
- *   15:30 KST  — 장 마감: 실행 중인 계좌 일시정지 (평일)
+ *   09:00 KST  — 장 개장: auto 모드 계좌 자동 시작 (running 전환, 평일)
+ *   15:30 KST  — 장 마감: 실행 중인 계좌 일시정지 (paused 전환, 평일)
+ *
+ * 장중 시그널 평가·체결(자동매매)은 이 스케줄러가 하지 않는다 — 정본은 FastAPI
+ * 백엔드의 VirtualTrader(backend/engine/virtual_trader.py, 30초 간격)다.
+ * 이 스케줄러는 계좌의 running/paused 생명주기와 캐시 워밍만 담당한다.
  */
 
 import { runSchedulerAction } from "@/lib/server/scheduler-actions";
 
-const REFRESH_INTERVAL_MIN = 1;
 const CHECK_INTERVAL_MS = 60_000; // 1분마다 체크
 
 const firedToday = new Set<string>();
@@ -43,9 +45,6 @@ export async function callSchedulerAPI(action: string): Promise<void> {
     if (action === "market-open") {
       const count = Array.isArray(result.results) ? result.results.length : 0;
       console.log(`[Scheduler] ${ts} KST — 장 개장 처리 완료 — ${count}개 계좌`);
-    } else if (action === "market-refresh") {
-      const count = Array.isArray(result.results) ? result.results.length : 0;
-      console.log(`[Scheduler] ${ts} KST — 시세 새로고침 완료 — ${count}개 계좌`);
     } else if (action === "market-close") {
       const count = typeof result.paused === "number" ? result.paused : 0;
       console.log(`[Scheduler] ${ts} KST — 장 마감 처리 완료 — ${count}개 계좌 일시정지`);
@@ -86,17 +85,8 @@ function tick(): void {
     callSchedulerAPI("market-open");
   }
 
-  // 09:05~15:25 KST — 5분 간격 새로고침
-  const inMarketHours =
-    (h === 9 && m >= 5) || (h >= 10 && h <= 14) || (h === 15 && m < 30);
-  if (inMarketHours && m % REFRESH_INTERVAL_MIN === 0) {
-    const refreshKey = `${dateStr}_${String(h).padStart(2, "0")}${String(m).padStart(2, "0")}_refresh`;
-    if (!firedToday.has(refreshKey)) {
-      firedToday.add(refreshKey);
-      console.log(`[Scheduler] ${formatKST(kst)} KST — 시세 새로고침`);
-      callSchedulerAPI("market-refresh");
-    }
-  }
+  // 장중 시세/시그널 새로고침은 더 이상 여기서 트리거하지 않는다.
+  // 자동매매 체결의 정본은 FastAPI 백엔드의 VirtualTrader(30초 간격)다.
 
   // 15:30 KST — 장 마감
   const closeKey = `${dateStr}_market_close`;
@@ -113,7 +103,7 @@ export function startScheduler(): void {
   const kst = nowKST();
   console.log(`[Scheduler] 스케줄러 시작 (KST: ${formatKST(kst)})`);
   console.log(`[Scheduler] 인-프로세스 직접 실행 (HTTP self-fetch 제거됨)`);
-  console.log(`[Scheduler] 새로고침 간격: ${REFRESH_INTERVAL_MIN}분`);
+  console.log(`[Scheduler] 자동매매 체결은 VirtualTrader(백엔드)가 담당 — 생명주기/캐시만 관리`);
 
   // 시작 직후 한 번 실행 (서버 재시작 시 놓친 이벤트 처리)
   tick();

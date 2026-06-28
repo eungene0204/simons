@@ -146,10 +146,10 @@ export default function VirtualMarketPanel({
         setSymbolNameMap((prev) => ({ ...prev, ...state.symbolNames }));
       }
       await loadLogs();
-      if (result.logs?.some((l) => l.action === "auto_executed")) {
-        await loadPositions();
-        onTradeExecuted?.();
-      }
+      // 체결은 VirtualTrader(백엔드, 30초)가 전담한다. 이 새로고침은 표시 전용이므로
+      // 새 체결 여부와 무관하게 DB 기준으로 보유 종목/계좌 표시만 미러링한다.
+      await loadPositions();
+      onTradeExecuted?.();
     } catch { /* 무시 */ }
     finally {
       setRefreshing(false);

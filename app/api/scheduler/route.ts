@@ -8,9 +8,9 @@
  *
  * action:
  *   pre-market     — 08:50 KST: 추적 종목 시세 캐시 사전 로드
- *   market-open    — 09:00 KST: auto 모드 계좌 전체 시작
- *   market-refresh — 09:05~15:25 KST: 실행 중인 계좌 전체 새로고침
- *   market-close   — 15:30 KST: 실행 중인 계좌 전체 일시정지
+ *   market-open    — 09:00 KST: auto 모드 계좌 전체 시작 (running 전환)
+ *   market-refresh — (비활성) 자동매매 체결은 VirtualTrader 로 일원화됨 → no-op
+ *   market-close   — 15:30 KST: 실행 중인 계좌 전체 일시정지 (paused 전환)
  *
  * 보안: SCHEDULER_SECRET 환경변수가 설정된 경우 Authorization 헤더 검증
  */

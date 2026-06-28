@@ -1,9 +1,9 @@
 /**
  * POST /api/virtual-market/[accountId]/refresh
  *
- * 가상 계좌 시장 새로고침 — 핵심 로직은 lib/server/virtual-market-refresh 에 있고,
- * 이 라우트는 브라우저 호출용 얇은 HTTP 래퍼다.
- * (인-프로세스 스케줄러는 refreshVirtualMarket 를 직접 호출한다.)
+ * 가상 계좌 시장 새로고침(표시 전용) — 핵심 로직은 lib/server/virtual-market-refresh 에 있고,
+ * 이 라우트는 브라우저 호출용 얇은 HTTP 래퍼다. 가격/포지션 표시만 갱신하며 매매는
+ * 하지 않는다 — 자동매매 체결의 정본은 백엔드 VirtualTrader 단일 엔진이다.
  */
 
 import { NextResponse } from "next/server";
