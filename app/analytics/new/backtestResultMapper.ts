@@ -5,11 +5,18 @@ import { BacktestResult } from "@/types/strategy";
  * 인라인 매핑이 필드를 누락하면(예: avgHoldingDays) 대시보드가 0으로 표시되는 버그를
  * 막기 위해 순수 함수로 분리해 단위 테스트로 검증한다.
  */
-export function mapRawBacktestResult(raw: any, executionId: string): BacktestResult {
+export function mapRawBacktestResult(
+  raw: any,
+  executionId: string,
+  cacheKey?: string
+): BacktestResult {
   const equity: number[] = raw.equity ?? [];
   return {
     executionId,
     strategyId: "nl_strategy",
+    // 히스토리 dedup 키. 없으면 자동저장(프롬프트명)과 명시저장(전략명)이
+    // 별도 행으로 분리되어 같은 백테스트가 두 번 기록된다.
+    cacheKey: cacheKey ?? raw.cacheKey ?? undefined,
     symbols: raw.symbols,
     totalReturn: raw.totalReturn ?? 0,
     cagr: raw.cagr ?? 0,

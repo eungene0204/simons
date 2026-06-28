@@ -32,4 +32,26 @@ describe("mapRawBacktestResult", () => {
     expect(result.initialCapital).toBe(1000);
     expect(result.finalEquity).toBe(1200);
   });
+
+  it("dedup용 cacheKey를 보존한다 (자동저장·명시저장 히스토리 중복 방지)", () => {
+    const result = mapRawBacktestResult(
+      { equity: [1000], signals: [] },
+      "exec_1",
+      "ckey-123",
+    );
+    expect(result.cacheKey).toBe("ckey-123");
+  });
+
+  it("meta 키가 없으면 raw.cacheKey로 폴백한다", () => {
+    const result = mapRawBacktestResult(
+      { equity: [1000], signals: [], cacheKey: "raw-key" },
+      "exec_1",
+    );
+    expect(result.cacheKey).toBe("raw-key");
+  });
+
+  it("cacheKey가 전혀 없으면 undefined", () => {
+    const result = mapRawBacktestResult({ equity: [1000], signals: [] }, "exec_1");
+    expect(result.cacheKey).toBeUndefined();
+  });
 });

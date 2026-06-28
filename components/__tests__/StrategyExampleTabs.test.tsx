@@ -27,6 +27,9 @@ describe("StrategyExampleTabs", () => {
     expect(screen.getByRole("button", { name: "내 전략" })).toBeInTheDocument();
     expect(screen.getAllByTestId("strategy-example-card")).toHaveLength(20);
     const usageNotice = screen.getByRole("contentinfo", { name: "전략연구소 이용 안내" });
+    const termsLink = within(usageNotice).getByRole("link", { name: "이용약관" });
+    expect(termsLink).toHaveAttribute("href", "/?legal=terms");
+    expect(usageNotice.firstElementChild).toBe(termsLink);
     expect(within(usageNotice).getByText(
       "널스탁에서 제공하는 투자 정보는 고객의 투자 판단을 위한 단순 참고용일 뿐입니다. 백테스트 입력 예시에 쓰인 수치는 단순 예시값이며, 투자 추천이나 미래 성과를 의미하지 않습니다."
     )).toBeInTheDocument();

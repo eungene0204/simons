@@ -1456,6 +1456,9 @@ function StrategyLabContent() {
       const decoder = new TextDecoder();
       let buffer = "";
       let streamDone = false;
+      // result 이전에 도착하는 meta 이벤트의 dedup 키. 자동저장/명시저장이
+      // 같은 히스토리 행으로 수렴하도록 result에 실어준다.
+      let nlCacheKey: string | undefined;
 
       const processPayload = (payload: string) => {
         if (payload === "[DONE]") {
@@ -1466,8 +1469,10 @@ function StrategyLabContent() {
         const event = JSON.parse(payload);
         if (event.type === "status") {
           setStatusMessage(event.message);
+        } else if (event.type === "meta") {
+          nlCacheKey = event.cacheKey ?? undefined;
         } else if (event.type === "result") {
-          setResult(mapRawBacktestResult(event.data, `nl_${Date.now()}`));
+          setResult(mapRawBacktestResult(event.data, `nl_${Date.now()}`, nlCacheKey));
           setExecutedReq(effectiveReq);
           setStage("done");
         } else if (event.type === "error") {

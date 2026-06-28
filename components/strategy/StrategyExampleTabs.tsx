@@ -823,6 +823,12 @@ export function StrategyExampleTabs({
           aria-label="전략연구소 이용 안내"
           className="border-t border-white/[0.06] pt-4 text-center"
         >
+          <Link
+            href="/?legal=terms"
+            className="mb-3 inline-flex text-xs font-black text-gray-400 underline-offset-4 transition-colors hover:text-white hover:underline"
+          >
+            이용약관
+          </Link>
           <p className="mx-auto max-w-5xl text-xs font-bold leading-relaxed text-gray-600">
             <span className="block">
               널스탁에서 제공하는 투자 정보는 고객의 투자 판단을 위한 단순 참고용일 뿐입니다. 백테스트 입력 예시에 쓰인 수치는 단순 예시값이며, 투자 추천이나 미래 성과를 의미하지 않습니다.
