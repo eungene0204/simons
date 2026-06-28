@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   CaretDown,
@@ -112,7 +112,7 @@ const SHOW_TRADE_PANEL = false;
 const SHOW_COMMUNITY_TAB = false;
 const SHOW_NEWS_TAB = process.env.NEXT_PUBLIC_NEWS_TAB_ENABLED === "true";
 
-export default function OrderPage() {
+function OrderPageContent() {
   const searchParams = useSearchParams();
   const symbol = searchParams.get("symbol") || "";
   const name = searchParams.get("name") || "";
@@ -1439,5 +1439,14 @@ export default function OrderPage() {
         </div>
       </div>
     </DashboardLayout>
+  );
+}
+
+// useSearchParams()는 Suspense 경계 안에서 호출돼야 한다(Next 14.2 정적 프리렌더 요건).
+export default function OrderPage() {
+  return (
+    <Suspense fallback={null}>
+      <OrderPageContent />
+    </Suspense>
   );
 }

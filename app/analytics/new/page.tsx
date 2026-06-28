@@ -26,7 +26,7 @@ import {
   X,
 } from "phosphor-react";
 import {
-  buildStrategySummary,
+  buildStrategySummaryFromRequest,
   FUNDAMENTAL_FILTER_SECTION_LABEL,
   formatFundamentalFilter,
   formatInitialCapital,
@@ -64,7 +64,9 @@ const BacktestDashboard = dynamic(
 );
 
 type Stage = "idle" | "ready" | "running" | "done";
-const BACKTEST_ENGINE_VERSION = "benchmark-etf-v2";
+// ranking-fix-v3: risk.ranking_metric를 스키마가 버리던 버그 수정(모멘텀 랭킹 0거래) →
+// 같은 strategy_id로 캐시된 잘못된 0거래 결과를 무효화하기 위해 버전을 올린다.
+const BACKTEST_ENGINE_VERSION = "ranking-fix-v3";
 const OAUTH_QUERY_PARAMS = {
   access_type: "offline",
   prompt: "select_account",
@@ -486,11 +488,15 @@ function StrategyLabContent() {
   const [backtestReq, setBacktestReq] = useState<any>(null);
   const [currentOptions, setCurrentOptions] = useState<any>(null);
   const [result, setResult] = useState<BacktestResult | null>(null);
+  // 현재 표시 중인 result를 만들어낸 '실행된 요청' 스냅샷. 화면 상태(backtestReq)는
+  // 사용자가 계속 대화하면 갱신되므로, 결과 배지는 이 스냅샷에서 파생해 표시↔실행을 일치시킨다.
+  const [executedReq, setExecutedReq] = useState<any>(null);
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [modelStatus, setModelStatus] = useState<{ status: string; error: string | null } | null>(null);
   const [visibleHeadlineChars, setVisibleHeadlineChars] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const resultScrollRef = useRef<HTMLDivElement>(null);
   const latestParsedRef = useRef<ParsedSummary | null>(null);
   const backtestReqRef = useRef<any>(null);
   const coachSessionIdRef = useRef<string | null>(null);
@@ -536,6 +542,8 @@ function StrategyLabContent() {
       setCurrentOptions(snapshot.currentOptions ?? null);
       setStage(snapshot.stage ?? "idle");
       setResult(snapshot.result ?? null);
+      // 복원 시 실행된 요청은 스냅샷의 backtestReq(= 저장 시점의 실행 요청)와 일치한다.
+      setExecutedReq(snapshot.executedReq ?? snapshot.backtestReq ?? null);
       firstPromptRef.current = snapshot.firstPrompt ?? "";
       coachConversationRef.current = snapshot.coachConversation ?? [];
       coachSessionIdRef.current = snapshot.coachSessionId ?? null;
@@ -621,6 +629,7 @@ function StrategyLabContent() {
         // 진행 중이던 백테스트는 복원할 수 없으므로 ready로 강등한다.
         stage: stage === "running" ? "ready" : stage,
         result,
+        executedReq,
         firstPrompt: firstPromptRef.current,
         coachConversation: coachConversationRef.current,
         coachSessionId: coachSessionIdRef.current,
@@ -632,7 +641,7 @@ function StrategyLabContent() {
     } catch {
       // 용량 초과 등은 무시한다 — 복원은 best-effort.
     }
-  }, [messages, latestParsed, backtestReq, currentOptions, stage, result]);
+  }, [messages, latestParsed, backtestReq, currentOptions, stage, result, executedReq]);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -1459,6 +1468,7 @@ function StrategyLabContent() {
           setStatusMessage(event.message);
         } else if (event.type === "result") {
           setResult(mapRawBacktestResult(event.data, `nl_${Date.now()}`));
+          setExecutedReq(effectiveReq);
           setStage("done");
         } else if (event.type === "error") {
           throw new Error(event.message);
@@ -1521,6 +1531,7 @@ function StrategyLabContent() {
     setLatestParsed(null);
     setBacktestReq(null);
     setResult(null);
+    setExecutedReq(null);
     setIsSending(false);
     coachSessionIdRef.current = null;
     coachConversationRef.current = [];
@@ -1591,6 +1602,19 @@ function StrategyLabContent() {
     return installBacktestResultBackHandler(() => setStage("ready"));
   }, [showingBacktestResult]);
 
+  // 결과 화면 진입 시(또는 재실행 완료 시) 채팅 화면에서 내려가 있던 스크롤 위치가 그대로
+  // 남아 결과가 아래쪽부터 보이는 문제를 막기 위해 항상 맨 위로 스크롤한다.
+  const wasShowingBacktestResultRef = useRef(false);
+  useEffect(() => {
+    const enteringResultView = showingBacktestResult && !wasShowingBacktestResultRef.current;
+    wasShowingBacktestResultRef.current = showingBacktestResult;
+    if (!enteringResultView && stage !== "done") return;
+
+    document.querySelector("main")?.scrollTo({ top: 0, behavior: "auto" });
+    resultScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }, [showingBacktestResult, stage]);
+
   if (showingBacktestResult) {
     return (
       <DashboardLayout userName="">
@@ -1598,7 +1622,7 @@ function StrategyLabContent() {
           className="flex flex-col"
           style={{ minHeight: "calc(100vh - var(--top-menu-bar-height, 76px))" }}
         >
-          <div className="flex-1 overflow-auto">
+          <div ref={resultScrollRef} className="flex-1 overflow-auto">
             {isRunning && (
               <div className="sticky top-0 z-30 mx-4 mt-4 max-w-4xl">
                 <BacktestRunningStatus message={statusMessage} />
@@ -1613,7 +1637,7 @@ function StrategyLabContent() {
               backtestDsl={backtestReq}
               onWalkForward={handleWalkForward}
               promptText={firstPromptRef.current || undefined}
-              strategySummary={buildStrategySummary(latestParsed, backtestReq)}
+              strategySummary={buildStrategySummaryFromRequest(executedReq ?? backtestReq)}
               parsedStrategy={latestParsed as unknown as Record<string, unknown>}
             />
           </div>

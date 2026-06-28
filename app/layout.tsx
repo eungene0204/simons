@@ -4,6 +4,7 @@ import TopMenuBar from "@/components/layout/TopMenuBar";
 import ScrollToTop from "@/components/layout/ScrollToTop";
 import QueryProvider from "@/components/providers/QueryProvider";
 import { OrderAccountProvider } from "@/contexts/OrderAccountContext";
+import ChunkErrorRecovery from "@/components/ChunkErrorRecovery";
 import { Inter, Outfit } from "next/font/google";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -23,6 +24,7 @@ export default function RootLayout({
     <html lang="ko" className={`${inter.variable} ${outfit.variable}`}>
       <body className="page-transition bg-[#050505] text-white font-inter antialiased">
         <QueryProvider>
+          <ChunkErrorRecovery />
           <ScrollToTop />
           <OrderAccountProvider>
             <TopMenuBar />

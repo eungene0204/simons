@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildStrategySummary,
+  buildStrategySummaryFromRequest,
   buildStrategySummaryChips,
   buildStrategySummaryFromDsl,
   formatFundamentalFilter,
@@ -237,6 +238,18 @@ describe("strategySummary", () => {
     expect(summary?.entryBlocks).not.toContain("최대 126일 보유 후 매도");
   });
 
+  it("모멘텀 랭킹(수익률 상위) 전략은 진입 신호 배지에 랭킹 레이블을 포함한다", () => {
+    // 진입 조건 블록 없이 ranking_metric만 있는 순수 모멘텀 전략 — 엔진은 '선정=진입'으로 동작한다.
+    // 배지에서 빠지면 진입 신호가 사라진 것처럼 보이므로 백테스트 요약에도 함께 노출돼야 한다.
+    const summary = buildStrategySummary({
+      ...baseParsed,
+      ranking_metric: "return",
+      ranking_lookback_days: 21,
+    });
+
+    expect(summary?.entryBlocks).toEqual(["21일 수익률 상위"]);
+  });
+
   it("리스크 기반 청산이 없으면 기존 기술적 청산 레이블을 유지한다", () => {
     const summary = buildStrategySummary({
       ...baseParsed,
@@ -399,5 +412,62 @@ describe("strategySummary", () => {
     expect(resolveUniverseDisplayName("KOSPI 200", null)).toBe("KOSPI 200");
     expect(resolveUniverseDisplayName("000020,000040", "유니버스 언급 없음")).toBeNull();
     expect(resolveUniverseDisplayName("미정", "유니버스 언급 없음")).toBeNull();
+  });
+});
+
+describe("buildStrategySummaryFromRequest (실행된 요청 기반 배지)", () => {
+  it("모멘텀 랭킹 요청은 entry.conditions가 비어도 진입 신호로 랭킹을 노출한다", () => {
+    // 엔진은 risk.ranking_metric을 '선정=진입'으로 실행하므로 진입 배지에 나와야 한다.
+    const summary = buildStrategySummaryFromRequest({
+      universe_id: "kospi",
+      entry: { conditions: [] },
+      exit: { conditions: [] },
+      risk: {
+        ranking_metric: "return",
+        ranking_lookback_days: 21,
+        max_positions: 5,
+        rebalancing_period: "monthly",
+        stop_loss_pct: 10,
+        take_profit_pct: 20,
+      },
+    });
+
+    expect(summary?.universeName).toBe("KOSPI");
+    expect(summary?.entryBlocks).toEqual(["21일 수익률 상위"]);
+    expect(summary?.exitBlocks).toEqual([
+      "손절 -10% 하락시 매도",
+      "익절 20% 이상 수익시 매도",
+    ]);
+    expect(summary?.positionText).toBe("최대 5종목");
+    expect(summary?.rebalancingText).toBe("매월 리밸런싱");
+    expect(summary?.riskText).toBe("손절 10%, 익절 20%");
+  });
+
+  it("랭킹·진입 조건이 모두 없는 요청은 진입 배지를 비워 0거래와 일관되게 표시한다", () => {
+    // 실행된 요청에 진입이 없으면 배지도 비어야 한다 — 표시가 실행을 정직하게 반영(거짓 배지 금지).
+    const summary = buildStrategySummaryFromRequest({
+      universe_id: "kospi",
+      entry: { conditions: [] },
+      exit: { conditions: [] },
+      risk: { max_positions: 5, stop_loss_pct: 10 },
+    });
+
+    expect(summary?.entryBlocks).toEqual([]);
+  });
+
+  it("기술적 진입 조건은 한국어 레이블로 진입 배지에 들어간다", () => {
+    const summary = buildStrategySummaryFromRequest({
+      universe_id: "kosdaq",
+      entry: { conditions: [{ type: "indicator", id: "ma_crossover", params: {} }] },
+      exit: { conditions: [] },
+      risk: { max_positions: 10 },
+    });
+
+    expect(summary?.universeName).toBe("KOSDAQ");
+    expect(summary?.entryBlocks).toEqual(["MA 크로스"]);
+  });
+
+  it("요청이 없으면 undefined를 반환한다", () => {
+    expect(buildStrategySummaryFromRequest(null)).toBeUndefined();
   });
 });

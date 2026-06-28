@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, memo } from "react";
+import { useEffect, useRef, memo, Suspense } from "react";
 import TopNavigation from "./TopNavigation";
 
 // 탑메뉴바를 memo로 감싸서 리렌더링 방지
@@ -56,7 +56,9 @@ const TopMenuBarContent = memo(function TopMenuBarContent({
         id="top-menu-bar"
         ref={topMenuBarRef}
       >
-        <TopNavigation userName={userName} />
+        <Suspense fallback={null}>
+          <TopNavigation userName={userName} />
+        </Suspense>
         {subHeader}
       </div>
     </div>

@@ -1,5 +1,6 @@
 export {
   buildStrategySummary,
+  buildStrategySummaryFromRequest,
   buildStrategySummaryChips,
   buildStrategySummaryFromDsl,
   getDisplayExitLabels,

@@ -24,6 +24,11 @@ class RiskManagement(BaseModel):
     ranking_enabled: Optional[bool] = True
     ranking_weight_value: Optional[float] = 0.5
     ranking_weight_quality: Optional[float] = 0.5
+    # 상대강도(모멘텀) 랭킹 — 진입 조건이 없으면 이 랭킹 자체가 '선정=진입'이 된다.
+    # 이 두 필드가 스키마에 없으면 Pydantic이 조용히 버려서(extra=ignore) 엔진이 랭킹을
+    # 못 받아 0거래가 된다(프론트는 risk.ranking_metric으로 전송함).
+    ranking_metric: Optional[str] = None
+    ranking_lookback_days: Optional[int] = None
     execution_timing: Optional[str] = "next_open"
     allocation_type: Optional[str] = "equal"
     rebalancing_period: Optional[str] = "none"

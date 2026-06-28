@@ -30,7 +30,7 @@ class FakeEngine:
                 "trades": 0,
                 "signals": [],
                 "warnings": [
-                    "매매 조건에 부합하는 종목이 없어 매매 기록이 생성되지 않았습니다. 매수 조건을 확인해 주세요."
+                    "매매 기록이 생성되지 않았습니다. 매수 조건 또는 유동성/포지션 설정을 확인해 주세요."
                 ],
                 "dates": ["2024-01-01", "2024-01-02", "2024-01-03"],
             }
@@ -98,7 +98,7 @@ def test_run_suite_uses_defaults_and_case_expectations(tmp_path):
                 },
                 "expect": {
                     "signal_count": {"equals": 0},
-                    "warnings_include": ["매매 조건에 부합하는 종목이 없어"]
+                    "warnings_include": ["매매 기록이 생성되지 않았습니다."]
                 }
             }
         ]

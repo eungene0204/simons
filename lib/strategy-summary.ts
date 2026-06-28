@@ -269,9 +269,14 @@ export function buildStrategySummary(
   // 재무 필터(PBR 등)도 매수 기준이므로 진입 신호 배지에 포함한다.
   // 기술적 진입 신호만 넣으면, 재무 필터 단독 전략에서 entryBlocks가 비어
   // 백테스트 결과 화면이 blockNames(진입+청산 혼합) 폴백으로 청산 배지를 진입에 잘못 노출한다.
+  // 모멘텀 랭킹(수익률 상위)은 진입 신호 블록이 아니라 ranking_metric으로 표현되며 엔진에서
+  // '선정=진입'으로 동작한다(backend/backtest_engine.py: 진입 조건이 없으면 랭킹 자체가 진입).
+  // 배지에서 빠지면 진입 신호가 사라진 것처럼 보이므로 진입 신호로 함께 노출한다.
+  const rankingLabel = getRankingLabel(parsed);
   const entryLabels = [
     ...parsed.fundamental_filters.map(formatFundamentalFilter),
     ...parsed.entry_signals.map((signal) => getSignalLabel(signal, "entry")),
+    ...(rankingLabel ? [rankingLabel] : []),
   ];
 
   return {
@@ -286,6 +291,101 @@ export function buildStrategySummary(
       takeProfitPct ? `익절 ${takeProfitPct}%` : "",
       trailingStopPct ? `트레일링 스탑 ${trailingStopPct}%` : "",
     ].filter(Boolean).join(", ") || undefined,
+  };
+}
+
+// 실제로 실행된 백테스트 요청(StrategyBacktestRequest)에서 요약을 만든다.
+// 결과 화면 배지는 화면 상태(latestParsed)가 아니라 '이 결과를 만든 요청'에서 파생해야
+// 표시와 실행이 절대 어긋나지 않는다(예: 모멘텀 랭킹이 요청에 없으면 진입 배지도 비어
+// 0거래와 일관됨). risk.ranking_metric은 엔진에서 '선정=진입'이므로 진입 신호로 노출한다.
+interface ExecutedBacktestRequest {
+  universe_id?: string | null;
+  entry?: { conditions?: Array<{ id?: string; type?: string; params?: Record<string, unknown> }> } | null;
+  exit?: { conditions?: Array<{ id?: string; type?: string; params?: Record<string, unknown> }> } | null;
+  risk?: Record<string, unknown> | null;
+}
+
+function resolveUniverseLabelFromId(universeId: string | null | undefined): string {
+  const raw = (universeId ?? "").trim();
+  if (!raw) return "";
+  return raw
+    .split("_")
+    .map((token) => UNIVERSE_LABELS[token] ?? token.toUpperCase())
+    .join(", ");
+}
+
+export function buildStrategySummaryFromRequest(
+  req: ExecutedBacktestRequest | null | undefined
+) {
+  if (!req) return undefined;
+
+  const risk = (req.risk ?? {}) as Record<string, unknown>;
+  const num = (v: unknown): number | null =>
+    typeof v === "number" && Number.isFinite(v) ? v : null;
+
+  const stopLoss = num(risk.stop_loss_pct);
+  const takeProfit = num(risk.take_profit_pct);
+  const trailingStop = num(risk.trailing_stop_pct);
+  const maxHoldingDays = num(risk.max_holding_days);
+  const maxPositions = num(risk.max_positions);
+  const rebalancingPeriod = typeof risk.rebalancing_period === "string" ? risk.rebalancing_period : "none";
+
+  const rankingLabel = getRankingLabel({
+    ranking_metric: (risk.ranking_metric as "return" | null) ?? null,
+    ranking_lookback_days: num(risk.ranking_lookback_days),
+  } as ParsedSummary);
+
+  const entryBlocks = uniqueLabels([
+    ...((req.entry?.conditions ?? [])
+      .map(conditionToEntryLabel)
+      .filter((label): label is string => Boolean(label))),
+    ...(rankingLabel ? [rankingLabel] : []),
+  ]);
+
+  const exitBlocks = getDisplayExitLabels({
+    description: "",
+    universe: [],
+    fundamental_filters: [],
+    entry_signals: [],
+    exit_signals: (req.exit?.conditions ?? [])
+      .map((c) => (c.id ? { indicator: String(c.id) } : null))
+      .filter((s): s is { indicator: string } => Boolean(s)),
+    max_positions: maxPositions ?? 0,
+    hold_period_days: maxHoldingDays,
+    rebalancing_period: rebalancingPeriod,
+    stop_loss_pct: stopLoss,
+    take_profit_pct: takeProfit,
+    trailing_stop_pct: trailingStop,
+    backtest_period: "full",
+    initial_capital: 0,
+  });
+
+  const stopLossPct = formatPercent(stopLoss);
+  const takeProfitPct = formatPercent(takeProfit);
+  const trailingStopPct = formatPercent(trailingStop);
+
+  return {
+    // 실행된 요청에는 전략명이 없다 — 저장 시 기본 이름은 promptText가 우선 사용한다.
+    strategyName: "",
+    universeName: resolveUniverseLabelFromId(req.universe_id),
+    blockNames: [...entryBlocks, ...exitBlocks],
+    entryBlocks,
+    exitBlocks,
+    positionText: maxPositions
+      ? `최대 ${maxPositions}종목${maxHoldingDays ? ` · ${maxHoldingDays}일 보유` : ""}`
+      : undefined,
+    riskText:
+      [
+        stopLossPct ? `손절 ${stopLossPct}%` : "",
+        takeProfitPct ? `익절 ${takeProfitPct}%` : "",
+        trailingStopPct ? `트레일링 스탑 ${trailingStopPct}%` : "",
+      ]
+        .filter(Boolean)
+        .join(", ") || undefined,
+    rebalancingText:
+      rebalancingPeriod && rebalancingPeriod !== "none"
+        ? `${REBAL_LABELS[rebalancingPeriod] ?? rebalancingPeriod} 리밸런싱`
+        : undefined,
   };
 }
 

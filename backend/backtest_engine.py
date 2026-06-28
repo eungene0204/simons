@@ -589,7 +589,20 @@ class BacktestEngine:
 
             # Add no-trades warning
             if pf.trades.count() == 0:
-                self.warnings.add("매매 조건에 부합하는 종목이 없어 매매 기록이 생성되지 않았습니다. 매수 조건을 확인해 주세요.")
+                liquidity_excluded = [
+                    w.split(":", 1)[0]
+                    for w in self.warnings
+                    if isinstance(w, str) and "유동성 기준 미달" in w
+                ]
+                msg = "매매 기록이 생성되지 않았습니다. 매수 조건 또는 유동성/포지션 설정을 확인해 주세요."
+                if liquidity_excluded:
+                    preview = ", ".join(liquidity_excluded[:3])
+                    suffix = f" 외 {len(liquidity_excluded) - 3}종목" if len(liquidity_excluded) > 3 else ""
+                    msg += (
+                        f" (유동성 기준 미달로 제외된 종목 {len(liquidity_excluded)}개: {preview}{suffix}"
+                        " — 포지션 크기를 줄이거나 유동성 한도를 낮추면 포함될 수 있습니다)"
+                    )
+                self.warnings.add(msg)
 
             final["warnings"] = list(self.warnings) + list(getattr(pf, 'warnings', []))
             final["resolution_logs"] = all_resolution_logs
