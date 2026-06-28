@@ -59,6 +59,8 @@ export async function POST(req: NextRequest) {
         const encoder = new TextEncoder();
         controller.enqueue(encoder.encode(sseEvent({ type: "status", message: "캐시에서 결과를 불러옵니다..." })));
         log("sse_status_sent", { message: "캐시에서 결과를 불러옵니다..." });
+        // 결과 dedup 키를 클라이언트에 먼저 전달(원본 result 청크는 변형하지 않음).
+        controller.enqueue(encoder.encode(sseEvent({ type: "meta", cacheKey })));
         controller.enqueue(encoder.encode(sseEvent({ type: "result", data: cached })));
         log("sse_result_sent", summarizeBacktestResult(cached));
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
@@ -105,6 +107,12 @@ export async function POST(req: NextRequest) {
     log("sse_proxy_opened");
 
     const stream = new ReadableStream({
+      start(controller) {
+        // 결과 dedup 키를 Python 결과 청크보다 먼저 전달한다.
+        controller.enqueue(
+          new TextEncoder().encode(sseEvent({ type: "meta", cacheKey }))
+        );
+      },
       async pull(controller) {
         const processBlock = (block: string) => {
           const dataLines = block
