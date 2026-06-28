@@ -75,9 +75,20 @@ function calculateScore(r: {
 }
 
 function metricValueColor(value: number): string {
-  if (value > 0) return "text-[var(--main-blue)]";
-  if (value < 0) return "text-[var(--main-red)]";
+  if (value > 0) return "text-[var(--main-red)]";
+  if (value < 0) return "text-[var(--main-blue)]";
   return "text-white";
+}
+
+interface AiReportData {
+  summary: string;
+  score: number;
+  strengths: string[];
+  weaknesses: string[];
+  improvements: string[];
+  advisorScore: number | null;
+  riskScore: number | null;
+  overfitRisk: string | null;
 }
 
 interface BacktestDashboardProps {
@@ -179,6 +190,8 @@ export default function BacktestDashboard({
   const [xaiTarget, setXaiTarget] = useState<{ symbol: string; date: string } | null>(null);
   const lastProcessedResultRef = useRef<string | null>(null);
   const isSavingRef = useRef(false);
+  // 백그라운드에서 진행 중인 AI 리포트 생성 요청. 저장 시 중복 요청 없이 이 약속을 재사용한다.
+  const aiReportPromiseRef = useRef<Promise<AiReportData | null> | null>(null);
 
   // AI 요약 캐시 — prop 우선, 없으면 result 객체에서 (캐시 히트 응답에 포함된 경우)
   const [cachedAiSummary, setCachedAiSummary] = useState<string | undefined>(
@@ -243,65 +256,95 @@ export default function BacktestDashboard({
     }).catch(() => {/* 자동 저장 실패는 무시 */});
   }, [result.executionId]);
 
-  // 백테스트 완료 시 AI 리포트 자동 생성
+  // AI 리포트 생성 요청 1회 수행 → 결과를 캐시 상태에 반영하고 반환. 실패 시 null.
+  const generateAiReport = async (): Promise<AiReportData | null> => {
+    try {
+      const res = await fetch("/api/backtest/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cacheKey: result.cacheKey,
+          metrics: {
+            totalReturn: result.totalReturn,
+            cagr: result.cagr,
+            buyAndHoldReturn: result.buyAndHoldReturn,
+            maxDrawdown: result.maxDrawdown,
+            sharpe: result.sharpe,
+            sortino: result.sortino,
+            profitFactor: result.profitFactor,
+            winRate: result.winRate,
+            trades: result.trades,
+            volatility: result.volatility,
+            kelly: result.kelly,
+            initialCapital: result.initialCapital,
+            finalEquity: result.finalEquity,
+          },
+          strategySummary,
+          parsedStrategy,
+          userPrompt: promptText,
+        }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (!data.summary || data.score == null) return null;
+      const report: AiReportData = {
+        summary: data.summary,
+        score: data.score,
+        strengths: data.strengths ?? [],
+        weaknesses: data.weaknesses ?? [],
+        improvements: data.improvements ?? [],
+        advisorScore: data.advisorScore ?? null,
+        riskScore: data.riskScore ?? null,
+        overfitRisk: data.overfitRisk ?? null,
+      };
+      setCachedAiSummary(report.summary);
+      setCachedAiScore(report.score);
+      setCachedStrengths(report.strengths);
+      setCachedWeaknesses(report.weaknesses);
+      setCachedImprovements(report.improvements);
+      setCachedAdvisorScore(report.advisorScore);
+      setCachedRiskScore(report.riskScore);
+      setCachedOverfitRisk(report.overfitRisk);
+      if (result.cacheKey) {
+        fetch("/api/backtest/ai-report", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cacheKey: result.cacheKey,
+            aiSummary: report.summary,
+            aiScore: report.score,
+            aiStrengths: report.strengths,
+            aiWeaknesses: report.weaknesses,
+            aiImprovements: report.improvements,
+            advisorScore: report.advisorScore,
+            riskScore: report.riskScore,
+            overfitRisk: report.overfitRisk,
+          }),
+        }).catch(() => {});
+      }
+      return report;
+    } catch {
+      return null;
+    }
+  };
+
+  // 진행 중인 AI 리포트 생성을 재사용(없으면 새로 시작). 저장과 자동생성이 같은 요청을 공유한다.
+  const ensureAiReport = (): Promise<AiReportData | null> => {
+    if (!aiReportPromiseRef.current) {
+      aiReportPromiseRef.current = generateAiReport().then((report) => {
+        if (!report) aiReportPromiseRef.current = null; // 실패 시 재시도 허용
+        return report;
+      });
+    }
+    return aiReportPromiseRef.current;
+  };
+
+  // 백테스트 완료 시 AI 리포트를 백그라운드에서 즉시 생성 시작
   useEffect(() => {
+    aiReportPromiseRef.current = null; // 새 백테스트 → 이전 in-flight 요청 무효화
     if (cachedAiSummary && cachedAiScore != null) return; // 이미 캐시된 경우 스킵
-    fetch("/api/backtest/summarize", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        cacheKey: result.cacheKey,
-        metrics: {
-          totalReturn: result.totalReturn,
-          cagr: result.cagr,
-          buyAndHoldReturn: result.buyAndHoldReturn,
-          maxDrawdown: result.maxDrawdown,
-          sharpe: result.sharpe,
-          sortino: result.sortino,
-          profitFactor: result.profitFactor,
-          winRate: result.winRate,
-          trades: result.trades,
-          volatility: result.volatility,
-          kelly: result.kelly,
-          initialCapital: result.initialCapital,
-          finalEquity: result.finalEquity,
-        },
-        strategySummary,
-        parsedStrategy,
-        userPrompt: promptText,
-      }),
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.summary && data.score != null) {
-          setCachedAiSummary(data.summary);
-          setCachedAiScore(data.score);
-          setCachedStrengths(data.strengths ?? []);
-          setCachedWeaknesses(data.weaknesses ?? []);
-          setCachedImprovements(data.improvements ?? []);
-          setCachedAdvisorScore(data.advisorScore ?? null);
-          setCachedRiskScore(data.riskScore ?? null);
-          setCachedOverfitRisk(data.overfitRisk ?? null);
-          if (result.cacheKey) {
-            fetch("/api/backtest/ai-report", {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                cacheKey: result.cacheKey,
-                aiSummary: data.summary,
-                aiScore: data.score,
-                aiStrengths: data.strengths ?? [],
-                aiWeaknesses: data.weaknesses ?? [],
-                aiImprovements: data.improvements ?? [],
-                advisorScore: data.advisorScore ?? null,
-                riskScore: data.riskScore ?? null,
-                overfitRisk: data.overfitRisk ?? null,
-              }),
-            }).catch(() => {});
-          }
-        }
-      })
-      .catch(() => {/* AI 리포트 생성 실패는 무시 */});
+    ensureAiReport();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result.executionId]);
 
   useEffect(() => {
@@ -441,47 +484,18 @@ export default function BacktestDashboard({
       let finalRiskScore = cachedRiskScore;
       let finalOverfitRisk = cachedOverfitRisk;
       if (!finalSummary) {
-        try {
-          const sumRes = await fetch("/api/backtest/summarize", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              cacheKey: result.cacheKey,
-              metrics: {
-                totalReturn: result.totalReturn, cagr: result.cagr,
-                buyAndHoldReturn: result.buyAndHoldReturn, maxDrawdown: result.maxDrawdown,
-                sharpe: result.sharpe, sortino: result.sortino,
-                profitFactor: result.profitFactor, winRate: result.winRate,
-                trades: result.trades, volatility: result.volatility,
-                kelly: result.kelly, initialCapital: result.initialCapital,
-                finalEquity: result.finalEquity,
-              },
-              strategySummary,
-              parsedStrategy,
-              userPrompt: promptText,
-            }),
-          });
-          if (sumRes.ok) {
-            const sumData = await sumRes.json();
-            finalSummary = sumData.summary;
-            finalScore = sumData.score;
-            finalStrengths = sumData.strengths ?? [];
-            finalWeaknesses = sumData.weaknesses ?? [];
-            finalImprovements = sumData.improvements ?? [];
-            finalAdvisorScore = sumData.advisorScore ?? null;
-            finalRiskScore = sumData.riskScore ?? null;
-            finalOverfitRisk = sumData.overfitRisk ?? null;
-            setCachedAiSummary(finalSummary);
-            setCachedAiScore(finalScore);
-            setCachedStrengths(finalStrengths);
-            setCachedWeaknesses(finalWeaknesses);
-            setCachedImprovements(finalImprovements);
-            setCachedAdvisorScore(finalAdvisorScore);
-            setCachedRiskScore(finalRiskScore);
-            setCachedOverfitRisk(finalOverfitRisk);
-          }
-        } catch {
-          // AI 요약 실패는 저장 자체를 막지 않음
+        // 백그라운드 생성이 진행 중이면 그 요청을 그대로 기다리고, 없으면 새로 시작한다.
+        // (이미 완료됐다면 즉시 반환되어 바로 저장된다.)
+        const report = await ensureAiReport();
+        if (report) {
+          finalSummary = report.summary;
+          finalScore = report.score;
+          finalStrengths = report.strengths;
+          finalWeaknesses = report.weaknesses;
+          finalImprovements = report.improvements;
+          finalAdvisorScore = report.advisorScore;
+          finalRiskScore = report.riskScore;
+          finalOverfitRisk = report.overfitRisk;
         }
       }
 
