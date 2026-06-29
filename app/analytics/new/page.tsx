@@ -314,6 +314,7 @@ function BacktestRunningStatus({ message }: { message: string }) {
         <span className="absolute inset-0 bg-[#171717]/45" />
       </div>
       <div className="relative z-10 flex items-center gap-3">
+        <ArrowsClockwise size={18} className="flex-shrink-0 animate-spin text-white" />
         <div className="min-w-0">
           <p className="text-xs font-black uppercase tracking-widest text-white">백테스트 진행 중</p>
           <p className="mt-0.5 text-sm font-bold text-white">
