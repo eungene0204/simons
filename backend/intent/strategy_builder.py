@@ -76,7 +76,12 @@ _UNIV_BOTH_RE = re.compile(r"둘\s*다|전체|모두|코스피.{0,4}코스닥|�
 _UNIV_KOSDAQ_RE = re.compile(r"코스닥|kosdaq", re.IGNORECASE)
 _UNIV_KOSPI_RE = re.compile(r"코스피|kospi", re.IGNORECASE)
 
-_TYPE_MOMENTUM_RE = re.compile(r"모멘텀|momentum|최근\s*(?:오른|강한|상승)|수익률\s*상위|상대\s*강도", re.IGNORECASE)
+_TYPE_MOMENTUM_RE = re.compile(
+    r"모멘텀|momentum|상대\s*강도|"
+    r"최근\s*(?:오른|강한|상승)|많이\s*오른|가장\s*(?:많이\s*)?(?:오른|상승)|"
+    r"수익률.{0,5}(?:상위|좋|높)|급등주",
+    re.IGNORECASE,
+)
 _TYPE_GOLDEN_RE = re.compile(r"골든\s*크로스|golden\s*cross|이동\s*평균\s*교차|이평\s*교차|이동\s*평균선?\s*교차", re.IGNORECASE)
 _TYPE_MACD_RE = re.compile(r"macd", re.IGNORECASE)
 _TYPE_BREAKOUT_RE = re.compile(r"돌파|전고점|신고가|박스권|breakout", re.IGNORECASE)
@@ -87,6 +92,7 @@ _TYPE_CUSTOM_RE = re.compile(r"직접|아이디어|내가|제가\s*설명|설명
 
 _MONTHS_RE = re.compile(r"(\d+)\s*개월", re.IGNORECASE)
 _YEARS_RE = re.compile(r"(\d+)\s*년", re.IGNORECASE)
+_WEEKS_RE = re.compile(r"(\d+)\s*주(?:일)?", re.IGNORECASE)
 _DAYS_RE = re.compile(r"(\d+)\s*(?:거래일|일)", re.IGNORECASE)
 # "3개월"의 "개"를 보유 수로 오인하지 않도록 "개월"은 제외한다.
 _COUNT_RE = re.compile(r"(\d+)\s*(?:종목|개(?!월))", re.IGNORECASE)
@@ -157,6 +163,24 @@ def _parse_rebalance(text: str) -> Optional[RebalanceCycle]:
     for cycle, pat in _REBAL_RE:
         if pat.search(text):
             return cycle
+    return None
+
+
+def _parse_lookback(text: str) -> Optional[dict]:
+    """기준 기간 접미사(년/개월/주/일)를 거래일 수와 표시 라벨로 환산한다. 없으면 None.
+    우선순위: 년 > 개월 > 주 > 일 (긴 단위가 짧은 단위 패턴에 먹히지 않게)."""
+    m_year = _YEARS_RE.search(text)
+    if m_year:
+        return {"lookback_days": int(m_year.group(1)) * 252, "lookback_label": f"{m_year.group(1)}년"}
+    m_month = _MONTHS_RE.search(text)
+    if m_month:
+        return {"lookback_days": int(m_month.group(1)) * 21, "lookback_label": f"{m_month.group(1)}개월"}
+    m_week = _WEEKS_RE.search(text)
+    if m_week:
+        return {"lookback_days": int(m_week.group(1)) * 5, "lookback_label": f"{m_week.group(1)}주일"}
+    m_day = _DAYS_RE.search(text)
+    if m_day:
+        return {"lookback_days": int(m_day.group(1)), "lookback_label": f"{m_day.group(1)}일"}
     return None
 
 
@@ -300,18 +324,9 @@ def parse_input(text: str, state: BuilderState, expecting: Optional[str]) -> dic
 
     # 기준 기간(모멘텀=개월, 돌파=일). 접미사 우선, 없으면 expecting==lookback일 때 맨숫자.
     effective_type = patch.get("strategy_type") or state.strategy_type
-    m_month = _MONTHS_RE.search(t)
-    m_year = _YEARS_RE.search(t)
-    m_day = _DAYS_RE.search(t)
-    if m_year:
-        patch["lookback_days"] = int(m_year.group(1)) * 252
-        patch["lookback_label"] = f"{m_year.group(1)}년"
-    elif m_month:
-        patch["lookback_days"] = int(m_month.group(1)) * 21
-        patch["lookback_label"] = f"{m_month.group(1)}개월"
-    elif m_day:
-        patch["lookback_days"] = int(m_day.group(1))
-        patch["lookback_label"] = f"{m_day.group(1)}일"
+    lookback = _parse_lookback(t)
+    if lookback:
+        patch.update(lookback)
 
     # 보유 종목 수. 접미사("N개/N종목") 우선.
     m_count = _COUNT_RE.search(t)
@@ -333,6 +348,37 @@ def parse_input(text: str, state: BuilderState, expecting: Optional[str]) -> dic
             patch["holding_count"] = n
 
     return patch
+
+
+def is_empty(state: BuilderState) -> bool:
+    """아직 아무 필드도 채워지지 않은 초기 상태인지 판단한다(시드 적용 여부 게이트)."""
+    return state == BuilderState()
+
+
+def seed_state(text: str) -> BuilderState:
+    """빌더 진입 시 사용자의 원본 메시지에서 인식 가능한 모든 전략 필드를 미리 채운다.
+
+    [규제 안전/UX] 열린 추천(STOCK_PICK)으로 빌더에 진입하더라도 사용자가 이미 말한
+    조건(유니버스·전략유형·기준기간·보유수·리밸런싱·청산)은 다시 묻지 않고, 빠진 필드만
+    질문하기 위함이다. 단계별 parse_input과 달리 청산 조건도 단계 무관하게 추출한다."""
+    patch: dict = {}
+    universe = _parse_universe(text)
+    if universe:
+        patch["universe"] = universe
+    stype = _parse_strategy_type(text)
+    if stype:
+        patch["strategy_type"] = stype
+    rebal = _parse_rebalance(text)
+    if rebal:
+        patch["rebalance_cycle"] = rebal
+    lookback = _parse_lookback(text)
+    if lookback:
+        patch.update(lookback)
+    count = _COUNT_RE.search(text)
+    if count:
+        patch["holding_count"] = int(count.group(1))
+    patch.update(_parse_risk(text))  # 손절/익절/트레일링/보유기간(+risk_done)
+    return BuilderState().model_copy(update=patch)
 
 
 # ─── 필수 필드 우선순위 ──────────────────────────────────────────────────────────
@@ -388,10 +434,15 @@ _REBAL_PHRASE = {
 }
 
 
-def next_question(state: BuilderState) -> tuple[str, list[str]]:
-    """가장 먼저 비어 있는 필수 필드 하나만 자연스럽게 질문한다(+옵션 칩)."""
+def next_question(
+    state: BuilderState, just_filled: Optional[set[str]] = None,
+) -> tuple[str, list[str]]:
+    """가장 먼저 비어 있는 필수 필드 하나만 자연스럽게 질문한다(+옵션 칩).
+
+    just_filled: 직전 턴에 채워진 필드명 집합. 그 필드를 확인하는 도입부를 만든다.
+    None이면 초기(시드) 호출로 보고, 미리 채워진 필드들을 한 줄로 요약해 보여준다."""
     field = required_missing(state)
-    prefix = _ack_prefix(state)
+    prefix = _ack_prefix(state, just_filled)
 
     if field == "universe":
         return (
@@ -448,22 +499,72 @@ def next_question(state: BuilderState) -> tuple[str, list[str]]:
     return ("", [])
 
 
-def _ack_prefix(state: BuilderState) -> str:
-    """직전에 채운 필드를 가볍게 확인하는 도입부(자연스러운 흐름)."""
-    if state.rebalance_cycle:
+# 확인 도입부에서 필드를 다룰 우선순위(높을수록 먼저). 직전 답변이 여럿이면 이 순서로 하나만.
+_ACK_PRIORITY = (
+    "rebalance_cycle", "holding_count", "lookback_days", "entry_rule", "strategy_type", "universe",
+)
+
+
+def _ack_sentence(state: BuilderState, field: str) -> str:
+    """단일 필드를 확인하는 완결 문장(마침표 없이)."""
+    if field == "rebalance_cycle":
         if state.rebalance_cycle == "none":
-            return "좋아요. 정기 리밸런싱은 하지 않겠습니다.\n\n"
-        return f"좋아요. {_REBAL_LABEL.get(state.rebalance_cycle, '')} 리밸런싱하겠습니다.\n\n"
-    if state.holding_count:
-        return f"좋아요. 최대 {state.holding_count}종목으로 하겠습니다.\n\n"
-    if state.lookback_days and state.strategy_type in ("momentum", "breakout"):
-        return f"좋아요. 최근 {state.lookback_label} 기준으로 보겠습니다.\n\n"
-    if state.entry_rule:
-        return "좋아요. 말씀하신 조건으로 진입하겠습니다.\n\n"
+            return "정기 리밸런싱은 하지 않겠습니다"
+        return f"{_REBAL_LABEL.get(state.rebalance_cycle, '')} 리밸런싱하겠습니다"
+    if field == "holding_count":
+        return f"최대 {state.holding_count}종목으로 하겠습니다"
+    if field == "lookback_days":
+        return f"최근 {state.lookback_label} 기준으로 보겠습니다"
+    if field == "entry_rule":
+        return "말씀하신 조건으로 진입하겠습니다"
+    if field == "strategy_type":
+        return f"{_TYPE_LABEL.get(state.strategy_type, '')} 전략으로 구성해 볼게요"
+    if field == "universe":
+        return f"{_UNIVERSE_LABEL.get(state.universe, '')} 시장을 대상으로 하겠습니다"
+    return ""
+
+
+def _seed_summary(state: BuilderState) -> list[str]:
+    """시드로 미리 채워진 조건을 짧은 명사구로 요약한다(초기 질문에서 '이해한 내용' 표시)."""
+    parts: list[str] = []
     if state.strategy_type:
-        return f"좋아요. {_TYPE_LABEL.get(state.strategy_type, '')} 전략으로 구성해 볼게요.\n\n"
-    if state.universe:
-        return f"좋아요. {_UNIVERSE_LABEL.get(state.universe, '')} 시장을 대상으로 하겠습니다.\n\n"
+        parts.append(f"{_TYPE_LABEL.get(state.strategy_type, '')} 전략")
+    if state.lookback_days and state.strategy_type in ("momentum", "breakout"):
+        parts.append(f"최근 {state.lookback_label} 기준")
+    if state.holding_count:
+        parts.append(f"{state.holding_count}종목")
+    if state.rebalance_cycle:
+        parts.append(_REBAL_LABEL.get(state.rebalance_cycle, "") + " 리밸런싱")
+    risk: list[str] = []
+    if state.stop_loss_pct is not None:
+        risk.append(f"{_fmt_pct(state.stop_loss_pct)}% 손절")
+    if state.take_profit_pct is not None:
+        risk.append(f"{_fmt_pct(state.take_profit_pct)}% 익절")
+    if state.trailing_stop_pct is not None:
+        risk.append(f"최고가 대비 {_fmt_pct(state.trailing_stop_pct)}% 청산")
+    if state.hold_period_days:
+        risk.append(f"{state.hold_period_days}거래일 보유")
+    if risk:
+        parts.append("·".join(risk))
+    return parts
+
+
+def _ack_prefix(state: BuilderState, just_filled: Optional[set[str]] = None) -> str:
+    """확인 도입부를 만든다.
+
+    just_filled가 주어지면(후속 질문) 그 안에서 우선순위가 가장 높은 필드 하나만 확인한다 —
+    시드로 미리 채워진 필드를 직전 답변으로 오인해 엉뚱하게 확인하는 일을 막는다.
+    None이면(초기/시드 호출) 미리 채워진 조건들을 한 줄로 요약한다."""
+    if just_filled is None:
+        summary = _seed_summary(state)
+        if summary:
+            return "좋아요. " + ", ".join(summary) + "(으)로 이해했어요.\n\n"
+        return ""
+    for field in _ACK_PRIORITY:
+        if field in just_filled:
+            sentence = _ack_sentence(state, field)
+            if sentence:
+                return f"좋아요. {sentence}.\n\n"
     return ""
 
 
@@ -574,5 +675,5 @@ def step(
     if required_missing(new_state) is None:
         return StepResult(state=new_state, status="confirmed", prompt=synthesize_prompt(new_state))
 
-    msg, sug = next_question(new_state)
+    msg, sug = next_question(new_state, just_filled=set(patch.keys()))
     return StepResult(state=new_state, reply=msg, suggestions=sug, status="collecting")

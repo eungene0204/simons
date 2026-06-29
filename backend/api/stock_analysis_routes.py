@@ -106,15 +106,21 @@ async def classify_query(req: IntentRequest) -> IntentResult:
 class BuilderStepRequest(BaseModel):
     state: strategy_builder.BuilderState = Field(default_factory=strategy_builder.BuilderState)
     input: str
+    # 빌더 진입 시점의 사용자 원본 메시지. 상태가 비어 있을 때만 이 문장에서 인식 가능한
+    # 전략 필드를 미리 채워(seed), 사용자가 이미 말한 조건은 다시 묻지 않는다.
+    seed: Optional[str] = None
 
 
 @router.post("/strategy/builder/step", response_model=strategy_builder.StepResult)
 async def strategy_builder_step(req: BuilderStepRequest) -> strategy_builder.StepResult:
+    state = req.state
+    if req.seed and strategy_builder.is_empty(state):
+        state = strategy_builder.seed_state(req.seed)
     # 청산 조건 자유 입력 단계에서 정규식이 놓친 값은 공유 LLM 파서로 보강·검증한다.
     risk_extractor = None
     if _llm_available():
         risk_extractor = lambda text: strategy_builder.llm_extract_risk(text, _mlx_llm)
-    return await asyncio.to_thread(strategy_builder.step, req.state, req.input, risk_extractor)
+    return await asyncio.to_thread(strategy_builder.step, state, req.input, risk_extractor)
 
 
 # ─── /stock/analyze ──────────────────────────────────────────────────────────────

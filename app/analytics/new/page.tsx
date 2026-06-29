@@ -40,7 +40,9 @@ import {
   type ParsedSummary,
 } from "./strategySummary";
 import {
+  buildWalkForwardParameterRanges,
   buildWalkForwardRequest,
+  hasWalkForwardParameterRanges,
   isAdvisorFollowUpPrompt,
   mergeStrategyModification,
   type AdvisorWalkForwardSettings,
@@ -847,9 +849,13 @@ function StrategyLabContent() {
   // 열린 종목 추천(STOCK_PICK) 전환 직후, 사용자의 후속 입력을 기다리지 않고 곧바로
   // 전략 빌더의 첫 질문(시장 선택)을 띄운다. 질문·옵션 칩은 백엔드 빌더가 단일 출처로
   // 결정하므로(빈 입력 step = 현재 질문 조회) 프론트에서 하드코딩하지 않는다.
-  const startStrategyBuilder = async ({ reuseExisting = false }: { reuseExisting?: boolean } = {}) => {
+  const startStrategyBuilder = async (
+    { reuseExisting = false, seedText }: { reuseExisting?: boolean; seedText?: string } = {},
+  ) => {
     // reuseExisting=true면 이미 떠 있는 '분석 중...' 자리표시자를 그대로 빌더 첫 질문으로 바꾼다
     // (빈 전략 파싱에서 전환할 때 빈 버블이 추가되지 않도록).
+    // seedText: 빌더 진입 시점의 사용자 원본 메시지. 백엔드가 이미 말한 조건을 미리 채워
+    // 빠진 질문만 묻도록 한다(상태가 비어 있을 때만 적용).
     if (!reuseExisting) {
       await appendAssistant({ role: "assistant", isLoading: true });
     }
@@ -857,7 +863,7 @@ function StrategyLabContent() {
       const res = await fetch("/api/strategy/builder/step", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ state: builderStateRef.current, input: "" }),
+        body: JSON.stringify({ state: builderStateRef.current, input: "", seed: seedText }),
       });
       if (!res.ok) throw new Error();
       const data = await res.json();
@@ -920,7 +926,9 @@ function StrategyLabContent() {
       if (intent === "STOCK_PICK" || intent === "ONBOARDING") {
         builderModeRef.current = true;
         builderStateRef.current = {};
-        await startStrategyBuilder();
+        // STOCK_PICK은 사용자가 이미 전략 조건(전략유형·보유수·청산 등)을 말한 경우가 많으므로
+        // 원본 메시지를 시드로 넘겨 빠진 질문만 묻게 한다. ONBOARDING은 전략 내용이 없어 무해하다.
+        await startStrategyBuilder({ seedText: userText });
       }
       return true;
     }
@@ -1086,7 +1094,8 @@ function StrategyLabContent() {
     if (enterBuilderForEmptyStrategy) {
       builderModeRef.current = true;
       builderStateRef.current = {};
-      await startStrategyBuilder({ reuseExisting: true });
+      // 매수 기준은 비었어도 유니버스·청산 등 다른 조건은 원본에 있을 수 있으므로 시드로 넘긴다.
+      await startStrategyBuilder({ reuseExisting: true, seedText: promptText });
       return;
     }
 
@@ -1515,7 +1524,13 @@ function StrategyLabContent() {
       throw new Error("워크포워드 분석을 실행할 백테스트 요청이 없습니다.");
     }
 
-    const ranges: Record<string, unknown> = {};
+    const ranges = buildWalkForwardParameterRanges(backtestReq);
+    if (!hasWalkForwardParameterRanges(ranges)) {
+      throw new Error(
+        "워크포워드 최적화에 사용할 숫자 파라미터가 없습니다. 손절/익절, 지표 기간, 임계값처럼 조정 가능한 조건이 포함된 전략에서 실행해 주세요."
+      );
+    }
+
     const res = await fetch("/api/backtest/walk-forward", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

@@ -189,6 +189,59 @@ def test_full_momentum_flow_to_confirmation():
     assert "10% 손절" in confirmed.prompt
 
 
+# ─── 시드(빌더 진입 시 원본 메시지 선반영) ──────────────────────────────────────────
+
+def test_seed_state_prefills_recognized_fields():
+    """STOCK_PICK 원본 메시지의 인식 가능한 조건을 미리 채운다(빠진 것만 묻기 위함)."""
+    state = sb.seed_state(
+        "최근 1주일 동안 수익률이 좋았던 종목 10개를 사서 -15%에 손절하고 30%에 익절해줘"
+    )
+    assert state.strategy_type == "momentum"
+    assert state.lookback_days == 5 and state.lookback_label == "1주일"
+    assert state.holding_count == 10
+    assert state.stop_loss_pct == 15.0
+    assert state.take_profit_pct == 30.0
+    assert state.risk_done is True
+    assert state.universe is None  # 유니버스만 빠짐
+
+
+def test_seed_state_asks_only_missing_universe_then_rebalance():
+    """이미 말한 전략유형·보유수·청산은 다시 묻지 않고 유니버스부터 묻는다."""
+    state = sb.seed_state(
+        "최근 1주일 동안 수익률이 좋았던 종목 10개를 사서 -15%에 손절하고 30%에 익절해줘"
+    )
+    first = sb.step(state, "")
+    assert first.status == "collecting"
+    assert "시장" in first.reply              # 첫 질문은 유니버스
+    assert "방식으로 종목" not in first.reply  # 전략유형은 다시 묻지 않음
+
+    after_univ = sb.step(first.state, "코스닥")
+    # 직전 답변(유니버스)을 확인해야지, 시드된 보유수를 엉뚱하게 확인하면 안 된다.
+    assert "코스닥 시장을 대상으로" in after_univ.reply
+    assert "리밸런싱" in after_univ.reply       # 진짜 빠진 다음 질문
+
+    confirmed = sb.step(after_univ.state, "매월")
+    assert confirmed.status == "confirmed"
+    assert "코스닥" in confirmed.prompt
+    assert "상위 10개" in confirmed.prompt
+    assert "-15% 손절" in confirmed.prompt and "30% 익절" in confirmed.prompt
+
+
+def test_is_empty_gates_seeding():
+    assert sb.is_empty(sb.BuilderState()) is True
+    assert sb.is_empty(sb.BuilderState(universe="KOSPI")) is False
+
+
+def test_parse_strategy_type_recognizes_profit_phrasing():
+    assert sb._parse_strategy_type("수익률이 좋았던 종목") == "momentum"
+    assert sb._parse_strategy_type("많이 오른 종목") == "momentum"
+
+
+def test_parse_lookback_weeks():
+    assert sb._parse_lookback("최근 1주일")["lookback_days"] == 5
+    assert sb._parse_lookback("2주")["lookback_days"] == 10
+
+
 def test_restart_keeps_builder_and_clears_state():
     state = sb.BuilderState(universe="KOSPI", strategy_type="momentum", lookback_days=63)
     res = _step(state, "처음부터")
