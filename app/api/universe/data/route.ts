@@ -4,6 +4,9 @@ import { getUniverseOverview } from "@/lib/universe-history";
 import fs from "fs/promises";
 import path from "path";
 
+// 런타임 볼륨 data/kospi200-cache.json 등을 읽으므로 정적 prerender 금지(빌드 시 파일 부재).
+export const dynamic = "force-dynamic";
+
 async function loadKospi200Symbols(): Promise<string[]> {
   try {
     const cachePath = path.join(process.cwd(), "data", "kospi200-cache.json");

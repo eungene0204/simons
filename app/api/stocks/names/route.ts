@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { loadStockList, loadStockMasterNameMap } from "@/lib/krx-stocks";
 import { cache } from "@/lib/cache";
 
+// 런타임에 볼륨 마운트되는 data/stock-master.json(상폐 종목명)을 읽으므로 정적 prerender 금지.
+// 정적 생성 시 빌드 컨테이너엔 stock-master.json이 없어(.dockerignore) 상폐 이름이 누락된 응답이 고정된다.
+export const dynamic = "force-dynamic";
+
 export async function GET(request: NextRequest) {
   try {
     const cacheKey = "stocks:metadata-map";
