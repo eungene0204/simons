@@ -502,6 +502,118 @@ export function buildWalkForwardRequest(
   };
 }
 
+function numericValue(value: unknown): number | null {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function uniqueNumbers(values: number[], decimals = 2): number[] {
+  return Array.from(
+    new Set(
+      values
+        .filter((value) => Number.isFinite(value))
+        .map((value) => Number(value.toFixed(decimals)))
+    )
+  ).sort((a, b) => a - b);
+}
+
+function boundedIntegerRange(value: number, min: number, max: number): number[] {
+  const base = Math.round(value);
+  const delta = Math.max(1, Math.round(base * 0.35));
+  return uniqueNumbers([
+    Math.max(min, base - delta),
+    base,
+    Math.min(max, base + delta),
+  ], 0);
+}
+
+function boundedPercentRange(value: number): number[] {
+  const delta = Math.max(2, Math.round(value * 0.4));
+  return uniqueNumbers([
+    Math.max(1, value - delta),
+    value,
+    Math.min(80, value + delta),
+  ], 1);
+}
+
+function aroundValueRange(value: number): number[] {
+  const abs = Math.abs(value);
+  if (abs === 0) return [];
+  const delta = Math.max(abs * 0.2, 0.1);
+  return uniqueNumbers([value - delta, value, value + delta]);
+}
+
+function addRange(ranges: Record<string, unknown>, path: string, values: number[]) {
+  if (values.length >= 2) {
+    ranges[path] = values;
+  }
+}
+
+function addConditionRanges(
+  ranges: Record<string, unknown>,
+  side: "entry" | "exit",
+  conditions: Array<Record<string, unknown>> | undefined
+) {
+  conditions?.forEach((condition, index) => {
+    const params = condition.params;
+    if (!params || typeof params !== "object") return;
+    const paramMap = params as Record<string, unknown>;
+    const conditionId = typeof condition.id === "string" ? condition.id : "";
+    const conditionType = typeof condition.type === "string" ? condition.type : "";
+    const path = (key: string) => `${side}.conditions.${index}.params.${key}`;
+
+    const shortMA = numericValue(paramMap.shortMA);
+    if (shortMA !== null) addRange(ranges, path("shortMA"), boundedIntegerRange(shortMA, 2, 120));
+
+    const longMA = numericValue(paramMap.longMA);
+    if (longMA !== null) addRange(ranges, path("longMA"), boundedIntegerRange(longMA, 3, 250));
+
+    const period = numericValue(paramMap.period);
+    if (period !== null) addRange(ranges, path("period"), boundedIntegerRange(period, 2, 250));
+
+    const thresholdKey = conditionId === "ai_model" || conditionId === "ai_drop_model" ? "threshold" : "value";
+    const threshold = numericValue(paramMap[thresholdKey]);
+    if (threshold !== null) {
+      const range =
+        conditionType === "filter"
+          ? aroundValueRange(threshold)
+          : threshold > 0 && threshold <= 100
+            ? boundedPercentRange(threshold)
+            : aroundValueRange(threshold);
+      addRange(ranges, path(thresholdKey), range);
+    }
+
+    const stdDev = numericValue(paramMap.stdDev);
+    if (stdDev !== null) {
+      addRange(ranges, path("stdDev"), uniqueNumbers([Math.max(0.5, stdDev - 0.5), stdDev, stdDev + 0.5]));
+    }
+  });
+}
+
+export function buildWalkForwardParameterRanges(baseStrategy: StrategyBacktestRequest): Record<string, unknown> {
+  const ranges: Record<string, unknown> = {};
+  const risk = baseStrategy.risk ?? {};
+
+  for (const field of ["stop_loss_pct", "take_profit_pct", "trailing_stop_pct", "max_mdd_limit_pct"] as const) {
+    const value = numericValue(risk[field]);
+    if (value !== null && value > 0) addRange(ranges, `risk.${field}`, boundedPercentRange(value));
+  }
+
+  const maxHoldingDays = numericValue(risk.max_holding_days);
+  if (maxHoldingDays !== null && maxHoldingDays > 1) {
+    addRange(ranges, "risk.max_holding_days", boundedIntegerRange(maxHoldingDays, 2, 365));
+  }
+
+  addConditionRanges(ranges, "entry", baseStrategy.entry?.conditions);
+  addConditionRanges(ranges, "exit", baseStrategy.exit?.conditions);
+
+  return ranges;
+}
+
+export function hasWalkForwardParameterRanges(ranges: Record<string, unknown>): boolean {
+  return Object.values(ranges).some((value) => Array.isArray(value) && value.length >= 2);
+}
+
 function metricNumber(value: unknown): number | null {
   const numeric = typeof value === "number" ? value : Number(value);
   return Number.isFinite(numeric) ? numeric : null;

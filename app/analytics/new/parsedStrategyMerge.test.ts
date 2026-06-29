@@ -3,7 +3,9 @@ import type { ParsedSummary } from "./strategySummary";
 import {
   buildAdvisorEvaluationContextFromWalkForward,
   buildCandidateBacktestRequest,
+  buildWalkForwardParameterRanges,
   buildWalkForwardRequest,
+  hasWalkForwardParameterRanges,
   isAdvisorFollowUpPrompt,
   mergeStrategyModification,
 } from "./parsedStrategyMerge";
@@ -672,7 +674,19 @@ describe("mergeStrategyModification", () => {
   it("Walk-forward 요청과 Advisor OOS 평가 context를 생성한다", () => {
     const baseStrategy = {
       symbols: ["005930"],
-      risk: { init_cash: 10000000 },
+      entry: {
+        conditions: [
+          { id: "rsi", params: { period: 14, value: 30, threshold: 30, operator: "<=" } },
+          { id: "ma_crossover", params: { shortMA: 5, longMA: 20 } },
+          { type: "filter", id: "pbr", params: { value: 1, operator: "<=" } },
+        ],
+      },
+      exit: {
+        conditions: [
+          { id: "ai_drop_model", params: { threshold: 70, value: 70, signalType: "sell" } },
+        ],
+      },
+      risk: { init_cash: 10000000, stop_loss_pct: 10, take_profit_pct: 20 },
       period: "5Y",
     };
     const settings = {
@@ -683,9 +697,25 @@ describe("mergeStrategyModification", () => {
       n_trials: 30,
     };
 
-    expect(buildWalkForwardRequest(baseStrategy, settings, { "risk.stop_loss_pct": [5, 10] })).toEqual({
+    const ranges = buildWalkForwardParameterRanges(baseStrategy);
+    expect(hasWalkForwardParameterRanges(ranges)).toBe(true);
+
+    expect(ranges).toMatchObject({
+      "risk.stop_loss_pct": [6, 10, 14],
+      "risk.take_profit_pct": [12, 20, 28],
+      "entry.conditions.0.params.period": [9, 14, 19],
+      "entry.conditions.0.params.value": [18, 30, 42],
+      "entry.conditions.1.params.shortMA": [3, 5, 7],
+      "entry.conditions.1.params.longMA": [13, 20, 27],
+      "entry.conditions.2.params.value": [0.8, 1, 1.2],
+      "exit.conditions.0.params.threshold": [42, 70, 80],
+    });
+    expect(ranges).not.toHaveProperty("entry.conditions.0.params.threshold");
+    expect(ranges).not.toHaveProperty("exit.conditions.0.params.value");
+
+    expect(buildWalkForwardRequest(baseStrategy, settings, ranges)).toEqual({
       base_strategy: baseStrategy,
-      ranges: { "risk.stop_loss_pct": [5, 10] },
+      ranges,
       ...settings,
     });
 
@@ -714,6 +744,19 @@ describe("mergeStrategyModification", () => {
     expect(buildAdvisorEvaluationContextFromWalkForward(null, { aggregate: { avg_oos_cagr: 8 } })).toEqual({
       oos_available: false,
     });
+  });
+
+  it("Walk-forward 튜닝 범위가 없는 전략을 식별한다", () => {
+    const ranges = buildWalkForwardParameterRanges({
+      symbols: ["005930"],
+      risk: { init_cash: 10000000 },
+      period: "1Y",
+    });
+
+    expect(ranges).toEqual({});
+    expect(hasWalkForwardParameterRanges(ranges)).toBe(false);
+    expect(hasWalkForwardParameterRanges({ "risk.stop_loss_pct": [6, 10] })).toBe(true);
+    expect(hasWalkForwardParameterRanges({ "risk.stop_loss_pct": [10] })).toBe(false);
   });
 });
 
