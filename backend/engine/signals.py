@@ -314,8 +314,10 @@ class SignalEngine:
             val = float(p.get('value') or 0)
             curr = get_col(cid)
             if curr is None:
-                # 재무 데이터 컬럼이 없으면 필터 통과로 처리 (데이터 누락)
-                return np.ones(data_len, dtype=bool)
+                # 명시적 재무 필터인데 컬럼 자체가 없으면 검증 불가 → 제외(fail-closed).
+                # (컬럼은 있으나 값이 NaN인 행은 compare_vec에서 이미 False=제외 처리됨.)
+                # 스팩·우선주처럼 재무데이터 없는 종목이 가치 필터를 통과하는 것을 막는다.
+                return np.zeros(data_len, dtype=bool)
             return compare_vec(curr, p.get('operator', '<'), val)
 
         elif cid == 'price_limit_exit':
@@ -594,8 +596,8 @@ class SignalEngine:
             val, op = float(p.get('value') or 0), p.get('operator', '<')
             curr = safe_get(cid, idx)
             if curr is None:
-                # 재무 데이터 컬럼이 없으면 필터 통과로 처리 (데이터 누락)
-                return True
+                # 명시적 재무 필터인데 데이터가 없으면 검증 불가 → 제외(fail-closed).
+                return False
             return compare(curr, op, val)
 
         elif cid == 'price_limit_exit':

@@ -185,7 +185,7 @@ class DataResolver:
             # 조건 ID로 변환하여 사용자 친화적 메시지 생성
             cond_labels = {**FUNDAMENTAL_LABELS, 'trading_value_20_sma': '거래대금(20일평균)'}
             readable = [cond_labels.get(c, c) for c in sorted(still_missing)]
-            self._log("WARN", f"[{symbol}] 미해결 데이터: {', '.join(readable)} — 해당 필터는 통과 처리됩니다")
+            self._log("WARN", f"[{symbol}] 미해결 데이터: {', '.join(readable)} — 검증 불가로 해당 종목은 이 필터에서 제외됩니다")
 
         return df_pl, [l.to_dict() for l in self._logs]
 
