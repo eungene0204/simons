@@ -179,6 +179,16 @@ def test_apply_prompt_overrides_extracts_stop_loss_from_drawdown_sell_phrase():
     assert parsed.exit_signals == []
 
 
+def test_match_risk_pct_picks_closest_when_two_pcts_in_one_clause():
+    # "-15%에 손절하고 30%에 익절" — 손절이 더 먼 30%(익절 값)를 끌어오면 안 된다.
+    overrides = extract_risk_field_overrides(
+        "코스닥에서 최근 1주일동안 가장 많이 오른 10개 종목을 골라서 "
+        "-15%에 손절하고 30%에 익절 하는 전략"
+    )
+    assert overrides["stop_loss_pct"] == 15.0
+    assert overrides["take_profit_pct"] == 30.0
+
+
 def test_apply_prompt_overrides_keeps_technical_exit_when_explicitly_requested():
     base = make_base_strategy().model_copy(
         update={

@@ -2323,16 +2323,26 @@ def _match_risk_pct(compact: str, cue: str, blocker: str = "") -> Optional[float
     """필드 키워드(cue)와 퍼센트가 떨어져 있어도 같은 절 안이면 값을 추출한다.
 
     표현별 패턴을 늘리는 대신 '키워드 ~ %' / '% ~ 키워드' 두 방향 한 규칙으로 일반화한다.
+    두 방향이 모두 매치되면 키워드와 %가 가장 가까운(사이 글자 수가 적은) 쪽을 택한다.
+    "-15%에 손절하고 30%에 익절"처럼 한 절에 두 % 값이 있을 때, 손절이 더 먼 30%를
+    끌어오지 않고 바로 앞의 -15%를 잡게 하기 위함이다.
     blocker(다른 리스크 필드 키워드)가 사이에 끼면 연결하지 않아 오인식을 막는다.
     compact는 공백 제거·소문자화된 입력이다."""
     # 절(쉼표) 경계를 넘지 않게 ','도 제외 — "수익이 30% 나면 익절, 15% 빠지면 손절"에서
-    # 익절이 다른 절의 15%를 끌어오지 않도록 한다.
-    gap = rf"(?:(?!{blocker})[^%,])*?" if blocker else r"[^%,]*?"
-    for pattern in (rf"{cue}{gap}-?(\d+(?:\.\d+)?)%", rf"-?(\d+(?:\.\d+)?)%{gap}{cue}"):
-        match = re.search(pattern, compact)
-        if match:
-            return float(match.group(1))
-    return None
+    # 익절이 다른 절의 15%를 끌어오지 않도록 한다. 사이 글자(gap)를 캡처해 거리를 잰다.
+    gap = rf"((?:(?!{blocker})[^%,])*?)" if blocker else r"([^%,]*?)"
+    best_value: Optional[float] = None
+    best_gap: Optional[int] = None
+    candidates = (
+        (rf"{cue}{gap}-?(\d+(?:\.\d+)?)%", 2, 1),   # 키워드 ~ %  (num=g2, gap=g1)
+        (rf"-?(\d+(?:\.\d+)?)%{gap}{cue}", 1, 2),   # % ~ 키워드  (num=g1, gap=g2)
+    )
+    for pattern, num_grp, gap_grp in candidates:
+        for match in re.finditer(pattern, compact):
+            gap_len = len(match.group(gap_grp))
+            if best_gap is None or gap_len < best_gap:
+                best_value, best_gap = float(match.group(num_grp)), gap_len
+    return best_value
 
 
 def _first_pct_match(compact: str, patterns: tuple[str, ...]) -> Optional[float]:
