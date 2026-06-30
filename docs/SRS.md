@@ -189,8 +189,8 @@ Simons는 사용자가 자신만의 주식 투자 전략을 **설계 → 검증 
 **FR-STR-004** 시스템은 파싱 결과 요약 (유니버스, 필터, 시그널, 리스크 설정)을 사용자가 확인할 수 있도록 표시해야 한다.
 
 **FR-STR-005** 지원 LLM 백엔드:
-- MLX (Apple Silicon 최적, 기본값): `mlx-community/Qwen3.5-9B-OptiQ-4bit`
-- Ollama (범용): `qwen3.5:9b`
+- MLX (Apple Silicon 최적, 기본값): `mlx-community/Qwen3.5-4B-4bit`
+- Ollama (범용): `hf.co/unsloth/Qwen3.5-4B-GGUF:Q4_K_M`
 
 **FR-STR-013** 시스템은 자연어 전략 파싱 요청을 SSE로 처리할 수 있어야 하며, 파싱 완료 전 `accepted` 및 `skeleton` 이벤트를 반환해야 한다.
 

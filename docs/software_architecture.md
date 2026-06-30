@@ -434,6 +434,16 @@ interface BacktestResult {
     ▼
 NLStrategyParser.parse() (backend/engine/nl_parser.py)
     ├── rule-first fast path: 명확한 정량 조건은 deterministic extractor로 즉시 파싱
+    │   └── 커버리지 가드: 스키마가 표현할 수 없는 '미지원 개념'(_mentions_unsupported_concept
+    │       — 변동성·현금흐름·섹터 분산·정배열·시장대비·배당·수급 등 유한 목록)을 언급하면
+    │       규칙 기반은 부분 파싱을 내놓지 않고 None을 반환해 LLM 폴백에 위임(침묵 누락 방지).
+    │   └── Rule Parse Guard(하이브리드): REGEX 매칭 ≠ 올바른 파싱.
+    │       ① 결정론 red-flag(_rule_parse_red_flag) — 질문·비교·정정·추천처럼 실행 가능한
+    │          전략이 아닌 발화면 슬롯 일부 매칭돼도 None(구어체 '말고'·트레일링 '대비'는
+    │          정상이라 제외 → 오폴백 방지).
+    │       ② LLM judge(opt-in NL_RULE_GUARD_LLM, _consult_rule_parse_guard) — red-flag는
+    │          없지만 룰 파스가 원문을 다 설명 못 한 잔여가 남는 '애매한 경우에만' 호출해
+    │          accept/fallback 판정. LLM 오류·비활성 시 보수적 수락(빠른 경로 보존).
     ├── 백엔드 선택: MLX (Mac) 또는 Ollama
     ├── compact prompt + JSON output → ParsedStrategy 스키마 정규화
     ├── tail-truncated JSON repair, 실패 시 fallback ParsedStrategy 생성
@@ -735,7 +745,7 @@ FastAPI startup에서 news scheduler가 시작되면 Celery worker를 자동 기
 | 항목 | 내용 |
 |------|------|
 | 백엔드 | MLX (Apple Silicon) 또는 Ollama |
-| 기본 모델 | `mlx-community/Qwen3.5-9B-OptiQ-4bit` |
+| 기본 모델 | `mlx-community/Qwen3.5-4B-4bit` (MLX) / `hf.co/unsloth/Qwen3.5-4B-GGUF:Q4_K_M` (Ollama) |
 | 출력 형식 | Deterministic extractor 우선, 필요 시 compact JSON LLM output |
 | 신규 전략 | `parse(user_input)` → ParsedStrategy |
 | 전략 수정 | `parse_modification(user_input, previous)` → diff 기반 병합 |

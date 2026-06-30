@@ -15,7 +15,7 @@ LLM(코치 / 뉴스요약 / NL 전략파서 / 설명생성)만 이 Modal 함수�
 투명하게 동작 → 앱은 .env의 OLLAMA_HOST 한 줄만 이 함수의 URL로 바꾸면 끝.
 
 모델은 앱 설정과 일치해야 한다 (불일치 시 Ollama가 "model not found"):
-  앱 .env: NL_OLLAMA_MODEL=hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M  ==  아래 MODEL
+  앱 .env: NL_OLLAMA_MODEL=hf.co/unsloth/Qwen3.5-4B-GGUF:Q4_K_M  ==  아래 MODEL
   (코드 기본값 qwen3:8b가 아니라 .env 오버라이드 값이 실제 사용 모델)
 
 배포
@@ -47,8 +47,8 @@ import urllib.request
 import modal
 
 # ── 설정 ──────────────────────────────────────────────────────────────────────
-MODEL = "hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M"  # 앱의 NL_OLLAMA_MODEL(.env)과 반드시 동일
-GPU = "L4"                  # 8B Q4(~6GB)엔 L4(24GB)면 충분. 더 싸게: "T4"(16GB), 더 빠르게: "A10G"
+MODEL = "hf.co/unsloth/Qwen3.5-4B-GGUF:Q4_K_M"  # 앱의 NL_OLLAMA_MODEL(.env)과 반드시 동일
+GPU = "L4"                  # 4B Q4(~3GB)엔 L4(24GB)면 충분. 더 싸게: "T4"(16GB), 더 빠르게: "A10G"
 OLLAMA_PORT = 11434
 SCALEDOWN_WINDOW = 300      # 마지막 요청 후 5분 warm 유지 → 테스트 세션 중 콜드스타트 감소(비용 trade-off)
 STARTUP_TIMEOUT = 600       # 첫 콜드스타트에서 모델 로드/풀까지 대기 여유

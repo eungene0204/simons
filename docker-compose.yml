@@ -1,7 +1,7 @@
 # Simons 통합 배포 compose — 단일 GPU 박스 1대에 전부 기동
 # ─────────────────────────────────────────────────────────────────────────────
 # 메인 앱(web/backend/scheduler) + 뉴스 시스템(redis/postgres/celery) + Caddy(TLS)를
-# 한 번에 띄운다. Ollama(9B, GPU)만 호스트에 직접 설치 — 컨테이너 밖에서 GPU 네이티브 사용.
+# 한 번에 띄운다. Ollama(4B, GPU)만 호스트에 직접 설치 — 컨테이너 밖에서 GPU 네이티브 사용.
 #
 # 사용:
 #   docker compose build          # 합본 이미지 1회 빌드

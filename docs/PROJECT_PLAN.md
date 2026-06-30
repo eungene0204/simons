@@ -253,7 +253,7 @@ simons/
 |------|------|
 | 위치 | `backend/engine/nl_parser.py` |
 | 지원 백엔드 | MLX (Apple Silicon 최적, 기본값), Ollama (범용) |
-| 기본 모델 | `mlx-community/Qwen3.5-9B-OptiQ-4bit` |
+| 기본 모델 | `mlx-community/Qwen3.5-4B-4bit` (MLX) / `hf.co/unsloth/Qwen3.5-4B-GGUF:Q4_K_M` (Ollama) |
 | 입력 | 한국어 자연어 전략 설명 |
 | 출력 | `ParsedStrategy` (유니버스, 펀더멘탈 필터, 진입/청산 시그널, 리스크 설정) |
 | 수정 모드 | `previous_parsed` 전달 시 기존 전략 기반 점진적 수정 |
@@ -265,7 +265,7 @@ simons/
 
 #### 3.1.1a 자연어 전략 생성 성능 최적화 ✅ 완료
 
-> 모델은 `mlx-community/Qwen3.5-9B-OptiQ-4bit`를 유지하고, 프롬프트/파이프라인/런타임 계층만 변경해 사용자 체감 지연을 줄인다.
+> 모델은 `mlx-community/Qwen3.5-4B-4bit`(경량)를 사용하고, 프롬프트/파이프라인/런타임 계층만 변경해 사용자 체감 지연을 줄인다.
 
 | 항목 | 구현 내용 |
 |------|-----------|
