@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import PricingPlans from "./PricingPlans";
@@ -14,13 +14,22 @@ describe("PricingPlans", () => {
     render(<PricingPlans currentPlanId="FREE" />);
 
     expect(screen.getByTestId("pricing-plan-grid")).toHaveClass("items-stretch");
-    expect(screen.getByTestId("pricing-plan-card-FREE")).toHaveClass("h-full");
-    expect(screen.getByTestId("pricing-plan-card-PRO")).toHaveClass("h-full");
-    expect(screen.getByTestId("pricing-plan-card-PREMIUM")).toHaveClass("h-full");
-    expect(screen.getByTestId("pricing-plan-card-FREE")).toHaveClass(
+    const freeCard = screen.getByTestId("pricing-plan-card-FREE");
+    const proCard = screen.getByTestId("pricing-plan-card-PRO");
+    const premiumCard = screen.getByTestId("pricing-plan-card-PREMIUM");
+
+    expect(freeCard).toHaveClass("h-full");
+    expect(proCard).toHaveClass("h-full");
+    expect(premiumCard).toHaveClass("h-full");
+    expect(freeCard).toHaveClass(
+      "px-8",
+      "py-10",
       "transition-transform",
       "hover:-translate-y-1.5"
     );
+    expect(within(freeCard).getAllByRole("listitem")).toHaveLength(6);
+    expect(within(proCard).getAllByRole("listitem")).toHaveLength(6);
+    expect(within(premiumCard).getAllByRole("listitem")).toHaveLength(6);
 
     const subscriptionButtons = screen.getAllByRole("button", {
       name: "구독 시작하기",
@@ -39,6 +48,23 @@ describe("PricingPlans", () => {
     expect(
       screen.getByText("여러 전략을 동시에 연구하고 지속적으로 검증하는 플랜")
     ).toBeInTheDocument();
+  });
+
+  it("renders premium validation features in aligned rows across all cards", () => {
+    render(<PricingPlans currentPlanId="FREE" />);
+
+    const premiumCard = screen.getByTestId("pricing-plan-card-PREMIUM");
+
+    expect(within(premiumCard).getByText("워크포워드(walk-forward) 검증")).toBeInTheDocument();
+    expect(
+      within(premiumCard).getByText("몬테 카를로(Monte Carlo Simulation) 검증")
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("워크포워드(walk-forward) 검증")).toHaveLength(3);
+    const monteCarloLabels = screen.getAllByText("몬테 카를로(Monte Carlo Simulation) 검증");
+    expect(monteCarloLabels).toHaveLength(3);
+    monteCarloLabels.forEach((label) => {
+      expect(label).toHaveClass("xl:whitespace-nowrap");
+    });
   });
 
   it("uses the updated pro plan description", () => {

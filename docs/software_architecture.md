@@ -444,6 +444,12 @@ NLStrategyParser.parse() (backend/engine/nl_parser.py)
     │       ② LLM judge(opt-in NL_RULE_GUARD_LLM, _consult_rule_parse_guard) — red-flag는
     │          없지만 룰 파스가 원문을 다 설명 못 한 잔여가 남는 '애매한 경우에만' 호출해
     │          accept/fallback 판정. LLM 오류·비활성 시 보수적 수락(빠른 경로 보존).
+    │   └── Parse Fidelity Validator(engine/parse_validator.py, validate_parse) — 룰 파스가
+    │       수락되면 항상 인라인으로 LLM이 원문↔파싱결과를 비교해 누락/모호/실행불가/과잉추론을
+    │       구조화 리포트(parse_validation: isValid·confidence·issues·correctedStrategy 등)로 낸다.
+    │       명백한 파싱 오류는 correctedStrategy로 자동 교정(ParsedStrategy 스키마 검증 통과 시,
+    │       원문 description 보존). LLM 미도달(refused/cold)이면 짧은 probe로 즉시 graceful
+    │       degrade해 빠른 경로를 막지 않는다(투자 자문·성능 개선은 하지 않음, 검증·교정만).
     ├── 백엔드 선택: MLX (Mac) 또는 Ollama
     ├── compact prompt + JSON output → ParsedStrategy 스키마 정규화
     ├── tail-truncated JSON repair, 실패 시 fallback ParsedStrategy 생성

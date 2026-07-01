@@ -30,6 +30,7 @@ def test_coach_injection_failure_does_not_fail_nl_parser(monkeypatch):
     monkeypatch.setattr("llm_backend.resolve_llm_backend", lambda: "ollama")
     monkeypatch.setattr("engine.nl_parser.NLStrategyParser", lambda backend: _DummyParser())
     monkeypatch.setattr(main, "_kick_ollama_warmup", lambda: None)
+    monkeypatch.setattr(main, "_kick_local_ollama_model_preload", lambda _model: None)
 
     # 코치 파서 주입이 깨져도(검증 에이전트 교체 중 import 오류 등) NL 상태는 ok여야 한다.
     def _boom(_parser):

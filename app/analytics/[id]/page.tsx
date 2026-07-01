@@ -12,6 +12,12 @@ import {
   normalizeLegacyBreakoutStrategy,
 } from "@/components/strategy/legacyBreakout";
 import { buildStrategySummaryFromDsl, resolveStrategyPrompt } from "@/lib/strategy-summary";
+import {
+  buildWalkForwardParameterRanges,
+  buildWalkForwardRequest,
+  hasWalkForwardParameterRanges,
+  type AdvisorWalkForwardSettings,
+} from "../new/parsedStrategyMerge";
 
 function mapBacktestResponse(raw: any): BacktestResult {
   const equity: number[] = raw.equity ?? [];
@@ -159,25 +165,29 @@ function StrategyResultContent() {
     loadStrategy();
   }, [id]);
 
+  const buildEffectiveBacktestRequest = (options?: BacktestConfigOptions) => {
+    return {
+      ...backtestDsl,
+      period: options?.period ?? backtestDsl.period,
+      risk: {
+        ...backtestDsl.risk,
+        init_cash: options?.initialCapital ?? backtestDsl.risk?.init_cash,
+      },
+      options: {
+        ...backtestDsl.options,
+        fee_rate: (options?.commissionPct ?? 0.015) / 100,
+        slippage_rate: (options?.slippagePct ?? 0.05) / 100,
+      },
+    };
+  };
+
   const handleRun = async (options: BacktestConfigOptions) => {
     if (!backtestDsl) return;
 
     setIsRunning(true);
     setCurrentOptions(options);
     try {
-      const rerunRequest = {
-        ...backtestDsl,
-        period: options.period ?? backtestDsl.period,
-        risk: {
-          ...backtestDsl.risk,
-          init_cash: options.initialCapital ?? backtestDsl.risk?.init_cash,
-        },
-        options: {
-          ...backtestDsl.options,
-          fee_rate: (options.commissionPct ?? 0.015) / 100,
-          slippage_rate: (options.slippagePct ?? 0.05) / 100,
-        },
-      };
+      const rerunRequest = buildEffectiveBacktestRequest(options);
       const rerunResponse = await fetch("/api/backtest/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -196,6 +206,33 @@ function StrategyResultContent() {
     } finally {
       setIsRunning(false);
     }
+  };
+
+  const handleWalkForward = async (settings: AdvisorWalkForwardSettings) => {
+    if (!backtestDsl) {
+      throw new Error("워크포워드 분석을 실행할 백테스트 요청이 없습니다.");
+    }
+
+    const baseRequest = buildEffectiveBacktestRequest(currentOptions);
+    const ranges = buildWalkForwardParameterRanges(baseRequest);
+    if (!hasWalkForwardParameterRanges(ranges)) {
+      throw new Error(
+        "워크포워드 최적화에 사용할 숫자 파라미터가 없습니다. 손절/익절, 지표 기간, 임계값처럼 조정 가능한 조건이 포함된 전략에서 실행해 주세요."
+      );
+    }
+
+    const res = await fetch("/api/backtest/walk-forward", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildWalkForwardRequest(baseRequest, settings, ranges)),
+    });
+
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.detail ?? "워크포워드 분석 실패");
+    }
+
+    return res.json();
   };
 
   if (loading) {
@@ -260,6 +297,7 @@ function StrategyResultContent() {
             currentOptions={currentOptions}
             isRunning={isRunning}
             backtestDsl={backtestDsl}
+            onWalkForward={handleWalkForward}
             strategySummary={strategySummary}
             promptText={strategyPrompt || undefined}
             aiSummary={aiSummary}

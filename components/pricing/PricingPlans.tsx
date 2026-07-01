@@ -28,7 +28,12 @@ const PLAN_ICONS: Record<PlanId, typeof Lightning> = {
 
 type FeatureRow = { label: string; included: boolean };
 
-function planFeatures(plan: Plan): FeatureRow[] {
+const PREMIUM_VALIDATION_FEATURES = [
+  "워크포워드(walk-forward) 검증",
+  "몬테 카를로(Monte Carlo Simulation) 검증",
+] as const;
+
+function planFeatures(planId: PlanId, plan: Plan): FeatureRow[] {
   return [
     {
       label: `계좌당 초기 모의 투자금 ${formatInitialInvestmentAmount(plan.initialInvestmentAmount)}`,
@@ -42,6 +47,10 @@ function planFeatures(plan: Plan): FeatureRow[] {
       included: true,
     },
     { label: `월 백테스트 ${formatCount(plan.monthlyBacktestLimit)}회`, included: true },
+    ...PREMIUM_VALIDATION_FEATURES.map((label) => ({
+      label,
+      included: planId === "PREMIUM",
+    })),
   ];
 }
 
@@ -87,13 +96,13 @@ export default function PricingPlans({ currentPlanId }: PricingPlansProps) {
           const plan = PLANS[planId];
           const Icon = PLAN_ICONS[planId];
           const isCurrent = planId === currentPlanId;
-          const features = planFeatures(plan);
+          const features = planFeatures(planId, plan);
 
           return (
             <div
               key={planId}
               data-testid={`pricing-plan-card-${planId}`}
-              className="relative flex h-full flex-col rounded-3xl border border-white/[0.08] bg-[#0a0a0a] p-10 transition-transform duration-200 ease-out hover:-translate-y-1.5"
+              className="relative flex h-full flex-col rounded-3xl border border-white/[0.08] bg-[#0a0a0a] px-8 py-10 transition-transform duration-200 ease-out hover:-translate-y-1.5 xl:px-9"
             >
               {/* 헤더: 아이콘 + 플랜명 */}
               <div className="flex items-center gap-3">
@@ -130,7 +139,7 @@ export default function PricingPlans({ currentPlanId }: PricingPlansProps) {
                       <X size={18} weight="bold" className="shrink-0 text-gray-600" />
                     )}
                     <span
-                      className={`text-sm font-bold ${
+                      className={`text-sm font-bold xl:whitespace-nowrap ${
                         feature.included ? "text-gray-200" : "text-gray-600"
                       }`}
                     >

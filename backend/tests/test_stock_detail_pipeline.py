@@ -674,6 +674,8 @@ def test_preload_nl_parser_preloads_shared_parser_and_updates_status(monkeypatch
             pass
 
     monkeypatch.setattr("engine.nl_parser.NLStrategyParser", _DummyParser)
+    monkeypatch.setattr("main._kick_local_ollama_model_preload", lambda _model: None)
+    monkeypatch.setattr("main._kick_ollama_warmup", lambda: None)
     _nl_parsers.clear()
     _nl_parser_status["status"] = "loading"
     _nl_parser_status["error"] = None

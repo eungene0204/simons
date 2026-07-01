@@ -5,7 +5,6 @@ import BacktestChart from "@/components/strategy/BacktestChart";
 import { BacktestConfigOptions } from "@/components/strategy/backtest/BacktestConfig";
 import {
   Table,
-  ChartBar,
   ArrowsClockwise,
   ShieldCheck,
   Warning,
@@ -23,7 +22,7 @@ import {
 import { useState, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import XAIModal from "./XAIModal";
-import WalkForwardModal, { WalkForwardSettings } from "./WalkForwardModal";
+import { WalkForwardPanel, WalkForwardSettings, type WalkForwardOptimizationTarget } from "./WalkForwardModal";
 import BacktestSummaryCard from "./BacktestSummaryCard";
 import { buildAutoSaveHistoryPayload } from "@/lib/backtest-history";
 import { resolveUniverseDisplayName } from "@/lib/strategy-summary";
@@ -80,7 +79,131 @@ function metricValueColor(value: number): string {
   return "text-white";
 }
 
+function addOptimizationTarget(
+  targets: WalkForwardOptimizationTarget[],
+  seen: Set<string>,
+  label: string
+) {
+  const normalized = label.trim();
+  if (!normalized || seen.has(normalized)) return;
+  seen.add(normalized);
+  targets.push({ id: `summary-${targets.length}`, label: normalized });
+}
+
+function walkForwardTargetLabelsFromBadge(label: string): string[] {
+  const normalized = label.trim();
+  if (!normalized) return [];
+
+  const targets: string[] = [];
+  const add = (target: string) => {
+    if (!targets.includes(target)) targets.push(target);
+  };
+
+  if (/pbr/i.test(normalized)) add("PBR");
+  if (/per/i.test(normalized)) add("PER");
+  if (/roe/i.test(normalized)) add("ROE");
+  if (/손절|stop\s*loss/i.test(normalized)) add("손절라인");
+  if (/익절|take\s*profit/i.test(normalized)) add("익절라인");
+  if (/보유|holding/i.test(normalized)) add("보유기간");
+  if (/종목|positions?/i.test(normalized)) add("보유종목수");
+  if (/트레일링|trailing/i.test(normalized)) add("트레일링 스탑");
+  if (/리밸런싱|rebalanc/i.test(normalized)) add("리밸런싱 주기");
+
+  return targets.length > 0 ? targets : [normalized.replace(/\s*[<>=≤]+.*$/, "")];
+}
+
+function buildWalkForwardOptimizationTargetsFromSummary(
+  strategySummary: BacktestDashboardProps["strategySummary"]
+): WalkForwardOptimizationTarget[] {
+  const targets: WalkForwardOptimizationTarget[] = [];
+  const seen = new Set<string>();
+
+  const entryLabels = strategySummary?.entryBlocks?.length
+    ? strategySummary.entryBlocks
+    : strategySummary?.blockNames ?? [];
+
+  [
+    ...entryLabels,
+    ...(strategySummary?.exitBlocks ?? []),
+    strategySummary?.positionText,
+    strategySummary?.riskText,
+  ].forEach((label) => {
+    if (!label) return;
+    walkForwardTargetLabelsFromBadge(label).forEach((targetLabel) => {
+      addOptimizationTarget(targets, seen, targetLabel);
+    });
+  });
+
+  return targets;
+}
+
 type ValidationTab = "chart" | "log" | "assets" | "report" | "walkForward" | "monteCarlo";
+
+const VALIDATION_TABS: Array<{
+  id: ValidationTab;
+  label: string;
+  help?: {
+    title: string;
+    body: string;
+    example: string;
+  };
+}> = [
+  { id: "chart", label: "개요" },
+  { id: "assets", label: "종목 분석" },
+  { id: "log", label: "매매 기록" },
+  { id: "report", label: "AI 리포트" },
+  {
+    id: "walkForward",
+    label: "워크포워드",
+    help: {
+      title: "워크포워드 검증",
+      body: "백테스트 기간을 여러 학습(IS) 구간과 검증(OOS) 구간으로 나눠, 파라미터가 다른 기간에서도 비슷하게 동작했는지 확인합니다.",
+      example: "예: 2020-2021년 데이터로 파라미터를 맞춘 뒤 2022년 구간에서 검증하고, 다음 창도 같은 방식으로 이동해 구간별 OOS 결과를 비교합니다.",
+    },
+  },
+  {
+    id: "monteCarlo",
+    label: "몬테카를로",
+    help: {
+      title: "몬테카를로 시뮬레이션",
+      body: "기존 수익률 구간을 여러 방식으로 재조합해 가능한 성과 분포와 낙폭 범위를 추정하는 검증 도구입니다.",
+      example: "예: 일별 수익률 블록을 1,000번 재배열해 CAGR 중앙값, 5% 하위 시나리오, MDD가 30%를 넘는 비율을 계산합니다.",
+    },
+  },
+];
+
+function ValidationTabHelp({ label, title, body, example }: {
+  label: string;
+  title: string;
+  body: string;
+  example: string;
+}) {
+  return (
+    <span className="group relative z-20 mr-2 inline-flex">
+      <button
+        type="button"
+        aria-label={`${label} 탭 도움말`}
+        className="flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-white/25 text-[10px] font-black leading-none text-gray-400 transition-colors hover:border-white/50 hover:text-white focus:border-white/60 focus:text-white focus:outline-none"
+      >
+        ?
+      </button>
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 w-80 max-w-[calc(100vw-3rem)] -translate-x-1/2 border border-white/[0.10] bg-[#171717] p-4 text-left opacity-0 shadow-[0_18px_40px_rgba(0,0,0,0.45)] transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+      >
+        <span className="block text-[11px] font-black uppercase tracking-widest text-sky-400">
+          {title}
+        </span>
+        <span className="mt-2 block text-xs font-bold leading-5 text-gray-300">
+          {body}
+        </span>
+        <span className="mt-3 block text-xs font-bold leading-5 text-gray-400">
+          {example}
+        </span>
+      </span>
+    </span>
+  );
+}
 
 interface MonteCarloSettings {
   iterations: number;
@@ -330,7 +453,6 @@ export default function BacktestDashboard({
   parsedStrategy,
 }: BacktestDashboardProps) {
   const [activeTab, setActiveTab] = useState<ValidationTab>("chart");
-  const [isWFAOpen, setIsWFAOpen] = useState(false);
   const [promptTooltipOpen, setPromptTooltipOpen] = useState(false);
   const promptTooltipRef = useRef<HTMLDivElement>(null);
   const [planId, setPlanId] = useState<string>("FREE");
@@ -390,6 +512,10 @@ export default function BacktestDashboard({
   const normalizedBacktestDsl = useMemo(
     () => (backtestDsl ? normalizeLegacyBreakoutStrategy(backtestDsl) : backtestDsl),
     [backtestDsl]
+  );
+  const walkForwardOptimizationTargets = useMemo(
+    () => buildWalkForwardOptimizationTargetsFromSummary(strategySummary),
+    [strategySummary]
   );
 
 
@@ -872,7 +998,10 @@ export default function BacktestDashboard({
   }));
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 min-w-0 animate-in fade-in zoom-in-95 duration-300">
+    <div
+      className="flex flex-1 flex-col min-w-0 animate-in fade-in zoom-in-95 duration-300"
+      style={{ minHeight: "calc(100vh - var(--top-menu-bar-height, 76px))" }}
+    >
 
       {/* 전략 저장 모달 */}
       <AnimatePresence>
@@ -1096,18 +1225,10 @@ export default function BacktestDashboard({
 
         <div className="flex items-center justify-between w-full">
           <div className="flex flex-wrap items-center gap-1.5 md:gap-2 w-fit">
-            {[
-              { id: "chart", label: "개요" },
-              { id: "assets", label: "종목 분석" },
-              { id: "log", label: "매매 기록" },
-              { id: "report", label: "AI 리포트" },
-              { id: "walkForward", label: "워크포워드" },
-              { id: "monteCarlo", label: "몬테카를로" },
-            ].map(tab => (
-              <button
+            {VALIDATION_TABS.map(tab => (
+              <div
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`relative min-h-[34px] overflow-hidden rounded-[8px] px-3.5 md:px-4 text-sm font-black tracking-tight transition-colors ${
+                className={`relative flex min-h-[34px] items-center overflow-visible rounded-[8px] transition-colors ${
                   activeTab === tab.id 
                     ? "text-white"
                     : "text-[#6f7481] hover:text-[#a7adba]"
@@ -1120,10 +1241,22 @@ export default function BacktestDashboard({
                     transition={{ type: "tween", ease: [0.22, 1, 0.36, 1], duration: 0.22 }}
                   />
                 )}
-                <span className="relative z-10 flex items-center">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className="relative z-10 min-h-[34px] px-3.5 text-sm font-black tracking-tight md:px-4"
+                >
                   {tab.label}
-                </span>
-              </button>
+                </button>
+                {tab.help && (
+                  <ValidationTabHelp
+                    label={tab.label}
+                    title={tab.help.title}
+                    body={tab.help.body}
+                    example={tab.help.example}
+                  />
+                )}
+              </div>
             ))}
           </div>
           
@@ -1541,75 +1674,19 @@ export default function BacktestDashboard({
 
            {activeTab === "walkForward" && (
              <div className="py-4">
-               <div className="rounded-2xl border border-white/[0.08] bg-[#0f0f10] p-5 md:p-6">
-                 <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                   <div className="space-y-2">
-                     <div className="inline-flex items-center gap-2 rounded-full border border-sky-500/20 bg-sky-500/10 px-3 py-1 text-[11px] font-black uppercase tracking-[0.22em] text-sky-300">
-                       <ChartBar className="h-4 w-4" />
-                       Premium Validation
-                     </div>
-                     <h3 className="text-xl font-black text-white">워크포워드 검증</h3>
-                     <p className="max-w-2xl text-sm font-bold leading-6 text-gray-300">
-                       백테스트 구간을 훈련 구간과 검증 구간으로 나눠 과거 데이터 기준의 분할 검증을 수행합니다.
-                       결과는 과거 시뮬레이션이며 미래 수익을 보장하지 않습니다.
-                     </p>
-                   </div>
-                   {!isPlanLoading && isPremiumValidationEnabled && onWalkForward && (
-                     <button
-                       onClick={() => setIsWFAOpen(true)}
-                       className="inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--main-blue)] px-4 py-2.5 text-sm font-black text-white transition-opacity hover:opacity-90"
-                     >
-                       <ChartBar className="h-4 w-4" />
-                       워크포워드 실행
-                     </button>
-                   )}
-                 </div>
-
-                 <div className="mt-5 grid gap-3 md:grid-cols-3">
-                   <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                     <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">검증 방식</p>
-                     <p className="mt-2 text-sm font-bold text-white">IS/OOS 기간 분할 검증</p>
-                   </div>
-                   <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                     <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">사용 데이터</p>
-                     <p className="mt-2 text-sm font-bold text-white">현재 백테스트와 동일한 과거 시계열</p>
-                   </div>
-                   <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                     <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">확인 항목</p>
-                     <p className="mt-2 text-sm font-bold text-white">구간별 성과 일관성과 과최적화 징후</p>
-                   </div>
-                 </div>
-
-                 {isPlanLoading && (
-                   <div className="mt-5 rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm font-bold text-gray-300">
-                     플랜 권한을 확인하는 중입니다.
-                   </div>
-                 )}
-
-                 {!isPlanLoading && !isPremiumValidationEnabled && (
-                   <div className="mt-5 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">
-                     <p className="text-sm font-black text-amber-300">프리미엄 전용 검증 기능입니다.</p>
-                     <p className="mt-1 text-sm font-bold leading-6 text-amber-100/90">
-                       워크포워드 분석은 PREMIUM 플랜에서만 실행할 수 있습니다.
-                     </p>
-                     <a
-                       href="/pricing"
-                       className="mt-3 inline-flex items-center rounded-lg border border-amber-300/30 px-3 py-2 text-xs font-black text-amber-100 transition-colors hover:bg-amber-300/10"
-                     >
-                       요금제 보기
-                     </a>
-                   </div>
-                 )}
-
-                 {!isPlanLoading && isPremiumValidationEnabled && !onWalkForward && (
-                   <div className="mt-5 rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                     <p className="text-sm font-black text-white">이 결과 화면에서는 워크포워드 실행을 지원하지 않습니다.</p>
-                     <p className="mt-1 text-sm font-bold leading-6 text-gray-400">
-                       새로 실행한 백테스트 결과 화면에서 동일 검증 기능을 사용할 수 있습니다.
-                     </p>
-                   </div>
-                 )}
-               </div>
+               <WalkForwardPanel
+                 onRun={onWalkForward}
+                 backtestDates={result.dates}
+                 optimizationTargets={walkForwardOptimizationTargets}
+                 canRun={!isPlanLoading && isPremiumValidationEnabled && !!onWalkForward}
+                 disabledReason={
+                   isPlanLoading
+                     ? "플랜 권한을 확인하는 중입니다."
+                     : !isPremiumValidationEnabled
+                       ? "워크포워드 분석은 PREMIUM 플랜에서만 실행할 수 있습니다."
+                       : "이 결과 화면에서는 워크포워드 실행을 지원하지 않습니다."
+                 }
+               />
              </div>
            )}
 
@@ -1929,7 +2006,7 @@ export default function BacktestDashboard({
         </div>
       </div>
 
-      <div className="border-t border-white/[0.08] px-6 py-4">
+      <div className="mt-auto border-t border-white/[0.08] bg-[#050505] px-6 py-4">
         <p className="text-center text-xs font-bold leading-relaxed text-gray-500">
           모든 결과는 과거 데이터의 모의 시뮬레이션 결과이며 미래 수익을 보장하지 않습니다.
         </p>
@@ -1973,13 +2050,6 @@ export default function BacktestDashboard({
         date={xaiTarget?.date || ""}
       />
 
-      {onWalkForward && (
-        <WalkForwardModal
-          open={isWFAOpen}
-          onOpenChange={setIsWFAOpen}
-          onRun={onWalkForward}
-        />
-      )}
     </div>
   );
 }

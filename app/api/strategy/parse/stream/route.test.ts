@@ -9,6 +9,29 @@ vi.mock("@/lib/server/backend", () => ({
 
 const { POST } = await import("./route");
 
+// 백엔드 /strategy/parse-stream 의 SSE 응답을 흉내내는 ReadableStream을 만든다.
+function sseBackendResponse(events: Array<object | string>) {
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const event of events) {
+        const payload = typeof event === "string" ? event : JSON.stringify(event);
+        controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
+      }
+      controller.close();
+    },
+  });
+  return { ok: true, body };
+}
+
+function backendResultEvents(data: object) {
+  return [
+    { type: "stage", stage: "parsing" },
+    { type: "result", data },
+    "[DONE]",
+  ];
+}
+
 function makeRequest(body: object) {
   return new NextRequest(
     new Request("http://localhost/api/strategy/parse/stream", {
@@ -32,23 +55,24 @@ describe("POST /api/strategy/parse/stream", () => {
     vi.clearAllMocks();
   });
 
-  it("emits accepted and skeleton before final parse events", async () => {
-    fetchBackend.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        parsed: {
-          description: "pbr 1이하 10개 1년 보유",
-          universe: ["KOSPI200"],
-          fundamental_filters: [{ metric: "pbr", operator: "<=", value: 1 }],
-        },
-        backtest_request: {
-          strategy_id: "hash_value",
-          symbols: ["005930"],
+  it("emits accepted, skeleton, and stage before final parse events", async () => {
+    fetchBackend.mockResolvedValueOnce(
+      sseBackendResponse(
+        backendResultEvents({
+          parsed: {
+            description: "pbr 1이하 10개 1년 보유",
+            universe: ["KOSPI200"],
+            fundamental_filters: [{ metric: "pbr", operator: "<=", value: 1 }],
+          },
+          backtest_request: {
+            strategy_id: "hash_value",
+            symbols: ["005930"],
+            symbol_count: 1,
+          },
           symbol_count: 1,
-        },
-        symbol_count: 1,
-      }),
-    });
+        })
+      )
+    );
 
     const response = await POST(makeRequest({ prompt: "pbr 1이하 10개 1년 보유", backend: "mlx" }));
 
@@ -65,37 +89,71 @@ describe("POST /api/strategy/parse/stream", () => {
         confidence: "partial",
       },
     });
-    expect(JSON.parse(events[2])).toMatchObject({
+    expect(JSON.parse(events[2])).toEqual({ type: "stage", stage: "parsing" });
+    expect(JSON.parse(events[3])).toMatchObject({
       type: "parsed_final",
       parsed: {
         description: "pbr 1이하 10개 1년 보유",
       },
     });
-    expect(JSON.parse(events[3])).toMatchObject({
+    expect(JSON.parse(events[4])).toMatchObject({
       type: "dsl_ready",
       symbol_count: 1,
     });
-    expect(events[4]).toBe("[DONE]");
+    expect(events[5]).toBe("[DONE]");
+  });
+
+  it("forwards a thinking stage event when the backend falls back to the LLM", async () => {
+    fetchBackend.mockResolvedValueOnce(
+      sseBackendResponse([
+        { type: "stage", stage: "parsing" },
+        { type: "stage", stage: "thinking" },
+        {
+          type: "result",
+          data: {
+            parsed: { description: "복잡한 전략", universe: ["KOSPI"] },
+            backtest_request: { strategy_id: "h", symbols: ["005930"], symbol_count: 1 },
+            symbol_count: 1,
+          },
+        },
+        "[DONE]",
+      ])
+    );
+
+    const response = await POST(makeRequest({ prompt: "복잡한 서술형 전략", backend: "ollama" }));
+    const events = await readEvents(response);
+    const stages = events
+      .map((e) => {
+        try {
+          return JSON.parse(e);
+        } catch {
+          return null;
+        }
+      })
+      .filter((e) => e?.type === "stage")
+      .map((e) => e.stage);
+    expect(stages).toEqual(["parsing", "thinking"]);
   });
 
   it("uses previous parsed universe for modification skeleton when prompt omits universe", async () => {
-    fetchBackend.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        parsed: {
-          description: "KOSPI PBR strategy",
-          universe: ["KOSPI"],
-          trailing_stop_pct: 15,
-        },
-        backtest_request: {
-          strategy_id: "hash_value",
-          universe_id: "kospi",
-          symbols: ["005930"],
+    fetchBackend.mockResolvedValueOnce(
+      sseBackendResponse(
+        backendResultEvents({
+          parsed: {
+            description: "KOSPI PBR strategy",
+            universe: ["KOSPI"],
+            trailing_stop_pct: 15,
+          },
+          backtest_request: {
+            strategy_id: "hash_value",
+            universe_id: "kospi",
+            symbols: ["005930"],
+            symbol_count: 1,
+          },
           symbol_count: 1,
-        },
-        symbol_count: 1,
-      }),
-    });
+        })
+      )
+    );
 
     const response = await POST(makeRequest({
       prompt: "트레일링 15% 추가해줘",
@@ -115,22 +173,23 @@ describe("POST /api/strategy/parse/stream", () => {
   });
 
   it("uses explicit prompt universe over previous parsed universe", async () => {
-    fetchBackend.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        parsed: {
-          description: "KOSPI200 strategy",
-          universe: ["KOSPI200"],
-        },
-        backtest_request: {
-          strategy_id: "hash_value",
-          universe_id: "kospi200",
-          symbols: ["069500"],
+    fetchBackend.mockResolvedValueOnce(
+      sseBackendResponse(
+        backendResultEvents({
+          parsed: {
+            description: "KOSPI200 strategy",
+            universe: ["KOSPI200"],
+          },
+          backtest_request: {
+            strategy_id: "hash_value",
+            universe_id: "kospi200",
+            symbols: ["069500"],
+            symbol_count: 1,
+          },
           symbol_count: 1,
-        },
-        symbol_count: 1,
-      }),
-    });
+        })
+      )
+    );
 
     const response = await POST(makeRequest({
       prompt: "KOSPI200으로 바꿔줘",

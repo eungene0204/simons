@@ -22,6 +22,7 @@ import {
   Warning,
   ChartLineUp,
   Question,
+  Info,
   GoogleLogo,
   X,
 } from "phosphor-react";
@@ -48,7 +49,7 @@ import {
   type AdvisorWalkForwardSettings,
 } from "./parsedStrategyMerge";
 import { computeChatScrollDelta } from "./chatScroll";
-import { isBacktestConfirmation, isBacktestPrompt } from "./backtestConfirmation";
+import { BACKTEST_MIN_PERIOD_MESSAGE, backtestPeriodTooShort, isBacktestConfirmation, isBacktestPrompt } from "./backtestConfirmation";
 import { normalizeCoachMessage } from "./coachMessage";
 import { parseCoachSegments } from "./coachText";
 import { parseSseBlocks } from "./sseEvents";
@@ -86,12 +87,17 @@ interface ChatMessage {
   clarificationSuggestions?: string[];
   coachLoading?: boolean;  // coach response is being generated
   isLoading?: boolean;
+  // 분석 로딩 단계: 'parsing'(NL 파서 규칙 파싱) → 'thinking'(LLM 처리) → 'validating'(LLM 검증).
+  // 미설정이면 기본 '분석 중...'을 표시한다(빌더/분류 등 비파싱 로딩).
+  loadingStage?: "parsing" | "thinking" | "validating";
   error?: string;
   // 개별 종목 질문 / 일반 투자 질문 응답
   stockAnalysis?: StockAnalysisResult;
   stockLoading?: boolean;
   infoText?: string;  // 일반 투자 답변 또는 종목 명확화 안내
   infoSuggestions?: string[];  // 전략 빌더 옵션 칩(클릭 시 그 답으로 전송)
+  // 전략 요약을 막지 않는 보정 안내(예: 초기자금 하한선 보정). 요약 카드와 함께 표시된다.
+  notices?: string[];
 }
 
 type CoachConversationMessage = {
@@ -178,7 +184,22 @@ function ShimmerStatusText({
   );
 }
 
-function AnalysisStatusBubble({ title }: { title?: string }) {
+// 분석 로딩 단계별 표시 문구. 미설정이면 기본 '분석 중...'.
+// validating: 룰 파싱이 애매해 LLM 검증기를 호출하는 동안 표시(ShimmerStatusText 애니메이션).
+const ANALYSIS_STAGE_LABEL: Record<"parsing" | "thinking" | "validating", string> = {
+  parsing: "Parsing...",
+  thinking: "Thinking...",
+  validating: "Validation...",
+};
+
+function AnalysisStatusBubble({
+  title,
+  stage,
+}: {
+  title?: string;
+  stage?: "parsing" | "thinking" | "validating";
+}) {
+  const label = stage ? ANALYSIS_STAGE_LABEL[stage] : "분석 중...";
   return (
     <div
       className={`max-w-[88%] rounded-tl-sm p-3.5 space-y-2 ${COACH_CHAT_BUBBLE_CLASS}`}
@@ -190,7 +211,7 @@ function AnalysisStatusBubble({ title }: { title?: string }) {
             {title}
           </span>
         )}
-        <ShimmerStatusText className="text-sm font-bold">분석 중...</ShimmerStatusText>
+        <ShimmerStatusText className="text-sm font-bold">{label}</ShimmerStatusText>
       </div>
     </div>
   );
@@ -903,6 +924,13 @@ function StrategyLabContent() {
       return false;
     }
 
+    // [전략 다듬기 우선] 이미 전략이 작성돼 있으면 STOCK_PICK·ONBOARDING 분류는 대개
+    // 수정 요청("종목을 10개로 늘려줘")의 오분류다. 빌더로 새로 진입해 기존 전략을 버리지
+    // 말고 전략 다듬기 흐름으로 흘려보낸다(아래 STOCK_ANALYSIS + currentParsed 가드와 동일 취지).
+    if ((intent === "STOCK_PICK" || intent === "ONBOARDING") && currentParsed) {
+      return false;
+    }
+
     // 인사 / 역할 밖 질문 / 열린 종목 추천 / 막연한 도움 요청 → 전략으로 파싱하지 않고 정해진 안내를 바로 보여준다.
     // STOCK_PICK은 특정 종목 추천 대신 전략 설계로 전환하는 안내다([규제 안전]).
     // ONBOARDING은 "어떻게 시작하지?"처럼 막막해하는 입력으로, 빈 전략 카드 대신 전략 빌더로 유도한다.
@@ -978,6 +1006,8 @@ function StrategyLabContent() {
     currentParsed: ParsedSummary | null,
     currentBacktestReq: any,
   ) => {
+    // NL 파서 규칙 파싱 단계 — 'parsing...' 표시. LLM 폴백 시 'thinking...'으로 전환된다.
+    updateLastAssistant({ isLoading: true, loadingStage: "parsing" });
     const res = await fetch("/api/strategy/parse/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1060,6 +1090,7 @@ function StrategyLabContent() {
         parsed: nextParsed,
         clarification: clarificationText ?? undefined,
         clarificationSuggestions: clarificationText ? clarificationSuggestions : undefined,
+        notices: parsedPayload.notices?.length ? parsedPayload.notices : undefined,
       });
     };
 
@@ -1078,7 +1109,12 @@ function StrategyLabContent() {
         const evt = JSON.parse(payload);
 
         if (evt.type === "skeleton") {
-          // 구조 분석 스켈레톤은 표시하지 않는다 — 파싱이 끝날 때까지 '분석 중...'만 노출한다.
+          // 구조 분석 스켈레톤은 표시하지 않는다 — 파싱이 끝날 때까지 단계 문구만 노출한다.
+        } else if (evt.type === "stage") {
+          // 백엔드 진행 단계: 'parsing'(규칙 파싱) → 'thinking'(LLM 처리) → 'validating'(LLM 검증).
+          if (evt.stage === "parsing" || evt.stage === "thinking" || evt.stage === "validating") {
+            updateLastAssistant({ isLoading: true, loadingStage: evt.stage });
+          }
         } else if (evt.type === "parsed_final") {
           parsedPayload = evt;
         } else if (evt.type === "dsl_ready") {
@@ -1143,6 +1179,14 @@ function StrategyLabContent() {
       awaitingStockAnalysisRef.current = false;
       await appendAssistant({ role: "assistant", stockLoading: true });
       await renderStockAnalysisResult({ query: userText, last_symbol: lastAnalyzedSymbolRef.current });
+      setIsSending(false);
+      return;
+    }
+
+    // 백테스트 기간을 1년 미만으로 요청하면(예: "백테스트 1주일로 해줘") 실행하지 않고
+    // 최소 기간을 안내한다(유효 기간 1y/3y/5y/full → 최소 1년).
+    if (backtestPeriodTooShort(userText)) {
+      await appendAssistant({ role: "assistant", infoText: BACKTEST_MIN_PERIOD_MESSAGE });
       setIsSending(false);
       return;
     }
@@ -1643,7 +1687,7 @@ function StrategyLabContent() {
           className="flex flex-col"
           style={{ minHeight: "calc(100vh - var(--top-menu-bar-height, 76px))" }}
         >
-          <div ref={resultScrollRef} className="flex-1 overflow-auto">
+          <div ref={resultScrollRef} className="flex flex-1 flex-col overflow-auto">
             {isRunning && (
               <div className="sticky top-0 z-30 mx-4 mt-4 max-w-4xl">
                 <BacktestRunningStatus message={statusMessage} />
@@ -1767,7 +1811,7 @@ function StrategyLabContent() {
                     {msg.role === "assistant" && (
                       <div className="space-y-3">
                         {msg.isLoading && (
-                          <AnalysisStatusBubble />
+                          <AnalysisStatusBubble stage={msg.loadingStage} />
                         )}
                         {msg.stockLoading && <AnalysisStatusBubble title="종목 분석" />}
                         {msg.stockAnalysis && (
@@ -1833,6 +1877,21 @@ function StrategyLabContent() {
                         {msg.parsed && (
                           <>
                             <ParsedSummaryBubble parsed={msg.parsed} backtestRequest={backtestReq} />
+                            {msg.notices && msg.notices.length > 0 && (
+                              <div className="flex flex-col gap-1.5" style={SOFT_MESSAGE_ENTER_LATE_STYLE}>
+                                {msg.notices.map((notice, ni) => (
+                                  <div
+                                    key={ni}
+                                    className="flex items-start gap-2.5 p-3 rounded-xl bg-[#111111] border border-white/10"
+                                  >
+                                    <Info size={13} className="text-yellow-400 flex-shrink-0 mt-0.5" weight="fill" />
+                                    <p className="text-xs font-bold text-gray-300 leading-relaxed whitespace-pre-line">
+                                      {notice}
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                             {isLastAssistant(i) && !msg.coachLoading && msg.clarification && (
                               <div
                                 className="flex flex-col gap-2.5 p-3.5 rounded-xl bg-[#111111] border border-yellow-400/40"

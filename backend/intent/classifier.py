@@ -38,6 +38,15 @@ logger = logging.getLogger(__name__)
 
 LLMFn = Callable[[str, str], str]  # (system_prompt, user_msg) -> raw text
 
+# '5게'·'120게'처럼 숫자 뒤 '게'는 종목 수 단위 '개'의 흔한 오타다(파서 _compact와 동일 규칙).
+# 분류 전에 보정해 "종목은 5게" 같은 전략 수정 입력이 OFF_TOPIC으로 새는 것을 막는다.
+# 게로 시작하는 단어(게임·게시)는 건드리지 않도록 문장 끝/조사/공백 앞에서만 바꾼다.
+_COUNT_TYPO_RE = re.compile(r"(\d)\s*게(?=$|[\s은는이가을를로도만씩요])")
+
+
+def _correct_count_typo(text: str) -> str:
+    return _COUNT_TYPO_RE.sub(r"\1개", text or "")
+
 # 전략 설계를 가리키는 강한 신호. 이게 있으면 종목명이 섞여 있어도 STRATEGY_ADVICE.
 _STRATEGY_KEYWORDS = re.compile(
     r"전략|백테스트|back\s*test|유니버스|리밸런|포트폴리오\s*구성|매매\s*규칙|"
@@ -58,6 +67,20 @@ _SCREENING_SIGNAL = re.compile(
     + METRIC_NUM_GAP + r"\d"
     r"|(?:저평가|고평가|고배당|우량|가치|성장|배당|소형|대형|중소형)\s*(?:된|인)?\s*(?:종목|주식|주)"
     r"|(?:이하|이상|미만|초과)\s*(?:인|의)?\s*종목",
+    re.IGNORECASE,
+)
+
+# 기존 전략의 파라미터를 바꾸려는 '수정/조정' 명령. 종목 추천이 아니라 전략 설계(수정)다.
+# 예: "종목을 10개로 늘려줘", "손절 추가해줘", "보유기간 바꿔줘", "백테스트 5년으로 변경".
+# 조정 동사 + 조정 대상(전략 필드/수량)이 함께 있을 때만 잡아 '추천' 요청 오인을 피한다.
+_MODIFY_VERB = re.compile(
+    r"늘려|늘리|줄여|줄이|바꿔|바꾸|변경|교체|높여|높이|낮춰|낮추|"
+    r"추가|제거|조정|수정|고쳐|설정\s*해|로\s*해\s*줘|으로\s*해\s*줘",
+    re.IGNORECASE,
+)
+_ADJUST_TARGET = re.compile(
+    r"종목|보유|비중|손절|익절|트레일링|손익|기간|유니버스|리밸런|포트폴리오|자금|조건|"
+    r"\d+\s*(?:개|종목|%|년|개월|주|일)",
     re.IGNORECASE,
 )
 
@@ -94,6 +117,9 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     "UNKNOWN(투자 관련이지만 위 어디에도 안 맞아 분류 불가). "
     "특정 종목명이 없는 '조건/필터로 종목 고르기'는 STOCK_ANALYSIS가 아니라 STRATEGY_ADVICE다. "
     "투자와 직접 관련이 없으면 STRATEGY_ADVICE나 UNKNOWN으로 추측하지 말고 OFF_TOPIC으로 분류하라. "
+    "단, 입력에는 오타·맞춤법 오류가 섞일 수 있으니 글자 표면이 아니라 의미로 판단하라. "
+    "종목 수·기간·비율 등 전략 파라미터를 바꾸는 표현(예: '종목은 5게'='종목 5개로')은 "
+    "오타가 있어도 전략 수정이므로 STRATEGY_ADVICE이며 절대 OFF_TOPIC이 아니다. "
     '반드시 {"intent": "..."} JSON 한 줄로만 답하라.'
 )
 
@@ -124,16 +150,24 @@ def _classify_deterministic(query: str, last_symbol: Optional[str]) -> Optional[
     refs = find_in_text(text)
     has_strategy_kw = bool(_STRATEGY_KEYWORDS.search(text))
     has_screening = bool(_SCREENING_SIGNAL.search(text))
+    has_modify = bool(_MODIFY_VERB.search(text) and _ADJUST_TARGET.search(text))
     has_stock_q = bool(_STOCK_QUESTION.search(text))
     has_def_q = bool(_DEFINITION_QUESTION.search(text))
 
-    # 1) 전략 키워드 또는 스크리닝 조건이 있으면 전략 설계로 본다(종목명이 섞여 있어도).
-    if has_strategy_kw or has_screening:
+    # 1) 전략 키워드/스크리닝 조건/전략 수정 명령이 있으면 전략 설계로 본다(종목명이 섞여 있어도).
+    #    "종목을 10개로 늘려줘"처럼 기존 전략을 다듬는 요청을 '종목 추천(STOCK_PICK)'으로
+    #    오분류해 빌더로 새로 진입하는 일을 막는다.
+    if has_strategy_kw or has_screening or has_modify:
+        reason = (
+            "전략 설계 키워드 감지" if has_strategy_kw
+            else "종목 스크리닝 조건 감지" if has_screening
+            else "전략 수정/조정 명령 감지"
+        )
         return IntentResult(
             intent=QueryIntent.STRATEGY_ADVICE,
             symbols=_to_detected(refs),
             confidence=0.9,
-            reason="전략 설계 키워드 감지" if has_strategy_kw else "종목 스크리닝 조건 감지",
+            reason=reason,
         )
 
     # 1-b) [규제 안전] 특정 종목명·조건 없이 '무엇을 사야 하나'라는 열린 추천 요청 → 추천하지 않고
@@ -230,6 +264,7 @@ def _classify_with_llm(query: str, llm: LLMFn) -> Optional[IntentResult]:
 
 def classify(query: str, *, last_symbol: Optional[str] = None, llm: Optional[LLMFn] = None) -> IntentResult:
     """입력을 QueryIntent로 분류한다. 결정적 규칙 우선, 애매하면 llm 폴백."""
+    query = _correct_count_typo(query)
     deterministic = _classify_deterministic(query, last_symbol)
     if deterministic is not None:
         return deterministic

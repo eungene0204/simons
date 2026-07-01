@@ -40,7 +40,9 @@ const DOMAIN_PATTERNS: Record<RequestedDomain, RegExp[]> = {
   exit: [/청산|매도|팔아|팔까|팔지|보유|데드크로스|하락/i],
   // 백엔드의 익절/손절 결정적 추출과 보조를 맞춘다: '수익…매도'(익절), '하락…매도'·'손실'(손절)도 risk로 인식.
   risk: [/손절|익절|트레일링|리스크|mdd|낙폭|목표\s*수익|수익\s*(?:확정|실현)|수익[^.]{0,8}(?:매도|팔)|손실|하락[^.]{0,8}(?:매도|팔)|stop\s*loss|take\s*profit|trailing/i],
-  portfolio: [/최대\s*\d+\s*종목|\d+\s*개\s*종목|\d+\s*종목|포트폴리오|리밸런싱|리밸런스|분산|집중/i],
+  // "종목을 10개로 늘려줘"·"보유 종목을 5개로"처럼 종목/보유와 'N개'가 떨어져 있는 표현도
+  // 포트폴리오 변경으로 인식한다(백엔드는 이미 max_positions를 추출하므로 도메인 게이트만 보완).
+  portfolio: [/최대\s*\d+\s*종목|\d+\s*개\s*종목|\d+\s*종목|종목\s*수|보유\s*종목|종목[^.]{0,6}\d+\s*개|\d+\s*개[^.]{0,6}(?:종목|보유)|포트폴리오|리밸런싱|리밸런스|분산|집중/i],
   // 명시적 연도 범위('2002년부터 2005년까지', '2002~2005')도 백테스트 기간 변경으로 인식한다.
   backtest: [/백테스트|테스트 기간|전체 데이터|초기자금|자본금|원금|만원|억원?|\d[\d,]*원|(?:19|20)\d{2}\s*년?\s*(?:부터|까지|~|에서)|(?:19|20)\d{2}\s*[~\-]\s*(?:19|20)\d{2}/i],
 };
@@ -67,6 +69,15 @@ const RISK_FIELD_PATTERNS: Record<RiskField, RegExp[]> = {
   trailing_stop_pct: [/트레일링\s*스[탑톱]?|trailing|최고가\s*대비/i],
   max_mdd_limit_pct: [/mdd|낙폭/i],
 };
+
+// '10게'처럼 숫자 뒤 '게'는 종목 수 단위 '개'의 흔한 오타다(백엔드 nl_parser._compact와 동일 규칙).
+// 도메인 게이트가 오타 때문에 변경을 놓쳐 백엔드가 올바로 추출한 값(max_positions 등)을
+// 버리는 것을 막는다. 게로 시작하는 단어(게임·게시)는 문장 끝/조사 앞에서만 보정해 보존한다.
+const COUNT_TYPO_RE = /(\d)\s*게(?=$|[\s은는이가을를로도만씩요])/g;
+
+export function correctCountTypo(text: string): string {
+  return text.replace(COUNT_TYPO_RE, "$1개");
+}
 
 function hasMatch(text: string, patterns: RegExp[]): boolean {
   return patterns.some((pattern) => pattern.test(text));
@@ -134,7 +145,7 @@ function inferPendingRiskChange(
 }
 
 export function detectRequestedDomains(prompt: string): Set<RequestedDomain> {
-  const normalizedPrompt = prompt.trim();
+  const normalizedPrompt = correctCountTypo(prompt.trim());
   const domains = new Set<RequestedDomain>();
 
   if (!normalizedPrompt) return domains;
@@ -176,99 +187,44 @@ export function isAdvisorFollowUpPrompt(prompt: string): boolean {
   return /개선|추천|조언|어떻게|어디|뭘|뭐를|다음|후속|보완|고쳐|봐야|볼까/.test(normalizedPrompt);
 }
 
+// 백엔드가 previous_parsed와 병합해 내려준 next는 권위 있는 완전한 전략이다 — 요청되지 않은
+// 필드의 LLM 환각은 백엔드 `_gate_modification_hallucinations`가 이미 걸러냈다. 따라서 프론트는
+// next를 그대로 신뢰하고, 백엔드가 알 수 없는 '코치 맥락' 리스크 답변(pendingRiskChange)만
+// 그 위에 얹는다. 예전의 도메인 게이트(프롬프트 정규식으로 필드별 적용 여부를 재판정)는
+// 백엔드 로직을 중복·재추측하다 오타 등으로 올바른 값을 버리는 버그의 원인이라 제거했다.
 function mergeParsedSummary(
-  previous: ParsedSummary,
   next: ParsedSummary,
-  requestedDomains: Set<RequestedDomain>,
-  requestedRiskFields: Set<RiskField>,
   pendingRiskChange?: PendingRiskChange | null,
   riskOverrides?: RiskOverrides | null
 ): ParsedSummary {
-  const shouldUseRiskField = (field: RiskField) => {
-    if (!requestedDomains.has("risk")) return false;
-    if (requestedRiskFields.size === 0) return true;
-    return requestedRiskFields.has(field);
-  };
-
-  // 우선순위: 백엔드 결정적 추출(riskOverrides) > 코치 맥락 추론(pendingRiskChange) > 프론트 정규식 게이트.
+  // 우선순위: 백엔드 결정적 추출(riskOverrides) > 코치 맥락 추론(pendingRiskChange) > 백엔드 병합값.
   const resolveRisk = (field: "stop_loss_pct" | "take_profit_pct" | "trailing_stop_pct"): number | null => {
     if (hasOverride(riskOverrides, field)) return riskOverrides![field] ?? null;
     const pending = pendingRiskChange?.[field];
     if (pending != null) return pending;
-    return (shouldUseRiskField(field) ? (next[field] ?? previous[field]) : previous[field]) ?? null;
+    return next[field] ?? null;
   };
 
   return {
     ...next,
-    universe: requestedDomains.has("universe") ? next.universe : previous.universe,
-    fundamental_filters: requestedDomains.has("entry") ? next.fundamental_filters : previous.fundamental_filters,
-    entry_signals: requestedDomains.has("entry") ? next.entry_signals : previous.entry_signals,
-    exit_signals: requestedDomains.has("exit") ? next.exit_signals : previous.exit_signals,
-    max_positions: requestedDomains.has("portfolio") ? next.max_positions : previous.max_positions,
-    hold_period_days: requestedDomains.has("exit") ? next.hold_period_days : previous.hold_period_days,
-    rebalancing_period: requestedDomains.has("portfolio") ? next.rebalancing_period : previous.rebalancing_period,
     stop_loss_pct: resolveRisk("stop_loss_pct"),
     take_profit_pct: resolveRisk("take_profit_pct"),
     trailing_stop_pct: resolveRisk("trailing_stop_pct"),
-    backtest_period: requestedDomains.has("backtest") ? next.backtest_period : previous.backtest_period,
-    // 명시적 기간은 백엔드가 previous_parsed와 병합해 권위 있는 값을 내려주므로 그대로 따른다
-    // (coarse한 backtest 도메인으로 게이트하면 '초기자금 변경' 같은 무관한 수정에 날짜가 지워진다).
-    backtest_start_date: next.backtest_start_date ?? previous.backtest_start_date,
-    backtest_end_date: next.backtest_end_date ?? previous.backtest_end_date,
-    initial_capital: requestedDomains.has("backtest") ? next.initial_capital : previous.initial_capital,
   };
 }
 
+// 백엔드가 병합·환각필터링해 내려준 next를 신뢰하고(권위 있는 완전한 실행 요청), 백엔드가
+// 모르는 코치 맥락 리스크(pendingRiskChange)만 그 위에 얹는다. riskOverrides는 백엔드가 이미
+// next.risk에 반영했지만, 단일 진실 소스로서 명시적으로 다시 덮어써 일관성을 보장한다.
 function mergeBacktestRequest(
   previous: StrategyBacktestRequest | null | undefined,
   next: StrategyBacktestRequest | null | undefined,
-  requestedDomains: Set<RequestedDomain>,
-  requestedRiskFields: Set<RiskField>,
   pendingRiskChange?: PendingRiskChange | null,
   riskOverrides?: RiskOverrides | null
 ): StrategyBacktestRequest | null {
   if (!next) return previous ?? null;
-  if (!previous) return next;
 
-  const mergedRisk = {
-    ...(previous.risk ?? {}),
-    ...(next.risk ?? {}),
-  };
-
-  if (!requestedDomains.has("portfolio")) {
-    mergedRisk.position_size_pct = previous.risk?.position_size_pct;
-    mergedRisk.max_positions = previous.risk?.max_positions;
-    mergedRisk.rebalancing_period = previous.risk?.rebalancing_period;
-  }
-
-  if (!requestedDomains.has("exit")) {
-    mergedRisk.max_holding_days = previous.risk?.max_holding_days;
-  }
-
-  if (!requestedDomains.has("risk")) {
-    mergedRisk.stop_loss_pct = previous.risk?.stop_loss_pct;
-    mergedRisk.take_profit_pct = previous.risk?.take_profit_pct;
-    mergedRisk.trailing_stop_pct = previous.risk?.trailing_stop_pct;
-    mergedRisk.max_mdd_limit_pct = previous.risk?.max_mdd_limit_pct;
-  } else if (requestedRiskFields.size > 0) {
-    for (const field of ["stop_loss_pct", "take_profit_pct", "trailing_stop_pct", "max_mdd_limit_pct"] as RiskField[]) {
-      if (!requestedRiskFields.has(field)) {
-        mergedRisk[field] = previous.risk?.[field];
-      } else if (next.risk?.[field] == null && previous.risk?.[field] !== undefined) {
-        mergedRisk[field] = previous.risk[field];
-      }
-    }
-  } else {
-    for (const field of ["stop_loss_pct", "take_profit_pct", "trailing_stop_pct", "max_mdd_limit_pct"]) {
-      if (next.risk?.[field] == null && previous.risk?.[field] !== undefined) {
-        mergedRisk[field] = previous.risk[field];
-      }
-    }
-  }
-
-  if (!requestedDomains.has("backtest")) {
-    mergedRisk.init_cash = previous.risk?.init_cash;
-  }
+  const mergedRisk: Record<string, unknown> = { ...(next.risk ?? {}) };
 
   if (pendingRiskChange) {
     for (const field of Object.keys(pendingRiskChange) as RiskField[]) {
@@ -278,7 +234,6 @@ function mergeBacktestRequest(
     }
   }
 
-  // 백엔드 결정적 추출이 최우선 — 프론트 정규식 게이트 결과를 덮어쓴다(null = 삭제 반영).
   if (riskOverrides) {
     for (const field of Object.keys(riskOverrides) as RiskField[]) {
       mergedRisk[field] = riskOverrides[field];
@@ -286,17 +241,8 @@ function mergeBacktestRequest(
   }
 
   return {
-    ...previous,
     ...next,
-    universe_id: requestedDomains.has("universe") ? (next.universe_id ?? previous.universe_id) : previous.universe_id,
-    symbols: requestedDomains.has("universe") ? (next.symbols ?? previous.symbols) : previous.symbols,
-    entry: requestedDomains.has("entry") ? (next.entry ?? previous.entry) : previous.entry,
-    exit: requestedDomains.has("exit") ? (next.exit ?? previous.exit) : previous.exit,
     risk: mergedRisk,
-    period: requestedDomains.has("backtest") ? (next.period ?? previous.period) : previous.period,
-    options: requestedDomains.has("backtest")
-      ? { ...(previous.options ?? {}), ...(next.options ?? {}) }
-      : previous.options,
   };
 }
 
@@ -330,8 +276,11 @@ export function mergeStrategyModification(params: {
   // 백엔드가 결정적으로 추출한 리스크 필드(단일 진실 소스). 있으면 프론트 정규식보다 우선.
   riskOverrides?: RiskOverrides | null;
 }) {
+  // 백엔드가 권위 있는 병합·환각필터링 결과를 주므로, 필드별 도메인 게이트는 더 이상 쓰지 않는다.
+  // requestedDomains는 clarification 재사용 판정에만 남긴다(수정 vs 후속질문 구분은 상위
+  // isAdvisorFollowUpPrompt가 이미 처리). 코치 맥락 리스크(pendingRiskChange)만 백엔드가 모르므로
+  // 프론트에서 얹는다.
   const requestedDomains = detectRequestedDomains(params.userPrompt);
-  const requestedRiskFields = detectRequestedRiskFields(params.userPrompt);
   const pendingRiskChange = inferPendingRiskChange(
     params.userPrompt,
     params.previousCoachText,
@@ -339,57 +288,10 @@ export function mergeStrategyModification(params: {
   );
   const riskOverrides = params.riskOverrides ?? null;
 
-  if (pendingRiskChange) {
-    requestedDomains.add("risk");
-    requestedRiskFields.add("trailing_stop_pct");
-  }
-  // 백엔드가 바꾼 리스크 필드가 있으면, 프론트가 프롬프트에서 risk를 못 읽어도 risk 변경으로 취급한다.
-  if (riskOverrides && Object.keys(riskOverrides).length > 0) {
-    requestedDomains.add("risk");
-  }
-
-  if (!params.previousParsed) {
-    const firstRisk = { ...(pendingRiskChange ?? {}), ...(riskOverrides ?? {}) };
-    const hasFirstRisk = Object.keys(firstRisk).length > 0;
-    return {
-      parsed: hasFirstRisk ? { ...params.nextParsed, ...firstRisk } : params.nextParsed,
-      backtestRequest: hasFirstRisk
-        ? {
-            ...(params.nextBacktestRequest ?? params.previousBacktestRequest ?? {}),
-            risk: {
-              ...((params.previousBacktestRequest ?? params.nextBacktestRequest)?.risk ?? {}),
-              ...((params.nextBacktestRequest ?? params.previousBacktestRequest)?.risk ?? {}),
-              ...firstRisk,
-            },
-          }
-        : params.nextBacktestRequest ?? params.previousBacktestRequest ?? null,
-      requestedDomains,
-      shouldReusePreviousClarification: false,
-    };
-  }
-
-  if (requestedDomains.size === 0) {
-    return {
-      parsed: params.previousParsed,
-      backtestRequest: params.previousBacktestRequest ?? params.nextBacktestRequest ?? null,
-      requestedDomains,
-      shouldReusePreviousClarification: false,
-    };
-  }
-
-  const parsed = mergeParsedSummary(
-    params.previousParsed,
-    params.nextParsed,
-    requestedDomains,
-    requestedRiskFields,
-    pendingRiskChange,
-    riskOverrides
-  );
+  const parsed = mergeParsedSummary(params.nextParsed, pendingRiskChange, riskOverrides);
   const backtestRequest = mergeBacktestRequest(
     params.previousBacktestRequest,
     params.nextBacktestRequest,
-    requestedDomains,
-    requestedRiskFields,
     pendingRiskChange,
     riskOverrides
   );
@@ -398,11 +300,13 @@ export function mergeStrategyModification(params: {
     parsed,
     backtestRequest,
     requestedDomains,
-    shouldReusePreviousClarification: clarificationLooksLikeEntryRegression(
-      params.clarificationQuestion,
-      params.previousParsed,
-      requestedDomains
-    ),
+    shouldReusePreviousClarification: params.previousParsed
+      ? clarificationLooksLikeEntryRegression(
+          params.clarificationQuestion,
+          params.previousParsed,
+          requestedDomains
+        )
+      : false,
   };
 }
 

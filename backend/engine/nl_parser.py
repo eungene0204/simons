@@ -7,11 +7,13 @@ LLM 백엔드: Ollama (instructor) 또는 MLX (outlines)
 
 from __future__ import annotations
 
+import calendar
 import json
 import logging
 import os
 import re
 import time
+from datetime import date
 from typing import List, Literal, Optional
 from pydantic import BaseModel, Field, ValidationError
 
@@ -147,6 +149,26 @@ def _ollama_open_with_retry(req, timeout: int):
         time.sleep(min(_OLLAMA_RETRY_BACKOFF_S, remaining))
     assert last_err is not None
     raise last_err
+
+
+def _ollama_preload_model(model: str, timeout: int = 600) -> None:
+    """Ollama에 모델 가중치를 미리 메모리에 적재한다(첫 추론 호출 지연 제거).
+
+    프롬프트 없는 POST /api/generate는 생성 없이 모델만 로드하고 즉시 반환한다
+    (done_reason="load"). keep_alive=-1은 idle 언로드(기본 5분)를 막아 dev 중 모델을
+    항상 상주시킨다. 로컬 Ollama 전용 — 원격(Modal)은 _ollama_ensure_warm을 쓴다.
+    """
+    import urllib.request
+
+    body = json.dumps({"model": model, "keep_alive": -1}).encode()
+    req = urllib.request.Request(
+        f"{OLLAMA_BASE_URL}/api/generate",
+        data=body,
+        headers={"Content-Type": "application/json", **ollama_auth_headers()},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        resp.read()
 
 
 # ─── 스키마 정의 ──────────────────────────────────────────────────────────────
@@ -343,6 +365,8 @@ _MODEL_TRAILING_TOKENS = (
 
 MODIFY_PROMPT = """현재 전략 JSON이 주어집니다. 사용자 수정 요청을 적용해 변경된 필드만 JSON으로 출력하세요.
 변경하지 않는 필드는 반드시 null로 출력하세요. 수정 요청에 없는 내용은 절대 바꾸지 마세요.
+사용자 입력에는 오타·맞춤법 오류가 섞일 수 있습니다. 글자 그대로가 아니라 의도로 해석하세요
+(예: 숫자 뒤 '게'는 종목 수 단위 '개'의 오타 — "종목은 5게"="종목 5개"=max_positions 5).
 
 ## 금액 단위 변환 (initial_capital)
 - '1억' → 100000000.0
@@ -375,6 +399,8 @@ MODIFY_PROMPT = """현재 전략 JSON이 주어집니다. 사용자 수정 요�
 # ─── 시스템 프롬프트 ──────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """당신은 한국 주식 퀀트 투자 전략을 JSON으로 변환하는 전문가입니다.
+사용자 입력에는 오타·맞춤법 오류가 섞일 수 있습니다. 글자 그대로가 아니라 의도로 해석하세요
+(예: 숫자 뒤 '게'는 종목 수 단위 '개'의 오타 — "5게"="5개").
 
 ## 변환 규칙
 
@@ -523,6 +549,7 @@ SYSTEM_PROMPT = """당신은 한국 주식 퀀트 투자 전략을 JSON으로 �
 
 COMPACT_SYSTEM_PROMPT = """한국 주식 전략 자연어를 ParsedStrategy JSON으로만 변환하세요.
 출력은 JSON 객체 하나만 허용합니다. 설명, markdown, 주석을 쓰지 마세요.
+오타·맞춤법 오류는 의도로 해석하세요(예: 숫자 뒤 '게'='개', 종목 수 단위).
 
 기본값:
 - universe: ["KOSPI200"], max_positions: 10, backtest_period: "5y"
@@ -670,12 +697,57 @@ class NLStrategyParser:
         None이면 호출 측이 LLM 폴백(parse)을 결정한다."""
         return _parse_rule_based_strategy(user_input)
 
-    def parse(self, user_input: str) -> ParsedStrategy:
-        """자연어 입력 → ParsedStrategy (규칙 기반 우선, 모호하면 4B 사용)"""
-        parsed_by_rules = _parse_rule_based_strategy(user_input)
-        if parsed_by_rules is not None:
-            return parsed_by_rules
+    def _consult_rule_parse_guard(self, user_input: str, parsed: ParsedStrategy) -> bool:
+        """LLM judge로 룰 파싱 수락 여부를 재확인한다(True=수락, False=LLM 폴백).
 
+        opt-in(NL_RULE_GUARD_LLM)이고, 룰 파스가 원문을 다 설명 못 한 듯한 잔여가 있을
+        때만('애매한 경우에만') 호출한다. LLM 오류·비활성 시에는 보수적으로 수락(True)해
+        기존 빠른 경로를 깨지 않는다 — 룰 파스는 이미 결정론 게이트(미지원 개념·red-flag·
+        완결성)를 통과했기 때문이다."""
+        flag = os.environ.get("NL_RULE_GUARD_LLM", "").strip().lower()
+        if flag not in ("1", "true", "yes", "on"):
+            return True
+        if len(_rule_parse_unexplained(user_input)) < _RULE_GUARD_AMBIGUITY_MIN_CHARS:
+            return True
+        try:
+            raw = self.chat(
+                RULE_PARSE_GUARD_PROMPT,
+                _build_guard_user_message(user_input, parsed),
+                max_tokens=256,
+                temperature=0.0,
+            )
+            decision = _extract_guard_decision(raw)
+        except Exception as exc:  # noqa: BLE001 — LLM 오류는 빠른 경로를 깨지 않는다
+            logger.warning("rule parse guard LLM failed, accepting rule parse | err=%r", exc)
+            return True
+        logger.info("rule parse guard verdict=%s | input=%r", decision, user_input[:80])
+        return decision == "accept_rule"
+
+    def parse(self, user_input: str, on_stage=None, on_validation=None) -> ParsedStrategy:
+        """자연어 입력 → ParsedStrategy (규칙 기반 우선, 모호하면 4B 사용)
+
+        on_stage: LLM 폴백으로 넘어가기 직전 호출되는 콜백(stage 문자열 전달).
+        진행 상황 스트리밍에서 'parsing'→'thinking' 전환을 알리는 용도.
+        on_validation: 룰 파싱 성공 시 LLM 검증 리포트(dict)를 전달받는 콜백.
+        """
+        parsed_by_rules = _parse_rule_based_strategy(user_input)
+        if parsed_by_rules is not None and self._consult_rule_parse_guard(user_input, parsed_by_rules):
+            # 룰 파싱이 원문의 모든 어휘를 설명한 '확신 파싱'이면 LLM 검증을 건너뛴다(규칙만으로
+            # 즉답). 설명 못 한 잔여가 남은 '애매한' 파싱만 LLM으로 검증·교정한다 — 흔한 명확한
+            # 입력에서 매번 붙던 수 초~수십 초의 검증 지연을 없앤다.
+            if not _rule_parse_unexplained(user_input):
+                return parsed_by_rules
+            # LLM 미가용 시 graceful degrade(원본 그대로) — 빠른 경로를 막지 않는다.
+            if on_stage is not None:
+                on_stage("validating")
+            from engine.parse_validator import validate_parse
+            validated, report = validate_parse(self, user_input, parsed_by_rules)
+            if on_validation is not None:
+                on_validation(report)
+            return validated
+
+        if on_stage is not None:
+            on_stage("thinking")
         try:
             if self.backend == "mlx":
                 parsed = self._parse_mlx(user_input)
@@ -691,16 +763,19 @@ class NLStrategyParser:
             parsed = _build_fallback_strategy(user_input)
         return _apply_prompt_overrides(parsed, user_input)
 
-    def parse_modification(self, user_input: str, previous: dict) -> ParsedStrategy:
+    def parse_modification(self, user_input: str, previous: dict, on_stage=None) -> ParsedStrategy:
         """수정 요청: 규칙 기반 우선, 못 풀면 LLM으로 diff 추출 후 previous와 병합.
 
         단순 필드 수정(손절/익절/종목수/유니버스 등)은 결정론 fast-path가 LLM 없이
         즉답한다(초기 parse와 동일한 하이브리드 구조). 복합·모호한 수정만 LLM으로 위임.
+        on_stage: LLM diff 추출로 넘어가기 직전 호출되는 콜백(stage 문자열 전달).
         """
         rule_based = _modify_rule_based(user_input, previous)
         if rule_based is not None:
             return rule_based
 
+        if on_stage is not None:
+            on_stage("thinking")
         try:
             if self.backend == "mlx":
                 diff = self._modify_mlx(user_input, previous)
@@ -708,8 +783,10 @@ class NLStrategyParser:
                 diff = self._modify_ollama(user_input, previous)
         except ValidationError:
             # LLM diff가 스키마 위반(잘못된 enum 등) → 이전 전략을 보존하고 결정론으로
-            # 추출 가능한 변경만 적용한다(500 대신 graceful 폴백).
-            return _apply_prompt_overrides(ParsedStrategy.model_validate(previous), user_input)
+            # 추출 가능한 변경만 적용한다(500 대신 graceful 폴백). 신호는 떨구지 않는다.
+            return _apply_prompt_overrides(
+                ParsedStrategy.model_validate(previous), user_input, skip_signal_validation=True,
+            )
 
         explicit_universe = _extract_explicit_universe(user_input)
 
@@ -722,7 +799,7 @@ class NLStrategyParser:
                 merged[field] = val
 
         # 삭제 의도 명시 처리: LLM diff는 null="변경없음"으로 표현하므로 별도 감지
-        compact = re.sub(r"\s+", "", user_input.lower())
+        compact = _compact(user_input)
         if any(kw in compact for kw in _DELETE_TERMS):
             if any(kw in compact for kw in ["손절", "stoploss", "스탑로스"]):
                 merged["stop_loss_pct"] = None
@@ -740,7 +817,12 @@ class NLStrategyParser:
             if any(kw in compact for kw in _MODIFY_MDD_CUES):
                 merged["max_mdd_limit_pct"] = None
 
-        result = _apply_prompt_overrides(ParsedStrategy.model_validate(merged), user_input)
+        # LLM diff가 요청되지 않은 필드를 환각으로 바꾼 것을 차단한다(이후 _apply_prompt_overrides가
+        # 실제 요청된 결정적 변경을 다시 적용). 신호 검증은 건너뛴다 — 요청 안 된 도메인은 게이트가 보존.
+        _gate_modification_hallucinations(merged, previous, user_input)
+        result = _apply_prompt_overrides(
+            ParsedStrategy.model_validate(merged), user_input, skip_signal_validation=True,
+        )
 
         # 성공한 수정 요청을 학습 코퍼스에 기록 (best-effort, 실패해도 무시)
         try:
@@ -1041,22 +1123,96 @@ def _mentioned(prompt_lower: str, factor: str) -> bool:
     return any(kw in prompt_lower for kw in _KEYWORDS.get(factor, []))
 
 
+# 사용자 입력의 흔한 오타·맞춤법 오류를 정규형으로 보정하는 표(소문자·공백 제거 후 적용).
+# 띄어쓰기 오류는 공백 제거(compact)로 이미 흡수되므로 여기서는 '글자 단위 오타'만 다룬다.
+# 보정은 detection을 깨뜨리는(=정규형과 글자가 어긋나 매칭이 안 되는) 오타만 골라 담는다.
+# 정상 입력을 망가뜨리지 않도록, 각 오기는 올바른 표현의 부분 문자열이 아니어야 한다.
+#   ※ 원문(description)은 절대 바꾸지 않는다 — 매칭용 compact 문자열에만 적용한다.
+_TYPO_CORRECTIONS: tuple[tuple[str, str], ...] = (
+    # 이동평균 크로스 — 'ㄴ' 누락/자모 오타로 '골든/데드'가 깨지는 경우.
+    ("골드크로스", "골든크로스"),
+    ("골튼크로스", "골든크로스"),
+    ("골은크로스", "골든크로스"),
+    ("데트크로스", "데드크로스"),
+    ("데드크로쓰", "데드크로스"),
+    ("데트크로쓰", "데드크로스"),
+    # 지표명
+    ("볼린져", "볼린저"),
+    ("볼리저", "볼린저"),
+    ("스토케스틱", "스토캐스틱"),
+    ("스토하스틱", "스토캐스틱"),
+    ("스토캐스택", "스토캐스틱"),
+    ("스토캐스팀", "스토캐스틱"),
+    ("모맨텀", "모멘텀"),
+    ("모먼텀", "모멘텀"),
+    # 리밸런싱 — 외래어 표기 흔들림.
+    ("리벨런싱", "리밸런싱"),
+    ("리발란싱", "리밸런싱"),
+    ("리발랜싱", "리밸런싱"),
+    ("리바란싱", "리밸런싱"),
+    ("리벨런스", "리밸런스"),
+    ("리발란스", "리밸런스"),
+    # 리스크 관리
+    ("트레이링", "트레일링"),
+    ("트레일닝", "트레일링"),
+    ("손졀", "손절"),
+    ("익졀", "익절"),
+    # 비용
+    ("수수로", "수수료"),
+    ("슬리패지", "슬리피지"),
+    ("슬리피쥐", "슬리피지"),
+    # 시장/유니버스
+    ("코스탁", "코스닥"),
+    ("코스닭", "코스닥"),
+    ("코스피지수", "코스피"),
+)
+
+
+def _compact(user_input: str) -> str:
+    """매칭용 정규화 문자열: 소문자화 → 공백 제거 → 흔한 오타 보정.
+
+    파서의 모든 결정적 추출기가 공유하는 단일 정규화 지점이다. 띄어쓰기 오류는 공백
+    제거로 흡수되고, 글자 단위 오타는 _TYPO_CORRECTIONS로 보정한다. 원문(description)은
+    건드리지 않고 '매칭에 쓰는 compact'만 정규화하므로, 보정이 사용자에게 보이지 않는다.
+    """
+    compact = re.sub(r"\s+", "", user_input.lower())
+    for wrong, right in _TYPO_CORRECTIONS:
+        if wrong in compact:
+            compact = compact.replace(wrong, right)
+    # '5게'·'120게'처럼 숫자 뒤 '게'는 종목 수 단위 '개'의 흔한 오타다(게 자체는 단위가 아님).
+    # 게로 시작하는 단어(게임·게시 등)는 보정하지 않도록 문장 끝/조사 앞에서만 바꾼다.
+    compact = re.sub(r"(\d)게(?=$|[은는이가을를로도만씩요])", r"\1개", compact)
+    return compact
+
+
 def _extract_explicit_universe(user_input: str) -> Optional[List[str]]:
-    prompt = user_input.lower()
-    compact = re.sub(r"\s+", "", prompt)
+    compact = _compact(user_input)
 
     mentions_kospi200 = "kospi200" in compact or "코스피200" in compact
     mentions_kosdaq = "kosdaq" in compact or "코스닥" in compact
-    mentions_kospi = not mentions_kospi200 and ("kospi" in compact or "코스피" in compact)
+    # 유가증권시장(거래소)은 KOSPI의 공식 명칭이므로 KOSPI로 매핑한다.
+    mentions_kospi = not mentions_kospi200 and (
+        "kospi" in compact or "코스피" in compact
+        or "유가증권" in compact or "거래소시장" in compact
+    )
     # "대형주"는 시가총액 기준 분류(KRX: 시총 상위 100위권)이므로 표준 대형주 지수인
-    # KOSPI200으로 매핑한다. 단 코스닥 단독 맥락에서는 적용하지 않는다 — 코스닥 대형주
-    # 전용 유니버스가 없어 KOSPI200으로 매핑하면 시장 자체가 바뀌는 오매핑이 된다.
-    mentions_large_cap = "대형주" in compact or "대형" in compact
+    # KOSPI200으로 매핑한다. '대형우량주'·'블루칩'도 동일 분류로 본다. 단 코스닥 단독
+    # 맥락에서는 적용하지 않는다 — 코스닥 대형주 전용 유니버스가 없어 KOSPI200으로
+    # 매핑하면 시장 자체가 바뀌는 오매핑이 된다.
+    mentions_large_cap = (
+        "대형주" in compact or "대형" in compact
+        or "우량대형" in compact or "블루칩" in compact or "bluechip" in compact
+    )
     mentions_all_market = (
         "전체시장" in compact or
         "코스피+코스닥" in compact or
         "코스피와코스닥" in compact or
+        "코스피코스닥" in compact or
         "kospi+kosdaq" in compact or
+        "양시장" in compact or
+        "국내전체" in compact or
+        ("전종목" in compact and not mentions_kospi200) or
+        ("모든시장" in compact and not mentions_kospi200) or
         ("모든종목" in compact and not mentions_kospi200)
     )
 
@@ -1190,7 +1346,7 @@ def _validate_signals(
     무한히 다양해 키워드로 거르면 오히려 정답을 잘라내므로, 검증 없이 신뢰한다.
     (놓친 표현은 키워드를 늘리는 대신 LLM 프롬프트 예시로 일반화한다.)
     """
-    compact = re.sub(r"\s+", "", user_input.lower())
+    compact = _compact(user_input)
     validated: list[TechnicalSignal] = []
     for sig in signals:
         if sig.indicator in _DESCRIPTIVE_INDICATORS:
@@ -1238,6 +1394,17 @@ def _extract_ema_periods(compact: str) -> Optional[tuple[int, int]]:
     return (min(p1, p2), max(p1, p2))
 
 
+# ── 매수/매도 동사의 활용형·동의어 (품사 변화 일반화) ──────────────────────────
+# 표현마다 패턴을 늘리는 대신 동사 활용형/유의어를 한 곳에 모은다(공백 제거 compact 기준).
+# 단일 글자(사/담)는 '회사'·'담보' 등과의 오매칭을 피하려 활용 어미를 묶은 형태만 허용한다.
+# _BUY_HINT: 오실레이터(rsi/stoch/cci) 과매도 진입/반등 맥락 — '반등/올라' 같은 반등 cue 포함.
+_BUY_HINT = r"(?:매수|진입|매입|편입|들어가|담[고아아서는]|사[고서면자들]|산다|반등|올라)"
+# _SELL_V: 청산 동사 — '매도/청산' 외 '정리/처분/매각'과 '팔다' 활용형까지.
+_SELL_V = r"(?:매도|청산|정리|처분|매각|팔[고아자래면게까]|판다)"
+# 지표명과 숫자 사이 주격·주제·목적격 조사(+보조사 '도'). 품사 변화 전반을 한 토큰으로.
+_SUBJ_PARTICLE = r"(?:가|이|은|는|을|를|도)?"
+
+
 def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], list[TechnicalSignal]]:
     """
     프롬프트에서 기술적 진입/청산 신호를 deterministic하게 추출한다.
@@ -1246,7 +1413,7 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
     Returns:
         (entry_signals, exit_signals)
     """
-    compact = re.sub(r"\s+", "", user_input.lower())
+    compact = _compact(user_input)
     entry: list[TechnicalSignal] = []
     exit_: list[TechnicalSignal] = []
 
@@ -1339,7 +1506,7 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
         # 진입 후 "다시 아래로 내려오면 매도" 같은 미러 청산(기간 생략).
         ema_sell_mirror = bool(
             ema_buy
-            and re.search(r"(?:아래|하향|이탈|내려|데드)[^,]{0,8}(?:매도|청산|정리)", compact)
+            and re.search(rf"(?:아래|하향|이탈|내려|데드)[^,]{{0,8}}{_SELL_V}", compact)
         )
         if ema_buy:
             entry.append(TechnicalSignal(
@@ -1356,11 +1523,11 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
     # 명시 숫자('RSI 28 이하')를 구어체('바닥 찍고 반등')보다 우선해, 둘이 같은 문장에 섞여도
     # 정확한 임계값을 쓴다. 숫자형이 없을 때만 구어체 과매도 반등(기본 30)으로 매수 처리.
     rsi_buy_numeric = re.search(
-        r"rsi(?:가|이|은|는|을|를)?\s*(\d+)\s*(?:을|를)?\s*(?:이하|미만|아래|밑).*?(?:매수|진입|반등|올라)",
+        rf"rsi{_SUBJ_PARTICLE}\s*(\d+)\s*(?:을|를)?\s*(?:이하|미만|아래|밑).*?{_BUY_HINT}",
         compact,
     )
     rsi_buy_colloquial = re.search(
-        r"rsi.*?(?:과매도|바닥|저점).*?(?:매수|반등|올라|사)", compact
+        rf"rsi.*?(?:과매도|바닥|저점).*?{_BUY_HINT}", compact
     )
     # 과매도 '반등'(임계선 아래로 갔다가 다시 상향 돌파) vs 단순 '과매도 구간 진입'(RSI<=30) 구분.
     # 임계선 아래/과매도 언급 뒤에 '다시/반등/회복/올라'가 따라오면 반등 → mode='rebound'.
@@ -1382,9 +1549,9 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
     # 모두 인식한다. 절(쉼표) 경계를 넘지 않게 [^,]로 막아, 다른 절의 매도 동사를 잘못
     # 끌어오지 않는다. '넘'(넘어서면)도 '이상' 동의어로 처리한다.
     rsi_sell_match = re.search(
-        r"rsi(?:가|이|은|는|을|를)?\s*(\d+)\s*(?:을|를)?\s*(?:이상|초과|위|넘)[^,]*?(?:매도|청산)"
-        r"|(?:매도|청산)[^,]*?rsi(?:가|이|은|는|을|를)?\s*(\d+)\s*(?:을|를)?\s*(?:이상|초과|위|넘)"
-        r"|rsi[^,]*?과매수[^,]*?(?:매도|청산)",
+        rf"rsi{_SUBJ_PARTICLE}\s*(\d+)\s*(?:을|를)?\s*(?:이상|초과|위|넘)[^,]*?{_SELL_V}"
+        rf"|{_SELL_V}[^,]*?rsi{_SUBJ_PARTICLE}\s*(\d+)\s*(?:을|를)?\s*(?:이상|초과|위|넘)"
+        rf"|rsi[^,]*?과매수[^,]*?{_SELL_V}",
         compact,
     )
     if rsi_sell_match:
@@ -1394,7 +1561,7 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
             indicator="rsi", signal_type="sell", period=14, operator=">=", value=float(val),
         ))
     elif any(s.indicator == "rsi" and s.signal_type == "buy" for s in entry) and re.search(
-        r"(?:과열|충분히올라|많이올라).{0,8}(?:매도|청산|팔)", compact
+        rf"(?:과열|충분히올라|많이올라).{{0,8}}{_SELL_V}", compact
     ):
         # 'RSI 과매도 반등 매수 / 과열되면 매도' 구어체 미러 청산(숫자 없으면 기본 70).
         exit_.append(TechnicalSignal(
@@ -1436,8 +1603,8 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
     # 과매도=20 / 과매수=80 기본값. 엔진·컨버터가 이미 stochastic을 지원하므로 추출만 추가한다.
     stoch_term = r"(?:스토캐스틱|stochastic)"
     stoch_buy = re.search(
-        rf"{stoch_term}(?:가|이|은|는|을|를|도)?\s*(\d+)\s*(?:을|를)?\s*(?:이하|미만|아래|밑).*?(?:매수|진입|반등|올라)"
-        rf"|{stoch_term}.*?과매도.*?(?:매수|진입|반등|올라)",
+        rf"{stoch_term}{_SUBJ_PARTICLE}\s*(\d+)\s*(?:을|를)?\s*(?:이하|미만|아래|밑).*?{_BUY_HINT}"
+        rf"|{stoch_term}.*?과매도.*?{_BUY_HINT}",
         compact,
     )
     if stoch_buy:
@@ -1446,8 +1613,8 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
             indicator="stochastic", signal_type="buy", operator="<=", value=float(val),
         ))
     stoch_sell = re.search(
-        rf"{stoch_term}(?:가|이|은|는|을|를|도)?\s*(\d+)\s*(?:을|를)?\s*(?:이상|초과|위|넘)[^,]*?(?:매도|청산)"
-        rf"|{stoch_term}[^,]*?과매수[^,]*?(?:매도|청산)",
+        rf"{stoch_term}{_SUBJ_PARTICLE}\s*(\d+)\s*(?:을|를)?\s*(?:이상|초과|위|넘)[^,]*?{_SELL_V}"
+        rf"|{stoch_term}[^,]*?과매수[^,]*?{_SELL_V}",
         compact,
     )
     if stoch_sell:
@@ -1460,8 +1627,8 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
     # 값이 음수일 수 있어 부호를 포함해 추출한다(예: 'CCI -100 이하'). 숫자가 없으면
     # 과매도=-100 / 과매수=100 기본값.
     cci_buy = re.search(
-        r"cci(?:가|이|은|는|을|를|도)?\s*(-?\d+)\s*(?:을|를)?\s*(?:이하|미만|아래|밑).*?(?:매수|진입|반등|올라)"
-        r"|cci.*?과매도.*?(?:매수|진입|반등|올라)",
+        rf"cci{_SUBJ_PARTICLE}\s*(-?\d+)\s*(?:을|를)?\s*(?:이하|미만|아래|밑).*?{_BUY_HINT}"
+        rf"|cci.*?과매도.*?{_BUY_HINT}",
         compact,
     )
     if cci_buy:
@@ -1470,8 +1637,8 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
             indicator="cci", signal_type="buy", period=14, operator="<=", value=float(val),
         ))
     cci_sell = re.search(
-        r"cci(?:가|이|은|는|을|를|도)?\s*(-?\d+)\s*(?:을|를)?\s*(?:이상|초과|위|넘)[^,]*?(?:매도|청산)"
-        r"|cci[^,]*?과매수[^,]*?(?:매도|청산)",
+        rf"cci{_SUBJ_PARTICLE}\s*(-?\d+)\s*(?:을|를)?\s*(?:이상|초과|위|넘)[^,]*?{_SELL_V}"
+        rf"|cci[^,]*?과매수[^,]*?{_SELL_V}",
         compact,
     )
     if cci_sell:
@@ -1482,18 +1649,18 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
 
     # ── 볼린저밴드 ──
     # 하단/중심선 회복 매수(평균회귀)뿐 아니라 상단 돌파 진입(추세)·하단 도달 청산도 포착한다.
-    if re.search(r"볼린저.*?(?:하단|중심선).*?(?:매수|진입)|볼린저밴드.*?(?:매수|진입)|볼린저.*?상단.*?돌파", compact):
+    if re.search(rf"볼린저.*?(?:하단|중심선).*?{_BUY_HINT}|볼린저밴드.*?{_BUY_HINT}|볼린저.*?상단.*?돌파", compact):
         entry.append(TechnicalSignal(indicator="bollinger_bands", signal_type="buy"))
     # 청산은 밴드 경계(상단/하단/중심선)가 매도/청산 동사와 같은 절(쉼표 미포함) 안에서 가까이
     # 있을 때만 잡는다. '볼린저'가 청산 절에 다시 안 나와도 되지만('하단에 닿으면 청산'), 청산
     # 절이 밴드와 무관하면(예: "상단 돌파 매수, 데드크로스 청산") 잘못 만들지 않는다.
-    if "볼린저" in compact and re.search(r"(?:상단|하단|중심선)[^,]{0,10}(?:매도|청산|닿|도달)", compact):
+    if "볼린저" in compact and re.search(rf"(?:상단|하단|중심선)[^,]{{0,10}}(?:{_SELL_V}|닿|도달)", compact):
         exit_.append(TechnicalSignal(indicator="bollinger_bands", signal_type="sell"))
 
     # ── 브레이크아웃 (신고가 / 박스권 위로 돌파 / N일 고점 돌파) ──
     breakout_lookback = _extract_breakout_lookback(compact)
     has_high_breakout = bool(
-        re.search(r"(?:\d+(?:주|일)?)?신고가.*?(?:돌파|매수|진입|들어가|새로만들)", compact)
+        re.search(rf"(?:\d+(?:주|일)?)?신고가.*?(?:돌파|들어가|새로만들|{_BUY_HINT})", compact)
         or "브레이크아웃" in compact
         or re.search(r"박스권?.{0,8}돌파", compact)
         # "박스권에서 횡보하다가 ... 위로 치고 올라가면" 같은 구어체 상방 돌파(박스권과 방향
@@ -1509,8 +1676,8 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
 
     # ── 박스권 이탈 매도 (박스 하단/저점 하향 이탈 → breakout sell) ──
     has_box_breakdown = bool(
-        re.search(r"박스권?.{0,8}(?:안으로|내려|아래|밑|하단|이탈|빠).{0,8}(?:매도|청산|팔|손절)", compact)
-        or re.search(r"\d+일저점.{0,6}(?:이탈|깨|하향|무너).{0,8}(?:매도|청산|팔|손절)", compact)
+        re.search(rf"박스권?.{{0,8}}(?:안으로|내려|아래|밑|하단|이탈|빠).{{0,8}}(?:{_SELL_V}|손절)", compact)
+        or re.search(rf"\d+일저점.{{0,6}}(?:이탈|깨|하향|무너).{{0,8}}(?:{_SELL_V}|손절)", compact)
     )
     if has_box_breakdown:
         exit_.append(TechnicalSignal(
@@ -1569,10 +1736,10 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
     if len(osc_buy_inds) == 1:
         ind = next(iter(osc_buy_inds))
         if ind not in osc_sell_inds:
-            m = re.search(r"(-?\d+)\s*(?:을|를|이|은|는)?\s*(?:이상|초과|위|넘)[^,]{0,8}(?:매도|청산)", compact)
+            m = re.search(rf"(-?\d+)\s*(?:을|를|이|은|는)?\s*(?:이상|초과|위|넘)[^,]{{0,8}}{_SELL_V}", compact)
             if m:
                 value = float(m.group(1))
-            elif re.search(r"과매수[^,]{0,6}(?:매도|청산)", compact):
+            elif re.search(rf"과매수[^,]{{0,6}}{_SELL_V}", compact):
                 # "스토캐스틱 과매도 매수, 과매수에서 매도"처럼 청산이 '과매수'(맨숫자 없음)인 경우.
                 value = _OSC_OVERBOUGHT_DEFAULT[ind]
             else:
@@ -1603,17 +1770,17 @@ def _extract_breakout_lookback(compact: str) -> int:
 
 # 연산자 한국어 표현(부등호). '이하/미만/이상/초과' 외에 구어체 '아래/밑'(<), '넘는/보다 높은'
 # (>)도 인식한다. 긴 토큰(보다높/보다낮)을 짧은 것보다 먼저 둬 부분매칭을 방지한다.
-_OP_ALT = r"(보다높|보다많|보다낮|보다적|이하|미만|이상|초과|아래|밑|이내|넘는|넘어)"
+_OP_ALT = r"(보다높|보다많|보다큰|보다크|보다낮|보다적|보다작|이하|미만|이상|초과|아래|밑|이내|넘는|넘어|넘으|넘기)"
 
 # 지표명과 숫자 사이 조사. 주격(이/가)·주제(은/는)뿐 아니라 목적격(을/를)도 인정한다
 # ('roe를 5% 이상으로', 'pbr을 1.2 이하로'처럼 값을 목적어로 표현하는 수정 요청 대응).
-_NUM_PARTICLE = r"(?:이|가|은|는|을|를)?"
+_NUM_PARTICLE = r"(?:이|가|은|는|을|를|도)?"
 
 _FUNDAMENTAL_PATTERN_SPECS = [
-    ("pbr", [rf"pbr{_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*{_OP_ALT}?"]),
-    ("per", [rf"per{_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*{_OP_ALT}?"]),
-    ("roe_or_gpa", [rf"(?:roe|gpa){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
-    ("roa", [rf"roa{_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
+    ("pbr", [rf"(?:pbr|주가순자산비율){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*{_OP_ALT}?"]),
+    ("per", [rf"(?:per|주가수익비율){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*{_OP_ALT}?"]),
+    ("roe_or_gpa", [rf"(?:roe|gpa|자기자본이익률){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
+    ("roa", [rf"(?:roa|총자산이익률|총자본이익률|총자산순이익률){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
     ("debt_ratio", [rf"(?:부채비율|부채){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
     ("current_ratio", [rf"유동비율{_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
     ("quick_ratio", [rf"당좌비율{_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
@@ -1624,10 +1791,10 @@ _FUNDAMENTAL_PATTERN_SPECS = [
     ("operating_income_growth", [rf"영업이익(?:증가율|성장률){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
     ("net_income_growth", [rf"(?:순이익|당기순이익)(?:증가율|성장률){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
     # psr=주가매출비율(낮을수록 저평가), per/pbr과 동일 형식.
-    ("psr", [rf"psr{_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*{_OP_ALT}?"]),
+    ("psr", [rf"(?:psr|주가매출액비율|주가매출비율){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*{_OP_ALT}?"]),
     # 금액 지표(억원 단위)는 '조'+'억' 콤보를 결정적으로 합산한다: (조 부분)?(억 부분)?(연산자)?.
-    ("market_cap", [rf"시가총액{_NUM_PARTICLE}\s*(?:(\d+(?:\.\d+)?)조)?\s*(?:(\d+(?:\.\d+)?)(?:억원|억))?\s*{_OP_ALT}?"]),
-    ("trading_value", [rf"(?:거래대금|일평균거래대금){_NUM_PARTICLE}\s*(?:(\d+(?:\.\d+)?)조)?\s*(?:(\d+(?:\.\d+)?)(?:억원|억))?\s*{_OP_ALT}?"]),
+    ("market_cap", [rf"(?:시가총액|시총){_NUM_PARTICLE}\s*(?:(\d+(?:\.\d+)?)조)?\s*(?:(\d+(?:\.\d+)?)(?:억원|억))?\s*{_OP_ALT}?"]),
+    ("trading_value", [rf"(?:일평균거래대금|거래대금|거래량대금){_NUM_PARTICLE}\s*(?:(\d+(?:\.\d+)?)조)?\s*(?:(\d+(?:\.\d+)?)(?:억원|억))?\s*{_OP_ALT}?"]),
 ]
 
 # 금액 지표는 값을 (조 부분 × 10000) + (억 부분)으로 합산한다. 그 외는 group(1) 단일 값.
@@ -1646,8 +1813,13 @@ _OPERATOR_BY_KOREAN = {
     "보다적": "<",
     "넘는": ">",
     "넘어": ">",
+    "넘으": ">",
+    "넘기": ">",
     "보다높": ">",
     "보다많": ">",
+    "보다큰": ">",
+    "보다크": ">",
+    "보다작": "<",
 }
 
 
@@ -1671,7 +1843,7 @@ def _extract_amount_value(match: "re.Match") -> Optional[float]:
 
 
 def _extract_fundamental_filters(user_input: str) -> list[FundamentalFilter]:
-    compact = re.sub(r"\s+", "", user_input.lower())
+    compact = _compact(user_input)
     filters: list[FundamentalFilter] = []
     seen: set[tuple[str, str, float]] = set()
 
@@ -1704,7 +1876,7 @@ def _extract_ranking(user_input: str) -> tuple[Optional[str], Optional[int]]:
     '최근 60거래일 수익률이 높은 상위 N종목' / '모멘텀 상위' 류를 ('return', 60)로 매핑한다.
     종목 간 횡단면 순위 선정이라 진입 신호 없이 순위 자체가 진입이 된다. 없으면 (None, None).
     """
-    compact = re.sub(r"\s+", "", user_input.lower())
+    compact = _compact(user_input)
     if not _mentions_relative_strength_ranking(compact):
         return (None, None)
     # 기간 추출: "60거래일", "60일 수익률", "최근 3개월" 등 → 거래일로 환산
@@ -1769,7 +1941,7 @@ _NOT_POSITION_COUNT_UNIT = r"(?!월|분기|분)"
 
 
 def _extract_max_positions(user_input: str) -> Optional[int]:
-    compact = re.sub(r"\s+", "", user_input.lower())
+    compact = _compact(user_input)
     # 유니버스 규모(KOSPI 200 / KOSDAQ 150)의 숫자가 '200종목'처럼 종목 수로 오인되지 않도록 제거.
     compact = re.sub(r"(?:kospi|코스피)\s*200|(?:kosdaq|코스닥)\s*150", " ", compact)
     # 섹터/업종당 보유 제한('동일 업종 최대 2종목')은 포트폴리오 전체 종목 수가 아니므로 제거.
@@ -1798,7 +1970,7 @@ def _extract_max_positions(user_input: str) -> Optional[int]:
 
 
 def _extract_hold_period_days(user_input: str) -> Optional[int]:
-    compact = re.sub(r"\s+", "", user_input.lower())
+    compact = _compact(user_input)
     # 'N개월마다 점검/리밸런싱'·'점검 주기는 N개월'·'N개월 주기'는 보유기간이 아니라 정기 재선정
     # 주기다. 보유 동사가 없으면 보유기간으로 잡지 않는다.
     periodic = _extract_cycle_months(compact) is not None or re.search(
@@ -1816,14 +1988,27 @@ def _extract_hold_period_days(user_input: str) -> Optional[int]:
         return 63
     if "1개월" in compact or "한달" in compact:
         return 21
+    if "분기보유" in compact or "한분기" in compact:
+        return 63
+    if "반기보유" in compact:
+        return 126
 
+    # 'N년 보유'·'N년간 들고'처럼 보유 동사가 붙은 연 단위 보유기간(1년=252거래일).
+    # 동사 없는 'N년'(백테스트 기간/모멘텀 룩백)과 구분하려고 보유 동사를 요구한다.
+    match = re.search(r"(\d+)년(?:간|동안)?\s*(?:보유|들고|유지|가지고|가져)", compact)
+    if match:
+        return int(match.group(1)) * 252
     match = re.search(r"(\d+)개월", compact)
     if match:
         return int(match.group(1)) * 21
+    # 'N주 보유'(주=5거래일). 보유 동사가 붙은 경우만(주간 리밸런싱과 혼동 방지).
+    match = re.search(r"(\d+)주(?:일|간)?\s*(?:보유|들고|유지)", compact)
+    if match:
+        return int(match.group(1)) * 5
     match = re.search(r"(\d+)일(?:간)?보유", compact)
     if match:
         return int(match.group(1))
-    match = re.search(r"(\d+)일(?:정도|이|을|를)?지나면(?:무조건|바로|전량)?(?:정리|매도|청산)", compact)
+    match = re.search(rf"(\d+)일(?:정도|이|을|를)?지나면(?:무조건|바로|전량)?{_SELL_V}", compact)
     if match:
         return int(match.group(1))
     return None
@@ -1836,27 +2021,27 @@ def _has_explicit_day_holding(user_input: str) -> bool:
     'N일 보유'/'N일 지나면 정리'는 명백한 고정 보유기간이다. 랭킹 전략에서 보유기간을
     비울 때 이 명시적 표현은 보존하기 위한 판별자다.
     """
-    compact = re.sub(r"\s+", "", user_input.lower())
+    compact = _compact(user_input)
     return bool(
         re.search(r"(\d+)일(?:간)?보유", compact)
-        or re.search(r"(\d+)일(?:정도)?지나면(?:정리|매도|청산)", compact)
+        or re.search(rf"(\d+)일(?:정도)?지나면{_SELL_V}", compact)
     )
 
 
 def _extract_rebalancing_period(user_input: str, hold_period_days: Optional[int]) -> str:
-    compact = re.sub(r"\s+", "", user_input.lower())
-    if re.search(r"매일|일간리밸런싱|날마다|하루에한번", compact):
+    compact = _compact(user_input)
+    if re.search(r"매일|일간리밸런싱|날마다|하루에한번|데일리", compact):
         return "daily"
-    if re.search(r"매주|주간리밸런싱|일주일에한번|한주에한번|주1회|주에한번", compact):
+    if re.search(r"매주|주간리밸런싱|일주일에한번|한주에한번|주1회|주에한번|위클리|매주말", compact):
         return "weekly"
     # 격월은 반드시 monthly보다 먼저 — monthly의 '달에한번'이 '두달에한번'을 삼키기 때문.
-    if re.search(r"격월|두달에한번|2개월에한번|2달에한번|두달마다|2개월마다|2달마다", compact):
+    if re.search(r"격월|두달에한번|2개월에한번|2달에한번|두달마다|2개월마다|2달마다|두달걸러|2달걸러", compact):
         return "bimonthly"
-    if "매월" in compact or "월간리밸런싱" in compact or re.search(r"한달에한번|달에한번|월1회|매달", compact):
+    if "매월" in compact or "월간리밸런싱" in compact or re.search(r"한달에한번|달에한번|월1회|매달|먼슬리|다달이|월말마다|월초마다", compact):
         return "monthly"
-    if "분기" in compact:
+    if "분기" in compact or "쿼터" in compact:
         return "quarterly"
-    if "매년" in compact or "연간리밸런싱" in compact:
+    if "매년" in compact or "연간리밸런싱" in compact or re.search(r"해마다|연1회|연마다|1년마다|연단위|연례|1년에한번", compact):
         return "yearly"
     if hold_period_days == 252 and "보유" in compact:
         return "yearly"
@@ -1872,7 +2057,7 @@ def _extract_rebalancing_period(user_input: str, hold_period_days: Optional[int]
 
 def _extract_backtest_period(user_input: str) -> Optional[str]:
     """백테스트 기간을 결정적으로 추출한다. 언급이 없으면 None(기본값은 호출부에서 결정)."""
-    compact = re.sub(r"\s+", "", user_input.lower())
+    compact = _compact(user_input)
     if "전체기간" in compact or "full" in compact:
         return "full"
     if "1y" in compact:
@@ -1883,11 +2068,110 @@ def _extract_backtest_period(user_input: str) -> Optional[str]:
         return "5y"
     # '백테스트 기간은 3년만', '3년간 백테스트', '5년 백테스트' 처럼 백테스트 근처의 'N년'.
     # 보유기간('1년 보유')이 잡히지 않도록 '백테스트'와 'N년'이 인접(비숫자 몇 글자)할 때만.
-    m = re.search(r"백테스트\D{0,8}(\d+)년|(\d+)년(?:간|동안)?\D{0,6}백테스트", compact)
-    if m:
-        years = m.group(1) or m.group(2)
-        return {"1": "1y", "3": "3y", "5": "5y"}.get(years)
+    years = _extract_backtest_relative_years(user_input)
+    if years is not None:
+        # 1/3/5년은 상대 기간 버킷으로, 그 외(2/4/6…)는 _extract_backtest_dates가
+        # 오늘 기준 명시적 날짜 범위로 결정적 처리한다.
+        return {1: "1y", 3: "3y", 5: "5y"}.get(years)
     return None
+
+
+# 백테스트 맥락에 인접한 'N년'·'N개월'을 추출하는 정규식(공백 제거 입력 기준).
+# 연/월은 백테스트 창을 직접 표현하는 유한 시간 단위라 결정적으로 처리한다(주/일은 백테스트
+# 창으로는 비현실적 phrasing이라 의도적으로 제외 — 긴 꼬리는 LLM/되묻기에 위임).
+_BACKTEST_YEARS_RE = re.compile(r"백테스트\D{0,8}(\d+)년|(\d+)년(?:간|동안)?\D{0,6}백테스트")
+_BACKTEST_MONTHS_RE = re.compile(
+    r"백테스트\D{0,8}(\d+)(?:개월|달)|(\d+)(?:개월|달)(?:간|동안)?\D{0,6}백테스트"
+)
+
+
+def _extract_backtest_relative_years(user_input: str) -> Optional[int]:
+    """백테스트 맥락에 인접한 'N년' 상대 기간의 연수를 추출한다(없으면 None)."""
+    compact = _compact(user_input)
+    m = _BACKTEST_YEARS_RE.search(compact)
+    if not m:
+        return None
+    return int(m.group(1) or m.group(2))
+
+
+def _extract_backtest_relative_months(user_input: str) -> Optional[int]:
+    """백테스트 맥락에 인접한 'N개월'·'N달' 상대 기간의 개월수를 추출한다(없으면 None)."""
+    compact = _compact(user_input)
+    m = _BACKTEST_MONTHS_RE.search(compact)
+    if not m:
+        return None
+    return int(m.group(1) or m.group(2))
+
+
+def _subtract_months(d: date, months: int) -> date:
+    """기준일에서 months개월을 뺀 날짜(말일 클램프)."""
+    total = d.year * 12 + (d.month - 1) - months
+    year, month = divmod(total, 12)
+    month += 1
+    last_day = calendar.monthrange(year, month)[1]
+    return date(year, month, min(d.day, last_day))
+
+
+# 한국어 기간 표현(일반 인식 — phrasing마다 추가하는 게 아니라 시간 단위의 유한 집합).
+# 공백 제거(compact) 입력 기준.
+_DURATION_COMPACT = (
+    r"(?:일주일|반년|며칠"
+    r"|\d+(?:년|개월|달|주일|주|일|거래일)"
+    r"|(?:한|두|세|네|다섯|여섯|일곱|여덟|아홉|열|열한|열두)(?:년|개월|달|주))"
+)
+# 백테스트 기간 의도 맥락.
+_BACKTEST_CONTEXT = r"(?:백테스트|백테스팅|테스트기간|검증기간)"
+
+
+def _backtest_period_state(user_input: str) -> str:
+    """백테스트 기간 추출의 3-상태: 'not_mentioned' | 'parsed' | 'unresolved'.
+
+    'unresolved' = 백테스트 맥락에 인접한 시간 표현(기간 의도)은 있는데, 실제 리졸버
+    (_extract_backtest_period / _extract_backtest_dates)가 유효 버킷(1y/3y/5y/full)이나
+    명시적 연도 범위로 매핑하지 못한 경우. 즉 룰이 '봤지만 못 푼' 상태다 → 호출부가 LLM/
+    되묻기로 위임한다.
+
+    어떤 기간이 '너무 짧은지'를 열거하지 않는다(예: 1주일/6개월/2년 모두 리졸버가 못 풀면
+    자동으로 unresolved). 룰의 커버리지 실패를 정직하게 신고하는 게 목적이다.
+    """
+    if _extract_backtest_period(user_input) is not None:
+        return "parsed"
+    start, end = _extract_backtest_dates(user_input)
+    if start is not None or end is not None:
+        return "parsed"
+    compact = _compact(user_input)
+    if not re.search(_BACKTEST_CONTEXT, compact):
+        return "not_mentioned"
+    # 백테스트 맥락 바로 뒤(조사·'기간'·'최근'만 사이)에 시간 표현이 오면 기간 의도로 본다.
+    # '일선/평균/봉'은 지표 표현이므로 제외. 보유기간·지표기간이 백테스트와 멀리 떨어진
+    # 경우는 인접 제약으로 자연히 배제된다.
+    near = re.search(
+        _BACKTEST_CONTEXT + r"(?:기간)?[은는을를이가로으]{0,2}(?:최근)?(" + _DURATION_COMPACT + r")(?!선|평균|봉)",
+        compact,
+    )
+    return "unresolved" if near else "not_mentioned"
+
+
+# 리밸런싱 의도 맥락(주기 단어). '주기/마다/점검'은 너무 일반적이라 제외하고 명시 cue만.
+_REBALANCE_CONTEXT = r"(?:리밸런[싱스]|리밸|재조정|재선정|재산정)"
+
+
+def _rebalancing_period_state(user_input: str) -> str:
+    """리밸런싱 주기 추출의 3-상태: 'not_mentioned' | 'parsed' | 'unresolved'.
+
+    'unresolved' = 리밸런싱 의도는 있는데 주기 표현이 유효 enum(daily/weekly/monthly/
+    bimonthly/quarterly/yearly)으로 안 풀린 경우(예: '10일마다'·'2주마다 리밸런싱'). 즉 룰이
+    '봤지만 못 푼' 케이던스 → 호출부가 LLM에 위임한다. _backtest_period_state와 동형.
+    """
+    if _extract_rebalancing_period(user_input, None) != "none":
+        return "parsed"
+    compact = _compact(user_input)
+    if not re.search(_REBALANCE_CONTEXT, compact):
+        return "not_mentioned"
+    # 리밸런싱 cue가 있는데 위에서 enum 매핑에 실패했고, 주기성 케이던스 표현(N일/N주 + 마다/
+    # 에한번 등)이 있으면 매핑 불가 주기다 → unresolved.
+    cadence = re.search(r"(?:" + _DURATION_COMPACT + r")(?:마다|에한번|주기|간격|에1회)", compact)
+    return "unresolved" if cadence else "not_mentioned"
 
 
 _YEAR = r"((?:19|20)\d{2})"
@@ -1919,7 +2203,28 @@ def _extract_backtest_dates(user_input: str) -> tuple[Optional[str], Optional[st
     end_match = re.search(rf"{_YEAR}년?까지", compact)
     start = f"{int(start_match.group(1))}-01-01" if start_match else None
     end = f"{int(end_match.group(1))}-12-31" if end_match else None
-    return start, end
+    if start is not None or end is not None:
+        return start, end
+
+    # '백테스트 2년' 같은 상대 기간 중 버킷(1y/3y/5y)이 아닌 연수는 오늘 기준 명시적
+    # 날짜 범위(오늘-N년 ~ 오늘)로 결정적으로 변환한다. 버킷 연수(1/3/5)는 상대 기간
+    # 경로를 유지하도록 여기서 제외한다.
+    years = _extract_backtest_relative_years(user_input)
+    if years is not None and years not in (1, 3, 5) and 1 <= years <= 30:
+        today = date.today()
+        try:
+            start_dt = today.replace(year=today.year - years)
+        except ValueError:  # 2월 29일 보정
+            start_dt = today.replace(year=today.year - years, day=28)
+        return start_dt.isoformat(), today.isoformat()
+
+    # '백테스트 24개월'처럼 개월 단위로 표현된 창도 동일하게 처리한다. 단 12개월 미만은
+    # 백테스트 최소 기간(1년) 미달이므로 변환하지 않는다(→ unresolved로 남아 되묻기/안내).
+    months = _extract_backtest_relative_months(user_input)
+    if months is not None and 12 <= months <= 360:
+        today = date.today()
+        return _subtract_months(today, months).isoformat(), today.isoformat()
+    return None, None
 
 
 def _strip_amount_filter_phrases(compact: str) -> str:
@@ -1936,8 +2241,22 @@ def _strip_amount_filter_phrases(compact: str) -> str:
     return compact
 
 
-def _extract_initial_capital(user_input: str) -> float:
-    compact = re.sub(r"\s+", "", user_input.lower())
+# 자본금 cue에 바로 붙은 단위 없는 숫자(예: "초기자금 300", "자금은 300으로")를 잡는다.
+# 한국 소매 투자 관례상 이런 맨숫자는 '만원'으로 읽는다("초기자금 300"=300만원).
+# cue에 직접 붙은 숫자만 잡아 손절 10% 같은 다른 필드 수치를 자본금으로 오인하지 않는다.
+_CAPITAL_BARE_RE = re.compile(
+    r"(?:초기자금|자본금?|투자금|초기투자|시드|seed|자금)[은는이가을를도]?(\d+(?:\.\d+)?)(?![억천백만원\d])"
+)
+
+
+def _extract_capital_amount(user_input: str, *, allow_bare: bool = False) -> Optional[float]:
+    """초기자금 금액(원)을 추출한다. 인식 못 하면 None(기본값은 호출자가 정한다).
+
+    allow_bare=True면 자본금 cue에 바로 붙은 단위 없는 숫자를 만원으로 해석한다
+    ('초기자금 300'=300만원). 일반 파싱에서는 RSI·임계값 같은 다른 수치를 자본금으로
+    오인하지 않도록 단위가 명시된 표현만 인정한다(allow_bare=False).
+    """
+    compact = _compact(user_input)
     # 거래대금/시가총액 필터의 '억' 수치를 초기자금으로 오인하지 않도록 먼저 제거한다.
     compact = _strip_amount_filter_phrases(compact)
     match = re.search(r"(\d+(?:\.\d+)?)억(?:(\d+(?:\.\d+)?)천?만)?", compact)
@@ -1947,35 +2266,114 @@ def _extract_initial_capital(user_input: str) -> float:
             capital += float(match.group(2)) * 10_000_000
         return capital
 
-    match = re.search(r"(\d+(?:\.\d+)?)천만원", compact)
+    match = re.search(r"(\d+(?:\.\d+)?)천만원?", compact)
     if match:
         return float(match.group(1)) * 10_000_000
 
-    match = re.search(r"(\d+(?:\.\d+)?)만원", compact)
+    match = re.search(r"(\d+(?:\.\d+)?)백만원", compact)
+    if match:
+        return float(match.group(1)) * 1_000_000
+
+    # '만원'뿐 아니라 '300만'처럼 원이 생략된 표현도 인식한다.
+    match = re.search(r"(\d+(?:\.\d+)?)만원?", compact)
     if match:
         return float(match.group(1)) * 10_000
 
-    return 10_000_000.0
+    if allow_bare:
+        match = _CAPITAL_BARE_RE.search(compact)
+        if match:
+            return float(match.group(1)) * 10_000
+
+    return None
+
+
+def _extract_initial_capital(user_input: str) -> float:
+    return _extract_capital_amount(user_input) or 10_000_000.0
+
+
+# 초기자금 하한선(100만원). 300원 같은 비현실적 입력으로 백테스트가 무의미해지는 것을 막는
+# 안전 가드. 다른 필드(종목 수 ge=1, 백테스트 기간 enum 최소 1y)는 이미 하한이 있어 자본금만 보강.
+MIN_INITIAL_CAPITAL = 1_000_000.0
+MIN_INITIAL_CAPITAL_NOTICE = "최소 초기자금은 100만원입니다. 입력하신 금액이 작아 100만원으로 설정했어요."
+
+
+def enforce_initial_capital_minimum(parsed: ParsedStrategy) -> Optional[str]:
+    """초기자금이 하한선 미만이면 하한선으로 보정하고 사용자 안내 문구를 반환한다(보정 없으면 None)."""
+    if parsed.initial_capital < MIN_INITIAL_CAPITAL:
+        parsed.initial_capital = MIN_INITIAL_CAPITAL
+        return MIN_INITIAL_CAPITAL_NOTICE
+    return None
+
+
+# 그 외 설정값 하한선. max_positions는 추출기(0종목→1)와 스키마(ge=1)가 이미 1로 바닥을 깔아
+# 별도 보정이 필요 없다. 비율(%) 필드는 자연스러운 양수 하한이 없어 0 이하면 제거(드롭)한다.
+MIN_HOLD_PERIOD_DAYS = 1
+MIN_RANKING_LOOKBACK_DAYS = 10  # 모멘텀/랭킹 기준 기간 하한(너무 짧으면 노이즈)
+_RATIO_FIELD_LABELS = {
+    "stop_loss_pct": "손절",
+    "take_profit_pct": "익절",
+    "trailing_stop_pct": "트레일링 스탑",
+    "max_mdd_limit_pct": "MDD 한도",
+}
+
+
+def enforce_strategy_minimums(parsed: ParsedStrategy) -> list[str]:
+    """파싱 결과의 설정값 하한선을 강제하고 보정 안내 문구 목록을 반환한다(없으면 빈 리스트).
+
+    비현실적 입력(초기자금 300원, 0일 보유, 3일 모멘텀, 0% 손절 등)을 자동 보정/제거해
+    백테스트가 무의미해지는 것을 막는다. 모든 파싱 경로(규칙/LLM/수정) 뒤에서 호출한다.
+    """
+    notices: list[str] = []
+
+    capital_notice = enforce_initial_capital_minimum(parsed)
+    if capital_notice:
+        notices.append(capital_notice)
+
+    if parsed.hold_period_days is not None and parsed.hold_period_days < MIN_HOLD_PERIOD_DAYS:
+        parsed.hold_period_days = MIN_HOLD_PERIOD_DAYS
+        notices.append("보유기간은 최소 1일입니다. 1일로 설정했어요.")
+
+    if (
+        parsed.ranking_lookback_days is not None
+        and parsed.ranking_lookback_days < MIN_RANKING_LOOKBACK_DAYS
+    ):
+        parsed.ranking_lookback_days = MIN_RANKING_LOOKBACK_DAYS
+        notices.append("모멘텀/랭킹 기준 기간은 최소 10일입니다. 10일로 설정했어요.")
+
+    for field, label in _RATIO_FIELD_LABELS.items():
+        value = getattr(parsed, field)
+        if value is not None and value <= 0:
+            setattr(parsed, field, None)
+            notices.append(f"{label} 비율은 0%보다 커야 해서 적용하지 않았어요.")
+
+    return notices
 
 
 def _extract_execution_timing(user_input: str) -> str:
-    compact = re.sub(r"\s+", "", user_input.lower())
-    if "당일종가" in compact or "현재종가" in compact:
+    compact = _compact(user_input)
+    # 당일 종가 체결을 뜻하는 다양한 표현. '종가' 단독은 추세 필터('종가가 20일선 위')와
+    # 혼동되므로, 체결/매매 동사와 결합한 형태만 current_close로 본다.
+    current_close_cues = (
+        "당일종가", "현재종가", "종가체결", "종가매매", "종가에체결",
+        "종가에매수", "종가에매도", "종가로체결", "당일체결", "종가매수",
+    )
+    if any(cue in compact for cue in current_close_cues):
         return "current_close"
     return "next_open"
 
 
 def _extract_rate(user_input: str, label: str, default: float) -> float:
-    compact = re.sub(r"\s+", "", user_input.lower())
+    compact = _compact(user_input)
     match = re.search(rf"{label}(\d+(?:\.\d+)?)%", compact)
     return float(match.group(1)) if match else default
 
 
 def _extract_trailing_stop_pct(user_input: str) -> Optional[float]:
-    compact = re.sub(r"\s+", "", user_input.lower())
+    compact = _compact(user_input)
     patterns = [
         r"트레일링(?:스탑|스톱)?(\d+(?:\.\d+)?)%",
-        r"최고가대비(\d+(?:\.\d+)?)%하락",
+        # '최고가/고점/최고점/고가 대비 N% 하락/빠지면/떨어지면/밀리면' 모두 인식.
+        r"(?:최고가|최고점|고점|고가)대비(\d+(?:\.\d+)?)%(?:하락|빠지|떨어|밀)",
     ]
     for pattern in patterns:
         match = re.search(pattern, compact)
@@ -1985,17 +2383,96 @@ def _extract_trailing_stop_pct(user_input: str) -> Optional[float]:
 
 
 def _extract_max_mdd_limit_pct(user_input: str) -> Optional[float]:
-    compact = re.sub(r"\s+", "", user_input.lower())
-    # 'MDD 30% 넘으면'·'낙폭 20% 이상'·'MDD 30% 한도'를 모두 인식한다. mdd/낙폭과 숫자 사이
-    # 조사가 끼어도 잡고('mdd가30%'), 절 경계는 넘지 않는다([^,]).
+    compact = _compact(user_input)
+    # 'MDD 30% 넘으면'·'낙폭 20% 이상'·'드로우다운 25% 도달'·'MDD 30% 한도'를 모두 인식한다.
+    # 지표어(mdd/낙폭/드로우다운)와 숫자 사이 조사가 끼어도 잡고('mdd가30%'), 절 경계는 넘지
+    # 않는다([^,]). 트리거 동사도 초과/이상/넘/한도뿐 아니라 도달/찍/발생까지 인정한다.
+    trigger = r"(?:초과|이상|넘|한도|중단|도달|찍|발생|에서)"
     patterns = [
-        r"mdd(?:가|이|은|는)?\s*(\d+(?:\.\d+)?)%[^,]*?(?:초과|이상|넘|한도)",
-        r"낙폭(?:이|은|는)?\s*(\d+(?:\.\d+)?)%[^,]*?(?:초과|이상|넘|한도|중단)",
+        rf"mdd(?:가|이|은|는)?\s*(\d+(?:\.\d+)?)%[^,]*?{trigger}",
+        rf"(?:최대낙폭|낙폭)(?:이|은|는)?\s*(\d+(?:\.\d+)?)%[^,]*?{trigger}",
+        rf"드로[우]?다운(?:이|은|는)?\s*(\d+(?:\.\d+)?)%[^,]*?{trigger}",
     ]
     for pattern in patterns:
         match = re.search(pattern, compact)
         if match:
             return float(match.group(1))
+    return None
+
+
+# ── 규칙 기반/스키마가 표현할 수 없는 '미지원 개념' ─────────────────────────────
+# 결정적 추출기는 자신이 아는 슬롯만 채우고 나머지는 조용히 버리므로, 부분적으로만
+# 파싱하고도 '성공'으로 착각해 잘못된 결과를 사용자에게 보여줄 수 있다(침묵 누락).
+# 이를 막기 위해, 우리가 아직 구현하지 않은 '유한한 개념 목록'을 언급하면 규칙 기반은
+# 자신을 신뢰하지 않고 None을 반환해 LLM 폴백/되묻기에 위임한다.
+#   - 필러(연결어)를 끝없이 나열하는 잔여차감 방식과 반대로, '지원 안 하는 개념'만
+#     열거하므로 목록이 유한하고 유지보수 가능하다('핵심만 결정적, 긴 꼬리는 LLM' 원칙).
+#   - 패턴은 공백 제거·소문자화한 compact 입력 기준. 지원되는 개념(상대강도 랭킹 등)은
+#     절대 포함하지 않는다(오폴백 방지).
+_UNSUPPORTED_CONCEPT_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("volatility", r"변동성"),
+    ("cash_flow", r"현금흐름|영업활동현금|잉여현금|fcf"),
+    ("cash_weight", r"현금[^,]{0,4}(?:비중|유지)"),
+    ("dividend", r"배당"),
+    ("sector", r"섹터|업종"),
+    ("valuation_exit", r"밸류에이션"),
+    ("relative_to_market", r"시장(?:보다|평균|대비)"),
+    ("earnings", r"실적|어닝|컨센서스|목표주가"),
+    ("supply_demand", r"수급|외국인|기관(?:이|투자|순매)|공매도|신용잔고|유상증자|증자"),
+    ("profitability_sign", r"흑자|적자"),
+    ("ema_alignment", r"정배열|역배열"),
+    ("partial_exit", r"분할매[도수]|절반[^,]{0,3}(?:익절|매도|청산)|일부[^,]{0,3}(?:익절|청산)"),
+    ("new_low", r"신저가"),
+)
+_UNSUPPORTED_CONCEPT_RE = tuple(
+    (name, re.compile(pattern)) for name, pattern in _UNSUPPORTED_CONCEPT_PATTERNS
+)
+
+
+def _mentions_unsupported_concept(user_input: str) -> Optional[str]:
+    """규칙 기반/스키마가 표현할 수 없는 개념을 언급하면 그 개념 이름을, 없으면 None."""
+    compact = _compact(user_input)
+    for name, rx in _UNSUPPORTED_CONCEPT_RE:
+        if rx.search(compact):
+            return name
+    return None
+
+
+# ── Rule Parse Guard: 룰 파싱을 그대로 수락해도 되는지 판정 ──────────────────────
+# REGEX가 매칭됐다는 사실은 올바른 파싱의 증거가 아니다. 룰 파서는 자신이 아는 슬롯만
+# 채우므로, 질문·비교·정정·추천처럼 '실행 가능한 전략 서술'이 아닌 발화를 슬롯 일부가
+# 매칭됐다는 이유로 전략으로 둔갑시킬 수 있다. 가드는 두 단계다.
+#   1) 결정론 red-flag(아래): 전략 서술엔 거의 절대 등장하지 않는 고정밀 마커만 본다.
+#      구어체 부정('말고')·트레일링('대비')처럼 정상 전략에 흔한 표현은 절대 넣지 않는다
+#      (오폴백 방지 — feedback_nl_parser_hybrid 원칙). 미지원 개념 감지와 동형으로 None을
+#      반환해 LLM 폴백/되묻기에 위임한다.
+#   2) LLM judge(opt-in, NLStrategyParser._consult_rule_parse_guard): red-flag는 없지만
+#      룰 파스가 원문을 다 설명 못 한 듯한 잔여가 남을 때만 호출해 accept/fallback을
+#      semantic하게 판정한다('애매한 경우에만').
+_RULE_GUARD_RED_FLAG_PATTERNS: tuple[tuple[str, str], ...] = (
+    # 탐색/질문 — 선언형 전략 서술엔 물음표·질문 어미가 없다.
+    ("question", r"\?|가능해|가능한가|가능할까|되나요|될까요|어때요|어떨까"),
+    # 비교 요청 — 전략·종목 우열 비교는 추천에 준한다('대비'는 트레일링이라 제외).
+    ("comparison", r"비교|뭐가더|어느쪽|어느게|versus|vs\."),
+    # 정정 — 앞선 발화 취소/번복('아니라'는 'X가 아니라 Y' 설명형이라 단독 제외).
+    ("correction", r"그게아니라|아니그게|정정|다시말하면|아까말한|취소할게"),
+    # 추천/조언 요청 — 규제상 생성 금지(상류 intent도 처리하나 방어선으로 둔다).
+    ("recommendation", r"추천|뭘사면|무엇을사|뭐사면"),
+)
+_RULE_GUARD_RED_FLAG_RE = tuple(
+    (name, re.compile(pattern)) for name, pattern in _RULE_GUARD_RED_FLAG_PATTERNS
+)
+
+
+def _rule_parse_red_flag(user_input: str) -> Optional[str]:
+    """룰 파싱이 잘못 해석했을 가능성이 매우 높은 고정밀 마커를 감지한다.
+
+    질문/비교/정정/추천처럼 '실행 가능한 전략 서술'이 아닌 발화면 그 범주 이름을, 없으면
+    None. 정상 전략에 흔한 구어체 부정('말고')·트레일링('대비')은 의도적으로 제외한다."""
+    compact = _compact(user_input)
+    for name, rx in _RULE_GUARD_RED_FLAG_RE:
+        if rx.search(compact):
+            return name
     return None
 
 
@@ -2007,6 +2484,23 @@ def _parse_rule_based_strategy(user_input: str) -> Optional[ParsedStrategy]:
     contains enough deterministic slots to build the same ParsedStrategy shape.
     Ambiguous prompts still fall through to the LLM.
     """
+    # 표현할 수 없는 개념(변동성·현금흐름·섹터 분산 등)이 섞여 있으면, 지원되는 슬롯만
+    # 채운 부분 파싱 결과를 조용히 내놓지 않고 None으로 LLM 폴백에 위임한다.
+    if _mentions_unsupported_concept(user_input):
+        return None
+
+    # 질문·비교·정정·추천처럼 실행 가능한 전략이 아닌 발화는 슬롯이 일부 매칭돼도 수락하지
+    # 않고 LLM 폴백/되묻기에 위임한다(REGEX 매칭 ≠ 올바른 파싱).
+    if _rule_parse_red_flag(user_input):
+        return None
+
+    # 백테스트 기간·리밸런싱 주기 의도는 있는데 유효 값으로 못 푼 경우(예: '백테스트 1주일',
+    # '10일마다 리밸런싱')도 조용히 기본값으로 떼우지 않고 위임한다(3-state UNRESOLVED).
+    if _backtest_period_state(user_input) == "unresolved":
+        return None
+    if _rebalancing_period_state(user_input) == "unresolved":
+        return None
+
     fundamental_filters = _extract_fundamental_filters(user_input)
     entry_signals, exit_signals = _extract_technical_signals(user_input)
     hold_period_days = _extract_hold_period_days(user_input)
@@ -2017,7 +2511,7 @@ def _parse_rule_based_strategy(user_input: str) -> Optional[ParsedStrategy]:
     has_risk_exit = bool(
         re.search(
             r"손절|익절|트레일링|최고가대비|mdd|낙폭|수익실현|수익확정|목표수익",
-            re.sub(r"\s+", "", user_input.lower()),
+            _compact(user_input),
         )
     )
     # 펀더멘털 스크리닝·랭킹 전략은 정기 리밸런싱으로 회전하므로(명시적 청산/보유기간이 없어도)
@@ -2085,13 +2579,16 @@ _MODIFY_FIELD_CUES: dict[str, list[str]] = {
     "initial_capital": ["초기자금", "투자금", "자본", "자금", "초기투자", "초기", "시드", "seed", "시작"],
     "universe": ["코스피200", "코스피", "코스닥", "kospi200", "kospi", "kosdaq", "대형주", "전체시장", "전체", "유니버스", "시장"],
     "backtest_period": ["백테스트", "기간", "최근", "테스트", "전체기간", "동안"],
-    "backtest_start_date": ["부터", "년", "월", "일"],
+    "backtest_start_date": ["백테스트", "테스트", "기간", "최근", "부터", "년", "월", "일"],
     "backtest_end_date": ["까지", "년", "월", "일"],
     # 펀더멘털 지표명·연산자·통상 수식어. 숫자/단위/필러는 공통 차감 규칙이 처리한다.
     "fundamental_filters": [
         "주가순자산비율", "주가수익비율", "주가순자산", "주가수익", "자기자본이익률",
+        "주가매출액비율", "주가매출비율", "총자산이익률", "총자본이익률",
         "일평균거래대금", "거래대금", "시가총액", "시총", "부채비율", "부채",
-        "pbr", "per", "roe", "gpa",
+        "유동비율", "당좌비율", "유보율", "순이익률", "매출총이익률",
+        "매출액증가율", "매출증가율", "영업이익증가율", "순이익증가율",
+        "pbr", "per", "roe", "gpa", "psr", "roa",
         "이하", "미만", "이상", "초과", "이내",
         "저평가", "고평가", "우량", "가치주", "성장주", "종목", "주식",
     ],
@@ -2102,6 +2599,11 @@ _MODIFY_FILLER = [
     "해주세요", "해줘", "주세요", "넣어줘", "넣어", "추가해줘", "추가", "진행", "그대로",
     "빼줘", "빼주세요", "빼", "삭제", "없애줘", "없애", "제거해줘", "제거", "지워줘", "지워",
     "제한", "한도", "끄기", "끄고", "중단",
+    # 값을 키우거나 줄이는 일반 조정 동사(필드 의미 없음, '바꿔/설정'과 동급으로 차감).
+    # 예: "종목을 10개로 늘려줘", "손절을 5%로 줄여줘" → 값 변경은 필드 추출이 처리한다.
+    "늘려주세요", "늘려줘", "늘려", "늘리", "줄여주세요", "줄여줘", "줄여", "줄이",
+    "높여주세요", "높여줘", "높여", "높이", "낮춰주세요", "낮춰줘", "낮춰", "낮추",
+    "올려주세요", "올려줘", "올려", "내려주세요", "내려줘", "내려", "조정해줘", "조정",
     "으로", "로", "만", "좀", "정도", "약", "더", "하고", "해",
     "을", "를", "은", "는", "이", "가", "의", "에", "도", "와", "과", "랑", "에서", "간", "동안",
 ]
@@ -2124,7 +2626,7 @@ def _modify_residual_is_clean(user_input: str, changed_fields) -> bool:
     인식하지 못한 내용(예: '변동성 큰 종목 빼줘')이 남으면 False → LLM에 위임한다.
     표현별 정규식을 늘리는 대신 'cue/필러/단위 차감 후 잔여 콘텐츠' 한 규칙으로 일반화한다.
     """
-    residual = re.sub(r"\s+", "", user_input.lower())
+    residual = _compact(user_input)
     residual = residual.replace("%", "")
     residual = re.sub(r"-?\d+(?:\.\d+)?", "", residual)  # 숫자 제거
     cues: list[str] = []
@@ -2134,6 +2636,86 @@ def _modify_residual_is_clean(user_input: str, changed_fields) -> bool:
     for kw in sorted(set(cues) | set(_MODIFY_FILLER) | set(_MODIFY_UNIT_FILLER), key=len, reverse=True):
         residual = residual.replace(kw, "")
     return not re.search(r"[가-힣a-z0-9]", residual)
+
+
+# ── Rule Parse Guard: LLM judge 호출용 잔여 커버리지 게이트 + 프롬프트 ──────────
+# 룰 파싱이 원문 전체를 설명했는지 가늠하는 결정론 신호. 우리가 '아는 어휘'(슬롯 cue·
+# 지표명·필러·단위·공통 동사)를 모두 차감하고도 의미 있는 잔여가 남으면, 룰 파스가 일부만
+# 설명했을 수 있다 → LLM judge에게 accept/fallback을 물을 만큼 '애매'하다고 본다.
+# 차감 어휘는 일부러 과하게(over-subtract) 잡아 잔여를 적게 만든다 — judge 과호출(지연)을
+# 줄이는 보수적 방향. (이 게이트는 opt-in judge 경로에서만 쓰이므로 정밀도보다 안전이 우선.)
+_RULE_GUARD_KNOWN_VOCAB: frozenset[str] = (
+    frozenset(kw for cues in _MODIFY_FIELD_CUES.values() for kw in cues)
+    | frozenset(_MODIFY_FILLER)
+    | frozenset(_MODIFY_UNIT_FILLER)
+    | frozenset({
+        # 기술 지표/신호 어휘
+        "골든크로스", "데드크로스", "골든", "데드", "크로스", "이동평균", "이평선", "이평",
+        "rsi", "macd", "볼린저", "볼린저밴드", "스토캐스틱", "cci", "adx", "ema", "지수이동평균",
+        "신고가", "52주", "박스권", "거래량", "급증", "폭발", "ai", "인공지능", "모델",
+        "상승예측", "하락예측", "예측", "확률", "과매도", "과매수", "반등", "신호", "조건",
+        # 랭킹/모멘텀
+        "수익률", "상위", "상대강도", "모멘텀", "랭킹", "순위", "최근", "거래일",
+        # 공통 동사/구조
+        "전략", "주식", "매수", "매도", "진입", "청산", "사서", "사고", "사면", "팔고", "팔아",
+        "팔면", "골라", "골라서", "편입", "들어가", "정리", "나오면", "발생", "돌파", "이탈",
+        "이면", "이고", "이며", "그리고", "또는", "반대로", "다시", "기준", "정도", "이내",
+        "중에서", "에서", "으로", "하는", "하면", "한", "넣어", "써보", "해보", "싶어", "싶습니다",
+    })
+)
+# 잔여가 이 글자 수 이상이면 '애매'로 보고 judge에 위임한다(한글 ~2-3단어 분량).
+_RULE_GUARD_AMBIGUITY_MIN_CHARS = 6
+
+
+def _rule_parse_unexplained(user_input: str) -> str:
+    """룰 파싱이 설명하지 못한 잔여 텍스트(숫자·단위·알려진 어휘 차감 후 한글/영숫자)를 반환."""
+    residual = _compact(user_input).replace("%", "")
+    residual = re.sub(r"-?\d+(?:\.\d+)?", "", residual)
+    for kw in sorted(_RULE_GUARD_KNOWN_VOCAB, key=len, reverse=True):
+        if kw:
+            residual = residual.replace(kw, "")
+    return re.sub(r"[^가-힣a-z0-9]", "", residual)
+
+
+RULE_PARSE_GUARD_PROMPT = """당신은 하이브리드 자연어 전략 파서의 Rule Parse Guard입니다.
+REGEX/룰 기반 파서 결과를 그대로 수락해도 안전한지, 아니면 LLM 파서로 다시 해석해야 하는지
+판단합니다. REGEX가 매칭됐다는 사실은 올바른 파싱의 증거가 아닙니다. 룰 파싱 결과가
+사용자 발화 '전체의 핵심 의도'를 높은 정밀도로 설명할 때만 수락하세요.
+
+입력으로 user_utterance와 selected_rule_parse(JSON)가 주어집니다. 최종 스키마는 한국 주식
+백테스트 전략(ParsedStrategy)이며, 이 플랫폼은 투자 연구/시뮬레이션 전용입니다.
+
+다음 중 하나라도 있으면 'fallback_llm_parse'를 선택하세요:
+- 발화 일부만 매칭됨 / 의미 있는 문구가 설명되지 않은 채 남음
+- 의도가 애매하거나 복수 의도가 동시에 가능함
+- 부정·제외('아닌','빼고','제외','말고','대신'), 비교('비교','대비','어느 쪽'),
+  탐색('가능해?','만약','왜','어때'), 정정('아니','정정','그게 아니라') 표현
+- 추천·개인 맞춤형 조언·시장 전망·매수/매도 타이밍 요청
+- selected_rule_parse가 사용자가 의도하지 않은 실행 액션을 유발할 수 있음
+룰 파싱이 명확·완전·애매하지 않게 전체 의도를 설명할 때만 'accept_rule'.
+
+반드시 아래 JSON만 반환하세요(다른 텍스트 금지):
+{"decision": "accept_rule" | "fallback_llm_parse", "confidence": number, "reason": string}"""
+
+
+def _build_guard_user_message(user_input: str, parsed: ParsedStrategy) -> str:
+    return (
+        f"user_utterance:\n{user_input}\n\n"
+        f"selected_rule_parse:\n{json.dumps(parsed.model_dump(), ensure_ascii=False)}"
+    )
+
+
+def _extract_guard_decision(raw_text: str) -> str:
+    """judge 응답에서 decision을 뽑는다. 파싱 실패/누락 시 보수적으로 'accept_rule'.
+
+    (룰 파스는 이미 결정론 게이트를 통과했으므로, judge를 못 읽었다고 멀쩡한 빠른 경로를
+    깨지 않는다 — judge는 추가 검증일 뿐 정확성의 baseline이 아니다.)"""
+    try:
+        data = json.loads(_extract_json_object(_trim_model_trailing_tokens(raw_text)))
+    except (ValueError, json.JSONDecodeError):
+        return "accept_rule"
+    decision = str(data.get("decision", "")).strip()
+    return "fallback_llm_parse" if decision == "fallback_llm_parse" else "accept_rule"
 
 
 def _merge_fundamental_filters(
@@ -2165,8 +2747,15 @@ def _modify_rule_based(user_input: str, previous: dict) -> Optional[ParsedStrate
     처리한다. 인식 못 한 잔여 콘텐츠가 있으면 None을 반환해 LLM 경로로 위임한다(핵심만 결정적,
     긴 꼬리는 LLM). 기술적 신호 추가 같은 복합 수정은 의도적으로 LLM에 맡긴다.
     """
-    compact = re.sub(r"\s+", "", user_input.lower())
+    compact = _compact(user_input)
     changes: dict[str, object] = {}
+
+    # 백테스트 기간·리밸런싱 주기 의도는 있는데 유효 값으로 못 푼 수정 요청(예: '백테스트
+    # 1주일로 바꿔줘', '10일마다 리밸런싱으로')은 조용히 무시하지 않고 LLM에 위임한다(3-state).
+    if _backtest_period_state(user_input) == "unresolved":
+        return None
+    if _rebalancing_period_state(user_input) == "unresolved":
+        return None
 
     # 리스크 필드(손절/익절/트레일링) — 단일 진실 소스, 삭제 의도는 None으로 인코딩.
     changes.update(extract_risk_field_overrides(user_input))
@@ -2203,8 +2792,12 @@ def _modify_rule_based(user_input: str, previous: dict) -> Optional[ParsedStrate
     elif removing and any(cue in compact for cue in _MODIFY_HOLD_CUES):
         changes["hold_period_days"] = None  # 해제: null로 비움(Optional)
 
-    if any(cue in compact for cue in _MODIFY_CAPITAL_CUES) and re.search(r"\d|억|천만|만원", compact):
-        changes["initial_capital"] = _extract_initial_capital(user_input)
+    if any(cue in compact for cue in _MODIFY_CAPITAL_CUES):
+        # 자본금 cue가 있을 때만 단위 없는 맨숫자도 만원으로 해석한다("초기자금 300으로"=300만원).
+        # 못 풀면(금액 미언급) None → 자본금을 건드리지 않고, 잔여가 남으면 LLM으로 위임된다.
+        amount = _extract_capital_amount(user_input, allow_bare=True)
+        if amount is not None:
+            changes["initial_capital"] = amount
 
     if any(cue in compact for cue in _MODIFY_REBALANCE_CUES):
         rebalancing = _extract_rebalancing_period(user_input, hold)
@@ -2294,15 +2887,16 @@ _DELETE_TERMS = ["삭제", "없애", "제거", "지워", "빼줘", "빼"]
 # 키워드와 숫자가 인접하지 않아도("익절 비율을 30%로"), 같은 절(다른 % 미포함) 안이면 연결한다.
 _TAKE_PROFIT_CUE = r"(?:익절|수익실현|수익확정|목표수익)"
 _STOP_LOSS_CUE = r"손절"
-_TRAILING_CUE = r"(?:트레일링(?:스탑|스톱)?|최고가대비)"
+_TRAILING_CUE = r"(?:트레일링(?:스탑|스톱)?|(?:최고가|최고점|고점|고가)대비)"
 # 다른 리스크 필드 키워드를 사이에 두고는 연결하지 않아 오인식("손절 없이 익절 10%")을 막는다.
 _STOP_LOSS_BLOCK = r"익절|수익실현|수익확정|목표수익|트레일링"
 _TAKE_PROFIT_BLOCK = r"손절|손실|트레일링"
 _TRAILING_BLOCK = r"손절|익절"
 
 
-# "매도/청산" 외에 구어체 "팔고/팔아/팔자/팔래/팔면/팔게/팔까"도 매도 동사로 인정
-_SELL_VERB = r"(?:매도|청산|팔[고아자래면게까])"
+# "매도/청산" 외에 구어체 "팔고/팔아/팔자/팔래/팔면/팔게/팔까"와 "정리/처분/매각"도 매도
+# 동사로 인정한다(_SELL_V로 일원화 — 품사 변화/유의어를 한 곳에서 관리).
+_SELL_VERB = _SELL_V
 
 # 필드 키워드가 없는 동사형 표현(주로 최초 입력) 폴백 패턴.
 _TAKE_PROFIT_VERB_PATTERNS = (
@@ -2312,10 +2906,10 @@ _TAKE_PROFIT_VERB_PATTERNS = (
     rf"수익이?(\d+(?:\.\d+)?)%.*?{_SELL_VERB}",
 )
 _STOP_LOSS_VERB_PATTERNS = (
-    r"손실이?(\d+(?:\.\d+)?)%이상.*?(?:매도|청산)",
-    r"(\d+(?:\.\d+)?)%이상하락.*?(?:매도|청산)",
-    r"(\d+(?:\.\d+)?)%하락.*?(?:매도|청산)",
-    r"-(\d+(?:\.\d+)?)%.*?(?:매도|청산)",
+    rf"손실이?(\d+(?:\.\d+)?)%이상.*?{_SELL_V}",
+    rf"(\d+(?:\.\d+)?)%이상하락.*?{_SELL_V}",
+    rf"(\d+(?:\.\d+)?)%하락.*?{_SELL_V}",
+    rf"-(\d+(?:\.\d+)?)%.*?{_SELL_V}",
 )
 
 
@@ -2361,7 +2955,7 @@ def extract_risk_field_overrides(user_input: str) -> dict[str, Optional[float]]:
     파서(_apply_prompt_overrides)와 API가 공유하여, 프론트가 자체 정규식으로
     리스크 변경을 다시 추측하지 않고 이 결과를 그대로 신뢰하게 한다.
     """
-    compact = re.sub(r"\s+", "", user_input.lower())
+    compact = _compact(user_input)
     is_deleting = any(kw in compact for kw in _DELETE_TERMS)
     out: dict[str, Optional[float]] = {}
 
@@ -2386,7 +2980,7 @@ def extract_risk_field_overrides(user_input: str) -> dict[str, Optional[float]]:
             out["stop_loss_pct"] = value
 
     # ── 트레일링 스탑: "트레일링/최고가대비" 키워드 + % ──
-    if is_deleting and any(kw in compact for kw in ["트레일링", "trailingstop", "최고가대비"]):
+    if is_deleting and any(kw in compact for kw in ["트레일링", "trailingstop", "최고가대비", "고점대비", "최고점대비", "고가대비"]):
         out["trailing_stop_pct"] = None
     else:
         value = _match_risk_pct(compact, _TRAILING_CUE, blocker=_TRAILING_BLOCK)
@@ -2422,7 +3016,51 @@ def synthesize_risk_overrides(
     return overrides or None
 
 
-def _apply_prompt_overrides(parsed: ParsedStrategy, user_input: str) -> ParsedStrategy:
+# ── 수정 환각 게이트 (프론트 parsedStrategyMerge 도메인 게이트를 백엔드로 이관) ──────────
+# 수정 시 LLM diff가 사용자가 언급하지 않은 필드를 환각으로 바꾸면, 이전 값으로 되돌려 차단한다.
+# 도메인 판정은 프론트 DOMAIN_PATTERNS와 동일한 어휘를 쓴다(단일 진실 소스를 백엔드로 통일).
+# compact(공백 제거·오타 보정) 위에서 매칭하므로 '\s*'는 빈 문자열도 허용해 그대로 동작한다.
+_MODIFY_DOMAIN_SPECS: tuple[tuple[tuple[str, ...], "re.Pattern[str]"], ...] = (
+    (("universe",),
+     re.compile(r"코스피200|코스피\s*200|코스피|코스닥|kospi200|kospi|kosdaq|유니버스|전체\s*시장|시장", re.IGNORECASE)),
+    (("fundamental_filters", "entry_signals"),
+     re.compile(r"진입|매수|골든크로스|rsi|macd|볼린저|브레이크아웃|돌파|pbr|per|roe|부채비율|시총|거래대금|필터|저평가|ai", re.IGNORECASE)),
+    (("exit_signals", "hold_period_days"),
+     re.compile(r"청산|매도|팔아|팔까|팔지|보유|데드크로스|하락", re.IGNORECASE)),
+    (("max_positions", "rebalancing_period"),
+     re.compile(r"최대\s*\d+\s*종목|\d+\s*개\s*종목|\d+\s*종목|종목\s*수|보유\s*종목|종목[^.]{0,6}\d+\s*개|\d+\s*개[^.]{0,6}(?:종목|보유)|포트폴리오|리밸런싱|리밸런스|분산|집중", re.IGNORECASE)),
+    (("backtest_period", "initial_capital", "backtest_start_date", "backtest_end_date"),
+     re.compile(r"백테스트|테스트\s*기간|전체\s*데이터|초기자금|자본금|원금|만원|억원?|\d[\d,]*원|(?:19|20)\d{2}\s*년?\s*(?:부터|까지|~|에서)|(?:19|20)\d{2}\s*[~\-]\s*(?:19|20)\d{2}", re.IGNORECASE)),
+)
+
+
+def _gate_modification_hallucinations(merged: dict, previous: dict, user_input: str) -> None:
+    """수정 결과(merged)에서 사용자가 언급하지 않은 필드를 이전 값으로 되돌린다(in-place).
+
+    LLM diff가 요청되지 않은 도메인/리스크 필드를 환각으로 바꾸는 것을 백엔드에서 차단한다.
+    이후 _apply_prompt_overrides가 결정적 추출로 '실제 요청된' 변경을 다시 적용하므로,
+    도메인 패턴이 놓친 결정적 변경(예: '시드 500'의 초기자금)은 복원되지 않는다(안전한 순서).
+    """
+    compact = _compact(user_input)
+    # 비-리스크 도메인: 패턴이 매치 안 되면 해당 필드를 이전 값으로 보존.
+    for fields, pattern in _MODIFY_DOMAIN_SPECS:
+        if pattern.search(compact):
+            continue
+        for field in fields:
+            merged[field] = previous.get(field)
+    # 리스크 필드(손절/익절/트레일링): 결정적 추출로 잡힌 것만 인정(단일 진실 소스).
+    det_risk = extract_risk_field_overrides(user_input)
+    for field in _RISK_OVERRIDE_FIELDS:
+        if field not in det_risk:
+            merged[field] = previous.get(field)
+    # MDD 한도: 관련 cue가 없으면 이전 값 유지.
+    if not any(kw in compact for kw in _MODIFY_MDD_CUES):
+        merged["max_mdd_limit_pct"] = previous.get("max_mdd_limit_pct")
+
+
+def _apply_prompt_overrides(
+    parsed: ParsedStrategy, user_input: str, *, skip_signal_validation: bool = False,
+) -> ParsedStrategy:
     updates: dict[str, object] = {}
     explicit_universe = _extract_explicit_universe(user_input)
     if explicit_universe is not None:
@@ -2474,11 +3112,13 @@ def _apply_prompt_overrides(parsed: ParsedStrategy, user_input: str) -> ParsedSt
     if rebalancing != "none":
         updates["rebalancing_period"] = rebalancing
 
-    compact_in = re.sub(r"\s+", "", user_input.lower())
-    if re.search(r"\d+(?:\.\d+)?(?:억|천만|백만|만원)|초기자금|자본금|시드", compact_in):
-        capital = _extract_initial_capital(user_input)
-        if capital != 10_000_000.0:
-            updates["initial_capital"] = capital
+    compact_in = _compact(user_input)
+    capital_cue = any(cue in compact_in for cue in _MODIFY_CAPITAL_CUES)
+    # cue가 있으면 단위 없는 맨숫자도 만원으로 해석한다(allow_bare). 금액을 못 풀면(None)
+    # 자본금을 건드리지 않는다 — 기본값(10M)과 충돌하던 '!= 10_000_000' 가드를 None 체크로 대체.
+    capital = _extract_capital_amount(user_input, allow_bare=capital_cue)
+    if capital is not None:
+        updates["initial_capital"] = capital
 
     if _extract_execution_timing(user_input) == "current_close":
         updates["execution_timing"] = "current_close"
@@ -2489,12 +3129,16 @@ def _apply_prompt_overrides(parsed: ParsedStrategy, user_input: str) -> ParsedSt
         updates["slippage_rate"] = _extract_rate(user_input, "슬리피지", 0.05)
 
     # ── Step 1: LLM 환각 신호 제거 (프롬프트에 언급되지 않은 지표 제거) ──
-    validated_entry = _validate_signals(list(parsed.entry_signals), user_input)
-    validated_exit = _validate_signals(list(parsed.exit_signals), user_input)
-    if len(validated_entry) != len(parsed.entry_signals):
-        updates["entry_signals"] = validated_entry
-    if len(validated_exit) != len(parsed.exit_signals):
-        updates["exit_signals"] = validated_exit
+    # 수정 모드에서는 건너뛴다: 기존 신호는 처음 만들 때 이미 검증됐고, 짧은 수정 프롬프트
+    # (예: "손절 10%로")로 재검증하면 언급 안 된 기존 신호를 잘못 떨군다. 수정 시 요청되지
+    # 않은 신호 도메인은 _gate_modification_hallucinations가 이전 값으로 보존한다.
+    if not skip_signal_validation:
+        validated_entry = _validate_signals(list(parsed.entry_signals), user_input)
+        validated_exit = _validate_signals(list(parsed.exit_signals), user_input)
+        if len(validated_entry) != len(parsed.entry_signals):
+            updates["entry_signals"] = validated_entry
+        if len(validated_exit) != len(parsed.exit_signals):
+            updates["exit_signals"] = validated_exit
 
     # ── Step 2: deterministic 추출 & 병합 ──
     extracted_entry, extracted_exit = _extract_technical_signals(user_input)
@@ -2513,13 +3157,13 @@ def _apply_prompt_overrides(parsed: ParsedStrategy, user_input: str) -> ParsedSt
 # 상대강도(수익률 순위) 랭킹 의도 감지용 cue — "수익률 높은 상위 N종목" 류.
 # 이 선정 방식은 종목 간 횡단면 순위라 현재 엔진(종목별 신호/필터)으로 표현 불가하다.
 _RELATIVE_STRENGTH_RANKING_CUES = (
-    r"수익률.{0,6}(?:상위|높은|좋은|top)",
+    r"수익률.{0,6}(?:상위|높은|좋은|top|랭킹|순)",
     r"(?:상위|높은|좋은).{0,6}수익률",
-    r"등락률.{0,6}(?:상위|높은)",
-    r"수익률.{0,4}순위",
+    r"등락률.{0,6}(?:상위|높은|순)",
+    r"수익률.{0,4}(?:순위|랭킹)",
     r"상대강도",
-    r"모멘텀.{0,5}(?:상위|순위|랭킹|상위권)",
-    r"(?:상승률|많이오른|꾸준히오른|강하게오른|강하게상승|가장오른).{0,8}(?:상위|상위권|순)",
+    r"모멘텀.{0,5}(?:상위|순위|랭킹|상위권|강한)",
+    r"(?:상승률|많이오른|꾸준히오른|강하게오른|강하게상승|가장오른|강세).{0,8}(?:상위|상위권|순|랭킹)",
     # "가장 강하게 오른 종목 N개" 처럼 '상위'가 떨어져 있어도 강한 상승 표현은 모멘텀 랭킹으로 본다.
     r"(?:가장|제일).{0,4}(?:강하게|많이).{0,2}(?:오른|상승)",
 )

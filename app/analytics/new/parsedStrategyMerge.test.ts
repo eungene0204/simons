@@ -5,6 +5,7 @@ import {
   buildCandidateBacktestRequest,
   buildWalkForwardParameterRanges,
   buildWalkForwardRequest,
+  correctCountTypo,
   hasWalkForwardParameterRanges,
   isAdvisorFollowUpPrompt,
   mergeStrategyModification,
@@ -27,13 +28,13 @@ const previousParsed: ParsedSummary = {
 
 describe("mergeStrategyModification", () => {
   it("백테스트 기간만 바꾸는 요청에서는 기존 진입/청산 조건을 유지한다", () => {
+    // 백엔드가 권위 있게 병합해 내려주므로(요청 안 된 진입/청산·손절은 이전 값 그대로),
+    // next는 기간만 바뀐 완전한 전략이다. 프론트는 그대로 신뢰한다.
     const result = mergeStrategyModification({
       previousParsed,
       nextParsed: {
         ...previousParsed,
-        entry_signals: [],
-        exit_signals: [],
-        stop_loss_pct: null,
+        stop_loss_pct: 7,
         backtest_period: "1y",
       },
       previousBacktestRequest: {
@@ -51,12 +52,12 @@ describe("mergeStrategyModification", () => {
       },
       nextBacktestRequest: {
         symbols: ["005930", "000660"],
-        entry: { conditions: [] },
-        exit: { conditions: [] },
+        entry: { conditions: [{ id: "ai_model" }] },
+        exit: { conditions: [{ id: "ai_drop_model" }] },
         risk: {
           max_positions: 5,
           position_size_pct: 20,
-          stop_loss_pct: null,
+          stop_loss_pct: 7,
           init_cash: 10000000,
         },
         period: "1y",
@@ -171,15 +172,67 @@ describe("mergeStrategyModification", () => {
     expect(result.backtestRequest?.risk?.stop_loss_pct).toBe(10);
   });
 
-  it("리스크 후속 수정은 파서 기본 KOSPI200으로 기존 유니버스를 덮어쓰지 않는다", () => {
+  it("'종목을 10개로 늘려줘'는 포트폴리오 변경으로 인식해 최대 종목 수를 반영한다", () => {
+    // 백엔드가 권위 있게 병합해 내려주므로(요청 안 된 진입/청산 신호는 이전 값 유지),
+    // next는 max_positions만 바뀐 완전한 전략이다. 프론트는 그대로 신뢰한다.
     const result = mergeStrategyModification({
       previousParsed,
       nextParsed: {
         ...previousParsed,
-        universe: ["KOSPI200"],
-        entry_signals: [],
-        exit_signals: [],
-        stop_loss_pct: null,
+        max_positions: 10,
+      },
+      previousBacktestRequest: {
+        entry: { conditions: [{ id: "ai_model" }] },
+        exit: { conditions: [{ id: "ai_drop_model" }] },
+        risk: { max_positions: 5, position_size_pct: 20, init_cash: 10000000 },
+        period: "5y",
+      },
+      nextBacktestRequest: {
+        entry: { conditions: [{ id: "ai_model" }] },
+        exit: { conditions: [{ id: "ai_drop_model" }] },
+        risk: { max_positions: 10, position_size_pct: 10, init_cash: 10000000 },
+        period: "5y",
+      },
+      userPrompt: "종목을 10개로 늘려줘",
+    });
+
+    expect(result.requestedDomains.has("portfolio")).toBe(true);
+    expect(result.parsed.max_positions).toBe(10);
+    // 진입/청산 조건은 이전 전략에서 그대로 유지(버려지지 않음).
+    expect(result.parsed.entry_signals).toEqual(previousParsed.entry_signals);
+    expect(result.parsed.exit_signals).toEqual(previousParsed.exit_signals);
+    expect(result.backtestRequest?.entry?.conditions).toEqual([{ id: "ai_model" }]);
+    expect(result.backtestRequest?.risk?.max_positions).toBe(10);
+  });
+
+  it("'최대 종목을 10게로 해줘'(개→게 오타)도 포트폴리오 변경으로 인식해 max_positions를 반영한다", () => {
+    // 회귀: 백엔드는 max_positions=10을 올바로 추출하는데, 프론트 도메인 게이트가 '게' 오타를
+    // 인식 못 해(portfolio 미감지) 백엔드 값을 버리고 이전 8을 유지하던 버그.
+    const result = mergeStrategyModification({
+      previousParsed: { ...previousParsed, max_positions: 8 },
+      nextParsed: { ...previousParsed, max_positions: 10 },
+      userPrompt: "최대 종목을 10게로 해줘",
+    });
+
+    expect(result.requestedDomains.has("portfolio")).toBe(true);
+    expect(result.parsed.max_positions).toBe(10);
+  });
+
+  it("correctCountTypo는 숫자 뒤 '게'만 '개'로 보정하고 게임/게시 같은 단어는 보존한다", () => {
+    expect(correctCountTypo("최대 종목을 10게로 해줘")).toBe("최대 종목을 10개로 해줘");
+    expect(correctCountTypo("종목은 5게")).toBe("종목은 5개");
+    expect(correctCountTypo("120게임 만들기")).toBe("120게임 만들기");
+  });
+
+  it("리스크 후속 수정은 백엔드 권위 병합 결과(기존 유니버스·손절 유지 + 트레일링 추가)를 반영한다", () => {
+    // 백엔드가 요청 안 된 유니버스·손절·진입 신호를 이전 값으로 보존하고 트레일링만 추가해
+    // 내려주므로, next가 이미 완전한 전략이다. 프론트는 그대로 신뢰한다.
+    const result = mergeStrategyModification({
+      previousParsed,
+      nextParsed: {
+        ...previousParsed,
+        universe: ["KOSPI"],
+        stop_loss_pct: 7,
         take_profit_pct: null,
         trailing_stop_pct: 15,
       },
@@ -197,13 +250,14 @@ describe("mergeStrategyModification", () => {
         period: "5y",
       },
       nextBacktestRequest: {
-        universe_id: "kospi200",
-        symbols: ["069500"],
-        entry: { conditions: [] },
+        universe_id: "kospi",
+        symbols: ["005930", "000660"],
+        entry: { conditions: [{ id: "pbr" }] },
         exit: { conditions: [] },
         risk: {
-          max_positions: null,
-          stop_loss_pct: null,
+          max_positions: 5,
+          position_size_pct: 20,
+          stop_loss_pct: 7,
           take_profit_pct: null,
           trailing_stop_pct: 15,
           init_cash: 10000000,
@@ -262,7 +316,7 @@ describe("mergeStrategyModification", () => {
         "트레일링 스탑이라는 조건을 추가할 때, 최고가에서 몇 % 내려오면 팔지 정할까요?",
     });
 
-    expect(result.requestedDomains.has("risk")).toBe(true);
+    // 코치 맥락 답변("15%")은 백엔드가 알 수 없어 프론트 pendingRiskChange로만 잡힌다.
     expect(result.parsed.trailing_stop_pct).toBe(15);
     expect(result.parsed.stop_loss_pct).toBe(12);
     expect(result.backtestRequest?.risk?.trailing_stop_pct).toBe(15);
@@ -278,11 +332,12 @@ describe("mergeStrategyModification", () => {
         trailing_stop_pct: null,
         hold_period_days: 126,
       },
+      // 백엔드 환각 게이트가 요청 안 된 트레일링(LLM 환각)을 이전 값(null)으로 되돌려 내려준다.
       nextParsed: {
         ...previousParsed,
         stop_loss_pct: 12,
         take_profit_pct: 30,
-        trailing_stop_pct: 30,
+        trailing_stop_pct: null,
         hold_period_days: 126,
       },
       previousBacktestRequest: {
@@ -303,7 +358,7 @@ describe("mergeStrategyModification", () => {
           max_positions: 8,
           stop_loss_pct: 12,
           take_profit_pct: 30,
-          trailing_stop_pct: 30,
+          trailing_stop_pct: null,
           max_holding_days: 126,
           init_cash: 10000000,
         },
@@ -314,7 +369,6 @@ describe("mergeStrategyModification", () => {
         "익절 비율을 추가해 보시겠어요? 아니면 트레일링 스탑을 추가해 보시겠어요? 예를 들면 '트레일링 스탑 15% 설정'이라고 말씀해주세요.",
     });
 
-    expect(result.requestedDomains.has("risk")).toBe(true);
     expect(result.parsed.take_profit_pct).toBe(30);
     expect(result.parsed.trailing_stop_pct).toBeNull();
     expect(result.backtestRequest?.risk?.take_profit_pct).toBe(30);
@@ -400,7 +454,6 @@ describe("mergeStrategyModification", () => {
       riskOverrides: { take_profit_pct: 30 },
     });
 
-    expect(result.requestedDomains.has("risk")).toBe(true);
     expect(result.parsed.take_profit_pct).toBe(30);
     expect(result.parsed.stop_loss_pct).toBe(10);
     expect(result.backtestRequest?.risk?.take_profit_pct).toBe(30);
@@ -490,10 +543,11 @@ describe("mergeStrategyModification", () => {
         take_profit_pct: 20,
         trailing_stop_pct: 15,
       },
+      // 백엔드 환각 게이트가 요청 안 된 트레일링을 이전 값(15)으로 되돌려 내려준다.
       nextParsed: {
         ...previousParsed,
         take_profit_pct: 30,
-        trailing_stop_pct: 30,
+        trailing_stop_pct: 15,
       },
       previousBacktestRequest: {
         risk: {
@@ -508,7 +562,7 @@ describe("mergeStrategyModification", () => {
         risk: {
           stop_loss_pct: 7,
           take_profit_pct: 30,
-          trailing_stop_pct: 30,
+          trailing_stop_pct: 15,
           init_cash: 10000000,
         },
         period: "5y",
@@ -567,62 +621,16 @@ describe("mergeStrategyModification", () => {
         "익절 비율(매수가 대비 정한 수익률에 도달하면 자동으로 파는 고정 목표 수익 조건)을 30%로 조정해 주신 요청을 반영하여, 현재 조건과 비교 테스트를 진행해 보시겠어요?",
     });
 
-    expect(result.requestedDomains.has("risk")).toBe(true);
+    // 코치 맥락 답변("20%")은 pendingRiskChange로 익절에 반영된다(백엔드는 맥락을 모름).
     expect(result.parsed.stop_loss_pct).toBe(12);
     expect(result.parsed.take_profit_pct).toBe(20);
     expect(result.backtestRequest?.risk?.stop_loss_pct).toBe(12);
     expect(result.backtestRequest?.risk?.take_profit_pct).toBe(20);
   });
 
-  it("후속 개선 질문처럼 수정 domain이 없는 요청은 기존 전략을 유지한다", () => {
-    const result = mergeStrategyModification({
-      previousParsed,
-      nextParsed: {
-        ...previousParsed,
-        entry_signals: [],
-        exit_signals: [],
-        stop_loss_pct: null,
-        max_positions: null,
-      },
-      previousBacktestRequest: {
-        symbols: ["005930", "000660"],
-        entry: { conditions: [{ id: "breakout_52w" }, { id: "volume_spike" }] },
-        exit: { conditions: [] },
-        risk: {
-          max_positions: 6,
-          position_size_pct: 16.67,
-          stop_loss_pct: 10,
-          max_holding_days: 20,
-          init_cash: 10000000,
-        },
-        period: "5y",
-      },
-      nextBacktestRequest: {
-        symbols: [],
-        entry: { conditions: [] },
-        exit: { conditions: [] },
-        risk: {
-          max_positions: null,
-          stop_loss_pct: null,
-          init_cash: 10000000,
-        },
-        period: "5y",
-      },
-      userPrompt: "어디를 개선 해볼까?",
-    });
-
-    expect(result.requestedDomains.size).toBe(0);
-    expect(result.parsed.entry_signals).toEqual(previousParsed.entry_signals);
-    expect(result.parsed.exit_signals).toEqual(previousParsed.exit_signals);
-    expect(result.parsed.stop_loss_pct).toBe(7);
-    expect(result.parsed.max_positions).toBe(5);
-    expect(result.backtestRequest?.entry?.conditions).toEqual([
-      { id: "breakout_52w" },
-      { id: "volume_spike" },
-    ]);
-    expect(result.backtestRequest?.risk?.stop_loss_pct).toBe(10);
-    expect(result.backtestRequest?.risk?.max_holding_days).toBe(20);
-  });
+  // "후속 개선 질문(수정 domain 없음)은 기존 전략 유지" 테스트는 제거했다 — 그런 프롬프트는
+  // 상위 isAdvisorFollowUpPrompt가 병합 이전에 코치로 라우팅하므로 mergeStrategyModification에
+  // 도달하지 않는다(아래 isAdvisorFollowUpPrompt describe에서 '어디를 개선 해볼까?'를 검증).
 
   it("Advisor 후보 전략을 기존 백테스트 요청에 반영한다", () => {
     const candidate = buildCandidateBacktestRequest(

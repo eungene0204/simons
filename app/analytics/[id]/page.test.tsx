@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import StrategyResultPage from "./page";
 
@@ -17,7 +18,15 @@ vi.mock("@/components/layout/DashboardLayout", () => ({
 }));
 
 vi.mock("@/components/strategy/backtest/BacktestDashboard", () => ({
-  default: ({ promptText, strategySummary }: { promptText?: string; strategySummary?: any }) => (
+  default: ({
+    promptText,
+    strategySummary,
+    onWalkForward,
+  }: {
+    promptText?: string;
+    strategySummary?: any;
+    onWalkForward?: (settings: any) => Promise<any>;
+  }) => (
     <div
       data-testid="backtest-dashboard"
       data-prompt={promptText ?? ""}
@@ -27,6 +36,22 @@ vi.mock("@/components/strategy/backtest/BacktestDashboard", () => ({
       data-risk={strategySummary?.riskText ?? ""}
     >
       backtest dashboard
+      {onWalkForward && (
+        <button
+          type="button"
+          onClick={() =>
+            onWalkForward({
+              n_splits: 4,
+              train_pct: 0.7,
+              anchor: false,
+              target_metric: "cagr",
+              n_trials: 20,
+            })
+          }
+        >
+          워크포워드 실행
+        </button>
+      )}
     </div>
   ),
 }));
@@ -56,7 +81,7 @@ describe("StrategyResultPage", () => {
                 ],
               },
               exit: { conditions: [] },
-              risk: { max_positions: 3, init_cash: 10000000 },
+              risk: { max_positions: 3, init_cash: 10000000, stop_loss_pct: 12 },
             },
             historySummary: {
               strategyName: "레거시 전략",
@@ -82,6 +107,20 @@ describe("StrategyResultPage", () => {
         return Promise.resolve({
           ok: true,
           json: async () => ({}),
+        });
+      }
+
+      if (url === "/api/backtest/walk-forward") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            status: "ok",
+            windows: [],
+            aggregate: {},
+            combined_equity: [],
+            combined_dates: [],
+            walk_forward_efficiency: 0,
+          }),
         });
       }
 
@@ -133,5 +172,33 @@ describe("StrategyResultPage", () => {
       "/api/backtest/run",
       expect.anything()
     );
+  });
+
+  it("저장된 전략 결과에서도 워크포워드 실행 핸들러를 전달한다", async () => {
+    render(<StrategyResultPage />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "워크포워드 실행" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/backtest/walk-forward",
+        expect.objectContaining({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+    });
+
+    const walkForwardCall = fetchMock.mock.calls.find(([url]) => url === "/api/backtest/walk-forward");
+    expect(JSON.parse(walkForwardCall?.[1]?.body as string)).toMatchObject({
+      n_splits: 4,
+      train_pct: 0.7,
+      anchor: false,
+      target_metric: "cagr",
+      n_trials: 20,
+      ranges: {
+        "risk.stop_loss_pct": expect.any(Array),
+      },
+    });
   });
 });

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { isBacktestConfirmation, isBacktestPrompt } from "./backtestConfirmation";
+import {
+  backtestPeriodTooShort,
+  isBacktestConfirmation,
+  isBacktestPrompt,
+} from "./backtestConfirmation";
 
 describe("isBacktestPrompt", () => {
   it("detects the proceed-with-backtest confirmation question", () => {
@@ -61,6 +65,14 @@ describe("isBacktestConfirmation", () => {
     expect(isBacktestConfirmation("종목 수를 10개로 늘려줘")).toBe(false);
   });
 
+  it.each(["백테스트 1주일로 해줘", "백테스트 3년으로 해줘", "백테스트 6개월로 돌려줘"])(
+    "does not treat a period-bearing message %s as confirmation (must reparse)",
+    (text) => {
+      expect(isBacktestConfirmation(text)).toBe(false);
+    },
+  );
+
+
   it("does not treat a negative reply as confirmation", () => {
     expect(isBacktestConfirmation("아니요")).toBe(false);
     expect(isBacktestConfirmation("아니 익절도 넣어줘")).toBe(false);
@@ -69,5 +81,40 @@ describe("isBacktestConfirmation", () => {
   it("handles empty input", () => {
     expect(isBacktestConfirmation("")).toBe(false);
     expect(isBacktestConfirmation("   ")).toBe(false);
+  });
+});
+
+describe("backtestPeriodTooShort", () => {
+  it.each([
+    "백테스트 1주일로 해줘",
+    "백테스트 2주로 해줘",
+    "백테스트를 일주일로 돌려줘",
+    "백테스트 기간을 10일로 해줘",
+    "백테스트 30일로 해줘",
+    "백테스트 6개월로 해줘",
+    "백테스트 기간 한 달로 해줘",
+    "백테스트 반년으로 해줘",
+    "백테스트 며칠로만 해줘",
+  ])("flags sub-1-year backtest period %s", (text) => {
+    expect(backtestPeriodTooShort(text)).toBe(true);
+  });
+
+  it.each([
+    "백테스트 1년으로 해줘",
+    "백테스트 3년으로 해줘",
+    "백테스트 12개월로 해줘",
+    "백테스트 전체 기간으로 해줘",
+    "백테스트 5년으로 돌려줘",
+  ])("does not flag valid (>=1 year) period %s", (text) => {
+    expect(backtestPeriodTooShort(text)).toBe(false);
+  });
+
+  it.each([
+    "20일선 위에 있으면 매수",
+    "한 번 사면 20일 보유 후 매도",
+    "RSI 14일 기준으로 매수",
+    "골든크로스 매수, 데드크로스 매도",
+  ])("does not flag non-backtest duration mentions %s", (text) => {
+    expect(backtestPeriodTooShort(text)).toBe(false);
   });
 });

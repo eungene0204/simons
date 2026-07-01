@@ -20,7 +20,7 @@ export default async function PricingPage() {
   return (
     <DashboardLayout userName={user.name || "게스트"}>
       <div className="min-h-[calc(100vh-var(--top-menu-bar-height,76px))] bg-[#050505] px-5 py-6 text-white sm:px-8 lg:px-10">
-        <div className="mx-auto flex min-h-[calc(100vh-var(--top-menu-bar-height,76px)-3rem)] w-full max-w-6xl flex-col">
+        <div className="mx-auto flex min-h-[calc(100vh-var(--top-menu-bar-height,76px)-3rem)] w-full max-w-7xl flex-col">
           <div className="text-center">
             <h1 className="text-4xl font-black tracking-[-0.04em] text-white md:text-6xl">
               플랜을 선택하세요

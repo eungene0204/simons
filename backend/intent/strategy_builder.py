@@ -300,10 +300,16 @@ def parse_input(text: str, state: BuilderState, expecting: Optional[str]) -> dic
 
     # custom 유형에서 진입 조건을 서술로 받는 중이면, 입력 전체를 진입 규칙으로 저장한다
     # (자유 서술 안의 숫자를 기간/보유수로 오해하지 않도록 다른 파싱을 건너뛴다).
+    # 단, 명시적 "N개/N종목" 접미사는 보유 수로만 해석되므로(RSI 30 같은 맨숫자와 달리 모호하지
+    # 않다) 진입 서술에 종목 수가 섞여 있으면 함께 잡아 보유 수를 다시 묻지 않는다.
     if expecting == "entry_rule":
         stripped = t.strip()
         if stripped and detect_control(stripped) is None:
-            return {"entry_rule": stripped}
+            patch = {"entry_rule": stripped}
+            m_count = _COUNT_RE.search(t)
+            if m_count and not state.holding_count:
+                patch["holding_count"] = int(m_count.group(1))
+            return patch
         return {}
 
     # 청산 조건 단계 — 손절/익절/트레일링/보유기간만 해석하고(없음=값 없이) 완료 처리한다.
@@ -478,9 +484,11 @@ def next_question(
             [],
         )
     if field == "holding_count":
+        # "직접 입력"은 빌더 답변이 아니라 프론트에서 채팅창을 다시 띄우는 토글 칩이다
+        # (제시한 5/10/20개 외의 종목 수를 사용자가 직접 타이핑할 수 있게 한다).
         if state.strategy_type == "momentum":
-            return (prefix + "상위 몇 개 종목을 보유할까요?", ["5개", "10개", "20개"])
-        return (prefix + "최대 몇 종목까지 보유할까요?", ["5개", "10개", "20개"])
+            return (prefix + "상위 몇 개 종목을 보유할까요?", ["5개", "10개", "20개", "직접 입력"])
+        return (prefix + "최대 몇 종목까지 보유할까요?", ["5개", "10개", "20개", "직접 입력"])
     if field == "rebalance_cycle":
         return (prefix + "얼마나 자주 종목을 교체(리밸런싱)할까요?", ["매주", "매월", "분기마다", "안 함"])
     if field == "risk":

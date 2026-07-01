@@ -2674,6 +2674,28 @@ def _kick_ollama_warmup() -> None:
     threading.Thread(target=_run, name="ollama-warmup", daemon=True).start()
 
 
+def _kick_local_ollama_model_preload(model: str) -> None:
+    """로컬 Ollama면 서버 시작 직후 백그라운드로 모델을 메모리에 적재한다(첫 호출 지연 제거).
+
+    Ollama는 기본적으로 첫 추론 호출 때 모델을 로드하는데, 로컬 dev에서는 콜드스타트가
+    없으므로 startup에서 바로 적재해 첫 파싱/코치 요청이 로드 지연을 떠안지 않게 한다.
+    원격(Modal)은 콜드스타트 특성상 GET 워밍업(_kick_ollama_warmup)을 쓰므로 제외한다.
+    적재가 느리거나 실패해도 기동·요청 경로엔 영향 없다(첫 호출 시 lazy 로드로 폴백).
+    """
+    import threading
+
+    from engine.nl_parser import _ollama_preload_model
+
+    def _run() -> None:
+        try:
+            _ollama_preload_model(model)
+            print(f"[startup] 로컬 Ollama 모델 적재 완료: {model}", flush=True)
+        except Exception as e:  # noqa: BLE001 — 적재 실패는 비치명적
+            print(f"[startup] 로컬 Ollama 모델 적재 실패 (무시됨, 첫 호출 시 로드): {e}", flush=True)
+
+    threading.Thread(target=_run, name="ollama-model-preload", daemon=True).start()
+
+
 @app.on_event("startup")
 def preload_nl_parser():
     """서버 시작 시 Ollama 기반 NL 파서를 준비한다.
@@ -2717,7 +2739,13 @@ def preload_nl_parser():
         print(f"[startup] 코치 파서 주입 실패 (무시됨): {coach_err}", flush=True)
 
     if backend == "ollama":
-        _kick_ollama_warmup()
+        from llm_backend import is_local_ollama
+        if is_local_ollama():
+            # 로컬 dev: 콜드스타트가 없으므로 모델을 즉시 메모리에 적재한다.
+            _kick_local_ollama_model_preload(parser.ollama_model)
+        else:
+            # 원격(Modal): 콜드스타트 컨테이너를 GET으로 미리 깨운다.
+            _kick_ollama_warmup()
 
 
 def _ensure_summarize_model_loaded():
@@ -2765,6 +2793,11 @@ def _is_llm_connection_error(exc: BaseException) -> bool:
 @app.post("/strategy/parse", response_model=NLParseResponse)
 def parse_nl_strategy(request: NLParseRequest):
     """자연어 전략 설명을 ParsedStrategy + BacktestRequest로 변환"""
+    return _run_nl_parse(request)
+
+
+def _run_nl_parse(request: NLParseRequest, on_stage=None):
+    """파싱 코어 로직. on_stage: LLM 폴백 직전 호출되는 콜백(진행 스트리밍용)."""
     from llm_backend import resolve_llm_backend
 
     request_started = time.perf_counter()
@@ -2792,6 +2825,7 @@ def parse_nl_strategy(request: NLParseRequest):
         from engine.nl_parser import (
             NLStrategyParser,
             detect_missing_entry_clarification,
+            enforce_strategy_minimums,
             synthesize_risk_overrides,
         )
         from engine.strategy_converter import to_backtest_request
@@ -2820,31 +2854,51 @@ def parse_nl_strategy(request: NLParseRequest):
             _set_coach_parser(parser)
         load_ms = round((time.perf_counter() - load_started) * 1000, 2)
         parse_started = time.perf_counter()
+        # 룰베이스 파싱 결과의 LLM 검증 리포트(on_validation 콜백으로 수집). 스레드 로컬한
+        # holder라 동시 요청 간 경합이 없다.
+        validation_holder: dict = {}
+        def _capture_validation(report):
+            validation_holder["report"] = report
         if backend == "mlx":
             if request.previous_parsed:
                 print(f"[NL-PARSE] 수정 모드 (diff)", flush=True)
                 with _mlx_inference_lock.priority(0):
-                    parsed = parser.parse_modification(request.prompt, request.previous_parsed)
+                    parsed = parser.parse_modification(request.prompt, request.previous_parsed, on_stage=on_stage)
             else:
                 # 규칙 기반으로 먼저 시도 — 추론 락이 필요 없어 코치 LLM 생성과 무관하게
                 # 즉시 반환된다(전략 요약 박스가 바로 뜨도록). 모호한 입력만 LLM 폴백.
                 parsed = parser.parse_rule_based(request.prompt)
                 if parsed is None:
                     print(f"[NL-PARSE] 규칙 기반 미충족 → LLM 폴백", flush=True)
+                    if on_stage is not None:
+                        on_stage("thinking")
                     with _mlx_inference_lock.priority(0):
                         parsed = parser.parse(request.prompt)
                 else:
                     print(f"[NL-PARSE] 규칙 기반 즉시 파싱 (락 미사용)", flush=True)
+                    # 룰 파싱이 원문의 모든 어휘를 설명한 '확신 파싱'이면 LLM 검증을 건너뛴다
+                    # (규칙만으로 16ms 즉답). 설명 못 한 잔여가 남은 '애매한' 파싱만 LLM으로 검증·교정한다.
+                    from engine.nl_parser import _rule_parse_unexplained
+                    if _rule_parse_unexplained(request.prompt):
+                        print(f"[NL-PARSE] 잔여 존재 → LLM 검증", flush=True)
+                        if on_stage is not None:
+                            on_stage("validating")
+                        from engine.parse_validator import validate_parse
+                        parsed, _vreport = validate_parse(parser, request.prompt, parsed)
+                        _capture_validation(_vreport)
         else:
             if request.previous_parsed:
                 print(f"[NL-PARSE] 수정 모드 (diff)", flush=True)
-                parsed = parser.parse_modification(request.prompt, request.previous_parsed)
+                parsed = parser.parse_modification(request.prompt, request.previous_parsed, on_stage=on_stage)
             else:
-                parsed = parser.parse(request.prompt)
+                parsed = parser.parse(request.prompt, on_stage=on_stage, on_validation=_capture_validation)
         parse_ms = round((time.perf_counter() - parse_started) * 1000, 2)
 
         _nl_parser_status["status"] = "ok"
         _nl_parser_status["error"] = None
+        # 설정값 하한선 보정 — 비현실적 입력(초기자금 300원·0일 보유·3일 모멘텀·0% 손절 등)을
+        # 자동 보정/제거하고 사용자에게 안내한다(모든 파싱 경로 공통).
+        notices = enforce_strategy_minimums(parsed)
         convert_started = time.perf_counter()
         backtest_req = to_backtest_request(parsed)
         convert_ms = round((time.perf_counter() - convert_started) * 1000, 2)
@@ -2876,6 +2930,8 @@ def parse_nl_strategy(request: NLParseRequest):
             "clarification_question": clarification_question,
             "clarification_suggestions": clarification_suggestions,
             "risk_overrides": risk_overrides,
+            "parse_validation": validation_holder.get("report"),
+            "notices": notices,
             "runtime": runtime,
         }
         _record_ai_runtime("parse", runtime)
@@ -2905,6 +2961,65 @@ def parse_nl_strategy(request: NLParseRequest):
             status_code=500,
             detail="전략을 해석하지 못했습니다. 입력을 바꿔 다시 시도해 주세요.",
         )
+
+
+@app.post("/strategy/parse-stream")
+async def parse_nl_strategy_stream(request: NLParseRequest):
+    """NL 파싱 진행 상황을 SSE로 스트리밍 — parsing(규칙 기반)→thinking(LLM 폴백) 단계 표시.
+
+    파싱은 동기 함수라 별도 스레드에서 돌리고, on_stage 콜백이 단계 전환을 기록한다.
+    제너레이터가 단계 변화를 폴링해 SSE로 흘려보내고, 완료 시 결과/에러를 전송한다.
+    """
+    from fastapi.responses import StreamingResponse
+    import threading, json
+
+    result_holder: dict = {}
+    error_holder: dict = {}
+    stage_holder: dict = {"stage": "parsing"}
+
+    def on_stage(stage: str):
+        stage_holder["stage"] = stage
+
+    def run_parse():
+        try:
+            result_holder["data"] = _run_nl_parse(request, on_stage=on_stage)
+        except HTTPException as exc:
+            error_holder["detail"] = exc.detail
+        except Exception as exc:
+            error_holder["detail"] = str(exc)
+
+    thread = threading.Thread(target=run_parse, daemon=True)
+
+    async def generate():
+        def stage_event(stage: str) -> str:
+            return f"data: {json.dumps({'type': 'stage', 'stage': stage})}\n\n"
+
+        thread.start()
+        emitted_stage = "parsing"
+        yield stage_event(emitted_stage)
+
+        while thread.is_alive():
+            if stage_holder["stage"] != emitted_stage:
+                emitted_stage = stage_holder["stage"]
+                yield stage_event(emitted_stage)
+            await asyncio.sleep(0.1)
+        thread.join()
+
+        # 스레드 종료 직전 전환된 단계를 놓치지 않도록 마지막으로 확인
+        if stage_holder["stage"] != emitted_stage:
+            yield stage_event(stage_holder["stage"])
+
+        if "detail" in error_holder:
+            yield f"data: {json.dumps({'type': 'error', 'detail': error_holder['detail']}, ensure_ascii=False)}\n\n"
+        elif "data" in result_holder:
+            yield f"data: {json.dumps({'type': 'result', 'data': result_holder['data']}, ensure_ascii=False)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.post("/strategy/backtest-stream")

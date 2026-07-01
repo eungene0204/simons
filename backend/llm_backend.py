@@ -37,6 +37,15 @@ def ollama_auth_headers() -> dict[str, str]:
     return {}
 
 
+def is_local_ollama() -> bool:
+    """OLLAMA_BASE_URL이 로컬 엔드포인트(원격 Modal 등이 아님)인지 판단한다.
+
+    로컬이면 콜드스타트가 없으므로 서버 시작 시 모델을 즉시 메모리에 적재할 수 있다.
+    원격(Modal)은 scale-to-zero 콜드스타트 특성상 GET 워밍업을 따로 쓴다.
+    """
+    return any(host in OLLAMA_BASE_URL for host in ("localhost", "127.0.0.1", "0.0.0.0"))
+
+
 def mlx_available() -> bool:
     """현재 프로세스에서 MLX 추론이 가능한지 판단한다 (Apple Silicon + mlx_lm 설치)."""
     if platform.system() != "Darwin":

@@ -13,7 +13,17 @@ vi.mock("framer-motion", () => ({
 vi.mock("@/components/strategy/BacktestChart", () => ({ default: () => null }));
 vi.mock("./BacktestSummaryCard", () => ({ default: () => null }));
 vi.mock("./XAIModal", () => ({ default: () => null }));
-vi.mock("./WalkForwardModal", () => ({ default: () => null }));
+vi.mock("./WalkForwardModal", () => ({
+  default: () => null,
+  WalkForwardPanel: ({ optimizationTargets = [] }: any) => (
+    <div>
+      <button type="button">워크포워드 분석 시작</button>
+      {optimizationTargets.map((target: any) => (
+        <span key={target.id}>{target.label}</span>
+      ))}
+    </div>
+  ),
+}));
 vi.mock("@/components/ui/CreateAccountModal", () => ({ default: () => null }));
 
 import BacktestDashboard from "./BacktestDashboard";
@@ -106,6 +116,11 @@ describe("BacktestDashboard premium validation tabs", () => {
     await renderDashboard("FREE");
     const user = userEvent.setup();
 
+    expect(screen.getByLabelText("워크포워드 탭 도움말")).toBeInTheDocument();
+    expect(screen.getByText(/2020-2021년 데이터로 파라미터를 맞춘 뒤/)).toBeInTheDocument();
+    expect(screen.getByLabelText("몬테카를로 탭 도움말")).toBeInTheDocument();
+    expect(screen.getByText(/일별 수익률 블록을 1,000번 재배열/)).toBeInTheDocument();
+
     await user.click(screen.getByRole("button", { name: "몬테카를로" }));
 
     expect(await screen.findByText("프리미엄 전용 검증 기능입니다.")).toBeInTheDocument();
@@ -115,11 +130,29 @@ describe("BacktestDashboard premium validation tabs", () => {
   it("PREMIUM 플랜에서는 워크포워드 CTA와 몬테카를로 결과를 노출한다", async () => {
     await renderDashboard("PREMIUM", {
       onWalkForward: vi.fn(),
+      strategySummary: {
+        strategyName: "저PBR 장기보유",
+        universeName: "KOSPI 200",
+        blockNames: ["PBR <= 1"],
+        entryBlocks: ["PBR <= 1"],
+        exitBlocks: ["손절 -12% 하락시 매도", "익절 30% 이상 수익시 매도", "최대 126일 보유 후 매도"],
+        positionText: "최대 8종목 · 126일 보유",
+        riskText: "손절 12%, 익절 30%",
+      },
     });
     const user = userEvent.setup();
 
     await user.click(screen.getByRole("button", { name: "워크포워드" }));
-    expect(await screen.findByRole("button", { name: "워크포워드 실행" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "워크포워드 분석 시작" })).toBeInTheDocument();
+    expect(screen.getByText("PBR")).toBeInTheDocument();
+    expect(screen.getByText("손절라인")).toBeInTheDocument();
+    expect(screen.getByText("익절라인")).toBeInTheDocument();
+    expect(screen.getByText("보유기간")).toBeInTheDocument();
+    expect(screen.getByText("보유종목수")).toBeInTheDocument();
+    expect(screen.queryByText("PBR <= 1")).not.toBeInTheDocument();
+    expect(screen.queryByText("손절 -12% 하락시 매도")).not.toBeInTheDocument();
+    expect(screen.queryByText("익절 30% 이상 수익시 매도")).not.toBeInTheDocument();
+    expect(screen.queryByText("최대 126일 보유 후 매도")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "몬테카를로" }));
     await user.click(await screen.findByRole("button", { name: "몬테카를로 실행" }));

@@ -74,6 +74,19 @@ class _MockGen:
         return _generate_ohlcv(symbol, base_price, days, start_date, self.seed)
 
 
+@pytest.fixture(autouse=True)
+def _disable_parse_validator_network(monkeypatch):
+    """parse() 룰베이스 검증 LLM 레이어는 항상 인라인이지만, 유닛 테스트는 네트워크에
+    의존하면 안 된다(로컬 ollama가 떠 있으면 실제 호출이 나간다). 기본적으로 LLM 도달
+    불가로 만들어 graceful degrade(원본 그대로)시킨다. 검증 로직 자체는
+    test_parse_validator.py가 _run_validation_llm을 직접 patch해서 검증한다."""
+    try:
+        from engine import parse_validator
+    except Exception:
+        return
+    monkeypatch.setattr(parse_validator, "_ollama_reachable", lambda *a, **k: False)
+
+
 @pytest.fixture(scope="session")
 def mock_gen():
     return _MockGen(seed=42)

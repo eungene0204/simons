@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from intent.classifier import classify
+from intent.classifier import classify, _correct_count_typo
 from intent.schemas import QueryIntent
 
 
@@ -67,6 +67,59 @@ def test_open_stock_pick_is_redirected(query):
     assert result.deterministic is True
     assert result.suggested_reply
     assert "전략" in result.suggested_reply
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "종목을 10개로 늘려줘",      # 실제 버그 재현: '종목' 때문에 STOCK_PICK으로 빌더 진입하던 케이스
+        "보유 종목을 5개로 줄여줘",
+        "손절 추가해줘",
+        "보유 기간 바꿔줘",
+        "백테스트 5년으로 변경해줘",
+        "익절을 30%로 높여줘",
+        "비중을 조정해줘",
+    ],
+)
+def test_strategy_modification_is_strategy_not_pick(query):
+    # 기존 전략을 다듬는 수정/조정 명령은 종목 추천(STOCK_PICK)이 아니라 전략 설계로
+    # 결정적으로 잡혀, 빌더로 새로 진입해 기존 전략을 버리지 않아야 한다.
+    result = classify(query)  # llm 없이도 결정적으로
+    assert result.intent == QueryIntent.STRATEGY_ADVICE
+    assert result.deterministic is True
+
+
+@pytest.mark.parametrize(
+    "raw,corrected",
+    [
+        ("종목은 5게", "종목은 5개"),
+        ("종목은 120게", "종목은 120개"),
+        ("5게 이상", "5개 이상"),
+        ("120게임 만들기", "120게임 만들기"),  # 게로 시작하는 단어는 보존
+    ],
+)
+def test_correct_count_typo_ge_to_gae(raw, corrected):
+    # [회귀] 숫자 뒤 '게'(개 오타)를 분류 전에 보정해 OFF_TOPIC 오분류를 막는다.
+    assert _correct_count_typo(raw) == corrected
+
+
+def test_classify_normalizes_count_typo_before_llm():
+    # 오타 입력 "종목은 5게"는 LLM에 보정된 "종목은 5개"로 전달돼야 한다.
+    seen = {}
+
+    def fake_llm(_system, query):
+        seen["query"] = query
+        return '{"intent": "STRATEGY_ADVICE"}'
+
+    classify("종목은 5게", llm=fake_llm)
+    assert seen["query"] == "종목은 5개"
+
+
+def test_classifier_prompt_has_typo_tolerance_guidance():
+    # [회귀] 결정적 정규화가 못 잡는 미지의 오타도 LLM이 의미로 분류하도록 프롬프트가 안내해야 한다.
+    from intent.classifier import _CLASSIFIER_SYSTEM_PROMPT
+    assert "오타" in _CLASSIFIER_SYSTEM_PROMPT
+    assert "OFF_TOPIC이 아니다" in _CLASSIFIER_SYSTEM_PROMPT
 
 
 def test_named_stock_is_not_pick_redirect():

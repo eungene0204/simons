@@ -113,8 +113,50 @@ export async function POST(req: NextRequest) {
       send({ type: "accepted" });
       send(buildSkeleton(body));
 
+      // 백엔드 parse-stream의 SSE 이벤트를 받아 클라이언트용 이벤트로 변환한다.
+      // - stage: 그대로 전달(parsing→thinking 진행 표시)
+      // - result: parsed_final + dsl_ready로 분해
+      // - error: detail 전달
+      const handleEvent = (payload: string) => {
+        if (payload === "[DONE]") return;
+        let event: any;
+        try {
+          event = JSON.parse(payload);
+        } catch {
+          return;
+        }
+        if (event.type === "stage") {
+          send({ type: "stage", stage: event.stage });
+        } else if (event.type === "result") {
+          const data = event.data ?? {};
+          send({
+            type: "parsed_final",
+            parsed: data.parsed,
+            clarification_question: data.clarification_question ?? null,
+            clarification_suggestions: data.clarification_suggestions ?? null,
+            risk_overrides: data.risk_overrides ?? null,
+            notices: data.notices ?? null,
+          });
+          send({
+            type: "dsl_ready",
+            backtest_request: data.backtest_request,
+            symbol_count: data.symbol_count ?? data.backtest_request?.symbol_count ?? null,
+          });
+        } else if (event.type === "error") {
+          send({ type: "error", detail: event.detail ?? "파싱 실패" });
+        }
+      };
+
+      const processBlocks = (blocks: string[]) => {
+        for (const block of blocks) {
+          if (!block.trim()) continue;
+          const line = block.split(/\r?\n/).find((l) => l.startsWith("data: "));
+          if (line) handleEvent(line.slice(6).trim());
+        }
+      };
+
       try {
-        const res = await fetchBackend("/strategy/parse", {
+        const res = await fetchBackend("/strategy/parse-stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -122,7 +164,7 @@ export async function POST(req: NextRequest) {
           timeoutMs: 120_000,
         });
 
-        if (!res.ok) {
+        if (!res.ok || !res.body) {
           const err = await res.json().catch(() => ({ detail: res.statusText }));
           send({ type: "error", detail: err.detail ?? res.statusText });
           send("[DONE]");
@@ -130,19 +172,24 @@ export async function POST(req: NextRequest) {
           return;
         }
 
-        const data = await res.json();
-        send({
-          type: "parsed_final",
-          parsed: data.parsed,
-          clarification_question: data.clarification_question ?? null,
-          clarification_suggestions: data.clarification_suggestions ?? null,
-          risk_overrides: data.risk_overrides ?? null,
-        });
-        send({
-          type: "dsl_ready",
-          backtest_request: data.backtest_request,
-          symbol_count: data.symbol_count ?? data.backtest_request?.symbol_count ?? null,
-        });
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            buffer += decoder.decode();
+            processBlocks(buffer.split(/\r?\n\r?\n/));
+            buffer = "";
+            break;
+          }
+          buffer += decoder.decode(value, { stream: true });
+          const blocks = buffer.split(/\r?\n\r?\n/);
+          buffer = blocks.pop() ?? "";
+          processBlocks(blocks);
+        }
+
         send("[DONE]");
         controller.close();
       } catch (error: any) {

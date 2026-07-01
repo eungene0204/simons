@@ -335,6 +335,44 @@ def test_custom_flow_captures_entry_rule():
     assert "20일선이 60일선을 상향 돌파" in res.prompt
 
 
+def test_custom_entry_rule_captures_explicit_holding_count():
+    """진입 서술에 명시적 종목 수("상위 5개")가 섞여 있으면 보유 수로 함께 잡아 다시 묻지 않는다.
+
+    [회귀] 'custom' 진입 서술 단계가 입력 전체를 entry_rule로만 저장하면서 명시적 "5개"를
+    버려, 사용자가 이미 종목 수를 말했는데도 보유 수를 다시 묻던 버그."""
+    state = sb.BuilderState(universe="KOSDAQ", strategy_type="custom")
+    res = _step(state, "코스닥 시총 상위 5개를 사는 전략")
+    assert res.state.entry_rule == "코스닥 시총 상위 5개를 사는 전략"
+    assert res.state.holding_count == 5
+    # 보유 수가 채워졌으므로 다음 질문은 보유 수가 아니라 리밸런싱이다.
+    assert sb.required_missing(res.state) == "rebalance_cycle"
+    assert "몇 종목" not in res.reply
+
+
+def test_custom_entry_rule_does_not_misread_bare_threshold_as_count():
+    """진입 서술의 맨숫자(RSI 30)는 보유 수로 오인하지 않는다(명시적 개/종목 접미사만 인정)."""
+    state = sb.BuilderState(universe="KOSPI", strategy_type="custom")
+    res = _step(state, "RSI가 30 이하로 떨어지면 매수")
+    assert res.state.holding_count is None
+
+
+def test_holding_count_step_offers_free_input_chip_rightmost():
+    """보유 수 질문에 '직접 입력' 칩이 가장 오른쪽으로 노출된다(5/10/20 외 종목 수 직접 타이핑)."""
+    momentum = sb.BuilderState(universe="KOSPI", strategy_type="momentum", lookback_days=63)
+    golden = sb.BuilderState(universe="KOSPI", strategy_type="golden_cross")
+    for state in (momentum, golden):
+        _, suggestions = sb.next_question(state)
+        assert sb.required_missing(state) == "holding_count"
+        assert suggestions[-1] == "직접 입력"
+
+
+def test_holding_count_step_free_text_parses_custom_value():
+    """'직접 입력' 후 사용자가 타이핑한 임의 종목 수('7개')가 그대로 파싱된다."""
+    state = sb.BuilderState(universe="KOSPI", strategy_type="golden_cross")
+    res = _step(state, "7개")
+    assert res.state.holding_count == 7
+
+
 # ─── 청산 조건(손절·익절·트레일링·보유기간) 단계 ─────────────────────────────────────
 
 def _ready_for_risk() -> sb.BuilderState:

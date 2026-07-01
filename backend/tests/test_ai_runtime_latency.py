@@ -12,6 +12,14 @@ class _DummyParsed:
     fundamental_filters = []
     entry_signals = []
     ranking_metric = None
+    # 하한선 보정(enforce_strategy_minimums)이 읽는 필드들
+    initial_capital = 10_000_000.0
+    hold_period_days = None
+    ranking_lookback_days = None
+    stop_loss_pct = None
+    take_profit_pct = None
+    trailing_stop_pct = None
+    max_mdd_limit_pct = None
 
     def model_dump(self):
         return {"universe": ["KOSPI200"]}
@@ -21,7 +29,7 @@ class _DummyParser:
     def __init__(self):
         self.parse_calls = 0
 
-    def parse(self, _prompt):
+    def parse(self, _prompt, on_stage=None, on_validation=None):
         self.parse_calls += 1
         return _DummyParsed()
 
@@ -62,6 +70,84 @@ def test_parse_nl_strategy_reports_runtime_and_cache_hit(monkeypatch):
     assert parse_metrics["cache_hits"] == 1
     assert parse_metrics["cache_misses"] == 1
     assert parse_metrics["avg_total_ms"] >= 0
+
+
+async def _collect_sse(response):
+    """StreamingResponse 본문을 모아 SSE data 페이로드 리스트로 반환."""
+    chunks = []
+    async for chunk in response.body_iterator:
+        if isinstance(chunk, bytes):
+            chunk = chunk.decode()
+        chunks.append(chunk)
+    text = "".join(chunks)
+    return [
+        block[len("data: "):].strip()
+        for block in text.split("\n\n")
+        if block.startswith("data: ")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_parse_stream_emits_parsing_stage_and_result(monkeypatch):
+    """규칙 기반 경로: stage('parsing') → result → [DONE], thinking 없음."""
+    monkeypatch.setenv("LLM_BACKEND", "ollama")
+    main._nl_parsers["ollama"] = _DummyParser()
+    main._nl_parse_cache.clear()
+    main._reset_ai_runtime_metrics_for_tests()
+
+    import engine.strategy_converter as strategy_converter
+    monkeypatch.setattr(strategy_converter, "to_backtest_request", lambda _p: {"symbols": ["005930"]})
+
+    try:
+        response = await main.parse_nl_strategy_stream(
+            main.NLParseRequest(prompt="PBR 1 이하", backend="ollama")
+        )
+        payloads = await _collect_sse(response)
+    finally:
+        main._nl_parse_cache.clear()
+        main._nl_parsers.pop("ollama", None)
+
+    import json
+    events = [json.loads(p) for p in payloads if p != "[DONE]"]
+    stages = [e["stage"] for e in events if e["type"] == "stage"]
+    assert stages == ["parsing"]
+    assert payloads[-1] == "[DONE]"
+    result = next(e for e in events if e["type"] == "result")
+    assert result["data"]["parsed"] == {"universe": ["KOSPI200"]}
+
+
+@pytest.mark.asyncio
+async def test_parse_stream_emits_thinking_stage_when_parser_falls_back(monkeypatch):
+    """파서가 on_stage('thinking')을 호출하면 스트림에 thinking 단계가 실린다."""
+    monkeypatch.setenv("LLM_BACKEND", "ollama")
+
+    class _LLMFallbackParser:
+        def parse(self, _prompt, on_stage=None, on_validation=None):
+            if on_stage is not None:
+                on_stage("thinking")
+            return _DummyParsed()
+
+    main._nl_parsers["ollama"] = _LLMFallbackParser()
+    main._nl_parse_cache.clear()
+    main._reset_ai_runtime_metrics_for_tests()
+
+    import engine.strategy_converter as strategy_converter
+    monkeypatch.setattr(strategy_converter, "to_backtest_request", lambda _p: {"symbols": ["005930"]})
+
+    try:
+        response = await main.parse_nl_strategy_stream(
+            main.NLParseRequest(prompt="애매한 전략", backend="ollama")
+        )
+        payloads = await _collect_sse(response)
+    finally:
+        main._nl_parse_cache.clear()
+        main._nl_parsers.pop("ollama", None)
+
+    import json
+    stages = [json.loads(p)["stage"] for p in payloads if p != "[DONE]" and json.loads(p)["type"] == "stage"]
+    assert "parsing" in stages
+    assert "thinking" in stages
+    assert stages.index("thinking") > stages.index("parsing")
 
 
 def test_forced_mlx_parse_requires_startup_loaded_model(monkeypatch):
