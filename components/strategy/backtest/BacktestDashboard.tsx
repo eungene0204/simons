@@ -1826,9 +1826,9 @@ export default function BacktestDashboard({
                              </thead>
                              <tbody>
                                {[
-                                 ["CAGR", monteCarloResult.cagr, true],
-                                 ["Sharpe", monteCarloResult.sharpe, false],
-                                 ["MDD", monteCarloResult.mdd, true],
+                                 ["CAGR", monteCarloResult.cagr, true] as const,
+                                 ["Sharpe", monteCarloResult.sharpe, false] as const,
+                                 ["MDD", monteCarloResult.mdd, true] as const,
                                ].map(([label, summary, isPercent]) => (
                                  <tr key={String(label)} className="border-t border-white/[0.06]">
                                    <td className="px-4 py-3 text-sm font-black text-white">{label}</td>
