@@ -99,6 +99,10 @@ _DEFINITION_QUESTION = re.compile(
     re.IGNORECASE,
 )
 
+# 전략을 실제로 '구성/실행'하려는 동사. 정의형 질문에 이게 섞이면 단순 지식 질문이 아니다
+# ('모멘텀 전략이 뭔지 설명하고 만들어줘'는 설계 요청). 없으면 순수 정의형으로 본다.
+_CONSTRUCT_VERB = re.compile(r"만들|짜\s*줘|구성|돌려\s*줘|돌려줘", re.IGNORECASE)
+
 # anaphora — 직전 종목을 가리키는 표현('이 종목', '얘', '저 주식').
 _ANAPHORA = re.compile(r"이\s*종목|이\s*주식|그\s*종목|저\s*종목|얘|이거", re.IGNORECASE)
 
@@ -154,10 +158,15 @@ def _classify_deterministic(query: str, last_symbol: Optional[str]) -> Optional[
     has_stock_q = bool(_STOCK_QUESTION.search(text))
     has_def_q = bool(_DEFINITION_QUESTION.search(text))
 
+    # 순수 정의형 질문('리밸런싱이 뭔가요?')은 '리밸런' 같은 전략 키워드가 있어도 설계 요청이
+    #    아니라 지식 질문이다. 수정/구성 동사가 없을 때만 전략 키워드 게이트를 건너뛰어
+    #    아래 정의형 규칙(GENERAL_INVESTMENT)이 처리하게 한다.
+    pure_definition = has_def_q and not has_modify and not _CONSTRUCT_VERB.search(text)
+
     # 1) 전략 키워드/스크리닝 조건/전략 수정 명령이 있으면 전략 설계로 본다(종목명이 섞여 있어도).
     #    "종목을 10개로 늘려줘"처럼 기존 전략을 다듬는 요청을 '종목 추천(STOCK_PICK)'으로
     #    오분류해 빌더로 새로 진입하는 일을 막는다.
-    if has_strategy_kw or has_screening or has_modify:
+    if (has_strategy_kw or has_screening or has_modify) and not pure_definition:
         reason = (
             "전략 설계 키워드 감지" if has_strategy_kw
             else "종목 스크리닝 조건 감지" if has_screening

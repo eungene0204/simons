@@ -16,11 +16,15 @@ NO_DATA = "데이터 없음"
 
 
 class Recommendation(str, Enum):
-    STRONG_BUY = "STRONG_BUY"
-    ACCUMULATE = "ACCUMULATE"
-    HOLD = "HOLD"
-    CAUTION = "CAUTION"
-    AVOID = "AVOID"
+    """[규제 안전] 개별 종목의 매수·매도·보유·시점 '추천'이 아니라, 지표를 종합한
+    '객관적 상태 등급'이다. STRONG_BUY/ACCUMULATE/HOLD 같은 행동 지시 라벨은
+    유사투자자문 회피 원칙(CLAUDE.md)에 위배되어 중립 상태 등급으로 재설계됐다.
+    등급은 '무엇을 하라'가 아니라 '지표가 현재 어떤 상태인가'만 서술한다."""
+    FAVORABLE = "FAVORABLE"                  # 지표가 전반적으로 긍정적, 관측 리스크 제한적
+    MILDLY_FAVORABLE = "MILDLY_FAVORABLE"    # 다소 긍정적이나 단기 리스크 관찰
+    NEUTRAL = "NEUTRAL"                      # 뚜렷한 방향성 없음
+    ELEVATED_RISK = "ELEVATED_RISK"          # 일부 지표 부정적/리스크 관찰
+    HIGH_RISK = "HIGH_RISK"                  # 여러 지표 부정적/리스크 큼
     INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
 
 

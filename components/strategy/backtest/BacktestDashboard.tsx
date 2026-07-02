@@ -1359,7 +1359,7 @@ export default function BacktestDashboard({
       <div className="flex flex-col min-w-0">
 
         {/* Tab Content */}
-        <div className="flex flex-col min-w-0">
+        <div data-testid="backtest-tab-content" className="flex flex-col min-w-0">
            
            {/* Chart View */}
             {activeTab === "chart" && (
@@ -1627,7 +1627,7 @@ export default function BacktestDashboard({
 
            {/* Report View */}
            {activeTab === "report" && (
-             <div className="py-4">
+             <div className="flex flex-1 flex-col py-4">
                <BacktestSummaryCard
                  result={result}
                  strategySummary={strategySummary}
@@ -1673,7 +1673,7 @@ export default function BacktestDashboard({
            )}
 
            {activeTab === "walkForward" && (
-             <div className="py-4">
+             <div data-testid="backtest-walk-forward-section" className="flex flex-col">
                <WalkForwardPanel
                  onRun={onWalkForward}
                  backtestDates={result.dates}
@@ -1691,7 +1691,7 @@ export default function BacktestDashboard({
            )}
 
            {activeTab === "monteCarlo" && (
-             <div className="py-4">
+             <div className="flex flex-1 flex-col py-4">
                <div className="rounded-2xl border border-white/[0.08] bg-[#0f0f10] p-5 md:p-6">
                  <div className="space-y-2">
                    <div className="inline-flex items-center gap-2 rounded-full border border-sky-500/20 bg-sky-500/10 px-3 py-1 text-[11px] font-black uppercase tracking-[0.22em] text-sky-300">
@@ -2006,7 +2006,7 @@ export default function BacktestDashboard({
         </div>
       </div>
 
-      <div className="mt-auto border-t border-white/[0.08] bg-[#050505] px-6 py-4">
+      <div data-testid="backtest-dashboard-footer" className="border-t border-white/[0.08] bg-[#050505] px-0 py-3">
         <p className="text-center text-xs font-bold leading-relaxed text-gray-500">
           모든 결과는 과거 데이터의 모의 시뮬레이션 결과이며 미래 수익을 보장하지 않습니다.
         </p>

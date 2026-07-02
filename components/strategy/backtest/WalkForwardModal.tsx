@@ -19,6 +19,7 @@ export interface WalkForwardSettings {
   anchor: boolean;
   target_metric: string;
   n_trials: number;
+  parameter_steps?: Record<string, number>;
 }
 
 export interface WalkForwardOptimizationTarget {
@@ -79,8 +80,48 @@ interface WalkForwardFormState {
 
 const FALLBACK_TOTAL_BARS = 252 * 5;
 
+type ParameterStepConfig = {
+  defaultStep: number;
+  min: number;
+  max: number;
+  inputStep: number;
+  unit: string;
+};
+
+const DEFAULT_PARAMETER_STEP_CONFIG: ParameterStepConfig = {
+  defaultStep: 1,
+  min: 0.1,
+  max: 50,
+  inputStep: 0.1,
+  unit: "",
+};
+
+const PARAMETER_STEP_CONFIGS: Array<{ pattern: RegExp } & ParameterStepConfig> = [
+  { pattern: /pbr/i, defaultStep: 0.1, min: 0.05, max: 1, inputStep: 0.05, unit: "" },
+  { pattern: /per/i, defaultStep: 1, min: 0.5, max: 10, inputStep: 0.5, unit: "" },
+  { pattern: /roe/i, defaultStep: 1, min: 0.5, max: 10, inputStep: 0.5, unit: "%p" },
+  { pattern: /손절|stop\s*loss/i, defaultStep: 1, min: 0.1, max: 20, inputStep: 0.1, unit: "%p" },
+  { pattern: /익절|take\s*profit/i, defaultStep: 5, min: 0.5, max: 50, inputStep: 0.5, unit: "%p" },
+  { pattern: /트레일링|trailing/i, defaultStep: 1, min: 0.5, max: 10, inputStep: 0.5, unit: "%p" },
+  { pattern: /보유기간|holding/i, defaultStep: 5, min: 1, max: 60, inputStep: 1, unit: "거래일" },
+  { pattern: /보유종목수|종목|positions?/i, defaultStep: 1, min: 1, max: 20, inputStep: 1, unit: "종목" },
+  { pattern: /리밸런싱|rebalanc/i, defaultStep: 5, min: 1, max: 60, inputStep: 1, unit: "거래일" },
+];
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function getParameterStepConfig(label: string): ParameterStepConfig {
+  return PARAMETER_STEP_CONFIGS.find((config) => config.pattern.test(label)) ?? DEFAULT_PARAMETER_STEP_CONFIG;
+}
+
+function formatStepValue(value: number) {
+  return Number.isInteger(value) ? value.toLocaleString() : value.toLocaleString(undefined, { maximumFractionDigits: 4 });
+}
+
+function formatStepWithUnit(value: number, unit: string) {
+  return `${formatStepValue(value)}${unit}`;
 }
 
 function formatDateLabel(date?: string) {
@@ -136,7 +177,7 @@ function sliderTrackStyle(value: number, min: number, max: number) {
   const ratio = max <= min ? 1 : (value - min) / (max - min);
   const pct = `${Math.max(0, Math.min(100, ratio * 100))}%`;
   return {
-    background: `linear-gradient(90deg, rgb(56 189 248) 0%, rgb(56 189 248) ${pct}, rgba(255,255,255,0.08) ${pct}, rgba(255,255,255,0.08) 100%)`,
+    background: `linear-gradient(90deg, var(--main-blue) 0%, var(--main-blue) ${pct}, rgba(255,255,255,0.08) ${pct}, rgba(255,255,255,0.08) 100%)`,
   };
 }
 
@@ -185,7 +226,7 @@ const TARGET_METRICS = [
 ];
 
 const buttonClass = (active: boolean) =>
-  `px-3 py-2 text-sm font-black transition-colors ${
+  `rounded-md px-3 py-2 text-sm font-black transition-colors ${
     active
       ? "bg-white/[0.08] text-white"
       : "bg-transparent text-gray-400 hover:bg-white/[0.03] hover:text-white"
@@ -238,6 +279,9 @@ export function WalkForwardPanel({
   const [isRunning, setIsRunning] = useState(false);
   const [result, setResult] = useState<WalkForwardResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [parameterStepOverrides, setParameterStepOverrides] = useState<Record<string, number>>({});
+  const [stepModalTargetId, setStepModalTargetId] = useState<string | null>(null);
+  const [stepDraft, setStepDraft] = useState("");
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -253,23 +297,37 @@ export function WalkForwardPanel({
     });
   }, [minWindowBars, totalBars]);
 
+  const parameterSteps = optimizationTargets.reduce<Record<string, number>>((steps, target) => {
+    steps[target.label] = parameterStepOverrides[target.id] ?? getParameterStepConfig(target.label).defaultStep;
+    return steps;
+  }, {});
+
   const derivedSettings: WalkForwardSettings = {
     n_splits: deriveSplitCount(totalBars, formState.trainBars, formState.validationBars),
     train_pct: deriveTrainPct(totalBars, formState.trainBars, formState.validationBars, formState.anchor),
     anchor: formState.anchor,
     target_metric: formState.target_metric,
     n_trials: formState.n_trials,
+    ...(optimizationTargets.length > 0 ? { parameter_steps: parameterSteps } : {}),
   };
 
   const maxTrainBars = Math.max(minWindowBars, totalBars - minWindowBars);
   const maxValidationBars = Math.max(minWindowBars, totalBars - formState.trainBars);
   const firstTrainStart = backtestDates[0];
-  const firstTrainEnd = backtestDates[Math.max(0, formState.trainBars - 1)];
-  const firstValidationStart = backtestDates[Math.min(backtestDates.length - 1, formState.trainBars)] ?? null;
-  const firstValidationEnd =
-    backtestDates[Math.min(backtestDates.length - 1, formState.trainBars + formState.validationBars - 1)] ?? null;
+  const firstTrainEndIndex = Math.max(0, formState.trainBars - 1);
+  const firstValidationStartIndex = Math.min(backtestDates.length - 1, formState.trainBars);
+  const firstValidationEndIndex = Math.min(backtestDates.length - 1, formState.trainBars + formState.validationBars - 1);
+  const firstTrainEnd = backtestDates[firstTrainEndIndex];
+  const firstValidationStart = backtestDates[firstValidationStartIndex] ?? null;
+  const firstValidationEnd = backtestDates[firstValidationEndIndex] ?? null;
   const periodStart = backtestDates[0];
   const periodEnd = backtestDates[backtestDates.length - 1];
+  const timelineTrainPct = (formState.trainBars / totalBars) * 100;
+  const timelineValidationPct = (formState.validationBars / totalBars) * 100;
+  const timelineMaxIndex = Math.max(backtestDates.length - 1, 1);
+  const timelinePositionForIndex = (index: number) => clamp((index / timelineMaxIndex) * 100, 0, 100);
+  const timelineTrainLabelPct = timelinePositionForIndex(firstTrainEndIndex / 2);
+  const timelineValidationLabelPct = timelinePositionForIndex((firstValidationStartIndex + firstValidationEndIndex) / 2);
 
   const handleRun = async () => {
     if (!onRun || !canRun) {
@@ -300,6 +358,51 @@ export function WalkForwardPanel({
     if (!isRunning) onClose?.();
   };
 
+  const openStepModal = (target: WalkForwardOptimizationTarget) => {
+    const config = getParameterStepConfig(target.label);
+    setStepModalTargetId(target.id);
+    setStepDraft((parameterStepOverrides[target.id] ?? config.defaultStep).toString());
+  };
+
+  const closeStepModal = () => {
+    setStepModalTargetId(null);
+    setStepDraft("");
+  };
+
+  const resetStepModal = () => {
+    if (!stepModalTargetId) return;
+    setParameterStepOverrides((current) => {
+      const next = { ...current };
+      delete next[stepModalTargetId];
+      return next;
+    });
+    closeStepModal();
+  };
+
+  const saveStepModal = () => {
+    if (!stepModalTargetId) return;
+    const target = optimizationTargets.find((item) => item.id === stepModalTargetId);
+    if (!target) return;
+    const config = getParameterStepConfig(target.label);
+    const trimmed = stepDraft.trim();
+    if (!trimmed) {
+      resetStepModal();
+      return;
+    }
+
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setStepDraft(config.defaultStep.toString());
+      return;
+    }
+
+    setParameterStepOverrides((current) => ({
+      ...current,
+      [stepModalTargetId]: Number(clamp(parsed, config.min, config.max).toFixed(4)),
+    }));
+    closeStepModal();
+  };
+
   const chartData = result?.combined_dates?.map((date, index) => ({
     date,
     equity: result.combined_equity[index] ?? null,
@@ -309,9 +412,19 @@ export function WalkForwardPanel({
   const wfe = result?.walk_forward_efficiency ?? 0;
   const wfeTone = getWfeTone(wfe);
   const isRunDisabled = isRunning || !onRun || !canRun;
+  const stepModalTarget = optimizationTargets.find((target) => target.id === stepModalTargetId) ?? null;
+  const stepModalConfig = stepModalTarget ? getParameterStepConfig(stepModalTarget.label) : DEFAULT_PARAMETER_STEP_CONFIG;
+  const stepModalCurrentValue =
+    stepModalTarget && parameterStepOverrides[stepModalTarget.id] !== undefined
+      ? parameterStepOverrides[stepModalTarget.id]
+      : stepModalConfig.defaultStep;
+  const parsedStepDraft = Number(stepDraft);
+  const stepModalDraftValue = Number.isFinite(parsedStepDraft)
+    ? clamp(parsedStepDraft, stepModalConfig.min, stepModalConfig.max)
+    : stepModalCurrentValue;
 
   return (
-        <div className="w-full border border-white/[0.08] bg-[var(--background)]">
+        <div data-testid="walk-forward-panel" className="w-full border border-white/[0.08] bg-[var(--background)]">
           <div className={`${maxHeightClass} overflow-y-auto`}>
             {error && (
               <div className="border-b border-white/[0.08] bg-[var(--main-blue)]/10 px-5 py-4">
@@ -418,18 +531,67 @@ export function WalkForwardPanel({
                         <span>{formatBarsLabel(minWindowBars)}</span>
                         <span>{formatBarsLabel(maxValidationBars)}</span>
                       </div>
+                      <div data-testid="walk-forward-period-timeline" className="mt-5">
+                        <div className="relative h-8 w-full">
+                          <div
+                            data-testid="walk-forward-timeline-train"
+                            className="absolute inset-y-0 left-0 flex min-w-0 items-center justify-center rounded-md bg-[#3f78b5] px-2.5 text-[9px] font-black uppercase tracking-widest text-black"
+                            style={{ width: `${timelineTrainPct}%` }}
+                            title={`${formatDateLabel(firstTrainStart)} - ${formatDateLabel(firstTrainEnd)}`}
+                          >
+                            <span className="truncate">학습기간</span>
+                          </div>
+                          <div
+                            data-testid="walk-forward-timeline-validation"
+                            className="absolute inset-y-0 flex min-w-0 items-center justify-center rounded-md bg-[#c84b36] px-2.5 text-[9px] font-black uppercase tracking-widest text-black"
+                            style={{ left: `${timelineTrainPct}%`, width: `${timelineValidationPct}%` }}
+                            title={`${formatDateLabel(firstValidationStart ?? undefined)} - ${formatDateLabel(firstValidationEnd ?? undefined)}`}
+                          >
+                            <span className="truncate">검증기간</span>
+                          </div>
+                        </div>
+                        <div className="mt-4 pt-3">
+                          <div className="relative h-6">
+                            <span
+                              data-testid="walk-forward-timeline-axis-train-dates"
+                              className="absolute top-0 max-w-[45%] -translate-x-1/2 text-center text-[11px] font-black leading-4 tabular-nums text-gray-500"
+                              style={{ left: `${timelineTrainLabelPct}%` }}
+                            >
+                              <span className="block whitespace-nowrap">{formatDateLabel(firstTrainStart)} - {formatDateLabel(firstTrainEnd)}</span>
+                            </span>
+                            <span
+                              data-testid="walk-forward-timeline-axis-validation-dates"
+                              className="absolute top-0 max-w-[45%] -translate-x-1/2 text-center text-[11px] font-black leading-4 tabular-nums text-gray-500"
+                              style={{ left: `${timelineValidationLabelPct}%` }}
+                            >
+                              <span className="block whitespace-nowrap">{formatDateLabel(firstValidationStart ?? undefined)} - {formatDateLabel(firstValidationEnd ?? undefined)}</span>
+                            </span>
+                          </div>
+                        </div>
+                      </div>
                     </div>
+                  </div>
+                </section>
+
+                <section className="p-5">
+                  <p className="text-xs font-bold uppercase tracking-widest text-gray-500">최적화 설정</p>
+                  <div className="mt-4 divide-y divide-white/[0.04] border-t border-white/[0.05]">
                     <div className="py-4">
                       <p className="text-xs font-bold uppercase tracking-widest text-gray-500">최적화 대상 파라미터</p>
                       {optimizationTargets.length > 0 ? (
                         <div className="mt-3 flex flex-wrap gap-2">
                           {optimizationTargets.map((target) => (
-                            <span
+                            <button
+                              type="button"
                               key={target.id}
-                              className="bg-white/[0.08] px-3 py-2 text-sm font-black text-white"
-                            >
-                              {target.label}
-                            </span>
+                              onClick={() => openStepModal(target)}
+	                              className="rounded-md bg-white/[0.08] px-3 py-2 text-left text-sm font-black text-white transition-colors hover:bg-white/[0.12] focus:outline-none focus:ring-2 focus:ring-white/20"
+	                            >
+	                              <span className="block">{target.label}</span>
+	                              <span className="mt-1 block text-[10px] font-bold uppercase tracking-widest text-gray-500">
+	                                {formatStepWithUnit(parameterSteps[target.label], getParameterStepConfig(target.label).unit)}
+	                              </span>
+	                            </button>
                           ))}
                         </div>
                       ) : (
@@ -438,12 +600,6 @@ export function WalkForwardPanel({
                         </p>
                       )}
                     </div>
-                  </div>
-                </section>
-
-                <section className="p-5">
-                  <p className="text-xs font-bold uppercase tracking-widest text-gray-500">최적화 설정</p>
-                  <div className="mt-4 divide-y divide-white/[0.04] border-t border-white/[0.05]">
                     <div className="py-4">
                       <div className="flex items-center gap-1.5">
                         <p className="text-xs font-bold uppercase tracking-widest text-gray-500">Optuna 시도 횟수</p>
@@ -711,6 +867,74 @@ export function WalkForwardPanel({
               </div>
             )}
           </div>
+
+          {stepModalTarget && (
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="walk-forward-step-modal-title"
+              className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/70 px-4"
+            >
+              <div className="w-full max-w-sm rounded-xl border border-white/[0.10] bg-[#111111] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.65)]">
+                <p id="walk-forward-step-modal-title" className="text-xs font-bold uppercase tracking-widest text-gray-500">
+                  {stepModalTarget.label} step 설정
+                </p>
+                <label htmlFor="walk-forward-parameter-step" className="mt-5 block text-xs font-bold uppercase tracking-widest text-gray-500">
+                  step 값
+                </label>
+                <div className="mt-2 flex items-end justify-between gap-3">
+                  <p className="text-2xl font-black text-white font-outfit">
+                    {formatStepWithUnit(stepModalDraftValue, stepModalConfig.unit)}
+                  </p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
+                    {formatStepWithUnit(stepModalConfig.min, stepModalConfig.unit)} -{" "}
+                    {formatStepWithUnit(stepModalConfig.max, stepModalConfig.unit)}
+                  </p>
+                </div>
+                <input
+                  id="walk-forward-parameter-step"
+                  aria-label={`${stepModalTarget.label} step 값`}
+                  type="range"
+                  min={stepModalConfig.min}
+                  max={stepModalConfig.max}
+                  step={stepModalConfig.inputStep}
+                  value={stepModalDraftValue}
+                  onChange={(event) => setStepDraft(event.target.value)}
+                  style={sliderTrackStyle(stepModalDraftValue, stepModalConfig.min, stepModalConfig.max)}
+                  className="mt-4 h-2 w-full cursor-pointer appearance-none rounded-full bg-white/[0.08]"
+                />
+                <p className="mt-2 text-xs font-bold leading-5 text-gray-500">
+                  현재 적용:{" "}
+                  {formatStepWithUnit(stepModalCurrentValue, stepModalConfig.unit)}
+                </p>
+                <div className="mt-5 flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={resetStepModal}
+                    className="rounded-md px-3 py-2 text-xs font-black text-gray-500 transition-colors hover:bg-white/[0.04] hover:text-gray-300"
+                  >
+                    기본값
+                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={closeStepModal}
+                      className="rounded-md px-3 py-2 text-xs font-black text-gray-400 transition-colors hover:bg-white/[0.04] hover:text-white"
+                    >
+                      닫기
+                    </button>
+                    <button
+                      type="button"
+                      onClick={saveStepModal}
+                      className="rounded-md bg-[var(--main-blue)] px-3 py-2 text-xs font-black text-white transition-opacity hover:opacity-90"
+                    >
+                      저장
+	                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="flex items-center justify-between gap-3 border-t border-white/[0.08] px-5 py-4">
             {result ? (

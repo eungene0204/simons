@@ -161,6 +161,38 @@ def test_definition_question_is_general():
     assert classify("골든크로스가 무엇인가요?").intent == QueryIntent.GENERAL_INVESTMENT
 
 
+@pytest.mark.parametrize(
+    "query",
+    [
+        "리밸런싱이 뭔가요?",       # 실제 버그 재현: '리밸런' 전략 키워드에 가로채여 STRATEGY로 오분류되던 케이스
+        "모멘텀 전략이 뭐야?",
+        "손절이 무엇인가요?",
+        "트레일링 스탑이 무슨 뜻이야?",
+    ],
+)
+def test_definition_beats_strategy_keyword(query):
+    # [회귀] 전략 키워드('리밸런/전략/손절/트레일링')가 섞여도, 구성/수정 동사 없는 순수 정의형
+    # 질문('~이 뭔가요?')은 전략 설계가 아니라 일반 투자 지식(GENERAL_INVESTMENT)으로 잡혀야 한다.
+    result = classify(query)
+    assert result.intent == QueryIntent.GENERAL_INVESTMENT
+    assert result.deterministic is True
+
+
+def test_definition_with_construct_verb_stays_strategy():
+    # 정의형 표지가 있어도 '만들어줘' 같은 구성 동사가 붙으면 설계 요청이다.
+    assert classify("모멘텀 전략이 뭔지 설명하고 만들어줘").intent == QueryIntent.STRATEGY_ADVICE
+
+
+def test_virtual_account_is_in_scope_not_offtopic():
+    # [회귀] '가상계좌/모의투자'는 이 플랫폼의 핵심 기능이므로 역할 밖(OFF_TOPIC) 신호가 아니다.
+    from intent.scope import is_offtopic, has_finance_cue
+    assert has_finance_cue("가상계좌 만들어줘") is True
+    assert is_offtopic("가상계좌 만들어줘") is False
+    assert is_offtopic("모의투자 하고 싶어요") is False
+    # '가상현실 게임'처럼 '가상'만 들어간 잡담은 여전히 역할 밖으로 걸러야 한다.
+    assert is_offtopic("가상현실 게임 추천해줘") is True
+
+
 def test_ambiguous_without_llm_is_unknown():
     # 종목명·전략 키워드·정의형·행동 동사가 모두 없는 입력 → 결정 불가 → UNKNOWN.
     result = classify("음 글쎄요 그냥 궁금해서요")

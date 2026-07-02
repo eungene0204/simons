@@ -26,6 +26,7 @@ export interface AdvisorWalkForwardSettings {
   anchor: boolean;
   target_metric: string;
   n_trials: number;
+  parameter_steps?: Record<string, number>;
 }
 
 export interface AdvisorWalkForwardResult {
@@ -395,9 +396,11 @@ export function buildWalkForwardRequest(
   settings: AdvisorWalkForwardSettings,
   ranges: Record<string, unknown> = {}
 ) {
+  const resolvedRanges = applyWalkForwardParameterSteps(baseStrategy, ranges, settings.parameter_steps);
+
   return {
     base_strategy: baseStrategy,
-    ranges,
+    ranges: resolvedRanges,
     n_splits: settings.n_splits,
     train_pct: settings.train_pct,
     anchor: settings.anchor,
@@ -440,6 +443,26 @@ function boundedPercentRange(value: number): number[] {
   ], 1);
 }
 
+function boundedStopLossRange(value: number): number[] {
+  const lowerDelta = Math.max(5, value * 0.8);
+  const upperDelta = Math.max(10, value * 1.5);
+  return uniqueNumbers([
+    Math.max(1, value - lowerDelta),
+    value,
+    Math.min(50, value + upperDelta),
+  ], 1);
+}
+
+function boundedTakeProfitRange(value: number): number[] {
+  const lowerDelta = Math.max(10, value * 0.75);
+  const upperDelta = Math.max(20, value * 2);
+  return uniqueNumbers([
+    Math.max(1, value - lowerDelta),
+    value,
+    Math.min(100, value + upperDelta),
+  ], 1);
+}
+
 function aroundValueRange(value: number): number[] {
   const abs = Math.abs(value);
   if (abs === 0) return [];
@@ -451,6 +474,95 @@ function addRange(ranges: Record<string, unknown>, path: string, values: number[
   if (values.length >= 2) {
     ranges[path] = values;
   }
+}
+
+function rangeBounds(value: unknown): { min: number; max: number } | null {
+  if (Array.isArray(value)) {
+    const numbers = value.map(numericValue).filter((item): item is number => item !== null);
+    if (numbers.length < 2) return null;
+    return { min: Math.min(...numbers), max: Math.max(...numbers) };
+  }
+
+  if (value && typeof value === "object" && (value as Record<string, unknown>).type === "number") {
+    const spec = value as Record<string, unknown>;
+    const min = numericValue(spec.min);
+    const max = numericValue(spec.max);
+    if (min === null || max === null || min >= max) return null;
+    return { min, max };
+  }
+
+  return null;
+}
+
+function isIntegerLike(value: number): boolean {
+  return Number.isInteger(value);
+}
+
+function numberRangeSpec(range: unknown, step: number): Record<string, number | string> | null {
+  const bounds = rangeBounds(range);
+  if (!bounds || !Number.isFinite(step) || step <= 0) return null;
+
+  const clampedStep = Math.min(Math.max(step, 1e-6), Math.max(1e-6, bounds.max - bounds.min));
+  const integerSpec = isIntegerLike(bounds.min) && isIntegerLike(bounds.max) && isIntegerLike(clampedStep);
+
+  return {
+    type: "number",
+    min: integerSpec ? Math.round(bounds.min) : Number(bounds.min.toFixed(4)),
+    max: integerSpec ? Math.round(bounds.max) : Number(bounds.max.toFixed(4)),
+    step: integerSpec ? Math.round(clampedStep) : Number(clampedStep.toFixed(4)),
+  };
+}
+
+function conditionForRangePath(
+  baseStrategy: StrategyBacktestRequest,
+  path: string
+): Record<string, unknown> | null {
+  const match = path.match(/^(entry|exit)\.conditions\.(\d+)\.params\./);
+  if (!match) return null;
+  const side = match[1] as "entry" | "exit";
+  const index = Number(match[2]);
+  const conditions = side === "entry" ? baseStrategy.entry?.conditions : baseStrategy.exit?.conditions;
+  return conditions?.[index] ?? null;
+}
+
+function rangePathMatchesStepLabel(baseStrategy: StrategyBacktestRequest, label: string, path: string): boolean {
+  const normalized = label.toLowerCase();
+
+  if (/손절|stop\s*loss/i.test(label)) return path === "risk.stop_loss_pct";
+  if (/익절|take\s*profit/i.test(label)) return path === "risk.take_profit_pct";
+  if (/트레일링|trailing/i.test(label)) return path === "risk.trailing_stop_pct";
+  if (/보유기간|holding/i.test(label)) return path === "risk.max_holding_days";
+  if (/보유종목수|종목|positions?/i.test(label)) return path === "risk.max_positions";
+  if (/리밸런싱|rebalanc/i.test(label)) return path === "risk.rebalancing_days";
+
+  const condition = conditionForRangePath(baseStrategy, path);
+  const haystack = `${path} ${condition?.id ?? ""} ${condition?.type ?? ""} ${JSON.stringify(condition?.params ?? {})}`.toLowerCase();
+
+  if (/pbr/i.test(normalized)) return /pbr/.test(haystack);
+  if (/per/i.test(normalized)) return /per/.test(haystack);
+  if (/roe/i.test(normalized)) return /roe/.test(haystack);
+
+  const compact = normalized.replace(/\s+/g, "");
+  return !!compact && haystack.replace(/\s+/g, "").includes(compact);
+}
+
+function applyWalkForwardParameterSteps(
+  baseStrategy: StrategyBacktestRequest,
+  ranges: Record<string, unknown>,
+  parameterSteps?: Record<string, number>
+): Record<string, unknown> {
+  if (!parameterSteps || Object.keys(parameterSteps).length === 0) return ranges;
+
+  const next = { ...ranges };
+  for (const [label, step] of Object.entries(parameterSteps)) {
+    for (const [path, range] of Object.entries(ranges)) {
+      if (!rangePathMatchesStepLabel(baseStrategy, label, path)) continue;
+      const spec = numberRangeSpec(range, step);
+      if (spec) next[path] = spec;
+    }
+  }
+
+  return next;
 }
 
 function addConditionRanges(
@@ -500,12 +612,24 @@ export function buildWalkForwardParameterRanges(baseStrategy: StrategyBacktestRe
 
   for (const field of ["stop_loss_pct", "take_profit_pct", "trailing_stop_pct", "max_mdd_limit_pct"] as const) {
     const value = numericValue(risk[field]);
-    if (value !== null && value > 0) addRange(ranges, `risk.${field}`, boundedPercentRange(value));
+    if (value === null || value <= 0) continue;
+    const range =
+      field === "stop_loss_pct"
+        ? boundedStopLossRange(value)
+        : field === "take_profit_pct"
+          ? boundedTakeProfitRange(value)
+          : boundedPercentRange(value);
+    addRange(ranges, `risk.${field}`, range);
   }
 
   const maxHoldingDays = numericValue(risk.max_holding_days);
   if (maxHoldingDays !== null && maxHoldingDays > 1) {
     addRange(ranges, "risk.max_holding_days", boundedIntegerRange(maxHoldingDays, 2, 365));
+  }
+
+  const maxPositions = numericValue(risk.max_positions);
+  if (maxPositions !== null && maxPositions > 1) {
+    addRange(ranges, "risk.max_positions", boundedIntegerRange(maxPositions, 1, 50));
   }
 
   addConditionRanges(ranges, "entry", baseStrategy.entry?.conditions);
@@ -515,7 +639,11 @@ export function buildWalkForwardParameterRanges(baseStrategy: StrategyBacktestRe
 }
 
 export function hasWalkForwardParameterRanges(ranges: Record<string, unknown>): boolean {
-  return Object.values(ranges).some((value) => Array.isArray(value) && value.length >= 2);
+  return Object.values(ranges).some((value) => {
+    if (Array.isArray(value)) return value.length >= 2;
+    const bounds = rangeBounds(value);
+    return !!bounds && bounds.max > bounds.min;
+  });
 }
 
 function metricNumber(value: unknown): number | null {

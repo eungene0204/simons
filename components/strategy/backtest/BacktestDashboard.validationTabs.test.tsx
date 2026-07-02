@@ -120,6 +120,9 @@ describe("BacktestDashboard premium validation tabs", () => {
     expect(screen.getByText(/2020-2021년 데이터로 파라미터를 맞춘 뒤/)).toBeInTheDocument();
     expect(screen.getByLabelText("몬테카를로 탭 도움말")).toBeInTheDocument();
     expect(screen.getByText(/일별 수익률 블록을 1,000번 재배열/)).toBeInTheDocument();
+    expect(screen.getByTestId("backtest-tab-content")).not.toHaveClass("flex-1");
+    expect(screen.getByTestId("backtest-dashboard-footer")).toHaveClass("px-0", "py-3");
+    expect(screen.getByTestId("backtest-dashboard-footer")).not.toHaveClass("mt-auto");
 
     await user.click(screen.getByRole("button", { name: "몬테카를로" }));
 
@@ -144,6 +147,8 @@ describe("BacktestDashboard premium validation tabs", () => {
 
     await user.click(screen.getByRole("button", { name: "워크포워드" }));
     expect(await screen.findByRole("button", { name: "워크포워드 분석 시작" })).toBeInTheDocument();
+    expect(screen.getByTestId("backtest-walk-forward-section")).not.toHaveClass("py-4");
+    expect(screen.getByTestId("backtest-walk-forward-section")).not.toHaveClass("flex-1");
     expect(screen.getByText("PBR")).toBeInTheDocument();
     expect(screen.getByText("손절라인")).toBeInTheDocument();
     expect(screen.getByText("익절라인")).toBeInTheDocument();

@@ -191,7 +191,7 @@ simons/
 │   ├── intent/                      # 사용자 질문 의도 분류 (STRATEGY / STOCK_ANALYSIS / …)
 │   │   ├── classifier.py            # 결정적 하이브리드 분류기 (규칙 + LLM 폴백)
 │   │   └── schemas.py               # IntentResult Pydantic 모델
-│   ├── stock_analysis/              # 개별 종목 분석 Agent (LLM은 설명만, 추천은 규칙엔진)
+│   ├── stock_analysis/              # 개별 종목 분석 Agent (규칙엔진=객관적 상태 등급, LLM은 설명만 — 매수/시점 추천 아님)
 │   │   ├── agent.py                 # 종목 분석 오케스트레이터
 │   │   ├── stock_master.py          # 종목 마스터 (Ground Truth) + 별칭/티커 해석
 │   │   ├── symbol_resolver.py       # 자연어 → 종목코드 해석 (find_in_text)
@@ -391,7 +391,7 @@ interface BacktestResult {
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
 | POST | `/query/classify` | 사용자 질문 의도 분류 (STRATEGY / STOCK_ANALYSIS / STOCK_PICK / GENERAL) |
-| POST | `/stock/analyze` | 개별 종목 분석 — 로컬 parquet 1차 소스, 규칙 기반 추천 + LLM 설명, 종목 미해석 시 422 |
+| POST | `/stock/analyze` | 개별 종목 분석 — 로컬 parquet 1차 소스, 규칙 기반 객관적 상태 등급(매수/시점 추천 아님) + LLM 설명, 종목 미해석 시 422 |
 | POST | `/query/general` | 분류·종목 비매칭 일반 질문 응답 |
 | POST | `/strategy/builder/step` | 전략 빌더 모드 한 턴 — 열린 추천(STOCK_PICK) 전환 직후 짧은 답변을 전략 필드로 누적하고, 완성 시 백테스트 프롬프트 합성. 결정적 상태 머신 `intent/strategy_builder.py`(무상태). 프론트 `builderModeRef`/`builderStateRef`가 상태 보관·재전송 |
 

@@ -4,12 +4,13 @@ import { Warning } from "phosphor-react";
 
 // ─── Types (백엔드 StockAnalysisResult 미러) ────────────────────────────────────
 
+// [규제 안전] 매수/매도/보유 '행동 지시'가 아니라 지표 종합 '객관적 상태 등급'이다(백엔드 미러).
 export type Recommendation =
-  | "STRONG_BUY"
-  | "ACCUMULATE"
-  | "HOLD"
-  | "CAUTION"
-  | "AVOID"
+  | "FAVORABLE"
+  | "MILDLY_FAVORABLE"
+  | "NEUTRAL"
+  | "ELEVATED_RISK"
+  | "HIGH_RISK"
   | "INSUFFICIENT_DATA";
 
 export interface StockSignals {

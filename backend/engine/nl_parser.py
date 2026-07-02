@@ -1418,10 +1418,12 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
     exit_: list[TechnicalSignal] = []
 
     # ── 골든크로스 / 데드크로스 (MA 크로스오버) ──
-    # 기간 추출: "5일/20일", "5일20일", "20일선과 60일선", "5일선이 20일선" 등.
-    # 두 'N일' 사이에 조사·'선' 등이 끼어도(비숫자 4글자 이내) 잡는다.
+    # 기간 추출: "5일/20일", "5일20일", "20일선과 60일선", "5일선이 20일선",
+    # "20일 이동평균이 60일 이동평균" 등.
+    # 두 'N일' 사이에 조사·'선'·'이동평균(선)' 등이 끼어도(비숫자 8글자 이내) 잡는다.
+    # (기간은 MA 크로스가 감지됐을 때만 적용되므로, 이 문맥의 두 'N일'은 사실상 항상 두 MA 기간이다.)
     ma_short, ma_long = None, None
-    ma_period_match = re.search(r"(\d+)일선?[^0-9]{0,4}(\d+)일", compact)
+    ma_period_match = re.search(r"(\d+)일선?[^0-9]{0,8}(\d+)일", compact)
     if ma_period_match:
         p1, p2 = int(ma_period_match.group(1)), int(ma_period_match.group(2))
         ma_short, ma_long = min(p1, p2), max(p1, p2)
@@ -2824,7 +2826,11 @@ def _modify_rule_based(user_input: str, previous: dict) -> Optional[ParsedStrate
     merged = {**previous}
     for field, value in changes.items():
         merged[field] = value  # 리스크 삭제는 None으로 인코딩됨(의도적)
-    return _apply_prompt_overrides(ParsedStrategy.model_validate(merged), user_input)
+    # 수정 모드이므로 신호 재검증을 건너뛴다(LLM 수정 경로와 동일). 짧은 수정 프롬프트
+    # ("종목 20개로")로 재검증하면 언급 안 된 기존 진입/청산 신호(RSI 등)를 잘못 떨군다.
+    return _apply_prompt_overrides(
+        ParsedStrategy.model_validate(merged), user_input, skip_signal_validation=True,
+    )
 
 
 def _build_fallback_strategy(user_input: str) -> ParsedStrategy:
@@ -2947,6 +2953,54 @@ def _first_pct_match(compact: str, patterns: tuple[str, ...]) -> Optional[float]
     return None
 
 
+# 값과 키워드 사이가 조사(에·에서·로·으로)뿐이면 '바로 붙었다'(gap 0)고 본다.
+# "15%에 손절"·"30%로 익절"에서 조사 1글자 때문에 더 먼 값으로 밀리지 않게 한다.
+_RISK_CONNECTOR_RE = re.compile(r"^(?:에서?|으?로)?$")
+
+
+def _risk_pct_candidates(compact: str, cue: str, blocker: str) -> list[tuple[float, int, int]]:
+    """cue 키워드와 연결된 모든 (값, %위치, gap) 후보를 반환한다. gap은 조사만 낀 경우 0."""
+    gap = rf"((?:(?!{blocker})[^%,])*?)" if blocker else r"([^%,]*?)"
+    cands: list[tuple[float, int, int]] = []
+    for pattern, num_grp, gap_grp in (
+        (rf"{cue}{gap}-?(\d+(?:\.\d+)?)%", 2, 1),   # 키워드 ~ %
+        (rf"-?(\d+(?:\.\d+)?)%{gap}{cue}", 1, 2),   # % ~ 키워드
+    ):
+        for m in re.finditer(pattern, compact):
+            seg = m.group(gap_grp)
+            gap_len = 0 if _RISK_CONNECTOR_RE.match(seg) else len(seg)
+            cands.append((float(m.group(num_grp)), m.start(num_grp), gap_len))
+    return cands
+
+
+def _assign_sl_tp(compact: str) -> dict[str, float]:
+    """손절·익절 %값을 함께 1:1로 귀속한다. 값이 키워드 앞·뒤 어디 와도 되며, 두 필드가 같은 %를
+    다툴 때 '최대한 많이 배정 + 총 gap 최소'가 되는 조합을 고른다(그리디가 아니라 전역 최적).
+    → "10% 손절 20% 익절"·"익절 30% 손절 15%"에서 한 필드가 상대의 %를 훔쳐 다른 필드가
+      비는 오귀속을 막는다."""
+    sl_opts: list[Optional[tuple[float, int, int]]] = list(
+        _risk_pct_candidates(compact, _STOP_LOSS_CUE, _STOP_LOSS_BLOCK)) + [None]
+    tp_opts: list[Optional[tuple[float, int, int]]] = list(
+        _risk_pct_candidates(compact, _TAKE_PROFIT_CUE, _TAKE_PROFIT_BLOCK)) + [None]
+    best_score: Optional[tuple[int, int]] = None
+    best: tuple = (None, None)
+    for a in sl_opts:
+        for b in tp_opts:
+            if a and b and a[1] == b[1]:
+                continue  # 같은 % 위치를 두 필드가 동시에 못 가진다
+            assigned = (1 if a else 0) + (1 if b else 0)
+            total_gap = (a[2] if a else 0) + (b[2] if b else 0)
+            score = (assigned, -total_gap)  # 많이 배정 우선, 그다음 gap 최소
+            if best_score is None or score > best_score:
+                best_score, best = score, (a, b)
+    out: dict[str, float] = {}
+    if best[0] is not None:
+        out["stop_loss_pct"] = best[0][0]
+    if best[1] is not None:
+        out["take_profit_pct"] = best[1][0]
+    return out
+
+
 def extract_risk_field_overrides(user_input: str) -> dict[str, Optional[float]]:
     """프롬프트에서 '규칙 기반으로 결정적으로' 바뀐 리스크 필드만 추출한다.
 
@@ -2959,21 +3013,24 @@ def extract_risk_field_overrides(user_input: str) -> dict[str, Optional[float]]:
     is_deleting = any(kw in compact for kw in _DELETE_TERMS)
     out: dict[str, Optional[float]] = {}
 
-    # ── 익절(take_profit): 키워드(익절/수익실현/수익확정/목표수익) → 동사형 폴백 ──
+    # ── 손절·익절: 키워드+% 는 두 필드를 함께 1:1 귀속(중간 % 오귀속 방지), 없으면 동사형 폴백 ──
+    joint = _assign_sl_tp(compact)
+
+    # 익절(take_profit)
     if is_deleting and any(kw in compact for kw in ["익절", "takeprofit", "익절률"]):
         out["take_profit_pct"] = None
     else:
-        value = _match_risk_pct(compact, _TAKE_PROFIT_CUE, blocker=_TAKE_PROFIT_BLOCK)
+        value = joint.get("take_profit_pct")
         if value is None:
             value = _first_pct_match(compact, _TAKE_PROFIT_VERB_PATTERNS)
         if value is not None:
             out["take_profit_pct"] = value
 
-    # ── 손절(stop_loss): "손절" 키워드 → "손실·하락+매도", "-N% 매도" 폴백 ──
+    # 손절(stop_loss): 키워드 → "손실·하락+매도", "-N% 매도" 폴백
     if is_deleting and any(kw in compact for kw in ["손절", "stoploss", "스탑로스"]):
         out["stop_loss_pct"] = None
     else:
-        value = _match_risk_pct(compact, _STOP_LOSS_CUE, blocker=_STOP_LOSS_BLOCK)
+        value = joint.get("stop_loss_pct")
         if value is None:
             value = _first_pct_match(compact, _STOP_LOSS_VERB_PATTERNS)
         if value is not None:

@@ -18,7 +18,7 @@ from typing import Callable, List, Optional
 
 from pydantic import BaseModel, Field
 
-Universe = str  # "KOSPI" | "KOSDAQ" | "KOSPI_KOSDAQ"
+Universe = str  # "KOSPI" | "KOSDAQ" | "KOSPI200" | "KOSPI_KOSDAQ"
 StrategyType = str  # "momentum" | "breakout" | "volume_spike" | "mean_reversion" | "custom"
 RebalanceCycle = str  # "daily" | "weekly" | "monthly" | "quarterly" | "yearly"
 
@@ -72,6 +72,8 @@ def detect_control(text: str) -> Optional[str]:
 
 # ─── 필드 파서(짧은 답변 → patch) ────────────────────────────────────────────────
 
+# 코스피200은 '코스피'를 부분 문자열로 포함하므로 반드시 먼저 검사해야 KOSPI로 새지 않는다.
+_UNIV_KOSPI200_RE = re.compile(r"코스피\s*200|kospi\s*200|k\s*200|대형주", re.IGNORECASE)
 _UNIV_BOTH_RE = re.compile(r"둘\s*다|전체|모두|코스피.{0,4}코스닥|코스닥.{0,4}코스피", re.IGNORECASE)
 _UNIV_KOSDAQ_RE = re.compile(r"코스닥|kosdaq", re.IGNORECASE)
 _UNIV_KOSPI_RE = re.compile(r"코스피|kospi", re.IGNORECASE)
@@ -99,7 +101,7 @@ _COUNT_RE = re.compile(r"(\d+)\s*(?:종목|개(?!월))", re.IGNORECASE)
 _BARE_NUM_RE = re.compile(r"^\s*(\d+)\s*$")
 
 _REBAL_RE: tuple[tuple[str, "re.Pattern[str]"], ...] = (
-    ("daily", re.compile(r"매일|데일리|하루\s*에\s*한", re.IGNORECASE)),
+    ("daily", re.compile(r"매일|일간|데일리|하루\s*에\s*한|하루\s*마다", re.IGNORECASE)),
     ("weekly", re.compile(r"매주|주간|주\s*1|일주일|위클리", re.IGNORECASE)),
     ("monthly", re.compile(r"매월|월간|월\s*1|한\s*달|먼슬리", re.IGNORECASE)),
     ("quarterly", re.compile(r"분기", re.IGNORECASE)),
@@ -111,14 +113,65 @@ _REBAL_RE: tuple[tuple[str, "re.Pattern[str]"], ...] = (
     )),
 )
 
-# "15%에 손절", "15%로 익절"처럼 퍼센트와 키워드 사이에 조사(에/에서/로/으로)가 끼어도 인식한다.
-_PARTICLE = r"(?:에서?|으?로)?\s*"
-_STOP_LOSS_RE = re.compile(
-    rf"(\d+(?:\.\d+)?)\s*%?\s*{_PARTICLE}(?:손절|스탑\s*로스|stop\s*loss)", re.IGNORECASE
-)
-_TAKE_PROFIT_RE = re.compile(
-    rf"(\d+(?:\.\d+)?)\s*%?\s*{_PARTICLE}(?:익절|목표\s*수익|take\s*profit)", re.IGNORECASE
-)
+# 손절/익절 키워드. 값(%)은 키워드의 앞·뒤 어느 쪽에 와도(예: "10% 손절", "손절 10%")
+# 인식해야 하므로, 아래 _nearest_pct_to_keyword가 키워드에 '가장 가까운 %값'을 고른다.
+# (예전엔 '숫자→키워드' 순서만 잡아 "손절 10% 익절 20%"에서 익절이 앞의 10%를 훔쳐가는
+#  치명적 오귀속 버그가 있었다. 메인 NL 파서 수정(commit 2811cdd8)과 동일한 접근.)
+_STOP_LOSS_KW = re.compile(r"손절|스탑\s*로스|stop\s*loss", re.IGNORECASE)
+_TAKE_PROFIT_KW = re.compile(r"익절|목표\s*수익|take\s*profit", re.IGNORECASE)
+_PCT_NUM_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+# 키워드 바로 뒤에 부정어가 오면('손절 없이/안 함') 그 조건은 '없음'으로 보고 값을 뽑지 않는다.
+_NEG_AFTER_KW = re.compile(r"\s*(?:없|안\s|안$|말고|제외|불필요|필요\s*없|하지\s*않|빼)", re.IGNORECASE)
+_SL_TP_MAX_GAP = 4  # 값-키워드 사이 허용 최대 글자 간격(연결어 제외)
+# 값과 키워드 사이가 공백/조사(에·에서·로·으로)/구분자(,·)뿐이면 '바로 붙었다'(gap 0)고 본다.
+# "15%에 손절"·"30%로 익절"처럼 조사가 껴도 그 값이 그 키워드의 값이 되도록.
+_SL_TP_CONNECTOR = re.compile(r"^\s*(?:에서?|으?로)?\s*[,·]?\s*$")
+
+
+def _sl_tp_gap(seg: str) -> int:
+    """값과 키워드 사이 텍스트의 '거리'. 연결어(공백/조사/구분자)뿐이면 0, 아니면 글자 수."""
+    return 0 if _SL_TP_CONNECTOR.match(seg) else len(seg)
+
+
+def _parse_sl_tp(text: str) -> dict:
+    """손절/익절 %값을 함께 추출한다. 값은 키워드 앞·뒤 어디에 와도 되며(순서 무관), 각 키워드는
+    '자신에게 가장 가까운(간격 동률이면 앞쪽) 아직 안 쓰인 %값'을 하나씩 가져간다.
+    → "손절 10% 익절 20%"에서 익절이 손절의 10%를 훔쳐가는 오귀속을 막는다.
+    키워드 뒤 부정어('손절 없이')는 건너뛴다."""
+    nums = [(m.start(), m.end(), float(m.group(1))) for m in _PCT_NUM_RE.finditer(text)]
+    kws = []  # (pos, field)
+    for m in _STOP_LOSS_KW.finditer(text):
+        if not _NEG_AFTER_KW.match(text[m.end():]):
+            kws.append((m.start(), m.end(), "stop_loss_pct"))
+    for m in _TAKE_PROFIT_KW.finditer(text):
+        if not _NEG_AFTER_KW.match(text[m.end():]):
+            kws.append((m.start(), m.end(), "take_profit_pct"))
+    kws.sort()  # 왼쪽 키워드부터 값을 선점(같은 값을 두 키워드가 다투지 않도록)
+
+    patch: dict = {}
+    used: set[int] = set()
+    for kstart, kend, field in kws:
+        if field in patch:
+            continue
+        best_i, best_gap = None, None
+        for i, (nstart, nend, _val) in enumerate(nums):
+            if i in used:
+                continue
+            if nend <= kstart:          # 값이 키워드 앞
+                gap = _sl_tp_gap(text[nend:kstart])
+            elif nstart >= kend:        # 값이 키워드 뒤
+                gap = _sl_tp_gap(text[kend:nstart])
+            else:
+                gap = 0
+            if gap > _SL_TP_MAX_GAP:
+                continue
+            # 간격이 더 작으면 채택. 동률이면 앞쪽 값(먼저 나온 값)을 유지("10% 손절 20%"→손절=10).
+            if best_gap is None or gap < best_gap:
+                best_gap, best_i = gap, i
+        if best_i is not None:
+            patch[field] = nums[best_i][2]
+            used.add(best_i)
+    return patch
 _TRAILING_RE = re.compile(
     r"(?:트레일링(?:\s*스탑)?|최고가\s*대비)\s*(\d+(?:\.\d+)?)\s*%", re.IGNORECASE
 )
@@ -132,6 +185,8 @@ _HOLD_RISK_RE = re.compile(
 def _parse_universe(text: str) -> Optional[Universe]:
     if _UNIV_BOTH_RE.search(text):
         return "KOSPI_KOSDAQ"
+    if _UNIV_KOSPI200_RE.search(text):  # '코스피' 검사보다 먼저(부분 문자열 충돌 방지)
+        return "KOSPI200"
     if _UNIV_KOSDAQ_RE.search(text):
         return "KOSDAQ"
     if _UNIV_KOSPI_RE.search(text):
@@ -200,12 +255,7 @@ def _parse_risk(text: str) -> dict:
     """청산 조건 단계의 답변을 파싱한다. 청산 조건은 필수이므로, 손절·익절·트레일링·보유기간을
     하나 이상 인식했을 때만 risk_done=True로 완료 처리한다(없으면 같은 질문을 다시 한다)."""
     patch: dict = {}
-    sl = _STOP_LOSS_RE.search(text)
-    if sl:
-        patch["stop_loss_pct"] = float(sl.group(1))
-    tp = _TAKE_PROFIT_RE.search(text)
-    if tp:
-        patch["take_profit_pct"] = float(tp.group(1))
+    patch.update(_parse_sl_tp(text))
     tr = _TRAILING_RE.search(text)
     if tr:
         patch["trailing_stop_pct"] = float(tr.group(1))
@@ -412,7 +462,7 @@ def required_missing(state: BuilderState) -> Optional[str]:
 
 # ─── 응답 생성(다음 질문 / 요약) ─────────────────────────────────────────────────
 
-_UNIVERSE_LABEL = {"KOSPI": "코스피", "KOSDAQ": "코스닥", "KOSPI_KOSDAQ": "코스피·코스닥 전체"}
+_UNIVERSE_LABEL = {"KOSPI": "코스피", "KOSDAQ": "코스닥", "KOSPI200": "코스피200", "KOSPI_KOSDAQ": "코스피·코스닥 전체"}
 _TYPE_LABEL = {
     "momentum": "모멘텀",
     "golden_cross": "골든크로스",
@@ -453,7 +503,7 @@ def next_question(
     if field == "universe":
         return (
             prefix + "어떤 시장을 대상으로 할까요?",
-            ["코스피", "코스닥", "코스피·코스닥 전체"],
+            ["코스피", "코스닥", "코스피200", "코스피·코스닥 전체"],
         )
     if field == "strategy_type":
         msg = (

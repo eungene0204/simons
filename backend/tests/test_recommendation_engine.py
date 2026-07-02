@@ -14,34 +14,34 @@ def test_insufficient_when_core_signals_missing():
     assert out.confidence == 0.0
 
 
-def test_strong_buy_when_all_positive_low_risk():
+def test_favorable_when_all_positive_low_risk():
     out = engine.decide(StockSignals(
         trend="strong_up", valuation="cheap", news_sentiment="positive",
         forecast="positive", risk="low",
     ))
-    assert out.recommendation == Recommendation.STRONG_BUY
+    assert out.recommendation == Recommendation.FAVORABLE
     assert out.confidence > 0.7
 
 
-def test_avoid_when_all_negative():
+def test_high_risk_when_all_negative():
     out = engine.decide(StockSignals(
         trend="strong_down", valuation="expensive", news_sentiment="negative", risk="medium",
     ))
-    assert out.recommendation == Recommendation.AVOID
+    assert out.recommendation == Recommendation.HIGH_RISK
 
 
-def test_hold_when_mixed_neutral():
+def test_neutral_when_mixed_neutral():
     out = engine.decide(StockSignals(trend="neutral", valuation="neutral", risk="low"))
-    assert out.recommendation == Recommendation.HOLD
+    assert out.recommendation == Recommendation.NEUTRAL
 
 
-def test_high_risk_gate_downgrades_strong_buy():
+def test_high_risk_gate_downgrades_favorable():
     base = StockSignals(trend="strong_up", valuation="cheap", news_sentiment="positive", forecast="positive")
     low = engine.decide(base.model_copy(update={"risk": "low"}))
     high = engine.decide(base.model_copy(update={"risk": "high"}))
-    assert low.recommendation == Recommendation.STRONG_BUY
+    assert low.recommendation == Recommendation.FAVORABLE
     # high risk는 한 단계 보수화.
-    assert high.recommendation == Recommendation.ACCUMULATE
+    assert high.recommendation == Recommendation.MILDLY_FAVORABLE
 
 
 def test_partial_data_still_decides():

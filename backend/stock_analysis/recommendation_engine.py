@@ -1,5 +1,8 @@
 """
-RecommendationEngine — 규칙 기반 최종 판정(단일 책임: 추천 결정).
+RecommendationEngine — 규칙 기반 최종 판정(단일 책임: 지표 종합 '객관적 상태 등급' 결정).
+
+[규제 안전] 매수/매도·시점을 지시하는 '추천'이 아니라, 지표가 현재 어떤 상태인지를
+등급으로만 서술한다(FAVORABLE~HIGH_RISK). 행동 지시 라벨(STRONG_BUY 등)은 제거됐다.
 
 **LLM을 사용하지 않는다.** signals(추세/밸류/뉴스/예측/리스크)를 결정적 규칙으로
 집계해 Recommendation enum과 confidence를 산출한다. 핵심 데이터(추세·밸류 둘 다
@@ -67,24 +70,24 @@ class RecommendationEngine:
     @staticmethod
     def _score_to_recommendation(score: float) -> Recommendation:
         if score >= 2.5:
-            return Recommendation.STRONG_BUY
+            return Recommendation.FAVORABLE
         if score >= 1.2:
-            return Recommendation.ACCUMULATE
+            return Recommendation.MILDLY_FAVORABLE
         if score >= -0.5:
-            return Recommendation.HOLD
+            return Recommendation.NEUTRAL
         if score >= -1.5:
-            return Recommendation.CAUTION
-        return Recommendation.AVOID
+            return Recommendation.ELEVATED_RISK
+        return Recommendation.HIGH_RISK
 
     @staticmethod
     def _apply_risk_gate(rec: Recommendation, risk: str | None) -> Recommendation:
-        """위험도 high는 공격적 추천을 한 단계 보수화한다(상한 게이트)."""
+        """위험도 high는 긍정적 상태 등급을 한 단계 보수화한다(상한 게이트)."""
         if risk != "high":
             return rec
         downgrade = {
-            Recommendation.STRONG_BUY: Recommendation.ACCUMULATE,
-            Recommendation.ACCUMULATE: Recommendation.HOLD,
-            Recommendation.HOLD: Recommendation.CAUTION,
+            Recommendation.FAVORABLE: Recommendation.MILDLY_FAVORABLE,
+            Recommendation.MILDLY_FAVORABLE: Recommendation.NEUTRAL,
+            Recommendation.NEUTRAL: Recommendation.ELEVATED_RISK,
         }
         return downgrade.get(rec, rec)
 

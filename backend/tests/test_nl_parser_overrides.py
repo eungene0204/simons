@@ -293,6 +293,24 @@ def test_match_risk_pct_picks_closest_when_two_pcts_in_one_clause():
     assert overrides["take_profit_pct"] == 30.0
 
 
+@pytest.mark.parametrize(
+    "text, sl, tp",
+    [
+        # [회귀] 손절·익절이 같은 %값들을 두고 다툴 때 오귀속되던 케이스들.
+        # 순서(키워드-값 / 값-키워드), 조사(에/로)와 무관하게 각 %가 올바른 필드에 귀속돼야 한다.
+        ("10% 손절 20% 익절", 10.0, 20.0),   # 값-키워드(숫자 먼저): 손절이 익절의 20%를 훔치던 버그
+        ("손절 10% 익절 20%", 10.0, 20.0),   # 키워드-값
+        ("익절 30% 손절 15%", 15.0, 30.0),   # 중간 %(30)를 손절이 훔쳐 익절이 비던 버그
+        ("15%에 손절 30%로 익절", 15.0, 30.0),  # 조사(에/로)가 gap을 부풀려 먼 값을 잡던 버그
+        ("20% 익절 10% 손절", 10.0, 20.0),
+    ],
+)
+def test_sl_tp_joint_assignment_no_misattribution(text, sl, tp):
+    overrides = extract_risk_field_overrides(text)
+    assert overrides.get("stop_loss_pct") == sl
+    assert overrides.get("take_profit_pct") == tp
+
+
 def test_apply_prompt_overrides_keeps_technical_exit_when_explicitly_requested():
     base = make_base_strategy().model_copy(
         update={
@@ -356,6 +374,18 @@ def test_extract_custom_ma_periods():
     entry, exit_ = _extract_technical_signals("5일/20일 골든크로스 매수, 데드크로스 매도")
     assert entry[0].short_period == 5
     assert entry[0].long_period == 20
+
+
+def test_extract_ma_periods_with_word_separator():
+    # [회귀] "20일 이동평균이 60일 이동평균" — 두 'N일' 사이 분리어('이동평균이', 5자+)가
+    # 길어 기간 추출 정규식(gap 4자)이 실패 → 명시한 20/60을 무시하고 기본값 5/20으로
+    # 조용히 파싱되던 버그. 사용자가 말한 기간을 그대로 잡아야 한다.
+    entry, _ = _extract_technical_signals(
+        "20일 이동평균이 60일 이동평균을 상향 돌파하면 매수하는 골든크로스 전략"
+    )
+    ma = next(s for s in entry if s.indicator == "ma_crossover")
+    assert ma.short_period == 20
+    assert ma.long_period == 60
 
 
 def test_extract_rsi_buy_sell():
@@ -1349,6 +1379,31 @@ def test_parse_modification_simple_field_uses_rule_based_not_llm(monkeypatch):
     assert parsed.take_profit_pct == 30
     assert parsed.stop_loss_pct == 12  # 기존 값 보존
     assert parsed.universe == ["KOSPI200"]
+
+
+@pytest.mark.parametrize(
+    "mod, field, expected",
+    [
+        ("종목 20개로 바꿔줘", "max_positions", 20),
+        ("손절 5%로 바꿔줘", "stop_loss_pct", 5.0),
+        ("분기 리밸런싱으로 바꿔줘", "rebalancing_period", "quarterly"),
+        ("백테스트 3년으로", "backtest_period", "3y"),
+    ],
+)
+def test_rule_based_modification_preserves_technical_signals(mod, field, expected):
+    # [회귀] 규칙 기반 fast-path 수정이 신호 재검증을 돌려, 언급 안 된 기존 RSI 진입/청산
+    # 신호를 통째로 떨구던 버그("종목 20개로" 한 번에 전략의 매매 조건이 사라짐).
+    prev = dict(_MODIFY_PREVIOUS)
+    prev["entry_signals"] = [{"indicator": "rsi", "signal_type": "buy", "period": 14, "operator": "<=", "value": 30.0}]
+    prev["exit_signals"] = [{"indicator": "rsi", "signal_type": "sell", "period": 14, "operator": ">=", "value": 70.0}]
+    parser = NLStrategyParser(backend="ollama")
+    parser._modify_ollama = lambda *a, **k: (_ for _ in ()).throw(AssertionError("LLM 호출 금지"))
+    parsed = parser.parse_modification(mod, prev)
+    # 기존 진입/청산 신호가 보존돼야 한다.
+    assert [(s.indicator, s.value) for s in parsed.entry_signals] == [("rsi", 30.0)]
+    assert [(s.indicator, s.value) for s in parsed.exit_signals] == [("rsi", 70.0)]
+    # 요청한 필드는 바뀌어야 한다.
+    assert getattr(parsed, field) == expected
 
 
 def test_parse_modification_delete_uses_rule_based(monkeypatch):

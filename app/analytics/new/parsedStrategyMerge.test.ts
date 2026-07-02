@@ -694,7 +694,7 @@ describe("mergeStrategyModification", () => {
           { id: "ai_drop_model", params: { threshold: 70, value: 70, signalType: "sell" } },
         ],
       },
-      risk: { init_cash: 10000000, stop_loss_pct: 10, take_profit_pct: 20 },
+      risk: { init_cash: 10000000, stop_loss_pct: 10, take_profit_pct: 20, max_positions: 8 },
       period: "5Y",
     };
     const settings = {
@@ -709,8 +709,9 @@ describe("mergeStrategyModification", () => {
     expect(hasWalkForwardParameterRanges(ranges)).toBe(true);
 
     expect(ranges).toMatchObject({
-      "risk.stop_loss_pct": [6, 10, 14],
-      "risk.take_profit_pct": [12, 20, 28],
+      "risk.stop_loss_pct": [2, 10, 25],
+      "risk.take_profit_pct": [5, 20, 60],
+      "risk.max_positions": [5, 8, 11],
       "entry.conditions.0.params.period": [9, 14, 19],
       "entry.conditions.0.params.value": [18, 30, 42],
       "entry.conditions.1.params.shortMA": [3, 5, 7],
@@ -724,6 +725,32 @@ describe("mergeStrategyModification", () => {
     expect(buildWalkForwardRequest(baseStrategy, settings, ranges)).toEqual({
       base_strategy: baseStrategy,
       ranges,
+      ...settings,
+    });
+
+    expect(
+      buildWalkForwardRequest(
+        baseStrategy,
+        {
+          ...settings,
+          parameter_steps: {
+            PBR: 0.1,
+            손절라인: 2,
+            익절라인: 5,
+            보유종목수: 1,
+          },
+        },
+        ranges
+      )
+    ).toEqual({
+      base_strategy: baseStrategy,
+      ranges: {
+        ...ranges,
+        "entry.conditions.2.params.value": { type: "number", min: 0.8, max: 1.2, step: 0.1 },
+        "risk.stop_loss_pct": { type: "number", min: 2, max: 25, step: 2 },
+        "risk.take_profit_pct": { type: "number", min: 5, max: 60, step: 5 },
+        "risk.max_positions": { type: "number", min: 5, max: 11, step: 1 },
+      },
       ...settings,
     });
 

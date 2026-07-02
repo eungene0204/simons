@@ -20,14 +20,14 @@ describe("POST /api/stock/analyze", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("백엔드 분석 결과를 그대로 전달한다", async () => {
-    const result = { symbol: "005930", name: "삼성전자", recommendation: "HOLD" };
+    const result = { symbol: "005930", name: "삼성전자", recommendation: "NEUTRAL" };
     fetchBackendMock.mockResolvedValue({ ok: true, json: async () => result });
 
     const res = await POST(makeReq({ symbol: "005930" }));
     const data = await res.json();
 
     expect(fetchBackendMock).toHaveBeenCalledWith("/stock/analyze", expect.objectContaining({ method: "POST" }));
-    expect(data.recommendation).toBe("HOLD");
+    expect(data.recommendation).toBe("NEUTRAL");
   });
 
   it("백엔드 오류 상태코드를 전파한다", async () => {

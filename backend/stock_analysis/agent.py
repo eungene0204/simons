@@ -4,9 +4,10 @@ StockAnalysisAgent — 개별 종목 질문 처리 오케스트레이터.
 파이프라인(각 단계는 단일 책임 서비스):
   StockDataService → TechnicalAnalysisService → FundamentalAnalysisService
   → NewsAnalysisService → ForecastModelService → RiskScoringService
-  → RecommendationEngine(규칙 기반 판정) → LLMExplanationGenerator(설명만)
+  → RecommendationEngine(규칙 기반 객관적 상태 등급) → LLMExplanationGenerator(설명만)
 
-규칙: 매수/매도 결정은 RecommendationEngine만 내린다. LLM은 설명만 한다.
+규칙: [규제 안전] 매수/매도·시점을 지시하지 않는다. RecommendationEngine은 지표를 종합한
+'객관적 상태 등급'만 산출하고, LLM은 그 결과를 객관적으로 설명만 한다.
 데이터가 없으면 환각 대신 missing_data/'데이터 없음'으로 명시한다.
 """
 

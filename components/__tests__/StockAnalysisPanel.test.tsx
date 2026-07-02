@@ -8,7 +8,7 @@ function makeResult(overrides: Partial<StockAnalysisResult> = {}): StockAnalysis
     intent: "STOCK_ANALYSIS",
     symbol: "005930",
     name: "삼성전자",
-    recommendation: "ACCUMULATE",
+    recommendation: "MILDLY_FAVORABLE",
     confidence: 0.68,
     summary: "추세는 중립 이상이나 단기 변동성 리스크가 존재합니다.",
     explanation: "삼성전자는 현재 추세와 뉴스 흐름은 중립 이상입니다.",
@@ -29,7 +29,7 @@ describe("StockAnalysisPanel", () => {
   it("종목명은 표시하고 Recommendation 배지는 표시하지 않는다", () => {
     render(<StockAnalysisPanel result={makeResult()} />);
     expect(screen.getByText("삼성전자")).toBeInTheDocument();
-    expect(screen.queryByText("분할 매수")).not.toBeInTheDocument();
+    expect(screen.queryByText("지표 다소 양호")).not.toBeInTheDocument();
   });
 
   it("데이터가 없는 신호는 '데이터 없음'으로 표시한다", () => {

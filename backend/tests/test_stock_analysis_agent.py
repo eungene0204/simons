@@ -43,6 +43,35 @@ def test_disclaimer_always_present():
           fundamental=FundamentalResult(valuation="neutral"))
     result = agent.analyze(StockRef(symbol="005930", name="삼성전자"))
     assert "본인의 책임" in result.explanation
+
+
+def test_recommendation_enum_has_no_action_directives():
+    # [규제 회귀] 개별 종목 매수/매도/보유 '행동 지시' 등급은 금지된다(CLAUDE.md 유사투자자문 회피).
+    # enum은 객관적 상태 등급(FAVORABLE~HIGH_RISK)만 가진다 — STRONG_BUY/ACCUMULATE/HOLD 재도입 방지.
+    values = {r.value for r in Recommendation}
+    assert {"STRONG_BUY", "ACCUMULATE", "HOLD", "CAUTION", "AVOID"}.isdisjoint(values)
+    assert values == {
+        "FAVORABLE", "MILDLY_FAVORABLE", "NEUTRAL", "ELEVATED_RISK", "HIGH_RISK", "INSUFFICIENT_DATA",
+    }
+
+
+def test_explanation_never_contains_buy_sell_timing_directive():
+    # [규제 회귀] 긍정 신호(상승+저평가)로 가장 우호적인 등급이 나와도, 설명에 매수/매도/시점
+    # 행동 지시가 남으면 안 된다. LLM이 지시체를 뱉어도 guardrails가 문장째 제거한다.
+    def rogue_llm(system, user):
+        return (
+            "삼성전자는 추세가 강한 상승세입니다. "
+            "지금이 매수 시점이므로 분할 매수하세요. "
+            "밸류에이션은 저평가 구간으로 관찰됩니다."
+        )
+
+    agent = StockAnalysisAgent(llm=rogue_llm)
+    _wire(agent, data=_good_data(),
+          technical=TechnicalResult(trend="strong_up", volatility_pct=15.0),
+          fundamental=FundamentalResult(valuation="cheap"))
+    result = agent.analyze(StockRef(symbol="005930", name="삼성전자"))
+    for banned in ("매수하세요", "매도하세요", "분할 매수", "매수 시점", "매도 시점", "사세요", "파세요"):
+        assert banned not in result.explanation, f"설명에 행동 지시 '{banned}' 노출됨"
     assert result.disclaimer
 
 
@@ -57,7 +86,7 @@ def test_missing_data_recorded_not_hallucinated():
 
 
 def test_llm_cannot_change_recommendation_and_forbidden_stripped():
-    # 규칙 엔진은 중립 데이터로 HOLD를 내지만, LLM이 금지 표현을 쏟아내도
+    # 규칙 엔진은 중립 데이터로 NEUTRAL을 내지만, LLM이 금지 표현을 쏟아내도
     # recommendation은 바뀌지 않고 설명에서 금지 표현이 제거된다.
     def rogue_llm(system, user):
         return "이 종목은 무조건 사세요. 반드시 오릅니다. 손실 가능성 없습니다."
@@ -67,7 +96,7 @@ def test_llm_cannot_change_recommendation_and_forbidden_stripped():
           fundamental=FundamentalResult(valuation="neutral"))
     result = agent.analyze(StockRef(symbol="005930", name="삼성전자"))
 
-    assert result.recommendation == Recommendation.HOLD
+    assert result.recommendation == Recommendation.NEUTRAL
     assert not guardrails.contains_forbidden(result.explanation)
     assert "무조건 사세요" not in result.explanation
     assert "본인의 책임" in result.explanation
@@ -216,19 +245,19 @@ def test_ai_gauge_none_when_no_forecast():
 
 
 def test_english_recommendation_not_exposed():
-    # ACCUMULATE 같은 영어 enum 값이 설명에 노출되면 안 된다.
-    # LLM context에 "분할 매수" 같은 한글 라벨만 보내므로, LLM도 한글만 볼 수 있다.
+    # MILDLY_FAVORABLE 같은 영어 enum 값이 설명에 노출되면 안 된다.
+    # LLM context에 "지표 다소 양호" 같은 한글 상태 등급 라벨만 보내므로, LLM도 한글만 볼 수 있다.
     context_received = {}
 
     def spy_llm(system, user):
         context_received["user"] = user
         # context에 영어 enum 값이 없어야 함
-        assert "ACCUMULATE" not in user, "LLM context에 ACCUMULATE 노출됨"
-        assert "STRONG_BUY" not in user, "LLM context에 STRONG_BUY 노출됨"
-        assert "HOLD" not in user, "LLM context에 HOLD 노출됨"
-        # 대신 한글 라벨이 있어야 함 (trend up + valuation cheap → ACCUMULATE)
-        assert "분할 매수" in user, "LLM context에 '분할 매수' 라벨이 없음"
-        return "추세는 좋으나 단기 리스크가 있으므로 분할 접근을 권합니다."
+        assert "MILDLY_FAVORABLE" not in user, "LLM context에 MILDLY_FAVORABLE 노출됨"
+        assert "FAVORABLE" not in user, "LLM context에 FAVORABLE 노출됨"
+        assert "NEUTRAL" not in user, "LLM context에 NEUTRAL 노출됨"
+        # 대신 한글 상태 등급 라벨이 있어야 함 (trend up + valuation cheap → MILDLY_FAVORABLE)
+        assert "지표 다소 양호" in user, "LLM context에 '지표 다소 양호' 라벨이 없음"
+        return "추세는 상승세이고 밸류에이션은 저평가 구간으로 관찰됩니다."
 
     agent = StockAnalysisAgent(llm=spy_llm)
     _wire(agent, data=_good_data(), technical=TechnicalResult(trend="up", volatility_pct=18.0),
@@ -236,7 +265,7 @@ def test_english_recommendation_not_exposed():
     result = agent.analyze(StockRef(symbol="005930", name="삼성전자"))
 
     # LLM이 받은 context에 영어 enum이 없는지 재확인
-    assert "ACCUMULATE" not in context_received["user"]
-    assert "분할 매수" in context_received["user"]
+    assert "MILDLY_FAVORABLE" not in context_received["user"]
+    assert "지표 다소 양호" in context_received["user"]
     # 결과 설명에도 영어 enum이 없어야 함
-    assert "ACCUMULATE" not in result.explanation
+    assert "MILDLY_FAVORABLE" not in result.explanation

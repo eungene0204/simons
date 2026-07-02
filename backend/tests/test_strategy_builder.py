@@ -26,6 +26,22 @@ def test_parse_universe_variants():
     assert sb._parse_universe("코스피랑 코스닥 모두") == "KOSPI_KOSDAQ"
 
 
+def test_parse_universe_kospi200_not_swallowed_by_kospi():
+    # [회귀] '코스피200'은 '코스피'를 부분 문자열로 포함해 KOSPI로 조용히 새던 버그.
+    # 엔진이 지원하는 KOSPI200 유니버스로 정확히 잡혀야 한다.
+    assert sb._parse_universe("코스피200") == "KOSPI200"
+    assert sb._parse_universe("코스피 200으로 해줘") == "KOSPI200"
+    assert sb._parse_universe("대형주") == "KOSPI200"
+
+
+def test_parse_rebalance_daily_ilgan():
+    # [회귀] 주간/월간/연간은 '-간' 형을 인식하는데 daily만 '일간'을 못 잡아 리밸런싱 단계가
+    # 완료되지 않고 대화 흐름이 끊기던 버그.
+    assert sb._parse_rebalance("일간") == "daily"
+    assert sb._parse_rebalance("매일") == "daily"
+    assert sb._parse_rebalance("하루마다") == "daily"
+
+
 def test_parse_strategy_type_variants():
     assert sb._parse_strategy_type("모멘텀") == "momentum"
     assert sb._parse_strategy_type("최근 오른 종목") == "momentum"
@@ -110,7 +126,7 @@ def test_blank_input_shows_opening_question_without_mutation():
     assert res.status == "collecting"
     assert res.state == sb.BuilderState()  # 아무것도 채우지 않는다
     assert "시장" in res.reply
-    assert res.suggestions == ["코스피", "코스닥", "코스피·코스닥 전체"]
+    assert res.suggestions == ["코스피", "코스닥", "코스피200", "코스피·코스닥 전체"]
 
 
 def test_blank_input_does_not_complete_partial_risk_state():
@@ -411,6 +427,24 @@ def test_risk_step_parses_stop_loss_with_korean_particle():
     assert r.state.stop_loss_pct == 15.0
     assert r.state.take_profit_pct == 30.0
     assert "15% 손절" in r.prompt and "30% 익절" in r.prompt
+
+
+def test_risk_step_keyword_first_order_no_misattribution():
+    """[회귀] '손절 10% 익절 20%'처럼 키워드가 값보다 먼저 와도 정확히 귀속돼야 한다.
+    예전엔 익절 정규식이 앞의 '10%'(손절 값)를 훔쳐가 손절=None·익절=10으로 조용히 틀리던 버그."""
+    r = _step(_ready_for_risk(), "손절 10% 익절 20%")
+    assert r.status == "confirmed"
+    assert r.state.stop_loss_pct == 10.0
+    assert r.state.take_profit_pct == 20.0
+    assert "10% 손절" in r.prompt and "20% 익절" in r.prompt
+
+
+def test_risk_step_negated_stop_loss_not_extracted():
+    """'손절 없이 익절 20%'는 손절을 뽑지 않고 익절만 20%로 잡아야 한다(부정어 가드)."""
+    r = _step(_ready_for_risk(), "손절 없이 익절 20%")
+    assert r.status == "confirmed"
+    assert r.state.stop_loss_pct is None
+    assert r.state.take_profit_pct == 20.0
 
 
 def test_risk_step_llm_recovers_value_regex_missed():
