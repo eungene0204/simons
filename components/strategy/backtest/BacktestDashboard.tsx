@@ -23,6 +23,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import XAIModal from "./XAIModal";
 import { WalkForwardPanel, WalkForwardSettings, type WalkForwardOptimizationTarget } from "./WalkForwardModal";
+import OptimizationSettingsModal from "./OptimizationSettingsModal";
 import BacktestSummaryCard from "./BacktestSummaryCard";
 import { buildAutoSaveHistoryPayload } from "@/lib/backtest-history";
 import { resolveUniverseDisplayName } from "@/lib/strategy-summary";
@@ -409,6 +410,10 @@ type BaseMetricDescriptions = {
   volatility: string;
   calmar: string;
   avgHoldingDays: string;
+  exposure: string;
+  maxDrawdownDuration: string;
+  expectancy: string;
+  recoveryFactor: string;
 };
 
 const BASE_METRIC_DESCRIPTIONS: BaseMetricDescriptions = {
@@ -421,7 +426,11 @@ const BASE_METRIC_DESCRIPTIONS: BaseMetricDescriptions = {
     `${label}을 매수 후 보유했을 때의 수익률입니다. 전략을 사용하지 않고 해당 지수를 그대로 보유했을 때의 결과입니다.`,
   volatility: "연간 변동성. 수익률의 표준편차를 연간 단위로 환산한 값으로, 변동폭이 클수록 위험이 높음을 의미합니다.\n\n[ 가이드라인 ]\n🟢 우수: 15% 미만\n🟡 보통: 15% ~ 25%\n🔴 미흡: 25% 초과",
   calmar: "칼마 비율(Calmar Ratio). 연평균수익률(CAGR)을 최대낙폭(MDD)으로 나눈 값으로, 낙폭 위험 대비 수익 효율을 나타냅니다.\n\n[ 예 ]\nCAGR +20%, MDD -10% → 칼마 2.0 (낙폭 1%당 2% 수익)\nCAGR +20%, MDD -40% → 칼마 0.5 (낙폭 대비 수익 부족)\n\n[ 가이드라인 ]\n🟢 우수: 1.0 이상\n🟡 보통: 0.5 ~ 1.0\n🔴 미흡: 0.5 미만",
-  avgHoldingDays: "평균 보유일. 포지션을 진입한 후 청산까지 평균적으로 유지한 기간입니다.\n\n전략의 성격을 파악하는 데 유용합니다.\n\n[ 예 ]\n1~3일: 단타/스윙 성격\n5~20일: 중기 스윙\n20일 이상: 중장기 추세 추종"
+  avgHoldingDays: "평균 보유일. 포지션을 진입한 후 청산까지 평균적으로 유지한 기간입니다.\n\n전략의 성격을 파악하는 데 유용합니다.\n\n[ 예 ]\n1~3일: 단타/스윙 성격\n5~20일: 중기 스윙\n20일 이상: 중장기 추세 추종",
+  exposure: "시장 노출도. 백테스트 기간 중 포지션을 하나라도 보유한 날의 비율입니다.\n\n노출도가 낮은데 수익률이 높다면 자본 효율이 좋은 전략이고, 노출도가 100%에 가깝다면 시장 하락 위험에 상시 노출된 전략입니다.",
+  maxDrawdownDuration: "최장 낙폭 기간. 전고점 아래에 머문 가장 긴 연속 기간(거래일)입니다.\n\nMDD가 낙폭의 '깊이'라면 이 지표는 낙폭의 '길이'로, 손실 구간을 견뎌야 하는 기간을 나타냅니다.\n\n[ 예 ]\n252거래일 ≈ 1년간 전고점 미회복",
+  expectancy: "기대값(평균 거래 수익률). 거래 1회당 평균 수익률(%)로, 승률 × 평균수익 − 패률 × 평균손실과 동일합니다.\n\n양수면 거래를 반복할수록 우위가 누적되는 구조, 음수면 거래할수록 손실이 누적되는 구조입니다.",
+  recoveryFactor: "회복 계수(Recovery Factor). 순이익을 최대 낙폭 금액으로 나눈 값으로, 낙폭 대비 회복력을 나타냅니다.\n\n[ 가이드라인 ]\n🟢 우수: 3.0 이상\n🟡 보통: 1.0 ~ 3.0\n🔴 미흡: 1.0 미만"
 };
 
 function benchmarkLabelForResult(result: BacktestResult): string {
@@ -453,6 +462,7 @@ export default function BacktestDashboard({
   parsedStrategy,
 }: BacktestDashboardProps) {
   const [activeTab, setActiveTab] = useState<ValidationTab>("chart");
+  const [isOptimizationSettingsOpen, setIsOptimizationSettingsOpen] = useState(false);
   const [promptTooltipOpen, setPromptTooltipOpen] = useState(false);
   const promptTooltipRef = useRef<HTMLDivElement>(null);
   const [planId, setPlanId] = useState<string>("FREE");
@@ -1261,6 +1271,14 @@ export default function BacktestDashboard({
           </div>
           
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsOptimizationSettingsOpen(true)}
+              className="px-4 py-1.5 bg-white/[0.05] hover:bg-white/10 text-gray-300 hover:text-white text-sm font-bold rounded-lg transition-all border border-white/5 hover:border-white/10 flex items-center gap-2 active:scale-95"
+            >
+              <ArrowsClockwise className="w-4 h-4" />
+              전략 최적화
+            </button>
             {(promptText || strategySummary) && (
               <div className="relative" ref={promptTooltipRef}>
                 <button
@@ -1353,6 +1371,11 @@ export default function BacktestDashboard({
           </div>
         </div>
       </div>
+
+      <OptimizationSettingsModal
+        open={isOptimizationSettingsOpen}
+        onOpenChange={setIsOptimizationSettingsOpen}
+      />
 
 
       {/* 2. Main Content Area */}
@@ -1571,31 +1594,41 @@ export default function BacktestDashboard({
 
                 {/* 리스크 및 성과 분석 */}
                 <div className="border-t border-white/[0.08]">
-                  <div className="flex divide-x divide-white/[0.08]">
-                    {([
-                      { label: "초기 자본", value: formatKRW(result.initialCapital), sub: "원" },
-                      { label: "최종 자산", value: formatKRW(result.finalEquity), sub: "원" },
+                  {([
+                    [
+                      { label: "초기 자본", value: formatKRW(result.initialCapital), sub: "원", desc: null },
+                      { label: "최종 자산", value: formatKRW(result.finalEquity), sub: "원", desc: null },
                       { label: "칼마 비율", value: (result.calmar ?? (result.maxDrawdown !== 0 ? result.cagr / Math.abs(result.maxDrawdown) : 0)).toFixed(2), sub: null, desc: BASE_METRIC_DESCRIPTIONS.calmar },
                       { label: "평균 보유일", value: `${Math.round(result.avgHoldingDays ?? 0)}일`, sub: null, desc: BASE_METRIC_DESCRIPTIONS.avgHoldingDays },
-                    ] as const).map((s) => (
-                      <div key={s.label} className="flex-1 flex flex-col gap-1 px-5 py-4">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-gray-500">{s.label}</span>
-                          {"desc" in s && s.desc && (
-                            <Info
-                              className="w-3 h-3 text-gray-700 hover:text-gray-500 cursor-help transition-colors"
-                              onMouseEnter={(e) => setHoveredMetric({ label: s.label, description: s.desc!, rect: e.currentTarget.getBoundingClientRect() })}
-                              onMouseLeave={() => setHoveredMetric(null)}
-                            />
-                          )}
+                    ],
+                    [
+                      { label: "시장 노출도", value: (result.exposure ?? 0).toFixed(1), sub: "%", desc: BASE_METRIC_DESCRIPTIONS.exposure },
+                      { label: "최장 낙폭 기간", value: `${result.maxDrawdownDuration ?? 0}`, sub: "거래일", desc: BASE_METRIC_DESCRIPTIONS.maxDrawdownDuration },
+                      { label: "기대값", value: `${(result.expectancy ?? 0) >= 0 ? "+" : ""}${(result.expectancy ?? 0).toFixed(2)}`, sub: "%", desc: BASE_METRIC_DESCRIPTIONS.expectancy },
+                      { label: "회복 계수", value: (result.recoveryFactor ?? 0).toFixed(2), sub: null, desc: BASE_METRIC_DESCRIPTIONS.recoveryFactor },
+                    ],
+                  ] as const).map((row, rowIdx) => (
+                    <div key={rowIdx} className={`flex divide-x divide-white/[0.08] ${rowIdx > 0 ? "border-t border-white/[0.08]" : ""}`}>
+                      {row.map((s) => (
+                        <div key={s.label} className="flex-1 flex flex-col gap-1 px-5 py-4">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-gray-500">{s.label}</span>
+                            {s.desc && (
+                              <Info
+                                className="w-3 h-3 text-gray-700 hover:text-gray-500 cursor-help transition-colors"
+                                onMouseEnter={(e) => setHoveredMetric({ label: s.label, description: s.desc!, rect: e.currentTarget.getBoundingClientRect() })}
+                                onMouseLeave={() => setHoveredMetric(null)}
+                              />
+                            )}
+                          </div>
+                          <div className="flex items-baseline gap-1">
+                            <p className="text-base font-black tabular-nums font-outfit text-white leading-tight">{s.value}</p>
+                            {s.sub && <span className="text-[8px] font-bold text-gray-600">{s.sub}</span>}
+                          </div>
                         </div>
-                        <div className="flex items-baseline gap-1">
-                          <p className="text-base font-black tabular-nums font-outfit text-white leading-tight">{s.value}</p>
-                          {s.sub && <span className="text-[8px] font-bold text-gray-600">{s.sub}</span>}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  ))}
                 </div>
 
                 {/* 매매 통계 */}
@@ -1678,6 +1711,7 @@ export default function BacktestDashboard({
                  onRun={onWalkForward}
                  backtestDates={result.dates}
                  optimizationTargets={walkForwardOptimizationTargets}
+                 baseStrategy={backtestDsl}
                  canRun={!isPlanLoading && isPremiumValidationEnabled && !!onWalkForward}
                  disabledReason={
                    isPlanLoading

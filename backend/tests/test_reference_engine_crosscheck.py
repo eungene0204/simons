@@ -45,7 +45,8 @@ def _run_our_engine():
     risk = dict(init_cash=_INIT_CASH, position_size_pct=100.0,
                 skip_position_setting=True, skip_risk_management=True)
     pf = Simulator().run(close, opn, entries, exits, risk,
-                         dict(fee_rate=0.0, slippage_rate=0.0, execution_type="next_open"))
+                         dict(fee_rate=0.0, slippage_rate=0.0, sell_tax_rate=0.0,
+                              execution_type="next_open"))
     tr = pf.trades.records_readable.iloc[0]
     return dict(
         entry_price=float(tr["Avg Entry Price"]),
@@ -126,8 +127,10 @@ def test_simulator_matches_backtrader_with_costs():
     # otherwise backtrader margin-rejects an order that consumes ~100% of cash.
     risk = dict(init_cash=_INIT_CASH, position_size_pct=50.0,
                 skip_position_setting=True, skip_risk_management=True)
+    # backtrader 비교는 대칭 수수료만 모델링하므로 한국 거래세는 제외하고 비교한다.
     pf = Simulator().run(close, opn, entries, exits, risk,
-                         dict(fee_rate=fee, slippage_rate=0.0, execution_type="next_open"))
+                         dict(fee_rate=fee, slippage_rate=0.0, sell_tax_rate=0.0,
+                              execution_type="next_open"))
     # Feed backtrader vbt's exact realised share count so both trade identically.
     shares = float(pf.trades.records_readable.iloc[0]["Size"])
 

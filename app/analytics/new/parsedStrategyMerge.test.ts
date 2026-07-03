@@ -739,6 +739,13 @@ describe("mergeStrategyModification", () => {
             익절라인: 5,
             보유종목수: 1,
           },
+          parameter_ranges: {
+            PBR: {
+              min: 0.9,
+              max: 1.1,
+              step: 0.2,
+            },
+          },
         },
         ranges
       )
@@ -746,7 +753,7 @@ describe("mergeStrategyModification", () => {
       base_strategy: baseStrategy,
       ranges: {
         ...ranges,
-        "entry.conditions.2.params.value": { type: "number", min: 0.8, max: 1.2, step: 0.1 },
+        "entry.conditions.2.params.value": { type: "number", min: 0.9, max: 1.1, step: 0.2 },
         "risk.stop_loss_pct": { type: "number", min: 2, max: 25, step: 2 },
         "risk.take_profit_pct": { type: "number", min: 5, max: 60, step: 5 },
         "risk.max_positions": { type: "number", min: 5, max: 11, step: 1 },
@@ -809,5 +816,17 @@ describe("isAdvisorFollowUpPrompt", () => {
   it("명시적인 전략 수정 요청은 follow-up으로 분류하지 않는다", () => {
     expect(isAdvisorFollowUpPrompt("손절 12%로 바꿔줘")).toBe(false);
     expect(isAdvisorFollowUpPrompt("KOSPI200으로 바꿔줘")).toBe(false);
+  });
+
+  it("백테스트 결과 해석·평가 요청은 재파싱이 아니라 follow-up으로 분류한다", () => {
+    // [회귀] '백테스트' 도메인 단어가 있어도 결과 질문은 전략 수정이 아니다.
+    expect(isAdvisorFollowUpPrompt("백테스트 결과가 왜 이렇게 나빠?")).toBe(true);
+    expect(isAdvisorFollowUpPrompt("결과 해석해줘")).toBe(true);
+    expect(isAdvisorFollowUpPrompt("성과 평가해줘")).toBe(true);
+    expect(isAdvisorFollowUpPrompt("MDD가 큰 원인이 뭐야")).toBe(true);
+  });
+
+  it("결과 질문 어휘가 있어도 수정 동사가 붙으면 수정 흐름으로 남는다", () => {
+    expect(isAdvisorFollowUpPrompt("분석해 보게 손절 10% 추가해줘")).toBe(false);
   });
 });

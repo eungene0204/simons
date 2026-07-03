@@ -99,10 +99,13 @@ class WalkForwardAnalyzer:
         aggregate = self._aggregate(window_results)
         combined_equity, combined_dates = self._combine_equity(window_results)
 
-        # Walk-Forward Efficiency (WFE) = avg OOS return / avg IS return
+        # Walk-Forward Efficiency (WFE) = avg OOS return / avg IS return.
+        # IS 평균이 0 이하이면 비율의 부호가 뒤집혀 해석 불능이므로(감사 M9)
+        # wfe_valid=False로 표시하고 0을 반환한다.
         avg_is = sum(is_returns) / len(is_returns) if is_returns else 0
         avg_oos = sum(oos_returns) / len(oos_returns) if oos_returns else 0
-        wfe = (avg_oos / avg_is) if avg_is != 0 else 0.0
+        wfe_valid = avg_is > 0
+        wfe = (avg_oos / avg_is) if wfe_valid else 0.0
 
         return {
             "status": "ok",
@@ -114,6 +117,7 @@ class WalkForwardAnalyzer:
             "combined_equity": combined_equity,
             "combined_dates": combined_dates,
             "walk_forward_efficiency": round(wfe, 4),
+            "wfe_valid": wfe_valid,
         }
 
     # ─────────────────────────────────────────────────────────

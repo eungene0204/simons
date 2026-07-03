@@ -12,7 +12,10 @@ from engine.fundamental_fetcher import (
     _parse_number,
     _read_cache,
     _write_cache,
+    _is_recently_confirmed_empty,
+    _write_negative_cache,
     enrich_ohlcv_with_fundamentals,
+    fetch_fundamentals,
 )
 
 # ── _parse_number ──
@@ -364,3 +367,68 @@ def test_cache_missing_symbol(tmp_path, monkeypatch):
 
     result = _read_cache("999999")
     assert result is None
+
+
+# ── negative 캐시 (조회 실패 반복 방지) ──
+
+def test_negative_cache_write_and_read(tmp_path, monkeypatch):
+    """실패를 기록하면 TTL 이내에는 '최근 확인된 실패'로 인식돼야 함."""
+    import engine.fundamental_fetcher as ff
+    monkeypatch.setattr(ff, "_CACHE_DIR", tmp_path)
+
+    assert _is_recently_confirmed_empty("088980") is False
+    _write_negative_cache("088980")
+    assert _is_recently_confirmed_empty("088980") is True
+
+
+def test_negative_cache_expired(tmp_path, monkeypatch):
+    """TTL이 지난 negative 캐시는 더 이상 유효하지 않아야 함."""
+    import engine.fundamental_fetcher as ff
+    monkeypatch.setattr(ff, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(ff, "_NEGATIVE_CACHE_TTL_DAYS", 0)
+
+    _write_negative_cache("088980")
+
+    import json
+    cache_file = tmp_path / "088980.nodata.json"
+    data = json.loads(cache_file.read_text())
+    data["checked_at"] = "2020-01-01T00:00:00"
+    cache_file.write_text(json.dumps(data))
+
+    assert _is_recently_confirmed_empty("088980") is False
+
+
+def test_fetch_fundamentals_skips_network_when_recently_confirmed_empty(tmp_path, monkeypatch):
+    """REITs처럼 KIS/Naver 둘 다 실패하는 종목은 negative 캐시 TTL 내에서 재조회하지 않아야 함."""
+    import engine.fundamental_fetcher as ff
+    monkeypatch.setattr(ff, "_CACHE_DIR", tmp_path)
+
+    kis_calls = {"n": 0}
+    naver_calls = {"n": 0}
+
+    def _fail_kis(symbol):
+        kis_calls["n"] += 1
+        return None
+
+    class _FakeResp:
+        status_code = 404
+        text = ""
+
+    def _fail_naver(*a, **k):
+        naver_calls["n"] += 1
+        return _FakeResp()
+
+    monkeypatch.setattr(ff, "_fetch_fundamentals_from_kis", _fail_kis)
+    monkeypatch.setattr(ff.requests, "get", _fail_naver)
+
+    # 첫 호출: KIS+Naver 실패 → negative 캐시 기록
+    result1 = fetch_fundamentals("088980", retry=0)
+    assert result1 is None
+    assert kis_calls["n"] == 1
+    assert naver_calls["n"] == 1
+
+    # 두 번째 호출: negative 캐시가 있으니 KIS/Naver를 다시 호출하지 않아야 함
+    result2 = fetch_fundamentals("088980", retry=0)
+    assert result2 is None
+    assert kis_calls["n"] == 1
+    assert naver_calls["n"] == 1

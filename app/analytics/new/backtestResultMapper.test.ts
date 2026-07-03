@@ -22,6 +22,30 @@ describe("mapRawBacktestResult", () => {
     expect(result.avgHoldingDays).toBe(0);
   });
 
+  it("감사 신규 통계(exposure/DD기간/기대값/회복계수)를 보존한다", () => {
+    const raw = {
+      equity: [1000, 1100],
+      signals: [],
+      exposure: 91.1,
+      maxDrawdownDuration: 548,
+      expectancy: 3.3,
+      recoveryFactor: 2.05,
+    };
+    const result = mapRawBacktestResult(raw, "test_exec");
+    expect(result.exposure).toBe(91.1);
+    expect(result.maxDrawdownDuration).toBe(548);
+    expect(result.expectancy).toBe(3.3);
+    expect(result.recoveryFactor).toBe(2.05);
+  });
+
+  it("감사 신규 통계가 없으면 0으로 기본값 처리한다", () => {
+    const result = mapRawBacktestResult({ equity: [1000], signals: [] }, "test_exec");
+    expect(result.exposure).toBe(0);
+    expect(result.maxDrawdownDuration).toBe(0);
+    expect(result.expectancy).toBe(0);
+    expect(result.recoveryFactor).toBe(0);
+  });
+
   it("핵심 지표와 equity 경계값을 매핑한다", () => {
     const result = mapRawBacktestResult(
       { totalReturn: 5, equity: [1000, 900, 1200], signals: [] },

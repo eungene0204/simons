@@ -41,7 +41,8 @@ def test_hand_calc_exact(simulator):
     exits.iloc[3, 0] = True
     risk = dict(init_cash=10000.0, position_size_pct=100.0,
                 skip_position_setting=True, skip_risk_management=True)
-    opts = dict(fee_rate=0.0, slippage_rate=0.0, execution_type="same_close")
+    opts = dict(fee_rate=0.0, slippage_rate=0.0, sell_tax_rate=0.0,
+                execution_type="same_close")
 
     pf = simulator.run(close, execdf, entries, exits, risk, opts)
     assert float(pf.value().iloc[-1]) == pytest.approx(13000.0, abs=1e-6)

@@ -12,6 +12,72 @@ from engine.result_handler import ResultHandler
 from engine.data_resolver import DataResolver
 from engine import universe_pit
 
+def _ai_model_train_end() -> str | None:
+    """라이브 AI 모델 메타의 학습 종료일(train_end). 없으면 None. (감사 H7)"""
+    import json
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # project root
+    for ver in ('v3', 'v2'):
+        meta_path = os.path.join(base, 'model', ver, 'model_meta.json')
+        if os.path.exists(meta_path):
+            try:
+                with open(meta_path) as f:
+                    val = json.load(f).get('train_end')
+                return str(val) if val else None
+            except (ValueError, OSError):
+                return None
+    return None
+
+
+def _max_indicator_period(*groups) -> int:
+    """전략 조건들이 참조하는 최대 지표 기간(거래일). warm-up 산정용(H6).
+
+    고정 400일 warm-up은 200일 초과 지표(예: 300일 MA)의 초기 구간을 NaN으로
+    만들어 요청 기간에 따라 신호가 조용히 달라지게 했다. 조건에서 실제 최대
+    기간을 뽑아 warm-up을 동적으로 늘린다.
+    """
+    max_p = 0
+
+    def _visit(group):
+        nonlocal max_p
+        if not group:
+            return
+        for c in group.get('conditions', []):
+            if 'conditions' in c:
+                _visit(c)
+                continue
+            p = c.get('params') or {}
+            cid = c.get('id')
+            cands = []
+            if cid == 'ma_crossover':
+                cands = [p.get('shortMA', p.get('short_period', p.get('short', 5))),
+                         p.get('longMA', p.get('long_period', p.get('long', 20)))]
+            elif cid == 'ema':
+                cands = [p.get('shortPeriod', p.get('short')),
+                         p.get('longPeriod', p.get('long')), p.get('period', 20)]
+            elif cid == 'rsi':
+                cands = [p.get('period', p.get('rsi_period', 14))]
+            elif cid == 'cci':
+                cands = [p.get('period', 14)]
+            elif cid in ('bollinger_bands', 'volume_spike'):
+                cands = [p.get('period', 20)]
+            elif cid == 'breakout':
+                cands = [p.get('lookbackPeriod', 20)]
+            elif cid == 'macd':
+                cands = [35]   # slow 26 + signal 9
+            elif cid in ('stochastic', 'adx'):
+                cands = [30]
+            for v in cands:
+                try:
+                    if v is not None:
+                        max_p = max(max_p, int(v))
+                except (TypeError, ValueError):
+                    pass
+
+    for g in groups:
+        _visit(g)
+    return max_p
+
+
 class BacktestEngine:
     def __init__(self, data_dir: str = None):
         self.warnings = set()
@@ -142,6 +208,9 @@ class BacktestEngine:
             # 2. Data Structures for Vectorbt
             all_prices, all_exec_prices, all_entries, all_exits = {}, {}, {}, {}
             all_entry_reasons, all_exit_reasons = {}, {}
+            all_highs, all_lows = {}, {}          # 장중 스탑 감지용 (C5)
+            all_liquidity = {}                     # 유동성 마스크 패널 (C4/H5)
+            all_trading_values = {}                # 전일 거래대금 — 체결 규모 사후 검증 (H5)
             all_drop_scores: dict = {}  # sym → ai_drop_score 시계열 (횡단면 랭킹 청산용)
             all_ranks = {'pbr': {}, 'roe': {}}
             all_resolution_logs: List[Dict[str, str]] = []
@@ -165,7 +234,10 @@ class BacktestEngine:
                     return pd.to_datetime(ts).strftime("%Y-%m-%d")
                 return ts.strftime("%Y-%m-%d")
 
-            _WARMUP_CALENDAR_DAYS = 400  # ≈280 trading days; covers MA-200 warmup
+            # ≈280 trading days baseline (covers MA-200); 장주기 지표는 동적 확장(H6).
+            # 거래일→캘린더일 환산 ≈ ×1.45에 여유분을 더해 ×1.6 + 40일.
+            _max_period = _max_indicator_period(req.get('entry'), req.get('exit'))
+            _WARMUP_CALENDAR_DAYS = max(400, int(_max_period * 1.6) + 40)
             _has_period_filter = (period_req != 'FULL') or bool(start_date_req) or bool(end_date_req)
             _end_str = _ts_str(ref_date)
             _period_start_str: str | None = None
@@ -309,12 +381,18 @@ class BacktestEngine:
                         "symbol": sym,
                         "price": pdf['close'],
                         "exec_price": pdf['close'] if exec_type == 'same_close' else pdf['open'],
+                        "high": pdf['high'] if 'high' in pdf.columns else pdf['close'],
+                        "low": pdf['low'] if 'low' in pdf.columns else pdf['close'],
                         "entries": pd.Series(entry_signals, index=pdf.index),
                         "exits": pd.Series(exit_signals, index=pdf.index),
                         "entry_reasons": pd.Series(entry_reasons, index=pdf.index),
                         "exit_reasons": pd.Series(exit_reasons, index=pdf.index),
                         "index": pdf.index
                     }
+                    if not (skip_risk or skip_pos):
+                        res["liquidity"] = pd.Series(liquidity_ok, index=pdf.index)
+                    if 'volume' in pdf.columns:
+                        res["trading_value"] = pdf['close'] * pdf['volume']
                     if 'pbr' in pdf.columns: res["pbr"] = pdf['pbr']
                     if 'roe_or_gpa' in pdf.columns: res["roe"] = pdf['roe_or_gpa']
                     return ("success", res)
@@ -339,10 +417,14 @@ class BacktestEngine:
                     sym = data["symbol"]
                     all_prices[sym] = data["price"]
                     all_exec_prices[sym] = data["exec_price"]
+                    all_highs[sym] = data["high"]
+                    all_lows[sym] = data["low"]
                     all_entries[sym] = data["entries"]
                     all_exits[sym] = data["exits"]
                     all_entry_reasons[sym] = data["entry_reasons"]
                     all_exit_reasons[sym] = data["exit_reasons"]
+                    if "liquidity" in data: all_liquidity[sym] = data["liquidity"]
+                    if "trading_value" in data: all_trading_values[sym] = data["trading_value"]
                     if "pbr" in data: all_ranks['pbr'][sym] = data["pbr"]
                     if "roe" in data: all_ranks['roe'][sym] = data["roe"]
                     if "ai_drop_score" in data: all_drop_scores[sym] = data["ai_drop_score"]
@@ -425,12 +507,18 @@ class BacktestEngine:
                             "symbol": sym,
                             "price": pdf['close'],
                             "exec_price": pdf['close'] if exec_type == 'same_close' else pdf['open'],
+                            "high": pdf['high'] if 'high' in pdf.columns else pdf['close'],
+                            "low": pdf['low'] if 'low' in pdf.columns else pdf['close'],
                             "entries": pd.Series(entry_signals, index=pdf.index),
                             "exits": pd.Series(exit_signals, index=pdf.index),
                             "entry_reasons": pd.Series(entry_reasons, index=pdf.index),
                             "exit_reasons": pd.Series(exit_reasons, index=pdf.index),
                             "index": pdf.index,
                         }
+                        if not (skip_risk or skip_pos):
+                            res["liquidity"] = pd.Series(liquidity_ok, index=pdf.index)
+                        if 'volume' in pdf.columns:
+                            res["trading_value"] = pdf['close'] * pdf['volume']
                         if 'pbr' in pdf.columns: res["pbr"] = pdf['pbr']
                         if 'roe_or_gpa' in pdf.columns: res["roe"] = pdf['roe_or_gpa']
                         if drop_rank_pct is not None and 'ai_drop_score' in pdf.columns:
@@ -466,6 +554,10 @@ class BacktestEngine:
 
             price_df = price_df.ffill().bfill()
             exec_px_df = pd.DataFrame(all_exec_prices, index=common_index, columns=processed_symbols).ffill().bfill()
+            # 장중 스탑 감지용 고가/저가 패널 (C5). ffill 구간(거래정지 등)은
+            # available_df가 False라 시뮬레이터가 체결을 이월한다.
+            high_df = pd.DataFrame(all_highs, index=common_index, columns=processed_symbols).ffill().bfill()
+            low_df = pd.DataFrame(all_lows, index=common_index, columns=processed_symbols).ffill().bfill()
             _raw_ents = pd.DataFrame(all_entries, index=common_index, columns=processed_symbols)
             _raw_exts = pd.DataFrame(all_exits, index=common_index, columns=processed_symbols)
             import numpy as np
@@ -494,6 +586,7 @@ class BacktestEngine:
             # large-cap universe as the daily top-LARGE_CAP_TOP_N alive KOSPI names by market cap
             # (close × listed shares). Market cap is evaluated only where price data is actually
             # available that day, so delisted names drop out of the ranking once they stop trading.
+            large_cap_mask = None
             if _is_large_cap:
                 shares_map = universe_pit.get_shares(processed_symbols)
                 shares_vec = pd.Series(
@@ -503,7 +596,15 @@ class BacktestEngine:
                 mcap = price_df.mul(shares_vec, axis=1).where(available_df)
                 mcap_rank = mcap.rank(axis=1, ascending=False, method="first")
                 large_cap_mask = (mcap_rank <= universe_pit.LARGE_CAP_TOP_N).fillna(False)
+                if exec_type == 'next_open':
+                    # 진입 신호는 이미 1일 shift됨 — 시총 순위도 전일 종가 기준으로
+                    # 맞춰야 당일 종가를 미리 아는 look-ahead가 없다.
+                    large_cap_mask = large_cap_mask.shift(1, fill_value=False)
                 ents_df &= large_cap_mask
+                self.warnings.add(
+                    "대형주(시가총액 상위) 판정은 현재 상장주식수 × 과거 주가의 근사입니다 — "
+                    "과거 증자·분할 이력은 반영되지 않아 실제 당시 KOSPI200 구성과 다를 수 있습니다."
+                )
 
             rank_df = None
             skip_pos = risk_params.get('skip_position_setting', False)
@@ -524,9 +625,21 @@ class BacktestEngine:
                         valid = valid.shift(1, fill_value=False)
                     rank_df = rank_df.fillna(0.0)
                     # 진입 신호가 없으면(선정=진입) 수익률이 정의된 전 종목을 후보로 만들어 상위 K를 채운다.
+                    # C4: 이 오버라이드가 대형주(KOSPI200) 마스크와 유동성 게이트를
+                    # 덮어쓰지 않도록 두 마스크를 후보 풀에 다시 결합한다.
                     _entry_conditions = (req.get('entry') or {}).get('conditions') or []
                     if not _entry_conditions:
-                        ents_df = available_df & valid
+                        pool = available_df & valid
+                        if large_cap_mask is not None:
+                            pool &= large_cap_mask
+                        if all_liquidity:
+                            liq_df = pd.DataFrame(
+                                all_liquidity, index=common_index, columns=processed_symbols
+                            ).eq(True)  # NaN(데이터 없는 날) → False, bool dtype 보장
+                            if exec_type == 'next_open':
+                                liq_df = liq_df.shift(1, fill_value=False)
+                            pool &= liq_df
+                        ents_df = pool
                 except Exception as e:
                     import logging
                     logging.getLogger(__name__).warning(f"[BacktestEngine] 수익률 랭킹 계산 실패: {e}")
@@ -558,7 +671,8 @@ class BacktestEngine:
             simulator_options.setdefault('execution_type', exec_type)
 
             pf = self.simulator.run(
-                price_df, exec_px_df, ents_df, exts_df, risk_params, simulator_options, rank_df=rank_df
+                price_df, exec_px_df, ents_df, exts_df, risk_params, simulator_options,
+                rank_df=rank_df, high_df=high_df, low_df=low_df, available_df=available_df,
             )
             _t3 = _time.time()
             print(f"[BT-ENGINE] Simulator 완료: {_t3-_t2:.2f}s", flush=True)
@@ -571,6 +685,19 @@ class BacktestEngine:
                 if _bench_df is not None:
                     _bench_pd = self.loader.preprocess_data(_bench_df, apply_dividends=apply_dividends)
                     benchmark_prices = _bench_pd['close'].sort_index()
+                    # H1: 벤치마크 ETF 상장 이전 구간은 수익률 0%로 고정되어 비교가 왜곡됨
+                    if len(common_index) > 0 and benchmark_prices.index[0] > pd.Timestamp(common_index[0]):
+                        self.warnings.add(
+                            f"벤치마크({_benchmark_name}) 데이터가 "
+                            f"{benchmark_prices.index[0].strftime('%Y-%m-%d')}부터 존재합니다 — "
+                            "그 이전 구간의 벤치마크 수익률은 0%로 표시되어 전략 대비 비교가 과장될 수 있습니다."
+                        )
+                    # M3: 전략은 토탈리턴인데 벤치마크에 분배금 데이터가 없으면 비대칭 비교
+                    if apply_dividends and 'dividends' not in _bench_df.columns:
+                        self.warnings.add(
+                            "벤치마크 ETF에 분배금 데이터가 없어 가격리턴 기준으로 비교됩니다 — "
+                            "전략(배당 재투자 기본)이 상대적으로 유리하게 보일 수 있습니다."
+                        )
             except Exception as _be:
                 print(f"[BT-ENGINE] 벤치마크 로드 실패 ({_benchmark_sym}): {_be}", flush=True)
 
@@ -581,6 +708,7 @@ class BacktestEngine:
                 risk_params, exec_type, init_cash,
                 benchmark_prices=benchmark_prices,
                 benchmark_label=_benchmark_name,
+                risk_free_rate=float(options.get('risk_free_rate') or 0.0),
             )
             final["universe_id"] = req.get('universe_id') or ''
             _t4 = _time.time()
@@ -603,6 +731,66 @@ class BacktestEngine:
                         " — 포지션 크기를 줄이거나 유동성 한도를 낮추면 포함될 수 있습니다)"
                     )
                 self.warnings.add(msg)
+
+            # ── 신뢰성 공시 경고 (감사 H5/H7/H8 등) ──────────────────────────
+            _rebal_period = str(risk_params.get('rebalancing_period') or 'none')
+            _has_pos_risk = (not risk_params.get('skip_risk_management', False)) and any(
+                float(risk_params.get(k) or 0) > 0
+                for k in ('stop_loss_pct', 'take_profit_pct', 'trailing_stop_pct', 'max_holding_days')
+            )
+            if _rebal_period != 'none' and risk_params.get('max_positions') and _has_pos_risk:
+                # H8: 리스크 관리와 혼합된 리밸런싱은 종목 교체(reconstitution)만 수행
+                self.warnings.add(
+                    "리밸런싱과 손절/익절/트레일링/보유기간 제한이 함께 설정되어 리밸런싱일에는 "
+                    "종목 교체만 수행합니다 — 유지 종목의 비중은 목표 비중으로 리셋되지 않습니다."
+                )
+
+            _tax_raw = options.get('sell_tax_rate')
+            _tax_val = float(_tax_raw) if _tax_raw is not None else 0.0015
+            if _tax_val > 0:
+                self.warnings.add(
+                    f"매도 체결에 증권거래세 {_tax_val * 100:.2f}%가 반영되었습니다 "
+                    "(sell_tax_rate 옵션으로 조정 가능)."
+                )
+
+            _n_trades = int(pf.trades.count())
+            if 0 < _n_trades < 30:
+                self.warnings.add(
+                    f"거래 수가 {_n_trades}건으로 30건 미만입니다 — "
+                    "승률·Profit Factor 등 통계의 표본 신뢰도가 낮습니다."
+                )
+
+            if ai_needed:
+                # H7: 백테스트 구간이 AI 모델 학습 데이터와 겹치면 인샘플 낙관 편향
+                _train_end = _ai_model_train_end()
+                if _train_end and (_period_start_str is None or _period_start_str < _train_end):
+                    self.warnings.add(
+                        f"AI 모델 학습 데이터(~{_train_end})와 백테스트 기간이 겹칩니다 — "
+                        "겹치는 구간의 AI 신호 성과는 인샘플(낙관 편향)일 수 있습니다."
+                    )
+
+            # H5: 체결 규모 사후 검증 — 매수 금액이 전일 거래대금 한도를 초과한 거래 수
+            try:
+                _liq_viol = 0
+                if all_trading_values and liquid_limit > 0:
+                    for sig in final.get("signals", []):
+                        if sig.get("type") != "buy":
+                            continue
+                        tv_ser = all_trading_values.get(sig.get("symbol"))
+                        if tv_ser is None or len(tv_ser) < 2:
+                            continue
+                        pos = tv_ser.index.searchsorted(pd.Timestamp(sig["date"]))
+                        if pos >= 1:
+                            prev_tv = float(tv_ser.iloc[pos - 1])
+                            if prev_tv > 0 and sig.get("amount", 0) > prev_tv * (liquid_limit / 100.0):
+                                _liq_viol += 1
+                if _liq_viol > 0:
+                    self.warnings.add(
+                        f"매수 {_liq_viol}건이 전일 거래대금의 {liquid_limit:.0f}%를 초과하는 규모입니다 — "
+                        "실전에서는 시장충격으로 이 가격에 전량 체결되기 어려울 수 있습니다."
+                    )
+            except Exception:
+                pass
 
             final["warnings"] = list(self.warnings) + list(getattr(pf, 'warnings', []))
             final["resolution_logs"] = all_resolution_logs

@@ -70,11 +70,65 @@ def detect_control(text: str) -> Optional[str]:
     return None
 
 
+# ─── 빌더 용어 질문(정의형) 처리 ─────────────────────────────────────────────────
+# 빌더 모드는 분류기를 거치지 않아 "손절이 뭐야?" 같은 용어 질문이 필드 답변으로 오인돼
+# 같은 질문만 반복되는 막다른 길이 됐다. 빌더가 스스로 제시하는 어휘에 한해 짧은 '객관적
+# 정의'만 답하고(추천·권유 없음 — 규제 안전) 현재 질문을 이어간다. LLM 불필요.
+
+_DEFINITION_MARKER_RE = re.compile(
+    r"뭐야|뭐예요|뭔가요|뭐죠|뭐지|무엇|무슨\s*뜻|뜻이|뜻은|의미가|의미는|설명해", re.IGNORECASE
+)
+
+# (감지 패턴, 정의문). 위에서부터 첫 매치 하나만 답한다 — 구체적 용어를 앞에 둔다.
+_BUILDER_GLOSSARY: tuple[tuple["re.Pattern[str]", str], ...] = (
+    (re.compile(r"트레일링|최고가\s*대비", re.IGNORECASE),
+     "트레일링 스탑은 보유 중 도달한 최고가 대비 정해진 비율만큼 하락하면 청산하는 방식이에요."),
+    (re.compile(r"손절", re.IGNORECASE),
+     "손절은 매수가 대비 정해진 비율 이상 하락하면 손실을 제한하기 위해 파는 규칙이에요."),
+    (re.compile(r"익절", re.IGNORECASE),
+     "익절은 매수가 대비 목표한 수익률에 도달하면 수익을 확정하며 파는 규칙이에요."),
+    (re.compile(r"리밸런싱|리밸런스", re.IGNORECASE),
+     "리밸런싱은 정해진 주기마다 조건에 맞춰 보유 종목을 다시 골라 교체하는 것을 말해요."),
+    (re.compile(r"모멘텀", re.IGNORECASE),
+     "모멘텀 전략은 최근 일정 기간 수익률이 높았던 종목을 골라 추세를 따라가는 방식이에요."),
+    (re.compile(r"골든\s*크로스", re.IGNORECASE),
+     "골든크로스는 단기 이동평균선이 장기 이동평균선을 아래에서 위로 뚫고 올라가는 것을 말해요."),
+    (re.compile(r"macd", re.IGNORECASE),
+     "MACD는 단기·장기 지수이동평균의 차이로 추세의 방향과 전환을 보는 지표예요."),
+    (re.compile(r"rsi|과매도", re.IGNORECASE),
+     "RSI는 일정 기간의 상승·하락 폭으로 과매수(70 이상)·과매도(30 이하) 상태를 가늠하는 지표예요."),
+    (re.compile(r"pbr", re.IGNORECASE),
+     "PBR은 주가를 주당 순자산으로 나눈 값으로, 낮을수록 자산 대비 주가가 낮게 거래된다는 뜻이에요."),
+    (re.compile(r"roe", re.IGNORECASE),
+     "ROE는 자기자본 대비 순이익의 비율로, 자본을 얼마나 효율적으로 활용했는지 보는 지표예요."),
+    (re.compile(r"코스피\s*200|kospi\s*200", re.IGNORECASE),
+     "코스피200은 코스피 시장을 대표하는 대형 200개 종목으로 구성된 지수예요."),
+    (re.compile(r"돌파|신고가", re.IGNORECASE),
+     "돌파 전략은 주가가 일정 기간의 최고가(신고가)를 넘어설 때 매수하는 방식이에요."),
+    (re.compile(r"보유\s*기간", re.IGNORECASE),
+     "보유기간 청산은 매수 후 정해진 거래일이 지나면 파는 규칙이에요."),
+)
+
+
+def _glossary_answer(text: str) -> Optional[str]:
+    """용어 정의 질문이면 해당 정의문을, 아니면 None을 반환한다(빌더 어휘 한정)."""
+    t = text or ""
+    if not _DEFINITION_MARKER_RE.search(t):
+        return None
+    for pattern, answer in _BUILDER_GLOSSARY:
+        if pattern.search(t):
+            return answer
+    return None
+
+
 # ─── 필드 파서(짧은 답변 → patch) ────────────────────────────────────────────────
 
 # 코스피200은 '코스피'를 부분 문자열로 포함하므로 반드시 먼저 검사해야 KOSPI로 새지 않는다.
 _UNIV_KOSPI200_RE = re.compile(r"코스피\s*200|kospi\s*200|k\s*200|대형주", re.IGNORECASE)
-_UNIV_BOTH_RE = re.compile(r"둘\s*다|전체|모두|코스피.{0,4}코스닥|코스닥.{0,4}코스피", re.IGNORECASE)
+# 두 시장을 함께 지목하는 표현. '전체/모두'는 단일 시장 수식("코스피 전체"=코스피 전 종목)일 수
+# 있으므로 여기 넣지 않고, 시장명이 하나도 없을 때만 양시장으로 해석한다(_UNIV_ALL_RE).
+_UNIV_BOTH_RE = re.compile(r"둘\s*다|코스피.{0,4}코스닥|코스닥.{0,4}코스피", re.IGNORECASE)
+_UNIV_ALL_RE = re.compile(r"전체|모두|모든\s*(?:시장|종목)", re.IGNORECASE)
 _UNIV_KOSDAQ_RE = re.compile(r"코스닥|kosdaq", re.IGNORECASE)
 _UNIV_KOSPI_RE = re.compile(r"코스피|kospi", re.IGNORECASE)
 
@@ -187,10 +241,14 @@ def _parse_universe(text: str) -> Optional[Universe]:
         return "KOSPI_KOSDAQ"
     if _UNIV_KOSPI200_RE.search(text):  # '코스피' 검사보다 먼저(부분 문자열 충돌 방지)
         return "KOSPI200"
+    # 단일 시장 언급이 '전체/모두'보다 먼저다 — "코스피 전체"는 코스피 전 종목이지 양시장이 아니다
+    # (메인 NL 파서 _extract_explicit_universe와 동일한 의미론).
     if _UNIV_KOSDAQ_RE.search(text):
         return "KOSDAQ"
     if _UNIV_KOSPI_RE.search(text):
         return "KOSPI"
+    if _UNIV_ALL_RE.search(text):  # 시장명 없는 "전체"/"모두"만 양시장
+        return "KOSPI_KOSDAQ"
     return None
 
 
@@ -249,6 +307,23 @@ def _parse_hold_days(text: str) -> Optional[int]:
     if unit == "주":
         return n * 5
     return n  # 일/거래일
+
+
+# 청산 조건 자체를 거부하는 표현("없음", "필요 없어", "안 할래"). 청산 조건은 필수라
+# 거부를 수락하진 않지만, 같은 질문을 그대로 반복하는 대신 이유를 설명하며 되묻는다.
+# ("손절 없이 익절 20%"처럼 값이 함께 있으면 _parse_risk가 값을 잡으므로 여기 오지 않는다.)
+_RISK_REFUSAL_RE = re.compile(
+    r"없음|없이|없어|안\s*(?:할|해|함|만들|정)|필요\s*없|생략|스킵|패스", re.IGNORECASE
+)
+RISK_REQUIRED_REPLY = (
+    "청산 조건은 하나 이상 꼭 필요해요. 청산 기준이 없으면 백테스트에서 언제 팔지 정할 수 없거든요.\n"
+    "손절·익절·트레일링 스탑·보유기간 중 하나만 골라 주세요. "
+    "(예: '10% 손절', '20일 보유 후 청산')"
+)
+
+
+def _is_risk_refusal(text: str) -> bool:
+    return bool(_RISK_REFUSAL_RE.search(text or ""))
 
 
 def _parse_risk(text: str) -> dict:
@@ -715,6 +790,15 @@ def step(
         msg, sug = next_question(fresh)
         return StepResult(state=fresh, reply=RESTART_PREFIX + msg, suggestions=sug, status="reset")
 
+    # 용어 질문("손절이 뭐야?")은 필드 답변이 아니다 — 같은 질문을 말없이 반복하는 대신
+    # 짧은 객관적 정의를 알려주고 현재 질문을 이어간다(상태 불변).
+    definition = _glossary_answer(text)
+    if definition is not None:
+        msg, sug = next_question(state)
+        return StepResult(
+            state=state, reply=definition + "\n\n" + msg, suggestions=sug, status="collecting"
+        )
+
     expecting = required_missing(state)
     patch = parse_input(text, state, expecting)
 
@@ -725,6 +809,12 @@ def step(
         except Exception:  # noqa: BLE001 — LLM 실패 시 정규식 결과로 안전 폴백
             llm_patch = {}
         patch = _merge_risk(patch, llm_patch)
+
+    # 청산 조건 거부("없음"·"필요 없어")는 같은 질문을 그대로 반복하지 않고,
+    # 청산 조건이 왜 필요한지 설명하며 되묻는다(필수 설계 유지, 침묵 루프 방지).
+    if expecting == "risk" and not patch and _is_risk_refusal(text):
+        _, sug = next_question(state)
+        return StepResult(state=state, reply=RISK_REQUIRED_REPLY, suggestions=sug, status="collecting")
 
     new_state = state.model_copy(update=patch)
 

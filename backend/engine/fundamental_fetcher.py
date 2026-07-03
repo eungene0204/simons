@@ -27,6 +27,9 @@ _KIS_TOKEN: Optional[str] = None
 _KIS_TOKEN_EXPIRES_AT: float = 0.0
 _KIS_TOKEN_FAIL_UNTIL: float = 0.0  # 토큰 발급 실패 시 쿨다운 (120초)
 _CACHE_MAX_AGE_DAYS = 90
+# KIS/Naver 둘 다 데이터가 없는 종목(REITs, 신규상장 등)은 재시도해도 매번 실패한다.
+# 짧은 TTL로 "실패했다"는 사실 자체를 캐싱해 백테스트마다 반복되는 라이브 호출을 줄인다.
+_NEGATIVE_CACHE_TTL_DAYS = 7
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _CACHE_DIR = _PROJECT_ROOT / "data" / "fundamentals"
@@ -36,6 +39,34 @@ load_dotenv(_PROJECT_ROOT / ".env")
 
 def _cache_path(symbol: str) -> Path:
     return _CACHE_DIR / f"{symbol}.json"
+
+
+def _negative_cache_path(symbol: str) -> Path:
+    return _CACHE_DIR / f"{symbol}.nodata.json"
+
+
+def _is_recently_confirmed_empty(symbol: str) -> bool:
+    """최근 _NEGATIVE_CACHE_TTL_DAYS 이내에 이미 조회 실패가 확인됐는지."""
+    path = _negative_cache_path(symbol)
+    if not path.exists():
+        return False
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        checked_at = data.get("checked_at", "")
+        if not checked_at:
+            return False
+        age = (pd.Timestamp.now() - pd.Timestamp(checked_at)).days
+        return age <= _NEGATIVE_CACHE_TTL_DAYS
+    except Exception:
+        return False
+
+
+def _write_negative_cache(symbol: str) -> None:
+    _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    _negative_cache_path(symbol).write_text(
+        json.dumps({"symbol": symbol, "checked_at": pd.Timestamp.now().isoformat()}),
+        encoding="utf-8",
+    )
 
 
 def _read_cache(symbol: str) -> Optional[List[Dict]]:
@@ -222,8 +253,9 @@ def fetch_fundamentals(symbol: str, retry: int = 2, use_cache: bool = True) -> O
     """Fetch annual fundamentals for parquet enrichment.
 
     1순위: 로컬 JSON 캐시 (90일 이내)
-    2순위: KIS financial-ratio API
-    3순위: Naver Finance 스크래핑
+    2순위: 최근 재조회 실패 캐시 (7일 이내) — REITs 등 항상 실패하는 종목의 반복 호출 방지
+    3순위: KIS financial-ratio API
+    4순위: Naver Finance 스크래핑
 
     Returns:
         [{"year_end": "2025-12-31", "eps": 6564.0, "bps": 63997.0, "roe_or_gpa": 10.85}, ...]
@@ -233,6 +265,8 @@ def fetch_fundamentals(symbol: str, retry: int = 2, use_cache: bool = True) -> O
         cached = _read_cache(symbol)
         if cached:
             return cached
+        if _is_recently_confirmed_empty(symbol):
+            return None
 
     result = _fetch_fundamentals_from_kis(symbol)
 
@@ -253,6 +287,8 @@ def fetch_fundamentals(symbol: str, retry: int = 2, use_cache: bool = True) -> O
 
     if result:
         _write_cache(symbol, result)
+    else:
+        _write_negative_cache(symbol)
 
     return result
 

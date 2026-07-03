@@ -27,6 +27,13 @@ export interface AdvisorWalkForwardSettings {
   target_metric: string;
   n_trials: number;
   parameter_steps?: Record<string, number>;
+  parameter_ranges?: Record<string, WalkForwardParameterRangeOverride>;
+}
+
+export interface WalkForwardParameterRangeOverride {
+  min: number;
+  max: number;
+  step: number;
 }
 
 export interface AdvisorWalkForwardResult {
@@ -48,8 +55,11 @@ const DOMAIN_PATTERNS: Record<RequestedDomain, RegExp[]> = {
   backtest: [/백테스트|테스트 기간|전체 데이터|초기자금|자본금|원금|만원|억원?|\d[\d,]*원|(?:19|20)\d{2}\s*년?\s*(?:부터|까지|~|에서)|(?:19|20)\d{2}\s*[~\-]\s*(?:19|20)\d{2}/i],
 };
 
+// 결과 해석·평가 요청("결과 해석해줘", "성과 평가해줘", "원인이 뭐야")도 전략 재파싱이 아니라
+// 코치 후속 질문이다 — 이유/원인/해석/평가/분석 계열을 포함한다(수정 동사가 있으면
+// EXPLICIT_MODIFICATION_PATTERN이 우선해 수정 흐름으로 남는다).
 const FOLLOW_UP_QUESTION_PATTERN =
-  /어때|어떻게|어디|언제|왜|뭘|뭐를|무엇|추천|조언|괜찮|좋을까|될까|볼까|봐야|팔아야|팔까|사야|살까|매도해야|매수해야|청산해야/i;
+  /어때|어떻게|어디|언제|왜|뭘|뭐를|무엇|추천|조언|괜찮|좋을까|될까|볼까|봐야|팔아야|팔까|사야|살까|매도해야|매수해야|청산해야|이유|원인|해석해|평가해|분석해/i;
 
 const EXPLICIT_MODIFICATION_PATTERN =
   /바꿔|변경|수정|추가|삭제|제외|빼|넣어|설정|적용|로\s*(해|바꿔|설정)|으로\s*(해|바꿔|설정)/i;
@@ -396,7 +406,12 @@ export function buildWalkForwardRequest(
   settings: AdvisorWalkForwardSettings,
   ranges: Record<string, unknown> = {}
 ) {
-  const resolvedRanges = applyWalkForwardParameterSteps(baseStrategy, ranges, settings.parameter_steps);
+  const resolvedRanges = applyWalkForwardParameterSteps(
+    baseStrategy,
+    applyWalkForwardParameterRangeOverrides(baseStrategy, ranges, settings.parameter_ranges),
+    settings.parameter_steps,
+    settings.parameter_ranges
+  );
 
   return {
     base_strategy: baseStrategy,
@@ -546,15 +561,99 @@ function rangePathMatchesStepLabel(baseStrategy: StrategyBacktestRequest, label:
   return !!compact && haystack.replace(/\s+/g, "").includes(compact);
 }
 
+function clampRangeOverride(
+  range: unknown,
+  override: WalkForwardParameterRangeOverride
+): WalkForwardParameterRangeOverride | null {
+  const bounds = rangeBounds(range);
+  if (!bounds) return null;
+
+  const nextMin = Math.min(
+    Math.max(override.min, bounds.min),
+    bounds.max
+  );
+  const nextMax = Math.max(
+    Math.min(override.max, bounds.max),
+    nextMin
+  );
+  const span = nextMax - nextMin;
+
+  if (!Number.isFinite(span) || span <= 0) return null;
+
+  const nextStep = Math.min(Math.max(override.step, 1e-6), span);
+  return {
+    min: Number(nextMin.toFixed(4)),
+    max: Number(nextMax.toFixed(4)),
+    step: Number(nextStep.toFixed(4)),
+  };
+}
+
+function numberRangeSpecFromOverride(
+  range: unknown,
+  override: WalkForwardParameterRangeOverride
+): Record<string, number | string> | null {
+  const normalized = clampRangeOverride(range, override);
+  if (!normalized) return null;
+
+  const integerSpec =
+    isIntegerLike(normalized.min) && isIntegerLike(normalized.max) && isIntegerLike(normalized.step);
+
+  return {
+    type: "number",
+    min: integerSpec ? Math.round(normalized.min) : normalized.min,
+    max: integerSpec ? Math.round(normalized.max) : normalized.max,
+    step: integerSpec ? Math.round(normalized.step) : normalized.step,
+  };
+}
+
+export function findWalkForwardRangeBoundsForLabel(
+  baseStrategy: StrategyBacktestRequest,
+  label: string,
+  ranges: Record<string, unknown>
+): { min: number; max: number } | null {
+  const matches = Object.entries(ranges)
+    .filter(([path]) => rangePathMatchesStepLabel(baseStrategy, label, path))
+    .map(([, range]) => rangeBounds(range))
+    .filter((value): value is { min: number; max: number } => value !== null);
+
+  if (matches.length === 0) return null;
+
+  return {
+    min: Number(Math.min(...matches.map((item) => item.min)).toFixed(4)),
+    max: Number(Math.max(...matches.map((item) => item.max)).toFixed(4)),
+  };
+}
+
+function applyWalkForwardParameterRangeOverrides(
+  baseStrategy: StrategyBacktestRequest,
+  ranges: Record<string, unknown>,
+  parameterRanges?: Record<string, WalkForwardParameterRangeOverride>
+): Record<string, unknown> {
+  if (!parameterRanges || Object.keys(parameterRanges).length === 0) return ranges;
+
+  const next = { ...ranges };
+  for (const [label, override] of Object.entries(parameterRanges)) {
+    for (const [path, range] of Object.entries(ranges)) {
+      if (!rangePathMatchesStepLabel(baseStrategy, label, path)) continue;
+      const spec = numberRangeSpecFromOverride(range, override);
+      if (spec) next[path] = spec;
+    }
+  }
+
+  return next;
+}
+
 function applyWalkForwardParameterSteps(
   baseStrategy: StrategyBacktestRequest,
   ranges: Record<string, unknown>,
-  parameterSteps?: Record<string, number>
+  parameterSteps?: Record<string, number>,
+  parameterRanges?: Record<string, WalkForwardParameterRangeOverride>
 ): Record<string, unknown> {
   if (!parameterSteps || Object.keys(parameterSteps).length === 0) return ranges;
 
   const next = { ...ranges };
   for (const [label, step] of Object.entries(parameterSteps)) {
+    if (parameterRanges?.[label]) continue;
     for (const [path, range] of Object.entries(ranges)) {
       if (!rangePathMatchesStepLabel(baseStrategy, label, path)) continue;
       const spec = numberRangeSpec(range, step);

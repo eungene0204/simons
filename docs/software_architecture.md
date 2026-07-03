@@ -128,7 +128,7 @@ simons/
 │   │   ├── loader.py                # DataLoader (OHLCV 로드 + 캐싱)
 │   │   ├── indicators.py            # IndicatorEngine (지표 계산)
 │   │   ├── signals.py               # SignalEngine (조건 평가, 벡터화)
-│   │   ├── simulator.py             # Simulator (VectorBT 시뮬레이션, 랭킹/리밸런싱 라우팅)
+│   │   ├── simulator.py             # Simulator (루프=의도 결정 + vbt from_orders 목표비중 체결 — NAV 사이징·정수주·장중 스탑·거래정지 이월·매도 거래세)
 │   │   ├── rebalance.py             # 달력 기준 리밸런싱일 계산 (vbt 비의존)
 │   │   ├── result_handler.py        # ResultHandler (지표 계산 + 직렬화)
 │   │   ├── nl_parser.py             # 자연어 → ParsedStrategy (LLM)

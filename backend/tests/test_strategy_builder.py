@@ -26,6 +26,17 @@ def test_parse_universe_variants():
     assert sb._parse_universe("코스피랑 코스닥 모두") == "KOSPI_KOSDAQ"
 
 
+def test_parse_universe_single_market_with_jeonche_is_that_market():
+    # [회귀] "코스피 전체"는 코스피 전 종목이지 양시장이 아니다. 예전엔 '전체'가 양시장
+    # 패턴에 먼저 잡혀 KOSPI_KOSDAQ로 오해석됐다(메인 NL 파서는 KOSPI로 해석 — 불일치).
+    assert sb._parse_universe("코스피 전체") == "KOSPI"
+    assert sb._parse_universe("코스닥 전체로 해줘") == "KOSDAQ"
+    # 시장명 없는 '전체/모두'는 여전히 양시장.
+    assert sb._parse_universe("전체") == "KOSPI_KOSDAQ"
+    assert sb._parse_universe("모두") == "KOSPI_KOSDAQ"
+    assert sb._parse_universe("코스피·코스닥 전체") == "KOSPI_KOSDAQ"
+
+
 def test_parse_universe_kospi200_not_swallowed_by_kospi():
     # [회귀] '코스피200'은 '코스피'를 부분 문자열로 포함해 KOSPI로 조용히 새던 버그.
     # 엔진이 지원하는 KOSPI200 유니버스로 정확히 잡혀야 한다.
@@ -445,6 +456,47 @@ def test_risk_step_negated_stop_loss_not_extracted():
     assert r.status == "confirmed"
     assert r.state.stop_loss_pct is None
     assert r.state.take_profit_pct == 20.0
+
+
+@pytest.mark.parametrize(
+    "question, term",
+    [
+        ("손절이 뭐야?", "손절"),
+        ("트레일링 스탑이 무슨 뜻이에요?", "트레일링"),
+        ("리밸런싱이 뭔가요?", "리밸런싱"),
+        ("모멘텀이 무엇인가요", "모멘텀"),
+    ],
+)
+def test_glossary_question_mid_builder_answers_and_reasks(question, term):
+    """[회귀] 빌더 진행 중 용어 질문은 필드 답변으로 오인돼 같은 질문만 반복되던 막다른 길 —
+    짧은 정의를 답하고 현재 질문을 이어가며 상태는 바뀌지 않는다."""
+    state = _ready_for_risk()
+    r = _step(state, question)
+    assert r.status == "collecting"
+    assert r.state == state  # 상태 불변
+    assert term in r.reply.split("\n\n")[0]  # 앞부분이 정의문
+    assert "청산 조건" in r.reply  # 뒤에 현재 질문이 이어짐
+    assert "10% 손절" in r.suggestions
+
+
+def test_glossary_does_not_intercept_normal_answers():
+    """정의 표지 없는 일반 답변("10% 손절", "모멘텀")은 용어집이 가로채지 않는다."""
+    r = _step(_ready_for_risk(), "10% 손절")
+    assert r.status == "confirmed"
+    st = sb.BuilderState(universe="KOSPI")
+    r2 = _step(st, "모멘텀")
+    assert r2.state.strategy_type == "momentum"
+
+
+@pytest.mark.parametrize("answer", ["없음", "청산 조건은 따로 없이 갈래", "필요 없어"])
+def test_risk_step_refusal_explains_why_required(answer):
+    """[회귀] 청산 조건 거부("없음")에 같은 질문을 그대로 무한 반복하던 침묵 루프 —
+    청산 조건이 필수인 이유를 설명하며 되묻는다(필수 설계는 유지, risk_done은 켜지 않음)."""
+    r = _step(_ready_for_risk(), answer)
+    assert r.status == "collecting"
+    assert r.state.risk_done is False
+    assert r.reply == sb.RISK_REQUIRED_REPLY
+    assert "10% 손절" in r.suggestions
 
 
 def test_risk_step_llm_recovers_value_regex_missed():

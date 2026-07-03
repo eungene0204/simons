@@ -145,6 +145,36 @@ def test_strategy_keyword_beats_stock_name():
     assert result.intent == QueryIntent.STRATEGY_ADVICE
 
 
+@pytest.mark.parametrize(
+    "query",
+    [
+        "삼성전자 지금 손절해야 할까?",
+        "삼성전자 익절 타이밍 어때?",
+        "카카오 손절할까 계속 들고 갈까?",
+    ],
+)
+def test_stock_question_with_risk_word_only_is_stock_analysis(query):
+    # [회귀] 손절/익절은 전략 키워드이지만, 종목명+행동 질문에서 전략 증거가 그 단어들뿐이면
+    # 전략 설계가 아니라 개별 종목 질문이다. 예전엔 '손절' 키워드가 선점해 전략 파싱으로
+    # 오라우팅됐다(→빈 전략 카드/빌더 진입 막다른 길).
+    result = classify(query)
+    assert result.intent == QueryIntent.STOCK_ANALYSIS
+    assert result.deterministic is True
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "삼성전자 손절 10%로 백테스트해줘",       # 다른 전략 키워드(백테스트) 있음
+        "삼성전자 넣고 손절 8% 전략 만들어줘",     # 구성 동사 있음
+        "손절 추가해줘",                          # 종목명 없음(수정 명령)
+    ],
+)
+def test_risk_word_with_other_strategy_evidence_stays_strategy(query):
+    # 리스크 단어 외의 전략 증거(백테스트/전략/구성 동사/수정 명령)가 있으면 전략 설계 유지.
+    assert classify(query).intent == QueryIntent.STRATEGY_ADVICE
+
+
 def test_anaphora_uses_last_symbol():
     result = classify("이 종목 팔아야 할까?", last_symbol="005930")
     assert result.intent == QueryIntent.STOCK_ANALYSIS

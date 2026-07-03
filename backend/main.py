@@ -2443,6 +2443,10 @@ class NLParseResponse(BaseModel):
     # 이번 프롬프트에서 규칙 기반으로 결정적으로 바뀐 리스크 필드 {field: value|null}.
     # 프론트가 자체 정규식으로 재추측하지 말고 이 값을 그대로 신뢰하도록 단일 진실 소스로 제공.
     risk_overrides: Optional[dict] = None
+    # 룰 파싱의 LLM 검증 리포트(Parse Fidelity Validator). 검증이 안 돌았으면 None.
+    parse_validation: Optional[dict] = None
+    # 하한선 보정 안내(비차단 notices 채널, 예: 초기자금 100만원 보정).
+    notices: Optional[List[str]] = None
     runtime: Optional[dict] = None
 
 _nl_parsers: dict = {}  # backend → NLStrategyParser (lazy singleton)
@@ -2824,6 +2828,7 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None):
     try:
         from engine.nl_parser import (
             NLStrategyParser,
+            build_unsupported_concept_notice,
             detect_missing_entry_clarification,
             enforce_strategy_minimums,
             synthesize_risk_overrides,
@@ -2849,6 +2854,11 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None):
             _nl_parsers[backend] = NLStrategyParser(**kwargs)
 
         parser = _nl_parsers[backend]
+        # MLX 단일 추론 락을 게이트로 주입 — parser.parse/parse_modification의 LLM 구조화
+        # 생성(_parse_mlx/_modify_mlx)만 직렬화된다. priority()는 backend가 mlx일 때만
+        # 실제로 락을 걸므로 ollama에서는 no-op이다. 이로써 백엔드별 분기 없이 parse()의
+        # 단일 하이브리드 경로(규칙→가드→검증→LLM 폴백)를 공유한다(드리프트 방지).
+        parser.inference_gate = lambda: _mlx_inference_lock.priority(0)
         if backend == "mlx":
             from api.coach_routes import set_parser as _set_coach_parser
             _set_coach_parser(parser)
@@ -2859,39 +2869,11 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None):
         validation_holder: dict = {}
         def _capture_validation(report):
             validation_holder["report"] = report
-        if backend == "mlx":
-            if request.previous_parsed:
-                print(f"[NL-PARSE] 수정 모드 (diff)", flush=True)
-                with _mlx_inference_lock.priority(0):
-                    parsed = parser.parse_modification(request.prompt, request.previous_parsed, on_stage=on_stage)
-            else:
-                # 규칙 기반으로 먼저 시도 — 추론 락이 필요 없어 코치 LLM 생성과 무관하게
-                # 즉시 반환된다(전략 요약 박스가 바로 뜨도록). 모호한 입력만 LLM 폴백.
-                parsed = parser.parse_rule_based(request.prompt)
-                if parsed is None:
-                    print(f"[NL-PARSE] 규칙 기반 미충족 → LLM 폴백", flush=True)
-                    if on_stage is not None:
-                        on_stage("thinking")
-                    with _mlx_inference_lock.priority(0):
-                        parsed = parser.parse(request.prompt)
-                else:
-                    print(f"[NL-PARSE] 규칙 기반 즉시 파싱 (락 미사용)", flush=True)
-                    # 룰 파싱이 원문의 모든 어휘를 설명한 '확신 파싱'이면 LLM 검증을 건너뛴다
-                    # (규칙만으로 16ms 즉답). 설명 못 한 잔여가 남은 '애매한' 파싱만 LLM으로 검증·교정한다.
-                    from engine.nl_parser import _rule_parse_unexplained
-                    if _rule_parse_unexplained(request.prompt):
-                        print(f"[NL-PARSE] 잔여 존재 → LLM 검증", flush=True)
-                        if on_stage is not None:
-                            on_stage("validating")
-                        from engine.parse_validator import validate_parse
-                        parsed, _vreport = validate_parse(parser, request.prompt, parsed)
-                        _capture_validation(_vreport)
+        if request.previous_parsed:
+            print(f"[NL-PARSE] 수정 모드 (diff)", flush=True)
+            parsed = parser.parse_modification(request.prompt, request.previous_parsed, on_stage=on_stage)
         else:
-            if request.previous_parsed:
-                print(f"[NL-PARSE] 수정 모드 (diff)", flush=True)
-                parsed = parser.parse_modification(request.prompt, request.previous_parsed, on_stage=on_stage)
-            else:
-                parsed = parser.parse(request.prompt, on_stage=on_stage, on_validation=_capture_validation)
+            parsed = parser.parse(request.prompt, on_stage=on_stage, on_validation=_capture_validation)
         parse_ms = round((time.perf_counter() - parse_started) * 1000, 2)
 
         _nl_parser_status["status"] = "ok"
@@ -2899,6 +2881,11 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None):
         # 설정값 하한선 보정 — 비현실적 입력(초기자금 300원·0일 보유·3일 모멘텀·0% 손절 등)을
         # 자동 보정/제거하고 사용자에게 안내한다(모든 파싱 경로 공통).
         notices = enforce_strategy_minimums(parsed)
+        # 미지원 개념(배당·섹터·변동성 등)은 LLM 폴백조차 스키마가 표현 불가라 조용히
+        # 누락/유사 해석될 수 있다 → 침묵 왜곡 대신 비차단 안내로 알린다.
+        unsupported_notice = build_unsupported_concept_notice(request.prompt)
+        if unsupported_notice:
+            notices.append(unsupported_notice)
         convert_started = time.perf_counter()
         backtest_req = to_backtest_request(parsed)
         convert_ms = round((time.perf_counter() - convert_started) * 1000, 2)

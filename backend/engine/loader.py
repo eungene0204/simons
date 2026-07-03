@@ -59,6 +59,12 @@ class DataLoader:
         """
         pdf = df_pl.to_pandas()
 
+        # 0. 시간순 정렬 + 중복 날짜 제거 가드 (감사 M10). 소스가 이미 정렬돼
+        # 있으면 no-op이며, 중복/비정렬 데이터가 지표·사유 매핑을 깨뜨리는 것을 막는다.
+        if 'date' in pdf.columns and len(pdf) > 1:
+            pdf = pdf.sort_values('date', kind='stable').drop_duplicates(
+                subset='date', keep='last').reset_index(drop=True)
+
         # 1. Handle Adjustment
         if 'adj_close' in pdf.columns:
             factor = pdf['adj_close'] / pdf['close']

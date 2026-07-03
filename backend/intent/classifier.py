@@ -106,6 +106,11 @@ _CONSTRUCT_VERB = re.compile(r"만들|짜\s*줘|구성|돌려\s*줘|돌려줘", 
 # anaphora — 직전 종목을 가리키는 표현('이 종목', '얘', '저 주식').
 _ANAPHORA = re.compile(r"이\s*종목|이\s*주식|그\s*종목|저\s*종목|얘|이거", re.IGNORECASE)
 
+# 리스크 관리 단어(손절/익절/트레일링)는 전략 키워드이면서 동시에 개별 종목 행동 질문
+# ("삼성전자 지금 손절해야 할까?")에도 흔히 등장한다. 종목명+행동 질문에서 전략 증거가
+# 이 단어들뿐이면 전략 설계가 아니라 종목 분석이다 — 이를 판별하기 위한 제거용 패턴.
+_RISK_ONLY_KW = re.compile(r"손절|익절|트레일링", re.IGNORECASE)
+
 _CLASSIFIER_SYSTEM_PROMPT = (
     "너는 투자 챗봇 입력을 의도로 분류한다. "
     "STRATEGY_ADVICE(투자 전략·지표 조합·백테스트·매매 규칙, 그리고 "
@@ -163,10 +168,27 @@ def _classify_deterministic(query: str, last_symbol: Optional[str]) -> Optional[
     #    아래 정의형 규칙(GENERAL_INVESTMENT)이 처리하게 한다.
     pure_definition = has_def_q and not has_modify and not _CONSTRUCT_VERB.search(text)
 
+    # [예외] 종목명 + 행동/판단 질문인데 전략 증거가 리스크 단어(손절/익절/트레일링)뿐이면
+    # "삼성전자 지금 손절해야 할까?" 같은 개별 종목 질문이다 — 전략 설계로 가로채지 않고
+    # 아래 규칙 2(STOCK_ANALYSIS)로 흘려보낸다. 수정 명령·스크리닝·구성 동사가 있으면 제외.
+    risk_word_only_strategy_kw = (
+        has_strategy_kw
+        and not has_screening
+        and not has_modify
+        and not _STRATEGY_KEYWORDS.search(_RISK_ONLY_KW.sub("", text))
+    )
+    stock_question_overrides_strategy = bool(
+        refs and has_stock_q and risk_word_only_strategy_kw and not _CONSTRUCT_VERB.search(text)
+    )
+
     # 1) 전략 키워드/스크리닝 조건/전략 수정 명령이 있으면 전략 설계로 본다(종목명이 섞여 있어도).
     #    "종목을 10개로 늘려줘"처럼 기존 전략을 다듬는 요청을 '종목 추천(STOCK_PICK)'으로
     #    오분류해 빌더로 새로 진입하는 일을 막는다.
-    if (has_strategy_kw or has_screening or has_modify) and not pure_definition:
+    if (
+        (has_strategy_kw or has_screening or has_modify)
+        and not pure_definition
+        and not stock_question_overrides_strategy
+    ):
         reason = (
             "전략 설계 키워드 감지" if has_strategy_kw
             else "종목 스크리닝 조건 감지" if has_screening

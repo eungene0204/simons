@@ -4,6 +4,12 @@ import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { ArrowsClockwise, ChartLine, Warning } from "phosphor-react";
 import {
+  buildWalkForwardParameterRanges,
+  findWalkForwardRangeBoundsForLabel,
+  type StrategyBacktestRequest,
+  type WalkForwardParameterRangeOverride,
+} from "../../../app/analytics/new/parsedStrategyMerge";
+import {
   LineChart,
   Line,
   XAxis,
@@ -20,6 +26,7 @@ export interface WalkForwardSettings {
   target_metric: string;
   n_trials: number;
   parameter_steps?: Record<string, number>;
+  parameter_ranges?: Record<string, WalkForwardParameterRangeOverride>;
 }
 
 export interface WalkForwardOptimizationTarget {
@@ -58,12 +65,14 @@ interface WalkForwardModalProps {
   onRun: (settings: WalkForwardSettings) => Promise<WalkForwardResult>;
   backtestDates?: string[];
   optimizationTargets?: WalkForwardOptimizationTarget[];
+  baseStrategy?: StrategyBacktestRequest;
 }
 
 interface WalkForwardPanelProps {
   onRun?: (settings: WalkForwardSettings) => Promise<WalkForwardResult>;
   backtestDates?: string[];
   optimizationTargets?: WalkForwardOptimizationTarget[];
+  baseStrategy?: StrategyBacktestRequest;
   onClose?: () => void;
   maxHeightClass?: string;
   canRun?: boolean;
@@ -76,36 +85,45 @@ interface WalkForwardFormState {
   anchor: boolean;
   target_metric: string;
   n_trials: number;
+  optimizationMethod: OptimizationMethod;
 }
 
 const FALLBACK_TOTAL_BARS = 252 * 5;
+type OptimizationMethod = "bayesian" | "grid";
 
 type ParameterStepConfig = {
   defaultStep: number;
   min: number;
   max: number;
   inputStep: number;
+  stepOptions: number[];
   unit: string;
 };
 
 const DEFAULT_PARAMETER_STEP_CONFIG: ParameterStepConfig = {
-  defaultStep: 1,
+  defaultStep: 5,
   min: 0.1,
-  max: 50,
+  max: 100,
   inputStep: 0.1,
+  stepOptions: [1, 5, 10],
   unit: "",
 };
 
 const PARAMETER_STEP_CONFIGS: Array<{ pattern: RegExp } & ParameterStepConfig> = [
-  { pattern: /pbr/i, defaultStep: 0.1, min: 0.05, max: 1, inputStep: 0.05, unit: "" },
-  { pattern: /per/i, defaultStep: 1, min: 0.5, max: 10, inputStep: 0.5, unit: "" },
-  { pattern: /roe/i, defaultStep: 1, min: 0.5, max: 10, inputStep: 0.5, unit: "%p" },
-  { pattern: /손절|stop\s*loss/i, defaultStep: 1, min: 0.1, max: 20, inputStep: 0.1, unit: "%p" },
-  { pattern: /익절|take\s*profit/i, defaultStep: 5, min: 0.5, max: 50, inputStep: 0.5, unit: "%p" },
-  { pattern: /트레일링|trailing/i, defaultStep: 1, min: 0.5, max: 10, inputStep: 0.5, unit: "%p" },
-  { pattern: /보유기간|holding/i, defaultStep: 5, min: 1, max: 60, inputStep: 1, unit: "거래일" },
-  { pattern: /보유종목수|종목|positions?/i, defaultStep: 1, min: 1, max: 20, inputStep: 1, unit: "종목" },
-  { pattern: /리밸런싱|rebalanc/i, defaultStep: 5, min: 1, max: 60, inputStep: 1, unit: "거래일" },
+  { pattern: /pbr/i, defaultStep: 0.25, min: 0.2, max: 5, inputStep: 0.05, stepOptions: [0.1, 0.25, 0.5], unit: "" },
+  { pattern: /per/i, defaultStep: 2.5, min: 3, max: 50, inputStep: 0.5, stepOptions: [1, 2.5, 5], unit: "" },
+  { pattern: /roe/i, defaultStep: 2.5, min: 0, max: 40, inputStep: 0.5, stepOptions: [1, 2.5, 5], unit: "%p" },
+  { pattern: /rsi|stoch/i, defaultStep: 5, min: 5, max: 95, inputStep: 1, stepOptions: [1, 5, 10], unit: "" },
+  { pattern: /adx/i, defaultStep: 2, min: 5, max: 60, inputStep: 1, stepOptions: [1, 2, 5], unit: "" },
+  { pattern: /이동평균|평균|moving|ema|sma|ma\b/i, defaultStep: 5, min: 2, max: 250, inputStep: 1, stepOptions: [1, 5, 20], unit: "거래일" },
+  { pattern: /거래대금|거래량|volume|trading/i, defaultStep: 50, min: 10, max: 1000, inputStep: 10, stepOptions: [10, 50, 100], unit: "억" },
+  { pattern: /부채비율|debt/i, defaultStep: 10, min: 0, max: 300, inputStep: 5, stepOptions: [5, 10, 25], unit: "%p" },
+  { pattern: /손절|stop\s*loss/i, defaultStep: 2.5, min: 2, max: 30, inputStep: 0.5, stepOptions: [1, 2.5, 5], unit: "%p" },
+  { pattern: /익절|take\s*profit/i, defaultStep: 5, min: 5, max: 80, inputStep: 0.5, stepOptions: [2.5, 5, 10], unit: "%p" },
+  { pattern: /트레일링|trailing/i, defaultStep: 2.5, min: 3, max: 30, inputStep: 0.5, stepOptions: [1, 2.5, 5], unit: "%p" },
+  { pattern: /보유기간|holding/i, defaultStep: 21, min: 5, max: 252, inputStep: 1, stepOptions: [5, 21, 63], unit: "거래일" },
+  { pattern: /보유종목수|종목|positions?/i, defaultStep: 5, min: 1, max: 50, inputStep: 1, stepOptions: [1, 5, 10], unit: "종목" },
+  { pattern: /리밸런싱|rebalanc/i, defaultStep: 21, min: 5, max: 252, inputStep: 1, stepOptions: [5, 21, 63], unit: "거래일" },
 ];
 
 function clamp(value: number, min: number, max: number) {
@@ -122,6 +140,25 @@ function formatStepValue(value: number) {
 
 function formatStepWithUnit(value: number, unit: string) {
   return `${formatStepValue(value)}${unit}`;
+}
+
+function formatParameterInputValue(value: number) {
+  return Number.isFinite(value) ? String(value) : "";
+}
+
+function parseParameterInputValue(value: string) {
+  return value === "" ? Number.NaN : Number(value);
+}
+
+function sameRangeOverride(
+  left: WalkForwardParameterRangeOverride,
+  right: WalkForwardParameterRangeOverride
+) {
+  return (
+    left.min.toFixed(4) === right.min.toFixed(4)
+    && left.max.toFixed(4) === right.max.toFixed(4)
+    && left.step.toFixed(4) === right.step.toFixed(4)
+  );
 }
 
 function formatDateLabel(date?: string) {
@@ -170,7 +207,21 @@ function buildInitialFormState(totalBars: number, minWindowBars: number): WalkFo
     anchor: false,
     target_metric: "cagr",
     n_trials: 30,
+    optimizationMethod: "bayesian",
   };
+}
+
+function estimateGridChoiceCount(range: WalkForwardParameterRangeOverride) {
+  if (range.step <= 0 || range.max <= range.min) return 0;
+  return Math.floor((range.max - range.min) / range.step) + 1;
+}
+
+function buildParameterInputExamples(range: WalkForwardParameterRangeOverride, step: number) {
+  const span = range.max - range.min;
+  const values = [range.min, range.min + span / 2, range.max].map((value) =>
+    Number((Math.round(value / step) * step).toFixed(4))
+  );
+  return Array.from(new Set(values));
 }
 
 function sliderTrackStyle(value: number, min: number, max: number) {
@@ -225,6 +276,23 @@ const TARGET_METRICS = [
   { id: "winRate", label: "승률" },
 ];
 
+const OPTIMIZATION_METHOD_OPTIONS: Array<{
+  value: OptimizationMethod;
+  label: string;
+  body: string;
+}> = [
+  {
+    value: "grid",
+    label: "그리드 탐색",
+    body: "설정한 범위를 기준으로 전체 조합 수를 먼저 확인합니다.",
+  },
+  {
+    value: "bayesian",
+    label: "베이지안 최적화",
+    body: "유망한 후보를 우선 탐색하며 제한된 횟수 안에서 조합을 살펴봅니다.",
+  },
+];
+
 const buttonClass = (active: boolean) =>
   `rounded-md px-3 py-2 text-sm font-black transition-colors ${
     active
@@ -266,6 +334,7 @@ export function WalkForwardPanel({
   onRun,
   backtestDates = [],
   optimizationTargets = [],
+  baseStrategy,
   onClose,
   maxHeightClass = "",
   canRun = true,
@@ -279,9 +348,10 @@ export function WalkForwardPanel({
   const [isRunning, setIsRunning] = useState(false);
   const [result, setResult] = useState<WalkForwardResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [parameterStepOverrides, setParameterStepOverrides] = useState<Record<string, number>>({});
+  const [parameterRangeOverrides, setParameterRangeOverrides] = useState<Record<string, WalkForwardParameterRangeOverride>>({});
   const [stepModalTargetId, setStepModalTargetId] = useState<string | null>(null);
-  const [stepDraft, setStepDraft] = useState("");
+  const [stepModalDraft, setStepModalDraft] = useState<WalkForwardParameterRangeOverride | null>(null);
+  const [stepModalError, setStepModalError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -297,9 +367,35 @@ export function WalkForwardPanel({
     });
   }, [minWindowBars, totalBars]);
 
+  const baseParameterRanges = baseStrategy ? buildWalkForwardParameterRanges(baseStrategy) : {};
+  const defaultParameterRanges = optimizationTargets.reduce<Record<string, WalkForwardParameterRangeOverride>>((acc, target) => {
+    const config = getParameterStepConfig(target.label);
+    const bounds = baseStrategy
+      ? findWalkForwardRangeBoundsForLabel(baseStrategy, target.label, baseParameterRanges)
+      : null;
+    const min = Math.min(bounds?.min ?? config.min, config.min);
+    const max = Math.max(bounds?.max ?? config.max, config.max);
+    const span = Math.max(config.inputStep, Number((max - min).toFixed(4)));
+    acc[target.id] = {
+      min: Number(min.toFixed(4)),
+      max: Number(max.toFixed(4)),
+      step: Number(Math.min(config.defaultStep, span).toFixed(4)),
+    };
+    return acc;
+  }, {});
+
   const parameterSteps = optimizationTargets.reduce<Record<string, number>>((steps, target) => {
-    steps[target.label] = parameterStepOverrides[target.id] ?? getParameterStepConfig(target.label).defaultStep;
+    steps[target.label] = (parameterRangeOverrides[target.id] ?? defaultParameterRanges[target.id]).step;
     return steps;
+  }, {});
+
+  const parameterRanges = optimizationTargets.reduce<Record<string, WalkForwardParameterRangeOverride>>((ranges, target) => {
+    const current = parameterRangeOverrides[target.id];
+    const defaults = defaultParameterRanges[target.id];
+    if (current && defaults && !sameRangeOverride(current, defaults)) {
+      ranges[target.label] = current;
+    }
+    return ranges;
   }, {});
 
   const derivedSettings: WalkForwardSettings = {
@@ -309,6 +405,7 @@ export function WalkForwardPanel({
     target_metric: formState.target_metric,
     n_trials: formState.n_trials,
     ...(optimizationTargets.length > 0 ? { parameter_steps: parameterSteps } : {}),
+    ...(Object.keys(parameterRanges).length > 0 ? { parameter_ranges: parameterRanges } : {}),
   };
 
   const maxTrainBars = Math.max(minWindowBars, totalBars - minWindowBars);
@@ -358,20 +455,24 @@ export function WalkForwardPanel({
     if (!isRunning) onClose?.();
   };
 
+  const currentParameterRangeForTarget = (target: WalkForwardOptimizationTarget) =>
+    parameterRangeOverrides[target.id] ?? defaultParameterRanges[target.id];
+
   const openStepModal = (target: WalkForwardOptimizationTarget) => {
-    const config = getParameterStepConfig(target.label);
     setStepModalTargetId(target.id);
-    setStepDraft((parameterStepOverrides[target.id] ?? config.defaultStep).toString());
+    setStepModalDraft(currentParameterRangeForTarget(target));
+    setStepModalError(null);
   };
 
   const closeStepModal = () => {
     setStepModalTargetId(null);
-    setStepDraft("");
+    setStepModalDraft(null);
+    setStepModalError(null);
   };
 
   const resetStepModal = () => {
     if (!stepModalTargetId) return;
-    setParameterStepOverrides((current) => {
+    setParameterRangeOverrides((current) => {
       const next = { ...current };
       delete next[stepModalTargetId];
       return next;
@@ -380,26 +481,40 @@ export function WalkForwardPanel({
   };
 
   const saveStepModal = () => {
-    if (!stepModalTargetId) return;
+    if (!stepModalTargetId || !stepModalDraft) return;
     const target = optimizationTargets.find((item) => item.id === stepModalTargetId);
     if (!target) return;
     const config = getParameterStepConfig(target.label);
-    const trimmed = stepDraft.trim();
-    if (!trimmed) {
-      resetStepModal();
+    if (!Number.isFinite(stepModalDraft.min) || !Number.isFinite(stepModalDraft.max)) {
+      setStepModalError("하한값과 상한값을 입력해 주세요.");
       return;
     }
-
-    const parsed = Number(trimmed);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      setStepDraft(config.defaultStep.toString());
+    const min = Number(stepModalDraft.min.toFixed(4));
+    const max = Number(stepModalDraft.max.toFixed(4));
+    if (min > max) {
+      setStepModalError("하한값은 상한값보다 클 수 없습니다.");
       return;
     }
+    setStepModalError(null);
+    const maxStep = Math.max(config.inputStep, Number((max - min).toFixed(4)));
+    const normalized: WalkForwardParameterRangeOverride = {
+      min,
+      max,
+      step: Number(clamp(stepModalDraft.step, config.inputStep, maxStep).toFixed(4)),
+    };
 
-    setParameterStepOverrides((current) => ({
-      ...current,
-      [stepModalTargetId]: Number(clamp(parsed, config.min, config.max).toFixed(4)),
-    }));
+    setParameterRangeOverrides((current) => {
+      const defaults = defaultParameterRanges[stepModalTargetId];
+      if (defaults && sameRangeOverride(normalized, defaults)) {
+        const next = { ...current };
+        delete next[stepModalTargetId];
+        return next;
+      }
+      return {
+        ...current,
+        [stepModalTargetId]: normalized,
+      };
+    });
     closeStepModal();
   };
 
@@ -411,17 +526,26 @@ export function WalkForwardPanel({
   const xTickFormatter = (value: string) => value?.slice(0, 7) ?? "";
   const wfe = result?.walk_forward_efficiency ?? 0;
   const wfeTone = getWfeTone(wfe);
-  const isRunDisabled = isRunning || !onRun || !canRun;
+  const isGridMethod = formState.optimizationMethod === "grid";
+  const runDisabledReason = isGridMethod
+    ? "그리드 탐색 실행은 아직 연결되지 않았습니다. 베이지안 최적화를 선택해 주세요."
+    : disabledReason;
+  const isRunDisabled = isRunning || !onRun || !canRun || isGridMethod;
   const stepModalTarget = optimizationTargets.find((target) => target.id === stepModalTargetId) ?? null;
   const stepModalConfig = stepModalTarget ? getParameterStepConfig(stepModalTarget.label) : DEFAULT_PARAMETER_STEP_CONFIG;
-  const stepModalCurrentValue =
-    stepModalTarget && parameterStepOverrides[stepModalTarget.id] !== undefined
-      ? parameterStepOverrides[stepModalTarget.id]
-      : stepModalConfig.defaultStep;
-  const parsedStepDraft = Number(stepDraft);
-  const stepModalDraftValue = Number.isFinite(parsedStepDraft)
-    ? clamp(parsedStepDraft, stepModalConfig.min, stepModalConfig.max)
-    : stepModalCurrentValue;
+  const stepModalCurrentRange = stepModalTarget
+    ? currentParameterRangeForTarget(stepModalTarget)
+    : null;
+  const stepModalBounds = stepModalTarget
+    ? defaultParameterRanges[stepModalTarget.id] ?? null
+    : null;
+  const stepModalDraftValue = stepModalDraft ?? stepModalCurrentRange;
+  const stepModalInputExamples = stepModalBounds
+    ? buildParameterInputExamples(stepModalBounds, stepModalConfig.inputStep)
+    : [];
+  const gridSearchEstimate = optimizationTargets.length > 0
+    ? optimizationTargets.reduce((total, target) => total * estimateGridChoiceCount(currentParameterRangeForTarget(target)), 1)
+    : 0;
 
   return (
         <div data-testid="walk-forward-panel" className="w-full border border-white/[0.08] bg-[var(--background)]">
@@ -585,13 +709,10 @@ export function WalkForwardPanel({
                               type="button"
                               key={target.id}
                               onClick={() => openStepModal(target)}
-	                              className="rounded-md bg-white/[0.08] px-3 py-2 text-left text-sm font-black text-white transition-colors hover:bg-white/[0.12] focus:outline-none focus:ring-2 focus:ring-white/20"
-	                            >
-	                              <span className="block">{target.label}</span>
-	                              <span className="mt-1 block text-[10px] font-bold uppercase tracking-widest text-gray-500">
-	                                {formatStepWithUnit(parameterSteps[target.label], getParameterStepConfig(target.label).unit)}
-	                              </span>
-	                            </button>
+                              className="rounded-md bg-white/[0.08] px-3 py-2 text-left text-sm font-black text-white transition-colors hover:bg-white/[0.12] focus:outline-none focus:ring-2 focus:ring-white/20"
+                            >
+                              {target.label}
+                            </button>
                           ))}
                         </div>
                       ) : (
@@ -601,31 +722,78 @@ export function WalkForwardPanel({
                       )}
                     </div>
                     <div className="py-4">
-                      <div className="flex items-center gap-1.5">
-                        <p className="text-xs font-bold uppercase tracking-widest text-gray-500">Optuna 시도 횟수</p>
-                        <HelpTooltip label="Optuna 시도 횟수">
-                          <span className="block text-[11px] font-black uppercase tracking-widest text-sky-400">
-                            Optuna 시도 횟수
-                          </span>
-                          <span className="mt-2 block text-xs font-bold leading-5 text-gray-300">
-                            각 워크포워드 구간에서 파라미터 조합을 몇 번 탐색할지 정합니다. 횟수가 늘면 더 많은 조합을 계산하지만 실행 시간이 길어집니다.
-                          </span>
-                          <span className="mt-3 block text-xs font-bold leading-5 text-gray-400">
-                            예: 30회는 손절 5/7/10%, 이동평균 20/60일 같은 후보 조합을 최대 30번 평가해 과거 IS 구간의 목표 지표가 높게 나온 조합을 기록합니다.
-                          </span>
-                        </HelpTooltip>
+                      <p className="text-xs font-bold uppercase tracking-widest text-gray-500">최적화 방법</p>
+                      <div className="mt-3 grid gap-2 md:grid-cols-2">
+                        {OPTIMIZATION_METHOD_OPTIONS.map((method) => {
+                          const active = formState.optimizationMethod === method.value;
+                          return (
+                            <button
+                              type="button"
+                              key={method.value}
+                              aria-pressed={active}
+                              onClick={() => setFormState((current) => ({ ...current, optimizationMethod: method.value }))}
+                              className={`block cursor-pointer rounded-xl border p-4 transition-colors ${
+                                active
+                                  ? "border-sky-400/35 bg-white/[0.03]"
+                                  : "border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.05]"
+                              }`}
+                            >
+                              <span className="flex items-center justify-center">
+                                <span className="text-sm font-black text-white">{method.label}</span>
+                              </span>
+                              <span className="mt-2 block text-left text-xs font-bold leading-5 text-gray-400">{method.body}</span>
+                            </button>
+                          );
+                        })}
                       </div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {[20, 30, 50].map((value) => (
-                          <button
-                            key={value}
-                            onClick={() => setFormState((current) => ({ ...current, n_trials: value }))}
-                            className={buttonClass(formState.n_trials === value)}
-                          >
-                            {value}회
-                          </button>
-                        ))}
-                      </div>
+                    </div>
+                    <div className="py-4">
+                      {isGridMethod ? (
+                        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <p className="text-xs font-bold uppercase tracking-widest text-gray-500">그리드 탐색 예상</p>
+                              <p className="mt-2 text-sm font-black leading-6 text-white">
+                                현재 파라미터 범위 기준으로 약 {gridSearchEstimate.toLocaleString()}개 조합을 확인할 수 있습니다.
+                              </p>
+                            </div>
+                            <span className="inline-flex rounded-md bg-white/[0.06] px-2 py-1 text-[10px] font-black uppercase tracking-widest text-gray-400">
+                              준비 중
+                            </span>
+                          </div>
+                          <p className="mt-3 text-xs font-bold leading-5 text-gray-400">
+                            이 화면에서는 아직 베이지안 최적화만 실행할 수 있습니다. 그리드 탐색은 조합 수 확인용 메뉴로 먼저 제공합니다.
+                          </p>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-xs font-bold uppercase tracking-widest text-gray-500">베이지안 최적화 시도 횟수</p>
+                            <HelpTooltip label="베이지안 최적화 시도 횟수">
+                              <span className="block text-[11px] font-black uppercase tracking-widest text-sky-400">
+                                베이지안 최적화 시도 횟수
+                              </span>
+                              <span className="mt-2 block text-xs font-bold leading-5 text-gray-300">
+                                각 워크포워드 구간에서 파라미터 조합을 몇 번 탐색할지 정합니다. 횟수가 늘면 더 많은 조합을 계산하지만 실행 시간이 길어집니다.
+                              </span>
+                              <span className="mt-3 block text-xs font-bold leading-5 text-gray-400">
+                                예: 30회는 손절 5/7/10%, 이동평균 20/60일 같은 후보 조합을 최대 30번 평가해 과거 IS 구간의 목표 지표가 높게 나온 조합을 기록합니다.
+                              </span>
+                            </HelpTooltip>
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {[20, 30, 50].map((value) => (
+                              <button
+                                key={value}
+                                onClick={() => setFormState((current) => ({ ...current, n_trials: value }))}
+                                className={buttonClass(formState.n_trials === value)}
+                              >
+                                {value}회
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
                     </div>
                     <div className="py-4">
                       <div className="flex items-center gap-1.5">
@@ -868,7 +1036,7 @@ export function WalkForwardPanel({
             )}
           </div>
 
-          {stepModalTarget && (
+          {stepModalTarget && stepModalDraftValue && stepModalCurrentRange && stepModalBounds && (
             <div
               role="dialog"
               aria-modal="true"
@@ -877,35 +1045,134 @@ export function WalkForwardPanel({
             >
               <div className="w-full max-w-sm rounded-xl border border-white/[0.10] bg-[#111111] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.65)]">
                 <p id="walk-forward-step-modal-title" className="text-xs font-bold uppercase tracking-widest text-gray-500">
-                  {stepModalTarget.label} step 설정
+                  {stepModalTarget.label} 값 설정
                 </p>
-                <label htmlFor="walk-forward-parameter-step" className="mt-5 block text-xs font-bold uppercase tracking-widest text-gray-500">
-                  step 값
-                </label>
-                <div className="mt-2 flex items-end justify-between gap-3">
-                  <p className="text-2xl font-black text-white font-outfit">
-                    {formatStepWithUnit(stepModalDraftValue, stepModalConfig.unit)}
-                  </p>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
-                    {formatStepWithUnit(stepModalConfig.min, stepModalConfig.unit)} -{" "}
-                    {formatStepWithUnit(stepModalConfig.max, stepModalConfig.unit)}
-                  </p>
+                <div className="mt-5 space-y-5">
+                  <div>
+                    <label htmlFor="walk-forward-parameter-min" className="block text-xs font-bold uppercase tracking-widest text-gray-500">
+                      하한값
+                    </label>
+                    <div className="relative mt-3">
+                      <input
+                        id="walk-forward-parameter-min"
+                        aria-label={`${stepModalTarget.label} 하한값`}
+                        aria-invalid={stepModalError ? "true" : undefined}
+                        aria-describedby="walk-forward-parameter-examples walk-forward-parameter-error"
+                        type="number"
+                        step={stepModalConfig.inputStep}
+                        value={formatParameterInputValue(stepModalDraftValue.min)}
+                        onChange={(event) => {
+                          const nextMin = parseParameterInputValue(event.target.value);
+                          setStepModalDraft((current) => {
+                            if (!current) return current;
+                            return {
+                              ...current,
+                              min: nextMin,
+                            };
+                          });
+                          setStepModalError(null);
+                        }}
+                        className={`w-full rounded-md border-0 bg-white/[0.04] py-3 pl-3 text-xl font-black text-white shadow-none outline-none transition-colors font-outfit focus:border-0 focus:ring-0 focus:shadow-none ${
+                          stepModalConfig.unit ? "pr-16" : "pr-3"
+                        }`}
+                      />
+                      {stepModalConfig.unit && (
+                        <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm font-black text-gray-500">
+                          {stepModalConfig.unit}
+                        </span>
+                      )}
+                    </div>
+                    <p id="walk-forward-parameter-examples" className="mt-2 text-[10px] font-bold uppercase tracking-widest text-gray-500">
+                      예: {stepModalInputExamples.map((value) => formatStepWithUnit(value, stepModalConfig.unit)).join(", ")}
+                    </p>
+                  </div>
+                  <div>
+                    <label htmlFor="walk-forward-parameter-max" className="block text-xs font-bold uppercase tracking-widest text-gray-500">
+                      상한값
+                    </label>
+                    <div className="relative mt-3">
+                      <input
+                        id="walk-forward-parameter-max"
+                        aria-label={`${stepModalTarget.label} 상한값`}
+                        aria-invalid={stepModalError ? "true" : undefined}
+                        aria-describedby="walk-forward-parameter-examples walk-forward-parameter-error"
+                        type="number"
+                        step={stepModalConfig.inputStep}
+                        value={formatParameterInputValue(stepModalDraftValue.max)}
+                        onChange={(event) => {
+                          const nextMax = parseParameterInputValue(event.target.value);
+                          setStepModalDraft((current) => {
+                            if (!current) return current;
+                            return {
+                              ...current,
+                              max: nextMax,
+                            };
+                          });
+                          setStepModalError(null);
+                        }}
+                        className={`w-full rounded-md border-0 bg-white/[0.04] py-3 pl-3 text-xl font-black text-white shadow-none outline-none transition-colors font-outfit focus:border-0 focus:ring-0 focus:shadow-none ${
+                          stepModalConfig.unit ? "pr-16" : "pr-3"
+                        }`}
+                      />
+                      {stepModalConfig.unit && (
+                        <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm font-black text-gray-500">
+                          {stepModalConfig.unit}
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-gray-500">
+                      예: {stepModalInputExamples.map((value) => formatStepWithUnit(value, stepModalConfig.unit)).join(", ")}
+                    </p>
+                    {stepModalError && (
+                      <p id="walk-forward-parameter-error" className="mt-2 text-xs font-bold leading-5 text-[var(--main-blue)]">
+                        {stepModalError}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <label htmlFor="walk-forward-parameter-step" className="block text-xs font-bold uppercase tracking-widest text-gray-500">
+                      step 값
+                    </label>
+                    <div className="mt-2 flex items-end justify-between gap-3">
+                      <p className="text-2xl font-black text-white font-outfit">
+                        {formatStepWithUnit(stepModalDraftValue.step, stepModalConfig.unit)}
+                      </p>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
+                        {stepModalConfig.stepOptions.length}개 후보
+                      </p>
+                    </div>
+                    <div
+                      id="walk-forward-parameter-step"
+                      aria-label={`${stepModalTarget.label} step 값`}
+                      className="mt-4 grid grid-cols-3 gap-2"
+                    >
+                      {stepModalConfig.stepOptions.map((option) => {
+                        const active = option.toFixed(4) === stepModalDraftValue.step.toFixed(4);
+                        return (
+                          <button
+                            key={option}
+                            type="button"
+                            aria-pressed={active}
+                            onClick={() => {
+                              setStepModalDraft((current) => current ? { ...current, step: option } : current);
+                            }}
+                            className={`rounded-md px-3 py-2 text-xs font-black transition-colors ${
+                              active
+                                ? "bg-[var(--main-blue)] text-white"
+                                : "bg-white/[0.06] text-gray-400 hover:bg-white/[0.10] hover:text-white"
+                            }`}
+                          >
+                            {formatStepWithUnit(option, stepModalConfig.unit)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
-                <input
-                  id="walk-forward-parameter-step"
-                  aria-label={`${stepModalTarget.label} step 값`}
-                  type="range"
-                  min={stepModalConfig.min}
-                  max={stepModalConfig.max}
-                  step={stepModalConfig.inputStep}
-                  value={stepModalDraftValue}
-                  onChange={(event) => setStepDraft(event.target.value)}
-                  style={sliderTrackStyle(stepModalDraftValue, stepModalConfig.min, stepModalConfig.max)}
-                  className="mt-4 h-2 w-full cursor-pointer appearance-none rounded-full bg-white/[0.08]"
-                />
-                <p className="mt-2 text-xs font-bold leading-5 text-gray-500">
-                  현재 적용:{" "}
-                  {formatStepWithUnit(stepModalCurrentValue, stepModalConfig.unit)}
+                <p className="mt-3 text-xs font-bold leading-5 text-gray-500">
+                  현재 적용: {formatStepWithUnit(stepModalCurrentRange.min, stepModalConfig.unit)} -{" "}
+                  {formatStepWithUnit(stepModalCurrentRange.max, stepModalConfig.unit)} / step{" "}
+                  {formatStepWithUnit(stepModalCurrentRange.step, stepModalConfig.unit)}
                 </p>
                 <div className="mt-5 flex items-center justify-between gap-2">
                   <button
@@ -964,7 +1231,7 @@ export function WalkForwardPanel({
                 <button
                   onClick={handleRun}
                   disabled={isRunDisabled}
-                  title={isRunDisabled && !isRunning ? disabledReason : undefined}
+                  title={isRunDisabled && !isRunning ? runDisabledReason : undefined}
                   className="inline-flex items-center gap-2 bg-[var(--main-blue)] px-4 py-2 text-sm font-black text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {isRunning ? (
@@ -992,6 +1259,7 @@ export default function WalkForwardModal({
   onRun,
   backtestDates = [],
   optimizationTargets = [],
+  baseStrategy,
 }: WalkForwardModalProps) {
   if (!open) return null;
 
@@ -1003,6 +1271,7 @@ export default function WalkForwardModal({
             onRun={onRun}
             backtestDates={backtestDates}
             optimizationTargets={optimizationTargets}
+            baseStrategy={baseStrategy}
             onClose={() => onOpenChange(false)}
             maxHeightClass="max-h-[calc(100vh-9rem)]"
           />

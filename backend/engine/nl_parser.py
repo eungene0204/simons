@@ -15,7 +15,7 @@ import re
 import time
 from datetime import date
 from typing import List, Literal, Optional
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from llm_backend import OLLAMA_BASE_URL, ollama_auth_headers
 
@@ -225,8 +225,21 @@ class TechnicalSignal(BaseModel):
     threshold: Optional[float] = Field(default=None, description="AI 모델 신뢰도 임계값 (ai_model, ai_drop_model). 예: 70 = 70% 이상 확률")
 
 
+# 리스크 비율 필드는 방향이 필드 의미에 내장돼 있어("손절 -8%"=8% 하락 시 매도) 부호 없는
+# 크기만 유효하다. 규칙 추출기는 부호를 캡처하지 않지만 LLM은 사용자의 '-8%'를 그대로 옮길
+# 수 있고, 그러면 하한선 보정(enforce_strategy_minimums)이 "0%보다 커야" 오탐으로 값을
+# 드롭해 틀린 안내가 나간다 → 모든 파싱 경로가 지나는 모델 검증 단계에서 절댓값 정규화.
+_RATIO_SIGN_FIELDS = ("stop_loss_pct", "take_profit_pct", "trailing_stop_pct", "max_mdd_limit_pct")
+
+
+def _abs_ratio(value: Optional[float]) -> Optional[float]:
+    return abs(value) if value is not None else None
+
+
 class ParsedStrategy(BaseModel):
     """자연어 전략 → 구조화된 전략 스키마"""
+
+    _normalize_ratio_sign = field_validator(*_RATIO_SIGN_FIELDS)(_abs_ratio)
 
     description: str = Field(description="사용자가 입력한 원문 전략 설명 (그대로 복사)")
 
@@ -332,6 +345,8 @@ class ParsedStrategy(BaseModel):
 
 class ParsedStrategyDiff(BaseModel):
     """수정된 필드만 포함. null이면 이전 값 그대로 유지."""
+
+    _normalize_ratio_sign = field_validator(*_RATIO_SIGN_FIELDS)(_abs_ratio)
     description: Optional[str] = None
     universe: Optional[List[Literal["KOSPI", "KOSDAQ", "KOSPI200"]]] = None
     fundamental_filters: Optional[List[FundamentalFilter]] = None
@@ -607,6 +622,11 @@ class NLStrategyParser:
         self.ollama_model = ollama_model or os.environ.get("NL_OLLAMA_MODEL", "qwen3:8b")
         self.ollama_model_32b = ollama_model_32b
         self.max_retries = max_retries
+        # MLX 단일 추론 게이트. main이 PriorityInferenceLock 컨텍스트 팩토리를 주입하면
+        # LLM 구조화 생성(_parse_mlx/_modify_mlx)만 직렬화된다(규칙 기반 경로는 락 불필요).
+        # None이면 게이트 없이 동작한다(ollama·테스트). chat/stream_chat은 호출부(코치)가
+        # 자체 우선순위로 락을 잡으므로 여기서 감싸지 않는다(이중 획득 데드락 방지).
+        self.inference_gate = None
         self._client = None
         # MLX: 기본 모델(parse + modification + coach용, 서버 시작 시 로드), 32B 슬롯(미사용)
         self._generator = None
@@ -840,7 +860,8 @@ class NLStrategyParser:
             f"현재 전략:\n{json.dumps(previous, ensure_ascii=False)}\n\n"
             f"수정 요청: \"{user_input}\"\n출력:"
         )
-        result = self._diff_generator(prompt, max_tokens=1024)
+        with self._inference_gate():
+            result = self._diff_generator(prompt, max_tokens=1024)
         if isinstance(result, str):
             return _parse_model_json_response(result, ParsedStrategyDiff)
         return result
@@ -1094,10 +1115,17 @@ class NLStrategyParser:
                 if obj.get("done"):
                     break
 
+    def _inference_gate(self):
+        """주입된 MLX 추론 게이트 컨텍스트를 반환한다(미주입 시 no-op)."""
+        from contextlib import nullcontext
+
+        return self.inference_gate() if self.inference_gate is not None else nullcontext()
+
     def _parse_mlx(self, user_input: str) -> ParsedStrategy:
         self._init_mlx()
         prompt = f"{COMPACT_SYSTEM_PROMPT}\n\n입력: \"{user_input}\"\n출력:"
-        result = self._generator(prompt, max_tokens=1024)
+        with self._inference_gate():
+            result = self._generator(prompt, max_tokens=1024)
         if isinstance(result, str):
             return _parse_model_json_response(result, ParsedStrategy)
         return result
@@ -1400,7 +1428,7 @@ def _extract_ema_periods(compact: str) -> Optional[tuple[int, int]]:
 # _BUY_HINT: 오실레이터(rsi/stoch/cci) 과매도 진입/반등 맥락 — '반등/올라' 같은 반등 cue 포함.
 _BUY_HINT = r"(?:매수|진입|매입|편입|들어가|담[고아아서는]|사[고서면자들]|산다|반등|올라)"
 # _SELL_V: 청산 동사 — '매도/청산' 외 '정리/처분/매각'과 '팔다' 활용형까지.
-_SELL_V = r"(?:매도|청산|정리|처분|매각|팔[고아자래면게까]|판다)"
+_SELL_V = r"(?:매도|청산|정리|처분|매각|팔[고아자래면게까]|(?<!돌)파는|판다)"
 # 지표명과 숫자 사이 주격·주제·목적격 조사(+보조사 '도'). 품사 변화 전반을 한 토큰으로.
 _SUBJ_PARTICLE = r"(?:가|이|은|는|을|를|도)?"
 
@@ -2157,6 +2185,17 @@ def _backtest_period_state(user_input: str) -> str:
 # 리밸런싱 의도 맥락(주기 단어). '주기/마다/점검'은 너무 일반적이라 제외하고 명시 cue만.
 _REBALANCE_CONTEXT = r"(?:리밸런[싱스]|리밸|재조정|재선정|재산정)"
 
+# 리밸런싱을 명시적으로 하지 않겠다는 표현("리밸런싱 없이", "리밸런싱은 하지 않고").
+# compact(공백 제거) 기준. '언급 없음'과 '명시적 거부'를 구분해, 스크리닝 전략의
+# 기본 월간 리밸런싱 주입이 사용자의 명시 의도를 덮어쓰지 않게 한다.
+_REBALANCE_NEGATION_RE = re.compile(
+    _REBALANCE_CONTEXT + r"[은는도]?(?:없이|안하|안함|안해|하지않|하지말|불필요|필요없|말고)"
+)
+
+
+def _mentions_rebalancing_negation(compact: str) -> bool:
+    return bool(_REBALANCE_NEGATION_RE.search(compact))
+
 
 def _rebalancing_period_state(user_input: str) -> str:
     """리밸런싱 주기 추출의 3-상태: 'not_mentioned' | 'parsed' | 'unresolved'.
@@ -2430,14 +2469,51 @@ _UNSUPPORTED_CONCEPT_RE = tuple(
     (name, re.compile(pattern)) for name, pattern in _UNSUPPORTED_CONCEPT_PATTERNS
 )
 
+# 사용자 안내용 개념 라벨. LLM 폴백으로 위임해도 ParsedStrategy 스키마 자체가 이 개념들을
+# 표현할 수 없으므로, 조용히 누락/유사 해석되는 대신 notices 채널로 명시적으로 알린다.
+_UNSUPPORTED_CONCEPT_LABELS: dict[str, str] = {
+    "volatility": "변동성 조건",
+    "cash_flow": "현금흐름 조건",
+    "cash_weight": "현금 비중 조건",
+    "dividend": "배당 조건",
+    "sector": "섹터/업종 조건",
+    "valuation_exit": "밸류에이션 기반 청산",
+    "relative_to_market": "시장 대비 상대 조건",
+    "earnings": "실적/컨센서스 조건",
+    "supply_demand": "수급(외국인·기관·공매도 등) 조건",
+    "profitability_sign": "흑자/적자 조건",
+    "ema_alignment": "정배열/역배열 조건",
+    "partial_exit": "분할 매도/부분 청산",
+    "new_low": "신저가 조건",
+}
+
+
+def _mentioned_unsupported_concepts(user_input: str) -> list[str]:
+    """입력에 언급된 미지원 개념 이름들을 패턴 정의 순서대로 반환한다(없으면 빈 리스트)."""
+    compact = _compact(user_input)
+    return [name for name, rx in _UNSUPPORTED_CONCEPT_RE if rx.search(compact)]
+
 
 def _mentions_unsupported_concept(user_input: str) -> Optional[str]:
     """규칙 기반/스키마가 표현할 수 없는 개념을 언급하면 그 개념 이름을, 없으면 None."""
-    compact = _compact(user_input)
-    for name, rx in _UNSUPPORTED_CONCEPT_RE:
-        if rx.search(compact):
-            return name
-    return None
+    names = _mentioned_unsupported_concepts(user_input)
+    return names[0] if names else None
+
+
+def build_unsupported_concept_notice(user_input: str) -> Optional[str]:
+    """미지원 개념 언급 시 사용자에게 보여줄 안내 문구를 만든다(없으면 None).
+
+    LLM 폴백조차 스키마 제약으로 이 개념들을 정확히 표현할 수 없으므로, '반영되지 않았거나
+    다르게 해석됐을 수 있다'고 정직하게 알리고 전략 요약 확인을 유도한다(침묵 왜곡 방지).
+    """
+    names = _mentioned_unsupported_concepts(user_input)
+    if not names:
+        return None
+    labels = ", ".join(_UNSUPPORTED_CONCEPT_LABELS.get(name, name) for name in names)
+    return (
+        f"'{labels}'은(는) 아직 직접 지원되지 않아요. "
+        "전략에 반영되지 않았거나 다르게 해석됐을 수 있으니 전략 요약을 확인해 주세요."
+    )
 
 
 # ── Rule Parse Guard: 룰 파싱을 그대로 수락해도 되는지 판정 ──────────────────────
@@ -2528,13 +2604,17 @@ def _parse_rule_based_strategy(user_input: str) -> Optional[ParsedStrategy]:
     rebalancing_period = _extract_rebalancing_period(user_input, hold_period_days)
     # 회전 수단이 없는 스크리닝 전략은 주기적 재선정이 필요하므로 주기 언급이 없으면 월간을
     # 기본값으로 둔다. 단, 사용자가 보유기간·청산 신호·리스크 청산(손절/익절/트레일링)을 직접
-    # 지정했다면 그게 회전/청산 수단이므로 요청하지 않은 리밸런싱을 임의로 주입하지 않는다.
-    # (랭킹 전략의 회전은 리밸런싱이 구동하므로 유지; '3개월' 같은 룩백이 보유기간으로 오인돼도
-    # 아래에서 보유기간을 비운다.)
+    # 지정했거나 리밸런싱을 명시적으로 거부("리밸런싱 없이 계속 보유")했다면 요청하지 않은
+    # 리밸런싱을 임의로 주입하지 않는다(스크리닝은 매수 후 계속 보유로 해석).
+    # (랭킹 전략의 회전은 리밸런싱이 구동해야 하므로 명시 거부여도 유지 — 엔진의 랭킹 재선정은
+    # 달력 리밸런싱으로만 동작한다.)
     if (
         periodic_rebalance
         and rebalancing_period == "none"
-        and (ranking_metric or not (has_exit or has_risk_exit))
+        and (
+            ranking_metric
+            or not (has_exit or has_risk_exit or _mentions_rebalancing_negation(_compact(user_input)))
+        )
     ):
         rebalancing_period = "monthly"
     # 랭킹 전략의 회전은 리밸런싱 주기로 구동한다. 모멘텀 설명에 섞인 'N개월'(예: '최근 3개월
@@ -3105,10 +3185,17 @@ def _gate_modification_hallucinations(merged: dict, previous: dict, user_input: 
             continue
         for field in fields:
             merged[field] = previous.get(field)
-    # 리스크 필드(손절/익절/트레일링): 결정적 추출로 잡힌 것만 인정(단일 진실 소스).
+    # 리스크 필드(손절/익절/트레일링): 결정적 추출이 잡은 값은 이후 _apply_prompt_overrides가
+    # 다시 적용하므로 그대로 둔다. 추출이 침묵한 필드는 두 경우를 구분해야 한다 —
+    # 프롬프트에 해당 필드 cue 자체가 없으면 환각이므로 이전 값으로 되돌리고, cue는 있는데
+    # 정규식이 값을 못 푼 구어체("50% 이상 수익이 나면 파는 걸로")면 LLM 해석을 신뢰한다
+    # (핵심만 결정적, 긴 꼬리는 LLM — 추출 침묵을 '요청 없음'으로 단정하면 LLM 정답을 지운다).
+    # 아래 MDD 한도의 cue 기반 게이트와 동일한 방식이다.
     det_risk = extract_risk_field_overrides(user_input)
     for field in _RISK_OVERRIDE_FIELDS:
-        if field not in det_risk:
+        if field in det_risk:
+            continue
+        if not any(cue in compact for cue in _MODIFY_FIELD_CUES[field]):
             merged[field] = previous.get(field)
     # MDD 한도: 관련 cue가 없으면 이전 값 유지.
     if not any(kw in compact for kw in _MODIFY_MDD_CUES):

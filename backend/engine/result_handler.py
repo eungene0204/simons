@@ -29,7 +29,8 @@ class ResultHandler:
                        all_entry_reasons, all_exit_reasons, common_index,
                        risk_params, exec_type, init_cash,
                        benchmark_prices: "pd.Series | None" = None,
-                       benchmark_label: str = "매수 후 보유") -> Dict[str, Any]:
+                       benchmark_label: str = "매수 후 보유",
+                       risk_free_rate: float = 0.0) -> Dict[str, Any]:
 
         signals_list = []
         sl_pct = float(risk_params.get('stop_loss_pct') or 0)
@@ -83,12 +84,13 @@ class ResultHandler:
                 return None
 
             def get_reason_arr(sym, fast_dict, col_idx=None):
-                """Mirror get_reasons_for_sym but returns pre-built array."""
+                """정확 매칭 → 컬럼 인덱스 순으로 사유 배열을 찾는다.
+
+                부분 문자열 매칭은 유사 심볼 간 오귀속(예: '0059' vs '005930')을
+                일으킬 수 있어 제거함 (감사 M5).
+                """
                 if sym in fast_dict:
                     return fast_dict[sym]
-                for k in fast_dict:
-                    if str(sym) in str(k) or str(k) in str(sym):
-                        return fast_dict[k]
                 if col_idx is not None and 0 <= col_idx < len(processed_symbols):
                     target = processed_symbols[col_idx]
                     if target in fast_dict:
@@ -206,12 +208,12 @@ class ResultHandler:
                     elif exit_type == 2: reason_kr = f"트레일링 스탑 (-{fmt_pct(ts_pct)}%)" if ts_pct > 0 else "트레일링 스탑 실행"
                     elif exit_type == 3: reason_kr = f"익절매 실행 (+{fmt_pct(tp_pct)}%)" if tp_pct > 0 else "익절매 실행"
                     elif exit_type == 4:
-                        reason_kr = f"보유 기간 만료 ({duration}일 보유)" if duration > 0 else "보유 기간 만료"
+                        reason_kr = f"보유 기간 만료 ({duration}거래일 보유)" if duration > 0 else "보유 기간 만료"
                     else:
                         # Fix 8: 종료 이유 추론 — 허용 오차를 1%로 축소하고 우선순위 명확화
                         _TOLERANCE = 1.0
                         if max_hold > 0 and duration >= max_hold:
-                            reason_kr = f"보유 기간 만료 ({duration}일 보유)"
+                            reason_kr = f"보유 기간 만료 ({duration}거래일 보유)"
                         elif sl_pct > 0 and pnl < 0 and abs(ret_val + sl_pct) < _TOLERANCE:
                             reason_kr = f"손절매 실행 (-{fmt_pct(sl_pct)}%)"
                         elif tp_pct > 0 and pnl > 0 and abs(ret_val - tp_pct) < _TOLERANCE:
@@ -342,28 +344,10 @@ class ResultHandler:
         else:
             cagr_val = total_return_decimal * 100
 
+        # 감사 C3: Profit Factor는 계산값을 그대로 보고한다. 과거의 10 클램프·
+        # buy-and-hold 재정의는 통계를 조용히 조작하는 것이라 제거. 표본 부족
+        # (거래 <30건)은 엔진이 경고로 고지한다.
         raw_pf = cls.safe(pf.trades.profit_factor())
-
-        is_buy_and_hold = False
-        if total_trades > 0 and total_trades <= 30 and len(pf.trades.records) > 0:
-            try:
-                exit_idxs = pf.trades.records['exit_idx'].values.astype(int)
-                last_bar  = n_days - 1
-                full_period_trades = int(np.sum((last_bar - exit_idxs) <= 5))
-                if full_period_trades >= total_trades * 0.7:
-                    is_buy_and_hold = True
-            except: pass
-
-        if is_buy_and_hold:
-            try:
-                pnls = pf.trades.records['pnl'].values.astype(float)
-                total_profit_v = float(np.sum(pnls[pnls > 0]))
-                total_loss_v   = float(np.abs(np.sum(pnls[pnls < 0])))
-                raw_pf = total_profit_v / total_loss_v if total_loss_v > 0 else 0.0
-            except: pass
-
-        if total_trades < 30 and raw_pf > 10.0:
-            raw_pf = min(raw_pf, 10.0)
 
         # ── Sharpe / Sortino / Volatility — single pf.returns() call ─────────
         # pf.sharpe_ratio() and pf.sortino_ratio() each call pf.returns() internally.
@@ -375,13 +359,20 @@ class ResultHandler:
             _daily_rets = np.asarray(_daily_rets_raw, dtype=float)
         _daily_rets = _daily_rets[np.isfinite(_daily_rets)]
 
-        _std = _daily_rets.std()
-        _mean = _daily_rets.mean()
-        _sharpe  = float((_mean * np.sqrt(252)) / _std) if _std > 0 else 0.0
+        # 감사 M7: 연 무위험수익률(risk_free_rate, 기본 0)을 일 단위로 환산해 차감.
+        _rf_daily = (1.0 + float(risk_free_rate)) ** (1.0 / 252.0) - 1.0 if risk_free_rate else 0.0
+        _excess = _daily_rets - _rf_daily
 
-        _down = _daily_rets[_daily_rets < 0]
-        _down_std = _down.std() if len(_down) > 1 else 0.0
-        _sortino = float((_mean * 252) / (_down_std * np.sqrt(252))) if _down_std > 0 else 0.0
+        _std = _daily_rets.std()
+        _mean_excess = _excess.mean()
+        _sharpe  = float((_mean_excess * np.sqrt(252)) / _std) if _std > 0 else 0.0
+
+        # 감사 H4: Sortino 표준 정의 — 하방편차는 '전체 기간'에 대해 목표(무위험)
+        # 미달분의 RMS로 계산한다. (음수 수익률만의 표준편차는 비표준이며 하방
+        # 위험을 과소/과대평가한다.)
+        _downside = np.minimum(_excess, 0.0)
+        _down_dev = float(np.sqrt(np.mean(_downside ** 2))) if len(_excess) > 0 else 0.0
+        _sortino = float((_mean_excess * np.sqrt(252)) / _down_dev) if _down_dev > 0 else 0.0
 
         _vol = float(_std * np.sqrt(252)) * 100
 
@@ -389,6 +380,38 @@ class ResultHandler:
         _calmar = cagr_val / abs(_mdd) if _mdd != 0 else 0.0
         _equity = to_list(pf.value())
         _total_profit = cls.safe(pf.total_profit())
+
+        # ── 추가 통계: Exposure / DD Duration / Expectancy / Recovery Factor ──
+        _equity_arr = np.asarray(_equity, dtype=float)
+        _exposure = 0.0
+        try:
+            _asset_val = pf.asset_value(group_by=True)
+            if isinstance(_asset_val, pd.DataFrame):
+                _asset_val = _asset_val.sum(axis=1)
+            _exposure = float((np.asarray(_asset_val, dtype=float) > 1e-9).mean()) * 100
+        except Exception:
+            pass
+
+        _max_dd_duration = 0
+        if len(_equity_arr) > 1:
+            _running_max = np.maximum.accumulate(_equity_arr)
+            _underwater = _equity_arr < _running_max - 1e-9
+            if _underwater.any():
+                _padded = np.concatenate([[0], _underwater.astype(np.int8), [0]])
+                _d = np.diff(_padded)
+                _starts, _ends = np.where(_d == 1)[0], np.where(_d == -1)[0]
+                if len(_starts) > 0:
+                    _max_dd_duration = int((_ends - _starts).max())
+
+        _expectancy = 0.0  # 평균 거래 수익률 (%): 승률×평균수익 − 패률×평균손실과 동치
+        if trade_returns is not None and len(trade_returns) > 0:
+            _expectancy = float(np.mean(trade_returns) * 100)
+
+        _recovery = 0.0
+        if len(_equity_arr) > 1:
+            _max_dd_value = float((np.maximum.accumulate(_equity_arr) - _equity_arr).max())
+            if _max_dd_value > 0:
+                _recovery = float(_total_profit / _max_dd_value)
 
         # ── dates: vectorized strftime, no Python loop ────────────────────────
         _dates = pd.DatetimeIndex(common_index).strftime('%Y-%m-%d').tolist()
@@ -416,12 +439,16 @@ class ResultHandler:
             "calmar":               _sf(_calmar),
             "avgHoldingDays":       _sf(avg_holding_days),
             "volatility":           _sf(_vol),
+            "exposure":             _sf(_exposure),
+            "maxDrawdownDuration":  _max_dd_duration,
+            "expectancy":           _sf(_expectancy),
+            "recoveryFactor":       _sf(_recovery),
             "equity":               _equity,
             "benchmark_equity":     to_list(init_cash * bench_cum_returns),
             "dates":                _dates,
             "signals":              signals_list,
             "perAssetStats":        per_asset_stats,
             "benchmark_label":      benchmark_label,
-            "warnings":             list(getattr(cls, '_warnings', set())),
-            "version":              "6.6 (vectorized streaks, cached returns, no-sanitize-loop)",
+            "warnings":             [],
+            "version":              "7.0 (audit: NAV-sizing, integer shares, intraday stops, raw PF, std sortino)",
         }

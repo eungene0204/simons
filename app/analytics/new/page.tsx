@@ -69,7 +69,7 @@ const BacktestDashboard = dynamic(
 type Stage = "idle" | "ready" | "running" | "done";
 // ranking-fix-v3: risk.ranking_metric를 스키마가 버리던 버그 수정(모멘텀 랭킹 0거래) →
 // 같은 strategy_id로 캐시된 잘못된 0거래 결과를 무효화하기 위해 버전을 올린다.
-const BACKTEST_ENGINE_VERSION = "ranking-fix-v3";
+const BACKTEST_ENGINE_VERSION = "audit-fixes-v4";
 const OAUTH_QUERY_PARAMS = {
   access_type: "offline",
   prompt: "select_account",

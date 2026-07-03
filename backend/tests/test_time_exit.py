@@ -59,7 +59,7 @@ def test_time_based_exit_reasons():
     found_time_exit = False
     for s in sell_signals:
         print(f"DEBUG: Sell reason: {s['condition']}")
-        if "보유 기간 만료 (5일 보유)" in s['condition']:
+        if "보유 기간 만료 (5거래일 보유)" in s['condition']:
             found_time_exit = True
             print("[SUCCESS] Found specific 5-day time exit.")
             

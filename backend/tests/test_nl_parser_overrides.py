@@ -1175,6 +1175,46 @@ def test_parse_rule_based_returns_none_for_ambiguous_prompt():
     assert parser.parse_rule_based("좋은 저평가 전략 만들어줘") is None
 
 
+def test_parse_mlx_uses_injected_inference_gate(monkeypatch):
+    """[드리프트 방지] main이 주입한 MLX 추론 게이트가 LLM 구조화 생성(_parse_mlx)을
+    감싼다 — parse()의 단일 하이브리드 경로를 공유하면서도 MLX 단일 추론 직렬화가 유지된다."""
+    import json as _json
+
+    parser = NLStrategyParser(backend="mlx")
+    events: list[str] = []
+
+    class _Gate:
+        def __enter__(self):
+            events.append("enter")
+            return self
+
+        def __exit__(self, *_args):
+            events.append("exit")
+            return False
+
+    parser.inference_gate = _Gate
+    monkeypatch.setattr(parser, "_init_mlx", lambda: None)
+    parser._generator = lambda prompt, max_tokens: (
+        events.append("generate") or _json.dumps({"description": "x"})
+    )
+
+    parsed = parser._parse_mlx("아무 입력")
+
+    assert parsed.description == "x"
+    assert events == ["enter", "generate", "exit"]  # 생성이 게이트 안에서 실행됨
+
+
+def test_parse_mlx_without_gate_is_noop(monkeypatch):
+    """게이트 미주입(테스트·ollama)이면 게이트 없이 그대로 동작한다."""
+    import json as _json
+
+    parser = NLStrategyParser(backend="mlx")
+    monkeypatch.setattr(parser, "_init_mlx", lambda: None)
+    parser._generator = lambda prompt, max_tokens: _json.dumps({"description": "y"})
+
+    assert parser._parse_mlx("입력").description == "y"
+
+
 def test_parse_uses_rule_based_fast_path_before_model(monkeypatch):
     parser = NLStrategyParser()
 
@@ -1546,6 +1586,49 @@ def test_modification_gate_rejects_hallucinated_risk_field(monkeypatch):
     parsed = parser.parse_modification("익절 비율을 30%로 설정해줘", prev)
     assert parsed.take_profit_pct == 30      # 요청된 변경은 반영
     assert parsed.trailing_stop_pct is None  # 요청 안 된 환각은 이전 값(None) 유지
+
+
+def test_extract_risk_overrides_colloquial_sell_conjugation():
+    # [회귀] "50% 이상 수익이 나면 주식을 파는 걸로 하자" — 매도 동사의 ㄹ탈락 관형형
+    # '파는'이 _SELL_V에 없어 결정적 추출이 침묵하던 버그. '돌파는'은 오매칭하지 않는다.
+    from engine.nl_parser import extract_risk_field_overrides
+    assert extract_risk_field_overrides(
+        "50% 이상 수익이 나면 주식을 파는 걸로 하자"
+    ) == {"take_profit_pct": 50.0}
+    assert extract_risk_field_overrides("20일 신고가 돌파는 유지해줘") == {}
+
+
+def test_modification_gate_trusts_llm_for_colloquial_risk_phrasing():
+    # [회귀] 결정적 추출이 값을 못 푼 구어체 익절 요청("수익 실현은 넉넉하게")을 LLM diff가
+    # 올바로 해석했는데, 게이트가 '추출 침묵=요청 없음'으로 단정해 LLM 정답을 이전 값으로
+    # 되돌리던 버그. 필드 cue가 프롬프트에 있으면 LLM 해석을 신뢰한다(긴 꼬리는 LLM).
+    from engine.nl_parser import _gate_modification_hallucinations
+    prev = {"stop_loss_pct": 10.0, "take_profit_pct": None, "trailing_stop_pct": None}
+    merged = {**prev, "take_profit_pct": 30.0}
+    _gate_modification_hallucinations(merged, prev, "수익 실현은 넉넉하게 잡아줘")
+    assert merged["take_profit_pct"] == 30.0
+    # cue조차 없으면 여전히 환각으로 되돌린다
+    merged2 = {**prev, "take_profit_pct": 20.0}
+    _gate_modification_hallucinations(merged2, prev, "종목 수를 5개로 줄여줘")
+    assert merged2["take_profit_pct"] is None
+
+
+def test_modification_colloquial_take_profit_survives_llm_miss(monkeypatch):
+    # [회귀] "50% 이상 수익이 나면 주식을 파는 걸로 하자"가 LLM diff마저 놓쳐도(all-null),
+    # 결정적 추출(_apply_prompt_overrides 재적용)이 익절 50%를 보장한다. 기존 손절은 유지.
+    parser = NLStrategyParser(backend="ollama")
+
+    def _llm_diff(_user_input, _previous):
+        return ParsedStrategyDiff()  # LLM이 완전히 놓친 최악 케이스
+
+    monkeypatch.setattr(parser, "_modify_ollama", _llm_diff)
+    prev = dict(_MODIFY_PREVIOUS)
+    prev["stop_loss_pct"] = 10.0
+    prev["take_profit_pct"] = None
+
+    parsed = parser.parse_modification("50% 이상 수익이 나면 주식을 파는 걸로 하자", prev)
+    assert parsed.take_profit_pct == 50.0
+    assert parsed.stop_loss_pct == 10.0
 
 
 def test_modification_gate_rejects_hallucinated_unrequested_domain(monkeypatch):
@@ -2024,6 +2107,30 @@ def test_fundamental_screen_parses_without_llm(prompt):
     assert parsed.rebalancing_period == "monthly"
 
 
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "리밸런싱 없이 PBR 1 이하 종목 계속 보유",
+        "PBR 0.8 이하 종목 투자, 리밸런싱은 하지 않고 그대로 보유",
+    ],
+)
+def test_explicit_no_rebalancing_screen_is_not_forced_monthly(prompt):
+    """[회귀] 사용자가 '리밸런싱 없이'를 명시한 스크리닝 전략에 기본 월간 리밸런싱을
+    강제 주입해 명시 의도를 덮어쓰던 버그 — 매수 후 계속 보유(none)로 보존해야 한다."""
+    parsed = _parse_rule_based_strategy(prompt)
+    assert parsed is not None
+    assert parsed.rebalancing_period == "none"
+
+
+def test_ranking_keeps_rebalancing_even_when_negated():
+    """랭킹(모멘텀) 전략의 회전은 달력 리밸런싱으로만 동작하므로, 거부 표현이 있어도
+    회전 주기는 유지한다(엔진 제약)."""
+    parsed = _parse_rule_based_strategy("리밸런싱 없이 최근 3개월 수익률 상위 5종목 매수")
+    assert parsed is not None
+    assert parsed.ranking_metric == "return"
+    assert parsed.rebalancing_period == "monthly"
+
+
 def test_value_screen_with_hold_period_does_not_inject_rebalancing():
     """회귀: 보유기간·손절을 명시한 가치주 스크리닝에 월간 리밸런싱을 임의 주입하면 안 된다.
 
@@ -2455,6 +2562,29 @@ def test_supported_prompt_not_flagged_as_unsupported(prompt):
     """지원되는 개념만 담긴 프롬프트(상대강도 랭킹 포함)는 미지원으로 오탐되지 않는다."""
     assert _mentions_unsupported_concept(prompt) is None
     assert _parse_rule_based_strategy(prompt) is not None
+
+
+def test_unsupported_concept_notice_names_all_concepts():
+    """[침묵 왜곡 방지] 미지원 개념이 언급되면 사용자 안내 문구가 만들어지고,
+    여러 개념이 섞이면 모두 라벨로 나열된다(LLM 폴백조차 스키마가 표현 불가하므로)."""
+    from engine.nl_parser import build_unsupported_concept_notice
+
+    notice = build_unsupported_concept_notice("배당수익률 5% 이상 종목 매수")
+    assert notice is not None
+    assert "배당 조건" in notice
+    assert "전략 요약" in notice  # 확인 유도 문구
+
+    multi = build_unsupported_concept_notice("변동성 낮고 배당수익률 높은 종목 매수")
+    assert multi is not None
+    assert "변동성 조건" in multi and "배당 조건" in multi
+
+
+def test_unsupported_concept_notice_none_for_supported_prompt():
+    from engine.nl_parser import build_unsupported_concept_notice
+
+    assert build_unsupported_concept_notice(
+        "KOSPI 종목 중 골든크로스 매수, 데드크로스 매도, 손절 8%"
+    ) is None
 
 
 # ─── Rule Parse Guard: red-flag 결정론 선차단 ────────────────────────────────
@@ -2902,11 +3032,12 @@ def test_enforce_strategy_minimums_clamps_hold_and_lookback():
 
 
 def test_enforce_strategy_minimums_drops_nonpositive_ratios():
-    # 0% 이하 손절·익절·트레일링·MDD 비율은 적용하지 않고(None) 안내한다.
+    # 0% 리스크 비율은 적용하지 않고(None) 안내한다. 음수는 모델 검증이 절댓값으로
+    # 정규화하므로 여기 오지 않는다(test_parsed_strategy_normalizes_negative_ratio_sign).
     from engine.nl_parser import enforce_strategy_minimums
     parsed = make_base_strategy().model_copy(update={
         "stop_loss_pct": 0.0,
-        "take_profit_pct": -5.0,
+        "take_profit_pct": 0.0,
         "trailing_stop_pct": 10.0,  # 유효 → 유지
     })
     notices = enforce_strategy_minimums(parsed)
@@ -2914,6 +3045,28 @@ def test_enforce_strategy_minimums_drops_nonpositive_ratios():
     assert parsed.take_profit_pct is None
     assert parsed.trailing_stop_pct == 10.0
     assert sum("0%보다 커야" in n for n in notices) == 2
+
+
+def test_parsed_strategy_normalizes_negative_ratio_sign():
+    # [회귀] "손절은 -8%"를 LLM이 부호 그대로 -8.0으로 옮기면, 하한선 보정이
+    # "0%보다 커야 해서 적용하지 않았어요" 오탐 notice와 함께 값을 드롭했다
+    # (배지는 결정적 risk_overrides의 +8과 함께 표시돼 안내와 모순).
+    # 리스크 비율은 방향이 필드 의미에 내장돼 있어 음수=하락 폭 크기 → 절댓값 정규화.
+    from engine.nl_parser import ParsedStrategy, ParsedStrategyDiff, enforce_strategy_minimums
+    parsed = ParsedStrategy(
+        description="손절은 -8%",
+        stop_loss_pct=-8.0,
+        take_profit_pct=-15.0,
+        trailing_stop_pct=-10.0,
+        max_mdd_limit_pct=-20.0,
+    )
+    assert parsed.stop_loss_pct == 8.0
+    assert parsed.take_profit_pct == 15.0
+    assert parsed.trailing_stop_pct == 10.0
+    assert parsed.max_mdd_limit_pct == 20.0
+    assert enforce_strategy_minimums(parsed) == []
+    # 수정 모드(diff) 경로도 동일하게 정규화된다
+    assert ParsedStrategyDiff(stop_loss_pct=-8.0).stop_loss_pct == 8.0
 
 
 def test_enforce_strategy_minimums_leaves_valid_strategy_untouched():

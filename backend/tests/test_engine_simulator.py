@@ -254,6 +254,7 @@ def test_simulator_allows_zero_fee_and_slippage(simulator):
     options = {
         "fee_rate": 0.0,
         "slippage_rate": 0.0,
+        "sell_tax_rate": 0.0,
         "execution_type": "same_close"
     }
 
@@ -261,3 +262,109 @@ def test_simulator_allows_zero_fee_and_slippage(simulator):
 
     assert pf.trades.count() == 1
     assert pf.final_value() == pytest.approx(1100.0)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 감사 수정 회귀 테스트 (C1/C2/C5/C6/H3)
+# ──────────────────────────────────────────────────────────────────────────────
+
+ZERO_COST = {"fee_rate": 0.0, "slippage_rate": 0.0, "sell_tax_rate": 0.0,
+             "execution_type": "same_close"}
+
+
+def test_simulator_equal_weight_is_nav_based_not_cash_based(simulator):
+    """C1: 동시 진입 종목들이 NAV 대비 동일 비중을 받아야 한다.
+
+    과거 from_signals Percent(잔여 현금 비중)는 50% → 25%로 기하급수 감소했다.
+    """
+    price, exec_price, entries, exits = create_dummy_data(days=5, symbols=2)
+    entries.iloc[0] = [True, True]
+
+    risk_params = {"max_positions": 2, "allocation_type": "equal",
+                   "init_cash": 1000000.0, "skip_risk_management": False}
+    pf = simulator.run(price, exec_price, entries, exits, risk_params, dict(ZERO_COST))
+
+    trades = pf.trades.records_readable
+    assert len(trades) == 2
+    values = (trades['Size'] * trades['Avg Entry Price']).tolist()
+    # 각 포지션 = NAV의 50% = 500,000원 (가격 100 → 5000주씩)
+    assert values[0] == pytest.approx(500000.0)
+    assert values[1] == pytest.approx(500000.0)
+
+
+def test_simulator_integer_share_quantities(simulator):
+    """C2: 체결 수량은 정수 주 단위여야 한다 (소수점 주식 금지)."""
+    price, exec_price, entries, exits = create_dummy_data(days=3, symbols=1)
+    price.iloc[:, 0] = [333.0, 333.0, 333.0]
+    exec_price.iloc[:, 0] = [333.0, 333.0, 333.0]
+    entries.iloc[0, 0] = True
+
+    risk_params = {"init_cash": 1000.0, "position_size_pct": 100,
+                   "skip_risk_management": False}
+    pf = simulator.run(price, exec_price, entries, exits, risk_params, dict(ZERO_COST))
+
+    sizes = pf.trades.records_readable['Size']
+    assert len(sizes) == 1
+    assert float(sizes.iloc[0]) == float(int(sizes.iloc[0]))  # 정수 수량
+    assert float(sizes.iloc[0]) == 3.0  # floor(1000/333)
+
+
+def test_simulator_default_sell_tax_applied(simulator):
+    """H3: 매도 거래세(기본 0.15%)가 매도측에만 부과된다."""
+    price, exec_price, entries, exits = create_dummy_data(days=3, symbols=1)
+    price.iloc[:, 0] = [100.0, 110.0, 110.0]
+    exec_price.iloc[:, 0] = [100.0, 110.0, 110.0]
+    entries.iloc[0, 0] = True
+    exits.iloc[1, 0] = True
+
+    risk_params = {"init_cash": 1000.0, "position_size_pct": 100,
+                   "skip_position_setting": True}
+    options = {"fee_rate": 0.0, "slippage_rate": 0.0, "execution_type": "same_close"}
+    pf = simulator.run(price, exec_price, entries, exits, risk_params, options)
+
+    # 매수 10주@100(비용 0) → 매도 10주@110, 거래세 0.15% = 1100*0.0015 = 1.65
+    assert pf.final_value() == pytest.approx(1100.0 - 1.65)
+
+
+def test_simulator_intraday_low_triggers_stop_loss(simulator):
+    """C5: 종가가 회복해도 장중 저가가 손절선을 건드리면 청산되어야 한다."""
+    price, exec_price, entries, exits = create_dummy_data(days=5, symbols=1)
+    high = price.copy()
+    low = price.copy()
+
+    # 종가는 손절선(90) 위에서 유지되지만 Day 2 장중 저가가 85까지 하락
+    price.iloc[:, 0] = [100.0, 98.0, 95.0, 96.0, 97.0]
+    exec_price.iloc[:, 0] = [100.0, 98.0, 95.0, 96.0, 97.0]
+    high.iloc[:, 0] = [101.0, 99.0, 96.0, 97.0, 98.0]
+    low.iloc[:, 0] = [99.0, 97.0, 85.0, 95.0, 96.0]
+    entries.iloc[0, 0] = True
+
+    risk_params = {"stop_loss_pct": 10.0, "skip_risk_management": False}
+    pf = simulator.run(price, exec_price, entries, exits, risk_params, dict(ZERO_COST),
+                       high_df=high, low_df=low)
+    trades = pf.trades.records_readable
+
+    assert len(trades) == 1
+    # Day 2 장중 -15% 감지 → same_close 모드로 당일 청산
+    assert trades.iloc[0]['Exit Timestamp'] == pf.close.index[2]
+
+
+def test_simulator_exit_deferred_on_unavailable_day(simulator):
+    """C6: 거래 불가일(거래정지)에는 청산하지 않고 다음 거래 가능일로 이월한다."""
+    price, exec_price, entries, exits = create_dummy_data(days=6, symbols=1)
+    price.iloc[:, 0] = [100.0, 95.0, 88.0, 88.0, 88.0, 87.0]
+    exec_price.iloc[:, 0] = [100.0, 95.0, 88.0, 88.0, 88.0, 87.0]
+    entries.iloc[0, 0] = True
+
+    # Day 2에 SL(-10%) 감지되지만 Day 2~3은 거래정지 → Day 4에 체결되어야 함
+    available = pd.DataFrame(True, index=price.index, columns=price.columns)
+    available.iloc[2, 0] = False
+    available.iloc[3, 0] = False
+
+    risk_params = {"stop_loss_pct": 10.0, "skip_risk_management": False}
+    pf = simulator.run(price, exec_price, entries, exits, risk_params, dict(ZERO_COST),
+                       available_df=available)
+    trades = pf.trades.records_readable
+
+    assert len(trades) == 1
+    assert trades.iloc[0]['Exit Timestamp'] == pf.close.index[4]

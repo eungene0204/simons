@@ -134,6 +134,14 @@ export interface BacktestResult {
   volatility?: number;
   calmar?: number;
   avgHoldingDays?: number;
+  /** 포지션 보유일 비율 (%) — 2026-07 엔진 감사에서 추가된 통계 */
+  exposure?: number;
+  /** 최장 수중(underwater) 기간 (거래일) */
+  maxDrawdownDuration?: number;
+  /** 평균 거래 수익률 (%) = 승률×평균수익 − 패률×평균손실 */
+  expectancy?: number;
+  /** 순이익 ÷ 최대 낙폭 금액 */
+  recoveryFactor?: number;
   trades: number;
   avgProfit?: number;
   avgLoss?: number;
