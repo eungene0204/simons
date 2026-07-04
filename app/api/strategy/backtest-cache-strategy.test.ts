@@ -64,4 +64,39 @@ describe("saveCachedResult > 캐시 자동 생성 전략", () => {
     // update 분기는 isSaved를 건드리지 않아 이미 저장된 전략의 노출 상태를 유지
     expect(upsertArg.update).not.toHaveProperty("isSaved");
   });
+
+  /**
+   * 버그: upsertStrategyForResult가 canonical_strategy_dsl(entry_signals, 최상위
+   * stop_loss_pct 등 사람이 읽기 좋은 요약)만 저장하고, 같은 body에 형제 필드로
+   * 들어있는 실행 가능한 entry.conditions/exit.conditions/risk.* DSL은 버렸다.
+   * 그 결과 /backtest/[id]에서 워크포워드를 실행하면 buildWalkForwardParameterRanges가
+   * baseStrategy.risk/entry를 찾지 못해 "숫자 파라미터가 없습니다" 오류가 났다.
+   */
+  it("body의 entry/exit/risk DSL도 canonical 요약과 함께 settings에 보존한다", async () => {
+    const body = {
+      canonical_strategy_dsl: {
+        entry_signals: [{ indicator: "rsi", threshold: 30 }],
+        stop_loss_pct: 10,
+        take_profit_pct: 20,
+      },
+      entry: { conditions: [{ id: "rsi_cross", params: { period: 14, threshold: 30 } }] },
+      exit: { conditions: [{ id: "rsi_exit", params: { threshold: 70 } }] },
+      risk: { stop_loss_pct: 10, take_profit_pct: 20, max_positions: 8 },
+      period: "5y",
+      universe_id: "kospi200",
+    };
+    const result = { totalReturn: 0, cagr: 0, tradesList: [] };
+
+    await saveCachedResult("cache-key-2", body, result);
+
+    const upsertArg = mockStrategyUpsert.mock.calls[0][0];
+    const savedSettings = JSON.parse(upsertArg.create.settings);
+
+    expect(savedSettings.entry).toEqual(body.entry);
+    expect(savedSettings.exit).toEqual(body.exit);
+    expect(savedSettings.risk).toEqual(body.risk);
+    expect(savedSettings.period).toBe("5y");
+    // canonical 요약 필드도 계속 보존(요약 표시용 하위호환)
+    expect(savedSettings.entry_signals).toEqual(body.canonical_strategy_dsl.entry_signals);
+  });
 });

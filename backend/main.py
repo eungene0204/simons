@@ -22,6 +22,12 @@ from engine.virtual_trader import VirtualTrader
 from engine.vi_utils import build_vi_display
 from nl_cache import nl_cache_key
 from stream_progress import build_backtest_stream_status
+from engine.watchdog import (
+    BacktestTimeoutError,
+    backtest_timeout_s,
+    run_with_timeout as watchdog_run_with_timeout,
+    timeout_message as backtest_timeout_message,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 import uvicorn
@@ -208,7 +214,9 @@ def run_backtest(http_req: Request, request: BacktestRequest):
     try:
         # Convert Pydantic to dict for engine
         start_time = time.time()
-        result = engine.run_backtest(request.model_dump())
+        req_dict = request.model_dump()
+        # 워치독: 엔진이 행에 빠져도 요청은 제한 시간 안에 반드시 끝난다.
+        result = watchdog_run_with_timeout(lambda: engine.run_backtest(req_dict))
         end_time = time.time()
         result['executionTime'] = end_time - start_time
 
@@ -222,6 +230,8 @@ def run_backtest(http_req: Request, request: BacktestRequest):
         return result
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except BacktestTimeoutError as e:
+        raise HTTPException(status_code=504, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Engine error: {str(e)}")
 
@@ -272,6 +282,7 @@ def walk_forward_analysis(request: WalkForwardRequest):
             anchor=request.anchor,
             target_metric=request.target_metric,
             n_trials=request.n_trials,
+            method=request.method,
         )
         if result.get("status") == "error":
             raise HTTPException(status_code=400, detail=result.get("message"))
@@ -3066,8 +3077,16 @@ async def backtest_stream(request: BacktestRequest):
             "거래 내역 집계 중...",
             "성과 지표 계산 중...",
         ]
+        # 워치독: 엔진 스레드가 행에 빠지면 이 폴링 루프가 무한 상태 메시지를 내보낸다.
+        # 벽시계 제한 시간을 넘기면 에러 이벤트를 보내고 스트림을 끝낸다(데몬 스레드는 유기).
+        deadline = time.monotonic() + backtest_timeout_s()
         wait_count = 0
         while thread.is_alive():
+            if time.monotonic() >= deadline:
+                print(f"[BT-STREAM][WATCHDOG] 백테스트가 {backtest_timeout_s():.0f}s를 초과 — 스트림 종료", flush=True)
+                yield f"data: {json.dumps({'type': 'error', 'message': backtest_timeout_message(backtest_timeout_s())})}\n\n"
+                yield "data: [DONE]\n\n"
+                return
             status_message = build_backtest_stream_status(wait_count, phases)
             if status_message:
                 yield emit(status_message)

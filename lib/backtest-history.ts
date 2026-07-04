@@ -96,8 +96,11 @@ export function buildAutoSaveHistoryPayload(
     },
     cacheKey: result.cacheKey,
     isAutoSave: true,
-    // cacheKey 기반 source-of-truth 레코드가 없으면 상세 결과도 같이 저장해야 한다.
-    result: result.cacheKey ? undefined : result,
+    // 상세 결과는 항상 함께 보낸다. cacheKey 기반 source-of-truth 레코드(saveCachedResult)가
+    // 이미 result를 갖고 있으면 POST 라우트가 기존 값을 우선 유지하므로 중복 저장이 아니다.
+    // 반대로 SOT 레코드가 아직 생성 전이거나(스트리밍 저장은 stream close 후 비동기 실행)
+    // 저장에 실패한 경우, result를 생략하면 목록에 노출된 기록이 상세 결과 없이 남는다.
+    result,
   };
 }
 

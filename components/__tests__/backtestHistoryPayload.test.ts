@@ -44,13 +44,17 @@ describe("buildAutoSaveHistoryPayload", () => {
     expect(payload.isAutoSave).toBe(true);
   });
 
-  it("cacheKey가 있으면 기존 캐시 레코드를 사용하고 result는 중복 저장하지 않아야 함", () => {
+  it("cacheKey가 있어도 상세 result를 함께 보내 SOT 미생성 시 빈 기록을 방지한다", () => {
+    // 회귀: 스트리밍 저장은 stream close 후 saveCachedResult를 비동기 실행하므로
+    // 자동 저장 POST가 SOT 레코드보다 먼저 도달하면(또는 저장 실패 시) result를
+    // 생략한 payload가 목록에 상세 결과 없는 카드를 만들었다. cacheKey가 있어도
+    // result를 함께 보내면 POST 라우트가 기존 값을 우선 유지하므로 중복이 아니다.
     const payload = buildAutoSaveHistoryPayload(
       { ...baseResult, cacheKey: "cache-123" },
       summary
     );
     expect(payload.cacheKey).toBe("cache-123");
-    expect(payload.result).toBeUndefined();
+    expect(payload.result).toEqual({ ...baseResult, cacheKey: "cache-123" });
   });
 
   it("전략명이 있으면 전략명을 이름으로 사용한다", () => {

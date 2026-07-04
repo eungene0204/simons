@@ -7,6 +7,13 @@ import DashboardLayout from "@/components/layout/DashboardLayout";
 import BacktestDashboard from "@/components/strategy/backtest/BacktestDashboard";
 import { buildHistorySummary } from "@/lib/backtest-history";
 import { BacktestHistoryItem } from "@/types/strategy";
+import { normalizeLegacyBreakoutStrategy } from "@/components/strategy/legacyBreakout";
+import {
+  buildWalkForwardParameterRanges,
+  buildWalkForwardRequest,
+  hasWalkForwardParameterRanges,
+  type AdvisorWalkForwardSettings,
+} from "../../analytics/new/parsedStrategyMerge";
 
 export default function BacktestDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -86,14 +93,62 @@ export default function BacktestDetailPage() {
     strategyName: item.strategyName,
   });
 
+  const normalizedBacktestDsl = item.settings ? normalizeLegacyBreakoutStrategy(item.settings as any) : null;
+
+  // BacktestHistory.result는 백엔드 응답을 그대로 저장한 것이라 signals만 있고
+  // BacktestDashboard가 매매 기록 탭에 쓰는 tradesList는 없다(app/analytics/[id]와 달리
+  // 여기서는 별도 매핑을 거치지 않았음). signals에서 재구성해 보완한다.
+  const result = {
+    ...item.result,
+    tradesList: item.result.tradesList?.length
+      ? item.result.tradesList
+      : (item.result.signals ?? []).map((signal: any) => ({
+          date: signal.date,
+          symbol: signal.symbol,
+          type: signal.type as "buy" | "sell",
+          price: signal.price,
+          quantity: signal.quantity ?? 0,
+          amount: signal.amount ?? 0,
+          reason: signal.condition,
+        })),
+  };
+
+  const handleWalkForward = async (settings: AdvisorWalkForwardSettings) => {
+    if (!normalizedBacktestDsl) {
+      throw new Error("이 기록에는 워크포워드 분석에 필요한 전략 설정이 저장되어 있지 않습니다.");
+    }
+
+    const ranges = buildWalkForwardParameterRanges(normalizedBacktestDsl);
+    if (!hasWalkForwardParameterRanges(ranges)) {
+      throw new Error(
+        "워크포워드 최적화에 사용할 숫자 파라미터가 없습니다. 손절/익절, 지표 기간, 임계값처럼 조정 가능한 조건이 포함된 전략에서 실행해 주세요."
+      );
+    }
+
+    const res = await fetch("/api/backtest/walk-forward", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildWalkForwardRequest(normalizedBacktestDsl, settings, ranges)),
+    });
+
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.detail ?? "워크포워드 분석 실패");
+    }
+
+    return res.json();
+  };
+
   return (
     <DashboardLayout userName="">
       <div className="w-full min-w-0">
         <BacktestDashboard
-          result={item.result}
-          onRestart={() => router.push("/analytics/new")}
+          result={result}
+          onRestart={() => router.back()}
           disableHistorySave={true}
           promptText={item.prompt || item.strategyName}
+          backtestDsl={normalizedBacktestDsl ?? undefined}
+          onWalkForward={normalizedBacktestDsl ? handleWalkForward : undefined}
           aiSummary={item.metrics.aiSummary}
           aiScore={item.metrics.aiScore}
           aiStrengths={item.metrics.aiStrengths}

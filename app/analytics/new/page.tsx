@@ -1695,7 +1695,7 @@ function StrategyLabContent() {
             )}
             <BacktestDashboard
               result={result}
-              onRestart={handleReset}
+              onRestart={() => router.back()}
               onRun={handleRunBacktest}
               currentOptions={currentOptions}
               isRunning={isRunning}

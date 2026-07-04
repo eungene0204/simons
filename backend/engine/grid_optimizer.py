@@ -2,6 +2,12 @@ import copy
 import itertools
 from typing import Dict, Any, List
 
+# 그리드 탐색 하나가 매 워크포워드 윈도우마다 반복되므로 조합 폭주를 막기 위한 상한.
+# 프론트엔드 예상 조합 수 안내(estimateGridChoiceCount)와 동일한 취지의 안전장치다.
+MAX_GRID_COMBINATIONS = 500
+MAX_VALUES_PER_PARAMETER = 50
+
+
 def set_nested_value(d: Dict[str, Any], path: str, value: Any):
     """
     Sets a value in a nested dictionary using a dot-separated path.
@@ -37,6 +43,36 @@ def set_nested_value(d: Dict[str, Any], path: str, value: Any):
     else:
         current[final_key] = value
 
+def expand_range_spec(spec: Any) -> List[Any]:
+    """
+    파라미터 하나의 range 스펙을 실제 값 리스트로 변환한다.
+    지원 형식:
+      - 값 리스트 그대로 (categorical)
+      - {"type": "number", "min", "max", "step"} → min..max를 step 간격으로 전개
+    """
+    if isinstance(spec, dict) and spec.get("type") == "number":
+        lo, hi, step = spec["min"], spec["max"], spec.get("step", 1)
+        if not step or step <= 0 or hi < lo:
+            return [lo]
+        is_int_step = isinstance(step, int) and isinstance(lo, int) and isinstance(hi, int)
+        values = []
+        current = lo
+        while current <= hi + (1e-9 if not is_int_step else 0):
+            values.append(int(round(current)) if is_int_step else round(current, 6))
+            if len(values) >= MAX_VALUES_PER_PARAMETER:
+                break
+            current += step
+        return values or [lo]
+    if isinstance(spec, list):
+        return spec
+    return [spec]
+
+
+def normalize_ranges(ranges: Dict[str, Any]) -> Dict[str, List[Any]]:
+    """모든 파라미터의 range 스펙을 값 리스트 형태로 통일한다."""
+    return {path: expand_range_spec(spec) for path, spec in ranges.items()}
+
+
 def generate_permutations(ranges: Dict[str, List[Any]]) -> List[Dict[str, Any]]:
     """
     Given a dict of parameter paths and their possible values,
@@ -44,15 +80,16 @@ def generate_permutations(ranges: Dict[str, List[Any]]) -> List[Dict[str, Any]]:
     """
     if not ranges:
         return [{}]
-        
-    keys = list(ranges.keys())
-    values_lists = [ranges[k] for k in keys]
-    
+
+    normalized = normalize_ranges(ranges)
+    keys = list(normalized.keys())
+    values_lists = [normalized[k] for k in keys]
+
     permutations = []
     for combination in itertools.product(*values_lists):
         perm = dict(zip(keys, combination))
         permutations.append(perm)
-        
+
     return permutations
 
 class StrategyOptimizer:
@@ -68,6 +105,12 @@ class StrategyOptimizer:
         Returns the top results sorted by `target_metric`.
         """
         permutations = generate_permutations(ranges)
+        if len(permutations) > MAX_GRID_COMBINATIONS:
+            return {
+                "status": "error",
+                "message": f"조합 수({len(permutations)}개)가 상한({MAX_GRID_COMBINATIONS}개)을 초과했습니다. 파라미터 범위나 step을 조정해 주세요.",
+            }
+
         results = []
         
         for i, perm in enumerate(permutations):

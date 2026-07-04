@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Literal
 
 class Condition(BaseModel):
     type: str # "indicator" | "flow" | "risk" | "ml" | "filter"
@@ -136,6 +136,7 @@ class WalkForwardRequest(BaseModel):
     anchor: Optional[bool] = False   # False=rolling, True=anchored(expanding)
     target_metric: Optional[str] = "cagr"
     n_trials: Optional[int] = 30
+    method: Optional[Literal["bayesian", "grid"]] = "bayesian"
 
 
 class WalkForwardWindowResult(BaseModel):

@@ -172,6 +172,71 @@ def test_correction_preserves_original_description(monkeypatch, parser, parsed_p
     assert result.max_positions == 7
 
 
+def test_hallucinated_ai_signal_in_correction_is_stripped(monkeypatch, parser):
+    """[회귀] 교정 LLM이 사용자가 언급하지 않은 AI 신호(ai_model)를 끼워 넣으면 떨군다.
+
+    실사례(2026-07-03): KOSDAQ 모멘텀 랭킹 프롬프트에 correctedStrategy가 'AI 매수 예측'
+    진입 신호를 주입 → 스키마 검증만 통과해 그대로 적용 → 꺼둔 AI 백테스트가 실행되며 행.
+    환각 신호만 떨구고 나머지 교정(종목 수 등)은 유지해야 한다.
+    """
+    prompt = (
+        "최근 3개월 동안 꾸준히 오른 종목을 따라가는 전략을 써보고 싶어요. "
+        "KOSDAQ에서 최근 60거래일 수익률이 높은 종목 상위권만 골라서 6종목 정도 나눠 사고, "
+        "한 달에 한 번씩 다시 순위를 확인해 주세요. 손절은 -9%로 해주세요."
+    )
+    parsed = _parse_rule_based_strategy(prompt)
+    assert parsed is not None
+    assert parsed.entry_signals == []
+
+    tampered = parsed.model_dump()
+    tampered["entry_signals"] = [{"indicator": "ai_model", "signal_type": "buy", "threshold": 70}]
+    tampered["max_positions"] = 5  # 환각 신호와 무관한 정상 교정은 유지돼야 한다
+
+    _patch_llm(monkeypatch, json.dumps({
+        "isValid": False,
+        "confidence": 0.8,
+        "correctedStrategy": tampered,
+        "issues": [],
+        "missingFields": [],
+        "clarificationQuestions": [],
+        "userFacingMessage": "교정했습니다.",
+    }))
+
+    result, report = validate_parse(parser, prompt, parsed)
+
+    assert all(s.indicator != "ai_model" for s in result.entry_signals)
+    assert result.max_positions == 5
+    assert all(
+        s["indicator"] != "ai_model" for s in report["correctedStrategy"]["entry_signals"]
+    )
+
+
+def test_ai_signal_in_correction_kept_when_user_mentioned_ai(monkeypatch, parser):
+    """사용자가 원문에서 AI를 직접 언급했다면 교정본의 AI 신호는 환각이 아니므로 유지한다."""
+    prompt = "AI가 상승 예측한 종목 매수, PBR 1 이하 종목 10개 1년 보유"
+    parsed = _parse_rule_based_strategy(prompt)
+    assert parsed is not None
+
+    corrected_dump = parsed.model_dump()
+    corrected_dump["entry_signals"] = [
+        {"indicator": "ai_model", "signal_type": "buy", "threshold": 70}
+    ]
+
+    _patch_llm(monkeypatch, json.dumps({
+        "isValid": False,
+        "confidence": 0.9,
+        "correctedStrategy": corrected_dump,
+        "issues": [],
+        "missingFields": [],
+        "clarificationQuestions": [],
+        "userFacingMessage": "교정했습니다.",
+    }))
+
+    result, _report = validate_parse(parser, prompt, parsed)
+
+    assert any(s.indicator == "ai_model" for s in result.entry_signals)
+
+
 def test_invalid_correction_is_discarded(monkeypatch, parser, parsed_pbr):
     """correctedStrategy가 스키마 위반이면 원본을 유지하고 correctedStrategy를 null로 비운다."""
     _patch_llm(monkeypatch, json.dumps({

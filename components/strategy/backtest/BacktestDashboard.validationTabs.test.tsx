@@ -107,22 +107,20 @@ async function renderDashboard(planId: "FREE" | "PREMIUM", props: Record<string,
   return view;
 }
 
-describe("BacktestDashboard premium validation tabs", () => {
+describe("BacktestDashboard 전략 최적화 페이지", () => {
   beforeEach(() => {
     cleanup();
   });
 
-  it("FREE 플랜에서는 몬테카를로 탭에 프리미엄 잠금 안내를 표시한다", async () => {
+  it("FREE 플랜에서는 몬테카를로 모델에 프리미엄 잠금 안내를 표시한다", async () => {
     await renderDashboard("FREE");
     const user = userEvent.setup();
 
-    expect(screen.getByLabelText("워크포워드 탭 도움말")).toBeInTheDocument();
-    expect(screen.getByText(/2020-2021년 데이터로 파라미터를 맞춘 뒤/)).toBeInTheDocument();
-    expect(screen.getByLabelText("몬테카를로 탭 도움말")).toBeInTheDocument();
-    expect(screen.getByText(/일별 수익률 블록을 1,000번 재배열/)).toBeInTheDocument();
     expect(screen.getByTestId("backtest-tab-content")).not.toHaveClass("flex-1");
-    expect(screen.getByTestId("backtest-dashboard-footer")).toHaveClass("px-0", "py-3");
-    expect(screen.getByTestId("backtest-dashboard-footer")).not.toHaveClass("mt-auto");
+    expect(screen.getByTestId("backtest-dashboard-footer")).toHaveClass("px-0", "py-3", "mt-auto");
+
+    await user.click(screen.getByRole("button", { name: "전략 최적화" }));
+    expect(await screen.findByTestId("backtest-optimization-page")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "몬테카를로" }));
 
@@ -130,7 +128,7 @@ describe("BacktestDashboard premium validation tabs", () => {
     expect(screen.getByRole("link", { name: "요금제 보기" })).toHaveAttribute("href", "/pricing");
   });
 
-  it("PREMIUM 플랜에서는 워크포워드 CTA와 몬테카를로 결과를 노출한다", async () => {
+  it("PREMIUM 플랜에서는 전략 최적화 페이지에서 워크포워드 CTA와 몬테카를로 결과를 노출한다", async () => {
     await renderDashboard("PREMIUM", {
       onWalkForward: vi.fn(),
       strategySummary: {
@@ -145,7 +143,10 @@ describe("BacktestDashboard premium validation tabs", () => {
     });
     const user = userEvent.setup();
 
-    await user.click(screen.getByRole("button", { name: "워크포워드" }));
+    await user.click(screen.getByRole("button", { name: "전략 최적화" }));
+    expect(await screen.findByTestId("backtest-optimization-page")).toBeInTheDocument();
+
+    // 기본 선택은 워크포워드
     expect(await screen.findByRole("button", { name: "워크포워드 분석 시작" })).toBeInTheDocument();
     expect(screen.getByTestId("backtest-walk-forward-section")).not.toHaveClass("py-4");
     expect(screen.getByTestId("backtest-walk-forward-section")).not.toHaveClass("flex-1");
@@ -166,5 +167,17 @@ describe("BacktestDashboard premium validation tabs", () => {
       expect(screen.getByText("양수 CAGR 확률")).toBeInTheDocument();
       expect(screen.getByText(/최대낙폭이 30%를 초과할 확률은/)).toBeInTheDocument();
     });
+  });
+
+  it("일반 탭을 클릭하면 전략 최적화 페이지를 닫는다", async () => {
+    await renderDashboard("PREMIUM");
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "전략 최적화" }));
+    expect(await screen.findByTestId("backtest-optimization-page")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "종목 분석" }));
+    expect(screen.queryByTestId("backtest-optimization-page")).not.toBeInTheDocument();
+    expect(screen.getByTestId("backtest-tab-content")).toBeInTheDocument();
   });
 });

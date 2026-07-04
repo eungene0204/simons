@@ -317,18 +317,19 @@ describe("TopNavigation quick search", () => {
     expect(pushMock).not.toHaveBeenCalledWith("/analytics?virtualAccount=open");
   });
 
-  it("백테스트 결과 화면에서 전략연구소 메뉴를 누르면 이전 채팅 스냅샷을 지우고 새 랜딩으로 이동한다", async () => {
+  it("백테스트 결과 화면에서 전략연구소 메뉴를 눌러도 이전 채팅 스냅샷을 유지한 채 이동한다", async () => {
     pathnameMock.current = "/analytics/new";
-    sessionStorage.setItem(
-      "simons.strategyChatState",
-      JSON.stringify({ messages: [{ role: "user", content: "PBR 1 이하" }], stage: "done" })
-    );
+    const snapshot = JSON.stringify({
+      messages: [{ role: "user", content: "PBR 1 이하" }],
+      stage: "done",
+    });
+    sessionStorage.setItem("simons.strategyChatState", snapshot);
 
     renderWithQueryClient(<TopNavigation />);
 
     fireEvent.click(await screen.findByRole("link", { name: /전략연구소/i }));
 
-    expect(sessionStorage.getItem("simons.strategyChatState")).toBeNull();
+    expect(sessionStorage.getItem("simons.strategyChatState")).toBe(snapshot);
     expect(pushMock).toHaveBeenCalledWith("/analytics");
   });
 

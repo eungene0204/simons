@@ -97,6 +97,48 @@ describe("POST /api/backtest/history (legacy, 비인증)", () => {
     expect(userLinkUpsert).not.toHaveBeenCalled();
   });
 
+  it("자동 저장이 해시 자리표시자 이름(전략 xxxxxxxx)을 실제 이름/프롬프트로 덮어써야 함", async () => {
+    const result = { executionId: "exec-hash", equity: [1, 2], dates: ["2025-01-01"] };
+
+    mockFindUnique.mockResolvedValue({
+      id: "hist-hash",
+      cacheKey: "cache-hash",
+      // saveCachedResult가 백테스트 실행 시점에 붙인 해시 자리표시자 이름
+      strategyName: "전략 50e25330",
+      universe: "KOSPI",
+      conditions: "{}",
+      metrics: "{}",
+      result: null,
+      createdAt: new Date("2026-04-06T00:00:00Z"),
+    });
+
+    mockUpdate.mockResolvedValue({
+      id: "hist-hash",
+      strategyName: "PBR 3배 이상인 종목 매수",
+      universe: "KOSPI",
+      conditions: "{}",
+      metrics: "{}",
+      result: JSON.stringify(result),
+      createdAt: new Date("2026-04-06T00:00:00Z"),
+    });
+
+    const response = await POST(
+      makeRequest({
+        strategyName: "PBR 3배 이상인 종목 매수",
+        universe: "KOSPI",
+        conditions: {},
+        metrics: {},
+        cacheKey: "cache-hash",
+        isAutoSave: true,
+        result,
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockUpdate).toHaveBeenCalledOnce();
+    expect(mockUpdate.mock.calls[0][0].data.strategyName).toBe("PBR 3배 이상인 종목 매수");
+  });
+
   it("cacheKey가 없는 자동 저장은 새 레코드에 상세 result를 그대로 저장해야 함", async () => {
     const result = { executionId: "exec-2", equity: [1, 2], dates: ["2025-01-01"] };
 

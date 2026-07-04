@@ -106,6 +106,9 @@ Rules for correctedStrategy:
 - Keep `description` exactly as the parser had it.
 - If the parse is already faithful, set correctedStrategy to null.
 - Never add conditions the user did not state. Never tune values for performance.
+- Never add entry_signals or exit_signals the user did not explicitly mention. In particular,
+  never introduce ai_model / ai_drop_model unless the user's text literally mentions
+  "AI" or "인공지능". A ranking strategy (ranking_metric) needs no entry signal.
 
 Return ONLY valid JSON, no prose, following this exact schema:
 {
@@ -156,7 +159,7 @@ def validate_parse(parser, user_input: str, parsed):
         logger.warning("parse validation skipped | input=%r err=%r", user_input[:80], exc)
         return parsed, _skipped_report()
 
-    corrected = _maybe_apply_correction(parser, parsed, report, ParsedStrategy)
+    corrected = _maybe_apply_correction(parser, parsed, report, ParsedStrategy, user_input)
     logger.info(
         "parse validation | isValid=%s confidence=%.2f corrected=%s issues=%d | input=%r",
         report.isValid, report.confidence, corrected is not parsed, len(report.issues), user_input[:80],
@@ -164,11 +167,17 @@ def validate_parse(parser, user_input: str, parsed):
     return corrected, report.model_dump()
 
 
-def _maybe_apply_correction(parser, parsed, report: ParseValidationReport, parsed_strategy_cls):
+def _maybe_apply_correction(parser, parsed, report: ParseValidationReport, parsed_strategy_cls, user_input: str):
     """correctedStrategy가 스키마로 검증되면 자동 적용한다(원문 description 보존).
 
     검증 실패 시 원본을 유지하고 리포트의 correctedStrategy를 null로 비워 프론트가 잘못된
     교정본을 표시하지 않게 한다.
+
+    스키마 검증만으로는 환각을 못 막는다 — 교정 LLM이 사용자가 언급하지 않은 신호
+    (예: ai_model 'AI 매수 예측')를 스키마에 맞게 끼워 넣으면 그대로 통과한다. 그래서
+    LLM 파싱 본경로와 동일한 기준(_validate_signals: 이름 고정 지표는 원문에 그 키워드가
+    있어야 인정)으로 교정본의 진입/청산 신호를 재검증해, 환각 신호만 떨구고 나머지 교정은
+    유지한다.
     """
     candidate_dump = report.correctedStrategy
     if not isinstance(candidate_dump, dict) or not candidate_dump:
@@ -181,6 +190,20 @@ def _maybe_apply_correction(parser, parsed, report: ParseValidationReport, parse
         return parsed
     # 원문 설명은 사용자 입력이므로 LLM이 바꿔도 무시하고 보존한다.
     candidate.description = parsed.description
+    from engine.nl_parser import _validate_signals
+
+    validated_entry = _validate_signals(list(candidate.entry_signals), user_input)
+    validated_exit = _validate_signals(list(candidate.exit_signals), user_input)
+    dropped = (len(candidate.entry_signals) - len(validated_entry)) + (
+        len(candidate.exit_signals) - len(validated_exit)
+    )
+    if dropped:
+        logger.warning(
+            "correctedStrategy hallucinated %d signal(s), stripped | input=%r",
+            dropped, user_input[:80],
+        )
+        candidate.entry_signals = validated_entry
+        candidate.exit_signals = validated_exit
     report.correctedStrategy = candidate.model_dump()
     return candidate
 

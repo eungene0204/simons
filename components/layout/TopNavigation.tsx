@@ -392,11 +392,9 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
       return;
     }
 
-    // 전략연구소 메뉴는 항상 새 랜딩에서 시작한다 — 백테스트 결과 등 이전 채팅 스냅샷이
-    // 복원되어 보여지지 않도록 진입 전에 지운다.
-    if (item.id === "analytics") {
-      sessionStorage.removeItem(STRATEGY_CHAT_STATE_KEY);
-    }
+    // 전략연구소 메뉴 재진입 시에는 이전 백테스트 결과·대화를 유지한다(복원은
+    // page.tsx의 세션 스냅샷 복원 로직이 담당). 새로 시작하려면 결과 화면의
+    // 닫기 배지(전략연구소 초기 화면으로 이동)를 사용한다.
 
     e.preventDefault();
     router.push(item.href);

@@ -4,6 +4,7 @@ import {
   getOwnershipContext,
   isUnauthorizedAccessError,
 } from "@/lib/get-user";
+import { isPlaceholderStrategyName } from "@/lib/server/backtestCache";
 
 function formatItem(item: any) {
   return {
@@ -74,8 +75,13 @@ export async function POST(request: Request) {
         saved = await prisma.backtestHistory.update({
           where: { cacheKey },
           data: {
-            // 자동 저장 시 기존에 사용자가 지정한 이름이 있으면 유지
-            strategyName: isAutoSave && existing.strategyName ? existing.strategyName : strategyName,
+            // 자동 저장 시 기존에 사용자가 지정한 이름이 있으면 유지한다.
+            // 단, saveCachedResult가 붙인 해시 자리표시자("전략 xxxxxxxx")는 진짜 이름이
+            // 아니므로 유지 대상에서 제외하고 새로 계산된 이름(저장명 또는 프롬프트)으로 덮어쓴다.
+            strategyName:
+              isAutoSave && existing.strategyName && !isPlaceholderStrategyName(existing.strategyName)
+                ? existing.strategyName
+                : strategyName,
             // 프롬프트 스냅샷은 비어 있을 때만 보완(기존 값 보존)
             prompt: existing.prompt ?? (prompt || null),
             universe,

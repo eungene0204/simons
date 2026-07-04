@@ -26,6 +26,7 @@ export interface AdvisorWalkForwardSettings {
   anchor: boolean;
   target_metric: string;
   n_trials: number;
+  method?: "bayesian" | "grid";
   parameter_steps?: Record<string, number>;
   parameter_ranges?: Record<string, WalkForwardParameterRangeOverride>;
 }
@@ -421,6 +422,7 @@ export function buildWalkForwardRequest(
     anchor: settings.anchor,
     target_metric: settings.target_metric,
     n_trials: settings.n_trials,
+    method: settings.method ?? "bayesian",
   };
 }
 

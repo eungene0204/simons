@@ -15,6 +15,7 @@ import {
   CaretDown,
   X,
   FloppyDisk,
+  SignOut,
   Spinner,
 } from "phosphor-react";
 
@@ -22,8 +23,8 @@ import {
 import { useState, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import XAIModal from "./XAIModal";
-import { WalkForwardPanel, WalkForwardSettings, type WalkForwardOptimizationTarget } from "./WalkForwardModal";
-import OptimizationSettingsModal from "./OptimizationSettingsModal";
+import { WalkForwardSettings, type WalkForwardOptimizationTarget } from "./WalkForwardModal";
+import OptimizationPage from "./OptimizationPage";
 import BacktestSummaryCard from "./BacktestSummaryCard";
 import { buildAutoSaveHistoryPayload } from "@/lib/backtest-history";
 import { resolveUniverseDisplayName } from "@/lib/strategy-summary";
@@ -138,7 +139,7 @@ function buildWalkForwardOptimizationTargetsFromSummary(
   return targets;
 }
 
-type ValidationTab = "chart" | "log" | "assets" | "report" | "walkForward" | "monteCarlo";
+type ValidationTab = "chart" | "log" | "assets" | "report";
 
 const VALIDATION_TABS: Array<{
   id: ValidationTab;
@@ -153,24 +154,6 @@ const VALIDATION_TABS: Array<{
   { id: "assets", label: "종목 분석" },
   { id: "log", label: "매매 기록" },
   { id: "report", label: "AI 리포트" },
-  {
-    id: "walkForward",
-    label: "워크포워드",
-    help: {
-      title: "워크포워드 검증",
-      body: "백테스트 기간을 여러 학습(IS) 구간과 검증(OOS) 구간으로 나눠, 파라미터가 다른 기간에서도 비슷하게 동작했는지 확인합니다.",
-      example: "예: 2020-2021년 데이터로 파라미터를 맞춘 뒤 2022년 구간에서 검증하고, 다음 창도 같은 방식으로 이동해 구간별 OOS 결과를 비교합니다.",
-    },
-  },
-  {
-    id: "monteCarlo",
-    label: "몬테카를로",
-    help: {
-      title: "몬테카를로 시뮬레이션",
-      body: "기존 수익률 구간을 여러 방식으로 재조합해 가능한 성과 분포와 낙폭 범위를 추정하는 검증 도구입니다.",
-      example: "예: 일별 수익률 블록을 1,000번 재배열해 CAGR 중앙값, 5% 하위 시나리오, MDD가 30%를 넘는 비율을 계산합니다.",
-    },
-  },
 ];
 
 function ValidationTabHelp({ label, title, body, example }: {
@@ -204,156 +187,6 @@ function ValidationTabHelp({ label, title, body, example }: {
       </span>
     </span>
   );
-}
-
-interface MonteCarloSettings {
-  iterations: number;
-  blockSize: number;
-  seed: number;
-}
-
-interface MonteCarloSummary {
-  median: number;
-  mean: number;
-  p05: number;
-  p25: number;
-  p75: number;
-  p95: number;
-  std: number;
-}
-
-interface MonteCarloResult {
-  status: "ok";
-  nIterations: number;
-  blockSize: number;
-  cagr: MonteCarloSummary;
-  sharpe: MonteCarloSummary;
-  mdd: MonteCarloSummary;
-  probPositiveCagr: number;
-  probMddOver30pct: number;
-}
-
-function percentile(sortedValues: number[], q: number): number {
-  if (sortedValues.length === 0) return 0;
-  const index = (sortedValues.length - 1) * q;
-  const lower = Math.floor(index);
-  const upper = Math.ceil(index);
-  if (lower === upper) return sortedValues[lower];
-  const weight = index - lower;
-  return sortedValues[lower] * (1 - weight) + sortedValues[upper] * weight;
-}
-
-function summarizeMonteCarlo(values: number[]): MonteCarloSummary {
-  const sorted = [...values].sort((a, b) => a - b);
-  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
-  const variance =
-    values.length > 1
-      ? values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / (values.length - 1)
-      : 0;
-
-  return {
-    median: percentile(sorted, 0.5),
-    mean,
-    p05: percentile(sorted, 0.05),
-    p25: percentile(sorted, 0.25),
-    p75: percentile(sorted, 0.75),
-    p95: percentile(sorted, 0.95),
-    std: Math.sqrt(Math.max(variance, 0)),
-  };
-}
-
-function createSeededRng(seed: number) {
-  let state = seed >>> 0;
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0;
-    let t = Math.imul(state ^ (state >>> 15), 1 | state);
-    t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function runMonteCarloSimulation(
-  backtestResult: BacktestResult,
-  settings: MonteCarloSettings
-): { status: "error"; message: string } | MonteCarloResult {
-  const blockSize = Math.max(2, Math.floor(settings.blockSize));
-  const equity = (backtestResult.equity ?? []).filter((value) => Number.isFinite(value) && value > 0);
-  if (equity.length < blockSize * 3) {
-    return {
-      status: "error",
-      message: `몬테카를로 시뮬레이션에는 최소 ${blockSize * 3}개의 유효 equity 포인트가 필요합니다.`,
-    };
-  }
-
-  const logReturns: number[] = [];
-  for (let i = 1; i < equity.length; i += 1) {
-    logReturns.push(Math.log(equity[i] / equity[i - 1]));
-  }
-
-  if (logReturns.length < blockSize * 3) {
-    return {
-      status: "error",
-      message: "유효한 수익률 구간이 부족해 몬테카를로 시뮬레이션을 실행할 수 없습니다.",
-    };
-  }
-
-  const iterations = Math.max(100, Math.floor(settings.iterations));
-  const years = Math.max(1e-6, logReturns.length / 252);
-  const initialEquity = backtestResult.initialCapital || equity[0];
-  const nBlocks = Math.ceil(logReturns.length / blockSize);
-  const maxStart = logReturns.length - blockSize + 1;
-  const rng = createSeededRng(settings.seed);
-  const cagrs: number[] = [];
-  const sharpes: number[] = [];
-  const mdds: number[] = [];
-
-  for (let iteration = 0; iteration < iterations; iteration += 1) {
-    const sampled: number[] = [];
-    for (let block = 0; block < nBlocks; block += 1) {
-      const start = Math.floor(rng() * maxStart);
-      for (let offset = 0; offset < blockSize && sampled.length < logReturns.length; offset += 1) {
-        sampled.push(logReturns[start + offset]);
-      }
-    }
-
-    let currentEquity = initialEquity;
-    let peakEquity = initialEquity;
-    let worstDrawdown = 0;
-    for (const value of sampled) {
-      currentEquity *= Math.exp(value);
-      if (currentEquity > peakEquity) peakEquity = currentEquity;
-      const drawdown = (currentEquity - peakEquity) / peakEquity;
-      if (drawdown < worstDrawdown) worstDrawdown = drawdown;
-    }
-
-    const avgReturn = sampled.reduce((sum, value) => sum + value, 0) / sampled.length;
-    const std =
-      sampled.length > 1
-        ? Math.sqrt(
-            sampled.reduce((sum, value) => sum + (value - avgReturn) ** 2, 0) /
-              (sampled.length - 1)
-          )
-        : 0;
-
-    cagrs.push(currentEquity > 0 ? (currentEquity / initialEquity) ** (1 / years) - 1 : -1);
-    sharpes.push(std > 1e-12 ? (avgReturn / std) * Math.sqrt(252) : 0);
-    mdds.push(Math.abs(worstDrawdown));
-  }
-
-  return {
-    status: "ok",
-    nIterations: iterations,
-    blockSize,
-    cagr: summarizeMonteCarlo(cagrs),
-    sharpe: summarizeMonteCarlo(sharpes),
-    mdd: summarizeMonteCarlo(mdds),
-    probPositiveCagr: cagrs.filter((value) => value > 0).length / cagrs.length,
-    probMddOver30pct: mdds.filter((value) => value > 0.3).length / mdds.length,
-  };
-}
-
-function formatRatioAsPercent(value: number, digits = 2): string {
-  return `${(value * 100).toFixed(digits)}%`;
 }
 
 interface AiReportData {
@@ -442,6 +275,7 @@ function benchmarkLabelForResult(result: BacktestResult): string {
 
 export default function BacktestDashboard({
   result,
+  onRestart,
   onRun,
   onSave,
   onWalkForward,
@@ -461,20 +295,17 @@ export default function BacktestDashboard({
   promptText,
   parsedStrategy,
 }: BacktestDashboardProps) {
+  // 백엔드 엔진 응답에는 finalEquity/initialCapital이 비어 있고 totalProfit/equity[]로만
+  // 자산 규모가 전달되는 경우가 있다(저장된 기록 재조회 시 특히). equity 배열의 양끝값으로 보완한다.
+  const resolvedInitialCapital = result.initialCapital || result.equity?.[0] || 0;
+  const resolvedFinalEquity = result.finalEquity || result.equity?.[result.equity.length - 1] || 0;
+
   const [activeTab, setActiveTab] = useState<ValidationTab>("chart");
-  const [isOptimizationSettingsOpen, setIsOptimizationSettingsOpen] = useState(false);
+  const [isOptimizationPageOpen, setIsOptimizationPageOpen] = useState(false);
   const [promptTooltipOpen, setPromptTooltipOpen] = useState(false);
   const promptTooltipRef = useRef<HTMLDivElement>(null);
   const [planId, setPlanId] = useState<string>("FREE");
   const [isPlanLoading, setIsPlanLoading] = useState(true);
-  const [monteCarloSettings, setMonteCarloSettings] = useState<MonteCarloSettings>({
-    iterations: 1000,
-    blockSize: 21,
-    seed: 42,
-  });
-  const [monteCarloResult, setMonteCarloResult] = useState<MonteCarloResult | null>(null);
-  const [monteCarloError, setMonteCarloError] = useState<string | null>(null);
-  const [isMonteCarloRunning, setIsMonteCarloRunning] = useState(false);
 
   const [localOptions, setLocalOptions] = useState<BacktestConfigOptions | null>(currentOptions || null);
   const [stockMetadata, setStockMetadata] = useState<Record<string, { name: string, sector: string }>>({});
@@ -604,8 +435,8 @@ export default function BacktestDashboard({
             trades: result.trades,
             volatility: result.volatility,
             kelly: result.kelly,
-            initialCapital: result.initialCapital,
-            finalEquity: result.finalEquity,
+            initialCapital: resolvedInitialCapital,
+            finalEquity: resolvedFinalEquity,
           },
           strategySummary,
           parsedStrategy,
@@ -690,11 +521,6 @@ export default function BacktestDashboard({
     fetchStockMetadata();
   }, []);
 
-  useEffect(() => {
-    setMonteCarloResult(null);
-    setMonteCarloError(null);
-  }, [result.executionId]);
-  
   const formatKRW = (val: number) => {
     const num = Number(val);
     if (isNaN(num) || num === 0) return "0원";
@@ -723,7 +549,7 @@ export default function BacktestDashboard({
       return ya !== yb ? ya - yb : ma - mb;
     });
 
-    let prevEquity = result.initialCapital;
+    let prevEquity = resolvedInitialCapital;
     
     keys.forEach(key => {
       const [year, month] = key.split("-");
@@ -795,23 +621,6 @@ export default function BacktestDashboard({
   }, [currentOptions]);
 
   const isPremiumValidationEnabled = planId === "PREMIUM";
-
-  const handleRunMonteCarlo = async () => {
-    setIsMonteCarloRunning(true);
-    setMonteCarloError(null);
-    setMonteCarloResult(null);
-    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
-
-    const simulation = runMonteCarloSimulation(result, monteCarloSettings);
-    if (simulation.status === "error") {
-      setMonteCarloError(simulation.message);
-    } else {
-      setMonteCarloResult(simulation);
-    }
-
-    setIsMonteCarloRunning(false);
-  };
-
 
   const handleOpenSaveModal = () => {
     setSaveStrategyName("");
@@ -929,7 +738,7 @@ export default function BacktestDashboard({
   const dateRangeLabel = result.dates[0] && result.dates[result.dates.length - 1]
     ? `${result.dates[0]} → ${result.dates[result.dates.length - 1]}`
     : "";
-  const totalProfit = (result.finalEquity || 0) - (result.initialCapital || 0);
+  const totalProfit = result.totalProfit ?? (resolvedFinalEquity - resolvedInitialCapital);
   const benchmarkLabel = benchmarkLabelForResult(result);
   const modalPromptPreview = saveDescription.trim() || promptText?.trim() || "";
   const modalUniverseLabel = strategySummary
@@ -1227,7 +1036,7 @@ export default function BacktestDashboard({
         <h2 className="text-3xl font-black text-white tracking-tight">
           백테스트 결과
         </h2>
-        <div className="flex items-center gap-3 mb-2">
+        <div className="mb-2 flex flex-wrap items-center gap-2">
           <span className="text-sm font-mono text-gray-500 font-normal">
             {result.dates[0] && result.dates[result.dates.length-1] && `${result.dates[0]} ~ ${result.dates[result.dates.length-1]}`}
           </span>
@@ -1239,12 +1048,12 @@ export default function BacktestDashboard({
               <div
                 key={tab.id}
                 className={`relative flex min-h-[34px] items-center overflow-visible rounded-[8px] transition-colors ${
-                  activeTab === tab.id 
+                  !isOptimizationPageOpen && activeTab === tab.id
                     ? "text-white"
                     : "text-[#6f7481] hover:text-[#a7adba]"
                 }`}
               >
-                {activeTab === tab.id && (
+                {!isOptimizationPageOpen && activeTab === tab.id && (
                   <motion.div
                     layoutId="active-tab-backtest"
                     className="absolute inset-0 rounded-[8px] bg-[#232323] z-0"
@@ -1253,7 +1062,10 @@ export default function BacktestDashboard({
                 )}
                 <button
                   type="button"
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => {
+                    setActiveTab(tab.id);
+                    setIsOptimizationPageOpen(false);
+                  }}
                   className="relative z-10 min-h-[34px] px-3.5 text-sm font-black tracking-tight md:px-4"
                 >
                   {tab.label}
@@ -1269,12 +1081,16 @@ export default function BacktestDashboard({
               </div>
             ))}
           </div>
-          
+
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setIsOptimizationSettingsOpen(true)}
-              className="px-4 py-1.5 bg-white/[0.05] hover:bg-white/10 text-gray-300 hover:text-white text-sm font-bold rounded-lg transition-all border border-white/5 hover:border-white/10 flex items-center gap-2 active:scale-95"
+              onClick={() => setIsOptimizationPageOpen((open) => !open)}
+              className={`px-4 py-1.5 text-sm font-bold rounded-lg transition-all border flex items-center gap-2 active:scale-95 ${
+                isOptimizationPageOpen
+                  ? "bg-white/10 text-white border-white/20"
+                  : "bg-white/[0.05] hover:bg-white/10 text-gray-300 hover:text-white border-white/5 hover:border-white/10"
+              }`}
             >
               <ArrowsClockwise className="w-4 h-4" />
               전략 최적화
@@ -1368,22 +1184,33 @@ export default function BacktestDashboard({
               <FloppyDisk className="w-4 h-4" />
               전략 저장
             </button>
+            <button
+              type="button"
+              onClick={onRestart}
+              title="백테스트 결과 닫기"
+              className="px-4 py-1.5 bg-white/[0.05] hover:bg-white/10 text-gray-300 hover:text-white text-sm font-bold rounded-lg transition-all border border-white/5 hover:border-white/10 flex items-center gap-2 active:scale-95"
+            >
+              <SignOut className="w-4 h-4" />
+              결과 닫기
+            </button>
           </div>
         </div>
       </div>
 
-      <OptimizationSettingsModal
-        open={isOptimizationSettingsOpen}
-        onOpenChange={setIsOptimizationSettingsOpen}
-      />
-
-
       {/* 2. Main Content Area */}
       <div className="flex flex-col min-w-0">
-
-        {/* Tab Content */}
+        {isOptimizationPageOpen ? (
+          <OptimizationPage
+            result={result}
+            onWalkForward={onWalkForward}
+            walkForwardOptimizationTargets={walkForwardOptimizationTargets}
+            baseStrategy={backtestDsl}
+            isPlanLoading={isPlanLoading}
+            isPremiumValidationEnabled={isPremiumValidationEnabled}
+          />
+        ) : (
         <div data-testid="backtest-tab-content" className="flex flex-col min-w-0">
-           
+
            {/* Chart View */}
             {activeTab === "chart" && (
               <>
@@ -1596,8 +1423,8 @@ export default function BacktestDashboard({
                 <div className="border-t border-white/[0.08]">
                   {([
                     [
-                      { label: "초기 자본", value: formatKRW(result.initialCapital), sub: "원", desc: null },
-                      { label: "최종 자산", value: formatKRW(result.finalEquity), sub: "원", desc: null },
+                      { label: "초기 자본", value: formatKRW(resolvedInitialCapital), sub: "원", desc: null },
+                      { label: "최종 자산", value: formatKRW(resolvedFinalEquity), sub: "원", desc: null },
                       { label: "칼마 비율", value: (result.calmar ?? (result.maxDrawdown !== 0 ? result.cagr / Math.abs(result.maxDrawdown) : 0)).toFixed(2), sub: null, desc: BASE_METRIC_DESCRIPTIONS.calmar },
                       { label: "평균 보유일", value: `${Math.round(result.avgHoldingDays ?? 0)}일`, sub: null, desc: BASE_METRIC_DESCRIPTIONS.avgHoldingDays },
                     ],
@@ -1702,196 +1529,6 @@ export default function BacktestDashboard({
                    }
                  }}
                />
-             </div>
-           )}
-
-           {activeTab === "walkForward" && (
-             <div data-testid="backtest-walk-forward-section" className="flex flex-col">
-               <WalkForwardPanel
-                 onRun={onWalkForward}
-                 backtestDates={result.dates}
-                 optimizationTargets={walkForwardOptimizationTargets}
-                 baseStrategy={backtestDsl}
-                 canRun={!isPlanLoading && isPremiumValidationEnabled && !!onWalkForward}
-                 disabledReason={
-                   isPlanLoading
-                     ? "플랜 권한을 확인하는 중입니다."
-                     : !isPremiumValidationEnabled
-                       ? "워크포워드 분석은 PREMIUM 플랜에서만 실행할 수 있습니다."
-                       : "이 결과 화면에서는 워크포워드 실행을 지원하지 않습니다."
-                 }
-               />
-             </div>
-           )}
-
-           {activeTab === "monteCarlo" && (
-             <div className="flex flex-1 flex-col py-4">
-               <div className="rounded-2xl border border-white/[0.08] bg-[#0f0f10] p-5 md:p-6">
-                 <div className="space-y-2">
-                   <div className="inline-flex items-center gap-2 rounded-full border border-sky-500/20 bg-sky-500/10 px-3 py-1 text-[11px] font-black uppercase tracking-[0.22em] text-sky-300">
-                     <ArrowsClockwise className="h-4 w-4" />
-                     Premium Validation
-                   </div>
-                   <h3 className="text-xl font-black text-white">몬테카를로 시뮬레이션</h3>
-                   <p className="max-w-2xl text-sm font-bold leading-6 text-gray-300">
-                     현재 equity curve의 일별 수익률을 블록 단위로 재표본해 성과 분포를 확인합니다.
-                     결과는 과거 데이터 기반 시뮬레이션이며 미래 성과를 보장하지 않습니다.
-                   </p>
-                 </div>
-
-                 {isPlanLoading && (
-                   <div className="mt-5 rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm font-bold text-gray-300">
-                     플랜 권한을 확인하는 중입니다.
-                   </div>
-                 )}
-
-                 {!isPlanLoading && !isPremiumValidationEnabled && (
-                   <div className="mt-5 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">
-                     <p className="text-sm font-black text-amber-300">프리미엄 전용 검증 기능입니다.</p>
-                     <p className="mt-1 text-sm font-bold leading-6 text-amber-100/90">
-                       몬테카를로 시뮬레이션은 PREMIUM 플랜에서만 실행할 수 있습니다.
-                     </p>
-                     <a
-                       href="/pricing"
-                       className="mt-3 inline-flex items-center rounded-lg border border-amber-300/30 px-3 py-2 text-xs font-black text-amber-100 transition-colors hover:bg-amber-300/10"
-                     >
-                       요금제 보기
-                     </a>
-                   </div>
-                 )}
-
-                 {!isPlanLoading && isPremiumValidationEnabled && (
-                   <>
-                     <div className="mt-5 grid gap-4 lg:grid-cols-[1.1fr,0.9fr]">
-                       <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                         <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">반복 횟수</p>
-                         <div className="mt-3 flex flex-wrap gap-2">
-                           {[500, 1000, 2000].map((value) => (
-                             <button
-                               key={value}
-                               onClick={() => setMonteCarloSettings((prev) => ({ ...prev, iterations: value }))}
-                               className={`rounded-lg border px-3 py-1.5 text-sm font-black transition-colors ${
-                                 monteCarloSettings.iterations === value
-                                   ? "border-white/20 bg-white/10 text-white"
-                                   : "border-white/10 bg-white/[0.03] text-gray-400 hover:text-white"
-                               }`}
-                             >
-                               {value.toLocaleString()}
-                             </button>
-                           ))}
-                         </div>
-                       </div>
-
-                       <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                         <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">블록 크기</p>
-                         <div className="mt-3 flex flex-wrap gap-2">
-                           {[
-                             { value: 5, label: "5일" },
-                             { value: 10, label: "10일" },
-                             { value: 21, label: "21일" },
-                           ].map(({ value, label }) => (
-                             <button
-                               key={value}
-                               onClick={() => setMonteCarloSettings((prev) => ({ ...prev, blockSize: value }))}
-                               className={`rounded-lg border px-3 py-1.5 text-sm font-black transition-colors ${
-                                 monteCarloSettings.blockSize === value
-                                   ? "border-white/20 bg-white/10 text-white"
-                                   : "border-white/10 bg-white/[0.03] text-gray-400 hover:text-white"
-                               }`}
-                             >
-                               {label}
-                             </button>
-                           ))}
-                         </div>
-                       </div>
-                     </div>
-
-                     <div className="mt-5 flex flex-wrap items-center gap-3">
-                       <button
-                         onClick={() => void handleRunMonteCarlo()}
-                         disabled={isMonteCarloRunning}
-                         className="inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--main-blue)] px-4 py-2.5 text-sm font-black text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                       >
-                         {isMonteCarloRunning ? <Spinner className="h-4 w-4 animate-spin" /> : <ArrowsClockwise className="h-4 w-4" />}
-                         몬테카를로 실행
-                       </button>
-                       <p className="text-xs font-bold text-gray-500">
-                         seed {monteCarloSettings.seed} 고정, block bootstrap 방식
-                       </p>
-                     </div>
-
-                     {monteCarloError && (
-                       <div className="mt-5 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-200">
-                         {monteCarloError}
-                       </div>
-                     )}
-
-                     {monteCarloResult && (
-                       <>
-                         <div className="mt-5 grid gap-3 md:grid-cols-4">
-                           <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                             <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">중앙 CAGR</p>
-                             <p className="mt-2 text-2xl font-black text-white">{formatRatioAsPercent(monteCarloResult.cagr.median)}</p>
-                           </div>
-                           <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                             <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">5% CAGR</p>
-                             <p className="mt-2 text-2xl font-black text-white">{formatRatioAsPercent(monteCarloResult.cagr.p05)}</p>
-                           </div>
-                           <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                             <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">95% MDD</p>
-                             <p className="mt-2 text-2xl font-black text-white">{formatRatioAsPercent(monteCarloResult.mdd.p95)}</p>
-                           </div>
-                           <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                             <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">양수 CAGR 확률</p>
-                             <p className="mt-2 text-2xl font-black text-white">{formatRatioAsPercent(monteCarloResult.probPositiveCagr)}</p>
-                           </div>
-                         </div>
-
-                         <div className="mt-5 overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.03]">
-                           <table className="w-full text-left">
-                             <thead className="bg-white/[0.04]">
-                               <tr>
-                                 <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">지표</th>
-                                 <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">중앙값</th>
-                                 <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">5%</th>
-                                 <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">95%</th>
-                                 <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">표준편차</th>
-                               </tr>
-                             </thead>
-                             <tbody>
-                               {[
-                                 ["CAGR", monteCarloResult.cagr, true] as const,
-                                 ["Sharpe", monteCarloResult.sharpe, false] as const,
-                                 ["MDD", monteCarloResult.mdd, true] as const,
-                               ].map(([label, summary, isPercent]) => (
-                                 <tr key={String(label)} className="border-t border-white/[0.06]">
-                                   <td className="px-4 py-3 text-sm font-black text-white">{label}</td>
-                                   <td className="px-4 py-3 text-sm font-bold text-gray-300">
-                                     {isPercent ? formatRatioAsPercent((summary as MonteCarloSummary).median) : (summary as MonteCarloSummary).median.toFixed(2)}
-                                   </td>
-                                   <td className="px-4 py-3 text-sm font-bold text-gray-300">
-                                     {isPercent ? formatRatioAsPercent((summary as MonteCarloSummary).p05) : (summary as MonteCarloSummary).p05.toFixed(2)}
-                                   </td>
-                                   <td className="px-4 py-3 text-sm font-bold text-gray-300">
-                                     {isPercent ? formatRatioAsPercent((summary as MonteCarloSummary).p95) : (summary as MonteCarloSummary).p95.toFixed(2)}
-                                   </td>
-                                   <td className="px-4 py-3 text-sm font-bold text-gray-300">
-                                     {isPercent ? formatRatioAsPercent((summary as MonteCarloSummary).std) : (summary as MonteCarloSummary).std.toFixed(2)}
-                                   </td>
-                                 </tr>
-                               ))}
-                             </tbody>
-                           </table>
-                         </div>
-
-                         <div className="mt-4 rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm font-bold text-gray-300">
-                           최대낙폭이 30%를 초과할 확률은 {formatRatioAsPercent(monteCarloResult.probMddOver30pct)} 입니다.
-                         </div>
-                       </>
-                     )}
-                   </>
-                 )}
-               </div>
              </div>
            )}
 
@@ -2038,9 +1675,10 @@ export default function BacktestDashboard({
            )}
 
         </div>
+        )}
       </div>
 
-      <div data-testid="backtest-dashboard-footer" className="border-t border-white/[0.08] bg-[#050505] px-0 py-3">
+      <div data-testid="backtest-dashboard-footer" className="mt-auto border-t border-white/[0.08] bg-[#050505] px-0 py-3">
         <p className="text-center text-xs font-bold leading-relaxed text-gray-500">
           모든 결과는 과거 데이터의 모의 시뮬레이션 결과이며 미래 수익을 보장하지 않습니다.
         </p>
@@ -2117,7 +1755,8 @@ function BacktestTerminalLog({
   const universeLabel = result.universeId
     ? (UNIVERSE_NAMES[result.universeId] ?? result.universeId.toUpperCase())
     : "KOSPI";
-  logs.push({ level: "INFO", ts: ts(2), message: `유니버스: ${universeLabel} / 초기자금: ${(result.initialCapital ?? 0).toLocaleString()}원` });
+  const logInitialCapital = result.initialCapital || result.equity?.[0] || 0;
+  logs.push({ level: "INFO", ts: ts(2), message: `유니버스: ${universeLabel} / 초기자금: ${logInitialCapital.toLocaleString()}원` });
 
   // 매수 신호 통계
   const buyCount = result.tradesList?.filter(t => t.type === "buy").length ?? 0;
@@ -2198,7 +1837,8 @@ function BacktestTerminalLog({
   }
 
   // 완료
-  logs.push({ level: "SUCCESS", ts: ts(99), message: `백테스트 완료 — 총 ${result.trades ?? 0}회 거래 / 최종자산 ${(result.finalEquity ?? 0).toLocaleString()}원 / 수익률 ${(result.totalReturn ?? 0).toFixed(2)}%` });
+  const logFinalEquity = result.finalEquity || result.equity?.[result.equity.length - 1] || 0;
+  logs.push({ level: "SUCCESS", ts: ts(99), message: `백테스트 완료 — 총 ${result.trades ?? 0}회 거래 / 최종자산 ${logFinalEquity.toLocaleString()}원 / 수익률 ${(result.totalReturn ?? 0).toFixed(2)}%` });
 
   const levelStyle: Record<LogLevel, string> = {
     INFO: "text-blue-400",

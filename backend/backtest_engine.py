@@ -12,6 +12,15 @@ from engine.result_handler import ResultHandler
 from engine.data_resolver import DataResolver
 from engine import universe_pit
 
+def _ai_signals_enabled() -> bool:
+    """AI 예측 신호(ai_model/ai_drop_model) 실행 허용 여부. 운영 스위치(기본 ON).
+
+    기능을 꺼둔 배포에서 파싱·캐시 등 다른 경로로 AI 신호가 흘러 들어와도
+    엔진이 최종 관문에서 즉시 거절하게 한다(AI_SIGNALS_ENABLED=0).
+    """
+    return os.environ.get("AI_SIGNALS_ENABLED", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
 def _ai_model_train_end() -> str | None:
     """라이브 AI 모델 메타의 학습 종료일(train_end). 없으면 None. (감사 H7)"""
     import json
@@ -185,6 +194,14 @@ class BacktestEngine:
             
             ai_needed = check_ai_needed(req.get('entry')) or check_ai_needed(req.get('exit'))
 
+            # AI 신호 fail-fast: 기능이 꺼져 있거나(운영 스위치) 모델을 로드할 수 없으면
+            # 조용히 0점 처리(0거래)하거나 추론에서 멈추지 않고 즉시 명확한 에러로 거절한다.
+            if ai_needed and not _ai_signals_enabled():
+                raise Exception(
+                    "AI 예측 신호 기능이 현재 비활성화되어 있습니다. "
+                    "AI 신호(ai_model/ai_drop_model)를 제거하고 다시 실행해 주세요."
+                )
+
             # 횡단면 AI 하락 랭킹 청산: exit에 ai_drop_model(exitMode='rank')이 있으면 매일
             # 유니버스 상위 X% 하락위험 종목을 청산. 상위 비율(0~1, %는 자동 환산)을 추출.
             def _detect_rank_drop_exit(group):
@@ -218,8 +235,11 @@ class BacktestEngine:
             common_index = None
 
             # Pre-load AI engine to avoid race conditions during lazy loading
-            if ai_needed:
-                self.ai_engine
+            if ai_needed and self.ai_engine is None:
+                raise Exception(
+                    "AI 모델을 로드할 수 없어 AI 신호가 포함된 백테스트를 실행할 수 없습니다. "
+                    "AI 신호를 제거하고 다시 실행해 주세요."
+                )
 
             # AI 백테스트: Phase1(데이터/지표 준비) → Phase2(일괄 AI 추론) → Phase3(신호 생성)
             # 비AI 백테스트: 기존 단일 패스 유지
@@ -354,27 +374,34 @@ class BacktestEngine:
                     # 3.5 Preprocessing (Adjusted Prices)
                     pdf = self.loader.preprocess_data(df_pl, apply_dividends=apply_dividends)
                     
-                    # 3.6 Liquidity Check
+                    # 3.6 Liquidity Check — compute the mask now, but defer the exclusion
+                    # warning until we know the strategy actually wants to enter this symbol.
+                    # Otherwise every fully-illiquid universe name (e.g. a delisted stock whose
+                    # only in-window rows are 거래정지) emits noise even when the strategy would
+                    # never trade it.
                     skip_risk = risk_params.get('skip_risk_management', False)
                     skip_pos = risk_params.get('skip_position_setting', False)
-                    
+
+                    liquidity_ok = None
                     if not (skip_risk or skip_pos):
                         target_pos_amount = init_cash * (pos_size_pct / 100.0)
                         liquidity_ok = self.loader.check_liquidity(pdf, target_pos_amount, liquid_limit)
-                        if liquidity_ok.sum() == 0:
-                            return ("warning", f"{sym}: 유동성 기준 미달 (거래대금 부족)")
 
                     # 3.7 Signal Generation
                     entry_signals, entry_reasons = self.signal_engine.generate_signals(df_pl, req.get('entry'))
                     exit_signals, exit_reasons = self.signal_engine.generate_signals(df_pl, req.get('exit'))
                     _close_at_last_available_row(entry_signals, exit_signals, exit_reasons, sym)
 
-                    # Apply Liquidity Mask
-                    if not (skip_risk or skip_pos):
-                        entry_signals = entry_signals & liquidity_ok
-                    
-                    if entry_signals is None: 
+                    if entry_signals is None:
                         return None
+
+                    # Apply Liquidity Mask. Warn only when the strategy WANTED to enter but
+                    # liquidity blocked every entry — a name the strategy never enters needs no message.
+                    if liquidity_ok is not None:
+                        wanted_entry = bool(entry_signals.any())
+                        entry_signals = entry_signals & liquidity_ok
+                        if wanted_entry and not entry_signals.any():
+                            return ("warning", f"{sym}: 유동성 기준 미달 (거래대금 부족)")
                     
                     # Return result package
                     res = {
@@ -487,21 +514,24 @@ class BacktestEngine:
                         skip_risk = risk_params.get('skip_risk_management', False)
                         skip_pos = risk_params.get('skip_position_setting', False)
 
+                        liquidity_ok = None
                         if not (skip_risk or skip_pos):
                             target_pos_amount = init_cash * (pos_size_pct / 100.0)
                             liquidity_ok = self.loader.check_liquidity(pdf, target_pos_amount, liquid_limit)
-                            if liquidity_ok.sum() == 0:
-                                return ("warning", f"{sym}: 유동성 기준 미달 (거래대금 부족)")
 
                         entry_signals, entry_reasons = self.signal_engine.generate_signals(df_pl, req.get('entry'))
                         exit_signals, exit_reasons = self.signal_engine.generate_signals(df_pl, req.get('exit'))
                         _close_at_last_available_row(entry_signals, exit_signals, exit_reasons, sym)
 
-                        if not (skip_risk or skip_pos):
-                            entry_signals = entry_signals & liquidity_ok
-
                         if entry_signals is None:
                             return None
+
+                        # Warn only when the strategy wanted to enter but liquidity blocked every entry.
+                        if liquidity_ok is not None:
+                            wanted_entry = bool(entry_signals.any())
+                            entry_signals = entry_signals & liquidity_ok
+                            if wanted_entry and not entry_signals.any():
+                                return ("warning", f"{sym}: 유동성 기준 미달 (거래대금 부족)")
 
                         res = {
                             "symbol": sym,

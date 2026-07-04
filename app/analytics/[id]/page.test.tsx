@@ -4,12 +4,14 @@ import { describe, expect, it, beforeEach, vi } from "vitest";
 import StrategyResultPage from "./page";
 
 const pushMock = vi.fn();
+const backMock = vi.fn();
 const fetchMock = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ id: "strategy-1" }),
   useRouter: () => ({
     push: pushMock,
+    back: backMock,
   }),
 }));
 
@@ -22,10 +24,12 @@ vi.mock("@/components/strategy/backtest/BacktestDashboard", () => ({
     promptText,
     strategySummary,
     onWalkForward,
+    onRestart,
   }: {
     promptText?: string;
     strategySummary?: any;
     onWalkForward?: (settings: any) => Promise<any>;
+    onRestart?: () => void;
   }) => (
     <div
       data-testid="backtest-dashboard"
@@ -36,6 +40,11 @@ vi.mock("@/components/strategy/backtest/BacktestDashboard", () => ({
       data-risk={strategySummary?.riskText ?? ""}
     >
       backtest dashboard
+      {onRestart && (
+        <button type="button" onClick={onRestart}>
+          결과 닫기
+        </button>
+      )}
       {onWalkForward && (
         <button
           type="button"
@@ -172,6 +181,17 @@ describe("StrategyResultPage", () => {
       "/api/backtest/run",
       expect.anything()
     );
+  });
+
+  it("저장된 전략/전략모음에서 흘러온 경우 결과 닫기와 상단 뒤로가기는 전략연구소가 아닌 직전 화면으로 돌아간다", async () => {
+    render(<StrategyResultPage />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "결과 닫기" }));
+    expect(backMock).toHaveBeenCalledTimes(1);
+    expect(pushMock).not.toHaveBeenCalledWith("/analytics");
+
+    await userEvent.click(screen.getByRole("button", { name: "" }));
+    expect(backMock).toHaveBeenCalledTimes(2);
   });
 
   it("저장된 전략 결과에서도 워크포워드 실행 핸들러를 전달한다", async () => {

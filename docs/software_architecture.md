@@ -368,6 +368,12 @@ interface BacktestResult {
 | POST | `/optimize` | 전략 파라미터 최적화 (Optuna) |
 | POST | `/walk-forward` | 워크포워드 분석 |
 
+`/backtest`·`/strategy/backtest-stream`은 워치독(`engine/watchdog.py`)이 감싼다 — 엔진이
+행(hang)에 빠져도 벽시계 제한 시간(`BACKTEST_TIMEOUT_S`, 기본 600초) 안에 504/SSE 에러로
+반드시 끝난다. AI 신호(ai_model/ai_drop_model) 백테스트는 엔진 최종 관문에서 fail-fast:
+운영 스위치 `AI_SIGNALS_ENABLED=0`이거나 AI 모델 로드 실패 시 0거래 침묵 진행 대신 즉시
+명확한 에러를 반환한다.
+
 **시장 데이터**
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
@@ -448,7 +454,10 @@ NLStrategyParser.parse() (backend/engine/nl_parser.py)
     │       수락되면 항상 인라인으로 LLM이 원문↔파싱결과를 비교해 누락/모호/실행불가/과잉추론을
     │       구조화 리포트(parse_validation: isValid·confidence·issues·correctedStrategy 등)로 낸다.
     │       명백한 파싱 오류는 correctedStrategy로 자동 교정(ParsedStrategy 스키마 검증 통과 시,
-    │       원문 description 보존). LLM 미도달(refused/cold)이면 짧은 probe로 즉시 graceful
+    │       원문 description 보존). 교정본의 진입/청산 신호는 LLM 파싱 본경로와 동일하게
+    │       _validate_signals로 재검증한다 — 스키마만 통과한 환각 신호(예: 원문에 없는 ai_model
+    │       'AI 매수 예측') 주입을 차단하고 환각 신호만 떨군 채 나머지 교정은 유지.
+    │       LLM 미도달(refused/cold)이면 짧은 probe로 즉시 graceful
     │       degrade해 빠른 경로를 막지 않는다(투자 자문·성능 개선은 하지 않음, 검증·교정만).
     ├── 백엔드 선택: MLX (Mac) 또는 Ollama
     ├── compact prompt + JSON output → ParsedStrategy 스키마 정규화

@@ -60,18 +60,18 @@ describe("WalkForwardModal", () => {
       fireEvent.change(screen.getByLabelText("검증기간"), { target: { value: "28" } });
     });
 
-    expect(screen.queryByText("예상 구간 수")).not.toBeInTheDocument();
+    expect(screen.getByText("예상 구간 수")).toBeInTheDocument();
     expect(screen.queryByText("현재 설정")).not.toBeInTheDocument();
     expect(screen.queryByText("최적화 목표 지표")).not.toBeInTheDocument();
     expect(screen.queryByText("첫 구간 미리보기")).not.toBeInTheDocument();
     expect(screen.getByTestId("walk-forward-panel")).not.toHaveClass("h-full", "flex");
     expect(screen.getAllByText("2024.01.01 - 2024.03.24").length).toBeGreaterThan(0);
-    expect(screen.getByText("최적화 대상 파라미터")).toBeInTheDocument();
+    expect(screen.getAllByText("최적화 대상 파라미터")[0]).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /베이지안 최적화 유망한 후보를 우선 탐색하며/ })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: /베이지안 최적화 유망한 후보를 우선 탐색하며/ })).toHaveClass("bg-white/[0.03]");
     expect(screen.getByRole("button", { name: /그리드 탐색 설정한 범위를 기준으로 전체 조합 수를 먼저 확인합니다\./ })).toHaveAttribute("aria-pressed", "false");
     expect(
-      screen.getByText("최적화 대상 파라미터").compareDocumentPosition(screen.getAllByText("베이지안 최적화 시도 횟수")[0]) &
+      screen.getAllByText("최적화 대상 파라미터")[0].compareDocumentPosition(screen.getAllByText("베이지안 최적화 시도 횟수")[0]) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "PBR" })).toHaveClass("rounded-md");
@@ -190,6 +190,7 @@ describe("WalkForwardModal", () => {
         anchor: false,
         target_metric: "cagr",
         n_trials: 30,
+        method: "bayesian",
         parameter_steps: {
           PBR: 0.5,
           손절라인: 2.5,
@@ -207,7 +208,7 @@ describe("WalkForwardModal", () => {
     expect(screen.queryByText(/Optuna/)).not.toBeInTheDocument();
   });
 
-  it("그리드 탐색 선택 시 준비 중 안내를 보여주고 실행 버튼을 비활성화한다", async () => {
+  it("그리드 탐색 선택 시 예상 조합 수를 보여주고 실행 버튼을 활성화한다", async () => {
     await act(async () => {
       render(
         <WalkForwardModal
@@ -233,8 +234,45 @@ describe("WalkForwardModal", () => {
     expect(screen.queryByText("베이지안 최적화 시도 횟수")).not.toBeInTheDocument();
     expect(screen.getByText("그리드 탐색 예상")).toBeInTheDocument();
     expect(screen.getByText(/조합을 확인할 수 있습니다/)).toBeInTheDocument();
-    expect(screen.getByText(/베이지안 최적화만 실행할 수 있습니다/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "워크포워드 분석 시작" })).toBeDisabled();
+    expect(screen.getByText("실행 가능")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "워크포워드 분석 시작" })).not.toBeDisabled();
+  });
+
+  it("그리드 탐색 실행 시 onRun에 method: grid를 전달한다", async () => {
+    const onRun = vi.fn().mockResolvedValue({
+      status: "ok",
+      n_splits: 5,
+      anchor: false,
+      target_metric: "cagr",
+      windows: [],
+      aggregate: {},
+      combined_equity: [],
+      combined_dates: [],
+      walk_forward_efficiency: 0,
+    });
+
+    await act(async () => {
+      render(
+        <WalkForwardModal
+          open
+          onOpenChange={() => {}}
+          onRun={onRun}
+          backtestDates={buildDates(240)}
+          baseStrategy={baseStrategy}
+          optimizationTargets={[]}
+        />
+      );
+    });
+
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: /그리드 탐색 설정한 범위를 기준으로 전체 조합 수를 먼저 확인합니다\./ })
+    );
+    await user.click(screen.getByRole("button", { name: "워크포워드 분석 시작" }));
+
+    await waitFor(() => {
+      expect(onRun).toHaveBeenCalledWith(expect.objectContaining({ method: "grid" }));
+    });
   });
 
   it("확장 모드에서는 전체 백테스트 기간 대비 학습 비율을 사용한다", async () => {
@@ -275,6 +313,7 @@ describe("WalkForwardModal", () => {
         anchor: true,
         target_metric: "cagr",
         n_trials: 30,
+        method: "bayesian",
       });
     });
   });

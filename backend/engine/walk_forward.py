@@ -38,6 +38,7 @@ class WalkForwardAnalyzer:
         anchor: bool = False,
         target_metric: str = "cagr",
         n_trials: int = 30,
+        method: str = "bayesian",
     ) -> Dict[str, Any]:
         """
         Walk-Forward Analysis 실행.
@@ -87,6 +88,7 @@ class WalkForwardAnalyzer:
                 target_metric=target_metric,
                 n_trials=n_trials,
                 window_idx=i + 1,
+                method=method,
             )
             window_results.append(w_result)
 
@@ -221,10 +223,9 @@ class WalkForwardAnalyzer:
         target_metric: str,
         n_trials: int,
         window_idx: int,
+        method: str = "bayesian",
     ) -> Dict[str, Any]:
         """단일 윈도우: IS 최적화 → OOS 검증."""
-        from engine.optuna_optimizer import OptunaOptimizer
-
         result: Dict[str, Any] = {
             "window": window_idx,
             "is_period": f"{is_start} ~ {is_end}",
@@ -242,14 +243,26 @@ class WalkForwardAnalyzer:
         is_req["endDate"] = is_end
         is_req["period"] = "full"
 
-        optimizer = OptunaOptimizer(self.engine)
         try:
-            opt_result = optimizer.optimize(
-                base_request=is_req,
-                ranges=ranges,
-                target_metric=target_metric,
-                n_trials=n_trials,
-            )
+            if method == "grid":
+                from engine.grid_optimizer import StrategyOptimizer
+
+                optimizer = StrategyOptimizer(self.engine)
+                opt_result = optimizer.optimize(
+                    base_request=is_req,
+                    ranges=ranges,
+                    target_metric=target_metric,
+                )
+            else:
+                from engine.optuna_optimizer import OptunaOptimizer
+
+                optimizer = OptunaOptimizer(self.engine)
+                opt_result = optimizer.optimize(
+                    base_request=is_req,
+                    ranges=ranges,
+                    target_metric=target_metric,
+                    n_trials=n_trials,
+                )
             if opt_result.get("status") == "error":
                 result["error"] = opt_result.get("message", "IS 최적화 실패")
                 return result

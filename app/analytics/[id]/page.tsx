@@ -286,7 +286,7 @@ function StrategyResultContent() {
         <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.05]">
           <div className="flex items-center gap-3">
             <button
-              onClick={() => router.push("/analytics")}
+              onClick={() => router.back()}
               className="flex items-center gap-1.5 text-gray-500 hover:text-gray-300 transition-colors duration-200"
             >
               <ArrowLeft size={14} />
@@ -298,7 +298,7 @@ function StrategyResultContent() {
         <div className="flex-1 overflow-auto">
           <BacktestDashboard
             result={result}
-            onRestart={() => router.push("/analytics")}
+            onRestart={() => router.back()}
             onRun={handleRun}
             currentOptions={currentOptions}
             isRunning={isRunning}

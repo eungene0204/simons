@@ -234,7 +234,7 @@ class DataResolver:
             elapsed = time.time() - t0
 
             if not fundamentals:
-                self._log("WARN", f"[{symbol}] 펀더멘털 데이터 조회 실패 (KIS/Naver 모두 응답 없음, {elapsed:.1f}s)")
+                self._log("WARN", f"[{symbol}] 펀더멘털 데이터 조회 실패")
                 return df_pl
 
             self._log("INFO", f"[{symbol}] 펀더멘털 원시 데이터 수신 ({len(fundamentals)}개 연도, {elapsed:.1f}s)")

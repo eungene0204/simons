@@ -184,6 +184,14 @@ export function computeStrategyIdFromDsl(dsl: any): string {
   return sha256(stableStringify(canonicalizeStrategyDsl(dsl)));
 }
 
+// saveCachedResult가 비가시(isVisible=false) 캐시 행을 만들 때 붙이는 자리표시자 이름인지 판별한다.
+// 자동 노출(auto-save) 시 "기존 이름 유지" 로직이 이 자리표시자를 진짜 이름으로 오인해
+// 사용자 프롬프트 기반 이름을 덮어쓰지 못하게 막는 문제를 방지하기 위해 쓰인다.
+export function isPlaceholderStrategyName(name: string | null | undefined): boolean {
+  if (!name) return true;
+  return /^전략 [0-9a-f]{8}$/.test(name);
+}
+
 export function resolveStrategyId(payload: any): string | null {
   const directId = payload?.strategy_id ?? payload?.strategyId;
   if (typeof directId === "string" && directId.trim()) {
@@ -321,8 +329,21 @@ async function upsertStrategyForResult(strategyId: string, body: any) {
 
   const settingsObject =
     typeof canonicalDsl === "string" ? JSON.parse(canonicalDsl) : canonicalDsl;
+
+  // canonical_strategy_dsl은 사람이 읽기 좋은 요약(entry_signals, top-level stop_loss_pct 등)일 뿐,
+  // 실제 백테스트를 재실행하거나 워크포워드 파라미터 범위를 뽑아내는 데 필요한
+  // entry.conditions/exit.conditions/risk.* 형태의 DSL은 아니다. 그 DSL은 같은
+  // body(백엔드 to_backtest_request 응답)에 형제 필드로 함께 들어있으므로 같이 보존한다.
   const settingsPayload = JSON.stringify({
     ...settingsObject,
+    ...(body?.entry ? { entry: body.entry } : {}),
+    ...(body?.exit ? { exit: body.exit } : {}),
+    ...(body?.risk ? { risk: body.risk } : {}),
+    ...(body?.period ? { period: body.period } : {}),
+    ...(body?.options ? { options: body.options } : {}),
+    ...(body?.universe_id ? { universe_id: body.universe_id } : {}),
+    ...(body?.startDate ? { startDate: body.startDate } : {}),
+    ...(body?.endDate ? { endDate: body.endDate } : {}),
     id: strategyId,
   });
 

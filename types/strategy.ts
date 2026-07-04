@@ -149,6 +149,8 @@ export interface BacktestResult {
   maxConsecutiveLosses?: number;
   finalEquity: number;
   initialCapital: number;
+  /** 최종자산 - 초기자본 (백엔드 엔진이 직접 계산해 내려줌) */
+  totalProfit?: number;
   equity: number[];
   benchmarkEquity?: number[];
   dates: string[];
@@ -214,6 +216,8 @@ export interface BacktestHistoryItem {
   strategyName: string;
   // 원천 Strategy에서 해석한 원문 프롬프트(상세 조회 API에서만 채워짐)
   prompt?: string;
+  // 원천 Strategy의 DSL(entry/exit/risk 등). 워크포워드 실행에 필요(상세 조회 API에서만 채워짐)
+  settings?: Record<string, unknown> | null;
   universe: string;
   conditions: string[] | {
     names?: string[];

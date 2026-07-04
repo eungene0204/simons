@@ -726,6 +726,7 @@ describe("mergeStrategyModification", () => {
       base_strategy: baseStrategy,
       ranges,
       ...settings,
+      method: "bayesian",
     });
 
     expect(
@@ -759,6 +760,7 @@ describe("mergeStrategyModification", () => {
         "risk.max_positions": { type: "number", min: 5, max: 11, step: 1 },
       },
       ...settings,
+      method: "bayesian",
     });
 
     const context = buildAdvisorEvaluationContextFromWalkForward(

@@ -25,6 +25,7 @@ export interface WalkForwardSettings {
   anchor: boolean;
   target_metric: string;
   n_trials: number;
+  method?: "bayesian" | "grid";
   parameter_steps?: Record<string, number>;
   parameter_ranges?: Record<string, WalkForwardParameterRangeOverride>;
 }
@@ -90,6 +91,8 @@ interface WalkForwardFormState {
 
 const FALLBACK_TOTAL_BARS = 252 * 5;
 type OptimizationMethod = "bayesian" | "grid";
+// 백엔드 engine/grid_optimizer.py의 MAX_GRID_COMBINATIONS와 동일한 값으로 유지한다.
+const MAX_GRID_COMBINATIONS = 500;
 
 type ParameterStepConfig = {
   defaultStep: number;
@@ -404,6 +407,7 @@ export function WalkForwardPanel({
     anchor: formState.anchor,
     target_metric: formState.target_metric,
     n_trials: formState.n_trials,
+    method: formState.optimizationMethod,
     ...(optimizationTargets.length > 0 ? { parameter_steps: parameterSteps } : {}),
     ...(Object.keys(parameterRanges).length > 0 ? { parameter_ranges: parameterRanges } : {}),
   };
@@ -527,10 +531,6 @@ export function WalkForwardPanel({
   const wfe = result?.walk_forward_efficiency ?? 0;
   const wfeTone = getWfeTone(wfe);
   const isGridMethod = formState.optimizationMethod === "grid";
-  const runDisabledReason = isGridMethod
-    ? "그리드 탐색 실행은 아직 연결되지 않았습니다. 베이지안 최적화를 선택해 주세요."
-    : disabledReason;
-  const isRunDisabled = isRunning || !onRun || !canRun || isGridMethod;
   const stepModalTarget = optimizationTargets.find((target) => target.id === stepModalTargetId) ?? null;
   const stepModalConfig = stepModalTarget ? getParameterStepConfig(stepModalTarget.label) : DEFAULT_PARAMETER_STEP_CONFIG;
   const stepModalCurrentRange = stepModalTarget
@@ -546,9 +546,14 @@ export function WalkForwardPanel({
   const gridSearchEstimate = optimizationTargets.length > 0
     ? optimizationTargets.reduce((total, target) => total * estimateGridChoiceCount(currentParameterRangeForTarget(target)), 1)
     : 0;
+  const gridSearchExceedsCap = isGridMethod && gridSearchEstimate > MAX_GRID_COMBINATIONS;
+  const runDisabledReason = gridSearchExceedsCap
+    ? `조합 수(${gridSearchEstimate.toLocaleString()}개)가 상한(${MAX_GRID_COMBINATIONS.toLocaleString()}개)을 초과했습니다. 파라미터 범위나 step을 조정해 주세요.`
+    : disabledReason;
+  const isRunDisabled = isRunning || !onRun || !canRun || gridSearchExceedsCap;
 
   return (
-        <div data-testid="walk-forward-panel" className="w-full border border-white/[0.08] bg-[var(--background)]">
+        <div data-testid="walk-forward-panel" className="w-full overflow-hidden rounded-xl border border-white/[0.08] bg-[var(--background)]">
           <div className={`${maxHeightClass} overflow-y-auto`}>
             {error && (
               <div className="border-b border-white/[0.08] bg-[var(--main-blue)]/10 px-5 py-4">
@@ -694,6 +699,27 @@ export function WalkForwardPanel({
                         </div>
                       </div>
                     </div>
+                    <div className="py-4">
+                      <p className="text-xs font-bold uppercase tracking-widest text-gray-500">설정 요약</p>
+                      <div className="mt-3 grid grid-cols-1 gap-3 text-xs font-bold text-gray-300 md:grid-cols-2">
+                        <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
+                          <p className="uppercase tracking-widest text-gray-500">백테스트 범위</p>
+                          <p className="mt-2 leading-5 text-white">{formatDateLabel(periodStart)} - {formatDateLabel(periodEnd)}</p>
+                        </div>
+                        <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
+                          <p className="uppercase tracking-widest text-gray-500">예상 구간 수</p>
+                          <p className="mt-2 leading-5 text-white">{derivedSettings.n_splits}개</p>
+                        </div>
+                        <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
+                          <p className="uppercase tracking-widest text-gray-500">훈련 비율</p>
+                          <p className="mt-2 leading-5 text-white">{Math.round(derivedSettings.train_pct * 100)}%</p>
+                        </div>
+                        <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
+                          <p className="uppercase tracking-widest text-gray-500">총 관측치</p>
+                          <p className="mt-2 leading-5 text-white">{formatBarsLabel(totalBars)}</p>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </section>
 
@@ -701,7 +727,20 @@ export function WalkForwardPanel({
                   <p className="text-xs font-bold uppercase tracking-widest text-gray-500">최적화 설정</p>
                   <div className="mt-4 divide-y divide-white/[0.04] border-t border-white/[0.05]">
                     <div className="py-4">
-                      <p className="text-xs font-bold uppercase tracking-widest text-gray-500">최적화 대상 파라미터</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-xs font-bold uppercase tracking-widest text-gray-500">최적화 대상 파라미터</p>
+                        <HelpTooltip label="최적화 대상 파라미터">
+                          <span className="block text-[11px] font-black uppercase tracking-widest text-sky-400">
+                            최적화 대상 파라미터
+                          </span>
+                          <span className="mt-2 block text-xs font-bold leading-5 text-gray-300">
+                            전략에서 사용 중인 파라미터 중 어떤 값을 워크포워드 구간마다 다시 탐색할지 선택합니다. 선택하지 않은 파라미터는 원래 설정값을 그대로 사용합니다.
+                          </span>
+                          <span className="mt-3 block text-xs font-bold leading-5 text-gray-400">
+                            예: PBR, 손절라인을 선택하면 각 IS 구간에서 PBR 임계값과 손절 비율의 조합을 다시 찾고, 보유기간·보유종목수는 기존 설정을 그대로 씁니다.
+                          </span>
+                        </HelpTooltip>
+                      </div>
                       {optimizationTargets.length > 0 ? (
                         <div className="mt-3 flex flex-wrap gap-2">
                           {optimizationTargets.map((target) => (
@@ -757,12 +796,20 @@ export function WalkForwardPanel({
                                 현재 파라미터 범위 기준으로 약 {gridSearchEstimate.toLocaleString()}개 조합을 확인할 수 있습니다.
                               </p>
                             </div>
-                            <span className="inline-flex rounded-md bg-white/[0.06] px-2 py-1 text-[10px] font-black uppercase tracking-widest text-gray-400">
-                              준비 중
+                            <span
+                              className={`inline-flex rounded-md px-2 py-1 text-[10px] font-black uppercase tracking-widest ${
+                                gridSearchExceedsCap
+                                  ? "bg-amber-500/15 text-amber-300"
+                                  : "bg-white/[0.06] text-gray-400"
+                              }`}
+                            >
+                              {gridSearchExceedsCap ? "상한 초과" : "실행 가능"}
                             </span>
                           </div>
                           <p className="mt-3 text-xs font-bold leading-5 text-gray-400">
-                            이 화면에서는 아직 베이지안 최적화만 실행할 수 있습니다. 그리드 탐색은 조합 수 확인용 메뉴로 먼저 제공합니다.
+                            {gridSearchExceedsCap
+                              ? `조합 수가 상한(${MAX_GRID_COMBINATIONS.toLocaleString()}개)을 초과해 실행할 수 없습니다. 파라미터 범위나 step을 조정해 조합 수를 줄여 주세요.`
+                              : "설정한 범위 안의 모든 조합을 각 워크포워드 구간에서 전수 실행합니다."}
                           </p>
                         </div>
                       ) : (
@@ -823,31 +870,6 @@ export function WalkForwardPanel({
                             {item.label}
                           </button>
                         ))}
-                      </div>
-                    </div>
-                    <div className="py-4">
-                      <p className="text-xs font-bold uppercase tracking-widest text-gray-500">분석 메모</p>
-                      <p className="mt-3 text-sm font-black leading-6 text-white">
-                        현재 백테스트 구간은 {formatDateLabel(periodStart)} - {formatDateLabel(periodEnd)}이며, 예상 구간 수는 {derivedSettings.n_splits}개입니다.
-                      </p>
-                      <p className="mt-2 text-xs font-bold leading-5 text-gray-400">
-                        {formState.anchor
-                          ? `확장 방식은 첫 ${formatBarsLabel(formState.trainBars)}을 기준 IS로 두고 이후 검증기간만큼 앞으로 넓혀갑니다.`
-                          : `롤링 방식은 학습 ${formatBarsLabel(formState.trainBars)} + 검증 ${formatBarsLabel(formState.validationBars)} 창을 함께 앞으로 이동시킵니다.`}
-                      </p>
-                      <div className="mt-4 grid grid-cols-1 gap-3 border border-white/[0.06] bg-white/[0.02] p-4 text-xs font-bold text-gray-300 md:grid-cols-3">
-                        <div>
-                          <p className="uppercase tracking-widest text-gray-500">백테스트 범위</p>
-                          <p className="mt-2 leading-5 text-white">{formatDateLabel(periodStart)} - {formatDateLabel(periodEnd)}</p>
-                        </div>
-                        <div>
-                          <p className="uppercase tracking-widest text-gray-500">파생 훈련 비율</p>
-                          <p className="mt-2 leading-5 text-white">{Math.round(derivedSettings.train_pct * 100)}%</p>
-                        </div>
-                        <div>
-                          <p className="uppercase tracking-widest text-gray-500">총 관측치</p>
-                          <p className="mt-2 leading-5 text-white">{formatBarsLabel(totalBars)}</p>
-                        </div>
                       </div>
                     </div>
                   </div>
