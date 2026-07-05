@@ -150,7 +150,7 @@ export function PrivacyPolicyPage() {
             nullStock 개인정보처리방침
           </h1>
           <p className="mt-5 max-w-2xl text-base font-bold leading-7 text-gray-400">
-            널스페이스(이하 "회사")는 정보주체의 자유와 권리 보호를 위해
+            널스페이스(이하 &quot;회사&quot;)는 정보주체의 자유와 권리 보호를 위해
             개인정보 보호법 및 관계 법령이 정한 바를 준수하여 개인정보를
             적법하게 처리하고 안전하게 관리하고 있습니다. 회사는 개인정보
             보호법 제30조에 따라 정보주체에게 개인정보의 처리와 보호에 관한
