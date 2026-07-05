@@ -483,11 +483,13 @@ async def test_market_stock_detail_can_skip_profile_and_listing(monkeypatch):
         "source": "fsc_stock_issuance",
     })
     monkeypatch.setattr("main._get_cached_public_company_info", lambda _symbol, _company_name=None: None)
+    # sector는 parquet(source of truth)에서 조회되므로 프로필/상장정보를 스킵해도 채워진다.
+    # parquet은 gitignore 대상(환경마다 존재 여부가 다름)이라 조회 함수 자체를 목킹해 검증한다.
+    monkeypatch.setattr("main._read_sector_from_parquet", lambda _symbol: "반도체")
 
     result = await market_stock_detail("005930", include_profile=False, include_listing=False)
 
     assert result["description"].endswith("국내 상장사입니다.")
-    # sector는 parquet(source of truth)에서 조회되므로 프로필/상장정보를 스킵해도 채워진다.
     assert result["sector"] == "반도체"
     assert result["industry"] == ""
     assert result["listingDate"] is None
