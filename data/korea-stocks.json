@@ -17,7 +17,7 @@
     "symbol": "0126Z0",
     "name": "삼성에피스홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -80,7 +80,7 @@
     "symbol": "499790",
     "name": "GS피앤엘",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -122,7 +122,7 @@
     "symbol": "487570",
     "name": "HS효성",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -395,7 +395,7 @@
     "symbol": "402340",
     "name": "SK스퀘어",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -409,7 +409,7 @@
     "symbol": "377300",
     "name": "카카오페이",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -444,7 +444,7 @@
     "symbol": "377190",
     "name": "디앤디플랫폼리츠",
     "market": "KOSPI",
-    "sector": "소프트웨어/플랫폼",
+    "sector": "부동산",
     "industry": "부동산 임대 및 공급업"
   },
   {
@@ -507,7 +507,7 @@
     "symbol": "383800",
     "name": "LX홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -598,7 +598,7 @@
     "symbol": "363280",
     "name": "티와이홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -997,7 +997,7 @@
     "symbol": "267250",
     "name": "HD현대",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -1305,7 +1305,7 @@
     "symbol": "192400",
     "name": "쿠쿠홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -1319,7 +1319,7 @@
     "symbol": "027410",
     "name": "BGF",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -1361,7 +1361,7 @@
     "symbol": "180640",
     "name": "한진칼",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -1550,7 +1550,7 @@
     "symbol": "138040",
     "name": "메리츠금융지주",
     "market": "KOSPI",
-    "sector": "부동산",
+    "sector": "은행/금융지주",
     "industry": "기타 금융업"
   },
   {
@@ -1732,7 +1732,7 @@
     "symbol": "060980",
     "name": "HL홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -1816,7 +1816,7 @@
     "symbol": "034730",
     "name": "SK",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -1858,7 +1858,7 @@
     "symbol": "039490",
     "name": "키움증권",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -1914,7 +1914,7 @@
     "symbol": "107590",
     "name": "미원홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -2096,7 +2096,7 @@
     "symbol": "096760",
     "name": "JW홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -2110,7 +2110,7 @@
     "symbol": "029780",
     "name": "삼성카드",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "기타 금융업"
   },
   {
@@ -2166,7 +2166,7 @@
     "symbol": "044820",
     "name": "코스맥스비티아이",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -2327,7 +2327,7 @@
     "symbol": "084690",
     "name": "대상홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -2418,7 +2418,7 @@
     "symbol": "078930",
     "name": "GS",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -2460,7 +2460,7 @@
     "symbol": "034310",
     "name": "NICE",
     "market": "KOSPI",
-    "sector": "증권/보험",
+    "sector": "지주회사",
     "industry": "회사 본부 및 경영 컨설팅 서비스업"
   },
   {
@@ -2516,7 +2516,7 @@
     "symbol": "072710",
     "name": "농심홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -2607,7 +2607,7 @@
     "symbol": "036530",
     "name": "SNT홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -2649,7 +2649,7 @@
     "symbol": "030610",
     "name": "교보증권",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -2677,7 +2677,7 @@
     "symbol": "024720",
     "name": "콜마홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -2796,7 +2796,7 @@
     "symbol": "016710",
     "name": "대성홀딩스",
     "market": "KOSPI",
-    "sector": "증권/보험",
+    "sector": "지주회사",
     "industry": "회사 본부 및 경영 컨설팅 서비스업"
   },
   {
@@ -2859,7 +2859,7 @@
     "symbol": "006840",
     "name": "AK홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -3006,7 +3006,7 @@
     "symbol": "012320",
     "name": "경동인베스트",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -3034,7 +3034,7 @@
     "symbol": "015360",
     "name": "INVENI",
     "market": "KOSPI",
-    "sector": "증권/보험",
+    "sector": "지주회사",
     "industry": "회사 본부 및 경영 컨설팅 서비스업"
   },
   {
@@ -3104,14 +3104,14 @@
     "symbol": "030210",
     "name": "다올투자증권",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "012630",
     "name": "HDC",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -3363,7 +3363,7 @@
     "symbol": "009440",
     "name": "KC그린홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -3377,7 +3377,7 @@
     "symbol": "016880",
     "name": "웅진",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -3629,7 +3629,7 @@
     "symbol": "001500",
     "name": "현대차증권",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -3671,7 +3671,7 @@
     "symbol": "015860",
     "name": "일진홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -3860,7 +3860,7 @@
     "symbol": "007860",
     "name": "서연",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -3902,7 +3902,7 @@
     "symbol": "005440",
     "name": "현대지에프홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -3993,7 +3993,7 @@
     "symbol": "013570",
     "name": "디와이",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -4028,14 +4028,14 @@
     "symbol": "006040",
     "name": "동원산업",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
     "symbol": "008060",
     "name": "대덕",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -4105,7 +4105,7 @@
     "symbol": "009970",
     "name": "영원무역홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -4196,7 +4196,7 @@
     "symbol": "001290",
     "name": "상상인증권",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -4259,14 +4259,14 @@
     "symbol": "005810",
     "name": "풍산홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
     "symbol": "001270",
     "name": "부국증권",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -4287,14 +4287,14 @@
     "symbol": "016610",
     "name": "DB증권",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "008930",
     "name": "한미사이언스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -4329,7 +4329,7 @@
     "symbol": "001230",
     "name": "동국홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -4350,7 +4350,7 @@
     "symbol": "016360",
     "name": "삼성증권",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -4364,7 +4364,7 @@
     "symbol": "001750",
     "name": "한양증권",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -4378,14 +4378,14 @@
     "symbol": "003470",
     "name": "유안타증권",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "002620",
     "name": "제일파마홀딩스",
     "market": "KOSPI",
-    "sector": "증권/보험",
+    "sector": "지주회사",
     "industry": "회사 본부 및 경영 컨설팅 서비스업"
   },
   {
@@ -4462,21 +4462,21 @@
     "symbol": "001720",
     "name": "신영증권",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "001200",
     "name": "유진증권",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "003460",
     "name": "유화증권",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -4553,7 +4553,7 @@
     "symbol": "003530",
     "name": "한화투자증권",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -4567,7 +4567,7 @@
     "symbol": "001510",
     "name": "SK증권",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -4630,7 +4630,7 @@
     "symbol": "010060",
     "name": "OCI홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -4679,7 +4679,7 @@
     "symbol": "007700",
     "name": "F&F 홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -4707,7 +4707,7 @@
     "symbol": "006200",
     "name": "한국전자홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -4756,7 +4756,7 @@
     "symbol": "005250",
     "name": "녹십자홀딩스",
     "market": "KOSPI",
-    "sector": "증권/보험",
+    "sector": "지주회사",
     "industry": "회사 본부 및 경영 컨설팅 서비스업"
   },
   {
@@ -4805,7 +4805,7 @@
     "symbol": "006260",
     "name": "LS",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -5057,7 +5057,7 @@
     "symbol": "005740",
     "name": "크라운해태홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -5078,14 +5078,14 @@
     "symbol": "006120",
     "name": "SK디스커버리",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
     "symbol": "007540",
     "name": "샘표",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -5169,7 +5169,7 @@
     "symbol": "000180",
     "name": "성창기업지주",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "회사 본부 및 경영 컨설팅 서비스업"
   },
   {
@@ -5288,7 +5288,7 @@
     "symbol": "000590",
     "name": "CS홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -5323,21 +5323,21 @@
     "symbol": "003540",
     "name": "대신증권",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "005940",
     "name": "NH투자증권",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "006800",
     "name": "미래에셋증권",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -5400,7 +5400,7 @@
     "symbol": "001800",
     "name": "오리온홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -5421,7 +5421,7 @@
     "symbol": "002020",
     "name": "코오롱",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -5512,7 +5512,7 @@
     "symbol": "002030",
     "name": "아세아",
     "market": "KOSPI",
-    "sector": "증권/보험",
+    "sector": "지주회사",
     "industry": "회사 본부 및 경영 컨설팅 서비스업"
   },
   {
@@ -5526,7 +5526,7 @@
     "symbol": "004990",
     "name": "롯데지주",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -5561,14 +5561,14 @@
     "symbol": "000140",
     "name": "하이트진로홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
     "symbol": "000320",
     "name": "노루홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -5582,14 +5582,14 @@
     "symbol": "004800",
     "name": "효성",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
     "symbol": "001040",
     "name": "CJ",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -5680,7 +5680,7 @@
     "symbol": "004150",
     "name": "한솔홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -5715,14 +5715,14 @@
     "symbol": "003550",
     "name": "LG",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
     "symbol": "000640",
     "name": "동아쏘시오홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -5778,7 +5778,7 @@
     "symbol": "000070",
     "name": "삼양홀딩스",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -5792,7 +5792,7 @@
     "symbol": "000240",
     "name": "한국앤컴퍼니",
     "market": "KOSPI",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -5841,7 +5841,7 @@
     "symbol": "000700",
     "name": "유수홀딩스",
     "market": "KOSPI",
-    "sector": "증권/보험",
+    "sector": "지주회사",
     "industry": "회사 본부 및 경영 컨설팅 서비스업"
   },
   {
@@ -5855,7 +5855,7 @@
     "symbol": "0165X0",
     "name": "메리츠제2호스팩",
     "market": "KOSDAQ",
-    "sector": "부동산",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -5876,7 +5876,7 @@
     "symbol": "0134X0",
     "name": "대신밸런스제20호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -5911,7 +5911,7 @@
     "symbol": "0129K0",
     "name": "신한제18호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -5939,7 +5939,7 @@
     "symbol": "0132G0",
     "name": "교보20호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -5953,7 +5953,7 @@
     "symbol": "0130D0",
     "name": "신한제17호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -5967,7 +5967,7 @@
     "symbol": "0130H0",
     "name": "엔에이치스팩33호",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -5981,7 +5981,7 @@
     "symbol": "408470",
     "name": "한패스",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -6023,7 +6023,7 @@
     "symbol": "0115H0",
     "name": "삼성스팩13호",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -6065,14 +6065,14 @@
     "symbol": "0097F0",
     "name": "미래에셋비전스팩10호",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "0099W0",
     "name": "미래에셋비전스팩11호",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -6086,14 +6086,14 @@
     "symbol": "0101C0",
     "name": "하나36호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "0099X0",
     "name": "IBKS제25호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -6121,14 +6121,14 @@
     "symbol": "0088D0",
     "name": "메리츠제1호스팩",
     "market": "KOSDAQ",
-    "sector": "부동산",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "0098T0",
     "name": "교보19호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -6149,7 +6149,7 @@
     "symbol": "0105P0",
     "name": "유진스팩12호",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -6170,14 +6170,14 @@
     "symbol": "950250",
     "name": "테라뷰",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
     "symbol": "0054V0",
     "name": "엔에이치스팩32호",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -6191,21 +6191,21 @@
     "symbol": "0096D0",
     "name": "미래에셋비전스팩9호",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "0096B0",
     "name": "삼성스팩12호",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
     "symbol": "0093G0",
     "name": "미래에셋비전스팩8호",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -6219,14 +6219,14 @@
     "symbol": "0091W0",
     "name": "신영스팩11호",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "0068Y0",
     "name": "비엔케이제3호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -6303,14 +6303,14 @@
     "symbol": "0072Z0",
     "name": "KB제33호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "0071M0",
     "name": "삼성스팩11호",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -6345,7 +6345,7 @@
     "symbol": "0044K0",
     "name": "삼성스팩10호",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -6380,7 +6380,7 @@
     "symbol": "0041B0",
     "name": "교보18호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -6401,7 +6401,7 @@
     "symbol": "0041L0",
     "name": "하나35호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -6436,14 +6436,14 @@
     "symbol": "0004Y0",
     "name": "디비금융제14호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
     "symbol": "0041J0",
     "name": "엘에스스팩1호",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -6471,7 +6471,7 @@
     "symbol": "0037T0",
     "name": "KB제32호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -6520,7 +6520,7 @@
     "symbol": "496070",
     "name": "신한제16호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -6653,7 +6653,7 @@
     "symbol": "498390",
     "name": "한화플러스제5호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -6786,7 +6786,7 @@
     "symbol": "493790",
     "name": "유안타제17호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -6821,7 +6821,7 @@
     "symbol": "487360",
     "name": "신한제14호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -6835,7 +6835,7 @@
     "symbol": "487720",
     "name": "키움제10호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -6877,35 +6877,35 @@
     "symbol": "492220",
     "name": "KB제31호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "489480",
     "name": "키움제11호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "489730",
     "name": "디비금융제13호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
     "symbol": "489210",
     "name": "교보17호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "482690",
     "name": "대신밸런스제19호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -6940,7 +6940,7 @@
     "symbol": "484130",
     "name": "하나34호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -6961,7 +6961,7 @@
     "symbol": "487830",
     "name": "신한제15호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -7031,7 +7031,7 @@
     "symbol": "488060",
     "name": "유진스팩11호",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -7115,7 +7115,7 @@
     "symbol": "486630",
     "name": "KB제30호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -7129,7 +7129,7 @@
     "symbol": "482680",
     "name": "미래에셋비전스팩7호",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -7192,7 +7192,7 @@
     "symbol": "482520",
     "name": "교보16호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -7220,14 +7220,14 @@
     "symbol": "481890",
     "name": "엔에이치스팩31호",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "473950",
     "name": "SK증권제13호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -7241,7 +7241,7 @@
     "symbol": "478110",
     "name": "이베스트스팩6호",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -7276,7 +7276,7 @@
     "symbol": "479880",
     "name": "한국제15호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -7290,14 +7290,14 @@
     "symbol": "478440",
     "name": "미래에셋비전스팩6호",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "477340",
     "name": "에이치엠씨제7호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -7311,14 +7311,14 @@
     "symbol": "478390",
     "name": "KB제29호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "477470",
     "name": "미래에셋비전스팩5호",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -7332,7 +7332,7 @@
     "symbol": "477760",
     "name": "디비금융스팩12호",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -7360,7 +7360,7 @@
     "symbol": "477380",
     "name": "미래에셋비전스팩4호",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -7381,7 +7381,7 @@
     "symbol": "473000",
     "name": "SK증권제12호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -7416,7 +7416,7 @@
     "symbol": "474490",
     "name": "유안타제16호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -7437,21 +7437,21 @@
     "symbol": "475250",
     "name": "하나33호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "474930",
     "name": "신한제13호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "474660",
     "name": "신한제12호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -7465,7 +7465,7 @@
     "symbol": "475240",
     "name": "하나32호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -7507,28 +7507,28 @@
     "symbol": "469900",
     "name": "하나31호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "472230",
     "name": "SK증권제11호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "473050",
     "name": "유안타제15호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "468760",
     "name": "유진스팩10호",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -7577,7 +7577,7 @@
     "symbol": "472220",
     "name": "신영스팩10호",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -7591,7 +7591,7 @@
     "symbol": "469480",
     "name": "IBKS제24호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -7626,7 +7626,7 @@
     "symbol": "440290",
     "name": "HB인베스트먼트",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "기타 금융업"
   },
   {
@@ -7640,7 +7640,7 @@
     "symbol": "471050",
     "name": "대신밸런스제17호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -7661,14 +7661,14 @@
     "symbol": "467930",
     "name": "IBKS제23호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
     "symbol": "469880",
     "name": "하나30호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -7703,7 +7703,7 @@
     "symbol": "465320",
     "name": "교보15호스팩",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -7766,7 +7766,7 @@
     "symbol": "452300",
     "name": "캡스톤파트너스",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -8200,7 +8200,7 @@
     "symbol": "309960",
     "name": "LB인베스트먼트",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "기타 금융업"
   },
   {
@@ -8760,7 +8760,7 @@
     "symbol": "330730",
     "name": "스톤브릿지벤처스",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -9397,7 +9397,7 @@
     "symbol": "369370",
     "name": "블리츠웨이엔터테인먼트",
     "market": "KOSDAQ",
-    "sector": "부동산",
+    "sector": "미디어/엔터",
     "industry": "창작 및 예술관련 서비스업"
   },
   {
@@ -10034,7 +10034,7 @@
     "symbol": "190650",
     "name": "코리아에셋투자증권",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -10307,7 +10307,7 @@
     "symbol": "234340",
     "name": "헥토파이낸셜",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -10384,7 +10384,7 @@
     "symbol": "307930",
     "name": "컴퍼니케이",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -10433,7 +10433,7 @@
     "symbol": "100790",
     "name": "미래에셋벤처투자",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "기타 금융업"
   },
   {
@@ -10608,7 +10608,7 @@
     "symbol": "900340",
     "name": "윙입푸드",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -10664,7 +10664,7 @@
     "symbol": "027360",
     "name": "아주IB투자",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "기타 금융업"
   },
   {
@@ -10741,7 +10741,7 @@
     "symbol": "293580",
     "name": "나우IB",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -10888,7 +10888,7 @@
     "symbol": "289080",
     "name": "SV인베스트먼트",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "기타 금융업"
   },
   {
@@ -11224,7 +11224,7 @@
     "symbol": "900310",
     "name": "컬러레이",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -11294,7 +11294,7 @@
     "symbol": "003380",
     "name": "하림지주",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -11574,7 +11574,7 @@
     "symbol": "900300",
     "name": "오가닉티코스메틱",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -11616,7 +11616,7 @@
     "symbol": "900290",
     "name": "GRT",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -11700,7 +11700,7 @@
     "symbol": "900270",
     "name": "헝셩그룹",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -11749,7 +11749,7 @@
     "symbol": "900260",
     "name": "로스웰",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -12610,7 +12610,7 @@
     "symbol": "204620",
     "name": "글로벌텍스프리",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -13716,7 +13716,7 @@
     "symbol": "900110",
     "name": "딥커머스",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -13737,7 +13737,7 @@
     "symbol": "900120",
     "name": "씨엑스아이",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -13821,7 +13821,7 @@
     "symbol": "900070",
     "name": "글로벌에스엠",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -14122,7 +14122,7 @@
     "symbol": "078070",
     "name": "유비쿼스홀딩스",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -14640,7 +14640,7 @@
     "symbol": "078020",
     "name": "LS증권",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -16250,7 +16250,7 @@
     "symbol": "060250",
     "name": "NHN KCP",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -16348,7 +16348,7 @@
     "symbol": "054620",
     "name": "APS",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -17006,7 +17006,7 @@
     "symbol": "042370",
     "name": "비츠로테크",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -17132,7 +17132,7 @@
     "symbol": "041190",
     "name": "우리기술투자",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "기타 금융업"
   },
   {
@@ -17286,7 +17286,7 @@
     "symbol": "036830",
     "name": "솔브레인홀딩스",
     "market": "KOSDAQ",
-    "sector": "증권/보험",
+    "sector": "지주회사",
     "industry": "회사 본부 및 경영 컨설팅 서비스업"
   },
   {
@@ -17349,7 +17349,7 @@
     "symbol": "036710",
     "name": "심텍홀딩스",
     "market": "KOSDAQ",
-    "sector": "증권/보험",
+    "sector": "지주회사",
     "industry": "회사 본부 및 경영 컨설팅 서비스업"
   },
   {
@@ -17559,7 +17559,7 @@
     "symbol": "035610",
     "name": "솔본",
     "market": "KOSDAQ",
-    "sector": "증권/보험",
+    "sector": "지주회사",
     "industry": "회사 본부 및 경영 컨설팅 서비스업"
   },
   {
@@ -17615,7 +17615,7 @@
     "symbol": "034810",
     "name": "해성산업",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -17923,7 +17923,7 @@
     "symbol": "021880",
     "name": "메이슨캐피탈",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "기타 금융업"
   },
   {
@@ -18231,7 +18231,7 @@
     "symbol": "023760",
     "name": "한국캐피탈",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "기타 금융업"
   },
   {
@@ -18420,7 +18420,7 @@
     "symbol": "016600",
     "name": "큐캐피탈",
     "market": "KOSDAQ",
-    "sector": "은행/금융지주",
+    "sector": "증권/보험",
     "industry": "기타 금융업"
   },
   {

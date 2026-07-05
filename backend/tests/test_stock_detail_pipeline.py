@@ -487,7 +487,8 @@ async def test_market_stock_detail_can_skip_profile_and_listing(monkeypatch):
     result = await market_stock_detail("005930", include_profile=False, include_listing=False)
 
     assert result["description"].endswith("국내 상장사입니다.")
-    assert result["sector"] == ""
+    # sector는 parquet(source of truth)에서 조회되므로 프로필/상장정보를 스킵해도 채워진다.
+    assert result["sector"] == "반도체"
     assert result["industry"] == ""
     assert result["listingDate"] is None
     assert result["currentPrice"] == 72500

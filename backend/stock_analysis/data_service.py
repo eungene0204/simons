@@ -99,8 +99,9 @@ class StockDataService:
         data.debt_ratio = _last_valid(df["debt_ratio"]) if "debt_ratio" in df else None
         if "date" in df and pd.notna(last.get("date")):
             data.as_of = pd.Timestamp(last["date"]).strftime("%Y-%m-%d")
-        # parquet sector가 비면 korea-stocks.json sector 유지.
-        if not data.sector and "sector" in df and pd.notna(last.get("sector")):
+        # sector의 source of truth는 parquet — korea-stocks.json(ref.sector)은
+        # parquet에 값이 없을 때만(상장폐지 등) 폴백으로 사용한다.
+        if "sector" in df and pd.notna(last.get("sector")):
             data.sector = str(last["sector"])
 
         # 누락 항목 기록(환각 금지).

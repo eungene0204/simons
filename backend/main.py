@@ -1040,6 +1040,12 @@ def _resolve_investment_sector(
     company_name: Optional[str],
     industry: Optional[str],
 ) -> str:
+    # source of truth: data/ohlcv/{symbol}.parquet의 sector 컬럼.
+    # (전 종목에 정확한 섹터를 백필해두었으므로, 매 요청마다 실시간 재계산하지 않고 이를 우선 사용한다.)
+    parquet_sector = _read_sector_from_parquet(symbol)
+    if parquet_sector:
+        return parquet_sector
+
     normalized_industry = str(industry or "").strip()
     if not normalized_industry:
         return ""
@@ -1050,6 +1056,25 @@ def _resolve_investment_sector(
         return str(
             get_sector_from_industry(symbol, normalized_industry, company_name or "") or ""
         ).strip()
+    except Exception:
+        return ""
+
+
+_OHLCV_DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "ohlcv")
+
+
+def _read_sector_from_parquet(symbol: str) -> str:
+    parquet_path = os.path.join(_OHLCV_DATA_DIR, f"{symbol}.parquet")
+    if not os.path.exists(parquet_path):
+        return ""
+    try:
+        import pandas as pd
+
+        df = pd.read_parquet(parquet_path, columns=["sector"])
+        if df.empty:
+            return ""
+        sector = df.iloc[-1].get("sector")
+        return str(sector).strip() if pd.notna(sector) else ""
     except Exception:
         return ""
 

@@ -18,9 +18,9 @@ MAPPING_RULES = {
     "우주항공/방산": ["항공", "공항", "항공기", "방위", "방산", "전투기", "위성"],
     "건설": ["건설", "토목", "건축", "시설물 축조", "전문공사"],
     "운송/물류": ["운송", "택배", "물류", "창고", "육상운송", "상업서비스"],
-    "부동산": ["부동산", "리츠", "부동산 임대 및 공급업"],
-    "은행/금융지주": ["은행", "지주", "금융 지원", "기타 금융"],
-    "증권/보험": ["증권", "투자심매", "보험", "카드", "캐피탈", "리스", "창투", "신탁", "투자", "경영 컨설팅", "벤처캐피탈", "다각화금융"],
+    "부동산": ["부동산", "부동산 임대 및 공급업"],
+    "은행/금융지주": ["은행", "저축은행"],
+    "증권/보험": ["증권", "투자심매", "보험", "카드", "캐피탈", "리스", "창투", "신탁", "투자", "벤처캐피탈", "다각화금융", "인베스트먼트", "금융 지원 서비스업"],
     "유통/상사": ["유통", "도매", "소매", "백화점", "마트", "편의점", "중개", "종합상사", "전자상거래", "판매업", "소비재"],
     "화장품/패션": ["화장품", "비누", "미용", "섬유", "의류", "봉제", "신발", "가죽", "방직", "의복", "의류 제조업", "직물", "방적", "편조"],
     "식품/음료": ["식품", "식료품", "육가공", "제과", "제빵", "설탕", "낙농", "도축", "음료", "주류", "커피", "담배", "가공", "저장", "농산물", "채소"],
@@ -61,20 +61,47 @@ OVERRIDDEN_SYMBOLS = {
     "226330": "바이오/제약", # 신테카바이오
     "071200": "의료기기", # 인피니트헬스케어
     "086520": "이차전지", # 에코프로
+    # 은행지주 KSIC 분류가 "기타 금융업"으로 잡혀 키워드 매칭이 불가한 진짜 금융지주회사
+    # (일반 산업 지주회사와 달리 자신이 곧 금융업이므로 은행/금융지주가 정확함)
+    "316140": "은행/금융지주", # 우리금융지주
+    "175330": "은행/금융지주", # JB금융지주
+    "139130": "은행/금융지주", # iM금융지주
+    "138930": "은행/금융지주", # BNK금융지주
+    "105560": "은행/금융지주", # KB금융
+    "086790": "은행/금융지주", # 하나금융지주
+    "071050": "은행/금융지주", # 한국금융지주
+    "055550": "은행/금융지주", # 신한지주
+    "138040": "은행/금융지주", # 메리츠금융지주
 }
+
+# KSIC(한국표준산업분류)상 지주회사는 실제 영위 사업과 무관하게
+# "기타 금융업" 또는 "회사 본부 및 경영 컨설팅 서비스업"으로 등록되는 경우가 많다.
+# 이런 산업 지주회사(SK, GS, CJ, LG, 롯데지주 등)를 은행/금융업으로 잘못 표시하지 않기 위한 별도 분류.
+_HOLDING_COMPANY_INDUSTRY_LABELS = {
+    "기타 금융업",
+    "회사 본부 및 경영 컨설팅 서비스업",
+    "회사 본부, 지주회사 및 경영컨설팅 서비스업",
+}
+
 
 def get_sector_from_industry(symbol, industry, name=""):
     if symbol in OVERRIDDEN_SYMBOLS:
         return OVERRIDDEN_SYMBOLS[symbol]
-        
+
+    industry_text = str(industry or "").strip()
     combined_text = f"{industry} {name}".lower() if name else str(industry).lower()
-    
+
     if not combined_text or combined_text == "nan":
         return "기타 제조업"
-    
+
+    # 리츠(REIT) 종목명은 항상 "OO리츠"로 끝난다 — "메리츠"(Meritz 그룹사)처럼
+    # 이름 중간에 "리츠"가 우연히 포함되는 경우와 구분하기 위해 접미사로만 판정한다.
+    if combined_text.strip().endswith("리츠"):
+        return "부동산"
+
     # Priority ordered match
     for sector in [
-        "반도체", "반도체 소재", "이차전지", "디스플레이/부품", "소프트웨어/플랫폼", "게임", 
+        "반도체", "반도체 소재", "이차전지", "디스플레이/부품", "소프트웨어/플랫폼", "게임",
         "바이오/제약", "자동차", "에너지/원자력", "부동산", "수산", "수산가공", "욕실", "사료/축산", "교육", "목재"
     ]:
         if sector in MAPPING_RULES:
@@ -82,14 +109,25 @@ def get_sector_from_industry(symbol, industry, name=""):
                 if kw.lower() in combined_text:
                     return sector
 
-    # General match for rest
+    # General match for rest (범용 카테고리인 기타 서비스/기타 제조업은 제외 —
+    # 지주회사 판정을 먼저 거친 뒤 최종 폴백으로만 사용)
     for sector, keywords in MAPPING_RULES.items():
+        if sector in ("기타 서비스", "기타 제조업"):
+            continue
         for kw in keywords:
             if kw.lower() in combined_text:
                 return sector
-    
-    # Fallback to ensure no nulls
-    if "서비스" in combined_text or "업" in combined_text:
+
+    # 산업 지주회사(SK, GS, CJ, LG, 롯데지주 등) — 실제 계열사 업종과 무관하므로 뭉뚱그리지 않는다.
+    if industry_text in _HOLDING_COMPANY_INDUSTRY_LABELS:
+        return "지주회사"
+
+    # Fallback to ensure no nulls.
+    # "업"은 모든 KSIC 업종명의 접미사(제조업 포함)라 그대로 쓰면 과도하게 넓어지므로
+    # "제조업"으로 끝나는 업종은 제외하고 나머지 "OO업"만 서비스로 간주한다.
+    if "서비스" in combined_text:
         return "기타 서비스"
-    
+    if industry_text.endswith("업") and "제조업" not in industry_text:
+        return "기타 서비스"
+
     return "기타 제조업"

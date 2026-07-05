@@ -1615,11 +1615,6 @@ export default function BacktestDashboard({
                           )}
                        </tbody>
                    </table>
-                   <div className="p-6 border-t border-white/[0.05]">
-                      <p className="text-xs font-bold text-gray-600 leading-relaxed">
-                        * 종목별 상세 수익 분석 기능은 준비 중입니다. 현재는 포트폴리오 전체 성과 중심으로 제공됩니다.
-                      </p>
-                   </div>
                 </div>
              </div>
            )}
