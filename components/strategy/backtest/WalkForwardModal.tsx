@@ -28,6 +28,11 @@ export interface WalkForwardSettings {
   method?: "bayesian" | "grid";
   parameter_steps?: Record<string, number>;
   parameter_ranges?: Record<string, WalkForwardParameterRangeOverride>;
+  // 슬라이더에서 고른 학습/검증 거래일 수 — 백엔드가 그대로 창 분할에 사용
+  is_bars?: number;
+  oos_bars?: number;
+  // 최적화에서 제외할 파라미터 라벨 (해당 파라미터는 원래 설정값으로 고정)
+  excluded_parameters?: string[];
 }
 
 export interface WalkForwardOptimizationTarget {
@@ -58,19 +63,20 @@ interface WalkForwardResult {
   combined_equity: number[];
   combined_dates: string[];
   walk_forward_efficiency: number;
+  wfe_valid?: boolean;
 }
 
 interface WalkForwardModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onRun: (settings: WalkForwardSettings) => Promise<WalkForwardResult>;
+  onRun: (settings: WalkForwardSettings, signal?: AbortSignal) => Promise<WalkForwardResult>;
   backtestDates?: string[];
   optimizationTargets?: WalkForwardOptimizationTarget[];
   baseStrategy?: StrategyBacktestRequest;
 }
 
 interface WalkForwardPanelProps {
-  onRun?: (settings: WalkForwardSettings) => Promise<WalkForwardResult>;
+  onRun?: (settings: WalkForwardSettings, signal?: AbortSignal) => Promise<WalkForwardResult>;
   backtestDates?: string[];
   optimizationTargets?: WalkForwardOptimizationTarget[];
   baseStrategy?: StrategyBacktestRequest;
@@ -352,6 +358,7 @@ export function WalkForwardPanel({
   const [result, setResult] = useState<WalkForwardResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [parameterRangeOverrides, setParameterRangeOverrides] = useState<Record<string, WalkForwardParameterRangeOverride>>({});
+  const [excludedTargetIds, setExcludedTargetIds] = useState<Set<string>>(() => new Set());
   const [stepModalTargetId, setStepModalTargetId] = useState<string | null>(null);
   const [stepModalDraft, setStepModalDraft] = useState<WalkForwardParameterRangeOverride | null>(null);
   const [stepModalError, setStepModalError] = useState<string | null>(null);
@@ -371,13 +378,21 @@ export function WalkForwardPanel({
   }, [minWindowBars, totalBars]);
 
   const baseParameterRanges = baseStrategy ? buildWalkForwardParameterRanges(baseStrategy) : {};
-  const defaultParameterRanges = optimizationTargets.reduce<Record<string, WalkForwardParameterRangeOverride>>((acc, target) => {
+  // 전략에 실제 존재하는 숫자 파라미터(자동 생성 range와 매칭되는 라벨)만 노출한다 —
+  // 매칭되지 않는 칩은 눌러도 아무 효과가 없는 유령 파라미터가 된다.
+  const visibleTargets = baseStrategy
+    ? optimizationTargets.filter(
+        (target) => findWalkForwardRangeBoundsForLabel(baseStrategy, target.label, baseParameterRanges) !== null
+      )
+    : optimizationTargets;
+  const defaultParameterRanges = visibleTargets.reduce<Record<string, WalkForwardParameterRangeOverride>>((acc, target) => {
     const config = getParameterStepConfig(target.label);
     const bounds = baseStrategy
       ? findWalkForwardRangeBoundsForLabel(baseStrategy, target.label, baseParameterRanges)
       : null;
-    const min = Math.min(bounds?.min ?? config.min, config.min);
-    const max = Math.max(bounds?.max ?? config.max, config.max);
+    // 기본값은 실제로 적용되는 자동 생성 범위 그대로 보여준다 (표시 = 실행).
+    const min = bounds?.min ?? config.min;
+    const max = bounds?.max ?? config.max;
     const span = Math.max(config.inputStep, Number((max - min).toFixed(4)));
     acc[target.id] = {
       min: Number(min.toFixed(4)),
@@ -387,12 +402,17 @@ export function WalkForwardPanel({
     return acc;
   }, {});
 
-  const parameterSteps = optimizationTargets.reduce<Record<string, number>>((steps, target) => {
+  const activeTargets = visibleTargets.filter((target) => !excludedTargetIds.has(target.id));
+  const excludedLabels = visibleTargets
+    .filter((target) => excludedTargetIds.has(target.id))
+    .map((target) => target.label);
+
+  const parameterSteps = activeTargets.reduce<Record<string, number>>((steps, target) => {
     steps[target.label] = (parameterRangeOverrides[target.id] ?? defaultParameterRanges[target.id]).step;
     return steps;
   }, {});
 
-  const parameterRanges = optimizationTargets.reduce<Record<string, WalkForwardParameterRangeOverride>>((ranges, target) => {
+  const parameterRanges = activeTargets.reduce<Record<string, WalkForwardParameterRangeOverride>>((ranges, target) => {
     const current = parameterRangeOverrides[target.id];
     const defaults = defaultParameterRanges[target.id];
     if (current && defaults && !sameRangeOverride(current, defaults)) {
@@ -401,6 +421,7 @@ export function WalkForwardPanel({
     return ranges;
   }, {});
 
+  const hasRealDates = backtestDates.length > 1;
   const derivedSettings: WalkForwardSettings = {
     n_splits: deriveSplitCount(totalBars, formState.trainBars, formState.validationBars),
     train_pct: deriveTrainPct(totalBars, formState.trainBars, formState.validationBars, formState.anchor),
@@ -408,8 +429,10 @@ export function WalkForwardPanel({
     target_metric: formState.target_metric,
     n_trials: formState.n_trials,
     method: formState.optimizationMethod,
-    ...(optimizationTargets.length > 0 ? { parameter_steps: parameterSteps } : {}),
+    ...(hasRealDates ? { is_bars: formState.trainBars, oos_bars: formState.validationBars } : {}),
+    ...(activeTargets.length > 0 ? { parameter_steps: parameterSteps } : {}),
     ...(Object.keys(parameterRanges).length > 0 ? { parameter_ranges: parameterRanges } : {}),
+    ...(excludedLabels.length > 0 ? { excluded_parameters: excludedLabels } : {}),
   };
 
   const maxTrainBars = Math.max(minWindowBars, totalBars - minWindowBars);
@@ -440,23 +463,43 @@ export function WalkForwardPanel({
     setError(null);
     setResult(null);
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
-      const res = await onRun(derivedSettings);
+      const res = await onRun(derivedSettings, controller.signal);
       if (res.status === "error") {
         setError(res.message || "분석 중 오류가 발생했습니다.");
       } else {
         setResult(res);
       }
     } catch (e: any) {
-      setError(e.message || "알 수 없는 오류가 발생했습니다.");
+      if (controller.signal.aborted) {
+        setError("분석을 취소했습니다.");
+      } else {
+        setError(e.message || "알 수 없는 오류가 발생했습니다.");
+      }
     } finally {
       setIsRunning(false);
       abortRef.current = null;
     }
   };
 
+  const handleCancel = () => {
+    abortRef.current?.abort();
+  };
+
   const handleClose = () => {
     if (!isRunning) onClose?.();
+  };
+
+  const toggleTargetExcluded = (targetId: string) => {
+    setExcludedTargetIds((current) => {
+      const next = new Set(current);
+      if (next.has(targetId)) next.delete(targetId);
+      else next.add(targetId);
+      return next;
+    });
   };
 
   const currentParameterRangeForTarget = (target: WalkForwardOptimizationTarget) =>
@@ -486,7 +529,7 @@ export function WalkForwardPanel({
 
   const saveStepModal = () => {
     if (!stepModalTargetId || !stepModalDraft) return;
-    const target = optimizationTargets.find((item) => item.id === stepModalTargetId);
+    const target = visibleTargets.find((item) => item.id === stepModalTargetId);
     if (!target) return;
     const config = getParameterStepConfig(target.label);
     if (!Number.isFinite(stepModalDraft.min) || !Number.isFinite(stepModalDraft.max)) {
@@ -529,9 +572,11 @@ export function WalkForwardPanel({
 
   const xTickFormatter = (value: string) => value?.slice(0, 7) ?? "";
   const wfe = result?.walk_forward_efficiency ?? 0;
+  // 백엔드가 IS 평균 수익 ≤ 0으로 WFE 해석 불가를 알린 경우
+  const wfeValid = result?.wfe_valid !== false;
   const wfeTone = getWfeTone(wfe);
   const isGridMethod = formState.optimizationMethod === "grid";
-  const stepModalTarget = optimizationTargets.find((target) => target.id === stepModalTargetId) ?? null;
+  const stepModalTarget = visibleTargets.find((target) => target.id === stepModalTargetId) ?? null;
   const stepModalConfig = stepModalTarget ? getParameterStepConfig(stepModalTarget.label) : DEFAULT_PARAMETER_STEP_CONFIG;
   const stepModalCurrentRange = stepModalTarget
     ? currentParameterRangeForTarget(stepModalTarget)
@@ -543,8 +588,8 @@ export function WalkForwardPanel({
   const stepModalInputExamples = stepModalBounds
     ? buildParameterInputExamples(stepModalBounds, stepModalConfig.inputStep)
     : [];
-  const gridSearchEstimate = optimizationTargets.length > 0
-    ? optimizationTargets.reduce((total, target) => total * estimateGridChoiceCount(currentParameterRangeForTarget(target)), 1)
+  const gridSearchEstimate = activeTargets.length > 0
+    ? activeTargets.reduce((total, target) => total * estimateGridChoiceCount(currentParameterRangeForTarget(target)), 1)
     : 0;
   const gridSearchExceedsCap = isGridMethod && gridSearchEstimate > MAX_GRID_COMBINATIONS;
   const runDisabledReason = gridSearchExceedsCap
@@ -734,29 +779,49 @@ export function WalkForwardPanel({
                             최적화 대상 파라미터
                           </span>
                           <span className="mt-2 block text-xs font-bold leading-5 text-gray-300">
-                            전략에서 사용 중인 파라미터 중 어떤 값을 워크포워드 구간마다 다시 탐색할지 선택합니다. 선택하지 않은 파라미터는 원래 설정값을 그대로 사용합니다.
+                            현재 전략에 실제 포함된 숫자 파라미터만 표시됩니다. 각 파라미터를 눌러 탐색 범위와 step을 조정하거나 최적화에서 제외할 수 있고, 제외한 파라미터는 원래 설정값을 그대로 사용합니다.
                           </span>
                           <span className="mt-3 block text-xs font-bold leading-5 text-gray-400">
                             예: PBR, 손절라인을 선택하면 각 IS 구간에서 PBR 임계값과 손절 비율의 조합을 다시 찾고, 보유기간·보유종목수는 기존 설정을 그대로 씁니다.
                           </span>
                         </HelpTooltip>
                       </div>
-                      {optimizationTargets.length > 0 ? (
+                      {visibleTargets.length > 0 ? (
                         <div className="mt-3 flex flex-wrap gap-2">
-                          {optimizationTargets.map((target) => (
-                            <button
-                              type="button"
-                              key={target.id}
-                              onClick={() => openStepModal(target)}
-                              className="rounded-md bg-white/[0.08] px-3 py-2 text-left text-sm font-black text-white transition-colors hover:bg-white/[0.12] focus:outline-none focus:ring-2 focus:ring-white/20"
-                            >
-                              {target.label}
-                            </button>
-                          ))}
+                          {visibleTargets.map((target) => {
+                            const isExcluded = excludedTargetIds.has(target.id);
+                            const range = currentParameterRangeForTarget(target);
+                            const unit = getParameterStepConfig(target.label).unit;
+                            return (
+                              <div key={target.id} className="flex flex-col gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => openStepModal(target)}
+                                  className={`rounded-md px-3 py-2 text-left text-sm font-black transition-colors focus:outline-none focus:ring-2 focus:ring-white/20 ${
+                                    isExcluded
+                                      ? "bg-white/[0.03] text-gray-500 line-through hover:bg-white/[0.06]"
+                                      : "bg-white/[0.08] text-white hover:bg-white/[0.12]"
+                                  }`}
+                                >
+                                  {target.label}
+                                </button>
+                                <span
+                                  data-testid={`walk-forward-target-range-${target.label}`}
+                                  className="px-1 text-[10px] font-bold tabular-nums tracking-wide text-gray-500"
+                                >
+                                  {isExcluded
+                                    ? "제외됨"
+                                    : range
+                                      ? `${formatStepWithUnit(range.min, unit)}~${formatStepWithUnit(range.max, unit)}`
+                                      : ""}
+                                </span>
+                              </div>
+                            );
+                          })}
                         </div>
                       ) : (
                         <p className="mt-3 text-sm font-bold leading-6 text-gray-400">
-                          현재 전략 요약 배지가 없습니다.
+                          현재 전략에서 조정 가능한 숫자 파라미터를 찾지 못했습니다.
                         </p>
                       )}
                     </div>
@@ -883,30 +948,49 @@ export function WalkForwardPanel({
                   <section className="lg:col-span-3">
                     <div className="p-5">
                       <p className="text-xs font-bold uppercase tracking-widest text-gray-500">Walk-Forward Efficiency</p>
-                      <div className="mt-3 flex items-end gap-3">
-                        <span className={`text-4xl font-black tabular-nums font-outfit ${wfeTone.valueClass}`}>
-                          {(wfe * 100).toFixed(1)}%
-                        </span>
-                        <span className={`px-2 py-1 text-[10px] font-black uppercase tracking-[0.16em] ${wfeTone.badgeClass}`}>
-                          {wfeTone.text}
-                        </span>
-                      </div>
-                      <p className="mt-3 text-xs font-bold leading-5 text-gray-400">
-                        평균 OOS 수익률과 평균 IS 수익률의 비율입니다. 1.0에 가까울수록 구간 간 편차가 작게 나타난 편입니다.
-                      </p>
+                      {wfeValid ? (
+                        <>
+                          <div className="mt-3 flex items-end gap-3">
+                            <span className={`text-4xl font-black tabular-nums font-outfit ${wfeTone.valueClass}`}>
+                              {(wfe * 100).toFixed(1)}%
+                            </span>
+                            <span className={`px-2 py-1 text-[10px] font-black uppercase tracking-[0.16em] ${wfeTone.badgeClass}`}>
+                              {wfeTone.text}
+                            </span>
+                          </div>
+                          <p className="mt-3 text-xs font-bold leading-5 text-gray-400">
+                            평균 OOS 수익률과 평균 IS 수익률의 비율입니다. 1.0에 가까울수록 구간 간 편차가 작게 나타난 편입니다.
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <div className="mt-3 flex items-end gap-3">
+                            <span className="text-4xl font-black tabular-nums text-gray-500 font-outfit">-</span>
+                            <span className="bg-white/[0.06] px-2 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-gray-400">
+                              해석 불가
+                            </span>
+                          </div>
+                          <p className="mt-3 text-xs font-bold leading-5 text-gray-400">
+                            학습(IS) 구간 평균 수익률이 0 이하라 OOS/IS 비율을 해석할 수 없습니다. 구간별 결과를 직접 확인해 주세요.
+                          </p>
+                        </>
+                      )}
                     </div>
                   </section>
                   <section className="lg:col-span-4">
                     <div className="p-5">
                       <p className="text-xs font-bold uppercase tracking-widest text-gray-500">OOS 평균 성과</p>
-                      <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-4">
+                      <div className="mt-4 grid grid-cols-3 gap-x-4 gap-y-4">
                         {[
                           { key: "avg_oos_cagr", label: "CAGR", suffix: "%" },
                           { key: "avg_oos_totalReturn", label: "총 수익률", suffix: "%" },
                           { key: "avg_oos_maxDrawdown", label: "MDD", suffix: "%" },
                           { key: "avg_oos_sharpe", label: "Sharpe", suffix: "" },
+                          { key: "avg_oos_calmar", label: "Calmar", suffix: "" },
                           { key: "avg_oos_winRate", label: "승률", suffix: "%" },
                           { key: "avg_oos_profitFactor", label: "손익비", suffix: "" },
+                          { key: "avg_oos_trades", label: "평균 거래 수", suffix: "" },
+                          { key: "avg_oos_expectancy", label: "평균 거래손익", suffix: "%" },
                         ].map((item) => (
                           <div key={item.key} className="space-y-1">
                             <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">{item.label}</p>
@@ -1197,13 +1281,25 @@ export function WalkForwardPanel({
                   {formatStepWithUnit(stepModalCurrentRange.step, stepModalConfig.unit)}
                 </p>
                 <div className="mt-5 flex items-center justify-between gap-2">
-                  <button
-                    type="button"
-                    onClick={resetStepModal}
-                    className="rounded-md px-3 py-2 text-xs font-black text-gray-500 transition-colors hover:bg-white/[0.04] hover:text-gray-300"
-                  >
-                    기본값
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={resetStepModal}
+                      className="rounded-md px-3 py-2 text-xs font-black text-gray-500 transition-colors hover:bg-white/[0.04] hover:text-gray-300"
+                    >
+                      기본값
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        toggleTargetExcluded(stepModalTarget.id);
+                        closeStepModal();
+                      }}
+                      className="rounded-md px-3 py-2 text-xs font-black text-gray-500 transition-colors hover:bg-white/[0.04] hover:text-gray-300"
+                    >
+                      {excludedTargetIds.has(stepModalTarget.id) ? "최적화에 포함" : "최적화에서 제외"}
+                    </button>
+                  </div>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
@@ -1247,6 +1343,14 @@ export function WalkForwardPanel({
                   className="px-4 py-2 text-sm font-black text-gray-400 transition-colors hover:bg-white/[0.03] hover:text-white disabled:opacity-40"
                 >
                   닫기
+                </button>
+              )}
+              {!result && isRunning && (
+                <button
+                  onClick={handleCancel}
+                  className="px-4 py-2 text-sm font-black text-gray-400 transition-colors hover:bg-white/[0.03] hover:text-white"
+                >
+                  취소
                 </button>
               )}
               {!result && (

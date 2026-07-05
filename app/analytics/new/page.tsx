@@ -1147,6 +1147,34 @@ function StrategyLabContent() {
     }
   };
 
+  // [전략별 특화 빌더] 빌더가 DSL을 직접 구성해 내려준 완성 전략을 한국어 재파싱 왕복 없이
+  // 그대로 적용한다(파라미터 유실 방지). parsed는 ParsedStrategy dump = ParsedSummary와 동형,
+  // backtest_request는 엔진 요청. runStrategyParseFlow.finalizeParse의 적용부와 동일한 효과.
+  const applyBuilderConfirmedStrategy = (data: {
+    parsed: ParsedSummary;
+    backtest_request: any;
+    prompt?: string;
+    notices?: string[];
+  }) => {
+    coachSessionIdRef.current = null;
+    setLatestParsed(data.parsed);
+    setBacktestReq(data.backtest_request);
+    setCurrentOptions({
+      period: data.backtest_request?.period ?? "5y",
+      initialCapital: data.backtest_request?.risk?.init_cash ?? 10000000,
+      commissionPct: 0.015,
+      slippagePct: 0.05,
+    });
+    setStage("ready");
+    updateLastAssistant({
+      isLoading: false,
+      parsed: data.parsed,
+      notices: data.notices?.length ? data.notices : undefined,
+    });
+    setMessages(prev => [...prev, { role: "assistant", coachLoading: true, coachText: "" }]);
+    generateCoachResponse({ userText: data.prompt ?? data.parsed.description, parsed: data.parsed });
+  };
+
   const handleSend = async (overrideText?: string) => {
     const userText = overrideText ?? inputValue.trim();
     if (!userText || isSending || stage === "running") return;
@@ -1220,13 +1248,18 @@ function StrategyLabContent() {
         const data = await res.json();
         builderStateRef.current = data.state ?? {};
 
-        if (data.status === "confirmed" && data.prompt) {
-          // 전략 완성 → 빌더 종료 후 합성 프롬프트로 기존 백테스트 파이프라인 실행.
+        if (data.status === "confirmed") {
+          // 전략 완성 → 빌더 종료. 특화 빌더가 DSL(parsed+backtest_request)을 직접 내려주면
+          // 재파싱 없이 그대로 적용하고, custom(자유 서술)만 프롬프트 재파싱 경로로 폴백한다.
           builderModeRef.current = false;
           builderStateRef.current = {};
           updateLastAssistant({ isLoading: true, infoText: undefined });
           try {
-            await runStrategyParseFlow(data.prompt, null, null);
+            if (data.parsed && data.backtest_request) {
+              applyBuilderConfirmedStrategy(data);
+            } else if (data.prompt) {
+              await runStrategyParseFlow(data.prompt, null, null);
+            }
           } catch (e: any) {
             updateLastAssistant({ isLoading: false, error: e.message ?? "알 수 없는 오류" });
           }
@@ -1563,7 +1596,7 @@ function StrategyLabContent() {
     }
   };
 
-  const handleWalkForward = async (settings: AdvisorWalkForwardSettings) => {
+  const handleWalkForward = async (settings: AdvisorWalkForwardSettings, signal?: AbortSignal) => {
     if (!backtestReq) {
       throw new Error("워크포워드 분석을 실행할 백테스트 요청이 없습니다.");
     }
@@ -1579,6 +1612,7 @@ function StrategyLabContent() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(buildWalkForwardRequest(backtestReq, settings, ranges)),
+      signal,
     });
 
     if (!res.ok) {

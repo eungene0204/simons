@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Sparkle } from "phosphor-react";
+import { Sparkle, X } from "phosphor-react";
 
 export type ExampleCategory = "가치투자" | "기술분석" | "모멘텀" | "복합전략";
 export type ExampleLevel = "beginner" | "intermediate" | "expert";
@@ -629,6 +629,7 @@ export function StrategyExampleTabs({
   const [isLoadingStrategies, setIsLoadingStrategies] = useState(false);
   const [hasLoadedStrategies, setHasLoadedStrategies] = useState(false);
   const [strategiesError, setStrategiesError] = useState<string | null>(null);
+  const [deletingStrategyIds, setDeletingStrategyIds] = useState<Set<string>>(() => new Set());
   const [selectedExample, setSelectedExample] = useState<Example | null>(null);
   const [exampleContentHeight, setExampleContentHeight] = useState<number | null>(null);
   const examplesContentRef = useRef<HTMLDivElement>(null);
@@ -695,6 +696,30 @@ export function StrategyExampleTabs({
   }, [activeTab]);
 
   const hasMoreExamples = DEFAULT_VISIBLE_COUNT < EXAMPLES.length;
+
+  const handleDeleteStrategy = async (strategyId: string) => {
+    setDeletingStrategyIds((prev) => {
+      const next = new Set(prev);
+      next.add(strategyId);
+      return next;
+    });
+
+    try {
+      const response = await fetch(`/api/strategy/${strategyId}`, { method: "DELETE" });
+      if (!response.ok) {
+        throw new Error("Failed to delete strategy");
+      }
+      setMyStrategies((prev) => prev.filter((strategy) => strategy.id !== strategyId));
+    } catch (error) {
+      console.error("Failed to delete strategy:", error);
+    } finally {
+      setDeletingStrategyIds((prev) => {
+        const next = new Set(prev);
+        next.delete(strategyId);
+        return next;
+      });
+    }
+  };
 
   const isPreviewOpen = Boolean(selectedExample);
   const backgroundBlurClass = isPreviewOpen
@@ -793,26 +818,39 @@ export function StrategyExampleTabs({
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                  {myStrategies.map((strategy) => (
-                    <a
-                      key={strategy.id}
-                      href={`/analytics/${strategy.id}`}
-                      className="group rounded-2xl border border-white/[0.05] bg-[#121212] px-4 py-4 transition-all duration-200 hover:border-white/[0.12] hover:bg-[#171717]"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-black text-white/85 group-hover:text-white">{strategy.name}</p>
-                        </div>
+                  {myStrategies.map((strategy) => {
+                    const isDeleting = deletingStrategyIds.has(strategy.id);
+                    return (
+                      <div key={strategy.id} className="relative group">
+                        <a
+                          href={`/analytics/${strategy.id}`}
+                          className="block rounded-2xl border border-white/[0.05] bg-[#121212] px-4 py-4 pr-14 transition-all duration-200 hover:border-white/[0.12] hover:bg-[#171717]"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-black text-white/85 group-hover:text-white">{strategy.name}</p>
+                            </div>
+                          </div>
+                          <p className="mt-3 line-clamp-2 text-xs font-bold leading-relaxed text-gray-400">
+                            {strategy.description || "저장된 전략 상세 결과로 이동합니다."}
+                          </p>
+                          <div className="mt-3 flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-gray-600">
+                            <span>{strategy.accountCount}개 계좌 연결</span>
+                            <span>{new Date(strategy.createdAt).toLocaleDateString("ko-KR")}</span>
+                          </div>
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteStrategy(strategy.id)}
+                          disabled={isDeleting}
+                          aria-label={`${strategy.name} 전략 삭제`}
+                          className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-md bg-white/[0.06] text-gray-500 transition-colors hover:bg-white/[0.10] hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <X size={14} />
+                        </button>
                       </div>
-                      <p className="mt-3 line-clamp-2 text-xs font-bold leading-relaxed text-gray-400">
-                        {strategy.description || "저장된 전략 상세 결과로 이동합니다."}
-                      </p>
-                      <div className="mt-3 flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-gray-600">
-                        <span>{strategy.accountCount}개 계좌 연결</span>
-                        <span>{new Date(strategy.createdAt).toLocaleDateString("ko-KR")}</span>
-                      </div>
-                    </a>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -828,6 +866,12 @@ export function StrategyExampleTabs({
             className="mb-3 inline-flex text-xs font-black text-gray-400 underline-offset-4 transition-colors hover:text-white hover:underline"
           >
             이용약관
+          </Link>
+          <Link
+            href="/?legal=privacy"
+            className="mb-3 ml-4 inline-flex text-xs font-black text-gray-400 underline-offset-4 transition-colors hover:text-white hover:underline"
+          >
+            개인정보처리방침
           </Link>
           <p className="mx-auto max-w-5xl text-xs font-bold leading-relaxed text-gray-600">
             <span className="block">

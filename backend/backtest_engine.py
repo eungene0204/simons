@@ -739,6 +739,7 @@ class BacktestEngine:
                 benchmark_prices=benchmark_prices,
                 benchmark_label=_benchmark_name,
                 risk_free_rate=float(options.get('risk_free_rate') or 0.0),
+                exit_reason_overrides=getattr(self.simulator, 'exit_reason_overrides', None),
             )
             final["universe_id"] = req.get('universe_id') or ''
             _t4 = _time.time()

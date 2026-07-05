@@ -130,18 +130,19 @@ describe("WalkForwardModal", () => {
     expect(within(pbrStepDialog).getByRole("button", { name: "기본값" })).toHaveClass("rounded-md");
     expect(within(pbrStepDialog).getByRole("button", { name: "닫기" })).toHaveClass("rounded-md");
     expect(within(pbrStepDialog).getByRole("button", { name: "저장" })).toHaveClass("rounded-md");
+    // 기본값은 실제로 적용되는 자동 생성 범위(PBR=1 주변 0.8~1.2)를 그대로 보여준다.
     expect(screen.getByLabelText("PBR 하한값")).toHaveAttribute("type", "number");
-    expect(screen.getByLabelText("PBR 하한값")).toHaveValue(0.2);
+    expect(screen.getByLabelText("PBR 하한값")).toHaveValue(0.8);
     expect(screen.getByLabelText("PBR 상한값")).toHaveAttribute("type", "number");
-    expect(screen.getByLabelText("PBR 상한값")).toHaveValue(5);
-    expect(within(pbrStepDialog).getAllByText("예: 0.2, 2.6, 5")).toHaveLength(2);
+    expect(screen.getByLabelText("PBR 상한값")).toHaveValue(1.2);
+    expect(within(pbrStepDialog).getAllByText("예: 0.8, 1, 1.2")).toHaveLength(2);
     expect(screen.getByLabelText("PBR step 값")).not.toHaveAttribute("type", "range");
     expect(within(screen.getByLabelText("PBR step 값")).getAllByRole("button")).toHaveLength(3);
     expect(within(screen.getByLabelText("PBR step 값")).getByRole("button", { name: "0.1" })).toBeInTheDocument();
     expect(within(screen.getByLabelText("PBR step 값")).getByRole("button", { name: "0.25" })).toHaveAttribute("aria-pressed", "true");
     expect(within(screen.getByLabelText("PBR step 값")).getByRole("button", { name: "0.5" })).toBeInTheDocument();
-    expect(screen.getByLabelText("PBR 하한값")).toHaveDisplayValue("0.2");
-    expect(screen.getByLabelText("PBR 상한값")).toHaveDisplayValue("5");
+    expect(screen.getByLabelText("PBR 하한값")).toHaveDisplayValue("0.8");
+    expect(screen.getByLabelText("PBR 상한값")).toHaveDisplayValue("1.2");
     expect(within(pbrStepDialog).getAllByText("0.25").length).toBeGreaterThanOrEqual(2);
     expect(within(pbrStepDialog).queryByText(/Optuna/)).not.toBeInTheDocument();
     await user.clear(screen.getByLabelText("PBR 상한값"));
@@ -184,26 +185,31 @@ describe("WalkForwardModal", () => {
     await user.click(screen.getByRole("button", { name: "워크포워드 분석 시작" }));
 
     await waitFor(() => {
-      expect(onRun).toHaveBeenCalledWith({
-        n_splits: 5,
-        train_pct: 0.75,
-        anchor: false,
-        target_metric: "cagr",
-        n_trials: 30,
-        method: "bayesian",
-        parameter_steps: {
-          PBR: 0.5,
-          손절라인: 2.5,
-          익절라인: 5,
-        },
-        parameter_ranges: {
-          PBR: {
-            min: 0.9,
-            max: 1.5,
-            step: 0.5,
+      expect(onRun).toHaveBeenCalledWith(
+        {
+          n_splits: 5,
+          train_pct: 0.75,
+          anchor: false,
+          target_metric: "cagr",
+          n_trials: 30,
+          method: "bayesian",
+          is_bars: 84,
+          oos_bars: 28,
+          parameter_steps: {
+            PBR: 0.5,
+            손절라인: 2.5,
+            익절라인: 5,
+          },
+          parameter_ranges: {
+            PBR: {
+              min: 0.9,
+              max: 1.5,
+              step: 0.5,
+            },
           },
         },
-      });
+        expect.any(AbortSignal)
+      );
     });
     expect(screen.queryByText(/Optuna/)).not.toBeInTheDocument();
   });
@@ -271,7 +277,10 @@ describe("WalkForwardModal", () => {
     await user.click(screen.getByRole("button", { name: "워크포워드 분석 시작" }));
 
     await waitFor(() => {
-      expect(onRun).toHaveBeenCalledWith(expect.objectContaining({ method: "grid" }));
+      expect(onRun).toHaveBeenCalledWith(
+        expect.objectContaining({ method: "grid" }),
+        expect.any(AbortSignal)
+      );
     });
   });
 
@@ -307,14 +316,19 @@ describe("WalkForwardModal", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "워크포워드 분석 시작" }));
 
     await waitFor(() => {
-      expect(onRun).toHaveBeenCalledWith({
-        n_splits: 3,
-        train_pct: 0.5,
-        anchor: true,
-        target_metric: "cagr",
-        n_trials: 30,
-        method: "bayesian",
-      });
+      expect(onRun).toHaveBeenCalledWith(
+        {
+          n_splits: 3,
+          train_pct: 0.5,
+          anchor: true,
+          target_metric: "cagr",
+          n_trials: 30,
+          method: "bayesian",
+          is_bars: 120,
+          oos_bars: 40,
+        },
+        expect.any(AbortSignal)
+      );
     });
   });
 });

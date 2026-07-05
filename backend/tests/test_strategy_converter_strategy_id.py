@@ -208,3 +208,37 @@ def test_non_ranking_strategy_has_null_ranking_metric():
     risk = to_backtest_request(make_strategy(), resolve_symbols=False)["risk"]
 
     assert risk["ranking_metric"] is None
+
+
+def test_entry_filters_emitted_as_and_filter_conditions():
+    """entry_filters(추세·거래대금·RSI 결합)는 entry conditions에 type='filter'로 추가된다."""
+    strat = make_strategy(
+        entry_signals=[TechnicalSignal(indicator="bollinger_bands", signal_type="buy")],
+        entry_filters=[
+            TechnicalSignal(indicator="ema", signal_type="buy", period=200, mode="above"),
+            TechnicalSignal(indicator="trading_value", signal_type="buy", value=100),
+            TechnicalSignal(indicator="rsi", signal_type="buy", period=14, operator="<", value=30),
+        ],
+    )
+    req = to_backtest_request(strat, resolve_symbols=False)
+    conds = {(c["type"], c["id"]): c["params"] for c in req["entry"]["conditions"]}
+    assert ("indicator", "bollinger_bands") in conds
+    assert conds[("filter", "ema")]["mode"] == "above" and conds[("filter", "ema")]["period"] == 200
+    assert conds[("filter", "trading_value")]["value"] == 100
+    assert conds[("filter", "rsi")]["value"] == 30 and conds[("filter", "rsi")]["operator"] == "<"
+
+
+def test_entry_filters_change_canonical_id():
+    """필터 유무·값이 다르면 전략 해시가 달라져야 한다(캐시 오염 방지)."""
+    base = make_strategy(entry_signals=[TechnicalSignal(indicator="bollinger_bands", signal_type="buy")])
+    trend = make_strategy(
+        entry_signals=[TechnicalSignal(indicator="bollinger_bands", signal_type="buy")],
+        entry_filters=[TechnicalSignal(indicator="ema", signal_type="buy", period=200, mode="above")],
+    )
+    trend60 = make_strategy(
+        entry_signals=[TechnicalSignal(indicator="bollinger_bands", signal_type="buy")],
+        entry_filters=[TechnicalSignal(indicator="ema", signal_type="buy", period=60, mode="above")],
+    )
+    assert compute_strategy_id(base) != compute_strategy_id(trend)
+    assert compute_strategy_id(trend) != compute_strategy_id(trend60)
+    assert "entry_filters" in to_canonical_strategy_dsl(trend)

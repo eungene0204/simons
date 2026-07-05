@@ -7,6 +7,37 @@ from typing import Dict, Any, List
 MAX_GRID_COMBINATIONS = 500
 MAX_VALUES_PER_PARAMETER = 50
 
+# 같은 조건 블록 안에서 앞 파라미터 < 뒤 파라미터를 강제하는 의미 제약.
+# 그리드·베이지안 최적화가 공유한다 (예: 단기MA >= 장기MA 조합은 의미가 없다).
+PARAM_ORDER_CONSTRAINTS = [
+    ("shortMA", "longMA"),
+    ("fastPeriod", "slowPeriod"),
+    ("shortPeriod", "longPeriod"),
+]
+
+
+def satisfies_param_order_constraints(params: Dict[str, Any]) -> bool:
+    """
+    파라미터 조합이 의미 제약(PARAM_ORDER_CONSTRAINTS)을 만족하면 True.
+    "entry.conditions.0.params.shortMA" → prefix="entry.conditions.0.params", key="shortMA"
+    처럼 같은 조건 prefix 안의 쌍에만 적용한다.
+    """
+    by_prefix: Dict[str, Dict[str, Any]] = {}
+    for path, value in params.items():
+        parts = path.rsplit('.', 1)
+        if len(parts) == 2:
+            prefix, key = parts
+            by_prefix.setdefault(prefix, {})[key] = value
+
+    for group in by_prefix.values():
+        for small_key, large_key in PARAM_ORDER_CONSTRAINTS:
+            if small_key in group and large_key in group:
+                s_val, l_val = group[small_key], group[large_key]
+                if isinstance(s_val, (int, float)) and isinstance(l_val, (int, float)):
+                    if s_val >= l_val:
+                        return False
+    return True
+
 
 def set_nested_value(d: Dict[str, Any], path: str, value: Any):
     """
@@ -111,6 +142,14 @@ class StrategyOptimizer:
                 "message": f"조합 수({len(permutations)}개)가 상한({MAX_GRID_COMBINATIONS}개)을 초과했습니다. 파라미터 범위나 step을 조정해 주세요.",
             }
 
+        # 의미 없는 조합(단기MA >= 장기MA 등)은 실행 전에 걸러낸다.
+        permutations = [p for p in permutations if satisfies_param_order_constraints(p)]
+        if not permutations:
+            return {
+                "status": "error",
+                "message": "파라미터 순서 제약(예: 단기 < 장기)을 만족하는 조합이 없습니다. 범위를 조정해 주세요.",
+            }
+
         results = []
         
         for i, perm in enumerate(permutations):
@@ -141,6 +180,9 @@ class StrategyOptimizer:
                         "totalReturn": res.get("totalReturn"),
                         "profitFactor": res.get("profitFactor"),
                         "sharpe": res.get("sharpe"),
+                        "winRate": res.get("winRate"),
+                        "calmar": res.get("calmar"),
+                        "expectancy": res.get("expectancy"),
                         "trades": res.get("trades")
                     },
                     "target_value": metric_val

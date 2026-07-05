@@ -29,6 +29,11 @@ export interface AdvisorWalkForwardSettings {
   method?: "bayesian" | "grid";
   parameter_steps?: Record<string, number>;
   parameter_ranges?: Record<string, WalkForwardParameterRangeOverride>;
+  // UI에서 고른 학습/검증 거래일 수 — 백엔드가 그대로 창 분할에 사용한다.
+  is_bars?: number;
+  oos_bars?: number;
+  // 최적화에서 제외할 파라미터 라벨 — 해당 파라미터는 원래 설정값으로 고정된다.
+  excluded_parameters?: string[];
 }
 
 export interface WalkForwardParameterRangeOverride {
@@ -413,17 +418,41 @@ export function buildWalkForwardRequest(
     settings.parameter_steps,
     settings.parameter_ranges
   );
+  const filteredRanges = filterExcludedParameterRanges(
+    baseStrategy,
+    resolvedRanges,
+    settings.excluded_parameters
+  );
 
   return {
     base_strategy: baseStrategy,
-    ranges: resolvedRanges,
+    ranges: filteredRanges,
     n_splits: settings.n_splits,
     train_pct: settings.train_pct,
     anchor: settings.anchor,
     target_metric: settings.target_metric,
     n_trials: settings.n_trials,
     method: settings.method ?? "bayesian",
+    ...(settings.is_bars ? { is_bars: settings.is_bars } : {}),
+    ...(settings.oos_bars ? { oos_bars: settings.oos_bars } : {}),
   };
+}
+
+function filterExcludedParameterRanges(
+  baseStrategy: StrategyBacktestRequest,
+  ranges: Record<string, unknown>,
+  excludedLabels?: string[]
+): Record<string, unknown> {
+  if (!excludedLabels || excludedLabels.length === 0) return ranges;
+
+  const next: Record<string, unknown> = {};
+  for (const [path, range] of Object.entries(ranges)) {
+    const excluded = excludedLabels.some((label) =>
+      rangePathMatchesStepLabel(baseStrategy, label, path)
+    );
+    if (!excluded) next[path] = range;
+  }
+  return next;
 }
 
 function numericValue(value: unknown): number | null {
@@ -563,38 +592,29 @@ function rangePathMatchesStepLabel(baseStrategy: StrategyBacktestRequest, label:
   return !!compact && haystack.replace(/\s+/g, "").includes(compact);
 }
 
-function clampRangeOverride(
-  range: unknown,
+// 사용자가 UI에서 확인하고 저장한 범위를 자동 생성 범위로 다시 좁히지 않는다 —
+// 예전 클램프는 "표시된 범위 ≠ 실제 탐색 범위" 불일치의 원인이었다.
+function normalizeRangeOverride(
   override: WalkForwardParameterRangeOverride
 ): WalkForwardParameterRangeOverride | null {
-  const bounds = rangeBounds(range);
-  if (!bounds) return null;
+  const { min, max, step } = override;
+  if (!Number.isFinite(min) || !Number.isFinite(max) || !Number.isFinite(step)) return null;
 
-  const nextMin = Math.min(
-    Math.max(override.min, bounds.min),
-    bounds.max
-  );
-  const nextMax = Math.max(
-    Math.min(override.max, bounds.max),
-    nextMin
-  );
-  const span = nextMax - nextMin;
+  const span = max - min;
+  if (span <= 0) return null;
 
-  if (!Number.isFinite(span) || span <= 0) return null;
-
-  const nextStep = Math.min(Math.max(override.step, 1e-6), span);
+  const nextStep = Math.min(Math.max(step, 1e-6), span);
   return {
-    min: Number(nextMin.toFixed(4)),
-    max: Number(nextMax.toFixed(4)),
+    min: Number(min.toFixed(4)),
+    max: Number(max.toFixed(4)),
     step: Number(nextStep.toFixed(4)),
   };
 }
 
 function numberRangeSpecFromOverride(
-  range: unknown,
   override: WalkForwardParameterRangeOverride
 ): Record<string, number | string> | null {
-  const normalized = clampRangeOverride(range, override);
+  const normalized = normalizeRangeOverride(override);
   if (!normalized) return null;
 
   const integerSpec =
@@ -635,9 +655,9 @@ function applyWalkForwardParameterRangeOverrides(
 
   const next = { ...ranges };
   for (const [label, override] of Object.entries(parameterRanges)) {
-    for (const [path, range] of Object.entries(ranges)) {
+    for (const path of Object.keys(ranges)) {
       if (!rangePathMatchesStepLabel(baseStrategy, label, path)) continue;
-      const spec = numberRangeSpecFromOverride(range, override);
+      const spec = numberRangeSpecFromOverride(override);
       if (spec) next[path] = spec;
     }
   }
@@ -666,6 +686,71 @@ function applyWalkForwardParameterSteps(
   return next;
 }
 
+// 엔진(engine/signals.py)이 실제로 읽는 파라미터만 최적화 대상으로 삼는다.
+// 여기 없는 파라미터(예: 볼린저 stdDev·기간, MACD 기간)는 엔진이 stockstats 기본값으로
+// 고정 계산하므로, 탐색해도 결과가 변하지 않는 무의미한 차원이 된다.
+function optimizableParamKeys(
+  conditionId: string,
+  conditionType: string,
+  paramMap: Record<string, unknown>
+): string[] {
+  if (conditionType === "filter") return ["value"];
+
+  switch (conditionId) {
+    case "ma_crossover":
+      return ["shortMA", "longMA"];
+    case "rsi":
+      return ["period", "value"];
+    case "ema":
+      // 듀얼 EMA 크로스오버면 short/long, 아니면 단일 period만 엔진이 사용
+      return numericValue(paramMap.shortPeriod) !== null && numericValue(paramMap.longPeriod) !== null
+        ? ["shortPeriod", "longPeriod"]
+        : ["period"];
+    case "stochastic":
+      // 엔진은 level 모드에서만 value를 읽는다 (crossover 모드는 K/D 고정 컬럼)
+      return paramMap.mode === "level" ? ["value"] : [];
+    case "cci":
+      return ["period", "value"];
+    case "adx":
+      return ["value"];
+    case "volume_spike":
+      return ["period"];
+    case "breakout":
+      return ["lookbackPeriod"];
+    case "trading_value":
+    case "price_level":
+    case "price":
+      return ["value"];
+    case "ai_model":
+    case "ai_drop_model":
+      return ["threshold"];
+    default:
+      return [];
+  }
+}
+
+function rangeForParamKey(
+  key: string,
+  value: number,
+  conditionType: string
+): number[] {
+  switch (key) {
+    case "shortMA":
+    case "shortPeriod":
+      return boundedIntegerRange(value, 2, 120);
+    case "longMA":
+    case "longPeriod":
+      return boundedIntegerRange(value, 3, 250);
+    case "period":
+    case "lookbackPeriod":
+      return boundedIntegerRange(value, 2, 250);
+    default:
+      // value / threshold 계열
+      if (conditionType === "filter") return aroundValueRange(value);
+      return value > 0 && value <= 100 ? boundedPercentRange(value) : aroundValueRange(value);
+  }
+}
+
 function addConditionRanges(
   ranges: Record<string, unknown>,
   side: "entry" | "exit",
@@ -679,30 +764,10 @@ function addConditionRanges(
     const conditionType = typeof condition.type === "string" ? condition.type : "";
     const path = (key: string) => `${side}.conditions.${index}.params.${key}`;
 
-    const shortMA = numericValue(paramMap.shortMA);
-    if (shortMA !== null) addRange(ranges, path("shortMA"), boundedIntegerRange(shortMA, 2, 120));
-
-    const longMA = numericValue(paramMap.longMA);
-    if (longMA !== null) addRange(ranges, path("longMA"), boundedIntegerRange(longMA, 3, 250));
-
-    const period = numericValue(paramMap.period);
-    if (period !== null) addRange(ranges, path("period"), boundedIntegerRange(period, 2, 250));
-
-    const thresholdKey = conditionId === "ai_model" || conditionId === "ai_drop_model" ? "threshold" : "value";
-    const threshold = numericValue(paramMap[thresholdKey]);
-    if (threshold !== null) {
-      const range =
-        conditionType === "filter"
-          ? aroundValueRange(threshold)
-          : threshold > 0 && threshold <= 100
-            ? boundedPercentRange(threshold)
-            : aroundValueRange(threshold);
-      addRange(ranges, path(thresholdKey), range);
-    }
-
-    const stdDev = numericValue(paramMap.stdDev);
-    if (stdDev !== null) {
-      addRange(ranges, path("stdDev"), uniqueNumbers([Math.max(0.5, stdDev - 0.5), stdDev, stdDev + 0.5]));
+    for (const key of optimizableParamKeys(conditionId, conditionType, paramMap)) {
+      const value = numericValue(paramMap[key]);
+      if (value === null) continue;
+      addRange(ranges, path(key), rangeForParamKey(key, value, conditionType));
     }
   });
 }

@@ -111,6 +111,25 @@ class BuilderStepRequest(BaseModel):
     seed: Optional[str] = None
 
 
+def _run_builder_step(state, input_text, risk_extractor) -> strategy_builder.StepResult:
+    """빌더 한 턴을 처리하고, 완성(confirmed)되면 DSL을 직접 구성해 붙인다.
+
+    [전략별 특화 빌더] 한국어 재파싱 왕복 대신 build_parsed_strategy로 ParsedStrategy를
+    직접 만들어(파라미터 유실 방지) 기존 to_backtest_request로 요청까지 생성한다. custom
+    유형은 DSL을 만들 수 없어 parsed=None → 프론트가 prompt 재파싱 경로로 폴백한다."""
+    result = strategy_builder.step(state, input_text, risk_extractor)
+    if result.status == "confirmed":
+        parsed = strategy_builder.build_parsed_strategy(result.state)
+        if parsed is not None:
+            from engine.nl_parser import enforce_strategy_minimums
+            from engine.strategy_converter import to_backtest_request
+
+            result.notices = enforce_strategy_minimums(parsed)  # 하한선 방어 보정(공통)
+            result.backtest_request = to_backtest_request(parsed)
+            result.parsed = parsed.model_dump()
+    return result
+
+
 @router.post("/strategy/builder/step", response_model=strategy_builder.StepResult)
 async def strategy_builder_step(req: BuilderStepRequest) -> strategy_builder.StepResult:
     state = req.state
@@ -120,7 +139,7 @@ async def strategy_builder_step(req: BuilderStepRequest) -> strategy_builder.Ste
     risk_extractor = None
     if _llm_available():
         risk_extractor = lambda text: strategy_builder.llm_extract_risk(text, _mlx_llm)
-    return await asyncio.to_thread(strategy_builder.step, state, req.input, risk_extractor)
+    return await asyncio.to_thread(_run_builder_step, state, req.input, risk_extractor)
 
 
 # ─── /stock/analyze ──────────────────────────────────────────────────────────────

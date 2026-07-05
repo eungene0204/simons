@@ -832,3 +832,116 @@ describe("isAdvisorFollowUpPrompt", () => {
     expect(isAdvisorFollowUpPrompt("분석해 보게 손절 10% 추가해줘")).toBe(false);
   });
 });
+
+describe("buildWalkForwardParameterRanges — 엔진 파라미터 화이트리스트", () => {
+  it("엔진이 읽지 않는 파라미터(볼린저 stdDev·기간, MACD 기간)는 탐색 공간에서 제외한다", () => {
+    const ranges = buildWalkForwardParameterRanges({
+      symbols: ["005930"],
+      entry: {
+        conditions: [
+          { id: "bollinger_bands", params: { period: 20, stdDev: 2 } },
+          { id: "macd", params: { fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 } },
+          { id: "stochastic", params: { value: 20 } }, // crossover 모드 → value 미사용
+        ],
+      },
+      risk: { init_cash: 10000000 },
+    });
+
+    expect(ranges).toEqual({});
+  });
+
+  it("전략에 실제 포함된 지표의 엔진 파라미터만 추출한다 (EMA 듀얼·브레이크아웃·스토캐스틱 level)", () => {
+    const ranges = buildWalkForwardParameterRanges({
+      symbols: ["005930"],
+      entry: {
+        conditions: [
+          { id: "ema", params: { shortPeriod: 10, longPeriod: 50 } },
+          { id: "breakout", params: { lookbackPeriod: 20 } },
+          { id: "stochastic", params: { mode: "level", value: 20 } },
+        ],
+      },
+      exit: {
+        conditions: [{ id: "ema", params: { period: 20, signalType: "sell" } }],
+      },
+      risk: { init_cash: 10000000 },
+    });
+
+    expect(Object.keys(ranges).sort()).toEqual([
+      "entry.conditions.0.params.longPeriod",
+      "entry.conditions.0.params.shortPeriod",
+      "entry.conditions.1.params.lookbackPeriod",
+      "entry.conditions.2.params.value",
+      "exit.conditions.0.params.period",
+    ]);
+  });
+
+  it("알 수 없는 조건 id는 탐색 공간에 넣지 않는다", () => {
+    const ranges = buildWalkForwardParameterRanges({
+      symbols: ["005930"],
+      entry: { conditions: [{ id: "unknown_indicator", params: { period: 14, value: 30 } }] },
+      risk: { init_cash: 10000000 },
+    });
+
+    expect(ranges).toEqual({});
+  });
+});
+
+describe("buildWalkForwardRequest — 사용자 범위·제외·명시적 분할", () => {
+  const baseStrategy = {
+    symbols: ["005930"],
+    entry: {
+      conditions: [{ type: "filter", id: "pbr", params: { value: 1, operator: "<=" } }],
+    },
+    risk: { init_cash: 10000000, stop_loss_pct: 10 },
+  };
+  const settings = {
+    n_splits: 4,
+    train_pct: 0.7,
+    anchor: false,
+    target_metric: "cagr",
+    n_trials: 30,
+  };
+
+  it("자동 생성 범위를 벗어난 사용자 오버라이드도 그대로 반영한다 (클램프 없음)", () => {
+    const ranges = buildWalkForwardParameterRanges(baseStrategy);
+    // 자동 범위는 PBR=1 주변 [0.8, 1, 1.2]지만 사용자는 0.5~3.0을 원한다
+    const request = buildWalkForwardRequest(
+      baseStrategy,
+      { ...settings, parameter_ranges: { PBR: { min: 0.5, max: 3.0, step: 0.25 } } },
+      ranges
+    );
+
+    expect(request.ranges["entry.conditions.0.params.value"]).toEqual({
+      type: "number",
+      min: 0.5,
+      max: 3.0,
+      step: 0.25,
+    });
+  });
+
+  it("excluded_parameters로 지정한 라벨의 범위는 요청에서 제거된다", () => {
+    const ranges = buildWalkForwardParameterRanges(baseStrategy);
+    expect(ranges).toHaveProperty("risk.stop_loss_pct");
+
+    const request = buildWalkForwardRequest(
+      baseStrategy,
+      { ...settings, excluded_parameters: ["손절라인"] },
+      ranges
+    );
+
+    expect(request.ranges).not.toHaveProperty("risk.stop_loss_pct");
+    expect(request.ranges).toHaveProperty("entry.conditions.0.params.value");
+  });
+
+  it("is_bars/oos_bars 설정을 백엔드 요청에 그대로 전달한다", () => {
+    const ranges = buildWalkForwardParameterRanges(baseStrategy);
+    const request = buildWalkForwardRequest(
+      baseStrategy,
+      { ...settings, is_bars: 504, oos_bars: 126 },
+      ranges
+    );
+
+    expect(request.is_bars).toBe(504);
+    expect(request.oos_bars).toBe(126);
+  });
+});

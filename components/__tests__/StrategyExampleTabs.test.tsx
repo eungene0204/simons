@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -119,6 +119,56 @@ describe("StrategyExampleTabs", () => {
     });
 
     expect(container.querySelector(".animate-pulse")).not.toBeInTheDocument();
+  });
+
+  it("내 전략 카드의 삭제 버튼을 누르면 DB 삭제 API를 호출하고 목록에서 제거한다", async () => {
+    const onSelectExample = vi.fn();
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/dashboard/strategy-list") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            strategies: [
+              {
+                id: "strategy-1",
+                name: "급등주 전략",
+                description: "최근 상승 종목 기반 전략",
+                type: "모멘텀",
+                universe: "KOSPI",
+                aiScore: null,
+                avgReturnPct: 0,
+                accountCount: 0,
+                createdAt: "2026-06-29T00:00:00.000Z",
+              },
+            ],
+          }),
+        });
+      }
+      if (url === "/api/strategy/strategy-1" && init?.method === "DELETE") {
+        return Promise.resolve({ ok: true, json: async () => ({ ok: true }) });
+      }
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<StrategyExampleTabs onSelectExample={onSelectExample} />);
+
+    await act(async () => {
+      await user.click(screen.getByRole("button", { name: "내 전략" }));
+    });
+
+    expect(await screen.findByText("급등주 전략")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /급등주 전략/i })).toHaveAttribute("href", "/analytics/strategy-1");
+
+    await act(async () => {
+      await user.click(screen.getByRole("button", { name: "급등주 전략 전략 삭제" }));
+    });
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith("/api/strategy/strategy-1", { method: "DELETE" });
+      expect(screen.queryByText("급등주 전략")).not.toBeInTheDocument();
+    });
   });
 
   it("예시 카드를 누르면 안내가 포함된 편집 모달을 보여주고 시작 시 편집된 프롬프트를 보낸다", async () => {

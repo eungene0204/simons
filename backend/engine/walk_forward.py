@@ -14,8 +14,27 @@ Anchored/Expanding 방식 (anchor=True):
 """
 
 import copy
+import math
 from typing import Dict, Any, List, Tuple, Optional
 from engine.grid_optimizer import set_nested_value
+
+# 윈도우 하나마다 IS 최적화(수십 회 백테스트)가 반복되므로 폭주 방지 상한.
+MAX_WINDOWS = 24
+
+# 윈도우/집계 결과에 담는 성과 지표 키 (엔진 결과 키와 동일).
+METRIC_KEYS = [
+    "cagr", "totalReturn", "maxDrawdown", "sharpe",
+    "winRate", "profitFactor", "trades", "calmar", "expectancy",
+]
+
+
+def _finite(value: Any) -> Optional[float]:
+    """숫자이면서 유한한 값만 float로 반환, 아니면 None (NaN/Infinity 전파 방지)."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    return f if math.isfinite(f) else None
 
 
 class WalkForwardAnalyzer:
@@ -39,6 +58,8 @@ class WalkForwardAnalyzer:
         target_metric: str = "cagr",
         n_trials: int = 30,
         method: str = "bayesian",
+        is_bars: Optional[int] = None,
+        oos_bars: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Walk-Forward Analysis 실행.
@@ -63,10 +84,18 @@ class WalkForwardAnalyzer:
         if len(dates) < 60:
             return {"status": "error", "message": f"데이터가 너무 짧습니다: {len(dates)}일"}
 
-        # 2. 윈도우 분할
-        windows = self._split_windows(dates, n_splits, train_pct, anchor)
+        # 2. 윈도우 분할 — is_bars/oos_bars가 명시되면 UI가 보여준 거래일 수를 그대로 사용
+        windows = self._split_windows(dates, n_splits, train_pct, anchor, is_bars, oos_bars)
         if not windows:
             return {"status": "error", "message": "윈도우 분할에 실패했습니다. 기간을 늘려보세요."}
+        if len(windows) > MAX_WINDOWS:
+            return {
+                "status": "error",
+                "message": (
+                    f"윈도우 수({len(windows)}개)가 상한({MAX_WINDOWS}개)을 초과했습니다. "
+                    "학습/검증 기간을 늘려 구간 수를 줄여 주세요."
+                ),
+            }
 
         print(f"[WFA] {len(windows)} windows, total={len(dates)} days", flush=True)
 
@@ -92,10 +121,20 @@ class WalkForwardAnalyzer:
             )
             window_results.append(w_result)
 
-            if w_result.get("is_metrics"):
-                is_returns.append(w_result["is_metrics"].get("totalReturn", 0) or 0)
-            if w_result.get("oos_metrics"):
-                oos_returns.append(w_result["oos_metrics"].get("totalReturn", 0) or 0)
+            is_ret = _finite(w_result.get("is_metrics", {}).get("totalReturn"))
+            if is_ret is not None:
+                is_returns.append(is_ret)
+            oos_ret = _finite(w_result.get("oos_metrics", {}).get("totalReturn"))
+            if oos_ret is not None:
+                oos_returns.append(oos_ret)
+
+        # 모든 윈도우가 실패했으면 부분 결과 대신 즉시 에러로 알린다 (Fail Fast).
+        errors = [w.get("error") for w in window_results]
+        if all(errors):
+            return {
+                "status": "error",
+                "message": f"모든 윈도우가 실패했습니다: {errors[0]}",
+            }
 
         # 4. 집계
         aggregate = self._aggregate(window_results)
@@ -145,9 +184,15 @@ class WalkForwardAnalyzer:
         n_splits: int,
         train_pct: float,
         anchor: bool,
+        is_bars: Optional[int] = None,
+        oos_bars: Optional[int] = None,
     ) -> List[Tuple[str, str, str, str]]:
         """
         (is_start, is_end, oos_start, oos_end) 튜플 리스트 반환.
+
+        명시적 bars 방식 (is_bars/oos_bars 지정):
+          UI에서 사용자가 고른 학습/검증 거래일 수를 그대로 사용해
+          화면에 표시된 구간 날짜와 실제 실행 구간이 일치하도록 한다.
 
         Rolling 방식:
           ratio = train_pct / (1 - train_pct)
@@ -160,6 +205,41 @@ class WalkForwardAnalyzer:
         """
         T = len(dates)
         windows = []
+
+        if is_bars and oos_bars and is_bars > 0 and oos_bars > 0:
+            is_size, oos_size = int(is_bars), int(oos_bars)
+            if is_size + oos_size > T:
+                return []
+
+            if not anchor:
+                k = 0
+                while True:
+                    is_s = k * oos_size
+                    is_e = is_s + is_size
+                    oos_s = is_e
+                    oos_e = oos_s + oos_size
+                    if oos_e > T:
+                        break
+                    windows.append((
+                        dates[is_s],
+                        dates[is_e - 1],
+                        dates[oos_s],
+                        dates[oos_e - 1],
+                    ))
+                    k += 1
+            else:
+                is_e = is_size
+                while is_e < T:
+                    oos_s = is_e
+                    oos_e = min(oos_s + oos_size, T)
+                    windows.append((
+                        dates[0],
+                        dates[is_e - 1],
+                        dates[oos_s],
+                        dates[oos_e - 1],
+                    ))
+                    is_e += oos_size
+            return windows
 
         if not anchor:
             # Rolling walk-forward
@@ -270,15 +350,7 @@ class WalkForwardAnalyzer:
             best_params = opt_result.get("best_parameters", {})
             best_is_metrics = opt_result.get("best_metrics", {})
             result["best_params"] = best_params
-            result["is_metrics"] = {
-                "cagr": best_is_metrics.get("cagr"),
-                "totalReturn": best_is_metrics.get("totalReturn"),
-                "maxDrawdown": best_is_metrics.get("maxDrawdown"),
-                "sharpe": best_is_metrics.get("sharpe"),
-                "winRate": best_is_metrics.get("winRate"),
-                "profitFactor": best_is_metrics.get("profitFactor"),
-                "trades": best_is_metrics.get("trades"),
-            }
+            result["is_metrics"] = {k: best_is_metrics.get(k) for k in METRIC_KEYS}
         except Exception as e:
             print(f"[WFA] Window {window_idx} IS optimization failed: {e}", flush=True)
             result["error"] = f"IS 최적화 오류: {str(e)}"
@@ -298,15 +370,7 @@ class WalkForwardAnalyzer:
 
         try:
             oos_result = self.engine.run_backtest(oos_req)
-            result["oos_metrics"] = {
-                "cagr": oos_result.get("cagr"),
-                "totalReturn": oos_result.get("totalReturn"),
-                "maxDrawdown": oos_result.get("maxDrawdown"),
-                "sharpe": oos_result.get("sharpe"),
-                "winRate": oos_result.get("winRate"),
-                "profitFactor": oos_result.get("profitFactor"),
-                "trades": oos_result.get("trades"),
-            }
+            result["oos_metrics"] = {k: oos_result.get(k) for k in METRIC_KEYS}
             result["oos_equity"] = oos_result.get("equity", [])
             result["oos_dates"] = oos_result.get("dates", [])
         except Exception as e:
@@ -316,22 +380,21 @@ class WalkForwardAnalyzer:
         return result
 
     def _aggregate(self, windows: List[Dict[str, Any]]) -> Dict[str, float]:
-        """OOS 메트릭 평균 집계."""
-        metrics_keys = ["cagr", "totalReturn", "maxDrawdown", "sharpe", "winRate", "profitFactor", "trades"]
-        sums: Dict[str, float] = {k: 0.0 for k in metrics_keys}
-        counts: Dict[str, int] = {k: 0 for k in metrics_keys}
+        """OOS 메트릭 평균 집계 (NaN/Infinity는 표본에서 제외)."""
+        sums: Dict[str, float] = {k: 0.0 for k in METRIC_KEYS}
+        counts: Dict[str, int] = {k: 0 for k in METRIC_KEYS}
 
         for w in windows:
             oos = w.get("oos_metrics", {})
-            for k in metrics_keys:
-                val = oos.get(k)
+            for k in METRIC_KEYS:
+                val = _finite(oos.get(k))
                 if val is not None:
-                    sums[k] += float(val)
+                    sums[k] += val
                     counts[k] += 1
 
         return {
             f"avg_oos_{k}": round(sums[k] / counts[k], 4) if counts[k] > 0 else 0.0
-            for k in metrics_keys
+            for k in METRIC_KEYS
         }
 
     def _combine_equity(

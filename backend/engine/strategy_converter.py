@@ -190,6 +190,10 @@ def to_canonical_strategy_dsl(strategy: ParsedStrategy) -> dict:
             [_canonicalize_technical_signal(sig) for sig in strategy.exit_signals],
             key=_canonical_sort_key,
         ),
+        "entry_filters": sorted(
+            [_canonicalize_technical_signal(sig) for sig in strategy.entry_filters],
+            key=_canonical_sort_key,
+        ),
         "ranking_metric": strategy.ranking_metric,
         "ranking_lookback_days": strategy.ranking_lookback_days,
         "max_positions": strategy.max_positions,
@@ -253,6 +257,8 @@ def _tech_signal_to_condition(sig: TechnicalSignal) -> dict:
             params["longPeriod"] = sig.long_period
         else:
             params["period"] = sig.period or 20
+        if sig.mode:  # 'above'/'below'=추세 필터(지속 상태). 없으면 크로스오버(기존).
+            params["mode"] = sig.mode
 
     elif sig.indicator == "macd":
         params["mode"] = sig.mode or "crossover"
@@ -280,6 +286,10 @@ def _tech_signal_to_condition(sig: TechnicalSignal) -> dict:
             params["operator"] = sig.operator
         if sig.value is not None:
             params["value"] = sig.value
+
+    elif sig.indicator == "trading_value":
+        params["value"] = sig.value if sig.value is not None else 100  # 억 단위 거래대금 하한
+        params["operator"] = sig.operator or ">="
 
     elif sig.indicator in ("ai_model", "ai_drop_model"):
         params["threshold"] = sig.threshold if sig.threshold is not None else 70
@@ -333,6 +343,12 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
     # 기술적 진입 신호 → type="indicator" 조건
     for sig in strategy.entry_signals:
         entry_conditions.append(_tech_signal_to_condition(sig))
+
+    # 진입 게이트 필터(추세·RSI 결합·거래대금) → type="filter"로 진입 신호와 AND 결합.
+    for sig in strategy.entry_filters:
+        cond = _tech_signal_to_condition(sig)
+        cond["type"] = "filter"
+        entry_conditions.append(cond)
 
     # 3. 청산 조건 구성
     exit_conditions = [_tech_signal_to_condition(sig) for sig in strategy.exit_signals]

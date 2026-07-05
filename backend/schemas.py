@@ -137,6 +137,9 @@ class WalkForwardRequest(BaseModel):
     target_metric: Optional[str] = "cagr"
     n_trials: Optional[int] = 30
     method: Optional[Literal["bayesian", "grid"]] = "bayesian"
+    # UI가 보여준 학습/검증 거래일 수 그대로 사용하는 명시적 분할 (지정 시 n_splits/train_pct보다 우선)
+    is_bars: Optional[int] = Field(default=None, ge=1)
+    oos_bars: Optional[int] = Field(default=None, ge=1)
 
 
 class WalkForwardWindowResult(BaseModel):
@@ -162,6 +165,8 @@ class WalkForwardResponse(BaseModel):
     combined_equity: Optional[List[float]] = Field(default_factory=list)
     combined_dates: Optional[List[str]] = Field(default_factory=list)
     walk_forward_efficiency: Optional[float] = 0.0
+    # IS 평균 수익이 0 이하이면 WFE 비율 해석이 불가 — response_model이 필드를 걸러내므로 반드시 선언
+    wfe_valid: Optional[bool] = True
 
 class OptimizationResultItem(BaseModel):
     iteration: int

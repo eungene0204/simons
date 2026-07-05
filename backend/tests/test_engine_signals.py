@@ -546,3 +546,39 @@ def test_evaluate_group_respects_explicit_and_logic(signal_engine):
 
     assert signal_engine.evaluate_group(group, 0, df) == (False, None)
     assert signal_engine.evaluate_group(group, 1, df) == (True, "RSI 30 이하 + 5일선-20일선 골든크로스")
+
+
+def test_ema_above_below_state_filter(signal_engine):
+    # 추세 필터(지속 상태): mode='above'→가격이 EMA 위인 모든 봉 True(크로스오버 아님).
+    df = pl.DataFrame({"close": [90.0, 110.0, 105.0, 95.0], "close_200_ema": [100.0, 100.0, 100.0, 100.0]})
+    above = {"id": "ema", "params": {"period": 200, "mode": "above", "signalType": "buy"}}
+    below = {"id": "ema", "params": {"period": 200, "mode": "below", "signalType": "buy"}}
+
+    # 벡터화 경로
+    va, _ = signal_engine.generate_signals(df, {"conditions": [above]})
+    vb, _ = signal_engine.generate_signals(df, {"conditions": [below]})
+    assert list(va) == [False, True, True, False]   # close >= ema 인 봉
+    assert list(vb) == [True, False, False, True]
+    # above/below는 상호 배타 파티션(모든 봉 정확히 한쪽)
+    assert all(a ^ b for a, b in zip(va, vb))
+
+    # 행별 평가자도 동일(idx 0 포함, 크로스오버와 달리 첫 봉도 판정)
+    assert signal_engine.evaluate_condition(above, 1, df) is True
+    assert signal_engine.evaluate_condition(above, 0, df) is False
+    assert signal_engine.evaluate_condition(below, 0, df) is True
+
+
+def test_ema_filter_ands_with_entry_signal(signal_engine):
+    # filter 타입(ema above)은 진입 신호와 AND 결합돼 게이트로 작동한다.
+    df = pl.DataFrame({
+        "close": [90.0, 110.0],
+        "close_5_sma": [8.0, 12.0], "close_20_sma": [11.0, 11.0],   # idx1에서 골든크로스
+        "close_200_ema": [100.0, 100.0],
+    })
+    group = {"conditions": [
+        {"type": "indicator", "id": "ma_crossover", "params": {"shortMA": 5, "longMA": 20, "signalType": "buy"}},
+        {"type": "filter", "id": "ema", "params": {"period": 200, "mode": "above", "signalType": "buy"}},
+    ]}
+    res, _ = signal_engine.generate_signals(df, group)
+    # idx1: 골든크로스(True) AND close(110)>=ema(100)(True) → True
+    assert list(res) == [False, True]

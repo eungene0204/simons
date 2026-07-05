@@ -64,6 +64,37 @@ def test_parse_strategy_type_variants():
     assert sb._parse_strategy_type("과매도 반등") == "mean_reversion"
     assert sb._parse_strategy_type("저평가 가치주") == "value"
     assert sb._parse_strategy_type("직접 설명할게") == "custom"
+    # 볼린저는 별도 유형이며, '하단 돌파'의 '돌파'가 breakout으로 새면 안 된다.
+    assert sb._parse_strategy_type("볼린저 밴드") == "bollinger"
+    assert sb._parse_strategy_type("볼린저 밴드 하단 돌파") == "bollinger"
+
+
+def test_bollinger_named_strategy_locks_on_and_skips_generic_menu():
+    """[회귀] 특정 전략(볼린저)을 이름으로 지목하면 잃어버리지 않고 잠근다.
+
+    이전 버그: '볼린저 밴드 전략' 시드가 strategy_type을 못 잡아 일반 종목 선정 메뉴
+    ('어떤 방식으로 종목을 고를까요?')를 띄웠고, 사용자가 모멘텀 등 다른 전략으로 흘러갔다.
+    """
+    state = sb.seed_state("볼린저 밴드 전략을 사용하고 싶어")
+    assert state.strategy_type == "bollinger"
+
+    # 첫 질문은 볼린저를 확인하며 시장을 묻는다(일반 전략 메뉴가 아니다).
+    opening, _ = sb.next_question(state)
+    assert "볼린저 밴드" in opening
+
+    # 시장을 답한 뒤에도 일반 종목 선정 메뉴가 절대 나오면 안 된다.
+    after_universe = _step(state, "코스피")
+    assert "어떤 방식으로 종목을 고를까요" not in after_universe.reply
+
+    # 남은 필드를 채우면 볼린저 백테스트 프롬프트로 합성된다(엔진 지원 신호로).
+    s = after_universe.state
+    s = _step(s, "없음").state              # 옵션 필터 스텝(볼린저)
+    s = _step(s, "10개").state
+    s = _step(s, "리밸런싱 안 함").state
+    confirmed = _step(s, "10% 손절 20% 익절")
+    assert confirmed.status == "confirmed"
+    assert "볼린저밴드" in confirmed.prompt
+    assert "하단" in confirmed.prompt and "매수" in confirmed.prompt
 
 
 def test_parse_lookback_months_and_days():
@@ -327,11 +358,14 @@ def test_synthesize_golden_macd_value():
 
 
 def test_new_strategy_types_skip_lookback_question():
-    # 골든크로스·MACD·가치는 기준기간(lookback) 질문 없이 곧장 보유 종목 수로 넘어간다
-    # (모멘텀·돌파만 lookback 필수).
-    for stype in ("golden_cross", "macd", "value"):
+    # 골든크로스·MACD·가치는 기준기간(lookback) 질문이 없다(모멘텀·돌파만 lookback 필수).
+    # 대신 각자의 전략별 파라미터를 먼저 묻는다.
+    expected_first = {"golden_cross": "ma_kind", "macd": "macd_mode", "value": "value_params"}
+    for stype, first in expected_first.items():
         state = sb.BuilderState(universe="KOSPI", strategy_type=stype)
-        assert sb.required_missing(state) == "holding_count"
+        step = sb.required_missing(state)
+        assert step != "lookback_days"
+        assert step == first
 
 
 @pytest.mark.parametrize("stype", ["golden_cross", "macd", "value"])
@@ -386,8 +420,9 @@ def test_custom_entry_rule_does_not_misread_bare_threshold_as_count():
 def test_holding_count_step_offers_free_input_chip_rightmost():
     """보유 수 질문에 '직접 입력' 칩이 가장 오른쪽으로 노출된다(5/10/20 외 종목 수 직접 타이핑)."""
     momentum = sb.BuilderState(universe="KOSPI", strategy_type="momentum", lookback_days=63)
-    golden = sb.BuilderState(universe="KOSPI", strategy_type="golden_cross")
-    for state in (momentum, golden):
+    # 볼린저는 특화 파라미터가 없고 옵션 필터도 물었으면(filters_asked) 보유 종목 수로 넘어간다.
+    bollinger = sb.BuilderState(universe="KOSPI", strategy_type="bollinger", filters_asked=True)
+    for state in (momentum, bollinger):
         _, suggestions = sb.next_question(state)
         assert sb.required_missing(state) == "holding_count"
         assert suggestions[-1] == "직접 입력"
@@ -395,7 +430,7 @@ def test_holding_count_step_offers_free_input_chip_rightmost():
 
 def test_holding_count_step_free_text_parses_custom_value():
     """'직접 입력' 후 사용자가 타이핑한 임의 종목 수('7개')가 그대로 파싱된다."""
-    state = sb.BuilderState(universe="KOSPI", strategy_type="golden_cross")
+    state = sb.BuilderState(universe="KOSPI", strategy_type="bollinger", filters_asked=True)
     res = _step(state, "7개")
     assert res.state.holding_count == 7
 
@@ -588,3 +623,179 @@ def test_risk_step_cancel_still_exits():
     """청산 조건 단계에서도 '취소'는 빌더를 종료한다."""
     r = _step(_ready_for_risk(), "취소")
     assert r.status == "exited"
+
+
+# ─── 전략별 특화 빌더(STATE_SPECIFIC_STRATEGY_BUILDER) ──────────────────────────────
+
+from engine.strategy_converter import to_backtest_request  # noqa: E402
+
+
+def test_specific_type_recognition_rsi_stoch_cci():
+    """이름으로 지목한 특화 전략 유형을 인식한다. 'RSI'는 전용 rsi(과매도 반등은 mean_reversion)."""
+    assert sb._parse_strategy_type("RSI 전략 만들어줘") == "rsi"
+    assert sb._parse_strategy_type("스토캐스틱 전략") == "stochastic"
+    assert sb._parse_strategy_type("CCI 전략") == "cci"
+    # '과매도 반등'은 여전히 프리셋 mean_reversion(RSI라는 단어가 없음).
+    assert sb._parse_strategy_type("과매도 반등 전략") == "mean_reversion"
+
+
+@pytest.mark.parametrize("seed,stype,first_step", [
+    ("RSI 전략을 사용하고 싶어", "rsi", "rsi_period"),
+    ("MACD 전략 만들어줘", "macd", "macd_mode"),
+    ("골든크로스 전략", "golden_cross", "ma_kind"),
+    ("CCI 전략으로 해줘", "cci", "cci_params"),
+])
+def test_named_strategy_locks_on_and_asks_own_param(seed, stype, first_step):
+    """[회귀] 특정 전략을 지목하면 유형이 잠기고, 일반 메뉴 대신 그 전략의 파라미터를 먼저 묻는다."""
+    state = sb.seed_state(seed)
+    assert state.strategy_type == stype
+    after_univ = _step(state, "코스피")
+    assert "어떤 방식으로 종목을 고를까요" not in after_univ.reply
+    assert sb.required_missing(after_univ.state) == first_step
+
+
+def test_rsi_full_flow_builds_dsl_with_params():
+    """RSI 전용 흐름이 기간·과매도·과매수를 수집해 DSL에 정확히 반영한다."""
+    s = sb.seed_state("RSI 전략")
+    s = _step(s, "코스피").state
+    s = _step(s, "9일").state            # rsi_period
+    s = _step(s, "25 / 75").state        # rsi_bounds
+    s = _step(s, "없음").state           # 옵션 필터 스텝
+    s = _step(s, "10개").state
+    s = _step(s, "매월").state
+    res = _step(s, "10% 손절 20% 익절")
+    assert res.status == "confirmed"
+    parsed = sb.build_parsed_strategy(res.state)
+    req = to_backtest_request(parsed, resolve_symbols=False)
+    entry = req["entry"]["conditions"][0]
+    exit_ = req["exit"]["conditions"][0]
+    assert entry["id"] == "rsi" and entry["params"]["period"] == 9 and entry["params"]["value"] == 25.0
+    assert exit_["id"] == "rsi" and exit_["params"]["value"] == 75.0
+    assert req["risk"]["stop_loss_pct"] == 10.0 and req["risk"]["take_profit_pct"] == 20.0
+
+
+def test_ma_flow_ema_periods_flow_to_dsl():
+    """이동평균 전용 흐름이 SMA/EMA와 단기·장기 기간을 DSL에 반영한다."""
+    s = sb.seed_state("골든크로스 전략")
+    s = _step(s, "코스피").state
+    s = _step(s, "지수(EMA)").state       # ma_kind
+    s = _step(s, "10일 60일").state       # ma_periods
+    s = _step(s, "없음").state           # 옵션 필터 스텝
+    s = _step(s, "10개").state
+    s = _step(s, "매월").state
+    res = _step(s, "10% 손절")
+    parsed = sb.build_parsed_strategy(res.state)
+    req = to_backtest_request(parsed, resolve_symbols=False)
+    entry = req["entry"]["conditions"][0]
+    assert entry["id"] == "ema"
+    assert entry["params"]["shortPeriod"] == 10 and entry["params"]["longPeriod"] == 60
+
+
+def test_default_answer_applies_preset():
+    """'기본'이라고 답하면 그 스텝의 표준 기본값이 채워진다(초보자 경로)."""
+    assert sb._parse_rsi_period("기본") == {"rsi_period": 14}
+    assert sb._parse_rsi_bounds("기본값으로") == {"rsi_oversold": 30.0, "rsi_overbought": 70.0}
+    assert sb._parse_ma_periods("그냥 기본") == {"ma_short": 5, "ma_long": 20}
+
+
+@pytest.mark.parametrize("state_kwargs,expect_entry_id,expect_exit_n", [
+    (dict(strategy_type="momentum", lookback_days=63), None, 0),        # ranking, 진입신호 없음
+    (dict(strategy_type="bollinger"), "bollinger_bands", 1),
+    (dict(strategy_type="breakout", lookback_days=30), "breakout", 0),
+    (dict(strategy_type="volume_spike", volume_period=20), "volume_spike", 0),
+    (dict(strategy_type="cci", cci_period=14, cci_threshold=100.0), "cci", 1),
+    (dict(strategy_type="stochastic"), "stochastic", 1),
+])
+def test_build_parsed_strategy_entry_exit_shapes(state_kwargs, expect_entry_id, expect_exit_n):
+    """각 유형이 엔진 지원 진입/청산 신호로 구성된다(빈 전략·미지원 신호 방지)."""
+    st = sb.BuilderState(universe="KOSPI", holding_count=10, rebalance_cycle="monthly",
+                         stop_loss_pct=10.0, risk_done=True, **state_kwargs)
+    parsed = sb.build_parsed_strategy(st)
+    req = to_backtest_request(parsed, resolve_symbols=False)
+    entry_ids = [c["id"] for c in req["entry"]["conditions"]]
+    if expect_entry_id is None:
+        assert entry_ids == []
+        assert req["risk"]["ranking_metric"] == "return"
+    else:
+        assert expect_entry_id in entry_ids
+    assert len(req["exit"]["conditions"]) == expect_exit_n
+
+
+def test_value_strategy_builds_fundamental_filters():
+    """가치 전략은 PBR·ROE 재무 필터로 구성된다(랭킹·기술신호 없이 스크리닝)."""
+    st = sb.BuilderState(universe="KOSPI", strategy_type="value", value_pbr=0.8, value_roe=15.0,
+                         holding_count=10, rebalance_cycle="quarterly", stop_loss_pct=10.0, risk_done=True)
+    parsed = sb.build_parsed_strategy(st)
+    req = to_backtest_request(parsed, resolve_symbols=False)
+    filt = {c["id"]: c["params"] for c in req["entry"]["conditions"]}
+    assert filt["pbr"]["value"] == 0.8 and filt["pbr"]["operator"] == "<="
+    assert filt["roe_or_gpa"]["value"] == 15.0 and filt["roe_or_gpa"]["operator"] == ">="
+
+
+def test_custom_strategy_has_no_direct_dsl():
+    """custom(자유 서술)은 DSL을 만들 수 없어 None(프론트가 prompt 재파싱 폴백)."""
+    st = sb.BuilderState(universe="KOSPI", strategy_type="custom", entry_rule="내 규칙",
+                         holding_count=10, rebalance_cycle="none", stop_loss_pct=10.0, risk_done=True)
+    assert sb.build_parsed_strategy(st) is None
+
+
+# ─── Tier 2: 옵션 진입 필터(추세·거래대금·RSI 결합) ───────────────────────────────────
+
+def test_filter_step_offered_for_technical_strategies_not_ranking():
+    """기술적 진입 전략엔 옵션 필터 스텝이 있고, 모멘텀(랭킹)·가치(스크리닝)엔 없다."""
+    for stype, kw in [("bollinger", {}), ("rsi", dict(rsi_period=14, rsi_oversold=30.0, rsi_overbought=70.0)),
+                      ("macd", dict(macd_mode="crossover"))]:
+        st = sb.BuilderState(universe="KOSPI", strategy_type=stype, **kw)
+        assert sb.required_missing(st) == "filters"
+    # 모멘텀·가치는 필터 스텝 없이 곧장 다음 단계로.
+    mom = sb.BuilderState(universe="KOSPI", strategy_type="momentum", lookback_days=63)
+    assert sb.required_missing(mom) == "holding_count"
+    val = sb.BuilderState(universe="KOSPI", strategy_type="value", value_pbr=1.0, value_roe=10.0)
+    assert sb.required_missing(val) == "holding_count"
+
+
+def test_filter_none_completes_without_filters():
+    """'없음'은 필터 없이 스텝을 완료한다(옵션이라 되묻지 않음)."""
+    st = sb.BuilderState(universe="KOSPI", strategy_type="bollinger")
+    res = _step(st, "없음")
+    assert res.state.filters_asked is True
+    assert res.state.trend_filter_ma is None and res.state.liquidity_min is None
+    assert sb.required_missing(res.state) == "holding_count"
+
+
+def test_filter_parses_trend_liquidity_rsi_combo():
+    """자유 입력에서 추세·거래대금·RSI 결합을 함께 인식한다."""
+    patch = sb._parse_filters("EMA200 위에서만 + 거래대금 100억 이상, RSI 30 이하")
+    assert patch["trend_filter_ma"] == 200
+    assert patch["liquidity_min"] == 100.0
+    assert patch["rsi_filter"] == 30.0
+    assert patch["filters_asked"] is True
+
+
+def test_bollinger_with_trend_filter_builds_entry_filter_dsl():
+    """볼린저 + EMA200 추세 필터가 entry_filters(type:filter)로 DSL에 반영된다."""
+    st = sb.BuilderState(universe="KOSPI", strategy_type="bollinger", filters_asked=True,
+                         trend_filter_ma=200, liquidity_min=100.0, holding_count=10,
+                         rebalance_cycle="none", stop_loss_pct=10.0, risk_done=True)
+    parsed = sb.build_parsed_strategy(st)
+    req = to_backtest_request(parsed, resolve_symbols=False)
+    by_type = [(c["type"], c["id"]) for c in req["entry"]["conditions"]]
+    assert ("indicator", "bollinger_bands") in by_type
+    assert ("filter", "ema") in by_type            # 추세 필터가 AND 게이트로
+    assert ("filter", "trading_value") in by_type  # 거래대금 필터
+    ema = next(c for c in req["entry"]["conditions"] if c["id"] == "ema")
+    assert ema["params"]["mode"] == "above" and ema["params"]["period"] == 200
+
+
+def test_trend_filter_flow_end_to_end():
+    """볼린저 흐름에서 'EMA200 위에서만'을 고르면 trend_filter_ma가 채워진다."""
+    s = sb.seed_state("볼린저 전략")
+    s = _step(s, "코스피").state
+    r = _step(s, "EMA200 위에서만")       # 필터 스텝
+    assert r.state.trend_filter_ma == 200 and r.state.filters_asked is True
+    s = _step(r.state, "10개").state
+    s = _step(s, "리밸런싱 안 함").state
+    res = _step(s, "10% 손절")
+    assert res.status == "confirmed"
+    parsed = sb.build_parsed_strategy(res.state)
+    assert any(f.indicator == "ema" and f.mode == "above" for f in parsed.entry_filters)

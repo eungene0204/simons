@@ -230,6 +230,7 @@ interface BacktestDashboardProps {
     exitBlocks?: string[];
     positionText?: string;
     riskText?: string;
+    rebalancingText?: string;
   };
 }
 
@@ -951,7 +952,7 @@ export default function BacktestDashboard({
                         </div>
                       ) : null}
 
-                      {(strategySummary.positionText || strategySummary.riskText) && (
+                      {(strategySummary.positionText || strategySummary.riskText || strategySummary.rebalancingText) && (
                         <div className="flex flex-wrap items-start gap-2">
                           <span className="w-16 flex-shrink-0 pt-1 text-[10px] font-bold uppercase tracking-widest text-gray-600">
                             리스크
@@ -960,6 +961,11 @@ export default function BacktestDashboard({
                             {strategySummary.positionText && (
                               <span className="inline-flex items-center rounded-md border border-white/[0.08] bg-white/[0.05] px-2 py-0.5 text-[11px] font-black text-white">
                                 {strategySummary.positionText}
+                              </span>
+                            )}
+                            {strategySummary.rebalancingText && (
+                              <span className="inline-flex items-center rounded-md border border-white/[0.08] bg-white/[0.05] px-2 py-0.5 text-[11px] font-black text-white">
+                                {strategySummary.rebalancingText}
                               </span>
                             )}
                             {strategySummary.riskText && (
@@ -1153,13 +1159,18 @@ export default function BacktestDashboard({
                             </div>
                           </div>
                         ) : null}
-                        {(strategySummary.positionText || strategySummary.riskText) && (
+                        {(strategySummary.positionText || strategySummary.riskText || strategySummary.rebalancingText) && (
                           <div className="flex flex-wrap gap-1.5 items-center">
                             <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0">리스크</span>
                             <div className="flex flex-wrap gap-1">
                               {strategySummary.positionText && (
                                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] text-white text-xs font-bold">
                                   {strategySummary.positionText}
+                                </span>
+                              )}
+                              {strategySummary.rebalancingText && (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] text-white text-xs font-bold">
+                                  {strategySummary.rebalancingText}
                                 </span>
                               )}
                               {strategySummary.riskText && (
@@ -1462,7 +1473,6 @@ export default function BacktestDashboard({
                 <div className="border-t border-white/[0.08]">
                   <div className="flex divide-x divide-white/[0.08]">
                     {[
-                      { label: "총 매매 횟수", value: result.trades.toString(), sub: "회" },
                       // avgProfit/avgLoss는 거래별 평균 수익률·손실률(%)이다. 원이 아닌 %로 표시한다.
                       // (손실은 백엔드에서 양수 절댓값으로 내려오므로 음수로 표시)
                       { label: "평균 수익", value: `+${(result.avgProfit || 0).toFixed(2)}`, sub: "%" },

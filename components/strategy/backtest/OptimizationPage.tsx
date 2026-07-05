@@ -1,7 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ArrowsClockwise, Spinner } from "phosphor-react";
+import {
+  Bar,
+  BarChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+  Cell,
+} from "recharts";
 import type { BacktestResult } from "@/types/strategy";
 import { WalkForwardPanel, type WalkForwardSettings, type WalkForwardOptimizationTarget } from "./WalkForwardModal";
 import type { StrategyBacktestRequest } from "@/app/analytics/new/parsedStrategyMerge";
@@ -60,11 +69,20 @@ interface MonteCarloSettings {
 interface MonteCarloSummary {
   median: number;
   mean: number;
+  min: number;
+  max: number;
   p05: number;
   p25: number;
   p75: number;
   p95: number;
   std: number;
+}
+
+export interface MonteCarloHistogramBin {
+  /** 구간 시작/끝 (비율 단위) */
+  x0: number;
+  x1: number;
+  count: number;
 }
 
 interface MonteCarloResult {
@@ -76,6 +94,8 @@ interface MonteCarloResult {
   mdd: MonteCarloSummary;
   probPositiveCagr: number;
   probMddOver30pct: number;
+  cagrHistogram: MonteCarloHistogramBin[];
+  mddHistogram: MonteCarloHistogramBin[];
 }
 
 function percentile(sortedValues: number[], q: number): number {
@@ -99,12 +119,43 @@ function summarizeMonteCarlo(values: number[]): MonteCarloSummary {
   return {
     median: percentile(sorted, 0.5),
     mean,
+    min: sorted[0] ?? 0,
+    max: sorted[sorted.length - 1] ?? 0,
     p05: percentile(sorted, 0.05),
     p25: percentile(sorted, 0.25),
     p75: percentile(sorted, 0.75),
     p95: percentile(sorted, 0.95),
     std: Math.sqrt(Math.max(variance, 0)),
   };
+}
+
+export function buildMonteCarloHistogram(values: number[], bins = 24): MonteCarloHistogramBin[] {
+  if (values.length === 0) return [];
+  let min = Infinity;
+  let max = -Infinity;
+  for (const value of values) {
+    if (value < min) min = value;
+    if (value > max) max = value;
+  }
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return [];
+
+  const span = max - min;
+  if (span <= 0) {
+    return [{ x0: min, x1: max, count: values.length }];
+  }
+
+  const width = span / bins;
+  const counts = new Array<number>(bins).fill(0);
+  for (const value of values) {
+    const index = Math.min(bins - 1, Math.floor((value - min) / width));
+    counts[index] += 1;
+  }
+
+  return counts.map((count, index) => ({
+    x0: min + index * width,
+    x1: min + (index + 1) * width,
+    count,
+  }));
 }
 
 function createSeededRng(seed: number) {
@@ -117,16 +168,22 @@ function createSeededRng(seed: number) {
   };
 }
 
-function runMonteCarloSimulation(
+const MONTE_CARLO_CHUNK_SIZE = 200;
+
+export async function runMonteCarloSimulation(
   backtestResult: BacktestResult,
-  settings: MonteCarloSettings
-): { status: "error"; message: string } | MonteCarloResult {
-  const blockSize = Math.max(2, Math.floor(settings.blockSize));
+  settings: MonteCarloSettings,
+  onProgress?: (completedRatio: number) => void,
+  shouldCancel?: () => boolean
+): Promise<{ status: "error"; message: string } | { status: "cancelled" } | MonteCarloResult> {
+  // blockSize 1 = 일별 수익률 독립 재표본, >1 = 블록 부트스트랩(자기상관 보존)
+  const blockSize = Math.max(1, Math.floor(settings.blockSize));
+  const minPoints = Math.max(30, blockSize * 3);
   const equity = (backtestResult.equity ?? []).filter((value) => Number.isFinite(value) && value > 0);
-  if (equity.length < blockSize * 3) {
+  if (equity.length < minPoints) {
     return {
       status: "error",
-      message: `몬테카를로 시뮬레이션에는 최소 ${blockSize * 3}개의 유효 equity 포인트가 필요합니다.`,
+      message: `몬테카를로 시뮬레이션에는 최소 ${minPoints}개의 유효 equity 포인트가 필요합니다.`,
     };
   }
 
@@ -135,7 +192,7 @@ function runMonteCarloSimulation(
     logReturns.push(Math.log(equity[i] / equity[i - 1]));
   }
 
-  if (logReturns.length < blockSize * 3) {
+  if (logReturns.length < minPoints - 1) {
     return {
       status: "error",
       message: "유효한 수익률 구간이 부족해 몬테카를로 시뮬레이션을 실행할 수 없습니다.",
@@ -153,6 +210,13 @@ function runMonteCarloSimulation(
   const mdds: number[] = [];
 
   for (let iteration = 0; iteration < iterations; iteration += 1) {
+    // UI가 진행률을 그리고 취소에 반응할 수 있도록 일정 주기로 이벤트 루프에 양보한다.
+    if (iteration % MONTE_CARLO_CHUNK_SIZE === 0 && iteration > 0) {
+      onProgress?.(iteration / iterations);
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+      if (shouldCancel?.()) return { status: "cancelled" };
+    }
+
     const sampled: number[] = [];
     for (let block = 0; block < nBlocks; block += 1) {
       const start = Math.floor(rng() * maxStart);
@@ -185,6 +249,8 @@ function runMonteCarloSimulation(
     mdds.push(Math.abs(worstDrawdown));
   }
 
+  onProgress?.(1);
+
   return {
     status: "ok",
     nIterations: iterations,
@@ -194,11 +260,89 @@ function runMonteCarloSimulation(
     mdd: summarizeMonteCarlo(mdds),
     probPositiveCagr: cagrs.filter((value) => value > 0).length / cagrs.length,
     probMddOver30pct: mdds.filter((value) => value > 0.3).length / mdds.length,
+    cagrHistogram: buildMonteCarloHistogram(cagrs),
+    mddHistogram: buildMonteCarloHistogram(mdds),
   };
 }
 
 function formatRatioAsPercent(value: number, digits = 2): string {
   return `${(value * 100).toFixed(digits)}%`;
+}
+
+function MonteCarloHistogramChart({
+  title,
+  bins,
+  signColored = false,
+}: {
+  title: string;
+  bins: MonteCarloHistogramBin[];
+  /** true면 0 기준으로 음수 구간은 파랑, 양수 구간은 빨강 (앱의 등락 색 관례) */
+  signColored?: boolean;
+}) {
+  if (bins.length === 0) return null;
+
+  const data = bins.map((bin) => ({
+    ...bin,
+    label: `${(bin.x0 * 100).toFixed(1)}%`,
+    mid: (bin.x0 + bin.x1) / 2,
+  }));
+
+  return (
+    <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
+      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">{title}</p>
+      <div className="mt-3 h-44">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} barCategoryGap={1}>
+            <XAxis
+              dataKey="label"
+              tick={{ fontSize: 10, fill: "#6b7280", fontWeight: 700 }}
+              tickLine={false}
+              axisLine={false}
+              interval={Math.max(0, Math.floor(data.length / 6))}
+            />
+            <YAxis
+              tick={{ fontSize: 10, fill: "#6b7280", fontWeight: 700 }}
+              tickLine={false}
+              axisLine={false}
+              allowDecimals={false}
+              width={36}
+            />
+            <Tooltip
+              cursor={{ fill: "rgba(255,255,255,0.04)" }}
+              contentStyle={{
+                background: "#111111",
+                border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: 0,
+                fontSize: 11,
+                color: "#e5e7eb",
+              }}
+              labelStyle={{ color: "#9ca3af" }}
+              formatter={(value: any) => [`${Number(value).toLocaleString()}회`, "빈도"]}
+              labelFormatter={(_, payload) => {
+                const bin = payload?.[0]?.payload as (MonteCarloHistogramBin & { label: string }) | undefined;
+                if (!bin) return "";
+                return `${(bin.x0 * 100).toFixed(1)}% ~ ${(bin.x1 * 100).toFixed(1)}%`;
+              }}
+            />
+            <Bar dataKey="count" radius={[2, 2, 0, 0]}>
+              {data.map((bin, index) => (
+                <Cell
+                  key={index}
+                  fill={
+                    signColored
+                      ? bin.mid >= 0
+                        ? "rgba(239, 68, 68, 0.75)"
+                        : "rgba(96, 165, 250, 0.75)"
+                      : "rgba(96, 165, 250, 0.75)"
+                  }
+                />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
 }
 
 interface OptimizationPageProps {
@@ -228,20 +372,33 @@ export default function OptimizationPage({
   const [monteCarloResult, setMonteCarloResult] = useState<MonteCarloResult | null>(null);
   const [monteCarloError, setMonteCarloError] = useState<string | null>(null);
   const [isMonteCarloRunning, setIsMonteCarloRunning] = useState(false);
+  const [monteCarloProgress, setMonteCarloProgress] = useState(0);
+  const monteCarloCancelRef = useRef(false);
 
   const handleRunMonteCarlo = async () => {
     setIsMonteCarloRunning(true);
     setMonteCarloError(null);
     setMonteCarloResult(null);
+    setMonteCarloProgress(0);
+    monteCarloCancelRef.current = false;
     await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
 
-    const simulation = runMonteCarloSimulation(result, monteCarloSettings);
+    const simulation = await runMonteCarloSimulation(
+      result,
+      monteCarloSettings,
+      (ratio) => setMonteCarloProgress(ratio),
+      () => monteCarloCancelRef.current
+    );
     if (simulation.status === "error") {
       setMonteCarloError(simulation.message);
-    } else {
+    } else if (simulation.status === "ok") {
       setMonteCarloResult(simulation);
     }
     setIsMonteCarloRunning(false);
+  };
+
+  const handleCancelMonteCarlo = () => {
+    monteCarloCancelRef.current = true;
   };
 
   return (
@@ -308,7 +465,8 @@ export default function OptimizationPage({
               </div>
               <h3 className="text-xl font-black text-white">몬테카를로 시뮬레이션</h3>
               <p className="max-w-2xl text-sm font-bold leading-6 text-gray-300">
-                현재 equity curve의 일별 수익률을 블록 단위로 재표본해 성과 분포를 확인합니다.
+                백테스트 equity curve의 일별 수익률을 재표본(bootstrap)해 성과가 나올 수 있는 분포를 추정합니다.
+                블록 방식은 여러 날을 이어 뽑아 수익률의 자기상관을 보존합니다.
                 결과는 과거 데이터 기반 시뮬레이션이며 미래 성과를 보장하지 않습니다.
               </p>
             </div>
@@ -357,12 +515,13 @@ export default function OptimizationPage({
                   </div>
 
                   <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">블록 크기</p>
+                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">시뮬레이션 방식</p>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {[
-                        { value: 5, label: "5일" },
-                        { value: 10, label: "10일" },
-                        { value: 21, label: "21일" },
+                        { value: 1, label: "일별 재표본" },
+                        { value: 5, label: "5일 블록" },
+                        { value: 10, label: "10일 블록" },
+                        { value: 21, label: "21일 블록" },
                       ].map(({ value, label }) => (
                         <button
                           key={value}
@@ -377,6 +536,11 @@ export default function OptimizationPage({
                         </button>
                       ))}
                     </div>
+                    <p className="mt-3 text-xs font-bold leading-5 text-gray-500">
+                      {monteCarloSettings.blockSize <= 1
+                        ? "하루 단위로 독립 재표본합니다 (i.i.d. bootstrap)."
+                        : `${monteCarloSettings.blockSize}거래일 블록으로 이어 뽑아 자기상관을 보존합니다 (block bootstrap).`}
+                    </p>
                   </div>
                 </div>
 
@@ -389,8 +553,31 @@ export default function OptimizationPage({
                     {isMonteCarloRunning ? <Spinner className="h-4 w-4 animate-spin" /> : <ArrowsClockwise className="h-4 w-4" />}
                     몬테카를로 실행
                   </button>
+                  {isMonteCarloRunning && (
+                    <>
+                      <div
+                        role="progressbar"
+                        aria-label="몬테카를로 진행률"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={Math.round(monteCarloProgress * 100)}
+                        className="h-2 w-40 overflow-hidden rounded-full bg-white/[0.08]"
+                      >
+                        <div
+                          className="h-full rounded-full bg-[var(--main-blue)] transition-[width]"
+                          style={{ width: `${Math.round(monteCarloProgress * 100)}%` }}
+                        />
+                      </div>
+                      <button
+                        onClick={handleCancelMonteCarlo}
+                        className="rounded-lg px-3 py-1.5 text-sm font-black text-gray-400 transition-colors hover:bg-white/[0.04] hover:text-white"
+                      >
+                        취소
+                      </button>
+                    </>
+                  )}
                   <p className="text-xs font-bold text-gray-500">
-                    seed {monteCarloSettings.seed} 고정, block bootstrap 방식
+                    seed {monteCarloSettings.seed} 고정 · 동일 설정이면 같은 결과가 재현됩니다
                   </p>
                 </div>
 
@@ -402,34 +589,54 @@ export default function OptimizationPage({
 
                 {monteCarloResult && (
                   <>
-                    <div className="mt-5 grid gap-3 md:grid-cols-4">
+                    <div className="mt-5 grid gap-3 md:grid-cols-3">
                       <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
                         <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">중앙 CAGR</p>
                         <p className="mt-2 text-2xl font-black text-white">{formatRatioAsPercent(monteCarloResult.cagr.median)}</p>
                       </div>
                       <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">5% CAGR</p>
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">하위 5% CAGR</p>
                         <p className="mt-2 text-2xl font-black text-white">{formatRatioAsPercent(monteCarloResult.cagr.p05)}</p>
                       </div>
                       <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">95% MDD</p>
-                        <p className="mt-2 text-2xl font-black text-white">{formatRatioAsPercent(monteCarloResult.mdd.p95)}</p>
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">최악 CAGR</p>
+                        <p className="mt-2 text-2xl font-black text-white">{formatRatioAsPercent(monteCarloResult.cagr.min)}</p>
                       </div>
                       <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
                         <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">양수 CAGR 확률</p>
                         <p className="mt-2 text-2xl font-black text-white">{formatRatioAsPercent(monteCarloResult.probPositiveCagr)}</p>
                       </div>
+                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">상위 95% MDD</p>
+                        <p className="mt-2 text-2xl font-black text-white">{formatRatioAsPercent(monteCarloResult.mdd.p95)}</p>
+                      </div>
+                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">최악 MDD</p>
+                        <p className="mt-2 text-2xl font-black text-white">{formatRatioAsPercent(monteCarloResult.mdd.max)}</p>
+                      </div>
                     </div>
 
-                    <div className="mt-5 overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.03]">
-                      <table className="w-full text-left">
+                    <div className="mt-5 grid gap-3 lg:grid-cols-2">
+                      <MonteCarloHistogramChart
+                        title="CAGR 분포"
+                        bins={monteCarloResult.cagrHistogram}
+                        signColored
+                      />
+                      <MonteCarloHistogramChart
+                        title="MDD 분포"
+                        bins={monteCarloResult.mddHistogram}
+                      />
+                    </div>
+
+                    <div className="mt-5 overflow-x-auto rounded-xl border border-white/[0.08] bg-white/[0.03]">
+                      <table className="w-full min-w-[640px] text-left">
                         <thead className="bg-white/[0.04]">
                           <tr>
-                            <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">지표</th>
-                            <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">중앙값</th>
-                            <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">5%</th>
-                            <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">95%</th>
-                            <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">표준편차</th>
+                            {["지표", "최소", "5%", "25%", "중앙값", "75%", "95%", "최대", "표준편차"].map((label) => (
+                              <th key={label} className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">
+                                {label}
+                              </th>
+                            ))}
                           </tr>
                         </thead>
                         <tbody>
@@ -437,29 +644,36 @@ export default function OptimizationPage({
                             ["CAGR", monteCarloResult.cagr, true] as const,
                             ["Sharpe", monteCarloResult.sharpe, false] as const,
                             ["MDD", monteCarloResult.mdd, true] as const,
-                          ].map(([label, summary, isPercent]) => (
-                            <tr key={String(label)} className="border-t border-white/[0.06]">
-                              <td className="px-4 py-3 text-sm font-black text-white">{label}</td>
-                              <td className="px-4 py-3 text-sm font-bold text-gray-300">
-                                {isPercent ? formatRatioAsPercent((summary as MonteCarloSummary).median) : (summary as MonteCarloSummary).median.toFixed(2)}
-                              </td>
-                              <td className="px-4 py-3 text-sm font-bold text-gray-300">
-                                {isPercent ? formatRatioAsPercent((summary as MonteCarloSummary).p05) : (summary as MonteCarloSummary).p05.toFixed(2)}
-                              </td>
-                              <td className="px-4 py-3 text-sm font-bold text-gray-300">
-                                {isPercent ? formatRatioAsPercent((summary as MonteCarloSummary).p95) : (summary as MonteCarloSummary).p95.toFixed(2)}
-                              </td>
-                              <td className="px-4 py-3 text-sm font-bold text-gray-300">
-                                {isPercent ? formatRatioAsPercent((summary as MonteCarloSummary).std) : (summary as MonteCarloSummary).std.toFixed(2)}
-                              </td>
-                            </tr>
-                          ))}
+                          ].map(([label, summary, isPercent]) => {
+                            const fmtCell = (value: number) =>
+                              isPercent ? formatRatioAsPercent(value) : value.toFixed(2);
+                            return (
+                              <tr key={String(label)} className="border-t border-white/[0.06]">
+                                <td className="px-4 py-3 text-sm font-black text-white">{label}</td>
+                                {[summary.min, summary.p05, summary.p25, summary.median, summary.p75, summary.p95, summary.max, summary.std].map(
+                                  (value, index) => (
+                                    <td key={index} className="px-4 py-3 text-sm font-bold tabular-nums text-gray-300">
+                                      {fmtCell(value)}
+                                    </td>
+                                  )
+                                )}
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
 
-                    <div className="mt-4 rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm font-bold text-gray-300">
-                      최대낙폭이 30%를 초과할 확률은 {formatRatioAsPercent(monteCarloResult.probMddOver30pct)} 입니다.
+                    <div className="mt-4 space-y-2 rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm font-bold leading-6 text-gray-300">
+                      <p>
+                        시뮬레이션 {monteCarloResult.nIterations.toLocaleString()}회 중{" "}
+                        {formatRatioAsPercent(monteCarloResult.probPositiveCagr)}에서 CAGR이 양수로 끝났습니다.
+                        최대낙폭이 30%를 초과할 확률은 {formatRatioAsPercent(monteCarloResult.probMddOver30pct)} 입니다.
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        하위 5% CAGR과 상위 95% MDD 사이가 좁을수록 경로에 따른 성과 편차가 작게 나타난 것입니다.
+                        과거 수익률을 재배열한 분포이며 미래 수익을 보장하지 않습니다.
+                      </p>
                     </div>
                   </>
                 )}

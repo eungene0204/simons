@@ -192,6 +192,12 @@ class SignalEngine:
             close = get_col('close')
             if ema_arr is None or close is None:
                 return result
+            # 추세 필터(지속 상태): mode='above'→가격이 EMA 위, 'below'→아래. 크로스오버가 아니라
+            # 매 봉에서 참인 게이트라 filter 조건으로 진입 신호와 AND 결합할 때 쓴다.
+            mode = p.get('mode')
+            if mode in ('above', 'below'):
+                with np.errstate(invalid='ignore'):
+                    return close >= ema_arr if mode == 'above' else close <= ema_arr
             if p.get('signalType') == 'sell':
                 # 가격이 EMA 하향 돌파
                 res = np.zeros(data_len, dtype=bool)
@@ -490,7 +496,13 @@ class SignalEngine:
             period = p.get('period', 20)
             ema_val = safe_get(f'close_{period}_ema', idx)
             c = safe_get('close', idx)
-            if idx == 0 or ema_val is None or c is None:
+            if ema_val is None or c is None:
+                return False
+            # 추세 필터(지속 상태) — 벡터화 경로(_eval_vec)와 동일 의미. 크로스오버 아님.
+            mode = p.get('mode')
+            if mode in ('above', 'below'):
+                return c >= ema_val if mode == 'above' else c <= ema_val
+            if idx == 0:
                 return False
             p_ema = safe_get(f'close_{period}_ema', idx - 1)
             p_close = safe_get('close', idx - 1)

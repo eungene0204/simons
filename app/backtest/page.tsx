@@ -125,19 +125,6 @@ export default function BacktestHistoryPage() {
     }
   };
 
-  const handleClearAll = async () => {
-    if (!confirm("모든 테스트 기록을 삭제하시겠습니까?")) return;
-    try {
-      const response = await fetch("/api/backtest/history", { method: "DELETE" });
-      if (response.ok) {
-        setHistory([]);
-        writeCachedHistory([]);
-      }
-    } catch (error) {
-      console.error("Failed to clear history:", error);
-    }
-  };
-
   const sortedHistory = [...history].sort((a, b) => {
     let av: number, bv: number;
     if (sortField === "timestamp") {
@@ -212,15 +199,6 @@ export default function BacktestHistoryPage() {
             </h1>
             <p className="text-sm text-gray-500 mt-1">최근 50개 기록</p>
           </div>
-          {history.length > 0 && (
-            <button
-              onClick={handleClearAll}
-              className="flex items-center gap-2 px-3 py-1.5 bg-transparent text-gray-500 text-xs font-bold rounded-lg border border-white/[0.08] transition-colors hover:text-[var(--main-red)] hover:border-[var(--main-red)]/30"
-            >
-              <Trash className="w-4 h-4" />
-              기록 전체 삭제
-            </button>
-          )}
         </div>
 
         {/* Sort buttons */}

@@ -214,7 +214,7 @@ function StrategyResultContent() {
     }
   };
 
-  const handleWalkForward = async (settings: AdvisorWalkForwardSettings) => {
+  const handleWalkForward = async (settings: AdvisorWalkForwardSettings, signal?: AbortSignal) => {
     if (!backtestDsl) {
       throw new Error("워크포워드 분석을 실행할 백테스트 요청이 없습니다.");
     }
@@ -231,6 +231,7 @@ function StrategyResultContent() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(buildWalkForwardRequest(baseRequest, settings, ranges)),
+      signal,
     });
 
     if (!res.ok) {

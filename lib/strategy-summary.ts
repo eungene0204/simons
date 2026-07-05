@@ -6,6 +6,14 @@ export interface ParsedSummary {
   fundamental_filters: Array<{ metric: string; operator: string; value: number }>;
   entry_signals: Array<{ indicator: string; signal_type?: string | null; mode?: string | null }>;
   exit_signals: Array<{ indicator: string; signal_type?: string | null; mode?: string | null }>;
+  // 진입 게이트 필터(추세·거래대금·RSI 결합) — 진입 신호와 AND 결합. 빌더 전용, 없으면 생략.
+  entry_filters?: Array<{
+    indicator: string;
+    mode?: string | null;
+    period?: number | null;
+    operator?: string | null;
+    value?: number | null;
+  }>;
   ranking_metric?: "return" | null;
   ranking_lookback_days?: number | null;
   max_positions: number;
@@ -86,6 +94,26 @@ function formatMarketCapValue(value: number): string {
 }
 
 // 펀더멘털 필터 배지 문자열을 만든다. 시총은 한글 단위로, 거래대금은 억 단위 표시, 나머지는 원본 숫자로 표시.
+// 진입 게이트 필터(추세·거래대금·RSI 결합) 배지 라벨. 인식 못 하면 빈 문자열(배지 생략).
+export function formatEntryFilter(filter: {
+  indicator: string;
+  mode?: string | null;
+  period?: number | null;
+  operator?: string | null;
+  value?: number | null;
+}): string {
+  if (filter.indicator === "ema" && (filter.mode === "above" || filter.mode === "below")) {
+    return `${filter.period ?? 200}일선 ${filter.mode === "above" ? "위" : "아래"}`;
+  }
+  if (filter.indicator === "trading_value") {
+    return `거래대금 ${KO_NUMBER_FORMAT.format(filter.value ?? 100)}억 이상`;
+  }
+  if (filter.indicator === "rsi") {
+    return `RSI ${filter.value ?? 30} 이하`;
+  }
+  return "";
+}
+
 export function formatFundamentalFilter(filter: {
   metric: string;
   operator: string;
@@ -286,6 +314,8 @@ export function buildStrategySummary(
   const entryLabels = [
     ...parsed.fundamental_filters.map(formatFundamentalFilter),
     ...parsed.entry_signals.map((signal) => getSignalLabel(signal, "entry")),
+    // 옵션 진입 게이트 필터(추세·거래대금·RSI 결합)도 매수 조건이므로 진입 배지에 포함.
+    ...(parsed.entry_filters ?? []).map(formatEntryFilter).filter((s): s is string => Boolean(s)),
     ...(rankingLabel ? [rankingLabel] : []),
   ];
 
@@ -301,6 +331,10 @@ export function buildStrategySummary(
       takeProfitPct ? `익절 ${takeProfitPct}%` : "",
       trailingStopPct ? `트레일링 스탑 ${trailingStopPct}%` : "",
     ].filter(Boolean).join(", ") || undefined,
+    rebalancingText:
+      parsed.rebalancing_period && parsed.rebalancing_period !== "none"
+        ? `${REBAL_LABELS[parsed.rebalancing_period] ?? parsed.rebalancing_period} 리밸런싱`
+        : undefined,
   };
 }
 

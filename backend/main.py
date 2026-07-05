@@ -283,6 +283,8 @@ def walk_forward_analysis(request: WalkForwardRequest):
             target_metric=request.target_metric,
             n_trials=request.n_trials,
             method=request.method,
+            is_bars=request.is_bars,
+            oos_bars=request.oos_bars,
         )
         if result.get("status") == "error":
             raise HTTPException(status_code=400, detail=result.get("message"))

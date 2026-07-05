@@ -154,3 +154,87 @@ def test_monthly_rebalancing_with_stoploss_uses_signal_path():
 
     assert {"RBS_STEADY", "RBS_EARLY", "RBS_LATE"} <= buys, f"재선정 누락: {buys}"
     assert "RBS_EARLY" in sells, f"탈락 종목이 매도되지 않음: {sells}"
+
+
+def _early_sell_conditions(result) -> list[str]:
+    """리밸런싱 탈락 종목(EARLY 계열)의 매도 사유 문자열을 모은다."""
+    return [
+        s["condition"]
+        for s in result["signals"]
+        if s["type"] == "sell" and s["symbol"].endswith("EARLY")
+    ]
+
+
+def test_rebalance_dropout_labeled_precisely_pure_path():
+    """순수 리밸런싱(SL 없음) 경로: 탈락 매도는 추상적 '전략 매도 조건 충족'이 아니라
+    '리밸런싱 제외'로 정확히 라벨링된다."""
+    dates = pd.date_range(start="2024-01-01", periods=100, freq="D")
+    data_dir = os.path.join(os.path.dirname(__file__), "data")
+    os.makedirs(data_dir, exist_ok=True)
+
+    _write_series(data_dir, "RBL_STEADY", [100 + 1.0 * i for i in range(100)], dates)
+    early = [100 + 3.0 * i for i in range(31)]
+    early += [early[-1] - 3.0 * (i + 1) for i in range(69)]
+    _write_series(data_dir, "RBL_EARLY", early, dates)
+    late = [100.0 for _ in range(31)] + [100 + 4.0 * (i + 1) for i in range(69)]
+    _write_series(data_dir, "RBL_LATE", late, dates)
+
+    engine = BacktestEngine(data_dir=data_dir)
+    req = {
+        "symbols": ["RBL_STEADY", "RBL_EARLY", "RBL_LATE"],
+        "entry": {"conditions": []},
+        "exit": {"conditions": []},
+        "risk": {
+            "position_size_pct": 50,
+            "max_positions": 2,
+            "ranking_metric": "return",
+            "ranking_lookback_days": 5,
+            "rebalancing_period": "monthly",
+            "liquidity_multiplier": 0,
+        },
+        "options": {"execution_type": "same_close"},
+    }
+
+    result = engine.run_backtest(req)
+    conditions = _early_sell_conditions(result)
+    assert conditions, "탈락 종목의 매도 기록이 없음"
+    assert any("리밸런싱 제외" in c for c in conditions), f"리밸런싱 사유 라벨 누락: {conditions}"
+    assert not any("전략 매도 조건 충족" in c for c in conditions), (
+        f"리밸런싱 탈락이 추상 라벨로 뭉개짐: {conditions}"
+    )
+
+
+def test_rebalance_dropout_labeled_precisely_custom_loop_path():
+    """리밸런싱 + 봉중간 SL 혼합(커스텀 루프) 경로에서도 탈락 매도는 '리밸런싱 제외'로 라벨링된다."""
+    dates = pd.date_range(start="2024-01-01", periods=100, freq="D")
+    data_dir = os.path.join(os.path.dirname(__file__), "data")
+    os.makedirs(data_dir, exist_ok=True)
+
+    _write_series(data_dir, "RBLS_STEADY", [100 + 1.0 * i for i in range(100)], dates)
+    early = [100 + 3.0 * i for i in range(31)]
+    early += [early[-1] - 3.0 * (i + 1) for i in range(69)]
+    _write_series(data_dir, "RBLS_EARLY", early, dates)
+    late = [100.0 for _ in range(31)] + [100 + 4.0 * (i + 1) for i in range(69)]
+    _write_series(data_dir, "RBLS_LATE", late, dates)
+
+    engine = BacktestEngine(data_dir=data_dir)
+    req = {
+        "symbols": ["RBLS_STEADY", "RBLS_EARLY", "RBLS_LATE"],
+        "entry": {"conditions": []},
+        "exit": {"conditions": []},
+        "risk": {
+            "position_size_pct": 50,
+            "max_positions": 2,
+            "ranking_metric": "return",
+            "ranking_lookback_days": 5,
+            "rebalancing_period": "monthly",
+            "stop_loss_pct": 90,   # 발동 안 함 → 커스텀 루프(reconstitution) 경로 강제
+            "liquidity_multiplier": 0,
+        },
+        "options": {"execution_type": "same_close"},
+    }
+
+    result = engine.run_backtest(req)
+    conditions = _early_sell_conditions(result)
+    assert conditions, "탈락 종목의 매도 기록이 없음"
+    assert any("리밸런싱 제외" in c for c in conditions), f"리밸런싱 사유 라벨 누락: {conditions}"

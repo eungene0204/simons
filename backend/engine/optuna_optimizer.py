@@ -8,14 +8,7 @@ from optuna.trial import TrialState
 # Suppress excessively verbose optuna logs unless error
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-from engine.grid_optimizer import set_nested_value
-
-# Semantic ordering constraints: first param must be < second param
-# when both belong to the same condition block
-PARAM_ORDER_CONSTRAINTS = [
-    ("shortMA", "longMA"),
-    ("fastPeriod", "slowPeriod"),
-]
+from engine.grid_optimizer import set_nested_value, satisfies_param_order_constraints
 
 
 class OptunaOptimizer:
@@ -50,23 +43,7 @@ class OptunaOptimizer:
         Returns True if params satisfy semantic ordering constraints.
         e.g., shortMA must be < longMA within the same condition block.
         """
-        # Group params by their condition prefix
-        # "entry.conditions.0.params.shortMA" → prefix="entry.conditions.0.params", key="shortMA"
-        by_prefix: Dict[str, Dict[str, Any]] = {}
-        for path, value in params.items():
-            parts = path.rsplit('.', 1)
-            if len(parts) == 2:
-                prefix, key = parts
-                by_prefix.setdefault(prefix, {})[key] = value
-
-        for group in by_prefix.values():
-            for small_key, large_key in PARAM_ORDER_CONSTRAINTS:
-                if small_key in group and large_key in group:
-                    s_val, l_val = group[small_key], group[large_key]
-                    if isinstance(s_val, (int, float)) and isinstance(l_val, (int, float)):
-                        if s_val >= l_val:
-                            return False
-        return True
+        return satisfies_param_order_constraints(params)
 
     def _warm_cache(self, base_request: Dict[str, Any]):
         """Pre-load symbol data into DataLoader cache before optimization loop."""
@@ -206,6 +183,8 @@ class OptunaOptimizer:
                         "profitFactor": res.get("profitFactor"),
                         "sharpe": res.get("sharpe"),
                         "winRate": res.get("winRate"),
+                        "calmar": res.get("calmar"),
+                        "expectancy": res.get("expectancy"),
                         "trades": res.get("trades")
                     },
                     "target_value": metric_val

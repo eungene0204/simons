@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import StrategyLabPage from "./analytics/page";
+import { PrivacyPolicyPage } from "@/components/landing/PrivacyPolicyPage";
 import { TermsOfServicePage } from "@/components/landing/TermsOfServicePage";
 
 export const metadata: Metadata = {
@@ -25,6 +26,10 @@ export default function HomePage({ searchParams }: HomePageProps) {
 
   if (legalView === "terms") {
     return <TermsOfServicePage />;
+  }
+
+  if (legalView === "privacy") {
+    return <PrivacyPolicyPage />;
   }
 
   return <StrategyLabPage />;

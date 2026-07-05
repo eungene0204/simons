@@ -30,7 +30,8 @@ class ResultHandler:
                        risk_params, exec_type, init_cash,
                        benchmark_prices: "pd.Series | None" = None,
                        benchmark_label: str = "매수 후 보유",
-                       risk_free_rate: float = 0.0) -> Dict[str, Any]:
+                       risk_free_rate: float = 0.0,
+                       exit_reason_overrides: "Dict[str, Dict[str, str]] | None" = None) -> Dict[str, Any]:
 
         signals_list = []
         sl_pct = float(risk_params.get('stop_loss_pct') or 0)
@@ -220,6 +221,15 @@ class ResultHandler:
                             reason_kr = f"익절매 실행 (+{fmt_pct(tp_pct)}%)"
                         elif ts_pct > 0 and pnl > 0 and reason_kr == "전략 매도 조건 충족":
                             reason_kr = f"트레일링 스탑 실행 (-{fmt_pct(ts_pct)}%)"
+
+                    # 6. 시뮬레이터가 남긴 정밀 청산 사유(리밸런싱 편출 등)를 최우선 적용.
+                    # 신호/리스크 청산과 상호 배타적이므로 위 추론을 덮어써도 안전하다.
+                    if exit_reason_overrides:
+                        ov = exit_reason_overrides.get(sym)
+                        if ov:
+                            ov_reason = ov.get(get_dt_str(x_idx))
+                            if ov_reason:
+                                reason_kr = ov_reason
 
                     if exit_type == 5 or get_dt_str(x_idx) == last_date_str:
                         reason_kr = "백테스트 종료"

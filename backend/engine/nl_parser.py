@@ -201,7 +201,7 @@ class TechnicalSignal(BaseModel):
     indicator: Literal[
         "ma_crossover", "rsi", "ema", "macd",
         "bollinger_bands", "breakout", "volume_spike",
-        "stochastic", "cci", "adx",
+        "stochastic", "cci", "adx", "trading_value",
         "ai_model", "ai_drop_model"
     ] = Field(description="지표 종류. ai_model=AI 상승 예측 매수, ai_drop_model=AI 하락 예측 매도")
     signal_type: Literal["buy", "sell"] = Field(default="buy", description="매수=buy, 매도=sell")
@@ -216,7 +216,8 @@ class TechnicalSignal(BaseModel):
     value: Optional[float] = Field(default=None, description="비교 기준값 (rsi, cci, adx)")
 
     # MACD / RSI 모드. rsi 'rebound'=과매도/과매수 임계선을 다시 돌파하는 반등(단순 임계값 비교가 아님).
-    mode: Optional[Literal["crossover", "zero", "rebound"]] = Field(default=None, description="MACD: crossover=시그널 크로스, zero=제로선 돌파. RSI: rebound=임계선 재돌파 반등")
+    # ema 'above'/'below'=지속 상태 추세 필터(가격이 EMA 위/아래에 머무는지 — 크로스오버 아님).
+    mode: Optional[Literal["crossover", "zero", "rebound", "above", "below"]] = Field(default=None, description="MACD: crossover/zero. RSI: rebound. EMA: above/below=추세 필터(가격 vs EMA 지속 상태)")
 
     # 브레이크아웃
     lookback_period: Optional[int] = Field(default=None, description="브레이크아웃 기준 기간 (breakout)")
@@ -263,6 +264,12 @@ class ParsedStrategy(BaseModel):
     exit_signals: List[TechnicalSignal] = Field(
         default_factory=list,
         description="매도 청산 기술 조건. 보유기간 청산이면 빈 배열 []"
+    )
+    # 진입 신호와 AND로 결합되는 게이트(추세 필터·RSI 결합·거래대금 필터). 엔진은 type='filter'로
+    # 항상 AND 결합한다. 빌더 전용 채널이며 LLM은 출력하지 않는다(기본 빈 배열, 하위호환).
+    entry_filters: List[TechnicalSignal] = Field(
+        default_factory=list,
+        description="진입 게이트 필터(AND). 추세(EMA above/below)·RSI 결합·거래대금 등. 없으면 []"
     )
 
     # ── 종목 선정 랭킹 (횡단면)

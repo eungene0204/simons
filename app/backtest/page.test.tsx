@@ -105,6 +105,7 @@ describe("BacktestHistoryPage", () => {
 
     expect(screen.getByRole("heading", { name: "전략 백테스트 기록" })).toBeInTheDocument();
     expect(screen.getByText("모멘텀 전략")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "기록 전체 삭제" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "모멘텀 전략 기록 삭제" }));
 

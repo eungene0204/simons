@@ -33,6 +33,30 @@ class BuilderState(BaseModel):
     holding_count: Optional[int] = None
     rebalance_cycle: Optional[RebalanceCycle] = None
     entry_rule: Optional[str] = None           # custom 유형의 사용자 서술 진입 조건
+
+    # ── 전략별 특화 파라미터(엔진이 실제 반영하는 값만 수집) ──────────────────────────
+    # RSI: 기간·과매도·과매수. 이동평균: SMA/EMA·단기·장기. MACD/스토캐스틱: 신호 모드.
+    # CCI: 기간·기준값. 거래량: 평균 기간. 가치: PBR/ROE 기준. (돌파/모멘텀은 lookback_days 재사용.)
+    rsi_period: Optional[int] = None
+    rsi_oversold: Optional[float] = None
+    rsi_overbought: Optional[float] = None
+    ma_kind: Optional[str] = None              # "sma" | "ema"
+    ma_short: Optional[int] = None
+    ma_long: Optional[int] = None
+    macd_mode: Optional[str] = None            # "crossover" | "zero"
+    cci_period: Optional[int] = None
+    cci_threshold: Optional[float] = None
+    volume_period: Optional[int] = None
+    value_pbr: Optional[float] = None
+    value_roe: Optional[float] = None
+
+    # ── 옵션 진입 필터(추세·거래대금·RSI 결합) — 진입 신호와 AND 결합되는 게이트 ──────────
+    # filters_asked=한 번 물었으면 True(옵션이라 값이 없어도 완료). 나머지는 선택된 필터값.
+    filters_asked: bool = False
+    trend_filter_ma: Optional[int] = None       # 이 EMA 기간 위에서만 매수(예: 200)
+    liquidity_min: Optional[float] = None        # 거래대금 하한(억)
+    rsi_filter: Optional[float] = None           # RSI가 이 값 이하일 때만 매수(결합)
+
     # 청산 조건(필수) — 마지막 단계에서 묻고, 하나 이상 인식되면 risk_done=True로 완료 처리.
     stop_loss_pct: Optional[float] = None
     take_profit_pct: Optional[float] = None
@@ -48,7 +72,13 @@ class StepResult(BaseModel):
     # collecting=필드 더 받음, confirmed=필수 필드 충족 → 합성 후 바로 백테스트 파싱(전략 요약 카드),
     # reset=상태 초기화 후 빌더 유지, exited=빌더 종료(일반 모드 복귀)
     status: str = "collecting"
-    prompt: Optional[str] = None               # confirmed일 때 합성된 백테스트 프롬프트
+    prompt: Optional[str] = None               # confirmed일 때 사람이 읽는 전략 설명(코치 입력·표시용)
+    # confirmed일 때 직접 구성한 DSL. parsed=ParsedStrategy dump, backtest_request=엔진 요청,
+    # notices=하한선 보정 안내. 프론트는 한국어 재파싱 왕복 없이 이 구조를 그대로 소비한다
+    # (custom 유형만 이 필드가 없어 기존 prompt 재파싱 경로를 탄다).
+    parsed: Optional[dict] = None
+    backtest_request: Optional[dict] = None
+    notices: List[str] = Field(default_factory=list)
 
 
 # ─── 제어어(취소/처음부터/다른 질문) ─────────────────────────────────────────────
@@ -140,9 +170,15 @@ _TYPE_MOMENTUM_RE = re.compile(
 )
 _TYPE_GOLDEN_RE = re.compile(r"골든\s*크로스|golden\s*cross|이동\s*평균\s*교차|이평\s*교차|이동\s*평균선?\s*교차", re.IGNORECASE)
 _TYPE_MACD_RE = re.compile(r"macd", re.IGNORECASE)
+# 볼린저는 breakout보다 먼저 검사한다 — "볼린저 밴드 하단 돌파"의 '돌파'가 breakout으로 새지 않게.
+_TYPE_BOLLINGER_RE = re.compile(r"볼린저|볼린져|볼리저|bollinger", re.IGNORECASE)
 _TYPE_BREAKOUT_RE = re.compile(r"돌파|전고점|신고가|박스권|breakout", re.IGNORECASE)
 _TYPE_VOLUME_RE = re.compile(r"거래량|거래\s*급증|volume", re.IGNORECASE)
-_TYPE_MEANREV_RE = re.compile(r"과매도|반등|평균\s*회귀|역추세|rsi|mean\s*reversion", re.IGNORECASE)
+_TYPE_STOCH_RE = re.compile(r"스토캐스틱|스토케스틱|stochastic|스토ca스틱", re.IGNORECASE)
+_TYPE_CCI_RE = re.compile(r"\bcci\b|씨씨아이", re.IGNORECASE)
+# RSI를 이름으로 지목하면 기간·과매도/과매수를 묻는 전용 rsi 흐름으로. '과매도 반등'만 mean_reversion(프리셋).
+_TYPE_RSI_RE = re.compile(r"\brsi\b|알에스아이|아르에스아이", re.IGNORECASE)
+_TYPE_MEANREV_RE = re.compile(r"과매도|반등|평균\s*회귀|역추세|mean\s*reversion", re.IGNORECASE)
 _TYPE_VALUE_RE = re.compile(r"저평가|가치주?|우량주?|저\s*pbr|밸류|value", re.IGNORECASE)
 _TYPE_CUSTOM_RE = re.compile(r"직접|아이디어|내가|제가\s*설명|설명할게|따로\s*있", re.IGNORECASE)
 
@@ -259,10 +295,18 @@ def _parse_strategy_type(text: str) -> Optional[StrategyType]:
         return "golden_cross"
     if _TYPE_MACD_RE.search(text):
         return "macd"
+    if _TYPE_BOLLINGER_RE.search(text):  # breakout('돌파')보다 먼저 — '볼린저 하단 돌파' 오분류 방지
+        return "bollinger"
     if _TYPE_BREAKOUT_RE.search(text):
         return "breakout"
+    if _TYPE_STOCH_RE.search(text):
+        return "stochastic"
+    if _TYPE_CCI_RE.search(text):
+        return "cci"
     if _TYPE_VOLUME_RE.search(text):
         return "volume_spike"
+    if _TYPE_RSI_RE.search(text):  # 'RSI' 지목 → 전용 흐름. '과매도 반등'은 아래 mean_reversion.
+        return "rsi"
     if _TYPE_MEANREV_RE.search(text):
         return "mean_reversion"
     if _TYPE_VALUE_RE.search(text):
@@ -418,10 +462,191 @@ def _merge_risk(regex_patch: dict, llm_patch: dict) -> dict:
     return merged
 
 
+# ─── 전략별 특화 파라미터 스텝(엔진이 실제 반영하는 값만) ──────────────────────────────
+# 유형 확정 후 ~ 보유수 이전에 그 전략의 핵심 파라미터를 묻는다. 각 파서는 patch를 반환하고,
+# 인식 실패 시 {}를 반환해 같은 질문을 다시 하게 한다(초보자는 '기본값'으로 넘어갈 수 있다).
+
+_DEFAULT_RE = re.compile(r"기본|디폴트|default|아무거나|알아서|추천|그냥|상관\s*없|몰라", re.IGNORECASE)
+_NUM_RE = re.compile(r"\d+(?:\.\d+)?")
+
+
+def _wants_default(text: str) -> bool:
+    return bool(_DEFAULT_RE.search(text or ""))
+
+
+def _nums(text: str) -> list[float]:
+    return [float(x) for x in _NUM_RE.findall(text or "")]
+
+
+def _parse_rsi_period(text: str) -> dict:
+    if _wants_default(text):
+        return {"rsi_period": 14}
+    ns = _nums(text)
+    return {"rsi_period": int(ns[0])} if ns else {}
+
+
+def _parse_rsi_bounds(text: str) -> dict:
+    if _wants_default(text):
+        return {"rsi_oversold": 30.0, "rsi_overbought": 70.0}
+    ns = _nums(text)
+    if len(ns) >= 2:
+        lo, hi = sorted(ns[:2])
+        return {"rsi_oversold": lo, "rsi_overbought": hi}
+    return {}  # 값 하나만으론 과매도·과매수를 모두 못 채운다 → 다시 묻는다
+
+
+def _parse_ma_kind(text: str) -> dict:
+    t = (text or "").lower()
+    if re.search(r"지수|ema", t):
+        return {"ma_kind": "ema"}
+    if re.search(r"단순|sma|단리|이동\s*평균", t) or _wants_default(text):
+        return {"ma_kind": "sma"}
+    return {}
+
+
+def _parse_ma_periods(text: str) -> dict:
+    if _wants_default(text):
+        return {"ma_short": 5, "ma_long": 20}
+    ns = [int(x) for x in _nums(text)]
+    if len(ns) >= 2:
+        lo, hi = sorted(ns[:2])
+        return {"ma_short": lo, "ma_long": hi}
+    return {}
+
+
+def _parse_macd_mode(text: str) -> dict:
+    if re.search(r"제로|0\s*선|zero", text or ""):
+        return {"macd_mode": "zero"}
+    if re.search(r"교차|크로스|시그널|골든|cross", text or "") or _wants_default(text):
+        return {"macd_mode": "crossover"}
+    return {}
+
+
+def _parse_cci_params(text: str) -> dict:
+    if _wants_default(text):
+        return {"cci_period": 14, "cci_threshold": 100.0}
+    ns = _nums(text)
+    if len(ns) >= 2:
+        return {"cci_period": int(ns[0]), "cci_threshold": ns[1]}
+    if len(ns) == 1:
+        return {"cci_period": 14, "cci_threshold": ns[0]}  # 기준값만 주면 기간은 기본 14
+    return {}
+
+
+def _parse_volume_period(text: str) -> dict:
+    if _wants_default(text):
+        return {"volume_period": 20}
+    ns = _nums(text)
+    return {"volume_period": int(ns[0])} if ns else {}
+
+
+def _parse_value_params(text: str) -> dict:
+    if _wants_default(text):
+        return {"value_pbr": 1.0, "value_roe": 10.0}
+    t = text or ""
+    m_pbr = re.search(r"pbr[^0-9]{0,6}(\d+(?:\.\d+)?)", t, re.IGNORECASE)
+    m_roe = re.search(r"roe[^0-9]{0,6}(\d+(?:\.\d+)?)", t, re.IGNORECASE)
+    if m_pbr or m_roe:
+        patch: dict = {}
+        if m_pbr:
+            patch["value_pbr"] = float(m_pbr.group(1))
+        if m_roe:
+            patch["value_roe"] = float(m_roe.group(1))
+        return patch if len(patch) == 2 else patch  # 하나만 라벨돼도 채운다(나머지는 다시 묻음)
+    ns = _nums(t)
+    if len(ns) >= 2:
+        return {"value_pbr": ns[0], "value_roe": ns[1]}  # 라벨 없으면 'PBR 먼저, ROE 다음' 순서
+    return {}
+
+
+_FILTER_NONE_RE = re.compile(r"없음|없이|안\s*(?:넣|쓰|해|할)|그냥|필요\s*없|스킵|패스|괜찮", re.IGNORECASE)
+_FILTER_TREND_RE = re.compile(r"ema\s*(\d+)|(\d+)\s*일?\s*(?:지수\s*)?이동\s*평균", re.IGNORECASE)
+_FILTER_LIQ_RE = re.compile(r"(\d+)\s*억")
+_FILTER_RSI_RE = re.compile(r"rsi\s*(\d+)", re.IGNORECASE)
+
+
+def _parse_filters(text: str) -> dict:
+    """옵션 필터 답변을 해석한다. 항상 filters_asked=True(옵션이라 무매치·'없음'도 완료).
+    추세(EMA 기간)·거래대금(억)·RSI 결합을 자유 입력에서 함께 인식한다."""
+    patch: dict = {"filters_asked": True}
+    t = text or ""
+    if _FILTER_NONE_RE.search(t):
+        return patch  # 필터 없이 완료
+    m = _FILTER_TREND_RE.search(t)
+    if m:
+        patch["trend_filter_ma"] = int(m.group(1) or m.group(2))
+    elif re.search(r"추세", t):
+        patch["trend_filter_ma"] = 200  # '추세 필터'만 언급하면 기본 EMA200
+    ml = _FILTER_LIQ_RE.search(t)
+    if ml:
+        patch["liquidity_min"] = float(ml.group(1))
+    mr = _FILTER_RSI_RE.search(t)
+    if mr:
+        patch["rsi_filter"] = float(mr.group(1))
+    return patch
+
+
+# 스텝 키 → 파서. (lookback_days·entry_rule·filters는 아래 전용 분기가 처리하므로 제외.)
+_PARAM_STEP_PARSERS: dict[str, Callable[[str], dict]] = {
+    "rsi_period": _parse_rsi_period,
+    "rsi_bounds": _parse_rsi_bounds,
+    "ma_kind": _parse_ma_kind,
+    "ma_periods": _parse_ma_periods,
+    "macd_mode": _parse_macd_mode,
+    "cci_params": _parse_cci_params,
+    "volume_period": _parse_volume_period,
+    "value_params": _parse_value_params,
+}
+
+# 전략별 특화 파라미터 스텝(유형 확정 후 순서대로 첫 미충족 스텝을 질문). 없는 유형은 프리셋.
+# 기술적 진입 전략은 마지막에 옵션 "filters" 스텝(추세·거래대금·RSI 결합)을 둔다.
+# momentum(랭킹 선정)·value(재무 스크리닝)·custom(자유 서술)은 진입 게이트 필터 대상이 아니라 제외.
+STRATEGY_PARAM_STEPS: dict[str, tuple[str, ...]] = {
+    "momentum": ("lookback_days",),
+    "breakout": ("lookback_days", "filters"),
+    "rsi": ("rsi_period", "rsi_bounds", "filters"),
+    "golden_cross": ("ma_kind", "ma_periods", "filters"),
+    "macd": ("macd_mode", "filters"),
+    "cci": ("cci_params", "filters"),
+    "stochastic": ("filters",),  # 신호는 크로스오버 프리셋, 옵션 필터만 물음
+    "bollinger": ("filters",),
+    "mean_reversion": ("filters",),
+    "volume_spike": ("volume_period", "filters"),
+    "value": ("value_params",),
+    "custom": ("entry_rule",),
+}
+
+
+def _step_filled(state: BuilderState, step: str) -> bool:
+    """전략별 스텝이 완료됐는지(필요한 상태 필드가 모두 채워졌는지)."""
+    checks: dict[str, Callable[[BuilderState], bool]] = {
+        "lookback_days": lambda s: s.lookback_days is not None,
+        "rsi_period": lambda s: s.rsi_period is not None,
+        "rsi_bounds": lambda s: s.rsi_oversold is not None and s.rsi_overbought is not None,
+        "ma_kind": lambda s: s.ma_kind is not None,
+        "ma_periods": lambda s: s.ma_short is not None and s.ma_long is not None,
+        "macd_mode": lambda s: s.macd_mode is not None,
+        "cci_params": lambda s: s.cci_period is not None and s.cci_threshold is not None,
+        "volume_period": lambda s: s.volume_period is not None,
+        "value_params": lambda s: s.value_pbr is not None and s.value_roe is not None,
+        "entry_rule": lambda s: bool(s.entry_rule),
+        "filters": lambda s: s.filters_asked,  # 옵션 — 한 번 물으면 완료(값 없어도)
+    }
+    return checks.get(step, lambda s: True)(state)
+
+
 def parse_input(text: str, state: BuilderState, expecting: Optional[str]) -> dict:
     """짧은 답변을 전략 필드 patch로 해석한다. 모호한 맨숫자는 현재 묻는 필드(expecting)로 해석."""
     t = text or ""
     patch: dict = {}
+
+    # 옵션 필터 스텝 — 항상 완료(옵션). 추세·거래대금·RSI 결합을 함께 인식한다.
+    if expecting == "filters":
+        return _parse_filters(t)
+
+    # 전략별 특화 파라미터 스텝은 전용 파서로 처리한다(그 값만 해석, 다른 필드 오염 방지).
+    if expecting in _PARAM_STEP_PARSERS:
+        return _PARAM_STEP_PARSERS[expecting](t)
 
     # custom 유형에서 진입 조건을 서술로 받는 중이면, 입력 전체를 진입 규칙으로 저장한다
     # (자유 서술 안의 숫자를 기간/보유수로 오해하지 않도록 다른 파싱을 건너뛴다).
@@ -520,12 +745,10 @@ def required_missing(state: BuilderState) -> Optional[str]:
         return "universe"
     if not state.strategy_type:
         return "strategy_type"
-    if state.strategy_type == "custom":
-        if not state.entry_rule:
-            return "entry_rule"
-    elif state.strategy_type in ("momentum", "breakout"):
-        if not state.lookback_days:
-            return "lookback_days"
+    # 전략별 특화 파라미터(순서대로 첫 미충족 스텝). 없는 유형은 프리셋이라 건너뛴다.
+    for step in STRATEGY_PARAM_STEPS.get(state.strategy_type, ()):
+        if not _step_filled(state, step):
+            return step
     if not state.holding_count:
         return "holding_count"
     if not state.rebalance_cycle:
@@ -542,8 +765,12 @@ _TYPE_LABEL = {
     "momentum": "모멘텀",
     "golden_cross": "골든크로스",
     "macd": "MACD",
+    "bollinger": "볼린저 밴드",
     "breakout": "돌파",
     "volume_spike": "거래량 급증",
+    "stochastic": "스토캐스틱",
+    "cci": "CCI",
+    "rsi": "RSI",
     "mean_reversion": "과매도 반등",
     "value": "저평가 가치주",
     "custom": "직접 설계",
@@ -602,6 +829,48 @@ def next_question(
         if state.strategy_type == "breakout":
             return (prefix + "며칠 신고가(박스권 상단) 돌파를 기준으로 볼까요?", ["20일", "60일", "120일"])
         return (prefix + "최근 몇 개월 수익률을 기준으로 볼까요?", ["1개월", "3개월", "6개월"])
+    # ── 전략별 특화 파라미터 질문(초보자용 기본값 제안) ──────────────────────────────
+    if field == "rsi_period":
+        return (prefix + "RSI를 며칠 기준으로 계산할까요?", ["14일 (기본)", "9일", "21일", "직접 입력"])
+    if field == "rsi_bounds":
+        return (
+            prefix + "과매도·과매수 기준을 정해 주세요. (매수=과매도 아래, 매도=과매수 위)",
+            ["30 / 70 (기본)", "25 / 75", "35 / 65", "직접 입력"],
+        )
+    if field == "ma_kind":
+        return (prefix + "어떤 이동평균을 쓸까요?", ["단순(SMA)", "지수(EMA)"])
+    if field == "ma_periods":
+        return (
+            prefix + "단기·장기 이동평균 기간을 정해 주세요. (단기가 장기를 상향 돌파=매수)",
+            ["5일 / 20일 (기본)", "10일 / 60일", "20일 / 120일", "직접 입력"],
+        )
+    if field == "macd_mode":
+        return (
+            prefix + "MACD 신호를 어떻게 잡을까요?",
+            ["시그널선 교차 (기본)", "제로선 돌파"],
+        )
+    if field == "cci_params":
+        return (
+            prefix + "CCI 기준값을 정해 주세요. (매수=-기준값 아래, 매도=+기준값 위, 기간 기본 14)",
+            ["±100 (기본)", "±150", "직접 입력"],
+        )
+    if field == "volume_period":
+        return (prefix + "거래량 평균을 며칠 기준으로 볼까요?", ["20일 (기본)", "60일", "직접 입력"])
+    if field == "value_params":
+        return (
+            prefix + "저평가 기준을 정해 주세요.",
+            ["PBR 1 이하 · ROE 10 이상 (기본)", "PBR 0.8 · ROE 15", "직접 입력"],
+        )
+    if field == "filters":
+        chips = ["EMA200 위에서만", "거래대금 100억 이상"]
+        if state.strategy_type in ("bollinger", "mean_reversion"):
+            chips.append("RSI 30 이하일 때만")  # 평균회귀 매수에 과매도 확인을 더한다
+        chips += ["없음", "직접 입력"]
+        return (
+            prefix + "매수에 추가 필터를 넣을까요? 추세·거래대금 조건을 더하면 신호가 걸러져요. "
+            "(여러 개를 함께 말해도 돼요, 예: 'EMA200 위 + 거래대금 100억')",
+            chips,
+        )
     if field == "entry_rule":
         return (
             prefix + "어떤 조건에서 매수할지 말씀해 주세요. "
@@ -633,13 +902,47 @@ def next_question(
 
 
 # 확인 도입부에서 필드를 다룰 우선순위(높을수록 먼저). 직전 답변이 여럿이면 이 순서로 하나만.
+# 전략별 특화 파라미터를 공통 필드보다 앞에 둬(그 값을 방금 답한 경우가 대부분) 자연스럽게 확인한다.
 _ACK_PRIORITY = (
+    "filters_asked", "rsi_overbought", "rsi_period", "ma_long", "ma_kind", "macd_mode",
+    "cci_threshold", "volume_period", "value_roe",
     "rebalance_cycle", "holding_count", "lookback_days", "entry_rule", "strategy_type", "universe",
 )
 
 
+def _filter_phrases(state: BuilderState) -> list[str]:
+    """선택된 옵션 필터를 짧은 한국어 구로. 없으면 빈 리스트."""
+    parts: list[str] = []
+    if state.trend_filter_ma:
+        parts.append(f"{state.trend_filter_ma}일선 위")
+    if state.liquidity_min:
+        parts.append(f"거래대금 {_fmt_pct(state.liquidity_min)}억 이상")
+    if state.rsi_filter:
+        parts.append(f"RSI {_fmt_pct(state.rsi_filter)} 이하")
+    return parts
+
+
 def _ack_sentence(state: BuilderState, field: str) -> str:
     """단일 필드를 확인하는 완결 문장(마침표 없이)."""
+    if field == "filters_asked":
+        phrases = _filter_phrases(state)
+        return f"{'·'.join(phrases)} 필터를 더하겠습니다" if phrases else "추가 필터 없이 진행하겠습니다"
+    if field == "rsi_period":
+        return f"RSI {state.rsi_period}일 기준으로 보겠습니다"
+    if field == "rsi_overbought":
+        return f"과매도 {_fmt_pct(state.rsi_oversold)}·과매수 {_fmt_pct(state.rsi_overbought)} 기준으로 하겠습니다"
+    if field == "ma_kind":
+        return f"{'지수' if state.ma_kind == 'ema' else '단순'} 이동평균을 쓰겠습니다"
+    if field == "ma_long":
+        return f"{state.ma_short}일·{state.ma_long}일 이동평균 교차로 하겠습니다"
+    if field == "macd_mode":
+        return f"MACD {'제로선 돌파' if state.macd_mode == 'zero' else '시그널선 교차'}로 하겠습니다"
+    if field == "cci_threshold":
+        return f"CCI ±{_fmt_pct(state.cci_threshold)} 기준으로 하겠습니다"
+    if field == "volume_period":
+        return f"거래량 {state.volume_period}일 평균 기준으로 보겠습니다"
+    if field == "value_roe":
+        return f"PBR {_fmt_pct(state.value_pbr)} 이하·ROE {_fmt_pct(state.value_roe)} 이상으로 하겠습니다"
     if field == "rebalance_cycle":
         if state.rebalance_cycle == "none":
             return "정기 리밸런싱은 하지 않겠습니다"
@@ -717,14 +1020,34 @@ def synthesize_prompt(state: BuilderState) -> str:
     if state.strategy_type == "momentum":
         core = f"{universe} 종목 중 최근 {days}일 수익률 상위 {n}개 종목을 매수"
     elif state.strategy_type == "golden_cross":
+        short, long_ = state.ma_short or 5, state.ma_long or 20
+        kind = "지수" if state.ma_kind == "ema" else ""
         core = (
-            f"{universe} 종목 중 20일 이동평균이 60일 이동평균을 상향 돌파하는 골든크로스에서 "
-            f"매수하고 데드크로스에서 매도, 최대 {n}종목 보유"
+            f"{universe} 종목 중 {short}일 {kind}이동평균이 {long_}일 {kind}이동평균을 상향 돌파하는 "
+            f"골든크로스에서 매수하고 데드크로스에서 매도, 최대 {n}종목 보유"
         )
     elif state.strategy_type == "macd":
-        core = f"{universe} 종목 중 MACD 골든크로스에서 매수, MACD 데드크로스에서 매도, 최대 {n}종목 보유"
+        signal = "제로선을 상향 돌파하면 매수, 하향 돌파하면 매도" if state.macd_mode == "zero" \
+            else "골든크로스에서 매수, 데드크로스에서 매도"
+        core = f"{universe} 종목 중 MACD가 {signal}, 최대 {n}종목 보유"
+    elif state.strategy_type == "rsi":
+        period, lo, hi = state.rsi_period or 14, state.rsi_oversold or 30, state.rsi_overbought or 70
+        core = (
+            f"{universe} 종목 중 RSI({period}일)가 {_fmt_pct(lo)} 이하로 과매도되면 매수하고 "
+            f"{_fmt_pct(hi)} 이상이면 매도, 최대 {n}종목 보유"
+        )
+    elif state.strategy_type == "stochastic":
+        core = f"{universe} 종목 중 스토캐스틱 %K가 %D를 상향 교차하면 매수, 하향 교차하면 매도, 최대 {n}종목 보유"
+    elif state.strategy_type == "cci":
+        thr = _fmt_pct(state.cci_threshold or 100)
+        core = f"{universe} 종목 중 CCI가 -{thr} 이하면 매수하고 +{thr} 이상이면 매도, 최대 {n}종목 보유"
+    elif state.strategy_type == "bollinger":
+        # 엔진이 지원하는 볼린저 신호는 하단 밴드 터치 매수·상단 밴드 터치 매도(평균회귀)뿐이다
+        # (기간/표준편차·중심선 변형은 엔진이 반영하지 않아 묻지 않는다).
+        core = f"{universe} 종목 중 볼린저밴드 하단에 닿으면 매수하고 상단 밴드에 닿으면 매도, 최대 {n}종목 보유"
     elif state.strategy_type == "value":
-        core = f"{universe} 종목 중 PBR 1 이하, ROE 10% 이상인 저평가 우량주를 최대 {n}종목 매수"
+        pbr, roe = _fmt_pct(state.value_pbr or 1), _fmt_pct(state.value_roe or 10)
+        core = f"{universe} 종목 중 PBR {pbr} 이하, ROE {roe}% 이상인 저평가 우량주를 최대 {n}종목 매수"
     elif state.strategy_type == "breakout":
         core = f"{universe} 종목 중 최근 {days}일 신고가를 돌파하면 매수, 최대 {n}종목 보유"
     elif state.strategy_type == "volume_spike":
@@ -739,6 +1062,13 @@ def synthesize_prompt(state: BuilderState) -> str:
         core = f"{universe} 종목 중 {entry}, 최대 {n}종목 보유"
 
     parts = [core]
+    # 옵션 진입 필터를 매수 조건 뒤에 덧붙인다(설명과 DSL 일치).
+    if state.trend_filter_ma:
+        parts.append(f"주가가 {state.trend_filter_ma}일 지수이동평균 위에 있을 때만 매수")
+    if state.liquidity_min:
+        parts.append(f"거래대금 {_fmt_pct(state.liquidity_min)}억 이상")
+    if state.rsi_filter:
+        parts.append(f"RSI가 {_fmt_pct(state.rsi_filter)} 이하일 때만 매수")
     if rebal:
         parts.append(rebal)
     if state.stop_loss_pct is not None:
@@ -750,6 +1080,103 @@ def synthesize_prompt(state: BuilderState) -> str:
     if state.hold_period_days:
         parts.append(f"최대 {state.hold_period_days}거래일 보유 후 청산")
     return ", ".join(parts)
+
+
+# ─── DSL 직접 구성(한국어 재파싱 왕복 없이 파라미터 정확 반영) ──────────────────────
+# 수집한 전략별 파라미터를 ParsedStrategy로 직접 조립한다. 엔진까지 흐르는 파라미터 매핑은
+# strategy_converter._tech_signal_to_condition(SSOT)이 담당하므로 여기선 그 필드만 채운다.
+# custom 유형은 자유 서술이라 DSL을 만들 수 없어 None을 반환(호출 측이 prompt 재파싱 폴백).
+
+_UNIVERSE_DSL = {
+    "KOSPI": ["KOSPI"], "KOSDAQ": ["KOSDAQ"], "KOSPI200": ["KOSPI200"],
+    "KOSPI_KOSDAQ": ["KOSPI", "KOSDAQ"],
+}
+
+
+def build_parsed_strategy(state: BuilderState):
+    """수집한 상태를 ParsedStrategy로 직접 조립한다(custom이면 None)."""
+    if state.strategy_type == "custom" or state.strategy_type is None:
+        return None
+    from engine.nl_parser import ParsedStrategy, TechnicalSignal, FundamentalFilter
+
+    st = state.strategy_type
+    entry: list = []
+    exit_: list = []
+    filters: list = []
+    ranking_metric = None
+    ranking_lookback_days = None
+
+    if st == "momentum":
+        ranking_metric = "return"
+        ranking_lookback_days = state.lookback_days or 63
+    elif st == "golden_cross":
+        ind = "ema" if state.ma_kind == "ema" else "ma_crossover"
+        short, long_ = state.ma_short or 5, state.ma_long or 20
+        entry = [TechnicalSignal(indicator=ind, signal_type="buy", short_period=short, long_period=long_)]
+        exit_ = [TechnicalSignal(indicator=ind, signal_type="sell", short_period=short, long_period=long_)]
+    elif st == "macd":
+        mode = state.macd_mode or "crossover"
+        entry = [TechnicalSignal(indicator="macd", signal_type="buy", mode=mode)]
+        exit_ = [TechnicalSignal(indicator="macd", signal_type="sell", mode=mode)]
+    elif st == "rsi":
+        period = state.rsi_period or 14
+        lo, hi = state.rsi_oversold or 30, state.rsi_overbought or 70
+        entry = [TechnicalSignal(indicator="rsi", signal_type="buy", period=period, operator="<=", value=lo)]
+        exit_ = [TechnicalSignal(indicator="rsi", signal_type="sell", period=period, operator=">=", value=hi)]
+    elif st == "mean_reversion":
+        entry = [TechnicalSignal(indicator="rsi", signal_type="buy", period=14, operator="<=", value=30)]
+        exit_ = [TechnicalSignal(indicator="rsi", signal_type="sell", period=14, operator=">=", value=70)]
+    elif st == "stochastic":
+        # 엔진 level 모드는 스키마로 표현 불가 → 크로스오버만(엔진 지원 신호).
+        entry = [TechnicalSignal(indicator="stochastic", signal_type="buy", mode="crossover")]
+        exit_ = [TechnicalSignal(indicator="stochastic", signal_type="sell", mode="crossover")]
+    elif st == "cci":
+        period, thr = state.cci_period or 14, state.cci_threshold or 100
+        entry = [TechnicalSignal(indicator="cci", signal_type="buy", period=period, operator="<", value=-thr)]
+        exit_ = [TechnicalSignal(indicator="cci", signal_type="sell", period=period, operator=">", value=thr)]
+    elif st == "bollinger":
+        entry = [TechnicalSignal(indicator="bollinger_bands", signal_type="buy")]
+        exit_ = [TechnicalSignal(indicator="bollinger_bands", signal_type="sell")]
+    elif st == "breakout":
+        entry = [TechnicalSignal(indicator="breakout", signal_type="buy", lookback_period=state.lookback_days or 20)]
+    elif st == "volume_spike":
+        entry = [TechnicalSignal(indicator="volume_spike", signal_type="buy", period=state.volume_period or 20)]
+    elif st == "value":
+        filters = [
+            FundamentalFilter(metric="pbr", operator="<=", value=state.value_pbr or 1),
+            FundamentalFilter(metric="roe_or_gpa", operator=">=", value=state.value_roe or 10),
+        ]
+    else:
+        return None
+
+    # 옵션 진입 게이트 필터(추세·거래대금·RSI 결합) — 진입 신호와 AND 결합된다.
+    entry_filters: list = []
+    if state.trend_filter_ma:
+        entry_filters.append(TechnicalSignal(indicator="ema", signal_type="buy",
+                                             period=state.trend_filter_ma, mode="above"))
+    if state.liquidity_min:
+        entry_filters.append(TechnicalSignal(indicator="trading_value", signal_type="buy",
+                                             value=state.liquidity_min))
+    if state.rsi_filter:
+        entry_filters.append(TechnicalSignal(indicator="rsi", signal_type="buy",
+                                             period=14, operator="<", value=state.rsi_filter))
+
+    return ParsedStrategy(
+        description=synthesize_prompt(state),
+        universe=_UNIVERSE_DSL.get(state.universe or "KOSPI", ["KOSPI"]),
+        fundamental_filters=filters,
+        entry_signals=entry,
+        exit_signals=exit_,
+        entry_filters=entry_filters,
+        ranking_metric=ranking_metric,
+        ranking_lookback_days=ranking_lookback_days,
+        max_positions=state.holding_count or 10,
+        hold_period_days=state.hold_period_days,
+        rebalancing_period=state.rebalance_cycle or "none",
+        stop_loss_pct=state.stop_loss_pct,
+        take_profit_pct=state.take_profit_pct,
+        trailing_stop_pct=state.trailing_stop_pct,
+    )
 
 
 # ─── 종료/리셋 안내 문구 ─────────────────────────────────────────────────────────

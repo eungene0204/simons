@@ -12,6 +12,11 @@ DEFAULT_FEE_RATE = 0.0015
 DEFAULT_SELL_TAX_RATE = 0.0015
 DEFAULT_SLIPPAGE_RATE = 0.0020
 
+# 리밸런싱일에 목표 집합에서 빠져(조건 미충족·랭킹 이탈) 매도되는 청산의 정밀 사유.
+# 신호/리스크 청산이 아니므로 결과 라벨이 추상적인 '전략 매도 조건 충족'으로 뭉개지지
+# 않도록 시뮬레이터가 직접 사유를 기록한다.
+REBALANCE_EXIT_REASON = "리밸런싱 제외 (목표 종목 이탈)"
+
 
 class Simulator:
     """신호 → 주문 변환 시뮬레이터.
@@ -40,6 +45,10 @@ class Simulator:
             high_df: Optional[pd.DataFrame] = None,
             low_df: Optional[pd.DataFrame] = None,
             available_df: Optional[pd.DataFrame] = None) -> vbt.Portfolio:
+
+        # {symbol: {날짜문자열: 정밀 청산 사유}} — 신호/리스크로 설명되지 않는 청산
+        # (리밸런싱 편출 등)의 사유를 체결일 기준으로 남겨 result_handler가 우선 적용한다.
+        self.exit_reason_overrides: Dict[str, Dict[str, str]] = {}
 
         init_cash_raw = risk_params.get('init_cash')
         pos_size_raw = risk_params.get('position_size_pct')
@@ -117,6 +126,13 @@ class Simulator:
         active_count = 0
         EPS = 1e-6
 
+        # 체결일 라벨링용 날짜 문자열 + 예약된 정밀 청산 사유(리밸런싱 편출 등).
+        # 사유는 청산이 '결정'된 시점에 예약하고, 실제 '체결'(_book_exit)될 때 그 날짜로
+        # 남긴다(익일 시가·거래정지 이월로 결정일과 체결일이 다를 수 있으므로).
+        date_strs = [pd.Timestamp(d).strftime('%Y-%m-%d') for d in entries_df.index]
+        exit_reason_pending = np.empty(num_symbols, dtype=object)
+        exit_reason_pending[:] = ""
+
         # from_orders 입력: NaN=주문 없음, 양수=진입 목표비중(NAV 대비), 0=전량 청산
         target_values = np.full((n_rows, num_symbols), np.nan)
         # 셀 단위 수수료: 매수 셀=매수 수수료, 매도 셀=매도 수수료+거래세
@@ -134,6 +150,12 @@ class Simulator:
             active_mask[mask] = False
             peak_price[mask] = 0.0
             active_count -= int(mask.sum())
+            # 예약된 정밀 청산 사유가 있으면 체결일(i)에 기록하고 예약을 비운다.
+            for s_idx in np.where(mask)[0]:
+                r = exit_reason_pending[s_idx]
+                if r:
+                    self.exit_reason_overrides.setdefault(symbols[s_idx], {})[date_strs[i]] = r
+                    exit_reason_pending[s_idx] = ""
 
         # ── 달력 기준 리밸런싱 (reconstitution) ──
         # '리밸런싱 + 봉중간 리스크(SL/TP 등)'가 섞인 경우(순수 리밸런싱은 위에서
@@ -215,6 +237,8 @@ class Simulator:
 
                 dropouts = active_mask & ~current_target_mask & ~pending_exit
                 if dropouts.any():
+                    # 정밀 사유 예약 — 즉시/이월 어느 경로로 체결되든 _book_exit이 남긴다.
+                    exit_reason_pending[dropouts] = REBALANCE_EXIT_REASON
                     if exec_type == 'next_open' and i + 1 < n_rows:
                         pending_exit |= dropouts
                     else:
@@ -318,6 +342,12 @@ class Simulator:
         entries_values = entries_df.values
         rank_values = rank_df.values if rank_df is not None else None
 
+        symbols = entries_df.columns.tolist()
+        date_strs = [pd.Timestamp(d).strftime('%Y-%m-%d') for d in entries_df.index]
+        # next_open은 결정일(i)의 주문을 다음 거래일(i+1)에 체결하므로 사유도 그 날짜에 남긴다.
+        fill_offset = 1 if exec_type == 'next_open' else 0
+        held = np.zeros(num_syms, dtype=bool)   # 직전 리밸런싱에서 목표비중을 받은 보유 종목
+
         target = np.full((num_rows, num_syms), np.nan)
         for i in np.where(rebalance_dates)[0]:
             cand = np.where(entries_values[i])[0]
@@ -327,6 +357,14 @@ class Simulator:
             row = np.zeros(num_syms)            # 0 = 목표에서 빠진 보유는 전량 청산
             if len(sel) > 0:
                 row[sel] = 1.0 / len(sel)        # 동일가중 목표비중 (비중 리셋)
+            # 보유 중이던 종목이 목표에서 빠지면(비중 0) 리밸런싱 편출로 매도된다.
+            dropouts = np.where(held & (row == 0.0))[0]
+            if len(dropouts) > 0 and i + fill_offset < num_rows:
+                for s_idx in dropouts:
+                    self.exit_reason_overrides.setdefault(
+                        symbols[s_idx], {}
+                    )[date_strs[i + fill_offset]] = REBALANCE_EXIT_REASON
+            held = row > 0.0
             target[i, :] = row
 
         target_df = pd.DataFrame(target, index=entries_df.index, columns=entries_df.columns)
