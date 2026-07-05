@@ -53,11 +53,13 @@ import { BACKTEST_MIN_PERIOD_MESSAGE, backtestPeriodTooShort, isBacktestConfirma
 import { normalizeCoachMessage } from "./coachMessage";
 import { parseCoachSegments } from "./coachText";
 import { parseSseBlocks } from "./sseEvents";
+import { runWalkForwardStream, type WalkForwardProgressHandler } from "./walkForwardStream";
 import { installBacktestResultBackHandler } from "./backtestResultHistory";
 import {
   beginStrategyChatNavigation,
   selectPersistableChatMessages,
   shouldBeginStrategyChatNavigation,
+  shouldShowChatInputBox,
 } from "./chatNavigation";
 import StockAnalysisPanel, { type StockAnalysisResult } from "@/components/strategy/StockAnalysisPanel";
 
@@ -710,16 +712,7 @@ function StrategyLabContent() {
   // 전략 빌더가 옵션 칩을 보여주는 동안에는 채팅창을 숨겨 사용자가 선택에 집중하게 한다.
   // 칩(infoSuggestions)은 빌더만 사용하므로, 마지막 어시스턴트 메시지에 칩이 있으면 입력창을 가린다.
   // '직접 설명하기'를 고르면 진입 조건(자유 입력) 질문은 칩이 없어 입력창이 다시 나타난다.
-  const lastAssistantMessage = (() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === "assistant") return messages[i];
-    }
-    return undefined;
-  })();
-  const builderAwaitingChoice = (lastAssistantMessage?.infoSuggestions?.length ?? 0) > 0;
-  const shouldShowChatInput =
-    (isIdle || messages.some((m) => m.parsed || m.stockAnalysis || m.infoText)) &&
-    (!builderAwaitingChoice || builderFreeTextRequested);
+  const shouldShowChatInput = shouldShowChatInputBox(messages, isIdle, builderFreeTextRequested);
 
   useEffect(() => {
     if (!shouldShowChatInput || stage === "running" || result) return;
@@ -1596,7 +1589,11 @@ function StrategyLabContent() {
     }
   };
 
-  const handleWalkForward = async (settings: AdvisorWalkForwardSettings, signal?: AbortSignal) => {
+  const handleWalkForward = async (
+    settings: AdvisorWalkForwardSettings,
+    signal?: AbortSignal,
+    onProgress?: WalkForwardProgressHandler
+  ) => {
     if (!backtestReq) {
       throw new Error("워크포워드 분석을 실행할 백테스트 요청이 없습니다.");
     }
@@ -1608,20 +1605,10 @@ function StrategyLabContent() {
       );
     }
 
-    const res = await fetch("/api/backtest/walk-forward", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildWalkForwardRequest(backtestReq, settings, ranges)),
+    return runWalkForwardStream(buildWalkForwardRequest(backtestReq, settings, ranges), {
       signal,
+      onProgress,
     });
-
-    if (!res.ok) {
-      const error = await res.json().catch(() => ({}));
-      throw new Error(error.detail ?? "워크포워드 분석 실패");
-    }
-
-    const data = await res.json();
-    return data;
   };
 
   const handleReset = () => {
@@ -2137,6 +2124,24 @@ function StrategyLabContent() {
                 )}
               </button>
             </div>
+          </div>
+        )}
+
+        {/* 입력창이 숨겨지는 상태(에러/로딩 등 예상 못 한 상태 포함)에서도 항상 빠져나갈 수 있도록,
+            입력 바가 안 보일 때는 '대화 종료' 버튼만이라도 독립적으로 띄운다. */}
+        {hasChatStarted && !shouldShowChatInput && (
+          <div
+            key="fixed-chat-escape"
+            className="fixed bottom-4 left-4 right-4 z-40 mx-auto flex max-w-4xl justify-center"
+          >
+            <button
+              type="button"
+              onClick={handleReset}
+              className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-[#171717] px-4 py-2 text-xs font-bold text-gray-300 shadow-lg transition-all duration-200 hover:border-white/30 hover:bg-[#202020] hover:text-white"
+            >
+              <X size={12} weight="bold" />
+              대화 종료
+            </button>
           </div>
         )}
 

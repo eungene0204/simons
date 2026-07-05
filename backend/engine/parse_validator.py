@@ -190,7 +190,7 @@ def _maybe_apply_correction(parser, parsed, report: ParseValidationReport, parse
         return parsed
     # 원문 설명은 사용자 입력이므로 LLM이 바꿔도 무시하고 보존한다.
     candidate.description = parsed.description
-    from engine.nl_parser import _validate_signals
+    from engine.nl_parser import _extract_explicit_universe, _validate_signals
 
     validated_entry = _validate_signals(list(candidate.entry_signals), user_input)
     validated_exit = _validate_signals(list(candidate.exit_signals), user_input)
@@ -204,6 +204,13 @@ def _maybe_apply_correction(parser, parsed, report: ParseValidationReport, parse
         )
         candidate.entry_signals = validated_entry
         candidate.exit_signals = validated_exit
+    # 유니버스는 순수 어휘 매핑(KOSPI/KOSDAQ/KOSPI200)이라 교정 LLM이 개선할 여지가 없다 —
+    # 실사례: "KOSPI 대형주"(→KOSPI200)를 교정본이 그대로 "KOSPI"로 되돌려 유니버스가
+    # 200종목에서 전체 코스피(800+)로 확대되며 백테스트가 크게 느려짐. max_positions 등
+    # 숫자 필드는 교정 LLM이 원본 파싱 실수를 고칠 수 있어야 하므로 여기서 강제하지 않는다.
+    explicit_universe = _extract_explicit_universe(user_input)
+    if explicit_universe is not None:
+        candidate.universe = explicit_universe
     report.correctedStrategy = candidate.model_dump()
     return candidate
 

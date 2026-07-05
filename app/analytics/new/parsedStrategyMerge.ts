@@ -447,8 +447,8 @@ function filterExcludedParameterRanges(
 
   const next: Record<string, unknown> = {};
   for (const [path, range] of Object.entries(ranges)) {
-    const excluded = excludedLabels.some((label) =>
-      rangePathMatchesStepLabel(baseStrategy, label, path)
+    const excluded = excludedLabels.some(
+      (key) => key === path || rangePathMatchesStepLabel(baseStrategy, key, path)
     );
     if (!excluded) next[path] = range;
   }
@@ -654,9 +654,15 @@ function applyWalkForwardParameterRangeOverrides(
   if (!parameterRanges || Object.keys(parameterRanges).length === 0) return ranges;
 
   const next = { ...ranges };
-  for (const [label, override] of Object.entries(parameterRanges)) {
+  for (const [key, override] of Object.entries(parameterRanges)) {
+    // path 기반 디스크립터 키는 라벨 매칭 없이 정확히 해당 경로에만 적용
+    if (key in ranges) {
+      const spec = numberRangeSpecFromOverride(override);
+      if (spec) next[key] = spec;
+      continue;
+    }
     for (const path of Object.keys(ranges)) {
-      if (!rangePathMatchesStepLabel(baseStrategy, label, path)) continue;
+      if (!rangePathMatchesStepLabel(baseStrategy, key, path)) continue;
       const spec = numberRangeSpecFromOverride(override);
       if (spec) next[path] = spec;
     }
@@ -674,10 +680,16 @@ function applyWalkForwardParameterSteps(
   if (!parameterSteps || Object.keys(parameterSteps).length === 0) return ranges;
 
   const next = { ...ranges };
-  for (const [label, step] of Object.entries(parameterSteps)) {
-    if (parameterRanges?.[label]) continue;
+  for (const [key, step] of Object.entries(parameterSteps)) {
+    if (parameterRanges?.[key]) continue;
+    // path 기반 디스크립터 키는 라벨 매칭 없이 해당 경로에만 적용
+    if (key in ranges) {
+      const spec = numberRangeSpec(ranges[key], step);
+      if (spec) next[key] = spec;
+      continue;
+    }
     for (const [path, range] of Object.entries(ranges)) {
-      if (!rangePathMatchesStepLabel(baseStrategy, label, path)) continue;
+      if (!rangePathMatchesStepLabel(baseStrategy, key, path)) continue;
       const spec = numberRangeSpec(range, step);
       if (spec) next[path] = spec;
     }
@@ -686,9 +698,9 @@ function applyWalkForwardParameterSteps(
   return next;
 }
 
-// 엔진(engine/signals.py)이 실제로 읽는 파라미터만 최적화 대상으로 삼는다.
-// 여기 없는 파라미터(예: 볼린저 stdDev·기간, MACD 기간)는 엔진이 stockstats 기본값으로
-// 고정 계산하므로, 탐색해도 결과가 변하지 않는 무의미한 차원이 된다.
+// 엔진(engine/signals.py + indicator_columns.py)이 실제로 읽는 파라미터만 최적화 대상으로
+// 삼는다. 여기 없는 파라미터는 엔진이 무시하므로, 탐색해도 결과가 변하지 않는 무의미한
+// 차원이 된다. 엔진에 지표 파라미터를 추가하면 이 목록도 함께 갱신해야 한다.
 function optimizableParamKeys(
   conditionId: string,
   conditionType: string,
@@ -706,9 +718,13 @@ function optimizableParamKeys(
       return numericValue(paramMap.shortPeriod) !== null && numericValue(paramMap.longPeriod) !== null
         ? ["shortPeriod", "longPeriod"]
         : ["period"];
+    case "macd":
+      return ["fastPeriod", "slowPeriod", "signalPeriod"];
     case "stochastic":
-      // 엔진은 level 모드에서만 value를 읽는다 (crossover 모드는 K/D 고정 컬럼)
-      return paramMap.mode === "level" ? ["value"] : [];
+      // 기간은 항상, 임계값(value)은 level 모드에서만 엔진이 읽는다
+      return paramMap.mode === "level" ? ["period", "value"] : ["period"];
+    case "bollinger_bands":
+      return ["period", "stdDev"];
     case "cci":
       return ["period", "value"];
     case "adx":
@@ -737,13 +753,18 @@ function rangeForParamKey(
   switch (key) {
     case "shortMA":
     case "shortPeriod":
+    case "fastPeriod":
       return boundedIntegerRange(value, 2, 120);
     case "longMA":
     case "longPeriod":
+    case "slowPeriod":
       return boundedIntegerRange(value, 3, 250);
     case "period":
     case "lookbackPeriod":
+    case "signalPeriod":
       return boundedIntegerRange(value, 2, 250);
+    case "stdDev":
+      return uniqueNumbers([Math.max(0.5, value - 0.5), value, value + 0.5], 2);
     default:
       // value / threshold 계열
       if (conditionType === "filter") return aroundValueRange(value);
@@ -802,6 +823,136 @@ export function buildWalkForwardParameterRanges(baseStrategy: StrategyBacktestRe
   addConditionRanges(ranges, "exit", baseStrategy.exit?.conditions);
 
   return ranges;
+}
+
+// ── 워크포워드 파라미터 디스크립터 ─────────────────────────────────────────
+// UI 칩을 배지 텍스트가 아니라 실제 탐색 공간의 경로(path)에서 직접 생성한다.
+// 라벨 정규식 매칭에 의존하던 방식은 기술지표 파라미터(MACD 기간 등)를 칩으로
+// 노출하지 못해 "표시 = 실행" 원칙이 깨지는 원인이었다.
+
+export interface WalkForwardParameterDescriptor {
+  /** 백테스트 요청 내 경로 — 오버라이드/제외의 키로 그대로 사용된다 */
+  path: string;
+  label: string;
+}
+
+const RISK_PARAM_LABELS: Record<string, string> = {
+  stop_loss_pct: "손절라인",
+  take_profit_pct: "익절라인",
+  trailing_stop_pct: "트레일링 스탑",
+  max_mdd_limit_pct: "MDD 한도",
+  max_holding_days: "보유기간",
+  max_positions: "보유종목수",
+};
+
+const INDICATOR_LABELS: Record<string, string> = {
+  ma_crossover: "이동평균",
+  rsi: "RSI",
+  ema: "EMA",
+  macd: "MACD",
+  stochastic: "스토캐스틱",
+  bollinger_bands: "볼린저",
+  cci: "CCI",
+  adx: "ADX",
+  volume_spike: "거래량",
+  breakout: "돌파",
+  trading_value: "거래대금",
+  price_level: "가격",
+  price: "가격",
+  ai_model: "AI 진입",
+  ai_drop_model: "AI 청산",
+};
+
+const PARAM_KEY_LABELS: Record<string, string> = {
+  shortMA: "단기",
+  longMA: "장기",
+  shortPeriod: "단기",
+  longPeriod: "장기",
+  fastPeriod: "단기",
+  slowPeriod: "장기",
+  signalPeriod: "시그널",
+  period: "기간",
+  lookbackPeriod: "기간",
+  stdDev: "표준편차",
+  value: "기준값",
+  threshold: "임계값",
+};
+
+const FILTER_METRIC_LABELS: Record<string, string> = {
+  pbr: "PBR",
+  per: "PER",
+  psr: "PSR",
+  roe: "ROE",
+  roe_or_gpa: "ROE",
+  roa: "ROA",
+  debt_ratio: "부채비율",
+  current_ratio: "유동비율",
+  quick_ratio: "당좌비율",
+  reserve_ratio: "유보율",
+  net_margin: "순이익률",
+  gross_margin: "매출총이익률",
+  revenue_growth: "매출액증가율",
+  operating_income_growth: "영업이익증가율",
+  net_income_growth: "순이익증가율",
+  market_cap: "시가총액",
+  trading_value: "거래대금",
+};
+
+function filterMetricLabel(conditionId: string): string {
+  const normalized = conditionId.replace(/_filter$/, "").toLowerCase();
+  return FILTER_METRIC_LABELS[normalized] ?? normalized.toUpperCase();
+}
+
+function labelForRangePath(baseStrategy: StrategyBacktestRequest, path: string): string {
+  if (path.startsWith("risk.")) {
+    const key = path.slice("risk.".length);
+    return RISK_PARAM_LABELS[key] ?? key;
+  }
+
+  const condition = conditionForRangePath(baseStrategy, path);
+  const key = path.split(".").pop() ?? path;
+  const conditionId = typeof condition?.id === "string" ? condition.id : "";
+
+  if (condition?.type === "filter") {
+    return filterMetricLabel(conditionId);
+  }
+
+  const indicatorLabel = INDICATOR_LABELS[conditionId] ?? conditionId;
+  const paramLabel = PARAM_KEY_LABELS[key] ?? key;
+  return `${indicatorLabel} ${paramLabel}`.trim();
+}
+
+export function buildWalkForwardParameterDescriptors(
+  baseStrategy: StrategyBacktestRequest,
+  ranges?: Record<string, unknown>
+): WalkForwardParameterDescriptor[] {
+  const resolvedRanges = ranges ?? buildWalkForwardParameterRanges(baseStrategy);
+  const descriptors = Object.keys(resolvedRanges).map((path) => ({
+    path,
+    label: labelForRangePath(baseStrategy, path),
+  }));
+
+  // 같은 지표가 진입/청산 양쪽에 있으면 라벨이 겹친다 — 구간을 붙여 구분한다.
+  const labelCounts = new Map<string, number>();
+  for (const descriptor of descriptors) {
+    labelCounts.set(descriptor.label, (labelCounts.get(descriptor.label) ?? 0) + 1);
+  }
+  const seen = new Map<string, number>();
+  return descriptors.map((descriptor) => {
+    if ((labelCounts.get(descriptor.label) ?? 0) <= 1) return descriptor;
+    const side = descriptor.path.startsWith("exit.") ? "청산" : "진입";
+    const sided = `${descriptor.label} (${side})`;
+    const nth = (seen.get(sided) ?? 0) + 1;
+    seen.set(sided, nth);
+    return { ...descriptor, label: nth > 1 ? `${sided} ${nth}` : sided };
+  });
+}
+
+export function walkForwardRangeBoundsForPath(
+  ranges: Record<string, unknown>,
+  path: string
+): { min: number; max: number } | null {
+  return rangeBounds(ranges[path]);
 }
 
 export function hasWalkForwardParameterRanges(ranges: Record<string, unknown>): boolean {

@@ -60,10 +60,15 @@ function ModelHelpTooltip({ label, description, example }: { label: string; desc
   );
 }
 
+// returns = equity curve 일별 수익률 재표본 (blockSize 1=독립, >1=블록 부트스트랩)
+// trades  = 체결 기록에서 추정한 거래별 수익률 재표본 (거래 수가 적은 전략에 유용)
+export type MonteCarloMode = "returns" | "trades";
+
 interface MonteCarloSettings {
   iterations: number;
   blockSize: number;
   seed: number;
+  mode: MonteCarloMode;
 }
 
 interface MonteCarloSummary {
@@ -89,6 +94,9 @@ interface MonteCarloResult {
   status: "ok";
   nIterations: number;
   blockSize: number;
+  mode: MonteCarloMode;
+  /** trades 모드에서 재표본에 사용한 완결 거래 수 */
+  tradeCount?: number;
   cagr: MonteCarloSummary;
   sharpe: MonteCarloSummary;
   mdd: MonteCarloSummary;
@@ -169,6 +177,118 @@ function createSeededRng(seed: number) {
 }
 
 const MONTE_CARLO_CHUNK_SIZE = 200;
+const MIN_COMPLETED_TRADES = 20;
+
+// 체결 기록(tradesList, 없으면 signals)에서 종목별 FIFO 매칭으로 완결 거래의
+// 수익률을 추정한다. 분할 청산은 근사(수량 무시, 가격 기준)로 처리한다.
+export function extractTradeReturns(backtestResult: BacktestResult): number[] {
+  const fromTrades = (backtestResult.tradesList ?? []).map((t) => ({
+    date: t.date,
+    symbol: t.symbol,
+    side: t.type,
+    price: t.price,
+  }));
+  const fromSignals = (backtestResult.signals ?? []).map((s) => ({
+    date: s.date,
+    symbol: s.symbol,
+    side: s.type === "entry" ? ("buy" as const) : ("sell" as const),
+    price: s.price,
+  }));
+  const records = fromTrades.length > 0 ? fromTrades : fromSignals;
+
+  const sorted = [...records].sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""));
+  const openEntries: Record<string, number[]> = {};
+  const returns: number[] = [];
+
+  for (const record of sorted) {
+    if (!Number.isFinite(record.price) || record.price <= 0) continue;
+    if (record.side === "buy") {
+      (openEntries[record.symbol] ??= []).push(record.price);
+    } else {
+      const entryPrice = openEntries[record.symbol]?.shift();
+      if (entryPrice !== undefined) {
+        returns.push(record.price / entryPrice - 1);
+      }
+    }
+  }
+
+  return returns.filter((value) => Number.isFinite(value) && value > -1);
+}
+
+// 거래 재표본 모드: 완결 거래 수익률을 복원추출로 재배열해 CAGR/MDD 분포를 추정한다.
+// MDD는 거래 단위 equity 경로 기준(거래 도중 낙폭은 반영되지 않음 — UI에 명시).
+async function runTradeResampleSimulation(
+  backtestResult: BacktestResult,
+  settings: MonteCarloSettings,
+  onProgress?: (completedRatio: number) => void,
+  shouldCancel?: () => boolean
+): Promise<{ status: "error"; message: string } | { status: "cancelled" } | MonteCarloResult> {
+  const tradeReturns = extractTradeReturns(backtestResult);
+  if (tradeReturns.length < MIN_COMPLETED_TRADES) {
+    return {
+      status: "error",
+      message: `거래 재표본에는 완결된 거래가 최소 ${MIN_COMPLETED_TRADES}건 필요합니다 (현재 ${tradeReturns.length}건). 일별 수익률 방식을 사용해 주세요.`,
+    };
+  }
+
+  const iterations = Math.max(100, Math.floor(settings.iterations));
+  const barCount = (backtestResult.dates ?? []).length || (backtestResult.equity ?? []).length;
+  const years = Math.max(1e-6, barCount / 252);
+  const tradesPerYear = tradeReturns.length / years;
+  const rng = createSeededRng(settings.seed);
+  const n = tradeReturns.length;
+  const cagrs: number[] = [];
+  const sharpes: number[] = [];
+  const mdds: number[] = [];
+
+  for (let iteration = 0; iteration < iterations; iteration += 1) {
+    if (iteration % MONTE_CARLO_CHUNK_SIZE === 0 && iteration > 0) {
+      onProgress?.(iteration / iterations);
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+      if (shouldCancel?.()) return { status: "cancelled" };
+    }
+
+    let equity = 1;
+    let peak = 1;
+    let worstDrawdown = 0;
+    let sum = 0;
+    let sumSq = 0;
+    for (let i = 0; i < n; i += 1) {
+      const sampled = tradeReturns[Math.floor(rng() * n)];
+      equity *= 1 + sampled;
+      if (equity > peak) peak = equity;
+      const drawdown = (equity - peak) / peak;
+      if (drawdown < worstDrawdown) worstDrawdown = drawdown;
+      sum += sampled;
+      sumSq += sampled * sampled;
+    }
+
+    const mean = sum / n;
+    const variance = n > 1 ? Math.max(0, (sumSq - n * mean * mean) / (n - 1)) : 0;
+    const std = Math.sqrt(variance);
+
+    cagrs.push(equity > 0 ? equity ** (1 / years) - 1 : -1);
+    sharpes.push(std > 1e-12 ? (mean / std) * Math.sqrt(tradesPerYear) : 0);
+    mdds.push(Math.abs(worstDrawdown));
+  }
+
+  onProgress?.(1);
+
+  return {
+    status: "ok",
+    nIterations: iterations,
+    blockSize: settings.blockSize,
+    mode: "trades",
+    tradeCount: tradeReturns.length,
+    cagr: summarizeMonteCarlo(cagrs),
+    sharpe: summarizeMonteCarlo(sharpes),
+    mdd: summarizeMonteCarlo(mdds),
+    probPositiveCagr: cagrs.filter((value) => value > 0).length / cagrs.length,
+    probMddOver30pct: mdds.filter((value) => value > 0.3).length / mdds.length,
+    cagrHistogram: buildMonteCarloHistogram(cagrs),
+    mddHistogram: buildMonteCarloHistogram(mdds),
+  };
+}
 
 export async function runMonteCarloSimulation(
   backtestResult: BacktestResult,
@@ -176,6 +296,10 @@ export async function runMonteCarloSimulation(
   onProgress?: (completedRatio: number) => void,
   shouldCancel?: () => boolean
 ): Promise<{ status: "error"; message: string } | { status: "cancelled" } | MonteCarloResult> {
+  if (settings.mode === "trades") {
+    return runTradeResampleSimulation(backtestResult, settings, onProgress, shouldCancel);
+  }
+
   // blockSize 1 = 일별 수익률 독립 재표본, >1 = 블록 부트스트랩(자기상관 보존)
   const blockSize = Math.max(1, Math.floor(settings.blockSize));
   const minPoints = Math.max(30, blockSize * 3);
@@ -255,6 +379,7 @@ export async function runMonteCarloSimulation(
     status: "ok",
     nIterations: iterations,
     blockSize,
+    mode: "returns",
     cagr: summarizeMonteCarlo(cagrs),
     sharpe: summarizeMonteCarlo(sharpes),
     mdd: summarizeMonteCarlo(mdds),
@@ -368,6 +493,7 @@ export default function OptimizationPage({
     iterations: 1000,
     blockSize: 21,
     seed: 42,
+    mode: "returns",
   });
   const [monteCarloResult, setMonteCarloResult] = useState<MonteCarloResult | null>(null);
   const [monteCarloError, setMonteCarloError] = useState<string | null>(null);
@@ -518,28 +644,36 @@ export default function OptimizationPage({
                     <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">시뮬레이션 방식</p>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {[
-                        { value: 1, label: "일별 재표본" },
-                        { value: 5, label: "5일 블록" },
-                        { value: 10, label: "10일 블록" },
-                        { value: 21, label: "21일 블록" },
-                      ].map(({ value, label }) => (
-                        <button
-                          key={value}
-                          onClick={() => setMonteCarloSettings((prev) => ({ ...prev, blockSize: value }))}
-                          className={`rounded-lg border px-3 py-1.5 text-sm font-black transition-colors ${
-                            monteCarloSettings.blockSize === value
-                              ? "border-white/20 bg-white/10 text-white"
-                              : "border-white/10 bg-white/[0.03] text-gray-400 hover:text-white"
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      ))}
+                        { mode: "returns" as const, blockSize: 1, label: "일별 재표본" },
+                        { mode: "returns" as const, blockSize: 5, label: "5일 블록" },
+                        { mode: "returns" as const, blockSize: 10, label: "10일 블록" },
+                        { mode: "returns" as const, blockSize: 21, label: "21일 블록" },
+                        { mode: "trades" as const, blockSize: 21, label: "거래 재표본" },
+                      ].map(({ mode, blockSize, label }) => {
+                        const active =
+                          monteCarloSettings.mode === mode &&
+                          (mode === "trades" || monteCarloSettings.blockSize === blockSize);
+                        return (
+                          <button
+                            key={label}
+                            onClick={() => setMonteCarloSettings((prev) => ({ ...prev, mode, blockSize }))}
+                            className={`rounded-lg border px-3 py-1.5 text-sm font-black transition-colors ${
+                              active
+                                ? "border-white/20 bg-white/10 text-white"
+                                : "border-white/10 bg-white/[0.03] text-gray-400 hover:text-white"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
                     </div>
                     <p className="mt-3 text-xs font-bold leading-5 text-gray-500">
-                      {monteCarloSettings.blockSize <= 1
-                        ? "하루 단위로 독립 재표본합니다 (i.i.d. bootstrap)."
-                        : `${monteCarloSettings.blockSize}거래일 블록으로 이어 뽑아 자기상관을 보존합니다 (block bootstrap).`}
+                      {monteCarloSettings.mode === "trades"
+                        ? "체결 기록에서 추정한 거래별 수익률을 복원추출로 재배열합니다 (trade bootstrap). MDD는 거래 단위 경로 기준입니다."
+                        : monteCarloSettings.blockSize <= 1
+                          ? "하루 단위로 독립 재표본합니다 (i.i.d. bootstrap)."
+                          : `${monteCarloSettings.blockSize}거래일 블록으로 이어 뽑아 자기상관을 보존합니다 (block bootstrap).`}
                     </p>
                   </div>
                 </div>
@@ -671,6 +805,9 @@ export default function OptimizationPage({
                         최대낙폭이 30%를 초과할 확률은 {formatRatioAsPercent(monteCarloResult.probMddOver30pct)} 입니다.
                       </p>
                       <p className="text-xs text-gray-500">
+                        {monteCarloResult.mode === "trades"
+                          ? `완결 거래 ${monteCarloResult.tradeCount?.toLocaleString() ?? "-"}건의 수익률을 복원추출한 분포입니다. MDD는 거래 단위 경로 기준으로, 거래 도중의 낙폭은 반영되지 않습니다.`
+                          : "일별 수익률을 재배열한 분포입니다."}{" "}
                         하위 5% CAGR과 상위 95% MDD 사이가 좁을수록 경로에 따른 성과 편차가 작게 나타난 것입니다.
                         과거 수익률을 재배열한 분포이며 미래 수익을 보장하지 않습니다.
                       </p>

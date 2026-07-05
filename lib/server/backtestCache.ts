@@ -364,35 +364,6 @@ async function upsertStrategyForResult(strategyId: string, body: any) {
   });
 }
 
-export async function findCachedResult(cacheKey: string) {
-  const existing = await prisma.backtestHistory.findFirst({
-    where: { cacheKey },
-    orderBy: { createdAt: "desc" },
-  });
-  if (!existing?.result) return null;
-
-  await prisma.backtestHistory.update({
-    where: { id: existing.id },
-    data: { hitCount: { increment: 1 } },
-  });
-
-  const result = JSON.parse(existing.result);
-  const metrics = existing.metrics ? JSON.parse(existing.metrics) : {};
-
-  return {
-    ...result,
-    strategy_id: existing.strategyId ?? result.strategy_id ?? cacheKey,
-    strategyId: existing.strategyId ?? result.strategyId ?? cacheKey,
-    fromCache: true,
-    cacheKey: existing.cacheKey ?? cacheKey,
-    cachedAt: existing.createdAt,
-    aiSummary: metrics.aiSummary ?? null,
-    aiScore: metrics.aiScore ?? null,
-    aiStrengths: metrics.aiStrengths ?? null,
-    aiRisks: metrics.aiRisks ?? null,
-  };
-}
-
 export async function saveCachedResult(
   cacheKey: string,
   body: any,

@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const computeCacheKey = vi.fn(() => "cache_key_1");
 const fetchBackend = vi.fn();
-const findCachedResult = vi.fn(() => null);
 const resolveStrategyId = vi.fn(() => "strategy_1");
 const saveCachedResult = vi.fn();
 let consoleLogSpy: ReturnType<typeof vi.spyOn>;
@@ -14,7 +13,6 @@ vi.mock("@/lib/server/backend", () => ({
 
 vi.mock("@/lib/server/backtestCache", () => ({
   computeCacheKey,
-  findCachedResult,
   resolveStrategyId,
   saveCachedResult,
 }));
@@ -66,8 +64,6 @@ describe("strategy backtest stream route", () => {
   beforeEach(() => {
     computeCacheKey.mockReturnValue("cache_key_1");
     fetchBackend.mockReset();
-    findCachedResult.mockReset();
-    findCachedResult.mockResolvedValue(null);
     resolveStrategyId.mockReturnValue("strategy_1");
     saveCachedResult.mockReset();
     consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -109,7 +105,6 @@ describe("strategy backtest stream route", () => {
     );
     const logLines = consoleLogSpy.mock.calls.map(([message]) => String(message));
     expect(logLines.some((line) => line.includes("request_received"))).toBe(true);
-    expect(logLines.some((line) => line.includes("cache_miss"))).toBe(true);
     expect(logLines.some((line) => line.includes("python_backend_request_start"))).toBe(true);
     expect(logLines.some((line) => line.includes("python_result_received"))).toBe(true);
     expect(logLines.some((line) => line.includes("cache_save_queued"))).toBe(true);
@@ -117,32 +112,20 @@ describe("strategy backtest stream route", () => {
     expect(logLines.some((line) => line.includes("stream_closed"))).toBe(true);
   });
 
-  it("logs the full cache-hit path through final SSE delivery", async () => {
-    findCachedResult.mockResolvedValueOnce({
-      totalReturn: 1.2,
-      trades: 3,
-      warnings: ["cached warning"],
-      signals: [],
-      fromCache: true,
-    });
+  it("always calls the Python backend even for a request matching a prior cacheKey", async () => {
+    fetchBackend.mockResolvedValueOnce(makeSseResponse([
+      'data: {"type":"result","data":{"totalReturn":1.2}}\n\n',
+      "data: [DONE]\n\n",
+    ].join("")));
 
     const response = await route.POST(makeRequest({
       symbols: ["005930"],
       canonical_strategy_dsl: { universe: "KOSPI" },
     }));
 
-    const text = await response.text();
+    await response.text();
 
-    expect(text).toContain("캐시에서 결과를 불러옵니다");
-    expect(text).toContain("[DONE]");
-    expect(fetchBackend).not.toHaveBeenCalled();
-    const logLines = consoleLogSpy.mock.calls.map(([message]) => String(message));
-    expect(logLines.some((line) => line.includes("request_received"))).toBe(true);
-    expect(logLines.some((line) => line.includes("cache_hit"))).toBe(true);
-    expect(logLines.some((line) => line.includes("sse_status_sent"))).toBe(true);
-    expect(logLines.some((line) => line.includes("sse_result_sent"))).toBe(true);
-    expect(logLines.some((line) => line.includes("sse_done_sent"))).toBe(true);
-    expect(logLines.some((line) => line.includes("stream_closed"))).toBe(true);
+    expect(fetchBackend).toHaveBeenCalledTimes(1);
   });
 
   it("forwards a result when result and done remain in the final backend buffer", async () => {

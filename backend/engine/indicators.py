@@ -4,6 +4,14 @@ import polars as pl
 from stockstats import StockDataFrame
 from typing import List, Dict, Any
 
+from engine.indicator_columns import (
+    BOLLINGER_DEFAULT_STD,
+    bollinger_columns,
+    bollinger_params,
+    macd_columns,
+    stochastic_columns,
+)
+
 # Fix 6: 멀티스레드 안전한 표준 logging 모듈로 교체
 _logger = logging.getLogger(__name__)
 
@@ -56,22 +64,44 @@ class IndicatorEngine:
                             period = p.get('period', 20)
                             target_cols.add(f'close_{period}_ema')
                     elif cid == 'macd':
-                        target_cols.add('macd')
-                        target_cols.add('macds')
-                        target_cols.add('macdh')
+                        # 기본(12/26/9)은 stockstats 기본 컬럼, 파라미터 지정 시 macd_f,s,g 문법.
+                        # 시그널 라인(macds_f,s,g)은 macd_f,s,g 접근의 부수효과로만 생성되므로
+                        # 여기서 즉시 트리거해 계산 순서 의존성을 없앤다.
+                        macd_col, macds_col = macd_columns(p)
+                        sdf[macd_col]  # side-effect: macd/macds/macdh 변형 컬럼 생성
+                        target_cols.add(macd_col)
+                        target_cols.add(macds_col)
+                        if macd_col == 'macd':
+                            target_cols.add('macdh')
                     elif cid == 'stochastic':
-                        target_cols.add('kdjk')
-                        target_cols.add('kdjd')
+                        # D는 K에서 파생되므로 K를 먼저 트리거해 순서 의존성을 없앤다
+                        k_col, d_col = stochastic_columns(p)
+                        sdf[k_col]
+                        target_cols.add(k_col)
+                        target_cols.add(d_col)
                     elif cid == 'cci':
                         period = p.get('period', 14)
                         target_cols.add(f'cci_{period}')
                     elif cid == 'adx':
                         target_cols.add('adx')
                     elif cid == 'bollinger_bands':
-                        period = p.get('period', 20)
+                        period, std_times = bollinger_params(p)
+                        ub_col, lb_col = bollinger_columns(p)
                         target_cols.add(f'close_{period}_sma')
-                        target_cols.add('boll_ub')
-                        target_cols.add('boll_lb')
+                        if std_times == BOLLINGER_DEFAULT_STD:
+                            # stockstats 기본(boll_ub/boll_lb) 또는 파라미터화(boll_ub_n) 경로
+                            if ub_col != 'boll_ub':
+                                sdf[f'boll_{period}']  # side-effect: boll_ub_{n}/boll_lb_{n} 생성
+                            target_cols.add(ub_col)
+                            target_cols.add(lb_col)
+                        else:
+                            # 커스텀 표준편차 배수: 검증된 항등식 boll_ub == sma + K·mstd 로 직접 계산
+                            sma = sdf[f'close_{period}_sma']
+                            mstd = sdf[f'close_{period}_mstd']
+                            sdf[ub_col] = sma + std_times * mstd
+                            sdf[lb_col] = sma - std_times * mstd
+                            target_cols.add(ub_col)
+                            target_cols.add(lb_col)
                     elif cid == 'volume_spike':
                         log("Handling volume_spike (Manual OBV)")
                         # Manual OBV to avoid stockstats issues

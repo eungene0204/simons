@@ -3,6 +3,7 @@ import type { ParsedSummary } from "./strategySummary";
 import {
   buildAdvisorEvaluationContextFromWalkForward,
   buildCandidateBacktestRequest,
+  buildWalkForwardParameterDescriptors,
   buildWalkForwardParameterRanges,
   buildWalkForwardRequest,
   correctCountTypo,
@@ -834,20 +835,30 @@ describe("isAdvisorFollowUpPrompt", () => {
 });
 
 describe("buildWalkForwardParameterRanges — 엔진 파라미터 화이트리스트", () => {
-  it("엔진이 읽지 않는 파라미터(볼린저 stdDev·기간, MACD 기간)는 탐색 공간에서 제외한다", () => {
+  it("MACD·볼린저·스토캐스틱의 엔진 파라미터를 탐색 공간에 포함한다", () => {
     const ranges = buildWalkForwardParameterRanges({
       symbols: ["005930"],
       entry: {
         conditions: [
           { id: "bollinger_bands", params: { period: 20, stdDev: 2 } },
           { id: "macd", params: { fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 } },
-          { id: "stochastic", params: { value: 20 } }, // crossover 모드 → value 미사용
+          { id: "stochastic", params: { period: 9, value: 20 } }, // crossover 모드 → value 미사용
         ],
       },
       risk: { init_cash: 10000000 },
     });
 
-    expect(ranges).toEqual({});
+    expect(Object.keys(ranges).sort()).toEqual([
+      "entry.conditions.0.params.period",
+      "entry.conditions.0.params.stdDev",
+      "entry.conditions.1.params.fastPeriod",
+      "entry.conditions.1.params.signalPeriod",
+      "entry.conditions.1.params.slowPeriod",
+      "entry.conditions.2.params.period",
+    ]);
+    expect(ranges["entry.conditions.0.params.stdDev"]).toEqual([1.5, 2, 2.5]);
+    // crossover 모드 스토캐스틱의 value(엔진 미사용)는 여전히 제외
+    expect(ranges).not.toHaveProperty("entry.conditions.2.params.value");
   });
 
   it("전략에 실제 포함된 지표의 엔진 파라미터만 추출한다 (EMA 듀얼·브레이크아웃·스토캐스틱 level)", () => {
@@ -943,5 +954,83 @@ describe("buildWalkForwardRequest — 사용자 범위·제외·명시적 분할
 
     expect(request.is_bars).toBe(504);
     expect(request.oos_bars).toBe(126);
+  });
+});
+
+describe("buildWalkForwardParameterDescriptors — path 기반 파라미터 칩", () => {
+  it("MACD·볼린저·리스크 파라미터를 한글 라벨과 경로로 노출한다", () => {
+    const baseStrategy = {
+      symbols: ["005930"],
+      entry: {
+        conditions: [
+          { id: "macd", params: { fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 } },
+          { id: "bollinger_bands", params: { period: 20, stdDev: 2 } },
+          { type: "filter", id: "pbr", params: { value: 1 } },
+        ],
+      },
+      risk: { init_cash: 10000000, stop_loss_pct: 10 },
+    };
+
+    const descriptors = buildWalkForwardParameterDescriptors(baseStrategy);
+    const byPath = Object.fromEntries(descriptors.map((d) => [d.path, d.label]));
+
+    expect(byPath).toEqual({
+      "risk.stop_loss_pct": "손절라인",
+      "entry.conditions.0.params.fastPeriod": "MACD 단기",
+      "entry.conditions.0.params.slowPeriod": "MACD 장기",
+      "entry.conditions.0.params.signalPeriod": "MACD 시그널",
+      "entry.conditions.1.params.period": "볼린저 기간",
+      "entry.conditions.1.params.stdDev": "볼린저 표준편차",
+      "entry.conditions.2.params.value": "PBR",
+    });
+  });
+
+  it("진입/청산에 같은 지표가 있으면 라벨에 구간을 붙여 구분한다", () => {
+    const baseStrategy = {
+      symbols: ["005930"],
+      entry: { conditions: [{ id: "rsi", params: { period: 14, value: 30 } }] },
+      exit: { conditions: [{ id: "rsi", params: { period: 14, value: 70, signalType: "sell" } }] },
+      risk: { init_cash: 10000000 },
+    };
+
+    const labels = buildWalkForwardParameterDescriptors(baseStrategy).map((d) => d.label);
+    expect(labels).toContain("RSI 기간 (진입)");
+    expect(labels).toContain("RSI 기간 (청산)");
+    expect(labels).toContain("RSI 기준값 (진입)");
+    expect(labels).toContain("RSI 기준값 (청산)");
+  });
+
+  it("path 키 오버라이드·제외가 정확히 해당 경로에만 적용된다", () => {
+    const baseStrategy = {
+      symbols: ["005930"],
+      entry: {
+        conditions: [{ id: "macd", params: { fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 } }],
+      },
+      risk: { init_cash: 10000000, stop_loss_pct: 10 },
+    };
+    const ranges = buildWalkForwardParameterRanges(baseStrategy);
+    const settings = {
+      n_splits: 4,
+      train_pct: 0.7,
+      anchor: false,
+      target_metric: "cagr",
+      n_trials: 30,
+      parameter_ranges: {
+        "entry.conditions.0.params.fastPeriod": { min: 5, max: 20, step: 1 },
+      },
+      excluded_parameters: ["risk.stop_loss_pct"],
+    };
+
+    const request = buildWalkForwardRequest(baseStrategy, settings, ranges);
+
+    expect(request.ranges["entry.conditions.0.params.fastPeriod"]).toEqual({
+      type: "number",
+      min: 5,
+      max: 20,
+      step: 1,
+    });
+    // 다른 MACD 경로는 오버라이드의 영향을 받지 않는다
+    expect(Array.isArray(request.ranges["entry.conditions.0.params.slowPeriod"])).toBe(true);
+    expect(request.ranges).not.toHaveProperty("risk.stop_loss_pct");
   });
 });

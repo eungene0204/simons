@@ -10,7 +10,7 @@ _BASE_DIR = Path(__file__).resolve().parent.parent
 
 # 파싱 로직이 바뀌어 기존 캐시 항목이 낡은 결과(예: 음수 손절 오드롭 notice)를 계속
 # 반환할 수 있을 때 범프한다. date_stamp는 일 단위라 당일 오염 항목을 못 걸러낸다.
-NL_PARSER_CACHE_VERSION = "4"
+NL_PARSER_CACHE_VERSION = "5"
 _UNIVERSE_FILES = (
     _BASE_DIR / "data" / "korea-stocks.json",
     _BASE_DIR / "data" / "kospi200-cache.json",

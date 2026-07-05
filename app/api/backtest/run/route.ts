@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { computeCacheKey, findCachedResult, saveCachedResult } from "@/lib/server/backtestCache";
+import { computeCacheKey, saveCachedResult } from "@/lib/server/backtestCache";
 import { getCurrentUser } from "@/lib/get-user";
 import { prisma } from "@/lib/prisma";
 import {
@@ -34,13 +34,7 @@ export async function POST(req: NextRequest) {
 
   const cacheKey = computeCacheKey(body);
 
-  // 동일 전략 기존 실행 결과 조회 (isVisible 무관)
-  const cached = await findCachedResult(cacheKey);
-  if (cached) {
-    return NextResponse.json(cached);
-  }
-
-  // 미저장 전략: Python 엔진 실행
+  // 동일 전략이라도 매번 엔진을 새로 실행한다(캐시는 결과 저장/dedup 용도로만 사용).
   let pythonRes: Response;
   try {
     pythonRes = await fetch("http://localhost:8000/backtest", {

@@ -212,6 +212,8 @@ Simons는 사용자가 자신만의 주식 투자 전략을 **설계 → 검증 
 
 **FR-STR-020b** `correctedStrategy` 자동 교정은 스키마 검증만으로 적용해서는 안 되며, 교정본의 진입/청산 신호를 LLM 파싱 본경로와 동일한 환각 방지 키워드 검증(`_validate_signals`: 이름 고정 지표는 원문에 해당 키워드가 있어야 인정)으로 재검증해야 한다. 검증에 실패한 환각 신호(예: 원문에 AI 언급이 없는데 주입된 `ai_model` 'AI 매수 예측')만 떨구고 나머지 정상 교정 필드는 유지한다. (실사례 2026-07-03: KOSDAQ 모멘텀 랭킹 프롬프트에 교정 LLM이 `ai_model` 진입 신호를 환각 주입 → 스키마 검증만 통과해 적용 → 비활성화된 AI 백테스트가 실행되며 무한 대기.)
 
+**FR-STR-020c** `correctedStrategy`의 `universe` 필드는 원문 기준 결정적 추출(`_extract_explicit_universe`)과 다르면 항상 결정적 추출값으로 되돌려야 한다. 유니버스는 KOSPI/KOSDAQ/KOSPI200 어휘 매핑일 뿐이라 교정 LLM이 개선할 여지가 없고, 되돌리지 않으면 유니버스 확대로 인한 심각한 성능 저하만 남는다(단, `max_positions` 등 숫자 필드의 정당한 교정은 그대로 존중한다). (실사례 2026-07-05: "KOSPI 대형주 중에서 PBR이 1배 이하인 종목..." 프롬프트가 룰 파싱 잔여 미해석으로 LLM 검증을 타고, 교정본이 유니버스를 KOSPI200→KOSPI로 되돌려 200종목이 전체 코스피(800+ 종목)로 확대 → 백테스트가 크게 느려져 전략연구소 화면이 멈춘 것처럼 보임.)
+
 **FR-STR-021** 시스템은 "최근 N일/N거래일/N개월 수익률이 높은 종목 상위 K개"와 같은 상대강도(모멘텀) 랭킹 표현을 인식하여 `ranking_metric="return"`과 `ranking_lookback_days`(미지정 시 60일 기본)를 추출해야 하며, 랭킹 전략에 리밸런싱 주기가 명시되지 않은 경우 `monthly`를 기본값으로 적용해야 한다. 단, 회전 수단이 없는 펀더멘털 스크리닝 전략의 기본 월간 리밸런싱은 사용자가 리밸런싱을 명시적으로 거부한 경우("리밸런싱 없이 계속 보유")에는 주입하지 않고 `none`(매수 후 계속 보유)으로 보존해야 한다 — 랭킹 전략은 회전이 달력 리밸런싱으로만 동작하므로(엔진 제약) 거부 표현이 있어도 유지한다.
 
 **FR-STR-022** 시스템은 진입 의도가 있는 자연어 입력에서 파싱 결과에 진입 신호/펀더멘털 필터/랭킹 기준이 모두 비어 조용히 누락된 경우, 사용자에게 명확화 질문과 대안 제안(클릭 가능한 칩)을 표시해야 한다. 이때 일반적인 누락 사례와 "엔진이 아직 지원하지 않는 상대강도 랭킹 표현" 사례를 구분하여 각각 다른 안내 문구와 대안을 제공해야 한다 (서로 다른 원인이므로 동일한 메시지로 뭉뚱그리면 안 됨). 첫 파싱에서는 백엔드가 보낸 구체적 안내를 우선 사용한다.
@@ -564,16 +566,21 @@ RiskManagement {
 
 **FR-BT-048** AI 예측 신호(`ai_model`/`ai_drop_model`)가 포함된 백테스트는 엔진 최종 관문에서 fail-fast로 처리해야 한다: ① 운영 스위치 `AI_SIGNALS_ENABLED=0`(기본 활성)이면 즉시 명확한 에러로 거절하고, ② AI 모델 로드가 불가능하면 0점 처리(0거래 침묵 진행)나 추론 대기 대신 즉시 에러를 반환해야 한다. 파싱·캐시 등 어떤 경로로 AI 신호가 유입되어도 이 관문이 적용된다.
 
-**FR-BT-049** 워크포워드 검증(`engine/walk_forward.py`, `POST /walk-forward`):
-- 최적화 대상 파라미터 공간은 현재 전략 DSL에서 **엔진(`engine/signals.py`)이 실제로 읽는 파라미터만** 자동 추출해 구성해야 한다(`buildWalkForwardParameterRanges`의 지표별 화이트리스트). 엔진이 무시하는 파라미터(예: 볼린저 stdDev·기간, MACD 기간, 스토캐스틱 crossover 모드의 value)는 UI에 표시되거나 탐색되어서는 안 된다.
-- 모든 창에서 IS(학습) 구간 종료일 < OOS(검증) 구간 시작일이어야 하며(look-ahead 금지), 학습된 파라미터는 해당 OOS 창에만 적용하고 다음 창에서 재학습한다.
+**FR-BT-049** 워크포워드 검증(`engine/walk_forward.py`, `POST /walk-forward`, `POST /walk-forward/stream`):
+- 최적화 대상 파라미터 공간은 현재 전략 DSL에서 **엔진(`engine/signals.py` + `engine/indicator_columns.py`)이 실제로 읽는 파라미터만** 자동 추출해 구성해야 한다(`buildWalkForwardParameterRanges`의 지표별 화이트리스트). 엔진이 무시하는 파라미터(예: 스토캐스틱 crossover 모드의 value)는 UI에 표시되거나 탐색되어서는 안 된다.
+- 모든 창에서 IS(학습) 구간 종료일 < OOS(검증) 구간 시작일이어야 하며(look-ahead 금지), 학습된 파라미터는 해당 OOS 창에만 적용하고 다음 창에서 재학습한다. OOS 창의 지표 워밍업은 엔진이 startDate 이전으로 동적 프리로드(`_max_indicator_period` × 1.6 + 40 캘린더일, 최소 400일)해 보장한다.
 - UI가 표시한 학습/검증 거래일 수는 `is_bars`/`oos_bars`로 백엔드에 그대로 전달되어 창 분할에 사용된다(표시 = 실행). 창 수 상한 24개 초과·데이터 부족 시 명확한 에러를 반환한다.
+- 최적화 대상 파라미터 UI 칩은 배지 텍스트가 아니라 **실제 탐색 공간의 경로(path)에서 직접 생성**한다(`buildWalkForwardParameterDescriptors` — 한글 라벨: "MACD 단기", "볼린저 표준편차" 등, 진입/청산 중복 시 구간 접미사). 오버라이드/제외/step 설정은 경로 키로 정확히 해당 파라미터에만 적용된다(레거시 라벨 키는 폴백 지원).
 - 사용자가 수정한 파라미터 탐색 범위(min/max/step)는 자동 생성 범위로 재클램프하지 않고 그대로 적용하며, 파라미터별 최적화 제외(`excluded_parameters`)를 지원한다.
 - 그리드·베이지안 최적화 모두 의미 제약(단기 < 장기: `shortMA<longMA`, `fastPeriod<slowPeriod`, `shortPeriod<longPeriod`)을 강제한다.
 - 집계는 NaN/Infinity를 표본에서 제외하고 CAGR·총수익·MDD·Sharpe·Calmar·승률·손익비·거래수·평균 거래손익(expectancy)을 제공한다. IS 평균 수익 ≤ 0이면 `wfe_valid=false`로 WFE 해석 불가를 알린다. 모든 창이 실패하면 부분 결과 대신 에러를 반환한다(Fail Fast).
+- `POST /walk-forward/stream`은 SSE로 창 단위 진행률(`{type:progress, window, total, is_period, oos_period}`)을 스트리밍하고, 클라이언트 연결 종료 시 다음 창 경계에서 협조적으로 취소한다. 벽시계 제한(`BACKTEST_TIMEOUT_S`) 초과 시 error 이벤트로 종료한다. 프론트는 `/api/backtest/walk-forward/stream` 프록시와 `runWalkForwardStream`으로 소비한다.
+
+**FR-BT-049b** 지표 기간 파라미터화(`engine/indicator_columns.py`): MACD(fastPeriod/slowPeriod/signalPeriod), 스토캐스틱(period), 볼린저밴드(period/stdDev)는 전략 DSL에 명시된 값으로 계산해야 한다. 기본값(12/26/9, KDJ 9, BOLL 20±2σ)이면 기존 stockstats 컬럼을 그대로 사용해 과거 백테스트 결과와의 동일성을 보존하고, 파라미터 지정 시 파라미터화 컬럼(`macd_f,s,g` / `kdjk_n` / `boll_ub_n[_kpX]`)을 계산한다. 워밍업 산정(`_max_indicator_period`)도 동일 파라미터를 반영해야 한다.
 
 **FR-BT-050** 몬테카를로 시뮬레이션(프론트 `OptimizationPage.tsx`, in-browser 실행):
-- 방식은 equity curve 일별 로그수익률의 (블록) 부트스트랩이며, 블록 1일(독립 재표본)/5·10·21일(자기상관 보존) 중 사용자가 선택하고 UI에 방식을 명시한다. seed 고정으로 재현 가능해야 한다.
+- 방식은 ① equity curve 일별 로그수익률의 (블록) 부트스트랩 — 블록 1일(독립 재표본)/5·10·21일(자기상관 보존) — 과 ② 거래 재표본(trade bootstrap) 중 사용자가 선택하고 UI에 방식을 명시한다. seed 고정으로 재현 가능해야 한다.
+- 거래 재표본은 체결 기록(tradesList, 폴백 signals)에서 종목별 FIFO 매칭으로 완결 거래 수익률을 추정해 복원추출한다. 완결 거래 20건 미만이면 명확한 에러를 반환하고, MDD가 거래 단위 경로 기준(거래 도중 낙폭 미반영)임을 UI에 명시한다.
 - 결과는 CAGR·Sharpe·MDD 각각에 대해 최소(Worst)/5%/25%/중앙값/75%/95%/최대(Best)/표준편차와 CAGR·MDD 분포 히스토그램, 양수 CAGR 확률, MDD 30% 초과 확률을 제공한다.
 - 실행은 청크 단위로 진행률을 표시하고 취소 가능해야 하며, 유효 equity 포인트가 최소 요구치(max(30, blockSize×3)) 미만이면 명확한 에러를 반환한다.
 - 모든 문구는 서술적 통계 표현만 사용하고 투자 추천·미래 성과 보장 표현을 금지한다(규제 안전 원칙).

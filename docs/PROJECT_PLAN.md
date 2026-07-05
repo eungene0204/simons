@@ -342,7 +342,7 @@ simons/
 | 단계 | 구현 내용 | 상태 |
 |------|-----------|------|
 | Strategy ID | Strategy DSL canonical string 생성 후 SHA-256 hash를 `strategy_id`로 사용 | ✅ 완료 |
-| 백테스트 재사용 | 동일 `strategy_id`/cache key가 존재하면 기존 백테스트 결과를 재사용 | ✅ 완료 |
+| 백테스트 재실행 정책 | 동일 `strategy_id`/cache key라도 실행을 건너뛰지 않고 항상 엔진을 새로 실행(엔진 버그 수정 중 과거 결과 노출 방지). cacheKey는 결과 upsert 저장/조회 용도로만 사용 | ✅ 완료 |
 | 텍스트 유사도 검색 | prompt, summary, indicator, entry/exit/risk 설명, advice text 기반 검색 | ✅ 완료 |
 | 구조 유사도 검색 | DSL indicators, entry/exit rules, filters, risk, universe, timeframe, parameter 값 비교 | ✅ 완료 |
 | Experience Memory | `AdviceExperience`에 조언 전/후 성과, 유사 사례, 평가, lesson 저장 | ✅ 완료 |
@@ -696,8 +696,11 @@ RiskManagement {
 |------|------|-----------|
 | 워크포워드 분석 | 롤링/앵커 윈도우 분할 최적화 + 효율성 평가 | ✅ 완료 |
 | 워크포워드 정합성 개선 | 엔진이 실제 읽는 파라미터만 화이트리스트 추출, 사용자 범위 무클램프 적용, 파라미터 제외 토글, is/oos_bars 명시 분할(표시=실행), wfe_valid, Calmar·expectancy 집계, 취소 지원 (FR-BT-049) | ✅ 완료 |
+| 워크포워드 SSE 진행률 | `/walk-forward/stream` 창 단위 진행률 스트리밍 + 연결 종료 시 창 경계 협조적 취소 (FR-BT-049) | ✅ 완료 |
+| 지표 기간 파라미터화 | MACD fast/slow/signal, 스토캐스틱 period, 볼린저 period/stdDev를 DSL 값으로 계산 — 기본값은 기존 컬럼 유지로 과거 결과 보존 (FR-BT-049b, engine/indicator_columns.py) | ✅ 완료 |
 | 몬테카를로 시뮬레이션 | 수익률 분포 확률적 분석 | ✅ 완료 |
 | 몬테카를로 분포 리포트 | Worst/Best·사분위(5/25/75/95%)·CAGR/MDD 히스토그램·진행률/취소·블록 1/5/10/21일 방식 선택 (FR-BT-050) | ✅ 완료 |
+| 몬테카를로 거래 재표본 | 체결 기록 FIFO 매칭 → 거래별 수익률 복원추출(trade bootstrap), 완결 거래 20건 미만 시 에러 (FR-BT-050) | ✅ 완료 |
 | Optuna 최적화 | TPE 베이지안 파라미터 최적화 | ✅ 완료 |
 | 그리드 서치 | 순열 기반 파라미터 탐색 (단기<장기 의미 제약 공유) | ✅ 완료 |
 | 팩터 분석 | Fama-French, 모멘텀, 밸류 팩터 분해 | 🔲 미구현 |

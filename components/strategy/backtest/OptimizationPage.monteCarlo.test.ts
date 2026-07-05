@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildMonteCarloHistogram,
+  extractTradeReturns,
   runMonteCarloSimulation,
 } from "./OptimizationPage";
 
@@ -15,7 +16,19 @@ function buildResult(length: number) {
   return { equity, initialCapital: 10_000_000 };
 }
 
-const settings = { iterations: 200, blockSize: 21, seed: 42 };
+function buildTrades(count: number) {
+  const tradesList = [];
+  for (let i = 0; i < count; i += 1) {
+    const buyPrice = 10_000 + i * 10;
+    const sellPrice = buyPrice * (i % 3 === 0 ? 0.96 : 1.05);
+    const day = String((i % 27) + 1).padStart(2, "0");
+    tradesList.push({ date: `2024-01-${day}`, symbol: `SYM${i % 5}`, type: "buy", price: buyPrice, quantity: 10, reason: "진입" });
+    tradesList.push({ date: `2024-02-${day}`, symbol: `SYM${i % 5}`, type: "sell", price: sellPrice, quantity: 10, reason: "청산" });
+  }
+  return tradesList;
+}
+
+const settings = { iterations: 200, blockSize: 21, seed: 42, mode: "returns" };
 
 describe("runMonteCarloSimulation", () => {
   it("equity 데이터가 부족하면 에러를 반환한다", async () => {
@@ -117,5 +130,91 @@ describe("buildMonteCarloHistogram", () => {
     expect(bins.reduce((sum, bin) => sum + bin.count, 0)).toBe(500);
     expect(bins[0].x0).toBeCloseTo(Math.min(...values));
     expect(bins[bins.length - 1].x1).toBeCloseTo(Math.max(...values));
+  });
+});
+
+describe("extractTradeReturns", () => {
+  it("종목별 FIFO 매칭으로 완결 거래 수익률을 추정한다", () => {
+    const result = {
+      tradesList: [
+        { date: "2024-01-02", symbol: "A", type: "buy", price: 100 },
+        { date: "2024-01-10", symbol: "B", type: "buy", price: 200 },
+        { date: "2024-02-01", symbol: "A", type: "sell", price: 110 },
+        { date: "2024-02-05", symbol: "B", type: "sell", price: 180 },
+        { date: "2024-03-01", symbol: "A", type: "buy", price: 120 }, // 미청산 → 제외
+      ],
+    };
+    const returns = extractTradeReturns(result);
+    expect(returns).toHaveLength(2);
+    expect(returns[0]).toBeCloseTo(0.1);
+    expect(returns[1]).toBeCloseTo(-0.1);
+  });
+
+  it("tradesList가 없으면 signals(entry/exit)로 폴백한다", () => {
+    const result = {
+      tradesList: [],
+      signals: [
+        { date: "2024-01-02", symbol: "A", type: "entry", condition: "x", price: 100 },
+        { date: "2024-02-01", symbol: "A", type: "exit", condition: "y", price: 105 },
+      ],
+    };
+    const returns = extractTradeReturns(result);
+    expect(returns).toHaveLength(1);
+    expect(returns[0]).toBeCloseTo(0.05);
+  });
+});
+
+describe("runMonteCarloSimulation — 거래 재표본 모드", () => {
+  const tradeSettings = { iterations: 200, blockSize: 21, seed: 42, mode: "trades" };
+
+  it("완결 거래가 부족하면 에러를 반환한다", async () => {
+    const result = await runMonteCarloSimulation(
+      { ...buildResult(300), tradesList: buildTrades(5) },
+      tradeSettings
+    );
+    expect(result.status).toBe("error");
+    expect(result.message).toContain("거래");
+  });
+
+  it("거래 수익률 복원추출로 분포를 생성한다", async () => {
+    const backtest = {
+      ...buildResult(300),
+      dates: Array.from({ length: 300 }, (_, i) => `d${i}`),
+      tradesList: buildTrades(40),
+    };
+    const result = await runMonteCarloSimulation(backtest, tradeSettings);
+    expect(result.status).toBe("ok");
+    expect(result.mode).toBe("trades");
+    expect(result.tradeCount).toBe(40);
+    expect(result.cagrHistogram.reduce((sum, bin) => sum + bin.count, 0)).toBe(result.nIterations);
+    expect(result.mdd.min).toBeGreaterThanOrEqual(0);
+    expect(result.cagr.min).toBeLessThanOrEqual(result.cagr.max);
+  });
+
+  it("같은 seed는 같은 거래 재표본 분포를 재현한다", async () => {
+    const backtest = {
+      ...buildResult(300),
+      dates: Array.from({ length: 300 }, (_, i) => `d${i}`),
+      tradesList: buildTrades(40),
+    };
+    const first = await runMonteCarloSimulation(backtest, tradeSettings);
+    const second = await runMonteCarloSimulation(backtest, tradeSettings);
+    expect(first.cagr).toEqual(second.cagr);
+    expect(first.mdd).toEqual(second.mdd);
+  });
+
+  it("거래 모드에서도 취소가 동작한다", async () => {
+    const backtest = {
+      ...buildResult(300),
+      dates: Array.from({ length: 300 }, (_, i) => `d${i}`),
+      tradesList: buildTrades(40),
+    };
+    const result = await runMonteCarloSimulation(
+      backtest,
+      { ...tradeSettings, iterations: 2000 },
+      undefined,
+      () => true
+    );
+    expect(result.status).toBe("cancelled");
   });
 });

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchBackend } from "@/lib/server/backend";
-import { computeCacheKey, findCachedResult, saveCachedResult, resolveStrategyId } from "@/lib/server/backtestCache";
+import { computeCacheKey, saveCachedResult, resolveStrategyId } from "@/lib/server/backtestCache";
 
 function makeTraceId(): string {
   return `bt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -31,7 +31,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ detail: "Invalid JSON" }, { status: 400 });
   }
 
-  // ── 캐시 조회: 동일 전략이면 즉시 반환 ──
+  // 캐시 히트 여부와 무관하게 항상 엔진을 새로 실행한다(같은 전략이라도 재실행 정책).
+  // cacheKey는 결과 저장(dedup 업서트) 및 클라이언트 표시용으로만 사용한다.
   const strategyId = resolveStrategyId(body);
   const cacheKey = computeCacheKey(body);
   const traceId = makeTraceId();
@@ -50,39 +51,8 @@ export async function POST(req: NextRequest) {
     endDate: body?.endDate ?? body?.end_date ?? null,
   });
 
-  const cached = await findCachedResult(cacheKey);
-
-  if (cached) {
-    log("cache_hit", summarizeBacktestResult(cached));
-    const stream = new ReadableStream({
-      start(controller) {
-        const encoder = new TextEncoder();
-        controller.enqueue(encoder.encode(sseEvent({ type: "status", message: "캐시에서 결과를 불러옵니다..." })));
-        log("sse_status_sent", { message: "캐시에서 결과를 불러옵니다..." });
-        // 결과 dedup 키를 클라이언트에 먼저 전달(원본 result 청크는 변형하지 않음).
-        controller.enqueue(encoder.encode(sseEvent({ type: "meta", cacheKey })));
-        controller.enqueue(encoder.encode(sseEvent({ type: "result", data: cached })));
-        log("sse_result_sent", summarizeBacktestResult(cached));
-        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-        log("sse_done_sent", { source: "cache" });
-        controller.close();
-        log("stream_closed", { source: "cache" });
-      },
-    });
-
-    return new NextResponse(stream, {
-      status: 200,
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
-      },
-    });
-  }
-
-  // ── 캐시 미스: Python 백엔드로 프록시 + 결과 저장 ──
+  // ── Python 백엔드로 프록시 + 결과 저장 ──
   try {
-    log("cache_miss");
     log("python_backend_request_start", { path: "/strategy/backtest-stream" });
     const res = await fetchBackend("/strategy/backtest-stream", {
       method: "POST",

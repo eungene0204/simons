@@ -3,6 +3,7 @@ import sys
 
 import numpy as np
 import pandas as pd
+import pytest
 
 sys.path.append(os.path.join(os.getcwd(), "backend"))
 
@@ -108,6 +109,68 @@ class _Portfolio:
         if group_by is False:
             return pd.Series([200_000.0])
         return 200_000.0
+
+
+def test_per_asset_total_return_uses_trade_cost_basis_not_account_capital():
+    """단일 종목 1회 거래 시 종목분석표 수익률이 계좌 전체자본(10,000,000원)이
+    아니라 해당 거래에 실제 투입된 원가(진입가×수량) 대비로 계산되어야 한다.
+    회귀 전에는 pf.total_return(group_by=False)이 전체자본을 분모로 써서
+    매매기록 인라인 수익률(예: +316.36%)과 다른 값(예: 31.30%)이 나왔다."""
+    entry_price = 20_619.0
+    size = 48.0
+    pnl = 3_129_685.0
+    trade_return = pnl / (entry_price * size)  # 거래 원가 대비 수익률 (≈3.1636 → +316.36%)
+
+    trades = _Trades()
+    trades.records = pd.DataFrame(
+        {
+            "pnl": [pnl],
+            "return": [trade_return],
+            "exit_type": [0],
+            "exit_idx": [1],
+            "entry_idx": [0],
+        }
+    )
+    trades.records_readable = pd.DataFrame(
+        {
+            "Column": ["034020"],
+            "Column Idx": [0],
+            "Entry Timestamp": pd.to_datetime(["2024-01-02"]),
+            "Exit Timestamp": pd.to_datetime(["2024-01-03"]),
+            "Avg Entry Price": [entry_price],
+            "Avg Exit Price": [85_957.0],
+            "Size": [size],
+            "PnL": [pnl],
+            "Return": [trade_return],
+        }
+    )
+    trades.winning = _TradesView(pnl, 1)
+    trades.losing = _TradesView(0.0, 0)
+    pf = _Portfolio(trades=trades)
+    pf.count = lambda group_by=False: pd.Series([1])
+    pf.trades.count = lambda group_by=False: pd.Series([1])
+    pf.trades.win_rate = lambda group_by=False: pd.Series([1.0])
+    pf.total_profit = lambda group_by=True: pnl if group_by is True else pd.Series([pnl])
+    common_index = pd.to_datetime(["2024-01-02", "2024-01-03"])
+
+    result = ResultHandler.format_results(
+        pf=pf,
+        processed_symbols=["034020"],
+        _all_entries=None,
+        _all_exits=None,
+        all_entry_reasons={},
+        all_exit_reasons={},
+        common_index=common_index,
+        risk_params={},
+        exec_type="close",
+        init_cash=10_000_000,
+    )
+
+    sell_signal = next(s for s in result["signals"] if s["type"] == "sell")
+    per_asset_return = result["perAssetStats"]["034020"]["totalReturn"]
+
+    assert per_asset_return == pytest.approx(trade_return * 100, abs=0.01)
+    assert f"{trade_return * 100:+.2f}%" in sell_signal["condition"]
 
 
 def test_format_results_uses_trade_return_percentages_for_avg_win_loss():

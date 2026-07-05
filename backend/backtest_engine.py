@@ -72,8 +72,18 @@ def _max_indicator_period(*groups) -> int:
             elif cid == 'breakout':
                 cands = [p.get('lookbackPeriod', 20)]
             elif cid == 'macd':
-                cands = [35]   # slow 26 + signal 9
-            elif cid in ('stochastic', 'adx'):
+                # slow + signal (파라미터화 지원, 기본 26+9)
+                try:
+                    cands = [int(p.get('slowPeriod', 26)) + int(p.get('signalPeriod', 9))]
+                except (TypeError, ValueError):
+                    cands = [35]
+            elif cid == 'stochastic':
+                # KDJ 재귀 평활 수렴 여유분 +21
+                try:
+                    cands = [int(p.get('period', 9)) + 21]
+                except (TypeError, ValueError):
+                    cands = [30]
+            elif cid == 'adx':
                 cands = [30]
             for v in cands:
                 try:
@@ -175,8 +185,8 @@ class BacktestEngine:
             # when results are produced under the optimistic same_close model.
             if exec_type == 'same_close':
                 self.warnings.add(
-                    "체결 방식이 'same_close'입니다 — 당일 종가 신호를 당일 종가에 체결하는 "
-                    "비현실적 가정(룩어헤드)입니다. 실거래 판단에는 'next_open' 사용을 권장합니다."
+                    "체결 방식이 '당일 종가 체결'입니다 — 당일 종가 신호를 당일 종가에 체결하는 "
+                    "비현실적 가정(룩어헤드)입니다. 실거래 판단에는 '익일 시가 체결' 방식 사용을 권장합니다."
                 )
             
             period_req = (req.get('period') or '5Y').upper()
@@ -780,8 +790,7 @@ class BacktestEngine:
             _tax_val = float(_tax_raw) if _tax_raw is not None else 0.0015
             if _tax_val > 0:
                 self.warnings.add(
-                    f"매도 체결에 증권거래세 {_tax_val * 100:.2f}%가 반영되었습니다 "
-                    "(sell_tax_rate 옵션으로 조정 가능)."
+                    f"매도 체결에 증권거래세 {_tax_val * 100:.2f}%가 반영되었습니다."
                 )
 
             _n_trades = int(pf.trades.count())

@@ -39,6 +39,10 @@ class ResultHandler:
         ts_pct = float(risk_params.get('trailing_stop_pct') or 0)
         max_hold = int(risk_params.get('max_holding_days') or 0)
 
+        # 종목별 실투입원가 누적 (진입가 × 수량) — 종목 분석 표의 수익률을
+        # 계좌 전체자본이 아닌 해당 종목 거래 원가 기준으로 계산하기 위함.
+        per_symbol_cost: Dict[str, float] = {}
+
         if len(pf.trades.records) > 0:
             vbt_trades = pf.trades.records_readable
             raw_records = pf.trades.records
@@ -163,6 +167,7 @@ class ResultHandler:
                 size    = cls.safe(arr_size[i])
                 pnl     = cls.safe(arr_pnl[i])
                 ret_val = cls.safe(arr_ret[i]) * 100
+                per_symbol_cost[sym] = per_symbol_cost.get(sym, 0.0) + e_price * size
                 exit_type = int(arr_exit_type[i])
                 duration  = int(arr_exit_idx[i] - arr_entry_idx[i])
 
@@ -303,7 +308,6 @@ class ResultHandler:
                 if isinstance(obj, np.ndarray):   return np.nan_to_num(obj, nan=0.0, posinf=0.0, neginf=0.0)
                 return np.array([float(obj) if obj is not None else 0.0])
 
-            _pa_r = _to_np(pf.total_return(group_by=False))
             _pa_c = _to_np(pf.trades.count(group_by=False))
             _pa_w = _to_np(pf.trades.win_rate(group_by=False))
             _pa_p = _to_np(pf.total_profit(group_by=False))
@@ -311,9 +315,14 @@ class ResultHandler:
             _pa_m = _to_np(pf.max_drawdown(group_by=False))
 
             for i, sym in enumerate(processed_symbols):
+                profit_i = float(_pa_p[i] if i < len(_pa_p) else 0.0)
+                cost_i = per_symbol_cost.get(sym, 0.0)
+                # 계좌 전체자본이 아닌 해당 종목에 실제 투입된 원가(진입가×수량) 대비
+                # 수익률 — 매매기록 인라인 수익률(ret_val, 위 루프)과 동일한 기준.
+                total_return_i = (profit_i / cost_i * 100.0) if cost_i > 0 else 0.0
                 per_asset_stats[sym] = {
                     "symbol":      sym,
-                    "totalReturn": float(_pa_r[i] if i < len(_pa_r) else 0.0) * 100,
+                    "totalReturn": total_return_i,
                     "trades":      int(_pa_c[i]   if i < len(_pa_c) else 0.0),
                     "winRate":     float(_pa_w[i] if i < len(_pa_w) else 0.0) * 100,
                     "profit":      float(_pa_p[i] if i < len(_pa_p) else 0.0),

@@ -211,6 +211,41 @@ def test_hallucinated_ai_signal_in_correction_is_stripped(monkeypatch, parser):
     )
 
 
+def test_hallucinated_universe_downgrade_in_correction_is_reverted(monkeypatch, parser):
+    """[회귀] 교정 LLM이 "KOSPI 대형주"(→KOSPI200)를 그대로 "KOSPI"로 되돌리면 강제 복원한다.
+
+    실사례(2026-07-05): "KOSPI 대형주 중에서 PBR이 1배 이하인 종목..." 프롬프트가 룰 파싱
+    잔여 미해석으로 LLM 검증을 타고, correctedStrategy가 universe를 KOSPI200→KOSPI로
+    되돌려 유니버스가 200종목에서 전체 코스피(800+ 종목)로 확대 → 백테스트가 크게 느려져
+    전략연구소 화면이 멈춘 것처럼 보였다. 유니버스는 순수 어휘 매핑이라 교정 LLM이 원문과
+    다르게 바꾸면 항상 되돌려야 한다(단, max_positions 등 숫자 필드는 교정을 존중한다).
+    """
+    prompt = "KOSPI 대형주 중에서 PBR이 1배 이하인 종목만 골라서 8종목 정도 나눠 사고, 6개월 보유, -12% 손절"
+    parsed = _parse_rule_based_strategy(prompt)
+    assert parsed is not None
+    assert parsed.universe == ["KOSPI200"]
+
+    tampered = parsed.model_dump()
+    tampered["universe"] = ["KOSPI"]
+    tampered["max_positions"] = 6  # 유니버스와 무관한 정상 교정은 유지돼야 한다
+
+    _patch_llm(monkeypatch, json.dumps({
+        "isValid": False,
+        "confidence": 0.8,
+        "correctedStrategy": tampered,
+        "issues": [],
+        "missingFields": [],
+        "clarificationQuestions": [],
+        "userFacingMessage": "교정했습니다.",
+    }))
+
+    result, report = validate_parse(parser, prompt, parsed)
+
+    assert result.universe == ["KOSPI200"]
+    assert result.max_positions == 6
+    assert report["correctedStrategy"]["universe"] == ["KOSPI200"]
+
+
 def test_ai_signal_in_correction_kept_when_user_mentioned_ai(monkeypatch, parser):
     """사용자가 원문에서 AI를 직접 언급했다면 교정본의 AI 신호는 환각이 아니므로 유지한다."""
     prompt = "AI가 상승 예측한 종목 매수, PBR 1 이하 종목 10개 1년 보유"

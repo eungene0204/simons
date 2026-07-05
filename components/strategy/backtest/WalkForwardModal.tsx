@@ -4,8 +4,10 @@ import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { ArrowsClockwise, ChartLine, Warning } from "phosphor-react";
 import {
+  buildWalkForwardParameterDescriptors,
   buildWalkForwardParameterRanges,
   findWalkForwardRangeBoundsForLabel,
+  walkForwardRangeBoundsForPath,
   type StrategyBacktestRequest,
   type WalkForwardParameterRangeOverride,
 } from "../../../app/analytics/new/parsedStrategyMerge";
@@ -66,17 +68,32 @@ interface WalkForwardResult {
   wfe_valid?: boolean;
 }
 
+export interface WalkForwardRunProgress {
+  stage: string;
+  window?: number;
+  total?: number;
+  is_period?: string;
+  oos_period?: string;
+  message?: string;
+}
+
+type WalkForwardRunner = (
+  settings: WalkForwardSettings,
+  signal?: AbortSignal,
+  onProgress?: (event: WalkForwardRunProgress) => void
+) => Promise<WalkForwardResult>;
+
 interface WalkForwardModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onRun: (settings: WalkForwardSettings, signal?: AbortSignal) => Promise<WalkForwardResult>;
+  onRun: WalkForwardRunner;
   backtestDates?: string[];
   optimizationTargets?: WalkForwardOptimizationTarget[];
   baseStrategy?: StrategyBacktestRequest;
 }
 
 interface WalkForwardPanelProps {
-  onRun?: (settings: WalkForwardSettings, signal?: AbortSignal) => Promise<WalkForwardResult>;
+  onRun?: WalkForwardRunner;
   backtestDates?: string[];
   optimizationTargets?: WalkForwardOptimizationTarget[];
   baseStrategy?: StrategyBacktestRequest;
@@ -119,10 +136,14 @@ const DEFAULT_PARAMETER_STEP_CONFIG: ParameterStepConfig = {
 };
 
 const PARAMETER_STEP_CONFIGS: Array<{ pattern: RegExp } & ParameterStepConfig> = [
+  { pattern: /표준편차|stddev/i, defaultStep: 0.25, min: 0.5, max: 4, inputStep: 0.05, stepOptions: [0.1, 0.25, 0.5], unit: "σ" },
   { pattern: /pbr/i, defaultStep: 0.25, min: 0.2, max: 5, inputStep: 0.05, stepOptions: [0.1, 0.25, 0.5], unit: "" },
   { pattern: /per/i, defaultStep: 2.5, min: 3, max: 50, inputStep: 0.5, stepOptions: [1, 2.5, 5], unit: "" },
   { pattern: /roe/i, defaultStep: 2.5, min: 0, max: 40, inputStep: 0.5, stepOptions: [1, 2.5, 5], unit: "%p" },
-  { pattern: /rsi|stoch/i, defaultStep: 5, min: 5, max: 95, inputStep: 1, stepOptions: [1, 5, 10], unit: "" },
+  { pattern: /(?:rsi|스토캐스틱|stoch).*(?:기간|period)/i, defaultStep: 2, min: 2, max: 60, inputStep: 1, stepOptions: [1, 2, 5], unit: "거래일" },
+  { pattern: /macd/i, defaultStep: 2, min: 2, max: 120, inputStep: 1, stepOptions: [1, 2, 5], unit: "거래일" },
+  { pattern: /볼린저.*기간|돌파|거래량.*기간|cci.*기간/i, defaultStep: 5, min: 2, max: 250, inputStep: 1, stepOptions: [1, 5, 10], unit: "거래일" },
+  { pattern: /rsi|stoch|스토캐스틱|cci/i, defaultStep: 5, min: 5, max: 95, inputStep: 1, stepOptions: [1, 5, 10], unit: "" },
   { pattern: /adx/i, defaultStep: 2, min: 5, max: 60, inputStep: 1, stepOptions: [1, 2, 5], unit: "" },
   { pattern: /이동평균|평균|moving|ema|sma|ma\b/i, defaultStep: 5, min: 2, max: 250, inputStep: 1, stepOptions: [1, 5, 20], unit: "거래일" },
   { pattern: /거래대금|거래량|volume|trading/i, defaultStep: 50, min: 10, max: 1000, inputStep: 10, stepOptions: [10, 50, 100], unit: "억" },
@@ -355,6 +376,7 @@ export function WalkForwardPanel({
     buildInitialFormState(totalBars, minWindowBars)
   );
   const [isRunning, setIsRunning] = useState(false);
+  const [runProgress, setRunProgress] = useState<WalkForwardRunProgress | null>(null);
   const [result, setResult] = useState<WalkForwardResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [parameterRangeOverrides, setParameterRangeOverrides] = useState<Record<string, WalkForwardParameterRangeOverride>>({});
@@ -378,18 +400,33 @@ export function WalkForwardPanel({
   }, [minWindowBars, totalBars]);
 
   const baseParameterRanges = baseStrategy ? buildWalkForwardParameterRanges(baseStrategy) : {};
-  // 전략에 실제 존재하는 숫자 파라미터(자동 생성 range와 매칭되는 라벨)만 노출한다 —
-  // 매칭되지 않는 칩은 눌러도 아무 효과가 없는 유령 파라미터가 된다.
-  const visibleTargets = baseStrategy
-    ? optimizationTargets.filter(
-        (target) => findWalkForwardRangeBoundsForLabel(baseStrategy, target.label, baseParameterRanges) !== null
-      )
-    : optimizationTargets;
+  // 실제 탐색 공간(자동 생성 range)의 경로에서 칩을 직접 생성한다 — 배지 텍스트 라벨
+  // 매칭 방식은 기술지표 파라미터(MACD 기간 등)를 노출하지 못하는 유령/누락의 원인이었다.
+  // 디스크립터 모드에서는 target.id == range 경로이므로 오버라이드/제외가 정확히 그 경로에만 적용된다.
+  const descriptorTargets: WalkForwardOptimizationTarget[] = baseStrategy
+    ? buildWalkForwardParameterDescriptors(baseStrategy, baseParameterRanges).map((descriptor) => ({
+        id: descriptor.path,
+        label: descriptor.label,
+      }))
+    : [];
+  const useDescriptors = descriptorTargets.length > 0;
+  const visibleTargets = useDescriptors
+    ? descriptorTargets
+    : baseStrategy
+      ? optimizationTargets.filter(
+          (target) => findWalkForwardRangeBoundsForLabel(baseStrategy, target.label, baseParameterRanges) !== null
+        )
+      : optimizationTargets;
+  // 설정 payload의 키 — 디스크립터 모드는 경로, 레거시 모드는 라벨 매칭용 라벨
+  const settingsKeyFor = (target: WalkForwardOptimizationTarget) =>
+    useDescriptors ? target.id : target.label;
   const defaultParameterRanges = visibleTargets.reduce<Record<string, WalkForwardParameterRangeOverride>>((acc, target) => {
     const config = getParameterStepConfig(target.label);
-    const bounds = baseStrategy
-      ? findWalkForwardRangeBoundsForLabel(baseStrategy, target.label, baseParameterRanges)
-      : null;
+    const bounds = useDescriptors
+      ? walkForwardRangeBoundsForPath(baseParameterRanges, target.id)
+      : baseStrategy
+        ? findWalkForwardRangeBoundsForLabel(baseStrategy, target.label, baseParameterRanges)
+        : null;
     // 기본값은 실제로 적용되는 자동 생성 범위 그대로 보여준다 (표시 = 실행).
     const min = bounds?.min ?? config.min;
     const max = bounds?.max ?? config.max;
@@ -405,10 +442,10 @@ export function WalkForwardPanel({
   const activeTargets = visibleTargets.filter((target) => !excludedTargetIds.has(target.id));
   const excludedLabels = visibleTargets
     .filter((target) => excludedTargetIds.has(target.id))
-    .map((target) => target.label);
+    .map(settingsKeyFor);
 
   const parameterSteps = activeTargets.reduce<Record<string, number>>((steps, target) => {
-    steps[target.label] = (parameterRangeOverrides[target.id] ?? defaultParameterRanges[target.id]).step;
+    steps[settingsKeyFor(target)] = (parameterRangeOverrides[target.id] ?? defaultParameterRanges[target.id]).step;
     return steps;
   }, {});
 
@@ -416,7 +453,7 @@ export function WalkForwardPanel({
     const current = parameterRangeOverrides[target.id];
     const defaults = defaultParameterRanges[target.id];
     if (current && defaults && !sameRangeOverride(current, defaults)) {
-      ranges[target.label] = current;
+      ranges[settingsKeyFor(target)] = current;
     }
     return ranges;
   }, {});
@@ -462,12 +499,13 @@ export function WalkForwardPanel({
     setIsRunning(true);
     setError(null);
     setResult(null);
+    setRunProgress(null);
 
     const controller = new AbortController();
     abortRef.current = controller;
 
     try {
-      const res = await onRun(derivedSettings, controller.signal);
+      const res = await onRun(derivedSettings, controller.signal, setRunProgress);
       if (res.status === "error") {
         setError(res.message || "분석 중 오류가 발생했습니다.");
       } else {
@@ -1346,12 +1384,34 @@ export function WalkForwardPanel({
                 </button>
               )}
               {!result && isRunning && (
-                <button
-                  onClick={handleCancel}
-                  className="px-4 py-2 text-sm font-black text-gray-400 transition-colors hover:bg-white/[0.03] hover:text-white"
-                >
-                  취소
-                </button>
+                <>
+                  {runProgress?.stage === "window" && runProgress.total ? (
+                    <div className="flex items-center gap-2">
+                      <div
+                        role="progressbar"
+                        aria-label="워크포워드 진행률"
+                        aria-valuemin={0}
+                        aria-valuemax={runProgress.total}
+                        aria-valuenow={runProgress.window ?? 0}
+                        className="h-2 w-32 overflow-hidden rounded-full bg-white/[0.08]"
+                      >
+                        <div
+                          className="h-full rounded-full bg-[var(--main-blue)] transition-[width]"
+                          style={{ width: `${Math.round((((runProgress.window ?? 1) - 1) / runProgress.total) * 100)}%` }}
+                        />
+                      </div>
+                      <span className="text-[11px] font-black tabular-nums text-gray-400">
+                        {runProgress.window}/{runProgress.total} 구간
+                      </span>
+                    </div>
+                  ) : null}
+                  <button
+                    onClick={handleCancel}
+                    className="px-4 py-2 text-sm font-black text-gray-400 transition-colors hover:bg-white/[0.03] hover:text-white"
+                  >
+                    취소
+                  </button>
+                </>
               )}
               {!result && (
                 <button
@@ -1363,7 +1423,9 @@ export function WalkForwardPanel({
                   {isRunning ? (
                     <>
                       <ArrowsClockwise className="h-4 w-4 animate-spin" />
-                      분석 중... ({derivedSettings.n_splits}개 구간)
+                      {runProgress?.stage === "window" && runProgress.total
+                        ? `분석 중... (${runProgress.window}/${runProgress.total} 구간)`
+                        : `분석 중... (${derivedSettings.n_splits}개 구간)`}
                     </>
                   ) : (
                     <>

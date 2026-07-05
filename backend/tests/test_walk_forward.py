@@ -269,3 +269,66 @@ class TestWfeValidity:
         assert result["status"] == "ok"
         assert result["wfe_valid"] is False
         assert result["walk_forward_efficiency"] == 0.0
+
+
+class TestProgressAndCancel:
+    def test_progress_callback_receives_window_events(self):
+        engine = SequentialDatesEngine(240)
+        analyzer = WalkForwardAnalyzer(engine)
+        events = []
+
+        result = analyzer.analyze(
+            base_request=_base_request(),
+            ranges=_ranges(),
+            method="grid",
+            is_bars=120,
+            oos_bars=40,
+            progress_callback=events.append,
+        )
+
+        assert result["status"] == "ok"
+        window_events = [e for e in events if e.get("stage") == "window"]
+        assert len(window_events) == len(result["windows"])
+        assert window_events[0]["window"] == 1
+        assert window_events[0]["total"] == len(result["windows"])
+        assert "~" in window_events[0]["oos_period"]
+
+    def test_should_cancel_stops_at_window_boundary(self):
+        engine = SequentialDatesEngine(240)
+        analyzer = WalkForwardAnalyzer(engine)
+        seen = []
+
+        def cancel_after_first():
+            # 첫 창 완료 후 취소 (첫 호출 False, 이후 True)
+            seen.append(True)
+            return len(seen) > 1
+
+        result = analyzer.analyze(
+            base_request=_base_request(),
+            ranges=_ranges(),
+            method="grid",
+            is_bars=120,
+            oos_bars=40,
+            should_cancel=cancel_after_first,
+        )
+
+        assert result["status"] == "cancelled"
+        assert "취소" in result["message"]
+
+    def test_progress_callback_errors_do_not_break_analysis(self):
+        engine = SequentialDatesEngine(240)
+        analyzer = WalkForwardAnalyzer(engine)
+
+        def broken_callback(_payload):
+            raise RuntimeError("boom")
+
+        result = analyzer.analyze(
+            base_request=_base_request(),
+            ranges=_ranges(),
+            method="grid",
+            is_bars=120,
+            oos_bars=40,
+            progress_callback=broken_callback,
+        )
+
+        assert result["status"] == "ok"

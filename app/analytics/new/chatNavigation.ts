@@ -16,6 +16,32 @@ export function beginStrategyChatNavigation(
   navigate("/analytics/chat");
 }
 
+type ChatInputVisibilityMessage = {
+  role: string;
+  content?: string;
+  parsed?: unknown;
+  stockAnalysis?: unknown;
+  infoText?: string;
+  error?: string;
+  infoSuggestions?: string[];
+};
+
+// 채팅 입력창 노출 여부. 에러로 끝난 메시지도 '응답이 있는 메시지'로 쳐야 한다 — 그렇지
+// 않으면 오류 발생 시 parsed/stockAnalysis/infoText가 하나도 없어 입력창이 영영 안 나타나고
+// 사용자가 다음 메시지를 보낼 수도, 대화를 끝낼 수도 없는 상태로 갇힌다.
+export function shouldShowChatInputBox(
+  messages: ChatInputVisibilityMessage[],
+  isIdle: boolean,
+  builderFreeTextRequested: boolean
+): boolean {
+  const lastAssistantMessage = [...messages].reverse().find((m) => m.role === "assistant");
+  const builderAwaitingChoice = (lastAssistantMessage?.infoSuggestions?.length ?? 0) > 0;
+  const hasRespondedMessage = messages.some(
+    (m) => m.parsed || m.stockAnalysis || m.infoText || m.error
+  );
+  return (isIdle || hasRespondedMessage) && (!builderAwaitingChoice || builderFreeTextRequested);
+}
+
 type PersistableChatMessage = {
   role: string;
   content?: string;

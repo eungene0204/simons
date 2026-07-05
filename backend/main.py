@@ -297,6 +297,94 @@ def walk_forward_analysis(request: WalkForwardRequest):
         raise HTTPException(status_code=500, detail=f"Walk-forward error: {repr(e)}")
 
 
+@app.post("/walk-forward/stream")
+async def walk_forward_stream(request: WalkForwardRequest):
+    """워크포워드 분석을 SSE로 스트리밍 — 창 단위 진행률 + 협조적 취소.
+
+    이벤트: {type: progress|result|error, ...} + 종료 시 'data: [DONE]'.
+    클라이언트가 연결을 끊으면 취소 플래그를 세워 다음 창 경계에서 중단한다.
+    """
+    import threading
+    import queue as _queue
+
+    progress_q: _queue.Queue = _queue.Queue()
+    result_holder: dict = {}
+    error_holder: dict = {}
+    cancel_event = threading.Event()
+
+    def run_wfa():
+        try:
+            from engine.walk_forward import WalkForwardAnalyzer
+            analyzer = WalkForwardAnalyzer(engine)
+            result = analyzer.analyze(
+                base_request=request.base_strategy.model_dump(),
+                ranges=request.ranges,
+                n_splits=request.n_splits,
+                train_pct=request.train_pct,
+                anchor=request.anchor,
+                target_metric=request.target_metric,
+                n_trials=request.n_trials,
+                method=request.method,
+                is_bars=request.is_bars,
+                oos_bars=request.oos_bars,
+                progress_callback=progress_q.put,
+                should_cancel=cancel_event.is_set,
+            )
+            result_holder["data"] = result
+        except Exception as exc:
+            import traceback
+            print(f"[WFA-STREAM] ERROR:\n{traceback.format_exc()}", flush=True)
+            error_holder["error"] = str(exc)
+
+    thread = threading.Thread(target=run_wfa, daemon=True)
+
+    async def generate():
+        thread.start()
+        deadline = time.monotonic() + backtest_timeout_s()
+
+        def drain_progress():
+            events = []
+            while True:
+                try:
+                    events.append(progress_q.get_nowait())
+                except _queue.Empty:
+                    return events
+
+        try:
+            while thread.is_alive():
+                for payload in drain_progress():
+                    yield f"data: {json.dumps({'type': 'progress', **payload}, ensure_ascii=False)}\n\n"
+                if time.monotonic() >= deadline:
+                    cancel_event.set()
+                    yield f"data: {json.dumps({'type': 'error', 'message': backtest_timeout_message(backtest_timeout_s())})}\n\n"
+                    yield "data: [DONE]\n\n"
+                    return
+                await asyncio.sleep(0.2)
+
+            thread.join()
+            for payload in drain_progress():
+                yield f"data: {json.dumps({'type': 'progress', **payload}, ensure_ascii=False)}\n\n"
+
+            if "error" in error_holder:
+                yield f"data: {json.dumps({'type': 'error', 'message': error_holder['error']}, ensure_ascii=False)}\n\n"
+            elif "data" in result_holder:
+                result = result_holder["data"]
+                if result.get("status") in ("error", "cancelled"):
+                    yield f"data: {json.dumps({'type': 'error', 'message': result.get('message', '워크포워드 분석 실패')}, ensure_ascii=False)}\n\n"
+                else:
+                    yield f"data: {json.dumps({'type': 'result', 'data': result}, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+        finally:
+            # 클라이언트 연결 종료(GeneratorExit 포함) 시 다음 창 경계에서 협조적 취소
+            cancel_event.set()
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 
 @app.get("/stock/{symbol}/ohlcv")
 def get_stock_ohlcv(symbol: str, limit: int = 1260):

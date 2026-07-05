@@ -119,16 +119,26 @@ describe("StrategyResultPage", () => {
         });
       }
 
-      if (url === "/api/backtest/walk-forward") {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
+      if (url === "/api/backtest/walk-forward/stream") {
+        const encoder = new TextEncoder();
+        const resultEvent = JSON.stringify({
+          type: "result",
+          data: {
             status: "ok",
             windows: [],
             aggregate: {},
             combined_equity: [],
             combined_dates: [],
             walk_forward_efficiency: 0,
+          },
+        });
+        return Promise.resolve({
+          ok: true,
+          body: new ReadableStream({
+            start(controller) {
+              controller.enqueue(encoder.encode(`data: ${resultEvent}\n\ndata: [DONE]\n\n`));
+              controller.close();
+            },
           }),
         });
       }
@@ -201,7 +211,7 @@ describe("StrategyResultPage", () => {
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        "/api/backtest/walk-forward",
+        "/api/backtest/walk-forward/stream",
         expect.objectContaining({
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -209,7 +219,7 @@ describe("StrategyResultPage", () => {
       );
     });
 
-    const walkForwardCall = fetchMock.mock.calls.find(([url]) => url === "/api/backtest/walk-forward");
+    const walkForwardCall = fetchMock.mock.calls.find(([url]) => url === "/api/backtest/walk-forward/stream");
     expect(JSON.parse(walkForwardCall?.[1]?.body as string)).toMatchObject({
       n_splits: 4,
       train_pct: 0.7,

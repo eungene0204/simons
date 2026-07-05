@@ -18,6 +18,7 @@ import {
   hasWalkForwardParameterRanges,
   type AdvisorWalkForwardSettings,
 } from "../new/parsedStrategyMerge";
+import { runWalkForwardStream, type WalkForwardProgressHandler } from "../new/walkForwardStream";
 
 function mapBacktestResponse(raw: any): BacktestResult {
   const equity: number[] = raw.equity ?? [];
@@ -214,7 +215,11 @@ function StrategyResultContent() {
     }
   };
 
-  const handleWalkForward = async (settings: AdvisorWalkForwardSettings, signal?: AbortSignal) => {
+  const handleWalkForward = async (
+    settings: AdvisorWalkForwardSettings,
+    signal?: AbortSignal,
+    onProgress?: WalkForwardProgressHandler
+  ) => {
     if (!backtestDsl) {
       throw new Error("워크포워드 분석을 실행할 백테스트 요청이 없습니다.");
     }
@@ -227,19 +232,10 @@ function StrategyResultContent() {
       );
     }
 
-    const res = await fetch("/api/backtest/walk-forward", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildWalkForwardRequest(baseRequest, settings, ranges)),
+    return runWalkForwardStream(buildWalkForwardRequest(baseRequest, settings, ranges), {
       signal,
+      onProgress,
     });
-
-    if (!res.ok) {
-      const error = await res.json().catch(() => ({}));
-      throw new Error(error.detail ?? "워크포워드 분석 실패");
-    }
-
-    return res.json();
   };
 
   if (loading) {

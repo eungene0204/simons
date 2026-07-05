@@ -5,6 +5,8 @@ import functools
 import polars as pl
 import numpy as np
 
+from engine.indicator_columns import bollinger_columns, macd_columns, stochastic_columns
+
 
 # Fundamental filter metrics. The condition id equals the parquet column name, so the
 # eval branches are fully generic (get_col(cid) / safe_get(cid)). Single source of truth
@@ -212,9 +214,10 @@ class SignalEngine:
                 return res
 
         elif cid == 'macd':
-            # Fix 3: MACD 평가자 — 크로스오버 또는 제로선 돌파
-            macd = get_col('macd')
-            macds = get_col('macds')  # signal line
+            # Fix 3: MACD 평가자 — 크로스오버 또는 제로선 돌파 (기간 파라미터화 지원)
+            macd_col, macds_col = macd_columns(p)
+            macd = get_col(macd_col)
+            macds = get_col(macds_col)  # signal line
             sig_type = p.get('signalType', 'buy')
             mode = p.get('mode', 'crossover')
             if mode == 'zero':
@@ -226,9 +229,10 @@ class SignalEngine:
                 return crossover(macd, macds, direction)
 
         elif cid == 'stochastic':
-            # Fix 3: Stochastic 평가자 — K/D 크로스오버 또는 과매수/과매도 레벨
-            k = get_col('kdjk')
-            d = get_col('kdjd')
+            # Fix 3: Stochastic 평가자 — K/D 크로스오버 또는 과매수/과매도 레벨 (기간 파라미터화 지원)
+            k_col, d_col = stochastic_columns(p)
+            k = get_col(k_col)
+            d = get_col(d_col)
             sig_type = p.get('signalType', 'buy')
             mode = p.get('mode', 'crossover')
             if mode == 'level':
@@ -261,14 +265,15 @@ class SignalEngine:
             c = get_col('close')
             if c is None:
                 return result
+            ub_col, lb_col = bollinger_columns(p)
             if p.get('signalType') == 'sell':
-                ub = get_col('boll_ub')
+                ub = get_col(ub_col)
                 if ub is None:
                     return result
                 with np.errstate(invalid='ignore'):
                     return c >= ub
             else:
-                lb = get_col('boll_lb')
+                lb = get_col(lb_col)
                 if lb is None:
                     return result
                 with np.errstate(invalid='ignore'):
@@ -514,9 +519,10 @@ class SignalEngine:
                 return p_close <= p_ema and c > ema_val
 
         elif cid == 'macd':
-            # Fix 3: MACD 행별 평가자
-            macd = safe_get('macd', idx)
-            macds = safe_get('macds', idx)
+            # Fix 3: MACD 행별 평가자 (기간 파라미터화 지원)
+            macd_col, macds_col = macd_columns(p)
+            macd = safe_get(macd_col, idx)
+            macds = safe_get(macds_col, idx)
             sig_type = p.get('signalType', 'buy')
             mode = p.get('mode', 'crossover')
             if mode == 'zero':
@@ -524,16 +530,17 @@ class SignalEngine:
             else:
                 if idx == 0 or macd is None or macds is None:
                     return False
-                p_macd = safe_get('macd', idx - 1)
-                p_macds = safe_get('macds', idx - 1)
+                p_macd = safe_get(macd_col, idx - 1)
+                p_macds = safe_get(macds_col, idx - 1)
                 if p_macd is None or p_macds is None:
                     return False
                 return (p_macd >= p_macds and macd < macds) if sig_type == 'sell' else (p_macd <= p_macds and macd > macds)
 
         elif cid == 'stochastic':
-            # Fix 3: Stochastic 행별 평가자
-            k = safe_get('kdjk', idx)
-            d = safe_get('kdjd', idx)
+            # Fix 3: Stochastic 행별 평가자 (기간 파라미터화 지원)
+            k_col, d_col = stochastic_columns(p)
+            k = safe_get(k_col, idx)
+            d = safe_get(d_col, idx)
             sig_type = p.get('signalType', 'buy')
             mode = p.get('mode', 'crossover')
             if mode == 'level':
@@ -543,8 +550,8 @@ class SignalEngine:
             else:
                 if idx == 0 or k is None or d is None:
                     return False
-                pk = safe_get('kdjk', idx - 1)
-                pd_ = safe_get('kdjd', idx - 1)
+                pk = safe_get(k_col, idx - 1)
+                pd_ = safe_get(d_col, idx - 1)
                 if pk is None or pd_ is None:
                     return False
                 return (pk >= pd_ and k < d) if sig_type == 'sell' else (pk <= pd_ and k > d)
@@ -569,7 +576,8 @@ class SignalEngine:
             return compare(c, op, val)
 
         elif cid == 'bollinger_bands':
-            c, ub, lb = safe_get('close', idx), safe_get('boll_ub', idx), safe_get('boll_lb', idx)
+            ub_col, lb_col = bollinger_columns(p)
+            c, ub, lb = safe_get('close', idx), safe_get(ub_col, idx), safe_get(lb_col, idx)
             return compare(c, '>=', ub) if p.get('signalType') == 'sell' else compare(c, '<=', lb)
 
         elif cid == 'volume_spike':

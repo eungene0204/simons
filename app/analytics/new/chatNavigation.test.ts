@@ -4,6 +4,7 @@ import {
   beginStrategyChatNavigation,
   selectPersistableChatMessages,
   shouldBeginStrategyChatNavigation,
+  shouldShowChatInputBox,
 } from "./chatNavigation";
 
 describe("strategy chat navigation", () => {
@@ -71,5 +72,52 @@ describe("selectPersistableChatMessages", () => {
     ];
 
     expect(selectPersistableChatMessages(messages)).toHaveLength(5);
+  });
+});
+
+describe("shouldShowChatInputBox", () => {
+  it("[회귀] shows the input again after the only assistant message ends in an error", () => {
+    // 실사례(2026-07-05): 첫 메시지 처리 중 에러가 나면 어시스턴트 메시지가
+    // { role: "assistant", error } 로만 채워져 parsed/stockAnalysis/infoText가 전부 없다.
+    // 이 경우도 입력창을 다시 보여줘야 사용자가 재시도하거나 새 메시지를 보낼 수 있다.
+    const messages = [
+      { role: "user", content: "PBR 1 이하 전략" },
+      { role: "assistant", error: "파싱 실패" },
+    ];
+
+    expect(shouldShowChatInputBox(messages, false, false)).toBe(true);
+  });
+
+  it("shows the input when idle even with no messages", () => {
+    expect(shouldShowChatInputBox([], true, false)).toBe(true);
+  });
+
+  it("hides the input while the builder is awaiting a chip choice", () => {
+    const messages = [
+      { role: "user", content: "전략 만들래" },
+      { role: "assistant", infoText: "어떤 시장을 대상으로 할까요?", infoSuggestions: ["코스피", "코스닥"] },
+    ];
+
+    expect(shouldShowChatInputBox(messages, false, false)).toBe(false);
+    expect(shouldShowChatInputBox(messages, false, true)).toBe(true);
+  });
+
+  it("shows the input once a message carries parsed/stockAnalysis/infoText", () => {
+    expect(
+      shouldShowChatInputBox(
+        [{ role: "user", content: "x" }, { role: "assistant", parsed: { foo: 1 } }],
+        false,
+        false
+      )
+    ).toBe(true);
+  });
+
+  it("hides the input while still loading (no response yet, not idle)", () => {
+    const messages = [
+      { role: "user", content: "PBR 1 이하 전략" },
+      { role: "assistant" },
+    ];
+
+    expect(shouldShowChatInputBox(messages, false, false)).toBe(false);
   });
 });

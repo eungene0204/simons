@@ -195,20 +195,22 @@ describe("WalkForwardModal", () => {
           method: "bayesian",
           is_bars: 84,
           oos_bars: 28,
+          // 디스크립터 모드: 설정 키는 라벨이 아니라 실제 탐색 경로(path)
           parameter_steps: {
-            PBR: 0.5,
-            손절라인: 2.5,
-            익절라인: 5,
+            "entry.conditions.0.params.value": 0.5,
+            "risk.stop_loss_pct": 2.5,
+            "risk.take_profit_pct": 5,
           },
           parameter_ranges: {
-            PBR: {
+            "entry.conditions.0.params.value": {
               min: 0.9,
               max: 1.5,
               step: 0.5,
             },
           },
         },
-        expect.any(AbortSignal)
+        expect.any(AbortSignal),
+        expect.any(Function)
       );
     });
     expect(screen.queryByText(/Optuna/)).not.toBeInTheDocument();
@@ -279,7 +281,8 @@ describe("WalkForwardModal", () => {
     await waitFor(() => {
       expect(onRun).toHaveBeenCalledWith(
         expect.objectContaining({ method: "grid" }),
-        expect.any(AbortSignal)
+        expect.any(AbortSignal),
+        expect.any(Function)
       );
     });
   });
@@ -327,7 +330,8 @@ describe("WalkForwardModal", () => {
           is_bars: 120,
           oos_bars: 40,
         },
-        expect.any(AbortSignal)
+        expect.any(AbortSignal),
+        expect.any(Function)
       );
     });
   });

@@ -627,12 +627,11 @@ Client Browser
     ↓
 Next.js API Route (/api/*)
     ├── 요청 검증 + 인증 확인
-    ├── Strategy canonicalization + strategy_id 계산
-    ├── Cache 확인 (Strategy.id / BacktestHistory.cacheKey)
-    │   ├── Cache Hit  → 즉시 응답 + hitCount++ + status=cache_hit
-    │   └── Cache Miss → FastAPI 포워드
+    ├── Strategy canonicalization + strategy_id/cacheKey 계산
+    ├── FastAPI 항상 재실행 (동일 전략이라도 캐시로 실행을 건너뛰지 않음 — 엔진 버그 수정이 계속되는 동안
+    │   과거(수정 전 버전) 결과를 그대로 반환하지 않기 위한 정책)
     ├── FastAPI (http://localhost:8000)
-    ├── 결과 영구 저장 (Strategy / BacktestResult / BacktestHistory)
+    ├── 결과 영구 저장 (Strategy / BacktestResult / BacktestHistory, cacheKey로 upsert — 기존 행은 최신 결과로 덮어씀)
     └── Client 응답
 
 중복 요청 방지: x-trace-id 헤더, 2초 이내 동일 요청 차단
@@ -648,8 +647,7 @@ BatchRun row 생성 + BatchRunCandidate waiting 상태 저장
 In-process queue/worker (concurrency 제한)
     ├── running 상태 체크포인트
     ├── parse → canonical DSL → strategy_id 계산
-    ├── cache hit 시 기존 결과 재사용
-    └── miss 시 backtest-stream 실행 후 저장
+    └── backtest-stream 실행(항상 재실행) 후 저장
     ↓
 BatchRun ranking_snapshot / logs / counts 갱신
     ↓
@@ -666,7 +664,7 @@ Client polling으로 진행률/로그/리더보드 반영
 **전략**
 - `POST /api/strategy/parse` — NL → DSL 파싱 프록시
 - `POST /api/strategy/parse/stream` — accepted/skeleton/parsed_final/dsl_ready 이벤트를 보내는 자연어 파싱 SSE 프록시
-- `POST /api/strategy/backtest-stream` — 단일 전략 SSE 백테스트 + strategy_id 캐시 활용
+- `POST /api/strategy/backtest-stream` — 단일 전략 SSE 백테스트. 동일 strategy_id/cacheKey라도 항상 엔진을 재실행하고, 결과는 cacheKey로 upsert 저장(재사용 목적 아닌 dedup 저장용)
 - `POST /api/strategy/save-with-backtest` — 전략 저장 + 백테스트 동시 실행
 - `GET/POST /api/strategy/batch-runs` — 배치 실행 시작/상세 조회/최근 이력/취소
 - `POST /api/advisor/review` — RAG + Experience Memory 전략 리뷰/개선 조언

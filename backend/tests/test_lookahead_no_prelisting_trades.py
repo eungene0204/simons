@@ -87,7 +87,7 @@ def _base_req(extra_options=None):
 def test_same_close_emits_lookahead_warning(data_dir):
     engine = BacktestEngine(data_dir=str(data_dir))
     res = engine.run_backtest(_base_req({"execution_type": "same_close"}))
-    assert any("same_close" in w and "룩어헤드" in w for w in res["warnings"]), \
+    assert any("당일 종가 체결" in w and "룩어헤드" in w for w in res["warnings"]), \
         f"expected same_close look-ahead warning, got: {res['warnings']}"
 
 

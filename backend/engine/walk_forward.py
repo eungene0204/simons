@@ -15,7 +15,7 @@ Anchored/Expanding 방식 (anchor=True):
 
 import copy
 import math
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from engine.grid_optimizer import set_nested_value
 
 # 윈도우 하나마다 IS 최적화(수십 회 백테스트)가 반복되므로 폭주 방지 상한.
@@ -60,6 +60,8 @@ class WalkForwardAnalyzer:
         method: str = "bayesian",
         is_bars: Optional[int] = None,
         oos_bars: Optional[int] = None,
+        progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+        should_cancel: Optional[Callable[[], bool]] = None,
     ) -> Dict[str, Any]:
         """
         Walk-Forward Analysis 실행.
@@ -76,7 +78,16 @@ class WalkForwardAnalyzer:
             message
           }
         """
+        def _notify(payload: Dict[str, Any]):
+            if progress_callback is None:
+                return
+            try:
+                progress_callback(payload)
+            except Exception:
+                pass
+
         # 1. 전체 날짜 범위 획득
+        _notify({"stage": "prepare", "message": "전체 기간 데이터를 확인하는 중..."})
         dates = self._get_full_dates(base_request)
         if not dates:
             return {"status": "error", "message": "데이터를 불러올 수 없습니다."}
@@ -105,7 +116,19 @@ class WalkForwardAnalyzer:
         oos_returns = []
 
         for i, (is_start, is_end, oos_start, oos_end) in enumerate(windows):
+            # 협조적 취소: 창 경계에서만 확인 (창 내부 최적화는 중단 불가)
+            if should_cancel is not None and should_cancel():
+                print(f"[WFA] cancelled at window {i+1}/{len(windows)}", flush=True)
+                return {"status": "cancelled", "message": f"창 {i}/{len(windows)} 완료 후 취소되었습니다."}
+
             print(f"[WFA] Window {i+1}/{len(windows)}: IS={is_start}~{is_end}, OOS={oos_start}~{oos_end}", flush=True)
+            _notify({
+                "stage": "window",
+                "window": i + 1,
+                "total": len(windows),
+                "is_period": f"{is_start} ~ {is_end}",
+                "oos_period": f"{oos_start} ~ {oos_end}",
+            })
 
             w_result = self._run_window(
                 base_request=base_request,
