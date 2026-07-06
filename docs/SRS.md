@@ -574,7 +574,7 @@ RiskManagement {
 - 사용자가 수정한 파라미터 탐색 범위(min/max/step)는 자동 생성 범위로 재클램프하지 않고 그대로 적용하며, 파라미터별 최적화 제외(`excluded_parameters`)를 지원한다.
 - 그리드·베이지안 최적화 모두 의미 제약(단기 < 장기: `shortMA<longMA`, `fastPeriod<slowPeriod`, `shortPeriod<longPeriod`)을 강제한다.
 - 집계는 NaN/Infinity를 표본에서 제외하고 CAGR·총수익·MDD·Sharpe·Calmar·승률·손익비·거래수·평균 거래손익(expectancy)을 제공한다. IS 평균 수익 ≤ 0이면 `wfe_valid=false`로 WFE 해석 불가를 알린다. 모든 창이 실패하면 부분 결과 대신 에러를 반환한다(Fail Fast).
-- `POST /walk-forward/stream`은 SSE로 창 단위 진행률(`{type:progress, window, total, is_period, oos_period}`)을 스트리밍하고, 클라이언트 연결 종료 시 다음 창 경계에서 협조적으로 취소한다. 벽시계 제한(`BACKTEST_TIMEOUT_S`) 초과 시 error 이벤트로 종료한다. 프론트는 `/api/backtest/walk-forward/stream` 프록시와 `runWalkForwardStream`으로 소비한다.
+- `POST /walk-forward/stream`은 SSE로 창 단위 진행률(`{type:progress, window, total, is_period, oos_period}`)을 스트리밍하고, 클라이언트 연결 종료 시 다음 창 경계에서 협조적으로 취소한다. 벽시계 제한은 전용 `WALK_FORWARD_TIMEOUT_S`(기본 3600초, 창×시도만큼 백테스트를 반복하므로 단일 백테스트 제한 600초보다 커야 함) 초과 시 error 이벤트로 종료하며, 진행 이벤트가 없는 침묵 구간에는 15초 간격 SSE keep-alive 주석을 내보낸다. Next 프록시(`/api/backtest/walk-forward/stream`)의 안전망 타임아웃은 반드시 백엔드 제한보다 커야 한다(같거나 작으면 프록시가 먼저 끊어 사용자에게 "연결 끊김"으로 보인다). 프론트는 `runWalkForwardStream`으로 소비한다.
 
 **FR-BT-049b** 지표 기간 파라미터화(`engine/indicator_columns.py`): MACD(fastPeriod/slowPeriod/signalPeriod), 스토캐스틱(period), 볼린저밴드(period/stdDev)는 전략 DSL에 명시된 값으로 계산해야 한다. 기본값(12/26/9, KDJ 9, BOLL 20±2σ)이면 기존 stockstats 컬럼을 그대로 사용해 과거 백테스트 결과와의 동일성을 보존하고, 파라미터 지정 시 파라미터화 컬럼(`macd_f,s,g` / `kdjk_n` / `boll_ub_n[_kpX]`)을 계산한다. 워밍업 산정(`_max_indicator_period`)도 동일 파라미터를 반영해야 한다.
 
@@ -584,6 +584,8 @@ RiskManagement {
 - 결과는 CAGR·Sharpe·MDD 각각에 대해 최소(Worst)/5%/25%/중앙값/75%/95%/최대(Best)/표준편차와 CAGR·MDD 분포 히스토그램, 양수 CAGR 확률, MDD 30% 초과 확률을 제공한다.
 - 실행은 청크 단위로 진행률을 표시하고 취소 가능해야 하며, 유효 equity 포인트가 최소 요구치(max(30, blockSize×3)) 미만이면 명확한 에러를 반환한다.
 - 모든 문구는 서술적 통계 표현만 사용하고 투자 추천·미래 성과 보장 표현을 금지한다(규제 안전 원칙).
+
+**FR-BT-051** 검증 결과 저장·불러오기(`SavedValidation` 모델, `app/api/validation`, `lib/validation-storage.ts`): 워크포워드·몬테카를로 결과 화면 각각에 '결과 저장' 버튼을 제공해 실행 결과 스냅샷(모델 종류, 전략명·프롬프트·`cacheKey`, 실행 설정, 결과 전체 JSON, 목록 표시용 요약)을 DB에 영구 저장해야 한다. 저장은 로그인 사용자 본인 소유로 격리하며(`userId`, 비인증은 `userId IS NULL` 폴백), 목록 조회는 전체 결과 JSON을 제외한 경량 요약만 반환하고 불러오기 시 `GET /api/validation/[id]`로 전체 결과를 조회한다. '전략 최적화'(`OptimizationPage.tsx`) 사이드바의 '저장된 검증 결과 불러오기' 버튼이 저장 목록 모달을 열고, 항목 선택 시 해당 모델 화면으로 전환해 저장된 결과를 재렌더한다(워크포워드는 `WalkForwardPanel`에 `loadedResult` 주입, 몬테카를로는 결과·설정 복원). 목록에서 항목 삭제를 지원한다.
 
 **구현 파일:**
 - `backend/engine/data_resolver.py` — `DataResolver` 클래스, `_collect_all_conditions()`, `_get_required_columns()`

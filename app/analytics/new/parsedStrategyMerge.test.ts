@@ -9,6 +9,7 @@ import {
   correctCountTypo,
   hasWalkForwardParameterRanges,
   isAdvisorFollowUpPrompt,
+  MA_CROSSOVER_PERIOD_VALUES,
   mergeStrategyModification,
 } from "./parsedStrategyMerge";
 
@@ -715,13 +716,16 @@ describe("mergeStrategyModification", () => {
       "risk.max_positions": [5, 8, 11],
       "entry.conditions.0.params.period": [9, 14, 19],
       "entry.conditions.0.params.value": [18, 30, 42],
-      "entry.conditions.1.params.shortMA": [3, 5, 7],
-      "entry.conditions.1.params.longMA": [13, 20, 27],
+      "entry.conditions.1.params.shortMA": [5, 10, 20, 60, 120],
+      "entry.conditions.1.params.longMA": [5, 10, 20, 60, 120],
       "entry.conditions.2.params.value": [0.8, 1, 1.2],
       "exit.conditions.0.params.threshold": [42, 70, 80],
     });
     expect(ranges).not.toHaveProperty("entry.conditions.0.params.threshold");
     expect(ranges).not.toHaveProperty("exit.conditions.0.params.value");
+    // 이동평균 단기/장기는 임의 정수가 아니라 실전 표준 일선(5/10/20/60/120)만 탐색한다.
+    expect(ranges["entry.conditions.1.params.shortMA"]).toEqual(MA_CROSSOVER_PERIOD_VALUES);
+    expect(ranges["entry.conditions.1.params.longMA"]).toEqual(MA_CROSSOVER_PERIOD_VALUES);
 
     expect(buildWalkForwardRequest(baseStrategy, settings, ranges)).toEqual({
       base_strategy: baseStrategy,
@@ -783,6 +787,40 @@ describe("mergeStrategyModification", () => {
       before_walk_forward_efficiency: 0.45,
       after_walk_forward_efficiency: 0.62,
     });
+  });
+
+  it("이동평균 파라미터의 values 오버라이드는 min/max/step 스펙이 아니라 고정 리스트로 전달된다", () => {
+    const baseStrategy = {
+      symbols: ["005930"],
+      entry: {
+        conditions: [{ id: "ma_crossover", params: { shortMA: 5, longMA: 20 } }],
+      },
+      risk: {},
+      period: "5Y",
+    };
+    const settings = {
+      n_splits: 5,
+      train_pct: 0.7,
+      anchor: false,
+      target_metric: "cagr",
+      n_trials: 30,
+    };
+    const ranges = buildWalkForwardParameterRanges(baseStrategy);
+
+    const request = buildWalkForwardRequest(
+      baseStrategy,
+      {
+        ...settings,
+        parameter_ranges: {
+          "entry.conditions.0.params.longMA": { min: 5, max: 120, step: 0, values: [20, 60, 120] },
+        },
+      },
+      ranges
+    );
+
+    expect(request.ranges["entry.conditions.0.params.longMA"]).toEqual([20, 60, 120]);
+    // 오버라이드 없는 shortMA는 자동 생성 기본값(전체 5개)이 그대로 유지된다.
+    expect(request.ranges["entry.conditions.0.params.shortMA"]).toEqual(MA_CROSSOVER_PERIOD_VALUES);
   });
 
   it("OOS 결과가 부족하면 Advisor context를 unavailable로 표시한다", () => {

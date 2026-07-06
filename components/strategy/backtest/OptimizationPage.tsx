@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { ArrowsClockwise, Spinner } from "phosphor-react";
+import { ArrowsClockwise, FolderOpen, Spinner } from "phosphor-react";
 import {
   Bar,
   BarChart,
@@ -13,7 +13,16 @@ import {
 } from "recharts";
 import type { BacktestResult } from "@/types/strategy";
 import { WalkForwardPanel, type WalkForwardSettings, type WalkForwardOptimizationTarget } from "./WalkForwardModal";
+import RunProgressModal from "./RunProgressModal";
+import SaveValidationButton from "./SaveValidationButton";
+import SavedValidationsModal from "./SavedValidationsModal";
 import type { StrategyBacktestRequest } from "@/app/analytics/new/parsedStrategyMerge";
+import {
+  saveValidation,
+  getSavedValidation,
+  buildMonteCarloSummary,
+  type SavedValidationSummary,
+} from "@/lib/validation-storage";
 
 type OptimizationModel = "walkForward" | "monteCarlo";
 
@@ -477,6 +486,8 @@ interface OptimizationPageProps {
   baseStrategy?: StrategyBacktestRequest;
   isPlanLoading: boolean;
   isPremiumValidationEnabled: boolean;
+  strategyName?: string;
+  promptText?: string;
 }
 
 export default function OptimizationPage({
@@ -486,8 +497,14 @@ export default function OptimizationPage({
   baseStrategy,
   isPlanLoading,
   isPremiumValidationEnabled,
+  strategyName,
+  promptText,
 }: OptimizationPageProps) {
   const [selectedModel, setSelectedModel] = useState<OptimizationModel>("walkForward");
+  const [loadedWalkForward, setLoadedWalkForward] = useState<any | null>(null);
+  const [isSavedListOpen, setIsSavedListOpen] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const validationCacheKey = (result as { cacheKey?: string }).cacheKey;
 
   const [monteCarloSettings, setMonteCarloSettings] = useState<MonteCarloSettings>({
     iterations: 1000,
@@ -527,9 +544,60 @@ export default function OptimizationPage({
     monteCarloCancelRef.current = true;
   };
 
+  // 저장 목록에서 항목 선택 → 해당 모델 화면으로 전환하고 결과를 주입한다.
+  const handleLoadSaved = async (item: SavedValidationSummary) => {
+    setLoadError(null);
+    try {
+      const detail = await getSavedValidation(item.id);
+      if (detail.modelType === "walkForward") {
+        setSelectedModel("walkForward");
+        // 참조가 매번 바뀌도록 새 객체로 주입(같은 항목 재선택도 반영).
+        setLoadedWalkForward({ ...(detail.result as object) });
+      } else {
+        setSelectedModel("monteCarlo");
+        const mc = detail.result as MonteCarloResult;
+        setMonteCarloResult(mc);
+        setMonteCarloError(null);
+        setMonteCarloSettings((prev) => ({
+          ...prev,
+          iterations: mc.nIterations ?? prev.iterations,
+          blockSize: mc.blockSize ?? prev.blockSize,
+          mode: mc.mode ?? prev.mode,
+        }));
+      }
+      setIsSavedListOpen(false);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "불러오기에 실패했습니다.");
+    }
+  };
+
+  const monteCarloModeLabel =
+    monteCarloSettings.mode === "trades"
+      ? "거래 재표본"
+      : monteCarloSettings.blockSize <= 1
+        ? "일별 재표본"
+        : `${monteCarloSettings.blockSize}일 블록 재표본`;
+  const monteCarloCompletedIterations = Math.min(
+    monteCarloSettings.iterations,
+    Math.round(monteCarloProgress * monteCarloSettings.iterations)
+  );
+
   return (
     <div data-testid="backtest-optimization-page" className="flex flex-col gap-4 px-6 py-4 md:flex-row md:items-start">
       <aside className="w-full flex-shrink-0 md:w-64">
+        <button
+          type="button"
+          onClick={() => setIsSavedListOpen(true)}
+          className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2.5 text-xs font-black text-gray-200 transition-colors hover:bg-white/[0.08]"
+        >
+          <FolderOpen className="h-4 w-4" weight="bold" />
+          저장된 검증 결과 불러오기
+        </button>
+        {loadError && (
+          <p className="mb-3 rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-300">
+            {loadError}
+          </p>
+        )}
         <div className="space-y-2">
           {OPTIMIZATION_MODELS.map((model) => (
             <div
@@ -546,7 +614,7 @@ export default function OptimizationPage({
               }}
               className={`block w-full cursor-pointer rounded-xl border p-4 text-left transition-colors ${
                 selectedModel === model.id
-                  ? "border-sky-400/40 bg-sky-500/10"
+                  ? "border-sky-400/40 bg-transparent"
                   : "border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.05]"
               }`}
             >
@@ -570,6 +638,10 @@ export default function OptimizationPage({
               backtestDates={result.dates}
               optimizationTargets={walkForwardOptimizationTargets}
               baseStrategy={baseStrategy}
+              loadedResult={loadedWalkForward}
+              strategyName={strategyName}
+              promptText={promptText}
+              cacheKey={validationCacheKey}
               canRun={!isPlanLoading && isPremiumValidationEnabled && !!onWalkForward}
               disabledReason={
                 isPlanLoading
@@ -687,43 +759,64 @@ export default function OptimizationPage({
                     {isMonteCarloRunning ? <Spinner className="h-4 w-4 animate-spin" /> : <ArrowsClockwise className="h-4 w-4" />}
                     몬테카를로 실행
                   </button>
-                  {isMonteCarloRunning && (
-                    <>
-                      <div
-                        role="progressbar"
-                        aria-label="몬테카를로 진행률"
-                        aria-valuemin={0}
-                        aria-valuemax={100}
-                        aria-valuenow={Math.round(monteCarloProgress * 100)}
-                        className="h-2 w-40 overflow-hidden rounded-full bg-white/[0.08]"
-                      >
-                        <div
-                          className="h-full rounded-full bg-[var(--main-blue)] transition-[width]"
-                          style={{ width: `${Math.round(monteCarloProgress * 100)}%` }}
-                        />
-                      </div>
-                      <button
-                        onClick={handleCancelMonteCarlo}
-                        className="rounded-lg px-3 py-1.5 text-sm font-black text-gray-400 transition-colors hover:bg-white/[0.04] hover:text-white"
-                      >
-                        취소
-                      </button>
-                    </>
-                  )}
                   <p className="text-xs font-bold text-gray-500">
                     seed {monteCarloSettings.seed} 고정 · 동일 설정이면 같은 결과가 재현됩니다
                   </p>
                 </div>
 
-                {monteCarloError && (
-                  <div className="mt-5 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-200">
-                    {monteCarloError}
-                  </div>
-                )}
+                <RunProgressModal
+                  open={isMonteCarloRunning || !!monteCarloError}
+                  title="몬테카를로 시뮬레이션"
+                  isRunning={isMonteCarloRunning}
+                  progressRatio={monteCarloProgress}
+                  progressLabel={
+                    isMonteCarloRunning
+                      ? `${monteCarloCompletedIterations.toLocaleString()}/${monteCarloSettings.iterations.toLocaleString()}회 완료 (${Math.round(monteCarloProgress * 100)}%)`
+                      : undefined
+                  }
+                  detail={
+                    isMonteCarloRunning ? (
+                      <>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-gray-500">시뮬레이션 방식</span>
+                          <span className="text-white">{monteCarloModeLabel}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-gray-500">seed</span>
+                          <span className="tabular-nums text-white">{monteCarloSettings.seed}</span>
+                        </div>
+                      </>
+                    ) : undefined
+                  }
+                  error={monteCarloError}
+                  onCancel={handleCancelMonteCarlo}
+                  onClose={() => setMonteCarloError(null)}
+                />
 
                 {monteCarloResult && (
                   <>
-                    <div className="mt-5 grid gap-3 md:grid-cols-3">
+                    <div className="mt-5 flex items-center justify-between gap-3">
+                      <p className="text-sm font-black text-white">시뮬레이션 결과</p>
+                      <SaveValidationButton
+                        onSave={async () => {
+                          await saveValidation({
+                            modelType: "monteCarlo",
+                            strategyName: strategyName || "이름 없는 전략",
+                            prompt: promptText,
+                            cacheKey: validationCacheKey,
+                            settings: {
+                              iterations: monteCarloResult.nIterations,
+                              blockSize: monteCarloResult.blockSize,
+                              mode: monteCarloResult.mode,
+                              seed: monteCarloSettings.seed,
+                            },
+                            result: monteCarloResult,
+                            summary: buildMonteCarloSummary(monteCarloResult),
+                          });
+                        }}
+                      />
+                    </div>
+                    <div className="mt-3 grid gap-3 md:grid-cols-3">
                       <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
                         <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">중앙 CAGR</p>
                         <p className="mt-2 text-2xl font-black text-white">{formatRatioAsPercent(monteCarloResult.cagr.median)}</p>
@@ -819,6 +912,12 @@ export default function OptimizationPage({
           </div>
         )}
       </div>
+
+      <SavedValidationsModal
+        open={isSavedListOpen}
+        onClose={() => setIsSavedListOpen(false)}
+        onSelect={(item) => void handleLoadSaved(item)}
+      />
     </div>
   );
 }

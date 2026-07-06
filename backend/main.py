@@ -2,6 +2,16 @@ from dotenv import load_dotenv
 import os
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
+# 네이티브 스레드풀 가드 — polars/numpy/XGBoost가 스레드풀을 초기화하기 전(아래 무거운
+# import 이전)에 반드시 설정해야 한다. 워크포워드처럼 백테스트를 백그라운드 스레드에서
+# 대량 실행하면 polars rayon latch 데드락이나 OpenMP 중복 로드 segfault로 워커가 죽어
+# 스트림이 끊기고 클라이언트는 "network error"만 보게 된다. 프로덕션 docker-compose는
+# 이 값을 걸어두지만 로컬 dev:backend 런처엔 없어, 여기서 기본값으로 보강한다.
+# (shell/.env가 이미 지정했으면 그 값을 존중 — setdefault)
+os.environ.setdefault("POLARS_MAX_THREADS", "1")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional, List
@@ -27,6 +37,8 @@ from engine.watchdog import (
     backtest_timeout_s,
     run_with_timeout as watchdog_run_with_timeout,
     timeout_message as backtest_timeout_message,
+    walk_forward_timeout_message,
+    walk_forward_timeout_s,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
@@ -340,7 +352,16 @@ async def walk_forward_stream(request: WalkForwardRequest):
 
     async def generate():
         thread.start()
-        deadline = time.monotonic() + backtest_timeout_s()
+        # 워크포워드 전체는 창×시도 횟수만큼 백테스트를 반복하므로 단일 백테스트
+        # 제한(BACKTEST_TIMEOUT_S)보다 넉넉한 전용 제한을 쓴다. Next 프록시의
+        # 안전망 타임아웃은 반드시 이 값보다 커야 사용자에게 "연결 끊김" 대신
+        # 이 친절한 타임아웃 메시지가 전달된다.
+        deadline = time.monotonic() + walk_forward_timeout_s()
+        # 한 창의 IS 최적화(수십 회 백테스트)는 진행 이벤트 없이 오래 걸릴 수 있다.
+        # 이 침묵 구간에 바이트가 흐르지 않으면 Next 프록시의 undici bodyTimeout(기본 ~300s)이
+        # 스트림을 끊어 클라이언트가 "network error"만 보게 된다. 주기적 keep-alive 주석으로 방지.
+        HEARTBEAT_INTERVAL_S = 15.0
+        last_emit = time.monotonic()
 
         def drain_progress():
             events = []
@@ -352,11 +373,19 @@ async def walk_forward_stream(request: WalkForwardRequest):
 
         try:
             while thread.is_alive():
+                emitted = False
                 for payload in drain_progress():
                     yield f"data: {json.dumps({'type': 'progress', **payload}, ensure_ascii=False)}\n\n"
+                    emitted = True
+                if emitted:
+                    last_emit = time.monotonic()
+                elif time.monotonic() - last_emit >= HEARTBEAT_INTERVAL_S:
+                    # SSE 주석(: 로 시작) — 클라이언트 파서가 무시하지만 연결은 살아있게 한다.
+                    yield ": keep-alive\n\n"
+                    last_emit = time.monotonic()
                 if time.monotonic() >= deadline:
                     cancel_event.set()
-                    yield f"data: {json.dumps({'type': 'error', 'message': backtest_timeout_message(backtest_timeout_s())})}\n\n"
+                    yield f"data: {json.dumps({'type': 'error', 'message': walk_forward_timeout_message(walk_forward_timeout_s())})}\n\n"
                     yield "data: [DONE]\n\n"
                     return
                 await asyncio.sleep(0.2)

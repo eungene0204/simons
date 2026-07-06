@@ -40,6 +40,8 @@ export interface WalkForwardParameterRangeOverride {
   min: number;
   max: number;
   step: number;
+  // 지정 시 min/max/step 대신 이 고정 후보값 집합만 탐색한다 (예: 이동평균 일선 5/10/20/60/120 중 선택).
+  values?: number[];
 }
 
 export interface AdvisorWalkForwardResult {
@@ -646,6 +648,17 @@ export function findWalkForwardRangeBoundsForLabel(
   };
 }
 
+// values가 있으면(고정 후보값 집합, 예: 이동평균 일선) min/max/step 스펙 대신 그 목록을
+// 그대로 categorical 범위로 사용한다 — grid_optimizer/optuna_optimizer 둘 다 리스트 스펙을 지원한다.
+function rangeSpecFromOverride(
+  override: WalkForwardParameterRangeOverride
+): Record<string, number | string> | number[] | null {
+  if (override.values) {
+    return override.values.length > 0 ? [...override.values] : null;
+  }
+  return numberRangeSpecFromOverride(override);
+}
+
 function applyWalkForwardParameterRangeOverrides(
   baseStrategy: StrategyBacktestRequest,
   ranges: Record<string, unknown>,
@@ -657,13 +670,13 @@ function applyWalkForwardParameterRangeOverrides(
   for (const [key, override] of Object.entries(parameterRanges)) {
     // path 기반 디스크립터 키는 라벨 매칭 없이 정확히 해당 경로에만 적용
     if (key in ranges) {
-      const spec = numberRangeSpecFromOverride(override);
+      const spec = rangeSpecFromOverride(override);
       if (spec) next[key] = spec;
       continue;
     }
     for (const path of Object.keys(ranges)) {
       if (!rangePathMatchesStepLabel(baseStrategy, key, path)) continue;
-      const spec = numberRangeSpecFromOverride(override);
+      const spec = rangeSpecFromOverride(override);
       if (spec) next[path] = spec;
     }
   }
@@ -745,6 +758,12 @@ function optimizableParamKeys(
   }
 }
 
+// 이동평균 크로스오버(ma_crossover)의 단기/장기 이평선은 실제 매매에서 쓰이는
+// 표준 일선(5/10/20/60/120일선)만 사용하도록 강제한다 — 임의의 정수 기간(예: 13일)은
+// 관행적으로 쓰이지 않아 탐색 공간을 키우기만 하고 실전 적용성이 없다.
+// 단기<장기 제약은 grid_optimizer.satisfies_param_order_constraints가 백엔드에서 강제한다.
+export const MA_CROSSOVER_PERIOD_VALUES = [5, 10, 20, 60, 120];
+
 function rangeForParamKey(
   key: string,
   value: number,
@@ -752,10 +771,11 @@ function rangeForParamKey(
 ): number[] {
   switch (key) {
     case "shortMA":
+    case "longMA":
+      return [...MA_CROSSOVER_PERIOD_VALUES];
     case "shortPeriod":
     case "fastPeriod":
       return boundedIntegerRange(value, 2, 120);
-    case "longMA":
     case "longPeriod":
     case "slowPeriod":
       return boundedIntegerRange(value, 3, 250);

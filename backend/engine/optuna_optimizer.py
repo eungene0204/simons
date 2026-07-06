@@ -2,7 +2,7 @@ import copy
 import itertools
 import optuna
 import logging
-from typing import Dict, Any
+from typing import Any, Callable, Dict, Optional
 from optuna.trial import TrialState
 
 # Suppress excessively verbose optuna logs unless error
@@ -127,7 +127,7 @@ class OptunaOptimizer:
             print(f"[OptunaOptimizer] Walk-forward validation failed: {e}")
             return None
 
-    def optimize(self, base_request: Dict[str, Any], ranges: Dict[str, Any], target_metric: str = "cagr", n_trials: int = 50) -> Dict[str, Any]:
+    def optimize(self, base_request: Dict[str, Any], ranges: Dict[str, Any], target_metric: str = "cagr", n_trials: int = 50, progress_callback: Optional[Callable[[int, int, Optional[Dict[str, Any]]], None]] = None) -> Dict[str, Any]:
         """
         Runs Bayesian optimization using Optuna to find the best parameters.
         Returns the top results sorted by `target_metric`.
@@ -138,6 +138,7 @@ class OptunaOptimizer:
         results_history = []
         consecutive_failures = 0
         MAX_CONSECUTIVE_FAILURES = 10
+        last_timing: Dict[str, Any] = {}  # 최근 백테스트 단계별 소요 시간 (진행 모달 표시용)
 
         # Determine whether to maximize or minimize
         # Standard: higher is better for returns, win rate, sharpe. Lower is better for MDD.
@@ -170,6 +171,9 @@ class OptunaOptimizer:
                 res = self.engine.run_backtest(req)
                 consecutive_failures = 0
                 metric_val = res.get(target_metric, 0)
+                if isinstance(res.get("timing"), dict):
+                    last_timing.clear()
+                    last_timing.update(res["timing"])
 
                 # Keep track of detailed results for reporting
                 results_history.append({
@@ -205,8 +209,19 @@ class OptunaOptimizer:
         study = optuna.create_study(direction=direction, sampler=sampler)
         for params in self._categorical_trial_grid(ranges, n_trials):
             study.enqueue_trial(params)
+
+        # 창 하나의 최적화가 수 분간 침묵하지 않도록 시도(trial)마다 진행률을 보고한다.
+        callbacks = None
+        if progress_callback is not None:
+            def _report(study: "optuna.Study", trial: "optuna.trial.FrozenTrial"):
+                try:
+                    progress_callback(len(study.trials), n_trials, dict(last_timing) or None)
+                except Exception:
+                    pass
+            callbacks = [_report]
+
         try:
-            study.optimize(objective, n_trials=n_trials)
+            study.optimize(objective, n_trials=n_trials, callbacks=callbacks)
         except RuntimeError as e:
             print(f"[OptunaOptimizer] Early abort: {e}")
             if not results_history:

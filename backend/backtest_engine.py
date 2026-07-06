@@ -756,6 +756,16 @@ class BacktestEngine:
             print(f"[BT-ENGINE] Format 완료: {_t4-_t3:.2f}s", flush=True)
             print(f"[BT-ENGINE] 총 소요: {_t4-_t0:.2f}s", flush=True)
 
+            # 단계별 소요 시간 — 워크포워드 진행 모달에서 시도(trial)마다 표시한다.
+            # (BacktestResponse 스키마엔 없어 /backtest HTTP 응답에선 자동으로 무시됨)
+            final["timing"] = {
+                "phase1": round(_t2 - _t1, 2),
+                "simulator": round(_t3 - _t2, 2),
+                "format": round(_t4 - _t3, 2),
+                "total": round(_t4 - _t0, 2),
+                "symbols": len(processed_symbols),
+            }
+
             # Add no-trades warning
             if pf.trades.count() == 0:
                 liquidity_excluded = [

@@ -1218,6 +1218,8 @@ export default function BacktestDashboard({
             baseStrategy={backtestDsl}
             isPlanLoading={isPlanLoading}
             isPremiumValidationEnabled={isPremiumValidationEnabled}
+            strategyName={strategySummary?.strategyName}
+            promptText={promptText}
           />
         ) : (
         <div data-testid="backtest-tab-content" className="flex flex-col min-w-0">

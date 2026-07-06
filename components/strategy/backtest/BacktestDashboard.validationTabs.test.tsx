@@ -147,6 +147,9 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
     expect(await screen.findByTestId("backtest-optimization-page")).toBeInTheDocument();
 
     // 기본 선택은 워크포워드
+    expect(screen.getByRole("button", { name: "워크포워드" })).toHaveClass("border-sky-400/40");
+    expect(screen.getByRole("button", { name: "워크포워드" })).toHaveClass("bg-transparent");
+    expect(screen.getByRole("button", { name: "워크포워드" })).not.toHaveClass("bg-sky-500/10");
     expect(await screen.findByRole("button", { name: "워크포워드 분석 시작" })).toBeInTheDocument();
     expect(screen.getByTestId("backtest-walk-forward-section")).not.toHaveClass("py-4");
     expect(screen.getByTestId("backtest-walk-forward-section")).not.toHaveClass("flex-1");

@@ -18,6 +18,19 @@ def backtest_timeout_s() -> float:
     return float(os.environ.get("BACKTEST_TIMEOUT_S", "600"))
 
 
+def walk_forward_timeout_s() -> float:
+    # 워크포워드는 창(window)마다 IS 최적화(수십 회 백테스트)를 반복하므로
+    # 단일 백테스트 제한(600초)으로는 정상 실행도 대부분 잘린다.
+    return float(os.environ.get("WALK_FORWARD_TIMEOUT_S", "3600"))
+
+
+def walk_forward_timeout_message(timeout_s: float) -> str:
+    return (
+        f"워크포워드 분석이 제한 시간({int(timeout_s)}초)을 초과해 중단되었습니다. "
+        "구간 수·시도 횟수를 줄이거나 기간을 짧게 해서 다시 실행해 주세요."
+    )
+
+
 class BacktestTimeoutError(Exception):
     pass
 

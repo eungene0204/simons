@@ -7,22 +7,61 @@ export interface WalkForwardProgressEvent {
   is_period?: string;
   oos_period?: string;
   message?: string;
+  // 창 내부 최적화 진행률 (시도 완료 수 / 전체 시도 수)
+  trial?: number;
+  trial_total?: number;
+  // 최근 백테스트 단계별 소요 시간 (초)
+  timing?: WalkForwardTiming;
+}
+
+export interface WalkForwardTiming {
+  phase1: number;
+  simulator: number;
+  format: number;
+  total: number;
+  symbols: number;
 }
 
 export type WalkForwardProgressHandler = (event: WalkForwardProgressEvent) => void;
 
 // 워크포워드 SSE 스트림을 소비해 진행률 이벤트를 전달하고 최종 결과를 반환한다.
 // 이벤트 형식: {type: "progress"|"result"|"error", ...} + 종료 시 "[DONE]".
+// fetch/스트림 도중 연결이 끊기면 브라우저는 "network error"/"Failed to fetch" 같은
+// 원문 TypeError를 던진다. 사용자가 이해할 수 있는 안내로 바꿔준다.
+// (사용자 취소 AbortError는 그대로 통과시켜 호출부가 취소로 처리하게 한다.)
+const NETWORK_ERROR_MESSAGE =
+  "서버와 연결이 끊겼습니다. 분석이 오래 걸리거나 백엔드 연결에 문제가 있을 수 있습니다. 잠시 후 다시 시도해 주세요.";
+
+function isAbortError(error: unknown): boolean {
+  // 취소는 DOMException("AbortError")로 오는데 런타임에 따라 Error를 상속하지
+  // 않을 수 있으므로 name으로 판별한다.
+  return typeof error === "object" && error !== null && (error as { name?: string }).name === "AbortError";
+}
+
+function isNetworkError(error: unknown): boolean {
+  return (
+    error instanceof TypeError ||
+    (error instanceof Error && /network error|failed to fetch|load failed|terminated/i.test(error.message))
+  );
+}
+
 export async function runWalkForwardStream(
   requestBody: unknown,
   options: { signal?: AbortSignal; onProgress?: WalkForwardProgressHandler } = {}
 ): Promise<any> {
-  const res = await fetch("/api/backtest/walk-forward/stream", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(requestBody),
-    signal: options.signal,
-  });
+  let res: Response;
+  try {
+    res = await fetch("/api/backtest/walk-forward/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestBody),
+      signal: options.signal,
+    });
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    if (isNetworkError(error)) throw new Error(NETWORK_ERROR_MESSAGE);
+    throw error;
+  }
 
   if (!res.ok || !res.body) {
     const error = await res.json().catch(() => ({}));
@@ -51,17 +90,24 @@ export async function runWalkForwardStream(
     }
   };
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) {
-      const parsed = parseSseBlocks(buffer + decoder.decode(), true);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        const parsed = parseSseBlocks(buffer + decoder.decode(), true);
+        for (const event of parsed.events) handlePayload(event.payload);
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      const parsed = parseSseBlocks(buffer);
+      buffer = parsed.remaining;
       for (const event of parsed.events) handlePayload(event.payload);
-      break;
     }
-    buffer += decoder.decode(value, { stream: true });
-    const parsed = parseSseBlocks(buffer);
-    buffer = parsed.remaining;
-    for (const event of parsed.events) handlePayload(event.payload);
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    // handlePayload가 던진 워크포워드 오류(한국어 메시지)는 그대로 노출한다.
+    if (isNetworkError(error)) throw new Error(NETWORK_ERROR_MESSAGE);
+    throw error;
   }
 
   if (!result) {

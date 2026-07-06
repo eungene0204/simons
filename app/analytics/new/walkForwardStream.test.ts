@@ -66,4 +66,53 @@ describe("runWalkForwardStream", () => {
 
     await expect(runWalkForwardStream({}, {})).rejects.toThrow("데이터가 너무 짧습니다");
   });
+
+  it("keep-alive 하트비트 주석은 무시하고 스트림을 이어간다", async () => {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(": keep-alive\n\n"));
+        controller.enqueue(
+          encoder.encode(`data: ${JSON.stringify({ type: "progress", stage: "window", window: 1, total: 2 })}\n\n`)
+        );
+        controller.enqueue(encoder.encode(": keep-alive\n\n"));
+        controller.enqueue(
+          encoder.encode(`data: ${JSON.stringify({ type: "result", data: { status: "ok" } })}\n\n`)
+        );
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, body }));
+
+    const progress: any[] = [];
+    const result = await runWalkForwardStream({}, { onProgress: (e) => progress.push(e) });
+
+    expect(result).toEqual({ status: "ok" });
+    expect(progress).toHaveLength(1);
+  });
+
+  it("fetch가 network error로 실패하면 안내 메시지로 바꿔 던진다", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("network error")));
+
+    await expect(runWalkForwardStream({}, {})).rejects.toThrow("서버와 연결이 끊겼습니다");
+  });
+
+  it("스트림 도중 연결이 끊기면(network error) 안내 메시지로 바꿔 던진다", async () => {
+    const body = new ReadableStream({
+      start(controller) {
+        controller.error(new TypeError("network error"));
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, body }));
+
+    await expect(runWalkForwardStream({}, {})).rejects.toThrow("서버와 연결이 끊겼습니다");
+  });
+
+  it("사용자 취소(AbortError)는 안내 메시지로 덮지 않고 그대로 전파한다", async () => {
+    const abortError = new DOMException("The operation was aborted.", "AbortError");
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(abortError));
+
+    await expect(runWalkForwardStream({}, {})).rejects.toBe(abortError);
+  });
 });

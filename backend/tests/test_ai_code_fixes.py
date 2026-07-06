@@ -255,14 +255,25 @@ class TestIssue4_5_XaiEngineFallback:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestIssue6_OptimizerErrorTargetValue:
+    # 전 조합 실패는 이제 명시적 status=error로 조기 반환하므로(워크포워드 NoneType
+    # 크래시 수정, 2026-07-06) sentinel 검증은 성공+실패 혼합 시나리오로 수행한다.
+
+    @staticmethod
+    def _engine_failing_on_param2():
+        def _run(req):
+            if req.get("param1") == 2:
+                raise RuntimeError("test error")
+            return {"cagr": 10.0, "maxDrawdown": -5.0}
+
+        mock_engine = MagicMock()
+        mock_engine.run_backtest.side_effect = _run
+        return mock_engine
+
     def test_error_target_value_for_cagr(self):
         """target_metric='cagr'일 때 에러 결과의 target_value는 -999999.0이어야 한다."""
         from engine.grid_optimizer import StrategyOptimizer
 
-        mock_engine = MagicMock()
-        mock_engine.run_backtest.side_effect = RuntimeError("test error")
-
-        optimizer = StrategyOptimizer(mock_engine)
+        optimizer = StrategyOptimizer(self._engine_failing_on_param2())
         result = optimizer.optimize(
             base_request={"symbols": ["TEST"]},
             ranges={"param1": [1, 2]},
@@ -278,10 +289,7 @@ class TestIssue6_OptimizerErrorTargetValue:
         """target_metric='maxDrawdown'일 때 에러 결과의 target_value는 999999.0이어야 한다."""
         from engine.grid_optimizer import StrategyOptimizer
 
-        mock_engine = MagicMock()
-        mock_engine.run_backtest.side_effect = RuntimeError("test error")
-
-        optimizer = StrategyOptimizer(mock_engine)
+        optimizer = StrategyOptimizer(self._engine_failing_on_param2())
         result = optimizer.optimize(
             base_request={"symbols": ["TEST"]},
             ranges={"param1": [1, 2]},
@@ -292,6 +300,23 @@ class TestIssue6_OptimizerErrorTargetValue:
         assert len(error_results) > 0
         for r in error_results:
             assert r["target_value"] == 999999.0
+
+    def test_all_failures_return_explicit_error(self):
+        """전 조합이 실패하면 best_metrics=None로 이어지는 대신 status=error를 반환한다."""
+        from engine.grid_optimizer import StrategyOptimizer
+
+        mock_engine = MagicMock()
+        mock_engine.run_backtest.side_effect = RuntimeError("test error")
+
+        optimizer = StrategyOptimizer(mock_engine)
+        result = optimizer.optimize(
+            base_request={"symbols": ["TEST"]},
+            ranges={"param1": [1, 2]},
+            target_metric="cagr"
+        )
+
+        assert result["status"] == "error"
+        assert "test error" in result["message"]
 
 
 # ══════════════════════════════════════════════════════════════════════════════

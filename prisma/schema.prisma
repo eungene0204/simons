@@ -54,6 +54,25 @@ model BacktestResult {
   @@index([strategyId, createdAt])
 }
 
+// 전략 최적화(워크포워드·몬테카를로) 검증 결과를 사용자가 명시적으로 저장한 스냅샷.
+// 목록은 summary(경량 요약)만 읽고, 불러오기 시 result(전체 JSON)를 조회한다.
+model SavedValidation {
+  id           String   @id @default(cuid())
+  userId       Int?
+  modelType    String   // "walkForward" | "monteCarlo"
+  strategyName String
+  prompt       String?
+  cacheKey     String?  // 원본 백테스트 결과 식별(같은 전략 묶기용)
+  settings     String   // 실행 설정 스냅샷 JSON
+  result       String   // 검증 결과 전체 JSON (재렌더용)
+  summary      String?  // 목록 표시용 핵심 지표 JSON
+  createdAt    DateTime @default(now())
+  User         User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, cacheKey])
+}
+
 model Stock {
   id               Int              @id @default(autoincrement())
   symbol           String           @unique
@@ -306,6 +325,7 @@ model User {
   WatchlistGroup WatchlistGroup[]
   WatchlistSymbol WatchlistSymbol[]
   UserBacktestHistory UserBacktestHistory[]
+  SavedValidation SavedValidation[]
 }
 
 model UserAsset {

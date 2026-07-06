@@ -1,6 +1,6 @@
 import copy
 import itertools
-from typing import Dict, Any, List
+from typing import Any, Callable, Dict, List, Optional
 
 # 그리드 탐색 하나가 매 워크포워드 윈도우마다 반복되므로 조합 폭주를 막기 위한 상한.
 # 프론트엔드 예상 조합 수 안내(estimateGridChoiceCount)와 동일한 취지의 안전장치다.
@@ -130,7 +130,7 @@ class StrategyOptimizer:
         """
         self.engine = engine
         
-    def optimize(self, base_request: Dict[str, Any], ranges: Dict[str, List[Any]], target_metric: str = "cagr") -> Dict[str, Any]:
+    def optimize(self, base_request: Dict[str, Any], ranges: Dict[str, List[Any]], target_metric: str = "cagr", progress_callback: Optional[Callable[[int, int, Optional[Dict[str, Any]]], None]] = None) -> Dict[str, Any]:
         """
         Runs the backtest for all permutations defined in `ranges`.
         Returns the top results sorted by `target_metric`.
@@ -151,25 +151,34 @@ class StrategyOptimizer:
             }
 
         results = []
-        
+        total = len(permutations)
+
         for i, perm in enumerate(permutations):
             # Create a deep copy of the base request to mutate
             req = copy.deepcopy(base_request)
-            
+
             # Apply all parameter overrides for this permutation
             for path, value in perm.items():
                 try:
                     set_nested_value(req, path, value)
                 except Exception as e:
                     print(f"[Optimizer] Failed to set path {path} to {value}: {e}")
-            
+
             try:
                 # Run backtest
                 res = self.engine.run_backtest(req)
-                
+
+                # 창 하나의 전수 탐색이 수 분간 침묵하지 않도록 조합마다 진행률(+단계별 소요)을 보고한다.
+                if progress_callback is not None:
+                    try:
+                        timing = res.get("timing") if isinstance(res.get("timing"), dict) else None
+                        progress_callback(i + 1, total, timing)
+                    except Exception:
+                        pass
+
                 # Extract the target metric
                 metric_val = res.get(target_metric, 0)
-                
+
                 results.append({
                     "iteration": i + 1,
                     "parameters": perm,
@@ -196,6 +205,14 @@ class StrategyOptimizer:
                     "error": str(e),
                     "target_value": error_target
                 })
+
+        # 전 조합이 실패하면 best_metrics가 None이 되어 호출부(walk_forward)가
+        # 'NoneType' AttributeError로 죽는다 — 원인 메시지를 담아 명시적으로 실패시킨다.
+        if results and all("error" in r for r in results):
+            return {
+                "status": "error",
+                "message": f"모든 파라미터 조합의 백테스트가 실패했습니다: {results[0]['error']}",
+            }
 
         # Sort results by the target metric descending (assuming higher is better, except for perhaps MDD)
         # Standardize sorting: higher is better for returns, win rate, sharpe. Lower is better for MDD.

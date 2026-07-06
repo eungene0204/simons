@@ -14,7 +14,12 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
 
-from engine.watchdog import BacktestTimeoutError, backtest_timeout_s, run_with_timeout
+from engine.watchdog import (
+    BacktestTimeoutError,
+    backtest_timeout_s,
+    run_with_timeout,
+    walk_forward_timeout_s,
+)
 
 
 # ─── run_with_timeout ────────────────────────────────────────────────
@@ -44,6 +49,17 @@ def test_raises_timeout_when_fn_hangs():
 def test_timeout_budget_env_override(monkeypatch):
     monkeypatch.setenv("BACKTEST_TIMEOUT_S", "123")
     assert backtest_timeout_s() == 123.0
+
+
+def test_walk_forward_timeout_exceeds_single_backtest_timeout(monkeypatch):
+    """워크포워드는 창×시도만큼 백테스트를 반복하므로 단일 백테스트 제한(600초)에
+    묶이면 정상 실행도 잘려 '연결 끊김'으로 보이던 버그(2026-07-06)의 회귀 방지."""
+    monkeypatch.delenv("WALK_FORWARD_TIMEOUT_S", raising=False)
+    monkeypatch.delenv("BACKTEST_TIMEOUT_S", raising=False)
+    assert walk_forward_timeout_s() > backtest_timeout_s()
+
+    monkeypatch.setenv("WALK_FORWARD_TIMEOUT_S", "777")
+    assert walk_forward_timeout_s() == 777.0
 
 
 # ─── 엔진 AI fail-fast 게이트 ────────────────────────────────────────

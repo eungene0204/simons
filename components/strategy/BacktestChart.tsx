@@ -46,6 +46,8 @@ interface BacktestChartProps {
   trades?: { date: string; type: string; price: number | string }[];
   height?: number;
   hideLegend?: boolean;
+  // "currency": compact KRW (억/만/천). "ratio": normalized equity multiple (1.05x) — 2 decimals.
+  valueMode?: "currency" | "ratio";
 }
 
 // Convert YYYY-MM-DD to timestamp
@@ -78,7 +80,14 @@ export default function BacktestChart({
   trades = [],
   height = 400,
   hideLegend = false,
+  valueMode = "currency",
 }: BacktestChartProps) {
+  const formatValue = useCallback(
+    (value: number) => (valueMode === "ratio" ? value.toFixed(2) : formatCompactPrice(value)),
+    [valueMode],
+  );
+  const priceMinMove = valueMode === "ratio" ? 0.01 : 1;
+
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const equitySeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
@@ -274,11 +283,11 @@ export default function BacktestChart({
             lineType: LineType.Curved,
             priceFormat: {
               type: "custom",
-              formatter: (price: number) => formatCompactPrice(price),
+              formatter: (price: number) => formatValue(price),
               tickmarksFormatter: (priceValues: number[]) => {
-                return priceValues.map((price) => formatCompactPrice(price));
+                return priceValues.map((price) => formatValue(price));
               },
-              minMove: 1,
+              minMove: priceMinMove,
             },
           });
           equitySeriesRef.current = equitySeries;
@@ -292,11 +301,11 @@ export default function BacktestChart({
               lineType: LineType.Curved, // Smooth line
               priceFormat: {
                 type: "custom",
-                formatter: (price: number) => formatCompactPrice(price),
+                formatter: (price: number) => formatValue(price),
                 tickmarksFormatter: (priceValues: number[]) => {
-                  return priceValues.map((price) => formatCompactPrice(price));
+                  return priceValues.map((price) => formatValue(price));
                 },
-                minMove: 1,
+                minMove: priceMinMove,
               },
             });
             buyHoldSeriesRef.current = buyHoldSeries;
@@ -312,11 +321,11 @@ export default function BacktestChart({
               lineType: LineType.Curved,
               priceFormat: {
                 type: "custom",
-                formatter: (price: number) => formatCompactPrice(price),
+                formatter: (price: number) => formatValue(price),
                 tickmarksFormatter: (priceValues: number[]) => {
-                  return priceValues.map((price) => formatCompactPrice(price));
+                  return priceValues.map((price) => formatValue(price));
                 },
-                minMove: 1,
+                minMove: priceMinMove,
               },
             });
             vbtEquitySeriesRef.current = vbtSeries;
@@ -418,11 +427,15 @@ export default function BacktestChart({
 
             tooltip.style.display = "block";
             
-            // Format time (month)
+            // Format time — equity/drawdown span multiple years, so show the full date;
+            // seasonal/monthly charts are normalized to a single year, so show the month.
             const date = new Date((param.time as number) * 1000);
-            const monthStr = `${date.getMonth() + 1}월`;
-            
-            let tooltipContent = `<div class="font-bold text-gray-400 mb-1 border-b border-gray-800 pb-1">${monthStr} 수익률</div>`;
+            const headerLabel =
+              type === "equity" || type === "drawdown"
+                ? date.toISOString().split("T")[0]
+                : `${date.getMonth() + 1}월 수익률`;
+
+            let tooltipContent = `<div class="font-bold text-gray-400 mb-1 border-b border-gray-800 pb-1">${headerLabel}</div>`;
             tooltipContent += `<div class="flex flex-col gap-1 mt-1">`;
 
             if (type === "seasonal_returns") {
@@ -452,7 +465,7 @@ export default function BacktestChart({
                   tooltipContent += `
                     <div class="text-white text-[10px] flex justify-between gap-4">
                       <span>나의 전략:</span>
-                      <span class="text-main-red font-mono font-bold">${formatCompactPrice(eqData.value as number)}</span>
+                      <span class="text-main-red font-mono font-bold">${formatValue(eqData.value as number)}</span>
                     </div>
                   `;
                 }
@@ -464,7 +477,7 @@ export default function BacktestChart({
                   tooltipContent += `
                     <div class="text-white text-[10px] flex justify-between gap-4">
                       <span>매수후보유:</span>
-                      <span class="text-main-green font-mono font-bold">${formatCompactPrice(bhData.value as number)}</span>
+                      <span class="text-main-green font-mono font-bold">${formatValue(bhData.value as number)}</span>
                     </div>
                   `;
                 }
@@ -476,7 +489,7 @@ export default function BacktestChart({
                   tooltipContent += `
                     <div class="text-white text-[10px] flex justify-between gap-4">
                       <span>VectorBT:</span>
-                      <span class="text-purple-400 font-mono font-bold">${formatCompactPrice(vbtData.value as number)}</span>
+                      <span class="text-purple-400 font-mono font-bold">${formatValue(vbtData.value as number)}</span>
                     </div>
                   `;
                 }
@@ -562,7 +575,7 @@ export default function BacktestChart({
       monthlySeriesRef.current = null;
       seasonalSeriesRefs.current = {};
     };
-  }, [type, height, handleResize]); // Re-initialize when type changes
+  }, [type, height, handleResize, formatValue, priceMinMove]); // Re-initialize when type changes
 
   // Update data when it changes
   useEffect(() => {

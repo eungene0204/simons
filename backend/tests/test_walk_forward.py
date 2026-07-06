@@ -28,6 +28,13 @@ class DummyEngine:
             "trades": 10,
             "dates": self.total_dates,
             "equity": [1_000_000 * (1 + 0.001 * i) for i in range(len(self.total_dates))],
+            "timing": {
+                "phase1": 11.95,
+                "simulator": 0.26,
+                "format": 0.39,
+                "total": 12.6,
+                "symbols": 976,
+            },
         }
 
 
@@ -92,6 +99,32 @@ class TestWalkForwardGridMethod:
         assert result["status"] == "error"
         assert "상한" in result["message"]
 
+    def test_grid_method_surfaces_backtest_error_when_all_combinations_fail(self):
+        """전 조합의 백테스트가 실패하면 NoneType 크래시 대신 원인 메시지를 담은 에러를 반환한다."""
+
+        class FailingEngine(DummyEngine):
+            def run_backtest(self, req):
+                # _get_backtest_dates(파라미터 오버라이드 없음)는 성공시켜 창 분할까지 진행시킨다
+                if "startDate" not in req:
+                    return super().run_backtest(req)
+                raise TypeError("float() argument must be a string or a real number, not 'dict'")
+
+        analyzer = WalkForwardAnalyzer(FailingEngine())
+
+        result = analyzer.analyze(
+            base_request=_base_request(),
+            ranges=_ranges(),
+            n_splits=1,
+            train_pct=0.7,
+            anchor=False,
+            target_metric="cagr",
+            method="grid",
+        )
+
+        assert result["status"] == "error"
+        assert "NoneType" not in result["message"]
+        assert "float() argument" in result["message"]
+
     def test_default_method_is_bayesian(self):
         """method 인자를 생략하면 기존 베이지안 경로가 그대로 동작한다."""
         engine = DummyEngine()
@@ -120,6 +153,76 @@ class SequentialDatesEngine(DummyEngine):
         self.total_dates = [
             f"2024-{(i // 28) + 1:02d}-{(i % 28) + 1:02d}" for i in range(total_days)
         ]
+
+
+class PeriodAwareEngine(DummyEngine):
+    """period='full'이면 긴 히스토리를, 그 외에는 짧은 백테스트 범위를 반환.
+
+    프론트가 보여주는 result.dates(짧은 범위)와 워크포워드가 실제로 나누는
+    날짜 범위가 어긋나던 버그(표시=실행 위반)를 재현하기 위한 엔진.
+    """
+
+    def __init__(self, backtest_days=240, full_days=3360):
+        super().__init__(backtest_days)
+        self.backtest_dates = [
+            f"20{20 + (i // 336):02d}-{((i // 28) % 12) + 1:02d}-{(i % 28) + 1:02d}"
+            for i in range(backtest_days)
+        ]
+        self.full_dates = [
+            f"20{10 + (i // 336):02d}-{((i // 28) % 12) + 1:02d}-{(i % 28) + 1:02d}"
+            for i in range(full_days)
+        ]
+        self.requested_periods = []
+
+    def run_backtest(self, req):
+        result = super().run_backtest(req)
+        period = str(req.get("period", "")).lower()
+        self.requested_periods.append(period)
+        result["dates"] = self.full_dates if period == "full" else self.backtest_dates
+        result["equity"] = [1_000_000 * (1 + 0.001 * i) for i in range(len(result["dates"]))]
+        return result
+
+
+class TestBacktestRangeMatchesDisplay:
+    """워크포워드는 백테스트가 표시한 기간에서 구간을 나눠야 한다 (표시=실행)."""
+
+    def test_uses_backtest_range_not_forced_full_history(self):
+        # 백테스트는 240일(짧은 범위), 전체 히스토리는 3360일(14배).
+        engine = PeriodAwareEngine(backtest_days=240, full_days=3360)
+        analyzer = WalkForwardAnalyzer(engine)
+
+        # is=84, oos=28 → 표시 기준(240일): (240-84)/28 = 5개 구간 → 실행 가능.
+        # 예전엔 period='full'로 강제 확장돼 3360일에서 구간 수가 폭증, 상한 초과로 실패했다.
+        result = analyzer.analyze(
+            base_request={**_base_request(), "period": "1Y"},
+            ranges=_ranges(),
+            method="grid",
+            is_bars=84,
+            oos_bars=28,
+        )
+
+        assert result["status"] == "ok"
+        assert len(result["windows"]) == 5
+        # 날짜 그리드를 얻는 최초 호출은 period를 'full'로 덮어쓰지 않고
+        # 백테스트 요청의 기간('1y')을 그대로 사용해야 한다.
+        # (이후 창별 IS/OOS 호출은 startDate/endDate로 구간을 지정하므로 별개다.)
+        assert engine.requested_periods[0] == "1y"
+
+    def test_first_window_dates_come_from_backtest_range(self):
+        engine = PeriodAwareEngine(backtest_days=240, full_days=3360)
+        analyzer = WalkForwardAnalyzer(engine)
+
+        result = analyzer.analyze(
+            base_request={**_base_request(), "period": "1Y"},
+            ranges=_ranges(),
+            method="grid",
+            is_bars=84,
+            oos_bars=28,
+        )
+
+        assert result["status"] == "ok"
+        # 첫 IS 시작이 전체 히스토리(2010~)가 아니라 백테스트 범위(2020~)에서 나와야 한다.
+        assert result["windows"][0]["is_period"].startswith(engine.backtest_dates[0])
 
 
 class TestExplicitBarsSplit:
@@ -287,11 +390,23 @@ class TestProgressAndCancel:
         )
 
         assert result["status"] == "ok"
-        window_events = [e for e in events if e.get("stage") == "window"]
-        assert len(window_events) == len(result["windows"])
-        assert window_events[0]["window"] == 1
-        assert window_events[0]["total"] == len(result["windows"])
-        assert "~" in window_events[0]["oos_period"]
+        # 창 시작 이벤트는 창당 한 번 (trial 키가 없는 window 이벤트).
+        window_start_events = [
+            e for e in events if e.get("stage") == "window" and "trial" not in e
+        ]
+        assert len(window_start_events) == len(result["windows"])
+        assert window_start_events[0]["window"] == 1
+        assert window_start_events[0]["total"] == len(result["windows"])
+        assert "~" in window_start_events[0]["oos_period"]
+
+        # 창 내부 진행률 이벤트는 창 정보 + trial/trial_total을 함께 싣는다.
+        trial_events = [e for e in events if e.get("stage") == "window" and "trial" in e]
+        assert trial_events, "창 내부 시도(trial) 진행률 이벤트가 없습니다"
+        assert trial_events[0]["trial_total"] >= 1
+        assert trial_events[0]["window"] == 1
+        # 백테스트 단계별 소요 시간(timing)이 진행 이벤트에 실려야 한다.
+        assert trial_events[0]["timing"]["total"] == 12.6
+        assert trial_events[0]["timing"]["symbols"] == 976
 
     def test_should_cancel_stops_at_window_boundary(self):
         engine = SequentialDatesEngine(240)

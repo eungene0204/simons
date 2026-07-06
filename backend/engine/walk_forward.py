@@ -86,9 +86,9 @@ class WalkForwardAnalyzer:
             except Exception:
                 pass
 
-        # 1. 전체 날짜 범위 획득
-        _notify({"stage": "prepare", "message": "전체 기간 데이터를 확인하는 중..."})
-        dates = self._get_full_dates(base_request)
+        # 1. 백테스트 날짜 범위 획득 (표시=실행: 화면에 보인 기간과 동일)
+        _notify({"stage": "prepare", "message": "백테스트 기간 데이터를 확인하는 중..."})
+        dates = self._get_backtest_dates(base_request)
         if not dates:
             return {"status": "error", "message": "데이터를 불러올 수 없습니다."}
 
@@ -122,13 +122,23 @@ class WalkForwardAnalyzer:
                 return {"status": "cancelled", "message": f"창 {i}/{len(windows)} 완료 후 취소되었습니다."}
 
             print(f"[WFA] Window {i+1}/{len(windows)}: IS={is_start}~{is_end}, OOS={oos_start}~{oos_end}", flush=True)
-            _notify({
+
+            window_payload = {
                 "stage": "window",
                 "window": i + 1,
                 "total": len(windows),
                 "is_period": f"{is_start} ~ {is_end}",
                 "oos_period": f"{oos_start} ~ {oos_end}",
-            })
+            }
+            _notify(window_payload)
+
+            # 창 내부 IS 최적화(수십 회 백테스트)는 수 분간 침묵할 수 있으므로,
+            # 시도(trial)마다 창 진행률에 trial/trial_total(+단계별 소요 timing)을 얹어 다시 알린다.
+            def _on_trial(done: int, total: int, timing: Optional[Dict[str, Any]] = None, _payload=window_payload):
+                event = {**_payload, "trial": done, "trial_total": total}
+                if timing:
+                    event["timing"] = timing
+                _notify(event)
 
             w_result = self._run_window(
                 base_request=base_request,
@@ -141,6 +151,7 @@ class WalkForwardAnalyzer:
                 n_trials=n_trials,
                 window_idx=i + 1,
                 method=method,
+                on_trial=_on_trial,
             )
             window_results.append(w_result)
 
@@ -188,17 +199,21 @@ class WalkForwardAnalyzer:
     # Private helpers
     # ─────────────────────────────────────────────────────────
 
-    def _get_full_dates(self, base_request: Dict[str, Any]) -> List[str]:
-        """전체 기간 백테스트를 실행해 날짜 목록을 반환."""
+    def _get_backtest_dates(self, base_request: Dict[str, Any]) -> List[str]:
+        """백테스트가 실제로 사용하는 날짜 목록을 반환.
+
+        워크포워드는 사용자가 백테스트한 바로 그 기간(base_request의 period·
+        날짜 범위)에서 구간을 나눈다. 여기서 기간을 'full'로 강제 확장하면
+        화면에 표시된 구간 수(result.dates 기준 추정)와 실제 실행 구간 수가
+        어긋나(표시=실행 위반) '실행 가능'이라던 설정이 백엔드에서 상한 초과로
+        실패하므로, base_request를 그대로 실행해 표시와 동일한 날짜를 쓴다.
+        """
         try:
             req = copy.deepcopy(base_request)
-            req["period"] = "full"
-            req.pop("startDate", None)
-            req.pop("endDate", None)
             result = self.engine.run_backtest(req)
             return result.get("dates", [])
         except Exception as e:
-            print(f"[WFA] _get_full_dates failed: {e}", flush=True)
+            print(f"[WFA] _get_backtest_dates failed: {e}", flush=True)
             return []
 
     def _split_windows(
@@ -327,6 +342,7 @@ class WalkForwardAnalyzer:
         n_trials: int,
         window_idx: int,
         method: str = "bayesian",
+        on_trial: Optional[Callable[..., None]] = None,
     ) -> Dict[str, Any]:
         """단일 윈도우: IS 최적화 → OOS 검증."""
         result: Dict[str, Any] = {
@@ -355,6 +371,7 @@ class WalkForwardAnalyzer:
                     base_request=is_req,
                     ranges=ranges,
                     target_metric=target_metric,
+                    progress_callback=on_trial,
                 )
             else:
                 from engine.optuna_optimizer import OptunaOptimizer
@@ -365,13 +382,14 @@ class WalkForwardAnalyzer:
                     ranges=ranges,
                     target_metric=target_metric,
                     n_trials=n_trials,
+                    progress_callback=on_trial,
                 )
             if opt_result.get("status") == "error":
                 result["error"] = opt_result.get("message", "IS 최적화 실패")
                 return result
 
-            best_params = opt_result.get("best_parameters", {})
-            best_is_metrics = opt_result.get("best_metrics", {})
+            best_params = opt_result.get("best_parameters") or {}
+            best_is_metrics = opt_result.get("best_metrics") or {}
             result["best_params"] = best_params
             result["is_metrics"] = {k: best_is_metrics.get(k) for k in METRIC_KEYS}
         except Exception as e:
