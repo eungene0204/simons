@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { runWalkForwardStream } from "./walkForwardStream";
+import { formatApiErrorDetail, runWalkForwardStream } from "./walkForwardStream";
 
 function sseResponse(payloads: string[]) {
   const encoder = new TextEncoder();
@@ -67,6 +67,33 @@ describe("runWalkForwardStream", () => {
     await expect(runWalkForwardStream({}, {})).rejects.toThrow("데이터가 너무 짧습니다");
   });
 
+  it("pydantic 422의 detail 객체 배열은 [object Object] 대신 읽을 수 있는 메시지로 바꾼다", async () => {
+    // FastAPI 검증 실패 응답 형태 — detail이 객체 배열이라 그대로 Error에 넣으면
+    // "[object Object]"로 표시되던 회귀 케이스.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        body: null,
+        json: () =>
+          Promise.resolve({
+            detail: [
+              {
+                type: "missing",
+                loc: ["body", "base_strategy", "symbols"],
+                msg: "Field required",
+                input: {},
+              },
+            ],
+          }),
+      })
+    );
+
+    const error = await runWalkForwardStream({}, {}).catch((e) => e);
+    expect(error.message).toBe("base_strategy.symbols: Field required");
+    expect(error.message).not.toContain("[object Object]");
+  });
+
   it("keep-alive 하트비트 주석은 무시하고 스트림을 이어간다", async () => {
     const encoder = new TextEncoder();
     const body = new ReadableStream({
@@ -114,5 +141,28 @@ describe("runWalkForwardStream", () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(abortError));
 
     await expect(runWalkForwardStream({}, {})).rejects.toBe(abortError);
+  });
+});
+
+describe("formatApiErrorDetail", () => {
+  it("문자열은 그대로, null/undefined는 null을 반환한다", () => {
+    expect(formatApiErrorDetail("에러 메시지")).toBe("에러 메시지");
+    expect(formatApiErrorDetail(null)).toBeNull();
+    expect(formatApiErrorDetail(undefined)).toBeNull();
+  });
+
+  it("pydantic 검증 에러 배열은 경로: 메시지 형태로 합친다", () => {
+    const detail = [
+      { type: "missing", loc: ["body", "base_strategy", "symbols"], msg: "Field required" },
+      { type: "int_parsing", loc: ["body", "n_trials"], msg: "Input should be a valid integer" },
+    ];
+    expect(formatApiErrorDetail(detail)).toBe(
+      "base_strategy.symbols: Field required / n_trials: Input should be a valid integer"
+    );
+  });
+
+  it("알 수 없는 객체는 JSON 문자열로 바꾼다", () => {
+    expect(formatApiErrorDetail({ code: 500 })).toBe('{"code":500}');
+    expect(formatApiErrorDetail([{ odd: true }])).toBe('{"odd":true}');
   });
 });

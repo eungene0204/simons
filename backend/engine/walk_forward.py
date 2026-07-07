@@ -116,7 +116,7 @@ class WalkForwardAnalyzer:
         oos_returns = []
 
         for i, (is_start, is_end, oos_start, oos_end) in enumerate(windows):
-            # 협조적 취소: 창 경계에서만 확인 (창 내부 최적화는 중단 불가)
+            # 협조적 취소: 창 경계 + (아래 _run_window를 통해) 창 내부 시도/조합 단위로도 확인
             if should_cancel is not None and should_cancel():
                 print(f"[WFA] cancelled at window {i+1}/{len(windows)}", flush=True)
                 return {"status": "cancelled", "message": f"창 {i}/{len(windows)} 완료 후 취소되었습니다."}
@@ -152,7 +152,11 @@ class WalkForwardAnalyzer:
                 window_idx=i + 1,
                 method=method,
                 on_trial=_on_trial,
+                should_cancel=should_cancel,
             )
+            if w_result.get("cancelled"):
+                print(f"[WFA] cancelled during window {i+1}/{len(windows)}", flush=True)
+                return {"status": "cancelled", "message": f"창 {i+1}/{len(windows)} 진행 중 취소되었습니다."}
             window_results.append(w_result)
 
             is_ret = _finite(w_result.get("is_metrics", {}).get("totalReturn"))
@@ -343,8 +347,9 @@ class WalkForwardAnalyzer:
         window_idx: int,
         method: str = "bayesian",
         on_trial: Optional[Callable[..., None]] = None,
+        should_cancel: Optional[Callable[[], bool]] = None,
     ) -> Dict[str, Any]:
-        """단일 윈도우: IS 최적화 → OOS 검증."""
+        """단일 윈도우: IS 최적화 → OOS 검증. 취소 시 result["cancelled"]=True로 반환."""
         result: Dict[str, Any] = {
             "window": window_idx,
             "is_period": f"{is_start} ~ {is_end}",
@@ -372,6 +377,7 @@ class WalkForwardAnalyzer:
                     ranges=ranges,
                     target_metric=target_metric,
                     progress_callback=on_trial,
+                    should_cancel=should_cancel,
                 )
             else:
                 from engine.optuna_optimizer import OptunaOptimizer
@@ -383,7 +389,11 @@ class WalkForwardAnalyzer:
                     target_metric=target_metric,
                     n_trials=n_trials,
                     progress_callback=on_trial,
+                    should_cancel=should_cancel,
                 )
+            if opt_result.get("status") == "cancelled":
+                result["cancelled"] = True
+                return result
             if opt_result.get("status") == "error":
                 result["error"] = opt_result.get("message", "IS 최적화 실패")
                 return result
@@ -398,6 +408,10 @@ class WalkForwardAnalyzer:
             return result
 
         # ── OOS 검증 ─────────────────────────────────────────
+        if should_cancel is not None and should_cancel():
+            result["cancelled"] = True
+            return result
+
         oos_req = copy.deepcopy(base_request)
         for path, value in best_params.items():
             try:

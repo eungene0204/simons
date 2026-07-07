@@ -130,10 +130,12 @@ class StrategyOptimizer:
         """
         self.engine = engine
         
-    def optimize(self, base_request: Dict[str, Any], ranges: Dict[str, List[Any]], target_metric: str = "cagr", progress_callback: Optional[Callable[[int, int, Optional[Dict[str, Any]]], None]] = None) -> Dict[str, Any]:
+    def optimize(self, base_request: Dict[str, Any], ranges: Dict[str, List[Any]], target_metric: str = "cagr", progress_callback: Optional[Callable[[int, int, Optional[Dict[str, Any]]], None]] = None, should_cancel: Optional[Callable[[], bool]] = None) -> Dict[str, Any]:
         """
         Runs the backtest for all permutations defined in `ranges`.
         Returns the top results sorted by `target_metric`.
+
+        should_cancel: 협조적 취소 훅 — 조합마다 확인해 True면 즉시 중단한다.
         """
         permutations = generate_permutations(ranges)
         if len(permutations) > MAX_GRID_COMBINATIONS:
@@ -154,6 +156,11 @@ class StrategyOptimizer:
         total = len(permutations)
 
         for i, perm in enumerate(permutations):
+            # 협조적 취소: 조합(=백테스트 1회) 단위로 확인해 창 전체를 기다리지 않고 멈춘다.
+            if should_cancel is not None and should_cancel():
+                print(f"[Optimizer] cancelled at combination {i}/{total}", flush=True)
+                return {"status": "cancelled", "message": f"그리드 탐색 {i}/{total} 조합에서 취소되었습니다."}
+
             # Create a deep copy of the base request to mutate
             req = copy.deepcopy(base_request)
 

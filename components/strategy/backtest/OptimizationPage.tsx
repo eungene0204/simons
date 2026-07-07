@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { ArrowsClockwise, FolderOpen, Spinner } from "phosphor-react";
+import { ArrowsClockwise, FolderOpen, SignOut, Spinner } from "phosphor-react";
 import {
   Bar,
   BarChart,
@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import type { BacktestResult } from "@/types/strategy";
 import { WalkForwardPanel, type WalkForwardSettings, type WalkForwardOptimizationTarget } from "./WalkForwardModal";
+import ResultPlainSummary, { buildMonteCarloPlainSummary } from "./ResultPlainSummary";
 import RunProgressModal from "./RunProgressModal";
 import SaveValidationButton from "./SaveValidationButton";
 import SavedValidationsModal from "./SavedValidationsModal";
@@ -406,10 +407,12 @@ function formatRatioAsPercent(value: number, digits = 2): string {
 function MonteCarloHistogramChart({
   title,
   bins,
+  xAxisLabel,
   signColored = false,
 }: {
   title: string;
   bins: MonteCarloHistogramBin[];
+  xAxisLabel: string;
   /** true면 0 기준으로 음수 구간은 파랑, 양수 구간은 빨강 (앱의 등락 색 관례) */
   signColored?: boolean;
 }) {
@@ -433,6 +436,15 @@ function MonteCarloHistogramChart({
               tickLine={false}
               axisLine={false}
               interval={Math.max(0, Math.floor(data.length / 6))}
+              height={42}
+              label={{
+                value: xAxisLabel,
+                position: "insideBottom",
+                offset: -2,
+                fill: "#6b7280",
+                fontSize: 11,
+                fontWeight: 800,
+              }}
             />
             <YAxis
               tick={{ fontSize: 10, fill: "#6b7280", fontWeight: 700 }}
@@ -475,6 +487,10 @@ function MonteCarloHistogramChart({
           </BarChart>
         </ResponsiveContainer>
       </div>
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-bold text-gray-500">
+        <span>x축: {xAxisLabel}</span>
+        <span>y축: 시나리오 수</span>
+      </div>
     </div>
   );
 }
@@ -488,6 +504,7 @@ interface OptimizationPageProps {
   isPremiumValidationEnabled: boolean;
   strategyName?: string;
   promptText?: string;
+  onClose?: () => void;
 }
 
 export default function OptimizationPage({
@@ -499,6 +516,7 @@ export default function OptimizationPage({
   isPremiumValidationEnabled,
   strategyName,
   promptText,
+  onClose,
 }: OptimizationPageProps) {
   const [selectedModel, setSelectedModel] = useState<OptimizationModel>("walkForward");
   const [loadedWalkForward, setLoadedWalkForward] = useState<any | null>(null);
@@ -638,6 +656,7 @@ export default function OptimizationPage({
               backtestDates={result.dates}
               optimizationTargets={walkForwardOptimizationTargets}
               baseStrategy={baseStrategy}
+              baseBacktestSeconds={result.executionTime}
               loadedResult={loadedWalkForward}
               strategyName={strategyName}
               promptText={promptText}
@@ -657,15 +676,10 @@ export default function OptimizationPage({
         {selectedModel === "monteCarlo" && (
           <div className="rounded-2xl border border-white/[0.08] bg-[#0f0f10] p-5 md:p-6">
             <div className="space-y-2">
-              <div className="inline-flex items-center gap-2 rounded-full border border-sky-500/20 bg-sky-500/10 px-3 py-1 text-[11px] font-black uppercase tracking-[0.22em] text-sky-300">
-                <ArrowsClockwise className="h-4 w-4" />
-                Premium Validation
-              </div>
               <h3 className="text-xl font-black text-white">몬테카를로 시뮬레이션</h3>
               <p className="max-w-2xl text-sm font-bold leading-6 text-gray-300">
-                백테스트 equity curve의 일별 수익률을 재표본(bootstrap)해 성과가 나올 수 있는 분포를 추정합니다.
-                블록 방식은 여러 날을 이어 뽑아 수익률의 자기상관을 보존합니다.
-                결과는 과거 데이터 기반 시뮬레이션이며 미래 성과를 보장하지 않습니다.
+                백테스트 결과를 여러 방식으로 다시 섞어 보며 수익률과 손실 폭이 얼마나 달라질 수 있는지 확인합니다.
+                여러 날을 묶어서 섞는 방식도 선택할 수 있어 연속된 시장 흐름을 일부 반영합니다.
               </p>
             </div>
 
@@ -745,7 +759,7 @@ export default function OptimizationPage({
                         ? "체결 기록에서 추정한 거래별 수익률을 복원추출로 재배열합니다 (trade bootstrap). MDD는 거래 단위 경로 기준입니다."
                         : monteCarloSettings.blockSize <= 1
                           ? "하루 단위로 독립 재표본합니다 (i.i.d. bootstrap)."
-                          : `${monteCarloSettings.blockSize}거래일 블록으로 이어 뽑아 자기상관을 보존합니다 (block bootstrap).`}
+                          : `${monteCarloSettings.blockSize}거래일 단위로 수익률 흐름을 다시 조합해, 며칠간 이어지는 상승과 하락 패턴도 함께 살펴봅니다.`}
                     </p>
                   </div>
                 </div>
@@ -797,24 +811,37 @@ export default function OptimizationPage({
                   <>
                     <div className="mt-5 flex items-center justify-between gap-3">
                       <p className="text-sm font-black text-white">시뮬레이션 결과</p>
-                      <SaveValidationButton
-                        onSave={async () => {
-                          await saveValidation({
-                            modelType: "monteCarlo",
-                            strategyName: strategyName || "이름 없는 전략",
-                            prompt: promptText,
-                            cacheKey: validationCacheKey,
-                            settings: {
-                              iterations: monteCarloResult.nIterations,
-                              blockSize: monteCarloResult.blockSize,
-                              mode: monteCarloResult.mode,
-                              seed: monteCarloSettings.seed,
-                            },
-                            result: monteCarloResult,
-                            summary: buildMonteCarloSummary(monteCarloResult),
-                          });
-                        }}
-                      />
+                      <div className="flex items-center gap-2">
+                        <SaveValidationButton
+                          onSave={async () => {
+                            await saveValidation({
+                              modelType: "monteCarlo",
+                              strategyName: strategyName || "이름 없는 전략",
+                              prompt: promptText,
+                              cacheKey: validationCacheKey,
+                              settings: {
+                                iterations: monteCarloResult.nIterations,
+                                blockSize: monteCarloResult.blockSize,
+                                mode: monteCarloResult.mode,
+                                seed: monteCarloSettings.seed,
+                              },
+                              result: monteCarloResult,
+                              summary: buildMonteCarloSummary(monteCarloResult),
+                            });
+                          }}
+                        />
+                        {onClose && (
+                          <button
+                            type="button"
+                            onClick={onClose}
+                            title="결과 닫기"
+                            className="flex items-center gap-2 rounded-lg border border-white/5 bg-white/[0.05] px-4 py-1.5 text-sm font-bold text-gray-300 transition-all hover:border-white/10 hover:bg-white/10 hover:text-white active:scale-95"
+                          >
+                            <SignOut className="h-4 w-4" />
+                            결과 닫기
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <div className="mt-3 grid gap-3 md:grid-cols-3">
                       <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
@@ -847,11 +874,13 @@ export default function OptimizationPage({
                       <MonteCarloHistogramChart
                         title="CAGR 분포"
                         bins={monteCarloResult.cagrHistogram}
+                        xAxisLabel="CAGR 구간"
                         signColored
                       />
                       <MonteCarloHistogramChart
                         title="MDD 분포"
                         bins={monteCarloResult.mddHistogram}
+                        xAxisLabel="MDD 구간"
                       />
                     </div>
 
@@ -891,19 +920,8 @@ export default function OptimizationPage({
                       </table>
                     </div>
 
-                    <div className="mt-4 space-y-2 rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm font-bold leading-6 text-gray-300">
-                      <p>
-                        시뮬레이션 {monteCarloResult.nIterations.toLocaleString()}회 중{" "}
-                        {formatRatioAsPercent(monteCarloResult.probPositiveCagr)}에서 CAGR이 양수로 끝났습니다.
-                        최대낙폭이 30%를 초과할 확률은 {formatRatioAsPercent(monteCarloResult.probMddOver30pct)} 입니다.
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {monteCarloResult.mode === "trades"
-                          ? `완결 거래 ${monteCarloResult.tradeCount?.toLocaleString() ?? "-"}건의 수익률을 복원추출한 분포입니다. MDD는 거래 단위 경로 기준으로, 거래 도중의 낙폭은 반영되지 않습니다.`
-                          : "일별 수익률을 재배열한 분포입니다."}{" "}
-                        하위 5% CAGR과 상위 95% MDD 사이가 좁을수록 경로에 따른 성과 편차가 작게 나타난 것입니다.
-                        과거 수익률을 재배열한 분포이며 미래 수익을 보장하지 않습니다.
-                      </p>
+                    <div className="mt-4">
+                      <ResultPlainSummary items={buildMonteCarloPlainSummary(monteCarloResult)} />
                     </div>
                   </>
                 )}

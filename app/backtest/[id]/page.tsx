@@ -14,6 +14,7 @@ import {
   hasWalkForwardParameterRanges,
   type AdvisorWalkForwardSettings,
 } from "../../analytics/new/parsedStrategyMerge";
+import { runWalkForwardStream, type WalkForwardProgressHandler } from "../../analytics/new/walkForwardStream";
 
 export default function BacktestDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -113,7 +114,11 @@ export default function BacktestDetailPage() {
         })),
   };
 
-  const handleWalkForward = async (settings: AdvisorWalkForwardSettings) => {
+  const handleWalkForward = async (
+    settings: AdvisorWalkForwardSettings,
+    signal?: AbortSignal,
+    onProgress?: WalkForwardProgressHandler
+  ) => {
     if (!normalizedBacktestDsl) {
       throw new Error("이 기록에는 워크포워드 분석에 필요한 전략 설정이 저장되어 있지 않습니다.");
     }
@@ -125,18 +130,10 @@ export default function BacktestDetailPage() {
       );
     }
 
-    const res = await fetch("/api/backtest/walk-forward", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildWalkForwardRequest(normalizedBacktestDsl, settings, ranges)),
+    return runWalkForwardStream(buildWalkForwardRequest(normalizedBacktestDsl, settings, ranges), {
+      signal,
+      onProgress,
     });
-
-    if (!res.ok) {
-      const error = await res.json().catch(() => ({}));
-      throw new Error(error.detail ?? "워크포워드 분석 실패");
-    }
-
-    return res.json();
   };
 
   return (

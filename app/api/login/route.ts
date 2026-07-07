@@ -63,7 +63,19 @@ export async function POST(request: NextRequest) {
         })
       }
 
+      if (user.status !== 'ACTIVE') {
+        return NextResponse.json(
+          { error: '이용이 제한된 계정입니다.' },
+          { status: 403 }
+        )
+      }
+
       await ensureUserBootstrap(user.id)
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { lastLoginAt: new Date() },
+      })
 
       const token = generateToken(user.id, { avatarUrl: identity.avatarUrl })
 
@@ -114,7 +126,19 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    if (user.status !== 'ACTIVE') {
+      return NextResponse.json(
+        { error: '이용이 제한된 계정입니다.' },
+        { status: 403 }
+      )
+    }
+
     await ensureUserBootstrap(user.id)
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date() },
+    })
 
     // Generate token
     const token = generateToken(user.id)

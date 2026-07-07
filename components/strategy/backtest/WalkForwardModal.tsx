@@ -13,6 +13,7 @@ import {
   type WalkForwardParameterRangeOverride,
 } from "../../../app/analytics/new/parsedStrategyMerge";
 import BacktestChart from "../BacktestChart";
+import ResultPlainSummary, { buildWalkForwardPlainSummary } from "./ResultPlainSummary";
 import RunProgressModal from "./RunProgressModal";
 import SaveValidationButton from "./SaveValidationButton";
 import { saveValidation, buildWalkForwardSummary } from "../../../lib/validation-storage";
@@ -97,6 +98,7 @@ interface WalkForwardModalProps {
   backtestDates?: string[];
   optimizationTargets?: WalkForwardOptimizationTarget[];
   baseStrategy?: StrategyBacktestRequest;
+  baseBacktestSeconds?: number;
 }
 
 interface WalkForwardPanelProps {
@@ -114,6 +116,8 @@ interface WalkForwardPanelProps {
   strategyName?: string;
   promptText?: string;
   cacheKey?: string;
+  // 기준 백테스트(전체 기간)의 실측 소요 시간(초). 예상 소요 시간 보정에 사용한다.
+  baseBacktestSeconds?: number;
 }
 
 interface WalkForwardFormState {
@@ -126,7 +130,30 @@ interface WalkForwardFormState {
 }
 
 const FALLBACK_TOTAL_BARS = 252 * 5;
+// 기준 백테스트 실측 시간이 없을 때 쓰는 백테스트 1회당 기본 소요(초). 대략적 폴백값.
+const FALLBACK_PER_BACKTEST_SEC = 0.6;
 type OptimizationMethod = "bayesian" | "grid";
+
+// 초 단위를 "약 3분", "약 1시간 20분", "1분 미만"처럼 사람이 읽는 문구로 바꾼다.
+function formatDurationApprox(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "1분 미만";
+  const totalMinutes = Math.round(seconds / 60);
+  if (totalMinutes < 1) return "1분 미만";
+  if (totalMinutes < 60) return `약 ${totalMinutes}분`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return minutes > 0 ? `약 ${hours}시간 ${minutes}분` : `약 ${hours}시간`;
+}
+
+// 예측은 오차가 크므로 점 추정 대신 ±범위로 보여준다. (하한 0.7배 ~ 상한 1.4배)
+function formatDurationRange(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "1분 미만";
+  const lowMin = Math.max(1, Math.round((seconds * 0.7) / 60));
+  const highMin = Math.max(lowMin, Math.round((seconds * 1.4) / 60));
+  const fmt = (min: number) => (min < 60 ? `${min}분` : min % 60 === 0 ? `${min / 60}시간` : `${Math.floor(min / 60)}시간 ${min % 60}분`);
+  if (lowMin === highMin) return `약 ${fmt(lowMin)}`;
+  return `약 ${fmt(lowMin)} ~ ${fmt(highMin)}`;
+}
 // 백엔드 engine/grid_optimizer.py의 MAX_GRID_COMBINATIONS와 동일한 값으로 유지한다.
 const MAX_GRID_COMBINATIONS = 500;
 // 백엔드 engine/walk_forward.py의 MAX_WINDOWS와 동일한 값으로 유지한다.
@@ -456,6 +483,7 @@ export function WalkForwardPanel({
   strategyName,
   promptText,
   cacheKey,
+  baseBacktestSeconds,
 }: WalkForwardPanelProps) {
   const totalBars = backtestDates.length > 1 ? backtestDates.length : FALLBACK_TOTAL_BARS;
   const minWindowBars = deriveMinWindowBars(totalBars);
@@ -464,6 +492,8 @@ export function WalkForwardPanel({
   );
   const [isRunning, setIsRunning] = useState(false);
   const [runProgress, setRunProgress] = useState<WalkForwardRunProgress | null>(null);
+  // 실행 중 실측된 백테스트 1회당 소요(초)의 지수이동평균 — 남은 시간 추정에 쓴다.
+  const [avgBacktestSec, setAvgBacktestSec] = useState<number | null>(null);
   const [result, setResult] = useState<WalkForwardResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [parameterRangeOverrides, setParameterRangeOverrides] = useState<Record<string, WalkForwardParameterRangeOverride>>({});
@@ -643,12 +673,23 @@ export function WalkForwardPanel({
     setError(null);
     setResult(null);
     setRunProgress(null);
+    setAvgBacktestSec(null);
 
     const controller = new AbortController();
     abortRef.current = controller;
 
+    // 진행 이벤트를 그대로 반영하면서, 백테스트 단계별 소요(timing.total)를
+    // 지수이동평균으로 모아 남은 시간(라이브 ETA)을 추정한다.
+    const handleProgress = (event: WalkForwardRunProgress) => {
+      setRunProgress(event);
+      const sample = event.timing?.total;
+      if (typeof sample === "number" && sample > 0) {
+        setAvgBacktestSec((prev) => (prev == null ? sample : prev * 0.6 + sample * 0.4));
+      }
+    };
+
     try {
-      const res = await onRun(derivedSettings, controller.signal, setRunProgress);
+      const res = await onRun(derivedSettings, controller.signal, handleProgress);
       if (res.status === "error") {
         setError(res.message || "분석 중 오류가 발생했습니다.");
       } else {
@@ -808,6 +849,33 @@ export function WalkForwardPanel({
     ? activeTargets.reduce((total, target) => total * choiceCountForTarget(target), 1)
     : 0;
   const gridSearchExceedsCap = isGridMethod && gridSearchEstimate > MAX_GRID_COMBINATIONS;
+
+  // ── 예상 소요 시간 ──────────────────────────────────────────
+  // 총 백테스트 수 = 구간 수 × (구간당 백테스트 수 + OOS 1회).
+  // 구간당 백테스트 수: 그리드=조합 수, 베이지안=시도 수.
+  const backtestsPerWindow = isGridMethod ? gridSearchEstimate : formState.n_trials;
+  const totalBacktests = backtestsPerWindow > 0
+    ? derivedSettings.n_splits * (backtestsPerWindow + 1)
+    : 0;
+  // 워크포워드 구간은 전체 기간보다 짧지만, 실측상 백테스트 1회 비용은 기간 길이와
+  // 거의 무관하다 — 비용 대부분이 종목별 데이터 로드+지표 계산 고정비(예: 970종목
+  // 전체 기간 12.6s vs 그 절반 구간 11.8s). 예전처럼 구간 길이 비율로 선형 스케일하면
+  // 총 소요를 수 배 과소추정해 실행 중 라이브 ETA와 크게 어긋나므로 실측 시간을 그대로 쓴다.
+  const perBacktestSec = baseBacktestSeconds && baseBacktestSeconds > 0
+    ? baseBacktestSeconds
+    : FALLBACK_PER_BACKTEST_SEC;
+  const estimatedRunSeconds = totalBacktests * perBacktestSec;
+  const canShowEstimate = totalBacktests > 0 && !gridSearchExceedsCap && !windowCountExceedsCap;
+  const estimatedDurationLabel = formatDurationRange(estimatedRunSeconds);
+
+  // 실행 중 남은 시간(라이브 ETA): 완료 백테스트 수를 빼고 실측 평균으로 곱한다.
+  const completedBacktests = runProgress?.stage === "window" && runProgress.window
+    ? (runProgress.window - 1) * (backtestsPerWindow + 1) + (runProgress.trial ?? 0)
+    : 0;
+  const remainingBacktests = Math.max(0, totalBacktests - completedBacktests);
+  const liveEtaSeconds = avgBacktestSec != null && totalBacktests > 0
+    ? remainingBacktests * avgBacktestSec
+    : null;
   const runDisabledReason = gridSearchExceedsCap
     ? `조합 수(${gridSearchEstimate.toLocaleString()}개)가 상한(${MAX_GRID_COMBINATIONS.toLocaleString()}개)을 초과했습니다. 파라미터 범위나 step을 조정해 주세요.`
     : windowCountExceedsCap
@@ -858,6 +926,12 @@ export function WalkForwardPanel({
                     <span className="text-gray-500">최적화 방법</span>
                     <span className="text-white">
                       {isGridMethod ? "그리드 탐색" : `베이지안 최적화 (${formState.n_trials}회 시도)`}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-gray-500">예상 남은 시간</span>
+                    <span className="tabular-nums text-white">
+                      {liveEtaSeconds != null ? formatDurationApprox(liveEtaSeconds) : "측정 중..."}
                     </span>
                   </div>
                   {runProgress.timing && (
@@ -1274,6 +1348,39 @@ export function WalkForwardPanel({
                         </>
                       )}
                     </div>
+                    {canShowEstimate && (
+                      <div className="py-4">
+                        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <p className="text-xs font-bold uppercase tracking-widest text-gray-500">예상 소요 시간</p>
+                                <HelpTooltip label="예상 소요 시간">
+                                  <span className="block text-[11px] font-black uppercase tracking-widest text-sky-400">
+                                    예상 소요 시간
+                                  </span>
+                                  <span className="mt-2 block text-xs font-bold leading-5 text-gray-300">
+                                    총 {totalBacktests.toLocaleString()}회 백테스트(구간 {derivedSettings.n_splits}개 × 구간당 {(backtestsPerWindow + 1).toLocaleString()}회)를 기준 백테스트 실측 속도로 추정한 값입니다.
+                                  </span>
+                                  <span className="mt-3 block text-xs font-bold leading-5 text-gray-400">
+                                    실제 시간은 데이터 로딩·서버 상황·조건 조합에 따라 달라질 수 있으며, 실행을 시작하면 실측값으로 남은 시간을 다시 계산합니다.
+                                  </span>
+                                </HelpTooltip>
+                              </div>
+                              <p className="mt-2 text-sm font-black leading-6 text-white">
+                                {estimatedDurationLabel} 소요될 것으로 예상됩니다.
+                              </p>
+                            </div>
+                            <span className="inline-flex shrink-0 rounded-md bg-white/[0.06] px-2 py-1 text-[10px] font-black uppercase tracking-widest text-gray-400">
+                              총 {totalBacktests.toLocaleString()}회
+                            </span>
+                          </div>
+                          <p className="mt-3 text-xs font-bold leading-5 text-gray-400">
+                            시간이 오래 걸리는 작업입니다. 실행 중에는 창을 닫지 말고 진행 상황을 확인해 주세요.
+                          </p>
+                        </div>
+                      </div>
+                    )}
                     <div className="py-4">
                       <div className="flex items-center gap-1.5">
                         <p className="text-xs font-bold uppercase tracking-widest text-gray-500">IS 창 방식</p>
@@ -1311,26 +1418,12 @@ export function WalkForwardPanel({
 
             {result && (
               <div className="divide-y divide-white/[0.08]">
-                <div className="flex items-center justify-between gap-3 px-5 py-3">
+                <div className="flex items-center gap-3 px-5 py-3">
                   <p className="text-xs font-bold uppercase tracking-widest text-gray-500">워크포워드 검증 결과</p>
-                  <SaveValidationButton
-                    onSave={async () => {
-                      await saveValidation({
-                        modelType: "walkForward",
-                        strategyName: strategyName || "이름 없는 전략",
-                        prompt: promptText,
-                        cacheKey,
-                        settings: {
-                          n_splits: result.n_splits,
-                          anchor: result.anchor,
-                          target_metric: result.target_metric,
-                        },
-                        result,
-                        summary: buildWalkForwardSummary(result),
-                      });
-                    }}
-                  />
                 </div>
+                <section className="p-5">
+                  <ResultPlainSummary items={buildWalkForwardPlainSummary(result)} />
+                </section>
                 <div className="grid grid-cols-1 divide-y divide-white/[0.08] lg:grid-cols-10 lg:divide-x lg:divide-y-0">
                   <section className="lg:col-span-3">
                     <div className="p-5">
@@ -1780,53 +1873,69 @@ export function WalkForwardPanel({
             </div>
           )}
 
-          <div className="flex items-center justify-between gap-3 border-t border-white/[0.08] px-5 py-4">
-            {result ? (
-              <button
-                onClick={() => {
-                  setResult(null);
-                  setError(null);
-                }}
-                className="px-4 py-2 text-sm font-black text-gray-400 transition-colors hover:bg-white/[0.03] hover:text-white"
-              >
-                재설정
-              </button>
-            ) : (
-              <div />
+          <div className="flex items-center justify-end gap-2 border-t border-white/[0.08] px-5 py-4">
+            {result && (
+              <>
+                <button
+                  onClick={() => {
+                    setResult(null);
+                    setError(null);
+                  }}
+                  className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/[0.04] px-3 py-2 text-xs font-black text-gray-200 transition-colors hover:bg-white/[0.08]"
+                >
+                  <ArrowsClockwise className="h-4 w-4" weight="bold" />
+                  재설정
+                </button>
+                <SaveValidationButton
+                  onSave={async () => {
+                    await saveValidation({
+                      modelType: "walkForward",
+                      strategyName: strategyName || "이름 없는 전략",
+                      prompt: promptText,
+                      cacheKey,
+                      settings: {
+                        n_splits: result.n_splits,
+                        anchor: result.anchor,
+                        target_metric: result.target_metric,
+                      },
+                      result,
+                      summary: buildWalkForwardSummary(result),
+                    });
+                  }}
+                />
+              </>
             )}
-            <div className="flex items-center gap-2">
-              {onClose && (
-                <button
-                  onClick={handleClose}
-                  disabled={isRunning}
-                  className="px-4 py-2 text-sm font-black text-gray-400 transition-colors hover:bg-white/[0.03] hover:text-white disabled:opacity-40"
-                >
-                  닫기
-                </button>
-              )}
-              {!result && (
-                <button
-                  onClick={handleRun}
-                  disabled={isRunDisabled}
-                  title={isRunDisabled && !isRunning ? runDisabledReason : undefined}
-                  className="inline-flex items-center gap-2 rounded-md bg-[var(--main-blue)] px-4 py-2 text-sm font-black text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {isRunning ? (
-                    <>
-                      <ArrowsClockwise className="h-4 w-4 animate-spin" />
-                      {runProgress?.stage === "window" && runProgress.total
-                        ? `분석 중... (${runProgress.window}/${runProgress.total} 구간)`
-                        : `분석 중... (${derivedSettings.n_splits}개 구간)`}
-                    </>
-                  ) : (
-                    <>
-                      <ChartLine className="h-4 w-4" />
-                      워크포워드 분석 시작
-                    </>
-                  )}
-                </button>
-              )}
-            </div>
+            {onClose && (
+              <button
+                onClick={handleClose}
+                disabled={isRunning}
+                className="px-4 py-2 text-sm font-black text-gray-400 transition-colors hover:bg-white/[0.03] hover:text-white disabled:opacity-40"
+              >
+                닫기
+              </button>
+            )}
+            {!result && (
+              <button
+                onClick={handleRun}
+                disabled={isRunDisabled}
+                title={isRunDisabled && !isRunning ? runDisabledReason : undefined}
+                className="inline-flex items-center gap-2 rounded-md bg-[var(--main-blue)] px-4 py-2 text-sm font-black text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isRunning ? (
+                  <>
+                    <ArrowsClockwise className="h-4 w-4 animate-spin" />
+                    {runProgress?.stage === "window" && runProgress.total
+                      ? `분석 중... (${runProgress.window}/${runProgress.total} 구간)`
+                      : `분석 중... (${derivedSettings.n_splits}개 구간)`}
+                  </>
+                ) : (
+                  <>
+                    <ChartLine className="h-4 w-4" />
+                    워크포워드 분석 시작
+                  </>
+                )}
+              </button>
+            )}
           </div>
         </div>
   );
@@ -1839,6 +1948,7 @@ export default function WalkForwardModal({
   backtestDates = [],
   optimizationTargets = [],
   baseStrategy,
+  baseBacktestSeconds,
 }: WalkForwardModalProps) {
   if (!open) return null;
 
@@ -1851,6 +1961,7 @@ export default function WalkForwardModal({
             backtestDates={backtestDates}
             optimizationTargets={optimizationTargets}
             baseStrategy={baseStrategy}
+            baseBacktestSeconds={baseBacktestSeconds}
             onClose={() => onOpenChange(false)}
             maxHeightClass="max-h-[calc(100vh-9rem)]"
           />

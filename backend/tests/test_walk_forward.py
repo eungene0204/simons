@@ -145,6 +145,86 @@ class TestWalkForwardGridMethod:
         assert result["windows"][0].get("error") is None
 
 
+class CountingEngine(DummyEngine):
+    """run_backtest 호출 횟수를 세는 더미 엔진 (취소 반응성 검증용)."""
+
+    def __init__(self, total_days=240):
+        super().__init__(total_days)
+        self.backtest_calls = 0
+
+    def run_backtest(self, req):
+        if "startDate" in req:  # 최초 전체 기간 조회는 제외하고 최적화 백테스트만 센다
+            self.backtest_calls += 1
+        return super().run_backtest(req)
+
+
+class TestCooperativeCancel:
+    """취소는 창 경계뿐 아니라 창 내부(시도/조합=백테스트 1회) 단위로도 반응해야 한다.
+
+    회귀 배경(2026-07-07): should_cancel이 창 경계에서만 확인되어, 취소 후에도
+    진행 중인 창의 IS 최적화(그리드 최대 500조합)가 통째로 계속 실행되던 버그.
+    """
+
+    def _run_cancelled_analysis(self, method: str, cancel_after: int, **kwargs):
+        engine = CountingEngine()
+        analyzer = WalkForwardAnalyzer(engine)
+
+        # cancel_after회의 최적화 백테스트가 실행된 뒤 취소된 상황을 흉내낸다.
+        result = analyzer.analyze(
+            base_request=_base_request(),
+            ranges={"entry.conditions.0.params.period": [10, 12, 14, 16, 18, 20]},
+            n_splits=2,
+            train_pct=0.7,
+            anchor=False,
+            target_metric="cagr",
+            method=method,
+            should_cancel=lambda: engine.backtest_calls >= cancel_after,
+            **kwargs,
+        )
+        return result, engine
+
+    def test_grid_cancel_stops_inside_window(self):
+        result, engine = self._run_cancelled_analysis("grid", cancel_after=2)
+
+        assert result["status"] == "cancelled"
+        assert "취소" in result["message"]
+        # 취소 시점(2회) 직후 조합 경계에서 멈춰야 한다 — 창 하나(6조합+OOS)를 다 돌면 회귀
+        assert engine.backtest_calls == 2
+
+    def test_bayesian_cancel_stops_inside_window(self):
+        result, engine = self._run_cancelled_analysis("bayesian", cancel_after=2, n_trials=6)
+
+        assert result["status"] == "cancelled"
+        assert "취소" in result["message"]
+        # optuna study.stop()은 진행 중 시도까지 마치고 멈춘다 — 창 전체(6시도+OOS)보다는 작아야 한다
+        assert engine.backtest_calls <= 3
+
+    def test_cancel_before_oos_skips_oos_backtest(self):
+        # IS 최적화(6조합)가 끝난 직후 취소 → OOS 백테스트는 실행되지 않아야 한다
+        result, engine = self._run_cancelled_analysis("grid", cancel_after=6)
+
+        assert result["status"] == "cancelled"
+        assert engine.backtest_calls == 6
+
+    def test_no_cancel_runs_all_windows(self):
+        engine = CountingEngine()
+        analyzer = WalkForwardAnalyzer(engine)
+
+        result = analyzer.analyze(
+            base_request=_base_request(),
+            ranges=_ranges(),
+            n_splits=2,
+            train_pct=0.7,
+            anchor=False,
+            target_metric="cagr",
+            method="grid",
+            should_cancel=lambda: False,
+        )
+
+        assert result["status"] == "ok"
+        assert len(result["windows"]) == 2
+
+
 class SequentialDatesEngine(DummyEngine):
     """실제 달력처럼 단조 증가하는 날짜를 반환하는 더미 엔진."""
 

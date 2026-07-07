@@ -427,7 +427,9 @@ export function buildWalkForwardRequest(
   );
 
   return {
-    base_strategy: baseStrategy,
+    // 저장된 전략 DSL에는 symbols가 없을 수 있다(유니버스는 universe_id로 저장, 엔진이 PIT
+    // 마스터로 종목을 재해석). 백엔드 스키마는 symbols 필드 자체를 요구하므로 빈 배열로 채운다.
+    base_strategy: { ...baseStrategy, symbols: baseStrategy.symbols ?? [] },
     ranges: filteredRanges,
     n_splits: settings.n_splits,
     train_pct: settings.train_pct,

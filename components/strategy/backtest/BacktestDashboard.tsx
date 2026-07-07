@@ -1220,6 +1220,7 @@ export default function BacktestDashboard({
             isPremiumValidationEnabled={isPremiumValidationEnabled}
             strategyName={strategySummary?.strategyName}
             promptText={promptText}
+            onClose={() => setIsOptimizationPageOpen(false)}
           />
         ) : (
         <div data-testid="backtest-tab-content" className="flex flex-col min-w-0">

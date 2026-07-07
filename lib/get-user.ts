@@ -25,10 +25,20 @@ export async function getCurrentUser() {
 
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
-      select: { id: true, email: true, name: true },
+      select: { id: true, email: true, name: true, status: true },
     })
 
-    return user ? { ...user, avatarUrl: decoded.avatarUrl ?? null } : null
+    // 정지(SUSPENDED)·삭제(DELETED) 계정은 유효한 토큰이 있어도 세션을 인정하지 않는다
+    if (!user || user.status !== 'ACTIVE') {
+      return null
+    }
+
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      avatarUrl: decoded.avatarUrl ?? null,
+    }
   } catch {
     return null
   }

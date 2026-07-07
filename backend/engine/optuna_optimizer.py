@@ -127,11 +127,15 @@ class OptunaOptimizer:
             print(f"[OptunaOptimizer] Walk-forward validation failed: {e}")
             return None
 
-    def optimize(self, base_request: Dict[str, Any], ranges: Dict[str, Any], target_metric: str = "cagr", n_trials: int = 50, progress_callback: Optional[Callable[[int, int, Optional[Dict[str, Any]]], None]] = None) -> Dict[str, Any]:
+    def optimize(self, base_request: Dict[str, Any], ranges: Dict[str, Any], target_metric: str = "cagr", n_trials: int = 50, progress_callback: Optional[Callable[[int, int, Optional[Dict[str, Any]]], None]] = None, should_cancel: Optional[Callable[[], bool]] = None) -> Dict[str, Any]:
         """
         Runs Bayesian optimization using Optuna to find the best parameters.
         Returns the top results sorted by `target_metric`.
+
+        should_cancel: 협조적 취소 훅 — 시도(trial)마다 확인해 True면 study를 중단한다.
         """
+        if should_cancel is not None and should_cancel():
+            return {"status": "cancelled", "message": "최적화 시작 전에 취소되었습니다."}
         # Pre-load all symbol data into memory before trial loop
         self._warm_cache(base_request)
 
@@ -211,17 +215,24 @@ class OptunaOptimizer:
             study.enqueue_trial(params)
 
         # 창 하나의 최적화가 수 분간 침묵하지 않도록 시도(trial)마다 진행률을 보고한다.
-        callbacks = None
+        callbacks = []
         if progress_callback is not None:
             def _report(study: "optuna.Study", trial: "optuna.trial.FrozenTrial"):
                 try:
                     progress_callback(len(study.trials), n_trials, dict(last_timing) or None)
                 except Exception:
                     pass
-            callbacks = [_report]
+            callbacks.append(_report)
+
+        # 협조적 취소: 시도(=백테스트 1회)가 끝날 때마다 확인해 창 전체를 기다리지 않고 멈춘다.
+        if should_cancel is not None:
+            def _cancel_check(study: "optuna.Study", trial: "optuna.trial.FrozenTrial"):
+                if should_cancel():
+                    study.stop()
+            callbacks.append(_cancel_check)
 
         try:
-            study.optimize(objective, n_trials=n_trials, callbacks=callbacks)
+            study.optimize(objective, n_trials=n_trials, callbacks=callbacks or None)
         except RuntimeError as e:
             print(f"[OptunaOptimizer] Early abort: {e}")
             if not results_history:
@@ -229,6 +240,10 @@ class OptunaOptimizer:
                     "status": "error",
                     "message": str(e)
                 }
+
+        if should_cancel is not None and should_cancel():
+            print(f"[OptunaOptimizer] cancelled after {len(study.trials)}/{n_trials} trials", flush=True)
+            return {"status": "cancelled", "message": f"베이지안 최적화 {len(study.trials)}/{n_trials} 시도에서 취소되었습니다."}
 
         # Sort history to find top 5
         reverse_sort = target_metric not in ["maxDrawdown", "mdd"]

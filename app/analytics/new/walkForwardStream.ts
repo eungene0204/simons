@@ -45,6 +45,30 @@ function isNetworkError(error: unknown): boolean {
   );
 }
 
+// FastAPI 에러 body의 detail/message를 사람이 읽는 문자열로 바꾼다.
+// pydantic 검증 실패(422)의 detail은 객체 배열이라 그대로 Error에 넣으면
+// "[object Object]"로 표시된다 — loc/msg를 뽑아 읽을 수 있게 만든다.
+export function formatApiErrorDetail(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (value == null) return null;
+  if (Array.isArray(value)) {
+    const lines = value
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item === "object") {
+          const { loc, msg } = item as { loc?: unknown[]; msg?: unknown };
+          const path = Array.isArray(loc) ? loc.filter((part) => part !== "body").join(".") : "";
+          if (typeof msg === "string") return path ? `${path}: ${msg}` : msg;
+        }
+        return JSON.stringify(item);
+      })
+      .filter(Boolean);
+    return lines.length > 0 ? lines.join(" / ") : null;
+  }
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
 export async function runWalkForwardStream(
   requestBody: unknown,
   options: { signal?: AbortSignal; onProgress?: WalkForwardProgressHandler } = {}
@@ -65,7 +89,9 @@ export async function runWalkForwardStream(
 
   if (!res.ok || !res.body) {
     const error = await res.json().catch(() => ({}));
-    throw new Error(error.detail ?? error.message ?? "워크포워드 분석 실패");
+    throw new Error(
+      formatApiErrorDetail(error.detail) ?? formatApiErrorDetail(error.message) ?? "워크포워드 분석 실패"
+    );
   }
 
   const reader = res.body.getReader();
@@ -86,7 +112,7 @@ export async function runWalkForwardStream(
     } else if (event.type === "result") {
       result = event.data;
     } else if (event.type === "error") {
-      throw new Error(event.message ?? "워크포워드 분석 실패");
+      throw new Error(formatApiErrorDetail(event.message) ?? "워크포워드 분석 실패");
     }
   };
 

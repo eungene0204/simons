@@ -396,6 +396,8 @@ RiskManagement {
 
 **FR-STR-042** 사용자는 저장된 전략을 불러와 편집하거나 재실행할 수 있어야 한다.
 
+**FR-STR-042b** 저장된 전략 DSL에는 `symbols`가 없으므로(유니버스는 `universe_id`로 저장, 엔진이 PIT 마스터로 종목을 재해석) 저장 DSL 기반 백엔드 요청은 `symbols: []`를 채워 백엔드 스키마(필수 필드)를 통과시켜야 한다 — 워크포워드는 단일 통로인 `buildWalkForwardRequest`(parsedStrategyMerge.ts)에서, 재실행은 `/analytics/[id]`의 `buildEffectiveBacktestRequest`에서 채운다. 워크포워드 실행 진입점 3곳(`/analytics/new`, `/analytics/[id]`, 전략 기록 상세 `/backtest/[id]`)은 모두 SSE 스트림 클라이언트(`runWalkForwardStream`)를 사용해야 한다(비스트림 `/api/backtest/walk-forward` 직접 호출 금지 — 진행률·취소·장시간 타임아웃 보호 없음). 또한 백엔드 검증 실패(pydantic 422)의 `detail` 객체 배열은 그대로 노출하면 "[object Object]"로 보이므로 `formatApiErrorDetail`(walkForwardStream.ts)로 `경로: 메시지` 형태의 읽을 수 있는 문자열로 변환해 표시해야 한다.
+
 **FR-STR-066** 시스템은 전략 채팅(`/analytics/chat`) 진입 직전에 전략연구소(`/analytics`)를 브라우저 히스토리에 포함해야 하며, 채팅에서 뒤로가기를 실행하면 직전 방문 페이지와 관계없이 전략연구소로 돌아가야 한다.
 
 #### 3.1.5 독립형 배치 테스트
@@ -574,7 +576,8 @@ RiskManagement {
 - 사용자가 수정한 파라미터 탐색 범위(min/max/step)는 자동 생성 범위로 재클램프하지 않고 그대로 적용하며, 파라미터별 최적화 제외(`excluded_parameters`)를 지원한다.
 - 그리드·베이지안 최적화 모두 의미 제약(단기 < 장기: `shortMA<longMA`, `fastPeriod<slowPeriod`, `shortPeriod<longPeriod`)을 강제한다.
 - 집계는 NaN/Infinity를 표본에서 제외하고 CAGR·총수익·MDD·Sharpe·Calmar·승률·손익비·거래수·평균 거래손익(expectancy)을 제공한다. IS 평균 수익 ≤ 0이면 `wfe_valid=false`로 WFE 해석 불가를 알린다. 모든 창이 실패하면 부분 결과 대신 에러를 반환한다(Fail Fast).
-- `POST /walk-forward/stream`은 SSE로 창 단위 진행률(`{type:progress, window, total, is_period, oos_period}`)을 스트리밍하고, 클라이언트 연결 종료 시 다음 창 경계에서 협조적으로 취소한다. 벽시계 제한은 전용 `WALK_FORWARD_TIMEOUT_S`(기본 3600초, 창×시도만큼 백테스트를 반복하므로 단일 백테스트 제한 600초보다 커야 함) 초과 시 error 이벤트로 종료하며, 진행 이벤트가 없는 침묵 구간에는 15초 간격 SSE keep-alive 주석을 내보낸다. Next 프록시(`/api/backtest/walk-forward/stream`)의 안전망 타임아웃은 반드시 백엔드 제한보다 커야 한다(같거나 작으면 프록시가 먼저 끊어 사용자에게 "연결 끊김"으로 보인다). 프론트는 `runWalkForwardStream`으로 소비한다.
+- 오래 걸리는 작업이므로 **예상 소요 시간을 실행 전에 미리 안내**해야 한다. 총 백테스트 수 = 구간 수 × (구간당 백테스트 + OOS 1회)이며, 구간당 백테스트는 그리드=조합 수·베이지안=시도 수다. 백테스트 1회당 소요는 기준 백테스트(전체 기간) 실측 시간(`result.executionTime`)을 **스케일 없이 그대로** 사용하고(실측상 1회 비용은 구간 길이와 거의 무관 — 종목별 데이터 로드+지표 계산 고정비가 지배적이라, 구간 길이 비율로 선형 스케일하면 수 배 과소추정되어 실행 중 라이브 ETA와 크게 어긋난다), 오차를 감안해 범위(0.7~1.4배)로 표시한다(기준 실측이 없으면 폴백 상수). 실행이 시작되면 SSE로 스트리밍되는 실측 `timing.total`의 지수이동평균으로 남은 백테스트 수를 곱해 **남은 시간(라이브 ETA)을 계속 갱신**한다(`WalkForwardPanel`).
+- `POST /walk-forward/stream`은 SSE로 창 단위 진행률(`{type:progress, window, total, is_period, oos_period}`)을 스트리밍하고, 클라이언트 연결 종료(취소 버튼 포함) 시 **시도/조합(=백테스트 1회) 단위로** 협조적으로 취소한다 — `should_cancel` 훅이 창 경계뿐 아니라 그리드 조합 루프(`grid_optimizer`)와 베이지안 trial 콜백(`optuna_optimizer`의 `study.stop()`), OOS 실행 직전까지 배선되어, 취소 후 진행 중이던 백테스트 1회만 마치고 즉시 중단된다(창 전체를 기다리지 않음). 벽시계 제한은 전용 `WALK_FORWARD_TIMEOUT_S`(기본 3600초, 창×시도만큼 백테스트를 반복하므로 단일 백테스트 제한 600초보다 커야 함) 초과 시 error 이벤트로 종료하며, 진행 이벤트가 없는 침묵 구간에는 15초 간격 SSE keep-alive 주석을 내보낸다. Next 프록시(`/api/backtest/walk-forward/stream`)의 안전망 타임아웃은 반드시 백엔드 제한보다 커야 한다(같거나 작으면 프록시가 먼저 끊어 사용자에게 "연결 끊김"으로 보인다). 프론트는 `runWalkForwardStream`으로 소비한다.
 
 **FR-BT-049b** 지표 기간 파라미터화(`engine/indicator_columns.py`): MACD(fastPeriod/slowPeriod/signalPeriod), 스토캐스틱(period), 볼린저밴드(period/stdDev)는 전략 DSL에 명시된 값으로 계산해야 한다. 기본값(12/26/9, KDJ 9, BOLL 20±2σ)이면 기존 stockstats 컬럼을 그대로 사용해 과거 백테스트 결과와의 동일성을 보존하고, 파라미터 지정 시 파라미터화 컬럼(`macd_f,s,g` / `kdjk_n` / `boll_ub_n[_kpX]`)을 계산한다. 워밍업 산정(`_max_indicator_period`)도 동일 파라미터를 반영해야 한다.
 
@@ -585,7 +588,11 @@ RiskManagement {
 - 실행은 청크 단위로 진행률을 표시하고 취소 가능해야 하며, 유효 equity 포인트가 최소 요구치(max(30, blockSize×3)) 미만이면 명확한 에러를 반환한다.
 - 모든 문구는 서술적 통계 표현만 사용하고 투자 추천·미래 성과 보장 표현을 금지한다(규제 안전 원칙).
 
+**FR-BT-051b** 검증 결과 쉬운 설명 섹션(`ResultPlainSummary.tsx`): 전략 최적화(워크포워드·몬테카를로) 결과 화면에는 결과 수치를 일상 언어 문장으로 풀어 주는 "쉽게 이해하기" 섹션을 항상 표시해야 한다. 문장은 결과 데이터에서 결정적으로 생성하며(LLM 미사용), 검증 방법 요약·검증 구간/시나리오 성과·승패 구간 수(또는 수익/손실 시나리오 비중)·WFE(계산 불가/음수 포함) 또는 낙폭 분포·과거 데이터 기반 면책 문구를 포함한다. 모든 문장은 과거 서술형 통계 표현만 사용하고 추천·전망 표현을 금지한다(규제 안전 원칙).
+
 **FR-BT-051** 검증 결과 저장·불러오기(`SavedValidation` 모델, `app/api/validation`, `lib/validation-storage.ts`): 워크포워드·몬테카를로 결과 화면 각각에 '결과 저장' 버튼을 제공해 실행 결과 스냅샷(모델 종류, 전략명·프롬프트·`cacheKey`, 실행 설정, 결과 전체 JSON, 목록 표시용 요약)을 DB에 영구 저장해야 한다. 저장은 로그인 사용자 본인 소유로 격리하며(`userId`, 비인증은 `userId IS NULL` 폴백), 목록 조회는 전체 결과 JSON을 제외한 경량 요약만 반환하고 불러오기 시 `GET /api/validation/[id]`로 전체 결과를 조회한다. '전략 최적화'(`OptimizationPage.tsx`) 사이드바의 '저장된 검증 결과 불러오기' 버튼이 저장 목록 모달을 열고, 항목 선택 시 해당 모델 화면으로 전환해 저장된 결과를 재렌더한다(워크포워드는 `WalkForwardPanel`에 `loadedResult` 주입, 몬테카를로는 결과·설정 복원). 목록에서 항목 삭제를 지원한다.
+
+**FR-BT-051c** 전략 최적화 결과 닫기(`OptimizationPage.tsx`): 몬테카를로 **실행 결과가 표시된 화면에만** '결과 닫기' 버튼을 결과 헤더의 저장 버튼 옆에 노출한다(설정/실행 전 화면에는 노출하지 않는다). 결과가 나온 뒤에도 사용자가 이 버튼을 명시적으로 클릭하기 전까지는 결과 화면을 유지하며, 클릭 시에만 백테스트 결과 탭 화면으로 돌아간다(`BacktestDashboard`의 `isOptimizationPageOpen`을 false로 전환). 워크포워드 결과 화면은 별도 '결과 닫기'를 두지 않고 '재설정'(설정 화면 복귀)만 제공한다 — 최적화 뷰 자체는 검증 탭 전환·'전략 최적화' 토글로 닫는다.
 
 **구현 파일:**
 - `backend/engine/data_resolver.py` — `DataResolver` 클래스, `_collect_all_conditions()`, `_get_required_columns()`
@@ -1136,6 +1143,22 @@ News Collector
 **FR-USR-002** 비밀번호는 bcrypt 등의 알고리즘으로 해시하여 저장해야 한다.
 
 **FR-USR-003** 사용자 세션은 JWT 또는 세션 쿠키로 관리되어야 한다.
+
+**FR-USR-004** 정지(SUSPENDED)·삭제(DELETED) 상태의 계정은 로그인이 거부(403)되어야 하며, 이미 발급된 유효 토큰으로도 세션이 인정되지 않아야 한다(`getCurrentUser`가 null 반환). 로그인 성공 시 `lastLoginAt`을 기록한다.
+
+### 3.9 관리자 콘솔 (Admin Console)
+
+**FR-ADM-001** 관리자 콘솔은 `/console` 단일 URL 하나만 존재해야 하며(하위 페이지 없음), 내부 탭(Overview/Users/Backtests/Virtual Accounts/Strategies/Plans/Audit Logs) 전환으로 모든 기능을 제공해야 한다.
+
+**FR-ADM-002** 모든 관리자 페이지·API는 서버에서 `requireAdmin()`(JWT + `User.role='ADMIN'` + `status='ACTIVE'`)으로 권한을 검증해야 한다. 검증 실패 시 404를 반환해 콘솔의 존재 자체를 숨긴다. UI 숨김만으로는 보안으로 인정하지 않는다.
+
+**FR-ADM-003** ADMIN 권한은 관리자 화면/API로 부여·변경할 수 없어야 하며, 초기에는 데이터베이스에서만 변경한다.
+
+**FR-ADM-004** 관리자의 모든 변경 작업은 `AdminAuditLog`에 관리자·시간·대상·작업 종류·변경 전/후 값·IP를 기록해야 하며, 감사 로그 삭제 기능은 제공하지 않는다.
+
+**FR-ADM-005** 관리자는 사용자 관리(플랜 변경·정지·활성화·삭제(soft)·백테스트 사용량 조정), 가상계좌 관리(일시 중지·재개·초기화·삭제), 전략 관리(비활성화·삭제(soft)), 플랜 한도 오버라이드(`PlanConfig` — 월 백테스트/전략 수/가상계좌 수, null=기본값 복원, 전략 -1=무제한)를 수행할 수 있어야 한다. 자기 자신에 대한 정지·삭제는 차단된다.
+
+**FR-ADM-006** 관리자 화면·API 응답에는 비밀번호, OAuth/Access/Refresh Token, Secret Key, API Key 등 민감 정보를 포함하지 않아야 한다.
 
 ---
 

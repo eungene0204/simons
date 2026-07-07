@@ -18,7 +18,7 @@ import {
   hasWalkForwardParameterRanges,
   type AdvisorWalkForwardSettings,
 } from "../new/parsedStrategyMerge";
-import { runWalkForwardStream, type WalkForwardProgressHandler } from "../new/walkForwardStream";
+import { formatApiErrorDetail, runWalkForwardStream, type WalkForwardProgressHandler } from "../new/walkForwardStream";
 
 function mapBacktestResponse(raw: any): BacktestResult {
   const equity: number[] = raw.equity ?? [];
@@ -175,6 +175,9 @@ function StrategyResultContent() {
   const buildEffectiveBacktestRequest = (options?: BacktestConfigOptions) => {
     return {
       ...backtestDsl,
+      // 저장된 DSL에는 symbols가 없다(유니버스는 universe_id로 저장, 엔진이 PIT 마스터로
+      // 종목을 재해석). 백엔드 스키마는 symbols 필드 자체를 요구하므로 빈 배열로 채운다.
+      symbols: backtestDsl.symbols ?? [],
       period: options?.period ?? backtestDsl.period,
       risk: {
         ...backtestDsl.risk,
@@ -203,7 +206,9 @@ function StrategyResultContent() {
       });
       const rerunData = await rerunResponse.json();
       if (!rerunResponse.ok) {
-        throw new Error(rerunData.detail ?? rerunData.error ?? "재실행 실패");
+        throw new Error(
+          formatApiErrorDetail(rerunData.detail) ?? formatApiErrorDetail(rerunData.error) ?? "재실행 실패"
+        );
       }
       setResult(mapBacktestResponse(rerunData));
       setLegacyNotice(null);

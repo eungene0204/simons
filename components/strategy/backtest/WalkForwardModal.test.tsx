@@ -541,6 +541,73 @@ describe("WalkForwardModal", () => {
     );
   });
 
+  it("실행 전 기준 백테스트 실측 속도로 예상 소요 시간을 미리 보여준다", async () => {
+    // 240일 백테스트, 기본 설정: n_splits=3, 베이지안 30시도 → 총 3×(30+1)=93회.
+    // 백테스트 1회 비용은 구간 길이와 거의 무관(고정비 지배)하므로 기준 실측 10s를
+    // 그대로 써서 총 930s. 범위(0.7~1.4배) = 11분 ~ 22분.
+    await act(async () => {
+      render(
+        <WalkForwardModal
+          open
+          onOpenChange={() => {}}
+          onRun={vi.fn()}
+          backtestDates={buildDates(240)}
+          baseStrategy={baseStrategy}
+          baseBacktestSeconds={10}
+          optimizationTargets={[{ id: "summary-0", label: "PBR" }]}
+        />
+      );
+    });
+
+    expect(screen.getAllByText("예상 소요 시간").length).toBeGreaterThan(0);
+    expect(screen.getByText("약 11분 ~ 22분 소요될 것으로 예상됩니다.")).toBeInTheDocument();
+    expect(screen.getByText("총 93회")).toBeInTheDocument();
+    expect(
+      screen.getByText(/시간이 오래 걸리는 작업입니다/)
+    ).toBeInTheDocument();
+  });
+
+  it("실행 중에는 실측 timing으로 남은 시간(라이브 ETA)을 다시 계산해 보여준다", async () => {
+    let progressFn: ((event: any) => void) | undefined;
+    const onRun = vi.fn().mockImplementation((_settings, _signal, onProgress) => {
+      progressFn = onProgress;
+      return new Promise(() => {});
+    });
+
+    await act(async () => {
+      render(
+        <WalkForwardModal
+          open
+          onOpenChange={() => {}}
+          onRun={onRun}
+          backtestDates={buildDates(240)}
+          baseStrategy={baseStrategy}
+          optimizationTargets={[{ id: "summary-0", label: "PBR" }]}
+        />
+      );
+    });
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "워크포워드 분석 시작" }));
+    await waitFor(() => expect(progressFn).toBeDefined());
+
+    act(() => {
+      progressFn!({
+        stage: "window",
+        window: 1,
+        total: 3,
+        trial: 15,
+        trial_total: 30,
+        timing: { phase1: 12, simulator: 0.3, format: 0.3, total: 12.6, symbols: 900 },
+      });
+    });
+
+    // 총 93회 · 완료 (1-1)×31+15=15회 · 남은 78회 × 12.6s ≈ 983s → 약 16분.
+    await waitFor(() => {
+      expect(screen.getByText("예상 남은 시간")).toBeInTheDocument();
+    });
+    expect(screen.getByText("약 16분")).toBeInTheDocument();
+  });
+
   it("이동평균 값을 전부 해제하고 저장하면 최소 1개 선택 에러를 보여준다", async () => {
     const strategyWithMaCrossover = {
       entry: {

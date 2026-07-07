@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const verifySupabaseAccessToken = vi.fn();
 const userFindUnique = vi.fn();
 const userCreate = vi.fn();
+const userUpdate = vi.fn();
 const ensureUserBootstrap = vi.fn();
 
 vi.mock("@/lib/auth", () => ({
@@ -21,7 +22,11 @@ vi.mock("@/lib/auth", () => ({
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    user: { findUnique: (...a) => userFindUnique(...a), create: (...a) => userCreate(...a) },
+    user: {
+      findUnique: (...a) => userFindUnique(...a),
+      create: (...a) => userCreate(...a),
+      update: (...a) => userUpdate(...a),
+    },
   },
 }));
 
@@ -87,8 +92,10 @@ describe("/api/login Google(Supabase) 경로", () => {
       email: "user@example.com",
       name: "Tester",
       password: "hashed",
+      status: "ACTIVE",
     });
     ensureUserBootstrap.mockResolvedValue(undefined);
+    userUpdate.mockResolvedValue({});
 
     const res = await POST(req({ supabaseAccessToken: "valid-token" }));
     const data = await res.json();
@@ -97,5 +104,29 @@ describe("/api/login Google(Supabase) 경로", () => {
     expect(data.message).toBe("로그인 성공");
     expect(data.user.id).toBe(7);
     expect(userCreate).not.toHaveBeenCalled();
+    // 로그인 성공 시 lastLoginAt을 기록한다
+    expect(userUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 7 },
+        data: expect.objectContaining({ lastLoginAt: expect.any(Date) }),
+      })
+    );
+  });
+
+  it("정지(SUSPENDED) 계정은 유효한 토큰이라도 403으로 차단한다", async () => {
+    verifySupabaseAccessToken.mockResolvedValue(validIdentity);
+    userFindUnique.mockResolvedValue({
+      id: 7,
+      email: "user@example.com",
+      name: "Tester",
+      password: "hashed",
+      status: "SUSPENDED",
+    });
+
+    const res = await POST(req({ supabaseAccessToken: "valid-token" }));
+
+    expect(res.status).toBe(403);
+    expect(ensureUserBootstrap).not.toHaveBeenCalled();
+    expect(userUpdate).not.toHaveBeenCalled();
   });
 });

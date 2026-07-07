@@ -111,7 +111,7 @@ export default function SavedValidationsModal({ open, onClose, onSelect }: Saved
           )}
           {!isLoading && !error && items.length === 0 && (
             <p className="px-2 py-12 text-center text-sm font-bold text-gray-500">
-              저장된 검증 결과가 없습니다. 워크포워드·몬테카를로 결과 화면에서 &lsquo;결과 저장&rsquo;을 눌러 보관하세요.
+              저장된 검증 결과가 없습니다.
             </p>
           )}
           {!isLoading && !error && items.length > 0 && (
@@ -124,9 +124,9 @@ export default function SavedValidationsModal({ open, onClose, onSelect }: Saved
                       onClick={() => onSelect(item)}
                       className="flex min-w-0 flex-1 flex-col items-start text-left"
                     >
-                      <div className="flex items-center gap-2">
+                      <div className="flex w-full min-w-0 items-center gap-2">
                         <span
-                          className={`rounded px-1.5 py-0.5 text-[10px] font-black uppercase tracking-widest ${
+                          className={`shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-black uppercase tracking-widest ${
                             item.modelType === "walkForward"
                               ? "bg-sky-500/15 text-sky-300"
                               : "bg-violet-500/15 text-violet-300"
@@ -134,7 +134,7 @@ export default function SavedValidationsModal({ open, onClose, onSelect }: Saved
                         >
                           {MODEL_LABELS[item.modelType] ?? item.modelType}
                         </span>
-                        <span className="truncate text-sm font-black text-white">{item.strategyName}</span>
+                        <span className="min-w-0 truncate text-sm font-black text-white">{item.strategyName}</span>
                       </div>
                       <span className="mt-1 text-xs font-bold text-gray-400">{summaryLine(item)}</span>
                       <span className="mt-0.5 text-[11px] font-bold text-gray-600">{formatDate(item.createdAt)}</span>

@@ -114,11 +114,18 @@ describe("BacktestDetailPage", () => {
             }),
         });
       }
-      if (url === "/api/backtest/walk-forward") {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({ status: "ok", n_splits: 4 }),
+      if (url === "/api/backtest/walk-forward/stream") {
+        const encoder = new TextEncoder();
+        const body = new ReadableStream({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ type: "result", data: { status: "ok", n_splits: 4 } })}\n\n`)
+            );
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            controller.close();
+          },
         });
+        return Promise.resolve({ ok: true, body });
       }
       return Promise.resolve({ ok: true, json: async () => ({}) });
     });
@@ -132,18 +139,20 @@ describe("BacktestDetailPage", () => {
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        "/api/backtest/walk-forward",
+        "/api/backtest/walk-forward/stream",
         expect.objectContaining({ method: "POST" })
       );
     });
 
-    const call = fetchMock.mock.calls.find(([url]) => url === "/api/backtest/walk-forward");
+    const call = fetchMock.mock.calls.find(([url]) => url === "/api/backtest/walk-forward/stream");
     const body = JSON.parse((call?.[1]?.body as string) ?? "{}");
     expect(body).toMatchObject({
       n_splits: 4,
       method: "grid",
       ranges: { "risk.stop_loss_pct": expect.any(Array) },
     });
+    // 저장 DSL에는 symbols가 없어도 백엔드 필수 필드로 빈 배열이 채워진다 (422 회귀 방지).
+    expect(body.base_strategy.symbols).toEqual([]);
   });
 
   it("저장된 전략 settings가 없으면 워크포워드 버튼을 노출하지 않는다", async () => {

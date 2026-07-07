@@ -951,6 +951,19 @@ describe("buildWalkForwardRequest — 사용자 범위·제외·명시적 분할
     n_trials: 30,
   };
 
+  it("symbols가 없는 저장 DSL은 빈 배열로 채운다 (백엔드 필수 필드 — 422 회귀 방지)", () => {
+    // 저장된 전략 DSL(Strategy.settings)에는 symbols가 없어(universe_id만 저장)
+    // 그대로 보내면 pydantic 422("base_strategy.symbols: Field required")가 나던 회귀 케이스.
+    const { symbols: _symbols, ...withoutSymbols } = baseStrategy;
+    const ranges = buildWalkForwardParameterRanges(withoutSymbols);
+
+    const request = buildWalkForwardRequest(withoutSymbols, settings, ranges);
+
+    expect(request.base_strategy.symbols).toEqual([]);
+    // symbols가 이미 있으면 그대로 유지한다.
+    expect(buildWalkForwardRequest(baseStrategy, settings, ranges).base_strategy.symbols).toEqual(["005930"]);
+  });
+
   it("자동 생성 범위를 벗어난 사용자 오버라이드도 그대로 반영한다 (클램프 없음)", () => {
     const ranges = buildWalkForwardParameterRanges(baseStrategy);
     // 자동 범위는 PBR=1 주변 [0.8, 1, 1.2]지만 사용자는 0.5~3.0을 원한다

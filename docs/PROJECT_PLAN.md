@@ -697,10 +697,14 @@ RiskManagement {
 | 워크포워드 분석 | 롤링/앵커 윈도우 분할 최적화 + 효율성 평가 | ✅ 완료 |
 | 워크포워드 정합성 개선 | 엔진이 실제 읽는 파라미터만 화이트리스트 추출, 사용자 범위 무클램프 적용, 파라미터 제외 토글, is/oos_bars 명시 분할(표시=실행), wfe_valid, Calmar·expectancy 집계, 취소 지원 (FR-BT-049) | ✅ 완료 |
 | 워크포워드 SSE 진행률 | `/walk-forward/stream` 창 단위 진행률 스트리밍 + 연결 종료 시 창 경계 협조적 취소 (FR-BT-049) | ✅ 완료 |
+| 워크포워드 예상 소요 시간 | 실행 전 총 백테스트 수(구간×(조합/시도+1))를 기준 백테스트 실측 속도(`executionTime`)로 보정해 예상 소요 시간 범위를 미리 표시 + 실행 중 실측 timing으로 남은 시간(라이브 ETA) 갱신. 사전 추정의 구간 길이 비율 스케일은 제거(1회 비용은 기간과 거의 무관한 고정비 지배 — 스케일 시 수 배 과소추정돼 라이브 ETA와 괴리) (FR-BT-049) | ✅ 완료 |
 | 지표 기간 파라미터화 | MACD fast/slow/signal, 스토캐스틱 period, 볼린저 period/stdDev를 DSL 값으로 계산 — 기본값은 기존 컬럼 유지로 과거 결과 보존 (FR-BT-049b, engine/indicator_columns.py) | ✅ 완료 |
 | 몬테카를로 시뮬레이션 | 수익률 분포 확률적 분석 | ✅ 완료 |
 | 몬테카를로 분포 리포트 | Worst/Best·사분위(5/25/75/95%)·CAGR/MDD 히스토그램·진행률/취소·블록 1/5/10/21일 방식 선택 (FR-BT-050) | ✅ 완료 |
 | 몬테카를로 거래 재표본 | 체결 기록 FIFO 매칭 → 거래별 수익률 복원추출(trade bootstrap), 완결 거래 20건 미만 시 에러 (FR-BT-050) | ✅ 완료 |
+| 검증 결과 쉬운 설명 섹션 | 워크포워드·몬테카를로 결과에 수치를 일상 언어 문장으로 풀어 주는 "쉽게 이해하기" 섹션 결정적 생성 (FR-BT-051b, `ResultPlainSummary.tsx`) | ✅ 완료 |
+| 저장 결과 워크포워드 422 수정 | 저장 DSL에 symbols 부재로 워크포워드/재실행이 pydantic 422 → `buildWalkForwardRequest` 단일 통로에서 `symbols: []` 폴백 + detail 객체 배열 "[object Object]"를 읽을 수 있는 메시지로 변환 + 전략 기록 상세(`/backtest/[id]`)를 비스트림에서 SSE 스트림 클라이언트로 전환 (FR-STR-042b) | ✅ 완료 |
+| 워크포워드 취소 반응성 수정 | 취소가 창 경계에서만 확인되어 진행 중 창의 최적화(그리드 최대 500조합)가 계속 실행되던 버그 — should_cancel을 그리드 조합 루프·베이지안 trial 콜백(study.stop)·OOS 직전까지 배선해 백테스트 1회 단위로 중단 (FR-BT-049) | ✅ 완료 |
 | Optuna 최적화 | TPE 베이지안 파라미터 최적화 | ✅ 완료 |
 | 그리드 서치 | 순열 기반 파라미터 탐색 (단기<장기 의미 제약 공유) | ✅ 완료 |
 | 팩터 분석 | Fama-French, 모멘텀, 밸류 팩터 분해 | 🔲 미구현 |
@@ -1247,6 +1251,22 @@ WatchlistSymbol {
 - AI 모델은 진입/청산/위험 오버레이 어느 방식으로도 사이클 전체에서 알파 없음. 유일한 관찰은 휩쏘성 기술적 매매(-65%/년)의 과매매 출혈을 청산으로 줄여주는 것뿐이며 그조차 B&H 미달.
 - 사용자가 직접 "AI 모델"을 입력하면 파서·엔진은 여전히 인식·실행한다(기존 저장 전략 호환). 시스템이 **먼저 권하지 않을 뿐**이다.
 
+### Phase 3.11: 관리자 콘솔 (Admin Console) — ✅ 완료
+
+운영자 전용 단일 화면 관리자 콘솔. URL은 `/console` 하나뿐이며(하위 페이지 없음) 내부 탭 전환으로 모든 기능을 제공한다. 보안은 UI 숨김이 아니라 서버 권한 검증으로 보장한다.
+
+| 작업 | 상세 | 상태 |
+|------|------|------|
+| 서버 권한 검증 | `lib/server/adminAuth.ts::requireAdmin()` — JWT 쿠키 + `User.role='ADMIN'` + `status='ACTIVE'` 3중 검사. 실패 시 페이지·API 모두 **404**로 응답해 콘솔 존재 자체를 숨김. ADMIN 부여는 DB에서만 가능(화면/API로 role 변경 불가) | ✅ 완료 |
+| DB 스키마 | `User.role/status/lastLoginAt` 추가, `AdminAuditLog`(감사 로그, 삭제 API 없음), `PlanConfig`(플랜 한도 오버라이드). 마이그레이션 `20260707000000_admin_console` | ✅ 완료 |
+| 콘솔 UI | `app/console/page.tsx`(서버 게이트 → `notFound()`) + `components/admin/AdminConsole.tsx` — Overview/Users/Backtests/Virtual Accounts/Strategies/Plans/Audit Logs 7탭, 선택된 탭만 렌더 | ✅ 완료 |
+| 관리자 API | `/api/admin/{overview,users,backtests,accounts,strategies,plans,audit}` 7종 — 전부 `requireAdmin()` 게이트, 모든 변경 작업은 `writeAuditLog()`로 before/after JSON + IP 기록. 민감정보(password/token/key)는 어떤 응답에도 미포함 | ✅ 완료 |
+| 사용자 관리 | 이메일 검색·플랜/상태 필터·정렬·페이지네이션, 상세 패널에서 플랜 변경/정지/활성화/삭제(soft, status=DELETED)/백테스트 사용량 조정. 자기 자신 정지·삭제는 차단 | ✅ 완료 |
+| 정지 계정 차단 | 로그인 403 + 기존 세션도 무효(`getCurrentUser`가 `status!=='ACTIVE'`면 null). 로그인 성공 시 `lastLoginAt` 기록 | ✅ 완료 |
+| 가상계좌 관리 | 목록(평가금·수익률·거래수), 일시 중지(`status='PAUSED'` — 기존 `assetService` 주문 가드가 자동 차단)/재개/초기화(포지션·주문 삭제+현금 복원)/삭제 | ✅ 완료 |
+| 플랜 한도 오버라이드 | `PlanConfig` upsert → `planLimits.getEffectivePlan()`이 기본값(lib/plans.ts)에 병합, 백테스트 소비·전략/계좌 한도에 실시간 반영(-1=전략 무제한, null=기본값 복원) | ✅ 완료 |
+| 테스트 | `lib/server/adminAuth.test.ts`(권한 게이트 6건), `app/api/admin/users/route.test.ts`(404 은닉·감사 로그·자기보호 6건), `planLimits.test.ts` 오버라이드 5건 추가, 로그인 정지 차단 회귀. 라이브 검증: 익명/일반 404 → 관리자 200, 정지→로그인 403+세션 401, 감사 로그 기록, 플랜 오버라이드 30→77→30 왕복 | ✅ 완료 |
+
 ### Phase 4: 미구현 기능 (향후)
 
 | 작업 | 상세 | 우선순위 |
@@ -1356,6 +1376,7 @@ cd backend && pytest tests/
 | 입력 검증 | Pydantic 스키마 | 프론트엔드 검증 강화 |
 | SSRF 방어 | 뉴스 본문 fetch URL 검증, redirect 후 최종 URL 재검증 | DNS rebinding 방어 강화, allowlist 운영 |
 | 금융 데이터 | 로컬 저장 | 데이터 접근 권한 관리 |
+| 관리자 콘솔 | `/console` 단일 화면, 모든 관리자 API `requireAdmin()` 서버 검증, 비관리자 404 은닉, 전 작업 AdminAuditLog 기록(삭제 불가), ADMIN 부여는 DB에서만 | 2FA, 관리자 IP allowlist |
 | 이용약관 | 널스페이스의 `nullStock` 이용약관 초안 작성 | 사업자 정보, 유료서비스, 청약철회, 환불, 개인정보처리방침 법무 검토 후 확정 |
 
 ---

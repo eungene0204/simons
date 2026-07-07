@@ -17,6 +17,10 @@ type PlanLimitClient = {
   strategy: {
     count: (args: any) => Promise<number>;
   };
+  // 관리자 콘솔의 플랜 한도 오버라이드(PlanConfig). 없으면 기본값 사용.
+  planConfig?: {
+    findUnique: (args: any) => Promise<any>;
+  };
 };
 
 export const PLAN_LIMIT_ACCOUNTS = "PLAN_LIMIT_ACCOUNTS";
@@ -40,6 +44,42 @@ export function currentUsageMonth(now: Date = new Date()): string {
   return `${year}-${month}`;
 }
 
+/**
+ * 플랜 기본값(lib/plans.ts)에 관리자 콘솔의 PlanConfig 오버라이드를 병합한다.
+ * 오버라이드 필드가 null이면 기본값 유지, maxStrategies가 -1이면 무제한.
+ */
+export async function getEffectivePlan(
+  client: PlanLimitClient,
+  planTier?: string | null
+): Promise<Plan> {
+  const base = getPlan(planTier);
+  if (!client.planConfig) return base;
+
+  const override = await client.planConfig.findUnique({
+    where: { planId: base.planId },
+  });
+  if (!override) return base;
+
+  const unlimitedStrategies =
+    override.maxStrategies == null
+      ? base.isUnlimitedStrategies
+      : override.maxStrategies === -1;
+
+  return {
+    ...base,
+    monthlyBacktestLimit:
+      override.monthlyBacktestLimit ?? base.monthlyBacktestLimit,
+    maxVirtualAccounts: override.maxVirtualAccounts ?? base.maxVirtualAccounts,
+    maxStrategies:
+      override.maxStrategies == null
+        ? base.maxStrategies
+        : unlimitedStrategies
+          ? Infinity
+          : override.maxStrategies,
+    isUnlimitedStrategies: unlimitedStrategies,
+  };
+}
+
 /** 사용자의 현재 플랜 */
 export async function getUserPlan(
   client: PlanLimitClient,
@@ -49,7 +89,7 @@ export async function getUserPlan(
     where: { id: userId },
     select: { planTier: true },
   });
-  return getPlan(user?.planTier);
+  return getEffectivePlan(client, user?.planTier);
 }
 
 /** 활성(ACTIVE) 가상계좌 수 */
@@ -118,7 +158,7 @@ export async function consumeBacktestQuota(
   });
   if (!user) throw new Error("USER_NOT_FOUND");
 
-  const plan = getPlan(user.planTier);
+  const plan = await getEffectivePlan(client, user.planTier);
   const month = currentUsageMonth(now);
   const usedThisMonth =
     user.backtestUsageMonth === month ? user.backtestCountThisMonth : 0;
@@ -162,7 +202,7 @@ export async function getUserUsage(
     countSavedStrategies(client, userId),
   ]);
 
-  const plan = getPlan(user?.planTier);
+  const plan = await getEffectivePlan(client, user?.planTier);
   const month = currentUsageMonth(now);
   const backtestsUsed =
     user?.backtestUsageMonth === month ? user.backtestCountThisMonth : 0;

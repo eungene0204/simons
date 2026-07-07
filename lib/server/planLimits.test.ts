@@ -4,6 +4,7 @@ import {
   assertCanSaveStrategy,
   consumeBacktestQuota,
   currentUsageMonth,
+  getEffectivePlan,
   getUserUsage,
   PLAN_LIMIT_ACCOUNTS,
   PLAN_LIMIT_BACKTESTS,
@@ -143,5 +144,66 @@ describe("planLimits — 사용량 요약", () => {
     });
     const usage = await getUserUsage(client as any, 1, now);
     expect(usage.backtests.used).toBe(0);
+  });
+});
+
+describe("planLimits — PlanConfig 오버라이드 (관리자 콘솔)", () => {
+  function withPlanConfig(client: ReturnType<typeof createClient>, override: unknown) {
+    return {
+      ...client,
+      planConfig: { findUnique: vi.fn().mockResolvedValue(override) },
+    };
+  }
+
+  it("오버라이드가 없으면 기본값을 그대로 쓴다", async () => {
+    const client = withPlanConfig(createClient({ planTier: "FREE" }), null);
+    const plan = await getEffectivePlan(client as any, "FREE");
+    expect(plan.monthlyBacktestLimit).toBe(30);
+    expect(plan.maxVirtualAccounts).toBe(1);
+  });
+
+  it("planConfig 미지원 클라이언트(기존 코드 경로)도 기본값으로 동작한다", async () => {
+    const client = createClient({ planTier: "FREE" });
+    const plan = await getEffectivePlan(client as any, "FREE");
+    expect(plan.monthlyBacktestLimit).toBe(30);
+  });
+
+  it("오버라이드 필드는 덮어쓰고 null 필드는 기본값을 유지한다", async () => {
+    const client = withPlanConfig(createClient({ planTier: "FREE" }), {
+      planId: "FREE",
+      monthlyBacktestLimit: 100,
+      maxStrategies: null,
+      maxVirtualAccounts: null,
+    });
+    const plan = await getEffectivePlan(client as any, "FREE");
+    expect(plan.monthlyBacktestLimit).toBe(100);
+    expect(plan.maxStrategies).toBe(3);
+    expect(plan.maxVirtualAccounts).toBe(1);
+  });
+
+  it("maxStrategies = -1 은 무제한으로 해석한다", async () => {
+    const client = withPlanConfig(createClient({ planTier: "FREE" }), {
+      planId: "FREE",
+      monthlyBacktestLimit: null,
+      maxStrategies: -1,
+      maxVirtualAccounts: null,
+    });
+    const plan = await getEffectivePlan(client as any, "FREE");
+    expect(plan.isUnlimitedStrategies).toBe(true);
+    expect(plan.maxStrategies).toBe(Infinity);
+  });
+
+  it("오버라이드된 백테스트 한도가 소비(consume)에 실제로 반영된다", async () => {
+    const now = new Date("2026-06-15T03:00:00Z");
+    const client = withPlanConfig(
+      createClient({
+        planTier: "FREE",
+        backtestUsageMonth: currentUsageMonth(now),
+        backtestCountThisMonth: 30, // 기본 한도(30)에는 이미 도달
+      }),
+      { planId: "FREE", monthlyBacktestLimit: 50, maxStrategies: null, maxVirtualAccounts: null }
+    );
+    // 오버라이드 한도 50이므로 통과해야 한다
+    await expect(consumeBacktestQuota(client as any, 1, now)).resolves.toBeUndefined();
   });
 });

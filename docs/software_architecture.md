@@ -244,10 +244,13 @@ simons/
 | `/virtual-account` | 가상 계좌 목록 | `VirtualAccountCard` |
 | `/virtual-account/[id]` | 가상 계좌 상세 (포트폴리오) | `VirtualAccountMainView` |
 | `/watchlist` | 관심 종목 관리 | `Watchlist` |
+| `/console` | **관리자 콘솔** (운영자 전용, 단일 화면 7탭) | `AdminConsole` + `components/admin/*Tab` |
 
 `/stock-order`의 종목정보 탭은 실시간 시세와 분리된 비실시간 종목 프로필 레이어를 사용한다. 종목명, 상장일, 섹터, 회사 기본 정보, 재무 요약, PER/PBR 같은 저빈도 갱신 값은 DB에 저장하고, 현재가/등락률/거래량 등 실시간 값은 기존 실시간 시세 경로에서 조회한다.
 
-요금제 & 플랜 제한 시스템(`lib/plans.ts`, `lib/server/planLimits.ts`)이 가상계좌의 자금과 사용량 한도를 결정한다. 과거의 공유 "자산 지갑" 풀(`UserAsset.availableCash`에서 차감·반환) 모델은 폐기되었다. 각 가상계좌는 사용자의 현재 플랜(`User.planTier`, FREE/PRO/PREMIUM)에 정의된 **계좌당 초기 투자금**으로 독립 생성되며(`createFundedAccount`는 풀 차감 없이 계좌만 생성), 클라이언트가 보낸 금액은 무시하고 서버가 플랜 기준으로 결정한다. 플랜별 한도는 가상계좌 수(`assertCanCreateAccount`)·저장 전략 수(`assertCanSaveStrategy`)·월 백테스트 횟수(`consumeBacktestQuota`, `User.backtestUsageMonth`/`backtestCountThisMonth`로 달력 월 기준 초기화)로 enforce한다. 플랜 변경(`POST /api/user/plan`)은 `planTier`만 변경하며 이미 생성된 계좌의 초기 투자금·잔고는 소급 변경하지 않는다.
+요금제 & 플랜 제한 시스템(`lib/plans.ts`, `lib/server/planLimits.ts`)이 가상계좌의 자금과 사용량 한도를 결정한다. 과거의 공유 "자산 지갑" 풀(`UserAsset.availableCash`에서 차감·반환) 모델은 폐기되었다. 각 가상계좌는 사용자의 현재 플랜(`User.planTier`, FREE/PRO/PREMIUM)에 정의된 **계좌당 초기 투자금**으로 독립 생성되며(`createFundedAccount`는 풀 차감 없이 계좌만 생성), 클라이언트가 보낸 금액은 무시하고 서버가 플랜 기준으로 결정한다. 플랜별 한도는 가상계좌 수(`assertCanCreateAccount`)·저장 전략 수(`assertCanSaveStrategy`)·월 백테스트 횟수(`consumeBacktestQuota`, `User.backtestUsageMonth`/`backtestCountThisMonth`로 달력 월 기준 초기화)로 enforce한다. 플랜 변경(`POST /api/user/plan`)은 `planTier`만 변경하며 이미 생성된 계좌의 초기 투자금·잔고는 소급 변경하지 않는다. 플랜별 한도 기본값은 `lib/plans.ts`에 하드코딩되어 있고, 관리자 콘솔의 `PlanConfig` 오버라이드가 있으면 `getEffectivePlan()`이 병합해 적용한다(null 필드=기본값, `maxStrategies=-1`=무제한).
+
+**관리자 콘솔** (`/console` — `app/console/page.tsx` + `components/admin/`): 운영자 전용 단일 화면. 서버 컴포넌트가 `lib/server/adminAuth.ts::requireAdmin()`(JWT 쿠키 + `User.role='ADMIN'` + `status='ACTIVE'`)으로 검증해 실패 시 `notFound()`(404)로 존재를 숨긴다. 기능별 API `/api/admin/{overview,users,backtests,accounts,strategies,plans,audit}` 7종도 각각 requireAdmin 게이트를 거치며, 모든 변경 작업은 `writeAuditLog()`가 `AdminAuditLog`(before/after JSON + IP)에 기록한다 — 감사 로그 삭제 API는 없다. ADMIN 부여는 DB 직접 변경으로만 가능하다. 사용자 정지/삭제는 `User.status`(SUSPENDED/DELETED) soft 처리로, 로그인(403)과 기존 세션(`getCurrentUser`가 null)을 모두 차단한다. 가상계좌 '일시 중지'는 `status='PAUSED'`로, 기존 `assetService`의 `status !== "ACTIVE"` 주문 가드가 거래를 자동 차단한다.
 가상계좌 해지 요청(`DELETE /api/virtual-account/[id]`)은 보유 포지션을 현재가 기준으로 강제 매도하고 계좌를 `CLOSED`로 전환하되, 남은 현금·평가금액을 다른 계좌나 사용자 자산으로 **이전하지 않는다**. 정산값은 `ACCOUNT_LIQUIDATION_RETURN` 원장에만 기록되어 닫힌 계좌의 최종 평가금액/수익률 조회(`getAccountSettlementValues`)에 쓰인다.
 가상계좌 목록 카드의 해지 버튼은 즉시 삭제하지 않고 해지 확인 모달("남은 현금과 보유 종목은 다른 계좌로 이전되지 않습니다")을 먼저 표시하며, 사용자가 확인해야만 위 해지 로직이 실행된다.
 
@@ -696,6 +699,15 @@ Client polling으로 진행률/로그/리더보드 반영
 - `POST /api/virtual-account/[id]/orders` — 주문 생성
 - `POST /api/virtual-account/[id]/strategy/start` — 자동매매 시작
 - `POST /api/virtual-account/[id]/strategy/stop` — 자동매매 중지
+
+**관리자** (전부 `requireAdmin()` 게이트 — 비관리자에게는 404, 변경 작업은 `AdminAuditLog` 기록)
+- `GET /api/admin/overview` — 사용자/가입/플랜별/백테스트/가상계좌/전략 통계 + 최근 관리자 작업
+- `GET/PATCH /api/admin/users` — 사용자 목록(검색·필터·정렬·페이지네이션) / 플랜 변경·정지·활성화·삭제(soft)
+- `GET/PATCH /api/admin/backtests` — 사용자별 월 사용량·잔여 횟수(+`?userId=` 최근 실행 기록) / 사용량 초기화·증가·감소
+- `GET/PATCH /api/admin/accounts` — 가상계좌 목록(평가금·수익률) / 일시 중지·재개·초기화·삭제
+- `GET/PATCH /api/admin/strategies` — 전략 목록(지표·연결 계좌·백테스트 수) / 비활성화·삭제(soft)
+- `GET/PATCH /api/admin/plans` — 플랜 기본값+오버라이드 조회 / `PlanConfig` 한도 오버라이드 upsert
+- `GET /api/admin/audit` — 감사 로그 조회 (삭제 API 없음)
 
 ---
 
