@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { ArrowsClockwise, FolderOpen, SignOut, Spinner } from "phosphor-react";
+import { ArrowsClockwise, Crown, FolderOpen, SignOut, Spinner } from "phosphor-react";
 import {
   Bar,
   BarChart,
@@ -65,6 +65,28 @@ function ModelHelpTooltip({ label, description, example }: { label: string; desc
         <span className="block text-[11px] font-black uppercase tracking-widest text-sky-400">{label}</span>
         <span className="mt-2 block text-xs font-bold leading-5 text-gray-300">{description}</span>
         <span className="mt-3 block text-xs font-bold leading-5 text-gray-400">{example}</span>
+      </span>
+    </span>
+  );
+}
+
+function SettingHelpTooltip({ label, description }: { label: string; description: string }) {
+  return (
+    <span className="group relative z-20 inline-flex">
+      <button
+        type="button"
+        aria-label={`${label} 도움말`}
+        onClick={(event) => event.stopPropagation()}
+        className="flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-white/25 text-[10px] font-black leading-none text-gray-400 transition-colors hover:border-white/50 hover:text-white focus:border-white/60 focus:text-white focus:outline-none"
+      >
+        ?
+      </button>
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute left-0 top-full z-50 mt-2 w-72 max-w-[calc(100vw-3rem)] border border-white/[0.10] bg-[#171717] p-4 text-left opacity-0 shadow-[0_18px_40px_rgba(0,0,0,0.45)] transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+      >
+        <span className="block text-[11px] font-black uppercase tracking-widest text-sky-400">{label}</span>
+        <span className="mt-2 block text-xs font-bold leading-5 text-gray-300">{description}</span>
       </span>
     </span>
   );
@@ -600,6 +622,32 @@ export default function OptimizationPage({
     Math.round(monteCarloProgress * monteCarloSettings.iterations)
   );
 
+  // 프리미엄 전용 기능 게이트: PREMIUM이 아니면 최적화 화면 대신 안내와 플랜 변경 유도를 노출한다.
+  if (!isPlanLoading && !isPremiumValidationEnabled) {
+    return (
+      <div
+        data-testid="backtest-optimization-page"
+        className="flex min-h-[320px] items-center justify-center px-6 py-10"
+      >
+        <div className="w-full max-w-2xl p-8 text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-amber-400/30 bg-amber-500/10">
+            <Crown className="h-6 w-6 text-amber-300" weight="fill" />
+          </div>
+          <h3 className="mt-4 text-lg font-black text-white">전략 최적화는 프리미엄 플랜 전용 기능입니다</h3>
+          <p className="mt-2 whitespace-nowrap text-sm font-bold leading-6 text-gray-400">
+            프리미엄 플랜을 이용하시면 워크포워드 분석과 몬테카를로 시뮬레이션을 통해 더 깊은 검증을 할 수 있습니다.
+          </p>
+          <a
+            href="/pricing"
+            className="mt-6 inline-flex items-center justify-center rounded-lg border border-gray-500 px-5 py-2.5 text-sm font-black text-amber-100 transition-colors hover:bg-white/[0.05]"
+          >
+            플랜 변경
+          </a>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div data-testid="backtest-optimization-page" className="flex flex-col gap-4 px-6 py-4 md:flex-row md:items-start">
       <aside className="w-full flex-shrink-0 md:w-64">
@@ -689,26 +737,17 @@ export default function OptimizationPage({
               </div>
             )}
 
-            {!isPlanLoading && !isPremiumValidationEnabled && (
-              <div className="mt-5 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">
-                <p className="text-sm font-black text-amber-300">프리미엄 전용 검증 기능입니다.</p>
-                <p className="mt-1 text-sm font-bold leading-6 text-amber-100/90">
-                  몬테카를로 시뮬레이션은 PREMIUM 플랜에서만 실행할 수 있습니다.
-                </p>
-                <a
-                  href="/pricing"
-                  className="mt-3 inline-flex items-center rounded-lg border border-amber-300/30 px-3 py-2 text-xs font-black text-amber-100 transition-colors hover:bg-amber-300/10"
-                >
-                  요금제 보기
-                </a>
-              </div>
-            )}
-
             {!isPlanLoading && isPremiumValidationEnabled && (
               <>
                 <div className="mt-5 grid gap-4 lg:grid-cols-[1.1fr,0.9fr]">
                   <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">반복 횟수</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">반복 횟수</p>
+                      <SettingHelpTooltip
+                        label="반복 횟수"
+                        description="과거 데이터를 재조합해 만드는 가상 시나리오의 개수입니다. 횟수가 많을수록 수익률·낙폭 분포가 더 안정적으로 추정되지만 계산 시간은 늘어납니다."
+                      />
+                    </div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {[500, 1000, 2000].map((value) => (
                         <button
@@ -727,7 +766,13 @@ export default function OptimizationPage({
                   </div>
 
                   <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">시뮬레이션 방식</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">시뮬레이션 방식</p>
+                      <SettingHelpTooltip
+                        label="시뮬레이션 방식"
+                        description="과거 수익률을 다시 섞는 방법입니다. 일별 재표본은 하루 단위로 독립 추출하고, N일 블록은 며칠간 이어지는 등락 패턴을 함께 보존하며, 거래 재표본은 개별 체결 수익률을 재배열합니다."
+                      />
+                    </div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {[
                         { mode: "returns" as const, blockSize: 1, label: "일별 재표본" },

@@ -1,19 +1,18 @@
 // Order Engine — 슬리피지, 수수료, 틱 단위, 체결 판단 로직
 
 export const FEE_RATE = 0.00015;       // 수수료 0.015% (한국 MTS 수준)
-export const TAX_RATE = 0.002;         // 증권거래세 0.20% (매도 시 적용, 2024년 기준)
+export const TAX_RATE = 0.0015;        // 증권거래세 0.15% (매도 시 적용, 2025년~ / 백테스트 엔진 기본값과 동일)
 export const MARKET_SLIPPAGE = 0.0005; // 시장가 슬리피지 0.05%
 
 /**
- * 한국거래소 호가 단위(tick size) 적용
- * https://www.krx.co.kr/contents/COM/GenerateOTP.jspx (호가단위)
+ * 한국거래소 호가 단위(tick size) 적용 (2023-01 개편, 코스피/코스닥 공통)
  */
 export function roundToTick(price: number): number {
-  if (price < 1_000)   return Math.round(price);
+  if (price < 2_000)   return Math.round(price);
   if (price < 5_000)   return Math.round(price / 5) * 5;
-  if (price < 10_000)  return Math.round(price / 10) * 10;
+  if (price < 20_000)  return Math.round(price / 10) * 10;
   if (price < 50_000)  return Math.round(price / 50) * 50;
-  if (price < 100_000) return Math.round(price / 100) * 100;
+  if (price < 200_000) return Math.round(price / 100) * 100;
   if (price < 500_000) return Math.round(price / 500) * 500;
   return Math.round(price / 1_000) * 1_000;
 }

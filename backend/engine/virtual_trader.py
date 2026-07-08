@@ -35,18 +35,19 @@ REFRESH_INTERVAL = 30          # 장중 시그널 평가 간격 (초)
 HISTORY_DAYS = 75              # 시그널 평가에 사용할 OHLCV 기간
 
 FEE_RATE = 0.00015             # 수수료 0.015%
-TAX_RATE = 0.002               # 증권거래세 0.20%
+TAX_RATE = 0.0015              # 증권거래세 0.15% (2025년~, 백테스트 엔진 기본값과 동일)
 MARKET_SLIPPAGE = 0.0005       # 시장가 슬리피지 0.05%
 
 
 # ── 주문 계산 유틸 ──────────────────────────────────────────────────────────
 
 def _round_tick(price: float) -> int:
-    if price < 1_000:   return round(price)
+    # KRX 호가단위 (2023-01 개편, 코스피/코스닥 공통)
+    if price < 2_000:   return round(price)
     if price < 5_000:   return round(price / 5) * 5
-    if price < 10_000:  return round(price / 10) * 10
+    if price < 20_000:  return round(price / 10) * 10
     if price < 50_000:  return round(price / 50) * 50
-    if price < 100_000: return round(price / 100) * 100
+    if price < 200_000: return round(price / 100) * 100
     if price < 500_000: return round(price / 500) * 500
     return round(price / 1_000) * 1_000
 
@@ -85,6 +86,26 @@ def _coerce_numeric(value, default: float = 0.0) -> float:
         return default
 
 
+def _now_ms() -> int:
+    """Prisma가 SQLite DateTime을 epoch ms 정수로 저장하므로 동일 포맷으로 기록한다."""
+    return int(datetime.now(timezone.utc).timestamp() * 1000)
+
+
+def _parse_db_datetime(value) -> Optional[datetime]:
+    """DateTime 컬럼 값 파싱 — Prisma(epoch ms 정수)와 구버전 Python(ISO 문자열) 모두 지원."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value / 1000, tz=timezone.utc)
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except ValueError:
+        return None
+
+
 # ── 시장 시간 ────────────────────────────────────────────────────────────────
 
 def _is_market_hours() -> bool:
@@ -93,6 +114,20 @@ def _is_market_hours() -> bool:
         return False
     t = now.hour * 100 + now.minute
     return 900 <= t <= 1530
+
+
+def _fresh_price_map(quotes: dict, today: str) -> dict[str, int]:
+    """오늘 날짜(KST)의 시세만 매매에 사용한다.
+
+    평일 공휴일(KRX 휴장)에는 제공자들이 마지막 거래일 날짜(또는 None)를 반환하므로
+    여기서 전부 걸러져 매매·리스크 청산·지정가 체결이 보류된다. 데이터 소스 장애로
+    과거 시세가 내려오는 경우도 같은 방식으로 방어된다.
+    """
+    return {
+        sym: q.close
+        for sym, q in quotes.items()
+        if q.close > 0 and getattr(q, "date", None) == today
+    }
 
 
 # ── DB 경로 ──────────────────────────────────────────────────────────────────
@@ -226,15 +261,16 @@ class VirtualTrader:
             con.close()
 
     def _fetch_today_logs(self, account_id: str, today: str) -> set[str]:
-        """오늘 실행된 (symbol_signalType) 집합 반환"""
+        """오늘 기록된 (symbol_signalType_action) 집합 반환 — 하루 1회 중복 방지용"""
         con = sqlite3.connect(self._db)
         con.row_factory = sqlite3.Row
         try:
             rows = con.execute(
-                "SELECT symbol, signalType FROM VirtualMarketLog WHERE accountId = ? AND date = ? AND action = 'auto_executed'",
+                "SELECT symbol, signalType, action FROM VirtualMarketLog "
+                "WHERE accountId = ? AND date = ? AND action IN ('auto_executed', 'notified')",
                 (account_id, today),
             ).fetchall()
-            return {f"{r['symbol']}_{r['signalType']}" for r in rows}
+            return {f"{r['symbol']}_{r['signalType']}_{r['action']}" for r in rows}
         finally:
             con.close()
 
@@ -309,9 +345,11 @@ class VirtualTrader:
                 trailing_stop_pct = _coerce_numeric(risk.get("trailing_stop_pct"))
                 max_holding_days = int(_coerce_numeric(risk.get("max_holding_days")))
 
-        # 2. 실시간 시세 조회
+        # 2. 실시간 시세 조회 (휴장일/스테일 시세 가드: 오늘 날짜 시세만 매매에 사용)
         quotes = await self._mdp.get_prices(symbols)
-        price_map: dict[str, int] = {sym: q.close for sym, q in quotes.items() if q.close > 0}
+        price_map: dict[str, int] = _fresh_price_map(quotes, today)
+        if quotes and not price_map:
+            logger.debug("[VirtualTrader] 계좌 %s: 오늘(%s) 시세 없음 — 휴장일 또는 스테일 데이터, 매매 보류", account_id, today)
         name_map: dict[str, str] = await asyncio.to_thread(self._fetch_stock_names, symbols)
 
         # 3. 시그널 평가
@@ -342,14 +380,11 @@ class VirtualTrader:
                     risk_exits[pos["symbol"]] = f"트레일링스톱 (최고가 {int(peak):,}원 대비 {dd_pct:.1f}% 하락)"
                     continue
             if max_holding_days > 0:
-                opened_at = pos.get("openedAt") or ""
-                try:
-                    opened_dt = datetime.fromisoformat(str(opened_at).replace("Z", "+00:00"))
+                opened_dt = _parse_db_datetime(pos.get("openedAt"))
+                if opened_dt is not None:
                     holding_days = (datetime.now(timezone.utc) - opened_dt).days
                     if holding_days >= max_holding_days:
                         risk_exits[pos["symbol"]] = f"최대보유일 초과 ({holding_days}일 ≥ {max_holding_days}일)"
-                except Exception:
-                    pass
 
         # 리스크 종료를 시그널에 병합
         for sym, reason in risk_exits.items():
@@ -413,18 +448,18 @@ class VirtualTrader:
                 pos = next((p for p in positions if p["symbol"] == sym), None)
                 if not pos:
                     continue
-                if f"{sym}_exit" in executed_today:
+                if f"{sym}_exit_auto_executed" in executed_today:
                     continue
+                stock_name = name_map.get(sym) or pos.get("name") or sym
 
                 if trading_mode == "auto":
-                    stock_name = name_map.get(sym) or pos.get("name") or sym
                     order_id = await asyncio.to_thread(
                         self._execute_sell, account_id, sym, stock_name, close, pos["quantity"], pos["avgPrice"]
                     )
                     if order_id:
                         await asyncio.to_thread(
                             self._log_signal, account_id, today, sym, close,
-                            "exit", sig.get("exit_reason"), "auto_executed", order_id
+                            "exit", sig.get("exit_reason"), "auto_executed", order_id, stock_name
                         )
                         # 강제청산 감사 로그
                         exit_reason = sig.get("exit_reason") or ""
@@ -434,17 +469,19 @@ class VirtualTrader:
                                 "AUTO_LIQUIDATE", None, None,
                                 pos["quantity"], float(close), exit_reason,
                             )
-                        executed_today.add(f"{sym}_exit")
+                        executed_today.add(f"{sym}_exit_auto_executed")
                         logger.info("[VirtualTrader] 매도 %s %s %d주 @%d", account_id, sym, pos["quantity"], close)
-                else:
+                elif f"{sym}_exit_notified" not in executed_today:
+                    # 알림은 하루 1회만 기록 (30초 틱마다 중복 로그 방지)
                     await asyncio.to_thread(
                         self._log_signal, account_id, today, sym, close,
-                        "exit", sig.get("exit_reason"), "notified", None
+                        "exit", sig.get("exit_reason"), "notified", None, stock_name
                     )
+                    executed_today.add(f"{sym}_exit_notified")
 
             # ── 진입 ─────────────────────────────────────────────────────
             if sig.get("entry_signal"):
-                if f"{sym}_entry" in executed_today:
+                if f"{sym}_entry_auto_executed" in executed_today:
                     continue
                 pos = next((p for p in positions if p["symbol"] == sym), None)
                 if pos:
@@ -452,25 +489,26 @@ class VirtualTrader:
                 pos_count = await asyncio.to_thread(self._count_positions, account_id)
                 if pos_count >= max_positions:
                     continue
+                stock_name = name_map.get(sym, sym)
 
                 if trading_mode == "auto":
                     current_cash = await asyncio.to_thread(self._fetch_current_cash, account_id)
-                    stock_name = name_map.get(sym, sym)
                     order_id = await asyncio.to_thread(
                         self._execute_buy, account_id, sym, stock_name, close, current_cash, position_size_pct
                     )
                     if order_id:
                         await asyncio.to_thread(
                             self._log_signal, account_id, today, sym, close,
-                            "entry", sig.get("entry_reason"), "auto_executed", order_id
+                            "entry", sig.get("entry_reason"), "auto_executed", order_id, stock_name
                         )
-                        executed_today.add(f"{sym}_entry")
+                        executed_today.add(f"{sym}_entry_auto_executed")
                         logger.info("[VirtualTrader] 매수 %s %s @%d", account_id, sym, close)
-                else:
+                elif f"{sym}_entry_notified" not in executed_today:
                     await asyncio.to_thread(
                         self._log_signal, account_id, today, sym, close,
-                        "entry", sig.get("entry_reason"), "notified", None
+                        "entry", sig.get("entry_reason"), "notified", None, stock_name
                     )
+                    executed_today.add(f"{sym}_entry_notified")
 
         # 6. PENDING 지정가 주문 체결
         pending_orders = await asyncio.to_thread(self._fetch_pending_orders, account_id)
@@ -558,7 +596,8 @@ class VirtualTrader:
     ) -> Optional[str]:
         invest = current_cash * (position_size_pct / 100)
         filled = _filled_price(price, "BUY")
-        qty = int(invest // filled)
+        # 수수료 포함 총비용이 투자금 안에 들어오도록 수량 산정 (100% 투자 시에도 매수 가능)
+        qty = int(invest // (filled * (1 + FEE_RATE)))
         if qty <= 0:
             return None
         cost = _buy_cost(filled, qty)
@@ -567,18 +606,18 @@ class VirtualTrader:
         fee = _fee(filled, qty)
 
         order_id = str(uuid.uuid4())
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_ms = _now_ms()
 
         con = sqlite3.connect(self._db)
         try:
             con.execute("""
                 INSERT INTO VirtualOrder (id, accountId, symbol, name, side, type, quantity, price, filledPrice, fee, status, filledAt, createdAt)
                 VALUES (?, ?, ?, ?, 'BUY', 'MARKET', ?, ?, ?, ?, 'FILLED', ?, ?)
-            """, (order_id, account_id, symbol, name, qty, price, filled, fee, now_iso, now_iso))
+            """, (order_id, account_id, symbol, name, qty, price, filled, fee, now_ms, now_ms))
 
             con.execute("""
                 UPDATE VirtualAccount SET currentCash = currentCash - ?, updatedAt = ? WHERE id = ?
-            """, (cost, now_iso, account_id))
+            """, (cost, now_ms, account_id))
 
             existing = con.execute(
                 "SELECT quantity, avgPrice, peakPrice FROM VirtualPosition WHERE accountId = ? AND symbol = ?",
@@ -592,14 +631,14 @@ class VirtualTrader:
                 con.execute("""
                     UPDATE VirtualPosition SET quantity = ?, avgPrice = ?, peakPrice = ?, updatedAt = ?
                     WHERE accountId = ? AND symbol = ?
-                """, (new_qty, new_avg, new_peak, now_iso, account_id, symbol))
+                """, (new_qty, new_avg, new_peak, now_ms, account_id, symbol))
             else:
                 pos_id = str(uuid.uuid4())
                 peak = max(filled, price)
                 con.execute("""
                     INSERT INTO VirtualPosition (id, accountId, symbol, name, quantity, avgPrice, peakPrice, openedAt, updatedAt)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (pos_id, account_id, symbol, name, qty, filled, peak, now_iso, now_iso))
+                """, (pos_id, account_id, symbol, name, qty, filled, peak, now_ms, now_ms))
 
             con.commit()
             return order_id
@@ -626,18 +665,18 @@ class VirtualTrader:
         pnl = _realized_pnl(filled, avg_buy_price, quantity, fee, tax)
 
         order_id = str(uuid.uuid4())
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_ms = _now_ms()
 
         con = sqlite3.connect(self._db)
         try:
             con.execute("""
                 INSERT INTO VirtualOrder (id, accountId, symbol, name, side, type, quantity, price, filledPrice, fee, tax, avgBuyPrice, realizedPnl, status, filledAt, createdAt)
                 VALUES (?, ?, ?, ?, 'SELL', 'MARKET', ?, ?, ?, ?, ?, ?, ?, 'FILLED', ?, ?)
-            """, (order_id, account_id, symbol, name, quantity, price, filled, fee, tax, avg_buy_price, pnl, now_iso, now_iso))
+            """, (order_id, account_id, symbol, name, quantity, price, filled, fee, tax, avg_buy_price, pnl, now_ms, now_ms))
 
             con.execute("""
                 UPDATE VirtualAccount SET currentCash = currentCash + ?, updatedAt = ? WHERE id = ?
-            """, (proceeds, now_iso, account_id))
+            """, (proceeds, now_ms, account_id))
 
             pos = con.execute(
                 "SELECT quantity FROM VirtualPosition WHERE accountId = ? AND symbol = ?",
@@ -654,7 +693,7 @@ class VirtualTrader:
                 else:
                     con.execute(
                         "UPDATE VirtualPosition SET quantity = ?, updatedAt = ? WHERE accountId = ? AND symbol = ?",
-                        (new_qty, now_iso, account_id, symbol)
+                        (new_qty, now_ms, account_id, symbol)
                     )
 
             con.commit()
@@ -671,14 +710,22 @@ class VirtualTrader:
         qty = order["quantity"]
         filled = order["price"]  # 지정가로 체결
         fee = _fee(int(filled), qty)
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_ms = _now_ms()
 
         con = sqlite3.connect(self._db)
         try:
+            # 다른 체결 경로(브라우저 fill 라우트)와의 이중 체결 방지:
+            # status='PENDING' 조건부 UPDATE로 원자적으로 선점하고, 실패하면 아무것도 하지 않는다.
+            con.execute("BEGIN IMMEDIATE")
+
             if side == "BUY":
-                con.execute("""
-                    UPDATE VirtualOrder SET status = 'FILLED', filledPrice = ?, fee = ?, filledAt = ? WHERE id = ?
-                """, (filled, fee, now_iso, order["id"]))
+                claimed = con.execute("""
+                    UPDATE VirtualOrder SET status = 'FILLED', filledPrice = ?, fee = ?, filledAt = ?
+                    WHERE id = ? AND status = 'PENDING'
+                """, (filled, fee, now_ms, order["id"])).rowcount
+                if not claimed:
+                    con.rollback()
+                    return
 
                 existing = con.execute(
                     "SELECT quantity, avgPrice, peakPrice FROM VirtualPosition WHERE accountId = ? AND symbol = ?",
@@ -692,7 +739,7 @@ class VirtualTrader:
                     con.execute("""
                         UPDATE VirtualPosition SET quantity = ?, avgPrice = ?, currentPrice = ?, peakPrice = ?, updatedAt = ?
                         WHERE accountId = ? AND symbol = ?
-                    """, (new_qty, new_avg, current_price, new_peak, now_iso, account_id, order["symbol"]))
+                    """, (new_qty, new_avg, current_price, new_peak, now_ms, account_id, order["symbol"]))
                 else:
                     pos_id = str(uuid.uuid4())
                     peak = max(int(filled), current_price)
@@ -700,7 +747,7 @@ class VirtualTrader:
                         INSERT INTO VirtualPosition (id, accountId, symbol, name, quantity, avgPrice, currentPrice, peakPrice, openedAt, updatedAt)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (pos_id, account_id, order["symbol"], order.get("name") or order["symbol"],
-                          qty, filled, current_price, peak, now_iso, now_iso))
+                          qty, filled, current_price, peak, now_ms, now_ms))
 
             else:  # SELL
                 pos = con.execute(
@@ -708,7 +755,12 @@ class VirtualTrader:
                     (account_id, order["symbol"])
                 ).fetchone()
                 if not pos or pos[0] < qty:
-                    con.close()
+                    # 보유 수량 부족 → 주문 취소 (fill 라우트와 동일한 처리)
+                    con.execute(
+                        "UPDATE VirtualOrder SET status = 'CANCELLED' WHERE id = ? AND status = 'PENDING'",
+                        (order["id"],)
+                    )
+                    con.commit()
                     return
 
                 avg_buy = pos[1]
@@ -716,14 +768,17 @@ class VirtualTrader:
                 proceeds = _sell_proceeds(int(filled), qty)
                 pnl = _realized_pnl(int(filled), avg_buy, qty, fee, tax)
 
-                con.execute("""
+                claimed = con.execute("""
                     UPDATE VirtualOrder SET status = 'FILLED', filledPrice = ?, fee = ?, tax = ?,
-                    avgBuyPrice = ?, realizedPnl = ?, filledAt = ? WHERE id = ?
-                """, (filled, fee, tax, avg_buy, pnl, now_iso, order["id"]))
+                    avgBuyPrice = ?, realizedPnl = ?, filledAt = ? WHERE id = ? AND status = 'PENDING'
+                """, (filled, fee, tax, avg_buy, pnl, now_ms, order["id"])).rowcount
+                if not claimed:
+                    con.rollback()
+                    return
 
                 con.execute("""
                     UPDATE VirtualAccount SET currentCash = currentCash + ?, updatedAt = ? WHERE id = ?
-                """, (proceeds, now_iso, account_id))
+                """, (proceeds, now_ms, account_id))
 
                 new_qty = pos[0] - qty
                 if new_qty <= 0:
@@ -734,7 +789,7 @@ class VirtualTrader:
                 else:
                     con.execute(
                         "UPDATE VirtualPosition SET quantity = ?, updatedAt = ? WHERE accountId = ? AND symbol = ?",
-                        (new_qty, now_iso, account_id, order["symbol"])
+                        (new_qty, now_ms, account_id, order["symbol"])
                     )
 
             con.commit()
@@ -756,7 +811,7 @@ class VirtualTrader:
 
     def _update_positions(self, account_id: str, price_map: dict[str, int], quotes: dict):
         con = sqlite3.connect(self._db)
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_ms = _now_ms()
         try:
             positions = con.execute(
                 "SELECT symbol, peakPrice, avgPrice FROM VirtualPosition WHERE accountId = ?", (account_id,)
@@ -772,7 +827,7 @@ class VirtualTrader:
                 con.execute("""
                     UPDATE VirtualPosition SET currentPrice = ?, peakPrice = ?, updatedAt = ?
                     WHERE accountId = ? AND symbol = ?
-                """, (price, new_peak, now_iso, account_id, sym))
+                """, (price, new_peak, now_ms, account_id, sym))
             con.commit()
         except Exception as e:
             con.rollback()
@@ -782,11 +837,11 @@ class VirtualTrader:
 
     def _update_last_refreshed(self, account_id: str, today: str):
         con = sqlite3.connect(self._db)
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_ms = _now_ms()
         try:
             con.execute("""
                 UPDATE VirtualMarketState SET lastRefreshed = ?, updatedAt = ? WHERE accountId = ?
-            """, (today, now_iso, account_id))
+            """, (today, now_ms, account_id))
             con.commit()
         finally:
             con.close()
@@ -801,15 +856,16 @@ class VirtualTrader:
         reason: Optional[str],
         action: str,
         order_id: Optional[str],
+        stock_name: Optional[str] = None,
     ):
         log_id = str(uuid.uuid4())
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_ms = _now_ms()
         con = sqlite3.connect(self._db)
         try:
             con.execute("""
-                INSERT INTO VirtualMarketLog (id, accountId, date, symbol, signalType, reason, price, action, orderId, createdAt)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (log_id, account_id, date, symbol, signal_type, reason, price, action, order_id, now_iso))
+                INSERT INTO VirtualMarketLog (id, accountId, date, symbol, stockName, signalType, reason, price, action, orderId, createdAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (log_id, account_id, date, symbol, stock_name, signal_type, reason, price, action, order_id, now_ms))
             con.commit()
         except Exception as e:
             logger.error("[VirtualTrader] 로그 기록 오류: %s", e)

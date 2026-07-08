@@ -13,31 +13,6 @@ import {
 } from "phosphor-react";
 
 type SortField = 'timestamp' | 'totalReturn' | 'cagr' | 'mdd' | 'profitFactor' | 'trades' | 'score';
-const HISTORY_CACHE_KEY = "simons.backtestHistory";
-
-function readCachedHistory() {
-  if (typeof window === "undefined") return null;
-
-  try {
-    const raw = window.sessionStorage.getItem(HISTORY_CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return null;
-    return parsed as BacktestHistoryItem[];
-  } catch {
-    return null;
-  }
-}
-
-function writeCachedHistory(nextHistory: BacktestHistoryItem[]) {
-  if (typeof window === "undefined") return;
-
-  try {
-    window.sessionStorage.setItem(HISTORY_CACHE_KEY, JSON.stringify(nextHistory));
-  } catch {
-    // Cache writes are best effort only.
-  }
-}
 
 function HistoryMetric({
   label,
@@ -67,18 +42,12 @@ export default function BacktestHistoryPage() {
 
   useEffect(() => {
     let isActive = true;
-    const cachedHistory = readCachedHistory();
-    if (cachedHistory) {
-      setHistory(cachedHistory);
-      setIsLoading(false);
-    }
 
     fetch("/api/backtest/history")
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => {
         if (!isActive) return;
         setHistory(data);
-        writeCachedHistory(data);
         setIsLoading(false);
       })
       .catch(() => {
@@ -111,11 +80,7 @@ export default function BacktestHistoryPage() {
         method: "DELETE",
       });
       if (response.ok) {
-        setHistory((prev) => {
-          const nextHistory = prev.filter((item) => item.id !== id);
-          writeCachedHistory(nextHistory);
-          return nextHistory;
-        });
+        setHistory((prev) => prev.filter((item) => item.id !== id));
         setDeleteTarget(null);
       }
     } catch (error) {

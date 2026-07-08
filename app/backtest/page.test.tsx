@@ -63,15 +63,16 @@ describe("BacktestHistoryPage", () => {
     window.sessionStorage.clear();
   });
 
-  it("캐시된 빈 기록이 있으면 API 응답 전 empty state를 바로 보여준다", () => {
-    window.sessionStorage.setItem("simons.backtestHistory", "[]");
+  it("API 응답 전에는 이전 기록을 보여주지 않고 로딩 상태만 노출한다", () => {
+    // 이전 세션 캐시가 남아 있어도 절대 렌더에 반영하지 않는다 (오래된 카드 깜빡임 방지).
+    window.sessionStorage.setItem("simons.backtestHistory", JSON.stringify([makeHistoryItem()]));
     fetchMock.mockReturnValue(new Promise(() => {}));
 
     render(<BacktestHistoryPage />);
 
-    expect(screen.getByRole("button", { name: "전략 만들기" })).toBeInTheDocument();
-    expect(screen.queryByText("전략 백테스트 기록")).not.toBeInTheDocument();
-    expect(screen.queryByText("최근 50개 기록")).not.toBeInTheDocument();
+    expect(screen.getByText("불러오는 중...")).toBeInTheDocument();
+    expect(screen.queryByText("모멘텀 전략")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "전략 만들기" })).not.toBeInTheDocument();
   });
 
   it("저장된 백테스트가 없으면 empty state와 전략 생성 CTA를 보여준다", async () => {
@@ -93,17 +94,16 @@ describe("BacktestHistoryPage", () => {
 
   it("전략 카드 삭제 전에 확인 모달을 보여주고 확인 후 삭제한다", async () => {
     const historyItem = makeHistoryItem();
-    window.sessionStorage.setItem("simons.backtestHistory", JSON.stringify([historyItem]));
     fetchMock.mockImplementation((url: string, options?: RequestInit) => {
       if (options?.method === "DELETE") {
         return Promise.resolve({ ok: true });
       }
-      return new Promise(() => {});
+      return Promise.resolve({ ok: true, json: async () => [historyItem] });
     });
 
     render(<BacktestHistoryPage />);
 
-    expect(screen.getByRole("heading", { name: "전략 백테스트 기록" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "전략 백테스트 기록" })).toBeInTheDocument();
     expect(screen.getByText("모멘텀 전략")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "기록 전체 삭제" })).not.toBeInTheDocument();
 

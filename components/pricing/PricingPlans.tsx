@@ -26,6 +26,12 @@ const PLAN_ICONS: Record<PlanId, typeof Lightning> = {
   PREMIUM: Crown,
 };
 
+const PLAN_DESCRIPTIONS: Record<PlanId, string> = {
+  FREE: "처음 전략을 만들고 백테스트를 경험해 보세요",
+  PRO: "여러 전략을 동시에 연구하고 시뮬레이션 해보세요",
+  PREMIUM: "전문가 수준으로 전략을 연구하고 검증 해보세요",
+};
+
 type FeatureRow = { label: string; included: boolean };
 
 const PREMIUM_VALIDATION_FEATURES = [
@@ -97,6 +103,7 @@ export default function PricingPlans({ currentPlanId }: PricingPlansProps) {
           const Icon = PLAN_ICONS[planId];
           const isCurrent = planId === currentPlanId;
           const features = planFeatures(planId, plan);
+          const description = PLAN_DESCRIPTIONS[planId];
 
           return (
             <div
@@ -117,7 +124,7 @@ export default function PricingPlans({ currentPlanId }: PricingPlansProps) {
               </div>
 
               <p className="mt-6 text-sm font-bold leading-relaxed text-gray-400">
-                {plan.description}
+                {description}
               </p>
 
               {/* 가격 */}

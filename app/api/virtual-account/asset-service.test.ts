@@ -130,8 +130,8 @@ describe("asset service", () => {
       priceMap: { "005930": new Prisma.Decimal(350_000) },
     });
 
-    // 남은 현금 + 강제 매도 대금
-    expect(result.returnedAmount.toNumber()).toBe(3_692_475);
+    // 남은 현금 + 강제 매도 대금 (350만원 매도 − 수수료 525 − 거래세 0.15% 5,250)
+    expect(result.returnedAmount.toNumber()).toBe(3_694_225);
     // 정산값은 ACCOUNT_LIQUIDATION_RETURN 원장에만 기록된다(사용자 자산으로 이전하지 않음)
     expect(tx.assetLedger.create).toHaveBeenCalledWith({
       data: expect.objectContaining({

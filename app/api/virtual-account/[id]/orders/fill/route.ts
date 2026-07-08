@@ -49,7 +49,7 @@ export async function POST(
       if (!isPendingFillable(order.side as 'BUY' | 'SELL', orderPrice, price)) continue;
 
       try {
-        await prisma.$transaction(async (tx) => {
+        const didFill = await prisma.$transaction(async (tx) => {
           const account = await tx.virtualAccount.findUnique({ where: { id: params.id } });
           if (!account) throw new Error('ACCOUNT_NOT_FOUND');
 
@@ -57,6 +57,14 @@ export async function POST(
           const fee = calcFee(filledPrice, order.quantity);
 
           if (order.side === 'BUY') {
+            // VirtualTrader(백엔드 30초 루프)와의 이중 체결 방지:
+            // status=PENDING 조건부 updateMany로 원자적으로 선점, 실패하면 skip
+            const claimed = await tx.virtualOrder.updateMany({
+              where: { id: order.id, status: 'PENDING' },
+              data: { status: 'FILLED', filledPrice: toMoney(filledPrice), filledAt: new Date(), fee: toMoney(fee) },
+            });
+            if (claimed.count === 0) return false;
+
             // 예약금으로 이미 현금 차감됨 → 포지션만 추가
             const pos = await tx.virtualPosition.findUnique({
               where: { accountId_symbol: { accountId: params.id, symbol: order.symbol } },
@@ -83,56 +91,53 @@ export async function POST(
               });
             }
             // 수수료 정산 (예약금에서 추정 수수료를 포함해 차감했으므로 실제 수수료와 차이는 무시)
-          } else {
-            // 매도: 포지션 차감 + 현금 추가
-            const pos = await tx.virtualPosition.findUnique({
-              where: { accountId_symbol: { accountId: params.id, symbol: order.symbol } },
-            });
-            if (!pos || pos.quantity < order.quantity) {
-              // 포지션 부족 → 주문 취소 처리
-              await tx.virtualOrder.update({
-                where: { id: order.id },
-                data: { status: 'CANCELLED' },
-              });
-              return;
-            }
-
-            const avgBuyPrice = moneyToNumber(pos.avgPrice);
-            const tax = calcTransactionTax(filledPrice, order.quantity);
-            const realizedPnl = calcRealizedPnl(filledPrice, avgBuyPrice, order.quantity, fee, tax);
-
-            const newQty = pos.quantity - order.quantity;
-            if (newQty === 0) {
-              await tx.virtualPosition.delete({
-                where: { accountId_symbol: { accountId: params.id, symbol: order.symbol } },
-              });
-            } else {
-              await tx.virtualPosition.update({
-                where: { accountId_symbol: { accountId: params.id, symbol: order.symbol } },
-                data: { quantity: newQty },
-              });
-            }
-
-            const proceeds = calcSellProceeds(filledPrice, order.quantity);
-            await tx.virtualAccount.update({
-              where: { id: params.id },
-              data: { currentCash: toMoney(moneyToNumber(account.currentCash) + proceeds) },
-            });
-
-            await tx.virtualOrder.update({
-              where: { id: order.id },
-              data: { status: 'FILLED', filledPrice: toMoney(filledPrice), filledAt: new Date(), fee: toMoney(fee), tax: toMoney(tax), avgBuyPrice: toMoney(avgBuyPrice), realizedPnl: toMoney(realizedPnl) },
-            });
-            return;
+            return true;
           }
 
-          await tx.virtualOrder.update({
-            where: { id: order.id },
-            data: { status: 'FILLED', filledPrice: toMoney(filledPrice), filledAt: new Date(), fee: toMoney(fee) },
+          // 매도: 포지션 차감 + 현금 추가
+          const pos = await tx.virtualPosition.findUnique({
+            where: { accountId_symbol: { accountId: params.id, symbol: order.symbol } },
           });
+          if (!pos || pos.quantity < order.quantity) {
+            // 포지션 부족 → 주문 취소 처리
+            await tx.virtualOrder.updateMany({
+              where: { id: order.id, status: 'PENDING' },
+              data: { status: 'CANCELLED' },
+            });
+            return false;
+          }
+
+          const avgBuyPrice = moneyToNumber(pos.avgPrice);
+          const tax = calcTransactionTax(filledPrice, order.quantity);
+          const realizedPnl = calcRealizedPnl(filledPrice, avgBuyPrice, order.quantity, fee, tax);
+
+          const claimed = await tx.virtualOrder.updateMany({
+            where: { id: order.id, status: 'PENDING' },
+            data: { status: 'FILLED', filledPrice: toMoney(filledPrice), filledAt: new Date(), fee: toMoney(fee), tax: toMoney(tax), avgBuyPrice: toMoney(avgBuyPrice), realizedPnl: toMoney(realizedPnl) },
+          });
+          if (claimed.count === 0) return false;
+
+          const newQty = pos.quantity - order.quantity;
+          if (newQty === 0) {
+            await tx.virtualPosition.delete({
+              where: { accountId_symbol: { accountId: params.id, symbol: order.symbol } },
+            });
+          } else {
+            await tx.virtualPosition.update({
+              where: { accountId_symbol: { accountId: params.id, symbol: order.symbol } },
+              data: { quantity: newQty },
+            });
+          }
+
+          const proceeds = calcSellProceeds(filledPrice, order.quantity);
+          await tx.virtualAccount.update({
+            where: { id: params.id },
+            data: { currentCash: toMoney(moneyToNumber(account.currentCash) + proceeds) },
+          });
+          return true;
         });
 
-        filled.push(order.id);
+        if (didFill) filled.push(order.id);
       } catch {
         // 개별 주문 체결 실패는 무시하고 다음 주문 처리
       }

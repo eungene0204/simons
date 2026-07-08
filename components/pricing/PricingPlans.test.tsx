@@ -42,11 +42,19 @@ describe("PricingPlans", () => {
     });
   });
 
+  it("uses the updated free plan description", () => {
+    render(<PricingPlans currentPlanId="FREE" />);
+
+    expect(
+      screen.getByText("처음 전략을 만들고 백테스트를 경험해 보세요")
+    ).toBeInTheDocument();
+  });
+
   it("uses the updated premium plan description", () => {
     render(<PricingPlans currentPlanId="FREE" />);
 
     expect(
-      screen.getByText("여러 전략을 동시에 연구하고 지속적으로 검증하는 플랜")
+      screen.getByText("전문가 수준으로 전략을 연구하고 검증 해보세요")
     ).toBeInTheDocument();
   });
 
@@ -71,7 +79,7 @@ describe("PricingPlans", () => {
     render(<PricingPlans currentPlanId="FREE" />);
 
     expect(
-      screen.getByText("투자 전략을 꾸준히 연구하고 검증하는 플랜")
+      screen.getByText("여러 전략을 동시에 연구하고 시뮬레이션 해보세요")
     ).toBeInTheDocument();
   });
 

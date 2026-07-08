@@ -192,8 +192,11 @@ async def test_virtual_trader_handles_none_risk_values_without_crashing(monkeypa
 
     class DummyMarketDataProvider:
         async def get_prices(self, symbols):
+            # date가 오늘이어야 휴장일/스테일 시세 가드를 통과해 리스크 루프까지 도달한다
+            from datetime import datetime, timezone, timedelta
+            today = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d")
             return {
-                symbol: SimpleNamespace(close=110, high=112)
+                symbol: SimpleNamespace(close=110, high=112, date=today)
                 for symbol in symbols
             }
 

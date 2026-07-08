@@ -112,7 +112,7 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
     cleanup();
   });
 
-  it("FREE 플랜에서는 몬테카를로 모델에 프리미엄 잠금 안내를 표시한다", async () => {
+  it("FREE 플랜에서는 전략 최적화 진입 시 프리미엄 잠금 안내와 플랜 변경 버튼을 표시한다", async () => {
     await renderDashboard("FREE");
     const user = userEvent.setup();
 
@@ -122,15 +122,11 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
     await user.click(screen.getByRole("button", { name: "전략 최적화" }));
     expect(await screen.findByTestId("backtest-optimization-page")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "몬테카를로" }));
-
-    expect(await screen.findByText("프리미엄 전용 검증 기능입니다.")).toBeInTheDocument();
-    expect(screen.queryByText("Premium Validation")).not.toBeInTheDocument();
-    expect(screen.queryByText("결과는 과거 데이터 기반 시뮬레이션이며 미래 성과를 보장하지 않습니다.")).not.toBeInTheDocument();
-    expect(screen.getByText(/백테스트 결과를 여러 방식으로 다시 섞어 보며/)).toBeInTheDocument();
-    expect(screen.queryByText(/백테스트 equity curve의 일별 수익률/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/블록 방식은 여러 날을 이어 뽑아/)).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "요금제 보기" })).toHaveAttribute("href", "/pricing");
+    // 게이트 화면에서는 워크포워드/몬테카를로 모델 선택이 노출되지 않는다.
+    expect(screen.getByText("전략 최적화는 프리미엄 플랜 전용 기능입니다")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "몬테카를로" })).not.toBeInTheDocument();
+    expect(screen.queryByText("몬테카를로 시뮬레이션")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "플랜 변경" })).toHaveAttribute("href", "/pricing");
   });
 
   it("PREMIUM 플랜에서는 전략 최적화 페이지에서 워크포워드 CTA와 몬테카를로 결과를 노출한다", async () => {
