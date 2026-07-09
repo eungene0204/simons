@@ -639,7 +639,7 @@ export default function OptimizationPage({
           </p>
           <a
             href="/pricing"
-            className="mt-6 inline-flex items-center justify-center rounded-lg border border-gray-500 px-5 py-2.5 text-sm font-black text-amber-100 transition-colors hover:bg-white/[0.05]"
+            className="mt-6 inline-flex items-center justify-center rounded-lg border border-gray-500 px-5 py-2.5 text-sm font-black text-gray-300 transition-colors hover:bg-white/[0.05]"
           >
             플랜 변경
           </a>

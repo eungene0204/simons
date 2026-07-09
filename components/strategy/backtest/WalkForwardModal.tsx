@@ -1096,18 +1096,20 @@ export function WalkForwardPanel({
                             <span className="truncate">검증기간</span>
                           </div>
                         </div>
-                        <div className="mt-4 pt-3">
-                          <div className="relative h-6">
+                        <div className="mt-4 space-y-1 pt-3">
+                          <div className="relative h-5">
                             <span
                               data-testid="walk-forward-timeline-axis-train-dates"
-                              className="absolute top-0 max-w-[45%] -translate-x-1/2 text-center text-[11px] font-black leading-4 tabular-nums text-gray-500"
+                              className="absolute top-0 max-w-[90%] -translate-x-1/2 text-center text-[11px] font-black leading-4 tabular-nums text-gray-500"
                               style={{ left: `${timelineTrainLabelPct}%` }}
                             >
                               <span className="block whitespace-nowrap">{formatDateLabel(firstTrainStart)} - {formatDateLabel(firstTrainEnd)}</span>
                             </span>
+                          </div>
+                          <div className="relative h-5">
                             <span
                               data-testid="walk-forward-timeline-axis-validation-dates"
-                              className="absolute top-0 max-w-[45%] -translate-x-1/2 text-center text-[11px] font-black leading-4 tabular-nums text-gray-500"
+                              className="absolute top-0 max-w-[90%] -translate-x-1/2 text-center text-[11px] font-black leading-4 tabular-nums text-gray-500"
                               style={{ left: `${timelineValidationLabelPct}%` }}
                             >
                               <span className="block whitespace-nowrap">{formatDateLabel(firstValidationStart ?? undefined)} - {formatDateLabel(firstValidationEnd ?? undefined)}</span>
@@ -1115,61 +1117,6 @@ export function WalkForwardPanel({
                           </div>
                         </div>
                       </div>
-                    </div>
-
-                    <div className="py-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-xs font-bold uppercase tracking-widest text-gray-500">실행 가능 여부</p>
-                        <span
-                          className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] font-black uppercase tracking-widest ${
-                            windowCountExceedsCap ? "bg-amber-500/15 text-amber-300" : "bg-emerald-500/15 text-emerald-400"
-                          }`}
-                        >
-                          <span className={`h-1.5 w-1.5 rounded-full ${windowCountExceedsCap ? "bg-amber-300" : "bg-emerald-400"}`} />
-                          {windowCountExceedsCap ? `상한 초과 (${derivedSettings.n_splits}개)` : `실행 가능 (${derivedSettings.n_splits}개 구간)`}
-                        </span>
-                      </div>
-
-                      {windowCountExceedsCap ? (
-                        <div className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/10 p-4">
-                          <p className="text-sm font-black leading-6 text-amber-200">
-                            현재 학습기간·검증기간 설정으로는 구간 수({derivedSettings.n_splits}개)가 상한({MAX_WALK_FORWARD_WINDOWS}개)을 초과해 실행할 수 없습니다.
-                          </p>
-                          <p className="mt-1 text-xs font-bold leading-5 text-amber-100/80">
-                            아래 두 가지 방법 중 하나로 학습기간 또는 검증기간을 늘리면 같은 백테스트 기간 안에서 구간 수만 줄어듭니다.
-                          </p>
-                          <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                            <button
-                              type="button"
-                              onClick={() => applyValidationBars(suggestedValidationBars)}
-                              className="rounded-lg border border-amber-300/30 bg-white/[0.03] p-3 text-left transition-colors hover:bg-amber-300/10"
-                            >
-                              <span className="block text-[10px] font-black uppercase tracking-widest text-amber-300">
-                                방법 1 · 검증기간 늘리기
-                              </span>
-                              <span className="mt-1 block text-xs font-bold leading-5 text-white">
-                                {formatBarsLabel(formState.validationBars)} → {formatBarsLabel(suggestedValidationBars)}
-                              </span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => applyTrainBars(suggestedTrainBars)}
-                              className="rounded-lg border border-amber-300/30 bg-white/[0.03] p-3 text-left transition-colors hover:bg-amber-300/10"
-                            >
-                              <span className="block text-[10px] font-black uppercase tracking-widest text-amber-300">
-                                방법 2 · 학습기간 늘리기
-                              </span>
-                              <span className="mt-1 block text-xs font-bold leading-5 text-white">
-                                {formatBarsLabel(formState.trainBars)} → {formatBarsLabel(suggestedTrainBars)}
-                              </span>
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="mt-2 text-xs font-bold leading-5 text-gray-500">
-                          현재 설정대로 워크포워드 분석 시작을 눌러 실행할 수 있습니다.
-                        </p>
-                      )}
                     </div>
 
                     <div className="py-4">

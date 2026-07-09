@@ -62,6 +62,8 @@ describe("WalkForwardModal", () => {
 
     expect(screen.getByText("예상 구간 수")).toBeInTheDocument();
     expect(screen.queryByText("현재 설정")).not.toBeInTheDocument();
+    expect(screen.queryByText("실행 가능 여부")).not.toBeInTheDocument();
+    expect(screen.queryByText(/워크포워드 분석 시작을 눌러 실행할 수 있습니다/)).not.toBeInTheDocument();
     expect(screen.queryByText("최적화 목표 지표")).not.toBeInTheDocument();
     expect(screen.queryByText("첫 구간 미리보기")).not.toBeInTheDocument();
     expect(screen.getByTestId("walk-forward-panel")).not.toHaveClass("h-full", "flex");
@@ -114,25 +116,30 @@ describe("WalkForwardModal", () => {
     });
     expect(screen.queryByTestId("walk-forward-timeline-train-dates")).not.toBeInTheDocument();
     expect(screen.queryByTestId("walk-forward-timeline-validation-dates")).not.toBeInTheDocument();
-    expect(screen.getByTestId("walk-forward-timeline-axis-train-dates")).toHaveTextContent(
+    const trainAxisDates = screen.getByTestId("walk-forward-timeline-axis-train-dates");
+    const validationAxisDates = screen.getByTestId("walk-forward-timeline-axis-validation-dates");
+    expect(trainAxisDates).toHaveTextContent(
       "2024.01.01 - 2024.03.24"
     );
-    expect(screen.getByTestId("walk-forward-timeline-axis-train-dates")).not.toHaveTextContent("학습기간");
-    expect(screen.getByTestId("walk-forward-timeline-axis-train-dates")).toHaveClass("text-gray-500");
-    expect(screen.getByTestId("walk-forward-timeline-axis-train-dates")).toHaveStyle({
+    expect(trainAxisDates).not.toHaveTextContent("학습기간");
+    expect(trainAxisDates).toHaveClass("text-gray-500");
+    expect(trainAxisDates).toHaveStyle({
       left: "17.364016736401673%",
     });
-    expect(screen.getByTestId("walk-forward-timeline-axis-validation-dates")).toHaveTextContent(
+    expect(validationAxisDates).toHaveTextContent(
       "2024.03.25 - 2024.04.21"
     );
-    expect(screen.getByTestId("walk-forward-timeline-axis-validation-dates")).not.toHaveTextContent("검증기간");
-    expect(screen.getByTestId("walk-forward-timeline-axis-validation-dates")).toHaveClass("text-gray-500");
-    expect(screen.getByTestId("walk-forward-timeline-axis-validation-dates")).toHaveStyle({
+    expect(validationAxisDates).not.toHaveTextContent("검증기간");
+    expect(validationAxisDates).toHaveClass("text-gray-500");
+    expect(validationAxisDates).toHaveStyle({
       left: "40.79497907949791%",
     });
+    expect(trainAxisDates.parentElement).not.toBe(validationAxisDates.parentElement);
+    expect(trainAxisDates.parentElement).toHaveClass("h-5");
+    expect(validationAxisDates.parentElement).toHaveClass("h-5");
     expect(screen.queryByTestId("walk-forward-timeline-axis-train-range")).not.toBeInTheDocument();
     expect(screen.queryByTestId("walk-forward-timeline-axis-validation-range")).not.toBeInTheDocument();
-    expect(screen.getByTestId("walk-forward-timeline-axis-validation-dates")).toHaveClass("top-0");
+    expect(validationAxisDates).toHaveClass("top-0");
     expect(within(timeline).queryByText("2024.08.27")).not.toBeInTheDocument();
 
     const user = userEvent.setup();

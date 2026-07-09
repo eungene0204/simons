@@ -33,13 +33,6 @@ export default async function PricingPage() {
           <div className="mt-14">
             <PricingPlans currentPlanId={currentPlan.planId} />
           </div>
-
-          <footer className="mt-auto border-t border-white/[0.08] pt-6 text-center">
-            <p className="text-xs font-bold leading-relaxed text-gray-600">
-              초기 모의 투자금은 실제 돈이 아니라 가상계좌 시뮬레이션을 위한 금액입니다. 플랜을 변경해도
-              이미 생성된 계좌의 초기 모의 투자금과 잔고는 변경되지 않습니다.
-            </p>
-          </footer>
         </div>
       </div>
     </DashboardLayout>

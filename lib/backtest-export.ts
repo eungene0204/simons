@@ -31,6 +31,12 @@ export interface BacktestExportMetadata {
   /** 슬리피지율 (소수, 예: 0.0005 = 0.05%) */
   slippage?: number;
   benchmark?: string;
+  /** 전략 배지 — 결과 화면 상단 "프롬프트" 팝오버에 표시되는 것과 동일한 조건 요약 */
+  entrySignals?: string[];
+  exitSignals?: string[];
+  position?: string;
+  rebalancing?: string;
+  risk?: string;
 }
 
 /** 종목 분석 행 — 비율(winRate/totalReturn)은 모두 소수(0~1)로 저장한다. */
@@ -41,6 +47,9 @@ export interface StockAnalysisRow {
   winRate: number;
   totalReturn: number;
   totalProfit: number;
+  /** 매수/매도 체결가의 평균. 해당 방향 체결이 없으면 null */
+  avgBuyPrice: number | null;
+  avgSellPrice: number | null;
 }
 
 /** 매매 기록 행 — 엔진이 내려주는 개별 체결(매수/매도) 이벤트 단위이다. */
@@ -57,8 +66,9 @@ export interface TradeHistoryRow {
 
 export interface BacktestExportPayload {
   metadata: BacktestExportMetadata;
-  stockAnalysis: StockAnalysisRow[];
-  tradeHistory: TradeHistoryRow[];
+  /** 탭별 다운로드 — 종목 분석 탭에서 받으면 이 필드만, 매매 기록 탭에서 받으면 tradeHistory만 채워진다 */
+  stockAnalysis?: StockAnalysisRow[];
+  tradeHistory?: TradeHistoryRow[];
 }
 
 export interface ExportFile {
@@ -87,7 +97,10 @@ function yyyymmdd(iso: string): string {
 export function exportFileName(payload: BacktestExportPayload, format: ExportFormat): string {
   const slug = strategySlug(payload.metadata.strategyName);
   const stamp = yyyymmdd(payload.metadata.exportedAt);
-  return `${slug}_backtest_result_${stamp}.${format}`;
+  const hasStock = payload.stockAnalysis !== undefined;
+  const hasTrades = payload.tradeHistory !== undefined;
+  const suffix = hasStock && !hasTrades ? "_stock_analysis" : !hasStock && hasTrades ? "_trade_history" : "";
+  return `${slug}_backtest_result${suffix}_${stamp}.${format}`;
 }
 
 // ── CSV ─────────────────────────────────────────────────────────────────────
@@ -121,6 +134,11 @@ function tradeTypeLabel(type: "buy" | "sell"): string {
   return type === "buy" ? "매수" : "매도";
 }
 
+// 금액은 정수로 반올림하고 천단위 콤마를 붙여 사람이 읽기 쉽게 표시한다 (CSV 전용, JSON은 원시 숫자 유지).
+function formatMoney(value: number): string {
+  return Math.round(value).toLocaleString("ko-KR");
+}
+
 function buildCsv(payload: BacktestExportPayload): string {
   const { metadata, stockAnalysis, tradeHistory } = payload;
   const lines: string[] = [];
@@ -131,27 +149,45 @@ function buildCsv(payload: BacktestExportPayload): string {
   lines.push(csvRow(["기간", `${metadata.period.from} ~ ${metadata.period.to}`]));
   lines.push(csvRow(["생성시간", metadata.exportedAt]));
   lines.push(csvRow(["유니버스", metadata.universe]));
-  lines.push(csvRow(["초기자본", metadata.initialCapital]));
-  lines.push(csvRow(["최종자산", metadata.finalEquity]));
+  lines.push(csvRow(["초기자본", formatMoney(metadata.initialCapital)]));
+  lines.push(csvRow(["최종자산", formatMoney(metadata.finalEquity)]));
   if (metadata.commission != null) lines.push(csvRow(["수수료", formatRatePercent(metadata.commission)]));
   if (metadata.slippage != null) lines.push(csvRow(["슬리피지", formatRatePercent(metadata.slippage)]));
+  if (metadata.entrySignals?.length) lines.push(csvRow(["진입 신호", metadata.entrySignals.join(" / ")]));
+  if (metadata.exitSignals?.length) lines.push(csvRow(["청산 신호", metadata.exitSignals.join(" / ")]));
+  if (metadata.position) lines.push(csvRow(["포지션", metadata.position]));
+  if (metadata.rebalancing) lines.push(csvRow(["리밸런싱", metadata.rebalancing]));
+  if (metadata.risk) lines.push(csvRow(["리스크", metadata.risk]));
 
-  // 종목 분석
-  lines.push("[종목 분석]");
-  lines.push(csvRow(["종목코드", "종목명", "거래횟수", "승률", "수익률", "총손익"]));
-  for (const r of stockAnalysis) {
-    lines.push(
-      csvRow([r.symbol, r.name, r.tradeCount, formatPercent(r.winRate), formatPercent(r.totalReturn), Math.round(r.totalProfit)])
-    );
+  // 종목 분석 — 종목 분석 탭에서 내보낼 때만 채워진다
+  if (stockAnalysis) {
+    lines.push("[종목 분석]");
+    lines.push(csvRow(["종목코드", "종목명", "거래횟수", "승률", "수익률", "총손익", "평균매수가", "평균매도가"]));
+    for (const r of stockAnalysis) {
+      lines.push(
+        csvRow([
+          r.symbol,
+          r.name,
+          r.tradeCount,
+          formatPercent(r.winRate),
+          formatPercent(r.totalReturn),
+          formatMoney(r.totalProfit),
+          r.avgBuyPrice != null ? formatMoney(r.avgBuyPrice) : "-",
+          r.avgSellPrice != null ? formatMoney(r.avgSellPrice) : "-",
+        ])
+      );
+    }
   }
 
-  // 매매 기록
-  lines.push("[매매 기록]");
-  lines.push(csvRow(["날짜", "종목코드", "종목명", "구분", "체결가", "수량", "거래금액", "매매사유"]));
-  for (const t of tradeHistory) {
-    lines.push(
-      csvRow([t.date, t.symbol, t.name, tradeTypeLabel(t.type), Math.round(t.price), Math.floor(t.quantity), Math.round(t.amount), t.reason])
-    );
+  // 매매 기록 — 매매 기록 탭에서 내보낼 때만 채워진다
+  if (tradeHistory) {
+    lines.push("[매매 기록]");
+    lines.push(csvRow(["날짜", "종목코드", "종목명", "구분", "체결가", "수량", "거래금액", "매매사유"]));
+    for (const t of tradeHistory) {
+      lines.push(
+        csvRow([t.date, t.symbol, t.name, tradeTypeLabel(t.type), formatMoney(t.price), Math.floor(t.quantity), formatMoney(t.amount), t.reason])
+      );
+    }
   }
 
   return UTF8_BOM + lines.join("\r\n");

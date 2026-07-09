@@ -37,7 +37,6 @@ import {
   resolveTradeReason,
 } from "@/components/strategy/legacyBreakout";
 import {
-  EXPORT_FORMATS,
   exportFileName,
   type BacktestExportPayload,
   type ExportFormat,
@@ -635,6 +634,29 @@ export default function BacktestDashboard({
     });
   }, [result.symbols, result.perAssetStats, sortConfig]);
 
+  // 종목별 평균 매수가/매도가 — tradesList(개별 체결)에서 매수·매도 체결가의 산술평균을 계산한다.
+  const symbolTradePrices = useMemo(() => {
+    const acc: Record<string, { entrySum: number; entryCount: number; exitSum: number; exitCount: number }> = {};
+    for (const t of result.tradesList ?? []) {
+      const bucket = acc[t.symbol] ?? (acc[t.symbol] = { entrySum: 0, entryCount: 0, exitSum: 0, exitCount: 0 });
+      if (t.type === "buy") {
+        bucket.entrySum += t.price;
+        bucket.entryCount += 1;
+      } else if (t.type === "sell") {
+        bucket.exitSum += t.price;
+        bucket.exitCount += 1;
+      }
+    }
+    const out: Record<string, { entryPrice: number | null; exitPrice: number | null }> = {};
+    for (const [sym, b] of Object.entries(acc)) {
+      out[sym] = {
+        entryPrice: b.entryCount > 0 ? b.entrySum / b.entryCount : null,
+        exitPrice: b.exitCount > 0 ? b.exitSum / b.exitCount : null,
+      };
+    }
+    return out;
+  }, [result.tradesList]);
+
   const handleSort = (key: 'profit' | 'totalReturn' | 'trades') => {
     setSortConfig(prev => ({
       key,
@@ -790,7 +812,8 @@ export default function BacktestDashboard({
 
   // 화면에 표시되는 데이터(현재 정렬/필터 반영)를 그대로 내보내기 payload로 변환한다.
   // 전략명은 metadata에만 한 번 포함하고 각 행에는 넣지 않는다.
-  const buildExportPayload = (): BacktestExportPayload => {
+  // section: 종목 분석 탭에서 받으면 stockAnalysis만, 매매 기록 탭에서 받으면 tradeHistory만 채운다.
+  const buildExportPayload = (section: "assets" | "log"): BacktestExportPayload => {
     // KST(+09:00) ISO 문자열 생성 — 파일명 날짜와 metadata 생성시간에 사용
     const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
     const exportedAt = `${kst.toISOString().slice(0, 19)}+09:00`;
@@ -799,6 +822,10 @@ export default function BacktestDashboard({
       result.universeId?.toUpperCase() ||
       strategySummary?.universeName ||
       "-";
+    // 전략 배지 — 결과 화면 상단 "프롬프트" 팝오버와 동일한 조건 요약을 metadata에 함께 담는다.
+    const entrySignals = strategySummary?.entryBlocks?.length
+      ? strategySummary.entryBlocks
+      : strategySummary?.blockNames;
 
     return {
       metadata: {
@@ -817,31 +844,45 @@ export default function BacktestDashboard({
         slippage:
           localOptions?.slippagePct != null ? localOptions.slippagePct / 100 : undefined,
         benchmark: benchmarkLabel,
+        entrySignals: entrySignals?.length ? entrySignals : undefined,
+        exitSignals: strategySummary?.exitBlocks?.length ? strategySummary.exitBlocks : undefined,
+        position: strategySummary?.positionText || undefined,
+        rebalancing: strategySummary?.rebalancingText || undefined,
+        risk: strategySummary?.riskText || undefined,
       },
       // 종목 분석 — sortedSymbols 는 이미 매매 0건 제외 + 현재 정렬 상태를 반영한다.
       // perAssetStats 의 winRate/totalReturn 은 퍼센트(%)라 소수로 환산한다.
-      stockAnalysis: sortedSymbols.map((sym) => {
-        const stats = result.perAssetStats?.[sym];
-        return {
-          symbol: sym,
-          name: stockMetadata[sym]?.name || sym,
-          tradeCount: stats?.trades ?? 0,
-          winRate: (stats?.winRate ?? 0) / 100,
-          totalReturn: (stats?.totalReturn ?? 0) / 100,
-          totalProfit: stats?.profit ?? 0,
-        };
-      }),
+      stockAnalysis:
+        section === "assets"
+          ? sortedSymbols.map((sym) => {
+              const stats = result.perAssetStats?.[sym];
+              const prices = symbolTradePrices[sym];
+              return {
+                symbol: sym,
+                name: stockMetadata[sym]?.name || sym,
+                tradeCount: stats?.trades ?? 0,
+                winRate: (stats?.winRate ?? 0) / 100,
+                totalReturn: (stats?.totalReturn ?? 0) / 100,
+                totalProfit: stats?.profit ?? 0,
+                avgBuyPrice: prices?.entryPrice ?? null,
+                avgSellPrice: prices?.exitPrice ?? null,
+              };
+            })
+          : undefined,
       // 매매 기록 — 화면과 동일하게 tradesList(개별 체결 이벤트) 순서를 유지한다.
-      tradeHistory: (result.tradesList ?? []).map((t) => ({
-        date: t.date,
-        symbol: t.symbol,
-        name: stockMetadata[t.symbol]?.name || t.symbol,
-        type: t.type,
-        price: Number(t.price) || 0,
-        quantity: Number(t.quantity) || 0,
-        amount: t.amount || 0,
-        reason: resolveTradeReason(t.reason, t.type, normalizedBacktestDsl) ?? t.reason ?? "",
-      })),
+      tradeHistory:
+        section === "log"
+          ? (result.tradesList ?? []).map((t) => ({
+              date: t.date,
+              symbol: t.symbol,
+              name: stockMetadata[t.symbol]?.name || t.symbol,
+              type: t.type,
+              price: Number(t.price) || 0,
+              quantity: Number(t.quantity) || 0,
+              amount: t.amount || 0,
+              reason: resolveTradeReason(t.reason, t.type, normalizedBacktestDsl) ?? t.reason ?? "",
+            }))
+          : undefined,
     };
   };
 
@@ -850,11 +891,19 @@ export default function BacktestDashboard({
     setIsDownloadModalOpen(true);
   };
 
-  const handleDownload = async (format: ExportFormat) => {
+  const handleExportAction = (format: ExportFormat, section: "assets" | "log") => {
+    if (!isDownloadEnabled) {
+      handleOpenDownloadModal();
+      return;
+    }
+    void handleDownload(format, section);
+  };
+
+  const handleDownload = async (format: ExportFormat, section: "assets" | "log") => {
     setDownloadingFormat(format);
     setToast({ type: "info", message: "다운로드를 준비하고 있어요." });
     try {
-      const payload = buildExportPayload();
+      const payload = buildExportPayload(section);
       const res = await fetch("/api/backtest/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1190,84 +1239,42 @@ export default function BacktestDashboard({
               role="dialog"
               aria-modal="true"
             >
-              <div className="flex items-center justify-between mb-5">
-                <div className="flex items-center gap-2.5">
-                  {isDownloadEnabled ? (
-                    <DownloadSimple size={18} className="text-gray-300" weight="fill" />
-                  ) : (
-                    <Crown size={18} className="text-amber-300" weight="fill" />
-                  )}
-                  <h3 className="text-base font-black text-white">
-                    {isDownloadEnabled ? "백테스트 결과 다운로드" : "결과 다운로드는 Pro 이상에서 사용할 수 있어요"}
-                  </h3>
+              <div className="mb-5">
+                <h3 className="text-base font-black text-white">
+                  {isDownloadEnabled ? "백테스트 결과 익스포트" : "백테스트 결과 익스포트는 Pro 플랜 이상에서 사용할 수 있어요"}
+                </h3>
+              </div>
+
+              <div className="mb-5 space-y-1.5 rounded-xl border border-white/5 bg-white/[0.03] p-4">
+                <div className="flex gap-2 text-sm">
+                  <span className="w-14 flex-shrink-0 pt-0.5 text-[11px] font-bold uppercase tracking-widest text-gray-600">전략명</span>
+                  <span className="font-bold text-white">{downloadStrategyName}</span>
                 </div>
+                {downloadPeriodLabel && (
+                  <div className="flex gap-2 text-sm">
+                    <span className="w-14 flex-shrink-0 pt-0.5 text-[11px] font-bold uppercase tracking-widest text-gray-600">기간</span>
+                    <span className="font-mono font-bold text-gray-300">{downloadPeriodLabel}</span>
+                  </div>
+                )}
+              </div>
+              <p className="mb-2 text-sm font-bold leading-6 text-gray-300">
+                백테스트 결과를 CSV/JSON으로 저장하고, 종목 분석과 매매 기록을 직접 검증해보세요.
+              </p>
+              <div className="flex gap-2">
+                <a
+                  href="/pricing"
+                  className="flex-1 py-2.5 rounded-xl bg-[var(--main-blue)] text-white hover:opacity-90 text-sm font-bold transition-colors text-center"
+                >
+                  요금제 보기
+                </a>
                 <button
                   type="button"
                   onClick={() => setIsDownloadModalOpen(false)}
-                  disabled={!!downloadingFormat}
-                  className="p-1.5 rounded-lg hover:bg-white/10 text-gray-500 hover:text-white transition-colors disabled:opacity-40"
+                  className="flex-1 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white text-sm font-bold transition-colors"
                 >
-                  <X size={16} />
+                  닫기
                 </button>
               </div>
-
-              {isDownloadEnabled ? (
-                <>
-                  <div className="mb-5 space-y-1.5 rounded-xl border border-white/5 bg-white/[0.03] p-4">
-                    <div className="flex gap-2 text-sm">
-                      <span className="w-14 flex-shrink-0 text-[11px] font-bold uppercase tracking-widest text-gray-600 pt-0.5">전략명</span>
-                      <span className="font-bold text-white">{downloadStrategyName}</span>
-                    </div>
-                    {downloadPeriodLabel && (
-                      <div className="flex gap-2 text-sm">
-                        <span className="w-14 flex-shrink-0 text-[11px] font-bold uppercase tracking-widest text-gray-600 pt-0.5">기간</span>
-                        <span className="font-mono font-bold text-gray-300">{downloadPeriodLabel}</span>
-                      </div>
-                    )}
-                  </div>
-                  <p className="mb-4 text-sm font-bold text-gray-400">다운로드할 형식을 선택하세요.</p>
-                  <div className="flex gap-2">
-                    {EXPORT_FORMATS.map(({ format, label }) => (
-                      <button
-                        key={format}
-                        type="button"
-                        onClick={() => handleDownload(format)}
-                        disabled={!!downloadingFormat}
-                        className="flex-1 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-white text-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                      >
-                        {downloadingFormat === format ? (
-                          <Spinner size={14} className="animate-spin" />
-                        ) : (
-                          <DownloadSimple size={14} />
-                        )}
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className="mb-2 text-sm font-bold leading-6 text-gray-300">
-                    백테스트 결과를 CSV/JSON으로 저장하고, 종목 분석과 매매 기록을 직접 검증해보세요.
-                  </p>
-                  <p className="mb-5 text-sm font-bold text-gray-500">Pro 플랜부터 제공되는 기능입니다.</p>
-                  <div className="flex gap-2">
-                    <a
-                      href="/pricing"
-                      className="flex-1 py-2.5 rounded-xl bg-[var(--main-blue)] text-white hover:opacity-90 text-sm font-bold transition-colors text-center"
-                    >
-                      요금제 보기
-                    </a>
-                    <button
-                      type="button"
-                      onClick={() => setIsDownloadModalOpen(false)}
-                      className="flex-1 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white text-sm font-bold transition-colors"
-                    >
-                      닫기
-                    </button>
-                  </div>
-                </>
-              )}
             </motion.div>
           </motion.div>
         )}
@@ -1454,15 +1461,6 @@ export default function BacktestDashboard({
                 )}
               </div>
             )}
-            <button
-              type="button"
-              onClick={handleOpenDownloadModal}
-              disabled={isRunning || isPlanLoading}
-              className="px-4 py-1.5 bg-white/[0.05] hover:bg-white/10 text-gray-300 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed text-sm font-bold rounded-lg transition-all border border-white/5 hover:border-white/10 flex items-center gap-2 active:scale-95"
-            >
-              <DownloadSimple className="w-4 h-4" />
-              결과 다운로드
-            </button>
             <button
               onClick={handleOpenSaveModal}
               disabled={isRunning}
@@ -1796,7 +1794,7 @@ export default function BacktestDashboard({
                      </p>
                      <a
                        href="/pricing"
-                       className="mt-6 inline-flex items-center justify-center rounded-lg border border-gray-500 px-5 py-2.5 text-sm font-black text-amber-100 transition-colors hover:bg-white/[0.05]"
+                       className="mt-6 inline-flex items-center justify-center rounded-lg border border-gray-500 px-5 py-2.5 text-sm font-black text-gray-300 transition-colors hover:bg-white/[0.05]"
                      >
                        플랜 변경
                      </a>
@@ -1853,12 +1851,37 @@ export default function BacktestDashboard({
             {activeTab === "assets" && (
 
              <div className="h-full overflow-y-auto custom-scrollbar">
+                <div className="mb-3 pt-3 flex items-center gap-3 pl-5">
+                  <h3 className="text-3xl font-black tracking-tight text-white">종목별 매매 분석</h3>
+                  <div className="flex flex-nowrap gap-2">
+                    {([
+                      { format: "csv" as const, label: "CSV 내보내기" },
+                      { format: "json" as const, label: "JSON 내보내기" },
+                    ]).map(({ format, label }) => (
+                      <button
+                        key={format}
+                        type="button"
+                        onClick={() => handleExportAction(format, "assets")}
+                        disabled={isRunning || isPlanLoading || !!downloadingFormat}
+                        className="inline-flex min-h-[36px] items-center justify-center gap-1.5 rounded-md border border-white/10 bg-white/[0.05] px-3.5 text-sm font-black text-gray-200 transition-all hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {downloadingFormat === format ? (
+                          <Spinner className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <DownloadSimple className="h-4 w-4 text-gray-400" weight="bold" />
+                        )}
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <div className="overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0f0f10] shadow-[0_12px_40px_rgba(0,0,0,0.22)]">
                    <table className="w-full text-left border-collapse">
                       <thead className="bg-white/[0.06] sticky top-0 z-10">
                          <tr>
                             <th className="p-4 pl-5 text-xs font-bold text-gray-400 uppercase tracking-[0.18em] rounded-tl-2xl">종목</th>
-                            <th className="p-4 text-xs font-bold text-gray-400 uppercase tracking-[0.18em]">섹터</th>
+                            <th className="p-4 text-xs font-bold text-gray-400 uppercase tracking-[0.18em] text-right">평균 매수가</th>
+                            <th className="p-4 text-xs font-bold text-gray-400 uppercase tracking-[0.18em] text-right">평균 매도가</th>
                              <th className="p-4 text-xs font-bold text-gray-400 uppercase tracking-[0.18em] text-right">
                                 <div
                                   className="inline-flex items-center justify-end gap-1 cursor-pointer transition-colors group"
@@ -1889,6 +1912,7 @@ export default function BacktestDashboard({
                           {sortedSymbols.length > 0 ? sortedSymbols.map(sym => {
                              const stats = result.perAssetStats?.[sym];
                              const meta = stockMetadata[sym];
+                             const prices = symbolTradePrices[sym];
 
                              return (
                                <tr key={sym} className="hover:bg-white/[0.02] transition-colors duration-150">
@@ -1898,7 +1922,12 @@ export default function BacktestDashboard({
                                         <span className="text-[10px] text-gray-500 font-mono">{sym}</span>
                                      </div>
                                   </td>
-                                  <td className="px-4 py-2.5 text-sm font-bold text-gray-400">{meta?.sector || "-"}</td>
+                                  <td className="px-4 py-2.5 text-sm font-bold text-gray-400 text-right tabular-nums">
+                                     {prices?.entryPrice != null ? formatKRW(prices.entryPrice) : "-"}
+                                  </td>
+                                  <td className="px-4 py-2.5 text-sm font-bold text-gray-400 text-right tabular-nums">
+                                     {prices?.exitPrice != null ? formatKRW(prices.exitPrice) : "-"}
+                                  </td>
                                   <td className={`px-4 py-2.5 text-sm font-bold text-right tabular-nums ${(stats?.profit || 0) > 0 ? 'text-[var(--main-red)]' : (stats?.profit || 0) < 0 ? 'text-[var(--main-blue)]' : 'text-white'}`}>
                                      {stats ? formatKRW(stats.profit) : "-"}
                                   </td>
@@ -1912,7 +1941,7 @@ export default function BacktestDashboard({
                              );
                           }) : (
                              <tr>
-                                <td colSpan={5} className="p-12 text-center text-gray-500">
+                                <td colSpan={6} className="p-12 text-center text-gray-500">
                                    <div className="flex flex-col items-center gap-2">
                                       <List className="w-8 h-8 opacity-20" />
                                       <span className="text-sm font-medium">매매 결과가 있는 종목이 부재합니다.</span>
@@ -1931,6 +1960,30 @@ export default function BacktestDashboard({
            {/* Log View */}
            {activeTab === "log" && (
               <div className="h-full overflow-y-auto custom-scrollbar">
+                <div className="mb-3 pt-3 flex items-center gap-3 pl-5">
+                  <h3 className="text-3xl font-black tracking-tight text-white">종목별 매매 기록</h3>
+                  <div className="flex flex-nowrap gap-2">
+                    {([
+                      { format: "csv" as const, label: "CSV 내보내기" },
+                      { format: "json" as const, label: "JSON 내보내기" },
+                    ]).map(({ format, label }) => (
+                      <button
+                        key={format}
+                        type="button"
+                        onClick={() => handleExportAction(format, "log")}
+                        disabled={isRunning || isPlanLoading || !!downloadingFormat}
+                        className="inline-flex min-h-[36px] items-center justify-center gap-1.5 rounded-md border border-white/10 bg-white/[0.05] px-3.5 text-sm font-black text-gray-200 transition-all hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {downloadingFormat === format ? (
+                          <Spinner className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <DownloadSimple className="h-4 w-4 text-gray-400" weight="bold" />
+                        )}
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                  {result.tradesList?.length > 0 ? (
                     <div className="overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0f0f10] shadow-[0_12px_40px_rgba(0,0,0,0.22)]">
                       <table className="w-full text-left border-collapse">

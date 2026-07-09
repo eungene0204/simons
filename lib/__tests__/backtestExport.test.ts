@@ -27,6 +27,8 @@ const payload: BacktestExportPayload = {
       winRate: 0.583,
       totalReturn: 0.252,
       totalProfit: 252_000,
+      avgBuyPrice: 70_000,
+      avgSellPrice: 75_000,
     },
   ],
   tradeHistory: [
@@ -84,6 +86,88 @@ describe("buildExportFile CSV", () => {
     expect(content).toContain("수수료,0.015%");
     expect(content).toContain("슬리피지,0.05%");
     expect(content).toContain("매수"); // 매매 구분 한글화
+  });
+
+  it("종목 분석 행에 평균 매수가/매도가를 포함한다", () => {
+    expect(content).toContain("평균매수가");
+    expect(content).toContain("평균매도가");
+    const stockLine = content.split("\r\n").find((l) => l.startsWith("005930,삼성전자,"));
+    expect(stockLine).toContain("70,000");
+    expect(stockLine).toContain("75,000");
+  });
+
+  it("금액은 천단위 콤마로 표시하고 소수점은 반올림해 제거한다", () => {
+    // 콤마가 포함된 셀은 CSV 규칙상 따옴표로 감싸진다
+    expect(content).toContain('초기자본,"10,000,000"');
+    expect(content).toContain('최종자산,"12,520,000"');
+  });
+
+  it("소수점이 있는 금액도 정수로 반올림해 콤마 표기한다", () => {
+    const decimalPayload: BacktestExportPayload = {
+      ...payload,
+      metadata: { ...payload.metadata, finalEquity: 14_511_541.2167603 },
+    };
+    const { content: decimalContent } = buildExportFile(decimalPayload, "csv");
+    expect(decimalContent).toContain('최종자산,"14,511,541"');
+    expect(decimalContent).not.toContain("14511541.");
+  });
+});
+
+describe("buildExportFile — 전략 배지 메타데이터", () => {
+  const payloadWithBadges: BacktestExportPayload = {
+    ...payload,
+    metadata: {
+      ...payload.metadata,
+      entrySignals: ["RSI 과매도", "거래량 급증"],
+      exitSignals: ["RSI 과매수"],
+      position: "종목당 10%",
+      rebalancing: "월간 리밸런싱",
+      risk: "손절 -8%",
+    },
+  };
+
+  it("CSV 메타데이터에 진입/청산 신호와 포지션/리밸런싱/리스크를 포함한다", () => {
+    const { content } = buildExportFile(payloadWithBadges, "csv");
+    expect(content).toContain("진입 신호,RSI 과매도 / 거래량 급증");
+    expect(content).toContain("청산 신호,RSI 과매수");
+    expect(content).toContain("포지션,종목당 10%");
+    expect(content).toContain("리밸런싱,월간 리밸런싱");
+    expect(content).toContain("리스크,손절 -8%");
+  });
+
+  it("JSON 메타데이터에 동일한 필드를 포함한다", () => {
+    const { content } = buildExportFile(payloadWithBadges, "json");
+    const parsed = JSON.parse(content);
+    expect(parsed.metadata.entrySignals).toEqual(["RSI 과매도", "거래량 급증"]);
+    expect(parsed.metadata.risk).toBe("손절 -8%");
+  });
+});
+
+describe("buildExportFile — 탭별 섹션 분리", () => {
+  it("stockAnalysis만 있으면 종목 분석 섹션만 출력하고 파일명에 접미사가 붙는다", () => {
+    const stockOnly: BacktestExportPayload = {
+      metadata: payload.metadata,
+      stockAnalysis: payload.stockAnalysis,
+    };
+    const { content } = buildExportFile(stockOnly, "csv");
+    expect(content).toContain("[종목 분석]");
+    expect(content).not.toContain("[매매 기록]");
+    expect(exportFileName(stockOnly, "csv")).toContain("_stock_analysis_");
+  });
+
+  it("tradeHistory만 있으면 매매 기록 섹션만 출력하고 파일명에 접미사가 붙는다", () => {
+    const tradesOnly: BacktestExportPayload = {
+      metadata: payload.metadata,
+      tradeHistory: payload.tradeHistory,
+    };
+    const { content } = buildExportFile(tradesOnly, "csv");
+    expect(content).not.toContain("[종목 분석]");
+    expect(content).toContain("[매매 기록]");
+    expect(exportFileName(tradesOnly, "csv")).toContain("_trade_history_");
+  });
+
+  it("둘 다 있으면(과거 동작) 파일명에 접미사가 붙지 않는다", () => {
+    expect(exportFileName(payload, "csv")).toBe("strategy_backtest_result_20260708.csv");
   });
 });
 

@@ -15,12 +15,11 @@ const DOWNLOAD_ALLOWED_PLANS = new Set(["PRO", "PREMIUM"]);
 function isValidPayload(value: unknown): value is BacktestExportPayload {
   if (!value || typeof value !== "object") return false;
   const p = value as Record<string, unknown>;
-  return (
-    !!p.metadata &&
-    typeof p.metadata === "object" &&
-    Array.isArray(p.stockAnalysis) &&
-    Array.isArray(p.tradeHistory)
-  );
+  if (!p.metadata || typeof p.metadata !== "object") return false;
+  // 종목 분석 탭 다운로드는 stockAnalysis만, 매매 기록 탭 다운로드는 tradeHistory만 보낸다 — 최소 하나는 있어야 한다.
+  if (p.stockAnalysis !== undefined && !Array.isArray(p.stockAnalysis)) return false;
+  if (p.tradeHistory !== undefined && !Array.isArray(p.tradeHistory)) return false;
+  return p.stockAnalysis !== undefined || p.tradeHistory !== undefined;
 }
 
 export async function POST(request: Request) {
