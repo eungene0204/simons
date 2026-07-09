@@ -44,6 +44,29 @@ export async function POST(request: Request) {
 
     const strategyId = buildOwnedStrategyId(userId, dsl);
 
+    // 중복 저장 차단: strategyId 는 DSL(이름/설명/타임스탬프 제외)을 정규화해 해시한 값이므로
+    // DSL 이 완전히 같으면 이름이 달라도 동일한 strategyId 가 된다. 이미 다른 이름으로 저장된
+    // 전략이 있으면 새 이름으로 덮어쓰지 않고 저장을 막는다(같은 이름 재저장은 갱신으로 허용).
+    if (typeof prisma.strategy?.findUnique === "function") {
+      const existing = await prisma.strategy.findUnique({ where: { id: strategyId } });
+      if (
+        existing &&
+        existing.isSaved &&
+        existing.deletedAt == null &&
+        existing.name.trim() !== name.trim()
+      ) {
+        return NextResponse.json(
+          {
+            error: `이미 저장된 '${existing.name}' 전략과 같은 전략이라 저장하지 못했습니다.`,
+            duplicate: true,
+            existingStrategyId: existing.id,
+            existingStrategyName: existing.name,
+          },
+          { status: 409 }
+        );
+      }
+    }
+
     // 전략 DSL에 이름/설명 반영
     const dslToSave = {
       ...dsl,

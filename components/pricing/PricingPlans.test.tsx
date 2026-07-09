@@ -27,9 +27,9 @@ describe("PricingPlans", () => {
       "transition-transform",
       "hover:-translate-y-1.5"
     );
-    expect(within(freeCard).getAllByRole("listitem")).toHaveLength(6);
-    expect(within(proCard).getAllByRole("listitem")).toHaveLength(6);
-    expect(within(premiumCard).getAllByRole("listitem")).toHaveLength(6);
+    expect(within(freeCard).getAllByRole("listitem")).toHaveLength(8);
+    expect(within(proCard).getAllByRole("listitem")).toHaveLength(8);
+    expect(within(premiumCard).getAllByRole("listitem")).toHaveLength(8);
 
     const subscriptionButtons = screen.getAllByRole("button", {
       name: "구독 시작하기",
@@ -73,6 +73,18 @@ describe("PricingPlans", () => {
     monteCarloLabels.forEach((label) => {
       expect(label).toHaveClass("xl:whitespace-nowrap");
     });
+  });
+
+  it("shows AI report only for pro and premium plans", () => {
+    render(<PricingPlans currentPlanId="FREE" />);
+
+    const freeCard = screen.getByTestId("pricing-plan-card-FREE");
+    const proCard = screen.getByTestId("pricing-plan-card-PRO");
+    const premiumCard = screen.getByTestId("pricing-plan-card-PREMIUM");
+
+    expect(within(freeCard).getByText("AI 리포트")).toHaveClass("text-gray-600");
+    expect(within(proCard).getByText("AI 리포트")).toHaveClass("text-gray-200");
+    expect(within(premiumCard).getByText("AI 리포트")).toHaveClass("text-gray-200");
   });
 
   it("uses the updated pro plan description", () => {

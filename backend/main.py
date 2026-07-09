@@ -3300,6 +3300,7 @@ _summarize_model = {"model": None, "tokenizer": None}
 def summarize_backtest(req: SummarizeRequest):
     """백테스트 결과를 Ollama 기반 AI로 요약한다."""
     from ai.summarize import (
+        FALLBACK_SUMMARY,
         calculate_score,
         build_prompt,
         build_advisor_grounded_prompt,
@@ -3320,10 +3321,19 @@ def summarize_backtest(req: SummarizeRequest):
         if advisor_resp is not None:
             advisor_report = build_report_from_advisor(advisor_resp)
 
+    # 코퍼스 비교(결정론) — 총평이 '결과 읽기'에 그치지 않고 동일 엔진 시뮬레이션
+    # 분포 대비 상대적 위치·구조 장치 유무별 과거 통계를 서술할 근거를 만든다.
+    corpus_comparison = None
+    try:
+        from advisor.corpus_insights import build_corpus_comparison
+        corpus_comparison = build_corpus_comparison(req.parsed_strategy, req.metrics)
+    except Exception as e:
+        print(f"[summarize] corpus comparison skipped: {repr(e)}", flush=True)
+
     if advisor_report is not None:
-        prompt = build_advisor_grounded_prompt(payload, advisor_report)
+        prompt = build_advisor_grounded_prompt(payload, advisor_report, corpus_comparison=corpus_comparison)
     else:
-        prompt = build_prompt(payload)
+        prompt = build_prompt(payload, corpus_comparison=corpus_comparison)
 
     try:
         from ai.summarize import summarize_ollama
@@ -3335,14 +3345,20 @@ def summarize_backtest(req: SummarizeRequest):
             "total_ms": round((time.perf_counter() - request_started) * 1000, 2),
         }
         _record_ai_runtime("summary", runtime)
+        summary_text = parsed.get("total_summary", "")
         result = {
             "score": score,
-            "summary": parsed.get("total_summary", ""),
+            "summary": summary_text,
             "strengths": normalize_report_items(parsed.get("strengths", [])),
             "weaknesses": normalize_report_items(parsed.get("weaknesses", [])),
             "improvements": normalize_report_items(parsed.get("improvements", [])),
             "runtime": runtime,
         }
+        if not summary_text or summary_text == FALLBACK_SUMMARY:
+            # 파싱 실패 폴백 — 프록시/프론트가 캐시·저장하지 않고 재시도를 유도하게 한다.
+            result["degraded"] = True
+        if corpus_comparison is not None:
+            result["corpusComparison"] = corpus_comparison
         if advisor_report is not None:
             # advisor 가 결정론적으로 만든 개선안·점수로 덮어쓴다(LLM 환각 방지).
             result["improvements"] = advisor_report["improvements"]

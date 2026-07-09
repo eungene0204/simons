@@ -64,7 +64,7 @@ ENV/
 /data/modify_corpus/
 
 # Logs
-logs
+/logs/
 *.log
 dev-debug.log
 # Dependency directories

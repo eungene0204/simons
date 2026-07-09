@@ -19,10 +19,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockStrategyCreate = vi.fn();
 const mockBacktestResultCreate = vi.fn();
 const mockTransaction = vi.fn();
+const mockStrategyFindUnique = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     $transaction: mockTransaction,
+    strategy: { findUnique: (...args: any[]) => mockStrategyFindUnique(...args) },
   },
 }));
 
@@ -95,6 +97,8 @@ const VALID_BACKTEST_RESULT = {
 describe("POST /api/strategy/save-with-backtest", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // 기본값: 동일 DSL 로 이미 저장된 전략 없음 → 중복 가드 통과
+    mockStrategyFindUnique.mockResolvedValue(null);
     mockTransaction.mockImplementation(async (fn) => {
       const tx = {
         strategy: { create: mockStrategyCreate },
@@ -283,6 +287,67 @@ describe("POST /api/strategy/save-with-backtest", () => {
     expect(summary.topSymbols).toEqual(["J", "F", "D", "G", "I", "B", "H", "C", "E", "A"]);
     expect(summary.topAssetStats).toHaveLength(10);
     expect(summary.topAssetStats[0]).toMatchObject({ symbol: "J", totalReturn: 10, trades: 6 });
+  });
+
+  // ── 중복 저장 차단(같은 DSL·다른 이름) ─────────────────────────────────────
+
+  it("DSL이 같은 전략이 다른 이름으로 이미 저장돼 있으면 409로 차단하고 기존 이름을 알린다", async () => {
+    mockStrategyFindUnique.mockResolvedValue({
+      id: "hash",
+      name: "저PBR 가치전략",
+      isSaved: true,
+      deletedAt: null,
+    });
+
+    const res = await POST(makeRequest({ name: "새 이름 전략", dsl: VALID_DSL }));
+    expect(res.status).toBe(409);
+
+    const body = await res.json();
+    expect(body.duplicate).toBe(true);
+    expect(body.error).toContain("저PBR 가치전략");
+    expect(body.error).toMatch(/저장하지 못했습니다/);
+
+    // 저장 트랜잭션은 실행되지 않아야 함
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
+  it("같은 DSL·같은 이름 재저장은 갱신으로 허용한다", async () => {
+    mockStrategyFindUnique.mockResolvedValue({
+      id: "hash",
+      name: "AI 전략",
+      isSaved: true,
+      deletedAt: null,
+    });
+
+    const res = await POST(makeRequest({ name: "AI 전략", dsl: VALID_DSL }));
+    expect(res.status).toBe(200);
+    expect(mockTransaction).toHaveBeenCalledOnce();
+  });
+
+  it("기존 전략이 소프트 삭제(deletedAt) 상태면 차단하지 않는다", async () => {
+    mockStrategyFindUnique.mockResolvedValue({
+      id: "hash",
+      name: "지워진 전략",
+      isSaved: true,
+      deletedAt: new Date(),
+    });
+
+    const res = await POST(makeRequest({ name: "새 전략", dsl: VALID_DSL }));
+    expect(res.status).toBe(200);
+    expect(mockTransaction).toHaveBeenCalledOnce();
+  });
+
+  it("기존 행이 isSaved=false(캐시 자동생성)면 차단하지 않는다", async () => {
+    mockStrategyFindUnique.mockResolvedValue({
+      id: "hash",
+      name: "전략 6cb4b587",
+      isSaved: false,
+      deletedAt: null,
+    });
+
+    const res = await POST(makeRequest({ name: "새 전략", dsl: VALID_DSL }));
+    expect(res.status).toBe(200);
+    expect(mockTransaction).toHaveBeenCalledOnce();
   });
 
   // ── Prisma 오류 처리 ────────────────────────────────────────────────────────

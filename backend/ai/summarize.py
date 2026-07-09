@@ -16,7 +16,9 @@ import ast
 
 MLX_MODEL = "mlx-community/Qwen3.5-4B-4bit"
 OLLAMA_MODEL = os.environ.get("NL_OLLAMA_MODEL", "qwen3:8b")
-OLLAMA_URL = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/") + "/api/generate"
+# /api/generate가 아니라 /api/chat을 쓴다 — GGUF 임포트 모델(Qwen3.5)은 generate 경로에서
+# think:false가 무시되어 <think> 추론이 응답에 섞인다. chat 경로는 nl_parser에서 검증됨.
+OLLAMA_URL = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/") + "/api/chat"
 FALLBACK_SUMMARY = "모델 출력 형식이 올바르지 않아 요약을 생성하지 못했습니다. 다시 시도해 주세요."
 
 
@@ -75,7 +77,30 @@ def calculate_score(m: dict) -> int:
 
 # ── 프롬프트 빌드 ────────────────────────────────────────────────────────────
 
-def build_prompt(payload: dict) -> str:
+_PROMPT_HEADER = (
+    "당신은 주식 퀀트 투자 전략 분석가입니다. "
+    "아래 백테스트 결과를 분석하여 반드시 아래 JSON 형식으로만 출력하세요. "
+    "JSON 외 다른 텍스트는 절대 출력하지 마세요. "
+    "Thinking Process, Reasoning, Analysis, <think> 같은 내부 추론 텍스트를 절대 출력하지 마세요. "
+    "모든 텍스트는 한국어 격식체 존댓말(~습니다, ~입니다)을 사용하세요.\n\n"
+)
+
+_RULE_SUMMARY = (
+    "1) total_summary는 5~7문장으로 작성하고, 전략의 성과, 위험도, 시장 대비 상대 성과 등 다각적으로 분석하세요. 최소 4개 이상의 지표 수치를 직접 인용하세요.\n"
+)
+_RULE_STRENGTHS = (
+    "2) strengths는 정확히 3개로 작성하고, 각 항목은 2~3문장으로 상세히 설명하며 지표명 또는 수치를 포함하세요. 단순 나열이 아닌 분석적 설명을 제공하세요.\n"
+)
+_RULES_COMMON_TAIL = (
+    "5) 과장된 단정 표현을 피하고 지표 기반으로 판단하세요.\n"
+    "6) total_summary의 각 문장은 서로 다른 관점(수익성, 안정성, 효율성, 거래 신뢰도 등)에서 작성하세요.\n"
+    "7) 지표 수치는 아래에 제시된 값만 그대로 인용하고, 제시되지 않은 수치나 기간을 추측해서 쓰지 마세요.\n"
+    "8) 미래 성과 예측이나 단정(\"앞으로도 잘 작동할 것\", \"높은 수익이 기대됨\")은 금지합니다. 모든 서술은 과거 시뮬레이션 결과에 한정하세요.\n"
+)
+
+
+def _build_context_block(payload: dict) -> str:
+    """전략 요약 + 백테스트 지표 + 해석 힌트 블록 (두 프롬프트 경로가 공유)."""
     m = payload.get("metrics", {})
     s = payload.get("strategySummary") or {}
 
@@ -171,21 +196,38 @@ def build_prompt(payload: dict) -> str:
 
     metric_hints = build_metric_hints()
 
+    # 백테스트 기간·자본 정보 — 제공되면 프롬프트에 명시해 LLM이 기간을 추측하지 않게 한다.
+    period_start = m.get("periodStart")
+    period_end = m.get("periodEnd")
+    context_lines = ""
+    if period_start and period_end:
+        context_lines += f"- 백테스트 기간: {period_start} ~ {period_end}\n"
+
+    def fmt_krw(v):
+        # 억/만 단위로 미리 변환해 제공한다 — 원 단위 숫자만 주면 LLM이 단위 환산을
+        # 시도하다 틀린다(실측: 10,000,000원을 "1억 원"으로 오환산).
+        f = to_float(v)
+        if not f or f <= 0:
+            return None
+        total_man = round(f / 10_000)
+        if total_man == 0:
+            return f"{f:,.0f}원"
+        eok, man = divmod(total_man, 10_000)
+        if eok and man:
+            return f"{eok}억 {man:,}만원"
+        if eok:
+            return f"{eok}억원"
+        return f"{man:,}만원"
+
+    initial_krw = fmt_krw(m.get("initialCapital"))
+    final_krw = fmt_krw(m.get("finalEquity"))
+    if initial_krw and final_krw:
+        context_lines += f"- 초기 자본: {initial_krw} → 최종 자산: {final_krw}\n"
+
     return (
-        "당신은 주식 퀀트 투자 전략 분석가입니다. "
-        "아래 백테스트 결과를 분석하여 반드시 아래 JSON 형식으로만 출력하세요. "
-        "JSON 외 다른 텍스트는 절대 출력하지 마세요. "
-        "Thinking Process, Reasoning, Analysis, <think> 같은 내부 추론 텍스트를 절대 출력하지 마세요. "
-        "모든 텍스트는 한국어 격식체 존댓말(~습니다, ~입니다)을 사용하세요.\n\n"
-        "작성 규칙:\n"
-        "1) total_summary는 5~7문장으로 작성하고, 전략의 성과, 위험도, 시장 대비 상대 성과 등 다각적으로 분석하세요. 최소 4개 이상의 지표 수치를 직접 인용하세요.\n"
-        "2) strengths는 정확히 3개로 작성하고, 각 항목은 2~3문장으로 상세히 설명하며 지표명 또는 수치를 포함하세요. 단순 나열이 아닌 분석적 설명을 제공하세요.\n"
-        "3) weaknesses는 정확히 3개로 작성하고, 각 항목은 단점이나 개선 필요 영역만 설명합니다(개선안 없음). 각 항목 1~2문장으로 간결히 작성하세요.\n"
-        "4) improvements는 정확히 3개로 작성하고, 각 항목은 구체적인 개선 방안과 기대 효과를 2~3문장으로 작성하세요. \"~하면 좋습니다\", \"~을 고려해보세요\" 같은 제안형으로 작성하세요.\n"
-        "5) 과장된 단정 표현을 피하고 지표 기반으로 판단하세요.\n"
-        "6) total_summary의 각 문장은 서로 다른 관점(수익성, 안정성, 효율성, 거래 신뢰도 등)에서 작성하세요.\n\n"
         f"{strategy_desc}"
         "백테스트 지표:\n"
+        f"{context_lines}"
         f"- 총 수익률: {fmt(m.get('totalReturn'))}%\n"
         f"- CAGR: {fmt(m.get('cagr'))}%\n"
         f"- 바이앤홀드 수익률: {fmt(m.get('buyAndHoldReturn'))}%\n"
@@ -199,7 +241,52 @@ def build_prompt(payload: dict) -> str:
         f"- 켈리 기준: {fmt(m.get('kelly'))}%\n\n"
         "지표 해석 힌트(참고용):\n"
         f"{metric_hints}\n\n"
-        "출력 형식 (JSON만 출력):\n"
+    )
+
+
+def _build_corpus_comparison_block(corpus_comparison: dict | None) -> str:
+    """코퍼스 비교(결정론 계산) 블록 — 총평이 '결과 읽기'를 넘어 상대적 위치를 서술하게 한다."""
+    if not corpus_comparison:
+        return ""
+    cmp = corpus_comparison
+    lines = list(cmp.get("lines") or [])
+    contrast = list(cmp.get("contrast_lines") or [])
+    if not lines and not contrast:
+        return ""
+    block = f"코퍼스 비교 (기준: {cmp.get('cohort_label', '과거 전략 시뮬레이션')}):\n"
+    block += "".join(f"- {line}\n" for line in lines)
+    if contrast:
+        block += "구조 장치 유무별 과거 통계:\n"
+        block += "".join(f"- {line}\n" for line in contrast)
+    return block + "\n"
+
+
+def _corpus_rule(corpus_comparison: dict | None) -> str:
+    if not corpus_comparison:
+        return ""
+    return (
+        "9) 아래 '코퍼스 비교'는 동일 백테스트 엔진으로 실행된 다른 전략 시뮬레이션들과의 객관적 비교입니다. "
+        "total_summary에 상대적 위치(상위/하위 %)와 그 시사점을 2문장 이상 반영하고, 제시된 비교 문장의 수치와 우열 판단(높음/낮음)을 그대로 옮기세요. "
+        "'하위 X%'는 비교군 다수보다 나쁜 성과를 뜻하므로 긍정적으로 서술하지 마세요. "
+        "'구조 장치 유무별 과거 통계'가 있으면 weaknesses 또는 total_summary에 과거 통계 서술로만 반영하세요(추천 표현 금지).\n"
+    )
+
+
+def build_prompt(payload: dict, corpus_comparison: dict | None = None) -> str:
+    """LLM 단독 경로 프롬프트 — 총평/강점/단점/개선 방안 전부를 LLM이 작성한다."""
+    return (
+        _PROMPT_HEADER
+        + "작성 규칙:\n"
+        + _RULE_SUMMARY
+        + _RULE_STRENGTHS
+        + "3) weaknesses는 정확히 3개로 작성하고, 각 항목은 단점이나 개선 필요 영역만 설명합니다(개선안 없음). 각 항목 1~2문장으로 간결히 작성하세요.\n"
+        + "4) improvements는 정확히 3개로 작성하고, 각 항목은 구체적인 개선 방안과 기대 효과를 2~3문장으로 작성하세요. \"~하면 좋습니다\", \"~을 고려해보세요\" 같은 제안형으로 작성하세요.\n"
+        + _RULES_COMMON_TAIL
+        + _corpus_rule(corpus_comparison)
+        + "\n"
+        + _build_context_block(payload)
+        + _build_corpus_comparison_block(corpus_comparison)
+        + "출력 형식 (JSON만 출력):\n"
         "{\n"
         '  "total_summary": "전략 전체 총평 5~7문장으로 상세히 작성. 수익성, 안정성, 효율성, 거래 신뢰도 등 다각도 분석",\n'
         '  "strengths": ["강점1 - 2~3문장으로 상세 설명, 지표 수치 포함", "강점2 - 2~3문장", "강점3 - 2~3문장"],\n'
@@ -337,28 +424,37 @@ def _build_advisor_grounding(report: dict) -> str:
     return "\n".join(lines)
 
 
-def build_advisor_grounded_prompt(payload: dict, advisor_report: dict) -> str:
+def build_advisor_grounded_prompt(payload: dict, advisor_report: dict, corpus_comparison: dict | None = None) -> str:
     """하이브리드 프롬프트 — advisor 진단을 근거로 total_summary/strengths/weaknesses만 서술하게 한다.
 
     improvements 는 advisor 가 결정론적으로 채우므로 LLM 에 요청하지 않는다.
+    base 프롬프트에 덧붙이는 방식(규칙 두 벌 충돌)은 모델이 지시문을 복창하거나
+    내부 추론을 노출하게 만들었으므로, 처음부터 모순 없는 단일 규칙 세트로 구성한다.
     """
-    base = build_prompt(payload)
     grounding = _build_advisor_grounding(advisor_report)
 
-    instructions = (
-        "\n\n[중요] 위 지표에 더해 아래 'advisor 진단 근거'가 제공됩니다. "
-        "weaknesses(단점)는 반드시 아래 진단된 문제에서만 도출하고, 진단에 없는 새로운 문제를 "
-        "지어내지 마세요. improvements 는 별도 시스템이 채우므로 출력하지 마세요.\n\n"
-        "advisor 진단 근거:\n"
+    return (
+        _PROMPT_HEADER
+        + "작성 규칙:\n"
+        + _RULE_SUMMARY
+        + _RULE_STRENGTHS
+        + "3) weaknesses는 아래 'advisor 진단 근거'에 진단된 문제와 위 지표·코퍼스 비교에서 직접 확인되는 약점에서만 도출하세요. "
+        "진단이나 지표에 근거가 없는 문제를 지어내지 마세요. 근거가 있는 만큼만 최대 3개까지 작성하고, 해당 사항이 없으면 빈 배열 []로 출력하세요. 각 항목은 1~2문장으로 간결히 작성하세요.\n"
+        + "4) improvements는 별도 시스템이 채우므로 절대 출력하지 마세요. JSON에 improvements 키를 포함하지 마세요.\n"
+        + _RULES_COMMON_TAIL
+        + _corpus_rule(corpus_comparison)
+        + "\n"
+        + _build_context_block(payload)
+        + _build_corpus_comparison_block(corpus_comparison)
+        + "advisor 진단 근거:\n"
         f"{grounding}\n\n"
-        "출력 형식 (JSON만 출력, improvements 키 없음):\n"
+        + "출력 형식 (JSON만 출력, improvements 키 없음):\n"
         "{\n"
         '  "total_summary": "전략 전체 총평 5~7문장. 수익성/안정성/효율성/거래 신뢰도 다각도 분석",\n'
         '  "strengths": ["강점1 - 2~3문장, 지표 수치 포함", "강점2 - 2~3문장", "강점3 - 2~3문장"],\n'
-        '  "weaknesses": ["단점1 - 진단 근거 기반 1~2문장", "단점2 - 1~2문장", "단점3 - 1~2문장"]\n'
+        '  "weaknesses": ["단점1 - 진단 근거 기반 1~2문장 (진단된 문제 수만큼만, 없으면 빈 배열)"]\n'
         "}"
     )
-    return base + instructions
 
 
 def _extract_json_objects(text: str) -> list[str]:
@@ -677,6 +773,31 @@ def _extract_plain_summary(text: str) -> str:
     return summary if summary else FALLBACK_SUMMARY
 
 
+# 프롬프트 지시문·출력 템플릿이 응답에 복창(에코)됐음을 나타내는 시그니처.
+# 이런 텍스트가 총평으로 노출되면 안 되므로 감지 시 해당 후보를 버린다.
+_PROMPT_ECHO_SIGNATURES = (
+    "[중요]",
+    "작성 규칙",
+    "출력 형식",
+    "advisor 진단 근거",
+    "JSON만 출력",
+    "improvements 키",
+    "5~7문장",
+    "진단 근거 기반 1~2문장",
+    "<think>",
+)
+
+
+def _looks_like_prompt_echo(text: str) -> bool:
+    if not text:
+        return False
+    return any(sig in text for sig in _PROMPT_ECHO_SIGNATURES)
+
+
+def _fallback_report() -> dict:
+    return {"total_summary": FALLBACK_SUMMARY, "strengths": [], "weaknesses": [], "improvements": []}
+
+
 def parse_llm_output(text: str) -> dict:
     """LLM 출력에서 JSON을 추출한다. 실패 시 안전한 폴백 요약을 반환한다."""
     text = text.strip()
@@ -690,18 +811,32 @@ def parse_llm_output(text: str) -> dict:
         if not parsed:
             continue
         normalized = _coerce_report_shape(parsed)
-        if normalized:
+        if normalized and not _looks_like_prompt_echo(normalized["total_summary"]):
             return normalized
 
+    # 닫히지 않은 <think>(추론이 토큰 한도까지 이어진 경우) 이후는 전부 내부 추론이다.
+    # JSON 추출에 실패한 뒤의 텍스트 기반 폴백 경로에는 절대 흘려보내지 않는다.
+    unclosed_think = re.search(r"<think>", text, flags=re.IGNORECASE)
+    if unclosed_think:
+        text = text[: unclosed_think.start()].strip()
+
+    # 프롬프트 지시문을 복창한 출력이면 텍스트 폴백 자체를 포기한다 — 지시문이
+    # 총평으로 노출되는 것보다 "다시 시도" 안내가 낫다.
+    if _looks_like_prompt_echo(text):
+        return _fallback_report()
+
     partial_json = _extract_partial_json_report(text)
-    if partial_json:
+    if partial_json and not _looks_like_prompt_echo(partial_json["total_summary"]):
         return partial_json
 
     section_based = _extract_report_from_sections(text)
-    if section_based:
+    if section_based and not _looks_like_prompt_echo(section_based["total_summary"]):
         return section_based
 
-    return {"total_summary": _extract_plain_summary(text), "strengths": [], "weaknesses": [], "improvements": []}
+    plain = _extract_plain_summary(text)
+    if _looks_like_prompt_echo(plain):
+        return _fallback_report()
+    return {"total_summary": plain, "strengths": [], "weaknesses": [], "improvements": []}
 
 
 def normalize_report_items(items) -> list[str]:
@@ -744,26 +879,36 @@ def summarize_mlx(prompt: str) -> str:
 def summarize_ollama(prompt: str) -> str:
     import urllib.request
 
+    from llm_backend import ollama_auth_headers  # Modal proxy-auth (배포 시)
+    from engine.nl_parser import _OLLAMA_NUM_CTX, _ollama_ensure_warm, _ollama_open_with_retry
+
     body = json.dumps(
         {
             "model": OLLAMA_MODEL,
-            "prompt": prompt,
+            "messages": [{"role": "user", "content": prompt}],
             "stream": False,
+            # Qwen3 계열 thinking 우회 — 이게 없으면 <think> 내부 추론이 응답에 섞여
+            # 파싱 실패 시 프롬프트 지시문·추론 텍스트가 총평으로 노출된다(nl_parser와 동일 정책).
+            "think": False,
             # MLX(summarize_mlx) 경로와 동일하게 greedy/결정론적으로 생성한다.
-            "options": {"temperature": 0, "num_predict": 1200},
+            # num_ctx: grounded 프롬프트가 기본 컨텍스트(4096)를 넘을 수 있어 nl_parser와 동일값 사용.
+            "options": {"temperature": 0, "num_predict": 1200, "num_ctx": _OLLAMA_NUM_CTX},
         }
     ).encode()
 
-    from llm_backend import ollama_auth_headers  # Modal proxy-auth (배포 시)
+    # Modal scale-to-zero 콜드스타트 내성 — 코치/NL파서와 동일하게
+    # ① 본문 없는 GET으로 컨테이너를 먼저 깨우고(콜드 첫 POST body 유실 방지)
+    # ② POST는 재시도 예산 안에서 연다. (기존 단발 60s urlopen은 콜드에서 항상 실패했다)
+    _ollama_ensure_warm()
     req = urllib.request.Request(
         OLLAMA_URL,
         data=body,
         headers={"Content-Type": "application/json", **ollama_auth_headers()},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=60) as resp:
+    with _ollama_open_with_retry(req, timeout=120) as resp:
         data = json.loads(resp.read())
-    return data.get("response", "").strip()
+    return (data.get("message") or {}).get("content", "").strip()
 
 
 # ── 진입점 ───────────────────────────────────────────────────────────────────

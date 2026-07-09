@@ -152,12 +152,19 @@ const sections = [
     list: [
       "회사는 법령, 서비스 구조, 개인정보 처리 방식이 변경되는 경우 이 방침을 개정할 수 있습니다.",
       "중요한 변경이 있는 경우 적용일, 변경 내용, 변경 사유를 서비스 화면에 사전 공지합니다.",
-      "이 방침은 2026년 7월 8일부터 시행합니다.",
     ],
   },
 ] satisfies PrivacySection[];
 
 export function PrivacyPolicyPage() {
+  const businessInfoItems = [
+    { label: "상호", value: process.env.COMPANY_NAME },
+    { label: "대표자", value: process.env.BUSINESS_REPRESENTATIVE_NAME },
+    { label: "주소", value: process.env.BUSINESS_ADDRESS },
+    { label: "사업자등록번호", value: process.env.BUSINESS_REGISTRATION_NUMBER },
+    { label: "이메일", value: process.env.BUSINESS_EMAIL },
+  ];
+
   return (
     <main className="min-h-screen bg-[#0f0f0f] text-white">
       <section className="border-b border-white/[0.08] px-6 py-12">
@@ -233,12 +240,15 @@ export function PrivacyPolicyPage() {
           </div>
 
           <div className="mt-10 border border-white/[0.08] bg-white/[0.02] p-5 text-sm font-bold leading-6 text-gray-400">
-            <p className="font-black text-white">운영 전 확정 항목</p>
-            <p className="mt-2">
-              개인정보 보호책임자, 고객센터, 실제 수탁사 명칭과 이전 국가,
-              국외 이전 세부 사항, 유료서비스 결제대행사 정보는 운영 환경과
-              법무 검토 결과에 맞춰 최종 고지해야 합니다.
-            </p>
+            <p className="font-black text-white">사업자 정보</p>
+            <dl className="mt-4 grid gap-3 sm:grid-cols-[140px_1fr]">
+              {businessInfoItems.map((item) => (
+                <div key={item.label} className="contents">
+                  <dt className="text-gray-500">{item.label}</dt>
+                  <dd className="text-gray-300">{item.value || "미정"}</dd>
+                </div>
+              ))}
+            </dl>
           </div>
         </div>
       </section>

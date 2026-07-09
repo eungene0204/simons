@@ -111,3 +111,33 @@ def test_build_advisor_grounded_prompt_injects_diagnoses_and_omits_improvements(
     assert "지어내지 마세요" in prompt
     # improvements 는 LLM 출력 스키마에서 제외
     assert '"improvements"' not in prompt.split("출력 형식 (JSON만 출력, improvements 키 없음)")[1]
+
+
+def test_build_advisor_grounded_prompt_allows_fewer_than_three_weaknesses():
+    """단점은 근거(진단·지표)가 있는 만큼만 쓰고, 없으면 빈 배열을 허용해야 한다.
+
+    base 프롬프트의 '정확히 3개' 규칙과 '진단에서만 도출' 규칙이 충돌하면
+    LLM이 없는 문제를 지어내는(환각) 쪽으로 밀리기 때문이다.
+    """
+    payload = {"metrics": {"cagr": 16.0}}
+    report = {"advice_titles": ["손절 추가"], "response_sections": []}
+    prompt = build_advisor_grounded_prompt(payload, report)
+
+    assert "근거가 있는 만큼만 최대 3개" in prompt
+    assert "빈 배열 []" in prompt
+
+
+def test_build_advisor_grounded_prompt_has_no_conflicting_rules():
+    """grounded 프롬프트는 base 규칙과 모순되는 지시(단점/개선 '정확히 3개')를 포함하면 안 된다.
+
+    규칙 두 벌이 충돌하면 모델이 지시문을 복창하거나 내부 추론을 노출한다
+    (2026-07-08 총평 지시문 누출 사고의 원인).
+    """
+    payload = {"metrics": {"cagr": 16.0}}
+    report = {"advice_titles": ["손절 추가"], "response_sections": []}
+    prompt = build_advisor_grounded_prompt(payload, report)
+
+    assert "weaknesses는 정확히 3개" not in prompt
+    assert "improvements는 정확히 3개" not in prompt
+    # 출력 형식 블록은 단 한 번만 등장해야 한다
+    assert prompt.count("출력 형식") == 1

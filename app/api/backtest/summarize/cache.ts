@@ -7,6 +7,7 @@ export type SummaryCachePayload = {
   advisorScore?: number | null;
   riskScore?: number | null;
   overfitRisk?: string | null;
+  degraded?: boolean;
 };
 
 const SUMMARY_CACHE_MAX = 200;

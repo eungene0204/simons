@@ -17,6 +17,8 @@ import {
   FloppyDisk,
   SignOut,
   Spinner,
+  Crown,
+  DownloadSimple,
 } from "phosphor-react";
 
 
@@ -26,6 +28,7 @@ import XAIModal from "./XAIModal";
 import { WalkForwardSettings, type WalkForwardOptimizationTarget } from "./WalkForwardModal";
 import OptimizationPage from "./OptimizationPage";
 import BacktestSummaryCard from "./BacktestSummaryCard";
+import { buildAiReportMetrics, hasAiReportArtifact } from "./aiReportMetrics";
 import { buildAutoSaveHistoryPayload } from "@/lib/backtest-history";
 import { resolveUniverseDisplayName } from "@/lib/strategy-summary";
 import { buildMonthlyReturnTableData } from "./monthlyReturns";
@@ -33,6 +36,12 @@ import {
   normalizeLegacyBreakoutStrategy,
   resolveTradeReason,
 } from "@/components/strategy/legacyBreakout";
+import {
+  EXPORT_FORMATS,
+  exportFileName,
+  type BacktestExportPayload,
+  type ExportFormat,
+} from "@/lib/backtest-export";
 
 const processedExecutionIds = new Set<string>();
 
@@ -307,6 +316,8 @@ export default function BacktestDashboard({
   const promptTooltipRef = useRef<HTMLDivElement>(null);
   const [planId, setPlanId] = useState<string>("FREE");
   const [isPlanLoading, setIsPlanLoading] = useState(true);
+  // AI 리포트는 프로/프리미엄 전용 기능 — 무료 플랜은 탭 대신 플랜 변경 안내를 노출한다.
+  const isAiReportEnabled = planId !== "FREE";
 
   const [localOptions, setLocalOptions] = useState<BacktestConfigOptions | null>(currentOptions || null);
   const [stockMetadata, setStockMetadata] = useState<Record<string, { name: string, sector: string }>>({});
@@ -319,10 +330,11 @@ export default function BacktestDashboard({
   // 백그라운드에서 진행 중인 AI 리포트 생성 요청. 저장 시 중복 요청 없이 이 약속을 재사용한다.
   const aiReportPromiseRef = useRef<Promise<AiReportData | null> | null>(null);
 
-  // AI 요약 캐시 — prop 우선, 없으면 result 객체에서 (캐시 히트 응답에 포함된 경우)
-  const [cachedAiSummary, setCachedAiSummary] = useState<string | undefined>(
-    initialAiSummaryProp ?? result.aiSummary ?? undefined
-  );
+  // AI 요약 캐시 — prop 우선, 없으면 result 객체에서 (캐시 히트 응답에 포함된 경우).
+  // 과거에 <think>/지시문 복창이 저장된 오염 레코드는 표시하지 않는다(→ 재생성 트리거).
+  const initialAiSummaryRaw = initialAiSummaryProp ?? result.aiSummary ?? undefined;
+  const initialAiSummary = hasAiReportArtifact(initialAiSummaryRaw) ? undefined : initialAiSummaryRaw;
+  const [cachedAiSummary, setCachedAiSummary] = useState<string | undefined>(initialAiSummary);
   const [cachedAiScore, setCachedAiScore] = useState<number | undefined>(
     initialAiScoreProp ?? result.aiScore ?? undefined
   );
@@ -351,6 +363,19 @@ export default function BacktestDashboard({
   const [saveDescription, setSaveDescription] = useState("");
   const [isSavingStrategy, setIsSavingStrategy] = useState(false);
   const [saveResult, setSaveResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  // 결과 다운로드 모달 (Pro/Premium 전용)
+  const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
+  const [downloadingFormat, setDownloadingFormat] = useState<ExportFormat | null>(null);
+  const [toast, setToast] = useState<{ type: "info" | "success" | "error"; message: string } | null>(null);
+  const isDownloadEnabled = planId === "PRO" || planId === "PREMIUM";
+
+  // 성공/실패 토스트는 잠시 후 자동으로 닫는다("준비 중" 안내는 다음 상태로 대체되므로 유지).
+  useEffect(() => {
+    if (!toast || toast.type === "info") return;
+    const timer = setTimeout(() => setToast(null), 3200);
+    return () => clearTimeout(timer);
+  }, [toast]);
   const normalizedBacktestDsl = useMemo(
     () => (backtestDsl ? normalizeLegacyBreakoutStrategy(backtestDsl) : backtestDsl),
     [backtestDsl]
@@ -424,21 +449,7 @@ export default function BacktestDashboard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           cacheKey: result.cacheKey,
-          metrics: {
-            totalReturn: result.totalReturn,
-            cagr: result.cagr,
-            buyAndHoldReturn: result.buyAndHoldReturn,
-            maxDrawdown: result.maxDrawdown,
-            sharpe: result.sharpe,
-            sortino: result.sortino,
-            profitFactor: result.profitFactor,
-            winRate: result.winRate,
-            trades: result.trades,
-            volatility: result.volatility,
-            kelly: result.kelly,
-            initialCapital: resolvedInitialCapital,
-            finalEquity: resolvedFinalEquity,
-          },
+          metrics: buildAiReportMetrics(result),
           strategySummary,
           parsedStrategy,
           userPrompt: promptText,
@@ -446,7 +457,9 @@ export default function BacktestDashboard({
       });
       if (!res.ok) return null;
       const data = await res.json();
-      if (!data.summary || data.score == null) return null;
+      // degraded = 백엔드가 LLM 출력 파싱에 실패한 폴백 — 캐시/PATCH하지 않고 실패로 처리해
+      // '다시 생성'으로 재시도할 수 있게 한다.
+      if (!data.summary || data.score == null || data.degraded) return null;
       const report: AiReportData = {
         summary: data.summary,
         score: data.score,
@@ -500,12 +513,34 @@ export default function BacktestDashboard({
   };
 
   // 백테스트 완료 시 AI 리포트를 백그라운드에서 즉시 생성 시작
+  const aiReportExecutionIdRef = useRef(result.executionId);
   useEffect(() => {
-    aiReportPromiseRef.current = null; // 새 백테스트 → 이전 in-flight 요청 무효화
+    const isNewExecution = aiReportExecutionIdRef.current !== result.executionId;
+    if (isNewExecution) {
+      aiReportExecutionIdRef.current = result.executionId;
+      aiReportPromiseRef.current = null; // 새 백테스트 → 이전 in-flight 요청 무효화
+      // 같은 화면에서 재실행 — 이전 전략의 리포트가 새 결과에 남지 않도록 초기화
+      setCachedAiSummary(hasAiReportArtifact(result.aiSummary) ? undefined : result.aiSummary ?? undefined);
+      setCachedAiScore(result.aiScore ?? undefined);
+      setCachedStrengths(result.aiStrengths ?? []);
+      setCachedWeaknesses(result.aiWeaknesses ?? []);
+      setCachedImprovements(result.aiImprovements ?? []);
+      setCachedAdvisorScore(result.advisorScore ?? null);
+      setCachedRiskScore(result.riskScore ?? null);
+      setCachedOverfitRisk(result.overfitRisk ?? null);
+    }
+    // 프로/프리미엄 전용 — 플랜 확인 전이거나 무료 플랜이면 백그라운드 생성을 하지 않는다.
+    // (플랜은 비동기로 로드되므로 확인이 끝나면 이 이펙트가 다시 실행되어 생성을 시작한다.)
+    if (isPlanLoading || !isAiReportEnabled) return;
+    if (isNewExecution) {
+      const usableSummary = result.aiSummary && !hasAiReportArtifact(result.aiSummary);
+      if (!(usableSummary && result.aiScore != null)) ensureAiReport();
+      return;
+    }
     if (cachedAiSummary && cachedAiScore != null) return; // 이미 캐시된 경우 스킵
     ensureAiReport();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result.executionId]);
+  }, [result.executionId, isPlanLoading, isAiReportEnabled]);
 
   useEffect(() => {
     const fetchStockMetadata = async () => {
@@ -644,9 +679,9 @@ export default function BacktestDashboard({
       let finalAdvisorScore = cachedAdvisorScore;
       let finalRiskScore = cachedRiskScore;
       let finalOverfitRisk = cachedOverfitRisk;
-      if (!finalSummary) {
+      if (!finalSummary && isAiReportEnabled) {
         // 백그라운드 생성이 진행 중이면 그 요청을 그대로 기다리고, 없으면 새로 시작한다.
-        // (이미 완료됐다면 즉시 반환되어 바로 저장된다.)
+        // (이미 완료됐다면 즉시 반환되어 바로 저장된다. 무료 플랜은 AI 리포트 없이 저장한다.)
         const report = await ensureAiReport();
         if (report) {
           finalSummary = report.summary;
@@ -745,6 +780,104 @@ export default function BacktestDashboard({
   const modalUniverseLabel = strategySummary
     ? resolveUniverseDisplayName(strategySummary.universeName, modalPromptPreview)
     : null;
+
+  const downloadStrategyName =
+    strategySummary?.strategyName?.trim() || promptText?.trim() || "백테스트 전략";
+  const downloadPeriodLabel =
+    result.dates[0] && result.dates[result.dates.length - 1]
+      ? `${result.dates[0]} ~ ${result.dates[result.dates.length - 1]}`
+      : "";
+
+  // 화면에 표시되는 데이터(현재 정렬/필터 반영)를 그대로 내보내기 payload로 변환한다.
+  // 전략명은 metadata에만 한 번 포함하고 각 행에는 넣지 않는다.
+  const buildExportPayload = (): BacktestExportPayload => {
+    // KST(+09:00) ISO 문자열 생성 — 파일명 날짜와 metadata 생성시간에 사용
+    const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    const exportedAt = `${kst.toISOString().slice(0, 19)}+09:00`;
+    const universeLabel =
+      (strategySummary && resolveUniverseDisplayName(strategySummary.universeName, promptText)) ||
+      result.universeId?.toUpperCase() ||
+      strategySummary?.universeName ||
+      "-";
+
+    return {
+      metadata: {
+        strategyName: downloadStrategyName,
+        backtestId: result.cacheKey ?? result.executionId,
+        exportedAt,
+        period: {
+          from: result.dates[0] ?? "",
+          to: result.dates[result.dates.length - 1] ?? "",
+        },
+        universe: universeLabel,
+        initialCapital: resolvedInitialCapital,
+        finalEquity: resolvedFinalEquity,
+        commission:
+          localOptions?.commissionPct != null ? localOptions.commissionPct / 100 : undefined,
+        slippage:
+          localOptions?.slippagePct != null ? localOptions.slippagePct / 100 : undefined,
+        benchmark: benchmarkLabel,
+      },
+      // 종목 분석 — sortedSymbols 는 이미 매매 0건 제외 + 현재 정렬 상태를 반영한다.
+      // perAssetStats 의 winRate/totalReturn 은 퍼센트(%)라 소수로 환산한다.
+      stockAnalysis: sortedSymbols.map((sym) => {
+        const stats = result.perAssetStats?.[sym];
+        return {
+          symbol: sym,
+          name: stockMetadata[sym]?.name || sym,
+          tradeCount: stats?.trades ?? 0,
+          winRate: (stats?.winRate ?? 0) / 100,
+          totalReturn: (stats?.totalReturn ?? 0) / 100,
+          totalProfit: stats?.profit ?? 0,
+        };
+      }),
+      // 매매 기록 — 화면과 동일하게 tradesList(개별 체결 이벤트) 순서를 유지한다.
+      tradeHistory: (result.tradesList ?? []).map((t) => ({
+        date: t.date,
+        symbol: t.symbol,
+        name: stockMetadata[t.symbol]?.name || t.symbol,
+        type: t.type,
+        price: Number(t.price) || 0,
+        quantity: Number(t.quantity) || 0,
+        amount: t.amount || 0,
+        reason: resolveTradeReason(t.reason, t.type, normalizedBacktestDsl) ?? t.reason ?? "",
+      })),
+    };
+  };
+
+  const handleOpenDownloadModal = () => {
+    setToast(null);
+    setIsDownloadModalOpen(true);
+  };
+
+  const handleDownload = async (format: ExportFormat) => {
+    setDownloadingFormat(format);
+    setToast({ type: "info", message: "다운로드를 준비하고 있어요." });
+    try {
+      const payload = buildExportPayload();
+      const res = await fetch("/api/backtest/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ format, payload }),
+      });
+      if (!res.ok) throw new Error("download failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = exportFileName(payload, format);
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      setToast({ type: "success", message: "결과 파일 다운로드가 완료되었습니다." });
+      setIsDownloadModalOpen(false);
+    } catch {
+      setToast({ type: "error", message: "다운로드에 실패했습니다. 잠시 후 다시 시도해주세요." });
+    } finally {
+      setDownloadingFormat(null);
+    }
+  };
 
   const overviewMetrics = [
     {
@@ -1000,8 +1133,8 @@ export default function BacktestDashboard({
               {saveResult && (
                 <div className={`mb-4 px-3 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 ${
                   saveResult.ok
-                    ? "bg-green-500/10 text-green-400 border border-green-500/20"
-                    : "bg-red-500/10 text-red-400 border border-red-500/20"
+                    ? "text-green-400"
+                    : "text-red-400 border border-red-500/20"
                 }`}>
                   {saveResult.ok ? <Check size={14} weight="bold" /> : <Warning size={14} weight="fill" />}
                   {saveResult.message}
@@ -1017,7 +1150,7 @@ export default function BacktestDashboard({
                 </button>
                 <button
                   onClick={handleSaveStrategy}
-                  disabled={!saveStrategyName.trim() || isSavingStrategy}
+                  disabled={!saveStrategyName.trim() || isSavingStrategy || saveResult?.ok === true}
                   className="flex-1 py-2.5 rounded-xl bg-[var(--main-blue)] text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-bold transition-colors flex items-center justify-center gap-2"
                 >
                   {isSavingStrategy ? (
@@ -1034,6 +1167,140 @@ export default function BacktestDashboard({
                 </button>
               </div>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 결과 다운로드 모달 — Pro/Premium: 형식 선택 / Free: 업그레이드 안내 */}
+      <AnimatePresence>
+        {isDownloadModalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            onClick={(e) => { if (e.target === e.currentTarget && !downloadingFormat) setIsDownloadModalOpen(false); }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 8 }}
+              transition={{ type: "spring", bounce: 0.2, duration: 0.35 }}
+              className="bg-[#111111] border border-white/10 rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl"
+              role="dialog"
+              aria-modal="true"
+            >
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-2.5">
+                  {isDownloadEnabled ? (
+                    <DownloadSimple size={18} className="text-gray-300" weight="fill" />
+                  ) : (
+                    <Crown size={18} className="text-amber-300" weight="fill" />
+                  )}
+                  <h3 className="text-base font-black text-white">
+                    {isDownloadEnabled ? "백테스트 결과 다운로드" : "결과 다운로드는 Pro 이상에서 사용할 수 있어요"}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsDownloadModalOpen(false)}
+                  disabled={!!downloadingFormat}
+                  className="p-1.5 rounded-lg hover:bg-white/10 text-gray-500 hover:text-white transition-colors disabled:opacity-40"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {isDownloadEnabled ? (
+                <>
+                  <div className="mb-5 space-y-1.5 rounded-xl border border-white/5 bg-white/[0.03] p-4">
+                    <div className="flex gap-2 text-sm">
+                      <span className="w-14 flex-shrink-0 text-[11px] font-bold uppercase tracking-widest text-gray-600 pt-0.5">전략명</span>
+                      <span className="font-bold text-white">{downloadStrategyName}</span>
+                    </div>
+                    {downloadPeriodLabel && (
+                      <div className="flex gap-2 text-sm">
+                        <span className="w-14 flex-shrink-0 text-[11px] font-bold uppercase tracking-widest text-gray-600 pt-0.5">기간</span>
+                        <span className="font-mono font-bold text-gray-300">{downloadPeriodLabel}</span>
+                      </div>
+                    )}
+                  </div>
+                  <p className="mb-4 text-sm font-bold text-gray-400">다운로드할 형식을 선택하세요.</p>
+                  <div className="flex gap-2">
+                    {EXPORT_FORMATS.map(({ format, label }) => (
+                      <button
+                        key={format}
+                        type="button"
+                        onClick={() => handleDownload(format)}
+                        disabled={!!downloadingFormat}
+                        className="flex-1 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-white text-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                      >
+                        {downloadingFormat === format ? (
+                          <Spinner size={14} className="animate-spin" />
+                        ) : (
+                          <DownloadSimple size={14} />
+                        )}
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="mb-2 text-sm font-bold leading-6 text-gray-300">
+                    백테스트 결과를 CSV/JSON으로 저장하고, 종목 분석과 매매 기록을 직접 검증해보세요.
+                  </p>
+                  <p className="mb-5 text-sm font-bold text-gray-500">Pro 플랜부터 제공되는 기능입니다.</p>
+                  <div className="flex gap-2">
+                    <a
+                      href="/pricing"
+                      className="flex-1 py-2.5 rounded-xl bg-[var(--main-blue)] text-white hover:opacity-90 text-sm font-bold transition-colors text-center"
+                    >
+                      요금제 보기
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => setIsDownloadModalOpen(false)}
+                      className="flex-1 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white text-sm font-bold transition-colors"
+                    >
+                      닫기
+                    </button>
+                  </div>
+                </>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 다운로드 상태 토스트 */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 12 }}
+            className="fixed bottom-6 left-1/2 z-[1100] -translate-x-1/2"
+          >
+            <div
+              className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-bold shadow-2xl backdrop-blur-sm ${
+                toast.type === "success"
+                  ? "border-green-500/20 bg-[#0f1a12] text-green-300"
+                  : toast.type === "error"
+                    ? "border-red-500/20 bg-[#1a0f0f] text-red-300"
+                    : "border-white/10 bg-[#151515] text-gray-200"
+              }`}
+              role="status"
+            >
+              {toast.type === "success" ? (
+                <Check size={15} weight="bold" />
+              ) : toast.type === "error" ? (
+                <Warning size={15} weight="fill" />
+              ) : (
+                <Spinner size={15} className="animate-spin" />
+              )}
+              {toast.message}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -1187,6 +1454,15 @@ export default function BacktestDashboard({
                 )}
               </div>
             )}
+            <button
+              type="button"
+              onClick={handleOpenDownloadModal}
+              disabled={isRunning || isPlanLoading}
+              className="px-4 py-1.5 bg-white/[0.05] hover:bg-white/10 text-gray-300 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed text-sm font-bold rounded-lg transition-all border border-white/5 hover:border-white/10 flex items-center gap-2 active:scale-95"
+            >
+              <DownloadSimple className="w-4 h-4" />
+              결과 다운로드
+            </button>
             <button
               onClick={handleOpenSaveModal}
               disabled={isRunning}
@@ -1501,7 +1777,34 @@ export default function BacktestDashboard({
            {/* Report View */}
            {activeTab === "report" && (
              <div className="flex flex-1 flex-col py-4">
+               {isPlanLoading ? (
+                 <div className="flex min-h-[320px] items-center justify-center text-sm font-bold text-gray-500">
+                   <Spinner className="mr-2 h-4 w-4 animate-spin" />
+                   플랜 정보를 확인하는 중...
+                 </div>
+               ) : !isAiReportEnabled ? (
+                 <div className="flex min-h-[320px] items-center justify-center px-6 py-10">
+                   <div className="w-full max-w-2xl p-8 text-center">
+                     <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-amber-400/30 bg-amber-500/10">
+                       <Crown className="h-6 w-6 text-amber-300" weight="fill" />
+                     </div>
+                     <h3 className="mt-4 text-lg font-black text-white">
+                       AI 리포트는 프로/프리미엄 플랜 전용 기능입니다
+                     </h3>
+                     <p className="mt-2 text-sm font-bold leading-6 text-gray-400">
+                       프로 또는 프리미엄 플랜을 이용하시면 백테스트 결과에 대한 AI 분석 리포트를 확인할 수 있습니다.
+                     </p>
+                     <a
+                       href="/pricing"
+                       className="mt-6 inline-flex items-center justify-center rounded-lg border border-gray-500 px-5 py-2.5 text-sm font-black text-amber-100 transition-colors hover:bg-white/[0.05]"
+                     >
+                       플랜 변경
+                     </a>
+                   </div>
+                 </div>
+               ) : (
                <BacktestSummaryCard
+                 key={result.executionId}
                  result={result}
                  strategySummary={strategySummary}
                  initialSummary={cachedAiSummary}
@@ -1542,6 +1845,7 @@ export default function BacktestDashboard({
                    }
                  }}
                />
+               )}
              </div>
            )}
 

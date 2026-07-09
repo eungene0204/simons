@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BacktestResult } from "@/types/strategy";
 import { Sparkle, ArrowsClockwise, TrendUp, Warning, Question } from "phosphor-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { buildAiReportMetrics } from "./aiReportMetrics";
 
 interface BacktestSummaryCardProps {
   result: BacktestResult;
@@ -185,7 +186,24 @@ export default function BacktestSummaryCard({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchSummary = async () => {
+  // 대시보드가 백그라운드에서 생성을 끝내면 initial* props가 갱신된다.
+  // 카드가 이미 마운트된 상태(리포트 탭을 열어둔 채)에서도 반영되도록 동기화한다.
+  useEffect(() => {
+    if (loading) return; // 카드 자체 요청이 진행 중이면 덮어쓰지 않음
+    if (initialSummary && initialScore != null) {
+      setSummary(initialSummary);
+      setScore(initialScore);
+      setStrengths(initialStrengths ?? []);
+      setWeaknesses(initialWeaknesses ?? []);
+      setImprovements(initialImprovements ?? []);
+      setAdvisorScore(initialAdvisorScore ?? null);
+      setRiskScore(initialRiskScore ?? null);
+      setOverfitRisk(initialOverfitRisk ?? null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSummary, initialScore]);
+
+  const fetchSummary = async (force = false) => {
     setLoading(true);
     setError(null);
     setSummary("");
@@ -203,29 +221,20 @@ export default function BacktestSummaryCard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           cacheKey: result.cacheKey,
-          metrics: {
-            totalReturn: result.totalReturn,
-            cagr: result.cagr,
-            buyAndHoldReturn: result.buyAndHoldReturn,
-            maxDrawdown: result.maxDrawdown,
-            sharpe: result.sharpe,
-            sortino: result.sortino,
-            profitFactor: result.profitFactor,
-            winRate: result.winRate,
-            trades: result.trades,
-            volatility: result.volatility,
-            kelly: result.kelly,
-            initialCapital: result.initialCapital,
-            finalEquity: result.finalEquity,
-          },
+          metrics: buildAiReportMetrics(result),
           strategySummary,
           parsedStrategy,
           userPrompt: promptText,
+          force,
         }),
       });
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Unknown error");
+      // degraded = LLM 출력 파싱 실패 폴백 — 리포트로 표시/전파하지 않고 재시도를 안내한다.
+      if (data.degraded) {
+        throw new Error(data.summary || "AI 리포트 생성에 실패했습니다. 다시 시도해 주세요.");
+      }
       setScore(data.score ?? null);
       setSummary(data.summary ?? "");
       setStrengths(data.strengths ?? []);
@@ -323,7 +332,7 @@ export default function BacktestSummaryCard({
           AI 백테스트 리포트
         </div>
         <button
-          onClick={fetchSummary}
+          onClick={() => fetchSummary(true)}
           disabled={loading}
           className="text-gray-600 hover:text-gray-400 transition-colors disabled:opacity-30"
           title="다시 생성"
@@ -378,7 +387,7 @@ export default function BacktestSummaryCard({
           >
             <p className="text-xs text-gray-600">AI 리포트가 아직 생성되지 않았습니다.</p>
             <button
-              onClick={fetchSummary}
+              onClick={() => fetchSummary()}
               className="px-4 py-1.5 text-xs font-bold text-white bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 rounded-lg transition-colors"
             >
               리포트 생성

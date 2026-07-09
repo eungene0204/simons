@@ -19,10 +19,11 @@ type SummaryPayload = {
   advisorScore?: number | null;
   riskScore?: number | null;
   overfitRisk?: string | null;
+  degraded?: boolean;
   cached: boolean;
 };
 
-const SUMMARY_CACHE_GENERATION = "ai-report-parser-v2";
+const SUMMARY_CACHE_GENERATION = "ai-report-parser-v4";
 
 class SummarizeBackendError extends Error {
   status: number;
@@ -77,8 +78,12 @@ function hasReportFormattingArtifact(summary: unknown): boolean {
   if (!value) return false;
 
   return (
-    /^'?\s*\{/.test(value) && /["'](?:total_summary|totalSummary|strengths|weaknesses|improvements)["']\s*:/.test(value)
-  ) || /<\/?think>/i.test(value) || /```(?:json)?/i.test(value);
+    (/^'?\s*\{/.test(value) && /["'](?:total_summary|totalSummary|strengths|weaknesses|improvements)["']\s*:/.test(value)) ||
+    /<\/?think>/i.test(value) ||
+    /```(?:json)?/i.test(value) ||
+    // 프롬프트 지시문 복창(에코)이 총평으로 저장된 오염 레코드 — 서빙하지 않고 재생성한다.
+    /\[중요\]|작성 규칙|출력 형식|advisor 진단 근거|JSON만 출력/.test(value)
+  );
 }
 
 async function fetchSummary(
@@ -97,7 +102,9 @@ async function fetchSummary(
       user_prompt: userPrompt,
     }),
     cache: "no-store",
-    timeoutMs: 120_000,
+    // Modal 콜드스타트(웜업 ~200s + 첫 추론)까지 커버해야 한다 — 백엔드 summarize가
+    // warmup+재시도 예산을 갖게 되었으므로 프록시가 먼저 끊지 않도록 여유를 둔다.
+    timeoutMs: 360_000,
   });
 
   if (!res.ok) {
@@ -117,19 +124,22 @@ async function fetchSummary(
   if (result.advisorScore != null) payload.advisorScore = result.advisorScore;
   if (result.riskScore != null) payload.riskScore = result.riskScore;
   if (result.overfitRisk != null) payload.overfitRisk = result.overfitRisk;
+  // 백엔드가 LLM 출력 파싱에 실패해 폴백 문구를 반환한 경우 — 캐시/저장 금지 신호.
+  if (result.degraded) payload.degraded = true;
   return payload;
 }
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { metrics, strategySummary, parsedStrategy, userPrompt, cacheKey } = body;
+    const { metrics, strategySummary, parsedStrategy, userPrompt, cacheKey, force } = body;
 
     if (!metrics) {
       return NextResponse.json({ error: "Missing metrics" }, { status: 400 });
     }
 
-    if (cacheKey) {
+    // force=true('다시 생성' 버튼)는 저장된 리포트를 무시하고 새로 생성한다.
+    if (cacheKey && !force) {
       const existing = await prisma.backtestHistory.findUnique({ where: { cacheKey } });
       const existingMetrics = existing?.metrics ? JSON.parse(existing.metrics) : null;
 
@@ -144,15 +154,21 @@ export async function POST(req: Request) {
           strengths: existingMetrics.aiStrengths ?? [],
           weaknesses: existingMetrics.aiWeaknesses ?? [],
           improvements: existingMetrics.aiImprovements ?? [],
+          // advisor 진단이 함께 저장된 경우 그대로 복원한다(누락 시 리스크 진단 카드가 사라짐).
+          advisorScore: existingMetrics.advisorScore ?? undefined,
+          riskScore: existingMetrics.riskScore ?? undefined,
+          overfitRisk: existingMetrics.overfitRisk ?? undefined,
           cached: true,
         });
       }
     }
 
     const payloadKey = await summaryPayloadKey(metrics, strategySummary, parsedStrategy, userPrompt);
-    const memoryHit = getSummaryMemoryCache(payloadKey);
-    if (memoryHit) {
-      return NextResponse.json({ ...memoryHit, cached: true });
+    if (!force) {
+      const memoryHit = getSummaryMemoryCache(payloadKey);
+      if (memoryHit) {
+        return NextResponse.json({ ...memoryHit, cached: true });
+      }
     }
 
     let pending = getSummaryInFlight(payloadKey);
@@ -164,14 +180,18 @@ export async function POST(req: Request) {
     }
 
     const generated = await pending;
-    rememberSummary(payloadKey, generated);
+    // 파싱 실패 폴백(degraded)은 캐시·DB에 남기지 않는다 — 남기면 실패 문구가
+    // 캐시 히트로 계속 서빙되고 '다시 생성' 외엔 복구 수단이 없어진다.
+    if (!generated.degraded) {
+      rememberSummary(payloadKey, generated);
+    }
 
     const payload: SummaryPayload = {
       ...generated,
       cached: false,
     };
 
-    if (cacheKey) {
+    if (cacheKey && !generated.degraded) {
       const existing = await prisma.backtestHistory.findUnique({ where: { cacheKey } });
       if (existing) {
         const currentMetrics = existing.metrics ? JSON.parse(existing.metrics) : {};
@@ -185,6 +205,10 @@ export async function POST(req: Request) {
               aiStrengths: payload.strengths,
               aiWeaknesses: payload.weaknesses,
               aiImprovements: payload.improvements,
+              // advisor 진단 필드도 함께 저장 — 클라이언트 PATCH가 누락돼도 캐시 히트에서 복원 가능.
+              advisorScore: payload.advisorScore ?? currentMetrics.advisorScore,
+              riskScore: payload.riskScore ?? currentMetrics.riskScore,
+              overfitRisk: payload.overfitRisk ?? currentMetrics.overfitRisk,
             }),
           },
         });

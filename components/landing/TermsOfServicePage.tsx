@@ -213,13 +213,17 @@ const sections = [
       "회사는 필요한 경우 특정 서비스에 관하여 별도의 이용약관 또는 운영정책을 둘 수 있으며, 별도 약관 또는 정책이 이 약관과 충돌하는 경우 해당 별도 약관 또는 정책이 우선 적용됩니다.",
     ],
   },
-  {
-    title: "부칙",
-    body: ["이 약관은 2026년 7월 8일부터 시행합니다."],
-  },
 ] satisfies TermsSection[];
 
 export function TermsOfServicePage() {
+  const businessInfoItems = [
+    { label: "상호", value: process.env.COMPANY_NAME },
+    { label: "대표자", value: process.env.BUSINESS_REPRESENTATIVE_NAME },
+    { label: "주소", value: process.env.BUSINESS_ADDRESS },
+    { label: "사업자등록번호", value: process.env.BUSINESS_REGISTRATION_NUMBER },
+    { label: "이메일", value: process.env.BUSINESS_EMAIL },
+  ];
+
   return (
     <main className="min-h-screen bg-[#0f0f0f] text-white">
       <section className="border-b border-white/[0.08] px-6 py-12">
@@ -270,12 +274,15 @@ export function TermsOfServicePage() {
           </div>
 
           <div className="mt-10 border border-white/[0.08] bg-white/[0.02] p-5 text-sm font-bold leading-6 text-gray-400">
-            <p className="font-black text-white">운영 전 확정 항목</p>
-            <p className="mt-2">
-              사업자등록번호, 통신판매업 신고번호, 개인정보 보호책임자,
-              고객센터, 청약철회 제한 사유, 환불 산식, 개인정보처리방침 URL은
-              운영 고지 시점에 확정됩니다.
-            </p>
+            <p className="font-black text-white">사업자 정보</p>
+            <dl className="mt-4 grid gap-3 sm:grid-cols-[140px_1fr]">
+              {businessInfoItems.map((item) => (
+                <div key={item.label} className="contents">
+                  <dt className="text-gray-500">{item.label}</dt>
+                  <dd className="text-gray-300">{item.value || "미정"}</dd>
+                </div>
+              ))}
+            </dl>
           </div>
         </div>
       </section>

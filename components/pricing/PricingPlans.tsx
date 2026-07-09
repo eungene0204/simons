@@ -53,6 +53,8 @@ function planFeatures(planId: PlanId, plan: Plan): FeatureRow[] {
       included: true,
     },
     { label: `월 백테스트 ${formatCount(plan.monthlyBacktestLimit)}회`, included: true },
+    { label: "AI 리포트", included: planId !== "FREE" },
+    { label: "결과 다운로드 (CSV/JSON)", included: planId !== "FREE" },
     ...PREMIUM_VALIDATION_FEATURES.map((label) => ({
       label,
       included: planId === "PREMIUM",

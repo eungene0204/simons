@@ -544,6 +544,24 @@ RiskManagement {
 - **모델:** Qwen 7B MLX (macOS) 또는 추론 서비스
 - **기능:** 백테스트 결과를 자연어 리포트로 변환 (점수, 요약, 추천)
 - **advisor 하이브리드 ✅ 완료:** `parsed_strategy`가 전달되면 `StrategyAdvisorAgent`가 개선안(improvements)·점수·과적합 위험을 결정론적으로 산출하고, LLM은 그 진단을 근거로 총평·강점·단점만 서술한다(환각 차단). `parsed_strategy` 미전달·advisor 실패 시 기존 LLM 단독 경로로 폴백.
+- **정확성/신뢰성 점검(2026-07-08) ✅ 완료:**
+  - 캐시 히트·DB 저장에 advisor 진단 필드(advisorScore/riskScore/overfitRisk) 포함 — 재조회 시 "전략 리스크 진단" 카드 유실 수정 (`app/api/backtest/summarize/route.ts`)
+  - 같은 화면에서 백테스트 재실행 시 이전 전략의 리포트가 새 결과에 남던 stale 캐시 수정 (`BacktestDashboard` executionId 감지 리셋 + 카드 key)
+  - '다시 생성' 버튼에 `force` 재생성 지원(기존엔 캐시 반환으로 no-op), 리포트 탭을 열어둔 채 백그라운드 생성 완료 시 화면 자동 갱신
+  - 프롬프트에 백테스트 기간·초기/최종 자본 명시 + "제시된 수치만 인용, 미래 예측 금지" 규칙 추가(기간 환각 방지, 규제 안전), advisor 진단이 3개 미만이면 단점을 그 수만큼만 쓰도록 모순 해소
+  - `summarize_ollama`에 Modal 콜드스타트 내성(warmup GET + 재시도) 적용, 프록시 타임아웃 상향(120s→360s) — 프로덕션 콜드 상태 리포트 생성 실패 수정
+  - 대시보드/카드 metrics 페이로드 통일(`aiReportMetrics.ts`) — 캐시 키 불일치로 인한 중복 LLM 호출 제거, 리포트 하단 규제 안전 고지 문구 추가
+- **총평 지시문/내부추론 누출 사고 수정(2026-07-08) ✅ 완료:** 총평에 프롬프트 지시문·`<think>` 추론이 그대로 노출되던 문제의 4중 수정 — ① `summarize_ollama`를 `/api/generate`→`/api/chat`+`think:false`로 전환(GGUF 임포트 모델은 generate 경로에서 think:false가 무시됨, 실측 확인) ② grounded 프롬프트를 base에 덧붙이는 이중 규칙(모순)에서 단일 규칙 세트로 재구성(모델이 규칙 충돌을 추론하다 지시문을 복창하던 원인) ③ `parse_llm_output`에 미닫힘 `<think>` 절단 + 지시문 에코 시그니처 감지 → 폴백(누출 텍스트를 총평으로 절대 반환하지 않음) ④ 파싱 실패 폴백은 `degraded` 플래그로 표시해 프록시 메모리 캐시·DB 저장·클라이언트 PATCH를 모두 차단(실패 문구 캐시 고착 방지). 기존 오염 레코드는 `hasReportFormattingArtifact`/`hasAiReportArtifact` 시그니처 확장으로 서빙·표시를 막고 재생성한다. 금액은 억/만 단위로 결정론 변환해 프롬프트에 제공(LLM이 1,000만원을 1억으로 오환산하던 문제). 로컬 Ollama(Qwen3.5-4B) 라이브 검증: 진단 0건/2건 케이스 모두 정상 총평, 누출 0.
+- **코퍼스 비교 총평(2026-07-08) ✅ 완료:** 총평이 "결과 읽기"에 그치지 않도록, 동일 엔진으로 실행된 과거 전략 시뮬레이션 코퍼스(2,000개, `advisor/corpus_insights_data.jsonl.gz` — Chroma 코퍼스에서 `scripts/export_corpus_insights.py`로 내보낸 커밋 아티팩트)와의 결정론적 비교를 리포트에 주입한다(`advisor/corpus_insights.py`). ① 구조 유사 전략 코호트(`structural_similarity`≥0.5, 30개 미만이면 전체 코퍼스) 내 CAGR/MDD 방어/샤프/승률 백분위 ② 사용자 전략에 없는 구조 장치(손절·익절·정기 리밸런싱·5종목 분산)의 유무별 코호트 중앙값 대조(과거 통계 서술만, 추천 표현 금지). 문장은 Python이 완성해 프롬프트에 주입하고 LLM은 그대로 옮긴다(수치 환각 방지). **함정: "상위 79%" 표기를 LLM이 상위권으로 오독(실측)** → 중앙값 아래는 "하위 X% (중앙값 대비 낮음)"으로 오독 불가능하게 서술 + 프롬프트에 하위 긍정 서술 금지 규칙. 응답에 `corpusComparison` 포함. 코퍼스 파일 없으면 기존 리포트로 무해 폴백. 라이브 검증: 승률 하위 21%→"진입 신호 정제 필요", 손절 부재→유무별 MDD 중앙값(-21.91% vs -14.26%) 대조가 총평·단점에 정확 반영.
+- **프로/프리미엄 전용 게이트(2026-07-08) ✅ 완료:** AI 리포트는 프로·프리미엄 전용 기능. 무료 플랜이 "AI 리포트" 탭을 누르면 리포트 대신 안내 문구("AI 리포트는 프로/프리미엄 플랜 전용 기능입니다") + "플랜 변경" 버튼(→ `/pricing`)을 노출한다. 무료 플랜은 백그라운드/저장 시 유료 LLM 생성을 트리거하지 않는다(`isAiReportEnabled = planId !== "FREE"`, `BacktestDashboard`). 요금제 페이지 기능표에 "AI 리포트" 행 추가(`PricingPlans`). 회귀 테스트 `BacktestDashboard.aiReportPlanGate.test.tsx`
+
+#### 3.3.3.1 백테스트 결과 다운로드 (CSV/JSON) ✅ 완료 (2026-07-08)
+
+- **기능:** 백테스트 결과 페이지 상단 "결과 다운로드" 버튼 → 모달에서 CSV 또는 JSON 선택 후 다운로드. 개별 CSV/JSON 버튼을 직접 노출하지 않고 반드시 버튼 → 모달 → 형식 선택 흐름을 거친다.
+- **대상 데이터:** 종목 분석(현재 정렬 반영, 매매 0건 제외) + 매매 기록을 하나의 파일에 함께 포함. 화면과 동일 소스(`sortedSymbols`/`result.tradesList`, `resolveTradeReason`) 사용. 전략명은 metadata/제목에 한 번만 포함하고 각 행에는 넣지 않는다. CSV는 UTF-8 BOM(Excel 한글 보호), JSON은 pretty print(비율=소수).
+- **파일명:** `{strategy_slug}_backtest_result_{yyyyMMdd}.{csv|json}`
+- **프로/프리미엄 전용 게이트:** 무료·비로그인 사용자는 "결과 다운로드" 클릭 시 업그레이드 안내 모달("결과 다운로드는 Pro 이상에서 사용할 수 있어요" + "요금제 보기"/"닫기")만 노출, CSV/JSON 선택 버튼과 export API 호출이 발생하지 않는다. **서버(`app/api/backtest/export`)에서도 `getUserPlan`으로 플랜을 재검증** — Free/비로그인/차단 사용자가 직접 API를 호출해도 403/401로 파일을 만들지 않는다.
+- **확장성:** 순수 빌더 `lib/backtest-export.ts`(`ExportFormat`/`buildExportFile` 포맷 분기)로 향후 Excel/PDF 추가 용이. 회귀 테스트 `backtestExport.test.ts`(빌더), `backtestExportRoute.test.ts`(서버 게이트), `BacktestDashboard.downloadGate.test.tsx`(UI 게이트)
 
 #### 3.3.4 전략 최적화 (Optuna) ✅ 완료
 

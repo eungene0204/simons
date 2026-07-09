@@ -85,6 +85,10 @@ describe("BacktestDashboard 저장 — 백그라운드 AI 리포트 재사용", 
       if (typeof url === "string" && url.includes("/api/strategy/save-with-backtest")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ strategyId: "strat-1" }) });
       }
+      // AI 리포트는 프로/프리미엄 전용 — 백그라운드 생성이 돌려면 유료 플랜이어야 한다.
+      if (typeof url === "string" && url.includes("/api/user/plan")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ plan: { planId: "PRO" } }) });
+      }
       // ai-report PATCH / history / 종목명 등은 빈 응답.
       return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
     });
