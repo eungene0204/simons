@@ -169,7 +169,10 @@ class _Conn:
 def connect() -> _Conn:
     url = os.getenv("DATABASE_URL", "")
     if not url.startswith(("postgres://", "postgresql://")):
-        raise RuntimeError(
+        # db.Error(=psycopg.Error)로 던져야 advisor/research 등 기존 "DB 접근 실패해도
+        # 조용히 폴백" 코드의 `except db.Error:` 가드가 이 경우도 정상적으로 흡수한다
+        # (RuntimeError는 그 가드를 그냥 통과해 버려 best-effort 설계가 깨진다).
+        raise Error(
             f"DATABASE_URL이 Postgres가 아닙니다(앞부분={url[:16]!r}). "
             "Supabase 이관 후에는 postgres URL이 필요합니다."
         )
