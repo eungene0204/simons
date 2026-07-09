@@ -1,7 +1,7 @@
 import json
 import os
-import sqlite3
 import sys
+from datetime import datetime
 
 import pytest
 
@@ -28,61 +28,16 @@ def _use_light_embeddings(monkeypatch):
     monkeypatch.setattr(memory_repository, "_query_embedding_client", lambda: HashingEmbeddingClient())
 
 
-def _create_bootstrap_db(path):
-    conn = sqlite3.connect(path)
-    conn.execute(
-        """
-        CREATE TABLE Strategy (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            description TEXT,
-            settings TEXT NOT NULL,
-            strategyType TEXT NOT NULL,
-            createdAt TEXT NOT NULL,
-            updatedAt TEXT NOT NULL
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE BacktestResult (
-            id TEXT PRIMARY KEY,
-            strategyId TEXT NOT NULL,
-            stockId INTEGER,
-            summary TEXT NOT NULL,
-            trades TEXT,
-            createdAt TEXT NOT NULL
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE AdviceExperience (
-            id TEXT PRIMARY KEY,
-            strategyId TEXT NOT NULL,
-            createdAt TEXT NOT NULL,
-            market TEXT,
-            universe TEXT,
-            initialCapital REAL NOT NULL,
-            timeframe TEXT NOT NULL,
-            userPrompt TEXT NOT NULL,
-            strategySummary TEXT,
-            strategyDsl TEXT NOT NULL,
-            canonicalDsl TEXT NOT NULL,
-            strategyHash TEXT NOT NULL,
-            similarStrategyIds TEXT NOT NULL,
-            retrievedCases TEXT NOT NULL,
-            agentAdvice TEXT NOT NULL,
-            beforeBacktest TEXT NOT NULL,
-            afterBacktest TEXT,
-            evaluation TEXT NOT NULL,
-            lesson TEXT NOT NULL,
-            confidence TEXT NOT NULL,
-            dataCoverage TEXT
-        )
-        """
-    )
+def _ts(iso: str) -> datetime:
+    """ISO 문자열 → datetime (Postgres timestamp 컬럼용). Python 3.11의 fromisoformat은 'Z' 지원."""
+    return datetime.fromisoformat(iso)
 
+
+def _seed_bootstrap(conn):
+    """simons_test에 부트스트랩용 Strategy/BacktestResult 시딩.
+
+    스키마는 마이그레이션으로 이미 존재하므로 CREATE TABLE 없이 INSERT만 한다.
+    """
     strategy_rows = [
         (
             "legacy_rsi_case",
@@ -112,59 +67,30 @@ def _create_bootstrap_db(path):
     ]
     for strategy_id, name, description, settings in strategy_rows:
         conn.execute(
-            """
-            INSERT INTO Strategy (id, name, description, settings, strategyType, createdAt, updatedAt)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
+            'INSERT INTO "Strategy" (id, name, description, settings, "strategyType", "createdAt", "updatedAt")'
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 strategy_id,
                 name,
                 description,
                 json.dumps(settings),
                 "legacy",
-                "2026-01-01T00:00:00Z",
-                "2026-01-01T00:00:00Z",
+                _ts("2026-01-01T00:00:00Z"),
+                _ts("2026-01-01T00:00:00Z"),
             ),
         )
 
-    conn.execute(
-        """
-        INSERT INTO BacktestResult (id, strategyId, summary, createdAt)
-        VALUES (?, ?, ?, ?)
-        """,
-        (
-            "bt_old",
-            "legacy_rsi_case",
-            json.dumps({"cagr": 0.01, "maxDrawdown": -0.30, "sharpe": 0.2}),
-            "2026-01-01T00:00:00Z",
-        ),
-    )
-    conn.execute(
-        """
-        INSERT INTO BacktestResult (id, strategyId, summary, createdAt)
-        VALUES (?, ?, ?, ?)
-        """,
-        (
-            "bt_new",
-            "legacy_rsi_case",
-            json.dumps({"cagr": 0.06, "maxDrawdown": -0.18, "sharpe": 0.8}),
-            "2026-02-01T00:00:00Z",
-        ),
-    )
-    conn.execute(
-        """
-        INSERT INTO BacktestResult (id, strategyId, summary, createdAt)
-        VALUES (?, ?, ?, ?)
-        """,
-        (
-            "bt_pbr",
-            "legacy_pbr_case",
-            json.dumps({"cagr": -0.04, "mdd": -0.22, "sharpe": -0.1}),
-            "2026-01-15T00:00:00Z",
-        ),
-    )
+    backtests = [
+        ("bt_old", "legacy_rsi_case", {"cagr": 0.01, "maxDrawdown": -0.30, "sharpe": 0.2}, "2026-01-01T00:00:00Z"),
+        ("bt_new", "legacy_rsi_case", {"cagr": 0.06, "maxDrawdown": -0.18, "sharpe": 0.8}, "2026-02-01T00:00:00Z"),
+        ("bt_pbr", "legacy_pbr_case", {"cagr": -0.04, "mdd": -0.22, "sharpe": -0.1}, "2026-01-15T00:00:00Z"),
+    ]
+    for bid, sid, summary, created in backtests:
+        conn.execute(
+            'INSERT INTO "BacktestResult" (id, "strategyId", summary, "createdAt") VALUES (?, ?, ?, ?)',
+            (bid, sid, json.dumps(summary), _ts(created)),
+        )
     conn.commit()
-    conn.close()
 
 
 def _insert_strategy_backtest(
@@ -178,30 +104,25 @@ def _insert_strategy_backtest(
     created_at="2026-02-20T00:00:00Z",
 ):
     conn.execute(
-        """
-        INSERT INTO Strategy (id, name, description, settings, strategyType, createdAt, updatedAt)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
+        'INSERT INTO "Strategy" (id, name, description, settings, "strategyType", "createdAt", "updatedAt")'
+        " VALUES (?, ?, ?, ?, ?, ?, ?)",
         (
             strategy_id,
             name,
             description,
             json.dumps(settings),
             "legacy",
-            "2026-01-01T00:00:00Z",
-            "2026-01-01T00:00:00Z",
+            _ts("2026-01-01T00:00:00Z"),
+            _ts("2026-01-01T00:00:00Z"),
         ),
     )
     conn.execute(
-        """
-        INSERT INTO BacktestResult (id, strategyId, summary, createdAt)
-        VALUES (?, ?, ?, ?)
-        """,
+        'INSERT INTO "BacktestResult" (id, "strategyId", summary, "createdAt") VALUES (?, ?, ?, ?)',
         (
             f"bt_{strategy_id}",
             strategy_id,
             json.dumps(summary),
-            created_at,
+            _ts(created_at),
         ),
     )
 
@@ -370,10 +291,8 @@ def test_vector_memory_categories_do_not_mark_failed_results_successful():
     assert categories["failed:pbr"] == ["similar", "failed_high_risk"]
 
 
-def test_load_advisor_memory_bootstraps_latest_backtest_results(monkeypatch, tmp_path):
-    db_path = tmp_path / "bootstrap-memory.db"
-    _create_bootstrap_db(db_path)
-    monkeypatch.setenv("DATABASE_URL", f"file:{db_path}")
+def test_load_advisor_memory_bootstraps_latest_backtest_results(app_db):
+    _seed_bootstrap(app_db)
 
     strategy_cases, experiences = load_advisor_memory(limit=500)
 
@@ -383,58 +302,34 @@ def test_load_advisor_memory_bootstraps_latest_backtest_results(monkeypatch, tmp
     assert rsi_case["before_backtest"]["cagr"] == 0.06
     assert rsi_case["evaluation"]["net_effect"] == "unverified"
 
-    conn = sqlite3.connect(db_path)
-    count_after_first = conn.execute("SELECT COUNT(*) FROM AdviceExperience").fetchone()[0]
+    count_after_first = app_db.execute('SELECT COUNT(*) FROM "AdviceExperience"').fetchone()[0]
     load_advisor_memory(limit=500)
-    count_after_second = conn.execute("SELECT COUNT(*) FROM AdviceExperience").fetchone()[0]
-    conn.close()
+    count_after_second = app_db.execute('SELECT COUNT(*) FROM "AdviceExperience"').fetchone()[0]
 
     assert count_after_first == 2
     assert count_after_second == 2
 
 
-def test_load_advisor_memory_enriches_with_better_historical_comparator(monkeypatch, tmp_path):
-    db_path = tmp_path / "bootstrap-comparison.db"
-    _create_bootstrap_db(db_path)
-    monkeypatch.setenv("DATABASE_URL", f"file:{db_path}")
+def test_load_advisor_memory_enriches_with_better_historical_comparator(app_db):
+    _seed_bootstrap(app_db)
 
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        """
-        INSERT INTO Strategy (id, name, description, settings, strategyType, createdAt, updatedAt)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            "legacy_rsi_better_case",
-            "RSI 평균회귀 개선형",
-            "과매도 RSI 매수 후 추세 필터를 함께 확인한다",
-            json.dumps({
-                "universe": ["KOSPI200"],
-                "entry_signals": [{"indicator": "rsi", "operator": "<=", "threshold": 31, "period": 14}],
-                "exit_signals": [{"indicator": "rsi", "operator": ">=", "threshold": 69, "period": 14}],
-                "max_positions": 10,
-                "initial_capital": 10000000,
-                "timeframe": "1d",
-            }),
-            "legacy",
-            "2026-01-01T00:00:00Z",
-            "2026-01-01T00:00:00Z",
-        ),
+    _insert_strategy_backtest(
+        app_db,
+        strategy_id="legacy_rsi_better_case",
+        name="RSI 평균회귀 개선형",
+        description="과매도 RSI 매수 후 추세 필터를 함께 확인한다",
+        settings={
+            "universe": ["KOSPI200"],
+            "entry_signals": [{"indicator": "rsi", "operator": "<=", "threshold": 31, "period": 14}],
+            "exit_signals": [{"indicator": "rsi", "operator": ">=", "threshold": 69, "period": 14}],
+            "max_positions": 10,
+            "initial_capital": 10000000,
+            "timeframe": "1d",
+        },
+        summary={"cagr": 0.12, "maxDrawdown": -0.12, "sharpe": 1.1, "trades": 34},
+        created_at="2026-02-15T00:00:00Z",
     )
-    conn.execute(
-        """
-        INSERT INTO BacktestResult (id, strategyId, summary, createdAt)
-        VALUES (?, ?, ?, ?)
-        """,
-        (
-            "bt_rsi_better",
-            "legacy_rsi_better_case",
-            json.dumps({"cagr": 0.12, "maxDrawdown": -0.12, "sharpe": 1.1, "trades": 34}),
-            "2026-02-15T00:00:00Z",
-        ),
-    )
-    conn.commit()
-    conn.close()
+    app_db.commit()
 
     _, experiences = load_advisor_memory(limit=500)
 
@@ -445,22 +340,18 @@ def test_load_advisor_memory_enriches_with_better_historical_comparator(monkeypa
     assert rsi_case["evaluation"]["comparison_strategy_id"] == "legacy_rsi_better_case"
     assert rsi_case["confidence"] == "medium"
 
-    conn = sqlite3.connect(db_path)
-    coverage = conn.execute(
-        "SELECT dataCoverage FROM AdviceExperience WHERE strategyId = ?",
+    coverage = app_db.execute(
+        'SELECT "dataCoverage" FROM "AdviceExperience" WHERE "strategyId" = ?',
         ("legacy_rsi_case",),
     ).fetchone()[0]
-    conn.close()
 
     assert coverage == "bootstrap_historical_comparison"
 
 
 @pytest.mark.asyncio
-async def test_load_vector_advisor_memory_uses_vector_memory_infrastructure(monkeypatch, tmp_path):
+async def test_load_vector_advisor_memory_uses_vector_memory_infrastructure(monkeypatch, tmp_path, app_db):
     pytest.importorskip("chromadb")
-    db_path = tmp_path / "vector-bootstrap-route.db"
-    _create_bootstrap_db(db_path)
-    monkeypatch.setenv("DATABASE_URL", f"file:{db_path}")
+    _seed_bootstrap(app_db)
     monkeypatch.setenv("ADVISOR_CHROMA_PATH", str(tmp_path / "chroma"))
     _use_light_embeddings(monkeypatch)
 
@@ -486,11 +377,9 @@ async def test_load_vector_advisor_memory_uses_vector_memory_infrastructure(monk
 
 
 @pytest.mark.asyncio
-async def test_load_vector_advisor_memory_retrieves_category_specific_cases(monkeypatch, tmp_path):
+async def test_load_vector_advisor_memory_retrieves_category_specific_cases(monkeypatch, tmp_path, app_db):
     pytest.importorskip("chromadb")
-    db_path = tmp_path / "vector-category-route.db"
-    _create_bootstrap_db(db_path)
-    conn = sqlite3.connect(db_path)
+    _seed_bootstrap(app_db)
     base_strategy = {
         "universe": ["KOSPI200"],
         "entry_signals": [{"indicator": "rsi", "operator": "<=", "threshold": 30, "period": 14}],
@@ -503,7 +392,7 @@ async def test_load_vector_advisor_memory_retrieves_category_specific_cases(monk
         "marketRegime": "sideways",
     }
     _insert_strategy_backtest(
-        conn,
+        app_db,
         strategy_id="rsi_success_low_risk",
         name="RSI 성공 저위험",
         description="RSI + ATR stop sideways success",
@@ -519,7 +408,7 @@ async def test_load_vector_advisor_memory_retrieves_category_specific_cases(monk
         },
     )
     _insert_strategy_backtest(
-        conn,
+        app_db,
         strategy_id="rsi_failure_high_risk",
         name="RSI 실패 고위험",
         description="RSI no stop high volatility failure",
@@ -533,9 +422,7 @@ async def test_load_vector_advisor_memory_retrieves_category_specific_cases(monk
             "failureReason": "No stop loss caused tail risk during volatility explosion.",
         },
     )
-    conn.commit()
-    conn.close()
-    monkeypatch.setenv("DATABASE_URL", f"file:{db_path}")
+    app_db.commit()
     monkeypatch.setenv("ADVISOR_CHROMA_PATH", str(tmp_path / "category-chroma"))
     _use_light_embeddings(monkeypatch)
 
@@ -569,10 +456,8 @@ async def test_load_vector_advisor_memory_retrieves_category_specific_cases(monk
 
 
 @pytest.mark.asyncio
-async def test_advisor_route_uses_bootstrapped_memory(monkeypatch, tmp_path):
-    db_path = tmp_path / "bootstrap-route.db"
-    _create_bootstrap_db(db_path)
-    monkeypatch.setenv("DATABASE_URL", f"file:{db_path}")
+async def test_advisor_route_uses_bootstrapped_memory(monkeypatch, tmp_path, app_db):
+    _seed_bootstrap(app_db)
     monkeypatch.setattr(advisor_routes, "build_news_context_from_strategy", lambda _parsed: [])
 
     req = AdvisorRequest(
@@ -593,8 +478,6 @@ async def test_advisor_route_uses_bootstrapped_memory(monkeypatch, tmp_path):
     assert result.strategy_memory_context["retrieved_cases"][0]["case_strategy_id"] == "legacy_rsi_case"
     assert result.strategy_memory_context["retrieved_cases"][0]["before_metrics"]["cagr"] == 0.06
 
-    conn = sqlite3.connect(db_path)
-    count = conn.execute("SELECT COUNT(*) FROM AdviceExperience").fetchone()[0]
-    conn.close()
+    count = app_db.execute('SELECT COUNT(*) FROM "AdviceExperience"').fetchone()[0]
 
     assert count == 3

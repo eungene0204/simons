@@ -31,6 +31,50 @@ _ensure_test_runtime_cache_dirs()
 
 
 # ────────────────────────────────────────────────────────────────────
+# 앱 DB(Postgres) 테스트 픽스처
+# 코드가 db.connect()로 읽는 DATABASE_URL을 로컬 simons_test로 지정하고,
+# 각 테스트 전에 모든 앱 테이블을 TRUNCATE해 격리한다.
+# 스키마는 prisma/migrations/0_init/migration.sql로 미리 적재돼 있어야 한다.
+# ────────────────────────────────────────────────────────────────────
+
+TEST_DATABASE_URL = os.environ.get(
+    "TEST_DATABASE_URL",
+    "postgresql://simons:simons@localhost:5432/simons_test",
+)
+
+
+@pytest.fixture
+def app_db():
+    import sys
+    backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if backend_dir not in sys.path:
+        sys.path.insert(0, backend_dir)
+
+    prev = os.environ.get("DATABASE_URL")
+    os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+    import db as _db
+
+    conn = _db.connect()
+    tables = [
+        r[0]
+        for r in conn.execute(
+            "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
+        ).fetchall()
+    ]
+    if tables:
+        conn.execute("TRUNCATE " + ", ".join(f'"{t}"' for t in tables) + " RESTART IDENTITY CASCADE")
+        conn.commit()
+    try:
+        yield conn
+    finally:
+        conn.close()
+        if prev is None:
+            os.environ.pop("DATABASE_URL", None)
+        else:
+            os.environ["DATABASE_URL"] = prev
+
+
+# ────────────────────────────────────────────────────────────────────
 # 간단한 OHLCV 생성 헬퍼 (MockDataGenerator 대체)
 # ────────────────────────────────────────────────────────────────────
 

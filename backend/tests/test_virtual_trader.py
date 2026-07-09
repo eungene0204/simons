@@ -9,7 +9,6 @@ VirtualTrader 자동매매 엔진 테스트
   - KRX 호가단위 (2023 개편)
   - Prisma 호환 epoch ms 타임스탬프 기록
 """
-import sqlite3
 from datetime import datetime, timezone, timedelta
 
 import pytest
@@ -29,46 +28,22 @@ from engine.virtual_trader import (
 # ── 픽스처 ────────────────────────────────────────────────────────────────────
 
 @pytest.fixture
-def trader(tmp_path):
-    db = str(tmp_path / "test.db")
-    con = sqlite3.connect(db)
-    con.executescript("""
-        CREATE TABLE VirtualAccount (
-            id TEXT PRIMARY KEY, currentCash REAL, updatedAt ANY
-        );
-        CREATE TABLE VirtualPosition (
-            id TEXT PRIMARY KEY, accountId TEXT, symbol TEXT, name TEXT,
-            quantity INTEGER, avgPrice REAL, currentPrice REAL, peakPrice REAL,
-            openedAt ANY, updatedAt ANY,
-            UNIQUE (accountId, symbol)
-        );
-        CREATE TABLE VirtualOrder (
-            id TEXT PRIMARY KEY, accountId TEXT, symbol TEXT, name TEXT,
-            side TEXT, type TEXT, quantity INTEGER, price REAL,
-            filledPrice REAL, fee REAL, tax REAL, avgBuyPrice REAL,
-            realizedPnl REAL, status TEXT, filledAt ANY, createdAt ANY
-        );
-        CREATE TABLE VirtualMarketLog (
-            id TEXT PRIMARY KEY, accountId TEXT, date TEXT, symbol TEXT,
-            stockName TEXT, signalType TEXT, reason TEXT, price REAL, action TEXT,
-            orderId TEXT, createdAt ANY
-        );
-    """)
-    con.execute("INSERT INTO VirtualAccount VALUES ('acc1', 1000000, 0)")
-    con.commit()
-    con.close()
+def trader(app_db):
+    # 스키마는 마이그레이션으로 존재. VirtualAccount 시딩(name/initialCash NOT NULL).
+    app_db.execute(
+        'INSERT INTO "VirtualAccount" (id, name, "initialCash", "currentCash", "updatedAt")'
+        " VALUES (?, ?, ?, ?, ?)",
+        ("acc1", "테스트", 1000000, 1000000, datetime(2026, 1, 1)),
+    )
+    app_db.commit()
 
     t = VirtualTrader(market_data_provider=None, data_loader=None)
-    t._db = db
+    t._q = app_db  # 테스트 조회용 커넥션 핸들 (트레이더는 db.connect()로 별도 연결)
     return t
 
 
 def _query(trader, sql, params=()):
-    con = sqlite3.connect(trader._db)
-    try:
-        return con.execute(sql, params).fetchall()
-    finally:
-        con.close()
+    return trader._q.execute(sql, params).fetchall()
 
 
 # ── _parse_db_datetime ────────────────────────────────────────────────────────
@@ -131,37 +106,35 @@ def test_execute_buy_full_cash(trader):
     assert order_id is not None
 
     filled = _filled_price(10000, "BUY")
-    rows = _query(trader, "SELECT quantity, avgPrice FROM VirtualPosition WHERE accountId='acc1'")
+    rows = _query(trader, 'SELECT quantity, "avgPrice" FROM "VirtualPosition" WHERE "accountId"=\'acc1\'')
     assert len(rows) == 1
     qty = rows[0][0]
     assert qty > 0
     assert rows[0][1] == filled
 
-    cash = _query(trader, "SELECT currentCash FROM VirtualAccount WHERE id='acc1'")[0][0]
+    cash = _query(trader, 'SELECT "currentCash" FROM "VirtualAccount" WHERE id=\'acc1\'')[0][0]
     assert cash == 1000000 - _buy_cost(filled, qty)
     assert cash >= 0
 
 
-def test_execute_buy_timestamps_are_epoch_ms(trader):
-    """Prisma 호환을 위해 DateTime 컬럼은 epoch ms 정수로 기록한다 (ISO 문자열 금지)."""
+def test_execute_buy_timestamps_are_datetime(trader):
+    """이관 후 DateTime 컬럼은 Postgres timestamp — psycopg가 datetime 객체로 왕복한다."""
     trader._execute_buy("acc1", "005930", "삼성전자", 10000, 1000000, 10.0)
-    rows = _query(trader, "SELECT typeof(createdAt), typeof(filledAt) FROM VirtualOrder")
-    assert rows[0] == ("integer", "integer")
-    rows = _query(trader, "SELECT typeof(openedAt), typeof(updatedAt) FROM VirtualPosition")
-    assert rows[0] == ("integer", "integer")
+    row = _query(trader, 'SELECT "createdAt", "filledAt" FROM "VirtualOrder"')[0]
+    assert isinstance(row[0], datetime) and isinstance(row[1], datetime)
+    row = _query(trader, 'SELECT "openedAt", "updatedAt" FROM "VirtualPosition"')[0]
+    assert isinstance(row[0], datetime) and isinstance(row[1], datetime)
 
 
 # ── _fill_pending_order 이중 체결 방지 ───────────────────────────────────────
 
 def _insert_pending(trader, order_id, side, qty, price):
-    con = sqlite3.connect(trader._db)
-    con.execute(
-        "INSERT INTO VirtualOrder (id, accountId, symbol, name, side, type, quantity, price, status, createdAt)"
-        " VALUES (?, 'acc1', '005930', '삼성전자', ?, 'LIMIT', ?, ?, 'PENDING', 0)",
+    trader._q.execute(
+        'INSERT INTO "VirtualOrder" (id, "accountId", symbol, name, side, type, quantity, price, status)'
+        " VALUES (?, 'acc1', '005930', '삼성전자', ?, 'LIMIT', ?, ?, 'PENDING')",
         (order_id, side, qty, price),
     )
-    con.commit()
-    con.close()
+    trader._q.commit()
     return {"id": order_id, "accountId": "acc1", "symbol": "005930", "name": "삼성전자",
             "side": side, "quantity": qty, "price": price}
 
@@ -173,36 +146,33 @@ def test_fill_pending_buy_only_once(trader):
     trader._fill_pending_order("acc1", order, 9900)
     trader._fill_pending_order("acc1", order, 9900)  # 두 번째 호출은 no-op
 
-    rows = _query(trader, "SELECT quantity FROM VirtualPosition WHERE accountId='acc1' AND symbol='005930'")
+    rows = _query(trader, 'SELECT quantity FROM "VirtualPosition" WHERE "accountId"=\'acc1\' AND symbol=\'005930\'')
     assert rows[0][0] == 10  # 20이면 이중 체결
 
-    status = _query(trader, "SELECT status FROM VirtualOrder WHERE id='o1'")[0][0]
+    status = _query(trader, 'SELECT status FROM "VirtualOrder" WHERE id=\'o1\'')[0][0]
     assert status == "FILLED"
 
 
 def test_fill_pending_skips_already_filled(trader):
     """다른 경로(브라우저 fill 라우트)가 먼저 체결한 주문은 건드리지 않는다."""
     order = _insert_pending(trader, "o2", "BUY", 10, 10000)
-    con = sqlite3.connect(trader._db)
-    con.execute("UPDATE VirtualOrder SET status='FILLED' WHERE id='o2'")
-    con.commit()
-    con.close()
+    trader._q.execute('UPDATE "VirtualOrder" SET status=\'FILLED\' WHERE id=\'o2\'')
+    trader._q.commit()
 
     trader._fill_pending_order("acc1", order, 9900)
 
-    rows = _query(trader, "SELECT COUNT(*) FROM VirtualPosition WHERE accountId='acc1'")
+    rows = _query(trader, 'SELECT COUNT(*) FROM "VirtualPosition" WHERE "accountId"=\'acc1\'')
     assert rows[0][0] == 0
 
 
 def test_fill_pending_sell_only_once(trader):
     """SELL 이중 체결 시 현금이 두 번 입금되면 안 된다."""
-    con = sqlite3.connect(trader._db)
-    con.execute(
-        "INSERT INTO VirtualPosition (id, accountId, symbol, name, quantity, avgPrice, openedAt, updatedAt)"
-        " VALUES ('p1', 'acc1', '005930', '삼성전자', 10, 9000, 0, 0)"
+    trader._q.execute(
+        'INSERT INTO "VirtualPosition" (id, "accountId", symbol, name, quantity, "avgPrice", "updatedAt")'
+        " VALUES ('p1', 'acc1', '005930', '삼성전자', 10, 9000, ?)",
+        (datetime(2026, 1, 1),),
     )
-    con.commit()
-    con.close()
+    trader._q.commit()
     order = _insert_pending(trader, "o3", "SELL", 10, 10000)
 
     trader._fill_pending_order("acc1", order, 10100)
@@ -211,10 +181,10 @@ def test_fill_pending_sell_only_once(trader):
     fee = _fee(10000, 10)
     tax = int(10000 * 10 * TAX_RATE)
     expected_cash = 1000000 + (10000 * 10 - fee - tax)
-    cash = _query(trader, "SELECT currentCash FROM VirtualAccount WHERE id='acc1'")[0][0]
+    cash = _query(trader, 'SELECT "currentCash" FROM "VirtualAccount" WHERE id=\'acc1\'')[0][0]
     assert cash == expected_cash
 
-    rows = _query(trader, "SELECT COUNT(*) FROM VirtualPosition WHERE accountId='acc1'")
+    rows = _query(trader, 'SELECT COUNT(*) FROM "VirtualPosition" WHERE "accountId"=\'acc1\'')
     assert rows[0][0] == 0
 
 
@@ -224,9 +194,9 @@ def test_fill_pending_sell_insufficient_position_cancels(trader):
 
     trader._fill_pending_order("acc1", order, 10100)
 
-    status = _query(trader, "SELECT status FROM VirtualOrder WHERE id='o4'")[0][0]
+    status = _query(trader, 'SELECT status FROM "VirtualOrder" WHERE id=\'o4\'')[0][0]
     assert status == "CANCELLED"
-    cash = _query(trader, "SELECT currentCash FROM VirtualAccount WHERE id='acc1'")[0][0]
+    cash = _query(trader, 'SELECT "currentCash" FROM "VirtualAccount" WHERE id=\'acc1\'')[0][0]
     assert cash == 1000000
 
 
@@ -278,5 +248,5 @@ def test_fetch_today_logs_includes_notified(trader):
 
 def test_log_signal_records_stock_name(trader):
     trader._log_signal("acc1", "2026-07-08", "005930", 10000, "entry", "이유", "auto_executed", "oid", "삼성전자")
-    rows = _query(trader, "SELECT stockName FROM VirtualMarketLog WHERE symbol='005930'")
+    rows = _query(trader, 'SELECT "stockName" FROM "VirtualMarketLog" WHERE symbol=\'005930\'')
     assert rows[0][0] == "삼성전자"

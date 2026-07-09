@@ -15,11 +15,11 @@ import asyncio
 import json
 import logging
 import math
-import os
-import sqlite3
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional
+
+import db as appdb  # 공용 앱 DB 어댑터(Supabase Postgres)
 
 from engine.live_signal_utils import prepare_signal_dataframe
 from engine.listing_status import (
@@ -86,15 +86,17 @@ def _coerce_numeric(value, default: float = 0.0) -> float:
         return default
 
 
-def _now_ms() -> int:
-    """Prisma가 SQLite DateTime을 epoch ms 정수로 저장하므로 동일 포맷으로 기록한다."""
-    return int(datetime.now(timezone.utc).timestamp() * 1000)
+def _db_now() -> datetime:
+    """DateTime 컬럼에 넣을 tz-aware 현재시각(UTC). (Postgres timestamp — psycopg가 native 처리)"""
+    return datetime.now(timezone.utc)
 
 
 def _parse_db_datetime(value) -> Optional[datetime]:
-    """DateTime 컬럼 값 파싱 — Prisma(epoch ms 정수)와 구버전 Python(ISO 문자열) 모두 지원."""
+    """DateTime 컬럼 값 파싱 — Postgres(datetime)·구 SQLite(epoch ms 정수)·ISO 문자열 모두 지원."""
     if value is None:
         return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
     if isinstance(value, (int, float)):
         return datetime.fromtimestamp(value / 1000, tz=timezone.utc)
     try:
@@ -130,20 +132,6 @@ def _fresh_price_map(quotes: dict, today: str) -> dict[str, int]:
     }
 
 
-# ── DB 경로 ──────────────────────────────────────────────────────────────────
-
-def _db_path() -> str:
-    # 프로젝트 루트: backend/engine/virtual_trader.py 기준 3단계 위
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    db_url = os.getenv("DATABASE_URL", "")
-    if db_url.startswith("file:"):
-        rel = db_url[len("file:"):]
-        # Prisma는 file: 경로를 schema.prisma 위치(prisma/) 기준으로 해석한다
-        prisma_dir = os.path.join(project_root, "prisma")
-        return os.path.normpath(os.path.join(prisma_dir, rel))
-    return os.path.join(project_root, "prisma", "prisma", "dev.db")
-
-
 # ── VirtualTrader ────────────────────────────────────────────────────────────
 
 class VirtualTrader:
@@ -161,7 +149,6 @@ class VirtualTrader:
         self._ai_engine = ai_engine
         self._running = False
         self._task: Optional[asyncio.Task] = None
-        self._db = _db_path()
 
     # ── 생명주기 ──────────────────────────────────────────────────────────────
 
@@ -170,7 +157,7 @@ class VirtualTrader:
             return
         self._running = True
         self._task = asyncio.create_task(self._loop())
-        logger.info("[VirtualTrader] 시작 (DB: %s, 간격: %ds)", self._db, REFRESH_INTERVAL)
+        logger.info("[VirtualTrader] 시작 (간격: %ds)", REFRESH_INTERVAL)
 
     async def stop(self):
         self._running = False
@@ -211,15 +198,14 @@ class VirtualTrader:
 
     def _fetch_running_accounts(self) -> list[dict]:
         """running 상태 VirtualMarketState + VirtualAccount 조인"""
-        con = sqlite3.connect(self._db)
-        con.row_factory = sqlite3.Row
+        con = appdb.connect()
         try:
             rows = con.execute("""
                 SELECT
-                    a.id, a.currentCash, a.strategyId, a.tradingMode,
-                    s.symbols, s.id AS stateId
-                FROM VirtualMarketState s
-                JOIN VirtualAccount a ON a.id = s.accountId
+                    a.id, a."currentCash", a."strategyId", a."tradingMode",
+                    s.symbols, s.id AS "stateId"
+                FROM "VirtualMarketState" s
+                JOIN "VirtualAccount" a ON a.id = s."accountId"
                 WHERE s.status = 'running'
             """).fetchall()
             return [dict(r) for r in rows]
@@ -227,10 +213,9 @@ class VirtualTrader:
             con.close()
 
     def _fetch_strategy(self, strategy_id: str) -> Optional[dict]:
-        con = sqlite3.connect(self._db)
-        con.row_factory = sqlite3.Row
+        con = appdb.connect()
         try:
-            row = con.execute("SELECT settings FROM Strategy WHERE id = ?", (strategy_id,)).fetchone()
+            row = con.execute('SELECT settings FROM "Strategy" WHERE id = ?', (strategy_id,)).fetchone()
             if row:
                 return json.loads(row["settings"])
             return None
@@ -238,22 +223,20 @@ class VirtualTrader:
             con.close()
 
     def _fetch_positions(self, account_id: str) -> list[dict]:
-        con = sqlite3.connect(self._db)
-        con.row_factory = sqlite3.Row
+        con = appdb.connect()
         try:
             rows = con.execute(
-                "SELECT * FROM VirtualPosition WHERE accountId = ?", (account_id,)
+                'SELECT * FROM "VirtualPosition" WHERE "accountId" = ?', (account_id,)
             ).fetchall()
             return [dict(r) for r in rows]
         finally:
             con.close()
 
     def _fetch_pending_orders(self, account_id: str) -> list[dict]:
-        con = sqlite3.connect(self._db)
-        con.row_factory = sqlite3.Row
+        con = appdb.connect()
         try:
             rows = con.execute(
-                "SELECT * FROM VirtualOrder WHERE accountId = ? AND status = 'PENDING'",
+                'SELECT * FROM "VirtualOrder" WHERE "accountId" = ? AND status = \'PENDING\'',
                 (account_id,),
             ).fetchall()
             return [dict(r) for r in rows]
@@ -262,12 +245,11 @@ class VirtualTrader:
 
     def _fetch_today_logs(self, account_id: str, today: str) -> set[str]:
         """오늘 기록된 (symbol_signalType_action) 집합 반환 — 하루 1회 중복 방지용"""
-        con = sqlite3.connect(self._db)
-        con.row_factory = sqlite3.Row
+        con = appdb.connect()
         try:
             rows = con.execute(
-                "SELECT symbol, signalType, action FROM VirtualMarketLog "
-                "WHERE accountId = ? AND date = ? AND action IN ('auto_executed', 'notified')",
+                'SELECT symbol, "signalType", action FROM "VirtualMarketLog" '
+                "WHERE \"accountId\" = ? AND date = ? AND action IN ('auto_executed', 'notified')",
                 (account_id, today),
             ).fetchall()
             return {f"{r['symbol']}_{r['signalType']}_{r['action']}" for r in rows}
@@ -275,9 +257,9 @@ class VirtualTrader:
             con.close()
 
     def _fetch_current_cash(self, account_id: str) -> float:
-        con = sqlite3.connect(self._db)
+        con = appdb.connect()
         try:
-            row = con.execute("SELECT currentCash FROM VirtualAccount WHERE id = ?", (account_id,)).fetchone()
+            row = con.execute('SELECT "currentCash" FROM "VirtualAccount" WHERE id = ?', (account_id,)).fetchone()
             return row[0] if row else 0.0
         finally:
             con.close()
@@ -286,11 +268,11 @@ class VirtualTrader:
         """Stock 테이블에서 종목명 조회. 없으면 symbol을 fallback으로 사용."""
         if not symbols:
             return {}
-        con = sqlite3.connect(self._db)
+        con = appdb.connect()
         try:
             placeholders = ",".join("?" * len(symbols))
             rows = con.execute(
-                f"SELECT symbol, name FROM Stock WHERE symbol IN ({placeholders})",
+                f'SELECT symbol, name FROM "Stock" WHERE symbol IN ({placeholders})',
                 symbols,
             ).fetchall()
             result = {r[0]: r[1] for r in rows if r[1]}
@@ -302,10 +284,10 @@ class VirtualTrader:
 
     def _fetch_delisting_policy(self, account_id: str) -> str:
         """계좌의 상장폐지 처리 정책 조회. 기본 AUTO_LIQUIDATE."""
-        con = sqlite3.connect(self._db)
+        con = appdb.connect()
         try:
             row = con.execute(
-                "SELECT delistingPolicy FROM VirtualAccount WHERE id = ?", (account_id,)
+                'SELECT "delistingPolicy" FROM "VirtualAccount" WHERE id = ?', (account_id,)
             ).fetchone()
             return row[0] if row and row[0] else "AUTO_LIQUIDATE"
         except Exception:
@@ -606,21 +588,21 @@ class VirtualTrader:
         fee = _fee(filled, qty)
 
         order_id = str(uuid.uuid4())
-        now_ms = _now_ms()
+        now_ms = _db_now()
 
-        con = sqlite3.connect(self._db)
+        con = appdb.connect()
         try:
             con.execute("""
-                INSERT INTO VirtualOrder (id, accountId, symbol, name, side, type, quantity, price, filledPrice, fee, status, filledAt, createdAt)
+                INSERT INTO "VirtualOrder" (id, "accountId", symbol, name, side, type, quantity, price, "filledPrice", fee, status, "filledAt", "createdAt")
                 VALUES (?, ?, ?, ?, 'BUY', 'MARKET', ?, ?, ?, ?, 'FILLED', ?, ?)
             """, (order_id, account_id, symbol, name, qty, price, filled, fee, now_ms, now_ms))
 
             con.execute("""
-                UPDATE VirtualAccount SET currentCash = currentCash - ?, updatedAt = ? WHERE id = ?
+                UPDATE "VirtualAccount" SET "currentCash" = "currentCash" - ?, "updatedAt" = ? WHERE id = ?
             """, (cost, now_ms, account_id))
 
             existing = con.execute(
-                "SELECT quantity, avgPrice, peakPrice FROM VirtualPosition WHERE accountId = ? AND symbol = ?",
+                'SELECT quantity, "avgPrice", "peakPrice" FROM "VirtualPosition" WHERE "accountId" = ? AND symbol = ?',
                 (account_id, symbol)
             ).fetchone()
 
@@ -629,14 +611,14 @@ class VirtualTrader:
                 new_avg = (existing[1] * existing[0] + filled * qty) / new_qty
                 new_peak = max(existing[2] or new_avg, price)
                 con.execute("""
-                    UPDATE VirtualPosition SET quantity = ?, avgPrice = ?, peakPrice = ?, updatedAt = ?
-                    WHERE accountId = ? AND symbol = ?
+                    UPDATE "VirtualPosition" SET quantity = ?, "avgPrice" = ?, "peakPrice" = ?, "updatedAt" = ?
+                    WHERE "accountId" = ? AND symbol = ?
                 """, (new_qty, new_avg, new_peak, now_ms, account_id, symbol))
             else:
                 pos_id = str(uuid.uuid4())
                 peak = max(filled, price)
                 con.execute("""
-                    INSERT INTO VirtualPosition (id, accountId, symbol, name, quantity, avgPrice, peakPrice, openedAt, updatedAt)
+                    INSERT INTO "VirtualPosition" (id, "accountId", symbol, name, quantity, "avgPrice", "peakPrice", "openedAt", "updatedAt")
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (pos_id, account_id, symbol, name, qty, filled, peak, now_ms, now_ms))
 
@@ -665,21 +647,21 @@ class VirtualTrader:
         pnl = _realized_pnl(filled, avg_buy_price, quantity, fee, tax)
 
         order_id = str(uuid.uuid4())
-        now_ms = _now_ms()
+        now_ms = _db_now()
 
-        con = sqlite3.connect(self._db)
+        con = appdb.connect()
         try:
             con.execute("""
-                INSERT INTO VirtualOrder (id, accountId, symbol, name, side, type, quantity, price, filledPrice, fee, tax, avgBuyPrice, realizedPnl, status, filledAt, createdAt)
+                INSERT INTO "VirtualOrder" (id, "accountId", symbol, name, side, type, quantity, price, "filledPrice", fee, tax, "avgBuyPrice", "realizedPnl", status, "filledAt", "createdAt")
                 VALUES (?, ?, ?, ?, 'SELL', 'MARKET', ?, ?, ?, ?, ?, ?, ?, 'FILLED', ?, ?)
             """, (order_id, account_id, symbol, name, quantity, price, filled, fee, tax, avg_buy_price, pnl, now_ms, now_ms))
 
             con.execute("""
-                UPDATE VirtualAccount SET currentCash = currentCash + ?, updatedAt = ? WHERE id = ?
+                UPDATE "VirtualAccount" SET "currentCash" = "currentCash" + ?, "updatedAt" = ? WHERE id = ?
             """, (proceeds, now_ms, account_id))
 
             pos = con.execute(
-                "SELECT quantity FROM VirtualPosition WHERE accountId = ? AND symbol = ?",
+                'SELECT quantity FROM "VirtualPosition" WHERE "accountId" = ? AND symbol = ?',
                 (account_id, symbol)
             ).fetchone()
 
@@ -687,12 +669,12 @@ class VirtualTrader:
                 new_qty = pos[0] - quantity
                 if new_qty <= 0:
                     con.execute(
-                        "DELETE FROM VirtualPosition WHERE accountId = ? AND symbol = ?",
+                        'DELETE FROM "VirtualPosition" WHERE "accountId" = ? AND symbol = ?',
                         (account_id, symbol)
                     )
                 else:
                     con.execute(
-                        "UPDATE VirtualPosition SET quantity = ?, updatedAt = ? WHERE accountId = ? AND symbol = ?",
+                        'UPDATE "VirtualPosition" SET quantity = ?, "updatedAt" = ? WHERE "accountId" = ? AND symbol = ?',
                         (new_qty, now_ms, account_id, symbol)
                     )
 
@@ -710,17 +692,16 @@ class VirtualTrader:
         qty = order["quantity"]
         filled = order["price"]  # 지정가로 체결
         fee = _fee(int(filled), qty)
-        now_ms = _now_ms()
+        now_ms = _db_now()
 
-        con = sqlite3.connect(self._db)
+        con = appdb.connect()
         try:
             # 다른 체결 경로(브라우저 fill 라우트)와의 이중 체결 방지:
-            # status='PENDING' 조건부 UPDATE로 원자적으로 선점하고, 실패하면 아무것도 하지 않는다.
-            con.execute("BEGIN IMMEDIATE")
-
+            # status='PENDING' 조건부 UPDATE가 행 잠금으로 원자적 선점 → 실패(rowcount 0) 시 아무것도 하지 않는다.
+            # (SQLite의 BEGIN IMMEDIATE 대신 psycopg 트랜잭션 + Postgres 행 잠금이 동일 보장)
             if side == "BUY":
                 claimed = con.execute("""
-                    UPDATE VirtualOrder SET status = 'FILLED', filledPrice = ?, fee = ?, filledAt = ?
+                    UPDATE "VirtualOrder" SET status = 'FILLED', "filledPrice" = ?, fee = ?, "filledAt" = ?
                     WHERE id = ? AND status = 'PENDING'
                 """, (filled, fee, now_ms, order["id"])).rowcount
                 if not claimed:
@@ -728,7 +709,7 @@ class VirtualTrader:
                     return
 
                 existing = con.execute(
-                    "SELECT quantity, avgPrice, peakPrice FROM VirtualPosition WHERE accountId = ? AND symbol = ?",
+                    'SELECT quantity, "avgPrice", "peakPrice" FROM "VirtualPosition" WHERE "accountId" = ? AND symbol = ?',
                     (account_id, order["symbol"])
                 ).fetchone()
 
@@ -737,27 +718,27 @@ class VirtualTrader:
                     new_avg = (existing[1] * existing[0] + filled * qty) / new_qty
                     new_peak = max(existing[2] or new_avg, current_price)
                     con.execute("""
-                        UPDATE VirtualPosition SET quantity = ?, avgPrice = ?, currentPrice = ?, peakPrice = ?, updatedAt = ?
-                        WHERE accountId = ? AND symbol = ?
+                        UPDATE "VirtualPosition" SET quantity = ?, "avgPrice" = ?, "currentPrice" = ?, "peakPrice" = ?, "updatedAt" = ?
+                        WHERE "accountId" = ? AND symbol = ?
                     """, (new_qty, new_avg, current_price, new_peak, now_ms, account_id, order["symbol"]))
                 else:
                     pos_id = str(uuid.uuid4())
                     peak = max(int(filled), current_price)
                     con.execute("""
-                        INSERT INTO VirtualPosition (id, accountId, symbol, name, quantity, avgPrice, currentPrice, peakPrice, openedAt, updatedAt)
+                        INSERT INTO "VirtualPosition" (id, "accountId", symbol, name, quantity, "avgPrice", "currentPrice", "peakPrice", "openedAt", "updatedAt")
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (pos_id, account_id, order["symbol"], order.get("name") or order["symbol"],
                           qty, filled, current_price, peak, now_ms, now_ms))
 
             else:  # SELL
                 pos = con.execute(
-                    "SELECT quantity, avgPrice FROM VirtualPosition WHERE accountId = ? AND symbol = ?",
+                    'SELECT quantity, "avgPrice" FROM "VirtualPosition" WHERE "accountId" = ? AND symbol = ?',
                     (account_id, order["symbol"])
                 ).fetchone()
                 if not pos or pos[0] < qty:
                     # 보유 수량 부족 → 주문 취소 (fill 라우트와 동일한 처리)
                     con.execute(
-                        "UPDATE VirtualOrder SET status = 'CANCELLED' WHERE id = ? AND status = 'PENDING'",
+                        'UPDATE "VirtualOrder" SET status = \'CANCELLED\' WHERE id = ? AND status = \'PENDING\'',
                         (order["id"],)
                     )
                     con.commit()
@@ -769,26 +750,26 @@ class VirtualTrader:
                 pnl = _realized_pnl(int(filled), avg_buy, qty, fee, tax)
 
                 claimed = con.execute("""
-                    UPDATE VirtualOrder SET status = 'FILLED', filledPrice = ?, fee = ?, tax = ?,
-                    avgBuyPrice = ?, realizedPnl = ?, filledAt = ? WHERE id = ? AND status = 'PENDING'
+                    UPDATE "VirtualOrder" SET status = 'FILLED', "filledPrice" = ?, fee = ?, tax = ?,
+                    "avgBuyPrice" = ?, "realizedPnl" = ?, "filledAt" = ? WHERE id = ? AND status = 'PENDING'
                 """, (filled, fee, tax, avg_buy, pnl, now_ms, order["id"])).rowcount
                 if not claimed:
                     con.rollback()
                     return
 
                 con.execute("""
-                    UPDATE VirtualAccount SET currentCash = currentCash + ?, updatedAt = ? WHERE id = ?
+                    UPDATE "VirtualAccount" SET "currentCash" = "currentCash" + ?, "updatedAt" = ? WHERE id = ?
                 """, (proceeds, now_ms, account_id))
 
                 new_qty = pos[0] - qty
                 if new_qty <= 0:
                     con.execute(
-                        "DELETE FROM VirtualPosition WHERE accountId = ? AND symbol = ?",
+                        'DELETE FROM "VirtualPosition" WHERE "accountId" = ? AND symbol = ?',
                         (account_id, order["symbol"])
                     )
                 else:
                     con.execute(
-                        "UPDATE VirtualPosition SET quantity = ?, updatedAt = ? WHERE accountId = ? AND symbol = ?",
+                        'UPDATE "VirtualPosition" SET quantity = ?, "updatedAt" = ? WHERE "accountId" = ? AND symbol = ?',
                         (new_qty, now_ms, account_id, order["symbol"])
                     )
 
@@ -800,21 +781,21 @@ class VirtualTrader:
             con.close()
 
     def _count_positions(self, account_id: str) -> int:
-        con = sqlite3.connect(self._db)
+        con = appdb.connect()
         try:
             row = con.execute(
-                "SELECT COUNT(*) FROM VirtualPosition WHERE accountId = ?", (account_id,)
+                'SELECT COUNT(*) FROM "VirtualPosition" WHERE "accountId" = ?', (account_id,)
             ).fetchone()
             return row[0] if row else 0
         finally:
             con.close()
 
     def _update_positions(self, account_id: str, price_map: dict[str, int], quotes: dict):
-        con = sqlite3.connect(self._db)
-        now_ms = _now_ms()
+        con = appdb.connect()
+        now_ms = _db_now()
         try:
             positions = con.execute(
-                "SELECT symbol, peakPrice, avgPrice FROM VirtualPosition WHERE accountId = ?", (account_id,)
+                'SELECT symbol, "peakPrice", "avgPrice" FROM "VirtualPosition" WHERE "accountId" = ?', (account_id,)
             ).fetchall()
             for sym, peak, avg in positions:
                 price = price_map.get(sym, 0)
@@ -825,8 +806,8 @@ class VirtualTrader:
                 high = q.high if q and q.high else price
                 new_peak = max(peak or avg, high)
                 con.execute("""
-                    UPDATE VirtualPosition SET currentPrice = ?, peakPrice = ?, updatedAt = ?
-                    WHERE accountId = ? AND symbol = ?
+                    UPDATE "VirtualPosition" SET "currentPrice" = ?, "peakPrice" = ?, "updatedAt" = ?
+                    WHERE "accountId" = ? AND symbol = ?
                 """, (price, new_peak, now_ms, account_id, sym))
             con.commit()
         except Exception as e:
@@ -836,11 +817,11 @@ class VirtualTrader:
             con.close()
 
     def _update_last_refreshed(self, account_id: str, today: str):
-        con = sqlite3.connect(self._db)
-        now_ms = _now_ms()
+        con = appdb.connect()
+        now_ms = _db_now()
         try:
             con.execute("""
-                UPDATE VirtualMarketState SET lastRefreshed = ?, updatedAt = ? WHERE accountId = ?
+                UPDATE "VirtualMarketState" SET "lastRefreshed" = ?, "updatedAt" = ? WHERE "accountId" = ?
             """, (today, now_ms, account_id))
             con.commit()
         finally:
@@ -859,11 +840,11 @@ class VirtualTrader:
         stock_name: Optional[str] = None,
     ):
         log_id = str(uuid.uuid4())
-        now_ms = _now_ms()
-        con = sqlite3.connect(self._db)
+        now_ms = _db_now()
+        con = appdb.connect()
         try:
             con.execute("""
-                INSERT INTO VirtualMarketLog (id, accountId, date, symbol, stockName, signalType, reason, price, action, orderId, createdAt)
+                INSERT INTO "VirtualMarketLog" (id, "accountId", date, symbol, "stockName", "signalType", reason, price, action, "orderId", "createdAt")
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (log_id, account_id, date, symbol, stock_name, signal_type, reason, price, action, order_id, now_ms))
             con.commit()

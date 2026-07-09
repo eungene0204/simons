@@ -13,10 +13,11 @@ import asyncio
 import json
 import logging
 import os
-import sqlite3
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
+import db
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
@@ -39,27 +40,8 @@ router = APIRouter(prefix="/research", tags=["research"])
 # ─────────────────────────────────────────────────────────
 
 
-def _db_path() -> str:
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    db_url = os.getenv("DATABASE_URL", "")
-    if db_url.startswith("file:"):
-        rel = db_url.replace("file:", "", 1)
-        candidate = os.path.join(project_root, "prisma", rel) if rel.startswith("./") else os.path.join(project_root, "prisma", rel)
-        if os.path.exists(candidate):
-            return candidate
-        alt = os.path.join(project_root, rel.lstrip("./"))
-        if os.path.exists(alt):
-            return alt
-    # fallback
-    return os.path.join(project_root, "prisma", "prisma", "dev.db")
-
-
-def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(_db_path(), check_same_thread=False, timeout=5.0)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = OFF")
-    conn.execute("PRAGMA busy_timeout = 5000")
-    return conn
+def _connect():
+    return db.connect()
 
 
 # ─────────────────────────────────────────────────────────
@@ -88,13 +70,13 @@ DAILY_BUDGET_CANDIDATES = int(os.getenv("RESEARCH_DAILY_BUDGET", "5000"))
 PROMOTION_CAP = int(os.getenv("RESEARCH_PROMOTION_CAP", "5"))
 
 
-def _candidates_today(conn: sqlite3.Connection, user_id: int) -> int:
+def _candidates_today(conn, user_id: int) -> int:
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     row = conn.execute(
         """
-        SELECT COALESCE(SUM(totalCandidates), 0) AS n
-          FROM ResearchRun
-         WHERE userId = ? AND substr(startedAt, 1, 10) = ?
+        SELECT COALESCE(SUM("totalCandidates"), 0) AS n
+          FROM "ResearchRun"
+         WHERE "userId" = ? AND "startedAt"::date = ?::date
         """,
         (user_id, today),
     ).fetchone()
@@ -168,11 +150,11 @@ async def create_run(
             "wfa_splits": body.wfa_splits,
         }
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = db.now()
         conn.execute(
             """
-            INSERT INTO ResearchRun
-                (id, userId, status, goal, config, holdoutStart, seed, startedAt, totalCandidates, promotedCount)
+            INSERT INTO "ResearchRun"
+                (id, "userId", status, goal, config, "holdoutStart", seed, "startedAt", "totalCandidates", "promotedCount")
             VALUES (?, ?, 'PENDING', ?, ?, ?, ?, ?, 0, 0)
             """,
             (
@@ -211,11 +193,11 @@ async def list_runs(
     try:
         rows = conn.execute(
             """
-            SELECT id, status, goal, holdoutStart, startedAt, finishedAt,
-                   totalCandidates, promotedCount, errorMessage
-              FROM ResearchRun
-             WHERE userId = ?
-             ORDER BY startedAt DESC
+            SELECT id, status, goal, "holdoutStart", "startedAt", "finishedAt",
+                   "totalCandidates", "promotedCount", "errorMessage"
+              FROM "ResearchRun"
+             WHERE "userId" = ?
+             ORDER BY "startedAt" DESC
              LIMIT ?
             """,
             (user_id, limit),
@@ -230,15 +212,15 @@ async def get_run(run_id: str, user_id: int = Depends(require_premium)) -> Dict[
     conn = _connect()
     try:
         row = conn.execute(
-            "SELECT * FROM ResearchRun WHERE id = ? AND userId = ?",
+            'SELECT * FROM "ResearchRun" WHERE id = ? AND "userId" = ?',
             (run_id, user_id),
         ).fetchone()
         if not row:
             raise HTTPException(404, "run not found")
         summary = conn.execute(
             """
-            SELECT stage, COUNT(*) AS n FROM ResearchCandidate
-             WHERE runId = ? GROUP BY stage
+            SELECT stage, COUNT(*) AS n FROM "ResearchCandidate"
+             WHERE "runId" = ? GROUP BY stage
             """,
             (run_id,),
         ).fetchall()
@@ -255,7 +237,7 @@ async def cancel_run(run_id: str, user_id: int = Depends(require_premium)) -> Re
     conn = _connect()
     try:
         row = conn.execute(
-            "SELECT status FROM ResearchRun WHERE id = ? AND userId = ?",
+            'SELECT status FROM "ResearchRun" WHERE id = ? AND "userId" = ?',
             (run_id, user_id),
         ).fetchone()
         if not row:
@@ -263,8 +245,8 @@ async def cancel_run(run_id: str, user_id: int = Depends(require_premium)) -> Re
         if row["status"] in ("COMPLETED", "FAILED", "CANCELLED"):
             raise HTTPException(409, f"run already {row['status']}")
         conn.execute(
-            "UPDATE ResearchRun SET status = 'CANCELLED', finishedAt = ? WHERE id = ?",
-            (datetime.now(timezone.utc).isoformat(), run_id),
+            'UPDATE "ResearchRun" SET status = \'CANCELLED\', "finishedAt" = ? WHERE id = ?',
+            (db.now(), run_id),
         )
         conn.commit()
     finally:
@@ -283,18 +265,18 @@ async def list_candidates(
     conn = _connect()
     try:
         conn.execute(
-            "SELECT 1 FROM ResearchRun WHERE id = ? AND userId = ?",
+            'SELECT 1 FROM "ResearchRun" WHERE id = ? AND "userId" = ?',
             (run_id, user_id),
         ).fetchone() or _raise_404()
 
         sql = [
             """
-            SELECT id, dslHash, template, stage, rejectionReason,
-                   compositeScore, robustnessScore, deflatedSharpe,
-                   prescreenMetrics, holdoutMetrics, promotedAccountId, createdAt,
-                   dslJson
-              FROM ResearchCandidate
-             WHERE runId = ?
+            SELECT id, "dslHash", template, stage, "rejectionReason",
+                   "compositeScore", "robustnessScore", "deflatedSharpe",
+                   "prescreenMetrics", "holdoutMetrics", "promotedAccountId", "createdAt",
+                   "dslJson"
+              FROM "ResearchCandidate"
+             WHERE "runId" = ?
             """
         ]
         args: List[Any] = [run_id]
@@ -302,9 +284,9 @@ async def list_candidates(
             sql.append("AND stage = ?")
             args.append(stage)
         if min_score is not None:
-            sql.append("AND compositeScore >= ?")
+            sql.append('AND "compositeScore" >= ?')
             args.append(min_score)
-        sql.append("ORDER BY compositeScore DESC NULLS LAST LIMIT ?")
+        sql.append('ORDER BY "compositeScore" DESC NULLS LAST LIMIT ?')
         args.append(limit)
         rows = conn.execute(" ".join(sql), args).fetchall()
     finally:
@@ -318,9 +300,9 @@ async def get_candidate(candidate_id: str, user_id: int = Depends(require_premiu
     try:
         row = conn.execute(
             """
-            SELECT c.*, r.userId AS runUserId
-              FROM ResearchCandidate c
-              JOIN ResearchRun r ON c.runId = r.id
+            SELECT c.*, r."userId" AS "runUserId"
+              FROM "ResearchCandidate" c
+              JOIN "ResearchRun" r ON c."runId" = r.id
              WHERE c.id = ?
             """,
             (candidate_id,),
@@ -342,9 +324,9 @@ async def promote_candidate(
     try:
         row = conn.execute(
             """
-            SELECT c.*, r.userId AS runUserId
-              FROM ResearchCandidate c
-              JOIN ResearchRun r ON c.runId = r.id
+            SELECT c.*, r."userId" AS "runUserId"
+              FROM "ResearchCandidate" c
+              JOIN "ResearchRun" r ON c."runId" = r.id
              WHERE c.id = ?
             """,
             (candidate_id,),
@@ -385,11 +367,11 @@ async def promote_candidate(
         )
 
         conn.execute(
-            "UPDATE ResearchCandidate SET stage = 'PROMOTED', promotedAccountId = ? WHERE id = ?",
+            'UPDATE "ResearchCandidate" SET stage = \'PROMOTED\', "promotedAccountId" = ? WHERE id = ?',
             (result["accountId"], candidate_id),
         )
         conn.execute(
-            "UPDATE ResearchRun SET promotedCount = promotedCount + 1 WHERE id = ?",
+            'UPDATE "ResearchRun" SET "promotedCount" = "promotedCount" + 1 WHERE id = ?',
             (row["runId"],),
         )
         conn.commit()
@@ -407,15 +389,15 @@ async def get_audit(
     conn = _connect()
     try:
         conn.execute(
-            "SELECT 1 FROM ResearchRun WHERE id = ? AND userId = ?",
+            'SELECT 1 FROM "ResearchRun" WHERE id = ? AND "userId" = ?',
             (run_id, user_id),
         ).fetchone() or _raise_404()
         rows = conn.execute(
             """
-            SELECT id, candidateId, level, event, payload, createdAt
-              FROM ResearchEvent
-             WHERE runId = ?
-             ORDER BY createdAt DESC
+            SELECT id, "candidateId", level, event, payload, "createdAt"
+              FROM "ResearchEvent"
+             WHERE "runId" = ?
+             ORDER BY "createdAt" DESC
              LIMIT ?
             """,
             (run_id, limit),
@@ -430,7 +412,7 @@ async def stream_run(run_id: str, user_id: int = Depends(require_premium)) -> St
     conn = _connect()
     try:
         row = conn.execute(
-            "SELECT status FROM ResearchRun WHERE id = ? AND userId = ?",
+            'SELECT status FROM "ResearchRun" WHERE id = ? AND "userId" = ?',
             (run_id, user_id),
         ).fetchone()
     finally:

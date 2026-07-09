@@ -12,11 +12,9 @@
 """
 
 import json
-import os
-import sqlite3
-from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional
+
+import db
 
 # ── 상태 상수 ─────────────────────────────────────────────────────────────────
 
@@ -115,16 +113,6 @@ def classify_dart_notice(report_nm: str) -> str:
 
 # ── DB 동기화 ─────────────────────────────────────────────────────────────────
 
-def _db_path() -> str:
-    project_root = Path(__file__).resolve().parent.parent.parent
-    db_url = os.getenv("DATABASE_URL", "")
-    if db_url.startswith("file:"):
-        rel = db_url[len("file:"):]
-        prisma_dir = project_root / "prisma"
-        return str((prisma_dir / rel).resolve())
-    return str(project_root / "prisma" / "dev.db")
-
-
 def update_stock_listing_status(
     symbol: str,
     status: str,
@@ -134,30 +122,29 @@ def update_stock_listing_status(
     risk_flags: Optional[list] = None,
 ) -> None:
     """Stock 테이블의 listingStatus 필드를 업데이트"""
-    db = _db_path()
-    now = datetime.now(timezone.utc).isoformat()
+    now = db.now()
     risk_flags_json = json.dumps(risk_flags, ensure_ascii=False) if risk_flags else None
 
-    con = sqlite3.connect(db)
+    con = db.connect()
     try:
         # Stock row가 없으면 삽입
-        existing = con.execute("SELECT id FROM Stock WHERE symbol = ?", (symbol,)).fetchone()
+        existing = con.execute('SELECT id FROM "Stock" WHERE symbol = ?', (symbol,)).fetchone()
         if existing:
             con.execute("""
-                UPDATE Stock SET
-                    listingStatus = ?,
-                    suspensionReason = COALESCE(?, suspensionReason),
-                    delistingDate = COALESCE(?, delistingDate),
-                    lastTradableDate = COALESCE(?, lastTradableDate),
-                    riskFlags = COALESCE(?, riskFlags),
-                    statusUpdatedAt = ?,
-                    updatedAt = ?
+                UPDATE "Stock" SET
+                    "listingStatus" = ?,
+                    "suspensionReason" = COALESCE(?, "suspensionReason"),
+                    "delistingDate" = COALESCE(?, "delistingDate"),
+                    "lastTradableDate" = COALESCE(?, "lastTradableDate"),
+                    "riskFlags" = COALESCE(?, "riskFlags"),
+                    "statusUpdatedAt" = ?,
+                    "updatedAt" = ?
                 WHERE symbol = ?
             """, (status, suspension_reason, delisting_date, last_tradable_date, risk_flags_json, now, now, symbol))
         else:
             con.execute("""
-                INSERT INTO Stock (symbol, listingStatus, suspensionReason, delistingDate,
-                    lastTradableDate, riskFlags, statusUpdatedAt, updatedAt)
+                INSERT INTO "Stock" (symbol, "listingStatus", "suspensionReason", "delistingDate",
+                    "lastTradableDate", "riskFlags", "statusUpdatedAt", "updatedAt")
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (symbol, status, suspension_reason, delisting_date, last_tradable_date, risk_flags_json, now, now))
         con.commit()
@@ -167,10 +154,9 @@ def update_stock_listing_status(
 
 def get_stock_listing_status(symbol: str) -> str:
     """Stock 테이블에서 listingStatus 조회. 없으면 NORMAL 반환."""
-    db = _db_path()
-    con = sqlite3.connect(db)
+    con = db.connect()
     try:
-        row = con.execute("SELECT listingStatus FROM Stock WHERE symbol = ?", (symbol,)).fetchone()
+        row = con.execute('SELECT "listingStatus" FROM "Stock" WHERE symbol = ?', (symbol,)).fetchone()
         return row[0] if row else ListingStatus.NORMAL
     finally:
         con.close()
@@ -178,14 +164,12 @@ def get_stock_listing_status(symbol: str) -> str:
 
 def get_stocks_by_status(status: str) -> list[dict]:
     """특정 listingStatus를 가진 종목 목록 조회"""
-    db = _db_path()
-    con = sqlite3.connect(db)
-    con.row_factory = sqlite3.Row
+    con = db.connect()
     try:
         rows = con.execute("""
-            SELECT symbol, name, listingStatus, suspensionReason,
-                   delistingDate, lastTradableDate, riskFlags, statusUpdatedAt
-            FROM Stock WHERE listingStatus = ?
+            SELECT symbol, name, "listingStatus", "suspensionReason",
+                   "delistingDate", "lastTradableDate", "riskFlags", "statusUpdatedAt"
+            FROM "Stock" WHERE "listingStatus" = ?
         """, (status,)).fetchall()
         return [dict(r) for r in rows]
     finally:
@@ -264,18 +248,17 @@ def write_audit_log(
 ) -> None:
     """DelistingAuditLog에 이벤트 기록"""
     import uuid
-    db = _db_path()
-    con = sqlite3.connect(db)
+    con = db.connect()
     try:
         con.execute("""
-            INSERT INTO DelistingAuditLog
-                (id, accountId, symbol, actionType, previousStatus, newStatus,
-                 quantity, executionPrice, reason, createdAt)
+            INSERT INTO "DelistingAuditLog"
+                (id, "accountId", symbol, "actionType", "previousStatus", "newStatus",
+                 quantity, "executionPrice", reason, "createdAt")
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             str(uuid.uuid4()), account_id, symbol, action_type,
             previous_status, new_status, quantity, execution_price,
-            reason, datetime.now(timezone.utc).isoformat(),
+            reason, db.now(),
         ))
         con.commit()
     finally:

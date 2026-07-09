@@ -668,24 +668,11 @@ async def force_liquidate_position(account_id: str, symbol: str):
     특정 보유 포지션 강제청산 — DELISTING_SCHEDULED / DELISTED 종목 대상.
     마지막 유효 시세로 청산하며 DelistingAuditLog에 기록한다.
     """
-    import sqlite3 as _sq
-    db_path = (lambda: __import__('os').path.join(
-        __import__('os').path.dirname(__import__('os').path.dirname(__import__('os').path.abspath(__file__))),
-        "prisma", "dev.db"
-    ))()
-
-    db_url = __import__('os').getenv("DATABASE_URL", "")
-    if db_url.startswith("file:"):
-        import os as _os
-        rel = db_url[len("file:"):]
-        prisma_dir = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "prisma")
-        db_path = _os.path.normpath(_os.path.join(prisma_dir, rel))
-
-    con = _sq.connect(db_path)
-    con.row_factory = _sq.Row
+    import db as _appdb
+    con = _appdb.connect()
     try:
         pos = con.execute(
-            "SELECT * FROM VirtualPosition WHERE accountId = ? AND symbol = ?",
+            'SELECT * FROM "VirtualPosition" WHERE "accountId" = ? AND symbol = ?',
             (account_id, symbol)
         ).fetchone()
         if not pos:
@@ -704,7 +691,6 @@ async def force_liquidate_position(account_id: str, symbol: str):
 
         # 청산 실행 (시장가)
         import math, uuid as _uuid
-        from datetime import timezone as _tz
         fee_rate = 0.00015
         tax_rate = 0.002
         filled = int(price * (1 - 0.0005))  # 슬리피지
@@ -712,22 +698,22 @@ async def force_liquidate_position(account_id: str, symbol: str):
         tax = math.floor(filled * qty * tax_rate)
         proceeds = filled * qty - fee - tax
         pnl = (filled - avg_price) * qty - fee - tax
-        now_iso = __import__('datetime').datetime.now(_tz.utc).isoformat()
+        now = _appdb.now()
         order_id = str(_uuid.uuid4())
 
         con.execute("""
-            INSERT INTO VirtualOrder (id, accountId, symbol, name, side, type, quantity, price,
-                filledPrice, fee, tax, avgBuyPrice, realizedPnl, status, filledAt, createdAt)
+            INSERT INTO "VirtualOrder" (id, "accountId", symbol, name, side, type, quantity, price,
+                "filledPrice", fee, tax, "avgBuyPrice", "realizedPnl", status, "filledAt", "createdAt")
             VALUES (?, ?, ?, ?, 'SELL', 'MARKET', ?, ?, ?, ?, ?, ?, ?, 'FILLED', ?, ?)
         """, (order_id, account_id, symbol, pos.get("name") or symbol,
-              qty, price, filled, fee, tax, avg_price, pnl, now_iso, now_iso))
+              qty, price, filled, fee, tax, avg_price, pnl, now, now))
 
         con.execute(
-            "UPDATE VirtualAccount SET currentCash = currentCash + ?, updatedAt = ? WHERE id = ?",
-            (proceeds, now_iso, account_id)
+            'UPDATE "VirtualAccount" SET "currentCash" = "currentCash" + ?, "updatedAt" = ? WHERE id = ?',
+            (proceeds, now, account_id)
         )
         con.execute(
-            "DELETE FROM VirtualPosition WHERE accountId = ? AND symbol = ?",
+            'DELETE FROM "VirtualPosition" WHERE "accountId" = ? AND symbol = ?',
             (account_id, symbol)
         )
         con.commit()

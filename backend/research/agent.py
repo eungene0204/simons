@@ -16,12 +16,12 @@ from __future__ import annotations
 import copy
 import json
 import logging
-import sqlite3
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Sequence
+
+import db as appdb  # 모듈 db와 conn 파라미터 db 이름 충돌 회피
 
 from engine.optuna_optimizer import OptunaOptimizer
 
@@ -74,7 +74,7 @@ class StrategyResearchAgent:
     def __init__(
         self,
         engine: Any,  # BacktestEngine
-        db: sqlite3.Connection,
+        db,
         config: AgentConfig,
         run_id: str,
     ):
@@ -153,14 +153,15 @@ class StrategyResearchAgent:
         return candidates
 
     def _persist_candidates(self, candidates: List[Candidate]) -> None:
-        now = datetime.now(timezone.utc).isoformat()
+        now = appdb.now()
         for c in candidates:
             try:
                 self.db.execute(
                     """
-                    INSERT OR IGNORE INTO ResearchCandidate
-                      (id, runId, dslHash, dslJson, template, stage, createdAt)
+                    INSERT INTO "ResearchCandidate"
+                      (id, "runId", "dslHash", "dslJson", template, stage, "createdAt")
                     VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT DO NOTHING
                     """,
                     (
                         f"cand_{uuid.uuid4().hex[:16]}",
@@ -172,7 +173,7 @@ class StrategyResearchAgent:
                         now,
                     ),
                 )
-            except sqlite3.Error as e:
+            except appdb.Error as e:
                 logger.warning(f"[Agent] candidate persist skipped: {e}")
         self.db.commit()
 
@@ -465,9 +466,9 @@ class StrategyResearchAgent:
         self.events.transition(status)
 
     def _fail(self, message: str) -> None:
-        now = datetime.now(timezone.utc).isoformat()
+        now = appdb.now()
         self.db.execute(
-            "UPDATE ResearchRun SET status = 'FAILED', errorMessage = ?, finishedAt = ? WHERE id = ?",
+            'UPDATE "ResearchRun" SET status = \'FAILED\', "errorMessage" = ?, "finishedAt" = ? WHERE id = ?',
             (message, now, self.run_id),
         )
         self.db.commit()
@@ -476,7 +477,7 @@ class StrategyResearchAgent:
     def _update_run_counts(self, total: Optional[int] = None) -> None:
         if total is not None:
             self.db.execute(
-                "UPDATE ResearchRun SET totalCandidates = ? WHERE id = ?",
+                'UPDATE "ResearchRun" SET "totalCandidates" = ? WHERE id = ?',
                 (total, self.run_id),
             )
             self.db.commit()
@@ -484,15 +485,15 @@ class StrategyResearchAgent:
     def _update_candidate(self, dsl_hash: str, **fields: Any) -> None:
         if not fields:
             return
-        cols = ", ".join(f"{k} = ?" for k in fields.keys())
+        cols = ", ".join(f'"{k}" = ?' for k in fields.keys())
         values = list(fields.values()) + [self.run_id, dsl_hash]
         try:
             self.db.execute(
-                f"UPDATE ResearchCandidate SET {cols} WHERE runId = ? AND dslHash = ?",
+                f'UPDATE "ResearchCandidate" SET {cols} WHERE "runId" = ? AND "dslHash" = ?',
                 values,
             )
             self.db.commit()
-        except sqlite3.Error as e:
+        except appdb.Error as e:
             logger.warning(f"[Agent] candidate update failed: {e}")
 
 

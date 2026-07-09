@@ -1,7 +1,7 @@
 import json
 import os
-import sqlite3
 import sys
+from datetime import datetime
 
 import pytest
 
@@ -12,35 +12,8 @@ from advisor.schemas import AdvisorRequest, BacktestSummary, NewsArticleSignal, 
 from advisor.strategy_identity import strategy_id_for
 
 
-def _create_memory_db(path):
-    conn = sqlite3.connect(path)
-    conn.execute(
-        """
-        CREATE TABLE AdviceExperience (
-            id TEXT PRIMARY KEY,
-            strategyId TEXT NOT NULL,
-            createdAt TEXT NOT NULL,
-            market TEXT,
-            universe TEXT,
-            initialCapital REAL NOT NULL,
-            timeframe TEXT NOT NULL,
-            userPrompt TEXT NOT NULL,
-            strategySummary TEXT,
-            strategyDsl TEXT NOT NULL,
-            canonicalDsl TEXT NOT NULL,
-            strategyHash TEXT NOT NULL,
-            similarStrategyIds TEXT NOT NULL,
-            retrievedCases TEXT NOT NULL,
-            agentAdvice TEXT NOT NULL,
-            beforeBacktest TEXT NOT NULL,
-            afterBacktest TEXT,
-            evaluation TEXT NOT NULL,
-            lesson TEXT NOT NULL,
-            confidence TEXT NOT NULL,
-            dataCoverage TEXT
-        )
-        """
-    )
+def _seed_memory(conn):
+    """AdviceExperience 시딩. strategyId는 Strategy FK(필수)라 부모행도 먼저 넣는다."""
     strategy_dsl = {
         "universe": ["KOSPI200"],
         "entry_signals": [{"indicator": "rsi", "operator": "<=", "threshold": 30}],
@@ -49,19 +22,25 @@ def _create_memory_db(path):
         "initial_capital": 10_000_000,
     }
     conn.execute(
+        'INSERT INTO "Strategy" (id, name, settings, "strategyType", "createdAt", "updatedAt")'
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        ("case_rsi_memory", "RSI 평균회귀", json.dumps(strategy_dsl), "advisor_memory",
+         datetime(2026, 4, 30), datetime(2026, 4, 30)),
+    )
+    conn.execute(
         """
-        INSERT INTO AdviceExperience (
-            id, strategyId, createdAt, initialCapital, timeframe, userPrompt,
-            strategySummary, strategyDsl, canonicalDsl, strategyHash,
-            similarStrategyIds, retrievedCases, agentAdvice, beforeBacktest,
-            afterBacktest, evaluation, lesson, confidence
+        INSERT INTO "AdviceExperience" (
+            id, "strategyId", "createdAt", "initialCapital", timeframe, "userPrompt",
+            "strategySummary", "strategyDsl", "canonicalDsl", "strategyHash",
+            "similarStrategyIds", "retrievedCases", "agentAdvice", "beforeBacktest",
+            "afterBacktest", evaluation, lesson, confidence
         )
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             "exp_1",
             "case_rsi_memory",
-            "2026-04-30T00:00:00Z",
+            datetime(2026, 4, 30),
             10_000_000,
             "1d",
             "과매도 구간에서 사고 과매수 구간에서 판다",
@@ -80,7 +59,6 @@ def _create_memory_db(path):
         ),
     )
     conn.commit()
-    conn.close()
 
 
 def test_build_news_context_reads_v2_store_and_keeps_article_url(monkeypatch):
@@ -124,10 +102,7 @@ def test_build_news_context_reads_v2_store_and_keeps_article_url(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_advisor_route_auto_injects_news_context(monkeypatch, tmp_path):
-    db_path = tmp_path / "no-memory-tables.db"
-    sqlite3.connect(db_path).close()
-    monkeypatch.setenv("DATABASE_URL", f"file:{db_path}")
+async def test_advisor_route_auto_injects_news_context(monkeypatch, app_db):
     monkeypatch.setattr(
         advisor_routes,
         "build_news_context_from_strategy",
@@ -168,10 +143,8 @@ async def test_advisor_route_auto_injects_news_context(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_advisor_route_auto_injects_memory_context(monkeypatch, tmp_path):
-    db_path = tmp_path / "advisor-memory.db"
-    _create_memory_db(db_path)
-    monkeypatch.setenv("DATABASE_URL", f"file:{db_path}")
+async def test_advisor_route_auto_injects_memory_context(monkeypatch, app_db):
+    _seed_memory(app_db)
     monkeypatch.setattr(advisor_routes, "build_news_context_from_strategy", lambda _parsed: [])
 
     req = AdvisorRequest(
@@ -196,10 +169,7 @@ async def test_advisor_route_auto_injects_memory_context(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_advisor_route_works_without_memory_tables(monkeypatch, tmp_path):
-    db_path = tmp_path / "empty.db"
-    sqlite3.connect(db_path).close()
-    monkeypatch.setenv("DATABASE_URL", f"file:{db_path}")
+async def test_advisor_route_works_without_memory_tables(monkeypatch, app_db):
     monkeypatch.setattr(advisor_routes, "build_news_context_from_strategy", lambda _parsed: [])
 
     req = AdvisorRequest(
@@ -218,58 +188,8 @@ async def test_advisor_route_works_without_memory_tables(monkeypatch, tmp_path):
     assert result.strategy_memory_context is None
 
 
-def _create_persistence_db(path):
-    conn = sqlite3.connect(path)
-    conn.execute(
-        """
-        CREATE TABLE Strategy (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            description TEXT,
-            settings TEXT NOT NULL,
-            strategyType TEXT NOT NULL,
-            createdAt TEXT NOT NULL,
-            updatedAt TEXT NOT NULL
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE AdviceExperience (
-            id TEXT PRIMARY KEY,
-            strategyId TEXT NOT NULL,
-            createdAt TEXT NOT NULL,
-            market TEXT,
-            universe TEXT,
-            initialCapital REAL NOT NULL,
-            timeframe TEXT NOT NULL,
-            userPrompt TEXT NOT NULL,
-            strategySummary TEXT,
-            strategyDsl TEXT NOT NULL,
-            canonicalDsl TEXT NOT NULL,
-            strategyHash TEXT NOT NULL,
-            similarStrategyIds TEXT NOT NULL,
-            retrievedCases TEXT NOT NULL,
-            agentAdvice TEXT NOT NULL,
-            beforeBacktest TEXT NOT NULL,
-            afterBacktest TEXT,
-            evaluation TEXT NOT NULL,
-            lesson TEXT NOT NULL,
-            confidence TEXT NOT NULL,
-            dataCoverage TEXT,
-            FOREIGN KEY(strategyId) REFERENCES Strategy(id)
-        )
-        """
-    )
-    conn.commit()
-    conn.close()
-
-
 @pytest.mark.asyncio
-async def test_advisor_route_persists_experience_memory(monkeypatch, tmp_path):
-    db_path = tmp_path / "persist-memory.db"
-    _create_persistence_db(db_path)
-    monkeypatch.setenv("DATABASE_URL", f"file:{db_path}")
+async def test_advisor_route_persists_experience_memory(monkeypatch, app_db):
     monkeypatch.setattr(advisor_routes, "build_news_context_from_strategy", lambda _parsed: [])
 
     req = AdvisorRequest(
@@ -288,11 +208,8 @@ async def test_advisor_route_persists_experience_memory(monkeypatch, tmp_path):
 
     result = await advisor_routes.review_strategy(req)
 
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    row = conn.execute("SELECT * FROM AdviceExperience").fetchone()
-    strategy = conn.execute("SELECT * FROM Strategy").fetchone()
-    conn.close()
+    row = app_db.execute('SELECT * FROM "AdviceExperience"').fetchone()
+    strategy = app_db.execute('SELECT * FROM "Strategy"').fetchone()
 
     assert result.advice_evaluation is not None
     assert row is not None
@@ -304,10 +221,7 @@ async def test_advisor_route_persists_experience_memory(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_advisor_route_does_not_overwrite_existing_strategy(monkeypatch, tmp_path):
-    db_path = tmp_path / "preserve-existing-strategy.db"
-    _create_persistence_db(db_path)
-    monkeypatch.setenv("DATABASE_URL", f"file:{db_path}")
+async def test_advisor_route_does_not_overwrite_existing_strategy(monkeypatch, app_db):
     monkeypatch.setattr(advisor_routes, "build_news_context_from_strategy", lambda _parsed: [])
 
     strategy_dsl = {
@@ -319,26 +233,20 @@ async def test_advisor_route_does_not_overwrite_existing_strategy(monkeypatch, t
     }
     strategy_id = strategy_id_for(strategy_dsl)
 
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        """
-        INSERT INTO Strategy (
-            id, name, description, settings, strategyType, createdAt, updatedAt
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
+    app_db.execute(
+        'INSERT INTO "Strategy" (id, name, description, settings, "strategyType", "createdAt", "updatedAt")'
+        " VALUES (?, ?, ?, ?, ?, ?, ?)",
         (
             strategy_id,
             "사용자 저장 전략",
             "사용자가 직접 저장한 설명",
             json.dumps({"preserve": True}),
             "custom",
-            "2026-01-01T00:00:00Z",
-            "2026-01-01T00:00:00Z",
+            datetime(2026, 1, 1),
+            datetime(2026, 1, 1),
         ),
     )
-    conn.commit()
-    conn.close()
+    app_db.commit()
 
     req = AdvisorRequest(
         user_prompt="RSI 30 이하 매수, 70 이상 매도",
@@ -348,25 +256,19 @@ async def test_advisor_route_does_not_overwrite_existing_strategy(monkeypatch, t
 
     await advisor_routes.review_strategy(req)
 
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    strategy = conn.execute("SELECT * FROM Strategy WHERE id = ?", (strategy_id,)).fetchone()
-    experience_count = conn.execute("SELECT COUNT(*) FROM AdviceExperience").fetchone()[0]
-    conn.close()
+    strategy = app_db.execute('SELECT * FROM "Strategy" WHERE id = ?', (strategy_id,)).fetchone()
+    experience_count = app_db.execute('SELECT COUNT(*) FROM "AdviceExperience"').fetchone()[0]
 
     assert strategy["name"] == "사용자 저장 전략"
     assert strategy["description"] == "사용자가 직접 저장한 설명"
     assert json.loads(strategy["settings"]) == {"preserve": True}
     assert strategy["strategyType"] == "custom"
-    assert strategy["updatedAt"] == "2026-01-01T00:00:00Z"
+    assert strategy["updatedAt"] == datetime(2026, 1, 1)
     assert experience_count == 1
 
 
 @pytest.mark.asyncio
-async def test_advisor_route_persists_then_retrieves_experience_memory(monkeypatch, tmp_path):
-    db_path = tmp_path / "persist-then-retrieve-memory.db"
-    _create_persistence_db(db_path)
-    monkeypatch.setenv("DATABASE_URL", f"file:{db_path}")
+async def test_advisor_route_persists_then_retrieves_experience_memory(monkeypatch, app_db):
     monkeypatch.setattr(advisor_routes, "build_news_context_from_strategy", lambda _parsed: [])
 
     strategy_dsl = {
@@ -422,8 +324,6 @@ async def test_advisor_route_persists_then_retrieves_experience_memory(monkeypat
     assert "Experience Memory" not in memory_advice
     assert "투자 추천" not in memory_advice
 
-    conn = sqlite3.connect(db_path)
-    count = conn.execute("SELECT COUNT(*) FROM AdviceExperience").fetchone()[0]
-    conn.close()
+    count = app_db.execute('SELECT COUNT(*) FROM "AdviceExperience"').fetchone()[0]
 
     assert count == 2

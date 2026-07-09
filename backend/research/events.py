@@ -11,11 +11,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import sqlite3
 import uuid
 from collections import defaultdict
-from datetime import datetime, timezone
 from typing import Any, Dict, Optional
+
+import db as appdb  # 모듈 db와 conn 파라미터 db 이름 충돌 회피
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ _subscribers: Dict[str, set[asyncio.Queue]] = defaultdict(set)
 
 
 class EventEmitter:
-    def __init__(self, db: sqlite3.Connection, run_id: str):
+    def __init__(self, db, run_id: str):
         self.db = db
         self.run_id = run_id
 
@@ -37,18 +37,18 @@ class EventEmitter:
     ) -> None:
         payload_json = json.dumps(payload or {}, ensure_ascii=False, default=str)
         ev_id = str(uuid.uuid4())
-        now = datetime.now(timezone.utc).isoformat()
+        now = appdb.now()
 
         try:
             self.db.execute(
                 """
-                INSERT INTO ResearchEvent (id, runId, candidateId, level, event, payload, createdAt)
+                INSERT INTO "ResearchEvent" (id, "runId", "candidateId", level, event, payload, "createdAt")
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (ev_id, self.run_id, candidate_id, level, event, payload_json, now),
             )
             self.db.commit()
-        except sqlite3.Error as e:
+        except appdb.Error as e:
             logger.warning(f"[EventEmitter] DB write failed: {e}")
 
         # Fan-out to SSE subscribers (non-blocking)
@@ -68,7 +68,7 @@ class EventEmitter:
 
     def transition(self, new_status: str) -> None:
         self.db.execute(
-            "UPDATE ResearchRun SET status = ? WHERE id = ?",
+            'UPDATE "ResearchRun" SET status = ? WHERE id = ?',
             (new_status, self.run_id),
         )
         self.db.commit()

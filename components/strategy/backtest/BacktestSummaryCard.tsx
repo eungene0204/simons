@@ -166,7 +166,6 @@ export default function BacktestSummaryCard({
   initialStrengths,
   initialWeaknesses,
   initialImprovements,
-  initialAdvisorScore,
   initialRiskScore,
   initialOverfitRisk,
   parsedStrategy,
@@ -180,7 +179,6 @@ export default function BacktestSummaryCard({
   const [strengths, setStrengths] = useState<string[]>(initialStrengths ?? []);
   const [weaknesses, setWeaknesses] = useState<string[]>(initialWeaknesses ?? []);
   const [improvements, setImprovements] = useState<string[]>(initialImprovements ?? []);
-  const [advisorScore, setAdvisorScore] = useState<number | null>(initialAdvisorScore ?? null);
   const [riskScore, setRiskScore] = useState<number | null>(initialRiskScore ?? null);
   const [overfitRisk, setOverfitRisk] = useState<string | null>(initialOverfitRisk ?? null);
   const [loading, setLoading] = useState(false);
@@ -196,7 +194,6 @@ export default function BacktestSummaryCard({
       setStrengths(initialStrengths ?? []);
       setWeaknesses(initialWeaknesses ?? []);
       setImprovements(initialImprovements ?? []);
-      setAdvisorScore(initialAdvisorScore ?? null);
       setRiskScore(initialRiskScore ?? null);
       setOverfitRisk(initialOverfitRisk ?? null);
     }
@@ -211,7 +208,6 @@ export default function BacktestSummaryCard({
     setStrengths([]);
     setWeaknesses([]);
     setImprovements([]);
-    setAdvisorScore(null);
     setRiskScore(null);
     setOverfitRisk(null);
 
@@ -240,7 +236,6 @@ export default function BacktestSummaryCard({
       setStrengths(data.strengths ?? []);
       setWeaknesses(data.weaknesses ?? []);
       setImprovements(data.improvements ?? []);
-      setAdvisorScore(data.advisorScore ?? null);
       setRiskScore(data.riskScore ?? null);
       setOverfitRisk(data.overfitRisk ?? null);
       if (data.summary && data.score != null) {
@@ -562,11 +557,6 @@ export default function BacktestSummaryCard({
                       </div>
                     )}
                   </div>
-                  {advisorScore != null && (
-                    <p className="text-sm text-gray-500 text-center">
-                      Advisor 전략 평가 점수: <span className="font-bold text-gray-300">{clampScore(advisorScore)}점</span>
-                    </p>
-                  )}
                 </div>
               </div>
             )}

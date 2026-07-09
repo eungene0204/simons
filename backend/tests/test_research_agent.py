@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import math
-import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 from unittest.mock import MagicMock
@@ -252,53 +252,19 @@ def test_monte_carlo_produces_distribution():
 
 
 @pytest.fixture()
-def tmp_db(tmp_path):
-    db_path = tmp_path / "test_research.db"
-    conn = sqlite3.connect(db_path, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.executescript(
-        """
-        CREATE TABLE ResearchRun (
-            id TEXT PRIMARY KEY, userId INTEGER, status TEXT, goal TEXT,
-            config TEXT, holdoutStart TEXT, seed INTEGER,
-            startedAt TEXT, finishedAt TEXT, errorMessage TEXT,
-            totalCandidates INTEGER DEFAULT 0, promotedCount INTEGER DEFAULT 0
-        );
-        CREATE TABLE ResearchCandidate (
-            id TEXT PRIMARY KEY, runId TEXT, dslHash TEXT, dslJson TEXT,
-            template TEXT, stage TEXT, rejectionReason TEXT,
-            prescreenMetrics TEXT, wfaResult TEXT, mcResult TEXT,
-            optunaBest TEXT, holdoutMetrics TEXT,
-            compositeScore REAL, robustnessScore REAL, deflatedSharpe REAL,
-            promotedAccountId TEXT, createdAt TEXT,
-            UNIQUE(runId, dslHash)
-        );
-        CREATE TABLE ResearchEvent (
-            id TEXT PRIMARY KEY, runId TEXT, candidateId TEXT,
-            level TEXT, event TEXT, payload TEXT, createdAt TEXT
-        );
-        CREATE TABLE Strategy (
-            id TEXT PRIMARY KEY, name TEXT, description TEXT,
-            settings TEXT, strategyType TEXT, createdAt TEXT, updatedAt TEXT
-        );
-        CREATE TABLE VirtualAccount (
-            id TEXT PRIMARY KEY, name TEXT, initialCash REAL, currentCash REAL,
-            strategyId TEXT, strategyName TEXT, tradingMode TEXT,
-            createdAt TEXT, updatedAt TEXT
-        );
-        CREATE TABLE VirtualMarketState (
-            id TEXT PRIMARY KEY, accountId TEXT UNIQUE, startDate TEXT,
-            status TEXT, symbols TEXT, createdAt TEXT, updatedAt TEXT
-        );
-        """
+def tmp_db(app_db):
+    # ResearchRun.userId → User FK: User(id=1) 먼저 시딩. 스키마는 마이그레이션으로 존재.
+    app_db.execute(
+        'INSERT INTO "User" (id, email, name, password, "updatedAt") VALUES (?, ?, ?, ?, ?)',
+        (1, "research@test.local", "research", "x", datetime(2026, 1, 1)),
     )
-    conn.execute(
-        "INSERT INTO ResearchRun (id, userId, status, config, holdoutStart, seed, startedAt) "
-        "VALUES ('run_test', 1, 'PENDING', '{}', '2025-10-20', 42, '2026-04-01')"
+    app_db.execute(
+        'INSERT INTO "ResearchRun" (id, "userId", status, config, "holdoutStart", seed, "startedAt")'
+        " VALUES ('run_test', 1, 'PENDING', '{}', '2025-10-20', 42, ?)",
+        (datetime(2026, 4, 1),),
     )
-    conn.commit()
-    yield conn
-    conn.close()
+    app_db.commit()
+    yield app_db
 
 
 def _make_mock_engine():
@@ -329,7 +295,7 @@ def test_agent_generator_populates_candidates(tmp_db):
     cands = agent._generate()
     assert len(cands) > 0
 
-    rows = tmp_db.execute("SELECT stage FROM ResearchCandidate WHERE runId='run_test'").fetchall()
+    rows = tmp_db.execute('SELECT stage FROM "ResearchCandidate" WHERE "runId"=\'run_test\'').fetchall()
     assert len(rows) == len(cands)
     assert all(r["stage"] == "GENERATED" for r in rows)
 
@@ -369,14 +335,14 @@ def test_promoter_creates_account_and_strategy(tmp_db):
     assert out["accountId"].startswith("va_")
 
     va = tmp_db.execute(
-        "SELECT tradingMode, strategyId FROM VirtualAccount WHERE id = ?",
+        'SELECT "tradingMode", "strategyId" FROM "VirtualAccount" WHERE id = ?',
         (out["accountId"],),
     ).fetchone()
     assert va["tradingMode"] == "auto"
     assert va["strategyId"] == out["strategyId"]
 
     state = tmp_db.execute(
-        "SELECT status FROM VirtualMarketState WHERE accountId = ?",
+        'SELECT status FROM "VirtualMarketState" WHERE "accountId" = ?',
         (out["accountId"],),
     ).fetchone()
     assert state["status"] == "stopped"  # agent does not auto-start

@@ -33,3 +33,6 @@ sentence-transformers==5.6.0  # vector_memory/embedding.py — bge-m3 의미 임
 # (Mac dev는 MLX 백엔드라 outlines/mlx-lm 사용 — 그쪽은 이미지에 미포함)
 openai==2.41.0
 instructor==1.15.3
+
+# 앱 DB(Supabase Postgres) 동기 드라이버 — backend/db.py 공용 어댑터에서 사용
+psycopg[binary]>=3.1

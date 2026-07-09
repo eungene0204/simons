@@ -13,18 +13,18 @@ from __future__ import annotations
 
 import json
 import logging
-import sqlite3
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+import db as appdb  # 모듈 db와 conn 파라미터 db 이름 충돌 회피
 from research.generator import Candidate
 
 logger = logging.getLogger(__name__)
 
 
 class Promoter:
-    def __init__(self, db: sqlite3.Connection):
+    def __init__(self, db):
         self.db = db
 
     def promote(
@@ -37,7 +37,6 @@ class Promoter:
     ) -> Dict[str, Any]:
         request_payload = optimized_request or candidate.backtest_request
         now = datetime.now(timezone.utc)
-        now_iso = now.isoformat()
 
         strategy_id = f"strat_{uuid.uuid4().hex[:16]}"
         account_id = f"va_{uuid.uuid4().hex[:16]}"
@@ -48,10 +47,9 @@ class Promoter:
         settings_json = json.dumps(request_payload, ensure_ascii=False)
 
         try:
-            self.db.execute("BEGIN")
             self.db.execute(
                 """
-                INSERT INTO Strategy (id, name, description, settings, strategyType, createdAt, updatedAt)
+                INSERT INTO "Strategy" (id, name, description, settings, "strategyType", "createdAt", "updatedAt")
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
@@ -60,16 +58,16 @@ class Promoter:
                     candidate.parsed_dsl.get("description", "[research-agent]"),
                     settings_json,
                     "research",
-                    now_iso,
-                    now_iso,
+                    now,
+                    now,
                 ),
             )
 
             self.db.execute(
                 """
-                INSERT INTO VirtualAccount (
-                    id, name, initialCash, currentCash,
-                    strategyId, strategyName, tradingMode, createdAt, updatedAt
+                INSERT INTO "VirtualAccount" (
+                    id, name, "initialCash", "currentCash",
+                    "strategyId", "strategyName", "tradingMode", "createdAt", "updatedAt"
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
@@ -80,15 +78,15 @@ class Promoter:
                     strategy_id,
                     strategy_name,
                     "auto",
-                    now_iso,
-                    now_iso,
+                    now,
+                    now,
                 ),
             )
 
             self.db.execute(
                 """
-                INSERT INTO VirtualMarketState (
-                    id, accountId, startDate, status, symbols, createdAt, updatedAt
+                INSERT INTO "VirtualMarketState" (
+                    id, "accountId", "startDate", status, symbols, "createdAt", "updatedAt"
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
@@ -97,12 +95,12 @@ class Promoter:
                     now.strftime("%Y-%m-%d"),
                     "stopped",
                     json.dumps(symbols),
-                    now_iso,
-                    now_iso,
+                    now,
+                    now,
                 ),
             )
             self.db.commit()
-        except sqlite3.Error as e:
+        except appdb.Error as e:
             self.db.rollback()
             logger.exception("[Promoter] promotion failed")
             raise RuntimeError(f"promotion failed: {e}") from e
@@ -120,7 +118,7 @@ class Promoter:
         Returns count of agent-created auto accounts (by tradingMode='auto').
         """
         cur = self.db.execute(
-            "SELECT COUNT(*) FROM VirtualAccount WHERE tradingMode = 'auto'"
+            'SELECT COUNT(*) FROM "VirtualAccount" WHERE "tradingMode" = \'auto\''
         )
         row = cur.fetchone()
         return int(row[0]) if row else 0

@@ -11,8 +11,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 import os
-import sqlite3
 from typing import Any, Dict, List, Optional, Tuple
+
+import db
 
 from .advice_evaluator import evaluate_advice
 from .similarity import extract_structural_features, search_similar_strategies, structural_similarity
@@ -37,40 +38,19 @@ def _query_embedding_client() -> BgeM3EmbeddingClient:
     return _QUERY_EMBEDDING_CLIENT
 
 
-def _db_path() -> str:
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    db_url = os.getenv("DATABASE_URL", "")
-    if db_url.startswith("file:"):
-        rel = db_url.replace("file:", "", 1)
-        prisma_dir = os.path.join(project_root, "prisma")
-        candidate = os.path.join(prisma_dir, rel)
-        if os.path.exists(candidate):
-            return candidate
-        alt = os.path.join(project_root, rel.lstrip("./"))
-        if os.path.exists(alt):
-            return alt
-    return os.path.join(project_root, "prisma", "prisma", "dev.db")
-
-
-def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(_db_path(), check_same_thread=False, timeout=5.0)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA busy_timeout = 5000")
-    return conn
+def _connect():
+    return db.connect()
 
 
 def _uses_default_database() -> bool:
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    default_path = os.path.join(project_root, "prisma", "prisma", "dev.db")
-    return os.path.abspath(_db_path()) == os.path.abspath(default_path)
+    # 이관 전엔 기본 sqlite dev.db인지로 판단했다. Postgres에선 throwaway 테스트 DB
+    # (simons_test 등)가 아니면 정본으로 간주 — 테스트에서 값비싼 Chroma 부트스트랩을 건너뛴다.
+    db_url = os.getenv("DATABASE_URL", "")
+    return "test" not in db_url.rsplit("/", 1)[-1].lower()
 
 
-def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
-    row = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-        (table,),
-    ).fetchone()
-    return row is not None
+def _table_exists(conn, table: str) -> bool:
+    return db.table_exists(conn, table)
 
 
 def _json_loads(value: Any, fallback: Any) -> Any:
@@ -206,15 +186,15 @@ def _agent_advice_payload(response: Any, confidence: str) -> Dict[str, Any]:
     }
 
 
-def _load_strategy_cases(conn: sqlite3.Connection, limit: int) -> List[Dict[str, Any]]:
+def _load_strategy_cases(conn: Any, limit: int) -> List[Dict[str, Any]]:
     if not _table_exists(conn, "Strategy"):
         return []
 
     rows = conn.execute(
         """
         SELECT id, name, description, settings
-        FROM Strategy
-        ORDER BY updatedAt DESC
+        FROM "Strategy"
+        ORDER BY "updatedAt" DESC
         LIMIT ?
         """,
         (limit,),
@@ -231,7 +211,7 @@ def _load_strategy_cases(conn: sqlite3.Connection, limit: int) -> List[Dict[str,
 
 
 def _load_experience_rows(
-    conn: sqlite3.Connection,
+    conn: Any,
     limit: int,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     if not _table_exists(conn, "AdviceExperience"):
@@ -239,11 +219,11 @@ def _load_experience_rows(
 
     rows = conn.execute(
         """
-        SELECT strategyId, userPrompt, strategySummary, strategyDsl,
-               retrievedCases, beforeBacktest, afterBacktest, evaluation,
+        SELECT "strategyId", "userPrompt", "strategySummary", "strategyDsl",
+               "retrievedCases", "beforeBacktest", "afterBacktest", evaluation,
                lesson, confidence
-        FROM AdviceExperience
-        ORDER BY createdAt DESC
+        FROM "AdviceExperience"
+        ORDER BY "createdAt" DESC
         LIMIT ?
         """,
         (limit,),
@@ -701,7 +681,7 @@ def _comparison_agent_advice(candidate_summary: str, evaluation: Dict[str, Any])
     }
 
 
-def _bootstrap_experience_rows(conn: sqlite3.Connection) -> None:
+def _bootstrap_experience_rows(conn: Any) -> None:
     if (
         not _table_exists(conn, "Strategy")
         or not _table_exists(conn, "BacktestResult")
@@ -709,18 +689,18 @@ def _bootstrap_experience_rows(conn: sqlite3.Connection) -> None:
     ):
         return
 
-    existing_count = conn.execute("SELECT COUNT(*) FROM AdviceExperience").fetchone()[0]
+    existing_count = conn.execute('SELECT COUNT(*) FROM "AdviceExperience"').fetchone()[0]
     if existing_count:
         return
 
     rows = conn.execute(
         """
-        SELECT Strategy.id, Strategy.name, Strategy.description, Strategy.settings,
-               BacktestResult.id AS backtestResultId,
-               BacktestResult.summary, BacktestResult.createdAt
-        FROM Strategy
-        JOIN BacktestResult ON BacktestResult.strategyId = Strategy.id
-        ORDER BY Strategy.id ASC, BacktestResult.createdAt DESC
+        SELECT "Strategy".id, "Strategy".name, "Strategy".description, "Strategy".settings,
+               "BacktestResult".id AS "backtestResultId",
+               "BacktestResult".summary, "BacktestResult"."createdAt"
+        FROM "Strategy"
+        JOIN "BacktestResult" ON "BacktestResult"."strategyId" = "Strategy".id
+        ORDER BY "Strategy".id ASC, "BacktestResult"."createdAt" DESC
         """
     ).fetchall()
 
@@ -746,19 +726,20 @@ def _bootstrap_experience_rows(conn: sqlite3.Connection) -> None:
 
         conn.execute(
             """
-            INSERT OR IGNORE INTO AdviceExperience (
-                id, strategyId, createdAt, market, universe, initialCapital,
-                timeframe, userPrompt, strategySummary, strategyDsl, canonicalDsl,
-                strategyHash, similarStrategyIds, retrievedCases, agentAdvice,
-                beforeBacktest, afterBacktest, evaluation, lesson, confidence,
-                dataCoverage
+            INSERT INTO "AdviceExperience" (
+                id, "strategyId", "createdAt", market, universe, "initialCapital",
+                timeframe, "userPrompt", "strategySummary", "strategyDsl", "canonicalDsl",
+                "strategyHash", "similarStrategyIds", "retrievedCases", "agentAdvice",
+                "beforeBacktest", "afterBacktest", evaluation, lesson, confidence,
+                "dataCoverage"
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT DO NOTHING
             """,
             (
                 experience_id,
                 strategy_row_id,
-                _coerce_text(row["createdAt"], datetime.now(timezone.utc).isoformat()),
+                row["createdAt"] or db.now(),
                 strategy_dsl.get("market"),
                 _stringify_field(strategy_dsl.get("universe") or strategy_dsl.get("symbols")),
                 _bootstrap_initial_capital(strategy_dsl, summary),
@@ -785,13 +766,13 @@ def _bootstrap_experience_rows(conn: sqlite3.Connection) -> None:
         conn.commit()
 
 
-def _load_bootstrap_experiences(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
+def _load_bootstrap_experiences(conn: Any) -> List[Dict[str, Any]]:
     rows = conn.execute(
         """
-        SELECT id, strategyId, userPrompt, strategySummary, strategyDsl,
-               beforeBacktest, afterBacktest
-        FROM AdviceExperience
-        WHERE dataCoverage IN ('bootstrap_backtest_only', 'bootstrap_historical_comparison')
+        SELECT id, "strategyId", "userPrompt", "strategySummary", "strategyDsl",
+               "beforeBacktest", "afterBacktest"
+        FROM "AdviceExperience"
+        WHERE "dataCoverage" IN ('bootstrap_backtest_only', 'bootstrap_historical_comparison')
         """
     ).fetchall()
 
@@ -875,7 +856,7 @@ def _best_historical_comparator(
     return None
 
 
-def _enrich_bootstrap_comparisons(conn: sqlite3.Connection) -> None:
+def _enrich_bootstrap_comparisons(conn: Any) -> None:
     if not _table_exists(conn, "AdviceExperience"):
         return
 
@@ -907,14 +888,14 @@ def _enrich_bootstrap_comparisons(conn: sqlite3.Connection) -> None:
         lesson = retrieved_cases[0]["lesson"]
         conn.execute(
             """
-            UPDATE AdviceExperience
-            SET afterBacktest = ?,
+            UPDATE "AdviceExperience"
+            SET "afterBacktest" = ?,
                 evaluation = ?,
                 lesson = ?,
-                retrievedCases = ?,
-                agentAdvice = ?,
+                "retrievedCases" = ?,
+                "agentAdvice" = ?,
                 confidence = ?,
-                dataCoverage = ?
+                "dataCoverage" = ?
             WHERE id = ?
             """,
             (
@@ -935,15 +916,15 @@ def _enrich_bootstrap_comparisons(conn: sqlite3.Connection) -> None:
 
 
 def _insert_strategy_if_absent(
-    conn: sqlite3.Connection,
+    conn: Any,
     strategy_id: str,
     strategy_summary: str,
     strategy_dsl: Dict[str, Any],
 ) -> None:
     conn.execute(
         """
-        INSERT INTO Strategy (
-            id, name, description, settings, strategyType, createdAt, updatedAt
+        INSERT INTO "Strategy" (
+            id, name, description, settings, "strategyType", "createdAt", "updatedAt"
         )
         VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         ON CONFLICT(id) DO NOTHING
@@ -961,7 +942,7 @@ def _insert_strategy_if_absent(
 def load_advisor_memory(limit: int = 500) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     try:
         conn = _connect()
-    except sqlite3.Error:
+    except db.Error:
         return [], []
 
     try:
@@ -978,7 +959,7 @@ def load_advisor_memory(limit: int = 500) -> Tuple[List[Dict[str, Any]], List[Di
             if case.get("strategy_id"):
                 by_id[case["strategy_id"]] = {**by_id.get(case["strategy_id"], {}), **case}
         return list(by_id.values()), experiences
-    except sqlite3.Error:
+    except db.Error:
         return [], []
     finally:
         conn.close()
@@ -1015,7 +996,7 @@ async def load_vector_advisor_memory(
         # 폴백: 사전구축 코퍼스가 없는 환경(개발/신규 배포)에서만 SQLite를 bge-m3로 부트스트랩.
         try:
             conn = _connect()
-        except sqlite3.Error:
+        except db.Error:
             return [], []
         try:
             _bootstrap_experience_rows(conn)
@@ -1027,7 +1008,7 @@ async def load_vector_advisor_memory(
             )
             if migration.unavailable or migration.scanned == 0:
                 return [], []
-        except sqlite3.Error:
+        except db.Error:
             conn.close()
             return [], []
         finally:
@@ -1062,7 +1043,7 @@ def save_advisor_experience(request: Any, response: Any) -> Optional[str]:
     """
     try:
         conn = _connect()
-    except sqlite3.Error:
+    except db.Error:
         return None
 
     try:
@@ -1083,19 +1064,19 @@ def save_advisor_experience(request: Any, response: Any) -> Optional[str]:
         _insert_strategy_if_absent(conn, strategy_hash, summary, strategy_dsl)
         conn.execute(
             """
-            INSERT INTO AdviceExperience (
-                id, strategyId, createdAt, market, universe, initialCapital,
-                timeframe, userPrompt, strategySummary, strategyDsl, canonicalDsl,
-                strategyHash, similarStrategyIds, retrievedCases, agentAdvice,
-                beforeBacktest, afterBacktest, evaluation, lesson, confidence,
-                dataCoverage
+            INSERT INTO "AdviceExperience" (
+                id, "strategyId", "createdAt", market, universe, "initialCapital",
+                timeframe, "userPrompt", "strategySummary", "strategyDsl", "canonicalDsl",
+                "strategyHash", "similarStrategyIds", "retrievedCases", "agentAdvice",
+                "beforeBacktest", "afterBacktest", evaluation, lesson, confidence,
+                "dataCoverage"
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 experience_id,
                 strategy_hash,
-                now.isoformat(),
+                now,
                 strategy_dsl.get("market"),
                 _stringify_field(strategy_dsl.get("universe")),
                 float(strategy_dsl.get("initial_capital") or 0),
@@ -1120,7 +1101,7 @@ def save_advisor_experience(request: Any, response: Any) -> Optional[str]:
         )
         conn.commit()
         return experience_id
-    except (sqlite3.Error, TypeError, ValueError):
+    except (db.Error, TypeError, ValueError):
         return None
     finally:
         conn.close()

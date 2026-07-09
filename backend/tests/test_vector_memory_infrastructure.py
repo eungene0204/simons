@@ -1,7 +1,7 @@
 import os
 import json
-import sqlite3
 import sys
+from datetime import datetime
 
 import pytest
 
@@ -56,34 +56,8 @@ def _rsi_metrics():
     }
 
 
-def _create_backtest_db(path):
-    conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
-    conn.execute(
-        """
-        CREATE TABLE Strategy (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            description TEXT,
-            settings TEXT NOT NULL,
-            strategyType TEXT NOT NULL,
-            createdAt TEXT NOT NULL,
-            updatedAt TEXT NOT NULL
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE BacktestResult (
-            id TEXT PRIMARY KEY,
-            strategyId TEXT NOT NULL,
-            stockId INTEGER,
-            summary TEXT NOT NULL,
-            trades TEXT,
-            createdAt TEXT NOT NULL
-        )
-        """
-    )
+def _seed_backtest_db(conn):
+    """simons_test에 Strategy/BacktestResult 시딩(스키마는 마이그레이션으로 존재)."""
     rows = [
         (
             "rsi_case",
@@ -107,59 +81,43 @@ def _create_backtest_db(path):
     ]
     for strategy_id, name, description, settings, summary in rows:
         conn.execute(
-            """
-            INSERT INTO Strategy (id, name, description, settings, strategyType, createdAt, updatedAt)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
+            'INSERT INTO "Strategy" (id, name, description, settings, "strategyType", "createdAt", "updatedAt")'
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 strategy_id,
                 name,
                 description,
                 json.dumps(settings),
                 "test",
-                "2026-01-01T00:00:00Z",
-                "2026-01-01T00:00:00Z",
+                datetime(2026, 1, 1),
+                datetime(2026, 1, 1),
             ),
         )
         conn.execute(
-            """
-            INSERT INTO BacktestResult (id, strategyId, summary, createdAt)
-            VALUES (?, ?, ?, ?)
-            """,
+            'INSERT INTO "BacktestResult" (id, "strategyId", summary, "createdAt") VALUES (?, ?, ?, ?)',
             (
                 f"bt_{strategy_id}",
                 strategy_id,
                 json.dumps(summary),
-                "2026-02-01T00:00:00Z",
+                datetime(2026, 2, 1),
             ),
         )
     conn.commit()
     return conn
 
 
-def _add_batch_candidate_table(conn):
+def _add_batch_candidate(conn):
+    # BatchRunCandidate.runId → BatchRun FK: 부모 BatchRun 먼저 시딩
     conn.execute(
-        """
-        CREATE TABLE BatchRunCandidate (
-            id TEXT PRIMARY KEY,
-            runId TEXT NOT NULL,
-            strategyId TEXT,
-            prompt TEXT NOT NULL,
-            strategyName TEXT NOT NULL,
-            status TEXT NOT NULL,
-            errorMessage TEXT,
-            metrics TEXT,
-            rank INTEGER,
-            backtestRequest TEXT,
-            createdAt TEXT NOT NULL
-        )
-        """
+        'INSERT INTO "BatchRun" (id, "totalPrompts", "rankingSnapshot") VALUES (?, ?, ?)'
+        ' ON CONFLICT (id) DO NOTHING',
+        ("batch_run_001", 1, "[]"),
     )
     conn.execute(
         """
-        INSERT INTO BatchRunCandidate (
-            id, runId, strategyId, prompt, strategyName, status, errorMessage,
-            metrics, rank, backtestRequest, createdAt
+        INSERT INTO "BatchRunCandidate" (
+            id, "runId", "strategyId", prompt, "strategyName", status, "errorMessage",
+            metrics, rank, "backtestRequest", "createdAt"
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
@@ -190,7 +148,7 @@ def _add_batch_candidate_table(conn):
                     "slippage_rate": 0.0002,
                 },
             }),
-            "2026-02-02T00:00:00Z",
+            datetime(2026, 2, 2),
         ),
     )
     conn.commit()
@@ -199,9 +157,9 @@ def _add_batch_candidate_table(conn):
 def _insert_failed_batch_candidate(conn):
     conn.execute(
         """
-        INSERT INTO BatchRunCandidate (
-            id, runId, strategyId, prompt, strategyName, status, errorMessage,
-            metrics, rank, backtestRequest, createdAt
+        INSERT INTO "BatchRunCandidate" (
+            id, "runId", "strategyId", prompt, "strategyName", status, "errorMessage",
+            metrics, rank, "backtestRequest", "createdAt"
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
@@ -218,7 +176,7 @@ def _insert_failed_batch_candidate(conn):
             json.dumps({
                 "canonical_strategy_dsl": _rsi_dsl(20),
             }),
-            "2026-02-03T00:00:00Z",
+            datetime(2026, 2, 3),
         ),
     )
     conn.commit()
@@ -360,10 +318,10 @@ async def test_chroma_repository_upserts_and_queries_with_metadata(tmp_path) -> 
     assert matches[0].metadata["marketRegime"] == "sideways"
 
 
-def test_load_backtest_memories_normalizes_stored_prisma_rows(tmp_path) -> None:
-    conn = _create_backtest_db(tmp_path / "memory.db")
+def test_load_backtest_memories_normalizes_stored_prisma_rows(app_db) -> None:
+    _seed_backtest_db(app_db)
 
-    records = load_backtest_memories(conn)
+    records = load_backtest_memories(app_db)
 
     assert len(records) == 2
     rsi = next(record for record in records if "rsi" in record.indicators)
@@ -371,14 +329,13 @@ def test_load_backtest_memories_normalizes_stored_prisma_rows(tmp_path) -> None:
     assert rsi.marketRegime == "sideways"
     assert rsi.Sharpe == 0.9
     assert rsi.tradeCount == 34
-    conn.close()
 
 
-def test_load_batch_candidate_memories_normalizes_batch_rows_without_raw_series(tmp_path) -> None:
-    conn = _create_backtest_db(tmp_path / "memory.db")
-    _add_batch_candidate_table(conn)
+def test_load_batch_candidate_memories_normalizes_batch_rows_without_raw_series(app_db) -> None:
+    _seed_backtest_db(app_db)
+    _add_batch_candidate(app_db)
 
-    records = load_batch_candidate_memories(conn)
+    records = load_batch_candidate_memories(app_db)
 
     assert len(records) == 1
     record = records[0]
@@ -391,44 +348,41 @@ def test_load_batch_candidate_memories_normalizes_batch_rows_without_raw_series(
     assert record.successReason.startswith("Batch candidate completed, rank=1")
     assert "equity" not in document.document
     assert document.id.endswith(":batch_candidate:candidate_001")
-    conn.close()
 
 
-def test_load_batch_candidate_memories_keeps_failed_rows_with_non_object_metrics(tmp_path) -> None:
-    conn = _create_backtest_db(tmp_path / "memory.db")
-    _add_batch_candidate_table(conn)
-    _insert_failed_batch_candidate(conn)
+def test_load_batch_candidate_memories_keeps_failed_rows_with_non_object_metrics(app_db) -> None:
+    _seed_backtest_db(app_db)
+    _add_batch_candidate(app_db)
+    _insert_failed_batch_candidate(app_db)
 
-    records = load_batch_candidate_memories(conn)
+    records = load_batch_candidate_memories(app_db)
 
     failed = next(record for record in records if record.strategyVersion == "batch_candidate:candidate_failed_001")
     assert failed.failureReason == "Backtest execution failed"
     assert failed.Sharpe == 0
     assert failed.successReason == ""
-    conn.close()
 
 
-def test_load_backtest_memories_includes_backtest_results_and_batch_candidates(tmp_path) -> None:
-    conn = _create_backtest_db(tmp_path / "memory.db")
-    _add_batch_candidate_table(conn)
+def test_load_backtest_memories_includes_backtest_results_and_batch_candidates(app_db) -> None:
+    _seed_backtest_db(app_db)
+    _add_batch_candidate(app_db)
 
-    records = load_backtest_memories(conn)
+    records = load_backtest_memories(app_db)
 
     assert len(records) == 3
     assert any(record.strategyVersion == "batch_candidate:candidate_001" for record in records)
-    conn.close()
 
 
 @pytest.mark.asyncio
-async def test_migrate_backtest_results_upserts_loaded_rows(tmp_path) -> None:
-    conn = _create_backtest_db(tmp_path / "memory.db")
+async def test_migrate_backtest_results_upserts_loaded_rows(app_db) -> None:
+    _seed_backtest_db(app_db)
     repository = InMemoryVectorMemoryRepository()
     service = VectorMemoryService(
         repository=repository,
         embedding_client=HashingEmbeddingClient(dimension=64),
     )
 
-    stats = await migrate_backtest_results(conn, service=service)
+    stats = await migrate_backtest_results(app_db, service=service)
 
     assert stats.scanned == 2
     assert stats.upserted == 2
@@ -438,20 +392,18 @@ async def test_migrate_backtest_results_upserts_loaded_rows(tmp_path) -> None:
     matches = await service.query_text(text="RSI oversold entry", where={"marketRegime": "sideways"})
     assert matches
     assert matches[0].metadata["sharpe"] == 0.9
-    conn.close()
 
 
 @pytest.mark.asyncio
-async def test_chroma_migration_skips_batch_candidates_when_already_loaded(tmp_path) -> None:
+async def test_chroma_migration_skips_batch_candidates_when_already_loaded(tmp_path, app_db) -> None:
     pytest.importorskip("chromadb")
-    conn = _create_backtest_db(tmp_path / "memory.db")
-    _add_batch_candidate_table(conn)
+    _seed_backtest_db(app_db)
+    _add_batch_candidate(app_db)
 
-    first = await migrate_backtest_results_to_chroma(conn, persist_path=tmp_path / "chroma", batch_size=2)
-    second = await migrate_backtest_results_to_chroma(conn, persist_path=tmp_path / "chroma", batch_size=2)
+    first = await migrate_backtest_results_to_chroma(app_db, persist_path=tmp_path / "chroma", batch_size=2)
+    second = await migrate_backtest_results_to_chroma(app_db, persist_path=tmp_path / "chroma", batch_size=2)
 
     assert first.scanned == 3
     assert first.upserted == 3
     assert second.scanned == 2
     assert second.upserted == 2
-    conn.close()

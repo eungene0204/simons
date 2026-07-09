@@ -1,7 +1,7 @@
 import json
 import os
-import sqlite3
 import sys
+from datetime import datetime
 
 import pytest
 
@@ -15,34 +15,8 @@ from advisor.vector_memory import (
 )
 
 
-def _create_backtest_db(path):
-    conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
-    conn.execute(
-        """
-        CREATE TABLE Strategy (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            description TEXT,
-            settings TEXT NOT NULL,
-            strategyType TEXT NOT NULL,
-            createdAt TEXT NOT NULL,
-            updatedAt TEXT NOT NULL
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE BacktestResult (
-            id TEXT PRIMARY KEY,
-            strategyId TEXT NOT NULL,
-            stockId INTEGER,
-            summary TEXT NOT NULL,
-            trades TEXT,
-            createdAt TEXT NOT NULL
-        )
-        """
-    )
+def _seed_backtest_db(conn):
+    """simons_test에 Strategy/BacktestResult 시딩(스키마는 마이그레이션으로 존재)."""
     rows = [
         (
             "rsi_case",
@@ -70,30 +44,25 @@ def _create_backtest_db(path):
     ]
     for strategy_id, name, description, settings, summary in rows:
         conn.execute(
-            """
-            INSERT INTO Strategy (id, name, description, settings, strategyType, createdAt, updatedAt)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
+            'INSERT INTO "Strategy" (id, name, description, settings, "strategyType", "createdAt", "updatedAt")'
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 strategy_id,
                 name,
                 description,
                 json.dumps(settings),
                 "test",
-                "2026-01-01T00:00:00Z",
-                "2026-01-01T00:00:00Z",
+                datetime(2026, 1, 1),
+                datetime(2026, 1, 1),
             ),
         )
         conn.execute(
-            """
-            INSERT INTO BacktestResult (id, strategyId, summary, createdAt)
-            VALUES (?, ?, ?, ?)
-            """,
+            'INSERT INTO "BacktestResult" (id, "strategyId", summary, "createdAt") VALUES (?, ?, ?, ?)',
             (
                 f"bt_{strategy_id}",
                 strategy_id,
                 json.dumps(summary),
-                "2026-02-01T00:00:00Z",
+                datetime(2026, 2, 1),
             ),
         )
     conn.commit()
@@ -111,10 +80,10 @@ async def test_hashing_embedding_is_stable() -> None:
     assert len(left) == 32
 
 
-def test_load_backtest_documents_builds_chroma_schema(tmp_path) -> None:
-    conn = _create_backtest_db(tmp_path / "memory.db")
+def test_load_backtest_documents_builds_chroma_schema(app_db) -> None:
+    _seed_backtest_db(app_db)
 
-    documents = load_backtest_documents(conn)
+    documents = load_backtest_documents(app_db)
 
     assert len(documents) == 2
     rsi = next(item for item in documents if item.strategy_id == "rsi_case")
@@ -123,16 +92,15 @@ def test_load_backtest_documents_builds_chroma_schema(tmp_path) -> None:
     assert rsi.metadata["universe"] == "KOSPI200"
     assert rsi.metadata["timeframe"] == "1d"
     assert rsi.metadata["sharpe"] == 0.9
-    conn.close()
 
 
 @pytest.mark.asyncio
-async def test_chroma_migration_and_similarity_search(tmp_path) -> None:
+async def test_chroma_migration_and_similarity_search(tmp_path, app_db) -> None:
     pytest.importorskip("chromadb")
-    conn = _create_backtest_db(tmp_path / "memory.db")
+    _seed_backtest_db(app_db)
     chroma_path = tmp_path / "chroma"
 
-    stats = await migrate_backtest_results_to_chroma(conn, persist_path=chroma_path)
+    stats = await migrate_backtest_results_to_chroma(app_db, persist_path=chroma_path)
     matches = await query_chroma_memory(
         user_prompt="RSI 30 이하에서 매수하고 70 이상에서 매도",
         strategy_dsl={
@@ -149,4 +117,3 @@ async def test_chroma_migration_and_similarity_search(tmp_path) -> None:
     assert matches
     assert matches[0].strategy_id == "rsi_case"
     assert matches[0].metadata["universe"] == "KOSPI200"
-    conn.close()

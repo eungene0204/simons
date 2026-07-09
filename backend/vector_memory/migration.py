@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-import sqlite3
 from typing import Any, Iterable, Iterator, Optional
 
+import db
 from .embedding import EmbeddingClient, HashingEmbeddingClient
 from .models import NormalizedBacktestMemory
 from .normalization import normalize_backtest_result
@@ -25,7 +25,7 @@ class VectorMigrationStats:
 
 
 def load_backtest_memories(
-    conn: sqlite3.Connection,
+    conn: Any,
     *,
     limit: Optional[int] = None,
     include_batch_candidates: bool = True,
@@ -34,7 +34,7 @@ def load_backtest_memories(
 
 
 def iter_backtest_memories(
-    conn: sqlite3.Connection,
+    conn: Any,
     *,
     limit: Optional[int] = None,
     include_batch_candidates: bool = True,
@@ -57,20 +57,20 @@ def iter_backtest_memories(
             return
 
 
-def load_backtest_result_memories(conn: sqlite3.Connection, *, limit: Optional[int] = None) -> list[NormalizedBacktestMemory]:
+def load_backtest_result_memories(conn: Any, *, limit: Optional[int] = None) -> list[NormalizedBacktestMemory]:
     return list(_iter_backtest_result_memories(conn, limit=limit))
 
 
-def _iter_backtest_result_memories(conn: sqlite3.Connection, *, limit: Optional[int] = None) -> Iterator[NormalizedBacktestMemory]:
+def _iter_backtest_result_memories(conn: Any, *, limit: Optional[int] = None) -> Iterator[NormalizedBacktestMemory]:
     if not _table_exists(conn, "Strategy") or not _table_exists(conn, "BacktestResult"):
         return
 
     query = """
-        SELECT Strategy.id, Strategy.name, Strategy.description, Strategy.settings,
-               Strategy.strategyType, BacktestResult.summary, BacktestResult.createdAt
-        FROM Strategy
-        JOIN BacktestResult ON BacktestResult.strategyId = Strategy.id
-        ORDER BY BacktestResult.createdAt DESC
+        SELECT "Strategy".id, "Strategy".name, "Strategy".description, "Strategy".settings,
+               "Strategy"."strategyType", "BacktestResult".summary, "BacktestResult"."createdAt"
+        FROM "Strategy"
+        JOIN "BacktestResult" ON "BacktestResult"."strategyId" = "Strategy".id
+        ORDER BY "BacktestResult"."createdAt" DESC
     """
     params: tuple[Any, ...] = ()
     if limit is not None:
@@ -107,19 +107,19 @@ def _iter_backtest_result_memories(conn: sqlite3.Connection, *, limit: Optional[
         yield record
 
 
-def load_batch_candidate_memories(conn: sqlite3.Connection, *, limit: Optional[int] = None) -> list[NormalizedBacktestMemory]:
+def load_batch_candidate_memories(conn: Any, *, limit: Optional[int] = None) -> list[NormalizedBacktestMemory]:
     return list(_iter_batch_candidate_memories(conn, limit=limit))
 
 
-def _iter_batch_candidate_memories(conn: sqlite3.Connection, *, limit: Optional[int] = None) -> Iterator[NormalizedBacktestMemory]:
+def _iter_batch_candidate_memories(conn: Any, *, limit: Optional[int] = None) -> Iterator[NormalizedBacktestMemory]:
     if not _table_exists(conn, "BatchRunCandidate"):
         return
 
     query = """
-        SELECT id, runId, strategyId, prompt, strategyName, status, errorMessage,
-               metrics, rank, backtestRequest, createdAt
-        FROM BatchRunCandidate
-        WHERE backtestRequest IS NOT NULL
+        SELECT id, "runId", "strategyId", prompt, "strategyName", status, "errorMessage",
+               metrics, rank, "backtestRequest", "createdAt"
+        FROM "BatchRunCandidate"
+        WHERE "backtestRequest" IS NOT NULL
     """
     params: tuple[Any, ...] = ()
     if limit is not None:
@@ -167,7 +167,7 @@ def _iter_batch_candidate_memories(conn: sqlite3.Connection, *, limit: Optional[
 
 
 async def migrate_backtest_results(
-    conn: sqlite3.Connection,
+    conn: Any,
     *,
     service: VectorMemoryService,
     limit: Optional[int] = None,
@@ -194,7 +194,7 @@ async def migrate_backtest_results(
 
 
 async def migrate_backtest_results_to_chroma(
-    conn: sqlite3.Connection,
+    conn: Any,
     *,
     persist_path: Path,
     embedding_client: Optional[EmbeddingClient] = None,
@@ -233,19 +233,15 @@ def _batched(records: Iterable[NormalizedBacktestMemory], batch_size: int) -> It
         yield batch
 
 
-def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
-    row = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-        (table,),
-    ).fetchone()
-    return row is not None
+def _table_exists(conn, table: str) -> bool:
+    return db.table_exists(conn, table)
 
 
-def _count_batch_candidate_rows(conn: sqlite3.Connection) -> int:
+def _count_batch_candidate_rows(conn) -> int:
     if not _table_exists(conn, "BatchRunCandidate"):
         return 0
     row = conn.execute(
-        "SELECT count(*) FROM BatchRunCandidate WHERE backtestRequest IS NOT NULL",
+        'SELECT count(*) FROM "BatchRunCandidate" WHERE "backtestRequest" IS NOT NULL',
     ).fetchone()
     return int(row[0] if row else 0)
 

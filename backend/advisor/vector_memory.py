@@ -15,9 +15,9 @@ import json
 import math
 import os
 from pathlib import Path
-import sqlite3
 from typing import Any, Dict, Iterable, List, Optional, Protocol, Sequence, Tuple
 
+import db
 from .strategy_identity import canonical_strategy_string, strategy_id_for
 
 
@@ -232,7 +232,7 @@ def build_retrieval_query(user_prompt: str, strategy_dsl: Dict[str, Any]) -> str
 
 
 async def migrate_backtest_results_to_chroma(
-    conn: sqlite3.Connection,
+    conn: Any,
     *,
     persist_path: Optional[Path] = None,
     embedding_client: Optional[EmbeddingClient] = None,
@@ -259,7 +259,7 @@ async def migrate_backtest_results_to_chroma(
 
 
 def migrate_backtest_results_to_chroma_sync(
-    conn: sqlite3.Connection,
+    conn: Any,
     *,
     persist_path: Optional[Path] = None,
     embedding_client: Optional[EmbeddingClient] = None,
@@ -320,17 +320,17 @@ def query_chroma_memory_sync(
     return []
 
 
-def load_backtest_documents(conn: sqlite3.Connection) -> List[VectorMemoryDocument]:
+def load_backtest_documents(conn: Any) -> List[VectorMemoryDocument]:
     if not _table_exists(conn, "Strategy") or not _table_exists(conn, "BacktestResult"):
         return []
 
     rows = conn.execute(
         """
-        SELECT Strategy.id, Strategy.name, Strategy.description, Strategy.settings,
-               Strategy.strategyType, BacktestResult.summary, BacktestResult.createdAt
-        FROM Strategy
-        JOIN BacktestResult ON BacktestResult.strategyId = Strategy.id
-        ORDER BY BacktestResult.createdAt DESC
+        SELECT "Strategy".id, "Strategy".name, "Strategy".description, "Strategy".settings,
+               "Strategy"."strategyType", "BacktestResult".summary, "BacktestResult"."createdAt"
+        FROM "Strategy"
+        JOIN "BacktestResult" ON "BacktestResult"."strategyId" = "Strategy".id
+        ORDER BY "BacktestResult"."createdAt" DESC
         """
     ).fetchall()
 
@@ -413,12 +413,8 @@ def _tokenize(text: str) -> List[str]:
     return [token for token in normalized.replace("_", " ").split() if token]
 
 
-def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
-    row = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-        (table,),
-    ).fetchone()
-    return row is not None
+def _table_exists(conn, table: str) -> bool:
+    return db.table_exists(conn, table)
 
 
 def _json_loads(value: Any, fallback: Any) -> Any:
