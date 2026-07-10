@@ -1,10 +1,16 @@
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PLAN_LIMIT_BACKTESTS } from "@/lib/server/planLimits";
 
 const computeCacheKey = vi.fn(() => "cache_key_1");
 const fetchBackend = vi.fn();
 const resolveStrategyId = vi.fn(() => "strategy_1");
 const saveCachedResult = vi.fn();
+// vi.mock 팩토리는 호이스팅되므로, 팩토리에서 참조하는 목 함수는 vi.hoisted로 선언한다.
+const { getCurrentUser, consumeBacktestQuota } = vi.hoisted(() => ({
+  getCurrentUser: vi.fn(),
+  consumeBacktestQuota: vi.fn(),
+}));
 let consoleLogSpy: ReturnType<typeof vi.spyOn>;
 
 vi.mock("@/lib/server/backend", () => ({
@@ -16,6 +22,24 @@ vi.mock("@/lib/server/backtestCache", () => ({
   resolveStrategyId,
   saveCachedResult,
 }));
+
+vi.mock("@/lib/get-user", () => ({
+  getCurrentUser,
+}));
+
+vi.mock("@/lib/prisma", () => ({
+  prisma: {},
+}));
+
+vi.mock("@/lib/server/planLimits", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/server/planLimits")>(
+    "@/lib/server/planLimits"
+  );
+  return {
+    ...actual,
+    consumeBacktestQuota,
+  };
+});
 
 const route = await import("./route");
 
@@ -66,6 +90,10 @@ describe("strategy backtest stream route", () => {
     fetchBackend.mockReset();
     resolveStrategyId.mockReturnValue("strategy_1");
     saveCachedResult.mockReset();
+    getCurrentUser.mockReset();
+    getCurrentUser.mockResolvedValue(null);
+    consumeBacktestQuota.mockReset();
+    consumeBacktestQuota.mockResolvedValue(undefined);
     consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
   });
 
@@ -147,5 +175,56 @@ describe("strategy backtest stream route", () => {
     expect(text).toContain('"totalReturn":7.7');
     expect(text).toContain("[DONE]");
     expect(saveCachedResult).toHaveBeenCalled();
+  });
+
+  it("consumes one backtest quota for a logged-in user", async () => {
+    getCurrentUser.mockResolvedValue({ id: 42 });
+    fetchBackend.mockResolvedValueOnce(makeSseResponse([
+      'data: {"type":"result","data":{"totalReturn":1.2}}\n\n',
+      "data: [DONE]\n\n",
+    ].join("")));
+
+    const response = await route.POST(makeRequest({
+      symbols: ["005930"],
+      canonical_strategy_dsl: { universe: "KOSPI" },
+    }));
+    await response.text();
+
+    expect(consumeBacktestQuota).toHaveBeenCalledTimes(1);
+    expect(consumeBacktestQuota).toHaveBeenCalledWith(expect.anything(), 42);
+    expect(fetchBackend).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 429 without running the engine when the monthly limit is reached", async () => {
+    getCurrentUser.mockResolvedValue({ id: 42 });
+    consumeBacktestQuota.mockRejectedValueOnce(new Error(PLAN_LIMIT_BACKTESTS));
+
+    const response = await route.POST(makeRequest({
+      symbols: ["005930"],
+      canonical_strategy_dsl: { universe: "KOSPI" },
+    }));
+
+    expect(response.status).toBe(429);
+    const body = await response.json();
+    expect(body.code).toBe(PLAN_LIMIT_BACKTESTS);
+    expect(body.detail).toBeTruthy();
+    expect(fetchBackend).not.toHaveBeenCalled();
+  });
+
+  it("does not consume quota for an anonymous (logged-out) user", async () => {
+    getCurrentUser.mockResolvedValue(null);
+    fetchBackend.mockResolvedValueOnce(makeSseResponse([
+      'data: {"type":"result","data":{"totalReturn":1.2}}\n\n',
+      "data: [DONE]\n\n",
+    ].join("")));
+
+    const response = await route.POST(makeRequest({
+      symbols: ["005930"],
+      canonical_strategy_dsl: { universe: "KOSPI" },
+    }));
+    await response.text();
+
+    expect(consumeBacktestQuota).not.toHaveBeenCalled();
+    expect(fetchBackend).toHaveBeenCalledTimes(1);
   });
 });

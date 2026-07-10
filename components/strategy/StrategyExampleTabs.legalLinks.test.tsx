@@ -25,5 +25,10 @@ describe("StrategyExampleTabs legal links", () => {
       "href",
       "/?legal=privacy"
     );
+    expect(
+      within(usageNotice).getByText(
+        /상호명 : 널스페이스\s+사업자등록번호 : 898-50-00737\s+대표 : 이응준\s+주소 : 서울특별시 서대문구 이화여대7길 37, 3층 S88호\s+이메일 : nullspace\.support@gmail\.com/
+      )
+    ).toBeInTheDocument();
   });
 });

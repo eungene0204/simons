@@ -1,13 +1,20 @@
-import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import PricingPlans from "./PricingPlans";
+
+const routerPush = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
     refresh: vi.fn(),
+    push: (...args: unknown[]) => routerPush(...args),
   }),
 }));
+
+beforeEach(() => {
+  routerPush.mockClear();
+});
 
 describe("PricingPlans", () => {
   it("renders equal-height pricing cards and unified subscription buttons", () => {
@@ -122,6 +129,19 @@ describe("PricingPlans", () => {
     expect(screen.getAllByText("(VAT 포함)")).toHaveLength(3);
   });
 
+  it("유료 플랜 선택 시 결제 API 대신 토스페이먼츠 체크아웃으로 이동한다", () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<PricingPlans currentPlanId="FREE" />);
+
+    const proCard = screen.getByTestId("pricing-plan-card-PRO");
+    fireEvent.click(within(proCard).getByRole("button", { name: "구독 시작하기" }));
+
+    expect(routerPush).toHaveBeenCalledWith("/pricing/checkout?plan=PRO");
+    expect(fetchSpy).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
   it("highlights the current plan's icon in blue", () => {
     render(<PricingPlans currentPlanId="PRO" />);
 
@@ -133,5 +153,58 @@ describe("PricingPlans", () => {
     const otherIconWrapper = otherCard.querySelector("svg")?.parentElement;
     expect(otherIconWrapper).toHaveClass("text-white");
     expect(otherIconWrapper).not.toHaveClass("text-blue-400");
+  });
+
+  it("자동갱신 구독 중이면 현재 플랜 카드에 다음 결제일과 해지 버튼을 보여준다", () => {
+    render(
+      <PricingPlans
+        currentPlanId="PRO"
+        subscription={{ nextBillingAt: "2026-08-10T00:00:00.000Z", canceled: false }}
+      />
+    );
+
+    const status = screen.getByTestId("subscription-renewal-status");
+    expect(status).toHaveTextContent("다음 결제일");
+    expect(within(status).getByRole("button", { name: "자동갱신 해지" })).toBeInTheDocument();
+  });
+
+  it("해지 버튼 클릭 시 확인 후 해지 API를 호출한다", () => {
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+    vi.stubGlobal("fetch", fetchSpy);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(
+      <PricingPlans
+        currentPlanId="PRO"
+        subscription={{ nextBillingAt: "2026-08-10T00:00:00.000Z", canceled: false }}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "자동갱신 해지" }));
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/payment/billing/cancel",
+      expect.objectContaining({ method: "POST" })
+    );
+
+    confirmSpy.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it("해지 예약된 구독은 만료 안내만 보여주고 해지 버튼을 숨긴다", () => {
+    render(
+      <PricingPlans
+        currentPlanId="PRO"
+        subscription={{ nextBillingAt: "2026-08-10T00:00:00.000Z", canceled: true }}
+      />
+    );
+
+    const status = screen.getByTestId("subscription-renewal-status");
+    expect(status).toHaveTextContent("해지 예약됨");
+    expect(within(status).queryByRole("button", { name: "자동갱신 해지" })).toBeNull();
+  });
+
+  it("구독 정보가 없으면(FREE) 갱신 상태 UI를 렌더링하지 않는다", () => {
+    render(<PricingPlans currentPlanId="FREE" />);
+    expect(screen.queryByTestId("subscription-renewal-status")).toBeNull();
   });
 });

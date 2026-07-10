@@ -29,6 +29,8 @@ interface SavedStrategy {
 }
 
 const DEFAULT_VISIBLE_COUNT = 20;
+const BUSINESS_INFO_TEXT =
+  "상호명 : 널스페이스   사업자등록번호 : 898-50-00737   대표 : 이응준   주소 : 서울특별시 서대문구 이화여대7길 37, 3층 S88호   이메일 : nullspace.support@gmail.com";
 
 export const EXAMPLES: Example[] = [
   {
@@ -873,6 +875,9 @@ export function StrategyExampleTabs({
           >
             개인정보처리방침
           </Link>
+          <div className="mx-auto mb-3 max-w-6xl text-xs font-bold leading-relaxed text-gray-500">
+            {BUSINESS_INFO_TEXT}
+          </div>
           <p className="mx-auto max-w-5xl text-xs font-bold leading-relaxed text-gray-600">
             <span className="block">
               널스탁에서 제공하는 투자 정보는 고객의 투자 판단을 위한 단순 참고용일 뿐입니다. 백테스트 입력 예시에 쓰인 수치는 단순 예시값이며, 투자 추천이나 미래 성과를 의미하지 않습니다.

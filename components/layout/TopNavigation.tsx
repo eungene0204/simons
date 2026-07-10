@@ -86,6 +86,8 @@ type PlanUsageSummary = {
     planId: string;
     name: string;
     initialInvestmentAmount: number;
+    planStartDate?: string | null;
+    planEndDate?: string | null;
   };
   accounts: { used: number; limit: number };
   strategies: { used: number; limit: number | null; unlimited: boolean };
@@ -98,6 +100,31 @@ function formatWon(value: number) {
 
 function formatLimit(limit: number | null) {
   return limit == null ? "무제한" : `${limit.toLocaleString("ko-KR")}`;
+}
+
+function formatPlanDate(value?: string | null) {
+  if (!value) return "미등록";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleDateString("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
+function getUsagePercent(used: number, limit: number | null, unlimited = false) {
+  if (unlimited || limit == null) return 0;
+  if (limit <= 0) return used > 0 ? 100 : 0;
+  return Math.min(100, Math.max(0, Math.round((used / limit) * 100)));
+}
+
+function formatUsageValue(used: number, limit: number | null, unlimited = false) {
+  return `${used.toLocaleString("ko-KR")} / ${
+    unlimited ? "무제한" : formatLimit(limit)
+  }`;
 }
 
 function isSpecificUserName(value: string) {
@@ -631,7 +658,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
               <div>
                 <h2
                   id="plan-summary-modal-title"
-                  className="text-2xl font-black tracking-tight text-white"
+                  className="text-2xl font-black tracking-tight text-gray-400"
                 >
                   내 플랜
                 </h2>
@@ -656,64 +683,109 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                 <button
                   type="button"
                   onClick={() => void handlePlanClick()}
-                  className="mt-5 rounded-xl border border-white/[0.1] px-4 py-2 text-xs font-black text-white transition-colors hover:bg-white/[0.06]"
+                  className="mt-5 rounded-xl border border-white/[0.1] px-4 py-2 text-xs font-black text-gray-400 transition-colors hover:bg-white/[0.06]"
                 >
                   다시 불러오기
                 </button>
               </div>
             ) : planUsage ? (
-              <div className="grid grid-cols-1 divide-y divide-white/[0.08]">
-                <div className="flex items-center justify-between px-6 py-5">
-                  <div>
-                    <p className="text-xs font-black uppercase tracking-[0.22em] text-gray-500">
-                      현재 플랜
-                    </p>
-                    <p className="mt-2 text-3xl font-black text-white">
-                      {planUsage.plan.name}
-                    </p>
-                  </div>
-                  <Link
-                    href="/pricing"
-                    onClick={() => setIsPlanModalOpen(false)}
-                    className="rounded-xl border border-white/[0.1] px-4 py-2 text-xs font-black text-white transition-colors hover:bg-white/[0.06]"
-                  >
-                    요금제 보기
-                  </Link>
-                </div>
-                <div className="px-6 py-5">
-                  <p className="text-xs font-black uppercase tracking-[0.18em] text-gray-500">
-                    계좌당 초기 모의 투자금
+              <div className="space-y-7 px-6 py-6">
+                <section className="space-y-4">
+                  {[
+                    ["현재 플랜", planUsage.plan.name],
+                    [
+                      "플랜 시작 날짜",
+                      formatPlanDate(planUsage.plan.planStartDate),
+                    ],
+                    [
+                      "플랜 종료 날짜",
+                      formatPlanDate(planUsage.plan.planEndDate),
+                    ],
+                    [
+                      "계좌당 초기 모의 투자금",
+                      formatWon(planUsage.plan.initialInvestmentAmount),
+                    ],
+                  ].map(([label, value]) => (
+                    <div
+                      key={label}
+                      className="flex items-center justify-between gap-5"
+                    >
+                      <span className="text-sm font-bold text-gray-500">
+                        {label}
+                      </span>
+                      <span className="min-w-0 truncate text-right text-base font-black text-gray-300">
+                        {value}
+                      </span>
+                    </div>
+                  ))}
+                </section>
+
+                <section className="space-y-5">
+                  <p className="font-outfit text-sm font-black uppercase tracking-[0.18em] text-gray-500">
+                    Usage
                   </p>
-                  <p className="mt-2 text-xl font-black text-white">
-                    {formatWon(planUsage.plan.initialInvestmentAmount)}
-                  </p>
-                </div>
-                <div className="grid grid-cols-1 divide-y divide-white/[0.08] sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-                  <div className="px-6 py-5">
-                    <p className="text-xs font-black tracking-[0.06em] text-gray-500">
-                      사용 중인 계좌
-                    </p>
-                    <p className="mt-2 text-xl font-black text-white">
-                      {planUsage.accounts.used} / {planUsage.accounts.limit}
-                    </p>
-                  </div>
-                  <div className="px-6 py-5">
-                    <p className="text-xs font-black tracking-[0.06em] text-gray-500">
-                      저장 가능 전략
-                    </p>
-                    <p className="mt-2 text-xl font-black text-white">
-                      {planUsage.strategies.used} / {formatLimit(planUsage.strategies.limit)}
-                    </p>
-                  </div>
-                  <div className="px-6 py-5">
-                    <p className="text-xs font-black tracking-[0.06em] text-gray-500">
-                      이번 달 백테스트
-                    </p>
-                    <p className="mt-2 text-xl font-black text-white">
-                      {planUsage.backtests.used} / {planUsage.backtests.limit}
-                    </p>
-                  </div>
-                </div>
+                  {[
+                    {
+                      label: "사용 중인 계좌",
+                      value: formatUsageValue(
+                        planUsage.accounts.used,
+                        planUsage.accounts.limit
+                      ),
+                      percent: getUsagePercent(
+                        planUsage.accounts.used,
+                        planUsage.accounts.limit
+                      ),
+                    },
+                    {
+                      label: "저장 가능 전략",
+                      value: formatUsageValue(
+                        planUsage.strategies.used,
+                        planUsage.strategies.limit,
+                        planUsage.strategies.unlimited
+                      ),
+                      percent: getUsagePercent(
+                        planUsage.strategies.used,
+                        planUsage.strategies.limit,
+                        planUsage.strategies.unlimited
+                      ),
+                    },
+                    {
+                      label: "백테스트 횟수",
+                      value: formatUsageValue(
+                        planUsage.backtests.used,
+                        planUsage.backtests.limit
+                      ),
+                      percent: getUsagePercent(
+                        planUsage.backtests.used,
+                        planUsage.backtests.limit
+                      ),
+                    },
+                  ].map((item) => (
+                    <div key={item.label} className="space-y-2">
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="text-xs font-bold text-gray-500">
+                          {item.label}
+                        </span>
+                        <span className="font-outfit text-sm font-bold tabular-nums text-gray-500">
+                          {item.value}
+                        </span>
+                      </div>
+                      <div
+                        role="progressbar"
+                        aria-label={item.label}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={item.percent}
+                        className="h-2 overflow-hidden rounded-full bg-white/[0.16]"
+                      >
+                        <div
+                          className="h-full rounded-full bg-[var(--accent-blue)]"
+                          style={{ width: `${item.percent}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </section>
               </div>
             ) : null}
           </div>

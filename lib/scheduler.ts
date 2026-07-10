@@ -54,6 +54,25 @@ export async function callSchedulerAPI(action: string): Promise<void> {
   }
 }
 
+// 자동결제(빌링) 월 갱신 — 매시 정각에 nextBillingAt이 지난 구독을 청구/전환한다.
+// 장 스케줄과 달리 주말에도 실행한다(결제 주기는 달력 기준).
+async function runBillingRenewal(ts: string): Promise<void> {
+  try {
+    const [{ processDueBillingRenewals }, { prisma }] = await Promise.all([
+      import("@/lib/server/billingRenewal"),
+      import("@/lib/prisma"),
+    ]);
+    const result = await processDueBillingRenewals(prisma);
+    if (result.renewed || result.retried || result.downgraded) {
+      console.log(
+        `[Scheduler] ${ts} KST — 구독 갱신: 결제 ${result.renewed}건, 재시도 예약 ${result.retried}건, FREE 전환 ${result.downgraded}건`
+      );
+    }
+  } catch (e) {
+    console.error(`[Scheduler] ${ts} KST — 구독 갱신 잡 실패:`, e);
+  }
+}
+
 function tick(): void {
   const kst = nowKST();
   const h = kst.getUTCHours();
@@ -64,6 +83,13 @@ function tick(): void {
   // 자정에 fired 초기화
   if (h === 0 && m === 0) {
     firedToday.clear();
+  }
+
+  // 매시 정각 — 자동결제(빌링) 구독 갱신 (주말 포함이라 평일 가드보다 먼저 체크)
+  const billingRenewalKey = `${dateStr}_${h}_billing_renewal`;
+  if (m === 0 && !firedToday.has(billingRenewalKey)) {
+    firedToday.add(billingRenewalKey);
+    void runBillingRenewal(formatKST(kst));
   }
 
   // 평일만 (1=월 ~ 5=금)

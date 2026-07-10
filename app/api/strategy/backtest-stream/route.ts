@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchBackend } from "@/lib/server/backend";
 import { computeCacheKey, saveCachedResult, resolveStrategyId } from "@/lib/server/backtestCache";
+import { getCurrentUser } from "@/lib/get-user";
+import { prisma } from "@/lib/prisma";
+import {
+  consumeBacktestQuota,
+  PLAN_LIMIT_BACKTESTS,
+  PLAN_LIMIT_MESSAGES,
+} from "@/lib/server/planLimits";
 
 function makeTraceId(): string {
   return `bt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -29,6 +36,28 @@ export async function POST(req: NextRequest) {
     body = await req.json();
   } catch {
     return NextResponse.json({ detail: "Invalid JSON" }, { status: 400 });
+  }
+
+  // 로그인 사용자는 월 백테스트 한도를 검사하고 1회 소비한다(캐시 히트도 실행 1회로 집계).
+  // 프론트는 !res.ok 시 err.detail을 에러 메시지로 표시하므로 429에 detail을 포함한다.
+  const user = await getCurrentUser();
+  if (user) {
+    try {
+      await consumeBacktestQuota(prisma, user.id);
+    } catch (err: any) {
+      if (err instanceof Error && err.message === PLAN_LIMIT_BACKTESTS) {
+        return NextResponse.json(
+          {
+            error: "Backtest limit reached",
+            code: PLAN_LIMIT_BACKTESTS,
+            detail: PLAN_LIMIT_MESSAGES[PLAN_LIMIT_BACKTESTS],
+            message: PLAN_LIMIT_MESSAGES[PLAN_LIMIT_BACKTESTS],
+          },
+          { status: 429 }
+        );
+      }
+      throw err;
+    }
   }
 
   // 캐시 히트 여부와 무관하게 항상 엔진을 새로 실행한다(같은 전략이라도 재실행 정책).

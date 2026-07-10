@@ -73,7 +73,11 @@ function renderWithQueryClient(ui: ReactNode) {
   );
 }
 
-function mockAuthenticatedPlanUsage() {
+function mockAuthenticatedPlanUsage({
+  strategies = { used: 12, limit: 50, unlimited: false },
+}: {
+  strategies?: { used: number; limit: number | null; unlimited: boolean };
+} = {}) {
   fetchMock.mockImplementation((input: RequestInfo | URL) => {
     const url = String(input);
 
@@ -100,7 +104,7 @@ function mockAuthenticatedPlanUsage() {
             initialInvestmentAmount: 50_000_000,
           },
           accounts: { used: 3, limit: 10 },
-          strategies: { used: 12, limit: 50, unlimited: false },
+          strategies,
           backtests: { used: 7, limit: 100 },
         }),
       });
@@ -124,8 +128,6 @@ function mockAuthenticatedPlanUsage() {
 }
 
 async function openPlanModal() {
-  mockAuthenticatedPlanUsage();
-
   renderWithQueryClient(<TopNavigation />);
 
   fireEvent.click(
@@ -146,23 +148,55 @@ describe("TopNavigation plan modal", () => {
   });
 
   it("현재 플랜과 계좌당 초기 투자금을 표시한다", async () => {
+    mockAuthenticatedPlanUsage();
     await openPlanModal();
 
-    expect(await screen.findByText("Pro")).toBeInTheDocument();
+    expect(await screen.findByText("Pro")).toHaveClass("text-gray-300");
+    expect(screen.getByText("내 플랜")).toHaveClass("text-gray-400");
+    expect(screen.getByText("플랜 시작 날짜")).toBeInTheDocument();
+    expect(screen.getByText("플랜 종료 날짜")).toBeInTheDocument();
+    expect(screen.getAllByText("미등록")).toHaveLength(2);
     expect(screen.getByText("계좌당 초기 모의 투자금")).toBeInTheDocument();
-    expect(screen.getByText("50,000,000원")).toBeInTheDocument();
+    expect(screen.getByText("50,000,000원")).toHaveClass("text-gray-300");
   });
 
   it("계좌/전략/백테스트 사용량을 표시한다", async () => {
+    mockAuthenticatedPlanUsage();
     await openPlanModal();
 
     expect(await screen.findByText("사용 중인 계좌")).toBeInTheDocument();
     expect(screen.getByText("3 / 10")).toBeInTheDocument();
     expect(screen.getByText("12 / 50")).toBeInTheDocument();
     expect(screen.getByText("7 / 100")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "사용 중인 계좌" })).toHaveAttribute(
+      "aria-valuenow",
+      "30"
+    );
+    expect(screen.getByRole("progressbar", { name: "저장 가능 전략" })).toHaveAttribute(
+      "aria-valuenow",
+      "24"
+    );
+    expect(screen.getByRole("progressbar", { name: "백테스트 횟수" })).toHaveAttribute(
+      "aria-valuenow",
+      "7"
+    );
+  });
+
+  it("무제한 사용량은 bar graph를 비워서 표시한다", async () => {
+    mockAuthenticatedPlanUsage({
+      strategies: { used: 12, limit: null, unlimited: true },
+    });
+    await openPlanModal();
+
+    expect(await screen.findByText("12 / 무제한")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "저장 가능 전략" })).toHaveAttribute(
+      "aria-valuenow",
+      "0"
+    );
   });
 
   it("자산 관련 표현을 사용하지 않는다", async () => {
+    mockAuthenticatedPlanUsage();
     await openPlanModal();
 
     await screen.findByText("Pro");

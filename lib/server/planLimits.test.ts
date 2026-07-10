@@ -3,7 +3,9 @@ import {
   assertCanCreateAccount,
   assertCanSaveStrategy,
   consumeBacktestQuota,
+  currentPlanCycle,
   currentUsageMonth,
+  currentUsagePeriodKey,
   getEffectivePlan,
   getUserUsage,
   PLAN_LIMIT_ACCOUNTS,
@@ -15,6 +17,7 @@ function createClient(opts: {
   planTier?: string;
   accounts?: number;
   strategies?: number;
+  planStartDate?: Date | null;
   backtestUsageMonth?: string | null;
   backtestCountThisMonth?: number;
 } = {}) {
@@ -22,6 +25,7 @@ function createClient(opts: {
     user: {
       findUnique: vi.fn().mockResolvedValue({
         planTier: opts.planTier ?? "FREE",
+        planStartDate: opts.planStartDate ?? null,
         backtestUsageMonth: opts.backtestUsageMonth ?? null,
         backtestCountThisMonth: opts.backtestCountThisMonth ?? 0,
       }),
@@ -205,5 +209,72 @@ describe("planLimits — PlanConfig 오버라이드 (관리자 콘솔)", () => {
     );
     // 오버라이드 한도 50이므로 통과해야 한다
     await expect(consumeBacktestQuota(client as any, 1, now)).resolves.toBeUndefined();
+  });
+});
+
+describe("planLimits — 구독 시작일 기준 롤링 결제 주기", () => {
+  it("currentPlanCycle은 구독 시작일로부터 1개월 주기를 계산한다", () => {
+    const start = new Date("2026-06-10T00:00:00Z");
+    const now = new Date("2026-06-15T00:00:00Z"); // 같은 주기 내
+    const cycle = currentPlanCycle(start, now);
+    expect(cycle.start.toISOString()).toBe(start.toISOString());
+    expect(cycle.end.toISOString()).toBe("2026-07-10T00:00:00.000Z");
+  });
+
+  it("currentPlanCycle은 여러 달이 지나도 now를 포함하는 주기까지 롤링한다", () => {
+    const start = new Date("2026-01-10T00:00:00Z");
+    const now = new Date("2026-06-15T00:00:00Z"); // 5개월 경과
+    const cycle = currentPlanCycle(start, now);
+    expect(cycle.start.toISOString()).toBe("2026-06-10T00:00:00.000Z");
+    expect(cycle.end.toISOString()).toBe("2026-07-10T00:00:00.000Z");
+  });
+
+  it("currentPlanCycle은 월말 시작일(1/31)을 다음 달 말일로 clamp한다", () => {
+    const start = new Date("2026-01-31T00:00:00Z");
+    const now = new Date("2026-02-01T00:00:00Z");
+    const cycle = currentPlanCycle(start, now);
+    expect(cycle.end.toISOString()).toBe("2026-02-28T00:00:00.000Z"); // 2026은 평년
+  });
+
+  it("currentUsagePeriodKey는 planStartDate가 없으면 캘린더 월로 폴백한다", () => {
+    const now = new Date("2026-06-15T03:00:00Z");
+    expect(currentUsagePeriodKey(null, now)).toBe(currentUsageMonth(now));
+  });
+
+  it("구독 주기가 지나면 백테스트 카운트를 리셋한다(캘린더 월이 아직 안 바뀌었어도)", async () => {
+    // 구독 시작일 6/20, 현재 6/25 → 이전 주기(5/20~6/20)에 쌓인 사용량은 리셋되어야 한다
+    const planStartDate = new Date("2026-06-20T00:00:00Z");
+    const now = new Date("2026-06-25T00:00:00Z");
+    const client = createClient({
+      planTier: "FREE",
+      planStartDate,
+      backtestUsageMonth: "2026-05-20T00:00:00.000Z", // 이전 주기 키
+      backtestCountThisMonth: 30,
+    });
+    await consumeBacktestQuota(client as any, 1, now);
+    expect(client.user.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: {
+        backtestUsageMonth: "2026-06-20T00:00:00.000Z",
+        backtestCountThisMonth: 1,
+      },
+    });
+  });
+
+  it("getUserUsage는 구독 시작일이 있으면 롤링 주기 종료일을 planEndDate로 반환한다", async () => {
+    const planStartDate = new Date("2026-06-10T00:00:00Z");
+    const now = new Date("2026-06-15T00:00:00Z");
+    const client = createClient({ planTier: "PRO", planStartDate });
+    const usage = await getUserUsage(client as any, 1, now);
+    expect(usage.planStartDate?.toISOString()).toBe(planStartDate.toISOString());
+    expect(usage.planEndDate?.toISOString()).toBe("2026-07-10T00:00:00.000Z");
+  });
+
+  it("getUserUsage는 구독 이력이 없으면 planStartDate/planEndDate를 null로 반환한다", async () => {
+    const now = new Date("2026-06-15T00:00:00Z");
+    const client = createClient({ planTier: "FREE", planStartDate: null });
+    const usage = await getUserUsage(client as any, 1, now);
+    expect(usage.planStartDate).toBeNull();
+    expect(usage.planEndDate).toBeNull();
   });
 });

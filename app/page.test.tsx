@@ -1,36 +1,54 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import HomePage from "./page";
 
 vi.mock("./analytics/page", () => ({
   default: () => <div>전략연구소 메인 화면</div>,
 }));
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("HomePage", () => {
-  it("renders the strategy lab main page at the root path", () => {
+  it("renders the strategy lab main page and business footer at the root path", () => {
+    vi.stubEnv("COMPANY_NAME", "널스페이스");
+    vi.stubEnv("BUSINESS_REPRESENTATIVE_NAME", "이응준");
+    vi.stubEnv("BUSINESS_REGISTRATION_NUMBER", "898-50-00737");
+    vi.stubEnv("BUSINESS_EMAIL", "nullspace.support@gmail.com");
+
     render(<HomePage />);
 
     expect(screen.getByText("전략연구소 메인 화면")).toBeInTheDocument();
-    expect(screen.queryByRole("contentinfo")).not.toBeInTheDocument();
+    expect(screen.getByRole("contentinfo")).toBeInTheDocument();
+    expect(screen.getByText("상호명")).toBeInTheDocument();
+    expect(screen.getByText("널스페이스")).toBeInTheDocument();
+    expect(screen.getByText("대표자명")).toBeInTheDocument();
+    expect(screen.getByText("이응준")).toBeInTheDocument();
+    expect(screen.getByText("사업자등록번호")).toBeInTheDocument();
+    expect(screen.getByText("898-50-00737")).toBeInTheDocument();
+    expect(screen.getByText("이메일")).toBeInTheDocument();
+    expect(screen.getByText("nullspace.support@gmail.com")).toBeInTheDocument();
   });
 
-  it("renders nullStock terms when the legal query is terms", () => {
+  it("renders 널스탁 terms when the legal query is terms", () => {
     const { container } = render(<HomePage searchParams={{ legal: "terms" }} />);
 
     expect(screen.getByRole("heading", { name: "서비스 이용약관" })).toBeInTheDocument();
-    expect(screen.getByText("널스페이스")).toBeInTheDocument();
+    expect(screen.getAllByText("널스페이스").length).toBeGreaterThan(0);
     expect(
       screen.getByText(/투자자문업, 투자일임업, 투자매매업, 투자중개업 등 금융투자업 및 유사투자자문업을 영위하지 않습니다/),
     ).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "제8조 (AI 분석 기능에 관한 고지)" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "제11조 (플랜 및 이용 한도)" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "제12조 (유료서비스, 결제 및 환불)" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "제12조 (환불 정책)" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "제20조 (분쟁 해결 및 준거법)" })).toBeInTheDocument();
-    expect(screen.getByText(/청약철회 및 환불 조건을 결제 전 화면에 표시합니다/)).toBeInTheDocument();
+    expect(screen.getByText(/유료 기능을 단 한 번도 이용하지 않은 경우에는/)).toBeInTheDocument();
+    expect(screen.getByText(/영업일 기준 3~7일 이내/)).toBeInTheDocument();
     expect(container.querySelector("main")).toHaveClass("bg-[#0f0f0f]", "text-white");
   });
 
-  it("renders nullStock privacy policy when the legal query is privacy", () => {
+  it("renders 널스탁 privacy policy when the legal query is privacy", () => {
     const { container } = render(<HomePage searchParams={{ legal: "privacy" }} />);
 
     expect(screen.getByRole("heading", { name: "개인정보처리방침" })).toBeInTheDocument();

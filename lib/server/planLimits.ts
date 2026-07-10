@@ -1,7 +1,9 @@
 // 플랜별 한도 enforcement 및 사용량 조회
 //
 // 가상계좌 수 / 저장 전략 수 / 월 백테스트 횟수를 사용자의 현재 플랜(User.planTier)에 따라 제한한다.
-// 월 백테스트 사용량은 달력 월(KST) 기준으로 초기화된다.
+// 월 백테스트 사용량은 구독 시작일(planStartDate) 기준 롤링 1개월 주기로 초기화된다.
+// 구독 이력이 없는 사용자(FREE, planStartDate 없음)는 KST 캘린더 월로 폴백한다.
+// 가상계좌 수 / 저장 전략 수는 주기 리셋 없이 상시 캡으로 유지된다.
 
 import { Plan, getPlan } from "@/lib/plans";
 
@@ -36,12 +38,64 @@ export const PLAN_LIMIT_MESSAGES: Record<string, string> = {
     "이번 달 백테스트 한도를 모두 사용했습니다. 요금제를 업그레이드하면 더 많은 백테스트를 실행할 수 있습니다.",
 };
 
-/** 현재 달 키 "YYYY-MM" (KST 기준) */
+/** 현재 달 키 "YYYY-MM" (KST 기준) — planStartDate 미등록(구독 이력 없는 FREE) 사용자의 폴백 */
 export function currentUsageMonth(now: Date = new Date()): string {
   const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
   const year = kst.getUTCFullYear();
   const month = String(kst.getUTCMonth() + 1).padStart(2, "0");
   return `${year}-${month}`;
+}
+
+/** date의 n개월 후 날짜. 목표 월의 말일을 넘는 day는 말일로 clamp(예: 1/31 + 1개월 = 2/28) */
+export function addMonthsClamped(date: Date, months: number): Date {
+  const day = date.getUTCDate();
+  const target = new Date(
+    Date.UTC(
+      date.getUTCFullYear(),
+      date.getUTCMonth() + months,
+      1,
+      date.getUTCHours(),
+      date.getUTCMinutes(),
+      date.getUTCSeconds(),
+      date.getUTCMilliseconds()
+    )
+  );
+  const daysInTargetMonth = new Date(
+    Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)
+  ).getUTCDate();
+  target.setUTCDate(Math.min(day, daysInTargetMonth));
+  return target;
+}
+
+/**
+ * 구독 시작일(planStartDate)을 기준으로 한 현재 결제 주기(1개월)를 계산한다.
+ * 여러 달이 경과했어도 now를 포함하는 주기까지 굴려서(rolling) 반환한다.
+ */
+export function currentPlanCycle(
+  planStartDate: Date,
+  now: Date = new Date()
+): { start: Date; end: Date } {
+  let start = planStartDate;
+  let end = addMonthsClamped(planStartDate, 1);
+  let guard = 0;
+  while (end.getTime() <= now.getTime() && guard < 2400) {
+    start = end;
+    end = addMonthsClamped(start, 1);
+    guard++;
+  }
+  return { start, end };
+}
+
+/**
+ * 사용량(백테스트 횟수 등) 리셋 기준 주기를 식별하는 키.
+ * 구독 이력(planStartDate)이 있으면 그 주기 시작일, 없으면 KST 캘린더 월로 폴백한다.
+ */
+export function currentUsagePeriodKey(
+  planStartDate?: Date | null,
+  now: Date = new Date()
+): string {
+  if (!planStartDate) return currentUsageMonth(now);
+  return currentPlanCycle(planStartDate, now).start.toISOString();
 }
 
 /**
@@ -140,7 +194,8 @@ export async function assertCanSaveStrategy(
 }
 
 /**
- * 월 백테스트 1회 소비 — 달력 월이 바뀌었으면 카운트를 리셋한 뒤 한도를 검사하고 +1 한다.
+ * 월 백테스트 1회 소비 — 현재 결제 주기(구독 시작일 기준 롤링 1개월, 미구독 시 캘린더 월)가
+ * 바뀌었으면 카운트를 리셋한 뒤 한도를 검사하고 +1 한다.
  * 한도 초과 시 PLAN_LIMIT_BACKTESTS throw (이때 카운트는 증가하지 않는다).
  */
 export async function consumeBacktestQuota(
@@ -152,6 +207,7 @@ export async function consumeBacktestQuota(
     where: { id: userId },
     select: {
       planTier: true,
+      planStartDate: true,
       backtestUsageMonth: true,
       backtestCountThisMonth: true,
     },
@@ -159,25 +215,29 @@ export async function consumeBacktestQuota(
   if (!user) throw new Error("USER_NOT_FOUND");
 
   const plan = await getEffectivePlan(client, user.planTier);
-  const month = currentUsageMonth(now);
-  const usedThisMonth =
-    user.backtestUsageMonth === month ? user.backtestCountThisMonth : 0;
+  const periodKey = currentUsagePeriodKey(user.planStartDate, now);
+  const usedThisPeriod =
+    user.backtestUsageMonth === periodKey ? user.backtestCountThisMonth : 0;
 
-  if (usedThisMonth >= plan.monthlyBacktestLimit) {
+  if (usedThisPeriod >= plan.monthlyBacktestLimit) {
     throw new Error(PLAN_LIMIT_BACKTESTS);
   }
 
   await client.user.update({
     where: { id: userId },
     data: {
-      backtestUsageMonth: month,
-      backtestCountThisMonth: usedThisMonth + 1,
+      backtestUsageMonth: periodKey,
+      backtestCountThisMonth: usedThisPeriod + 1,
     },
   });
 }
 
 export interface PlanUsage {
   plan: Plan;
+  /** 유료 플랜 구독 시작일 (FREE/미구독이면 null) */
+  planStartDate: Date | null;
+  /** 현재 결제 주기 종료일 = planStartDate 기준 롤링 1개월 (FREE/미구독이면 null) */
+  planEndDate: Date | null;
   accounts: { used: number; limit: number };
   strategies: { used: number; limit: number; unlimited: boolean };
   backtests: { used: number; limit: number };
@@ -194,6 +254,7 @@ export async function getUserUsage(
       where: { id: userId },
       select: {
         planTier: true,
+        planStartDate: true,
         backtestUsageMonth: true,
         backtestCountThisMonth: true,
       },
@@ -203,12 +264,16 @@ export async function getUserUsage(
   ]);
 
   const plan = await getEffectivePlan(client, user?.planTier);
-  const month = currentUsageMonth(now);
+  const planStartDate: Date | null = user?.planStartDate ?? null;
+  const cycle = planStartDate ? currentPlanCycle(planStartDate, now) : null;
+  const periodKey = currentUsagePeriodKey(planStartDate, now);
   const backtestsUsed =
-    user?.backtestUsageMonth === month ? user.backtestCountThisMonth : 0;
+    user?.backtestUsageMonth === periodKey ? user.backtestCountThisMonth : 0;
 
   return {
     plan,
+    planStartDate,
+    planEndDate: cycle?.end ?? null,
     accounts: { used: accountsUsed, limit: plan.maxVirtualAccounts },
     strategies: {
       used: strategiesUsed,

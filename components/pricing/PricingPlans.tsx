@@ -64,15 +64,56 @@ function planFeatures(planId: PlanId, plan: Plan): FeatureRow[] {
 
 interface PricingPlansProps {
   currentPlanId: PlanId;
+  /** 자동결제(빌링) 구독 상태 — 유료 플랜 자동갱신 중일 때만 존재 */
+  subscription?: {
+    nextBillingAt: string | null;
+    canceled: boolean;
+  } | null;
 }
 
-export default function PricingPlans({ currentPlanId }: PricingPlansProps) {
+function formatBillingDate(iso: string | null): string {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "-";
+  return d.toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" });
+}
+
+export default function PricingPlans({ currentPlanId, subscription }: PricingPlansProps) {
   const router = useRouter();
   const [pendingPlanId, setPendingPlanId] = useState<PlanId | null>(null);
+  const [canceling, setCanceling] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const handleCancelRenewal = async () => {
+    if (canceling) return;
+    if (!window.confirm("자동갱신을 해지할까요? 이미 결제된 기간에는 계속 이용할 수 있습니다.")) {
+      return;
+    }
+    setCanceling(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/payment/billing/cancel", {
+        method: "POST",
+        credentials: "same-origin",
+      });
+      if (!res.ok) throw new Error("Failed to cancel");
+      router.refresh();
+    } catch {
+      setError("구독 해지에 실패했습니다. 잠시 후 다시 시도해주세요.");
+    } finally {
+      setCanceling(false);
+    }
+  };
 
   const handleSelect = async (planId: PlanId) => {
     if (planId === currentPlanId || pendingPlanId) return;
+
+    // 유료 플랜은 토스페이먼츠 자동결제(빌링) 체크아웃을 거친다
+    if (planId !== "FREE") {
+      router.push(`/pricing/checkout?plan=${planId}`);
+      return;
+    }
+
     setPendingPlanId(planId);
     setError(null);
     try {
@@ -177,6 +218,33 @@ export default function PricingPlans({ currentPlanId }: PricingPlansProps) {
                   ? "무료로 전환"
                   : "구독 시작하기"}
               </button>
+
+              {/* 자동갱신 상태 — 현재 이용 중인 유료 플랜에만 표시 */}
+              {isCurrent && planId !== "FREE" && subscription ? (
+                <div
+                  data-testid="subscription-renewal-status"
+                  className="mt-4 text-center text-xs font-bold text-gray-500"
+                >
+                  {subscription.canceled ? (
+                    <p>
+                      해지 예약됨 · {formatBillingDate(subscription.nextBillingAt)}까지 이용
+                      가능합니다
+                    </p>
+                  ) : (
+                    <>
+                      <p>다음 결제일: {formatBillingDate(subscription.nextBillingAt)}</p>
+                      <button
+                        type="button"
+                        disabled={canceling}
+                        onClick={() => void handleCancelRenewal()}
+                        className="mt-2 text-gray-400 underline underline-offset-2 transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {canceling ? "해지 처리 중..." : "자동갱신 해지"}
+                      </button>
+                    </>
+                  )}
+                </div>
+              ) : null}
             </div>
           );
         })}

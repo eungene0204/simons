@@ -13,9 +13,21 @@ export default async function PricingPage() {
 
   const record = await prisma.user.findUnique({
     where: { id: user.id },
-    select: { planTier: true },
+    select: {
+      planTier: true,
+      subscriptionPlanId: true,
+      nextBillingAt: true,
+      subscriptionCanceledAt: true,
+    },
   });
   const currentPlan = getPlan(record?.planTier);
+  // 자동결제(빌링) 구독 상태 — 다음 결제일/해지 여부를 플랜 카드에 표시한다
+  const subscription = record?.subscriptionPlanId
+    ? {
+        nextBillingAt: record.nextBillingAt?.toISOString() ?? null,
+        canceled: record.subscriptionCanceledAt != null,
+      }
+    : null;
 
   return (
     <DashboardLayout userName={user.name || "게스트"}>
@@ -31,7 +43,7 @@ export default async function PricingPage() {
           </div>
 
           <div className="mt-14">
-            <PricingPlans currentPlanId={currentPlan.planId} />
+            <PricingPlans currentPlanId={currentPlan.planId} subscription={subscription} />
           </div>
         </div>
       </div>

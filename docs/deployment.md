@@ -1,262 +1,245 @@
-# Simons 배포 가이드 — 로컬 LLM(GPU) + 단일 박스
+# Simons 배포 가이드 — Vultr + Modal + Supabase 하이브리드
 
-이 문서는 Simons를 **자체 GPU 서버 1대**에 **로컬 LLM(Ollama)** 으로 배포하는 절차서다.
-외부 LLM API를 쓰지 않고 9B 모델을 인하우스로 구동하는 것을 전제로 한다.
+이 문서는 Simons의 **실제 운영 중인(as-built)** 배포 구성을 설명한다. 앱 전체는 **Vultr CPU 박스** 1대에 Docker Compose로 올리고, LLM(코치/NL파서/뉴스요약)만 **Modal 서버리스 GPU**에서 Ollama로 서빙한다. 앱 DB는 **Supabase Postgres**, 도메인은 **Namecheap**에서 구매해 Vultr IP로 DNS 연결했다.
 
-> 관련 파일(이미 저장소에 있음): [`Dockerfile`](../Dockerfile) · [`docker-compose.yml`](../docker-compose.yml) · [`Caddyfile`](../Caddyfile) · [`.dockerignore`](../.dockerignore)
+> 관련 파일: [`Dockerfile`](../Dockerfile) · [`docker-compose.yml`](../docker-compose.yml) · [`Caddyfile`](../Caddyfile) · [`.dockerignore`](../.dockerignore) · [`modal_ollama.py`](../modal_ollama.py) · [`.env.production.example`](../.env.production.example) · [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
 
 ---
 
 ## 0. 핵심 결론 (요약)
 
-- **로컬 LLM 전제** → 전략 코칭이 **9B 모델**을 쓰고, 9B는 CPU에서 1~2분이라 **GPU 필수**.
-- **단일 GPU 박스 1대에 전부** 올린다(Next.js·FastAPI·스케줄러·뉴스·Ollama·SQLite). Docker Compose로 한 번에 기동.
-- **1순위 호스팅: Hetzner GEX44** (RTX 4000 Ada 20GB / 64GB RAM / 14코어, **€184/mo**). 9B에 VRAM 여유, GPU 포함 최저가.
-- 외부 API·서버리스·다중 VM 분리는 **지금 단계에선 부적합**(아래 이유). 트래픽이 커지면 §13.
+- **앱**: Vultr CPU 전용 박스(GPU 없음) 1대 — Docker Compose로 web(Next.js)/backend(FastAPI)/scheduler/news 인프라(redis+postgres)/caddy 기동.
+- **LLM**: 자체 GPU 호스팅 대신 **Modal 서버리스 GPU**(`modal_ollama.py`, L4, scale-to-zero)에서 Ollama로 서빙. 앱은 `OLLAMA_HOST` env 하나로 Modal 엔드포인트를 가리킨다.
+- **DB**: 옛 SQLite(`prisma/prisma/dev.db`, 11GB)를 폐기하고 **Supabase Postgres**(Pro 플랜)로 완전 이관 완료(2026-07-09~10, fresh start — 과거 데이터는 이관하지 않음). Prisma(Next.js)와 Python 백엔드(`backend/db.py`, psycopg) 둘 다 같은 Postgres를 쓴다.
+- **도메인/TLS**: **Namecheap**에서 구매한 `nullstock.im`을 Vultr IP로 A레코드 연결, Caddy가 Let's Encrypt로 자동 TLS 발급.
+- **CI/CD**: GitHub Actions 단일 워크플로(`ci.yml`)가 테스트 통과 후 **main push마다 자동으로 Vultr에 SSH 배포 + `prisma migrate deploy`까지 실행**. 수동 배포 불필요.
 
-### 왜 단일 박스 모놀리스인가
-Simons는 **상태(stateful) + 상시 실행 + 무거운 컴퓨팅 + 로컬파일 결합** 앱이다.
+### 왜 이 구성인가 (경위)
 
-- **메인 DB가 SQLite**(`prisma/prisma/dev.db`, **현재 11GB**) → 단일 프로세스 + 영속 디스크 필수. 로컬 파일이라 원격에 못 둠 → 앱과 **반드시 같은 박스**.
-- **Next.js가 python을 직접 실행**: `app/api/backtest/explain/route.ts`가 `python backend/ai/xai_engine.py`를 spawn하고, 여러 라우트가 `data/` 파일을 `fs`로 읽음 → 웹·백엔드가 **node+python+코드+데이터를 한 파일시스템에서 공유**해야 함(=합본 이미지).
-- **로컬 parquet 직접 읽기**: `data/ohlcv/*`(324MB), `data/training_data_v3.parquet`(144MB) → 영속 디스크.
-- **상시 데몬 2개**: 스케줄러(`scripts/scheduler.py`, 매일 00:00 KST OHLCV 동기화) + VirtualTrader(`backend/engine/virtual_trader.py`, FastAPI 인프로세스 자동매매).
-- **로컬 LLM**: 코치/NL파서/요약이 **기본적으로 Ollama**로 9B를 호출(`resolve_llm_backend()`가 백엔드 결정, 기본값 ollama. `OLLAMA_HOST`로 주소 지정). MLX는 맥 dev에서 `LLM_BACKEND=mlx`로 옵트인할 때만.
+원래 계획은 "로컬 GPU 1대에 9B LLM까지 전부"(Hetzner 등 GPU 박스)였으나, 상시 가동 GPU 비용(€184/mo~) 대비 코치 트래픽이 산발적이라 낭비가 컸다. **LLM만 서버리스 GPU(Modal)로 분리**해 안 쓰면 0원(scale-to-zero)으로 만들고, 나머지(웹/백엔드/스케줄러/DB 클라이언트)는 **싼 CPU 박스(Vultr)** 에 남겼다. Next.js가 python을 직접 spawn하고 `data/` 파일을 fs로 읽는 모놀리스 구조라 웹·백엔드 분리는 여전히 불가능 — 이 부분은 원안과 동일하게 **합본 이미지 1개**를 web/backend/scheduler가 공유한다.
 
-→ 서버리스(Vercel) 불가, 앱 티어 다중 분리 불가. **GPU 박스 1대 + Docker**가 정답.
+메인 DB는 원래 SQLite(로컬 파일, 앱과 같은 박스 필수)였으나, 트래픽 증가와 Postgres의 동시성·수평확장 이점 때문에 **Supabase Postgres로 이관**했다(§6). DB가 외부화되면서 "메인 DB가 로컬 파일이라 앱과 같은 박스 필수"라는 예전 제약은 사라졌지만, 여전히 python spawn·fs 읽기 구조 때문에 웹·백엔드는 한 박스에 남아 있다.
 
 ---
 
 ## 1. 아키텍처
 
 ```
-┌─────────────── GPU 서버 1대 (예: Hetzner GEX44) ───────────────┐
-│                                                                │
-│  호스트:  Ollama (9B, GPU 네이티브, OLLAMA_HOST=0.0.0.0:11434)  │
-│                                                                │
-│  Docker Compose (docker-compose.yml):                          │
-│    ├─ caddy        443/80 → web (자동 TLS)                      │
-│    ├─ web          Next.js (프론트 + 86 API 라우트)            │
-│    ├─ backend      FastAPI + VirtualTrader                     │
-│    ├─ scheduler    매일 OHLCV 동기화                           │
-│    ├─ news-worker  Celery (뉴스 수집/분석)                     │
-│    ├─ news-scheduler                                           │
-│    ├─ redis                                                    │
-│    └─ postgres     뉴스 전용(또는 Supabase로 외부화)          │
-│                                                                │
-│  영속 볼륨(호스트 bind):                                       │
-│    ./prisma/prisma  → 11GB SQLite (메인 DB = 코치 코퍼스)      │
-│    ./data           → 9GB parquet/json + Chroma 벡터스토어     │
-└────────────────────────────────────────────────────────────────┘
+┌──────────── Namecheap (도메인/DNS) ────────────┐
+│  nullstock.im / www.nullstock.im               │
+│  A 레코드 → 137.220.41.38                       │
+└──────────────────────┬──────────────────────────┘
+                        │
+┌───────────────────────▼──────────────────────── Vultr 박스 (앱, CPU only) ───┐
+│  137.220.41.38 · Ubuntu · 2 vCPU/15GB/112GB · /opt/simons                    │
+│                                                                               │
+│  Docker Compose (docker-compose.yml):                                        │
+│    ├─ caddy        443/80 → web (Let's Encrypt 자동 TLS)                      │
+│    ├─ web          Next.js (프론트 + API 라우트)                              │
+│    ├─ backend      FastAPI + VirtualTrader — OLLAMA_HOST로 Modal 호출         │
+│    ├─ scheduler    매일 OHLCV 동기화 (단일 인스턴스)                          │
+│    ├─ redis        news_v2 celery 브로커 (backend가 워커 자체 spawn)          │
+│    └─ postgres     news_v2 전용 로컬 Postgres (수집 현재 비활성화)            │
+│                                                                               │
+│  영속 볼륨(호스트 bind): ./data (parquet/json + chroma)                       │
+└───────────────────────┬───────────────────────────────────────────────────────┘
+                        │ OLLAMA_HOST (Modal-Key/Modal-Secret 프록시 인증)
+┌───────────────────────▼──────────────────────── Modal (서버리스 GPU LLM) ────┐
+│  app: simons-ollama · GPU: L4 · min_containers=0 (scale-to-zero)             │
+│  https://eugene204--simons-ollama-ollama-server.modal.run                   │
+│  모델: hf.co/unsloth/Qwen3.5-4B-GGUF:Q4_K_M (Ollama 네이티브 /api/chat, /v1) │
+└───────────────────────────────────────────────────────────────────────────────┘
+                        │ DATABASE_URL / DIRECT_URL (pgbouncer 풀러 경유)
+┌───────────────────────▼──────────────────────── Supabase (Postgres, 앱 DB) ──┐
+│  프로젝트 ref: ydyvilnpmiadinmsoecu · 리전: us-west-1 (N. California) · PG17 │
+│  Pro 플랜 · 앱 메인 DB(Prisma 스키마) + Supabase Auth(구글 로그인)            │
+│  Vultr가 IPv4-only라 Direct connection 불가 → 반드시 pooler 경유             │
+└───────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**합본 이미지 1개**([`Dockerfile`](../Dockerfile))를 빌드해 web·backend·scheduler·news-* 가 공유한다. Next가 python을 spawn하는 모놀리스 구조라 분리가 불가능하기 때문이다.
+**합본 이미지 1개**([`Dockerfile`](../Dockerfile))를 빌드해 web·backend·scheduler가 공유한다. Next.js가 `app/api/backtest/explain/route.ts`에서 `python backend/ai/xai_engine.py`를 spawn하고 여러 라우트가 `data/`를 fs로 읽기 때문에 웹·백엔드가 node+python+코드+데이터를 한 파일시스템에서 공유해야 해서다.
 
 ---
 
-## 2. 호스팅 선택
+## 2. 인프라 구성 요소
 
-### 1순위 — Hetzner GEX44 (단일 GPU 박스, 권장)
+### Vultr (앱 박스)
+| 항목 | 값 |
+|---|---|
+| IP | `137.220.41.38` |
+| OS | Ubuntu 26.04 |
+| 스펙 | 2 vCPU / 15GB RAM / 112GB 디스크 + swap 8G |
+| 코드 경로 | `/opt/simons` (git, GitHub **deploy key** 등록됨) |
+| SSH | `ssh -i ~/.ssh/vultr_simons root@137.220.41.38` |
+| 방화벽 | 22(등록된 IP만)/80/443만 개방. 3000/8000/5432/6379는 외부 차단 |
 
-| 항목 | 사양 | 적합성 |
-|---|---|---|
-| GPU | RTX 4000 SFF Ada **20GB** | 9B Q4(~6GB)에 VRAM 3배 여유, fp16(~18GB)도 가능. 40~55 tok/s → 코치 응답 **8~15초** |
-| CPU | i5-13500, **14코어** | 백테스트(vectorbt/optuna) + 웹 동시 처리 |
-| RAM | **64GB** | parquet + 다중 백테스트 + OS 페이지캐시(11GB DB 핫셋) |
-| 디스크 | 2×1.92TB NVMe | 11GB DB + 9GB data + 백업 충분 |
-| 비용 | **€184/mo + €79(1회)** | GPU 포함 최저가(AWS 서울의 1/3~1/4) |
-| 위치 | Falkenstein (EU) | ⚠️ 한국까지 ~250ms |
+GPU가 없으므로 로컬 LLM은 돌리지 않는다. 백테스트(vectorbt/optuna)·웹·스케줄러 CPU 워크로드만 처리한다.
 
-### 트레이드오프 — EU 저비용 vs 한국 저지연
-GEX44는 EU 전용이라 한국 사용자·KIS/KRX/DART API까지 ~250ms.
-- **대부분의 경우 괜찮음(권장)**: 일봉 백테스트·리서치 도구이고 HFT가 아님. 코치 응답은 이미 8~15초라 +250ms 무의미.
-- **한국 저지연/데이터 residency가 중요하면** → 2순위. **금융 데이터 국내보관 규제 여부를 먼저 확인**할 것(있으면 EU 불가).
+### Modal (서버리스 GPU LLM)
+| 항목 | 값 |
+|---|---|
+| 앱 이름 | `simons-ollama` (계정 profile: `eugene204`, `~/.modal.toml`) |
+| 엔드포인트 | `https://eugene204--simons-ollama-ollama-server.modal.run` (proxy auth 필수) |
+| GPU | L4, `min_containers=0`(scale-to-zero), `scaledown_window=300`초 |
+| 모델 | `hf.co/unsloth/Qwen3.5-4B-GGUF:Q4_K_M` (2026-06-30 9B→4B 경량화) |
+| 소스 | [`modal_ollama.py`](../modal_ollama.py) — Ollama를 그대로 web_server로 노출(`/api/chat`, `/v1`) |
+| 배포 | `modal deploy modal_ollama.py` |
 
-### 2순위 — 한국 리전 (저지연 우선, 비용↑)
-| 옵션 | 비용(상시) | 특징 |
-|---|---|---|
-| Naver Cloud / KT Cloud GPU | 영업 견적 | 한국 DC, 데이터 residency, KIS/KRX 근접 |
-| AWS 서울 g5/g6 (A10/L4 24GB) | g5 ~$1.0/hr ≈ **$730/mo**(+RDS 등) | 표준·안정적, GEX44의 3~4배 |
+**모델 전환 절차(3단계)**:
+1. `.venv/bin/modal run modal_ollama.py::download_model` — 새 모델을 볼륨(`simons-ollama-models`)에 캐시(~2분)
+2. `.venv/bin/modal deploy modal_ollama.py`
+3. Vultr `/opt/simons/.env`의 `NL_OLLAMA_MODEL`을 동일 모델명으로 변경 후:
+   ```bash
+   cd /opt/simons && docker compose up -d --no-build --no-deps --force-recreate backend web
+   ```
+   (`env_file`이라 `restart`가 아니라 `recreate` 필요. postgres/redis는 보존됨)
 
-### 3순위 — 서버리스 GPU (코칭 트래픽이 적고 산발적일 때)
-싼 CPU 앱 박스 + RunPod/Modal 서버리스 GPU(Ollama)로 분리. **scale-to-zero**라 안 쓰면 0원이지만 **콜드스타트**(RunPod 5~20초, Modal 2~4초)로 첫 코치 응답이 느림. 코치가 하루 몇 GPU-시간 수준이면 GEX44보다 쌀 수 있음.
+**콜드스타트 대응(중요 — 3중 방어)**: scale-to-zero 컨테이너로의 첫 POST는 body가 유실되므로 다음이 모두 필요하다.
+- **Body 없는 GET `/api/tags`로 선warmup**한 뒤 POST(`_ollama_ensure_warm`, 예산 200초)
+- 네이티브 `/api/chat` 사용 + `think:false` + `options.num_ctx=16384`(`/v1` 엔드포인트는 num_ctx 무시하므로 반드시 `/api/chat`)
+- Next 프록시(`lib/server/backend.ts`)는 Node 내장 fetch(undici) 기본 `headersTimeout=300s`를 우회하기 위해 **undici 자체 `Agent({headersTimeout:0, bodyTimeout:0})`** 사용, `COACH_TIMEOUT_MS=560000`
 
-### 동시 처리량(현실 인지)
-- **둘러보기**(페이지/조회): 수십~100명 쾌적
-- **백테스트**: 약 4~8건 동시(코어 수). 데드락 가드로 각 건은 단일 스레드
-- **코치(LLM)**: 앱 레벨 전역 추론 락은 **Ollama에선 no-op**(MLX 전용)이라 동시 코칭이 가능하다. 동시 처리량은 호스트의 **`OLLAMA_NUM_PARALLEL` + VRAM**이 결정(9B 1건 8~15초). 천장을 더 올리려면 §13.
+콜드 e2e 실측: 첫 요청 ~90~320초(모델 크기·컨테이너 상태에 따라), 5분 내 재요청은 웜(수초).
+
+### Supabase (앱 DB + Auth)
+| 항목 | 값 |
+|---|---|
+| 프로젝트 ref | `ydyvilnpmiadinmsoecu` |
+| 리전 | us-west-1 (N. California) — Vultr가 미국 서부(시애틀 인근)라 맞춤 선택 |
+| 플랜 | Pro |
+| PG 버전 | 17.6 |
+| 용도 | Prisma 메인 스키마(앱 DB) + Supabase Auth(구글 로그인) |
+
+**연결은 반드시 pooler 경유** — Vultr 박스가 IPv4-only라 Supabase Direct connection(IPv6)을 못 쓴다.
+- `DATABASE_URL` (런타임) = **Transaction pooler**, 포트 6543, `?pgbouncer=true`
+- `DIRECT_URL` (마이그레이션/Prisma `directUrl`) = **Session pooler**, 포트 5432
+- 형식: `postgresql://postgres.<ref>:<password>@aws-0-us-west-1.pooler.supabase.com:<port>/postgres`
+
+Python 백엔드는 `backend/db.py`(psycopg v3 어댑터, sqlite3와 유사한 인터페이스)로 동일 DB에 접근한다. 이관은 **fresh start**(옛 SQLite 데이터 이관 안 함) + **뉴스 DB는 이관 대상에서 제외**(수집 자체가 중단 상태라 로컬 postgres 컨테이너에 그대로 둠).
+
+### Namecheap (도메인/DNS)
+- 도메인 `nullstock.im`을 Namecheap에서 구매.
+- Namecheap DNS에 A레코드: `www.nullstock.im`, `nullstock.im`(apex) 둘 다 → `137.220.41.38`.
+- TLS는 Namecheap이 아니라 **Caddy가 Let's Encrypt로 자동 발급**(HTTP-01 챌린지) — Namecheap 쪽은 DNS만 담당.
+- `.env`: `DOMAIN=www.nullstock.im`, `APEX_DOMAIN=nullstock.im`([`Caddyfile`](../Caddyfile)이 apex→www 301 리다이렉트 처리).
+- ⚠️ **raw IP로는 ACME 발급 불가** — DNS가 해석되기 전에 컨테이너를 띄우면 Let's Encrypt 요청이 반복 실패해 rate limit 위험. DNS 전파 확인 후 `DOMAIN` 설정할 것.
 
 ---
 
 ## 3. 사전 준비물
 
-### 발급/확보할 키 (`.env`)
+### 발급/확보할 키 (`.env` — [`.env.production.example`](../.env.production.example) 참고)
 | 변수 | 용도 |
 |---|---|
+| `OLLAMA_HOST` | Modal Ollama 엔드포인트 |
+| `MODAL_KEY` / `MODAL_SECRET` | Modal proxy auth (웹 콘솔 Settings에서 발급) |
+| `NL_OLLAMA_MODEL` | Modal이 서빙 중인 모델명과 반드시 동일 |
+| `DATABASE_URL` / `DIRECT_URL` | Supabase Postgres (transaction/session pooler) |
+| `NEWSV2_PG_PASSWORD` | 로컬 news_v2 Postgres 컨테이너 비밀번호 |
 | `KRX_API_KEY` | KRX 시세 |
 | `KIS_APP_KEY` / `KIS_APP_SECRET` | 한국투자증권 API(자동매매) |
 | `DART_API_KEY` | DART 공시 |
-| `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` | 프론트 Supabase 인증 |
+| `PUBLIC_DATA_SERVICE_KEY` | 공공데이터포털 |
+| `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` | 프론트 Supabase Auth(구글 로그인) — **빌드 타임에 번들 인라인**이라 값 채운 뒤 반드시 재빌드 |
+| `TOSS_SECRET_KEY` / `NEXT_PUBLIC_TOSS_CLIENT_KEY` | 토스페이먼츠 자동결제·빌링(유료 플랜 정기 구독). 실결제 전 테스트 키→**빌링 계약된** 라이브 상점 키로 교체 필수(§9) |
 | `JWT_SECRET`, `SCHEDULER_SECRET` | 인증/스케줄러 보호(임의 난수) |
-| `OPENAI_API_KEY`, `GOOGLE_API_KEY` | (옵션) LLM 보조 — 로컬 전제에선 미사용 가능 |
-
-### 확정할 것
-- **운영 9B 모델명** — Ollama `pull` 대상 + `NL_OLLAMA_MODEL` 값(예: `gemma2:9b` 등). VRAM 사이징도 여기서 결정.
+| `DOMAIN`, `APEX_DOMAIN` | Caddy TLS 대상 도메인 |
 
 ---
 
-## 4. 서버 초기 셋업
+## 4. 서버 초기 셋업 (Vultr)
 
 ```bash
-# OS: Ubuntu 22.04/24.04 LTS
+# OS: Ubuntu 26.04
 
-# 1) 방화벽: 22(본인 IP), 80, 443만. 3000/8000/11434/5432는 외부 차단
-# 2) swap (빌드/로드 OOM 방지)
+# 1) 방화벽: 22(본인 IP), 80, 443만
+# 2) swap (빌드 OOM 방지)
 sudo fallocate -l 8G /swapfile && sudo chmod 600 /swapfile
 sudo mkswap /swapfile && sudo swapon /swapfile
 echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 
-# 3) NVIDIA 드라이버 확인
-nvidia-smi
-
-# 4) Docker
+# 3) Docker
 curl -fsSL https://get.docker.com | sh
 sudo usermod -aG docker $USER   # 재로그인
-
-# 5) Ollama (호스트 직접 설치 — 컨테이너 아님, GPU 네이티브)
-curl -fsSL https://ollama.com/install.sh | sh
 ```
 
-> **Ollama는 왜 호스트?** 컨테이너 GPU 패스스루(nvidia-container-toolkit) 설정을 피하려고. 컨테이너는 `host.docker.internal:11434`로 접속한다(compose에 설정됨).
+> GPU 박스가 아니므로 NVIDIA 드라이버·Ollama 호스트 설치는 불필요 — LLM은 전부 Modal에서 서빙한다.
 
 ---
 
-## 5. LLM (Ollama 9B) 구성
+## 5. 소스 · 데이터 시드
 
 ```bash
-# 9B 모델 받기 (모델명은 §3에서 확정한 값)
-ollama pull <YOUR_9B_MODEL>
-
-# 컨테이너가 닿도록 0.0.0.0 바인딩 + 모델 상주 설정
-sudo systemctl edit ollama
-#   [Service]
-#   Environment="OLLAMA_HOST=0.0.0.0:11434"     # 기본 127.0.0.1이면 컨테이너에서 접속 불가
-#   Environment="OLLAMA_KEEP_ALIVE=-1"          # 9B를 VRAM에 상주(매 요청 재로딩 방지)
-#   Environment="OLLAMA_NUM_PARALLEL=2"         # 동시 코치 요청(VRAM 여유 내에서)
-sudo systemctl restart ollama
-
-# 확인
-curl http://localhost:11434/api/tags     # 9B 모델이 보이면 OK
+sudo mkdir -p /opt/simons && cd /opt/simons
+git clone <REPO_URL> . # 또는 GitHub deploy key로 clone
 ```
+
+### DB 시드는 불필요
+Supabase는 fresh start로 이관했으므로 SQLite 백업/rsync 같은 시딩 절차가 없다. 스키마는 배포 시 CI/CD가 `prisma migrate deploy`로 자동 적용한다(§8).
+
+### parquet 데이터 동기화
+정본(source of truth)은 프로덕션 박스 자신이다. 로컬 개발 환경에서 프로덕션 데이터를 당겨오려면:
+```bash
+npm run pull-data          # scripts/mirror_data.py — 프로덕션 → 로컬
+npm run pull-data:check    # 드라이런
+```
+`.env`의 `DATA_MIRROR_REMOTE=root@137.220.41.38:/opt/simons` / `DATA_MIRROR_SSH_KEY`가 대상을 지정한다. **프로덕션에는 이 두 변수를 절대 설정하지 말 것**(자기 자신을 미러하게 됨).
 
 ---
 
-## 6. 소스 · 데이터 · DB 시드
+## 6. 환경변수 (`.env`)
 
-```bash
-sudo mkdir -p /srv/simons && sudo chown $USER /srv/simons
-cd /srv/simons && git clone <REPO_URL> app && cd app
-```
-
-### 11GB SQLite 시드 (메인 DB = 코치 코퍼스)
-git 불가·재생성 불가(누적된 실 백테스트 결과). **파일을 그대로 전송**:
-```bash
-# 로컬(Mac)에서: 일관된 스냅샷 → 압축 전송
-sqlite3 prisma/prisma/dev.db ".backup '/tmp/dev-seed.db'"
-rsync -azP /tmp/dev-seed.db user@server:/srv/simons/app/prisma/prisma/dev.db
-```
-- 옮긴 뒤 **서버 사본이 정본**이 되어 거기서 계속 커짐. RAM 11GB 안 먹음(SQLite는 디스크 페이징).
-- Chroma 벡터스토어(코치가 함께 사용)도 `data/` 안에 있으니 같이 전송하거나 서버에서 재생성.
-
-### parquet 데이터 시드
-```bash
-# 전송하거나, 서버에서 동기화 스크립트로 생성(수십 분)
-python3 scripts/sync_data.py
-```
-
-### 메인 DB 마이그레이션
-```bash
-npx prisma migrate deploy    # 11GB 기존 DB에 스키마 차이만 적용(안전). migrate dev 아님
-```
-
----
-
-## 7. 환경변수 (`.env`)
-
-저장소 루트에 생성(커밋 금지 — `.gitignore` 처리됨):
+`.env.production.example`을 `/opt/simons/.env`로 복사 후 값을 채운다(커밋 금지):
 
 ```dotenv
-# --- 도메인/TLS ---
-DOMAIN="simons.example.com"
+# --- LLM (Modal 서버리스 GPU) ---
+OLLAMA_HOST=https://eugene204--simons-ollama-ollama-server.modal.run
+MODAL_KEY=wk-...
+MODAL_SECRET=ws-...
+NL_OLLAMA_MODEL=hf.co/unsloth/Qwen3.5-4B-GGUF:Q4_K_M
 
-# --- 메인 DB (SQLite, 영속) ---
-DATABASE_URL="file:./prisma/dev.db"
+# --- 앱 DB (Supabase Postgres, pooler 경유) ---
+DATABASE_URL=postgresql://postgres.ydyvilnpmiadinmsoecu:<password>@aws-0-us-west-1.pooler.supabase.com:6543/postgres?pgbouncer=true
+DIRECT_URL=postgresql://postgres.ydyvilnpmiadinmsoecu:<password>@aws-0-us-west-1.pooler.supabase.com:5432/postgres
 
-# --- 뉴스 Postgres (박스 내 컨테이너) ---
-NEWSV2_PG_PASSWORD="<random>"
-NEWSV2_DB_URL="postgresql+asyncpg://simons:<random>@postgres:5432/simons_news"
-#   ↑ Supabase로 빼려면 이 줄을 Supabase 주소로 바꾸고 compose의 postgres 서비스 삭제
+# --- 뉴스 Postgres (박스 내 로컬 컨테이너 — Supabase 아님) ---
+NEWSV2_PG_PASSWORD=<random>
 
-# --- 프론트 ---
-NEXT_PUBLIC_SUPABASE_URL="https://<proj>.supabase.co"
-NEXT_PUBLIC_SUPABASE_ANON_KEY="<anon-key>"
-BACKEND_URL="http://backend:8000"
-APP_URL="https://simons.example.com"
+# --- 프론트 Supabase Auth ---
+# ⚠ 빌드 타임 인라인 — 값 채운 뒤 반드시 docker compose build 재실행
+NEXT_PUBLIC_SUPABASE_URL=https://ydyvilnpmiadinmsoecu.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon-key>
 
-# --- 로컬 LLM (Ollama) ---
-# LLM_BACKEND 기본값이 ollama라 보통 불필요. 맥 dev에서 MLX를 쓸 때만 LLM_BACKEND=mlx
-OLLAMA_HOST="http://host.docker.internal:11434"
-NL_OLLAMA_MODEL="<YOUR_9B_MODEL>"
+# --- 토스페이먼츠(유료 플랜 정기 구독 — 자동결제/빌링 계약된 MID 키) ---
+TOSS_SECRET_KEY=<live-secret-key>
+NEXT_PUBLIC_TOSS_CLIENT_KEY=<live-client-key>
 
 # --- 외부 API ---
-KRX_API_KEY="..."
-KIS_APP_KEY="..."
-KIS_APP_SECRET="..."
-DART_API_KEY="..."
+KRX_API_KEY=...
+KIS_APP_KEY=...
+KIS_APP_SECRET=...
+DART_API_KEY=...
+PUBLIC_DATA_SERVICE_KEY=...
 
 # --- 시크릿 ---
-JWT_SECRET="<random>"
-SCHEDULER_SECRET="<random>"
+JWT_SECRET=<random>
+SCHEDULER_SECRET=<random>
 
-# --- 벡터스토어/캐시 경로 ---
-ADVISOR_CHROMA_PATH="/app/data/chroma"
-NUMBA_CACHE_DIR="/tmp/numba"
-MPLCONFIGDIR="/tmp/mpl"
+# --- 도메인(Namecheap DNS → Caddy 자동 TLS) ---
+DOMAIN=www.nullstock.im nullstock.im
+APEX_DOMAIN=nullstock.im
 
-# --- 기동 데드락 가드 (필수! §9) ---
-KMP_DUPLICATE_LIB_OK="TRUE"
-OMP_NUM_THREADS="1"
-POLARS_MAX_THREADS="1"
+# --- 기동 데드락 가드 (필수! §7) ---
+KMP_DUPLICATE_LIB_OK=TRUE
+OMP_NUM_THREADS=1
+POLARS_MAX_THREADS=1
 ```
 
 ---
 
-## 8. Docker 빌드 & 기동
+## 7. 기동 데드락 가드 (필수)
 
-```bash
-docker compose build      # 합본 이미지(node+python) 1회 빌드 — 수 GB, 시간 소요
-docker compose up -d      # 전체 기동
-docker compose logs -f backend   # 모델/기동 로그 확인
-```
-
-**서비스 구성**([`docker-compose.yml`](../docker-compose.yml)):
-
-| 서비스 | 역할 | 비고 |
-|---|---|---|
-| `web` | Next.js (프론트 + API 라우트) | python spawn·fs 위해 data 볼륨 공유 |
-| `backend` | FastAPI + VirtualTrader | `OLLAMA_HOST`로 호스트 Ollama 접속 |
-| `scheduler` | 매일 OHLCV 동기화 | **단일 인스턴스**(중복 금지) |
-| `news-worker` / `news-scheduler` | 뉴스 수집/분석 Celery | |
-| `redis`, `postgres` | 뉴스 인프라 | postgres는 Supabase로 대체 가능 |
-| `caddy` | TLS 리버스 프록시 | 443 → web:3000 |
-
-> **합본 이미지 주의**: `backend/requirements.txt`에 **mlx-lm이 있으면 리눅스 빌드 실패**(맥 전용). 코드에서 조건부 import되므로 리눅스에선 Ollama만 쓰면 됨. requirements에 OS 라이브러리가 더 필요하면 [`Dockerfile`](../Dockerfile)의 `apt-get` 줄을 보강하며 반복.
-
----
-
-## 9. 기동 데드락 가드 (필수)
-
-이 가드 3종이 없으면 백엔드가 startup에서 **무한정지**한다(XGBoost OpenMP 충돌, Polars rayon latch). `.env`에 반드시 포함(§7) — compose가 backend에 주입한다.
+이 가드 3종이 없으면 백엔드가 startup에서 **무한정지**한다(XGBoost OpenMP 충돌, Polars rayon latch). `.env`에 반드시 포함 — compose가 backend에 주입한다.
 
 ```
 KMP_DUPLICATE_LIB_OK=TRUE   # OpenMP 중복 로드 segfault 회피
@@ -266,56 +249,95 @@ POLARS_MAX_THREADS=1        # AI 인프로세스 백테스트 polars 무한정�
 
 ---
 
+## 8. Docker 빌드 & 기동 / CI-CD 자동배포
+
+수동 기동(최초 셋업 또는 긴급 시):
+```bash
+docker compose build      # 합본 이미지(node+python) 빌드
+docker compose up -d      # 전체 기동
+npx prisma migrate deploy # 스키마 반영 (Supabase Postgres, shadow DB 불필요)
+docker compose logs -f backend
+```
+
+**평상시는 완전 자동**: `.github/workflows/ci.yml`의 `deploy` job이 `main` push마다(또는 `workflow_dispatch`) 다음을 SSH로 실행한다.
+```
+git fetch origin main && git reset --hard origin/main
+docker compose build --pull --force-rm
+docker compose run --rm --workdir /app backend npx prisma migrate deploy   # Supabase에 자동 적용
+docker compose up -d --remove-orphans
+```
+- `reset --hard`인 이유: 박스가 런타임 산출물(`data/universe-history.json` 등)로 더럽혀져 ff-only pull이 실패하기 때문.
+- 마이그레이션 실패 시 `set -e`로 배포가 중단되고 **구버전 컨테이너가 계속 떠 있어 서비스는 안 죽는다**.
+- 필수 GitHub Secrets: `VULTR_SSH_HOST`(=137.220.41.38), `VULTR_SSH_USER`, `VULTR_SSH_KEY`.
+
+**서비스 구성**([`docker-compose.yml`](../docker-compose.yml)):
+
+| 서비스 | 역할 | 비고 |
+|---|---|---|
+| `web` | Next.js (프론트 + API 라우트) | python spawn·fs 위해 `data` 볼륨 공유 |
+| `backend` | FastAPI + VirtualTrader | `OLLAMA_HOST`로 Modal 접속, Supabase Postgres에 DB 접근 |
+| `scheduler` | 매일 OHLCV 동기화 | **단일 인스턴스**(중복 금지) |
+| `redis`, `postgres` | 뉴스(news_v2) 인프라 | postgres는 **로컬 컨테이너**(Supabase 아님). 뉴스 수집은 현재 `NEWSV2_COLLECTION_ENABLED=false`로 비활성 |
+| `caddy` | TLS 리버스 프록시 | 443/80 → web:3000, Namecheap DNS 대상 도메인에 Let's Encrypt |
+
+> 뉴스 celery 워커/스케줄러는 별도 서비스가 아니라 `backend`가 startup에서 직접 spawn한다(이중 디스패치 방지).
+
+> **합본 이미지 주의**: `backend/requirements.txt`에 mlx-lm이 있으면 리눅스 빌드 실패(맥 전용, 코드에서 조건부 import). torch는 `+cpu` 휠로 선설치(Modal에만 GPU가 있으므로 앱 박스엔 CPU torch로 충분).
+
+---
+
+## 9. 배포 전 체크리스트
+
+- [ ] `curl <Modal 엔드포인트>/api/tags`가 Modal-Key/Modal-Secret 헤더로 200 응답(모델 목록에 `NL_OLLAMA_MODEL`과 동일 모델 포함)
+- [ ] `backend/requirements.txt`에 mlx-lm 없음(리눅스 빌드 통과)
+- [ ] Supabase `DATABASE_URL`(6543+pgbouncer)/`DIRECT_URL`(5432) pooler 경유로 설정, Direct connection 아님
+- [ ] `data/`(parquet + chroma) 준비(`npm run pull-data` 또는 스케줄러가 채움)
+- [ ] §7 데드락 가드 3종 주입
+- [ ] `.env`의 `DOMAIN`/`APEX_DOMAIN` 지정 + Namecheap DNS가 Vultr IP로 해석됨을 확인 후 기동(TLS rate limit 방지)
+- [ ] 방화벽 80/443만 개방(3000/8000/5432/6379 비공개)
+- [ ] 토스페이먼츠 **자동결제(빌링) 계약 완료된 상점의 라이브 키**로 교체 — 테스트 키로 실결제 불가, 빌링 미계약 키는 `NOT_SUPPORTED_METHOD` 에러
+- [ ] prod DB에 빌링 마이그레이션 적용 확인(`User.tossBillingKey`/`subscriptionPlanId`/`nextBillingAt`/`subscriptionCanceledAt`/`billingFailCount` — CI 배포는 마이그레이션을 실행하지 않음)
+- [ ] GitHub Secrets(`VULTR_SSH_HOST/USER/KEY`) 등록 확인
+
+---
+
 ## 10. 백업
 
-### 11GB SQLite — Litestream 권장
-매일 11GB 풀 카피는 낭비. **Litestream로 WAL 변경분을 S3/R2에 연속 복제**:
-- 거의 실시간 백업, 장애 시 11GB DB 그대로 복원, 증분이라 저렴
-- 대안: 주간 `sqlite3 .backup` + 압축 오프사이트(RPO 큼)
+### Supabase Postgres (앱 DB)
+Pro 플랜의 자동 백업(일별/PITR, 플랜 조건에 따름)에 의존. 별도 스크립트 불필요 — 예전 SQLite Litestream 방식은 이관 후 폐기.
 
-### 그 외
-- **postgres(뉴스)**: `pg_dump` 일배치 또는 Supabase 자체 백업
-- **Chroma·parquet**: 백테스트/`sync_data`로 재생성 가능(우선순위 낮음, 단 재생성 느림)
+### 로컬 news Postgres
+`postgres` 컨테이너(`pgdata` 볼륨)는 뉴스 수집이 비활성 상태라 우선순위 낮음. 필요 시 `pg_dump` 또는 재생성(수집 재개 시 재구축 가능).
+
+### parquet/chroma (`data/`)
+`npm run pull-data`(프로덕션이 정본) 또는 재수집 스크립트로 재생성 가능 — 우선순위 낮음.
 
 ---
 
 ## 11. 운영
 
 ```bash
-# 업데이트 배포
+# 수동 재배포(보통은 git push main으로 자동)
 git pull && docker compose build && docker compose up -d
-npx prisma migrate deploy        # 스키마 변경 시
+npx prisma migrate deploy        # 스키마 변경 시(자동배포는 이미 포함)
 
 # 로그 / 상태
 docker compose logs -f <service>
 docker compose ps
-curl -s http://localhost:8000/model/status   # LLM 로딩 상태
+curl -s http://localhost:8000/model/status   # Modal LLM 연결 상태
+
+# LLM 모델 전환은 §2 "모델 전환 절차(3단계)" 참고
 ```
 - `restart: unless-stopped`로 크래시 자동 복구
 - VirtualTrader는 backend 컨테이너 내부 동작 → backend 살아있으면 함께 동작
 
 ---
 
-## 12. 배포 전 체크리스트
+## 12. 스케일 한계 / 향후 과제
 
-- [ ] `nvidia-smi` GPU 인식 + `ollama pull <9B>` 완료, `curl :11434/api/tags` 확인
-- [ ] Ollama `OLLAMA_HOST=0.0.0.0` (컨테이너 접근 가능)
-- [ ] `backend/requirements.txt`에 mlx-lm 없음(리눅스 빌드 통과)
-- [ ] 11GB `prisma/prisma/dev.db` 시드 전송 + 영속 bind 마운트 확인
-- [ ] `data/`(parquet + chroma) 준비
-- [ ] §9 데드락 가드 3종 주입
-- [ ] `.env`의 `DOMAIN` 지정 + Caddy TLS 발급
-- [ ] 방화벽 80/443만 개방
-- [ ] Litestream 백업 가동
+- **Modal 콜드스타트(~90~320초)**: scale-to-zero 트레이드오프. 완화책(GET warmup, num_ctx, undici 타임아웃)은 이미 적용됨(§2). 더 줄이려면 `scaledown_window` 상향(상시과금↑) 또는 `min_containers=1`.
+- **Vultr 2 vCPU**: 백테스트 동시 처리량이 코어 수에 비례. 느려지면 인스턴스 리사이즈.
+- **앱 수평 확장**: DB는 이미 Postgres(Supabase)로 외부화되어 있어 이전보다 수월하지만, **VirtualTrader·scheduler는 반드시 단일 워커**로 유지해야 한다(중복 주문/중복 동기화 방지) — 여러 대로 늘리려면 이 두 서비스만 별도 분리.
+- **뉴스 시스템**: 현재 수집 비활성(`NEWSV2_COLLECTION_ENABLED=false`). 재개 시 로컬 postgres 컨테이너 부하·Supabase 통합 여부를 재검토.
 
----
-
-## 13. 스케일 한계 / 향후 과제
-
-현재 구성은 **단일 박스·단일 백엔드 프로세스**까지 안전. 트래픽이 커지면:
-
-1. **코치 동시성** — 앱 레벨 전역 락은 Ollama에서 이미 해제(no-op)됨. 천장은 호스트 `OLLAMA_NUM_PARALLEL` + VRAM. 상향해도 부족하면 **Ollama를 별도 GPU 인스턴스/서버리스로 분리**(`OLLAMA_HOST`만 변경).
-2. **11GB SQLite 무한 증가** — `BacktestResult`가 백테스트마다 누적. 쓰기 락 경합·백업 부담이 커지면 **그 테이블만 Postgres로 분리**(뉴스 PG에 합침, 단 코치 `sqlite3` 직접 조회라 코드 변경). 더 가벼운 대안: 오래된 결과 **아카이브/프루닝**.
-3. **앱 수평 확장** — 웹/API를 여러 대로 늘리려면 SQLite→Postgres 이관 + **VirtualTrader·스케줄러는 반드시 단일 워커**로 분리(중복 주문/중복 동기화 방지).
-
-지금 단계에선 위 모두 **YAGNI**. 단일 GPU 박스로 시작하고 병목이 실제로 보일 때 1번부터.
+지금 단계에선 위 모두 YAGNI. 병목이 실제로 보일 때 대응한다.

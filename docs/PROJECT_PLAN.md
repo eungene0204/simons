@@ -700,6 +700,9 @@ RiskManagement {
 | 홈 대시보드 | 전략/백테스트/가상계좌 허브 (WelcomeSection, 시장 스냅샷, 관심종목, 전략/백테스트 이력, 가상매매 현황) | ✅ 완료 |
 | 포트폴리오 대시보드 | 전체 자산 현황, 수익률 추이, 포지션 분포, 품질 게이지 | ✅ 완료 |
 | 요금제 & 플랜 제한 | Free/Pro/Premium 플랜별 계좌당 초기 투자금·가상계좌 수·저장 전략 수·월 백테스트 한도. 계좌는 플랜의 초기 투자금으로 독립 생성(공유 풀 폐기), 계좌 해지 시 금액 미이전. 요금제 페이지(무료 플랜 변경), 내 플랜/사용량 모달·페이지 | ✅ 완료 |
+| 구독 시작/종료일 & 롤링 결제 주기 | "구독 시작하기" 결제 완료 시 `User.planStartDate` 기록, "내 플랜" 모달의 종료 날짜는 시작일 기준 롤링 1개월 후로 계산(`currentPlanCycle`). 월 백테스트 사용량 리셋도 이 롤링 주기를 따름(미구독자는 캘린더 월 폴백). 가상계좌·전략 저장 한도는 주기 리셋 없는 상시 캡 유지. FR-PLAN-010 | ✅ 완료 |
+| 토스페이먼츠 자동결제(빌링) 연동 | 유료 플랜(PRO/PREMIUM) 정기 구독 결제 — v2 SDK `requestBillingAuth`(카드 등록창) 기반. 흐름: `/pricing` "구독 시작하기" → `/pricing/checkout?plan=`(자동갱신 조건 고지, `PaymentCheckout`) → 카드 등록창 → `/pricing/success`에서 서버 승인(`POST /api/payment/confirm`: customerKey 대조 → 빌링키 발급 `/v1/billing/authorizations/issue` → 첫 달 청구 `/v1/billing/{billingKey}`) → `planTier`+`planStartDate`+`tossBillingKey`+`nextBillingAt`(+1개월) 갱신. 주문은 `POST /api/payment/order`가 서버 금액(lib/plans.ts)으로 `PaymentOrder`에 기록, 멱등키(orderId)·재승인 멱등 처리. `POST /api/user/plan`은 FREE 다운그레이드만 허용(무결제 유료 전환 차단, 빌링 상태 함께 해제). FR-PLAN-011 | ✅ 완료 |
+| 구독 월 자동갱신·해지 | 인-프로세스 스케줄러가 매시 정각 `processDueBillingRenewals`(lib/server/billingRenewal.ts) 실행 — `nextBillingAt` 도래 구독을 빌링키로 자동 청구(갱신도 `PaymentOrder` 기록), 성공 시 예정 시각 기준 +1개월. 실패 시 1일 후 재시도, 연속 3회 실패 시 FREE 전환. 해지는 `POST /api/payment/billing/cancel`이 해지 예약(`subscriptionCanceledAt`)만 기록하고 다음 결제일에 청구 없이 FREE 전환(결제된 기간은 이용 유지). 요금제 페이지에 다음 결제일/자동갱신 해지/만료일 표시. 라이브 전환 시 토스 자동결제(빌링) 계약 필요. FR-PLAN-011a | ✅ 완료 |
 | 관심종목 | 종목 추가/삭제, 그룹 관리 (색상), DB 영구 저장, 드로어 UI | ✅ 완료 |
 | 월별 수익률 | 히트맵 시각화 | ✅ 완료 |
 | 종목별 비중 | 파이차트, 섹터별 분산도 | ✅ 완료 |
@@ -808,8 +811,10 @@ VirtualAccount {
 }
 
 -- 사용자 플랜 / 월 백테스트 사용량 (User 모델 필드)
---   planTier ("FREE"/"PRO"/"PREMIUM"), backtestUsageMonth ("YYYY-MM"),
---   backtestCountThisMonth (Int) — 달력 월 기준 초기화. 플랜 정의는 lib/plans.ts.
+--   planTier ("FREE"/"PRO"/"PREMIUM"), planStartDate (유료 플랜 구독 시작일, FREE면 null),
+--   backtestUsageMonth (사용량 리셋 주기 키), backtestCountThisMonth (Int)
+--   — planStartDate 있으면 그 기준 롤링 1개월 주기, 없으면 캘린더 월로 초기화.
+--   플랜 정의는 lib/plans.ts, 주기 계산은 lib/server/planLimits.ts의 currentPlanCycle().
 
 -- (레거시) UserAsset / AssetLedger: 공유 자산 풀 모델은 폐기됨.
 --   풀 펀딩/정산-반환 로직은 제거(계좌는 플랜별 초기 투자금으로 독립 생성).

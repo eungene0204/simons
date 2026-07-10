@@ -117,6 +117,18 @@ def test_execute_buy_full_cash(trader):
     assert cash >= 0
 
 
+def test_execute_buy_with_db_fetched_cash_does_not_type_error(trader):
+    """Postgres NUMERIC 컬럼은 psycopg가 기본적으로 decimal.Decimal로 반환한다.
+    _fetch_current_cash()로 실제 DB에서 읽은 값(과거엔 Decimal)을 그대로
+    _execute_buy()의 position_size_pct 곱셈에 넘겨도 TypeError 없이 동작해야 한다
+    (db.py의 numeric→float 로더 등록 회귀 방지)."""
+    current_cash = trader._fetch_current_cash("acc1")
+    assert isinstance(current_cash, float)
+
+    order_id = trader._execute_buy("acc1", "005930", "삼성전자", 10000, current_cash, 50.0)
+    assert order_id is not None
+
+
 def test_execute_buy_timestamps_are_datetime(trader):
     """이관 후 DateTime 컬럼은 Postgres timestamp — psycopg가 datetime 객체로 왕복한다."""
     trader._execute_buy("acc1", "005930", "삼성전자", 10000, 1000000, 10.0)

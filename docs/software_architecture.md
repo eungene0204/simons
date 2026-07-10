@@ -248,7 +248,10 @@ simons/
 
 `/stock-order`의 종목정보 탭은 실시간 시세와 분리된 비실시간 종목 프로필 레이어를 사용한다. 종목명, 상장일, 섹터, 회사 기본 정보, 재무 요약, PER/PBR 같은 저빈도 갱신 값은 DB에 저장하고, 현재가/등락률/거래량 등 실시간 값은 기존 실시간 시세 경로에서 조회한다.
 
-요금제 & 플랜 제한 시스템(`lib/plans.ts`, `lib/server/planLimits.ts`)이 가상계좌의 자금과 사용량 한도를 결정한다. 과거의 공유 "자산 지갑" 풀(`UserAsset.availableCash`에서 차감·반환) 모델은 폐기되었다. 각 가상계좌는 사용자의 현재 플랜(`User.planTier`, FREE/PRO/PREMIUM)에 정의된 **계좌당 초기 투자금**으로 독립 생성되며(`createFundedAccount`는 풀 차감 없이 계좌만 생성), 클라이언트가 보낸 금액은 무시하고 서버가 플랜 기준으로 결정한다. 플랜별 한도는 가상계좌 수(`assertCanCreateAccount`)·저장 전략 수(`assertCanSaveStrategy`)·월 백테스트 횟수(`consumeBacktestQuota`, `User.backtestUsageMonth`/`backtestCountThisMonth`로 달력 월 기준 초기화)로 enforce한다. 플랜 변경(`POST /api/user/plan`)은 `planTier`만 변경하며 이미 생성된 계좌의 초기 투자금·잔고는 소급 변경하지 않는다. 플랜별 한도 기본값은 `lib/plans.ts`에 하드코딩되어 있고, 관리자 콘솔의 `PlanConfig` 오버라이드가 있으면 `getEffectivePlan()`이 병합해 적용한다(null 필드=기본값, `maxStrategies=-1`=무제한).
+요금제 & 플랜 제한 시스템(`lib/plans.ts`, `lib/server/planLimits.ts`)이 가상계좌의 자금과 사용량 한도를 결정한다. 과거의 공유 "자산 지갑" 풀(`UserAsset.availableCash`에서 차감·반환) 모델은 폐기되었다. 각 가상계좌는 사용자의 현재 플랜(`User.planTier`, FREE/PRO/PREMIUM)에 정의된 **계좌당 초기 투자금**으로 독립 생성되며(`createFundedAccount`는 풀 차감 없이 계좌만 생성), 클라이언트가 보낸 금액은 무시하고 서버가 플랜 기준으로 결정한다. 플랜별 한도는 가상계좌 수(`assertCanCreateAccount`)·저장 전략 수(`assertCanSaveStrategy`)·월 백테스트 횟수(`consumeBacktestQuota`)로 enforce한다. 유료 플랜(PRO/PREMIUM) 구독이 결제 승인으로 시작되면 그 시점을 `User.planStartDate`로 기록하고(FREE 전환 시 null로 초기화), 월 백테스트 횟수는 `currentPlanCycle()`이 계산하는 **구독 시작일 기준 롤링 1개월 결제 주기**(`User.backtestUsageMonth`/`backtestCountThisMonth`로 주기 키 저장)로 리셋된다 — 구독 이력이 없는 사용자(FREE)는 KST 캘린더 월로 폴백한다. 가상계좌 수·저장 전략 수 한도는 주기 리셋 없이 상시 캡으로 유지된다(활성 계좌/저장된 전략 개수). 플랜 변경은 `planTier`만 변경하며 이미 생성된 계좌의 초기 투자금·잔고는 소급 변경하지 않는다. 플랜별 한도 기본값은 `lib/plans.ts`에 하드코딩되어 있고, 관리자 콘솔의 `PlanConfig` 오버라이드가 있으면 `getEffectivePlan()`이 병합해 적용한다(null 필드=기본값, `maxStrategies=-1`=무제한).
+
+**토스페이먼츠 자동결제(빌링) 연동** (유료 플랜 구독 결제, FR-PLAN-011/011a): v2 SDK(`@tosspayments/tosspayments-sdk`)의 빌링 방식을 사용한다 — 카드를 한 번 등록해 빌링키를 발급받고, 이후 매월 서버가 자동 청구한다. 시작 흐름은 ① `/pricing`에서 유료 플랜 "구독 시작하기" → `/pricing/checkout?plan=` 이동 ② `PaymentCheckout`(클라이언트)이 `POST /api/payment/order`로 주문 생성 — 금액은 서버의 `lib/plans.ts`에서만 계산해 `PaymentOrder`(PENDING)에 기록, `customerKey`는 사용자당 1회 생성한 UUID(`User.tossCustomerKey`) — 하고 자동갱신 결제 조건(월 금액·자동 청구·해지 방법)을 화면에 고지 ③ `tossPayments.payment({customerKey}).requestBillingAuth({method:"CARD"})`로 카드 등록창 호출(successUrl=`/pricing/success?orderId=`, failUrl=`/pricing/fail`) ④ 성공 페이지가 `POST /api/payment/confirm` 호출 — successUrl로 돌아온 `customerKey`를 서버 저장 값과 대조한 뒤 `authKey`로 빌링키 발급(`/v1/billing/authorizations/issue`) → 첫 달 이용료를 서버 저장 주문 금액으로 즉시 청구(`/v1/billing/{billingKey}`, `lib/server/tossPayments.ts`, Basic 인증=`base64(시크릿키:)`, 멱등키=orderId)하고, 성공 시에만 트랜잭션으로 `PaymentOrder`를 DONE 처리하고 `planTier`/`planStartDate`/`tossBillingKey`/`subscriptionPlanId`/`nextBillingAt`(+1개월)을 갱신한다. 같은 주문의 재승인 요청(성공 페이지 새로고침)은 기존 결과를 반환한다(멱등).
+**월 자동 갱신**: 인-프로세스 스케줄러(`lib/scheduler.ts`)가 매시 정각(주말 포함) `lib/server/billingRenewal.ts::processDueBillingRenewals()`를 실행한다 — `nextBillingAt`이 지난 구독을 빌링키로 청구(갱신 결제도 `PaymentOrder` 기록)하고 성공 시 `nextBillingAt`을 **예정 시각 기준** +1개월로 굴린다(재시도 지연으로 주기가 밀리지 않게). 실패 시 1일 후 재시도, 연속 3회(`BILLING_MAX_FAIL_COUNT`) 실패 시 FREE 전환 + 빌링 상태 해제. 사용자별 실패는 격리된다. **해지**: `POST /api/payment/billing/cancel`은 즉시 다운그레이드가 아니라 `subscriptionCanceledAt`만 기록(해지 예약, 멱등)하고, 다음 결제일에 갱신 잡이 청구 없이 FREE로 전환한다 — 요금제 페이지가 다음 결제일/해지 버튼(자동갱신 중) 또는 만료일(해지 예약)을 표시한다. `POST /api/user/plan`은 FREE 다운그레이드만 허용해 결제 없는 유료 전환을 차단하며, FREE 전환 시 빌링키·구독 상태를 함께 해제한다. 빌링키(`User.tossBillingKey`)와 시크릿 키는 서버 전용이다. 환경변수: `NEXT_PUBLIC_TOSS_CLIENT_KEY`(클라이언트), `TOSS_SECRET_KEY`(서버 전용) — 현재 문서 공용 테스트 키이며 프로덕션 배포 시 **자동결제(빌링) 계약이 완료된 상점의 라이브 키**로 교체(미계약 키는 `NOT_SUPPORTED_METHOD` 에러)하고 `prisma migrate deploy`(PaymentOrder + User 빌링 컬럼)를 실행해야 한다.
 
 **관리자 콘솔** (`/console` — `app/console/page.tsx` + `components/admin/`): 운영자 전용 단일 화면. 서버 컴포넌트가 `lib/server/adminAuth.ts::requireAdmin()`(JWT 쿠키 + `User.role='ADMIN'` + `status='ACTIVE'`)으로 검증해 실패 시 `notFound()`(404)로 존재를 숨긴다. 기능별 API `/api/admin/{overview,users,backtests,accounts,strategies,plans,audit}` 7종도 각각 requireAdmin 게이트를 거치며, 모든 변경 작업은 `writeAuditLog()`가 `AdminAuditLog`(before/after JSON + IP)에 기록한다 — 감사 로그 삭제 API는 없다. ADMIN 부여는 DB 직접 변경으로만 가능하다. 사용자 정지/삭제는 `User.status`(SUSPENDED/DELETED) soft 처리로, 로그인(403)과 기존 세션(`getCurrentUser`가 null)을 모두 차단한다. 가상계좌 '일시 중지'는 `status='PAUSED'`로, 기존 `assetService`의 `status !== "ACTIVE"` 주문 가드가 거래를 자동 차단한다.
 가상계좌 해지 요청(`DELETE /api/virtual-account/[id]`)은 보유 포지션을 현재가 기준으로 강제 매도하고 계좌를 `CLOSED`로 전환하되, 남은 현금·평가금액을 다른 계좌나 사용자 자산으로 **이전하지 않는다**. 정산값은 `ACCOUNT_LIQUIDATION_RETURN` 원장에만 기록되어 닫힌 계좌의 최종 평가금액/수익률 조회(`getAccountSettlementValues`)에 쓰인다.
@@ -566,6 +569,14 @@ VirtualTrader (비동기 루프, FastAPI 메인 스레드 분리)
 
 거래 비용: 수수료 0.15% / 세금 0.30% / 슬리피지 0.20%
 ```
+
+백엔드는 `backend/db.py`(공용 앱 DB 어댑터, Supabase Postgres)를 통해서만 앱 DB에 접근한다.
+Prisma `Decimal` 컬럼(`currentCash`/`initialCash`/`avgPrice` 등 금액·수량 관련 전 컬럼)은
+Postgres `NUMERIC`으로 매핑되는데, psycopg가 기본적으로 이를 `decimal.Decimal`로 반환해
+SQLite 시절부터 float 연산을 가정해온 백엔드 코드(`current_cash * (pct / 100)` 등)가
+`TypeError`를 낸다. `db.connect()`가 커넥션 단위로 `numeric → float` 로더(`FloatLoader`)를
+등록해 모든 호출부에서 float로 통일되도록 한 곳에서 처리한다 — 개별 호출부에서 `float()` 캐스팅할
+필요 없음.
 
 ---
 

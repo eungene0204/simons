@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import psycopg
+from psycopg.types.numeric import FloatLoader
 
 # best-effort DB 접근부의 `except db.Error`용 — psycopg 에러 최상위 타입 재노출.
 Error = psycopg.Error
@@ -176,7 +177,12 @@ def connect() -> _Conn:
             f"DATABASE_URL이 Postgres가 아닙니다(앞부분={url[:16]!r}). "
             "Supabase 이관 후에는 postgres URL이 필요합니다."
         )
-    return _Conn(psycopg.connect(_clean_url(url), prepare_threshold=None, row_factory=_hybrid_row_factory))
+    pg = psycopg.connect(_clean_url(url), prepare_threshold=None, row_factory=_hybrid_row_factory)
+    # Prisma의 Decimal 컬럼(NUMERIC)은 psycopg가 기본적으로 decimal.Decimal로 읽는다.
+    # 이 코드베이스는 SQLite 시절부터 float 연산을 가정하고 작성되어(Decimal * float가
+    # TypeError) 커넥션 단위로 numeric → float 로더를 등록해 float로 통일한다.
+    pg.adapters.register_loader("numeric", FloatLoader)
+    return _Conn(pg)
 
 
 def table_exists(conn, name: str) -> bool:

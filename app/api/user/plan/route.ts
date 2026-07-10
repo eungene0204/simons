@@ -16,6 +16,8 @@ function serializeUsage(usage: Awaited<ReturnType<typeof getUserUsage>>) {
       maxStrategies: plan.isUnlimitedStrategies ? null : plan.maxStrategies,
       monthlyBacktestLimit: plan.monthlyBacktestLimit,
       isUnlimitedStrategies: plan.isUnlimitedStrategies,
+      planStartDate: usage.planStartDate?.toISOString() ?? null,
+      planEndDate: usage.planEndDate?.toISOString() ?? null,
     },
     accounts: usage.accounts,
     strategies: {
@@ -45,7 +47,11 @@ export async function GET() {
   }
 }
 
-// POST: 플랜 변경 (무료 mock — planTier만 변경, 기존 계좌 초기 투자금은 소급 변경하지 않음)
+// POST: 플랜 변경 — FREE 전환(다운그레이드)만 허용한다.
+// 유료 플랜(PRO/PREMIUM) 전환은 토스페이먼츠 결제 승인(/api/payment/confirm)에서만 수행해
+// 결제 없이 planTier가 바뀌는 우회를 막는다.
+// FREE로 전환하면 구독 이력이 없는 상태이므로 planStartDate와 자동결제(빌링) 상태를 모두 비운다
+// — 남은 빌링키로 갱신 잡이 청구하는 일이 없도록 즉시 자동갱신을 중단한다.
 export async function POST(request: Request) {
   try {
     const { userId } = await getOwnershipContext();
@@ -57,10 +63,24 @@ export async function POST(request: Request) {
     if (!isValidPlanId(planId)) {
       return NextResponse.json({ error: "Invalid planId" }, { status: 400 });
     }
+    if (planId !== "FREE") {
+      return NextResponse.json(
+        { error: "유료 플랜은 결제를 통해서만 변경할 수 있습니다." },
+        { status: 400 }
+      );
+    }
 
     await prisma.user.update({
       where: { id: userId },
-      data: { planTier: planId },
+      data: {
+        planTier: planId,
+        planStartDate: null,
+        tossBillingKey: null,
+        subscriptionPlanId: null,
+        nextBillingAt: null,
+        subscriptionCanceledAt: null,
+        billingFailCount: 0,
+      },
     });
 
     const usage = await getUserUsage(prisma, userId);
