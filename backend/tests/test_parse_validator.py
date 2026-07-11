@@ -150,6 +150,33 @@ def test_valid_correction_is_applied(monkeypatch, parser):
     assert report["correctedStrategy"]["stop_loss_pct"] == 5.0
 
 
+def test_missed_sector_correction_is_applied(monkeypatch, parser):
+    """룰 파서가 놓친 업종 제한("반도체 중심으로")을 검증 레이어가 sector로 교정한다.
+
+    긴 꼬리 업종 표현은 regex 큐를 늘리는 대신 이 검증 단계에서 해결한다(하이브리드 원칙).
+    교정 sector는 field_validator로 정본 섹터명에 정규화된다."""
+    misparsed = _parse_rule_based_strategy("PBR 1 이하 종목 10개 1년 보유")
+    assert misparsed.sector is None
+
+    corrected_dump = misparsed.model_dump()
+    corrected_dump["sector"] = "반도체"
+
+    _patch_llm(monkeypatch, json.dumps({
+        "isValid": False,
+        "confidence": 0.9,
+        "correctedStrategy": corrected_dump,
+        "issues": [{"field": "sector", "severity": "error", "message": "업종 제한이 누락됨"}],
+        "missingFields": [],
+        "clarificationQuestions": [],
+        "userFacingMessage": "반도체 업종 제한을 반영했습니다.",
+    }))
+
+    result, report = validate_parse(parser, "반도체 중심으로 PBR 1 이하 종목 10개 1년 보유", misparsed)
+
+    assert result.sector == "반도체"
+    assert report["correctedStrategy"]["sector"] == "반도체"
+
+
 def test_correction_preserves_original_description(monkeypatch, parser, parsed_pbr):
     """LLM이 description을 바꿔도 원문 설명은 보존한다."""
     tampered = parsed_pbr.model_dump()

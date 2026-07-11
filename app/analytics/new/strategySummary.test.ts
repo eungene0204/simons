@@ -471,3 +471,29 @@ describe("buildStrategySummaryFromRequest (실행된 요청 기반 배지)", () 
     expect(buildStrategySummaryFromRequest(null)).toBeUndefined();
   });
 });
+
+describe("섹터/업종 유니버스 표시", () => {
+  it("parsed.sector가 있으면 유니버스 라벨에 업종 배지를 덧붙인다", () => {
+    const labels = getDisplayUniverseLabels({
+      ...baseParsed,
+      universe: ["KOSPI", "KOSDAQ"],
+      sector: "반도체",
+    });
+    expect(labels).toEqual(["KOSPI", "KOSDAQ", "반도체 업종"]);
+  });
+
+  it("sector가 없으면 기존 라벨 그대로다", () => {
+    expect(getDisplayUniverseLabels(baseParsed)).toEqual(["KOSPI"]);
+  });
+
+  it("실행된 요청의 sector도 유니버스명에 반영한다", () => {
+    const summary = buildStrategySummaryFromRequest({
+      universe_id: "kosdaq_kospi",
+      sector: "반도체",
+      entry: { conditions: [] },
+      exit: { conditions: [] },
+      risk: {},
+    });
+    expect(summary?.universeName).toContain("반도체 업종");
+  });
+});

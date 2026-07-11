@@ -27,6 +27,10 @@ class BuilderState(BaseModel):
     """전략 빌더 대화 상태. 프론트가 무상태 step 호출 사이에 보관·재전송한다."""
 
     universe: Optional[Universe] = None
+    # 업종/섹터 제한(정본 섹터명, FR-STR-066). 질문으로 묻지 않고 진입 시드에서만 채운다 —
+    # 종목 질문 리다이렉트 뒤 "반도체 주도주로 전략 만들어줘"처럼 사용자가 이미 말한 업종을
+    # 기억해 최종 전략의 유니버스에 반영한다.
+    sector: Optional[str] = None
     strategy_type: Optional[StrategyType] = None
     lookback_days: Optional[int] = None       # 모멘텀/돌파 기준 기간(거래일)
     lookback_label: Optional[str] = None       # 표시용 ("3개월", "60일")
@@ -165,7 +169,7 @@ _UNIV_KOSPI_RE = re.compile(r"코스피|kospi", re.IGNORECASE)
 _TYPE_MOMENTUM_RE = re.compile(
     r"모멘텀|momentum|상대\s*강도|"
     r"최근\s*(?:오른|강한|상승)|많이\s*오른|가장\s*(?:많이\s*)?(?:오른|상승)|"
-    r"수익률.{0,5}(?:상위|좋|높)|급등주",
+    r"수익률.{0,5}(?:상위|좋|높)|급등주|주도주",
     re.IGNORECASE,
 )
 _TYPE_GOLDEN_RE = re.compile(r"골든\s*크로스|golden\s*cross|이동\s*평균\s*교차|이평\s*교차|이동\s*평균선?\s*교차", re.IGNORECASE)
@@ -716,8 +720,17 @@ def seed_state(text: str) -> BuilderState:
 
     [규제 안전/UX] 열린 추천(STOCK_PICK)으로 빌더에 진입하더라도 사용자가 이미 말한
     조건(유니버스·전략유형·기준기간·보유수·리밸런싱·청산)은 다시 묻지 않고, 빠진 필드만
-    질문하기 위함이다. 단계별 parse_input과 달리 청산 조건도 단계 무관하게 추출한다."""
+    질문하기 위함이다. 단계별 parse_input과 달리 청산 조건도 단계 무관하게 추출한다.
+
+    업종/섹터("반도체 주도주"·"2차전지 관련주")도 여기서 기억한다 — 종목 질문 리다이렉트
+    뒤 업종 전략으로 넘어온 사용자에게 종목 범위를 다시 묻지 않는다(NL 파서의 결정적
+    섹터 추출을 재사용, 정본=universe_pit)."""
     patch: dict = {}
+    from engine.nl_parser import _extract_sector  # 지연 import(무거운 엔진 모듈)
+
+    sector = _extract_sector(text)
+    if sector:
+        patch["sector"] = sector
     universe = _parse_universe(text)
     if universe:
         patch["universe"] = universe
@@ -735,6 +748,38 @@ def seed_state(text: str) -> BuilderState:
         patch["holding_count"] = int(count.group(1))
     patch.update(_parse_risk(text))  # 손절/익절/트레일링/보유기간(+risk_done)
     return BuilderState().model_copy(update=patch)
+
+
+def apply_parsed_seed(state: BuilderState, parsed: Optional[dict]) -> BuilderState:
+    """파싱 파이프라인(룰 파스 → LLM 검증 교정 → LLM 폴백)이 이미 해석한 ParsedStrategy
+    dump에서, 결정적 시드 regex가 놓친 필드를 이어받는다.
+
+    [하이브리드] 긴 꼬리 표현("반도체 중심으로")은 phrasing마다 regex를 늘리는 대신
+    LLM 레이어가 해석한다 — 빈 전략으로 빌더에 전환될 때 그 결과를 버리지 않는 채널.
+    ParsedStrategy 기본값과 사용자 언급을 구분할 수 없는 필드(universe·max_positions·
+    rebalancing_period)는 받지 않고, None-기본 필드(sector·청산)만 받는다. 결정적 시드가
+    이미 채운 값이 우선한다."""
+    if not isinstance(parsed, dict) or not parsed:
+        return state
+    patch: dict = {}
+    sector = parsed.get("sector")
+    if isinstance(sector, str) and sector and state.sector is None:
+        from engine.universe_pit import normalize_sector  # 지연 import(무거운 엔진 모듈)
+
+        canonical = normalize_sector(sector)
+        if canonical:
+            patch["sector"] = canonical
+    for field in ("stop_loss_pct", "take_profit_pct", "trailing_stop_pct"):
+        v = parsed.get(field)
+        if (isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0
+                and getattr(state, field) is None):
+            patch[field] = float(v)
+    hold = parsed.get("hold_period_days")
+    if isinstance(hold, int) and not isinstance(hold, bool) and hold > 0 and state.hold_period_days is None:
+        patch["hold_period_days"] = hold
+    if any(f in patch for f in RISK_FIELDS):
+        patch["risk_done"] = True
+    return state.model_copy(update=patch) if patch else state
 
 
 # ─── 필수 필드 우선순위 ──────────────────────────────────────────────────────────
@@ -814,7 +859,7 @@ def next_question(
             "• 단기 이동평균이 장기 이동평균을 뚫는 골든크로스 전략\n"
             "• MACD가 시그널선을 돌파할 때 잡는 전략\n"
             "• 전고점(신고가)을 돌파할 때 잡는 돌파 전략\n"
-            "• 거래량이 급증한 종목을 찾는 전략\n"
+            "• 거래량 흐름(OBV)이 상승 전환한 종목을 찾는 전략\n"
             "• RSI 과매도에서 반등을 노리는 전략\n"
             "• PBR 낮고 ROE 높은 저평가 우량주를 고르는 가치 전략\n"
             "• 직접 아이디어를 설명하기"
@@ -855,7 +900,7 @@ def next_question(
             ["±100 (기본)", "±150", "직접 입력"],
         )
     if field == "volume_period":
-        return (prefix + "거래량 평균을 며칠 기준으로 볼까요?", ["20일 (기본)", "60일", "직접 입력"])
+        return (prefix + "거래량 흐름(OBV) 평균을 며칠 기준으로 볼까요?", ["20일 (기본)", "60일", "직접 입력"])
     if field == "value_params":
         return (
             prefix + "저평가 기준을 정해 주세요.",
@@ -940,7 +985,7 @@ def _ack_sentence(state: BuilderState, field: str) -> str:
     if field == "cci_threshold":
         return f"CCI ±{_fmt_pct(state.cci_threshold)} 기준으로 하겠습니다"
     if field == "volume_period":
-        return f"거래량 {state.volume_period}일 평균 기준으로 보겠습니다"
+        return f"거래량 흐름(OBV) {state.volume_period}일 평균 기준으로 보겠습니다"
     if field == "value_roe":
         return f"PBR {_fmt_pct(state.value_pbr)} 이하·ROE {_fmt_pct(state.value_roe)} 이상으로 하겠습니다"
     if field == "rebalance_cycle":
@@ -963,6 +1008,8 @@ def _ack_sentence(state: BuilderState, field: str) -> str:
 def _seed_summary(state: BuilderState) -> list[str]:
     """시드로 미리 채워진 조건을 짧은 명사구로 요약한다(초기 질문에서 '이해한 내용' 표시)."""
     parts: list[str] = []
+    if state.sector:
+        parts.append(f"{state.sector} 업종 대상")
     if state.strategy_type:
         parts.append(f"{_TYPE_LABEL.get(state.strategy_type, '')} 전략")
     if state.lookback_days and state.strategy_type in ("momentum", "breakout"):
@@ -1013,6 +1060,9 @@ def _fmt_pct(value: float) -> str:
 def synthesize_prompt(state: BuilderState) -> str:
     """수집한 필드를 기존 NL 파서가 안정적으로 해석하는 한국어 프롬프트로 합성한다."""
     universe = _UNIVERSE_LABEL.get(state.universe or "KOSPI", "코스피")
+    if state.sector:
+        # "업종" 큐를 붙여 custom 유형의 prompt 재파싱 경로에서도 섹터가 다시 인식되게 한다.
+        universe = f"{universe} {state.sector} 업종"
     rebal = _REBAL_PHRASE.get(state.rebalance_cycle or "", "")
     n = state.holding_count or 10
     days = state.lookback_days or 63
@@ -1051,7 +1101,8 @@ def synthesize_prompt(state: BuilderState) -> str:
     elif state.strategy_type == "breakout":
         core = f"{universe} 종목 중 최근 {days}일 신고가를 돌파하면 매수, 최대 {n}종목 보유"
     elif state.strategy_type == "volume_spike":
-        core = f"{universe} 종목 중 거래량이 평소보다 급증하면 매수, 최대 {n}종목 보유"
+        # '거래량 급증'을 붙여 쓰면 재파싱(volume_rising 규칙)이 volume_spike로 다시 인식한다.
+        core = f"{universe} 종목 중 거래량 급증(OBV 상승 전환) 신호가 나오면 매수, 최대 {n}종목 보유"
     elif state.strategy_type == "mean_reversion":
         core = (
             f"{universe} 종목 중 RSI가 30 이하로 과매도되면 매수하고 70 이상이면 매도, "
@@ -1164,6 +1215,7 @@ def build_parsed_strategy(state: BuilderState):
     return ParsedStrategy(
         description=synthesize_prompt(state),
         universe=_UNIVERSE_DSL.get(state.universe or "KOSPI", ["KOSPI"]),
+        sector=state.sector,
         fundamental_filters=filters,
         entry_signals=entry,
         exit_signals=exit_,

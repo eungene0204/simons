@@ -2587,6 +2587,25 @@ def test_unsupported_concept_notice_none_for_supported_prompt():
     ) is None
 
 
+def test_volume_multiple_threshold_flagged_as_unsupported():
+    """[침묵 왜곡 방지] '거래량 평소 대비 N배'의 배수 임계값은 volume_spike(OBV 크로스오버)가
+    표현할 수 없다 — 조용히 버리는 대신 미지원 개념으로 안내하고 LLM 폴백에 위임한다."""
+    from engine.nl_parser import build_unsupported_concept_notice
+
+    prompt = "거래량이 평소보다 3배 이상 늘면 매수, 손절 8%"
+    assert _mentions_unsupported_concept(prompt) == "volume_multiple"
+    assert _parse_rule_based_strategy(prompt) is None  # 룰 파스가 부분 해석을 내놓지 않는다
+    notice = build_unsupported_concept_notice(prompt)
+    assert notice is not None and "거래량 배수" in notice
+
+    # 역순 표현("평소 대비 2배 거래량")도 잡는다.
+    assert _mentions_unsupported_concept("평소 대비 2배 거래량이면 매수") == "volume_multiple"
+    # 배수 없는 '거래량 급증'은 지원 개념 — 오폴백하지 않는다.
+    assert _mentions_unsupported_concept("거래량 급증하면 매수, 손절 8%") is None
+    # 절 경계를 넘는 오탐 금지 — '3배'가 거래량이 아니라 수익 목표를 수식하는 경우.
+    assert _mentions_unsupported_concept("거래량 급증 매수, 3배 수익 목표") is None
+
+
 # ─── Rule Parse Guard: red-flag 결정론 선차단 ────────────────────────────────
 
 
@@ -3234,3 +3253,88 @@ def test_llm_prompts_carry_typo_tolerance_guidance():
     assert "오타" in SYSTEM_PROMPT
     assert "오타" in COMPACT_SYSTEM_PROMPT
     assert "typo" in PARSE_VALIDATION_PROMPT.lower()
+
+
+# ── 섹터/업종 조건 (FR-STR-024) ──────────────────────────────────────────────
+
+def test_extract_sector_deterministic():
+    from engine.nl_parser import _extract_sector
+    assert _extract_sector("반도체 관련주 매수") == "반도체"
+    assert _extract_sector("2차전지 업종만 대상으로") == "이차전지"
+    assert _extract_sector("제약주 위주로") == "바이오/제약"
+    assert _extract_sector("AI 관련주") == "소프트웨어/플랫폼"
+    # '중심/위주'도 범위를 좁히는 업종 큐다 — "반도체 중심으로 전략을 만들어줘".
+    assert _extract_sector("반도체 중심으로 전략을 만들어줘") == "반도체"
+    assert _extract_sector("2차전지 위주로 골라줘") == "이차전지"
+    # '분야'도 업종 큐다 — 누락 시 수정 병합에서 이전 섹터(반도체)가 유지되던 회귀.
+    assert _extract_sector("바이오분야 전략을 만들어 볼까?") == "바이오/제약"
+    assert _extract_sector("자동차 분야로 해줘") == "자동차"
+    # '주가'는 업종 큐가 아니다 — '반도체 주가가 오르면'을 섹터로 오인하지 않는다.
+    assert _extract_sector("반도체 주가가 오르면 매수") is None
+    # 지원 목록 밖 업종은 결정적으로 잡지 않는다(LLM 위임 + 미지원 안내).
+    assert _extract_sector("로봇 관련주 매수") is None
+
+
+def test_rule_parse_sector_strategy_sets_sector_and_market_default():
+    # 섹터 전략은 시장 언급이 없으면 '그 업종 전체'(양시장)로 해석한다 —
+    # KOSPI200 기본값이면 시총 상위 200 ∩ 섹터로 과도하게 좁아진다.
+    from engine.nl_parser import _parse_rule_based_strategy
+    parsed = _parse_rule_based_strategy(
+        "반도체 관련주 중 최근 3개월 수익률이 높은 상위 5종목을 매수, 월간 리밸런싱"
+    )
+    assert parsed is not None
+    assert parsed.sector == "반도체"
+    assert parsed.universe == ["KOSPI", "KOSDAQ"]
+    assert parsed.ranking_metric == "return"
+
+
+def test_rule_parse_sector_respects_explicit_market():
+    from engine.nl_parser import _parse_rule_based_strategy
+    parsed = _parse_rule_based_strategy(
+        "코스닥 반도체 관련주 중 최근 3개월 수익률 상위 5종목 매수, 월간 리밸런싱"
+    )
+    assert parsed is not None
+    assert parsed.sector == "반도체"
+    assert parsed.universe == ["KOSDAQ"]
+
+
+def test_supported_sector_no_longer_flagged_unsupported():
+    # 섹터가 지원 개념이 된 뒤에도, 지원 목록 밖 업종('로봇')은 여전히 안내가 남아야 한다.
+    from engine.nl_parser import build_unsupported_concept_notice
+    assert build_unsupported_concept_notice("반도체 관련주 매수 전략") is None
+    notice = build_unsupported_concept_notice("로봇 관련주 매수 전략")
+    assert notice is not None and "섹터/업종" in notice
+
+
+def test_sector_flows_to_backtest_request_and_canonical_dsl():
+    # [스키마 누수 방어] sector가 요청·canonical DSL·백엔드 스키마를 모두 통과해야 한다
+    # (ranking_metric이 extra=ignore로 버려져 0거래가 됐던 사고와 동일 함정).
+    from engine.nl_parser import _parse_rule_based_strategy
+    from engine.strategy_converter import to_backtest_request, to_canonical_strategy_dsl
+    from schemas import BacktestRequest
+
+    parsed = _parse_rule_based_strategy(
+        "반도체 관련주 중 최근 3개월 수익률 상위 5종목 매수, 월간 리밸런싱"
+    )
+    req = to_backtest_request(parsed, resolve_symbols=False)
+    assert req["sector"] == "반도체"
+    assert to_canonical_strategy_dsl(parsed)["sector"] == "반도체"
+    roundtrip = BacktestRequest(**{**req, "symbols": []}).model_dump()
+    assert roundtrip["sector"] == "반도체"
+
+
+def test_canonical_dsl_hash_unchanged_without_sector():
+    # 섹터 없는 기존 전략의 canonical DSL에는 sector 키가 없어 해시가 변하지 않는다.
+    from engine.strategy_converter import to_canonical_strategy_dsl
+    assert "sector" not in to_canonical_strategy_dsl(make_base_strategy())
+
+
+def test_sector_validator_normalizes_llm_free_text():
+    # LLM이 자유 문자열('배터리')을 내도 정본 섹터명으로 정규화되고, 미지원은 None이 된다.
+    base = make_base_strategy()
+    assert base.model_copy(update={}).sector is None
+    from engine.nl_parser import ParsedStrategy
+    s = ParsedStrategy(**{**base.model_dump(), "sector": "배터리"})
+    assert s.sector == "이차전지"
+    s2 = ParsedStrategy(**{**base.model_dump(), "sector": "로봇"})
+    assert s2.sector is None

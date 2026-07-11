@@ -22,7 +22,7 @@
    - 3.4b [Strategy Research Agent (Premium)](#34b-strategy-research-agent-premium)
    - 3.5 [포트폴리오 관리](#35-포트폴리오-관리)
    - 3.6 [뉴스 Impact AI Agent](#36-뉴스-impact-ai-agent)
-   - 3.6b [개별 종목 분석 에이전트 (Stock Analysis Agent)](#36b-개별-종목-분석-에이전트-stock-analysis-agent)
+   - 3.6b [종목 질문 의도 분류·전략 전환 (구 Stock Analysis Agent)](#36b-종목-질문-의도-분류전략-전환-구-stock-analysis-agent)
    - 3.7 [시장 데이터 및 분석](#37-시장-데이터-및-분석)
    - 3.8 [사용자 관리](#38-사용자-관리)
 4. [비기능 요구사항](#4-비기능-요구사항)
@@ -224,7 +224,7 @@ Simons는 사용자가 자신만의 주식 투자 전략을 **설계 → 검증 
 
 **FR-STR-023c** 시스템은 전략 설정값의 하한선을 강제해야 한다(`enforce_strategy_minimums`, 규칙/LLM/수정 모드 무관 모든 파싱 경로 뒤에서 적용). 하한 미만 입력은 자동 보정/제거하고, 사용자에게 보정 내용을 전략 요약과 함께 비차단(non-blocking) 방식으로 안내해야 한다. 안내는 매수 기준 명확화(`clarification`)와 달리 전략 요약 카드를 숨기지 않는다(`notices` 채널).
 
-**FR-STR-023d** 시스템은 스키마(`ParsedStrategy`)가 표현할 수 없는 미지원 개념(배당·섹터·변동성·수급·분할매도 등, `nl_parser._UNSUPPORTED_CONCEPT_PATTERNS`)이 프롬프트에 언급되면, LLM 폴백 위임(부분 파싱 침묵 누락 방지)과 별개로 사용자에게 해당 조건이 "아직 직접 지원되지 않아 반영되지 않았거나 다르게 해석됐을 수 있다"는 안내를 `notices` 채널로 제공해야 한다(`build_unsupported_concept_notice`). LLM 폴백조차 스키마 제약으로 이 개념들을 정확히 표현할 수 없으므로, 조용한 유사 해석 대신 명시적으로 알리고 전략 요약 확인을 유도한다.
+**FR-STR-023d** 시스템은 스키마(`ParsedStrategy`)가 표현할 수 없는 미지원 개념(배당·섹터·변동성·수급·분할매도·거래량 배수("평소 대비 N배" — `volume_spike`는 OBV 크로스오버라 배수 임계값 표현 불가) 등, `nl_parser._UNSUPPORTED_CONCEPT_PATTERNS`)이 프롬프트에 언급되면, LLM 폴백 위임(부분 파싱 침묵 누락 방지)과 별개로 사용자에게 해당 조건이 "아직 직접 지원되지 않아 반영되지 않았거나 다르게 해석됐을 수 있다"는 안내를 `notices` 채널로 제공해야 한다(`build_unsupported_concept_notice`). LLM 폴백조차 스키마 제약으로 이 개념들을 정확히 표현할 수 없으므로, 조용한 유사 해석 대신 명시적으로 알리고 전략 요약 확인을 유도한다.
 - **초기자금:** 최소 100만원. 미만이면(예: "초기자금 300으로"가 300원으로 해석) 100만원으로 보정 후 "최소 초기자금은 100만원입니다" 안내. 단위 없는 맨숫자는 자본금 cue에 인접한 경우에만 만원 단위로 해석한다("초기자금 300"=300만원).
 - **보유기간:** 최소 1일. 0/음수면 1일로 보정.
 - **모멘텀/랭킹 기준 기간:** 최소 10일. 미만이면(예: "최근 3일 수익률") 10일로 보정(너무 짧으면 노이즈).
@@ -446,6 +446,8 @@ RiskManagement {
 **FR-STR-064** 시스템은 `strategy_id`를 deduplication key, backtest cache key, result lookup key로 재사용해야 한다.
 
 **FR-STR-065** 동일 `strategy_id`가 이미 존재할 경우 시스템은 불필요한 백테스트 재실행을 피하고 기존 결과를 `Cache Hit` 상태로 재사용해야 한다.
+
+**FR-STR-066** [섹터/업종 유니버스, 2026-07-10] 시스템은 "반도체 관련주", "2차전지 업종" 같은 업종 제한을 전략 조건(`ParsedStrategy.sector`)으로 지원해야 한다. ① 섹터 분류의 SOT는 `korea-stocks.json`의 `sector` 필드(38개 정본 섹터, `engine/universe_pit.py::CANONICAL_SECTORS`)이며, 사용자·LLM의 자유 표현("배터리", "제약주", "AI 관련주")은 동의어 맵(`normalize_sector`)으로 정본명에 정규화한다(정규화 불가 시 None). ② 결정적 추출(`nl_parser._extract_sector`)은 섹터명 + 업종 큐('관련주/업종/섹터/테마주/종목/주식/주' + 범위 후치 표현 '중심/위주', 2026-07-11)가 붙은 명시적 표현만 잡고, '주가'는 큐에서 배제한다. 목록 밖 업종("로봇 관련주")은 룰 파서가 수락하지 않고 LLM에 위임하며, 최종적으로도 표현 불가하면 미지원 개념 안내(notices)를 남긴다(침묵 누락 방지). ③ 시장 언급 없는 섹터 전략의 유니버스 기본값은 KOSPI200이 아니라 양시장(KOSPI+KOSDAQ)이다 — '그 업종 전체'가 자연스러운 해석이며 KOSPI200 기본값은 시총 상위 200 ∩ 섹터로 과도하게 좁아진다. ④ 엔진은 PIT 유니버스 해석 후 심볼을 섹터로 필터링하고(`universe_pit.filter_by_sector`), 해당 종목이 없으면 명시적 에러로 fail-fast한다. 섹터 정보는 현재 상장 종목에만 있어(PIT 마스터에는 없음) 기간 중 상폐 종목이 제외되는 생존 편향 근사임을 결과 warnings로 고지해야 한다. ⑤ `sector`는 canonical DSL(해시)과 `BacktestRequest` 스키마에 포함해 캐시 충돌·스키마 누수(extra=ignore 드롭)를 막는다. 섹터 없는 기존 전략의 해시는 변하지 않는다.
 
 ---
 
@@ -1136,9 +1138,9 @@ News Collector
 
 ---
 
-### 3.6b 개별 종목 분석 에이전트 (Stock Analysis Agent)
+### 3.6b 종목 질문 의도 분류·전략 전환 (구 Stock Analysis Agent)
 
-> 전략 설계(스크리닝)와 별개로, 사용자의 개별 종목 질문("삼성전자 어때?", "005930 분석해줘")에 응답하는 에이전트. 의도 분류 → 종목 해석 → 로컬 데이터 기반 분석 → 규칙 기반 **객관적 상태 등급** + LLM 설명 흐름으로 동작한다(매수·매도·시점 추천 아님 — FR-SA-005).
+> 사용자의 개별 종목 질문("삼성전자 사볼까?", "005930 어때?")을 의도 분류로 식별하는 모듈. **개별 종목 분석 기능(지표 패널·상태 등급·`/stock/analyze`)은 2026-07-10 제거됐다** — 플랫폼 목적(전략 만들기)에 기여하지 않고 규제 리스크만 키우기 때문. 종목 질문에는 분석 대신 '추천 불가 안내 + 그 종목에서 출발한 전략 설계 전환'으로 응답한다(FR-SA-006).
 
 **FR-SA-001** 시스템은 사용자 입력을 `STRATEGY` / `STOCK_ANALYSIS` / `GENERAL` 의도로 분류해야 하며, 분류는 결정적 규칙을 우선 적용하고 모호한 경우에만 LLM으로 폴백해야 한다 (`backend/intent/classifier.py`).
 
@@ -1150,17 +1152,19 @@ News Collector
 
 **FR-SA-002d** [전략별 특화 빌더 — STATE_SPECIFIC_STRATEGY_BUILDER] 사용자가 특정 전략명(볼린저·RSI·MACD·이동평균(골든크로스)·돌파·모멘텀·거래량·스토캐스틱·CCI·가치·과매도 반등)을 이름으로 지목하면, 시드(`seed_state`→`_parse_strategy_type`)가 그 유형을 미리 채워 첫 질문에서 확인하고 일반 종목 선정 메뉴("어떤 방식으로 종목을 고를까요?")를 다시 띄우지 않는다(지목된 전략 유실 방지). 유형이 정해지면 하드코딩된 고정 순서 대신 **전략별 파라미터 스텝 레지스트리**(`STRATEGY_PARAM_STEPS`)를 구동해 그 전략의 핵심 파라미터만 묻는다 — RSI: 기간·과매도/과매수; 이동평균: SMA/EMA·단기/장기; MACD: 크로스오버/제로선; 돌파/모멘텀: 기준일; CCI: 기간·기준값; 거래량: 평균 기간; 가치: PBR/ROE. 초보자는 각 스텝에서 '기본값'으로 표준값을 채울 수 있다.
 
+시드는 업종/섹터도 기억한다(2026-07-11) — 종목 질문 전환(FR-SA-006) 뒤 "반도체 주도주로 전략을 만들어줘"처럼 사용자가 업종을 말하면 `seed_state`가 NL 파서의 결정적 섹터 추출(`_extract_sector`, FR-STR-066)로 `BuilderState.sector`를 미리 채우고("주도주"는 모멘텀 유형으로 인식), 종목 고르는 질문을 다시 묻지 않고 빠진 필드만 질문한다. 기억한 업종은 첫 질문 도입부에서 확인되며 합성 프롬프트("코스피 반도체 업종 종목 중 …")와 직접 조립 DSL(`ParsedStrategy.sector`)까지 흐른다. 섹터는 질문으로 묻지 않는다(시드 전용).
+
+결정적 시드가 못 잡는 긴 꼬리 표현은 regex를 늘리지 않고 **파싱 파이프라인의 LLM 레이어가 해결한다**(2026-07-11, 하이브리드 원칙): 빈 전략으로 빌더에 전환될 때(FR-SA-002c의 빈 전략 전환) 프론트가 룰 파스→LLM 검증 교정(FR-STR-019~020)→LLM 폴백이 이미 해석한 최종 `ParsedStrategy` dump를 `BuilderStepRequest.seed_parsed`로 함께 넘기고, 빌더는 `apply_parsed_seed`로 결정적 시드가 놓친 필드를 이어받는다. 이어받는 필드는 ParsedStrategy 기본값과 사용자 언급을 구분할 수 있는 None-기본 필드(sector — 정본명 재정규화, 미지원 업종은 무시 — 와 청산 조건 손절/익절/트레일링/보유기간)로 한정하며(universe·max_positions·rebalancing_period는 기본값 오염 위험으로 제외), 결정적 시드가 이미 채운 값이 항상 우선한다. 검증 레이어 프롬프트에는 업종 제한 누락("반도체 중심으로" 등)을 sector 교정으로 채우되 사용자가 말하지 않은 업종은 지어내지 못하게 하는 규칙을 명시한다.
+
 완성 시 **한국어 프롬프트 재파싱 왕복 없이 `build_parsed_strategy`가 `ParsedStrategy`(entry/exit `TechnicalSignal` + 랭킹/재무필터/리스크)를 직접 조립**하고 기존 `to_backtest_request`로 요청을 만든다(라우트가 confirmed 시 `parsed`+`backtest_request`+`notices`를 내려주고, 프론트는 `applyBuilderConfirmedStrategy`로 그대로 소비 — 파라미터 유실 방지). custom(자유 서술)만 DSL을 만들 수 없어 `prompt` 재파싱 경로로 폴백한다.
 
 파라미터·신호는 **엔진(`engine/signals.py`·`_tech_signal_to_condition`)이 실제 반영하는 것만** 묻고 조립한다(답을 조용히 버리는 것 방지): 볼린저는 하단/상단 밴드 터치만(기간·표준편차·중심선 변형 미반영), 스토캐스틱은 크로스오버만(level 모드는 `TechnicalSignal.mode` literal로 표현 불가), MACD fast/slow/signal·히스토그램 미반영. **ATR는 엔진 전무이므로 빌더 유형으로 제공하지 않는다.** '볼린저'는 breakout('돌파')보다, 'RSI'는 mean_reversion(과매도 반등)보다 먼저 판정한다.
 
 **[Tier 2 — 옵션 진입 필터]** 기술적 진입 전략(momentum·value·custom 제외)에는 핵심 파라미터 뒤 옵션 "필터" 스텝 1개를 둔다. 진입 신호와 **AND로 결합되는 게이트**를 `ParsedStrategy.entry_filters`(빌더 전용 채널)로 담아 `to_backtest_request`가 `type='filter'` 조건으로 내보내면, 엔진(`generate_signals`)이 signal 버킷과 분리해 항상 AND 결합한다. 지원 필터: ① 추세("EMA200 위에서만") — `ema` 평가자에 지속 상태 `mode='above'/'below'` 신설(크로스오버가 아니라 매 봉 close vs EMA 판정), ② 거래대금(유동성) — 기존 `trading_value`(≥ N억) 재사용, ③ RSI 결합("RSI 30 이하일 때만") — 기존 `rsi` compare 재사용. "없음"·무매치도 옵션이라 완료 처리하며, 자유 입력으로 복수 필터 동시 지정 가능. `entry_filters`는 canonical DSL 해시에 포함해 필터만 다른 전략의 캐시 충돌을 막는다. 원시 "평균 거래량 이상" 전용 평가자는 미구현(거래대금 유동성 필터로 대체).
 
-**FR-SA-003** 종목 분석은 자연어에서 종목을 해석(`symbol_resolver.find_in_text`, 별칭/영문티커 포함)하고, 해석에 실패하면 422로 "종목을 찾지 못했어요" 재질문을 반환해야 한다. 종목 마스터(`stock_master.py`)를 Ground Truth로 사용한다.
+**FR-SA-003 / FR-SA-004 / FR-SA-005** [제거됨 2026-07-10] 개별 종목 분석 파이프라인(종목 해석→parquet 분석→객관적 상태 등급→LLM 설명, `/stock/analyze`·`StockAnalysisPanel`)은 삭제됐다. 종목명 해석(`symbol_resolver`·`stock_master`)은 의도 분류용으로, `guardrails`(금지 표현 필터)는 `/query/general`용으로, `news_service`는 advisor 뉴스 보강용으로 유지된다.
 
-**FR-SA-004** 분석의 1차 데이터 소스는 로컬 parquet(가격/기술/펀더멘털)이며, 데이터가 없으면 임의 생성 없이 '데이터 없음'/`INSUFFICIENT_DATA`로 표시해야 한다. 뉴스 감성은 news_v2 저장소를 조회한다.
-
-**FR-SA-005** [규제 안전 — 유사투자자문업 회피] 종목 분석 결과는 **개별 종목의 매수·매도·보유·시점 추천이 아니라, 지표를 종합한 '객관적 상태 등급'**이어야 한다. 규칙 엔진(`recommendation_engine.py`)이 등급을 결정하고 LLM은 그 결과를 객관적으로 설명만 생성한다. 등급은 행동 지시(STRONG_BUY/ACCUMULATE/HOLD 등)가 아닌 상태 서술(`FAVORABLE` / `MILDLY_FAVORABLE` / `NEUTRAL` / `ELEVATED_RISK` / `HIGH_RISK` / `INSUFFICIENT_DATA`)만 사용한다. 설명·요약에는 "매수/매도하세요", "지금이 매수 시점", "분할 매수", "진입/청산하세요" 같은 행동·시점 지시가 포함되어서는 안 되며, 프롬프트 + `guardrails._FORBIDDEN`(문장 단위 제거)로 이중 차단한다. 모든 응답에는 면책 문구를 강제한다. AI 예측 점수는 매매 결정에서 제외하며, 입증된 가치(하방 방어)에 한해 "AI 하방 리스크 게이지"로만 노출하고 "매매 신호 아님"을 명시해야 한다 (FR-AI-004).
+**FR-SA-006** [규제 안전 — 유사투자자문업 회피] 특정 종목명 + 매수·매도·보유·전망 질문(`STOCK_ANALYSIS` 의도)에는 분석·판단·추천을 제공하지 않고, 다음을 담은 전환 안내(`suggested_reply`, `intent/scope.py::stock_question_redirect`)로 응답해야 한다: ① 매수·매도 판단과 종목 추천을 제공하지 않는다는 명시, ② 언급된 종목에서 출발한 **전략 설계 예시**로의 유도. 예시는 엔진이 실제 실행할 수 있는 개념만 사용해야 한다. 언급 종목의 섹터를 알면(예: 삼성전자→반도체) '그 종목이 속한 업종 종목만 대상으로 최근 3개월 수익률 상위 5종목 매수' 전략을 첫 예시로 쓴다(FR-STR-066 섹터 유니버스 지원). 섹터를 모르면 종목의 시장에 맞춘 예시를 쓴다(KOSPI→코스피200 대형주 모멘텀, KOSDAQ→코스닥 모멘텀). 공통 예시: 저평가 우량주 가치 스크리닝, RSI 과매도 반등. 예시 문구는 실제로 파싱·실행 가능해야 한다(회귀: test_stock_question_redirect_sector_example_is_parseable). 안내 문구 자체가 행동 지시 표현(`guardrails._FORBIDDEN`)을 포함해서는 안 된다. 프론트는 전환 안내 후 **전략 빌더 모드로 자동 진입하지 않고 사용자의 후속 답변을 기다린다**(2026-07-11) — 안내가 이미 그 종목 기반의 구체적 전략 예시를 제시하므로 빌더의 첫 질문("어떤 시장을 대상으로 할까요?")이 예시를 덮으면 안 된다(STOCK_PICK의 즉시 빌더 진입과 의도적으로 다름, 회귀: page.stock-redirect.test.tsx). 사용자가 예시를 골라 답하면 일반 전략 파싱 흐름이 처리한다. 이미 전략을 작성 중이면 안내만 표시하고 기존 전략을 유지한다.
 
 ---
 

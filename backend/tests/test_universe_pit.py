@@ -88,3 +88,26 @@ def test_full_period_uses_start_floor(synthetic_master):
 
 def test_get_shares(synthetic_master):
     assert u.get_shares(["AAAAAA", "BBBBBB"]) == {"AAAAAA": 1000.0, "BBBBBB": 500.0}
+
+
+# ── 섹터 유니버스 ────────────────────────────────────────────────────────────
+
+def test_normalize_sector_canonical_and_synonyms():
+    assert u.normalize_sector("반도체") == "반도체"
+    assert u.normalize_sector("2차전지") == "이차전지"
+    assert u.normalize_sector("배터리") == "이차전지"
+    assert u.normalize_sector("제약") == "바이오/제약"
+    assert u.normalize_sector("바이오/제약") == "바이오/제약"
+    assert u.normalize_sector("반도체 소재") == "반도체 소재"  # 공백 무시
+    assert u.normalize_sector("로봇") is None  # 목록 밖
+    assert u.normalize_sector(None) is None
+
+
+def test_filter_by_sector_uses_korea_stocks_sot():
+    # 실데이터(korea-stocks.json) 기준: 삼성전자/하이닉스=반도체, NAVER=소프트웨어/플랫폼.
+    filtered = u.filter_by_sector(["005930", "000660", "035420"], "반도체")
+    assert filtered == ["005930", "000660"]
+    # 동의어 입력도 정규화되어 동작한다.
+    assert u.filter_by_sector(["005930", "035420"], "인터넷") == ["035420"]
+    # 미지원 섹터명은 빈 목록(엔진이 명시적 에러로 fail-fast).
+    assert u.filter_by_sector(["005930"], "로봇") == []

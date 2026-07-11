@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, X, Lightning, Rocket, Crown } from "phosphor-react";
 import { PLANS, PLAN_ORDER, Plan, PlanId } from "@/lib/plans";
+import PaymentCheckout from "@/components/pricing/PaymentCheckout";
 
 function formatWon(value: number) {
   return `₩${value.toLocaleString("ko-KR")}`;
@@ -81,6 +82,7 @@ function formatBillingDate(iso: string | null): string {
 export default function PricingPlans({ currentPlanId, subscription }: PricingPlansProps) {
   const router = useRouter();
   const [pendingPlanId, setPendingPlanId] = useState<PlanId | null>(null);
+  const [checkoutPlanId, setCheckoutPlanId] = useState<PlanId | null>(null);
   const [canceling, setCanceling] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -108,9 +110,9 @@ export default function PricingPlans({ currentPlanId, subscription }: PricingPla
   const handleSelect = async (planId: PlanId) => {
     if (planId === currentPlanId || pendingPlanId) return;
 
-    // 유료 플랜은 토스페이먼츠 자동결제(빌링) 체크아웃을 거친다
+    // 유료 플랜은 토스페이먼츠 자동결제(빌링) 체크아웃 모달을 연다
     if (planId !== "FREE") {
-      router.push(`/pricing/checkout?plan=${planId}`);
+      setCheckoutPlanId(planId);
       return;
     }
 
@@ -249,6 +251,13 @@ export default function PricingPlans({ currentPlanId, subscription }: PricingPla
           );
         })}
       </div>
+
+      {checkoutPlanId ? (
+        <PaymentCheckout
+          planId={checkoutPlanId}
+          onClose={() => setCheckoutPlanId(null)}
+        />
+      ) : null}
     </div>
   );
 }

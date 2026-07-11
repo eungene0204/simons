@@ -58,10 +58,6 @@ vi.mock("@/components/strategy/StrategyWaveBackground", () => ({
   StrategyWaveBackground: () => <div>배경</div>,
 }));
 
-vi.mock("@/components/strategy/StockAnalysisPanel", () => ({
-  default: () => <div>종목 분석</div>,
-}));
-
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
     auth: {

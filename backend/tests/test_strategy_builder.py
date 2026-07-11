@@ -290,6 +290,81 @@ def test_is_empty_gates_seeding():
     assert sb.is_empty(sb.BuilderState(universe="KOSPI")) is False
 
 
+def test_seed_state_remembers_sector_and_leading_stock_phrasing():
+    """종목 질문 리다이렉트 뒤 '반도체 주도주로 전략을 만들어줘' — 업종을 기억하고
+    주도주=모멘텀으로 인식해, 종목 고르는 질문(전략유형)을 다시 묻지 않는다."""
+    state = sb.seed_state("반도체 주도주로 전략을 만들어줘")
+    assert state.sector == "반도체"
+    assert state.strategy_type == "momentum"
+
+    first = sb.step(state, "")
+    assert first.status == "collecting"
+    assert "반도체 업종" in first.reply        # 기억한 업종을 도입부에서 확인
+    assert "시장" in first.reply               # 첫 질문은 유니버스
+    assert "방식으로 종목" not in first.reply  # 전략유형은 다시 묻지 않음
+
+
+def test_seed_state_sector_with_jungshim_cue_no_type_lock():
+    """'반도체 중심으로 전략을 만들어줘' — 업종은 기억하되('중심' 큐), 방식은 말하지
+    않았으므로 전략유형 질문은 그대로 진행한다(범위만 좁힘)."""
+    state = sb.seed_state("반도체 중심으로 전략을 만들어줘")
+    assert state.sector == "반도체"
+    assert state.strategy_type is None
+
+    first = sb.step(state, "")
+    assert "반도체 업종" in first.reply  # 기억한 업종을 도입부에서 확인
+
+
+def test_apply_parsed_seed_takes_llm_resolved_fields():
+    """빈 전략으로 빌더 전환 시, 파싱 파이프라인(LLM 검증/폴백)이 해석한 결과에서 결정적
+    시드가 놓친 필드를 이어받는다 — 긴 꼬리 표현마다 regex를 늘리지 않기 위한 채널."""
+    # 시드 regex가 못 잡는 표현이라고 가정(시드 결과에 sector 없음).
+    state = sb.seed_state("괜찮은 전략 하나 만들어줘")
+    assert state.sector is None
+
+    seeded = sb.apply_parsed_seed(state, {"sector": "반도체", "stop_loss_pct": 10.0})
+    assert seeded.sector == "반도체"
+    assert seeded.stop_loss_pct == 10.0
+    assert seeded.risk_done is True  # 청산 조건을 이어받았으므로 다시 묻지 않는다
+
+    first = sb.step(seeded, "")
+    assert "반도체 업종" in first.reply  # 이어받은 업종을 도입부에서 확인
+
+
+def test_apply_parsed_seed_normalizes_and_rejects_garbage():
+    """이어받는 sector는 정본 섹터명으로 정규화하고, 미지원 업종·비정상 입력은 무시한다."""
+    empty = sb.BuilderState()
+    assert sb.apply_parsed_seed(empty, {"sector": "2차전지"}).sector == "이차전지"
+    assert sb.apply_parsed_seed(empty, {"sector": "화성부동산"}).sector is None
+    assert sb.apply_parsed_seed(empty, {"stop_loss_pct": -5}).risk_done is False
+    assert sb.apply_parsed_seed(empty, None) is empty
+    assert sb.apply_parsed_seed(empty, {}) is empty
+
+
+def test_apply_parsed_seed_does_not_override_deterministic_seed():
+    """결정적 시드가 이미 채운 값이 파싱 결과보다 우선한다."""
+    state = sb.seed_state("반도체 관련주로 10% 손절 전략")
+    assert state.sector == "반도체" and state.stop_loss_pct == 10.0
+
+    seeded = sb.apply_parsed_seed(state, {"sector": "게임", "stop_loss_pct": 99.0})
+    assert seeded.sector == "반도체"
+    assert seeded.stop_loss_pct == 10.0
+
+
+def test_sector_flows_into_prompt_and_dsl():
+    """시드된 업종이 합성 프롬프트와 직접 구성 DSL(ParsedStrategy.sector)까지 흐른다."""
+    state = sb.seed_state("반도체 주도주 전략")
+    r = sb.step(state, "")
+    for answer in ("코스피", "3개월", "5종목", "매월", "10% 손절"):
+        r = sb.step(r.state, answer)
+    assert r.status == "confirmed"
+    assert "반도체 업종" in r.prompt
+    parsed = sb.build_parsed_strategy(r.state)
+    assert parsed.sector == "반도체"
+    assert parsed.universe == ["KOSPI"]
+    assert parsed.ranking_metric == "return"
+
+
 def test_parse_strategy_type_recognizes_profit_phrasing():
     assert sb._parse_strategy_type("수익률이 좋았던 종목") == "momentum"
     assert sb._parse_strategy_type("많이 오른 종목") == "momentum"
@@ -333,7 +408,7 @@ def test_synthesize_breakout_volume_meanrev():
 
     vol = sb.BuilderState(universe="KOSPI", strategy_type="volume_spike",
                           holding_count=5, rebalance_cycle="monthly")
-    assert "거래량이 평소보다 급증" in sb.synthesize_prompt(vol)
+    assert "거래량 급증(OBV 상승 전환)" in sb.synthesize_prompt(vol)
     assert "매월 리밸런싱" in sb.synthesize_prompt(vol)
 
     mr = sb.BuilderState(universe="KOSPI", strategy_type="mean_reversion",

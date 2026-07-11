@@ -96,7 +96,7 @@ class Simulator:
         if rebalance_mode and not has_position_risk:
             return self._run_target_rebalance(
                 price_df, exec_price_df, entries_df, rank_df, rebalance_dates,
-                eff_max_pos, exec_type, init_cash, buy_fee, sell_fee, slippage_val,
+                eff_max_pos, init_cash, buy_fee, sell_fee, slippage_val,
             )
 
         symbols = entries_df.columns.tolist()
@@ -227,7 +227,7 @@ class Simulator:
                             _book_exit(i, exec_now)
 
             # Rebalance step: 리밸런싱일에 목표 집합(후보 상위 K)을 다시 정하고,
-            # 목표에서 빠진 보유 종목을 매도한다(청산 타이밍은 리스크 청산과 동일).
+            # 목표에서 빠진 보유 종목을 매도한다.
             if rebalance_mode and rebalance_dates[i]:
                 cand = np.where(entries_values[i])[0]
                 if rank_values_all is not None and len(cand) > 0:
@@ -239,14 +239,15 @@ class Simulator:
                 if dropouts.any():
                     # 정밀 사유 예약 — 즉시/이월 어느 경로로 체결되든 _book_exit이 남긴다.
                     exit_reason_pending[dropouts] = REBALANCE_EXIT_REASON
-                    if exec_type == 'next_open' and i + 1 < n_rows:
-                        pending_exit |= dropouts
-                    else:
-                        exec_now = dropouts & avail_values[i]
-                        pending_exit |= dropouts & ~avail_values[i]
-                        if exec_now.any():
-                            exits_values[i] |= exec_now
-                            _book_exit(i, exec_now)
+                    # 편출 결정의 근거(신호·랭킹)는 next_open이면 엔진이 이미 1일 shift해 둔
+                    # 전일 정보이므로, 당일 intraday 정보로 결정되는 리스크 청산(다음 시가 체결)과
+                    # 달리 당일 체결한다 — 신규 편입(같은 날)과 체결일이 하루 어긋나던 비대칭 제거.
+                    # 거래 불가일만 이월한다.
+                    exec_now = dropouts & avail_values[i]
+                    pending_exit |= dropouts & ~avail_values[i]
+                    if exec_now.any():
+                        exits_values[i] |= exec_now
+                        _book_exit(i, exec_now)
 
             # Step 3: Process new entries after exits freed slots.
             # 리밸런싱 모드에서는 '현재 목표 집합'만 진입 후보로 본다(목표가 채워질
@@ -323,7 +324,6 @@ class Simulator:
                               rank_df: Optional[pd.DataFrame],
                               rebalance_dates: np.ndarray,
                               eff_max_pos: int,
-                              exec_type: str,
                               init_cash: float,
                               buy_fee: float,
                               sell_fee: float,
@@ -344,8 +344,6 @@ class Simulator:
 
         symbols = entries_df.columns.tolist()
         date_strs = [pd.Timestamp(d).strftime('%Y-%m-%d') for d in entries_df.index]
-        # next_open은 결정일(i)의 주문을 다음 거래일(i+1)에 체결하므로 사유도 그 날짜에 남긴다.
-        fill_offset = 1 if exec_type == 'next_open' else 0
         held = np.zeros(num_syms, dtype=bool)   # 직전 리밸런싱에서 목표비중을 받은 보유 종목
 
         target = np.full((num_rows, num_syms), np.nan)
@@ -359,18 +357,17 @@ class Simulator:
                 row[sel] = 1.0 / len(sel)        # 동일가중 목표비중 (비중 리셋)
             # 보유 중이던 종목이 목표에서 빠지면(비중 0) 리밸런싱 편출로 매도된다.
             dropouts = np.where(held & (row == 0.0))[0]
-            if len(dropouts) > 0 and i + fill_offset < num_rows:
-                for s_idx in dropouts:
-                    self.exit_reason_overrides.setdefault(
-                        symbols[s_idx], {}
-                    )[date_strs[i + fill_offset]] = REBALANCE_EXIT_REASON
+            for s_idx in dropouts:
+                self.exit_reason_overrides.setdefault(
+                    symbols[s_idx], {}
+                )[date_strs[i]] = REBALANCE_EXIT_REASON
             held = row > 0.0
             target[i, :] = row
 
+        # 여기서 next_open을 다시 shift하지 않는다 — 엔진(backtest_engine)이 next_open일 때
+        # 신호·랭킹을 이미 1일 shift해 넘기므로(row i = 전일 종가 정보 = 체결일), 추가 shift는
+        # 체결을 하루 더 늦추는 이중 지연이었다(커스텀 루프 경로와 체결일이 어긋나던 버그).
         target_df = pd.DataFrame(target, index=entries_df.index, columns=entries_df.columns)
-        if exec_type == 'next_open':
-            # 결정일 i의 주문을 다음 거래일(open)에 체결한다.
-            target_df = target_df.shift(1)
 
         fees_values = np.where(target_df.values == 0.0, sell_fee, buy_fee)
 

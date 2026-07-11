@@ -176,7 +176,7 @@ function formatSignal(s: TechnicalSignal): string {
     case "adx":
       return `ADX ${s.period}일 ≥ ${s.threshold} (추세 강도)`;
     case "volume_spike":
-      return `거래량 급증 (${s.threshold}배 이상)`;
+      return `거래량 급증 (OBV ${s.period ?? 20}일 평균 상향 돌파)`;
     case "breakout":
       return `가격 돌파 (${s.period}일 고점)`;
     case "ai_model":

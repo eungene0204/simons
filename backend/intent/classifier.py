@@ -6,7 +6,8 @@ LLM에 위임한다. phrasing마다 regex를 늘리지 않는다.
 
 분류 우선순위:
   1. STRATEGY_ADVICE  — '전략/백테스트/유니버스/리밸런싱' 등 전략 설계 키워드
-  2. STOCK_ANALYSIS   — 특정 종목명/코드 + 매수·매도·보유·전망·리스크 질문
+  2. STOCK_ANALYSIS   — 특정 종목명/코드 + 매수·매도·보유·전망·리스크 질문.
+     [규제 안전] 판단·추천을 제공하지 않고 suggested_reply로 전략 설계 전환을 안내한다.
   3. GENERAL_INVESTMENT — 'X가 뭐야/뜻/설명/차이' 정의형 질문
   4. (애매) LLM 폴백 → 실패 시 UNKNOWN
 """
@@ -32,6 +33,7 @@ from .scope import (
     is_onboarding_help_request,
     is_stock_pick_request,
     stock_pick_reply,
+    stock_question_redirect,
 )
 
 logger = logging.getLogger(__name__)
@@ -86,7 +88,7 @@ _ADJUST_TARGET = re.compile(
 
 # 개별 종목에 대한 행동/판단 질문 동사.
 _STOCK_QUESTION = re.compile(
-    r"사도|살까|사야|매수|들어가|들어가도|진입|팔아|팔까|매도|손절|"
+    r"사도|살까|사야|사볼|매수|들어가|들어가도|진입|팔아|팔까|팔아볼|매도|손절|"
     r"들고|보유|계속\s*가져|전망|어때|어떨까|괜찮|괜찮을까|분석|"
     r"오를까|내릴까|상승|하락|리스크|위험|목표가|적정\s*주가",
     re.IGNORECASE,
@@ -211,23 +213,30 @@ def _classify_deterministic(query: str, last_symbol: Optional[str]) -> Optional[
             reason="열린 종목 추천 요청 감지 — 전략 설계로 전환",
         )
 
-    # 2) 특정 종목 + 행동/판단 질문 → 종목 분석.
+    # 2) [규제 안전] 특정 종목 + 행동/판단 질문 → 매수·매도 판단을 제공하지 않고
+    #    그 종목에서 출발한 전략 설계로 대화를 전환한다(suggested_reply).
     if refs and has_stock_q:
         return IntentResult(
             intent=QueryIntent.STOCK_ANALYSIS,
             symbols=_to_detected(refs),
+            suggested_reply=stock_question_redirect(refs[0].name, refs[0].market, refs[0].sector),
             confidence=0.92,
-            reason="종목명 + 매수/매도/전망 질문 감지",
+            reason="종목명 + 매수/매도/전망 질문 감지 — 전략 설계로 전환",
         )
 
-    # 2-b) anaphora('이 종목 팔까?') + 직전 종목 컨텍스트 → 종목 분석.
+    # 2-b) anaphora('이 종목 팔까?') + 직전 종목 컨텍스트 → 동일하게 전략 설계로 전환.
     if has_stock_q and _ANAPHORA.search(text):
         carried = resolve_by_symbol(last_symbol) if last_symbol else None
         return IntentResult(
             intent=QueryIntent.STOCK_ANALYSIS,
             symbols=_to_detected([carried]) if carried else [],
+            suggested_reply=stock_question_redirect(
+                carried.name if carried else None,
+                carried.market if carried else None,
+                carried.sector if carried else None,
+            ),
             confidence=0.7 if carried else 0.55,
-            reason="직전 종목 참조('이 종목') + 행동 질문",
+            reason="직전 종목 참조('이 종목') + 행동 질문 — 전략 설계로 전환",
         )
 
     # 3) 정의형 질문 → 일반 투자 지식. 단, 투자 신호가 있어야 한다
@@ -283,6 +292,12 @@ def _classify_with_llm(query: str, llm: LLMFn) -> Optional[IntentResult]:
     elif intent == QueryIntent.ONBOARDING:
         suggested_reply = ONBOARDING_REPLY
     refs = find_in_text(query) if intent == QueryIntent.STOCK_ANALYSIS else []
+    if intent == QueryIntent.STOCK_ANALYSIS:
+        suggested_reply = stock_question_redirect(
+            refs[0].name if refs else None,
+            refs[0].market if refs else None,
+            refs[0].sector if refs else None,
+        )
     return IntentResult(
         intent=intent,
         symbols=_to_detected(refs),

@@ -52,6 +52,7 @@ import { computeChatScrollDelta } from "./chatScroll";
 import { BACKTEST_MIN_PERIOD_MESSAGE, backtestPeriodTooShort, isBacktestConfirmation, isBacktestPrompt } from "./backtestConfirmation";
 import { normalizeCoachMessage } from "./coachMessage";
 import { parseCoachSegments } from "./coachText";
+import { runButtonPlacement } from "./runButtonPlacement";
 import { parseSseBlocks } from "./sseEvents";
 import { runWalkForwardStream, type WalkForwardProgressHandler } from "./walkForwardStream";
 import { installBacktestResultBackHandler } from "./backtestResultHistory";
@@ -61,7 +62,6 @@ import {
   shouldBeginStrategyChatNavigation,
   shouldShowChatInputBox,
 } from "./chatNavigation";
-import StockAnalysisPanel, { type StockAnalysisResult } from "@/components/strategy/StockAnalysisPanel";
 
 const BacktestDashboard = dynamic(
   () => import("@/components/strategy/backtest/BacktestDashboard"),
@@ -93,10 +93,7 @@ interface ChatMessage {
   // 미설정이면 기본 '분석 중...'을 표시한다(빌더/분류 등 비파싱 로딩).
   loadingStage?: "parsing" | "thinking" | "validating";
   error?: string;
-  // 개별 종목 질문 / 일반 투자 질문 응답
-  stockAnalysis?: StockAnalysisResult;
-  stockLoading?: boolean;
-  infoText?: string;  // 일반 투자 답변 또는 종목 명확화 안내
+  infoText?: string;  // 일반 투자 답변 또는 전략 전환 안내
   infoSuggestions?: string[];  // 전략 빌더 옵션 칩(클릭 시 그 답으로 전송)
   // 전략 요약을 막지 않는 보정 안내(예: 초기자금 하한선 보정). 요약 카드와 함께 표시된다.
   notices?: string[];
@@ -531,10 +528,8 @@ function StrategyLabContent() {
   // 진행 중이던 채팅을 한 번만 복원하기 위한 가드.
   const chatRestoredRef = useRef(false);
   const handleSendRef = useRef<(overrideText?: string) => Promise<void>>();
-  // 직전 분석 종목 — '이 종목 팔까?' 같은 anaphora 해석용
+  // 직전에 언급된 종목 — '이 종목 팔까?' 같은 anaphora 해석용(분류 요청에 전달).
   const lastAnalyzedSymbolRef = useRef<string | null>(null);
-  // '다른 종목 분석' 버튼으로 종목명을 묻는 중 — 다음 입력을 분석으로 받는다.
-  const awaitingStockAnalysisRef = useRef(false);
   // first user prompt — kept for advisor context
   const firstPromptRef = useRef<string>("");
   // [규제 안전] 열린 종목 추천(STOCK_PICK) 전환 직후 진입하는 전략 빌더 모드.
@@ -817,59 +812,20 @@ function StrategyLabContent() {
     return null;
   };
 
-  // 종목 분석 요청을 보내고 마지막 assistant 메시지에 결과/에러를 렌더한다(분류 경로·
-  // '다른 종목 분석' 경로 공용). symbol 없이 query만 주면 백엔드가 종목명을 해석한다.
-  const renderStockAnalysisResult = async (
-    body: { symbol?: string; query: string; last_symbol?: string | null },
-  ): Promise<void> => {
-    try {
-      const res = await fetch("/api/stock/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (res.status === 422) {
-        // 종목을 특정하지 못함 → 다시 묻고 다음 입력을 분석으로 받는다.
-        awaitingStockAnalysisRef.current = true;
-        updateLastAssistant({
-          stockLoading: false,
-          infoText: "종목을 찾지 못했어요. 정확한 종목명이나 코드를 알려주세요.",
-        });
-        setTimeout(() => textareaRef.current?.focus(), 100);
-        return;
-      }
-      if (!res.ok) throw new Error();
-      const result: StockAnalysisResult = await res.json();
-      lastAnalyzedSymbolRef.current = result.symbol;
-      updateLastAssistant({ stockLoading: false, stockAnalysis: result });
-    } catch {
-      updateLastAssistant({
-        stockLoading: false,
-        error: "종목 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
-      });
-    }
-  };
-
-  // '다른 종목 분석' 버튼 — 종목명을 묻고, 다음 사용자 입력을 종목 분석으로 받는다.
-  const handleAnalyzeAnotherStock = () => {
-    awaitingStockAnalysisRef.current = true;
-    setMessages(prev => [
-      ...prev,
-      { role: "assistant", infoText: "어떤 종목을 분석해 드릴까요? 종목명을 입력해 주세요." },
-    ]);
-    setTimeout(() => textareaRef.current?.focus(), 100);
-  };
-
   // 열린 종목 추천(STOCK_PICK) 전환 직후, 사용자의 후속 입력을 기다리지 않고 곧바로
   // 전략 빌더의 첫 질문(시장 선택)을 띄운다. 질문·옵션 칩은 백엔드 빌더가 단일 출처로
   // 결정하므로(빈 입력 step = 현재 질문 조회) 프론트에서 하드코딩하지 않는다.
   const startStrategyBuilder = async (
-    { reuseExisting = false, seedText }: { reuseExisting?: boolean; seedText?: string } = {},
+    { reuseExisting = false, seedText, seedParsed }: {
+      reuseExisting?: boolean; seedText?: string; seedParsed?: ParsedSummary | null;
+    } = {},
   ) => {
     // reuseExisting=true면 이미 떠 있는 '분석 중...' 자리표시자를 그대로 빌더 첫 질문으로 바꾼다
     // (빈 전략 파싱에서 전환할 때 빈 버블이 추가되지 않도록).
     // seedText: 빌더 진입 시점의 사용자 원본 메시지. 백엔드가 이미 말한 조건을 미리 채워
     // 빠진 질문만 묻도록 한다(상태가 비어 있을 때만 적용).
+    // seedParsed: 파싱 파이프라인(룰→LLM 검증→LLM 폴백)이 이미 해석한 결과. 결정적 시드가
+    // 놓친 필드(sector 등)를 빌더가 이어받아, 긴 꼬리 표현마다 regex를 늘리지 않게 한다.
     if (!reuseExisting) {
       await appendAssistant({ role: "assistant", isLoading: true });
     }
@@ -877,7 +833,12 @@ function StrategyLabContent() {
       const res = await fetch("/api/strategy/builder/step", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ state: builderStateRef.current, input: "", seed: seedText }),
+        body: JSON.stringify({
+          state: builderStateRef.current,
+          input: "",
+          seed: seedText,
+          ...(seedParsed ? { seed_parsed: seedParsed } : {}),
+        }),
       });
       if (!res.ok) throw new Error();
       const data = await res.json();
@@ -940,7 +901,7 @@ function StrategyLabContent() {
             ? "특정 종목을 추천하지는 않지만, 투자 아이디어를 전략으로 만들어 과거 데이터로 검증하도록 도와드릴 수 있어요.\n\n예를 들어 이렇게 시작해볼 수 있어요:\n• RSI가 30 이하로 떨어지면 매수하고 70 이상에서 파는 '과매도 반등' 전략\n• 20일 이동평균이 60일 이동평균을 위로 뚫는 골든크로스에서 매수하는 추세 전략\n• PBR은 낮고 ROE는 높은 저평가 우량주를 고르는 가치 전략\n\n끌리는 아이디어가 있거나 평소 관심 있던 매매 방식이 있다면 말씀해 주세요 — 바로 전략으로 만들어 백테스트해 드릴게요."
             : intent === "ONBOARDING"
               ? "처음이시거나 어디서부터 시작할지 막막하시면 제가 단계별로 함께 전략을 만들어 드릴게요. 몇 가지만 골라 주시면 바로 백테스트까지 이어집니다."
-              : "저는 투자 전략 및 분석 전용 모델입니다. 현재 질문에는 도움을 드릴 수 없습니다. 대신 투자 전략, 백테스트, 종목 분석과 관련된 질문은 도와드릴 수 있습니다.";
+              : "저는 투자 전략 및 분석 전용 모델입니다. 현재 질문에는 도움을 드릴 수 없습니다. 대신 투자 전략, 백테스트와 관련된 질문은 도와드릴 수 있습니다.";
       updateLastAssistant({ isLoading: false, infoText: suggestedReply ?? fallback });
       // 열린 종목 추천·막연한 도움 요청 직후 전략 빌더 모드로 들어간다. 사용자의 후속 입력을
       // 기다리지 않고 곧바로 빌더의 첫 질문을 띄워, 함께 전략을 구성하기 시작한다.
@@ -954,21 +915,23 @@ function StrategyLabContent() {
       return true;
     }
 
-    // 개별 종목 질문 → Stock Analysis Agent
+    // [규제 안전] 개별 종목 매수·매도 질문 → 판단·추천을 제공하지 않고, 그 종목에서
+    // 출발한 전략 설계로 대화를 전환한다(안내 문구는 백엔드 분류가 종목명·시장·업종에 맞춰 생성).
+    // STOCK_PICK과 달리 빌더 모드로 곧장 들어가지 않는다 — 안내가 이미 그 종목 기반의
+    // 구체적인 전략 예시를 제시하므로, 빌더의 첫 질문("어떤 시장을 대상으로 할까요?")이
+    // 예시를 덮지 않도록 사용자의 후속 답변을 기다린다(예시를 골라 말하면 일반 전략
+    // 파싱 흐름이 그대로 처리한다).
     if (intent === "STOCK_ANALYSIS") {
       // 전략 작성 중인데 종목이 특정되지 않은 STOCK_ANALYSIS는 대개 오분류다
-      // (예: "PBR 1 이하 종목"). "어떤 종목을 분석할까요?" 막다른 길 대신
-      // 전략 다듐기 흐름으로 흘려보낸다.
+      // (예: "PBR 1 이하 종목"). 전략 다듬기 흐름으로 흘려보낸다.
       if (!symbol && currentParsed) return false;
-      updateLastAssistant({ stockLoading: true, isLoading: false });
-      if (!symbol) {
-        updateLastAssistant({
-          stockLoading: false,
-          infoText: "어떤 종목을 분석할까요? 종목명을 알려주시면 분석해 드리겠습니다.",
-        });
-        return true;
-      }
-      await renderStockAnalysisResult({ symbol, query: userText });
+      if (symbol) lastAnalyzedSymbolRef.current = symbol;
+      updateLastAssistant({
+        isLoading: false,
+        infoText:
+          suggestedReply ??
+          "특정 종목에 대한 매수·매도 판단이나 종목 추천은 제공하지 않아요. 대신 관심 있는 종목에서 출발한 아이디어를 전략으로 만들어 과거 데이터로 검증해볼 수 있어요. 관심 가는 매매 방식이 있다면 말씀해 주세요.",
+      });
       return true;
     }
 
@@ -1025,6 +988,8 @@ function StrategyLabContent() {
     let parseClarification: string | null = null;
     // 매수 기준을 하나도 못 잡은 빈 전략 → 제안 박스 대신 전략 빌더로 전환한다(스트림 종료 후 시작).
     let enterBuilderForEmptyStrategy = false;
+    // 빌더 전환 시 함께 넘길 파싱 결과 — LLM 검증/폴백이 해석한 필드(sector 등)를 버리지 않는다.
+    let builderSeedParsed: ParsedSummary | null = null;
 
     const finalizeParse = (backtestRequest: any, symbolCount?: number | null) => {
       if (!parsedPayload) return;
@@ -1054,6 +1019,7 @@ function StrategyLabContent() {
       // (상태 설정·메시지 갱신을 건너뛰어 빈 요약/제안 박스가 그려지지 않게 한다).
       if (!hasBuyCriteria(nextParsed) && isEmptyEntryClarification(parsedPayload.clarification_question)) {
         enterBuilderForEmptyStrategy = true;
+        builderSeedParsed = nextParsed;
         return;
       }
 
@@ -1123,8 +1089,9 @@ function StrategyLabContent() {
     if (enterBuilderForEmptyStrategy) {
       builderModeRef.current = true;
       builderStateRef.current = {};
-      // 매수 기준은 비었어도 유니버스·청산 등 다른 조건은 원본에 있을 수 있으므로 시드로 넘긴다.
-      await startStrategyBuilder({ reuseExisting: true, seedText: promptText });
+      // 매수 기준은 비었어도 유니버스·청산 등 다른 조건은 원본에 있을 수 있으므로 시드로 넘기고,
+      // LLM 검증/폴백이 이미 해석한 파싱 결과(sector 등)도 함께 넘겨 이어받게 한다.
+      await startStrategyBuilder({ reuseExisting: true, seedText: promptText, seedParsed: builderSeedParsed });
       return;
     }
 
@@ -1194,15 +1161,6 @@ function StrategyLabContent() {
     setIsSending(true);
     // 분류/파싱 호출이 시작되기 전에 사용자 입력을 화면에 즉시 반영한다.
     appendUserMessage(userText);
-
-    // '다른 종목 분석'으로 종목명을 묻는 중이면, 다음 입력은 분류 없이 바로 분석한다.
-    if (awaitingStockAnalysisRef.current) {
-      awaitingStockAnalysisRef.current = false;
-      await appendAssistant({ role: "assistant", stockLoading: true });
-      await renderStockAnalysisResult({ query: userText, last_symbol: lastAnalyzedSymbolRef.current });
-      setIsSending(false);
-      return;
-    }
 
     // 백테스트 기간을 1년 미만으로 요청하면(예: "백테스트 1주일로 해줘") 실행하지 않고
     // 최소 기간을 안내한다(유효 기간 1y/3y/5y/full → 최소 1년).
@@ -1732,7 +1690,7 @@ function StrategyLabContent() {
     );
   }
 
-  // 전략 작성 맥락(시작 화면 또는 전략 요약 존재)에서만 '전략 생성', 그 외(종목 분석·안내)는 '전송'.
+  // 전략 작성 맥락(시작 화면 또는 전략 요약 존재)에서만 '전략 생성', 그 외(안내 대화)는 '전송'.
   const isStrategyInput = isIdle || messages.some((m) => m.parsed);
   const hasTypedInput = inputValue.length > 0;
   const canSubmitInput = !!inputValue.trim() && !isSending && stage !== "running";
@@ -1834,36 +1792,6 @@ function StrategyLabContent() {
                         {msg.isLoading && (
                           <AnalysisStatusBubble stage={msg.loadingStage} />
                         )}
-                        {msg.stockLoading && <AnalysisStatusBubble title="종목 분석" />}
-                        {msg.stockAnalysis && (
-                          <div className="space-y-3" style={SOFT_MESSAGE_ENTER_STYLE}>
-                            <div className={`max-w-[88%] rounded-tl-sm p-3.5 space-y-2 ${COACH_CHAT_BUBBLE_CLASS}`}>
-                              <span className="text-[11px] font-black uppercase tracking-widest text-white">
-                                종목 분석
-                              </span>
-                              <p className="text-sm font-bold text-white leading-relaxed whitespace-pre-line">
-                                요청한 종목의 데이터 기반 지표와 위험 요인을 정리했습니다. 아래 내용은 매수·매도 추천이 아닙니다.
-                              </p>
-                            </div>
-                            <StockAnalysisPanel result={msg.stockAnalysis} />
-                            {isLastAssistant(i) && (
-                              <div className="flex flex-wrap gap-2 pt-1">
-                                <button
-                                  onClick={handleReset}
-                                  className="px-4 py-2 rounded-xl bg-[#171717] border border-white/10 hover:border-white/30 hover:bg-[#202020] text-xs font-bold text-gray-300 transition-all duration-200"
-                                >
-                                  돌아가기
-                                </button>
-                                <button
-                                  onClick={handleAnalyzeAnotherStock}
-                                  className="px-4 py-2 rounded-xl bg-[#171717] border border-white/10 hover:border-yellow-400/50 hover:bg-[#202020] text-xs font-bold text-gray-200 transition-all duration-200"
-                                >
-                                  다른 종목 분석
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        )}
                         {msg.infoText && (
                           <div
                             className={`max-w-[88%] rounded-tl-sm p-3.5 space-y-2 ${COACH_CHAT_BUBBLE_CLASS}`}
@@ -1939,7 +1867,7 @@ function StrategyLabContent() {
                                 )}
                               </div>
                             )}
-                            {isLastAssistant(i) && stage === "ready" && !msg.coachLoading && !msg.clarification && (
+                            {isLastAssistant(i) && stage === "ready" && runButtonPlacement(msg) === "summary" && (
                               <button
                                 onClick={() => handleRunBacktest()}
                                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-black transition-all duration-300 hover:shadow-[0_0_24px_rgba(59,130,246,0.4)]"
@@ -1991,7 +1919,7 @@ function StrategyLabContent() {
                             )}
                           </div>
                         )}
-                        {isLastAssistant(i) && msg.coachText && stage === "ready" && !msg.coachLoading && (
+                        {isLastAssistant(i) && stage === "ready" && runButtonPlacement(msg) === "coach" && (
                           <button
                             onClick={() => handleRunBacktest()}
                             className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-black transition-all duration-300 hover:shadow-[0_0_24px_rgba(59,130,246,0.4)]"
@@ -2025,7 +1953,7 @@ function StrategyLabContent() {
               <BacktestRunningStatus message={statusMessage} />
             )}
 
-            {/* 입력 영역 — 시작 화면, 전략 요약 출력 후, 또는 종목 분석·안내 대화 중 표시 */}
+            {/* 입력 영역 — 시작 화면, 전략 요약 출력 후, 또는 안내 대화 중 표시 */}
             {shouldShowChatInput && !hasChatStarted && (
             <div
               key={shouldShowIntro ? "intro-chat-input" : "active-chat-input"}

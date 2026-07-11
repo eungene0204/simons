@@ -88,7 +88,6 @@ simons/
 │   │   ├── backtest/                # BacktestDashboard, BacktestConfig, BacktestStatsSummary 등
 │   │   ├── RunAllTestsModal.tsx     # 독립형 Batch Backtest Results 모달
 │   │   ├── StrategyExampleTabs.tsx  # 전략 예시 프롬프트 탭
-│   │   ├── StockAnalysisPanel.tsx   # 개별 종목 분석 결과 패널 (Stock Analysis Agent)
 │   │   └── legacyBreakout.ts        # 레거시 데이터 정규화 유틸
 │   ├── stock/                       # 종목 관련 컴포넌트
 │   │   └── NewsImpactPanel.tsx      # 뉴스·공시 + Alpha 시그널 패널 (stock-order 뉴스 탭)
@@ -133,6 +132,7 @@ simons/
 │   │   ├── result_handler.py        # ResultHandler (지표 계산 + 직렬화)
 │   │   ├── nl_parser.py             # 자연어 → ParsedStrategy (LLM)
 │   │   ├── strategy_converter.py    # ParsedStrategy → BacktestRequest
+│   │   ├── universe_pit.py          # PIT(생존편향 제거) 유니버스 + 섹터 유니버스(CANONICAL_SECTORS·normalize_sector·filter_by_sector)
 │   │   ├── data_resolver.py         # 유니버스 필터링
 │   │   ├── virtual_trader.py        # 가상매매 실시간 엔진 (상장 상태 체크 포함)
 │   │   ├── listing_status.py        # 상장 상태 머신 (7단계) + DART 분류 + DB 동기화
@@ -191,20 +191,16 @@ simons/
 │   ├── intent/                      # 사용자 질문 의도 분류 (STRATEGY / STOCK_ANALYSIS / …)
 │   │   ├── classifier.py            # 결정적 하이브리드 분류기 (규칙 + LLM 폴백)
 │   │   └── schemas.py               # IntentResult Pydantic 모델
-│   ├── stock_analysis/              # 개별 종목 분석 Agent (규칙엔진=객관적 상태 등급, LLM은 설명만 — 매수/시점 추천 아님)
-│   │   ├── agent.py                 # 종목 분석 오케스트레이터
+│   ├── stock_analysis/              # 종목 해석 유틸 (개별 종목 '분석' 파이프라인은 제거 — 종목 질문은 전략 설계 전환 안내로 응답)
 │   │   ├── stock_master.py          # 종목 마스터 (Ground Truth) + 별칭/티커 해석
 │   │   ├── symbol_resolver.py       # 자연어 → 종목코드 해석 (find_in_text)
-│   │   ├── data_service.py / technical_service.py / fundamental_service.py  # 1차 소스 로컬 parquet
-│   │   ├── news_service.py          # news_v2 DB(감성) async 조회
-│   │   ├── forecast_service.py      # AI 하방 리스크 게이지 (매매 결정 제외)
-│   │   ├── risk_service.py / recommendation_engine.py / guardrails.py
-│   │   └── explanation.py           # 결과 자연어 설명 생성
+│   │   ├── news_service.py          # news_v2 DB(감성) async 조회 (advisor 뉴스 보강에서 사용)
+│   │   └── guardrails.py            # 금지 표현 필터 + 면책 문구 (/query/general에 적용)
 │   ├── api/
 │   │   ├── coach_routes.py          # FastAPI AI 전략 코치 라우터 (단건 + SSE 스트리밍)
 │   │   ├── advisor_routes.py        # RAG/Experience Memory 전략 리뷰 라우터
 │   │   ├── news_routes.py           # 뉴스 FastAPI 라우터
-│   │   ├── stock_analysis_routes.py # 개별 종목 분석 API (/stock/analyze)
+│   │   ├── intent_routes.py         # 질문 의도 분류·전략 빌더·일반 질문 API (/query/classify 등)
 │   │   └── research_routes.py       # FastAPI 연구 에이전트 라우터 (9개 엔드포인트, SSE)
 │   └── tests/                       # 백엔드 단위 테스트
 │
@@ -399,11 +395,10 @@ interface BacktestResult {
 | POST | `/ai/runtime/metrics/reset` | AI 런타임 메트릭 초기화 |
 | POST | `/summarize` | 백테스트 결과 AI 요약 (Claude API) |
 
-**개별 종목 분석 (Stock Analysis Agent)**
+**질문 의도 분류 / 일반 질문 (intent_routes)**
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
-| POST | `/query/classify` | 사용자 질문 의도 분류 (STRATEGY / STOCK_ANALYSIS / STOCK_PICK / GENERAL) |
-| POST | `/stock/analyze` | 개별 종목 분석 — 로컬 parquet 1차 소스, 규칙 기반 객관적 상태 등급(매수/시점 추천 아님) + LLM 설명, 종목 미해석 시 422 |
+| POST | `/query/classify` | 사용자 질문 의도 분류 (STRATEGY / STOCK_ANALYSIS / STOCK_PICK / GENERAL). [규제 안전] STOCK_ANALYSIS(특정 종목 매수·매도 질문)는 종목 분석 대신 '추천 불가 안내 + 그 종목에서 출발한 전략 설계 전환' 문구(suggested_reply)를 동반한다 — 개별 종목 분석 기능(/stock/analyze)은 제거됨 |
 | POST | `/query/general` | 분류·종목 비매칭 일반 질문 응답 |
 | POST | `/strategy/builder/step` | 전략 빌더 모드 한 턴 — 열린 추천(STOCK_PICK) 전환 직후 짧은 답변을 전략 필드로 누적하고, 완성 시 백테스트 프롬프트 합성. 결정적 상태 머신 `intent/strategy_builder.py`(무상태). 프론트 `builderModeRef`/`builderStateRef`가 상태 보관·재전송 |
 
@@ -557,6 +552,7 @@ BacktestEngine.run_backtest(request)
 - 벡터화 Step 순서 고정: **Step1 퇴장처리 → Step2 리스크 평가/주입 → Rebalance(목표 집합 재구성/탈락 매도) → Step3 진입처리**
 - 같은 날 매도+매수(리밸런싱 reconstitution)가 겹칠 때는 부기(active_mask/active_count/peak_price)도 즉시 갱신해야 한다 — 그렇지 않으면 빈 슬롯이 "아직 점유 중"으로 보여 신규 편입이 영구 차단되는 고스트 포지션 버그가 발생한다
 - 달력 기준 리밸런싱: `compute_rebalance_dates()`로 주기별 첫 거래일 판정 → 봉중간 리스크 유무로 `from_orders(targetpercent)` / `from_signals` reconstitution 경로를 자동 분기 (하이브리드 라우팅)
+- 리밸런싱 체결 타이밍 불변식: `next_open`이면 엔진(backtest_engine)이 신호·랭킹을 이미 1일 shift해 넘기므로(row i = 전일 종가 정보 = 체결일), 시뮬레이터는 추가 shift 없이 편입·편출 모두 **리밸런싱일 당일**(그 주기 첫 거래일 시가)에 체결한다. 두 경로(순수/루프)의 체결일이 같아야 하며, 리스크 청산(당일 intraday 정보 기반 → 다음 시가 체결)과는 타이밍 근거가 다르다 — 회귀: `test_simulator_ranking.py::test_next_open_rebalance_fills_on_rebalance_day_*`
 
 ### 4.4 가상매매 엔진 (`engine/virtual_trader.py`)
 

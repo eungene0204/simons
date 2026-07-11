@@ -1,9 +1,12 @@
 """
-FastAPI routes — Query Intent 분류 + 개별 종목 분석.
+FastAPI routes — Query Intent 분류 + 전략 빌더 + 일반 투자 지식.
 
-POST /query/classify  — 사용자 입력을 QueryIntent로 분류
-POST /stock/analyze   — STOCK_ANALYSIS 질문에 대한 종목 분석(규칙 기반 추천 + LLM 설명)
-POST /query/general   — GENERAL_INVESTMENT 일반 투자 지식 답변(LLM)
+POST /query/classify        — 사용자 입력을 QueryIntent로 분류
+POST /strategy/builder/step — 전략 빌더 대화 한 턴
+POST /query/general         — GENERAL_INVESTMENT 일반 투자 지식 답변(LLM)
+
+[규제 안전] 개별 종목 분석(/stock/analyze)은 제거됐다 — 특정 종목 질문(STOCK_ANALYSIS)은
+분류 단계에서 suggested_reply(추천 불가 안내 + 전략 설계 전환)로 응답한다.
 
 LLM은 coach와 동일한 공유 Qwen MLX 모델을 inference lock 안에서 사용한다.
 LLM이 없으면 결정적 템플릿/폴백으로 동작한다(기능 항상 보장).
@@ -16,24 +19,17 @@ import logging
 import sys
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from intent.classifier import classify
 from intent.schemas import IntentRequest, IntentResult
 from intent import strategy_builder
 from stock_analysis import guardrails
-from stock_analysis.agent import StockAnalysisAgent
-from stock_analysis.schemas import (
-    DISCLAIMER,
-    Recommendation,
-    StockAnalysisRequest,
-    StockAnalysisResult,
-)
-from stock_analysis.symbol_resolver import find_in_text, resolve_by_symbol
+from stock_analysis.schemas import DISCLAIMER
 
 logger = logging.getLogger(__name__)
-router = APIRouter(tags=["stock-analysis"])
+router = APIRouter(tags=["intent"])
 
 
 # ─── 공유 MLX LLM 어댑터 ────────────────────────────────────────────────────────
@@ -73,23 +69,6 @@ def _llm_available() -> bool:
     return getattr(main_mod, "_nl_parsers", {}).get("mlx") is not None
 
 
-# ─── AI 예측 보조 엔진 ────────────────────────────────────────────────────────────
-
-# 서버가 이미 로드한 AI 엔진(main.engine.ai_engine)을 재사용한다. 모델을 다시 로드하지
-# 않아 메모리/시간 비용이 없다. standalone/테스트에선 main이 없어 None → '데이터 없음' 폴백.
-# 예측 자체는 매매를 결정하지 않는 보조 게이지로만 쓰인다(project_ai_auxiliary_usage).
-def _forecast_engine():
-    main_mod = _main_module()
-    if main_mod is None:
-        return None
-    try:
-        engine = getattr(main_mod, "engine", None)
-        return getattr(engine, "ai_engine", None) if engine is not None else None
-    except Exception:
-        logger.debug("AI 예측 엔진 조회 실패 — 데이터 없음 폴백", exc_info=True)
-        return None
-
-
 # ─── /query/classify ────────────────────────────────────────────────────────────
 
 @router.post("/query/classify", response_model=IntentResult)
@@ -109,6 +88,10 @@ class BuilderStepRequest(BaseModel):
     # 빌더 진입 시점의 사용자 원본 메시지. 상태가 비어 있을 때만 이 문장에서 인식 가능한
     # 전략 필드를 미리 채워(seed), 사용자가 이미 말한 조건은 다시 묻지 않는다.
     seed: Optional[str] = None
+    # 빈 전략으로 빌더 전환 시 파싱 파이프라인(룰 파스→LLM 검증 교정→LLM 폴백)이 이미
+    # 해석한 ParsedStrategy dump. 결정적 시드 regex가 놓친 필드(sector·청산)를 이어받아,
+    # 긴 꼬리 표현마다 regex를 늘리지 않고 LLM 레이어의 해석이 빌더까지 흐르게 한다.
+    seed_parsed: Optional[dict] = None
 
 
 def _run_builder_step(state, input_text, risk_extractor) -> strategy_builder.StepResult:
@@ -133,48 +116,15 @@ def _run_builder_step(state, input_text, risk_extractor) -> strategy_builder.Ste
 @router.post("/strategy/builder/step", response_model=strategy_builder.StepResult)
 async def strategy_builder_step(req: BuilderStepRequest) -> strategy_builder.StepResult:
     state = req.state
-    if req.seed and strategy_builder.is_empty(state):
-        state = strategy_builder.seed_state(req.seed)
+    if strategy_builder.is_empty(state):
+        if req.seed:
+            state = strategy_builder.seed_state(req.seed)
+        state = strategy_builder.apply_parsed_seed(state, req.seed_parsed)
     # 청산 조건 자유 입력 단계에서 정규식이 놓친 값은 공유 LLM 파서로 보강·검증한다.
     risk_extractor = None
     if _llm_available():
         risk_extractor = lambda text: strategy_builder.llm_extract_risk(text, _mlx_llm)
     return await asyncio.to_thread(_run_builder_step, state, req.input, risk_extractor)
-
-
-# ─── /stock/analyze ──────────────────────────────────────────────────────────────
-
-def _resolve_target(req: StockAnalysisRequest):
-    if req.symbol:
-        return resolve_by_symbol(req.symbol) or _bare(req.symbol)
-    if req.query:
-        found = find_in_text(req.query)
-        if found:
-            return found[0]
-    if req.last_symbol:
-        return resolve_by_symbol(req.last_symbol) or _bare(req.last_symbol)
-    return None
-
-
-def _bare(symbol: str):
-    from stock_analysis.symbol_resolver import StockRef
-    return StockRef(symbol=symbol, name=symbol)
-
-
-@router.post("/stock/analyze", response_model=StockAnalysisResult)
-async def analyze_stock(req: StockAnalysisRequest) -> StockAnalysisResult:
-    ref = _resolve_target(req)
-    if ref is None:
-        raise HTTPException(status_code=422, detail="분석할 종목을 찾을 수 없습니다. 종목명을 알려주세요.")
-    llm = _mlx_llm if _llm_available() else None
-    # AI 예측은 매매를 결정하지 않는 '보조 게이지'로만 노출한다(추천 점수 제외).
-    # 1차 메시지는 자기 시계열 퍼센타일 기반 하방 리스크 수준(project_ai_auxiliary_usage).
-    agent = StockAnalysisAgent(llm=llm, forecast_engine=_forecast_engine())
-    try:
-        return await asyncio.to_thread(agent.analyze, ref)
-    except Exception as exc:
-        logger.exception("stock.analyze 실패: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 # ─── /query/general ──────────────────────────────────────────────────────────────

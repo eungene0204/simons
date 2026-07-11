@@ -835,7 +835,8 @@ _COACH_OFFTOPIC_REFUSAL = OFFTOPIC_REFUSAL
 def _coach_scope_guard(prompt: str) -> Optional[str]:
     """역할 범위를 벗어난 입력을 결정적으로 가로채 정해진 응답을 반환한다.
     가로챌 게 없으면 None을 반환해 일반 코칭 경로(LLM)로 넘긴다.
-    개별 종목 분석은 역할 안(투자 분석)이므로 가로채지 않는다."""
+    특정 종목명이 든 질문은 상류의 intent 분류 게이트가 '추천 불가 안내 + 전략 전환'으로
+    처리하므로 여기선 가로채지 않는다(전략 문맥의 종목 언급 질문을 막지 않기 위함)."""
     text = (prompt or "").strip()
     if not text:
         return None
@@ -844,7 +845,7 @@ def _coach_scope_guard(prompt: str) -> Optional[str]:
     if is_offtopic(text):
         return _COACH_OFFTOPIC_REFUSAL
     # [규제 안전] 특정 종목을 골라/추천해 달라는 열린 요청은 추천하지 않고 전략 설계로 전환한다.
-    # 특정 종목명이 섞여 있으면(개별 종목 분석은 역할 안) 가로채지 않는다.
+    # 특정 종목명이 섞여 있으면(전략 문맥의 종목 언급일 수 있음) 가로채지 않는다.
     if is_stock_pick_request(text) and not find_in_text(text):
         return stock_pick_reply(text)
     return None

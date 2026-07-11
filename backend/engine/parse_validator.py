@@ -83,6 +83,8 @@ You may only validate, correct obvious parsing errors, or ask clarification ques
 The parsed strategy object follows this schema (ParsedStrategy):
 - description: string (original user text, must be preserved verbatim)
 - universe: array of "KOSPI" | "KOSDAQ" | "KOSPI200"
+- sector: Korean sector name restricting the universe to one industry
+    (e.g. "반도체", "이차전지", "바이오/제약", "게임") | null
 - fundamental_filters: array of {metric, operator(<,>,<=,>=), value}
     metric ∈ per, pbr, psr, roe_or_gpa, roa, debt_ratio, current_ratio, quick_ratio,
     reserve_ratio, net_margin, gross_margin, revenue_growth, operating_income_growth,
@@ -101,6 +103,9 @@ surface characters. If the rule-based parser missed a value because of a typo, c
 Rules for correctedStrategy:
 - Provide it ONLY when the parser made an obvious, unambiguous interpretation error
   (e.g. user said 손절 5% but parser stored take_profit_pct=5, or a typo caused a missed field).
+- If the user restricted the scope to one industry (e.g. "반도체 중심으로", "2차전지 위주로",
+  "바이오 쪽만") but the parser left `sector` null, that is a missed field — fill `sector`
+  with the Korean sector name. Do NOT invent a sector the user did not mention.
 - It must be a COMPLETE ParsedStrategy object in the exact schema above, keeping every
   field the parser got right and fixing only the misread field.
 - Keep `description` exactly as the parser had it.

@@ -142,7 +142,6 @@ simons/
 ├── components/            # React 컴포넌트
 │   ├── strategy/          # 전략 설계 UI (자연어 채팅 기반)
 │   │   ├── StrategyExampleTabs.tsx  # 전략 예시 프롬프트 탭
-│   │   ├── StockAnalysisPanel.tsx   # 개별 종목 분석 결과 패널
 │   │   └── RunAllTestsModal.tsx  # 독립형 Batch Backtest UI
 │   ├── dashboard/         # 홈 대시보드
 │   ├── stock/             # 종목 차트/상세
@@ -1267,6 +1266,7 @@ WatchlistSymbol {
 | 전략 빌더 모드 (열린 추천 후속 대화) | STOCK_PICK 전환 안내 직후 진입하는 **전략 빌더 모드**. "일단 코스피" 같은 짧은 답변을 거절하지 않고 전략 필드(유니버스→전략유형→기준기간→보유수→리밸런싱→청산조건)로 누적하고, 마지막(청산 조건: 손절·익절·트레일링·보유기간 — **필수**, 하나 이상 인식돼야 완료)까지 채우면 별도 텍스트 요약 없이 곧바로 검증된 한국어 프롬프트로 합성해 기존 파싱 파이프라인(`/strategy/parse/stream`) 재사용 → 전략 요약 카드 + 검증 + '백테스트 실행' 버튼 표시(버튼이 최종 확인). 결정적 상태 머신 `intent/strategy_builder.py`(parse_input·_parse_risk·detect_control·next_question·synthesize_prompt·step) + 무상태 라우트 `POST /strategy/builder/step`. 프론트(`app/analytics/new/page.tsx`)는 `builderModeRef`/`builderStateRef`(세션 스냅샷 보관)로 모드 관리, 분류/거절보다 **먼저** 빌더 step 호출, 확정 시 추출한 `runStrategyParseFlow` 헬퍼로 백테스트 실행. **전환 안내 직후 후속 입력을 기다리지 않고 곧바로 빌더의 첫 질문을 능동적으로 띄운다**(`startStrategyBuilder`가 빈 입력으로 step 호출 → `step`은 상태 변화 없이 현재 질문 반환). **빌더가 옵션 칩을 보여주는 동안에는 채팅 입력창을 숨겨 선택에 집중하게 하고**(마지막 어시스턴트 메시지에 `infoSuggestions`가 있으면 입력창 숨김), 전략 유형 질문 가장 오른쪽의 "직접 설명하기" 칩을 누르면 custom 진입조건 질문(칩 없음)으로 넘어가 입력창이 다시 나타난다. 청산 조건 단계 가장 오른쪽의 "직접 입력" 칩은 빌더 답변이 아니라 프론트 토글(`builderFreeTextRequested`)로, 빌더를 진행하지 않고 입력창만 다시 띄워 커스텀 청산 값을 직접 타이핑하게 한다. **청산 조건은 필수**라 '청산 조건 없음' 칩은 제거됐고, `_parse_risk`는 손절·익절·트레일링·보유기간을 하나 이상 인식했을 때만 `risk_done`을 켠다(없으면 같은 질문 재질문). 4가지 유형(모멘텀·돌파·거래량급증·평균회귀+직접설계) 엔드투엔드. 취소/처음부터/다른질문 종료·리셋 지원. 테스트 `test_strategy_builder.py`(케이스 1~4 + 청산 조건 + 빈 입력 첫 질문 계약 + 직접 설명하기 칩 포함) | ✅ 완료 |
 | 전략별 특화 빌더 (STATE_SPECIFIC_STRATEGY_BUILDER) | 사용자가 특정 전략명을 지목하면 그 유형이 잠기고(일반 메뉴 스킵), 유형별 파라미터 스텝 레지스트리(`STRATEGY_PARAM_STEPS`)로 그 전략의 핵심 파라미터만 묻는다 — RSI(기간·과매도/과매수)·이동평균(SMA/EMA·단기/장기)·MACD(크로스/제로선)·돌파/모멘텀(기준일)·CCI(기간·기준값)·거래량(평균기간)·가치(PBR/ROE). 볼린저·스토캐스틱·과매도반등은 프리셋(무질문). 초보자용 '기본값' 지원. 완성 시 한국어 재파싱 왕복 대신 `build_parsed_strategy`가 `ParsedStrategy`(entry/exit `TechnicalSignal`+랭킹/재무필터/리스크)를 **직접 조립** → `to_backtest_request`로 요청 생성(파라미터 유실 방지). 라우트(`_run_builder_step`)가 confirmed 시 `parsed`+`backtest_request`+`notices`를 내려주고 프론트(`applyBuilderConfirmedStrategy`)가 재파싱 없이 소비, custom만 prompt 폴백. **엔진이 실제 반영하는 값만** 묻는다(조용한 드롭 방지): 볼린저 기간/표준편차·스토캐스틱 level·MACD fast/slow/히스토그램·**ATR 전체** 제외. 'RSI'는 mean_reversion보다, '볼린저'는 breakout보다 먼저 판정. 실데이터 스모크(골든크로스 485거래·볼린저 318·모멘텀 337). 테스트 `test_strategy_builder.py`(유형 인식·잠금 회귀·전 유형 DSL·기본값·가치필터·custom 폴백 16건). SRS FR-SA-002d | ✅ 완료 |
 | 전략 빌더 옵션 진입 필터 (Tier 2) | 기술적 진입 전략에 옵션 "필터" 스텝 1개 추가 — 진입 신호와 **AND 결합되는 게이트**(추세 "EMA200 위에서만" / 거래대금 N억 이상 / RSI 결합 "30 이하일 때만"). `ParsedStrategy.entry_filters`(빌더 전용) → `to_backtest_request`가 `type='filter'`로 방출 → 엔진 `generate_signals`가 signal과 분리해 AND 결합. 엔진 변경은 `ema` 평가자에 지속 상태 `mode='above'/'below'` 신설뿐(크로스오버 아님, 벡터+행별 양 경로); 거래대금은 `trading_value`, RSI 결합은 `rsi` compare 재사용. `TechnicalSignal.mode`(above/below)·`indicator`(trading_value) literal 확장, `entry_filters`를 canonical DSL 해시에 포함(캐시 충돌 방지). 빌더 `_parse_filters`가 자유 입력서 추세·거래대금·RSI 동시 인식, "없음"·무매치도 완료(옵션). 프론트 `lib/strategy-summary.ts` `formatEntryFilter`로 진입 배지 노출. momentum(랭킹)·value·custom 제외. 원시 '평균 거래량 이상' 전용 평가자는 미구현(거래대금 유동성 필터로 대체). 검증: 신호 레벨 부분집합·파티션(above+below=전체)·AND 게이트 단위테스트, 실데이터 e2e(볼린저 필터無 317거래 → EMA200+거래대금+RSI 31거래). 테스트 `test_engine_signals.py`·`test_strategy_converter_strategy_id.py`·`test_strategy_builder.py`(총 9건). SRS FR-SA-002d Tier 2 | ✅ 완료 |
+| 전략 빌더 시드 업종 기억 (2026-07-11) | 종목 질문 전환(FR-SA-006) 뒤 "반도체 주도주로 전략을 만들어줘"처럼 업종이 언급된 채 빌더에 진입하면 `seed_state`가 NL 파서의 결정적 섹터 추출(`_extract_sector`, FR-STR-066)로 `BuilderState.sector`를 미리 채우고, "주도주"를 모멘텀 유형으로 인식해 **종목 고르는 질문("어떤 방식으로 종목을 고를까요?")을 건너뛰고** 빠진 필드(시장·기준기간·보유수·리밸런싱·청산)만 묻는다. 기억한 업종은 첫 질문 도입부 확인("반도체 업종 대상, 모멘텀 전략으로 이해했어요") → 합성 프롬프트("코스피 반도체 업종 종목 중 …", custom 재파싱 경로에서도 '업종' 큐로 재인식) → 직접 조립 DSL(`ParsedStrategy.sector`)까지 흐른다. 섹터는 질문으로 묻지 않는 시드 전용 필드. **긴 꼬리 표현은 regex 확장 대신 LLM 레이어에서 해결**(같은 날 후속): 빈 전략→빌더 전환 시 프론트가 파싱 파이프라인(룰→LLM 검증 교정→LLM 폴백)의 최종 parsed를 `seed_parsed`로 전달, 빌더 `apply_parsed_seed`가 결정적 시드가 놓친 None-기본 필드(sector·청산)만 이어받음(universe·max_positions·rebalancing은 기본값 오염으로 제외, 결정적 시드 우선). 검증 프롬프트에 업종 누락 교정 규칙 명시(지어내기 금지). 테스트 `test_strategy_builder.py`(시드 인식·질문 스킵·prompt/DSL 관통·parsed 이어받기 5건)+`test_parse_validator.py`(sector 교정 적용). SRS FR-SA-002d | ✅ 완료 |
 | 검증 교정 환각 AI 신호 주입 차단 + 백테스트 워치독 | 실사고(2026-07-03): 사용자가 AI를 언급하지 않은 KOSDAQ 모멘텀 랭킹 프롬프트에 Parse Fidelity Validator의 `correctedStrategy`가 `ai_model`("AI 매수 예측") 진입 신호를 환각 주입 — 스키마 검증만 통과하면 그대로 적용되던 구멍. 비활성화된 AI 백테스트가 실행되며 행(hang), SSE 스트림은 상태 메시지 무한 방출. **수정 4중**: ① `_maybe_apply_correction`이 교정본 진입/청산 신호를 LLM 본경로와 동일한 `_validate_signals`로 재검증(환각 신호만 드롭, 정상 교정 유지) + 검증 프롬프트에 신호 추가 금지 규칙(FR-STR-020b) ② `NL_PARSER_CACHE_VERSION` 3→4(오염 캐시 무효화) ③ 엔진 AI fail-fast — `AI_SIGNALS_ENABLED=0` 운영 스위치 거절 + AI 모델 로드 불가 시 0거래 침묵 진행 대신 즉시 에러(FR-BT-048) ④ 백테스트 워치독 `engine/watchdog.py` — `/backtest`(504)·`/strategy/backtest-stream`(SSE error 이벤트)이 `BACKTEST_TIMEOUT_S`(기본 600초) 안에 반드시 종료(FR-BT-047). 테스트 `test_parse_validator.py`(환각 스트립/정당 AI 유지), `test_backtest_watchdog.py`(타임아웃/전파/게이트 2종) | ✅ 완료 |
 | 백테스트 엔진 감사(2026-07) 수정 | 퀀트 관점 전면 감사에서 발견된 결과 왜곡 요인 일괄 수정. **체결 충실도**: ① `from_signals(size_type='Percent')`의 '잔여 현금 비중' 의미론이 동시 진입 비중을 기하급수 감소시키던 문제 → 커스텀 루프가 의도(슬롯·스탑·리밸런싱)를 결정하고 `from_orders(targetpercent)`가 NAV 대비 목표비중으로 체결(이중 부기 해소, C1/C7) ② 정수 주 단위 체결 `size_granularity=1`(C2) ③ SL/TP/트레일링을 장중 low/high로 감지(종가 감지는 장중 리스크 누락, C5) ④ 거래정지일 청산은 다음 거래 가능일로 이월 `pending_exit`(C6) ⑤ 매수/매도 수수료 분리 + 매도 증권거래세 기본 0.15% `sell_tax_rate`(H3). **통계 무결성**: PF 클램프(10)·buy-and-hold 재정의 제거(C3), Sortino 표준 하방편차(전 기간 target-below RMS)+`risk_free_rate` 옵션(H4/M7), Exposure·MDD Duration·Expectancy·Recovery Factor 추가. **유니버스/신호**: 진입조건 없는 모멘텀 랭킹이 유동성 게이트·대형주 마스크를 덮어쓰던 버그(C4)+next_open 시 시총 마스크 1일 shift(look-ahead), 지표 최대 기간 기반 동적 warm-up(H6), 사유 부분문자열 매칭 제거(M5), loader 중복날짜/정렬 가드(M10). **공시 경고 채널**: 거래세 반영·소표본(<30건)·벤치마크 상장 전 구간·분배금 미반영·정적 주식수 근사·AI 학습기간 중첩(model_meta `train_end`)·리밸런싱 비중 미리셋·전일 거래대금 초과 매수(시장충격). WFE는 IS≤0이면 `wfe_valid=false`(M9). 결과 변경으로 `BACKTEST_ENGINE_VERSION`="audit-fixes-v4" 범프. 테스트: `test_audit_fixes.py`(PF/통계/Sortino/warm-up/모멘텀 유동성/경고) + `test_engine_simulator.py`(NAV 동일비중/정수주/거래세/장중 SL/이월) — 백엔드 1583·프론트 608 전체 통과, 실데이터 스모크(5종목 SL 혼합·순수/혼합 리밸런싱) 검증. **프론트 표시**: 신규 통계 4종을 `BacktestResult` 타입 + 매퍼 3곳(`backtestResultMapper.ts`·`BacktestService.ts`·`app/analytics/[id]/page.tsx` — [id] 재실행 경로는 누락돼 있던 calmar/avgHoldingDays도 함께 배선)에 매핑하고, `BacktestDashboard` '리스크 및 성과 분석' 섹션에 둘째 행(시장 노출도·최장 낙폭 기간·기대값·회복 계수)으로 설명 툴팁과 함께 표시. 매퍼 단위 테스트 2건 추가(`backtestResultMapper.test.ts`) | ✅ 완료 |
 
@@ -1289,6 +1289,31 @@ WatchlistSymbol {
 | 가상계좌 관리 | 목록(평가금·수익률·거래수), 일시 중지(`status='PAUSED'` — 기존 `assetService` 주문 가드가 자동 차단)/재개/초기화(포지션·주문 삭제+현금 복원)/삭제 | ✅ 완료 |
 | 플랜 한도 오버라이드 | `PlanConfig` upsert → `planLimits.getEffectivePlan()`이 기본값(lib/plans.ts)에 병합, 백테스트 소비·전략/계좌 한도에 실시간 반영(-1=전략 무제한, null=기본값 복원) | ✅ 완료 |
 | 테스트 | `lib/server/adminAuth.test.ts`(권한 게이트 6건), `app/api/admin/users/route.test.ts`(404 은닉·감사 로그·자기보호 6건), `planLimits.test.ts` 오버라이드 5건 추가, 로그인 정지 차단 회귀. 라이브 검증: 익명/일반 404 → 관리자 200, 정지→로그인 403+세션 401, 감사 로그 기록, 플랜 오버라이드 30→77→30 왕복 | ✅ 완료 |
+
+### Phase 3.12: 개별 종목 분석 기능 제거 → 전략 설계 전환 (2026-07-10) — ✅ 완료
+
+> 종목 분석 패널이 플랫폼 목적(전략 만들기)에 기여하지 않고 규제 리스크(유사투자자문 오인)만 키운다는 판단으로 기능을 제거했다. 특정 종목 매수·매도 질문에는 "추천·판단을 제공하지 않는다"를 안내하고, 그 종목에서 출발한 전략 설계로 대화를 전환한다(FR-SA-006).
+
+| 작업 | 상세 | 상태 |
+|------|------|------|
+| 전환 안내 생성 | `intent/scope.py::stock_question_redirect(name, market)` — ① 매수·매도 판단/종목 추천 불가 명시 ② 언급 종목에서 출발한 전략 예시 3종(시가총액 상위 대형주(코스피200)+모멘텀 상위 5종목 / 저평가 우량주 가치 스크리닝 / RSI 과매도 반등) ③ 첫 예시 유니버스는 종목의 시장에 맞춤(KOSDAQ→코스닥). **예시는 엔진이 실제 실행 가능한 개념만 사용** — 당시 섹터/업종 전략은 파서 미지원이라 제안하지 않음(막다른 길 방지). 이후 Phase 3.13에서 섹터 유니버스가 지원되며 업종 예시가 첫 예시로 추가됨 | ✅ 완료 |
+| 분류기 배선 | `intent/classifier.py` — STOCK_ANALYSIS(결정적 규칙 2·2-b anaphora·LLM 폴백 전부)에 `suggested_reply` 동반. 실사용 문구 "사볼까"를 `_STOCK_QUESTION`에 추가(결정적 커버) | ✅ 완료 |
+| 백엔드 삭제 | `/stock/analyze` 라우트 제거, `api/stock_analysis_routes.py`→`api/intent_routes.py` 개명(classify/builder/general 유지). `stock_analysis/` 분석 파이프라인 8개 모듈(agent·data/technical/fundamental/risk/news→forecast·recommendation_engine·explanation) 삭제. 유지: `symbol_resolver`·`stock_master`(의도 분류), `guardrails`+`DISCLAIMER`(/query/general), `news_service`(advisor 뉴스 보강) | ✅ 완료 |
+| 프론트 전환 | `app/analytics/new/page.tsx` — STOCK_ANALYSIS 분기가 분석 호출 대신 `suggested_reply` 표시. **빌더 모드 자동 진입은 하지 않는다(2026-07-11 수정)** — 안내가 이미 종목 기반 전략 예시를 제시하므로 빌더 첫 질문이 예시를 덮지 않게 후속 답변을 대기(회귀 `page.stock-redirect.test.tsx`). 전략 작성 중이면 안내만 표시(기존 전략 보존). `StockAnalysisPanel`·`/api/stock/analyze`·`renderStockAnalysisResult`·'다른 종목 분석' 버튼 삭제 | ✅ 완료 |
+| 테스트 | `test_intent_classifier.py`에 전환 회귀 5종(안내 문구/종목명 포함/시장별 유니버스/행동 지시 표현 부재(guardrails)/LLM 폴백) 추가, 분석 파이프라인 테스트 3파일 삭제. 백엔드 1715·프론트 792 전체 통과 | ✅ 완료 |
+
+### Phase 3.13: 섹터/업종 유니버스 지원 (2026-07-10) — ✅ 완료
+
+> "반도체 관련주를 매수하는 전략" 같은 업종 제한 전략을 파서·엔진이 직접 실행할 수 있게 했다(FR-STR-066). 종목 질문 전환 안내(Phase 3.12)의 첫 예시도 언급 종목의 업종 전략으로 업그레이드.
+
+| 작업 | 상세 | 상태 |
+|------|------|------|
+| 섹터 SOT·정규화 | `engine/universe_pit.py` — `CANONICAL_SECTORS`(38개, korea-stocks.json sector 필드=SOT), `normalize_sector`(동의어: 2차전지→이차전지, 제약→바이오/제약, AI→소프트웨어/플랫폼 등), `filter_by_sector` | ✅ 완료 |
+| 파서 | `ParsedStrategy.sector` + field_validator 정규화(LLM 자유 문자열도 정본화, 미지원→None). 결정적 추출 `_extract_sector` = 섹터명+업종 큐(관련주/업종/섹터/테마주/종목/주식/주+중심/위주, '주가' 배제). `_apply_prompt_overrides`가 LLM 결과에도 덮어쓰기 + **시장 언급 없으면 universe=양시장**(KOSPI200 기본이면 시총 상위 200 ∩ 섹터로 과도 축소). 미지원 목록의 `sector` 항목은 제거하지 않고 조건화 — 패턴을 관련주/테마주까지 확장하되 추출 성공 시 제외('로봇 관련주'는 여전히 안내, 기존에 '관련주'가 아예 안 잡히던 침묵 누락도 개선). SYSTEM/COMPACT/MODIFY 프롬프트·parse_validator 스키마에 sector 반영, `NL_PARSER_CACHE_VERSION` 5→6 | ✅ 완료 |
+| 전달·엔진 | canonical DSL에 sector 포함(None이면 키 없음 — 기존 전략 해시 불변), `to_backtest_request`·`BacktestRequest.sector`(extra=ignore 스키마 누수 함정 방어), 엔진이 PIT 해석 후 `filter_by_sector` 적용 + 0종목이면 fail-fast + **생존편향 경고**(섹터 분류는 현재 상장 종목 기준 — PIT 마스터엔 섹터 없음). 실데이터 스모크: 반도체 모멘텀 1Y → 78종목·36거래·전 거래 반도체 섹터 확인 | ✅ 완료 |
+| 프론트 | `ParsedSummary.sector`·`StrategyBacktestRequest.sector` 타입, `getDisplayUniverseLabels`가 "반도체 업종" 배지 추가, 실행 요청 기반 요약(`buildStrategySummaryFromRequest`)에도 반영 | ✅ 완료 |
+| 종목 질문 전환 안내 | `stock_question_redirect(name, market, sector)` — 언급 종목의 섹터를 알면 "○○가 속한 반도체 업종 종목만 대상으로 최근 3개월 수익률 상위 5종목 매수"를 첫 예시로(이/가 조사 처리 포함). 예시 문구 자체가 룰 파서로 파싱됨을 회귀로 보장 | ✅ 완료 |
+| 테스트 | universe_pit 섹터 3종, nl_parser 섹터 7종(추출/양시장 기본/명시 시장/미지원 안내/스키마 왕복/해시 불변/validator 정규화), classifier 2종(섹터 예시·파싱 가능성) 추가 — 백엔드 1726·프론트 795 전체 통과 | ✅ 완료 |
 
 ### Phase 4: 미구현 기능 (향후)
 
@@ -1426,7 +1451,7 @@ cd backend && pytest tests/
 | 테스트 커버리지 | ✅ 양호 (backend 533 tests, frontend 198 tests 기준) | 85% |
 | Strategy Research Agent | ✅ 전체 완료 | 100% |
 | 뉴스 Impact AI Agent | ✅ 전체 완료 | 100% |
-| 개별 종목 질문 대응 (Intent 분류 + Stock Analysis Agent) | ✅ 전체 완료 | 100% |
+| 개별 종목 질문 대응 (Intent 분류 → 전략 설계 전환 안내 — 분석 패널은 2026-07-10 제거) | ✅ 전체 완료 | 100% |
 | 고급 분석 (팩터, 상관관계, 섹터) | 🔲 미구현 | 0% |
 | 소셜/마켓플레이스 | 🔲 미구현 | 0% |
 | 인프라 (Docker, CI/CD, 모니터링) | 🔲 미구현 | 0% |

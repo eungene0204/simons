@@ -306,6 +306,20 @@ class BacktestEngine:
                     print(f"[BT-ENGINE] PIT universe: {len(symbols)}종목 "
                           f"(markets={_markets}, large_cap={_is_large_cap})", flush=True)
 
+            # ── 섹터/업종 제한 ──
+            # 섹터 분류의 SOT는 현재 상장 종목(korea-stocks.json)이라, PIT 유니버스에 포함된
+            # 상장폐지 종목은 섹터를 몰라 제외된다 — 대형주 근사와 같은 급의 근사임을 경고한다.
+            _sector = req.get('sector')
+            if _sector:
+                symbols = universe_pit.filter_by_sector(symbols, _sector)
+                if not symbols:
+                    raise ValueError(f"'{_sector}' 섹터에 해당하는 종목을 찾지 못했습니다.")
+                self.warnings.add(
+                    f"섹터({_sector}) 분류는 현재 상장 종목 기준입니다 — 백테스트 기간 중 "
+                    "상장폐지된 종목은 섹터 정보가 없어 제외되며, 생존 편향이 있을 수 있습니다."
+                )
+                print(f"[BT-ENGINE] 섹터 필터({_sector}): {len(symbols)}종목", flush=True)
+
             def _filter_to_backtest_window(df_pl: pl.DataFrame) -> pl.DataFrame:
                 if not _has_period_filter:
                     return df_pl
@@ -652,7 +666,7 @@ class BacktestEngine:
             if ranking_metric == 'return':
                 # 상대강도(모멘텀) 랭킹: N일 수익률 순위로 상위 종목 선정.
                 # 종목 간 횡단면 순위라 진입 신호 없이 순위 자체가 진입이 된다. 회전(월간 등)은
-                # max_holding_days 만료로 구동(엔진에 별도 리밸런싱 로직 없음).
+                # 달력 리밸런싱(engine/rebalance.py + simulator의 목표비중/재구성 경로)이 구동한다.
                 try:
                     lookback = int(risk_params.get('ranking_lookback_days') or 60)
                     momentum = price_df.pct_change(lookback)

@@ -18,6 +18,10 @@ from typing import List, Literal, Optional
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from llm_backend import OLLAMA_BASE_URL, ollama_auth_headers
+from engine.universe_pit import CANONICAL_SECTORS, normalize_sector
+
+# ParsedStrategy.sector 필드 설명에 들어가는 지원 섹터 목록(정본은 universe_pit).
+_CANONICAL_SECTORS_DOC = CANONICAL_SECTORS
 
 logger = logging.getLogger(__name__)
 
@@ -249,6 +253,21 @@ class ParsedStrategy(BaseModel):
         default=["KOSPI200"],
         description="투자 대상 시장. 언급 없으면 ['KOSPI200'] (KOSPI 전체 종목, 유동성 우선). '코스닥'/'KOSDAQ' 언급 시 ['KOSDAQ'], '전체'/'코스피+코스닥' 언급 시 ['KOSPI', 'KOSDAQ']"
     )
+    sector: Optional[str] = Field(
+        default=None,
+        description=(
+            "업종/섹터 제한. '반도체 관련주', '2차전지 업종' 등 언급 시 해당 섹터명. "
+            "지원 섹터: " + ", ".join(_CANONICAL_SECTORS_DOC) + ". "
+            "목록에 없는 업종이거나 언급이 없으면 null"
+        ),
+    )
+
+    @field_validator("sector")
+    @classmethod
+    def _normalize_sector_name(cls, v):
+        # LLM이 자유 문자열('배터리', '2차전지')을 내도 정본 섹터명으로 정규화한다.
+        # 정규화 불가(미지원 업종)면 None — 침묵 왜곡 방지는 미지원 개념 안내가 담당한다.
+        return normalize_sector(v)
 
     # ── 재무 필터
     fundamental_filters: List[FundamentalFilter] = Field(
@@ -356,6 +375,13 @@ class ParsedStrategyDiff(BaseModel):
     _normalize_ratio_sign = field_validator(*_RATIO_SIGN_FIELDS)(_abs_ratio)
     description: Optional[str] = None
     universe: Optional[List[Literal["KOSPI", "KOSDAQ", "KOSPI200"]]] = None
+    sector: Optional[str] = None
+
+    @field_validator("sector")
+    @classmethod
+    def _normalize_sector_name(cls, v):
+        return normalize_sector(v)
+
     fundamental_filters: Optional[List[FundamentalFilter]] = None
     entry_signals: Optional[List[TechnicalSignal]] = None
     exit_signals: Optional[List[TechnicalSignal]] = None
@@ -399,22 +425,22 @@ MODIFY_PROMPT = """현재 전략 JSON이 주어집니다. 사용자 수정 요�
 ## 예시
 현재 전략: {"max_positions": 20, "initial_capital": 10000000.0, ...}
 수정 요청: "종목을 10개로 줄여줘"
-출력: {"description": null, "universe": null, "fundamental_filters": null, "entry_signals": null, "exit_signals": null, "max_positions": 10, "hold_period_days": null, "rebalancing_period": null, "stop_loss_pct": null, "take_profit_pct": null, "trailing_stop_pct": null, "max_mdd_limit_pct": null, "backtest_period": null, "initial_capital": null, "execution_timing": null, "fee_rate": null, "slippage_rate": null}
+출력: {"description": null, "universe": null, "sector": null, "fundamental_filters": null, "entry_signals": null, "exit_signals": null, "max_positions": 10, "hold_period_days": null, "rebalancing_period": null, "stop_loss_pct": null, "take_profit_pct": null, "trailing_stop_pct": null, "max_mdd_limit_pct": null, "backtest_period": null, "initial_capital": null, "execution_timing": null, "fee_rate": null, "slippage_rate": null}
 
 수정 요청: "초기자금 1억으로 바꿔줘"
-출력: {"description": null, "universe": null, "fundamental_filters": null, "entry_signals": null, "exit_signals": null, "max_positions": null, "hold_period_days": null, "rebalancing_period": null, "stop_loss_pct": null, "take_profit_pct": null, "trailing_stop_pct": null, "max_mdd_limit_pct": null, "backtest_period": null, "initial_capital": 100000000.0, "execution_timing": null, "fee_rate": null, "slippage_rate": null}
+출력: {"description": null, "universe": null, "sector": null, "fundamental_filters": null, "entry_signals": null, "exit_signals": null, "max_positions": null, "hold_period_days": null, "rebalancing_period": null, "stop_loss_pct": null, "take_profit_pct": null, "trailing_stop_pct": null, "max_mdd_limit_pct": null, "backtest_period": null, "initial_capital": 100000000.0, "execution_timing": null, "fee_rate": null, "slippage_rate": null}
 
 수정 요청: "트레일링 스탑 15%로 설정해줘"
-출력: {"description": null, "universe": null, "fundamental_filters": null, "entry_signals": null, "exit_signals": null, "max_positions": null, "hold_period_days": null, "rebalancing_period": null, "stop_loss_pct": null, "take_profit_pct": null, "trailing_stop_pct": 15.0, "max_mdd_limit_pct": null, "backtest_period": null, "initial_capital": null, "execution_timing": null, "fee_rate": null, "slippage_rate": null}
+출력: {"description": null, "universe": null, "sector": null, "fundamental_filters": null, "entry_signals": null, "exit_signals": null, "max_positions": null, "hold_period_days": null, "rebalancing_period": null, "stop_loss_pct": null, "take_profit_pct": null, "trailing_stop_pct": 15.0, "max_mdd_limit_pct": null, "backtest_period": null, "initial_capital": null, "execution_timing": null, "fee_rate": null, "slippage_rate": null}
 
 수정 요청: "KOSPI200 (기본값, 빠름) 그대로 진행" 또는 "KOSPI200으로 진행"
-출력: {"description": null, "universe": ["KOSPI200"], "fundamental_filters": null, "entry_signals": null, "exit_signals": null, "max_positions": null, "hold_period_days": null, "rebalancing_period": null, "stop_loss_pct": null, "take_profit_pct": null, "trailing_stop_pct": null, "max_mdd_limit_pct": null, "backtest_period": null, "initial_capital": null, "execution_timing": null, "fee_rate": null, "slippage_rate": null}
+출력: {"description": null, "universe": ["KOSPI200"], "sector": null, "fundamental_filters": null, "entry_signals": null, "exit_signals": null, "max_positions": null, "hold_period_days": null, "rebalancing_period": null, "stop_loss_pct": null, "take_profit_pct": null, "trailing_stop_pct": null, "max_mdd_limit_pct": null, "backtest_period": null, "initial_capital": null, "execution_timing": null, "fee_rate": null, "slippage_rate": null}
 
 수정 요청: "코스닥으로 바꿔줘" 또는 "KOSDAQ (코스닥 ~1,781종목)"
-출력: {"description": null, "universe": ["KOSDAQ"], "fundamental_filters": null, "entry_signals": null, "exit_signals": null, "max_positions": null, "hold_period_days": null, "rebalancing_period": null, "stop_loss_pct": null, "take_profit_pct": null, "trailing_stop_pct": null, "max_mdd_limit_pct": null, "backtest_period": null, "initial_capital": null, "execution_timing": null, "fee_rate": null, "slippage_rate": null}
+출력: {"description": null, "universe": ["KOSDAQ"], "sector": null, "fundamental_filters": null, "entry_signals": null, "exit_signals": null, "max_positions": null, "hold_period_days": null, "rebalancing_period": null, "stop_loss_pct": null, "take_profit_pct": null, "trailing_stop_pct": null, "max_mdd_limit_pct": null, "backtest_period": null, "initial_capital": null, "execution_timing": null, "fee_rate": null, "slippage_rate": null}
 
 수정 요청: "전체 시장 (KOSPI+KOSDAQ ~2,619종목)" 또는 "전체 시장으로"
-출력: {"description": null, "universe": ["KOSPI", "KOSDAQ"], "fundamental_filters": null, "entry_signals": null, "exit_signals": null, "max_positions": null, "hold_period_days": null, "rebalancing_period": null, "stop_loss_pct": null, "take_profit_pct": null, "trailing_stop_pct": null, "max_mdd_limit_pct": null, "backtest_period": null, "initial_capital": null, "execution_timing": null, "fee_rate": null, "slippage_rate": null}
+출력: {"description": null, "universe": ["KOSPI", "KOSDAQ"], "sector": null, "fundamental_filters": null, "entry_signals": null, "exit_signals": null, "max_positions": null, "hold_period_days": null, "rebalancing_period": null, "stop_loss_pct": null, "take_profit_pct": null, "trailing_stop_pct": null, "max_mdd_limit_pct": null, "backtest_period": null, "initial_capital": null, "execution_timing": null, "fee_rate": null, "slippage_rate": null}
 """
 
 
@@ -495,6 +521,14 @@ SYSTEM_PROMPT = """당신은 한국 주식 퀀트 투자 전략을 JSON으로 �
 - '슬리피지 0.05%' → slippage_rate: 0.05
 - 언급 없으면 → fee_rate: 0.015, slippage_rate: 0.05
 
+### 업종/섹터 (sector)
+- '반도체 관련주' → sector: "반도체"
+- '2차전지 업종' → sector: "이차전지"
+- '제약주', '바이오 관련주' → sector: "바이오/제약"
+- 지원 섹터명 예: 반도체, 이차전지, 바이오/제약, 게임, 자동차, 은행/금융지주, 화학, 건설 등
+- 섹터 언급이 있고 시장 언급이 없으면 → universe: ["KOSPI", "KOSDAQ"] (업종 전체)
+- 언급 없으면 → null
+
 ## 예시
 
 입력: "AI 모델이 상승 예측한 종목에 매수, AI 하락 예측 시 매도, 최대 15종목, 손절 10%"
@@ -502,6 +536,7 @@ SYSTEM_PROMPT = """당신은 한국 주식 퀀트 투자 전략을 JSON으로 �
 {
   "description": "AI 모델이 상승 예측한 종목에 매수, AI 하락 예측 시 매도, 최대 15종목, 손절 10%",
   "universe": ["KOSPI200"],
+  "sector": null,
   "fundamental_filters": [],
   "entry_signals": [{"indicator": "ai_model", "signal_type": "buy", "threshold": 70}],
   "exit_signals": [{"indicator": "ai_drop_model", "signal_type": "sell", "threshold": 70}],
@@ -524,6 +559,7 @@ SYSTEM_PROMPT = """당신은 한국 주식 퀀트 투자 전략을 JSON으로 �
 {
   "description": "pbr 1이하 per 7이하 종목을 10개 사서 1년간 보유하는 전략",
   "universe": ["KOSPI200"],
+  "sector": null,
   "fundamental_filters": [
     {"metric": "pbr", "operator": "<=", "value": 1.0},
     {"metric": "per", "operator": "<=", "value": 7.0}
@@ -580,6 +616,7 @@ COMPACT_SYSTEM_PROMPT = """한국 주식 전략 자연어를 ParsedStrategy JSON
 - rebalancing_period: "none", 누락된 optional 필드는 null
 
 매핑:
+- '반도체 관련주'/'2차전지 업종'처럼 업종·섹터 언급 → sector (지원 섹터명, 예: "반도체", "이차전지", "바이오/제약", "게임", "은행/금융지주"). 시장 언급이 없으면 universe는 ["KOSPI", "KOSDAQ"]
 - PBR/PER/ROE/부채비율/시가총액/거래대금 → fundamental_filters
 - 이하/미만/이상/초과 → <=/< />=/ >
 - 골든크로스/데드크로스 → ma_crossover buy/sell, 기본 5/20
@@ -1262,6 +1299,35 @@ def _extract_explicit_universe(user_input: str) -> Optional[List[str]]:
     if mentions_kosdaq:
         return ["KOSDAQ"]
     return None
+
+
+# ── 섹터/업종 추출 ────────────────────────────────────────────────────────────
+# 정본 섹터명(universe_pit.CANONICAL_SECTORS)과 통칭 동의어를, 업종을 가리키는 게 분명한
+# 큐('관련주/업종/섹터/테마주/종목/주식/주')가 바로 뒤따를 때만 결정적으로 잡는다.
+# '반도체가 유망하니까' 같은 단독 언급은 잡지 않는다(긴 꼬리는 LLM의 sector 필드에 위임).
+# '주(?!가)'는 '반도체주'는 잡되 '반도체 주가'의 '주가'는 배제한다.
+# '중심/위주'는 "반도체 중심으로"·"반도체 위주로"처럼 범위를 좁히는 후치 표현(범주 신호).
+# '분야'는 "바이오분야 전략"처럼 업종을 가리키는 명시적 후치 큐다 — 누락 시 수정 병합에서
+# 이전 대화의 섹터가 그대로 유지되는 사고가 있었다(바이오 요청에 반도체 유지).
+_SECTOR_CUE = r"(?:관련주|관련종목|테마주|업종|섹터|분야|종목|주식|중심|위주|주(?!가))"
+
+
+def _sector_terms_longest_first() -> list[str]:
+    from engine.universe_pit import _SECTOR_SYNONYMS, _sector_key
+
+    terms = {_sector_key(s) for s in CANONICAL_SECTORS} | set(_SECTOR_SYNONYMS)
+    return sorted(terms, key=len, reverse=True)
+
+
+_SECTOR_TERM_RE = re.compile(
+    "(" + "|".join(re.escape(t) for t in _sector_terms_longest_first()) + ")" + _SECTOR_CUE
+)
+
+
+def _extract_sector(user_input: str) -> Optional[str]:
+    """'반도체 관련주'·'2차전지 업종' 같은 명시적 섹터 제한을 정본 섹터명으로 추출한다."""
+    match = _SECTOR_TERM_RE.search(_compact(user_input))
+    return normalize_sector(match.group(1)) if match else None
 
 
 def _mentions_technical_exit_terms(compact_prompt: str) -> bool:
@@ -2462,7 +2528,9 @@ _UNSUPPORTED_CONCEPT_PATTERNS: tuple[tuple[str, str], ...] = (
     ("cash_flow", r"현금흐름|영업활동현금|잉여현금|fcf"),
     ("cash_weight", r"현금[^,]{0,4}(?:비중|유지)"),
     ("dividend", r"배당"),
-    ("sector", r"섹터|업종"),
+    # 섹터/업종은 이제 지원 개념이지만, '지원 목록에 없는 업종'(예: '로봇 관련주')은 여전히
+    # 표현 불가다. _mentioned_unsupported_concepts가 섹터 추출 성공 시 이 항목을 제외한다.
+    ("sector", r"섹터|업종|관련주|테마주"),
     ("valuation_exit", r"밸류에이션"),
     ("relative_to_market", r"시장(?:보다|평균|대비)"),
     ("earnings", r"실적|어닝|컨센서스|목표주가"),
@@ -2471,6 +2539,10 @@ _UNSUPPORTED_CONCEPT_PATTERNS: tuple[tuple[str, str], ...] = (
     ("ema_alignment", r"정배열|역배열"),
     ("partial_exit", r"분할매[도수]|절반[^,]{0,3}(?:익절|매도|청산)|일부[^,]{0,3}(?:익절|청산)"),
     ("new_low", r"신저가"),
+    # 거래량 배수 임계값("평소보다 3배") — volume_spike는 OBV 크로스오버라 배수를 표현할 수
+    # 없다(TechnicalSignal에 해당 필드 없음). 배수 없는 '거래량 급증'은 지원 개념이므로 제외.
+    # 절 경계(쉼표/마침표)를 넘는 매칭 금지 — "거래량 급증, 3배 수익"의 '3배'는 배수 조건이 아니다.
+    ("volume_multiple", r"(?:거래량|거래대금)[^,.]{0,10}\d+(?:\.\d+)?배|\d+(?:\.\d+)?배[^,.]{0,4}(?:거래량|거래대금)"),
 )
 _UNSUPPORTED_CONCEPT_RE = tuple(
     (name, re.compile(pattern)) for name, pattern in _UNSUPPORTED_CONCEPT_PATTERNS
@@ -2483,7 +2555,7 @@ _UNSUPPORTED_CONCEPT_LABELS: dict[str, str] = {
     "cash_flow": "현금흐름 조건",
     "cash_weight": "현금 비중 조건",
     "dividend": "배당 조건",
-    "sector": "섹터/업종 조건",
+    "sector": "지원 목록에 없는 섹터/업종 조건",
     "valuation_exit": "밸류에이션 기반 청산",
     "relative_to_market": "시장 대비 상대 조건",
     "earnings": "실적/컨센서스 조건",
@@ -2492,13 +2564,20 @@ _UNSUPPORTED_CONCEPT_LABELS: dict[str, str] = {
     "ema_alignment": "정배열/역배열 조건",
     "partial_exit": "분할 매도/부분 청산",
     "new_low": "신저가 조건",
+    "volume_multiple": "거래량 배수 조건(평소 대비 N배)",
 }
 
 
 def _mentioned_unsupported_concepts(user_input: str) -> list[str]:
-    """입력에 언급된 미지원 개념 이름들을 패턴 정의 순서대로 반환한다(없으면 빈 리스트)."""
+    """입력에 언급된 미지원 개념 이름들을 패턴 정의 순서대로 반환한다(없으면 빈 리스트).
+
+    섹터/업종 언급은 지원 섹터로 결정적 추출에 성공하면 미지원으로 치지 않는다
+    ('반도체 관련주'=지원, '로봇 관련주'=목록 밖 → LLM 위임 + 안내)."""
     compact = _compact(user_input)
-    return [name for name, rx in _UNSUPPORTED_CONCEPT_RE if rx.search(compact)]
+    names = [name for name, rx in _UNSUPPORTED_CONCEPT_RE if rx.search(compact)]
+    if "sector" in names and _extract_sector(user_input) is not None:
+        names.remove("sector")
+    return names
 
 
 def _mentions_unsupported_concept(user_input: str) -> Optional[str]:
@@ -2634,6 +2713,7 @@ def _parse_rule_based_strategy(user_input: str) -> Optional[ParsedStrategy]:
     parsed = ParsedStrategy(
         description=user_input,
         universe=_extract_explicit_universe(user_input) or ["KOSPI200"],
+        sector=_extract_sector(user_input),
         fundamental_filters=fundamental_filters,
         entry_signals=entry_signals,
         exit_signals=exit_signals,
@@ -3216,6 +3296,15 @@ def _apply_prompt_overrides(
     explicit_universe = _extract_explicit_universe(user_input)
     if explicit_universe is not None:
         updates["universe"] = explicit_universe
+
+    # 섹터/업종 제한도 결정적으로 추출해 LLM이 놓쳐도 보장한다. 시장 언급 없는 섹터 전략은
+    # 특정 시장이 아니라 '그 업종 전체'가 자연스러운 해석이므로 양시장을 기본으로 한다
+    # (KOSPI200 기본값이면 시총 상위 200 ∩ 섹터로 과도하게 좁아진다). 언급 없으면 기존 값 유지.
+    sector = _extract_sector(user_input)
+    if sector is not None:
+        updates["sector"] = sector
+        if explicit_universe is None:
+            updates["universe"] = ["KOSPI", "KOSDAQ"]
 
     # 리스크 필드(손절/익절/트레일링)는 단일 진실 소스에서 가져온다.
     updates.update(extract_risk_field_overrides(user_input))

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { fetchBackend } from '@/lib/server/backend'
 
 // 사용자 입력의 intent(STRATEGY_ADVICE / STOCK_ANALYSIS / GENERAL_INVESTMENT / UNKNOWN)를 분류한다.
+// STOCK_ANALYSIS는 종목 분석이 아니라 '추천 불가 안내 + 전략 설계 전환'(suggested_reply)이다.
 export async function POST(req: NextRequest) {
   let body: unknown
   try {

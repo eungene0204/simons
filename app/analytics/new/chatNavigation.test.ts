@@ -43,7 +43,6 @@ describe("selectPersistableChatMessages", () => {
         parsed: { foo: 1 },
         coachText: "검증 결과",
         isLoading: false,
-        stockLoading: false,
         coachLoading: false,
       },
     ]);
@@ -54,11 +53,10 @@ describe("selectPersistableChatMessages", () => {
       { role: "user", content: "PBR 1 이하 전략" },
       { role: "assistant", isLoading: true },
       { role: "assistant", coachLoading: true },
-      { role: "assistant", stockLoading: true },
     ]);
 
     expect(result).toEqual([
-      { role: "user", content: "PBR 1 이하 전략", isLoading: false, stockLoading: false, coachLoading: false },
+      { role: "user", content: "PBR 1 이하 전략", isLoading: false, coachLoading: false },
     ]);
   });
 
@@ -67,18 +65,17 @@ describe("selectPersistableChatMessages", () => {
       { role: "user", content: "안녕" },
       { role: "assistant", infoText: "안내" },
       { role: "assistant", error: "오류" },
-      { role: "assistant", stockAnalysis: { symbol: "005930" } },
       { role: "assistant", clarification: "익절 조건이 없습니다" },
     ];
 
-    expect(selectPersistableChatMessages(messages)).toHaveLength(5);
+    expect(selectPersistableChatMessages(messages)).toHaveLength(4);
   });
 });
 
 describe("shouldShowChatInputBox", () => {
   it("[회귀] shows the input again after the only assistant message ends in an error", () => {
     // 실사례(2026-07-05): 첫 메시지 처리 중 에러가 나면 어시스턴트 메시지가
-    // { role: "assistant", error } 로만 채워져 parsed/stockAnalysis/infoText가 전부 없다.
+    // { role: "assistant", error } 로만 채워져 parsed/infoText가 전부 없다.
     // 이 경우도 입력창을 다시 보여줘야 사용자가 재시도하거나 새 메시지를 보낼 수 있다.
     const messages = [
       { role: "user", content: "PBR 1 이하 전략" },
@@ -102,7 +99,7 @@ describe("shouldShowChatInputBox", () => {
     expect(shouldShowChatInputBox(messages, false, true)).toBe(true);
   });
 
-  it("shows the input once a message carries parsed/stockAnalysis/infoText", () => {
+  it("shows the input once a message carries parsed/infoText", () => {
     expect(
       shouldShowChatInputBox(
         [{ role: "user", content: "x" }, { role: "assistant", parsed: { foo: 1 } }],

@@ -238,3 +238,76 @@ def test_rebalance_dropout_labeled_precisely_custom_loop_path():
     conditions = _early_sell_conditions(result)
     assert conditions, "탈락 종목의 매도 기록이 없음"
     assert any("리밸런싱 제외" in c for c in conditions), f"리밸런싱 사유 라벨 누락: {conditions}"
+
+
+def _write_rotation_universe(data_dir: str, prefix: str, dates) -> list[str]:
+    """리밸런싱 회전 시나리오 3종목: STEADY(내내 상승)·EARLY(1월 급등→2월 급락)·LATE(2월부터 급등)."""
+    _write_series(data_dir, f"{prefix}_STEADY", [100 + 1.0 * i for i in range(100)], dates)
+    early = [100 + 3.0 * i for i in range(31)]
+    early += [early[-1] - 3.0 * (i + 1) for i in range(69)]
+    _write_series(data_dir, f"{prefix}_EARLY", early, dates)
+    late = [100.0 for _ in range(31)] + [100 + 4.0 * (i + 1) for i in range(69)]
+    _write_series(data_dir, f"{prefix}_LATE", late, dates)
+    return [f"{prefix}_STEADY", f"{prefix}_EARLY", f"{prefix}_LATE"]
+
+
+def _rotation_req(symbols: list[str], **extra_risk) -> dict:
+    return {
+        "symbols": symbols,
+        "entry": {"conditions": []},
+        "exit": {"conditions": []},
+        "risk": {
+            "position_size_pct": 50,
+            "max_positions": 2,
+            "ranking_metric": "return",
+            "ranking_lookback_days": 5,
+            "rebalancing_period": "monthly",
+            "liquidity_multiplier": 0,
+            **extra_risk,
+        },
+        "options": {"execution_type": "next_open"},
+    }
+
+
+def _signal_dates(result, symbol: str, side: str) -> list[str]:
+    return [s["date"] for s in result["signals"] if s["symbol"] == symbol and s["type"] == side]
+
+
+def test_next_open_rebalance_fills_on_rebalance_day_pure_path():
+    """[회귀] next_open 순수 리밸런싱(from_orders) 경로: 엔진이 신호·랭킹을 이미 1일
+    shift해 넘기므로 시뮬레이터가 다시 shift하면 안 된다 — 리밸런싱 회전(편입·편출)은
+    그 달 첫 거래일 시가에 체결돼야 한다(이중 shift 시 하루 늦게 체결되던 버그)."""
+    dates = pd.date_range(start="2024-01-01", periods=100, freq="D")
+    data_dir = os.path.join(os.path.dirname(__file__), "data")
+    os.makedirs(data_dir, exist_ok=True)
+    symbols = _write_rotation_universe(data_dir, "RBNO", dates)
+
+    engine = BacktestEngine(data_dir=data_dir)
+    result = engine.run_backtest(_rotation_req(symbols))
+
+    late_buys = _signal_dates(result, "RBNO_LATE", "buy")
+    early_sells = _signal_dates(result, "RBNO_EARLY", "sell")
+    assert late_buys, "3월 편입 종목의 매수 기록이 없음"
+    assert late_buys[0] == "2024-03-01", f"편입이 리밸런싱일에 체결되지 않음: {late_buys[0]}"
+    assert early_sells, "3월 편출 종목의 매도 기록이 없음"
+    assert early_sells[0] == "2024-03-01", f"편출이 리밸런싱일에 체결되지 않음: {early_sells[0]}"
+
+
+def test_next_open_rebalance_fills_on_rebalance_day_custom_loop_path():
+    """[회귀] next_open 커스텀 루프(reconstitution) 경로: 편출 결정은 전일 정보 기반이므로
+    (리스크 청산과 달리) 편입과 같은 리밸런싱일에 체결된다 — 하루 늦게 팔리던 비대칭 제거."""
+    dates = pd.date_range(start="2024-01-01", periods=100, freq="D")
+    data_dir = os.path.join(os.path.dirname(__file__), "data")
+    os.makedirs(data_dir, exist_ok=True)
+    symbols = _write_rotation_universe(data_dir, "RBNOL", dates)
+
+    engine = BacktestEngine(data_dir=data_dir)
+    # 발동 안 하는 SL로 커스텀 루프 경로 강제
+    result = engine.run_backtest(_rotation_req(symbols, stop_loss_pct=90))
+
+    late_buys = _signal_dates(result, "RBNOL_LATE", "buy")
+    early_sells = _signal_dates(result, "RBNOL_EARLY", "sell")
+    assert late_buys, "3월 편입 종목의 매수 기록이 없음"
+    assert late_buys[0] == "2024-03-01", f"편입이 리밸런싱일에 체결되지 않음: {late_buys[0]}"
+    assert early_sells, "3월 편출 종목의 매도 기록이 없음"
+    assert early_sells[0] == "2024-03-01", f"편출이 리밸런싱일에 체결되지 않음: {early_sells[0]}"

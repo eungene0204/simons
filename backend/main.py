@@ -143,8 +143,8 @@ app.include_router(advisor_router)
 from api.coach_routes import router as coach_router
 app.include_router(coach_router)
 
-from api.stock_analysis_routes import router as stock_analysis_router
-app.include_router(stock_analysis_router)
+from api.intent_routes import router as intent_router
+app.include_router(intent_router)
 
 # news_v2 — pre-fetch & cache architecture
 try:

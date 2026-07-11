@@ -3,6 +3,8 @@ import type { StrategyDSL } from "@/types/strategy";
 export interface ParsedSummary {
   description: string;
   universe: string[];
+  // 섹터/업종 제한(정본 섹터명, 예: "반도체"). 없으면 null/생략.
+  sector?: string | null;
   fundamental_filters: Array<{ metric: string; operator: string; value: number }>;
   entry_signals: Array<{ indicator: string; signal_type?: string | null; mode?: string | null }>;
   exit_signals: Array<{ indicator: string; signal_type?: string | null; mode?: string | null }>;
@@ -234,15 +236,20 @@ export function getDisplayUniverseLabels(
 ): string[] {
   const normalizedUniverses = parsed.universe.map(normalizeUniverseId);
 
+  const sectorLabel = parsed.sector ? [`${parsed.sector} 업종`] : [];
+
   if (
     normalizedUniverses.length === 1 &&
     normalizedUniverses[0] === "kospi200" &&
     (backtestRequest?.symbols?.length ?? 0) > 220
   ) {
-    return ["KOSPI"];
+    return ["KOSPI", ...sectorLabel];
   }
 
-  return normalizedUniverses.map((universe) => UNIVERSE_LABELS[universe] ?? universe);
+  return [
+    ...normalizedUniverses.map((universe) => UNIVERSE_LABELS[universe] ?? universe),
+    ...sectorLabel,
+  ];
 }
 
 // 백테스트가 실제로 매매를 만들어내려면 최소한 하나의 '매수(종목 선정) 기준'이 있어야 한다.
@@ -344,6 +351,7 @@ export function buildStrategySummary(
 // 0거래와 일관됨). risk.ranking_metric은 엔진에서 '선정=진입'이므로 진입 신호로 노출한다.
 interface ExecutedBacktestRequest {
   universe_id?: string | null;
+  sector?: string | null;
   entry?: { conditions?: Array<{ id?: string; type?: string; params?: Record<string, unknown> }> } | null;
   exit?: { conditions?: Array<{ id?: string; type?: string; params?: Record<string, unknown> }> } | null;
   risk?: Record<string, unknown> | null;
@@ -411,7 +419,9 @@ export function buildStrategySummaryFromRequest(
   return {
     // 실행된 요청에는 전략명이 없다 — 저장 시 기본 이름은 promptText가 우선 사용한다.
     strategyName: "",
-    universeName: resolveUniverseLabelFromId(req.universe_id),
+    universeName: [resolveUniverseLabelFromId(req.universe_id), req.sector ? `${req.sector} 업종` : ""]
+      .filter(Boolean)
+      .join(" · "),
     blockNames: [...entryBlocks, ...exitBlocks],
     entryBlocks,
     exitBlocks,

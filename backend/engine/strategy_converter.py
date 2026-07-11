@@ -171,6 +171,8 @@ def to_canonical_strategy_dsl(strategy: ParsedStrategy) -> dict:
     """
     canonical = _drop_none({
         "universe": sorted(strategy.universe),
+        # None이면 _drop_none이 제거하므로 섹터 없는 기존 전략의 해시는 변하지 않는다.
+        "sector": strategy.sector,
         "fundamental_filters": sorted(
             [
                 {
@@ -392,6 +394,8 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         "symbol_count": len(symbols) if resolve_symbols else _estimate_universe_symbol_count(strategy.universe),
         "symbols_resolved": resolve_symbols,
         "universe_id": universe_id,
+        # 섹터 제한 — 엔진이 PIT 유니버스 해석 후 심볼을 이 섹터로 필터링한다.
+        "sector": strategy.sector,
         "entry": {"conditions": entry_conditions},
         "exit": {"conditions": exit_conditions},
         "risk": risk,

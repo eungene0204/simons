@@ -123,9 +123,56 @@ def test_classifier_prompt_has_typo_tolerance_guidance():
 
 
 def test_named_stock_is_not_pick_redirect():
-    # 종목명이 특정된 매수 질문은 추천 거절이 아니라 종목 분석으로 가야 한다.
+    # 종목명이 특정된 매수 질문은 열린 추천(STOCK_PICK)이 아니라 STOCK_ANALYSIS로 잡혀
+    # 그 종목에서 출발한 전략 전환 안내(suggested_reply)를 받는다.
     result = classify("삼성전자 사야 할까요?")
     assert result.intent == QueryIntent.STOCK_ANALYSIS
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "삼성전자를 사볼까?",       # 실사용 문구 — '사볼까'도 결정적으로 잡혀야 한다
+        "지금 삼성전자 사도 될까요?",
+        "SK하이닉스 전망 어때?",
+    ],
+)
+def test_stock_question_redirects_to_strategy_building(query):
+    # [규제 안전] 종목 분석 기능 제거 — 특정 종목 매수·매도 질문에는 판단·추천을 제공하지
+    # 않고, 그 종목에서 출발한 전략 설계 전환 안내를 suggested_reply로 동반해야 한다.
+    result = classify(query)
+    assert result.intent == QueryIntent.STOCK_ANALYSIS
+    assert result.deterministic is True
+    reply = result.suggested_reply or ""
+    assert "추천은 제공하지 않아요" in reply
+    assert "전략" in reply
+    # 언급한 종목명이 안내에 포함돼 '그 종목에서 출발한' 전환임이 드러나야 한다.
+    assert result.symbols and result.symbols[0].name in reply
+
+
+def test_stock_question_redirect_tailors_universe_by_market():
+    # 예시 전략의 유니버스는 언급 종목의 시장에 맞춘다(KOSPI→코스피200 대형주, KOSDAQ→코스닥).
+    from intent.scope import stock_question_redirect
+    kospi = stock_question_redirect("삼성전자", "KOSPI")
+    assert "코스피200" in kospi
+    kosdaq = stock_question_redirect("에코프로", "KOSDAQ")
+    assert "코스닥" in kosdaq
+    generic = stock_question_redirect()
+    assert "추천은 제공하지 않아요" in generic
+
+
+def test_stock_question_redirect_has_no_action_directives():
+    # 안내 문구 자체가 매수·매도 지시/추천 표현을 담으면 안 된다(유사투자자문 회피).
+    from stock_analysis.guardrails import contains_forbidden
+    from intent.scope import stock_question_redirect
+    assert contains_forbidden(stock_question_redirect("삼성전자", "KOSPI")) is False
+
+
+def test_llm_fallback_stock_analysis_sets_redirect_reply():
+    # LLM 폴백으로 STOCK_ANALYSIS가 분류돼도 전환 안내가 채워져야 한다(프론트가 그대로 표시).
+    result = classify("삼성전자 물타기 괜찮은 생각일까요 흠", llm=lambda s, u: '{"intent": "STOCK_ANALYSIS"}')
+    assert result.intent == QueryIntent.STOCK_ANALYSIS
+    assert "추천은 제공하지 않아요" in (result.suggested_reply or "")
 
 
 def test_screening_basket_recommend_is_strategy():
@@ -356,3 +403,23 @@ def test_llm_fallback_onboarding_sets_reply():
     result = classify("나 이런 거 잘 못하는데", llm=lambda s, u: '{"intent": "ONBOARDING"}')
     assert result.intent == QueryIntent.ONBOARDING
     assert result.suggested_reply
+
+
+def test_stock_question_redirect_first_example_uses_stock_sector():
+    # 섹터 전략이 지원되면서, 언급 종목이 속한 업종 전략이 첫 예시가 된다(삼성전자→반도체).
+    result = classify("삼성전자를 사볼까?")
+    assert result.intent == QueryIntent.STOCK_ANALYSIS
+    assert "반도체 업종" in (result.suggested_reply or "")
+
+
+def test_stock_question_redirect_sector_example_is_parseable():
+    # 전환 안내의 업종 예시 문구는 실제로 파싱·실행 가능한 전략이어야 한다(막다른 길 방지).
+    from intent.scope import stock_question_redirect
+    from engine.nl_parser import _parse_rule_based_strategy
+
+    reply = stock_question_redirect("삼성전자", "KOSPI", "반도체")
+    example = next(line for line in reply.splitlines() if line.startswith("• ") and "업종" in line)
+    parsed = _parse_rule_based_strategy(example.removeprefix("• "))
+    assert parsed is not None
+    assert parsed.sector == "반도체"
+    assert parsed.ranking_metric == "return"

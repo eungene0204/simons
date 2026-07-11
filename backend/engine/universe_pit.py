@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Optional
 
 _MASTER_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "stock-master.json"
+_KOREA_STOCKS_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "korea-stocks.json"
 
 # When a backtest has no explicit start (period=FULL), bound the lower edge here.
 _DEFAULT_START_FLOOR = "2015-01-01"
@@ -100,6 +101,90 @@ def get_shares(symbols: list[str]) -> dict[str, float]:
         if s["symbol"] in wanted and s.get("shares"):
             out[s["symbol"]] = float(s["shares"])
     return out
+
+
+# ── 섹터 유니버스 ────────────────────────────────────────────────────────────
+# 섹터 분류의 SOT는 korea-stocks.json의 sector 필드(sector_mapper 재분류 산출물)다.
+# 주의: PIT 마스터(stock-master.json, 상장폐지 포함)에는 섹터가 없어, 섹터 필터는
+# '현재 상장 종목' 기준 근사다 — 기간 중 상폐된 종목이 빠지므로 엔진이 경고를 남긴다.
+
+# korea-stocks.json sector 필드의 전체 값(38개). 파서·프롬프트·검증이 공유하는 정본.
+CANONICAL_SECTORS: tuple[str, ...] = (
+    "IT 하드웨어", "가구/인테리어", "건설", "교육", "기계/장비", "기타 서비스",
+    "기타 제조업", "디스플레이/부품", "목재", "미디어/엔터", "바이오/제약", "반도체",
+    "반도체 소재", "부동산", "사료/축산", "소프트웨어/플랫폼", "수산", "수산가공",
+    "시멘트", "식품/음료", "에너지/원자력", "욕실", "우주항공/방산", "운송/물류",
+    "유통/상사", "은행/금융지주", "의료기기", "이차전지", "자동차", "자동차부품",
+    "조선/해운", "종이", "증권/보험", "지주회사", "철강/금속", "통신/유틸리티",
+    "화장품/패션", "화학",
+)
+
+# 사용자가 흔히 말하는 업종 표현 → 정본 섹터명. 모호하지 않은 통칭만 넣는다
+# (핵심만 결정적으로 잡고 긴 꼬리는 LLM에 위임 — feedback_nl_parser_hybrid).
+_SECTOR_SYNONYMS: dict[str, str] = {
+    "2차전지": "이차전지", "배터리": "이차전지",
+    "제약": "바이오/제약", "바이오": "바이오/제약", "바이오제약": "바이오/제약",
+    "반도체소재": "반도체 소재",
+    "it하드웨어": "IT 하드웨어",
+    "소프트웨어": "소프트웨어/플랫폼", "플랫폼": "소프트웨어/플랫폼", "인터넷": "소프트웨어/플랫폼",
+    "은행": "은행/금융지주", "금융지주": "은행/금융지주",
+    "증권": "증권/보험", "보험": "증권/보험",
+    "화장품": "화장품/패션", "패션": "화장품/패션", "의류": "화장품/패션",
+    "식품": "식품/음료", "음료": "식품/음료",
+    "엔터": "미디어/엔터", "엔터테인먼트": "미디어/엔터", "미디어": "미디어/엔터",
+    "통신": "통신/유틸리티",
+    "에너지": "에너지/원자력", "원자력": "에너지/원자력",
+    "조선": "조선/해운", "해운": "조선/해운",
+    "철강": "철강/금속",
+    "방산": "우주항공/방산", "우주항공": "우주항공/방산", "항공우주": "우주항공/방산",
+    "기계": "기계/장비",
+    "디스플레이": "디스플레이/부품",
+    "리츠": "부동산",
+    "물류": "운송/물류", "운송": "운송/물류",
+    "유통": "유통/상사",
+    "제지": "종이",
+    "완성차": "자동차",
+    "지주": "지주회사",
+    "헬스케어": "의료기기",
+    # 'AI 관련주'는 이 분류 체계에서 소프트웨어/플랫폼에 속한다(sector_mapper MAPPING_RULES와 동일).
+    "ai": "소프트웨어/플랫폼",
+    "인공지능": "소프트웨어/플랫폼",
+}
+
+
+def _sector_key(text: str) -> str:
+    """비교용 키 — 공백 제거·소문자화('반도체 소재'='반도체소재')."""
+    return (text or "").replace(" ", "").lower()
+
+
+_CANONICAL_BY_KEY = {_sector_key(s): s for s in CANONICAL_SECTORS}
+
+
+def normalize_sector(raw: Optional[str]) -> Optional[str]:
+    """사용자/LLM이 준 업종 표현을 정본 섹터명으로 정규화한다. 못 찾으면 None."""
+    if not raw:
+        return None
+    key = _sector_key(raw)
+    if key in _CANONICAL_BY_KEY:
+        return _CANONICAL_BY_KEY[key]
+    return _SECTOR_SYNONYMS.get(key)
+
+
+@lru_cache(maxsize=1)
+def _load_sector_map() -> dict[str, str]:
+    if not _KOREA_STOCKS_PATH.exists():
+        return {}
+    stocks = json.loads(_KOREA_STOCKS_PATH.read_text(encoding="utf-8"))
+    return {s["symbol"]: s["sector"] for s in stocks if s.get("symbol") and s.get("sector")}
+
+
+def filter_by_sector(symbols: list[str], sector: str) -> list[str]:
+    """심볼 목록을 정본 섹터명으로 필터링한다(섹터 미상 종목은 제외)."""
+    canonical = normalize_sector(sector)
+    if canonical is None:
+        return []
+    smap = _load_sector_map()
+    return [s for s in symbols if smap.get(s) == canonical]
 
 
 def get_delisting_dates(symbols: list[str]) -> dict[str, str]:

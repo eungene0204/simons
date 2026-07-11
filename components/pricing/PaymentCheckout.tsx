@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { X, CreditCard } from "phosphor-react";
 import {
   loadTossPayments,
   type TossPaymentsPayment,
@@ -19,13 +19,16 @@ interface PaymentOrderInfo {
 
 interface PaymentCheckoutProps {
   planId: PlanId;
+  onClose: () => void;
 }
 
-// 토스페이먼츠 자동결제(빌링) 체크아웃.
+// 토스페이먼츠 자동결제(빌링) 체크아웃 모달.
 // 흐름: 주문 생성(/api/payment/order) → requestBillingAuth로 카드 등록창 호출 →
 // successUrl(/pricing/success)에서 서버가 빌링키 발급 + 첫 달 결제 승인(/api/payment/confirm).
 // 이후 매월 서버 갱신 잡이 빌링키로 자동 청구한다.
-export default function PaymentCheckout({ planId }: PaymentCheckoutProps) {
+// requestBillingAuth는 브라우저 전체를 토스 카드 등록창으로 리다이렉트하므로,
+// 이 모달은 리다이렉트 직전의 주문 확인·자동갱신 고지 단계만 담당한다.
+export default function PaymentCheckout({ planId, onClose }: PaymentCheckoutProps) {
   const [payment, setPayment] = useState<TossPaymentsPayment | null>(null);
   const [order, setOrder] = useState<PaymentOrderInfo | null>(null);
   const [requesting, setRequesting] = useState(false);
@@ -66,6 +69,22 @@ export default function PaymentCheckout({ planId }: PaymentCheckoutProps) {
     })();
   }, [planId]);
 
+  // Esc로 모달 닫기
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  // 에러 메시지는 3초 후 자동으로 사라진다
+  useEffect(() => {
+    if (!error) return;
+    const timer = setTimeout(() => setError(null), 3000);
+    return () => clearTimeout(timer);
+  }, [error]);
+
   const handleRegisterCard = async () => {
     if (!payment || !order || requesting) return;
     setRequesting(true);
@@ -87,64 +106,74 @@ export default function PaymentCheckout({ planId }: PaymentCheckoutProps) {
   };
 
   return (
-    <div className="mx-auto w-full max-w-2xl">
-      <div className="text-center">
-        <h1 className="text-3xl font-black tracking-[-0.04em] text-white md:text-4xl">
-          {plan.name} 플랜 구독 결제
-        </h1>
-        <p className="mt-2 text-sm font-bold text-gray-500">
-          월 ₩{plan.monthlyPrice.toLocaleString("ko-KR")} (VAT 포함) · 정기결제
-        </p>
-      </div>
-
-      {error ? (
-        <div className="mt-8 rounded-2xl border border-white/[0.08] bg-[#0a0a0a] p-6 text-center">
-          <p className="text-sm font-black text-[var(--main-red)]">{error}</p>
-          <Link
-            href="/pricing"
-            className="mt-4 inline-block rounded-2xl border border-white/[0.12] px-6 py-3 text-sm font-black text-white hover:bg-white/[0.06]"
-          >
-            요금제 페이지로 돌아가기
-          </Link>
-        </div>
-      ) : null}
-
-      {/* 자동 갱신 결제 조건 고지 — 결제 전 화면 고지(약관 제12조 1·7항) */}
-      <div className="mt-8 rounded-3xl border border-white/[0.08] bg-[#0a0a0a] p-6">
-        <dl className="space-y-3 text-sm font-bold">
-          <div className="flex justify-between">
-            <dt className="text-gray-500">상품</dt>
-            <dd className="text-white">널스탁 {plan.name} 플랜 월 이용료</dd>
-          </div>
-          <div className="flex justify-between">
-            <dt className="text-gray-500">결제 금액</dt>
-            <dd className="text-white">월 ₩{plan.monthlyPrice.toLocaleString("ko-KR")} (VAT 포함)</dd>
-          </div>
-          <div className="flex justify-between">
-            <dt className="text-gray-500">결제 방식</dt>
-            <dd className="text-white">신용·체크카드 자동결제 (매월 갱신)</dd>
-          </div>
-        </dl>
-        <ul className="mt-5 space-y-1.5 border-t border-white/[0.08] pt-4 text-xs font-bold leading-relaxed text-gray-500">
-          <li>· 카드 등록 후 첫 달 이용료가 즉시 결제되고 {plan.name} 플랜이 적용됩니다.</li>
-          <li>· 해지하지 않는 한 매월 같은 날짜에 등록한 카드로 자동 결제됩니다.</li>
-          <li>· 요금제 페이지에서 언제든 해지할 수 있으며, 해지해도 이미 결제된 기간에는 계속 이용할 수 있고 다음 결제일부터 청구되지 않습니다.</li>
-          <li>· 환불 조건은 이용약관 제12조(환불 정책)를 따릅니다.</li>
-        </ul>
-      </div>
-
-      <button
-        type="button"
-        disabled={!payment || !order || requesting}
-        onClick={() => void handleRegisterCard()}
-        className="mt-6 w-full rounded-2xl bg-blue-600 px-4 py-4 text-sm font-black text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-8"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${plan.name} 플랜 구독 결제`}
+    >
+      <div
+        className="max-h-full w-full max-w-lg overflow-y-auto rounded-3xl border border-white/[0.08] bg-[#0a0a0a] p-6 text-white sm:p-8"
+        onClick={(e) => e.stopPropagation()}
       >
-        {requesting ? "카드 등록창 여는 중..." : "카드 등록하고 구독 시작하기"}
-      </button>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-black tracking-[-0.04em] text-white">
+              {plan.name} 플랜 구독 결제
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="닫기"
+            className="shrink-0 text-gray-400 transition-colors hover:text-white"
+          >
+            <X size={22} />
+          </button>
+        </div>
 
-      <p className="mt-4 text-center text-xs font-bold text-gray-600">
-        위 버튼을 누르면 자동결제 조건에 동의하고 카드 등록창으로 이동합니다.
-      </p>
+        {/* 자동 갱신 결제 조건 고지 — 결제 전 화면 고지(약관 제12조 1·7항) */}
+        <div className="mt-6 rounded-3xl border border-white/[0.08] bg-[#050505] p-6">
+          <dl className="space-y-3 text-sm font-bold">
+            <div className="flex justify-between">
+              <dt className="text-gray-500">상품</dt>
+              <dd className="text-white">{plan.name} 플랜</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-gray-500">결제 금액</dt>
+              <dd className="text-white">월 ₩{plan.monthlyPrice.toLocaleString("ko-KR")} (VAT 포함)</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-gray-500">결제 방식</dt>
+              <dd className="text-white">신용·체크카드 자동결제 (매월 갱신)</dd>
+            </div>
+          </dl>
+          <ul className="mt-5 space-y-1.5 border-t border-white/[0.08] pt-4 text-xs font-bold leading-relaxed text-gray-500">
+            <li>· 환불 조건은 이용약관 제12조(환불 정책)를 따릅니다.</li>
+            {error ? <li className="text-center text-[var(--main-red)]">{error}</li> : null}
+          </ul>
+        </div>
+
+        <div className="mt-6 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex w-24 items-center justify-center rounded-lg border border-white/[0.12] px-4 py-2 text-xs font-black text-white transition-colors hover:bg-white/[0.06]"
+          >
+            취소
+          </button>
+          <button
+            type="button"
+            disabled={!payment || !order || requesting}
+            onClick={() => void handleRegisterCard()}
+            className="flex w-24 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-xs font-black text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <CreditCard size={14} weight="bold" />
+            {requesting ? "카드 등록창 여는 중..." : "결제하기"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

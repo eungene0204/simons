@@ -3,6 +3,7 @@ import type { ParsedSummary } from "./strategySummary";
 export interface StrategyBacktestRequest {
   symbols?: string[];
   universe_id?: string;
+  sector?: string | null;
   entry?: { conditions?: Array<Record<string, unknown>> };
   exit?: { conditions?: Array<Record<string, unknown>> };
   risk?: Record<string, unknown>;

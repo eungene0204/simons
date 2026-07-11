@@ -12,6 +12,13 @@ vi.mock("next/navigation", () => ({
   }),
 }));
 
+// 결제 모달이 마운트 시 로드하는 토스페이먼츠 SDK를 목킹한다.
+vi.mock("@tosspayments/tosspayments-sdk", () => ({
+  loadTossPayments: vi.fn(async () => ({
+    payment: () => ({ requestBillingAuth: vi.fn() }),
+  })),
+}));
+
 beforeEach(() => {
   routerPush.mockClear();
 });
@@ -129,16 +136,23 @@ describe("PricingPlans", () => {
     expect(screen.getAllByText("(VAT 포함)")).toHaveLength(3);
   });
 
-  it("유료 플랜 선택 시 결제 API 대신 토스페이먼츠 체크아웃으로 이동한다", () => {
-    const fetchSpy = vi.fn();
+  it("유료 플랜 선택 시 페이지 이동 없이 토스페이먼츠 결제 모달을 연다", async () => {
+    // 모달이 마운트되며 주문 생성 요청을 보낸다 — 응답은 무시(모달 UI는 즉시 렌더)
+    const fetchSpy = vi.fn(() => Promise.resolve({ ok: true, json: async () => ({}) }));
     vi.stubGlobal("fetch", fetchSpy);
     render(<PricingPlans currentPlanId="FREE" />);
 
     const proCard = screen.getByTestId("pricing-plan-card-PRO");
     fireEvent.click(within(proCard).getByRole("button", { name: "구독 시작하기" }));
 
-    expect(routerPush).toHaveBeenCalledWith("/pricing/checkout?plan=PRO");
-    expect(fetchSpy).not.toHaveBeenCalled();
+    // 페이지 이동이 아니라 모달이 뜬다 (findBy로 마운트 시 비동기 상태 갱신까지 정착)
+    const modal = await screen.findByRole("dialog");
+    expect(routerPush).not.toHaveBeenCalled();
+    expect(within(modal).getByText("Pro 플랜 구독 결제")).toBeInTheDocument();
+    expect(within(modal).getByRole("button", { name: "취소" })).toBeInTheDocument();
+    expect(within(modal).getByRole("button", { name: "결제하기" })).toBeInTheDocument();
+    // 결제 모달은 주문 생성 API(/api/payment/order)를 호출한다
+    expect(fetchSpy).toHaveBeenCalledWith("/api/payment/order", expect.anything());
     vi.unstubAllGlobals();
   });
 
