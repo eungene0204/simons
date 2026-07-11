@@ -99,6 +99,42 @@ interface ChatMessage {
   notices?: string[];
 }
 
+function shouldShowMovingAverageHelp(message: ChatMessage) {
+  const suggestions = message.infoSuggestions ?? [];
+  return (
+    message.infoText?.includes("어떤 이동평균") ||
+    (suggestions.includes("단순(SMA)") && suggestions.includes("지수(EMA)"))
+  );
+}
+
+function MovingAverageTypeHelp() {
+  return (
+    <div className="group relative inline-flex self-center">
+      <button
+        type="button"
+        aria-label="SMA와 EMA 설명"
+        className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-[#171717] text-gray-400 transition-all duration-200 hover:border-yellow-400/50 hover:bg-[#202020] hover:text-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-400/40"
+      >
+        <Question size={14} weight="bold" />
+      </button>
+      <div
+        role="tooltip"
+        className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 w-[min(18rem,calc(100vw-3rem))] -translate-x-1/2 rounded-xl border border-white/10 bg-[#101010] p-3 text-left opacity-0 shadow-2xl shadow-black/50 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 sm:left-auto sm:right-0 sm:translate-x-0"
+      >
+        <p className="text-[11px] font-black uppercase tracking-widest text-gray-500">이동평균 종류</p>
+        <div className="mt-2 space-y-1.5 text-xs font-bold leading-relaxed text-gray-300">
+          <p>
+            <span className="text-white">SMA</span>는 단순 이동평균으로, 최근 N일 가격을 같은 비중으로 평균낸 값입니다.
+          </p>
+          <p>
+            <span className="text-white">EMA</span>는 지수 이동평균으로, 최근 가격에 더 큰 비중을 두어 변화에 더 민감하게 반응합니다.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 type CoachConversationMessage = {
   role: "user" | "assistant";
   content: string;
@@ -1819,6 +1855,7 @@ function StrategyLabContent() {
                                     {suggestion}
                                   </button>
                                 ))}
+                                {shouldShowMovingAverageHelp(msg) && <MovingAverageTypeHelp />}
                               </div>
                             )}
                           </div>
