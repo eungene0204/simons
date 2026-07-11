@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { VirtualAccountListData } from "@/app/api/dashboard/virtual-account-list/route";
 
@@ -39,8 +39,24 @@ function StatusBadge({ status }: { status: "ACTIVE" | "CLOSED" }) {
 
 export default function VirtualAccountList({ initialData }: { initialData: VirtualAccountListData }) {
   const router = useRouter();
-  const [data] = useState<VirtualAccountListData>(initialData);
+  const [data, setData] = useState<VirtualAccountListData>(initialData);
   const loading = false;
+
+  useEffect(() => {
+    let isMounted = true;
+
+    fetch("/api/dashboard/virtual-account-list", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((nextData: VirtualAccountListData | null) => {
+        if (!isMounted || !nextData) return;
+        setData(nextData);
+      })
+      .catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const accounts = data?.accounts ?? [];
 

@@ -29,6 +29,15 @@ describe("PortfolioSummaryBar", () => {
     }
   });
 
+  it("renders the total evaluation value card", () => {
+    render(
+      <PortfolioSummaryBar initialStats={makeStats({ totalValue: 29_320_000 })} />
+    );
+
+    expect(screen.getByText("총 평가금액")).toBeInTheDocument();
+    expect(screen.getByText("2,932만원")).toBeInTheDocument();
+  });
+
   it("renders positive profit in red and negative profit in blue", () => {
     render(
       <PortfolioSummaryBar

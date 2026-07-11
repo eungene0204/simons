@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import CreateAccountModal from "@/components/ui/CreateAccountModal";
@@ -171,5 +171,50 @@ describe("CreateAccountModal trading mode", () => {
       "href",
       "/pricing"
     );
+  });
+
+  it("계좌 생성 요청이 끝날 때까지 생성중 상태를 표시한다", async () => {
+    let resolveCreate: () => void = () => {};
+    const onCreate = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveCreate = resolve;
+        })
+    );
+    const onClose = vi.fn();
+    mockFetch();
+
+    render(
+      <CreateAccountModal
+        isOpen={true}
+        onClose={onClose}
+        onCreate={onCreate}
+      />
+    );
+
+    const selectButton = await screen.findByRole("button", { name: /전략을 선택하세요/i });
+    fireEvent.click(selectButton);
+    fireEvent.click(await screen.findByRole("button", { name: savedStrategy.name }));
+    fireEvent.change(screen.getByPlaceholderText("예: 저PBR 전략, 모멘텀 전략, 가치주 전략..."), {
+      target: { value: "생성 대기 계좌" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "만들기" }));
+
+    const pendingButton = await screen.findByRole("button", {
+      name: "계좌 생성중...",
+    });
+    expect(pendingButton).toBeDisabled();
+    expect(pendingButton).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByRole("button", { name: "취소" })).toBeDisabled();
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveCreate();
+    });
+
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
   });
 });

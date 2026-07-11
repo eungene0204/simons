@@ -613,8 +613,10 @@ export default function VirtualAccountDetailPage() {
 
   const shouldShowOrderPage = showOrderPage || selectedSymbol;
   const strategySettingsSummary = buildStrategySummaryFromDsl(dbStrategySettings);
-  const strategySummary = strategySettingsSummary ?? dbStrategyHistorySummary;
-  const strategySummaryChips = buildStrategySummaryChips(strategySummary);
+  const strategySettingsChips = buildStrategySummaryChips(strategySettingsSummary);
+  const strategyHistoryChips = buildStrategySummaryChips(dbStrategyHistorySummary);
+  const strategySummaryChips =
+    strategyHistoryChips.length > 0 ? strategyHistoryChips : strategySettingsChips;
 
   const strategies = account.strategyName
     ? [{ name: account.strategyName, status: "active" as const }]

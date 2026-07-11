@@ -149,6 +149,56 @@ describe("VirtualAccountDetailPage loading", () => {
     expect(screen.getByText("총 자산")).toBeInTheDocument();
   });
 
+  it("renders strategy badges from history summary when saved settings lack display conditions", async () => {
+    getAccountMock.mockResolvedValue({
+      id: "account-123",
+      name: "테스트 계좌",
+      initialAmount: 10_000_000,
+      currentBalance: 10_000_000,
+      totalValue: 10_000_000,
+      strategyId: "strategy-1",
+      strategyName: "저PBR 전략",
+      tradingMode: "auto",
+      createdAt: "2026-06-01T00:00:00.000Z",
+      updatedAt: "2026-06-01T00:00:00.000Z",
+    });
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/stocks/names") {
+        return Promise.resolve({ ok: true, json: async () => ({}) } as Response);
+      }
+      if (url === "/api/virtual-market/account-123") {
+        return Promise.resolve({ ok: true, json: async () => ({ symbols: [] }) } as Response);
+      }
+      if (url === "/api/strategy/strategy-1") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            description: "KOSPI 저PBR 종목을 매매합니다.",
+            settings: { description: "KOSPI 저PBR 종목을 매매합니다." },
+            historySummary: {
+              universeName: "KOSPI",
+              entryBlocks: ["PBR <= 1"],
+              exitBlocks: ["손절 -12% 하락시 매도"],
+              positionText: "최대 8종목 · 126일 보유",
+              riskText: "손절 12%",
+            },
+          }),
+        } as Response);
+      }
+      return new Promise<Response>(() => undefined);
+    });
+
+    render(<VirtualAccountDetailPage />);
+
+    expect(await screen.findByText("운용 전략")).toBeInTheDocument();
+    expect(await screen.findByText("유니버스 KOSPI")).toBeInTheDocument();
+    expect(screen.getByText("PBR <= 1")).toBeInTheDocument();
+    expect(screen.getByText("손절 -12% 하락시 매도")).toBeInTheDocument();
+    expect(screen.getByText("최대 8종목 · 126일 보유")).toBeInTheDocument();
+    expect(screen.getByText("리스크 관리 손절 12%")).toBeInTheDocument();
+  });
+
   it("adds selected stocks to the tracked symbol list without duplicates", async () => {
     window.sessionStorage.setItem(
       "virtual-account-detail:account-123",

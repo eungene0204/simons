@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   getOwnershipContext,
@@ -37,7 +38,7 @@ export interface StrategyListData {
 export async function GET() {
   try {
     const { userId } = await getOwnershipContext();
-    const [strategies, accounts, backtestHistories] = await Promise.all([
+    const [strategies, accounts] = await Promise.all([
       prisma.strategy.findMany({
         where: withOwnership({ isSaved: true }, userId),
         orderBy: { createdAt: "desc" },
@@ -47,8 +48,37 @@ export async function GET() {
         where: withOwnership({ strategyId: { not: null } }, userId),
         include: { VirtualPosition: true },
       }),
-      prisma.backtestHistory.findMany({ orderBy: { createdAt: "desc" } }),
     ]);
+
+    const strategyIds = strategies.map((s) => s.id);
+    const strategyNames = Array.from(new Set(strategies.map((s) => s.name).filter(Boolean)));
+    const backtestHistoryFilters: Prisma.BacktestHistoryWhereInput[] = [];
+    if (strategyIds.length > 0) {
+      backtestHistoryFilters.push({ strategyId: { in: strategyIds } });
+    }
+    if (strategyNames.length > 0) {
+      backtestHistoryFilters.push({
+        strategyName: { in: strategyNames },
+        ...(userId == null ? {} : { UserBacktestHistory: { some: { userId } } }),
+      });
+    }
+    const backtestHistories = backtestHistoryFilters.length > 0
+      ? await prisma.backtestHistory.findMany({
+          where: { OR: backtestHistoryFilters },
+          orderBy: { createdAt: "desc" },
+          select: { strategyId: true, strategyName: true, metrics: true },
+        })
+      : [];
+    const latestHistoryByStrategyId = new Map<string, (typeof backtestHistories)[number]>();
+    const latestHistoryByStrategyName = new Map<string, (typeof backtestHistories)[number]>();
+    for (const history of backtestHistories) {
+      if (history.strategyId && !latestHistoryByStrategyId.has(history.strategyId)) {
+        latestHistoryByStrategyId.set(history.strategyId, history);
+      }
+      if (!latestHistoryByStrategyName.has(history.strategyName)) {
+        latestHistoryByStrategyName.set(history.strategyName, history);
+      }
+    }
 
     const settlementValues = await getAccountSettlementValues(prisma, accounts.map((a) => a.id));
 
@@ -71,8 +101,8 @@ export async function GET() {
       let aiScore: number | null = null;
       try {
         const historyItem =
-          backtestHistories.find((h) => h.strategyId === s.id) ??
-          backtestHistories.find((h) => h.strategyName === s.name);
+          latestHistoryByStrategyId.get(s.id) ??
+          latestHistoryByStrategyName.get(s.name);
         if (historyItem) {
           const hMetrics = JSON.parse(historyItem.metrics);
           if (hMetrics.score != null) {

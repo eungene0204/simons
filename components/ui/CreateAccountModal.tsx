@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X, CaretDown, Robot } from "phosphor-react";
+import { X, CaretDown, Robot, Spinner } from "phosphor-react";
 import {
   buildStrategySummaryChips,
   buildStrategySummaryFromDsl,
@@ -14,7 +14,7 @@ const NO_STRATEGY_ID = "__none__";
 interface CreateAccountModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreate: (name: string, amount: number, strategyId?: string, strategyName?: string, tradingMode?: "auto" | "manual") => void;
+  onCreate: (name: string, amount: number, strategyId?: string, strategyName?: string, tradingMode?: "auto" | "manual") => void | Promise<void>;
 }
 
 export default function CreateAccountModal({
@@ -28,6 +28,7 @@ export default function CreateAccountModal({
   const [selectedStrategyId, setSelectedStrategyId] = useState("");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [loadingStrategies, setLoadingStrategies] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [tradingMode, setTradingMode] = useState<"auto" | "manual">("manual");
   const [isPromptVisible, setIsPromptVisible] = useState(false);
   const [planInfo, setPlanInfo] = useState<{
@@ -76,8 +77,9 @@ export default function CreateAccountModal({
   const accountLimitReached =
     planInfo !== null && planInfo.accountsUsed >= planInfo.accountsLimit;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setError("");
 
     if (!name.trim()) {
@@ -98,18 +100,26 @@ export default function CreateAccountModal({
     // 초기 투자금은 서버가 플랜 기준으로 결정한다. 표시 일관성을 위해 플랜 금액을 전달한다.
     const initialInvestment = planInfo?.initialInvestmentAmount ?? 0;
 
-    onCreate(
-      name.trim(),
-      initialInvestment,
-      isNoStrategySelected ? undefined : selectedStrategyId,
-      isNoStrategySelected ? undefined : selectedStrategy?.name,
-      isNoStrategySelected ? "manual" : tradingMode
-    );
-    setName("");
-    setSelectedStrategyId("");
-    setTradingMode("manual");
-    setIsPromptVisible(false);
-    onClose();
+    setIsSubmitting(true);
+
+    try {
+      await onCreate(
+        name.trim(),
+        initialInvestment,
+        isNoStrategySelected ? undefined : selectedStrategyId,
+        isNoStrategySelected ? undefined : selectedStrategy?.name,
+        isNoStrategySelected ? "manual" : tradingMode
+      );
+      setName("");
+      setSelectedStrategyId("");
+      setTradingMode("manual");
+      setIsPromptVisible(false);
+      onClose();
+    } catch {
+      setError("계좌 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -120,8 +130,12 @@ export default function CreateAccountModal({
             가상계좌 만들기
           </h2>
           <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-white"
+            onClick={() => {
+              if (isSubmitting) return;
+              onClose();
+            }}
+            disabled={isSubmitting}
+            className="text-gray-400 hover:text-white disabled:cursor-wait disabled:opacity-50"
           >
             <X size={20} />
           </button>
@@ -136,6 +150,7 @@ export default function CreateAccountModal({
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              disabled={isSubmitting}
               className="w-full px-3 py-2 border border-white/[0.08] rounded-lg bg-[#171717] text-white placeholder:text-gray-600 focus:outline-none focus:border-white/[0.2]"
               placeholder="예: 저PBR 전략, 모멘텀 전략, 가치주 전략..."
               maxLength={20}
@@ -182,6 +197,7 @@ export default function CreateAccountModal({
               <button
                 type="button"
                 onClick={() => setIsDropdownOpen((prev) => !prev)}
+                disabled={isSubmitting}
                 className="w-full px-3 py-2 border border-white/[0.08] rounded-lg bg-[#171717] text-left flex items-center justify-between focus:outline-none focus:border-white/[0.2]"
               >
                 <span
@@ -210,6 +226,7 @@ export default function CreateAccountModal({
                   <button
                     type="button"
                     onClick={() => {
+                      if (isSubmitting) return;
                       setSelectedStrategyId(NO_STRATEGY_ID);
                       setTradingMode("manual");
                       setIsDropdownOpen(false);
@@ -232,6 +249,7 @@ export default function CreateAccountModal({
                         key={strategy.id}
                         type="button"
                         onClick={() => {
+                          if (isSubmitting) return;
                           setSelectedStrategyId(strategy.id);
                           setTradingMode("manual");
                           setIsDropdownOpen(false);
@@ -265,7 +283,11 @@ export default function CreateAccountModal({
                 {selectedStrategy.description && (
                   <button
                     type="button"
-                    onClick={() => setIsPromptVisible((prev) => !prev)}
+                    onClick={() => {
+                      if (isSubmitting) return;
+                      setIsPromptVisible((prev) => !prev);
+                    }}
+                    disabled={isSubmitting}
                     className="shrink-0 rounded-md border border-white/[0.08] px-2.5 py-1 text-xs font-medium text-gray-300 transition-colors hover:bg-white/[0.06]"
                   >
                     {isPromptVisible ? "프롬프트 숨기기" : "프롬프트 보기"}
@@ -309,7 +331,9 @@ export default function CreateAccountModal({
                 type="button"
                 aria-label={`전략 시뮬레이션 ${tradingMode === "auto" ? "ON" : "OFF"}`}
                 aria-pressed={tradingMode === "auto"}
+                disabled={isSubmitting}
                 onClick={() => {
+                  if (isSubmitting) return;
                   setTradingMode((prev) => prev === "auto" ? "manual" : "auto");
                 }}
                 className={`flex w-full items-center gap-3 rounded-lg border-2 p-3 text-left transition-all ${
@@ -362,16 +386,23 @@ export default function CreateAccountModal({
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-2 border border-white/[0.08] rounded-lg text-gray-300 hover:bg-white/[0.06] transition-colors"
+              disabled={isSubmitting}
+              className="flex-1 px-4 py-2 border border-white/[0.08] rounded-lg text-gray-300 hover:bg-white/[0.06] transition-colors disabled:cursor-wait disabled:opacity-50"
             >
               취소
             </button>
             <button
               type="submit"
-              disabled={accountLimitReached}
+              disabled={accountLimitReached || isSubmitting}
+              aria-busy={isSubmitting}
               className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             >
-              만들기
+              <span className="flex items-center justify-center gap-2">
+                {isSubmitting ? (
+                  <Spinner size={16} className="animate-spin" aria-hidden="true" />
+                ) : null}
+                {isSubmitting ? "계좌 생성중..." : "만들기"}
+              </span>
             </button>
           </div>
         </form>

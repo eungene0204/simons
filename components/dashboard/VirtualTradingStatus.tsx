@@ -1,43 +1,29 @@
 "use client";
 
 import { useState } from "react";
-import { Activity, ChartLine, Stack, CheckCircle, Vault } from "phosphor-react";
+import { Activity, ChartLine, Stack, CheckCircle } from "phosphor-react";
 import type { TradingStatusData } from "@/app/api/dashboard/trading-status/route";
 
-function formatKRW(v: number): string {
-  const abs = Math.abs(v);
-  const sign = v < 0 ? "-" : v > 0 ? "+" : "";
-  if (abs >= 100_000_000) return `${sign}${(abs / 100_000_000).toFixed(1)}억`;
-  if (abs >= 10_000) return `${sign}${Math.round(abs / 10_000).toLocaleString()}만`;
-  return `${sign}${abs.toLocaleString("ko-KR")}`;
-}
-
-
+// 총 평가금·전체 계좌 수는 상단 PortfolioSummaryBar와 중복이므로
+// 이 줄은 자동매매 운영 상태(실행/자동/포지션/체결)에만 집중한다.
 export default function VirtualTradingStatus({ initialData }: { initialData: TradingStatusData }) {
   const [data] = useState<TradingStatusData>(initialData);
   const loading = false;
 
   const stats = [
     {
-      icon: Vault,
-      label: "총 평가금",
-      value: loading ? "--" : `${formatKRW(data.totalEvaluation)}원`,
-      sub: loading ? "" : "전체 계좌 합산",
-      highlight: false,
-    },
-    {
-      icon: Stack,
-      label: "전체 계좌",
-      value: loading ? "--" : `${data.totalAccounts}개`,
-      sub: loading ? "" : `자동 ${data.autoAccounts}개`,
-      highlight: false,
-    },
-    {
       icon: Activity,
       label: "실행중인 계좌 수",
       value: loading ? "--" : `${data.runningAccounts}개`,
       sub: loading ? "" : data.runningAccounts > 0 ? "매매 진행 중" : "일시 정지",
       highlight: data.runningAccounts > 0,
+    },
+    {
+      icon: Stack,
+      label: "자동매매 계좌",
+      value: loading ? "--" : `${data.autoAccounts}개`,
+      sub: loading ? "" : "자동 매매 설정",
+      highlight: false,
     },
     {
       icon: ChartLine,

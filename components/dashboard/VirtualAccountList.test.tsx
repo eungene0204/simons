@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import VirtualAccountList from "./VirtualAccountList";
 import type { VirtualAccountListData } from "@/app/api/dashboard/virtual-account-list/route";
@@ -35,6 +35,15 @@ function makeData(accounts: VirtualAccountListData["accounts"]): VirtualAccountL
 }
 
 describe("VirtualAccountList", () => {
+  beforeEach(() => {
+    pushMock.mockReset();
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("navigates to the account detail page when a row is clicked", () => {
     render(<VirtualAccountList initialData={makeData([makeAccount()])} />);
 
@@ -69,6 +78,21 @@ describe("VirtualAccountList", () => {
     render(<VirtualAccountList initialData={makeData([])} />);
 
     expect(screen.getByText("등록된 가상계좌가 없습니다")).toBeInTheDocument();
+  });
+
+  it("refreshes empty initial data and renders newly created accounts", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => makeData([makeAccount({ name: "신규 계좌" })]),
+    } as Response);
+
+    render(<VirtualAccountList initialData={makeData([])} />);
+
+    expect(await screen.findByText("신규 계좌")).toBeInTheDocument();
+    expect(screen.queryByText("등록된 가상계좌가 없습니다")).not.toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledWith("/api/dashboard/virtual-account-list", {
+      cache: "no-store",
+    });
   });
 
   it("renders positive values in red and negative values in blue", () => {

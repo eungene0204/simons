@@ -24,6 +24,8 @@ const STACK_GAP       = 4;    // 스택 내 바 사이 간격
 const LABEL_H         = 32;   // 월 라벨 높이
 const VALUE_H         = 32;   // 하단 값 라벨 높이
 const GROUP_GAP_RATIO = 0.30; // 리본 갭 비율
+const ZERO_BAR_H      = 10;   // 0% 계좌도 화면에서 확인 가능하도록 표시
+const MIN_BAR_H       = 6;
 
 function fmtMonth(ym: string): string {
   const [y, m] = ym.split("/");
@@ -34,23 +36,78 @@ function fmtPct(v: number): string {
   return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
 }
 
+function monthOrdinal(ym: string): number {
+  const [year, month] = ym.split("/").map(Number);
+  return year * 12 + month;
+}
+
+function createdMonthFromIso(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
 export default function AccountProfitChart({ initialData }: { initialData: AccountMonthlyData | null }) {
-  const [data]                              = useState<AccountMonthlyData | null>(initialData);
+  const [data, setData]                     = useState<AccountMonthlyData | null>(initialData);
+  const [accountCreatedMonths, setAccountCreatedMonths] = useState<Record<string, string>>({});
+  const [hasLoadedAccountCreatedMonths, setHasLoadedAccountCreatedMonths] = useState(false);
   const [hoveredMonth, setHoveredMonth]     = useState<number | null>(null);
   const containerRef                        = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
 
   useEffect(() => {
+    let isMounted = true;
+
+    fetch("/api/dashboard/account-monthly", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((nextData: AccountMonthlyData | null) => {
+        if (!isMounted || !nextData) return;
+        setData(nextData);
+      })
+      .catch(() => {});
+
+    fetch("/api/dashboard/virtual-account-list", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((nextData: { accounts?: Array<{ id: string; createdAt?: string | null }> } | null) => {
+        if (!isMounted || !nextData?.accounts) return;
+        const createdMonths: Record<string, string> = {};
+        for (const account of nextData.accounts) {
+          const createdMonth = createdMonthFromIso(account.createdAt);
+          if (createdMonth) createdMonths[account.id] = createdMonth;
+        }
+        setAccountCreatedMonths(createdMonths);
+        setHasLoadedAccountCreatedMonths(true);
+      })
+      .catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!containerRef.current) return;
+    const updateWidth = () => {
+      const width = containerRef.current?.getBoundingClientRect().width ?? 0;
+      if (width > 0) setContainerWidth(width);
+    };
     const ro = new ResizeObserver((entries) => {
-      setContainerWidth(entries[0].contentRect.width);
+      const width = entries[0].contentRect.width;
+      if (width > 0) setContainerWidth(width);
     });
     ro.observe(containerRef.current);
-    return () => ro.disconnect();
+    updateWidth();
+    const frame = requestAnimationFrame(updateWidth);
+    window.addEventListener("resize", updateWidth);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", updateWidth);
+      ro.disconnect();
+    };
   }, []);
 
   const nAccounts = data?.accounts.length ?? 0;
-  const nMonths   = data?.months.length   ?? 0;
   const totalH    = LABEL_H + CHART_H + VALUE_H;
 
   if (!data) {
@@ -67,7 +124,7 @@ export default function AccountProfitChart({ initialData }: { initialData: Accou
     );
   }
 
-  if (nAccounts === 0 || nMonths === 0) {
+  if (nAccounts === 0 || data.months.length === 0) {
     const emptyStateMessage =
       nAccounts === 0 ? "개설된 계좌가 없습니다." : "표시할 수익률 데이터가 없습니다.";
     const emptyStateDescription =
@@ -96,16 +153,31 @@ export default function AccountProfitChart({ initialData }: { initialData: Accou
     );
   }
 
+  const visibleMonthItems = data.months.map((ym, index) => ({ ym, index }));
+  const nMonths = visibleMonthItems.length;
+  const isAccountVisibleInMonth = (accountId: string, ym: string): boolean => {
+    if (!hasLoadedAccountCreatedMonths) return false;
+    const createdMonth = accountCreatedMonths[accountId];
+    return createdMonth ? monthOrdinal(ym) >= monthOrdinal(createdMonth) : true;
+  };
+
   /* ── Geometry ─────────────────────────────── */
   // 모든 값의 절대값 합계 중 최대 (스택 높이 기준)
-  const monthSums = data.months.map((_, mi) =>
-    data!.accounts.reduce((s, a) => s + Math.abs(a.monthlyProfitPct[mi] ?? 0), 0)
+  const monthSums = visibleMonthItems.map(({ ym, index }) =>
+    data!.accounts.reduce(
+      (sum, account) =>
+        isAccountVisibleInMonth(account.id, ym)
+          ? sum + Math.abs(account.monthlyProfitPct[index] ?? 0)
+          : sum,
+      0
+    )
   );
   const maxSum = Math.max(...monthSums, 1);
 
   // 고정 순서: 마지막 달 기준 절대값 내림차순 (큰 값 = 아래)
+  const lastVisibleMonth = visibleMonthItems[nMonths - 1];
   const fixedOrder = data.accounts
-    .map((a, ai) => ({ ai, val: Math.abs(a.monthlyProfitPct[nMonths - 1] ?? 0) }))
+    .map((a, ai) => ({ ai, val: Math.abs(a.monthlyProfitPct[lastVisibleMonth.index] ?? 0) }))
     .sort((a, b) => b.val - a.val)  // 내림차순: 큰 값이 먼저 (아래)
     .map((x) => x.ai);
 
@@ -115,12 +187,14 @@ export default function AccountProfitChart({ initialData }: { initialData: Accou
   const groupW    = nMonths > 0 ? totalBarW / nMonths : 0;
   const gapW      = nMonths > 1 ? totalGapW / (nMonths - 1) : 0;
   const groupLX   = (mi: number) => mi * (groupW + gapW);
+  const hasMeasuredWidth = containerWidth > 0;
 
   // 바 높이 계산 (개별 값 → 스택 내 높이)
   const getBarH = (val: number) => {
+    if (Math.abs(val) < 0.05) return ZERO_BAR_H;
     const totalStackGap = (nAccounts - 1) * STACK_GAP;
     const availableH = CHART_H - totalStackGap;
-    return Math.max((Math.abs(val) / maxSum) * availableH, 3);
+    return Math.max((Math.abs(val) / maxSum) * availableH, MIN_BAR_H);
   };
 
   // 스택 위치 계산: barGeo[mi][ai] = { yTop, yBot, h }
@@ -128,11 +202,14 @@ export default function AccountProfitChart({ initialData }: { initialData: Accou
   const barGeo: Record<number, { yTop: number; yBot: number; h: number }>[] = [];
 
   for (let mi = 0; mi < nMonths; mi++) {
+    const { ym, index } = visibleMonthItems[mi];
     const geo: Record<number, { yTop: number; yBot: number; h: number }> = {};
     let yOffset = LABEL_H + CHART_H; // 바 영역 하단 (SVG 좌표)
 
     for (const ai of fixedOrder) {
-      const val = data.accounts[ai].monthlyProfitPct[mi] ?? 0;
+      const account = data.accounts[ai];
+      if (!isAccountVisibleInMonth(account.id, ym)) continue;
+      const val = account.monthlyProfitPct[index] ?? 0;
       const h   = getBarH(val);
       const yBot = yOffset;
       const yTop = yOffset - h;
@@ -142,10 +219,23 @@ export default function AccountProfitChart({ initialData }: { initialData: Accou
     barGeo.push(geo);
   }
 
-  const activeIdx   = hoveredMonth ?? nMonths - 1;
-  const activeTotal = data.accounts.reduce(
-    (s, a) => s + (a.monthlyProfitPct[activeIdx] ?? 0), 0
-  );
+  const activeIdx =
+    hoveredMonth !== null && hoveredMonth < nMonths ? hoveredMonth : nMonths - 1;
+  const activeMonth = visibleMonthItems[activeIdx];
+
+  // 계좌별 수익률(%)의 단순 합은 분모가 달라 의미가 없으므로,
+  // 초기 투자금 가중 평균(= Σ누적손익 / Σ초기투자금)으로 포트폴리오 수익률을 계산한다.
+  const weightedMonthReturn = (ym: string, index: number): number => {
+    let pnlSum = 0;
+    let cashSum = 0;
+    for (const account of data!.accounts) {
+      if (!isAccountVisibleInMonth(account.id, ym)) continue;
+      pnlSum += ((account.monthlyProfitPct[index] ?? 0) / 100) * account.initialCash;
+      cashSum += account.initialCash;
+    }
+    return cashSum > 0 ? (pnlSum / cashSum) * 100 : 0;
+  };
+  const activeTotal = weightedMonthReturn(activeMonth.ym, activeMonth.index);
 
   /* ── SVG ribbons ─────────────────────────── */
   const ribbons: JSX.Element[] = [];
@@ -155,6 +245,7 @@ export default function AccountProfitChart({ initialData }: { initialData: Accou
       for (const ai of fixedOrder) {
         const g1    = barGeo[mi][ai];
         const g2    = barGeo[mi + 1][ai];
+        if (!g1 || !g2) continue;
         const color = ACCOUNT_COLORS[ai % ACCOUNT_COLORS.length];
 
         const x1r = groupLX(mi) + groupW;    // 그룹 mi 오른쪽 끝
@@ -195,7 +286,7 @@ export default function AccountProfitChart({ initialData }: { initialData: Accou
             {fmtPct(activeTotal)}
           </p>
           <p className="text-[10px] uppercase tracking-widest text-gray-500 font-bold">
-            {fmtMonth(data.months[activeIdx])} 합산
+            {fmtMonth(activeMonth.ym)} 투자금 가중
           </p>
         </div>
       </div>
@@ -212,13 +303,25 @@ export default function AccountProfitChart({ initialData }: { initialData: Accou
             </div>
           );
         })}
+        {data.accounts.some((acc) => acc.monthlyProfitPct.some((v) => v < 0)) && (
+          <div className="flex items-center gap-1.5">
+            <div
+              className="w-2.5 h-2.5 rounded-sm flex-shrink-0"
+              style={{
+                background:
+                  "repeating-linear-gradient(135deg, rgba(156,163,175,0.85) 0px, rgba(156,163,175,0.85) 2px, rgba(156,163,175,0.30) 2px, rgba(156,163,175,0.30) 4px)",
+              }}
+            />
+            <span className="text-[10px] text-gray-400 font-bold">빗금 = 손실</span>
+          </div>
+        )}
       </div>
 
       {/* Chart */}
       <div ref={containerRef} className="relative w-full" style={{ height: totalH }}>
-        {containerWidth > 0 && (
-          <>
-            {/* SVG: ribbons */}
+        <>
+          {/* SVG: ribbons */}
+          {hasMeasuredWidth && (
             <svg
               className="absolute inset-0 pointer-events-none"
               width={containerWidth}
@@ -226,66 +329,79 @@ export default function AccountProfitChart({ initialData }: { initialData: Accou
             >
               {ribbons}
             </svg>
+          )}
 
-            {/* Month groups */}
-            {data.months.map((ym, mi) => {
-              const isActive   = mi === activeIdx;
-              const monthTotal = data!.accounts.reduce(
-                (s, a) => s + (a.monthlyProfitPct[mi] ?? 0), 0
-              );
-              const lx = groupLX(mi);
+          <div
+            aria-hidden="true"
+            className="absolute left-0 right-0 border-t border-white/[0.08]"
+            style={{ top: LABEL_H + CHART_H }}
+          />
 
-              return (
-                <div
-                  key={ym}
-                  className="absolute top-0 cursor-pointer"
-                  style={{ left: lx, width: groupW, height: totalH }}
-                  onMouseEnter={() => setHoveredMonth(mi)}
-                  onMouseLeave={() => setHoveredMonth(null)}
-                >
-                  {/* 수익률 라벨 — 상단 */}
-                  <div className="absolute top-0 left-0 right-0 flex items-end justify-center pb-1"
-                    style={{ height: LABEL_H }}>
-                    <span className={`text-xs font-bold tabular-nums transition-colors ${
-                      isActive ? "text-white font-black" : "text-gray-600"
-                    }`}>
-                      {fmtPct(monthTotal)}
-                    </span>
-                  </div>
+          {/* Month groups */}
+          {visibleMonthItems.map(({ ym, index }, mi) => {
+            const isActive   = mi === activeIdx;
+            const monthTotal = weightedMonthReturn(ym, index);
+            const groupStyle = hasMeasuredWidth
+              ? { left: groupLX(mi), width: groupW, height: totalH }
+              : { left: `${(mi / nMonths) * 100}%`, width: `${100 / nMonths}%`, height: totalH };
 
-                  {/* 스택 바들 */}
-                  {fixedOrder.map((ai) => {
-                    const geo   = barGeo[mi][ai];
-                    const color = ACCOUNT_COLORS[ai % ACCOUNT_COLORS.length];
-                    return (
-                      <div
-                        key={data!.accounts[ai].id}
-                        className="absolute left-0 w-full rounded-lg transition-all duration-300"
-                        style={{
-                          top       : geo.yTop,
-                          height    : geo.h,
-                          background: color.bar,
-                          boxShadow : isActive ? `0 4px 16px rgba(${color.rgb},0.40)` : "none",
-                          opacity   : isActive ? 1 : 0.45,
-                        }}
-                      />
-                    );
-                  })}
-
-                  {/* 월 라벨 — 하단 */}
-                  <div className="absolute left-0 right-0 bottom-0 flex items-center justify-center"
-                    style={{ height: VALUE_H }}>
-                    <span className={`text-xs font-black font-outfit transition-colors ${
-                      isActive ? "text-white" : "text-gray-600"
-                    }`}>
-                      {fmtMonth(ym)}
-                    </span>
-                  </div>
+            return (
+              <div
+                key={ym}
+                className="absolute top-0 cursor-pointer px-1"
+                style={groupStyle}
+                onMouseEnter={() => setHoveredMonth(mi)}
+                onMouseLeave={() => setHoveredMonth(null)}
+              >
+                {/* 수익률 라벨 — 상단 */}
+                <div className="absolute top-0 left-0 right-0 flex items-end justify-center pb-1"
+                  style={{ height: LABEL_H }}>
+                  <span className={`text-xs font-bold tabular-nums transition-colors ${
+                    isActive ? "text-white font-black" : "text-gray-600"
+                  }`}>
+                    {fmtPct(monthTotal)}
+                  </span>
                 </div>
-              );
-            })}
-          </>
-        )}
+
+                {/* 스택 바들 */}
+                {fixedOrder.map((ai) => {
+                  const geo   = barGeo[mi][ai];
+                  if (!geo) return null;
+                  const color = ACCOUNT_COLORS[ai % ACCOUNT_COLORS.length];
+                  // 바 높이는 절댓값 기준이므로 손실(음수) 계좌는 스트라이프로 구분한다.
+                  const isNegative = (data!.accounts[ai].monthlyProfitPct[index] ?? 0) < 0;
+                  return (
+                    <div
+                      key={data!.accounts[ai].id}
+                      data-testid="account-profit-bar"
+                      data-negative={isNegative ? "true" : undefined}
+                      className="absolute left-1 right-1 rounded-lg transition-all duration-300"
+                      style={{
+                        top       : geo.yTop,
+                        height    : geo.h,
+                        background: isNegative
+                          ? `repeating-linear-gradient(135deg, rgba(${color.rgb},0.85) 0px, rgba(${color.rgb},0.85) 4px, rgba(${color.rgb},0.30) 4px, rgba(${color.rgb},0.30) 8px)`
+                          : color.bar,
+                        boxShadow : isActive ? `0 4px 16px rgba(${color.rgb},0.40)` : "none",
+                        opacity   : isActive ? 1 : 0.45,
+                      }}
+                    />
+                  );
+                })}
+
+                {/* 월 라벨 — 하단 */}
+                <div className="absolute left-0 right-0 bottom-0 flex items-center justify-center"
+                  style={{ height: VALUE_H }}>
+                  <span className={`text-xs font-black font-outfit transition-colors ${
+                    isActive ? "text-white" : "text-gray-600"
+                  }`}>
+                    {fmtMonth(ym)}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </>
       </div>
     </div>
   );

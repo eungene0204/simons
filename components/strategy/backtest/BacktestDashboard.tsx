@@ -1257,9 +1257,6 @@ export default function BacktestDashboard({
                   </div>
                 )}
               </div>
-              <p className="mb-2 text-sm font-bold leading-6 text-gray-300">
-                백테스트 결과를 CSV/JSON으로 저장하고, 종목 분석과 매매 기록을 직접 검증해보세요.
-              </p>
               <div className="flex gap-2">
                 <a
                   href="/pricing"

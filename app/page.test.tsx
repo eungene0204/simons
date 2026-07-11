@@ -11,7 +11,7 @@ afterEach(() => {
 });
 
 describe("HomePage", () => {
-  it("renders the strategy lab main page and business footer at the root path", () => {
+  it("renders the strategy lab main page without the business footer at the root path", () => {
     vi.stubEnv("COMPANY_NAME", "널스페이스");
     vi.stubEnv("BUSINESS_REPRESENTATIVE_NAME", "이응준");
     vi.stubEnv("BUSINESS_REGISTRATION_NUMBER", "898-50-00737");
@@ -20,15 +20,11 @@ describe("HomePage", () => {
     render(<HomePage />);
 
     expect(screen.getByText("전략연구소 메인 화면")).toBeInTheDocument();
-    expect(screen.getByRole("contentinfo")).toBeInTheDocument();
-    expect(screen.getByText("상호명")).toBeInTheDocument();
-    expect(screen.getByText("널스페이스")).toBeInTheDocument();
-    expect(screen.getByText("대표자명")).toBeInTheDocument();
-    expect(screen.getByText("이응준")).toBeInTheDocument();
-    expect(screen.getByText("사업자등록번호")).toBeInTheDocument();
-    expect(screen.getByText("898-50-00737")).toBeInTheDocument();
-    expect(screen.getByText("이메일")).toBeInTheDocument();
-    expect(screen.getByText("nullspace.support@gmail.com")).toBeInTheDocument();
+    expect(screen.queryByRole("contentinfo")).not.toBeInTheDocument();
+    expect(screen.queryByText("상호명")).not.toBeInTheDocument();
+    expect(screen.queryByText("대표자명")).not.toBeInTheDocument();
+    expect(screen.queryByText("사업자등록번호")).not.toBeInTheDocument();
+    expect(screen.queryByText("nullspace.support@gmail.com")).not.toBeInTheDocument();
   });
 
   it("renders 널스탁 terms when the legal query is terms", () => {

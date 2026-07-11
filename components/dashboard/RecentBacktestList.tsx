@@ -9,6 +9,11 @@ function fmtPct(v: number): string {
   return `${v > 0 ? "+" : ""}${v.toFixed(1)}%`;
 }
 
+function fmtOptionalPct(v: number | undefined): string {
+  if (v === undefined) return "–";
+  return fmtPct(v);
+}
+
 function fmtDate(ts: number): string {
   const d = new Date(ts);
   return d.toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
@@ -30,8 +35,9 @@ const UNIVERSE_LABEL: Record<string, string> = {
   KOSDAQ: "KOSDAQ",
 };
 
-function normalizeUniverse(raw: string): string | null {
-  return UNIVERSE_LABEL[raw] ?? null;
+// 매핑에 없는 유니버스(섹터·미국주식 등)도 빈 칸 대신 원문을 표시한다.
+function normalizeUniverse(raw: string): string {
+  return UNIVERSE_LABEL[raw] ?? raw;
 }
 
 export default function RecentBacktestList({ initialRecords }: { initialRecords: DashboardBacktestRecord[] }) {
@@ -52,8 +58,8 @@ export default function RecentBacktestList({ initialRecords }: { initialRecords:
       </div>
 
       {/* 테이블 헤더 */}
-      <div className="grid grid-cols-[minmax(0,1fr)_64px_72px_56px] gap-2 px-2 mb-2">
-        {["전략명", "유니버스", "수익률", "날짜"].map((h) => (
+      <div className="grid grid-cols-[minmax(0,1fr)_64px_64px_64px_64px_56px] gap-2 px-2 mb-2">
+        {["전략명", "유니버스", "수익률", "CAGR", "MDD", "날짜"].map((h) => (
           <span key={h} className="text-xs font-bold uppercase tracking-widest text-gray-600">
             {h}
           </span>
@@ -78,18 +84,25 @@ export default function RecentBacktestList({ initialRecords }: { initialRecords:
             const ret = r.metrics.totalReturn ?? 0;
             const retColor = ret === 0 ? "text-white" : ret > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]";
             const universeLabel = normalizeUniverse(r.universe);
-            const universeColor = universeLabel ? UNIVERSE_COLOR[universeLabel] : "";
+            const universeColor = UNIVERSE_COLOR[universeLabel] ?? "bg-white/[0.06] text-gray-400";
+            const cagr = r.metrics.cagr;
+            const cagrColor =
+              cagr === undefined || cagr === 0
+                ? "text-gray-500"
+                : cagr > 0
+                ? "text-[var(--main-red)]"
+                : "text-[var(--main-blue)]";
             return (
               <div
                 key={r.id}
-                className="grid grid-cols-[minmax(0,1fr)_64px_72px_56px] gap-2 items-center px-2 py-2.5 hover:bg-white/[0.02] rounded-xl transition-colors"
+                className="grid grid-cols-[minmax(0,1fr)_64px_64px_64px_64px_56px] gap-2 items-center px-2 py-2.5 hover:bg-white/[0.02] rounded-xl transition-colors"
               >
                 {/* 전략명 */}
                 <p className="text-sm font-bold text-white truncate">{r.strategyName}</p>
 
                 {/* 유니버스 */}
                 {universeLabel ? (
-                  <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-md text-center ${universeColor}`}>
+                  <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-md text-center truncate ${universeColor}`}>
                     {universeLabel}
                   </span>
                 ) : (
@@ -102,6 +115,16 @@ export default function RecentBacktestList({ initialRecords }: { initialRecords:
                     {fmtPct(ret)}
                   </span>
                 </div>
+
+                {/* CAGR */}
+                <span className={`text-xs font-bold tabular-nums font-outfit ${cagrColor}`}>
+                  {fmtOptionalPct(cagr)}
+                </span>
+
+                {/* MDD */}
+                <span className="text-xs font-bold tabular-nums font-outfit text-gray-400">
+                  {fmtOptionalPct(r.metrics.mdd)}
+                </span>
 
                 {/* 날짜 */}
                 <span className="text-[10px] text-gray-600 font-bold">{fmtDate(r.timestamp)}</span>

@@ -28,12 +28,6 @@ async function fetchDashboardFromDB(userId: number | null): Promise<DashboardIni
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
 
-  // AccountMonthly 차트는 6개월치만 필요
-  const sixMonthsAgo = new Date();
-  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-  sixMonthsAgo.setDate(1);
-  sixMonthsAgo.setHours(0, 0, 0, 0);
-
   // 사용자 소유 계좌를 먼저 조회 → 주문/포지션/시장상태 집계를 이 계좌들로 한정한다.
   const accounts = await prisma.virtualAccount.findMany({
     where: withOwnership({}, userId),
@@ -71,12 +65,13 @@ async function fetchDashboardFromDB(userId: number | null): Promise<DashboardIni
       _sum: { realizedPnl: true },
     }),
     backtestHistoryPromise,
+    // "누적 실현 수익률"이므로 전체 기간을 조회한다(/api/dashboard/account-monthly와 동일 기준).
     prisma.virtualOrder.findMany({
       where: {
         side: "SELL",
         status: "FILLED",
         realizedPnl: { not: null },
-        filledAt: { gte: sixMonthsAgo },
+        filledAt: { not: null },
         ...accountScope,
       },
       select: { accountId: true, realizedPnl: true, filledAt: true },
@@ -92,15 +87,16 @@ async function fetchDashboardFromDB(userId: number | null): Promise<DashboardIni
   const settlementValues = await getAccountSettlementValues(prisma, accountIds);
 
   // ── PortfolioStats ──────────────────────────────────────────
+  // 삭제(CLOSED)된 계좌는 요약 통계에서 제외한다 — 운용중인 계좌만 집계.
+  const activeAccounts = accounts.filter((a) => a.status !== "CLOSED");
   const dailyPnl = moneyToNumber(dailyPnlAgg._sum.realizedPnl);
-  const totalInvested = accounts.reduce((s, a) => s + moneyToNumber(a.initialCash), 0);
-  const totalValue = accounts.reduce((s, a) => {
+  const totalInvested = activeAccounts.reduce((s, a) => s + moneyToNumber(a.initialCash), 0);
+  const totalValue = activeAccounts.reduce((s, a) => {
     const posValue = (a.VirtualPosition ?? []).reduce(
       (sum, p) => sum + p.quantity * moneyToNumber(p.currentPrice ?? p.avgPrice),
       0
     );
-    const liveValue = moneyToNumber(a.currentCash) + posValue;
-    return s + resolveAccountTotalValue(a, liveValue, settlementValues);
+    return s + moneyToNumber(a.currentCash) + posValue;
   }, 0);
   const totalProfit = totalValue - totalInvested;
   const totalReturnPct = totalInvested > 0 ? (totalProfit / totalInvested) * 100 : 0;
@@ -110,7 +106,7 @@ async function fetchDashboardFromDB(userId: number | null): Promise<DashboardIni
     totalValue,
     totalProfit,
     totalReturnPct,
-    accountCount: accounts.length,
+    accountCount: activeAccounts.length,
     dailyPnl,
   };
 
