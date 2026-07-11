@@ -79,6 +79,17 @@ describe("StrategyTemplatesPage", () => {
     expect(screen.queryByText("이평선 골든크로스 따라가기")).not.toBeInTheDocument();
   });
 
+  it("전체 목록은 처음에 일부만 렌더링하고 더 보기로 나머지를 노출한다", () => {
+    render(<StrategyTemplatesPage />);
+
+    expect(screen.getByText("볼린저 중심선 재돌파 스윙")).toBeInTheDocument();
+    expect(screen.queryByText("상대강도 상위주 월간 교체")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "더 보기" }));
+
+    expect(screen.getByText("상대강도 상위주 월간 교체")).toBeInTheDocument();
+  });
+
   it("예시를 누르면 편집 가능한 모달을 보여주고 시작 시 전략 채팅으로 이동한다", async () => {
     const editedPrompt = "편집한 백테스트 예시로 시작";
 

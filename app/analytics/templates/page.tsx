@@ -21,15 +21,20 @@ const CATEGORY_TABS: TemplateCategoryTab[] = [
   "모멘텀",
   "복합전략",
 ];
+const INITIAL_TEMPLATE_COUNT = 24;
+const TEMPLATE_PAGE_SIZE = 24;
 
 export default function StrategyTemplatesPage() {
   const router = useRouter();
   const [activeCategory, setActiveCategory] = useState<TemplateCategoryTab>("전체");
   const [selectedExample, setSelectedExample] = useState<Example | null>(null);
+  const [visibleCount, setVisibleCount] = useState(INITIAL_TEMPLATE_COUNT);
 
-  const visibleExamples = activeCategory === "전체"
+  const filteredExamples = activeCategory === "전체"
     ? EXAMPLES
     : EXAMPLES.filter((example) => example.category === activeCategory);
+  const visibleExamples = filteredExamples.slice(0, visibleCount);
+  const hasMoreExamples = visibleCount < filteredExamples.length;
   const backgroundBlurClass = selectedExample
     ? "pointer-events-none select-none blur-[6px] transition-[filter,opacity] duration-200"
     : "transition-[filter,opacity] duration-200";
@@ -70,7 +75,10 @@ export default function StrategyTemplatesPage() {
                   type="button"
                   aria-label={`${category} 백테스트 예시 보기`}
                   aria-pressed={isActive}
-                  onClick={() => setActiveCategory(category)}
+                  onClick={() => {
+                    setActiveCategory(category);
+                    setVisibleCount(INITIAL_TEMPLATE_COUNT);
+                  }}
                   className={`h-10 rounded-[1.15rem] px-3 text-sm font-black transition-all duration-200 ${
                     isActive
                       ? "bg-[var(--main-blue)] text-white shadow-[0_14px_34px_rgba(59,130,246,0.2)]"
@@ -83,29 +91,43 @@ export default function StrategyTemplatesPage() {
             })}
           </div>
 
-          <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-3">
-            {visibleExamples.map((example) => {
-              const style = CATEGORY_STYLE[example.category];
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-3">
+              {visibleExamples.map((example) => {
+                const style = CATEGORY_STYLE[example.category];
 
-              return (
+                return (
+                  <button
+                    key={example.title}
+                    type="button"
+                    onClick={() => setSelectedExample(example)}
+                    className="group space-y-2 rounded-2xl border border-white/[0.05] bg-[#121212] px-4 py-4 text-left transition-all duration-200 hover:border-white/[0.12] hover:bg-[#171717]"
+                  >
+                    <span className={`inline-flex items-center rounded-md px-2 py-1 text-[10px] font-black ${style.bg} ${style.border} ${style.color}`}>
+                      {style.label}
+                    </span>
+                    <p className="text-sm font-black leading-snug text-white/85 group-hover:text-white">
+                      {example.title}
+                    </p>
+                    <p className="line-clamp-5 text-xs font-bold leading-relaxed text-gray-400 group-hover:text-gray-300">
+                      {example.prompt}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+
+            {hasMoreExamples && (
+              <div className="flex justify-center">
                 <button
-                  key={example.title}
                   type="button"
-                  onClick={() => setSelectedExample(example)}
-                  className="group space-y-2 rounded-2xl border border-white/[0.05] bg-[#121212] px-4 py-4 text-left transition-all duration-200 hover:border-white/[0.12] hover:bg-[#171717]"
+                  onClick={() => setVisibleCount((count) => count + TEMPLATE_PAGE_SIZE)}
+                  className="rounded-2xl border border-white/[0.08] bg-[#121212] px-5 py-2.5 text-xs font-black text-gray-300 transition-colors duration-200 hover:border-white/[0.14] hover:bg-[#171717] hover:text-white"
                 >
-                  <span className={`inline-flex items-center rounded-md px-2 py-1 text-[10px] font-black ${style.bg} ${style.border} ${style.color}`}>
-                    {style.label}
-                  </span>
-                  <p className="text-sm font-black leading-snug text-white/85 group-hover:text-white">
-                    {example.title}
-                  </p>
-                  <p className="line-clamp-5 text-xs font-bold leading-relaxed text-gray-400 group-hover:text-gray-300">
-                    {example.prompt}
-                  </p>
+                  더 보기
                 </button>
-              );
-            })}
+              </div>
+            )}
           </div>
 
           <footer
