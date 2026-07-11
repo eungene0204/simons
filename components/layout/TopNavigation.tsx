@@ -16,12 +16,19 @@ import {
   Flask,
   SlidersHorizontal,
   CaretDown,
+  GearSix,
   GoogleLogo,
   SignOut,
   X,
   Receipt,
 } from "phosphor-react";
 import QuickSearchModal from "./QuickSearchModal";
+import SettingsModal from "./SettingsModal";
+import {
+  formatBacktestResetIn,
+  formatUsageValue,
+  getUsagePercent,
+} from "./planUsageFormat";
 
 const menuItems = [
   {
@@ -98,10 +105,6 @@ function formatWon(value: number) {
   return `${Math.round(value).toLocaleString("ko-KR")}원`;
 }
 
-function formatLimit(limit: number | null) {
-  return limit == null ? "무제한" : `${limit.toLocaleString("ko-KR")}`;
-}
-
 function formatPlanDate(value?: string | null) {
   if (!value) return "미등록";
 
@@ -113,18 +116,6 @@ function formatPlanDate(value?: string | null) {
     month: "2-digit",
     day: "2-digit",
   });
-}
-
-function getUsagePercent(used: number, limit: number | null, unlimited = false) {
-  if (unlimited || limit == null) return 0;
-  if (limit <= 0) return used > 0 ? 100 : 0;
-  return Math.min(100, Math.max(0, Math.round((used / limit) * 100)));
-}
-
-function formatUsageValue(used: number, limit: number | null, unlimited = false) {
-  return `${used.toLocaleString("ko-KR")} / ${
-    unlimited ? "무제한" : formatLimit(limit)
-  }`;
 }
 
 function isSpecificUserName(value: string) {
@@ -146,6 +137,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [planUsage, setPlanUsage] = useState<PlanUsageSummary | null>(null);
   const [isPlanLoading, setIsPlanLoading] = useState(false);
   const [planError, setPlanError] = useState<string | null>(null);
@@ -636,6 +628,17 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
           </button>
           <button
             type="button"
+            onClick={() => {
+              setIsProfileMenuOpen(false);
+              setIsSettingsModalOpen(true);
+            }}
+            className="flex w-full items-center gap-2 px-4 py-3 text-left text-xs font-black text-gray-300 transition-colors duration-200 hover:bg-white/[0.04] hover:text-white"
+          >
+            <GearSix size={16} weight="bold" className="text-gray-500" />
+            <span>설정</span>
+          </button>
+          <button
+            type="button"
             onClick={handleLogout}
             disabled={isLoggingOut}
             className="flex w-full items-center gap-2 px-4 py-3 text-left text-xs font-black text-gray-300 transition-colors duration-200 hover:bg-white/[0.04] hover:text-white disabled:cursor-wait disabled:opacity-60"
@@ -735,6 +738,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                         planUsage.accounts.used,
                         planUsage.accounts.limit
                       ),
+                      sublabel: null as string | null,
                     },
                     {
                       label: "저장 가능 전략",
@@ -748,6 +752,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                         planUsage.strategies.limit,
                         planUsage.strategies.unlimited
                       ),
+                      sublabel: null as string | null,
                     },
                     {
                       label: "백테스트 횟수",
@@ -758,6 +763,9 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                       percent: getUsagePercent(
                         planUsage.backtests.used,
                         planUsage.backtests.limit
+                      ),
+                      sublabel: formatBacktestResetIn(
+                        planUsage.plan.planEndDate
                       ),
                     },
                   ].map((item) => (
@@ -783,6 +791,11 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                           style={{ width: `${item.percent}%` }}
                         />
                       </div>
+                      {item.sublabel ? (
+                        <p className="text-right font-outfit text-xs font-bold text-gray-600">
+                          {item.sublabel}
+                        </p>
+                      ) : null}
                     </div>
                   ))}
                 </section>
@@ -790,6 +803,21 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
             ) : null}
           </div>
         </div>
+      )}
+
+      {authState === "authenticated" && isSettingsModalOpen && (
+        <SettingsModal
+          userEmail={userProfile.email ?? null}
+          onClose={() => setIsSettingsModalOpen(false)}
+          onLogout={() => {
+            setIsSettingsModalOpen(false);
+            void handleLogout();
+          }}
+          onAccountDeleted={() => {
+            setIsSettingsModalOpen(false);
+            void handleLogout();
+          }}
+        />
       )}
 
       <QuickSearchModal

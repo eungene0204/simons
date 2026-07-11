@@ -9,16 +9,44 @@ export class UnauthorizedAccessError extends Error {
   }
 }
 
-export async function getCurrentUser() {
+/** 세션 쿠키의 토큰을 해석한다 (DB 조회 없음) */
+async function getDecodedToken() {
   try {
     const cookieStore = await cookies()
     const token = cookieStore.get('token')?.value
-
     if (!token) {
       return null
     }
+    return verifyToken(token) ?? null
+  } catch {
+    return null
+  }
+}
 
-    const decoded = verifyToken(token)
+/**
+ * DB 조회 없이 토큰에서 userId만 해석한다.
+ * 계정 상태(ACTIVE) 검증은 하지 않으므로, 호출부는 반드시 assertActiveUser를
+ * (다른 DB 조회와 병렬로) 함께 실행해야 한다 — 원격 DB 왕복을 줄이기 위한 분리.
+ */
+export async function getSessionUserId(): Promise<number | null> {
+  const decoded = await getDecodedToken()
+  return decoded?.userId ?? null
+}
+
+/** 계정이 존재하고 ACTIVE인지 검증 — 아니면 UnauthorizedAccessError throw */
+export async function assertActiveUser(userId: number): Promise<void> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { status: true },
+  })
+  if (!user || user.status !== 'ACTIVE') {
+    throw new UnauthorizedAccessError()
+  }
+}
+
+export async function getCurrentUser() {
+  try {
+    const decoded = await getDecodedToken()
     if (!decoded) {
       return null
     }

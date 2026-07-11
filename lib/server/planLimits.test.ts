@@ -18,16 +18,24 @@ function createClient(opts: {
   accounts?: number;
   strategies?: number;
   planStartDate?: Date | null;
+  createdAt?: Date | null;
   backtestUsageMonth?: string | null;
   backtestCountThisMonth?: number;
+  subscriptionPlanId?: string | null;
+  nextBillingAt?: Date | null;
+  subscriptionCanceledAt?: Date | null;
 } = {}) {
   return {
     user: {
       findUnique: vi.fn().mockResolvedValue({
         planTier: opts.planTier ?? "FREE",
         planStartDate: opts.planStartDate ?? null,
+        createdAt: opts.createdAt ?? null,
         backtestUsageMonth: opts.backtestUsageMonth ?? null,
         backtestCountThisMonth: opts.backtestCountThisMonth ?? 0,
+        subscriptionPlanId: opts.subscriptionPlanId ?? null,
+        nextBillingAt: opts.nextBillingAt ?? null,
+        subscriptionCanceledAt: opts.subscriptionCanceledAt ?? null,
       }),
       update: vi.fn().mockResolvedValue({}),
     },
@@ -139,6 +147,34 @@ describe("planLimits — 사용량 요약", () => {
     expect(usage.backtests).toEqual({ used: 7, limit: 200 });
   });
 
+  it("getUserUsage는 자동갱신 구독 상태를 반환한다 (해지 예약 여부 포함)", async () => {
+    const nextBillingAt = new Date("2026-08-01T00:00:00Z");
+    const active = createClient({
+      planTier: "PRO",
+      subscriptionPlanId: "PRO",
+      nextBillingAt,
+    });
+    const activeUsage = await getUserUsage(active as any, 1);
+    expect(activeUsage.subscription).toEqual({
+      planId: "PRO",
+      nextBillingAt,
+      canceled: false,
+    });
+
+    const canceled = createClient({
+      planTier: "PRO",
+      subscriptionPlanId: "PRO",
+      nextBillingAt,
+      subscriptionCanceledAt: new Date("2026-07-10T00:00:00Z"),
+    });
+    const canceledUsage = await getUserUsage(canceled as any, 1);
+    expect(canceledUsage.subscription?.canceled).toBe(true);
+
+    const none = createClient({ planTier: "FREE" });
+    const noneUsage = await getUserUsage(none as any, 1);
+    expect(noneUsage.subscription).toBeNull();
+  });
+
   it("지난 달 사용량은 이번 달 used=0으로 보고한다", async () => {
     const now = new Date("2026-06-15T03:00:00Z");
     const client = createClient({
@@ -195,6 +231,38 @@ describe("planLimits — PlanConfig 오버라이드 (관리자 콘솔)", () => {
     const plan = await getEffectivePlan(client as any, "FREE");
     expect(plan.isUnlimitedStrategies).toBe(true);
     expect(plan.maxStrategies).toBe(Infinity);
+  });
+
+  it("getUserUsage는 planConfig.findMany 오버라이드를 단일 병렬 배치로 적용한다", async () => {
+    const client = {
+      ...createClient({ planTier: "FREE" }),
+      planConfig: {
+        findUnique: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([
+          {
+            planId: "FREE",
+            monthlyBacktestLimit: 100,
+            maxStrategies: null,
+            maxVirtualAccounts: null,
+          },
+        ]),
+      },
+    };
+    const usage = await getUserUsage(client as any, 1);
+    expect(usage.backtests.limit).toBe(100);
+    // 순차 왕복(findUnique) 없이 findMany 한 번으로 병합되어야 한다
+    expect(client.planConfig.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("findMany가 없는 클라이언트도 findUnique 폴백으로 오버라이드를 적용한다", async () => {
+    const client = withPlanConfig(createClient({ planTier: "FREE" }), {
+      planId: "FREE",
+      monthlyBacktestLimit: 77,
+      maxStrategies: null,
+      maxVirtualAccounts: null,
+    });
+    const usage = await getUserUsage(client as any, 1);
+    expect(usage.backtests.limit).toBe(77);
   });
 
   it("오버라이드된 백테스트 한도가 소비(consume)에 실제로 반영된다", async () => {
@@ -270,11 +338,70 @@ describe("planLimits — 구독 시작일 기준 롤링 결제 주기", () => {
     expect(usage.planEndDate?.toISOString()).toBe("2026-07-10T00:00:00.000Z");
   });
 
-  it("getUserUsage는 구독 이력이 없으면 planStartDate/planEndDate를 null로 반환한다", async () => {
+  it("getUserUsage는 주기 앵커(구독 시작일·가입일)가 모두 없으면 planStartDate/planEndDate를 null로 반환한다", async () => {
     const now = new Date("2026-06-15T00:00:00Z");
-    const client = createClient({ planTier: "FREE", planStartDate: null });
+    const client = createClient({
+      planTier: "FREE",
+      planStartDate: null,
+      createdAt: null,
+    });
     const usage = await getUserUsage(client as any, 1, now);
     expect(usage.planStartDate).toBeNull();
     expect(usage.planEndDate).toBeNull();
+  });
+});
+
+describe("planLimits — FREE 플랜 가입일 기준 사용량 주기", () => {
+  it("getUserUsage는 FREE 사용자의 주기를 가입일 기준으로 계산해 시작/종료일을 반환한다", async () => {
+    // 가입일 1/10, 현재 6/15 → 현재 주기는 6/10 ~ 7/10
+    const createdAt = new Date("2026-01-10T00:00:00Z");
+    const now = new Date("2026-06-15T00:00:00Z");
+    const client = createClient({ planTier: "FREE", createdAt });
+    const usage = await getUserUsage(client as any, 1, now);
+    expect(usage.planStartDate?.toISOString()).toBe("2026-06-10T00:00:00.000Z");
+    expect(usage.planEndDate?.toISOString()).toBe("2026-07-10T00:00:00.000Z");
+  });
+
+  it("유료 플랜은 가입일이 있어도 구독 시작일이 주기 앵커로 우선한다", async () => {
+    const createdAt = new Date("2026-01-10T00:00:00Z");
+    const planStartDate = new Date("2026-06-05T00:00:00Z");
+    const now = new Date("2026-06-15T00:00:00Z");
+    const client = createClient({ planTier: "PRO", planStartDate, createdAt });
+    const usage = await getUserUsage(client as any, 1, now);
+    expect(usage.planStartDate?.toISOString()).toBe(planStartDate.toISOString());
+    expect(usage.planEndDate?.toISOString()).toBe("2026-07-05T00:00:00.000Z");
+  });
+
+  it("FREE 사용자의 백테스트 카운트는 가입일 기준 주기가 지나면 리셋된다(캘린더 월이 아직 안 바뀌었어도)", async () => {
+    // 가입일 5/20, 현재 6/25 → 이전 주기(5/20~6/20)에 쌓인 사용량은 리셋되어야 한다
+    const createdAt = new Date("2026-05-20T00:00:00Z");
+    const now = new Date("2026-06-25T00:00:00Z");
+    const client = createClient({
+      planTier: "FREE",
+      createdAt,
+      backtestUsageMonth: "2026-05-20T00:00:00.000Z", // 이전 주기 키
+      backtestCountThisMonth: 30,
+    });
+    await consumeBacktestQuota(client as any, 1, now);
+    expect(client.user.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: {
+        backtestUsageMonth: "2026-06-20T00:00:00.000Z",
+        backtestCountThisMonth: 1,
+      },
+    });
+  });
+
+  it("FREE 사용자의 같은 주기 내 사용량은 getUserUsage에 그대로 보고된다", async () => {
+    const createdAt = new Date("2026-05-20T00:00:00Z");
+    const now = new Date("2026-06-15T00:00:00Z"); // 주기 5/20~6/20 내부
+    const client = createClient({
+      planTier: "FREE",
+      createdAt,
+      backtestUsageMonth: "2026-05-20T00:00:00.000Z",
+      backtestCountThisMonth: 12,
+    });
+    const usage = await getUserUsage(client as any, 1, now);
+    expect(usage.backtests.used).toBe(12);
   });
 });

@@ -5,12 +5,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // 유료 플랜(PRO/PREMIUM)은 반드시 결제 승인(/api/payment/confirm)을 거쳐야 한다.
 
 const getOwnershipContext = vi.fn();
+const getSessionUserId = vi.fn();
+const assertActiveUser = vi.fn();
 const userUpdate = vi.fn();
 const getUserUsage = vi.fn();
 
+class FakeUnauthorizedError extends Error {}
+
 vi.mock("@/lib/get-user", () => ({
   getOwnershipContext: (...a) => getOwnershipContext(...a),
-  isUnauthorizedAccessError: () => false,
+  getSessionUserId: (...a) => getSessionUserId(...a),
+  assertActiveUser: (...a) => assertActiveUser(...a),
+  isUnauthorizedAccessError: (e) => e instanceof FakeUnauthorizedError,
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -23,12 +29,15 @@ vi.mock("@/lib/server/planLimits", () => ({
   getUserUsage: (...a) => getUserUsage(...a),
 }));
 
+let GET;
 let POST;
 
 beforeEach(async () => {
   vi.clearAllMocks();
-  ({ POST } = await import("./route"));
+  ({ GET, POST } = await import("./route"));
   getOwnershipContext.mockResolvedValue({ userId: 7 });
+  getSessionUserId.mockResolvedValue(7);
+  assertActiveUser.mockResolvedValue(undefined);
   userUpdate.mockResolvedValue({});
   getUserUsage.mockResolvedValue({
     plan: {
@@ -52,6 +61,30 @@ beforeEach(async () => {
 function req(body) {
   return { json: async () => body };
 }
+
+describe("/api/user/plan GET", () => {
+  it("활성 세션이면 플랜 사용량을 반환한다 (상태 검증은 사용량 조회와 병렬)", async () => {
+    const res = await GET();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.plan.planId).toBe("FREE");
+    expect(assertActiveUser).toHaveBeenCalledWith(7);
+    expect(getUserUsage).toHaveBeenCalled();
+  });
+
+  it("세션이 없으면 401을 반환하고 사용량을 조회하지 않는다", async () => {
+    getSessionUserId.mockResolvedValue(null);
+    const res = await GET();
+    expect(res.status).toBe(401);
+    expect(getUserUsage).not.toHaveBeenCalled();
+  });
+
+  it("정지/삭제 계정은 유효한 토큰이 있어도 401을 반환한다", async () => {
+    assertActiveUser.mockRejectedValue(new FakeUnauthorizedError());
+    const res = await GET();
+    expect(res.status).toBe(401);
+  });
+});
 
 describe("/api/user/plan POST", () => {
   it("유료 플랜(PRO)으로의 무결제 전환을 거부한다", async () => {

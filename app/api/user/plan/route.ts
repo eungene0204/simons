@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { getOwnershipContext, isUnauthorizedAccessError } from "@/lib/get-user";
+import {
+  assertActiveUser,
+  getOwnershipContext,
+  getSessionUserId,
+  isUnauthorizedAccessError,
+} from "@/lib/get-user";
 import { prisma } from "@/lib/prisma";
 import { getUserUsage } from "@/lib/server/planLimits";
 import { isValidPlanId } from "@/lib/plans";
@@ -19,6 +24,13 @@ function serializeUsage(usage: Awaited<ReturnType<typeof getUserUsage>>) {
       planStartDate: usage.planStartDate?.toISOString() ?? null,
       planEndDate: usage.planEndDate?.toISOString() ?? null,
     },
+    subscription: usage.subscription
+      ? {
+          planId: usage.subscription.planId,
+          nextBillingAt: usage.subscription.nextBillingAt?.toISOString() ?? null,
+          canceled: usage.subscription.canceled,
+        }
+      : null,
     accounts: usage.accounts,
     strategies: {
       used: usage.strategies.used,
@@ -30,13 +42,18 @@ function serializeUsage(usage: Awaited<ReturnType<typeof getUserUsage>>) {
 }
 
 // GET: 현재 플랜 + 사용량
+// 원격 DB(Supabase) 왕복 지연이 커서, 토큰은 DB 없이 해석하고
+// 계정 상태 검증과 사용량 조회를 한 번의 병렬 배치로 실행한다.
 export async function GET() {
   try {
-    const { userId } = await getOwnershipContext();
+    const userId = await getSessionUserId();
     if (userId == null) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const usage = await getUserUsage(prisma, userId);
+    const [, usage] = await Promise.all([
+      assertActiveUser(userId),
+      getUserUsage(prisma, userId),
+    ]);
     return NextResponse.json(serializeUsage(usage));
   } catch (error) {
     if (isUnauthorizedAccessError(error)) {

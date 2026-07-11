@@ -2,7 +2,8 @@
 //
 // 가상계좌 수 / 저장 전략 수 / 월 백테스트 횟수를 사용자의 현재 플랜(User.planTier)에 따라 제한한다.
 // 월 백테스트 사용량은 구독 시작일(planStartDate) 기준 롤링 1개월 주기로 초기화된다.
-// 구독 이력이 없는 사용자(FREE, planStartDate 없음)는 KST 캘린더 월로 폴백한다.
+// 구독 이력이 없는 사용자(FREE, planStartDate 없음)는 가입일(createdAt) 기준 롤링 1개월 주기를 쓴다.
+// (가입일마저 없는 비정상 데이터는 KST 캘린더 월로 폴백한다.)
 // 가상계좌 수 / 저장 전략 수는 주기 리셋 없이 상시 캡으로 유지된다.
 
 import { Plan, getPlan } from "@/lib/plans";
@@ -22,6 +23,7 @@ type PlanLimitClient = {
   // 관리자 콘솔의 플랜 한도 오버라이드(PlanConfig). 없으면 기본값 사용.
   planConfig?: {
     findUnique: (args: any) => Promise<any>;
+    findMany?: (args?: any) => Promise<any[]>;
   };
 };
 
@@ -38,7 +40,7 @@ export const PLAN_LIMIT_MESSAGES: Record<string, string> = {
     "이번 달 백테스트 한도를 모두 사용했습니다. 요금제를 업그레이드하면 더 많은 백테스트를 실행할 수 있습니다.",
 };
 
-/** 현재 달 키 "YYYY-MM" (KST 기준) — planStartDate 미등록(구독 이력 없는 FREE) 사용자의 폴백 */
+/** 현재 달 키 "YYYY-MM" (KST 기준) — 주기 앵커(구독 시작일·가입일)가 모두 없을 때의 폴백 */
 export function currentUsageMonth(now: Date = new Date()): string {
   const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
   const year = kst.getUTCFullYear();
@@ -88,14 +90,15 @@ export function currentPlanCycle(
 
 /**
  * 사용량(백테스트 횟수 등) 리셋 기준 주기를 식별하는 키.
- * 구독 이력(planStartDate)이 있으면 그 주기 시작일, 없으면 KST 캘린더 월로 폴백한다.
+ * 주기 앵커(유료 플랜은 구독 시작일, FREE는 가입일)가 있으면 그 롤링 주기 시작일,
+ * 없으면 KST 캘린더 월로 폴백한다.
  */
 export function currentUsagePeriodKey(
-  planStartDate?: Date | null,
+  cycleAnchor?: Date | null,
   now: Date = new Date()
 ): string {
-  if (!planStartDate) return currentUsageMonth(now);
-  return currentPlanCycle(planStartDate, now).start.toISOString();
+  if (!cycleAnchor) return currentUsageMonth(now);
+  return currentPlanCycle(cycleAnchor, now).start.toISOString();
 }
 
 /**
@@ -112,6 +115,11 @@ export async function getEffectivePlan(
   const override = await client.planConfig.findUnique({
     where: { planId: base.planId },
   });
+  return applyPlanOverride(base, override);
+}
+
+/** 플랜 기본값에 PlanConfig 오버라이드 한 건을 병합한다 (override가 없으면 기본값 그대로) */
+function applyPlanOverride(base: Plan, override: any): Plan {
   if (!override) return base;
 
   const unlimitedStrategies =
@@ -194,7 +202,7 @@ export async function assertCanSaveStrategy(
 }
 
 /**
- * 월 백테스트 1회 소비 — 현재 결제 주기(구독 시작일 기준 롤링 1개월, 미구독 시 캘린더 월)가
+ * 월 백테스트 1회 소비 — 현재 사용량 주기(구독 시작일, 미구독 시 가입일 기준 롤링 1개월)가
  * 바뀌었으면 카운트를 리셋한 뒤 한도를 검사하고 +1 한다.
  * 한도 초과 시 PLAN_LIMIT_BACKTESTS throw (이때 카운트는 증가하지 않는다).
  */
@@ -208,6 +216,7 @@ export async function consumeBacktestQuota(
     select: {
       planTier: true,
       planStartDate: true,
+      createdAt: true,
       backtestUsageMonth: true,
       backtestCountThisMonth: true,
     },
@@ -215,7 +224,10 @@ export async function consumeBacktestQuota(
   if (!user) throw new Error("USER_NOT_FOUND");
 
   const plan = await getEffectivePlan(client, user.planTier);
-  const periodKey = currentUsagePeriodKey(user.planStartDate, now);
+  const periodKey = currentUsagePeriodKey(
+    user.planStartDate ?? user.createdAt,
+    now
+  );
   const usedThisPeriod =
     user.backtestUsageMonth === periodKey ? user.backtestCountThisMonth : 0;
 
@@ -234,10 +246,17 @@ export async function consumeBacktestQuota(
 
 export interface PlanUsage {
   plan: Plan;
-  /** 유료 플랜 구독 시작일 (FREE/미구독이면 null) */
+  /** 유료 플랜은 구독 시작일, FREE는 가입일 기준 현재 사용량 주기 시작일 */
   planStartDate: Date | null;
-  /** 현재 결제 주기 종료일 = planStartDate 기준 롤링 1개월 (FREE/미구독이면 null) */
+  /** 현재 사용량 주기 종료일 = 주기 앵커(구독 시작일·가입일) 기준 롤링 1개월 — 백테스트 횟수 리셋 시점 */
   planEndDate: Date | null;
+  /** 자동결제(빌링) 구독 상태 — 자동갱신 구독이 없으면 null */
+  subscription: {
+    planId: string;
+    nextBillingAt: Date | null;
+    /** 해지 예약됨 — 다음 결제일에 청구 없이 FREE 전환 */
+    canceled: boolean;
+  } | null;
   accounts: { used: number; limit: number };
   strategies: { used: number; limit: number; unlimited: boolean };
   backtests: { used: number; limit: number };
@@ -249,24 +268,41 @@ export async function getUserUsage(
   userId: number,
   now: Date = new Date()
 ): Promise<PlanUsage> {
-  const [user, accountsUsed, strategiesUsed] = await Promise.all([
+  // DB가 원격(Supabase)이라 왕복 지연이 커서, planConfig 오버라이드까지 포함해
+  // 모든 조회를 한 번의 병렬 배치(1왕복)로 실행한다. planConfig는 planTier를 알기
+  // 전에 조회해야 하므로 전체(≤플랜 수)를 읽어 병합 시점에 고른다.
+  const [user, accountsUsed, strategiesUsed, overrides] = await Promise.all([
     client.user.findUnique({
       where: { id: userId },
       select: {
         planTier: true,
         planStartDate: true,
+        createdAt: true,
         backtestUsageMonth: true,
         backtestCountThisMonth: true,
+        subscriptionPlanId: true,
+        nextBillingAt: true,
+        subscriptionCanceledAt: true,
       },
     }),
     countActiveAccounts(client, userId),
     countSavedStrategies(client, userId),
+    client.planConfig?.findMany?.() ?? null,
   ]);
 
-  const plan = await getEffectivePlan(client, user?.planTier);
-  const planStartDate: Date | null = user?.planStartDate ?? null;
-  const cycle = planStartDate ? currentPlanCycle(planStartDate, now) : null;
-  const periodKey = currentUsagePeriodKey(planStartDate, now);
+  const base = getPlan(user?.planTier);
+  const plan = overrides
+    ? applyPlanOverride(
+        base,
+        overrides.find((o) => o.planId === base.planId) ?? null
+      )
+    : await getEffectivePlan(client, user?.planTier);
+  // 사용량 주기 앵커: 유료 플랜은 구독 시작일, FREE는 가입일
+  const cycleAnchor: Date | null = user?.planStartDate ?? user?.createdAt ?? null;
+  const cycle = cycleAnchor ? currentPlanCycle(cycleAnchor, now) : null;
+  const periodKey = currentUsagePeriodKey(cycleAnchor, now);
+  // 표시용 시작일: 유료 플랜은 구독 시작일 그대로(기존 동작), FREE는 현재 주기 시작일
+  const planStartDate: Date | null = user?.planStartDate ?? cycle?.start ?? null;
   const backtestsUsed =
     user?.backtestUsageMonth === periodKey ? user.backtestCountThisMonth : 0;
 
@@ -274,6 +310,13 @@ export async function getUserUsage(
     plan,
     planStartDate,
     planEndDate: cycle?.end ?? null,
+    subscription: user?.subscriptionPlanId
+      ? {
+          planId: user.subscriptionPlanId,
+          nextBillingAt: user.nextBillingAt ?? null,
+          canceled: user.subscriptionCanceledAt != null,
+        }
+      : null,
     accounts: { used: accountsUsed, limit: plan.maxVirtualAccounts },
     strategies: {
       used: strategiesUsed,

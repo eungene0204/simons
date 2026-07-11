@@ -697,11 +697,13 @@ RiskManagement {
 | 기능 | 설명 | 구현 상태 |
 |------|------|-----------|
 | 홈 대시보드 | 전략/백테스트/가상계좌 허브 (WelcomeSection, 시장 스냅샷, 관심종목, 전략/백테스트 이력, 가상매매 현황) | ✅ 완료 |
+| 홈 대시보드 통계 정비 | 계좌별 수익률 차트의 "합산"을 투자금 가중 포트폴리오 수익률로 교체(분모가 다른 퍼센트 단순합 폐기), 손실 계좌 바 빗금 구분, SSR 초기 데이터의 6개월 매도주문 필터 제거(account-monthly API와 동일한 전체 기간 누적 기준). 최근 백테스트 목록에 CAGR·MDD 컬럼 추가 및 미매핑 유니버스 라벨 원문 폴백. 요약바에 총 평가금액 카드 추가, 가상매매 현황 줄의 중복 통계(총 평가금·전체 계좌) 제거 후 자동매매 계좌 수 독립 타일화. 요약바 4개 지표(투자금·평가금액·수익률·수익금)와 계좌 수 배지는 운용중(ACTIVE) 계좌만 집계 — 삭제(CLOSED) 계좌·정산금 제외(가상계좌 목록에는 계속 표시) | ✅ 완료 |
 | 포트폴리오 대시보드 | 전체 자산 현황, 수익률 추이, 포지션 분포, 품질 게이지 | ✅ 완료 |
 | 요금제 & 플랜 제한 | Free/Pro/Premium 플랜별 계좌당 초기 투자금·가상계좌 수·저장 전략 수·월 백테스트 한도. 계좌는 플랜의 초기 투자금으로 독립 생성(공유 풀 폐기), 계좌 해지 시 금액 미이전. 요금제 페이지(무료 플랜 변경), 내 플랜/사용량 모달·페이지 | ✅ 완료 |
-| 구독 시작/종료일 & 롤링 결제 주기 | "구독 시작하기" 결제 완료 시 `User.planStartDate` 기록, "내 플랜" 모달의 종료 날짜는 시작일 기준 롤링 1개월 후로 계산(`currentPlanCycle`). 월 백테스트 사용량 리셋도 이 롤링 주기를 따름(미구독자는 캘린더 월 폴백). 가상계좌·전략 저장 한도는 주기 리셋 없는 상시 캡 유지. FR-PLAN-010 | ✅ 완료 |
+| 구독 시작/종료일 & 롤링 결제 주기 | "구독 시작하기" 결제 완료 시 `User.planStartDate` 기록, "내 플랜" 모달의 종료 날짜는 시작일 기준 롤링 1개월 후로 계산(`currentPlanCycle`). 월 백테스트 사용량 리셋도 이 롤링 주기를 따름 — 미구독자(FREE)는 가입일(`createdAt`)을 주기 앵커로 사용해 모달 시작/종료 날짜에 현재 주기를 표시. 백테스트 횟수 아래 리셋 카운트다운 표시(24시간 이하 "Reset in 5h", 그 외 "Reset in 3 days"). 가상계좌·전략 저장 한도는 주기 리셋 없는 상시 캡 유지. FR-PLAN-010 | ✅ 완료 |
 | 토스페이먼츠 자동결제(빌링) 연동 | 유료 플랜(PRO/PREMIUM) 정기 구독 결제 — v2 SDK `requestBillingAuth`(카드 등록창) 기반. 흐름: `/pricing` "구독 시작하기" → `/pricing/checkout?plan=`(자동갱신 조건 고지, `PaymentCheckout`) → 카드 등록창 → `/pricing/success`에서 서버 승인(`POST /api/payment/confirm`: customerKey 대조 → 빌링키 발급 `/v1/billing/authorizations/issue` → 첫 달 청구 `/v1/billing/{billingKey}`) → `planTier`+`planStartDate`+`tossBillingKey`+`nextBillingAt`(+1개월) 갱신. 주문은 `POST /api/payment/order`가 서버 금액(lib/plans.ts)으로 `PaymentOrder`에 기록, 멱등키(orderId)·재승인 멱등 처리. `POST /api/user/plan`은 FREE 다운그레이드만 허용(무결제 유료 전환 차단, 빌링 상태 함께 해제). FR-PLAN-011 | ✅ 완료 |
 | 구독 월 자동갱신·해지 | 인-프로세스 스케줄러가 매시 정각 `processDueBillingRenewals`(lib/server/billingRenewal.ts) 실행 — `nextBillingAt` 도래 구독을 빌링키로 자동 청구(갱신도 `PaymentOrder` 기록), 성공 시 예정 시각 기준 +1개월. 실패 시 1일 후 재시도, 연속 3회 실패 시 FREE 전환. 해지는 `POST /api/payment/billing/cancel`이 해지 예약(`subscriptionCanceledAt`)만 기록하고 다음 결제일에 청구 없이 FREE 전환(결제된 기간은 이용 유지). 요금제 페이지에 다음 결제일/자동갱신 해지/만료일 표시. 라이브 전환 시 토스 자동결제(빌링) 계약 필요. FR-PLAN-011a | ✅ 완료 |
+| 설정 모달 (계정 삭제·요금제 취소) | 프로필 드롭다운 "설정" → 대형 사이드바 모달(`SettingsModal`) — 검색으로 메뉴 필터, 탭: 계정/결제/사용량. 계정 탭: 로그아웃·이메일 표시·본인 계정 삭제(`DELETE /api/user/account`, soft delete + 빌링 상태 초기화, 활성 자동갱신 구독 시 거부·구독 취소 먼저 안내, 성공 시 로그아웃). 결제 탭: 요금제 헤더(아이콘·월간·다음 갱신/만료일)+요금제 조정 → `/pricing`, 결제 수단(토스 자동결제), 청구서 목록(`GET /api/payment/orders` — 본인 주문, PENDING 제외, DONE=Paid/FAILED=Failed), 요금제 취소(자동갱신 해지 예약, `/api/payment/billing/cancel` 재사용). 사용량 탭: 계좌/전략/백테스트 바+리셋 카운트다운(공용 헬퍼 `planUsageFormat.ts`). FR-USR-005 | ✅ 완료 |
 | 관심종목 | 종목 추가/삭제, 그룹 관리 (색상), DB 영구 저장, 드로어 UI | ✅ 완료 |
 | 월별 수익률 | 히트맵 시각화 | ✅ 완료 |
 | 종목별 비중 | 파이차트, 섹터별 분산도 | ✅ 완료 |

@@ -75,8 +75,12 @@ function renderWithQueryClient(ui: ReactNode) {
 
 function mockAuthenticatedPlanUsage({
   strategies = { used: 12, limit: 50, unlimited: false },
+  planStartDate = null,
+  planEndDate = null,
 }: {
   strategies?: { used: number; limit: number | null; unlimited: boolean };
+  planStartDate?: string | null;
+  planEndDate?: string | null;
 } = {}) {
   fetchMock.mockImplementation((input: RequestInfo | URL) => {
     const url = String(input);
@@ -102,6 +106,8 @@ function mockAuthenticatedPlanUsage({
             planId: "PRO",
             name: "Pro",
             initialInvestmentAmount: 50_000_000,
+            planStartDate,
+            planEndDate,
           },
           accounts: { used: 3, limit: 10 },
           strategies,
@@ -193,6 +199,49 @@ describe("TopNavigation plan modal", () => {
       "aria-valuenow",
       "0"
     );
+  });
+
+  it("백테스트 횟수 아래에 리셋까지 남은 일수를 표시한다", async () => {
+    // 주기 종료가 3일 뒤 → "Reset in 3 days"
+    mockAuthenticatedPlanUsage({
+      planEndDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+    });
+    await openPlanModal();
+
+    expect(await screen.findByText("Reset in 3 days")).toBeInTheDocument();
+  });
+
+  it("리셋까지 24시간 이하면 시간 단위(h)로 표시한다", async () => {
+    mockAuthenticatedPlanUsage({
+      planEndDate: new Date(Date.now() + 5 * 60 * 60 * 1000).toISOString(),
+    });
+    await openPlanModal();
+
+    expect(await screen.findByText("Reset in 5h")).toBeInTheDocument();
+  });
+
+  it("주기 종료일이 없으면 리셋 표시를 렌더링하지 않는다", async () => {
+    mockAuthenticatedPlanUsage();
+    await openPlanModal();
+
+    await screen.findByText("백테스트 횟수");
+    expect(screen.queryByText(/Reset in/)).not.toBeInTheDocument();
+  });
+
+  it("프로필 메뉴의 설정을 누르면 설정 모달이 열린다", async () => {
+    mockAuthenticatedPlanUsage();
+    renderWithQueryClient(<TopNavigation />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "홍길동 사용자 메뉴" })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "설정" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "설정" });
+    expect(dialog).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "계정 삭제" })
+    ).toBeInTheDocument();
   });
 
   it("자산 관련 표현을 사용하지 않는다", async () => {
