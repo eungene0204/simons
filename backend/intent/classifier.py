@@ -26,6 +26,7 @@ from .scope import (
     METRIC_NUM_GAP,
     ONBOARDING_REPLY,
     OFFTOPIC_REFUSAL,
+    UNSUPPORTED_FEATURE_REPLY,
     greeting_reply,
     has_finance_cue,
     is_greeting_only,
@@ -33,6 +34,7 @@ from .scope import (
     is_onboarding_help_request,
     is_stock_pick_request,
     is_strategy_pick_request,
+    is_unsupported_feature_request,
     STRATEGY_PICK_REPLY,
     stock_pick_reply,
     stock_question_redirect,
@@ -126,6 +128,9 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     "어떤 전략이 우수한지 골라 달라는 열린 추천 요청 — 특정 유형(모멘텀·RSI 등)이 명시되면 STRATEGY_ADVICE다), "
     "ONBOARDING(구체적인 전략·지표·종목 없이 '어떻게 시작하지·뭐부터 해야 해·처음인데 어떻게 써'처럼 "
     "무엇을 해야 할지 막막해 도움을 청하는 요청), "
+    "UNSUPPORTED_FEATURE(뉴스·공시·SNS 여론·애널리스트 리포트처럼 플랫폼에 없는 데이터 분석을 "
+    "근거로 종목을 고르거나 전략을 만들어 달라는 요청 — 단, RSI·이동평균·PER 같은 지원 지표가 "
+    "함께 있으면 STRATEGY_ADVICE다), "
     "GENERAL_INVESTMENT(일반 투자 지식·용어 정의), "
     "GREETING(인사·짧은 사회적 표현), "
     "OFF_TOPIC(투자와 무관한 잡담·사적 대화·일반 상식·날씨·건강·프로그래밍·정치 등 역할 밖 질문), "
@@ -186,6 +191,24 @@ def _classify_deterministic(query: str, last_symbol: Optional[str]) -> Optional[
     stock_question_overrides_strategy = bool(
         refs and has_stock_q and risk_word_only_strategy_kw and not _CONSTRUCT_VERB.search(text)
     )
+
+    # 0-c) [기능 범위] 뉴스·공시 등 제공하지 않는 재료 분석을 근거로 한 요청("최근 뉴스가
+    #      좋은 종목을 사는 전략") → '전략' 키워드로 STRATEGY_ADVICE에 새서 빈 전략 파싱 →
+    #      빌더 자동 전환으로 이어지지 않도록 먼저 잡아 미제공 안내로 답한다.
+    #      순수 정의형 질문("공시가 뭐야?")은 지식 질문, 종목명(또는 anaphora)+행동 질문
+    #      ("삼성전자 악재 떴는데 팔까?")은 종목 질문이므로 아래 규칙에 맡긴다.
+    if (
+        is_unsupported_feature_request(text)
+        and not pure_definition
+        and not (has_stock_q and (refs or _ANAPHORA.search(text)))
+    ):
+        return IntentResult(
+            intent=QueryIntent.UNSUPPORTED_FEATURE,
+            symbols=_to_detected(refs),
+            suggested_reply=UNSUPPORTED_FEATURE_REPLY,
+            confidence=0.9,
+            reason="미제공 기능(뉴스·공시 분석) 기반 요청 감지",
+        )
 
     # 0-b) [규제 안전] "어떤 전략이 좋을까?"처럼 어떤 전략이 우수한지 골라/추천해 달라는 열린 요청 →
     #      전략 우열을 판단·추천하지 않고, 함께 만들어 백테스트하는 전략 빌더로 유도한다. '전략'이
@@ -293,7 +316,7 @@ def _classify_with_llm(query: str, llm: LLMFn) -> Optional[IntentResult]:
         logger.exception("intent LLM 폴백 실패")
         return None
     match = re.search(
-        r'"intent"\s*:\s*"(STRATEGY_ADVICE|STOCK_ANALYSIS|STOCK_PICK|STRATEGY_PICK|ONBOARDING|GENERAL_INVESTMENT|GREETING|OFF_TOPIC|UNKNOWN)"',
+        r'"intent"\s*:\s*"(STRATEGY_ADVICE|STOCK_ANALYSIS|STOCK_PICK|STRATEGY_PICK|ONBOARDING|UNSUPPORTED_FEATURE|GENERAL_INVESTMENT|GREETING|OFF_TOPIC|UNKNOWN)"',
         raw or "",
     )
     if not match:
@@ -315,6 +338,8 @@ def _classify_with_llm(query: str, llm: LLMFn) -> Optional[IntentResult]:
         suggested_reply = STRATEGY_PICK_REPLY
     elif intent == QueryIntent.ONBOARDING:
         suggested_reply = ONBOARDING_REPLY
+    elif intent == QueryIntent.UNSUPPORTED_FEATURE:
+        suggested_reply = UNSUPPORTED_FEATURE_REPLY
     refs = find_in_text(query) if intent == QueryIntent.STOCK_ANALYSIS else []
     if intent == QueryIntent.STOCK_ANALYSIS:
         suggested_reply = stock_question_redirect(

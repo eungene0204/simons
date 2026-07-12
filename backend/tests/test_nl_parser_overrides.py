@@ -2606,6 +2606,19 @@ def test_volume_multiple_threshold_flagged_as_unsupported():
     assert _mentions_unsupported_concept("거래량 급증 매수, 3배 수익 목표") is None
 
 
+def test_news_condition_flagged_as_unsupported():
+    """[침묵 왜곡 방지] 뉴스/공시 재료 조건은 스키마가 표현할 수 없다 — 지원 지표와 섞인
+    혼합 요청은 룰 파스가 부분 해석을 내놓지 않고 LLM에 위임하며 notice로 알린다.
+    (요청 전체가 뉴스 기반이면 intent.classifier가 UNSUPPORTED_FEATURE로 먼저 안내한다.)"""
+    from engine.nl_parser import build_unsupported_concept_notice
+
+    prompt = "RSI 30 이하에서 매수하고 호재 뉴스 있으면 익절, 손절 8%"
+    assert _mentions_unsupported_concept(prompt) == "news"
+    assert _parse_rule_based_strategy(prompt) is None
+    notice = build_unsupported_concept_notice(prompt)
+    assert notice is not None and "뉴스/공시 등 재료 조건" in notice
+
+
 # ─── Rule Parse Guard: red-flag 결정론 선차단 ────────────────────────────────
 
 

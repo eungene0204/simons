@@ -225,6 +225,41 @@ def is_strategy_pick_request(text: str) -> bool:
     return bool(_STRATEGY_PICK_RE.search(t))
 
 
+# [기능 범위] 뉴스·공시 같은 '재료(이벤트) 데이터'를 근거로 종목을 고르거나 전략을 만들어
+# 달라는 요청 감지. 플랫폼은 뉴스 분석 기능을 제공하지 않으므로("최근 뉴스가 좋은 종목을
+# 사는 전략"), 빈 전략 파싱 → 전략 빌더 자동 전환으로 새지 않고 미제공 안내 + 다른 아이디어
+# 유도로 답한다. 지원 지표·재무 신호가 섞인 혼합 요청은 가로채지 않는다 — 파서가 지원
+# 부분을 살리고 미지원 개념 notice(engine.nl_parser)로 알린다.
+_NEWS_FEATURE_CUE = re.compile(r"뉴스|공시|호재|악재|풍문|루머|기사|여론|sns", re.IGNORECASE)
+# 뉴스 단어가 종목 선정/전략의 근거로 쓰였는지 확인하는 맥락 신호(단순 잡담·정의 질문 제외).
+_NEWS_FEATURE_CONTEXT = re.compile(
+    r"종목|주식|전략|매수|매도|사는|사서|사면|팔|골라|고르|기반|보고|분석|필터|조건",
+    re.IGNORECASE,
+)
+# 엔진이 지원하는 지표·재무 신호. 하나라도 있으면 혼합 요청이므로 일반 전략 흐름에 맡긴다.
+_NEWS_FEATURE_SUPPORTED_SIGNAL = re.compile(
+    r"모멘텀|골든\s*크로스|데드\s*크로스|macd|볼린저|이동\s*평균|이평|돌파|거래량|거래대금|"
+    r"스토캐스틱|cci|adx|rsi|과매도|과매수|저평가|가치주|"
+    r"per|pbr|psr|roe|roa|eps|bps|배당수익률|시가총액|시총|부채비율",
+    re.IGNORECASE,
+)
+UNSUPPORTED_FEATURE_REPLY = (
+    "죄송합니다. 뉴스·공시 같은 재료 분석 기능은 현재 제공하고 있지 않아요. "
+    "다른 투자 아이디어를 알려주시면 전략으로 만들어 백테스트해 드릴 수 있어요. "
+    "예를 들어 기술적 지표(RSI·이동평균·거래량)나 재무 조건(PER·PBR·ROE) 기반 아이디어는 "
+    "바로 전략으로 바꿔 드릴 수 있어요."
+)
+
+
+def is_unsupported_feature_request(text: str) -> bool:
+    """뉴스·공시 등 플랫폼이 제공하지 않는 재료 데이터를 근거로 한 요청인지 검사한다.
+    지원 지표·재무 신호가 섞인 혼합 요청은 파서가 처리하도록 가로채지 않는다."""
+    t = text or ""
+    if _NEWS_FEATURE_SUPPORTED_SIGNAL.search(t):
+        return False
+    return bool(_NEWS_FEATURE_CUE.search(t) and _NEWS_FEATURE_CONTEXT.search(t))
+
+
 def is_greeting_only(text: str) -> bool:
     """입력 전체가 인사로만 구성됐는지(전략 질문이 섞이지 않았는지) 검사한다."""
     if not _GREETING_RE.search(text):

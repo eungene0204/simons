@@ -467,3 +467,62 @@ def test_stock_question_redirect_sector_example_is_parseable():
     assert parsed is not None
     assert parsed.sector == "반도체"
     assert parsed.ranking_metric == "return"
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "최근 뉴스가 좋은 종목을 사는 전략을 만들어줘",  # 실제 버그 재현: 빌더로 진입하던 케이스
+        "호재 있는 종목 골라줘",
+        "공시 보고 매매하는 전략 만들어줘",
+        "악재 없는 종목만 사는 전략",
+        "뉴스 기반으로 종목 골라주는 전략 짜줘",
+    ],
+)
+def test_unsupported_feature_request_is_declined_not_built(query):
+    # [기능 범위] 뉴스·공시 분석처럼 제공하지 않는 기능을 근거로 한 요청은 전략 빌더로
+    # 유도하지 않고 미제공 안내(UNSUPPORTED_FEATURE + suggested_reply)로 답해야 한다.
+    result = classify(query)  # llm 없이도 결정적으로
+    assert result.intent == QueryIntent.UNSUPPORTED_FEATURE
+    assert result.deterministic is True
+    assert result.suggested_reply
+    assert "제공하고 있지 않아요" in result.suggested_reply
+    assert "아이디어" in result.suggested_reply  # 다른 아이디어 유도
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        # 지원 지표가 섞인 혼합 요청 → 가로채지 않고 일반 전략 흐름(파서 notice가 처리).
+        "RSI 30 이하에서 매수하고 호재 뉴스 있으면 익절하는 전략",
+        "PBR 1 이하 저평가 종목 중 악재 없는 종목 매수",
+        # 뉴스 단어가 있어도 지원 유형이 명시된 설계 요청.
+        "뉴스에서 봤는데 골든크로스 전략 만들어줘",
+    ],
+)
+def test_mixed_news_request_stays_strategy(query):
+    # 지원 지표·유형이 함께 있으면 미제공 안내로 막지 않고 전략 설계로 흘려보낸다
+    # (파서가 지원 부분을 살리고 미지원 개념 notice로 알린다).
+    assert classify(query).intent == QueryIntent.STRATEGY_ADVICE
+
+
+def test_named_stock_news_question_is_stock_analysis():
+    # 종목명 + 행동 질문은 뉴스 단어가 섞여도 종목 질문 안내(전략 전환)가 우선한다.
+    result = classify("삼성전자 악재 떴는데 팔까?")
+    assert result.intent == QueryIntent.STOCK_ANALYSIS
+
+
+def test_news_definition_question_is_not_declined():
+    # 순수 정의형 질문("공시가 뭐야?")은 미제공 안내로 가로채지 않는다(지식 질문).
+    result = classify("공시가 뭐야?")
+    assert result.intent != QueryIntent.UNSUPPORTED_FEATURE
+
+
+def test_llm_fallback_unsupported_feature_sets_reply():
+    # 결정적 cue로 못 잡는 긴 꼬리 phrasing도 LLM이 UNSUPPORTED_FEATURE로 잡으면 안내가 채워진다.
+    result = classify(
+        "요즘 화제성 높은 걸로 부탁해", llm=lambda s, u: '{"intent": "UNSUPPORTED_FEATURE"}'
+    )
+    assert result.intent == QueryIntent.UNSUPPORTED_FEATURE
+    assert result.suggested_reply
+    assert "제공하고 있지 않아요" in result.suggested_reply

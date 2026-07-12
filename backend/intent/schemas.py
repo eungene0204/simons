@@ -19,6 +19,9 @@ class QueryIntent(str, Enum):
     STRATEGY_PICK = "STRATEGY_PICK"
     # 무엇을 해야 할지 모르는 막연한 도움 요청('어떻게 시작하지?') — 전략 빌더로 유도(suggested_reply).
     ONBOARDING = "ONBOARDING"
+    # 뉴스·공시 분석처럼 플랫폼이 제공하지 않는 기능을 근거로 한 요청 — 빌더로 새지 않고
+    # 미제공 안내 + 다른 아이디어 유도(suggested_reply).
+    UNSUPPORTED_FEATURE = "UNSUPPORTED_FEATURE"
     GENERAL_INVESTMENT = "GENERAL_INVESTMENT"
     GREETING = "GREETING"
     OFF_TOPIC = "OFF_TOPIC"

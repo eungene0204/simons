@@ -927,23 +927,28 @@ function StrategyLabContent() {
     // 인사 / 역할 밖 질문 / 열린 종목 추천 / 막연한 도움 요청 → 전략으로 파싱하지 않고 정해진 안내를 바로 보여준다.
     // STOCK_PICK은 특정 종목 추천 대신 전략 설계로 전환하는 안내다([규제 안전]).
     // ONBOARDING은 "어떻게 시작하지?"처럼 막막해하는 입력으로, 빈 전략 카드 대신 전략 빌더로 유도한다.
+    // UNSUPPORTED_FEATURE는 뉴스 분석처럼 제공하지 않는 기능 기반 요청 — 빌더로 들어가지 않고
+    // 미제공 안내만 보여준 뒤 사용자의 다른 아이디어를 기다린다.
     if (
       intent === "GREETING" ||
       intent === "OFF_TOPIC" ||
       intent === "STOCK_PICK" ||
       intent === "STRATEGY_PICK" ||
-      intent === "ONBOARDING"
+      intent === "ONBOARDING" ||
+      intent === "UNSUPPORTED_FEATURE"
     ) {
       const fallback =
         intent === "GREETING"
           ? "안녕하세요. 오늘은 어떤 전략을 연구해 볼까요?"
-          : intent === "STOCK_PICK"
-            ? "특정 종목을 추천하지는 않지만, 투자 아이디어를 전략으로 만들어 과거 데이터로 검증하도록 도와드릴 수 있어요.\n\n예를 들어 이렇게 시작해볼 수 있어요:\n• RSI가 30 이하로 떨어지면 매수하고 70 이상에서 파는 '과매도 반등' 전략\n• 20일 이동평균이 60일 이동평균을 위로 뚫는 골든크로스에서 매수하는 추세 전략\n• PBR은 낮고 ROE는 높은 저평가 우량주를 고르는 가치 전략\n\n끌리는 아이디어가 있거나 평소 관심 있던 매매 방식이 있다면 말씀해 주세요 — 바로 전략으로 만들어 백테스트해 드릴게요."
-            : intent === "STRATEGY_PICK"
-              ? "어떤 전략이 더 좋은지 판단하거나 추천해 드리지는 않지만, 관심 있는 아이디어를 함께 전략으로 만들어 과거 데이터로 백테스트해 볼 수 있어요. 제가 단계별로 여쭤볼 테니 골라 주시면 바로 백테스트까지 이어집니다."
-              : intent === "ONBOARDING"
-                ? "처음이시거나 어디서부터 시작할지 막막하시면 제가 단계별로 함께 전략을 만들어 드릴게요. 몇 가지만 골라 주시면 바로 백테스트까지 이어집니다."
-                : "저는 투자 전략 및 분석 전용 모델입니다. 현재 질문에는 도움을 드릴 수 없습니다. 대신 투자 전략, 백테스트와 관련된 질문은 도와드릴 수 있습니다.";
+          : intent === "UNSUPPORTED_FEATURE"
+            ? "죄송합니다. 요청하신 기능은 현재 제공하고 있지 않아요. 다른 투자 아이디어를 알려주시면 전략으로 만들어 백테스트해 드릴 수 있어요."
+            : intent === "STOCK_PICK"
+              ? "특정 종목을 추천하지는 않지만, 투자 아이디어를 전략으로 만들어 과거 데이터로 검증하도록 도와드릴 수 있어요.\n\n예를 들어 이렇게 시작해볼 수 있어요:\n• RSI가 30 이하로 떨어지면 매수하고 70 이상에서 파는 '과매도 반등' 전략\n• 20일 이동평균이 60일 이동평균을 위로 뚫는 골든크로스에서 매수하는 추세 전략\n• PBR은 낮고 ROE는 높은 저평가 우량주를 고르는 가치 전략\n\n끌리는 아이디어가 있거나 평소 관심 있던 매매 방식이 있다면 말씀해 주세요 — 바로 전략으로 만들어 백테스트해 드릴게요."
+              : intent === "STRATEGY_PICK"
+                ? "어떤 전략이 더 좋은지 판단하거나 추천해 드리지는 않지만, 관심 있는 아이디어를 함께 전략으로 만들어 과거 데이터로 백테스트해 볼 수 있어요. 제가 단계별로 여쭤볼 테니 골라 주시면 바로 백테스트까지 이어집니다."
+                : intent === "ONBOARDING"
+                  ? "처음이시거나 어디서부터 시작할지 막막하시면 제가 단계별로 함께 전략을 만들어 드릴게요. 몇 가지만 골라 주시면 바로 백테스트까지 이어집니다."
+                  : "저는 투자 전략 및 분석 전용 모델입니다. 현재 질문에는 도움을 드릴 수 없습니다. 대신 투자 전략, 백테스트와 관련된 질문은 도와드릴 수 있습니다.";
       updateLastAssistant({ isLoading: false, infoText: suggestedReply ?? fallback });
       // 열린 종목·전략 추천, 막연한 도움 요청 직후 전략 빌더 모드로 들어간다. 사용자의 후속 입력을
       // 기다리지 않고 곧바로 빌더의 첫 질문을 띄워, 함께 전략을 구성하기 시작한다.
@@ -2077,7 +2082,7 @@ function StrategyLabContent() {
             <button
               type="button"
               onClick={handleReset}
-              className="absolute bottom-3 left-3 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-[#171717] px-3 py-1.5 text-xs font-bold text-gray-400 transition-all duration-200 hover:border-white/30 hover:bg-[#202020] hover:text-white"
+              className="absolute bottom-3 left-3 inline-flex items-center gap-1.5 rounded-full border border-[var(--accent-blue)] bg-[#171717] px-3 py-1.5 text-xs font-bold text-gray-400 transition-all duration-200 hover:bg-[#202020] hover:text-white"
             >
               <X size={12} weight="bold" />
               대화 종료
@@ -2116,7 +2121,7 @@ function StrategyLabContent() {
             <button
               type="button"
               onClick={handleReset}
-              className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-[#171717] px-4 py-2 text-xs font-bold text-gray-300 shadow-lg transition-all duration-200 hover:border-white/30 hover:bg-[#202020] hover:text-white"
+              className="inline-flex items-center gap-1.5 rounded-full border border-[var(--accent-blue)] bg-[#171717] px-4 py-2 text-xs font-bold text-gray-300 shadow-lg transition-all duration-200 hover:bg-[#202020] hover:text-white"
             >
               <X size={12} weight="bold" />
               대화 종료

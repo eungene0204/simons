@@ -2600,6 +2600,11 @@ _UNSUPPORTED_CONCEPT_PATTERNS: tuple[tuple[str, str], ...] = (
     ("valuation_exit", r"밸류에이션"),
     ("relative_to_market", r"시장(?:보다|평균|대비)"),
     ("earnings", r"실적|어닝|컨센서스|목표주가"),
+    # 뉴스/공시 등 재료(이벤트) 데이터 — 요청 전체가 뉴스 기반이면 intent.classifier가
+    # UNSUPPORTED_FEATURE로 먼저 안내하고, 지원 지표와 섞인 혼합 요청만 여기로 온다.
+    # 뉴스가 '조건'으로 쓰일 때만 잡는다 — "뉴스에 자주 나오는 강한 종목을 …" 같은 서두
+    # flavor 언급(구체 규칙 동반)은 결정적 파싱을 유지한다(오폴백 방지).
+    ("news", r"호재|악재|(?:뉴스|공시|루머|풍문|기사)[^,.]{0,6}(?:좋|나쁘|긍정|부정|기반|보고|분석|따라|필터)"),
     ("supply_demand", r"수급|외국인|기관(?:이|투자|순매)|공매도|신용잔고|유상증자|증자"),
     ("profitability_sign", r"흑자|적자"),
     ("ema_alignment", r"정배열|역배열"),
@@ -2625,6 +2630,7 @@ _UNSUPPORTED_CONCEPT_LABELS: dict[str, str] = {
     "valuation_exit": "밸류에이션 기반 청산",
     "relative_to_market": "시장 대비 상대 조건",
     "earnings": "실적/컨센서스 조건",
+    "news": "뉴스/공시 등 재료 조건",
     "supply_demand": "수급(외국인·기관·공매도 등) 조건",
     "profitability_sign": "흑자/적자 조건",
     "ema_alignment": "정배열/역배열 조건",
