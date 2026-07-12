@@ -141,7 +141,7 @@ Python 백엔드는 `backend/db.py`(psycopg v3 어댑터, sqlite3와 유사한 �
 | `DART_API_KEY` | DART 공시 |
 | `PUBLIC_DATA_SERVICE_KEY` | 공공데이터포털 |
 | `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` | 프론트 Supabase Auth(구글 로그인) — **빌드 타임에 번들 인라인**이라 값 채운 뒤 반드시 재빌드 |
-| `TOSS_SECRET_KEY` / `NEXT_PUBLIC_TOSS_CLIENT_KEY` | 토스페이먼츠 자동결제·빌링(유료 플랜 정기 구독). 실결제 전 테스트 키→**빌링 계약된** 라이브 상점 키로 교체 필수(§9) |
+| `TOSS_SECRET_KEY` / `NEXT_PUBLIC_TOSS_CLIENT_KEY` | 토스페이먼츠 자동결제·빌링(유료 플랜 정기 구독). 실결제 전 테스트 키→**빌링 계약된** 라이브 상점 키로 교체 필수(§9). `NEXT_PUBLIC_TOSS_CLIENT_KEY`는 **빌드 타임 번들 인라인**(Dockerfile ARG + compose build args 배선) — 값 변경 시 재빌드 필수 |
 | `JWT_SECRET`, `SCHEDULER_SECRET` | 인증/스케줄러 보호(임의 난수) |
 | `DOMAIN`, `APEX_DOMAIN` | Caddy TLS 대상 도메인 |
 
