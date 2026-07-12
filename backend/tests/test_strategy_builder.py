@@ -365,6 +365,151 @@ def test_sector_flows_into_prompt_and_dsl():
     assert parsed.ranking_metric == "return"
 
 
+def test_seed_unsupported_sector_notice_shown_once():
+    """[회귀] '로봇주 관련 전략을 만들어보자' — 지원 목록에 없는 업종이 조용히 버려져
+    전체 시장으로 백테스트되던 버그. 시드가 언급을 캐치해 안내를 한 번만 보여준다."""
+    state = sb.seed_state("로봇주 관련 전략을 만들어보자")
+    assert state.sector is None
+    assert state.sector_unresolved is True
+
+    first = sb.step(state, "")
+    assert "지원 목록에 없어" in first.reply       # 목록 밖 업종 안내
+    assert "시장" in first.reply                   # 첫 질문(유니버스)은 그대로 이어진다
+    assert first.state.sector_unresolved is False  # 1회 표시 후 소비
+
+    second = sb.step(first.state, "코스피")
+    assert "지원 목록에 없어" not in second.reply  # 반복 안내 없음
+
+
+def test_seed_unsupported_sector_word_order_variants():
+    """'관련주' 어순이 아니어도('로봇 관련'·'메타버스 테마') 목록 밖 업종 언급을 캐치한다."""
+    assert sb.seed_state("로봇 관련 전략 만들어줘").sector_unresolved is True
+    assert sb.seed_state("메타버스 테마 전략").sector_unresolved is True
+    # 지원 업종은 정상 시드되고 플래그는 켜지지 않는다.
+    supported = sb.seed_state("반도체 관련 전략 만들어줘")
+    assert supported.sector == "반도체"
+    assert supported.sector_unresolved is False
+    # 업종 무관 표현은 목록 밖 언급이 아니다.
+    assert sb.seed_state("업종 상관없이 코스피 모멘텀 전략").sector_unresolved is False
+
+
+def test_midflow_supported_sector_mention_is_captured():
+    """안내를 본 사용자가 대화 중 지원 업종을 말하면 캐치해 유니버스 제한으로 반영한다."""
+    state = sb.seed_state("로봇주 관련 전략을 만들어보자")
+    first = sb.step(state, "")  # 안내 소비 + 유니버스 질문
+    r = sb.step(first.state, "그러면 기계/장비 업종으로 해줘")
+    assert r.state.sector == "기계/장비"
+    assert "기계/장비 업종" in r.reply  # 반영 확인(ack)
+
+
+def test_unresolved_sector_resolved_by_llm_resolver():
+    """[FR] '원자로 관련주 전략을 만들자' — 결정적 정규화가 실패해도 LLM 해석기가 지원
+    업종('에너지/원자력')으로 매핑하면 sector로 반영돼 안내 없이 배지까지 관통한다."""
+    state = sb.seed_state("원자로 관련주 전략을 만들자")
+    assert state.sector is None and state.sector_unresolved is True
+    assert state.sector_hint == "원자로 관련주 전략을 만들자"
+
+    calls: list[str] = []
+
+    def resolver(text: str):
+        calls.append(text)
+        return "에너지/원자력"
+
+    first = sb.step(state, "", sector_resolver=resolver)
+    assert calls == ["원자로 관련주 전략을 만들자"]  # 힌트 원문으로 호출
+    assert first.state.sector == "에너지/원자력"
+    assert first.state.sector_unresolved is False and first.state.sector_hint is None
+    assert "지원 목록에 없어" not in first.reply           # 안내 대신 해석 성공
+    assert "에너지/원자력 업종 대상" in first.reply        # 이해한 업종을 도입부에서 확인
+
+    # 이후 합성 프롬프트/DSL까지 흐른다.
+    r = first
+    for answer in ("코스피", "모멘텀", "3개월", "5종목", "매월", "10% 손절"):
+        r = sb.step(r.state, answer, sector_resolver=resolver)
+    assert r.status == "confirmed"
+    assert "에너지/원자력 업종" in r.prompt
+    assert sb.build_parsed_strategy(r.state).sector == "에너지/원자력"
+    assert len(calls) == 1  # 해석은 한 번만(이후 턴에서 재호출 없음)
+
+
+def test_unresolved_sector_llm_null_or_error_falls_back_to_notice():
+    """LLM이 매핑 불가(null)거나 실패하면 기존 미지원 안내로 폴백한다."""
+    state = sb.seed_state("로봇주 관련 전략을 만들어보자")
+    first = sb.step(state, "", sector_resolver=lambda _t: None)
+    assert "지원 목록에 없어" in first.reply
+    assert first.state.sector is None and first.state.sector_unresolved is False
+
+    state2 = sb.seed_state("로봇주 관련 전략을 만들어보자")
+    def boom(_t):
+        raise RuntimeError("LLM down")
+    second = sb.step(state2, "", sector_resolver=boom)
+    assert "지원 목록에 없어" in second.reply  # 예외에도 안내로 안전 폴백
+
+
+def test_unresolved_sector_resolver_output_is_renormalized():
+    """해석기 출력은 normalize_sector로 재검증한다 — 목록 밖 이름을 지어내면 무시."""
+    state = sb.seed_state("원자로 관련주 전략을 만들자")
+    first = sb.step(state, "", sector_resolver=lambda _t: "원자로섹터")
+    assert first.state.sector is None
+    assert "지원 목록에 없어" in first.reply
+    # 동의어('원자력')로 답해도 정본명('에너지/원자력')으로 들어간다.
+    state2 = sb.seed_state("원자로 관련주 전략을 만들자")
+    second = sb.step(state2, "", sector_resolver=lambda _t: "원자력")
+    assert second.state.sector == "에너지/원자력"
+
+
+def test_midflow_unresolved_mention_resolved_by_llm():
+    """대화 중 미지원 표현('원자로 관련주로')도 LLM 해석으로 반영되고 확인 문장이 나온다."""
+    state = sb.step(sb.BuilderState(), "").state  # 빈 상태에서 유니버스 질문
+    r = sb.step(state, "원자로 관련주로 해줘", sector_resolver=lambda _t: "에너지/원자력")
+    assert r.state.sector == "에너지/원자력"
+    assert "에너지/원자력 업종" in r.reply  # LLM 해석분도 ack
+
+
+def test_cancel_control_not_triggered_by_gwan_syllable():
+    """[회귀] '관둘?'의 ?가 '둘'에만 붙어 맨 '관'에도 매칭 — '관련주로 해줘'·'관심 업종'이
+    취소로 오인돼 빌더가 종료되던 버그."""
+    assert sb.detect_control("원자로 관련주로 해줘") is None
+    assert sb.detect_control("관심 있는 업종으로") is None
+    assert sb.detect_control("관둘래") == "cancel"
+    assert sb.detect_control("그냥 관두자") == "cancel"
+
+
+def test_sector_llm_prompt_carries_convention_glosses():
+    """[회귀, 2026-07-12 실측] LLM이 업종 '이름' 연상('전력→유틸리티')으로 '전력설비
+    관련주'를 통신/유틸리티(실제: 통신사·한전 등 사업자)에 매핑 — 변압기·전력설비 제조는
+    이 분류 체계에서 에너지/원자력이다. 혼동 업종의 관례 주석이 두 프롬프트(빌더 해석기·
+    메인 파싱 COMPACT)에 모두 실려야 한다."""
+    from engine.nl_parser import COMPACT_SYSTEM_PROMPT
+    from engine.universe_pit import sectors_for_llm_prompt
+
+    glossed = sectors_for_llm_prompt()
+    assert "전력설비" in glossed          # 에너지/원자력 주석
+    assert "사업자" in glossed            # 통신/유틸리티 주석
+    assert "전선" in glossed              # IT 하드웨어 주석
+    assert glossed in sb._sector_llm_prompt()
+    assert glossed in COMPACT_SYSTEM_PROMPT
+
+
+def test_llm_extract_sector_parses_and_validates():
+    assert sb.llm_extract_sector("원자로", lambda *_a, **_k: '{"sector": "에너지/원자력"}') == "에너지/원자력"
+    assert sb.llm_extract_sector("원자로", lambda *_a, **_k: '{"sector": "원자력"}') == "에너지/원자력"
+    assert sb.llm_extract_sector("로봇", lambda *_a, **_k: '{"sector": null}') is None
+    assert sb.llm_extract_sector("로봇", lambda *_a, **_k: "말도 안 되는 출력") is None
+    assert sb.llm_extract_sector("로봇", lambda *_a, **_k: '{"sector": "듣도보도못한업종"}') is None
+
+
+def test_seed_confirmed_with_unresolved_sector_carries_notice():
+    """시드만으로 즉시 confirmed되는 경우(모멘텀)에도 안내가 notices 채널로 전달된다."""
+    state = sb.seed_state(
+        "로봇 관련 모멘텀 전략, 코스피에서 최근 3개월 상위 5종목, 매월 리밸런싱, 10% 손절"
+    )
+    assert state.sector_unresolved is True
+    r = sb.step(state, "")
+    assert r.status == "confirmed"
+    assert any("지원 목록에 없어" in n for n in r.notices)
+
+
 def test_parse_strategy_type_recognizes_profit_phrasing():
     assert sb._parse_strategy_type("수익률이 좋았던 종목") == "momentum"
     assert sb._parse_strategy_type("많이 오른 종목") == "momentum"

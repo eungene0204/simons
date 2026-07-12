@@ -3275,6 +3275,79 @@ def test_extract_sector_deterministic():
     assert _extract_sector("로봇 관련주 매수") is None
 
 
+def test_extract_sector_bare_related_and_theme_cues():
+    # [회귀] '관련주' 어순만 보던 큐가 "반도체 관련 전략"·"2차전지 테마"를 놓쳤다 —
+    # 같은 계열의 "로봇주 관련 전략"이 안내 없이 전체 시장으로 백테스트되던 사고.
+    from engine.nl_parser import _extract_sector
+    assert _extract_sector("반도체 관련 전략 만들어줘") == "반도체"
+    assert _extract_sector("2차전지 테마 전략") == "이차전지"
+
+
+def test_unsupported_sector_word_orders_flagged():
+    # 목록 밖 업종은 어순('로봇주 관련'·'로봇 테마')과 무관하게 미지원 안내가 남아야 한다.
+    from engine.nl_parser import build_unsupported_concept_notice
+    assert build_unsupported_concept_notice("로봇주 관련 전략을 만들어보자") is not None
+    assert build_unsupported_concept_notice("로봇 테마 전략 만들어줘") is not None
+    # 업종 무관 표현은 섹터 제한 언급이 아니다 — 안내를 내지 않는다.
+    assert build_unsupported_concept_notice("업종 상관없이 코스피 모멘텀 전략") is None
+
+
+def test_llm_schema_drift_sector_in_universe_is_repaired():
+    # [회귀, 2026-07-12 실측] "2차전지에 투자하는 전략을 만들자" → LLM 폴백이 업종을
+    # universe에 넣고 description을 빼먹어 ValidationError → 해석 전체 폐기 → 섹터 없는
+    # 전체 시장 전략이 조용히 생성. 드리프트를 버리지 않고 결정적으로 복구해야 한다.
+    from engine.nl_parser import ParsedStrategy, _parse_model_json_response
+    raw = (
+        '{"universe": ["이차전지"], "fundamental_filters": [], "entry_signals": [],'
+        ' "exit_signals": [], "rebalancing_period": "none"}'
+    )
+    parsed = _parse_model_json_response(raw, ParsedStrategy)
+    assert parsed.sector == "이차전지"
+    assert parsed.universe == ["KOSPI", "KOSDAQ"]  # 업종만 있었으면 섹터 기본=양시장
+    assert parsed.description == ""  # 원문은 _apply_prompt_overrides가 채운다
+
+
+def test_llm_schema_drift_korean_market_and_mixed_universe():
+    from engine.nl_parser import ParsedStrategy
+    # 한글 시장명은 영문 코드로 정규화한다.
+    p = ParsedStrategy(description="x", universe=["코스피"])
+    assert p.universe == ["KOSPI"]
+    # 시장+업종이 섞이면 시장은 남기고 업종은 sector로 이동한다.
+    p2 = ParsedStrategy(description="x", universe=["KOSDAQ", "2차전지"])
+    assert p2.universe == ["KOSDAQ"]
+    assert p2.sector == "이차전지"
+    # sector가 이미 있으면 덮어쓰지 않는다.
+    p3 = ParsedStrategy(description="x", universe=["반도체"], sector="이차전지")
+    assert p3.sector == "이차전지"
+    # 정상 입력은 no-op.
+    p4 = ParsedStrategy(description="x", universe=["KOSPI200"])
+    assert p4.universe == ["KOSPI200"] and p4.sector is None
+
+
+def test_overrides_fill_missing_description_with_user_input():
+    from engine.nl_parser import ParsedStrategy, _apply_prompt_overrides
+    parsed = ParsedStrategy(description="", universe=["KOSPI"])
+    out = _apply_prompt_overrides(parsed, "2차전지에 투자하는 전략을 만들자")
+    assert out.description == "2차전지에 투자하는 전략을 만들자"
+
+
+def test_llm_sector_with_default_universe_gets_both_markets(monkeypatch):
+    # LLM이 sector는 냈지만 universe를 스키마 기본(KOSPI200)으로 둔 경우,
+    # 시장 언급 없는 섹터 전략 기본=양시장 규칙을 LLM 폴백 경로에서도 강제한다.
+    from engine.nl_parser import NLStrategyParser, ParsedStrategy
+    p = NLStrategyParser()
+    drift = ParsedStrategy(description="", sector="이차전지")
+    monkeypatch.setattr(p, "_parse_ollama", lambda text: drift)
+    out = p.parse("2차전지에 투자하는 전략을 만들자")
+    assert out.sector == "이차전지"
+    assert out.universe == ["KOSPI", "KOSDAQ"]
+    # 시장을 명시하면 강제하지 않는다.
+    drift2 = ParsedStrategy(description="", sector="이차전지", universe=["KOSPI200"])
+    monkeypatch.setattr(p, "_parse_ollama", lambda text: drift2)
+    out2 = p.parse("코스피200 중에서 2차전지에 투자하는 전략")
+    assert out2.universe == ["KOSPI200"]
+
+
 def test_rule_parse_sector_strategy_sets_sector_and_market_default():
     # 섹터 전략은 시장 언급이 없으면 '그 업종 전체'(양시장)로 해석한다 —
     # KOSPI200 기본값이면 시총 상위 200 ∩ 섹터로 과도하게 좁아진다.

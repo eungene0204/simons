@@ -47,7 +47,7 @@ def test_preprocess_data_fill_nan(loader):
     
     pdf = loader.preprocess_data(df_pl)
     
-    # open: nan, 100, 0 -> 100 (bfill), 100, 100 (ffill from 100 since 0 becomes nan then ffill)
+    # open: leading nan uses the same bar's close; trailing 0 uses the prior valid open.
     assert pdf.iloc[0]['open'] == 100.0
     assert pdf.iloc[2]['open'] == 100.0
     
@@ -55,6 +55,22 @@ def test_preprocess_data_fill_nan(loader):
     assert pdf.iloc[0]['close'] == 100.0
     assert pdf.iloc[1]['close'] == 100.0
     assert pdf.iloc[2]['close'] == 120.0
+
+
+def test_preprocess_data_does_not_backfill_leading_prices_from_future(loader):
+    """Leading invalid bars must stay unavailable instead of borrowing future prices."""
+    data = {
+        "date": pd.date_range("2024-01-01", periods=3),
+        "open": [np.nan, 110.0, 120.0],
+        "high": [np.nan, 115.0, 125.0],
+        "low": [np.nan, 105.0, 115.0],
+        "close": [np.nan, 110.0, 120.0],
+        "volume": [0, 1000, 1000],
+    }
+
+    pdf = loader.preprocess_data(pl.DataFrame(data))
+
+    assert pdf.iloc[0][["open", "high", "low", "close"]].isna().all()
 
 def test_check_liquidity(loader):
     data = {

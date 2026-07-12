@@ -977,8 +977,10 @@ function StrategyLabContent() {
       return true;
     }
 
-    // 일반 투자 지식 질문 → 전략 작성 중이 아닐 때만 가로챈다.
-    if (intent === "GENERAL_INVESTMENT" && !currentParsed) {
+    // 일반 투자 지식 또는 분류 불가 질문은 전략 작성 중이 아닐 때 LLM 응답으로 처리한다.
+    // UNKNOWN을 전략 파서로 보내면 빈 전략이 만들어질 수 있으므로, 사용자 원문을 그대로
+    // 전달해 답변하거나 필요한 정보를 되묻게 한다.
+    if ((intent === "GENERAL_INVESTMENT" || intent === "UNKNOWN") && !currentParsed) {
       try {
         const res = await fetch("/api/query/general", {
           method: "POST",
@@ -989,7 +991,13 @@ function StrategyLabContent() {
         const data = await res.json();
         updateLastAssistant({ isLoading: false, infoText: data.answer });
       } catch {
-        updateLastAssistant({ isLoading: false, error: "답변을 가져오지 못했습니다." });
+        updateLastAssistant({
+          isLoading: false,
+          error:
+            intent === "UNKNOWN"
+              ? "요청을 이해하지 못했습니다. 연구하려는 시장, 조건 또는 기간을 조금 더 구체적으로 입력해 주세요."
+              : "답변을 가져오지 못했습니다.",
+        });
       }
       return true;
     }

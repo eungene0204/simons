@@ -565,7 +565,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
               )}
             </button>
             <p className="text-[10px] text-white/30 mt-4 text-center leading-relaxed">
-              운용 결과는 과거 데이터를 기반으로 하며 미래 수익을 보장하지 않습니다.
+              운용 결과는 과거 데이터를 기반으로 하며 미래 수익을 보장하지 않습니다. 실제 매매에서는 체결가·거래비용·슬리피지·유동성 및 데이터 한계로 인해 시뮬레이션 결과와 차이가 발생할 수 있습니다.
             </p>
           </div>
 

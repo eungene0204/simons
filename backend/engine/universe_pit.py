@@ -152,6 +152,25 @@ _SECTOR_SYNONYMS: dict[str, str] = {
 }
 
 
+# LLM 프롬프트용 업종 주석 — 이름만으로는 분류 관례를 오해하기 쉬운 업종에만 붙인다.
+# 실측 사고(2026-07-12): '전력설비 관련주'를 LLM이 이름 연상('전력→유틸리티')으로
+# 통신/유틸리티(실제로는 통신사·한전 등 사업자 25종목)에 매핑 — 변압기·전력기기 제조사는
+# 이 분류 체계에서 에너지/원자력, 전선 제조는 IT 하드웨어에 속한다.
+_SECTOR_LLM_GLOSSES: dict[str, str] = {
+    "통신/유틸리티": "통신사와 한국전력 등 전력·가스 판매 사업자만. 설비 제조는 아님",
+    "에너지/원자력": "발전·원전 + 변압기·전력설비 등 전력기기 제조 포함",
+    "IT 하드웨어": "전자부품·전선 제조 포함",
+}
+
+
+def sectors_for_llm_prompt() -> str:
+    """LLM 매핑 프롬프트용 지원 업종 목록 — 혼동되기 쉬운 업종엔 짧은 관례 주석을 붙인다."""
+    return ", ".join(
+        f"{s}({_SECTOR_LLM_GLOSSES[s]})" if s in _SECTOR_LLM_GLOSSES else s
+        for s in CANONICAL_SECTORS
+    )
+
+
 def _sector_key(text: str) -> str:
     """비교용 키 — 공백 제거·소문자화('반도체 소재'='반도체소재')."""
     return (text or "").replace(" ", "").lower()

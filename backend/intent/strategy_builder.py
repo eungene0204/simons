@@ -31,6 +31,12 @@ class BuilderState(BaseModel):
     # 종목 질문 리다이렉트 뒤 "반도체 주도주로 전략 만들어줘"처럼 사용자가 이미 말한 업종을
     # 기억해 최종 전략의 유니버스에 반영한다.
     sector: Optional[str] = None
+    # 업종/테마 언급('로봇주 관련')을 봤지만 지원 목록(정본 38개)으로 매핑하지 못한 상태.
+    # step이 LLM 해석을 한 번 시도하고, 그래도 안 되면 안내를 보여준 뒤 끄는 일회성 플래그
+    # — 조용히 전체 시장으로 진행되는 유실 방지.
+    sector_unresolved: bool = False
+    # 미해결 업종 언급이 담긴 원문(LLM 해석 재료). sector_unresolved와 함께 설정·소비된다.
+    sector_hint: Optional[str] = None
     strategy_type: Optional[StrategyType] = None
     lookback_days: Optional[int] = None       # 모멘텀/돌파 기준 기간(거래일)
     lookback_label: Optional[str] = None       # 표시용 ("3개월", "60일")
@@ -89,7 +95,9 @@ class StepResult(BaseModel):
 
 _RESTART_RE = re.compile(r"처음부터|새\s*전략|새로\s*(?:시작|만들)|다시\s*시작|리셋", re.IGNORECASE)
 _EXIT_RE = re.compile(r"다른\s*질문|딴\s*거|다른\s*거\s*물어|그만\s*할게", re.IGNORECASE)
-_CANCEL_RE = re.compile(r"취소|그만|관둘?|관둬|중단|됐어|그만할래", re.IGNORECASE)
+# '관둘?'은 ?가 '둘'에만 붙어 맨 '관' 한 글자에도 매칭됐다 — '관련주로 해줘'가 취소로
+# 오인돼 빌더가 종료되던 버그. '관두/관둬/관둘'만 취소로 본다.
+_CANCEL_RE = re.compile(r"취소|그만|관[두둬둘]|중단|됐어|그만할래", re.IGNORECASE)
 
 
 def detect_control(text: str) -> Optional[str]:
@@ -455,6 +463,46 @@ def llm_extract_risk(text: str, chat: Callable[..., str]) -> dict:
     return _parse_llm_risk(raw)
 
 
+def _sector_llm_prompt() -> str:
+    """지원 업종 전체 목록을 담은 섹터 매핑 프롬프트(지연 구성 — 무거운 엔진 모듈).
+
+    목록은 sectors_for_llm_prompt()를 쓴다 — 이름만으로 관례를 오해하기 쉬운 업종
+    (통신/유틸리티=사업자, 에너지/원자력=전력설비 제조 포함)에 짧은 주석이 붙어 있다."""
+    from engine.universe_pit import sectors_for_llm_prompt
+
+    return (
+        "너는 한국어 주식 전략 문장에서 사용자가 종목 범위를 제한하려는 업종/테마 언급을 찾아 "
+        "지원 업종 목록 중 하나로 매핑하는 분류기다.\n"
+        "지원 업종(괄호는 분류 관례 설명 — 업종명만 그대로 출력): "
+        + sectors_for_llm_prompt() + "\n"
+        "언급된 테마가 어느 업종에 속하거나 그 하위 테마면 그 업종명을 쓴다"
+        "(예: '원자로'→'에너지/원자력', '전력설비'→'에너지/원자력', '은행주'→'은행/금융지주'). "
+        "회사명의 일부(예: 'LG화학'의 '화학')는 업종 언급이 아니다. "
+        "어떤 업종과도 연결하기 어려우면 null.\n"
+        '설명 없이 JSON 객체만 출력한다. 예: {"sector": "에너지/원자력"} 또는 {"sector": null}'
+    )
+
+
+def llm_extract_sector(text: str, chat: Callable[..., str]) -> Optional[str]:
+    """LLM으로 업종/테마 언급을 정본 섹터명으로 매핑한다. chat은 (system, user, *, max_tokens)->str.
+
+    출력은 반드시 normalize_sector로 재검증한다 — LLM이 목록 밖 이름을 지어내도 None."""
+    from engine.universe_pit import normalize_sector
+
+    raw = chat(_sector_llm_prompt(), text, max_tokens=60)
+    m = re.search(r"\{.*\}", raw or "", re.DOTALL)
+    if not m:
+        return None
+    try:
+        data = json.loads(m.group(0))
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    value = data.get("sector")
+    return normalize_sector(value) if isinstance(value, str) else None
+
+
 def _merge_risk(regex_patch: dict, llm_patch: dict) -> dict:
     """정규식 결과를 우선하고, 정규식이 놓친 청산 필드만 LLM 결과로 채운다."""
     merged = dict(regex_patch)
@@ -674,6 +722,17 @@ def parse_input(text: str, state: BuilderState, expecting: Optional[str]) -> dic
     if universe and not state.universe:
         patch["universe"] = universe
 
+    # 대화 중 업종/테마 언급 — 지원 업종이면 유니버스 제한으로 반영하고, 목록 밖이면
+    # 조용히 무시하는 대신 안내 플래그를 켠다(시드와 동일 규칙, 정본=universe_pit).
+    from engine.nl_parser import _extract_sector, _mentioned_unsupported_concepts
+
+    sector = _extract_sector(t)
+    if sector and not state.sector:
+        patch["sector"] = sector
+    elif sector is None and "sector" in _mentioned_unsupported_concepts(t):
+        patch["sector_unresolved"] = True
+        patch["sector_hint"] = t
+
     stype = _parse_strategy_type(t)
     if stype and not state.strategy_type:
         patch["strategy_type"] = stype
@@ -726,11 +785,17 @@ def seed_state(text: str) -> BuilderState:
     뒤 업종 전략으로 넘어온 사용자에게 종목 범위를 다시 묻지 않는다(NL 파서의 결정적
     섹터 추출을 재사용, 정본=universe_pit)."""
     patch: dict = {}
-    from engine.nl_parser import _extract_sector  # 지연 import(무거운 엔진 모듈)
+    # 지연 import(무거운 엔진 모듈)
+    from engine.nl_parser import _extract_sector, _mentioned_unsupported_concepts
 
     sector = _extract_sector(text)
     if sector:
         patch["sector"] = sector
+    elif "sector" in _mentioned_unsupported_concepts(text):
+        # 업종/테마를 말했지만 결정적 매핑 실패('원자로 관련주') — 조용히 버리지 않고
+        # LLM 해석(step의 sector_resolver)에 원문을 넘기고, 그래도 안 되면 안내한다.
+        patch["sector_unresolved"] = True
+        patch["sector_hint"] = text
     universe = _parse_universe(text)
     if universe:
         patch["universe"] = universe
@@ -912,7 +977,8 @@ def next_question(
             chips.append("RSI 30 이하일 때만")  # 평균회귀 매수에 과매도 확인을 더한다
         chips += ["없음", "직접 입력"]
         return (
-            prefix + "매수에 추가 필터를 넣을까요? 추세·거래대금 조건을 더하면 신호가 걸러져요. "
+            prefix + "지금 조건만 쓰면 횡보장에서도 매수 신호가 너무 자주 발생할 수 있어요. "
+            "매수에 추가 필터를 넣을까요? 추세·거래대금 조건을 더하면 이런 신호가 걸러져요. "
             "(여러 개를 함께 말해도 돼요, 예: 'EMA200 위 + 거래대금 100억')",
             chips,
         )
@@ -951,7 +1017,8 @@ def next_question(
 _ACK_PRIORITY = (
     "filters_asked", "rsi_overbought", "rsi_period", "ma_long", "ma_kind", "macd_mode",
     "cci_threshold", "volume_period", "value_roe",
-    "rebalance_cycle", "holding_count", "lookback_days", "entry_rule", "strategy_type", "universe",
+    "rebalance_cycle", "holding_count", "lookback_days", "entry_rule", "strategy_type",
+    "sector", "universe",
 )
 
 
@@ -1000,6 +1067,8 @@ def _ack_sentence(state: BuilderState, field: str) -> str:
         return "말씀하신 조건으로 진입하겠습니다"
     if field == "strategy_type":
         return f"{_TYPE_LABEL.get(state.strategy_type, '')} 전략으로 구성해 볼게요"
+    if field == "sector":
+        return f"{state.sector} 업종 종목만 대상으로 하겠습니다"
     if field == "universe":
         return f"{_UNIVERSE_LABEL.get(state.universe, '')} 시장을 대상으로 하겠습니다"
     return ""
@@ -1233,6 +1302,13 @@ def build_parsed_strategy(state: BuilderState):
 
 # ─── 종료/리셋 안내 문구 ─────────────────────────────────────────────────────────
 
+# [규제 안전] 능력 고지일 뿐 특정 업종을 권하지 않는다 — 예시는 종목 수 상위의 중립 나열.
+SECTOR_UNSUPPORTED_NOTICE = (
+    "말씀하신 업종/테마는 아직 지원 목록에 없어 업종 제한 없이 진행돼요. "
+    "반도체·이차전지·바이오/제약·자동차·기계/장비·소프트웨어/플랫폼 같은 지원 업종을 "
+    "말씀해 주시면 그 업종 종목만 대상으로 할 수 있어요."
+)
+
 CANCEL_REPLY = "알겠습니다. 전략 구성을 취소했어요. 다른 투자 아이디어가 있으면 언제든 말씀해 주세요."
 EXIT_REPLY = "네, 다른 질문도 도와드릴게요. 무엇이 궁금하신가요?"
 RESTART_PREFIX = "처음부터 새로 구성해볼게요.\n\n"
@@ -1240,10 +1316,39 @@ RESTART_PREFIX = "처음부터 새로 구성해볼게요.\n\n"
 
 # ─── 오케스트레이션 ──────────────────────────────────────────────────────────────
 
+def _consume_sector_notice(
+    state: BuilderState,
+    sector_resolver: Optional[Callable[[str], Optional[str]]] = None,
+) -> tuple[Optional[str], BuilderState]:
+    """미해결 업종 언급을 LLM으로 한 번 해석 시도하고, 안 되면 안내를 한 번만 소비한다.
+
+    결정적 정규화가 실패한 언급('원자로 관련주')도 지원 업종의 하위 테마면 LLM이 정본
+    업종으로 매핑할 수 있다(성공 시 sector 반영 → 요약 배지까지 관통, 안내 없음).
+    resolver 출력은 normalize_sector로 재검증하고, 실패·미가용·예외 시 기존 안내로
+    폴백한다. LLM 시드(apply_parsed_seed)나 후속 입력이 이미 정본 업종을 채웠으면
+    안내 없이 플래그만 정리한다."""
+    if not state.sector_unresolved:
+        return None, state
+    if state.sector is None and sector_resolver is not None and state.sector_hint:
+        from engine.universe_pit import normalize_sector  # 지연 import(무거운 엔진 모듈)
+
+        try:
+            canonical = normalize_sector(sector_resolver(state.sector_hint))
+        except Exception:  # noqa: BLE001 — LLM 실패 시 안내로 안전 폴백
+            canonical = None
+        if canonical:
+            return None, state.model_copy(update={
+                "sector": canonical, "sector_unresolved": False, "sector_hint": None,
+            })
+    cleared = state.model_copy(update={"sector_unresolved": False, "sector_hint": None})
+    return (None if state.sector else SECTOR_UNSUPPORTED_NOTICE), cleared
+
+
 def step(
     state: BuilderState,
     text: str,
     risk_extractor: Optional[Callable[[str], dict]] = None,
+    sector_resolver: Optional[Callable[[str], Optional[str]]] = None,
 ) -> StepResult:
     """빌더 모드의 한 턴을 처리한다.
 
@@ -1252,11 +1357,17 @@ def step(
 
     risk_extractor: 청산 조건 자유 입력 단계에서 정규식이 키워드는 봤지만 값을 못 뽑았을
     때 호출하는 LLM 보강 파서(text -> 청산 필드 dict). None이면 정규식만으로 동작한다.
+    sector_resolver: 결정적 정규화가 실패한 업종/테마 언급을 정본 업종으로 매핑하는 LLM
+    해석기(text -> 정본 섹터명|None). None이거나 실패하면 미지원 안내로 폴백한다.
     """
     if not (text or "").strip():
+        notice, state = _consume_sector_notice(state, sector_resolver)
         if required_missing(state) is None:
-            return StepResult(state=state, status="confirmed", prompt=synthesize_prompt(state))
+            return StepResult(state=state, status="confirmed", prompt=synthesize_prompt(state),
+                              notices=[notice] if notice else [])
         msg, sug = next_question(state)
+        if notice:
+            msg = notice + "\n\n" + msg
         return StepResult(state=state, reply=msg, suggestions=sug, status="collecting")
 
     ctrl = detect_control(text)
@@ -1296,11 +1407,18 @@ def step(
         return StepResult(state=state, reply=RISK_REQUIRED_REPLY, suggestions=sug, status="collecting")
 
     new_state = state.model_copy(update=patch)
+    notice, new_state = _consume_sector_notice(new_state, sector_resolver)
+    just_filled = set(patch.keys())
+    if new_state.sector and "sector" not in patch and state.sector is None:
+        just_filled.add("sector")  # LLM 해석으로 채워진 업종도 확인 문장으로 알린다
 
     # 필수 필드가 모두 채워지면 중간 요약 없이 곧바로 합성→백테스트 파싱으로 넘긴다.
     # (전략 요약 카드 + 검증이 곧 확인 단계이므로 별도 텍스트 요약은 중복이다.)
     if required_missing(new_state) is None:
-        return StepResult(state=new_state, status="confirmed", prompt=synthesize_prompt(new_state))
+        return StepResult(state=new_state, status="confirmed", prompt=synthesize_prompt(new_state),
+                          notices=[notice] if notice else [])
 
-    msg, sug = next_question(new_state, just_filled=set(patch.keys()))
+    msg, sug = next_question(new_state, just_filled=just_filled)
+    if notice:
+        msg = notice + "\n\n" + msg
     return StepResult(state=new_state, reply=msg, suggestions=sug, status="collecting")

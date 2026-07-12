@@ -86,8 +86,14 @@ class DataLoader:
         if price_cols:
             vals = pdf[price_cols].astype(float).values  # ensure NaN-safe dtype
             vals[(vals <= 0) | ~np.isfinite(vals)] = np.nan
-            # ffill + bfill via pandas (operates on contiguous block)
-            pdf[price_cols] = pd.DataFrame(vals, columns=price_cols, index=pdf.index).ffill().bfill()
+            prices = pd.DataFrame(vals, columns=price_cols, index=pdf.index).ffill()
+            # Never borrow a future bar: leading close gaps must remain unavailable.
+            # Partial leading OHLC gaps may use the same bar's close without look-ahead.
+            if 'close' in prices.columns:
+                for c in ('open', 'high', 'low'):
+                    if c in prices.columns:
+                        prices[c] = prices[c].fillna(prices['close'])
+            pdf[price_cols] = prices
 
         # 3. Corporate-action / bad-print guard (수정주가 robustness).
         # The source close is only partially adjusted: forward splits are adjusted, but

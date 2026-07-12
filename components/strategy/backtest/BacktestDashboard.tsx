@@ -2042,7 +2042,7 @@ export default function BacktestDashboard({
 
       <div data-testid="backtest-dashboard-footer" className="mt-auto border-t border-white/[0.08] bg-[#050505] px-0 py-3">
         <p className="text-center text-xs font-bold leading-relaxed text-gray-500">
-          모든 결과는 과거 데이터의 모의 시뮬레이션 결과이며 미래 수익을 보장하지 않습니다.
+          모든 결과는 과거 데이터의 모의 시뮬레이션 결과이며 미래 수익을 보장하지 않습니다. 실제 매매에서는 체결가·거래비용·슬리피지·유동성 및 데이터 한계로 인해 시뮬레이션 결과와 차이가 발생할 수 있습니다.
         </p>
       </div>
 

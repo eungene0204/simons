@@ -15,10 +15,10 @@ import re
 import time
 from datetime import date
 from typing import List, Literal, Optional
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from llm_backend import OLLAMA_BASE_URL, ollama_auth_headers
-from engine.universe_pit import CANONICAL_SECTORS, normalize_sector
+from engine.universe_pit import CANONICAL_SECTORS, normalize_sector, sectors_for_llm_prompt
 
 # ParsedStrategy.sector 필드 설명에 들어가는 지원 섹터 목록(정본은 universe_pit).
 _CANONICAL_SECTORS_DOC = CANONICAL_SECTORS
@@ -268,6 +268,57 @@ class ParsedStrategy(BaseModel):
         # LLM이 자유 문자열('배터리', '2차전지')을 내도 정본 섹터명으로 정규화한다.
         # 정규화 불가(미지원 업종)면 None — 침묵 왜곡 방지는 미지원 개념 안내가 담당한다.
         return normalize_sector(v)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _repair_llm_schema_drift(cls, data):
+        """4B LLM 폴백의 흔한 스키마 드리프트를 ValidationError로 통째로 버리지 않고 복구한다.
+
+        실측 사고(2026-07-12): "2차전지에 투자하는 전략" → LLM이 업종을 universe에 넣고
+        description을 빼먹어 ValidationError → _build_fallback_strategy가 LLM의 해석
+        (sector 포함)을 전부 폐기 → 업종 제한 없는 전체 시장 전략이 조용히 만들어졌다.
+        ① universe 항목 중 시장이 아닌 값: 정본 업종으로 해석되면 sector로 이동(비어 있을
+           때만), 한글 시장명은 영문 코드로 정규화, 그 외는 제거. 업종만 있었으면 섹터 전략
+           기본 유니버스(양시장)를, 아무것도 안 남고 이동도 없었으면 스키마 기본값을 따른다.
+        ② description 누락/비문자열 → 빈 문자열(원문은 _apply_prompt_overrides가 채움).
+        룰 파서·저장 DSL 등 정상 입력에는 no-op이다."""
+        if not isinstance(data, dict):
+            return data
+        raw_universe = data.get("universe")
+        if isinstance(raw_universe, str):
+            raw_universe = [raw_universe]
+        if isinstance(raw_universe, list):
+            market_map = {
+                "KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ", "KOSPI200": "KOSPI200",
+                "코스피": "KOSPI", "코스닥": "KOSDAQ", "코스피200": "KOSPI200",
+            }
+            markets: list[str] = []
+            moved_sector = False
+            for item in raw_universe:
+                if not isinstance(item, str):
+                    continue
+                token = market_map.get(item.replace(" ", "").upper())
+                if token:
+                    if token not in markets:
+                        markets.append(token)
+                    continue
+                canonical = normalize_sector(item)
+                if canonical and not data.get("sector"):
+                    data = {**data, "sector": canonical}
+                    moved_sector = True
+            if markets:
+                data = {**data, "universe": markets}
+            elif moved_sector:
+                data = {**data, "universe": ["KOSPI", "KOSDAQ"]}
+            elif any(not isinstance(i, str) or i not in ("KOSPI", "KOSDAQ", "KOSPI200")
+                     for i in raw_universe):
+                data = {k: v for k, v in data.items() if k != "universe"}
+        desc = data.get("description")
+        if (not isinstance(desc, str) or not desc.strip()) and (set(data) - {"description"}):
+            # 다른 전략 내용이 있을 때만 채운다 — 빈/무의미 출력({})은 여전히 ValidationError로
+            # 결정론 폴백에 위임한다(description을 사실상 optional로 만들지 않기 위한 가드).
+            data = {**data, "description": ""}
+        return data
 
     # ── 재무 필터
     fundamental_filters: List[FundamentalFilter] = Field(
@@ -616,7 +667,10 @@ COMPACT_SYSTEM_PROMPT = """한국 주식 전략 자연어를 ParsedStrategy JSON
 - rebalancing_period: "none", 누락된 optional 필드는 null
 
 매핑:
-- '반도체 관련주'/'2차전지 업종'처럼 업종·섹터 언급 → sector (지원 섹터명, 예: "반도체", "이차전지", "바이오/제약", "게임", "은행/금융지주"). 시장 언급이 없으면 universe는 ["KOSPI", "KOSDAQ"]
+- '반도체 관련주'/'2차전지 업종'/'2차전지에 투자'처럼 업종·섹터·테마 언급 → sector. 시장 언급이 없으면 universe는 ["KOSPI", "KOSDAQ"]
+- sector는 다음 지원 업종명 중 하나만(괄호는 분류 관례 설명 — 업종명만 출력): """ + sectors_for_llm_prompt() + """. 목록 밖 테마는 속하는 업종으로 매핑(예: '원자로'→'에너지/원자력', '전력설비'→'에너지/원자력'), 연결이 어려우면 null
+- universe에는 시장 코드(KOSPI/KOSDAQ/KOSPI200)만 넣으세요. 업종·테마명을 universe에 넣으면 안 됩니다(sector 필드에)
+- description은 필수입니다. 사용자 원문을 그대로 복사하세요
 - PBR/PER/ROE/부채비율/시가총액/거래대금 → fundamental_filters
 - 이하/미만/이상/초과 → <=/< />=/ >
 - 골든크로스/데드크로스 → ma_crossover buy/sell, 기본 5/20
@@ -825,7 +879,15 @@ class NLStrategyParser:
             if "JSON object" not in str(exc):
                 raise
             parsed = _build_fallback_strategy(user_input)
-        return _apply_prompt_overrides(parsed, user_input)
+        parsed = _apply_prompt_overrides(parsed, user_input)
+        # LLM이 sector는 냈지만 universe를 스키마 기본(KOSPI200)으로 둔 경우, '시장 언급
+        # 없는 섹터 전략 기본=양시장' 규칙(FR-STR-066 ③)을 강제한다 — 결정적 큐가 없는
+        # 표현("2차전지에 투자")은 _apply_prompt_overrides의 섹터 추출이 못 잡아 여기가
+        # 유일한 보정 지점이다. 수정(modify) 경로는 기존 universe 보존을 위해 제외.
+        if (parsed.sector is not None and parsed.universe == ["KOSPI200"]
+                and _extract_explicit_universe(user_input) is None):
+            parsed = parsed.model_copy(update={"universe": ["KOSPI", "KOSDAQ"]})
+        return parsed
 
     def parse_modification(self, user_input: str, previous: dict, on_stage=None) -> ParsedStrategy:
         """수정 요청: 규칙 기반 우선, 못 풀면 LLM으로 diff 추출 후 previous와 병합.
@@ -1303,13 +1365,15 @@ def _extract_explicit_universe(user_input: str) -> Optional[List[str]]:
 
 # ── 섹터/업종 추출 ────────────────────────────────────────────────────────────
 # 정본 섹터명(universe_pit.CANONICAL_SECTORS)과 통칭 동의어를, 업종을 가리키는 게 분명한
-# 큐('관련주/업종/섹터/테마주/종목/주식/주')가 바로 뒤따를 때만 결정적으로 잡는다.
+# 큐('관련/테마/업종/섹터/종목/주식/주')가 바로 뒤따를 때만 결정적으로 잡는다.
 # '반도체가 유망하니까' 같은 단독 언급은 잡지 않는다(긴 꼬리는 LLM의 sector 필드에 위임).
 # '주(?!가)'는 '반도체주'는 잡되 '반도체 주가'의 '주가'는 배제한다.
 # '중심/위주'는 "반도체 중심으로"·"반도체 위주로"처럼 범위를 좁히는 후치 표현(범주 신호).
 # '분야'는 "바이오분야 전략"처럼 업종을 가리키는 명시적 후치 큐다 — 누락 시 수정 병합에서
 # 이전 대화의 섹터가 그대로 유지되는 사고가 있었다(바이오 요청에 반도체 유지).
-_SECTOR_CUE = r"(?:관련주|관련종목|테마주|업종|섹터|분야|종목|주식|중심|위주|주(?!가))"
+# '관련/테마'는 맨 형태로 본다('관련주'만 보면 "반도체 관련 전략"·"2차전지 테마" 어순을 놓침 —
+# "로봇주 관련 전략"이 안 잡혀 전체 시장으로 백테스트되던 사고의 동일 계열).
+_SECTOR_CUE = r"(?:관련|테마|업종|섹터|분야|종목|주식|중심|위주|주(?!가))"
 
 
 def _sector_terms_longest_first() -> list[str]:
@@ -2530,7 +2594,9 @@ _UNSUPPORTED_CONCEPT_PATTERNS: tuple[tuple[str, str], ...] = (
     ("dividend", r"배당"),
     # 섹터/업종은 이제 지원 개념이지만, '지원 목록에 없는 업종'(예: '로봇 관련주')은 여전히
     # 표현 불가다. _mentioned_unsupported_concepts가 섹터 추출 성공 시 이 항목을 제외한다.
-    ("sector", r"섹터|업종|관련주|테마주"),
+    # 맨 '관련/테마'까지 본다 — '로봇주 관련'·'로봇 테마'처럼 '관련주' 어순이 아니면 안내
+    # 없이 전체 시장으로 백테스트되던 사고(업종 무관 표현은 아래 _SECTOR_AGNOSTIC_RE가 제외).
+    ("sector", r"섹터|업종|관련|테마"),
     ("valuation_exit", r"밸류에이션"),
     ("relative_to_market", r"시장(?:보다|평균|대비)"),
     ("earnings", r"실적|어닝|컨센서스|목표주가"),
@@ -2568,14 +2634,22 @@ _UNSUPPORTED_CONCEPT_LABELS: dict[str, str] = {
 }
 
 
+# '업종 상관없이/모든 업종' 같은 무관 표현은 섹터 제한 언급이 아니다 — 미지원 안내 오탐 방지.
+_SECTOR_AGNOSTIC_RE = re.compile(
+    r"(?:업종|섹터|테마|분야)[은는이가]?(?:상관|구분|제한|관계)?없|(?:모든|전체?)(?:업종|섹터)|업종불문"
+)
+
+
 def _mentioned_unsupported_concepts(user_input: str) -> list[str]:
     """입력에 언급된 미지원 개념 이름들을 패턴 정의 순서대로 반환한다(없으면 빈 리스트).
 
-    섹터/업종 언급은 지원 섹터로 결정적 추출에 성공하면 미지원으로 치지 않는다
-    ('반도체 관련주'=지원, '로봇 관련주'=목록 밖 → LLM 위임 + 안내)."""
+    섹터/업종 언급은 지원 섹터로 결정적 추출에 성공하거나 업종 무관 표현이면 미지원으로
+    치지 않는다('반도체 관련주'=지원, '로봇 관련주'=목록 밖 → LLM 위임 + 안내)."""
     compact = _compact(user_input)
     names = [name for name, rx in _UNSUPPORTED_CONCEPT_RE if rx.search(compact)]
-    if "sector" in names and _extract_sector(user_input) is not None:
+    if "sector" in names and (
+        _extract_sector(user_input) is not None or _SECTOR_AGNOSTIC_RE.search(compact)
+    ):
         names.remove("sector")
     return names
 
@@ -3293,6 +3367,10 @@ def _apply_prompt_overrides(
     parsed: ParsedStrategy, user_input: str, *, skip_signal_validation: bool = False,
 ) -> ParsedStrategy:
     updates: dict[str, object] = {}
+    # LLM이 description을 빼먹어 스키마 복구(_repair_llm_schema_drift)가 빈 문자열로
+    # 채운 경우, 원문을 그대로 넣는다(필드 정의: "사용자가 입력한 원문 전략 설명").
+    if not parsed.description.strip():
+        updates["description"] = user_input
     explicit_universe = _extract_explicit_universe(user_input)
     if explicit_universe is not None:
         updates["universe"] = explicit_universe
