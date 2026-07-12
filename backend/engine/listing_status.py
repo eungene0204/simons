@@ -192,6 +192,48 @@ def sync_from_delisted_store(delisted_symbols: set[str]) -> int:
     return count
 
 
+def sync_trading_halt(halt_flags: dict[str, bool]) -> dict[str, str]:
+    """시세 제공자의 거래정지 플래그(KIS 종목상태코드 58) → Stock.listingStatus 동기화.
+
+    DART 공시 폴링이 놓친 거래정지 종목을 시세 수신 경로에서 자동 보정한다.
+    - True:  NORMAL/WARNING/RISK → TRADING_SUSPENDED (Stock 행이 없으면 생성)
+    - False: TRADING_SUSPENDED → NORMAL (거래 재개)
+    - DELISTING_REVIEW/DELISTING_SCHEDULED/DELISTED는 건드리지 않는다 (DART 분류 우선)
+
+    Returns: {symbol: new_status} 변경된 종목 매핑
+    """
+    if not halt_flags:
+        return {}
+
+    symbols = list(halt_flags.keys())
+    placeholders = ",".join("?" for _ in symbols)
+    con = db.connect()
+    try:
+        rows = con.execute(
+            f'SELECT symbol, "listingStatus" FROM "Stock" WHERE symbol IN ({placeholders})',
+            tuple(symbols),
+        ).fetchall()
+    finally:
+        con.close()
+    current_map = {row[0]: row[1] for row in rows}
+
+    changed: dict[str, str] = {}
+    for sym, halted in halt_flags.items():
+        current = current_map.get(sym, ListingStatus.NORMAL)
+        if halted and current in (ListingStatus.NORMAL, ListingStatus.WARNING, ListingStatus.RISK):
+            update_stock_listing_status(
+                sym,
+                ListingStatus.TRADING_SUSPENDED,
+                suspension_reason="매매거래정지 (KIS 종목상태코드 58)",
+                risk_flags=[ListingStatus.TRADING_SUSPENDED, "KIS_STAT_58"],
+            )
+            changed[sym] = ListingStatus.TRADING_SUSPENDED
+        elif halted is False and current == ListingStatus.TRADING_SUSPENDED:
+            update_stock_listing_status(sym, ListingStatus.NORMAL)
+            changed[sym] = ListingStatus.NORMAL
+    return changed
+
+
 # 상태 우선순위 (높을수록 심각)
 _priority: dict[str, int] = {
     ListingStatus.DELISTED:              7,

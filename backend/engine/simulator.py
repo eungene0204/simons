@@ -133,6 +133,16 @@ class Simulator:
         exit_reason_pending = np.empty(num_symbols, dtype=object)
         exit_reason_pending[:] = ""
 
+        # 리스크 청산 사유는 시뮬레이터가 '왜 나갔는지'를 정확히 알고 있으므로 여기서
+        # 확정해 exit_reason_overrides로 넘긴다. result_handler의 수익률-크기 추론은
+        # same_close 체결(종가 청산)에서 실현수익률이 -sl%와 거의 항상 어긋나 진짜 손절을
+        # '전략 매도 조건 충족'으로 오분류하던 문제가 있었다(라벨을 사유의 정답 소스로 통일).
+        def _fmt_pct(v: float) -> str:
+            return str(int(v)) if v == int(v) else str(v)
+        sl_reason = f"손절매 실행 (-{_fmt_pct(sl_pct)}%)" if sl_pct > 0 else "손절매 실행"
+        tp_reason = f"익절매 실행 (+{_fmt_pct(tp_pct)}%)" if tp_pct > 0 else "익절매 실행"
+        ts_reason = f"트레일링 스탑 실행 (-{_fmt_pct(ts_pct)}%)" if ts_pct > 0 else "트레일링 스탑 실행"
+
         # from_orders 입력: NaN=주문 없음, 양수=진입 목표비중(NAV 대비), 0=전량 청산
         target_values = np.full((n_rows, num_symbols), np.nan)
         # 셀 단위 수수료: 매수 셀=매수 수수료, 매도 셀=매도 수수료+거래세
@@ -190,10 +200,15 @@ class Simulator:
                     peak_price = np.where(active_mask, np.maximum(peak_price, highs), peak_price)
 
                 should_exit = np.zeros(num_symbols, dtype=bool)
+                # 이미 청산 예약된 종목은 재평가/사유 덮어쓰기에서 제외한다.
+                base = active_mask & ~pending_exit
 
-                # Max holding days (vectorized)
+                # Max holding days (vectorized) — 우선순위 최상위(보유기간 만료).
+                # 사유 라벨은 result_handler가 실제 보유일수(exit_idx-entry_idx)로 정확히
+                # 붙이므로(수익률 크기 무관) 여기서 override하지 않는다 — next_open 체결 시
+                # 플래그일과 체결일이 달라 보유일수가 1 어긋나는 것을 피한다.
                 if max_hold > 0:
-                    should_exit |= active_mask & ((i - entry_day) >= max_hold)
+                    should_exit |= base & ~should_exit & ((i - entry_day) >= max_hold)
 
                 # SL / TP / Trailing stop (vectorized, no re-exit if already flagged)
                 if use_risk_mgmt and (sl_pct > 0 or tp_pct > 0 or ts_pct > 0):
@@ -201,19 +216,22 @@ class Simulator:
 
                     if sl_pct > 0:
                         low_ret = (lows - safe_entry) / safe_entry * 100
-                        should_exit |= active_mask & ~should_exit & (low_ret <= (-sl_pct + EPS))
+                        hit = base & ~should_exit & (low_ret <= (-sl_pct + EPS))
+                        exit_reason_pending[hit] = sl_reason
+                        should_exit |= hit
                     if tp_pct > 0:
                         high_ret = (highs - safe_entry) / safe_entry * 100
-                        should_exit |= active_mask & ~should_exit & (high_ret >= (tp_pct - EPS))
+                        hit = base & ~should_exit & (high_ret >= (tp_pct - EPS))
+                        exit_reason_pending[hit] = tp_reason
+                        should_exit |= hit
 
                     # Fix 1: Trailing stop — 고점 대비 낙폭(장중 저가)이 ts_pct 초과
                     if ts_pct > 0:
                         safe_peak = np.where(peak_price > 0, peak_price, 1.0)
                         drawdown = (lows - safe_peak) / safe_peak * 100
-                        should_exit |= active_mask & ~should_exit & (drawdown <= (-ts_pct + EPS))
-
-                # 청산이 이미 예약된 종목은 제외
-                should_exit &= ~pending_exit
+                        hit = base & ~should_exit & (drawdown <= (-ts_pct + EPS))
+                        exit_reason_pending[hit] = ts_reason
+                        should_exit |= hit
                 if should_exit.any():
                     if exec_type == 'next_open' and i + 1 < n_rows:
                         # 익일 시가 체결 — 거래 가능일 도달 시 Step 0에서 방출

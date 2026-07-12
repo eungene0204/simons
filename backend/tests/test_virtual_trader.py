@@ -214,12 +214,13 @@ def test_fill_pending_sell_insufficient_position_cancels(trader):
 
 # ── 휴장일/스테일 시세 가드 ──────────────────────────────────────────────────
 
-def _quote(symbol, close, date):
+def _quote(symbol, close, date, trading_halted=None):
     from engine.providers.base import StockQuote
     return StockQuote(
         symbol=symbol, name=symbol, date=date,
         open=close, high=close, low=close, close=close,
         volume=100, source="test", timestamp=0.0,
+        trading_halted=trading_halted,
     )
 
 
@@ -242,6 +243,87 @@ def test_fresh_price_map_holiday_blocks_all():
         "B": _quote("B", 20000, "2026-07-07"),
     }
     assert _fresh_price_map(quotes, "2026-07-08") == {}
+
+
+# ── 보유 종목 시세 커버리지 + 거래정지 재개 스윕 (FR-VM-072) ─────────────────
+
+class _RecordingMDP:
+    """요청된 심볼을 기록하고 준비된 시세만 반환하는 가짜 MarketDataProvider"""
+    def __init__(self, quotes):
+        self.calls: list[list[str]] = []
+        self._quotes = quotes
+
+    async def get_prices(self, symbols):
+        self.calls.append(list(symbols))
+        return {s: self._quotes[s] for s in symbols if s in self._quotes}
+
+
+def _today_kst():
+    from engine.virtual_trader import _KST
+    return datetime.now(_KST).strftime("%Y-%m-%d")
+
+
+@pytest.mark.asyncio
+async def test_refresh_account_covers_held_untracked_position(trader):
+    """추적 목록에서 빠진 보유 종목도 시세 조회에 포함돼야 한다.
+
+    filterMonitorableSymbols가 거래정지 종목을 추적 목록에서 제거하면
+    보유 포지션이 시세 없이 방치돼 현재가 갱신·리스크 청산·재개 감지가
+    전부 멈추는 좀비 포지션 재현."""
+    trader._q.execute(
+        'INSERT INTO "VirtualPosition" (id, "accountId", symbol, name, quantity, "avgPrice", "updatedAt")'
+        " VALUES ('p1', 'acc1', '000660', 'SK하이닉스', 10, 90000, ?)",
+        (datetime(2026, 1, 1),),
+    )
+    trader._q.commit()
+
+    mdp = _RecordingMDP({"000660": _quote("000660", 95000, _today_kst())})
+    trader._mdp = mdp
+
+    account = {"id": "acc1", "tradingMode": "manual", "symbols": "[]", "strategyId": None}
+    await trader._refresh_account(account)
+
+    assert mdp.calls and "000660" in mdp.calls[0]  # 추적 목록이 비어도 보유 종목 시세 조회
+    price = _query(trader, 'SELECT "currentPrice" FROM "VirtualPosition" WHERE id=\'p1\'')[0][0]
+    assert price == 95000
+
+
+@pytest.mark.asyncio
+async def test_refresh_account_syncs_halt_flag_for_held_symbol(trader):
+    """보유(비추적) 종목 시세의 거래정지 플래그도 Stock.listingStatus로 동기화돼야 한다."""
+    import engine.listing_status as ls
+    trader._q.execute(
+        'INSERT INTO "VirtualPosition" (id, "accountId", symbol, name, quantity, "avgPrice", "updatedAt")'
+        " VALUES ('p2', 'acc1', '020760', '일진디스플', 10, 5000, ?)",
+        (datetime(2026, 1, 1),),
+    )
+    trader._q.commit()
+
+    # 정지 종목은 당일 거래가 없어 date=None으로 내려온다
+    mdp = _RecordingMDP({"020760": _quote("020760", 5000, None, trading_halted=True)})
+    trader._mdp = mdp
+
+    account = {"id": "acc1", "tradingMode": "manual", "symbols": "[]", "strategyId": None}
+    await trader._refresh_account(account)
+
+    assert ls.get_stock_listing_status("020760") == ls.ListingStatus.TRADING_SUSPENDED
+
+
+@pytest.mark.asyncio
+async def test_sweep_suspended_resume_restores_normal(app_db):
+    """어느 계좌도 추적하지 않는 정지 종목도 스윕이 거래 재개를 감지해 복원한다."""
+    import engine.listing_status as ls
+    ls.update_stock_listing_status("020760", ls.ListingStatus.TRADING_SUSPENDED)
+
+    mdp = _RecordingMDP({"020760": _quote("020760", 5000, _today_kst(), trading_halted=False)})
+    t = VirtualTrader(market_data_provider=mdp, data_loader=None)
+
+    await t._sweep_suspended_resume()
+    assert ls.get_stock_listing_status("020760") == ls.ListingStatus.NORMAL
+
+    # 스윕 간격(HALT_RESUME_SWEEP_INTERVAL) 내 재호출은 시세를 다시 조회하지 않는다
+    await t._sweep_suspended_resume()
+    assert len(mdp.calls) == 1
 
 
 # ── notified dedupe ──────────────────────────────────────────────────────────

@@ -124,20 +124,30 @@ describe("legacy breakout normalization", () => {
     expect(resolveTradeReason("익절 10% 도달", "sell", makeStrategy(52))).toBe("익절 10% 도달");
   });
 
-  it("infers stop loss and take profit from generic sell reasons with pnl details", () => {
+  it("does not re-label generic sells as stop/take-profit from pnl magnitude", () => {
+    // 손실률이 손절 기준(-10%)을 넘겨도 손절로 사후 재라벨하지 않는다. 손절 판정은
+    // 백엔드 exit_type만 신뢰하며, 그 경우 사유가 애초에 '손절매 실행'으로 넘어온다.
     expect(
       resolveTradeReason("전략 매도 조건 충족 [수익률: -32.90%, 손실: 217,090원]", "sell", {
         exit: { conditions: [] },
         risk: { stop_loss_pct: 10 },
       } as any)
-    ).toBe("손절 -10% 도달 [수익률: -32.90%, 손실: 217,090원]");
+    ).toBe("전략 매도 조건 충족 [수익률: -32.90%, 손실: 217,090원]");
 
     expect(
       resolveTradeReason("전략 매도 조건 충족 [수익률: +22.40%, 수익: 217,090원]", "sell", {
         exit: { conditions: [] },
         risk: { take_profit_pct: 20 },
       } as any)
-    ).toBe("익절 +20% 도달 [수익률: +22.40%, 수익: 217,090원]");
+    ).toBe("전략 매도 조건 충족 [수익률: +22.40%, 수익: 217,090원]");
+  });
+
+  it("passes backend stop-loss labels through unchanged", () => {
+    expect(
+      resolveTradeReason("손절매 실행 (-12%) [수익률: -15.24%, 손실: 189,925원]", "sell", {
+        exit: { conditions: [] },
+      } as any)
+    ).toBe("손절매 실행 (-12%) [수익률: -15.24%, 손실: 189,925원]");
   });
 
   it("infers backtest options from short and long result spans", () => {

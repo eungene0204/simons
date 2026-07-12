@@ -174,6 +174,7 @@ export default function VirtualAccountDetailPage() {
   }, [accountId]);
 
   // 위험 종목 목록 (배너용): 추적 종목 + 보유 종목 중 비정상 상태
+  // TRADING_SUSPENDED는 목록의 '거래정지' 배지로 충분해 배너에서 제외
   const riskItems = useMemo(() => {
     const symbolSet = new Set([
       ...trackedSymbols.map((s) => s.symbol),
@@ -182,7 +183,7 @@ export default function VirtualAccountDetailPage() {
     return Array.from(symbolSet)
       .map((sym) => {
         const ls = resolveListingStatus(sym, delistingStatus);
-        if (ls === "NORMAL") return null;
+        if (ls === "NORMAL" || ls === "TRADING_SUSPENDED") return null;
         const name =
           holdings.find((h) => h.symbol === sym)?.name ||
           trackedSymbols.find((t) => t.symbol === sym)?.name ||

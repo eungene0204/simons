@@ -222,9 +222,9 @@ function ShimmerStatusText({
 // 분석 로딩 단계별 표시 문구. 미설정이면 기본 '분석 중...'.
 // validating: 룰 파싱이 애매해 LLM 검증기를 호출하는 동안 표시(ShimmerStatusText 애니메이션).
 const ANALYSIS_STAGE_LABEL: Record<"parsing" | "thinking" | "validating", string> = {
-  parsing: "Parsing...",
-  thinking: "Thinking...",
-  validating: "Validation...",
+  parsing: "파싱 중...",
+  thinking: "생각 중...",
+  validating: "검증 중...",
 };
 
 function AnalysisStatusBubble({
@@ -917,7 +917,10 @@ function StrategyLabContent() {
     // [전략 다듬기 우선] 이미 전략이 작성돼 있으면 STOCK_PICK·ONBOARDING 분류는 대개
     // 수정 요청("종목을 10개로 늘려줘")의 오분류다. 빌더로 새로 진입해 기존 전략을 버리지
     // 말고 전략 다듬기 흐름으로 흘려보낸다(아래 STOCK_ANALYSIS + currentParsed 가드와 동일 취지).
-    if ((intent === "STOCK_PICK" || intent === "ONBOARDING") && currentParsed) {
+    if (
+      (intent === "STOCK_PICK" || intent === "ONBOARDING" || intent === "STRATEGY_PICK") &&
+      currentParsed
+    ) {
       return false;
     }
 
@@ -928,6 +931,7 @@ function StrategyLabContent() {
       intent === "GREETING" ||
       intent === "OFF_TOPIC" ||
       intent === "STOCK_PICK" ||
+      intent === "STRATEGY_PICK" ||
       intent === "ONBOARDING"
     ) {
       const fallback =
@@ -935,13 +939,15 @@ function StrategyLabContent() {
           ? "안녕하세요. 오늘은 어떤 전략을 연구해 볼까요?"
           : intent === "STOCK_PICK"
             ? "특정 종목을 추천하지는 않지만, 투자 아이디어를 전략으로 만들어 과거 데이터로 검증하도록 도와드릴 수 있어요.\n\n예를 들어 이렇게 시작해볼 수 있어요:\n• RSI가 30 이하로 떨어지면 매수하고 70 이상에서 파는 '과매도 반등' 전략\n• 20일 이동평균이 60일 이동평균을 위로 뚫는 골든크로스에서 매수하는 추세 전략\n• PBR은 낮고 ROE는 높은 저평가 우량주를 고르는 가치 전략\n\n끌리는 아이디어가 있거나 평소 관심 있던 매매 방식이 있다면 말씀해 주세요 — 바로 전략으로 만들어 백테스트해 드릴게요."
-            : intent === "ONBOARDING"
-              ? "처음이시거나 어디서부터 시작할지 막막하시면 제가 단계별로 함께 전략을 만들어 드릴게요. 몇 가지만 골라 주시면 바로 백테스트까지 이어집니다."
-              : "저는 투자 전략 및 분석 전용 모델입니다. 현재 질문에는 도움을 드릴 수 없습니다. 대신 투자 전략, 백테스트와 관련된 질문은 도와드릴 수 있습니다.";
+            : intent === "STRATEGY_PICK"
+              ? "어떤 전략이 더 좋은지 판단하거나 추천해 드리지는 않지만, 관심 있는 아이디어를 함께 전략으로 만들어 과거 데이터로 백테스트해 볼 수 있어요. 제가 단계별로 여쭤볼 테니 골라 주시면 바로 백테스트까지 이어집니다."
+              : intent === "ONBOARDING"
+                ? "처음이시거나 어디서부터 시작할지 막막하시면 제가 단계별로 함께 전략을 만들어 드릴게요. 몇 가지만 골라 주시면 바로 백테스트까지 이어집니다."
+                : "저는 투자 전략 및 분석 전용 모델입니다. 현재 질문에는 도움을 드릴 수 없습니다. 대신 투자 전략, 백테스트와 관련된 질문은 도와드릴 수 있습니다.";
       updateLastAssistant({ isLoading: false, infoText: suggestedReply ?? fallback });
-      // 열린 종목 추천·막연한 도움 요청 직후 전략 빌더 모드로 들어간다. 사용자의 후속 입력을
+      // 열린 종목·전략 추천, 막연한 도움 요청 직후 전략 빌더 모드로 들어간다. 사용자의 후속 입력을
       // 기다리지 않고 곧바로 빌더의 첫 질문을 띄워, 함께 전략을 구성하기 시작한다.
-      if (intent === "STOCK_PICK" || intent === "ONBOARDING") {
+      if (intent === "STOCK_PICK" || intent === "STRATEGY_PICK" || intent === "ONBOARDING") {
         builderModeRef.current = true;
         builderStateRef.current = {};
         // STOCK_PICK은 사용자가 이미 전략 조건(전략유형·보유수·청산 등)을 말한 경우가 많으므로

@@ -52,14 +52,6 @@ describe("VirtualAccountList", () => {
     expect(pushMock).toHaveBeenCalledWith("/virtual-account/account-1");
   });
 
-  it("opens the full account list from the header action", () => {
-    render(<VirtualAccountList initialData={makeData([makeAccount()])} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "전체 보기" }));
-
-    expect(pushMock).toHaveBeenCalledWith("/virtual-account");
-  });
-
   it("shows a 운용중 badge for active accounts and 삭제됨 for closed accounts", () => {
     render(
       <VirtualAccountList

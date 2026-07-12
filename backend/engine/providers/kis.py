@@ -126,6 +126,12 @@ class KISProvider(BaseProvider):
                 pbr=_parse_float(output.get("pbr", "")),
                 eps=_parse_float(output.get("eps", "")),
                 bps=_parse_float(output.get("bps", "")),
+                # 종목상태구분코드: 51=관리종목 52=투자위험 53=투자경고 54=투자주의
+                #                  55=신용가능 57=증거금100% 58=거래정지 59=단기과열
+                trading_halted=(
+                    output["iscd_stat_cls_code"] == "58"
+                    if output.get("iscd_stat_cls_code") else None
+                ),
             )
         except Exception as e:
             print(f"[KISProvider] {symbol} 조회 실패: {e}")

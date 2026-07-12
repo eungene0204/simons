@@ -31,7 +31,7 @@ from engine.live_signal_utils import prepare_signal_dataframe
 from engine.virtual_trader import VirtualTrader
 from engine.vi_utils import build_vi_display
 from nl_cache import nl_cache_key
-from stream_progress import build_backtest_stream_status
+from stream_progress import build_backtest_stream_status, simulation_phase_label
 from engine.watchdog import (
     BacktestTimeoutError,
     backtest_timeout_s,
@@ -3178,7 +3178,6 @@ async def backtest_stream(request: BacktestRequest):
     thread = threading.Thread(target=run_bt, daemon=True)
 
     async def generate():
-        symbol_count = len(request.symbols)
         period = request.period or "5y"
         period_years = {"1y": 1, "3y": 3, "5y": 5, "full": 10}.get(period, 5)
 
@@ -3189,7 +3188,9 @@ async def backtest_stream(request: BacktestRequest):
         thread.start()
 
         # ── Step 1: 종목 데이터 로딩
-        yield emit(f"{symbol_count:,}개 종목 데이터 로딩 중...")
+        # 종목 수는 표기하지 않는다 — request.symbols는 '현재 상장' 종목 수라 실제 백테스트
+        # 유니버스(시점별 상장분 + 상장폐지분)와 달라 오해를 준다(아래 시뮬레이션 문구 참고).
+        yield emit("종목 데이터 로딩 중...")
 
         # ── Step 2: 재무 필터 정보
         filter_descs = []
@@ -3203,7 +3204,7 @@ async def backtest_stream(request: BacktestRequest):
 
         # ── Step 3: 실제 백테스트 완료 대기 (0.2초 단위 폴링, 인위적 지연 없음)
         phases = [
-            f"시뮬레이션 실행 중... ({symbol_count:,}종목 × {period_years}년)",
+            simulation_phase_label(period_years),
             "거래 내역 집계 중...",
             "성과 지표 계산 중...",
         ]

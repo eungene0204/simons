@@ -76,3 +76,33 @@ def test_sync_from_dart_notices(app_db):
     ])
     assert changed["005930"] == ls.ListingStatus.TRADING_SUSPENDED
     assert changed["000660"] == ls.ListingStatus.DELISTING_SCHEDULED
+
+
+def test_sync_trading_halt_marks_suspended(app_db):
+    """거래정지 플래그 True: Stock 행이 없어도 TRADING_SUSPENDED로 생성 (일진디스플 020760 사고 재현)"""
+    ls = _mod()
+    changed = ls.sync_trading_halt({"020760": True, "005930": False})
+    assert changed == {"020760": ls.ListingStatus.TRADING_SUSPENDED}
+    assert ls.get_stock_listing_status("020760") == ls.ListingStatus.TRADING_SUSPENDED
+    # 정지 아닌 종목은 행을 만들지 않는다
+    assert ls.get_stock_listing_status("005930") == ls.ListingStatus.NORMAL
+
+
+def test_sync_trading_halt_restores_on_resume(app_db):
+    """거래정지 플래그 False: TRADING_SUSPENDED → NORMAL 복원 (거래 재개)"""
+    ls = _mod()
+    ls.update_stock_listing_status("020760", ls.ListingStatus.TRADING_SUSPENDED)
+    changed = ls.sync_trading_halt({"020760": False})
+    assert changed == {"020760": ls.ListingStatus.NORMAL}
+    assert ls.get_stock_listing_status("020760") == ls.ListingStatus.NORMAL
+
+
+def test_sync_trading_halt_keeps_dart_statuses(app_db):
+    """DELISTING_* / DELISTED는 시세 플래그로 덮어쓰지 않는다 (DART 분류 우선)"""
+    ls = _mod()
+    ls.update_stock_listing_status("111111", ls.ListingStatus.DELISTING_REVIEW)
+    ls.update_stock_listing_status("222222", ls.ListingStatus.DELISTED)
+    changed = ls.sync_trading_halt({"111111": True, "222222": False})
+    assert changed == {}
+    assert ls.get_stock_listing_status("111111") == ls.ListingStatus.DELISTING_REVIEW
+    assert ls.get_stock_listing_status("222222") == ls.ListingStatus.DELISTED

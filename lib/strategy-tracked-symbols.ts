@@ -52,16 +52,16 @@ export async function filterMonitorableSymbols(symbols: string[]): Promise<strin
   });
 
   try {
-    const dbDelisted = await prisma.stock.findMany({
+    const dbBlocked = await prisma.stock.findMany({
       where: {
         symbol: { in: normalized },
-        listingStatus: "DELISTED",
+        listingStatus: { in: ["DELISTED", "TRADING_SUSPENDED"] },
       },
       select: { symbol: true },
     });
-    dbDelisted.forEach((stock) => blocked.add(stock.symbol));
+    dbBlocked.forEach((stock) => blocked.add(stock.symbol));
   } catch (error) {
-    console.warn("Failed to filter DB delisted symbols:", error);
+    console.warn("Failed to filter DB blocked symbols:", error);
   }
 
   return normalized.filter((symbol) => !blocked.has(symbol));

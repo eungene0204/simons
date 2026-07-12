@@ -405,6 +405,50 @@ def test_llm_fallback_onboarding_sets_reply():
     assert result.suggested_reply
 
 
+@pytest.mark.parametrize(
+    "query",
+    [
+        "지금 어떤 전략이 좋을까?",
+        "어떤 전략이 좋아요?",
+        "무슨 전략을 써야 하나요?",
+        "전략 추천해줘",
+        "좋은 전략 있어?",
+        "어떤 전략을 골라야 할지 모르겠어요",
+    ],
+)
+def test_open_strategy_pick_is_routed_to_builder(query):
+    # [규제 안전] 어떤 전략이 우수한지 골라 달라는 열린 요청은 우열을 판단·추천하지 않고
+    # 전략 빌더로 유도하는 안내(STRATEGY_PICK + suggested_reply)로 잡혀야 한다.
+    result = classify(query)  # llm 없이도 결정적으로
+    assert result.intent == QueryIntent.STRATEGY_PICK
+    assert result.deterministic is True
+    assert result.suggested_reply
+    assert "백테스트" in result.suggested_reply
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "모멘텀 전략 추천해줘",       # 특정 유형 명시 → 설계 요청
+        "RSI 30 이하에서 매수하는 전략 어때?",
+        "골든크로스 전략 만들어줘",
+        "이 전략이 좋을까?",         # 기존 전략 지시어 → 다듬기 흐름
+        "PBR 낮은 저평가 가치 전략이 좋을까?",
+    ],
+)
+def test_specific_strategy_is_not_pick(query):
+    # 구체적인 지표·유형이 명시됐거나 기존 전략을 가리키면 열린 추천이 아니라 설계 요청이다.
+    result = classify(query)
+    assert result.intent == QueryIntent.STRATEGY_ADVICE
+
+
+def test_llm_fallback_strategy_pick_sets_reply():
+    # 결정적 cue로 못 잡는 애매한 전략 추천 요청도 LLM이 STRATEGY_PICK으로 잡으면 안내가 채워진다.
+    result = classify("나한테 맞는 게 뭘까", llm=lambda s, u: '{"intent": "STRATEGY_PICK"}')
+    assert result.intent == QueryIntent.STRATEGY_PICK
+    assert result.suggested_reply
+
+
 def test_stock_question_redirect_first_example_uses_stock_sector():
     # 섹터 전략이 지원되면서, 언급 종목이 속한 업종 전략이 첫 예시가 된다(삼성전자→반도체).
     result = classify("삼성전자를 사볼까?")

@@ -27,6 +27,7 @@ class StockQuote:
     pbr: Optional[float] = None   # PBR (주가순자산비율)
     eps: Optional[float] = None   # EPS (주당순이익)
     bps: Optional[float] = None   # BPS (주당순자산)
+    trading_halted: Optional[bool] = None  # 거래정지 여부 (KIS 종목상태코드 58). None = 제공자 미지원
 
     def to_dict(self) -> dict:
         return asdict(self)

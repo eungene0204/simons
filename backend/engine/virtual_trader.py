@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import math
+import time
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -24,7 +25,7 @@ import db as appdb  # 공용 앱 DB 어댑터(Supabase Postgres)
 from engine.live_signal_utils import prepare_signal_dataframe
 from engine.listing_status import (
     ListingStatus, is_buy_allowed, is_sell_allowed, write_audit_log,
-    get_stock_listing_status,
+    get_stock_listing_status, get_stocks_by_status, sync_trading_halt,
 )
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,7 @@ logger = logging.getLogger(__name__)
 _KST = timezone(timedelta(hours=9))
 REFRESH_INTERVAL = 30          # 장중 시그널 평가 간격 (초)
 HISTORY_DAYS = 75              # 시그널 평가에 사용할 OHLCV 기간
+HALT_RESUME_SWEEP_INTERVAL = 600  # 거래정지 종목 재개 감지 스윕 간격 (초)
 
 FEE_RATE = 0.00015             # 수수료 0.015%
 TAX_RATE = 0.0015              # 증권거래세 0.15% (2025년~, 백테스트 엔진 기본값과 동일)
@@ -149,6 +151,7 @@ class VirtualTrader:
         self._ai_engine = ai_engine
         self._running = False
         self._task: Optional[asyncio.Task] = None
+        self._last_halt_sweep: Optional[float] = None  # time.monotonic() 기준
 
     # ── 생명주기 ──────────────────────────────────────────────────────────────
 
@@ -175,12 +178,41 @@ class VirtualTrader:
         while self._running:
             try:
                 if _is_market_hours():
+                    await self._sweep_suspended_resume()
                     await self._refresh_all()
                 else:
                     logger.debug("[VirtualTrader] 장외 시간, 대기")
             except Exception as e:
                 logger.error("[VirtualTrader] 루프 예외: %s", e, exc_info=True)
             await asyncio.sleep(REFRESH_INTERVAL)
+
+    async def _sweep_suspended_resume(self):
+        """TRADING_SUSPENDED 종목의 거래 재개를 감지해 NORMAL로 복원한다.
+
+        재개 감지는 시세의 거래정지 플래그(sync_trading_halt)로만 이뤄지는데,
+        정지 종목이 모든 계좌의 추적 목록에서 빠지면(filterMonitorableSymbols가 차단)
+        시세를 아무도 조회하지 않아 영원히 정지 상태로 남는다 — 이를 주기 스윕으로 보정.
+        """
+        now = time.monotonic()
+        if self._last_halt_sweep is not None and now - self._last_halt_sweep < HALT_RESUME_SWEEP_INTERVAL:
+            return
+        self._last_halt_sweep = now
+
+        suspended = await asyncio.to_thread(get_stocks_by_status, ListingStatus.TRADING_SUSPENDED)
+        symbols = [s["symbol"] for s in suspended]
+        if not symbols:
+            return
+
+        quotes = await self._mdp.get_prices(symbols)
+        halt_flags = {
+            sym: q.trading_halted
+            for sym, q in quotes.items()
+            if getattr(q, "trading_halted", None) is not None
+        }
+        if halt_flags:
+            changed = await asyncio.to_thread(sync_trading_halt, halt_flags)
+            if changed:
+                logger.info("[VirtualTrader] 거래정지 재개 스윕: %s", changed)
 
     async def _refresh_all(self):
         """running 상태 계좌 전체 순회"""
@@ -328,11 +360,28 @@ class VirtualTrader:
                 max_holding_days = int(_coerce_numeric(risk.get("max_holding_days")))
 
         # 2. 실시간 시세 조회 (휴장일/스테일 시세 가드: 오늘 날짜 시세만 매매에 사용)
-        quotes = await self._mdp.get_prices(symbols)
+        #    추적 종목 + 보유 포지션 종목 — 추적 해제된 보유 종목도 시세가 있어야
+        #    리스크 청산·현재가 갱신·거래정지 재개 감지가 동작한다.
+        positions = await asyncio.to_thread(self._fetch_positions, account_id)
+        quote_symbols = list(dict.fromkeys(symbols + [p["symbol"] for p in positions]))
+        quotes = await self._mdp.get_prices(quote_symbols)
+
+        # 2.5. 거래정지 플래그(KIS 종목상태코드 58) → Stock.listingStatus 동기화
+        #      DART 공시 폴링이 놓친 거래정지 종목을 시세 경로에서 자동 보정한다.
+        halt_flags = {
+            sym: q.trading_halted
+            for sym, q in quotes.items()
+            if getattr(q, "trading_halted", None) is not None
+        }
+        if halt_flags:
+            halt_changed = await asyncio.to_thread(sync_trading_halt, halt_flags)
+            if halt_changed:
+                logger.info("[VirtualTrader] 거래정지 상태 동기화: %s", halt_changed)
+
         price_map: dict[str, int] = _fresh_price_map(quotes, today)
         if quotes and not price_map:
             logger.debug("[VirtualTrader] 계좌 %s: 오늘(%s) 시세 없음 — 휴장일 또는 스테일 데이터, 매매 보류", account_id, today)
-        name_map: dict[str, str] = await asyncio.to_thread(self._fetch_stock_names, symbols)
+        name_map: dict[str, str] = await asyncio.to_thread(self._fetch_stock_names, quote_symbols)
 
         # 3. 시그널 평가
         signals = await asyncio.to_thread(
@@ -340,7 +389,6 @@ class VirtualTrader:
         )
 
         # 4. 리스크 관리
-        positions = await asyncio.to_thread(self._fetch_positions, account_id)
         risk_exits: dict[str, str] = {}
         for pos in positions:
             current_price = price_map.get(pos["symbol"], 0)
@@ -378,9 +426,9 @@ class VirtualTrader:
                 price = price_map.get(sym, 0)
                 signals.append({"symbol": sym, "close": price, "entry_signal": False, "exit_signal": True, "exit_reason": reason})
 
-        # 4.5. 상장 상태 체크: 거래 제한 + 강제청산
+        # 4.5. 상장 상태 체크: 거래 제한 + 강제청산 (보유 포지션 종목 포함)
         delistingPolicy = await asyncio.to_thread(self._fetch_delisting_policy, account_id)
-        for sym in list(symbols):
+        for sym in quote_symbols:
             status = await asyncio.to_thread(get_stock_listing_status, sym)
             if status == ListingStatus.NORMAL:
                 continue

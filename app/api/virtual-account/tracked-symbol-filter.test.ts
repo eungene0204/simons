@@ -47,6 +47,22 @@ describe("tracked symbol filtering", () => {
     ).resolves.toEqual(["005930", "000660"]);
   });
 
+  it("DB 거래정지(TRADING_SUSPENDED) 종목을 모니터링 종목에서 제외한다", async () => {
+    mockStockFindMany.mockResolvedValue([{ symbol: "000660" }] as any);
+
+    await expect(
+      filterMonitorableSymbols(["005930", "000660"])
+    ).resolves.toEqual(["005930"]);
+
+    expect(mockStockFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          listingStatus: { in: ["DELISTED", "TRADING_SUSPENDED"] },
+        }),
+      })
+    );
+  });
+
   it("전략 백테스트 상위 종목에서도 상장폐지 종목을 제외한다", async () => {
     mockBacktestResultFindFirst.mockResolvedValue({
       summary: JSON.stringify({

@@ -92,14 +92,6 @@ function describeExitCondition(condition: Condition): string {
   }
 }
 
-function parseTradeReturnPercent(reason: string): number | null {
-  const match = reason.match(/\[수익률:\s*([+-]?\d+(?:\.\d+)?)%/);
-  if (!match) return null;
-
-  const parsed = Number(match[1]);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
 function splitReasonAndDetails(reason: string): { baseReason: string; details: string } {
   const detailStart = reason.indexOf(" [수익률:");
   if (detailStart === -1) {
@@ -112,60 +104,20 @@ function splitReasonAndDetails(reason: string): { baseReason: string; details: s
   };
 }
 
-function formatRiskExitReason(
-  baseReason: string,
-  details: string,
-  strategy: Pick<StrategyDSL, "risk"> | null | undefined,
-  returnPct: number | null
-): string {
-  if (!strategy?.risk) {
-    return `${baseReason}${details}`;
-  }
-
-  const tolerance = 1.0;
-  const stopLossPct = strategy.risk.stop_loss_pct;
-  const takeProfitPct = strategy.risk.take_profit_pct;
-
-  if (
-    stopLossPct &&
-    returnPct !== null &&
-    returnPct < 0 &&
-    returnPct <= -(stopLossPct - tolerance)
-  ) {
-    return `손절 -${stopLossPct}% 도달${details}`;
-  }
-
-  if (
-    takeProfitPct &&
-    returnPct !== null &&
-    returnPct > 0 &&
-    returnPct >= takeProfitPct - tolerance
-  ) {
-    return `익절 +${takeProfitPct}% 도달${details}`;
-  }
-
-  return `${baseReason}${details}`;
-}
-
 export function resolveTradeReason(
   reason: string | null | undefined,
   tradeType: "buy" | "sell",
-  strategy: Pick<StrategyDSL, "exit" | "risk"> | null | undefined
+  strategy: Pick<StrategyDSL, "exit"> | null | undefined
 ): string | null | undefined {
   const normalizedReason = normalizeLegacyBreakoutReason(reason);
   if (!normalizedReason || tradeType !== "sell") {
     return normalizedReason;
   }
 
+  // 손절/익절 판정은 백엔드 exit_type(result_handler)만 신뢰한다. 손실률 크기로 손절을
+  // 사후 추정하면 실제로는 다른 청산 조건으로 팔린 거래까지 '손절 도달'로 오귀속되므로,
+  // 여기서는 재라벨하지 않고 일반 매도 사유의 청산 조건 서술까지만 수행한다.
   const { baseReason, details } = splitReasonAndDetails(normalizedReason);
-  const returnPct = parseTradeReturnPercent(normalizedReason);
-
-  if (baseReason === "전략 매도 조건 충족") {
-    const riskResolvedReason = formatRiskExitReason(baseReason, details, strategy, returnPct);
-    if (riskResolvedReason !== `${baseReason}${details}`) {
-      return riskResolvedReason;
-    }
-  }
 
   if (baseReason !== "전략 매도 조건 충족") {
     return normalizedReason;

@@ -649,7 +649,11 @@ RiskManagement {
 | UI 배지 | TrackedSymbolRow에 상태 배지 표시 (red/orange/yellow) | ✅ 완료 |
 | DelistingRiskBanner | 가상계좌 상단 리스크 배너 (D-N 카운트다운, 강제청산 버튼) | ✅ 완료 |
 | 감사 로그 | DelistingAuditLog: AUTO_LIQUIDATE / TRADE_BLOCKED / STATUS_CHANGE 이벤트 기록 | ✅ 완료 |
-| 테스트 | backend 21개 (test_listing_status.py), frontend 35개 (listing-status.test.ts), API 2개 | ✅ 완료 |
+| 모니터링 거래정지 필터 (FR-VM-071) | `filterMonitorableSymbols`가 DELISTED에 더해 TRADING_SUSPENDED도 추적 목록에서 제외 | ✅ 완료 |
+| KIS 시세 기반 거래정지 동기화 (FR-VM-072) | `iscd_stat_cls_code=58` → `StockQuote.trading_halted` 파싱, VirtualTrader 사이클이 `sync_trading_halt`로 Stock 반영 (DART 분류 우선 보호) | ✅ 완료 |
+| 보유 종목 시세 커버리지 | VirtualTrader 시세 조회 = 추적 종목 ∪ 보유 포지션 종목 — 추적 해제된 보유 종목의 청산·현재가 갱신·재개 감지 보장 | ✅ 완료 |
+| 거래정지 재개 스윕 | `_sweep_suspended_resume`(600초 간격): 아무도 추적하지 않는 정지 종목의 거래 재개를 감지해 NORMAL 복원 — 영구 정지 데드락 방지 | ✅ 완료 |
+| 테스트 | backend 21개 (test_listing_status.py), frontend 35개 (listing-status.test.ts), API 2개 + 거래정지 동기화/스윕 (test_listing_status_db.py 3개, test_virtual_trader.py 3개, tracked-symbol-filter.test.ts 1개) | ✅ 완료 |
 
 **새 API 엔드포인트:**
 - `GET /market/listing-status` — 전체 상장 상태 조회 (backend + DB 통합)

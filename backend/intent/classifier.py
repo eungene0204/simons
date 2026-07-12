@@ -32,6 +32,8 @@ from .scope import (
     is_offtopic,
     is_onboarding_help_request,
     is_stock_pick_request,
+    is_strategy_pick_request,
+    STRATEGY_PICK_REPLY,
     stock_pick_reply,
     stock_question_redirect,
 )
@@ -120,6 +122,8 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     "STOCK_ANALYSIS(이름이 명시된 '특정 한 종목'의 매수·매도·보유·전망·리스크·분석), "
     "STOCK_PICK(특정 종목명도 정량 조건도 없이 '무엇을 사야 하나·종목 추천·살 만한 종목·돈 될 종목'처럼 "
     "매수 대상을 골라 달라는 열린 추천 요청), "
+    "STRATEGY_PICK(구체적인 지표·전략 유형 없이 '어떤 전략이 좋을까·전략 추천해줘·무슨 전략을 써야 해'처럼 "
+    "어떤 전략이 우수한지 골라 달라는 열린 추천 요청 — 특정 유형(모멘텀·RSI 등)이 명시되면 STRATEGY_ADVICE다), "
     "ONBOARDING(구체적인 전략·지표·종목 없이 '어떻게 시작하지·뭐부터 해야 해·처음인데 어떻게 써'처럼 "
     "무엇을 해야 할지 막막해 도움을 청하는 요청), "
     "GENERAL_INVESTMENT(일반 투자 지식·용어 정의), "
@@ -182,6 +186,24 @@ def _classify_deterministic(query: str, last_symbol: Optional[str]) -> Optional[
     stock_question_overrides_strategy = bool(
         refs and has_stock_q and risk_word_only_strategy_kw and not _CONSTRUCT_VERB.search(text)
     )
+
+    # 0-b) [규제 안전] "어떤 전략이 좋을까?"처럼 어떤 전략이 우수한지 골라/추천해 달라는 열린 요청 →
+    #      전략 우열을 판단·추천하지 않고, 함께 만들어 백테스트하는 전략 빌더로 유도한다. '전략'이
+    #      들어 있어 아래 STRATEGY_ADVICE로 새기 전에 먼저 잡는다. 구체 지표·유형·수정·종목명이
+    #      섞였으면(=설계 요청) is_strategy_pick_request/게이트에서 제외돼 일반 흐름으로 넘어간다.
+    if (
+        is_strategy_pick_request(text)
+        and not refs
+        and not has_screening
+        and not has_modify
+        and not pure_definition
+    ):
+        return IntentResult(
+            intent=QueryIntent.STRATEGY_PICK,
+            suggested_reply=STRATEGY_PICK_REPLY,
+            confidence=0.9,
+            reason="열린 전략 추천 요청 감지 — 전략 빌더로 유도",
+        )
 
     # 1) 전략 키워드/스크리닝 조건/전략 수정 명령이 있으면 전략 설계로 본다(종목명이 섞여 있어도).
     #    "종목을 10개로 늘려줘"처럼 기존 전략을 다듬는 요청을 '종목 추천(STOCK_PICK)'으로
@@ -271,7 +293,7 @@ def _classify_with_llm(query: str, llm: LLMFn) -> Optional[IntentResult]:
         logger.exception("intent LLM 폴백 실패")
         return None
     match = re.search(
-        r'"intent"\s*:\s*"(STRATEGY_ADVICE|STOCK_ANALYSIS|STOCK_PICK|ONBOARDING|GENERAL_INVESTMENT|GREETING|OFF_TOPIC|UNKNOWN)"',
+        r'"intent"\s*:\s*"(STRATEGY_ADVICE|STOCK_ANALYSIS|STOCK_PICK|STRATEGY_PICK|ONBOARDING|GENERAL_INVESTMENT|GREETING|OFF_TOPIC|UNKNOWN)"',
         raw or "",
     )
     if not match:
@@ -289,6 +311,8 @@ def _classify_with_llm(query: str, llm: LLMFn) -> Optional[IntentResult]:
         suggested_reply = OFFTOPIC_REFUSAL
     elif intent == QueryIntent.STOCK_PICK:
         suggested_reply = stock_pick_reply(query)
+    elif intent == QueryIntent.STRATEGY_PICK:
+        suggested_reply = STRATEGY_PICK_REPLY
     elif intent == QueryIntent.ONBOARDING:
         suggested_reply = ONBOARDING_REPLY
     refs = find_in_text(query) if intent == QueryIntent.STOCK_ANALYSIS else []

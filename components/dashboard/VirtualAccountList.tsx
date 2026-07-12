@@ -63,20 +63,11 @@ export default function VirtualAccountList({ initialData }: { initialData: Virtu
   return (
     <div className="flat-card p-5 h-full">
       {/* 헤더 */}
-      <div className="flex items-center justify-between mb-5">
-        <div>
-          <h2 className="text-base font-black uppercase tracking-widest text-gray-400 font-outfit">
-            가상계좌 목록
-          </h2>
-          <p className="text-xs text-gray-500 mt-0.5">운용중/삭제된 계좌별 수익 현황</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => router.push("/virtual-account")}
-          className="text-xs font-bold text-indigo-400 hover:text-indigo-300 transition-colors"
-        >
-          전체 보기
-        </button>
+      <div className="mb-5">
+        <h2 className="text-base font-black uppercase tracking-widest text-gray-400 font-outfit">
+          가상계좌 목록
+        </h2>
+        <p className="text-xs text-gray-500 mt-0.5">운용중/삭제된 계좌별 수익 현황</p>
       </div>
 
       {/* 테이블 헤더 */}
