@@ -202,6 +202,16 @@ def test_modify_increase_positions_resolves_deterministically():
     assert parsed.max_positions == 10
 
 
+def test_modify_numeric_sector_resolves_deterministically():
+    # '2차전지 섹터로 바꿔줘'는 숫자 제거가 어휘 차감보다 먼저라 '차전지' 잔여가 남아
+    # LLM 경로(수십 초)로 새던 단순 수정이다. 결정론 fast-path가 바로 반영해야 한다.
+    from engine.nl_parser import _modify_rule_based
+    prev = make_base_strategy().model_dump()
+    parsed = _modify_rule_based("2차전지 섹터로 바꿔줘", prev)
+    assert parsed is not None
+    assert parsed.sector == "이차전지"
+
+
 def test_backtest_months_window_resolves_to_relative_dates():
     # '백테스트 N개월'(N≥12)도 연 단위와 동일하게 오늘 기준 명시 날짜로 변환된다.
     # 연 단위만 처리하고 개월은 침묵 무시되던 비대칭(프론트는 개월 인식) 보완.
@@ -2788,7 +2798,9 @@ def test_strategy_ui_setting_suggestions_use_deterministic_modification_path(
 
 def test_strategy_ui_exposes_only_suggestions_covered_by_backend_contract():
     """A new UI suggestion must add an executable backend contract in this test module."""
-    source = Path("app/analytics/new/conversationDecision.ts").read_text(encoding="utf-8")
+    # CWD가 아니라 리포 루트 기준으로 읽는다 — pytest는 backend/에서 실행된다(CI 포함).
+    repo_root = Path(__file__).resolve().parents[2]
+    source = (repo_root / "app/analytics/new/conversationDecision.ts").read_text(encoding="utf-8")
     clarification_block = source.split(
         "const MODIFICATION_CLARIFICATIONS", 1
     )[1].split("export function getModificationClarification", 1)[0]
@@ -2913,6 +2925,17 @@ def test_rule_parse_unexplained_keeps_unknown_content():
         "골든크로스 매수, 데드크로스 매도, 손절 8%, 어쩌고저쩌고특별한무언가"
     )
     assert len(residual) >= 6
+
+
+def test_rule_parse_unexplained_consumes_numeric_sector_synonym():
+    """숫자를 품은 섹터 동의어('2차전지')가 숫자 제거로 조각나('차전지') 잔여로 남으면
+    안 된다 — 어휘 차감이 숫자 제거보다 먼저여야 룰 파스 즉답이 불필요한 LLM 검증을 피한다."""
+    assert _rule_parse_unexplained("2차전지 관련주 골든크로스 매수, 손절 5%") == ""
+
+
+def test_rule_parse_unexplained_consumes_generic_target_words():
+    """필드 의미가 없는 일반어('대상', '중')는 잔여로 치지 않는다."""
+    assert _rule_parse_unexplained("반도체 관련주 대상으로 골든크로스 전략, 손절 5%") == ""
 
 
 def test_consult_guard_accepts_without_llm_when_flag_disabled(monkeypatch):

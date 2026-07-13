@@ -2940,7 +2940,7 @@ _MODIFY_FIELD_CUES: dict[str, list[str]] = {
 _MODIFY_FILLER = [
     "설정해줘", "설정해", "설정", "변경해줘", "변경", "바꿔줘", "바꿔주세요", "바꿔", "바꾸",
     "해주세요", "해줘", "주세요", "넣어줘", "넣어", "추가해줘", "추가", "포함해줘", "포함",
-    "같이", "함께", "더해줘", "더해", "진행", "그대로",
+    "같이", "함께", "더해줘", "더해", "진행", "그대로", "대상",
     # '~만 테스트 해줘'류 실행 요청 동사. '백테스트'는 필드 cue(backtest_period)라 여기 아님
     # — 기간 변경이 아닌 문장에 '백테스트'가 남으면 '백'이 잔여로 남아 LLM으로 위임된다(보수적).
     "테스트",
@@ -2981,13 +2981,15 @@ def _modify_residual_is_clean(user_input: str, changed_fields) -> bool:
     """
     residual = _compact(user_input)
     residual = residual.replace("%", "")
-    residual = re.sub(r"-?\d+(?:\.\d+)?", "", residual)  # 숫자 제거
     cues: list[str] = []
     for field in changed_fields:
         cues.extend(_MODIFY_FIELD_CUES.get(field, []))
-    # 긴 키워드부터 제거(짧은 키워드가 긴 표현을 부분 절단하는 것 방지)
+    # 긴 키워드부터 제거(짧은 키워드가 긴 표현을 부분 절단하는 것 방지).
+    # 숫자 제거보다 먼저다 — '2차전지' 같은 숫자 포함 cue가 조각나면 fast-path를 놓쳐
+    # 단순 수정이 LLM 경로(수십 초)로 새어 나간다.
     for kw in sorted(set(cues) | set(_MODIFY_FILLER) | set(_MODIFY_UNIT_FILLER), key=len, reverse=True):
         residual = residual.replace(kw, "")
+    residual = re.sub(r"-?\d+(?:\.\d+)?", "", residual)  # 숫자 제거
     return not re.search(r"[가-힣a-z0-9]", residual)
 
 
@@ -3013,7 +3015,7 @@ _RULE_GUARD_KNOWN_VOCAB: frozenset[str] = (
         "전략", "주식", "매수", "매도", "진입", "청산", "사서", "사고", "사면", "팔고", "팔아",
         "팔면", "골라", "골라서", "편입", "들어가", "정리", "나오면", "발생", "돌파", "이탈",
         "이면", "이고", "이며", "그리고", "또는", "반대로", "다시", "기준", "정도", "이내",
-        "중에서", "에서", "으로", "하는", "하면", "한", "넣어", "써보", "해보", "싶어", "싶습니다",
+        "중에서", "중", "에서", "으로", "하는", "하면", "한", "넣어", "써보", "해보", "싶어", "싶습니다",
     })
 )
 # 잔여가 이 글자 수 이상이면 '애매'로 보고 judge에 위임한다(한글 ~2-3단어 분량).
@@ -3023,10 +3025,12 @@ _RULE_GUARD_AMBIGUITY_MIN_CHARS = 6
 def _rule_parse_unexplained(user_input: str) -> str:
     """룰 파싱이 설명하지 못한 잔여 텍스트(숫자·단위·알려진 어휘 차감 후 한글/영숫자)를 반환."""
     residual = _compact(user_input).replace("%", "")
-    residual = re.sub(r"-?\d+(?:\.\d+)?", "", residual)
+    # 어휘 차감이 숫자 제거보다 먼저다 — '2차전지'·'52주'처럼 숫자를 품은 어휘가
+    # 숫자 제거로 조각나('차전지') 잔여로 남으면 불필요한 LLM 검증(수 초~수십 초)이 발화된다.
     for kw in sorted(_RULE_GUARD_KNOWN_VOCAB, key=len, reverse=True):
         if kw:
             residual = residual.replace(kw, "")
+    residual = re.sub(r"-?\d+(?:\.\d+)?", "", residual)
     return re.sub(r"[^가-힣a-z0-9]", "", residual)
 
 
