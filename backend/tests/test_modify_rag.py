@@ -12,6 +12,8 @@ from engine.modify_rag import (
     build_dynamic_modify_prompt,
     record_example,
     _load_corpus,
+    _load_knowledge_documents,
+    _fallback_knowledge,
     _category_for,
     _fallback_examples,
     _MODIFY_EXAMPLES,
@@ -23,9 +25,36 @@ def test_modify_rag_initialization():
     rag = ModifyRAG()
     rag._init_collection()
     assert rag._collection is not None
-    assert rag._collection.count() == len(_load_corpus())
+    assert rag._collection.count() == len(_load_corpus()) + len(_load_knowledge_documents())
     # 합성 코퍼스가 폴백 시드보다 충분히 커야 함
-    assert rag._collection.count() >= len(_MODIFY_EXAMPLES)
+    assert len(rag._corpus) >= len(_MODIFY_EXAMPLES)
+
+
+def test_knowledge_documents_are_versioned_and_cover_sector_and_typos():
+    documents = _load_knowledge_documents()
+    assert {doc["id"] for doc in documents} >= {"sector-scope", "contextual-typos", "diff-contract"}
+    assert _fallback_knowledge("반도체 섹터 종목만", k=1)[0]["id"] == "sector-scope"
+    assert _fallback_knowledge("15% 선절", k=1)[0]["id"] == "contextual-typos"
+
+
+def test_modify_rag_retrieves_sector_knowledge():
+    documents = ModifyRAG().retrieve_knowledge("반도체 섹터 종목만 테스트 해줘", k=2)
+    assert "sector-scope" in {doc["id"] for doc in documents}
+
+
+def test_load_corpus_ignores_unverified_runtime_output(tmp_path, monkeypatch):
+    learned = tmp_path / "learned.jsonl"
+    learned.write_text(
+        '\n'.join([
+            json.dumps({"request": "잘못된 자동 결과", "output": {"max_positions": 3}}, ensure_ascii=False),
+            json.dumps({"request": "검증된 결과", "output": {"sector": "반도체"}, "verified": True}, ensure_ascii=False),
+        ]),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MODIFY_CORPUS_PATH", str(learned))
+    requests = {example["request"] for example in _load_corpus()}
+    assert "잘못된 자동 결과" not in requests
+    assert "검증된 결과" in requests
 
 
 def test_modify_rag_retrieve_take_profit():
@@ -55,7 +84,7 @@ def test_modify_rag_retrieve_universe():
 def test_build_dynamic_modify_prompt_size():
     """동적 프롬프트 크기가 원본보다 작아야 함"""
     dynamic_prompt = build_dynamic_modify_prompt("30% 익절 설정", k=2)
-    assert len(dynamic_prompt) < 2000
+    assert len(dynamic_prompt) < 5000
     assert "현재 전략 JSON" in dynamic_prompt
     assert "예시" in dynamic_prompt
 
@@ -64,6 +93,13 @@ def test_build_dynamic_modify_prompt_includes_relevant_examples():
     """동적 프롬프트가 관련 예시를 포함해야 함"""
     dynamic_prompt = build_dynamic_modify_prompt("익절 20%", k=2)
     assert "익절" in dynamic_prompt or "take_profit" in dynamic_prompt
+
+
+def test_dynamic_prompt_fallback_includes_sector_knowledge(monkeypatch):
+    monkeypatch.setattr(ModifyRAG, "retrieve_knowledge", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError()))
+    prompt = build_dynamic_modify_prompt("반도체 섹터 종목만 테스트 해줘", k=2)
+    assert "sector를 반도체로 변경" in prompt
+    assert '"sector": "반도체"' in prompt
 
 
 def test_category_for_derives_from_output():
@@ -103,11 +139,12 @@ def test_record_example_persists_simple_fields(tmp_path, monkeypatch):
 
     rag = _make_offline_rag()
     # null 필드와 구조화 필드는 제외, stop_loss_pct만 기록
+    assert rag.record_example("손절 9%로 바꿔줘", {"stop_loss_pct": 9.0}) is False
     ok = rag.record_example("손절 9%로 바꿔줘", {
         "stop_loss_pct": 9.0,
         "take_profit_pct": None,
         "entry_signals": [{"type": "rsi"}],
-    })
+    }, verified=True)
     assert ok is True
     assert learned.exists()
 
@@ -117,6 +154,7 @@ def test_record_example_persists_simple_fields(tmp_path, monkeypatch):
     assert rec["request"] == "손절 9%로 바꿔줘"
     assert rec["category"] == "stop_loss"
     assert rec["output"] == {"stop_loss_pct": 9.0}  # null/구조화 필드 제외
+    assert rec["verified"] is True
 
 
 def test_record_example_dedup_and_empty(tmp_path, monkeypatch):
@@ -125,11 +163,11 @@ def test_record_example_dedup_and_empty(tmp_path, monkeypatch):
     monkeypatch.setenv("MODIFY_CORPUS_PATH", str(learned))
 
     rag = _make_offline_rag()
-    assert rag.record_example("익절 25%", {"take_profit_pct": 25.0}) is True
+    assert rag.record_example("익절 25%", {"take_profit_pct": 25.0}, verified=True) is True
     # 같은 요청 재기록 → dedup
-    assert rag.record_example("익절 25%", {"take_profit_pct": 25.0}) is False
+    assert rag.record_example("익절 25%", {"take_profit_pct": 25.0}, verified=True) is False
     # 단순 필드가 전혀 없으면 기록 안 함
-    assert rag.record_example("설명만 바꿔줘", {"description": "x", "entry_signals": [1]}) is False
+    assert rag.record_example("설명만 바꿔줘", {"description": "x", "entry_signals": [1]}, verified=True) is False
 
     rows = [l for l in learned.read_text(encoding="utf-8").splitlines() if l.strip()]
     assert len(rows) == 1
@@ -153,7 +191,7 @@ def test_record_example_adds_to_live_collection(tmp_path, monkeypatch):
     rag._init_embedder = lambda: setattr(rag, "_embedder", _Emb())  # type: ignore
     rag._embedder = _Emb()
 
-    assert rag.record_example("트레일링 12%", {"trailing_stop_pct": 12.0}) is True
+    assert rag.record_example("트레일링 12%", {"trailing_stop_pct": 12.0}, verified=True) is True
     assert len(rag._collection.added) == 1
     assert rag._collection.added[0]["documents"] == ["트레일링 12%"]
 

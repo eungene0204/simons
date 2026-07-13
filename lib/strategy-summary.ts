@@ -3,8 +3,8 @@ import type { StrategyDSL } from "@/types/strategy";
 export interface ParsedSummary {
   description: string;
   universe: string[];
-  // 섹터/업종 제한(정본 섹터명, 예: "반도체"). 없으면 null/생략.
-  sector?: string | null;
+  // 섹터/업종 제한(정본 섹터명, 예: "반도체"). 복수면 배열(합집합). 없으면 null/생략.
+  sector?: string | string[] | null;
   fundamental_filters: Array<{ metric: string; operator: string; value: number }>;
   entry_signals: Array<{ indicator: string; signal_type?: string | null; mode?: string | null }>;
   exit_signals: Array<{ indicator: string; signal_type?: string | null; mode?: string | null }>;
@@ -236,7 +236,13 @@ export function getDisplayUniverseLabels(
 ): string[] {
   const normalizedUniverses = parsed.universe.map(normalizeUniverseId);
 
-  const sectorLabel = parsed.sector ? [`${parsed.sector} 업종`] : [];
+  // 복수 섹터(배열)는 업종별로 개별 배지를 만든다("반도체 업종", "기계/장비 업종").
+  const sectors = Array.isArray(parsed.sector)
+    ? parsed.sector
+    : parsed.sector
+      ? [parsed.sector]
+      : [];
+  const sectorLabel = sectors.map((sector) => `${sector} 업종`);
 
   if (
     normalizedUniverses.length === 1 &&
@@ -351,7 +357,7 @@ export function buildStrategySummary(
 // 0거래와 일관됨). risk.ranking_metric은 엔진에서 '선정=진입'이므로 진입 신호로 노출한다.
 interface ExecutedBacktestRequest {
   universe_id?: string | null;
-  sector?: string | null;
+  sector?: string | string[] | null;
   entry?: { conditions?: Array<{ id?: string; type?: string; params?: Record<string, unknown> }> } | null;
   exit?: { conditions?: Array<{ id?: string; type?: string; params?: Record<string, unknown> }> } | null;
   risk?: Record<string, unknown> | null;
@@ -419,7 +425,12 @@ export function buildStrategySummaryFromRequest(
   return {
     // 실행된 요청에는 전략명이 없다 — 저장 시 기본 이름은 promptText가 우선 사용한다.
     strategyName: "",
-    universeName: [resolveUniverseLabelFromId(req.universe_id), req.sector ? `${req.sector} 업종` : ""]
+    universeName: [
+      resolveUniverseLabelFromId(req.universe_id),
+      ...(Array.isArray(req.sector) ? req.sector : req.sector ? [req.sector] : []).map(
+        (sector) => `${sector} 업종`
+      ),
+    ]
       .filter(Boolean)
       .join(" · "),
     blockNames: [...entryBlocks, ...exitBlocks],

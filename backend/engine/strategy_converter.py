@@ -172,7 +172,9 @@ def to_canonical_strategy_dsl(strategy: ParsedStrategy) -> dict:
     canonical = _drop_none({
         "universe": sorted(strategy.universe),
         # None이면 _drop_none이 제거하므로 섹터 없는 기존 전략의 해시는 변하지 않는다.
-        "sector": strategy.sector,
+        # 단일 섹터는 정규형이 str이라 기존 해시와 동일하고, 복수(list)만 정렬해
+        # 순서 무관 동일 해시를 보장한다(FR-STR-066 ⑦).
+        "sector": sorted(strategy.sector) if isinstance(strategy.sector, list) else strategy.sector,
         "fundamental_filters": sorted(
             [
                 {

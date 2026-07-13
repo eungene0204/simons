@@ -366,9 +366,9 @@ def test_sector_flows_into_prompt_and_dsl():
 
 
 def test_seed_unsupported_sector_notice_shown_once():
-    """[회귀] '로봇주 관련 전략을 만들어보자' — 지원 목록에 없는 업종이 조용히 버려져
+    """[회귀] '메타버스주 관련 전략을 만들어보자' — 지원 목록에 없는 업종이 조용히 버려져
     전체 시장으로 백테스트되던 버그. 시드가 언급을 캐치해 안내를 한 번만 보여준다."""
-    state = sb.seed_state("로봇주 관련 전략을 만들어보자")
+    state = sb.seed_state("메타버스주 관련 전략을 만들어보자")
     assert state.sector is None
     assert state.sector_unresolved is True
 
@@ -382,8 +382,8 @@ def test_seed_unsupported_sector_notice_shown_once():
 
 
 def test_seed_unsupported_sector_word_order_variants():
-    """'관련주' 어순이 아니어도('로봇 관련'·'메타버스 테마') 목록 밖 업종 언급을 캐치한다."""
-    assert sb.seed_state("로봇 관련 전략 만들어줘").sector_unresolved is True
+    """'관련주' 어순이 아니어도('블록체인 관련'·'메타버스 테마') 목록 밖 업종 언급을 캐치한다."""
+    assert sb.seed_state("블록체인 관련 전략 만들어줘").sector_unresolved is True
     assert sb.seed_state("메타버스 테마 전략").sector_unresolved is True
     # 지원 업종은 정상 시드되고 플래그는 켜지지 않는다.
     supported = sb.seed_state("반도체 관련 전략 만들어줘")
@@ -395,7 +395,7 @@ def test_seed_unsupported_sector_word_order_variants():
 
 def test_midflow_supported_sector_mention_is_captured():
     """안내를 본 사용자가 대화 중 지원 업종을 말하면 캐치해 유니버스 제한으로 반영한다."""
-    state = sb.seed_state("로봇주 관련 전략을 만들어보자")
+    state = sb.seed_state("메타버스주 관련 전략을 만들어보자")
     first = sb.step(state, "")  # 안내 소비 + 유니버스 질문
     r = sb.step(first.state, "그러면 기계/장비 업종으로 해줘")
     assert r.state.sector == "기계/장비"
@@ -434,12 +434,12 @@ def test_unresolved_sector_resolved_by_llm_resolver():
 
 def test_unresolved_sector_llm_null_or_error_falls_back_to_notice():
     """LLM이 매핑 불가(null)거나 실패하면 기존 미지원 안내로 폴백한다."""
-    state = sb.seed_state("로봇주 관련 전략을 만들어보자")
+    state = sb.seed_state("메타버스주 관련 전략을 만들어보자")
     first = sb.step(state, "", sector_resolver=lambda _t: None)
     assert "지원 목록에 없어" in first.reply
     assert first.state.sector is None and first.state.sector_unresolved is False
 
-    state2 = sb.seed_state("로봇주 관련 전략을 만들어보자")
+    state2 = sb.seed_state("메타버스주 관련 전략을 만들어보자")
     def boom(_t):
         raise RuntimeError("LLM down")
     second = sb.step(state2, "", sector_resolver=boom)
@@ -502,7 +502,7 @@ def test_llm_extract_sector_parses_and_validates():
 def test_seed_confirmed_with_unresolved_sector_carries_notice():
     """시드만으로 즉시 confirmed되는 경우(모멘텀)에도 안내가 notices 채널로 전달된다."""
     state = sb.seed_state(
-        "로봇 관련 모멘텀 전략, 코스피에서 최근 3개월 상위 5종목, 매월 리밸런싱, 10% 손절"
+        "메타버스 관련 모멘텀 전략, 코스피에서 최근 3개월 상위 5종목, 매월 리밸런싱, 10% 손절"
     )
     assert state.sector_unresolved is True
     r = sb.step(state, "")

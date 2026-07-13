@@ -1,8 +1,9 @@
 """수정 요청 → 동적 few-shot 검색 (RAG)
 
-코퍼스 소스 (병합·dedup):
-  1) 합성 코퍼스: engine/data/modify_examples.json (build_modify_corpus.py 생성, 커밋됨)
-  2) 학습 코퍼스: <repo>/data/modify_corpus/learned.jsonl (런타임 누적, bind-mount 영속)
+검색 소스:
+  1) 검증된 지식 문서: engine/data/modify_knowledge.json
+  2) 합성 정답 예시: engine/data/modify_examples.json
+  3) 사용자 검증 학습 예시: <repo>/data/modify_corpus/learned.jsonl
 합성 JSON이 없으면 하드코딩 _MODIFY_EXAMPLES로 폴백한다(테스트/초기 상태).
 """
 import json
@@ -17,6 +18,7 @@ from typing import Optional
 # 검색 적합도를 떨어뜨리고 코퍼스를 비대하게 만드므로 학습 기록에서 제외한다.
 _SIMPLE_FIELDS = {
     "universe",
+    "sector",
     "max_positions",
     "hold_period_days",
     "rebalancing_period",
@@ -35,6 +37,7 @@ _SIMPLE_FIELDS = {
 }
 
 _FIELD_TO_CATEGORY = {
+    "sector": "sector",
     "max_positions": "max_positions",
     "initial_capital": "initial_capital",
     "stop_loss_pct": "stop_loss",
@@ -57,6 +60,39 @@ _FIELD_TO_CATEGORY = {
 _MAX_CORPUS = 3000
 
 _SYNTHETIC_PATH = Path(__file__).parent / "data" / "modify_examples.json"
+_KNOWLEDGE_PATH = Path(__file__).parent / "data" / "modify_knowledge.json"
+_KNOWLEDGE_OUTPUT_FIELDS = _SIMPLE_FIELDS | {
+    "description", "fundamental_filters", "entry_signals", "exit_signals", "ranking_metric",
+}
+
+
+def _load_knowledge_documents() -> list[dict]:
+    """Load the committed knowledge base and reject malformed documents."""
+    payload = json.loads(_KNOWLEDGE_PATH.read_text(encoding="utf-8"))
+    if payload.get("schema_version") != 1 or not isinstance(payload.get("documents"), list):
+        raise ValueError("unsupported modify knowledge schema")
+    documents, seen = [], set()
+    for doc in payload["documents"]:
+        required = ("id", "title", "category", "keywords", "content", "rules", "examples")
+        if not isinstance(doc, dict) or any(not doc.get(key) for key in required):
+            raise ValueError("incomplete modify knowledge document")
+        if not all(isinstance(doc[key], str) for key in ("id", "title", "category", "content")):
+            raise ValueError("invalid modify knowledge text field")
+        if not all(isinstance(doc[key], list) for key in ("keywords", "rules", "examples")):
+            raise ValueError("invalid modify knowledge list field")
+        if doc["id"] in seen or not all(isinstance(v, str) and v.strip() for v in doc["keywords"] + doc["rules"]):
+            raise ValueError("invalid modify knowledge document")
+        for example in doc["examples"]:
+            if not isinstance(example, dict):
+                raise ValueError("invalid modify knowledge example")
+            output = example.get("output")
+            if not example.get("request") or not isinstance(output, dict) or not output:
+                raise ValueError("invalid modify knowledge example")
+            if set(output) - _KNOWLEDGE_OUTPUT_FIELDS:
+                raise ValueError("unknown modify knowledge output field")
+        seen.add(doc["id"])
+        documents.append(doc)
+    return documents
 
 
 def _learned_path() -> Path:
@@ -97,7 +133,7 @@ def _category_for(simple: dict) -> str:
 
 
 def _load_corpus() -> list[dict]:
-    """합성 + 학습 코퍼스를 병합하고 request 텍스트로 dedup한다."""
+    """합성 + 사용자 검증 코퍼스를 병합하고 request 텍스트로 dedup한다."""
     corpus: list[dict] = []
     seen: set[str] = set()
 
@@ -133,7 +169,9 @@ def _load_corpus() -> list[dict]:
                 if not line:
                     continue
                 try:
-                    add(json.loads(line))
+                    learned = json.loads(line)
+                    if learned.get("verified") is True:
+                        add(learned)
                 except Exception:
                     continue
         except Exception:
@@ -149,6 +187,7 @@ class ModifyRAG:
         self._collection = None
         self._embedder = None
         self._corpus: list[dict] = []
+        self._knowledge: list[dict] = []
         self._lock = threading.Lock()
 
     def _init_embedder(self):
@@ -170,23 +209,27 @@ class ModifyRAG:
 
         client = chromadb.EphemeralClient()
         self._collection = client.get_or_create_collection(
-            name="modify_examples",
+            name="modify_knowledge_v1",
             metadata={"hnsw:space": "cosine"},
         )
 
         self._corpus = _load_corpus()
-        if self._collection.count() == 0 and self._corpus:
+        self._knowledge = _load_knowledge_documents()
+        if self._collection.count() == 0 and (self._corpus or self._knowledge):
             self._init_embedder()
             requests = [e["request"] for e in self._corpus]
-            embeddings = self._embedder.encode(requests, normalize_embeddings=True).tolist()
+            knowledge_texts = [" ".join([d["title"], *d["keywords"], d["content"], *d["rules"]]) for d in self._knowledge]
+            search_texts = requests + knowledge_texts
+            embeddings = self._embedder.encode(search_texts, normalize_embeddings=True).tolist()
             self._collection.add(
-                ids=[f"modify_ex_{i}" for i in range(len(self._corpus))],
+                ids=([f"modify_ex_{i}" for i in range(len(self._corpus))]
+                     + [f"modify_knowledge_{d['id']}" for d in self._knowledge]),
                 embeddings=embeddings,
-                documents=requests,
-                metadatas=[
-                    {"category": e["category"], "output_json": json.dumps(e["output"], ensure_ascii=False)}
+                documents=search_texts,
+                metadatas=([
+                    {"kind": "example", "category": e["category"], "output_json": json.dumps(e["output"], ensure_ascii=False)}
                     for e in self._corpus
-                ],
+                ] + [{"kind": "knowledge", "knowledge_json": json.dumps(d, ensure_ascii=False)} for d in self._knowledge]),
             )
 
     def retrieve_examples(self, user_request: str, k: int = 2) -> list[dict]:
@@ -194,9 +237,11 @@ class ModifyRAG:
         self._init_collection()
         self._init_embedder()
 
-        n = min(k, max(1, self._collection.count()))
+        n = min(k, len(self._corpus))
+        if n == 0:
+            return []
         query_embedding = self._embedder.encode([user_request], normalize_embeddings=True).tolist()
-        results = self._collection.query(query_embeddings=query_embedding, n_results=n)
+        results = self._collection.query(query_embeddings=query_embedding, n_results=n, where={"kind": "example"})
 
         examples: list[dict] = []
         if results and results.get("documents"):
@@ -214,20 +259,32 @@ class ModifyRAG:
                 })
         return examples
 
-    def record_example(self, user_request: str, output: dict) -> bool:
-        """성공한 수정 요청을 학습 코퍼스에 저장한다 (best-effort).
+    def retrieve_knowledge(self, user_request: str, k: int = 2) -> list[dict]:
+        self._init_collection()
+        self._init_embedder()
+        n = min(k, len(self._knowledge))
+        if n == 0:
+            return []
+        query_embedding = self._embedder.encode([user_request], normalize_embeddings=True).tolist()
+        results = self._collection.query(query_embeddings=query_embedding, n_results=n, where={"kind": "knowledge"})
+        return [json.loads(meta["knowledge_json"]) for meta in results["metadatas"][0]]
+
+    def record_example(self, user_request: str, output: dict, *, verified: bool = False) -> bool:
+        """Store only examples explicitly verified by a user or reviewer.
 
         diff의 단순 필드(non-null)만 추출해 learned.jsonl에 append하고, 컬렉션이
         이미 초기화돼 있으면 라이브로 추가해 다음 요청부터 즉시 검색에 반영한다.
         request 텍스트가 이미 코퍼스에 있으면 무시(dedup).
         """
+        if not verified:
+            return False
         req = (user_request or "").strip()
         simple = {k: v for k, v in (output or {}).items() if k in _SIMPLE_FIELDS and v is not None}
         if not req or not simple:
             return False
 
         category = _category_for(simple)
-        record = {"request": req, "category": category, "output": simple}
+        record = {"request": req, "category": category, "output": simple, "verified": True}
 
         with self._lock:
             self._init_collection()
@@ -252,7 +309,7 @@ class ModifyRAG:
                     ids=[f"modify_learned_{int(time.time() * 1000)}_{len(self._corpus)}"],
                     embeddings=emb,
                     documents=[req],
-                    metadatas=[{"category": category, "output_json": json.dumps(simple, ensure_ascii=False)}],
+                    metadatas=[{"kind": "example", "category": category, "output_json": json.dumps(simple, ensure_ascii=False)}],
                 )
             except Exception:
                 pass
@@ -269,10 +326,10 @@ def get_modify_rag() -> ModifyRAG:
     return _modify_rag
 
 
-def record_example(user_request: str, output: dict) -> bool:
+def record_example(user_request: str, output: dict, *, verified: bool = False) -> bool:
     """싱글턴을 통한 학습 기록 (호출부에서 예외 무시 가능)."""
     try:
-        return get_modify_rag().record_example(user_request, output)
+        return get_modify_rag().record_example(user_request, output, verified=verified)
     except Exception:
         return False
 
@@ -300,6 +357,21 @@ def _fallback_examples() -> list[dict]:
     return list(_MODIFY_EXAMPLES)
 
 
+def _fallback_knowledge(user_request: str, k: int = 2) -> list[dict]:
+    """Select relevant committed documents without embedding dependencies."""
+    documents = _load_knowledge_documents()
+    compact = "".join(user_request.lower().split())
+    scored = []
+    for index, doc in enumerate(documents):
+        score = sum("".join(keyword.lower().split()) in compact for keyword in doc["keywords"])
+        if score:
+            scored.append((-score, index, doc))
+    selected = [item[2] for item in sorted(scored)[:k]]
+    if len(selected) < k:
+        selected.extend(doc for doc in documents if doc["id"] == "diff-contract" and doc not in selected)
+    return selected[:k]
+
+
 def build_dynamic_modify_prompt(user_request: str, k: int = 2) -> str:
     """사용자 요청에 맞춰 동적으로 few-shot을 구성한 MODIFY_PROMPT 생성.
 
@@ -308,9 +380,10 @@ def build_dynamic_modify_prompt(user_request: str, k: int = 2) -> str:
     """
     rag = get_modify_rag()
     try:
+        knowledge = rag.retrieve_knowledge(user_request, k=k)
         examples = rag.retrieve_examples(user_request, k=k)
     except Exception:
-        examples = _fallback_examples()
+        knowledge, examples = _fallback_knowledge(user_request, k=k), _fallback_examples()
 
     system_part = """현재 전략 JSON이 주어집니다. 사용자 수정 요청을 적용해 변경된 필드만 JSON으로 출력하세요.
 변경하지 않는 필드는 반드시 null로 출력하세요. 수정 요청에 없는 내용은 절대 바꾸지 마세요.
@@ -321,13 +394,22 @@ def build_dynamic_modify_prompt(user_request: str, k: int = 2) -> str:
 - '2억 5천만' → 250000000.0
 - '1000만원' → 10000000.0
 
-## 예시
+## 검색된 도메인 지식
 """
 
-    examples_part = ""
+    knowledge_part = ""
+    for doc in knowledge:
+        rules = "\n".join(f"- {rule}" for rule in doc["rules"])
+        doc_examples = "\n".join(
+            f'- "{ex["request"]}" → {json.dumps(ex["output"], ensure_ascii=False)}'
+            for ex in doc["examples"]
+        )
+        knowledge_part += f'### {doc["title"]}\n{doc["content"]}\n{rules}\n{doc_examples}\n\n'
+
+    examples_part = "## 관련 정답 예시\n"
     for ex in examples:
         req = ex["request"]
         out = json.dumps(ex["output"], ensure_ascii=False)
         examples_part += f'수정 요청: "{req}"\n출력: {out}\n\n'
 
-    return system_part + examples_part
+    return system_part + knowledge_part + examples_part

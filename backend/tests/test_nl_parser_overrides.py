@@ -1,11 +1,14 @@
 import os
+import re
 import sys
+from pathlib import Path
 
 import pytest
 
 sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
 
 from engine.nl_parser import (
+    FundamentalFilter,
     NLStrategyParser,
     ParsedStrategy,
     ParsedStrategyDiff,
@@ -1312,7 +1315,7 @@ def test_parse_falls_back_when_model_returns_incomplete_json(monkeypatch):
     assert parsed.stop_loss_pct == 8.0
 
 
-def test_parse_modification_keeps_previous_universe_when_prompt_does_not_change_it(monkeypatch):
+def test_parse_modification_trusts_llm_universe_diff_without_keyword_gate(monkeypatch):
     parser = NLStrategyParser(backend="mlx")
     previous = {
         "description": "KOSPI PBR strategy",
@@ -1342,9 +1345,11 @@ def test_parse_modification_keeps_previous_universe_when_prompt_does_not_change_
 
     monkeypatch.setattr(parser, "_modify_mlx", hallucinated_diff)
 
-    parsed = parser.parse_modification("트레일링 15% 추가해줘", previous)
+    parsed = parser.parse_modification(
+        "트레일링 15% 추가하고 전체 구성을 자연스럽게 조정해줘", previous
+    )
 
-    assert parsed.universe == ["KOSPI"]
+    assert parsed.universe == ["KOSPI200"]
     assert parsed.trailing_stop_pct == 15
     assert parsed.stop_loss_pct == 12
 
@@ -1563,29 +1568,26 @@ def test_parse_modification_complex_request_defers_to_llm(monkeypatch):
 
     monkeypatch.setattr(parser, "_modify_ollama", _llm_diff)
 
-    # 프롬프트가 종목 수(portfolio)를 명시하므로, 환각 게이트가 LLM의 max_positions를
-    # 유지한다("변동성"은 인식 못 해 LLM에 위임되지만 '3개로'는 요청된 변경이다).
     parsed = parser.parse_modification("변동성 낮은 종목 3개로 바꿔줘", dict(_MODIFY_PREVIOUS))
 
     assert called["llm"] is True
     assert parsed.max_positions == 3
 
 
-def test_modification_gate_rejects_hallucinated_risk_field(monkeypatch):
-    """[회귀] '익절 30%'만 요청했는데 LLM diff가 트레일링을 환각으로 넣으면 백엔드가 거른다.
-    (프론트가 하던 리스크 필드 게이트를 백엔드로 이관 — 단일 진실 소스)."""
+def test_llm_modification_diff_is_authoritative_for_risk_fields(monkeypatch):
+    """Keyword gates must not revert structured risk decisions from the fallback LLM."""
     parser = NLStrategyParser(backend="ollama")
 
     def _llm_diff(_user_input, _previous):
-        return ParsedStrategyDiff(take_profit_pct=30, trailing_stop_pct=30)  # 트레일링은 환각
+        return ParsedStrategyDiff(take_profit_pct=30, trailing_stop_pct=30)
 
     monkeypatch.setattr(parser, "_modify_ollama", _llm_diff)
     prev = dict(_MODIFY_PREVIOUS)
     prev["trailing_stop_pct"] = None
 
     parsed = parser.parse_modification("익절 비율을 30%로 설정해줘", prev)
-    assert parsed.take_profit_pct == 30      # 요청된 변경은 반영
-    assert parsed.trailing_stop_pct is None  # 요청 안 된 환각은 이전 값(None) 유지
+    assert parsed.take_profit_pct == 30
+    assert parsed.trailing_stop_pct == 30
 
 
 def test_extract_risk_overrides_colloquial_sell_conjugation():
@@ -1598,24 +1600,51 @@ def test_extract_risk_overrides_colloquial_sell_conjugation():
     assert extract_risk_field_overrides("20일 신고가 돌파는 유지해줘") == {}
 
 
-def test_modification_gate_trusts_llm_for_colloquial_risk_phrasing():
-    # [회귀] 결정적 추출이 값을 못 푼 구어체 익절 요청("수익 실현은 넉넉하게")을 LLM diff가
-    # 올바로 해석했는데, 게이트가 '추출 침묵=요청 없음'으로 단정해 LLM 정답을 이전 값으로
-    # 되돌리던 버그. 필드 cue가 프롬프트에 있으면 LLM 해석을 신뢰한다(긴 꼬리는 LLM).
-    from engine.nl_parser import _gate_modification_hallucinations
-    prev = {"stop_loss_pct": 10.0, "take_profit_pct": None, "trailing_stop_pct": None}
-    merged = {**prev, "take_profit_pct": 30.0}
-    _gate_modification_hallucinations(merged, prev, "수익 실현은 넉넉하게 잡아줘")
-    assert merged["take_profit_pct"] == 30.0
-    # cue조차 없으면 여전히 환각으로 되돌린다
-    merged2 = {**prev, "take_profit_pct": 20.0}
-    _gate_modification_hallucinations(merged2, prev, "종목 수를 5개로 줄여줘")
-    assert merged2["take_profit_pct"] is None
+def test_llm_modification_preserves_unknown_stop_loss_typo(monkeypatch):
+    """Preserve the LLM's stop-loss interpretation for the previously unknown typo '선절'."""
+    parser = NLStrategyParser(backend="ollama")
+    called = {"llm": False}
+
+    def _llm_diff(_user_input, _previous):
+        called["llm"] = True
+        return ParsedStrategyDiff(stop_loss_pct=15, take_profit_pct=30)
+
+    monkeypatch.setattr(parser, "_modify_ollama", _llm_diff)
+    monkeypatch.setattr("engine.modify_rag.record_example", lambda *_args, **_kwargs: False)
+    prev = dict(_MODIFY_PREVIOUS)
+    prev["stop_loss_pct"] = None
+
+    parsed = parser.parse_modification("15% 선절 30% 익절", prev)
+
+    assert called["llm"] is True
+    assert parsed.stop_loss_pct == 15
+    assert parsed.take_profit_pct == 30
 
 
-def test_modification_colloquial_take_profit_survives_llm_miss(monkeypatch):
-    # [회귀] "50% 이상 수익이 나면 주식을 파는 걸로 하자"가 LLM diff마저 놓쳐도(all-null),
-    # 결정적 추출(_apply_prompt_overrides 재적용)이 익절 50%를 보장한다. 기존 손절은 유지.
+def test_ollama_modification_prompt_assigns_final_semantic_judgment(monkeypatch):
+    """The dynamic Ollama prompt must include typo tolerance and final-decision responsibility."""
+    parser = NLStrategyParser(backend="ollama")
+    captured = {}
+
+    monkeypatch.setattr(
+        "engine.modify_rag.build_dynamic_modify_prompt",
+        lambda *_args, **_kwargs: "base prompt",
+    )
+
+    def _capture(system_prompt, _user_message, _model_cls):
+        captured["system_prompt"] = system_prompt
+        return ParsedStrategyDiff()
+
+    monkeypatch.setattr(parser, "_structured_ollama", _capture)
+
+    parser._modify_ollama("15% 선절 30% 익절", dict(_MODIFY_PREVIOUS))
+
+    assert "오타" in captured["system_prompt"]
+    assert "최종 의미 판단" in captured["system_prompt"]
+
+
+def test_llm_all_null_diff_is_not_reinterpreted_by_postprocessing(monkeypatch):
+    """Do not inject deterministic meaning after the LLM returns an all-null diff."""
     parser = NLStrategyParser(backend="ollama")
 
     def _llm_diff(_user_input, _previous):
@@ -1627,28 +1656,28 @@ def test_modification_colloquial_take_profit_survives_llm_miss(monkeypatch):
     prev["take_profit_pct"] = None
 
     parsed = parser.parse_modification("50% 이상 수익이 나면 주식을 파는 걸로 하자", prev)
-    assert parsed.take_profit_pct == 50.0
+    assert parsed.take_profit_pct is None
     assert parsed.stop_loss_pct == 10.0
 
 
-def test_modification_gate_rejects_hallucinated_unrequested_domain(monkeypatch):
-    """[회귀] '손절 10%'만 요청했는데 LLM diff가 max_positions를 환각으로 바꾸면 백엔드가 거른다."""
+def test_llm_modification_diff_is_authoritative_across_domains(monkeypatch):
+    """Apply structured fallback LLM fields without a source-keyword allowlist."""
     parser = NLStrategyParser(backend="ollama")
 
     def _llm_diff(_user_input, _previous):
-        return ParsedStrategyDiff(stop_loss_pct=10, max_positions=99)  # 종목수는 환각
+        return ParsedStrategyDiff(stop_loss_pct=10, max_positions=99)
 
     monkeypatch.setattr(parser, "_modify_ollama", _llm_diff)
     prev = dict(_MODIFY_PREVIOUS)
     prev["max_positions"] = 8
 
-    parsed = parser.parse_modification("손절 10%로 바꿔줘", prev)
-    assert parsed.stop_loss_pct == 10   # 요청된 변경은 반영
-    assert parsed.max_positions == 8    # 요청 안 된 도메인(portfolio) 환각은 이전 값 유지
+    parsed = parser.parse_modification("손절 기준과 전체 구성을 자연스럽게 바꿔줘", prev)
+    assert parsed.stop_loss_pct == 10
+    assert parsed.max_positions == 99
 
 
-def test_modification_gate_keeps_deterministic_change_pattern_missed(monkeypatch):
-    """도메인 패턴이 놓친 결정적 변경('시드 500')도 _apply_prompt_overrides 재적용으로 살아남는다."""
+def test_rule_based_modification_keeps_seed_capital_change(monkeypatch):
+    """The deterministic fast path still handles explicit seed-capital changes."""
     parser = NLStrategyParser(backend="ollama")
 
     def _llm_diff(_user_input, _previous):
@@ -1723,7 +1752,7 @@ def test_parse_falls_back_when_llm_output_fails_validation(monkeypatch):
 
 
 def test_parse_modification_falls_back_when_llm_diff_fails_validation(monkeypatch):
-    """LLM diff가 스키마 위반(잘못된 enum 등)이면 이전 전략을 보존하고 결정론 오버라이드만 적용."""
+    """Keep the previous strategy without reinterpretation when the LLM diff is invalid."""
     parser = NLStrategyParser(backend="ollama")
 
     def _bad_diff(_user_input, _previous):
@@ -1737,6 +1766,93 @@ def test_parse_modification_falls_back_when_llm_diff_fails_validation(monkeypatc
     assert parsed.max_positions == 8  # 이전 값 보존
     assert parsed.universe == ["KOSPI200"]
     assert parsed.stop_loss_pct == 12
+
+
+# ─── 수정 경로 섹터/업종 처리 테스트 ─────────────────────────────────────────
+# [회귀] 완성된 전략에 "반도체 섹터 종목만 테스트 해줘" 후속 요청이 조용히 무시되고
+# 동일한 전략 요약이 재출력되던 버그 — 수정 경로(rule-based·LLM 병합 모두)에 섹터
+# 처리가 통째로 빠져 있었다(FR-STR-066의 modify 확장).
+
+
+def test_modify_sector_only_request_resolves_deterministically(monkeypatch):
+    """스크린샷 원문 재현: 섹터 제한 후속 요청은 LLM 없이 fast-path가 sector를 반영한다."""
+    parser = NLStrategyParser(backend="ollama")
+
+    def _must_not_call_llm(_user_input, _previous):
+        raise AssertionError("섹터 단순 수정은 LLM을 호출하면 안 된다")
+
+    monkeypatch.setattr(parser, "_modify_ollama", _must_not_call_llm)
+
+    parsed = parser.parse_modification("반도체 섹터 종목만 테스트 해줘", dict(_MODIFY_PREVIOUS))
+
+    assert parsed.sector == "반도체"
+    # 수정 경로는 기존 universe를 보존한다(파스 경로의 양시장 기본 확장은 미적용).
+    assert parsed.universe == ["KOSPI200"]
+    assert parsed.max_positions == 8  # 언급 없는 필드 보존
+    assert parsed.stop_loss_pct == 12
+
+
+def test_modify_sector_combined_with_risk_field_deterministically():
+    from engine.nl_parser import _modify_rule_based
+
+    parsed = _modify_rule_based("바이오 업종만으로 하고 손절은 10%로 바꿔줘", dict(_MODIFY_PREVIOUS))
+
+    assert parsed is not None
+    assert parsed.sector == "바이오/제약"  # 동의어가 정본 섹터명으로 정규화
+    assert parsed.stop_loss_pct == 10.0
+    assert parsed.universe == ["KOSPI200"]
+
+
+def test_modify_without_sector_mention_preserves_previous_sector():
+    from engine.nl_parser import _modify_rule_based
+
+    prev = {**_MODIFY_PREVIOUS, "sector": "반도체"}
+    parsed = _modify_rule_based("종목을 10개로 늘려줘", prev)
+
+    assert parsed is not None
+    assert parsed.sector == "반도체"  # 언급 없으면 기존 섹터 유지
+    assert parsed.max_positions == 10
+
+
+def test_parse_modification_llm_diff_missing_sector_recovered_deterministically(monkeypatch):
+    """LLM 경로로 간 복합 수정에서 diff가 sector를 놓쳐도 결정적 추출이 보정한다."""
+    parser = NLStrategyParser(backend="ollama")
+
+    def _diff_without_sector(_user_input, _previous):
+        return ParsedStrategyDiff()  # 전 필드 null = 변경 없음
+
+    monkeypatch.setattr(parser, "_modify_ollama", _diff_without_sector)
+
+    # '변동성' 잔여 때문에 rule-based가 None을 반환하는 복합 입력 → LLM 경로
+    parsed = parser.parse_modification(
+        "변동성 낮은 반도체 관련주로 바꿔줘", dict(_MODIFY_PREVIOUS)
+    )
+
+    assert parsed.sector == "반도체"
+    assert parsed.universe == ["KOSPI200"]  # 수정 경로는 universe 보존
+
+
+def test_parse_modification_sector_removal_clears_sector(monkeypatch):
+    """'업종 제한 빼줘'는 diff null 병합이 무시하므로 별도 보정으로 sector를 해제한다."""
+    parser = NLStrategyParser(backend="ollama")
+    monkeypatch.setattr(
+        parser, "_modify_ollama", lambda _user_input, _previous: ParsedStrategyDiff()
+    )
+
+    prev = {**_MODIFY_PREVIOUS, "sector": "반도체"}
+    parsed = parser.parse_modification("업종 제한은 빼줘", prev)
+
+    assert parsed.sector is None
+    assert parsed.universe == ["KOSPI200"]
+
+
+def test_sector_removal_regex_ignores_symbol_exclusion_requests():
+    """'업종에서 삼성전자 빼줘'(종목 제외 요청)는 섹터 해제로 오발동하면 안 된다."""
+    from engine.nl_parser import _SECTOR_REMOVE_RE, _compact
+
+    assert not _SECTOR_REMOVE_RE.search(_compact("반도체 업종에서 삼성전자는 빼줘"))
+    assert _SECTOR_REMOVE_RE.search(_compact("업종 제한 빼줘"))
+    assert _SECTOR_REMOVE_RE.search(_compact("섹터 필터 지워줘"))
 
 
 def test_build_fallback_strategy_handles_vague_prompt_without_crashing():
@@ -2564,6 +2680,132 @@ def test_supported_prompt_not_flagged_as_unsupported(prompt):
     assert _parse_rule_based_strategy(prompt) is not None
 
 
+STRATEGY_UI_SIGNAL_SUGGESTIONS = [
+    ("진입 신호를 5일·20일 이동평균 골든크로스로 변경", "entry", "ma_crossover"),
+    ("진입 신호를 RSI 30 이하 반등으로 변경", "entry", "rsi"),
+    ("진입 신호를 20일 신고가 돌파로 변경", "entry", "breakout"),
+    ("진입 신호를 MACD 골든크로스로 변경", "entry", "macd"),
+    ("청산 신호를 5일·20일 이동평균 데드크로스로 변경", "exit", "ma_crossover"),
+    ("청산 신호를 RSI 70 이상으로 변경", "exit", "rsi"),
+    ("청산 신호를 20일 저점 이탈 시 매도로 변경", "exit", "breakout"),
+]
+
+
+@pytest.mark.parametrize("prompt,side,indicator", STRATEGY_UI_SIGNAL_SUGGESTIONS)
+def test_strategy_ui_signal_suggestions_map_to_executable_conditions(
+    prompt, side, indicator
+):
+    """Every signal suggestion exposed by Strategy UI must map to an engine condition."""
+    from engine.nl_parser import build_unsupported_concept_notice
+    from engine.strategy_converter import to_backtest_request
+
+    assert build_unsupported_concept_notice(prompt) is None
+    entry, exit_ = _extract_technical_signals(prompt)
+    selected = entry if side == "entry" else exit_
+    assert any(signal.indicator == indicator for signal in selected)
+
+    parsed = ParsedStrategy(
+        description=prompt,
+        entry_signals=entry,
+        exit_signals=exit_,
+    )
+    request = to_backtest_request(parsed, resolve_symbols=False)
+    assert any(condition["id"] == indicator for condition in request[side]["conditions"])
+
+
+@pytest.mark.parametrize(
+    "prompt,_side,_indicator",
+    [case for case in STRATEGY_UI_SIGNAL_SUGGESTIONS if case[1] == "entry"],
+)
+def test_strategy_ui_entry_suggestion_replaces_ranking_without_llm(
+    monkeypatch, prompt, _side, _indicator
+):
+    """An exposed entry replacement must replace ranking and preserve unrelated fields."""
+    parser = NLStrategyParser(backend="ollama")
+    previous = make_base_strategy().model_copy(update={
+        "fundamental_filters": [
+            FundamentalFilter(metric="pbr", operator="<=", value=1.0),
+        ],
+        "entry_signals": [
+            TechnicalSignal(indicator="ema", signal_type="buy", period=20),
+        ],
+        "exit_signals": [
+            TechnicalSignal(
+                indicator="rsi", signal_type="sell", period=14,
+                operator=">=", value=70,
+            ),
+        ],
+        "ranking_metric": "return",
+        "ranking_lookback_days": 21,
+        "max_positions": 5,
+        "stop_loss_pct": 10.0,
+    })
+
+    def _must_not_call_llm(_user_input, _previous):
+        raise AssertionError("An exposed entry replacement must not call the LLM")
+
+    monkeypatch.setattr(parser, "_modify_ollama", _must_not_call_llm)
+    parsed = parser.parse_modification(prompt, previous.model_dump())
+    expected_entry, _ = _extract_technical_signals(prompt)
+
+    assert parsed.entry_signals == expected_entry
+    assert parsed.ranking_metric is None
+    assert parsed.ranking_lookback_days is None
+    assert parsed.exit_signals == previous.exit_signals
+    assert parsed.fundamental_filters == previous.fundamental_filters
+    assert parsed.max_positions == 5
+    assert parsed.stop_loss_pct == 10.0
+
+
+STRATEGY_UI_SETTING_SUGGESTIONS = [
+    ("유니버스를 KOSPI200으로 변경", "universe", ["KOSPI200"]),
+    ("유니버스를 KOSPI로 변경", "universe", ["KOSPI"]),
+    ("유니버스를 KOSDAQ으로 변경", "universe", ["KOSDAQ"]),
+    ("유니버스를 KOSPI와 KOSDAQ 전체 시장으로 변경", "universe", ["KOSPI", "KOSDAQ"]),
+    ("20일 보유로 변경", "hold_period_days", 20),
+    ("최대 5종목으로 변경", "max_positions", 5),
+    ("분기 리밸런싱으로 변경", "rebalancing_period", "quarterly"),
+    ("초기자금 1000만원으로 변경", "initial_capital", 10_000_000.0),
+    ("손절을 10%로 변경", "stop_loss_pct", 10.0),
+    ("익절을 20%로 변경", "take_profit_pct", 20.0),
+    ("트레일링 스탑을 10%로 변경", "trailing_stop_pct", 10.0),
+    ("MDD 20% 한도로 변경", "max_mdd_limit_pct", 20.0),
+]
+
+
+@pytest.mark.parametrize("prompt,field,expected", STRATEGY_UI_SETTING_SUGGESTIONS)
+def test_strategy_ui_setting_suggestions_use_deterministic_modification_path(
+    prompt, field, expected
+):
+    """Every non-signal suggestion must be applied without relying on an LLM guess."""
+    from engine.nl_parser import _modify_rule_based, build_unsupported_concept_notice
+
+    assert build_unsupported_concept_notice(prompt) is None
+    modified = _modify_rule_based(prompt, make_base_strategy().model_dump())
+    assert modified is not None
+    assert getattr(modified, field) == expected
+
+
+def test_strategy_ui_exposes_only_suggestions_covered_by_backend_contract():
+    """A new UI suggestion must add an executable backend contract in this test module."""
+    source = Path("app/analytics/new/conversationDecision.ts").read_text(encoding="utf-8")
+    clarification_block = source.split(
+        "const MODIFICATION_CLARIFICATIONS", 1
+    )[1].split("export function getModificationClarification", 1)[0]
+    exposed = {
+        suggestion
+        for payload in re.findall(r"suggestions:\s*\[([^\]]+)]", clarification_block)
+        for suggestion in re.findall(r'"([^"]+)"', payload)
+        if suggestion != "직접 입력"
+    }
+    covered = {
+        prompt for prompt, *_rest in (
+            STRATEGY_UI_SIGNAL_SUGGESTIONS + STRATEGY_UI_SETTING_SUGGESTIONS
+        )
+    }
+    assert exposed == covered
+
+
 def test_unsupported_concept_notice_names_all_concepts():
     """[침묵 왜곡 방지] 미지원 개념이 언급되면 사용자 안내 문구가 만들어지고,
     여러 개념이 섞이면 모두 라벨로 나열된다(LLM 폴백조차 스키마가 표현 불가하므로)."""
@@ -3285,7 +3527,9 @@ def test_extract_sector_deterministic():
     # '주가'는 업종 큐가 아니다 — '반도체 주가가 오르면'을 섹터로 오인하지 않는다.
     assert _extract_sector("반도체 주가가 오르면 매수") is None
     # 지원 목록 밖 업종은 결정적으로 잡지 않는다(LLM 위임 + 미지원 안내).
-    assert _extract_sector("로봇 관련주 매수") is None
+    assert _extract_sector("메타버스 관련주 매수") is None
+    # '로봇'은 독립 정본 섹터다(2026-07-13 신설 — 사명 기준 분류, sector_mapper 파생).
+    assert _extract_sector("로봇 관련주 매수") == "로봇"
 
 
 def test_extract_sector_bare_related_and_theme_cues():
@@ -3297,10 +3541,10 @@ def test_extract_sector_bare_related_and_theme_cues():
 
 
 def test_unsupported_sector_word_orders_flagged():
-    # 목록 밖 업종은 어순('로봇주 관련'·'로봇 테마')과 무관하게 미지원 안내가 남아야 한다.
+    # 목록 밖 업종은 어순('메타버스주 관련'·'메타버스 테마')과 무관하게 미지원 안내가 남아야 한다.
     from engine.nl_parser import build_unsupported_concept_notice
-    assert build_unsupported_concept_notice("로봇주 관련 전략을 만들어보자") is not None
-    assert build_unsupported_concept_notice("로봇 테마 전략 만들어줘") is not None
+    assert build_unsupported_concept_notice("메타버스주 관련 전략을 만들어보자") is not None
+    assert build_unsupported_concept_notice("메타버스 테마 전략 만들어줘") is not None
     # 업종 무관 표현은 섹터 제한 언급이 아니다 — 안내를 내지 않는다.
     assert build_unsupported_concept_notice("업종 상관없이 코스피 모멘텀 전략") is None
 
@@ -3335,6 +3579,103 @@ def test_llm_schema_drift_korean_market_and_mixed_universe():
     # 정상 입력은 no-op.
     p4 = ParsedStrategy(description="x", universe=["KOSPI200"])
     assert p4.universe == ["KOSPI200"] and p4.sector is None
+
+
+# ── 다중 섹터 수정 의미론 (FR-STR-066 ⑦) ────────────────────────────────────────
+
+
+def test_modify_sector_additive_union():
+    # [회귀, 2026-07-13 실측] 반도체 전략에 "로봇 섹터도 추가해줘" — '~도 추가'가 교체로
+    # 처리돼 반도체가 사라지던 버그. 추가 의도는 기존 섹터와 합집합(list)이어야 한다.
+    from engine.nl_parser import _modify_rule_based
+    prev = make_base_strategy().model_dump()
+    prev["sector"] = "반도체"
+    for phrasing in ["로봇 섹터도 추가해줘", "로봇도 추가해줘", "로봇 업종 포함해줘"]:
+        parsed = _modify_rule_based(phrasing, dict(prev))
+        assert parsed is not None, phrasing
+        assert parsed.sector == ["반도체", "로봇"], phrasing
+
+
+def test_modify_sector_replace_without_additive_cue():
+    # 추가 표지('도'/추가·포함 동사) 없는 섹터 언급은 기존대로 교체다.
+    from engine.nl_parser import _modify_rule_based
+    prev = make_base_strategy().model_dump()
+    prev["sector"] = "반도체"
+    parsed = _modify_rule_based("기계/장비 업종으로 바꿔줘", dict(prev))
+    assert parsed is not None
+    assert parsed.sector == "기계/장비"
+
+
+def test_modify_sector_targeted_removal():
+    # 복수 목록에서 특정 업종만 빼면 그 항목만 제거되고, 하나 남으면 정규형 str로 접힌다.
+    from engine.nl_parser import _modify_rule_based
+    prev = make_base_strategy().model_dump()
+    prev["sector"] = ["반도체", "기계/장비"]
+    parsed = _modify_rule_based("반도체 업종은 빼줘", dict(prev))
+    assert parsed is not None
+    assert parsed.sector == "기계/장비"
+
+
+def test_modify_sector_removal_not_reinjected():
+    # [선행 버그 회귀] "반도체 섹터 빼줘"가 삭제 후 _extract_sector 재추출로 반도체를
+    # 되살리던 문제 — 통합 판정이 삭제를 우선해 양 경로 모두 재주입이 없어야 한다.
+    from engine.nl_parser import _modify_rule_based
+    prev = make_base_strategy().model_dump()
+    prev["sector"] = "반도체"
+    parsed = _modify_rule_based("반도체 섹터 빼줘", dict(prev))
+    assert parsed is not None
+    assert parsed.sector is None
+
+
+def test_modify_sector_removal_of_unlisted_target_is_not_full_clear():
+    # 목록에 없는 업종 삭제 요청("반도체 빼줘", prev=기계/장비)은 전체 해제로 오폭하지 않고
+    # 결정적 판단을 유보한다(LLM/안내 위임).
+    from engine.nl_parser import _sector_change_from_utterance
+    changed, value = _sector_change_from_utterance("반도체 업종은 빼줘", "기계/장비")
+    assert changed is False and value is None
+
+
+def test_modify_llm_path_sector_additive_overrides_diff(monkeypatch):
+    # LLM diff가 '~도 추가'를 교체(sector="기계/장비")로 오독해도 결정적 판정이 합집합으로
+    # 보정한다. 삭제 발화도 동일 경로에서 재주입 없이 유지된다.
+    from engine.nl_parser import NLStrategyParser, ParsedStrategyDiff
+    monkeypatch.setattr("engine.modify_rag.record_example", lambda *_a, **_k: False)
+    parser = NLStrategyParser(backend="mlx")
+    prev = make_base_strategy().model_dump()
+    prev["sector"] = "반도체"
+    prev["description"] = "반도체 저PBR 전략 변동성 어쩌고"  # 룰 파스가 못 풀게
+
+    diff = ParsedStrategyDiff(sector="기계/장비")
+    monkeypatch.setattr(parser, "_modify_mlx", lambda *_a, **_k: diff)
+    merged = parser.parse_modification("로봇 섹터도 추가해줘 변동성", prev)
+    assert merged.sector == ["반도체", "로봇"]
+
+    diff_none = ParsedStrategyDiff()
+    monkeypatch.setattr(parser, "_modify_mlx", lambda *_a, **_k: diff_none)
+    removed = parser.parse_modification("반도체 섹터 빼줘 변동성", prev)
+    assert removed.sector is None
+
+
+def test_sector_validator_accepts_list_and_collapses():
+    # 배열 입력은 항목별 정본화·미지원 드롭·순서보존 dedup 후 정규형으로 접는다
+    # (없음=None, 단일=str — 기존 해시·직렬화 호환, 복수=list).
+    base = make_base_strategy().model_dump()
+    from engine.nl_parser import ParsedStrategy
+    s = ParsedStrategy(**{**base, "sector": ["배터리", "로봇", "메타버스", "2차전지"]})
+    assert s.sector == ["이차전지", "로봇"]
+    assert ParsedStrategy(**{**base, "sector": ["배터리"]}).sector == "이차전지"
+    assert ParsedStrategy(**{**base, "sector": ["메타버스"]}).sector is None
+
+
+def test_canonical_dsl_multi_sector_sorted_single_str():
+    # 단일 섹터는 str 그대로(기존 해시 불변), 복수는 정렬 list(순서 무관 동일 해시).
+    from engine.strategy_converter import to_canonical_strategy_dsl
+    single = make_base_strategy().model_copy(update={"sector": "반도체"})
+    assert to_canonical_strategy_dsl(single)["sector"] == "반도체"
+    multi_a = make_base_strategy().model_copy(update={"sector": ["반도체", "기계/장비"]})
+    multi_b = make_base_strategy().model_copy(update={"sector": ["기계/장비", "반도체"]})
+    assert to_canonical_strategy_dsl(multi_a)["sector"] == ["기계/장비", "반도체"]
+    assert to_canonical_strategy_dsl(multi_a)["sector"] == to_canonical_strategy_dsl(multi_b)["sector"]
 
 
 def test_overrides_fill_missing_description_with_user_input():
@@ -3385,10 +3726,10 @@ def test_rule_parse_sector_respects_explicit_market():
 
 
 def test_supported_sector_no_longer_flagged_unsupported():
-    # 섹터가 지원 개념이 된 뒤에도, 지원 목록 밖 업종('로봇')은 여전히 안내가 남아야 한다.
+    # 섹터가 지원 개념이 된 뒤에도, 지원 목록 밖 업종('메타버스')은 여전히 안내가 남아야 한다.
     from engine.nl_parser import build_unsupported_concept_notice
     assert build_unsupported_concept_notice("반도체 관련주 매수 전략") is None
-    notice = build_unsupported_concept_notice("로봇 관련주 매수 전략")
+    notice = build_unsupported_concept_notice("메타버스 관련주 매수 전략")
     assert notice is not None and "섹터/업종" in notice
 
 
@@ -3422,5 +3763,5 @@ def test_sector_validator_normalizes_llm_free_text():
     from engine.nl_parser import ParsedStrategy
     s = ParsedStrategy(**{**base.model_dump(), "sector": "배터리"})
     assert s.sector == "이차전지"
-    s2 = ParsedStrategy(**{**base.model_dump(), "sector": "로봇"})
+    s2 = ParsedStrategy(**{**base.model_dump(), "sector": "메타버스"})
     assert s2.sector is None

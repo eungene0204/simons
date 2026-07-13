@@ -3651,5 +3651,182 @@
     "output": {
       "backtest_period": "full"
     }
+  },
+  {
+    "request": "골든크로스 나면 사도록 추가해줘",
+    "category": "entry_signal",
+    "output": {
+      "entry_signals": [
+        {
+          "indicator": "ma_crossover",
+          "signal_type": "buy",
+          "short_period": 5,
+          "long_period": 20
+        }
+      ]
+    }
+  },
+  {
+    "request": "골든크로스 매수 조건 넣어줘",
+    "category": "entry_signal",
+    "output": {
+      "entry_signals": [
+        {
+          "indicator": "ma_crossover",
+          "signal_type": "buy",
+          "short_period": 5,
+          "long_period": 20
+        }
+      ]
+    }
+  },
+  {
+    "request": "골든크로스에 진입하게 바꿔줘",
+    "category": "entry_signal",
+    "output": {
+      "entry_signals": [
+        {
+          "indicator": "ma_crossover",
+          "signal_type": "buy",
+          "short_period": 5,
+          "long_period": 20
+        }
+      ]
+    }
+  },
+  {
+    "request": "RSI 30 이하에서 매수하게 바꿔줘",
+    "category": "entry_signal",
+    "output": {
+      "entry_signals": [
+        {
+          "indicator": "rsi",
+          "signal_type": "buy",
+          "period": 14,
+          "operator": "<=",
+          "value": 30.0
+        }
+      ]
+    }
+  },
+  {
+    "request": "RSI 25 이하면 사도록 추가해",
+    "category": "entry_signal",
+    "output": {
+      "entry_signals": [
+        {
+          "indicator": "rsi",
+          "signal_type": "buy",
+          "period": 14,
+          "operator": "<=",
+          "value": 25.0
+        }
+      ]
+    }
+  },
+  {
+    "request": "데드크로스에 팔게 청산조건 추가",
+    "category": "exit_signal",
+    "output": {
+      "exit_signals": [
+        {
+          "indicator": "ma_crossover",
+          "signal_type": "sell",
+          "short_period": 5,
+          "long_period": 20
+        }
+      ]
+    }
+  },
+  {
+    "request": "데드크로스 나면 매도하게 해줘",
+    "category": "exit_signal",
+    "output": {
+      "exit_signals": [
+        {
+          "indicator": "ma_crossover",
+          "signal_type": "sell",
+          "short_period": 5,
+          "long_period": 20
+        }
+      ]
+    }
+  },
+  {
+    "request": "RSI 70 이상이면 팔도록 추가해줘",
+    "category": "exit_signal",
+    "output": {
+      "exit_signals": [
+        {
+          "indicator": "rsi",
+          "signal_type": "sell",
+          "period": 14,
+          "operator": ">=",
+          "value": 70.0
+        }
+      ]
+    }
+  },
+  {
+    "request": "MACD 크로스에 매수하게 추가해줘",
+    "category": "entry_signal",
+    "output": {
+      "entry_signals": [
+        {
+          "indicator": "macd",
+          "signal_type": "buy",
+          "mode": "crossover"
+        }
+      ]
+    }
+  },
+  {
+    "request": "볼린저밴드 하단에서 매수 조건 추가",
+    "category": "entry_signal",
+    "output": {
+      "entry_signals": [
+        {
+          "indicator": "bollinger_bands",
+          "signal_type": "buy"
+        }
+      ]
+    }
+  },
+  {
+    "request": "볼린저밴드 상단에서 매도하게 바꿔",
+    "category": "exit_signal",
+    "output": {
+      "exit_signals": [
+        {
+          "indicator": "bollinger_bands",
+          "signal_type": "sell"
+        }
+      ]
+    }
+  },
+  {
+    "request": "거래량 급증하면 사도록 추가해줘",
+    "category": "entry_signal",
+    "output": {
+      "entry_signals": [
+        {
+          "indicator": "volume_spike",
+          "signal_type": "buy"
+        }
+      ]
+    }
+  },
+  {
+    "request": "52주 신고가 돌파하면 매수 추가",
+    "category": "entry_signal",
+    "output": {
+      "entry_signals": [
+        {
+          "indicator": "breakout",
+          "signal_type": "buy",
+          "lookback_period": 252
+        }
+      ]
+    }
   }
 ]

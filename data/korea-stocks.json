@@ -115,7 +115,7 @@
     "symbol": "079900",
     "name": "전진건설로봇",
     "market": "KOSPI",
-    "sector": "기계/장비",
+    "sector": "로봇",
     "industry": "특수 목적용 기계 제조업"
   },
   {
@@ -213,7 +213,7 @@
     "symbol": "454910",
     "name": "두산로보틱스",
     "market": "KOSPI",
-    "sector": "기계/장비",
+    "sector": "로봇",
     "industry": "특수 목적용 기계 제조업"
   },
   {
@@ -5904,7 +5904,7 @@
     "symbol": "439960",
     "name": "코스모로보틱스",
     "market": "KOSDAQ",
-    "sector": "의료기기",
+    "sector": "로봇",
     "industry": "의료용 기기 제조업"
   },
   {
@@ -6583,7 +6583,7 @@
     "symbol": "459510",
     "name": "나우로보틱스",
     "market": "KOSDAQ",
-    "sector": "기계/장비",
+    "sector": "로봇",
     "industry": "특수 목적용 기계 제조업"
   },
   {
@@ -6639,7 +6639,7 @@
     "symbol": "484810",
     "name": "티엑스알로보틱스",
     "market": "KOSDAQ",
-    "sector": "기계/장비",
+    "sector": "로봇",
     "industry": "일반 목적용 기계 제조업"
   },
   {
@@ -7038,7 +7038,7 @@
     "symbol": "466100",
     "name": "클로봇",
     "market": "KOSDAQ",
-    "sector": "소프트웨어/플랫폼",
+    "sector": "로봇",
     "industry": "소프트웨어 개발 및 공급업"
   },
   {
@@ -7059,7 +7059,7 @@
     "symbol": "475400",
     "name": "씨메스로보틱스",
     "market": "KOSDAQ",
-    "sector": "기계/장비",
+    "sector": "로봇",
     "industry": "특수 목적용 기계 제조업"
   },
   {
@@ -7101,7 +7101,7 @@
     "symbol": "381620",
     "name": "제닉스로보틱스",
     "market": "KOSDAQ",
-    "sector": "기계/장비",
+    "sector": "로봇",
     "industry": "특수 목적용 기계 제조업"
   },
   {
@@ -7213,7 +7213,7 @@
     "symbol": "460940",
     "name": "피앤에스로보틱스",
     "market": "KOSDAQ",
-    "sector": "의료기기",
+    "sector": "로봇",
     "industry": "의료용 기기 제조업"
   },
   {
@@ -7472,7 +7472,7 @@
     "symbol": "455900",
     "name": "엔젤로보틱스",
     "market": "KOSDAQ",
-    "sector": "기계/장비",
+    "sector": "로봇",
     "industry": "특수 목적용 기계 제조업"
   },
   {
@@ -8410,7 +8410,7 @@
     "symbol": "348340",
     "name": "뉴로메카",
     "market": "KOSDAQ",
-    "sector": "기계/장비",
+    "sector": "로봇",
     "industry": "특수 목적용 기계 제조업"
   },
   {
@@ -8718,7 +8718,7 @@
     "symbol": "388720",
     "name": "유일로보틱스",
     "market": "KOSDAQ",
-    "sector": "기계/장비",
+    "sector": "로봇",
     "industry": "특수 목적용 기계 제조업"
   },
   {
@@ -9138,7 +9138,7 @@
     "symbol": "232680",
     "name": "라온로보틱스",
     "market": "KOSDAQ",
-    "sector": "기계/장비",
+    "sector": "로봇",
     "industry": "특수 목적용 기계 제조업"
   },
   {
@@ -9215,7 +9215,7 @@
     "symbol": "059270",
     "name": "해성에어로보틱스",
     "market": "KOSDAQ",
-    "sector": "수산",
+    "sector": "로봇",
     "industry": "기타 금속 가공제품 제조업"
   },
   {
@@ -9341,7 +9341,7 @@
     "symbol": "277810",
     "name": "레인보우로보틱스",
     "market": "KOSDAQ",
-    "sector": "기계/장비",
+    "sector": "로봇",
     "industry": "특수 목적용 기계 제조업"
   },
   {
@@ -10629,7 +10629,7 @@
     "symbol": "117730",
     "name": "티로보틱스",
     "market": "KOSDAQ",
-    "sector": "기계/장비",
+    "sector": "로봇",
     "industry": "특수 목적용 기계 제조업"
   },
   {
@@ -10720,7 +10720,7 @@
     "symbol": "108490",
     "name": "로보티즈",
     "market": "KOSDAQ",
-    "sector": "기계/장비",
+    "sector": "로봇",
     "industry": "특수 목적용 기계 제조업"
   },
   {
@@ -12351,7 +12351,7 @@
     "symbol": "215100",
     "name": "로보로보",
     "market": "KOSDAQ",
-    "sector": "IT 하드웨어",
+    "sector": "로봇",
     "industry": "기타 전기장비 제조업"
   },
   {
@@ -12876,7 +12876,7 @@
     "symbol": "138360",
     "name": "앤로보틱스",
     "market": "KOSDAQ",
-    "sector": "기계/장비",
+    "sector": "로봇",
     "industry": "특수 목적용 기계 제조업"
   },
   {
@@ -13212,7 +13212,7 @@
     "symbol": "007820",
     "name": "엠엑스로보틱스",
     "market": "KOSDAQ",
-    "sector": "기계/장비",
+    "sector": "로봇",
     "industry": "일반 목적용 기계 제조업"
   },
   {
@@ -13226,7 +13226,7 @@
     "symbol": "090360",
     "name": "로보스타",
     "market": "KOSDAQ",
-    "sector": "기계/장비",
+    "sector": "로봇",
     "industry": "특수 목적용 기계 제조업"
   },
   {
@@ -14493,7 +14493,7 @@
     "symbol": "094940",
     "name": "푸른로보틱스",
     "market": "KOSDAQ",
-    "sector": "IT 하드웨어",
+    "sector": "로봇",
     "industry": "컴퓨터 및 주변장치 제조업"
   },
   {
@@ -14682,7 +14682,7 @@
     "symbol": "090470",
     "name": "제이스로보틱스",
     "market": "KOSDAQ",
-    "sector": "기계/장비",
+    "sector": "로봇",
     "industry": "특수 목적용 기계 제조업"
   },
   {
@@ -14724,7 +14724,7 @@
     "symbol": "090710",
     "name": "휴림로봇",
     "market": "KOSDAQ",
-    "sector": "기계/장비",
+    "sector": "로봇",
     "industry": "특수 목적용 기계 제조업"
   },
   {
@@ -15753,7 +15753,7 @@
     "symbol": "066430",
     "name": "아이로보틱스",
     "market": "KOSDAQ",
-    "sector": "유통/상사",
+    "sector": "로봇",
     "industry": "기타 전문 도매업"
   },
   {
@@ -16390,7 +16390,7 @@
     "symbol": "056080",
     "name": "유진로봇",
     "market": "KOSDAQ",
-    "sector": "기계/장비",
+    "sector": "로봇",
     "industry": "특수 목적용 기계 제조업"
   },
   {
@@ -16740,7 +16740,7 @@
     "symbol": "048770",
     "name": "TPC로보틱스",
     "market": "KOSDAQ",
-    "sector": "기계/장비",
+    "sector": "로봇",
     "industry": "일반 목적용 기계 제조업"
   },
   {

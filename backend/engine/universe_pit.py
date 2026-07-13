@@ -24,6 +24,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
+from engine.sector_mapper import MAPPING_RULES, NL_SAFE_TERMS
+
 _MASTER_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "stock-master.json"
 _KOREA_STOCKS_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "korea-stocks.json"
 
@@ -111,20 +113,25 @@ def get_shares(symbols: list[str]) -> dict[str, float]:
 # 커버한다. 그래도 업종 미상으로 남는 종목은 필터에서 빠지므로, 엔진은 그런 종목이
 # 실제로 있을 때만 생존 편향 경고를 남긴다(sector_unknown_symbols).
 
-# korea-stocks.json sector 필드의 전체 값(38개). 파서·프롬프트·검증이 공유하는 정본.
+# korea-stocks.json sector 필드의 전체 값(39개). 파서·프롬프트·검증이 공유하는 정본.
+# '로봇'(2026-07-13 신설)은 KSIC 공식 분류에 없어 사명(로봇/로보틱스) 기준으로 분류된
+# 독립 섹터다(sector_mapper.MAPPING_RULES["로봇"] 참조).
 CANONICAL_SECTORS: tuple[str, ...] = (
     "IT 하드웨어", "가구/인테리어", "건설", "교육", "기계/장비", "기타 서비스",
-    "기타 제조업", "디스플레이/부품", "목재", "미디어/엔터", "바이오/제약", "반도체",
-    "반도체 소재", "부동산", "사료/축산", "소프트웨어/플랫폼", "수산", "수산가공",
-    "시멘트", "식품/음료", "에너지/원자력", "욕실", "우주항공/방산", "운송/물류",
-    "유통/상사", "은행/금융지주", "의료기기", "이차전지", "자동차", "자동차부품",
-    "조선/해운", "종이", "증권/보험", "지주회사", "철강/금속", "통신/유틸리티",
-    "화장품/패션", "화학",
+    "기타 제조업", "디스플레이/부품", "로봇", "목재", "미디어/엔터", "바이오/제약",
+    "반도체", "반도체 소재", "부동산", "사료/축산", "소프트웨어/플랫폼", "수산",
+    "수산가공", "시멘트", "식품/음료", "에너지/원자력", "욕실", "우주항공/방산",
+    "운송/물류", "유통/상사", "은행/금융지주", "의료기기", "이차전지", "자동차",
+    "자동차부품", "조선/해운", "종이", "증권/보험", "지주회사", "철강/금속",
+    "통신/유틸리티", "화장품/패션", "화학",
 )
 
-# 사용자가 흔히 말하는 업종 표현 → 정본 섹터명. 모호하지 않은 통칭만 넣는다
-# (핵심만 결정적으로 잡고 긴 꼬리는 LLM에 위임 — feedback_nl_parser_hybrid).
-_SECTOR_SYNONYMS: dict[str, str] = {
+# 사용자 통칭 → 정본 섹터명 '오버라이드'. 여기에는 MAPPING_RULES(산업분류 어휘)에 없거나
+# 그와 다르게 불러야 하는 '사용자 전용 통칭'만 손으로 넣는다(2차전지·리츠·AI 등). MAPPING_RULES에
+# 이미 있는 모호하지 않은 산업어(로봇·태양광 등)는 아래 _derive_mapper_nl_synonyms가 자동
+# 파생하므로 여기 중복 기입하지 않는다 — 정본을 손으로 두 번 적지 않아 두 어휘집이 어긋날 수 없다.
+# 키는 _sector_key 형태(공백 제거·소문자)로 적는다. 모호하지 않은 통칭만(긴 꼬리는 LLM 위임).
+_SECTOR_SYNONYM_OVERRIDES: dict[str, str] = {
     "2차전지": "이차전지", "배터리": "이차전지",
     "제약": "바이오/제약", "바이오": "바이오/제약", "바이오제약": "바이오/제약",
     "반도체소재": "반도체 소재",
@@ -140,7 +147,8 @@ _SECTOR_SYNONYMS: dict[str, str] = {
     "조선": "조선/해운", "해운": "조선/해운",
     "철강": "철강/금속",
     "방산": "우주항공/방산", "우주항공": "우주항공/방산", "항공우주": "우주항공/방산",
-    "기계": "기계/장비",
+    # '로봇'·'로보틱스'는 MAPPING_RULES 파생(NL_SAFE_TERMS)으로 자동 인식 — 여기 중복 기입 금지.
+    "기계": "기계/장비", "기계장비": "기계/장비",
     "디스플레이": "디스플레이/부품",
     "리츠": "부동산",
     "물류": "운송/물류", "운송": "운송/물류",
@@ -163,6 +171,7 @@ _SECTOR_LLM_GLOSSES: dict[str, str] = {
     "통신/유틸리티": "통신사와 한국전력 등 전력·가스 판매 사업자만. 설비 제조는 아님",
     "에너지/원자력": "발전·원전 + 변압기·전력설비 등 전력기기 제조 포함",
     "IT 하드웨어": "전자부품·전선 제조 포함",
+    "로봇": "로봇 전문기업(산업용·협동·서비스 로봇). 일반 자동화 설비·공작기계는 기계/장비",
 }
 
 
@@ -182,6 +191,33 @@ def _sector_key(text: str) -> str:
 _CANONICAL_BY_KEY = {_sector_key(s): s for s in CANONICAL_SECTORS}
 
 
+def _derive_mapper_nl_synonyms() -> dict[str, str]:
+    """MAPPING_RULES(산업분류 어휘)에서 NL_SAFE_TERMS로 opt-in한 산업어만 골라
+    {정규화 키 → 정본 섹터명}을 파생한다. 정본을 손으로 중복 기입하지 않으므로 NL 인식과
+    종목 분류가 어긋날 수 없다. 각 용어가 정확히 하나의 정본 섹터에만 매핑되는지 검증한다
+    (둘 이상이면 모호 → import 시점에 fail-fast)."""
+    canonical = set(CANONICAL_SECTORS)
+    term_to_sectors: dict[str, set[str]] = {}
+    for sector, terms in MAPPING_RULES.items():
+        if sector not in canonical:
+            continue
+        for term in terms:
+            term_to_sectors.setdefault(term, set()).add(sector)
+    derived: dict[str, str] = {}
+    for term in NL_SAFE_TERMS:
+        sectors = term_to_sectors.get(term)
+        if not sectors or len(sectors) != 1:
+            raise ValueError(
+                f"NL_SAFE_TERMS 용어 {term!r}는 정확히 하나의 정본 섹터에 매핑돼야 한다(현재: {sectors})"
+            )
+        derived[_sector_key(term)] = next(iter(sectors))
+    return derived
+
+
+# 파생(MAPPING_RULES 산업어) + 오버라이드(사용자 전용 통칭). 충돌 시 오버라이드가 우선한다.
+_SECTOR_SYNONYMS: dict[str, str] = {**_derive_mapper_nl_synonyms(), **_SECTOR_SYNONYM_OVERRIDES}
+
+
 def normalize_sector(raw: Optional[str]) -> Optional[str]:
     """사용자/LLM이 준 업종 표현을 정본 섹터명으로 정규화한다. 못 찾으면 None."""
     if not raw:
@@ -190,6 +226,30 @@ def normalize_sector(raw: Optional[str]) -> Optional[str]:
     if key in _CANONICAL_BY_KEY:
         return _CANONICAL_BY_KEY[key]
     return _SECTOR_SYNONYMS.get(key)
+
+
+def normalize_sector_value(raw) -> Optional[str | list[str]]:
+    """sector 필드 값(str 또는 list)을 정규형으로 정규화한다(FR-STR-066 ⑦ 다중 섹터).
+
+    정규형: 없음=None, 단일=str(기존 해시·직렬화와 바이트 동일 — 하위 호환), 2개 이상=list.
+    각 항목은 normalize_sector로 정본화하고, 미지원 항목은 버리며, 순서 보존 dedup한다.
+    """
+    items = raw if isinstance(raw, list) else [raw]
+    seen: list[str] = []
+    for item in items:
+        canonical = normalize_sector(item) if isinstance(item, (str, type(None))) else None
+        if canonical and canonical not in seen:
+            seen.append(canonical)
+    if not seen:
+        return None
+    return seen[0] if len(seen) == 1 else seen
+
+
+def sector_value_as_list(value) -> list[str]:
+    """정규형 sector 값(None/str/list)을 항상 리스트로 펼친다(소비부 공용)."""
+    if value is None:
+        return []
+    return list(value) if isinstance(value, list) else [value]
 
 
 @lru_cache(maxsize=1)
@@ -214,13 +274,15 @@ def _load_sector_map() -> dict[str, str]:
     return smap
 
 
-def filter_by_sector(symbols: list[str], sector: str) -> list[str]:
-    """심볼 목록을 정본 섹터명으로 필터링한다(섹터 미상 종목은 제외)."""
-    canonical = normalize_sector(sector)
-    if canonical is None:
+def filter_by_sector(symbols: list[str], sector: str | list[str]) -> list[str]:
+    """심볼 목록을 정본 섹터명(단일 또는 복수의 합집합)으로 필터링한다(섹터 미상 종목은 제외)."""
+    canonicals = {
+        c for c in (normalize_sector(s) for s in sector_value_as_list(sector)) if c is not None
+    }
+    if not canonicals:
         return []
     smap = _load_sector_map()
-    return [s for s in symbols if smap.get(s) == canonical]
+    return [s for s in symbols if smap.get(s) in canonicals]
 
 
 def sector_unknown_delisted(symbols: list[str]) -> list[str]:

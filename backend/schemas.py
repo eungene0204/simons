@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional, Literal
+from typing import List, Dict, Any, Optional, Literal, Union
 
 class Condition(BaseModel):
     type: str # "indicator" | "flow" | "risk" | "ml" | "filter"
@@ -39,9 +39,10 @@ class RiskManagement(BaseModel):
 class BacktestRequest(BaseModel):
     symbols: List[str]
     universe_id: Optional[str] = None
-    # 섹터/업종 제한(정본 섹터명). 스키마에 없으면 model_dump가 조용히 버려(extra=ignore)
-    # 엔진이 필터를 못 받는다 — ranking_metric 0거래 사고와 동일 함정이라 반드시 선언한다.
-    sector: Optional[str] = None
+    # 섹터/업종 제한(정본 섹터명, 복수면 리스트 — 엔진이 합집합으로 필터). 스키마에 없으면
+    # model_dump가 조용히 버려(extra=ignore) 엔진이 필터를 못 받는다 — ranking_metric
+    # 0거래 사고와 동일 함정이라 반드시 선언한다.
+    sector: Optional[Union[str, List[str]]] = None
     entry: ConditionGroup
     exit: ConditionGroup
     risk: RiskManagement

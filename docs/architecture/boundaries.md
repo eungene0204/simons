@@ -42,6 +42,9 @@ Convert parsed strategy → executable backtest request.
 
 ### Files
 - backend/engine/nl_parser.py
+- backend/engine/modify_rag.py
+- backend/engine/data/modify_examples.json
+- backend/engine/data/modify_knowledge.json
 - backend/engine/strategy_converter.py
 - types/strategy.ts
 - lib/strategy/**
@@ -51,6 +54,7 @@ Convert parsed strategy → executable backtest request.
 - mapping fixes
 - null/optional handling
 - schema alignment
+- strategy modification knowledge retrieval and validated corpus maintenance
 
 ### Forbidden
 - simulation logic changes

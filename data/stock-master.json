@@ -6698,7 +6698,8 @@
       "toSymbol": null,
       "dataStart": "2013-12-18",
       "dataEnd": "2026-06-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "sector": "로봇"
     },
     {
       "symbol": "007860",
@@ -16690,7 +16691,8 @@
       "toSymbol": null,
       "dataStart": "2013-12-18",
       "dataEnd": "2026-06-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "sector": "로봇"
     },
     {
       "symbol": "048830",
@@ -18368,7 +18370,8 @@
       "toSymbol": null,
       "dataStart": "2013-12-18",
       "dataEnd": "2026-06-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "sector": "로봇"
     },
     {
       "symbol": "056090",
@@ -18842,7 +18845,8 @@
       "toSymbol": null,
       "dataStart": "2021-04-21",
       "dataEnd": "2026-06-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "sector": "로봇"
     },
     {
       "symbol": "060150",
@@ -20032,7 +20036,8 @@
       "toSymbol": null,
       "dataStart": "2013-12-18",
       "dataEnd": "2026-06-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "sector": "로봇"
     },
     {
       "symbol": "066570",
@@ -22014,7 +22019,8 @@
       "toSymbol": null,
       "dataStart": "2024-08-19",
       "dataEnd": "2026-06-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "sector": "로봇"
     },
     {
       "symbol": "079940",
@@ -23692,7 +23698,8 @@
       "toSymbol": null,
       "dataStart": "2013-12-18",
       "dataEnd": "2026-06-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "sector": "로봇"
     },
     {
       "symbol": "090370",
@@ -23776,7 +23783,8 @@
       "toSymbol": null,
       "dataStart": "2013-12-18",
       "dataEnd": "2026-06-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "sector": "로봇"
     },
     {
       "symbol": "090710",
@@ -23790,7 +23798,8 @@
       "toSymbol": null,
       "dataStart": "2013-12-18",
       "dataEnd": "2026-06-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "sector": "로봇"
     },
     {
       "symbol": "090730",
@@ -24504,7 +24513,8 @@
       "toSymbol": null,
       "dataStart": "2013-12-18",
       "dataEnd": "2026-06-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "sector": "로봇"
     },
     {
       "symbol": "094970",
@@ -26150,7 +26160,8 @@
       "toSymbol": null,
       "dataStart": "2018-10-26",
       "dataEnd": "2026-06-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "sector": "로봇"
     },
     {
       "symbol": "108670",
@@ -26884,7 +26895,8 @@
       "toSymbol": null,
       "dataStart": "2018-11-29",
       "dataEnd": "2026-06-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "sector": "로봇"
     },
     {
       "symbol": "117930",
@@ -28378,7 +28390,8 @@
       "toSymbol": null,
       "dataStart": "2013-12-18",
       "dataEnd": "2026-06-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "sector": "로봇"
     },
     {
       "symbol": "138490",
@@ -32044,7 +32057,8 @@
       "toSymbol": null,
       "dataStart": "2015-04-22",
       "dataEnd": "2026-06-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "sector": "로봇"
     },
     {
       "symbol": "215200",
@@ -33386,7 +33400,8 @@
       "toSymbol": null,
       "dataStart": "2015-12-15",
       "dataEnd": "2026-06-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "sector": "로봇"
     },
     {
       "symbol": "232830",
@@ -35510,7 +35525,8 @@
       "toSymbol": null,
       "dataStart": "2021-02-03",
       "dataEnd": "2026-06-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "sector": "로봇"
     },
     {
       "symbol": "277880",
@@ -38918,7 +38934,8 @@
       "toSymbol": null,
       "dataStart": "2022-11-04",
       "dataEnd": "2026-06-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "sector": "로봇"
     },
     {
       "symbol": "348350",
@@ -40562,7 +40579,8 @@
       "toSymbol": null,
       "dataStart": "2024-09-30",
       "dataEnd": "2026-06-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "sector": "로봇"
     },
     {
       "symbol": "381970",
@@ -40848,7 +40866,8 @@
       "toSymbol": null,
       "dataStart": "2022-03-18",
       "dataEnd": "2026-06-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "sector": "로봇"
     },
     {
       "symbol": "388790",
@@ -42850,7 +42869,8 @@
       "toSymbol": null,
       "dataStart": "2026-05-11",
       "dataEnd": "2026-06-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "sector": "로봇"
     },
     {
       "symbol": "440110",
@@ -43858,7 +43878,8 @@
       "toSymbol": null,
       "dataStart": "2023-10-05",
       "dataEnd": "2026-06-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "sector": "로봇"
     },
     {
       "symbol": "455180",
@@ -43918,7 +43939,8 @@
       "toSymbol": null,
       "dataStart": "2024-03-26",
       "dataEnd": "2026-06-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "sector": "로봇"
     },
     {
       "symbol": "455910",
@@ -44228,7 +44250,8 @@
       "toSymbol": null,
       "dataStart": "2025-05-08",
       "dataEnd": "2026-06-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "sector": "로봇"
     },
     {
       "symbol": "459550",
@@ -44326,7 +44349,8 @@
       "toSymbol": null,
       "dataStart": "2024-07-31",
       "dataEnd": "2026-06-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "sector": "로봇"
     },
     {
       "symbol": "461030",
@@ -44652,7 +44676,8 @@
       "toSymbol": null,
       "dataStart": "2024-10-28",
       "dataEnd": "2026-06-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "sector": "로봇"
     },
     {
       "symbol": "466410",
@@ -45120,7 +45145,8 @@
       "toSymbol": null,
       "dataStart": "2024-10-24",
       "dataEnd": "2026-06-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "sector": "로봇"
     },
     {
       "symbol": "475430",
@@ -45672,7 +45698,8 @@
       "toSymbol": null,
       "dataStart": "2025-03-20",
       "dataEnd": "2026-06-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "sector": "로봇"
     },
     {
       "symbol": "484870",

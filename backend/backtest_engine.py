@@ -312,16 +312,18 @@ class BacktestEngine:
             # 미상으로 남아 필터에서 빠지는 종목이 실제로 있을 때만 생존 편향을 경고한다.
             _sector = req.get('sector')
             if _sector:
+                # 복수 섹터는 합집합 필터(FR-STR-066 ⑦ — "반도체 + 기계/장비 업종").
+                _sector_label = "·".join(universe_pit.sector_value_as_list(_sector))
                 _sector_unknown = universe_pit.sector_unknown_delisted(symbols)
                 symbols = universe_pit.filter_by_sector(symbols, _sector)
                 if not symbols:
-                    raise ValueError(f"'{_sector}' 섹터에 해당하는 종목을 찾지 못했습니다.")
+                    raise ValueError(f"'{_sector_label}' 섹터에 해당하는 종목을 찾지 못했습니다.")
                 if _sector_unknown:
                     self.warnings.add(
-                        f"섹터({_sector}) 필터: 업종 분류가 없는 상장폐지 종목 "
+                        f"섹터({_sector_label}) 필터: 업종 분류가 없는 상장폐지 종목 "
                         f"{len(_sector_unknown)}개가 제외되었습니다 — 생존 편향 가능성이 있습니다."
                     )
-                print(f"[BT-ENGINE] 섹터 필터({_sector}): {len(symbols)}종목 "
+                print(f"[BT-ENGINE] 섹터 필터({_sector_label}): {len(symbols)}종목 "
                       f"(업종 미상 상폐 {len(_sector_unknown)})", flush=True)
 
             def _filter_to_backtest_window(df_pl: pl.DataFrame) -> pl.DataFrame:

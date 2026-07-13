@@ -496,4 +496,24 @@ describe("섹터/업종 유니버스 표시", () => {
     });
     expect(summary?.universeName).toContain("반도체 업종");
   });
+
+  it("복수 섹터(배열)는 업종별 개별 배지를 만든다 (FR-STR-066 ⑦)", () => {
+    // [회귀] "로봇 섹터도 추가해줘" — 다중 섹터가 배열로 오면 각 업종이 배지로 보여야 한다.
+    const labels = getDisplayUniverseLabels({
+      ...baseParsed,
+      universe: ["KOSPI", "KOSDAQ"],
+      sector: ["반도체", "기계/장비"],
+    });
+    expect(labels).toEqual(["KOSPI", "KOSDAQ", "반도체 업종", "기계/장비 업종"]);
+
+    const summary = buildStrategySummaryFromRequest({
+      universe_id: "kosdaq_kospi",
+      sector: ["반도체", "기계/장비"],
+      entry: { conditions: [] },
+      exit: { conditions: [] },
+      risk: {},
+    });
+    expect(summary?.universeName).toContain("반도체 업종");
+    expect(summary?.universeName).toContain("기계/장비 업종");
+  });
 });

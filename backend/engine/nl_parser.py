@@ -14,11 +14,17 @@ import os
 import re
 import time
 from datetime import date
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Union
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from llm_backend import OLLAMA_BASE_URL, ollama_auth_headers
-from engine.universe_pit import CANONICAL_SECTORS, normalize_sector, sectors_for_llm_prompt
+from engine.universe_pit import (
+    CANONICAL_SECTORS,
+    normalize_sector,
+    normalize_sector_value,
+    sector_value_as_list,
+    sectors_for_llm_prompt,
+)
 
 # ParsedStrategy.sector 필드 설명에 들어가는 지원 섹터 목록(정본은 universe_pit).
 _CANONICAL_SECTORS_DOC = CANONICAL_SECTORS
@@ -253,10 +259,11 @@ class ParsedStrategy(BaseModel):
         default=["KOSPI200"],
         description="투자 대상 시장. 언급 없으면 ['KOSPI200'] (KOSPI 전체 종목, 유동성 우선). '코스닥'/'KOSDAQ' 언급 시 ['KOSDAQ'], '전체'/'코스피+코스닥' 언급 시 ['KOSPI', 'KOSDAQ']"
     )
-    sector: Optional[str] = Field(
+    sector: Optional[Union[str, List[str]]] = Field(
         default=None,
         description=(
             "업종/섹터 제한. '반도체 관련주', '2차전지 업종' 등 언급 시 해당 섹터명. "
+            "여러 업종을 함께 제한하면 배열(예: [\"반도체\", \"기계/장비\"]). "
             "지원 섹터: " + ", ".join(_CANONICAL_SECTORS_DOC) + ". "
             "목록에 없는 업종이거나 언급이 없으면 null"
         ),
@@ -265,9 +272,10 @@ class ParsedStrategy(BaseModel):
     @field_validator("sector")
     @classmethod
     def _normalize_sector_name(cls, v):
-        # LLM이 자유 문자열('배터리', '2차전지')을 내도 정본 섹터명으로 정규화한다.
-        # 정규화 불가(미지원 업종)면 None — 침묵 왜곡 방지는 미지원 개념 안내가 담당한다.
-        return normalize_sector(v)
+        # LLM이 자유 문자열('배터리', '2차전지')이나 배열을 내도 정규형으로 정규화한다
+        # (없음=None, 단일=str — 기존 해시·직렬화 호환, 복수=list). 정규화 불가(미지원
+        # 업종) 항목은 버린다 — 침묵 왜곡 방지는 미지원 개념 안내가 담당한다.
+        return normalize_sector_value(v)
 
     @model_validator(mode="before")
     @classmethod
@@ -426,12 +434,19 @@ class ParsedStrategyDiff(BaseModel):
     _normalize_ratio_sign = field_validator(*_RATIO_SIGN_FIELDS)(_abs_ratio)
     description: Optional[str] = None
     universe: Optional[List[Literal["KOSPI", "KOSDAQ", "KOSPI200"]]] = None
-    sector: Optional[str] = None
+    sector: Optional[Union[str, List[str]]] = Field(
+        default=None,
+        description=(
+            "업종/섹터 제한 변경. '반도체 관련주만', 'IT 업종으로' 등 언급 시 해당 섹터명. "
+            "'~도 추가'처럼 기존 업종에 더하는 요청이면 기존 목록+새 업종 전체를 배열로 출력. "
+            "지원 섹터: " + ", ".join(_CANONICAL_SECTORS_DOC) + ". 언급 없으면 null"
+        ),
+    )
 
     @field_validator("sector")
     @classmethod
     def _normalize_sector_name(cls, v):
-        return normalize_sector(v)
+        return normalize_sector_value(v)
 
     fundamental_filters: Optional[List[FundamentalFilter]] = None
     entry_signals: Optional[List[TechnicalSignal]] = None
@@ -466,12 +481,19 @@ MODIFY_PROMPT = """현재 전략 JSON이 주어집니다. 사용자 수정 요�
 변경하지 않는 필드는 반드시 null로 출력하세요. 수정 요청에 없는 내용은 절대 바꾸지 마세요.
 사용자 입력에는 오타·맞춤법 오류가 섞일 수 있습니다. 글자 그대로가 아니라 의도로 해석하세요
 (예: 숫자 뒤 '게'는 종목 수 단위 '개'의 오타 — "종목은 5게"="종목 5개"=max_positions 5).
+이 JSON이 수정 요청의 최종 의미 판단으로 사용됩니다. 확실히 요청된 변경만 출력하고,
+의미가 불확실한 필드는 추측하지 말고 null로 유지하세요.
 
 ## 금액 단위 변환 (initial_capital)
 - '1억' → 100000000.0
 - '5천만원' → 50000000.0
 - '2억 5천만' → 250000000.0
 - '1000만원' → 10000000.0
+
+## 업종/섹터 (sector)
+- '반도체 관련주만', 'IT 업종으로 바꿔줘' 같은 업종·테마 제한 요청 → sector에 업종명
+- 지원 업종: """ + sectors_for_llm_prompt() + """. 목록 밖 테마는 속하는 업종으로 매핑(예: '원자로'→'에너지/원자력'), 연결이 어려우면 null
+- 업종만 바꾸는 요청에서 universe(시장)는 null로 유지하세요
 
 ## 예시
 현재 전략: {"max_positions": 20, "initial_capital": 10000000.0, ...}
@@ -492,6 +514,9 @@ MODIFY_PROMPT = """현재 전략 JSON이 주어집니다. 사용자 수정 요�
 
 수정 요청: "전체 시장 (KOSPI+KOSDAQ ~2,619종목)" 또는 "전체 시장으로"
 출력: {"description": null, "universe": ["KOSPI", "KOSDAQ"], "sector": null, "fundamental_filters": null, "entry_signals": null, "exit_signals": null, "max_positions": null, "hold_period_days": null, "rebalancing_period": null, "stop_loss_pct": null, "take_profit_pct": null, "trailing_stop_pct": null, "max_mdd_limit_pct": null, "backtest_period": null, "initial_capital": null, "execution_timing": null, "fee_rate": null, "slippage_rate": null}
+
+수정 요청: "반도체 섹터 종목만 테스트 해줘"
+출력: {"description": null, "universe": null, "sector": "반도체", "fundamental_filters": null, "entry_signals": null, "exit_signals": null, "max_positions": null, "hold_period_days": null, "rebalancing_period": null, "stop_loss_pct": null, "take_profit_pct": null, "trailing_stop_pct": null, "max_mdd_limit_pct": null, "backtest_period": null, "initial_capital": null, "execution_timing": null, "fee_rate": null, "slippage_rate": null}
 """
 
 
@@ -576,6 +601,9 @@ SYSTEM_PROMPT = """당신은 한국 주식 퀀트 투자 전략을 JSON으로 �
 - '반도체 관련주' → sector: "반도체"
 - '2차전지 업종' → sector: "이차전지"
 - '제약주', '바이오 관련주' → sector: "바이오/제약"
+- 여러 업종을 함께 제한하면 배열: '반도체와 자동차 업종' → sector: ["반도체", "자동차"]
+- 수정 요청에서 '~도 추가'는 기존 sector 목록에 새 업종을 더한 전체 목록을 배열로 출력
+  (예: 현재 sector "반도체" + '로봇 섹터도 추가해줘' → sector: ["반도체", "로봇"])
 - 지원 섹터명 예: 반도체, 이차전지, 바이오/제약, 게임, 자동차, 은행/금융지주, 화학, 건설 등
 - 섹터 언급이 있고 시장 언급이 없으면 → universe: ["KOSPI", "KOSDAQ"] (업종 전체)
 - 언급 없으면 → null
@@ -908,19 +936,12 @@ class NLStrategyParser:
             else:
                 diff = self._modify_ollama(user_input, previous)
         except ValidationError:
-            # LLM diff가 스키마 위반(잘못된 enum 등) → 이전 전략을 보존하고 결정론으로
-            # 추출 가능한 변경만 적용한다(500 대신 graceful 폴백). 신호는 떨구지 않는다.
-            return _apply_prompt_overrides(
-                ParsedStrategy.model_validate(previous), user_input, skip_signal_validation=True,
-            )
-
-        explicit_universe = _extract_explicit_universe(user_input)
+            # Reject an invalid model decision without replacing it with a deterministic interpretation.
+            return ParsedStrategy.model_validate(previous)
 
         # diff의 non-null 필드만 previous에 덮어씀
         merged = {**previous}
         for field, val in diff.model_dump().items():
-            if field == "universe" and explicit_universe is None:
-                continue
             if val is not None:
                 merged[field] = val
 
@@ -942,13 +963,18 @@ class NLStrategyParser:
                 merged["hold_period_days"] = None
             if any(kw in compact for kw in _MODIFY_MDD_CUES):
                 merged["max_mdd_limit_pct"] = None
-
-        # LLM diff가 요청되지 않은 필드를 환각으로 바꾼 것을 차단한다(이후 _apply_prompt_overrides가
-        # 실제 요청된 결정적 변경을 다시 적용). 신호 검증은 건너뛴다 — 요청 안 된 도메인은 게이트가 보존.
-        _gate_modification_hallucinations(merged, previous, user_input)
-        result = _apply_prompt_overrides(
-            ParsedStrategy.model_validate(merged), user_input, skip_signal_validation=True,
+        # 섹터 변경(추가 합집합/교체/개별 삭제/전체 해제)은 결정적 판정이 LLM diff에 우선한다
+        # (FR-STR-066 ⑥/⑦) — LLM이 "~도 추가"를 교체로 오독하거나 삭제 발화를 재추출로
+        # 되살리는 사고 방지(_apply_prompt_overrides 보정과 동형). 결정적 판정이 침묵하면
+        # LLM diff 값을 존중한다. universe는 수정 경로 원칙대로 보존한다(③ 제외).
+        sector_changed, sector_value = _sector_change_from_utterance(
+            user_input, previous.get("sector")
         )
+        if sector_changed:
+            merged["sector"] = sector_value
+
+        # The LLM diff is authoritative; post-processing only enforces schema safety.
+        result = ParsedStrategy.model_validate(merged)
 
         # 성공한 수정 요청을 학습 코퍼스에 기록 (best-effort, 실패해도 무시)
         try:
@@ -1023,6 +1049,11 @@ class NLStrategyParser:
 
         # 사용자 요청과 유사한 예시만 검색해서 프롬프트 생성
         dynamic_prompt = build_dynamic_modify_prompt(user_input, k=2)
+        dynamic_prompt += (
+            "\n사용자 입력에는 오타·맞춤법 오류가 섞일 수 있으므로 글자 그대로가 아니라 "
+            "문맥상 의도로 해석하세요. 이 JSON이 최종 의미 판단으로 사용되므로 확실히 요청된 "
+            "변경만 출력하고, 의미가 불확실한 필드는 null로 유지하세요."
+        )
         return self._structured_ollama(
             dynamic_prompt,
             f"현재 전략:\n{json.dumps(previous, ensure_ascii=False)}\n\n"
@@ -1392,6 +1423,60 @@ def _extract_sector(user_input: str) -> Optional[str]:
     """'반도체 관련주'·'2차전지 업종' 같은 명시적 섹터 제한을 정본 섹터명으로 추출한다."""
     match = _SECTOR_TERM_RE.search(_compact(user_input))
     return normalize_sector(match.group(1)) if match else None
+
+
+# 업종/섹터 제한 해제('업종 제한 빼줘', '섹터 필터 지워줘'). '업종/섹터'와 삭제어의 인접을
+# 요구해 '업종에서 삼성전자 빼줘'(종목 제외 요청) 같은 오발동을 막는다. compact 기준.
+_SECTOR_REMOVE_RE = re.compile(
+    r"(?:업종|섹터)(?:제한|필터|조건)?[은는을를도]?(?:빼|제거|삭제|지워|없애)"
+)
+
+# ── 다중 섹터 수정 의미론(FR-STR-066 ⑦) ─────────────────────────────────────────
+# sector는 정규형 None/str(단일)/list(복수)다. 수정 요청의 네 가지 의도를 결정적으로 판정한다:
+#   추가("로봇 섹터도 추가해줘")=기존과 합집합 / 교체("기계 업종으로")=덮어쓰기 /
+#   개별 삭제("반도체 업종은 빼줘")=그 항목만 제거 / 전체 해제("업종 제한 빼줘")=None.
+# '도' 단독 조사는 짧은 용어(ai 등)의 오발동("ai도입")이 있어, 업종 명사 동반 또는
+# 추가 동사 인접일 때만 추가 의도로 본다.
+_SECTOR_NOUN = r"(?:섹터|업종|테마|분야|관련주?|종목|주식)"
+_SECTOR_TERMS_ALT = "|".join(re.escape(t) for t in _sector_terms_longest_first())
+_SECTOR_ADDITIVE_RE = re.compile(
+    rf"(?P<term>{_SECTOR_TERMS_ALT})"
+    rf"(?:{_SECTOR_NOUN}도|{_SECTOR_NOUN}?(?:도|[을를은는])?(?:추가|포함|넣|더해|같이|함께))"
+)
+_SECTOR_TARGET_REMOVE_RE = re.compile(
+    rf"(?P<term>{_SECTOR_TERMS_ALT}){_SECTOR_NOUN}?[은는을를도]?(?:빼|제외|제거|삭제|지워|없애)"
+)
+
+
+def _sector_change_from_utterance(user_input: str, previous_sector) -> tuple[bool, object]:
+    """수정 발화에서 섹터 변경을 결정적으로 판정한다 → (변경 여부, 새 정규형 값).
+
+    삭제 판정이 추가/교체보다 우선한다 — "반도체 업종은 빼줘"는 _extract_sector도 매칭되므로
+    순서를 바꾸면 삭제가 재주입으로 되살아난다(양 경로에 있던 선행 버그). 개별 삭제 대상이
+    기존 목록에 없으면 결정적으로 판단하지 않는다(전체 해제로 오폭하지 않고 LLM/안내에 위임).
+    """
+    compact = _compact(user_input)
+    prev = sector_value_as_list(previous_sector)
+
+    target = _SECTOR_TARGET_REMOVE_RE.search(compact)
+    if target:
+        victim = normalize_sector(target.group("term"))
+        if victim is not None and victim in prev:
+            return True, normalize_sector_value([s for s in prev if s != victim])
+        return False, None
+    if _SECTOR_REMOVE_RE.search(compact):
+        return True, None
+
+    additive = _SECTOR_ADDITIVE_RE.search(compact)
+    if additive:
+        added = normalize_sector(additive.group("term"))
+        if added is not None:
+            return True, normalize_sector_value(prev + [added])
+
+    new = _extract_sector(user_input)
+    if new is None:
+        return False, None
+    return True, new
 
 
 def _mentions_technical_exit_terms(compact_prompt: str) -> bool:
@@ -2827,6 +2912,15 @@ _MODIFY_FIELD_CUES: dict[str, list[str]] = {
     "rebalancing_period": ["리밸런싱", "리밸런스", "리밸", "재조정", "재선정", "rebalanc", "주기", "마다", "점검", "분기"],
     "initial_capital": ["초기자금", "투자금", "자본", "자금", "초기투자", "초기", "시드", "seed", "시작"],
     "universe": ["코스피200", "코스피", "코스닥", "kospi200", "kospi", "kosdaq", "대형주", "전체시장", "전체", "유니버스", "시장"],
+    "entry_signals": [
+        "진입신호", "진입조건", "진입기준", "매수신호", "매수조건", "매수기준",
+        "진입", "매수", "이동평균", "이평", "골든크로스", "rsi", "macd",
+        "신고가", "돌파", "반등", "이하",
+    ],
+    # 섹터/업종: 정본 섹터명+동의어(compact 형태, universe_pit 정본에서 동적 생성)와
+    # 업종 지시 cue(_SECTOR_CUE와 동일 집합). sector가 changes에 있을 때만 차감된다.
+    "sector": _sector_terms_longest_first()
+    + ["관련", "테마", "업종", "섹터", "분야", "종목", "주식", "중심", "위주", "주"],
     "backtest_period": ["백테스트", "기간", "최근", "테스트", "전체기간", "동안"],
     "backtest_start_date": ["백테스트", "테스트", "기간", "최근", "부터", "년", "월", "일"],
     "backtest_end_date": ["까지", "년", "월", "일"],
@@ -2845,7 +2939,11 @@ _MODIFY_FIELD_CUES: dict[str, list[str]] = {
 # 필드 무관 일반 동사·조사·단위(항상 차감).
 _MODIFY_FILLER = [
     "설정해줘", "설정해", "설정", "변경해줘", "변경", "바꿔줘", "바꿔주세요", "바꿔", "바꾸",
-    "해주세요", "해줘", "주세요", "넣어줘", "넣어", "추가해줘", "추가", "진행", "그대로",
+    "해주세요", "해줘", "주세요", "넣어줘", "넣어", "추가해줘", "추가", "포함해줘", "포함",
+    "같이", "함께", "더해줘", "더해", "진행", "그대로",
+    # '~만 테스트 해줘'류 실행 요청 동사. '백테스트'는 필드 cue(backtest_period)라 여기 아님
+    # — 기간 변경이 아닌 문장에 '백테스트'가 남으면 '백'이 잔여로 남아 LLM으로 위임된다(보수적).
+    "테스트",
     "빼줘", "빼주세요", "빼", "삭제", "없애줘", "없애", "제거해줘", "제거", "지워줘", "지워",
     "제한", "한도", "끄기", "끄고", "중단",
     # 값을 키우거나 줄이는 일반 조정 동사(필드 의미 없음, '바꿔/설정'과 동급으로 차감).
@@ -2867,6 +2965,12 @@ _REMOVE_INTENT_RE = re.compile(r"없|안하|안함|끄|중단|빼|제거|삭제|
 # 해제 시 null로 비워야 하는 Optional 필드의 cue(쉼표·공백 제거된 compact 기준).
 _MODIFY_HOLD_CUES = ["보유기간", "보유일", "홀딩기간"]
 _MODIFY_MDD_CUES = ["mdd", "최대낙폭", "낙폭", "드로우다운", "드로다운"]
+
+# Only explicit replacement wording may discard the previous entry definition.
+# Additive wording remains on the LLM path so it cannot be mistaken for replacement.
+_ENTRY_SIGNAL_REPLACE_RE = re.compile(
+    r"(?:진입|매수)(?:신호|조건|기준)[^,.]{0,48}(?:변경|바꾸|교체)"
+)
 
 
 def _modify_residual_is_clean(user_input: str, changed_fields) -> bool:
@@ -2992,9 +3096,10 @@ def _modify_rule_based(user_input: str, previous: dict) -> Optional[ParsedStrate
     """수정 요청의 결정론 fast-path.
 
     단순 필드(손절/익절/트레일링/유니버스/종목수/보유기간/리밸런싱/초기자금/MDD/백테스트
-    기간·날짜)와 숫자가 명시된 펀더멘털 조건(PBR/PER/ROE/부채비율/시총/거래대금)을 LLM 없이
-    처리한다. 인식 못 한 잔여 콘텐츠가 있으면 None을 반환해 LLM 경로로 위임한다(핵심만 결정적,
-    긴 꼬리는 LLM). 기술적 신호 추가 같은 복합 수정은 의도적으로 LLM에 맡긴다.
+    기간·날짜), 명시적인 진입 신호 교체와 숫자가 명시된 펀더멘털 조건(PBR/PER/ROE/
+    부채비율/시총/거래대금)을 LLM 없이 처리한다. 인식 못 한 잔여 콘텐츠가 있으면 None을
+    반환해 LLM 경로로 위임한다(핵심만 결정적, 긴 꼬리는 LLM). 기술적 신호 추가 같은 복합
+    수정은 의도적으로 LLM에 맡긴다.
     """
     compact = _compact(user_input)
     changes: dict[str, object] = {}
@@ -3019,9 +3124,24 @@ def _modify_rule_based(user_input: str, previous: dict) -> Optional[ParsedStrate
         merged_filters = _merge_fundamental_filters(existing_filters, extracted_filters)
         changes["fundamental_filters"] = [f.model_dump() for f in merged_filters]
 
+    extracted_entry, _ = _extract_technical_signals(user_input)
+    if extracted_entry and _ENTRY_SIGNAL_REPLACE_RE.search(compact):
+        changes["entry_signals"] = [signal.model_dump() for signal in extracted_entry]
+        # Ranking is also rendered and executed as an entry definition. Leaving it in place
+        # would keep the previous "N-day return leaders" entry beside the requested signal.
+        changes["ranking_metric"] = None
+        changes["ranking_lookback_days"] = None
+
     universe = _extract_explicit_universe(user_input)
     if universe is not None:
         changes["universe"] = universe
+
+    # 섹터/업종 제한('반도체 섹터 종목만'/'로봇 섹터도 추가'/'반도체 업종은 빼줘').
+    # 추가=합집합·개별 삭제·전체 해제까지 통합 판정(FR-STR-066 ⑦). universe는 수정 경로
+    # 원칙대로 보존한다(양시장 기본 확장은 최초 파싱에만 — preserve_universe).
+    sector_changed, sector_value = _sector_change_from_utterance(user_input, previous.get("sector"))
+    if sector_changed:
+        changes["sector"] = sector_value
 
     max_positions = _extract_max_positions(user_input)
     if max_positions is not None:
@@ -3075,8 +3195,10 @@ def _modify_rule_based(user_input: str, previous: dict) -> Optional[ParsedStrate
         merged[field] = value  # 리스크 삭제는 None으로 인코딩됨(의도적)
     # 수정 모드이므로 신호 재검증을 건너뛴다(LLM 수정 경로와 동일). 짧은 수정 프롬프트
     # ("종목 20개로")로 재검증하면 언급 안 된 기존 진입/청산 신호(RSI 등)를 잘못 떨군다.
+    # preserve_universe: 섹터 언급이 기존 universe를 양시장으로 넓히지 않게 한다(수정 경로 원칙).
     return _apply_prompt_overrides(
-        ParsedStrategy.model_validate(merged), user_input, skip_signal_validation=True,
+        ParsedStrategy.model_validate(merged), user_input,
+        skip_signal_validation=True, preserve_universe=True,
     )
 
 
@@ -3320,57 +3442,9 @@ def synthesize_risk_overrides(
     return overrides or None
 
 
-# ── 수정 환각 게이트 (프론트 parsedStrategyMerge 도메인 게이트를 백엔드로 이관) ──────────
-# 수정 시 LLM diff가 사용자가 언급하지 않은 필드를 환각으로 바꾸면, 이전 값으로 되돌려 차단한다.
-# 도메인 판정은 프론트 DOMAIN_PATTERNS와 동일한 어휘를 쓴다(단일 진실 소스를 백엔드로 통일).
-# compact(공백 제거·오타 보정) 위에서 매칭하므로 '\s*'는 빈 문자열도 허용해 그대로 동작한다.
-_MODIFY_DOMAIN_SPECS: tuple[tuple[tuple[str, ...], "re.Pattern[str]"], ...] = (
-    (("universe",),
-     re.compile(r"코스피200|코스피\s*200|코스피|코스닥|kospi200|kospi|kosdaq|유니버스|전체\s*시장|시장", re.IGNORECASE)),
-    (("fundamental_filters", "entry_signals"),
-     re.compile(r"진입|매수|골든크로스|rsi|macd|볼린저|브레이크아웃|돌파|pbr|per|roe|부채비율|시총|거래대금|필터|저평가|ai", re.IGNORECASE)),
-    (("exit_signals", "hold_period_days"),
-     re.compile(r"청산|매도|팔아|팔까|팔지|보유|데드크로스|하락", re.IGNORECASE)),
-    (("max_positions", "rebalancing_period"),
-     re.compile(r"최대\s*\d+\s*종목|\d+\s*개\s*종목|\d+\s*종목|종목\s*수|보유\s*종목|종목[^.]{0,6}\d+\s*개|\d+\s*개[^.]{0,6}(?:종목|보유)|포트폴리오|리밸런싱|리밸런스|분산|집중", re.IGNORECASE)),
-    (("backtest_period", "initial_capital", "backtest_start_date", "backtest_end_date"),
-     re.compile(r"백테스트|테스트\s*기간|전체\s*데이터|초기자금|자본금|원금|만원|억원?|\d[\d,]*원|(?:19|20)\d{2}\s*년?\s*(?:부터|까지|~|에서)|(?:19|20)\d{2}\s*[~\-]\s*(?:19|20)\d{2}", re.IGNORECASE)),
-)
-
-
-def _gate_modification_hallucinations(merged: dict, previous: dict, user_input: str) -> None:
-    """수정 결과(merged)에서 사용자가 언급하지 않은 필드를 이전 값으로 되돌린다(in-place).
-
-    LLM diff가 요청되지 않은 도메인/리스크 필드를 환각으로 바꾸는 것을 백엔드에서 차단한다.
-    이후 _apply_prompt_overrides가 결정적 추출로 '실제 요청된' 변경을 다시 적용하므로,
-    도메인 패턴이 놓친 결정적 변경(예: '시드 500'의 초기자금)은 복원되지 않는다(안전한 순서).
-    """
-    compact = _compact(user_input)
-    # 비-리스크 도메인: 패턴이 매치 안 되면 해당 필드를 이전 값으로 보존.
-    for fields, pattern in _MODIFY_DOMAIN_SPECS:
-        if pattern.search(compact):
-            continue
-        for field in fields:
-            merged[field] = previous.get(field)
-    # 리스크 필드(손절/익절/트레일링): 결정적 추출이 잡은 값은 이후 _apply_prompt_overrides가
-    # 다시 적용하므로 그대로 둔다. 추출이 침묵한 필드는 두 경우를 구분해야 한다 —
-    # 프롬프트에 해당 필드 cue 자체가 없으면 환각이므로 이전 값으로 되돌리고, cue는 있는데
-    # 정규식이 값을 못 푼 구어체("50% 이상 수익이 나면 파는 걸로")면 LLM 해석을 신뢰한다
-    # (핵심만 결정적, 긴 꼬리는 LLM — 추출 침묵을 '요청 없음'으로 단정하면 LLM 정답을 지운다).
-    # 아래 MDD 한도의 cue 기반 게이트와 동일한 방식이다.
-    det_risk = extract_risk_field_overrides(user_input)
-    for field in _RISK_OVERRIDE_FIELDS:
-        if field in det_risk:
-            continue
-        if not any(cue in compact for cue in _MODIFY_FIELD_CUES[field]):
-            merged[field] = previous.get(field)
-    # MDD 한도: 관련 cue가 없으면 이전 값 유지.
-    if not any(kw in compact for kw in _MODIFY_MDD_CUES):
-        merged["max_mdd_limit_pct"] = previous.get("max_mdd_limit_pct")
-
-
 def _apply_prompt_overrides(
-    parsed: ParsedStrategy, user_input: str, *, skip_signal_validation: bool = False,
+    parsed: ParsedStrategy, user_input: str, *,
+    skip_signal_validation: bool = False, preserve_universe: bool = False,
 ) -> ParsedStrategy:
     updates: dict[str, object] = {}
     # LLM이 description을 빼먹어 스키마 복구(_repair_llm_schema_drift)가 빈 문자열로
@@ -3381,13 +3455,16 @@ def _apply_prompt_overrides(
     if explicit_universe is not None:
         updates["universe"] = explicit_universe
 
-    # 섹터/업종 제한도 결정적으로 추출해 LLM이 놓쳐도 보장한다. 시장 언급 없는 섹터 전략은
+    # 섹터/업종 제한도 결정적으로 판정해 LLM이 놓쳐도 보장한다. 시장 언급 없는 섹터 전략은
     # 특정 시장이 아니라 '그 업종 전체'가 자연스러운 해석이므로 양시장을 기본으로 한다
     # (KOSPI200 기본값이면 시총 상위 200 ∩ 섹터로 과도하게 좁아진다). 언급 없으면 기존 값 유지.
-    sector = _extract_sector(user_input)
-    if sector is not None:
-        updates["sector"] = sector
-        if explicit_universe is None:
+    # preserve_universe(수정 경로): 기존 universe를 보존하고 섹터만 얹는다(FR-STR-066 ③ 제외).
+    # 통합 판정(_sector_change_from_utterance)이라 삭제 발화("반도체 업종은 빼줘")를
+    # _extract_sector 재추출로 되살리지 않는다(FR-STR-066 ⑦ — 선행 재주입 버그 수정).
+    sector_changed, sector_value = _sector_change_from_utterance(user_input, parsed.sector)
+    if sector_changed:
+        updates["sector"] = sector_value
+        if sector_value is not None and explicit_universe is None and not preserve_universe:
             updates["universe"] = ["KOSPI", "KOSDAQ"]
 
     # 리스크 필드(손절/익절/트레일링)는 단일 진실 소스에서 가져온다.
@@ -3453,9 +3530,8 @@ def _apply_prompt_overrides(
         updates["slippage_rate"] = _extract_rate(user_input, "슬리피지", 0.05)
 
     # ── Step 1: LLM 환각 신호 제거 (프롬프트에 언급되지 않은 지표 제거) ──
-    # 수정 모드에서는 건너뛴다: 기존 신호는 처음 만들 때 이미 검증됐고, 짧은 수정 프롬프트
-    # (예: "손절 10%로")로 재검증하면 언급 안 된 기존 신호를 잘못 떨군다. 수정 시 요청되지
-    # 않은 신호 도메인은 _gate_modification_hallucinations가 이전 값으로 보존한다.
+    # Skip signal revalidation for deterministic modifications because short prompts would drop
+    # previously validated signals that are intentionally not repeated by the user.
     if not skip_signal_validation:
         validated_entry = _validate_signals(list(parsed.entry_signals), user_input)
         validated_exit = _validate_signals(list(parsed.exit_signals), user_input)

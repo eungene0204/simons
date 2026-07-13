@@ -99,7 +99,9 @@ def test_normalize_sector_canonical_and_synonyms():
     assert u.normalize_sector("제약") == "바이오/제약"
     assert u.normalize_sector("바이오/제약") == "바이오/제약"
     assert u.normalize_sector("반도체 소재") == "반도체 소재"  # 공백 무시
-    assert u.normalize_sector("로봇") is None  # 목록 밖
+    assert u.normalize_sector("로봇") == "로봇"  # 독립 정본 섹터(2026-07-13 신설)
+    assert u.normalize_sector("로보틱스") == "로봇"  # 산업어 동기화(sector_mapper 파생)
+    assert u.normalize_sector("메타버스") is None  # 목록 밖
     assert u.normalize_sector(None) is None
 
 
@@ -110,7 +112,27 @@ def test_filter_by_sector_uses_korea_stocks_sot():
     # 동의어 입력도 정규화되어 동작한다.
     assert u.filter_by_sector(["005930", "035420"], "인터넷") == ["035420"]
     # 미지원 섹터명은 빈 목록(엔진이 명시적 에러로 fail-fast).
-    assert u.filter_by_sector(["005930"], "로봇") == []
+    assert u.filter_by_sector(["005930"], "메타버스") == []
+    # 복수 섹터는 합집합 필터(FR-STR-066 ⑦). 미지원 항목만 있으면 빈 목록.
+    assert u.filter_by_sector(
+        ["005930", "000660", "035420"], ["반도체", "소프트웨어/플랫폼"]
+    ) == ["005930", "000660", "035420"]
+    assert u.filter_by_sector(["005930"], ["메타버스"]) == []
+    # 로봇 독립 섹터(2026-07-13): 두산로보틱스=로봇, 삼성전자≠로봇.
+    assert u.filter_by_sector(["454910", "005930"], "로봇") == ["454910"]
+    assert u.filter_by_sector(["454910", "005930"], ["반도체", "로봇"]) == ["454910", "005930"]
+
+
+def test_normalize_sector_value_normal_form():
+    # 정규형: 없음=None, 단일=str(하위 호환), 복수=list. 항목 정본화·미지원 드롭·순서보존 dedup.
+    assert u.normalize_sector_value(None) is None
+    assert u.normalize_sector_value("배터리") == "이차전지"
+    assert u.normalize_sector_value(["배터리"]) == "이차전지"
+    assert u.normalize_sector_value(["배터리", "2차전지", "로봇"]) == ["이차전지", "로봇"]
+    assert u.normalize_sector_value(["메타버스"]) is None
+    assert u.sector_value_as_list(None) == []
+    assert u.sector_value_as_list("반도체") == ["반도체"]
+    assert u.sector_value_as_list(["반도체", "화학"]) == ["반도체", "화학"]
 
 
 # ── 상폐 종목 섹터 백필(생존 편향 제거) ──────────────────────────────────────────

@@ -12,7 +12,9 @@ _BASE_DIR = Path(__file__).resolve().parent.parent
 # 반환할 수 있을 때 범프한다. date_stamp는 일 단위라 당일 오염 항목을 못 걸러낸다.
 # v6: 섹터/업종 조건 지원 — 이전 버전에서 미지원 안내로 파싱된 결과 무효화
 # v7: 섹터 큐에 '중심/위주' 추가 — "반도체 중심으로"가 섹터 없이 파싱된 결과 무효화
-NL_PARSER_CACHE_VERSION = "7"
+# v8: '로봇' 독립 정본 섹터 신설(기계/장비에서 분리) + 다중 섹터 — 로봇이 미지원 안내
+#     또는 기계/장비로 파싱된 결과 무효화
+NL_PARSER_CACHE_VERSION = "8"
 _UNIVERSE_FILES = (
     _BASE_DIR / "data" / "korea-stocks.json",
     _BASE_DIR / "data" / "kospi200-cache.json",
