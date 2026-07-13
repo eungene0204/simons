@@ -41,6 +41,7 @@ import {
   type ParsedSummary,
 } from "./strategySummary";
 import {
+  buildStrategyHorizonComparisonResponse,
   buildTakeProfitPercentagePrompt,
   buildWalkForwardParameterRanges,
   buildWalkForwardRequest,
@@ -1250,6 +1251,16 @@ function StrategyLabContent() {
     // 분류/파싱 호출 전에 '분석 중...' 로딩을 즉시 보여준다 (딜레이 동안 사용자 피드백 제공).
     // 이후 분기들은 이 버블을 updateLastAssistant로 변형해 재사용한다(새 버블 생성 금지).
     await appendAssistant({ role: "assistant", isLoading: true });
+
+    const strategyHorizonResponse = buildStrategyHorizonComparisonResponse(userText);
+    if (strategyHorizonResponse) {
+      updateLastAssistant({
+        isLoading: false,
+        infoText: strategyHorizonResponse,
+      });
+      setIsSending(false);
+      return;
+    }
 
     // 전략 빌더 모드: 짧은 답변을 전략 필드로 누적한다(분류/거절보다 먼저 실행).
     if (builderModeRef.current) {

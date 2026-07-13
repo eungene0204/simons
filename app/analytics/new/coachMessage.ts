@@ -50,7 +50,11 @@ function buildValidationMessage(issues: unknown[]): string {
 
   const parts: string[] = [];
   if (missingNouns.length > 0) {
-    parts.push(`${missingNouns.join(", ")} 조건이 비어 있지만 현재 상태로도 백테스트를 실행할 수 있습니다.`);
+    parts.push(
+      missingFields.length === 1 && missingFields[0] === "take_profit_pct"
+        ? "익절 조건을 추가하면 청산 기준을 더 명확히 검토할 수 있습니다. 현재 상태로도 백테스트를 실행할 수 있습니다."
+        : `${missingNouns.join(", ")} 조건이 비어 있지만 현재 상태로도 백테스트를 실행할 수 있습니다.`,
+    );
   }
   if (otherMessages.length > 0) {
     parts.push(otherMessages.join("\n"));

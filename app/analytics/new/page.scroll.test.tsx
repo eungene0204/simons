@@ -107,6 +107,7 @@ function createParseStreamResponse() {
 describe("StrategyLabPage scroll behavior", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionStorage.clear();
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
       callback(0);
@@ -197,5 +198,102 @@ describe("StrategyLabPage scroll behavior", () => {
     await waitFor(() => {
       expect(scrollToMock).toHaveBeenCalled();
     });
+  });
+
+  it("asks for a percentage instead of reparsing when take profit is requested without a value", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url === "/api/model/status") {
+        return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
+      }
+
+      if (url === "/api/user") {
+        return Promise.resolve(createJsonResponse({
+          user: {
+            name: "Tester",
+            email: "tester@example.com",
+          },
+        }));
+      }
+
+      if (url === "/api/query/classify") {
+        return Promise.resolve(createJsonResponse({ intent: "STRATEGY_ADVICE", symbols: [] }));
+      }
+
+      if (url === "/api/strategy/parse/stream") {
+        return Promise.resolve(createParseStreamResponse());
+      }
+
+      if (url === "/api/strategy/coach") {
+        return Promise.resolve(createJsonResponse(
+          { message: "첫 번째 코치 응답입니다." },
+          { "X-Coach-Session-Id": "coach-session-1" }
+        ));
+      }
+
+      return Promise.resolve(createJsonResponse({}));
+    });
+
+    render(<StrategyLabPage />);
+
+    const textarea = await screen.findByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "PER 10 이하 전략 만들어줘" } });
+    fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
+
+    expect(
+      await screen.findByText("첫 번째 코치 응답입니다.", undefined, { timeout: 5000 })
+    ).toBeInTheDocument();
+    const summaryCountBeforeFollowUp = screen.getAllByText("전략 요약").length;
+
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "익절을 추가해 볼까?" } });
+    fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
+
+    expect(
+      await screen.findByText(
+        "익절 기준은 매수가 대비 수익률로 설정합니다. 예시 값은 5%, 10%, 15%입니다. 적용할 익절 기준을 몇 %로 할까요?"
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "익절 5%" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "익절 10%" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "익절 15%" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "직접 입력" })).toBeInTheDocument();
+    expect(screen.getAllByText("전략 요약")).toHaveLength(summaryCountBeforeFollowUp);
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/strategy/parse/stream")).toHaveLength(1);
+  });
+
+  it("answers a short-term versus long-term comparison without starting the strategy builder", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url === "/api/model/status") {
+        return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
+      }
+
+      if (url === "/api/user") {
+        return Promise.resolve(createJsonResponse({
+          user: {
+            name: "Tester",
+            email: "tester@example.com",
+          },
+        }));
+      }
+
+      return Promise.resolve(createJsonResponse({}));
+    });
+
+    render(<StrategyLabPage />);
+
+    const textarea = await screen.findByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "단기 전략 장기 전략 뭐가 좋을까?" } });
+    fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
+
+    expect(
+      await screen.findByText(/연구할 보유기간과 거래 빈도 가정이 다릅니다/)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/수수료·슬리피지와 신호 변화의 영향/)).toBeInTheDocument();
+    expect(screen.queryByText("어떤 시장을 대상으로 할까요?")).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([input]) => String(input) === "/api/strategy/builder/step")).toBe(false);
+    expect(fetchMock.mock.calls.some(([input]) => String(input) === "/api/strategy/parse/stream")).toBe(false);
   });
 });

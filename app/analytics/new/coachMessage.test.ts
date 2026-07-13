@@ -30,6 +30,25 @@ describe("normalizeCoachMessage", () => {
     ).toBe("전략 정의가 완료되었습니다. 백테스트를 실행할 수 있습니다.");
   });
 
+  it("익절 조건만 누락된 경우 추가 검토 안내를 표시한다", () => {
+    expect(
+      normalizeCoachMessage(
+        JSON.stringify({
+          is_valid: false,
+          issues: [
+            { category: "missing_field", field: "take_profit_pct", severity: "warning", message: "익절 조건이 정의되어 있지 않습니다." },
+          ],
+        }),
+        "fallback"
+      )
+    ).toBe(
+      "전략이 아직 완전히 구성되지는 않았습니다.\n\n" +
+        "익절 조건을 추가하면 청산 기준을 더 명확히 검토할 수 있습니다. 현재 상태로도 백테스트를 실행할 수 있습니다.\n\n" +
+        "먼저 결과를 확인해 보고, 필요하면 나중에 조건을 추가해 보세요.\n\n" +
+        "백테스트를 시작할까요?"
+    );
+  });
+
   it("묶어서 친근하게 안내한다 (손절·익절·청산 누락)", () => {
     expect(
       normalizeCoachMessage(

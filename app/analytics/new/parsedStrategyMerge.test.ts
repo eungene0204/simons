@@ -3,6 +3,8 @@ import type { ParsedSummary } from "./strategySummary";
 import {
   buildAdvisorEvaluationContextFromWalkForward,
   buildCandidateBacktestRequest,
+  buildStrategyHorizonComparisonResponse,
+  buildTakeProfitPercentagePrompt,
   buildWalkForwardParameterDescriptors,
   buildWalkForwardParameterRanges,
   buildWalkForwardRequest,
@@ -869,6 +871,56 @@ describe("isAdvisorFollowUpPrompt", () => {
 
   it("결과 질문 어휘가 있어도 수정 동사가 붙으면 수정 흐름으로 남는다", () => {
     expect(isAdvisorFollowUpPrompt("분석해 보게 손절 10% 추가해줘")).toBe(false);
+  });
+});
+
+describe("buildStrategyHorizonComparisonResponse", () => {
+  it.each([
+    "단기 전략 장기 전략 뭐가 좋을까?",
+    "단타와 장투의 차이를 설명해줘",
+    "짧게 거래하는 것과 오래 보유하는 것을 비교해줘",
+  ])("단기·장기 비교 질문에는 객관적인 차이를 설명한다: %s", (prompt) => {
+    const response = buildStrategyHorizonComparisonResponse(prompt);
+
+    expect(response).toContain("연구할 보유기간과 거래 빈도 가정이 다릅니다");
+    expect(response).toContain("수수료·슬리피지");
+    expect(response).toContain("장기간의 변동성과 최대 낙폭");
+    expect(response).toContain("보유기간(며칠 또는 몇 개월)과 진입 조건");
+  });
+
+  it("비교가 아닌 구체적인 전략 생성 요청은 기존 흐름을 유지한다", () => {
+    expect(buildStrategyHorizonComparisonResponse("단기 전략을 만들어줘")).toBeNull();
+    expect(buildStrategyHorizonComparisonResponse("장기 전략을 만들어줘")).toBeNull();
+    expect(buildStrategyHorizonComparisonResponse("단기와 장기 전략을 각각 만들어줘")).toBeNull();
+  });
+});
+
+describe("buildTakeProfitPercentagePrompt", () => {
+  const percentagePrompt = {
+    message: "익절 기준은 매수가 대비 수익률로 설정합니다. 예시 값은 5%, 10%, 15%입니다. 적용할 익절 기준을 몇 %로 할까요?",
+    suggestions: ["익절 5%", "익절 10%", "익절 15%"],
+  };
+
+  it.each([
+    "익절을 추가해 볼까?",
+    "익절도 해볼까?",
+    "익절 기준은 어떻게 잡지?",
+    "목표 수익률을 정해보자",
+    "익절 조건이 필요할 것 같아",
+    "이익이 나면 일정 비율에서 팔고 싶어",
+  ])("표현 방식과 무관하게 비율 없는 익절 설정 의도에 질문을 반환한다: %s", (prompt) => {
+    expect(buildTakeProfitPercentagePrompt(prompt)).toEqual(percentagePrompt);
+  });
+
+  it.each([
+    "익절 10%를 추가해줘",
+    "익절을 빼줘",
+    "익절이 뭐야?",
+    "현재 전략에 익절이 있어?",
+    "익절이 왜 적용 안 돼?",
+    "익절 결과를 분석해줘",
+  ])("숫자 지정·삭제·정보 요청은 기존 흐름을 유지한다: %s", (prompt) => {
+    expect(buildTakeProfitPercentagePrompt(prompt)).toBeNull();
   });
 });
 

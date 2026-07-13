@@ -56,7 +56,7 @@ const DOMAIN_PATTERNS: Record<RequestedDomain, RegExp[]> = {
   entry: [/진입|매수|골든크로스|rsi|macd|볼린저|브레이크아웃|돌파|pbr|per|roe|부채비율|시총|거래대금|필터|저평가|ai/i],
   exit: [/청산|매도|팔아|팔까|팔지|보유|데드크로스|하락/i],
   // 백엔드의 익절/손절 결정적 추출과 보조를 맞춘다: '수익…매도'(익절), '하락…매도'·'손실'(손절)도 risk로 인식.
-  risk: [/손절|익절|트레일링|리스크|mdd|낙폭|목표\s*수익|수익\s*(?:확정|실현)|수익[^.]{0,8}(?:매도|팔)|손실|하락[^.]{0,8}(?:매도|팔)|stop\s*loss|take\s*profit|trailing/i],
+  risk: [/손절|익절|트레일링|리스크|mdd|낙폭|목표\s*(?:수익|이익)|(?:수익|이익)\s*(?:확정|실현)|(?:수익|이익)[^.]{0,20}(?:매도|팔)|손실|하락[^.]{0,8}(?:매도|팔)|stop\s*loss|take\s*profit|trailing/i],
   // "종목을 10개로 늘려줘"·"보유 종목을 5개로"처럼 종목/보유와 'N개'가 떨어져 있는 표현도
   // 포트폴리오 변경으로 인식한다(백엔드는 이미 max_positions를 추출하므로 도메인 게이트만 보완).
   portfolio: [/최대\s*\d+\s*종목|\d+\s*개\s*종목|\d+\s*종목|종목\s*수|보유\s*종목|종목[^.]{0,6}\d+\s*개|\d+\s*개[^.]{0,6}(?:종목|보유)|포트폴리오|리밸런싱|리밸런스|분산|집중/i],
@@ -85,7 +85,7 @@ function hasOverride(overrides: RiskOverrides | null | undefined, field: RiskFie
 
 const RISK_FIELD_PATTERNS: Record<RiskField, RegExp[]> = {
   stop_loss_pct: [/손절|stop\s*loss|손실|하락[^.]{0,8}(?:매도|팔)/i],
-  take_profit_pct: [/익절|take\s*profit|목표\s*수익|수익\s*(확정|실현)|수익[^0-9]*(\d+(?:\.\d+)?)\s*%|수익[^.]{0,8}(?:매도|팔)/i],
+  take_profit_pct: [/익절|take\s*profit|목표\s*(?:수익|이익)|(?:수익|이익)\s*(확정|실현)|(?:수익|이익)[^0-9]*(\d+(?:\.\d+)?)\s*%|(?:수익|이익)[^.]{0,20}(?:매도|팔)/i],
   trailing_stop_pct: [/트레일링\s*스[탑톱]?|trailing|최고가\s*대비/i],
   max_mdd_limit_pct: [/mdd|낙폭/i],
 };
@@ -205,6 +205,48 @@ export function isAdvisorFollowUpPrompt(prompt: string): boolean {
   }
   if (detectRequestedDomains(normalizedPrompt).size > 0) return false;
   return /개선|추천|조언|어떻게|어디|뭘|뭐를|다음|후속|보완|고쳐|봐야|볼까/.test(normalizedPrompt);
+}
+
+export function buildStrategyHorizonComparisonResponse(prompt: string): string | null {
+  const normalizedPrompt = prompt.trim();
+  const mentionsShortHorizon = /단기|단타|스윙|짧(?:게|은\s*(?:기간|보유|주기))/.test(normalizedPrompt);
+  const mentionsLongHorizon = /장기|장투|오래\s*(?:보유|가져|들고)|긴\s*(?:기간|보유|주기)/.test(normalizedPrompt);
+  const asksForComparison = /뭐가|어느|어떤|차이|비교|대비|\bvs\b|좋|나아|유리|선택|설명|알려/i.test(normalizedPrompt);
+
+  if (!mentionsShortHorizon || !mentionsLongHorizon || !asksForComparison) {
+    return null;
+  }
+
+  return [
+    "단기와 장기는 어느 한쪽이 더 좋다고 정할 수 있는 관계가 아니라, 연구할 보유기간과 거래 빈도 가정이 다릅니다.",
+    "",
+    "• 단기 전략: 짧은 보유기간과 높은 거래 빈도를 가정하므로 수수료·슬리피지와 신호 변화의 영향을 확인합니다.",
+    "• 장기 전략: 긴 보유기간과 낮은 거래 빈도를 가정하므로 장기간의 변동성과 최대 낙폭을 함께 확인합니다.",
+    "",
+    "전략으로 구성하려면 연구하려는 보유기간(며칠 또는 몇 개월)과 진입 조건을 알려주세요.",
+  ].join("\n");
+}
+
+export function buildTakeProfitPercentagePrompt(prompt: string): {
+  message: string;
+  suggestions: string[];
+} | null {
+  const normalizedPrompt = prompt.trim();
+  if (
+    !detectRequestedRiskFields(normalizedPrompt).has("take_profit_pct") ||
+    extractPercentage(normalizedPrompt) !== null ||
+    /빼|삭제|제외|없애|해제/.test(normalizedPrompt) ||
+    /뭐야|무슨\s*뜻|뜻이|의미|개념|설명(?:해|해줘|해주세요)|어떻게\s*작동|원리/.test(normalizedPrompt) ||
+    /왜|안\s*(?:돼|되|됨)|문제|오류|결과|백테스트|성과|거래\s*내역|분석|평가/.test(normalizedPrompt) ||
+    /(?:익절|목표\s*(?:수익|이익)).{0,12}(?:설정돼|설정되어|적용돼|적용되어|포함돼|포함되어|있어\??$|있나\??$|있나요|있습니까)/.test(normalizedPrompt)
+  ) {
+    return null;
+  }
+
+  return {
+    message: "익절 기준은 매수가 대비 수익률로 설정합니다. 예시 값은 5%, 10%, 15%입니다. 적용할 익절 기준을 몇 %로 할까요?",
+    suggestions: ["익절 5%", "익절 10%", "익절 15%"],
+  };
 }
 
 // 백엔드가 previous_parsed와 병합해 내려준 next는 권위 있는 완전한 전략이다 — 요청되지 않은
