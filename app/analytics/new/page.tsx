@@ -41,17 +41,19 @@ import {
   type ParsedSummary,
 } from "./strategySummary";
 import {
-  buildStrategyHorizonComparisonResponse,
-  buildTakeProfitPercentagePrompt,
   buildWalkForwardParameterRanges,
   buildWalkForwardRequest,
   hasWalkForwardParameterRanges,
-  isAdvisorFollowUpPrompt,
   mergeStrategyModification,
   type AdvisorWalkForwardSettings,
 } from "./parsedStrategyMerge";
 import { computeChatScrollDelta } from "./chatScroll";
-import { BACKTEST_MIN_PERIOD_MESSAGE, backtestPeriodTooShort, isBacktestConfirmation, isBacktestPrompt } from "./backtestConfirmation";
+import {
+  decideConversationTurn,
+  type HoldingPeriodHorizon,
+  type SemanticClassification,
+  type StrategyAssumptions,
+} from "./conversationDecision";
 import { normalizeCoachMessage } from "./coachMessage";
 import { parseCoachSegments } from "./coachText";
 import { runButtonPlacement } from "./runButtonPlacement";
@@ -575,6 +577,8 @@ function StrategyLabContent() {
   // 짧은 답변을 전략 필드로 누적하는 동안 true. 상태는 백엔드 step에 그대로 재전송한다.
   const builderModeRef = useRef(false);
   const builderStateRef = useRef<Record<string, any>>({});
+  const pendingHoldingPeriodPromptRef = useRef<string | null>(null);
+  const pendingHoldingPeriodHorizonRef = useRef<HoldingPeriodHorizon | null>(null);
   // 빌더 칩-only 단계에서 '직접 입력'을 눌러 채팅창을 다시 띄운 상태(빌더는 진행하지 않음).
   const [builderFreeTextRequested, setBuilderFreeTextRequested] = useState(false);
 
@@ -610,6 +614,8 @@ function StrategyLabContent() {
       lastAnalyzedSymbolRef.current = snapshot.lastAnalyzedSymbol ?? null;
       builderModeRef.current = snapshot.builderMode ?? false;
       builderStateRef.current = snapshot.builderState ?? {};
+      pendingHoldingPeriodPromptRef.current = snapshot.pendingHoldingPeriodPrompt ?? null;
+      pendingHoldingPeriodHorizonRef.current = snapshot.pendingHoldingPeriodHorizon ?? null;
     } catch {
       // 손상된 스냅샷은 무시한다.
     }
@@ -696,6 +702,8 @@ function StrategyLabContent() {
         lastAnalyzedSymbol: lastAnalyzedSymbolRef.current,
         builderMode: builderModeRef.current,
         builderState: builderStateRef.current,
+        pendingHoldingPeriodPrompt: pendingHoldingPeriodPromptRef.current,
+        pendingHoldingPeriodHorizon: pendingHoldingPeriodHorizonRef.current,
       };
       sessionStorage.setItem(STRATEGY_CHAT_STATE_KEY, JSON.stringify(snapshot));
     } catch {
@@ -893,17 +901,7 @@ function StrategyLabContent() {
     }
   };
 
-  // 개별 종목 질문 / 일반 투자 질문을 전략 흐름과 분리해 처리한다.
-  // 처리했으면 true(전략 파싱으로 넘어가지 않음), 아니면 false(기존 전략 흐름).
-  const maybeRouteNonStrategyQuery = async (
-    userText: string,
-    currentParsed: ParsedSummary | null,
-  ): Promise<boolean> => {
-    let intent = "STRATEGY_ADVICE";
-    let symbol: string | null = null;
-    let suggestedReply: string | null = null;
-    // 이번 입력 이전까지의 대화 턴 — "다른 예는 없어?" 같은 후속 질문이 직전 답변의
-    // 주제로 분류·답변되도록 classify와 general 양쪽에 함께 보낸다.
+  const classifyConversationPrompt = async (userText: string) => {
     const history = selectClassifierHistory(messages);
     try {
       const res = await fetch("/api/query/classify", {
@@ -915,109 +913,20 @@ function StrategyLabContent() {
           history,
         }),
       });
-      if (!res.ok) return false;  // 분류 실패 시 기존 전략 흐름으로 폴백
+      if (!res.ok) throw new Error();
       const data = await res.json();
-      intent = data.intent;
-      symbol = data.symbols?.[0]?.symbol ?? null;
-      suggestedReply = data.suggested_reply ?? null;
+      const classification: SemanticClassification = {
+        intent: data.intent,
+        symbol: data.symbols?.[0]?.symbol ?? null,
+        suggestedReply: data.suggested_reply ?? null,
+      };
+      return { classification, history };
     } catch {
-      return false;
+      return {
+        classification: { intent: "STRATEGY_ADVICE" as const },
+        history,
+      };
     }
-
-    // [전략 다듬기 우선] 이미 전략이 작성돼 있으면 STOCK_PICK·ONBOARDING 분류는 대개
-    // 수정 요청("종목을 10개로 늘려줘")의 오분류다. 빌더로 새로 진입해 기존 전략을 버리지
-    // 말고 전략 다듬기 흐름으로 흘려보낸다(아래 STOCK_ANALYSIS + currentParsed 가드와 동일 취지).
-    if (
-      (intent === "STOCK_PICK" || intent === "ONBOARDING" || intent === "STRATEGY_PICK") &&
-      currentParsed
-    ) {
-      return false;
-    }
-
-    // 인사 / 역할 밖 질문 / 열린 종목 추천 / 막연한 도움 요청 → 전략으로 파싱하지 않고 정해진 안내를 바로 보여준다.
-    // STOCK_PICK은 특정 종목 추천 대신 전략 설계로 전환하는 안내다([규제 안전]).
-    // ONBOARDING은 "어떻게 시작하지?"처럼 막막해하는 입력으로, 빈 전략 카드 대신 전략 빌더로 유도한다.
-    // UNSUPPORTED_FEATURE는 뉴스 분석처럼 제공하지 않는 기능 기반 요청 — 빌더로 들어가지 않고
-    // 미제공 안내만 보여준 뒤 사용자의 다른 아이디어를 기다린다.
-    if (
-      intent === "GREETING" ||
-      intent === "OFF_TOPIC" ||
-      intent === "STOCK_PICK" ||
-      intent === "STRATEGY_PICK" ||
-      intent === "ONBOARDING" ||
-      intent === "UNSUPPORTED_FEATURE"
-    ) {
-      const fallback =
-        intent === "GREETING"
-          ? "안녕하세요. 오늘은 어떤 전략을 연구해 볼까요?"
-          : intent === "UNSUPPORTED_FEATURE"
-            ? "죄송합니다. 요청하신 기능은 현재 제공하고 있지 않아요. 다른 투자 아이디어를 알려주시면 전략으로 만들어 백테스트해 드릴 수 있어요."
-            : intent === "STOCK_PICK"
-              ? "특정 종목을 추천하지는 않지만, 투자 아이디어를 전략으로 만들어 과거 데이터로 검증하도록 도와드릴 수 있어요.\n\n예를 들어 이렇게 시작해볼 수 있어요:\n• RSI가 30 이하로 떨어지면 매수하고 70 이상에서 파는 '과매도 반등' 전략\n• 20일 이동평균이 60일 이동평균을 위로 뚫는 골든크로스에서 매수하는 추세 전략\n• PBR은 낮고 ROE는 높은 저평가 우량주를 고르는 가치 전략\n\n끌리는 아이디어가 있거나 평소 관심 있던 매매 방식이 있다면 말씀해 주세요 — 바로 전략으로 만들어 백테스트해 드릴게요."
-              : intent === "STRATEGY_PICK"
-                ? "어떤 전략이 더 좋은지 판단하거나 추천해 드리지는 않지만, 관심 있는 아이디어를 함께 전략으로 만들어 과거 데이터로 백테스트해 볼 수 있어요. 제가 단계별로 여쭤볼 테니 골라 주시면 바로 백테스트까지 이어집니다."
-                : intent === "ONBOARDING"
-                  ? "처음이시거나 어디서부터 시작할지 막막하시면 제가 단계별로 함께 전략을 만들어 드릴게요. 몇 가지만 골라 주시면 바로 백테스트까지 이어집니다."
-                  : "저는 투자 전략 및 분석 전용 모델입니다. 현재 질문에는 도움을 드릴 수 없습니다. 대신 투자 전략, 백테스트와 관련된 질문은 도와드릴 수 있습니다.";
-      updateLastAssistant({ isLoading: false, infoText: suggestedReply ?? fallback });
-      // 열린 종목·전략 추천, 막연한 도움 요청 직후 전략 빌더 모드로 들어간다. 사용자의 후속 입력을
-      // 기다리지 않고 곧바로 빌더의 첫 질문을 띄워, 함께 전략을 구성하기 시작한다.
-      if (intent === "STOCK_PICK" || intent === "STRATEGY_PICK" || intent === "ONBOARDING") {
-        builderModeRef.current = true;
-        builderStateRef.current = {};
-        // STOCK_PICK은 사용자가 이미 전략 조건(전략유형·보유수·청산 등)을 말한 경우가 많으므로
-        // 원본 메시지를 시드로 넘겨 빠진 질문만 묻게 한다. ONBOARDING은 전략 내용이 없어 무해하다.
-        await startStrategyBuilder({ seedText: userText });
-      }
-      return true;
-    }
-
-    // [규제 안전] 개별 종목 매수·매도 질문 → 판단·추천을 제공하지 않고, 그 종목에서
-    // 출발한 전략 설계로 대화를 전환한다(안내 문구는 백엔드 분류가 종목명·시장·업종에 맞춰 생성).
-    // STOCK_PICK과 달리 빌더 모드로 곧장 들어가지 않는다 — 안내가 이미 그 종목 기반의
-    // 구체적인 전략 예시를 제시하므로, 빌더의 첫 질문("어떤 시장을 대상으로 할까요?")이
-    // 예시를 덮지 않도록 사용자의 후속 답변을 기다린다(예시를 골라 말하면 일반 전략
-    // 파싱 흐름이 그대로 처리한다).
-    if (intent === "STOCK_ANALYSIS") {
-      // 전략 작성 중인데 종목이 특정되지 않은 STOCK_ANALYSIS는 대개 오분류다
-      // (예: "PBR 1 이하 종목"). 전략 다듬기 흐름으로 흘려보낸다.
-      if (!symbol && currentParsed) return false;
-      if (symbol) lastAnalyzedSymbolRef.current = symbol;
-      updateLastAssistant({
-        isLoading: false,
-        infoText:
-          suggestedReply ??
-          "특정 종목에 대한 매수·매도 판단이나 종목 추천은 제공하지 않아요. 대신 관심 있는 종목에서 출발한 아이디어를 전략으로 만들어 과거 데이터로 검증해볼 수 있어요. 관심 가는 매매 방식이 있다면 말씀해 주세요.",
-      });
-      return true;
-    }
-
-    // 일반 투자 지식 또는 분류 불가 질문은 전략 작성 중이 아닐 때 LLM 응답으로 처리한다.
-    // UNKNOWN을 전략 파서로 보내면 빈 전략이 만들어질 수 있으므로, 사용자 원문을 그대로
-    // 전달해 답변하거나 필요한 정보를 되묻게 한다.
-    if ((intent === "GENERAL_INVESTMENT" || intent === "UNKNOWN") && !currentParsed) {
-      try {
-        const res = await fetch("/api/query/general", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: userText, history }),
-        });
-        if (!res.ok) throw new Error();
-        const data = await res.json();
-        updateLastAssistant({ isLoading: false, infoText: data.answer });
-      } catch {
-        updateLastAssistant({
-          isLoading: false,
-          error:
-            intent === "UNKNOWN"
-              ? "요청을 이해하지 못했습니다. 연구하려는 시장, 조건 또는 기간을 조금 더 구체적으로 입력해 주세요."
-              : "답변을 가져오지 못했습니다.",
-        });
-      }
-      return true;
-    }
-
-    return false;
   };
 
   // 전략 프롬프트를 파싱→백테스트 준비→코치까지 스트리밍 처리한다. 일반 입력과
@@ -1026,6 +935,7 @@ function StrategyLabContent() {
     promptText: string,
     currentParsed: ParsedSummary | null,
     currentBacktestReq: any,
+    strategyAssumptions: StrategyAssumptions = {},
   ) => {
     // NL 파서 규칙 파싱 단계 — 'parsing...' 표시. LLM 폴백 시 'thinking...'으로 전환된다.
     updateLastAssistant({ isLoading: true, loadingStage: "parsing" });
@@ -1058,15 +968,27 @@ function StrategyLabContent() {
 
     const finalizeParse = (backtestRequest: any, symbolCount?: number | null) => {
       if (!parsedPayload) return;
+      const assumedHoldingPeriod = strategyAssumptions.holdingPeriodDays;
       const nextBacktestRequest = backtestRequest
         ? {
             ...backtestRequest,
             symbol_count: symbolCount ?? backtestRequest.symbol_count,
+            ...(assumedHoldingPeriod
+              ? {
+                  risk: {
+                    ...(backtestRequest.risk ?? {}),
+                    max_holding_days: assumedHoldingPeriod,
+                  },
+                }
+              : {}),
           }
         : backtestRequest;
+      const nextParsedPayload = assumedHoldingPeriod
+        ? { ...parsedPayload.parsed, hold_period_days: assumedHoldingPeriod }
+        : parsedPayload.parsed;
       const mergedResponse = mergeStrategyModification({
         previousParsed: currentParsed,
-        nextParsed: parsedPayload.parsed,
+        nextParsed: nextParsedPayload,
         previousBacktestRequest: currentBacktestReq,
         nextBacktestRequest,
         userPrompt: promptText,
@@ -1227,24 +1149,55 @@ function StrategyLabContent() {
     // 분류/파싱 호출이 시작되기 전에 사용자 입력을 화면에 즉시 반영한다.
     appendUserMessage(userText);
 
-    // 백테스트 기간을 1년 미만으로 요청하면(예: "백테스트 1주일로 해줘") 실행하지 않고
-    // 최소 기간을 안내한다(유효 기간 1y/3y/5y/full → 최소 1년).
-    if (backtestPeriodTooShort(userText)) {
-      await appendAssistant({ role: "assistant", infoText: BACKTEST_MIN_PERIOD_MESSAGE });
+    const conversationContext = {
+      stage,
+      hasBacktestRequest: Boolean(currentBacktestReq),
+      hasCurrentStrategy: Boolean(currentParsed),
+      builderMode: builderModeRef.current,
+      lastCoachText: lastCoachText(),
+      pendingHoldingPeriodPrompt: pendingHoldingPeriodPromptRef.current,
+      pendingHoldingPeriodHorizon: pendingHoldingPeriodHorizonRef.current,
+    };
+    let turnDecision = decideConversationTurn(userText, conversationContext);
+
+    if (turnDecision.action === "respond") {
+      await appendAssistant({
+        role: "assistant",
+        infoText: turnDecision.message,
+        infoSuggestions: turnDecision.suggestions,
+      });
       setIsSending(false);
       return;
     }
 
-    // 검증이 "백테스트를 진행하시겠습니까?"로 끝났고 사용자가 "네"·"진행해줘"로 긍정하면,
-    // 분류/재파싱을 건너뛰고 곧바로 백테스트를 실행한다(엉뚱한 인사·재파싱 방지).
-    if (
-      stage === "ready" &&
-      currentBacktestReq &&
-      isBacktestPrompt(lastCoachText()) &&
-      isBacktestConfirmation(userText)
-    ) {
+    if (turnDecision.action === "run_backtest") {
       setIsSending(false);
       await handleRunBacktest();
+      return;
+    }
+
+    if (turnDecision.action === "ask_holding_period") {
+      pendingHoldingPeriodPromptRef.current = turnDecision.strategyPrompt;
+      pendingHoldingPeriodHorizonRef.current = turnDecision.holdingHorizon;
+      await appendAssistant({
+        role: "assistant",
+        infoText: turnDecision.message,
+        infoSuggestions: turnDecision.suggestions,
+      });
+      setIsSending(false);
+      return;
+    }
+
+    if (turnDecision.action === "start_builder") {
+      const holdingPeriodDays = turnDecision.strategyAssumptions?.holdingPeriodDays;
+      pendingHoldingPeriodPromptRef.current = null;
+      pendingHoldingPeriodHorizonRef.current = null;
+      builderModeRef.current = true;
+      builderStateRef.current = holdingPeriodDays
+        ? { hold_period_days: holdingPeriodDays, risk_done: true }
+        : {};
+      await startStrategyBuilder({ seedText: turnDecision.seedPrompt });
+      setIsSending(false);
       return;
     }
 
@@ -1252,18 +1205,8 @@ function StrategyLabContent() {
     // 이후 분기들은 이 버블을 updateLastAssistant로 변형해 재사용한다(새 버블 생성 금지).
     await appendAssistant({ role: "assistant", isLoading: true });
 
-    const strategyHorizonResponse = buildStrategyHorizonComparisonResponse(userText);
-    if (strategyHorizonResponse) {
-      updateLastAssistant({
-        isLoading: false,
-        infoText: strategyHorizonResponse,
-      });
-      setIsSending(false);
-      return;
-    }
-
     // 전략 빌더 모드: 짧은 답변을 전략 필드로 누적한다(분류/거절보다 먼저 실행).
-    if (builderModeRef.current) {
+    if (turnDecision.action === "continue_builder") {
       try {
         const res = await fetch("/api/strategy/builder/step", {
           method: "POST",
@@ -1312,24 +1255,7 @@ function StrategyLabContent() {
       return;
     }
 
-    const takeProfitPrompt = buildTakeProfitPercentagePrompt(userText);
-    if (currentParsed && takeProfitPrompt) {
-      updateLastAssistant({
-        isLoading: false,
-        infoText: takeProfitPrompt.message,
-        infoSuggestions: [...takeProfitPrompt.suggestions, BUILDER_FREE_INPUT_CHIP],
-      });
-      setIsSending(false);
-      return;
-    }
-
-    const routed = await maybeRouteNonStrategyQuery(userText, currentParsed);
-    if (routed) {
-      setIsSending(false);
-      return;
-    }
-
-    if (currentParsed && isAdvisorFollowUpPrompt(userText)) {
+    if (turnDecision.action === "answer_follow_up" && currentParsed) {
       updateLastAssistant({
         isLoading: false,
         parsed: currentParsed,
@@ -1347,8 +1273,99 @@ function StrategyLabContent() {
       return;
     }
 
+    if (turnDecision.action === "parse_strategy") {
+      pendingHoldingPeriodPromptRef.current = null;
+      pendingHoldingPeriodHorizonRef.current = null;
+      try {
+        await runStrategyParseFlow(
+          turnDecision.strategyPrompt,
+          currentParsed,
+          currentBacktestReq,
+          turnDecision.strategyAssumptions,
+        );
+      } catch (e: any) {
+        updateLastAssistant({ isLoading: false, error: e.message ?? "알 수 없는 오류" });
+      } finally {
+        setIsSending(false);
+      }
+      return;
+    }
+
+    const { classification, history } = await classifyConversationPrompt(userText);
+    turnDecision = decideConversationTurn(userText, conversationContext, classification);
+
+    if (turnDecision.action === "respond") {
+      updateLastAssistant({
+        isLoading: false,
+        infoText: turnDecision.message,
+        infoSuggestions: turnDecision.suggestions,
+      });
+      setIsSending(false);
+      return;
+    }
+
+    if (turnDecision.action === "ask_holding_period") {
+      pendingHoldingPeriodPromptRef.current = turnDecision.strategyPrompt;
+      pendingHoldingPeriodHorizonRef.current = turnDecision.holdingHorizon;
+      updateLastAssistant({
+        isLoading: false,
+        infoText: turnDecision.message,
+        infoSuggestions: turnDecision.suggestions,
+      });
+      setIsSending(false);
+      return;
+    }
+
+    if (turnDecision.action === "start_builder") {
+      updateLastAssistant({ isLoading: false, infoText: turnDecision.message });
+      builderModeRef.current = true;
+      builderStateRef.current = {};
+      await startStrategyBuilder({ seedText: turnDecision.seedPrompt });
+      setIsSending(false);
+      return;
+    }
+
+    if (turnDecision.action === "answer_general") {
+      try {
+        const res = await fetch("/api/query/general", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: userText, history }),
+        });
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        updateLastAssistant({ isLoading: false, infoText: data.answer });
+      } catch {
+        updateLastAssistant({
+          isLoading: false,
+          error:
+            classification.intent === "UNKNOWN"
+              ? "요청을 이해하지 못했습니다. 연구하려는 시장, 조건 또는 기간을 조금 더 구체적으로 입력해 주세요."
+              : "답변을 가져오지 못했습니다.",
+        });
+      }
+      setIsSending(false);
+      return;
+    }
+
+    if (turnDecision.action === "respond_stock") {
+      if (turnDecision.symbol) lastAnalyzedSymbolRef.current = turnDecision.symbol;
+      updateLastAssistant({ isLoading: false, infoText: turnDecision.message });
+      setIsSending(false);
+      return;
+    }
+
     try {
-      await runStrategyParseFlow(userText, currentParsed, currentBacktestReq);
+      if (turnDecision.action === "parse_strategy") {
+        pendingHoldingPeriodPromptRef.current = null;
+        pendingHoldingPeriodHorizonRef.current = null;
+        await runStrategyParseFlow(
+          turnDecision.strategyPrompt,
+          currentParsed,
+          currentBacktestReq,
+          turnDecision.strategyAssumptions,
+        );
+      }
     } catch (e: any) {
       setMessages(prev => prev.map((m, i) =>
         i === prev.length - 1 ? { role: "assistant", error: e.message ?? "알 수 없는 오류" } : m

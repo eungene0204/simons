@@ -296,4 +296,143 @@ describe("StrategyLabPage scroll behavior", () => {
     expect(fetchMock.mock.calls.some(([input]) => String(input) === "/api/strategy/builder/step")).toBe(false);
     expect(fetchMock.mock.calls.some(([input]) => String(input) === "/api/strategy/parse/stream")).toBe(false);
   });
+
+  it("asks for a long holding period before continuing with the remaining builder questions", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url === "/api/model/status") {
+        return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
+      }
+
+      if (url === "/api/user") {
+        return Promise.resolve(createJsonResponse({
+          user: {
+            name: "Tester",
+            email: "tester@example.com",
+          },
+        }));
+      }
+
+      if (url === "/api/query/classify") {
+        return Promise.resolve(createJsonResponse({ intent: "STRATEGY_ADVICE", symbols: [] }));
+      }
+
+      if (url === "/api/strategy/builder/step") {
+        const body = JSON.parse(String(init?.body ?? "{}")) as {
+          seed?: string;
+          state?: { hold_period_days?: number; risk_done?: boolean };
+        };
+        expect(body.seed).toBe("장기전략으로 만들어 볼까?");
+        expect(body.state).toMatchObject({ hold_period_days: 504, risk_done: true });
+
+        return Promise.resolve(createJsonResponse({
+          state: {
+            hold_period_days: 504,
+            risk_done: true,
+          },
+          reply: "504거래일 보유 조건을 반영했습니다. 어떤 시장을 대상으로 할까요?",
+          suggestions: ["코스피", "코스닥", "코스피200", "코스피·코스닥 전체"],
+        }));
+      }
+
+      return Promise.resolve(createJsonResponse({}));
+    });
+
+    render(<StrategyLabPage />);
+
+    const textarea = await screen.findByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "장기전략으로 만들어 볼까?" } });
+    fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
+
+    expect(
+      await screen.findByText("바이 앤 홀드 전략으로 이해했어요. 얼마나 오래 보유할까요?")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "252거래일 (1년)" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "504거래일 (2년)" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "756거래일 (3년)" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "1,260거래일 (5년)" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "직접 입력" })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([input]) => String(input) === "/api/strategy/parse/stream")).toBe(false);
+    expect(fetchMock.mock.calls.some(([input]) => String(input) === "/api/strategy/builder/step")).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "504거래일 (2년)" }));
+
+    expect(
+      await screen.findByText("504거래일 보유 조건을 반영했습니다. 어떤 시장을 대상으로 할까요?")
+    ).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/strategy/builder/step")).toHaveLength(1);
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/query/classify")).toHaveLength(1);
+    expect(fetchMock.mock.calls.some(([input]) => String(input) === "/api/strategy/parse/stream")).toBe(false);
+  });
+
+  it("asks for a short holding period before continuing with the remaining builder questions", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url === "/api/model/status") {
+        return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
+      }
+
+      if (url === "/api/user") {
+        return Promise.resolve(createJsonResponse({
+          user: {
+            name: "Tester",
+            email: "tester@example.com",
+          },
+        }));
+      }
+
+      if (url === "/api/query/classify") {
+        return Promise.resolve(createJsonResponse({ intent: "STRATEGY_ADVICE", symbols: [] }));
+      }
+
+      if (url === "/api/strategy/builder/step") {
+        const body = JSON.parse(String(init?.body ?? "{}")) as {
+          seed?: string;
+          state?: { hold_period_days?: number; risk_done?: boolean };
+        };
+        expect(body.seed).toBe("단기 투자 전략을 만들어보자");
+        expect(body.state).toMatchObject({ hold_period_days: 10, risk_done: true });
+
+        return Promise.resolve(createJsonResponse({
+          state: {
+            hold_period_days: 10,
+            risk_done: true,
+          },
+          reply: "10거래일 보유 조건을 반영했습니다. 어떤 시장을 대상으로 할까요?",
+          suggestions: ["코스피", "코스닥", "코스피200", "코스피·코스닥 전체"],
+        }));
+      }
+
+      return Promise.resolve(createJsonResponse({}));
+    });
+
+    render(<StrategyLabPage />);
+
+    const textarea = await screen.findByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "단기 투자 전략을 만들어보자" } });
+    fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
+
+    expect(
+      await screen.findByText("단기 매매 전략으로 이해했어요. 얼마나 오래 보유할까요?")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "1거래일 (당일)" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "5거래일 (1주)" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "10거래일 (2주)" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "20거래일 (약 1개월)" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "60거래일 (약 3개월)" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "직접 입력" })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([input]) => String(input) === "/api/strategy/parse/stream")).toBe(false);
+    expect(fetchMock.mock.calls.some(([input]) => String(input) === "/api/strategy/builder/step")).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "10거래일 (2주)" }));
+
+    expect(
+      await screen.findByText("10거래일 보유 조건을 반영했습니다. 어떤 시장을 대상으로 할까요?")
+    ).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/strategy/builder/step")).toHaveLength(1);
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/query/classify")).toHaveLength(1);
+    expect(fetchMock.mock.calls.some(([input]) => String(input) === "/api/strategy/parse/stream")).toBe(false);
+  });
 });
