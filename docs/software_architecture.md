@@ -398,8 +398,8 @@ interface BacktestResult {
 **질문 의도 분류 / 일반 질문 (intent_routes)**
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
-| POST | `/query/classify` | 사용자 질문 의도 분류 (STRATEGY / STOCK_ANALYSIS / STOCK_PICK / GENERAL). [규제 안전] STOCK_ANALYSIS(특정 종목 매수·매도 질문)는 종목 분석 대신 '추천 불가 안내 + 그 종목에서 출발한 전략 설계 전환' 문구(suggested_reply)를 동반한다 — 개별 종목 분석 기능(/stock/analyze)은 제거됨 |
-| POST | `/query/general` | 분류·종목 비매칭 일반 질문 응답 |
+| POST | `/query/classify` | 사용자 질문 의도 분류 (STRATEGY / STOCK_ANALYSIS / STOCK_PICK / GENERAL). [규제 안전] STOCK_ANALYSIS(특정 종목 매수·매도 질문)는 종목 분석 대신 '추천 불가 안내 + 그 종목에서 출발한 전략 설계 전환' 문구(suggested_reply)를 동반한다 — 개별 종목 분석 기능(/stock/analyze)은 제거됨. 요청 `history`(최근 대화 턴, `ChatTurn[]`)를 받아 LLM 폴백이 "다른 예는 없어?" 같은 후속 질문을 직전 주제의 연속으로 분류한다(FR-SA-002c-3, 결정적 규칙은 현재 입력만 봄) |
+| POST | `/query/general` | 분류·종목 비매칭 일반 질문 응답. `history`를 받아 후속 질문이면 직전 답변과 겹치지 않게 이어서 답한다 |
 | POST | `/strategy/builder/step` | 전략 빌더 모드 한 턴 — 열린 추천(STOCK_PICK) 전환 직후 짧은 답변을 전략 필드로 누적하고, 완성 시 백테스트 프롬프트 합성. 결정적 상태 머신 `intent/strategy_builder.py`(무상태). 프론트 `builderModeRef`/`builderStateRef`가 상태 보관·재전송 |
 
 **뉴스 Impact Agent**
@@ -623,7 +623,8 @@ AdviceExperience — 조언 전/후 성과, 유사 사례, 평가, reusable less
 |------|------|------|
 | `data/ohlcv/{symbol}.parquet` | Parquet | 4052개 종목 OHLCV |
 | `data/fundamentals/` | JSON/CSV | ROE, EPS, BPS, 부채비율 |
-| `data/korea-stocks.json` | JSON | 종목명, 코드, 시장, 섹터 |
+| `data/korea-stocks.json` | JSON | 종목명, 코드, 시장, 섹터 (현재 상장 — 섹터 SOT) |
+| `data/stock-master.json` | JSON | PIT 종목 마스터(상장폐지 포함, 생존편향 제거) + 상폐 종목 industry/sector 백필(`backend/scripts/backfill_delisted_sectors.py`, 재빌드는 `build_stock_master.py`) |
 | `data/kospi200-cache.json` | JSON | KOSPI200 종목 목록 캐시 |
 
 ---

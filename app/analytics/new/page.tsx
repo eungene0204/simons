@@ -41,6 +41,7 @@ import {
   type ParsedSummary,
 } from "./strategySummary";
 import {
+  buildTakeProfitPercentagePrompt,
   buildWalkForwardParameterRanges,
   buildWalkForwardRequest,
   hasWalkForwardParameterRanges,
@@ -62,6 +63,7 @@ import {
   shouldBeginStrategyChatNavigation,
   shouldShowChatInputBox,
 } from "./chatNavigation";
+import { selectClassifierHistory } from "./chatHistory";
 
 const BacktestDashboard = dynamic(
   () => import("@/components/strategy/backtest/BacktestDashboard"),
@@ -899,11 +901,18 @@ function StrategyLabContent() {
     let intent = "STRATEGY_ADVICE";
     let symbol: string | null = null;
     let suggestedReply: string | null = null;
+    // 이번 입력 이전까지의 대화 턴 — "다른 예는 없어?" 같은 후속 질문이 직전 답변의
+    // 주제로 분류·답변되도록 classify와 general 양쪽에 함께 보낸다.
+    const history = selectClassifierHistory(messages);
     try {
       const res = await fetch("/api/query/classify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: userText, last_symbol: lastAnalyzedSymbolRef.current }),
+        body: JSON.stringify({
+          query: userText,
+          last_symbol: lastAnalyzedSymbolRef.current,
+          history,
+        }),
       });
       if (!res.ok) return false;  // 분류 실패 시 기존 전략 흐름으로 폴백
       const data = await res.json();
@@ -990,7 +999,7 @@ function StrategyLabContent() {
         const res = await fetch("/api/query/general", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: userText }),
+          body: JSON.stringify({ query: userText, history }),
         });
         if (!res.ok) throw new Error();
         const data = await res.json();
@@ -1288,6 +1297,17 @@ function StrategyLabContent() {
           infoText: "조건을 한 번 더 말씀해 주시겠어요?",
         });
       }
+      setIsSending(false);
+      return;
+    }
+
+    const takeProfitPrompt = buildTakeProfitPercentagePrompt(userText);
+    if (currentParsed && takeProfitPrompt) {
+      updateLastAssistant({
+        isLoading: false,
+        infoText: takeProfitPrompt.message,
+        infoSuggestions: [...takeProfitPrompt.suggestions, BUILDER_FREE_INPUT_CHIP],
+      });
       setIsSending(false);
       return;
     }

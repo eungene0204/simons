@@ -73,7 +73,8 @@ describe("StrategyLab unknown intent fallback", () => {
         return Promise.resolve(createJsonResponse({ intent: "UNKNOWN" }));
       }
       if (url === "/api/query/general") {
-        expect(JSON.parse(String(init?.body))).toEqual({ query: userRequest });
+        // 첫 입력이므로 대화 맥락(history)은 빈 배열이다(FR-SA-002c-3).
+        expect(JSON.parse(String(init?.body))).toEqual({ query: userRequest, history: [] });
         return Promise.resolve(
           createJsonResponse({ answer: "매수 조건과 청산 조건을 각각 한 문장으로 알려주세요." })
         );

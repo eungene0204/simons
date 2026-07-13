@@ -21,7 +21,7 @@ from typing import Callable, Optional
 
 from stock_analysis.symbol_resolver import StockRef, find_in_text, resolve_by_symbol
 
-from .schemas import DetectedSymbol, IntentResult, QueryIntent
+from .schemas import ChatTurn, DetectedSymbol, IntentResult, QueryIntent
 from .scope import (
     METRIC_NUM_GAP,
     ONBOARDING_REPLY,
@@ -140,8 +140,34 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     "단, 입력에는 오타·맞춤법 오류가 섞일 수 있으니 글자 표면이 아니라 의미로 판단하라. "
     "종목 수·기간·비율 등 전략 파라미터를 바꾸는 표현(예: '종목은 5게'='종목 5개로')은 "
     "오타가 있어도 전략 수정이므로 STRATEGY_ADVICE이며 절대 OFF_TOPIC이 아니다. "
+    "입력 앞에 [대화 맥락]이 함께 주어질 수 있다. 맥락은 참고용일 뿐 분류 대상은 [최신 입력] 하나다. "
+    "'다른 예는 없어?', '더 알려줘', '그럼 어떻게 해?'처럼 직전 챗봇 답변에 이어지는 후속 질문은 "
+    "직전 주제의 연속으로 분류하라 — 직전 주제가 투자라면 OFF_TOPIC이 아니다. "
+    "직전 답변이 보여준 예시·설명을 더 요청하는 후속 질문은 GENERAL_INVESTMENT다. "
     '반드시 {"intent": "..."} JSON 한 줄로만 답하라.'
 )
+
+# LLM 폴백에 넘기는 대화 맥락 상한 — 후속 질문 판단에는 최근 몇 턴이면 충분하고,
+# 작은 분류 모델의 입력이 길어질수록 오분류가 늘어난다.
+_HISTORY_MAX_TURNS = 6
+_HISTORY_TEXT_MAX = 240
+
+
+def format_history_context(history: Optional[list[ChatTurn]]) -> str:
+    """대화 맥락을 LLM 프롬프트용 텍스트로 만든다(없으면 빈 문자열).
+    intent 분류 폴백과 /query/general 답변이 공유한다."""
+    if not history:
+        return ""
+    lines = []
+    for turn in history[-_HISTORY_MAX_TURNS:]:
+        text = (turn.text or "").strip()
+        if not text:
+            continue
+        if len(text) > _HISTORY_TEXT_MAX:
+            text = text[:_HISTORY_TEXT_MAX] + "…"
+        speaker = "사용자" if turn.role == "user" else "챗봇"
+        lines.append(f"{speaker}: {text}")
+    return "\n".join(lines)
 
 
 def _to_detected(refs: list[StockRef]) -> list[DetectedSymbol]:
@@ -309,9 +335,15 @@ def _classify_deterministic(query: str, last_symbol: Optional[str]) -> Optional[
     return None
 
 
-def _classify_with_llm(query: str, llm: LLMFn) -> Optional[IntentResult]:
+def _classify_with_llm(
+    query: str, llm: LLMFn, history: Optional[list[ChatTurn]] = None
+) -> Optional[IntentResult]:
+    # 대화 맥락이 있으면 함께 넘긴다 — "다른 예는 없어?" 같은 후속 질문은 문장만 보면
+    # 투자 신호가 없어 OFF_TOPIC으로 오판되지만, 직전 턴이 있으면 주제의 연속으로 판단된다.
+    context = format_history_context(history)
+    user_msg = f"[대화 맥락]\n{context}\n[최신 입력]\n{query}" if context else query
     try:
-        raw = llm(_CLASSIFIER_SYSTEM_PROMPT, query)
+        raw = llm(_CLASSIFIER_SYSTEM_PROMPT, user_msg)
     except Exception:
         logger.exception("intent LLM 폴백 실패")
         return None
@@ -357,15 +389,22 @@ def _classify_with_llm(query: str, llm: LLMFn) -> Optional[IntentResult]:
     )
 
 
-def classify(query: str, *, last_symbol: Optional[str] = None, llm: Optional[LLMFn] = None) -> IntentResult:
-    """입력을 QueryIntent로 분류한다. 결정적 규칙 우선, 애매하면 llm 폴백."""
+def classify(
+    query: str,
+    *,
+    last_symbol: Optional[str] = None,
+    llm: Optional[LLMFn] = None,
+    history: Optional[list[ChatTurn]] = None,
+) -> IntentResult:
+    """입력을 QueryIntent로 분류한다. 결정적 규칙 우선, 애매하면 llm 폴백.
+    history(최근 대화 턴)는 LLM 폴백에서만 쓴다 — 결정적 규칙은 현재 입력만 본다."""
     query = _correct_count_typo(query)
     deterministic = _classify_deterministic(query, last_symbol)
     if deterministic is not None:
         return deterministic
 
     if llm is not None:
-        llm_result = _classify_with_llm(query, llm)
+        llm_result = _classify_with_llm(query, llm, history)
         if llm_result is not None:
             return llm_result
 

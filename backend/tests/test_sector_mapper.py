@@ -71,3 +71,40 @@ def test_manufacturing_industry_text_is_not_downgraded_to_generic_service():
 
 def test_non_manufacturing_service_industry_falls_back_to_other_service():
     assert get_sector_from_industry("000000", "경비, 경호 및 탐정업", "테스트경비") == "기타 서비스"
+
+
+# ── KRX 구 산업분류 단축명(상장폐지 종목 어휘) 매핑 ──────────────────────────────
+# 2026-07-12: 섹터 백테스트 생존 편향 제거를 위해 상폐 종목 섹터를 FDR KRX-DELISTING의
+# KRX 단축 업종명으로 백필하는데, KSIC 전체명 기준 키워드 매핑이 이 어휘에서 체계적으로
+# 어긋났다('전기·전자'→통신/유틸리티, '기계·장비'→IT 하드웨어, '금속'→화학 등).
+
+from engine.sector_mapper import get_sector_from_krx_industry
+
+
+def test_krx_short_industry_overrides_fix_systematic_mismatches():
+    cases = [
+        ("전기·전자", "로케트전기", "IT 하드웨어"),   # '전기' 키워드가 통신/유틸리티로 새던 케이스
+        ("기계·장비", "터보테크", "기계/장비"),        # '장비' 키워드가 IT 하드웨어로 새던 케이스
+        ("금속", "유니온스틸", "철강/금속"),           # 화학의 '금속' 키워드에 매칭되던 케이스
+        ("운송장비·부품", "삼목강업", "자동차부품"),
+        ("의료·정밀기기", "디오텍", "의료기기"),
+        ("IT부품", "멜파스", "IT 하드웨어"),
+        ("디지털컨텐츠", "네오위즈아이엔에스", "소프트웨어/플랫폼"),
+        ("종이·목재", "한국제지", "종이"),             # 목재 우선순위 매칭으로 새던 케이스
+        ("전기·가스", "부산도시가스", "통신/유틸리티"),  # 판매 사업자 관례(제조는 에너지/원자력)
+    ]
+    for industry, name, expected in cases:
+        assert get_sector_from_krx_industry("000000", industry, name) == expected, (industry, name)
+
+
+def test_krx_short_industry_spac_follows_active_spac_convention():
+    # '금융'은 대부분 스팩(기업인수목적회사) — 현재 상장 스팩의 분류(증권/보험)와 일관되게 간다.
+    assert get_sector_from_krx_industry("000000", "금융", "미래에셋대우스팩1호") == "증권/보험"
+
+
+def test_krx_short_industry_falls_back_to_keyword_mapper():
+    # 오버라이드 목록에 없는 업종명은 기존 공통 매퍼가 그대로 처리한다.
+    assert get_sector_from_krx_industry("000000", "반도체", "국제엘렉트릭") == "반도체"
+    assert get_sector_from_krx_industry("000000", "건설", "경남기업") == "건설"
+    # 업종명이 비어도 이름 키워드 폴백 등 기존 동작을 해치지 않는다.
+    assert get_sector_from_krx_industry("000000", "", "무명회사") == "기타 제조업"

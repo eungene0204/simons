@@ -22,8 +22,8 @@ from typing import Optional
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from intent.classifier import classify
-from intent.schemas import IntentRequest, IntentResult
+from intent.classifier import classify, format_history_context
+from intent.schemas import ChatTurn, IntentRequest, IntentResult
 from intent import strategy_builder
 from stock_analysis import guardrails
 from stock_analysis.schemas import DISCLAIMER
@@ -74,7 +74,9 @@ def _llm_available() -> bool:
 @router.post("/query/classify", response_model=IntentResult)
 async def classify_query(req: IntentRequest) -> IntentResult:
     llm = (lambda s, u: _mlx_llm(s, u, max_tokens=40)) if _llm_available() else None
-    return await asyncio.to_thread(classify, req.query, last_symbol=req.last_symbol, llm=llm)
+    return await asyncio.to_thread(
+        classify, req.query, last_symbol=req.last_symbol, llm=llm, history=req.history
+    )
 
 
 # ─── /strategy/builder/step ──────────────────────────────────────────────────────
@@ -134,6 +136,9 @@ async def strategy_builder_step(req: BuilderStepRequest) -> strategy_builder.Ste
 
 class GeneralQueryRequest(BaseModel):
     query: str
+    # 최근 대화 턴(오래된 것부터). '다른 예는 없어?' 같은 후속 질문이 직전 답변에 이어
+    # 답변되도록 LLM에 참고 맥락으로 넘긴다.
+    history: list[ChatTurn] = Field(default_factory=list)
 
 
 class GeneralQueryResponse(BaseModel):
@@ -144,15 +149,26 @@ class GeneralQueryResponse(BaseModel):
 _GENERAL_SYSTEM_PROMPT = (
     "당신은 투자 용어와 일반 투자 지식을 쉽게 설명하는 도우미입니다. "
     "사용자의 질문에 2~4문장으로 간결하고 정확하게 답하십시오. "
+    "질문 앞에 [대화 맥락]이 주어지면 마지막 질문은 그 맥락에 이어지는 후속 질문일 수 있습니다 "
+    "— 직전 답변과 겹치지 않게 이어서 답하십시오(예: 예시를 더 요청하면 앞서 말하지 않은 예시를 제시). "
     "특정 종목의 매수·매도를 권하지 말고, 확정적 수익 표현을 쓰지 마십시오. "
     "JSON 없이 평문으로만 답하십시오."
 )
 
 
+def _build_general_user_msg(req: GeneralQueryRequest) -> str:
+    context = format_history_context(req.history)
+    if not context:
+        return req.query
+    return f"[대화 맥락]\n{context}\n[질문]\n{req.query}"
+
+
 @router.post("/query/general", response_model=GeneralQueryResponse)
 async def general_answer(req: GeneralQueryRequest) -> GeneralQueryResponse:
     if _llm_available():
-        raw = await asyncio.to_thread(_mlx_llm, _GENERAL_SYSTEM_PROMPT, req.query, max_tokens=300)
+        raw = await asyncio.to_thread(
+            _mlx_llm, _GENERAL_SYSTEM_PROMPT, _build_general_user_msg(req), max_tokens=300
+        )
         answer = guardrails.sanitize(raw)
         if answer:
             return GeneralQueryResponse(answer=answer)

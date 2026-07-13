@@ -36,7 +36,9 @@
       "toSymbol": null,
       "dataStart": "2014-11-19",
       "dataEnd": "2019-02-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "은행",
+      "sector": "은행/금융지주"
     },
     {
       "symbol": "000040",
@@ -78,7 +80,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2023-02-20",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "보험",
+      "sector": "증권/보험"
     },
     {
       "symbol": "000070",
@@ -106,7 +110,9 @@
       "toSymbol": "000070",
       "dataStart": "2013-05-31",
       "dataEnd": "2025-08-19",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기타금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "000080",
@@ -456,7 +462,9 @@
       "toSymbol": "000320",
       "dataStart": "2013-01-02",
       "dataEnd": "2017-09-27",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기타금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "000360",
@@ -470,7 +478,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-04-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "건설",
+      "sector": "건설"
     },
     {
       "symbol": "000365",
@@ -484,7 +494,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-04-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "건설",
+      "sector": "건설"
     },
     {
       "symbol": "000370",
@@ -540,7 +552,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-02-23",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·전자",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "000425",
@@ -554,7 +568,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-02-23",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·전자",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "000430",
@@ -708,7 +724,9 @@
       "toSymbol": "000540",
       "dataStart": "2013-01-02",
       "dataEnd": "2023-07-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "보험",
+      "sector": "증권/보험"
     },
     {
       "symbol": "000590",
@@ -806,7 +824,9 @@
       "toSymbol": "000680",
       "dataStart": "2013-01-02",
       "dataEnd": "2015-11-25",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "000700",
@@ -904,7 +924,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-04-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "건설",
+      "sector": "건설"
     },
     {
       "symbol": "000810",
@@ -946,7 +968,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-09-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "000835",
@@ -960,7 +984,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-09-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "000850",
@@ -1016,7 +1042,9 @@
       "toSymbol": "000880",
       "dataStart": "2013-04-24",
       "dataEnd": "2025-07-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "화학",
+      "sector": "화학"
     },
     {
       "symbol": "00088K",
@@ -1058,7 +1086,9 @@
       "toSymbol": "000890",
       "dataStart": "2013-01-02",
       "dataEnd": "2015-07-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "음식료·담배",
+      "sector": "식품/음료"
     },
     {
       "symbol": "0008Z0",
@@ -1142,7 +1172,9 @@
       "toSymbol": "000990",
       "dataStart": "2013-01-02",
       "dataEnd": "2023-07-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·전자",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "000997",
@@ -1156,7 +1188,9 @@
       "toSymbol": "000990",
       "dataStart": "2013-01-02",
       "dataEnd": "2015-07-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·전자",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "0009K0",
@@ -1380,7 +1414,9 @@
       "toSymbol": null,
       "dataStart": "2013-11-06",
       "dataEnd": "2026-01-26",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "운송·창고",
+      "sector": "운송/물류"
     },
     {
       "symbol": "0011A0",
@@ -1786,7 +1822,9 @@
       "toSymbol": "001520",
       "dataStart": "2013-01-02",
       "dataEnd": "2022-07-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "비금속",
+      "sector": "시멘트"
     },
     {
       "symbol": "001530",
@@ -1968,7 +2006,9 @@
       "toSymbol": "001680",
       "dataStart": "2013-01-02",
       "dataEnd": "2017-04-27",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "음식료·담배",
+      "sector": "식품/음료"
     },
     {
       "symbol": "001720",
@@ -1996,7 +2036,9 @@
       "toSymbol": "001720",
       "dataStart": "2013-01-02",
       "dataEnd": "2024-04-25",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "증권",
+      "sector": "증권/보험"
     },
     {
       "symbol": "001740",
@@ -2024,7 +2066,9 @@
       "toSymbol": "001740",
       "dataStart": "2013-01-02",
       "dataEnd": "2023-07-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "001750",
@@ -2122,7 +2166,9 @@
       "toSymbol": "001790",
       "dataStart": "2013-01-02",
       "dataEnd": "2020-04-07",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "음식료·담배",
+      "sector": "식품/음료"
     },
     {
       "symbol": "0017J0",
@@ -2206,7 +2252,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2024-02-29",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "건설",
+      "sector": "건설"
     },
     {
       "symbol": "001940",
@@ -2234,7 +2282,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2018-12-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "비금속",
+      "sector": "시멘트"
     },
     {
       "symbol": "002005",
@@ -2248,7 +2298,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2018-12-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "비금속",
+      "sector": "시멘트"
     },
     {
       "symbol": "002020",
@@ -2444,7 +2496,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2019-05-17",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "제약",
+      "sector": "바이오/제약"
     },
     {
       "symbol": "002270",
@@ -2458,7 +2512,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2022-07-19",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "음식료·담배",
+      "sector": "식품/음료"
     },
     {
       "symbol": "002290",
@@ -2486,7 +2542,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2020-07-10",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "종이·목재",
+      "sector": "종이"
     },
     {
       "symbol": "002310",
@@ -2654,7 +2712,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2017-07-20",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "보험",
+      "sector": "증권/보험"
     },
     {
       "symbol": "002600",
@@ -3326,7 +3386,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2024-07-08",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "비금속",
+      "sector": "시멘트"
     },
     {
       "symbol": "003415",
@@ -3340,7 +3402,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2020-12-02",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "비금속",
+      "sector": "시멘트"
     },
     {
       "symbol": "003419",
@@ -3354,7 +3418,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2017-05-15",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "비금속",
+      "sector": "시멘트"
     },
     {
       "symbol": "003450",
@@ -3368,7 +3434,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2016-10-31",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "증권",
+      "sector": "증권/보험"
     },
     {
       "symbol": "003457",
@@ -3382,7 +3450,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-01-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "증권",
+      "sector": "증권/보험"
     },
     {
       "symbol": "003460",
@@ -3606,7 +3676,9 @@
       "toSymbol": null,
       "dataStart": "2013-10-25",
       "dataEnd": "2026-01-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "오락·문화",
+      "sector": "미디어/엔터"
     },
     {
       "symbol": "003570",
@@ -3648,7 +3720,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-08-13",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "일반서비스",
+      "sector": "기타 서비스"
     },
     {
       "symbol": "003605",
@@ -3662,7 +3736,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-08-13",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "일반서비스",
+      "sector": "기타 서비스"
     },
     {
       "symbol": "003610",
@@ -3704,7 +3780,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-01-15",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금속",
+      "sector": "철강/금속"
     },
     {
       "symbol": "003650",
@@ -3886,7 +3964,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2016-01-20",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "음식료·담배",
+      "sector": "식품/음료"
     },
     {
       "symbol": "003945",
@@ -3900,7 +3980,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2016-01-20",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "음식료·담배",
+      "sector": "식품/음료"
     },
     {
       "symbol": "003960",
@@ -4026,7 +4108,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2018-12-18",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·전자",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "004135",
@@ -4040,7 +4124,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2018-12-18",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·전자",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "004140",
@@ -4138,7 +4224,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2020-07-20",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "건설",
+      "sector": "건설"
     },
     {
       "symbol": "004250",
@@ -4208,7 +4296,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-04-10",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "건설",
+      "sector": "건설"
     },
     {
       "symbol": "004325",
@@ -4222,7 +4312,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-04-10",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "건설",
+      "sector": "건설"
     },
     {
       "symbol": "004360",
@@ -4264,7 +4356,9 @@
       "toSymbol": "004360",
       "dataStart": "2013-01-02",
       "dataEnd": "2015-04-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "운송·창고",
+      "sector": "운송/물류"
     },
     {
       "symbol": "004370",
@@ -4446,7 +4540,9 @@
       "toSymbol": "004560",
       "dataStart": "2013-01-02",
       "dataEnd": "2023-07-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금속",
+      "sector": "철강/금속"
     },
     {
       "symbol": "004590",
@@ -4544,7 +4640,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2017-07-04",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기타제조",
+      "sector": "기타 제조업"
     },
     {
       "symbol": "004770",
@@ -4754,7 +4852,9 @@
       "toSymbol": "004980",
       "dataStart": "2013-01-02",
       "dataEnd": "2019-05-09",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "비금속",
+      "sector": "시멘트"
     },
     {
       "symbol": "004989",
@@ -4768,7 +4868,9 @@
       "toSymbol": "004980",
       "dataStart": "2013-01-02",
       "dataEnd": "2019-05-09",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "비금속",
+      "sector": "시멘트"
     },
     {
       "symbol": "004990",
@@ -4908,7 +5010,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2021-04-15",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "화학",
+      "sector": "화학"
     },
     {
       "symbol": "005250",
@@ -4936,7 +5040,9 @@
       "toSymbol": "005250",
       "dataStart": "2013-01-02",
       "dataEnd": "2017-08-04",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "일반서비스",
+      "sector": "기타 서비스"
     },
     {
       "symbol": "005257",
@@ -5090,7 +5196,9 @@
       "toSymbol": null,
       "dataStart": "2013-07-12",
       "dataEnd": "2025-09-29",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "005420",
@@ -5146,7 +5254,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2020-06-29",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "건설",
+      "sector": "건설"
     },
     {
       "symbol": "005490",
@@ -5216,7 +5326,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2017-08-24",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "일반서비스",
+      "sector": "기타 서비스"
     },
     {
       "symbol": "005670",
@@ -5566,7 +5678,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2018-10-02",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "건설",
+      "sector": "건설"
     },
     {
       "symbol": "005990",
@@ -5832,7 +5946,9 @@
       "toSymbol": null,
       "dataStart": "2013-08-29",
       "dataEnd": "2025-11-20",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "비금속",
+      "sector": "시멘트"
     },
     {
       "symbol": "006400",
@@ -5902,7 +6018,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2024-06-20",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "종이·목재",
+      "sector": "종이"
     },
     {
       "symbol": "006620",
@@ -6182,7 +6300,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2017-03-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "종이·목재",
+      "sector": "종이"
     },
     {
       "symbol": "007197",
@@ -6196,7 +6316,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2017-03-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "종이·목재",
+      "sector": "종이"
     },
     {
       "symbol": "0071M0",
@@ -6434,7 +6556,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2022-02-21",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "바이오/제약"
     },
     {
       "symbol": "007660",
@@ -6616,7 +6740,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2018-03-19",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "화학",
+      "sector": "화학"
     },
     {
       "symbol": "008020",
@@ -6630,7 +6756,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2016-05-18",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·가스",
+      "sector": "통신/유틸리티"
     },
     {
       "symbol": "008040",
@@ -6686,7 +6814,9 @@
       "toSymbol": null,
       "dataStart": "2013-12-18",
       "dataEnd": "2026-03-27",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·전자",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "008250",
@@ -6854,7 +6984,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2023-04-24",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "증권",
+      "sector": "증권/보험"
     },
     {
       "symbol": "008600",
@@ -6896,7 +7028,9 @@
       "toSymbol": "008700",
       "dataStart": "2013-01-02",
       "dataEnd": "2015-07-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·전자",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "008730",
@@ -6952,7 +7086,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2021-06-04",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "음식료·담배",
+      "sector": "식품/음료"
     },
     {
       "symbol": "008830",
@@ -7022,7 +7158,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2016-05-16",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·전자",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "008930",
@@ -7218,7 +7356,9 @@
       "toSymbol": "009270",
       "dataStart": "2013-01-02",
       "dataEnd": "2022-07-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "섬유·의류",
+      "sector": "화장품/패션"
     },
     {
       "symbol": "009290",
@@ -7680,7 +7820,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2023-08-25",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기타금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "010060",
@@ -7764,7 +7906,9 @@
       "toSymbol": "010140",
       "dataStart": "2013-01-02",
       "dataEnd": "2023-07-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "운송장비·부품",
+      "sector": "자동차부품"
     },
     {
       "symbol": "010170",
@@ -7848,7 +7992,9 @@
       "toSymbol": null,
       "dataStart": "2013-07-09",
       "dataEnd": "2025-09-24",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "010470",
@@ -7876,7 +8022,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-07-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금속",
+      "sector": "철강/금속"
     },
     {
       "symbol": "010580",
@@ -7918,7 +8066,9 @@
       "toSymbol": null,
       "dataStart": "2013-11-05",
       "dataEnd": "2026-01-23",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "바이오/제약"
     },
     {
       "symbol": "010620",
@@ -7932,7 +8082,9 @@
       "toSymbol": null,
       "dataStart": "2013-09-25",
       "dataEnd": "2025-12-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "운송장비·부품",
+      "sector": "자동차부품"
     },
     {
       "symbol": "010640",
@@ -8170,7 +8322,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2020-03-23",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "건설",
+      "sector": "건설"
     },
     {
       "symbol": "011170",
@@ -8408,7 +8562,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2016-11-18",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "화학",
+      "sector": "화학"
     },
     {
       "symbol": "011760",
@@ -8660,7 +8816,9 @@
       "toSymbol": "012330",
       "dataStart": "2013-01-02",
       "dataEnd": "2015-01-15",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "운송장비·부품",
+      "sector": "자동차부품"
     },
     {
       "symbol": "012340",
@@ -8716,7 +8874,9 @@
       "toSymbol": null,
       "dataStart": "2013-03-08",
       "dataEnd": "2025-05-26",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기계·장비",
+      "sector": "기계/장비"
     },
     {
       "symbol": "012610",
@@ -9010,7 +9170,9 @@
       "toSymbol": "013360",
       "dataStart": "2013-01-02",
       "dataEnd": "2018-05-10",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "건설",
+      "sector": "건설"
     },
     {
       "symbol": "013450",
@@ -9024,7 +9186,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-07-17",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "화학",
+      "sector": "화학"
     },
     {
       "symbol": "0134X0",
@@ -9234,7 +9398,9 @@
       "toSymbol": null,
       "dataStart": "2013-09-03",
       "dataEnd": "2025-11-25",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "운송장비·부품",
+      "sector": "자동차부품"
     },
     {
       "symbol": "014280",
@@ -9276,7 +9442,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-04-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "건설",
+      "sector": "건설"
     },
     {
       "symbol": "014440",
@@ -9584,7 +9752,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2022-01-17",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·가스",
+      "sector": "통신/유틸리티"
     },
     {
       "symbol": "015360",
@@ -9612,7 +9782,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2023-11-06",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "일반서비스",
+      "sector": "기타 서비스"
     },
     {
       "symbol": "015590",
@@ -9738,7 +9910,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2018-09-17",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "출판·매체복제",
+      "sector": "미디어/엔터"
     },
     {
       "symbol": "016250",
@@ -9794,7 +9968,9 @@
       "toSymbol": "016380",
       "dataStart": "2013-01-02",
       "dataEnd": "2022-07-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금속",
+      "sector": "철강/금속"
     },
     {
       "symbol": "016420",
@@ -9808,7 +9984,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-01-19",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "증권",
+      "sector": "증권/보험"
     },
     {
       "symbol": "016450",
@@ -10144,7 +10322,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2019-11-19",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "섬유·의류",
+      "sector": "화장품/패션"
     },
     {
       "symbol": "017800",
@@ -10508,7 +10688,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2016-08-10",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "종이·목재",
+      "sector": "종이"
     },
     {
       "symbol": "019440",
@@ -10522,7 +10704,9 @@
       "toSymbol": null,
       "dataStart": "2013-11-22",
       "dataEnd": "2026-02-11",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금속",
+      "sector": "철강/금속"
     },
     {
       "symbol": "019490",
@@ -10592,7 +10776,9 @@
       "toSymbol": null,
       "dataStart": "2013-06-20",
       "dataEnd": "2025-09-05",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "019660",
@@ -10914,7 +11100,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2017-07-20",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기타금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "022100",
@@ -11026,7 +11214,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2017-12-19",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "023440",
@@ -11068,7 +11258,9 @@
       "toSymbol": null,
       "dataStart": "2013-04-23",
       "dataEnd": "2025-07-11",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "023530",
@@ -11194,7 +11386,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2021-04-16",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "IT부품",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "023900",
@@ -11320,7 +11514,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2018-07-13",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "024720",
@@ -11376,7 +11572,9 @@
       "toSymbol": null,
       "dataStart": "2013-06-24",
       "dataEnd": "2025-09-09",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·전자",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "024830",
@@ -11530,7 +11728,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2016-08-17",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "섬유·의류",
+      "sector": "화장품/패션"
     },
     {
       "symbol": "025320",
@@ -11684,7 +11884,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2016-03-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "화학",
+      "sector": "화학"
     },
     {
       "symbol": "025860",
@@ -11824,7 +12026,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2019-07-16",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "컴퓨터서비스",
+      "sector": "소프트웨어/플랫폼"
     },
     {
       "symbol": "026260",
@@ -11838,7 +12042,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2018-10-10",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "026890",
@@ -11950,7 +12156,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2020-04-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "027410",
@@ -12048,7 +12256,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2021-04-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "028050",
@@ -12104,7 +12314,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2021-07-15",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "방송서비스",
+      "sector": "미디어/엔터"
     },
     {
       "symbol": "028260",
@@ -12230,7 +12442,9 @@
       "toSymbol": null,
       "dataStart": "2013-03-26",
       "dataEnd": "2025-06-13",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·가스·수도",
+      "sector": "통신/유틸리티"
     },
     {
       "symbol": "030000",
@@ -12300,7 +12514,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2020-05-20",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "섬유·의류",
+      "sector": "화장품/패션"
     },
     {
       "symbol": "030350",
@@ -12384,7 +12600,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2024-05-10",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "일반서비스",
+      "sector": "기타 서비스"
     },
     {
       "symbol": "030960",
@@ -12454,7 +12672,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2021-11-16",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "제약",
+      "sector": "바이오/제약"
     },
     {
       "symbol": "031430",
@@ -12552,7 +12772,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2018-10-10",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "일반서비스",
+      "sector": "기타 서비스"
     },
     {
       "symbol": "032080",
@@ -12636,7 +12858,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-01-26",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "032500",
@@ -12930,7 +13154,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2021-10-07",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "033130",
@@ -12986,7 +13212,9 @@
       "toSymbol": null,
       "dataStart": "2013-10-25",
       "dataEnd": "2026-01-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·전자",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "033200",
@@ -13126,7 +13354,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2021-09-01",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기계·장비",
+      "sector": "기계/장비"
     },
     {
       "symbol": "033500",
@@ -13196,7 +13426,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2021-08-10",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "운송장비·부품",
+      "sector": "자동차부품"
     },
     {
       "symbol": "033630",
@@ -13210,7 +13442,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-06-30",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "통신서비스",
+      "sector": "통신/유틸리티"
     },
     {
       "symbol": "033640",
@@ -13238,7 +13472,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2021-08-26",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기타금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "033780",
@@ -13364,7 +13600,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2025-02-21",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "건설",
+      "sector": "건설"
     },
     {
       "symbol": "034310",
@@ -13616,7 +13854,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2019-12-11",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "오락·문화",
+      "sector": "미디어/엔터"
     },
     {
       "symbol": "035510",
@@ -13840,7 +14080,9 @@
       "toSymbol": null,
       "dataStart": "2013-12-18",
       "dataEnd": "2026-03-16",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "036190",
@@ -13896,7 +14138,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2021-02-10",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "오락·문화",
+      "sector": "미디어/엔터"
     },
     {
       "symbol": "036420",
@@ -13952,7 +14196,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2021-12-24",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "반도체",
+      "sector": "반도체"
     },
     {
       "symbol": "036500",
@@ -13966,7 +14212,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2017-05-10",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "반도체",
+      "sector": "반도체"
     },
     {
       "symbol": "036530",
@@ -14274,7 +14522,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2016-09-07",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "통신장비",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "037350",
@@ -14372,7 +14622,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2017-01-19",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "증권",
+      "sector": "증권/보험"
     },
     {
       "symbol": "037710",
@@ -14484,7 +14736,9 @@
       "toSymbol": null,
       "dataStart": "2016-08-01",
       "dataEnd": "2021-08-20",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "038290",
@@ -14512,7 +14766,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-10",
       "dataEnd": "2025-03-27",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·전자",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "038390",
@@ -14736,7 +14992,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2021-10-05",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "반도체",
+      "sector": "반도체"
     },
     {
       "symbol": "039240",
@@ -14848,7 +15106,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-05-18",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금속",
+      "sector": "철강/금속"
     },
     {
       "symbol": "039560",
@@ -14904,7 +15164,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2022-04-19",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "출판·매체복제",
+      "sector": "미디어/엔터"
     },
     {
       "symbol": "039740",
@@ -14932,7 +15194,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2018-03-08",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "화학",
+      "sector": "화학"
     },
     {
       "symbol": "039830",
@@ -14974,7 +15238,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-05-18",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "039860",
@@ -15086,7 +15352,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-07-15",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "IT부품",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "040910",
@@ -15128,7 +15396,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2022-04-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "디지털컨텐츠",
+      "sector": "소프트웨어/플랫폼"
     },
     {
       "symbol": "041190",
@@ -15450,7 +15720,9 @@
       "toSymbol": null,
       "dataStart": "2013-11-05",
       "dataEnd": "2026-01-23",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기계·장비",
+      "sector": "기계/장비"
     },
     {
       "symbol": "042700",
@@ -15576,7 +15848,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2021-07-19",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기계·장비",
+      "sector": "기계/장비"
     },
     {
       "symbol": "043340",
@@ -15632,7 +15906,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2018-08-09",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "IT부품",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "043590",
@@ -15716,7 +15992,9 @@
       "toSymbol": null,
       "dataStart": "2013-06-03",
       "dataEnd": "2025-08-20",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기계·장비",
+      "sector": "기계/장비"
     },
     {
       "symbol": "044180",
@@ -15982,7 +16260,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2021-12-17",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·전자",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "045970",
@@ -16024,7 +16304,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2022-10-04",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "컴퓨터서비스",
+      "sector": "소프트웨어/플랫폼"
     },
     {
       "symbol": "046120",
@@ -16052,7 +16334,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2023-12-15",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "오락·문화",
+      "sector": "미디어/엔터"
     },
     {
       "symbol": "046210",
@@ -16234,7 +16518,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2018-10-10",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "IT부품",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "047560",
@@ -16318,7 +16604,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2023-08-11",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "의료·정밀기기",
+      "sector": "의료기기"
     },
     {
       "symbol": "048410",
@@ -16612,7 +16900,9 @@
       "toSymbol": null,
       "dataStart": "2013-05-13",
       "dataEnd": "2025-07-30",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "음식료·담배",
+      "sector": "식품/음료"
     },
     {
       "symbol": "049800",
@@ -16724,7 +17014,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2022-05-30",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금속",
+      "sector": "철강/금속"
     },
     {
       "symbol": "050540",
@@ -16738,7 +17030,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2023-05-04",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "일반서비스",
+      "sector": "기타 서비스"
     },
     {
       "symbol": "050760",
@@ -16822,7 +17116,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2018-03-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기계·장비",
+      "sector": "기계/장비"
     },
     {
       "symbol": "051310",
@@ -16836,7 +17132,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2016-04-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "건설",
+      "sector": "건설"
     },
     {
       "symbol": "051360",
@@ -17060,7 +17358,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2022-05-26",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "오락·문화",
+      "sector": "미디어/엔터"
     },
     {
       "symbol": "052220",
@@ -17102,7 +17402,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2017-04-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "IT부품",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "052290",
@@ -17116,7 +17418,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2018-10-10",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "IT부품",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "052300",
@@ -17214,7 +17518,9 @@
       "toSymbol": null,
       "dataStart": "2013-11-28",
       "dataEnd": "2026-02-20",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "제약",
+      "sector": "바이오/제약"
     },
     {
       "symbol": "052690",
@@ -17368,7 +17674,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2022-09-06",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "디지털컨텐츠",
+      "sector": "소프트웨어/플랫폼"
     },
     {
       "symbol": "053160",
@@ -17480,7 +17788,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-04-22",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기계·장비",
+      "sector": "기계/장비"
     },
     {
       "symbol": "053350",
@@ -17536,7 +17846,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2024-10-04",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·전자",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "053595",
@@ -17550,7 +17862,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-07-10",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기계·장비",
+      "sector": "기계/장비"
     },
     {
       "symbol": "053610",
@@ -17592,7 +17906,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2022-04-25",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금속",
+      "sector": "철강/금속"
     },
     {
       "symbol": "053690",
@@ -17634,7 +17950,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-02-09",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "반도체",
+      "sector": "반도체"
     },
     {
       "symbol": "053800",
@@ -17662,7 +17980,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2016-09-13",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기계·장비",
+      "sector": "기계/장비"
     },
     {
       "symbol": "053870",
@@ -17676,7 +17996,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-10-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "통신장비",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "053950",
@@ -17816,7 +18138,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2020-05-20",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "IT부품",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "054410",
@@ -17886,7 +18210,9 @@
       "toSymbol": null,
       "dataStart": "2013-10-11",
       "dataEnd": "2025-12-29",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기타제조",
+      "sector": "기타 제조업"
     },
     {
       "symbol": "054670",
@@ -18026,7 +18352,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2023-03-29",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "디지털컨텐츠",
+      "sector": "소프트웨어/플랫폼"
     },
     {
       "symbol": "056080",
@@ -18152,7 +18480,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2020-12-22",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "반도체",
+      "sector": "반도체"
     },
     {
       "symbol": "057540",
@@ -18194,7 +18524,9 @@
       "toSymbol": null,
       "dataStart": "2013-11-01",
       "dataEnd": "2026-01-21",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기타",
+      "sector": "기타 제조업"
     },
     {
       "symbol": "058110",
@@ -18222,7 +18554,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2024-05-02",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "통신장비",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "058370",
@@ -18236,7 +18570,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2017-05-04",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "058400",
@@ -18264,7 +18600,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2023-04-13",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "오락·문화",
+      "sector": "미디어/엔터"
     },
     {
       "symbol": "058430",
@@ -18320,7 +18658,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2024-06-24",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기계·장비",
+      "sector": "기계/장비"
     },
     {
       "symbol": "058610",
@@ -18600,7 +18940,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2022-11-03",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "오락·문화",
+      "sector": "미디어/엔터"
     },
     {
       "symbol": "060310",
@@ -18768,7 +19110,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2017-02-23",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "IT부품",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "060980",
@@ -18838,7 +19182,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2017-09-28",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "화학",
+      "sector": "화학"
     },
     {
       "symbol": "061970",
@@ -18880,7 +19226,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2024-11-13",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·전자",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "062970",
@@ -19090,7 +19438,9 @@
       "toSymbol": null,
       "dataStart": "2018-03-15",
       "dataEnd": "2023-01-16",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기계·장비",
+      "sector": "기계/장비"
     },
     {
       "symbol": "064520",
@@ -19244,7 +19594,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2019-05-02",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "화학",
+      "sector": "화학"
     },
     {
       "symbol": "065170",
@@ -19272,7 +19624,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-04-30",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "065270",
@@ -19286,7 +19640,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2016-04-11",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "IT부품",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "065350",
@@ -19412,7 +19768,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2024-07-26",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "출판·매체복제",
+      "sector": "미디어/엔터"
     },
     {
       "symbol": "065570",
@@ -19440,7 +19798,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2021-08-06",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금속",
+      "sector": "철강/금속"
     },
     {
       "symbol": "065650",
@@ -19538,7 +19898,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2020-07-30",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "화학",
+      "sector": "바이오/제약"
     },
     {
       "symbol": "065950",
@@ -19566,7 +19928,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2022-04-05",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "정보기기",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "066130",
@@ -19594,7 +19958,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2017-02-24",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "인터넷",
+      "sector": "소프트웨어/플랫폼"
     },
     {
       "symbol": "066310",
@@ -19622,7 +19988,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-05-19",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기계·장비",
+      "sector": "기계/장비"
     },
     {
       "symbol": "066360",
@@ -20098,7 +20466,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-09-17",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "운송장비·부품",
+      "sector": "자동차부품"
     },
     {
       "symbol": "068100",
@@ -20126,7 +20496,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2017-03-06",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "건설",
+      "sector": "건설"
     },
     {
       "symbol": "068240",
@@ -20196,7 +20568,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2024-01-30",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "일반서비스",
+      "sector": "기타 서비스"
     },
     {
       "symbol": "068760",
@@ -20238,7 +20612,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2017-01-16",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "제약",
+      "sector": "바이오/제약"
     },
     {
       "symbol": "068875",
@@ -20252,7 +20628,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2017-01-16",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "제약",
+      "sector": "바이오/제약"
     },
     {
       "symbol": "068930",
@@ -20308,7 +20686,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2023-10-19",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "화학",
+      "sector": "화학"
     },
     {
       "symbol": "069140",
@@ -20616,7 +20996,9 @@
       "toSymbol": null,
       "dataStart": "2016-07-14",
       "dataEnd": "2025-06-17",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·전자",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "071670",
@@ -20672,7 +21054,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-07-09",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "반도체",
+      "sector": "반도체"
     },
     {
       "symbol": "071950",
@@ -20756,7 +21140,9 @@
       "toSymbol": null,
       "dataStart": "2013-03-28",
       "dataEnd": "2025-06-17",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "일반서비스",
+      "sector": "바이오/제약"
     },
     {
       "symbol": "072710",
@@ -20854,7 +21240,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2021-06-03",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "운송장비·부품",
+      "sector": "자동차부품"
     },
     {
       "symbol": "073110",
@@ -20980,7 +21368,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-07-22",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "IT부품",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "074150",
@@ -20994,7 +21384,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2016-09-02",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "건설",
+      "sector": "건설"
     },
     {
       "symbol": "074430",
@@ -21134,7 +21526,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2020-01-15",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "소프트웨어",
+      "sector": "소프트웨어/플랫폼"
     },
     {
       "symbol": "077360",
@@ -21358,7 +21752,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2023-07-20",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "의료·정밀기기",
+      "sector": "의료기기"
     },
     {
       "symbol": "078780",
@@ -21372,7 +21768,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2016-04-27",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "IT부품",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "078860",
@@ -21442,7 +21840,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2025-02-18",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "079000",
@@ -21540,7 +21940,9 @@
       "toSymbol": null,
       "dataStart": "2017-05-11",
       "dataEnd": "2020-02-13",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "보험",
+      "sector": "증권/보험"
     },
     {
       "symbol": "079550",
@@ -21582,7 +21984,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2019-06-25",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "음식료·담배",
+      "sector": "식품/음료"
     },
     {
       "symbol": "079810",
@@ -21694,7 +22098,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2024-12-19",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기계·장비",
+      "sector": "기계/장비"
     },
     {
       "symbol": "080010",
@@ -21764,7 +22170,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2021-09-10",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "080470",
@@ -21918,7 +22326,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2018-10-10",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "소프트웨어",
+      "sector": "소프트웨어/플랫폼"
     },
     {
       "symbol": "082210",
@@ -21960,7 +22370,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2016-07-22",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "IT부품",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "082640",
@@ -22422,7 +22834,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2023-10-26",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "의료·정밀기기",
+      "sector": "의료기기"
     },
     {
       "symbol": "08537M",
@@ -22436,7 +22850,9 @@
       "toSymbol": null,
       "dataStart": "2016-12-15",
       "dataEnd": "2023-10-26",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "의료·정밀기기",
+      "sector": "의료기기"
     },
     {
       "symbol": "085620",
@@ -22548,7 +22964,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2016-05-04",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "통신장비",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "086250",
@@ -22562,7 +22980,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2021-08-30",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기계·장비",
+      "sector": "기계/장비"
     },
     {
       "symbol": "086280",
@@ -22688,7 +23108,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2017-05-04",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "IT부품",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "086890",
@@ -22772,7 +23194,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2018-05-04",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금속",
+      "sector": "철강/금속"
     },
     {
       "symbol": "087260",
@@ -22814,7 +23238,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2021-10-07",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "반도체",
+      "sector": "반도체"
     },
     {
       "symbol": "088130",
@@ -23066,7 +23492,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2024-09-05",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "일반서비스",
+      "sector": "기타 서비스"
     },
     {
       "symbol": "089590",
@@ -23206,7 +23634,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-05-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "IT부품",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "090150",
@@ -23374,7 +23804,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2018-07-16",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금속",
+      "sector": "철강/금속"
     },
     {
       "symbol": "090740",
@@ -23388,7 +23820,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2022-10-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "IT부품",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "090850",
@@ -23416,7 +23850,9 @@
       "toSymbol": null,
       "dataStart": "2013-08-01",
       "dataEnd": "2025-10-24",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금속",
+      "sector": "철강/금속"
     },
     {
       "symbol": "091120",
@@ -23500,7 +23936,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2015-01-20",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "IT부품",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "091700",
@@ -23556,7 +23994,9 @@
       "toSymbol": null,
       "dataStart": "2017-07-28",
       "dataEnd": "2024-01-11",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "의료기기"
     },
     {
       "symbol": "092040",
@@ -23808,7 +24248,9 @@
       "toSymbol": null,
       "dataStart": "2013-06-25",
       "dataEnd": "2025-09-10",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "093240",
@@ -23934,7 +24376,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2020-05-21",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "IT부품",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "094280",
@@ -24116,7 +24560,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2017-09-11",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기계·장비",
+      "sector": "기계/장비"
     },
     {
       "symbol": "095340",
@@ -24242,7 +24688,9 @@
       "toSymbol": null,
       "dataStart": "2013-06-24",
       "dataEnd": "2025-09-09",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "096240",
@@ -24340,7 +24788,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2023-07-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "IT부품",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "096690",
@@ -24690,7 +25140,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2018-07-06",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금속",
+      "sector": "철강/금속"
     },
     {
       "symbol": "099750",
@@ -24718,7 +25170,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2018-05-03",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "오락·문화",
+      "sector": "미디어/엔터"
     },
     {
       "symbol": "100030",
@@ -24900,7 +25354,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2022-01-17",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "일반서비스",
+      "sector": "미디어/엔터"
     },
     {
       "symbol": "101140",
@@ -25138,7 +25594,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2021-04-16",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "운송장비·부품",
+      "sector": "자동차부품"
     },
     {
       "symbol": "102260",
@@ -25166,7 +25624,9 @@
       "toSymbol": null,
       "dataStart": "2013-09-05",
       "dataEnd": "2025-11-27",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "섬유·의류",
+      "sector": "화장품/패션"
     },
     {
       "symbol": "102370",
@@ -25236,7 +25696,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2020-05-29",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·전자",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "103140",
@@ -25320,7 +25782,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2016-12-29",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기계·장비",
+      "sector": "기계/장비"
     },
     {
       "symbol": "104120",
@@ -25334,7 +25798,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2016-12-29",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기계·장비",
+      "sector": "기계/장비"
     },
     {
       "symbol": "104200",
@@ -25726,7 +26192,9 @@
       "toSymbol": null,
       "dataStart": "2014-02-06",
       "dataEnd": "2020-07-15",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "108860",
@@ -25880,7 +26348,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2017-04-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·전자",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "110790",
@@ -25950,7 +26420,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2016-01-22",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "건설",
+      "sector": "건설"
     },
     {
       "symbol": "111710",
@@ -25992,7 +26464,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2021-09-29",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "인터넷",
+      "sector": "소프트웨어/플랫폼"
     },
     {
       "symbol": "111870",
@@ -26006,7 +26480,9 @@
       "toSymbol": null,
       "dataStart": "2013-10-24",
       "dataEnd": "2026-01-13",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·전자",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "112040",
@@ -26034,7 +26510,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2020-06-29",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "화학",
+      "sector": "화학"
     },
     {
       "symbol": "112290",
@@ -26104,7 +26582,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2024-02-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "IT부품",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "114190",
@@ -26146,7 +26626,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2022-02-22",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "114630",
@@ -26244,7 +26726,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2024-12-06",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "화학",
+      "sector": "화학"
     },
     {
       "symbol": "115440",
@@ -26356,7 +26840,9 @@
       "toSymbol": null,
       "dataStart": "2015-11-02",
       "dataEnd": "2024-03-05",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "화학",
+      "sector": "화학"
     },
     {
       "symbol": "117580",
@@ -26412,7 +26898,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2017-03-06",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "운송·창고",
+      "sector": "조선/해운"
     },
     {
       "symbol": "118000",
@@ -26524,7 +27012,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2024-09-23",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "출판·매체복제",
+      "sector": "미디어/엔터"
     },
     {
       "symbol": "120030",
@@ -26734,7 +27224,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2020-02-11",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금속",
+      "sector": "철강/금속"
     },
     {
       "symbol": "122870",
@@ -26818,7 +27310,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2019-02-19",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "반도체",
+      "sector": "반도체"
     },
     {
       "symbol": "123260",
@@ -26832,7 +27326,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2020-04-09",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "반도체",
+      "sector": "반도체"
     },
     {
       "symbol": "123330",
@@ -27154,7 +27650,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2022-10-25",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기계·장비",
+      "sector": "기계/장비"
     },
     {
       "symbol": "126880",
@@ -27196,7 +27694,9 @@
       "toSymbol": null,
       "dataStart": "2013-12-20",
       "dataEnd": "2022-09-21",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "반도체",
+      "sector": "반도체"
     },
     {
       "symbol": "127710",
@@ -27392,7 +27892,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2018-07-17",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "방송서비스",
+      "sector": "미디어/엔터"
     },
     {
       "symbol": "131030",
@@ -27504,7 +28006,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2022-11-28",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·전자",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "131400",
@@ -27630,7 +28134,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2020-07-01",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "운송장비·부품",
+      "sector": "자동차부품"
     },
     {
       "symbol": "134790",
@@ -27714,7 +28220,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2024-07-24",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기계·장비",
+      "sector": "기계/장비"
     },
     {
       "symbol": "136540",
@@ -27854,7 +28362,9 @@
       "toSymbol": null,
       "dataStart": "2015-03-27",
       "dataEnd": "2022-03-21",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "138360",
@@ -27882,7 +28392,9 @@
       "toSymbol": null,
       "dataStart": "2013-12-18",
       "dataEnd": "2026-04-15",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "화학",
+      "sector": "화학"
     },
     {
       "symbol": "138580",
@@ -27896,7 +28408,9 @@
       "toSymbol": null,
       "dataStart": "2017-11-30",
       "dataEnd": "2024-11-21",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "출판·매체복제",
+      "sector": "미디어/엔터"
     },
     {
       "symbol": "138610",
@@ -27924,7 +28438,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2023-12-05",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "반도체",
+      "sector": "반도체"
     },
     {
       "symbol": "138930",
@@ -27952,7 +28468,9 @@
       "toSymbol": null,
       "dataStart": "2013-12-18",
       "dataEnd": "2026-05-07",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "IT 서비스",
+      "sector": "소프트웨어/플랫폼"
     },
     {
       "symbol": "139130",
@@ -28120,7 +28638,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-29",
       "dataEnd": "2024-01-02",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "141070",
@@ -28134,7 +28654,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2021-09-15",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기계·장비",
+      "sector": "기계/장비"
     },
     {
       "symbol": "141080",
@@ -28274,7 +28796,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2021-11-04",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "화학",
+      "sector": "화학"
     },
     {
       "symbol": "144960",
@@ -28456,7 +28980,9 @@
       "toSymbol": null,
       "dataStart": "2017-01-16",
       "dataEnd": "2024-06-05",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기계·장비",
+      "sector": "기계/장비"
     },
     {
       "symbol": "148150",
@@ -28526,7 +29052,9 @@
       "toSymbol": null,
       "dataStart": "2013-01-02",
       "dataEnd": "2020-07-09",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "통신장비",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "149950",
@@ -28568,7 +29096,9 @@
       "toSymbol": null,
       "dataStart": "2013-12-19",
       "dataEnd": "2026-01-23",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "의료·정밀기기",
+      "sector": "의료기기"
     },
     {
       "symbol": "150900",
@@ -28610,7 +29140,9 @@
       "toSymbol": null,
       "dataStart": "2013-09-03",
       "dataEnd": "2025-11-25",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·전자",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "152330",
@@ -28624,7 +29156,9 @@
       "toSymbol": null,
       "dataStart": "2015-12-29",
       "dataEnd": "2020-12-17",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "비금속",
+      "sector": "시멘트"
     },
     {
       "symbol": "153460",
@@ -28736,7 +29270,9 @@
       "toSymbol": null,
       "dataStart": "2013-02-13",
       "dataEnd": "2018-10-11",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "IT부품",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "156100",
@@ -28764,7 +29300,9 @@
       "toSymbol": null,
       "dataStart": "2013-04-03",
       "dataEnd": "2022-11-08",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기계·장비",
+      "sector": "기계/장비"
     },
     {
       "symbol": "158380",
@@ -28778,7 +29316,9 @@
       "toSymbol": null,
       "dataStart": "2013-04-30",
       "dataEnd": "2016-04-20",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "운송장비·부품",
+      "sector": "자동차부품"
     },
     {
       "symbol": "158430",
@@ -28876,7 +29416,9 @@
       "toSymbol": null,
       "dataStart": "2015-06-26",
       "dataEnd": "2025-02-13",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기계·장비",
+      "sector": "기계/장비"
     },
     {
       "symbol": "160980",
@@ -28932,7 +29474,9 @@
       "toSymbol": null,
       "dataStart": "2013-11-13",
       "dataEnd": "2024-06-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "정보기기",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "161580",
@@ -29030,7 +29574,9 @@
       "toSymbol": null,
       "dataStart": "2020-08-06",
       "dataEnd": "2024-10-21",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "의료·정밀기기",
+      "sector": "의료기기"
     },
     {
       "symbol": "166090",
@@ -29254,7 +29800,9 @@
       "toSymbol": null,
       "dataStart": "2016-07-15",
       "dataEnd": "2026-01-13",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·전자",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "174900",
@@ -29324,7 +29872,9 @@
       "toSymbol": null,
       "dataStart": "2016-11-28",
       "dataEnd": "2022-06-24",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "IT부품",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "176750",
@@ -29520,7 +30070,9 @@
       "toSymbol": null,
       "dataStart": "2017-07-26",
       "dataEnd": "2024-07-09",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "의료·정밀기기",
+      "sector": "의료기기"
     },
     {
       "symbol": "181710",
@@ -29576,7 +30128,9 @@
       "toSymbol": null,
       "dataStart": "2013-10-11",
       "dataEnd": "2022-10-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "183190",
@@ -30010,7 +30564,9 @@
       "toSymbol": null,
       "dataStart": "2014-05-22",
       "dataEnd": "2015-06-22",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "은행",
+      "sector": "은행/금융지주"
     },
     {
       "symbol": "192530",
@@ -30024,7 +30580,9 @@
       "toSymbol": null,
       "dataStart": "2014-05-22",
       "dataEnd": "2018-10-25",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "은행",
+      "sector": "은행/금융지주"
     },
     {
       "symbol": "192650",
@@ -30108,7 +30666,9 @@
       "toSymbol": null,
       "dataStart": "2014-11-21",
       "dataEnd": "2020-09-08",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "디지털컨텐츠",
+      "sector": "소프트웨어/플랫폼"
     },
     {
       "symbol": "194610",
@@ -30122,7 +30682,9 @@
       "toSymbol": null,
       "dataStart": "2014-06-10",
       "dataEnd": "2018-10-11",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기타제조",
+      "sector": "기타 제조업"
     },
     {
       "symbol": "194700",
@@ -30150,7 +30712,9 @@
       "toSymbol": null,
       "dataStart": "2016-12-21",
       "dataEnd": "2021-06-09",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "소프트웨어",
+      "sector": "소프트웨어/플랫폼"
     },
     {
       "symbol": "195500",
@@ -30304,7 +30868,9 @@
       "toSymbol": null,
       "dataStart": "2014-09-26",
       "dataEnd": "2020-05-13",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "반도체",
+      "sector": "반도체"
     },
     {
       "symbol": "198080",
@@ -30668,7 +31234,9 @@
       "toSymbol": null,
       "dataStart": "2014-10-22",
       "dataEnd": "2017-05-26",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "204610",
@@ -30710,7 +31278,9 @@
       "toSymbol": null,
       "dataStart": "2014-12-29",
       "dataEnd": "2026-03-17",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "오락·문화",
+      "sector": "미디어/엔터"
     },
     {
       "symbol": "204650",
@@ -30724,7 +31294,9 @@
       "toSymbol": null,
       "dataStart": "2014-11-24",
       "dataEnd": "2017-07-06",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "204760",
@@ -30738,7 +31310,9 @@
       "toSymbol": null,
       "dataStart": "2014-11-10",
       "dataEnd": "2017-06-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "204840",
@@ -30766,7 +31340,9 @@
       "toSymbol": null,
       "dataStart": "2015-04-03",
       "dataEnd": "2020-08-10",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "음식료·담배",
+      "sector": "바이오/제약"
     },
     {
       "symbol": "205100",
@@ -30878,7 +31454,9 @@
       "toSymbol": null,
       "dataStart": "2015-02-05",
       "dataEnd": "2017-10-19",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "207720",
@@ -30892,7 +31470,9 @@
       "toSymbol": null,
       "dataStart": "2014-12-17",
       "dataEnd": "2017-10-13",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "207760",
@@ -30920,7 +31500,9 @@
       "toSymbol": null,
       "dataStart": "2015-03-31",
       "dataEnd": "2017-11-03",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "207940",
@@ -30962,7 +31544,9 @@
       "toSymbol": null,
       "dataStart": "2018-11-21",
       "dataEnd": "2026-01-26",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "제약",
+      "sector": "바이오/제약"
     },
     {
       "symbol": "208350",
@@ -31046,7 +31630,9 @@
       "toSymbol": null,
       "dataStart": "2014-12-24",
       "dataEnd": "2017-07-28",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "209640",
@@ -31172,7 +31758,9 @@
       "toSymbol": null,
       "dataStart": "2015-12-01",
       "dataEnd": "2021-10-01",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "소프트웨어",
+      "sector": "소프트웨어/플랫폼"
     },
     {
       "symbol": "213420",
@@ -31270,7 +31858,9 @@
       "toSymbol": null,
       "dataStart": "2015-06-25",
       "dataEnd": "2024-12-20",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·전자",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "214320",
@@ -31410,7 +32000,9 @@
       "toSymbol": null,
       "dataStart": "2015-10-13",
       "dataEnd": "2025-03-28",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "215000",
@@ -31522,7 +32114,9 @@
       "toSymbol": null,
       "dataStart": "2015-05-19",
       "dataEnd": "2017-12-22",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "215600",
@@ -31550,7 +32144,9 @@
       "toSymbol": null,
       "dataStart": "2015-05-22",
       "dataEnd": "2018-01-03",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "215790",
@@ -31690,7 +32286,9 @@
       "toSymbol": null,
       "dataStart": "2015-06-26",
       "dataEnd": "2022-12-15",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "일반서비스",
+      "sector": "기타 서비스"
     },
     {
       "symbol": "217620",
@@ -31704,7 +32302,9 @@
       "toSymbol": null,
       "dataStart": "2015-06-10",
       "dataEnd": "2026-05-07",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "일반서비스",
+      "sector": "기타 서비스"
     },
     {
       "symbol": "217730",
@@ -31732,7 +32332,9 @@
       "toSymbol": null,
       "dataStart": "2015-06-12",
       "dataEnd": "2018-01-18",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "217820",
@@ -31788,7 +32390,9 @@
       "toSymbol": null,
       "dataStart": "2015-07-06",
       "dataEnd": "2018-02-13",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "219130",
@@ -31844,7 +32448,9 @@
       "toSymbol": null,
       "dataStart": "2015-06-30",
       "dataEnd": "2018-02-06",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "219750",
@@ -31872,7 +32478,9 @@
       "toSymbol": null,
       "dataStart": "2015-07-20",
       "dataEnd": "2018-02-28",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "219960",
@@ -31886,7 +32494,9 @@
       "toSymbol": null,
       "dataStart": "2015-07-17",
       "dataEnd": "2018-02-22",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "220100",
@@ -31942,7 +32552,9 @@
       "toSymbol": null,
       "dataStart": "2015-08-28",
       "dataEnd": "2022-05-30",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "221200",
@@ -31956,7 +32568,9 @@
       "toSymbol": null,
       "dataStart": "2015-09-09",
       "dataEnd": "2018-04-16",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "221610",
@@ -31970,7 +32584,9 @@
       "toSymbol": null,
       "dataStart": "2016-01-27",
       "dataEnd": "2022-01-04",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "화학",
+      "sector": "바이오/제약"
     },
     {
       "symbol": "221800",
@@ -32012,7 +32628,9 @@
       "toSymbol": null,
       "dataStart": "2015-08-21",
       "dataEnd": "2018-03-29",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "221980",
@@ -32096,7 +32714,9 @@
       "toSymbol": null,
       "dataStart": "2015-08-05",
       "dataEnd": "2018-03-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "222420",
@@ -32138,7 +32758,9 @@
       "toSymbol": null,
       "dataStart": "2015-08-13",
       "dataEnd": "2026-03-13",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금속",
+      "sector": "철강/금속"
     },
     {
       "symbol": "222980",
@@ -32166,7 +32788,9 @@
       "toSymbol": null,
       "dataStart": "2015-08-27",
       "dataEnd": "2018-03-29",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "223250",
@@ -32264,7 +32888,9 @@
       "toSymbol": null,
       "dataStart": "2016-04-07",
       "dataEnd": "2022-03-16",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "일반서비스",
+      "sector": "기타 서비스"
     },
     {
       "symbol": "225430",
@@ -32292,7 +32918,9 @@
       "toSymbol": null,
       "dataStart": "2015-10-19",
       "dataEnd": "2018-05-25",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "225530",
@@ -32348,7 +32976,9 @@
       "toSymbol": null,
       "dataStart": "2015-09-04",
       "dataEnd": "2019-09-11",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·전자",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "226320",
@@ -32404,7 +33034,9 @@
       "toSymbol": null,
       "dataStart": "2016-02-03",
       "dataEnd": "2021-06-10",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "통신장비",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "226360",
@@ -32418,7 +33050,9 @@
       "toSymbol": null,
       "dataStart": "2015-10-22",
       "dataEnd": "2026-01-13",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "건설",
+      "sector": "건설"
     },
     {
       "symbol": "226400",
@@ -32446,7 +33080,9 @@
       "toSymbol": null,
       "dataStart": "2015-10-06",
       "dataEnd": "2025-06-18",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기계·장비",
+      "sector": "기계/장비"
     },
     {
       "symbol": "226590",
@@ -32474,7 +33110,9 @@
       "toSymbol": null,
       "dataStart": "2015-10-29",
       "dataEnd": "2018-06-04",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "226950",
@@ -32670,7 +33308,9 @@
       "toSymbol": null,
       "dataStart": "2015-12-18",
       "dataEnd": "2018-07-25",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "230980",
@@ -32684,7 +33324,9 @@
       "toSymbol": null,
       "dataStart": "2016-03-02",
       "dataEnd": "2026-06-04",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "IT 서비스",
+      "sector": "소프트웨어/플랫폼"
     },
     {
       "symbol": "232140",
@@ -32712,7 +33354,9 @@
       "toSymbol": null,
       "dataStart": "2016-02-29",
       "dataEnd": "2018-10-11",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "232330",
@@ -32726,7 +33370,9 @@
       "toSymbol": null,
       "dataStart": "2016-11-16",
       "dataEnd": "2019-08-29",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "232680",
@@ -32866,7 +33512,9 @@
       "toSymbol": null,
       "dataStart": "2016-03-04",
       "dataEnd": "2018-10-11",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "235980",
@@ -33076,7 +33724,9 @@
       "toSymbol": null,
       "dataStart": "2016-06-22",
       "dataEnd": "2019-01-28",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "240550",
@@ -33804,7 +34454,9 @@
       "toSymbol": null,
       "dataStart": "2017-02-23",
       "dataEnd": "2019-09-30",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "258610",
@@ -33986,7 +34638,9 @@
       "toSymbol": null,
       "dataStart": "2017-03-03",
       "dataEnd": "2019-10-08",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "262840",
@@ -34042,7 +34696,9 @@
       "toSymbol": null,
       "dataStart": "2017-09-15",
       "dataEnd": "2024-11-05",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "운송장비·부품",
+      "sector": "자동차부품"
     },
     {
       "symbol": "263600",
@@ -34196,7 +34852,9 @@
       "toSymbol": null,
       "dataStart": "2017-05-02",
       "dataEnd": "2019-12-05",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "264450",
@@ -34280,7 +34938,9 @@
       "toSymbol": null,
       "dataStart": "2017-05-26",
       "dataEnd": "2020-01-02",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "265520",
@@ -34336,7 +34996,9 @@
       "toSymbol": null,
       "dataStart": "2017-06-08",
       "dataEnd": "2020-01-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "267250",
@@ -34476,7 +35138,9 @@
       "toSymbol": null,
       "dataStart": "2018-11-09",
       "dataEnd": "2025-03-06",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "일반서비스",
+      "sector": "기타 서비스"
     },
     {
       "symbol": "269620",
@@ -34560,7 +35224,9 @@
       "toSymbol": null,
       "dataStart": "2017-07-24",
       "dataEnd": "2020-03-02",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "271830",
@@ -34784,7 +35450,9 @@
       "toSymbol": null,
       "dataStart": "2017-11-10",
       "dataEnd": "2020-06-17",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "277070",
@@ -34826,7 +35494,9 @@
       "toSymbol": null,
       "dataStart": "2017-10-20",
       "dataEnd": "2020-08-19",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "277810",
@@ -34910,7 +35580,9 @@
       "toSymbol": null,
       "dataStart": "2017-11-27",
       "dataEnd": "2020-07-02",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "279570",
@@ -34966,7 +35638,9 @@
       "toSymbol": null,
       "dataStart": "2017-12-21",
       "dataEnd": "2020-07-24",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "281740",
@@ -35022,7 +35696,9 @@
       "toSymbol": null,
       "dataStart": "2017-11-29",
       "dataEnd": "2024-10-07",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "화학",
+      "sector": "화학"
     },
     {
       "symbol": "282720",
@@ -35176,7 +35852,9 @@
       "toSymbol": null,
       "dataStart": "2018-05-08",
       "dataEnd": "2024-11-06",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "의료·정밀기기",
+      "sector": "의료기기"
     },
     {
       "symbol": "287840",
@@ -35358,7 +36036,9 @@
       "toSymbol": null,
       "dataStart": "2018-08-10",
       "dataEnd": "2025-08-20",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "화학",
+      "sector": "화학"
     },
     {
       "symbol": "290510",
@@ -35372,7 +36052,9 @@
       "toSymbol": null,
       "dataStart": "2019-11-29",
       "dataEnd": "2022-12-15",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "소프트웨어",
+      "sector": "소프트웨어/플랫폼"
     },
     {
       "symbol": "290520",
@@ -35512,7 +36194,9 @@
       "toSymbol": null,
       "dataStart": "2018-05-11",
       "dataEnd": "2021-01-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "291230",
@@ -35904,7 +36588,9 @@
       "toSymbol": null,
       "dataStart": "2021-12-16",
       "dataEnd": "2023-08-25",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "299030",
@@ -35974,7 +36660,9 @@
       "toSymbol": null,
       "dataStart": "2018-12-03",
       "dataEnd": "2025-02-13",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "IT 서비스",
+      "sector": "소프트웨어/플랫폼"
     },
     {
       "symbol": "300080",
@@ -36240,7 +36928,9 @@
       "toSymbol": null,
       "dataStart": "2018-12-07",
       "dataEnd": "2021-07-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "307160",
@@ -36254,7 +36944,9 @@
       "toSymbol": null,
       "dataStart": "2018-11-30",
       "dataEnd": "2021-07-07",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "307180",
@@ -36478,7 +37170,9 @@
       "toSymbol": null,
       "dataStart": "2018-12-24",
       "dataEnd": "2021-09-17",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "310870",
@@ -36506,7 +37200,9 @@
       "toSymbol": null,
       "dataStart": "2018-12-26",
       "dataEnd": "2021-07-30",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "311320",
@@ -36576,7 +37272,9 @@
       "toSymbol": null,
       "dataStart": "2019-03-21",
       "dataEnd": "2021-12-06",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "313760",
@@ -36674,7 +37372,9 @@
       "toSymbol": null,
       "dataStart": "2019-03-27",
       "dataEnd": "2021-11-03",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "317120",
@@ -36716,7 +37416,9 @@
       "toSymbol": null,
       "dataStart": "2019-05-03",
       "dataEnd": "2021-12-06",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "317330",
@@ -37108,7 +37810,9 @@
       "toSymbol": null,
       "dataStart": "2019-07-15",
       "dataEnd": "2022-02-16",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "323230",
@@ -37122,7 +37826,9 @@
       "toSymbol": null,
       "dataStart": "2019-06-19",
       "dataEnd": "2025-06-18",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "섬유·의류",
+      "sector": "화장품/패션"
     },
     {
       "symbol": "323280",
@@ -37178,7 +37884,9 @@
       "toSymbol": null,
       "dataStart": "2019-06-24",
       "dataEnd": "2022-02-03",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "323990",
@@ -37276,7 +37984,9 @@
       "toSymbol": null,
       "dataStart": "2019-08-30",
       "dataEnd": "2022-04-01",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "330350",
@@ -37346,7 +38056,9 @@
       "toSymbol": null,
       "dataStart": "2019-09-30",
       "dataEnd": "2022-05-06",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "331380",
@@ -37458,7 +38170,9 @@
       "toSymbol": null,
       "dataStart": "2019-11-01",
       "dataEnd": "2022-09-23",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "333050",
@@ -37570,7 +38284,9 @@
       "toSymbol": null,
       "dataStart": "2019-12-03",
       "dataEnd": "2025-12-09",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "의료·정밀기기",
+      "sector": "의료기기"
     },
     {
       "symbol": "336060",
@@ -37710,7 +38426,9 @@
       "toSymbol": null,
       "dataStart": "2019-12-04",
       "dataEnd": "2022-10-17",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "337930",
@@ -37808,7 +38526,9 @@
       "toSymbol": null,
       "dataStart": "2019-12-23",
       "dataEnd": "2022-07-27",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "340350",
@@ -37822,7 +38542,9 @@
       "toSymbol": null,
       "dataStart": "2020-03-11",
       "dataEnd": "2022-10-17",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "340360",
@@ -37920,7 +38642,9 @@
       "toSymbol": null,
       "dataStart": "2020-01-30",
       "dataEnd": "2022-12-22",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "342550",
@@ -37934,7 +38658,9 @@
       "toSymbol": null,
       "dataStart": "2020-01-30",
       "dataEnd": "2022-12-28",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "342870",
@@ -37962,7 +38688,9 @@
       "toSymbol": null,
       "dataStart": "2020-07-23",
       "dataEnd": "2023-02-28",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "344050",
@@ -37976,7 +38704,9 @@
       "toSymbol": null,
       "dataStart": "2020-02-12",
       "dataEnd": "2023-02-16",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "344820",
@@ -38032,7 +38762,9 @@
       "toSymbol": null,
       "dataStart": "2020-03-24",
       "dataEnd": "2022-10-28",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "347700",
@@ -38242,7 +38974,9 @@
       "toSymbol": null,
       "dataStart": "2020-05-20",
       "dataEnd": "2022-12-23",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "350520",
@@ -38298,7 +39032,9 @@
       "toSymbol": null,
       "dataStart": "2020-07-15",
       "dataEnd": "2023-02-20",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "351870",
@@ -38424,7 +39160,9 @@
       "toSymbol": null,
       "dataStart": "2020-12-16",
       "dataEnd": "2023-09-21",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "353070",
@@ -38438,7 +39176,9 @@
       "toSymbol": null,
       "dataStart": "2020-07-29",
       "dataEnd": "2023-03-09",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "353190",
@@ -38494,7 +39234,9 @@
       "toSymbol": null,
       "dataStart": "2020-08-28",
       "dataEnd": "2023-05-16",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "353590",
@@ -39068,7 +39810,9 @@
       "toSymbol": null,
       "dataStart": "2021-02-04",
       "dataEnd": "2023-09-15",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "367000",
@@ -39096,7 +39840,9 @@
       "toSymbol": null,
       "dataStart": "2020-12-09",
       "dataEnd": "2023-07-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "367360",
@@ -39110,7 +39856,9 @@
       "toSymbol": null,
       "dataStart": "2021-03-16",
       "dataEnd": "2023-11-23",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "367460",
@@ -39124,7 +39872,9 @@
       "toSymbol": null,
       "dataStart": "2020-12-28",
       "dataEnd": "2022-12-07",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "367480",
@@ -39138,7 +39888,9 @@
       "toSymbol": null,
       "dataStart": "2021-04-05",
       "dataEnd": "2023-09-07",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "368600",
@@ -39250,7 +40002,9 @@
       "toSymbol": null,
       "dataStart": "2021-03-05",
       "dataEnd": "2024-02-16",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "372320",
@@ -39376,7 +40130,9 @@
       "toSymbol": null,
       "dataStart": "2021-04-08",
       "dataEnd": "2023-12-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "375500",
@@ -39446,7 +40202,9 @@
       "toSymbol": null,
       "dataStart": "2021-06-11",
       "dataEnd": "2025-02-20",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "전기·전자",
+      "sector": "IT 하드웨어"
     },
     {
       "symbol": "376270",
@@ -39614,7 +40372,9 @@
       "toSymbol": null,
       "dataStart": "2021-05-10",
       "dataEnd": "2024-01-24",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "377450",
@@ -39670,7 +40430,9 @@
       "toSymbol": null,
       "dataStart": "2021-05-21",
       "dataEnd": "2023-12-26",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "377740",
@@ -39740,7 +40502,9 @@
       "toSymbol": null,
       "dataStart": "2021-06-17",
       "dataEnd": "2024-01-22",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "380440",
@@ -39754,7 +40518,9 @@
       "toSymbol": null,
       "dataStart": "2021-05-21",
       "dataEnd": "2023-12-28",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "기타금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "380540",
@@ -39978,7 +40744,9 @@
       "toSymbol": null,
       "dataStart": "2021-08-05",
       "dataEnd": "2024-06-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "387310",
@@ -39992,7 +40760,9 @@
       "toSymbol": null,
       "dataStart": "2021-09-17",
       "dataEnd": "2023-03-15",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "387570",
@@ -40048,7 +40818,9 @@
       "toSymbol": null,
       "dataStart": "2021-10-07",
       "dataEnd": "2023-05-22",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "388610",
@@ -40104,7 +40876,9 @@
       "toSymbol": null,
       "dataStart": "2021-09-13",
       "dataEnd": "2024-07-01",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "388870",
@@ -40244,7 +41018,9 @@
       "toSymbol": null,
       "dataStart": "2021-10-05",
       "dataEnd": "2024-05-13",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "391710",
@@ -40286,7 +41062,9 @@
       "toSymbol": null,
       "dataStart": "2021-09-27",
       "dataEnd": "2024-04-29",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "393890",
@@ -40440,7 +41218,9 @@
       "toSymbol": null,
       "dataStart": "2021-12-24",
       "dataEnd": "2023-04-27",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "397030",
@@ -40468,7 +41248,9 @@
       "toSymbol": null,
       "dataStart": "2021-12-02",
       "dataEnd": "2023-03-08",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "397810",
@@ -40496,7 +41278,9 @@
       "toSymbol": null,
       "dataStart": "2021-12-20",
       "dataEnd": "2024-03-22",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "398120",
@@ -40538,7 +41322,9 @@
       "toSymbol": null,
       "dataStart": "2021-12-27",
       "dataEnd": "2023-09-18",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "400760",
@@ -40566,7 +41352,9 @@
       "toSymbol": null,
       "dataStart": "2021-12-20",
       "dataEnd": "2024-07-25",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "402030",
@@ -40678,7 +41466,9 @@
       "toSymbol": null,
       "dataStart": "2022-01-20",
       "dataEnd": "2024-01-03",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "404990",
@@ -40734,7 +41524,9 @@
       "toSymbol": null,
       "dataStart": "2022-02-18",
       "dataEnd": "2023-11-02",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "405640",
@@ -40748,7 +41540,9 @@
       "toSymbol": null,
       "dataStart": "2022-04-27",
       "dataEnd": "2024-06-10",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "405920",
@@ -40776,7 +41570,9 @@
       "toSymbol": null,
       "dataStart": "2022-02-25",
       "dataEnd": "2024-12-24",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "406820",
@@ -40860,7 +41656,9 @@
       "toSymbol": null,
       "dataStart": "2022-02-21",
       "dataEnd": "2023-08-30",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "411080",
@@ -40916,7 +41714,9 @@
       "toSymbol": null,
       "dataStart": "2022-04-21",
       "dataEnd": "2025-01-20",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "413390",
@@ -40944,7 +41744,9 @@
       "toSymbol": null,
       "dataStart": "2022-04-07",
       "dataEnd": "2025-02-27",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "413630",
@@ -41000,7 +41802,9 @@
       "toSymbol": null,
       "dataStart": "2022-04-29",
       "dataEnd": "2024-12-03",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "415640",
@@ -41168,7 +41972,9 @@
       "toSymbol": null,
       "dataStart": "2022-05-26",
       "dataEnd": "2024-12-18",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "418210",
@@ -41182,7 +41988,9 @@
       "toSymbol": null,
       "dataStart": "2022-07-29",
       "dataEnd": "2025-04-03",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "418250",
@@ -41308,7 +42116,9 @@
       "toSymbol": null,
       "dataStart": "2022-04-28",
       "dataEnd": "2024-04-24",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "419530",
@@ -41378,7 +42188,9 @@
       "toSymbol": null,
       "dataStart": "2022-06-24",
       "dataEnd": "2024-11-18",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "422040",
@@ -41392,7 +42204,9 @@
       "toSymbol": null,
       "dataStart": "2022-06-28",
       "dataEnd": "2025-02-07",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "424140",
@@ -41406,7 +42220,9 @@
       "toSymbol": null,
       "dataStart": "2022-06-23",
       "dataEnd": "2025-02-03",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "424760",
@@ -41490,7 +42306,9 @@
       "toSymbol": null,
       "dataStart": "2022-06-30",
       "dataEnd": "2025-02-10",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "425420",
@@ -41518,7 +42336,9 @@
       "toSymbol": null,
       "dataStart": "2022-08-26",
       "dataEnd": "2024-02-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "426670",
@@ -41532,7 +42352,9 @@
       "toSymbol": null,
       "dataStart": "2022-07-14",
       "dataEnd": "2023-04-19",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "427950",
@@ -41546,7 +42368,9 @@
       "toSymbol": null,
       "dataStart": "2022-09-15",
       "dataEnd": "2024-01-31",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "429270",
@@ -41574,7 +42398,9 @@
       "toSymbol": null,
       "dataStart": "2022-08-26",
       "dataEnd": "2025-08-21",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "430230",
@@ -41588,7 +42414,9 @@
       "toSymbol": null,
       "dataStart": "2022-09-29",
       "dataEnd": "2024-09-02",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "430460",
@@ -41602,7 +42430,9 @@
       "toSymbol": null,
       "dataStart": "2022-09-29",
       "dataEnd": "2024-12-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "430690",
@@ -41630,7 +42460,9 @@
       "toSymbol": null,
       "dataStart": "2022-08-04",
       "dataEnd": "2025-03-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "431190",
@@ -41728,7 +42560,9 @@
       "toSymbol": null,
       "dataStart": "2022-09-07",
       "dataEnd": "2025-03-06",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "434480",
@@ -41756,7 +42590,9 @@
       "toSymbol": null,
       "dataStart": "2022-10-06",
       "dataEnd": "2025-05-13",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "435570",
@@ -41784,7 +42620,9 @@
       "toSymbol": null,
       "dataStart": "2022-10-20",
       "dataEnd": "2025-05-23",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "435870",
@@ -41798,7 +42636,9 @@
       "toSymbol": null,
       "dataStart": "2022-10-06",
       "dataEnd": "2025-05-15",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "436530",
@@ -41812,7 +42652,9 @@
       "toSymbol": null,
       "dataStart": "2022-09-22",
       "dataEnd": "2024-05-02",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "436610",
@@ -41826,7 +42668,9 @@
       "toSymbol": null,
       "dataStart": "2022-10-20",
       "dataEnd": "2024-09-26",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "437730",
@@ -41854,7 +42698,9 @@
       "toSymbol": null,
       "dataStart": "2022-10-20",
       "dataEnd": "2025-05-23",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "438220",
@@ -41868,7 +42714,9 @@
       "toSymbol": null,
       "dataStart": "2022-11-28",
       "dataEnd": "2024-11-19",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "438580",
@@ -41882,7 +42730,9 @@
       "toSymbol": null,
       "dataStart": "2022-11-03",
       "dataEnd": "2025-06-10",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "438700",
@@ -41924,7 +42774,9 @@
       "toSymbol": null,
       "dataStart": "2022-10-26",
       "dataEnd": "2025-05-30",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "439260",
@@ -41952,7 +42804,9 @@
       "toSymbol": null,
       "dataStart": "2022-12-01",
       "dataEnd": "2025-07-07",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "439580",
@@ -41980,7 +42834,9 @@
       "toSymbol": null,
       "dataStart": "2022-10-28",
       "dataEnd": "2025-05-30",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "439960",
@@ -42022,7 +42878,9 @@
       "toSymbol": null,
       "dataStart": "2022-11-03",
       "dataEnd": "2023-11-02",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "440290",
@@ -42064,7 +42922,9 @@
       "toSymbol": null,
       "dataStart": "2022-11-02",
       "dataEnd": "2025-07-10",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "440820",
@@ -42078,7 +42938,9 @@
       "toSymbol": null,
       "dataStart": "2022-12-16",
       "dataEnd": "2025-07-18",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "441270",
@@ -42106,7 +42968,9 @@
       "toSymbol": null,
       "dataStart": "2022-12-01",
       "dataEnd": "2025-07-08",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "442310",
@@ -42120,7 +42984,9 @@
       "toSymbol": null,
       "dataStart": "2022-12-05",
       "dataEnd": "2025-07-10",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "442770",
@@ -42134,7 +43000,9 @@
       "toSymbol": null,
       "dataStart": "2022-12-16",
       "dataEnd": "2025-11-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "442900",
@@ -42148,7 +43016,9 @@
       "toSymbol": null,
       "dataStart": "2023-03-15",
       "dataEnd": "2025-10-22",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "443060",
@@ -42218,7 +43088,9 @@
       "toSymbol": null,
       "dataStart": "2023-09-01",
       "dataEnd": "2026-04-03",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "445090",
@@ -42260,7 +43132,9 @@
       "toSymbol": null,
       "dataStart": "2022-12-22",
       "dataEnd": "2025-07-25",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "445680",
@@ -42288,7 +43162,9 @@
       "toSymbol": null,
       "dataStart": "2022-12-27",
       "dataEnd": "2025-07-31",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "446070",
@@ -42316,7 +43192,9 @@
       "toSymbol": null,
       "dataStart": "2023-03-17",
       "dataEnd": "2026-01-27",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "446190",
@@ -42330,7 +43208,9 @@
       "toSymbol": null,
       "dataStart": "2023-02-24",
       "dataEnd": "2025-09-08",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "446540",
@@ -42358,7 +43238,9 @@
       "toSymbol": null,
       "dataStart": "2023-03-07",
       "dataEnd": "2025-10-15",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "446840",
@@ -42400,7 +43282,9 @@
       "toSymbol": null,
       "dataStart": "2023-04-06",
       "dataEnd": "2025-11-12",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "448710",
@@ -42442,7 +43326,9 @@
       "toSymbol": null,
       "dataStart": "2023-03-02",
       "dataEnd": "2025-10-13",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "448760",
@@ -42456,7 +43342,9 @@
       "toSymbol": null,
       "dataStart": "2023-04-06",
       "dataEnd": "2025-12-26",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "448830",
@@ -42470,7 +43358,9 @@
       "toSymbol": null,
       "dataStart": "2023-04-07",
       "dataEnd": "2026-01-13",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "448900",
@@ -42498,7 +43388,9 @@
       "toSymbol": null,
       "dataStart": "2023-02-28",
       "dataEnd": "2025-10-02",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "450050",
@@ -42512,7 +43404,9 @@
       "toSymbol": null,
       "dataStart": "2023-06-22",
       "dataEnd": "2026-01-28",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "450080",
@@ -42540,7 +43434,9 @@
       "toSymbol": null,
       "dataStart": "2023-01-31",
       "dataEnd": "2026-01-06",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "45014K",
@@ -42554,7 +43450,9 @@
       "toSymbol": null,
       "dataStart": "2023-01-31",
       "dataEnd": "2024-12-30",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "유통",
+      "sector": "유통/상사"
     },
     {
       "symbol": "450330",
@@ -42582,7 +43480,9 @@
       "toSymbol": null,
       "dataStart": "2023-03-09",
       "dataEnd": "2023-12-20",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "450520",
@@ -42610,7 +43510,9 @@
       "toSymbol": null,
       "dataStart": "2023-07-27",
       "dataEnd": "2026-03-04",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "450950",
@@ -42666,7 +43568,9 @@
       "toSymbol": null,
       "dataStart": "2023-06-23",
       "dataEnd": "2026-06-09",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "451760",
@@ -42848,7 +43752,9 @@
       "toSymbol": null,
       "dataStart": "2023-09-14",
       "dataEnd": "2026-04-20",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "452980",
@@ -42862,7 +43768,9 @@
       "toSymbol": null,
       "dataStart": "2023-10-04",
       "dataEnd": "2026-05-06",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "453340",
@@ -42918,7 +43826,9 @@
       "toSymbol": null,
       "dataStart": "2023-06-28",
       "dataEnd": "2026-02-03",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "454750",
@@ -42932,7 +43842,9 @@
       "toSymbol": null,
       "dataStart": "2023-08-10",
       "dataEnd": "2025-10-24",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "454910",
@@ -42974,7 +43886,9 @@
       "toSymbol": null,
       "dataStart": "2023-06-23",
       "dataEnd": "2026-01-27",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "455310",
@@ -42988,7 +43902,9 @@
       "toSymbol": null,
       "dataStart": "2023-09-07",
       "dataEnd": "2026-04-13",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "455900",
@@ -43016,7 +43932,9 @@
       "toSymbol": null,
       "dataStart": "2023-07-21",
       "dataEnd": "2026-03-03",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "456010",
@@ -43086,7 +44004,9 @@
       "toSymbol": null,
       "dataStart": "2023-07-12",
       "dataEnd": "2025-05-15",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "456490",
@@ -43100,7 +44020,9 @@
       "toSymbol": null,
       "dataStart": "2023-07-06",
       "dataEnd": "2026-02-09",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "457190",
@@ -43142,7 +44064,9 @@
       "toSymbol": null,
       "dataStart": "2023-08-30",
       "dataEnd": "2025-05-14",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "457550",
@@ -43184,7 +44108,9 @@
       "toSymbol": null,
       "dataStart": "2023-09-04",
       "dataEnd": "2026-04-13",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "457940",
@@ -43198,7 +44124,9 @@
       "toSymbol": null,
       "dataStart": "2023-08-11",
       "dataEnd": "2026-03-13",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "458320",
@@ -43212,7 +44140,9 @@
       "toSymbol": null,
       "dataStart": "2023-08-10",
       "dataEnd": "2025-03-27",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "458350",
@@ -43240,7 +44170,9 @@
       "toSymbol": null,
       "dataStart": "2023-08-30",
       "dataEnd": "2026-04-02",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "458650",
@@ -43436,7 +44368,9 @@
       "toSymbol": null,
       "dataStart": "2023-10-13",
       "dataEnd": "2026-05-15",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "462310",
@@ -43660,7 +44594,9 @@
       "toSymbol": null,
       "dataStart": "2023-11-03",
       "dataEnd": "2026-06-08",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "465320",
@@ -43758,7 +44694,9 @@
       "toSymbol": null,
       "dataStart": "2023-12-01",
       "dataEnd": "2026-05-15",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "467930",
@@ -43786,7 +44724,9 @@
       "toSymbol": null,
       "dataStart": "2023-12-04",
       "dataEnd": "2025-06-16",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "468530",
@@ -43996,7 +44936,9 @@
       "toSymbol": null,
       "dataStart": "2024-03-05",
       "dataEnd": "2026-04-02",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "473950",
@@ -44332,7 +45274,9 @@
       "toSymbol": null,
       "dataStart": "2024-05-17",
       "dataEnd": "2025-07-08",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "476830",
@@ -44402,7 +45346,9 @@
       "toSymbol": null,
       "dataStart": "2024-06-19",
       "dataEnd": "2025-04-28",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "477760",
@@ -44514,7 +45460,9 @@
       "toSymbol": null,
       "dataStart": "2024-08-22",
       "dataEnd": "2026-01-13",
-      "hasOhlcv": true
+      "hasOhlcv": true,
+      "industry": "금융",
+      "sector": "증권/보험"
     },
     {
       "symbol": "479880",

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from intent.classifier import classify, _correct_count_typo
-from intent.schemas import QueryIntent
+from intent.classifier import classify, format_history_context, _correct_count_typo
+from intent.schemas import ChatTurn, QueryIntent
 
 
 @pytest.mark.parametrize(
@@ -526,3 +526,88 @@ def test_llm_fallback_unsupported_feature_sets_reply():
     assert result.intent == QueryIntent.UNSUPPORTED_FEATURE
     assert result.suggested_reply
     assert "제공하고 있지 않아요" in result.suggested_reply
+
+
+# ─── 대화 맥락(history) 기반 후속 질문 분류 ──────────────────────────────────────
+# 실제 사고 재현: 직전 답변이 전략 예시를 보여준 뒤 "다른 예는 없어?"라고 물으면,
+# 문장만 보면 투자 신호가 없어 LLM 폴백이 OFF_TOPIC으로 오판 → 거절 문구가 나갔다.
+# 최근 대화 턴을 LLM 폴백에 함께 넘겨 직전 주제의 연속으로 분류하게 한다.
+
+_EXAMPLES_SHOWN_HISTORY = [
+    ChatTurn(role="user", text="삼성전자 지금 사도 될까?"),
+    ChatTurn(
+        role="assistant",
+        text="삼성전자에 대한 매수·매도 판단이나 종목 추천은 제공하지 않아요. "
+        "예를 들어 이렇게 시작해볼 수 있어요: RSI 과매도 반등 전략, 골든크로스 추세 전략",
+    ),
+]
+
+
+def test_followup_with_history_passes_context_to_llm():
+    captured = {}
+
+    def fake_llm(system, user):
+        captured["system"] = system
+        captured["user"] = user
+        return '{"intent": "GENERAL_INVESTMENT"}'
+
+    result = classify("다른 예는 없어?", llm=fake_llm, history=_EXAMPLES_SHOWN_HISTORY)
+    # 맥락과 최신 입력이 구분되어 LLM에 전달된다.
+    assert "[대화 맥락]" in captured["user"]
+    assert "챗봇:" in captured["user"]
+    assert "매수·매도 판단이나 종목 추천은 제공하지 않아요" in captured["user"]
+    assert "[최신 입력]\n다른 예는 없어?" in captured["user"]
+    # 시스템 프롬프트가 후속 질문 판단 규칙을 담는다.
+    assert "후속 질문" in captured["system"]
+    assert result.intent == QueryIntent.GENERAL_INVESTMENT
+
+
+def test_no_history_keeps_plain_query_for_llm():
+    captured = {}
+
+    def fake_llm(system, user):
+        captured["user"] = user
+        return '{"intent": "UNKNOWN"}'
+
+    classify("다른 예는 없어?", llm=fake_llm)
+    assert captured["user"] == "다른 예는 없어?"
+
+
+def test_history_does_not_affect_deterministic_rules():
+    # 결정적 규칙은 현재 입력만 본다 — 투자 맥락이 있어도 명백한 역할 밖 질문은 거절된다.
+    result = classify("오늘 날씨 어때?", history=_EXAMPLES_SHOWN_HISTORY)
+    assert result.intent == QueryIntent.OFF_TOPIC
+    assert result.deterministic is True
+
+
+def test_format_history_context_truncates_and_caps_turns():
+    long_text = "가" * 500
+    history = [ChatTurn(role="assistant", text=long_text)] + [
+        ChatTurn(role="user", text=f"turn-{i}") for i in range(10)
+    ]
+    context = format_history_context(history)
+    # 최근 6턴만 남는다 → 긴 첫 턴은 잘려 나간다.
+    assert "가" not in context
+    assert "turn-9" in context and "turn-4" in context
+    assert "turn-3" not in context
+    # 개별 턴 텍스트는 240자로 잘린다.
+    truncated = format_history_context([ChatTurn(role="assistant", text=long_text)])
+    assert len(truncated) < 260
+    assert truncated.endswith("…")
+
+
+def test_format_history_context_empty_and_blank_turns():
+    assert format_history_context(None) == ""
+    assert format_history_context([]) == ""
+    assert format_history_context([ChatTurn(role="user", text="   ")]) == ""
+
+
+def test_general_query_user_msg_includes_history():
+    from api.intent_routes import GeneralQueryRequest, _build_general_user_msg
+
+    req = GeneralQueryRequest(query="다른 예는 없어?", history=_EXAMPLES_SHOWN_HISTORY)
+    msg = _build_general_user_msg(req)
+    assert "[대화 맥락]" in msg
+    assert "[질문]\n다른 예는 없어?" in msg
+    # 맥락이 없으면 질문만 그대로.
+    assert _build_general_user_msg(GeneralQueryRequest(query="PER이 뭐야?")) == "PER이 뭐야?"

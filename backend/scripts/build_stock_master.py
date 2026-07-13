@@ -22,11 +22,16 @@ from __future__ import annotations
 import glob
 import json
 import os
+import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import pandas as pd
 import polars as pl
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from engine.sector_mapper import get_sector_from_krx_industry
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _OHLCV_DIR = _PROJECT_ROOT / "data" / "ohlcv"
@@ -93,9 +98,13 @@ def _load_delisted(fdr) -> dict[str, dict]:
         sym = str(r["Symbol"]).strip()
         shares = r.get("ListingShares")
         to_sym = r.get("ToSymbol")
+        name = str(r.get("Name", "")).strip()
+        # KRX 업종명 → 정본 섹터. 섹터 분류 SOT(korea-stocks.json)는 현재 상장 종목만
+        # 담으므로, 상폐 종목은 여기서 채워야 섹터 유니버스 백테스트에 포함된다(생존 편향 제거).
+        industry = str(r.get("Industry", "")).strip() if pd.notna(r.get("Industry")) else ""
         out[sym] = {
             "symbol": sym,
-            "name": str(r.get("Name", "")).strip(),
+            "name": name,
             "market": str(r["Market"]).strip(),
             "secuGroup": "주권",
             "listingDate": str(r["ListingDate"])[:10] if pd.notna(r["ListingDate"]) else None,
@@ -103,6 +112,8 @@ def _load_delisted(fdr) -> dict[str, dict]:
             "shares": int(shares) if pd.notna(shares) else None,
             "reason": str(r.get("Reason", "")).strip() or None,
             "toSymbol": str(to_sym).strip() if pd.notna(to_sym) and str(to_sym).strip() else None,
+            "industry": industry or None,
+            "sector": get_sector_from_krx_industry(sym, industry, name) if industry else None,
         }
     return out
 

@@ -44,6 +44,7 @@ def _load_master() -> list[dict]:
 def reload_master() -> None:
     """Drop the cached master (call after regenerating the file)."""
     _load_master.cache_clear()
+    _load_sector_map.cache_clear()
 
 
 def parse_universe_markets(universe_id: Optional[str]) -> tuple[list[str], bool]:
@@ -105,8 +106,10 @@ def get_shares(symbols: list[str]) -> dict[str, float]:
 
 # ── 섹터 유니버스 ────────────────────────────────────────────────────────────
 # 섹터 분류의 SOT는 korea-stocks.json의 sector 필드(sector_mapper 재분류 산출물)다.
-# 주의: PIT 마스터(stock-master.json, 상장폐지 포함)에는 섹터가 없어, 섹터 필터는
-# '현재 상장 종목' 기준 근사다 — 기간 중 상폐된 종목이 빠지므로 엔진이 경고를 남긴다.
+# 상폐 종목은 PIT 마스터(stock-master.json)의 sector 백필(FDR KRX-DELISTING 업종명을
+# 같은 매퍼로 분류 — scripts/backfill_delisted_sectors.py / build_stock_master.py)로
+# 커버한다. 그래도 업종 미상으로 남는 종목은 필터에서 빠지므로, 엔진은 그런 종목이
+# 실제로 있을 때만 생존 편향 경고를 남긴다(sector_unknown_symbols).
 
 # korea-stocks.json sector 필드의 전체 값(38개). 파서·프롬프트·검증이 공유하는 정본.
 CANONICAL_SECTORS: tuple[str, ...] = (
@@ -191,10 +194,24 @@ def normalize_sector(raw: Optional[str]) -> Optional[str]:
 
 @lru_cache(maxsize=1)
 def _load_sector_map() -> dict[str, str]:
-    if not _KOREA_STOCKS_PATH.exists():
-        return {}
-    stocks = json.loads(_KOREA_STOCKS_PATH.read_text(encoding="utf-8"))
-    return {s["symbol"]: s["sector"] for s in stocks if s.get("symbol") and s.get("sector")}
+    # 마스터(상폐 종목 sector 백필)를 깔고 korea-stocks.json(현재 상장 SOT)으로 덮는다.
+    smap: dict[str, str] = {
+        s["symbol"]: s["sector"] for s in _load_master() if s.get("symbol") and s.get("sector")
+    }
+    if _KOREA_STOCKS_PATH.exists():
+        stocks = json.loads(_KOREA_STOCKS_PATH.read_text(encoding="utf-8"))
+        smap.update(
+            {s["symbol"]: s["sector"] for s in stocks if s.get("symbol") and s.get("sector")}
+        )
+    # 우선주(끝자리≠0, '00088K' 신형 포함)는 모주(prefix+'0')의 섹터를 물려받는다 —
+    # 섹터 분류는 회사 단위인데 korea-stocks.json은 보통주만 담아 우선주가 전부 미상이 된다.
+    for s in _load_master():
+        sym = s.get("symbol") or ""
+        if len(sym) == 6 and sym[-1] != "0" and sym not in smap:
+            parent = smap.get(sym[:5] + "0")
+            if parent:
+                smap[sym] = parent
+    return smap
 
 
 def filter_by_sector(symbols: list[str], sector: str) -> list[str]:
@@ -204,6 +221,15 @@ def filter_by_sector(symbols: list[str], sector: str) -> list[str]:
         return []
     smap = _load_sector_map()
     return [s for s in symbols if smap.get(s) == canonical]
+
+
+def sector_unknown_delisted(symbols: list[str]) -> list[str]:
+    """섹터 분류가 없어 어떤 섹터 필터에서도 빠지는 '상장폐지' 심볼들 — 엔진이 생존 편향
+    경고를 낼 근거다. 현재 상장 종목의 분류 공백(신규 상장 등)은 생존 편향이 아니므로
+    여기 포함하지 않는다(korea-stocks.json 갱신 시 자연 치유)."""
+    smap = _load_sector_map()
+    delisted = {s["symbol"] for s in _load_master() if s.get("delistingDate")}
+    return [s for s in symbols if s not in smap and s in delisted]
 
 
 def get_delisting_dates(symbols: list[str]) -> dict[str, str]:

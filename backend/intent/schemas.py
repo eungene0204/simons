@@ -45,7 +45,17 @@ class IntentResult(BaseModel):
     suggested_reply: Optional[str] = None
 
 
+class ChatTurn(BaseModel):
+    """대화 맥락 한 턴. 후속 질문('다른 예는 없어?')을 직전 주제의 연속으로 분류하기 위한
+    참고용 컨텍스트다 — 분류 대상은 항상 최신 입력(query) 하나뿐이다."""
+
+    role: str  # "user" | "assistant"
+    text: str
+
+
 class IntentRequest(BaseModel):
     query: str
     # 직전 분석 종목 등 anaphora('이 종목') 해석을 돕는 보조 컨텍스트.
     last_symbol: Optional[str] = None
+    # 최근 대화 턴(오래된 것부터). LLM 폴백 분류가 후속 질문을 맥락으로 판단하게 한다.
+    history: List[ChatTurn] = Field(default_factory=list)
