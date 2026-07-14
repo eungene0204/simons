@@ -13,6 +13,7 @@ from engine.signals import FUNDAMENTAL_CIDS, FUNDAMENTAL_LABELS
     ("유보율 500 이상", "reserve_ratio", ">=", 500.0),
     ("순이익률 10% 이상", "net_margin", ">=", 10.0),
     ("매출총이익률 30% 이상", "gross_margin", ">=", 30.0),
+    ("영업이익률 15% 이상", "operating_margin", ">=", 15.0),
     ("매출액증가율 20% 이상", "revenue_growth", ">=", 20.0),
     ("영업이익증가율 15% 이상", "operating_income_growth", ">=", 15.0),
     ("순이익증가율 12% 이상", "net_income_growth", ">=", 12.0),
@@ -33,6 +34,17 @@ def test_growth_not_confused_with_margin():
     assert "net_margin" not in metrics
 
 
+def test_operating_margin_not_confused_with_growth():
+    # '영업이익률'(operating_margin)과 '영업이익증가율'(operating_income_growth)은 서로 오인되면 안 된다.
+    margin = {f.metric for f in _extract_fundamental_filters("영업이익률 15% 이상")}
+    assert "operating_margin" in margin
+    assert "operating_income_growth" not in margin
+
+    growth = {f.metric for f in _extract_fundamental_filters("영업이익증가율 15% 이상")}
+    assert "operating_income_growth" in growth
+    assert "operating_margin" not in growth
+
+
 def test_lower_is_better_default_operators():
     for m in ("per", "pbr", "psr", "debt_ratio"):
         assert _default_operator_for_metric(m) == "<="
@@ -42,7 +54,7 @@ def test_lower_is_better_default_operators():
 
 def test_new_metrics_are_engine_filterable_with_labels():
     for m in ("roa", "psr", "current_ratio", "quick_ratio", "reserve_ratio",
-              "net_margin", "gross_margin", "revenue_growth",
+              "net_margin", "gross_margin", "operating_margin", "revenue_growth",
               "operating_income_growth", "net_income_growth"):
         assert m in FUNDAMENTAL_CIDS
         assert m in FUNDAMENTAL_LABELS

@@ -1,8 +1,8 @@
 """
 Fundamental enrichment helpers.
 
-KIS financial-ratio API is the primary source for annual EPS/BPS/ROE/debt ratio data.
-Naver Finance scraping remains as a fallback for EPS/BPS/ROE/debt ratio when KIS is unavailable.
+KIS financial-ratio API is the primary source for annual ratio data.
+Naver Finance is the fallback, and OpenDART provides operating cash flow for PCR.
 """
 
 import os
@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 _HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
 _NAVER_URL = "https://finance.naver.com/item/main.naver?code={symbol}"
 _KIS_BASE_URL = "https://openapi.koreainvestment.com:9443"
+_DART_BASE_URL = "https://opendart.fss.or.kr/api"
 _REQUEST_TIMEOUT = 15
 _KIS_TOKEN: Optional[str] = None
 _KIS_TOKEN_EXPIRES_AT: float = 0.0
@@ -33,6 +34,17 @@ _NEGATIVE_CACHE_TTL_DAYS = 7
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _CACHE_DIR = _PROJECT_ROOT / "data" / "fundamentals"
+_DART_CORP_CODE_PATH = _PROJECT_ROOT / "data" / "dart_corpcode.json"
+_DART_YEAR_FLOOR = 2015
+_DART_ANNUAL_REPORT_CODE = "11011"
+_DART_OPERATING_CASH_FLOW_ACCOUNT_ID = "ifrs-full_CashFlowsFromUsedInOperatingActivities"
+_DART_OPERATING_CASH_FLOW_NAMES = {
+    "영업활동현금흐름",
+    "영업활동으로인한현금흐름",
+    "영업활동으로부터의현금흐름",
+    "영업활동으로인한순현금흐름",
+}
+_DART_CORP_CODES: Optional[Dict[str, str]] = None
 
 load_dotenv(_PROJECT_ROOT / ".env")
 
@@ -158,7 +170,8 @@ def _parse_kis_stac_yymm(value: str) -> Optional[str]:
 ANNUAL_FUNDAMENTAL_KEYS = [
     "eps", "bps", "roe_or_gpa", "debt_ratio",
     "sps", "revenue_growth", "operating_income_growth", "net_income_growth", "reserve_ratio",
-    "roa", "net_margin", "gross_margin", "current_ratio", "quick_ratio",
+    "roa", "net_margin", "gross_margin", "operating_margin", "current_ratio", "quick_ratio",
+    "operating_cash_flow", "pcr",
 ]
 
 # KIS finance endpoints → {response_field: our_key}. Three endpoints, merged by year-end.
@@ -178,6 +191,9 @@ _KIS_FINANCE_ENDPOINTS = [
     ("profit-ratio", "FHKST66430400", _KIS_PROFIT_RATIO_MAP),
     ("stability-ratio", "FHKST66430600", _KIS_STABILITY_RATIO_MAP),
 ]
+# 영업이익률(operating_margin)은 KIS 재무비율 3종에 없어 손익계산서(income-statement)의
+# 영업이익(bsop_prti)/매출액(sale_account)으로 직접 계산한다.
+_KIS_INCOME_STATEMENT = ("income-statement", "FHKST66430200")
 
 
 def _parse_kis_ratio_output(output: list, field_map: Dict[str, str]) -> Dict[str, Dict]:
@@ -205,6 +221,152 @@ def _parse_kis_financial_ratio_output(output: list[dict]) -> Optional[List[Dict]
     """Parse a single financial-ratio output into the fundamentals list (kept for callers)."""
     by_year = _parse_kis_ratio_output(output, _KIS_FINANCIAL_RATIO_MAP)
     result = [{"year_end": d, **vals} for d, vals in sorted(by_year.items(), reverse=True) if vals]
+    return result or None
+
+
+def _parse_kis_income_statement(output: list) -> Dict[str, Dict]:
+    """KIS 손익계산서 rows → {year_end: {"operating_margin": 영업이익/매출액*100}}."""
+    by_year: Dict[str, Dict] = {}
+    if not isinstance(output, list):
+        return by_year
+    for row in output:
+        if not isinstance(row, dict):
+            continue
+        year_end = _parse_kis_stac_yymm(str(row.get("stac_yymm", "")).strip())
+        if not year_end:
+            continue
+        sale = _parse_number(str(row.get("sale_account", "")).strip())
+        op = _parse_number(str(row.get("bsop_prti", "")).strip())
+        if sale and op is not None:
+            by_year[year_end] = {"operating_margin": round(op / sale * 100.0, 2)}
+    return by_year
+
+
+def _parse_dart_receipt_date(receipt_no: object) -> Optional[str]:
+    """Return the filing date encoded in a 14-digit OpenDART receipt number."""
+    digits = re.sub(r"\D", "", str(receipt_no or ""))
+    if len(digits) != 14:
+        return None
+    try:
+        return pd.Timestamp(digits[:8]).strftime("%Y-%m-%d")
+    except ValueError:
+        return None
+
+
+def _parse_dart_operating_cash_flow(rows: list) -> Optional[Dict]:
+    """Extract net operating cash flow without matching operating-asset subtotals."""
+    if not isinstance(rows, list):
+        return None
+
+    candidates = []
+    for row in rows:
+        if not isinstance(row, dict) or row.get("sj_div") != "CF":
+            continue
+        account_id = str(row.get("account_id", "")).strip()
+        normalized_name = re.sub(r"\s+", "", str(row.get("account_nm", "")))
+        if (
+            account_id != _DART_OPERATING_CASH_FLOW_ACCOUNT_ID
+            and normalized_name not in _DART_OPERATING_CASH_FLOW_NAMES
+        ):
+            continue
+        amount = _parse_number(str(row.get("thstrm_amount", "")))
+        available_from = _parse_dart_receipt_date(row.get("rcept_no"))
+        if amount is None or not available_from:
+            continue
+        candidates.append((account_id == _DART_OPERATING_CASH_FLOW_ACCOUNT_ID, amount, available_from))
+
+    if not candidates:
+        return None
+    _, amount, available_from = sorted(candidates, key=lambda item: item[0], reverse=True)[0]
+    return {
+        "operating_cash_flow": amount,
+        "available_from": available_from,
+    }
+
+
+def _get_dart_corp_code(symbol: str) -> Optional[str]:
+    global _DART_CORP_CODES
+    if _DART_CORP_CODES is None:
+        try:
+            payload = json.loads(_DART_CORP_CODE_PATH.read_text(encoding="utf-8"))
+            _DART_CORP_CODES = payload if isinstance(payload, dict) else {}
+        except (OSError, ValueError):
+            _DART_CORP_CODES = {}
+    return _DART_CORP_CODES.get(symbol)
+
+
+def _fetch_dart_json(path: str, params: Dict[str, str]) -> Dict:
+    try:
+        response = requests.get(
+            f"{_DART_BASE_URL}/{path}",
+            params={"crtfc_key": os.getenv("DART_API_KEY", "").strip(), **params},
+            timeout=_REQUEST_TIMEOUT,
+        )
+        if response.status_code != 200:
+            return {}
+        payload = response.json()
+        return payload if isinstance(payload, dict) else {}
+    except Exception as error:
+        logger.warning("[DART] %s fetch failed: %s", path, error)
+        return {}
+
+
+def _fetch_cash_flow_from_dart(
+    symbol: str,
+    start_year: int = _DART_YEAR_FLOOR,
+    end_year: Optional[int] = None,
+) -> Optional[List[Dict]]:
+    """Fetch annual operating cash flow for PCR enrichment."""
+    if not os.getenv("DART_API_KEY", "").strip():
+        return None
+    corp_code = _get_dart_corp_code(symbol)
+    if not corp_code:
+        return None
+
+    last_year = end_year if end_year is not None else pd.Timestamp.now().year - 1
+    results = []
+    quota_exceeded = False
+    for year in range(max(start_year, _DART_YEAR_FLOOR), last_year + 1):
+        cash_flow = None
+        for fs_div in ("CFS", "OFS"):
+            payload = _fetch_dart_json(
+                "fnlttSinglAcntAll.json",
+                {
+                    "corp_code": corp_code,
+                    "bsns_year": str(year),
+                    "reprt_code": _DART_ANNUAL_REPORT_CODE,
+                    "fs_div": fs_div,
+                },
+            )
+            if payload.get("status") == "020":
+                quota_exceeded = True
+                break
+            if payload.get("status") == "000":
+                cash_flow = _parse_dart_operating_cash_flow(payload.get("list", []))
+                if cash_flow:
+                    break
+        if quota_exceeded:
+            break
+        if not cash_flow:
+            continue
+        results.append({
+            "year_end": f"{year}-12-31",
+            "available_from": cash_flow["available_from"],
+            "operating_cash_flow": cash_flow["operating_cash_flow"],
+        })
+
+    return results or None
+
+
+def _merge_fundamental_records(*record_sets: Optional[List[Dict]]) -> Optional[List[Dict]]:
+    merged: Dict[str, Dict] = {}
+    for records in record_sets:
+        for record in records or []:
+            year_end = str(record.get("year_end", "")).strip()
+            if not year_end:
+                continue
+            merged.setdefault(year_end, {"year_end": year_end}).update(record)
+    result = [merged[key] for key in sorted(merged, reverse=True)]
     return result or None
 
 
@@ -245,6 +407,12 @@ def _fetch_fundamentals_from_kis(symbol: str) -> Optional[List[Dict]]:
         for year_end, vals in _parse_kis_ratio_output(output, field_map).items():
             merged.setdefault(year_end, {}).update(vals)
 
+    # 영업이익률: 재무비율 API에 없어 손익계산서(영업이익/매출액)로 계산해 병합
+    is_path, is_tr = _KIS_INCOME_STATEMENT
+    is_output = _fetch_kis_finance(symbol, {**headers, "tr_id": is_tr}, is_path)
+    for year_end, vals in _parse_kis_income_statement(is_output).items():
+        merged.setdefault(year_end, {}).update(vals)
+
     result = [{"year_end": d, **vals} for d, vals in sorted(merged.items(), reverse=True) if vals]
     return result or None
 
@@ -256,6 +424,7 @@ def fetch_fundamentals(symbol: str, retry: int = 2, use_cache: bool = True) -> O
     2순위: 최근 재조회 실패 캐시 (7일 이내) — REITs 등 항상 실패하는 종목의 반복 호출 방지
     3순위: KIS financial-ratio API
     4순위: Naver Finance 스크래핑
+    별도 병합: OpenDART 영업활동현금흐름
 
     Returns:
         [{"year_end": "2025-12-31", "eps": 6564.0, "bps": 63997.0, "roe_or_gpa": 10.85}, ...]
@@ -284,6 +453,9 @@ def fetch_fundamentals(symbol: str, retry: int = 2, use_cache: bool = True) -> O
                 logger.warning(f"[{symbol}] fundamental fetch attempt {attempt+1} failed: {e}")
                 if attempt < retry:
                     time.sleep(0.5)
+
+    cash_flow = _fetch_cash_flow_from_dart(symbol)
+    result = _merge_fundamental_records(result, cash_flow)
 
     if result:
         _write_cache(symbol, result)
@@ -456,9 +628,8 @@ def enrich_ohlcv_with_fundamentals(
 
     date_col = pd.to_datetime(df["date"])
 
-    # 각 거래일에 대해 가장 최근 결산 데이터 매핑 (forward-fill 방식)
-    # 결산일 이후 ~3개월 후 실적 공시라고 가정하여, 결산일 + 90일 이후부터 적용
-    # (실적 발표 전 look-ahead bias 방지)
+    # 각 거래일에 대해 가장 최근 결산 데이터 매핑 (forward-fill 방식).
+    # OpenDART 레코드는 실제 접수일을 사용하고, 그 외 소스는 결산일 + 90일을 적용한다.
     _PUBLISH_DELAY_DAYS = 90
 
     # 원본 4개(eps/bps/roe/debt_ratio)는 데이터에 없어도 항상 컬럼을 생성하고(하위호환),
@@ -470,7 +641,10 @@ def enrich_ohlcv_with_fundamentals(
     series = {k: pd.Series(index=df.index, dtype=float) for k in present_keys}
 
     for _, row in fund_df.iterrows():
-        mask = date_col >= row["year_end"] + pd.Timedelta(days=_PUBLISH_DELAY_DAYS)
+        available_from = pd.to_datetime(row.get("available_from"), errors="coerce")
+        if pd.isna(available_from):
+            available_from = row["year_end"] + pd.Timedelta(days=_PUBLISH_DELAY_DAYS)
+        mask = date_col >= available_from
         for k in present_keys:
             if pd.notna(row.get(k)):
                 series[k][mask] = row[k]
@@ -478,11 +652,28 @@ def enrich_ohlcv_with_fundamentals(
     for k in present_keys:
         df[k] = series[k]
 
-    # 가격 기반 밸류에이션 비율: PER=close/EPS, PBR=close/BPS, PSR=close/SPS
+    # 가격 기반 밸류에이션 비율: PER=close/EPS, PBR=close/BPS, PSR=close/SPS.
     close = df["close"].astype(float)
-    for ratio, denom in (("per", "eps"), ("pbr", "bps"), ("psr", "sps")):
+    for ratio, denom in (
+        ("per", "eps"),
+        ("pbr", "bps"),
+        ("psr", "sps"),
+    ):
         if denom in df.columns:
             valid = df[denom].notna() & (df[denom] != 0)
             df[ratio] = (close / df[denom]).where(valid).replace([_np.inf, -_np.inf], _np.nan)
+
+    # PCR = 시가총액 / 영업활동현금흐름. OHLCV 종가는 기업행사 조정 가격이므로,
+    # 과거 비조정 주식 수로 CFPS를 만들면 액면분할 전 기간이 왜곡된다. parquet의
+    # 일별 market_cap(억원)을 사용해 동일한 가격 조정 기준을 유지한다.
+    if "market_cap" in df.columns and "operating_cash_flow" in df.columns:
+        valid = (
+            df["market_cap"].notna()
+            & df["operating_cash_flow"].notna()
+            & (df["operating_cash_flow"] > 0)
+        )
+        df["pcr"] = (
+            df["market_cap"].astype(float) * 1e8 / df["operating_cash_flow"]
+        ).where(valid).replace([_np.inf, -_np.inf], _np.nan)
 
     return df

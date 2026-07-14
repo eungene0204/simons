@@ -7,7 +7,11 @@ import pandas as pd
 import pytest
 
 from engine.fundamental_fetcher import (
+    _fetch_cash_flow_from_dart,
+    _merge_fundamental_records,
+    _parse_dart_operating_cash_flow,
     _parse_kis_financial_ratio_output,
+    _parse_kis_income_statement,
     _parse_fundamentals,
     _parse_number,
     _read_cache,
@@ -120,6 +124,103 @@ def test_parse_kis_financial_ratio_output_extracts_roe_eps_bps():
     ]
 
 
+# ── _parse_kis_income_statement (영업이익률) ──
+
+def test_parse_kis_income_statement_computes_operating_margin():
+    # 영업이익률 = 영업이익(bsop_prti) / 매출액(sale_account) * 100
+    result = _parse_kis_income_statement([
+        {"stac_yymm": "202512", "sale_account": "3007700.00", "bsop_prti": "326600.00"},
+        {"stac_yymm": "202412", "sale_account": "2589900.00", "bsop_prti": "65700.00"},
+    ])
+    assert result == {
+        "2025-12-31": {"operating_margin": 10.86},
+        "2024-12-31": {"operating_margin": 2.54},
+    }
+
+
+def test_parse_kis_income_statement_skips_zero_or_missing_sales():
+    result = _parse_kis_income_statement([
+        {"stac_yymm": "202312", "sale_account": "0.00", "bsop_prti": "100.0"},  # 매출 0 → 스킵
+        {"stac_yymm": "202212", "sale_account": "1000.0", "bsop_prti": ""},      # 영업이익 결측 → 스킵
+    ])
+    assert result == {}
+
+
+# ── OpenDART PCR source parsing ──
+
+def test_parse_dart_operating_cash_flow_prefers_canonical_account():
+    result = _parse_dart_operating_cash_flow([
+        {
+            "sj_div": "CF",
+            "account_id": "dart_AdjustmentsForAssetsLiabilitiesOfOperatingActivities",
+            "account_nm": "영업활동으로 인한 자산부채의 변동",
+            "thstrm_amount": "1,000",
+            "rcept_no": "20250311001085",
+        },
+        {
+            "sj_div": "CF",
+            "account_id": "ifrs-full_CashFlowsFromUsedInOperatingActivities",
+            "account_nm": "영업활동 현금흐름",
+            "thstrm_amount": "73,000,000,000,000",
+            "rcept_no": "20250311001085",
+        },
+    ])
+
+    assert result == {
+        "operating_cash_flow": 73_000_000_000_000.0,
+        "available_from": "2025-03-11",
+    }
+
+
+def test_fetch_cash_flow_from_dart_falls_back_to_separate_statements(monkeypatch):
+    import engine.fundamental_fetcher as ff
+
+    monkeypatch.setenv("DART_API_KEY", "test-key")
+    monkeypatch.setattr(ff, "_get_dart_corp_code", lambda symbol: "00126380")
+
+    def fake_fetch(path, params):
+        if path == "fnlttSinglAcntAll.json" and params["fs_div"] == "CFS":
+            return {"status": "013"}
+        if path == "fnlttSinglAcntAll.json":
+            return {
+                "status": "000",
+                "list": [{
+                    "sj_div": "CF",
+                    "account_id": "ifrs-full_CashFlowsFromUsedInOperatingActivities",
+                    "account_nm": "영업활동현금흐름",
+                    "thstrm_amount": "100,000",
+                    "rcept_no": "20250331000001",
+                }],
+            }
+        raise AssertionError(f"unexpected DART path: {path}")
+
+    monkeypatch.setattr(ff, "_fetch_dart_json", fake_fetch)
+
+    assert _fetch_cash_flow_from_dart("005930", 2024, 2024) == [{
+        "year_end": "2024-12-31",
+        "available_from": "2025-03-31",
+        "operating_cash_flow": 100_000.0,
+    }]
+
+
+def test_merge_fundamental_records_combines_kis_and_dart_fields():
+    result = _merge_fundamental_records(
+        [{"year_end": "2024-12-31", "eps": 5000.0}],
+        [{
+            "year_end": "2024-12-31",
+            "available_from": "2025-03-11",
+            "operating_cash_flow": 1_000_000.0,
+        }],
+    )
+
+    assert result == [{
+        "year_end": "2024-12-31",
+        "eps": 5000.0,
+        "available_from": "2025-03-11",
+        "operating_cash_flow": 1_000_000.0,
+    }]
+
+
 # ── enrich_ohlcv_with_fundamentals ──
 
 def _make_ohlcv_df(dates, close_prices):
@@ -180,6 +281,38 @@ def test_enrich_respects_publish_delay():
     assert pd.isna(result.iloc[1]["per"])
     # 2024-03-30: 공시 후 → 값 있음
     assert result.iloc[2]["per"] == pytest.approx(25.0)
+
+
+def test_enrich_pcr_starts_on_actual_dart_filing_date():
+    dates = ["2025-03-10", "2025-03-11", "2025-04-01"]
+    df = _make_ohlcv_df(dates, [50_000.0, 50_000.0, 60_000.0])
+    df["market_cap"] = [50_000.0, 50_000.0, 60_000.0]
+    fundamentals = [{
+        "year_end": "2024-12-31",
+        "available_from": "2025-03-11",
+        "operating_cash_flow": 1_000_000_000_000.0,
+    }]
+
+    result = enrich_ohlcv_with_fundamentals(df, fundamentals)
+
+    assert pd.isna(result.iloc[0]["pcr"])
+    assert result.iloc[1]["pcr"] == pytest.approx(5.0)
+    assert result.iloc[2]["pcr"] == pytest.approx(6.0)
+    assert result.iloc[1]["operating_cash_flow"] == pytest.approx(1_000_000_000_000.0)
+
+
+def test_enrich_pcr_ignores_non_positive_operating_cash_flow():
+    df = _make_ohlcv_df(["2025-03-11"], [50_000.0])
+    df["market_cap"] = [50_000.0]
+    fundamentals = [{
+        "year_end": "2024-12-31",
+        "available_from": "2025-03-11",
+        "operating_cash_flow": -1_000_000_000_000.0,
+    }]
+
+    result = enrich_ohlcv_with_fundamentals(df, fundamentals)
+
+    assert pd.isna(result.iloc[0]["pcr"])
 
 
 def test_enrich_forward_fill_updates_with_new_fiscal_year():
@@ -419,6 +552,7 @@ def test_fetch_fundamentals_skips_network_when_recently_confirmed_empty(tmp_path
         return _FakeResp()
 
     monkeypatch.setattr(ff, "_fetch_fundamentals_from_kis", _fail_kis)
+    monkeypatch.setattr(ff, "_fetch_cash_flow_from_dart", lambda symbol: None)
     monkeypatch.setattr(ff.requests, "get", _fail_naver)
 
     # 첫 호출: KIS+Naver 실패 → negative 캐시 기록

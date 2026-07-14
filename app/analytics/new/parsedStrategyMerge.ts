@@ -956,6 +956,7 @@ const FILTER_METRIC_LABELS: Record<string, string> = {
   reserve_ratio: "유보율",
   net_margin: "순이익률",
   gross_margin: "매출총이익률",
+  operating_margin: "영업이익률",
   revenue_growth: "매출액증가율",
   operating_income_growth: "영업이익증가율",
   net_income_growth: "순이익증가율",

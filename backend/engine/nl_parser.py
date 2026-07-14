@@ -187,7 +187,7 @@ class FundamentalFilter(BaseModel):
     """재무 지표 필터 조건"""
     metric: Literal[
         "per", "pbr", "psr", "roe_or_gpa", "roa", "debt_ratio", "current_ratio", "quick_ratio",
-        "reserve_ratio", "net_margin", "gross_margin", "revenue_growth",
+        "reserve_ratio", "net_margin", "gross_margin", "operating_margin", "revenue_growth",
         "operating_income_growth", "net_income_growth", "market_cap", "trading_value",
     ] = Field(
         description=(
@@ -195,7 +195,7 @@ class FundamentalFilter(BaseModel):
             "per=주가수익비율, pbr=주가순자산비율, psr=주가매출비율, roe_or_gpa=자기자본이익률(%), "
             "roa=총자본순이익률(%), debt_ratio=부채비율(%), current_ratio=유동비율(%), "
             "quick_ratio=당좌비율(%), reserve_ratio=유보율(%), net_margin=순이익률(%), "
-            "gross_margin=매출총이익률(%), revenue_growth=매출액증가율(%), "
+            "gross_margin=매출총이익률(%), operating_margin=영업이익률(%), revenue_growth=매출액증가율(%), "
             "operating_income_growth=영업이익증가율(%), net_income_growth=순이익증가율(%), "
             "market_cap=시가총액(억원), trading_value=일평균거래대금(억원)"
         )
@@ -539,6 +539,7 @@ SYSTEM_PROMPT = """당신은 한국 주식 퀀트 투자 전략을 JSON으로 �
 - 매출액증가율 20% 이상 → {"metric": "revenue_growth", "operator": ">=", "value": 20.0}
 - 영업이익증가율 10% 이상 → {"metric": "operating_income_growth", "operator": ">=", "value": 10.0}
 - 순이익률 10% 이상 → {"metric": "net_margin", "operator": ">=", "value": 10.0}
+- 영업이익률 15% 이상 → {"metric": "operating_margin", "operator": ">=", "value": 15.0}
 - 시가총액 1000억 이상 → {"metric": "market_cap", "operator": ">=", "value": 1000.0}
 - '이하'='<=', '미만'='<', '이상'='>=', '초과'='>'
 
@@ -869,19 +870,34 @@ class NLStrategyParser:
         logger.info("rule parse guard verdict=%s | input=%r", decision, user_input[:80])
         return decision == "accept_rule"
 
-    def parse(self, user_input: str, on_stage=None, on_validation=None) -> ParsedStrategy:
+    def parse(self, user_input: str, on_stage=None, on_validation=None,
+              defer_validation: bool = False) -> ParsedStrategy:
         """자연어 입력 → ParsedStrategy (규칙 기반 우선, 모호하면 4B 사용)
 
         on_stage: LLM 폴백으로 넘어가기 직전 호출되는 콜백(stage 문자열 전달).
         진행 상황 스트리밍에서 'parsing'→'thinking' 전환을 알리는 용도.
         on_validation: 룰 파싱 성공 시 LLM 검증 리포트(dict)를 전달받는 콜백.
+        defer_validation: True면 검증 LLM을 여기서 돌리지 않고 즉시 룰 파스를 반환한다.
+            호출 측(SSE 스트림)이 결과를 먼저 내보낸 뒤 후행 검증을 직접 실행하는 용도 —
+            on_validation에 {"pending": True} 리포트를 전달해 검증 필요를 알린다.
         """
         parsed_by_rules = _parse_rule_based_strategy(user_input)
         if parsed_by_rules is not None and self._consult_rule_parse_guard(user_input, parsed_by_rules):
             # 룰 파싱이 원문의 모든 어휘를 설명한 '확신 파싱'이면 LLM 검증을 건너뛴다(규칙만으로
             # 즉답). 설명 못 한 잔여가 남은 '애매한' 파싱만 LLM으로 검증·교정한다 — 흔한 명확한
             # 입력에서 매번 붙던 수 초~수십 초의 검증 지연을 없앤다.
-            if not _rule_parse_unexplained(user_input):
+            unexplained = _rule_parse_unexplained(user_input)
+            if not unexplained:
+                return parsed_by_rules
+            # 검증 발화 원인(잔여 어휘)을 남긴다 — 빈출 무해 토큰을 _RULE_GUARD_KNOWN_VOCAB에
+            # 보강해 검증 호출 자체를 줄이는 운영 루프의 입력 데이터.
+            logger.info(
+                "parse validation triggered | residual=%r | input=%r",
+                unexplained, user_input[:120],
+            )
+            if defer_validation:
+                if on_validation is not None:
+                    on_validation({"pending": True})
                 return parsed_by_rules
             # LLM 미가용 시 graceful degrade(원본 그대로) — 빠른 경로를 막지 않는다.
             if on_stage is not None:
@@ -963,6 +979,20 @@ class NLStrategyParser:
                 merged["hold_period_days"] = None
             if any(kw in compact for kw in _MODIFY_MDD_CUES):
                 merged["max_mdd_limit_pct"] = None
+        # 필터 병합 보정: LLM diff는 fundamental_filters를 통째로 대체하는데, few-shot
+        # 예시가 새 필터만 출력하는 경향이 있어 추가/변경 발화에서 언급 안 된 기존 필터가
+        # 소실된다(스크린샷 회귀: '영업이익률 추가' 후 ROE·부채비율 증발). 제거 의도가
+        # 없으면 fast-path와 동일한 병합 의미론(_merge_fundamental_filters: 같은 지표
+        # 갱신·새 지표 추가·기존 보존)을 적용한다. 제거/해제 발화는 LLM 출력(빠진 항목=
+        # 삭제 의도일 수 있는 전체 목록)을 존중한다.
+        if diff.fundamental_filters is not None and not _REMOVE_INTENT_RE.search(compact):
+            existing_filters = [
+                FundamentalFilter(**f) for f in (previous.get("fundamental_filters") or [])
+            ]
+            merged["fundamental_filters"] = [
+                f.model_dump()
+                for f in _merge_fundamental_filters(existing_filters, diff.fundamental_filters)
+            ]
         # 섹터 변경(추가 합집합/교체/개별 삭제/전체 해제)은 결정적 판정이 LLM diff에 우선한다
         # (FR-STR-066 ⑥/⑦) — LLM이 "~도 추가"를 교체로 오독하거나 삭제 발화를 재추출로
         # 되살리는 사고 방지(_apply_prompt_overrides 보정과 동형). 결정적 판정이 침묵하면
@@ -2039,6 +2069,7 @@ _FUNDAMENTAL_PATTERN_SPECS = [
     ("reserve_ratio", [rf"유보율{_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
     ("gross_margin", [rf"(?:매출액총이익률|매출총이익률){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
     ("net_margin", [rf"(?:매출액순이익률|순이익률){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
+    ("operating_margin", [rf"(?:매출액영업이익률|영업이익률){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
     ("revenue_growth", [rf"(?:매출액증가율|매출증가율|매출액성장률|매출성장률){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
     ("operating_income_growth", [rf"영업이익(?:증가율|성장률){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
     ("net_income_growth", [rf"(?:순이익|당기순이익)(?:증가율|성장률){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
@@ -2674,9 +2705,18 @@ def _extract_max_mdd_limit_pct(user_input: str) -> Optional[float]:
 #     절대 포함하지 않는다(오폴백 방지).
 _UNSUPPORTED_CONCEPT_PATTERNS: tuple[tuple[str, str], ...] = (
     ("volatility", r"변동성"),
-    ("cash_flow", r"현금흐름|영업활동현금|잉여현금|fcf"),
+    ("cash_flow", r"현금흐름|영업활동현금|잉여현금|fcf|pcf"),
     ("cash_weight", r"현금[^,]{0,4}(?:비중|유지)"),
     ("dividend", r"배당"),
+    # 흔한 퀀트 팩터지만 데이터 파이프라인이 없어 표현 불가 — 조용히 누락/유사 해석되는
+    # 대신 안내한다. 지원 지표(영업이익률·순이익률·ROA 등)는 절대 포함 금지(오폴백 방지).
+    ("ev_ebitda", r"ev[/-]?ebitda|에비타"),
+    ("roic", r"roic|투하자본(?:이익|수익)률"),
+    ("beta", r"베타"),
+    ("interest_coverage", r"이자보상배[율률]"),
+    ("quality_score", r"피오트로스키|알트만|[fz]-?score"),
+    ("turnover_ratio", r"회전율"),
+    ("buyback", r"자사주"),
     # 섹터/업종은 이제 지원 개념이지만, '지원 목록에 없는 업종'(예: '로봇 관련주')은 여전히
     # 표현 불가다. _mentioned_unsupported_concepts가 섹터 추출 성공 시 이 항목을 제외한다.
     # 맨 '관련/테마'까지 본다 — '로봇주 관련'·'로봇 테마'처럼 '관련주' 어순이 아니면 안내
@@ -2708,9 +2748,16 @@ _UNSUPPORTED_CONCEPT_RE = tuple(
 # 표현할 수 없으므로, 조용히 누락/유사 해석되는 대신 notices 채널로 명시적으로 알린다.
 _UNSUPPORTED_CONCEPT_LABELS: dict[str, str] = {
     "volatility": "변동성 조건",
-    "cash_flow": "현금흐름 조건",
+    "cash_flow": "현금흐름(FCF/PCF 등) 조건",
     "cash_weight": "현금 비중 조건",
     "dividend": "배당 조건",
+    "ev_ebitda": "EV/EBITDA 조건",
+    "roic": "ROIC(투하자본이익률) 조건",
+    "beta": "베타(시장 민감도) 조건",
+    "interest_coverage": "이자보상배율 조건",
+    "quality_score": "피오트로스키/알트만 점수 조건",
+    "turnover_ratio": "회전율(재고·매출채권 등) 조건",
+    "buyback": "자사주 매입 조건",
     "sector": "지원 목록에 없는 섹터/업종 조건",
     "valuation_exit": "밸류에이션 기반 청산",
     "relative_to_market": "시장 대비 상대 조건",
@@ -2929,11 +2976,11 @@ _MODIFY_FIELD_CUES: dict[str, list[str]] = {
         "주가순자산비율", "주가수익비율", "주가순자산", "주가수익", "자기자본이익률",
         "주가매출액비율", "주가매출비율", "총자산이익률", "총자본이익률",
         "일평균거래대금", "거래대금", "시가총액", "시총", "부채비율", "부채",
-        "유동비율", "당좌비율", "유보율", "순이익률", "매출총이익률",
+        "유동비율", "당좌비율", "유보율", "순이익률", "매출총이익률", "영업이익률",
         "매출액증가율", "매출증가율", "영업이익증가율", "순이익증가율",
         "pbr", "per", "roe", "gpa", "psr", "roa",
         "이하", "미만", "이상", "초과", "이내",
-        "저평가", "고평가", "우량", "가치주", "성장주", "종목", "주식",
+        "저평가", "고평가", "우량", "가치주", "성장주", "종목", "주식", "조건", "필터",
     ],
 }
 # 필드 무관 일반 동사·조사·단위(항상 차감).
@@ -3544,6 +3591,19 @@ def _apply_prompt_overrides(
         if len(validated_exit) != len(parsed.exit_signals):
             updates["exit_signals"] = validated_exit
 
+        # A qualitative metric has no executable threshold. Keep only filters that can be
+        # grounded in explicit values so an LLM cannot silently substitute another metric.
+        qualitative_metrics = _detect_qualitative_metrics(compact_in)
+        if qualitative_metrics:
+            explicit_filters = _extract_fundamental_filters(user_input)
+            explicit_metric_names = {item.metric for item in explicit_filters}
+            qualitative_metric_names = {
+                _QUALITATIVE_KEY_TO_METRIC[key]
+                for _, _, _, key in qualitative_metrics
+            }
+            if qualitative_metric_names - explicit_metric_names:
+                updates["fundamental_filters"] = explicit_filters
+
     # ── Step 2: deterministic 추출 & 병합 ──
     extracted_entry, extracted_exit = _extract_technical_signals(user_input)
     current_entry = updates.get("entry_signals", list(parsed.entry_signals))
@@ -3601,6 +3661,8 @@ _QUALITATIVE_METRIC_SPECS: tuple[tuple[str, tuple[str, ...], str, str, str], ...
      "PBR은 몇 이하로 할까요? (예: 1 이하)", "PBR 1 이하", "PBR 0.8 이하"),
     ("roe", (r"roe", r"자기자본이익"),
      "ROE는 몇 % 이상으로 할까요? (예: 15% 이상)", "ROE 15% 이상", "ROE 20% 이상"),
+    ("operating_margin", (r"영업이익률", r"매출액영업이익률"),
+     "영업이익률 몇 % 이상으로 설정할까요?", "영업이익률 10% 이상", "영업이익률 15% 이상"),
     ("debt_ratio", (r"부채",),
      "부채비율은 몇 % 이하로 할까요? (예: 100% 이하)", "부채비율 100% 이하", "부채비율 50% 이하"),
     ("market_cap", (r"시가총액", r"시총"),
@@ -3609,12 +3671,21 @@ _QUALITATIVE_METRIC_SPECS: tuple[tuple[str, tuple[str, ...], str, str, str], ...
      "거래대금은 몇 억 이상으로 할까요? (예: 100억 이상)", "거래대금 100억 이상", "거래대금 300억 이상"),
 )
 
+_QUALITATIVE_KEY_TO_METRIC = {
+    "per": "per",
+    "pbr": "pbr",
+    "roe": "roe_or_gpa",
+    "operating_margin": "operating_margin",
+    "debt_ratio": "debt_ratio",
+    "market_cap": "market_cap",
+    "trading_value": "trading_value",
+}
+
 
 def _detect_qualitative_metrics(compact: str) -> list[tuple[str, str, str, str]]:
     """언급된 재무 지표 spec들을 입력 순서대로 반환한다.
 
-    이 헬퍼는 진입 규칙이 하나도 구조화되지 않았을 때만 쓰이므로(호출부의 가드 참고),
-    여기서 잡히는 지표는 모두 '이름만 말하고 숫자는 안 준' 미구조화 지표다.
+    실제 임계값의 구조화 여부는 호출부가 결정적 추출 결과나 parsed 필터와 비교해 판정한다.
     반환 튜플: (되묻기 문구, 느슨한 칩, 엄격한 칩, 키).
     """
     found: list[tuple[int, tuple[str, str, str, str]]] = []
@@ -3646,22 +3717,25 @@ def detect_missing_entry_clarification(
     parsed: ParsedStrategy,
     user_prompt: str = "",
 ) -> tuple[Optional[str], Optional[List[str]]]:
-    """진입(종목 선정) 규칙을 하나도 구조화하지 못했을 때만 되묻는다.
+    """요청한 진입(종목 선정) 규칙이나 임계값을 구조화하지 못했을 때 되묻는다.
 
     파서가 사용자의 진입 의도를 표현하지 못하면 — 미지원 전략 유형이라 못 잡은 경우 포함 —
     조용히 버리지 않고 명시적으로 확인한다. 상대강도(수익률 순위) 랭킹처럼 아직 지원 안 되는
-    유형은 가까운 추세추종으로 바꿀 수 있게 안내한다. 진입 규칙이 있으면 (None, None).
+    유형은 가까운 추세추종으로 바꿀 수 있게 안내한다. 요청한 진입 규칙이 모두 있으면
+    (None, None).
 
     유니버스·초기자금 등 다른 누락은 일부러 묻지 않는다(기본값이 있어 노이즈만 됨).
     여기서는 '진입을 통째로 잃는' 침묵 누락만 막는다.
     """
-    if parsed.fundamental_filters or parsed.entry_signals or parsed.ranking_metric:
-        return (None, None)
     compact = re.sub(r"\s+", "", user_prompt.lower())
-    if _mentions_relative_strength_ranking(compact):
-        return (_RELATIVE_STRENGTH_QUESTION, list(_RELATIVE_STRENGTH_SUGGESTIONS))
-    # 지표는 말했지만 숫자가 빠진 경우("PER이 낮고 부채비율이 낮은") — 그 지표별로 숫자를 되묻는다.
-    metrics = _detect_qualitative_metrics(compact)
+    resolved_metrics = {item.metric for item in parsed.fundamental_filters}
+    # Ask for every named metric that still lacks an executable threshold, even when an
+    # unrelated entry signal exists. This prevents a model substitution from hiding the omission.
+    metrics = [
+        metric
+        for metric in _detect_qualitative_metrics(compact)
+        if _QUALITATIVE_KEY_TO_METRIC[metric[3]] not in resolved_metrics
+    ]
     if metrics:
         asks = "\n".join(f"• {ask}" for ask, _, _, _ in metrics)
         question = (
@@ -3672,6 +3746,10 @@ def detect_missing_entry_clarification(
         strict = ", ".join(strict for _, _, strict, _ in metrics)
         suggestions = [loose, strict] if loose != strict else [loose]
         return (question, suggestions)
+    if parsed.fundamental_filters or parsed.entry_signals or parsed.ranking_metric:
+        return (None, None)
+    if _mentions_relative_strength_ranking(compact):
+        return (_RELATIVE_STRENGTH_QUESTION, list(_RELATIVE_STRENGTH_SUGGESTIONS))
     return (_MISSING_ENTRY_QUESTION, list(_MISSING_ENTRY_SUGGESTIONS))
 
 

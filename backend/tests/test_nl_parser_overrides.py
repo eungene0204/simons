@@ -1824,6 +1824,79 @@ def test_modify_without_sector_mention_preserves_previous_sector():
     assert parsed.max_positions == 10
 
 
+def test_modify_adds_operating_margin_filter_deterministically(monkeypatch):
+    """[회귀] '영업이익률 …' 필터 추가 수정이 조용히 누락되던 버그 — 값이 명시되면
+    fast-path가 기존 필터를 유지한 채 병합하고 LLM을 호출하지 않는다."""
+    parser = NLStrategyParser(backend="ollama")
+
+    def _must_not_call_llm(_user_input, _previous):
+        raise AssertionError("값이 명시된 펀더멘털 필터 수정은 LLM을 호출하면 안 된다")
+
+    monkeypatch.setattr(parser, "_modify_ollama", _must_not_call_llm)
+
+    parsed = parser.parse_modification("영업이익률 15% 이상 조건 추가해줘", dict(_MODIFY_PREVIOUS))
+
+    by_metric = {f.metric: f for f in parsed.fundamental_filters}
+    assert "operating_margin" in by_metric
+    assert by_metric["operating_margin"].operator == ">="
+    assert by_metric["operating_margin"].value == 15.0
+    assert "pbr" in by_metric  # 기존 필터 보존(병합, 교체 아님)
+    assert parsed.max_positions == 8  # 언급 없는 필드 보존
+
+
+def test_parse_modification_llm_filter_diff_merges_with_existing(monkeypatch):
+    """[회귀] LLM diff가 새 필터만 출력해도(few-shot 경향) 제거 의도가 없는 발화에서는
+    기존 필터를 보존·병합한다 — '영업이익률 추가' 후 기존 ROE/PBR 증발 방지."""
+    from engine.nl_parser import ParsedStrategyDiff
+
+    parser = NLStrategyParser(backend="ollama")
+    diff = ParsedStrategyDiff(
+        fundamental_filters=[FundamentalFilter(metric="operating_margin", operator=">=", value=10.0)]
+    )
+    monkeypatch.setattr(parser, "_modify_ollama", lambda _u, _p: diff)
+
+    parsed = parser.parse_modification("영업이익률을 추가해 볼까?", dict(_MODIFY_PREVIOUS))
+
+    by_metric = {f.metric: f for f in parsed.fundamental_filters}
+    assert "operating_margin" in by_metric
+    assert "pbr" in by_metric  # 기존 필터 보존
+    assert by_metric["pbr"].value == 1.0
+
+
+def test_parse_modification_llm_filter_diff_respects_removal(monkeypatch):
+    """제거 발화에서는 LLM이 낸 전체 목록(빠진 항목=삭제)을 병합으로 되살리지 않는다."""
+    from engine.nl_parser import ParsedStrategyDiff
+
+    parser = NLStrategyParser(backend="ollama")
+    prev = {
+        **_MODIFY_PREVIOUS,
+        "fundamental_filters": [
+            {"metric": "pbr", "operator": "<=", "value": 1},
+            {"metric": "roe_or_gpa", "operator": ">=", "value": 10},
+        ],
+    }
+    diff = ParsedStrategyDiff(
+        fundamental_filters=[FundamentalFilter(metric="roe_or_gpa", operator=">=", value=10.0)]
+    )
+    monkeypatch.setattr(parser, "_modify_ollama", lambda _u, _p: diff)
+
+    parsed = parser.parse_modification("PBR 조건은 빼줘", prev)
+
+    metrics = {f.metric for f in parsed.fundamental_filters}
+    assert metrics == {"roe_or_gpa"}  # pbr이 병합으로 부활하면 안 된다
+
+
+def test_modify_unsupported_factor_delegates_to_llm_with_notice():
+    """미지원 팩터(EV/EBITDA 등) 수정 요청은 fast-path가 처리한 척하지 않고 LLM에
+    위임하며, notices 채널용 안내문이 생성된다(수정 경로도 _build_parse_result 공유)."""
+    from engine.nl_parser import _modify_rule_based, build_unsupported_concept_notice
+
+    prompt = "EV/EBITDA 8배 이하 조건 추가해줘"
+    assert _modify_rule_based(prompt, dict(_MODIFY_PREVIOUS)) is None
+    notice = build_unsupported_concept_notice(prompt)
+    assert notice is not None and "EV/EBITDA" in notice
+
+
 def test_parse_modification_llm_diff_missing_sector_recovered_deterministically(monkeypatch):
     """LLM 경로로 간 복합 수정에서 diff가 sector를 놓쳐도 결정적 추출이 보정한다."""
     parser = NLStrategyParser(backend="ollama")
@@ -2035,6 +2108,40 @@ def test_missing_entry_clarification_asks_numbers_for_qualitative_metrics():
     # 클릭 시 바로 완성되는 숫자 예시 칩을 제공한다.
     assert suggestions is not None
     assert any("PER 10 이하" in s and "부채비율 100% 이하" in s for s in suggestions)
+
+
+def test_operating_margin_without_threshold_removes_substitute_and_asks_percentage():
+    """A qualitative operating-margin request must not become an unrelated PBR filter."""
+    prompt = "영업이익률이 높은 주식을 사는 전략"
+    hallucinated = make_base_strategy().model_copy(
+        update={
+            "fundamental_filters": [
+                FundamentalFilter(metric="pbr", operator="<=", value=1.0)
+            ]
+        }
+    )
+
+    parsed = _apply_prompt_overrides(hallucinated, prompt)
+    question, suggestions = detect_missing_entry_clarification(parsed, prompt)
+
+    assert parsed.fundamental_filters == []
+    assert question is not None
+    assert "영업이익률 몇 % 이상으로 설정할까요?" in question
+    assert suggestions == ["영업이익률 10% 이상", "영업이익률 15% 이상"]
+
+
+def test_operating_margin_with_threshold_becomes_entry_without_clarification():
+    prompt = "영업이익률 15% 이상인 주식을 사는 전략"
+    parsed = _build_fallback_strategy(prompt)
+
+    question, suggestions = detect_missing_entry_clarification(parsed, prompt)
+
+    assert len(parsed.fundamental_filters) == 1
+    assert parsed.fundamental_filters[0].metric == "operating_margin"
+    assert parsed.fundamental_filters[0].operator == ">="
+    assert parsed.fundamental_filters[0].value == 15.0
+    assert question is None
+    assert suggestions is None
 
 
 def test_missing_entry_clarification_flags_relative_strength_ranking():
@@ -2665,6 +2772,15 @@ def test_macd_golden_does_not_create_spurious_macd_sell_from_far_deadcross():
         ("PBR 1 이하 종목 매수, 밸류에이션 정상화 시점에 청산", "valuation_exit"),
         ("최근 60일 수익률이 시장보다 약한 종목은 제외하고 매수, 손절 -9%", "relative_to_market"),
         ("최근 4분기 연속 적자인 기업은 제외하고 ROE 10% 이상 매수, 손절 -10%", "profitability_sign"),
+        # 흔한 퀀트 팩터지만 데이터 파이프라인이 없는 것들 — 침묵 누락 대신 안내 대상.
+        ("EV/EBITDA 8배 이하 종목 매수, 손절 -8%", "ev_ebitda"),
+        ("ROIC 10% 이상 기업만 편입해줘", "roic"),
+        ("베타 낮은 종목 위주로 10개 매수", "beta"),
+        ("이자보상배율 3배 이상 기업만 매수, 손절 -10%", "interest_coverage"),
+        ("피오트로스키 점수 7점 이상 종목 매수", "quality_score"),
+        ("재고자산회전율 높은 기업 위주로 편입", "turnover_ratio"),
+        ("자사주 매입 중인 기업을 매수, 손절 -8%", "buyback"),
+        ("PCF 5 이하 저평가 종목 매수", "cash_flow"),
     ],
 )
 def test_unsupported_concept_routes_to_llm(prompt, concept):
@@ -2682,6 +2798,10 @@ def test_unsupported_concept_routes_to_llm(prompt, concept):
         "골든크로스가 나오면 매수하고, 반대로 데드크로스가 나오면 매도",
         "코스피200에서 최근 60거래일 수익률 상위 종목을 20일 보유 후 매도, 최대 5종목",
         "스토캐스틱 20 이하에서 매수, 스토캐스틱 80 이상에서 매도",
+        # 마진류·성장률은 지원 지표 — 미지원 팩터 확장이 이들을 오탐하면 안 된다.
+        "영업이익률 15% 이상 종목을 10개 매수, 손절 -8%",
+        "순이익률 10% 이상 매출총이익률 30% 이상 종목 매수, 손절 8%",
+        "영업이익증가율 20% 이상 종목을 매수, 손절 -10%",
     ],
 )
 def test_supported_prompt_not_flagged_as_unsupported(prompt):
