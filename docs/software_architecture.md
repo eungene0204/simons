@@ -452,14 +452,27 @@ NLStrategyParser.parse() (backend/engine/nl_parser.py)
     │          없지만 룰 파스가 원문을 다 설명 못 한 잔여가 남는 '애매한 경우에만' 호출해
     │          accept/fallback 판정. LLM 오류·비활성 시 보수적 수락(빠른 경로 보존).
     │   └── Parse Fidelity Validator(engine/parse_validator.py, validate_parse) — 룰 파스가
-    │       수락되면 항상 인라인으로 LLM이 원문↔파싱결과를 비교해 누락/모호/실행불가/과잉추론을
-    │       구조화 리포트(parse_validation: isValid·confidence·issues·correctedStrategy 등)로 낸다.
-    │       명백한 파싱 오류는 correctedStrategy로 자동 교정(ParsedStrategy 스키마 검증 통과 시,
-    │       원문 description 보존). 교정본의 진입/청산 신호는 LLM 파싱 본경로와 동일하게
+    │       수락되고 설명 못 한 잔여가 있으면 LLM이 원문↔파싱결과를 비교해 누락/모호/실행불가/
+    │       과잉추론을 구조화 리포트(parse_validation: isValid·confidence·issues 등)로 낸다.
+    │       출력 계약은 diff — 유효하면 {isValid, confidence}만, 교정은 correctedFields(바뀐
+    │       필드만)로 출력하고 서버가 원본과 병합해 correctedStrategy(전체 객체)를 채운다.
+    │       전체 전략 재출력 제거 + null 필드 생략 입력으로 검증 시간을 단축(생성 토큰이 지배 항).
+    │       병합 교정본은 ParsedStrategy 스키마 검증 통과 시에만 적용(원문 description 보존,
+    │       미지 필드 사전 필터). 교정본의 진입/청산 신호는 LLM 파싱 본경로와 동일하게
     │       _validate_signals로 재검증한다 — 스키마만 통과한 환각 신호(예: 원문에 없는 ai_model
     │       'AI 매수 예측') 주입을 차단하고 환각 신호만 떨군 채 나머지 교정은 유지.
-    │       LLM 미도달(refused/cold)이면 짧은 probe로 즉시 graceful
-    │       degrade해 빠른 경로를 막지 않는다(투자 자문·성능 개선은 하지 않음, 검증·교정만).
+    │       LLM 미도달(refused/cold)이면 짧은 probe로 즉시 graceful degrade해 빠른 경로를 막지
+    │       않는다(투자 자문·성능 개선은 하지 않음, 검증·교정만). NL_VALIDATOR_MODEL(env)로
+    │       검증 전용 경량 모델 opt-in 가능. 검증 발화 시 잔여 어휘를 로그로 남긴다
+    │       ("parse validation triggered | residual=...") — 빈출 무해 토큰을
+    │       _RULE_GUARD_KNOWN_VOCAB에 보강해 검증 호출 자체를 줄이는 운영 루프의 입력.
+    │   └── 비차단(후행) 검증 — SSE 경로(/strategy/parse-stream)는 검증을 인라인으로 기다리지
+    │       않는다: _run_nl_parse(defer_holder)가 룰 파스 결과(result)를 먼저 내보내고,
+    │       _complete_deferred_validation이 후행 검증을 돌려 교정이 있을 때만 result_update
+    │       이벤트로 후속 전송(캐시도 교정본으로 갱신). 프록시(app/api/strategy/parse/stream)는
+    │       이를 parsed_updated로 변환하고, 프론트는 백테스트 실행 전이면 조용히 전략을 갱신,
+    │       실행 후 도착하면 무시한다(실행 스냅샷 일관성). 'validating' stage는 후행 모드에서
+    │       보내지 않는다(로딩 표시 회귀 방지). 비스트림 /strategy/parse는 기존 인라인 검증 유지.
     ├── 백엔드 선택: MLX (Mac) 또는 Ollama
     ├── compact prompt + JSON output → ParsedStrategy 스키마 정규화
     ├── tail-truncated JSON repair, 실패 시 fallback ParsedStrategy 생성

@@ -208,6 +208,59 @@ describe("POST /api/strategy/parse/stream", () => {
     });
   });
 
+  it("forwards a deferred validation correction as a parsed_updated event", async () => {
+    // 비차단 검증: 백엔드가 result를 먼저 보내고, 후행 LLM 검증 교정본을 result_update로
+    // 후속 전송한다. 프록시는 이를 parsed_updated 단일 이벤트로 변환해야 한다.
+    fetchBackend.mockResolvedValueOnce(
+      sseBackendResponse([
+        { type: "stage", stage: "parsing" },
+        {
+          type: "result",
+          data: {
+            parsed: { description: "반도체 위주 PBR 전략", universe: ["KOSPI", "KOSDAQ"] },
+            backtest_request: { strategy_id: "h1", symbols: ["005930"], symbol_count: 1 },
+            symbol_count: 1,
+          },
+        },
+        {
+          type: "result_update",
+          data: {
+            parsed: {
+              description: "반도체 위주 PBR 전략",
+              universe: ["KOSPI", "KOSDAQ"],
+              sector: "반도체",
+            },
+            backtest_request: { strategy_id: "h2", symbols: ["005930", "000660"], symbol_count: 2 },
+            symbol_count: 2,
+          },
+        },
+        "[DONE]",
+      ])
+    );
+
+    const response = await POST(makeRequest({ prompt: "반도체 위주 PBR 전략", backend: "ollama" }));
+    const events = await readEvents(response);
+    const parsedEvents = events
+      .map((e) => {
+        try {
+          return JSON.parse(e);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+
+    const updated = parsedEvents.find((e) => e.type === "parsed_updated");
+    expect(updated).toMatchObject({
+      parsed: { sector: "반도체" },
+      backtest_request: { strategy_id: "h2" },
+      symbol_count: 2,
+    });
+    // 순서: parsed_final/dsl_ready(즉답) 이후에 parsed_updated가 온다.
+    const order = parsedEvents.map((e) => e.type);
+    expect(order.indexOf("parsed_updated")).toBeGreaterThan(order.indexOf("dsl_ready"));
+  });
+
   it("forwards backend parse errors as SSE error events", async () => {
     fetchBackend.mockResolvedValueOnce({
       ok: false,

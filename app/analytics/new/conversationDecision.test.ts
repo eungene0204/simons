@@ -5,6 +5,7 @@ import {
   getModificationClarification,
   needsEntrySignalClarification,
   parseHoldingPeriodDays,
+  parseMetricOptimizationRange,
   resolveStrategyAssumptions,
   type ConversationContext,
 } from "./conversationDecision";
@@ -18,6 +19,66 @@ const baseContext: ConversationContext = {
 };
 
 describe("decideConversationTurn", () => {
+  it("parses conversational optimization ranges", () => {
+    expect(parseMetricOptimizationRange("5 ~ 20")).toEqual({
+      type: "number",
+      min: 5,
+      max: 20,
+      step: 2,
+    });
+    expect(parseMetricOptimizationRange("0.5부터 2.5")).toEqual({
+      type: "number",
+      min: 0.5,
+      max: 2.5,
+      step: 0.2,
+    });
+    expect(parseMetricOptimizationRange("20 ~ 5")).toBeNull();
+    expect(parseMetricOptimizationRange("범위를 모르겠어")).toBeNull();
+  });
+
+  it("starts the builder with an explicit Sharpe research objective", () => {
+    expect(decideConversationTurn("샤프지수를 최대화할 수 있는 전략을 만들어줘", baseContext)).toMatchObject({
+      action: "start_builder",
+      reason: "research_metric_selected",
+      researchMetric: "sharpe",
+      seedPrompt: expect.stringContaining("과거 데이터 연구 목표: 샤프 지수"),
+    });
+  });
+
+  it("asks for one objective before starting broad metric research", () => {
+    const prompt = "위험 조정 성과 지표를 기준으로 전략을 만들고 싶어";
+    expect(decideConversationTurn(prompt, baseContext)).toMatchObject({
+      action: "ask_research_metric",
+      reason: "research_metric_required",
+      strategyPrompt: prompt,
+      suggestions: ["샤프 지수", "소르티노 지수", "칼마 비율", "트레이너 지수 (현재 계산 불가)"],
+    });
+
+    expect(decideConversationTurn("소르티노 지수", {
+      ...baseContext,
+      pendingResearchMetricPrompt: prompt,
+    })).toMatchObject({
+      action: "start_builder",
+      researchMetric: "sortino",
+      seedPrompt: expect.stringContaining("과거 데이터 연구 목표: 소르티노 지수"),
+    });
+  });
+
+  it("explains why Treynor is unavailable and keeps the metric step open", () => {
+    expect(decideConversationTurn("트레이너 지수를 최대화하는 전략을 만들어줘", baseContext)).toMatchObject({
+      action: "ask_research_metric",
+      reason: "treynor_metric_unavailable",
+      message: expect.stringContaining("시장 벤치마크와 전략 베타 데이터가 필요"),
+      suggestions: ["샤프 지수", "소르티노 지수", "칼마 비율"],
+    });
+  });
+
+  it("does not intercept a metric definition question", () => {
+    expect(decideConversationTurn("샤프 지수가 뭐야?", baseContext)).toMatchObject({
+      action: "classify",
+    });
+  });
+
   it("responds to an invalid backtest period before semantic routing", () => {
     const decision = decideConversationTurn("백테스트를 6개월로 돌려줘", baseContext);
 

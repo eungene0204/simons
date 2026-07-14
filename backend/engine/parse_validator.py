@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import time
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field, ValidationError
@@ -31,8 +33,13 @@ logger = logging.getLogger(__name__)
 # LLM 호출 예산. 룰 파스 즉답을 막지 않도록 짧게 유지한다.
 _VALIDATION_PROBE_TIMEOUT_S = 3.0   # LLM 도달 가능성 probe(GET /api/tags) — refused/cold면 즉시 degrade
 _VALIDATION_TIMEOUT_S = 120         # 단일 생성 호출(워밍업된 서버 ~9s). 재시도 없음.
-_VALIDATION_NUM_CTX = 16384         # system prompt + parsed JSON가 기본 num_ctx(4096)를 넘는다
-_VALIDATION_NUM_PREDICT = 2048      # correctedStrategy + issues 출력 여유
+# 파싱 본경로(_OLLAMA_NUM_CTX=16384)와 반드시 같은 값 유지 — num_ctx가 다르면 Ollama가
+# 러너를 재시작해 호출마다 콜드 페널티가 붙는다.
+_VALIDATION_NUM_CTX = 16384
+# 출력 계약이 diff(correctedFields, 바뀐 필드만)라 전체 전략 재출력이 없다. 유효 판정은
+# {"isValid":true,"confidence":..} 한 줄이면 끝 — 생성 토큰이 검증 지연의 지배 항이라
+# 여기를 줄이는 것이 곧 시간 단축이다.
+_VALIDATION_NUM_PREDICT = 1024
 
 
 # ─── 검증 리포트 스키마 (사용자 지정 계약, camelCase 그대로) ────────────────────
@@ -52,6 +59,9 @@ class ParseValidationReport(BaseModel):
     isValid: bool = True
     confidence: float = 0.0
     correctedStrategy: Optional[dict] = None
+    # LLM 출력 계약(부분 diff): 바뀌어야 하는 필드만 담는다. 서버가 원본과 병합해
+    # correctedStrategy(전체 객체)를 채우므로 하류 계약은 그대로 유지된다.
+    correctedFields: Optional[dict] = None
     issues: List[ParseValidationIssue] = Field(default_factory=list)
     missingFields: List[str] = Field(default_factory=list)
     clarificationQuestions: List[str] = Field(default_factory=list)
@@ -87,8 +97,8 @@ The parsed strategy object follows this schema (ParsedStrategy):
     (e.g. "반도체", "이차전지", "바이오/제약", "게임") | null
 - fundamental_filters: array of {metric, operator(<,>,<=,>=), value}
     metric ∈ per, pbr, psr, roe_or_gpa, roa, debt_ratio, current_ratio, quick_ratio,
-    reserve_ratio, net_margin, gross_margin, revenue_growth, operating_income_growth,
-    net_income_growth, market_cap, trading_value
+    reserve_ratio, net_margin, gross_margin, operating_margin, revenue_growth,
+    operating_income_growth, net_income_growth, market_cap, trading_value
 - entry_signals / exit_signals: array of {indicator, signal_type(buy/sell), ...params}
     indicator ∈ ma_crossover, rsi, ema, macd, bollinger_bands, breakout, volume_spike,
     stochastic, cci, adx, ai_model, ai_drop_model
@@ -96,30 +106,23 @@ The parsed strategy object follows this schema (ParsedStrategy):
 - max_positions, hold_period_days, rebalancing_period, stop_loss_pct, take_profit_pct,
   trailing_stop_pct, max_mdd_limit_pct, backtest_start_date, backtest_end_date
 
+NOTE: the parsed JSON you receive omits null/unset fields to stay short — a field that is
+absent from the JSON is null.
+
 The user's original input may contain typos or misspellings. Interpret by intent, not by
 surface characters. If the rule-based parser missed a value because of a typo, correct it
 (e.g. Korean "5게" is a typo for "5개" = 5 stocks = max_positions 5; "손졀" = "손절").
 
-Rules for correctedStrategy:
-- Provide it ONLY when the parser made an obvious, unambiguous interpretation error
-  (e.g. user said 손절 5% but parser stored take_profit_pct=5, or a typo caused a missed field).
-- If the user restricted the scope to one industry (e.g. "반도체 중심으로", "2차전지 위주로",
-  "바이오 쪽만") but the parser left `sector` null, that is a missed field — fill `sector`
-  with the Korean sector name. Do NOT invent a sector the user did not mention.
-- It must be a COMPLETE ParsedStrategy object in the exact schema above, keeping every
-  field the parser got right and fixing only the misread field.
-- Keep `description` exactly as the parser had it.
-- If the parse is already faithful, set correctedStrategy to null.
-- Never add conditions the user did not state. Never tune values for performance.
-- Never add entry_signals or exit_signals the user did not explicitly mention. In particular,
-  never introduce ai_model / ai_drop_model unless the user's text literally mentions
-  "AI" or "인공지능". A ranking strategy (ranking_metric) needs no entry signal.
+Return ONLY valid JSON, no prose.
 
-Return ONLY valid JSON, no prose, following this exact schema:
+If the parse already faithfully matches the user's intent, return EXACTLY this and nothing more:
+{"isValid": true, "confidence": number}
+
+Otherwise return:
 {
   "isValid": boolean,
   "confidence": number,           // 0.0–1.0, your confidence that the parse matches intent
-  "correctedStrategy": object | null,
+  "correctedFields": object | null,
   "issues": [
     { "field": string, "severity": "error" | "warning", "message": string }
   ],
@@ -127,6 +130,26 @@ Return ONLY valid JSON, no prose, following this exact schema:
   "clarificationQuestions": string[],
   "userFacingMessage": string
 }
+
+Rules for correctedFields:
+- It is a PARTIAL object: include ONLY the fields whose parsed value must change, with their
+  corrected values. Never repeat fields the parser already got right. NEVER output the whole
+  strategy object.
+- Provide it ONLY when the parser made an obvious, unambiguous interpretation error
+  (e.g. user said 손절 5% but parser stored take_profit_pct=5, or a typo caused a missed field).
+  Otherwise set it to null and use issues/clarificationQuestions instead.
+- To clear a misassigned field, include it with null
+  (e.g. {"take_profit_pct": null, "stop_loss_pct": 5}).
+- Array fields (entry_signals, exit_signals, fundamental_filters, universe) are replaced as a
+  whole: if one needs correction, include the complete corrected array.
+- If the user restricted the scope to one industry (e.g. "반도체 중심으로", "2차전지 위주로",
+  "바이오 쪽만") but the parsed JSON has no `sector`, that is a missed field — include
+  {"sector": <Korean sector name>}. Do NOT invent a sector the user did not mention.
+- Never include `description`.
+- Never add conditions the user did not state. Never tune values for performance.
+- Never add entry_signals or exit_signals the user did not explicitly mention. In particular,
+  never introduce ai_model / ai_drop_model unless the user's text literally mentions
+  "AI" or "인공지능". A ranking strategy (ranking_metric) needs no entry signal.
 
 Write `issues[].message`, `clarificationQuestions`, and `userFacingMessage` in Korean.
 Keep `userFacingMessage` short and neutral (no advice, no recommendation)."""
@@ -151,11 +174,13 @@ def validate_parse(parser, user_input: str, parsed):
     """
     from engine.nl_parser import ParsedStrategy, _parse_model_json_response
 
+    started = time.perf_counter()
     try:
         raw = _run_validation_llm(
             parser,
             PARSE_VALIDATION_PROMPT,
-            build_validation_user_message(user_input, parsed.model_dump()),
+            # null 필드는 빼고 보낸다(입력 토큰 절감) — 프롬프트가 '누락=null'을 명시한다.
+            build_validation_user_message(user_input, parsed.model_dump(exclude_none=True)),
         )
         if not raw:
             return parsed, _skipped_report()
@@ -166,17 +191,23 @@ def validate_parse(parser, user_input: str, parsed):
 
     corrected = _maybe_apply_correction(parser, parsed, report, ParsedStrategy, user_input)
     logger.info(
-        "parse validation | isValid=%s confidence=%.2f corrected=%s issues=%d | input=%r",
-        report.isValid, report.confidence, corrected is not parsed, len(report.issues), user_input[:80],
+        "parse validation | isValid=%s confidence=%.2f corrected=%s issues=%d took_ms=%d | input=%r",
+        report.isValid, report.confidence, corrected is not parsed, len(report.issues),
+        round((time.perf_counter() - started) * 1000), user_input[:80],
     )
     return corrected, report.model_dump()
 
 
 def _maybe_apply_correction(parser, parsed, report: ParseValidationReport, parsed_strategy_cls, user_input: str):
-    """correctedStrategy가 스키마로 검증되면 자동 적용한다(원문 description 보존).
+    """교정(diff 또는 전체 객체)이 스키마로 검증되면 자동 적용한다(원문 description 보존).
 
-    검증 실패 시 원본을 유지하고 리포트의 correctedStrategy를 null로 비워 프론트가 잘못된
-    교정본을 표시하지 않게 한다.
+    1차 계약은 correctedFields(부분 diff) — LLM이 바뀐 필드만 출력하므로 전체 전략 재출력
+    대비 생성 토큰이 크게 준다(검증 지연의 지배 항). 원본 dump에 병합해 전체 후보를 만들고,
+    검증 통과 시 report.correctedStrategy에 병합본을 채워 하류 계약을 유지한다.
+    구계약(correctedStrategy 전체 객체)도 하위호환으로 수용한다.
+
+    검증 실패 시 원본을 유지하고 리포트의 correctedStrategy/correctedFields를 null로 비워
+    프론트가 잘못된 교정본을 표시하지 않게 한다.
 
     스키마 검증만으로는 환각을 못 막는다 — 교정 LLM이 사용자가 언급하지 않은 신호
     (예: ai_model 'AI 매수 예측')를 스키마에 맞게 끼워 넣으면 그대로 통과한다. 그래서
@@ -184,14 +215,24 @@ def _maybe_apply_correction(parser, parsed, report: ParseValidationReport, parse
     있어야 인정)으로 교정본의 진입/청산 신호를 재검증해, 환각 신호만 떨구고 나머지 교정은
     유지한다.
     """
-    candidate_dump = report.correctedStrategy
+    diff = report.correctedFields
+    if isinstance(diff, dict) and diff:
+        known = set(parsed_strategy_cls.model_fields)
+        # description은 사용자 원문이라 교정 대상이 아니고, 미지 필드는 스키마 검증 전에 걸러
+        # diff 전체가 무효화되는 것을 막는다.
+        cleaned = {k: v for k, v in diff.items() if k in known and k != "description"}
+        candidate_dump = {**parsed.model_dump(), **cleaned} if cleaned else None
+    else:
+        candidate_dump = report.correctedStrategy
     if not isinstance(candidate_dump, dict) or not candidate_dump:
+        report.correctedFields = None
         return parsed
     try:
         candidate = parsed_strategy_cls.model_validate(candidate_dump)
     except ValidationError as exc:
-        logger.warning("correctedStrategy invalid, keeping original parse | err=%r", exc)
+        logger.warning("corrected parse invalid, keeping original | err=%r", exc)
         report.correctedStrategy = None
+        report.correctedFields = None
         return parsed
     # 원문 설명은 사용자 입력이므로 LLM이 바꿔도 무시하고 보존한다.
     candidate.description = parsed.description
@@ -232,6 +273,10 @@ def _run_validation_llm(parser, system_prompt: str, user_message: str) -> Option
     cold(미응답)면 즉시 None을 반환해 빠른 경로를 막지 않는다. 닿으면 단일 /api/chat를
     호출한다(워밍업된 서버는 ~9s). 콜드스타트 장기 재시도(parse 본경로의 320s 예산)는
     검증 같은 보조 기능에는 쓰지 않는다.
+
+    NL_VALIDATOR_MODEL(env)로 검증 전용 경량 모델을 지정할 수 있다(ollama 경로만).
+    검증은 '비교+판정' 과제라 파싱 본경로보다 작은 모델로 충분할 수 있다 — 단, 별도
+    모델은 Ollama에 추가 로드되므로 메모리 여유가 있을 때만 opt-in.
     """
     import urllib.request
 
@@ -242,7 +287,7 @@ def _run_validation_llm(parser, system_prompt: str, user_message: str) -> Option
         return None
 
     body = json.dumps({
-        "model": parser.ollama_model,
+        "model": os.environ.get("NL_VALIDATOR_MODEL", "").strip() or parser.ollama_model,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},

@@ -29,7 +29,7 @@ class _DummyParser:
     def __init__(self):
         self.parse_calls = 0
 
-    def parse(self, _prompt, on_stage=None, on_validation=None):
+    def parse(self, _prompt, on_stage=None, on_validation=None, defer_validation=False):
         self.parse_calls += 1
         return _DummyParsed()
 
@@ -122,7 +122,7 @@ async def test_parse_stream_emits_thinking_stage_when_parser_falls_back(monkeypa
     monkeypatch.setenv("LLM_BACKEND", "ollama")
 
     class _LLMFallbackParser:
-        def parse(self, _prompt, on_stage=None, on_validation=None):
+        def parse(self, _prompt, on_stage=None, on_validation=None, defer_validation=False):
             if on_stage is not None:
                 on_stage("thinking")
             return _DummyParsed()

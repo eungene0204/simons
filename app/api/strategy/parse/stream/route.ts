@@ -116,6 +116,7 @@ export async function POST(req: NextRequest) {
       // 백엔드 parse-stream의 SSE 이벤트를 받아 클라이언트용 이벤트로 변환한다.
       // - stage: 그대로 전달(parsing→thinking 진행 표시)
       // - result: parsed_final + dsl_ready로 분해
+      // - result_update: 후행 LLM 검증 교정 → parsed_updated 단일 이벤트로 전달
       // - error: detail 전달
       const handleEvent = (payload: string) => {
         if (payload === "[DONE]") return;
@@ -141,6 +142,18 @@ export async function POST(req: NextRequest) {
             type: "dsl_ready",
             backtest_request: data.backtest_request,
             symbol_count: data.symbol_count ?? data.backtest_request?.symbol_count ?? null,
+          });
+        } else if (event.type === "result_update") {
+          // 룰 파스 결과를 먼저 보낸 뒤 도착한 검증 교정본. 클라이언트가 실행 전이면
+          // 전략·백테스트 요청을 조용히 갱신한다(로딩 표시로 되돌아가지 않음).
+          const data = event.data ?? {};
+          send({
+            type: "parsed_updated",
+            parsed: data.parsed,
+            backtest_request: data.backtest_request,
+            symbol_count: data.symbol_count ?? null,
+            risk_overrides: data.risk_overrides ?? null,
+            notices: data.notices ?? null,
           });
         } else if (event.type === "error") {
           send({ type: "error", detail: event.detail ?? "파싱 실패" });

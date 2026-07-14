@@ -43,6 +43,7 @@ function createJsonResponse(body: unknown) {
 describe("StrategyLab unknown intent fallback", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.sessionStorage.clear();
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
       callback(0);
@@ -101,5 +102,137 @@ describe("StrategyLab unknown intent fallback", () => {
         fetchMock.mock.calls.some(([input]) => String(input).includes("/api/strategy/parse"))
       ).toBe(false);
     });
+  });
+
+  it("starts a metric research conversation by asking for the market", async () => {
+    const userRequest = "샤프지수를 최대화할 수 있는 전략을 만들어줘";
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/model/status") {
+        return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
+      }
+      if (url === "/api/user") {
+        return Promise.resolve(createJsonResponse({ user: { name: "Tester" } }));
+      }
+      if (url === "/api/strategy/builder/step") {
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          state: {},
+          input: "",
+          seed: expect.stringContaining("과거 데이터 연구 목표: 샤프 지수"),
+        });
+        return Promise.resolve(createJsonResponse({
+          state: {},
+          status: "collecting",
+          reply: "어떤 시장을 대상으로 할까요?",
+          suggestions: ["코스피", "코스닥", "코스피200", "코스피·코스닥 전체"],
+        }));
+      }
+      return Promise.resolve(createJsonResponse({}));
+    });
+
+    render(<StrategyLabPage />);
+    fireEvent.change(await screen.findByRole("textbox"), { target: { value: userRequest } });
+    fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
+
+    expect(await screen.findByText(/어떤 시장을 대상으로 할까요/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "코스피" })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([input]) => String(input) === "/api/query/classify")).toBe(false);
+  });
+
+  it("collects a parameter range and runs the selected metric calculation", async () => {
+    let resolveOptimization!: (response: Response) => void;
+    const optimizationResponse = new Promise<Response>((resolve) => {
+      resolveOptimization = resolve;
+    });
+    const parsed = {
+      description: "코스피 RSI 전략",
+      universe: ["kospi"],
+      fundamental_filters: [],
+      entry_signals: [{ indicator: "rsi" }],
+      exit_signals: [{ indicator: "rsi" }],
+      max_positions: 5,
+      hold_period_days: 20,
+      rebalancing_period: "none",
+      stop_loss_pct: 10,
+      take_profit_pct: null,
+      trailing_stop_pct: null,
+      backtest_period: "5y",
+      initial_capital: 10000000,
+    };
+    const backtestRequest = {
+      symbols: ["005930"],
+      universe_id: "kospi",
+      entry: { conditions: [{ type: "indicator", id: "rsi", params: { period: 14, value: 30 } }] },
+      exit: { conditions: [{ type: "indicator", id: "rsi", params: { period: 14, value: 70 } }] },
+      risk: { position_size_pct: 20, max_positions: 5, stop_loss_pct: 10, init_cash: 10000000 },
+      period: "5Y",
+      options: {},
+    };
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/model/status") return Promise.resolve(createJsonResponse({ status: "ready" }));
+      if (url === "/api/user") return Promise.resolve(createJsonResponse({ user: { name: "Tester" } }));
+      if (url === "/api/strategy/builder/step") {
+        const body = JSON.parse(String(init?.body));
+        if (body.input === "") {
+          return Promise.resolve(createJsonResponse({
+            state: {},
+            status: "collecting",
+            reply: "어떤 시장을 대상으로 할까요?",
+            suggestions: ["코스피"],
+          }));
+        }
+        return Promise.resolve(createJsonResponse({
+          state: {},
+          status: "confirmed",
+          parsed,
+          backtest_request: backtestRequest,
+          prompt: parsed.description,
+        }));
+      }
+      if (url === "http://localhost:8000/optimize") {
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          target_metric: "sharpe",
+          n_trials: 30,
+          ranges: {
+            "risk.stop_loss_pct": { type: "number" },
+          },
+        });
+        return optimizationResponse;
+      }
+      return Promise.resolve(createJsonResponse({}));
+    });
+
+    render(<StrategyLabPage />);
+    fireEvent.change(await screen.findByRole("textbox"), {
+      target: { value: "샤프지수를 최대화할 수 있는 전략을 만들어줘" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
+    fireEvent.click(await screen.findByRole("button", { name: "코스피" }));
+    fireEvent.click(await screen.findByRole("button", { name: "손절라인" }));
+    fireEvent.click(await screen.findByRole("button", { name: /\d+(?:\.\d+)? ~ \d+(?:\.\d+)?/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "이 범위로 계산" }));
+
+    expect(await screen.findByRole("progressbar", { name: "파라미터 조합 계산 진행 상황" })).toBeInTheDocument();
+    expect(screen.getByText(/30개 조합 계산 중/)).toBeInTheDocument();
+    expect(screen.getByText(/경과 \d+초/)).toBeInTheDocument();
+
+    resolveOptimization(createJsonResponse({
+      status: "success",
+      target_metric: "sharpe",
+      total_iterations: 30,
+      top_results: [{
+        iteration: 3,
+        parameters: { "risk.stop_loss_pct": 8 },
+        target_value: 1.5,
+        metrics: { cagr: 12.3, maxDrawdown: -8.4, sharpe: 1.5 },
+      }],
+    }));
+    expect(await screen.findByText(/샤프 지수 기준으로 30회 계산을 마쳤습니다/)).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar", { name: "파라미터 조합 계산 진행 상황" })).not.toBeInTheDocument();
+    expect(screen.getByText(/손절라인 8/)).toBeInTheDocument();
+    expect(screen.getByText(/샤프 지수 1.50/)).toBeInTheDocument();
   });
 });

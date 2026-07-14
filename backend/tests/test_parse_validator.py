@@ -317,6 +317,168 @@ def test_invalid_correction_is_discarded(monkeypatch, parser, parsed_pbr):
     assert report["correctedStrategy"] is None
 
 
+# ─── 새 출력 계약: 최소 유효 출력 + correctedFields(부분 diff) ──────────
+
+def test_minimal_valid_output_passthrough(monkeypatch, parser, parsed_pbr):
+    """유효 판정은 {"isValid":true,"confidence":..} 두 필드만 출력해도 된다(생성 토큰 절감).
+    나머지 리포트 필드는 스키마 기본값으로 채워진다."""
+    _patch_llm(monkeypatch, json.dumps({"isValid": True, "confidence": 0.93}))
+
+    result, report = validate_parse(parser, "PBR 1 이하 종목 10개 1년 보유", parsed_pbr)
+
+    assert result is parsed_pbr
+    assert report["isValid"] is True
+    assert report["confidence"] == 0.93
+    assert report["correctedStrategy"] is None
+    assert report["issues"] == []
+
+
+def test_corrected_fields_diff_is_merged(monkeypatch, parser):
+    """correctedFields(바뀐 필드만)를 원본에 병합해 적용한다 — 손절↔익절 오귀속 교정.
+    전체 전략 재출력 없이 diff만으로 교정이 성립해야 한다(검증 시간 단축의 핵심 계약)."""
+    misparsed = _parse_rule_based_strategy("PBR 1 이하 종목 10개 1년 보유")
+    misparsed.take_profit_pct = 5.0
+    misparsed.stop_loss_pct = None
+
+    _patch_llm(monkeypatch, json.dumps({
+        "isValid": False,
+        "confidence": 0.9,
+        "correctedFields": {"take_profit_pct": None, "stop_loss_pct": 5.0},
+        "issues": [{"field": "stop_loss_pct", "severity": "error", "message": "손절이 익절로 잘못 해석됨"}],
+        "userFacingMessage": "손절 5%로 교정했습니다.",
+    }))
+
+    result, report = validate_parse(parser, "손절 5%로 PBR 1 이하 10개 보유", misparsed)
+
+    assert result is not misparsed
+    assert result.stop_loss_pct == 5.0
+    assert result.take_profit_pct is None
+    assert result.max_positions == misparsed.max_positions  # diff에 없는 필드는 보존
+    # 하류 계약: 병합된 전체 교정본이 correctedStrategy로 채워진다.
+    assert report["correctedStrategy"]["stop_loss_pct"] == 5.0
+
+
+def test_corrected_fields_sector_fill(monkeypatch, parser):
+    """놓친 업종 제한을 correctedFields {"sector": ...} 하나로 교정한다."""
+    misparsed = _parse_rule_based_strategy("PBR 1 이하 종목 10개 1년 보유")
+    assert misparsed.sector is None
+
+    _patch_llm(monkeypatch, json.dumps({
+        "isValid": False,
+        "confidence": 0.9,
+        "correctedFields": {"sector": "반도체"},
+        "userFacingMessage": "반도체 업종 제한을 반영했습니다.",
+    }))
+
+    result, report = validate_parse(
+        parser, "반도체 중심으로 PBR 1 이하 종목 10개 1년 보유", misparsed
+    )
+
+    assert result.sector == "반도체"
+    assert report["correctedStrategy"]["sector"] == "반도체"
+
+
+def test_corrected_fields_ignores_description_and_unknown_keys(monkeypatch, parser, parsed_pbr):
+    """description(사용자 원문)과 미지 필드는 diff에서 걸러낸다 — 나머지 교정은 유지."""
+    _patch_llm(monkeypatch, json.dumps({
+        "isValid": False,
+        "confidence": 0.8,
+        "correctedFields": {
+            "description": "LLM이 멋대로 바꾼 설명",
+            "unknown_field": 123,
+            "max_positions": 7,
+        },
+        "userFacingMessage": "종목 수를 교정했습니다.",
+    }))
+
+    result, _report = validate_parse(parser, "PBR 1 이하 종목 10개 1년 보유", parsed_pbr)
+
+    assert result.description == parsed_pbr.description
+    assert result.max_positions == 7
+
+
+def test_corrected_fields_hallucinated_signal_is_stripped(monkeypatch, parser):
+    """diff 경로에서도 환각 신호 가드(_validate_signals)가 동작한다 — AI 미언급 원문에
+    ai_model 신호를 끼워 넣으면 떨구고 나머지 교정(종목 수)은 유지."""
+    prompt = "KOSDAQ에서 최근 60거래일 수익률 상위 6종목, 한 달마다 리밸런싱, 손절 -9%"
+    parsed = _parse_rule_based_strategy(prompt)
+    assert parsed is not None
+
+    _patch_llm(monkeypatch, json.dumps({
+        "isValid": False,
+        "confidence": 0.8,
+        "correctedFields": {
+            "entry_signals": [{"indicator": "ai_model", "signal_type": "buy", "threshold": 70}],
+            "max_positions": 5,
+        },
+        "userFacingMessage": "교정했습니다.",
+    }))
+
+    result, report = validate_parse(parser, prompt, parsed)
+
+    assert all(s.indicator != "ai_model" for s in result.entry_signals)
+    assert result.max_positions == 5
+    assert all(
+        s["indicator"] != "ai_model" for s in report["correctedStrategy"]["entry_signals"]
+    )
+
+
+def test_invalid_corrected_fields_discarded(monkeypatch, parser, parsed_pbr):
+    """correctedFields 병합본이 스키마 위반이면 원본을 유지하고 리포트 교정 필드를 비운다."""
+    _patch_llm(monkeypatch, json.dumps({
+        "isValid": False,
+        "confidence": 0.5,
+        "correctedFields": {"fundamental_filters": "엉터리"},
+        "userFacingMessage": "교정 시도",
+    }))
+
+    result, report = validate_parse(parser, "x", parsed_pbr)
+
+    assert result is parsed_pbr
+    assert report["correctedStrategy"] is None
+    assert report["correctedFields"] is None
+
+
+def test_validation_message_omits_null_fields(monkeypatch, parser, parsed_pbr):
+    """검증 LLM에 보내는 파싱 JSON은 null 필드를 뺀다(입력 토큰 절감).
+    프롬프트가 '누락=null'을 명시하므로 의미는 보존된다."""
+    captured = {}
+
+    def fake(_parser, _system, user_message):
+        captured["msg"] = user_message
+        return None  # degrade — 메시지 캡처만 목적
+
+    monkeypatch.setattr(parse_validator, "_run_validation_llm", fake)
+    assert parsed_pbr.sector is None
+
+    validate_parse(parser, "PBR 1 이하 종목 10개 1년 보유", parsed_pbr)
+
+    assert '"sector"' not in captured["msg"]
+    assert '"fundamental_filters"' in captured["msg"]
+
+
+# ─── 비차단(후행) 검증: defer_validation ─────────────────────────────
+
+def test_parse_defers_validation_when_requested(monkeypatch, parser):
+    """defer_validation=True면 검증 LLM을 돌리지 않고 룰 파스를 즉시 반환하며,
+    on_validation에 {"pending": True}로 검증 필요를 알린다(SSE 후행 검증용)."""
+    def _fail(*_a, **_k):
+        raise AssertionError("defer 모드는 인라인 검증 LLM을 호출하면 안 된다")
+
+    monkeypatch.setattr(parse_validator, "_run_validation_llm", _fail)
+
+    reports = []
+    # '삼성전자 같은'이 설명 못 한 잔여 → 원래라면 검증 트리거.
+    parsed = parser.parse(
+        "삼성전자 같은 PBR 1 이하 종목 10개 1년 보유",
+        on_validation=reports.append,
+        defer_validation=True,
+    )
+
+    assert parsed is not None
+    assert reports == [{"pending": True}]
+
+
 # ─── 통합: parse()가 on_validation 콜백으로 리포트를 전달 ───────────────
 
 def test_parse_invokes_on_validation_callback(monkeypatch, parser):

@@ -2941,8 +2941,111 @@ def parse_nl_strategy(request: NLParseRequest):
     return _run_nl_parse(request)
 
 
-def _run_nl_parse(request: NLParseRequest, on_stage=None):
-    """파싱 코어 로직. on_stage: LLM 폴백 직전 호출되는 콜백(진행 스트리밍용)."""
+def _build_parse_result(request: NLParseRequest, backend: str, parsed, validation_report,
+                        *, load_ms: float, parse_ms: float, request_started: float) -> dict:
+    """parsed(ParsedStrategy)로부터 응답 payload를 구성한다.
+
+    인라인 경로(_run_nl_parse)와 후행 검증 경로(_complete_deferred_validation)가 공유한다 —
+    교정된 전략도 하한선 보정·DSL 변환·되묻기 감지를 동일하게 거치게 하기 위한 추출.
+    """
+    from engine.nl_parser import (
+        build_unsupported_concept_notice,
+        detect_missing_entry_clarification,
+        enforce_strategy_minimums,
+        synthesize_risk_overrides,
+    )
+    from engine.strategy_converter import to_backtest_request
+
+    # 설정값 하한선 보정 — 비현실적 입력(초기자금 300원·0일 보유·3일 모멘텀·0% 손절 등)을
+    # 자동 보정/제거하고 사용자에게 안내한다(모든 파싱 경로 공통).
+    notices = enforce_strategy_minimums(parsed)
+    # 미지원 개념(배당·섹터·변동성 등)은 LLM 폴백조차 스키마가 표현 불가라 조용히
+    # 누락/유사 해석될 수 있다 → 침묵 왜곡 대신 비차단 안내로 알린다.
+    unsupported_notice = build_unsupported_concept_notice(request.prompt)
+    if unsupported_notice:
+        notices.append(unsupported_notice)
+    convert_started = time.perf_counter()
+    backtest_req = to_backtest_request(parsed)
+    convert_ms = round((time.perf_counter() - convert_started) * 1000, 2)
+
+    print(f"[NL-PARSE] filters={len(parsed.fundamental_filters)}, entry={len(parsed.entry_signals)}, symbols={len(backtest_req['symbols'])}", flush=True)
+
+    runtime = {
+        "cache_hit": False,
+        "backend": backend,
+        "load_ms": load_ms,
+        "parse_ms": parse_ms,
+        "convert_ms": convert_ms,
+        "total_ms": round((time.perf_counter() - request_started) * 1000, 2),
+    }
+    # 이번 프롬프트에서 바뀐 리스크 필드(단일 진실 소스). 프론트가 그대로 신뢰한다.
+    # 결정적 추출이 놓친 구어체("10% 이익 나면 팔아줘")는 파서(LLM 포함) 결과로 보완한다.
+    risk_overrides = synthesize_risk_overrides(
+        request.prompt, parsed, request.previous_parsed
+    )
+    # 진입(종목 선정) 규칙을 통째로 잃었으면 조용히 넘기지 않고 되묻는다.
+    # 상대강도 랭킹 등 미지원 유형은 가까운 추세추종으로 바꾸도록 안내.
+    clarification_question, clarification_suggestions = detect_missing_entry_clarification(
+        parsed, request.prompt
+    )
+    return {
+        "parsed": parsed.model_dump(),
+        "backtest_request": backtest_req,
+        "symbol_count": len(backtest_req["symbols"]),
+        "clarification_question": clarification_question,
+        "clarification_suggestions": clarification_suggestions,
+        "risk_overrides": risk_overrides,
+        "parse_validation": validation_report,
+        "notices": notices,
+        "runtime": runtime,
+    }
+
+
+def _store_nl_parse_cache(cache_key, result: dict) -> None:
+    """파싱 결과 캐시 저장(최대 크기 초과 시 가장 오래된 항목 제거)."""
+    if len(_nl_parse_cache) >= _NL_PARSE_CACHE_MAX:
+        oldest_key = next(iter(_nl_parse_cache))
+        del _nl_parse_cache[oldest_key]
+    _nl_parse_cache[cache_key] = result
+
+
+def _complete_deferred_validation(defer_ctx: dict):
+    """SSE 결과 전송 후의 후행 LLM 검증(비차단 검증의 2단계).
+
+    교정이 적용된 경우에만 갱신된 result payload를 반환한다(스트림이 result_update로 후속
+    전송). 리포트만 있고 교정이 없으면 캐시의 parse_validation만 채우고 None을 반환한다 —
+    프론트는 리포트 내용을 표시하지 않으므로 재전송이 무의미하다. 교정 시 캐시도 교정본으로
+    갱신해 동일 프롬프트 재요청이 교정 전 결과를 돌려주지 않게 한다.
+    """
+    from engine.parse_validator import validate_parse
+
+    request = defer_ctx["request"]
+    parsed = defer_ctx["parsed"]
+    started = time.perf_counter()
+    validated, report = validate_parse(defer_ctx["parser"], request.prompt, parsed)
+    cache_key = defer_ctx["cache_key"]
+    if validated is parsed:
+        cached = _nl_parse_cache.get(cache_key)
+        if cached is not None:
+            cached["parse_validation"] = report
+        return None
+    result = _build_parse_result(
+        request, defer_ctx["backend"], validated, report,
+        load_ms=0.0,
+        parse_ms=round((time.perf_counter() - started) * 1000, 2),
+        request_started=started,
+    )
+    _store_nl_parse_cache(cache_key, result)
+    return result
+
+
+def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | None = None):
+    """파싱 코어 로직. on_stage: LLM 폴백 직전 호출되는 콜백(진행 스트리밍용).
+
+    defer_holder: dict를 주면 룰 파스의 LLM 검증을 인라인으로 돌리지 않고(defer), 후행
+    검증에 필요한 컨텍스트를 holder에 담아 즉시 응답한다. SSE 스트림 전용 — 호출 측이
+    _complete_deferred_validation(holder)로 검증을 마저 실행한다.
+    """
     from llm_backend import resolve_llm_backend
 
     request_started = time.perf_counter()
@@ -2967,14 +3070,7 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None):
         return cached
 
     try:
-        from engine.nl_parser import (
-            NLStrategyParser,
-            build_unsupported_concept_notice,
-            detect_missing_entry_clarification,
-            enforce_strategy_minimums,
-            synthesize_risk_overrides,
-        )
-        from engine.strategy_converter import to_backtest_request
+        from engine.nl_parser import NLStrategyParser
 
         load_started = time.perf_counter()
         backend = resolved_backend
@@ -3014,62 +3110,34 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None):
             print(f"[NL-PARSE] 수정 모드 (diff)", flush=True)
             parsed = parser.parse_modification(request.prompt, request.previous_parsed, on_stage=on_stage)
         else:
-            parsed = parser.parse(request.prompt, on_stage=on_stage, on_validation=_capture_validation)
+            parsed = parser.parse(
+                request.prompt, on_stage=on_stage, on_validation=_capture_validation,
+                defer_validation=defer_holder is not None,
+            )
         parse_ms = round((time.perf_counter() - parse_started) * 1000, 2)
 
         _nl_parser_status["status"] = "ok"
         _nl_parser_status["error"] = None
-        # 설정값 하한선 보정 — 비현실적 입력(초기자금 300원·0일 보유·3일 모멘텀·0% 손절 등)을
-        # 자동 보정/제거하고 사용자에게 안내한다(모든 파싱 경로 공통).
-        notices = enforce_strategy_minimums(parsed)
-        # 미지원 개념(배당·섹터·변동성 등)은 LLM 폴백조차 스키마가 표현 불가라 조용히
-        # 누락/유사 해석될 수 있다 → 침묵 왜곡 대신 비차단 안내로 알린다.
-        unsupported_notice = build_unsupported_concept_notice(request.prompt)
-        if unsupported_notice:
-            notices.append(unsupported_notice)
-        convert_started = time.perf_counter()
-        backtest_req = to_backtest_request(parsed)
-        convert_ms = round((time.perf_counter() - convert_started) * 1000, 2)
 
-        print(f"[NL-PARSE] filters={len(parsed.fundamental_filters)}, entry={len(parsed.entry_signals)}, symbols={len(backtest_req['symbols'])}", flush=True)
+        validation_report = validation_holder.get("report")
+        if (defer_holder is not None and isinstance(validation_report, dict)
+                and validation_report.get("pending")):
+            # 후행 검증 컨텍스트 — enforce_strategy_minimums가 parsed를 제자리 변형(clamp)
+            # 하므로 검증 입력은 변형 전 사본으로 보존한다(인라인 검증과 동일한 입력).
+            defer_holder.update({
+                "parser": parser,
+                "request": request,
+                "parsed": parsed.model_copy(deep=True),
+                "cache_key": cache_key,
+                "backend": backend,
+            })
 
-        runtime = {
-            "cache_hit": False,
-            "backend": backend,
-            "load_ms": load_ms,
-            "parse_ms": parse_ms,
-            "convert_ms": convert_ms,
-            "total_ms": round((time.perf_counter() - request_started) * 1000, 2),
-        }
-        # 이번 프롬프트에서 바뀐 리스크 필드(단일 진실 소스). 프론트가 그대로 신뢰한다.
-        # 결정적 추출이 놓친 구어체("10% 이익 나면 팔아줘")는 파서(LLM 포함) 결과로 보완한다.
-        risk_overrides = synthesize_risk_overrides(
-            request.prompt, parsed, request.previous_parsed
+        result = _build_parse_result(
+            request, backend, parsed, validation_report,
+            load_ms=load_ms, parse_ms=parse_ms, request_started=request_started,
         )
-        # 진입(종목 선정) 규칙을 통째로 잃었으면 조용히 넘기지 않고 되묻는다.
-        # 상대강도 랭킹 등 미지원 유형은 가까운 추세추종으로 바꾸도록 안내.
-        clarification_question, clarification_suggestions = detect_missing_entry_clarification(
-            parsed, request.prompt
-        )
-        result = {
-            "parsed": parsed.model_dump(),
-            "backtest_request": backtest_req,
-            "symbol_count": len(backtest_req["symbols"]),
-            "clarification_question": clarification_question,
-            "clarification_suggestions": clarification_suggestions,
-            "risk_overrides": risk_overrides,
-            "parse_validation": validation_holder.get("report"),
-            "notices": notices,
-            "runtime": runtime,
-        }
-        _record_ai_runtime("parse", runtime)
-
-        # 캐시 저장 (최대 크기 초과 시 가장 오래된 항목 제거)
-        if len(_nl_parse_cache) >= _NL_PARSE_CACHE_MAX:
-            oldest_key = next(iter(_nl_parse_cache))
-            del _nl_parse_cache[oldest_key]
-        _nl_parse_cache[cache_key] = result
-
+        _record_ai_runtime("parse", result["runtime"])
+        _store_nl_parse_cache(cache_key, result)
         return result
     except HTTPException:
         raise
@@ -3091,12 +3159,18 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None):
         )
 
 
+# 후행(비차단) LLM 검증이 SSE 스트림을 붙잡을 수 있는 최대 시간. 프록시의 스트림 예산
+# (120s) 아래로 유지해 검증이 매달려도 스트림이 프록시 타임아웃으로 끊기지 않게 한다.
+_DEFERRED_VALIDATION_MAX_WAIT_S = 90.0
+
+
 @app.post("/strategy/parse-stream")
 async def parse_nl_strategy_stream(request: NLParseRequest):
     """NL 파싱 진행 상황을 SSE로 스트리밍 — parsing(규칙 기반)→thinking(LLM 폴백) 단계 표시.
 
     파싱은 동기 함수라 별도 스레드에서 돌리고, on_stage 콜백이 단계 전환을 기록한다.
     제너레이터가 단계 변화를 폴링해 SSE로 흘려보내고, 완료 시 결과/에러를 전송한다.
+    룰 파스가 LLM 검증 대상이면 결과를 먼저 보내고 검증은 후행(result_update)으로 처리한다.
     """
     from fastapi.responses import StreamingResponse
     import threading, json
@@ -3104,13 +3178,17 @@ async def parse_nl_strategy_stream(request: NLParseRequest):
     result_holder: dict = {}
     error_holder: dict = {}
     stage_holder: dict = {"stage": "parsing"}
+    # 비차단 검증: 룰 파스의 LLM 검증을 인라인으로 기다리지 않고(수 초~수십 초),
+    # 결과(result)를 먼저 내보낸 뒤 후행 검증을 돌려 교정이 있으면 result_update로
+    # 후속 전송한다. 검증 필요 컨텍스트는 _run_nl_parse가 이 holder에 채운다.
+    defer_holder: dict = {}
 
     def on_stage(stage: str):
         stage_holder["stage"] = stage
 
     def run_parse():
         try:
-            result_holder["data"] = _run_nl_parse(request, on_stage=on_stage)
+            result_holder["data"] = _run_nl_parse(request, on_stage=on_stage, defer_holder=defer_holder)
         except HTTPException as exc:
             error_holder["detail"] = exc.detail
         except Exception as exc:
@@ -3141,6 +3219,27 @@ async def parse_nl_strategy_stream(request: NLParseRequest):
             yield f"data: {json.dumps({'type': 'error', 'detail': error_holder['detail']}, ensure_ascii=False)}\n\n"
         elif "data" in result_holder:
             yield f"data: {json.dumps({'type': 'result', 'data': result_holder['data']}, ensure_ascii=False)}\n\n"
+            # 후행 검증. 'validating' stage 이벤트는 보내지 않는다 — 프론트가 로딩 버블로
+            # 되돌아가 방금 표시한 전략 요약이 사라진다. 교정 없으면 조용히 종료.
+            if defer_holder.get("parsed") is not None:
+                update_holder: dict = {}
+
+                def run_validation():
+                    try:
+                        update_holder["data"] = _complete_deferred_validation(defer_holder)
+                    except Exception as exc:  # noqa: BLE001 — 검증은 best-effort
+                        print(f"[NL-PARSE] 후행 검증 실패(무시): {exc}", flush=True)
+
+                vthread = threading.Thread(target=run_validation, daemon=True)
+                vthread.start()
+                waited = 0.0
+                # 프록시 스트림 예산(120s) 안에서 종료하도록 상한을 둔다. 초과 시 join 없이
+                # 스트림만 닫는다(검증 스레드는 daemon으로 자연 소멸, 결과는 폐기).
+                while vthread.is_alive() and waited < _DEFERRED_VALIDATION_MAX_WAIT_S:
+                    await asyncio.sleep(0.1)
+                    waited += 0.1
+                if update_holder.get("data") is not None:
+                    yield f"data: {json.dumps({'type': 'result_update', 'data': update_holder['data']}, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(

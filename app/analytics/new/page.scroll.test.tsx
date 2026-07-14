@@ -104,6 +104,33 @@ function createParseStreamResponse() {
   );
 }
 
+function createParseStreamResponseWithClarification() {
+  const encoder = new TextEncoder();
+  const clarificationQuestion =
+    "말씀하신 조건을 숫자로 구체화해 주세요. 어느 정도를 기준으로 할까요?\n\n" +
+    "• 영업이익률 몇 % 이상으로 설정할까요?";
+  const payload = [
+    `data: ${JSON.stringify({
+      type: "parsed_final",
+      parsed: parsedStrategy,
+      clarification_question: clarificationQuestion,
+      clarification_suggestions: ["영업이익률 10% 이상", "영업이익률 15% 이상"],
+    })}\n\n`,
+    `data: ${JSON.stringify({ type: "dsl_ready", backtest_request: backtestRequest, symbol_count: 2 })}\n\n`,
+    "data: [DONE]\n\n",
+  ].join("");
+
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(payload));
+        controller.close();
+      },
+    }),
+    { status: 200 }
+  );
+}
+
 describe("StrategyLabPage scroll behavior", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -123,6 +150,46 @@ describe("StrategyLabPage scroll behavior", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("백엔드의 영업이익률 명확화 질문을 기존 진입 조건과 관계없이 그대로 표시한다", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url === "/api/model/status") {
+        return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
+      }
+      if (url === "/api/user") {
+        return Promise.resolve(createJsonResponse({ user: { name: "Tester" } }));
+      }
+      if (url === "/api/query/classify") {
+        return Promise.resolve(createJsonResponse({ intent: "STRATEGY_ADVICE", symbols: [] }));
+      }
+      if (url === "/api/strategy/parse/stream") {
+        return Promise.resolve(createParseStreamResponseWithClarification());
+      }
+      return Promise.resolve(createJsonResponse({}));
+    });
+
+    render(<StrategyLabPage />);
+
+    fireEvent.change(await screen.findByRole("textbox"), {
+      target: { value: "영업이익률이 높은 조건도 넣어줘" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
+
+    expect(
+      await screen.findByText(/영업이익률 몇 % 이상으로 설정할까요/)
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "영업이익률 10% 이상" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "영업이익률 15% 이상" })).toBeInTheDocument();
+    const textarea = screen.getByRole("textbox");
+    textarea.blur();
+    fireEvent.click(screen.getByRole("button", { name: "직접 입력" }));
+    await waitFor(() => expect(textarea).toHaveFocus());
+    expect(
+      fetchMock.mock.calls.some(([input]) => String(input) === "/api/strategy/coach")
+    ).toBe(false);
   });
 
   it("scrolls to the bottom when a follow-up coach reply updates the existing assistant message", async () => {

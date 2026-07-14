@@ -12,7 +12,7 @@ import {
   PENDING_STRATEGY_PROMPT_KEY,
   STRATEGY_CHAT_STATE_KEY,
 } from "@/components/strategy/strategyTemplateSession";
-import { BacktestResult } from "@/types/strategy";
+import { BacktestResult, type OptimizationResponse } from "@/types/strategy";
 import { mapRawBacktestResult } from "./backtestResultMapper";
 import {
   ArrowUp,
@@ -41,15 +41,24 @@ import {
   type ParsedSummary,
 } from "./strategySummary";
 import {
+  buildWalkForwardParameterDescriptors,
   buildWalkForwardParameterRanges,
   buildWalkForwardRequest,
   hasWalkForwardParameterRanges,
   mergeStrategyModification,
+  walkForwardRangeBoundsForPath,
   type AdvisorWalkForwardSettings,
+  type StrategyBacktestRequest,
 } from "./parsedStrategyMerge";
 import { computeChatScrollDelta } from "./chatScroll";
 import {
+  buildResearchMetricIntro,
+  buildResearchMetricSummary,
   decideConversationTurn,
+  getResearchMetricLabel,
+  parseMetricOptimizationRange,
+  type MetricOptimizationRange,
+  type ResearchMetric,
   type HoldingPeriodHorizon,
   type SemanticClassification,
   type StrategyAssumptions,
@@ -77,6 +86,10 @@ type Stage = "idle" | "ready" | "running" | "done";
 // ranking-fix-v3: risk.ranking_metric를 스키마가 버리던 버그 수정(모멘텀 랭킹 0거래) →
 // 같은 strategy_id로 캐시된 잘못된 0거래 결과를 무효화하기 위해 버전을 올린다.
 const BACKTEST_ENGINE_VERSION = "audit-fixes-v4";
+const OPTIMIZATION_BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+const RUN_METRIC_OPTIMIZATION_CHIP = "이 범위로 계산";
+const CANCEL_METRIC_OPTIMIZATION_CHIP = "계산 취소";
+const MAX_METRIC_OPTIMIZATION_PARAMETERS = 3;
 const OAUTH_QUERY_PARAMS = {
   access_type: "offline",
   prompt: "select_account",
@@ -102,6 +115,93 @@ interface ChatMessage {
   infoSuggestions?: string[];  // 전략 빌더 옵션 칩(클릭 시 그 답으로 전송)
   // 전략 요약을 막지 않는 보정 안내(예: 초기자금 하한선 보정). 요약 카드와 함께 표시된다.
   notices?: string[];
+}
+
+type MetricOptimizationProgressState = {
+  startedAt: number;
+  totalTrials: number;
+};
+
+function formatElapsedTime(startedAt: number, now: number): string {
+  const totalSeconds = Math.max(0, Math.floor((now - startedAt) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}분 ${seconds}초` : `${seconds}초`;
+}
+
+function MetricOptimizationProgressIndicator({
+  progress,
+}: {
+  progress: MetricOptimizationProgressState;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  const elapsed = formatElapsedTime(progress.startedAt, now);
+  return (
+    <div className="space-y-2 pt-1" data-testid="metric-optimization-progress">
+      <div className="flex items-center justify-between gap-4 text-[11px] font-bold text-gray-400">
+        <span>{progress.totalTrials}개 조합 계산 중</span>
+        <span className="tabular-nums text-gray-500">경과 {elapsed}</span>
+      </div>
+      <div
+        role="progressbar"
+        aria-label="파라미터 조합 계산 진행 상황"
+        aria-valuetext={`${progress.totalTrials}개 조합 계산 중, 경과 ${elapsed}`}
+        className="h-1.5 overflow-hidden rounded-full bg-white/[0.08]"
+      >
+        <div className="metric-optimization-progress-bar h-full w-1/3 rounded-full bg-sky-400/80" />
+      </div>
+    </div>
+  );
+}
+
+type MetricOptimizationParameter = {
+  path: string;
+  label: string;
+  min: number;
+  max: number;
+};
+
+type MetricOptimizationDraft = {
+  phase: "parameter" | "range";
+  baseStrategy: StrategyBacktestRequest;
+  parameters: MetricOptimizationParameter[];
+  selectedRanges: Record<string, MetricOptimizationRange>;
+  pendingPath?: string;
+};
+
+function formatOptimizationValue(value: unknown, suffix = ""): string {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? `${numeric.toFixed(2)}${suffix}` : "-";
+}
+
+function buildMetricOptimizationResultText(
+  response: OptimizationResponse,
+  metric: ResearchMetric,
+  labels: Record<string, string>
+): string {
+  const rows = (response.top_results ?? []).slice(0, 5);
+  const metricLabel = getResearchMetricLabel(metric);
+  const resultLines = rows.map((row, index) => {
+    const parameters = Object.entries(row.parameters)
+      .map(([path, value]) => `${labels[path] ?? path} ${value}`)
+      .join(" · ");
+    return [
+      `조합 ${index + 1}`,
+      parameters || "파라미터 정보 없음",
+      `${metricLabel} ${formatOptimizationValue(row.target_value)} · CAGR ${formatOptimizationValue(row.metrics?.cagr, "%")} · MDD ${formatOptimizationValue(row.metrics?.maxDrawdown, "%")}`,
+    ].join("\n");
+  });
+
+  return [
+    `${metricLabel} 기준으로 ${response.total_iterations ?? rows.length}회 계산을 마쳤습니다.`,
+    ...resultLines,
+  ].join("\n\n");
 }
 
 function shouldShowMovingAverageHelp(message: ChatMessage) {
@@ -158,21 +258,8 @@ const SOFT_MESSAGE_ENTER_LATE_STYLE = {
 // 최소 노출 시간을 둔다. 응답이 더 오래 걸리면 추가 지연 없이 그대로 표시한다.
 const MIN_VALIDATION_DELAY_MS = 2400;
 
-// [전략 빌더] 칩-only 단계(예: 청산 조건)에서 사용자가 직접 값을 타이핑하도록 채팅창을
-// 다시 띄우는 '직접 입력' 칩. 빌더 답변으로 전송하지 않고 입력창만 노출한다.
-// 백엔드 `strategy_builder.next_question`이 내려보내는 칩 문자열과 정확히 일치해야 한다.
-const BUILDER_FREE_INPUT_CHIP = "직접 입력";
-
-// 매수(종목 선정) 기준을 하나도 못 잡은 '빈 전략'의 진입 조건 되묻기인지 판별한다.
-// 이런 케이스는 빈 전략 요약 카드/제안 박스를 띄우지 않고 전략 빌더로 전환한다.
-// 정성 지표("PER을 몇 이하로?")·상대강도 안내처럼 사용자 의도가 담긴 구체적 되묻기는 제외한다.
-function isEmptyEntryClarification(question?: string | null): boolean {
-  if (!question) return true;  // 백엔드가 구체 안내를 못 준 진짜 빈 전략
-  return (
-    question.startsWith("어떤 조건으로 종목을 선택할까요") ||
-    question.startsWith("백테스트를 실행하려면 최소한")
-  );
-}
+// Choice-only prompts can reopen the shared chat input without sending another answer.
+const FREE_INPUT_CHIP = "직접 입력";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 
@@ -548,10 +635,16 @@ function StrategyLabContent() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isStrategyPreviewModalOpen, setIsStrategyPreviewModalOpen] = useState(false);
   const [stage, setStage] = useState<Stage>("idle");
+  // SSE 스트림 처리 중(오래된 클로저)에도 현재 stage를 읽기 위한 ref — 후행 검증 교정
+  // (parsed_updated)이 백테스트 실행 시작 이후 도착하면 무시하는 판정에 쓴다.
+  const stageRef = useRef<Stage>("idle");
+  stageRef.current = stage;
   const [latestParsed, setLatestParsed] = useState<ParsedSummary | null>(null);
   const [backtestReq, setBacktestReq] = useState<any>(null);
   const [currentOptions, setCurrentOptions] = useState<any>(null);
   const [result, setResult] = useState<BacktestResult | null>(null);
+  const [metricOptimizationProgress, setMetricOptimizationProgress] =
+    useState<MetricOptimizationProgressState | null>(null);
   // 현재 표시 중인 result를 만들어낸 '실행된 요청' 스냅샷. 화면 상태(backtestReq)는
   // 사용자가 계속 대화하면 갱신되므로, 결과 배지는 이 스냅샷에서 파생해 표시↔실행을 일치시킨다.
   const [executedReq, setExecutedReq] = useState<any>(null);
@@ -579,6 +672,10 @@ function StrategyLabContent() {
   const builderStateRef = useRef<Record<string, any>>({});
   const pendingHoldingPeriodPromptRef = useRef<string | null>(null);
   const pendingHoldingPeriodHorizonRef = useRef<HoldingPeriodHorizon | null>(null);
+  const pendingMetricResearchPromptRef = useRef<string | null>(null);
+  const researchMetricRef = useRef<ResearchMetric | null>(null);
+  const metricOptimizationDraftRef = useRef<MetricOptimizationDraft | null>(null);
+  const metricOptimizationAbortRef = useRef<AbortController | null>(null);
   // 빌더 칩-only 단계에서 '직접 입력'을 눌러 채팅창을 다시 띄운 상태(빌더는 진행하지 않음).
   const [builderFreeTextRequested, setBuilderFreeTextRequested] = useState(false);
 
@@ -616,6 +713,9 @@ function StrategyLabContent() {
       builderStateRef.current = snapshot.builderState ?? {};
       pendingHoldingPeriodPromptRef.current = snapshot.pendingHoldingPeriodPrompt ?? null;
       pendingHoldingPeriodHorizonRef.current = snapshot.pendingHoldingPeriodHorizon ?? null;
+      pendingMetricResearchPromptRef.current = snapshot.pendingMetricResearchPrompt ?? null;
+      researchMetricRef.current = snapshot.researchMetric ?? null;
+      metricOptimizationDraftRef.current = snapshot.metricOptimizationDraft ?? null;
     } catch {
       // 손상된 스냅샷은 무시한다.
     }
@@ -704,6 +804,9 @@ function StrategyLabContent() {
         builderState: builderStateRef.current,
         pendingHoldingPeriodPrompt: pendingHoldingPeriodPromptRef.current,
         pendingHoldingPeriodHorizon: pendingHoldingPeriodHorizonRef.current,
+        pendingMetricResearchPrompt: pendingMetricResearchPromptRef.current,
+        researchMetric: researchMetricRef.current,
+        metricOptimizationDraft: metricOptimizationDraftRef.current,
       };
       sessionStorage.setItem(STRATEGY_CHAT_STATE_KEY, JSON.stringify(snapshot));
     } catch {
@@ -821,6 +924,11 @@ function StrategyLabContent() {
     });
   };
 
+  const focusFreeTextInput = () => {
+    setBuilderFreeTextRequested(true);
+    window.setTimeout(() => textareaRef.current?.focus(), 0);
+  };
+
   const updateLastAssistant = (patch: Partial<ChatMessage>) => {
     setMessages(prev => {
       const lastIdx = prev.map((m, i) => m.role === "assistant" ? i : -1).filter(i => i >= 0).at(-1);
@@ -863,8 +971,11 @@ function StrategyLabContent() {
   // 전략 빌더의 첫 질문(시장 선택)을 띄운다. 질문·옵션 칩은 백엔드 빌더가 단일 출처로
   // 결정하므로(빈 입력 step = 현재 질문 조회) 프론트에서 하드코딩하지 않는다.
   const startStrategyBuilder = async (
-    { reuseExisting = false, seedText, seedParsed }: {
-      reuseExisting?: boolean; seedText?: string; seedParsed?: ParsedSummary | null;
+    { reuseExisting = false, seedText, seedParsed, researchMetric }: {
+      reuseExisting?: boolean;
+      seedText?: string;
+      seedParsed?: ParsedSummary | null;
+      researchMetric?: ResearchMetric | null;
     } = {},
   ) => {
     // reuseExisting=true면 이미 떠 있는 '분석 중...' 자리표시자를 그대로 빌더 첫 질문으로 바꾼다
@@ -890,15 +1001,177 @@ function StrategyLabContent() {
       if (!res.ok) throw new Error();
       const data = await res.json();
       builderStateRef.current = data.state ?? {};
+      const activeResearchMetric = researchMetric ?? researchMetricRef.current;
       updateLastAssistant({
         isLoading: false,
-        infoText: data.reply,
+        infoText: activeResearchMetric
+          ? `${buildResearchMetricIntro(activeResearchMetric)}\n\n${data.reply}`
+          : data.reply,
         infoSuggestions: data.suggestions?.length ? data.suggestions : undefined,
       });
     } catch {
       // 호출 실패 시 거절하지 않는다 — 빌더 모드는 유지되어 다음 입력부터 정상 진행된다.
-      updateLastAssistant({ isLoading: false, infoText: "어떤 시장을 대상으로 할까요?" });
+      const activeResearchMetric = researchMetric ?? researchMetricRef.current;
+      updateLastAssistant({
+        isLoading: false,
+        infoText: activeResearchMetric
+          ? `${buildResearchMetricIntro(activeResearchMetric)}\n\n어떤 시장을 대상으로 할까요?`
+          : "어떤 시장을 대상으로 할까요?",
+      });
     }
+  };
+
+  const metricOptimizationSuggestions = (draft: MetricOptimizationDraft): string[] => {
+    const selectedPaths = new Set(Object.keys(draft.selectedRanges));
+    const remaining = draft.parameters
+      .filter((parameter) => !selectedPaths.has(parameter.path))
+      .map((parameter) => parameter.label);
+    return Object.keys(draft.selectedRanges).length > 0
+      ? [...remaining, RUN_METRIC_OPTIMIZATION_CHIP]
+      : remaining;
+  };
+
+  const prepareMetricOptimization = (baseStrategy: StrategyBacktestRequest): MetricOptimizationDraft | null => {
+    const ranges = buildWalkForwardParameterRanges(baseStrategy);
+    const parameters = buildWalkForwardParameterDescriptors(baseStrategy, ranges)
+      .map((descriptor) => {
+        const bounds = walkForwardRangeBoundsForPath(ranges, descriptor.path);
+        return bounds ? { ...descriptor, ...bounds } : null;
+      })
+      .filter((parameter): parameter is MetricOptimizationParameter => parameter !== null);
+    if (parameters.length === 0) return null;
+
+    const draft: MetricOptimizationDraft = {
+      phase: "parameter",
+      baseStrategy,
+      parameters,
+      selectedRanges: {},
+    };
+    metricOptimizationDraftRef.current = draft;
+    return draft;
+  };
+
+  const runMetricOptimization = async (draft: MetricOptimizationDraft) => {
+    const metric = researchMetricRef.current;
+    if (!metric) return;
+
+    const metricLabel = getResearchMetricLabel(metric);
+    const controller = new AbortController();
+    metricOptimizationAbortRef.current = controller;
+    setMetricOptimizationProgress({ startedAt: Date.now(), totalTrials: 30 });
+    await appendAssistant({
+      role: "assistant",
+      infoText: `${metricLabel} 기준으로 30개 파라미터 조합을 계산하고 있습니다.`,
+      infoSuggestions: [CANCEL_METRIC_OPTIMIZATION_CHIP],
+    });
+
+    try {
+      const response = await fetch(`${OPTIMIZATION_BACKEND_URL.replace(/\/$/, "")}/optimize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          base_strategy: {
+            ...draft.baseStrategy,
+            symbols: draft.baseStrategy.symbols ?? [],
+          },
+          user_prompt: firstPromptRef.current,
+          target_metric: metric,
+          n_trials: 30,
+          ranges: draft.selectedRanges,
+        }),
+        signal: controller.signal,
+      });
+      const data = await response.json().catch(() => ({})) as OptimizationResponse & { detail?: string };
+      if (!response.ok) throw new Error(data.detail ?? data.message ?? "파라미터 계산에 실패했습니다.");
+      if (!data.top_results?.length) throw new Error("계산된 파라미터 조합이 없습니다.");
+
+      const labels = Object.fromEntries(draft.parameters.map((parameter) => [parameter.path, parameter.label]));
+      metricOptimizationDraftRef.current = null;
+      updateLastAssistant({
+        infoText: buildMetricOptimizationResultText(data, metric, labels),
+        infoSuggestions: undefined,
+      });
+    } catch (error) {
+      const cancelled = error instanceof Error && error.name === "AbortError";
+      updateLastAssistant({
+        infoText: cancelled
+          ? "파라미터 계산을 취소했습니다."
+          : `파라미터 계산을 완료하지 못했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`,
+        infoSuggestions: [RUN_METRIC_OPTIMIZATION_CHIP],
+      });
+    } finally {
+      metricOptimizationAbortRef.current = null;
+      setMetricOptimizationProgress(null);
+    }
+  };
+
+  const handleMetricOptimizationInput = async (userText: string) => {
+    const draft = metricOptimizationDraftRef.current;
+    if (!draft) return;
+
+    if (draft.phase === "parameter") {
+      if (userText === RUN_METRIC_OPTIMIZATION_CHIP) {
+        if (Object.keys(draft.selectedRanges).length === 0) {
+          await appendAssistant({
+            role: "assistant",
+            infoText: "계산할 파라미터를 먼저 선택해 주세요.",
+            infoSuggestions: metricOptimizationSuggestions(draft),
+          });
+          return;
+        }
+        await runMetricOptimization(draft);
+        return;
+      }
+
+      const parameter = draft.parameters.find((candidate) => candidate.label === userText);
+      if (!parameter) {
+        await appendAssistant({
+          role: "assistant",
+          infoText: "계산할 파라미터를 아래에서 선택해 주세요.",
+          infoSuggestions: metricOptimizationSuggestions(draft),
+        });
+        return;
+      }
+
+      draft.phase = "range";
+      draft.pendingPath = parameter.path;
+      await appendAssistant({
+        role: "assistant",
+        infoText: `${parameter.label}의 계산 범위를 최소값 ~ 최대값 형식으로 입력해 주세요.`,
+        infoSuggestions: [`${parameter.min} ~ ${parameter.max}`, FREE_INPUT_CHIP],
+      });
+      return;
+    }
+
+    const parameter = draft.parameters.find((candidate) => candidate.path === draft.pendingPath);
+    const range = parseMetricOptimizationRange(userText);
+    if (!parameter || !range || range.min < parameter.min || range.max > parameter.max) {
+      await appendAssistant({
+        role: "assistant",
+        infoText: parameter
+          ? `${parameter.label} 범위는 ${parameter.min} ~ ${parameter.max} 안에서 최소값보다 최대값이 크게 입력되어야 합니다.`
+          : "파라미터 범위를 다시 선택해 주세요.",
+        infoSuggestions: parameter
+          ? [`${parameter.min} ~ ${parameter.max}`, FREE_INPUT_CHIP]
+          : metricOptimizationSuggestions(draft),
+      });
+      return;
+    }
+
+    draft.selectedRanges[parameter.path] = range;
+    draft.phase = "parameter";
+    draft.pendingPath = undefined;
+    const selectedCount = Object.keys(draft.selectedRanges).length;
+    const canAddMore = selectedCount < MAX_METRIC_OPTIMIZATION_PARAMETERS;
+    await appendAssistant({
+      role: "assistant",
+      infoText: canAddMore
+        ? `${parameter.label} 범위를 ${range.min} ~ ${range.max}로 설정했습니다. 다른 파라미터를 추가하거나 계산을 시작해 주세요.`
+        : `${MAX_METRIC_OPTIMIZATION_PARAMETERS}개 파라미터 범위를 설정했습니다. 계산을 시작해 주세요.`,
+      infoSuggestions: canAddMore
+        ? metricOptimizationSuggestions(draft)
+        : [RUN_METRIC_OPTIMIZATION_CHIP],
+    });
   };
 
   const classifyConversationPrompt = async (userText: string) => {
@@ -961,10 +1234,6 @@ function StrategyLabContent() {
     // 최초 파싱에서 진입 규칙을 못 잡아 되묻는 경우. 이때는 코치를 돌리지 않는다
     // (불완전한 전략을 평가하면 안내 박스와 모순됨).
     let parseClarification: string | null = null;
-    // 매수 기준을 하나도 못 잡은 빈 전략 → 제안 박스 대신 전략 빌더로 전환한다(스트림 종료 후 시작).
-    let enterBuilderForEmptyStrategy = false;
-    // 빌더 전환 시 함께 넘길 파싱 결과 — LLM 검증/폴백이 해석한 필드(sector 등)를 버리지 않는다.
-    let builderSeedParsed: ParsedSummary | null = null;
 
     const finalizeParse = (backtestRequest: any, symbolCount?: number | null) => {
       if (!parsedPayload) return;
@@ -1000,16 +1269,6 @@ function StrategyLabContent() {
       const nextParsed = mergedResponse.parsed;
       const nextBacktestReq = mergedResponse.backtestRequest;
 
-      // [전략 빌더 전환] 매수(종목 선정) 기준을 하나도 못 잡았고, 구체적 되묻기(정성 지표·상대강도)도
-      // 아니면 빈 전략 요약 카드와 진입 조건 제안 박스를 띄우지 않고 곧바로 전략 빌더로 전환한다.
-      // 스트림 종료 후 startStrategyBuilder를 호출하므로 여기서는 플래그만 세우고 빠진다
-      // (상태 설정·메시지 갱신을 건너뛰어 빈 요약/제안 박스가 그려지지 않게 한다).
-      if (!hasBuyCriteria(nextParsed) && isEmptyEntryClarification(parsedPayload.clarification_question)) {
-        enterBuilderForEmptyStrategy = true;
-        builderSeedParsed = nextParsed;
-        return;
-      }
-
       coachSessionIdRef.current = null;
       // 전략을 수정해도 코치 대화 기록은 유지한다 — 이미 설명한 전문용어를 다시 설명하지 않도록.
       finalizedParsed = nextParsed;
@@ -1023,16 +1282,27 @@ function StrategyLabContent() {
       });
       setStage("ready");
 
-      // 여기까지 왔다면 매수 기준이 있거나(=정상), 매수 기준은 없지만 구체적 되묻기
-      // (정성 지표·상대강도)가 있는 경우다. 빈 전략(구체 안내 없음)은 위에서 빌더로 전환했다.
-      const missingBuyCriteria = !hasBuyCriteria(nextParsed);
-      const clarificationText = missingBuyCriteria ? parsedPayload.clarification_question : null;
-      const clarificationSuggestions = missingBuyCriteria
+      // The backend owns clarification decisions; the UI only renders the returned payload.
+      const clarificationText = parsedPayload.clarification_question ?? null;
+      const clarificationSuggestions = clarificationText
         ? parsedPayload.clarification_suggestions
         : undefined;
       parseClarification = clarificationText;
+      const optimizationDraft = researchMetricRef.current && !clarificationText
+        ? prepareMetricOptimization(nextBacktestReq)
+        : null;
       updateLastAssistant({
         isLoading: false,
+        infoText: researchMetricRef.current
+          ? `${buildResearchMetricSummary(researchMetricRef.current)}${
+              optimizationDraft
+                ? "\n\n실제로 비교할 파라미터를 선택해 주세요. 최대 3개까지 설정할 수 있습니다."
+                : ""
+            }`
+          : undefined,
+        infoSuggestions: optimizationDraft
+          ? metricOptimizationSuggestions(optimizationDraft)
+          : undefined,
         parsed: nextParsed,
         clarification: clarificationText ?? undefined,
         clarificationSuggestions: clarificationText ? clarificationSuggestions : undefined,
@@ -1065,24 +1335,21 @@ function StrategyLabContent() {
           parsedPayload = evt;
         } else if (evt.type === "dsl_ready") {
           finalizeParse(evt.backtest_request, evt.symbol_count);
+        } else if (evt.type === "parsed_updated") {
+          // 후행 LLM 검증 교정본 — 룰 파스 결과를 이미 표시한 뒤 도착한다. 사용자가 이미
+          // 백테스트를 실행했으면 무시(실행 스냅샷 일관성), 아니면 parsed_final과 동일한
+          // 파이프라인으로 전략·요청을 조용히 갱신한다.
+          if (stageRef.current !== "running" && stageRef.current !== "done") {
+            parsedPayload = evt;
+            finalizeParse(evt.backtest_request, evt.symbol_count);
+          }
         } else if (evt.type === "error") {
           throw new Error(evt.detail ?? "파싱 실패");
         }
       }
     }
 
-    // 빈 전략으로 판정되면(매수 기준 전무) 현재 '분석 중...' 버블을 그대로 빌더 첫 질문으로
-    // 바꿔 전략 빌더를 시작한다. 코치는 돌리지 않는다(아래 finalizedParsed가 비어 있음).
-    if (enterBuilderForEmptyStrategy) {
-      builderModeRef.current = true;
-      builderStateRef.current = {};
-      // 매수 기준은 비었어도 유니버스·청산 등 다른 조건은 원본에 있을 수 있으므로 시드로 넘기고,
-      // LLM 검증/폴백이 이미 해석한 파싱 결과(sector 등)도 함께 넘겨 이어받게 한다.
-      await startStrategyBuilder({ reuseExisting: true, seedText: promptText, seedParsed: builderSeedParsed });
-      return;
-    }
-
-    if (finalizedParsed && !parseClarification) {
+    if (finalizedParsed && !parseClarification && !researchMetricRef.current) {
       setMessages(prev => [
         ...prev,
         { role: "assistant", coachLoading: true, coachText: "" },
@@ -1113,11 +1380,25 @@ function StrategyLabContent() {
       slippagePct: 0.05,
     });
     setStage("ready");
+    const optimizationDraft = researchMetricRef.current
+      ? prepareMetricOptimization(data.backtest_request)
+      : null;
     updateLastAssistant({
       isLoading: false,
+      infoText: researchMetricRef.current
+        ? `${buildResearchMetricSummary(researchMetricRef.current)}\n\n${
+            optimizationDraft
+              ? "실제로 비교할 파라미터를 선택해 주세요. 최대 3개까지 설정할 수 있습니다."
+              : "계산 범위를 만들 수 있는 숫자 파라미터가 없습니다. 기간·임계값·손절·익절처럼 숫자가 있는 조건을 추가해 주세요."
+          }`
+        : undefined,
+      infoSuggestions: optimizationDraft
+        ? metricOptimizationSuggestions(optimizationDraft)
+        : undefined,
       parsed: data.parsed,
       notices: data.notices?.length ? data.notices : undefined,
     });
+    if (researchMetricRef.current) return;
     setMessages(prev => [...prev, { role: "assistant", coachLoading: true, coachText: "" }]);
     generateCoachResponse({ userText: data.prompt ?? data.parsed.description, parsed: data.parsed });
   };
@@ -1149,6 +1430,12 @@ function StrategyLabContent() {
     // 분류/파싱 호출이 시작되기 전에 사용자 입력을 화면에 즉시 반영한다.
     appendUserMessage(userText);
 
+    if (metricOptimizationDraftRef.current) {
+      await handleMetricOptimizationInput(userText);
+      setIsSending(false);
+      return;
+    }
+
     const conversationContext = {
       stage,
       hasBacktestRequest: Boolean(currentBacktestReq),
@@ -1157,10 +1444,22 @@ function StrategyLabContent() {
       lastCoachText: lastCoachText(),
       pendingHoldingPeriodPrompt: pendingHoldingPeriodPromptRef.current,
       pendingHoldingPeriodHorizon: pendingHoldingPeriodHorizonRef.current,
+      pendingResearchMetricPrompt: pendingMetricResearchPromptRef.current,
     };
     let turnDecision = decideConversationTurn(userText, conversationContext);
 
     if (turnDecision.action === "respond") {
+      await appendAssistant({
+        role: "assistant",
+        infoText: turnDecision.message,
+        infoSuggestions: turnDecision.suggestions,
+      });
+      setIsSending(false);
+      return;
+    }
+
+    if (turnDecision.action === "ask_research_metric") {
+      pendingMetricResearchPromptRef.current = turnDecision.strategyPrompt;
       await appendAssistant({
         role: "assistant",
         infoText: turnDecision.message,
@@ -1190,13 +1489,18 @@ function StrategyLabContent() {
 
     if (turnDecision.action === "start_builder") {
       const holdingPeriodDays = turnDecision.strategyAssumptions?.holdingPeriodDays;
+      const researchMetric = turnDecision.researchMetric ?? null;
       pendingHoldingPeriodPromptRef.current = null;
       pendingHoldingPeriodHorizonRef.current = null;
+      pendingMetricResearchPromptRef.current = null;
+      researchMetricRef.current = researchMetric;
+      metricOptimizationDraftRef.current = null;
+      if (researchMetric) firstPromptRef.current = turnDecision.seedPrompt;
       builderModeRef.current = true;
       builderStateRef.current = holdingPeriodDays
         ? { hold_period_days: holdingPeriodDays, risk_done: true }
         : {};
-      await startStrategyBuilder({ seedText: turnDecision.seedPrompt });
+      await startStrategyBuilder({ seedText: turnDecision.seedPrompt, researchMetric });
       setIsSending(false);
       return;
     }
@@ -1238,6 +1542,9 @@ function StrategyLabContent() {
         if (data.status === "exited") {
           builderModeRef.current = false;
           builderStateRef.current = {};
+          pendingMetricResearchPromptRef.current = null;
+          researchMetricRef.current = null;
+          metricOptimizationDraftRef.current = null;
         }
         updateLastAssistant({
           isLoading: false,
@@ -1318,6 +1625,9 @@ function StrategyLabContent() {
 
     if (turnDecision.action === "start_builder") {
       updateLastAssistant({ isLoading: false, infoText: turnDecision.message });
+      pendingMetricResearchPromptRef.current = null;
+      researchMetricRef.current = null;
+      metricOptimizationDraftRef.current = null;
       builderModeRef.current = true;
       builderStateRef.current = {};
       await startStrategyBuilder({ seedText: turnDecision.seedPrompt });
@@ -1684,6 +1994,10 @@ function StrategyLabContent() {
     coachConversationRef.current = [];
     firstPromptRef.current = "";
     pendingPromptConsumedRef.current = false;
+    metricOptimizationDraftRef.current = null;
+    metricOptimizationAbortRef.current?.abort();
+    metricOptimizationAbortRef.current = null;
+    setMetricOptimizationProgress(null);
     try {
       sessionStorage.removeItem(STRATEGY_CHAT_STATE_KEY);
     } catch {
@@ -1826,6 +2140,21 @@ function StrategyLabContent() {
             transform: translate3d(0, 0, 0) scale(1);
           }
         }
+
+        @keyframes metricOptimizationSweep {
+          from { transform: translateX(-120%); }
+          to { transform: translateX(320%); }
+        }
+
+        .metric-optimization-progress-bar {
+          animation: metricOptimizationSweep 1.4s ease-in-out infinite;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .metric-optimization-progress-bar {
+            animation: none;
+          }
+        }
       `}</style>
       <div
         className={`relative flex flex-col items-center gap-4 overflow-x-hidden px-4 pt-20 ${hasChatStarted ? "pb-56" : "pb-12"} ${strategyPreviewBackgroundClass}`}
@@ -1903,16 +2232,22 @@ function StrategyLabContent() {
                             <p className="text-sm font-bold text-white leading-relaxed whitespace-pre-line">
                               {msg.infoText}
                             </p>
+                            {isLastAssistant(i) && metricOptimizationProgress && (
+                              <MetricOptimizationProgressIndicator progress={metricOptimizationProgress} />
+                            )}
                             {isLastAssistant(i) && msg.infoSuggestions && msg.infoSuggestions.length > 0 && (
                               <div className="flex flex-wrap gap-2 pt-1">
                                 {msg.infoSuggestions.map((suggestion) => (
                                   <button
                                     key={suggestion}
                                     onClick={() => {
+                                      if (suggestion === CANCEL_METRIC_OPTIMIZATION_CHIP) {
+                                        metricOptimizationAbortRef.current?.abort();
+                                        return;
+                                      }
                                       // '직접 입력'은 빌더 답변이 아니라 입력창을 다시 띄우는 토글이다.
-                                      if (suggestion === BUILDER_FREE_INPUT_CHIP) {
-                                        setBuilderFreeTextRequested(true);
-                                        setTimeout(() => textareaRef.current?.focus(), 0);
+                                      if (suggestion === FREE_INPUT_CHIP) {
+                                        focusFreeTextInput();
                                         return;
                                       }
                                       void handleSend(suggestion);
@@ -1967,6 +2302,15 @@ function StrategyLabContent() {
                                         {suggestion}
                                       </button>
                                     ))}
+                                    {!msg.clarificationSuggestions.includes(FREE_INPUT_CHIP) && (
+                                      <button
+                                        type="button"
+                                        onClick={focusFreeTextInput}
+                                        className="px-3 py-1.5 rounded-lg bg-[#171717] border border-white/10 hover:border-yellow-400/50 hover:bg-[#202020] text-xs font-bold text-gray-300 transition-all duration-200 text-left"
+                                      >
+                                        {FREE_INPUT_CHIP}
+                                      </button>
+                                    )}
                                   </div>
                                 )}
                               </div>

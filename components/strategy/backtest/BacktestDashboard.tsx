@@ -89,6 +89,62 @@ function metricValueColor(value: number): string {
   return "text-white";
 }
 
+function calculateAnnualizedVolatility(equity: number[]): number {
+  const dailyReturns: number[] = [];
+
+  for (let index = 1; index < equity.length; index += 1) {
+    const previous = equity[index - 1];
+    const current = equity[index];
+    if (!Number.isFinite(previous) || !Number.isFinite(current) || previous === 0) continue;
+    dailyReturns.push((current - previous) / previous);
+  }
+
+  if (dailyReturns.length === 0) return 0;
+
+  const mean = dailyReturns.reduce((sum, value) => sum + value, 0) / dailyReturns.length;
+  const variance = dailyReturns.reduce((sum, value) => sum + (value - mean) ** 2, 0) / dailyReturns.length;
+
+  return Math.sqrt(variance) * Math.sqrt(252) * 100;
+}
+
+function calculateSortinoRatio(equity: number[]): number {
+  const dailyReturns: number[] = [];
+
+  for (let index = 1; index < equity.length; index += 1) {
+    const previous = equity[index - 1];
+    const current = equity[index];
+    if (!Number.isFinite(previous) || !Number.isFinite(current) || previous === 0) continue;
+    dailyReturns.push((current - previous) / previous);
+  }
+
+  if (dailyReturns.length === 0) return 0;
+
+  const meanReturn = dailyReturns.reduce((sum, value) => sum + value, 0) / dailyReturns.length;
+  const downsideDeviation = Math.sqrt(
+    dailyReturns.reduce((sum, value) => sum + Math.min(value, 0) ** 2, 0) / dailyReturns.length
+  );
+
+  return downsideDeviation > 0 ? (meanReturn * Math.sqrt(252)) / downsideDeviation : 0;
+}
+
+function calculateTurnoverRate(trades: BacktestResult["tradesList"], equity: number[]): number {
+  const validEquity = equity.filter((value) => Number.isFinite(value) && value > 0);
+  if (validEquity.length === 0) return 0;
+
+  const totalTradedAmount = trades.reduce((sum, trade) => {
+    const reportedAmount = Math.abs(Number(trade.amount));
+    const calculatedAmount = Math.abs(Number(trade.price) * Number(trade.quantity));
+    const tradeAmount = Number.isFinite(reportedAmount) && reportedAmount > 0
+      ? reportedAmount
+      : calculatedAmount;
+
+    return sum + (Number.isFinite(tradeAmount) ? tradeAmount : 0);
+  }, 0);
+  const averageAssets = validEquity.reduce((sum, value) => sum + value, 0) / validEquity.length;
+
+  return averageAssets > 0 ? (totalTradedAmount / 2 / averageAssets) * 100 : 0;
+}
+
 function addOptimizationTarget(
   targets: WalkForwardOptimizationTarget[],
   seen: Set<string>,
@@ -246,6 +302,7 @@ type BaseMetricDescriptions = {
   cagr: string;
   mdd: string;
   sharpe: string;
+  sortino: string;
   profitFactor: string;
   totalReturn: string;
   buyHold: (label: string) => string;
@@ -253,26 +310,33 @@ type BaseMetricDescriptions = {
   calmar: string;
   avgHoldingDays: string;
   exposure: string;
+  turnover: string;
   maxDrawdownDuration: string;
   expectancy: string;
   recoveryFactor: string;
 };
 
+export function metricTooltip(definition: string, formula: string, guideline: string): string {
+  return `${definition}\n\n[ 공식 ]\n${formula}\n\n${guideline}`;
+}
+
 const BASE_METRIC_DESCRIPTIONS: BaseMetricDescriptions = {
-  cagr: "연평균수익률(Compound Annual Growth Rate). 전체 수익률을 연간 단위로 환산하여 복리 성장을 나타낸 지표입니다.\n\n[ 가이드라인 ]\n🟢 우수: 20% 이상\n🟡 보통: 10% ~ 20%\n🔴 미흡: 10% 미만",
-  mdd: "최대 낙폭(Maximum Drawdown). 특정 기간 동안 발생한 전고점 대비 최대 하락 비율로, 전략의 리스크를 측정합니다.\n\n[ 가이드라인 ]\n🟢 안정: 10% 미만\n🟡 보통: 10% ~ 20%\n🔴 위험: 20% 초과",
-  sharpe: "샤프 지수. 위험 1단위당 얻은 초과 수익을 나타내며, 수치가 높을수록 위험 대비 수익 효율이 좋습니다.\n\n[ 가이드라인 ]\n🟢 우수: 1.5 이상\n🟡 보통: 1.0 ~ 1.5\n🔴 미흡: 1.0 미만",
-  profitFactor: "손익비. 총 이익을 총 손실로 나눈 값으로, 1원 손실당 기대할 수 있는 수익금을 의미합니다.\n\n[ 가이드라인 ]\n🟢 우수: 2.0 이상\n🟡 보통: 1.5 ~ 2.0\n🔴 미흡: 1.5 미만",
-  totalReturn: "백테스트 시작 시점부터 종료 시점까지의 전체 자산 변동 비율입니다.",
+  cagr: metricTooltip("연평균수익률(CAGR)은 전체 수익률을 연간 복리 성장률로 환산한 값입니다.", "CAGR = ((최종 자산 / 초기 자본)^(1 / 기간(년)) - 1) × 100", "🟢 높음: 20% 이상\n🟡 중간: 10% ~ 20%\n🔴 낮음: 10% 미만"),
+  mdd: metricTooltip("최대 낙폭(MDD)은 전고점 대비 가장 크게 하락한 비율입니다.", "MDD = min((기간별 자산 / 이전 최고 자산 - 1) × 100)", "🟢 낮음: 10% 미만\n🟡 중간: 10% ~ 20%\n🔴 높음: 20% 초과"),
+  sharpe: metricTooltip("샤프 지수는 전체 변동성 대비 초과 수익의 비율입니다.", "Sharpe = (일별 초과수익 평균 / 일별 수익률 표준편차) × √252", "🟢 높음: 1.5 이상\n🟡 중간: 1.0 ~ 1.5\n🔴 낮음: 1.0 미만"),
+  sortino: metricTooltip("소티노 지수는 목표 수익률(기본 0%)보다 낮은 수익률의 하방편차만 고려한 위험 대비 수익 지표입니다.", "Sortino = (일별 초과수익 평균 / 하방편차) × √252", "🟢 높음: 2.0 이상\n🟡 중간: 1.0 ~ 2.0\n🔴 낮음: 1.0 미만"),
+  profitFactor: metricTooltip("손익비는 총 이익을 총 손실로 나눈 값입니다.", "손익비 = 총 이익 / |총 손실|", "🟢 높음: 2.0 이상\n🟡 중간: 1.5 ~ 2.0\n🔴 낮음: 1.5 미만"),
+  totalReturn: metricTooltip("투자 수익률(ROI)은 백테스트 시작부터 종료까지의 누적 자산 변동 비율입니다.", "ROI = ((최종 자산 - 초기 자본) / 초기 자본) × 100", "🟢 양수: 시작 자본보다 최종 자산이 큼\n🟡 0%: 시작 자본과 최종 자산이 같음\n🔴 음수: 시작 자본보다 최종 자산이 작음"),
   buyHold: (label: string) =>
-    `${label}을 매수 후 보유했을 때의 수익률입니다. 전략을 사용하지 않고 해당 지수를 그대로 보유했을 때의 결과입니다.`,
-  volatility: "연간 변동성. 수익률의 표준편차를 연간 단위로 환산한 값으로, 변동폭이 클수록 위험이 높음을 의미합니다.\n\n[ 가이드라인 ]\n🟢 우수: 15% 미만\n🟡 보통: 15% ~ 25%\n🔴 미흡: 25% 초과",
-  calmar: "칼마 비율(Calmar Ratio). 연평균수익률(CAGR)을 최대낙폭(MDD)으로 나눈 값으로, 낙폭 위험 대비 수익 효율을 나타냅니다.\n\n[ 예 ]\nCAGR +20%, MDD -10% → 칼마 2.0 (낙폭 1%당 2% 수익)\nCAGR +20%, MDD -40% → 칼마 0.5 (낙폭 대비 수익 부족)\n\n[ 가이드라인 ]\n🟢 우수: 1.0 이상\n🟡 보통: 0.5 ~ 1.0\n🔴 미흡: 0.5 미만",
-  avgHoldingDays: "평균 보유일. 포지션을 진입한 후 청산까지 평균적으로 유지한 기간입니다.\n\n전략의 성격을 파악하는 데 유용합니다.\n\n[ 예 ]\n1~3일: 단타/스윙 성격\n5~20일: 중기 스윙\n20일 이상: 중장기 추세 추종",
-  exposure: "시장 노출도. 백테스트 기간 중 포지션을 하나라도 보유한 날의 비율입니다.\n\n노출도가 낮은데 수익률이 높다면 자본 효율이 좋은 전략이고, 노출도가 100%에 가깝다면 시장 하락 위험에 상시 노출된 전략입니다.",
-  maxDrawdownDuration: "최장 낙폭 기간. 전고점 아래에 머문 가장 긴 연속 기간(거래일)입니다.\n\nMDD가 낙폭의 '깊이'라면 이 지표는 낙폭의 '길이'로, 손실 구간을 견뎌야 하는 기간을 나타냅니다.\n\n[ 예 ]\n252거래일 ≈ 1년간 전고점 미회복",
-  expectancy: "기대값(평균 거래 수익률). 거래 1회당 평균 수익률(%)로, 승률 × 평균수익 − 패률 × 평균손실과 동일합니다.\n\n양수면 거래를 반복할수록 우위가 누적되는 구조, 음수면 거래할수록 손실이 누적되는 구조입니다.",
-  recoveryFactor: "회복 계수(Recovery Factor). 순이익을 최대 낙폭 금액으로 나눈 값으로, 낙폭 대비 회복력을 나타냅니다.\n\n[ 가이드라인 ]\n🟢 우수: 3.0 이상\n🟡 보통: 1.0 ~ 3.0\n🔴 미흡: 1.0 미만"
+    metricTooltip(`${label}을 매수 후 보유했을 때의 수익률입니다.`, `매수 후 보유 수익률 = ((${label} 최종 가격 / 시작 가격) - 1) × 100`, "🟢 양수: 기준 지수가 상승\n🟡 0%: 기준 지수의 변동이 없음\n🔴 음수: 기준 지수가 하락"),
+  volatility: metricTooltip("연간 변동성은 일별 수익률의 표준편차를 연간 단위로 환산한 값입니다.", "변동성 = 일별 수익률 표준편차 × √252 × 100", "🟢 낮음: 15% 미만\n🟡 중간: 15% ~ 25%\n🔴 높음: 25% 초과"),
+  calmar: metricTooltip("칼마 비율은 최대 낙폭 대비 연평균수익률의 비율입니다.", "칼마 비율 = CAGR / |MDD|", "🟢 높음: 1.0 이상\n🟡 중간: 0.5 ~ 1.0\n🔴 낮음: 0.5 미만"),
+  avgHoldingDays: metricTooltip("평균 보유일은 진입 후 청산까지의 평균 보유 거래일입니다.", "평균 보유일 = 완료 거래의 총 보유일 / 완료 거래 수", "🟢 단기: 1 ~ 3일\n🟡 중기: 5 ~ 20일\n🔴 장기: 20일 초과"),
+  exposure: metricTooltip("시장 노출도는 백테스트 기간 중 포지션을 하나라도 보유한 날의 비율입니다.", "시장 노출도 = 포지션 보유일 수 / 전체 거래일 수 × 100", "🟢 낮음: 30% 미만\n🟡 중간: 30% ~ 70%\n🔴 높음: 70% 초과"),
+  turnover: metricTooltip("회전율은 백테스트 기간 동안 평균 자산 대비 매매에 사용된 자산의 비율입니다.", "회전율 = ((총 매수 체결금액 + 총 매도 체결금액) / 2) / 기간 평균 자산 × 100", "🟢 낮음: 50% 미만\n🟡 중간: 50% ~ 200%\n🔴 높음: 200% 초과"),
+  maxDrawdownDuration: metricTooltip("최장 낙폭 기간은 전고점 아래에 머문 가장 긴 연속 거래일 수입니다.", "최장 낙폭 기간 = 자산이 이전 최고 자산을 회복하지 못한 최대 연속 거래일 수", "🟢 짧음: 63거래일 이하\n🟡 중간: 64 ~ 252거래일\n🔴 김: 252거래일 초과"),
+  expectancy: metricTooltip("기대값은 거래 1회당 평균 수익률입니다.", "기대값 = 승률 × 평균 수익률 - 패률 × 평균 손실률", "🟢 양수: 과거 거래 평균이 이익\n🟡 0% 부근: 과거 거래 평균이 손익분기 근처\n🔴 음수: 과거 거래 평균이 손실"),
+  recoveryFactor: metricTooltip("회복 계수는 최대 낙폭 금액 대비 순이익의 비율입니다.", "회복 계수 = 순이익 / 최대 낙폭 금액", "🟢 높음: 3.0 이상\n🟡 중간: 1.0 ~ 3.0\n🔴 낮음: 1.0 미만")
 };
 
 function benchmarkLabelForResult(result: BacktestResult): string {
@@ -797,6 +861,18 @@ export default function BacktestDashboard({
     ? `${result.dates[0]} → ${result.dates[result.dates.length - 1]}`
     : "";
   const totalProfit = result.totalProfit ?? (resolvedFinalEquity - resolvedInitialCapital);
+  const investmentRoi = resolvedInitialCapital > 0
+    ? ((resolvedFinalEquity - resolvedInitialCapital) / resolvedInitialCapital) * 100
+    : result.totalReturn || 0;
+  const reportedVolatility = Number(result.volatility);
+  const annualizedVolatility = Number.isFinite(reportedVolatility)
+    ? reportedVolatility
+    : calculateAnnualizedVolatility(result.equity ?? []);
+  const reportedSortino = Number(result.sortino);
+  const sortinoRatio = Number.isFinite(reportedSortino)
+    ? reportedSortino
+    : calculateSortinoRatio(result.equity ?? []);
+  const turnoverRate = calculateTurnoverRate(result.tradesList ?? [], result.equity ?? []);
   const benchmarkLabel = benchmarkLabelForResult(result);
   const modalPromptPreview = saveDescription.trim() || promptText?.trim() || "";
   const modalUniverseLabel = strategySummary
@@ -934,21 +1010,14 @@ export default function BacktestDashboard({
       englishLabel: "Total Profit",
       value: formatKRW(totalProfit),
       valueClass: totalProfit > 0 ? "text-[var(--main-red)]" : totalProfit < 0 ? "text-[var(--main-blue)]" : "text-white",
-      description: "최종 자산에서 초기 자본을 뺀 전체 손익입니다.",
-    },
-    {
-      label: "총 수익률",
-      englishLabel: "Total Return",
-      value: `${result.totalReturn >= 0 ? "+" : ""}${(result.totalReturn || 0).toFixed(2)}%`,
-      valueClass: result.totalReturn > 0 ? "text-[var(--main-red)]" : result.totalReturn < 0 ? "text-[var(--main-blue)]" : "text-white",
-      description: BASE_METRIC_DESCRIPTIONS.totalReturn,
+      description: metricTooltip("총 수익은 백테스트 종료 시점의 순손익입니다.", "총 수익 = 최종 자산 - 초기 자본", "🟢 양수: 순이익\n🟡 0원: 손익 없음\n🔴 음수: 순손실"),
     },
     {
       label: "총 거래 수",
       englishLabel: "Trades",
       value: `${result.trades || 0}회`,
       valueClass: "text-[#FF9933]",
-      description: "백테스트 동안 발생한 전체 거래 횟수입니다.",
+      description: metricTooltip("총 거래 수는 백테스트에서 완료된 거래의 집계 건수입니다.", "총 거래 수 = 백테스트 기간의 완료 거래 건수", "🔴 30건 미만: 표본 수가 적어 해석에 주의\n🟡 30 ~ 99건: 중간 표본\n🟢 100건 이상: 상대적으로 큰 표본"),
     },
     {
       label: "연평균수익률",
@@ -965,11 +1034,25 @@ export default function BacktestDashboard({
       description: BASE_METRIC_DESCRIPTIONS.mdd,
     },
     {
+      label: "투자 수익률",
+      englishLabel: "ROI",
+      value: `${investmentRoi >= 0 ? "+" : ""}${investmentRoi.toFixed(2)}%`,
+      valueClass: investmentRoi > 0 ? "text-[var(--main-red)]" : investmentRoi < 0 ? "text-[var(--main-blue)]" : "text-white",
+      description: BASE_METRIC_DESCRIPTIONS.totalReturn,
+    },
+    {
       label: "샤프 비율",
       englishLabel: "Sharpe",
       value: result.sharpe.toFixed(2),
       valueClass: result.sharpe > 0 ? "text-[var(--main-red)]" : result.sharpe < 0 ? "text-[var(--main-blue)]" : "text-white",
       description: BASE_METRIC_DESCRIPTIONS.sharpe,
+    },
+    {
+      label: "소티노 지수",
+      englishLabel: "Sortino",
+      value: sortinoRatio.toFixed(2),
+      valueClass: sortinoRatio > 0 ? "text-[var(--main-red)]" : sortinoRatio < 0 ? "text-[var(--main-blue)]" : "text-white",
+      description: BASE_METRIC_DESCRIPTIONS.sortino,
     },
     {
       label: `매수 후 보유`,
@@ -983,7 +1066,7 @@ export default function BacktestDashboard({
       englishLabel: "Win Rate",
       value: `${(result.winRate || 0).toFixed(1)}%`,
       valueClass: (result.winRate || 0) > 0 ? "text-[var(--main-red)]" : "text-white",
-      description: "전체 거래 중 수익으로 끝난 거래의 비율입니다.",
+      description: metricTooltip("승률은 완료 거래 중 수익으로 끝난 거래의 비율입니다.", "승률 = 수익 거래 수 / 완료 거래 수 × 100", "🟢 높음: 60% 이상\n🟡 중간: 40% ~ 60%\n🔴 낮음: 40% 미만\n승률은 평균 수익·손실과 함께 해석"),
     },
     {
       label: "손익비",
@@ -1710,11 +1793,13 @@ export default function BacktestDashboard({
                     [
                       { label: "초기 자본", value: formatKRW(resolvedInitialCapital), sub: "원", desc: null },
                       { label: "최종 자산", value: formatKRW(resolvedFinalEquity), sub: "원", desc: null },
+                      { label: "변동성", value: annualizedVolatility.toFixed(2), sub: "%", desc: BASE_METRIC_DESCRIPTIONS.volatility },
                       { label: "칼마 비율", value: (result.calmar ?? (result.maxDrawdown !== 0 ? result.cagr / Math.abs(result.maxDrawdown) : 0)).toFixed(2), sub: null, desc: BASE_METRIC_DESCRIPTIONS.calmar },
                       { label: "평균 보유일", value: `${Math.round(result.avgHoldingDays ?? 0)}일`, sub: null, desc: BASE_METRIC_DESCRIPTIONS.avgHoldingDays },
                     ],
                     [
                       { label: "시장 노출도", value: (result.exposure ?? 0).toFixed(1), sub: "%", desc: BASE_METRIC_DESCRIPTIONS.exposure },
+                      { label: "회전율", value: turnoverRate.toFixed(1), sub: "%", desc: BASE_METRIC_DESCRIPTIONS.turnover },
                       { label: "최장 낙폭 기간", value: `${result.maxDrawdownDuration ?? 0}`, sub: "거래일", desc: BASE_METRIC_DESCRIPTIONS.maxDrawdownDuration },
                       { label: "기대값", value: `${(result.expectancy ?? 0) >= 0 ? "+" : ""}${(result.expectancy ?? 0).toFixed(2)}`, sub: "%", desc: BASE_METRIC_DESCRIPTIONS.expectancy },
                       { label: "회복 계수", value: (result.recoveryFactor ?? 0).toFixed(2), sub: null, desc: BASE_METRIC_DESCRIPTIONS.recoveryFactor },

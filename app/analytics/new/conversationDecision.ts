@@ -49,6 +49,15 @@ export type StrategyAssumptions = {
   holdingHorizon?: "short" | "medium" | "long";
 };
 
+export type ResearchMetric = "sharpe" | "sortino" | "calmar";
+
+export type MetricOptimizationRange = {
+  type: "number";
+  min: number;
+  max: number;
+  step: number;
+};
+
 export type HoldingPeriodHorizon = "short" | "long";
 
 export type ConversationDecision =
@@ -62,12 +71,19 @@ export type ConversationDecision =
   | (DecisionBase & { action: "answer_follow_up" })
   | (DecisionBase & { action: "classify" })
   | (DecisionBase & { action: "answer_general" })
+  | (DecisionBase & {
+      action: "ask_research_metric";
+      message: string;
+      suggestions: string[];
+      strategyPrompt: string;
+    })
   | (DecisionBase & { action: "respond_stock"; message: string; symbol: string | null })
   | (DecisionBase & {
       action: "start_builder";
       message?: string;
       seedPrompt: string;
       strategyAssumptions?: StrategyAssumptions;
+      researchMetric?: ResearchMetric;
     })
   | (DecisionBase & {
       action: "ask_holding_period";
@@ -90,7 +106,92 @@ export type ConversationContext = {
   lastCoachText: string | null;
   pendingHoldingPeriodPrompt?: string | null;
   pendingHoldingPeriodHorizon?: HoldingPeriodHorizon | null;
+  pendingResearchMetricPrompt?: string | null;
 };
+
+const RESEARCH_METRIC_LABELS: Record<ResearchMetric, string> = {
+  sharpe: "샤프 지수",
+  sortino: "소르티노 지수",
+  calmar: "칼마 비율",
+};
+const RESEARCH_METRIC_SUGGESTIONS = ["샤프 지수", "소르티노 지수", "칼마 비율"];
+const RESEARCH_METRIC_PATTERNS = [
+  ["sharpe", /(?:샤프|sharpe)/i],
+  ["sortino", /(?:소르티노|sortino)/i],
+  ["calmar", /(?:칼마|칼미|calmar)/i],
+  ["treynor", /(?:트레이너|treynor)/i],
+] as const;
+
+export function getResearchMetricLabel(metric: ResearchMetric): string {
+  return RESEARCH_METRIC_LABELS[metric];
+}
+
+export function buildResearchMetricIntro(metric: ResearchMetric): string {
+  return `${getResearchMetricLabel(metric)}를 과거 데이터 연구 목표로 두고, 사용자가 선택한 조건의 파라미터 조합을 비교할 전략을 함께 구성할게요.`;
+}
+
+export function buildResearchMetricSummary(metric: ResearchMetric): string {
+  return `${getResearchMetricLabel(metric)}를 과거 데이터 연구 목표로 설정했습니다. 아래 전략은 사용자가 대화에서 선택한 조건으로 구성되었습니다.`;
+}
+
+export function parseMetricOptimizationRange(input: string): MetricOptimizationRange | null {
+  const pair = input.match(
+    /(-?\d+(?:\.\d+)?)\s*(?:~|〜|–|—|-|부터|에서|to)\s*(-?\d+(?:\.\d+)?)/i
+  );
+  const fallback = input.match(/-?\d+(?:\.\d+)?/g);
+  const values = pair ? [pair[1], pair[2]] : fallback?.length === 2 ? fallback : null;
+  if (!values) return null;
+
+  const min = Number(values[0]);
+  const max = Number(values[1]);
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min >= max) return null;
+
+  const span = max - min;
+  const step = Number.isInteger(min) && Number.isInteger(max)
+    ? Math.max(1, Math.round(span / 10))
+    : Number(Math.max(0.01, span / 10).toPrecision(2));
+
+  return { type: "number", min, max, step };
+}
+
+function researchMetricDecision(prompt: string, pendingPrompt?: string | null): ConversationDecision | null {
+  const mentioned = RESEARCH_METRIC_PATTERNS.filter(([, pattern]) => pattern.test(prompt)).map(([metric]) => metric);
+  const strategyPrompt = pendingPrompt ?? prompt;
+  const isNewRequest =
+    /(?:샤프|sharpe|소르티노|sortino|칼마|칼미|calmar|트레이너|treynor|위험\s*조정|리스크\s*조정|성과\s*지표)/i.test(prompt) &&
+    /(?:최대화|극대화|높(?:이|은)|개선|최적화|목표|기준|중심)/i.test(prompt) &&
+    /(?:(?:전략|매매\s*규칙).*(?:만들|생성|구성|설계|연구|찾|최적화)|(?:만들|생성|구성|설계|연구|찾|최적화).*(?:전략|매매\s*규칙))/i.test(prompt);
+  if (!pendingPrompt && !isNewRequest) return null;
+
+  if (mentioned.length !== 1 || mentioned[0] === "treynor") {
+    const treynorUnavailable = mentioned.length === 1 && mentioned[0] === "treynor";
+    return {
+      action: "ask_research_metric",
+      speechAct: "ask",
+      topic: "strategy",
+      confidence: 1,
+      reason: treynorUnavailable ? "treynor_metric_unavailable" : "research_metric_required",
+      strategyPrompt,
+      message: treynorUnavailable
+        ? "트레이너 지수는 시장 벤치마크와 전략 베타 데이터가 필요해 현재 계산할 수 없습니다. 다른 지표를 선택해 주세요."
+        : "어떤 성과 지표를 기준으로 과거 데이터를 탐색할까요?",
+      suggestions: treynorUnavailable
+        ? RESEARCH_METRIC_SUGGESTIONS
+        : [...RESEARCH_METRIC_SUGGESTIONS, "트레이너 지수 (현재 계산 불가)"],
+    };
+  }
+
+  const metric = mentioned[0] as ResearchMetric;
+  return {
+    action: "start_builder",
+    speechAct: "create",
+    topic: "strategy",
+    confidence: 1,
+    reason: "research_metric_selected",
+    researchMetric: metric,
+    seedPrompt: `${strategyPrompt}\n과거 데이터 연구 목표: ${getResearchMetricLabel(metric)}. 사용자가 선택하는 전략 조건의 파라미터 조합을 이 지표 기준으로 비교한다.`,
+  };
+}
 
 const HORIZON_ASSUMPTIONS = [
   {
@@ -388,6 +489,9 @@ export function decideConversationTurn(
       strategyAssumptions: { holdingPeriodDays },
     };
   }
+
+  const metricResearch = researchMetricDecision(prompt, context.pendingResearchMetricPrompt);
+  if (metricResearch) return metricResearch;
 
   const horizonResponse = buildStrategyHorizonComparisonResponse(prompt);
   if (horizonResponse) {
