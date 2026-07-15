@@ -38,6 +38,7 @@ FUNDAMENTAL_IDS = set(FUNDAMENTAL_CIDS)
 TECHNICAL_IDS = {
     'ma_crossover', 'rsi', 'ema', 'macd', 'stochastic',
     'cci', 'adx', 'bollinger_bands', 'volume_spike', 'breakout',
+    'williams_r', 'mfi', 'roc',
 }
 
 # 계산 가능한 파생 지표
@@ -85,6 +86,15 @@ def _get_required_columns(cond: Dict) -> List[str]:
         return [f'cci_{period}']
     elif cid == 'adx':
         return ['adx']
+    elif cid == 'williams_r':
+        period = p.get('period', 14)
+        return [f'wr_{period}']
+    elif cid == 'mfi':
+        period = p.get('period', 14)
+        return [f'mfi_{period}']
+    elif cid == 'roc':
+        period = p.get('period', 12)
+        return [f'close_{period}_roc']
     elif cid == 'bollinger_bands':
         return ['boll_ub', 'boll_lb', 'close']
     elif cid == 'volume_spike':
@@ -178,6 +188,7 @@ class DataResolver:
         df_pl = self._resolve_fundamentals(symbol, df_pl, missing_cols)
         df_pl = self._resolve_market_cap(symbol, df_pl, missing_cols)
         df_pl = self._resolve_computable_ratios(symbol, df_pl, missing_cols)
+        df_pl = self._resolve_dividend_metrics(symbol, df_pl, missing_cols)
 
         # 4. 최종 미해결 항목 보고
         still_missing = {col for col in missing_cols if col not in df_pl.columns or self._is_all_null(df_pl, col)}
@@ -313,6 +324,43 @@ class DataResolver:
                 self._log("SUCCESS", f"[{symbol}] PBR 직접 계산 완료 (close ÷ BPS) ✓")
             except Exception as e:
                 self._log("ERROR", f"[{symbol}] PBR 직접 계산 실패: {e}")
+
+        return df_pl
+
+    def _resolve_dividend_metrics(self, symbol: str, df_pl: pl.DataFrame, missing: set) -> pl.DataFrame:
+        """배당수익률/배당성향을 기존 dividends 컬럼(ex-date별 주당 현금배당)에서 계산.
+
+        parquet에 dividends는 백필됐으나 메트릭 컬럼이 없는 경우(메트릭 도입 전 백필)의
+        폴백. dividends 자체가 없으면 계산 불가 — fail-closed로 남겨 커버리지 로그가 고지한다.
+        """
+        needed = missing & {"dividend_yield", "payout_rate", "dividend_growth"}
+        if not needed or "dividends" not in df_pl.columns:
+            return df_pl
+
+        from .dividends import (
+            trailing_dividend_yield, dividend_payout_ratio, dividend_growth_yoy,
+        )
+
+        try:
+            pdf = df_pl.to_pandas()
+            div = pdf["dividends"].astype(float)
+            if "dividend_yield" in needed:
+                y = trailing_dividend_yield(pdf["close"].astype(float), div)
+                df_pl = df_pl.with_columns(pl.Series("dividend_yield", y.to_numpy()))
+                missing.discard("dividend_yield")
+                self._log("SUCCESS", f"[{symbol}] 배당수익률 계산 완료 (TTM 배당 ÷ 종가) ✓")
+            if "dividend_growth" in needed:
+                g = dividend_growth_yoy(div)
+                df_pl = df_pl.with_columns(pl.Series("dividend_growth", g.to_numpy()))
+                missing.discard("dividend_growth")
+                self._log("SUCCESS", f"[{symbol}] 배당성장률 계산 완료 (TTM 배당 전년 대비) ✓")
+            if "payout_rate" in needed and "eps" in pdf.columns:
+                p = dividend_payout_ratio(div, pdf["eps"].astype(float))
+                df_pl = df_pl.with_columns(pl.Series("payout_rate", p.to_numpy()))
+                missing.discard("payout_rate")
+                self._log("SUCCESS", f"[{symbol}] 배당성향 계산 완료 (TTM 배당 ÷ EPS) ✓")
+        except Exception as e:
+            self._log("ERROR", f"[{symbol}] 배당 메트릭 계산 실패: {e}")
 
         return df_pl
 

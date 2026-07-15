@@ -2574,6 +2574,9 @@ class NLParseRequest(BaseModel):
     backend: str = "ollama"  # "mlx" | "ollama" — 기본값은 ollama (배포 환경 parity)
     model: Optional[str] = None  # None = 기본값 사용
     previous_parsed: Optional[dict] = None  # 수정 모드: 이전 파싱 결과
+    # 직전 코치 문장(수정 모드). 코치가 특정 리스크 필드 설정을 권한 뒤 사용자가 "10%"처럼
+    # 필드 없이 답할 때, 백엔드가 그 답을 코치가 물은 필드로 귀속하는 데 쓴다(FR-STR-019e).
+    previous_coach_text: Optional[str] = None
 
 class NLParseResponse(BaseModel):
     parsed: dict
@@ -3108,7 +3111,39 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
             validation_holder["report"] = report
         if request.previous_parsed:
             print(f"[NL-PARSE] 수정 모드 (diff)", flush=True)
+            # 재무 팩터 추가 의도인데 기준값(operator/threshold)이 없으면(예: "영업이익률을
+            # 추가해 볼까?") 수정 파서로 넘기지 않고 되묻는다 — LLM이 임의 기준값을 환각하기
+            # 전에 결정적으로 가로채, 추천 칩으로 슬롯을 채우게 한다(condition_builder 재사용,
+            # 백엔드 무상태: 칩 클릭 시 프론트가 "라벨 값 방향"을 일반 수정 메시지로 재전송).
+            from intent.condition_builder import clarification_for_add
+            _clar = clarification_for_add(request.prompt)
+            if _clar is not None:
+                from engine.nl_parser import ParsedStrategy
+                prev_parsed = ParsedStrategy.model_validate(request.previous_parsed)
+                result = _build_parse_result(
+                    request, backend, prev_parsed, None,
+                    load_ms=load_ms,
+                    parse_ms=round((time.perf_counter() - parse_started) * 1000, 2),
+                    request_started=request_started,
+                )
+                # 전략은 그대로 유지하고 되묻기 질문+칩만 실어 보낸다(프론트가 칩으로 렌더링).
+                result["clarification_question"] = _clar["question"]
+                result["clarification_suggestions"] = _clar["suggestions"]
+                _nl_parser_status["status"] = "ok"
+                _record_ai_runtime("parse", result["runtime"])
+                _store_nl_parse_cache(cache_key, result)
+                return result
             parsed = parser.parse_modification(request.prompt, request.previous_parsed, on_stage=on_stage)
+            # 코치 맥락 리스크 해석(프론트 inferPendingRiskChange 이관): 코치가 물은 리스크
+            # 필드에 사용자의 "10%" 같은 필드 없는 답을 귀속한다. 백엔드가 코치 맥락으로 판단
+            # → 프론트는 파스 결과를 재판정하지 않고 그대로 신뢰한다(FR-STR-019e).
+            from engine.nl_parser import resolve_coach_context_risk
+            _ctx_risk = resolve_coach_context_risk(
+                request.prompt, request.previous_coach_text, request.previous_parsed
+            )
+            if _ctx_risk is not None:
+                _field, _value = _ctx_risk
+                parsed = parsed.model_copy(update={_field: _value})
         else:
             parsed = parser.parse(
                 request.prompt, on_stage=on_stage, on_validation=_capture_validation,

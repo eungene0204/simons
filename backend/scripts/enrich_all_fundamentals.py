@@ -1,5 +1,9 @@
 """
-기존 parquet 파일에 EPS/BPS/PER/PBR/ROE enrichment 일괄 실행.
+기존 parquet 파일에 EPS/BPS/PER/PBR/PSR/ROE/EBITDA/EV-EBITDA 등 펀더멘털 enrichment 일괄 실행.
+
+EV/EBITDA·EBITDA는 KIS other-major-ratios에서 조회해 결산 스냅샷으로 전진충전된다.
+이미 roa까지 백필된 종목도 재실행하면 ev_ebitda/ebitda 컬럼이 combine_first로 추가된다
+(기존 값은 보존).
 
 사용법:
     python scripts/enrich_all_fundamentals.py              # 전체 종목

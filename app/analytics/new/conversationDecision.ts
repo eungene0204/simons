@@ -5,6 +5,7 @@ import {
   isBacktestPrompt,
 } from "./backtestConfirmation";
 import {
+  buildFundamentalFactorPrompt,
   buildStrategyHorizonComparisonResponse,
   buildTakeProfitPercentagePrompt,
   isAdvisorFollowUpPrompt,
@@ -540,6 +541,23 @@ export function decideConversationTurn(
       reason: "missing_take_profit_percentage",
       message: takeProfitPrompt.message,
       suggestions: [...takeProfitPrompt.suggestions, "직접 입력"],
+    };
+  }
+
+  // 재무 팩터를 값 없이 추가하려는 요청("영업이익률을 추가해 볼까?")은 물음표로 끝나
+  // isAdvisorFollowUpPrompt(코치 후속질문)에 잡혀 조용히 넘어가던 것을 여기서 먼저 가로채,
+  // 그 지표의 기준을 추천 칩으로 되묻는다. 칩은 값이 붙은 완결 지시문이라 클릭 시 일반 수정
+  // 파싱으로 흘러 백엔드가 기존 필터를 보존한 채 병합한다(익절 되묻기와 동형).
+  const factorPrompt = buildFundamentalFactorPrompt(prompt);
+  if (context.hasCurrentStrategy && factorPrompt) {
+    return {
+      action: "respond",
+      speechAct: "modify",
+      topic: "strategy",
+      confidence: 1,
+      reason: "missing_fundamental_threshold",
+      message: factorPrompt.message,
+      suggestions: [...factorPrompt.suggestions, "직접 입력"],
     };
   }
 

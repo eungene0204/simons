@@ -1219,6 +1219,9 @@ function StrategyLabContent() {
         prompt: promptText,
         backend: "ollama",
         ...(currentParsed ? { previous_parsed: currentParsed } : {}),
+        // 코치 맥락 리스크 해석을 백엔드가 하도록 직전 코치 문장을 넘긴다(수정 모드).
+        // "익절 추천" 뒤 "10%" 같은 필드 없는 답을 백엔드가 코치 맥락으로 귀속한다(FR-STR-019e).
+        ...(currentParsed ? { previous_coach_text: lastCoachText() } : {}),
       }),
     });
     if (!res.ok || !res.body) {
@@ -1234,6 +1237,32 @@ function StrategyLabContent() {
     // 최초 파싱에서 진입 규칙을 못 잡아 되묻는 경우. 이때는 코치를 돌리지 않는다
     // (불완전한 전략을 평가하면 안내 박스와 모순됨).
     let parseClarification: string | null = null;
+
+    // 요약 카드 메시지를 인덱스로 고정한다. 후행 검증 교정(parsed_updated)이 도착할 때는
+    // 이미 코치 버블이 뒤에 추가돼 있으므로, updateLastAssistant로는 코치 버블을 덮어쓴다.
+    // 캡처한 인덱스로 갱신해 요약 카드만 조용히 갱신되도록 한다.
+    let summaryMessageIndex: number | null = null;
+    const applySummaryPatch = (patch: Partial<ChatMessage>) => {
+      setMessages(prev => {
+        if (summaryMessageIndex === null) {
+          summaryMessageIndex =
+            prev.map((m, i) => (m.role === "assistant" ? i : -1)).filter(i => i >= 0).at(-1) ?? null;
+        }
+        if (summaryMessageIndex === null) return prev;
+        return prev.map((m, i) => (i === summaryMessageIndex ? { ...m, ...patch } : m));
+      });
+    };
+
+    // 파싱 결과가 확정되면(요약 카드 표시 직후) 코치 검증을 곧바로 착수한다. 후행 LLM
+    // 검증이 스트림을 붙잡고 있어도 '전략 검증'이 몇 초씩 늦게 뜨지 않도록, 스트림 종료
+    // ([DONE])를 기다리지 않는다.
+    let coachStarted = false;
+    const maybeStartCoachValidation = () => {
+      if (coachStarted || !finalizedParsed || parseClarification || researchMetricRef.current) return;
+      coachStarted = true;
+      setMessages(prev => [...prev, { role: "assistant", coachLoading: true, coachText: "" }]);
+      generateCoachResponse({ userText: promptText, parsed: finalizedParsed });
+    };
 
     const finalizeParse = (backtestRequest: any, symbolCount?: number | null) => {
       if (!parsedPayload) return;
@@ -1261,8 +1290,6 @@ function StrategyLabContent() {
         previousBacktestRequest: currentBacktestReq,
         nextBacktestRequest,
         userPrompt: promptText,
-        clarificationQuestion: parsedPayload.clarification_question,
-        previousCoachText: lastCoachText(),
         riskOverrides: parsedPayload.risk_overrides ?? null,
       });
 
@@ -1288,10 +1315,10 @@ function StrategyLabContent() {
         ? parsedPayload.clarification_suggestions
         : undefined;
       parseClarification = clarificationText;
-      const optimizationDraft = researchMetricRef.current && !clarificationText
+      const optimizationDraft = researchMetricRef.current && !clarificationText && nextBacktestReq
         ? prepareMetricOptimization(nextBacktestReq)
         : null;
-      updateLastAssistant({
+      applySummaryPatch({
         isLoading: false,
         infoText: researchMetricRef.current
           ? `${buildResearchMetricSummary(researchMetricRef.current)}${
@@ -1335,6 +1362,8 @@ function StrategyLabContent() {
           parsedPayload = evt;
         } else if (evt.type === "dsl_ready") {
           finalizeParse(evt.backtest_request, evt.symbol_count);
+          // 요약 카드 표시 직후 코치 검증 착수 — 후행 검증이 스트림을 붙잡아도 지연 없이.
+          maybeStartCoachValidation();
         } else if (evt.type === "parsed_updated") {
           // 후행 LLM 검증 교정본 — 룰 파스 결과를 이미 표시한 뒤 도착한다. 사용자가 이미
           // 백테스트를 실행했으면 무시(실행 스냅샷 일관성), 아니면 parsed_final과 동일한
@@ -1349,16 +1378,8 @@ function StrategyLabContent() {
       }
     }
 
-    if (finalizedParsed && !parseClarification && !researchMetricRef.current) {
-      setMessages(prev => [
-        ...prev,
-        { role: "assistant", coachLoading: true, coachText: "" },
-      ]);
-      generateCoachResponse({
-        userText: promptText,
-        parsed: finalizedParsed,
-      });
-    }
+    // 스트림이 끝난 시점에도 아직 코치가 시작되지 않았으면(예: dsl_ready 없이 종료) 착수한다.
+    maybeStartCoachValidation();
   };
 
   // [전략별 특화 빌더] 빌더가 DSL을 직접 구성해 내려준 완성 전략을 한국어 재파싱 왕복 없이

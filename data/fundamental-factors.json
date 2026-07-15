@@ -1,0 +1,23 @@
+[
+  { "key": "per", "label": "PER", "unit": "배", "direction": "<=", "recommend": [10, 15, 20, 25] },
+  { "key": "pbr", "label": "PBR", "unit": "배", "direction": "<=", "recommend": [1, 1.5, 2, 3] },
+  { "key": "psr", "label": "PSR", "unit": "배", "direction": "<=", "recommend": [1, 2, 3] },
+  { "key": "ev_ebitda", "label": "EV/EBITDA", "unit": "배", "direction": "<=", "recommend": [6, 8, 10] },
+  { "key": "roe_or_gpa", "label": "ROE", "unit": "%", "direction": ">=", "recommend": [10, 15, 20, 25] },
+  { "key": "roa", "label": "ROA", "unit": "%", "direction": ">=", "recommend": [5, 7, 10] },
+  { "key": "debt_ratio", "label": "부채비율", "unit": "%", "direction": "<=", "recommend": [50, 100, 150, 200] },
+  { "key": "current_ratio", "label": "유동비율", "unit": "%", "direction": ">=", "recommend": [100, 150, 200] },
+  { "key": "quick_ratio", "label": "당좌비율", "unit": "%", "direction": ">=", "recommend": [100, 150] },
+  { "key": "reserve_ratio", "label": "유보율", "unit": "%", "direction": ">=", "recommend": [500, 1000] },
+  { "key": "gross_margin", "label": "매출총이익률", "unit": "%", "direction": ">=", "recommend": [20, 30, 40] },
+  { "key": "operating_margin", "label": "영업이익률", "unit": "%", "direction": ">=", "recommend": [5, 10, 15, 20] },
+  { "key": "net_margin", "label": "순이익률", "unit": "%", "direction": ">=", "recommend": [5, 10, 15] },
+  { "key": "revenue_growth", "label": "매출액증가율", "unit": "%", "direction": ">=", "recommend": [10, 20, 30] },
+  { "key": "operating_income_growth", "label": "영업이익증가율", "unit": "%", "direction": ">=", "recommend": [10, 20, 30] },
+  { "key": "net_income_growth", "label": "순이익증가율", "unit": "%", "direction": ">=", "recommend": [10, 20, 30] },
+  { "key": "market_cap", "label": "시가총액", "unit": "억", "direction": ">=", "recommend": [1000, 5000, 10000] },
+  { "key": "trading_value", "label": "거래대금", "unit": "억", "direction": ">=", "recommend": [50, 100, 500] },
+  { "key": "payout_rate", "label": "배당성향", "unit": "%", "direction": ">=", "recommend": [20, 30, 50] },
+  { "key": "dividend_growth", "label": "배당성장률", "unit": "%", "direction": ">=", "recommend": [5, 10, 15] },
+  { "key": "dividend_yield", "label": "배당수익률", "unit": "%", "direction": ">=", "recommend": [2, 3, 5, 7] }
+]

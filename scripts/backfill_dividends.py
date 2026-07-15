@@ -248,6 +248,21 @@ def backfill_file(path: Path, provider: DpsProvider, dry_run: bool = False,
     series = build_dividend_series(dates, annual_dps)
     df["dividends"] = series.to_numpy()
 
+    # 배당 메트릭 동시 산출: 배당수익률(TTM DPS/종가), 배당성향(TTM DPS/EPS).
+    # dividends 컬럼이 전부 0(무배당)이어도 컬럼을 만들어 '데이터 있음(=0)'을 명시한다
+    # — 커버리지 로그가 '무배당'과 '데이터 없음'을 구분하게 하기 위함.
+    from engine.dividends import (
+        trailing_dividend_yield, dividend_payout_ratio, dividend_growth_yoy,
+    )
+    close = df["close"].astype(float)
+    close.index = dates
+    div_ser = pd.Series(series.to_numpy(), index=dates)
+    df["dividend_yield"] = trailing_dividend_yield(close, div_ser).to_numpy()
+    df["dividend_growth"] = dividend_growth_yoy(div_ser).to_numpy()
+    if "eps" in df.columns:
+        eps = pd.Series(df["eps"].to_numpy(), index=dates)
+        df["payout_rate"] = dividend_payout_ratio(div_ser, eps).to_numpy()
+
     events = int((series > 0).sum())
     total = float(series.sum())
     if not dry_run:

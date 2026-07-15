@@ -7,7 +7,13 @@ export type IndicatorType =
   | "macd"
   | "bollinger_bands"
   | "volume_spike"
-  | "breakout";
+  | "breakout"
+  | "stochastic"
+  | "cci"
+  | "adx"
+  | "williams_r"
+  | "mfi"
+  | "roc";
 
 export type FlowType = "investor_net_buy";
 
@@ -184,6 +190,25 @@ export interface BacktestResult {
   benchmarkLabel?: string;
   universeId?: string;
   warnings?: string[];
+  /** 데이터 커버리지 리포트 — 펀더멘털 지표별 종목·기간 커버리지(데이터 부족 투명성). */
+  dataCoverage?: {
+    baseData: string[];
+    metrics: Array<{
+      key: string;
+      label: string;
+      status: "used" | "partial" | "unused";
+      periodCoveragePct: number;
+      symbolCoveragePct: number;
+      symbolsWithData: number;
+      symbolsTotal: number;
+      availableFrom: string | null;
+      availableTo: string | null;
+    }>;
+    usedData: string[];
+    partialData: string[];
+    unusedData: string[];
+    warnings: string[];
+  };
   executionTime?: number;
   fromCache?: boolean;
   cachedAt?: string;

@@ -84,6 +84,18 @@ class IndicatorEngine:
                         target_cols.add(f'cci_{period}')
                     elif cid == 'adx':
                         target_cols.add('adx')
+                    elif cid == 'williams_r':
+                        # stockstats wr_{n}: Williams %R, 범위 -100~0 (표준). 별도 스케일 불필요.
+                        period = p.get('period', 14)
+                        target_cols.add(f'wr_{period}')
+                    elif cid == 'mfi':
+                        # stockstats mfi_{n}: 0~1 비율로 반환 → 관례적 0~100 스케일로 아래에서 ×100.
+                        period = p.get('period', 14)
+                        target_cols.add(f'mfi_{period}')
+                    elif cid == 'roc':
+                        # stockstats close_{n}_roc: n봉 전 대비 변화율(%). 모멘텀 지표.
+                        period = p.get('period', 12)
+                        target_cols.add(f'close_{period}_roc')
                     elif cid == 'bollinger_bands':
                         period, std_times = bollinger_params(p)
                         ub_col, lb_col = bollinger_columns(p)
@@ -150,7 +162,11 @@ class IndicatorEngine:
             for c in final_cols:
                 if c not in res_pdf.columns:
                     # Use .values to ignore index alignment since sdf index is 'date' but res_pdf is RangeIndex
-                    res_pdf[c] = sdf[c].values
+                    values = sdf[c].values
+                    # MFI는 stockstats가 0~1 비율로 산출 → 관례적 0~100 스케일로 정규화.
+                    if c.startswith('mfi_'):
+                        values = values * 100.0
+                    res_pdf[c] = values
             
             res_pdf = res_pdf[final_cols]
             

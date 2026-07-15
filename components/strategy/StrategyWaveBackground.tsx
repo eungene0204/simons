@@ -104,11 +104,15 @@ export function StrategyWaveBackground() {
 
         const barHeight = 1.8 + crest * 4;
         const isBlue = point.tint === 0;
-        const red = isBlue ? 112 : 183;
-        const green = isBlue ? 159 : 191;
-        const blue = isBlue ? 255 : 217;
 
-        context.strokeStyle = `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+        // 웨이브 정점(crest)일수록 색을 흰색 쪽으로 밀어 은은하게 빛나 보이게 함
+        const shine = smoothStep((crest - 0.55) / 0.45);
+        const red = Math.round((isBlue ? 112 : 183) + (255 - (isBlue ? 112 : 183)) * shine);
+        const green = Math.round((isBlue ? 159 : 191) + (255 - (isBlue ? 159 : 191)) * shine);
+        const blue = Math.round((isBlue ? 255 : 217) + (255 - (isBlue ? 255 : 217)) * shine);
+        const litAlpha = Math.min(0.68, alpha + shine * 0.14);
+
+        context.strokeStyle = `rgba(${red}, ${green}, ${blue}, ${litAlpha})`;
         context.lineWidth = 1.55;
         context.beginPath();
         context.moveTo(drawX, drawY - barHeight / 2);

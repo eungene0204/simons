@@ -12,12 +12,15 @@ from engine.indicator_columns import bollinger_columns, macd_columns, stochastic
 # eval branches are fully generic (get_col(cid) / safe_get(cid)). Single source of truth
 # for which metrics are filterable and how their badges read.
 FUNDAMENTAL_LABELS = {
-    "per": "PER", "pbr": "PBR", "psr": "PSR", "roe_or_gpa": "ROE", "roa": "ROA",
+    "per": "PER", "pbr": "PBR", "psr": "PSR", "ev_ebitda": "EV/EBITDA",
+    "roe_or_gpa": "ROE", "roa": "ROA",
     "debt_ratio": "부채비율", "current_ratio": "유동비율", "quick_ratio": "당좌비율",
     "reserve_ratio": "유보율", "net_margin": "순이익률", "gross_margin": "매출총이익률",
     "operating_margin": "영업이익률",
     "revenue_growth": "매출액증가율", "operating_income_growth": "영업이익증가율",
     "net_income_growth": "순이익증가율", "market_cap": "시가총액",
+    "dividend_yield": "배당수익률", "payout_rate": "배당성향",
+    "dividend_growth": "배당성장률",
 }
 FUNDAMENTAL_CIDS = list(FUNDAMENTAL_LABELS)
 # Metrics whose value is an amount (억원), not a ratio — for badge suffixing.
@@ -257,6 +260,32 @@ class SignalEngine:
             # Fix 3: ADX 평가자 — 추세 강도 필터
             adx_arr = get_col('adx')
             return compare_vec(adx_arr, p.get('operator', '>='), float(p.get('value', 25)))
+
+        elif cid == 'williams_r':
+            # Williams %R (범위 -100~0). 과매도(-80 이하) 매수 / 과매수(-20 이상) 매도 기본.
+            period = p.get('period', 14)
+            wr = get_col(f'wr_{period}')
+            sig_type = p.get('signalType', 'buy')
+            default_val = -80.0 if sig_type != 'sell' else -20.0
+            default_op = '<=' if sig_type != 'sell' else '>='
+            return compare_vec(wr, p.get('operator', default_op), float(p.get('value', default_val)))
+
+        elif cid == 'mfi':
+            # Money Flow Index (0~100). 과매도(20 이하) 매수 / 과매수(80 이상) 매도 기본.
+            period = p.get('period', 14)
+            mfi = get_col(f'mfi_{period}')
+            sig_type = p.get('signalType', 'buy')
+            default_val = 20.0 if sig_type != 'sell' else 80.0
+            default_op = '<=' if sig_type != 'sell' else '>='
+            return compare_vec(mfi, p.get('operator', default_op), float(p.get('value', default_val)))
+
+        elif cid == 'roc':
+            # Rate of Change / 모멘텀(%). 상승 모멘텀(0 초과) 매수 / 하락(0 미만) 매도 기본.
+            period = p.get('period', 12)
+            roc = get_col(f'close_{period}_roc')
+            sig_type = p.get('signalType', 'buy')
+            default_op = '>' if sig_type != 'sell' else '<'
+            return compare_vec(roc, p.get('operator', default_op), float(p.get('value', 0)))
 
         elif cid in ['price_level', 'price']:
             c = get_col('close')
@@ -571,6 +600,29 @@ class SignalEngine:
             adx_val = safe_get('adx', idx)
             return compare(adx_val, p.get('operator', '>='), float(p.get('value', 25)))
 
+        elif cid == 'williams_r':
+            period = p.get('period', 14)
+            wr_val = safe_get(f'wr_{period}', idx)
+            sig_type = p.get('signalType', 'buy')
+            default_val = -80.0 if sig_type != 'sell' else -20.0
+            default_op = '<=' if sig_type != 'sell' else '>='
+            return compare(wr_val, p.get('operator', default_op), float(p.get('value', default_val)))
+
+        elif cid == 'mfi':
+            period = p.get('period', 14)
+            mfi_val = safe_get(f'mfi_{period}', idx)
+            sig_type = p.get('signalType', 'buy')
+            default_val = 20.0 if sig_type != 'sell' else 80.0
+            default_op = '<=' if sig_type != 'sell' else '>='
+            return compare(mfi_val, p.get('operator', default_op), float(p.get('value', default_val)))
+
+        elif cid == 'roc':
+            period = p.get('period', 12)
+            roc_val = safe_get(f'close_{period}_roc', idx)
+            sig_type = p.get('signalType', 'buy')
+            default_op = '>' if sig_type != 'sell' else '<'
+            return compare(roc_val, p.get('operator', default_op), float(p.get('value', 0)))
+
         elif cid in ['price_level', 'price']:
             c = safe_get('close', idx)
             val, op = p.get('value', 0), p.get('operator', '>')
@@ -701,6 +753,20 @@ class SignalEngine:
         elif cid == 'adx':
             val = p.get('value', 25)
             return f"ADX {val} {op_kr} (추세 강도)"
+        elif cid == 'williams_r':
+            period = p.get('period', 14)
+            sig_type = p.get('signalType', 'buy')
+            val = p.get('value', -80 if sig_type != 'sell' else -20)
+            return f"Williams %R({period}) {val} {op_kr}"
+        elif cid == 'mfi':
+            period = p.get('period', 14)
+            sig_type = p.get('signalType', 'buy')
+            val = p.get('value', 20 if sig_type != 'sell' else 80)
+            return f"MFI({period}) {val} {op_kr}"
+        elif cid == 'roc':
+            period = p.get('period', 12)
+            val = p.get('value', 0)
+            return f"ROC({period}) {val} {op_kr} (모멘텀)"
         elif cid in ['price', 'price_level']:
             val = float(p.get('value') or 0)
             return f"현재가 {val:,.0f}원 {op_kr}"

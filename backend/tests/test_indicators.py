@@ -138,3 +138,36 @@ def test_breakout_short_data_no_nan():
     assert res['low_252_min'].iloc[0] == 90.0
     assert res['high_252_max'].iloc[-1] == 110.0 + periods - 1
     assert res['low_252_min'].iloc[-1] == 90.0  # 최소값은 첫 행
+
+
+def test_new_oscillator_columns_computed():
+    # ATR/Williams %R/MFI/ROC 계열 신규 오실레이터가 IndicatorEngine에서 계산되는지 검증.
+    import numpy as np
+    n = 60
+    rng = np.random.default_rng(0)
+    close = 100 + np.cumsum(rng.normal(0, 1, n))
+    df = pd.DataFrame({
+        'date': pd.date_range('2024-01-01', periods=n),
+        'open': close, 'high': close + 2, 'low': close - 2,
+        'close': close, 'volume': rng.integers(1e5, 1e6, n).astype(float),
+    })
+    df_pl = pl.from_pandas(df)
+    conditions = [
+        {'id': 'williams_r', 'params': {'period': 14}},
+        {'id': 'mfi', 'params': {'period': 14}},
+        {'id': 'roc', 'params': {'period': 12}},
+    ]
+    res = IndicatorEngine.calculate(df_pl, conditions).to_pandas()
+
+    assert 'wr_14' in res.columns
+    assert 'mfi_14' in res.columns
+    assert 'close_12_roc' in res.columns
+
+    # Williams %R 범위 -100~0
+    wr = res['wr_14'].dropna()
+    assert wr.between(-100.0, 0.0).all()
+
+    # MFI는 ×100 스케일 → 대부분 0~100 범위(경계 약간 여유)
+    mfi = res['mfi_14'].dropna()
+    assert mfi.between(0.0, 100.0).all()
+    assert mfi.max() > 1.5, "MFI가 0~1 비율 그대로면 스케일 누락 — ×100 정규화 필요"

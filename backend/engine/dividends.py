@@ -43,6 +43,69 @@ def total_return_index(close: pd.Series, dividends: pd.Series) -> pd.Series:
     return pd.Series(tri, index=close.index)
 
 
+_TRADING_DAYS_PER_YEAR = 252
+
+
+def trailing_dividend_yield(
+    close: pd.Series, dividends: pd.Series, window: int = _TRADING_DAYS_PER_YEAR
+) -> pd.Series:
+    """배당수익률(%) = 최근 12개월(TTM) 주당 현금배당 합 ÷ 종가 × 100.
+
+    ``dividends``는 ex-date별 주당 현금배당(그 외 0)이라, 롤링 합이 곧 TTM DPS다.
+    전진충전이 아니라 롤링 합이므로, 배당을 멈춘 종목은 1년 안에 자연히 0으로 감쇠한다
+    (전진충전 방식이 겪는 '무배당 연도를 직전 배당으로 오인'하는 문제를 피한다).
+
+    Args:
+        close: 종가(양수), dividends와 같은 인덱스.
+        dividends: ex-date별 주당 현금배당(그 외 0), 분할조정 상태.
+        window: TTM 창(거래일). 기본 252.
+
+    Returns:
+        배당수익률(%) 시리즈. 종가가 무효면 NaN, 최근 배당이 없으면 0.0.
+    """
+    ttm = dividends.fillna(0.0).rolling(window, min_periods=1).sum()
+    with np.errstate(divide="ignore", invalid="ignore"):
+        y = ttm / close.replace(0.0, np.nan).astype(float) * 100.0
+    return y.replace([np.inf, -np.inf], np.nan)
+
+
+def dividend_growth_yoy(
+    dividends: pd.Series, window: int = _TRADING_DAYS_PER_YEAR
+) -> pd.Series:
+    """배당성장률(%) = 최근 12개월(TTM) 주당배당 ÷ 직전 12개월 주당배당 − 1, × 100.
+
+    ``dividends``는 ex-date별 주당 현금배당이라, 롤링 합(TTM)의 전년 대비 변화율이 곧
+    배당 성장률이다. 배당을 처음 시작한 종목(직전 TTM=0)은 성장률이 정의되지 않아 NaN,
+    배당을 멈춘 종목(현 TTM=0, 직전>0)은 −100%가 된다.
+
+    Args:
+        dividends: ex-date별 주당 현금배당(그 외 0), 분할조정 상태.
+        window: TTM 창(거래일). 기본 252. 직전 TTM은 window만큼 shift.
+
+    Returns:
+        배당성장률(%) 시리즈. 직전 배당이 없으면(0 기준 성장 정의 불가) NaN.
+    """
+    ttm = dividends.fillna(0.0).rolling(window, min_periods=1).sum()
+    ttm_prior = ttm.shift(window)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        g = (ttm / ttm_prior.where(ttm_prior > 0) - 1.0) * 100.0
+    return g.replace([np.inf, -np.inf], np.nan)
+
+
+def dividend_payout_ratio(
+    dividends: pd.Series, eps: pd.Series, window: int = _TRADING_DAYS_PER_YEAR
+) -> pd.Series:
+    """배당성향(%) = TTM 주당 현금배당 합 ÷ 주당순이익(EPS) × 100.
+
+    EPS가 결측이거나 0 이하(적자)면 성향이 정의되지 않아 NaN을 반환한다.
+    """
+    ttm = dividends.fillna(0.0).rolling(window, min_periods=1).sum()
+    eps_pos = eps.where(eps.astype(float) > 0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        p = ttm / eps_pos * 100.0
+    return p.replace([np.inf, -np.inf], np.nan)
+
+
 def dividend_adjust_factor(close: pd.Series, dividends: pd.Series) -> pd.Series:
     """Per-bar back-adjustment factor mapping raw close onto the total-return index.
 

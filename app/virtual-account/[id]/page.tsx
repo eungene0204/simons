@@ -1098,7 +1098,11 @@ export default function VirtualAccountDetailPage() {
                     </span>
                   </div>
                   <div className="overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent">
-                    <SignalLog logs={signalLogs} />
+                    <SignalLog
+                      logs={signalLogs}
+                      accountCreatedAt={account.createdAt}
+                      onStrategyReplace={handleStrategyReplaceClick}
+                    />
                   </div>
                 </div>
               </div>

@@ -6,6 +6,7 @@ type ParseStreamBody = {
   backend?: string;
   model?: string;
   previous_parsed?: Record<string, unknown>;
+  previous_coach_text?: string;
 };
 
 function sseEvent(data: object | string): string {

@@ -202,6 +202,59 @@ def test_modify_increase_positions_resolves_deterministically():
     assert parsed.max_positions == 10
 
 
+def test_resolve_coach_context_risk_attributes_bare_percentage():
+    # 코치가 특정 리스크 필드 설정을 권한 뒤 사용자가 필드 없이 '10%'처럼 답하면, 그 값을
+    # 코치가 물은 필드로 귀속한다(프론트 inferPendingRiskChange 이관, FR-STR-019e).
+    from engine.nl_parser import resolve_coach_context_risk as resolve
+
+    # 트레일링만 언급한 코치 + 필드 없는 답
+    assert resolve(
+        "15%로 정해줘", "트레일링 스탑, 최고가에서 몇 % 내려오면 팔지 정할까요?", {"stop_loss_pct": 12},
+    ) == ("trailing_stop_pct", 15.0)
+    # 손절(설정됨)·익절(미설정)을 함께 언급 → 미설정인 익절로 귀속
+    assert resolve(
+        "30%로 설정해줘", "손절 12%는 유지, 익절 비율 설정을 추천드립니다.",
+        {"stop_loss_pct": 12, "take_profit_pct": None},
+    ) == ("take_profit_pct", 30.0)
+
+
+def test_resolve_coach_context_risk_skips_when_not_applicable():
+    from engine.nl_parser import resolve_coach_context_risk as resolve
+
+    # 프롬프트가 리스크 필드를 명시 → 일반 파서가 처리하므로 추론 안 함
+    assert resolve("익절 30%로 바꿔줘", "익절 비율을 추천드립니다", {}) is None
+    # 코치 문장 없음
+    assert resolve("30%로 설정해줘", None, {}) is None
+    # 퍼센트 없음
+    assert resolve("그렇게 해줘", "익절 추천", {}) is None
+    # 코치가 리스크 필드를 특정 못 함(둘 다 미설정) → 귀속 불가
+    assert resolve(
+        "30%로 설정해줘", "손절이나 익절 설정을 추천드립니다.",
+        {"stop_loss_pct": None, "take_profit_pct": None},
+    ) is None
+
+
+def test_modify_dividend_ev_ebitda_filters_resolve_deterministically():
+    # 배당수익률/배당성향/배당성장률/EV·EBITDA는 추출은 되는데 잔여 차감 어휘(cue)에서 빠져
+    # '배당수익률' 등이 미인식 잔여로 남아 fast-path가 LLM(수십 초)으로 새던 버그. 기존 필터를
+    # 보존한 채 결정론 병합돼야 한다(재무 조건 추가 되묻기 칩이 무상태로 완결되는 계약의 근거).
+    from engine.nl_parser import _modify_rule_based
+    prev = make_base_strategy().model_copy(update={
+        "fundamental_filters": [{"metric": "roe_or_gpa", "operator": ">=", "value": 10.0}],
+    }).model_dump()
+    for prompt, metric, value in [
+        ("배당수익률 5% 이상", "dividend_yield", 5.0),
+        ("배당성향 30% 이상", "payout_rate", 30.0),
+        ("배당성장률 10% 이상", "dividend_growth", 10.0),
+        ("EV/EBITDA 8배 이하", "ev_ebitda", 8.0),
+    ]:
+        parsed = _modify_rule_based(prompt, prev)
+        assert parsed is not None, f"{prompt!r}이 fast-path로 안 풀림(LLM 위임)"
+        by_metric = {f.metric: f.value for f in parsed.fundamental_filters}
+        assert by_metric.get("roe_or_gpa") == 10.0, "기존 ROE 필터 소실"
+        assert by_metric.get(metric) == value
+
+
 def test_modify_numeric_sector_resolves_deterministically():
     # '2차전지 섹터로 바꿔줘'는 숫자 제거가 어휘 차감보다 먼저라 '차전지' 잔여가 남아
     # LLM 경로(수십 초)로 새던 단순 수정이다. 결정론 fast-path가 바로 반영해야 한다.
@@ -1887,14 +1940,14 @@ def test_parse_modification_llm_filter_diff_respects_removal(monkeypatch):
 
 
 def test_modify_unsupported_factor_delegates_to_llm_with_notice():
-    """미지원 팩터(EV/EBITDA 등) 수정 요청은 fast-path가 처리한 척하지 않고 LLM에
+    """미지원 팩터(ROIC 등) 수정 요청은 fast-path가 처리한 척하지 않고 LLM에
     위임하며, notices 채널용 안내문이 생성된다(수정 경로도 _build_parse_result 공유)."""
     from engine.nl_parser import _modify_rule_based, build_unsupported_concept_notice
 
-    prompt = "EV/EBITDA 8배 이하 조건 추가해줘"
+    prompt = "ROIC 15% 이상 조건 추가해줘"
     assert _modify_rule_based(prompt, dict(_MODIFY_PREVIOUS)) is None
     notice = build_unsupported_concept_notice(prompt)
-    assert notice is not None and "EV/EBITDA" in notice
+    assert notice is not None and "ROIC" in notice
 
 
 def test_parse_modification_llm_diff_missing_sector_recovered_deterministically(monkeypatch):
@@ -2773,7 +2826,7 @@ def test_macd_golden_does_not_create_spurious_macd_sell_from_far_deadcross():
         ("최근 60일 수익률이 시장보다 약한 종목은 제외하고 매수, 손절 -9%", "relative_to_market"),
         ("최근 4분기 연속 적자인 기업은 제외하고 ROE 10% 이상 매수, 손절 -10%", "profitability_sign"),
         # 흔한 퀀트 팩터지만 데이터 파이프라인이 없는 것들 — 침묵 누락 대신 안내 대상.
-        ("EV/EBITDA 8배 이하 종목 매수, 손절 -8%", "ev_ebitda"),
+        # (EV/EBITDA는 KIS other-major-ratios 배선 후 지원 지표로 승격 — 아래 미포함.)
         ("ROIC 10% 이상 기업만 편입해줘", "roic"),
         ("베타 낮은 종목 위주로 10개 매수", "beta"),
         ("이자보상배율 3배 이상 기업만 매수, 손절 -10%", "interest_coverage"),
@@ -2943,12 +2996,13 @@ def test_unsupported_concept_notice_names_all_concepts():
     여러 개념이 섞이면 모두 라벨로 나열된다(LLM 폴백조차 스키마가 표현 불가하므로)."""
     from engine.nl_parser import build_unsupported_concept_notice
 
-    notice = build_unsupported_concept_notice("배당수익률 5% 이상 종목 매수")
+    # 배당수익률/배당성향(수치)은 지원 지표로 승격됨 — '배당 성장' 등 미지원 배당 개념만 안내.
+    notice = build_unsupported_concept_notice("배당 성장주 위주로 매수")
     assert notice is not None
     assert "배당 조건" in notice
     assert "전략 요약" in notice  # 확인 유도 문구
 
-    multi = build_unsupported_concept_notice("변동성 낮고 배당수익률 높은 종목 매수")
+    multi = build_unsupported_concept_notice("변동성 낮고 배당 잘 늘리는 종목 매수")
     assert multi is not None
     assert "변동성 조건" in multi and "배당 조건" in multi
 

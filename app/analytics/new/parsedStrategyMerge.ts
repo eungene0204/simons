@@ -1,3 +1,4 @@
+import factorRegistry from "@/data/fundamental-factors.json";
 import type { ParsedSummary } from "./strategySummary";
 
 export interface StrategyBacktestRequest {
@@ -74,7 +75,6 @@ const EXPLICIT_MODIFICATION_PATTERN =
   /바꿔|변경|수정|추가|삭제|제외|빼|넣어|설정|적용|로\s*(해|바꿔|설정)|으로\s*(해|바꿔|설정)/i;
 
 type RiskField = "stop_loss_pct" | "take_profit_pct" | "trailing_stop_pct" | "max_mdd_limit_pct";
-type PendingRiskChange = Partial<Record<RiskField, number>>;
 // 백엔드가 이번 프롬프트에서 결정적으로 바꾼 리스크 필드(단일 진실 소스). null = 삭제.
 // 프론트는 자체 정규식으로 재추측하지 않고 이 값을 그대로 신뢰한다.
 type RiskOverrides = Partial<Record<RiskField, number | null>>;
@@ -111,58 +111,10 @@ function extractPercentage(text: string): number | null {
   return value;
 }
 
-function isRiskFieldSet(parsed: ParsedSummary | null | undefined, field: RiskField): boolean {
-  if (!parsed) return false;
-  const value = (parsed as unknown as Record<string, unknown>)[field];
-  return typeof value === "number" && Number.isFinite(value);
-}
-
-function inferRiskFieldFromCoachText(
-  previousCoachText: string,
-  previousParsed?: ParsedSummary | null
-): RiskField | null {
-  const mentionedFields = (Object.keys(RISK_FIELD_PATTERNS) as RiskField[]).filter((field) =>
-    hasMatch(previousCoachText, RISK_FIELD_PATTERNS[field])
-  );
-
-  if (mentionedFields.length === 1) {
-    return mentionedFields[0];
-  }
-
-  // 코치가 손절을 맥락으로 다시 언급하면서 익절 추가를 권하는 경우처럼 여러 필드가 섞이면,
-  // 이미 설정된 필드(재언급된 맥락)는 제외하고 코치가 새로 설정을 권하는 미설정 필드를 고른다.
-  const unsetFields = mentionedFields.filter((field) => !isRiskFieldSet(previousParsed, field));
-  if (unsetFields.length === 1) {
-    return unsetFields[0];
-  }
-
-  return null;
-}
-
-function inferPendingRiskChange(
-  userPrompt: string,
-  previousCoachText?: string | null,
-  previousParsed?: ParsedSummary | null
-): PendingRiskChange | null {
-  if (!previousCoachText) return null;
-  const requestedRiskFields = detectRequestedRiskFields(userPrompt);
-  if (requestedRiskFields.size > 0) return null;
-
-  const percentage = extractPercentage(userPrompt);
-  if (percentage === null) return null;
-
-  const promptLooksLikeAnswer =
-    /정해|설정|해줘|해주세요|조정|로\s*(해|바꿔|설정|조정)|으로\s*(해|바꿔|설정|조정)|추가|적용/.test(userPrompt)
-    || /^\s*\d+(?:\.\d+)?\s*%\s*$/.test(userPrompt);
-  if (!promptLooksLikeAnswer) return null;
-
-  const inferredField = inferRiskFieldFromCoachText(previousCoachText, previousParsed);
-  if (inferredField) {
-    return { [inferredField]: percentage };
-  }
-
-  return null;
-}
+// [프론트는 백엔드 판단에 관여하지 않는다] 코치 맥락으로 필드 없는 퍼센트 답변을 리스크 필드에
+// 귀속하는 추론(inferPendingRiskChange 등)은 백엔드로 이관했다(resolve_coach_context_risk,
+// FR-STR-019e) — previous_coach_text를 파스 요청에 실어 보내고 백엔드가 판단해 parsed에 반영한다.
+// 프론트는 그 결과를 그대로 신뢰한다.
 
 export function detectRequestedDomains(prompt: string): Set<RequestedDomain> {
   const normalizedPrompt = correctCountTypo(prompt.trim());
@@ -249,21 +201,100 @@ export function buildTakeProfitPercentagePrompt(prompt: string): {
   };
 }
 
+// 재무 팩터 추가 요청("영업이익률을 추가해 볼까?")에서 기준값이 없으면 되묻기 위한 표.
+// [단일 소스] label·unit·direction·recommend는 data/fundamental-factors.json이 정본이며
+// 백엔드 condition_builder와 공유한다(두 곳 하드코딩 → drift 제거). 지표 인식 pattern만
+// JS 로컬(한글 경계 등 언어별 동작 차이). JSON 순서 = 감지 우선순위(배당성향/성장 → 배당수익률).
+type FactorRegistryEntry = { key: string; label: string; unit: string; direction: string; recommend: number[] };
+
+// 지표 인식 별칭(JS 로컬). JS \b는 ASCII 경계라 "PER도"의 한글 앞에서 경계가 성립한다.
+const FUNDAMENTAL_FACTOR_PATTERNS: Record<string, RegExp> = {
+  operating_margin: /영업이익률|영업\s*마진/,
+  net_margin: /순이익률|순\s*마진/,
+  gross_margin: /매출총이익률|총이익률/,
+  per: /\bper\b|주가수익비율/i,
+  pbr: /\bpbr\b|주가순자산/i,
+  psr: /\bpsr\b|주가매출/i,
+  roe_or_gpa: /\broe\b|자기자본이익|자기자본수익/i,
+  roa: /\broa\b|총자산이익|총자본순이익/i,
+  ev_ebitda: /ev.?ebitda|이브이에비타|에비타/i,
+  debt_ratio: /부채비율/,
+  current_ratio: /유동비율/,
+  payout_rate: /배당성향/,
+  dividend_growth: /배당성장|배당증가/,
+  dividend_yield: /배당수익률|배당률|고배당|배당/,
+  market_cap: /시가총액|시총/,
+  trading_value: /거래대금/,
+};
+
+const DIRECTION_WORD: Record<string, "이상" | "이하"> = { ">=": "이상", "<=": "이하" };
+
+// 공유 JSON에서 데이터를 읽어 JS 패턴이 있는 지표만, JSON 순서(=우선순위) 그대로 스펙을 만든다.
+const FUNDAMENTAL_FACTOR_SPECS: Array<{
+  pattern: RegExp;
+  label: string;
+  unit: string;
+  direction: "이상" | "이하";
+  recommend: number[];
+}> = (factorRegistry as FactorRegistryEntry[])
+  .filter((entry) => FUNDAMENTAL_FACTOR_PATTERNS[entry.key])
+  .map((entry) => ({
+    pattern: FUNDAMENTAL_FACTOR_PATTERNS[entry.key],
+    label: entry.label,
+    unit: entry.unit,
+    direction: DIRECTION_WORD[entry.direction] ?? "이상",
+    recommend: entry.recommend,
+  }));
+
+function fundamentalValueLabel(value: number, unit: string): string {
+  if (unit === "억" && value >= 10000 && value % 10000 === 0) return `${value / 10000}조`;
+  return `${value}${unit}`;
+}
+
+/**
+ * 기존 전략에 재무 팩터를 값 없이 추가하려는 요청("영업이익률을 추가해 볼까?")을 감지해
+ * 그 지표의 기준을 되묻는다(추천 칩 포함). 값이 이미 있거나·정의/분석 질문·제거 요청이면 null.
+ *
+ * 칩("영업이익률 15% 이상")은 라벨이 붙은 완결 지시문이라, 클릭 시 그대로 재전송되면 값이
+ * 있으므로 이 함수는 null을 반환하고 일반 수정 파싱(parse_strategy → 백엔드 병합)으로 흐른다.
+ * buildTakeProfitPercentagePrompt와 동형 패턴(프론트 클라리피케이션).
+ */
+export function buildFundamentalFactorPrompt(prompt: string): {
+  message: string;
+  suggestions: string[];
+} | null {
+  const p = prompt.trim();
+  if (!p) return null;
+  // 추가/설정 의도가 있어야 한다(정의 질문·분석 질문·제거 요청은 제외).
+  if (!/추가|넣|더해|더하|포함|고려|볼까|보자|쓰자|써보|적용|반영|걸[어자]|설정/.test(p)) return null;
+  if (/뭐야|무슨\s*뜻|뜻이|의미|개념|설명(?:해|해줘|해주세요)|어떻게\s*작동|원리/.test(p)) return null;
+  if (/빼|삭제|제외|없애|해제/.test(p)) return null;
+  if (/왜|안\s*(?:돼|되|됨)|문제|오류|결과|성과|거래\s*내역|평가/.test(p)) return null;
+  // 숫자가 있으면 기준값이 함께 온 것으로 보고 일반 수정 파싱으로 흘려보낸다(백엔드가 완결).
+  if (/\d/.test(p)) return null;
+
+  const spec = FUNDAMENTAL_FACTOR_SPECS.find((s) => s.pattern.test(p));
+  if (!spec) return null;
+
+  return {
+    message: `${spec.label} 몇${spec.unit} ${spec.direction}일 때 진입할까요?`,
+    suggestions: spec.recommend.map(
+      (v) => `${spec.label} ${fundamentalValueLabel(v, spec.unit)} ${spec.direction}`,
+    ),
+  };
+}
+
 // 백엔드가 previous_parsed와 병합해 내려준 next는 권위 있는 완전한 전략이다 — 요청되지 않은
 // 필드의 LLM 환각은 백엔드 `_gate_modification_hallucinations`가 이미 걸러냈다. 따라서 프론트는
-// next를 그대로 신뢰하고, 백엔드가 알 수 없는 '코치 맥락' 리스크 답변(pendingRiskChange)만
-// 그 위에 얹는다. 예전의 도메인 게이트(프롬프트 정규식으로 필드별 적용 여부를 재판정)는
-// 백엔드 로직을 중복·재추측하다 오타 등으로 올바른 값을 버리는 버그의 원인이라 제거했다.
+// 백엔드가 병합·환각필터링·코치맥락해석을 모두 마쳐 내려준 next를 그대로 신뢰한다. riskOverrides는
+// 백엔드가 이번 프롬프트에서 바꾼 리스크 필드의 단일 진실 소스로, next에 이미 반영됐지만 명시적으로
+// 다시 덮어써 일관성을 보장한다(프론트는 자체 판단을 얹지 않는다).
 function mergeParsedSummary(
   next: ParsedSummary,
-  pendingRiskChange?: PendingRiskChange | null,
   riskOverrides?: RiskOverrides | null
 ): ParsedSummary {
-  // 우선순위: 백엔드 결정적 추출(riskOverrides) > 코치 맥락 추론(pendingRiskChange) > 백엔드 병합값.
   const resolveRisk = (field: "stop_loss_pct" | "take_profit_pct" | "trailing_stop_pct"): number | null => {
     if (hasOverride(riskOverrides, field)) return riskOverrides![field] ?? null;
-    const pending = pendingRiskChange?.[field];
-    if (pending != null) return pending;
     return next[field] ?? null;
   };
 
@@ -275,26 +306,14 @@ function mergeParsedSummary(
   };
 }
 
-// 백엔드가 병합·환각필터링해 내려준 next를 신뢰하고(권위 있는 완전한 실행 요청), 백엔드가
-// 모르는 코치 맥락 리스크(pendingRiskChange)만 그 위에 얹는다. riskOverrides는 백엔드가 이미
-// next.risk에 반영했지만, 단일 진실 소스로서 명시적으로 다시 덮어써 일관성을 보장한다.
 function mergeBacktestRequest(
   previous: StrategyBacktestRequest | null | undefined,
   next: StrategyBacktestRequest | null | undefined,
-  pendingRiskChange?: PendingRiskChange | null,
   riskOverrides?: RiskOverrides | null
 ): StrategyBacktestRequest | null {
   if (!next) return previous ?? null;
 
   const mergedRisk: Record<string, unknown> = { ...(next.risk ?? {}) };
-
-  if (pendingRiskChange) {
-    for (const field of Object.keys(pendingRiskChange) as RiskField[]) {
-      if (pendingRiskChange[field] !== undefined) {
-        mergedRisk[field] = pendingRiskChange[field];
-      }
-    }
-  }
 
   if (riskOverrides) {
     for (const field of Object.keys(riskOverrides) as RiskField[]) {
@@ -308,67 +327,31 @@ function mergeBacktestRequest(
   };
 }
 
-function clarificationLooksLikeEntryRegression(
-  clarificationQuestion: string | null | undefined,
-  previousParsed: ParsedSummary,
-  requestedDomains: Set<RequestedDomain>
-): boolean {
-  if (!clarificationQuestion || requestedDomains.has("entry")) {
-    return false;
-  }
-
-  const previousHadEntry =
-    previousParsed.fundamental_filters.length > 0 || previousParsed.entry_signals.length > 0;
-
-  if (!previousHadEntry) {
-    return false;
-  }
-
-  return /진입 조건|매수 조건|종목을 선택|어떤 조건으로 종목/.test(clarificationQuestion);
-}
-
 export function mergeStrategyModification(params: {
   previousParsed: ParsedSummary | null;
   nextParsed: ParsedSummary;
   previousBacktestRequest?: StrategyBacktestRequest | null;
   nextBacktestRequest?: StrategyBacktestRequest | null;
   userPrompt: string;
-  clarificationQuestion?: string | null;
-  previousCoachText?: string | null;
   // 백엔드가 결정적으로 추출한 리스크 필드(단일 진실 소스). 있으면 프론트 정규식보다 우선.
   riskOverrides?: RiskOverrides | null;
 }) {
-  // 백엔드가 권위 있는 병합·환각필터링 결과를 주므로, 필드별 도메인 게이트는 더 이상 쓰지 않는다.
-  // requestedDomains는 clarification 재사용 판정에만 남긴다(수정 vs 후속질문 구분은 상위
-  // isAdvisorFollowUpPrompt가 이미 처리). 코치 맥락 리스크(pendingRiskChange)만 백엔드가 모르므로
-  // 프론트에서 얹는다.
-  const requestedDomains = detectRequestedDomains(params.userPrompt);
-  const pendingRiskChange = inferPendingRiskChange(
-    params.userPrompt,
-    params.previousCoachText,
-    params.previousParsed
-  );
+  // [프론트는 백엔드 판단을 재판정하지 않는다] 백엔드가 권위 있는 병합·환각필터링·코치맥락
+  // 리스크 해석(resolve_coach_context_risk)까지 마친 결과를 주므로 프론트는 그대로 신뢰한다.
+  // 예전의 되묻기 재판정(shouldReusePreviousClarification)·코치맥락 추론(inferPendingRiskChange)은
+  // 모두 제거/백엔드 이관했다.
   const riskOverrides = params.riskOverrides ?? null;
 
-  const parsed = mergeParsedSummary(params.nextParsed, pendingRiskChange, riskOverrides);
+  const parsed = mergeParsedSummary(params.nextParsed, riskOverrides);
   const backtestRequest = mergeBacktestRequest(
     params.previousBacktestRequest,
     params.nextBacktestRequest,
-    pendingRiskChange,
     riskOverrides
   );
 
   return {
     parsed,
     backtestRequest,
-    requestedDomains,
-    shouldReusePreviousClarification: params.previousParsed
-      ? clarificationLooksLikeEntryRegression(
-          params.clarificationQuestion,
-          params.previousParsed,
-          requestedDomains
-        )
-      : false,
   };
 }
 

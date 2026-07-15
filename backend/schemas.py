@@ -118,6 +118,8 @@ class BacktestResponse(BaseModel):
     signals: List[SignalResult]
     perAssetStats: Optional[Dict[str, AssetStats]] = Field(default_factory=dict)
     warnings: Optional[List[str]] = Field(default_factory=list)
+    # 데이터 커버리지 리포트(펀더멘털 지표별 종목·기간 커버리지). 없으면 null.
+    dataCoverage: Optional[Dict[str, Any]] = None
     version: Optional[str] = "1.0"
     executionTime: Optional[float] = 0.0
     vbtResult: Optional[VBTNativeResult] = None

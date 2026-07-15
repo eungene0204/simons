@@ -312,6 +312,32 @@ describe("decideConversationTurn", () => {
     });
   });
 
+  it("clarifies a value-less fundamental factor add instead of a coach follow-up", () => {
+    // 스크린샷 회귀: "영업이익률을 추가해 볼까?"가 물음표 때문에 answer_follow_up으로 새어
+    // 조용히 넘어가던 것 — 이제 그 지표 기준을 추천 칩으로 되묻는다.
+    const decision = decideConversationTurn("영업이익률을 추가해 볼까?", {
+      ...baseContext,
+      hasCurrentStrategy: true,
+    });
+    expect(decision).toMatchObject({
+      action: "respond",
+      speechAct: "modify",
+      reason: "missing_fundamental_threshold",
+    });
+    expect(decision.action === "respond" ? decision.suggestions : []).toEqual(
+      expect.arrayContaining(["영업이익률 15% 이상", "직접 입력"]),
+    );
+  });
+
+  it("does not re-clarify a fundamental factor add that already has a threshold", () => {
+    // 추천 칩("영업이익률 15% 이상") 클릭 시 값이 붙어 오므로 되묻지 않고 수정 파싱으로 흐른다.
+    const decision = decideConversationTurn("영업이익률 15% 이상", {
+      ...baseContext,
+      hasCurrentStrategy: true,
+    });
+    expect(decision.reason).not.toBe("missing_fundamental_threshold");
+  });
+
   it("keeps the active builder ahead of entry-signal clarification", () => {
     expect(decideConversationTurn("매수 조건을 변경해줘", {
       ...baseContext,

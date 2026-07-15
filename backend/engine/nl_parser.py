@@ -186,18 +186,23 @@ def _ollama_preload_model(model: str, timeout: int = 600) -> None:
 class FundamentalFilter(BaseModel):
     """재무 지표 필터 조건"""
     metric: Literal[
-        "per", "pbr", "psr", "roe_or_gpa", "roa", "debt_ratio", "current_ratio", "quick_ratio",
+        "per", "pbr", "psr", "ev_ebitda", "roe_or_gpa", "roa", "debt_ratio",
+        "current_ratio", "quick_ratio",
         "reserve_ratio", "net_margin", "gross_margin", "operating_margin", "revenue_growth",
         "operating_income_growth", "net_income_growth", "market_cap", "trading_value",
+        "dividend_yield", "payout_rate", "dividend_growth",
     ] = Field(
         description=(
             "재무 지표 종류. "
-            "per=주가수익비율, pbr=주가순자산비율, psr=주가매출비율, roe_or_gpa=자기자본이익률(%), "
+            "per=주가수익비율, pbr=주가순자산비율, psr=주가매출비율, ev_ebitda=EV/EBITDA(배, 낮을수록 저평가), "
+            "roe_or_gpa=자기자본이익률(%), "
             "roa=총자본순이익률(%), debt_ratio=부채비율(%), current_ratio=유동비율(%), "
             "quick_ratio=당좌비율(%), reserve_ratio=유보율(%), net_margin=순이익률(%), "
             "gross_margin=매출총이익률(%), operating_margin=영업이익률(%), revenue_growth=매출액증가율(%), "
             "operating_income_growth=영업이익증가율(%), net_income_growth=순이익증가율(%), "
-            "market_cap=시가총액(억원), trading_value=일평균거래대금(억원)"
+            "market_cap=시가총액(억원), trading_value=일평균거래대금(억원), "
+            "dividend_yield=배당수익률(%, 높을수록 고배당), payout_rate=배당성향(%), "
+            "dividend_growth=배당성장률(%, 전년 대비 주당배당 증가율)"
         )
     )
     operator: Literal["<", ">", "<=", ">="] = Field(
@@ -211,9 +216,9 @@ class TechnicalSignal(BaseModel):
     indicator: Literal[
         "ma_crossover", "rsi", "ema", "macd",
         "bollinger_bands", "breakout", "volume_spike",
-        "stochastic", "cci", "adx", "trading_value",
+        "stochastic", "cci", "adx", "williams_r", "mfi", "roc", "trading_value",
         "ai_model", "ai_drop_model"
-    ] = Field(description="지표 종류. ai_model=AI 상승 예측 매수, ai_drop_model=AI 하락 예측 매도")
+    ] = Field(description="지표 종류. williams_r=Williams %R(-100~0), mfi=자금흐름지표(0~100), roc=변화율/모멘텀(%), ai_model=AI 상승 예측 매수, ai_drop_model=AI 하락 예측 매도")
     signal_type: Literal["buy", "sell"] = Field(default="buy", description="매수=buy, 매도=sell")
 
     # MA / EMA 크로스오버
@@ -535,6 +540,10 @@ SYSTEM_PROMPT = """당신은 한국 주식 퀀트 투자 전략을 JSON으로 �
 - 부채비율 100% 이하 → {"metric": "debt_ratio", "operator": "<=", "value": 100.0}
 - ROA 5% 이상 → {"metric": "roa", "operator": ">=", "value": 5.0}
 - PSR 2 이하 → {"metric": "psr", "operator": "<=", "value": 2.0}
+- EV/EBITDA 8 이하 → {"metric": "ev_ebitda", "operator": "<=", "value": 8.0}
+- 배당수익률 3% 이상 / 고배당주 → {"metric": "dividend_yield", "operator": ">=", "value": 3.0}
+- 배당성향 30% 이상 → {"metric": "payout_rate", "operator": ">=", "value": 30.0}
+- 배당성장률 10% 이상 / 배당을 꾸준히 늘리는 → {"metric": "dividend_growth", "operator": ">=", "value": 10.0}
 - 유동비율 150% 이상 → {"metric": "current_ratio", "operator": ">=", "value": 150.0}
 - 매출액증가율 20% 이상 → {"metric": "revenue_growth", "operator": ">=", "value": 20.0}
 - 영업이익증가율 10% 이상 → {"metric": "operating_income_growth", "operator": ">=", "value": 10.0}
@@ -553,6 +562,11 @@ SYSTEM_PROMPT = """당신은 한국 주식 퀀트 투자 전략을 JSON으로 �
 - MACD 크로스 → indicator: "macd", signal_type: "buy", mode: "crossover"
 - 볼린저밴드 하단 → indicator: "bollinger_bands", signal_type: "buy"
 - 볼린저밴드 상단 → indicator: "bollinger_bands", signal_type: "sell"
+- 스토캐스틱 과매도 매수 → indicator: "stochastic", signal_type: "buy", operator: "<=", value: 20
+- CCI -100 이하 매수 → indicator: "cci", signal_type: "buy", period: 14, operator: "<=", value: -100
+- Williams %R -80 이하 매수 / -20 이상 매도 → indicator: "williams_r", period: 14 (범위 -100~0, 과매도=-80/과매수=-20)
+- MFI(자금흐름지표) 20 이하 매수 / 80 이상 매도 → indicator: "mfi", period: 14 (0~100, RSI와 동형)
+- ROC/모멘텀이 플러스(0 초과) 매수 / 마이너스 매도 → indicator: "roc", period: 12, operator ">"/"<", value: 0
 - 52주 신고가 돌파 → indicator: "breakout", signal_type: "buy", lookback_period: 252
 - '박스권을 위로 돌파' / 'N일 고점 돌파' / '20일 고점을 넘기면 매수' → indicator: "breakout", signal_type: "buy", lookback_period: N (기간 없이 '박스권'만 언급 시 20)
 - '다시 박스 안으로 내려오면 매도' / 'N일 저점 이탈 시 매도' → indicator: "breakout", signal_type: "sell"
@@ -1929,6 +1943,82 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
             indicator="cci", signal_type="sell", period=14, operator=">=", value=float(val),
         ))
 
+    # ── Williams %R (범위 -100~0, 과매도 매수 / 과매수 매도) ──
+    # 값이 음수라 부호 포함 추출. 숫자 없으면 과매도=-80 / 과매수=-20 기본값.
+    wr_term = r"(?:williams%?r|윌리엄스%?r|williamsr|%r)"
+    wr_buy = re.search(
+        rf"{wr_term}{_SUBJ_PARTICLE}\s*(-?\d+)\s*(?:을|를)?\s*(?:이하|미만|아래|밑).*?{_BUY_HINT}"
+        rf"|{wr_term}.*?과매도.*?{_BUY_HINT}",
+        compact,
+    )
+    if wr_buy:
+        val = int(wr_buy.group(1)) if wr_buy.group(1) else -80
+        entry.append(TechnicalSignal(
+            indicator="williams_r", signal_type="buy", period=14, operator="<=", value=float(val),
+        ))
+    wr_sell = re.search(
+        rf"{wr_term}{_SUBJ_PARTICLE}\s*(-?\d+)\s*(?:을|를)?\s*(?:이상|초과|위|넘)[^,]*?{_SELL_V}"
+        rf"|{wr_term}[^,]*?과매수[^,]*?{_SELL_V}",
+        compact,
+    )
+    if wr_sell:
+        val = int(wr_sell.group(1)) if wr_sell.group(1) else -20
+        exit_.append(TechnicalSignal(
+            indicator="williams_r", signal_type="sell", period=14, operator=">=", value=float(val),
+        ))
+
+    # ── MFI (자금흐름지표, 0~100, 과매도 매수 / 과매수 매도) ──
+    # RSI와 동형. 숫자 없으면 과매도=20 / 과매수=80 기본값.
+    mfi_term = r"(?:mfi|자금흐름지표|머니플로우)"
+    mfi_buy = re.search(
+        rf"{mfi_term}{_SUBJ_PARTICLE}\s*(\d+)\s*(?:을|를)?\s*(?:이하|미만|아래|밑).*?{_BUY_HINT}"
+        rf"|{mfi_term}.*?과매도.*?{_BUY_HINT}",
+        compact,
+    )
+    if mfi_buy:
+        val = int(mfi_buy.group(1)) if mfi_buy.group(1) else 20
+        entry.append(TechnicalSignal(
+            indicator="mfi", signal_type="buy", period=14, operator="<=", value=float(val),
+        ))
+    mfi_sell = re.search(
+        rf"{mfi_term}{_SUBJ_PARTICLE}\s*(\d+)\s*(?:을|를)?\s*(?:이상|초과|위|넘)[^,]*?{_SELL_V}"
+        rf"|{mfi_term}[^,]*?과매수[^,]*?{_SELL_V}",
+        compact,
+    )
+    if mfi_sell:
+        val = int(mfi_sell.group(1)) if mfi_sell.group(1) else 80
+        exit_.append(TechnicalSignal(
+            indicator="mfi", signal_type="sell", period=14, operator=">=", value=float(val),
+        ))
+
+    # ── ROC / 모멘텀 (변화율 %, 0 기준 상승/하락) ──
+    # 'ROC 5 이상', '모멘텀이 플러스', 'N일 모멘텀' 류. 숫자 없으면 0 기준.
+    roc_term = r"(?:roc|모멘텀|momentum|변화율)"
+    roc_period_match = re.search(rf"(\d+)일{roc_term}|{roc_term}\D{{0,3}}(\d+)일", compact)
+    roc_period = None
+    if roc_period_match:
+        roc_period = int(roc_period_match.group(1) or roc_period_match.group(2))
+    roc_buy = re.search(
+        rf"{roc_term}{_SUBJ_PARTICLE}\s*(-?\d+(?:\.\d+)?)?\s*(?:을|를)?\s*(?:이상|초과|위|넘|플러스|양수).*?{_BUY_HINT}",
+        compact,
+    )
+    if roc_buy:
+        raw = roc_buy.group(1)
+        entry.append(TechnicalSignal(
+            indicator="roc", signal_type="buy", period=roc_period or 12,
+            operator=">", value=float(raw) if raw else 0.0,
+        ))
+    roc_sell = re.search(
+        rf"{roc_term}{_SUBJ_PARTICLE}\s*(-?\d+(?:\.\d+)?)?\s*(?:을|를)?\s*(?:이하|미만|아래|밑|마이너스|음수).*?{_SELL_V}",
+        compact,
+    )
+    if roc_sell:
+        raw = roc_sell.group(1)
+        exit_.append(TechnicalSignal(
+            indicator="roc", signal_type="sell", period=roc_period or 12,
+            operator="<", value=float(raw) if raw else 0.0,
+        ))
+
     # ── 볼린저밴드 ──
     # 하단/중심선 회복 매수(평균회귀)뿐 아니라 상단 돌파 진입(추세)·하단 도달 청산도 포착한다.
     if re.search(rf"볼린저.*?(?:하단|중심선).*?{_BUY_HINT}|볼린저밴드.*?{_BUY_HINT}|볼린저.*?상단.*?돌파", compact):
@@ -2059,9 +2149,9 @@ _OP_ALT = r"(보다높|보다많|보다큰|보다크|보다낮|보다적|보다�
 _NUM_PARTICLE = r"(?:이|가|은|는|을|를|도)?"
 
 _FUNDAMENTAL_PATTERN_SPECS = [
-    ("pbr", [rf"(?:pbr|주가순자산비율){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*{_OP_ALT}?"]),
-    ("per", [rf"(?:per|주가수익비율){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*{_OP_ALT}?"]),
-    ("roe_or_gpa", [rf"(?:roe|gpa|자기자본이익률){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
+    ("pbr", [rf"(?:pbr|주가순자산비율|주가장부가치비율){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*{_OP_ALT}?"]),
+    ("per", [rf"(?:per|주가수익비율|주가이익비율){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*{_OP_ALT}?"]),
+    ("roe_or_gpa", [rf"(?:roe|gpa|자기자본이익률|자기자본수익률){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
     ("roa", [rf"(?:roa|총자산이익률|총자본이익률|총자산순이익률){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
     ("debt_ratio", [rf"(?:부채비율|부채){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
     ("current_ratio", [rf"유동비율{_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
@@ -2075,6 +2165,14 @@ _FUNDAMENTAL_PATTERN_SPECS = [
     ("net_income_growth", [rf"(?:순이익|당기순이익)(?:증가율|성장률){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
     # psr=주가매출비율(낮을수록 저평가), per/pbr과 동일 형식.
     ("psr", [rf"(?:psr|주가매출액비율|주가매출비율){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*{_OP_ALT}?"]),
+    # ev/ebitda=기업가치/EBITDA(낮을수록 저평가). 'ev/ebitda', 'ev ebitda', '에비타', '이브이에비타'.
+    ("ev_ebitda", [rf"(?:ev[/\s-]?ebitda|이브이에비타|에비타|ev에비타|기업가치[/\s]?ebitda){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)\s*(?:배)?\s*{_OP_ALT}?"]),
+    # 배당수익률(높을수록 고배당). '배당수익률', '시가배당률', '배당률'(단 '주식배당률'은 제외).
+    ("dividend_yield", [rf"(?:배당수익률|시가배당률|배당률){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
+    # 배당성향(배당금/순이익). '배당성향', '배당지급률'.
+    ("payout_rate", [rf"(?:배당성향|배당지급률){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
+    # 배당성장률(전년 대비 주당배당 증가율). '배당성장률', '배당증가율', '배당성장', '배당증가'.
+    ("dividend_growth", [rf"(?:배당성장률|배당증가율|배당성장|배당증가){_NUM_PARTICLE}\s*(\d+(?:\.\d+)?)%?\s*{_OP_ALT}?"]),
     # 금액 지표(억원 단위)는 '조'+'억' 콤보를 결정적으로 합산한다: (조 부분)?(억 부분)?(연산자)?.
     ("market_cap", [rf"(?:시가총액|시총){_NUM_PARTICLE}\s*(?:(\d+(?:\.\d+)?)조)?\s*(?:(\d+(?:\.\d+)?)(?:억원|억))?\s*{_OP_ALT}?"]),
     ("trading_value", [rf"(?:일평균거래대금|거래대금|거래량대금){_NUM_PARTICLE}\s*(?:(\d+(?:\.\d+)?)조)?\s*(?:(\d+(?:\.\d+)?)(?:억원|억))?\s*{_OP_ALT}?"]),
@@ -2108,7 +2206,7 @@ _OPERATOR_BY_KOREAN = {
 
 def _default_operator_for_metric(metric: str) -> str:
     # 낮을수록 우량/저평가인 지표는 '<=', 높을수록 우량인 지표는 '>=' 기본값.
-    if metric in {"pbr", "per", "psr", "debt_ratio"}:
+    if metric in {"pbr", "per", "psr", "ev_ebitda", "debt_ratio"}:
         return "<="
     return ">="
 
@@ -2709,8 +2807,7 @@ _UNSUPPORTED_CONCEPT_PATTERNS: tuple[tuple[str, str], ...] = (
     ("cash_weight", r"현금[^,]{0,4}(?:비중|유지)"),
     ("dividend", r"배당"),
     # 흔한 퀀트 팩터지만 데이터 파이프라인이 없어 표현 불가 — 조용히 누락/유사 해석되는
-    # 대신 안내한다. 지원 지표(영업이익률·순이익률·ROA 등)는 절대 포함 금지(오폴백 방지).
-    ("ev_ebitda", r"ev[/-]?ebitda|에비타"),
+    # 대신 안내한다. 지원 지표(영업이익률·순이익률·ROA·EV/EBITDA 등)는 절대 포함 금지(오폴백 방지).
     ("roic", r"roic|투하자본(?:이익|수익)률"),
     ("beta", r"베타"),
     ("interest_coverage", r"이자보상배[율률]"),
@@ -2751,7 +2848,6 @@ _UNSUPPORTED_CONCEPT_LABELS: dict[str, str] = {
     "cash_flow": "현금흐름(FCF/PCF 등) 조건",
     "cash_weight": "현금 비중 조건",
     "dividend": "배당 조건",
-    "ev_ebitda": "EV/EBITDA 조건",
     "roic": "ROIC(투하자본이익률) 조건",
     "beta": "베타(시장 민감도) 조건",
     "interest_coverage": "이자보상배율 조건",
@@ -2789,6 +2885,13 @@ def _mentioned_unsupported_concepts(user_input: str) -> list[str]:
         _extract_sector(user_input) is not None or _SECTOR_AGNOSTIC_RE.search(compact)
     ):
         names.remove("sector")
+    # 배당수익률/배당성향은 이제 지원 지표다 — 값이 추출되면 '배당' 미지원 안내를 뺀다
+    # (섹터와 동형). '배당 성장/증가' 등 미추출 배당 개념은 그대로 안내 대상으로 남는다.
+    if "dividend" in names and any(
+        f.metric in ("dividend_yield", "payout_rate", "dividend_growth")
+        for f in _extract_fundamental_filters(user_input)
+    ):
+        names.remove("dividend")
     return names
 
 
@@ -2978,6 +3081,15 @@ _MODIFY_FIELD_CUES: dict[str, list[str]] = {
         "일평균거래대금", "거래대금", "시가총액", "시총", "부채비율", "부채",
         "유동비율", "당좌비율", "유보율", "순이익률", "매출총이익률", "영업이익률",
         "매출액증가율", "매출증가율", "영업이익증가율", "순이익증가율",
+        # 마진/성장률 변형 철자(_FUNDAMENTAL_PATTERN_SPECS와 동기화 — 추출은 되는데 잔여로
+        # 오판돼 fast-path가 LLM으로 새던 것 보정).
+        "매출액총이익률", "매출액순이익률", "매출액영업이익률",
+        "매출액성장률", "매출성장률", "영업이익성장률", "순이익성장률",
+        "당기순이익증가율", "당기순이익성장률", "당기순이익",
+        # 배당 계열·EV/EBITDA — 추출 지원 지표인데 cue 목록에서 누락돼 있었다.
+        "배당수익률", "시가배당률", "배당률", "배당성향", "배당지급률",
+        "배당성장률", "배당증가율", "배당성장", "배당증가",
+        "이브이에비타", "기업가치", "ebitda", "에비타", "ev",
         "pbr", "per", "roe", "gpa", "psr", "roa",
         "이하", "미만", "이상", "초과", "이내",
         "저평가", "고평가", "우량", "가치주", "성장주", "종목", "주식", "조건", "필터",
@@ -3491,6 +3603,63 @@ def synthesize_risk_overrides(
         if new_val != baseline.get(field):
             overrides[field] = new_val
     return overrides or None
+
+
+# ── 코치 맥락 리스크 해석 (프론트 inferPendingRiskChange 이관) ────────────────────────
+# [FR-STR-019e] 코치가 특정 리스크 필드 설정을 권한 뒤("익절 설정을 추천드립니다"),
+# 사용자가 "10%"처럼 필드를 안 밝히고 답하면 그 값을 코치가 물은 필드로 귀속한다. 예전엔
+# 프론트가 코치 텍스트를 정규식으로 재판정해 백엔드 파스 결과에 얹었으나(프론트가 백엔드
+# 판단에 관여), 코치 맥락은 백엔드가 previous_coach_text로 받아 백엔드가 판단하도록 이관했다.
+_COACH_RISK_FIELD_PATTERNS: dict[str, "re.Pattern[str]"] = {
+    "stop_loss_pct": re.compile(r"손절|손실|stop\s*loss", re.IGNORECASE),
+    "take_profit_pct": re.compile(
+        r"익절|목표\s*(?:수익|이익)|수익\s*실현|수익\s*확정|take\s*profit", re.IGNORECASE),
+    "trailing_stop_pct": re.compile(r"트레일링|최고가\s*대비|trailing", re.IGNORECASE),
+    "max_mdd_limit_pct": re.compile(r"\bmdd\b|낙폭|드로우다운", re.IGNORECASE),
+}
+_RISK_ANSWER_RE = re.compile(
+    r"정해|설정|해줘|해주세요|조정|로\s*(?:해|바꿔|설정|조정)|으로\s*(?:해|바꿔|설정|조정)|추가|적용",
+    re.IGNORECASE)
+_RISK_BARE_PCT_RE = re.compile(r"^\s*\d+(?:\.\d+)?\s*%\s*$")
+_RISK_PCT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+
+
+def _extract_answer_percentage(text: str) -> Optional[float]:
+    m = _RISK_PCT_RE.search(text or "")
+    if not m:
+        return None
+    v = float(m.group(1))
+    return v if 0 < v <= 100 else None
+
+
+def _infer_risk_field_from_coach(coach_text: str, previous_parsed: Optional[dict]) -> Optional[str]:
+    """코치 문장이 지목한 리스크 필드를 고른다. 하나만 언급되면 그 필드, 여러 개면 아직
+    설정 안 된(미설정) 필드가 하나일 때 그것(예: 손절은 재확인·익절은 신규 권유)."""
+    mentioned = [f for f, p in _COACH_RISK_FIELD_PATTERNS.items() if p.search(coach_text)]
+    if len(mentioned) == 1:
+        return mentioned[0]
+    prev = previous_parsed or {}
+    unset = [f for f in mentioned if not isinstance(prev.get(f), (int, float))]
+    return unset[0] if len(unset) == 1 else None
+
+
+def resolve_coach_context_risk(
+    user_input: str, coach_text: Optional[str], previous_parsed: Optional[dict],
+) -> Optional[tuple[str, float]]:
+    """코치 맥락으로 필드 없는 퍼센트 답변을 리스크 필드에 귀속한다. (필드, 값) 또는 None.
+
+    프롬프트가 이미 리스크 필드를 명시했으면(결정적 추출이 잡음) 일반 파서가 처리하므로 None."""
+    if not coach_text:
+        return None
+    if extract_risk_field_overrides(user_input):  # 프롬프트가 필드를 명시함 → 추론 불필요
+        return None
+    pct = _extract_answer_percentage(user_input)
+    if pct is None:
+        return None
+    if not (_RISK_ANSWER_RE.search(user_input) or _RISK_BARE_PCT_RE.match(user_input)):
+        return None
+    field = _infer_risk_field_from_coach(coach_text, previous_parsed)
+    return (field, pct) if field else None
 
 
 def _apply_prompt_overrides(

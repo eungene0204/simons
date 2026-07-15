@@ -582,3 +582,49 @@ def test_ema_filter_ands_with_entry_signal(signal_engine):
     res, _ = signal_engine.generate_signals(df, group)
     # idx1: 골든크로스(True) AND close(110)>=ema(100)(True) → True
     assert list(res) == [False, True]
+
+
+def test_williams_r_oversold_buy_overbought_sell(signal_engine):
+    # Williams %R 범위 -100~0. 과매도(<=-80) 매수 / 과매수(>=-20) 매도.
+    df = pl.DataFrame({"wr_14": [-90.0, -50.0, -10.0, -85.0]})
+    buy = {"id": "williams_r", "params": {"period": 14, "signalType": "buy"}}
+    sell = {"id": "williams_r", "params": {"period": 14, "signalType": "sell"}}
+    assert list(signal_engine._eval_vec(buy, df)) == [True, False, False, True]
+    assert list(signal_engine._eval_vec(sell, df)) == [False, False, True, False]
+    # 행별 평가자도 동일
+    assert signal_engine.evaluate_condition(buy, 0, df) is True
+    assert signal_engine.evaluate_condition(sell, 2, df) is True
+
+
+def test_mfi_oversold_buy_overbought_sell(signal_engine):
+    # MFI 0~100 스케일. 과매도(<=20) 매수 / 과매수(>=80) 매도.
+    df = pl.DataFrame({"mfi_14": [15.0, 50.0, 85.0, 20.0]})
+    buy = {"id": "mfi", "params": {"period": 14, "signalType": "buy"}}
+    sell = {"id": "mfi", "params": {"period": 14, "signalType": "sell"}}
+    assert list(signal_engine._eval_vec(buy, df)) == [True, False, False, True]
+    assert list(signal_engine._eval_vec(sell, df)) == [False, False, True, False]
+
+
+def test_roc_momentum_buy_sell(signal_engine):
+    # ROC(%) 0 기준: 상승 모멘텀(>0) 매수 / 하락(<0) 매도.
+    df = pl.DataFrame({"close_12_roc": [5.0, -3.0, 0.0, 8.0]})
+    buy = {"id": "roc", "params": {"period": 12, "signalType": "buy"}}
+    sell = {"id": "roc", "params": {"period": 12, "signalType": "sell"}}
+    assert list(signal_engine._eval_vec(buy, df)) == [True, False, False, True]
+    assert list(signal_engine._eval_vec(sell, df)) == [False, True, False, False]
+
+
+def test_williams_r_custom_threshold_and_description(signal_engine):
+    df = pl.DataFrame({"wr_14": [-95.0, -30.0]})
+    cond = {"id": "williams_r", "params": {"period": 14, "operator": "<=", "value": -90, "signalType": "buy"}}
+    assert list(signal_engine._eval_vec(cond, df)) == [True, False]
+    desc = signal_engine.get_condition_description(cond)
+    assert "Williams %R" in desc and "-90" in desc
+
+
+def test_new_oscillators_column_missing_returns_false(signal_engine):
+    # 컬럼이 없으면 조용히 False (fail-closed) — 다른 지표와 동일 동작.
+    df = pl.DataFrame({"close": [100.0, 101.0]})
+    for cid, period_col in [("williams_r", "wr_14"), ("mfi", "mfi_14"), ("roc", "close_12_roc")]:
+        cond = {"id": cid, "params": {"signalType": "buy"}}
+        assert list(signal_engine._eval_vec(cond, df)) == [False, False]

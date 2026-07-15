@@ -11,6 +11,7 @@ from engine.simulator import Simulator
 from engine.result_handler import ResultHandler
 from engine.data_resolver import DataResolver
 from engine import universe_pit
+from engine import data_coverage
 
 def _ai_signals_enabled() -> bool:
     """AI 예측 신호(ai_model/ai_drop_model) 실행 허용 여부. 운영 스위치(기본 ON).
@@ -67,6 +68,12 @@ def _max_indicator_period(*groups) -> int:
                 cands = [p.get('period', p.get('rsi_period', 14))]
             elif cid == 'cci':
                 cands = [p.get('period', 14)]
+            elif cid == 'williams_r':
+                cands = [p.get('period', 14)]
+            elif cid == 'mfi':
+                cands = [p.get('period', 14)]
+            elif cid == 'roc':
+                cands = [p.get('period', 12)]
             elif cid in ('bollinger_bands', 'volume_spike'):
                 cands = [p.get('period', 20)]
             elif cid == 'breakout':
@@ -243,6 +250,13 @@ class BacktestEngine:
             all_resolution_logs: List[Dict[str, str]] = []
             processed_symbols = []
             common_index = None
+
+            # 데이터 커버리지 추적 — 전략이 참조하는 펀더멘털 지표가 창(window)에서 실제로
+            # 얼마나 존재했는지 종목·기간 축으로 집계해 결과 로그에 투명하게 드러낸다.
+            _tracked_metrics = data_coverage.tracked_metrics(req.get('entry'), req.get('exit'))
+            _coverage_acc = (
+                data_coverage.CoverageAccumulator(_tracked_metrics) if _tracked_metrics else None
+            )
 
             # Pre-load AI engine to avoid race conditions during lazy loading
             if ai_needed and self.ai_engine is None:
@@ -452,6 +466,8 @@ class BacktestEngine:
                         res["trading_value"] = pdf['close'] * pdf['volume']
                     if 'pbr' in pdf.columns: res["pbr"] = pdf['pbr']
                     if 'roe_or_gpa' in pdf.columns: res["roe"] = pdf['roe_or_gpa']
+                    if _tracked_metrics:
+                        res["coverage"] = data_coverage.symbol_stats(pdf, _tracked_metrics)
                     return ("success", res)
 
                 except Exception as e:
@@ -485,6 +501,8 @@ class BacktestEngine:
                     if "pbr" in data: all_ranks['pbr'][sym] = data["pbr"]
                     if "roe" in data: all_ranks['roe'][sym] = data["roe"]
                     if "ai_drop_score" in data: all_drop_scores[sym] = data["ai_drop_score"]
+                    if _coverage_acc is not None and "coverage" in data:
+                        _coverage_acc.fold(data["coverage"])
                     processed_symbols.append(sym)
 
             # Phase 1: 병렬 데이터 로드 + 지표 계산
@@ -583,6 +601,8 @@ class BacktestEngine:
                         if 'roe_or_gpa' in pdf.columns: res["roe"] = pdf['roe_or_gpa']
                         if drop_rank_pct is not None and 'ai_drop_score' in pdf.columns:
                             res["ai_drop_score"] = pdf['ai_drop_score']
+                        if _tracked_metrics:
+                            res["coverage"] = data_coverage.symbol_stats(pdf, _tracked_metrics)
                         return ("success", res)
                     except Exception as e:
                         return ("warning", f"{sym}: 처리 오류 ({e})")
@@ -861,6 +881,14 @@ class BacktestEngine:
                     )
             except Exception:
                 pass
+
+            # 데이터 커버리지 리포트 — 각 펀더멘털 지표가 실제로 어떤 데이터로/얼마나
+            # 계산됐는지 결과 로그에 투명하게 남기고, 부족 시 경고를 warnings에 합류시킨다.
+            if _coverage_acc is not None:
+                _coverage_report = _coverage_acc.build()
+                final["dataCoverage"] = _coverage_report
+                for _w in _coverage_report.get("warnings", []):
+                    self.warnings.add(_w)
 
             final["warnings"] = list(self.warnings) + list(getattr(pf, 'warnings', []))
             final["resolution_logs"] = all_resolution_logs

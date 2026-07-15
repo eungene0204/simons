@@ -19,7 +19,11 @@ from .fundamental_fetcher import (
 )
 
 # Annual statement metrics + the price-derived valuation ratios. market_cap is separate.
-FUND_COLS = ANNUAL_FUNDAMENTAL_KEYS + ["per", "pbr", "psr"]
+# 배당 메트릭(dividend_yield/payout_rate)은 dividends 컬럼에서 파생되며, 있으면 enrich가
+# 계산한다 — 펀더멘털 refresh가 combine_first로 결측만 채우도록 목록에 포함(기존 값 보존).
+FUND_COLS = ANNUAL_FUNDAMENTAL_KEYS + [
+    "per", "pbr", "psr", "dividend_yield", "payout_rate", "dividend_growth",
+]
 # Sentinel proving the *comprehensive* fundamentals (not just the legacy
 # eps/bps/roe/debt_ratio set) are present — used to skip already-processed parquets.
 SENTINEL_COL = "roa"

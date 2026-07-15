@@ -3,6 +3,7 @@ import type { ParsedSummary } from "./strategySummary";
 import {
   buildAdvisorEvaluationContextFromWalkForward,
   buildCandidateBacktestRequest,
+  buildFundamentalFactorPrompt,
   buildStrategyHorizonComparisonResponse,
   buildTakeProfitPercentagePrompt,
   buildWalkForwardParameterDescriptors,
@@ -68,9 +69,9 @@ describe("mergeStrategyModification", () => {
         options: { fee_rate: 0.015, slippage_rate: 0.05 },
       },
       userPrompt: "백테스트 1년만",
-      clarificationQuestion: "어떤 조건으로 종목을 선택할까요? 진입 조건을 알려주세요.",
     });
 
+    // 백엔드가 병합해 내려준 전략을 프론트가 그대로 신뢰한다(진입/청산/리스크/기간 보존).
     expect(result.parsed.entry_signals).toEqual(previousParsed.entry_signals);
     expect(result.parsed.exit_signals).toEqual(previousParsed.exit_signals);
     expect(result.parsed.stop_loss_pct).toBe(7);
@@ -79,7 +80,6 @@ describe("mergeStrategyModification", () => {
     expect(result.backtestRequest?.exit?.conditions).toEqual([{ id: "ai_drop_model" }]);
     expect(result.backtestRequest?.risk?.stop_loss_pct).toBe(7);
     expect(result.backtestRequest?.period).toBe("1y");
-    expect(result.shouldReusePreviousClarification).toBe(true);
   });
 
   it("명시적 연도 범위 후속 요청은 백테스트 시작/종료일을 전략과 요청에 반영한다", () => {
@@ -199,8 +199,6 @@ describe("mergeStrategyModification", () => {
       },
       userPrompt: "종목을 10개로 늘려줘",
     });
-
-    expect(result.requestedDomains.has("portfolio")).toBe(true);
     expect(result.parsed.max_positions).toBe(10);
     // 진입/청산 조건은 이전 전략에서 그대로 유지(버려지지 않음).
     expect(result.parsed.entry_signals).toEqual(previousParsed.entry_signals);
@@ -217,8 +215,6 @@ describe("mergeStrategyModification", () => {
       nextParsed: { ...previousParsed, max_positions: 10 },
       userPrompt: "최대 종목을 10게로 해줘",
     });
-
-    expect(result.requestedDomains.has("portfolio")).toBe(true);
     expect(result.parsed.max_positions).toBe(10);
   });
 
@@ -280,52 +276,9 @@ describe("mergeStrategyModification", () => {
     expect(result.backtestRequest?.risk?.trailing_stop_pct).toBe(15);
   });
 
-  it("코치가 트레일링 스탑 비율을 물은 뒤 숫자만 답해도 전략 요약에 반영한다", () => {
-    const result = mergeStrategyModification({
-      previousParsed: {
-        ...previousParsed,
-        stop_loss_pct: 12,
-        trailing_stop_pct: null,
-      },
-      nextParsed: {
-        ...previousParsed,
-        stop_loss_pct: 12,
-        trailing_stop_pct: null,
-      },
-      previousBacktestRequest: {
-        universe_id: "kospi",
-        symbols: ["005930", "000660"],
-        risk: {
-          max_positions: 8,
-          stop_loss_pct: 12,
-          max_holding_days: 126,
-          init_cash: 10000000,
-        },
-        period: "5y",
-      },
-      nextBacktestRequest: {
-        universe_id: "kospi",
-        symbols: ["005930", "000660"],
-        risk: {
-          max_positions: 8,
-          stop_loss_pct: 12,
-          max_holding_days: 126,
-          trailing_stop_pct: null,
-          init_cash: 10000000,
-        },
-        period: "5y",
-      },
-      userPrompt: "15%로 정해줘",
-      previousCoachText:
-        "트레일링 스탑이라는 조건을 추가할 때, 최고가에서 몇 % 내려오면 팔지 정할까요?",
-    });
-
-    // 코치 맥락 답변("15%")은 백엔드가 알 수 없어 프론트 pendingRiskChange로만 잡힌다.
-    expect(result.parsed.trailing_stop_pct).toBe(15);
-    expect(result.parsed.stop_loss_pct).toBe(12);
-    expect(result.backtestRequest?.risk?.trailing_stop_pct).toBe(15);
-    expect(result.backtestRequest?.risk?.stop_loss_pct).toBe(12);
-  });
+  // 코치 맥락 답변("15%")→트레일링 귀속, "30%로 설정해줘"→익절 귀속 등 코치맥락 리스크 해석은
+  // 백엔드로 이관했다(resolve_coach_context_risk, FR-STR-019e). 검증은 백엔드 유닛테스트
+  // (test_nl_parser_overrides.test_resolve_coach_context_risk_*)가 담당한다.
 
   it("익절 비율만 명시한 요청은 이전 코치 문장에 트레일링 스탑이 있어도 트레일링 스탑을 설정하지 않는다", () => {
     const result = mergeStrategyModification({
@@ -369,8 +322,6 @@ describe("mergeStrategyModification", () => {
         period: "5y",
       },
       userPrompt: "익절 비율을 30%로 설정해줘",
-      previousCoachText:
-        "익절 비율을 추가해 보시겠어요? 아니면 트레일링 스탑을 추가해 보시겠어요? 예를 들면 '트레일링 스탑 15% 설정'이라고 말씀해주세요.",
     });
 
     expect(result.parsed.take_profit_pct).toBe(30);
@@ -402,10 +353,7 @@ describe("mergeStrategyModification", () => {
         period: "5y",
       },
       userPrompt: "30% 상승시 수익 실현 하게 설정해",
-      previousCoachText: "익절 비율 설정을 추천드립니다. 아니면 지금 조건으로 바로 백테스트를 진행하셔도 됩니다.",
     });
-
-    expect(result.requestedDomains.has("risk")).toBe(true);
     expect(result.parsed.take_profit_pct).toBe(30);
     expect(result.parsed.stop_loss_pct).toBe(12);
     expect(result.backtestRequest?.risk?.take_profit_pct).toBe(30);
@@ -430,10 +378,7 @@ describe("mergeStrategyModification", () => {
         period: "5y",
       },
       userPrompt: "30% 수익시 매도",
-      previousCoachText: "수익 실현 비율 설정을 추천드립니다. 아니면 지금 조건으로 바로 백테스트를 진행하셔도 됩니다.",
     });
-
-    expect(result.requestedDomains.has("risk")).toBe(true);
     expect(result.parsed.take_profit_pct).toBe(30);
     expect(result.parsed.stop_loss_pct).toBe(10);
     expect(result.backtestRequest?.risk?.take_profit_pct).toBe(30);
@@ -501,43 +446,8 @@ describe("mergeStrategyModification", () => {
         period: "5y",
       },
       userPrompt: "10% 하락시 매도",
-      previousCoachText: "손절 조건을 추가해 보세요.",
     });
-
-    expect(result.requestedDomains.has("risk")).toBe(true);
     expect(result.parsed.stop_loss_pct).toBe(10);
-  });
-
-  it("코치가 손절을 맥락으로 언급하며 익절을 물은 뒤 '30%로 설정해줘'라고 답하면 익절에 반영한다", () => {
-    const result = mergeStrategyModification({
-      previousParsed: {
-        ...previousParsed,
-        stop_loss_pct: 12,
-        take_profit_pct: null,
-      },
-      nextParsed: {
-        ...previousParsed,
-        stop_loss_pct: 12,
-        take_profit_pct: null,
-      },
-      previousBacktestRequest: {
-        universe_id: "kospi",
-        risk: { max_positions: 8, stop_loss_pct: 12, take_profit_pct: null, init_cash: 10000000 },
-        period: "5y",
-      },
-      nextBacktestRequest: {
-        universe_id: "kospi",
-        risk: { max_positions: 8, stop_loss_pct: 12, take_profit_pct: null, init_cash: 10000000 },
-        period: "5y",
-      },
-      userPrompt: "30%로 설정해줘",
-      previousCoachText:
-        "손절 12%는 매수가 대비 12% 하락 시 매도하는 조건으로 설정하셨으니, 큰 손실 방지에는 도움이 됩니다. 익절 비율 설정을 추천드립니다. 몇 %로 설정할까요?",
-    });
-
-    expect(result.parsed.take_profit_pct).toBe(30);
-    expect(result.parsed.stop_loss_pct).toBe(12);
-    expect(result.backtestRequest?.risk?.take_profit_pct).toBe(30);
   });
 
   it("기존 트레일링 스탑이 있는 전략에서 익절만 바꾸면 기존 트레일링 스탑 값을 유지한다", () => {
@@ -572,64 +482,12 @@ describe("mergeStrategyModification", () => {
         period: "5y",
       },
       userPrompt: "익절 30%로 바꿔줘",
-      previousCoachText:
-        "트레일링 스탑이라는 조건을 추가할 때, 최고가에서 몇 % 내려오면 팔지 정할까요?",
     });
 
     expect(result.parsed.take_profit_pct).toBe(30);
     expect(result.parsed.trailing_stop_pct).toBe(15);
     expect(result.backtestRequest?.risk?.take_profit_pct).toBe(30);
     expect(result.backtestRequest?.risk?.trailing_stop_pct).toBe(15);
-  });
-
-  it("이전 코치가 익절만 언급한 뒤 퍼센트로 다시 조정하면 익절 문맥으로 해석한다", () => {
-    const result = mergeStrategyModification({
-      previousParsed: {
-        ...previousParsed,
-        stop_loss_pct: 12,
-        take_profit_pct: 30,
-        hold_period_days: 126,
-        max_positions: 8,
-      },
-      nextParsed: {
-        ...previousParsed,
-        stop_loss_pct: 12,
-        take_profit_pct: 30,
-        hold_period_days: 126,
-        max_positions: 8,
-      },
-      previousBacktestRequest: {
-        universe_id: "kospi",
-        risk: {
-          max_positions: 8,
-          stop_loss_pct: 12,
-          take_profit_pct: 30,
-          max_holding_days: 126,
-          init_cash: 10000000,
-        },
-        period: "5y",
-      },
-      nextBacktestRequest: {
-        universe_id: "kospi",
-        risk: {
-          max_positions: 8,
-          stop_loss_pct: 12,
-          take_profit_pct: 30,
-          max_holding_days: 126,
-          init_cash: 10000000,
-        },
-        period: "5y",
-      },
-      userPrompt: "20%로 다시 조정",
-      previousCoachText:
-        "익절 비율(매수가 대비 정한 수익률에 도달하면 자동으로 파는 고정 목표 수익 조건)을 30%로 조정해 주신 요청을 반영하여, 현재 조건과 비교 테스트를 진행해 보시겠어요?",
-    });
-
-    // 코치 맥락 답변("20%")은 pendingRiskChange로 익절에 반영된다(백엔드는 맥락을 모름).
-    expect(result.parsed.stop_loss_pct).toBe(12);
-    expect(result.parsed.take_profit_pct).toBe(20);
-    expect(result.backtestRequest?.risk?.stop_loss_pct).toBe(12);
-    expect(result.backtestRequest?.risk?.take_profit_pct).toBe(20);
   });
 
   // "후속 개선 질문(수정 domain 없음)은 기존 전략 유지" 테스트는 제거했다 — 그런 프롬프트는
@@ -921,6 +779,34 @@ describe("buildTakeProfitPercentagePrompt", () => {
     "익절 결과를 분석해줘",
   ])("숫자 지정·삭제·정보 요청은 기존 흐름을 유지한다: %s", (prompt) => {
     expect(buildTakeProfitPercentagePrompt(prompt)).toBeNull();
+  });
+});
+
+describe("buildFundamentalFactorPrompt", () => {
+  it.each([
+    ["영업이익률을 추가해 볼까?", "영업이익률 몇% 이상일 때 진입할까요?", "영업이익률 15% 이상"],
+    ["PER도 넣자", "PER 몇배 이하일 때 진입할까요?", "PER 10배 이하"],
+    ["배당수익률도 추가해줘", "배당수익률 몇% 이상일 때 진입할까요?", "배당수익률 3% 이상"],
+    ["시가총액 조건 넣어줘", "시가총액 몇억 이상일 때 진입할까요?", "시가총액 1조 이상"],
+  ])("값 없는 재무 팩터 추가에 추천 칩과 함께 되묻는다: %s", (prompt, message, chip) => {
+    const result = buildFundamentalFactorPrompt(prompt);
+    expect(result?.message).toBe(message);
+    expect(result?.suggestions).toContain(chip);
+  });
+
+  it("배당성향/배당성장률을 배당수익률보다 먼저 잡는다", () => {
+    expect(buildFundamentalFactorPrompt("배당성향도 추가")?.message).toContain("배당성향");
+    expect(buildFundamentalFactorPrompt("배당성장률도 넣자")?.message).toContain("배당성장률");
+  });
+
+  it.each([
+    "영업이익률 15% 이상 추가해줘", // 값이 이미 있음 → 수정 파싱으로
+    "영업이익률이 뭐야?", // 정의 질문
+    "영업이익률을 빼줘", // 제거
+    "영업이익률이 왜 반영 안 돼?", // 분석 질문
+    "손절을 추가해 볼까?", // 재무 팩터 아님
+  ])("숫자 지정·정의·제거·비재무는 null을 반환한다: %s", (prompt) => {
+    expect(buildFundamentalFactorPrompt(prompt)).toBeNull();
   });
 });
 

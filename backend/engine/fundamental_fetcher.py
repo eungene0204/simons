@@ -172,6 +172,9 @@ ANNUAL_FUNDAMENTAL_KEYS = [
     "sps", "revenue_growth", "operating_income_growth", "net_income_growth", "reserve_ratio",
     "roa", "net_margin", "gross_margin", "operating_margin", "current_ratio", "quick_ratio",
     "operating_cash_flow", "pcr",
+    # EBITDA(억원)와 EV/EBITDA(배)는 KIS other-major-ratios에서 제공. ev_ebitda는 결산 시점
+    # 스냅샷 비율을 다음 결산까지 전진충전(forward-fill)한다 — 스크리닝 필터용 근사.
+    "ebitda", "ev_ebitda",
 ]
 
 # KIS finance endpoints → {response_field: our_key}. Three endpoints, merged by year-end.
@@ -186,10 +189,16 @@ _KIS_PROFIT_RATIO_MAP = {
 _KIS_STABILITY_RATIO_MAP = {
     "crnt_rate": "current_ratio", "quck_rate": "quick_ratio",
 }
+# other-major-ratios: EBITDA(억원)·EV/EBITDA(배). ev_ebitda는 0.00을 '데이터 없음' 센티널로
+# 쓰므로(2010년 이전) 아래 _sanitize에서 비양수 값을 제거한다.
+_KIS_OTHER_RATIO_MAP = {
+    "ebitda": "ebitda", "ev_ebitda": "ev_ebitda",
+}
 _KIS_FINANCE_ENDPOINTS = [
     ("financial-ratio", "FHKST66430300", _KIS_FINANCIAL_RATIO_MAP),
     ("profit-ratio", "FHKST66430400", _KIS_PROFIT_RATIO_MAP),
     ("stability-ratio", "FHKST66430600", _KIS_STABILITY_RATIO_MAP),
+    ("other-major-ratios", "FHKST66430500", _KIS_OTHER_RATIO_MAP),
 ]
 # 영업이익률(operating_margin)은 KIS 재무비율 3종에 없어 손익계산서(income-statement)의
 # 영업이익(bsop_prti)/매출액(sale_account)으로 직접 계산한다.
@@ -413,6 +422,12 @@ def _fetch_fundamentals_from_kis(symbol: str) -> Optional[List[Dict]]:
     for year_end, vals in _parse_kis_income_statement(is_output).items():
         merged.setdefault(year_end, {}).update(vals)
 
+    # ev_ebitda의 0.00은 '데이터 없음' 센티널(2010년 이전 등) — 비양수 값을 제거해
+    # 가치 필터('EV/EBITDA 8 이하')가 데이터 없는 연도를 저평가로 오인하지 않게 한다.
+    for vals in merged.values():
+        if "ev_ebitda" in vals and vals["ev_ebitda"] is not None and vals["ev_ebitda"] <= 0:
+            del vals["ev_ebitda"]
+
     result = [{"year_end": d, **vals} for d, vals in sorted(merged.items(), reverse=True) if vals]
     return result or None
 
@@ -615,7 +630,7 @@ def enrich_ohlcv_with_fundamentals(
         eps, bps, per, pbr, roe_or_gpa, debt_ratio 컬럼이 추가된 DataFrame
     """
     if not fundamentals:
-        return df
+        return _add_dividend_metrics(df)
 
     import numpy as _np
 
@@ -676,4 +691,20 @@ def enrich_ohlcv_with_fundamentals(
             df["market_cap"].astype(float) * 1e8 / df["operating_cash_flow"]
         ).where(valid).replace([_np.inf, -_np.inf], _np.nan)
 
+    return _add_dividend_metrics(df)
+
+
+def _add_dividend_metrics(df: pd.DataFrame) -> pd.DataFrame:
+    """ex-date별 주당 현금배당(dividends 컬럼, scripts/backfill_dividends.py로 백필)이 있으면
+    배당수익률(TTM DPS/종가)과 배당성향(TTM DPS/EPS) 컬럼을 추가한다. 연간 펀더멘털과
+    독립적이라 fundamentals가 비어도 계산된다(dividends 없으면 no-op)."""
+    if "dividends" not in df.columns:
+        return df
+    from .dividends import (
+        trailing_dividend_yield, dividend_payout_ratio, dividend_growth_yoy,
+    )
+    df["dividend_yield"] = trailing_dividend_yield(df["close"].astype(float), df["dividends"])
+    df["dividend_growth"] = dividend_growth_yoy(df["dividends"])
+    if "eps" in df.columns:
+        df["payout_rate"] = dividend_payout_ratio(df["dividends"], df["eps"])
     return df

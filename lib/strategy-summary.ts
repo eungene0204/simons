@@ -61,6 +61,7 @@ export const METRIC_LABELS: Record<string, string> = {
   per: "PER",
   pbr: "PBR",
   psr: "PSR",
+  ev_ebitda: "EV/EBITDA",
   roe_or_gpa: "ROE",
   roa: "ROA",
   debt_ratio: "부채비율",
@@ -75,6 +76,9 @@ export const METRIC_LABELS: Record<string, string> = {
   net_income_growth: "순이익증가율",
   market_cap: "시총",
   trading_value: "거래대금",
+  dividend_yield: "배당수익률",
+  payout_rate: "배당성향",
+  dividend_growth: "배당성장률",
 };
 
 const KO_NUMBER_FORMAT = new Intl.NumberFormat("ko-KR");
