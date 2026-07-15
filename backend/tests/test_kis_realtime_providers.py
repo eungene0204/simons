@@ -152,6 +152,52 @@ def test_kis_ws_provider_builds_sell_trade_from_total_tick():
     }
 
 
+def test_kis_ws_provider_upper_limit_sign_is_positive():
+    """sign=1(상한)은 상승 방향 — change_rate가 음수로 뒤집히면 안 된다."""
+    provider = KISWebSocketProvider()
+    fields = ["0"] * 47
+    fields[0] = "042700"
+    fields[1] = "150000"
+    fields[2] = "269500"
+    fields[3] = "1"
+    fields[4] = "62000"
+    fields[5] = "29.88"
+    fields[7] = "225500"
+    fields[8] = "269500"
+    fields[9] = "224000"
+    fields[13] = "2355581"
+
+    raw = f"0|H0UNCNT0|1|{'^'.join(fields)}"
+    quote = provider._parse_realtime(raw)
+
+    assert quote is not None
+    assert quote.change_rate == 29.88
+    assert quote.prev_close == 207500
+
+
+def test_kis_ws_provider_lower_decline_sign_is_negative():
+    """sign=5(하락)는 하락 방향 — change_rate가 양수로 남으면 안 된다."""
+    provider = KISWebSocketProvider()
+    fields = ["0"] * 47
+    fields[0] = "005930"
+    fields[1] = "150000"
+    fields[2] = "68000"
+    fields[3] = "5"
+    fields[4] = "2100"
+    fields[5] = "3.00"
+    fields[7] = "70000"
+    fields[8] = "70100"
+    fields[9] = "67900"
+    fields[13] = "500000"
+
+    raw = f"0|H0UNCNT0|1|{'^'.join(fields)}"
+    quote = provider._parse_realtime(raw)
+
+    assert quote is not None
+    assert quote.change_rate == -3.00
+    assert quote.prev_close == 70100
+
+
 @pytest.mark.asyncio
 async def test_kis_ws_provider_get_orderbook_includes_recent_trades(monkeypatch):
     monkeypatch.setenv("KIS_APP_KEY", "test-app-key")

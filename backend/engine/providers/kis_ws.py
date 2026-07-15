@@ -251,19 +251,19 @@ class KISWebSocketProvider(BaseProvider):
 
             today = datetime.now().strftime("%Y-%m-%d")
 
-            # 전일대비: 부호(3=보합,4/1=하락/하한,2/5=상승/상한)와 변동폭으로 전일종가 계산
+            # 전일대비: 부호(1=상한,2=상승,3=보합,4=하한,5=하락)와 변동폭으로 전일종가 계산
             diff = int(fields[_F_DIFF] or "0")
             sign = fields[_F_SIGN]
-            if sign in ("4", "1"):   # 하락: 전일종가 = 현재가 + 변동폭
+            if sign in ("4", "5"):   # 하락/하한: 전일종가 = 현재가 + 변동폭
                 prev_close = price + diff
-            elif sign in ("2", "5"):  # 상승: 전일종가 = 현재가 - 변동폭
+            elif sign in ("1", "2"):  # 상한/상승: 전일종가 = 현재가 - 변동폭
                 prev_close = price - diff
             else:
                 prev_close = price
 
             change_rate = float(fields[_F_RATE] or "0")
             # 하락 시 부호 반영
-            if sign in ("4", "1") and change_rate > 0:
+            if sign in ("4", "5") and change_rate > 0:
                 change_rate = -change_rate
 
             return StockQuote(
