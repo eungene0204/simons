@@ -11,6 +11,8 @@ ENV
 data
 # 예외: Next.js 빌드 타임에 import되는 종목 마스터(@/data/korea-stocks.json, 440K)는 포함해야 webpack 번들에 들어간다
 !data/korea-stocks.json
+# 예외: parsedStrategyMerge.ts가 빌드 타임에 import하는 재무 팩터 레지스트리
+!data/fundamental-factors.json
 prisma/prisma/*.db
 prisma/prisma/*.db-wal
 prisma/prisma/*.db-shm
