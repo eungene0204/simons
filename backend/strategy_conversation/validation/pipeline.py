@@ -1,0 +1,123 @@
+"""검증 파이프라인 — LLM 출력(StrategyIntent) 이후의 결정론 검증 계층을 순서대로 실행.
+
+  1. (JSON 파싱·Pydantic 스키마 검증은 interpreter가 수행)
+  2. Intent 검증
+  3. Indicator Registry / Capability 검증 (factor canonical 정규화 포함)
+  4. Parameter/단위 범위 검증
+  5. 논리 충돌 검증
+  6. Completeness 검증 (누락 필수값 → 되묻기 질문)
+
+규제 정책 게이팅(추천/전망 차단)은 상류 intent 분류(intent/scope.py 등)가 담당한다 —
+이 파이프라인은 '실행 가능한 전략 서술'만 다룬다.
+
+confidence는 절대 신뢰하지 않는다: 높아도 검증을 생략하지 않으며, 낮으면
+추가 확인 질문을 유도하는 신호로만 쓴다(config.CONFIDENCE_*).
+"""
+
+from __future__ import annotations
+
+from typing import Tuple
+
+from strategy_conversation import config
+from strategy_conversation.interpreter.models import StrategyIntent, ValidationReport
+from strategy_conversation.validation.capability_validator import validate_capability
+from strategy_conversation.validation.completeness_validator import validate_completeness
+from strategy_conversation.validation.conflict_validator import validate_conflicts
+from strategy_conversation.validation.parameter_validator import validate_parameters
+
+_STRATEGY_INTENTS = ("CREATE_STRATEGY", "MODIFY_STRATEGY", "CLARIFY_STRATEGY")
+
+
+def run_validation(intent: StrategyIntent) -> Tuple[StrategyIntent, ValidationReport]:
+    """검증을 실행하고 (정규화된 intent, 통합 리포트)를 반환한다.
+
+    intent.strategy의 factor/주기 등은 canonical 형태로 제자리 정규화된다.
+    """
+    intent = intent.model_copy(deep=True)
+    report = ValidationReport()
+
+    # ── Intent 검증
+    if intent.intent not in _STRATEGY_INTENTS:
+        # 전략 파이프라인 대상이 아닌 의도 — 유효하지만 컴파일 대상 아님
+        report.is_valid = False
+        report.status = "UNSUPPORTED" if intent.intent == "UNSUPPORTED_REQUEST" else "REJECTED"
+        return intent, report
+    if intent.intent == "CREATE_STRATEGY" and intent.strategy is None:
+        report.errors.append("CREATE_STRATEGY 의도인데 strategy가 없습니다")
+    if intent.intent == "MODIFY_STRATEGY" and intent.strategy is None and not intent.patches:
+        report.errors.append("MODIFY_STRATEGY 의도인데 strategy도 patches도 없습니다")
+
+    # ── Capability / Registry
+    cap_errors, cap_warnings, unsupported, fixes = validate_capability(intent)
+    report.errors.extend(cap_errors)
+    report.warnings.extend(cap_warnings)
+    report.unsupported_features.extend(unsupported)
+    report.suggested_fixes.extend(fixes)
+
+    # LLM이 스스로 보고한 unsupported_features도 합친다(중복 제거)
+    for feat in intent.unsupported_features:
+        if feat not in report.unsupported_features:
+            report.unsupported_features.append(feat)
+
+    # ── Parameter 범위/단위
+    report.errors.extend(validate_parameters(intent))
+
+    # ── 논리 충돌
+    conflict_errors, conflict_warnings = validate_conflicts(intent)
+    report.errors.extend(conflict_errors)
+    report.warnings.extend(conflict_warnings)
+
+    # ── Completeness (누락 → 질문)
+    missing, questions = validate_completeness(intent)
+    report.missing_fields.extend(missing)
+    report.clarification_questions.extend(questions)
+    # LLM이 스스로 생성한 질문은 결정론 검증과 교차 확인된 것만 채택한다 — 4B가 관성으로
+    # 내는 잉여 질문(손절·비중 등 선택 필드) 노이즈 차단. 단, 결정론 질문이 전무한데
+    # LLM이 모호성을 감지한 경우("좋은 기업" 류)는 LLM 질문이 유일한 단서이므로 유지.
+    known_fields = {q.field for q in report.clarification_questions}
+    for q in intent.clarification_questions:
+        corroborated = q.field and q.field in report.missing_fields
+        llm_only_ambiguity = not questions and intent.status == "NEEDS_CLARIFICATION"
+        if (corroborated or llm_only_ambiguity) and q.field not in known_fields:
+            report.clarification_questions.append(q)
+            known_fields.add(q.field)
+
+    # ── 낮은 confidence는 확정 금지 신호(검증 생략 사유가 아님)
+    if intent.confidence < config.CONFIDENCE_MIN_ACCEPT:
+        report.warnings.append(
+            f"해석 신뢰도가 낮습니다(confidence={intent.confidence:.2f}) — 전략 요약을 확인해 주세요"
+        )
+
+    # ── 최종 상태 판정
+    if report.unsupported_features and not report.missing_fields and not report.errors:
+        report.status = "UNSUPPORTED"
+    elif report.errors or report.missing_fields:
+        report.status = "NEEDS_CLARIFICATION"
+    elif intent.confidence < config.CONFIDENCE_MIN_FINALIZE:
+        report.status = "NEEDS_CLARIFICATION"
+        report.clarification_questions.append(
+            _confidence_question(intent)
+        )
+    else:
+        report.status = "READY"
+
+    report.is_valid = report.status == "READY"
+    # READY면 되묻을 것이 없다 — LLM이 관성으로 낸 잉여 질문(전략 이름 등)을 제거한다.
+    # NEEDS_CLARIFICATION이면 병합된 질문 전체에 턴당 상한을 적용한다.
+    if report.is_valid:
+        report.clarification_questions = []
+    else:
+        from strategy_conversation.validation.completeness_validator import (
+            MAX_QUESTIONS_PER_TURN,
+        )
+        report.clarification_questions = report.clarification_questions[:MAX_QUESTIONS_PER_TURN]
+    return intent, report
+
+
+def _confidence_question(intent: StrategyIntent):
+    from strategy_conversation.interpreter.models import ClarificationQuestion
+
+    return ClarificationQuestion(
+        field="confidence",
+        question="요청을 정확히 이해했는지 확신이 낮습니다. 전략 요약이 의도와 맞는지 확인해 주시겠어요?",
+    )

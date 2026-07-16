@@ -1,0 +1,420 @@
+{
+  "schema_version": "1.0",
+  "description": "LLM Strategy Interpreter 평가 데이터셋 — 동일 의미 다른 표현, 모호/누락, 부정, 수정, 미지원, 충돌, 비정형 표현을 포함한다.",
+  "cases": [
+    {
+      "id": "per-explicit-1",
+      "category": "same_meaning_different_phrasing",
+      "input": "PER이 10보다 낮은 종목을 사고 싶어",
+      "expect": {
+        "intent": "CREATE_STRATEGY",
+        "factors": [
+          "fundamental.per"
+        ],
+        "thresholds": {
+          "fundamental.per": 10
+        }
+      }
+    },
+    {
+      "id": "per-paraphrase-1",
+      "category": "same_meaning_different_phrasing",
+      "input": "주가수익비율이 낮은 기업을 골라줘",
+      "expect": {
+        "intent": "CREATE_STRATEGY",
+        "factors": [
+          "fundamental.per"
+        ],
+        "missing_value_factors": [
+          "fundamental.per"
+        ]
+      }
+    },
+    {
+      "id": "per-paraphrase-2",
+      "category": "same_meaning_different_phrasing",
+      "input": "이익에 비해 주가가 싼 회사를 찾아줘",
+      "expect": {
+        "intent": "CREATE_STRATEGY",
+        "factors": [
+          "fundamental.per"
+        ],
+        "missing_value_factors": [
+          "fundamental.per"
+        ]
+      }
+    },
+    {
+      "id": "per-paraphrase-3",
+      "category": "same_meaning_different_phrasing",
+      "input": "PER 기준 저평가 전략을 만들어줘",
+      "expect": {
+        "intent": "CREATE_STRATEGY",
+        "factors": [
+          "fundamental.per"
+        ]
+      }
+    },
+    {
+      "id": "per-paraphrase-4",
+      "category": "same_meaning_different_phrasing",
+      "input": "기업이 버는 돈보다 주가가 비싸지 않은 종목을 사고 싶어",
+      "expect": {
+        "intent": "CREATE_STRATEGY",
+        "factors": [
+          "fundamental.per"
+        ],
+        "missing_value_factors": [
+          "fundamental.per"
+        ]
+      }
+    },
+    {
+      "id": "ambiguous-good-company",
+      "category": "ambiguous",
+      "input": "좋은 기업에 투자하고 싶어",
+      "expect": {
+        "intent": "CREATE_STRATEGY",
+        "status": "NEEDS_CLARIFICATION",
+        "needs_clarification": true
+      }
+    },
+    {
+      "id": "ambiguous-cheap-growth",
+      "category": "ambiguous",
+      "input": "싸고 성장성 있는 주식을 골라줘",
+      "expect": {
+        "intent": "CREATE_STRATEGY",
+        "needs_clarification": true
+      }
+    },
+    {
+      "id": "missing-value-operating-margin",
+      "category": "missing_value",
+      "input": "영업이익률이 높은 기업을 사고 싶어",
+      "expect": {
+        "intent": "CREATE_STRATEGY",
+        "factors": [
+          "fundamental.operating_margin"
+        ],
+        "missing_value_factors": [
+          "fundamental.operating_margin"
+        ],
+        "needs_clarification": true
+      }
+    },
+    {
+      "id": "missing-value-rsi",
+      "category": "missing_value",
+      "input": "RSI가 낮은 종목을 매수하는 전략",
+      "expect": {
+        "intent": "CREATE_STRATEGY",
+        "factors": [
+          "technical.rsi"
+        ],
+        "missing_value_factors": [
+          "technical.rsi"
+        ],
+        "needs_clarification": true
+      }
+    },
+    {
+      "id": "missing-value-debt",
+      "category": "missing_value",
+      "input": "부채비율이 낮은 회사만 골라서 투자할래",
+      "expect": {
+        "intent": "CREATE_STRATEGY",
+        "factors": [
+          "fundamental.debt_ratio"
+        ],
+        "missing_value_factors": [
+          "fundamental.debt_ratio"
+        ],
+        "needs_clarification": true
+      }
+    },
+    {
+      "id": "multi-condition-1",
+      "category": "multiple_conditions",
+      "input": "ROE는 15% 이상이고 PER은 10 이하이며 부채비율도 100% 미만인 기업",
+      "expect": {
+        "intent": "CREATE_STRATEGY",
+        "factors": [
+          "fundamental.roe_or_gpa",
+          "fundamental.per",
+          "fundamental.debt_ratio"
+        ],
+        "thresholds": {
+          "fundamental.roe_or_gpa": 15,
+          "fundamental.per": 10,
+          "fundamental.debt_ratio": 100
+        }
+      }
+    },
+    {
+      "id": "negation-loss-firms",
+      "category": "negation",
+      "input": "적자 기업은 빼줘",
+      "expect": {
+        "unsupported_any": true
+      }
+    },
+    {
+      "id": "negation-overbought",
+      "category": "negation",
+      "input": "RSI가 과매수인 종목은 사지 마",
+      "expect": {
+        "factors": [
+          "technical.rsi"
+        ]
+      }
+    },
+    {
+      "id": "modify-remove-per",
+      "category": "modification",
+      "input": "PER 조건은 빼줘",
+      "expect": {
+        "intent": "MODIFY_STRATEGY"
+      },
+      "draft": {
+        "entry_conditions": [
+          {
+            "factor": "fundamental.per",
+            "operator": "<=",
+            "value": 10
+          },
+          {
+            "factor": "fundamental.roe_or_gpa",
+            "operator": ">=",
+            "value": 15
+          }
+        ]
+      }
+    },
+    {
+      "id": "modify-roe-threshold",
+      "category": "modification",
+      "input": "ROE를 15%에서 20%로 바꿔줘",
+      "expect": {
+        "intent": "MODIFY_STRATEGY"
+      },
+      "draft": {
+        "entry_conditions": [
+          {
+            "factor": "fundamental.roe_or_gpa",
+            "operator": ">=",
+            "value": 15
+          }
+        ]
+      }
+    },
+    {
+      "id": "modify-rebalance",
+      "category": "modification",
+      "input": "월간 리밸런싱 대신 분기별로 해줘",
+      "expect": {
+        "intent": "MODIFY_STRATEGY"
+      },
+      "draft": {
+        "portfolio": {
+          "selection_count": 10,
+          "rebalance_frequency": "monthly"
+        }
+      }
+    },
+    {
+      "id": "context-short-answer-value",
+      "category": "context_dependent",
+      "input": "10 이상.",
+      "expect": {
+        "intent": [
+          "CLARIFY_STRATEGY",
+          "MODIFY_STRATEGY"
+        ]
+      },
+      "draft": {
+        "entry_conditions": [
+          {
+            "factor": "fundamental.operating_margin",
+            "operator": ">=",
+            "value": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "context-monthly",
+      "category": "context_dependent",
+      "input": "한 달에 한 번.",
+      "expect": {
+        "intent": [
+          "CLARIFY_STRATEGY",
+          "MODIFY_STRATEGY"
+        ]
+      },
+      "draft": {
+        "entry_conditions": [
+          {
+            "factor": "fundamental.per",
+            "operator": "<=",
+            "value": 10
+          }
+        ],
+        "portfolio": {
+          "rebalance_frequency": null
+        }
+      }
+    },
+    {
+      "id": "unsupported-fcf",
+      "category": "unsupported",
+      "input": "FCF Yield가 높은 기업을 골라줘",
+      "expect": {
+        "unsupported_any": true,
+        "no_silent_substitute": true
+      }
+    },
+    {
+      "id": "unsupported-moat",
+      "category": "unsupported",
+      "input": "경제적 해자가 강한 회사만 선택해줘",
+      "expect": {
+        "unsupported_any": true
+      }
+    },
+    {
+      "id": "unsupported-capital-allocation",
+      "category": "unsupported",
+      "input": "경영진의 자본배분 능력이 좋은 기업에 투자해줘",
+      "expect": {
+        "unsupported_any": true
+      }
+    },
+    {
+      "id": "partial-data-fcf-growth",
+      "category": "partial_data",
+      "input": "10년간의 분기별 잉여현금흐름 성장률을 사용해줘",
+      "expect": {
+        "unsupported_any": true
+      }
+    },
+    {
+      "id": "conflict-per",
+      "category": "conflict",
+      "input": "PER 10 이하이면서 PER 20 이상인 종목",
+      "expect": {
+        "conflict": true
+      }
+    },
+    {
+      "id": "typo-informal-1",
+      "category": "informal",
+      "input": "per낮고 roe높은거",
+      "expect": {
+        "intent": "CREATE_STRATEGY",
+        "factors": [
+          "fundamental.per",
+          "fundamental.roe_or_gpa"
+        ],
+        "needs_clarification": true
+      }
+    },
+    {
+      "id": "typo-informal-2",
+      "category": "informal",
+      "input": "영업이익율 조은회사",
+      "expect": {
+        "intent": "CREATE_STRATEGY",
+        "factors": [
+          "fundamental.operating_margin"
+        ]
+      }
+    },
+    {
+      "id": "typo-informal-3",
+      "category": "informal",
+      "input": "알에스아이 과매도된거 사줘",
+      "expect": {
+        "intent": "CREATE_STRATEGY",
+        "factors": [
+          "technical.rsi"
+        ]
+      }
+    },
+    {
+      "id": "golden-cross-full",
+      "category": "technical",
+      "input": "20일선이 60일선을 골든크로스하면 사고 데드크로스하면 파는 전략, 10종목, 손절 8%",
+      "expect": {
+        "intent": "CREATE_STRATEGY",
+        "factors": [
+          "technical.ma_crossover"
+        ],
+        "status": "READY"
+      }
+    },
+    {
+      "id": "momentum-ranking",
+      "category": "ranking",
+      "input": "최근 60일 수익률 상위 10종목을 매월 리밸런싱",
+      "expect": {
+        "intent": "CREATE_STRATEGY",
+        "ranking": true,
+        "status": "READY"
+      }
+    },
+    {
+      "id": "sector-battery",
+      "category": "universe",
+      "input": "2차전지 업종에서 PBR 1 이하 종목을 매수",
+      "expect": {
+        "intent": "CREATE_STRATEGY",
+        "factors": [
+          "fundamental.pbr"
+        ],
+        "sectors_any": true
+      }
+    },
+    {
+      "id": "descriptive-quality",
+      "category": "qualitative_mapping",
+      "input": "꾸준히 돈을 잘 버는 회사에 투자하고 싶어",
+      "expect": {
+        "intent": "CREATE_STRATEGY",
+        "needs_clarification": true
+      }
+    },
+    {
+      "id": "descriptive-volume-rise",
+      "category": "qualitative_mapping",
+      "input": "거래량이 붙으면서 상승하는 종목을 사고 싶어",
+      "expect": {
+        "intent": "CREATE_STRATEGY"
+      }
+    },
+    {
+      "id": "non-strategy-smalltalk",
+      "category": "non_strategy",
+      "input": "오늘 날씨 어때?",
+      "expect": {
+        "intent": "NON_STRATEGY_REQUEST"
+      }
+    },
+    {
+      "id": "recommendation-request",
+      "category": "policy",
+      "input": "지금 사면 좋은 종목 추천해줘",
+      "expect": {
+        "intent": "UNSUPPORTED_REQUEST"
+      }
+    },
+    {
+      "id": "explain-indicator",
+      "category": "explain",
+      "input": "PBR이 뭐야?",
+      "expect": {
+        "intent": "EXPLAIN_INDICATOR"
+      }
+    }
+  ]
+}

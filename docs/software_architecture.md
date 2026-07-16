@@ -503,6 +503,73 @@ strategy_converter.to_backtest_request() (backend/engine/strategy_converter.py)
 BacktestRequest → 백테스트 엔진 실행
 ```
 
+### 4.2.1 LLM-first 전략 대화 아키텍처 (backend/strategy_conversation/, Phase 1: Shadow)
+
+4.2의 rule-first 구조를 장기적으로 대체하기 위한 **LLM-first / Validation-heavy /
+Registry-driven** 파이프라인. 자연어 의미 해석은 LLM(Qwen 3.5 4B)이 전담하고,
+결정론 코드는 검증·컴파일·실행만 담당한다(Regex는 숫자/날짜/형식 정규화로 제한).
+
+```
+사용자 자연어
+    ▼
+LLM Strategy Interpreter (interpreter/llm_strategy_interpreter.py)
+    ├── Ollama /api/chat, format=json, think=false, temperature 0 (기존 콜드스타트
+    │   내성 재사용: _ollama_ensure_warm + _ollama_open_with_retry)
+    ├── Registry 주입 프롬프트(prompts.py, PROMPT_VERSION) — 지원 지표 canonical ID 계약
+    └── JSON 추출 → Pydantic 검증 실패 시 오류 첨부 1회 자동 수정 요청(output_repair.py)
+    ▼
+StrategyIntent (interpreter/models.py, schema_version 1.0)
+    ├── intent Enum(CREATE/MODIFY/EXPLAIN/…/UNSUPPORTED/NON_STRATEGY)
+    ├── 조건별 factor/operator/value/unit/source_text + value_source
+    │   (USER_PROVIDED/…/SYSTEM_RECOMMENDED/MISSING — 추천값≠확정값 분리)
+    └── missing_fields / unsupported_features / clarification_questions / confidence
+    ▼
+검증 계층 (validation/pipeline.py — confidence가 높아도 생략하지 않음)
+    ├── Capability: IndicatorRegistry(registry/indicator_registry.py)가 지원 여부 최종
+    │   판정(SUPPORTED/PARTIALLY_SUPPORTED/UNSUPPORTED). 미지원은 조용한 대체 금지,
+    │   대체 지표는 suggested_fixes로 명시 제안만. factor를 canonical ID로 정규화.
+    ├── Parameter: 임계값·파라미터 범위(Registry ParamSpec) 검증
+    ├── Conflict: AND 구간 공집합(PER≤10 ∧ PER≥20), 단기≥장기, 보유기간<리밸런싱 등
+    └── Completeness: 누락 필수값 → 되묻기 질문 생성(Registry 추천값 제시, 최대 3개/턴).
+        사용자가 말하지 않은 값을 조용히 확정하지 않는다.
+    ▼
+Strategy Compiler (compiler/strategy_compiler.py) — 검증 READY만 컴파일(Fail Fast)
+    └── StrategyIntent → ParsedStrategy(기존 내부 DSL, 결정론 매핑만) → 기존 파이프라인 합류
+```
+
+- **대화 상태**: conversation/strategy_draft.py(StrategyDraftState + DraftStore) —
+  다중 턴 초안 유지, MODIFY는 JSON Patch(conversation/patch_applier.py, 경로·스키마 검증) 적용.
+- **Shadow Mode**: `STRATEGY_INTERPRETER_MODE=shadow`면 main.py 초기 파스 경로에서
+  신규 파이프라인을 백그라운드 스레드로 병행 실행(비차단), 기존 룰 파스와의 field diff를
+  `backend/logs/strategy_interpreter_shadow.jsonl`(관측성 계약: llm_raw_output·
+  validation_*·compiler_output·field_diff·latency_ms)에 기록. 사용자 응답은 기존 결과만.
+- **Primary Mode (Phase 2)**: `STRATEGY_INTERPRETER_MODE=primary`면 초기 파스를
+  인터프리터 파이프라인이 담당(strategy_conversation/primary.py::run_primary_parse):
+  READY→전체 컴파일, NEEDS_CLARIFICATION→**미확정 조건 제외 부분 컴파일**(compile_partial —
+  조용한 기본값 확정 금지)+되묻기 질문·추천값 칩을 기존 clarification 채널
+  (clarification_question/suggestions)로 전달 — 칩("영업이익률 10% 이상")은 클릭 시 일반
+  수정 메시지로 재전송돼 기존 modify 결정적 병합이 조건을 채운다(condition_builder와 동일한
+  무상태 패턴). LLM/JSON 복구 실패·비전략 intent·컴파일 실패는 기존 규칙 파서 하이브리드로
+  폴백. 대화 상태(프론트 previous_parsed 소유)는 기존 구조 유지.
+  검증 리포트의 LLM 자체 질문은 결정론 missing_fields와 교차 확인된 것만 채택(4B 잉여 질문
+  노이즈 차단), runtime.interpreter 메타(model/repairs/latency/status)로 관측.
+- **Primary Modify (Phase 2 후속, 2026-07-17)**: primary 모드에서 수정 요청도 인터프리터가
+  우선 처리(primary.py::run_primary_modification): Decompiler(compiler/strategy_decompiler.py)가
+  ParsedStrategy→StrategySpec 역매핑으로 기존 전략을 draft로 주입 → LLM은 **patches(JSON
+  Patch)만** 출력(전체 전략 재출력은 필드 소실 위험이라 불수락) → patch_applier 적용 →
+  검증 READY일 때만 재컴파일. 안전장치(전부 결정론): ① **라운드트립 가드** — decompile→
+  재compile(+이월)이 원본과 다르면 표현 불가 전략(rsi rebound 등)이므로 이관 거부,
+  ② description·execution_timing·entry_filters는 StrategySpec 밖이라 원본 이월 보존,
+  ③ 잘못된 patch(예: "/entry_conditions" 전체 remove — 과잉 삭제)는 스키마 검증이 거부.
+  모든 거부는 기존 하이브리드 수정 경로 폴백. clarification_for_add 가드·coach 맥락 리스크
+  귀속은 기존 위치 유지. LLM 연산자 토큰 드리프트('"operator":">="'→'"operator">="')는
+  output_repair의 멱등 구문 복구가 처리.
+- **평가**: evaluation/(parse_cases.json 34케이스 — 동일의미 이표현·모호·누락·부정·수정·
+  미지원·충돌·비정형) + `python -m strategy_conversation.evaluation.evaluator [--legacy]`.
+  핵심 지표: false assumption rate, missing detection recall, 미지원 오판율.
+- **마이그레이션 단계**: Phase 1 Shadow(현재) → Phase 2 LLM primary + 규칙 파서 폴백 →
+  Phase 3 자연어 해석용 Regex/어휘집 제거(Registry·Validator·Compiler는 유지).
+
 ### 4.3 백테스트 엔진 파이프라인
 
 ```

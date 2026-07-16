@@ -3107,6 +3107,8 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
         # 룰베이스 파싱 결과의 LLM 검증 리포트(on_validation 콜백으로 수집). 스레드 로컬한
         # holder라 동시 요청 간 경합이 없다.
         validation_holder: dict = {}
+        # LLM Interpreter primary 경로가 채우는 질문/안내/메타(초기 파스 전용)
+        primary_holder: dict = {}
         def _capture_validation(report):
             validation_holder["report"] = report
         if request.previous_parsed:
@@ -3133,7 +3135,23 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
                 _record_ai_runtime("parse", result["runtime"])
                 _store_nl_parse_cache(cache_key, result)
                 return result
-            parsed = parser.parse_modification(request.prompt, request.previous_parsed, on_stage=on_stage)
+            # LLM Interpreter Primary Mode (Phase 2): 수정 요청도 인터프리터가 우선 처리
+            # (patches 방식). 라운드트립 불가 전략·patches 미출력·검증 미통과는 기존
+            # 하이브리드 수정 경로로 폴백한다. clarification_for_add 가드는 위에서 이미 통과.
+            from strategy_conversation.primary import (
+                primary_enabled as _interp_primary_enabled,
+                run_primary_modification,
+            )
+            parsed = None
+            if _interp_primary_enabled():
+                _primary_mod = run_primary_modification(
+                    request.prompt, request.previous_parsed, on_stage=on_stage
+                )
+                if _primary_mod is not None:
+                    primary_holder.update(_primary_mod)
+                    parsed = _primary_mod["parsed"]
+            if parsed is None:
+                parsed = parser.parse_modification(request.prompt, request.previous_parsed, on_stage=on_stage)
             # 코치 맥락 리스크 해석(프론트 inferPendingRiskChange 이관): 코치가 물은 리스크
             # 필드에 사용자의 "10%" 같은 필드 없는 답을 귀속한다. 백엔드가 코치 맥락으로 판단
             # → 프론트는 파스 결과를 재판정하지 않고 그대로 신뢰한다(FR-STR-019e).
@@ -3145,10 +3163,25 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
                 _field, _value = _ctx_risk
                 parsed = parsed.model_copy(update={_field: _value})
         else:
-            parsed = parser.parse(
-                request.prompt, on_stage=on_stage, on_validation=_capture_validation,
-                defer_validation=defer_holder is not None,
-            )
+            # LLM Interpreter Primary Mode (Phase 2): STRATEGY_INTERPRETER_MODE=primary면
+            # 초기 파스를 인터프리터 파이프라인(해석→검증→컴파일)이 담당하고, 실패/비전략
+            # intent는 기존 규칙 파서 하이브리드로 폴백한다. 질문·안내는 결과 병합 시 반영.
+            from strategy_conversation.primary import primary_enabled, run_primary_parse
+            if primary_enabled():
+                primary = run_primary_parse(request.prompt, on_stage=on_stage)
+                if primary is not None:
+                    primary_holder.update(primary)
+            if primary_holder:
+                parsed = primary_holder["parsed"]
+            else:
+                parsed = parser.parse(
+                    request.prompt, on_stage=on_stage, on_validation=_capture_validation,
+                    defer_validation=defer_holder is not None,
+                )
+                # LLM Interpreter Shadow Mode (Phase 1): STRATEGY_INTERPRETER_MODE=shadow일
+                # 때만 신규 파이프라인을 백그라운드로 병행 실행해 diff를 JSONL로 남긴다(비차단).
+                from strategy_conversation.shadow import maybe_run_shadow
+                maybe_run_shadow(request.prompt, parsed.model_dump())
         parse_ms = round((time.perf_counter() - parse_started) * 1000, 2)
 
         _nl_parser_status["status"] = "ok"
@@ -3171,6 +3204,9 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
             request, backend, parsed, validation_report,
             load_ms=load_ms, parse_ms=parse_ms, request_started=request_started,
         )
+        if primary_holder:
+            from strategy_conversation.primary import apply_primary_meta
+            apply_primary_meta(result, primary_holder)
         _record_ai_runtime("parse", result["runtime"])
         _store_nl_parse_cache(cache_key, result)
         return result
