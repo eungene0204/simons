@@ -21,6 +21,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from strategy_conversation import config
+from strategy_conversation.interpreter.llm_strategy_interpreter import _log_llm
 from strategy_conversation.interpreter.models import StrategyIntent, ValidationReport
 from strategy_conversation.registry.indicator_registry import REGISTRY
 
@@ -98,7 +99,12 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
         return None
 
     validated, report = run_validation(result.intent)
+    _log_llm("✓ 검증", (
+        f"status={report.status} 오류={len(report.errors)} 누락={len(report.missing_fields)} "
+        f"질문={len(report.clarification_questions)} 미지원={report.unsupported_features or '[]'}"
+    ))
     if validated.intent not in _STRATEGY_INTENTS or validated.strategy is None:
+        _log_llm("↩ 폴백", f"전략 파이프라인 대상이 아닌 intent={validated.intent} — 규칙 파서로")
         logger.info("interpreter primary non-strategy intent=%s, falling back",
                     validated.intent)
         return None
@@ -195,6 +201,7 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
     except StrategyCompileError:
         return None
     if roundtrip.model_dump() != prev.model_dump():
+        _log_llm("↩ 폴백", "라운드트립 불일치(표현 불가 전략) — 기존 수정 경로로")
         logger.info("modify primary roundtrip mismatch, falling back to legacy modify")
         return None
 
@@ -213,11 +220,13 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
 
     intent = result.intent
     if intent.intent not in ("MODIFY_STRATEGY", "CLARIFY_STRATEGY") or not intent.patches:
+        _log_llm("↩ 폴백", f"patches 미출력(intent={intent.intent}) — 기존 수정 경로로")
         logger.info("modify primary without patches (intent=%s), falling back", intent.intent)
         return None
     try:
         patched_spec = apply_patches(draft_spec, intent.patches)
     except PatchError as exc:
+        _log_llm("↩ 폴백", f"패치 거부: {str(exc)[:150]} — 기존 수정 경로로")
         logger.warning("modify primary patch rejected, falling back | err=%s", exc)
         return None
 
@@ -225,7 +234,12 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
         intent="MODIFY_STRATEGY", strategy=patched_spec,
         confidence=intent.confidence, unsupported_features=intent.unsupported_features,
     ))
+    _log_llm("✓ 검증", (
+        f"status={report.status} patches={len(intent.patches)} "
+        f"오류={len(report.errors)} 미지원={report.unsupported_features or '[]'}"
+    ))
     if not report.is_valid:
+        _log_llm("↩ 폴백", f"패치 적용 후 검증 미통과(status={report.status}) — 기존 수정 경로로")
         logger.info("modify primary not READY after patch (status=%s), falling back",
                     report.status)
         return None

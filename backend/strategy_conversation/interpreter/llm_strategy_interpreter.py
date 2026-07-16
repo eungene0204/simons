@@ -35,6 +35,14 @@ logger = logging.getLogger("strategy_interpreter")
 ChatFn = Callable[[str, str], str]  # (system_prompt, user_message) -> raw text
 
 
+def _log_llm(tag: str, text: str) -> None:
+    """LLM 왕복을 dev 콘솔에서 눈으로 확인할 수 있게 출력한다([NL-PARSE]와 동일한 print 관례).
+
+    uvicorn 로깅 설정과 무관하게 항상 보이도록 print를 쓴다. 원본 응답은 가공 없이 그대로.
+    """
+    print(f"[LLM-INTERPRETER] {tag} {text}", flush=True)
+
+
 class InterpreterError(RuntimeError):
     """복구 재시도 후에도 유효한 StrategyIntent를 얻지 못한 경우."""
 
@@ -103,7 +111,9 @@ class StrategyInterpreter:
     def interpret(self, user_input: str, draft: Optional[dict] = None) -> InterpreterResult:
         started = time.perf_counter()
         user_prompt = build_user_prompt(user_input, draft)
+        _log_llm("▶ 요청", f"{user_input!r}" + (" (수정 모드 — 전략 초안 포함)" if draft else ""))
         raw = self._chat(self._system_prompt, user_prompt)
+        _log_llm("◀ 원본 응답", raw.strip())
 
         attempts = 0
         last_error: Exception | None = None
@@ -116,6 +126,11 @@ class StrategyInterpreter:
                 if draft is None and intent.intent in ("MODIFY_STRATEGY", "CLARIFY_STRATEGY") \
                         and intent.strategy is not None:
                     intent = intent.model_copy(update={"intent": "CREATE_STRATEGY"})
+                _log_llm("✓ 해석", (
+                    f"intent={intent.intent} status={intent.status} "
+                    f"patches={len(intent.patches)} repairs={attempts} "
+                    f"({round((time.perf_counter() - started) * 1000)}ms)"
+                ))
                 return InterpreterResult(
                     intent=intent,
                     raw_output=current_raw,
@@ -132,9 +147,12 @@ class StrategyInterpreter:
                     "interpreter output invalid, requesting repair | attempt=%d err=%s",
                     attempts, str(exc)[:300],
                 )
+                _log_llm(f"⟳ 복구 요청({attempts}회차)", f"검증 오류: {str(exc)[:300]}")
                 repair_prompt = build_repair_prompt(user_input, current_raw, str(exc), draft)
                 current_raw = self._chat(self._system_prompt, repair_prompt)
+                _log_llm(f"◀ 복구 응답({attempts}회차)", current_raw.strip())
 
+        _log_llm("✗ 해석 실패", f"{attempts}회 복구 후에도 스키마 불만족: {str(last_error)[:200]}")
         raise InterpreterError(
             f"LLM 출력이 {attempts}회 복구 후에도 StrategyIntent 스키마를 만족하지 않습니다: "
             f"{str(last_error)[:500]}"

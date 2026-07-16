@@ -813,6 +813,30 @@ def test_extract_json_object_from_codefence():
     assert json.loads(extract_json_object(raw)) == {"a": {"b": 1}}
 
 
+def test_llm_roundtrip_logged_to_console(capsys):
+    # LLM 원본 응답을 dev 콘솔에서 눈으로 확인할 수 있어야 한다(사용자 요청 2026-07-17)
+    good = json.dumps(_full_intent_dict(), ensure_ascii=False)
+    StrategyInterpreter(chat_fn=lambda s, u: good, model="stub").interpret("PER 10 이하")
+    out = capsys.readouterr().out
+    assert "[LLM-INTERPRETER] ▶ 요청" in out and "PER 10 이하" in out
+    assert "[LLM-INTERPRETER] ◀ 원본 응답" in out and '"CREATE_STRATEGY"' in out
+    assert "[LLM-INTERPRETER] ✓ 해석" in out
+
+
+def test_llm_repair_round_logged(capsys):
+    good = json.dumps(_full_intent_dict(), ensure_ascii=False)
+    calls = []
+
+    def chat(system, user):
+        calls.append(user)
+        return "깨진 출력" if len(calls) == 1 else good
+
+    StrategyInterpreter(chat_fn=chat, model="stub").interpret("PER 10 이하")
+    out = capsys.readouterr().out
+    assert "⟳ 복구 요청(1회차)" in out
+    assert "◀ 복구 응답(1회차)" in out
+
+
 # ─── Shadow 러너 ─────────────────────────────────────────────────────────────
 
 def test_shadow_records_diff_and_writes_log(tmp_path, monkeypatch):
