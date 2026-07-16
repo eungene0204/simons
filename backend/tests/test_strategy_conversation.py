@@ -159,26 +159,19 @@ def test_llm_noise_questions_dropped_when_deterministic_exist():
     assert len(report.clarification_questions) <= 3
 
 
-def test_llm_only_ambiguity_questions_kept():
-    # "좋은 기업에 투자하고 싶어" 류 — 결정론이 물을 게 없고(조건 자체가 없음 → 진입 질문만)
-    # LLM이 모호성 질문을 낸 경우는 유지된다
-    data = {
-        "intent": "CREATE_STRATEGY",
-        "status": "NEEDS_CLARIFICATION",
-        "confidence": 0.5,
-        "strategy": {
-            "universe": {"markets": ["KOSPI"], "sectors": []},
-            "entry_conditions": [
-                {"factor": "fundamental.per", "operator": "<=", "value": 10},
-            ],
-            "portfolio": {"selection_count": 10, "rebalance_frequency": "monthly"},
-        },
-        "clarification_questions": [
-            {"field": "strategy.entry_conditions", "question": "'좋은 기업'을 어떤 지표로 볼까요?"}
-        ],
-    }
+def test_llm_self_generated_questions_never_shown_uncorroborated():
+    # 사고(2026-07-17): "이 전략에 이름을 붙여드릴까요?" 류 LLM 잉여 질문 노출 —
+    # 결정론 검증이 지적한 누락 필드와 일치하지 않는 LLM 질문은 절대 노출하지 않는다.
+    # 완결된 전략(READY)이면 질문 자체가 비워진다.
+    data = _full_intent_dict()
+    data["status"] = "NEEDS_CLARIFICATION"  # LLM이 스스로 모호하다고 주장해도
+    data["clarification_questions"] = [
+        {"field": "strategy.name", "question": "이 전략에 이름을 붙여드릴까요?"},
+        {"field": "", "question": "요청을 정확히 이해했는지 확인해 주시겠어요?"},
+    ]
     _, report = run_validation(StrategyIntent.model_validate(data))
-    assert any("좋은 기업" in q.question for q in report.clarification_questions)
+    assert report.status == "READY"
+    assert report.clarification_questions == []
 
 
 def test_recommended_value_list_coerced_to_string():
@@ -367,11 +360,15 @@ def test_ranking_without_count_and_frequency_asks():
     assert "strategy.portfolio.rebalance_frequency" in fields
 
 
-def test_low_confidence_blocks_finalization():
+def test_low_confidence_does_not_leak_to_user():
+    # 사고(2026-07-17): "확신이 낮습니다 — 확인해 주시겠어요?"가 사용자에게 노출.
+    # confidence는 텔레메트리 전용 — 상태 판정·경고·질문 어디에도 쓰지 않는다.
     data = _full_intent_dict()
-    data["confidence"] = 0.5
+    data["confidence"] = 0.0
     _, report = run_validation(StrategyIntent.model_validate(data))
-    assert report.status == "NEEDS_CLARIFICATION"
+    assert report.status == "READY"
+    assert report.clarification_questions == []
+    assert not any("신뢰도" in w or "확신" in w for w in report.warnings)
 
 
 def test_sector_normalized_and_unknown_sector_rejected():

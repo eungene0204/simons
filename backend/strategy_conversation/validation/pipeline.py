@@ -10,15 +10,14 @@
 규제 정책 게이팅(추천/전망 차단)은 상류 intent 분류(intent/scope.py 등)가 담당한다 —
 이 파이프라인은 '실행 가능한 전략 서술'만 다룬다.
 
-confidence는 절대 신뢰하지 않는다: 높아도 검증을 생략하지 않으며, 낮으면
-추가 확인 질문을 유도하는 신호로만 쓴다(config.CONFIDENCE_*).
+confidence는 상태 판정·사용자 노출에 쓰지 않는다(4B가 자주 누락해 0.0이 되는
+신뢰 불가 신호) — 텔레메트리로만 남긴다. 검증은 confidence와 무관하게 항상 수행.
 """
 
 from __future__ import annotations
 
 from typing import Tuple
 
-from strategy_conversation import config
 from strategy_conversation.interpreter.models import StrategyIntent, ValidationReport
 from strategy_conversation.validation.capability_validator import validate_capability
 from strategy_conversation.validation.completeness_validator import validate_completeness
@@ -71,33 +70,22 @@ def run_validation(intent: StrategyIntent) -> Tuple[StrategyIntent, ValidationRe
     missing, questions = validate_completeness(intent)
     report.missing_fields.extend(missing)
     report.clarification_questions.extend(questions)
-    # LLM이 스스로 생성한 질문은 결정론 검증과 교차 확인된 것만 채택한다 — 4B가 관성으로
-    # 내는 잉여 질문(손절·비중 등 선택 필드) 노이즈 차단. 단, 결정론 질문이 전무한데
-    # LLM이 모호성을 감지한 경우("좋은 기업" 류)는 LLM 질문이 유일한 단서이므로 유지.
+    # LLM이 스스로 생성한 질문은 결정론 검증이 지적한 누락 필드와 일치할 때만 채택한다 —
+    # "전략 이름 붙여드릴까요?"·"확신이 낮은데 확인해 주시겠어요?" 류의 잉여/자기회의 질문을
+    # 사용자에게 노출하지 않는다(사고 2026-07-17). 의도 해석 책임은 시스템에 있고, 사용자에게
+    # 묻는 건 실행에 필요한 값이 실제로 비었을 때뿐이다.
     known_fields = {q.field for q in report.clarification_questions}
     for q in intent.clarification_questions:
-        corroborated = q.field and q.field in report.missing_fields
-        llm_only_ambiguity = not questions and intent.status == "NEEDS_CLARIFICATION"
-        if (corroborated or llm_only_ambiguity) and q.field not in known_fields:
+        if q.field and q.field in report.missing_fields and q.field not in known_fields:
             report.clarification_questions.append(q)
             known_fields.add(q.field)
 
-    # ── 낮은 confidence는 확정 금지 신호(검증 생략 사유가 아님)
-    if intent.confidence < config.CONFIDENCE_MIN_ACCEPT:
-        report.warnings.append(
-            f"해석 신뢰도가 낮습니다(confidence={intent.confidence:.2f}) — 전략 요약을 확인해 주세요"
-        )
-
-    # ── 최종 상태 판정
+    # ── 최종 상태 판정. confidence는 사용자 노출/상태 판정에 쓰지 않는다 — 4B가 자주
+    # 누락해 0.0이 되는 신뢰 불가 신호다. 텔레메트리(runtime.interpreter 메타)로만 남긴다.
     if report.unsupported_features and not report.missing_fields and not report.errors:
         report.status = "UNSUPPORTED"
     elif report.errors or report.missing_fields:
         report.status = "NEEDS_CLARIFICATION"
-    elif intent.confidence < config.CONFIDENCE_MIN_FINALIZE:
-        report.status = "NEEDS_CLARIFICATION"
-        report.clarification_questions.append(
-            _confidence_question(intent)
-        )
     else:
         report.status = "READY"
 
@@ -112,12 +100,3 @@ def run_validation(intent: StrategyIntent) -> Tuple[StrategyIntent, ValidationRe
         )
         report.clarification_questions = report.clarification_questions[:MAX_QUESTIONS_PER_TURN]
     return intent, report
-
-
-def _confidence_question(intent: StrategyIntent):
-    from strategy_conversation.interpreter.models import ClarificationQuestion
-
-    return ClarificationQuestion(
-        field="confidence",
-        question="요청을 정확히 이해했는지 확신이 낮습니다. 전략 요약이 의도와 맞는지 확인해 주시겠어요?",
-    )

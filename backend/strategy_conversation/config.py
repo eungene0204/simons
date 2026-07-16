@@ -1,7 +1,8 @@
 """전략 대화 파이프라인 설정 — 환경변수로 오버라이드 가능한 운영 파라미터.
 
-confidence 임계값은 절대 정확도가 아니라 '되묻기 유도' 신호로만 쓴다
-(높아도 Schema/Capability 검증은 생략하지 않는다).
+confidence는 상태 판정·사용자 노출에 쓰지 않는다(텔레메트리 전용) —
+과거의 confidence 임계값 게이트는 "확신이 낮다" 자기회의 문구가 사용자에게
+노출되는 사고(2026-07-17)로 제거됐다.
 """
 
 from __future__ import annotations
@@ -15,12 +16,6 @@ def _env_float(name: str, default: float) -> float:
     except (TypeError, ValueError):
         return default
 
-
-# confidence >= FINALIZE: 정상 검증 절차 후 확정 가능
-# MIN_ACCEPT <= confidence < FINALIZE: 검증 후 확인 질문
-# confidence < MIN_ACCEPT: 전략 확정 금지, 의미 확인 필요
-CONFIDENCE_MIN_FINALIZE = _env_float("STRATEGY_INTERPRETER_CONF_FINALIZE", 0.85)
-CONFIDENCE_MIN_ACCEPT = _env_float("STRATEGY_INTERPRETER_CONF_ACCEPT", 0.60)
 
 # LLM 출력 복구 재시도 횟수(무한 재시도 금지)
 MAX_REPAIR_ATTEMPTS = int(_env_float("STRATEGY_INTERPRETER_MAX_REPAIRS", 1))

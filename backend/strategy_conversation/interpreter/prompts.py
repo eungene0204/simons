@@ -81,6 +81,8 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
 1. 사용자가 말하지 않은 값을 절대 만들어내지 마세요. 값이 없으면 value=null로 두고
    missing_fields에 경로를, clarification_questions에 질문을 추가하고 status="NEEDS_CLARIFICATION".
    "RSI가 낮은", "부채비율이 높은"처럼 방향만 있고 수치가 없는 표현도 value=null입니다.
+   단, 수치가 명시된 근사 표현은 그 수치로 확정하세요: "8종목 정도/약 10종목/10개쯤"
+   → selection_count=8/10 (질문하지 말 것). "장기 보유"처럼 수치 없는 기간만 질문 대상입니다.
 2. '수익성이 좋은', '저평가된', '싸고 성장성 있는' 같은 정성 표현은 적절한 지표로 매핑하되
    임계값은 null (recommended_value에 제안값을 넣고 requires_confirmation=true 가능).
    정성 표현이라는 이유로 UNSUPPORTED_REQUEST로 분류하지 마세요 — 지표 매핑이 가능한 전략

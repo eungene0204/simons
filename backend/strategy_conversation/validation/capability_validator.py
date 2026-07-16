@@ -71,11 +71,9 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                         f"'{spec.display_name}' 대신 {alt_names} 조건으로 변경할 수 있습니다 (사용자 확인 필요)"
                     )
                 continue
-            if spec.supported == "PARTIALLY_SUPPORTED":
-                warnings.append(
-                    f"'{spec.display_name}'은(는) 종목·기간별 데이터 커버리지가 다를 수 있습니다 — "
-                    "백테스트 결과의 데이터 커버리지 로그를 확인하세요"
-                )
+            # PARTIALLY_SUPPORTED(재무 지표 전반)에 대한 사전 커버리지 경고는 내지 않는다 —
+            # 모든 재무 전략에 매번 붙는 블랭킷 노이즈였고(사고 2026-07-17), 실측 커버리지는
+            # 백테스트 시점의 데이터 커버리지 로그(engine/data_coverage.py, FR-BT-016)가 정본.
             if cond.operator is not None and spec.allowed_operators \
                     and cond.operator not in spec.allowed_operators:
                 errors.append(
