@@ -285,6 +285,15 @@ describe("GET /api/backtest/history", () => {
       where: { isVisible: true },
       orderBy: { createdAt: "desc" },
       take: 50,
+      // 목록 카드가 쓰는 컬럼만 select — 대용량 result blob은 제외해 응답을 가볍게 유지한다.
+      select: {
+        id: true,
+        createdAt: true,
+        strategyName: true,
+        universe: true,
+        conditions: true,
+        metrics: true,
+      },
     });
     expect(userLinkFindMany).not.toHaveBeenCalled();
   });

@@ -18,6 +18,29 @@ function formatItem(item: any) {
   };
 }
 
+// 목록 카드는 result(자산곡선·전체 거래내역이 담긴 대용량 JSON blob)를 쓰지 않는다.
+// 50개 기록의 result까지 읽어 파싱/전송하면 응답이 수 MB로 불어나 로딩이 크게 지연되므로,
+// 목록 조회에서는 카드가 실제로 쓰는 컬럼만 select 하고 result는 제외한다.
+const LIST_SELECT = {
+  id: true,
+  createdAt: true,
+  strategyName: true,
+  universe: true,
+  conditions: true,
+  metrics: true,
+} as const;
+
+function formatListItem(item: any) {
+  return {
+    id: item.id,
+    timestamp: item.createdAt.getTime(),
+    strategyName: item.strategyName,
+    universe: item.universe,
+    conditions: JSON.parse(item.conditions),
+    metrics: JSON.parse(item.metrics),
+  };
+}
+
 // 저장 목록: 로그인 사용자가 자신의 목록에 담은 기록만 반환한다(UserBacktestHistory 조인).
 // 비인증/테스트(userId=null)는 레거시 전역(isVisible) 조회로 폴백한다.
 export async function GET() {
@@ -29,18 +52,19 @@ export async function GET() {
         where: { isVisible: true },
         orderBy: { createdAt: "desc" },
         take: 50,
+        select: LIST_SELECT,
       });
-      return NextResponse.json(history.map(formatItem));
+      return NextResponse.json(history.map(formatListItem));
     }
 
     const links = await prisma.userBacktestHistory.findMany({
       where: { userId },
       orderBy: { savedAt: "desc" },
       take: 50,
-      include: { BacktestHistory: true },
+      select: { BacktestHistory: { select: LIST_SELECT } },
     });
     return NextResponse.json(
-      links.map((link) => formatItem(link.BacktestHistory))
+      links.map((link) => formatListItem(link.BacktestHistory))
     );
   } catch (error) {
     if (isUnauthorizedAccessError(error)) {
