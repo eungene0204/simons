@@ -16,10 +16,9 @@ import {
   refreshAccountValue,
   updateTradingMode,
   updateAccountStrategy,
-  deleteAccount,
 } from "@/lib/portfolio";
 import { getMarketLogs, type VirtualMarketLog } from "@/lib/virtual-market";
-import { Plus, Robot, Spinner, Trash, TrendUp } from "phosphor-react";
+import { Plus, Robot, Spinner, TrendUp } from "phosphor-react";
 import OrderBook from "@/components/order/OrderBook";
 import PortfolioPerformanceChart, { PerformancePoint } from "@/components/portfolio/PortfolioPerformanceChart";
 import StockSearchModal from "@/components/stock/StockSearchModal";
@@ -853,20 +852,6 @@ export default function VirtualAccountDetailPage() {
                   >
                     계좌닫기
                   </button>
-                  {!isClosedAccount && (
-                    <button
-                      onClick={async () => {
-                        if (!confirm(`'${account.name}' 계좌를 삭제하시겠습니까?`)) return;
-                        await deleteAccount(accountId);
-                        forgetVirtualAccountDetail(accountId);
-                        router.push("/virtual-account");
-                      }}
-                      className="flex items-center gap-1.5 px-3 py-1.5 border border-white/[0.08] rounded-xl text-xs font-bold text-gray-500 hover:text-[var(--main-red)] hover:border-[var(--main-red)]/30 transition-all duration-200"
-                    >
-                      <Trash size={13} />
-                      삭제
-                    </button>
-                  )}
                 </div>
               </div>
 
