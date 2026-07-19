@@ -38,7 +38,10 @@ export default function BacktestActivityChart({ initialRecords }: { initialRecor
   const totalCount = bars.reduce((s, b) => s + b.count, 0);
 
   return (
-    <div className="flat-card p-5 h-full flex flex-col">
+    <div
+      className="flat-card flex h-full flex-col p-3 sm:p-4 lg:p-5"
+      data-testid="backtest-activity-card"
+    >
       <div className="flex items-center justify-between mb-5">
         <div>
           <h2 className="text-base font-black uppercase tracking-widest text-gray-400 font-outfit">
@@ -63,7 +66,10 @@ export default function BacktestActivityChart({ initialRecords }: { initialRecor
           ))}
         </div>
       ) : (
-        <div className="flex items-end gap-1.5 flex-1">
+        <div
+          className="flex flex-1 items-end gap-1 lg:gap-1.5"
+          data-testid="backtest-activity-bars"
+        >
           {bars.map((bar, i) => {
             const heightPct = maxCount > 0 ? (bar.count / maxCount) * 100 : 4;
             const isActive = i === activeIdx && bar.count > 0;
@@ -108,7 +114,12 @@ export default function BacktestActivityChart({ initialRecords }: { initialRecor
         <div className="flex mt-2">
           {bars.map((bar, i) => (
             <div key={i} className="flex-1 flex justify-center">
-              <span className="text-xs text-gray-600 font-bold">{bar.date}</span>
+              <span
+                className="text-[10px] font-bold text-gray-600 lg:text-xs"
+                data-testid="backtest-activity-date"
+              >
+                {bar.date}
+              </span>
             </div>
           ))}
         </div>

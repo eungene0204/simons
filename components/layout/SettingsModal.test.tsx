@@ -95,6 +95,36 @@ describe("SettingsModal", () => {
     expect(screen.getByRole("button", { name: "결제" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "사용량" })).toBeInTheDocument();
     expect(screen.getByText("hong@example.com")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "설정" })).toHaveClass(
+      "p-2",
+      "lg:px-4",
+      "lg:py-0"
+    );
+    expect(screen.getByTestId("settings-modal-panel")).toHaveClass(
+      "h-[calc(100dvh-1rem)]",
+      "flex-col",
+      "lg:h-[min(720px,85vh)]",
+      "lg:flex-row"
+    );
+    expect(screen.getByTestId("settings-modal-sidebar")).toHaveClass(
+      "w-full",
+      "border-b",
+      "lg:w-56",
+      "lg:border-b-0",
+      "lg:border-r"
+    );
+    expect(screen.getByTestId("settings-modal-tabs")).toHaveClass(
+      "flex",
+      "overflow-x-auto",
+      "lg:block",
+      "lg:overflow-visible"
+    );
+    expect(screen.getByTestId("settings-modal-content")).toHaveClass(
+      "px-4",
+      "py-6",
+      "lg:px-10",
+      "lg:py-10"
+    );
   });
 
   it("사이드바 검색으로 메뉴를 필터링한다", async () => {
@@ -178,6 +208,17 @@ describe("SettingsModal", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Pro 요금제")).toBeInTheDocument();
     expect(screen.getByText("월간")).toBeInTheDocument();
+    expect(screen.getByTestId("settings-billing-header")).toHaveClass(
+      "flex-col",
+      "items-stretch",
+      "lg:flex-row",
+      "lg:items-start",
+      "lg:justify-between"
+    );
+    expect(screen.getByRole("button", { name: "요금제 조정" })).toHaveClass(
+      "w-full",
+      "lg:w-auto"
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "취소" }));
     await waitFor(() =>

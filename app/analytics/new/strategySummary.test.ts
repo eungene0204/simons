@@ -545,3 +545,55 @@ describe("ETF 유니버스 표시 (2026-07-19)", () => {
     ).toEqual(["ETF", "KODEX 200"]);
   });
 });
+
+describe("단일/지정 종목 백테스트 표시 (FR-STR-068)", () => {
+  it("지정 종목이 있으면 유니버스 대신 종목명 배지를 만든다", () => {
+    expect(
+      getDisplayUniverseLabels(
+        { ...baseParsed, target_symbols: ["005930"] },
+        { target_stocks: [{ symbol: "005930", name: "삼성전자" }] }
+      )
+    ).toEqual(["삼성전자 (005930)"]);
+  });
+
+  it("이름 메타데이터가 없으면 종목코드만 표시한다", () => {
+    expect(
+      getDisplayUniverseLabels({ ...baseParsed, target_symbols: ["005930"] }, null)
+    ).toEqual(["005930"]);
+  });
+
+  it("지정 종목이 없으면 기존 유니버스 라벨을 유지한다", () => {
+    expect(getDisplayUniverseLabels(baseParsed, null)).toEqual(["KOSPI"]);
+  });
+
+  it("buildStrategySummary가 단일 종목 집중 투자를 표기한다", () => {
+    const summary = buildStrategySummary(
+      { ...baseParsed, target_symbols: ["005930"] },
+      { target_stocks: [{ symbol: "005930", name: "삼성전자" }] }
+    );
+    expect(summary?.universeName).toBe("삼성전자 (005930)");
+    expect(summary?.positionText).toContain("단일 종목");
+  });
+
+  it("실행된 요청(target_stocks)에서도 종목 배지·집중 투자 문구를 만든다", () => {
+    const summary = buildStrategySummaryFromRequest({
+      universe_id: null,
+      target_stocks: [{ symbol: "005930", name: "삼성전자" }],
+      entry: { conditions: [{ id: "ma_crossover", type: "indicator" }] },
+      exit: { conditions: [] },
+      risk: { max_positions: 1, position_size_pct: 100 },
+    });
+    expect(summary?.universeName).toBe("삼성전자 (005930)");
+    expect(summary?.positionText).toBe("단일 종목 집중 투자");
+  });
+
+  it("저장 DSL(target_symbols)에서도 종목 배지·집중 투자 문구를 만든다", () => {
+    const summary = buildStrategySummaryFromDsl({
+      description: "삼성전자 골든크로스",
+      target_symbols: ["005930"],
+      risk: { max_positions: 1 },
+    } as never);
+    expect(summary?.universeName).toBe("005930");
+    expect(summary?.positionText).toContain("단일 종목");
+  });
+});

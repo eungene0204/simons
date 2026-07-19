@@ -212,14 +212,20 @@ export default function SettingsModal({
 
   return (
     <div
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-2 backdrop-blur-sm lg:px-4 lg:py-0"
       role="dialog"
       aria-modal="true"
       aria-label="설정"
     >
-      <div className="flex h-[min(720px,85vh)] w-full max-w-4xl overflow-hidden rounded-3xl border border-white/[0.08] bg-[#0a0a0a] shadow-2xl shadow-black/60">
+      <div
+        data-testid="settings-modal-panel"
+        className="flex h-[calc(100dvh-1rem)] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-white/[0.08] bg-[#0a0a0a] shadow-2xl shadow-black/60 lg:h-[min(720px,85vh)] lg:flex-row"
+      >
         {/* 사이드바 */}
-        <aside className="flex w-56 flex-shrink-0 flex-col gap-5 border-r border-white/[0.06] bg-black/40 px-3 py-5">
+        <aside
+          data-testid="settings-modal-sidebar"
+          className="flex w-full flex-shrink-0 flex-col gap-3 border-b border-white/[0.06] bg-black/40 px-3 py-3 lg:w-56 lg:gap-5 lg:border-b-0 lg:border-r lg:py-5"
+        >
           <label className="flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2.5">
             <MagnifyingGlass size={16} weight="bold" className="text-gray-500" />
             <input
@@ -232,15 +238,18 @@ export default function SettingsModal({
             />
           </label>
           <div>
-            <p className="px-3 pb-2 text-xs font-bold text-gray-600">설정</p>
-            <nav className="space-y-1">
+            <p className="hidden px-3 pb-2 text-xs font-bold text-gray-600 lg:block">설정</p>
+            <nav
+              data-testid="settings-modal-tabs"
+              className="flex gap-1 overflow-x-auto lg:block lg:space-y-1 lg:overflow-visible"
+            >
               {visibleTabs.map(({ id, label, Icon }) => (
                 <button
                   key={id}
                   type="button"
                   onClick={() => setActiveTab(id)}
                   aria-current={activeTab === id ? "page" : undefined}
-                  className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm font-black transition-colors duration-200 ${
+                  className={`flex w-auto flex-shrink-0 items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm font-black transition-colors duration-200 lg:w-full ${
                     activeTab === id
                       ? "border-[var(--accent-blue)] bg-white/[0.08] text-white"
                       : "border-transparent text-gray-400 hover:bg-white/[0.04] hover:text-gray-200"
@@ -260,12 +269,15 @@ export default function SettingsModal({
             type="button"
             aria-label="설정 모달 닫기"
             onClick={onClose}
-            className="absolute right-5 top-1 z-10 rounded-full p-2 text-gray-500 transition-colors hover:bg-white/[0.06] hover:text-white"
+            className="absolute right-2 top-1 z-10 rounded-full p-2 text-gray-500 transition-colors hover:bg-white/[0.06] hover:text-white lg:right-5"
           >
             <X size={18} weight="bold" />
           </button>
 
-          <div className="flex-1 overflow-y-auto px-10 py-10">
+          <div
+            data-testid="settings-modal-content"
+            className="flex-1 overflow-y-auto px-4 py-6 lg:px-10 lg:py-10"
+          >
             {isLoading ? (
               <p className="text-sm font-bold text-gray-500">
                 설정 정보를 불러오는 중입니다.
@@ -328,9 +340,12 @@ export default function SettingsModal({
                 ) : activeTab === "billing" ? (
                   <div className="space-y-10">
                     {/* 요금제 헤더 */}
-                    <section className="flex items-start justify-between gap-6">
-                      <div className="flex items-start gap-5">
-                        <span className="flex h-16 w-16 items-center justify-center rounded-2xl border border-white/[0.08] text-gray-300">
+                    <section
+                      data-testid="settings-billing-header"
+                      className="flex flex-col items-stretch gap-4 lg:flex-row lg:items-start lg:justify-between lg:gap-6"
+                    >
+                      <div className="flex items-start gap-4 lg:gap-5">
+                        <span className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-2xl border border-white/[0.08] text-gray-300">
                           <PlanIcon size={30} weight="bold" />
                         </span>
                         <div>
@@ -359,7 +374,7 @@ export default function SettingsModal({
                           onClose();
                           router.push("/pricing");
                         }}
-                        className="mt-1 flex-shrink-0 rounded-xl bg-white/[0.08] px-4 py-2.5 text-xs font-black text-gray-200 transition-colors duration-200 hover:bg-white/[0.14]"
+                        className="w-full flex-shrink-0 rounded-xl bg-white/[0.08] px-4 py-2.5 text-xs font-black text-gray-200 transition-colors duration-200 hover:bg-white/[0.14] lg:mt-1 lg:w-auto"
                       >
                         요금제 조정
                       </button>

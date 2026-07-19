@@ -315,6 +315,15 @@ class ParsedStrategy(BaseModel):
         # 업종) 항목은 버린다 — 침묵 왜곡 방지는 미지원 개념 안내가 담당한다.
         return normalize_sector_value(v)
 
+    # ── 단일/지정 종목 백테스트 (FR-STR-068)
+    # 사용자가 특정 종목("삼성전자에 골든크로스")을 지정하면 유니버스(종목 선정) 대신 이
+    # 종목만 백테스트한다. 종목명→코드 해석은 LLM이 아니라 결정적 추출(_apply_prompt_overrides
+    # → _extract_target_symbols)이 채운다 — LLM은 이 필드를 출력하지 않는다(기본 빈 배열).
+    target_symbols: List[str] = Field(
+        default_factory=list,
+        description="지정 종목 백테스트 대상 종목코드(시스템이 결정적으로 추출). LLM은 채우지 말 것",
+    )
+
     @model_validator(mode="before")
     @classmethod
     def _repair_llm_schema_drift(cls, data):
@@ -1076,6 +1085,19 @@ class NLStrategyParser:
         )
         if sector_changed:
             merged["sector"] = sector_value
+
+        # 지정 종목(단일 종목 백테스트) 변경도 결정적 판정이 정본이다 — LLM diff 스키마에는
+        # target_symbols가 없어(종목명→코드 해석을 LLM에 맡기지 않음) 여기서만 갱신된다.
+        # 침묵(변경 판정 없음) 시 previous 값이 병합으로 보존된다.
+        target_changed, target_value = _target_change_from_utterance(
+            user_input, previous.get("target_symbols")
+        )
+        if target_changed:
+            merged["target_symbols"] = target_value
+        elif previous.get("target_symbols") and sector_changed and sector_value is not None:
+            # 업종 전환 발화는 문맥 가드('업종')에 종목 추출이 침묵하므로 섹터 판정을 신뢰해
+            # 지정 종목을 해제한다(_apply_prompt_overrides와 동형).
+            merged["target_symbols"] = []
 
         # The LLM diff is authoritative; post-processing only enforces schema safety.
         result = ParsedStrategy.model_validate(merged)
@@ -3100,8 +3122,11 @@ def _parse_rule_based_strategy(user_input: str) -> Optional[ParsedStrategy]:
     # 전략인데, 청산을 따로 안 적었다는 이유로 LLM 폴백(콜드스타트 시 수십 초)으로 새지 않게 한다.
     # (기술적 진입 신호만 있고 청산이 없는 경우는 의도적으로 LLM에 위임한다 —
     #  test_technical_entry_without_exit_still_falls_back 참고.)
+    # 단, 지정 종목 백테스트("삼성전자에 골든크로스 전략")는 청산 누락을
+    # apply_single_asset_adjustments가 추천 청산/안내로 보정하므로 LLM에 위임하지 않는다.
     periodic_rebalance = bool(ranking_metric or fundamental_filters)
-    if not has_entry or not (has_exit or has_risk_exit or periodic_rebalance):
+    single_asset_entry = bool(entry_signals and _extract_target_symbols(user_input))
+    if not has_entry or not (has_exit or has_risk_exit or periodic_rebalance or single_asset_entry):
         return None
 
     rebalancing_period = _extract_rebalancing_period(user_input, hold_period_days)
@@ -3234,15 +3259,17 @@ _ENTRY_SIGNAL_REPLACE_RE = re.compile(
 )
 
 
-def _modify_residual_is_clean(user_input: str, changed_fields) -> bool:
+def _modify_residual_is_clean(user_input: str, changed_fields, extra_vocab=()) -> bool:
     """변경된 필드의 cue·숫자·필러·단위를 모두 차감한 뒤 남는 콘텐츠가 없으면 True.
 
     인식하지 못한 내용(예: '변동성 큰 종목 빼줘')이 남으면 False → LLM에 위임한다.
     표현별 정규식을 늘리는 대신 'cue/필러/단위 차감 후 잔여 콘텐츠' 한 규칙으로 일반화한다.
+    extra_vocab: 동적 어휘(지정 종목의 등록명·별칭·코드 등) — 정적 cue 목록에 없는
+    표면형을 함께 차감한다.
     """
     residual = _compact(user_input)
     residual = residual.replace("%", "")
-    cues: list[str] = []
+    cues: list[str] = [_compact(v) for v in extra_vocab]
     for field in changed_fields:
         cues.extend(_MODIFY_FIELD_CUES.get(field, []))
     # 긴 키워드부터 제거(짧은 키워드가 긴 표현을 부분 절단하는 것 방지).
@@ -3408,6 +3435,14 @@ def _modify_rule_based(user_input: str, previous: dict) -> Optional[ParsedStrate
     if sector_changed:
         changes["sector"] = sector_value
 
+    # 지정 종목 교체/지정("SK하이닉스로 바꿔줘") — 종목 표면형(등록명·별칭·코드)은 잔여
+    # 판정에서 차감해야 fast-path가 살아남는다(별칭 '하이닉스'는 등록명과 달라 별도 수집).
+    target_vocab: list[str] = []
+    target_refs = _extract_target_symbols(user_input)
+    if target_refs is not None:
+        changes["target_symbols"] = [ref.symbol for ref in target_refs]
+        target_vocab = _target_surface_forms(target_refs)
+
     max_positions = _extract_max_positions(user_input)
     if max_positions is not None:
         changes["max_positions"] = max_positions
@@ -3452,7 +3487,7 @@ def _modify_rule_based(user_input: str, previous: dict) -> Optional[ParsedStrate
 
     if not changes:
         return None
-    if not _modify_residual_is_clean(user_input, changes.keys()):
+    if not _modify_residual_is_clean(user_input, changes.keys(), extra_vocab=target_vocab):
         return None
 
     merged = {**previous}
@@ -3764,6 +3799,142 @@ def resolve_coach_context_risk(
     return (field, pct) if field else None
 
 
+# ── 단일/지정 종목 백테스트: 결정적 종목 추출 (FR-STR-068) ────────────────────
+# 종목명·코드·통칭은 stock_analysis.symbol_resolver(korea-stocks.json)가 정본이다.
+# 아래 문맥 cue가 섞인 발화는 종목이 '대상 지정'이 아니라 예시·업종 서술·제외일 수 있어
+# 추출을 포기한다(오폭 시 유니버스 전략을 조용히 단일 종목으로 바꿔버리는 사고 방지).
+# — "삼성전자 같은 대형주", "삼성전자가 속한 반도체 업종", "삼성전자 빼고" 등.
+# 종목질문 리다이렉트·전략 빌더가 합성하는 업종 전략 문구도 이 가드가 보호한다.
+_TARGET_SYMBOL_CONTEXT_GUARD_RE = re.compile(
+    r"같은|처럼|비슷한|속한|업종|섹터|관련주|테마|주도주|제외|빼고|말고"
+)
+
+
+def _extract_target_symbols(user_input: str) -> Optional[list]:
+    """프롬프트에서 지정 종목(StockRef 목록)을 결정적으로 추출한다.
+
+    국내 종목만 대상으로 한다(해외 별칭은 백테스트 데이터가 없어 제외). 문맥 가드에
+    걸리거나 종목 언급이 없으면 None — '지정 없음'이며 기존 값을 건드리지 않는다는 뜻.
+    """
+    if not user_input:
+        return None
+    try:
+        from stock_analysis.symbol_resolver import find_in_text
+    except Exception:
+        return None
+    if _TARGET_SYMBOL_CONTEXT_GUARD_RE.search(_compact(user_input)):
+        return None
+    refs = [ref for ref in find_in_text(user_input) if not ref.overseas]
+    return refs or None
+
+
+def _target_surface_forms(refs: list) -> list[str]:
+    """추출된 종목의 표면형(등록명·통칭 별칭·코드)을 반환한다 — 잔여 텍스트 차감용.
+
+    별칭('하이닉스')으로 매칭돼도 StockRef는 등록명(SK하이닉스)만 담으므로, 그 종목을
+    가리키는 별칭 전부를 함께 돌려줘야 수정 fast-path의 잔여 판정이 깨끗해진다.
+    """
+    from stock_analysis.symbol_resolver import _KOREAN_ALIASES
+
+    forms: list[str] = []
+    for ref in refs:
+        forms.extend([ref.name, ref.symbol])
+        forms.extend(alias for alias, code in _KOREAN_ALIASES.items() if code == ref.symbol)
+    return forms
+
+
+def _target_change_from_utterance(
+    user_input: str, previous_targets: Optional[list],
+) -> tuple[bool, list[str]]:
+    """수정/파싱 발화에서 지정 종목 변경을 통합 판정한다(섹터 판정과 동형).
+
+    - 종목 언급 → (True, 코드 목록): 지정/교체
+    - 명시적 시장·유니버스 발화("코스닥 전체로", "ETF로") + 종목 언급 없음 → (True, []): 해제
+    - 그 외 → (False, 기존 유지)
+    """
+    refs = _extract_target_symbols(user_input)
+    if refs is not None:
+        return True, [ref.symbol for ref in refs]
+    if previous_targets and _extract_explicit_universe(user_input) is not None:
+        return True, []
+    return False, list(previous_targets or [])
+
+
+# 지정 종목 백테스트에서 청산 조건이 전혀 없을 때, 반대 신호 청산을 추천 적용할 수 있는
+# 크로스오버 계열 지표(진입=상향 교차 → 청산=하향 교차가 정준 해석인 것들만).
+_OPPOSITE_EXIT_INDICATORS = {"ma_crossover", "ema", "macd"}
+
+
+def apply_single_asset_adjustments(parsed: ParsedStrategy) -> tuple[ParsedStrategy, list[str]]:
+    """지정 종목 전략의 누락 조건을 추천 기본값으로 보정하고 안내 문구를 돌려준다.
+
+    조용한 임의 실행을 피한다(FR-STR-068): 청산 조건이 전혀 없으면
+    ① 크로스오버 계열 진입 → 반대 신호 청산을 추천 적용 + 안내,
+    ② 그 외 → 자동 주입 없이 '기간 종료까지 보유' 사실과 추가 옵션을 안내(비차단 notices).
+    유니버스 전략에는 손대지 않는다.
+    """
+    # getattr 방어 — 레거시 저장 DSL·테스트 스텁 등 target_symbols 없는 객체는 유니버스 취급.
+    if not getattr(parsed, "target_symbols", None):
+        return parsed, []
+    notices: list[str] = []
+    has_exit = bool(
+        parsed.exit_signals
+        or parsed.hold_period_days
+        or parsed.stop_loss_pct is not None
+        or parsed.take_profit_pct is not None
+        or parsed.trailing_stop_pct is not None
+        or parsed.max_mdd_limit_pct is not None
+        or (parsed.rebalancing_period and parsed.rebalancing_period != "none")
+    )
+    if has_exit or not parsed.entry_signals:
+        return parsed, notices
+
+    opposite_exits = [
+        sig.model_copy(update={"signal_type": "sell"})
+        for sig in parsed.entry_signals
+        if sig.indicator in _OPPOSITE_EXIT_INDICATORS and sig.signal_type == "buy"
+    ]
+    if opposite_exits:
+        parsed = parsed.model_copy(update={"exit_signals": opposite_exits})
+        notices.append(
+            "청산 조건이 없어 진입 신호의 반대 신호 청산(예: 골든크로스 진입 → 데드크로스 "
+            "청산)을 추천 기본값으로 적용했습니다. 손절/익절/보유기간 등 다른 청산 방식을 "
+            "원하시면 말씀해 주세요."
+        )
+    else:
+        notices.append(
+            "청산 조건이 지정되지 않아 백테스트 기간 종료까지 보유합니다. 반대 신호 청산, "
+            "손절/익절, 트레일링 스탑, 고정 보유기간 등을 추가로 지정할 수 있습니다."
+        )
+    return parsed, notices
+
+
+def detect_symbol_ambiguity(
+    parsed: ParsedStrategy,
+) -> tuple[Optional[str], Optional[List[str]]]:
+    """여러 종목이 함께 지정된 경우 임의로 하나를 고르지 않고 되묻는다(FR-STR-068).
+
+    비차단 clarification — 그대로 진행하면 언급된 종목 전체를 함께 백테스트한다.
+    """
+    # getattr 방어 — 테스트 스텁·레거시 객체는 유니버스 취급(되묻기 없음).
+    if len(getattr(parsed, "target_symbols", None) or []) <= 1:
+        return (None, None)
+    from stock_analysis.symbol_resolver import resolve_by_symbol
+
+    labels = []
+    suggestions = []
+    for code in parsed.target_symbols:
+        ref = resolve_by_symbol(code)
+        name = ref.name if ref else code
+        labels.append(f"{name}({code})")
+        suggestions.append(f"{name}만으로 백테스트해줘")
+    question = (
+        f"여러 종목({', '.join(labels)})이 함께 언급되었습니다. 한 종목만 테스트하려면 "
+        "종목을 골라 주세요. 그대로 진행하면 언급된 종목 전체를 함께 백테스트합니다."
+    )
+    return (question, suggestions)
+
+
 def _apply_prompt_overrides(
     parsed: ParsedStrategy, user_input: str, *,
     skip_signal_validation: bool = False, preserve_universe: bool = False,
@@ -3788,6 +3959,18 @@ def _apply_prompt_overrides(
         updates["sector"] = sector_value
         if sector_value is not None and explicit_universe is None and not preserve_universe:
             updates["universe"] = ["KOSPI", "KOSDAQ"]
+
+    # 지정 종목(단일 종목 백테스트)도 결정적으로 판정한다 — 종목 언급이면 지정/교체,
+    # 종목 없이 명시적 시장/업종 전환 발화면 해제, 그 외에는 기존 값 유지(수정 모드 보호).
+    target_changed, target_value = _target_change_from_utterance(
+        user_input, parsed.target_symbols
+    )
+    if target_changed and target_value != parsed.target_symbols:
+        updates["target_symbols"] = target_value
+    elif parsed.target_symbols and sector_changed and sector_value is not None:
+        # 업종 제한으로 전환하는 발화("반도체 업종으로 바꿔줘")는 문맥 가드('업종')에 걸려
+        # 종목 추출이 침묵하므로, 섹터 변경 판정을 신뢰해 종목 지정을 해제한다.
+        updates["target_symbols"] = []
 
     # ── ETF 유니버스 정규화 ──
     # model_copy(update=...)는 검증기를 다시 돌리지 않으므로 _normalize_etf_universe와

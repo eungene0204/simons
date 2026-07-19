@@ -102,6 +102,20 @@ describe("BacktestDashboard 저장 — 히스토리 중복 카드 방지", () =>
     // 저장 모달 열기 → 이름 입력 → 저장
     await user.click(screen.getByRole("button", { name: /전략 저장/ }));
     const nameInput = await screen.findByPlaceholderText("전략 이름을 입력하세요");
+    expect(screen.getByTestId("backtest-save-modal-backdrop")).toHaveClass("p-2", "lg:p-0");
+    expect(screen.getByTestId("backtest-save-modal-panel")).toHaveClass(
+      "max-h-[calc(100dvh-1rem)]",
+      "overflow-y-auto",
+      "p-4",
+      "lg:mx-4",
+      "lg:max-h-none",
+      "lg:overflow-visible",
+      "lg:p-6"
+    );
+    expect(screen.getByTestId("backtest-save-modal-metrics")).toHaveClass(
+      "grid-cols-2",
+      "sm:grid-cols-3"
+    );
     await user.type(nameInput, "pbr, roe 전략");
     // 모달의 저장 버튼(정확히 "저장" — 트리거 "전략 저장"과 구분).
     await user.click(screen.getByRole("button", { name: "저장" }));

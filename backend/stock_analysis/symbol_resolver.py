@@ -129,8 +129,10 @@ def _is_valid_boundary(text: str, pos: int, is_after: bool) -> bool:
         # 한글 글자가 아니면 경계 (띄어쓰기, 기호 등)
         if not ('가' <= ch <= '힯'):  # 가-힣 범위만 체크
             return True
-        # 한글 글자이더라도 조사(와, 은, 는, 이, 가, 을, 를, 도 등)면 경계로 본다
-        if ch in '와을를이가도은는':
+        # 한글 글자이더라도 조사(와, 은, 는, 이, 가, 을, 를, 도 등)면 경계로 본다.
+        # '에/로/으(로)/의/만/과/랑'도 포함 — "삼성전자에 골든크로스 적용", "하이닉스로 바꿔줘",
+        # "삼성전자만" 같은 지정 종목 발화(FR-STR-068)가 경계 불인정으로 무매칭되던 것 보정.
+        if ch in '와과을를이가도은는에로으의만랑':
             return True
         return False
     else:
@@ -185,7 +187,9 @@ def find_in_text(text: str) -> list[StockRef]:
 
     # 2) 6자리 종목코드 직접 입력 — 숫자 6자리 + 일부 종목(스팩/신규상장 등)의
     #    영문 포함 코드(예: '0126Z0')도 인식한다. 첫 글자가 숫자라 영단어 오탐을 피한다.
-    for code in re.findall(r"\b\d[0-9A-Za-z]{5}\b", remaining):
+    #    \b는 유니코드 단어 경계라 한글 조사가 붙은 "005930에"를 놓친다 → 영숫자 부재
+    #    lookaround로 경계를 판정한다.
+    for code in re.findall(r"(?<![0-9A-Za-z])\d[0-9A-Za-z]{5}(?![0-9A-Za-z])", remaining):
         code = code.upper()
         if code not in seen and code in _symbol_index():
             ref = resolve_by_symbol(code)

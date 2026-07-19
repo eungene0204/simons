@@ -496,10 +496,16 @@ export default function RunAllTestsModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 lg:p-4">
       <div className="absolute inset-0 bg-black/70" onClick={onClose} />
-      <div className="relative flex h-[min(88vh,920px)] w-full max-w-6xl flex-col overflow-hidden rounded-3xl border border-white/[0.08] bg-[#0f0f0f]">
-        <div className="flex items-start justify-between gap-4 border-b border-white/[0.08] px-5 py-4">
+      <div
+        data-testid="run-all-tests-modal-panel"
+        className="relative flex h-[calc(100dvh-1rem)] w-full max-w-6xl flex-col overflow-hidden rounded-3xl border border-white/[0.08] bg-[#0f0f0f] lg:h-[min(88vh,920px)]"
+      >
+        <div
+          data-testid="run-all-tests-modal-header"
+          className="flex items-start justify-between gap-4 border-b border-white/[0.08] px-4 py-3 lg:px-5 lg:py-4"
+        >
             <div className="space-y-1">
             <div className="flex items-center gap-2">
               <Sparkle size={16} className="text-sky-400" weight="fill" />
@@ -518,7 +524,7 @@ export default function RunAllTestsModal({
           </button>
         </div>
 
-        <div className="flex-1 overflow-auto p-5">
+        <div data-testid="run-all-tests-modal-content" className="flex-1 overflow-auto p-3 lg:p-5">
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-[0.9fr_1.1fr]">
             <div className="space-y-4">
               <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-4 space-y-3">
@@ -700,65 +706,73 @@ export default function RunAllTestsModal({
                     완료된 결과가 아직 없습니다.
                   </p>
                 ) : (
-                  <div className="space-y-2">
-                    <div className="grid grid-cols-[0.7fr_2.2fr_repeat(6,minmax(0,1fr))] gap-2 px-2 text-[10px] font-black uppercase tracking-[0.15em] text-gray-600">
-                      <span>Rank</span>
-                      <span>Strategy</span>
-                      {[
-                        ["cagr", "CAGR"],
-                        ["totalReturn", "Total Return"],
-                        ["sharpe", "Sharpe"],
-                        ["maxDrawdown", "MDD"],
-                        ["profitFactor", "Profit Factor"],
-                        ["trades", "Trades"],
-                      ].map(([key, label]) => (
-                        <button
-                          key={key}
-                          type="button"
-                          onClick={() => handleSort(key as SortKey)}
-                          className="text-left"
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
+                  <div
+                    data-testid="run-all-tests-leaderboard-scroll"
+                    className="overflow-x-auto lg:overflow-x-visible"
+                  >
+                    <div
+                      data-testid="run-all-tests-leaderboard-grid"
+                      className="min-w-[760px] space-y-2 lg:min-w-0"
+                    >
+                      <div className="grid grid-cols-[0.7fr_2.2fr_repeat(6,minmax(0,1fr))] gap-2 px-2 text-[10px] font-black uppercase tracking-[0.15em] text-gray-600">
+                        <span>Rank</span>
+                        <span>Strategy</span>
+                        {[
+                          ["cagr", "CAGR"],
+                          ["totalReturn", "Total Return"],
+                          ["sharpe", "Sharpe"],
+                          ["maxDrawdown", "MDD"],
+                          ["profitFactor", "Profit Factor"],
+                          ["trades", "Trades"],
+                        ].map(([key, label]) => (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => handleSort(key as SortKey)}
+                            className="text-left"
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
 
-                    {rankedItems.map((item, index) => {
-                      const isBest = index === 0;
-                      return (
-                        <div
-                          key={item.id}
-                          className={`grid grid-cols-[0.7fr_2.2fr_repeat(6,minmax(0,1fr))] gap-2 rounded-2xl border px-3 py-3 text-xs ${
-                            isBest ? "border-emerald-400/30 bg-emerald-400/10" : "border-white/[0.06] bg-black/20"
-                          }`}
-                        >
-                          <div className="flex items-center gap-1 text-white">
-                            <span className="font-black">{index + 1}</span>
-                            {isBest && <Crown size={12} className="text-emerald-300" weight="fill" />}
-                          </div>
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <p className="truncate font-black text-white">{item.name}</p>
-                              {isBest && (
-                                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.14em] text-emerald-200">
-                                  <CheckCircle size={10} weight="fill" />
-                                  최고 성과
-                                </span>
-                              )}
+                      {rankedItems.map((item, index) => {
+                        const isBest = index === 0;
+                        return (
+                          <div
+                            key={item.id}
+                            className={`grid grid-cols-[0.7fr_2.2fr_repeat(6,minmax(0,1fr))] gap-2 rounded-2xl border px-3 py-3 text-xs ${
+                              isBest ? "border-emerald-400/30 bg-emerald-400/10" : "border-white/[0.06] bg-black/20"
+                            }`}
+                          >
+                            <div className="flex items-center gap-1 text-white">
+                              <span className="font-black">{index + 1}</span>
+                              {isBest && <Crown size={12} className="text-emerald-300" weight="fill" />}
                             </div>
-                            <p className="mt-1 truncate text-[11px] font-bold text-gray-500">
-                              {getStatusLabel(item.status)} · {item.result?.strategyId ?? "-"}
-                            </p>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <p className="truncate font-black text-white">{item.name}</p>
+                                {isBest && (
+                                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.14em] text-emerald-200">
+                                    <CheckCircle size={10} weight="fill" />
+                                    최고 성과
+                                  </span>
+                                )}
+                              </div>
+                              <p className="mt-1 truncate text-[11px] font-bold text-gray-500">
+                                {getStatusLabel(item.status)} · {item.result?.strategyId ?? "-"}
+                              </p>
+                            </div>
+                            <span className="font-black text-white">{formatMetric(item.result?.cagr, 2, "%")}</span>
+                            <span className="font-black text-white">{formatMetric(item.result?.totalReturn, 2, "%")}</span>
+                            <span className="font-black text-white">{formatMetric(item.result?.sharpe)}</span>
+                            <span className="font-black text-white">{formatMetric(item.result?.maxDrawdown, 2, "%")}</span>
+                            <span className="font-black text-white">{formatMetric(item.result?.profitFactor)}</span>
+                            <span className="font-black text-white">{formatMetric(item.result?.trades, 0)}</span>
                           </div>
-                          <span className="font-black text-white">{formatMetric(item.result?.cagr, 2, "%")}</span>
-                          <span className="font-black text-white">{formatMetric(item.result?.totalReturn, 2, "%")}</span>
-                          <span className="font-black text-white">{formatMetric(item.result?.sharpe)}</span>
-                          <span className="font-black text-white">{formatMetric(item.result?.maxDrawdown, 2, "%")}</span>
-                          <span className="font-black text-white">{formatMetric(item.result?.profitFactor)}</span>
-                          <span className="font-black text-white">{formatMetric(item.result?.trades, 0)}</span>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </div>

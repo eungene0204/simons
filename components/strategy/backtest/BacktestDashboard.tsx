@@ -1095,7 +1095,8 @@ export default function BacktestDashboard({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            data-testid="backtest-save-modal-backdrop"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2 backdrop-blur-sm lg:p-0"
             onClick={(e) => { if (e.target === e.currentTarget) setIsSaveModalOpen(false); }}
           >
             <motion.div
@@ -1103,7 +1104,8 @@ export default function BacktestDashboard({
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 8 }}
               transition={{ type: "spring", bounce: 0.2, duration: 0.35 }}
-              className="bg-[#111111] border border-white/10 rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl"
+              data-testid="backtest-save-modal-panel"
+              className="max-h-[calc(100dvh-1rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-white/10 bg-[#111111] p-4 shadow-2xl lg:mx-4 lg:max-h-none lg:overflow-visible lg:p-6"
             >
               <div className="flex items-center justify-between mb-5">
                 <div className="flex items-center gap-2.5">
@@ -1119,7 +1121,10 @@ export default function BacktestDashboard({
               </div>
 
               {/* 저장될 주요 지표 미리보기 */}
-	              <div className="grid grid-cols-3 gap-3 mb-5 p-4 bg-white/[0.03] rounded-xl border border-white/5">
+              <div
+                data-testid="backtest-save-modal-metrics"
+                className="mb-5 grid grid-cols-2 gap-3 rounded-xl border border-white/5 bg-white/[0.03] p-4 sm:grid-cols-3"
+              >
                 <div className="text-center">
                   <p className="text-xs text-gray-500 mb-1">총 수익률</p>
                   <p className={`text-xl font-black ${metricValueColor(result.totalReturn)}`}>

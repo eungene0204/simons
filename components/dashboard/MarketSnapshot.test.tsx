@@ -45,5 +45,14 @@ describe("MarketSnapshot", () => {
     expect(await screen.findByText("코스피")).toBeInTheDocument();
     expect(screen.getByText("코스닥")).toBeInTheDocument();
     expect(screen.getByText("나스닥")).toBeInTheDocument();
+    expect(screen.getByTestId("market-snapshot-grid")).toHaveClass(
+      "grid-cols-2",
+      "sm:grid-cols-3",
+      "lg:grid-cols-6"
+    );
+    expect(screen.getAllByTestId("market-snapshot-cell")[0]).toHaveClass(
+      "p-2",
+      "sm:p-3"
+    );
   });
 });

@@ -176,6 +176,9 @@ def to_canonical_strategy_dsl(strategy: ParsedStrategy) -> dict:
     """
     canonical = _drop_none({
         "universe": sorted(strategy.universe),
+        # 지정 종목(단일 종목 백테스트) — 빈 배열이면 None→_drop_none 제거로 기존
+        # 유니버스 전략의 해시가 변하지 않는다. 종목이 다르면 다른 전략(다른 해시)이다.
+        "target_symbols": sorted(strategy.target_symbols) if strategy.target_symbols else None,
         # None이면 _drop_none이 제거하므로 섹터 없는 기존 전략의 해시는 변하지 않는다.
         # 단일 섹터는 정규형이 str이라 기존 해시와 동일하고, 복수(list)만 정렬해
         # 순서 무관 동일 해시를 보장한다(FR-STR-066 ⑦).
@@ -336,8 +339,13 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
     strategy_id = compute_strategy_id(strategy)
     canonical_strategy_dsl = to_canonical_strategy_dsl(strategy)
 
-    # 1. 심볼 목록
-    symbols = _load_universe(strategy.universe) if resolve_symbols else []
+    # 1. 심볼 목록 — 지정 종목(단일 종목 백테스트)이면 유니버스를 해석하지 않고 그 종목만
+    # 쓴다. universe_id=None이라 엔진의 PIT 재해석(생존편향 보정)도 목록을 건드리지 않는다.
+    target_symbols = list(strategy.target_symbols or [])
+    if target_symbols:
+        symbols = target_symbols
+    else:
+        symbols = _load_universe(strategy.universe) if resolve_symbols else []
 
     # 2. 진입 조건 구성
     entry_conditions = []
@@ -373,9 +381,14 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
     if strategy.rebalancing_period and strategy.rebalancing_period != "none":
         max_holding_days = None
 
+    # 지정 종목 모드: 종목 선정(횡단면 랭킹)이 없고, 자금은 지정 종목 수만큼 균등 배분한다
+    # (단일 종목이면 100%). max_positions 기본값(10)을 그대로 두면 1종목에 10%만 투자된다.
+    if target_symbols:
+        position_size_pct = round(100.0 / len(target_symbols), 2)
+
     risk = {
         "position_size_pct": position_size_pct,
-        "max_positions": strategy.max_positions,
+        "max_positions": len(target_symbols) if target_symbols else strategy.max_positions,
         "stop_loss_pct": strategy.stop_loss_pct,
         "take_profit_pct": strategy.take_profit_pct,
         "trailing_stop_pct": strategy.trailing_stop_pct,
@@ -383,7 +396,7 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         "max_holding_days": max_holding_days,
         "rebalancing_period": strategy.rebalancing_period,
         "init_cash": strategy.initial_capital,
-        "ranking_enabled": True,
+        "ranking_enabled": not target_symbols,
         "ranking_weight_value": 0.5,
         "ranking_weight_quality": 0.5,
         "ranking_metric": strategy.ranking_metric,
@@ -396,17 +409,31 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
     # ["KOSDAQ"] → "kosdaq", ["KOSPI", "KOSDAQ"] → "kospi_kosdaq", ["KOSPI200"] → "kospi200"
     universe_id = "_".join(m.lower() for m in sorted(strategy.universe)) if strategy.universe else "kospi200"
 
+    # 지정 종목 표시용 이름 해석(코드→등록명). 표시 메타데이터일 뿐 엔진은 symbols만 쓴다.
+    target_stocks = None
+    if target_symbols:
+        from stock_analysis.symbol_resolver import resolve_by_symbol
+
+        target_stocks = []
+        for code in target_symbols:
+            ref = resolve_by_symbol(code)
+            target_stocks.append({"symbol": code, "name": ref.name if ref else code})
+
     return {
         "strategy_id": strategy_id,
         "canonical_strategy_dsl": canonical_strategy_dsl,
         "symbols": symbols,
-        "symbol_count": len(symbols) if resolve_symbols else _estimate_universe_symbol_count(strategy.universe),
-        "symbols_resolved": resolve_symbols,
-        "universe_id": universe_id,
+        "symbol_count": len(symbols) if (resolve_symbols or target_symbols) else _estimate_universe_symbol_count(strategy.universe),
+        "symbols_resolved": bool(resolve_symbols or target_symbols),
+        # 지정 종목 모드에서는 유니버스/섹터/ETF 테마가 적용되지 않는다 — universe_id=None이면
+        # 엔진이 심볼 목록을 그대로 쓴다(PIT 재해석·섹터 필터 미적용).
+        "universe_id": None if target_symbols else universe_id,
+        "backtest_mode": "single_asset" if target_symbols else "universe",
+        "target_stocks": target_stocks,
         # 섹터 제한 — 엔진이 PIT 유니버스 해석 후 심볼을 이 섹터로 필터링한다.
-        "sector": strategy.sector,
+        "sector": None if target_symbols else strategy.sector,
         # ETF 테마/상품명 필터 — universe_id="etf"일 때 엔진이 이름 키워드로 좁힌다.
-        "etf_theme": strategy.etf_theme,
+        "etf_theme": None if target_symbols else strategy.etf_theme,
         "entry": {"conditions": entry_conditions},
         "exit": {"conditions": exit_conditions},
         "risk": risk,

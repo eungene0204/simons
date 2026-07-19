@@ -593,7 +593,8 @@ export default function QuickSearchModal({
 
   return (
     <div
-      className="fixed left-1/2 z-[70] -translate-x-1/2 px-3"
+      data-testid="quick-search-positioner"
+      className="fixed left-1/2 z-[70] -translate-x-1/2 px-0 lg:px-3"
       style={{
         top: "calc(var(--top-menu-bar-height, 72px) + 8px)",
         width: "min(640px, calc(100vw - 24px))",
@@ -601,9 +602,10 @@ export default function QuickSearchModal({
     >
       <div
         ref={panelRef}
-        className="overflow-hidden rounded-2xl border border-white/[0.07] bg-[#1e1f27]/95 shadow-[0_16px_48px_rgba(0,0,0,0.5)] backdrop-blur-2xl"
+        data-testid="quick-search-panel"
+        className="flex max-h-[calc(100dvh_-_var(--top-menu-bar-height,72px)_-_1rem)] flex-col overflow-hidden rounded-2xl border border-white/[0.07] bg-[#1e1f27]/95 shadow-[0_16px_48px_rgba(0,0,0,0.5)] backdrop-blur-2xl"
       >
-        <div className="px-4 pb-3 pt-4">
+        <div data-testid="quick-search-header" className="flex-none px-3 pb-3 pt-3 lg:px-4 lg:pt-4">
           <div className="relative">
             <MagnifyingGlass
               size={18}
@@ -639,7 +641,10 @@ export default function QuickSearchModal({
           )}
         </div>
 
-        <div className="h-[480px] overflow-y-auto px-4 pb-4 pt-1">
+        <div
+          data-testid="quick-search-results"
+          className="h-[480px] min-h-0 flex-1 overflow-y-auto px-3 pb-3 pt-1 lg:px-4 lg:pb-4"
+        >
           {loading ? (
             <div className="flex h-full items-center justify-center text-sm text-gray-500">
               검색 중...

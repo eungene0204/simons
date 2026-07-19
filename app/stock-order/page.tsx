@@ -26,6 +26,10 @@ import {
   applyRealtimeToLatestCandle,
   resolveMarketPreviousClose,
 } from "@/app/stock-order/market-candles";
+import PriceHistoryViewport from "@/app/stock-order/PriceHistoryViewport";
+import StockChartFrame from "@/app/stock-order/StockChartFrame";
+import MarketDataPanelFrame from "@/app/stock-order/MarketDataPanelFrame";
+import OrderBookFrame from "@/app/stock-order/OrderBookFrame";
 import { useOrderAccount } from "@/contexts/OrderAccountContext";
 import {
   getAllAccounts,
@@ -699,14 +703,17 @@ function OrderPageContent() {
       {/* 주문 결과 모달 */}
       {orderModal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 lg:p-0"
+          role="dialog"
+          aria-modal="true"
+          aria-label="주문 결과"
           onClick={() => setOrderModal(null)}
         >
           <div
-            className="bg-[#161616] border border-white/[0.08] rounded-2xl w-full max-w-sm mx-4 overflow-hidden"
+            className="mx-0 flex max-h-[calc(100dvh-2rem)] w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#161616] lg:mx-4 lg:max-h-none"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className={`flex flex-col items-center pt-8 pb-4 px-6 ${
+            <div className={`flex flex-none flex-col items-center px-4 pb-3 pt-6 lg:px-6 lg:pb-4 lg:pt-8 ${
               orderModal.type === "success" ? "bg-gradient-to-b from-[var(--main-red)]/10 to-transparent" :
               orderModal.type === "pending" ? "bg-gradient-to-b from-amber-500/10 to-transparent" :
               "bg-gradient-to-b from-white/[0.04] to-transparent"
@@ -733,7 +740,7 @@ function OrderPageContent() {
                 </>
               )}
             </div>
-            <div className="px-6 pb-6 space-y-3">
+            <div className="min-h-0 space-y-3 overflow-y-auto px-4 pb-4 lg:px-6 lg:pb-6">
               {orderModal.type === "success" && (
                 <div className="bg-white/[0.03] rounded-xl p-4 space-y-2 mt-2 border border-white/[0.05]">
                   <div className="flex justify-between text-xs font-bold">
@@ -872,9 +879,8 @@ function OrderPageContent() {
                 className="grid grid-cols-1 divide-y divide-white/[0.08] lg:grid-cols-10 lg:divide-x lg:divide-y-0"
               >
                 {/* 캔들차트 */}
-                <div
-                  className={`flex flex-col overflow-hidden ${SHOW_ORDER_BOOK ? "lg:col-span-6" : "lg:col-span-10"}`}
-                  style={{ height: 560 }}
+                <StockChartFrame
+                  className={SHOW_ORDER_BOOK ? "lg:col-span-6" : "lg:col-span-10"}
                 >
                   <div className="flex items-center justify-end gap-1 px-4 py-2 border-b border-white/[0.05] flex-wrap">
                     {(["1Y", "3Y", "5Y"] as const).map((range) => (
@@ -898,10 +904,10 @@ function OrderPageContent() {
                       <CandlestickChart data={candleData} />
                     )}
                   </div>
-                </div>
+                </StockChartFrame>
                 {/* 호가창 */}
                 {SHOW_ORDER_BOOK && (
-                  <div className="overflow-hidden lg:col-span-4" style={{ height: 560 }}>
+                  <OrderBookFrame className="lg:col-span-4">
                     <OrderBook
                       symbol={symbol}
                       currentPrice={currentPrice}
@@ -913,18 +919,18 @@ function OrderPageContent() {
                         setPrice(selectedPrice.toString());
                       }}
                     />
-                  </div>
+                  </OrderBookFrame>
                 )}
               </div>
 
               {/* Row 2: 시세 테이블 + 투자자별 매매동향 + 주문 패널 */}
               <div className={`grid grid-cols-1 divide-y divide-white/[0.08] lg:divide-y-0 lg:divide-x ${SHOW_TRADE_PANEL ? "lg:grid-cols-3" : "lg:grid-cols-2"}`}>
                 {/* 시세 테이블 */}
-                <div className="flex flex-col overflow-hidden" style={{ height: 560 }}>
+                <MarketDataPanelFrame>
                 <div className="px-4 py-3 border-b border-white/[0.05] shrink-0">
                   <h2 className="text-sm font-black uppercase tracking-widest text-white font-outfit">시세</h2>
                 </div>
-                <div className="flex flex-1 min-h-0 flex-col">
+                <PriceHistoryViewport>
                   {/* 헤더 */}
                   <div className={`grid ${PRICE_HISTORY_COLS} gap-2 px-4 py-2 border-b border-white/[0.05] shrink-0`}>
                     {["일자", "종가", "등락률", "거래량", "시가", "고가", "저가"].map((h, i) => (
@@ -961,17 +967,17 @@ function OrderPageContent() {
                       </div>
                     )}
                   </div>
-                </div>
-                </div>
+                </PriceHistoryViewport>
+                </MarketDataPanelFrame>
 
                 {/* 투자자별 매매동향 패널 */}
-                <div className="flex flex-col overflow-hidden" style={{ height: 560 }}>
+                <MarketDataPanelFrame>
                   <InvestorTradingPanel symbol={symbol} />
-                </div>
+                </MarketDataPanelFrame>
 
                 {/* 주문 패널 */}
                 {SHOW_TRADE_PANEL && (
-                  <div className="flex flex-col overflow-hidden" style={{ height: 560 }}>
+                  <MarketDataPanelFrame>
                     {/* 매수/매도/미체결 탭 */}
                     <div className="grid grid-cols-3 border-b border-white/[0.08]">
                       {(["buy", "sell", "pending"] as const).map((type) => {
@@ -1301,7 +1307,7 @@ function OrderPageContent() {
                       </div>
                     )}
                   </div>
-                </div>
+                </MarketDataPanelFrame>
               )}
             </div>
           </div>

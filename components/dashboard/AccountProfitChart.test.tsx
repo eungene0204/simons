@@ -32,6 +32,11 @@ describe("AccountProfitChart", () => {
     expect(screen.getByText("개설된 계좌가 없습니다.")).toBeInTheDocument();
     expect(screen.getByText("계좌를 개설하면 여기서 수익률을 확인할 수 있습니다")).toBeInTheDocument();
     expect(screen.getByTestId("account-profit-empty-state").className).not.toContain("border");
+    expect(screen.getByTestId("account-profit-card")).toHaveClass(
+      "p-3",
+      "sm:p-4",
+      "lg:p-5"
+    );
   });
 
   it("refreshes empty initial data and renders newly created accounts", async () => {

@@ -33,6 +33,7 @@ import {
   formatInitialCapital,
   getDisplayExitLabels,
   getDisplayUniverseLabels,
+  getPositionLabel,
   getRankingLabel,
   getSignalLabel,
   hasBuyCriteria,
@@ -427,7 +428,10 @@ function buildAnimatedHeadline(lines: string[], visibleCount: number) {
     remaining -= visibleChars;
 
     return (
-      <span key={`${line}-${lineIndex}`} className="block min-h-[1em] whitespace-nowrap">
+      <span
+        key={`${line}-${lineIndex}`}
+        className="block min-h-[1em] whitespace-normal lg:whitespace-nowrap"
+      >
         {line.split("").map((char, charIndex) => {
           const isVisible = charIndex < visibleChars;
 
@@ -545,9 +549,13 @@ function ParsedSummaryBubble({
   backtestRequest,
 }: {
   parsed: ParsedSummary;
-  backtestRequest?: { symbols?: string[] } | null;
+  backtestRequest?: {
+    symbols?: string[];
+    target_stocks?: Array<{ symbol: string; name?: string }> | null;
+  } | null;
 }) {
   const universeLabels = getDisplayUniverseLabels(parsed, backtestRequest);
+  const isSingleAsset = (parsed.target_symbols?.length ?? 0) > 0;
   const exitLabels = getDisplayExitLabels(parsed);
   const rankingLabel = getRankingLabel(parsed);
   // 종목 선정(모멘텀 랭킹)도 진입(종목 선정) 기준이므로 '진입 신호'로 통일해 함께 표시한다.
@@ -567,9 +575,9 @@ function ParsedSummaryBubble({
         <span className="text-xs font-black uppercase tracking-widest text-amber-100">전략 요약</span>
       </div>
       <div className="space-y-2">
-        {parsed.universe.length > 0 && (
+        {(parsed.universe.length > 0 || isSingleAsset) && (
           <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest w-14 flex-shrink-0">유니버스</span>
+            <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest w-14 flex-shrink-0">{isSingleAsset ? "대상 종목" : "유니버스"}</span>
             <div className="flex flex-wrap gap-1">
               {universeLabels.map((label, i) => (
                 <FilterBadge key={i} label={label} />
@@ -600,7 +608,7 @@ function ParsedSummaryBubble({
         <div className="flex flex-wrap gap-1.5 items-center">
           <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest w-14 flex-shrink-0">포트폴리오</span>
           <div className="flex flex-wrap gap-1">
-            <FilterBadge label={`최대 ${parsed.max_positions}종목`} />
+            <FilterBadge label={getPositionLabel(parsed)} />
             {parsed.hold_period_days && <FilterBadge label={`${parsed.hold_period_days}일 보유`} />}
             {parsed.rebalancing_period !== "none" && <FilterBadge label={`${REBAL_LABELS[parsed.rebalancing_period]} 리밸런싱`} />}
             <FilterBadge label={backtestPeriodLabel(parsed)} />
@@ -2200,10 +2208,13 @@ function StrategyLabContent() {
           {shouldShowIntro && (
           <div className="w-full max-w-3xl">
             <div className="flex flex-col items-center gap-3 text-center">
-              <div className="space-y-4">
+              <div
+                className="w-full space-y-4 lg:w-auto"
+                data-testid="strategy-lab-headline-stack"
+              >
                 <p
                   data-testid="strategy-lab-headline"
-                  className="max-w-5xl text-4xl leading-none tracking-tight text-[#fcfdff] sm:text-5xl lg:text-7xl [font-weight:950]"
+                  className="max-w-5xl text-[27px] leading-none tracking-tight text-[#fcfdff] sm:text-5xl lg:text-7xl [font-weight:950]"
                   style={{ textShadow: "0 0 24px rgba(255, 255, 255, 0.18)" }}
                 >
                   {buildAnimatedHeadline(headlineLines, visibleHeadlineChars)}

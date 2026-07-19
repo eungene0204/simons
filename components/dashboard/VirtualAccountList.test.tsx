@@ -47,6 +47,11 @@ describe("VirtualAccountList", () => {
   it("contains the fixed-width table inside a mobile scroll region", () => {
     render(<VirtualAccountList initialData={makeData([makeAccount()])} />);
 
+    expect(screen.getByTestId("virtual-account-list-card")).toHaveClass(
+      "p-3",
+      "sm:p-4",
+      "lg:p-5"
+    );
     const scrollRegion = screen.getByTestId("virtual-account-table-scroll");
     expect(scrollRegion).toHaveClass(
       "overflow-x-auto",

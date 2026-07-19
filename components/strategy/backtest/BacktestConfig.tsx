@@ -175,7 +175,10 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
       {/* =========================================================
           Left Column: Functional Inputs (Simulation Parameters)
           ========================================================= */}
-      <div className="flex-1 flex flex-col border-r border-white/5 overflow-y-auto">
+      <div
+        className="flex flex-1 flex-col overflow-y-auto border-white/5 lg:border-r"
+        data-testid="backtest-config-input-panel"
+      >
         <div className="flex-none px-6 pt-4 lg:px-10 lg:pt-5 pb-6">
           <h3 className="text-lg font-black text-[#dfdfdf] tracking-tight">백테스트 & 성과 분석</h3>
           <p className="text-[11px] text-[#a0a0a0] mt-0.5 font-medium">
@@ -184,7 +187,10 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
         </div>
         
         {/* Step 1 + Step 2: 2컬럼 */}
-        <div className="flex flex-row divide-x divide-white/5 flex-1">
+        <div
+          className="flex flex-1 flex-col divide-y divide-white/5 lg:flex-row lg:divide-x lg:divide-y-0"
+          data-testid="backtest-config-input-columns"
+        >
           {/* Step 1: Period */}
           <div className="flex-1 px-6 py-3 lg:px-10 lg:py-4 flex flex-col">
             <div className="flex flex-col mb-1.5">
@@ -209,7 +215,10 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                 ))}
               </div>
               {period === "custom" && (
-                <div className="flex gap-3 animate-in fade-in slide-in-from-top-1 duration-200 bg-[#111] p-3 rounded-xl border border-white/5">
+                <div
+                  className="flex flex-col gap-3 animate-in fade-in slide-in-from-top-1 duration-200 bg-[#111] p-3 rounded-xl border border-white/5 sm:flex-row"
+                  data-testid="backtest-config-custom-dates"
+                >
                   <div className="flex-1 space-y-1">
                     <label className="text-[10px] font-black text-[#606060] uppercase tracking-widest pl-1">시작일</label>
                     <input
@@ -298,7 +307,10 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
       {/* =========================================================
           Right Column: Strategy Snapshot (Bento Grid)
           ========================================================= */}
-      <div className="w-full lg:w-[420px] xl:w-[460px] bg-[#141414] flex flex-col overflow-y-auto shrink-0 border-l border-white/5">
+      <div
+        className="flex w-full shrink-0 flex-col overflow-y-auto border-t border-white/5 bg-[#141414] lg:w-[420px] lg:border-l lg:border-t-0 xl:w-[460px]"
+        data-testid="backtest-config-summary-panel"
+      >
         <div className="p-4 lg:p-6 flex-1 flex flex-col relative">
           <div className="absolute top-0 right-0 w-64 h-64 bg-main-blue/5 rounded-full blur-[80px] pointer-events-none" />
           

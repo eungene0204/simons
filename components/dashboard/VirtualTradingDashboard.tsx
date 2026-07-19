@@ -77,9 +77,12 @@ function MetricCell({
       : "text-white";
 
   return (
-    <div className="p-5">
+    <div className="p-3 sm:p-4 lg:p-5" data-testid="dashboard-metric-cell">
       <p className="text-xs font-bold uppercase tracking-widest text-gray-400">{label}</p>
-      <p className={`mt-2 text-2xl font-black font-outfit tabular-nums leading-none ${toneClass}`}>
+      <p
+        className={`mt-2 text-lg font-black font-outfit tabular-nums leading-none sm:text-xl lg:text-2xl ${toneClass}`}
+        data-testid="dashboard-metric-value"
+      >
         {value}
       </p>
       {sub && <p className="mt-1 text-[10px] font-bold text-gray-500">{sub}</p>}
@@ -129,31 +132,36 @@ function SymbolList({
   }
 
   return (
-    <div>
-      <div className="grid grid-cols-[minmax(0,1fr)_72px_84px_110px] gap-2 px-2 mb-2">
-        <span className="text-xs font-bold uppercase tracking-widest text-gray-600">종목</span>
-        <span className="text-xs font-bold uppercase tracking-widest text-gray-600 text-right">거래</span>
-        <span className="text-xs font-bold uppercase tracking-widest text-gray-600 text-right">승률</span>
-        <span className="text-xs font-bold uppercase tracking-widest text-gray-600 text-right">실현손익</span>
-      </div>
-      <div className="border-t border-white/[0.05] mb-1" />
-      <div className="divide-y divide-white/[0.04]">
-        {items.map((item) => (
-          <div
-            key={item.symbol}
-            className="grid grid-cols-[minmax(0,1fr)_72px_84px_110px] gap-2 items-center px-2 py-3 hover:bg-white/[0.02] rounded-xl transition-colors"
-          >
-            <div className="min-w-0">
-              <p className="truncate text-sm font-black text-white">{item.name}</p>
-              <p className="text-[10px] font-bold text-gray-500">{item.symbol}</p>
+    <div
+      className="overflow-x-auto lg:overflow-x-visible"
+      data-testid="symbol-list-scroll"
+    >
+      <div className="min-w-[440px] lg:min-w-0" data-testid="symbol-list-table">
+        <div className="grid grid-cols-[minmax(0,1fr)_72px_84px_110px] gap-2 px-2 mb-2">
+          <span className="text-xs font-bold uppercase tracking-widest text-gray-600">종목</span>
+          <span className="text-xs font-bold uppercase tracking-widest text-gray-600 text-right">거래</span>
+          <span className="text-xs font-bold uppercase tracking-widest text-gray-600 text-right">승률</span>
+          <span className="text-xs font-bold uppercase tracking-widest text-gray-600 text-right">실현손익</span>
+        </div>
+        <div className="border-t border-white/[0.05] mb-1" />
+        <div className="divide-y divide-white/[0.04]">
+          {items.map((item) => (
+            <div
+              key={item.symbol}
+              className="grid grid-cols-[minmax(0,1fr)_72px_84px_110px] gap-2 items-center px-2 py-3 hover:bg-white/[0.02] rounded-xl transition-colors"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-sm font-black text-white">{item.name}</p>
+                <p className="text-[10px] font-bold text-gray-500">{item.symbol}</p>
+              </div>
+              <p className="text-right text-sm font-bold text-gray-400 tabular-nums">{item.trades}</p>
+              <p className="text-right text-sm font-bold text-white tabular-nums">{item.winRate.toFixed(0)}%</p>
+              <p className={`text-right text-sm font-black font-outfit tabular-nums ${valueTone(item.pnl)}`}>
+                {formatSignedCurrency(Math.round(item.pnl), fmtShort)}
+              </p>
             </div>
-            <p className="text-right text-sm font-bold text-gray-400 tabular-nums">{item.trades}</p>
-            <p className="text-right text-sm font-bold text-white tabular-nums">{item.winRate.toFixed(0)}%</p>
-            <p className={`text-right text-sm font-black font-outfit tabular-nums ${valueTone(item.pnl)}`}>
-              {formatSignedCurrency(Math.round(item.pnl), fmtShort)}
-            </p>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     </div>
   );

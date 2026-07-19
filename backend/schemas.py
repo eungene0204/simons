@@ -39,6 +39,12 @@ class RiskManagement(BaseModel):
 class BacktestRequest(BaseModel):
     symbols: List[str]
     universe_id: Optional[str] = None
+    # 단일/지정 종목 백테스트(FR-STR-068) 마커와 표시용 종목 메타데이터.
+    # 엔진은 symbols+universe_id=None만으로 동작하지만, 스키마에 없으면 model_dump가
+    # 조용히 버려(extra=ignore) 로그·실행 스냅샷에서 모드 정보가 사라진다(ranking_metric
+    # 0거래 사고와 동일 함정) — 반드시 선언한다.
+    backtest_mode: Optional[str] = None
+    target_stocks: Optional[List[Dict[str, Any]]] = None
     # 섹터/업종 제한(정본 섹터명, 복수면 리스트 — 엔진이 합집합으로 필터). 스키마에 없으면
     # model_dump가 조용히 버려(extra=ignore) 엔진이 필터를 못 받는다 — ranking_metric
     # 0거래 사고와 동일 함정이라 반드시 선언한다.

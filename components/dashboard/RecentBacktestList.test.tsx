@@ -19,6 +19,11 @@ describe("RecentBacktestList", () => {
   it("contains the fixed-width table inside a mobile scroll region", () => {
     render(<RecentBacktestList initialRecords={[makeRecord()]} />);
 
+    expect(screen.getByTestId("recent-backtest-card")).toHaveClass(
+      "p-3",
+      "sm:p-4",
+      "lg:p-5"
+    );
     const scrollRegion = screen.getByTestId("recent-backtest-table-scroll");
     expect(scrollRegion).toHaveClass(
       "overflow-x-auto",

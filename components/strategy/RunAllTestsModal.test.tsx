@@ -234,6 +234,18 @@ describe("RunAllTestsModal", () => {
   it("서버 batch run을 시작하고 폴링 결과를 진행률, 랭킹, 실패 목록에 반영한다", async () => {
     render(<RunAllTestsModal isOpen onClose={vi.fn()} currentPrompt="현재 입력 전략" />);
 
+    expect(screen.getByTestId("run-all-tests-modal-panel")).toHaveClass(
+      "h-[calc(100dvh-1rem)]",
+      "lg:h-[min(88vh,920px)]"
+    );
+    expect(screen.getByTestId("run-all-tests-modal-header")).toHaveClass(
+      "px-4",
+      "py-3",
+      "lg:px-5",
+      "lg:py-4"
+    );
+    expect(screen.getByTestId("run-all-tests-modal-content")).toHaveClass("p-3", "lg:p-5");
+
     fireEvent.click(screen.getByRole("button", { name: "현재 입력 추가" }));
     fireEvent.change(screen.getByRole("textbox"), {
       target: {
@@ -253,6 +265,14 @@ describe("RunAllTestsModal", () => {
     expect(screen.getByText("파싱 실패")).toBeInTheDocument();
     expect(screen.getByText("최고 성과")).toBeInTheDocument();
     expect(screen.getByText("배치 실행이 완료되었습니다.")).toBeInTheDocument();
+    expect(screen.getByTestId("run-all-tests-leaderboard-scroll")).toHaveClass(
+      "overflow-x-auto",
+      "lg:overflow-x-visible"
+    );
+    expect(screen.getByTestId("run-all-tests-leaderboard-grid")).toHaveClass(
+      "min-w-[760px]",
+      "lg:min-w-0"
+    );
     expect(savedRuns).toHaveLength(1);
     expect(savedRuns[0].completedCount).toBe(2);
     expect(savedRuns[0].failedCount).toBe(1);

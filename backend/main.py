@@ -2952,9 +2952,11 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     교정된 전략도 하한선 보정·DSL 변환·되묻기 감지를 동일하게 거치게 하기 위한 추출.
     """
     from engine.nl_parser import (
+        apply_single_asset_adjustments,
         build_unsupported_concept_notice,
         detect_etf_factor_conflict,
         detect_missing_entry_clarification,
+        detect_symbol_ambiguity,
         enforce_strategy_minimums,
         synthesize_risk_overrides,
     )
@@ -2963,6 +2965,10 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     # 설정값 하한선 보정 — 비현실적 입력(초기자금 300원·0일 보유·3일 모멘텀·0% 손절 등)을
     # 자동 보정/제거하고 사용자에게 안내한다(모든 파싱 경로 공통).
     notices = enforce_strategy_minimums(parsed)
+    # 지정 종목(단일 종목) 백테스트: 청산 조건 누락을 추천 기본값/안내로 보정한다(FR-STR-068).
+    # 조용한 임의 실행 방지 — 무엇이 추천 적용됐는지 notices로 알린다.
+    parsed, single_asset_notices = apply_single_asset_adjustments(parsed)
+    notices.extend(single_asset_notices)
     # 미지원 개념(배당·섹터·변동성 등)은 LLM 폴백조차 스키마가 표현 불가라 조용히
     # 누락/유사 해석될 수 있다 → 침묵 왜곡 대신 비차단 안내로 알린다.
     unsupported_notice = build_unsupported_concept_notice(request.prompt)
@@ -2997,6 +3003,9 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
         clarification_question, clarification_suggestions = detect_missing_entry_clarification(
             parsed, request.prompt
         )
+    # 여러 종목이 함께 지정된 경우 임의 선택하지 않고 되묻는다(그대로 진행 시 전체 테스트).
+    if clarification_question is None:
+        clarification_question, clarification_suggestions = detect_symbol_ambiguity(parsed)
     return {
         "parsed": parsed.model_dump(),
         "backtest_request": backtest_req,

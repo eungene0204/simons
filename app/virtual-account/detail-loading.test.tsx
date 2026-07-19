@@ -149,6 +149,45 @@ describe("VirtualAccountDetailPage loading", () => {
     expect(screen.getByText("총 자산")).toBeInTheDocument();
   });
 
+  it("keeps detail help tooltips inside the mobile viewport and focus-accessible", async () => {
+    window.sessionStorage.setItem(
+      "virtual-account-detail:account-123",
+      JSON.stringify({
+        account: {
+          id: "account-123",
+          name: "테스트 계좌",
+          initialAmount: 10_000_000,
+          currentBalance: 10_000_000,
+          totalValue: 10_000_000,
+          tradingMode: "auto",
+          createdAt: "2026-06-01T00:00:00.000Z",
+          updatedAt: "2026-06-01T00:00:00.000Z",
+        },
+        holdings: [],
+        transactions: [],
+        trackedSymbols: [],
+      })
+    );
+
+    render(<VirtualAccountDetailPage />);
+
+    expect(await screen.findByRole("button", { name: "시뮬레이션 토글 설명" })).toHaveAttribute("tabindex", "0");
+    expect(screen.getByRole("button", { name: "모니터링 종목 설명" })).toHaveAttribute("tabindex", "0");
+
+    for (const tooltip of [
+      screen.getByTestId("auto-trading-help-tooltip"),
+      screen.getByTestId("tracked-symbols-help-tooltip"),
+    ]) {
+      expect(tooltip).toHaveClass(
+        "fixed",
+        "inset-x-4",
+        "bottom-4",
+        "group-focus-within:opacity-100",
+        "lg:absolute"
+      );
+    }
+  });
+
   it("keeps tracked symbols inside a mobile scroll region", async () => {
     window.sessionStorage.setItem(
       "virtual-account-detail:account-123",

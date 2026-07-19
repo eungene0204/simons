@@ -6,6 +6,7 @@ export {
   getDisplayExitLabels,
   getSignalLabel,
   getDisplayUniverseLabels,
+  getPositionLabel,
   getRankingLabel,
   hasBuyCriteria,
   isRawSymbolUniverseName,

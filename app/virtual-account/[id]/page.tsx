@@ -824,13 +824,21 @@ export default function VirtualAccountDetailPage() {
                         <Robot size={10} weight="bold" />
                         {account.tradingMode === "auto" ? "시뮬레이션 ON" : "시뮬레이션 OFF"}
                       </button>
-                      <div className="group relative flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-white/[0.14] text-[10px] font-black text-gray-500 transition-colors duration-200 hover:border-white/[0.28] hover:text-white">
-                        <span aria-label="시뮬레이션 토글 설명">?</span>
-                        <div className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 w-56 -translate-x-1/2 rounded-lg border border-white/[0.08] bg-[#1c1c1c] px-3 py-2 text-xs font-bold leading-5 text-gray-300 opacity-0 shadow-xl transition-opacity duration-150 group-hover:opacity-100">
+                      <span
+                        className="group relative flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-white/[0.14] text-[10px] font-black text-gray-500 transition-colors duration-200 hover:border-white/[0.28] hover:text-white focus:outline-none focus:ring-2 focus:ring-white/20"
+                        role="button"
+                        tabIndex={0}
+                        aria-label="시뮬레이션 토글 설명"
+                      >
+                        <span aria-hidden="true">?</span>
+                        <span
+                          className="pointer-events-none fixed inset-x-4 bottom-4 z-50 w-auto rounded-lg border border-white/[0.08] bg-[#1c1c1c] px-3 py-2 text-left text-xs font-bold leading-5 text-gray-300 opacity-0 shadow-xl transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 lg:absolute lg:inset-x-auto lg:bottom-auto lg:left-1/2 lg:top-full lg:z-30 lg:mt-2 lg:w-56 lg:-translate-x-1/2"
+                          data-testid="auto-trading-help-tooltip"
+                        >
                           ON이면 전략 조건을 만족할 때 가상 거래가 실행됩니다.
-                          <div className="absolute -top-[5px] left-1/2 h-2.5 w-2.5 -translate-x-1/2 rotate-45 border-l border-t border-white/[0.08] bg-[#1c1c1c]" />
-                        </div>
-                      </div>
+                          <span className="absolute -top-[5px] left-1/2 hidden h-2.5 w-2.5 -translate-x-1/2 rotate-45 border-l border-t border-white/[0.08] bg-[#1c1c1c] lg:block" />
+                        </span>
+                      </span>
                     </div>
                   )}
                   <span className="text-[11px] font-bold text-gray-600">
@@ -918,13 +926,21 @@ export default function VirtualAccountDetailPage() {
                         >
                           모니터링 종목
                         </h2>
-                        <div className="group relative flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-white/[0.14] text-[10px] font-black text-gray-500 transition-colors duration-200 hover:border-white/[0.28] hover:text-white">
-                          <span aria-label="모니터링 종목 설명">?</span>
-                          <div className="pointer-events-none absolute left-full top-full z-30 ml-2 mt-2 w-64 rounded-lg border border-white/[0.08] bg-[#1c1c1c] px-3 py-2 text-xs font-bold leading-5 text-gray-300 opacity-0 shadow-xl transition-opacity duration-150 group-hover:opacity-100">
+                        <span
+                          className="group relative flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-white/[0.14] text-[10px] font-black text-gray-500 transition-colors duration-200 hover:border-white/[0.28] hover:text-white focus:outline-none focus:ring-2 focus:ring-white/20"
+                          role="button"
+                          tabIndex={0}
+                          aria-label="모니터링 종목 설명"
+                        >
+                          <span aria-hidden="true">?</span>
+                          <span
+                            className="pointer-events-none fixed inset-x-4 bottom-4 z-50 w-auto rounded-lg border border-white/[0.08] bg-[#1c1c1c] px-3 py-2 text-left text-xs font-bold leading-5 text-gray-300 opacity-0 shadow-xl transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 lg:absolute lg:inset-x-auto lg:bottom-auto lg:left-full lg:top-full lg:z-30 lg:ml-2 lg:mt-2 lg:w-64"
+                            data-testid="tracked-symbols-help-tooltip"
+                          >
                             연결된 전략의 백테스트에서 성과가 높았던 종목들 입니다.
-                            <div className="absolute -left-[5px] top-2 h-2.5 w-2.5 rotate-45 border-b border-l border-white/[0.08] bg-[#1c1c1c]" />
-                          </div>
-                        </div>
+                            <span className="absolute -left-[5px] top-2 hidden h-2.5 w-2.5 rotate-45 border-b border-l border-white/[0.08] bg-[#1c1c1c] lg:block" />
+                          </span>
+                        </span>
                       </div>
                       <p className="text-xs text-gray-500 mt-0.5">전략이 시그널을 모니터링 중인 종목</p>
                     </div>

@@ -34,9 +34,12 @@ export default function RunProgressModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="run-progress-modal-title"
-      className="fixed inset-0 z-[10010] flex items-center justify-center bg-black/70 px-4"
+      className="fixed inset-0 z-[10010] flex items-center justify-center bg-black/70 p-2 lg:px-4 lg:py-0"
     >
-      <div className="w-full max-w-sm rounded-xl border border-white/[0.10] bg-[#111111] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.65)]">
+      <div
+        data-testid="run-progress-modal-panel"
+        className="max-h-[calc(100dvh-1rem)] w-full max-w-sm overflow-y-auto rounded-xl border border-white/[0.10] bg-[#111111] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.65)] lg:max-h-none lg:overflow-visible lg:p-6"
+      >
         <div className="flex items-center gap-2">
           {isRunning && !error && (
             <ArrowsClockwise className="h-4 w-4 shrink-0 animate-spin text-[var(--main-blue)]" />
@@ -49,9 +52,9 @@ export default function RunProgressModal({
         {error ? (
           <div className="mt-5 flex items-start gap-3">
             <Warning className="mt-0.5 h-4 w-4 shrink-0 text-[var(--main-blue)]" />
-            <div>
+            <div className="min-w-0">
               <p className="text-xs font-bold uppercase tracking-widest text-[var(--main-blue)]">실행 오류</p>
-              <p className="mt-1 text-sm font-black leading-6 text-white">{error}</p>
+              <p className="mt-1 break-words text-sm font-black leading-6 text-white">{error}</p>
             </div>
           </div>
         ) : (
@@ -73,7 +76,7 @@ export default function RunProgressModal({
               <p className="mt-2 text-xs font-bold tabular-nums text-gray-400">{progressLabel}</p>
             )}
             {detail && (
-              <div className="mt-3 space-y-1 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2.5 text-xs font-bold leading-5 text-gray-300">
+              <div className="mt-3 break-words space-y-1 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2.5 text-xs font-bold leading-5 text-gray-300">
                 {detail}
               </div>
             )}

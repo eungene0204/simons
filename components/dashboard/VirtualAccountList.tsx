@@ -61,7 +61,10 @@ export default function VirtualAccountList({ initialData }: { initialData: Virtu
   const accounts = data?.accounts ?? [];
 
   return (
-    <div className="flat-card p-5 h-full">
+    <div
+      className="flat-card h-full p-3 sm:p-4 lg:p-5"
+      data-testid="virtual-account-list-card"
+    >
       {/* 헤더 */}
       <div className="mb-5">
         <h2 className="text-base font-black uppercase tracking-widest text-gray-400 font-outfit">

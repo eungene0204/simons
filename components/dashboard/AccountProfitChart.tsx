@@ -112,7 +112,10 @@ export default function AccountProfitChart({ initialData }: { initialData: Accou
 
   if (!data) {
     return (
-      <div className="flat-card p-5 h-full">
+      <div
+        className="flat-card h-full p-3 sm:p-4 lg:p-5"
+        data-testid="account-profit-card"
+      >
         <div className="h-4 bg-white/5 rounded w-1/3 mb-5 animate-pulse" />
         <div className="flex items-end gap-8 mt-4" style={{ height: CHART_H }}>
           {[...Array(4)].map((_, i) => (
@@ -133,7 +136,10 @@ export default function AccountProfitChart({ initialData }: { initialData: Accou
         : "수익률 데이터가 쌓이면 여기서 확인할 수 있습니다";
 
     return (
-      <div className="flat-card p-5 h-full">
+      <div
+        className="flat-card h-full p-3 sm:p-4 lg:p-5"
+        data-testid="account-profit-card"
+      >
         <div className="flex items-start justify-between mb-4">
           <div>
             <h2 className="text-base font-black uppercase tracking-widest text-gray-400 font-outfit">
@@ -272,7 +278,10 @@ export default function AccountProfitChart({ initialData }: { initialData: Accou
 
   /* ── Render ──────────────────────────────── */
   return (
-    <div className="flat-card p-5 h-full">
+    <div
+      className="flat-card h-full p-3 sm:p-4 lg:p-5"
+      data-testid="account-profit-card"
+    >
       {/* Header */}
       <div className="flex items-start justify-between mb-4">
         <div>

@@ -45,7 +45,10 @@ export default function RecentBacktestList({ initialRecords }: { initialRecords:
   const loading = false;
 
   return (
-    <div className="flat-card p-5 h-full">
+    <div
+      className="flat-card h-full p-3 sm:p-4 lg:p-5"
+      data-testid="recent-backtest-card"
+    >
       {/* 헤더 */}
       <div className="flex items-center justify-between mb-5">
         <div>

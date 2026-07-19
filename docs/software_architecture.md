@@ -496,6 +496,13 @@ ParsedStrategy (구조화된 JSON)
 strategy_converter.to_backtest_request() (backend/engine/strategy_converter.py)
     ├── parse 응답에서는 resolve_symbols=False로 유니버스 전체 로딩 회피
     ├── 백테스트 실행 시점에 필요한 유니버스 심볼 로딩
+    ├── 단일/지정 종목 모드(FR-STR-068): ParsedStrategy.target_symbols가 있으면 유니버스
+    │   해석 대신 그 종목만 사용 — universe_id=None(엔진 PIT 재해석·섹터 필터 미적용),
+    │   position_size=100/n, ranking_enabled=False, backtest_mode/target_stocks(표시용).
+    │   종목명→코드는 LLM이 아닌 결정적 추출(nl_parser._extract_target_symbols,
+    │   stock_analysis/symbol_resolver 정본)이 채우고, 문맥 가드(업종·예시·제외 표현)가
+    │   유니버스 전략의 오폭을 막는다. 청산 누락은 apply_single_asset_adjustments가
+    │   반대 신호 청산 추천/안내(notices)로 보정한다.
     ├── 기술 신호 → Condition dict 변환
     ├── 재무 필터 → filter condition 변환
     └── 리스크 관리 설정 병합

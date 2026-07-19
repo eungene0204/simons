@@ -77,4 +77,52 @@ describe("VirtualTradingDashboard metric formatting", () => {
       "text-[var(--main-blue)]"
     );
   });
+
+  it("uses compact metric spacing on mobile and restores desktop sizing", async () => {
+    mockStats(zeroStats);
+
+    render(<VirtualTradingDashboard accountId="account-123" initialAmount={9_000_000} />);
+
+    await screen.findByText("총 실현 손익");
+    expect(screen.getAllByTestId("dashboard-metric-cell")[0]).toHaveClass(
+      "p-3",
+      "sm:p-4",
+      "lg:p-5"
+    );
+    expect(screen.getAllByTestId("dashboard-metric-value")[0]).toHaveClass(
+      "text-lg",
+      "sm:text-xl",
+      "lg:text-2xl"
+    );
+  });
+
+  it("keeps symbol columns readable with mobile-only internal scrolling", async () => {
+    mockStats({
+      ...zeroStats,
+      totalTrades: 2,
+      winCount: 1,
+      lossCount: 1,
+      bySymbol: [
+        {
+          symbol: "005930",
+          name: "삼성전자",
+          trades: 2,
+          winRate: 50,
+          pnl: 125_000,
+        },
+      ],
+    });
+
+    render(<VirtualTradingDashboard accountId="account-123" initialAmount={9_000_000} />);
+
+    expect(await screen.findByText("삼성전자")).toBeInTheDocument();
+    expect(screen.getByTestId("symbol-list-scroll")).toHaveClass(
+      "overflow-x-auto",
+      "lg:overflow-x-visible"
+    );
+    expect(screen.getByTestId("symbol-list-table")).toHaveClass(
+      "min-w-[440px]",
+      "lg:min-w-0"
+    );
+  });
 });

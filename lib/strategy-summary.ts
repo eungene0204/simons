@@ -20,6 +20,8 @@ export interface ParsedSummary {
   }>;
   ranking_metric?: "return" | null;
   ranking_lookback_days?: number | null;
+  // 지정 종목(단일 종목) 백테스트 대상 종목코드(FR-STR-068). 비어 있으면 유니버스 전략.
+  target_symbols?: string[];
   max_positions: number;
   hold_period_days: number | null;
   rebalancing_period: string;
@@ -34,6 +36,8 @@ export interface ParsedSummary {
 
 interface BacktestRequestLike {
   symbols?: string[];
+  // 지정 종목 백테스트의 표시용 메타데이터(코드→종목명). 백엔드 to_backtest_request가 채운다.
+  target_stocks?: Array<{ symbol: string; name?: string }> | null;
 }
 
 type LegacyStrategySummaryFields = {
@@ -244,6 +248,18 @@ export function getDisplayUniverseLabels(
   parsed: ParsedSummary,
   backtestRequest?: BacktestRequestLike | null
 ): string[] {
+  // 지정 종목(단일 종목) 백테스트: 유니버스 대신 대상 종목 자체를 배지로 보여준다.
+  // 이름은 backtest_request.target_stocks(백엔드 해석)에서 가져오고 없으면 코드만 표시.
+  if (parsed.target_symbols && parsed.target_symbols.length > 0) {
+    const nameBySymbol = new Map(
+      (backtestRequest?.target_stocks ?? []).map((s) => [s.symbol, s.name])
+    );
+    return parsed.target_symbols.map((code) => {
+      const name = nameBySymbol.get(code);
+      return name ? `${name} (${code})` : code;
+    });
+  }
+
   const normalizedUniverses = parsed.universe.map(normalizeUniverseId);
 
   // 복수 섹터(배열)는 업종별로 개별 배지를 만든다("반도체 업종", "기계/장비 업종").
@@ -287,6 +303,15 @@ export function hasBuyCriteria(parsed: ParsedSummary | null | undefined): boolea
     (parsed.fundamental_filters?.length ?? 0) > 0 ||
     parsed.ranking_metric != null
   );
+}
+
+// 포트폴리오(보유 종목 수) 배지 문구. 지정 종목 백테스트는 "최대 N종목"(유니버스 선정)이
+// 아니라 지정 종목 집중 투자임을 드러낸다.
+export function getPositionLabel(parsed: ParsedSummary): string {
+  const targetCount = parsed.target_symbols?.length ?? 0;
+  if (targetCount === 1) return "단일 종목 집중 투자";
+  if (targetCount > 1) return `지정 종목 ${targetCount}개 균등 투자`;
+  return `최대 ${parsed.max_positions}종목`;
 }
 
 export function getRankingLabel(parsed: ParsedSummary): string | null {
@@ -356,7 +381,7 @@ export function buildStrategySummary(
     blockNames: [...entryLabels, ...exitLabels],
     entryBlocks: entryLabels,
     exitBlocks: exitLabels,
-    positionText: `최대 ${parsed.max_positions}종목${parsed.hold_period_days ? ` · ${parsed.hold_period_days}일 보유` : ""}`,
+    positionText: `${getPositionLabel(parsed)}${parsed.hold_period_days ? ` · ${parsed.hold_period_days}일 보유` : ""}`,
     riskText: [
       stopLossPct ? `손절 ${stopLossPct}%` : "",
       takeProfitPct ? `익절 ${takeProfitPct}%` : "",
@@ -375,6 +400,8 @@ export function buildStrategySummary(
 // 0거래와 일관됨). risk.ranking_metric은 엔진에서 '선정=진입'이므로 진입 신호로 노출한다.
 interface ExecutedBacktestRequest {
   universe_id?: string | null;
+  // 지정 종목(단일 종목) 백테스트 메타데이터(FR-STR-068). universe_id=null 대신 이걸 표시.
+  target_stocks?: Array<{ symbol: string; name?: string }> | null;
   sector?: string | string[] | null;
   entry?: { conditions?: Array<{ id?: string; type?: string; params?: Record<string, unknown> }> } | null;
   exit?: { conditions?: Array<{ id?: string; type?: string; params?: Record<string, unknown> }> } | null;
@@ -440,23 +467,32 @@ export function buildStrategySummaryFromRequest(
   const takeProfitPct = formatPercent(takeProfit);
   const trailingStopPct = formatPercent(trailingStop);
 
+  // 지정 종목(단일 종목) 백테스트: 유니버스 라벨 대신 종목명 배지("삼성전자 (005930)").
+  const targetStockLabels = (req.target_stocks ?? []).map((s) =>
+    s.name ? `${s.name} (${s.symbol})` : s.symbol
+  );
+
   return {
     // 실행된 요청에는 전략명이 없다 — 저장 시 기본 이름은 promptText가 우선 사용한다.
     strategyName: "",
-    universeName: [
-      resolveUniverseLabelFromId(req.universe_id),
-      ...(Array.isArray(req.sector) ? req.sector : req.sector ? [req.sector] : []).map(
-        (sector) => `${sector} 업종`
-      ),
-    ]
-      .filter(Boolean)
-      .join(" · "),
+    universeName: targetStockLabels.length
+      ? targetStockLabels.join(" · ")
+      : [
+          resolveUniverseLabelFromId(req.universe_id),
+          ...(Array.isArray(req.sector) ? req.sector : req.sector ? [req.sector] : []).map(
+            (sector) => `${sector} 업종`
+          ),
+        ]
+          .filter(Boolean)
+          .join(" · "),
     blockNames: [...entryBlocks, ...exitBlocks],
     entryBlocks,
     exitBlocks,
-    positionText: maxPositions
-      ? `최대 ${maxPositions}종목${maxHoldingDays ? ` · ${maxHoldingDays}일 보유` : ""}`
-      : undefined,
+    positionText: targetStockLabels.length
+      ? `${targetStockLabels.length === 1 ? "단일 종목 집중 투자" : `지정 종목 ${targetStockLabels.length}개 균등 투자`}${maxHoldingDays ? ` · ${maxHoldingDays}일 보유` : ""}`
+      : maxPositions
+        ? `최대 ${maxPositions}종목${maxHoldingDays ? ` · ${maxHoldingDays}일 보유` : ""}`
+        : undefined,
     riskText:
       [
         stopLossPct ? `손절 ${stopLossPct}%` : "",
@@ -601,7 +637,13 @@ function inferUniverseFromLegacyStrategy(strategy: StrategyDSL | null | undefine
 export function buildStrategySummaryFromDsl(strategy: StrategyDSL | null | undefined) {
   if (!strategy) return undefined;
 
-  const legacyStrategy = strategy as StrategyDSL & LegacyStrategySummaryFields;
+  const legacyStrategy = strategy as StrategyDSL & LegacyStrategySummaryFields & {
+    target_symbols?: string[];
+  };
+  // 지정 종목(단일 종목) 백테스트 DSL(FR-STR-068) — 캐논 DSL에는 코드만 저장된다.
+  const targetSymbols = Array.isArray(legacyStrategy.target_symbols)
+    ? legacyStrategy.target_symbols
+    : [];
   const rawUniverse =
     Array.isArray(legacyStrategy.universe)
       ? legacyStrategy.universe[0]
@@ -663,13 +705,15 @@ export function buildStrategySummaryFromDsl(strategy: StrategyDSL | null | undef
 
   return {
     strategyName: strategy.name,
-    universeName,
+    universeName: targetSymbols.length ? targetSymbols.join(" · ") : universeName,
     blockNames: [...entryBlocks, ...exitBlocks],
     entryBlocks,
     exitBlocks,
-    positionText: maxPositions
-      ? `포지션/비중 최대 ${maxPositions}종목${maxHoldingDays ? ` · ${maxHoldingDays}일 보유` : ""}`
-      : undefined,
+    positionText: targetSymbols.length
+      ? `${targetSymbols.length === 1 ? "단일 종목 집중 투자" : `지정 종목 ${targetSymbols.length}개 균등 투자`}${maxHoldingDays ? ` · ${maxHoldingDays}일 보유` : ""}`
+      : maxPositions
+        ? `포지션/비중 최대 ${maxPositions}종목${maxHoldingDays ? ` · ${maxHoldingDays}일 보유` : ""}`
+        : undefined,
     riskText: [
       stopLossPct ? `손절 ${stopLossPct}%` : "",
       takeProfitPct ? `익절 ${takeProfitPct}%` : "",

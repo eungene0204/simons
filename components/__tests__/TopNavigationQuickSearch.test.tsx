@@ -181,6 +181,26 @@ describe("TopNavigation quick search", () => {
     const input = await screen.findByPlaceholderText(
       "종목, 전략, 계좌, 백테스트를 검색하세요"
     );
+    expect(screen.getByTestId("quick-search-positioner")).toHaveClass("px-0", "lg:px-3");
+    expect(screen.getByTestId("quick-search-panel")).toHaveClass(
+      "flex",
+      "max-h-[calc(100dvh_-_var(--top-menu-bar-height,72px)_-_1rem)]",
+      "flex-col"
+    );
+    expect(screen.getByTestId("quick-search-header")).toHaveClass(
+      "px-3",
+      "pt-3",
+      "lg:px-4",
+      "lg:pt-4"
+    );
+    expect(screen.getByTestId("quick-search-results")).toHaveClass(
+      "h-[480px]",
+      "min-h-0",
+      "flex-1",
+      "overflow-y-auto",
+      "px-3",
+      "lg:px-4"
+    );
     fireEvent.change(input, { target: { value: "삼성" } });
 
     await waitFor(() => {
@@ -235,6 +255,13 @@ describe("TopNavigation quick search", () => {
       "xl:absolute",
       "xl:left-1/2",
       "xl:-translate-x-1/2"
+    );
+    expect(screen.getByTestId("desktop-search-trigger")).toHaveClass(
+      "min-w-[180px]",
+      "xl:w-[160px]",
+      "xl:min-w-0",
+      "min-[1320px]:w-auto",
+      "min-[1320px]:min-w-[180px]"
     );
   });
 

@@ -123,8 +123,11 @@ export default function VirtualAccountMainView() {
   return (
     <div className="p-4 md:p-5 lg:p-6 space-y-5">
       {/* 계좌 요약 */}
-      <div className="flat-card p-5">
-        <div className="flex items-center justify-between mb-4">
+      <div className="flat-card p-3 sm:p-4 lg:p-5" data-testid="account-summary-card">
+        <div
+          className="mb-4 flex flex-col items-start gap-1 lg:flex-row lg:items-center lg:justify-between lg:gap-0"
+          data-testid="account-summary-header"
+        >
           <span className="text-base font-black uppercase tracking-widest text-white">{account.name}</span>
           <span className="text-xs font-bold text-gray-500">
             생성일: {new Date(account.createdAt).toLocaleDateString("ko-KR")}
@@ -156,18 +159,18 @@ export default function VirtualAccountMainView() {
       </div>
 
       {/* 차트 */}
-      <div className="flat-card p-5">
+      <div className="flat-card p-3 sm:p-4 lg:p-5">
         <span className="text-base font-black uppercase tracking-widest text-white block mb-4">
           {holdings.length > 0 ? `${holdings[0].name || holdings[0].symbol} 차트` : "차트"}
         </span>
-        <div className="h-96">
+        <div className="h-72 sm:h-80 lg:h-96" data-testid="account-chart-container">
           <CandlestickChart data={chartData} />
         </div>
       </div>
 
       {/* 보유 종목 */}
       {holdings.length > 0 && (
-        <div className="flat-card p-5">
+        <div className="flat-card p-3 sm:p-4 lg:p-5">
           <span className="text-base font-black uppercase tracking-widest text-white block mb-4">보유 종목</span>
           <div className="space-y-2">
             {holdings.map((holding) => {
@@ -178,15 +181,16 @@ export default function VirtualAccountMainView() {
               return (
                 <div
                   key={holding.symbol}
-                  className="flex items-center justify-between p-3 bg-white/[0.03] rounded-xl border border-white/[0.05] hover:bg-white/[0.05] transition-all duration-200"
+                  className="flex flex-col items-stretch gap-2 rounded-xl border border-white/[0.05] bg-white/[0.03] p-3 transition-all duration-200 hover:bg-white/[0.05] lg:flex-row lg:items-center lg:justify-between lg:gap-0"
+                  data-testid="account-holding-row"
                 >
-                  <div className="flex-1 min-w-0">
+                  <div className="w-full min-w-0 lg:flex-1">
                     <div className="text-sm font-bold text-white truncate">{holding.name || holding.symbol}</div>
                     <div className="text-xs font-bold text-gray-500 tabular-nums">
                       {holding.quantity}주 × {formatPrice(holding.currentPrice)}원
                     </div>
                   </div>
-                  <div className="text-right">
+                  <div className="w-full text-left lg:w-auto lg:text-right" data-testid="account-holding-value">
                     <div className="text-sm font-black text-white tabular-nums leading-none">
                       {formatPrice(holdingValue)}원
                     </div>

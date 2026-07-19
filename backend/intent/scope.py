@@ -116,8 +116,17 @@ def stock_question_redirect(
         first_example = _STOCK_REDIRECT_EXAMPLE_KOSDAQ
     else:
         first_example = _STOCK_REDIRECT_EXAMPLE_LARGE_CAP
+    # 단일 종목 백테스트(FR-STR-068) 예시 — 그 종목 자체에 조건을 적용한 과거 시뮬레이션은
+    # 추천이 아니라 사용자가 설계한 전략의 검증이므로 안내할 수 있다.
+    single_asset_example = (
+        f"• {name}에 골든크로스(5일/20일) 발생 시 매수, 데드크로스 발생 시 매도하는 "
+        "전략을 백테스트" if name else ""
+    )
+    examples = "\n".join(
+        part for part in (first_example, single_asset_example, _STOCK_REDIRECT_EXAMPLES_COMMON) if part
+    )
     return (
-        f"{lead}{first_example}\n{_STOCK_REDIRECT_EXAMPLES_COMMON}\n\n"
+        f"{lead}{examples}\n\n"
         "관심 가는 방식이 있으면 말씀해 주세요 — 바로 전략으로 만들어 백테스트해 드릴게요."
     )
 
