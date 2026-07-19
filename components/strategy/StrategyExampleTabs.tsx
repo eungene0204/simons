@@ -568,9 +568,6 @@ export function StrategyTemplatePreviewModal({
             <h2 id="strategy-template-preview-title" className="text-xl font-black text-white">
               {example.title}
             </h2>
-            <p className="max-w-xl text-xs font-bold leading-relaxed text-gray-500">
-              백테스트 입력 예시에 쓰인 수치는 단순 예시값이며, 투자 추천이나 미래 성과를 의미하지 않습니다.
-            </p>
           </div>
           <button
             type="button"

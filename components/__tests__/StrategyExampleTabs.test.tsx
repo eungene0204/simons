@@ -185,9 +185,9 @@ describe("StrategyExampleTabs", () => {
     expect(onSelectExample).not.toHaveBeenCalled();
     const dialog = screen.getByRole("dialog", { name: "이평선 골든크로스 따라가기" });
     expect(dialog).toBeInTheDocument();
-    expect(within(dialog).getByText(
+    expect(within(dialog).queryByText(
       "백테스트 입력 예시에 쓰인 수치는 단순 예시값이며, 투자 추천이나 미래 성과를 의미하지 않습니다."
-    )).toBeInTheDocument();
+    )).not.toBeInTheDocument();
     const promptInput = within(dialog).getByLabelText("백테스트 예시 내용");
     expect((promptInput as HTMLTextAreaElement).value).toContain("골든크로스");
 

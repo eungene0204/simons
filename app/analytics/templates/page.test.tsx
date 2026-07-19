@@ -105,7 +105,7 @@ describe("StrategyTemplatesPage", () => {
     expect(backdrop.className).toContain("[backdrop-filter:blur(12px)]");
     expect(backdrop.className).toContain("[-webkit-backdrop-filter:blur(12px)]");
     expect(screen.getByTestId("strategy-templates-page-background").className).toContain("blur-[6px]");
-    expect(within(dialog).getByText(/백테스트 입력 예시에 쓰인 수치는 단순 예시값/)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/백테스트 입력 예시에 쓰인 수치는 단순 예시값/)).not.toBeInTheDocument();
     const promptInput = within(dialog).getByLabelText("백테스트 예시 내용");
     expect((promptInput as HTMLTextAreaElement).value).toContain("골든크로스");
 
