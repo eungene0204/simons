@@ -883,6 +883,9 @@ export function StrategyExampleTabs({
               모든 투자 판단과 그에 따른 책임은 이용자 본인에게 있습니다
             </span>
           </p>
+          <p className="mt-3 text-xs font-bold text-gray-600">
+            © 2026 nullStock. All rights reserved.
+          </p>
         </footer>
       </div>
 

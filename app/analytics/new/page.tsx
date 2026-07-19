@@ -2314,7 +2314,7 @@ function StrategyLabContent() {
                             )}
                             {isLastAssistant(i) && !msg.coachLoading && msg.clarification && (
                               <div
-                                className="flex flex-col gap-2.5 p-3.5 rounded-xl bg-[#111111] border border-yellow-400/40"
+                                className="flex flex-col gap-2.5 p-3.5 rounded-xl bg-[#111111] border border-green-400/40"
                                 style={SOFT_MESSAGE_ENTER_LATE_STYLE}
                               >
                                 <div className="flex items-start gap-2.5">
