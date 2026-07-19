@@ -1,0 +1,1960 @@
+{
+ "generatedAt": "2026-07-19T21:28:36.273309",
+ "counts": {
+  "delisted": 244
+ },
+ "etfs": [
+  {
+   "symbol": "0001S0",
+   "name": "TIGER 26-04 회사채(A+이상)액티브",
+   "dataStart": "2024-12-24",
+   "dataEnd": "2026-04-21",
+   "delistingDate": "2026-04-21",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "0010E0",
+   "name": "ACE FTSE WGBI Korea",
+   "dataStart": "2025-02-18",
+   "dataEnd": "2026-04-20",
+   "delistingDate": "2026-04-20",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "0021C0",
+   "name": "ACE TDF장기자산배분액티브",
+   "dataStart": "2025-03-11",
+   "dataEnd": "2026-07-08",
+   "delistingDate": "2026-07-08",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "0021D0",
+   "name": "ACE TDF2030액티브 적격",
+   "dataStart": "2025-03-11",
+   "dataEnd": "2026-07-06",
+   "delistingDate": "2026-07-06",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "0021E0",
+   "name": "ACE TDF2050액티브 적격",
+   "dataStart": "2025-03-11",
+   "dataEnd": "2026-07-08",
+   "delistingDate": "2026-07-08",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "091200",
+   "name": "KOSEF IT",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2015-02-17",
+   "delistingDate": "2015-02-17",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "091210",
+   "name": "TIGER KRX100",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2019-09-19",
+   "delistingDate": "2019-09-19",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "097710",
+   "name": "TIGER 가치주",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2015-12-14",
+   "delistingDate": "2015-12-14",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "097720",
+   "name": "TIGER 미드캡",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2015-12-14",
+   "delistingDate": "2015-12-14",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "097750",
+   "name": "TREX 중소형가치",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2020-06-22",
+   "delistingDate": "2020-06-22",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "098560",
+   "name": "TIGER 방송통신",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2025-12-03",
+   "delistingDate": "2025-12-03",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "104580",
+   "name": "KODEX Brazil",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2015-02-17",
+   "delistingDate": "2015-02-17",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "105020",
+   "name": "TIGER 브릭스",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2015-02-17",
+   "delistingDate": "2015-02-17",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "105270",
+   "name": "KINDEX 성장대형F15",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2016-04-28",
+   "delistingDate": "2016-04-28",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "107560",
+   "name": "GIANT 현대차그룹",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2016-09-28",
+   "delistingDate": "2016-09-28",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "108440",
+   "name": "KINDEX 코스닥스타",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2016-04-28",
+   "delistingDate": "2016-04-28",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "108480",
+   "name": "KStar 코스닥엘리트30",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2015-12-14",
+   "delistingDate": "2015-12-14",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "108630",
+   "name": "FIRST 스타우량",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2016-03-11",
+   "delistingDate": "2016-03-11",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "117740",
+   "name": "ARIRANG LG그룹&",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2015-05-06",
+   "delistingDate": "2015-05-06",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "120210",
+   "name": "GREAT SRI",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2015-12-14",
+   "delistingDate": "2015-12-14",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "122390",
+   "name": "TIGER 코스닥프리미어",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2016-04-28",
+   "delistingDate": "2016-04-28",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "123760",
+   "name": "KBSTAR 레버리지",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2016-10-24",
+   "delistingDate": "2016-10-24",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "129270",
+   "name": "ARIRANG 네오밸류",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2015-05-06",
+   "delistingDate": "2015-05-06",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "136280",
+   "name": "KODEX 소비재",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2017-05-24",
+   "delistingDate": "2017-05-24",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "137930",
+   "name": "마이다스 200커버드콜5%OTM",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2023-10-26",
+   "delistingDate": "2023-10-26",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "137990",
+   "name": "TIGER 그린",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2015-12-14",
+   "delistingDate": "2015-12-14",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "138210",
+   "name": "GREAT GREEN",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2015-07-01",
+   "delistingDate": "2015-07-01",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "139310",
+   "name": "TIGER 금속선물(H)",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2025-08-01",
+   "delistingDate": "2025-08-01",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "141240",
+   "name": "ARIRANG 코스피100동일가중",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2018-11-09",
+   "delistingDate": "2018-11-09",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "141250",
+   "name": "ARIRANG KRX100EW",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2015-05-06",
+   "delistingDate": "2015-05-06",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "143460",
+   "name": "ACE 밸류대형",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2024-12-17",
+   "delistingDate": "2024-12-17",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "144670",
+   "name": "KOSEF 펀더멘탈대형주",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2015-05-06",
+   "delistingDate": "2015-05-06",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "148040",
+   "name": "PIONEER SRI",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2016-09-07",
+   "delistingDate": "2016-09-07",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "152180",
+   "name": "TIGER 생활필수품",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2018-12-17",
+   "delistingDate": "2018-12-17",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "152280",
+   "name": "KOSEF 200 선물",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2021-03-22",
+   "delistingDate": "2021-03-22",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "157510",
+   "name": "TIGER 자동차",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2018-12-17",
+   "delistingDate": "2018-12-17",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "157520",
+   "name": "TIGER 화학",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2018-12-17",
+   "delistingDate": "2018-12-17",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "157650",
+   "name": "KStar 5대그룹주장기채+",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2015-12-14",
+   "delistingDate": "2015-12-14",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "161490",
+   "name": "ARIRANG 경기방어주",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2017-12-01",
+   "delistingDate": "2017-12-01",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "161500",
+   "name": "ARIRANG 경기주도주",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2017-12-01",
+   "delistingDate": "2017-12-01",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "161520",
+   "name": "ARIRANG 자동차",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2015-02-17",
+   "delistingDate": "2015-02-17",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "161530",
+   "name": "ARIRANG 조선운송",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2015-02-17",
+   "delistingDate": "2015-02-17",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "161540",
+   "name": "ARIRANG 철강금속",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2015-02-17",
+   "delistingDate": "2015-02-17",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "161550",
+   "name": "ARIRANG 화학",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2015-02-17",
+   "delistingDate": "2015-02-17",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "166060",
+   "name": "KODEX 주식&골드(H)",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2015-02-17",
+   "delistingDate": "2015-02-17",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "168300",
+   "name": "KTOP 코스피50",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2023-12-14",
+   "delistingDate": "2023-12-14",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "170350",
+   "name": "TIGER 베타플러스",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2021-05-06",
+   "delistingDate": "2021-05-06",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "176710",
+   "name": "파워 중기국고채",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2022-07-19",
+   "delistingDate": "2022-07-19",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "181450",
+   "name": "KINDEX 선진국하이일드(합성 H)",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2016-04-28",
+   "delistingDate": "2016-04-28",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "190150",
+   "name": "ARIRANG 바벨 채권",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2019-06-21",
+   "delistingDate": "2019-06-21",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "190160",
+   "name": "ARIRANG 단기유동성",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2020-08-28",
+   "delistingDate": "2020-08-28",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "196220",
+   "name": "KBSTAR 일본TOPIX레버리지(H)",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2020-04-24",
+   "delistingDate": "2020-04-24",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "200020",
+   "name": "KODEX 미국S&P IT(합성)",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2019-09-19",
+   "delistingDate": "2019-09-19",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "200040",
+   "name": "KODEX 미국S&P금융(합성)",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2019-09-19",
+   "delistingDate": "2019-09-19",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "200050",
+   "name": "KODEX 독일MSCI(합성)",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2018-09-21",
+   "delistingDate": "2018-09-21",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "204420",
+   "name": "ARIRANG 차이나H 레버리지(합성 H)",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2019-06-21",
+   "delistingDate": "2019-06-21",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "208470",
+   "name": "SOL 선진국MSCI World(합성 H)",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2022-04-19",
+   "delistingDate": "2022-04-19",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "211210",
+   "name": "마이티 코스피고배당",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2020-08-03",
+   "delistingDate": "2020-08-03",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "211260",
+   "name": "KINDEX 배당성장",
+   "dataStart": "2015-01-02",
+   "dataEnd": "2021-09-24",
+   "delistingDate": "2021-09-24",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "217790",
+   "name": "TIGER 가격조정",
+   "dataStart": "2015-04-29",
+   "dataEnd": "2022-12-20",
+   "delistingDate": "2022-12-20",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "222170",
+   "name": "ARIRANG S&P한국배당성장",
+   "dataStart": "2015-06-29",
+   "dataEnd": "2018-11-09",
+   "delistingDate": "2018-11-09",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "222180",
+   "name": "ARIRANG 스마트베타 Value",
+   "dataStart": "2015-06-29",
+   "dataEnd": "2020-05-21",
+   "delistingDate": "2020-05-21",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "222190",
+   "name": "ARIRANG 스마트베타 Momentum",
+   "dataStart": "2015-06-29",
+   "dataEnd": "2020-05-21",
+   "delistingDate": "2020-05-21",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "222200",
+   "name": "ARIRANG 스마트베타 Quality",
+   "dataStart": "2015-06-29",
+   "dataEnd": "2020-05-21",
+   "delistingDate": "2020-05-21",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "226810",
+   "name": "파워 단기채",
+   "dataStart": "2015-08-26",
+   "dataEnd": "2019-05-30",
+   "delistingDate": "2019-05-30",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "227930",
+   "name": "KINDEX 코스닥 150",
+   "dataStart": "2015-10-01",
+   "dataEnd": "2017-04-25",
+   "delistingDate": "2017-04-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "232590",
+   "name": "KINDEX 골드선물 인버스2X(합성 H)",
+   "dataStart": "2015-12-03",
+   "dataEnd": "2019-09-19",
+   "delistingDate": "2019-09-19",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "234790",
+   "name": "KINDEX 코스닥150 레버리지",
+   "dataStart": "2015-12-17",
+   "dataEnd": "2017-04-25",
+   "delistingDate": "2017-04-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "236460",
+   "name": "ARIRANG 스마트베타 LowVOL",
+   "dataStart": "2016-01-12",
+   "dataEnd": "2020-05-21",
+   "delistingDate": "2020-05-21",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "244820",
+   "name": "ARIRANG 스마트베타4종결합",
+   "dataStart": "2016-05-19",
+   "dataEnd": "2018-11-09",
+   "delistingDate": "2018-11-09",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "247780",
+   "name": "KODEX 가치투자",
+   "dataStart": "2016-06-24",
+   "dataEnd": "2020-09-25",
+   "delistingDate": "2020-09-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "247790",
+   "name": "KODEX 성장투자",
+   "dataStart": "2016-06-24",
+   "dataEnd": "2020-09-25",
+   "delistingDate": "2020-09-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "247800",
+   "name": "KODEX 턴어라운드투자",
+   "dataStart": "2016-06-24",
+   "dataEnd": "2020-09-25",
+   "delistingDate": "2020-09-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "248260",
+   "name": "TIGER 일본TOPIX헬스케어(합성)",
+   "dataStart": "2016-07-01",
+   "dataEnd": "2022-12-20",
+   "delistingDate": "2022-12-20",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "251890",
+   "name": "ACE 코스닥(합성)",
+   "dataStart": "2016-09-06",
+   "dataEnd": "2023-08-24",
+   "delistingDate": "2023-08-24",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "252720",
+   "name": "KBSTAR 모멘텀밸류",
+   "dataStart": "2016-10-14",
+   "dataEnd": "2024-06-25",
+   "delistingDate": "2024-06-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "252730",
+   "name": "KBSTAR 모멘텀로우볼",
+   "dataStart": "2016-10-14",
+   "dataEnd": "2024-06-25",
+   "delistingDate": "2024-06-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "253990",
+   "name": "TIGER 대만TAIEX선물(H)",
+   "dataStart": "2016-10-07",
+   "dataEnd": "2020-06-22",
+   "delistingDate": "2020-06-22",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "260200",
+   "name": "KOSEF 배당바이백Plus",
+   "dataStart": "2016-12-16",
+   "dataEnd": "2021-03-22",
+   "delistingDate": "2021-03-22",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "260270",
+   "name": "KOSEF 저PBR가중",
+   "dataStart": "2016-12-16",
+   "dataEnd": "2021-03-22",
+   "delistingDate": "2021-03-22",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "263190",
+   "name": "ARIRANG 단기우량채권",
+   "dataStart": "2017-01-25",
+   "dataEnd": "2020-09-25",
+   "delistingDate": "2020-09-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "266140",
+   "name": "TIGER 지속배당",
+   "dataStart": "2017-03-30",
+   "dataEnd": "2020-09-25",
+   "delistingDate": "2020-09-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "267300",
+   "name": "TIGER 코스닥150로우볼",
+   "dataStart": "2017-04-25",
+   "dataEnd": "2020-06-22",
+   "delistingDate": "2020-06-22",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "267500",
+   "name": "KBSTAR 미국장기국채선물인버스2X(합성 H)",
+   "dataStart": "2017-04-20",
+   "dataEnd": "2024-06-25",
+   "delistingDate": "2024-06-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "272220",
+   "name": "ACE 스마트모멘텀",
+   "dataStart": "2017-07-11",
+   "dataEnd": "2024-07-23",
+   "delistingDate": "2024-07-23",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "272230",
+   "name": "ACE 스마트밸류",
+   "dataStart": "2017-07-11",
+   "dataEnd": "2024-07-23",
+   "delistingDate": "2024-07-23",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "275540",
+   "name": "파워 스마트밸류",
+   "dataStart": "2017-07-11",
+   "dataEnd": "2020-06-22",
+   "delistingDate": "2020-06-22",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "278420",
+   "name": "ARIRANG ESG우수기업",
+   "dataStart": "2017-08-31",
+   "dataEnd": "2023-12-14",
+   "delistingDate": "2023-12-14",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "283930",
+   "name": "KBSTAR 지주회사",
+   "dataStart": "2017-11-30",
+   "dataEnd": "2020-04-24",
+   "delistingDate": "2020-04-24",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "284990",
+   "name": "KBSTAR 200에너지화학",
+   "dataStart": "2017-12-08",
+   "dataEnd": "2024-06-25",
+   "delistingDate": "2024-06-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "285000",
+   "name": "KBSTAR 200IT",
+   "dataStart": "2017-12-08",
+   "dataEnd": "2024-06-25",
+   "delistingDate": "2024-06-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "285010",
+   "name": "KBSTAR 200중공업",
+   "dataStart": "2017-12-08",
+   "dataEnd": "2024-06-25",
+   "delistingDate": "2024-06-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "285020",
+   "name": "KBSTAR 200철강소재",
+   "dataStart": "2017-12-08",
+   "dataEnd": "2024-06-25",
+   "delistingDate": "2024-06-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "287300",
+   "name": "KBSTAR 200건설",
+   "dataStart": "2017-12-22",
+   "dataEnd": "2024-06-25",
+   "delistingDate": "2024-06-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "287310",
+   "name": "KBSTAR 200경기소비재",
+   "dataStart": "2017-12-22",
+   "dataEnd": "2024-06-25",
+   "delistingDate": "2024-06-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "287320",
+   "name": "KBSTAR 200산업재",
+   "dataStart": "2017-12-22",
+   "dataEnd": "2024-06-25",
+   "delistingDate": "2024-06-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "287330",
+   "name": "KBSTAR 200생활소비재",
+   "dataStart": "2017-12-22",
+   "dataEnd": "2024-06-25",
+   "delistingDate": "2024-06-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "291610",
+   "name": "KOSEF 코스닥150선물",
+   "dataStart": "2018-03-16",
+   "dataEnd": "2021-03-22",
+   "delistingDate": "2021-03-22",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "291660",
+   "name": "KODEX China H선물인버스(H)",
+   "dataStart": "2018-03-16",
+   "dataEnd": "2021-08-12",
+   "delistingDate": "2021-08-12",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "292100",
+   "name": "TIGER 대형성장",
+   "dataStart": "2018-03-30",
+   "dataEnd": "2021-05-06",
+   "delistingDate": "2021-05-06",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "292110",
+   "name": "TIGER 대형가치",
+   "dataStart": "2018-03-30",
+   "dataEnd": "2021-05-06",
+   "delistingDate": "2021-05-06",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "292120",
+   "name": "TIGER 중소형",
+   "dataStart": "2018-03-30",
+   "dataEnd": "2020-12-23",
+   "delistingDate": "2020-12-23",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "292130",
+   "name": "TIGER 중소형성장",
+   "dataStart": "2018-03-30",
+   "dataEnd": "2021-05-06",
+   "delistingDate": "2021-05-06",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "292140",
+   "name": "TIGER 중소형가치",
+   "dataStart": "2018-03-30",
+   "dataEnd": "2021-05-06",
+   "delistingDate": "2021-05-06",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "292340",
+   "name": "마이티 200커버드콜ATM레버리지",
+   "dataStart": "2018-03-20",
+   "dataEnd": "2023-12-26",
+   "delistingDate": "2023-12-26",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "292570",
+   "name": "TIGER 일본엔선물레버리지",
+   "dataStart": "2018-04-17",
+   "dataEnd": "2021-03-22",
+   "delistingDate": "2021-03-22",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "292580",
+   "name": "TIGER 일본엔선물인버스",
+   "dataStart": "2018-04-17",
+   "dataEnd": "2021-03-22",
+   "delistingDate": "2021-03-22",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "292590",
+   "name": "TIGER 일본엔선물인버스2X",
+   "dataStart": "2018-04-17",
+   "dataEnd": "2021-03-22",
+   "delistingDate": "2021-03-22",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "292730",
+   "name": "FOCUS KRX300",
+   "dataStart": "2018-03-26",
+   "dataEnd": "2025-10-28",
+   "delistingDate": "2025-10-28",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "292750",
+   "name": "ARIRANG KRX300",
+   "dataStart": "2018-03-26",
+   "dataEnd": "2024-06-25",
+   "delistingDate": "2024-06-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "295820",
+   "name": "ARIRANG 200동일가중",
+   "dataStart": "2018-05-11",
+   "dataEnd": "2024-06-25",
+   "delistingDate": "2024-06-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "295840",
+   "name": "ARIRANG 200밸류",
+   "dataStart": "2018-05-11",
+   "dataEnd": "2019-12-10",
+   "delistingDate": "2019-12-10",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "295860",
+   "name": "ARIRANG 200모멘텀",
+   "dataStart": "2018-05-11",
+   "dataEnd": "2019-12-10",
+   "delistingDate": "2019-12-10",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "295880",
+   "name": "ARIRANG 200퀄리티",
+   "dataStart": "2018-05-11",
+   "dataEnd": "2019-12-10",
+   "delistingDate": "2019-12-10",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "295890",
+   "name": "ARIRANG 200로우볼",
+   "dataStart": "2018-05-11",
+   "dataEnd": "2019-12-10",
+   "delistingDate": "2019-12-10",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "296710",
+   "name": "KODEX FnKorea50",
+   "dataStart": "2018-06-08",
+   "dataEnd": "2021-08-12",
+   "delistingDate": "2021-08-12",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "299070",
+   "name": "ACE 국채선물10년인버스",
+   "dataStart": "2018-06-08",
+   "dataEnd": "2024-05-24",
+   "delistingDate": "2024-05-24",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "299080",
+   "name": "ACE 국채선물3년인버스",
+   "dataStart": "2018-06-08",
+   "dataEnd": "2024-05-24",
+   "delistingDate": "2024-05-24",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "300280",
+   "name": "KBSTAR 중소형모멘텀로우볼",
+   "dataStart": "2018-07-18",
+   "dataEnd": "2021-05-06",
+   "delistingDate": "2021-05-06",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "300290",
+   "name": "KBSTAR 중소형모멘텀밸류",
+   "dataStart": "2018-07-18",
+   "dataEnd": "2021-05-06",
+   "delistingDate": "2021-05-06",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "300300",
+   "name": "KBSTAR KQ모멘텀로우볼",
+   "dataStart": "2018-07-18",
+   "dataEnd": "2020-08-03",
+   "delistingDate": "2020-08-03",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "300310",
+   "name": "KBSTAR KQ모멘텀밸류",
+   "dataStart": "2018-07-18",
+   "dataEnd": "2020-08-03",
+   "delistingDate": "2020-08-03",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "301410",
+   "name": "PLUS 코스닥150선물인버스",
+   "dataStart": "2018-07-11",
+   "dataEnd": "2026-06-24",
+   "delistingDate": "2026-06-24",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "301440",
+   "name": "ARIRANG 코스피중형주",
+   "dataStart": "2018-07-05",
+   "dataEnd": "2023-08-24",
+   "delistingDate": "2023-08-24",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "302170",
+   "name": "TIGER 국채선물3년인버스",
+   "dataStart": "2018-07-20",
+   "dataEnd": "2021-12-17",
+   "delistingDate": "2021-12-17",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "302180",
+   "name": "TIGER 국채선물10년인버스",
+   "dataStart": "2018-07-20",
+   "dataEnd": "2021-12-17",
+   "delistingDate": "2021-12-17",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "302200",
+   "name": "TIGER 중장기국채선물인버스",
+   "dataStart": "2018-07-20",
+   "dataEnd": "2020-12-23",
+   "delistingDate": "2020-12-23",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "302210",
+   "name": "TIGER 중장기국채선물인버스2X",
+   "dataStart": "2018-07-20",
+   "dataEnd": "2020-12-23",
+   "delistingDate": "2020-12-23",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "306540",
+   "name": "HANARO 단기통안채",
+   "dataStart": "2018-09-18",
+   "dataEnd": "2021-07-01",
+   "delistingDate": "2021-07-01",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "306960",
+   "name": "KODEX KRX300선물인버스",
+   "dataStart": "2018-10-16",
+   "dataEnd": "2020-09-25",
+   "delistingDate": "2020-09-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "307010",
+   "name": "KBSTAR KRX300레버리지",
+   "dataStart": "2018-10-16",
+   "dataEnd": "2024-04-25",
+   "delistingDate": "2024-04-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "307020",
+   "name": "KBSTAR KRX300선물인버스",
+   "dataStart": "2018-10-16",
+   "dataEnd": "2020-12-23",
+   "delistingDate": "2020-12-23",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "307610",
+   "name": "TIGER KRX300레버리지",
+   "dataStart": "2018-10-16",
+   "dataEnd": "2020-12-23",
+   "delistingDate": "2020-12-23",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "307620",
+   "name": "TIGER KRX300선물인버스",
+   "dataStart": "2018-10-16",
+   "dataEnd": "2020-09-25",
+   "delistingDate": "2020-09-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "309170",
+   "name": "ARIRANG KRX300IT",
+   "dataStart": "2018-11-08",
+   "dataEnd": "2021-07-01",
+   "delistingDate": "2021-07-01",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "309180",
+   "name": "ARIRANG KRX300금융",
+   "dataStart": "2018-11-08",
+   "dataEnd": "2020-05-21",
+   "delistingDate": "2020-05-21",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "309190",
+   "name": "ARIRANG KRX300산업재",
+   "dataStart": "2018-11-08",
+   "dataEnd": "2020-05-21",
+   "delistingDate": "2020-05-21",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "309200",
+   "name": "ARIRANG KRX300자유소비재",
+   "dataStart": "2018-11-08",
+   "dataEnd": "2020-05-21",
+   "delistingDate": "2020-05-21",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "309210",
+   "name": "ARIRANG KRX300헬스케어",
+   "dataStart": "2018-11-08",
+   "dataEnd": "2023-10-26",
+   "delistingDate": "2023-10-26",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "315480",
+   "name": "KBSTAR 200커뮤니케이션서비스",
+   "dataStart": "2019-01-15",
+   "dataEnd": "2024-06-25",
+   "delistingDate": "2024-06-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "319870",
+   "name": "KBSTAR KRX300미국달러선물혼합",
+   "dataStart": "2019-03-19",
+   "dataEnd": "2024-06-25",
+   "delistingDate": "2024-06-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "322120",
+   "name": "ACE 스마트퀄리티",
+   "dataStart": "2019-04-16",
+   "dataEnd": "2024-07-23",
+   "delistingDate": "2024-07-23",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "322130",
+   "name": "ACE 스마트로우볼",
+   "dataStart": "2019-04-16",
+   "dataEnd": "2024-07-23",
+   "delistingDate": "2024-07-23",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "322150",
+   "name": "ACE 스마트하이베타",
+   "dataStart": "2019-04-16",
+   "dataEnd": "2024-07-23",
+   "delistingDate": "2024-07-23",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "331910",
+   "name": "KOSEF Fn중소형",
+   "dataStart": "2019-08-13",
+   "dataEnd": "2024-11-05",
+   "delistingDate": "2024-11-05",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "333940",
+   "name": "PLUS KS로우볼가중TR",
+   "dataStart": "2019-09-05",
+   "dataEnd": "2024-09-26",
+   "delistingDate": "2024-09-26",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "333950",
+   "name": "PLUS KS로우사이즈가중TR",
+   "dataStart": "2019-09-05",
+   "dataEnd": "2024-10-23",
+   "delistingDate": "2024-10-23",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "333960",
+   "name": "PLUS KS모멘텀가중TR",
+   "dataStart": "2019-09-05",
+   "dataEnd": "2024-09-26",
+   "delistingDate": "2024-09-26",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "333970",
+   "name": "PLUS KS밸류가중TR",
+   "dataStart": "2019-09-05",
+   "dataEnd": "2024-10-23",
+   "delistingDate": "2024-10-23",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "333980",
+   "name": "PLUS KS퀄리티가중TR",
+   "dataStart": "2019-09-05",
+   "dataEnd": "2024-08-26",
+   "delistingDate": "2024-08-26",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "342140",
+   "name": "ACE 싱가포르리츠채권혼합모닝스타",
+   "dataStart": "2019-12-27",
+   "dataEnd": "2023-06-23",
+   "delistingDate": "2023-06-23",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "342500",
+   "name": "KBSTAR KRX국채선물3년10년스티프너",
+   "dataStart": "2019-12-19",
+   "dataEnd": "2021-12-17",
+   "delistingDate": "2021-12-17",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "342600",
+   "name": "KBSTAR KRX국채선물3년10년스티프너2X",
+   "dataStart": "2019-12-19",
+   "dataEnd": "2021-12-17",
+   "delistingDate": "2021-12-17",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "342610",
+   "name": "KBSTAR KRX국채선물3년10년플래트너",
+   "dataStart": "2019-12-19",
+   "dataEnd": "2021-12-17",
+   "delistingDate": "2021-12-17",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "342620",
+   "name": "KBSTAR KRX국채선물3년10년플래트너2X",
+   "dataStart": "2019-12-19",
+   "dataEnd": "2021-12-17",
+   "delistingDate": "2021-12-17",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "346000",
+   "name": "HANARO KAP초장기국고채",
+   "dataStart": "2020-01-16",
+   "dataEnd": "2025-11-04",
+   "delistingDate": "2025-11-04",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "361590",
+   "name": "KBSTAR 코스피ex200",
+   "dataStart": "2020-08-21",
+   "dataEnd": "2022-04-19",
+   "delistingDate": "2022-04-19",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "368200",
+   "name": "KBSTAR Fn K-뉴딜디지털플러스",
+   "dataStart": "2020-11-10",
+   "dataEnd": "2024-04-25",
+   "delistingDate": "2024-04-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "368470",
+   "name": "KINDEX Fn K-뉴딜디지털플러스",
+   "dataStart": "2020-11-10",
+   "dataEnd": "2022-09-15",
+   "delistingDate": "2022-09-15",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "371130",
+   "name": "ACE 베트남VN30선물블룸버그레버리지(H)",
+   "dataStart": "2020-11-25",
+   "dataEnd": "2024-12-17",
+   "delistingDate": "2024-12-17",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "373530",
+   "name": "PLUS 신흥국MSCI인버스(합성 H)",
+   "dataStart": "2020-12-16",
+   "dataEnd": "2025-12-18",
+   "delistingDate": "2025-12-18",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "376250",
+   "name": "ARIRANG 탄소효율그린뉴딜",
+   "dataStart": "2021-02-05",
+   "dataEnd": "2023-06-23",
+   "delistingDate": "2023-06-23",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "390950",
+   "name": "HANARO 단기채권액티브",
+   "dataStart": "2021-06-25",
+   "dataEnd": "2025-03-25",
+   "delistingDate": "2025-03-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "391590",
+   "name": "ACE 미국스팩&IPO INDXX",
+   "dataStart": "2021-08-05",
+   "dataEnd": "2024-07-23",
+   "delistingDate": "2024-07-23",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "391680",
+   "name": "HK 하이볼액티브",
+   "dataStart": "2021-07-06",
+   "dataEnd": "2024-12-09",
+   "delistingDate": "2024-12-09",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "394340",
+   "name": "KOSEF 글로벌디지털경제",
+   "dataStart": "2021-07-20",
+   "dataEnd": "2024-11-05",
+   "delistingDate": "2024-11-05",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "394350",
+   "name": "KIWOOM 글로벌퓨처모빌리티",
+   "dataStart": "2021-07-20",
+   "dataEnd": "2026-03-25",
+   "delistingDate": "2026-03-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "397410",
+   "name": "RISE 국채선물5년추종인버스",
+   "dataStart": "2021-08-31",
+   "dataEnd": "2025-05-21",
+   "delistingDate": "2025-05-21",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "402520",
+   "name": "FOCUS 혁신기업액티브",
+   "dataStart": "2021-09-30",
+   "dataEnd": "2024-09-03",
+   "delistingDate": "2024-09-03",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "403990",
+   "name": "KBSTAR KRX기후변화솔루션",
+   "dataStart": "2021-10-29",
+   "dataEnd": "2024-06-25",
+   "delistingDate": "2024-06-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "404470",
+   "name": "HANARO KRX기후변화솔루션",
+   "dataStart": "2021-10-29",
+   "dataEnd": "2024-09-10",
+   "delistingDate": "2024-09-10",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "407160",
+   "name": "KCGI 테크미디어텔레콤액티브",
+   "dataStart": "2021-11-16",
+   "dataEnd": "2025-09-17",
+   "delistingDate": "2025-09-17",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "407170",
+   "name": "KCGI 스마트커머스액티브",
+   "dataStart": "2021-11-16",
+   "dataEnd": "2025-09-17",
+   "delistingDate": "2025-09-17",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "411050",
+   "name": "ACE 글로벌메타버스테크액티브",
+   "dataStart": "2021-12-22",
+   "dataEnd": "2025-08-14",
+   "delistingDate": "2025-08-14",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "411720",
+   "name": "RISE 글로벌메타버스",
+   "dataStart": "2021-12-22",
+   "dataEnd": "2025-01-21",
+   "delistingDate": "2025-01-21",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "419170",
+   "name": "HANARO 미국메타버스iSelect",
+   "dataStart": "2022-02-22",
+   "dataEnd": "2025-06-23",
+   "delistingDate": "2025-06-23",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "422260",
+   "name": "VITA MZ소비액티브",
+   "dataStart": "2022-03-29",
+   "dataEnd": "2026-06-24",
+   "delistingDate": "2026-06-24",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "424460",
+   "name": "HANARO 글로벌워터MSCI(합성)",
+   "dataStart": "2022-04-19",
+   "dataEnd": "2026-07-15",
+   "delistingDate": "2026-07-15",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "426330",
+   "name": "KIWOOM 미국ETF산업STOXX",
+   "dataStart": "2022-04-26",
+   "dataEnd": "2026-03-25",
+   "delistingDate": "2026-03-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "426410",
+   "name": "PLUS 미국대체투자Top10",
+   "dataStart": "2022-05-11",
+   "dataEnd": "2025-02-19",
+   "delistingDate": "2025-02-19",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "427110",
+   "name": "RISE 창업투자회사",
+   "dataStart": "2022-05-17",
+   "dataEnd": "2025-01-21",
+   "delistingDate": "2025-01-21",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "429870",
+   "name": "KIWOOM 리츠이지스액티브",
+   "dataStart": "2022-05-24",
+   "dataEnd": "2025-06-02",
+   "delistingDate": "2025-06-02",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "429990",
+   "name": "SOL 한국형글로벌플랫폼&메타버스액티브",
+   "dataStart": "2022-06-14",
+   "dataEnd": "2025-01-16",
+   "delistingDate": "2025-01-16",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "432850",
+   "name": "HANARO 글로벌백신치료제MSCI",
+   "dataStart": "2022-06-08",
+   "dataEnd": "2025-06-23",
+   "delistingDate": "2025-06-23",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "433850",
+   "name": "PLUS TDF2030액티브",
+   "dataStart": "2022-06-30",
+   "dataEnd": "2025-07-15",
+   "delistingDate": "2025-07-15",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "433860",
+   "name": "PLUS TDF2040액티브",
+   "dataStart": "2022-06-30",
+   "dataEnd": "2025-08-20",
+   "delistingDate": "2025-08-20",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "433870",
+   "name": "PLUS TDF2050액티브",
+   "dataStart": "2022-06-30",
+   "dataEnd": "2025-09-17",
+   "delistingDate": "2025-09-17",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "436180",
+   "name": "PLUS K-유니콘투자기업액티브",
+   "dataStart": "2022-07-13",
+   "dataEnd": "2024-08-26",
+   "delistingDate": "2024-08-26",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "437550",
+   "name": "KIWOOM 글로벌리츠이지스액티브",
+   "dataStart": "2022-07-29",
+   "dataEnd": "2025-06-02",
+   "delistingDate": "2025-06-02",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "438210",
+   "name": "PLUS 글로벌AI",
+   "dataStart": "2022-08-17",
+   "dataEnd": "2025-04-23",
+   "delistingDate": "2025-04-23",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "441330",
+   "name": "KIWOOM 차이나A50커넥트MSCI",
+   "dataStart": "2022-09-20",
+   "dataEnd": "2026-03-25",
+   "delistingDate": "2026-03-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "445930",
+   "name": "KOSEF 차이나A50커넥트레버리지MSCI(합성H)",
+   "dataStart": "2022-10-25",
+   "dataEnd": "2024-11-05",
+   "delistingDate": "2024-11-05",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "445950",
+   "name": "KOSEF 차이나A50커넥트인버스MSCI(합성 H)",
+   "dataStart": "2022-10-25",
+   "dataEnd": "2024-11-05",
+   "delistingDate": "2024-11-05",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "447780",
+   "name": "TIGER 23-12 국공채액티브",
+   "dataStart": "2022-12-09",
+   "dataEnd": "2023-12-12",
+   "delistingDate": "2023-12-12",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "447820",
+   "name": "TIGER 24-10 회사채(A+이상)액티브",
+   "dataStart": "2022-11-22",
+   "dataEnd": "2024-10-07",
+   "delistingDate": "2024-10-07",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "448310",
+   "name": "KODEX 23-12 국고채액티브",
+   "dataStart": "2022-11-22",
+   "dataEnd": "2023-12-06",
+   "delistingDate": "2023-12-06",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "448320",
+   "name": "KODEX 23-12 은행채(AA+이상)액티브",
+   "dataStart": "2022-11-22",
+   "dataEnd": "2023-12-06",
+   "delistingDate": "2023-12-06",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "448510",
+   "name": "HANARO 글로벌신재생에너지MSCI(합성)",
+   "dataStart": "2022-11-30",
+   "dataEnd": "2025-03-25",
+   "delistingDate": "2025-03-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "448590",
+   "name": "KBSTAR 23-11 회사채(AA-이상)액티브",
+   "dataStart": "2022-11-22",
+   "dataEnd": "2023-11-20",
+   "delistingDate": "2023-11-20",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "448600",
+   "name": "RISE 25-11 회사채(AA-이상)액티브",
+   "dataStart": "2022-11-22",
+   "dataEnd": "2025-11-20",
+   "delistingDate": "2025-11-20",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "448870",
+   "name": "ACE 23-12 회사채(AA-이상)액티브",
+   "dataStart": "2022-11-22",
+   "dataEnd": "2023-12-15",
+   "delistingDate": "2023-12-15",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "448880",
+   "name": "ACE 24-12 회사채(AA-이상)액티브",
+   "dataStart": "2022-11-22",
+   "dataEnd": "2024-12-17",
+   "delistingDate": "2024-12-17",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "449540",
+   "name": "SOL 24-06 국고채액티브",
+   "dataStart": "2022-12-16",
+   "dataEnd": "2024-06-05",
+   "delistingDate": "2024-06-05",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "450120",
+   "name": "KIWOOM SK그룹대표주",
+   "dataStart": "2022-12-23",
+   "dataEnd": "2025-06-02",
+   "delistingDate": "2025-06-02",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "452440",
+   "name": "VITA 밸류알파액티브",
+   "dataStart": "2023-02-21",
+   "dataEnd": "2026-05-28",
+   "delistingDate": "2026-05-28",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "453530",
+   "name": "TIGER 24-04 회사채(A+이상)액티브",
+   "dataStart": "2023-03-23",
+   "dataEnd": "2024-04-08",
+   "delistingDate": "2024-04-08",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "453540",
+   "name": "TIGER 25-10 회사채(A+이상)액티브",
+   "dataStart": "2023-03-23",
+   "dataEnd": "2025-10-14",
+   "delistingDate": "2025-10-14",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "456100",
+   "name": "HANARO 유로존국채25년플러스(합성 H)",
+   "dataStart": "2023-05-16",
+   "dataEnd": "2024-12-12",
+   "delistingDate": "2024-12-12",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "459370",
+   "name": "SOL 유럽탄소배출권선물인버스ICE(H)",
+   "dataStart": "2023-06-20",
+   "dataEnd": "2025-12-18",
+   "delistingDate": "2025-12-18",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "460280",
+   "name": "KIWOOM Fn유전자혁신기술",
+   "dataStart": "2023-06-27",
+   "dataEnd": "2026-03-25",
+   "delistingDate": "2026-03-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "461260",
+   "name": "ACE 25-06 회사채(AA-이상)액티브",
+   "dataStart": "2023-06-20",
+   "dataEnd": "2025-06-24",
+   "delistingDate": "2025-06-24",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "461270",
+   "name": "ACE 26-06 회사채(AA-이상)액티브",
+   "dataStart": "2023-06-20",
+   "dataEnd": "2026-06-24",
+   "delistingDate": "2026-06-24",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "462540",
+   "name": "SOL 25-09 회사채(AA-이상)액티브",
+   "dataStart": "2023-08-08",
+   "dataEnd": "2025-09-08",
+   "delistingDate": "2025-09-08",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "464060",
+   "name": "HANARO 글로벌반도체TOP10 SOLACTIVE",
+   "dataStart": "2023-08-01",
+   "dataEnd": "2025-11-04",
+   "delistingDate": "2025-11-04",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "464230",
+   "name": "히어로즈 24-09 회사채(AA-이상)액티브",
+   "dataStart": "2023-08-17",
+   "dataEnd": "2024-09-26",
+   "delistingDate": "2024-09-26",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "464540",
+   "name": "RISE 25-03 회사채(AA-이상)액티브",
+   "dataStart": "2023-08-17",
+   "dataEnd": "2025-03-18",
+   "delistingDate": "2025-03-18",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "465680",
+   "name": "KODEX 24-12 은행채(AA+이상)액티브",
+   "dataStart": "2023-09-12",
+   "dataEnd": "2024-12-05",
+   "delistingDate": "2024-12-05",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "466400",
+   "name": "1Q 25-08 회사채(A+이상)액티브",
+   "dataStart": "2023-09-19",
+   "dataEnd": "2025-08-26",
+   "delistingDate": "2025-08-26",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "467540",
+   "name": "KIWOOM 코스닥글로벌",
+   "dataStart": "2023-10-24",
+   "dataEnd": "2025-06-02",
+   "delistingDate": "2025-06-02",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "467620",
+   "name": "KIWOOM 25-09 미국채권(AA-이상)액티브",
+   "dataStart": "2023-10-17",
+   "dataEnd": "2025-09-25",
+   "delistingDate": "2025-09-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "467940",
+   "name": "KODEX 25-11 회사채(A+이상)액티브",
+   "dataStart": "2023-10-11",
+   "dataEnd": "2025-11-13",
+   "delistingDate": "2025-11-13",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "468820",
+   "name": "WON 25-09 회사채(AA-이상)액티브",
+   "dataStart": "2023-10-19",
+   "dataEnd": "2025-09-25",
+   "delistingDate": "2025-09-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "469580",
+   "name": "RISE KP달러채권액티브",
+   "dataStart": "2023-11-09",
+   "dataEnd": "2025-01-21",
+   "delistingDate": "2025-01-21",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "469820",
+   "name": "SOL 24-12 회사채(AA-이상)액티브",
+   "dataStart": "2023-11-07",
+   "dataEnd": "2024-12-06",
+   "delistingDate": "2024-12-06",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "470260",
+   "name": "TIGER 24-12 금융채(AA-이상)",
+   "dataStart": "2023-11-21",
+   "dataEnd": "2024-12-17",
+   "delistingDate": "2024-12-17",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "470320",
+   "name": "BNK 24-11 회사채(AA-이상)액티브",
+   "dataStart": "2023-11-14",
+   "dataEnd": "2024-11-26",
+   "delistingDate": "2024-11-26",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "471290",
+   "name": "HANARO CD금리액티브(합성)",
+   "dataStart": "2023-11-14",
+   "dataEnd": "2025-06-23",
+   "delistingDate": "2025-06-23",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "472350",
+   "name": "1Q 차이나H(H)",
+   "dataStart": "2023-12-12",
+   "dataEnd": "2026-03-03",
+   "delistingDate": "2026-03-03",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "472490",
+   "name": "HANARO 미국애그테크",
+   "dataStart": "2023-11-28",
+   "dataEnd": "2025-06-23",
+   "delistingDate": "2025-06-23",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "473380",
+   "name": "HANARO K-메디테크",
+   "dataStart": "2023-12-21",
+   "dataEnd": "2025-03-25",
+   "delistingDate": "2025-03-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "473500",
+   "name": "KIWOOM 글로벌전력반도체",
+   "dataStart": "2023-12-21",
+   "dataEnd": "2025-06-02",
+   "delistingDate": "2025-06-02",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "476810",
+   "name": "KODEX 25-11 은행채(AA-이상)PLUS액티브",
+   "dataStart": "2024-03-05",
+   "dataEnd": "2025-11-18",
+   "delistingDate": "2025-11-18",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "481200",
+   "name": "SOL 미국테크TOP10인버스(합성)",
+   "dataStart": "2024-05-21",
+   "dataEnd": "2026-02-20",
+   "delistingDate": "2026-02-20",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "482870",
+   "name": "HANARO 주주가치성장코리아액티브",
+   "dataStart": "2024-06-11",
+   "dataEnd": "2025-11-25",
+   "delistingDate": "2025-11-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "483230",
+   "name": "RISE 25-06 은행채(AA+이상)액티브",
+   "dataStart": "2024-06-18",
+   "dataEnd": "2025-06-24",
+   "delistingDate": "2025-06-24",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "483240",
+   "name": "TIGER 미국나스닥100ETF선물",
+   "dataStart": "2024-11-19",
+   "dataEnd": "2026-06-08",
+   "delistingDate": "2026-06-08",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "483420",
+   "name": "ACE 애플밸류체인액티브",
+   "dataStart": "2024-06-11",
+   "dataEnd": "2026-07-08",
+   "delistingDate": "2026-07-08",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "486780",
+   "name": "HANARO 200선물레버리지1.5X",
+   "dataStart": "2024-07-09",
+   "dataEnd": "2025-09-15",
+   "delistingDate": "2025-09-15",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "486790",
+   "name": "HANARO 코스닥150선물레버리지1.5X",
+   "dataStart": "2024-07-09",
+   "dataEnd": "2025-09-15",
+   "delistingDate": "2025-09-15",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "489570",
+   "name": "HANARO 25-12 은행채(AA+이상)액티브",
+   "dataStart": "2024-10-15",
+   "dataEnd": "2025-12-05",
+   "delistingDate": "2025-12-05",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "489870",
+   "name": "KIWOOM 25-09 회사채(AA-이상)액티브",
+   "dataStart": "2024-09-24",
+   "dataEnd": "2025-09-25",
+   "delistingDate": "2025-09-25",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "491080",
+   "name": "KODEX 25-12 은행채(AAA)액티브",
+   "dataStart": "2024-09-10",
+   "dataEnd": "2025-12-05",
+   "delistingDate": "2025-12-05",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "494900",
+   "name": "TIGER 25-12 금융채(AA-이상)",
+   "dataStart": "2024-10-29",
+   "dataEnd": "2025-12-16",
+   "delistingDate": "2025-12-16",
+   "hasOhlcv": true
+  },
+  {
+   "symbol": "495710",
+   "name": "BNK 26-06 특수채(AAA이상)액티브",
+   "dataStart": "2024-12-03",
+   "dataEnd": "2026-06-08",
+   "delistingDate": "2026-06-08",
+   "hasOhlcv": true
+  }
+ ]
+}

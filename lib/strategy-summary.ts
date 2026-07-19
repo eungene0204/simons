@@ -5,6 +5,8 @@ export interface ParsedSummary {
   universe: string[];
   // 섹터/업종 제한(정본 섹터명, 예: "반도체"). 복수면 배열(합집합). 없으면 null/생략.
   sector?: string | string[] | null;
+  // ETF 유니버스 전용 테마/상품명 필터("반도체", "KODEX 200"). 없으면 null/생략.
+  etf_theme?: string | null;
   fundamental_filters: Array<{ metric: string; operator: string; value: number }>;
   entry_signals: Array<{ indicator: string; signal_type?: string | null; mode?: string | null }>;
   exit_signals: Array<{ indicator: string; signal_type?: string | null; mode?: string | null }>;
@@ -51,6 +53,7 @@ export const UNIVERSE_LABELS: Record<string, string> = {
   kospi: "KOSPI",
   kosdaq: "KOSDAQ",
   kospi200: "KOSPI 200",
+  etf: "ETF",
   KOR_KOSPI200: "KOSPI 200",
   KOR_KOSDAQ150: "KOSDAQ 150",
   US_TECH_TOP10: "미국 테크 Top 10",
@@ -225,6 +228,8 @@ function normalizeUniverseId(universe: string): string {
       return "kosdaq";
     case "KOSPI200":
       return "kospi200";
+    case "ETF":
+      return "etf";
     default:
       return normalized;
   }
@@ -248,6 +253,14 @@ export function getDisplayUniverseLabels(
       ? [parsed.sector]
       : [];
   const sectorLabel = sectors.map((sector) => `${sector} 업종`);
+
+  // ETF 테마/상품명 필터 배지 — 상품명("KODEX 200", 라틴 브랜드 포함)은 그대로,
+  // 테마 키워드("반도체", "미국")는 "테마"를 붙인다.
+  if (parsed.etf_theme) {
+    sectorLabel.push(
+      /[a-z]/i.test(parsed.etf_theme) ? parsed.etf_theme : `${parsed.etf_theme} 테마`
+    );
+  }
 
   if (
     normalizedUniverses.length === 1 &&
@@ -541,6 +554,7 @@ export function resolveStrategyPrompt(
 export function inferUniverseFromText(text: string | null | undefined): string | null {
   const normalized = (text ?? "").toUpperCase().replace(/\s+/g, "");
   if (!normalized) return null;
+  if (normalized.includes("ETF") || normalized.includes("이티에프")) return "ETF";
   if (normalized.includes("KOSPI200")) return "KOSPI 200";
   if (normalized.includes("KOSDAQ150")) return "KOSDAQ 150";
   if (normalized.includes("KOSDAQ")) return "KOSDAQ";

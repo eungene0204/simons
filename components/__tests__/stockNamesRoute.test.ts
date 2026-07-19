@@ -18,6 +18,10 @@ vi.mock("@/lib/krx-stocks", () => ({
     "042670": "HD현대인프라코어", // 상폐 — korea-stocks엔 없음
     "115390": "락앤락", // 상폐(인수)
   }),
+  loadEtfMasterNameMap: vi.fn().mockResolvedValue({
+    "091160": "KODEX 반도체", // ETF — 주식 마스터엔 없음
+    "381180": "TIGER 미국필라델피아반도체나스닥",
+  }),
 }));
 
 const { GET } = await import("@/app/api/stocks/names/route");
@@ -42,5 +46,11 @@ describe("GET /api/stocks/names", () => {
   it("현재 상장 종목은 sector 등 풍부한 메타가 유지된다 (master 위에 덮어씀)", async () => {
     const map = await getMap();
     expect(map["005930"]).toEqual({ name: "삼성전자", sector: "반도체" });
+  });
+
+  it("ETF 종목도 코드가 아니라 이름을 반환한다", async () => {
+    const map = await getMap();
+    expect(map["091160"]?.name).toBe("KODEX 반도체");
+    expect(map["381180"]?.name).toBe("TIGER 미국필라델피아반도체나스닥");
   });
 });

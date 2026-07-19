@@ -42,14 +42,17 @@ export default function VirtualTradingStatus({ initialData }: { initialData: Tra
   ];
 
   return (
-    <div className="flex divide-x divide-white/[0.08] items-stretch">
+    <div
+      className="grid grid-cols-2 items-stretch lg:flex lg:divide-x lg:divide-white/[0.08]"
+      data-testid="virtual-trading-status-grid"
+    >
       {/* 5개 통계 */}
       {stats.map((s) => {
         const Icon = s.icon;
         return (
           <div
             key={s.label}
-            className="flex-1 flex flex-col justify-between px-4 py-4"
+            className="flex flex-1 flex-col justify-between border-white/[0.08] px-3 py-4 odd:border-r [&:nth-child(-n+2)]:border-b lg:border-b-0 lg:border-r-0 lg:px-4"
           >
               <div className="flex items-center gap-2">
                 <Icon

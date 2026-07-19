@@ -2178,7 +2178,7 @@ function StrategyLabContent() {
         }
       `}</style>
       <div
-        className={`relative flex flex-col items-center gap-4 overflow-x-hidden px-4 pt-20 ${hasChatStarted ? "pb-56" : "pb-12"} ${strategyPreviewBackgroundClass}`}
+        className={`relative flex flex-col items-center gap-4 overflow-x-hidden px-4 pt-10 sm:pt-14 lg:pt-20 ${hasChatStarted ? "pb-56" : "pb-12"} ${strategyPreviewBackgroundClass}`}
         data-testid="strategy-lab-background"
         style={{ minHeight: "calc(100vh - var(--top-menu-bar-height, 76px))" }}
       >
@@ -2203,12 +2203,12 @@ function StrategyLabContent() {
               <div className="space-y-4">
                 <p
                   data-testid="strategy-lab-headline"
-                  className="max-w-5xl text-6xl leading-none tracking-tight text-[#fcfdff] md:text-7xl [font-weight:950]"
+                  className="max-w-5xl text-4xl leading-none tracking-tight text-[#fcfdff] sm:text-5xl lg:text-7xl [font-weight:950]"
                   style={{ textShadow: "0 0 24px rgba(255, 255, 255, 0.18)" }}
                 >
                   {buildAnimatedHeadline(headlineLines, visibleHeadlineChars)}
                 </p>
-                <p className="text-base font-bold leading-relaxed text-gray-400">
+                <p className="text-sm font-bold leading-relaxed text-gray-400 sm:text-base">
                   AI와 함께 전략을 설계하고, 바로 백테스트 하세요
                 </p>
               </div>

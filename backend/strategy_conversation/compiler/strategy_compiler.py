@@ -191,6 +191,16 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
     sectors = strategy.universe.sectors
     sector_value = None if not sectors else (sectors[0] if len(sectors) == 1 else sectors)
 
+    # ETF 유니버스의 테마/상품명. LLM이 이해한 etf_theme를 우선 사용한다 — "반도체 종목 ETF"
+    # 처럼 테마어가 'ETF'와 인접하지 않으면 어순 기반 결정적 추출이 놓치기 때문이다. LLM이
+    # 비웠을 때만 규칙 파서와 동일한 자기검증 매칭(extract_etf_theme)으로 폴백한다.
+    etf_theme = None
+    if strategy.universe.markets == ["ETF"]:
+        etf_theme = strategy.universe.etf_theme
+        if not etf_theme:
+            from engine.universe_pit import extract_etf_theme
+            etf_theme = extract_etf_theme(user_input)
+
     portfolio = strategy.portfolio
     risk = strategy.risk_management
     bt = strategy.backtest
@@ -199,6 +209,7 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         description=user_input,
         universe=strategy.universe.markets,
         sector=sector_value,
+        etf_theme=etf_theme,
         fundamental_filters=buckets["fundamental_filters"],
         entry_signals=buckets["entry_signals"],
         exit_signals=buckets["exit_signals"],

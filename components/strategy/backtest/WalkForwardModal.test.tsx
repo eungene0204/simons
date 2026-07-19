@@ -146,10 +146,25 @@ describe("WalkForwardModal", () => {
     await user.click(screen.getByRole("button", { name: "PBR" }));
     const pbrStepDialog = screen.getByRole("dialog", { name: "PBR 값 설정" });
     expect(pbrStepDialog).toBeInTheDocument();
+    expect(pbrStepDialog).toHaveClass("px-2", "py-3", "sm:px-4", "lg:py-0");
     expect(pbrStepDialog.firstElementChild).toHaveClass("rounded-xl");
+    expect(screen.getByTestId("walk-forward-step-modal-panel")).toHaveClass(
+      "max-h-[calc(100dvh-1.5rem)]",
+      "overflow-y-auto",
+      "p-4",
+      "sm:p-5",
+      "lg:max-h-none",
+      "lg:overflow-visible"
+    );
+    expect(screen.getByTestId("walk-forward-step-modal-actions")).toHaveClass(
+      "flex-col",
+      "sm:flex-row",
+      "sm:items-center",
+      "sm:justify-between"
+    );
     expect(within(pbrStepDialog).getByRole("button", { name: "기본값" })).toHaveClass("rounded-md");
-    expect(within(pbrStepDialog).getByRole("button", { name: "닫기" })).toHaveClass("rounded-md");
-    expect(within(pbrStepDialog).getByRole("button", { name: "저장" })).toHaveClass("rounded-md");
+    expect(within(pbrStepDialog).getByRole("button", { name: "닫기" })).toHaveClass("rounded-md", "flex-1", "sm:flex-none");
+    expect(within(pbrStepDialog).getByRole("button", { name: "저장" })).toHaveClass("rounded-md", "flex-1", "sm:flex-none");
     // 기본값은 실제로 적용되는 자동 생성 범위(PBR=1 주변 0.8~1.2)를 그대로 보여준다.
     expect(screen.getByLabelText("PBR 하한값")).toHaveAttribute("type", "number");
     expect(screen.getByLabelText("PBR 하한값")).toHaveValue(0.8);

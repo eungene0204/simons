@@ -149,6 +149,41 @@ describe("VirtualAccountDetailPage loading", () => {
     expect(screen.getByText("총 자산")).toBeInTheDocument();
   });
 
+  it("keeps tracked symbols inside a mobile scroll region", async () => {
+    window.sessionStorage.setItem(
+      "virtual-account-detail:account-123",
+      JSON.stringify({
+        account: {
+          id: "account-123",
+          name: "테스트 계좌",
+          initialAmount: 10_000_000,
+          currentBalance: 10_000_000,
+          totalValue: 10_000_000,
+          tradingMode: "manual",
+          createdAt: "2026-06-01T00:00:00.000Z",
+          updatedAt: "2026-06-01T00:00:00.000Z",
+        },
+        holdings: [],
+        transactions: [],
+        trackedSymbols: [{ symbol: "005930", name: "삼성전자" }],
+      })
+    );
+
+    render(<VirtualAccountDetailPage />);
+
+    const scrollRegion = await screen.findByTestId("tracked-symbols-table-scroll");
+    expect(scrollRegion).toHaveClass("overflow-x-auto", "lg:overflow-x-visible");
+    expect(scrollRegion.firstElementChild).toHaveClass(
+      "min-w-[520px]",
+      "lg:min-w-0"
+    );
+    expect(screen.getByRole("button", { name: "삼성전자 추적 제거" })).toHaveClass(
+      "opacity-100",
+      "lg:opacity-0",
+      "lg:group-hover:opacity-100"
+    );
+  });
+
   it("renders strategy badges from history summary when saved settings lack display conditions", async () => {
     getAccountMock.mockResolvedValue({
       id: "account-123",

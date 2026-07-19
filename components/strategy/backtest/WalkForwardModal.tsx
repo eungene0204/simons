@@ -1592,9 +1592,12 @@ export function WalkForwardPanel({
               role="dialog"
               aria-modal="true"
               aria-labelledby="walk-forward-step-modal-title"
-              className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/70 px-4"
+              className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/70 px-2 py-3 sm:px-4 lg:py-0"
             >
-              <div className="w-full max-w-sm rounded-xl border border-white/[0.10] bg-[#111111] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.65)]">
+              <div
+                data-testid="walk-forward-step-modal-panel"
+                className="max-h-[calc(100dvh-1.5rem)] w-full max-w-sm overflow-y-auto rounded-xl border border-white/[0.10] bg-[#111111] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.65)] sm:p-5 lg:max-h-none lg:overflow-visible"
+              >
                 <p id="walk-forward-step-modal-title" className="text-xs font-bold uppercase tracking-widest text-gray-500">
                   {stepModalTarget.label} 값 설정
                 </p>
@@ -1779,8 +1782,11 @@ export function WalkForwardPanel({
                     </p>
                   </>
                 )}
-                <div className="mt-5 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
+                <div
+                  data-testid="walk-forward-step-modal-actions"
+                  className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-2"
+                >
+                  <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
                     <button
                       type="button"
                       onClick={resetStepModal}
@@ -1799,18 +1805,18 @@ export function WalkForwardPanel({
                       {excludedTargetIds.has(stepModalTarget.id) ? "최적화에 포함" : "최적화에서 제외"}
                     </button>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex w-full items-center gap-2 sm:w-auto">
                     <button
                       type="button"
                       onClick={closeStepModal}
-                      className="rounded-md px-3 py-2 text-xs font-black text-gray-400 transition-colors hover:bg-white/[0.04] hover:text-white"
+                      className="flex-1 rounded-md px-3 py-2 text-xs font-black text-gray-400 transition-colors hover:bg-white/[0.04] hover:text-white sm:flex-none"
                     >
                       닫기
                     </button>
                     <button
                       type="button"
                       onClick={saveStepModal}
-                      className="rounded-md bg-[var(--main-blue)] px-3 py-2 text-xs font-black text-white transition-opacity hover:opacity-90"
+                      className="flex-1 rounded-md bg-[var(--main-blue)] px-3 py-2 text-xs font-black text-white transition-opacity hover:opacity-90 sm:flex-none"
                     >
                       저장
                     </button>

@@ -109,3 +109,6 @@ model/v3_pre_promote_*
 model/v3_pre_resync_*
 model/v3/model_meta.pre_recalib_*
 top200.txt
+
+# KRX 일별 스윕 캐시(backfill_delisted_etf.py 재개용 — 재생성 가능)
+/data/cache/

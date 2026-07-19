@@ -44,6 +44,20 @@ describe("VirtualAccountList", () => {
     vi.unstubAllGlobals();
   });
 
+  it("contains the fixed-width table inside a mobile scroll region", () => {
+    render(<VirtualAccountList initialData={makeData([makeAccount()])} />);
+
+    const scrollRegion = screen.getByTestId("virtual-account-table-scroll");
+    expect(scrollRegion).toHaveClass(
+      "overflow-x-auto",
+      "lg:overflow-x-visible"
+    );
+    expect(scrollRegion.firstElementChild).toHaveClass(
+      "min-w-[440px]",
+      "lg:min-w-0"
+    );
+  });
+
   it("navigates to the account detail page when a row is clicked", () => {
     render(<VirtualAccountList initialData={makeData([makeAccount()])} />);
 

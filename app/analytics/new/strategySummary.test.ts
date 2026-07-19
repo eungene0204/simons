@@ -517,3 +517,31 @@ describe("섹터/업종 유니버스 표시", () => {
     expect(summary?.universeName).toContain("기계/장비 업종");
   });
 });
+
+describe("ETF 유니버스 표시 (2026-07-19)", () => {
+  it("universe ETF는 ETF 라벨로 표시된다", () => {
+    const labels = getDisplayUniverseLabels({
+      ...baseParsed,
+      universe: ["ETF"],
+    });
+    expect(labels).toEqual(["ETF"]);
+  });
+
+  it("etf_theme 키워드는 테마 배지, 상품명은 그대로 배지가 된다", () => {
+    expect(
+      getDisplayUniverseLabels({
+        ...baseParsed,
+        universe: ["ETF"],
+        etf_theme: "반도체",
+      })
+    ).toEqual(["ETF", "반도체 테마"]);
+
+    expect(
+      getDisplayUniverseLabels({
+        ...baseParsed,
+        universe: ["ETF"],
+        etf_theme: "KODEX 200",
+      })
+    ).toEqual(["ETF", "KODEX 200"]);
+  });
+});

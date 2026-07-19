@@ -185,6 +185,15 @@ describe("StrategyExampleTabs", () => {
     expect(onSelectExample).not.toHaveBeenCalled();
     const dialog = screen.getByRole("dialog", { name: "이평선 골든크로스 따라가기" });
     expect(dialog).toBeInTheDocument();
+    expect(dialog).toHaveClass(
+      "max-h-[calc(100dvh-1.5rem)]",
+      "overflow-y-auto",
+      "rounded-2xl",
+      "p-4",
+      "lg:max-h-none",
+      "lg:rounded-[1.75rem]",
+      "lg:p-5"
+    );
     expect(within(dialog).queryByText(
       "백테스트 입력 예시에 쓰인 수치는 단순 예시값이며, 투자 추천이나 미래 성과를 의미하지 않습니다."
     )).not.toBeInTheDocument();

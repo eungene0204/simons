@@ -82,7 +82,7 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[1100] flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[1100] flex items-center justify-center p-2 lg:p-4">
       <AnimatePresence>
         {isOpen && (
           <>
@@ -97,31 +97,36 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-6xl bg-[#111] border border-white/10 rounded-3xl overflow-hidden shadow-[0_32px_64px_-12px_rgba(0,0,0,0.8)] flex flex-col max-h-[75vh] pointer-events-auto"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="xai-modal-title"
+              data-testid="xai-modal-dialog"
+              className="relative flex max-h-[calc(100dvh-1rem)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#111] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.8)] pointer-events-auto lg:max-h-[75vh] lg:rounded-3xl"
             >
             {/* Header - Drag Handle Area */}
-            <div className="flex items-center justify-between px-6 py-3 border-b border-white/5 bg-[#161616] transition-colors">
-              <div className="flex items-center gap-3">
+            <div className="flex items-center justify-between gap-2 border-b border-white/5 bg-[#161616] px-4 py-3 transition-colors lg:px-6">
+              <div className="flex min-w-0 items-center gap-3">
                 <div className="p-2 bg-main-blue/10 rounded-xl">
                   <ChartBar className="w-5 h-5 text-main-blue" />
                 </div>
-                <div>
-                  <h3 className="text-lg font-black text-white">AI 의사결정 분석 (XAI)</h3>
-                  <p className="text-xs text-gray-500 font-bold uppercase tracking-widest">
+                <div className="min-w-0">
+                  <h3 id="xai-modal-title" className="text-base font-black text-white lg:text-lg">AI 의사결정 분석 (XAI)</h3>
+                  <p className="break-words text-xs text-gray-500 font-bold uppercase tracking-widest">
                     {symbol} • {date} • 가중치 분석
                   </p>
                 </div>
               </div>
               <button 
                 onClick={onClose}
-                className="p-2 hover:bg-white/5 rounded-full transition-colors"
+                aria-label="XAI 분석 닫기"
+                className="flex-none p-2 hover:bg-white/5 rounded-full transition-colors"
               >
                 <X className="w-6 h-6 text-gray-400" />
               </button>
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto p-5 bg-[#0a0a0a] custom-scrollbar">
+            <div className="flex-1 overflow-y-auto bg-[#0a0a0a] p-3 custom-scrollbar lg:p-5">
               {loading ? (
                 <div className="h-96 flex flex-col items-center justify-center space-y-4">
                    <motion.div
@@ -177,12 +182,15 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
                    </div>
 
                    {/* 2. SHAP Matrix Heatmap */}
-                   <div className="bg-[#111]/50 p-4 rounded-2xl border border-white/5">
-                      <div className="flex items-center justify-between mb-3">
+                   <div className="bg-[#111]/50 p-3 rounded-2xl border border-white/5 lg:p-4">
+                      <div
+                        data-testid="xai-heatmap-header"
+                        className="mb-3 flex flex-col items-start gap-2 lg:flex-row lg:items-center lg:justify-between"
+                      >
                         <h4 className="text-sm font-black text-white flex items-center gap-2">
                           <Clock className="w-4 h-4 text-gray-500" /> 시계열 특징 기여도 (SHAP Heatmap)
                         </h4>
-                        <div className="flex items-center gap-4 text-[10px] font-bold">
+                        <div className="flex flex-wrap items-center gap-4 text-[10px] font-bold">
                            <div className="flex items-center gap-1.5">
                               <div className="w-2 h-2 rounded-full bg-main-blue" />
                               <span className="text-gray-500">하락 요인</span>
@@ -194,10 +202,10 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
                         </div>
                       </div>
                       
-                      <div className="relative bg-[#111] p-1 rounded-xl border border-white/5">
+                      <div className="relative overflow-hidden bg-[#111] p-1 rounded-xl border border-white/5">
                         {/* Feature Names Left Axis */}
                         <div className="flex">
-                          <div className="w-24 flex-none py-8 flex flex-col justify-between">
+                          <div className="w-20 flex-none py-8 flex flex-col justify-between lg:w-24">
                              {result.features.map(f => (
                                <span key={f} className="text-[9px] font-bold text-gray-500 text-right pr-3 truncate">
                                  {FEATURE_LABELS[f] || f}
@@ -206,7 +214,10 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
                           </div>
                           
                           {/* Matrix Grid */}
-                          <div className="flex-1 overflow-x-auto pb-2 custom-scrollbar">
+                          <div
+                            data-testid="xai-heatmap-scroll"
+                            className="min-w-0 flex-1 overflow-x-auto pb-2 custom-scrollbar"
+                          >
                              <div className="w-[800px] h-40 flex">
                                 {result.shap_matrix.map((dayShap, dayIdx) => (
                                   <div key={dayIdx} className="flex-1 flex flex-col">
@@ -288,7 +299,7 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
             </div>
 
             {/* Footer Info */}
-            <div className="px-6 py-3 bg-[#161616] border-t border-white/5">
+            <div className="border-t border-white/5 bg-[#161616] px-3 py-3 lg:px-6">
                <div className="flex items-start gap-3 bg-white/[0.03] p-3 rounded-xl border border-white/10">
                   <Info className="w-5 h-5 text-main-blue mt-0.5 flex-none" />
                   <p className="text-xs text-gray-400 leading-relaxed font-medium">

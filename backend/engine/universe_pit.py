@@ -20,6 +20,7 @@ static share counts used to compute market cap.
 from __future__ import annotations
 
 import json
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -28,6 +29,7 @@ from engine.sector_mapper import MAPPING_RULES, NL_SAFE_TERMS
 
 _MASTER_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "stock-master.json"
 _KOREA_STOCKS_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "korea-stocks.json"
+_ETF_MASTER_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "etf-master.json"
 
 # When a backtest has no explicit start (period=FULL), bound the lower edge here.
 _DEFAULT_START_FLOOR = "2015-01-01"
@@ -47,6 +49,120 @@ def reload_master() -> None:
     """Drop the cached master (call after regenerating the file)."""
     _load_master.cache_clear()
     _load_sector_map.cache_clear()
+    _load_etf_master.cache_clear()
+    _etf_symbol_set.cache_clear()
+
+
+# ── ETF 유니버스 ─────────────────────────────────────────────────────────────
+# ETF는 개별 주식과 분리된 독립 유니버스다(universe_id="etf"). 주식 유니버스와 절대
+# 혼합하지 않으며, 기업 재무지표(PER·PBR 등)는 적용되지 않는다(universe_capabilities).
+# 마스터는 scripts/build_etf_master.py가 FDR ETF/KR 목록 ∩ 로컬 OHLCV로 생성한다.
+# 한계: 현재 상장 ETF만 담는다(상폐 ETF 미포함) — 엔진이 생존 편향 경고를 남긴다.
+
+
+@lru_cache(maxsize=1)
+def _load_etf_master() -> list[dict]:
+    if not _ETF_MASTER_PATH.exists():
+        return []
+    return json.loads(_ETF_MASTER_PATH.read_text(encoding="utf-8")).get("etfs", [])
+
+
+def is_etf_universe(universe_id: Optional[str]) -> bool:
+    """universe_id가 ETF 유니버스인지 판정한다."""
+    return bool(universe_id) and universe_id.strip().lower() == "etf"
+
+
+@lru_cache(maxsize=1)
+def _etf_symbol_set() -> frozenset[str]:
+    return frozenset(e["symbol"] for e in _load_etf_master())
+
+
+def is_etf_symbol(symbol: str) -> bool:
+    """이 심볼이 ETF 마스터(상장·상폐 포함)에 속하는가.
+
+    DataLoader가 종목당 무조건 시도하던 재무 enrichment(ROE 등)를 ETF에는 건너뛰기
+    위한 판정 — ETF는 기업 재무제표가 없어 KIS 재무비율 API가 항상 빈 응답/오류만
+    반환하므로, 판정 없이는 매 ETF 백테스트마다 헛된 API 호출과 로그 소음이 발생한다.
+    """
+    return symbol in _etf_symbol_set()
+
+
+def resolve_etf_symbols(start: Optional[str], end: str) -> list[str]:
+    """백테스트 창에서 가격 데이터가 존재하는 ETF 심볼 목록(as-of)."""
+    lo = start or _DEFAULT_START_FLOOR
+    return sorted(
+        e["symbol"] for e in _load_etf_master() if _alive(e, lo, end)
+    )
+
+
+def etf_master_includes_delisted() -> bool:
+    """ETF 마스터에 상폐 ETF가 백필돼 있는가 — 없으면 엔진이 생존 편향을 경고한다."""
+    return any(e.get("delistingDate") for e in _load_etf_master())
+
+
+def etf_name_map(symbols: Optional[list[str]] = None) -> dict[str, str]:
+    """symbol -> ETF 이름 (symbols=None이면 전체)."""
+    wanted = set(symbols) if symbols is not None else None
+    return {
+        e["symbol"]: e["name"]
+        for e in _load_etf_master()
+        if wanted is None or e["symbol"] in wanted
+    }
+
+
+def _etf_key(text: str) -> str:
+    return (text or "").replace(" ", "").lower()
+
+
+def filter_etf_by_theme(symbols: list[str], theme: str) -> list[str]:
+    """ETF 심볼을 테마/이름 키워드로 필터링한다.
+
+    정확한 상품명 일치("KODEX 200")가 있으면 그 종목만, 없으면 이름에 키워드가
+    포함된 ETF 전체("반도체" → 반도체 ETF들)를 반환한다. 매칭 없으면 빈 리스트 —
+    호출부가 전체 유니버스 유지 + 안내로 폴백한다(조용한 왜곡 방지).
+    """
+    key = _etf_key(theme)
+    if not key:
+        return []
+    names = etf_name_map(symbols)
+    exact = [s for s, n in names.items() if _etf_key(n) == key]
+    if exact:
+        return sorted(exact)
+    return sorted(s for s, n in names.items() if key in _etf_key(n))
+
+
+def extract_etf_theme(user_input: str) -> Optional[str]:
+    """'ETF' 직전 토큰에서 테마/상품명 키워드를 자기검증 방식으로 추출한다.
+
+    어휘집을 유지하는 대신, 후보 접미사가 실제 ETF 마스터 이름과 매칭되는지로
+    유효성을 판정한다 — "미국 ETF"→'미국'(매칭 다수), "사는 ETF"→매칭 0이라 None.
+    상품명 전체 매칭("KODEX 200")이 있으면 그것을 우선한다.
+    """
+    text = (user_input or "").lower()
+    # ① 상품명 전체 매칭 — 입력에 마스터 이름이 통째로 들어 있으면 가장 긴 것을 채택.
+    compact_input = _etf_key(text)
+    best_name: Optional[str] = None
+    for e in _load_etf_master():
+        nk = _etf_key(e["name"])
+        if len(nk) >= 5 and nk in compact_input:
+            if best_name is None or len(nk) > len(_etf_key(best_name)):
+                best_name = e["name"]
+    if best_name:
+        return best_name
+    # ② 'ETF' 직전 토큰의 접미사 중 마스터 이름과 매칭되는 가장 긴 것.
+    m = re.search(r"([가-힣a-z0-9&.\-]+)\s*(?:etf|이티에프)", text)
+    if not m:
+        return None
+    token = m.group(1)
+    all_names = [_etf_key(e["name"]) for e in _load_etf_master()]
+    for k in range(len(token)):
+        candidate = token[k:]
+        if len(candidate) < 2:
+            break
+        ck = _etf_key(candidate)
+        if any(ck in n for n in all_names):
+            return candidate
+    return None
 
 
 def parse_universe_markets(universe_id: Optional[str]) -> tuple[list[str], bool]:
@@ -298,11 +414,18 @@ def get_delisting_dates(symbols: list[str]) -> dict[str, str]:
     """symbol -> delistingDate, only for names that actually delisted.
 
     Lets the engine label a forced exit at a delisted name's last trading day as
-    "상장폐지" rather than the generic "데이터 종료".
+    "상장폐지" rather than the generic "데이터 종료". 주식 마스터와 ETF 마스터
+    (상폐 백필분)를 함께 본다 — 심볼 공간이 겹치지 않아 병합이 안전하다.
     """
     wanted = set(symbols)
-    return {
+    dates = {
         s["symbol"]: s["delistingDate"]
         for s in _load_master()
         if s["symbol"] in wanted and s.get("delistingDate")
     }
+    dates.update({
+        e["symbol"]: e["delistingDate"]
+        for e in _load_etf_master()
+        if e["symbol"] in wanted and e.get("delistingDate")
+    })
+    return dates

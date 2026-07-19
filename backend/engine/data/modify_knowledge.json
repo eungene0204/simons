@@ -1,69 +1,333 @@
 {
-  "schema_version": 1,
-  "source": "Simons ParsedStrategyDiff contract",
-  "documents": [
+ "schema_version": 1,
+ "source": "Simons ParsedStrategyDiff contract",
+ "documents": [
+  {
+   "id": "sector-scope",
+   "title": "섹터와 업종 제한",
+   "category": "sector",
+   "keywords": [
+    "섹터",
+    "업종",
+    "관련주",
+    "테마",
+    "반도체",
+    "2차전지",
+    "이차전지",
+    "바이오",
+    "추가",
+    "도"
+   ],
+   "content": "sector는 현재 시장 유니버스 안에서 특정 업종 종목만 제한하는 필드다. 여러 업종이면 배열로 출력한다. 섹터 요청만으로 universe를 변경하지 않는다.",
+   "rules": [
+    "반도체 섹터 종목만은 sector를 반도체로 변경한다.",
+    "'~도 추가'처럼 기존 업종에 더하는 요청이면 현재 전략의 sector에 새 업종을 더한 전체 목록을 배열로 출력한다.",
+    "특정 업종만 빼달라는 요청이면 그 업종을 제외한 나머지 목록을 출력한다.",
+    "시장 변경이 함께 명시된 경우에만 universe도 출력한다.",
+    "2차전지와 배터리는 정본 섹터명 이차전지로 해석한다."
+   ],
+   "examples": [
     {
-      "id": "sector-scope",
-      "title": "섹터와 업종 제한",
-      "category": "sector",
-      "keywords": ["섹터", "업종", "관련주", "테마", "반도체", "2차전지", "이차전지", "바이오", "추가", "도"],
-      "content": "sector는 현재 시장 유니버스 안에서 특정 업종 종목만 제한하는 필드다. 여러 업종이면 배열로 출력한다. 섹터 요청만으로 universe를 변경하지 않는다.",
-      "rules": ["반도체 섹터 종목만은 sector를 반도체로 변경한다.", "'~도 추가'처럼 기존 업종에 더하는 요청이면 현재 전략의 sector에 새 업종을 더한 전체 목록을 배열로 출력한다.", "특정 업종만 빼달라는 요청이면 그 업종을 제외한 나머지 목록을 출력한다.", "시장 변경이 함께 명시된 경우에만 universe도 출력한다.", "2차전지와 배터리는 정본 섹터명 이차전지로 해석한다."],
-      "examples": [{"request": "반도체 섹터 종목만 테스트 해줘", "output": {"sector": "반도체"}}, {"request": "로봇 섹터도 추가해줘 (현재 sector: 반도체)", "output": {"sector": ["반도체", "로봇"]}}]
+     "request": "반도체 섹터 종목만 테스트 해줘",
+     "output": {
+      "sector": "반도체"
+     }
     },
     {
-      "id": "contextual-typos",
-      "title": "문맥 기반 오타 해석",
-      "category": "typo",
-      "keywords": ["오타", "선절", "손졀", "익졀", "리벨런싱", "손절", "익절"],
-      "content": "한국어 채팅 오타는 주변 숫자와 투자 용어 문맥으로 의도를 판단한다. 사전에 없는 철자라도 문맥상 의미가 명확하면 해당 필드로 변환한다.",
-      "rules": ["선절과 손졀은 손실 비율 문맥에서 손절로 해석한다.", "익졀은 수익 비율 문맥에서 익절로 해석한다.", "문맥이 불충분하면 추측하지 않고 null을 유지한다."],
-      "examples": [{"request": "15% 선절 30% 익절", "output": {"stop_loss_pct": 15.0, "take_profit_pct": 30.0}}]
-    },
-    {
-      "id": "risk-exits",
-      "title": "리스크와 청산 조건",
-      "category": "risk",
-      "keywords": ["손절", "익절", "목표수익", "트레일링", "최고가", "MDD", "낙폭", "청산"],
-      "content": "손절, 익절, 트레일링 스탑, MDD 한도는 서로 다른 필드다. 백분율 필드는 부호가 아니라 크기를 양수로 출력한다.",
-      "rules": ["손실 기준은 stop_loss_pct, 수익 기준은 take_profit_pct다.", "최고가 대비 하락은 trailing_stop_pct다.", "포트폴리오 최대 낙폭 제한은 max_mdd_limit_pct다."],
-      "examples": [{"request": "최고가에서 10% 밀리면 청산", "output": {"trailing_stop_pct": 10.0}}]
-    },
-    {
-      "id": "market-universe",
-      "title": "시장 유니버스",
-      "category": "universe",
-      "keywords": ["유니버스", "코스피", "코스닥", "KOSPI", "KOSDAQ", "전체시장", "시장"],
-      "content": "universe에는 KOSPI, KOSDAQ, KOSPI200 시장 코드만 사용한다. 업종과 테마는 universe가 아니라 sector다.",
-      "rules": ["코스피200은 KOSPI200 하나로 출력한다.", "전체 시장은 KOSPI와 KOSDAQ을 함께 출력한다.", "시장 언급이 없으면 universe를 변경하지 않는다."],
-      "examples": [{"request": "전체 시장으로 바꿔줘", "output": {"universe": ["KOSPI", "KOSDAQ"]}}]
-    },
-    {
-      "id": "portfolio-settings",
-      "title": "포트폴리오와 테스트 설정",
-      "category": "settings",
-      "keywords": ["종목수", "종목", "보유", "리밸런싱", "백테스트", "기간", "초기자금", "투자금"],
-      "content": "종목 수, 보유 거래일, 리밸런싱 주기, 테스트 기간, 초기자금은 독립된 설정 필드다.",
-      "rules": ["최대 N종목은 max_positions다.", "1년, 6개월, 3개월 보유는 각각 252, 126, 63 거래일이다.", "1억은 initial_capital 100000000.0원이다."],
-      "examples": [{"request": "8종목만 6개월 보유", "output": {"max_positions": 8, "hold_period_days": 126}}]
-    },
-    {
-      "id": "filters-and-signals",
-      "title": "재무 필터와 기술 신호",
-      "category": "conditions",
-      "keywords": ["PBR", "PER", "ROE", "부채비율", "RSI", "골든크로스", "데드크로스", "돌파", "필터", "매수", "매도", "추가", "MACD", "볼린저", "거래량", "영업이익률", "순이익률", "매출총이익률", "ROA", "PSR", "유동비율", "유보율", "시가총액", "거래대금", "증가율"],
-      "content": "기업 수치 조건은 fundamental_filters, 가격과 지표 기반 매매 조건은 entry_signals 또는 exit_signals에 기록한다. 신호 목록과 필터 목록은 diff가 통째로 대체하므로, 추가 요청이면 현재 전략의 기존 항목에 새 항목을 더한 전체 목록을 출력한다.",
-      "rules": ["이하, 미만, 이상, 초과는 각각 <=, <, >=, >로 보존한다.", "골든크로스는 진입 신호(ma_crossover, signal_type buy, short_period 5, long_period 20), 데드크로스는 청산 신호(ma_crossover, signal_type sell)다.", "RSI N 이하 매수는 rsi buy(period 14, operator <=, value N), RSI N 이상 매도는 rsi sell(operator >=)이다.", "매수 조건 추가는 entry_signals, 매도/청산 조건 추가는 exit_signals에 기존 신호를 유지한 채 더한다.", "필터 추가 요청도 기존 fundamental_filters를 유지한 채 새 필터를 더한 전체 목록을 출력한다.", "지원 metric: per(PER), pbr(PBR), psr(PSR), roe_or_gpa(ROE), roa(ROA), debt_ratio(부채비율), current_ratio(유동비율), quick_ratio(당좌비율), reserve_ratio(유보율), net_margin(순이익률), gross_margin(매출총이익률), operating_margin(영업이익률), revenue_growth(매출액증가율), operating_income_growth(영업이익증가율), net_income_growth(순이익증가율), market_cap(시가총액, 억원), trading_value(거래대금, 억원).", "영업이익률(operating_margin)과 영업이익증가율(operating_income_growth)은 서로 다른 지표다 — 이름 그대로 구분한다.", "지원 metric 목록에 없는 지표(EV/EBITDA, ROIC, 베타, 배당, 현금흐름, 이자보상배율 등)는 diff에 넣지 않고 비슷한 지표로 대체하지도 않는다.", "필터 추가 요청에 임계값이 없으면 수익성 비율 지표(마진·ROE·ROA)는 >= 10.0을 기본값으로 쓴다."],
-      "examples": [{"request": "PBR 1 이하로 바꿔줘", "output": {"fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1.0}]}}, {"request": "영업이익률 15% 이상 조건 추가해줘", "output": {"fundamental_filters": [{"metric": "operating_margin", "operator": ">=", "value": 15.0}]}}, {"request": "영업이익증가율 10% 이상으로", "output": {"fundamental_filters": [{"metric": "operating_income_growth", "operator": ">=", "value": 10.0}]}}, {"request": "골든크로스 나면 사도록 추가해줘", "output": {"entry_signals": [{"indicator": "ma_crossover", "signal_type": "buy", "short_period": 5, "long_period": 20}]}}, {"request": "데드크로스에 팔게 청산조건 추가", "output": {"exit_signals": [{"indicator": "ma_crossover", "signal_type": "sell", "short_period": 5, "long_period": 20}]}}, {"request": "RSI 30 이하에서 매수하게 바꿔줘", "output": {"entry_signals": [{"indicator": "rsi", "signal_type": "buy", "period": 14, "operator": "<=", "value": 30.0}]}}]
-    },
-    {
-      "id": "diff-contract",
-      "title": "수정 diff 출력 계약",
-      "category": "contract",
-      "keywords": ["변경", "수정", "그대로", "만", "그리고", "추가", "빼줘", "해제"],
-      "content": "출력은 완성 전략이 아니라 사용자가 이번 요청에서 변경한 필드만 담는 ParsedStrategyDiff다.",
-      "rules": ["요청하지 않은 필드는 null로 유지한다.", "한 문장에 여러 변경이 명시되면 모든 변경 필드를 함께 출력한다.", "전략 추천이나 요청하지 않은 기본값을 만들지 않는다."],
-      "examples": [{"request": "손절 10%와 익절 25%만 바꿔줘", "output": {"stop_loss_pct": 10.0, "take_profit_pct": 25.0}}]
+     "request": "로봇 섹터도 추가해줘 (현재 sector: 반도체)",
+     "output": {
+      "sector": [
+       "반도체",
+       "로봇"
+      ]
+     }
     }
-  ]
+   ]
+  },
+  {
+   "id": "contextual-typos",
+   "title": "문맥 기반 오타 해석",
+   "category": "typo",
+   "keywords": [
+    "오타",
+    "선절",
+    "손졀",
+    "익졀",
+    "리벨런싱",
+    "손절",
+    "익절"
+   ],
+   "content": "한국어 채팅 오타는 주변 숫자와 투자 용어 문맥으로 의도를 판단한다. 사전에 없는 철자라도 문맥상 의미가 명확하면 해당 필드로 변환한다.",
+   "rules": [
+    "선절과 손졀은 손실 비율 문맥에서 손절로 해석한다.",
+    "익졀은 수익 비율 문맥에서 익절로 해석한다.",
+    "문맥이 불충분하면 추측하지 않고 null을 유지한다."
+   ],
+   "examples": [
+    {
+     "request": "15% 선절 30% 익절",
+     "output": {
+      "stop_loss_pct": 15.0,
+      "take_profit_pct": 30.0
+     }
+    }
+   ]
+  },
+  {
+   "id": "risk-exits",
+   "title": "리스크와 청산 조건",
+   "category": "risk",
+   "keywords": [
+    "손절",
+    "익절",
+    "목표수익",
+    "트레일링",
+    "최고가",
+    "MDD",
+    "낙폭",
+    "청산"
+   ],
+   "content": "손절, 익절, 트레일링 스탑, MDD 한도는 서로 다른 필드다. 백분율 필드는 부호가 아니라 크기를 양수로 출력한다.",
+   "rules": [
+    "손실 기준은 stop_loss_pct, 수익 기준은 take_profit_pct다.",
+    "최고가 대비 하락은 trailing_stop_pct다.",
+    "포트폴리오 최대 낙폭 제한은 max_mdd_limit_pct다."
+   ],
+   "examples": [
+    {
+     "request": "최고가에서 10% 밀리면 청산",
+     "output": {
+      "trailing_stop_pct": 10.0
+     }
+    }
+   ]
+  },
+  {
+   "id": "market-universe",
+   "title": "시장 유니버스",
+   "category": "universe",
+   "keywords": [
+    "유니버스",
+    "코스피",
+    "코스닥",
+    "KOSPI",
+    "KOSDAQ",
+    "전체시장",
+    "시장",
+    "ETF",
+    "이티에프",
+    "상장지수펀드",
+    "ETN"
+   ],
+   "content": "universe에는 KOSPI, KOSDAQ, KOSPI200, ETF 코드만 사용한다. 업종과 테마는 universe가 아니라 sector다. ETF는 주식 시장과 혼합하지 않는 독립 유니버스다.",
+   "rules": [
+    "코스피200은 KOSPI200 하나로 출력한다.",
+    "전체 시장은 KOSPI와 KOSDAQ을 함께 출력한다.",
+    "시장 언급이 없으면 universe를 변경하지 않는다.",
+    "ETF 대상으로 바꾸는 요청이면 universe를 ETF 하나로 출력한다(주식 시장과 혼합 금지).",
+    "ETF 전략에는 기업 재무지표(PER·PBR·ROE 등) 필터를 추가하지 않는다 — ETF는 여러 기업을 묶은 상품이라 기업 재무지표가 없다."
+   ],
+   "examples": [
+    {
+     "request": "전체 시장으로 바꿔줘",
+     "output": {
+      "universe": [
+       "KOSPI",
+       "KOSDAQ"
+      ]
+     }
+    },
+    {
+     "request": "ETF 대상으로 바꿔줘",
+     "output": {
+      "universe": [
+       "ETF"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "portfolio-settings",
+   "title": "포트폴리오와 테스트 설정",
+   "category": "settings",
+   "keywords": [
+    "종목수",
+    "종목",
+    "보유",
+    "리밸런싱",
+    "백테스트",
+    "기간",
+    "초기자금",
+    "투자금"
+   ],
+   "content": "종목 수, 보유 거래일, 리밸런싱 주기, 테스트 기간, 초기자금은 독립된 설정 필드다.",
+   "rules": [
+    "최대 N종목은 max_positions다.",
+    "1년, 6개월, 3개월 보유는 각각 252, 126, 63 거래일이다.",
+    "1억은 initial_capital 100000000.0원이다."
+   ],
+   "examples": [
+    {
+     "request": "8종목만 6개월 보유",
+     "output": {
+      "max_positions": 8,
+      "hold_period_days": 126
+     }
+    }
+   ]
+  },
+  {
+   "id": "filters-and-signals",
+   "title": "재무 필터와 기술 신호",
+   "category": "conditions",
+   "keywords": [
+    "PBR",
+    "PER",
+    "ROE",
+    "부채비율",
+    "RSI",
+    "골든크로스",
+    "데드크로스",
+    "돌파",
+    "필터",
+    "매수",
+    "매도",
+    "추가",
+    "MACD",
+    "볼린저",
+    "거래량",
+    "영업이익률",
+    "순이익률",
+    "매출총이익률",
+    "ROA",
+    "PSR",
+    "유동비율",
+    "유보율",
+    "시가총액",
+    "거래대금",
+    "증가율"
+   ],
+   "content": "기업 수치 조건은 fundamental_filters, 가격과 지표 기반 매매 조건은 entry_signals 또는 exit_signals에 기록한다. 신호 목록과 필터 목록은 diff가 통째로 대체하므로, 추가 요청이면 현재 전략의 기존 항목에 새 항목을 더한 전체 목록을 출력한다.",
+   "rules": [
+    "이하, 미만, 이상, 초과는 각각 <=, <, >=, >로 보존한다.",
+    "골든크로스는 진입 신호(ma_crossover, signal_type buy, short_period 5, long_period 20), 데드크로스는 청산 신호(ma_crossover, signal_type sell)다.",
+    "RSI N 이하 매수는 rsi buy(period 14, operator <=, value N), RSI N 이상 매도는 rsi sell(operator >=)이다.",
+    "매수 조건 추가는 entry_signals, 매도/청산 조건 추가는 exit_signals에 기존 신호를 유지한 채 더한다.",
+    "필터 추가 요청도 기존 fundamental_filters를 유지한 채 새 필터를 더한 전체 목록을 출력한다.",
+    "지원 metric: per(PER), pbr(PBR), psr(PSR), roe_or_gpa(ROE), roa(ROA), debt_ratio(부채비율), current_ratio(유동비율), quick_ratio(당좌비율), reserve_ratio(유보율), net_margin(순이익률), gross_margin(매출총이익률), operating_margin(영업이익률), revenue_growth(매출액증가율), operating_income_growth(영업이익증가율), net_income_growth(순이익증가율), market_cap(시가총액, 억원), trading_value(거래대금, 억원).",
+    "영업이익률(operating_margin)과 영업이익증가율(operating_income_growth)은 서로 다른 지표다 — 이름 그대로 구분한다.",
+    "지원 metric 목록에 없는 지표(EV/EBITDA, ROIC, 베타, 배당, 현금흐름, 이자보상배율 등)는 diff에 넣지 않고 비슷한 지표로 대체하지도 않는다.",
+    "필터 추가 요청에 임계값이 없으면 수익성 비율 지표(마진·ROE·ROA)는 >= 10.0을 기본값으로 쓴다."
+   ],
+   "examples": [
+    {
+     "request": "PBR 1 이하로 바꿔줘",
+     "output": {
+      "fundamental_filters": [
+       {
+        "metric": "pbr",
+        "operator": "<=",
+        "value": 1.0
+       }
+      ]
+     }
+    },
+    {
+     "request": "영업이익률 15% 이상 조건 추가해줘",
+     "output": {
+      "fundamental_filters": [
+       {
+        "metric": "operating_margin",
+        "operator": ">=",
+        "value": 15.0
+       }
+      ]
+     }
+    },
+    {
+     "request": "영업이익증가율 10% 이상으로",
+     "output": {
+      "fundamental_filters": [
+       {
+        "metric": "operating_income_growth",
+        "operator": ">=",
+        "value": 10.0
+       }
+      ]
+     }
+    },
+    {
+     "request": "골든크로스 나면 사도록 추가해줘",
+     "output": {
+      "entry_signals": [
+       {
+        "indicator": "ma_crossover",
+        "signal_type": "buy",
+        "short_period": 5,
+        "long_period": 20
+       }
+      ]
+     }
+    },
+    {
+     "request": "데드크로스에 팔게 청산조건 추가",
+     "output": {
+      "exit_signals": [
+       {
+        "indicator": "ma_crossover",
+        "signal_type": "sell",
+        "short_period": 5,
+        "long_period": 20
+       }
+      ]
+     }
+    },
+    {
+     "request": "RSI 30 이하에서 매수하게 바꿔줘",
+     "output": {
+      "entry_signals": [
+       {
+        "indicator": "rsi",
+        "signal_type": "buy",
+        "period": 14,
+        "operator": "<=",
+        "value": 30.0
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "diff-contract",
+   "title": "수정 diff 출력 계약",
+   "category": "contract",
+   "keywords": [
+    "변경",
+    "수정",
+    "그대로",
+    "만",
+    "그리고",
+    "추가",
+    "빼줘",
+    "해제"
+   ],
+   "content": "출력은 완성 전략이 아니라 사용자가 이번 요청에서 변경한 필드만 담는 ParsedStrategyDiff다.",
+   "rules": [
+    "요청하지 않은 필드는 null로 유지한다.",
+    "한 문장에 여러 변경이 명시되면 모든 변경 필드를 함께 출력한다.",
+    "전략 추천이나 요청하지 않은 기본값을 만들지 않는다."
+   ],
+   "examples": [
+    {
+     "request": "손절 10%와 익절 25%만 바꿔줘",
+     "output": {
+      "stop_loss_pct": 10.0,
+      "take_profit_pct": 25.0
+     }
+    }
+   ]
+  }
+ ]
 }

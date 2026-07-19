@@ -98,13 +98,16 @@ export default function PortfolioSummaryBar({ initialStats }: { initialStats: Po
   ];
 
   return (
-    <div className="flex divide-x divide-white/[0.08]">
+    <div
+      className="grid grid-cols-1 sm:grid-cols-2 lg:flex lg:divide-x lg:divide-white/[0.08]"
+      data-testid="portfolio-summary-grid"
+    >
       {cards.map((card) => {
         const Icon = card.icon;
         return (
           <div
             key={card.label}
-            className="flex-1 flex flex-col justify-between gap-3 px-5 py-4"
+            className="flex flex-1 flex-col justify-between gap-3 border-b border-white/[0.08] px-4 py-4 last:border-b-0 sm:odd:border-r lg:border-b-0 lg:border-r-0 lg:px-5"
           >
               {/* Top row: icon + label / info */}
               <div className="flex items-center justify-between">
@@ -128,7 +131,7 @@ export default function PortfolioSummaryBar({ initialStats }: { initialStats: Po
               </div>
 
               {/* Bottom row: value + badge */}
-              <div className="flex items-end gap-3">
+              <div className="flex flex-wrap items-end gap-3 lg:flex-nowrap">
                 {loading ? (
                   <span className="text-3xl font-black text-gray-600 font-outfit">--</span>
                 ) : (

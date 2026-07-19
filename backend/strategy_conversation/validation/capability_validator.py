@@ -90,6 +90,36 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
         else:
             rank.metric = spec.id
 
+    # 유니버스별 팩터 검증 — ETF는 여러 기업을 묶은 상품이라 기업 재무지표를 조건으로 쓸
+    # 수 없다(engine/universe_capabilities와 동일 계약). 조용히 제거하지 않고 오류+대안
+    # 제안으로 사용자 확인을 받는다. 거래대금(trading_value)은 가격·거래량 파생이라 허용.
+    if "ETF" in strategy.universe.markets:
+        etf_conflicts: List[str] = []
+        for role, attr in (("진입", "entry_conditions"), ("청산", "exit_conditions")):
+            for cond in getattr(strategy, attr):
+                if (cond.factor.startswith("fundamental.")
+                        and cond.factor != "fundamental.trading_value"):
+                    spec = resolve(cond.factor)
+                    name = spec.display_name if spec else cond.factor
+                    etf_conflicts.append(name)
+                    unsupported.append(f"ETF 유니버스 × {name}")
+                    errors.append(
+                        f"ETF는 여러 종목을 묶은 상품이라 {role} 조건 '{name}'"
+                        f"(기업 재무지표)을 사용할 수 없습니다"
+                    )
+        if etf_conflicts:
+            fixes.append(
+                "이동평균·RSI·MACD·모멘텀 등 가격·기술 지표 조건으로 변경할 수 있습니다 "
+                "(사용자 확인 필요)"
+            )
+        if strategy.universe.sectors:
+            # ETF엔 종목 업종 분류가 적용되지 않는다 — 테마는 상품명 키워드(etf_theme)가
+            # 담당한다. LLM이 테마를 sectors에 넣는 드리프트가 있으면 조용히 버리지 않고
+            # etf_theme로 승격한 뒤 sectors를 비운다(컴파일 단계 오폭 방지).
+            if not strategy.universe.etf_theme:
+                strategy.universe.etf_theme = strategy.universe.sectors[0]
+            strategy.universe.sectors = []
+
     # 유니버스 섹터 — 정본 섹터명 화이트리스트로 판정(조용한 왜곡 방지)
     if strategy.universe.sectors:
         from engine.universe_pit import normalize_sector

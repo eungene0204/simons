@@ -17,6 +17,17 @@ function makeStats(overrides: Partial<PortfolioStats> = {}): PortfolioStats {
 }
 
 describe("PortfolioSummaryBar", () => {
+  it("uses a mobile-first grid and restores the desktop summary row", () => {
+    render(<PortfolioSummaryBar initialStats={makeStats()} />);
+
+    expect(screen.getByTestId("portfolio-summary-grid")).toHaveClass(
+      "grid-cols-1",
+      "sm:grid-cols-2",
+      "lg:flex",
+      "lg:divide-x"
+    );
+  });
+
   it("renders zero profit values in white", () => {
     render(<PortfolioSummaryBar initialStats={makeStats()} />);
 

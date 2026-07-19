@@ -100,6 +100,12 @@ describe("StrategyLab auth entry", () => {
     expect(headline).toHaveTextContent(
       "투자 아이디어를 전략으로 만들고전략을 시뮬레이션 하세요"
     );
+    expect(headline).toHaveClass("text-4xl", "sm:text-5xl", "lg:text-7xl");
+    expect(screen.getByTestId("strategy-lab-background")).toHaveClass(
+      "pt-10",
+      "sm:pt-14",
+      "lg:pt-20"
+    );
 
     const firstAnimatedChar = headline.querySelector("span span");
     expect(firstAnimatedChar).toHaveStyle({ opacity: "0" });

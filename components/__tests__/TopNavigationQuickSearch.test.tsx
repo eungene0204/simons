@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import TopNavigation from "@/components/layout/TopNavigation";
@@ -211,10 +211,11 @@ describe("TopNavigation quick search", () => {
   it("상단 로고는 원본 이미지 기반의 투명 NS 마크를 표시한다", async () => {
     renderWithQueryClient(<TopNavigation />);
 
-    const homeLink = await screen.findByRole("link", { name: /널스탁/i });
     const logoMark = screen.getByTestId("nullstock-logo-mark");
+    const homeLink = logoMark.closest("a");
     const sourceImage = logoMark.querySelector("image");
 
+    expect(homeLink).not.toBeNull();
     expect(homeLink).toContainElement(logoMark);
     expect(homeLink).toHaveTextContent("OPEN BETA");
     expect(sourceImage).toHaveAttribute("href", "/nullStock.png");
@@ -235,6 +236,23 @@ describe("TopNavigation quick search", () => {
       "xl:left-1/2",
       "xl:-translate-x-1/2"
     );
+  });
+
+  it("모바일 메뉴를 열고 메뉴 항목을 선택하면 Drawer를 닫고 이동한다", async () => {
+    renderWithQueryClient(<TopNavigation />);
+
+    await screen.findByRole("button", { name: "Google 로그인" });
+    fireEvent.click(screen.getByRole("button", { name: "메뉴 열기" }));
+
+    const drawer = screen.getByRole("dialog", { name: "모바일 메뉴" });
+    expect(drawer).toBeInTheDocument();
+    expect(document.body.style.overflow).toBe("hidden");
+
+    fireEvent.click(within(drawer).getByRole("link", { name: /전략연구소/i }));
+
+    expect(pushMock).toHaveBeenCalledWith("/analytics");
+    expect(screen.queryByRole("dialog", { name: "모바일 메뉴" })).not.toBeInTheDocument();
+    expect(document.body.style.overflow).toBe("");
   });
 
   it("비로그인 상태에서는 프로필 버튼 대신 Google 로그인 버튼을 보여준다", async () => {

@@ -908,8 +908,8 @@ export default function VirtualAccountDetailPage() {
               <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.3fr)_280px_minmax(0,0.7fr)] divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
 
                 {/* 추적 종목 */}
-                <div className="p-5">
-                  <div className="flex items-center justify-between mb-4">
+                <div className="p-3 sm:p-4 lg:p-5">
+                  <div className="mb-4 flex flex-col items-start gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-0">
                     <div>
                       <div className="flex items-center gap-1.5">
                         <h2
@@ -951,7 +951,11 @@ export default function VirtualAccountDetailPage() {
                       <p className="text-sm font-bold text-gray-600">추적 중인 종목이 없습니다</p>
                     </div>
                   ) : (
-                    <div>
+                    <div
+                      className="overflow-x-auto lg:overflow-x-visible"
+                      data-testid="tracked-symbols-table-scroll"
+                    >
+                      <div className="min-w-[520px] lg:min-w-0">
                       {/* 테이블 헤더 */}
                       <div className="grid grid-cols-[1fr_80px_72px_80px_52px_24px] gap-x-3 px-1 mb-1">
                         {["종목", "현재가", "등락률", "거래량", "상태", ""].map((h) => (
@@ -983,6 +987,7 @@ export default function VirtualAccountDetailPage() {
                             );
                           })}
                         </div>
+                      </div>
                       </div>
                     </div>
                   )}

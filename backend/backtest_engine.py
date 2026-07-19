@@ -313,18 +313,49 @@ class BacktestEngine:
             # passes only currently-listed symbols, which silently drops every delisted name and
             # inflates returns. universe_id=None (custom symbol set) leaves the list untouched.
             _markets, _is_large_cap = universe_pit.parse_universe_markets(req.get('universe_id'))
+            _is_etf_universe = universe_pit.is_etf_universe(req.get('universe_id'))
             if _markets:
                 _aof_symbols = universe_pit.resolve_symbols(req.get('universe_id'), _period_start_str, _end_str)
                 if _aof_symbols:
                     symbols = _aof_symbols
                     print(f"[BT-ENGINE] PIT universe: {len(symbols)}종목 "
                           f"(markets={_markets}, large_cap={_is_large_cap})", flush=True)
+            elif _is_etf_universe:
+                # ETF 유니버스 — 주식과 혼합하지 않고 ETF 마스터만 조회한다. 마스터는 현재
+                # 상장 ETF만 담으므로(상폐 ETF 미포함) 생존 편향 가능성을 정직하게 알린다.
+                # ETF 매도에는 증권거래세가 부과되지 않는다 — 명시 옵션이 없으면 0으로 둔다.
+                if options.get('sell_tax_rate') is None:
+                    options['sell_tax_rate'] = 0.0
+                _etf_symbols = universe_pit.resolve_etf_symbols(_period_start_str, _end_str)
+                if _etf_symbols:
+                    symbols = _etf_symbols
+                # 상폐 ETF가 백필된 마스터(scripts/backfill_delisted_etf.py)면 경고하지
+                # 않는다 — 미백필 상태에서만 생존 편향 가능성을 정직하게 알린다.
+                if not universe_pit.etf_master_includes_delisted():
+                    self.warnings.add(
+                        "ETF 유니버스는 현재 상장 ETF만 포함합니다 — 기간 중 상장폐지된 ETF는 "
+                        "빠져 있어 생존 편향 가능성이 있습니다."
+                    )
+                _etf_theme = req.get('etf_theme')
+                if _etf_theme:
+                    _themed = universe_pit.filter_etf_by_theme(symbols, _etf_theme)
+                    if _themed:
+                        symbols = _themed
+                    else:
+                        self.warnings.add(
+                            f"'{_etf_theme}' 테마와 이름이 일치하는 ETF를 찾지 못해 "
+                            "전체 ETF를 대상으로 백테스트했습니다."
+                        )
+                print(f"[BT-ENGINE] ETF universe: {len(symbols)}종목 "
+                      f"(theme={req.get('etf_theme')})", flush=True)
 
             # ── 섹터/업종 제한 ──
             # 섹터 분류는 현재 상장(korea-stocks.json) + 상폐 백필(stock-master.json sector,
             # scripts/backfill_delisted_sectors.py)로 상폐 종목까지 커버한다. 그래도 업종
             # 미상으로 남아 필터에서 빠지는 종목이 실제로 있을 때만 생존 편향을 경고한다.
-            _sector = req.get('sector')
+            # ETF엔 종목 섹터 분류가 적용되지 않는다(테마는 위 etf_theme가 담당) — 저장
+            # DSL 등으로 sector가 남아 들어와도 전체가 빈 유니버스로 오폭하지 않게 무시한다.
+            _sector = None if _is_etf_universe else req.get('sector')
             if _sector:
                 # 복수 섹터는 합집합 필터(FR-STR-066 ⑦ — "반도체 + 기계/장비 업종").
                 _sector_label = "·".join(universe_pit.sector_value_as_list(_sector))

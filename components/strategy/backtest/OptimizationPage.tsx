@@ -627,14 +627,14 @@ export default function OptimizationPage({
     return (
       <div
         data-testid="backtest-optimization-page"
-        className="flex min-h-[320px] items-center justify-center px-6 py-10"
+        className="flex min-h-[320px] items-center justify-center px-4 py-8 lg:px-6 lg:py-10"
       >
-        <div className="w-full max-w-2xl p-8 text-center">
+        <div className="w-full max-w-2xl p-5 text-center sm:p-6 lg:p-8">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-amber-400/30 bg-amber-500/10">
             <Crown className="h-6 w-6 text-amber-300" weight="fill" />
           </div>
           <h3 className="mt-4 text-lg font-black text-white">전략 최적화는 프리미엄 플랜 전용 기능입니다</h3>
-          <p className="mt-2 whitespace-nowrap text-sm font-bold leading-6 text-gray-400">
+          <p className="mt-2 text-sm font-bold leading-6 text-gray-400 lg:whitespace-nowrap">
             프리미엄 플랜을 이용하시면 워크포워드 분석과 몬테카를로 시뮬레이션을 통해 더 깊은 검증을 할 수 있습니다.
           </p>
           <a
@@ -649,8 +649,8 @@ export default function OptimizationPage({
   }
 
   return (
-    <div data-testid="backtest-optimization-page" className="flex flex-col gap-4 px-6 py-4 md:flex-row md:items-start">
-      <aside className="w-full flex-shrink-0 md:w-64">
+    <div data-testid="backtest-optimization-page" className="flex flex-col gap-3 px-3 py-3 sm:px-4 lg:flex-row lg:items-start lg:gap-4 lg:px-6 lg:py-4">
+      <aside className="w-full flex-shrink-0 lg:w-64">
         <button
           type="button"
           onClick={() => setIsSavedListOpen(true)}
@@ -722,7 +722,7 @@ export default function OptimizationPage({
         )}
 
         {selectedModel === "monteCarlo" && (
-          <div className="rounded-2xl border border-white/[0.08] bg-[#0f0f10] p-5 md:p-6">
+          <div className="rounded-2xl border border-white/[0.08] bg-[#0f0f10] p-4 sm:p-5 lg:p-6">
             <div className="space-y-2">
               <h3 className="text-xl font-black text-white">몬테카를로 시뮬레이션</h3>
               <p className="max-w-2xl text-sm font-bold leading-6 text-gray-300">
@@ -854,7 +854,10 @@ export default function OptimizationPage({
 
                 {monteCarloResult && (
                   <>
-                    <div className="mt-5 flex items-center justify-between gap-3">
+                    <div
+                      data-testid="monte-carlo-result-header"
+                      className="mt-5 flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-center"
+                    >
                       <p className="text-sm font-black text-white">시뮬레이션 결과</p>
                       <div className="flex items-center gap-2">
                         <SaveValidationButton

@@ -78,17 +78,21 @@ export default function SavedValidationsModal({ open, onClose, onSelect }: Saved
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-2 lg:p-4"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label="저장된 검증 결과"
     >
       <div
-        className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-white/[0.10] bg-[#111112]"
+        data-testid="saved-validations-panel"
+        className="flex max-h-[calc(100dvh-1rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-white/[0.10] bg-[#111112] lg:max-h-[80vh]"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-white/[0.08] px-5 py-4">
+        <div
+          data-testid="saved-validations-header"
+          className="flex items-center justify-between border-b border-white/[0.08] px-4 py-3 lg:px-5 lg:py-4"
+        >
           <h3 className="text-base font-black text-white">저장된 검증 결과</h3>
           <button
             type="button"
@@ -100,7 +104,10 @@ export default function SavedValidationsModal({ open, onClose, onSelect }: Saved
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        <div
+          data-testid="saved-validations-list"
+          className="min-h-0 flex-1 overflow-y-auto p-3 lg:p-4"
+        >
           {isLoading && (
             <div className="flex items-center justify-center gap-2 py-12 text-sm font-bold text-gray-400">
               <Spinner className="h-4 w-4 animate-spin" /> 불러오는 중...
@@ -143,7 +150,7 @@ export default function SavedValidationsModal({ open, onClose, onSelect }: Saved
                       type="button"
                       aria-label="삭제"
                       onClick={() => void handleDelete(item.id)}
-                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-500 opacity-0 transition-opacity hover:bg-red-500/10 hover:text-red-300 group-hover:opacity-100"
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-500 opacity-100 transition-opacity hover:bg-red-500/10 hover:text-red-300 lg:opacity-0 lg:group-hover:opacity-100"
                     >
                       <Trash className="h-4 w-4" weight="bold" />
                     </button>

@@ -165,6 +165,8 @@ def _glossary_answer(text: str) -> Optional[str]:
 
 # ─── 필드 파서(짧은 답변 → patch) ────────────────────────────────────────────────
 
+# ETF는 시장명보다 먼저 검사한다 — "코스피 ETF"도 ETF 유니버스다(상품 유형이 우선).
+_UNIV_ETF_RE = re.compile(r"etf|etn|이티에프|상장지수펀드", re.IGNORECASE)
 # 코스피200은 '코스피'를 부분 문자열로 포함하므로 반드시 먼저 검사해야 KOSPI로 새지 않는다.
 _UNIV_KOSPI200_RE = re.compile(r"코스피\s*200|kospi\s*200|k\s*200|대형주", re.IGNORECASE)
 # 두 시장을 함께 지목하는 표현. '전체/모두'는 단일 시장 수식("코스피 전체"=코스피 전 종목)일 수
@@ -285,6 +287,8 @@ _HOLD_RISK_RE = re.compile(
 
 
 def _parse_universe(text: str) -> Optional[Universe]:
+    if _UNIV_ETF_RE.search(text):
+        return "ETF"
     if _UNIV_BOTH_RE.search(text):
         return "KOSPI_KOSDAQ"
     if _UNIV_KOSPI200_RE.search(text):  # '코스피' 검사보다 먼저(부분 문자열 충돌 방지)
@@ -735,7 +739,10 @@ def parse_input(text: str, state: BuilderState, expecting: Optional[str]) -> dic
 
     stype = _parse_strategy_type(t)
     if stype and not state.strategy_type:
-        patch["strategy_type"] = stype
+        # ETF 유니버스에는 가치 전략(PBR/ROE 재무 필터)을 만들 수 없다 — 채우지 않고
+        # 같은 질문을 다시 한다(ETF용 선택지에는 가치 전략이 없음).
+        if not (stype == "value" and (patch.get("universe") or state.universe) == "ETF"):
+            patch["strategy_type"] = stype
 
     rebal = _parse_rebalance(t)
     if rebal:
@@ -870,7 +877,7 @@ def required_missing(state: BuilderState) -> Optional[str]:
 
 # ─── 응답 생성(다음 질문 / 요약) ─────────────────────────────────────────────────
 
-_UNIVERSE_LABEL = {"KOSPI": "코스피", "KOSDAQ": "코스닥", "KOSPI200": "코스피200", "KOSPI_KOSDAQ": "코스피·코스닥 전체"}
+_UNIVERSE_LABEL = {"KOSPI": "코스피", "KOSDAQ": "코스닥", "KOSPI200": "코스피200", "KOSPI_KOSDAQ": "코스피·코스닥 전체", "ETF": "ETF"}
 _TYPE_LABEL = {
     "momentum": "모멘텀",
     "golden_cross": "골든크로스",
@@ -915,26 +922,32 @@ def next_question(
     if field == "universe":
         return (
             prefix + "어떤 시장을 대상으로 할까요?",
-            ["코스피", "코스닥", "코스피200", "코스피·코스닥 전체"],
+            ["코스피", "코스닥", "코스피200", "코스피·코스닥 전체", "ETF"],
         )
     if field == "strategy_type":
+        # ETF 유니버스: 기업 재무지표가 없어 가치 전략(PBR/ROE)은 제시하지 않는다.
+        value_bullet = (
+            "" if state.universe == "ETF"
+            else "• PBR 낮고 ROE 높은 저평가 우량주를 고르는 가치 전략\n"
+        )
         msg = (
-            prefix + "어떤 방식으로 종목을 고를까요?\n\n"
-            "• 최근 강한 종목을 추종하는 모멘텀 전략\n"
+            prefix + ("어떤 방식으로 매매할까요?\n\n" if state.universe == "ETF"
+                      else "어떤 방식으로 종목을 고를까요?\n\n")
+            + "• 최근 강한 종목을 추종하는 모멘텀 전략\n"
             "• 단기 이동평균이 장기 이동평균을 뚫는 골든크로스 전략\n"
             "• MACD가 시그널선을 돌파할 때 잡는 전략\n"
             "• 전고점(신고가)을 돌파할 때 잡는 돌파 전략\n"
             "• 거래량 흐름(OBV)이 상승 전환한 종목을 찾는 전략\n"
             "• RSI 과매도에서 반등을 노리는 전략\n"
-            "• PBR 낮고 ROE 높은 저평가 우량주를 고르는 가치 전략\n"
+            + value_bullet +
             "• 직접 아이디어를 설명하기"
         )
+        chips = ["모멘텀", "골든크로스", "MACD", "돌파", "거래량 급증", "과매도 반등"]
+        if state.universe != "ETF":
+            chips.append("저평가 가치주")
         # "직접 설명하기"는 자유 서술(custom) 진입로 — 선택 시 entry_rule 질문(칩 없음)으로
         # 넘어가 프론트가 채팅창을 다시 보여준다. 가장 오른쪽 칩으로 노출한다.
-        return (
-            msg,
-            ["모멘텀", "골든크로스", "MACD", "돌파", "거래량 급증", "과매도 반등", "저평가 가치주", "직접 설명하기"],
-        )
+        return (msg, chips + ["직접 설명하기"])
     if field == "lookback_days":
         if state.strategy_type == "breakout":
             return (prefix + "며칠 신고가(박스권 상단) 돌파를 기준으로 볼까요?", ["20일", "60일", "120일"])
@@ -1209,7 +1222,7 @@ def synthesize_prompt(state: BuilderState) -> str:
 
 _UNIVERSE_DSL = {
     "KOSPI": ["KOSPI"], "KOSDAQ": ["KOSDAQ"], "KOSPI200": ["KOSPI200"],
-    "KOSPI_KOSDAQ": ["KOSPI", "KOSDAQ"],
+    "KOSPI_KOSDAQ": ["KOSPI", "KOSDAQ"], "ETF": ["ETF"],
 }
 
 

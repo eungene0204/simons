@@ -282,9 +282,20 @@ class ParsedStrategy(BaseModel):
     description: str = Field(description="사용자가 입력한 원문 전략 설명 (그대로 복사)")
 
     # ── 유니버스
-    universe: List[Literal["KOSPI", "KOSDAQ", "KOSPI200"]] = Field(
+    universe: List[Literal["KOSPI", "KOSDAQ", "KOSPI200", "ETF"]] = Field(
         default=["KOSPI200"],
-        description="투자 대상 시장. 언급 없으면 ['KOSPI200'] (KOSPI 전체 종목, 유동성 우선). '코스닥'/'KOSDAQ' 언급 시 ['KOSDAQ'], '전체'/'코스피+코스닥' 언급 시 ['KOSPI', 'KOSDAQ']"
+        description=(
+            "투자 대상 시장. 언급 없으면 ['KOSPI200'] (KOSPI 전체 종목, 유동성 우선). "
+            "'코스닥'/'KOSDAQ' 언급 시 ['KOSDAQ'], '전체'/'코스피+코스닥' 언급 시 ['KOSPI', 'KOSDAQ']. "
+            "ETF/ETN/상장지수펀드 상품이 대상이면 ['ETF'] 단독(주식 시장과 혼합 금지 — "
+            "ETF는 기업 재무지표 없이 가격·기술 지표만 사용 가능)"
+        )
+    )
+    # ETF 유니버스 전용 테마/상품명 필터. "반도체 ETF"→"반도체", "KODEX 200"→상품명.
+    # 엔진이 ETF 이름 키워드 매칭으로 유니버스를 좁힌다(universe_pit.filter_etf_by_theme).
+    etf_theme: Optional[str] = Field(
+        default=None,
+        description="ETF 테마/상품명 키워드. universe=['ETF']일 때만. '미국 ETF'='미국', 'KODEX 200'=상품명. 없으면 null",
     )
     sector: Optional[Union[str, List[str]]] = Field(
         default=None,
@@ -326,6 +337,7 @@ class ParsedStrategy(BaseModel):
             market_map = {
                 "KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ", "KOSPI200": "KOSPI200",
                 "코스피": "KOSPI", "코스닥": "KOSDAQ", "코스피200": "KOSPI200",
+                "ETF": "ETF", "ETN": "ETF", "이티에프": "ETF", "상장지수펀드": "ETF",
             }
             markets: list[str] = []
             moved_sector = False
@@ -354,6 +366,20 @@ class ParsedStrategy(BaseModel):
             # 결정론 폴백에 위임한다(description을 사실상 optional로 만들지 않기 위한 가드).
             data = {**data, "description": ""}
         return data
+
+    @model_validator(mode="after")
+    def _normalize_etf_universe(self):
+        """ETF 유니버스는 주식 시장과 혼합하지 않는다(단독) — ETF 데이터만 조회한다는
+        계약의 스키마 강제. ETF엔 종목 섹터 분류가 없으므로 sector는 비우고(테마는
+        etf_theme가 담당), 주식 유니버스에 남은 etf_theme는 의미가 없어 비운다."""
+        if "ETF" in self.universe:
+            if self.universe != ["ETF"]:
+                self.universe = ["ETF"]
+            if self.sector is not None:
+                self.sector = None
+        elif self.etf_theme is not None:
+            self.etf_theme = None
+        return self
 
     # ── 재무 필터
     fundamental_filters: List[FundamentalFilter] = Field(
@@ -460,7 +486,7 @@ class ParsedStrategyDiff(BaseModel):
 
     _normalize_ratio_sign = field_validator(*_RATIO_SIGN_FIELDS)(_abs_ratio)
     description: Optional[str] = None
-    universe: Optional[List[Literal["KOSPI", "KOSDAQ", "KOSPI200"]]] = None
+    universe: Optional[List[Literal["KOSPI", "KOSDAQ", "KOSPI200", "ETF"]]] = None
     sector: Optional[Union[str, List[str]]] = Field(
         default=None,
         description=(
@@ -521,6 +547,11 @@ MODIFY_PROMPT = """현재 전략 JSON이 주어집니다. 사용자 수정 요�
 - '반도체 관련주만', 'IT 업종으로 바꿔줘' 같은 업종·테마 제한 요청 → sector에 업종명
 - 지원 업종: """ + sectors_for_llm_prompt() + """. 목록 밖 테마는 속하는 업종으로 매핑(예: '원자로'→'에너지/원자력'), 연결이 어려우면 null
 - 업종만 바꾸는 요청에서 universe(시장)는 null로 유지하세요
+
+## ETF 유니버스
+- 'ETF로 바꿔줘', 'ETF 대상으로' 같은 요청 → universe=["ETF"] 단독(주식 시장과 혼합 금지)
+- ETF는 여러 기업을 묶은 상품이라 기업 재무지표(PER·PBR·ROE 등) 조건을 만들 수 없습니다 —
+  ETF 전략에 fundamental_filters를 추가하지 마세요(기술 지표는 사용 가능)
 
 ## 예시
 현재 전략: {"max_positions": 20, "initial_capital": 10000000.0, ...}
@@ -644,6 +675,13 @@ SYSTEM_PROMPT = """당신은 한국 주식 퀀트 투자 전략을 JSON으로 �
 - 지원 섹터명 예: 반도체, 이차전지, 바이오/제약, 게임, 자동차, 은행/금융지주, 화학, 건설 등
 - 섹터 언급이 있고 시장 언급이 없으면 → universe: ["KOSPI", "KOSDAQ"] (업종 전체)
 - 언급 없으면 → null
+
+### ETF 유니버스 (universe: ["ETF"])
+- 'ETF', 'ETN', '상장지수펀드' 또는 ETF 상품명(KODEX 200, TIGER 미국S&P500 등) 대상 →
+  universe: ["ETF"] 단독 (주식 시장과 혼합 금지 — '코스피 ETF'도 ["ETF"])
+- ETF는 여러 기업을 묶은 상품이라 기업 재무지표(PER·PBR·ROE·부채비율·배당성향 등)를 쓸 수
+  없습니다 → ETF 전략에 fundamental_filters를 만들지 마세요. 기술 지표는 사용 가능
+- ETF 전략에서 sector는 null (테마는 시스템이 상품명에서 자동 추출)
 
 ## 예시
 
@@ -1418,6 +1456,12 @@ def _compact(user_input: str) -> str:
 
 def _extract_explicit_universe(user_input: str) -> Optional[List[str]]:
     compact = _compact(user_input)
+
+    # ETF/ETN 등 상장 금융상품 언급은 상품 유니버스가 시장 언급보다 우선한다
+    # ("코스피 ETF"도 ETF 유니버스 — 코스피는 상장 시장 서술일 뿐이다). 주식과 혼합하지 않는다.
+    if ("etf" in compact or "etn" in compact or "이티에프" in compact
+            or "상장지수펀드" in compact or "상장지수증권" in compact):
+        return ["ETF"]
 
     mentions_kospi200 = "kospi200" in compact or "코스피200" in compact
     mentions_kosdaq = "kosdaq" in compact or "코스닥" in compact
@@ -2869,6 +2913,9 @@ _UNSUPPORTED_CONCEPT_PATTERNS: tuple[tuple[str, str], ...] = (
     ("quality_score", r"피오트로스키|알트만|[fz]-?score"),
     ("turnover_ratio", r"회전율"),
     ("buyback", r"자사주"),
+    # ETF는 2026-07-19 정식 유니버스로 승격(universe=["ETF"], data/etf-master.json)되어
+    # 미지원 목록에서 제거됐다 — 개념 구현 시 목록 제거 원칙. ETF×재무지표 충돌은
+    # detect_etf_factor_conflict가 설명+대안 제안으로 담당한다.
     # 섹터/업종은 이제 지원 개념이지만, '지원 목록에 없는 업종'(예: '로봇 관련주')은 여전히
     # 표현 불가다. _mentioned_unsupported_concepts가 섹터 추출 성공 시 이 항목을 제외한다.
     # 맨 '관련/테마'까지 본다 — '로봇주 관련'·'로봇 테마'처럼 '관련주' 어순이 아니면 안내
@@ -3742,6 +3789,19 @@ def _apply_prompt_overrides(
         if sector_value is not None and explicit_universe is None and not preserve_universe:
             updates["universe"] = ["KOSPI", "KOSDAQ"]
 
+    # ── ETF 유니버스 정규화 ──
+    # model_copy(update=...)는 검증기를 다시 돌리지 않으므로 _normalize_etf_universe와
+    # 동일한 계약(ETF 단독·sector 비움)을 여기서도 결정적으로 강제한다. 테마/상품명
+    # ("반도체 ETF"·"KODEX 200")은 ETF 마스터 이름과의 자기검증 매칭으로 추출한다.
+    effective_universe = updates.get("universe", parsed.universe)
+    if "ETF" in (effective_universe or []):
+        from engine.universe_pit import extract_etf_theme
+        updates["universe"] = ["ETF"]
+        updates["sector"] = None
+        theme = extract_etf_theme(user_input)
+        if theme is not None:
+            updates["etf_theme"] = theme
+
     # 리스크 필드(손절/익절/트레일링)는 단일 진실 소스에서 가져온다.
     updates.update(extract_risk_field_overrides(user_input))
 
@@ -3937,6 +3997,82 @@ _RELATIVE_STRENGTH_SUGGESTIONS = [
 ]
 
 
+# ETF/ETN 등 상장 금융상품 언급: ETF는 정식 유니버스(universe=["ETF"])로 지원되지만,
+# 개별 기업 재무지표(PER·PBR·ROE)가 없어 일반 예시(재무 필터 칩)를 그대로 보여주면
+# 오답이다. ETF에 통용되는 가격·추세 기반 방식으로 진입 조건을 안내한다.
+_ETF_PRODUCT_RE = re.compile(r"etf|etn|이티에프|상장지수(?:펀드|증권)|kodex")
+
+_ETF_PRODUCT_QUESTION = (
+    "ETF 전략이군요! 어떤 조건으로 매매할까요?\n\n"
+    "ETF는 여러 종목을 묶은 상품이라 개별 기업 재무지표(PER·PBR·ROE)는 조건으로 쓸 수 "
+    "없고, **가격·추세 기반 규칙**으로 전략을 만들어요 — 이동평균 추세추종, 모멘텀"
+    "(신고가 돌파), RSI 평균회귀, 볼린저밴드, MACD, 정기 리밸런싱 같은 방식이에요.\n\n"
+    "예시에서 고르거나 직접 말씀해 주세요."
+)
+_ETF_PRODUCT_SUGGESTIONS = [
+    "20일선이 60일선을 상향 돌파하면 매수, 데드크로스 시 매도",
+    "60일 신고가 돌파 시 매수, 트레일링 스탑 10%",
+    "RSI 30 이하에서 매수, RSI 70 이상에서 매도",
+    "MACD 골든크로스 매수, 데드크로스 매도, 손절 10%",
+]
+
+
+# ETF 유니버스 × 기업 재무지표 충돌: 조용히 무시하지 않고 이유를 설명한 뒤 ETF에서
+# 가능한 대안(기술적 지표)으로 변경을 제안한다(universe_capabilities 레지스트리 판정).
+_ETF_FACTOR_CONFLICT_QUESTION = (
+    "ETF는 개별 기업이 아니라 여러 종목을 묶은 상품이므로 {metrics} 같은 기업 재무지표를 "
+    "조건으로 사용할 수 없습니다.\n\n"
+    "대신 이동평균, RSI, MACD, 모멘텀 등 가격·기술 지표를 이용한 ETF 전략으로 "
+    "변경할까요? 아래에서 고르거나 직접 말씀해 주세요."
+)
+
+# 재무 지표 → 사용자 표시 라벨(충돌 안내용).
+_FUNDAMENTAL_METRIC_LABELS: dict[str, str] = {
+    "per": "PER", "pbr": "PBR", "psr": "PSR", "ev_ebitda": "EV/EBITDA",
+    "roe_or_gpa": "ROE", "roa": "ROA", "debt_ratio": "부채비율",
+    "current_ratio": "유동비율", "quick_ratio": "당좌비율", "reserve_ratio": "유보율",
+    "net_margin": "순이익률", "gross_margin": "매출총이익률", "operating_margin": "영업이익률",
+    "revenue_growth": "매출액증가율", "operating_income_growth": "영업이익증가율",
+    "net_income_growth": "순이익증가율", "market_cap": "시가총액",
+    "dividend_yield": "배당수익률", "payout_rate": "배당성향", "dividend_growth": "배당성장률",
+}
+
+
+def detect_etf_factor_conflict(
+    parsed: ParsedStrategy, user_prompt: str = "",
+) -> tuple[Optional[str], Optional[List[str]]]:
+    """ETF 유니버스 전략에 기업 재무지표가 섞이면 설명+대안 제안으로 되묻는다.
+
+    조용히 무시(드롭)하거나 그대로 실행(0커버리지 조건)하지 않는다 — 왜 쓸 수 없는지
+    설명하고 ETF에서 가능한 조건으로 대체를 제안한다. 충돌 없으면 (None, None).
+    재무 지표를 정성적으로만 언급한 경우("PER 낮은 ETF")도 같은 안내를 한다.
+    """
+    from engine.universe_capabilities import is_etf_strategy, unsupported_fundamental_metrics
+
+    # getattr 방어 — 레거시 저장 DSL·테스트 스텁 등 universe 없는 객체는 주식 취급.
+    universe = getattr(parsed, "universe", None)
+    if not is_etf_strategy(universe):
+        return (None, None)
+    offending = unsupported_fundamental_metrics(
+        universe, (f.metric for f in getattr(parsed, "fundamental_filters", []) or [])
+    )
+    if not offending:
+        # 구조화된 필터는 없지만 재무 지표를 정성적으로 언급한 경우("PER이 낮은 ETF").
+        compact = re.sub(r"\s+", "", user_prompt.lower())
+        offending = unsupported_fundamental_metrics(
+            parsed.universe,
+            (_QUALITATIVE_KEY_TO_METRIC[key]
+             for _, _, _, key in _detect_qualitative_metrics(compact)),
+        )
+    if not offending:
+        return (None, None)
+    labels = ", ".join(_FUNDAMENTAL_METRIC_LABELS.get(m, m.upper()) for m in offending)
+    return (
+        _ETF_FACTOR_CONFLICT_QUESTION.format(metrics=labels),
+        list(_ETF_PRODUCT_SUGGESTIONS),
+    )
+
+
 def detect_missing_entry_clarification(
     parsed: ParsedStrategy,
     user_prompt: str = "",
@@ -3952,6 +4088,15 @@ def detect_missing_entry_clarification(
     여기서는 '진입을 통째로 잃는' 침묵 누락만 막는다.
     """
     compact = re.sub(r"\s+", "", user_prompt.lower())
+    # ETF 유니버스: 재무 필터는 상품에 적용되지 않으므로 임계값 되묻기("PER은 몇 이하로
+    # 할까요?")나 재무 예시 칩 대신 가격·추세 기반 예시로 진입 조건을 묻는다. 기술 신호나
+    # 랭킹이 이미 있으면 되묻지 않는다(그대로 실행 가능 — ETF는 정식 지원 유니버스).
+    # 재무지표가 실제로 섞인 경우는 detect_etf_factor_conflict가 먼저 가로챈다.
+    if ("ETF" in (getattr(parsed, "universe", None) or [])
+            or _ETF_PRODUCT_RE.search(compact)) and not (
+        parsed.entry_signals or parsed.ranking_metric
+    ):
+        return (_ETF_PRODUCT_QUESTION, list(_ETF_PRODUCT_SUGGESTIONS))
     resolved_metrics = {item.metric for item in parsed.fundamental_filters}
     # Ask for every named metric that still lacks an executable threshold, even when an
     # unrelated entry signal exists. This prevents a model substitution from hiding the omission.
@@ -4060,6 +4205,7 @@ def validate_parsed_strategy(
             ("KOSDAQ",): "KOSDAQ 전체 (~1,781종목)",
             ("KOSPI", "KOSDAQ"): "전체 시장 (~2,619종목, 느림)",
             ("KOSDAQ", "KOSPI"): "전체 시장 (~2,619종목, 느림)",
+            ("ETF",): "ETF 전체 (~1,140종목)",
         }.get(tuple(sorted(parsed.universe)), str(parsed.universe))
         return (
             f"어느 시장에서 종목을 찾을까요?\n\n"

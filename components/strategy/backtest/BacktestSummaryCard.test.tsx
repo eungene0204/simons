@@ -37,4 +37,34 @@ describe("BacktestSummaryCard", () => {
     expect(screen.getByText("과적합 위험")).toBeInTheDocument();
     expect(screen.queryByText(/Advisor 전략 평가 점수/)).toBeNull();
   });
+
+  it("점수 설명을 터치·키보드로 열고 lg에서 기존 툴팁 크기를 복원한다", () => {
+    render(
+      <BacktestSummaryCard
+        result={baseResult}
+        initialSummary="요약"
+        initialScore={80}
+        initialStrengths={[]}
+        initialWeaknesses={[]}
+        initialImprovements={[]}
+      />
+    );
+
+    expect(screen.getAllByRole("button", { name: /점수 설명/ })).toHaveLength(3);
+    expect(screen.getAllByRole("button", { name: /점수 설명/ })[0]).toHaveClass(
+      "focus-visible:ring-2"
+    );
+    expect(screen.getAllByRole("tooltip")[0]).toHaveClass(
+      "fixed",
+      "inset-x-4",
+      "bottom-4",
+      "max-h-[calc(100dvh-2rem)]",
+      "overflow-y-auto",
+      "group-focus-within:opacity-100",
+      "lg:absolute",
+      "lg:bottom-full",
+      "lg:w-[320px]",
+      "lg:overflow-visible"
+    );
+  });
 });

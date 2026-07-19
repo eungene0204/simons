@@ -478,10 +478,17 @@ export default function BacktestSummaryCard({
                       <div className="relative mt-1 flex items-center gap-1.5 text-sm font-medium text-[#c9a98b]">
                         <span>{item.detail}</span>
                         <div className="group relative">
-                          <span className="flex h-4 w-4 translate-y-[1px] cursor-help items-center justify-center text-white/45 transition-colors hover:text-white/75">
+                          <button
+                            type="button"
+                            aria-label={`${item.label} 점수 설명`}
+                            className="flex h-4 w-4 translate-y-[1px] cursor-help items-center justify-center rounded-full text-white/45 transition-colors hover:text-white/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+                          >
                             <Question className="h-3 w-3" weight="bold" />
-                          </span>
-                          <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-3 w-[320px] -translate-x-1/2 rounded-[30px] border border-white/10 bg-[#171717] px-6 py-6 text-left opacity-0 shadow-[0_24px_48px_rgba(0,0,0,0.45)] transition-opacity duration-150 group-hover:opacity-100">
+                          </button>
+                          <div
+                            role="tooltip"
+                            className="pointer-events-none fixed inset-x-4 bottom-4 z-50 max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl border border-white/10 bg-[#171717] px-4 py-4 text-left opacity-0 shadow-[0_24px_48px_rgba(0,0,0,0.45)] transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 lg:absolute lg:bottom-full lg:left-1/2 lg:right-auto lg:z-10 lg:mb-3 lg:w-[320px] lg:max-h-none lg:-translate-x-1/2 lg:overflow-visible lg:rounded-[30px] lg:px-6 lg:py-6"
+                          >
                             <div className="text-[15px] font-bold text-[#3b82f6]">
                               {item.tooltipTitle}
                             </div>

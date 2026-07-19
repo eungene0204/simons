@@ -2953,6 +2953,7 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     """
     from engine.nl_parser import (
         build_unsupported_concept_notice,
+        detect_etf_factor_conflict,
         detect_missing_entry_clarification,
         enforce_strategy_minimums,
         synthesize_risk_overrides,
@@ -2986,11 +2987,16 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     risk_overrides = synthesize_risk_overrides(
         request.prompt, parsed, request.previous_parsed
     )
-    # 진입(종목 선정) 규칙을 통째로 잃었으면 조용히 넘기지 않고 되묻는다.
-    # 상대강도 랭킹 등 미지원 유형은 가까운 추세추종으로 바꾸도록 안내.
-    clarification_question, clarification_suggestions = detect_missing_entry_clarification(
+    # ETF 유니버스 × 기업 재무지표 충돌: 조용히 무시하지 않고 이유 설명 + 기술 지표
+    # 대안 제안으로 되묻는다(universe_capabilities 레지스트리 판정). 충돌이 없으면
+    # 진입(종목 선정) 규칙을 통째로 잃었을 때의 되묻기를 검사한다.
+    clarification_question, clarification_suggestions = detect_etf_factor_conflict(
         parsed, request.prompt
     )
+    if clarification_question is None:
+        clarification_question, clarification_suggestions = detect_missing_entry_clarification(
+            parsed, request.prompt
+        )
     return {
         "parsed": parsed.model_dump(),
         "backtest_request": backtest_req,

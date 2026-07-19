@@ -132,7 +132,8 @@ simons/
 │   │   ├── result_handler.py        # ResultHandler (지표 계산 + 직렬화)
 │   │   ├── nl_parser.py             # 자연어 → ParsedStrategy (LLM)
 │   │   ├── strategy_converter.py    # ParsedStrategy → BacktestRequest
-│   │   ├── universe_pit.py          # PIT(생존편향 제거) 유니버스 + 섹터 유니버스(CANONICAL_SECTORS·normalize_sector·filter_by_sector)
+│   │   ├── universe_pit.py          # PIT(생존편향 제거) 유니버스 + 섹터 유니버스(CANONICAL_SECTORS·normalize_sector·filter_by_sector) + ETF 유니버스(resolve_etf_symbols·filter_etf_by_theme·extract_etf_theme)
+│   │   ├── universe_capabilities.py # 유니버스별 지원 팩터 레지스트리(ETF=기업 재무지표 불가, FR-STR-067)
 │   │   ├── data_resolver.py         # 유니버스 필터링
 │   │   ├── virtual_trader.py        # 가상매매 실시간 엔진 (상장 상태 체크 포함)
 │   │   ├── listing_status.py        # 상장 상태 머신 (7단계) + DART 분류 + DB 동기화
@@ -723,6 +724,8 @@ AdviceExperience — 조언 전/후 성과, 유사 사례, 평가, reusable less
 | `data/fundamentals/` | JSON/CSV | ROE, EPS, BPS, 부채비율 |
 | `data/korea-stocks.json` | JSON | 종목명, 코드, 시장, 섹터 (현재 상장 — 섹터 SOT) |
 | `data/stock-master.json` | JSON | PIT 종목 마스터(상장폐지 포함, 생존편향 제거) + 상폐 종목 industry/sector 백필(`backend/scripts/backfill_delisted_sectors.py`, 재빌드는 `build_stock_master.py`) |
+| `data/etf-master.json` | JSON | ETF 유니버스 마스터(FDR ETF/KR ∩ 로컬 OHLCV + 상폐 백필 병합, `backend/scripts/build_etf_master.py`) — 상폐 미백필 상태에서만 엔진이 생존편향 경고 |
+| `data/etf-delisted.json` | JSON | 상폐 ETF 멤버십(`backend/scripts/backfill_delisted_etf.py` — KRX Open API 승인 또는 KRX_ID/PW 필요, 일별 캐시=data/cache/krx-etf-daily/) |
 | `data/kospi200-cache.json` | JSON | KOSPI200 종목 목록 캐시 |
 
 ---

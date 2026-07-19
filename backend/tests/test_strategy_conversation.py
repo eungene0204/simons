@@ -1062,3 +1062,62 @@ def test_metrics_false_assumption_and_missing_detection():
     summary = aggregate([result], [outcome])
     assert summary["false_assumption_rate"] == 0.0
     assert summary["missing_field_detection_recall"] == 1.0
+
+
+# ─── ETF 유니버스 (2026-07-19) ────────────────────────────────────────────────
+
+
+def test_etf_universe_markets_exclusive():
+    """ETF는 주식 시장과 혼합하지 않는 독립 유니버스다 — LLM이 섞어 내도 단독 정규화."""
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        universe={"markets": ["KOSPI", "ETF"], "sectors": []},
+        entry_conditions=[{"factor": "technical.rsi", "operator": "<=", "value": 30,
+                           "source_text": "RSI 30 이하"}],
+    ))
+    assert intent.strategy.universe.markets == ["ETF"]
+
+
+def test_etf_universe_rejects_fundamental_factor_with_alternative():
+    """ETF × 기업 재무지표: 조용히 제거하지 않고 오류 + 기술 지표 대안 제안."""
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        universe={"markets": ["ETF"], "sectors": []},
+    ))  # 기본 entry: fundamental.per
+    _, report = run_validation(intent)
+    assert any("재무지표" in e and "ETF" in e for e in report.errors)
+    assert any("기술 지표" in f or "이동평균" in f for f in report.suggested_fixes)
+    assert not report.is_valid
+
+
+def test_etf_universe_accepts_technical_and_clears_sectors():
+    """ETF + 기술 지표는 통과하고, 종목 섹터 분류는 비운다(테마는 etf_theme 담당)."""
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        universe={"markets": ["ETF"], "sectors": ["반도체"]},
+        entry_conditions=[{"factor": "technical.rsi", "operator": "<=", "value": 30,
+                           "source_text": "RSI 30 이하"}],
+    ))
+    validated, report = run_validation(intent)
+    assert validated.strategy.universe.markets == ["ETF"]
+    assert validated.strategy.universe.sectors == []
+    # 드리프트로 sectors에 들어온 테마는 조용히 버리지 않고 etf_theme로 승격한다
+    assert validated.strategy.universe.etf_theme == "반도체"
+    assert not any("재무지표" in e for e in report.errors)
+
+
+def test_etf_theme_is_not_unsupported_and_compiles_to_etf_theme():
+    """ETF 테마('반도체 종목 ETF')는 미지원 개념이 아니라 etf_theme로 컴파일된다.
+
+    회귀: LLM이 'ETF의 산업별 구성(반도체) 확인 불가'로 unsupported_features에 넣어
+    테마가 전략에서 통째로 빠지던 버그(어순상 인접 추출도 놓치는 케이스).
+    """
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        universe={"markets": ["ETF"], "etf_theme": "반도체"},
+        entry_conditions=[{"factor": "technical.rsi", "operator": "<=", "value": 30,
+                           "source_text": "RSI 30 이하"}],
+    ))
+    validated, report = run_validation(intent)
+    assert not report.unsupported_features
+    assert report.is_valid
+    parsed = compile_strategy(validated, report, "반도체 종목 ETF를 골라줘")
+    assert parsed.universe == ["ETF"]
+    assert parsed.etf_theme == "반도체"
+    assert parsed.sector is None

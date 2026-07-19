@@ -208,3 +208,73 @@ def test_reload_master_refreshes_sector_map(synthetic_sector_sources, tmp_path):
     master_path.write_text(json.dumps(data), encoding="utf-8")
     u.reload_master()
     assert u.filter_by_sector(["EEEEEE"], "건설") == ["EEEEEE"]
+
+
+# ─── ETF 유니버스 ────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def synthetic_etf_master(tmp_path, monkeypatch):
+    etfs = [
+        {"symbol": "069500", "name": "KODEX 200",
+         "dataStart": "2014-01-29", "dataEnd": "2026-07-10", "hasOhlcv": True},
+        {"symbol": "091160", "name": "KODEX 반도체",
+         "dataStart": "2015-01-01", "dataEnd": "2026-07-10", "hasOhlcv": True},
+        {"symbol": "360750", "name": "TIGER 미국S&P500",
+         "dataStart": "2020-08-07", "dataEnd": "2026-07-10", "hasOhlcv": True},
+        {"symbol": "999999", "name": "가짜 미국나스닥", "dataStart": None,
+         "dataEnd": None, "hasOhlcv": False},
+        # 상폐 ETF(backfill_delisted_etf.py 백필분) — 살아 있던 창에만 포함돼야 한다.
+        {"symbol": "152380", "name": "KODEX 구테마", "dataStart": "2015-03-02",
+         "dataEnd": "2020-05-29", "hasOhlcv": True, "delistingDate": "2020-05-29"},
+    ]
+    path = tmp_path / "etf-master.json"
+    path.write_text(json.dumps({"etfs": etfs}, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(u, "_ETF_MASTER_PATH", path)
+    u.reload_master()
+    yield
+    u.reload_master()
+
+
+def test_is_etf_universe():
+    assert u.is_etf_universe("etf")
+    assert u.is_etf_universe("ETF")
+    assert not u.is_etf_universe("kospi")
+    assert not u.is_etf_universe(None)
+
+
+def test_resolve_etf_symbols_alive_window(synthetic_etf_master):
+    # 2020-08 상장 ETF는 2015~2019 창에는 없어야 한다(as-of).
+    early = u.resolve_etf_symbols("2015-01-01", "2019-12-31")
+    assert "069500" in early and "360750" not in early
+    # 상폐 ETF는 살아 있던 창(~2020-05)에는 포함, 이후 창에서는 제외(생존 편향 제거).
+    assert "152380" in early
+    late = u.resolve_etf_symbols("2021-01-01", "2026-01-01")
+    assert set(late) == {"069500", "091160", "360750"}
+
+
+def test_etf_delisting_dates_and_backfill_flag(synthetic_etf_master):
+    # 엔진의 상폐 강제청산 라벨("상장폐지")은 이 날짜 맵을 근거로 한다 — ETF 마스터 병합.
+    dates = u.get_delisting_dates(["152380", "069500"])
+    assert dates == {"152380": "2020-05-29"}
+    # 상폐분이 백필된 마스터면 생존 편향 경고를 내지 않는다.
+    assert u.etf_master_includes_delisted() is True
+
+
+def test_filter_etf_by_theme_exact_name_wins(synthetic_etf_master):
+    syms = ["069500", "091160", "360750"]
+    # 정확한 상품명 매칭이면 그 종목만 — "KODEX 200"이 "KODEX 반도체"로 번지지 않는다.
+    assert u.filter_etf_by_theme(syms, "KODEX 200") == ["069500"]
+    # 키워드는 이름 포함 매칭.
+    assert u.filter_etf_by_theme(syms, "반도체") == ["091160"]
+    assert u.filter_etf_by_theme(syms, "미국") == ["360750"]
+    assert u.filter_etf_by_theme(syms, "채권") == []
+
+
+def test_extract_etf_theme_self_validating(synthetic_etf_master):
+    # 토큰 접미사가 마스터 이름과 매칭될 때만 테마로 인정한다.
+    assert u.extract_etf_theme("미국 ETF 사서 장기 보유") == "미국"
+    assert u.extract_etf_theme("반도체ETF 모멘텀") == "반도체"
+    assert u.extract_etf_theme("KODEX 200을 골든크로스로 매매") == "KODEX 200"
+    # 매칭 안 되는 선행어("사는")는 테마가 아니다.
+    assert u.extract_etf_theme("etf를 사는 전략") is None

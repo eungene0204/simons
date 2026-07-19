@@ -92,6 +92,34 @@ describe("BacktestHistoryPage", () => {
     expect(push).toHaveBeenCalledWith("/analytics");
   });
 
+  it("모바일 카드 헤더를 세로 배치하고 데스크톱 레이아웃을 복원한다", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => [makeHistoryItem()],
+    });
+
+    render(<BacktestHistoryPage />);
+
+    expect(await screen.findByTestId("backtest-history-page")).toHaveClass(
+      "p-3",
+      "sm:p-4",
+      "lg:p-6"
+    );
+    expect(screen.getByTestId("backtest-history-card")).toHaveClass(
+      "p-4",
+      "lg:p-5"
+    );
+    expect(screen.getByTestId("backtest-history-card-header")).toHaveClass(
+      "flex-col",
+      "lg:flex-row"
+    );
+    expect(screen.getByRole("button", { name: "모멘텀 전략 기록 삭제" })).toHaveClass(
+      "opacity-100",
+      "lg:opacity-0",
+      "lg:group-hover:opacity-100"
+    );
+  });
+
   it("전략 카드 삭제 전에 확인 모달을 보여주고 확인 후 삭제한다", async () => {
     const historyItem = makeHistoryItem();
     fetchMock.mockImplementation((url: string, options?: RequestInit) => {

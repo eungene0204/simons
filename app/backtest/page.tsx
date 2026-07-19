@@ -38,7 +38,7 @@ export default function BacktestHistoryPage() {
   const [deleteTarget, setDeleteTarget] = useState<BacktestHistoryItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const strategyBadgeClass =
-    "inline-flex items-center min-h-7 px-2.5 rounded-md border border-[#FF9933]/25 bg-[#1C1806] text-[11px] whitespace-nowrap";
+    "inline-flex min-h-7 max-w-full items-center break-words rounded-md border border-[#FF9933]/25 bg-[#1C1806] px-2.5 text-[11px] whitespace-normal lg:max-w-none lg:break-normal lg:whitespace-nowrap";
 
   useEffect(() => {
     let isActive = true;
@@ -154,7 +154,10 @@ export default function BacktestHistoryPage() {
 
   return (
     <DashboardLayout userName="">
-      <div className="p-6 max-w-7xl mx-auto">
+      <div
+        className="mx-auto max-w-7xl p-3 sm:p-4 lg:p-6"
+        data-testid="backtest-history-page"
+      >
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -210,10 +213,14 @@ export default function BacktestHistoryPage() {
               <div
                 key={item.id}
                 onClick={() => router.push(`/backtest/${item.id}`)}
-                className="flat-card rounded-2xl border border-white/[0.08] p-5 hover:border-white/[0.14] transition-colors group cursor-pointer"
+                className="flat-card group cursor-pointer rounded-2xl border border-white/[0.08] p-4 transition-colors hover:border-white/[0.14] lg:p-5"
+                data-testid="backtest-history-card"
               >
-                <div className="flex items-start justify-between mb-4">
-                  <div>
+                <div
+                  className="mb-4 flex flex-col items-start gap-3 lg:flex-row lg:justify-between lg:gap-0"
+                  data-testid="backtest-history-card-header"
+                >
+                  <div className="w-full lg:w-auto">
                     <div className="mb-2">
                       <span className="text-base font-black text-white">{item.strategyName}</span>
                     </div>
@@ -293,16 +300,16 @@ export default function BacktestHistoryPage() {
                       })()}
                     </div>
                   </div>
-                  <div className="flex flex-col items-end gap-2">
+                  <div className="flex w-full items-center justify-between gap-2 lg:w-auto lg:flex-col lg:items-end">
                     <button
                       onClick={(e) => handleRequestDeleteItem(item, e)}
-                      className="p-1.5 text-red-500 border border-red-500/30 bg-transparent rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                      className="rounded-lg border border-red-500/30 bg-transparent p-1.5 text-red-500 opacity-100 transition-all lg:opacity-0 lg:group-hover:opacity-100"
                       aria-label={`${item.strategyName} 기록 삭제`}
                       title="기록 삭제"
                     >
                       <X className="w-4 h-4" />
                     </button>
-                    <div className="text-xs text-gray-500 font-mono">
+                    <div className="break-all font-mono text-xs text-gray-500 lg:break-normal">
                       {new Date(item.timestamp).toLocaleString()}
                     </div>
                   </div>

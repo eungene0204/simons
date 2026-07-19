@@ -15,6 +15,16 @@ const data: TradingStatusData = {
 };
 
 describe("VirtualTradingStatus", () => {
+  it("uses two mobile columns and restores the desktop status row", () => {
+    render(<VirtualTradingStatus initialData={data} />);
+
+    expect(screen.getByTestId("virtual-trading-status-grid")).toHaveClass(
+      "grid-cols-2",
+      "lg:flex",
+      "lg:divide-x"
+    );
+  });
+
   it("focuses on trading status and omits stats duplicated in the summary bar", () => {
     render(<VirtualTradingStatus initialData={data} />);
 

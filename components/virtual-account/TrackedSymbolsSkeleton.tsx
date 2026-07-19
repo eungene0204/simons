@@ -8,7 +8,11 @@ export default function TrackedSymbolsSkeleton({
   rows = 5,
 }: TrackedSymbolsSkeletonProps) {
   return (
-    <div>
+    <div
+      className="overflow-x-auto lg:overflow-x-visible"
+      data-testid="tracked-symbols-skeleton-scroll"
+    >
+      <div className="min-w-[520px] lg:min-w-0">
       <div className="grid grid-cols-[1fr_80px_72px_80px_52px_24px] gap-x-3 px-2 py-2 bg-white/[0.06] rounded-lg text-xs font-bold text-gray-400 uppercase tracking-widest">
         <span>종목</span>
         <span className="text-right">현재가</span>
@@ -35,6 +39,7 @@ export default function TrackedSymbolsSkeleton({
             <div className="shimmer ml-auto h-4 w-4 rounded bg-white/[0.04]" />
           </div>
         ))}
+      </div>
       </div>
     </div>
   );

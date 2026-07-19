@@ -85,11 +85,13 @@ export default function TrackedSymbolRow({
         )}
       </div>
       <button
+        type="button"
         onClick={(e) => {
           e.stopPropagation();
           onRemove(symbol);
         }}
-        className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-[var(--main-red)] transition-all duration-200 flex items-center justify-center"
+        className="flex items-center justify-center text-gray-600 opacity-100 transition-all duration-200 hover:text-[var(--main-red)] lg:opacity-0 lg:group-hover:opacity-100"
+        aria-label={`${name} 추적 제거`}
         title="추적 제거"
       >
         <X size={12} />

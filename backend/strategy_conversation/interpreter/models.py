@@ -119,13 +119,34 @@ class RankingSpec(BaseModel):
 
 
 class UniverseSpec(BaseModel):
-    markets: List[Literal["KOSPI", "KOSDAQ", "KOSPI200"]] = Field(
+    markets: List[Literal["KOSPI", "KOSDAQ", "KOSPI200", "ETF"]] = Field(
         default_factory=lambda: ["KOSPI200"],
-        description="투자 대상 시장. 언급 없으면 ['KOSPI200']",
+        description=(
+            "투자 대상 시장. 언급 없으면 ['KOSPI200']. "
+            "ETF/ETN/상장지수펀드 상품 대상이면 ['ETF'] 단독(주식 시장과 혼합 금지)"
+        ),
     )
     sectors: List[str] = Field(
         default_factory=list, description="업종/섹터 제한. 언급 없으면 빈 배열"
     )
+    etf_theme: Optional[str] = Field(
+        default=None,
+        description=(
+            "ETF 전용 테마/상품명 키워드. markets=['ETF']이고 '반도체 ETF'·'미국 ETF'·"
+            "'KODEX 200' 등 테마/상품명이 언급되면 그 키워드('반도체', '미국', 'KODEX 200'). "
+            "엔진이 ETF 상품명과 매칭해 유니버스를 좁힌다. 언급 없으면 null"
+        ),
+    )
+
+    @field_validator("etf_theme", mode="before")
+    @classmethod
+    def _coerce_etf_theme(cls, v):
+        if isinstance(v, list):
+            v = v[0] if v else None
+        if isinstance(v, str):
+            v = v.strip()
+            return v or None
+        return v
 
     @field_validator("markets", mode="before")
     @classmethod
@@ -137,6 +158,7 @@ class UniverseSpec(BaseModel):
             market_map = {
                 "KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ", "KOSPI200": "KOSPI200",
                 "코스피": "KOSPI", "코스닥": "KOSDAQ", "코스피200": "KOSPI200",
+                "ETF": "ETF", "ETN": "ETF", "이티에프": "ETF", "상장지수펀드": "ETF",
                 "KOSPI_KOSDAQ": None,  # 아래에서 양시장으로 전개
             }
             out: list[str] = []
@@ -150,6 +172,8 @@ class UniverseSpec(BaseModel):
                 token = market_map.get(key)
                 if token and token not in out:
                     out.append(token)
+            if "ETF" in out:
+                return ["ETF"]  # ETF는 주식 시장과 혼합하지 않는 독립 유니버스
             if out:
                 return out
         return v

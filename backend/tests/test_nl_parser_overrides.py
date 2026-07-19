@@ -2228,6 +2228,131 @@ def test_operating_margin_with_threshold_becomes_entry_without_clarification():
     assert suggestions is None
 
 
+def test_missing_entry_clarification_etf_suggests_price_based_rules():
+    """스크린샷 프롬프트: 'etf를 사는 전략은 어때?' — ETF엔 PER·PBR 같은 기업 재무지표가
+    없으므로 일반 예시(재무 필터 칩) 대신 가격·추세 기반 방식으로 안내한다."""
+    base = make_base_strategy()
+
+    question, suggestions = detect_missing_entry_clarification(base, "etf를 사는 전략은 어때?")
+
+    assert question is not None
+    assert "ETF" in question
+    # 재무 필터 예시 칩이 나오면 안 된다(ETF엔 해당 지표가 없음).
+    assert suggestions is not None
+    joined = " ".join(suggestions)
+    assert "PBR" not in joined and "PER" not in joined and "ROE" not in joined
+    # 가격·추세 기반 대안을 제시한다.
+    assert any("돌파" in s or "이동평균" in s or "선" in s or "RSI" in s for s in suggestions)
+
+
+def test_missing_entry_clarification_etf_qualitative_metric_gets_product_guidance():
+    """'PER 낮은 ETF' — ETF엔 PER이 없으니 'PER은 몇 이하로 할까요?' 임계값 되묻기 대신
+    상품 안내가 먼저다."""
+    base = make_base_strategy()
+
+    question, _ = detect_missing_entry_clarification(base, "PER 낮은 ETF 전략 만들어줘")
+
+    assert question is not None
+    assert "ETF" in question
+    assert "PER은 몇 이하" not in question
+
+
+def test_missing_entry_clarification_etf_with_entry_signal_does_not_ask():
+    """ETF 언급이라도 기술 신호가 이미 있으면 되묻지 않는다 — ETF는 정식 유니버스라
+    그대로 실행 가능하다."""
+    base = make_base_strategy().model_copy(
+        update={"entry_signals": [TechnicalSignal(indicator="ma_crossover", signal_type="buy")]}
+    )
+
+    question, suggestions = detect_missing_entry_clarification(
+        base, "ETF 골든크로스 매수 전략"
+    )
+
+    assert question is None
+    assert suggestions is None
+
+
+def test_etf_supported_universe_rule_parse_and_no_notice():
+    """ETF는 정식 유니버스(2026-07-19 승격) — 미지원 안내 없이 룰 파서가 universe=["ETF"]로
+    파싱한다(개념 구현 시 미지원 목록 제거 원칙의 적용 사례)."""
+    from engine.nl_parser import build_unsupported_concept_notice
+
+    prompt = "ETF 골든크로스 매수, 데드크로스 매도, 손절 10%"
+    assert build_unsupported_concept_notice(prompt) is None
+    assert _mentions_unsupported_concept(prompt) is None
+
+    parsed = _parse_rule_based_strategy(prompt)
+    assert parsed is not None
+    assert parsed.universe == ["ETF"]
+    assert parsed.sector is None
+
+
+def test_etf_universe_extraction_and_theme():
+    """ETF 언급은 시장 언급보다 우선하며(코스피 ETF도 ETF), 테마/상품명은 ETF 마스터
+    이름과의 자기검증 매칭으로 추출된다."""
+    from engine.nl_parser import _extract_explicit_universe
+    from engine.universe_pit import extract_etf_theme
+
+    assert _extract_explicit_universe("etf를 사는 전략") == ["ETF"]
+    assert _extract_explicit_universe("코스피 ETF 위주로") == ["ETF"]
+    assert extract_etf_theme("반도체 ETF 모멘텀 전략") == "반도체"
+    assert extract_etf_theme("etf를 사는 전략은 어때?") is None
+
+
+def test_etf_universe_exclusive_and_sector_cleared():
+    """ETF 유니버스는 주식 시장과 혼합하지 않으며(단독), 종목 섹터 분류는 비운다."""
+    parsed = ParsedStrategy(
+        description="x", universe=["KOSPI", "ETF"], sector="반도체",
+    )
+    assert parsed.universe == ["ETF"]
+    assert parsed.sector is None
+
+
+def test_etf_factor_conflict_explains_and_suggests_alternatives():
+    """ETF 유니버스 × 기업 재무지표: 조용히 무시하지 않고 이유 설명 + 기술 지표 대안을
+    제안한다. 주식 유니버스나 거래대금(가격 파생)은 충돌이 아니다."""
+    from engine.nl_parser import detect_etf_factor_conflict
+
+    etf_with_per = ParsedStrategy(
+        description="PER 10 이하 ETF", universe=["ETF"],
+        fundamental_filters=[FundamentalFilter(metric="per", operator="<=", value=10.0)],
+    )
+    question, suggestions = detect_etf_factor_conflict(etf_with_per, "PER 10 이하 ETF")
+    assert question is not None
+    assert "PER" in question and "재무지표" in question
+    assert "변경할까요" in question
+    assert suggestions and any("RSI" in s or "돌파" in s for s in suggestions)
+
+    # 주식 유니버스는 충돌 없음.
+    stock = make_base_strategy().model_copy(
+        update={"fundamental_filters": [FundamentalFilter(metric="per", operator="<=", value=10.0)]}
+    )
+    assert detect_etf_factor_conflict(stock, "PER 10 이하") == (None, None)
+
+    # 거래대금은 가격·거래량 파생이라 ETF에서도 허용.
+    etf_tv = ParsedStrategy(
+        description="거래대금 100억 이상 ETF", universe=["ETF"],
+        fundamental_filters=[FundamentalFilter(metric="trading_value", operator=">=", value=100.0)],
+    )
+    assert detect_etf_factor_conflict(etf_tv, "거래대금 100억 이상 ETF") == (None, None)
+
+
+def test_etf_theme_flows_to_backtest_request_and_canonical_dsl():
+    """etf_theme가 백테스트 요청과 canonical DSL(해시)에 포함되고, 비-ETF 전략의
+    canonical DSL에는 키 자체가 없다(기존 해시 불변)."""
+    from engine.strategy_converter import to_backtest_request, to_canonical_strategy_dsl
+
+    etf = _parse_rule_based_strategy("반도체 ETF 골든크로스 매수, 데드크로스 매도, 손절 10%")
+    assert etf is not None and etf.universe == ["ETF"] and etf.etf_theme == "반도체"
+    req = to_backtest_request(etf, resolve_symbols=False)
+    assert req["universe_id"] == "etf"
+    assert req["etf_theme"] == "반도체"
+    assert to_canonical_strategy_dsl(etf)["etf_theme"] == "반도체"
+
+    stock = _parse_rule_based_strategy("골든크로스 매수, 데드크로스 매도, 손절 10%")
+    assert "etf_theme" not in to_canonical_strategy_dsl(stock)
+
+
 def test_missing_entry_clarification_flags_relative_strength_ranking():
     """스크린샷 프롬프트: 수익률 상위 랭킹은 미지원 → 추세추종 전환을 안내한다."""
     prompt = (

@@ -57,6 +57,11 @@ export default function RecentBacktestList({ initialRecords }: { initialRecords:
         <Flask size={20} className="text-gray-600" />
       </div>
 
+      <div
+        className="overflow-x-auto lg:overflow-x-visible"
+        data-testid="recent-backtest-table-scroll"
+      >
+        <div className="min-w-[520px] lg:min-w-0">
       {/* 테이블 헤더 */}
       <div className="grid grid-cols-[minmax(0,1fr)_64px_64px_64px_64px_56px] gap-2 px-2 mb-2">
         {["전략명", "유니버스", "수익률", "CAGR", "MDD", "날짜"].map((h) => (
@@ -133,6 +138,8 @@ export default function RecentBacktestList({ initialRecords }: { initialRecords:
           })}
         </div>
       )}
+        </div>
+      </div>
 
     </div>
   );

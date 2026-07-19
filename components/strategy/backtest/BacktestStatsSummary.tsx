@@ -165,13 +165,23 @@ export default function BacktestStatsSummary({ result }: Props) {
   ];
 
   return (
-    <div className="mb-4 bg-[#0d0d0d] border border-white/5 rounded-2xl px-5 py-4">
+    <div
+      data-testid="backtest-stats-summary"
+      className="mb-4 rounded-2xl border border-white/5 bg-[#0d0d0d] px-3 py-4 sm:px-4 lg:px-5"
+    >
       <p className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-3">
         상세 통계 요약
       </p>
-      <div className="grid grid-cols-3 gap-0 divide-x divide-white/5">
+      <div
+        data-testid="backtest-stats-summary-grid"
+        className="grid grid-cols-1 gap-0 divide-y divide-white/5 lg:grid-cols-3 lg:divide-x lg:divide-y-0"
+      >
         {groups.map((group) => (
-          <div key={group.title} className="first:pl-0 pl-5 first:pr-5 pr-0">
+          <div
+            key={group.title}
+            data-testid="backtest-stats-summary-group"
+            className="py-4 first:pt-0 last:pb-0 lg:py-0 lg:first:pl-0 lg:pl-5 lg:first:pr-5 lg:pr-0"
+          >
             <p className="text-sm font-bold text-gray-400 mb-2.5">
               {group.title}
             </p>

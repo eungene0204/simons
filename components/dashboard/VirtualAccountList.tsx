@@ -70,6 +70,11 @@ export default function VirtualAccountList({ initialData }: { initialData: Virtu
         <p className="text-xs text-gray-500 mt-0.5">운용중/삭제된 계좌별 수익 현황</p>
       </div>
 
+      <div
+        className="overflow-x-auto lg:overflow-x-visible"
+        data-testid="virtual-account-table-scroll"
+      >
+        <div className="min-w-[440px] lg:min-w-0">
       {/* 테이블 헤더 */}
       <div className="grid grid-cols-[minmax(0,1fr)_120px_110px] gap-2 px-2 mb-2">
         {["계좌명", "수익률", "총 수익금"].map((h) => (
@@ -130,6 +135,8 @@ export default function VirtualAccountList({ initialData }: { initialData: Virtu
           ))}
         </div>
       )}
+        </div>
+      </div>
     </div>
   );
 }

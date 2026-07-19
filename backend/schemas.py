@@ -43,6 +43,9 @@ class BacktestRequest(BaseModel):
     # model_dump가 조용히 버려(extra=ignore) 엔진이 필터를 못 받는다 — ranking_metric
     # 0거래 사고와 동일 함정이라 반드시 선언한다.
     sector: Optional[Union[str, List[str]]] = None
+    # ETF 유니버스(universe_id="etf") 전용 테마/상품명 필터("반도체", "KODEX 200").
+    # sector와 동일하게 스키마 미선언 시 model_dump가 조용히 버리므로 반드시 선언한다.
+    etf_theme: Optional[str] = None
     entry: ConditionGroup
     exit: ConditionGroup
     risk: RiskManagement

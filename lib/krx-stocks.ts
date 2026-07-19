@@ -84,6 +84,30 @@ export async function loadStockMasterNameMap(): Promise<Record<string, string>> 
 }
 
 /**
+ * ETF 코드→이름 매핑을 etf-master.json에서 읽어옵니다.
+ * korea-stocks.json / stock-master.json은 주식만 담고 있어, ETF 유니버스 백테스트의
+ * 거래내역에는 이름 대신 코드(예: 0151S0, 091160)가 노출된다.
+ */
+export async function loadEtfMasterNameMap(): Promise<Record<string, string>> {
+  try {
+    const fs = await import('fs/promises');
+    const path = await import('path');
+
+    const filePath = path.join(process.cwd(), 'data', 'etf-master.json');
+    const data = await fs.readFile(filePath, 'utf-8');
+    const parsed = JSON.parse(data) as { etfs?: Array<{ symbol: string; name: string }> };
+    const map: Record<string, string> = {};
+    (parsed.etfs ?? []).forEach((e) => {
+      if (e.symbol && e.name) map[e.symbol] = e.name;
+    });
+    return map;
+  } catch {
+    // 파일이 아직 없으면(백필 미실행) 빈 맵 — 주식 이름은 그대로 동작
+    return {};
+  }
+}
+
+/**
  * 종목 목록을 파일에 저장합니다
  */
 export async function saveStockList(stocks: StockListItem[]): Promise<void> {

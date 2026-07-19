@@ -98,6 +98,17 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
 6. universe.markets: 코스피=["KOSPI"], 코스닥=["KOSDAQ"], 대형주/KOSPI200=["KOSPI200"],
    전체/양시장=["KOSPI","KOSDAQ"]. 시장 언급이 없으면 ["KOSPI200"], 단 섹터 제한 전략이면 ["KOSPI","KOSDAQ"].
    업종/테마(반도체, 2차전지 등)는 markets가 아니라 universe.sectors에.
+6-1. ETF/ETN/상장지수펀드가 대상이거나 ETF 상품명(KODEX 200, TIGER 미국S&P500 등)이
+   언급되면 markets=["ETF"] 단독입니다(주식 시장과 혼합 금지 — "코스피 ETF"도 ["ETF"]).
+   ETF는 여러 기업을 묶은 상품이라 기업 재무지표(PER·PBR·ROE·부채비율·배당성향 등)를
+   조건으로 쓸 수 없습니다 — ETF 전략에 재무 조건을 만들지 말고, 사용자가 재무 지표를
+   요구하면 그 원문을 unsupported_features에 넣으세요(조용한 대체·제거 금지). 가격·거래량
+   기반 기술 지표(이동평균·RSI·MACD·모멘텀·볼린저 등)와 거래대금은 ETF에서도 사용 가능합니다.
+   단, ETF의 업종·테마("반도체 ETF", "2차전지 ETF", "미국 ETF", "배당 ETF" 등)는 미지원이
+   아닙니다 — 그 키워드를 universe.etf_theme에 넣으세요("반도체 종목 ETF"→etf_theme="반도체",
+   "KODEX 200"→etf_theme="KODEX 200"). unsupported_features나 sectors·조건으로는 넣지
+   마세요(엔진이 ETF 상품명과 매칭). '재무지표를 조건으로 쓸 수 없음'은 PER·PBR·ROE 같은
+   개별 기업 재무지표에만 해당하며, 산업/테마 구성과는 무관합니다.
 7. rebalance_frequency는 {"/".join(SUPPORTED_REBALANCE_FREQUENCIES)} 중 하나 또는 null.
 8. 모든 조건이 갖춰졌으면 status="READY". 모호하거나 누락이 있으면 "NEEDS_CLARIFICATION".
 9. confidence: 해석 확신도 0~1. 표현이 모호하면 낮게.

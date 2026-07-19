@@ -168,7 +168,7 @@ def test_blank_input_shows_opening_question_without_mutation():
     assert res.status == "collecting"
     assert res.state == sb.BuilderState()  # 아무것도 채우지 않는다
     assert "시장" in res.reply
-    assert res.suggestions == ["코스피", "코스닥", "코스피200", "코스피·코스닥 전체"]
+    assert res.suggestions == ["코스피", "코스닥", "코스피200", "코스피·코스닥 전체", "ETF"]
 
 
 def test_blank_input_does_not_complete_partial_risk_state():
@@ -1019,3 +1019,43 @@ def test_trend_filter_flow_end_to_end():
     assert res.status == "confirmed"
     parsed = sb.build_parsed_strategy(res.state)
     assert any(f.indicator == "ema" and f.mode == "above" for f in parsed.entry_filters)
+
+
+# ─── ETF 유니버스 (2026-07-19) ────────────────────────────────────────────────
+
+
+def test_parse_universe_etf_takes_priority_over_market():
+    assert sb._parse_universe("ETF로 할게") == "ETF"
+    # 상품 유형이 시장 언급보다 우선 — "코스피 ETF"도 ETF 유니버스.
+    assert sb._parse_universe("코스피 ETF") == "ETF"
+
+
+def test_etf_universe_hides_value_strategy_option():
+    state = sb.BuilderState(universe="ETF")
+    msg, chips = sb.next_question(state)
+    assert "가치 전략" not in msg
+    assert "저평가 가치주" not in chips
+
+
+def test_etf_value_type_not_applied():
+    # 가치 전략을 답해도 채우지 않고 같은 질문을 다시 한다(ETF엔 재무지표 없음).
+    state = sb.BuilderState(universe="ETF")
+    patch = sb.parse_input("저평가 가치주", state, "strategy_type")
+    assert patch.get("strategy_type") is None
+    # 주식 유니버스에서는 정상 인식된다(가드가 과확장되지 않음).
+    stock_state = sb.BuilderState(universe="KOSPI")
+    patch2 = sb.parse_input("저평가 가치주", stock_state, "strategy_type")
+    assert patch2.get("strategy_type") == "value"
+
+
+def test_etf_builder_dsl_universe():
+    state = sb.BuilderState(
+        universe="ETF", strategy_type="golden_cross",
+        ma_kind="sma", ma_short=5, ma_long=20,
+        holding_count=5, rebalance_cycle="monthly",
+        stop_loss_pct=10.0, risk_done=True, filters_asked=True,
+    )
+    parsed = sb.build_parsed_strategy(state)
+    assert parsed is not None
+    assert parsed.universe == ["ETF"]
+    assert parsed.sector is None

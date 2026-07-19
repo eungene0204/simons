@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { loadStockList, loadStockMasterNameMap } from "@/lib/krx-stocks";
+import { loadStockList, loadStockMasterNameMap, loadEtfMasterNameMap } from "@/lib/krx-stocks";
 import { cache } from "@/lib/cache";
 
 // 런타임에 볼륨 마운트되는 data/stock-master.json(상폐 종목명)을 읽으므로 정적 prerender 금지.
@@ -17,16 +17,20 @@ export async function GET(request: NextRequest) {
     }
     */
 
-    const [stocks, masterNames] = await Promise.all([
+    const [stocks, masterNames, etfNames] = await Promise.all([
       loadStockList(),
       loadStockMasterNameMap(),
+      loadEtfMasterNameMap(),
     ]);
     const metadataMap: Record<string, { name: string, sector: string }> = {};
 
-    // 상폐 종목 이름을 먼저 깔고(코드 대신 이름 표시), 현재 상장분으로 덮어쓴다
-    // (현재 상장분이 sector 등 더 풍부한 메타를 가짐).
+    // 상폐 종목·ETF 이름을 먼저 깔고(코드 대신 이름 표시), 현재 상장분으로 덮어쓴다
+    // (현재 상장분이 sector 등 더 풍부한 메타를 가짐). ETF 코드는 주식과 겹치지 않는다.
     Object.entries(masterNames).forEach(([symbol, name]) => {
       metadataMap[symbol] = { name, sector: "-" };
+    });
+    Object.entries(etfNames).forEach(([symbol, name]) => {
+      metadataMap[symbol] = { name, sector: "ETF" };
     });
 
     stocks.forEach(stock => {

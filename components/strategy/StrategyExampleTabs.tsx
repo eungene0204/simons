@@ -550,14 +550,14 @@ export function StrategyTemplatePreviewModal({
 
   const modal = (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-[12px] [backdrop-filter:blur(12px)] [-webkit-backdrop-filter:blur(12px)] animate-fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 backdrop-blur-[12px] [backdrop-filter:blur(12px)] [-webkit-backdrop-filter:blur(12px)] animate-fade-in lg:px-4 lg:py-0"
       data-testid="strategy-template-preview-backdrop"
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="strategy-template-preview-title"
-        className="w-full max-w-2xl rounded-[1.75rem] border border-white/[0.08] bg-[#101010] p-5 shadow-[0_32px_90px_rgba(0,0,0,0.55)]"
+        className="max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/[0.08] bg-[#101010] p-4 shadow-[0_32px_90px_rgba(0,0,0,0.55)] lg:max-h-none lg:rounded-[1.75rem] lg:p-5"
         style={{ animation: "fadeInUp 720ms cubic-bezier(0.19, 1, 0.22, 1) both" }}
       >
         <div className="flex items-start justify-between gap-4">
@@ -565,7 +565,7 @@ export function StrategyTemplatePreviewModal({
             <span className={`inline-flex items-center rounded-md px-2 py-1 text-[10px] font-black ${style.bg} ${style.border} ${style.color}`}>
               {style.label}
             </span>
-            <h2 id="strategy-template-preview-title" className="text-xl font-black text-white">
+            <h2 id="strategy-template-preview-title" className="text-lg font-black text-white lg:text-xl">
               {example.title}
             </h2>
           </div>

@@ -1392,7 +1392,7 @@ export default function BacktestDashboard({
         )}
       </AnimatePresence>
 
-      <div className="pt-8 px-6 pb-4 flex flex-col gap-1">
+      <div className="relative flex flex-col gap-1 px-4 pt-8 pb-4 sm:px-6">
         <h2 className="text-3xl font-black text-white tracking-tight">
           백테스트 결과
         </h2>
@@ -1402,8 +1402,11 @@ export default function BacktestDashboard({
           </span>
         </div>
 
-        <div className="flex items-center justify-between w-full">
-          <div className="flex flex-wrap items-center gap-1.5 md:gap-2 w-fit">
+        <div
+          data-testid="backtest-result-toolbar"
+          className="flex w-full flex-col items-stretch gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-0"
+        >
+          <div className="flex w-full flex-wrap items-center gap-1.5 md:gap-2 lg:w-fit">
             {VALIDATION_TABS.map(tab => (
               <div
                 key={tab.id}
@@ -1442,7 +1445,10 @@ export default function BacktestDashboard({
             ))}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div
+            data-testid="backtest-result-actions"
+            className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:flex-nowrap"
+          >
             <button
               type="button"
               onClick={() => setIsOptimizationPageOpen((open) => !open)}
@@ -1456,7 +1462,7 @@ export default function BacktestDashboard({
               전략 최적화
             </button>
             {(promptText || strategySummary) && (
-              <div className="relative" ref={promptTooltipRef}>
+              <div className="static lg:relative" ref={promptTooltipRef}>
                 <button
                   type="button"
                   onClick={() => setPromptTooltipOpen((v) => !v)}
@@ -1466,7 +1472,10 @@ export default function BacktestDashboard({
                   프롬프트
                 </button>
                 {promptTooltipOpen && (
-                  <div className="absolute right-0 top-full mt-2 z-50 w-96 rounded-xl border border-white/[0.10] bg-[#111318] p-4 shadow-2xl space-y-2.5">
+                  <div
+                    data-testid="backtest-prompt-popover"
+                    className="absolute left-4 right-4 top-full z-50 mt-2 rounded-xl border border-white/[0.10] bg-[#111318] p-4 shadow-2xl space-y-2.5 lg:left-auto lg:right-0 lg:w-96"
+                  >
                     {promptText && (
                       <div className="space-y-1">
                         <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest">프롬프트</span>

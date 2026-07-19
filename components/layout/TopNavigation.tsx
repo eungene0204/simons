@@ -18,6 +18,7 @@ import {
   CaretDown,
   GearSix,
   GoogleLogo,
+  List,
   SignOut,
   X,
   Receipt,
@@ -134,6 +135,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
@@ -303,19 +305,36 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
       if (e.key === "Escape" && isProfileMenuOpen) {
         setIsProfileMenuOpen(false);
       }
+
+      if (e.key === "Escape" && isMobileMenuOpen) {
+        setIsMobileMenuOpen(false);
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isSearchModalOpen, isProfileMenuOpen]);
+  }, [isSearchModalOpen, isProfileMenuOpen, isMobileMenuOpen]);
+
+  useEffect(() => {
+    if (!isMobileMenuOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isMobileMenuOpen]);
 
   const searchParamsString = searchParams.toString();
   useEffect(() => {
     setIsSearchModalOpen(false);
     setIsProfileMenuOpen(false);
+    setIsMobileMenuOpen(false);
   }, [pathname, searchParamsString]);
 
   const handleSearchClick = () => {
+    setIsMobileMenuOpen(false);
     setIsSearchModalOpen(true);
   };
 
@@ -349,6 +368,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
     if (isLoggingOut) return;
 
     setIsLoggingOut(true);
+    setIsMobileMenuOpen(false);
     setIsProfileMenuOpen(false);
     setUserProfile({ name: "사용자" });
     setAuthState("anonymous");
@@ -378,6 +398,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
 
   const handlePlanClick = async () => {
     setIsProfileMenuOpen(false);
+    setIsMobileMenuOpen(false);
     setIsPlanModalOpen(true);
     setIsPlanLoading(true);
     setPlanError(null);
@@ -405,6 +426,8 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
     item: (typeof menuItems)[0],
     e: React.MouseEvent
   ) => {
+    setIsMobileMenuOpen(false);
+
     if (authState === "anonymous" && item.id !== "analytics") {
       e.preventDefault();
       setIsLoginModalOpen(true);
@@ -456,7 +479,53 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
 
   return (
     <>
-      <nav className="relative flex items-center gap-1 overflow-x-auto bg-black/40 px-6 py-3 backdrop-blur-xl scrollbar-hide">
+      <nav
+        className="flex items-center justify-between bg-black/40 px-4 py-3 backdrop-blur-xl lg:hidden"
+        aria-label="모바일 상단 내비게이션"
+      >
+        <Link
+          href="/"
+          onClick={() => setIsMobileMenuOpen(false)}
+          className="group flex min-w-0 items-center gap-2"
+        >
+          <svg
+            aria-hidden="true"
+            viewBox="510 215 400 330"
+            className="h-[1.125rem] w-[1.375rem] flex-shrink-0 overflow-hidden"
+          >
+            <image href="/nullStock.png" width="1408" height="768" />
+          </svg>
+          <span className="truncate text-[15px] font-black tracking-tight text-white">
+            널스탁
+          </span>
+          <span className="rounded-md bg-blue-500/15 px-1.5 py-0.5 text-[8px] font-black tracking-[0.12em] text-blue-300">
+            OPEN BETA
+          </span>
+        </Link>
+
+        <div className="flex flex-shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={handleSearchClick}
+            className="rounded-xl p-2.5 text-gray-400 transition-colors hover:bg-white/[0.06] hover:text-white"
+            aria-label="검색 열기"
+          >
+            <MagnifyingGlass size={20} weight="bold" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsMobileMenuOpen(true)}
+            className="rounded-xl p-2.5 text-gray-400 transition-colors hover:bg-white/[0.06] hover:text-white"
+            aria-label="메뉴 열기"
+            aria-expanded={isMobileMenuOpen}
+            aria-controls="mobile-navigation-drawer"
+          >
+            <List size={22} weight="bold" />
+          </button>
+        </div>
+      </nav>
+
+      <nav className="relative hidden items-center gap-1 overflow-x-auto bg-black/40 px-6 py-3 backdrop-blur-xl scrollbar-hide lg:flex">
         {/* Logo */}
         <Link
           href="/"
@@ -604,6 +673,108 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
           />
         )}
       </nav>
+
+      {isMobileMenuOpen && (
+        <div className="fixed inset-0 z-[70] lg:hidden" data-testid="mobile-navigation-drawer">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            onClick={() => setIsMobileMenuOpen(false)}
+            aria-label="모바일 메뉴 닫기"
+          />
+          <aside
+            id="mobile-navigation-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-label="모바일 메뉴"
+            className="absolute inset-y-0 right-0 flex w-[min(86vw,320px)] flex-col border-l border-white/[0.08] bg-[#050505] shadow-2xl shadow-black/60"
+          >
+            <div className="flex items-center justify-between border-b border-white/[0.08] px-4 py-4">
+              <span className="text-sm font-black tracking-tight text-white">메뉴</span>
+              <button
+                type="button"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="rounded-xl p-2 text-gray-400 transition-colors hover:bg-white/[0.06] hover:text-white"
+                aria-label="메뉴 닫기"
+              >
+                <X size={18} weight="bold" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-3 py-4">
+              <div className="space-y-1">
+                {menuItems.map((item) => {
+                  const isActive = activeMenuItemId === item.id;
+                  const IconComponent = item.Icon;
+
+                  return (
+                    <Link
+                      key={item.id}
+                      href={item.href}
+                      onClick={(event) => handleMenuClick(item, event)}
+                      className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 transition-colors ${
+                        isActive
+                          ? "bg-white/10 text-white"
+                          : "text-gray-400 hover:bg-white/[0.04] hover:text-white"
+                      }`}
+                    >
+                      <IconComponent
+                        size={20}
+                        weight={isActive ? "fill" : "regular"}
+                        className={isActive ? "text-blue-400" : "text-gray-500"}
+                      />
+                      <span className="text-sm font-black">{item.label}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSearchClick}
+                className="mt-5 flex w-full items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-3 text-left text-sm font-bold text-gray-400"
+              >
+                <MagnifyingGlass size={20} weight="bold" />
+                <span>검색</span>
+              </button>
+            </div>
+
+            <div className="border-t border-white/[0.08] p-4">
+              {authState === "authenticated" ? (
+                <button
+                  type="button"
+                  aria-label={`${userProfile.name} 사용자 메뉴`}
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    setIsProfileMenuOpen(true);
+                  }}
+                  className="flex w-full min-w-0 items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-white/[0.04]"
+                >
+                  <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/[0.12] bg-white/[0.08] text-xs font-black text-white">
+                    {getInitials(userProfile.name)}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-sm font-black text-white">
+                    {userProfile.name}
+                  </span>
+                  <CaretDown size={16} weight="bold" className="text-gray-500" />
+                </button>
+              ) : authState === "anonymous" ? (
+                <button
+                  type="button"
+                  onClick={() => void handleGoogleLogin()}
+                  disabled={isStartingLogin || !isSupabaseConfigured()}
+                  className="flex w-full items-center justify-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-black text-black disabled:opacity-60"
+                >
+                  <GoogleLogo size={18} weight="fill" />
+                  <span>{isStartingLogin ? "로그인 준비 중..." : "Google 로그인"}</span>
+                </button>
+              ) : (
+                <div className="h-10 animate-pulse rounded-full bg-white/[0.06]" />
+              )}
+            </div>
+          </aside>
+        </div>
+      )}
 
       {authState === "authenticated" && isProfileMenuOpen && (
         <div

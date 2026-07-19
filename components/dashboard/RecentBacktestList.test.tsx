@@ -16,6 +16,20 @@ function makeRecord(overrides: Partial<DashboardBacktestRecord> = {}): Dashboard
 }
 
 describe("RecentBacktestList", () => {
+  it("contains the fixed-width table inside a mobile scroll region", () => {
+    render(<RecentBacktestList initialRecords={[makeRecord()]} />);
+
+    const scrollRegion = screen.getByTestId("recent-backtest-table-scroll");
+    expect(scrollRegion).toHaveClass(
+      "overflow-x-auto",
+      "lg:overflow-x-visible"
+    );
+    expect(scrollRegion.firstElementChild).toHaveClass(
+      "min-w-[520px]",
+      "lg:min-w-0"
+    );
+  });
+
   it("renders CAGR and MDD columns from stored metrics", () => {
     render(<RecentBacktestList initialRecords={[makeRecord()]} />);
 

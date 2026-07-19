@@ -26,12 +26,21 @@ class DataLoader:
 
         df = pl.read_parquet(file_path)
 
-        # ROE 미보유 시 캐시에서 빠르게 enrichment 시도
-        if "roe_or_gpa" not in df.columns or df["roe_or_gpa"].is_null().all():
+        # ROE 미보유 시 캐시에서 빠르게 enrichment 시도. ETF는 기업 재무제표가 없어
+        # KIS 재무비율 API가 항상 실패/공백만 반환하므로 건너뛴다(불필요한 API 호출·
+        # 로그 소음 방지 — universe_capabilities가 애초에 ETF엔 재무 조건을 허용하지
+        # 않으므로 이 데이터는 어차피 쓰이지 않는다).
+        if ("roe_or_gpa" not in df.columns or df["roe_or_gpa"].is_null().all()) \
+                and not self._is_etf(symbol):
             df = self._enrich_fundamentals(symbol, df)
 
         self._cache[symbol] = df
         return df
+
+    @staticmethod
+    def _is_etf(symbol: str) -> bool:
+        from .universe_pit import is_etf_symbol
+        return is_etf_symbol(symbol)
 
     def _enrich_fundamentals(self, symbol: str, df: pl.DataFrame) -> pl.DataFrame:
         """ROE/EPS/BPS 미보유 종목을 캐시 → API 순으로 enrichment."""

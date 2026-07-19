@@ -112,6 +112,36 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
     cleanup();
   });
 
+  it("모바일에서는 결과 툴바를 쌓고 lg에서 기존 가로 배치를 복원한다", async () => {
+    await renderDashboard("PREMIUM", {
+      promptText: "KOSPI 저PBR 전략을 과거 데이터로 검증",
+    });
+    const user = userEvent.setup();
+
+    expect(screen.getByTestId("backtest-result-toolbar")).toHaveClass(
+      "flex-col",
+      "items-stretch",
+      "lg:flex-row",
+      "lg:items-center",
+      "lg:justify-between"
+    );
+    expect(screen.getByTestId("backtest-result-actions")).toHaveClass(
+      "w-full",
+      "flex-wrap",
+      "lg:w-auto",
+      "lg:flex-nowrap"
+    );
+
+    await user.click(screen.getByRole("button", { name: "프롬프트" }));
+    expect(screen.getByTestId("backtest-prompt-popover")).toHaveClass(
+      "left-4",
+      "right-4",
+      "lg:left-auto",
+      "lg:right-0",
+      "lg:w-96"
+    );
+  });
+
   it("FREE 플랜에서는 전략 최적화 진입 시 프리미엄 잠금 안내와 플랜 변경 버튼을 표시한다", async () => {
     await renderDashboard("FREE");
     const user = userEvent.setup();
@@ -124,6 +154,14 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
 
     // 게이트 화면에서는 워크포워드/몬테카를로 모델 선택이 노출되지 않는다.
     expect(screen.getByText("전략 최적화는 프리미엄 플랜 전용 기능입니다")).toBeInTheDocument();
+    expect(screen.getByTestId("backtest-optimization-page")).toHaveClass(
+      "px-4",
+      "py-8",
+      "lg:px-6",
+      "lg:py-10"
+    );
+    expect(screen.getByText(/프리미엄 플랜을 이용하시면/)).toHaveClass("lg:whitespace-nowrap");
+    expect(screen.getByText(/프리미엄 플랜을 이용하시면/)).not.toHaveClass("whitespace-nowrap");
     expect(screen.queryByRole("button", { name: "몬테카를로" })).not.toBeInTheDocument();
     expect(screen.queryByText("몬테카를로 시뮬레이션")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "플랜 변경" })).toHaveAttribute("href", "/pricing");
@@ -146,6 +184,17 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
 
     await user.click(screen.getByRole("button", { name: "전략 최적화" }));
     expect(await screen.findByTestId("backtest-optimization-page")).toBeInTheDocument();
+    expect(screen.getByTestId("backtest-optimization-page")).toHaveClass(
+      "flex-col",
+      "px-3",
+      "sm:px-4",
+      "lg:flex-row",
+      "lg:px-6"
+    );
+    expect(screen.getByRole("button", { name: "워크포워드" }).closest("aside")).toHaveClass(
+      "w-full",
+      "lg:w-64"
+    );
 
     // 기본 선택은 워크포워드
     expect(screen.getByRole("button", { name: "워크포워드" })).toHaveClass("border-sky-400/40");
@@ -177,6 +226,12 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
 
     await waitFor(() => {
       expect(screen.getByText("양수 CAGR 확률")).toBeInTheDocument();
+      expect(screen.getByTestId("monte-carlo-result-header")).toHaveClass(
+        "flex-col",
+        "items-stretch",
+        "sm:flex-row",
+        "sm:items-center"
+      );
       expect(screen.getByText("x축: CAGR 구간")).toBeInTheDocument();
       expect(screen.getByText("x축: MDD 구간")).toBeInTheDocument();
       expect(screen.getAllByText("y축: 시나리오 수")).toHaveLength(2);

@@ -115,6 +115,11 @@ def _load_universe(markets: List[str]) -> List[str]:
     """universe 설정에 맞는 종목 코드 목록 반환"""
     symbols: set[str] = set()
 
+    # ETF 유니버스는 주식 시장과 혼합하지 않는다 — ETF 마스터만 조회한다.
+    if "ETF" in markets:
+        from engine.universe_pit import _load_etf_master
+        return sorted(e["symbol"] for e in _load_etf_master() if e.get("hasOhlcv"))
+
     if "KOSPI200" in markets:
         symbols.update(_load_kospi200())
 
@@ -175,6 +180,8 @@ def to_canonical_strategy_dsl(strategy: ParsedStrategy) -> dict:
         # 단일 섹터는 정규형이 str이라 기존 해시와 동일하고, 복수(list)만 정렬해
         # 순서 무관 동일 해시를 보장한다(FR-STR-066 ⑦).
         "sector": sorted(strategy.sector) if isinstance(strategy.sector, list) else strategy.sector,
+        # ETF 테마 필터 — None이면 _drop_none이 제거하므로 기존 전략 해시는 변하지 않는다.
+        "etf_theme": strategy.etf_theme,
         "fundamental_filters": sorted(
             [
                 {
@@ -398,6 +405,8 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         "universe_id": universe_id,
         # 섹터 제한 — 엔진이 PIT 유니버스 해석 후 심볼을 이 섹터로 필터링한다.
         "sector": strategy.sector,
+        # ETF 테마/상품명 필터 — universe_id="etf"일 때 엔진이 이름 키워드로 좁힌다.
+        "etf_theme": strategy.etf_theme,
         "entry": {"conditions": entry_conditions},
         "exit": {"conditions": exit_conditions},
         "risk": risk,
