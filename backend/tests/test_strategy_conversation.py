@@ -299,6 +299,23 @@ def test_missing_threshold_generates_question_not_default():
     assert validated.strategy.entry_conditions[0].value is None
 
 
+def test_missing_parameter_question_uses_friendly_label():
+    # 사고(2026-07-20): "신고가 돌파의 lookback_period 기간을..." — 내부 파라미터
+    # 이름이 되묻기 질문에 그대로 노출. 사용자 친화 라벨로 표시해야 한다.
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[{"factor": "technical.breakout", "operator": "crosses_above",
+                           "parameters": {}}],
+    ))
+    _, report = run_validation(intent)
+    assert report.status == "NEEDS_CLARIFICATION"
+    question = next(
+        q for q in report.clarification_questions
+        if q.field == "strategy.entry_conditions[0].parameters.lookback_period"
+    )
+    assert "lookback_period" not in question.question
+    assert "기준 기간" in question.question
+
+
 def test_conflicting_conditions_detected():
     intent = StrategyIntent.model_validate(_full_intent_dict(
         entry_conditions=[

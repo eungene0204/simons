@@ -20,6 +20,16 @@ MAX_QUESTIONS_PER_TURN = 3
 
 _COMPARISON_OPS = ("<", "<=", ">", ">=")
 
+# 되묻기 질문에 내부 파라미터 이름 대신 노출할 사용자 친화 라벨
+_PARAM_LABELS = {
+    "short_period": "단기 기간",
+    "long_period": "장기 기간",
+    "period": "기간",
+    "lookback_period": "기준 기간",
+    "lookback_days": "조회 기간",
+    "threshold": "기준값",
+}
+
 
 def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[ClarificationQuestion]]:
     """(missing_fields, clarification_questions)를 반환한다.
@@ -84,7 +94,7 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
                     missing.append(f"{field_base}.parameters.{pname}")
                     questions.append(ClarificationQuestion(
                         field=f"{field_base}.parameters.{pname}",
-                        question=f"{spec.display_name}의 {pname} 기간을 몇으로 할까요?",
+                        question=f"{spec.display_name}의 {_PARAM_LABELS.get(pname, pname.replace('_', ' '))}을(를) 몇으로 할까요?",
                         recommended_value=pspec.default,
                         recommendation_reason=(
                             f"일반적으로 {pspec.default:g}을(를) 사용합니다" if pspec.default is not None else None
