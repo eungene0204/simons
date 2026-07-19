@@ -195,6 +195,21 @@ def test_strategy_keyword_beats_stock_name():
 @pytest.mark.parametrize(
     "query",
     [
+        "삼성전자 단일 종목만 테스트 해보자",
+        "삼성전자 골든크로스 테스트를 해보자",
+    ],
+)
+def test_stock_name_with_test_cue_is_strategy(query):
+    # [회귀] FR-STR-068 — 종목명+'테스트'는 그 종목 백테스트 요청이다. 결정 규칙이 없어
+    # LLM 폴백이 STOCK_ANALYSIS로 오판, 매수·매도 판단 거절 안내로 새던 버그.
+    result = classify(query)
+    assert result.intent == QueryIntent.STRATEGY_ADVICE
+    assert result.deterministic is True
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
         "삼성전자 지금 손절해야 할까?",
         "삼성전자 익절 타이밍 어때?",
         "카카오 손절할까 계속 들고 갈까?",

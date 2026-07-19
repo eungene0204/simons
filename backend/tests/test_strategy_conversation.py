@@ -519,6 +519,44 @@ def test_primary_unsupported_features_noticed(monkeypatch):
     assert any("FCF Yield" in n for n in result["notices"])
 
 
+def test_primary_single_asset_target_extracted(monkeypatch):
+    """[회귀] FR-STR-068 — primary 경로도 지정 종목을 결정적으로 채운다.
+
+    StrategySpec에 지정 종목 개념이 없어 "삼성전자 골든크로스"가 유니버스 전략으로
+    조용히 넓어지고, 유니버스형 청산 되묻기(정기 리밸런싱 추천)까지 나가던 버그.
+    """
+    data = _full_intent_dict(
+        entry_conditions=[{"factor": "technical.ma_crossover", "source_text": "골든크로스",
+                           "parameters": {"short_period": 5, "long_period": 20}}],
+        exit_conditions=[],
+        ranking=[],
+        portfolio={"selection_count": 10},
+        risk_management={},
+    )
+    result = _run_primary_with(monkeypatch, data, "삼성전자 골든크로스 테스트를 해보자")
+    assert result is not None
+    assert result["parsed"].target_symbols == ["005930"]
+    # 청산 누락 질문은 억제된다 — 호출부 공유 보정(apply_single_asset_adjustments)이
+    # 반대 신호 청산 추천+notice로 처리하는 영역이다.
+    assert result["clarification_question"] is None
+
+
+def test_primary_universe_strategy_keeps_exit_question(monkeypatch):
+    """지정 종목이 없으면 청산 누락 되묻기는 그대로 유지된다."""
+    data = _full_intent_dict(
+        entry_conditions=[{"factor": "technical.ma_crossover", "source_text": "골든크로스",
+                           "parameters": {"short_period": 5, "long_period": 20}}],
+        exit_conditions=[],
+        ranking=[],
+        portfolio={"selection_count": 10},
+        risk_management={},
+    )
+    result = _run_primary_with(monkeypatch, data, "골든크로스 전략 테스트해줘")
+    assert result is not None
+    assert result["parsed"].target_symbols == []
+    assert "청산 규칙이 없습니다" in (result["clarification_question"] or "")
+
+
 def test_primary_non_strategy_intent_falls_back(monkeypatch):
     data = {"intent": "NON_STRATEGY_REQUEST", "confidence": 0.9}
     assert _run_primary_with(monkeypatch, data) is None

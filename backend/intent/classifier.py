@@ -61,6 +61,12 @@ _STRATEGY_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+# 종목명과 함께 쓰인 '테스트'는 그 종목을 백테스트하려는 요청이다(FR-STR-068 —
+# "삼성전자 단일 종목만 테스트 해보자"). 단독 '테스트'는 잡담일 수 있어 종목명이
+# 특정된 경우로 한정한다 — LLM 폴백이 STOCK_ANALYSIS로 오판해 매수·매도 판단
+# 거절 안내로 새는 것을 결정 규칙이 막는다.
+_TEST_CUE = re.compile(r"테스트", re.IGNORECASE)
+
 # 펀더멘털/지표 스크리닝은 이 플랫폼 전략의 핵심 카테고리다 — 특정 종목이 아니라
 # '조건에 맞는 종목 바스켓'을 고르는 전략 설계 신호다(phrasing 긴 꼬리가 아니라
 # 카테고리 단위 신호이므로 결정적으로 처리, feedback_nl_parser_hybrid 부합).
@@ -271,15 +277,17 @@ def _classify_deterministic(query: str, last_symbol: Optional[str]) -> Optional[
     # 1) 전략 키워드/스크리닝 조건/전략 수정 명령이 있으면 전략 설계로 본다(종목명이 섞여 있어도).
     #    "종목을 10개로 늘려줘"처럼 기존 전략을 다듬는 요청을 '종목 추천(STOCK_PICK)'으로
     #    오분류해 빌더로 새로 진입하는 일을 막는다.
+    has_stock_test = bool(refs and _TEST_CUE.search(text))
     if (
-        (has_strategy_kw or has_screening or has_modify)
+        (has_strategy_kw or has_screening or has_modify or has_stock_test)
         and not pure_definition
         and not stock_question_overrides_strategy
     ):
         reason = (
             "전략 설계 키워드 감지" if has_strategy_kw
             else "종목 스크리닝 조건 감지" if has_screening
-            else "전략 수정/조정 명령 감지"
+            else "전략 수정/조정 명령 감지" if has_modify
+            else "종목 지정 테스트 요청 감지"
         )
         return IntentResult(
             intent=QueryIntent.STRATEGY_ADVICE,

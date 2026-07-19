@@ -85,6 +85,22 @@ def _override_explicit_dates(parsed, user_input: str):
     return parsed.model_copy(update=updates) if updates else parsed
 
 
+def _override_target_symbols(parsed, user_input: str):
+    """지정 종목(FR-STR-068)을 결정적으로 채운다(레거시 _apply_prompt_overrides와 동형).
+
+    StrategySpec에는 지정 종목 개념이 없어 "삼성전자 골든크로스"가 유니버스 전략으로
+    조용히 넓어진다 — 종목명→코드 해석은 LLM에 맡기지 않고 결정적 추출이 보장한다.
+    '~가 속한 업종'류 문맥 가드는 _extract_target_symbols가 이미 적용하며,
+    언급이 없으면 기존 값을 유지한다.
+    """
+    from engine.nl_parser import _extract_target_symbols
+
+    refs = _extract_target_symbols(user_input)
+    if not refs:
+        return parsed
+    return parsed.model_copy(update={"target_symbols": [ref.symbol for ref in refs]})
+
+
 def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]]:
     """LLM Interpreter 기본 경로 실행. 성공 시 결과 dict, 폴백 필요 시 None.
 
@@ -138,6 +154,15 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
         logger.warning("interpreter primary compile failed, falling back | err=%s", exc)
         return None
     parsed = _override_explicit_dates(parsed, user_input)
+    parsed = _override_target_symbols(parsed, user_input)
+    if parsed.target_symbols:
+        # 지정 종목 전략의 청산 누락은 호출부 공유 보정(apply_single_asset_adjustments)이
+        # 반대 신호 청산 추천/기간 종료 보유 안내(비차단 notices)로 처리한다(FR-STR-068) —
+        # 정기 리밸런싱을 추천하는 유니버스형 되묻기 질문은 지정 종목에 맞지 않아 제거한다.
+        report.clarification_questions = [
+            q for q in report.clarification_questions
+            if q.field != "strategy.exit_conditions"
+        ]
 
     clarification_question, clarification_suggestions = _build_clarification(report, validated)
     if report.unsupported_features:
