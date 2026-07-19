@@ -269,11 +269,17 @@ describe("TopNavigation quick search", () => {
     renderWithQueryClient(<TopNavigation />);
 
     await screen.findByRole("button", { name: "Google 로그인" });
-    fireEvent.click(screen.getByRole("button", { name: "메뉴 열기" }));
+    const menuButton = screen.getByRole("button", { name: "메뉴 열기" });
+    expect(menuButton).toHaveClass("touch-manipulation");
+
+    fireEvent.pointerUp(menuButton, { pointerType: "touch" });
 
     const drawer = screen.getByRole("dialog", { name: "모바일 메뉴" });
     expect(drawer).toBeInTheDocument();
     expect(document.body.style.overflow).toBe("hidden");
+    expect(
+      screen.getByRole("button", { name: "모바일 메뉴 닫기" })
+    ).not.toHaveClass("backdrop-blur-sm");
 
     fireEvent.click(within(drawer).getByRole("link", { name: /전략연구소/i }));
 

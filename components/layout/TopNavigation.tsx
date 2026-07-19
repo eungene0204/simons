@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, memo, useState, useEffect, useRef } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/firebase";
@@ -23,13 +24,18 @@ import {
   X,
   Receipt,
 } from "phosphor-react";
-import QuickSearchModal from "./QuickSearchModal";
-import SettingsModal from "./SettingsModal";
 import {
   formatBacktestResetIn,
   formatUsageValue,
   getUsagePercent,
 } from "./planUsageFormat";
+
+const QuickSearchModal = dynamic(() => import("./QuickSearchModal"), {
+  ssr: false,
+});
+const SettingsModal = dynamic(() => import("./SettingsModal"), {
+  ssr: false,
+});
 
 const menuItems = [
   {
@@ -514,8 +520,9 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
           </button>
           <button
             type="button"
+            onPointerUp={() => setIsMobileMenuOpen(true)}
             onClick={() => setIsMobileMenuOpen(true)}
-            className="rounded-xl p-2.5 text-gray-400 transition-colors hover:bg-white/[0.06] hover:text-white"
+            className="touch-manipulation rounded-xl p-2.5 text-gray-400 transition-colors hover:bg-white/[0.06] hover:text-white"
             aria-label="메뉴 열기"
             aria-expanded={isMobileMenuOpen}
             aria-controls="mobile-navigation-drawer"
@@ -679,7 +686,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
         <div className="fixed inset-0 z-[70] lg:hidden" data-testid="mobile-navigation-drawer">
           <button
             type="button"
-            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            className="absolute inset-0 bg-black/70"
             onClick={() => setIsMobileMenuOpen(false)}
             aria-label="모바일 메뉴 닫기"
           />
@@ -992,10 +999,12 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
         />
       )}
 
-      <QuickSearchModal
-        isOpen={isSearchModalOpen}
-        onClose={() => setIsSearchModalOpen(false)}
-      />
+      {isSearchModalOpen && (
+        <QuickSearchModal
+          isOpen
+          onClose={() => setIsSearchModalOpen(false)}
+        />
+      )}
 
       {isLoginModalOpen && (
         <div
