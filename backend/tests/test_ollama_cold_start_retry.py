@@ -8,6 +8,8 @@ Modal scale-to-zero 컨테이너를 깨우는 첫 코치 요청의 두 가지 �
 수정: _ollama_open_with_retry
   - HTTP 4xx/5xx·URLError → 재시도
   - TimeoutError/OSError → 재시도 않고 즉시 raise (hang 상황 전용 단일 대기)
+  - 로컬 엔드포인트의 연결 실패 → 즉시 raise (콜드스타트 없음 — 서버 다운이므로
+    재시도 대신 503 친화 메시지로 빠르게 안내)
 """
 
 import os
@@ -63,7 +65,7 @@ def test_warmup_returns_when_tags_ok(monkeypatch):
 
 
 def test_warmup_retries_until_container_up(monkeypatch):
-    """콜드 컨테이너가 깰 때까지(URLError) GET을 재시도하고, 200을 받으면 반환한다."""
+    """[원격] 콜드 컨테이너가 깰 때까지(URLError) GET을 재시도하고, 200을 받으면 반환한다."""
     calls = {"n": 0}
 
     def fake_urlopen(req, timeout):  # noqa: ARG001
@@ -74,9 +76,49 @@ def test_warmup_retries_until_container_up(monkeypatch):
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
     monkeypatch.setattr(nl_parser.time, "sleep", lambda s: None)
+    monkeypatch.setattr(nl_parser, "is_local_ollama", lambda: False)
 
     _ollama_ensure_warm(budget_s=30)
     assert calls["n"] == 3
+
+
+def test_warmup_local_connection_refused_fails_fast(monkeypatch):
+    """[로컬] 연결 거부는 콜드스타트가 아니라 서버 다운 — 재시도 없이 즉시 raise.
+
+    회귀(2026-07-16): 로컬 Ollama가 꺼진 채 파싱 요청 → warmup이 200s 동안 재시도
+    → 프록시 120s 타임아웃으로 사용자에게 timeout 오류. 503 친화 메시지로 빠르게
+    안내되도록 즉시 raise해야 한다.
+    """
+    calls = {"n": 0}
+
+    def fake_urlopen(req, timeout):  # noqa: ARG001
+        calls["n"] += 1
+        raise urllib.error.URLError(ConnectionRefusedError(61, "Connection refused"))
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr(nl_parser.time, "sleep", lambda s: None)
+    monkeypatch.setattr(nl_parser, "is_local_ollama", lambda: True)
+
+    with pytest.raises(urllib.error.URLError):
+        _ollama_ensure_warm(budget_s=30)
+    assert calls["n"] == 1
+
+
+def test_retry_local_connection_refused_fails_fast(monkeypatch):
+    """[로컬] POST 재시도 루프도 연결 거부를 즉시 raise한다(320s 재시도 예산 미적용)."""
+    calls = {"n": 0}
+
+    def fake_urlopen(req, timeout):  # noqa: ARG001
+        calls["n"] += 1
+        raise urllib.error.URLError(ConnectionRefusedError(61, "Connection refused"))
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr(nl_parser.time, "sleep", lambda s: None)
+    monkeypatch.setattr(nl_parser, "is_local_ollama", lambda: True)
+
+    with pytest.raises(urllib.error.URLError):
+        _ollama_open_with_retry(object(), timeout=120)
+    assert calls["n"] == 1
 
 
 def test_retry_recovers_from_cold_start_503(monkeypatch):

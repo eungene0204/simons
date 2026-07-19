@@ -641,7 +641,10 @@ export function decideConversationTurn(
     };
   }
 
-  if ((intent === "GENERAL_INVESTMENT" || intent === "UNKNOWN") && !context.hasCurrentStrategy) {
+  // GENERAL_INVESTMENT(용어 정의·일반 지식 질문, 예: "PBR이 뭐야?")는 전략이 있어도
+  // 지식 답변 경로로 보낸다 — 수정 파싱으로 흘리면 바꿀 필드가 없어 무변경 전략 요약만
+  // 다시 렌더링되고 질문은 답변되지 않는다. history는 answer_general 핸들러가 실어 보낸다.
+  if (intent === "GENERAL_INVESTMENT" || (intent === "UNKNOWN" && !context.hasCurrentStrategy)) {
     return {
       action: "answer_general",
       speechAct: "ask",

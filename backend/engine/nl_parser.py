@@ -17,7 +17,7 @@ from datetime import date
 from typing import List, Literal, Optional, Union
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
-from llm_backend import OLLAMA_BASE_URL, ollama_auth_headers
+from llm_backend import OLLAMA_BASE_URL, is_local_ollama, ollama_auth_headers
 from engine.universe_pit import (
     CANONICAL_SECTORS,
     normalize_sector,
@@ -49,7 +49,8 @@ logger = logging.getLogger(__name__)
 #
 # 재시도 전략(_ollama_open_with_retry):
 #   - TimeoutError / OSError → 재시도 않고 즉시 raise (hang은 단일 long timeout으로 대기)
-#   - URLError(연결거부 등) → 재시도
+#   - URLError(연결거부 등) → 재시도. 단 로컬 엔드포인트는 콜드스타트가 없으므로
+#     연결 실패 시 즉시 raise(_is_local_connection_error) — 503 친화 메시지로 빠른 안내
 #   - HTTP 4xx/5xx(400/408 body-drop 포함, 영구 400 제외) → 재시도
 #   ※ 프론트 코치 타임아웃(app/api/strategy/coach/route.ts)을 warmup+POST 예산 합보다 크게 유지
 _OLLAMA_COLD_START_STATUSES = {400, 408, 425, 429, 500, 502, 503, 504}
@@ -77,6 +78,23 @@ def _http_400_is_permanent(err) -> bool:
     return any(sig in body for sig in _OLLAMA_PERMANENT_400_SIGNATURES)
 
 
+def _is_local_connection_error(err: Exception) -> bool:
+    """로컬 Ollama 엔드포인트의 연결 실패인지 판정한다(콜드스타트 재시도 제외 대상).
+
+    재시도 루프는 Modal scale-to-zero 콜드스타트용이다. 로컬은 콜드스타트가 없어
+    연결 거부 = 서버가 안 떠 있다는 뜻이고, 재시도해도 풀리지 않은 채 사용자만
+    수 분 대기시킨다(프록시 120s 타임아웃 사고) — 즉시 raise해서 연결 실패 503
+    친화 메시지로 빠르게 안내한다. HTTPError는 서버가 응답한 것이라 제외한다.
+    """
+    import urllib.error
+
+    if not is_local_ollama():
+        return False
+    if isinstance(err, urllib.error.HTTPError):
+        return False
+    return isinstance(err, (urllib.error.URLError, ConnectionError, OSError))
+
+
 def _ollama_ensure_warm(budget_s: float = _OLLAMA_WARMUP_BUDGET_S) -> None:
     """본문 없는 GET /api/tags로 Modal 콜드 컨테이너를 먼저 깨운다.
 
@@ -100,6 +118,8 @@ def _ollama_ensure_warm(budget_s: float = _OLLAMA_WARMUP_BUDGET_S) -> None:
                 resp.read()
                 return  # 컨테이너가 깨어남 → 이후 POST는 body가 보존된다
         except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError) as e:
+            if _is_local_connection_error(e):
+                raise
             last_err = e
         remaining = deadline - time.monotonic()
         if remaining <= 0:
@@ -140,6 +160,8 @@ def _ollama_open_with_retry(req, timeout: int):
             if transient and e.code == 400 and _http_400_is_permanent(e):
                 transient = False
         except urllib.error.URLError as e:
+            if _is_local_connection_error(e):
+                raise
             last_err = e
             transient = True
         except (TimeoutError, OSError) as e:
@@ -1448,7 +1470,8 @@ def _extract_explicit_universe(user_input: str) -> Optional[List[str]]:
 # 이전 대화의 섹터가 그대로 유지되는 사고가 있었다(바이오 요청에 반도체 유지).
 # '관련/테마'는 맨 형태로 본다('관련주'만 보면 "반도체 관련 전략"·"2차전지 테마" 어순을 놓침 —
 # "로봇주 관련 전략"이 안 잡혀 전체 시장으로 백테스트되던 사고의 동일 계열).
-_SECTOR_CUE = r"(?:관련|테마|업종|섹터|분야|종목|주식|중심|위주|주(?!가))"
+# '섹션'은 '섹터'의 통용 오칭("반도체 섹션 종목만") — 누락 시 LLM 폴백으로 새던 사고.
+_SECTOR_CUE = r"(?:관련|테마|업종|섹터|섹션|분야|종목|주식|중심|위주|주(?!가))"
 
 
 def _sector_terms_longest_first() -> list[str]:
@@ -1481,7 +1504,7 @@ _SECTOR_REMOVE_RE = re.compile(
 #   개별 삭제("반도체 업종은 빼줘")=그 항목만 제거 / 전체 해제("업종 제한 빼줘")=None.
 # '도' 단독 조사는 짧은 용어(ai 등)의 오발동("ai도입")이 있어, 업종 명사 동반 또는
 # 추가 동사 인접일 때만 추가 의도로 본다.
-_SECTOR_NOUN = r"(?:섹터|업종|테마|분야|관련주?|종목|주식)"
+_SECTOR_NOUN = r"(?:섹터|섹션|업종|테마|분야|관련주?|종목|주식)"
 _SECTOR_TERMS_ALT = "|".join(re.escape(t) for t in _sector_terms_longest_first())
 _SECTOR_ADDITIVE_RE = re.compile(
     rf"(?P<term>{_SECTOR_TERMS_ALT})"
@@ -2567,34 +2590,66 @@ def _rebalancing_period_state(user_input: str) -> str:
 
 
 _YEAR = r"((?:19|20)\d{2})"
+# 연도(+선택적 월·일). '2020년 1월'·'2020년 1월 15일'처럼 월/일이 붙은 명시 시점도
+# 연도와 같은 유한 시간 단위이므로 결정적으로 처리한다(compact 입력 기준, 그룹 3개).
+_YMD = rf"{_YEAR}년?(?:(\d{{1,2}})월)?(?:(\d{{1,2}})일)?"
+
+
+def _ymd_to_iso(y: str, m: Optional[str], d: Optional[str], *, is_end: bool) -> Optional[str]:
+    """(연, 월?, 일?) 캡처를 ISO 날짜로. 월/일 생략 시 시작=연초·1일, 종료=연말·말일.
+
+    달력상 불가능한 월·일(13월, 2월 30일)은 추측하지 않고 None을 반환한다(Fail Fast —
+    호출부가 미인식으로 처리해 LLM/되묻기에 위임).
+    """
+    year = int(y)
+    month = int(m) if m else (12 if is_end else 1)
+    if not 1 <= month <= 12:
+        return None
+    last_day = calendar.monthrange(year, month)[1]
+    day = int(d) if d else (last_day if is_end else 1)
+    if not 1 <= day <= last_day:
+        return None
+    return date(year, month, day).isoformat()
 
 
 def _extract_backtest_dates(user_input: str) -> tuple[Optional[str], Optional[str]]:
-    """'2002년부터 2005년까지' 같은 명시적 연도 범위를 (시작일, 종료일) ISO로 추출한다.
+    """'2002년부터 2005년까지'·'2020년 1월부터 2025년 12월까지' 같은 명시적 날짜 범위를
+    (시작일, 종료일) ISO로 추출한다.
 
-    상대 기간(1y/3y/5y)과 달리 명시적 연·범위는 결정적으로 처리한다(LLM 비의존).
+    상대 기간(1y/3y/5y)과 달리 명시적 연·월·일 범위는 결정적으로 처리한다(LLM 비의존).
     없으면 (None, None). 시작만/종료만 언급되면 한쪽만 채운다.
     """
     compact = re.sub(r"\s+", "", user_input)
 
-    # YYYY (부터|~|-|에서) YYYY (까지)?  — 양끝 모두 명시
-    span = re.search(rf"{_YEAR}년?(?:부터|에서|~|-|–|—){_YEAR}년?(?:까지)?", compact)
+    # YMD (부터|~|-|에서) YMD (까지)?  — 양끝 모두 명시
+    span = re.search(rf"{_YMD}(?:부터|에서|~|-|–|—){_YMD}(?:까지)?", compact)
     if span:
-        y1, y2 = int(span.group(1)), int(span.group(2))
-        if y1 > y2:
-            y1, y2 = y2, y1
-        return f"{y1}-01-01", f"{y2}-12-31"
+        start = _ymd_to_iso(span.group(1), span.group(2), span.group(3), is_end=False)
+        end = _ymd_to_iso(span.group(4), span.group(5), span.group(6), is_end=True)
+        if start is not None and end is not None:
+            if start > end:  # '2005년부터 2002년까지' — 이른 쪽을 시작으로
+                start = _ymd_to_iso(span.group(4), span.group(5), span.group(6), is_end=False)
+                end = _ymd_to_iso(span.group(1), span.group(2), span.group(3), is_end=True)
+            return start, end
 
-    # 'YYYY년만' — 단일 연도
-    only = re.search(rf"{_YEAR}년?만", compact)
+    # 'YYYY년만'·'YYYY년 M월만' — 단일 연도/월
+    only = re.search(rf"{_YMD}만", compact)
     if only:
-        y = int(only.group(1))
-        return f"{y}-01-01", f"{y}-12-31"
+        start = _ymd_to_iso(only.group(1), only.group(2), only.group(3), is_end=False)
+        end = _ymd_to_iso(only.group(1), only.group(2), only.group(3), is_end=True)
+        if start is not None and end is not None:
+            return start, end
 
-    start_match = re.search(rf"{_YEAR}년?부터", compact)
-    end_match = re.search(rf"{_YEAR}년?까지", compact)
-    start = f"{int(start_match.group(1))}-01-01" if start_match else None
-    end = f"{int(end_match.group(1))}-12-31" if end_match else None
+    start_match = re.search(rf"{_YMD}부터", compact)
+    end_match = re.search(rf"{_YMD}까지", compact)
+    start = (
+        _ymd_to_iso(start_match.group(1), start_match.group(2), start_match.group(3), is_end=False)
+        if start_match else None
+    )
+    end = (
+        _ymd_to_iso(end_match.group(1), end_match.group(2), end_match.group(3), is_end=True)
+        if end_match else None
+    )
     if start is not None or end is not None:
         return start, end
 
@@ -3070,7 +3125,7 @@ _MODIFY_FIELD_CUES: dict[str, list[str]] = {
     # 섹터/업종: 정본 섹터명+동의어(compact 형태, universe_pit 정본에서 동적 생성)와
     # 업종 지시 cue(_SECTOR_CUE와 동일 집합). sector가 changes에 있을 때만 차감된다.
     "sector": _sector_terms_longest_first()
-    + ["관련", "테마", "업종", "섹터", "분야", "종목", "주식", "중심", "위주", "주"],
+    + ["관련", "테마", "업종", "섹터", "섹션", "분야", "종목", "주식", "중심", "위주", "주"],
     "backtest_period": ["백테스트", "기간", "최근", "테스트", "전체기간", "동안"],
     "backtest_start_date": ["백테스트", "테스트", "기간", "최근", "부터", "년", "월", "일"],
     "backtest_end_date": ["까지", "년", "월", "일"],

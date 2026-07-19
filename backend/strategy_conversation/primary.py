@@ -67,6 +67,24 @@ def _build_clarification(
     return "\n".join(lines), (chips or None)
 
 
+def _override_explicit_dates(parsed, user_input: str):
+    """명시적 백테스트 날짜 범위를 결정적으로 덮어쓴다(레거시 _apply_prompt_overrides와 동형).
+
+    "2020년 1월부터 2025년 12월까지"처럼 사용자가 못박은 날짜는 LLM이 놓치거나 오판해도
+    (오늘 날짜를 모르는 모델이 과거 연도를 미래로 오판해 종료일을 누락하는 사고 등) 보장돼야
+    한다. 언급이 없으면 기존 값을 유지한다.
+    """
+    from engine.nl_parser import _extract_backtest_dates
+
+    start, end = _extract_backtest_dates(user_input)
+    updates: Dict[str, Any] = {}
+    if start is not None:
+        updates["backtest_start_date"] = start
+    if end is not None:
+        updates["backtest_end_date"] = end
+    return parsed.model_copy(update=updates) if updates else parsed
+
+
 def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]]:
     """LLM Interpreter 기본 경로 실행. 성공 시 결과 dict, 폴백 필요 시 None.
 
@@ -119,6 +137,7 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
     except StrategyCompileError as exc:
         logger.warning("interpreter primary compile failed, falling back | err=%s", exc)
         return None
+    parsed = _override_explicit_dates(parsed, user_input)
 
     clarification_question, clarification_suggestions = _build_clarification(report, validated)
     if report.unsupported_features:
@@ -161,6 +180,13 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
        다르면 StrategySpec이 표현 못 하는 전략(rsi rebound/macd zero 모드 등)이므로 이관을
        거부하고 기존 modify 경로로 폴백한다(목록형 필드 소실 사고 방지의 구조적 보장).
     ② patches 필수 — LLM이 전체 전략을 재출력하면(필드 소실 위험) 수락하지 않는다.
+       예외: CLARIFY_STRATEGY(패치 없음)+질문이 있고 결정적 fast-path도 처리 못 하는
+       입력이면, 폴백해 질문을 버리는 대신 전략을 그대로 유지한 채 질문을 clarification
+       채널로 전달한다(무변경 요약만 재렌더링되던 2026-07-17 사고 방지).
+       예외 2: 패치 없이 EXPLAIN_INDICATOR거나 unsupported_features만 보고된 경우도
+       폴백하지 않고 전략을 유지한다(같은 사고의 2차 — 인터프리터가 질문 대신
+       unsupported_features=["PBR 개념 설명 요청"]으로 보고). 정의형 질문(결정적 cue)이면
+       /query/general과 같은 LLM 설명을 notices로 실제 답변하고, 아니면 미반영을 알린다.
     ③ 패치 적용 후 검증 READY일 때만 컴파일. 아니면 폴백(임계값 없는 조건 추가 등은
        상류 clarification_for_add가 이미 가로챈다).
     description·execution_timing·entry_filters는 StrategySpec 밖이므로 원본에서 이월.
@@ -182,6 +208,17 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
     try:
         prev = ParsedStrategy.model_validate(previous_parsed)
     except Exception:  # noqa: BLE001 — 비정상 previous는 기존 경로가 처리
+        return None
+
+    # 결정적 fast-path가 완전히 해석하는 수정("손절 10%로", 명시적 백테스트 기간 등)은
+    # 인터프리터를 건너뛴다 — 폴백 경로(parse_modification)의 첫 단계가 같은 fast-path라
+    # 즉시 확정된다. LLM 왕복 지연과 수치·날짜 드리프트(오늘 날짜를 모르는 모델이
+    # 과거 연도를 미래로 오판해 종료일을 누락하는 사고 등)를 원천 회피한다
+    # (핵심은 결정적, 긴 꼬리는 LLM).
+    from engine.nl_parser import _modify_rule_based
+    if _modify_rule_based(user_input, previous_parsed) is not None:
+        _log_llm("↩ 폴백", "결정적 fast-path 처리 가능 — 인터프리터 생략")
+        logger.info("modify primary skipped, deterministic fast-path handles input")
         return None
 
     def _carry_over(parsed):
@@ -219,6 +256,77 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
         return None
 
     intent = result.intent
+    if intent.intent == "CLARIFY_STRATEGY" and not intent.patches and intent.clarification_questions:
+        # 되묻기 의도를 폴백으로 버리면 기존 수정 LLM이 무변경 전략을 정상 응답처럼
+        # 반환해 질문이 사라진다(2026-07-17 "pbr이 뭐야?" 사고). 결정적 fast-path가
+        # 처리할 수 있는 입력은 상단 게이트가 이미 폴백시켰으므로, 여기 도달한 되묻기는
+        # 단순 수정을 가로막을 수 없다 — 전략을 유지한 채 질문을 채널로 전달한다.
+        question, chips = _build_clarification(
+            ValidationReport(clarification_questions=intent.clarification_questions),
+            intent,
+        )
+        _log_llm("✓ 되묻기", (
+            f"질문={len(intent.clarification_questions)} — 전략 유지, clarification 채널로"
+        ))
+        return {
+            "parsed": prev,
+            "clarification_question": question,
+            "clarification_suggestions": chips,
+            "notices": [],
+            "interpreter": {
+                "mode": "primary_modify_clarify",
+                "model_name": result.model_name,
+                "prompt_version": result.prompt_version,
+                "repair_attempts": result.repair_attempts,
+                "llm_latency_ms": result.latency_ms,
+                "patch_count": 0,
+                "confidence": intent.confidence,
+            },
+        }
+    if not intent.patches and (
+        intent.intent == "EXPLAIN_INDICATOR" or intent.unsupported_features
+    ):
+        # 개념 설명 질문·미지원 개념 요청을 폴백으로 버리면 기존 수정 LLM이 무변경 전략을
+        # 정상 응답처럼 반환해 요청이 조용히 사라진다(2026-07-17 "pbr이 뭐야?" 사고 2차 —
+        # 인터프리터가 질문을 내지 않고 unsupported_features로만 보고한 케이스). 전략은
+        # 그대로 유지하되, 정의형 질문이면 /query/general과 같은 LLM 답변을 생성해 notices로
+        # 실제 설명을 전달한다("변경하지 않았어요" 안내만 주던 2026-07-19 교정). 질문 판정은
+        # 4B 라벨이 아니라 결정적 cue(is_definition_question)가 기준 — 같은 발화를 4B가
+        # EXPLAIN_INDICATOR로도 unsupported_features로도 내는 실측 대응.
+        from api.intent_routes import generate_general_answer
+        from intent.classifier import is_definition_question
+
+        is_question = (
+            intent.intent == "EXPLAIN_INDICATOR" or is_definition_question(user_input)
+        )
+        answer = generate_general_answer(user_input) if is_question else None
+        if answer:
+            notices = [answer]
+        elif is_question:
+            notices = ["용어·지표 설명 질문으로 이해했지만 지금은 설명을 준비하지 못했어요. "
+                       "전략은 변경하지 않았어요."]
+        else:
+            features = ", ".join(dict.fromkeys(intent.unsupported_features))
+            notices = [f"'{features}'은(는) 전략 조건으로 반영할 수 없어 전략을 변경하지 않았어요."]
+        _log_llm("✓ 설명/미반영", (
+            f"intent={intent.intent} 질문={is_question} 답변={'있음' if answer else '없음'} "
+            f"미지원={intent.unsupported_features or '[]'} — 전략 유지, notices 채널로"
+        ))
+        return {
+            "parsed": prev,
+            "clarification_question": None,
+            "clarification_suggestions": None,
+            "notices": notices,
+            "interpreter": {
+                "mode": "primary_modify_explain" if is_question else "primary_modify_unsupported",
+                "model_name": result.model_name,
+                "prompt_version": result.prompt_version,
+                "repair_attempts": result.repair_attempts,
+                "llm_latency_ms": result.latency_ms,
+                "patch_count": 0,
+                "confidence": intent.confidence,
+            },
+        }
     if intent.intent not in ("MODIFY_STRATEGY", "CLARIFY_STRATEGY") or not intent.patches:
         _log_llm("↩ 폴백", f"patches 미출력(intent={intent.intent}) — 기존 수정 경로로")
         logger.info("modify primary without patches (intent=%s), falling back", intent.intent)
@@ -248,6 +356,7 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
     except StrategyCompileError as exc:
         logger.warning("modify primary compile failed, falling back | err=%s", exc)
         return None
+    parsed = _override_explicit_dates(parsed, user_input)
 
     return {
         "parsed": parsed,
@@ -285,6 +394,11 @@ def apply_primary_meta(result: dict, primary: Dict[str, Any]) -> None:
     if primary["clarification_question"]:
         result["clarification_question"] = primary["clarification_question"]
         result["clarification_suggestions"] = primary["clarification_suggestions"]
+    elif primary["interpreter"]["mode"] in ("primary_modify_explain", "primary_modify_unsupported"):
+        # 전략 무변경 + 설명/미반영 안내 응답 — 프롬프트의 지표 언급("pbr이 뭐야?")에 반응한
+        # 기존 되묻기("PBR은 몇 이하로 할까요?")는 설명·안내와 모순되므로 억제한다.
+        result["clarification_question"] = None
+        result["clarification_suggestions"] = None
     if primary["notices"]:
         result["notices"] = list(result.get("notices") or []) + primary["notices"]
     result["runtime"]["interpreter"] = primary["interpreter"]

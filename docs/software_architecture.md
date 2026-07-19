@@ -564,6 +564,24 @@ Strategy Compiler (compiler/strategy_compiler.py) — 검증 READY만 컴파일(
   모든 거부는 기존 하이브리드 수정 경로 폴백. clarification_for_add 가드·coach 맥락 리스크
   귀속은 기존 위치 유지. LLM 연산자 토큰 드리프트('"operator":">="'→'"operator">="')는
   output_repair의 멱등 구문 복구가 처리.
+  예외(2026-07-17): CLARIFY_STRATEGY(패치 없음)+clarification_questions가 있으면, 폴백해
+  질문을 버리는 대신 전략을 그대로 유지한 채 질문을 clarification 채널로 전달한다
+  (mode=primary_modify_clarify) — 폴백된 기존 수정 LLM이 무변경 전략을 정상 응답처럼
+  반환해 질문이 사라지던 사고 방지(FR-SA-002c-4의 백엔드 2차 방어선).
+  패치 없이 EXPLAIN_INDICATOR거나 unsupported_features만 보고된 경우도 침묵 폴백하지
+  않는다 — 정의형 질문(결정적 cue is_definition_question)이면 /query/general과 동일
+  생성기(generate_general_answer)로 실제 설명을 notices로 답하고(primary_modify_explain,
+  2026-07-19), 아니면 미반영 안내(primary_modify_unsupported). 같은 사고의 2차 —
+  인터프리터가 질문 대신 unsupported_features=["PBR 개념 설명 요청"]로 보고한 실측 대응.
+  프롬프트 1.2는 개념 설명 질문을 EXPLAIN_INDICATOR로 계약(unsupported_features 금지).
+  **결정적 fast-path 우선 게이트(2026-07-17)**: `_modify_rule_based`가 완전히 해석하는
+  수정("손절 10%로", 명시적 백테스트 날짜 등)은 인터프리터를 아예 호출하지 않고 폴백한다
+  (폴백 경로 첫 단계가 같은 fast-path라 즉시 확정) — LLM 왕복 지연과 수치·날짜 드리프트
+  원천 회피. 또한 primary 경로(초기 파스·수정 모두)는 컴파일 후
+  `_override_explicit_dates`가 명시적 백테스트 날짜를 결정적으로 덮어쓴다(레거시
+  `_apply_prompt_overrides`와 동형) — 오늘 날짜를 모르는 모델이 과거 연도를 미래로 오판해
+  종료일을 누락하던 사고("2020년 1월~2025년 12월" → "2020~"만 표시) 방지. 인터프리터
+  프롬프트도 오늘 날짜를 매 요청 주입하고 날짜 규칙을 계약한다(PROMPT_VERSION 1.1).
 - **평가**: evaluation/(parse_cases.json 34케이스 — 동일의미 이표현·모호·누락·부정·수정·
   미지원·충돌·비정형) + `python -m strategy_conversation.evaluation.evaluator [--legacy]`.
   핵심 지표: false assumption rate, missing detection recall, 미지원 오판율.

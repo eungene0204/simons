@@ -8,13 +8,14 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 
 from strategy_conversation.registry.capability_registry import (
     SUPPORTED_REBALANCE_FREQUENCIES,
 )
 from strategy_conversation.registry.indicator_registry import supported_factor_lines
 
-PROMPT_VERSION = "1.0"
+PROMPT_VERSION = "1.2"
 
 _OUTPUT_SHAPE = {
     "intent": "CREATE_STRATEGY",
@@ -103,8 +104,16 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
 10. MODIFY_STRATEGY는 '현재 전략 초안'이 주어진 경우에만 선택하고, patches에 JSON Patch를
     출력하세요(예: {{"op":"replace","path":"/portfolio/rebalance_frequency","value":"monthly"}}).
     언급되지 않은 필드는 패치하지 마세요. 초안이 없으면 CREATE_STRATEGY입니다.
+    초안이 있어도 "PBR이 뭐야?", "RSI 설명해줘" 같은 용어·개념 설명 질문은 수정 요청이
+    아니라 EXPLAIN_INDICATOR입니다 — patches를 만들지 말고, 설명 요청을
+    unsupported_features에 넣지도 마세요(미지원 기능이 아니라 질문입니다).
 11. assumptions/missing_fields/unsupported_features는 문자열 배열입니다(객체 금지).
     factor가 null인 조건은 출력하지 마세요 — 미지원 개념은 unsupported_features에만.
+12. 백테스트 기간이 날짜로 명시되면 backtest.start_date/end_date를 YYYY-MM-DD로 출력하세요.
+    "2020년 1월부터 2025년 12월까지" → start_date="2020-01-01", end_date="2025-12-31"
+    (종료 월은 말일까지). 과거/미래 판단은 입력에 함께 주어지는 '오늘 날짜'만 기준으로
+    하세요 — 학습 시점의 기억으로 추측하지 마세요. 사용자가 명시한 날짜는 그대로 쓰고
+    미래라는 이유로 누락하거나 바꾸지 마세요.
 
 ## 예시 1
 입력: "영업이익률이 높은 기업을 사고 싶어"
@@ -152,11 +161,15 @@ patches=[{{"op":"remove","path":"/entry_conditions/0"}}], status="READY".
 
 
 def build_user_prompt(user_input: str, draft: dict | None = None) -> str:
+    # 오늘 날짜는 매 요청 주입한다 — 모델이 학습 시점 기억으로 과거 연도를 미래로
+    # 오판해 명시 날짜를 누락하는 드리프트 방지(시스템 프롬프트 규칙 12와 짝).
+    today_line = f"오늘 날짜: {date.today().isoformat()}"
     if draft:
         return (
+            f"{today_line}\n\n"
             f"현재 전략 초안:\n{json.dumps(draft, ensure_ascii=False)}\n\n"
             f"사용자 입력: \"{user_input}\"\n\n"
             "위 초안에 대한 요청입니다. 수정 요청이면 intent=MODIFY_STRATEGY, strategy=null로 두고 "
             "변경 사항을 patches(JSON Patch)로만 출력하세요."
         )
-    return f"사용자 입력: \"{user_input}\""
+    return f"{today_line}\n\n사용자 입력: \"{user_input}\""

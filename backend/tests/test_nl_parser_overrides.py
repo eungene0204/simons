@@ -163,6 +163,37 @@ def test_apply_prompt_overrides_sets_backtest_dates():
     assert parsed.backtest_end_date == "2005-12-31"
 
 
+def test_extract_backtest_dates_year_month_range():
+    # 2026-07-17 사고: 월이 붙은 명시 범위("2020년 1월 부터 2025년 12월 까지")가 연도 전용
+    # 정규식에 안 잡혀 LLM으로 위임됐고, 오늘 날짜를 모르는 모델이 종료일을 누락했다.
+    from engine.nl_parser import _extract_backtest_dates
+    assert _extract_backtest_dates("백테스트를 2020년 1월 부터 2025년 12월 까지 해줘") == \
+        ("2020-01-01", "2025-12-31")
+    assert _extract_backtest_dates("2020년 3월부터 백테스트") == ("2020-03-01", None)
+    assert _extract_backtest_dates("2025년 6월까지 보고싶어") == (None, "2025-06-30")
+    assert _extract_backtest_dates("2020년 3월만 테스트") == ("2020-03-01", "2020-03-31")
+
+
+def test_extract_backtest_dates_year_month_day():
+    from engine.nl_parser import _extract_backtest_dates
+    assert _extract_backtest_dates("2020년 1월 15일부터 2025년 12월 31일까지") == \
+        ("2020-01-15", "2025-12-31")
+    # 달력상 불가능한 날짜는 추측하지 않는다(미인식 → LLM/되묻기 위임)
+    assert _extract_backtest_dates("2024년 2월 30일부터") == (None, None)
+
+
+def test_modify_year_month_backtest_range_resolves_deterministically():
+    # 사고 입력 그대로 — 수정 fast-path가 LLM 없이 시작/종료일을 모두 반영하고
+    # 기존 필드는 보존한다.
+    from engine.nl_parser import _modify_rule_based
+    prev = make_base_strategy().model_dump()
+    parsed = _modify_rule_based("백테스트를 2020년 1월 부터 2025년 12월 까지 해줘", prev)
+    assert parsed is not None
+    assert parsed.backtest_start_date == "2020-01-01"
+    assert parsed.backtest_end_date == "2025-12-31"
+    assert parsed.max_positions == prev["max_positions"]
+
+
 def test_non_bucket_backtest_years_resolve_to_relative_dates():
     # 버킷(1y/3y/5y)이 아닌 '백테스트 N년'은 오늘 기준 명시적 날짜 범위로 변환된다.
     # 버그: 2년이 버킷에 없어 침묵 무시되고 기본 5y로 요약되던 문제.
@@ -3735,6 +3766,14 @@ def test_extract_sector_bare_related_and_theme_cues():
     from engine.nl_parser import _extract_sector
     assert _extract_sector("반도체 관련 전략 만들어줘") == "반도체"
     assert _extract_sector("2차전지 테마 전략") == "이차전지"
+
+
+def test_extract_sector_section_misnomer_cue():
+    # [회귀] '섹션'은 '섹터'의 통용 오칭 — "반도체 섹션 종목만 테스트 해보자"가 결정적
+    # 추출을 빠져나가 LLM 폴백으로 새고, LLM 미가용 시 타임아웃까지 이어지던 사고.
+    from engine.nl_parser import _extract_sector
+    assert _extract_sector("반도체 섹션 종목만 테스트 해보자") == "반도체"
+    assert _extract_sector("2차전지 섹션으로 바꿔줘") == "이차전지"
 
 
 def test_unsupported_sector_word_orders_flagged():

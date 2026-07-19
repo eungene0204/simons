@@ -410,6 +410,32 @@ describe("decideConversationTurn", () => {
     });
   });
 
+  // 회귀: 전략이 이미 있어도 정의형 질문("pbr이 뭐야?")은 수정 파싱이 아니라 지식 답변
+  // 경로로 가야 한다 — 수정 파싱으로 흘리면 무변경 전략 요약만 다시 렌더링됐다.
+  it("routes general knowledge to the general answer path even with an active strategy", () => {
+    expect(decideConversationTurn("pbr이 뭐야?", {
+      ...baseContext,
+      hasCurrentStrategy: true,
+    }, {
+      intent: "GENERAL_INVESTMENT",
+    })).toMatchObject({
+      action: "answer_general",
+      reason: "classified_general_investment",
+    });
+  });
+
+  it("keeps UNKNOWN with an active strategy on the strategy parse path", () => {
+    expect(decideConversationTurn("손절은 그냥 두고 진행해줘", {
+      ...baseContext,
+      hasCurrentStrategy: true,
+    }, {
+      intent: "UNKNOWN",
+    })).toMatchObject({
+      action: "parse_strategy",
+      reason: "classified_strategy_input",
+    });
+  });
+
   it("answers active-strategy follow-up questions without classification", () => {
     expect(decideConversationTurn("어디를 개선해 볼까?", {
       ...baseContext,

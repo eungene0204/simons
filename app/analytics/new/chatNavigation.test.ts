@@ -21,7 +21,7 @@ describe("strategy chat navigation", () => {
       "테스트 전략"
     );
     expect(navigate).toHaveBeenCalledOnce();
-    expect(navigate).toHaveBeenCalledWith("/analytics/chat");
+    expect(navigate).toHaveBeenCalledWith("/analytics?chat=1");
   });
 
   it("starts route navigation for the first message regardless of prompt source", () => {

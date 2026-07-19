@@ -13,7 +13,10 @@ export function beginStrategyChatNavigation(
   storage: Storage = window.sessionStorage
 ) {
   storage.setItem(PENDING_STRATEGY_PROMPT_KEY, prompt);
-  navigate("/analytics/chat");
+  // 별도 라우트(/analytics/chat)로 push하면 무거운 채팅 컴포넌트가 통째로 remount되고
+  // authState가 loading으로 초기화돼 /api/user 왕복이 끝날 때까지 첫 전략 전송이 지연된다.
+  // 같은 라우트의 쿼리(?chat=1)로 soft navigation하면 컴포넌트가 유지돼 즉시 전환된다.
+  navigate("/analytics?chat=1");
 }
 
 type ChatInputVisibilityMessage = {

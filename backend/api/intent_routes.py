@@ -163,15 +163,24 @@ def _build_general_user_msg(req: GeneralQueryRequest) -> str:
     return f"[대화 맥락]\n{context}\n[질문]\n{req.query}"
 
 
+def generate_general_answer(query: str, history: list[ChatTurn] | None = None) -> Optional[str]:
+    """일반 투자 지식 질문의 LLM 답변을 동기 생성한다. LLM 미가용·빈 응답이면 None.
+
+    /query/general 엔드포인트와, 정의형 질문이 전략 수정 경로로 오라우팅됐을 때의
+    설명 백스톱(strategy_conversation.primary, FR-SA-002c-4)이 공유한다.
+    """
+    if not _llm_available():
+        return None
+    req = GeneralQueryRequest(query=query, history=history or [])
+    raw = _mlx_llm(_GENERAL_SYSTEM_PROMPT, _build_general_user_msg(req), max_tokens=300)
+    return guardrails.sanitize(raw) or None
+
+
 @router.post("/query/general", response_model=GeneralQueryResponse)
 async def general_answer(req: GeneralQueryRequest) -> GeneralQueryResponse:
-    if _llm_available():
-        raw = await asyncio.to_thread(
-            _mlx_llm, _GENERAL_SYSTEM_PROMPT, _build_general_user_msg(req), max_tokens=300
-        )
-        answer = guardrails.sanitize(raw)
-        if answer:
-            return GeneralQueryResponse(answer=answer)
+    answer = await asyncio.to_thread(generate_general_answer, req.query, req.history)
+    if answer:
+        return GeneralQueryResponse(answer=answer)
     return GeneralQueryResponse(
         answer="해당 주제에 대한 일반적인 설명을 준비하지 못했습니다. 질문을 좀 더 구체적으로 입력해 주세요."
     )

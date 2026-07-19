@@ -109,6 +109,20 @@ _DEFINITION_QUESTION = re.compile(
 # ('모멘텀 전략이 뭔지 설명하고 만들어줘'는 설계 요청). 없으면 순수 정의형으로 본다.
 _CONSTRUCT_VERB = re.compile(r"만들|짜\s*줘|구성|돌려\s*줘|돌려줘", re.IGNORECASE)
 
+
+def is_definition_question(text: str) -> bool:
+    """순수 정의형 투자 질문("PBR이 뭐야?") 여부 — 결정적 GENERAL_INVESTMENT 규칙과 동일 cue.
+
+    전략 수정 경로로 오라우팅된 정의형 질문을 백엔드가 판별할 때 쓴다(FR-SA-002c-4).
+    구성/실행 동사가 섞이면(설계 요청) 정의형으로 보지 않는다.
+    """
+    text = text or ""
+    return bool(
+        _DEFINITION_QUESTION.search(text)
+        and has_finance_cue(text)
+        and not _CONSTRUCT_VERB.search(text)
+    )
+
 # anaphora — 직전 종목을 가리키는 표현('이 종목', '얘', '저 주식').
 _ANAPHORA = re.compile(r"이\s*종목|이\s*주식|그\s*종목|저\s*종목|얘|이거", re.IGNORECASE)
 

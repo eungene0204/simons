@@ -613,9 +613,14 @@ def test_decompile_compile_roundtrip_preserves_strategy():
 
 
 def _stub_modify_interpreter(monkeypatch, intent_data):
+    import engine.nl_parser as nl
     from strategy_conversation import primary
 
     monkeypatch.setattr(primary, "_interpreter_singleton", _StubPrimaryInterpreter(intent_data))
+    # 결정적 fast-path 우선 게이트를 무력화해 인터프리터 메커니즘 자체를 검증한다 —
+    # 룰 어휘가 확장돼 테스트 발화를 처리하게 되어도 이 테스트들이 흔들리지 않게.
+    # 게이트 동작 자체는 test_modify_primary_deterministic_fast_path_skips_interpreter가 검증.
+    monkeypatch.setattr(nl, "_modify_rule_based", lambda *a, **k: None)
 
 
 def test_modify_primary_applies_patches(monkeypatch):
@@ -689,6 +694,162 @@ def test_modify_primary_roundtrip_guard_falls_back(monkeypatch):
     ]
     prev = ParsedStrategy.model_validate(prev_data)
     assert run_primary_modification("종목 5개로", prev.model_dump()) is None
+
+
+def test_modify_primary_clarify_returns_question_with_strategy_intact(monkeypatch):
+    # 2026-07-17 사고 재현: "pbr이 뭐야?"가 수정 경로로 흘러 인터프리터가 CLARIFY로
+    # 정확히 판단했는데, 폴백이 질문을 버리고 기존 수정 LLM이 무변경 전략을 반환해
+    # 동일한 전략 요약만 재렌더링됐다. CLARIFY(패치 없음)+질문은 전략을 그대로 유지한
+    # 채 clarification 채널로 전달돼야 한다.
+    from strategy_conversation.primary import run_primary_modification
+
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "CLARIFY_STRATEGY", "status": "NEEDS_CLARIFICATION", "confidence": 0.9,
+        "clarification_questions": [
+            {"field": "", "question": "현재 전략 초안을 수정하시겠습니까? 아니면 PBR(주가순자산비율)에 대한 개념 설명을 원하시나요?"},
+        ],
+    })
+    prev = _rich_parsed()
+    result = run_primary_modification("pbr이 뭐야?", prev.model_dump())
+    assert result is not None
+    assert result["parsed"].model_dump() == prev.model_dump()  # 전략 무변경
+    assert "PBR" in result["clarification_question"]
+    assert result["interpreter"]["mode"] == "primary_modify_clarify"
+
+
+def test_modify_primary_definition_question_answered_with_strategy_intact(monkeypatch):
+    # 2026-07-17 사고 2차 재현: "pbr이 뭐야?"에 인터프리터가 질문(CLARIFY) 대신
+    # unsupported_features=["PBR 개념 설명 요청"]로만 보고(패치 없음)해도, 결정적
+    # cue(is_definition_question)로 정의형 질문임을 판정해 전략을 유지한 채 실제
+    # 설명(/query/general과 동일 생성기)을 notices로 답한다(2026-07-19 교정 —
+    # "변경하지 않았어요" 안내만 주면 질문이 답변되지 않음).
+    import api.intent_routes as intent_routes
+    from strategy_conversation.primary import run_primary_modification
+
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "UNSUPPORTED", "confidence": 0.9,
+        "unsupported_features": ["PBR 개념 설명 요청"],
+    })
+    monkeypatch.setattr(
+        intent_routes, "generate_general_answer",
+        lambda query, history=None: "PBR은 주가를 주당순자산으로 나눈 값으로, 낮을수록 장부가치 대비 저평가로 봅니다.",
+    )
+    prev = _rich_parsed()
+    result = run_primary_modification("pbr이 뭐야?", prev.model_dump())
+    assert result is not None
+    assert result["parsed"].model_dump() == prev.model_dump()  # 전략 무변경
+    assert any("주당순자산" in n for n in result["notices"])  # 실제 설명이 전달됨
+    assert result["interpreter"]["mode"] == "primary_modify_explain"
+
+
+def test_modify_primary_explain_indicator_falls_back_to_notice_without_llm(monkeypatch):
+    # 프롬프트 1.2 계약(개념 질문=EXPLAIN_INDICATOR)에서 설명 LLM이 미가용이면
+    # 침묵 대신 전략 유지+설명을 준비하지 못했다는 정직한 안내를 돌려준다.
+    import api.intent_routes as intent_routes
+    from strategy_conversation.primary import run_primary_modification
+
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "EXPLAIN_INDICATOR", "status": "READY", "confidence": 0.9,
+    })
+    monkeypatch.setattr(
+        intent_routes, "generate_general_answer", lambda query, history=None: None,
+    )
+    prev = _rich_parsed()
+    result = run_primary_modification("PBR이 뭐야?", prev.model_dump())
+    assert result is not None
+    assert result["parsed"].model_dump() == prev.model_dump()
+    assert any("설명" in n for n in result["notices"])
+    assert result["interpreter"]["mode"] == "primary_modify_explain"
+
+
+def test_modify_primary_unsupported_condition_returns_notice(monkeypatch):
+    # 정의형 질문이 아닌 진짜 미지원 개념 수정 요청(패치 없음+unsupported_features)은
+    # 설명 LLM을 부르지 않고 전략 유지+미반영 안내를 돌려준다.
+    import api.intent_routes as intent_routes
+    from strategy_conversation.primary import run_primary_modification
+
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "UNSUPPORTED", "confidence": 0.9,
+        "unsupported_features": ["FCF"],
+    })
+    def _must_not_call(query, history=None):
+        raise AssertionError("미지원 조건 요청에 설명 LLM이 호출됨")
+    monkeypatch.setattr(intent_routes, "generate_general_answer", _must_not_call)
+    prev = _rich_parsed()
+    result = run_primary_modification("FCF 조건 추가해줘", prev.model_dump())
+    assert result is not None
+    assert result["parsed"].model_dump() == prev.model_dump()
+    assert any("FCF" in n and "반영할 수 없어" in n for n in result["notices"])
+    assert result["interpreter"]["mode"] == "primary_modify_unsupported"
+
+
+def test_modify_primary_deterministic_fast_path_skips_interpreter(monkeypatch):
+    # 결정적 fast-path가 완전히 해석하는 수정은 인터프리터(LLM)를 아예 호출하지 않고
+    # 폴백한다 — LLM 왕복 지연과 수치·날짜 드리프트를 원천 회피(핵심은 결정적).
+    # 되묻기(CLARIFY)가 단순 수정을 가로막지 못하는 것도 이 게이트가 보장한다.
+    from strategy_conversation import primary
+
+    class _MustNotBeCalled:
+        def interpret(self, user_input, draft=None):
+            raise AssertionError("결정적 fast-path 처리 가능한 입력에 인터프리터가 호출됨")
+
+    monkeypatch.setattr(primary, "_interpreter_singleton", _MustNotBeCalled())
+    prev = _rich_parsed().model_dump()
+    assert primary.run_primary_modification("손절 10%로 바꿔줘", prev) is None
+    # 2026-07-17 사고 입력: 월 포함 명시 날짜 범위도 이제 fast-path가 처리한다
+    assert primary.run_primary_modification(
+        "백테스트를 2020년 1월 부터 2025년 12월 까지 해줘", prev
+    ) is None
+
+
+def test_modify_primary_explicit_dates_override_llm_output(monkeypatch):
+    # 혼합 발화(LLM만 처리 가능한 수정 + 명시 날짜)에서 인터프리터가 종료일을 누락해도
+    # (오늘 날짜를 모르는 모델이 '2025-12=미래'로 오판하던 사고) 결정적 추출이 최종
+    # 덮어쓴다 — 명시 날짜의 단일 진실 소스는 결정론 추출이다.
+    from strategy_conversation.primary import run_primary_modification
+
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,
+        "patches": [{"op": "replace", "path": "/backtest/start_date", "value": "2020-01-01"}],
+    })
+    result = run_primary_modification(
+        "백테스트를 2020년 1월부터 2025년 12월까지로 하고 진입 조건도 다듬어줘",
+        _rich_parsed().model_dump(),
+    )
+    assert result is not None
+    assert result["parsed"].backtest_start_date == "2020-01-01"
+    assert result["parsed"].backtest_end_date == "2025-12-31"
+
+
+def test_primary_parse_explicit_dates_override(monkeypatch):
+    # 초기 파스 primary 경로도 명시 날짜는 결정적 추출이 보장한다(LLM 출력 무관).
+    data = _full_intent_dict()
+    result = _run_primary_with(
+        monkeypatch, data, "PER 10 이하, 백테스트는 2020년 1월부터 2025년 12월까지"
+    )
+    assert result is not None
+    assert result["parsed"].backtest_start_date == "2020-01-01"
+    assert result["parsed"].backtest_end_date == "2025-12-31"
+
+
+def test_user_prompt_includes_today_grounding():
+    # 인터프리터 사용자 프롬프트에 오늘 날짜가 항상 주입된다(과거/미래 오판 방지).
+    from datetime import date
+    from strategy_conversation.interpreter.prompts import build_user_prompt
+
+    today = date.today().isoformat()
+    assert today in build_user_prompt("백테스트 2025년까지")
+    assert today in build_user_prompt("백테스트 2025년까지", draft={"portfolio": {}})
+
+
+def test_modify_primary_clarify_without_questions_falls_back(monkeypatch):
+    # CLARIFY인데 질문이 없으면 전달할 내용이 없으므로 기존대로 폴백한다.
+    from strategy_conversation.primary import run_primary_modification
+
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "CLARIFY_STRATEGY", "status": "NEEDS_CLARIFICATION", "confidence": 0.9,
+    })
+    assert run_primary_modification("음 그게", _rich_parsed().model_dump()) is None
 
 
 def test_modify_primary_invalid_patch_falls_back(monkeypatch):
