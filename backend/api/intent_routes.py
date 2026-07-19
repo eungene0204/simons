@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 
 from intent.classifier import classify, format_history_context
 from intent.schemas import ChatTurn, IntentRequest, IntentResult
-from intent import strategy_builder
+from intent import platform_defaults, strategy_builder
 from stock_analysis import guardrails
 from stock_analysis.schemas import DISCLAIMER
 
@@ -157,18 +157,28 @@ _GENERAL_SYSTEM_PROMPT = (
 
 
 def _build_general_user_msg(req: GeneralQueryRequest) -> str:
+    # 설정 용어(슬리피지·수수료 등)가 언급된 개념 질문에는 실제 플랫폼 기본값을 사실로
+    # 주입한다 — LLM이 "기본값은 0%" 같은 값을 지어내는 것을 막는다.
+    facts = platform_defaults.facts_block(req.query)
+    parts = [f"{facts}\n" if facts else ""]
     context = format_history_context(req.history)
-    if not context:
-        return req.query
-    return f"[대화 맥락]\n{context}\n[질문]\n{req.query}"
+    if context:
+        parts.append(f"[대화 맥락]\n{context}\n[질문]\n{req.query}")
+    else:
+        parts.append(req.query)
+    return "".join(parts)
 
 
 def generate_general_answer(query: str, history: list[ChatTurn] | None = None) -> Optional[str]:
-    """일반 투자 지식 질문의 LLM 답변을 동기 생성한다. LLM 미가용·빈 응답이면 None.
+    """일반 투자 지식 질문의 답변을 동기 생성한다. LLM 미가용·빈 응답이면 None.
 
     /query/general 엔드포인트와, 정의형 질문이 전략 수정 경로로 오라우팅됐을 때의
     설명 백스톱(strategy_conversation.primary, FR-SA-002c-4)이 공유한다.
+    백테스트 설정 기본값 질문은 LLM 대신 실제 코드 기본값으로 결정적으로 답한다.
     """
+    deterministic = platform_defaults.reply(query)
+    if deterministic:
+        return deterministic
     if not _llm_available():
         return None
     req = GeneralQueryRequest(query=query, history=history or [])

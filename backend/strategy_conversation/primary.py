@@ -319,10 +319,15 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
         # 4B 라벨이 아니라 결정적 cue(is_definition_question)가 기준 — 같은 발화를 4B가
         # EXPLAIN_INDICATOR로도 unsupported_features로도 내는 실측 대응.
         from api.intent_routes import generate_general_answer
+        from intent import platform_defaults
         from intent.classifier import is_definition_question
 
         is_question = (
-            intent.intent == "EXPLAIN_INDICATOR" or is_definition_question(user_input)
+            intent.intent == "EXPLAIN_INDICATOR"
+            or is_definition_question(user_input)
+            # 설정 기본값 질문("슬리피지 몇 %가 기본이지?")도 수정이 아닌 질문이다 —
+            # generate_general_answer가 실제 코드 기본값으로 결정적으로 답한다.
+            or platform_defaults.is_default_question(user_input)
         )
         answer = generate_general_answer(user_input) if is_question else None
         if answer:

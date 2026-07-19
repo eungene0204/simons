@@ -21,6 +21,7 @@ from typing import Callable, Optional
 
 from stock_analysis.symbol_resolver import StockRef, find_in_text, resolve_by_symbol
 
+from . import platform_defaults
 from .schemas import ChatTurn, DetectedSymbol, IntentResult, QueryIntent
 from .scope import (
     METRIC_NUM_GAP,
@@ -211,6 +212,17 @@ def _classify_deterministic(query: str, last_symbol: Optional[str]) -> Optional[
             suggested_reply=OFFTOPIC_REFUSAL,
             confidence=0.9,
             reason="역할 밖 질문 감지",
+        )
+
+    # 0-a) 백테스트 설정 기본값 질문("슬리피지는 몇 %가 기본이지?") → LLM이 값을 지어내지
+    #      않도록 실제 코드 기본값으로 결정적 답변한다. '수수료'가 전략 키워드와 섞인
+    #      문장("백테스트 수수료 기본값은?")이 아래 규칙 1(STRATEGY_ADVICE)로 새기 전에 잡는다.
+    if platform_defaults.is_default_question(text):
+        return IntentResult(
+            intent=QueryIntent.GENERAL_INVESTMENT,
+            suggested_reply=platform_defaults.reply(text),
+            confidence=0.95,
+            reason="백테스트 설정 기본값 질문 감지 — 실제 기본값으로 답변",
         )
 
     refs = find_in_text(text)
