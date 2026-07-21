@@ -601,6 +601,37 @@ export function buildStrategySummaryChips(
   return chips.filter((value): value is string => Boolean(value));
 }
 
+export interface StrategySummaryGroup {
+  label: string;
+  chips: string[];
+}
+
+// buildStrategySummaryChips와 같은 필드를 쓰지만, 카테고리 라벨(유니버스/진입신호/청산신호/리스트/리스크 관리)로 묶어서 반환한다.
+export function buildStrategySummaryGroups(
+  summary: StrategySummaryDisplay | null | undefined
+): StrategySummaryGroup[] {
+  if (!summary) return [];
+
+  const universeName = summary.universeName?.trim();
+  const showUniverse =
+    universeName && universeName !== "미정" && !isRawSymbolUniverseName(universeName);
+
+  const groups: StrategySummaryGroup[] = [
+    { label: "유니버스", chips: showUniverse ? [universeName!] : [] },
+    { label: "진입신호", chips: (summary.entryBlocks ?? []).filter(Boolean) },
+    { label: "청산신호", chips: (summary.exitBlocks ?? []).filter(Boolean) },
+    {
+      label: "리스트",
+      chips: [summary.positionText, summary.rebalancingText].filter(
+        (value): value is string => Boolean(value)
+      ),
+    },
+    { label: "리스크 관리", chips: summary.riskText ? [summary.riskText] : [] },
+  ];
+
+  return groups.filter((group) => group.chips.length > 0);
+}
+
 function getIndicatorLabel(indicator: string): string {
   return INDICATOR_LABELS[indicator] ?? indicator;
 }

@@ -44,7 +44,7 @@ import { useDelistingStatus, resolveListingStatus } from "@/lib/hooks/useDelisti
 import DelistingRiskBanner from "@/components/virtual-account/DelistingRiskBanner";
 import { getStatusBadgeClasses, getStatusBadge } from "@/lib/listing-status";
 import {
-  buildStrategySummaryChips,
+  buildStrategySummaryGroups,
   buildStrategySummaryFromDsl,
 } from "@/lib/strategy-summary";
 import { colorTokens } from "@/components/strategy/colorTokens";
@@ -613,10 +613,12 @@ export default function VirtualAccountDetailPage() {
 
   const shouldShowOrderPage = showOrderPage || selectedSymbol;
   const strategySettingsSummary = buildStrategySummaryFromDsl(dbStrategySettings);
-  const strategySettingsChips = buildStrategySummaryChips(strategySettingsSummary);
-  const strategyHistoryChips = buildStrategySummaryChips(dbStrategyHistorySummary);
-  const strategySummaryChips =
-    strategyHistoryChips.length > 0 ? strategyHistoryChips : strategySettingsChips;
+  const strategySettingsGroups = buildStrategySummaryGroups(strategySettingsSummary);
+  const strategyHistoryGroups = buildStrategySummaryGroups(dbStrategyHistorySummary);
+  const strategySummaryGroups =
+    strategyHistoryGroups.length > 0 ? strategyHistoryGroups : strategySettingsGroups;
+  const stockSearchUniverseId =
+    dbStrategySettings?.universe?.id ?? dbStrategyHistorySummary?.universeName ?? null;
 
   const strategies = account.strategyName
     ? [{ name: account.strategyName, status: "active" as const }]
@@ -1066,15 +1068,22 @@ export default function VirtualAccountDetailPage() {
                                 </div>
                               </div>
                             )}
-                            {strategySummaryChips.length > 0 && (
-                              <div className="flex flex-wrap gap-1">
-                                {strategySummaryChips.map((chip) => (
-                                  <span
-                                    key={chip}
-                                    className="inline-flex items-center rounded-md bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-yellow-500"
-                                  >
-                                    {chip}
-                                  </span>
+                            {strategySummaryGroups.length > 0 && (
+                              <div className="space-y-2">
+                                {strategySummaryGroups.map((group) => (
+                                  <div key={group.label} className="flex flex-wrap items-center gap-1.5">
+                                    <span className="text-xs font-bold uppercase tracking-widest text-gray-500 shrink-0">
+                                      {group.label}
+                                    </span>
+                                    {group.chips.map((chip) => (
+                                      <span
+                                        key={chip}
+                                        className="inline-flex items-center rounded-md bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-yellow-500"
+                                      >
+                                        {chip}
+                                      </span>
+                                    ))}
+                                  </div>
                                 ))}
                               </div>
                             )}
@@ -1413,6 +1422,7 @@ export default function VirtualAccountDetailPage() {
           isOpen={isStockSearchOpen}
           onClose={() => setIsStockSearchOpen(false)}
           onSelect={handleAddTrackedSymbols}
+          universeId={stockSearchUniverseId}
         />
         <StrategyReplaceModal
           isOpen={isStrategyReplaceOpen}

@@ -46,14 +46,17 @@ vi.mock("@/components/stock/StockSearchModal", () => ({
     isOpen,
     onClose,
     onSelect,
+    universeId,
   }: {
     isOpen: boolean;
     onClose: () => void;
     onSelect: (symbols: { symbol: string; name: string }[]) => void;
+    universeId?: string | null;
   }) =>
     isOpen ? (
       <button
         type="button"
+        data-universe-id={universeId ?? "all"}
         onClick={() => {
           onSelect([
             { symbol: "000660", name: "SK하이닉스" },
@@ -266,11 +269,21 @@ describe("VirtualAccountDetailPage loading", () => {
     render(<VirtualAccountDetailPage />);
 
     expect(await screen.findByText("운용 전략")).toBeInTheDocument();
-    expect(await screen.findByText("유니버스 KOSPI")).toBeInTheDocument();
+    expect(await screen.findByText("유니버스")).toBeInTheDocument();
+    expect(screen.getByText("KOSPI")).toBeInTheDocument();
+    expect(screen.getByText("진입신호")).toBeInTheDocument();
     expect(screen.getByText("PBR <= 1")).toBeInTheDocument();
+    expect(screen.getByText("청산신호")).toBeInTheDocument();
     expect(screen.getByText("손절 -12% 하락시 매도")).toBeInTheDocument();
+    expect(screen.getByText("리스트")).toBeInTheDocument();
     expect(screen.getByText("최대 8종목 · 126일 보유")).toBeInTheDocument();
-    expect(screen.getByText("리스크 관리 손절 12%")).toBeInTheDocument();
+    expect(screen.getByText("리스크 관리")).toBeInTheDocument();
+    expect(screen.getByText("손절 12%")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "종목 추가" }));
+    expect(screen.getByRole("button", { name: "테스트 종목 선택" })).toHaveAttribute(
+      "data-universe-id",
+      "KOSPI"
+    );
   });
 
   it("adds selected stocks to the tracked symbol list without duplicates", async () => {

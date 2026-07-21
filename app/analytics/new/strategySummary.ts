@@ -2,6 +2,7 @@ export {
   buildStrategySummary,
   buildStrategySummaryFromRequest,
   buildStrategySummaryChips,
+  buildStrategySummaryGroups,
   buildStrategySummaryFromDsl,
   getDisplayExitLabels,
   getSignalLabel,
@@ -22,4 +23,5 @@ export {
   UNIVERSE_LABELS,
   type ParsedSummary,
   type StrategySummaryDisplay,
+  type StrategySummaryGroup,
 } from "@/lib/strategy-summary";

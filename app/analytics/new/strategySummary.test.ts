@@ -3,6 +3,7 @@ import {
   buildStrategySummary,
   buildStrategySummaryFromRequest,
   buildStrategySummaryChips,
+  buildStrategySummaryGroups,
   buildStrategySummaryFromDsl,
   formatFundamentalFilter,
   formatInitialCapital,
@@ -430,6 +431,41 @@ describe("strategySummary", () => {
       "최대 8종목 · 126일 보유",
       "리스크 관리 손절 12%",
     ]);
+  });
+
+  it("buildStrategySummaryGroups는 유니버스/진입신호/청산신호/리스트/리스크 관리로 묶어서 반환한다", () => {
+    const groups = buildStrategySummaryGroups({
+      universeName: "KOSPI · 반도체 업종",
+      entryBlocks: ["126일 수익률 상위"],
+      exitBlocks: ["손절 -10% 하락시 매도", "익절 20% 이상 수익시 매도"],
+      positionText: "최대 5종목",
+      riskText: "손절 10%, 익절 20%",
+    });
+
+    expect(groups).toEqual([
+      { label: "유니버스", chips: ["KOSPI · 반도체 업종"] },
+      { label: "진입신호", chips: ["126일 수익률 상위"] },
+      { label: "청산신호", chips: ["손절 -10% 하락시 매도", "익절 20% 이상 수익시 매도"] },
+      { label: "리스트", chips: ["최대 5종목"] },
+      { label: "리스크 관리", chips: ["손절 10%, 익절 20%"] },
+    ]);
+  });
+
+  it("buildStrategySummaryGroups는 비어있는 카테고리를 생략하고, 심볼 CSV 유니버스는 제외한다", () => {
+    const groups = buildStrategySummaryGroups({
+      universeName: "000020,000040,000050",
+      entryBlocks: ["PBR <= 1"],
+      exitBlocks: [],
+      positionText: undefined,
+      riskText: undefined,
+    });
+
+    expect(groups).toEqual([{ label: "진입신호", chips: ["PBR <= 1"] }]);
+  });
+
+  it("buildStrategySummaryGroups는 null/undefined 입력에 빈 배열을 반환한다", () => {
+    expect(buildStrategySummaryGroups(null)).toEqual([]);
+    expect(buildStrategySummaryGroups(undefined)).toEqual([]);
   });
 
   it("심볼 CSV 유니버스명은 raw 심볼로 판별한다 (프롬프트 배지 가드용)", () => {
