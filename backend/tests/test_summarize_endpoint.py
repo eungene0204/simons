@@ -1,53 +1,56 @@
 import os
 import sys
-import types
 
 sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
 
 import main
 
 
-class _DummyTokenizer:
-    chat_template = "dummy-template"
+# 전략 검증 전문가 리포트(10섹션) — LLM 서술 8섹션 JSON 샘플.
+_EXPERT_JSON = (
+    '{"executive_summary":"핵심 요약","top_insights":["통찰1","통찰2"],'
+    '"strengths":["강점"],"weaknesses":["약점"],"hidden_risks":["숨은 위험"],'
+    '"overfitting_analysis":"과최적화 서술","strategy_profile_note":"성향 서술",'
+    '"final_verdict":"최종 평가"}'
+)
 
-    def __init__(self):
-        self.kwargs = None
-
-    def apply_chat_template(self, messages, **kwargs):
-        self.kwargs = kwargs
-        return "FORMATTED_PROMPT"
+# DSL 수정(손절/익절 값·지표·파라미터·매수매도 조건) 문구가 개선안에 섞이면 안 된다.
+_DSL_FORBIDDEN = ["손절", "익절", "지표를 추가", "파라미터를", "매수 조건", "매도 조건"]
 
 
-def test_summarize_endpoint_disables_thinking_on_mlx(monkeypatch):
-    # Ollama 요약 경로 검증 (과거 MLX 경로는 제거됨)
+def _fake_ollama(payload):
+    # summarize_ollama(prompt, num_predict=...) 시그니처를 흡수한다.
+    def _inner(prompt, *args, **kwargs):
+        return payload
+    return _inner
+
+
+def test_summarize_endpoint_returns_expert_sections(monkeypatch):
     monkeypatch.setenv("LLM_BACKEND", "ollama")
-
-    def fake_summarize_ollama(prompt):
-        return '{"total_summary":"요약 성공","strengths":["강점"],"weaknesses":["단점"],"improvements":["개선점"]}'
-
-    monkeypatch.setattr("ai.summarize.summarize_ollama", fake_summarize_ollama)
+    monkeypatch.setattr("ai.summarize.summarize_ollama", _fake_ollama(_EXPERT_JSON))
 
     response = main.summarize_backtest(main.SummarizeRequest(metrics={}))
 
-    assert response["summary"] == "요약 성공"
+    assert response["summary"] == "핵심 요약"
+    assert response["executiveSummary"] == "핵심 요약"
+    assert response["topInsights"] == ["통찰1", "통찰2"]
     assert response["strengths"] == ["강점"]
-    assert response["weaknesses"] == ["단점"]
-    assert response["improvements"] == ["개선점"]
+    assert response["weaknesses"] == ["약점"]
+    assert response["hiddenRisks"] == ["숨은 위험"]
+    assert response["overfittingAnalysis"] == "과최적화 서술"
+    assert response["finalVerdict"] == "최종 평가"
+    # 검증 로드맵·개선 우선순위는 결정론으로 항상 채워진다.
+    assert isinstance(response["validationRoadmap"], list) and response["validationRoadmap"]
+    assert isinstance(response["improvements"], list) and response["improvements"]
     assert response["runtime"]["backend"] == "ollama"
     assert response["runtime"]["total_ms"] >= 0
 
 
-def test_summarize_endpoint_uses_advisor_for_improvements_when_parsed_strategy(monkeypatch):
-    """parsed_strategy 가 있으면 advisor 가 improvements/점수를 결정론적으로 채우고 LLM 출력을 덮어쓴다."""
+def test_summarize_endpoint_improvements_are_validation_centric_not_dsl(monkeypatch):
+    """parsed_strategy·advisor 가 있어도 개선안은 검증 중심이며 구체적 DSL 수정을 담지 않는다."""
     monkeypatch.setenv("LLM_BACKEND", "ollama")
+    monkeypatch.setattr("ai.summarize.summarize_ollama", _fake_ollama(_EXPERT_JSON))
 
-    def fake_summarize_ollama(prompt):
-        # LLM 이 엉뚱한 improvements 를 내도 advisor 가 덮어써야 한다
-        return '{"total_summary":"총평","strengths":["강점"],"weaknesses":["단점"],"improvements":["LLM환각개선"]}'
-
-    monkeypatch.setattr("ai.summarize.summarize_ollama", fake_summarize_ollama)
-
-    # advisor 호출을 가짜 응답으로 대체 (DB/모델 의존 제거)
     fake_advisor_resp = {
         "strategy_score": 64.0,
         "risk_score": 38.0,
@@ -73,48 +76,44 @@ def test_summarize_endpoint_uses_advisor_for_improvements_when_parsed_strategy(m
         )
     )
 
-    # advisor 결정론 결과로 덮어쓰기
-    assert response["improvements"] == ["손절 8% 설정을 고려해보세요.", "손절 8~10% 비교 백테스트"]
+    # advisor 점수·등급은 그대로 반영
     assert response["advisorScore"] == 64.0
     assert response["riskScore"] == 38.0
     assert response["overfitRisk"] == "medium"
     # LLM 서술은 유지
-    assert response["summary"] == "총평"
-    assert response["strengths"] == ["강점"]
+    assert response["summary"] == "핵심 요약"
+    # 개선안은 검증 중심 — advisor 의 DSL 제안('손절 8% 설정')을 그대로 옮기지 않는다.
+    joined = " ".join(response["improvements"])
+    assert not any(tok in joined for tok in _DSL_FORBIDDEN)
+    roadmap_titles = " ".join(i["title"] for i in response["validationRoadmap"])
+    assert not any(tok in roadmap_titles for tok in _DSL_FORBIDDEN)
 
 
-def test_summarize_endpoint_falls_back_to_llm_only_when_advisor_fails(monkeypatch):
-    """advisor 가 None 을 반환(실패)하면 LLM 단독 결과를 사용한다."""
+def test_summarize_endpoint_works_without_advisor(monkeypatch):
+    """advisor 가 None(실패/미전달)이어도 결정론 섹션으로 리포트를 구성한다."""
     monkeypatch.setenv("LLM_BACKEND", "ollama")
-
-    def fake_summarize_ollama(prompt):
-        return '{"total_summary":"폴백","strengths":["s"],"weaknesses":["w"],"improvements":["i"]}'
-
-    monkeypatch.setattr("ai.summarize.summarize_ollama", fake_summarize_ollama)
+    monkeypatch.setattr("ai.summarize.summarize_ollama", _fake_ollama(_EXPERT_JSON))
     monkeypatch.setattr(main, "_run_advisor_for_report", lambda ps, up, m: None)
 
     response = main.summarize_backtest(
         main.SummarizeRequest(metrics={}, parsed_strategy={"entry_signals": []})
     )
 
-    assert response["improvements"] == ["i"]
+    assert response["summary"] == "핵심 요약"
+    assert response["improvements"]  # 점수 기반 결정론 개선안
     assert "advisorScore" not in response
 
 
 def test_summarize_endpoint_marks_degraded_when_llm_output_unparseable(monkeypatch):
-    """LLM이 지시문 복창/미닫힘 <think>만 내놓으면 폴백 요약 + degraded=True를 반환해야 한다.
-
-    프록시/프론트는 degraded 리포트를 캐시·저장하지 않고 재시도를 유도한다.
-    """
+    """LLM이 지시문 복창/미닫힘 <think>만 내놓으면 폴백 요약 + degraded=True를 반환해야 한다."""
     monkeypatch.setenv("LLM_BACKEND", "ollama")
-
-    def fake_summarize_ollama(prompt):
-        return (
+    monkeypatch.setattr(
+        "ai.summarize.summarize_ollama",
+        _fake_ollama(
             "[중요] 위 JSON 규칙을 따르되, improvements 키는 절대 포함하지 마세요. "
             "<think> Analyze the Request: conflicting instructions..."
-        )
-
-    monkeypatch.setattr("ai.summarize.summarize_ollama", fake_summarize_ollama)
+        ),
+    )
 
     response = main.summarize_backtest(main.SummarizeRequest(metrics={}))
 
@@ -127,16 +126,12 @@ def test_summarize_endpoint_marks_degraded_when_llm_output_unparseable(monkeypat
 
 def test_summarize_endpoint_no_degraded_flag_on_success(monkeypatch):
     monkeypatch.setenv("LLM_BACKEND", "ollama")
-
-    def fake_summarize_ollama(prompt):
-        return '{"total_summary":"정상 요약","strengths":["s"],"weaknesses":["w"],"improvements":["i"]}'
-
-    monkeypatch.setattr("ai.summarize.summarize_ollama", fake_summarize_ollama)
+    monkeypatch.setattr("ai.summarize.summarize_ollama", _fake_ollama(_EXPERT_JSON))
 
     response = main.summarize_backtest(main.SummarizeRequest(metrics={}))
 
     assert "degraded" not in response
-    assert response["summary"] == "정상 요약"
+    assert response["summary"] == "핵심 요약"
 
 
 def test_summarize_endpoint_injects_corpus_comparison(monkeypatch):
@@ -145,9 +140,9 @@ def test_summarize_endpoint_injects_corpus_comparison(monkeypatch):
 
     captured = {}
 
-    def fake_summarize_ollama(prompt):
+    def fake_summarize_ollama(prompt, *args, **kwargs):
         captured["prompt"] = prompt
-        return '{"total_summary":"비교군 중 상위 23%입니다.","strengths":["s"],"weaknesses":["w"],"improvements":["i"]}'
+        return _EXPERT_JSON
 
     monkeypatch.setattr("ai.summarize.summarize_ollama", fake_summarize_ollama)
 
@@ -170,11 +165,7 @@ def test_summarize_endpoint_injects_corpus_comparison(monkeypatch):
 def test_summarize_endpoint_survives_corpus_comparison_failure(monkeypatch):
     """코퍼스 비교 계산이 죽어도 리포트는 기존 형태로 동작해야 한다."""
     monkeypatch.setenv("LLM_BACKEND", "ollama")
-
-    def fake_summarize_ollama(prompt):
-        return '{"total_summary":"요약","strengths":["s"],"weaknesses":["w"],"improvements":["i"]}'
-
-    monkeypatch.setattr("ai.summarize.summarize_ollama", fake_summarize_ollama)
+    monkeypatch.setattr("ai.summarize.summarize_ollama", _fake_ollama(_EXPERT_JSON))
     monkeypatch.setattr(
         "advisor.corpus_insights.build_corpus_comparison",
         lambda ps, m: (_ for _ in ()).throw(RuntimeError("corpus broken")),
@@ -182,5 +173,5 @@ def test_summarize_endpoint_survives_corpus_comparison_failure(monkeypatch):
 
     response = main.summarize_backtest(main.SummarizeRequest(metrics={"cagr": 13.8}))
 
-    assert response["summary"] == "요약"
+    assert response["summary"] == "핵심 요약"
     assert "corpusComparison" not in response

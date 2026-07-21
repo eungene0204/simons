@@ -10,20 +10,11 @@ import {
   type SummaryCachePayload,
 } from "./cache";
 
-type SummaryPayload = {
-  score: number;
-  summary: string;
-  strengths: string[];
-  weaknesses: string[];
-  improvements: string[];
-  advisorScore?: number | null;
-  riskScore?: number | null;
-  overfitRisk?: string | null;
-  degraded?: boolean;
+type SummaryPayload = SummaryCachePayload & {
   cached: boolean;
 };
 
-const SUMMARY_CACHE_GENERATION = "ai-report-parser-v4";
+const SUMMARY_CACHE_GENERATION = "ai-report-expert-v5";
 
 class SummarizeBackendError extends Error {
   status: number;
@@ -78,10 +69,10 @@ function hasReportFormattingArtifact(summary: unknown): boolean {
   if (!value) return false;
 
   return (
-    (/^'?\s*\{/.test(value) && /["'](?:total_summary|totalSummary|strengths|weaknesses|improvements)["']\s*:/.test(value)) ||
+    (/^'?\s*\{/.test(value) && /["'](?:total_summary|totalSummary|executive_summary|executiveSummary|strengths|weaknesses|improvements|top_insights)["']\s*:/.test(value)) ||
     /<\/?think>/i.test(value) ||
     /```(?:json)?/i.test(value) ||
-    // 프롬프트 지시문 복창(에코)이 총평으로 저장된 오염 레코드 — 서빙하지 않고 재생성한다.
+    // 프롬프트 지시문 복창(에코)이 요약으로 저장된 오염 레코드 — 서빙하지 않고 재생성한다.
     /\[중요\]|작성 규칙|출력 형식|advisor 진단 근거|JSON만 출력/.test(value)
   );
 }
@@ -124,6 +115,15 @@ async function fetchSummary(
   if (result.advisorScore != null) payload.advisorScore = result.advisorScore;
   if (result.riskScore != null) payload.riskScore = result.riskScore;
   if (result.overfitRisk != null) payload.overfitRisk = result.overfitRisk;
+  // 전략 검증 전문가 리포트(10섹션) 확장 필드.
+  if (result.executiveSummary != null) payload.executiveSummary = result.executiveSummary;
+  if (result.topInsights != null) payload.topInsights = result.topInsights;
+  if (result.hiddenRisks != null) payload.hiddenRisks = result.hiddenRisks;
+  if (result.overfittingAnalysis != null) payload.overfittingAnalysis = result.overfittingAnalysis;
+  if (result.strategyProfile != null) payload.strategyProfile = result.strategyProfile;
+  if (result.strategyProfileNote != null) payload.strategyProfileNote = result.strategyProfileNote;
+  if (result.validationRoadmap != null) payload.validationRoadmap = result.validationRoadmap;
+  if (result.finalVerdict != null) payload.finalVerdict = result.finalVerdict;
   // 백엔드가 LLM 출력 파싱에 실패해 폴백 문구를 반환한 경우 — 캐시/저장 금지 신호.
   if (result.degraded) payload.degraded = true;
   return payload;
@@ -158,6 +158,15 @@ export async function POST(req: Request) {
           advisorScore: existingMetrics.advisorScore ?? undefined,
           riskScore: existingMetrics.riskScore ?? undefined,
           overfitRisk: existingMetrics.overfitRisk ?? undefined,
+          // 전략 검증 전문가 리포트 확장 필드 복원(구 저장 리포트엔 없어 undefined 폴백).
+          executiveSummary: existingMetrics.aiExecutiveSummary ?? undefined,
+          topInsights: existingMetrics.aiTopInsights ?? undefined,
+          hiddenRisks: existingMetrics.aiHiddenRisks ?? undefined,
+          overfittingAnalysis: existingMetrics.aiOverfittingAnalysis ?? undefined,
+          strategyProfile: existingMetrics.aiStrategyProfile ?? undefined,
+          strategyProfileNote: existingMetrics.aiStrategyProfileNote ?? undefined,
+          validationRoadmap: existingMetrics.aiValidationRoadmap ?? undefined,
+          finalVerdict: existingMetrics.aiFinalVerdict ?? undefined,
           cached: true,
         });
       }
@@ -209,6 +218,15 @@ export async function POST(req: Request) {
               advisorScore: payload.advisorScore ?? currentMetrics.advisorScore,
               riskScore: payload.riskScore ?? currentMetrics.riskScore,
               overfitRisk: payload.overfitRisk ?? currentMetrics.overfitRisk,
+              // 전략 검증 전문가 리포트(10섹션) 확장 필드.
+              aiExecutiveSummary: payload.executiveSummary ?? currentMetrics.aiExecutiveSummary,
+              aiTopInsights: payload.topInsights ?? currentMetrics.aiTopInsights,
+              aiHiddenRisks: payload.hiddenRisks ?? currentMetrics.aiHiddenRisks,
+              aiOverfittingAnalysis: payload.overfittingAnalysis ?? currentMetrics.aiOverfittingAnalysis,
+              aiStrategyProfile: payload.strategyProfile ?? currentMetrics.aiStrategyProfile,
+              aiStrategyProfileNote: payload.strategyProfileNote ?? currentMetrics.aiStrategyProfileNote,
+              aiValidationRoadmap: payload.validationRoadmap ?? currentMetrics.aiValidationRoadmap,
+              aiFinalVerdict: payload.finalVerdict ?? currentMetrics.aiFinalVerdict,
             }),
           },
         });

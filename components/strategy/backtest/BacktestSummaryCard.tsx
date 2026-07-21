@@ -1,10 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { BacktestResult } from "@/types/strategy";
-import { Sparkle, ArrowsClockwise, TrendUp, Warning, Question } from "phosphor-react";
+import {
+  Sparkle,
+  ArrowsClockwise,
+  TrendUp,
+  Warning,
+  Question,
+  CaretDown,
+  Lightbulb,
+  ShieldWarning,
+  Compass,
+  ListChecks,
+  Scales,
+  Flask,
+} from "phosphor-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { buildAiReportMetrics } from "./aiReportMetrics";
+import { type AiReportData, reportFromSummaryResponse } from "./aiReport";
 
 interface BacktestSummaryCardProps {
   result: BacktestResult;
@@ -14,26 +28,10 @@ interface BacktestSummaryCardProps {
     entryBlocks?: string[];
     exitBlocks?: string[];
   };
-  initialSummary?: string;
-  initialScore?: number;
-  initialStrengths?: string[];
-  initialWeaknesses?: string[];
-  initialImprovements?: string[];
-  initialAdvisorScore?: number | null;
-  initialRiskScore?: number | null;
-  initialOverfitRisk?: string | null;
+  initialReport?: AiReportData | null;
   parsedStrategy?: Record<string, unknown>;
   promptText?: string;
-  onSummaryReady?: (
-    summary: string,
-    score: number,
-    strengths: string[],
-    weaknesses: string[],
-    improvements: string[],
-    advisorScore: number | null,
-    riskScore: number | null,
-    overfitRisk: string | null
-  ) => void;
+  onSummaryReady?: (report: AiReportData) => void;
 }
 
 function scoreColor(score: number): string {
@@ -158,58 +156,84 @@ function calculateRollingSharpeStability(equity: number[]): number {
   return 1 / (1 + sharpeStd / Math.max(avgAbsSharpe, 0.25));
 }
 
+// 리포트 섹션 접기/펼치기 — 핵심 섹션은 기본 펼침, 나머지는 접힘(점진적 표시).
+function CollapsibleSection({
+  title,
+  icon,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  icon: ReactNode;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="mx-auto w-full max-w-[760px] rounded-[28px] border border-white/10 px-5 py-4 sm:px-7 sm:py-5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-2"
+      >
+        <div className="flex items-center gap-2">
+          {icon}
+          <span className="text-lg font-black tracking-tight text-white">{title}</span>
+        </div>
+        <CaretDown
+          className={`h-4 w-4 text-gray-500 transition-transform ${open ? "rotate-180" : ""}`}
+          weight="bold"
+        />
+      </button>
+      {open && <div className="mt-4">{children}</div>}
+    </div>
+  );
+}
+
+// 근거 기반 항목 목록(장점/약점/숨은 위험/개선 우선순위 공통).
+function BulletList({ items, dotClass }: { items: string[]; dotClass: string }) {
+  if (!items.length) return <p className="text-sm text-gray-500">없음</p>;
+  return (
+    <ul className="space-y-3">
+      {items.map((s, i) => (
+        <li key={i} className="flex items-start gap-3">
+          <span className={`mt-1.5 h-1.5 w-1.5 flex-none rounded-full ${dotClass}`} />
+          <span className="text-sm leading-6 text-gray-300 sm:text-[15px]">{s}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export default function BacktestSummaryCard({
   result,
   strategySummary,
-  initialSummary,
-  initialScore,
-  initialStrengths,
-  initialWeaknesses,
-  initialImprovements,
-  initialRiskScore,
-  initialOverfitRisk,
+  initialReport,
   parsedStrategy,
   promptText,
   onSummaryReady,
 }: BacktestSummaryCardProps) {
   const gaugeLength = 251.2;
   const miniGaugeLength = 219.8;
-  const [summary, setSummary] = useState<string>(initialSummary ?? "");
-  const [score, setScore] = useState<number | null>(initialScore ?? null);
-  const [strengths, setStrengths] = useState<string[]>(initialStrengths ?? []);
-  const [weaknesses, setWeaknesses] = useState<string[]>(initialWeaknesses ?? []);
-  const [improvements, setImprovements] = useState<string[]>(initialImprovements ?? []);
-  const [riskScore, setRiskScore] = useState<number | null>(initialRiskScore ?? null);
-  const [overfitRisk, setOverfitRisk] = useState<string | null>(initialOverfitRisk ?? null);
+  const [report, setReport] = useState<AiReportData | null>(initialReport ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 대시보드가 백그라운드에서 생성을 끝내면 initial* props가 갱신된다.
+  // 대시보드가 백그라운드 생성을 끝내면 initialReport prop이 갱신된다.
   // 카드가 이미 마운트된 상태(리포트 탭을 열어둔 채)에서도 반영되도록 동기화한다.
   useEffect(() => {
     if (loading) return; // 카드 자체 요청이 진행 중이면 덮어쓰지 않음
-    if (initialSummary && initialScore != null) {
-      setSummary(initialSummary);
-      setScore(initialScore);
-      setStrengths(initialStrengths ?? []);
-      setWeaknesses(initialWeaknesses ?? []);
-      setImprovements(initialImprovements ?? []);
-      setRiskScore(initialRiskScore ?? null);
-      setOverfitRisk(initialOverfitRisk ?? null);
+    if (initialReport && initialReport.summary) {
+      setReport(initialReport);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialSummary, initialScore]);
+  }, [initialReport]);
 
   const fetchSummary = async (force = false) => {
     setLoading(true);
     setError(null);
-    setSummary("");
-    setScore(null);
-    setStrengths([]);
-    setWeaknesses([]);
-    setImprovements([]);
-    setRiskScore(null);
-    setOverfitRisk(null);
+    setReport(null);
 
     try {
       const res = await fetch("/api/backtest/summarize", {
@@ -231,25 +255,12 @@ export default function BacktestSummaryCard({
       if (data.degraded) {
         throw new Error(data.summary || "AI 리포트 생성에 실패했습니다. 다시 시도해 주세요.");
       }
-      setScore(data.score ?? null);
-      setSummary(data.summary ?? "");
-      setStrengths(data.strengths ?? []);
-      setWeaknesses(data.weaknesses ?? []);
-      setImprovements(data.improvements ?? []);
-      setRiskScore(data.riskScore ?? null);
-      setOverfitRisk(data.overfitRisk ?? null);
-      if (data.summary && data.score != null) {
-        onSummaryReady?.(
-          data.summary,
-          data.score,
-          data.strengths ?? [],
-          data.weaknesses ?? [],
-          data.improvements ?? [],
-          data.advisorScore ?? null,
-          data.riskScore ?? null,
-          data.overfitRisk ?? null
-        );
+      const nextReport = reportFromSummaryResponse(data);
+      if (!nextReport) {
+        throw new Error("AI 리포트 생성에 실패했습니다. 다시 시도해 주세요.");
       }
+      setReport(nextReport);
+      onSummaryReady?.(nextReport);
     } catch (e: any) {
       setError(e.message ?? "요약 생성에 실패했습니다.");
     } finally {
@@ -257,6 +268,20 @@ export default function BacktestSummaryCard({
     }
   };
 
+  const summary = report?.summary ?? "";
+  const score = report?.score ?? null;
+  const strengths = report?.strengths ?? [];
+  const weaknesses = report?.weaknesses ?? [];
+  const improvements = report?.improvements ?? [];
+  const riskScore = report?.riskScore ?? null;
+  const overfitRisk = report?.overfitRisk ?? null;
+  const topInsights = report?.topInsights ?? [];
+  const hiddenRisks = report?.hiddenRisks ?? [];
+  const overfittingAnalysis = report?.overfittingAnalysis ?? "";
+  const strategyProfile = report?.strategyProfile ?? [];
+  const strategyProfileNote = report?.strategyProfileNote ?? "";
+  const validationRoadmap = report?.validationRoadmap ?? [];
+  const finalVerdict = report?.finalVerdict ?? "";
 
   const hasContent = !loading && !!summary;
   const profitabilityScore = clampScore(
@@ -568,86 +593,128 @@ export default function BacktestSummaryCard({
               </div>
             )}
 
-            {/* 총평 */}
+            {/* 1. 핵심 요약 (Executive Summary) — 항상 펼침 */}
             <div className={reportCardClass}>
               <div className="flex flex-col gap-4">
                 <div className="flex items-center gap-2.5">
-                  <p className={reportCardTitleClass}>총평</p>
+                  <Sparkle className="h-4 w-4 text-[#62A8CB]" weight="fill" />
+                  <p className={reportCardTitleClass}>핵심 요약</p>
                 </div>
-                <p className="text-sm leading-7 text-gray-300 whitespace-pre-wrap sm:text-[15px]">{summary}</p>
+                <p className="text-sm leading-7 text-gray-200 whitespace-pre-wrap sm:text-[15px]">{summary}</p>
               </div>
             </div>
 
-            {/* 장점 */}
-            <div className={reportCardClass}>
-              <div className="flex flex-col gap-4">
-                <div className="flex items-center gap-2">
-                  <TrendUp className="w-4 h-4 text-emerald-400" weight="bold" />
-                  <p className={reportCardTitleClass}>장점</p>
-                </div>
-                {score !== null && (
+            {/* 2. 핵심 통찰 (Top Insights) — 항상 펼침 */}
+            {topInsights.length > 0 && (
+              <div className={reportCardClass}>
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-center gap-2">
+                    <Lightbulb className="h-4 w-4 text-amber-300" weight="bold" />
+                    <p className={reportCardTitleClass}>핵심 통찰</p>
+                  </div>
                   <div className="h-px w-full bg-white/10" />
-                )}
-                {strengths.length > 0 ? (
-                  <ul className="space-y-3">
-                    {strengths.map((s, i) => (
-                      <li key={i} className="flex items-start gap-3 rounded-2xl px-4 py-3">
-                        <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-emerald-400 flex-none" />
-                        <span className="text-sm leading-6 text-gray-300 sm:text-[15px]">{s}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-gray-500">없음</p>
-                )}
-              </div>
-            </div>
-
-            {/* 단점 */}
-            <div className={reportCardClass}>
-              <div className="flex flex-col gap-4">
-                <div className="flex items-center gap-2">
-                  <Warning className="w-4 h-4 text-red-400" weight="bold" />
-                  <p className={reportCardTitleClass}>단점</p>
+                  <BulletList items={topInsights} dotClass="bg-amber-300" />
                 </div>
-                <div className="h-px w-full bg-white/10" />
-                {weaknesses.length > 0 ? (
-                  <ul className="space-y-3">
-                    {weaknesses.map((w, i) => (
-                      <li key={i} className="flex items-start gap-3 rounded-2xl px-4 py-3">
-                        <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-red-400 flex-none" />
-                        <span className="text-sm leading-6 text-gray-300 sm:text-[15px]">{w}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-gray-500">없음</p>
-                )}
               </div>
-            </div>
+            )}
 
-            {/* 개선 방안 */}
-            <div className={reportCardClass}>
-              <div className="flex flex-col gap-4">
-                <div className="flex items-center gap-2">
-                  <Sparkle className="w-4 h-4 text-amber-400" weight="bold" />
-                  <p className={reportCardTitleClass}>개선 방안</p>
+            {/* 5. 숨은 위험 (Hidden Risks) — 항상 펼침(위험 우선) */}
+            {hiddenRisks.length > 0 && (
+              <div className={reportCardClass}>
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-center gap-2">
+                    <ShieldWarning className="h-4 w-4 text-red-400" weight="bold" />
+                    <p className={reportCardTitleClass}>숨은 위험</p>
+                  </div>
+                  <div className="h-px w-full bg-white/10" />
+                  <BulletList items={hiddenRisks} dotClass="bg-red-400" />
                 </div>
-                <div className="h-px w-full bg-white/10" />
-                {improvements.length > 0 ? (
-                  <ul className="space-y-3">
-                    {improvements.map((imp, i) => (
-                      <li key={i} className="flex items-start gap-3 rounded-2xl px-4 py-3">
-                        <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-amber-400 flex-none" />
-                        <span className="text-sm leading-6 text-gray-300 sm:text-[15px]">{imp}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-gray-500">없음</p>
-                )}
               </div>
-            </div>
+            )}
+
+            {/* 3. 강점 (Strengths) — 접힘 */}
+            <CollapsibleSection title="강점" icon={<TrendUp className="h-4 w-4 text-emerald-400" weight="bold" />}>
+              <BulletList items={strengths} dotClass="bg-emerald-400" />
+            </CollapsibleSection>
+
+            {/* 4. 약점 (Weaknesses) — 접힘 */}
+            <CollapsibleSection title="약점" icon={<Warning className="h-4 w-4 text-orange-400" weight="bold" />}>
+              <BulletList items={weaknesses} dotClass="bg-orange-400" />
+            </CollapsibleSection>
+
+            {/* 6. 과최적화 분석 (Overfitting Analysis) — 접힘 */}
+            {overfittingAnalysis && (
+              <CollapsibleSection title="과최적화 분석" icon={<Warning className="h-4 w-4 text-red-400" weight="bold" />}>
+                <p className="text-sm leading-7 text-gray-300 whitespace-pre-wrap sm:text-[15px]">
+                  {overfittingAnalysis}
+                </p>
+              </CollapsibleSection>
+            )}
+
+            {/* 7. 전략 성향 (Strategy Profile) — 접힘 */}
+            {(strategyProfile.length > 0 || strategyProfileNote) && (
+              <CollapsibleSection title="전략 성향" icon={<Compass className="h-4 w-4 text-[#62A8CB]" weight="bold" />}>
+                <div className="flex flex-col gap-4">
+                  {strategyProfile.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {strategyProfile.map((tag) => (
+                        <span
+                          key={tag}
+                          className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-xs font-bold text-gray-200"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {strategyProfileNote && (
+                    <p className="text-sm leading-7 text-gray-300 whitespace-pre-wrap sm:text-[15px]">
+                      {strategyProfileNote}
+                    </p>
+                  )}
+                </div>
+              </CollapsibleSection>
+            )}
+
+            {/* 8. 검증 로드맵 (Validation Roadmap) — 접힘 */}
+            {validationRoadmap.length > 0 && (
+              <CollapsibleSection title="검증 로드맵" icon={<Flask className="h-4 w-4 text-[#73B682]" weight="bold" />}>
+                <ol className="space-y-4">
+                  {validationRoadmap.map((item, i) => (
+                    <li key={i} className="flex items-start gap-3">
+                      <span className="mt-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-full bg-[#73B682]/20 text-[11px] font-black text-[#73B682]">
+                        {i + 1}
+                      </span>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-sm font-bold text-white sm:text-[15px]">{item.title}</span>
+                        {item.reason && (
+                          <span className="text-sm leading-6 text-gray-400 sm:text-[14px]">{item.reason}</span>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </CollapsibleSection>
+            )}
+
+            {/* 9. 개선 우선순위 (Improvement Priorities) — 접힘 */}
+            <CollapsibleSection title="개선 우선순위" icon={<ListChecks className="h-4 w-4 text-amber-400" weight="bold" />}>
+              <BulletList items={improvements} dotClass="bg-amber-400" />
+            </CollapsibleSection>
+
+            {/* 10. 최종 평가 (Final Verdict) — 항상 펼침 */}
+            {finalVerdict && (
+              <div className={reportCardClass}>
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-center gap-2">
+                    <Scales className="h-4 w-4 text-[#62A8CB]" weight="bold" />
+                    <p className={reportCardTitleClass}>최종 평가</p>
+                  </div>
+                  <div className="h-px w-full bg-white/10" />
+                  <p className="text-sm leading-7 text-gray-200 whitespace-pre-wrap sm:text-[15px]">{finalVerdict}</p>
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

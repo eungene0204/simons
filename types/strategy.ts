@@ -222,6 +222,14 @@ export interface BacktestResult {
   advisorScore?: number | null;
   riskScore?: number | null;
   overfitRisk?: string | null;
+  // 전략 검증 전문가 리포트(10섹션) — 저장된 기록 재조회 시 metrics blob에서 하이드레이트.
+  aiTopInsights?: string[];
+  aiHiddenRisks?: string[];
+  aiOverfittingAnalysis?: string;
+  aiStrategyProfile?: string[];
+  aiStrategyProfileNote?: string;
+  aiValidationRoadmap?: Array<{ title: string; reason: string; priority: number }>;
+  aiFinalVerdict?: string;
 }
 
 

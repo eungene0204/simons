@@ -1,3 +1,9 @@
+export type RoadmapItem = {
+  title: string;
+  reason: string;
+  priority: number;
+};
+
 export type SummaryCachePayload = {
   score: number;
   summary: string;
@@ -7,6 +13,15 @@ export type SummaryCachePayload = {
   advisorScore?: number | null;
   riskScore?: number | null;
   overfitRisk?: string | null;
+  // 전략 검증 전문가 리포트(10섹션) 확장 필드 — 구 저장 리포트엔 없을 수 있어 모두 선택적.
+  executiveSummary?: string;
+  topInsights?: string[];
+  hiddenRisks?: string[];
+  overfittingAnalysis?: string;
+  strategyProfile?: string[];
+  strategyProfileNote?: string;
+  validationRoadmap?: RoadmapItem[];
+  finalVerdict?: string;
   degraded?: boolean;
 };
 

@@ -18,6 +18,14 @@ export async function PATCH(req: Request) {
       advisorScore,
       riskScore,
       overfitRisk,
+      aiExecutiveSummary,
+      aiTopInsights,
+      aiHiddenRisks,
+      aiOverfittingAnalysis,
+      aiStrategyProfile,
+      aiStrategyProfileNote,
+      aiValidationRoadmap,
+      aiFinalVerdict,
     } = await req.json();
 
     if (!cacheKey) {
@@ -40,6 +48,14 @@ export async function PATCH(req: Request) {
       advisorScore: advisorScore ?? currentMetrics.advisorScore,
       riskScore: riskScore ?? currentMetrics.riskScore,
       overfitRisk: overfitRisk ?? currentMetrics.overfitRisk,
+      aiExecutiveSummary: aiExecutiveSummary ?? currentMetrics.aiExecutiveSummary,
+      aiTopInsights: aiTopInsights ?? currentMetrics.aiTopInsights,
+      aiHiddenRisks: aiHiddenRisks ?? currentMetrics.aiHiddenRisks,
+      aiOverfittingAnalysis: aiOverfittingAnalysis ?? currentMetrics.aiOverfittingAnalysis,
+      aiStrategyProfile: aiStrategyProfile ?? currentMetrics.aiStrategyProfile,
+      aiStrategyProfileNote: aiStrategyProfileNote ?? currentMetrics.aiStrategyProfileNote,
+      aiValidationRoadmap: aiValidationRoadmap ?? currentMetrics.aiValidationRoadmap,
+      aiFinalVerdict: aiFinalVerdict ?? currentMetrics.aiFinalVerdict,
     };
 
     await prisma.backtestHistory.update({

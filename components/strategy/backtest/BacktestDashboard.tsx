@@ -29,6 +29,11 @@ import { WalkForwardSettings, type WalkForwardOptimizationTarget } from "./WalkF
 import OptimizationPage from "./OptimizationPage";
 import BacktestSummaryCard from "./BacktestSummaryCard";
 import { buildAiReportMetrics, hasAiReportArtifact } from "./aiReportMetrics";
+import {
+  type AiReportData,
+  reportFromSummaryResponse,
+  reportToPersistedFields,
+} from "./aiReport";
 import { buildAutoSaveHistoryPayload } from "@/lib/backtest-history";
 import { resolveUniverseDisplayName } from "@/lib/strategy-summary";
 import { buildMonthlyReturnTableData } from "./monthlyReturns";
@@ -253,17 +258,6 @@ function ValidationTabHelp({ label, title, body, example }: {
   );
 }
 
-interface AiReportData {
-  summary: string;
-  score: number;
-  strengths: string[];
-  weaknesses: string[];
-  improvements: string[];
-  advisorScore: number | null;
-  riskScore: number | null;
-  overfitRisk: string | null;
-}
-
 interface BacktestDashboardProps {
   result: BacktestResult;
   onRestart: () => void;
@@ -397,28 +391,52 @@ export default function BacktestDashboard({
   // 과거에 <think>/지시문 복창이 저장된 오염 레코드는 표시하지 않는다(→ 재생성 트리거).
   const initialAiSummaryRaw = initialAiSummaryProp ?? result.aiSummary ?? undefined;
   const initialAiSummary = hasAiReportArtifact(initialAiSummaryRaw) ? undefined : initialAiSummaryRaw;
-  const [cachedAiSummary, setCachedAiSummary] = useState<string | undefined>(initialAiSummary);
-  const [cachedAiScore, setCachedAiScore] = useState<number | undefined>(
-    initialAiScoreProp ?? result.aiScore ?? undefined
-  );
-  const [cachedStrengths, setCachedStrengths] = useState<string[]>(
-    initialAiStrengthsProp ?? result.aiStrengths ?? []
-  );
-  const [cachedWeaknesses, setCachedWeaknesses] = useState<string[]>(
-    initialAiWeaknessesProp ?? result.aiWeaknesses ?? []
-  );
-  const [cachedImprovements, setCachedImprovements] = useState<string[]>(
-    initialAiImprovementsProp ?? result.aiImprovements ?? []
-  );
-  const [cachedAdvisorScore, setCachedAdvisorScore] = useState<number | null>(
-    initialAdvisorScoreProp ?? result.advisorScore ?? null
-  );
-  const [cachedRiskScore, setCachedRiskScore] = useState<number | null>(
-    initialRiskScoreProp ?? result.riskScore ?? null
-  );
-  const [cachedOverfitRisk, setCachedOverfitRisk] = useState<string | null>(
-    initialOverfitRiskProp ?? result.overfitRisk ?? null
-  );
+
+  // 저장/캐시된 리포트를 단일 객체로 하이드레이트한다. summary+score 둘 다 있어야 유효.
+  const buildReportFromResult = (): AiReportData | null => {
+    const summary = hasAiReportArtifact(result.aiSummary) ? undefined : result.aiSummary ?? undefined;
+    const score = result.aiScore ?? undefined;
+    if (!summary || score == null) return null;
+    return {
+      summary,
+      score,
+      strengths: result.aiStrengths ?? [],
+      weaknesses: result.aiWeaknesses ?? [],
+      improvements: result.aiImprovements ?? [],
+      advisorScore: result.advisorScore ?? null,
+      riskScore: result.riskScore ?? null,
+      overfitRisk: result.overfitRisk ?? null,
+      topInsights: result.aiTopInsights ?? undefined,
+      hiddenRisks: result.aiHiddenRisks ?? undefined,
+      overfittingAnalysis: result.aiOverfittingAnalysis ?? undefined,
+      strategyProfile: result.aiStrategyProfile ?? undefined,
+      strategyProfileNote: result.aiStrategyProfileNote ?? undefined,
+      validationRoadmap: result.aiValidationRoadmap ?? undefined,
+      finalVerdict: result.aiFinalVerdict ?? undefined,
+    };
+  };
+
+  const initialReport: AiReportData | null =
+    initialAiSummary && (initialAiScoreProp ?? result.aiScore) != null
+      ? {
+          summary: initialAiSummary,
+          score: (initialAiScoreProp ?? result.aiScore) as number,
+          strengths: initialAiStrengthsProp ?? result.aiStrengths ?? [],
+          weaknesses: initialAiWeaknessesProp ?? result.aiWeaknesses ?? [],
+          improvements: initialAiImprovementsProp ?? result.aiImprovements ?? [],
+          advisorScore: initialAdvisorScoreProp ?? result.advisorScore ?? null,
+          riskScore: initialRiskScoreProp ?? result.riskScore ?? null,
+          overfitRisk: initialOverfitRiskProp ?? result.overfitRisk ?? null,
+          topInsights: result.aiTopInsights ?? undefined,
+          hiddenRisks: result.aiHiddenRisks ?? undefined,
+          overfittingAnalysis: result.aiOverfittingAnalysis ?? undefined,
+          strategyProfile: result.aiStrategyProfile ?? undefined,
+          strategyProfileNote: result.aiStrategyProfileNote ?? undefined,
+          validationRoadmap: result.aiValidationRoadmap ?? undefined,
+          finalVerdict: result.aiFinalVerdict ?? undefined,
+        }
+      : null;
+  const [cachedReport, setCachedReport] = useState<AiReportData | null>(initialReport);
 
   // 전략 저장 모달
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
@@ -522,40 +540,14 @@ export default function BacktestDashboard({
       const data = await res.json();
       // degraded = 백엔드가 LLM 출력 파싱에 실패한 폴백 — 캐시/PATCH하지 않고 실패로 처리해
       // '다시 생성'으로 재시도할 수 있게 한다.
-      if (!data.summary || data.score == null || data.degraded) return null;
-      const report: AiReportData = {
-        summary: data.summary,
-        score: data.score,
-        strengths: data.strengths ?? [],
-        weaknesses: data.weaknesses ?? [],
-        improvements: data.improvements ?? [],
-        advisorScore: data.advisorScore ?? null,
-        riskScore: data.riskScore ?? null,
-        overfitRisk: data.overfitRisk ?? null,
-      };
-      setCachedAiSummary(report.summary);
-      setCachedAiScore(report.score);
-      setCachedStrengths(report.strengths);
-      setCachedWeaknesses(report.weaknesses);
-      setCachedImprovements(report.improvements);
-      setCachedAdvisorScore(report.advisorScore);
-      setCachedRiskScore(report.riskScore);
-      setCachedOverfitRisk(report.overfitRisk);
+      const report = reportFromSummaryResponse(data);
+      if (!report) return null;
+      setCachedReport(report);
       if (result.cacheKey) {
         fetch("/api/backtest/ai-report", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            cacheKey: result.cacheKey,
-            aiSummary: report.summary,
-            aiScore: report.score,
-            aiStrengths: report.strengths,
-            aiWeaknesses: report.weaknesses,
-            aiImprovements: report.improvements,
-            advisorScore: report.advisorScore,
-            riskScore: report.riskScore,
-            overfitRisk: report.overfitRisk,
-          }),
+          body: JSON.stringify({ cacheKey: result.cacheKey, ...reportToPersistedFields(report) }),
         }).catch(() => {});
       }
       return report;
@@ -583,14 +575,7 @@ export default function BacktestDashboard({
       aiReportExecutionIdRef.current = result.executionId;
       aiReportPromiseRef.current = null; // 새 백테스트 → 이전 in-flight 요청 무효화
       // 같은 화면에서 재실행 — 이전 전략의 리포트가 새 결과에 남지 않도록 초기화
-      setCachedAiSummary(hasAiReportArtifact(result.aiSummary) ? undefined : result.aiSummary ?? undefined);
-      setCachedAiScore(result.aiScore ?? undefined);
-      setCachedStrengths(result.aiStrengths ?? []);
-      setCachedWeaknesses(result.aiWeaknesses ?? []);
-      setCachedImprovements(result.aiImprovements ?? []);
-      setCachedAdvisorScore(result.advisorScore ?? null);
-      setCachedRiskScore(result.riskScore ?? null);
-      setCachedOverfitRisk(result.overfitRisk ?? null);
+      setCachedReport(buildReportFromResult());
     }
     // 프로/프리미엄 전용 — 플랜 확인 전이거나 무료 플랜이면 백그라운드 생성을 하지 않는다.
     // (플랜은 비동기로 로드되므로 확인이 끝나면 이 이펙트가 다시 실행되어 생성을 시작한다.)
@@ -600,7 +585,7 @@ export default function BacktestDashboard({
       if (!(usableSummary && result.aiScore != null)) ensureAiReport();
       return;
     }
-    if (cachedAiSummary && cachedAiScore != null) return; // 이미 캐시된 경우 스킵
+    if (cachedReport) return; // 이미 캐시된 경우 스킵
     ensureAiReport();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result.executionId, isPlanLoading, isAiReportEnabled]);
@@ -757,29 +742,13 @@ export default function BacktestDashboard({
     setSaveResult(null);
     try {
       // AI 요약이 아직 없으면 저장 전에 먼저 생성
-      let finalSummary = cachedAiSummary;
-      let finalScore = cachedAiScore;
-      let finalStrengths = cachedStrengths;
-      let finalWeaknesses = cachedWeaknesses;
-      let finalImprovements = cachedImprovements;
-      let finalAdvisorScore = cachedAdvisorScore;
-      let finalRiskScore = cachedRiskScore;
-      let finalOverfitRisk = cachedOverfitRisk;
-      if (!finalSummary && isAiReportEnabled) {
+      let finalReport = cachedReport;
+      if (!finalReport?.summary && isAiReportEnabled) {
         // 백그라운드 생성이 진행 중이면 그 요청을 그대로 기다리고, 없으면 새로 시작한다.
         // (이미 완료됐다면 즉시 반환되어 바로 저장된다. 무료 플랜은 AI 리포트 없이 저장한다.)
-        const report = await ensureAiReport();
-        if (report) {
-          finalSummary = report.summary;
-          finalScore = report.score;
-          finalStrengths = report.strengths;
-          finalWeaknesses = report.weaknesses;
-          finalImprovements = report.improvements;
-          finalAdvisorScore = report.advisorScore;
-          finalRiskScore = report.riskScore;
-          finalOverfitRisk = report.overfitRisk;
-        }
+        finalReport = await ensureAiReport();
       }
+      const persistedReport = finalReport ? reportToPersistedFields(finalReport) : {};
 
       const res = await fetch("/api/strategy/save-with-backtest", {
         method: "POST",
@@ -789,14 +758,7 @@ export default function BacktestDashboard({
           description: saveDescription.trim(),
           dsl: normalizedBacktestDsl ?? {},
           backtestResult: result,
-          aiSummary: finalSummary,
-          aiScore: finalScore,
-          aiStrengths: finalStrengths,
-          aiWeaknesses: finalWeaknesses,
-          aiImprovements: finalImprovements,
-          advisorScore: finalAdvisorScore,
-          riskScore: finalRiskScore,
-          overfitRisk: finalOverfitRisk,
+          ...persistedReport,
           score: calculateScore(result),
         }),
       });
@@ -829,14 +791,7 @@ export default function BacktestDashboard({
               executionTime: result.executionTime ?? 0,
               score: calculateScore(result),
               perAssetStats: result.perAssetStats || {},
-              aiSummary: finalSummary ?? null,
-              aiScore: finalScore ?? null,
-              aiStrengths: finalStrengths,
-              aiWeaknesses: finalWeaknesses,
-              aiImprovements: finalImprovements,
-              advisorScore: finalAdvisorScore,
-              riskScore: finalRiskScore,
-              overfitRisk: finalOverfitRisk,
+              ...persistedReport,
             },
             result,
             // result.cacheKey 가 없으면 save-with-backtest 가 strategy.id(=data.strategyId)를
@@ -1293,7 +1248,7 @@ export default function BacktestDashboard({
                   {isSavingStrategy ? (
                     <>
                       <Spinner size={14} className="animate-spin" />
-                      {!cachedAiSummary ? "AI 리포트 생성 중..." : "저장 중..."}
+                      {!cachedReport ? "AI 리포트 생성 중..." : "저장 중..."}
                     </>
                   ) : (
                     <>
@@ -1902,40 +1857,16 @@ export default function BacktestDashboard({
                  key={result.executionId}
                  result={result}
                  strategySummary={strategySummary}
-                 initialSummary={cachedAiSummary}
-                 initialScore={cachedAiScore}
-                 initialStrengths={cachedStrengths}
-                 initialWeaknesses={cachedWeaknesses}
-                 initialImprovements={cachedImprovements}
-                 initialAdvisorScore={cachedAdvisorScore}
-                 initialRiskScore={cachedRiskScore}
-                 initialOverfitRisk={cachedOverfitRisk}
+                 initialReport={cachedReport}
                  parsedStrategy={parsedStrategy}
                  promptText={promptText}
-                 onSummaryReady={(s, sc, st, wk, im, adv, rsk, ovf) => {
-                   setCachedAiSummary(s);
-                   setCachedAiScore(sc);
-                   setCachedStrengths(st);
-                   setCachedWeaknesses(wk);
-                   setCachedImprovements(im);
-                   setCachedAdvisorScore(adv);
-                   setCachedRiskScore(rsk);
-                   setCachedOverfitRisk(ovf);
+                 onSummaryReady={(report) => {
+                   setCachedReport(report);
                    if (result.cacheKey) {
                      fetch("/api/backtest/ai-report", {
                        method: "PATCH",
                        headers: { "Content-Type": "application/json" },
-                       body: JSON.stringify({
-                         cacheKey: result.cacheKey,
-                         aiSummary: s,
-                         aiScore: sc,
-                         aiStrengths: st,
-                         aiWeaknesses: wk,
-                         aiImprovements: im,
-                         advisorScore: adv,
-                         riskScore: rsk,
-                         overfitRisk: ovf,
-                       }),
+                       body: JSON.stringify({ cacheKey: result.cacheKey, ...reportToPersistedFields(report) }),
                      }).catch(() => {/* 저장 실패는 무시 */});
                    }
                  }}

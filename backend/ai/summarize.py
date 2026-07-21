@@ -464,6 +464,136 @@ def build_advisor_grounded_prompt(payload: dict, advisor_report: dict, corpus_co
     )
 
 
+# ── 전략 검증 전문가 리포트 (10섹션) ─────────────────────────────────────────
+#
+# 결정론(evidence pack·advisor·corpus)이 정확도가 중요한 등급/구조/로드맵을 만들고,
+# LLM 은 그 위에서 서술 섹션만 작성한다. LLM 출력 키는 서술형 8종뿐이며, overfit
+# 등급·strategy_profile 태그·validation_roadmap·improvement_priorities 는 코드가
+# 결정론적으로 채워 병합한다(환각 표면 축소).
+
+_EXPERT_PROMPT_HEADER = (
+    "당신은 주식 퀀트 투자 전략을 객관적으로 검증하는 '전략 검증 전문가'입니다. "
+    "당신의 역할은 결과를 읽어주는 것이 아니라, 왜 이런 결과가 나왔는지·무엇을 아직 신뢰하면 안 되는지를 밝히는 것입니다.\n"
+    "반드시 아래 JSON 형식으로만 출력하고, JSON 외 다른 텍스트(Thinking, Reasoning, <think> 등 내부 추론)는 절대 출력하지 마세요. "
+    "모든 텍스트는 한국어 격식체 존댓말(~습니다, ~입니다)로 작성하세요.\n\n"
+)
+
+_EXPERT_RULES = (
+    "작성 원칙(반드시 준수):\n"
+    "1) 화면에 이미 보이는 지표 수치를 그대로 다시 읽어주지 마세요(예: 'CAGR은 18%입니다' 금지). 숫자가 아니라 '숫자의 의미'를 설명하세요.\n"
+    "2) 모든 분석에는 아래 제시된 지표·근거에서 확인되는 사실만 사용하고, 근거 없는 추측은 하지 마세요.\n"
+    "3) 좋은 결과라도 비판적으로 검토하고, 장점보다 전략이 실패할 위험을 먼저 찾으세요.\n"
+    "4) 과장·단정·미래 예측(\"앞으로도 잘 작동할 것\", \"높은 수익이 기대됨\")은 금지합니다. 모든 서술은 과거 시뮬레이션 결과에 한정하세요.\n"
+    "5) 투자·종목·매수/매도 시점·전략 추천은 절대 하지 마세요. 사용자가 다음에 무엇을 '검증'해야 하는지에 초점을 두세요.\n\n"
+)
+
+
+def _build_evidence_block(evidence: dict | None) -> str:
+    if not evidence:
+        return ""
+    facts = list((evidence or {}).get("facts") or [])
+    if not facts:
+        return ""
+    block = "결정론 분석 근거(이 사실에 기반해 서술하세요):\n"
+    block += "".join(f"- {line}\n" for line in facts)
+    return block + "\n"
+
+
+def _build_profile_block(profile_tags: list[str] | None) -> str:
+    if not profile_tags:
+        return ""
+    return "전략 성향(결정론 분류): " + ", ".join(profile_tags) + "\n\n"
+
+
+def build_expert_report_prompt(
+    payload: dict,
+    evidence: dict | None = None,
+    advisor_report: dict | None = None,
+    corpus_comparison: dict | None = None,
+    profile_tags: list[str] | None = None,
+) -> str:
+    """전략 검증 전문가 리포트 프롬프트 — LLM 은 서술 8섹션만 작성한다."""
+    grounding = _build_advisor_grounding(advisor_report) if advisor_report else "- 진단된 추가 근거가 없습니다."
+    overfit = (advisor_report or {}).get("overfitRisk")
+    overfit_line = f"과적합 위험 등급(결정론): {overfit}\n" if overfit else ""
+
+    return (
+        _EXPERT_PROMPT_HEADER
+        + _EXPERT_RULES
+        + _corpus_rule(corpus_comparison)
+        + "\n"
+        + _build_context_block(payload)
+        + _build_evidence_block(evidence)
+        + _build_profile_block(profile_tags)
+        + _build_corpus_comparison_block(corpus_comparison)
+        + overfit_line
+        + "advisor 진단 근거:\n"
+        f"{grounding}\n\n"
+        + "출력 형식 (JSON만 출력):\n"
+        "{\n"
+        '  "executive_summary": "30초 안에 읽는 핵심 요약 한 문단 — 전략의 특징, 가장 중요한 강점, 가장 중요한 위험, 현 시점 신뢰도, 추가 검증 필요 여부",\n'
+        '  "top_insights": ["혼자서는 발견하기 어려운 중요한 사실 5~8개 — 결과가 아니라 그 의미"],\n'
+        '  "strengths": ["강점 2~3개 — 왜 강점인지 근거 포함"],\n'
+        '  "weaknesses": ["약점 2~3개 — 가능한 위험까지"],\n'
+        '  "hidden_risks": ["사용자가 쉽게 발견하지 못하는 위험 2~4개 — 왜 위험한지 설명"],\n'
+        '  "overfitting_analysis": "과적합 가능성 판단 근거를 거래 수·기간·성과 집중·파라미터 의존 관점에서 2~4문장으로 서술(위 등급과 일관되게)",\n'
+        '  "strategy_profile_note": "위 성향 태그를 근거로 이 전략이 어떤 국면에 강하고 약한지 2~3문장으로 서술",\n'
+        '  "final_verdict": "전략 전체를 균형 있게 평가 — 현 신뢰도, 장점, 가장 큰 위험, 아직 확신할 수 없는 부분, 반드시 확인해야 할 것. 좋은 전략이라도 비판적으로."\n'
+        "}"
+    )
+
+
+def _coerce_expert_report_shape(data: dict) -> dict | None:
+    """LLM JSON(키 별칭 허용)을 전문가 리포트 서술 섹션으로 정규화한다."""
+    exec_summary = (
+        data.get("executive_summary")
+        or data.get("executiveSummary")
+        or data.get("summary")
+        or data.get("total_summary")
+        or data.get("overall_summary")
+    )
+    if exec_summary is None:
+        return None
+
+    return {
+        "executive_summary": str(exec_summary).strip(),
+        "top_insights": _to_string_list(
+            data.get("top_insights") or data.get("topInsights") or data.get("insights")
+        ),
+        "strengths": _to_string_list(data.get("strengths") or data.get("pros") or data.get("장점")),
+        "weaknesses": _to_string_list(data.get("weaknesses") or data.get("cons") or data.get("단점")),
+        "hidden_risks": _to_string_list(
+            data.get("hidden_risks") or data.get("hiddenRisks") or data.get("risks") or data.get("숨은위험")
+        ),
+        "overfitting_analysis": str(
+            data.get("overfitting_analysis") or data.get("overfittingAnalysis") or ""
+        ).strip(),
+        "strategy_profile_note": str(
+            data.get("strategy_profile_note") or data.get("strategyProfileNote") or data.get("profile_note") or ""
+        ).strip(),
+        "final_verdict": str(
+            data.get("final_verdict") or data.get("finalVerdict") or data.get("verdict") or ""
+        ).strip(),
+    }
+
+
+def parse_expert_report(text: str) -> dict | None:
+    """LLM 출력에서 전문가 리포트 JSON을 추출한다. 실패 시 None(→ 상위에서 degraded)."""
+    text = text.strip()
+    text = re.sub(r"<think>[\s\S]*?</think>\s*", "", text, flags=re.IGNORECASE).strip()
+    text = re.sub(r"```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s*```", "", text).strip()
+
+    for candidate in _extract_json_objects(text):
+        parsed = _parse_json_candidate(candidate)
+        if not parsed:
+            continue
+        normalized = _coerce_expert_report_shape(parsed)
+        if normalized and not _looks_like_prompt_echo(normalized["executive_summary"]):
+            return normalized
+    return None
+
+
 def _extract_json_objects(text: str) -> list[str]:
     objects: list[str] = []
     stack = 0
@@ -883,7 +1013,7 @@ def summarize_mlx(prompt: str) -> str:
     return result.strip()
 
 
-def summarize_ollama(prompt: str) -> str:
+def summarize_ollama(prompt: str, num_predict: int = 1200) -> str:
     import urllib.request
 
     from llm_backend import ollama_auth_headers  # Modal proxy-auth (배포 시)
@@ -899,7 +1029,8 @@ def summarize_ollama(prompt: str) -> str:
             "think": False,
             # MLX(summarize_mlx) 경로와 동일하게 greedy/결정론적으로 생성한다.
             # num_ctx: grounded 프롬프트가 기본 컨텍스트(4096)를 넘을 수 있어 nl_parser와 동일값 사용.
-            "options": {"temperature": 0, "num_predict": 1200, "num_ctx": _OLLAMA_NUM_CTX},
+            # num_predict: 전문가 리포트(10섹션)는 서술량이 커 상향한 값을 전달받는다.
+            "options": {"temperature": 0, "num_predict": num_predict, "num_ctx": _OLLAMA_NUM_CTX},
         }
     ).encode()
 

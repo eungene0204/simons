@@ -277,3 +277,51 @@ Recommended regression tests:
 - Experiment-learning tests for low similarity, flat evidence, paired deltas, and parameter mismatch.
 - Advisor response tests that assert no user-facing metadata title is shown.
 - Parser-to-advisor tests for realistic Korean prompts.
+
+---
+
+## 11. Premium AI Report (Strategy Validation Expert) — 2026-07-21
+
+The Premium backtest report reuses the advisor's deterministic diagnosis but frames the whole
+report as a **Strategy Validation Expert** deliverable (FR-BT-022), not a metric read-out. The
+advisor still produces `strategy_score`, `risk_score`, `overfit_risk`, and grounding sections; the
+report adds a deterministic **evidence pack** (`backend/ai/report_evidence.py`) and lets the LLM
+write only the narrative sections.
+
+### Division of responsibility
+
+- **Deterministic (must be accurate):** score, advisor scores, overfit grade, strategy-profile
+  tags, validation roadmap (rule-based), score-aware improvement priorities, and the evidence-pack
+  fact sentences (return-time concentration, underwater duration, high-win-rate/low-expectancy,
+  sample adequacy, turnover, symbol concentration).
+- **LLM (narration only):** executive_summary, top_insights, strengths, weaknesses, hidden_risks,
+  overfitting_analysis, strategy_profile_note, final_verdict. LLM output that echoes the prompt or
+  leaks an unclosed `<think>` is discarded and the report is marked `degraded` (regenerate, never
+  serve).
+
+### Prompt principles (enforced in `build_expert_report_prompt`)
+
+- Do not re-read numbers already on screen; explain their meaning.
+- Every claim must be grounded in the provided metrics/evidence/advisor/corpus lines.
+- Find risks before strengths; evaluate even good results critically.
+- No investment / stock / buy-sell-timing / strategy recommendation. Focus on what to **validate** next.
+
+### Score-aware next steps (Sections 8 and 9) — DSL edits forbidden
+
+Improvement priorities and the validation roadmap must consider the strategy score:
+
+- **High score / sufficient confidence:** prefer additional validation (walk-forward, Monte Carlo,
+  sensitivity) over strategy changes.
+- **Low score / clear structural problems:** prefer strategy-level direction — simplify the
+  structure, re-examine the idea, check over-dependence on a specific market regime, or rebuild and
+  re-backtest — rather than repeating validation.
+
+In **all** cases the report must never propose concrete DSL edits: specific stop-loss/take-profit
+values, adding/removing indicators, changing parameter values, or new entry/exit conditions. For the
+same reason the advisor's `suggested_experiments` (which may name specific parameter values, e.g.
+"stop 8–10% comparison") are **not** merged into the validation roadmap; the roadmap lists
+validation *types* only.
+
+Regression tests: `backend/tests/test_report_evidence.py`,
+`backend/tests/test_summarize_endpoint.py` (validation-centric, DSL-free improvements),
+`backend/tests/test_summarize.py` (expert parser/prompt).

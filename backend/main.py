@@ -3476,26 +3476,33 @@ def summarize_backtest(req: SummarizeRequest):
     from ai.summarize import (
         FALLBACK_SUMMARY,
         calculate_score,
-        build_prompt,
-        build_advisor_grounded_prompt,
         build_report_from_advisor,
-        parse_llm_output,
+        build_expert_report_prompt,
+        parse_expert_report,
         normalize_report_items,
+        summarize_ollama,
+    )
+    from ai.report_evidence import (
+        build_evidence_pack,
+        classify_strategy_profile,
+        build_validation_roadmap,
+        build_improvement_priorities,
     )
 
     request_started = time.perf_counter()
     score = calculate_score(req.metrics)
 
-    # 하이브리드: parsed_strategy 가 있으면 advisor 가 진단/개선안을 결정론적으로 만들고,
-    # LLM 은 그 근거 위에서 총평·강점·단점만 서술한다.
+    # 하이브리드: advisor·evidence·corpus 가 결정론적으로 등급/근거/로드맵/개선안을
+    # 만들고, LLM 은 그 위에서 서술 섹션만 작성한다(전략 검증 전문가 리포트).
     payload = {"metrics": req.metrics, "strategySummary": req.strategySummary}
+    advisor_resp = None
     advisor_report = None
     if req.parsed_strategy:
         advisor_resp = _run_advisor_for_report(req.parsed_strategy, req.user_prompt, req.metrics)
         if advisor_resp is not None:
             advisor_report = build_report_from_advisor(advisor_resp)
 
-    # 코퍼스 비교(결정론) — 총평이 '결과 읽기'에 그치지 않고 동일 엔진 시뮬레이션
+    # 코퍼스 비교(결정론) — 리포트가 '결과 읽기'에 그치지 않고 동일 엔진 시뮬레이션
     # 분포 대비 상대적 위치·구조 장치 유무별 과거 통계를 서술할 근거를 만든다.
     corpus_comparison = None
     try:
@@ -3504,38 +3511,62 @@ def summarize_backtest(req: SummarizeRequest):
     except Exception as e:
         print(f"[summarize] corpus comparison skipped: {repr(e)}", flush=True)
 
-    if advisor_report is not None:
-        prompt = build_advisor_grounded_prompt(payload, advisor_report, corpus_comparison=corpus_comparison)
-    else:
-        prompt = build_prompt(payload, corpus_comparison=corpus_comparison)
+    # 결정론 근거·구조 섹션 — LLM 없이 사실만으로 도출한다.
+    evidence = build_evidence_pack(req.metrics, req.parsed_strategy)
+    profile_tags = classify_strategy_profile(req.parsed_strategy, req.metrics)
+    validation_roadmap = build_validation_roadmap(req.metrics, evidence, advisor_resp)
+    improvement_priorities = build_improvement_priorities(score, advisor_report, evidence)
+
+    prompt = build_expert_report_prompt(
+        payload,
+        evidence=evidence,
+        advisor_report=advisor_report,
+        corpus_comparison=corpus_comparison,
+        profile_tags=profile_tags,
+    )
 
     try:
-        from ai.summarize import summarize_ollama
-        raw = summarize_ollama(prompt)
-
-        parsed = parse_llm_output(raw)
+        raw = summarize_ollama(prompt, num_predict=2600)
+        parsed = parse_expert_report(raw)
         runtime = {
             "backend": "ollama",
             "total_ms": round((time.perf_counter() - request_started) * 1000, 2),
         }
         _record_ai_runtime("summary", runtime)
-        summary_text = parsed.get("total_summary", "")
+
+        if parsed is None:
+            # LLM 출력 파싱 실패 — 프록시/프론트가 캐시·저장하지 않고 재시도를 유도하게 한다.
+            return {
+                "score": score,
+                "summary": FALLBACK_SUMMARY,
+                "strengths": ["없음"],
+                "weaknesses": ["없음"],
+                "improvements": ["없음"],
+                "degraded": True,
+                "runtime": runtime,
+            }
+
         result = {
             "score": score,
-            "summary": summary_text,
-            "strengths": normalize_report_items(parsed.get("strengths", [])),
-            "weaknesses": normalize_report_items(parsed.get("weaknesses", [])),
-            "improvements": normalize_report_items(parsed.get("improvements", [])),
+            # summary 는 executive_summary 로 매핑(하위호환 — 기존 프론트/캐시 키 유지).
+            "summary": parsed["executive_summary"],
+            "executiveSummary": parsed["executive_summary"],
+            "topInsights": normalize_report_items(parsed["top_insights"]),
+            "strengths": normalize_report_items(parsed["strengths"]),
+            "weaknesses": normalize_report_items(parsed["weaknesses"]),
+            "hiddenRisks": normalize_report_items(parsed["hidden_risks"]),
+            "overfittingAnalysis": parsed["overfitting_analysis"],
+            "strategyProfile": profile_tags,
+            "strategyProfileNote": parsed["strategy_profile_note"],
+            "validationRoadmap": validation_roadmap,
+            # improvements 는 결정론(점수 인지형·검증 중심)으로 채운다(LLM DSL 환각 방지).
+            "improvements": normalize_report_items(improvement_priorities),
+            "finalVerdict": parsed["final_verdict"],
             "runtime": runtime,
         }
-        if not summary_text or summary_text == FALLBACK_SUMMARY:
-            # 파싱 실패 폴백 — 프록시/프론트가 캐시·저장하지 않고 재시도를 유도하게 한다.
-            result["degraded"] = True
         if corpus_comparison is not None:
             result["corpusComparison"] = corpus_comparison
         if advisor_report is not None:
-            # advisor 가 결정론적으로 만든 개선안·점수로 덮어쓴다(LLM 환각 방지).
-            result["improvements"] = advisor_report["improvements"]
             result["advisorScore"] = advisor_report["advisorScore"]
             result["riskScore"] = advisor_report["riskScore"]
             result["overfitRisk"] = advisor_report["overfitRisk"]

@@ -11,7 +11,7 @@ export function hasAiReportArtifact(summary: unknown): boolean {
   if (!value) return false;
 
   return (
-    (/^'?\s*\{/.test(value) && /["'](?:total_summary|totalSummary|strengths|weaknesses|improvements)["']\s*:/.test(value)) ||
+    (/^'?\s*\{/.test(value) && /["'](?:total_summary|totalSummary|executive_summary|executiveSummary|strengths|weaknesses|improvements|top_insights)["']\s*:/.test(value)) ||
     /<\/?think>/i.test(value) ||
     /```(?:json)?/i.test(value) ||
     /\[중요\]|작성 규칙|출력 형식|advisor 진단 근거|JSON만 출력/.test(value)
@@ -44,5 +44,20 @@ export function buildAiReportMetrics(result: BacktestResult) {
     // 백테스트 기간 — LLM이 기간을 추측(환각)하지 않고 실제 기간을 인용하게 한다
     periodStart: result.dates?.[0],
     periodEnd: result.dates?.[result.dates.length - 1],
+    // 전략 검증 전문가 리포트의 결정론 근거(집중도·수중기간·기대값·회전율·종목집중)용 확장 지표.
+    // 엔진이 이미 계산해 내려주는 값을 전달만 한다.
+    calmar: result.calmar,
+    maxDrawdownDuration: result.maxDrawdownDuration,
+    expectancy: result.expectancy,
+    recoveryFactor: result.recoveryFactor,
+    avgHoldingDays: result.avgHoldingDays,
+    exposure: result.exposure,
+    maxConsecutiveWins: result.maxConsecutiveWins,
+    maxConsecutiveLosses: result.maxConsecutiveLosses,
+    avgProfit: result.avgProfit,
+    avgLoss: result.avgLoss,
+    monthlyReturns: result.monthlyReturns,
+    yearlyReturns: result.yearlyReturns,
+    perAssetStats: result.perAssetStats,
   };
 }

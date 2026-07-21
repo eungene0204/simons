@@ -9,7 +9,9 @@ from ai.summarize import (
     MLX_MODEL,
     OLLAMA_MODEL,
     build_prompt,
+    build_expert_report_prompt,
     normalize_report_items,
+    parse_expert_report,
     parse_llm_output,
     summarize_ollama,
 )
@@ -376,3 +378,63 @@ def test_build_prompt_omits_corpus_block_when_absent():
 
     assert "코퍼스 비교" not in prompt
     assert "9)" not in prompt
+
+
+# ── 전략 검증 전문가 리포트(10섹션) ─────────────────────────────────────────
+
+def test_parse_expert_report_extracts_narrative_sections():
+    text = (
+        '여기 리포트입니다.\n'
+        '{"executive_summary":"핵심 요약","top_insights":["통찰1","통찰2"],'
+        '"strengths":["강점1"],"weaknesses":["약점1"],"hidden_risks":["위험1"],'
+        '"overfitting_analysis":"과최적화 서술","strategy_profile_note":"성향 서술",'
+        '"final_verdict":"최종 평가"}'
+    )
+    parsed = parse_expert_report(text)
+    assert parsed is not None
+    assert parsed["executive_summary"] == "핵심 요약"
+    assert parsed["top_insights"] == ["통찰1", "통찰2"]
+    assert parsed["hidden_risks"] == ["위험1"]
+    assert parsed["final_verdict"] == "최종 평가"
+
+
+def test_parse_expert_report_accepts_key_aliases():
+    text = '{"summary":"요약","topInsights":["a"],"finalVerdict":"평가"}'
+    parsed = parse_expert_report(text)
+    assert parsed is not None
+    assert parsed["executive_summary"] == "요약"
+    assert parsed["top_insights"] == ["a"]
+    assert parsed["final_verdict"] == "평가"
+
+
+def test_parse_expert_report_returns_none_on_junk():
+    assert parse_expert_report("죄송합니다, JSON이 없습니다.") is None
+
+
+def test_parse_expert_report_rejects_prompt_echo():
+    # 프롬프트 지시문을 복창한 출력은 총평으로 노출하지 않는다.
+    text = '{"executive_summary":"작성 규칙: 화면의 숫자를 그대로 다시 읽어주지 마세요"}'
+    assert parse_expert_report(text) is None
+
+
+def test_parse_expert_report_strips_think_block():
+    text = '<think>내부 추론</think>{"executive_summary":"요약만"}'
+    parsed = parse_expert_report(text)
+    assert parsed is not None and parsed["executive_summary"] == "요약만"
+
+
+def test_build_expert_report_prompt_states_core_principles():
+    prompt = build_expert_report_prompt(
+        {"metrics": {"cagr": 12.0}},
+        evidence={"facts": ["성과가 특정 국면에 집중되었습니다."], "signals": {}},
+        profile_tags=["평균회귀형", "고회전"],
+    )
+    # 숫자 반복 금지·근거 필수·검증 중심·추천 금지 원칙이 명시돼야 한다.
+    assert "숫자가 아니라" in prompt or "그대로 다시 읽어주지 마세요" in prompt
+    assert "검증" in prompt
+    assert "추천" in prompt
+    # evidence·성향이 프롬프트에 주입된다.
+    assert "성과가 특정 국면에 집중" in prompt
+    assert "평균회귀형" in prompt
+    # 10섹션 서술 키가 출력 형식에 포함된다.
+    assert "executive_summary" in prompt and "final_verdict" in prompt
