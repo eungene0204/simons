@@ -63,9 +63,17 @@ describe("BacktestHistoryPage", () => {
     window.sessionStorage.clear();
   });
 
-  it("API 응답 전에는 이전 기록을 보여주지 않고 로딩 상태만 노출한다", () => {
-    // 이전 세션 캐시가 남아 있어도 절대 렌더에 반영하지 않는다 (오래된 카드 깜빡임 방지).
+  it("세션 캐시가 있으면 API 응답 전에도 즉시 캐시된 기록을 보여준다 (stale-while-revalidate)", () => {
     window.sessionStorage.setItem("simons.backtestHistory", JSON.stringify([makeHistoryItem()]));
+    fetchMock.mockReturnValue(new Promise(() => {}));
+
+    render(<BacktestHistoryPage />);
+
+    expect(screen.getByText("모멘텀 전략")).toBeInTheDocument();
+    expect(screen.queryByText("불러오는 중...")).not.toBeInTheDocument();
+  });
+
+  it("캐시 없이 API 응답을 기다릴 때는 로딩 상태만 노출한다", () => {
     fetchMock.mockReturnValue(new Promise(() => {}));
 
     render(<BacktestHistoryPage />);
@@ -73,6 +81,42 @@ describe("BacktestHistoryPage", () => {
     expect(screen.getByText("불러오는 중...")).toBeInTheDocument();
     expect(screen.queryByText("모멘텀 전략")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "전략 만들기" })).not.toBeInTheDocument();
+  });
+
+  it("최신 응답이 캐시와 다르면 목록을 최신값으로 교체하고 캐시를 갱신한다", async () => {
+    const cachedItem = makeHistoryItem({ id: "history-1", strategyName: "모멘텀 전략" });
+    const freshItem = makeHistoryItem({ id: "history-2", strategyName: "가치 전략" });
+    window.sessionStorage.setItem("simons.backtestHistory", JSON.stringify([cachedItem]));
+    fetchMock.mockResolvedValue({ ok: true, json: async () => [freshItem] });
+
+    render(<BacktestHistoryPage />);
+
+    expect(screen.getByText("모멘텀 전략")).toBeInTheDocument();
+
+    await screen.findByText("가치 전략");
+    expect(screen.queryByText("모멘텀 전략")).not.toBeInTheDocument();
+    expect(window.sessionStorage.getItem("simons.backtestHistory")).toBe(
+      JSON.stringify([freshItem])
+    );
+  });
+
+  it("최신 응답이 캐시와 같으면 세션 캐시를 다시 쓰지 않는다", async () => {
+    const cachedItem = makeHistoryItem();
+    window.sessionStorage.setItem("simons.backtestHistory", JSON.stringify([cachedItem]));
+    fetchMock.mockResolvedValue({ ok: true, json: async () => [cachedItem] });
+    const setItemSpy = vi.spyOn(Storage.prototype, "setItem");
+
+    render(<BacktestHistoryPage />);
+
+    expect(screen.getByText("모멘텀 전략")).toBeInTheDocument();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(setItemSpy).not.toHaveBeenCalledWith(
+      "simons.backtestHistory",
+      expect.any(String)
+    );
+    setItemSpy.mockRestore();
   });
 
   it("저장된 백테스트가 없으면 empty state와 전략 생성 CTA를 보여준다", async () => {
@@ -118,6 +162,27 @@ describe("BacktestHistoryPage", () => {
       "lg:opacity-0",
       "lg:group-hover:opacity-100"
     );
+  });
+
+  it("전략 카드를 클릭하면 로딩 인디케이터를 보여주고 상세 페이지로 이동한다", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => [makeHistoryItem()],
+    });
+
+    render(<BacktestHistoryPage />);
+
+    const card = await screen.findByTestId("backtest-history-card");
+    expect(screen.queryByTestId("backtest-history-card-loading")).not.toBeInTheDocument();
+
+    fireEvent.click(card);
+
+    expect(screen.getByTestId("backtest-history-card-loading")).toBeInTheDocument();
+    expect(push).toHaveBeenCalledWith("/backtest/history-1");
+    expect(push).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(card);
+    expect(push).toHaveBeenCalledTimes(1);
   });
 
   it("전략 카드 삭제 전에 확인 모달을 보여주고 확인 후 삭제한다", async () => {

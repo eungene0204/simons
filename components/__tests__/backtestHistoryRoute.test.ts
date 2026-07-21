@@ -32,10 +32,15 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
+class FakeUnauthorizedAccessError extends Error {}
+
 let currentUserId: number | null = null;
+const mockAssertActiveUser = vi.fn(() => Promise.resolve());
 vi.mock("@/lib/get-user", () => ({
   getOwnershipContext: () => Promise.resolve({ userId: currentUserId }),
-  isUnauthorizedAccessError: () => false,
+  getSessionUserId: () => Promise.resolve(currentUserId),
+  assertActiveUser: (...args: unknown[]) => mockAssertActiveUser(...args),
+  isUnauthorizedAccessError: (error: unknown) => error instanceof FakeUnauthorizedAccessError,
 }));
 
 const { GET, POST, DELETE } = await import("@/app/api/backtest/history/route");
@@ -296,6 +301,32 @@ describe("GET /api/backtest/history", () => {
       },
     });
     expect(userLinkFindMany).not.toHaveBeenCalled();
+  });
+
+  it("로그인 사용자의 계정이 비활성 상태면 401을 반환한다", async () => {
+    currentUserId = 7;
+    userLinkFindMany.mockResolvedValue([]);
+    mockAssertActiveUser.mockImplementationOnce(() =>
+      Promise.reject(new FakeUnauthorizedAccessError("inactive"))
+    );
+
+    const response = await GET();
+
+    expect(response.status).toBe(401);
+  });
+
+  it("비인증 + 프로덕션 환경이면 레거시 폴백 없이 401을 반환한다", async () => {
+    currentUserId = null;
+    vi.stubEnv("NODE_ENV", "production");
+
+    try {
+      const response = await GET();
+
+      expect(response.status).toBe(401);
+      expect(mockFindMany).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 

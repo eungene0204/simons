@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
+  assertActiveUser,
   getOwnershipContext,
+  getSessionUserId,
   isUnauthorizedAccessError,
 } from "@/lib/get-user";
 import { isPlaceholderStrategyName } from "@/lib/server/backtestCache";
@@ -43,11 +45,15 @@ function formatListItem(item: any) {
 
 // 저장 목록: 로그인 사용자가 자신의 목록에 담은 기록만 반환한다(UserBacktestHistory 조인).
 // 비인증/테스트(userId=null)는 레거시 전역(isVisible) 조회로 폴백한다.
+// 원격 DB 왕복을 줄이기 위해 토큰은 DB 없이 해석하고 상태 검증과 조회를 병렬로 실행한다.
 export async function GET() {
   try {
-    const { userId } = await getOwnershipContext();
+    const userId = await getSessionUserId();
 
     if (userId == null) {
+      if (process.env.NODE_ENV !== "test") {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
       const history = await prisma.backtestHistory.findMany({
         where: { isVisible: true },
         orderBy: { createdAt: "desc" },
@@ -57,12 +63,15 @@ export async function GET() {
       return NextResponse.json(history.map(formatListItem));
     }
 
-    const links = await prisma.userBacktestHistory.findMany({
-      where: { userId },
-      orderBy: { savedAt: "desc" },
-      take: 50,
-      select: { BacktestHistory: { select: LIST_SELECT } },
-    });
+    const [, links] = await Promise.all([
+      assertActiveUser(userId),
+      prisma.userBacktestHistory.findMany({
+        where: { userId },
+        orderBy: { savedAt: "desc" },
+        take: 50,
+        select: { BacktestHistory: { select: LIST_SELECT } },
+      }),
+    ]);
     return NextResponse.json(
       links.map((link) => formatListItem(link.BacktestHistory))
     );

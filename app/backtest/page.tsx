@@ -8,11 +8,37 @@ import { BacktestHistoryItem } from "@/types/strategy";
 import { resolveUniverseDisplayName } from "@/lib/strategy-summary";
 import {
   Clock,
+  Spinner,
   Trash,
   X,
 } from "phosphor-react";
 
 type SortField = 'timestamp' | 'totalReturn' | 'cagr' | 'mdd' | 'profitFactor' | 'trades' | 'score';
+const HISTORY_CACHE_KEY = "simons.backtestHistory";
+
+function readCachedHistory(): BacktestHistoryItem[] | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.sessionStorage.getItem(HISTORY_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    return parsed as BacktestHistoryItem[];
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedHistory(nextHistory: BacktestHistoryItem[]) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.sessionStorage.setItem(HISTORY_CACHE_KEY, JSON.stringify(nextHistory));
+  } catch {
+    // Cache writes are best effort only.
+  }
+}
 
 function HistoryMetric({
   label,
@@ -37,17 +63,33 @@ export default function BacktestHistoryPage() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [deleteTarget, setDeleteTarget] = useState<BacktestHistoryItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [navigatingId, setNavigatingId] = useState<string | null>(null);
   const strategyBadgeClass =
     "inline-flex min-h-7 max-w-full items-center break-words rounded-md border border-[#FF9933]/25 bg-[#1C1806] px-2.5 text-[11px] whitespace-normal lg:max-w-none lg:break-normal lg:whitespace-nowrap";
 
   useEffect(() => {
     let isActive = true;
 
+    // Stale-while-revalidate: 캐시가 있으면 즉시 그려서 로딩을 건너뛰고,
+    // 백그라운드로 최신 데이터를 받아 실제로 달라진 경우에만 교체한다.
+    // 값이 같으면 setState를 하지 않으므로 카드가 깜빡이지 않는다.
+    const cachedHistory = readCachedHistory();
+    let shownHistoryJson: string | null = null;
+    if (cachedHistory) {
+      shownHistoryJson = JSON.stringify(cachedHistory);
+      setHistory(cachedHistory);
+      setIsLoading(false);
+    }
+
     fetch("/api/backtest/history")
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => {
         if (!isActive) return;
-        setHistory(data);
+        const dataJson = JSON.stringify(data);
+        if (dataJson !== shownHistoryJson) {
+          setHistory(data);
+          writeCachedHistory(data);
+        }
         setIsLoading(false);
       })
       .catch(() => {
@@ -80,7 +122,11 @@ export default function BacktestHistoryPage() {
         method: "DELETE",
       });
       if (response.ok) {
-        setHistory((prev) => prev.filter((item) => item.id !== id));
+        setHistory((prev) => {
+          const nextHistory = prev.filter((item) => item.id !== id);
+          writeCachedHistory(nextHistory);
+          return nextHistory;
+        });
         setDeleteTarget(null);
       }
     } catch (error) {
@@ -212,10 +258,22 @@ export default function BacktestHistoryPage() {
             {sortedHistory.map((item) => (
               <div
                 key={item.id}
-                onClick={() => router.push(`/backtest/${item.id}`)}
-                className="flat-card group cursor-pointer rounded-2xl border border-white/[0.08] p-4 transition-colors hover:border-white/[0.14] lg:p-5"
+                onClick={() => {
+                  if (navigatingId) return;
+                  setNavigatingId(item.id);
+                  router.push(`/backtest/${item.id}`);
+                }}
+                className="flat-card group relative cursor-pointer rounded-2xl border border-white/[0.08] p-4 transition-colors hover:border-white/[0.14] lg:p-5"
                 data-testid="backtest-history-card"
               >
+                {navigatingId === item.id && (
+                  <div
+                    className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-black/60"
+                    data-testid="backtest-history-card-loading"
+                  >
+                    <Spinner size={28} className="animate-spin text-white" aria-hidden="true" />
+                  </div>
+                )}
                 <div
                   className="mb-4 flex flex-col items-start gap-3 lg:flex-row lg:justify-between lg:gap-0"
                   data-testid="backtest-history-card-header"
