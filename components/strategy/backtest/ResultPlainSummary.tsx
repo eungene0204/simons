@@ -12,12 +12,19 @@ interface WalkForwardPlainSummaryInput {
 interface MonteCarloPlainSummaryInput {
   nIterations: number;
   mode: "returns" | "trades";
+  blockSize?: number;
   tradeCount?: number;
   /** 값 단위는 비율 (예: median = 0.123 → 12.3%) */
   cagr: { median: number; p05: number };
   mdd: { p95: number };
   probPositiveCagr: number;
   probMddOver30pct: number;
+  /** 실제 백테스트(원래 순서) 지표의 분포 내 위치. 구버전 저장 결과에는 없을 수 있다. */
+  observed?: { cagr: number; cagrPct: number };
+  /** 낙폭 지속(회복까지) 스텝 분포 — returns=거래일, trades=거래. 구버전엔 없을 수 있다. */
+  underwater?: { median: number; p95: number };
+  /** 표본 충분성. 구버전엔 없을 수 있다. */
+  sufficiency?: { effectiveSamples: number; low: boolean };
 }
 
 const asNumber = (value: unknown): number | null => {
@@ -108,6 +115,32 @@ export function buildMonteCarloPlainSummary(result: MonteCarloPlainSummaryInput)
   }
   items.push(mddSentence);
 
+  if (result.observed) {
+    const topPct = Math.round((1 - result.observed.cagrPct) * 100);
+    items.push(
+      `재표본하지 않은 실제 백테스트 순서의 연평균 수익률은 ${ratioPct(result.observed.cagr)}로, 전체 시나리오 중 상위 ${topPct}%에 해당했습니다. 실제 결과가 분포 상단에 치우쳐 있을수록, 이 성과가 특정 거래·시장 순서에 우연히 의존했을 가능성이 있습니다.`
+    );
+  }
+
+  if (result.underwater) {
+    const unit = result.mode === "trades" ? "거래" : "거래일";
+    items.push(
+      `한 번 손실을 본 뒤 다시 고점을 회복하기까지 가장 오래 걸린 구간은, 시나리오 중앙값으로 약 ${Math.round(result.underwater.median)}${unit}, 회복이 더딘 편(상위 5%)에서는 약 ${Math.round(result.underwater.p95)}${unit}였습니다.`
+    );
+  }
+
+  if (result.mode === "returns" && result.blockSize !== undefined && result.blockSize <= 1) {
+    items.push(
+      "이 방식(일별 독립 재표본)은 각 날짜를 서로 무관하게 뽑기 때문에, 며칠씩 이어지는 연속된 시장 흐름(자기상관·변동성 군집·추세)은 반영되지 않습니다. 연속성을 함께 보려면 N일 블록이나 가변 블록 방식을 사용하세요."
+    );
+  }
+
+  if (result.sufficiency?.low) {
+    items.push(
+      `재표본에 쓰인 독립 단위가 약 ${Math.round(result.sufficiency.effectiveSamples)}개로 많지 않아, 이 분포는 참고용으로 보는 것이 적절합니다. 더 긴 기간이나 더 많은 거래가 쌓일수록 추정이 안정됩니다.`
+    );
+  }
+
   return items;
 }
 
@@ -115,7 +148,7 @@ export default function ResultPlainSummary({ items }: { items: string[] }) {
   if (items.length === 0) return null;
 
   return (
-    <div data-testid="result-plain-summary" className="rounded-xl border border-white/[0.08] p-4">
+    <div data-testid="result-plain-summary">
       <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">쉽게 이해하기</p>
       <ul className="mt-3 space-y-2">
         {items.map((item, index) => (

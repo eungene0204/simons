@@ -217,6 +217,10 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
     expect(screen.queryByText("Premium Validation")).not.toBeInTheDocument();
     expect(screen.queryByText("결과는 과거 데이터 기반 시뮬레이션이며 미래 성과를 보장하지 않습니다.")).not.toBeInTheDocument();
     expect(screen.getByText(/백테스트 결과를 여러 방식으로 다시 섞어 보며/)).toBeInTheDocument();
+    // 검증 대상 전략의 조건(PBR 등)을 몬테카를로 화면에 노출한다.
+    expect(screen.getByTestId("optimization-strategy-summary")).toBeInTheDocument();
+    expect(screen.getByText("PBR <= 1")).toBeInTheDocument();
+    expect(screen.getByText("검증 대상 전략")).toBeInTheDocument();
     expect(screen.queryByText(/백테스트 equity curve의 일별 수익률/)).not.toBeInTheDocument();
     expect(screen.queryByText(/블록 방식은 여러 날을 이어 뽑아/)).not.toBeInTheDocument();
     expect(screen.getByText("21거래일 단위로 수익률 흐름을 다시 조합해, 며칠간 이어지는 상승과 하락 패턴도 함께 살펴봅니다.")).toBeInTheDocument();
@@ -238,7 +242,10 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
       // 결과 하단에 일상 언어 "쉽게 이해하기" 섹션이 표시된다
       const plainSummary = screen.getByTestId("result-plain-summary");
       expect(plainSummary).toBeInTheDocument();
-      expect(plainSummary).toHaveClass("border-white/[0.08]");
+      expect(plainSummary).not.toHaveClass("rounded-xl");
+      expect(plainSummary).not.toHaveClass("border");
+      expect(plainSummary).not.toHaveClass("border-white/[0.08]");
+      expect(plainSummary).not.toHaveClass("p-4");
       expect(plainSummary).not.toHaveClass("bg-sky-500/[0.05]");
       expect(screen.getByText("쉽게 이해하기")).toHaveClass("text-gray-500");
       expect(screen.getByText(/일별 수익률을 무작위로 다시 섞어/)).toBeInTheDocument();

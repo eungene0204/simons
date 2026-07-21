@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildMonteCarloHistogram,
   extractTradeReturns,
+  formatMonteCarloMethodLabel,
+  recommendMonteCarloMethod,
   runMonteCarloSimulation,
 } from "./OptimizationPage";
 
@@ -68,6 +70,18 @@ describe("runMonteCarloSimulation", () => {
     expect(mddTotal).toBe(result.nIterations);
   });
 
+  it("실제 백테스트(원래 순서) 지표의 분포 내 위치를 제공한다", async () => {
+    const result = await runMonteCarloSimulation(buildResult(300), settings);
+    expect(result.status).toBe("ok");
+    expect(result.observed).toBeDefined();
+    expect(Number.isFinite(result.observed.cagr)).toBe(true);
+    expect(result.observed.mdd).toBeGreaterThanOrEqual(0);
+    expect(result.observed.cagrPct).toBeGreaterThanOrEqual(0);
+    expect(result.observed.cagrPct).toBeLessThanOrEqual(1);
+    expect(result.observed.mddPct).toBeGreaterThanOrEqual(0);
+    expect(result.observed.mddPct).toBeLessThanOrEqual(1);
+  });
+
   it("blockSize 1(일별 독립 재표본)도 동작한다", async () => {
     const result = await runMonteCarloSimulation(buildResult(300), {
       ...settings,
@@ -75,6 +89,33 @@ describe("runMonteCarloSimulation", () => {
     });
     expect(result.status).toBe("ok");
     expect(result.blockSize).toBe(1);
+  });
+
+  it("가변 블록(stationary) 방식이 동작하고 같은 seed로 재현된다", async () => {
+    const stationarySettings = { ...settings, blockMethod: "stationary" as const, blockSize: 10 };
+    const first = await runMonteCarloSimulation(buildResult(300), stationarySettings);
+    const second = await runMonteCarloSimulation(buildResult(300), stationarySettings);
+    expect(first.status).toBe("ok");
+    expect(first.blockMethod).toBe("stationary");
+    expect(first.cagr).toEqual(second.cagr);
+    expect(first.mdd).toEqual(second.mdd);
+  });
+
+  it("낙폭 지속(underwater)과 표본 충분성 지표를 제공한다", async () => {
+    const result = await runMonteCarloSimulation(buildResult(300), settings);
+    expect(result.status).toBe("ok");
+    expect(result.underwater).toBeDefined();
+    expect(result.underwater.median).toBeGreaterThanOrEqual(0);
+    expect(result.sufficiency).toBeDefined();
+    expect(result.sufficiency.effectiveSamples).toBeGreaterThan(0);
+    expect(typeof result.sufficiency.low).toBe("boolean");
+  });
+
+  it("실행 파라미터(seed 포함)를 결과에 담아 화면 표시에 쓸 수 있다", async () => {
+    const result = await runMonteCarloSimulation(buildResult(300), { ...settings, seed: 7 });
+    expect(result.status).toBe("ok");
+    expect(result.seed).toBe(7);
+    expect(result.nIterations).toBe(settings.iterations);
   });
 
   it("같은 seed는 같은 분포를 재현한다", async () => {
@@ -112,6 +153,31 @@ describe("runMonteCarloSimulation", () => {
   });
 });
 
+describe("formatMonteCarloMethodLabel", () => {
+  it("결과 필드에서 방식 라벨을 만든다", () => {
+    expect(formatMonteCarloMethodLabel({ mode: "returns", blockSize: 1 })).toBe("일별 재표본");
+    expect(formatMonteCarloMethodLabel({ mode: "returns", blockSize: 21 })).toBe("21일 블록");
+    expect(
+      formatMonteCarloMethodLabel({ mode: "returns", blockMethod: "stationary", blockSize: 10 })
+    ).toBe("평균 10일 가변 블록");
+    expect(formatMonteCarloMethodLabel({ mode: "trades", blockSize: 21 })).toBe("거래 재표본");
+  });
+});
+
+describe("recommendMonteCarloMethod", () => {
+  it("평균 보유기간이 없으면 추천하지 않는다", () => {
+    expect(recommendMonteCarloMethod({})).toBeNull();
+    expect(recommendMonteCarloMethod({ avgHoldingDays: 0 })).toBeNull();
+  });
+
+  it("평균 보유기간에 따라 블록 길이를 추천한다", () => {
+    expect(recommendMonteCarloMethod({ avgHoldingDays: 1 })?.blockSize).toBe(1);
+    expect(recommendMonteCarloMethod({ avgHoldingDays: 4 })?.blockSize).toBe(5);
+    expect(recommendMonteCarloMethod({ avgHoldingDays: 12 })?.blockSize).toBe(10);
+    expect(recommendMonteCarloMethod({ avgHoldingDays: 30 })?.blockSize).toBe(21);
+  });
+});
+
 describe("buildMonteCarloHistogram", () => {
   it("빈 배열이면 빈 히스토그램을 반환한다", () => {
     expect(buildMonteCarloHistogram([])).toEqual([]);
@@ -134,7 +200,7 @@ describe("buildMonteCarloHistogram", () => {
 });
 
 describe("extractTradeReturns", () => {
-  it("종목별 FIFO 매칭으로 완결 거래 수익률을 추정한다", () => {
+  it("수량·일별 자산이 없으면 가격수익률로 강등하고 sized=false를 반환한다", () => {
     const result = {
       tradesList: [
         { date: "2024-01-02", symbol: "A", type: "buy", price: 100 },
@@ -144,10 +210,28 @@ describe("extractTradeReturns", () => {
         { date: "2024-03-01", symbol: "A", type: "buy", price: 120 }, // 미청산 → 제외
       ],
     };
-    const returns = extractTradeReturns(result);
+    const { returns, sized } = extractTradeReturns(result);
+    expect(sized).toBe(false);
     expect(returns).toHaveLength(2);
     expect(returns[0]).toBeCloseTo(0.1);
     expect(returns[1]).toBeCloseTo(-0.1);
+  });
+
+  it("수량과 진입시점 자산이 있으면 자본 대비 기여도(사이징 반영)를 계산한다", () => {
+    const result = {
+      initialCapital: 1000,
+      equity: [1000, 1000],
+      dates: ["2024-01-02", "2024-02-01"],
+      tradesList: [
+        { date: "2024-01-02", symbol: "A", type: "buy", price: 100, quantity: 2 },
+        { date: "2024-02-01", symbol: "A", type: "sell", price: 110, quantity: 2 },
+      ],
+    };
+    const { returns, sized } = extractTradeReturns(result);
+    expect(sized).toBe(true);
+    expect(returns).toHaveLength(1);
+    // 가격수익률은 0.1이지만, 자본 1000 중 200만 투입 → 기여도 = 20/1000 = 0.02
+    expect(returns[0]).toBeCloseTo(0.02);
   });
 
   it("tradesList가 없으면 signals(entry/exit)로 폴백한다", () => {
@@ -158,7 +242,8 @@ describe("extractTradeReturns", () => {
         { date: "2024-02-01", symbol: "A", type: "exit", condition: "y", price: 105 },
       ],
     };
-    const returns = extractTradeReturns(result);
+    const { returns, sized } = extractTradeReturns(result);
+    expect(sized).toBe(false);
     expect(returns).toHaveLength(1);
     expect(returns[0]).toBeCloseTo(0.05);
   });
@@ -186,6 +271,8 @@ describe("runMonteCarloSimulation — 거래 재표본 모드", () => {
     expect(result.status).toBe("ok");
     expect(result.mode).toBe("trades");
     expect(result.tradeCount).toBe(40);
+    expect(result.tradeSizing).toBe("equity-weighted");
+    expect(result.observed).toBeDefined();
     expect(result.cagrHistogram.reduce((sum, bin) => sum + bin.count, 0)).toBe(result.nIterations);
     expect(result.mdd.min).toBeGreaterThanOrEqual(0);
     expect(result.cagr.min).toBeLessThanOrEqual(result.cagr.max);

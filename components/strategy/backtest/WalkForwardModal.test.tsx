@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import WalkForwardModal from "./WalkForwardModal";
+import WalkForwardModal, { WalkForwardPanel } from "./WalkForwardModal";
 
 function buildDates(length: number) {
   return Array.from({ length }, (_, index) => {
@@ -96,8 +96,8 @@ describe("WalkForwardModal", () => {
     expect(screen.queryByText("CAGR")).not.toBeInTheDocument();
     expect(screen.getByLabelText("베이지안 최적화 시도 횟수 도움말")).toBeInTheDocument();
     expect(screen.getByText(/파라미터 조합을 몇 번 탐색할지/)).toBeInTheDocument();
-    expect(screen.getByLabelText("IS 창 방식 도움말")).toBeInTheDocument();
-    expect(screen.getByText(/IS\(In-Sample\)는 파라미터를 맞추는 학습 구간/)).toBeInTheDocument();
+    expect(screen.getByLabelText("학습 창 방식 도움말")).toBeInTheDocument();
+    expect(screen.getByText(/학습 구간은 파라미터를 맞추는 구간/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "30회" })).toHaveClass("rounded-md");
     expect(screen.getByRole("button", { name: "롤링" })).toHaveClass("rounded-md");
     const timeline = screen.getByTestId("walk-forward-period-timeline");
@@ -116,30 +116,10 @@ describe("WalkForwardModal", () => {
     });
     expect(screen.queryByTestId("walk-forward-timeline-train-dates")).not.toBeInTheDocument();
     expect(screen.queryByTestId("walk-forward-timeline-validation-dates")).not.toBeInTheDocument();
-    const trainAxisDates = screen.getByTestId("walk-forward-timeline-axis-train-dates");
-    const validationAxisDates = screen.getByTestId("walk-forward-timeline-axis-validation-dates");
-    expect(trainAxisDates).toHaveTextContent(
-      "2024.01.01 - 2024.03.24"
-    );
-    expect(trainAxisDates).not.toHaveTextContent("학습기간");
-    expect(trainAxisDates).toHaveClass("text-gray-500");
-    expect(trainAxisDates).toHaveStyle({
-      left: "17.364016736401673%",
-    });
-    expect(validationAxisDates).toHaveTextContent(
-      "2024.03.25 - 2024.04.21"
-    );
-    expect(validationAxisDates).not.toHaveTextContent("검증기간");
-    expect(validationAxisDates).toHaveClass("text-gray-500");
-    expect(validationAxisDates).toHaveStyle({
-      left: "40.79497907949791%",
-    });
-    expect(trainAxisDates.parentElement).not.toBe(validationAxisDates.parentElement);
-    expect(trainAxisDates.parentElement).toHaveClass("h-5");
-    expect(validationAxisDates.parentElement).toHaveClass("h-5");
+    expect(screen.queryByTestId("walk-forward-timeline-axis-train-dates")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("walk-forward-timeline-axis-validation-dates")).not.toBeInTheDocument();
     expect(screen.queryByTestId("walk-forward-timeline-axis-train-range")).not.toBeInTheDocument();
     expect(screen.queryByTestId("walk-forward-timeline-axis-validation-range")).not.toBeInTheDocument();
-    expect(validationAxisDates).toHaveClass("top-0");
     expect(within(timeline).queryByText("2024.08.27")).not.toBeInTheDocument();
 
     const user = userEvent.setup();
@@ -341,6 +321,43 @@ describe("WalkForwardModal", () => {
     expect(screen.getByRole("button", { name: "워크포워드 분석 시작" })).not.toBeDisabled();
   });
 
+  it("검증기간 평균 성과의 음수 지표를 파란색으로 표시한다", async () => {
+    await act(async () => {
+      render(
+        <WalkForwardPanel
+          onRun={vi.fn()}
+          backtestDates={buildDates(240)}
+          loadedResult={{
+            status: "ok",
+            n_splits: 2,
+            anchor: false,
+            target_metric: "cagr",
+            windows: [],
+            aggregate: {
+              avg_oos_cagr: 37.47,
+              avg_oos_maxDrawdown: -13.59,
+            },
+            combined_equity: [1, 1.05],
+            combined_dates: ["2024-07-01", "2024-07-02"],
+            walk_forward_efficiency: 0,
+          }}
+        />
+      );
+    });
+
+    expect(await screen.findByText("검증기간 평균 성과")).toBeInTheDocument();
+    expect(screen.queryByText("OOS 평균 성과")).not.toBeInTheDocument();
+    expect(screen.queryByText("연속 검증 에퀴티 커브")).not.toBeInTheDocument();
+    expect(screen.getByText("-13.59%")).toHaveClass("text-[var(--main-blue)]");
+    expect(screen.getByText("37.47%")).toHaveClass("text-[var(--main-red)]");
+    for (const label of ["학습 기간", "검증 기간", "학습 CAGR", "검증 CAGR", "검증 MDD", "검증 승률"]) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    }
+    for (const label of ["IS 기간", "OOS 기간", "IS CAGR", "OOS CAGR", "OOS MDD", "OOS 승률"]) {
+      expect(screen.queryByText(label)).not.toBeInTheDocument();
+    }
+  });
+
   it("그리드 탐색 실행 시 onRun에 method: grid를 전달한다", async () => {
     const onRun = vi.fn().mockResolvedValue({
       status: "ok",
@@ -447,7 +464,7 @@ describe("WalkForwardModal", () => {
 
     const onRun = vi.fn().mockResolvedValue({
       status: "ok",
-      n_splits: 1,
+      n_splits: 2,
       anchor: false,
       target_metric: "cagr",
       windows: [
@@ -461,9 +478,27 @@ describe("WalkForwardModal", () => {
             "risk.max_positions": 4,
             "entry.conditions.0.params.shortMA": 7,
             "entry.conditions.0.params.longMA": 23,
+            "legacy.unused_parameter": 99,
           },
           is_metrics: { cagr: 10 },
           oos_metrics: { cagr: 5, maxDrawdown: -8, winRate: 0.5 },
+          oos_equity: [],
+          oos_dates: [],
+        },
+        {
+          window: 2,
+          is_period: "2024-04-01 ~ 2024-09-30",
+          oos_period: "2024-10-01 ~ 2024-12-31",
+          best_params: {
+            "risk.stop_loss_pct": 7.2,
+            "risk.max_holding_days": 12,
+            "risk.max_positions": 4,
+            "entry.conditions.0.params.shortMA": 7,
+            "entry.conditions.0.params.longMA": 20,
+            "legacy.unused_parameter": 101,
+          },
+          is_metrics: { cagr: 11 },
+          oos_metrics: { cagr: 6, maxDrawdown: -7, winRate: 0.55 },
           oos_equity: [],
           oos_dates: [],
         },
@@ -492,11 +527,42 @@ describe("WalkForwardModal", () => {
       expect(screen.getByText("구간별 최적 파라미터")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("손절라인")).toBeInTheDocument();
-    expect(screen.getByText("보유기간")).toBeInTheDocument();
-    expect(screen.getByText("보유종목수")).toBeInTheDocument();
-    expect(screen.getByText("이동평균 단기")).toBeInTheDocument();
-    expect(screen.getByText("이동평균 장기")).toBeInTheDocument();
+    const table = screen.getByTestId("walk-forward-optimal-parameters-table");
+    expect(within(table).getByRole("columnheader", { name: "Walk" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "학습 기간" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "검증 기간" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "최적 손절라인" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "최적 보유기간" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "최적 보유종목수" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "최적 이동평균 단기" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "최적 이동평균 장기" })).toBeInTheDocument();
+    expect(within(table).queryByRole("columnheader", { name: "검증 CAGR" })).not.toBeInTheDocument();
+    expect(within(table).queryByRole("columnheader", { name: /UNUSED_PARAMETER/ })).not.toBeInTheDocument();
+    expect(within(table).queryByText("99")).not.toBeInTheDocument();
+    expect(within(table).getAllByRole("row")).toHaveLength(3);
+    expect(within(table).getByText("6.8")).toBeInTheDocument();
+    expect(within(table).getByText("2024-01-01 ~ 2024-06-30")).toBeInTheDocument();
+    expect(within(table).getByText("2024-07-01 ~ 2024-09-30")).toBeInTheDocument();
+
+    const analysisSection = screen.getByRole("region", { name: "워크포워드 파라미터 분석" });
+    expect(within(analysisSection).queryByText("추천값")).not.toBeInTheDocument();
+    expect(within(analysisSection).getByLabelText("워크포워드 파라미터 분석 도움말")).toBeInTheDocument();
+    const analysisTooltip = within(analysisSection).getByRole("tooltip");
+    expect(within(analysisTooltip).getByText("파라미터 분석 산정 기준")).toBeInTheDocument();
+    expect(within(analysisTooltip).getByText(/대표값은 구간별 최적값의 중앙값/)).toBeInTheDocument();
+    expect(within(analysisTooltip).getByText(/별점은 구간별 값의 일관성만 나타냅니다/)).toBeInTheDocument();
+    expect(within(analysisTooltip).queryByText(/전략의 우수성이나 미래 성과/)).not.toBeInTheDocument();
+    const stopLossAnalysis = within(analysisSection).getByTestId(
+      "walk-forward-parameter-analysis-risk.stop_loss_pct"
+    );
+    expect(within(stopLossAnalysis).getByRole("heading", { name: "손절라인" })).toBeInTheDocument();
+    expect(within(stopLossAnalysis).getAllByText("7")).toHaveLength(2);
+    expect(within(stopLossAnalysis).getByText("0.2")).toBeInTheDocument();
+    expect(within(stopLossAnalysis).getByText("6.8 ~ 7.2")).toBeInTheDocument();
+    expect(within(stopLossAnalysis).getByLabelText("안정성 5점")).toHaveTextContent("★★★★★");
+    expect(within(analysisSection).queryByTestId(
+      "walk-forward-parameter-analysis-legacy.unused_parameter"
+    )).not.toBeInTheDocument();
 
     expect(screen.queryByText("STOP_LOSS_PCT")).not.toBeInTheDocument();
     expect(screen.queryByText("MAX_HOLDING_DAYS")).not.toBeInTheDocument();
@@ -587,6 +653,31 @@ describe("WalkForwardModal", () => {
     expect(
       screen.getByText(/시간이 오래 걸리는 작업입니다/)
     ).toBeInTheDocument();
+    expect(screen.queryByTestId("walk-forward-run-blocked-reason")).not.toBeInTheDocument();
+  });
+
+  it("실행 조건이 충족되지 않으면 예상 소요 시간 영역에 원인을 표시한다", async () => {
+    await act(async () => {
+      render(
+        <WalkForwardPanel
+          onRun={vi.fn()}
+          canRun={false}
+          disabledReason="이 백테스트 결과에는 워크포워드 분석에 필요한 전략 설정이 저장되어 있지 않습니다."
+          backtestDates={buildDates(240)}
+          baseStrategy={baseStrategy}
+          baseBacktestSeconds={10}
+          optimizationTargets={[{ id: "summary-0", label: "PBR" }]}
+        />
+      );
+    });
+
+    expect(screen.getByRole("button", { name: "워크포워드 분석 시작" })).toBeDisabled();
+    expect(screen.getByText("실행 불가")).toBeInTheDocument();
+    expect(screen.getByText("현재 상태에서는 실행할 수 없습니다.")).toBeInTheDocument();
+    expect(screen.getByTestId("walk-forward-run-blocked-reason")).toHaveTextContent(
+      "충족되지 않은 조건: 이 백테스트 결과에는 워크포워드 분석에 필요한 전략 설정이 저장되어 있지 않습니다."
+    );
+    expect(screen.queryByText(/시간이 오래 걸리는 작업입니다/)).not.toBeInTheDocument();
   });
 
   it("실행 중에는 실측 timing으로 남은 시간(라이브 ETA)을 다시 계산해 보여준다", async () => {

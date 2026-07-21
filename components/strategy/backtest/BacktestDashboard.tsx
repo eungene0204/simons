@@ -1588,6 +1588,7 @@ export default function BacktestDashboard({
             isPremiumValidationEnabled={isPremiumValidationEnabled}
             strategyName={strategySummary?.strategyName}
             promptText={promptText}
+            strategySummary={strategySummary}
             onClose={() => setIsOptimizationPageOpen(false)}
           />
         ) : (
