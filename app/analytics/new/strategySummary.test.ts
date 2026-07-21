@@ -68,6 +68,51 @@ describe("getSignalLabel — 크로스 방향 구체화", () => {
   it("크로스가 아닌 지표는 기존 라벨을 유지한다", () => {
     expect(getSignalLabel({ indicator: "rsi", signal_type: "buy" }, "entry")).toBe("RSI");
   });
+
+  it("RSI 임계값 비교는 operator/value가 있으면 구체적인 임계값을 함께 표기한다", () => {
+    expect(
+      getSignalLabel({ indicator: "rsi", signal_type: "buy", operator: ">=", value: 50 }, "entry")
+    ).toBe("RSI 50 이상");
+    expect(
+      getSignalLabel({ indicator: "rsi", signal_type: "sell", operator: "<=", value: 45 }, "exit")
+    ).toBe("RSI 45 이하");
+    // operator/value가 없으면 기존대로 "RSI"만 노출한다.
+    expect(getSignalLabel({ indicator: "rsi", signal_type: "buy" }, "entry")).toBe("RSI");
+  });
+
+  it("RSI 반등(rebound)은 임계선 재돌파를 상향 반등/하향 반전으로 표기한다", () => {
+    expect(
+      getSignalLabel({ indicator: "rsi", signal_type: "buy", mode: "rebound", value: 30 }, "entry")
+    ).toBe("RSI 30 상향 반등");
+    expect(
+      getSignalLabel({ indicator: "rsi", signal_type: "sell", mode: "rebound", value: 70 }, "exit")
+    ).toBe("RSI 70 하향 반전");
+    // value가 없으면 진입=30 / 청산=70 기본값을 쓴다.
+    expect(getSignalLabel({ indicator: "rsi", mode: "rebound" }, "entry")).toBe("RSI 30 상향 반등");
+    expect(getSignalLabel({ indicator: "rsi", mode: "rebound" }, "exit")).toBe("RSI 70 하향 반전");
+  });
+
+  it("브레이크아웃은 기준 기간에 따라 신고가/고점 돌파로 구체화한다", () => {
+    // 252일(≈52주) → "52주 신고가 돌파" (사용자가 '52주 신고가'를 명시했는데 배지가
+    // 일반 '브레이크아웃'으로만 보이던 문제 보정).
+    expect(
+      getSignalLabel({ indicator: "breakout", signal_type: "buy", lookback_period: 252 }, "entry")
+    ).toBe("52주 신고가 돌파");
+    expect(
+      getSignalLabel({ indicator: "breakout", signal_type: "sell", lookback_period: 252 }, "exit")
+    ).toBe("52주 신저가 이탈");
+    // 그 밖의 N일은 고점 돌파/저점 이탈로 표기한다.
+    expect(
+      getSignalLabel({ indicator: "breakout", signal_type: "buy", lookback_period: 20 }, "entry")
+    ).toBe("20일 고점 돌파");
+    expect(
+      getSignalLabel({ indicator: "breakout", signal_type: "sell", lookback_period: 20 }, "exit")
+    ).toBe("20일 저점 이탈");
+    // 기간 미상이면 일반 라벨을 유지한다.
+    expect(getSignalLabel({ indicator: "breakout", signal_type: "buy" }, "entry")).toBe(
+      "브레이크아웃"
+    );
+  });
 });
 
 describe("hasBuyCriteria", () => {

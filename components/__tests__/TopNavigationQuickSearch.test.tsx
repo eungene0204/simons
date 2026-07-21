@@ -237,7 +237,11 @@ describe("TopNavigation quick search", () => {
 
     expect(homeLink).not.toBeNull();
     expect(homeLink).toContainElement(logoMark);
-    expect(homeLink).toHaveTextContent("OPEN BETA");
+    expect(homeLink).not.toHaveTextContent("OPEN BETA");
+    expect(screen.getAllByText("OPEN BETA")).toHaveLength(2);
+    for (const betaBadge of screen.getAllByText("OPEN BETA")) {
+      expect(betaBadge.closest("a")).toBeNull();
+    }
     expect(sourceImage).toHaveAttribute("href", "/nullStock.png");
     expect(sourceImage).toHaveAttribute(
       "filter",

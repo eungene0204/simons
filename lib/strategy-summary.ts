@@ -8,8 +8,22 @@ export interface ParsedSummary {
   // ETF 유니버스 전용 테마/상품명 필터("반도체", "KODEX 200"). 없으면 null/생략.
   etf_theme?: string | null;
   fundamental_filters: Array<{ metric: string; operator: string; value: number }>;
-  entry_signals: Array<{ indicator: string; signal_type?: string | null; mode?: string | null }>;
-  exit_signals: Array<{ indicator: string; signal_type?: string | null; mode?: string | null }>;
+  entry_signals: Array<{
+    indicator: string;
+    signal_type?: string | null;
+    mode?: string | null;
+    operator?: string | null;
+    value?: number | null;
+    lookback_period?: number | null;
+  }>;
+  exit_signals: Array<{
+    indicator: string;
+    signal_type?: string | null;
+    mode?: string | null;
+    operator?: string | null;
+    value?: number | null;
+    lookback_period?: number | null;
+  }>;
   // 진입 게이트 필터(추세·거래대금·RSI 결합) — 진입 신호와 AND 결합. 빌더 전용, 없으면 생략.
   entry_filters?: Array<{
     indicator: string;
@@ -43,8 +57,8 @@ interface BacktestRequestLike {
 type LegacyStrategySummaryFields = {
   universe?: string | string[] | { id?: string; filters?: Record<string, unknown> };
   fundamental_filters?: Array<{ metric: string; operator: string; value: number }>;
-  entry_signals?: Array<{ indicator: string; signal_type?: string | null; mode?: string | null }>;
-  exit_signals?: Array<{ indicator: string; signal_type?: string | null; mode?: string | null }>;
+  entry_signals?: Array<{ indicator: string; signal_type?: string | null; mode?: string | null; lookback_period?: number | null }>;
+  exit_signals?: Array<{ indicator: string; signal_type?: string | null; mode?: string | null; lookback_period?: number | null }>;
   max_positions?: number | null;
   hold_period_days?: number | null;
   rebalancing_period?: string | null;
@@ -187,6 +201,13 @@ export const INDICATOR_LABELS: Record<string, string> = {
   ai_drop_model: "AI 하락 예측",
 };
 
+const OPERATOR_KO_LABELS: Record<string, string> = {
+  "<": "미만",
+  "<=": "이하",
+  ">": "초과",
+  ">=": "이상",
+};
+
 // 크로스 계열(이동평균/EMA/MACD)은 방향에 따라 골든/데드로 구체화한다.
 // 매수(buy)/진입=상향 돌파=골든크로스, 매도(sell)/청산=하향 돌파=데드크로스.
 const DIRECTIONAL_CROSS_LABELS: Record<string, { golden: string; dead: string }> = {
@@ -196,11 +217,47 @@ const DIRECTIONAL_CROSS_LABELS: Record<string, { golden: string; dead: string }>
 };
 
 export function getSignalLabel(
-  signal: { indicator: string; signal_type?: string | null; mode?: string | null },
+  signal: {
+    indicator: string;
+    signal_type?: string | null;
+    mode?: string | null;
+    operator?: string | null;
+    value?: number | null;
+    lookback_period?: number | null;
+  },
   context: "entry" | "exit"
 ): string {
   if (signal.indicator === "ai_drop_model") {
     return INDICATOR_LABELS.ai_drop_model;
+  }
+
+  // 브레이크아웃은 기준 기간(lookback_period)에 따라 의미가 달라진다 — 252일(≈52주)은 "52주 신고가",
+  // 그 밖의 N일은 "N일 고점 돌파"(매수)/"N일 저점 이탈"(매도)로 구체화한다. 기간 미상이면 일반 라벨.
+  if (signal.indicator === "breakout") {
+    const isDown =
+      signal.signal_type === "sell" || (signal.signal_type == null && context === "exit");
+    const days = signal.lookback_period ?? null;
+    if (days === 252) return isDown ? "52주 신저가 이탈" : "52주 신고가 돌파";
+    if (days != null) return isDown ? `${days}일 저점 이탈` : `${days}일 고점 돌파`;
+    return INDICATOR_LABELS.breakout;
+  }
+
+  // RSI 반등(mode "rebound")은 단순 임계값 비교가 아니라 과매도/과매수 임계선을 '다시 돌파'하는
+  // 크로스오버다(backend/engine/signals.py). 배지가 "RSI"로만 나오면 이 뉘앙스가 사라지므로,
+  // 매수=상향 반등 / 매도=하향 반전으로 임계값과 함께 표기한다. 순수 임계값 비교(mode 없음)는
+  // 기존대로 "RSI"만 노출한다.
+  if (signal.indicator === "rsi" && signal.mode === "rebound") {
+    const isDown =
+      signal.signal_type === "sell" || (signal.signal_type == null && context === "exit");
+    const threshold = signal.value ?? (isDown ? 70 : 30);
+    return isDown ? `RSI ${threshold} 하향 반전` : `RSI ${threshold} 상향 반등`;
+  }
+
+  // 순수 임계값 비교 RSI는 operator/value가 있으면 "RSI 50 이상"처럼 구체적으로 표기한다.
+  // 정보가 없으면(레거시 데이터 등) 기존대로 "RSI"만 노출한다.
+  if (signal.indicator === "rsi" && signal.operator != null && signal.value != null) {
+    const opKr = OPERATOR_KO_LABELS[signal.operator] ?? signal.operator;
+    return `RSI ${signal.value} ${opKr}`;
   }
 
   if (signal.indicator === "ai_model" && (context === "exit" || signal.signal_type === "sell")) {

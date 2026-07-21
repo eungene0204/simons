@@ -221,6 +221,11 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
     expect(screen.getByTestId("optimization-strategy-summary")).toBeInTheDocument();
     expect(screen.getByText("PBR <= 1")).toBeInTheDocument();
     expect(screen.getByText("검증 대상 전략")).toBeInTheDocument();
+    expect(screen.getByText("PBR <= 1")).not.toHaveClass("border");
+    expect(screen.getByText("PBR <= 1")).not.toHaveClass("bg-sky-500/[0.08]");
+    expect(screen.getByText("PBR <= 1")).toHaveClass("text-gray-200");
+    expect(screen.getByText("손절 12%, 익절 30%")).not.toHaveClass("bg-white/[0.05]");
+    expect(screen.getByText("손절 12%, 익절 30%")).toHaveClass("text-gray-200");
     expect(screen.queryByText(/백테스트 equity curve의 일별 수익률/)).not.toBeInTheDocument();
     expect(screen.queryByText(/블록 방식은 여러 날을 이어 뽑아/)).not.toBeInTheDocument();
     expect(screen.getByText("21거래일 단위로 수익률 흐름을 다시 조합해, 며칠간 이어지는 상승과 하락 패턴도 함께 살펴봅니다.")).toBeInTheDocument();
@@ -230,6 +235,9 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
 
     await waitFor(() => {
       expect(screen.getByText("양수 CAGR 확률")).toBeInTheDocument();
+      expect(screen.queryByText("중앙 CAGR")).not.toBeInTheDocument();
+      expect(screen.queryByText("하위 5% CAGR")).not.toBeInTheDocument();
+      expect(screen.queryByText("상위 95% MDD")).not.toBeInTheDocument();
       expect(screen.getByTestId("monte-carlo-result-header")).toHaveClass(
         "flex-col",
         "items-stretch",
@@ -239,6 +247,16 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
       expect(screen.getByText("x축: CAGR 구간")).toBeInTheDocument();
       expect(screen.getByText("x축: MDD 구간")).toBeInTheDocument();
       expect(screen.getAllByText("y축: 시나리오 수")).toHaveLength(2);
+      expect(screen.getByText("실제 CAGR").closest("div.rounded-xl")).toHaveClass(
+        "border-white/[0.08]",
+        "bg-white/[0.03]"
+      );
+      expect(screen.getByText("실제 MDD").closest("div.rounded-xl")).toHaveClass(
+        "border-white/[0.08]",
+        "bg-white/[0.03]"
+      );
+      expect(screen.getByText("실제 CAGR")).toHaveClass("text-gray-500");
+      expect(screen.getByText("실제 MDD")).toHaveClass("text-gray-500");
       // 결과 하단에 일상 언어 "쉽게 이해하기" 섹션이 표시된다
       const plainSummary = screen.getByTestId("result-plain-summary");
       expect(plainSummary).toBeInTheDocument();

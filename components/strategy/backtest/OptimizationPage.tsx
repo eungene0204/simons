@@ -649,15 +649,9 @@ export function formatMonteCarloMethodLabel(
   return `${result.blockSize}일 블록`;
 }
 
-function SummaryChip({ children, tone = "default" }: { children: ReactNode; tone?: "default" | "entry" | "exit" }) {
-  const toneClass =
-    tone === "entry"
-      ? "border-sky-400/25 bg-sky-500/[0.08] text-sky-100"
-      : tone === "exit"
-        ? "border-amber-400/25 bg-amber-500/[0.08] text-amber-100"
-        : "border-white/10 bg-white/[0.05] text-gray-200";
+function SummaryChip({ children }: { children: ReactNode }) {
   return (
-    <span className={`inline-flex items-center rounded-lg border px-2.5 py-1 text-xs font-bold ${toneClass}`}>
+    <span className="inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-bold text-gray-200">
       {children}
     </span>
   );
@@ -705,7 +699,7 @@ function StrategyConditionSummary({
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           <span className="text-[11px] font-black text-gray-500">진입 신호</span>
           {entryBlocks.map((block, index) => (
-            <SummaryChip key={`entry-${index}`} tone="entry">
+            <SummaryChip key={`entry-${index}`}>
               {block}
             </SummaryChip>
           ))}
@@ -716,7 +710,7 @@ function StrategyConditionSummary({
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           <span className="text-[11px] font-black text-gray-500">청산</span>
           {exitBlocks.map((block, index) => (
-            <SummaryChip key={`exit-${index}`} tone="exit">
+            <SummaryChip key={`exit-${index}`}>
               {block}
             </SummaryChip>
           ))}
@@ -1177,7 +1171,7 @@ export default function OptimizationPage({
                           }))
                         }
                         title={monteCarloRecommendation.reason}
-                        className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-sky-400/30 bg-sky-500/10 px-2.5 py-1 text-[11px] font-black text-sky-200 transition-colors hover:bg-sky-500/20"
+                        className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-sky-400/30 px-2.5 py-1 text-[11px] font-black transition-colors"
                       >
                         추천 방식: {monteCarloRecommendation.label} 적용
                       </button>
@@ -1352,68 +1346,23 @@ export default function OptimizationPage({
                       </div>
                     </div>
 
-                    {/* 이 결과를 만든 실행 파라미터 — 결과 객체에서 직접 읽어 표시(설정 변경과 무관하게 일관). */}
-                    <div
-                      data-testid="monte-carlo-run-params"
-                      className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-2.5 text-xs font-bold text-gray-400"
-                    >
-                      <span className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">실행 설정</span>
-                      <span>
-                        방식 <span className="text-gray-200">{formatMonteCarloMethodLabel(monteCarloResult)}</span>
-                      </span>
-                      <span>
-                        반복 <span className="tabular-nums text-gray-200">{monteCarloResult.nIterations.toLocaleString()}회</span>
-                      </span>
-                      {(monteCarloResult.seed ?? monteCarloSettings.seed) !== undefined && (
-                        <span>
-                          seed{" "}
-                          <span className="tabular-nums text-gray-200">
-                            {monteCarloResult.seed ?? monteCarloSettings.seed}
-                          </span>
-                        </span>
-                      )}
-                      {monteCarloResult.mode === "trades" && monteCarloResult.tradeCount !== undefined && (
-                        <span>
-                          완결 거래 <span className="tabular-nums text-gray-200">{monteCarloResult.tradeCount.toLocaleString()}건</span>
-                        </span>
-                      )}
-                      {monteCarloResult.mode === "trades" && monteCarloResult.tradeSizing && (
-                        <span>
-                          사이징{" "}
-                          <span className="text-gray-200">
-                            {monteCarloResult.tradeSizing === "equity-weighted"
-                              ? "포지션 크기 반영"
-                              : "가격수익률(사이징 정보 없음)"}
-                          </span>
-                        </span>
-                      )}
-                    </div>
-
                     {monteCarloResult.sufficiency?.low && (
                       <div className="mt-3 rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-xs font-bold leading-5 text-amber-200">
                         재표본에 쓰인 독립 단위가 약 {Math.round(monteCarloResult.sufficiency.effectiveSamples)}개로 적어, 이 분포는 참고용으로 보는 것이 적절합니다. 표본이 적을수록 분위수·확률 추정이 흔들립니다.
                       </div>
                     )}
                     <div className="mt-3 grid gap-3 md:grid-cols-3">
-                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">중앙 CAGR</p>
-                        <p className="mt-2 text-2xl font-black text-white">{formatRatioAsPercent(monteCarloResult.cagr.median)}</p>
-                      </div>
-                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">하위 5% CAGR</p>
-                        <p className="mt-2 text-2xl font-black text-white">{formatRatioAsPercent(monteCarloResult.cagr.p05)}</p>
-                      </div>
                       {monteCarloResult.observed ? (
-                        <div className="rounded-xl border border-amber-400/25 bg-amber-500/[0.06] p-4">
+                        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
                           <div className="flex items-center gap-1.5">
-                            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-300/90">실제 CAGR</p>
+                            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">실제 CAGR</p>
                             <SettingHelpTooltip
                               label="실제 백테스트 CAGR의 분포 내 위치"
                               description="재표본하지 않은 실제 백테스트 순서의 CAGR가 무작위 시나리오 분포에서 차지하는 위치입니다. 상위(백분위가 높을)수록 이 성과가 특정 거래·시장 순서에 우연히 의존했을 가능성을 시사합니다."
                             />
                           </div>
                           <p className="mt-2 text-2xl font-black text-white">{formatRatioAsPercent(monteCarloResult.observed.cagr)}</p>
-                          <p className="mt-1 text-[11px] font-bold text-amber-300/80">
+                          <p className="mt-1 text-[11px] font-bold text-gray-500">
                             분포 상위 {Math.round((1 - monteCarloResult.observed.cagrPct) * 100)}%
                           </p>
                         </div>
@@ -1427,21 +1376,17 @@ export default function OptimizationPage({
                         <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">양수 CAGR 확률</p>
                         <p className="mt-2 text-2xl font-black text-white">{formatRatioAsPercent(monteCarloResult.probPositiveCagr)}</p>
                       </div>
-                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">상위 95% MDD</p>
-                        <p className="mt-2 text-2xl font-black text-white">{formatRatioAsPercent(monteCarloResult.mdd.p95)}</p>
-                      </div>
                       {monteCarloResult.observed ? (
-                        <div className="rounded-xl border border-amber-400/25 bg-amber-500/[0.06] p-4">
+                        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
                           <div className="flex items-center gap-1.5">
-                            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-300/90">실제 MDD</p>
+                            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">실제 MDD</p>
                             <SettingHelpTooltip
                               label="실제 백테스트 MDD의 분포 내 위치"
                               description="재표본하지 않은 실제 백테스트 순서의 최대 낙폭이 시나리오 분포에서 차지하는 위치입니다. 시나리오 상당수가 이보다 더 깊은 낙폭을 겪었다면 실제 경로가 낙폭 면에서 유리한 편이었다는 뜻입니다."
                             />
                           </div>
                           <p className="mt-2 text-2xl font-black text-white">{formatRatioAsPercent(monteCarloResult.observed.mdd)}</p>
-                          <p className="mt-1 text-[11px] font-bold text-amber-300/80">
+                          <p className="mt-1 text-[11px] font-bold text-gray-500">
                             시나리오 {Math.round((1 - monteCarloResult.observed.mddPct) * 100)}%가 이보다 깊음
                           </p>
                         </div>
