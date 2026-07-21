@@ -3938,6 +3938,12 @@ def test_typo_rebalancing_and_trailing_and_fee():
     assert _extract_rate("수수로 0.1%", "수수료", 0.015) == 0.1
 
 
+def test_typo_take_profit_iksul_variant():
+    # [회귀] '익설'(익절 오타)로 익절 % 를 인식하지 못해 "요청을 전략 변경으로 해석하지
+    # 못해 전략을 유지했다"는 안내가 잘못 뜨던 버그(2026-07-21).
+    assert extract_risk_field_overrides("30% 익설 설정해줘") == {"take_profit_pct": 30.0}
+
+
 def test_typo_universe_and_momentum_ranking():
     from engine.nl_parser import _extract_ranking
 
