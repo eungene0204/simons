@@ -86,12 +86,27 @@ def stock_question_redirect(
     name: Optional[str] = None,
     market: Optional[str] = None,
     sector: Optional[str] = None,
+    overseas: bool = False,
 ) -> str:
     """특정 종목 매수·매도 질문에 대한 '추천 불가 안내 + 전략 전환' 문구를 만든다.
 
     name이 있으면 그 종목을 출발점으로 삼는 문장으로 만든다. sector가 있으면(엔진이
     섹터 유니버스를 지원하므로) '그 종목이 속한 업종 전략'을 첫 예시로, 없으면 market에
-    맞춘 시장 예시(KOSDAQ→코스닥, 그 외→코스피200 대형주)를 첫 예시로 쓴다."""
+    맞춘 시장 예시(KOSDAQ→코스닥, 그 외→코스피200 대형주)를 첫 예시로 쓴다.
+
+    overseas=True(애플·엔비디아 등 해외 종목)면 그 종목의 백테스트를 예시로 제안하지
+    않는다 — 해외 종목은 백테스트 미지원인데 가능한 것처럼 안내하던 사고(레드팀 QA 10-2)
+    방지. 미지원 사실을 밝히고 국내 시장 대상 예시만 안내한다."""
+    if overseas and name:
+        return (
+            f"{name} 같은 해외 종목은 현재 백테스트를 지원하지 않아요. "
+            "전략 연구와 백테스트는 국내 주식(코스피·코스닥)과 국내 상장 ETF를 대상으로 "
+            "제공됩니다.\n\n"
+            "관심 있는 투자 아이디어가 있다면 국내 시장 대상 전략으로 만들어 검증해볼 수 있어요:\n"
+            f"{_STOCK_REDIRECT_EXAMPLE_LARGE_CAP}\n"
+            f"{_STOCK_REDIRECT_EXAMPLES_COMMON}\n\n"
+            "관심 가는 방식이 있으면 말씀해 주세요 — 바로 전략으로 만들어 백테스트해 드릴게요."
+        )
     if name:
         lead = (
             f"{name}에 대한 매수·매도 판단이나 종목 추천은 제공하지 않아요.\n\n"
@@ -141,7 +156,9 @@ _ONBOARDING_RE = re.compile(
     r"무엇(?:을|부터)?\s*(?:해야|하면|할\s*수)|"
     r"처음(?:인데|이라|이에요|이야|입니다)|초보|입문|"
     r"잘\s*모르겠|어떻게\s*해야\s*할지|어디서부터|"
-    r"사용법|이용\s*방법|어떻게\s*시작|도와줘|도와주세요|가이드|안내\s*해",
+    r"사용법|이용\s*방법|어떻게\s*시작|도와줘|도와주세요|가이드|안내\s*해|"
+    # 막연한 '돈 벌고 싶다'류 욕구 — 거절 대신 빌더로 이끈다(레드팀 QA 15-1).
+    r"돈\s*(?:을|좀)?\s*벌고\s*싶|수익\s*(?:을|좀)?\s*내고\s*싶|부자\s*되고\s*싶",
     re.IGNORECASE,
 )
 ONBOARDING_REPLY = (
@@ -204,6 +221,7 @@ _PICK_EXCLUDE = re.compile(
 # 이미 구체적인 설계 요청이므로 여기서 잡지 않고 일반 전략 흐름(파서·빌더)에 맡긴다.
 _STRATEGY_PICK_RE = re.compile(
     r"(?:어떤|무슨|뭔|어느|무엇)\s*전략(?:이|을|은|가|들)?\s*"
+    r"(?:제일|가장|젤|더|진짜|정말)?\s*"
     r"(?:좋|나(?:은|을)|괜찮|적합|유리|낫|추천|해야|쓰면|써야|골라|선택)|"
     r"전략(?:을|를|좀)?\s*추천|추천(?:할\s*만한|해\s*줄|해\s*주|해\s*줘|해\s*주세요|하는|해)?\s*전략|"
     r"좋은\s*전략|최고의?\s*전략|best\s*strateg",
@@ -224,6 +242,50 @@ STRATEGY_PICK_REPLY = (
     "전략으로 만들어 과거 데이터로 백테스트해 볼 수 있어요. 제가 단계별로 여쭤볼 테니 "
     "골라 주시면 바로 백테스트까지 이어집니다."
 )
+
+
+# [규제 안전] 나이·자산·직업 같은 개인 상황에 맞춘 전략/종목 추천 요청("40대인데 나한테 맞는
+# 전략 뭐야?"). 개인 맞춤형 조언은 절대 제공하지 않는다(CLAUDE.md) — LLM 일반답변으로 새면
+# "40대는 채권 비중이 적합" 같은 맞춤 조언을 생성하는 사고가 실측됐다(레드팀 QA 22-10).
+# 결정적으로 가로채 맞춤 추천 불가를 안내하고, 조건은 사용자가 직접 고르는 빌더로 유도한다.
+_PERSONAL_CONTEXT_RE = re.compile(
+    r"\d+\s*대|나이|직장인|주부|학생|사회\s*초년|신혼|은퇴|퇴직|프리랜서|자영업|"
+    r"(?:내|제)\s*(?:자산|월급|소득|연봉|상황|성향)",
+    re.IGNORECASE,
+)
+_PERSONAL_FIT_RE = re.compile(
+    r"(?:나|저|제|내)(?:한테|에게|게)\s*맞|나이에\s*맞|상황에\s*맞|성향에\s*맞|"
+    r"(?:맞는|적합한|어울리는)\s*(?:전략|종목|투자|포트폴리오)",
+    re.IGNORECASE,
+)
+PERSONAL_ADVICE_REPLY = (
+    "나이·자산·직업 같은 개인 상황에 맞춘 전략이나 종목 추천은 제공하지 않아요. "
+    "모든 투자 판단은 직접 내리셔야 하지만, 원하시는 조건을 하나씩 골라 전략을 만들고 "
+    "과거 데이터로 검증해보실 수는 있어요. 제가 단계별로 여쭤볼 테니 골라 주시면 "
+    "바로 백테스트까지 이어집니다."
+)
+
+
+def is_personal_advice_request(text: str) -> bool:
+    """개인 상황(나이·자산·직업) 기반 맞춤 추천 요청인지 검사한다."""
+    t = text or ""
+    return bool(_PERSONAL_CONTEXT_RE.search(t) and _PERSONAL_FIT_RE.search(t))
+
+
+# 잘못된 금융 지식을 단정/확인하는 발화("PER이 높을수록 싸다는 거지?", "무조건 사면 된대").
+# 이런 입력이 전략 파싱으로 흐르면 오개념을 교정할 기회 없이 조건 되묻기만 나간다(레드팀 QA
+# 7-1/7-3/7-5). 확인형 어미·풍문 어미·'~수록' 단정·'무조건 매수' 단정만 좁게 잡아 지식 답변
+# 경로(GENERAL_INVESTMENT)로 보낸다 — 구성/실행 동사가 있으면 설계 요청이므로 호출부가 제외한다.
+_MISCONCEPTION_RE = re.compile(
+    r"[가-힣]수록[^\n]{0,24}(?:좋|싸|비싸|나쁘|유리|불리|수익|안전|위험)"
+    r"|무조건\s*(?:사면|사야|사자|사도|매수|오르|수익|좋|먹)"
+    r"|(?:다는\s*거지|는\s*거지|맞지|라며|라던데|다며|된대|한대|다던데)\s*\??",
+)
+
+
+def is_misconception_assertion(text: str) -> bool:
+    """금융 오개념을 단정/확인하는 발화인지 검사한다(finance cue 동반 시에만 호출)."""
+    return bool(_MISCONCEPTION_RE.search(text or ""))
 
 
 def is_strategy_pick_request(text: str) -> bool:
@@ -268,6 +330,31 @@ def is_unsupported_feature_request(text: str) -> bool:
     if _NEWS_FEATURE_SUPPORTED_SIGNAL.search(t):
         return False
     return bool(_NEWS_FEATURE_CUE.search(t) and _NEWS_FEATURE_CONTEXT.search(t))
+
+
+# [기능 범위] 실계좌 자동매매·대리 투자 요청("자동으로 실전 매매까지 해줘", "내 돈 대신
+# 투자해줘"). 실전 매매는 제공하지 않는다 — 파싱 경로로 새서 조건 되묻기만 나가던 사고
+# (레드팀 QA 22-7) 방지. 모의투자(가상계좌)는 안내한다.
+_LIVE_TRADING_RE = re.compile(
+    r"실전\s*(?:매매|투자|거래)|실제\s*(?:매매|거래|계좌)|실계좌|"
+    r"자동\s*(?:으로)?\s*(?:매매|주문|사고\s*팔)|자동매매|"
+    r"대신\s*(?:투자|매매|굴려|사)",
+    re.IGNORECASE,
+)
+LIVE_TRADING_REPLY = (
+    "실제 계좌로 매매를 실행하거나 자금을 대신 운용하는 기능은 제공하지 않아요. "
+    "이 서비스는 전략을 설계하고 과거 데이터로 검증하는 연구 도구예요. "
+    "대신 전략을 만들어 백테스트한 뒤, 가상계좌 모의투자로 실전처럼 시뮬레이션해볼 수 있어요."
+)
+
+
+def is_live_trading_request(text: str) -> bool:
+    """실계좌 자동매매·대리 투자 요청인지 검사한다.
+    가상계좌/모의투자 자동매매는 지원 기능이므로 가로채지 않는다."""
+    t = text or ""
+    if re.search(r"가상|모의", t):
+        return False
+    return bool(_LIVE_TRADING_RE.search(t))
 
 
 def is_greeting_only(text: str) -> bool:

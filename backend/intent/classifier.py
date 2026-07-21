@@ -24,15 +24,20 @@ from stock_analysis.symbol_resolver import StockRef, find_in_text, resolve_by_sy
 from . import platform_defaults
 from .schemas import ChatTurn, DetectedSymbol, IntentResult, QueryIntent
 from .scope import (
+    LIVE_TRADING_REPLY,
     METRIC_NUM_GAP,
     ONBOARDING_REPLY,
     OFFTOPIC_REFUSAL,
+    PERSONAL_ADVICE_REPLY,
     UNSUPPORTED_FEATURE_REPLY,
     greeting_reply,
     has_finance_cue,
     is_greeting_only,
+    is_live_trading_request,
+    is_misconception_assertion,
     is_offtopic,
     is_onboarding_help_request,
+    is_personal_advice_request,
     is_stock_pick_request,
     is_strategy_pick_request,
     is_unsupported_feature_request,
@@ -50,9 +55,19 @@ LLMFn = Callable[[str, str], str]  # (system_prompt, user_msg) -> raw text
 # 게로 시작하는 단어(게임·게시)는 건드리지 않도록 문장 끝/조사/공백 앞에서만 바꾼다.
 _COUNT_TYPO_RE = re.compile(r"(\d)\s*게(?=$|[\s은는이가을를로도만씩요])")
 
+# 지표명의 흔한 구어·발음 표기(파서 _compact와 동일 규칙 유지). '맥디'가 종목명으로,
+# '알에스아이'가 ai_model로 오인되던 실측 사고(레드팀 QA 16-4/16-6) 보정.
+_INDICATOR_TYPO_SUBS = (
+    (re.compile(r"알에스아이", re.IGNORECASE), "RSI"),
+    (re.compile(r"맥디|엠에이씨디", re.IGNORECASE), "MACD"),
+)
+
 
 def _correct_count_typo(text: str) -> str:
-    return _COUNT_TYPO_RE.sub(r"\1개", text or "")
+    text = _COUNT_TYPO_RE.sub(r"\1개", text or "")
+    for pattern, repl in _INDICATOR_TYPO_SUBS:
+        text = pattern.sub(repl, text)
+    return text
 
 # 전략 설계를 가리키는 강한 신호. 이게 있으면 종목명이 섞여 있어도 STRATEGY_ADVICE.
 _STRATEGY_KEYWORDS = re.compile(
@@ -102,6 +117,20 @@ _STOCK_QUESTION = re.compile(
     r"사도|살까|사야|사볼|매수|들어가|들어가도|진입|팔아|팔까|팔아볼|매도|손절|"
     r"들고|보유|계속\s*가져|전망|어때|어떨까|괜찮|괜찮을까|분석|"
     r"오를까|내릴까|상승|하락|리스크|위험|목표가|적정\s*주가",
+    re.IGNORECASE,
+)
+
+# 무언가를 해 달라는 요청 어미/동사(인사가 아니라 요청임을 가르는 신호).
+_REQUEST_CUE = re.compile(
+    r"부탁|해\s*줘|해\s*주세요|만들|짜\s*줘|골라|추천|하고\s*싶|원해|원합니다|"
+    r"가자|가고\s*싶|해\s*보자|알려\s*줘|찾아|구성",
+    re.IGNORECASE,
+)
+
+# 기술 지표 신호(종목명 오인 방지용 — 지표 + 매매 동사는 전략 설계다).
+_INDICATOR_CUE = re.compile(
+    r"rsi|macd|볼린저|이동\s*평균|이평|골든\s*크로스|데드\s*크로스|크로스오버|"
+    r"스토캐스틱|cci|adx|mfi|모멘텀|신고가|돌파|과매도|과매수",
     re.IGNORECASE,
 )
 
@@ -225,12 +254,48 @@ def _classify_deterministic(query: str, last_symbol: Optional[str]) -> Optional[
             reason="백테스트 설정 기본값 질문 감지 — 실제 기본값으로 답변",
         )
 
+    # 0-a-1) [규제 안전] 나이·자산·직업 기반 맞춤 추천 요청("40대인데 나한테 맞는 전략?") →
+    #        LLM 일반답변이 맞춤 조언을 생성하기 전에 결정적으로 가로채, 맞춤 추천 불가를
+    #        안내하고 조건은 직접 고르는 빌더로 유도한다(STRATEGY_PICK과 동일한 흐름).
+    if is_personal_advice_request(text):
+        return IntentResult(
+            intent=QueryIntent.STRATEGY_PICK,
+            suggested_reply=PERSONAL_ADVICE_REPLY,
+            confidence=0.92,
+            reason="개인 맞춤형 조언 요청 감지 — 맞춤 추천 불가 안내 + 빌더 유도",
+        )
+
     refs = find_in_text(text)
     has_strategy_kw = bool(_STRATEGY_KEYWORDS.search(text))
     has_screening = bool(_SCREENING_SIGNAL.search(text))
     has_modify = bool(_MODIFY_VERB.search(text) and _ADJUST_TARGET.search(text))
     has_stock_q = bool(_STOCK_QUESTION.search(text))
     has_def_q = bool(_DEFINITION_QUESTION.search(text))
+
+    # 0-a-2) 오개념 단정/확인 발화("PER이 높을수록 싸다는 거지?") → 파싱으로 흐르면 교정
+    #        기회 없이 조건 되묻기만 나간다. 지식 답변 경로로 보내 먼저 바로잡는다.
+    #        구성/수정 동사가 있으면 설계 요청이므로 가로채지 않는다.
+    if (
+        has_finance_cue(text)
+        and is_misconception_assertion(text)
+        and not has_modify
+        and not _CONSTRUCT_VERB.search(text)
+    ):
+        return IntentResult(
+            intent=QueryIntent.GENERAL_INVESTMENT,
+            confidence=0.85,
+            reason="금융 오개념 단정/확인 발화 감지 — 지식 답변으로 교정",
+        )
+
+    # 0-a-3) [기능 범위] 실계좌 자동매매·대리 투자 요청 → 미제공 안내(가상계좌 모의투자 안내).
+    if is_live_trading_request(text) and not has_screening:
+        return IntentResult(
+            intent=QueryIntent.UNSUPPORTED_FEATURE,
+            symbols=_to_detected(refs),
+            suggested_reply=LIVE_TRADING_REPLY,
+            confidence=0.9,
+            reason="실전 매매/대리 투자 요청 감지 — 미제공 안내",
+        )
 
     # 순수 정의형 질문('리밸런싱이 뭔가요?')은 '리밸런' 같은 전략 키워드가 있어도 설계 요청이
     #    아니라 지식 질문이다. 수정/구성 동사가 없을 때만 전략 키워드 게이트를 건너뛰어
@@ -318,13 +383,24 @@ def _classify_deterministic(query: str, last_symbol: Optional[str]) -> Optional[
             reason="열린 종목 추천 요청 감지 — 전략 설계로 전환",
         )
 
+    # 1-c) 종목명 없이 지표 + 매매 동사("MACD 데드크로스에 팔아줘")는 전략 설계다 — LLM
+    #      폴백이 지표명을 종목으로 오인해 STOCK_ANALYSIS 안내로 새던 사고(레드팀 QA 16-4) 방지.
+    if not refs and has_stock_q and _INDICATOR_CUE.search(text):
+        return IntentResult(
+            intent=QueryIntent.STRATEGY_ADVICE,
+            confidence=0.85,
+            reason="지표 + 매매 동사 감지 — 전략 설계",
+        )
+
     # 2) [규제 안전] 특정 종목 + 행동/판단 질문 → 매수·매도 판단을 제공하지 않고
     #    그 종목에서 출발한 전략 설계로 대화를 전환한다(suggested_reply).
     if refs and has_stock_q:
         return IntentResult(
             intent=QueryIntent.STOCK_ANALYSIS,
             symbols=_to_detected(refs),
-            suggested_reply=stock_question_redirect(refs[0].name, refs[0].market, refs[0].sector),
+            suggested_reply=stock_question_redirect(
+                refs[0].name, refs[0].market, refs[0].sector, overseas=refs[0].overseas
+            ),
             confidence=0.92,
             reason="종목명 + 매수/매도/전망 질문 감지 — 전략 설계로 전환",
         )
@@ -393,6 +469,15 @@ def _classify_with_llm(
     # 역할 밖으로 오판하는데, 금융 용어가 있으면 전략 흐름으로 넘겨 파싱이 처리하게 한다.
     if intent == QueryIntent.OFF_TOPIC and has_finance_cue(query):
         intent = QueryIntent.STRATEGY_ADVICE
+    # [안전망] LLM이 GREETING으로 분류했지만 인사가 아니라 요청 어미("엄청 안전한 걸로
+    # 부탁해")면 인사말로 요청을 무시하게 된다 — 막연한 요청으로 보고 빌더 유도(ONBOARDING)로
+    # 강등한다(레드팀 QA 15-2). 순수 인사("어이~ 반가워이")는 요청 cue가 없어 그대로 둔다.
+    if (
+        intent == QueryIntent.GREETING
+        and not is_greeting_only(query)
+        and _REQUEST_CUE.search(query)
+    ):
+        intent = QueryIntent.ONBOARDING
     suggested_reply = None
     if intent == QueryIntent.GREETING:
         suggested_reply = greeting_reply(query)
@@ -412,6 +497,7 @@ def _classify_with_llm(
             refs[0].name if refs else None,
             refs[0].market if refs else None,
             refs[0].sector if refs else None,
+            overseas=refs[0].overseas if refs else False,
         )
     return IntentResult(
         intent=intent,

@@ -126,6 +126,10 @@ def _is_valid_boundary(text: str, pos: int, is_after: bool) -> bool:
         if pos >= len(text):
             return True
         ch = text[pos]
+        # 영숫자가 이어지면 영문 단어의 일부다 — 'strategy' 안의 'EG', 'backtest DB' 같은
+        # 짧은 영문 종목명(EG·DB·NC 등)의 오매칭 방지(레드팀 QA 17-3).
+        if ch.isascii() and ch.isalnum():
+            return False
         # 한글 글자가 아니면 경계 (띄어쓰기, 기호 등)
         if not ('가' <= ch <= '힯'):  # 가-힣 범위만 체크
             return True
@@ -139,6 +143,8 @@ def _is_valid_boundary(text: str, pos: int, is_after: bool) -> bool:
         if pos < 0:
             return True
         ch = text[pos]
+        if ch.isascii() and ch.isalnum():
+            return False
         if not ('가' <= ch <= '힯'):
             return True
         return False

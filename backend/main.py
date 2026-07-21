@@ -3133,7 +3133,9 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
             # 전에 결정적으로 가로채, 추천 칩으로 슬롯을 채우게 한다(condition_builder 재사용,
             # 백엔드 무상태: 칩 클릭 시 프론트가 "라벨 값 방향"을 일반 수정 메시지로 재전송).
             from intent.condition_builder import clarification_for_add
-            _clar = clarification_for_add(request.prompt)
+            from engine.nl_parser import full_rewrite_clarification
+            # "완전 다르게 해줘"류 전면 재작성 요청도 임의 해석 대신 방향을 되묻는다(QA 19-4).
+            _clar = clarification_for_add(request.prompt) or full_rewrite_clarification(request.prompt)
             if _clar is not None:
                 from engine.nl_parser import ParsedStrategy
                 prev_parsed = ParsedStrategy.model_validate(request.previous_parsed)

@@ -18,6 +18,7 @@ modify 경로(결정적 병합)가 조건을 채운다 — condition_builder와 
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Dict, List, Optional
 
 from strategy_conversation import config
@@ -67,38 +68,65 @@ def _build_clarification(
     return "\n".join(lines), (chips or None)
 
 
-def _override_explicit_dates(parsed, user_input: str):
-    """명시적 백테스트 날짜 범위를 결정적으로 덮어쓴다(레거시 _apply_prompt_overrides와 동형).
+# 인터프리터가 unsupported_features에 내부 식별자(strategy_evaluation 등)를 그대로 담는
+# 실측 드리프트 — 사용자 안내 문구에 내부명이 노출되지 않게 치환한다(레드팀 QA 20-5).
+_INTERNAL_FEATURE_LABELS = {
+    "strategy_evaluation": "전략 우열 평가",
+    "strategy_recommendation": "전략 추천",
+    "stock_recommendation": "종목 추천",
+    "market_forecast": "시장 전망",
+}
+def _humanize_features(features: List[str]) -> List[str]:
+    """내부 식별자(strategy_evaluation 등)만 사람이 읽는 라벨로 치환한다. 그 외(FCF·
+    technical.beta 등)는 기존 표기를 그대로 둔다 — 매핑에 없는 토큰까지 뭉뚱그린 표현으로
+    바꾸면 정보가 사라진다(레드팀 QA 20-5는 매핑된 이름만 대상)."""
+    return list(dict.fromkeys(
+        _INTERNAL_FEATURE_LABELS.get(f, f) for f in dict.fromkeys(features)
+    ))
 
-    "2020년 1월부터 2025년 12월까지"처럼 사용자가 못박은 날짜는 LLM이 놓치거나 오판해도
-    (오늘 날짜를 모르는 모델이 과거 연도를 미래로 오판해 종료일을 누락하는 사고 등) 보장돼야
-    한다. 언급이 없으면 기존 값을 유지한다.
-    """
-    from engine.nl_parser import _extract_backtest_dates
 
-    start, end = _extract_backtest_dates(user_input)
-    updates: Dict[str, Any] = {}
-    if start is not None:
-        updates["backtest_start_date"] = start
-    if end is not None:
-        updates["backtest_end_date"] = end
-    return parsed.model_copy(update=updates) if updates else parsed
+# ── 수정 패치 환각 게이트(결정적) ──────────────────────────────────────────────
+# 결정적 추출의 침묵은 요청 없음의 증거가 아니지만, '필드 cue조차 없는' 패치는 환각이다
+# (FR-STR-019b와 동일 원칙). "다른 예는 없어?"라는 후속 질문에 인터프리터가 손절·리밸런싱·
+# 백테스트 날짜 패치를 지어내 전략을 임의 변형한 실측 사고(레드팀 QA 20-3) 방지 —
+# 패치가 만지는 필드의 cue가 발화에 없으면 그 패치를 거부한다.
+_SIGNAL_TERM_CUES = [
+    "per", "pbr", "psr", "roe", "roa", "rsi", "macd", "볼린저", "이동평균", "이평",
+    "골든크로스", "데드크로스", "크로스", "스토캐스틱", "cci", "adx", "mfi", "거래량",
+    "거래대금", "시총", "시가총액", "부채", "유동비율", "배당", "모멘텀", "돌파", "신고가",
+    "과매도", "과매수", "ev", "ebitda",
+]
+_PATCH_FIELD_CUES: Dict[str, List[str]] = {
+    "stop_loss": ["손절", "스탑로스", "stoploss", "손실"],
+    "take_profit": ["익절", "목표수익", "수익실현", "수익확정", "수익"],
+    "trailing_stop": ["트레일링", "최고가대비", "고점대비"],
+    "max_mdd_limit": ["mdd", "낙폭", "드로우다운", "드로다운"],
+    "max_position_weight": ["비중"],
+    "selection_count": ["종목", "개수", "포지션", "개"],
+    "weighting": ["비중", "동일비중", "가중"],
+    "rebalance_frequency": ["리밸런", "재조정", "재선정", "매일", "매주", "매월", "격월",
+                            "분기", "매년", "연간", "월간", "주간", "마다", "주기"],
+    "hold_period_days": ["보유", "들고", "유지", "홀딩"],
+    "markets": ["코스피", "코스닥", "kospi", "kosdaq", "etf", "시장", "유니버스", "전체", "대형주"],
+    "sectors": ["업종", "섹터", "관련주", "테마"],
+    "universe": ["코스피", "코스닥", "kospi", "kosdaq", "etf", "시장", "유니버스", "업종", "섹터"],
+    "entry_conditions": ["진입", "매수", "사", "조건", "신호"] + _SIGNAL_TERM_CUES,
+    "exit_conditions": ["청산", "매도", "팔", "정리", "조건", "신호"] + _SIGNAL_TERM_CUES,
+    "ranking": ["상위", "수익률", "모멘텀", "랭킹", "순위"] + _SIGNAL_TERM_CUES,
+    "backtest": ["백테스트", "기간", "년", "최근", "부터", "까지", "동안"],
+    "period": ["백테스트", "기간", "년", "최근", "동안"],
+    "name": ["이름", "명칭"],
+}
 
 
-def _override_target_symbols(parsed, user_input: str):
-    """지정 종목(FR-STR-068)을 결정적으로 채운다(레거시 _apply_prompt_overrides와 동형).
-
-    StrategySpec에는 지정 종목 개념이 없어 "삼성전자 골든크로스"가 유니버스 전략으로
-    조용히 넓어진다 — 종목명→코드 해석은 LLM에 맡기지 않고 결정적 추출이 보장한다.
-    '~가 속한 업종'류 문맥 가드는 _extract_target_symbols가 이미 적용하며,
-    언급이 없으면 기존 값을 유지한다.
-    """
-    from engine.nl_parser import _extract_target_symbols
-
-    refs = _extract_target_symbols(user_input)
-    if not refs:
-        return parsed
-    return parsed.model_copy(update={"target_symbols": [ref.symbol for ref in refs]})
+def _patch_cue_supported(patch, compact: str) -> bool:
+    tokens = [t for t in patch.path.split("/") if t]
+    for token in reversed(tokens):  # 구체 필드(마지막 토큰)부터 상위 컨테이너 순으로
+        cues = _PATCH_FIELD_CUES.get(token)
+        if cues is not None:
+            return any(cue in compact for cue in cues)
+    # 매핑에 없는 경로는 판단 근거가 없다 — 보수적으로 거부하지 않고 기존 검증에 맡긴다.
+    return True
 
 
 def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]]:
@@ -153,8 +181,13 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
     except StrategyCompileError as exc:
         logger.warning("interpreter primary compile failed, falling back | err=%s", exc)
         return None
-    parsed = _override_explicit_dates(parsed, user_input)
-    parsed = _override_target_symbols(parsed, user_input)
+    # 레거시 파서와 동일한 결정적 보정 전체를 적용한다 — 명시적 날짜·지정 종목만 부분
+    # 적용하던 시절, '최근 3년'→MA 365일 오귀속(QA 11-1), 익절 0.0001% 드롭(14-5),
+    # 시총 100조→100억 단위 오류(24-2), 슬리피지 드롭(24-10) 등 인터프리터 LLM의 수치
+    # 드리프트가 그대로 노출됐다. 프롬프트에 명시된 값만 덮어쓰므로 인터프리터 해석과
+    # 충돌하지 않는다(레거시 LLM 폴백과 같은 계약).
+    from engine.nl_parser import _apply_prompt_overrides
+    parsed = _apply_prompt_overrides(parsed, user_input)
     if parsed.target_symbols:
         # 지정 종목 전략의 청산 누락은 호출부 공유 보정(apply_single_asset_adjustments)이
         # 반대 신호 청산 추천/기간 종료 보유 안내(비차단 notices)로 처리한다(FR-STR-068) —
@@ -166,7 +199,7 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
 
     clarification_question, clarification_suggestions = _build_clarification(report, validated)
     if report.unsupported_features:
-        features = ", ".join(dict.fromkeys(report.unsupported_features))
+        features = ", ".join(_humanize_features(report.unsupported_features))
         notices.append(
             f"'{features}' 조건은 현재 지원되지 않아 전략에 반영되지 않았어요."
             + (" " + " ".join(report.suggested_fixes) if report.suggested_fixes else "")
@@ -336,7 +369,7 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
             notices = ["용어·지표 설명 질문으로 이해했지만 지금은 설명을 준비하지 못했어요. "
                        "전략은 변경하지 않았어요."]
         else:
-            features = ", ".join(dict.fromkeys(intent.unsupported_features))
+            features = ", ".join(_humanize_features(intent.unsupported_features))
             notices = [f"'{features}'은(는) 전략 조건으로 반영할 수 없어 전략을 변경하지 않았어요."]
         _log_llm("✓ 설명/미반영", (
             f"intent={intent.intent} 질문={is_question} 답변={'있음' if answer else '없음'} "
@@ -361,8 +394,41 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
         _log_llm("↩ 폴백", f"patches 미출력(intent={intent.intent}) — 기존 수정 경로로")
         logger.info("modify primary without patches (intent=%s), falling back", intent.intent)
         return None
+
+    # 환각 게이트: 발화에 해당 필드의 cue조차 없는 패치는 지어낸 것이다 — 거부한다.
+    from engine.nl_parser import _compact
+    compact_input = _compact(user_input)
+    cued_patches = [p for p in intent.patches if _patch_cue_supported(p, compact_input)]
+    rejected = len(intent.patches) - len(cued_patches)
+    if rejected:
+        _log_llm("✗ 패치 거부", f"{rejected}건 — 발화에 필드 cue 없음(환각 게이트)")
+    if not cued_patches:
+        # 전량 환각(예: 후속 질문 "다른 예는 없어?"에 임의 패치) — 전략을 그대로 유지하고,
+        # 질문성 입력이면 지식 답변을, 아니면 미해석 안내를 전달한다(QA 20-3).
+        from api.intent_routes import generate_general_answer
+        looks_like_question = bool(re.search(r"[?？]\s*$|없어\s*\??$|알려줘$", user_input.strip()))
+        answer = generate_general_answer(user_input) if looks_like_question else None
+        notices = [answer] if answer else [
+            "요청을 전략 변경으로 해석하지 못해 전략은 그대로 유지했어요. "
+            "바꾸고 싶은 조건(예: 손절 10%로, 종목 20개로)을 구체적으로 말씀해 주세요."
+        ]
+        return {
+            "parsed": prev,
+            "clarification_question": None,
+            "clarification_suggestions": None,
+            "notices": notices,
+            "interpreter": {
+                "mode": "primary_modify_rejected_patches",
+                "model_name": result.model_name,
+                "prompt_version": result.prompt_version,
+                "repair_attempts": result.repair_attempts,
+                "llm_latency_ms": result.latency_ms,
+                "patch_count": 0,
+                "confidence": intent.confidence,
+            },
+        }
     try:
-        patched_spec = apply_patches(draft_spec, intent.patches)
+        patched_spec = apply_patches(draft_spec, cued_patches)
     except PatchError as exc:
         _log_llm("↩ 폴백", f"패치 거부: {str(exc)[:150]} — 기존 수정 경로로")
         logger.warning("modify primary patch rejected, falling back | err=%s", exc)
@@ -373,7 +439,7 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
         confidence=intent.confidence, unsupported_features=intent.unsupported_features,
     ))
     _log_llm("✓ 검증", (
-        f"status={report.status} patches={len(intent.patches)} "
+        f"status={report.status} patches={len(cued_patches)} "
         f"오류={len(report.errors)} 미지원={report.unsupported_features or '[]'}"
     ))
     if not report.is_valid:
@@ -386,7 +452,12 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
     except StrategyCompileError as exc:
         logger.warning("modify primary compile failed, falling back | err=%s", exc)
         return None
-    parsed = _override_explicit_dates(parsed, user_input)
+    # 레거시 수정 경로와 동일한 결정적 보정(신호 재검증 생략·universe 보존) — 명시된
+    # 수치·날짜·리스크 값은 결정적 추출이 최종 진실이다.
+    from engine.nl_parser import _apply_prompt_overrides
+    parsed = _apply_prompt_overrides(
+        parsed, user_input, skip_signal_validation=True, preserve_universe=True
+    )
 
     return {
         "parsed": parsed,
@@ -399,7 +470,7 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
             "prompt_version": result.prompt_version,
             "repair_attempts": result.repair_attempts,
             "llm_latency_ms": result.latency_ms,
-            "patch_count": len(intent.patches),
+            "patch_count": len(cued_patches),
             "confidence": intent.confidence,
         },
     }
@@ -424,7 +495,7 @@ def apply_primary_meta(result: dict, primary: Dict[str, Any]) -> None:
     if primary["clarification_question"]:
         result["clarification_question"] = primary["clarification_question"]
         result["clarification_suggestions"] = primary["clarification_suggestions"]
-    elif primary["interpreter"]["mode"] in ("primary_modify_explain", "primary_modify_unsupported"):
+    elif primary["interpreter"]["mode"] in ("primary_modify_explain", "primary_modify_unsupported", "primary_modify_rejected_patches"):
         # 전략 무변경 + 설명/미반영 안내 응답 — 프롬프트의 지표 언급("pbr이 뭐야?")에 반응한
         # 기존 되묻기("PBR은 몇 이하로 할까요?")는 설명·안내와 모순되므로 억제한다.
         result["clarification_question"] = None

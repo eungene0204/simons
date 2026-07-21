@@ -152,14 +152,26 @@ _GENERAL_SYSTEM_PROMPT = (
     "질문 앞에 [대화 맥락]이 주어지면 마지막 질문은 그 맥락에 이어지는 후속 질문일 수 있습니다 "
     "— 직전 답변과 겹치지 않게 이어서 답하십시오(예: 예시를 더 요청하면 앞서 말하지 않은 예시를 제시). "
     "특정 종목의 매수·매도를 권하지 말고, 확정적 수익 표현을 쓰지 마십시오. "
-    "JSON 없이 평문으로만 답하십시오."
+    "나이·자산·직업 등 개인 상황에 맞춘 전략·상품 추천(예: '40대에게는 채권이 적합')은 "
+    "절대 하지 마십시오 — 그런 질문에는 맞춤 조언을 제공하지 않는다고 안내하십시오. "
+    "질문에 잘못된 금융 상식이 전제되어 있으면 먼저 정확하게 바로잡으십시오. "
+    "한국어로만 답하고, JSON 없이 평문으로만 답하십시오."
 )
 
 
 def _build_general_user_msg(req: GeneralQueryRequest) -> str:
     # 설정 용어(슬리피지·수수료 등)가 언급된 개념 질문에는 실제 플랫폼 기본값을 사실로
     # 주입한다 — LLM이 "기본값은 0%" 같은 값을 지어내는 것을 막는다.
-    facts = platform_defaults.facts_block(req.query)
+    # 기초 용어(PER·RSI 등) 정의도 사실로 주입한다 — 소형 LLM의 정의 오류(레드팀 QA
+    # 6-1/7-4: "PER=주가순자산비율", "RSI 90=과매도") 방지.
+    from intent import glossary_facts
+    facts_parts = [
+        block for block in (
+            platform_defaults.facts_block(req.query),
+            glossary_facts.facts_block(req.query),
+        ) if block
+    ]
+    facts = "\n".join(facts_parts)
     parts = [f"{facts}\n" if facts else ""]
     context = format_history_context(req.history)
     if context:

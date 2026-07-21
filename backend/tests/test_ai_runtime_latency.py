@@ -20,6 +20,9 @@ class _DummyParsed:
     take_profit_pct = None
     trailing_stop_pct = None
     max_mdd_limit_pct = None
+    fee_rate = 0.015
+    slippage_rate = 0.05
+    backtest_start_date = None
 
     def model_dump(self):
         return {"universe": ["KOSPI200"]}

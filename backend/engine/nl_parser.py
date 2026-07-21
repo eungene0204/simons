@@ -274,10 +274,20 @@ def _abs_ratio(value: Optional[float]) -> Optional[float]:
     return abs(value) if value is not None else None
 
 
+def _clamp_max_positions(value):
+    """LLM이 '500종목'처럼 상한(le=100) 밖 값을 내면 ValidationError로 파싱 전체가
+    500으로 죽는 대신(레드팀 QA 13-4) 범위로 클램프한다. 숫자가 아니면 그대로 두어
+    스키마 검증이 정상 처리하게 한다."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return value
+    return max(1, min(100, int(value)))
+
+
 class ParsedStrategy(BaseModel):
     """자연어 전략 → 구조화된 전략 스키마"""
 
     _normalize_ratio_sign = field_validator(*_RATIO_SIGN_FIELDS)(_abs_ratio)
+    _clamp_positions = field_validator("max_positions", mode="before")(_clamp_max_positions)
 
     description: str = Field(description="사용자가 입력한 원문 전략 설명 (그대로 복사)")
 
@@ -494,6 +504,7 @@ class ParsedStrategyDiff(BaseModel):
     """수정된 필드만 포함. null이면 이전 값 그대로 유지."""
 
     _normalize_ratio_sign = field_validator(*_RATIO_SIGN_FIELDS)(_abs_ratio)
+    _clamp_positions = field_validator("max_positions", mode="before")(_clamp_max_positions)
     description: Optional[str] = None
     universe: Optional[List[Literal["KOSPI", "KOSDAQ", "KOSPI200", "ETF"]]] = None
     sector: Optional[Union[str, List[str]]] = Field(
@@ -1428,6 +1439,11 @@ _TYPO_CORRECTIONS: tuple[tuple[str, str], ...] = (
     ("데드크로쓰", "데드크로스"),
     ("데트크로쓰", "데드크로스"),
     # 지표명
+    # 발음 표기 — '알에스아이'가 LLM 폴백에서 ai_model로 오인되던 실측 사고(레드팀 QA 16-6),
+    # '맥디'가 종목명으로 오인되던 사고(16-4) 보정. intent.classifier와 동일 규칙 유지.
+    ("알에스아이", "rsi"),
+    ("맥디", "macd"),
+    ("엠에이씨디", "macd"),
     ("볼린져", "볼린저"),
     ("볼리저", "볼린저"),
     ("스토케스틱", "스토캐스틱"),
@@ -2553,15 +2569,25 @@ _BACKTEST_YEARS_RE = re.compile(r"백테스트\D{0,8}(\d+)년|(\d+)년(?:간|동
 _BACKTEST_MONTHS_RE = re.compile(
     r"백테스트\D{0,8}(\d+)(?:개월|달)|(\d+)(?:개월|달)(?:간|동안)?\D{0,6}백테스트"
 )
+# '최근/지난/과거 N년(으로/간/동안)'도 백테스트 창 표현이다 — LLM이 '최근 3년'을 이동평균
+# 기간(365/730일)으로 오귀속하던 실측 사고(레드팀 QA 11-1) 방지. 단 모멘텀 룩백('최근 3개월
+# 수익률')·보유기간('최근 1년 들고')·지표 기간과 혼동되지 않도록 직후 문맥을 제외한다.
+_RECENT_YEARS_RE = re.compile(
+    r"(?:최근|지난|과거)(\d+)년(?:간|동안|치|으로|만|정도)?"
+    r"(?!.{0,8}(?:수익|모멘텀|상승|오른|올랐|보유|들고|유지|평균|이평|선|봉))"
+)
 
 
 def _extract_backtest_relative_years(user_input: str) -> Optional[int]:
     """백테스트 맥락에 인접한 'N년' 상대 기간의 연수를 추출한다(없으면 None)."""
     compact = _compact(user_input)
     m = _BACKTEST_YEARS_RE.search(compact)
-    if not m:
-        return None
-    return int(m.group(1) or m.group(2))
+    if m:
+        return int(m.group(1) or m.group(2))
+    m = _RECENT_YEARS_RE.search(compact)
+    if m:
+        return int(m.group(1))
+    return None
 
 
 def _extract_backtest_relative_months(user_input: str) -> Optional[int]:
@@ -2822,6 +2848,10 @@ def enforce_initial_capital_minimum(parsed: ParsedStrategy) -> Optional[str]:
 # 별도 보정이 필요 없다. 비율(%) 필드는 자연스러운 양수 하한이 없어 0 이하면 제거(드롭)한다.
 MIN_HOLD_PERIOD_DAYS = 1
 MIN_RANKING_LOOKBACK_DAYS = 10  # 모멘텀/랭킹 기준 기간 하한(너무 짧으면 노이즈)
+MAX_RATIO_PCT = 100.0  # 손절/익절/트레일링/MDD 상한 — 매수 포지션 손실률 한계(-100%)
+TINY_RATIO_WARN_PCT = 0.5  # 이 미만의 손절/익절 폭은 거래 비용보다 작아 실효성 경고
+MAX_COST_RATE_PCT = 10.0  # 수수료/슬리피지 상식 상한(초과 시 기본값 복원 + 안내)
+DATA_FLOOR_DATE = "1996-01-01"  # KIS 일봉 데이터 대략적 시작(이전 시작일은 커버리지 안내)
 _RATIO_FIELD_LABELS = {
     "stop_loss_pct": "손절",
     "take_profit_pct": "익절",
@@ -2858,6 +2888,45 @@ def enforce_strategy_minimums(parsed: ParsedStrategy) -> list[str]:
         if value is not None and value <= 0:
             setattr(parsed, field, None)
             notices.append(f"{label} 비율은 0%보다 커야 해서 적용하지 않았어요.")
+        elif value is not None and value > MAX_RATIO_PCT:
+            # 주식 매수 포지션의 손실률은 -100%가 한계다 — '손절 300%' 같은 불가능한 값을
+            # 조용히 수용하지 않는다(레드팀 QA 14-4).
+            setattr(parsed, field, None)
+            notices.append(
+                f"{label} {value:g}%는 적용 가능 범위(0~100%)를 벗어나 반영하지 않았어요. "
+                "0~100% 사이로 다시 설정해 주세요."
+            )
+
+    # 수수료·슬리피지보다 작은 익절/손절 폭은 실행은 가능하나 실효성이 없다 — 경고만 남긴다.
+    for field, label in (("take_profit_pct", "익절"), ("stop_loss_pct", "손절")):
+        value = getattr(parsed, field)
+        if value is not None and 0 < value < TINY_RATIO_WARN_PCT:
+            notices.append(
+                f"{label} {value:g}%는 수수료·거래세·슬리피지(왕복 수수료 등)보다 작아 "
+                "사실상 매 거래가 비용만큼 손실로 끝날 수 있어요."
+            )
+
+    # 비현실적 거래 비용(수수료/슬리피지 N백%)은 조용히 무시하지도 수용하지도 않는다(QA 24-10).
+    if parsed.fee_rate is not None and parsed.fee_rate > MAX_COST_RATE_PCT:
+        notices.append(
+            f"수수료 {parsed.fee_rate:g}%는 비현실적이라 기본값 0.015%로 되돌렸어요. "
+            "변경하려면 0~10% 사이로 입력해 주세요."
+        )
+        parsed.fee_rate = 0.015
+    if parsed.slippage_rate is not None and parsed.slippage_rate > MAX_COST_RATE_PCT:
+        notices.append(
+            f"슬리피지 {parsed.slippage_rate:g}%는 비현실적이라 기본값 0.05%로 되돌렸어요. "
+            "변경하려면 0~10% 사이로 입력해 주세요."
+        )
+        parsed.slippage_rate = 0.05
+
+    # 데이터 커버리지 안내 — 가격 데이터는 대략 1996년부터라 그 이전 시작일은 의미가 없다.
+    # 날짜는 유지하고(엔진이 가용 구간부터 시작) 사실만 알린다(QA 11-4).
+    if parsed.backtest_start_date is not None and parsed.backtest_start_date < DATA_FLOOR_DATE:
+        notices.append(
+            f"과거 가격 데이터는 대략 {DATA_FLOOR_DATE[:4]}년부터 제공돼요. "
+            "그 이전 구간은 데이터가 없어 실제 백테스트는 데이터가 있는 시점부터 시작됩니다."
+        )
 
     return notices
 
@@ -2956,6 +3025,16 @@ _UNSUPPORTED_CONCEPT_PATTERNS: tuple[tuple[str, str], ...] = (
     ("ema_alignment", r"정배열|역배열"),
     ("partial_exit", r"분할매[도수]|절반[^,]{0,3}(?:익절|매도|청산)|일부[^,]{0,3}(?:익절|청산)"),
     ("new_low", r"신저가"),
+    # 리스크/실행 방식 계열 — 조용히 드롭되던 실측 사고(레드팀 QA 14-3/14-6/12-5) 보정.
+    ("atr_stop", r"atr"),
+    ("averaging_down", r"물타기|불타기|피라미딩|추가매수"),
+    ("intraday", r"(?:실시간|장중|분봉|틱)[^,.]{0,10}(?:리밸런|매매|체결|대응|감시|전략)"),
+    # 해외 시장/종목 — 국내(코스피·코스닥·국내 ETF)만 지원. 개별 해외 종목명(애플 등)은
+    # _mentioned_unsupported_concepts가 symbol_resolver의 overseas 판정으로 잡는다.
+    ("overseas", r"나스닥|nasdaq|s&p|snp500|다우존?스?지수|qqq|spy|voo|미국주식|해외주식|미국증시|해외증시|미국시장|해외시장|미국etf|해외etf"),
+    # 우선주 — 종목 마스터가 보통주만 담고 있어 우선주 지정은 표현 불가. 보통주로 조용히
+    # 바꿔치기하지 않는다(레드팀 QA 10-6).
+    ("preferred_stock", r"우선주"),
     # 거래량 배수 임계값("평소보다 3배") — volume_spike는 OBV 크로스오버라 배수를 표현할 수
     # 없다(TechnicalSignal에 해당 필드 없음). 배수 없는 '거래량 급증'은 지원 개념이므로 제외.
     # 절 경계(쉼표/마침표)를 넘는 매칭 금지 — "거래량 급증, 3배 수익"의 '3배'는 배수 조건이 아니다.
@@ -2989,6 +3068,11 @@ _UNSUPPORTED_CONCEPT_LABELS: dict[str, str] = {
     "partial_exit": "분할 매도/부분 청산",
     "new_low": "신저가 조건",
     "volume_multiple": "거래량 배수 조건(평소 대비 N배)",
+    "atr_stop": "ATR 기반 스탑(고정 % 손절·트레일링 스탑으로 대체 가능)",
+    "averaging_down": "물타기/추가 매수(분할 진입)",
+    "intraday": "실시간/장중 단위 매매·리밸런싱(일봉 기준만 지원)",
+    "overseas": "해외 시장/종목(국내 주식·국내 상장 ETF만 지원)",
+    "preferred_stock": "우선주 종목 지정(보통주 데이터만 지원)",
 }
 
 
@@ -3005,6 +3089,15 @@ def _mentioned_unsupported_concepts(user_input: str) -> list[str]:
     치지 않는다('반도체 관련주'=지원, '로봇 관련주'=목록 밖 → LLM 위임 + 안내)."""
     compact = _compact(user_input)
     names = [name for name, rx in _UNSUPPORTED_CONCEPT_RE if rx.search(compact)]
+    # 해외 개별 종목명(애플·엔비디아 등)은 시장 키워드 패턴이 못 잡는다 — symbol_resolver의
+    # overseas 판정으로 보강한다(조용히 드롭되던 레드팀 QA 9-1/10-3 보정).
+    if "overseas" not in names:
+        try:
+            from stock_analysis.symbol_resolver import find_in_text
+            if any(ref.overseas for ref in find_in_text(user_input)):
+                names.append("overseas")
+        except Exception:  # noqa: BLE001 — 리졸버 실패가 파싱을 막으면 안 된다
+            pass
     if "sector" in names and (
         _extract_sector(user_input) is not None or _SECTOR_AGNOSTIC_RE.search(compact)
     ):
@@ -3199,6 +3292,10 @@ _MODIFY_FIELD_CUES: dict[str, list[str]] = {
     "sector": _sector_terms_longest_first()
     + ["관련", "테마", "업종", "섹터", "섹션", "분야", "종목", "주식", "중심", "위주", "주"],
     "backtest_period": ["백테스트", "기간", "최근", "테스트", "전체기간", "동안"],
+    # 수수료/슬리피지 — _extract_rate가 결정적으로 추출하는데 cue 목록에 없어 잔여로
+    # 오판돼 LLM 폴백(드롭 사고)으로 새던 것 보정(레드팀 QA 24-10).
+    "fee_rate": ["수수료", "거래비용", "거래세"],
+    "slippage_rate": ["슬리피지"],
     "backtest_start_date": ["백테스트", "테스트", "기간", "최근", "부터", "년", "월", "일"],
     "backtest_end_date": ["까지", "년", "월", "일"],
     # 펀더멘털 지표명·연산자·통상 수식어. 숫자/단위/필러는 공통 차감 규칙이 처리한다.
@@ -3239,10 +3336,14 @@ _MODIFY_FILLER = [
     "올려주세요", "올려줘", "올려", "내려주세요", "내려줘", "내려", "조정해줘", "조정",
     "으로", "로", "만", "좀", "정도", "약", "더", "하고", "해",
     "을", "를", "은", "는", "이", "가", "의", "에", "도", "와", "과", "랑", "에서", "간", "동안",
+    "인", "분산", "밑", "이면",
+    # 구조 명사 — 어느 필드에도 속하지 않는 일반어. '조건'이 잔여로 남아 결정적 삭제
+    # ("RSI 조건 빼줘")가 LLM으로 새던 것 보정(레드팀 QA 19-3).
+    "조건", "신호",
 ]
 _MODIFY_UNIT_FILLER = [
     "억", "천만원", "천만", "백만원", "만원", "만", "원", "개월", "달", "개", "일", "주", "년",
-    "종목", "퍼센트", "프로", "배",
+    "종목", "퍼센트", "프로", "배", "조",
 ]
 _MODIFY_CAPITAL_CUES = ["초기자금", "자금", "자본", "투자금", "초기투자", "시드", "seed"]
 _MODIFY_REBALANCE_CUES = ["리밸런싱", "리밸런스", "리밸", "재조정", "재선정", "rebalanc"]
@@ -3257,6 +3358,63 @@ _MODIFY_MDD_CUES = ["mdd", "최대낙폭", "낙폭", "드로우다운", "드로�
 _ENTRY_SIGNAL_REPLACE_RE = re.compile(
     r"(?:진입|매수)(?:신호|조건|기준)[^,.]{0,48}(?:변경|바꾸|교체)"
 )
+
+# 지표 신호 삭제 cue("RSI 조건 빼줘") — compact(공백 제거·소문자) 기준. 지표 표면형 →
+# TechnicalSignal.indicator 매핑. '골든/데드크로스·이동평균'은 같은 ma_crossover 신호다.
+_SIGNAL_REMOVE_SURFACES: tuple[tuple[str, str], ...] = (
+    ("rsi", "rsi"),
+    ("macd", "macd"),
+    ("볼린저", "bollinger_bands"),
+    ("스토캐스틱", "stochastic"),
+    ("cci", "cci"),
+    ("adx", "adx"),
+    ("mfi", "mfi"),
+    ("골든크로스", "ma_crossover"),
+    ("데드크로스", "ma_crossover"),
+    ("이동평균", "ma_crossover"),
+    ("이평", "ma_crossover"),
+    ("거래량", "volume_spike"),
+    ("신고가", "breakout"),
+    ("돌파", "breakout"),
+)
+_REMOVE_VERB = r"[^,.]{0,10}?(?:빼|제거|삭제|없애|지워)"
+
+
+def _extract_signal_removals(compact: str) -> set[str]:
+    """'<지표> (조건/신호) 빼줘' 발화에서 삭제 대상 indicator 집합을 추출한다."""
+    removed: set[str] = set()
+    for surface, indicator in _SIGNAL_REMOVE_SURFACES:
+        if re.search(re.escape(surface) + _REMOVE_VERB, compact):
+            removed.add(indicator)
+    return removed
+
+
+# "완전 다르게 해줘"처럼 정보가 없는 전면 재작성 요청 — 수정 파서가 무변경 전략을 조용히
+# 재렌더링하던 사고(레드팀 QA 19-4) 방지. 임의의 새 전략을 만들어 내밀면 추천에 가까우므로
+# 원하는 방향을 되묻는다.
+_FULL_REWRITE_RE = re.compile(
+    r"완전(?:히)?다르게|전혀다르게|전혀다른(?:걸|거|전략)|딴걸로|딴거로|"
+    r"처음부터다시|새로운걸로|아예다르게|아예다른(?:걸|거|전략)"
+)
+
+
+def full_rewrite_clarification(user_input: str) -> Optional[dict]:
+    """전면 재작성 요청이면 되묻기 질문+예시 칩을 반환한다(아니면 None)."""
+    if not _FULL_REWRITE_RE.search(_compact(user_input)):
+        return None
+    return {
+        "question": (
+            "지금 전략과 완전히 다르게 만들려면 어떤 방향으로 갈지 알려주세요. "
+            "원하는 지표·조건·투자 스타일을 말씀해 주시면 새 전략으로 만들어 드릴게요."
+        ),
+        "suggestions": [
+            "PER·PBR 낮은 저평가 종목 스크리닝",
+            "이동평균 골든크로스 추세추종",
+            "RSI 30 이하 과매도 반등",
+            "최근 3개월 수익률 상위 모멘텀",
+            "직접 입력",
+        ],
+    }
 
 
 def _modify_residual_is_clean(user_input: str, changed_fields, extra_vocab=()) -> bool:
@@ -3423,6 +3581,17 @@ def _modify_rule_based(user_input: str, previous: dict) -> Optional[ParsedStrate
         # would keep the previous "N-day return leaders" entry beside the requested signal.
         changes["ranking_metric"] = None
         changes["ranking_lookback_days"] = None
+
+    # 지표 신호 삭제("RSI 조건 빼줘")는 결정적으로 처리한다 — LLM 수정이 요청과 반대로
+    # 다른 필드(펀더멘털 필터)를 지우던 실측 사고(레드팀 QA 19-3) 방지. 언급된 지표의
+    # 진입/청산 신호만 제거하고 나머지는 보존한다.
+    removed_indicators = _extract_signal_removals(compact)
+    if removed_indicators and "entry_signals" not in changes:
+        for side in ("entry_signals", "exit_signals"):
+            signals = previous.get(side) or []
+            kept = [s for s in signals if s.get("indicator") not in removed_indicators]
+            if len(kept) != len(signals):
+                changes[side] = kept
 
     universe = _extract_explicit_universe(user_input)
     if universe is not None:
@@ -3824,6 +3993,10 @@ def _extract_target_symbols(user_input: str) -> Optional[list]:
         return None
     if _TARGET_SYMBOL_CONTEXT_GUARD_RE.search(_compact(user_input)):
         return None
+    # 우선주 지정("삼성전자 우선주로만")은 마스터에 우선주 데이터가 없어 표현 불가 —
+    # 보통주로 조용히 바꿔치기하지 않고 미지원 안내(preferred_stock)에 맡긴다(QA 10-6).
+    if "우선주" in _compact(user_input):
+        return None
     refs = [ref for ref in find_in_text(user_input) if not ref.overseas]
     return refs or None
 
@@ -3988,12 +4161,25 @@ def _apply_prompt_overrides(
     # 리스크 필드(손절/익절/트레일링)는 단일 진실 소스에서 가져온다.
     updates.update(extract_risk_field_overrides(user_input))
 
+    compact_in = _compact(user_input)
+
     # 상대강도(수익률 순위) 랭킹도 프롬프트에서 결정적으로 추출(LLM이 놓쳐도 보장).
     # 언급이 없으면 기존 값을 덮어쓰지 않는다(수정 모드 보호).
     ranking_metric, ranking_lookback_days = _extract_ranking(user_input)
     if ranking_metric is not None:
         updates["ranking_metric"] = ranking_metric
         updates["ranking_lookback_days"] = ranking_lookback_days
+    elif (
+        parsed.ranking_metric is not None
+        and not _mentions_relative_strength_ranking(compact_in)
+        and _detect_qualitative_metrics(compact_in)
+    ):
+        # LLM이 재무 정성 표현("PER 낮은 상위 20종목")의 '상위'를 모멘텀 순위로 오해석해
+        # return 랭킹을 붙인 경우 — 상대강도 cue가 없고 재무 정성 조건이 있으면 그 '상위'는
+        # 랭킹 종목 수(선정 개수)일 뿐이므로 랭킹을 비운다(레드팀 QA 13-1). 엔진은 return
+        # 랭킹만 지원하므로 재무 팩터 랭킹은 필터+선정으로 표현된다.
+        updates["ranking_metric"] = None
+        updates["ranking_lookback_days"] = None
 
     # 명시적 백테스트 연도 범위('2002년부터 2005년까지')를 결정적으로 추출.
     # 언급이 없으면 기존 값을 덮어쓰지 않는다(수정 모드 보호).
@@ -4031,7 +4217,6 @@ def _apply_prompt_overrides(
     if rebalancing != "none":
         updates["rebalancing_period"] = rebalancing
 
-    compact_in = _compact(user_input)
     capital_cue = any(cue in compact_in for cue in _MODIFY_CAPITAL_CUES)
     # cue가 있으면 단위 없는 맨숫자도 만원으로 해석한다(allow_bare). 금액을 못 풀면(None)
     # 자본금을 건드리지 않는다 — 기본값(10M)과 충돌하던 '!= 10_000_000' 가드를 None 체크로 대체.
@@ -4079,6 +4264,16 @@ def _apply_prompt_overrides(
         updates["entry_signals"] = _merge_signals(current_entry, extracted_entry)
     if extracted_exit:
         updates["exit_signals"] = _merge_signals(current_exit, extracted_exit)
+
+    # 금액 지표(시총/거래대금)는 '조+억' 합산 결정적 추출이 단일 진실 소스다 — LLM이
+    # '시총 100조'를 100(억)으로 오변환하던 사고(레드팀 QA 24-2) 보정. 언급이 있을 때만
+    # 같은 지표를 덮어쓰고 다른 필터는 보존한다.
+    amount_filters = [
+        f for f in _extract_fundamental_filters(user_input) if f.metric in _AMOUNT_METRICS
+    ]
+    if amount_filters:
+        current_filters = updates.get("fundamental_filters", list(parsed.fundamental_filters))
+        updates["fundamental_filters"] = _merge_fundamental_filters(current_filters, amount_filters)
 
     if not updates:
         return parsed
