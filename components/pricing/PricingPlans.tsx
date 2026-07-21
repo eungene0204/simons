@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Check, X, Lightning, Rocket, Crown } from "phosphor-react";
 import { PLANS, PLAN_ORDER, Plan, PlanId } from "@/lib/plans";
 import PaymentCheckout from "@/components/pricing/PaymentCheckout";
@@ -79,6 +80,7 @@ function formatBillingDate(iso: string | null): string {
 }
 
 export default function PricingPlans({ currentPlanId, subscription }: PricingPlansProps) {
+  const router = useRouter();
   const [pendingPlanId, setPendingPlanId] = useState<PlanId | null>(null);
   const [checkoutPlanId, setCheckoutPlanId] = useState<PlanId | null>(null);
   const [error, setError] = useState<string | null>(null);
