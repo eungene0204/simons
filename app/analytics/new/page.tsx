@@ -862,9 +862,10 @@ function StrategyLabContent() {
   }, [backtestReq]);
 
   const isIdle = messages.length === 0 && !isSending;
-  // 전략 빌더가 옵션 칩을 보여주는 동안에는 채팅창을 숨겨 사용자가 선택에 집중하게 한다.
-  // 칩(infoSuggestions)은 빌더만 사용하므로, 마지막 어시스턴트 메시지에 칩이 있으면 입력창을 가린다.
-  // '직접 설명하기'를 고르면 진입 조건(자유 입력) 질문은 칩이 없어 입력창이 다시 나타난다.
+  // 전략 빌더 옵션 칩(infoSuggestions)이나 되묻기(clarification) 칩을 보여주는 동안에는
+  // 채팅창을 숨겨 사용자가 선택에 집중하게 한다 — 칩과 자유 입력창이 동시에 보이면
+  // "직접 입력" 칩을 눌러야 하는 이유가 불분명해지고, 열린 입력창이 마치 선택을
+  // 무시한 채 또 물어보는 것처럼 오인되기 쉽다. "직접 입력"을 고르면 입력창이 나타난다.
   const shouldShowChatInput = shouldShowChatInputBox(messages, isIdle, builderFreeTextRequested);
 
   useEffect(() => {

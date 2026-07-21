@@ -117,4 +117,32 @@ describe("shouldShowChatInputBox", () => {
 
     expect(shouldShowChatInputBox(messages, false, false)).toBe(false);
   });
+
+  it("[회귀] hides the input while a clarification question is awaiting a chip choice", () => {
+    // "KODEX 반도체(091160)를 대상으로 한 전략이군요! 어떤 조건으로 매매할까요?" 같은
+    // 되묻기가 칩(예시)과 함께 뜰 때 자유 입력창까지 같이 보이면, "직접 입력" 칩을 눌러야
+    // 하는 이유가 불분명해지고 사용자가 "또 물어본다"고 오인하기 쉽다.
+    const messages = [
+      { role: "user", content: "kodex 반도체 etf를 매수" },
+      {
+        role: "assistant",
+        clarification: "KODEX 반도체(091160)를 대상으로 한 전략이군요! 어떤 조건으로 매매할까요?",
+        clarificationSuggestions: ["20일선이 60일선을 상향 돌파하면 매수, 데드크로스 시 매도"],
+      },
+    ];
+
+    expect(shouldShowChatInputBox(messages, false, false)).toBe(false);
+    // "직접 입력" 칩을 누르면 다시 나타난다.
+    expect(shouldShowChatInputBox(messages, false, true)).toBe(true);
+  });
+
+  it("keeps the input visible when a clarification has no suggestion chips", () => {
+    // 칩이 없으면 사용자가 답할 방법이 자유 입력뿐이므로 입력창을 가두면 안 된다.
+    const messages = [
+      { role: "user", content: "x" },
+      { role: "assistant", clarification: "무엇을 원하시나요?", clarificationSuggestions: [] },
+    ];
+
+    expect(shouldShowChatInputBox(messages, false, false)).toBe(true);
+  });
 });

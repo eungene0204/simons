@@ -183,9 +183,11 @@ describe("StrategyLabPage scroll behavior", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "영업이익률 10% 이상" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "영업이익률 15% 이상" })).toBeInTheDocument();
-    const textarea = screen.getByRole("textbox");
-    textarea.blur();
+    // 되묻기 칩이 뜬 동안에는 자유 입력창을 숨겨 선택에 집중시킨다 — "직접 입력"을
+    // 눌러야 다시 나타난다("또 물어본다"고 오인되던 문제 수정, 2026-07-21).
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "직접 입력" }));
+    const textarea = await screen.findByRole("textbox");
     await waitFor(() => expect(textarea).toHaveFocus());
     expect(
       fetchMock.mock.calls.some(([input]) => String(input) === "/api/strategy/coach")
