@@ -9,6 +9,36 @@ interface StockSearchModalProps {
   onClose: () => void;
   onSelect: (symbols: Array<{ symbol: string; name: string }>) => void;
   singleSelect?: boolean; // 단일 선택 모드
+  universeId?: string | null;
+}
+
+type SearchUniverse = "etf" | "kospi" | "kosdaq" | "kospi200";
+
+const UNIVERSE_LABELS: Record<SearchUniverse, string> = {
+  etf: "ETF",
+  kospi: "KOSPI",
+  kosdaq: "KOSDAQ",
+  kospi200: "KOSPI200",
+};
+
+function normalizeUniverseId(universeId?: string | null): SearchUniverse | null {
+  const normalized = universeId?.toLowerCase().replace(/[\s_-]/g, "") ?? "";
+  if (normalized.includes("etf")) return "etf";
+  if (normalized.includes("kospi200")) return "kospi200";
+  if (normalized.includes("kosdaq")) return "kosdaq";
+  if (normalized.includes("kospi")) return "kospi";
+  return null;
+}
+
+function filterUniverseStocks(stocks: StockSearchResult[], query: string) {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return stocks;
+
+  return stocks.filter((stock) =>
+    [stock.symbol, stock.name, stock.sector, stock.industry]
+      .filter(Boolean)
+      .some((value) => value!.toLowerCase().includes(normalizedQuery))
+  );
 }
 
 export default function StockSearchModal({
@@ -16,6 +46,7 @@ export default function StockSearchModal({
   onClose,
   onSelect,
   singleSelect = false,
+  universeId,
 }: StockSearchModalProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [results, setResults] = useState<StockSearchResult[]>([]);
@@ -23,6 +54,11 @@ export default function StockSearchModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const restrictedUniverse = normalizeUniverseId(universeId);
+  const restrictedUniverseLabel = restrictedUniverse
+    ? UNIVERSE_LABELS[restrictedUniverse]
+    : null;
+  const [universeStocks, setUniverseStocks] = useState<StockSearchResult[]>([]);
 
   useEffect(() => {
     if (isOpen && inputRef.current) {
@@ -33,10 +69,76 @@ export default function StockSearchModal({
       setSelectedSymbols(new Set());
       setSearchQuery("");
       setResults([]);
+      setUniverseStocks([]);
+      setError("");
     }
   }, [isOpen]);
 
   useEffect(() => {
+    if (!isOpen || !restrictedUniverse) return;
+
+    let isMounted = true;
+    setLoading(true);
+    setError("");
+
+    Promise.all([
+      fetch("/api/stocks/names").then((response) => {
+        if (!response.ok) throw new Error("Failed to load stock names");
+        return response.json() as Promise<Record<string, { name?: string; sector?: string }>>;
+      }),
+      fetch("/api/universe/data").then((response) => {
+        if (!response.ok) throw new Error("Failed to load universe data");
+        return response.json() as Promise<{ universes?: Partial<Record<SearchUniverse, string[]>> }>;
+      }),
+    ])
+      .then(([metadata, universeData]) => {
+        if (!isMounted) return;
+
+        const symbols = restrictedUniverse === "etf"
+          ? Object.entries(metadata)
+              .filter(([, item]) => item.sector?.toUpperCase() === "ETF")
+              .map(([symbol]) => symbol)
+          : universeData.universes?.[restrictedUniverse] ?? [];
+        const stocks = symbols
+          .map((symbol): StockSearchResult | null => {
+            const item = metadata[symbol];
+            if (!item?.name) return null;
+            return {
+              symbol,
+              name: item.name,
+              type: restrictedUniverseLabel ?? "KR",
+              region: "KR",
+              currency: "KRW",
+              sector: item.sector,
+            };
+          })
+          .filter((stock): stock is StockSearchResult => stock !== null)
+          .sort((a, b) => a.name.localeCompare(b.name, "ko"));
+
+        setUniverseStocks(stocks);
+        setResults(stocks);
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setUniverseStocks([]);
+        setResults([]);
+        setError(`${restrictedUniverseLabel} 유니버스 종목을 불러오지 못했습니다.`);
+      })
+      .finally(() => {
+        if (isMounted) setLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, restrictedUniverse, restrictedUniverseLabel]);
+
+  useEffect(() => {
+    if (restrictedUniverse) {
+      setResults(filterUniverseStocks(universeStocks, searchQuery));
+      return;
+    }
+
     if (searchQuery.trim().length >= 1) {
       const debounceTimer = setTimeout(() => {
         searchStocks(searchQuery);
@@ -46,7 +148,7 @@ export default function StockSearchModal({
     } else {
       setResults([]);
     }
-  }, [searchQuery]);
+  }, [restrictedUniverse, searchQuery, universeStocks]);
 
   const searchStocks = async (query: string) => {
     if (!query.trim()) {
@@ -122,7 +224,7 @@ export default function StockSearchModal({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-black tracking-tight text-white">
-                  종목 검색
+                  {restrictedUniverseLabel ? `${restrictedUniverseLabel} 종목 검색` : "종목 검색"}
                 </h2>
               </div>
             </div>
@@ -155,7 +257,9 @@ export default function StockSearchModal({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="flex-1 bg-transparent text-sm font-medium text-white placeholder:text-gray-500 outline-none ring-0 focus:ring-0 focus:outline-none"
-              placeholder="종목명 또는 종목 코드를 입력하세요"
+              placeholder={restrictedUniverseLabel
+                ? `${restrictedUniverseLabel} 유니버스 종목만 검색됩니다`
+                : "종목명 또는 종목 코드를 입력하세요"}
             />
             {searchQuery && (
               <button onClick={() => setSearchQuery("")} className="shrink-0 ml-3 text-gray-500 hover:text-gray-300 transition-colors">
@@ -176,7 +280,7 @@ export default function StockSearchModal({
             <div className="flex items-center justify-center py-16 text-sm text-gray-500">
               검색 중...
             </div>
-          ) : searchQuery.trim().length < 1 ? (
+          ) : searchQuery.trim().length < 1 && !restrictedUniverse ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <div className="mb-3 rounded-2xl border border-white/[0.08] bg-white/[0.03] p-4">
                 <MagnifyingGlass size={22} className="text-gray-500" />
@@ -197,7 +301,9 @@ export default function StockSearchModal({
                 검색 결과가 없습니다
               </p>
               <p className="mt-1 text-xs text-gray-500">
-                입력한 키워드를 바꿔 다시 검색해보세요.
+                {restrictedUniverseLabel
+                  ? `${restrictedUniverseLabel} 유니버스 안에서 다른 키워드로 검색해보세요.`
+                  : "입력한 키워드를 바꿔 다시 검색해보세요."}
               </p>
             </div>
           ) : (

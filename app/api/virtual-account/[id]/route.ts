@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { resolveTrackedSymbolsForStrategy } from '@/lib/strategy-tracked-symbols';
-import { getStockNameMap } from '@/lib/krx-stocks';
+import { getStockNameMap, loadEtfMasterNameMap } from '@/lib/krx-stocks';
 import {
   closeAccountWithSettlement,
   fetchSettlementPriceMap,
@@ -25,6 +25,14 @@ function resolvePositionName(
   if (stockNameMap[symbol]) return stockNameMap[symbol];
   if (storedName && storedName.trim().length > 0 && storedName !== symbol) return storedName;
   return symbol;
+}
+
+async function loadEtfNameMapSafely(): Promise<Record<string, string>> {
+  try {
+    return await loadEtfMasterNameMap();
+  } catch {
+    return {};
+  }
 }
 
 function mapAccount(
@@ -78,15 +86,16 @@ function mapAccount(
 }
 
 async function buildNameMap(symbols: string[]): Promise<Record<string, string>> {
-  const [stockNameMap, dbStocks] = await Promise.all([
+  const [stockNameMap, etfNameMap, dbStocks] = await Promise.all([
     getStockNameMap(),
+    loadEtfNameMapSafely(),
     symbols.length > 0
       ? prisma.stock.findMany({ where: { symbol: { in: symbols }, name: { not: null } }, select: { symbol: true, name: true } })
       : Promise.resolve([]),
   ]);
   const merged: Record<string, string> = {};
   for (const s of dbStocks) if (s.name) merged[s.symbol] = s.name;
-  return { ...merged, ...stockNameMap };
+  return { ...merged, ...etfNameMap, ...stockNameMap };
 }
 
 async function findOwnedAccountById(

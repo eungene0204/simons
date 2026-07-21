@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
 import polars as pl
 
 from engine.indicators import IndicatorEngine
+
+
+_DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 
 
 def _normalize_date(value: Any) -> pd.Timestamp | None:
@@ -114,3 +119,248 @@ def prepare_signal_dataframe(
         ])
 
     return live_df
+
+
+def evaluate_live_strategy_signals(
+    data_loader: Any,
+    symbols: list[str],
+    quotes: dict[str, Any],
+    entry_group: dict[str, Any] | None,
+    exit_group: dict[str, Any] | None,
+    risk: dict[str, Any] | None,
+    ai_engine: Any = None,
+    execution_date: str | None = None,
+) -> list[dict[str, Any]]:
+    """Evaluate the latest executable strategy row across a symbol universe."""
+    from engine.signals import SignalEngine
+
+    entry_group = entry_group if isinstance(entry_group, dict) else {}
+    exit_group = exit_group if isinstance(exit_group, dict) else {}
+    risk = risk if isinstance(risk, dict) else {}
+    entry_conditions = _flatten_conditions(entry_group.get("conditions"))
+    exit_conditions = _flatten_conditions(exit_group.get("conditions"))
+    execution_timing = risk.get("execution_timing") or "next_open"
+    ranking_metric = risk.get("ranking_metric")
+    lookback = max(1, int(risk.get("ranking_lookback_days") or 60))
+    max_positions = max(1, int(risk.get("max_positions") or 5))
+    rebalancing_period = risk.get("rebalancing_period") or "none"
+    signal_engine = SignalEngine()
+    results: list[dict[str, Any]] = []
+    rebalance_due = rebalancing_period == "daily"
+
+    for symbol in symbols:
+        result: dict[str, Any] = {
+            "symbol": symbol,
+            "entry_signal": False,
+            "exit_signal": False,
+            "entry_reason": None,
+            "exit_reason": None,
+            "ranking_return": None,
+        }
+        df = data_loader.load_symbol_data(symbol)
+        if df is None or len(df) == 0:
+            results.append(result)
+            continue
+
+        live_df = prepare_signal_dataframe(
+            df, quotes.get(symbol), entry_conditions, exit_conditions, ai_engine
+        )
+        evaluation_offset = (
+            -1
+            if execution_timing != "next_open" or (
+                execution_date is not None and quotes.get(symbol) is None
+            )
+            else -2
+        )
+        row_index = len(live_df) + evaluation_offset
+        if rebalancing_period not in ("none", "daily") and len(live_df) >= 2:
+            dates = live_df["date"]
+            current_date = execution_date or dates[-1]
+            previous_date = dates[row_index]
+            rebalance_due = rebalance_due or _period_key(
+                current_date, rebalancing_period
+            ) != _period_key(previous_date, rebalancing_period)
+        if row_index < 0:
+            results.append(result)
+            continue
+
+        if entry_conditions:
+            values, reasons = signal_engine.generate_signals(live_df, entry_group)
+            result["entry_signal"] = bool(values[row_index])
+            result["entry_reason"] = reasons[row_index]
+        if exit_conditions:
+            values, reasons = signal_engine.generate_signals(live_df, exit_group)
+            result["exit_signal"] = bool(values[row_index])
+            result["exit_reason"] = reasons[row_index]
+
+        if ranking_metric == "return" and row_index - lookback >= 0:
+            current = live_df["close"][row_index]
+            previous = live_df["close"][row_index - lookback]
+            if current is not None and previous not in (None, 0):
+                result["ranking_return"] = float(current) / float(previous) - 1.0
+        results.append(result)
+
+    if ranking_metric != "return":
+        return results
+
+    candidates = [
+        result for result in results
+        if result["ranking_return"] is not None
+        and (not entry_conditions or result["entry_signal"])
+    ]
+    candidates.sort(key=lambda result: result["ranking_return"], reverse=True)
+    candidate_count = len(candidates)
+    selected = candidates[:max_positions] if (
+        rebalancing_period == "none" or rebalance_due
+    ) else []
+    for rank, result in enumerate(selected, start=1):
+        top_pct = max(1, round((rank - 1) / candidate_count * 100))
+        result["entry_signal"] = True
+        result["entry_reason"] = (
+            f"최근 {lookback}거래일 수익률 상위 {top_pct}% "
+            f"({rank}/{candidate_count}위)"
+        )
+
+    selected_symbols = {result["symbol"] for result in selected}
+    ranking_ready = any(result["ranking_return"] is not None for result in results)
+    for result in results:
+        result["rebalance_due"] = rebalance_due
+        result["ranking_ready"] = ranking_ready
+        if result["symbol"] not in selected_symbols:
+            result["entry_signal"] = False
+            result["entry_reason"] = None
+    return sorted(
+        results,
+        key=lambda result: (
+            result["ranking_return"] is not None,
+            result["ranking_return"]
+            if result["ranking_return"] is not None
+            else float("-inf"),
+        ),
+        reverse=True,
+    )
+
+
+def _period_key(value: Any, period: str) -> tuple[int, ...]:
+    date = pd.Timestamp(value)
+    if period == "weekly":
+        iso = date.isocalendar()
+        return int(iso.year), int(iso.week)
+    if period == "monthly":
+        return date.year, date.month
+    if period == "bimonthly":
+        return date.year, (date.month - 1) // 2
+    if period == "quarterly":
+        return date.year, (date.month - 1) // 3
+    if period == "yearly":
+        return (date.year,)
+    return ()
+
+
+def resolve_live_universe(
+    strategy: dict[str, Any] | None,
+    fallback_symbols: list[str],
+) -> list[str]:
+    """Resolve the current listed universe without using historical winners."""
+    strategy = strategy if isinstance(strategy, dict) else {}
+    target_symbols = strategy.get("target_symbols")
+    if isinstance(target_symbols, list) and target_symbols:
+        return _unique_symbols(target_symbols)
+
+    raw_universe = strategy.get("universe_id")
+    universe_config = strategy.get("universe")
+    filters: dict[str, Any] = {}
+    if raw_universe is None and isinstance(universe_config, dict):
+        raw_universe = universe_config.get("id")
+        filters = universe_config.get("filters") or {}
+    elif raw_universe is None:
+        raw_universe = universe_config
+
+    if isinstance(raw_universe, list):
+        universe_id = "_".join(sorted(str(item).lower() for item in raw_universe))
+    else:
+        universe_id = str(raw_universe or "").strip().lower()
+    sector = strategy.get("sector") or filters.get("selectedSectors")
+
+    try:
+        if universe_id == "etf":
+            payload = json.loads((_DATA_DIR / "etf-master.json").read_text(encoding="utf-8"))
+            etfs = [
+                item for item in payload.get("etfs", [])
+                if item.get("hasOhlcv") and not item.get("delistingDate")
+            ]
+            theme = strategy.get("etf_theme") or filters.get("theme")
+            if theme:
+                key = str(theme).replace(" ", "").lower()
+                exact = [
+                    item for item in etfs
+                    if str(item.get("name", "")).replace(" ", "").lower() == key
+                ]
+                etfs = exact or [
+                    item for item in etfs
+                    if key in str(item.get("name", "")).replace(" ", "").lower()
+                ]
+            return _unique_symbols([item.get("symbol") for item in etfs])
+
+        if universe_id == "kospi200":
+            payload = json.loads((_DATA_DIR / "kospi200-cache.json").read_text(encoding="utf-8"))
+            symbols = _unique_symbols(payload.get("symbols", []))
+            if not sector:
+                return symbols
+            stocks = _load_current_stocks()
+            sectors = set(sector if isinstance(sector, list) else [sector])
+            return [
+                symbol for symbol in symbols
+                if stocks.get(symbol, {}).get("sector") in sectors
+            ]
+
+        markets = set()
+        if "kospi" in universe_id:
+            markets.add("KOSPI")
+        if "kosdaq" in universe_id:
+            markets.add("KOSDAQ")
+        if markets:
+            stocks = _load_current_stocks()
+            sectors = set(sector if isinstance(sector, list) else [sector]) if sector else set()
+            return [
+                symbol for symbol, item in stocks.items()
+                if item.get("market") in markets
+                and (not sectors or item.get("sector") in sectors)
+            ]
+    except (OSError, ValueError, TypeError):
+        pass
+    return _unique_symbols(fallback_symbols)
+
+
+def _load_current_stocks() -> dict[str, dict[str, Any]]:
+    stocks = json.loads((_DATA_DIR / "korea-stocks.json").read_text(encoding="utf-8"))
+    return {
+        str(item["symbol"]): item
+        for item in stocks
+        if item.get("symbol")
+    }
+
+
+def _unique_symbols(symbols: list[Any]) -> list[str]:
+    return list(dict.fromkeys(str(symbol).strip() for symbol in symbols if symbol))
+
+
+def count_holding_sessions(
+    data_loader: Any,
+    symbol: str,
+    opened_at: Any,
+    through_date: str,
+    quote: Any = None,
+) -> int:
+    """Count KRX data rows after the entry session through the current session."""
+    df = data_loader.load_symbol_data(symbol)
+    if df is None or len(df) == 0 or "date" not in df.columns:
+        return 0
+    live_df = apply_realtime_quote(df, quote)
+    dates = pd.to_datetime(live_df["date"].to_list(), errors="coerce")
+    opened = pd.Timestamp(opened_at)
+    if opened.tzinfo is not None:
+        opened = opened.tz_convert("Asia/Seoul")
+    opened_date = opened.tz_localize(None).normalize()
+    through = pd.Timestamp(through_date).normalize()
+    return int(((dates > opened_date) & (dates <= through)).sum())

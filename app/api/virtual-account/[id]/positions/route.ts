@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { fetchStockPriceSnapshots } from '@/lib/server/stock-prices';
-import { getStockNameMap } from '@/lib/krx-stocks';
+import { getStockNameMap, loadEtfMasterNameMap } from '@/lib/krx-stocks';
 import { isZeroValuation } from '@/lib/listing-status';
 import {
   getOwnershipContext,
@@ -46,8 +46,9 @@ export async function GET(
 
     // 상장 상태 + 이름 조회 (DELISTED → 0원 평가)
     const symbols = positions.map((p) => p.symbol);
-    const [stockNameMap, stockRecords] = await Promise.all([
+    const [stockNameMap, etfNameMap, stockRecords] = await Promise.all([
       getStockNameMap(),
+      loadEtfMasterNameMap(),
       prisma.stock.findMany({
         where: { symbol: { in: symbols } },
         select: { symbol: true, name: true, listingStatus: true, lastTradableDate: true, delistingDate: true },
@@ -55,7 +56,7 @@ export async function GET(
     ]);
     // DB Stock 이름을 우선 적용 (korea-stocks.json에 없는 상장폐지 종목 대응)
     const dbNameMap = Object.fromEntries(stockRecords.filter((s) => s.name).map((s) => [s.symbol, s.name!]));
-    const mergedNameMap = { ...dbNameMap, ...stockNameMap };
+    const mergedNameMap = { ...dbNameMap, ...etfNameMap, ...stockNameMap };
     const statusMap = Object.fromEntries(stockRecords.map((s) => [s.symbol, s as { symbol: string; listingStatus: string; lastTradableDate: string | null; delistingDate: string | null }]));
     let livePrices: Record<string, number> = {};
     try {

@@ -25,6 +25,7 @@ Allowed:
 - AI Summary / Explain
 - AI Runtime Orchestration
 - Optimization Runtime
+- Virtual Trading Runtime
 - Dashboard (read-only UI)
 - Landing / Auth Entry Experience
 - Strategy Persistence / BatchRun Storage

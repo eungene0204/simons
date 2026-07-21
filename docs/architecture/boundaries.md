@@ -605,6 +605,49 @@ Public landing page, sign-in entry flow, and session bootstrap into the existing
 
 ---
 
+## Boundary S: Virtual Trading Runtime
+
+### Purpose
+백테스트에서 확정된 전략 DSL의 신호·랭킹·리스크 의미를 가상계좌 자동매매 런타임에 동일하게 적용하고, 전략 시작 시 평가할 후보 유니버스를 구성한다.
+
+### Files
+- backend/engine/virtual_trader.py
+- backend/engine/live_signal_utils.py
+- backend/engine/virtual_trading/**
+- backend/tests/test_virtual_trader.py
+- backend/tests/test_virtual_trader_*.py
+- lib/server/strategy-start.ts
+- lib/strategy-tracked-symbols.ts
+- app/api/virtual-account/[id]/strategy/start/route.ts
+- app/api/virtual-account/tracked-symbol-filter.test.ts
+- app/api/virtual-account/strategy-start.test.ts
+
+### Allowed Tasks
+- 저장된 전략 DSL의 진입·청산 조건을 자동 트레이더 평가 입력으로 변환
+- 기술·재무·AI 신호용 live dataframe 준비 로직 정합성 보완
+- 수익률 횡단면 랭킹, 최대 보유 종목 수, 리밸런싱 편입·편출 처리
+- 전략 유니버스와 필터를 기준으로 자동매매 후보 종목 구성
+- 손절·익절·트레일링스톱·최대보유기간·체결시점 의미 정합성 보완
+- 자동매매 신호 평가와 주문 실행 회귀 테스트 추가 및 수정
+
+### Strict Rules
+- FastAPI `VirtualTrader`를 가상계좌 자동매매 체결의 단일 실행 경로로 유지한다.
+- 백테스트의 `SignalEngine`과 전략 요청 의미를 재사용하며 지표 공식을 별도로 재구현하지 않는다.
+- 횡단면 랭킹과 체결 판단은 해당 시점까지 확인 가능한 데이터만 사용하고 미래 데이터를 참조하지 않는다.
+- 공개 API 응답, Strategy DSL, 주문·포지션 저장 계약을 보존한다.
+- 신호 계열별 회귀 테스트와 look-ahead 방지 테스트를 추가한다.
+- 한 작업이 5개 파일 또는 200줄을 넘으면 신호 평가, 랭킹, 리밸런싱·체결 정합화를 별도 작업으로 분리한다.
+
+### Forbidden
+- 백테스트 엔진(`backend/backtest_engine.py`, `backend/engine/simulator.py`, `backend/engine/result_handler.py`) 변경
+- 공용 신호 공식(`backend/engine/signals.py`, `backend/engine/indicators.py`) 변경
+- provider 계층(`backend/engine/providers/**`) 변경
+- 데이터베이스 스키마 또는 Prisma 변경
+- 인증·사용자 소유권 로직 변경
+- 범용 스크립트(`scripts/**`, `backend/scripts/**`) 변경
+
+---
+
 ## Global Forbidden Paths
 
 Codex must NEVER modify:

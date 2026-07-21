@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getStockNameMap } from "@/lib/krx-stocks";
+import { getStockNameMap, loadEtfMasterNameMap } from "@/lib/krx-stocks";
 import { filterMonitorableSymbols } from "@/lib/strategy-tracked-symbols";
 
 async function resolveSymbolNames(symbols: string[]): Promise<Record<string, string>> {
   if (symbols.length === 0) return {};
-  const [nameMap, dbStocks] = await Promise.all([
+  const [nameMap, etfNameMap, dbStocks] = await Promise.all([
     getStockNameMap(),
+    loadEtfMasterNameMap(),
     prisma.stock.findMany({
       where: { symbol: { in: symbols }, name: { not: null } },
       select: { symbol: true, name: true },
@@ -14,6 +15,7 @@ async function resolveSymbolNames(symbols: string[]): Promise<Record<string, str
   ]);
   const result: Record<string, string> = {};
   for (const s of dbStocks) if (s.name) result[s.symbol] = s.name;
+  for (const sym of symbols) if (etfNameMap[sym]) result[sym] = etfNameMap[sym];
   // korea-stocks.json 우선 (현재 상장 종목이 더 정확)
   for (const sym of symbols) if (nameMap[sym]) result[sym] = nameMap[sym];
   return result;

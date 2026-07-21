@@ -12,6 +12,7 @@ VirtualTrader — FastAPI 백그라운드 자동매매 엔진
 """
 
 import asyncio
+import copy
 import json
 import logging
 import math
@@ -22,7 +23,11 @@ from typing import Optional
 
 import db as appdb  # 공용 앱 DB 어댑터(Supabase Postgres)
 
-from engine.live_signal_utils import prepare_signal_dataframe
+from engine.live_signal_utils import (
+    count_holding_sessions,
+    evaluate_live_strategy_signals,
+    resolve_live_universe,
+)
 from engine.listing_status import (
     ListingStatus, is_buy_allowed, is_sell_allowed, write_audit_log,
     get_stock_listing_status, get_stocks_by_status, sync_trading_halt,
@@ -33,7 +38,6 @@ logger = logging.getLogger(__name__)
 # ── 상수 ────────────────────────────────────────────────────────────────────
 _KST = timezone(timedelta(hours=9))
 REFRESH_INTERVAL = 30          # 장중 시그널 평가 간격 (초)
-HISTORY_DAYS = 75              # 시그널 평가에 사용할 OHLCV 기간
 HALT_RESUME_SWEEP_INTERVAL = 600  # 거래정지 종목 재개 감지 스윕 간격 (초)
 
 FEE_RATE = 0.00015             # 수수료 0.015%
@@ -120,6 +124,14 @@ def _is_market_hours() -> bool:
     return 900 <= t <= 1530
 
 
+def _is_strategy_execution_window(execution_timing: str) -> bool:
+    now = datetime.now(_KST)
+    t = now.hour * 100 + now.minute
+    if execution_timing == "current_close":
+        return t == 1530
+    return 900 <= t <= 905
+
+
 def _fresh_price_map(quotes: dict, today: str) -> dict[str, int]:
     """오늘 날짜(KST)의 시세만 매매에 사용한다.
 
@@ -152,6 +164,7 @@ class VirtualTrader:
         self._running = False
         self._task: Optional[asyncio.Task] = None
         self._last_halt_sweep: Optional[float] = None  # time.monotonic() 기준
+        self._daily_signal_cache: dict[tuple[str, str, str], list[dict]] = {}
 
     # ── 생명주기 ──────────────────────────────────────────────────────────────
 
@@ -300,24 +313,31 @@ class VirtualTrader:
         """Stock 테이블에서 종목명 조회. 없으면 symbol을 fallback으로 사용."""
         if not symbols:
             return {}
-        con = appdb.connect()
+        con = None
         try:
+            con = appdb.connect()
             placeholders = ",".join("?" * len(symbols))
             rows = con.execute(
                 f'SELECT symbol, name FROM "Stock" WHERE symbol IN ({placeholders})',
                 symbols,
             ).fetchall()
             result = {r[0]: r[1] for r in rows if r[1]}
+            missing = [symbol for symbol in symbols if symbol not in result]
+            if missing:
+                from engine.universe_pit import etf_name_map
+                result.update(etf_name_map(missing))
             return result
         except Exception:
             return {}
         finally:
-            con.close()
+            if con is not None:
+                con.close()
 
     def _fetch_delisting_policy(self, account_id: str) -> str:
         """계좌의 상장폐지 처리 정책 조회. 기본 AUTO_LIQUIDATE."""
-        con = appdb.connect()
+        con = None
         try:
+            con = appdb.connect()
             row = con.execute(
                 'SELECT "delistingPolicy" FROM "VirtualAccount" WHERE id = ?', (account_id,)
             ).fetchone()
@@ -325,7 +345,8 @@ class VirtualTrader:
         except Exception:
             return "AUTO_LIQUIDATE"
         finally:
-            con.close()
+            if con is not None:
+                con.close()
 
     # ── 계좌 새로고침 ─────────────────────────────────────────────────────────
 
@@ -337,21 +358,23 @@ class VirtualTrader:
         today = datetime.now(_KST).strftime("%Y-%m-%d")
 
         # 1. 전략 조건 파싱
-        entry_conditions = []
-        exit_conditions = []
+        entry_group = {}
+        exit_group = {}
+        risk = {}
         position_size_pct = 10
         max_positions = 5
         stop_loss_pct = 0.0
         take_profit_pct = 0.0
         trailing_stop_pct = 0.0
         max_holding_days = 0
+        dsl = {}
 
         if strategy_id:
-            dsl = await asyncio.to_thread(self._fetch_strategy, strategy_id)
+            dsl = await asyncio.to_thread(self._fetch_strategy, strategy_id) or {}
             if dsl:
-                entry_conditions = dsl.get("entry", {}).get("conditions", [])
-                exit_conditions = dsl.get("exit", {}).get("conditions", [])
-                risk = dsl.get("risk", {})
+                entry_group = dsl.get("entry") or {}
+                exit_group = dsl.get("exit") or {}
+                risk = dsl.get("risk") or {}
                 position_size_pct = _coerce_numeric(risk.get("position_size_pct"), 10.0)
                 max_positions = int(_coerce_numeric(risk.get("max_positions"), 5.0))
                 stop_loss_pct = _coerce_numeric(risk.get("stop_loss_pct"))
@@ -359,14 +382,55 @@ class VirtualTrader:
                 trailing_stop_pct = _coerce_numeric(risk.get("trailing_stop_pct"))
                 max_holding_days = int(_coerce_numeric(risk.get("max_holding_days")))
 
-        # 2. 실시간 시세 조회 (휴장일/스테일 시세 가드: 오늘 날짜 시세만 매매에 사용)
-        #    추적 종목 + 보유 포지션 종목 — 추적 해제된 보유 종목도 시세가 있어야
-        #    리스크 청산·현재가 갱신·거래정지 재개 감지가 동작한다.
+        # 2. Resolve the actual strategy universe independently from display symbols.
         positions = await asyncio.to_thread(self._fetch_positions, account_id)
-        quote_symbols = list(dict.fromkeys(symbols + [p["symbol"] for p in positions]))
+        pending_orders = await asyncio.to_thread(self._fetch_pending_orders, account_id)
+        execution_timing = risk.get("execution_timing") or "next_open"
+        signal_symbols = await asyncio.to_thread(resolve_live_universe, dsl, symbols)
+
+        # next_open signals depend only on completed bars, so evaluate the full universe
+        # once per day before requesting live prices for actionable symbols.
+        if execution_timing == "next_open":
+            strategy_key = json.dumps(dsl, sort_keys=True, ensure_ascii=True)
+            cache_key = (account_id, today, strategy_key)
+            cached = self._daily_signal_cache.get(cache_key)
+            if cached is None:
+                cached = await asyncio.to_thread(
+                    self._evaluate_signals,
+                    signal_symbols,
+                    entry_group,
+                    exit_group,
+                    risk,
+                    {},
+                    today,
+                )
+                self._daily_signal_cache = {
+                    key: value
+                    for key, value in self._daily_signal_cache.items()
+                    if key[1] == today
+                }
+                self._daily_signal_cache[cache_key] = copy.deepcopy(cached)
+            signals = copy.deepcopy(cached)
+            actionable = [
+                signal["symbol"] for signal in signals
+                if signal.get("entry_signal") or signal.get("exit_signal")
+            ]
+            quote_symbols = list(dict.fromkeys(
+                actionable
+                + [p["symbol"] for p in positions]
+                + [order["symbol"] for order in pending_orders]
+            ))
+        else:
+            quote_symbols = list(dict.fromkeys(
+                signal_symbols
+                + [p["symbol"] for p in positions]
+                + [order["symbol"] for order in pending_orders]
+            ))
+
+        # 2.5. Fetch live prices only after next_open candidates have been selected.
         quotes = await self._mdp.get_prices(quote_symbols)
 
-        # 2.5. 거래정지 플래그(KIS 종목상태코드 58) → Stock.listingStatus 동기화
+        # 2.6. 거래정지 플래그(KIS 종목상태코드 58) → Stock.listingStatus 동기화
         #      DART 공시 폴링이 놓친 거래정지 종목을 시세 경로에서 자동 보정한다.
         halt_flags = {
             sym: q.trading_halted
@@ -383,10 +447,52 @@ class VirtualTrader:
             logger.debug("[VirtualTrader] 계좌 %s: 오늘(%s) 시세 없음 — 휴장일 또는 스테일 데이터, 매매 보류", account_id, today)
         name_map: dict[str, str] = await asyncio.to_thread(self._fetch_stock_names, quote_symbols)
 
-        # 3. 시그널 평가
-        signals = await asyncio.to_thread(
-            self._evaluate_signals, symbols, entry_conditions, exit_conditions, quotes
+        # current_close signals require today's live quote in the indicator row.
+        if execution_timing != "next_open":
+            signals = await asyncio.to_thread(
+                self._evaluate_signals,
+                signal_symbols,
+                entry_group,
+                exit_group,
+                risk,
+                quotes,
+                today,
+            )
+
+        strategy_execution_allowed = _is_strategy_execution_window(execution_timing)
+        if not strategy_execution_allowed:
+            for signal in signals:
+                signal["entry_signal"] = False
+                signal["exit_signal"] = False
+
+        # Ranking portfolios replace their target set only on configured rebalance days.
+        ranking_rebalance = (
+            risk.get("ranking_metric") == "return"
+            and strategy_execution_allowed
+            and (risk.get("rebalancing_period") or "none") != "none"
+            and any(signal.get("rebalance_due") for signal in signals)
+            and any(signal.get("ranking_ready") for signal in signals)
         )
+        if ranking_rebalance:
+            target_symbols = {
+                signal["symbol"] for signal in signals if signal.get("entry_signal")
+            }
+            for pos in positions:
+                if pos["symbol"] in target_symbols:
+                    continue
+                signal = next(
+                    (item for item in signals if item["symbol"] == pos["symbol"]),
+                    None,
+                )
+                if signal is None:
+                    signal = {
+                        "symbol": pos["symbol"],
+                        "entry_signal": False,
+                        "exit_signal": False,
+                    }
+                    signals.append(signal)
+                signal["exit_signal"] = True
+                signal["exit_reason"] = "리밸런싱 제외 (목표 종목 이탈)"
 
         # 4. 리스크 관리
         risk_exits: dict[str, str] = {}
@@ -412,9 +518,19 @@ class VirtualTrader:
             if max_holding_days > 0:
                 opened_dt = _parse_db_datetime(pos.get("openedAt"))
                 if opened_dt is not None:
-                    holding_days = (datetime.now(timezone.utc) - opened_dt).days
+                    holding_days = await asyncio.to_thread(
+                        count_holding_sessions,
+                        self._loader,
+                        pos["symbol"],
+                        opened_dt,
+                        today,
+                        quotes.get(pos["symbol"]),
+                    )
                     if holding_days >= max_holding_days:
-                        risk_exits[pos["symbol"]] = f"최대보유일 초과 ({holding_days}일 ≥ {max_holding_days}일)"
+                        risk_exits[pos["symbol"]] = (
+                            f"최대보유일 초과 ({holding_days}거래일 ≥ "
+                            f"{max_holding_days}거래일)"
+                        )
 
         # 리스크 종료를 시그널에 병합
         for sym, reason in risk_exits.items():
@@ -429,7 +545,11 @@ class VirtualTrader:
         # 4.5. 상장 상태 체크: 거래 제한 + 강제청산 (보유 포지션 종목 포함)
         delistingPolicy = await asyncio.to_thread(self._fetch_delisting_policy, account_id)
         for sym in quote_symbols:
-            status = await asyncio.to_thread(get_stock_listing_status, sym)
+            try:
+                status = await asyncio.to_thread(get_stock_listing_status, sym)
+            except Exception as error:
+                logger.debug("[VirtualTrader] listing status unavailable %s: %s", sym, error)
+                status = ListingStatus.NORMAL
             if status == ListingStatus.NORMAL:
                 continue
 
@@ -467,6 +587,8 @@ class VirtualTrader:
         # 5. 매매 실행
         executed_today = await asyncio.to_thread(self._fetch_today_logs, account_id, today)
 
+        # Exits must release slots and cash before ranked replacements are bought.
+        signals.sort(key=lambda signal: not signal.get("exit_signal", False))
         for sig in signals:
             sym = sig["symbol"]
             close = price_map.get(sym, 0)
@@ -541,7 +663,6 @@ class VirtualTrader:
                     executed_today.add(f"{sym}_entry_notified")
 
         # 6. PENDING 지정가 주문 체결
-        pending_orders = await asyncio.to_thread(self._fetch_pending_orders, account_id)
         for order in pending_orders:
             current_price = price_map.get(order["symbol"], 0)
             if not current_price:
@@ -564,54 +685,26 @@ class VirtualTrader:
     def _evaluate_signals(
         self,
         symbols: list[str],
-        entry_conditions: list,
-        exit_conditions: list,
+        entry_group: dict,
+        exit_group: dict,
+        risk: dict,
         quotes: dict,
+        execution_date: str | None = None,
     ) -> list[dict]:
-        from engine.signals import SignalEngine
-        sig_engine = SignalEngine()
-        results = []
-
-        for sym in symbols:
-            df = self._loader.load_symbol_data(sym)
-            entry_signal = False
-            exit_signal = False
-            entry_reason = None
-            exit_reason = None
-
-            if df is not None and len(df) > 0:
-                df_live = prepare_signal_dataframe(
-                    df,
-                    quotes.get(sym),
-                    entry_conditions,
-                    exit_conditions,
-                    self._ai_engine,
-                )
-                df_slice = df_live.tail(HISTORY_DAYS + 15)
-                if entry_conditions:
-                    try:
-                        arr, reasons = sig_engine.generate_signals(df_slice, {"conditions": entry_conditions})
-                        entry_signal = bool(arr[-1])
-                        entry_reason = reasons[-1]
-                    except Exception as e:
-                        logger.debug("[VirtualTrader] entry signal 오류 %s: %s", sym, e)
-                if exit_conditions:
-                    try:
-                        arr, reasons = sig_engine.generate_signals(df_slice, {"conditions": exit_conditions})
-                        exit_signal = bool(arr[-1])
-                        exit_reason = reasons[-1]
-                    except Exception as e:
-                        logger.debug("[VirtualTrader] exit signal 오류 %s: %s", sym, e)
-
-            results.append({
-                "symbol": sym,
-                "entry_signal": entry_signal,
-                "exit_signal": exit_signal,
-                "entry_reason": entry_reason,
-                "exit_reason": exit_reason,
-            })
-
-        return results
+        try:
+            return evaluate_live_strategy_signals(
+                self._loader,
+                symbols,
+                quotes,
+                entry_group,
+                exit_group,
+                risk,
+                self._ai_engine,
+                execution_date,
+            )
+        except Exception as error:
+            logger.warning("[VirtualTrader] signal evaluation failed: %s", error, exc_info=True)
+            return []
 
     # ── 매매 실행 (동기, to_thread에서 실행) ─────────────────────────────────
 

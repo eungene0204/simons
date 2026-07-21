@@ -28,6 +28,9 @@ vi.mock("@/lib/krx-stocks", () => ({
     "005930": "삼성전자",
     "000660": "SK하이닉스",
   }),
+  loadEtfMasterNameMap: vi.fn().mockResolvedValue({
+    "488080": "TIGER 반도체TOP10레버리지",
+  }),
 }));
 
 const mockStockFindMany = vi.mocked(prisma.stock.findMany);
@@ -89,6 +92,29 @@ describe("/api/virtual-market/[accountId]", () => {
       expect.objectContaining({
         symbols: ["005930"],
         symbolNames: { "005930": "삼성전자" },
+      })
+    );
+  });
+
+  it("POST는 ETF 종목명을 ETF 마스터에서 채운다", async () => {
+    mockMarketStateUpsert.mockResolvedValue({
+      id: "state-1",
+      accountId: "account-1",
+      startDate: "2026-06-27",
+      status: "running",
+      symbols: JSON.stringify(["488080"]),
+      updatedAt: new Date("2026-06-27"),
+    } as any);
+
+    const response = await POST(makeRequest({
+      symbols: ["488080"],
+    }), { params: { accountId: "account-1" } });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        symbols: ["488080"],
+        symbolNames: { "488080": "TIGER 반도체TOP10레버리지" },
       })
     );
   });
