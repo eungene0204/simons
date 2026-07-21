@@ -101,7 +101,7 @@ describe("strategy backtest stream route", () => {
     consoleLogSpy.mockRestore();
   });
 
-  it("sends final SSE before async cache persistence finishes", async () => {
+  it("keeps the stream open until strategy and history persistence finishes", async () => {
     let resolveSave!: () => void;
     const savePromise = new Promise<void>((resolve) => {
       resolveSave = resolve;
@@ -117,11 +117,21 @@ describe("strategy backtest stream route", () => {
       canonical_strategy_dsl: { universe: "KOSPI" },
     }));
 
-    const text = await response.text();
+    let responseFinished = false;
+    const textPromise = response.text().then((text) => {
+      responseFinished = true;
+      return text;
+    });
+
+    await vi.waitFor(() => expect(saveCachedResult).toHaveBeenCalledOnce());
+    expect(responseFinished).toBe(false);
+
+    resolveSave();
+    const text = await textPromise;
+
     expect(text).toContain('"type":"result"');
     expect(text).toContain("[DONE]");
-    resolveSave();
-    await savePromise;
+    expect(responseFinished).toBe(true);
 
     expect(saveCachedResult).toHaveBeenCalledWith(
       "cache_key_1",
@@ -129,13 +139,14 @@ describe("strategy backtest stream route", () => {
       expect.objectContaining({
         totalReturn: 12.3,
         strategy_id: "strategy_1",
-      })
+      }),
+      { throwOnFailure: true }
     );
     const logLines = consoleLogSpy.mock.calls.map(([message]) => String(message));
     expect(logLines.some((line) => line.includes("request_received"))).toBe(true);
     expect(logLines.some((line) => line.includes("python_backend_request_start"))).toBe(true);
     expect(logLines.some((line) => line.includes("python_result_received"))).toBe(true);
-    expect(logLines.some((line) => line.includes("cache_save_queued"))).toBe(true);
+    expect(logLines.some((line) => line.includes("cache_save_started"))).toBe(true);
     expect(logLines.some((line) => line.includes("sse_done_sent"))).toBe(true);
     expect(logLines.some((line) => line.includes("stream_closed"))).toBe(true);
   });

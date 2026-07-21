@@ -368,7 +368,7 @@ export async function saveCachedResult(
   cacheKey: string,
   body: any,
   result: any,
-  options: { awaitVectorUpsert?: boolean } = {}
+  options: { awaitVectorUpsert?: boolean; throwOnFailure?: boolean } = {}
 ) {
   try {
     const strategyId = resolveStrategyId({
@@ -447,7 +447,7 @@ export async function saveCachedResult(
     }
   } catch (err) {
     console.error("[BacktestHistory] 자동 저장 실패:", err);
-    if (options.awaitVectorUpsert) {
+    if (options.awaitVectorUpsert || options.throwOnFailure) {
       throw err;
     }
   }

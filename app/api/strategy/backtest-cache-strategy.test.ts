@@ -18,6 +18,7 @@ const mockBacktestResultFindFirst = vi.fn();
 const mockBacktestResultCreate = vi.fn();
 const mockBacktestHistoryFindFirst = vi.fn();
 const mockBacktestHistoryCreate = vi.fn();
+const mockBacktestHistoryUpdate = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -29,6 +30,7 @@ vi.mock("@/lib/prisma", () => ({
     backtestHistory: {
       findFirst: (...a) => mockBacktestHistoryFindFirst(...a),
       create: (...a) => mockBacktestHistoryCreate(...a),
+      update: (...a) => mockBacktestHistoryUpdate(...a),
     },
   },
 }));
@@ -43,6 +45,7 @@ beforeEach(() => {
   mockBacktestResultCreate.mockResolvedValue({});
   mockBacktestHistoryFindFirst.mockResolvedValue(null);
   mockBacktestHistoryCreate.mockResolvedValue({});
+  mockBacktestHistoryUpdate.mockResolvedValue({});
 });
 
 describe("saveCachedResult > 캐시 자동 생성 전략", () => {
@@ -98,5 +101,62 @@ describe("saveCachedResult > 캐시 자동 생성 전략", () => {
     expect(savedSettings.period).toBe("5y");
     // canonical 요약 필드도 계속 보존(요약 표시용 하위호환)
     expect(savedSettings.entry_signals).toEqual(body.canonical_strategy_dsl.entry_signals);
+
+    const historyArg = mockBacktestHistoryCreate.mock.calls[0][0];
+    expect(historyArg.data.strategyId).toBe(upsertArg.create.id);
+  });
+
+  it("화면 자동 저장 행이 먼저 생겨도 DSL Strategy와 strategyId를 연결한다", async () => {
+    mockBacktestHistoryFindFirst.mockResolvedValueOnce({ id: "history-1" });
+    const body = {
+      strategy_id: "strategy-value-1",
+      canonical_strategy_dsl: {
+        fundamental_filters: [{ metric: "pbr", operator: "<=", value: 1 }],
+      },
+      entry: {
+        conditions: [
+          { type: "filter", id: "pbr", params: { operator: "<=", value: 1 } },
+        ],
+      },
+      risk: { stop_loss_pct: 12, max_positions: 8 },
+      universe_id: "kospi",
+    };
+
+    await saveCachedResult("cache-key-existing", body, { totalReturn: 0, tradesList: [] });
+
+    const upsertArg = mockStrategyUpsert.mock.calls[0][0];
+    expect(JSON.parse(upsertArg.create.settings)).toMatchObject({
+      entry: body.entry,
+      risk: body.risk,
+    });
+    expect(mockBacktestHistoryCreate).not.toHaveBeenCalled();
+    expect(mockBacktestHistoryUpdate).toHaveBeenCalledWith({
+      where: { id: "history-1" },
+      data: expect.objectContaining({
+        strategyId: "strategy-value-1",
+        cacheKey: "cache-key-existing",
+      }),
+    });
+  });
+
+  it("스트림 저장 경로에서는 DSL 영속화 실패를 호출자에게 전달한다", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mockStrategyUpsert.mockRejectedValueOnce(new Error("DB write failed"));
+
+    try {
+      await expect(
+        saveCachedResult(
+          "cache-key-failed",
+          {
+            strategy_id: "strategy-failed",
+            canonical_strategy_dsl: { universe: "KOSPI" },
+          },
+          { totalReturn: 0, tradesList: [] },
+          { throwOnFailure: true }
+        )
+      ).rejects.toThrow("DB write failed");
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
   });
 });

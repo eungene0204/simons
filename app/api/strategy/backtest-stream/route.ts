@@ -161,14 +161,19 @@ export async function POST(req: NextRequest) {
             processBufferedBlocks(remaining);
             sseBuffer = "";
           }
-          controller.close();
           log("stream_closed", { source: "python" });
           if (resultData) {
-            log("cache_save_queued", summarizeBacktestResult(resultData));
-            void saveCachedResult(cacheKey, body, resultData)
-              .then(() => log("cache_save_done"))
-              .catch((err) => log("cache_save_failed", { message: err?.message ?? String(err) }));
+            log("cache_save_started", summarizeBacktestResult(resultData));
+            try {
+              // Keep the request alive until Strategy.settings and BacktestHistory.strategyId
+              // are persisted. Fire-and-forget work can be terminated after the stream closes.
+              await saveCachedResult(cacheKey, body, resultData, { throwOnFailure: true });
+              log("cache_save_done");
+            } catch (err: any) {
+              log("cache_save_failed", { message: err?.message ?? String(err) });
+            }
           }
+          controller.close();
           return;
         }
 
