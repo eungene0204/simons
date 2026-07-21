@@ -144,7 +144,7 @@ describe("planLimits — 사용량 요약", () => {
     expect(usage.plan.planId).toBe("PRO");
     expect(usage.accounts).toEqual({ used: 3, limit: 10 });
     expect(usage.strategies).toEqual({ used: 12, limit: 50, unlimited: false });
-    expect(usage.backtests).toEqual({ used: 7, limit: 200 });
+    expect(usage.backtests).toEqual({ used: 7, limit: 500 });
   });
 
   it("getUserUsage는 자동갱신 구독 상태를 반환한다 (해지 예약 여부 포함)", async () => {

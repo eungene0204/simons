@@ -45,7 +45,7 @@ export const PLANS: Record<PlanId, Plan> = {
     initialInvestmentAmount: 50_000_000,
     maxVirtualAccounts: 10,
     maxStrategies: 50,
-    monthlyBacktestLimit: 200,
+    monthlyBacktestLimit: 500,
     isUnlimitedStrategies: false,
   },
   PREMIUM: {
@@ -56,7 +56,7 @@ export const PLANS: Record<PlanId, Plan> = {
     initialInvestmentAmount: 100_000_000,
     maxVirtualAccounts: 30,
     maxStrategies: Infinity,
-    monthlyBacktestLimit: 500,
+    monthlyBacktestLimit: 1000,
     isUnlimitedStrategies: true,
   },
 };

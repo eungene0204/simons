@@ -169,7 +169,7 @@ describe("PricingPlans", () => {
     expect(otherIconWrapper).not.toHaveClass("text-blue-400");
   });
 
-  it("자동갱신 구독 중이면 현재 플랜 카드에 다음 결제일과 해지 버튼을 보여준다", () => {
+  it("자동갱신 구독 중이면 현재 플랜 카드에 다음 결제일만 보여준다", () => {
     render(
       <PricingPlans
         currentPlanId="PRO"
@@ -179,29 +179,7 @@ describe("PricingPlans", () => {
 
     const status = screen.getByTestId("subscription-renewal-status");
     expect(status).toHaveTextContent("다음 결제일");
-    expect(within(status).getByRole("button", { name: "자동갱신 해지" })).toBeInTheDocument();
-  });
-
-  it("해지 버튼 클릭 시 확인 후 해지 API를 호출한다", () => {
-    const fetchSpy = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
-    vi.stubGlobal("fetch", fetchSpy);
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
-
-    render(
-      <PricingPlans
-        currentPlanId="PRO"
-        subscription={{ nextBillingAt: "2026-08-10T00:00:00.000Z", canceled: false }}
-      />
-    );
-    fireEvent.click(screen.getByRole("button", { name: "자동갱신 해지" }));
-
-    expect(fetchSpy).toHaveBeenCalledWith(
-      "/api/payment/billing/cancel",
-      expect.objectContaining({ method: "POST" })
-    );
-
-    confirmSpy.mockRestore();
-    vi.unstubAllGlobals();
+    expect(within(status).queryByRole("button", { name: "자동갱신 해지" })).toBeNull();
   });
 
   it("해지 예약된 구독은 만료 안내만 보여주고 해지 버튼을 숨긴다", () => {

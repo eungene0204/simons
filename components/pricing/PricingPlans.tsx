@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { Check, X, Lightning, Rocket, Crown } from "phosphor-react";
 import { PLANS, PLAN_ORDER, Plan, PlanId } from "@/lib/plans";
 import PaymentCheckout from "@/components/pricing/PaymentCheckout";
@@ -80,32 +79,9 @@ function formatBillingDate(iso: string | null): string {
 }
 
 export default function PricingPlans({ currentPlanId, subscription }: PricingPlansProps) {
-  const router = useRouter();
   const [pendingPlanId, setPendingPlanId] = useState<PlanId | null>(null);
   const [checkoutPlanId, setCheckoutPlanId] = useState<PlanId | null>(null);
-  const [canceling, setCanceling] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const handleCancelRenewal = async () => {
-    if (canceling) return;
-    if (!window.confirm("자동갱신을 해지할까요? 이미 결제된 기간에는 계속 이용할 수 있습니다.")) {
-      return;
-    }
-    setCanceling(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/payment/billing/cancel", {
-        method: "POST",
-        credentials: "same-origin",
-      });
-      if (!res.ok) throw new Error("Failed to cancel");
-      router.refresh();
-    } catch {
-      setError("구독 해지에 실패했습니다. 잠시 후 다시 시도해주세요.");
-    } finally {
-      setCanceling(false);
-    }
-  };
 
   const handleSelect = async (planId: PlanId) => {
     if (planId === currentPlanId || pendingPlanId) return;
@@ -233,17 +209,7 @@ export default function PricingPlans({ currentPlanId, subscription }: PricingPla
                       가능합니다
                     </p>
                   ) : (
-                    <>
-                      <p>다음 결제일: {formatBillingDate(subscription.nextBillingAt)}</p>
-                      <button
-                        type="button"
-                        disabled={canceling}
-                        onClick={() => void handleCancelRenewal()}
-                        className="mt-2 text-gray-400 underline underline-offset-2 transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {canceling ? "해지 처리 중..." : "자동갱신 해지"}
-                      </button>
-                    </>
+                    <p>다음 결제일: {formatBillingDate(subscription.nextBillingAt)}</p>
                   )}
                 </div>
               ) : null}
