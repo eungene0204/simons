@@ -81,14 +81,16 @@ GPU가 없으므로 로컬 LLM은 돌리지 않는다. 백테스트(vectorbt/opt
 | 앱 이름 | `simons-ollama` (계정 profile: `eugene204`, `~/.modal.toml`) |
 | 엔드포인트 | `https://eugene204--simons-ollama-ollama-server.modal.run` (proxy auth 필수) |
 | GPU | L4, `min_containers=0`(scale-to-zero), `scaledown_window=300`초 |
-| 모델 | `hf.co/unsloth/Qwen3.5-4B-GGUF:Q4_K_M` (2026-06-30 9B→4B 경량화) |
+| 모델 | `hf.co/unsloth/Qwen3.5-4B-GGUF:Q4_K_M`(파서/코치) + `hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M`(AI 리포트) — 2모델 동시 서빙(`modal_ollama.py` `MODELS`) |
 | 소스 | [`modal_ollama.py`](../modal_ollama.py) — Ollama를 그대로 web_server로 노출(`/api/chat`, `/v1`) |
 | 배포 | `modal deploy modal_ollama.py` |
 
-**모델 전환 절차(3단계)**:
-1. `.venv/bin/modal run modal_ollama.py::download_model` — 새 모델을 볼륨(`simons-ollama-models`)에 캐시(~2분)
+> **2모델 구성(2026-07-21)**: AI 리포트(백테스트 총평)만 9B를 쓰도록 `SUMMARIZE_OLLAMA_MODEL`로 분리했다. 나머지(NL 파서/인터프리터/코치)는 `NL_OLLAMA_MODEL`(4B) 유지. Modal 볼륨에 두 모델을 모두 캐시하고, `.env`의 두 모델명이 각각 `MODELS`에 있어야 한다.
+
+**모델 전환/추가 절차(3단계)**:
+1. `.venv/bin/modal run modal_ollama.py::download_model` — `MODELS`의 모든 모델을 볼륨(`simons-ollama-models`)에 캐시(~2분/모델)
 2. `.venv/bin/modal deploy modal_ollama.py`
-3. Vultr `/opt/simons/.env`의 `NL_OLLAMA_MODEL`을 동일 모델명으로 변경 후:
+3. Vultr `/opt/simons/.env`의 `NL_OLLAMA_MODEL`/`SUMMARIZE_OLLAMA_MODEL`을 동일 모델명으로 변경 후:
    ```bash
    cd /opt/simons && docker compose up -d --no-build --no-deps --force-recreate backend web
    ```
@@ -133,7 +135,8 @@ Python 백엔드는 `backend/db.py`(psycopg v3 어댑터, sqlite3와 유사한 �
 |---|---|
 | `OLLAMA_HOST` | Modal Ollama 엔드포인트 |
 | `MODAL_KEY` / `MODAL_SECRET` | Modal proxy auth (웹 콘솔 Settings에서 발급) |
-| `NL_OLLAMA_MODEL` | Modal이 서빙 중인 모델명과 반드시 동일 |
+| `NL_OLLAMA_MODEL` | 파서/코치용 모델 — Modal이 서빙 중인 모델명과 반드시 동일(4B) |
+| `SUMMARIZE_OLLAMA_MODEL` | AI 리포트(백테스트 총평) 전용 모델(9B). 미설정 시 `NL_OLLAMA_MODEL`로 폴백. Modal `MODELS`에 포함돼야 함 |
 | `DATABASE_URL` / `DIRECT_URL` | Supabase Postgres (transaction/session pooler) |
 | `NEWSV2_PG_PASSWORD` | 로컬 news_v2 Postgres 컨테이너 비밀번호 |
 | `KRX_API_KEY` | KRX 시세 |
@@ -288,7 +291,7 @@ docker compose up -d --remove-orphans
 
 ## 9. 배포 전 체크리스트
 
-- [ ] `curl <Modal 엔드포인트>/api/tags`가 Modal-Key/Modal-Secret 헤더로 200 응답(모델 목록에 `NL_OLLAMA_MODEL`과 동일 모델 포함)
+- [ ] `curl <Modal 엔드포인트>/api/tags`가 Modal-Key/Modal-Secret 헤더로 200 응답(모델 목록에 `NL_OLLAMA_MODEL`·`SUMMARIZE_OLLAMA_MODEL` 두 모델 모두 포함)
 - [ ] `backend/requirements.txt`에 mlx-lm 없음(리눅스 빌드 통과)
 - [ ] Supabase `DATABASE_URL`(6543+pgbouncer)/`DIRECT_URL`(5432) pooler 경유로 설정, Direct connection 아님
 - [ ] `data/`(parquet + chroma) 준비(`npm run pull-data` 또는 스케줄러가 채움)

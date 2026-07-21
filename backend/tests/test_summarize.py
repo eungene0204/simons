@@ -183,16 +183,47 @@ def test_build_prompt_omits_period_and_capital_lines_when_missing():
 
 
 def test_summarize_models_point_to_qwen35_4b(monkeypatch):
-    # OLLAMA_MODEL은 NL_OLLAMA_MODEL 환경변수로 오버라이드된다(.env가 9B를 가리킴).
-    # 여기서는 환경변수가 없을 때의 코드 폴백 기본값을 검증한다.
+    # OLLAMA_MODEL은 SUMMARIZE_OLLAMA_MODEL → NL_OLLAMA_MODEL 순으로 오버라이드된다.
+    # 여기서는 두 환경변수가 모두 없을 때의 코드 폴백 기본값을 검증한다.
     import importlib
     import ai.summarize as summarize_mod
 
+    monkeypatch.delenv("SUMMARIZE_OLLAMA_MODEL", raising=False)
     monkeypatch.delenv("NL_OLLAMA_MODEL", raising=False)
     importlib.reload(summarize_mod)
     try:
         assert summarize_mod.MLX_MODEL == "mlx-community/Qwen3.5-4B-4bit"
         assert summarize_mod.OLLAMA_MODEL == "qwen3:8b"
+    finally:
+        importlib.reload(summarize_mod)  # 원래 환경 기준으로 복원
+
+
+def test_summarize_ollama_model_prefers_dedicated_env(monkeypatch):
+    # AI 리포트 전용 SUMMARIZE_OLLAMA_MODEL이 있으면 NL_OLLAMA_MODEL(파서용)보다 우선한다.
+    # → 리포트만 9B로 분리하고 파서는 4B를 유지하는 배선을 보장한다.
+    import importlib
+    import ai.summarize as summarize_mod
+
+    monkeypatch.setenv("NL_OLLAMA_MODEL", "hf.co/unsloth/Qwen3.5-4B-GGUF:Q4_K_M")
+    monkeypatch.setenv("SUMMARIZE_OLLAMA_MODEL", "hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M")
+    importlib.reload(summarize_mod)
+    try:
+        assert summarize_mod.OLLAMA_MODEL == "hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M"
+    finally:
+        monkeypatch.delenv("SUMMARIZE_OLLAMA_MODEL", raising=False)
+        importlib.reload(summarize_mod)  # 원래 환경 기준으로 복원
+
+
+def test_summarize_ollama_model_falls_back_to_nl_model(monkeypatch):
+    # SUMMARIZE_OLLAMA_MODEL 미설정 시 시스템 공용 NL_OLLAMA_MODEL로 폴백한다.
+    import importlib
+    import ai.summarize as summarize_mod
+
+    monkeypatch.delenv("SUMMARIZE_OLLAMA_MODEL", raising=False)
+    monkeypatch.setenv("NL_OLLAMA_MODEL", "hf.co/unsloth/Qwen3.5-4B-GGUF:Q4_K_M")
+    importlib.reload(summarize_mod)
+    try:
+        assert summarize_mod.OLLAMA_MODEL == "hf.co/unsloth/Qwen3.5-4B-GGUF:Q4_K_M"
     finally:
         importlib.reload(summarize_mod)  # 원래 환경 기준으로 복원
 
