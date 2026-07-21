@@ -660,6 +660,17 @@ class BacktestEngine:
             # the ranking blocks): no trade can occur in a back-filled region.
             # test_lookahead_no_prelisting_trades.py locks this invariant.
             available_df = raw_price_df.notna()
+            # 거래정지 추정: 봉은 존재하나 당일 거래량이 0(가격 동결)인 날은 실제로
+            # 체결이 불가능하므로 available_df에서 제외한다. 거래대금(=종가×거래량)은
+            # 종가>0(정제 후)이므로 거래대금 0 ⇔ 거래량 0과 동치다. 이렇게 하면
+            # 시뮬레이터가 정지 봉의 진입·청산을 다음 거래 가능일로 이월(pending_exit)하고,
+            # 대형주·랭킹 후보 풀에서도 자동 제외된다. NaN(거래대금 미수집·미상장 구간)은
+            # 정지로 간주하지 않아 기존 동작을 유지한다.
+            if all_trading_values:
+                halted_df = pd.DataFrame(
+                    all_trading_values, index=raw_price_df.index, columns=processed_symbols
+                ).eq(0.0)  # NaN == 0.0 → False
+                available_df &= ~halted_df
             price_df = raw_price_df
             common_index = price_df.index
 
