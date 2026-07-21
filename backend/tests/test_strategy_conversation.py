@@ -119,6 +119,40 @@ def test_factorless_condition_dropped():
     assert intent.unsupported_features == ["FCF Yield"]
 
 
+def test_mirrored_valueless_exit_conditions_dropped():
+    # 실측 드리프트(2026-07-20): 진입 조건(PER<=10, RSI)을 임계값 없이 청산 조건에 그대로
+    # 복제해 출력 → 사용자가 진입에서 이미 준 PER 값을 "청산 조건의 PER 기준값?"이라며
+    # 되묻던 사고. 값 없이 진입 팩터를 중복하는 청산 조건은 버린다.
+    data = _full_intent_dict(
+        entry_conditions=[
+            {"factor": "fundamental.per", "operator": "<=", "value": 10},
+            {"factor": "technical.rsi", "operator": "<=", "value": 30},
+        ],
+        exit_conditions=[
+            {"factor": "fundamental.per", "operator": "<=", "value": None},
+            {"factor": "technical.rsi", "operator": None, "value": None},
+        ],
+    )
+    intent = StrategyIntent.model_validate(data)
+    assert intent.strategy.exit_conditions == []
+    _, report = run_validation(intent)
+    assert not any(
+        q.field.startswith("strategy.exit_conditions")
+        for q in report.clarification_questions
+    )
+
+
+def test_valued_exit_condition_preserved():
+    # 사용자가 청산 임계값을 실제로 준 경우(RSI>=70 매도)는 진입에 RSI가 있어도 보존한다.
+    data = _full_intent_dict(
+        entry_conditions=[{"factor": "technical.rsi", "operator": "<=", "value": 30}],
+        exit_conditions=[{"factor": "technical.rsi", "operator": ">=", "value": 70}],
+    )
+    intent = StrategyIntent.model_validate(data)
+    assert len(intent.strategy.exit_conditions) == 1
+    assert intent.strategy.exit_conditions[0].value == 70
+
+
 def test_modify_without_draft_coerced_to_create():
     # 실측 드리프트(2026-07-16): 초안 없는 단문 서술을 MODIFY_STRATEGY로 오분류
     data = _full_intent_dict()

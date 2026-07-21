@@ -280,6 +280,20 @@ class StrategySpec(BaseModel):
     risk_management: RiskSpec = Field(default_factory=RiskSpec)
     backtest: BacktestSpec = Field(default_factory=BacktestSpec)
 
+    @model_validator(mode="after")
+    def _drop_mirrored_valueless_exits(self):
+        # 4B 드리프트 실측(2026-07-20): 진입 조건(PER<=10, RSI 등)을 임계값 없이 청산
+        # 조건에 그대로 복제해 출력 → 사용자가 진입에서 이미 준 값을 "청산 조건의 PER
+        # 기준값?"이라며 되묻는 사고. 값이 없고 진입 팩터를 중복하는 청산 조건은 새 정보가
+        # 없으므로 버린다(사용자가 실제 청산 임계값을 줬다면 value가 채워져 보존된다).
+        if self.exit_conditions and self.entry_conditions:
+            entry_factors = {c.factor for c in self.entry_conditions}
+            self.exit_conditions = [
+                c for c in self.exit_conditions
+                if not (c.value is None and c.factor in entry_factors)
+            ]
+        return self
+
 
 # ─── 되묻기·패치 ──────────────────────────────────────────────────────────────
 
