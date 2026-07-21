@@ -124,6 +124,126 @@ describe("VirtualAccountDetailPage loading", () => {
     expect(screen.queryByText("계좌를 불러오는 중...")).not.toBeInTheDocument();
   });
 
+  it("shows the 모니터링 종목 shimmer once the account is ready but tracked symbols haven't arrived yet, then swaps to real content", async () => {
+    let resolveAccount: (value: unknown) => void = () => {};
+    getAccountMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveAccount = resolve;
+        })
+    );
+
+    let resolveMarketFetch: (response: Response) => void = () => {};
+    const marketFetchPromise = new Promise<Response>((resolve) => {
+      resolveMarketFetch = resolve;
+    });
+
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/stocks/names") {
+        return Promise.resolve({ ok: true, json: async () => ({}) } as Response);
+      }
+      if (url === "/api/virtual-market/account-123") {
+        return marketFetchPromise;
+      }
+      return new Promise<Response>(() => undefined);
+    });
+
+    render(<VirtualAccountDetailPage />);
+
+    expect(
+      screen.getByRole("status", { name: "가상계좌 상세 불러오는 중" })
+    ).toBeInTheDocument();
+
+    resolveAccount({
+      id: "account-123",
+      name: "테스트 계좌",
+      initialAmount: 10_000_000,
+      currentBalance: 10_000_000,
+      totalValue: 10_000_000,
+      tradingMode: "manual",
+      createdAt: "2026-06-01T00:00:00.000Z",
+      updatedAt: "2026-06-01T00:00:00.000Z",
+    });
+
+    // 계정은 이미 렌더되지만 모니터링 종목 fetch는 아직 끝나지 않은 상태 — shimmer가 보여야 한다.
+    expect(await screen.findByRole("heading", { name: "테스트 계좌" })).toBeInTheDocument();
+    expect(screen.getByTestId("tracked-symbols-skeleton-scroll")).toBeInTheDocument();
+
+    resolveMarketFetch({
+      ok: true,
+      json: async () => ({ symbols: ["005930"], symbolNames: { "005930": "삼성전자" } }),
+    } as Response);
+
+    expect(await screen.findByText("삼성전자")).toBeInTheDocument();
+    expect(screen.queryByTestId("tracked-symbols-skeleton-scroll")).not.toBeInTheDocument();
+  });
+
+  it("never shows the '추적 중인 종목이 없습니다' empty state from a stale empty cache when the fresh fetch has real symbols", async () => {
+    // 캐시엔 종목이 없다고 저장돼 있지만(오래된 스냅샷), 실제 서버엔 종목이 있는 상황을 재현한다.
+    window.sessionStorage.setItem(
+      "virtual-account-detail:account-123",
+      JSON.stringify({
+        account: {
+          id: "account-123",
+          name: "테스트 계좌",
+          initialAmount: 10_000_000,
+          currentBalance: 10_000_000,
+          totalValue: 10_000_000,
+          tradingMode: "manual",
+          createdAt: "2026-06-01T00:00:00.000Z",
+          updatedAt: "2026-06-01T00:00:00.000Z",
+        },
+        holdings: [],
+        transactions: [],
+        trackedSymbols: [],
+      })
+    );
+
+    getAccountMock.mockResolvedValue({
+      id: "account-123",
+      name: "테스트 계좌",
+      initialAmount: 10_000_000,
+      currentBalance: 10_000_000,
+      totalValue: 10_000_000,
+      tradingMode: "manual",
+      createdAt: "2026-06-01T00:00:00.000Z",
+      updatedAt: "2026-06-01T00:00:00.000Z",
+    });
+
+    let resolveMarketFetch: (response: Response) => void = () => {};
+    const marketFetchPromise = new Promise<Response>((resolve) => {
+      resolveMarketFetch = resolve;
+    });
+
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/stocks/names") {
+        return Promise.resolve({ ok: true, json: async () => ({}) } as Response);
+      }
+      if (url === "/api/virtual-market/account-123") {
+        return marketFetchPromise;
+      }
+      return new Promise<Response>(() => undefined);
+    });
+
+    render(<VirtualAccountDetailPage />);
+
+    expect(await screen.findByRole("heading", { name: "테스트 계좌" })).toBeInTheDocument();
+    // 캐시가 비어 있어도 확정된 응답 전에는 "없습니다" 안내를 보여주지 않고 shimmer만 보여야 한다.
+    expect(screen.getByTestId("tracked-symbols-skeleton-scroll")).toBeInTheDocument();
+    expect(screen.queryByText("추적 중인 종목이 없습니다")).not.toBeInTheDocument();
+
+    resolveMarketFetch({
+      ok: true,
+      json: async () => ({ symbols: ["005930"], symbolNames: { "005930": "삼성전자" } }),
+    } as Response);
+
+    expect(await screen.findByText("삼성전자")).toBeInTheDocument();
+    expect(screen.queryByText("추적 중인 종목이 없습니다")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("tracked-symbols-skeleton-scroll")).not.toBeInTheDocument();
+  });
+
   it("renders the account detail from a cached overview snapshot while live data is loading", async () => {
     window.sessionStorage.setItem(
       "virtual-account-detail:account-123",
@@ -192,24 +312,29 @@ describe("VirtualAccountDetailPage loading", () => {
   });
 
   it("keeps tracked symbols inside a mobile scroll region", async () => {
-    window.sessionStorage.setItem(
-      "virtual-account-detail:account-123",
-      JSON.stringify({
-        account: {
-          id: "account-123",
-          name: "테스트 계좌",
-          initialAmount: 10_000_000,
-          currentBalance: 10_000_000,
-          totalValue: 10_000_000,
-          tradingMode: "manual",
-          createdAt: "2026-06-01T00:00:00.000Z",
-          updatedAt: "2026-06-01T00:00:00.000Z",
-        },
-        holdings: [],
-        transactions: [],
-        trackedSymbols: [{ symbol: "005930", name: "삼성전자" }],
-      })
-    );
+    getAccountMock.mockResolvedValue({
+      id: "account-123",
+      name: "테스트 계좌",
+      initialAmount: 10_000_000,
+      currentBalance: 10_000_000,
+      totalValue: 10_000_000,
+      tradingMode: "manual",
+      createdAt: "2026-06-01T00:00:00.000Z",
+      updatedAt: "2026-06-01T00:00:00.000Z",
+    });
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/stocks/names") {
+        return Promise.resolve({ ok: true, json: async () => ({}) } as Response);
+      }
+      if (url === "/api/virtual-market/account-123") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ symbols: ["005930"], symbolNames: { "005930": "삼성전자" } }),
+        } as Response);
+      }
+      return new Promise<Response>(() => undefined);
+    });
 
     render(<VirtualAccountDetailPage />);
 
@@ -286,25 +411,71 @@ describe("VirtualAccountDetailPage loading", () => {
     );
   });
 
-  it("adds selected stocks to the tracked symbol list without duplicates", async () => {
-    window.sessionStorage.setItem(
-      "virtual-account-detail:account-123",
-      JSON.stringify({
-        account: {
-          id: "account-123",
-          name: "테스트 계좌",
-          initialAmount: 10_000_000,
-          currentBalance: 10_000_000,
-          totalValue: 10_000_000,
-          tradingMode: "manual",
-          createdAt: "2026-06-01T00:00:00.000Z",
-          updatedAt: "2026-06-01T00:00:00.000Z",
+  it("shows a shimmer skeleton for 운용 전략 while the strategy detail is loading, then swaps to the real content", async () => {
+    getAccountMock.mockResolvedValue({
+      id: "account-123",
+      name: "테스트 계좌",
+      initialAmount: 10_000_000,
+      currentBalance: 10_000_000,
+      totalValue: 10_000_000,
+      strategyId: "strategy-1",
+      strategyName: "저PBR 전략",
+      tradingMode: "auto",
+      createdAt: "2026-06-01T00:00:00.000Z",
+      updatedAt: "2026-06-01T00:00:00.000Z",
+    });
+
+    let resolveStrategyFetch: (response: Response) => void = () => {};
+    const strategyFetchPromise = new Promise<Response>((resolve) => {
+      resolveStrategyFetch = resolve;
+    });
+
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/stocks/names") {
+        return Promise.resolve({ ok: true, json: async () => ({}) } as Response);
+      }
+      if (url === "/api/virtual-market/account-123") {
+        return Promise.resolve({ ok: true, json: async () => ({ symbols: [] }) } as Response);
+      }
+      if (url === "/api/strategy/strategy-1") {
+        return strategyFetchPromise;
+      }
+      return new Promise<Response>(() => undefined);
+    });
+
+    render(<VirtualAccountDetailPage />);
+
+    expect(await screen.findByTestId("strategy-summary-skeleton")).toBeInTheDocument();
+    expect(screen.queryByText("유니버스")).not.toBeInTheDocument();
+
+    resolveStrategyFetch({
+      ok: true,
+      json: async () => ({
+        description: "KOSPI 저PBR 종목을 매매합니다.",
+        settings: { description: "KOSPI 저PBR 종목을 매매합니다." },
+        historySummary: {
+          universeName: "KOSPI",
+          entryBlocks: ["PBR <= 1"],
         },
-        holdings: [],
-        transactions: [],
-        trackedSymbols: [{ symbol: "000660", name: "SK하이닉스" }],
-      })
-    );
+      }),
+    } as Response);
+
+    expect(await screen.findByText("유니버스")).toBeInTheDocument();
+    expect(screen.queryByTestId("strategy-summary-skeleton")).not.toBeInTheDocument();
+  });
+
+  it("adds selected stocks to the tracked symbol list without duplicates", async () => {
+    getAccountMock.mockResolvedValue({
+      id: "account-123",
+      name: "테스트 계좌",
+      initialAmount: 10_000_000,
+      currentBalance: 10_000_000,
+      totalValue: 10_000_000,
+      tradingMode: "manual",
+      createdAt: "2026-06-01T00:00:00.000Z",
+      updatedAt: "2026-06-01T00:00:00.000Z",
+    });
     fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input) === "/api/stocks/names") {
         return Promise.resolve({
@@ -313,13 +484,16 @@ describe("VirtualAccountDetailPage loading", () => {
         } as Response);
       }
 
-      if (
-        String(input) === "/api/virtual-market/account-123" &&
-        init?.method === "POST"
-      ) {
+      if (String(input) === "/api/virtual-market/account-123") {
+        if (init?.method === "POST") {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ symbols: ["000660", "005930"] }),
+          } as Response);
+        }
         return Promise.resolve({
           ok: true,
-          json: async () => ({ symbols: ["000660", "005930"] }),
+          json: async () => ({ symbols: ["000660"], symbolNames: { "000660": "SK하이닉스" } }),
         } as Response);
       }
 

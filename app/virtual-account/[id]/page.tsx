@@ -32,6 +32,7 @@ import {
 import { refreshVirtualAccountOverviewCache } from "@/components/virtual-account/virtualAccountOverviewCache";
 import TrackedSymbolRow from "@/components/virtual-account/TrackedSymbolRow";
 import TrackedSymbolsSkeleton from "@/components/virtual-account/TrackedSymbolsSkeleton";
+import StrategySummarySkeleton from "@/components/virtual-account/StrategySummarySkeleton";
 import {
   resolveHoldingDisplayNames,
   resolveStockDisplayName,
@@ -150,6 +151,7 @@ export default function VirtualAccountDetailPage() {
   const [stockMetadata, setStockMetadata] = useState<StockMetadataMap>({});
   const [trackedPrices, setTrackedPrices] = useState<Record<string, BatchQuoteItem>>({});
   const [isTrackedSymbolsLoading, setIsTrackedSymbolsLoading] = useState(true);
+  const [isStrategyDetailLoading, setIsStrategyDetailLoading] = useState(true);
   const [isStockSearchOpen, setIsStockSearchOpen] = useState(false);
   const [isAddingTrackedSymbols, setIsAddingTrackedSymbols] = useState(false);
   const [signalLogs, setSignalLogs] = useState<VirtualMarketLog[]>([]);
@@ -232,8 +234,11 @@ export default function VirtualAccountDetailPage() {
     setAccount(cached.account);
     setHoldings(cached.holdings);
     setTransactions(cached.transactions);
+    // trackedSymbols는 실시간 시세 폴링(useStockPrices)이 바로 시작되도록 캐시값을 채워두되,
+    // isTrackedSymbolsLoading은 내리지 않는다 — 캐시가 오래돼 실제로는 종목이 있는데 비어
+    // 있을 수 있어, 로딩이 끝나기 전까지는 "추적 중인 종목이 없습니다"를 절대 보여주지 않고
+    // shimmer만 보여준다. 실제 로딩 종료는 loadAccountData의 신선한 응답에서만 확정한다.
     setTrackedSymbols(cached.trackedSymbols);
-    setIsTrackedSymbolsLoading(false);
   }, [accountId]);
 
   useEffect(() => {
@@ -342,12 +347,17 @@ export default function VirtualAccountDetailPage() {
   }, [isMissingStrategyModalOpen, router]);
 
   const loadAccountData = async () => {
-    const [acc, t, marketState] = await Promise.all([
+    // 계정 정보(account/holdings/transactions)와 모니터링 종목(trackedSymbols)을 같은
+    // Promise.all로 묶으면 두 상태가 항상 같은 렌더에서 함께 확정되어, 전체 페이지 스피너가
+    // 걷힌 시점엔 이미 isTrackedSymbolsLoading도 false라 shimmer가 보일 틈이 없다.
+    // 계정 조회와 별개로 진행시켜 계정이 먼저 뜬 뒤에도 shimmer가 실제로 보이게 한다.
+    const marketPromise = fetch(`/api/virtual-market/${accountId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null);
+
+    const [acc, t] = await Promise.all([
       getAccount(accountId),
       getTransactionsByAccount(accountId),
-      fetch(`/api/virtual-market/${accountId}`)
-        .then((r) => (r.ok ? r.json() : null))
-        .catch(() => null),
     ]);
     if (!acc) {
       setIsTrackedSymbolsLoading(false);
@@ -359,6 +369,29 @@ export default function VirtualAccountDetailPage() {
     setHoldings(nextHoldings);
     setTransactions(nextTransactions);
 
+    if (acc.strategyId) {
+      setIsStrategyDetailLoading(true);
+      fetch(`/api/strategy/${acc.strategyId}`)
+        .then((r) => r.ok ? r.json() : null)
+        .then((s) => {
+          setDbStrategyDescription(s?.description ?? null);
+          setDbStrategySettings((s?.settings as StrategyDSL | null) ?? null);
+          setDbStrategyHistorySummary(s?.historySummary ?? null);
+        })
+        .catch(() => {
+          setDbStrategyDescription(null);
+          setDbStrategySettings(null);
+          setDbStrategyHistorySummary(null);
+        })
+        .finally(() => setIsStrategyDetailLoading(false));
+    } else {
+      setDbStrategyDescription(null);
+      setDbStrategySettings(null);
+      setDbStrategyHistorySummary(null);
+      setIsStrategyDetailLoading(false);
+    }
+
+    const marketState = await marketPromise;
     const nextTrackedSymbols = marketState?.symbols?.length
       ? marketState.symbols.map((sym: string) => ({
           symbol: sym,
@@ -373,25 +406,6 @@ export default function VirtualAccountDetailPage() {
       transactions: nextTransactions,
       trackedSymbols: nextTrackedSymbols,
     });
-
-    if (acc.strategyId) {
-      fetch(`/api/strategy/${acc.strategyId}`)
-        .then((r) => r.ok ? r.json() : null)
-        .then((s) => {
-          setDbStrategyDescription(s?.description ?? null);
-          setDbStrategySettings((s?.settings as StrategyDSL | null) ?? null);
-          setDbStrategyHistorySummary(s?.historySummary ?? null);
-        })
-        .catch(() => {
-          setDbStrategyDescription(null);
-          setDbStrategySettings(null);
-          setDbStrategyHistorySummary(null);
-        });
-    } else {
-      setDbStrategyDescription(null);
-      setDbStrategySettings(null);
-      setDbStrategyHistorySummary(null);
-    }
   };
 
   const loadSignalLogs = async () => {
@@ -1041,6 +1055,8 @@ export default function VirtualAccountDetailPage() {
                           전략 연결하기
                         </button>
                       </div>
+                    ) : isStrategyDetailLoading ? (
+                      <StrategySummarySkeleton />
                     ) : (
                       strategies.map((strategy, idx) => {
                         const isAccountStrategy = strategy.name === account.strategyName;
