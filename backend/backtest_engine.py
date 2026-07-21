@@ -762,14 +762,45 @@ class BacktestEngine:
                                 liq_df = liq_df.shift(1, fill_value=False)
                             pool &= liq_df
                         ents_df = pool
+
+                        # 랭킹 매수는 개별 조건식이 없어 SignalEngine이 사유를 만들지 못하고
+                        # (entry.conditions 비어 있음 → generate_signals가 전부 None 반환)
+                        # result_handler의 하드코딩 폴백("매수 조건 충족 (전략 시그널)")으로
+                        # 뭉개진다. 후보일(pool=True)마다 그날의 수익률 백분위를 사유로
+                        # 남겨 실제 매수 근거(몇 % 상위였는지)가 드러나게 한다.
+                        _rebal_kr = {
+                            'daily': '일간', 'weekly': '주간', 'monthly': '월간',
+                            'bimonthly': '격월', 'quarterly': '분기', 'yearly': '연간',
+                        }.get(str(risk_params.get('rebalancing_period') or ''), '')
+                        _max_pos = risk_params.get('max_positions')
+                        _rebal_note = (
+                            f", {_rebal_kr} 리밸런싱 상위 {int(_max_pos)}종목 편입 대상"
+                            if (_rebal_kr and _max_pos) else ""
+                        )
+                        _top_pct_df = (1.0 - rank_df) * 100.0
+                        for _sym in processed_symbols:
+                            _mask = pool[_sym]
+                            if not _mask.any():
+                                continue
+                            _pct_vals = _top_pct_df.loc[_mask, _sym]
+                            _reason_ser = pd.Series(np.nan, index=common_index, dtype=object)
+                            _reason_ser.loc[_mask] = _pct_vals.apply(
+                                lambda p: f"최근 {lookback}거래일 수익률 상위 {max(1, round(p))}%{_rebal_note}"
+                            )
+                            all_entry_reasons[_sym] = _reason_ser
                 except Exception as e:
                     import logging
                     logging.getLogger(__name__).warning(f"[BacktestEngine] 수익률 랭킹 계산 실패: {e}")
                     rank_df = None
             elif (not skip_pos) and risk_params.get('ranking_enabled', True) and all_ranks['pbr'] and all_ranks['roe']:
                 try:
-                    pbr_df = pd.DataFrame(all_ranks['pbr'], index=common_index, columns=processed_symbols).ffill().fillna(1.0)
-                    roe_df = pd.DataFrame(all_ranks['roe'], index=common_index, columns=processed_symbols).ffill().fillna(0.0)
+                    # fillna(1.0)/fillna(0.0) 센티널을 넣지 않는다 — 자본잠식/적자 등으로
+                    # PBR·ROE가 NaN(계산 불가)인 종목을 '중립값'으로 위장시키면 재무적으로
+                    # 무의미한 종목이 랭킹에 섞여 들어간다. ffill만으로 결산 사이 공백을
+                    # 메우고, 진짜 NaN은 percentile rank까지 그대로 남겨 자연 배제되게 한다
+                    # (engine/simulator.py의 후보 정렬은 NaN을 항상 배열 끝으로 보낸다).
+                    pbr_df = pd.DataFrame(all_ranks['pbr'], index=common_index, columns=processed_symbols).ffill()
+                    roe_df = pd.DataFrame(all_ranks['roe'], index=common_index, columns=processed_symbols).ffill()
 
                     if exec_type == 'next_open':
                         pbr_df = pbr_df.shift(1).ffill()
@@ -779,7 +810,14 @@ class BacktestEngine:
                     q_score = roe_df.rank(axis=1, pct=True)
                     w_v = float(risk_params.get('ranking_weight_value', 0.5))
                     w_q = float(risk_params.get('ranking_weight_quality', 0.5))
-                    rank_df = (v_score * w_v) + (q_score * w_q)
+                    # 가중치가 0인 팩터는 값이 NaN이어도(그 팩터를 아예 안 쓰므로) 종목을
+                    # 배제하면 안 된다 — NaN*0=NaN으로 전파되는 걸 막기 위해 0 가중치
+                    # 팩터는 아예 0으로 채운 DataFrame을 더한다(가중치>0 팩터의 NaN은
+                    # 그대로 전파시켜 배제 효과를 유지).
+                    zeros = pd.DataFrame(0.0, index=common_index, columns=processed_symbols)
+                    v_contrib = (v_score * w_v) if w_v != 0 else zeros
+                    q_contrib = (q_score * w_q) if w_q != 0 else zeros
+                    rank_df = v_contrib + q_contrib
                 except Exception as e:
                     # Fix 12: 무음 예외 대신 경고 로깅으로 원인 추적 가능하게
                     import logging

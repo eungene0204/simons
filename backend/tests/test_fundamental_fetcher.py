@@ -7,9 +7,12 @@ import pandas as pd
 import pytest
 
 from engine.fundamental_fetcher import (
+    _compute_derived_annual_metrics,
     _fetch_cash_flow_from_dart,
     _merge_fundamental_records,
+    _parse_dart_capex,
     _parse_dart_operating_cash_flow,
+    _parse_dart_total_equity,
     _parse_kis_financial_ratio_output,
     _parse_kis_income_statement,
     _parse_fundamentals,
@@ -133,8 +136,8 @@ def test_parse_kis_income_statement_computes_operating_margin():
         {"stac_yymm": "202412", "sale_account": "2589900.00", "bsop_prti": "65700.00"},
     ])
     assert result == {
-        "2025-12-31": {"operating_margin": 10.86},
-        "2024-12-31": {"operating_margin": 2.54},
+        "2025-12-31": {"operating_margin": 10.86, "ebit": 326600.0, "_revenue": 3007700.0},
+        "2024-12-31": {"operating_margin": 2.54, "ebit": 65700.0, "_revenue": 2589900.0},
     }
 
 
@@ -172,6 +175,59 @@ def test_parse_dart_operating_cash_flow_prefers_canonical_account():
     }
 
 
+# ── OpenDART CAPEX / 자본총계 source parsing (실측: 2026-07-21, 삼성전자 fnlttSinglAcntAll.json) ──
+
+_DART_CF_BS_FIXTURE = [
+    {
+        "sj_div": "CF",
+        "account_id": "ifrs-full_PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
+        "account_nm": "유형자산의 취득",
+        "thstrm_amount": "57,611,292,000,000",
+    },
+    {
+        "sj_div": "CF",
+        "account_id": "ifrs-full_PurchaseOfIntangibleAssetsClassifiedAsInvestingActivities",
+        "account_nm": "무형자산의 취득",
+        "thstrm_amount": "2,922,875,000,000",
+    },
+    {
+        "sj_div": "CF",
+        "account_id": "ifrs-full_CashFlowsFromUsedInOperatingActivities",
+        "account_nm": "영업활동현금흐름",
+        "thstrm_amount": "44,137,427,000,000",
+    },
+    {
+        "sj_div": "BS",
+        "account_id": "ifrs-full_Equity",
+        "account_nm": "자본총계",
+        "thstrm_amount": "363,677,865,000,000",
+    },
+    {
+        "sj_div": "BS",
+        "account_id": "ifrs-full_EquityAttributableToOwnersOfParent",
+        "account_nm": "지배기업 소유주지분",
+        "thstrm_amount": "353,233,775,000,000",
+    },
+]
+
+
+def test_parse_dart_capex_sums_ppe_and_intangible_purchases():
+    assert _parse_dart_capex(_DART_CF_BS_FIXTURE) == pytest.approx(60_534_167_000_000.0)
+
+
+def test_parse_dart_capex_missing_returns_none():
+    assert _parse_dart_capex([{"sj_div": "CF", "account_id": "other", "account_nm": "기타"}]) is None
+
+
+def test_parse_dart_total_equity_reads_equity_not_parent_attributable():
+    assert _parse_dart_total_equity(_DART_CF_BS_FIXTURE) == pytest.approx(363_677_865_000_000.0)
+
+
+def test_parse_dart_total_equity_preserves_negative_sign_for_capital_impairment():
+    rows = [{"sj_div": "BS", "account_id": "ifrs-full_Equity", "account_nm": "자본총계", "thstrm_amount": "-5,000,000"}]
+    assert _parse_dart_total_equity(rows) == pytest.approx(-5_000_000.0)
+
+
 def test_fetch_cash_flow_from_dart_falls_back_to_separate_statements(monkeypatch):
     import engine.fundamental_fetcher as ff
 
@@ -203,6 +259,30 @@ def test_fetch_cash_flow_from_dart_falls_back_to_separate_statements(monkeypatch
     }]
 
 
+def test_fetch_cash_flow_from_dart_also_captures_capex_and_total_equity(monkeypatch):
+    """같은 fnlttSinglAcntAll.json 응답에서 CAPEX·자본총계도 추가 API 호출 없이 함께 담긴다."""
+    import engine.fundamental_fetcher as ff
+
+    monkeypatch.setenv("DART_API_KEY", "test-key")
+    monkeypatch.setattr(ff, "_get_dart_corp_code", lambda symbol: "00126380")
+
+    fixture_with_receipt = [{**row, "rcept_no": "20250331000001"} for row in _DART_CF_BS_FIXTURE]
+
+    def fake_fetch(path, params):
+        return {"status": "000", "list": fixture_with_receipt}
+
+    monkeypatch.setattr(ff, "_fetch_dart_json", fake_fetch)
+
+    result = _fetch_cash_flow_from_dart("005930", 2024, 2024)
+    assert result == [{
+        "year_end": "2024-12-31",
+        "available_from": "2025-03-31",
+        "operating_cash_flow": 44_137_427_000_000.0,
+        "capex": pytest.approx(60_534_167_000_000.0),
+        "total_equity": pytest.approx(363_677_865_000_000.0),
+    }]
+
+
 def test_merge_fundamental_records_combines_kis_and_dart_fields():
     result = _merge_fundamental_records(
         [{"year_end": "2024-12-31", "eps": 5000.0}],
@@ -219,6 +299,94 @@ def test_merge_fundamental_records_combines_kis_and_dart_fields():
         "available_from": "2025-03-11",
         "operating_cash_flow": 1_000_000.0,
     }]
+
+
+# ── _compute_derived_annual_metrics ──
+
+def test_compute_derived_metrics_fcf_is_ocf_minus_capex():
+    result = _compute_derived_annual_metrics([
+        {"year_end": "2024-12-31", "operating_cash_flow": 1000.0, "capex": 300.0},
+    ])
+    assert result[0]["fcf"] == pytest.approx(700.0)
+
+
+def test_compute_derived_metrics_ev_ebit_derived_from_ev_ebitda_and_ebit():
+    result = _compute_derived_annual_metrics([
+        {"year_end": "2024-12-31", "ebitda": 100.0, "ev_ebitda": 8.0, "ebit": 80.0},
+    ])
+    # EV = ev_ebitda * ebitda = 800; EV/EBIT = 800/80 = 10
+    assert result[0]["ev"] == pytest.approx(800.0)
+    assert result[0]["ev_ebit"] == pytest.approx(10.0)
+
+
+def test_compute_derived_metrics_ev_ebit_skipped_when_ebitda_nonpositive():
+    """ebitda<=0이면 EV 자체를 역산할 수 없어 ev/ev_ebit 모두 만들지 않는다."""
+    result = _compute_derived_annual_metrics([
+        {"year_end": "2024-12-31", "ebitda": -50.0, "ev_ebitda": 8.0, "ebit": 80.0},
+    ])
+    assert "ev" not in result[0]
+    assert "ev_ebit" not in result[0]
+
+
+def test_compute_derived_metrics_normal_growth_for_profit_to_profit():
+    result = _compute_derived_annual_metrics([
+        {"year_end": "2023-12-31", "eps": 1000.0},
+        {"year_end": "2024-12-31", "eps": 1200.0},
+    ])
+    assert result[1]["eps_growth"] == pytest.approx(20.0)
+    assert "eps_growth_status" not in result[1]
+
+
+def test_compute_derived_metrics_turnaround_status_for_eps():
+    result = _compute_derived_annual_metrics([
+        {"year_end": "2023-12-31", "eps": -500.0},
+        {"year_end": "2024-12-31", "eps": 300.0},
+    ])
+    assert "eps_growth" not in result[1]
+    assert result[1]["eps_growth_status"] == "TURNAROUND"
+
+
+def test_compute_derived_metrics_operating_income_growth_recomputed_locally_not_from_kis():
+    """KIS가 준 operating_income_growth(왜곡 가능)는 로컬 재계산 결과로 대체되거나(부호전환 시)
+    상태코드로 바뀐다 — raw ebit 기반 재계산이 신뢰 소스가 된다."""
+    result = _compute_derived_annual_metrics([
+        {"year_end": "2023-12-31", "ebit": -100.0},
+        {"year_end": "2024-12-31", "ebit": 50.0, "operating_income_growth": 999.0},  # KIS 원값(왜곡)
+    ])
+    assert "operating_income_growth" not in result[1]
+    assert result[1]["operating_income_growth_status"] == "TURNAROUND"
+
+
+def test_compute_derived_metrics_net_income_growth_uses_net_margin_times_revenue():
+    result = _compute_derived_annual_metrics([
+        {"year_end": "2023-12-31", "net_margin": 10.0, "_revenue": 1000.0},  # net_income=100
+        {"year_end": "2024-12-31", "net_margin": 12.0, "_revenue": 1000.0},  # net_income=120
+    ])
+    assert result[1]["net_income_growth"] == pytest.approx(20.0)
+    assert "_net_income" not in result[1]
+    assert "_revenue" not in result[1]
+
+
+def test_compute_derived_metrics_loss_narrowed_and_widened():
+    narrowed = _compute_derived_annual_metrics([
+        {"year_end": "2023-12-31", "ebitda": -100.0},
+        {"year_end": "2024-12-31", "ebitda": -40.0},
+    ])
+    assert narrowed[1]["ebitda_growth_status"] == "LOSS_NARROWED"
+
+    widened = _compute_derived_annual_metrics([
+        {"year_end": "2023-12-31", "operating_cash_flow": -40.0},
+        {"year_end": "2024-12-31", "operating_cash_flow": -100.0},
+    ])
+    assert widened[1]["ocf_growth_status"] == "LOSS_WIDENED"
+
+
+def test_compute_derived_metrics_first_record_has_no_growth():
+    result = _compute_derived_annual_metrics([
+        {"year_end": "2024-12-31", "eps": 1000.0},
+    ])
+    assert "eps_growth" not in result[0]
+    assert "eps_growth_status" not in result[0]
 
 
 # ── enrich_ohlcv_with_fundamentals ──
@@ -366,8 +534,12 @@ def test_enrich_forward_fills_debt_ratio():
     assert result.iloc[1]["debt_ratio"] == pytest.approx(38.2)
 
 
-def test_enrich_negative_eps_produces_negative_per():
-    """적자 기업의 경우 음수 PER이 계산되어야 함."""
+def test_enrich_negative_eps_produces_nan_per():
+    """적자 기업(순이익<0)의 PER은 금융적으로 무의미하므로 계산하지 않고 NaN이어야 함.
+
+    이전에는 음수 PER(-50.0)을 그대로 계산했으나, 적자 기업의 PER은 금융적으로 해석
+    불가능하다는 요구사항에 따라 null 처리로 변경됨.
+    """
     dates = ["2024-04-01"]
     close = [50000.0]
     df = _make_ohlcv_df(dates, close)
@@ -377,7 +549,58 @@ def test_enrich_negative_eps_produces_negative_per():
     ]
 
     result = enrich_ohlcv_with_fundamentals(df, fundamentals)
-    assert result.iloc[0]["per"] == pytest.approx(-50.0)
+    assert pd.isna(result.iloc[0]["per"])
+    # PBR은 BPS가 양수라 정상 계산되어야 함(PER만 무효화됨을 확인)
+    assert result.iloc[0]["pbr"] == pytest.approx(1.0)
+
+
+def test_enrich_capital_impairment_produces_nan_pbr_and_roe():
+    """자본잠식(BPS<=0)이면 PBR과 ROE 모두 NaN이어야 함."""
+    dates = ["2024-04-01"]
+    close = [50000.0]
+    df = _make_ohlcv_df(dates, close)
+
+    fundamentals = [
+        {"year_end": "2023-12-31", "eps": 1000.0, "bps": -5000.0, "roe_or_gpa": 180.0},
+    ]
+
+    result = enrich_ohlcv_with_fundamentals(df, fundamentals)
+    assert pd.isna(result.iloc[0]["pbr"])
+    assert pd.isna(result.iloc[0]["roe_or_gpa"])
+    # PER은 EPS가 양수라 정상 계산되어야 함(PBR/ROE만 무효화됨을 확인)
+    assert result.iloc[0]["per"] == pytest.approx(50.0)
+
+
+def test_enrich_roe_uses_total_equity_over_bps_when_available():
+    """total_equity가 있으면 BPS 대신 total_equity 부호로 ROE 유효성을 판정한다."""
+    dates = ["2024-04-01"]
+    close = [50000.0]
+    df = _make_ohlcv_df(dates, close)
+
+    fundamentals = [
+        {"year_end": "2023-12-31", "bps": 50000.0, "roe_or_gpa": 10.0, "total_equity": -1.0},
+    ]
+
+    result = enrich_ohlcv_with_fundamentals(df, fundamentals)
+    assert pd.isna(result.iloc[0]["roe_or_gpa"])
+
+
+def test_enrich_forward_fills_ev_ebit_and_growth_status():
+    dates = ["2024-04-01"]
+    close = [50000.0]
+    df = _make_ohlcv_df(dates, close)
+
+    fundamentals = [
+        {
+            "year_end": "2023-12-31",
+            "ev_ebit": 12.5,
+            "eps_growth_status": "TURNAROUND",
+        },
+    ]
+
+    result = enrich_ohlcv_with_fundamentals(df, fundamentals)
+    assert result.iloc[0]["ev_ebit"] == pytest.approx(12.5)
+    assert result.iloc[0]["eps_growth_status"] == "TURNAROUND"
 
 
 def test_enrich_zero_eps_produces_nan_per():

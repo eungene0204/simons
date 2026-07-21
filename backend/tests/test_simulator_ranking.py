@@ -34,6 +34,39 @@ def _write_series(data_dir: str, symbol: str, prices: list[float], dates) -> Non
     pl.from_dicts(rows).write_parquet(f"{data_dir}/{symbol}.parquet")
 
 
+def _write_series_with_fundamentals(
+    data_dir: str, symbol: str, dates, *, pbr: float, roe: float
+) -> None:
+    """가치+퀄리티(PBR/ROE) 랭킹 테스트용 — 재무 지표가 parquet에 이미 있는 상태를
+    시뮬레이션한다(pbr=NaN은 자본잠식 등으로 null 처리된 종목을 나타낸다)."""
+    rows = [
+        {
+            "date": d.strftime("%Y-%m-%d"),
+            "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0,
+            "volume": 5_000_000.0,
+            "pbr": pbr, "roe_or_gpa": roe,
+        }
+        for d in dates
+    ]
+    pl.from_dicts(rows).write_parquet(f"{data_dir}/{symbol}.parquet")
+
+
+def _value_quality_req(symbols: list[str], **extra_risk) -> dict:
+    return {
+        "symbols": symbols,
+        "entry": {"conditions": [{"id": "price", "params": {"value": 0, "operator": ">"}}]},
+        "exit": {"conditions": []},
+        "risk": {
+            "position_size_pct": 30,
+            "max_positions": 2,
+            "ranking_enabled": True,
+            "liquidity_multiplier": 0,
+            **extra_risk,
+        },
+        "options": {"execution_type": "same_close"},
+    }
+
+
 def test_return_ranking_selects_only_top_k_by_momentum():
     """4종목 중 최근 수익률 상위 2종목(WIN_A/WIN_B)만 매수되고, 하락/횡보주는 매수되지 않는다."""
     dates = pd.date_range(start="2024-01-01", periods=40, freq="D")
@@ -70,6 +103,78 @@ def test_return_ranking_selects_only_top_k_by_momentum():
     assert "RANK_WIN_A" in buy_symbols, "최상위 수익률 종목이 매수되지 않음"
     assert "RANK_FALL_D" not in buy_symbols
     assert "RANK_FLAT_C" not in buy_symbols
+
+
+def test_return_ranking_buy_reason_shows_percentile_not_generic():
+    """랭킹 매수(선정=진입)는 조건식이 없어 SignalEngine이 사유를 만들지 못하므로,
+    과거엔 result_handler의 하드코딩 폴백("매수 조건 충족 (전략 시그널)")으로 뭉개졌다.
+    실제로는 그날의 N일 수익률 백분위가 매수 근거이므로 사유에 드러나야 한다."""
+    dates = pd.date_range(start="2024-01-01", periods=40, freq="D")
+    data_dir = os.path.join(os.path.dirname(__file__), "data")
+    os.makedirs(data_dir, exist_ok=True)
+
+    _write_series(data_dir, "PCT_WIN_A", [100 + 3 * i for i in range(40)], dates)
+    _write_series(data_dir, "PCT_WIN_B", [100 + 2 * i for i in range(40)], dates)
+    _write_series(data_dir, "PCT_FLAT_C", [100.0 for _ in range(40)], dates)
+    _write_series(data_dir, "PCT_FALL_D", [100 - 1 * i for i in range(40)], dates)
+
+    engine = BacktestEngine(data_dir=data_dir)
+    req = {
+        "symbols": ["PCT_WIN_A", "PCT_WIN_B", "PCT_FLAT_C", "PCT_FALL_D"],
+        "entry": {"conditions": []},
+        "exit": {"conditions": []},
+        "risk": {
+            "position_size_pct": 50,
+            "max_positions": 2,
+            "ranking_metric": "return",
+            "ranking_lookback_days": 5,
+            "liquidity_multiplier": 0,
+        },
+        "options": {"execution_type": "same_close"},
+    }
+
+    result = engine.run_backtest(req)
+    buy_conditions = [s["condition"] for s in result["signals"] if s["type"] == "buy"]
+
+    assert buy_conditions, "매수 기록이 없음"
+    assert all("최근 5거래일 수익률 상위" in c and "%" in c for c in buy_conditions), (
+        f"랭킹 매수 사유가 백분위를 담지 않음: {buy_conditions}"
+    )
+    assert not any(c == "매수 조건 충족 (전략 시그널)" for c in buy_conditions), (
+        f"랭킹 매수가 여전히 추상 폴백 문구로 뭉개짐: {buy_conditions}"
+    )
+
+
+def test_return_ranking_buy_reason_includes_rebalance_note():
+    """리밸런싱 랭킹 매수는 사유에 회전 주기·목표 종목 수까지 포함해야 한다."""
+    dates = pd.date_range(start="2024-01-01", periods=100, freq="D")
+    data_dir = os.path.join(os.path.dirname(__file__), "data")
+    os.makedirs(data_dir, exist_ok=True)
+    symbols = _write_rotation_universe(data_dir, "PCTRB", dates)
+
+    engine = BacktestEngine(data_dir=data_dir)
+    req = {
+        "symbols": symbols,
+        "entry": {"conditions": []},
+        "exit": {"conditions": []},
+        "risk": {
+            "position_size_pct": 50,
+            "max_positions": 2,
+            "ranking_metric": "return",
+            "ranking_lookback_days": 5,
+            "rebalancing_period": "monthly",
+            "liquidity_multiplier": 0,
+        },
+        "options": {"execution_type": "same_close"},
+    }
+
+    result = engine.run_backtest(req)
+    buy_conditions = [s["condition"] for s in result["signals"] if s["type"] == "buy"]
+
+    assert buy_conditions, "매수 기록이 없음"
+    assert any("월간 리밸런싱 상위 2종목 편입 대상" in c for c in buy_conditions), (
+        f"리밸런싱 매수 사유에 회전 주기·목표 종목 수 누락: {buy_conditions}"
+    )
 
 
 def test_monthly_rebalancing_rotates_dropouts():
@@ -311,3 +416,51 @@ def test_next_open_rebalance_fills_on_rebalance_day_custom_loop_path():
     assert late_buys[0] == "2024-03-01", f"편입이 리밸런싱일에 체결되지 않음: {late_buys[0]}"
     assert early_sells, "3월 편출 종목의 매도 기록이 없음"
     assert early_sells[0] == "2024-03-01", f"편출이 리밸런싱일에 체결되지 않음: {early_sells[0]}"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 가치+퀄리티(PBR/ROE) 랭킹 — 자본잠식/적자로 null(NaN)인 종목이 배제되는지 검증
+# ──────────────────────────────────────────────────────────────────────────────
+
+def test_value_quality_ranking_excludes_nan_pbr_stock():
+    """PBR이 NaN(자본잠식으로 계산 불가)인 종목은 다른 두 종목보다 값이 '낮아' 보여도
+    최우선 가치주로 선정되지 않고 배제되어야 한다(과거 fillna(1.0) 센티널이 이를 숨겼음)."""
+    dates = pd.date_range(start="2024-01-01", periods=10, freq="D")
+    data_dir = os.path.join(os.path.dirname(__file__), "data")
+    os.makedirs(data_dir, exist_ok=True)
+
+    _write_series_with_fundamentals(data_dir, "VQ_IMPAIRED", dates, pbr=float("nan"), roe=float("nan"))
+    _write_series_with_fundamentals(data_dir, "VQ_VALUE", dates, pbr=1.0, roe=15.0)
+    _write_series_with_fundamentals(data_dir, "VQ_GROWTH", dates, pbr=2.0, roe=10.0)
+
+    engine = BacktestEngine(data_dir=data_dir)
+    result = engine.run_backtest(_value_quality_req(
+        ["VQ_IMPAIRED", "VQ_VALUE", "VQ_GROWTH"],
+        ranking_weight_value=0.5, ranking_weight_quality=0.5,
+    ))
+
+    buy_symbols = {s["symbol"] for s in result["signals"] if s["type"] == "buy"}
+    assert buy_symbols == {"VQ_VALUE", "VQ_GROWTH"}, f"자본잠식 종목이 배제되지 않음: {buy_symbols}"
+
+
+def test_value_quality_ranking_zero_weight_ignores_nan_factor():
+    """가중치가 0인 팩터의 NaN은 종목을 배제하면 안 된다(NaN*0=NaN 전파 버그 회귀 방지).
+    PBR 가중치=0이면 PBR이 NaN인 종목도 ROE만으로 정상 랭킹돼야 한다."""
+    dates = pd.date_range(start="2024-01-01", periods=10, freq="D")
+    data_dir = os.path.join(os.path.dirname(__file__), "data")
+    os.makedirs(data_dir, exist_ok=True)
+
+    _write_series_with_fundamentals(data_dir, "ZW_BEST_ROE", dates, pbr=float("nan"), roe=20.0)
+    _write_series_with_fundamentals(data_dir, "ZW_MID_ROE", dates, pbr=1.0, roe=5.0)
+    _write_series_with_fundamentals(data_dir, "ZW_LOW_ROE", dates, pbr=1.0, roe=1.0)
+
+    engine = BacktestEngine(data_dir=data_dir)
+    result = engine.run_backtest(_value_quality_req(
+        ["ZW_BEST_ROE", "ZW_MID_ROE", "ZW_LOW_ROE"],
+        ranking_weight_value=0.0, ranking_weight_quality=1.0,
+    ))
+
+    buy_symbols = {s["symbol"] for s in result["signals"] if s["type"] == "buy"}
+    assert buy_symbols == {"ZW_BEST_ROE", "ZW_MID_ROE"}, (
+        f"PBR 가중치 0인데도 PBR=NaN 종목이 배제됨: {buy_symbols}"
+    )

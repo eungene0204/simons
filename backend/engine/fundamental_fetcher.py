@@ -17,6 +17,8 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from typing import Dict, List, Optional, Tuple
 
+from .fundamental_status import growth_and_status
+
 logger = logging.getLogger(__name__)
 
 _HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
@@ -44,6 +46,16 @@ _DART_OPERATING_CASH_FLOW_NAMES = {
     "영업활동으로부터의현금흐름",
     "영업활동으로인한순현금흐름",
 }
+# CAPEX(FCF=OCF-CAPEX용) — 투자활동현금흐름의 유형·무형자산 취득. 실측(2026-07-21, 삼성전자/
+# SK하이닉스/현대차 fnlttSinglAcntAll.json)으로 확인한 IFRS 표준 계정ID.
+_DART_CAPEX_ACCOUNT_IDS = {
+    "ifrs-full_PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
+    "ifrs-full_PurchaseOfIntangibleAssetsClassifiedAsInvestingActivities",
+}
+_DART_CAPEX_NAMES = {"유형자산의취득", "무형자산의취득"}
+# 자본총계(자본잠식 판정용) — 재무상태표(BS) 섹션. 위와 동일 실측으로 확인.
+_DART_TOTAL_EQUITY_ACCOUNT_ID = "ifrs-full_Equity"
+_DART_TOTAL_EQUITY_NAMES = {"자본총계"}
 _DART_CORP_CODES: Optional[Dict[str, str]] = None
 
 load_dotenv(_PROJECT_ROOT / ".env")
@@ -175,6 +187,19 @@ ANNUAL_FUNDAMENTAL_KEYS = [
     # EBITDA(억원)와 EV/EBITDA(배)는 KIS other-major-ratios에서 제공. ev_ebitda는 결산 시점
     # 스냅샷 비율을 다음 결산까지 전진충전(forward-fill)한다 — 스크리닝 필터용 근사.
     "ebitda", "ev_ebitda",
+    # 영업이익(raw, income-statement bsop_prti), 자본총계(DART BS, 자본잠식 판정용),
+    # CAPEX/FCF(DART CF), EV·EV/EBIT(ev_ebitda x ebitda로 역산 — fundamental_status.py 참고).
+    "ebit", "total_equity", "capex", "fcf", "ev", "ev_ebit",
+    # 로컬 재계산 성장률(부호 왜곡 방지 위해 KIS 원 증가율 대신 raw 값으로 직접 계산,
+    # fundamental_fetcher._compute_derived_annual_metrics 참고). revenue_growth는 매출이
+    # 항상 양수라는 전제로 KIS 원값을 그대로 쓴다(변경 없음).
+    "eps_growth", "ebitda_growth", "ocf_growth", "fcf_growth",
+]
+# 위 성장률(+기존 operating_income_growth/net_income_growth)의 부호전환 상태코드. 문자열이라
+# enrich_ohlcv_with_fundamentals에서 float 대신 object dtype 시리즈로 다뤄야 한다.
+ANNUAL_FUNDAMENTAL_STATUS_KEYS = [
+    "operating_income_growth_status", "net_income_growth_status",
+    "eps_growth_status", "ebitda_growth_status", "ocf_growth_status", "fcf_growth_status",
 ]
 
 # KIS finance endpoints → {response_field: our_key}. Three endpoints, merged by year-end.
@@ -234,7 +259,12 @@ def _parse_kis_financial_ratio_output(output: list[dict]) -> Optional[List[Dict]
 
 
 def _parse_kis_income_statement(output: list) -> Dict[str, Dict]:
-    """KIS 손익계산서 rows → {year_end: {"operating_margin": 영업이익/매출액*100}}."""
+    """KIS 손익계산서 rows → {year_end: {"operating_margin", "ebit", "_revenue"}}.
+
+    ebit(raw 영업이익)은 EV/EBIT 계산에, _revenue(매출액)는 net_margin과 결합해 순이익을
+    유도(_compute_derived_annual_metrics)하는 데 쓰인다 — _revenue는 내부용이라
+    ANNUAL_FUNDAMENTAL_KEYS에 없고, 화면/필터에는 노출되지 않는다.
+    """
     by_year: Dict[str, Dict] = {}
     if not isinstance(output, list):
         return by_year
@@ -247,7 +277,11 @@ def _parse_kis_income_statement(output: list) -> Dict[str, Dict]:
         sale = _parse_number(str(row.get("sale_account", "")).strip())
         op = _parse_number(str(row.get("bsop_prti", "")).strip())
         if sale and op is not None:
-            by_year[year_end] = {"operating_margin": round(op / sale * 100.0, 2)}
+            by_year[year_end] = {
+                "operating_margin": round(op / sale * 100.0, 2),
+                "ebit": op,
+                "_revenue": sale,
+            }
     return by_year
 
 
@@ -291,6 +325,44 @@ def _parse_dart_operating_cash_flow(rows: list) -> Optional[Dict]:
         "operating_cash_flow": amount,
         "available_from": available_from,
     }
+
+
+def _parse_dart_capex(rows: list) -> Optional[float]:
+    """CF 섹션의 유형자산·무형자산 취득(투자활동현금흐름)을 합산한 CAPEX(양수 금액)."""
+    if not isinstance(rows, list):
+        return None
+    total = 0.0
+    found = False
+    for row in rows:
+        if not isinstance(row, dict) or row.get("sj_div") != "CF":
+            continue
+        account_id = str(row.get("account_id", "")).strip()
+        normalized_name = re.sub(r"\s+", "", str(row.get("account_nm", "")))
+        if account_id not in _DART_CAPEX_ACCOUNT_IDS and normalized_name not in _DART_CAPEX_NAMES:
+            continue
+        amount = _parse_number(str(row.get("thstrm_amount", "")))
+        if amount is None:
+            continue
+        total += abs(amount)
+        found = True
+    return total if found else None
+
+
+def _parse_dart_total_equity(rows: list) -> Optional[float]:
+    """BS 섹션의 자본총계(부호 그대로 반환 — 자본잠식이면 음수)."""
+    if not isinstance(rows, list):
+        return None
+    for row in rows:
+        if not isinstance(row, dict) or row.get("sj_div") != "BS":
+            continue
+        account_id = str(row.get("account_id", "")).strip()
+        normalized_name = re.sub(r"\s+", "", str(row.get("account_nm", "")))
+        if account_id != _DART_TOTAL_EQUITY_ACCOUNT_ID and normalized_name not in _DART_TOTAL_EQUITY_NAMES:
+            continue
+        amount = _parse_number(str(row.get("thstrm_amount", "")))
+        if amount is not None:
+            return amount
+    return None
 
 
 def _get_dart_corp_code(symbol: str) -> Optional[str]:
@@ -337,6 +409,7 @@ def _fetch_cash_flow_from_dart(
     quota_exceeded = False
     for year in range(max(start_year, _DART_YEAR_FLOOR), last_year + 1):
         cash_flow = None
+        rows: list = []
         for fs_div in ("CFS", "OFS"):
             payload = _fetch_dart_json(
                 "fnlttSinglAcntAll.json",
@@ -351,18 +424,27 @@ def _fetch_cash_flow_from_dart(
                 quota_exceeded = True
                 break
             if payload.get("status") == "000":
-                cash_flow = _parse_dart_operating_cash_flow(payload.get("list", []))
+                rows = payload.get("list", [])
+                cash_flow = _parse_dart_operating_cash_flow(rows)
                 if cash_flow:
                     break
         if quota_exceeded:
             break
         if not cash_flow:
             continue
-        results.append({
+        record = {
             "year_end": f"{year}-12-31",
             "available_from": cash_flow["available_from"],
             "operating_cash_flow": cash_flow["operating_cash_flow"],
-        })
+        }
+        # 같은 응답(rows)에서 CAPEX(FCF용)·자본총계(자본잠식 판정용)도 추가 API 호출 없이 파싱.
+        capex = _parse_dart_capex(rows)
+        if capex is not None:
+            record["capex"] = capex
+        total_equity = _parse_dart_total_equity(rows)
+        if total_equity is not None:
+            record["total_equity"] = total_equity
+        results.append(record)
 
     return results or None
 
@@ -422,14 +504,77 @@ def _fetch_fundamentals_from_kis(symbol: str) -> Optional[List[Dict]]:
     for year_end, vals in _parse_kis_income_statement(is_output).items():
         merged.setdefault(year_end, {}).update(vals)
 
-    # ev_ebitda의 0.00은 '데이터 없음' 센티널(2010년 이전 등) — 비양수 값을 제거해
-    # 가치 필터('EV/EBITDA 8 이하')가 데이터 없는 연도를 저평가로 오인하지 않게 한다.
+    # ev_ebitda의 0.00은 '데이터 없음' 센티널(2010년 이전 등) — 0.00만 제거한다. 진짜 음수
+    # (적자 EBITDA로 인한 유효한 음수)는 보존해 fundamental_status.ev_ebitda_status가 노출
+    # 여부를 판정하게 한다(이전엔 비양수를 통째로 지워 진짜 음수 정보까지 손실됐었다).
     for vals in merged.values():
-        if "ev_ebitda" in vals and vals["ev_ebitda"] is not None and vals["ev_ebitda"] <= 0:
+        if "ev_ebitda" in vals and vals["ev_ebitda"] == 0:
             del vals["ev_ebitda"]
 
     result = [{"year_end": d, **vals} for d, vals in sorted(merged.items(), reverse=True) if vals]
     return result or None
+
+
+def _compute_derived_annual_metrics(records: List[Dict]) -> List[Dict]:
+    """연도별 병합 레코드에 FCF·EV·EV/EBIT과 로컬 재계산 성장률(+상태)을 추가한다.
+
+    KIS가 직접 제공하는 영업이익/순이익 증가율은 흑자<->적자 전환기에 부호가 왜곡될 수 있어
+    신뢰하지 않고, 이미 확보한 raw 컴포넌트(ebit, _revenue x net_margin, ebitda, ocf, fcf,
+    eps)로 연도별 로컬 재계산한다. revenue_growth는 매출이 항상 양수라는 전제로 KIS 원값을
+    그대로 둔다(변경 없음). 상태코드(TURNAROUND 등)는 두 연도의 raw 값이 있어야만 판정할 수
+    있어 — 일별로 전진충전되고 나면 '직전 연도' 값이 더 이상 보이지 않으므로 — 이 시점에 함께
+    계산해 growth 컬럼과 나란히 저장한다(비율 지표의 상태코드는 반대로 매 시점 단일 값만
+    있으면 판정 가능해 fundamental_status.py에서 즉석 계산하고 저장하지 않는다).
+    """
+    sorted_records = sorted(
+        (r for r in records if r.get("year_end")), key=lambda r: r["year_end"]
+    )
+
+    for rec in sorted_records:
+        revenue = rec.get("_revenue")
+        net_margin = rec.get("net_margin")
+        if revenue is not None and net_margin is not None:
+            rec["_net_income"] = net_margin / 100.0 * revenue
+
+        ocf = rec.get("operating_cash_flow")
+        capex = rec.get("capex")
+        if ocf is not None and capex is not None:
+            rec["fcf"] = ocf - capex
+
+        ebitda = rec.get("ebitda")
+        ev_ebitda_ratio = rec.get("ev_ebitda")
+        if ebitda is not None and ebitda > 0 and ev_ebitda_ratio is not None:
+            ev = ev_ebitda_ratio * ebitda
+            rec["ev"] = ev
+            ebit = rec.get("ebit")
+            if ebit is not None and ebit > 0:
+                rec["ev_ebit"] = ev / ebit
+
+    prior: Optional[Dict] = None
+    for rec in sorted_records:
+        if prior is not None:
+            for growth_key, status_key, driver_key in (
+                ("eps_growth", "eps_growth_status", "eps"),
+                ("ebitda_growth", "ebitda_growth_status", "ebitda"),
+                ("ocf_growth", "ocf_growth_status", "operating_cash_flow"),
+                ("fcf_growth", "fcf_growth_status", "fcf"),
+                ("operating_income_growth", "operating_income_growth_status", "ebit"),
+                ("net_income_growth", "net_income_growth_status", "_net_income"),
+            ):
+                growth, status = growth_and_status(prior.get(driver_key), rec.get(driver_key))
+                if growth is not None:
+                    rec[growth_key] = growth
+                elif growth_key in rec:
+                    del rec[growth_key]  # KIS 원 증가율(operating/net) 대신 로컬 재계산으로 대체
+                if status is not None and status != "MISSING_DATA":
+                    rec[status_key] = status
+        prior = rec
+
+    for rec in sorted_records:
+        rec.pop("_net_income", None)
+        rec.pop("_revenue", None)
+
+    return sorted_records
 
 
 def fetch_fundamentals(symbol: str, retry: int = 2, use_cache: bool = True) -> Optional[List[Dict]]:
@@ -471,6 +616,8 @@ def fetch_fundamentals(symbol: str, retry: int = 2, use_cache: bool = True) -> O
 
     cash_flow = _fetch_cash_flow_from_dart(symbol)
     result = _merge_fundamental_records(result, cash_flow)
+    if result:
+        result = _compute_derived_annual_metrics(result)
 
     if result:
         _write_cache(symbol, result)
@@ -648,12 +795,18 @@ def enrich_ohlcv_with_fundamentals(
     _PUBLISH_DELAY_DAYS = 90
 
     # 원본 4개(eps/bps/roe/debt_ratio)는 데이터에 없어도 항상 컬럼을 생성하고(하위호환),
-    # 추가 지표는 데이터에 존재할 때만 컬럼을 만든다.
+    # 추가 지표는 데이터에 존재할 때만 컬럼을 만든다. 성장률 상태코드(*_growth_status)는
+    # 문자열이라 float 시리즈가 아닌 object 시리즈로 다룬다.
     _base = ["eps", "bps", "roe_or_gpa", "debt_ratio"]
     present_keys = list(dict.fromkeys(
-        _base + [k for k in ANNUAL_FUNDAMENTAL_KEYS if k in fund_df.columns]
+        _base
+        + [k for k in ANNUAL_FUNDAMENTAL_KEYS if k in fund_df.columns]
+        + [k for k in ANNUAL_FUNDAMENTAL_STATUS_KEYS if k in fund_df.columns]
     ))
-    series = {k: pd.Series(index=df.index, dtype=float) for k in present_keys}
+    series = {
+        k: pd.Series(index=df.index, dtype=(object if k in ANNUAL_FUNDAMENTAL_STATUS_KEYS else float))
+        for k in present_keys
+    }
 
     for _, row in fund_df.iterrows():
         available_from = pd.to_datetime(row.get("available_from"), errors="coerce")
@@ -667,16 +820,26 @@ def enrich_ohlcv_with_fundamentals(
     for k in present_keys:
         df[k] = series[k]
 
-    # 가격 기반 밸류에이션 비율: PER=close/EPS, PBR=close/BPS, PSR=close/SPS.
+    # 가격 기반 밸류에이션 비율: PER=close/EPS, PBR=close/BPS, PSR=close/SPS. PER/PBR은
+    # 분모(순이익/지배주주지분)가 음수(적자·자본잠식)면 금융적으로 무의미해 null 처리한다
+    # (PSR은 매출이 항상 양수라는 전제로 기존 방식 유지 — 요구사항대로 변경하지 않음).
     close = df["close"].astype(float)
-    for ratio, denom in (
-        ("per", "eps"),
-        ("pbr", "bps"),
-        ("psr", "sps"),
+    for ratio, denom, positive_only in (
+        ("per", "eps", True),
+        ("pbr", "bps", True),
+        ("psr", "sps", False),
     ):
         if denom in df.columns:
-            valid = df[denom].notna() & (df[denom] != 0)
+            denom_ok = (df[denom] > 0) if positive_only else (df[denom] != 0)
+            valid = df[denom].notna() & denom_ok
             df[ratio] = (close / df[denom]).where(valid).replace([_np.inf, -_np.inf], _np.nan)
+
+    # ROE는 KIS가 직접 제공하는 비율이라 여기서 재계산하지 않지만, 자기자본(total_equity
+    # 우선, 없으면 BPS로 근사)이 음수(자본잠식)면 값 자체가 금융적으로 무의미해 null 처리한다.
+    if "roe_or_gpa" in df.columns:
+        equity_col = df["total_equity"] if "total_equity" in df.columns else df.get("bps")
+        if equity_col is not None:
+            df.loc[equity_col.notna() & (equity_col <= 0), "roe_or_gpa"] = _np.nan
 
     # PCR = 시가총액 / 영업활동현금흐름. OHLCV 종가는 기업행사 조정 가격이므로,
     # 과거 비조정 주식 수로 CFPS를 만들면 액면분할 전 기간이 왜곡된다. parquet의

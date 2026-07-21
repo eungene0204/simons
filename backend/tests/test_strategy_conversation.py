@@ -266,6 +266,18 @@ def test_registry_unsupported_and_unknown():
     assert resolve("존재하지않는지표") is None
 
 
+def test_registry_resolves_new_negative_handling_metrics():
+    """음수 재무데이터 처리 업그레이드로 추가된 5개 지표(EV/EBIT, EPS/EBITDA/영업현금흐름/
+    잉여현금흐름 증가율)가 Registry에 정상 등록되어 있는지 확인."""
+    assert resolve("EV/EBIT").id == "fundamental.ev_ebit"
+    assert resolve("eps_growth").id == "fundamental.eps_growth"
+    assert resolve("ebitda_growth").id == "fundamental.ebitda_growth"
+    assert resolve("영업현금흐름증가율").id == "fundamental.ocf_growth"
+    assert resolve("잉여현금흐름증가율").id == "fundamental.fcf_growth"
+    # FCF 배율(밸류에이션 비율)은 여전히 미지원 — raw FCF 증가율만 지원 범위
+    assert resolve("fcf_yield").supported == "UNSUPPORTED"
+
+
 def test_registry_matches_engine_literals():
     # Registry의 엔진 바인딩이 실제 엔진 스키마 Literal과 어긋나지 않는지 (드리프트 가드)
     from engine.nl_parser import FundamentalFilter, TechnicalSignal
@@ -348,6 +360,71 @@ def test_missing_parameter_question_uses_friendly_label():
     )
     assert "lookback_period" not in question.question
     assert "기준 기간" in question.question
+
+
+def test_breakout_lookback_filled_from_source_not_reasked():
+    # 사고(2026-07-21): 사용자가 "52주 신고가"라고 명시했는데 LLM 인터프리터가 '52주'를
+    # lookback_period로 옮기지 못하고 빈 파라미터를 내보내, 완결성 검증이 이미 말한 값을
+    # 되묻던 문제. 되묻기 전에 원문에서 결정적으로 채운다(명시적 기간이 있을 때만).
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[{"factor": "technical.breakout", "operator": "crosses_above",
+                           "parameters": {}, "source_text": "52주 신고가를 새로 만들고"}],
+    ))
+    _fill_deterministic_condition_params(intent, "KOSDAQ에서 52주 신고가를 새로 만든 종목")
+    assert intent.strategy.entry_conditions[0].parameters.get("lookback_period") == 252
+    _, report = run_validation(intent)
+    assert not any(
+        q.field == "strategy.entry_conditions[0].parameters.lookback_period"
+        for q in report.clarification_questions
+    )
+
+
+def test_breakout_without_explicit_period_still_asks():
+    # 기간 언급이 아예 없는 '신고가 돌파'는 조용히 기본값(60)으로 확정하지 않고 되묻는다.
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[{"factor": "technical.breakout", "operator": "crosses_above",
+                           "parameters": {}, "source_text": "신고가 돌파 시 매수"}],
+    ))
+    _fill_deterministic_condition_params(intent, "신고가 돌파 시 매수")
+    assert intent.strategy.entry_conditions[0].parameters.get("lookback_period") is None
+    _, report = run_validation(intent)
+    assert report.status == "NEEDS_CLARIFICATION"
+
+
+def test_volume_surge_misclassified_as_trading_value_reclassified():
+    # 사고(2026-07-21): '거래량이 최근 평균보다 늘어난'을 LLM이 trading_value(거래대금 절대
+    # 임계 필요)로 오분류 → 거래대금 기준값을 되물음. 최종 전략은 volume_spike로 교정되므로
+    # 질문만 헛것. 되묻기 전에 volume_spike(임계값 불필요)로 결정적으로 재분류한다.
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[{"factor": "technical.trading_value", "operator": ">",
+                           "value": None, "source_text": "거래량이 최근 평균보다 늘어난"}],
+    ))
+    _fill_deterministic_condition_params(intent, "거래량이 최근 평균보다 늘어난 종목")
+    assert intent.strategy.entry_conditions[0].factor == "technical.volume_spike"
+    assert intent.strategy.entry_conditions[0].value is None
+    _, report = run_validation(intent)
+    assert not any(
+        "거래대금" in q.question for q in report.clarification_questions
+    )
+
+
+def test_absolute_trading_value_threshold_not_reclassified():
+    # '거래대금 100억 이상'은 정적 유동성 필터 — volume_spike로 바꾸지 않는다(급증 표현 아님).
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[{"factor": "technical.trading_value", "operator": ">=",
+                           "value": 100, "source_text": "거래대금 100억 이상"}],
+    ))
+    _fill_deterministic_condition_params(intent, "거래대금 100억 이상인 종목")
+    assert intent.strategy.entry_conditions[0].factor == "technical.trading_value"
+    assert intent.strategy.entry_conditions[0].value == 100
 
 
 def test_conflicting_conditions_detected():

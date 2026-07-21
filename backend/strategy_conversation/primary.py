@@ -129,6 +129,67 @@ def _patch_cue_supported(patch, compact: str) -> bool:
     return True
 
 
+def _explicit_breakout_lookback(text: Optional[str]) -> Optional[int]:
+    """신고가/고점 돌파 원문에서 명시적 기준 기간(거래일)을 추출한다. 없으면 None.
+
+    '52주'는 거래일로 환산(52주=252, N주=N×5), 'N일'은 그대로, 단위 없는 '52'만 1년(252).
+    기간 언급이 아예 없으면(예: 그냥 '신고가 돌파') None — 조용한 기본값 확정 금지 원칙에
+    따라 되묻기에 맡긴다. 레거시 nl_parser._extract_breakout_lookback과 동일 환산 규칙.
+    """
+    if not text:
+        return None
+    from engine.nl_parser import _compact
+
+    match = re.search(r"(\d+)\s*(주|일)?\s*(?:신고가|최고가|고점|저점)", _compact(text))
+    if not match:
+        return None
+    value = int(match.group(1))
+    unit = match.group(2)
+    if unit == "주":
+        return value * 5 if value < 52 else 252
+    if unit == "일":
+        return value
+    return 252 if value == 52 else value
+
+
+def _fill_deterministic_condition_params(intent: StrategyIntent, user_input: str) -> None:
+    """LLM 인터프리터가 놓치거나 오분류한 조건을 원문에서 결정적으로 교정한다(되묻기 전에 적용).
+
+    완결성 검증은 결정론 오버라이드 적용 전의 raw LLM intent에 대해 돌기 때문에, LLM의
+    누락/오분류가 '이미 사용자가 말한 값'을 되묻는 사고로 이어진다. 여기서 결정론이 확실히
+    아는 것을 미리 채워/고쳐 헛질문을 막는다.
+
+    ① breakout(신고가 돌파) lookback_period: 프롬프트에 '52주=252' 환산 규칙이 없어 LLM이
+       '52주 신고가'의 기간을 파라미터로 옮기지 못하고 비운다 → 원문(조건 source_text 우선,
+       없으면 전체 입력)에 명시적 기간이 있을 때만 채운다(없으면 그대로 두어 되묻기에 맡김).
+    ② trading_value 오분류: '거래량이 평균보다 늘어난' 같은 동적 급증 표현을 LLM이 종종
+       거래대금 임계 신호(trading_value=절대 억원 값 필요)로 오분류 → 거래대금 임계값을 되묻는다.
+       원문이 급증/평균대비 증가 표현이면 volume_spike(OBV, 임계값 불필요)로 결정적으로 고친다.
+       (엔진 반영값도 이 재분류와 일치 — 오버라이드의 _extract_technical_signals가 같은 규칙.)
+    """
+    from engine.nl_parser import _compact, _mentions_volume_surge
+
+    strategy = intent.strategy
+    if strategy is None:
+        return
+    for cond in list(strategy.entry_conditions) + list(strategy.exit_conditions):
+        spec = REGISTRY.get(cond.factor)
+        if spec is None:
+            continue
+        if spec.id == "technical.breakout" and cond.parameters.get("lookback_period") is None:
+            lookback = _explicit_breakout_lookback(cond.source_text)
+            if lookback is None:
+                lookback = _explicit_breakout_lookback(user_input)
+            if lookback is not None:
+                cond.parameters["lookback_period"] = float(lookback)
+        elif spec.id in ("technical.trading_value", "fundamental.trading_value"):
+            surge_text = _compact(cond.source_text or user_input)
+            if _mentions_volume_surge(surge_text):
+                cond.factor = "technical.volume_spike"
+                cond.operator = "crosses_above"
+                cond.value = None
+
+
 def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]]:
     """LLM Interpreter 기본 경로 실행. 성공 시 결과 dict, 폴백 필요 시 None.
 
@@ -160,6 +221,7 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
         logger.warning("interpreter primary transport error, falling back | err=%r", exc)
         return None
 
+    _fill_deterministic_condition_params(result.intent, user_input)
     validated, report = run_validation(result.intent)
     _log_llm("✓ 검증", (
         f"status={report.status} 오류={len(report.errors)} 누락={len(report.missing_fields)} "
@@ -434,10 +496,12 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
         logger.warning("modify primary patch rejected, falling back | err=%s", exc)
         return None
 
-    validated, report = run_validation(_Intent(
+    modify_intent = _Intent(
         intent="MODIFY_STRATEGY", strategy=patched_spec,
         confidence=intent.confidence, unsupported_features=intent.unsupported_features,
-    ))
+    )
+    _fill_deterministic_condition_params(modify_intent, user_input)
+    validated, report = run_validation(modify_intent)
     _log_llm("✓ 검증", (
         f"status={report.status} patches={len(cued_patches)} "
         f"오류={len(report.errors)} 미지원={report.unsupported_features or '[]'}"

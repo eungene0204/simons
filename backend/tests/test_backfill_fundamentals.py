@@ -54,6 +54,24 @@ def test_roe_derived_from_eps_bps_when_api_missing_or_zero():
     assert out["roe_or_gpa"].iloc[0] == pytest.approx(30.0)  # 1500/5000*100
 
 
+def test_roe_not_derived_when_bps_nonpositive():
+    # 자본잠식(BPS<=0)이면 EPS/BPS 유도식 자체가 무의미하므로 ROE를 채우지 않는다.
+    df = _ohlcv(["2024-06-01"], debt_ratio=[np.nan])
+    funds = [{"year_end": "2023-12-31", "eps": 1500.0, "bps": -5000.0,
+              "roe_or_gpa": 0.0, "debt_ratio": 50.0}]
+    out = bf.merge_fundamentals(df, funds)
+    assert pd.isna(out["roe_or_gpa"].iloc[0])
+
+
+def test_per_pbr_gap_fill_skips_negative_denominator():
+    # gap-fill 경로(per/pbr 컬럼이 아예 없던 경우)도 분모<=0이면 채우지 않는다.
+    df = _ohlcv(["2024-06-01"], close=50000.0)
+    funds = [{"year_end": "2023-12-31", "eps": -1000.0, "bps": -5000.0}]
+    out = bf.merge_fundamentals(df, funds)
+    assert pd.isna(out["per"].iloc[0])
+    assert pd.isna(out["pbr"].iloc[0])
+
+
 def test_needs_backfill_detects_missing_sentinel():
     # 종합 펀더멘털 유무는 sentinel 컬럼(roa)으로 판단 — debt_ratio만 있으면 부족.
     assert bf._needs_backfill(_ohlcv(["2024-01-01"]))  # no column

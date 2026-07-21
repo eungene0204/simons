@@ -429,6 +429,97 @@ def test_apply_prompt_overrides_keeps_technical_exit_when_explicitly_requested()
     assert [signal.indicator for signal in parsed.exit_signals] == ["cci"]
 
 
+def test_apply_prompt_overrides_restores_fundamental_filter_dropped_by_llm():
+    # [회귀] "ROE 10% 이상인 종목 중 골든크로스가 나오면 매수"처럼 재무 조건과 기술 신호가
+    # 한 문장에 섞이면 LLM이 명시된 ROE 값을 통째로 빠뜨리고 이미 준 값을 되묻는 사고가
+    # 실측됐다(레드팀 QA). fundamental_filters가 비어 있어도, 원문에 명시적 숫자가 있으면
+    # 결정적 추출이 되살려야 한다.
+    base = make_base_strategy().model_copy(
+        update={
+            "entry_signals": [
+                TechnicalSignal(indicator="ma_crossover", signal_type="buy", short_period=5, long_period=20)
+            ],
+            "exit_signals": [
+                TechnicalSignal(indicator="ma_crossover", signal_type="sell", short_period=5, long_period=20)
+            ],
+        }
+    )
+
+    parsed = _apply_prompt_overrides(
+        base,
+        "KOSPI에서 ROE 10% 이상인 종목 중 골든크로스가 나오면 매수하고 "
+        "데드크로스가 나오면 매도하도록 설정해 주세요.",
+    )
+
+    assert parsed.fundamental_filters == [
+        FundamentalFilter(metric="roe_or_gpa", operator=">=", value=10.0)
+    ]
+
+
+def test_apply_prompt_overrides_does_not_fabricate_filter_for_vague_metric_mention():
+    # 값 없는 정성 표현("ROE 조건을 충족")은 추출되지 않아야 한다 — 임의 임계값을
+    # 지어내면 안 되고, 되묻기(다른 경로)에 맡겨져야 한다.
+    parsed = _apply_prompt_overrides(
+        make_base_strategy(), "KOSPI에서 ROE 조건을 충족하는 종목을 매수해 주세요."
+    )
+
+    assert parsed.fundamental_filters == []
+
+
+def test_validate_signals_drops_exit_signal_without_exit_context_cue():
+    # [회귀] "20일 EMA가 60일 EMA 위에 있고 ... 진입"만 말하고 청산은 전혀 언급하지
+    # 않았는데도, LLM이 같은 EMA 지표로 청산 신호를 지어내는 환각이 실측됐다
+    # (매도/청산 등 방향전환 cue가 원문에 전혀 없는 케이스).
+    signals = [
+        TechnicalSignal(indicator="ema", signal_type="sell", short_period=20, long_period=60)
+    ]
+
+    validated = _validate_signals(
+        signals,
+        "20일 EMA가 60일 EMA 위에 있고 최근 거래대금이 30일 평균보다 높은 경우만 진입하는 "
+        "방식으로 설계해 주세요. 손절 -7%, 익절 +24%.",
+        context="exit",
+    )
+
+    assert validated == []
+
+
+def test_validate_signals_keeps_exit_signal_with_explicit_sell_verb():
+    signals = [
+        TechnicalSignal(indicator="ema", signal_type="sell", short_period=20, long_period=60)
+    ]
+
+    validated = _validate_signals(
+        signals, "20일 EMA가 60일 EMA 아래로 내려오면 매도해 주세요.", context="exit"
+    )
+
+    assert [signal.indicator for signal in validated] == ["ema"]
+
+
+def test_apply_prompt_overrides_drops_hallucinated_exit_signal_end_to_end():
+    # #47 실측 재현: 청산을 전혀 언급하지 않은 프롬프트에 LLM이 EMA 청산 신호를 지어낸
+    # 경우, _apply_prompt_overrides가 이를 걸러내야 한다.
+    base = make_base_strategy().model_copy(
+        update={
+            "entry_signals": [
+                TechnicalSignal(indicator="ema", signal_type="buy", short_period=20, long_period=60)
+            ],
+            "exit_signals": [
+                TechnicalSignal(indicator="ema", signal_type="sell", short_period=20, long_period=60)
+            ],
+        }
+    )
+
+    parsed = _apply_prompt_overrides(
+        base,
+        "KOSDAQ 중 시가총액 2000억 원 이상 종목에서 20일 EMA가 60일 EMA 위에 있고 최근 "
+        "거래대금이 30일 평균보다 높은 경우만 진입하는 방식으로 설계해 주세요. "
+        "주간 리밸런싱, 최대 9종목, 손절 -7%, 익절 +24% 조건으로 부탁드립니다.",
+    )
+
+    assert parsed.exit_signals == []
+
+
 # ─── 기술적 신호 deterministic 추출 테스트 ────────────────────────────────────
 
 
@@ -523,6 +614,20 @@ def test_extract_rsi_sell_with_particle():
     rsi_sell = [s for s in exit_ if s.indicator == "rsi" and s.signal_type == "sell"]
     assert len(rsi_sell) == 1
     assert rsi_sell[0].value == 70.0
+
+
+def test_extract_rsi_sell_does_not_bridge_entry_value_across_sentence():
+    """진입 RSI(50 이상)와 청산 RSI(45 아래)가 서로 다른 문장(마침표로 분리)에 있을 때,
+    청산 임계값 추출이 마침표를 넘어 진입 문장의 숫자(50)를 잘못 끌어오면 안 된다 — 절 경계를
+    쉼표([^,])만으로 판정해 마침표를 넘어 '정리'까지 이어붙이던 실사용 버그 재현
+    (청산 배지가 진입과 동일한 'RSI 50 이상'으로 표시됨)."""
+    _, exit_ = _extract_technical_signals(
+        "RSI가 50 이상으로 올라온 경우만 진입하고 싶습니다. "
+        "단순 반등보다 추세가 실제로 붙는 종목만 고르려는 의도입니다. "
+        "RSI가 다시 45 아래로 밀리면 정리하고, 최대 10종목으로 부탁드립니다."
+    )
+    rsi_sell = [s for s in exit_ if s.indicator == "rsi" and s.signal_type == "sell"]
+    assert len(rsi_sell) == 0
 
 
 def test_extract_stochastic_buy_sell():
@@ -2243,6 +2348,39 @@ def test_missing_entry_clarification_etf_suggests_price_based_rules():
     assert "PBR" not in joined and "PER" not in joined and "ROE" not in joined
     # 가격·추세 기반 대안을 제시한다.
     assert any("돌파" in s or "이동평균" in s or "선" in s or "RSI" in s for s in suggestions)
+
+
+def test_missing_entry_clarification_named_etf_product_confirms_instead_of_reasking():
+    """'kodex 반도체 etf를 매수' — 이미 특정 상품(KODEX 반도체)이 지정됐으므로, 여러 ETF
+    중 고르는 것처럼 읽히는 일반 테마 문구('정기 리밸런싱' 등) 대신 상품명을 확정해
+    보여주는 문구로 되물어야 한다(사용자가 "또 어떤 ETF 살건지 물어본다"고 오인하는
+    버그 재현)."""
+    base = make_base_strategy().model_copy(
+        update={"universe": ["ETF"], "etf_theme": "KODEX 반도체"}
+    )
+
+    question, suggestions = detect_missing_entry_clarification(base, "kodex 반도체 etf를 매수")
+
+    assert question is not None
+    assert "KODEX 반도체" in question and "091160" in question
+    assert "정기 리밸런싱" not in question
+    assert suggestions is not None
+    joined = " ".join(suggestions)
+    assert "PBR" not in joined and "PER" not in joined and "ROE" not in joined
+
+
+def test_missing_entry_clarification_etf_theme_keyword_keeps_generic_question():
+    """반대로 열린 테마("반도체")는 여러 ETF에 매칭되므로 일반 문구를 유지한다 —
+    단일 상품 확정 문구로 바뀌면 안 된다."""
+    base = make_base_strategy().model_copy(
+        update={"universe": ["ETF"], "etf_theme": "반도체"}
+    )
+
+    question, _ = detect_missing_entry_clarification(base, "반도체 ETF 사는 전략")
+
+    assert question is not None
+    assert "KODEX" not in question
+    assert "091160" not in question
 
 
 def test_missing_entry_clarification_etf_qualitative_metric_gets_product_guidance():

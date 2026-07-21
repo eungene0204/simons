@@ -108,7 +108,10 @@ def _load_kospi200() -> List[str]:
     logger.warning("[KOSPI200] 조회 실패 — KOSPI 전체로 fallback")
     with open(_STOCKS_PATH, encoding="utf-8") as f:
         all_stocks = json.load(f)
-    return [s["symbol"] for s in all_stocks if s.get("market") == "KOSPI"]
+    return [
+        s["symbol"] for s in all_stocks
+        if s.get("market") == "KOSPI" and "스팩" not in (s.get("name") or "")
+    ]
 
 
 def _load_universe(markets: List[str]) -> List[str]:
@@ -128,7 +131,10 @@ def _load_universe(markets: List[str]) -> List[str]:
         with open(_STOCKS_PATH, encoding="utf-8") as f:
             all_stocks = json.load(f)
         target_markets = set(remaining)
-        symbols.update(s["symbol"] for s in all_stocks if s.get("market") in target_markets)
+        symbols.update(
+            s["symbol"] for s in all_stocks
+            if s.get("market") in target_markets and "스팩" not in (s.get("name") or "")
+        )
 
     return sorted(symbols)
 

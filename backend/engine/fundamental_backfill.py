@@ -13,6 +13,7 @@ import pandas as pd
 
 from .fundamental_fetcher import (
     ANNUAL_FUNDAMENTAL_KEYS,
+    ANNUAL_FUNDAMENTAL_STATUS_KEYS,
     fetch_fundamentals,
     fetch_shares_outstanding,
     enrich_ohlcv_with_fundamentals,
@@ -21,7 +22,7 @@ from .fundamental_fetcher import (
 # Annual statement metrics + the price-derived valuation ratios. market_cap is separate.
 # 배당 메트릭(dividend_yield/payout_rate)은 dividends 컬럼에서 파생되며, 있으면 enrich가
 # 계산한다 — 펀더멘털 refresh가 combine_first로 결측만 채우도록 목록에 포함(기존 값 보존).
-FUND_COLS = ANNUAL_FUNDAMENTAL_KEYS + [
+FUND_COLS = ANNUAL_FUNDAMENTAL_KEYS + ANNUAL_FUNDAMENTAL_STATUS_KEYS + [
     "per", "pbr", "psr", "dividend_yield", "payout_rate", "dividend_growth",
 ]
 # Sentinel proving the *comprehensive* fundamentals (not just the legacy
@@ -42,21 +43,26 @@ def merge_fundamentals(pdf: pd.DataFrame, fundamentals: list[dict]) -> pd.DataFr
     out = pdf.copy()
 
     for col in FUND_COLS:
-        old = out[col] if col in out.columns else pd.Series(np.nan, index=out.index, dtype=float)
-        new = enriched[col] if col in enriched.columns else pd.Series(np.nan, index=out.index, dtype=float)
+        dtype = object if col in ANNUAL_FUNDAMENTAL_STATUS_KEYS else float
+        old = out[col] if col in out.columns else pd.Series(np.nan, index=out.index, dtype=dtype)
+        new = enriched[col] if col in enriched.columns else pd.Series(np.nan, index=out.index, dtype=dtype)
         out[col] = old.combine_first(new)  # existing wins; fetched fills gaps
 
     # ROE = 당기순이익/자본총계 = EPS/BPS (exact). Fill remaining gaps from EPS & BPS.
+    # BPS<=0(자본잠식)이면 이 유도식 자체가 무의미하므로 gap을 채우지 않는다(null 유지).
     roe_gap = out["roe_or_gpa"].isna() | (out["roe_or_gpa"] == 0.0)
-    derivable = roe_gap & out["eps"].notna() & out["bps"].notna() & (out["bps"] != 0)
+    derivable = roe_gap & out["eps"].notna() & out["bps"].notna() & (out["bps"] > 0)
     out.loc[derivable, "roe_or_gpa"] = out.loc[derivable, "eps"] / out.loc[derivable, "bps"] * 100.0
 
     # PER/PBR/PSR: fill only the still-null rows from close ÷ denominator (keep existing).
+    # PER/PBR은 분모(순이익/지배주주지분)가 음수면 금융적으로 무의미해 채우지 않는다
+    # (PSR은 매출이 항상 양수라는 전제로 기존 방식 유지).
     close = out["close"].astype(float)
-    for ratio, denom in (("per", "eps"), ("pbr", "bps"), ("psr", "sps")):
+    for ratio, denom, positive_only in (("per", "eps", True), ("pbr", "bps", True), ("psr", "sps", False)):
         if denom not in out.columns:
             continue
-        calc = (close / out[denom]).where(out[denom].notna() & (out[denom] != 0))
+        denom_ok = (out[denom] > 0) if positive_only else (out[denom] != 0)
+        calc = (close / out[denom]).where(out[denom].notna() & denom_ok)
         out[ratio] = out[ratio].combine_first(calc.replace([np.inf, -np.inf], np.nan))
     return out
 

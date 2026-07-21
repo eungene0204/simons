@@ -69,6 +69,20 @@ def test_overseas_alias_is_not_a_target():
     assert _extract_target_symbols("엔비디아에 골든크로스 전략을 적용해줘") is None
 
 
+def test_common_noun_name_needs_stock_intent():
+    """일반명사와 겹치는 회사명(대상=Daesang & '진입 대상'의 target)은 종목 지정 의도가
+    문맥에 없으면 종목으로 인정하지 않는다 — 유니버스 전략이 조용히 단일 종목으로 바뀌던 사고.
+    """
+    # '진입 대상으로 설정' — '대상'은 일반명사(target)다. 종목으로 오인식하면 안 된다.
+    assert _extract_target_symbols(
+        "KOSDAQ에서 52주 신고가를 만들고 거래량이 늘어난 종목을 진입 대상으로 설정해줘"
+    ) is None
+    assert _extract_target_symbols("투자 대상으로 코스피 대형주를 설정") is None
+    # 종목 지정 의도가 드러나면(매매 동사·코드 병기) 정상 인식한다.
+    assert [r.symbol for r in _extract_target_symbols("대상 매수해줘")] == ["001680"]
+    assert [r.symbol for r in _extract_target_symbols("대상(001680)으로 백테스트")] == ["001680"]
+
+
 # ─── 룰 fast-path ────────────────────────────────────────────────────────────
 
 def test_rule_parse_single_asset_entry_only_stays_on_fast_path():

@@ -95,6 +95,12 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
    손절/익절/트레일링은 조건이 아니라 risk_management 필드입니다(% 크기만).
    '최고가 대비/최고가에서 N% 하락(밀리면) 청산'은 stop_loss가 아니라 trailing_stop입니다.
    보유 기간(hold_period_days)은 거래일 단위: 1개월=21, 3개월=63, 6개월=126, 1년=252.
+5-1. 신고가/고점 돌파(technical.breakout)의 기준 기간은 parameters.lookback_period(거래일):
+   '52주 신고가'=252, 'N주'=N×5, 'N일 고점/신고가'=N. 기간 언급이 없으면 lookback_period는
+   비워 두세요(되묻기). 사용자가 '52주'처럼 기간을 말했으면 반드시 lookback_period에 넣으세요.
+5-2. '거래량이 급증/평소보다 늘어남/평균 대비 증가/터짐'은 거래량 급증 신호
+   (technical.volume_spike, 임계값 불필요)입니다 — 거래대금 절대 임계(technical.trading_value,
+   억원 값 필요)로 분류하지 마세요. 'N억 이상'처럼 절대 거래대금 기준일 때만 trading_value입니다.
 6. universe.markets: 코스피=["KOSPI"], 코스닥=["KOSDAQ"], 대형주/KOSPI200=["KOSPI200"],
    전체/양시장=["KOSPI","KOSDAQ"]. 시장 언급이 없으면 ["KOSPI200"], 단 섹터 제한 전략이면 ["KOSPI","KOSDAQ"].
    업종/테마(반도체, 2차전지 등)는 markets가 아니라 universe.sectors에.

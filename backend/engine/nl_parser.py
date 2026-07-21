@@ -208,15 +208,17 @@ def _ollama_preload_model(model: str, timeout: int = 600) -> None:
 class FundamentalFilter(BaseModel):
     """재무 지표 필터 조건"""
     metric: Literal[
-        "per", "pbr", "psr", "ev_ebitda", "roe_or_gpa", "roa", "debt_ratio",
+        "per", "pbr", "psr", "ev_ebitda", "ev_ebit", "roe_or_gpa", "roa", "debt_ratio",
         "current_ratio", "quick_ratio",
         "reserve_ratio", "net_margin", "gross_margin", "operating_margin", "revenue_growth",
         "operating_income_growth", "net_income_growth", "market_cap", "trading_value",
         "dividend_yield", "payout_rate", "dividend_growth",
+        "eps_growth", "ebitda_growth", "ocf_growth", "fcf_growth",
     ] = Field(
         description=(
             "재무 지표 종류. "
             "per=주가수익비율, pbr=주가순자산비율, psr=주가매출비율, ev_ebitda=EV/EBITDA(배, 낮을수록 저평가), "
+            "ev_ebit=EV/EBIT(배, 낮을수록 저평가), "
             "roe_or_gpa=자기자본이익률(%), "
             "roa=총자본순이익률(%), debt_ratio=부채비율(%), current_ratio=유동비율(%), "
             "quick_ratio=당좌비율(%), reserve_ratio=유보율(%), net_margin=순이익률(%), "
@@ -224,7 +226,11 @@ class FundamentalFilter(BaseModel):
             "operating_income_growth=영업이익증가율(%), net_income_growth=순이익증가율(%), "
             "market_cap=시가총액(억원), trading_value=일평균거래대금(억원), "
             "dividend_yield=배당수익률(%, 높을수록 고배당), payout_rate=배당성향(%), "
-            "dividend_growth=배당성장률(%, 전년 대비 주당배당 증가율)"
+            "dividend_growth=배당성장률(%, 전년 대비 주당배당 증가율), "
+            "eps_growth=EPS증가율(%), ebitda_growth=EBITDA증가율(%), "
+            "ocf_growth=영업활동현금흐름증가율(%), fcf_growth=잉여현금흐름증가율(%). "
+            "eps_growth/ebitda_growth/net_income_growth/operating_income_growth/ocf_growth/fcf_growth는 "
+            "적자↔흑자 전환기에는 값 대신 상태코드(TURNAROUND/LOSS_TRANSITION 등)로 표현될 수 있다."
         )
     )
     operator: Literal["<", ">", "<=", ">="] = Field(
@@ -1736,6 +1742,7 @@ _DESCRIPTIVE_INDICATORS = {"ma_crossover", "breakout", "volume_spike"}
 def _validate_signals(
     signals: list[TechnicalSignal],
     user_input: str,
+    context: str = "entry",
 ) -> list[TechnicalSignal]:
     """
     LLM이 생성한 신호 중 환각으로 의심되는 것만 제거한다.
@@ -1744,8 +1751,14 @@ def _validate_signals(
     없으면 환각으로 보고 제거한다. 반면 서술형 신호(_DESCRIPTIVE_INDICATORS)는 표현이
     무한히 다양해 키워드로 거르면 오히려 정답을 잘라내므로, 검증 없이 신뢰한다.
     (놓친 표현은 키워드를 늘리는 대신 LLM 프롬프트 예시로 일반화한다.)
+
+    context="exit"는 지표 키워드만으로는 부족하다 — 진입 설명에서 이미 쓰인 지표명을
+    LLM이 그대로 청산 신호로 복제하는 환각(예: "20일 EMA가 60일 EMA 위" 진입만 말했는데
+    청산 조건을 언급한 적 없음에도 EMA 데드크로스 청산을 지어냄, 실측)을 잡기 위해
+    매도/방향전환 cue(_EXIT_CONTEXT_CUE)가 원문 어디에도 없으면 제거한다.
     """
     compact = _compact(user_input)
+    has_exit_cue = bool(re.search(_EXIT_CONTEXT_CUE, compact))
     validated: list[TechnicalSignal] = []
     for sig in signals:
         if sig.indicator in _DESCRIPTIVE_INDICATORS:
@@ -1753,12 +1766,11 @@ def _validate_signals(
             validated.append(sig)
             continue
         keywords = _INDICATOR_KEYWORDS.get(sig.indicator, [])
-        if not keywords:
-            # 알 수 없는 지표는 일단 유지
-            validated.append(sig)
+        if keywords and not any(kw in compact for kw in keywords):
             continue
-        if any(kw in compact for kw in keywords):
-            validated.append(sig)
+        if context == "exit" and not has_exit_cue:
+            continue
+        validated.append(sig)
     return validated
 
 
@@ -1802,6 +1814,9 @@ _BUY_HINT = r"(?:매수|진입|매입|편입|들어가|담[고아아서는]|사[
 _SELL_V = r"(?:매도|청산|정리|처분|매각|팔[고아자래면게까]|(?<!돌)파는|판다)"
 # 지표명과 숫자 사이 주격·주제·목적격 조사(+보조사 '도'). 품사 변화 전반을 한 토큰으로.
 _SUBJ_PARTICLE = r"(?:가|이|은|는|을|를|도)?"
+# 청산 신호 검증용 cue(_validate_signals context="exit") — 매도 동사(_SELL_V) 외에도
+# 하향/이탈처럼 방향전환만 언급하고 동사가 생략된 표현("20일선 아래로 내려오면")까지 인정.
+_EXIT_CONTEXT_CUE = rf"{_SELL_V}|아래|하향|이탈|하회|내려|데드|밑"
 
 
 def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], list[TechnicalSignal]]:
@@ -1947,12 +1962,12 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
             mode="rebound" if rsi_buy_rebound else None,
         ))
     # 'rsi 70 이상 ... 매도'(정방향)와 '청산은 ... rsi 70 이상'(역방향=청산 동사가 먼저)을
-    # 모두 인식한다. 절(쉼표) 경계를 넘지 않게 [^,]로 막아, 다른 절의 매도 동사를 잘못
-    # 끌어오지 않는다. '넘'(넘어서면)도 '이상' 동의어로 처리한다.
+    # 모두 인식한다. 절(쉼표·마침표) 경계를 넘지 않게 [^,.]로 막아, 다른 절의 매도 동사나
+    # 다른 절의 숫자를 잘못 끌어오지 않는다. '넘'(넘어서면)도 '이상' 동의어로 처리한다.
     rsi_sell_match = re.search(
-        rf"rsi{_SUBJ_PARTICLE}\s*(\d+)\s*(?:을|를)?\s*(?:이상|초과|위|넘)[^,]*?{_SELL_V}"
-        rf"|{_SELL_V}[^,]*?rsi{_SUBJ_PARTICLE}\s*(\d+)\s*(?:을|를)?\s*(?:이상|초과|위|넘)"
-        rf"|rsi[^,]*?과매수[^,]*?{_SELL_V}",
+        rf"rsi{_SUBJ_PARTICLE}\s*(\d+)\s*(?:을|를)?\s*(?:이상|초과|위|넘)[^,.]*?{_SELL_V}"
+        rf"|{_SELL_V}[^,.]*?rsi{_SUBJ_PARTICLE}\s*(\d+)\s*(?:을|를)?\s*(?:이상|초과|위|넘)"
+        rf"|rsi[^,.]*?과매수[^,.]*?{_SELL_V}",
         compact,
     )
     if rsi_sell_match:
@@ -2014,8 +2029,8 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
             indicator="stochastic", signal_type="buy", operator="<=", value=float(val),
         ))
     stoch_sell = re.search(
-        rf"{stoch_term}{_SUBJ_PARTICLE}\s*(\d+)\s*(?:을|를)?\s*(?:이상|초과|위|넘)[^,]*?{_SELL_V}"
-        rf"|{stoch_term}[^,]*?과매수[^,]*?{_SELL_V}",
+        rf"{stoch_term}{_SUBJ_PARTICLE}\s*(\d+)\s*(?:을|를)?\s*(?:이상|초과|위|넘)[^,.]*?{_SELL_V}"
+        rf"|{stoch_term}[^,.]*?과매수[^,.]*?{_SELL_V}",
         compact,
     )
     if stoch_sell:
@@ -2038,8 +2053,8 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
             indicator="cci", signal_type="buy", period=14, operator="<=", value=float(val),
         ))
     cci_sell = re.search(
-        rf"cci{_SUBJ_PARTICLE}\s*(-?\d+)\s*(?:을|를)?\s*(?:이상|초과|위|넘)[^,]*?{_SELL_V}"
-        rf"|cci[^,]*?과매수[^,]*?{_SELL_V}",
+        rf"cci{_SUBJ_PARTICLE}\s*(-?\d+)\s*(?:을|를)?\s*(?:이상|초과|위|넘)[^,.]*?{_SELL_V}"
+        rf"|cci[^,.]*?과매수[^,.]*?{_SELL_V}",
         compact,
     )
     if cci_sell:
@@ -2062,8 +2077,8 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
             indicator="williams_r", signal_type="buy", period=14, operator="<=", value=float(val),
         ))
     wr_sell = re.search(
-        rf"{wr_term}{_SUBJ_PARTICLE}\s*(-?\d+)\s*(?:을|를)?\s*(?:이상|초과|위|넘)[^,]*?{_SELL_V}"
-        rf"|{wr_term}[^,]*?과매수[^,]*?{_SELL_V}",
+        rf"{wr_term}{_SUBJ_PARTICLE}\s*(-?\d+)\s*(?:을|를)?\s*(?:이상|초과|위|넘)[^,.]*?{_SELL_V}"
+        rf"|{wr_term}[^,.]*?과매수[^,.]*?{_SELL_V}",
         compact,
     )
     if wr_sell:
@@ -2086,8 +2101,8 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
             indicator="mfi", signal_type="buy", period=14, operator="<=", value=float(val),
         ))
     mfi_sell = re.search(
-        rf"{mfi_term}{_SUBJ_PARTICLE}\s*(\d+)\s*(?:을|를)?\s*(?:이상|초과|위|넘)[^,]*?{_SELL_V}"
-        rf"|{mfi_term}[^,]*?과매수[^,]*?{_SELL_V}",
+        rf"{mfi_term}{_SUBJ_PARTICLE}\s*(\d+)\s*(?:을|를)?\s*(?:이상|초과|위|넘)[^,.]*?{_SELL_V}"
+        rf"|{mfi_term}[^,.]*?과매수[^,.]*?{_SELL_V}",
         compact,
     )
     if mfi_sell:
@@ -2162,18 +2177,7 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
         ))
 
     # ── 거래량/거래대금 급증 또는 이동평균 대비 증가 ──
-    # 문구가 다양해(급증/폭발/터짐/평소보다 늘…) 고정 문자열 대신 패턴으로 일반화한다.
-    # '거래대금'도 포함하되, '거래대금 N억 이상'(정적 필터)과 달리 '평균보다 높은' 류는 동적 신호다.
-    volume_term = r"(?:거래량|거래대금)"
-    volume_rising = bool(
-        re.search(rf"{volume_term}.{{0,5}}(?:급증|폭발|터[지진졌짐])", compact)
-        # "거래량이 평소보다 크게 터지면서"처럼 급증 동사(터지)가 거래량과 떨어져 있어도 인식.
-        or re.search(rf"{volume_term}.{{0,12}}터[지진졌짐]", compact)
-        or re.search(rf"{volume_term}.{{0,12}}(?:평균|평소).{{0,6}}(?:늘|증가|많|상회|높|\d+배)", compact)
-        # '거래대금이 크게 늘고'처럼 평균 언급 없이 증가만 표현한 경우도 동적 신호로 본다.
-        or re.search(rf"{volume_term}.{{0,6}}(?:크게|확|많이|부쩍)?(?:늘|불어|증가)", compact)
-        or "volumespike" in compact
-    )
+    volume_rising = _mentions_volume_surge(compact)
     if volume_rising:
         # "30일 평균보다 높은" 처럼 명시된 기간이 있으면 그 기간을, 없으면 20일을 쓴다.
         vol_period_match = re.search(r"(\d+)일.{0,4}평균", compact)
@@ -2228,6 +2232,26 @@ def _extract_technical_signals(user_input: str) -> tuple[list[TechnicalSignal], 
                 exit_.append(sig)
 
     return entry, exit_
+
+
+def _mentions_volume_surge(compact: str) -> bool:
+    """거래량/거래대금의 동적 급증·평균 대비 증가 표현인지 판정한다.
+
+    '거래대금 N억 이상'(정적 유동성 필터=trading_value)과 달리, '급증/폭발/터짐/평소보다
+    늘어남' 류는 동적 신호(volume_spike=OBV 크로스오버)다. 문구가 다양해 고정 문자열 대신
+    패턴으로 일반화한다. 이 구분은 LLM 인터프리터가 '거래량 늘어남'을 trading_value로
+    오분류할 때 결정적으로 교정하는 데도 쓰인다(primary._fill_deterministic_condition_params).
+    """
+    volume_term = r"(?:거래량|거래대금)"
+    return bool(
+        re.search(rf"{volume_term}.{{0,5}}(?:급증|폭발|터[지진졌짐])", compact)
+        # "거래량이 평소보다 크게 터지면서"처럼 급증 동사(터지)가 거래량과 떨어져 있어도 인식.
+        or re.search(rf"{volume_term}.{{0,12}}터[지진졌짐]", compact)
+        or re.search(rf"{volume_term}.{{0,12}}(?:평균|평소).{{0,6}}(?:늘|증가|많|상회|높|\d+배)", compact)
+        # '거래대금이 크게 늘고'처럼 평균 언급 없이 증가만 표현한 경우도 동적 신호로 본다.
+        or re.search(rf"{volume_term}.{{0,6}}(?:크게|확|많이|부쩍)?(?:늘|불어|증가)", compact)
+        or "volumespike" in compact
+    )
 
 
 def _extract_breakout_lookback(compact: str) -> int:
@@ -3978,6 +4002,28 @@ _TARGET_SYMBOL_CONTEXT_GUARD_RE = re.compile(
     r"같은|처럼|비슷한|속한|업종|섹터|관련주|테마|주도주|제외|빼고|말고"
 )
 
+# 회사명이면서 동시에 흔한 일반명사인 표기(예: '대상'=Daesang(001680) & "진입 대상"의 '대상').
+# 이런 이름은 substring 매칭만으로는 종목 언급과 일반명사 서술을 구분할 수 없다 —
+# "KOSDAQ ... 진입 대상으로 설정"의 '대상'은 종목이 아니라 '진입 target'이라는 일반명사인데,
+# 그대로 매칭하면 유니버스 전략이 조용히 단일 종목(대상)으로 바뀌어 시장·종목수 등 다른
+# 요구까지 요약에서 가려진다. 따라서 이 이름들은 '종목을 지정하려는 의도'가 문맥에 드러날
+# 때만(코드 병기, 또는 종목을 주어로 한 매매/보유/투자 동사 인접) 종목으로 인정한다.
+_COMMON_NOUN_TICKER_NAMES = {"대상"}
+
+
+def _has_stock_designation_intent(compact_input: str, name: str, symbol: str) -> bool:
+    """일반명사와 겹치는 이름이 '종목 지정' 의도로 쓰였는지 판정한다(문맥 이해)."""
+    # 6자리 종목코드 병기 → 명백한 종목 지정("대상(001680)").
+    if symbol in compact_input:
+        return True
+    # 종목을 주어로 한 매매/보유/투자 표현: "대상 매수", "대상에 투자", "대상 주식", "대상만 보유".
+    # (일반명사 문맥 "진입 대상으로 설정"·"투자 대상"에는 이런 동사가 뒤따르지 않는다.)
+    esc = re.escape(name)
+    return bool(
+        re.search(rf"{esc}(주식|주가|종목)", compact_input)
+        or re.search(rf"{esc}(을|를|에|만|이|가)?(매수|매도|사|팔|보유|편입|담|들고|투자)", compact_input)
+    )
+
 
 def _extract_target_symbols(user_input: str) -> Optional[list]:
     """프롬프트에서 지정 종목(StockRef 목록)을 결정적으로 추출한다.
@@ -3991,13 +4037,21 @@ def _extract_target_symbols(user_input: str) -> Optional[list]:
         from stock_analysis.symbol_resolver import find_in_text
     except Exception:
         return None
-    if _TARGET_SYMBOL_CONTEXT_GUARD_RE.search(_compact(user_input)):
+    compact_input = _compact(user_input)
+    if _TARGET_SYMBOL_CONTEXT_GUARD_RE.search(compact_input):
         return None
     # 우선주 지정("삼성전자 우선주로만")은 마스터에 우선주 데이터가 없어 표현 불가 —
     # 보통주로 조용히 바꿔치기하지 않고 미지원 안내(preferred_stock)에 맡긴다(QA 10-6).
-    if "우선주" in _compact(user_input):
+    if "우선주" in compact_input:
         return None
-    refs = [ref for ref in find_in_text(user_input) if not ref.overseas]
+    refs = [
+        ref for ref in find_in_text(user_input)
+        if not ref.overseas
+        and (
+            ref.name not in _COMMON_NOUN_TICKER_NAMES
+            or _has_stock_designation_intent(compact_input, ref.name, ref.symbol)
+        )
+    ]
     return refs or None
 
 
@@ -4237,7 +4291,7 @@ def _apply_prompt_overrides(
     # previously validated signals that are intentionally not repeated by the user.
     if not skip_signal_validation:
         validated_entry = _validate_signals(list(parsed.entry_signals), user_input)
-        validated_exit = _validate_signals(list(parsed.exit_signals), user_input)
+        validated_exit = _validate_signals(list(parsed.exit_signals), user_input, context="exit")
         if len(validated_entry) != len(parsed.entry_signals):
             updates["entry_signals"] = validated_entry
         if len(validated_exit) != len(parsed.exit_signals):
@@ -4265,15 +4319,15 @@ def _apply_prompt_overrides(
     if extracted_exit:
         updates["exit_signals"] = _merge_signals(current_exit, extracted_exit)
 
-    # 금액 지표(시총/거래대금)는 '조+억' 합산 결정적 추출이 단일 진실 소스다 — LLM이
-    # '시총 100조'를 100(억)으로 오변환하던 사고(레드팀 QA 24-2) 보정. 언급이 있을 때만
-    # 같은 지표를 덮어쓰고 다른 필터는 보존한다.
-    amount_filters = [
-        f for f in _extract_fundamental_filters(user_input) if f.metric in _AMOUNT_METRICS
-    ]
-    if amount_filters:
+    # 숫자가 명시된 펀더멘털 조건은 결정적 추출이 단일 진실 소스다 — LLM이 같은 문장에
+    # 기술적 신호("ROE 10% 이상인 종목 중 골든크로스가 나오면 매수")를 함께 담을 때 재무
+    # 필터를 통째로 빠뜨리고 이미 준 값을 되묻는 사고(레드팀 QA 실측)를 보정한다.
+    # 금액 지표(시총/거래대금)도 '조+억' 합산 오변환(QA 24-2) 보정 목적으로 원래 이 경로였다.
+    # 값이 없는 정성 표현("PER이 낮은")은 추출되지 않으므로 자연히 영향받지 않는다.
+    explicit_filters = _extract_fundamental_filters(user_input)
+    if explicit_filters:
         current_filters = updates.get("fundamental_filters", list(parsed.fundamental_filters))
-        updates["fundamental_filters"] = _merge_fundamental_filters(current_filters, amount_filters)
+        updates["fundamental_filters"] = _merge_fundamental_filters(current_filters, explicit_filters)
 
     if not updates:
         return parsed
@@ -4394,6 +4448,18 @@ _ETF_PRODUCT_SUGGESTIONS = [
     "MACD 골든크로스 매수, 데드크로스 매도, 손절 10%",
 ]
 
+# etf_theme이 특정 ETF 상품명과 정확히 일치하는 경우("KODEX 반도체") 전용 문구.
+# _ETF_PRODUCT_QUESTION의 '정기 리밸런싱' 문구는 여러 ETF 중 고르는 열린 테마를
+# 전제하는데, 이미 단일 상품이 지정된 상태에서 그대로 쓰면 "어떤 ETF를 살지"를
+# 다시 묻는 것처럼 읽힌다(사용자 혼란) — 상품명을 확정해 보여주고 리밸런싱 문구는 뺀다.
+_ETF_SINGLE_PRODUCT_QUESTION = (
+    "{name}({symbol})를 대상으로 한 전략이군요! 어떤 조건으로 매매할까요?\n\n"
+    "ETF는 여러 종목을 묶은 상품이라 개별 기업 재무지표(PER·PBR·ROE)는 조건으로 쓸 수 "
+    "없고, **가격·추세 기반 규칙**으로 전략을 만들어요 — 이동평균 추세추종, 모멘텀"
+    "(신고가 돌파), RSI 평균회귀, 볼린저밴드, MACD 같은 방식이에요.\n\n"
+    "예시에서 고르거나 직접 말씀해 주세요."
+)
+
 
 # ETF 유니버스 × 기업 재무지표 충돌: 조용히 무시하지 않고 이유를 설명한 뒤 ETF에서
 # 가능한 대안(기술적 지표)으로 변경을 제안한다(universe_capabilities 레지스트리 판정).
@@ -4474,6 +4540,14 @@ def detect_missing_entry_clarification(
             or _ETF_PRODUCT_RE.search(compact)) and not (
         parsed.entry_signals or parsed.ranking_metric
     ):
+        from engine.universe_pit import resolve_single_etf_product
+
+        single = resolve_single_etf_product(getattr(parsed, "etf_theme", None))
+        if single:
+            question = _ETF_SINGLE_PRODUCT_QUESTION.format(
+                name=single["name"], symbol=single["symbol"]
+            )
+            return (question, list(_ETF_PRODUCT_SUGGESTIONS))
         return (_ETF_PRODUCT_QUESTION, list(_ETF_PRODUCT_SUGGESTIONS))
     resolved_metrics = {item.metric for item in parsed.fundamental_filters}
     # Ask for every named metric that still lacks an executable threshold, even when an

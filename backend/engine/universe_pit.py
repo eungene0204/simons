@@ -131,6 +131,22 @@ def filter_etf_by_theme(symbols: list[str], theme: str) -> list[str]:
     return sorted(s for s, n in names.items() if key in _etf_key(n))
 
 
+def resolve_single_etf_product(etf_theme: Optional[str]) -> Optional[dict]:
+    """etf_theme이 특정 ETF 상품명과 정확히 일치하면 그 마스터 항목을 반환한다.
+
+    "반도체"처럼 여러 ETF에 매칭되는 테마 키워드는 None — 지정된 단일 상품
+    ("KODEX 반도체")만 단일 종목 취급 판단에 쓸 수 있다(filter_etf_by_theme의
+    ① 정확 매칭과 동일 기준).
+    """
+    key = _etf_key(etf_theme or "")
+    if not key:
+        return None
+    for e in _load_etf_master():
+        if _etf_key(e["name"]) == key:
+            return e
+    return None
+
+
 def extract_etf_theme(user_input: str) -> Optional[str]:
     """'ETF' 직전 토큰에서 테마/상품명 키워드를 자기검증 방식으로 추출한다.
 
@@ -194,11 +210,26 @@ def _alive(stock: dict, start: str, end: str) -> bool:
     return ds <= end and de >= start
 
 
+def _is_spac(name: str) -> bool:
+    """스팩(기업인수목적회사) 종목명 판정 — "OO스팩", "OO제N호스팩" 등 항상 이름에
+    "스팩"이 포함된다(리츠와 달리 접미사가 아니어도 이 어휘가 일반 사명에 우연히
+    섞일 일이 없다 — 실측 232개 전량 확인). 백테스트/리밸런싱 유니버스에서 항상 배제한다."""
+    return "스팩" in (name or "")
+
+
+def _is_preferred(symbol: str) -> bool:
+    """우선주 판정 — KRX 종목코드는 보통주가 항상 끝자리 '0'이고(표준 채번 규칙),
+    우선주는 끝자리가 그 외 값이다(구형 숫자 5/7/9, '00088K' 같은 신형 영문 포함).
+    백테스트/리밸런싱 유니버스에서 항상 배제한다(_load_sector_map의 동일 판정과 동일 규칙)."""
+    return len(symbol or "") == 6 and symbol[-1] != "0"
+
+
 def resolve_symbols(universe_id: Optional[str], start: Optional[str], end: str) -> Optional[list[str]]:
     """As-of symbol list for the window, or None if universe_id is not a market universe.
 
     For a large-cap (KOSPI200) universe this returns the alive-KOSPI superset; the
-    engine then applies the point-in-time top-N market-cap gate.
+    engine then applies the point-in-time top-N market-cap gate. SPAC(기업인수목적회사)와
+    우선주 종목은 여기서 항상 배제한다.
     """
     markets, _ = parse_universe_markets(universe_id)
     if not markets:
@@ -208,6 +239,7 @@ def resolve_symbols(universe_id: Optional[str], start: Optional[str], end: str) 
     symbols = [
         s["symbol"] for s in _load_master()
         if s.get("market") in target and _alive(s, lo, end)
+        and not _is_spac(s.get("name", "")) and not _is_preferred(s.get("symbol", ""))
     ]
     return sorted(symbols)
 

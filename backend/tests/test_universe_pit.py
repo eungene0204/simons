@@ -13,18 +13,24 @@ from engine import universe_pit as u
 @pytest.fixture
 def synthetic_master(tmp_path, monkeypatch):
     stocks = [
-        # active KOSPI, large
-        {"symbol": "AAAAAA", "market": "KOSPI", "delistingDate": None,
+        # active KOSPI, large (common stock — symbol ends in "0")
+        {"symbol": "AAAAA0", "market": "KOSPI", "delistingDate": None,
          "shares": 1000, "dataStart": "2015-01-01", "dataEnd": "2026-06-01", "hasOhlcv": True},
         # KOSPI delisted mid-2019 — must appear only while alive
-        {"symbol": "BBBBBB", "market": "KOSPI", "delistingDate": "2019-06-30",
+        {"symbol": "BBBBB0", "market": "KOSPI", "delistingDate": "2019-06-30",
          "shares": 500, "dataStart": "2015-01-01", "dataEnd": "2019-06-28", "hasOhlcv": True},
         # KOSDAQ active
-        {"symbol": "CCCCCC", "market": "KOSDAQ", "delistingDate": None,
+        {"symbol": "CCCCC0", "market": "KOSDAQ", "delistingDate": None,
          "shares": 200, "dataStart": "2016-01-01", "dataEnd": "2026-06-01", "hasOhlcv": True},
         # no local OHLCV — never tradeable
-        {"symbol": "DDDDDD", "market": "KOSPI", "delistingDate": None,
+        {"symbol": "DDDDD0", "market": "KOSPI", "delistingDate": None,
          "shares": 300, "dataStart": None, "dataEnd": None, "hasOhlcv": False},
+        # active KOSPI SPAC — must never enter the universe (rebalancing safety)
+        {"symbol": "EEEEE0", "market": "KOSPI", "delistingDate": None, "name": "한국제10호스팩",
+         "shares": 100, "dataStart": "2015-01-01", "dataEnd": "2026-06-01", "hasOhlcv": True},
+        # active KOSPI preferred share (symbol ends in non-"0") — must never enter the universe
+        {"symbol": "FFFFF5", "market": "KOSPI", "delistingDate": None, "name": "테스트홀딩스우",
+         "shares": 50, "dataStart": "2015-01-01", "dataEnd": "2026-06-01", "hasOhlcv": True},
     ]
     path = tmp_path / "stock-master.json"
     path.write_text(json.dumps({"stocks": stocks}), encoding="utf-8")
@@ -47,32 +53,32 @@ def test_delisted_name_included_while_alive(synthetic_master):
     # The whole point: a stock that has since delisted is in the universe for the
     # window it was actually trading — this is what removes survivorship bias.
     syms = u.resolve_symbols("kospi", "2016-01-01", "2018-12-31")
-    assert "BBBBBB" in syms
-    assert "AAAAAA" in syms
+    assert "BBBBB0" in syms
+    assert "AAAAA0" in syms
 
 
 def test_delisted_name_excluded_after_delisting(synthetic_master):
     syms = u.resolve_symbols("kospi", "2024-01-01", "2026-01-01")
-    assert "BBBBBB" not in syms
-    assert "AAAAAA" in syms
+    assert "BBBBB0" not in syms
+    assert "AAAAA0" in syms
 
 
 def test_delisted_name_excluded_before_listing_coverage(synthetic_master):
     # Window entirely after the stock stopped trading → excluded.
     syms = u.resolve_symbols("kospi", "2020-01-01", "2021-01-01")
-    assert "BBBBBB" not in syms
+    assert "BBBBB0" not in syms
 
 
 def test_symbol_without_ohlcv_is_excluded(synthetic_master):
     syms = u.resolve_symbols("kospi", "2015-01-01", "2026-01-01")
-    assert "DDDDDD" not in syms
+    assert "DDDDD0" not in syms
 
 
 def test_market_filter(synthetic_master):
-    assert "CCCCCC" not in u.resolve_symbols("kospi", "2016-01-01", "2026-01-01")
-    assert "CCCCCC" in u.resolve_symbols("kosdaq", "2016-01-01", "2026-01-01")
+    assert "CCCCC0" not in u.resolve_symbols("kospi", "2016-01-01", "2026-01-01")
+    assert "CCCCC0" in u.resolve_symbols("kosdaq", "2016-01-01", "2026-01-01")
     both = u.resolve_symbols("kosdaq_kospi", "2016-01-01", "2026-01-01")
-    assert "AAAAAA" in both and "CCCCCC" in both
+    assert "AAAAA0" in both and "CCCCC0" in both
 
 
 def test_custom_universe_returns_none(synthetic_master):
@@ -83,11 +89,35 @@ def test_custom_universe_returns_none(synthetic_master):
 def test_full_period_uses_start_floor(synthetic_master):
     # start=None (period=FULL) must still resolve via the default floor, not crash.
     syms = u.resolve_symbols("kospi", None, "2026-01-01")
-    assert "AAAAAA" in syms
+    assert "AAAAA0" in syms
 
 
 def test_get_shares(synthetic_master):
-    assert u.get_shares(["AAAAAA", "BBBBBB"]) == {"AAAAAA": 1000.0, "BBBBBB": 500.0}
+    assert u.get_shares(["AAAAA0", "BBBBB0"]) == {"AAAAA0": 1000.0, "BBBBB0": 500.0}
+
+
+def test_spac_excluded_from_universe(synthetic_master):
+    # SPAC(기업인수목적회사)은 리밸런싱/랭킹 유니버스에 절대 섞이면 안 된다.
+    assert "EEEEE0" not in u.resolve_symbols("kospi", "2016-01-01", "2026-01-01")
+
+
+def test_preferred_share_excluded_from_universe(synthetic_master):
+    # 우선주(끝자리≠0)는 백테스트/리밸런싱 유니버스에 절대 섞이면 안 된다.
+    assert "FFFFF5" not in u.resolve_symbols("kospi", "2016-01-01", "2026-01-01")
+
+
+def test_is_preferred_detects_symbol_suffix():
+    assert u._is_preferred("005935")   # 삼성전자우
+    assert u._is_preferred("00088K")   # 신형 영문 종목코드 우선주
+    assert not u._is_preferred("005930")  # 삼성전자(보통주)
+    assert not u._is_preferred("")
+
+
+def test_is_spac_detects_name_variants():
+    assert u._is_spac("한국제10호스팩")
+    assert u._is_spac("DB금융스팩10호")
+    assert not u._is_spac("동화약품")
+    assert not u._is_spac("")
 
 
 # ── 섹터 유니버스 ────────────────────────────────────────────────────────────
@@ -269,6 +299,16 @@ def test_filter_etf_by_theme_exact_name_wins(synthetic_etf_master):
     assert u.filter_etf_by_theme(syms, "반도체") == ["091160"]
     assert u.filter_etf_by_theme(syms, "미국") == ["360750"]
     assert u.filter_etf_by_theme(syms, "채권") == []
+
+
+def test_resolve_single_etf_product(synthetic_etf_master):
+    # 정확한 상품명이면 그 마스터 항목을 반환한다(단일 종목 판정 근거).
+    single = u.resolve_single_etf_product("KODEX 반도체")
+    assert single is not None and single["symbol"] == "091160"
+    # 여러 ETF에 걸치는 테마 키워드는 단일 상품이 아니다.
+    assert u.resolve_single_etf_product("반도체") is None
+    assert u.resolve_single_etf_product(None) is None
+    assert u.resolve_single_etf_product("") is None
 
 
 def test_extract_etf_theme_self_validating(synthetic_etf_master):
