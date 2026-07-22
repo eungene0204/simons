@@ -365,20 +365,18 @@ def test_sector_flows_into_prompt_and_dsl():
     assert parsed.ranking_metric == "return"
 
 
-def test_seed_unsupported_sector_notice_shown_once():
+def test_seed_unsupported_sector_caught_not_silently_dropped():
     """[회귀] '메타버스주 관련 전략을 만들어보자' — 지원 목록에 없는 업종이 조용히 버려져
-    전체 시장으로 백테스트되던 버그. 시드가 언급을 캐치해 안내를 한 번만 보여준다."""
+    전체 시장으로 백테스트되던 버그. 시드가 언급을 캐치하고, 강등 대신 한 번 되묻는다."""
     state = sb.seed_state("메타버스주 관련 전략을 만들어보자")
     assert state.sector is None
     assert state.sector_unresolved is True
 
-    first = sb.step(state, "")
-    assert "지원 목록에 없어" in first.reply       # 목록 밖 업종 안내
-    assert "시장" in first.reply                   # 첫 질문(유니버스)은 그대로 이어진다
-    assert first.state.sector_unresolved is False  # 1회 표시 후 소비
-
-    second = sb.step(first.state, "코스피")
-    assert "지원 목록에 없어" not in second.reply  # 반복 안내 없음
+    first = sb.step(state, "")                      # resolver 없음 → 결정적 실패 → 되묻기
+    assert "다시 알려주시겠어요" in first.reply     # 조용한 강등 대신 되묻기
+    assert "지원 목록에 없어" not in first.reply    # 아직 강등 안내 아님
+    assert first.state.sector_reask_done is True
+    assert first.state.sector_unresolved is True    # 답을 기다리는 중
 
 
 def test_seed_unsupported_sector_word_order_variants():
@@ -432,30 +430,76 @@ def test_unresolved_sector_resolved_by_llm_resolver():
     assert len(calls) == 1  # 해석은 한 번만(이후 턴에서 재호출 없음)
 
 
-def test_unresolved_sector_llm_null_or_error_falls_back_to_notice():
-    """LLM이 매핑 불가(null)거나 실패하면 기존 미지원 안내로 폴백한다."""
+def test_unresolved_sector_llm_null_or_error_reasks():
+    """LLM이 매핑 불가(null)거나 실패하면 조용한 강등 대신 사용자에게 되묻는다."""
     state = sb.seed_state("메타버스주 관련 전략을 만들어보자")
     first = sb.step(state, "", sector_resolver=lambda _t: None)
-    assert "지원 목록에 없어" in first.reply
-    assert first.state.sector is None and first.state.sector_unresolved is False
+    assert "다시 알려주시겠어요" in first.reply
+    assert first.state.sector is None and first.state.sector_reask_done is True
 
-    state2 = sb.seed_state("메타버스주 관련 전략을 만들어보자")
     def boom(_t):
         raise RuntimeError("LLM down")
-    second = sb.step(state2, "", sector_resolver=boom)
-    assert "지원 목록에 없어" in second.reply  # 예외에도 안내로 안전 폴백
+    second = sb.step(sb.seed_state("메타버스주 관련 전략을 만들어보자"), "", sector_resolver=boom)
+    assert "다시 알려주시겠어요" in second.reply  # 예외에도 되묻기로 안전 폴백
 
 
 def test_unresolved_sector_resolver_output_is_renormalized():
-    """해석기 출력은 normalize_sector로 재검증한다 — 목록 밖 이름을 지어내면 무시."""
+    """해석기 출력은 normalize_sector로 재검증한다 — 목록 밖 이름을 지어내면 되묻는다."""
     state = sb.seed_state("원자로 관련주 전략을 만들자")
     first = sb.step(state, "", sector_resolver=lambda _t: "원자로섹터")
     assert first.state.sector is None
-    assert "지원 목록에 없어" in first.reply
-    # 동의어('원자력')로 답해도 정본명('에너지/원자력')으로 들어간다.
+    assert "다시 알려주시겠어요" in first.reply
+    # 동의어('원자력')로 매핑하면 정본명('에너지/원자력')으로 들어간다(되묻기 없음).
     state2 = sb.seed_state("원자로 관련주 전략을 만들자")
     second = sb.step(state2, "", sector_resolver=lambda _t: "원자력")
     assert second.state.sector == "에너지/원자력"
+
+
+def test_typo_sector_corrected_by_llm_resolver():
+    """[FR] '재약주'(제약주 오타) — 결정적 추출은 실패하지만 LLM 해석기가 오타를 정정해
+    '바이오/제약'으로 매핑하면 되묻기 없이 반영된다(오타 교정 프롬프트 지시)."""
+    state = sb.seed_state("재약주 관련 전략을 만들자")
+    assert state.sector is None and state.sector_unresolved is True
+    first = sb.step(state, "", sector_resolver=lambda _t: "바이오/제약")
+    assert first.state.sector == "바이오/제약"
+    assert first.state.sector_unresolved is False
+    assert "바이오/제약 업종" in first.reply
+
+
+def test_sector_llm_prompt_instructs_typo_correction():
+    """LLM 섹터 프롬프트가 명백한 오타를 교정하도록 지시한다(재약주→제약주 예시 포함)."""
+    prompt = sb._sector_llm_prompt()
+    assert "오타" in prompt and "재약주" in prompt
+
+
+def test_sector_reask_answered_with_supported_sector():
+    """되묻기에 지원 업종(맨 용어)으로 답하면 반영되고 확인 문장이 나온다."""
+    state = sb.seed_state("메타버스주 관련 전략을 만들어보자")
+    first = sb.step(state, "", sector_resolver=lambda _t: None)  # 되묻기
+    second = sb.step(first.state, "바이오/제약", sector_resolver=lambda _t: None)
+    assert second.state.sector == "바이오/제약"
+    assert second.state.sector_unresolved is False and second.state.sector_reask_done is False
+    assert "바이오/제약 업종" in second.reply
+
+
+def test_sector_reask_optout_proceeds_without_notice():
+    """되묻기에 '업종 상관없음'으로 답하면 안내 없이 업종 제한 없이 진행한다."""
+    state = sb.seed_state("메타버스주 관련 전략을 만들어보자")
+    first = sb.step(state, "", sector_resolver=lambda _t: None)
+    second = sb.step(first.state, "업종 상관없음", sector_resolver=lambda _t: None)
+    assert second.state.sector is None
+    assert second.state.sector_unresolved is False
+    assert "지원 목록에 없어" not in second.reply  # 명시적 opt-out엔 강등 안내 생략
+
+
+def test_sector_reask_second_failure_degrades_with_notice():
+    """되묻기에도 목록 밖 표현으로 답하면 안내와 함께 제한 없이 진행한다(무한 되묻기 없음)."""
+    state = sb.seed_state("메타버스주 관련 전략을 만들어보자")
+    first = sb.step(state, "", sector_resolver=lambda _t: None)
+    second = sb.step(first.state, "NFT 관련주", sector_resolver=lambda _t: None)
+    assert second.state.sector is None
+    assert second.state.sector_unresolved is False and second.state.sector_reask_done is False
+    assert "지원 목록에 없어" in second.reply
 
 
 def test_midflow_unresolved_mention_resolved_by_llm():
@@ -499,15 +543,19 @@ def test_llm_extract_sector_parses_and_validates():
     assert sb.llm_extract_sector("로봇", lambda *_a, **_k: '{"sector": "듣도보도못한업종"}') is None
 
 
-def test_seed_confirmed_with_unresolved_sector_carries_notice():
-    """시드만으로 즉시 confirmed되는 경우(모멘텀)에도 안내가 notices 채널로 전달된다."""
+def test_seed_confirmed_with_unresolved_sector_reasks_then_confirms():
+    """시드만으로 즉시 confirmed되는 경우(모멘텀)에도, 미해결 업종은 조용히 버리지 않고
+    한 번 되묻는다. 답으로 지원 업종을 받으면 그 업종을 반영해 확정한다."""
     state = sb.seed_state(
         "메타버스 관련 모멘텀 전략, 코스피에서 최근 3개월 상위 5종목, 매월 리밸런싱, 10% 손절"
     )
     assert state.sector_unresolved is True
-    r = sb.step(state, "")
-    assert r.status == "confirmed"
-    assert any("지원 목록에 없어" in n for n in r.notices)
+    reask = sb.step(state, "")
+    assert reask.status == "collecting"
+    assert "다시 알려주시겠어요" in reask.reply
+    confirmed = sb.step(reask.state, "바이오/제약")
+    assert confirmed.status == "confirmed"
+    assert sb.build_parsed_strategy(confirmed.state).sector == "바이오/제약"
 
 
 def test_parse_strategy_type_recognizes_profit_phrasing():

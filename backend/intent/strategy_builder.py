@@ -37,6 +37,9 @@ class BuilderState(BaseModel):
     sector_unresolved: bool = False
     # 미해결 업종 언급이 담긴 원문(LLM 해석 재료). sector_unresolved와 함께 설정·소비된다.
     sector_hint: Optional[str] = None
+    # 미해결 업종을 사용자에게 한 번 되물었는지. 조용히 전체 시장으로 강등하지 않고 오타·
+    # 목록 밖 표현을 정정할 기회를 준다(1회 한정 — 답에도 실패하면 안내 후 제한 없이 진행).
+    sector_reask_done: bool = False
     strategy_type: Optional[StrategyType] = None
     lookback_days: Optional[int] = None       # 모멘텀/돌파 기준 기간(거래일)
     lookback_label: Optional[str] = None       # 표시용 ("3개월", "60일")
@@ -481,6 +484,8 @@ def _sector_llm_prompt() -> str:
         + sectors_for_llm_prompt() + "\n"
         "언급된 테마가 어느 업종에 속하거나 그 하위 테마면 그 업종명을 쓴다"
         "(예: '원자로'→'에너지/원자력', '전력설비'→'에너지/원자력', '은행주'→'은행/금융지주'). "
+        "명백한 오타/오기는 교정해서 매핑한다"
+        "(예: '재약주'→'제약주'→'바이오/제약', '반도채'→'반도체'). "
         "회사명의 일부(예: 'LG화학'의 '화학')는 업종 언급이 아니다. "
         "어떤 업종과도 연결하기 어려우면 null.\n"
         '설명 없이 JSON 객체만 출력한다. 예: {"sector": "에너지/원자력"} 또는 {"sector": null}'
@@ -1322,6 +1327,25 @@ SECTOR_UNSUPPORTED_NOTICE = (
     "말씀해 주시면 그 업종 종목만 대상으로 할 수 있어요."
 )
 
+# 미해결 업종을 조용히 강등하기 전에 한 번 되묻는다 — 오타('재약주'→'제약주')·목록 밖 표현을
+# 사용자가 정정할 기회를 준다(예시는 종목 수 상위의 중립 나열 — 규제상 특정 업종을 권하지 않음).
+SECTOR_REASK_PROMPT = (
+    "말씀하신 업종/테마를 지원 목록에서 인식하지 못했어요(오타일 수도 있어요). "
+    "어떤 업종을 말씀하신 건지 다시 알려주시겠어요? 아래에서 고르거나 직접 입력해 주세요. "
+    "업종 제한 없이 진행하려면 '업종 상관없음'이라고 답해 주세요."
+)
+SECTOR_REASK_SUGGESTIONS = ("반도체", "이차전지", "바이오/제약", "자동차", "업종 상관없음")
+
+
+def _resolve_sector_answer(text: str) -> Optional[str]:
+    """되묻기 답으로 받은 업종 표현을 정본 섹터명으로 결정적 해석한다.
+
+    맨 용어('제약'·'반도체')는 normalize_sector가, 큐 동반('제약주'·'제약 관련주')은
+    _extract_sector가 잡는다 — 둘 다 시도해 되묻기 답의 여러 형태를 모두 커버한다."""
+    from engine.nl_parser import _extract_sector
+    from engine.universe_pit import normalize_sector
+    return _extract_sector(text) or normalize_sector((text or "").strip())
+
 CANCEL_REPLY = "알겠습니다. 전략 구성을 취소했어요. 다른 투자 아이디어가 있으면 언제든 말씀해 주세요."
 EXIT_REPLY = "네, 다른 질문도 도와드릴게요. 무엇이 궁금하신가요?"
 RESTART_PREFIX = "처음부터 새로 구성해볼게요.\n\n"
@@ -1332,29 +1356,77 @@ RESTART_PREFIX = "처음부터 새로 구성해볼게요.\n\n"
 def _consume_sector_notice(
     state: BuilderState,
     sector_resolver: Optional[Callable[[str], Optional[str]]] = None,
-) -> tuple[Optional[str], BuilderState]:
-    """미해결 업종 언급을 LLM으로 한 번 해석 시도하고, 안 되면 안내를 한 번만 소비한다.
+) -> tuple[Optional[str], Optional[tuple[str, list[str]]], BuilderState]:
+    """미해결 업종 언급을 처리한다 → (notice, reask, state).
 
     결정적 정규화가 실패한 언급('원자로 관련주')도 지원 업종의 하위 테마면 LLM이 정본
-    업종으로 매핑할 수 있다(성공 시 sector 반영 → 요약 배지까지 관통, 안내 없음).
-    resolver 출력은 normalize_sector로 재검증하고, 실패·미가용·예외 시 기존 안내로
-    폴백한다. LLM 시드(apply_parsed_seed)나 후속 입력이 이미 정본 업종을 채웠으면
-    안내 없이 플래그만 정리한다."""
+    업종으로 매핑할 수 있다(성공 시 sector 반영 → 요약 배지까지 관통). resolver 출력은
+    normalize_sector로 재검증한다. LLM이 매핑하지 못하면 조용히 전체 시장으로 강등하지
+    않고 사용자에게 한 번 되묻는다(reask=(질문, 칩)). 되묻기 답은 step의 전용 분기
+    (_answer_sector_reask)에서 종결하므로 reask_done 상태로 여기 다시 오지 않는다.
+    LLM 시드나 후속 입력이 이미 정본 업종을 채웠으면 조용히 플래그만 정리한다."""
     if not state.sector_unresolved:
-        return None, state
-    if state.sector is None and sector_resolver is not None and state.sector_hint:
-        from engine.universe_pit import normalize_sector  # 지연 import(무거운 엔진 모듈)
+        return None, None, state
+    if state.sector is not None:
+        return None, None, state.model_copy(update={
+            "sector_unresolved": False, "sector_hint": None, "sector_reask_done": False,
+        })
+    if not state.sector_reask_done:
+        if sector_resolver is not None and state.sector_hint:
+            from engine.universe_pit import normalize_sector  # 지연 import(무거운 엔진 모듈)
 
+            try:
+                canonical = normalize_sector(sector_resolver(state.sector_hint))
+            except Exception:  # noqa: BLE001 — LLM 실패 시 되묻기로 안전 폴백
+                canonical = None
+            if canonical:
+                return None, None, state.model_copy(update={
+                    "sector": canonical, "sector_unresolved": False, "sector_hint": None,
+                })
+        return None, (SECTOR_REASK_PROMPT, list(SECTOR_REASK_SUGGESTIONS)), \
+            state.model_copy(update={"sector_reask_done": True})
+    # 방어적 폴백: 되묻기 답은 전용 분기가 처리하므로 정상적으로 여기 도달하지 않는다.
+    return SECTOR_UNSUPPORTED_NOTICE, None, state.model_copy(update={
+        "sector_unresolved": False, "sector_hint": None, "sector_reask_done": False,
+    })
+
+
+def _answer_sector_reask(
+    state: BuilderState,
+    text: str,
+    sector_resolver: Optional[Callable[[str], Optional[str]]],
+) -> StepResult:
+    """업종 되묻기(reask)에 대한 답을 종결적으로 처리한다(무한 되묻기 방지 — 여기서 항상 종결).
+
+    지원 업종이면 반영, '업종 상관없음'이면 안내 없이 제한 없이 진행, 그 외엔 LLM 1회 해석 후
+    실패 시 미지원 안내와 함께 전체 시장으로 진행한다."""
+    from engine.nl_parser import _SECTOR_AGNOSTIC_RE, _compact
+    from engine.universe_pit import normalize_sector
+
+    agnostic = bool(_SECTOR_AGNOSTIC_RE.search(_compact(text)))
+    resolved = None if agnostic else _resolve_sector_answer(text)
+    if resolved is None and not agnostic and sector_resolver is not None:
         try:
-            canonical = normalize_sector(sector_resolver(state.sector_hint))
+            resolved = normalize_sector(sector_resolver(text))
         except Exception:  # noqa: BLE001 — LLM 실패 시 안내로 안전 폴백
-            canonical = None
-        if canonical:
-            return None, state.model_copy(update={
-                "sector": canonical, "sector_unresolved": False, "sector_hint": None,
-            })
-    cleared = state.model_copy(update={"sector_unresolved": False, "sector_hint": None})
-    return (None if state.sector else SECTOR_UNSUPPORTED_NOTICE), cleared
+            resolved = None
+
+    cleared = {"sector_unresolved": False, "sector_hint": None, "sector_reask_done": False}
+    if resolved:
+        new_state = state.model_copy(update={**cleared, "sector": resolved})
+        notice = None
+    else:
+        new_state = state.model_copy(update=cleared)
+        notice = None if agnostic else SECTOR_UNSUPPORTED_NOTICE
+
+    if required_missing(new_state) is None:
+        return StepResult(state=new_state, status="confirmed",
+                          prompt=synthesize_prompt(new_state),
+                          notices=[notice] if notice else [])
+    msg, sug = next_question(new_state, just_filled={"sector"} if resolved else None)
+    if notice:
+        msg = notice + "\n\n" + msg
+    return StepResult(state=new_state, reply=msg, suggestions=sug, status="collecting")
 
 
 def step(
@@ -1374,7 +1446,10 @@ def step(
     해석기(text -> 정본 섹터명|None). None이거나 실패하면 미지원 안내로 폴백한다.
     """
     if not (text or "").strip():
-        notice, state = _consume_sector_notice(state, sector_resolver)
+        notice, reask, state = _consume_sector_notice(state, sector_resolver)
+        if reask:
+            prompt, sug = reask
+            return StepResult(state=state, reply=prompt, suggestions=sug, status="collecting")
         if required_missing(state) is None:
             return StepResult(state=state, status="confirmed", prompt=synthesize_prompt(state),
                               notices=[notice] if notice else [])
@@ -1392,6 +1467,11 @@ def step(
         fresh = BuilderState()
         msg, sug = next_question(fresh)
         return StepResult(state=fresh, reply=RESTART_PREFIX + msg, suggestions=sug, status="reset")
+
+    # 업종 되묻기(reask)를 이미 한 상태면, 이번 입력은 그 업종 답으로 종결 처리한다
+    # (지원 업종 반영 / '업종 상관없음' 진행 / 실패 시 안내 — 무한 되묻기 없음).
+    if state.sector_unresolved and state.sector_reask_done and state.sector is None:
+        return _answer_sector_reask(state, text, sector_resolver)
 
     # 용어 질문("손절이 뭐야?")은 필드 답변이 아니다 — 같은 질문을 말없이 반복하는 대신
     # 짧은 객관적 정의를 알려주고 현재 질문을 이어간다(상태 불변).
@@ -1420,7 +1500,10 @@ def step(
         return StepResult(state=state, reply=RISK_REQUIRED_REPLY, suggestions=sug, status="collecting")
 
     new_state = state.model_copy(update=patch)
-    notice, new_state = _consume_sector_notice(new_state, sector_resolver)
+    notice, reask, new_state = _consume_sector_notice(new_state, sector_resolver)
+    if reask:
+        prompt, sug = reask
+        return StepResult(state=new_state, reply=prompt, suggestions=sug, status="collecting")
     just_filled = set(patch.keys())
     if new_state.sector and "sector" not in patch and state.sector is None:
         just_filled.add("sector")  # LLM 해석으로 채워진 업종도 확인 문장으로 알린다

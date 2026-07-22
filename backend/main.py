@@ -2957,6 +2957,7 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
         detect_etf_factor_conflict,
         detect_missing_entry_clarification,
         detect_symbol_ambiguity,
+        detect_unresolved_sector_clarification,
         enforce_strategy_minimums,
         synthesize_risk_overrides,
     )
@@ -2969,9 +2970,15 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     # 조용한 임의 실행 방지 — 무엇이 추천 적용됐는지 notices로 알린다.
     parsed, single_asset_notices = apply_single_asset_adjustments(parsed)
     notices.extend(single_asset_notices)
+    # 언급한 업종/테마를 지원 섹터로 매핑하지 못했으면 조용히 전체 시장으로 강등하지 않고
+    # 되묻는다(오타 '재약주'→'제약주'·목록 밖 표현 정정 기회). 되묻기로 능동 처리하는 경우
+    # 수동 안내에서 'sector'를 빼 중복(안내 + 질문)을 피한다.
+    sector_reask_q, sector_reask_s = detect_unresolved_sector_clarification(parsed, request.prompt)
     # 미지원 개념(배당·섹터·변동성 등)은 LLM 폴백조차 스키마가 표현 불가라 조용히
     # 누락/유사 해석될 수 있다 → 침묵 왜곡 대신 비차단 안내로 알린다.
-    unsupported_notice = build_unsupported_concept_notice(request.prompt)
+    unsupported_notice = build_unsupported_concept_notice(
+        request.prompt, exclude={"sector"} if sector_reask_q else None
+    )
     if unsupported_notice:
         notices.append(unsupported_notice)
     convert_started = time.perf_counter()
@@ -2993,12 +3000,16 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     risk_overrides = synthesize_risk_overrides(
         request.prompt, parsed, request.previous_parsed
     )
+    # 미해결 업종 되묻기를 최우선으로 둔다 — 종목 범위(유니버스/섹터)가 진입 조건보다 먼저
+    # 정해져야 하고, 조용한 전체 시장 강등을 막는다.
+    clarification_question, clarification_suggestions = sector_reask_q, sector_reask_s
     # ETF 유니버스 × 기업 재무지표 충돌: 조용히 무시하지 않고 이유 설명 + 기술 지표
     # 대안 제안으로 되묻는다(universe_capabilities 레지스트리 판정). 충돌이 없으면
     # 진입(종목 선정) 규칙을 통째로 잃었을 때의 되묻기를 검사한다.
-    clarification_question, clarification_suggestions = detect_etf_factor_conflict(
-        parsed, request.prompt
-    )
+    if clarification_question is None:
+        clarification_question, clarification_suggestions = detect_etf_factor_conflict(
+            parsed, request.prompt
+        )
     if clarification_question is None:
         clarification_question, clarification_suggestions = detect_missing_entry_clarification(
             parsed, request.prompt

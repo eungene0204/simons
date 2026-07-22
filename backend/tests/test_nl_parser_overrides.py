@@ -4054,6 +4054,49 @@ def test_unsupported_sector_word_orders_flagged():
     assert build_unsupported_concept_notice("업종 상관없이 코스피 모멘텀 전략") is None
 
 
+def test_unsupported_concept_notice_can_exclude_sector():
+    # 미해결 섹터를 되묻기로 능동 처리할 때는 안내에서 'sector'를 뺀다(중복 방지).
+    from engine.nl_parser import build_unsupported_concept_notice
+    # 섹터만 미지원이면 exclude 시 안내 없음.
+    assert build_unsupported_concept_notice("재약주 관련 전략을 만들자", exclude={"sector"}) is None
+    # 다른 미지원 개념(변동성)은 남는다.
+    notice = build_unsupported_concept_notice("변동성 낮은 메타버스 관련주", exclude={"sector"})
+    assert notice is not None and "변동성" in notice and "섹터" not in notice
+
+
+def test_unresolved_sector_triggers_reask_clarification():
+    # [회귀] '재약주 관련 전략을 만들자' — 오타/목록 밖 업종을 조용히 전체 시장으로 강등하지
+    # 않고 되묻는다(칩은 파서가 되받을 수 있게 큐 동반).
+    from engine.nl_parser import (
+        ParsedStrategy, detect_unresolved_sector_clarification, _extract_sector,
+    )
+    parsed = ParsedStrategy(description="재약주", universe=["KOSPI200"])
+    q, s = detect_unresolved_sector_clarification(parsed, "재약주 관련 전략을 만들자")
+    assert q is not None and "다시 알려주시겠어요" in q
+    assert "업종 상관없음" in s
+    # 칩은 재파싱 시 결정적으로 섹터로 잡혀야 한다(되묻기 답이 실제로 반영되도록).
+    assert _extract_sector("바이오/제약 관련주") == "바이오/제약"
+    assert _extract_sector("반도체 관련주") == "반도체"
+
+
+def test_resolved_sector_does_not_reask():
+    # 지원 업종이 이미 잡혔거나 업종 언급이 없으면 되묻지 않는다.
+    from engine.nl_parser import ParsedStrategy, detect_unresolved_sector_clarification
+    assert detect_unresolved_sector_clarification(
+        ParsedStrategy(description="x", sector="반도체"), "반도체 관련주"
+    ) == (None, None)
+    assert detect_unresolved_sector_clarification(
+        ParsedStrategy(description="x"), "코스피 모멘텀 전략"
+    ) == (None, None)
+
+
+def test_sector_llm_parse_prompts_instruct_typo_correction():
+    # 실제 사용되는 LLM 초기 파싱·수정 프롬프트가 명백한 오타를 교정하도록 지시한다.
+    from engine.nl_parser import COMPACT_SYSTEM_PROMPT, MODIFY_PROMPT
+    assert "재약주" in COMPACT_SYSTEM_PROMPT and "오타" in COMPACT_SYSTEM_PROMPT
+    assert "재약주" in MODIFY_PROMPT and "오타" in MODIFY_PROMPT
+
+
 def test_llm_schema_drift_sector_in_universe_is_repaired():
     # [회귀, 2026-07-12 실측] "2차전지에 투자하는 전략을 만들자" → LLM 폴백이 업종을
     # universe에 넣고 description을 빼먹어 ValidationError → 해석 전체 폐기 → 섹터 없는
@@ -4204,6 +4247,25 @@ def test_llm_sector_with_default_universe_gets_both_markets(monkeypatch):
     drift2 = ParsedStrategy(description="", sector="이차전지", universe=["KOSPI200"])
     monkeypatch.setattr(p, "_parse_ollama", lambda text: drift2)
     out2 = p.parse("코스피200 중에서 2차전지에 투자하는 전략")
+    assert out2.universe == ["KOSPI200"]
+
+
+def test_unresolved_sector_mention_also_gets_both_markets(monkeypatch):
+    # [회귀] '재약주 관련 전략을 만들자' — 오타로 섹터가 미해결(None)이라 KOSPI200 기본이
+    # 그대로 남아, 되묻기로 섹터를 확정한 뒤에도 사용자가 고르지 않은 KOSPI200에 섹터만
+    # 얹히던 사고. 업종을 말했으면(미해결이라도) 시장 미언급 시 양시장으로 확장한다.
+    from engine.nl_parser import NLStrategyParser, ParsedStrategy
+    p = NLStrategyParser()
+    # 섹터 미해결(None) + 스키마 기본 universe.
+    drift = ParsedStrategy(description="", universe=["KOSPI200"])
+    monkeypatch.setattr(p, "_parse_ollama", lambda text: drift)
+    out = p.parse("재약주 관련 전략을 만들자")
+    assert out.sector is None                    # 오타라 아직 미해결
+    assert out.universe == ["KOSPI", "KOSDAQ"]   # 업종 언급 → 시장 미언급 시 양시장
+    # 시장을 명시하면 존중한다(미해결 섹터여도).
+    drift2 = ParsedStrategy(description="", universe=["KOSPI200"])
+    monkeypatch.setattr(p, "_parse_ollama", lambda text: drift2)
+    out2 = p.parse("코스피200 재약주 관련 전략")
     assert out2.universe == ["KOSPI200"]
 
 

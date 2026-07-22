@@ -146,7 +146,8 @@ Rules for correctedFields:
   whole: if one needs correction, include the complete corrected array.
 - If the user restricted the scope to one industry (e.g. "반도체 중심으로", "2차전지 위주로",
   "바이오 쪽만") but the parsed JSON has no `sector`, that is a missed field — include
-  {"sector": <Korean sector name>}. Do NOT invent a sector the user did not mention.
+  {"sector": <Korean sector name>}. Correct an obvious typo when mapping (e.g. "재약주" →
+  "제약주" → "바이오/제약"). Do NOT invent a sector the user did not mention.
 - Never include `description`.
 - Never add conditions the user did not state. Never tune values for performance.
 - Never add entry_signals or exit_signals the user did not explicitly mention. In particular,

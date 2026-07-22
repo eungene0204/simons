@@ -571,7 +571,7 @@ MODIFY_PROMPT = """현재 전략 JSON이 주어집니다. 사용자 수정 요�
 
 ## 업종/섹터 (sector)
 - '반도체 관련주만', 'IT 업종으로 바꿔줘' 같은 업종·테마 제한 요청 → sector에 업종명
-- 지원 업종: """ + sectors_for_llm_prompt() + """. 목록 밖 테마는 속하는 업종으로 매핑(예: '원자로'→'에너지/원자력'), 연결이 어려우면 null
+- 지원 업종: """ + sectors_for_llm_prompt() + """. 목록 밖 테마는 속하는 업종으로 매핑(예: '원자로'→'에너지/원자력'), 명백한 오타는 교정해서 매핑(예: '재약주'→'제약주'→'바이오/제약'), 연결이 어려우면 null
 - 업종만 바꾸는 요청에서 universe(시장)는 null로 유지하세요
 
 ## ETF 유니버스
@@ -797,7 +797,7 @@ COMPACT_SYSTEM_PROMPT = """한국 주식 전략 자연어를 ParsedStrategy JSON
 
 매핑:
 - '반도체 관련주'/'2차전지 업종'/'2차전지에 투자'처럼 업종·섹터·테마 언급 → sector. 시장 언급이 없으면 universe는 ["KOSPI", "KOSDAQ"]
-- sector는 다음 지원 업종명 중 하나만(괄호는 분류 관례 설명 — 업종명만 출력): """ + sectors_for_llm_prompt() + """. 목록 밖 테마는 속하는 업종으로 매핑(예: '원자로'→'에너지/원자력', '전력설비'→'에너지/원자력'), 연결이 어려우면 null
+- sector는 다음 지원 업종명 중 하나만(괄호는 분류 관례 설명 — 업종명만 출력): """ + sectors_for_llm_prompt() + """. 목록 밖 테마는 속하는 업종으로 매핑(예: '원자로'→'에너지/원자력', '전력설비'→'에너지/원자력'), 명백한 오타는 교정해서 매핑(예: '재약주'→'제약주'→'바이오/제약', '반도채'→'반도체'), 연결이 어려우면 null
 - universe에는 시장 코드(KOSPI/KOSDAQ/KOSPI200)만 넣으세요. 업종·테마명을 universe에 넣으면 안 됩니다(sector 필드에)
 - description은 필수입니다. 사용자 원문을 그대로 복사하세요
 - PBR/PER/ROE/부채비율/시가총액/거래대금 → fundamental_filters
@@ -1024,11 +1024,17 @@ class NLStrategyParser:
                 raise
             parsed = _build_fallback_strategy(user_input)
         parsed = _apply_prompt_overrides(parsed, user_input)
-        # LLM이 sector는 냈지만 universe를 스키마 기본(KOSPI200)으로 둔 경우, '시장 언급
-        # 없는 섹터 전략 기본=양시장' 규칙(FR-STR-066 ③)을 강제한다 — 결정적 큐가 없는
-        # 표현("2차전지에 투자")은 _apply_prompt_overrides의 섹터 추출이 못 잡아 여기가
-        # 유일한 보정 지점이다. 수정(modify) 경로는 기존 universe 보존을 위해 제외.
-        if (parsed.sector is not None and parsed.universe == ["KOSPI200"]
+        # 시장 언급 없이 업종/테마를 말했으면 universe 스키마 기본(KOSPI200)을 양시장으로
+        # 바꾼다 — '시장 언급 없는 섹터 전략 기본=양시장' 규칙(FR-STR-066 ③). 섹터가 결정적/
+        # LLM으로 잡힌 경우(parsed.sector)뿐 아니라, 오타·목록 밖으로 아직 미해결('재약주')이라
+        # 되묻는 경우도 포함한다 — 미해결이라고 KOSPI200 기본을 그대로 두면, 되묻기로 섹터를
+        # 확정한 뒤에도 사용자가 고르지 않은 KOSPI200이 modify 경로에 보존돼 남는 사고(양시장이
+        # 아닌 KOSPI200에 섹터만 얹힘). 명시적 시장 언급이 있으면 존중한다. modify는 제외.
+        mentions_industry = (
+            parsed.sector is not None
+            or "sector" in _mentioned_unsupported_concepts(user_input)
+        )
+        if (mentions_industry and parsed.universe == ["KOSPI200"]
                 and _extract_explicit_universe(user_input) is None):
             parsed = parsed.model_copy(update={"universe": ["KOSPI", "KOSDAQ"]})
         return parsed
@@ -3143,13 +3149,20 @@ def _mentions_unsupported_concept(user_input: str) -> Optional[str]:
     return names[0] if names else None
 
 
-def build_unsupported_concept_notice(user_input: str) -> Optional[str]:
+def build_unsupported_concept_notice(
+    user_input: str, exclude: Optional[set] = None
+) -> Optional[str]:
     """미지원 개념 언급 시 사용자에게 보여줄 안내 문구를 만든다(없으면 None).
 
     LLM 폴백조차 스키마 제약으로 이 개념들을 정확히 표현할 수 없으므로, '반영되지 않았거나
     다르게 해석됐을 수 있다'고 정직하게 알리고 전략 요약 확인을 유도한다(침묵 왜곡 방지).
+
+    exclude: 안내에서 뺄 개념 이름 집합. 미해결 섹터를 별도 되묻기(sector reask)로 능동
+    처리할 때 'sector'를 넘겨 중복(수동 안내 + 되묻기)을 피한다.
     """
     names = _mentioned_unsupported_concepts(user_input)
+    if exclude:
+        names = [n for n in names if n not in exclude]
     if not names:
         return None
     labels = ", ".join(_UNSUPPORTED_CONCEPT_LABELS.get(name, name) for name in names)
@@ -3157,6 +3170,37 @@ def build_unsupported_concept_notice(user_input: str) -> Optional[str]:
         f"'{labels}'은(는) 아직 직접 지원되지 않아요. "
         "전략에 반영되지 않았거나 다르게 해석됐을 수 있으니 전략 요약을 확인해 주세요."
     )
+
+
+# 언급된 업종/테마를 지원 목록으로 매핑하지 못했을 때, 조용히 전체 시장으로 강등하지 않고
+# 되묻는다(오타 '재약주'→'제약주'·목록 밖 표현 정정 기회). 칩은 파서가 되받아 해석할 수
+# 있도록 큐('관련주')를 붙인 형태로 둔다 — 답을 재파싱하면 _extract_sector가 섹터로 잡는다.
+SECTOR_REASK_QUESTION = (
+    "말씀하신 업종/테마를 지원 목록에서 인식하지 못했어요(오타일 수도 있어요). "
+    "어떤 업종을 말씀하신 건지 다시 알려주시겠어요? 아래에서 고르거나 직접 입력해 주세요. "
+    "업종 제한 없이 진행하려면 '업종 상관없음'이라고 답해 주세요."
+)
+SECTOR_REASK_SUGGESTIONS = [
+    "반도체 관련주",
+    "이차전지 관련주",
+    "바이오/제약 관련주",
+    "자동차 관련주",
+    "업종 상관없음",
+]
+
+
+def detect_unresolved_sector_clarification(
+    parsed: ParsedStrategy, user_prompt: str = ""
+) -> tuple[Optional[str], Optional[List[str]]]:
+    """업종/테마를 언급했지만 지원 섹터로 매핑하지 못했으면 되묻는다(없으면 (None, None)).
+
+    parsed.sector가 이미 채워졌으면(결정적 추출·LLM 매핑 성공) 되묻지 않는다. 미해결일
+    때만 수동 안내 대신 능동적으로 정정 기회를 준다(오타·목록 밖 표현)."""
+    if getattr(parsed, "sector", None):
+        return (None, None)
+    if "sector" not in _mentioned_unsupported_concepts(user_prompt):
+        return (None, None)
+    return (SECTOR_REASK_QUESTION, list(SECTOR_REASK_SUGGESTIONS))
 
 
 # ── Rule Parse Guard: 룰 파싱을 그대로 수락해도 되는지 판정 ──────────────────────
