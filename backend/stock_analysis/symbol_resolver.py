@@ -116,6 +116,104 @@ def resolve_by_symbol(symbol: str) -> Optional[StockRef]:
     )
 
 
+# ── 한글 자모(초/중/종성) 분해 기반 오타 근접 매칭 ──────────────────────────────────
+# 종목명 오타('삼서전자'→'삼성전자')를 잡는다. 문자 단위 편집거리는 '삼서전자'를 삼성전자와
+# 삼지전자 둘 다 1글자 차이로 봐 엉뚱한 종목(삼지전자)을 고를 수 있다. 자모 단위로 풀면
+# 서(ㅅㅓ)↔성(ㅅㅓㅇ)=종성 ㅇ 하나 차이(거리 1)라 삼성전자(1)가 삼지전자(2)를 명확히
+# 앞선다 — 한글 오타 교정엔 자모 거리가 정답을 안정적으로 고른다. LLM(티커 환각)보다 정밀.
+_HANGUL_CHO = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ"
+_HANGUL_JUNG = "ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ"
+_HANGUL_JONG = ["", "ㄱ", "ㄲ", "ㄳ", "ㄴ", "ㄵ", "ㄶ", "ㄷ", "ㄹ", "ㄺ", "ㄻ", "ㄼ",
+                "ㄽ", "ㄾ", "ㄿ", "ㅀ", "ㅁ", "ㅂ", "ㅄ", "ㅅ", "ㅆ", "ㅇ", "ㅈ", "ㅊ",
+                "ㅋ", "ㅌ", "ㅍ", "ㅎ"]
+
+
+def _to_jamo(text: str) -> str:
+    """한글 음절을 초/중/종성 자모열로 분해한다(비한글은 그대로, 소문자화)."""
+    out: list[str] = []
+    for ch in text.lower():
+        code = ord(ch)
+        if 0xAC00 <= code <= 0xD7A3:
+            idx = code - 0xAC00
+            out.append(_HANGUL_CHO[idx // 588])
+            out.append(_HANGUL_JUNG[(idx % 588) // 28])
+            jong = _HANGUL_JONG[idx % 28]
+            if jong:
+                out.append(jong)
+        elif not ch.isspace():
+            out.append(ch)
+    return "".join(out)
+
+
+def _edit_distance(a: str, b: str, cap: int) -> int:
+    """레벤슈타인 거리. cap 초과가 확실하면 조기 중단(cap+1 반환)."""
+    if abs(len(a) - len(b)) > cap:
+        return cap + 1
+    prev = list(range(len(b) + 1))
+    for i in range(1, len(a) + 1):
+        cur = [i] + [0] * len(b)
+        row_min = cur[0]
+        for j in range(1, len(b) + 1):
+            cost = 0 if a[i - 1] == b[j - 1] else 1
+            cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
+            row_min = min(row_min, cur[j])
+        if row_min > cap:
+            return cap + 1
+        prev = cur
+    return prev[-1]
+
+
+@lru_cache(maxsize=1)
+def _jamo_index() -> tuple[tuple[str, dict], ...]:
+    """(종목명/통칭의 자모열, row) 목록 — 오타 근접 매칭용(_match_index와 동일 원천)."""
+    return tuple((_to_jamo(match_str), row) for match_str, row in _match_index())
+
+
+def suggest_similar_stocks(query: str, *, max_distance: int = 2) -> list[StockRef]:
+    """오타로 추정되는 종목명 후보를 자모 편집거리로 찾는다(정확 매칭 실패 시 폴백용).
+
+    보수적으로 '자신 있는' 후보만 반환한다 — 조용한 오교정 대신 사용자 확인을 위한 것이라
+    거짓 후보는 비용이 크다. 조건: 자모거리 ≤ max_distance, 거리 ≤ 40%×질의 자모길이,
+    최선 후보가 차선보다 엄격히 가까움(margin ≥ 1 — '삼서전자'가 삼성전자·삼지전자에 동률이면
+    아무것도 제안하지 않는다). 질의는 2글자 이상 한글이어야 한다(짧은 토큰 오매칭 방지).
+    """
+    q = (query or "").strip()
+    if len(q) < 2 or not all("가" <= ch <= "힣" for ch in q):
+        return []
+    if resolve_by_symbol(q) is not None:  # 코드면 오타 아님
+        return []
+    qj = _to_jamo(q)
+    if not qj:
+        return []
+    ratio_cap = int(len(qj) * 0.4)
+    cap = min(max_distance, ratio_cap)
+    if cap < 1:
+        return []
+    scored: list[tuple[int, dict]] = []
+    seen: set[str] = set()
+    for target_jamo, row in _jamo_index():
+        d = _edit_distance(qj, target_jamo, cap)
+        if d <= cap and str(row["name"]) != q:
+            sym = str(row["symbol"]).strip()
+            if sym not in seen:
+                seen.add(sym)
+                scored.append((d, row))
+    if not scored:
+        return []
+    scored.sort(key=lambda item: (item[0], str(item[1]["name"])))
+    best_d = scored[0][0]
+    runner_up = next((d for d, _ in scored if d > best_d), None)
+    if runner_up is not None and runner_up - best_d < 1:  # 동률 최선 → 애매 → 제안 안 함
+        return []
+    return [
+        StockRef(
+            symbol=str(row["symbol"]).strip(), name=str(row["name"]).strip(),
+            market=row.get("market"), sector=row.get("sector"), industry=row.get("industry"),
+        )
+        for d, row in scored if d == best_d
+    ]
+
+
 def _is_valid_boundary(text: str, pos: int, is_after: bool) -> bool:
     """주어진 위치가 종목명의 경계인지 검사한다.
     - is_after=False: pos 이전 문자가 경계 조건 만족?

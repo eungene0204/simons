@@ -2275,6 +2275,76 @@ def test_missing_entry_clarification_generic_when_no_entry_and_no_ranking():
     assert suggestions and len(suggestions) > 0
 
 
+def test_missing_entry_clarification_skipped_for_single_asset():
+    """[FR-STR-068] 지정 종목(단일 종목)은 '종목 선택'이 끝났으므로, 진입 규칙이 없어도
+    '어떤 조건으로 종목을 선택할까요?' 유니버스형 질문을 던지지 않는다(매수 후 보유 실행)."""
+    base = make_base_strategy().model_copy(update={"target_symbols": ["005930"]})
+    assert detect_missing_entry_clarification(base, "삼성전자 투자 하는 전략") == (None, None)
+
+
+def test_incomplete_backtest_conditions_gate():
+    """[정책] 백테스트 최소 조건(유니버스·진입·청산·손절·익절)이 하나라도 없으면 채우도록
+    되묻는다. 진입은 랭킹/지정 종목도 인정한다(Q2)."""
+    from engine.nl_parser import detect_incomplete_backtest_conditions, ParsedStrategy
+
+    # 단일 종목(진입=지정종목 인정, 유니버스=지정종목 인정) → 청산·손절·익절만 요구
+    single = ParsedStrategy(description="삼성전자", target_symbols=["005930"])
+    q, chips = detect_incomplete_backtest_conditions(single, "삼성전자 투자 하는 전략")
+    assert q is not None and "청산" in q and "손절" in q and "익절" in q
+    assert chips == ["20일 보유 후 청산", "손절 10%", "익절 20%"]
+
+
+def test_incomplete_backtest_conditions_complete_strategy_runs():
+    """다섯 조건이 모두 있으면 (None, None) — 실행 가능."""
+    from engine.nl_parser import detect_incomplete_backtest_conditions, ParsedStrategy, TechnicalSignal
+
+    complete = ParsedStrategy(
+        description="x", universe=["KOSPI200"],
+        entry_signals=[TechnicalSignal(indicator="ma_crossover", signal_type="buy",
+                                       short_period=5, long_period=20)],
+        exit_signals=[TechnicalSignal(indicator="ma_crossover", signal_type="sell",
+                                      short_period=5, long_period=20)],
+        rebalancing_period="monthly",
+        stop_loss_pct=10.0, take_profit_pct=20.0,
+    )
+    assert detect_incomplete_backtest_conditions(complete, "") == (None, None)
+
+
+def test_incomplete_backtest_conditions_rebalancing_required_for_universe():
+    """[정책] 단독 종목이 아니면 리밸런싱도 필수. 단독 종목은 교체가 없어 제외."""
+    from engine.nl_parser import detect_incomplete_backtest_conditions, ParsedStrategy, TechnicalSignal
+
+    def _sig(st):
+        return TechnicalSignal(indicator="ma_crossover", signal_type=st, short_period=5, long_period=20)
+
+    # 유니버스 전략: 청산신호로 has_exit는 충족되지만 리밸런싱이 없으면 여전히 요구된다.
+    universe = ParsedStrategy(
+        description="x", universe=["KOSPI200"], entry_signals=[_sig("buy")],
+        exit_signals=[_sig("sell")], stop_loss_pct=10.0, take_profit_pct=20.0,
+    )
+    q, chips = detect_incomplete_backtest_conditions(universe, "")
+    assert q is not None and "리밸런싱" in q
+    assert chips == ["매월 리밸런싱", "분기마다 리밸런싱"]
+
+    # 단독 종목은 리밸런싱을 요구하지 않는다 — 청산·손절·익절만.
+    single = ParsedStrategy(description="x", target_symbols=["005930"])
+    q2, _ = detect_incomplete_backtest_conditions(single, "")
+    assert "리밸런싱" not in (q2 or "")
+
+
+def test_incomplete_backtest_conditions_momentum_entry_recognized():
+    """모멘텀 랭킹·정기 리밸런싱은 진입(랭킹)·청산(리밸런싱)으로 인정 → 손절·익절만 요구(Q2)."""
+    from engine.nl_parser import detect_incomplete_backtest_conditions, ParsedStrategy
+
+    momentum = ParsedStrategy(
+        description="x", universe=["KOSPI200"], ranking_metric="return",
+        rebalancing_period="monthly",
+    )
+    q, chips = detect_incomplete_backtest_conditions(momentum, "")
+    assert q is not None
+    assert chips == ["손절 10%", "익절 20%"]  # 진입·청산·리밸런싱은 충족
+
+
 def test_missing_entry_clarification_asks_numbers_for_qualitative_metrics():
     """스크린샷 프롬프트: 'PER이 낮고 부채비율이 낮은' — 지표만 말하고 숫자가 없으면
     그 지표별로 구체적 숫자를 예시와 함께 되묻는다."""
@@ -4035,6 +4105,30 @@ def test_extract_sector_bare_related_and_theme_cues():
     from engine.nl_parser import _extract_sector
     assert _extract_sector("반도체 관련 전략 만들어줘") == "반도체"
     assert _extract_sector("2차전지 테마 전략") == "이차전지"
+
+
+def test_extract_sector_cue_less_distinctive_theme():
+    # [회귀] "2차전지 전략을 만들자"처럼 큐(관련/업종/테마) 없이 맨 테마명만 말하면 결정적
+    # 추출도, 안전망인 LLM(8B)도 sector를 못 잡고 조용히 KOSPI200 전체로 새던 사고.
+    # 고유 테마어는 큐 없이도 단독으로 잡는다(회사명 조각·일반어는 제외).
+    from engine.nl_parser import _extract_sector
+    assert _extract_sector("2차전지 전략을 만들자") == "이차전지"
+    assert _extract_sector("배터리 전략 만들어줘") == "이차전지"
+    assert _extract_sector("반도체 전략 만들어줘") == "반도체"
+    assert _extract_sector("바이오 전략") == "바이오/제약"
+    assert _extract_sector("반도체소재 전략") == "반도체 소재"
+    assert _extract_sector("2차전지로 골라줘") == "이차전지"
+    # 회사명에 붙은 조각은 업종 언급이 아니다 — 원문 경계 검사로 배제한다.
+    assert _extract_sector("LG화학 골든크로스") is None
+    assert _extract_sector("삼성증권 담아줘") is None
+    assert _extract_sector("SFA반도체 전략") is None
+    # 더 긴 단어의 일부('바이오리듬')·모호한 산업 일반어(은행·조선)는 큐 없이 잡지 않는다.
+    assert _extract_sector("바이오리듬 전략") is None
+    assert _extract_sector("은행 전략") is None
+    assert _extract_sector("조선 전략") is None
+    # 뒤에 시황/주가 명사가 오면 업종 제한이 아니라 가격 서술이다 — 큐 규칙 '주(?!가)'와 동일 취지.
+    assert _extract_sector("2차전지 주가가 오르면") is None
+    assert _extract_sector("반도체 시장이 좋으면") is None
 
 
 def test_extract_sector_section_misnomer_cue():

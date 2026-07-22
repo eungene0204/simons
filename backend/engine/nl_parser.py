@@ -1580,11 +1580,44 @@ _SECTOR_TERM_RE = re.compile(
     "(" + "|".join(re.escape(t) for t in _sector_terms_longest_first()) + ")" + _SECTOR_CUE
 )
 
+# 큐(관련/업종/테마…) 없이도 단독으로 잡는 '고유 테마어'. 큐를 요구하는 기본 규칙은
+# "2차전지 전략을 만들자"처럼 큐 없는 맨 어순을 놓치고, 그 안전망인 LLM(8B)조차 이 어순을
+# sector로 못 잡던 실측 사고가 있었다(프롬프트 예시가 '관련주/업종/투자' 큐 형태뿐). 회사명
+# 조각이나 일반어와 겹치지 않아 단독으로도 업종 의도가 분명한 통칭만 엄선한다 — 모호한 산업
+# 일반어(화학·자동차·은행·증권·조선·건설·통신 등, 'LG화학'·'삼성증권' 같은 회사명에 흔함)는
+# 넣지 않는다(그런 표현은 큐가 있을 때만, 혹은 LLM sector 필드에 위임). 정본 매핑은
+# normalize_sector가 재검증하므로 목록 밖 이름을 지어낼 수 없다.
+_CUE_LESS_SECTOR_TERMS: tuple[str, ...] = (
+    "2차전지", "이차전지", "배터리",
+    "반도체소재", "반도체",
+    "디스플레이", "바이오", "헬스케어",
+    "원자력", "우주항공", "방산", "태양광", "로봇", "인공지능",
+)
+# 왼쪽 경계(문두 또는 비영숫자·비한글) + 오른쪽 경계(문장부호·공백·끝 또는 조사)로 감싸,
+# 회사명에 붙은 조각('SFA반도체'의 '반도체', 'LG화학'의 '화학')과 더 긴 단어('바이오리듬')를
+# 배제한다. compact가 아닌 원문 기준(공백 경계 보존). 긴 용어 우선(반도체소재 > 반도체).
+# 뒤에 시황·주가 명사가 오면 업종 제한이 아니라 가격 서술이므로 제외한다("반도체 주가가
+# 오르면 매수"=섹터 아님 — 큐 규칙의 '주(?!가)'와 같은 취지, 공백을 사이에 둔 형태까지 막는다).
+_CUE_LESS_SECTOR_RE = re.compile(
+    r"(?:^|(?<=[^0-9A-Za-z가-힣]))"
+    "(" + "|".join(
+        re.escape(t) for t in sorted(_CUE_LESS_SECTOR_TERMS, key=len, reverse=True)
+    ) + ")"
+    r"(?!\s*(?:주가|시황|업황|시장|전망))"
+    r"(?=$|[^가-힣]|은|는|이|가|을|를|로|에|의|도|만|와|과|나|랑)"
+)
+
 
 def _extract_sector(user_input: str) -> Optional[str]:
-    """'반도체 관련주'·'2차전지 업종' 같은 명시적 섹터 제한을 정본 섹터명으로 추출한다."""
+    """'반도체 관련주'·'2차전지 업종' 같은 명시적 섹터 제한을 정본 섹터명으로 추출한다.
+
+    큐가 없어도 '2차전지 전략을 만들자'류의 고유 테마어(_CUE_LESS_SECTOR_TERMS)는 단독으로
+    잡는다 — 회사명 조각·일반어와 겹치지 않는 통칭만, 원문 경계 검사로 오탐을 막는다."""
     match = _SECTOR_TERM_RE.search(_compact(user_input))
-    return normalize_sector(match.group(1)) if match else None
+    if match:
+        return normalize_sector(match.group(1))
+    cue_less = _CUE_LESS_SECTOR_RE.search(user_input or "")
+    return normalize_sector(cue_less.group(1)) if cue_less else None
 
 
 # 업종/섹터 제한 해제('업종 제한 빼줘', '섹터 필터 지워줘'). '업종/섹터'와 삭제어의 인접을
@@ -3203,6 +3236,71 @@ def detect_unresolved_sector_clarification(
     return (SECTOR_REASK_QUESTION, list(SECTOR_REASK_SUGGESTIONS))
 
 
+# 종목명 오타 되묻기 — 흔한 조사(뒤에 붙어 자모거리를 벌리는)를 벗겨 근접 매칭 정확도를 올린다.
+_TRAILING_JOSA_CHARS = "을를은는이가로에의도만와과랑"
+
+
+def _strip_trailing_josa(token: str) -> str:
+    """토큰 끝의 조사(을/를/은/는…)만 최대 2자 벗긴다. 이름 글자(자·어 등)는 건드리지 않는다."""
+    stripped = token
+    for _ in range(2):
+        if len(stripped) > 2 and stripped[-1] in _TRAILING_JOSA_CHARS:
+            stripped = stripped[:-1]
+        else:
+            break
+    return stripped
+
+
+def detect_symbol_typo_clarification(
+    parsed: ParsedStrategy, user_prompt: str = ""
+) -> tuple[Optional[str], Optional[List[str]]]:
+    """종목명을 오타로 입력해 해석하지 못했으면 '혹시 이 종목?'을 되묻는다(없으면 (None, None)).
+
+    조용히 종목을 버리고 전체 시장으로 진행하는 대신, 자모 편집거리로 찾은 확신 있는 후보를
+    확인용으로 제시한다(오교정이 아니라 사용자 선택 — '삼서전자'는 삼성전자·삼지전자 이웃이라
+    자동 치환은 위험). 이미 종목이 해석됐거나(target_symbols) 정확 매칭이 있으면 되묻지 않는다.
+    """
+    if getattr(parsed, "target_symbols", None):
+        return (None, None)
+    from stock_analysis.symbol_resolver import find_in_text, suggest_similar_stocks
+
+    if find_in_text(user_prompt):  # 정확히 인식된 종목이 있으면 오타 아님
+        return (None, None)
+
+    seen: set[str] = set()
+    corrections: list[tuple[str, str]] = []  # (원본 토큰, 정정 종목명)
+    for token in re.findall(r"[가-힣]+", user_prompt or ""):
+        if len(token) < 3:
+            continue
+        forms = {token, _strip_trailing_josa(token)}
+        # 알려진 전략 어휘·업종어는 종목 후보가 아니다(오발동 방지 — 매처도 정밀하지만 이중 방어).
+        if any(f in _RULE_GUARD_KNOWN_VOCAB for f in forms) or _extract_sector(token) is not None:
+            continue
+        for form in sorted(forms, key=len, reverse=True):
+            matches = suggest_similar_stocks(form)
+            if matches:
+                ref = matches[0]
+                if ref.symbol not in seen and ref.name != token:
+                    seen.add(ref.symbol)
+                    corrections.append((token, ref.name))
+                break
+
+    if not corrections:
+        return (None, None)
+    names = ", ".join(f"'{name}'" for _, name in corrections)
+    plural = len(corrections) > 1
+    question = (
+        f"입력하신 종목명을 인식하지 못했어요(오타일 수도 있어요). "
+        f"혹시 {names}{'를' if not plural else ' 중 하나를'} 말씀하신 건가요? "
+        "아래에서 고르거나, 다른 종목명을 다시 입력해 주세요."
+    )
+    # 칩은 원문에서 오타 토큰만 정정한 재제출 프롬프트 — 고르면 그대로 재파싱돼 해석된다.
+    suggestions: list[str] = []
+    for token, name in corrections:
+        suggestions.append((user_prompt or name).replace(token, name, 1))
+    return (question, suggestions)
+
+
 # ── Rule Parse Guard: 룰 파싱을 그대로 수락해도 되는지 판정 ──────────────────────
 # REGEX가 매칭됐다는 사실은 올바른 파싱의 증거가 아니다. 룰 파서는 자신이 아는 슬롯만
 # 채우므로, 질문·비교·정정·추천처럼 '실행 가능한 전략 서술'이 아닌 발화를 슬롯 일부가
@@ -4614,9 +4712,91 @@ def detect_missing_entry_clarification(
         return (question, suggestions)
     if parsed.fundamental_filters or parsed.entry_signals or parsed.ranking_metric:
         return (None, None)
+    # 지정 종목(단일 종목) 백테스트는 '종목 선택'이 이미 끝났다 — 진입 규칙이 없으면 매수 후
+    # 보유로 실행 가능하므로(apply_single_asset_adjustments가 안내) "어떤 조건으로 종목을
+    # 선택할까요?"라는 유니버스형 질문을 던지지 않는다(FR-STR-068 — 단일 종목에 무의미).
+    if getattr(parsed, "target_symbols", None):
+        return (None, None)
     if _mentions_relative_strength_ranking(compact):
         return (_RELATIVE_STRENGTH_QUESTION, list(_RELATIVE_STRENGTH_SUGGESTIONS))
     return (_MISSING_ENTRY_QUESTION, list(_MISSING_ENTRY_SUGGESTIONS))
+
+
+# ── 백테스트 최소 조건 게이트(유니버스·진입·청산·손절·익절) ────────────────────────────
+# [정책 2026-07-22] 예전엔 조건이 비어 있어도 "현재 상태로도 실행 가능"으로 진행시켰으나,
+# 사용자가 다섯 최소 조건을 모두 명시하도록 유도하는 방향으로 변경한다. 하나라도 없으면
+# 실행 버튼 대신 채우도록 가이드하는 되묻기를 낸다(프론트는 clarification이면 버튼을 숨김).
+# 진입은 신호뿐 아니라 랭킹·재무필터·지정 종목도 인정한다(사용자 확인 Q2). 청산은 손절/익절과
+# 별개의 매도 규칙(매도 신호·보유기간·정기 리밸런싱)을 뜻한다.
+_BACKTEST_MIN_CONDITION_INTRO = (
+    "백테스트를 실행하려면 아래 조건을 모두 채워야 해요. 하나씩 말씀해 주시면 전략에 반영할게요."
+)
+
+
+def _missing_backtest_conditions(parsed: ParsedStrategy) -> list[tuple[str, str, list[str]]]:
+    """아직 비어 있는 백테스트 최소 조건만 (안내문, 대표 예시칩) 순서대로 반환한다."""
+    has_universe = bool(
+        getattr(parsed, "universe", None)
+        or getattr(parsed, "target_symbols", None)
+        or getattr(parsed, "sector", None)
+    )
+    has_entry = bool(
+        parsed.entry_signals
+        or parsed.fundamental_filters
+        or getattr(parsed, "ranking_metric", None)
+        or getattr(parsed, "target_symbols", None)
+    )
+    rebal = getattr(parsed, "rebalancing_period", None)
+    has_rebalancing = bool(rebal and rebal != "none")
+    has_exit = bool(
+        parsed.exit_signals
+        or getattr(parsed, "hold_period_days", None)
+        or has_rebalancing
+    )
+    has_stop = parsed.stop_loss_pct is not None and parsed.stop_loss_pct > 0
+    has_take = parsed.take_profit_pct is not None and parsed.take_profit_pct > 0
+    # 단독 종목 백테스트(지정 종목)는 포트폴리오 교체가 없어 리밸런싱을 요구하지 않는다.
+    # 그 외(유니버스/다종목) 전략은 리밸런싱 주기도 필수다(사용자 지시 2026-07-22).
+    is_single_asset = bool(getattr(parsed, "target_symbols", None))
+
+    missing: list[tuple[str, str, list[str]]] = []
+    if not has_universe:
+        missing.append(("유니버스 — 어떤 시장·종목을 대상으로 할지 정해주세요 "
+                        "(예: 코스피200, 코스닥 전체)", ["코스피200 대상으로"]))
+    if not has_entry:
+        missing.append(("진입 조건 — 어떤 조건에서 매수할지 정해주세요 "
+                        "(예: 골든크로스 발생 시 매수, PBR 1 이하)", ["골든크로스 발생 시 매수"]))
+    if not has_exit:
+        missing.append(("청산 조건 — 언제 팔지 정해주세요 "
+                        "(예: 데드크로스 발생 시 매도, 20일 보유 후 청산)", ["20일 보유 후 청산"]))
+    if not is_single_asset and not has_rebalancing:
+        missing.append(("리밸런싱 — 포트폴리오 교체 주기를 정해주세요 "
+                        "(예: 매월, 분기마다)", ["매월 리밸런싱", "분기마다 리밸런싱"]))
+    if not has_stop:
+        missing.append(("손절 — 손실을 제한할 비율을 정해주세요 (예: 손절 10%)", ["손절 10%"]))
+    if not has_take:
+        missing.append(("익절 — 목표 수익 비율을 정해주세요 (예: 익절 20%)", ["익절 20%"]))
+    return missing
+
+
+def detect_incomplete_backtest_conditions(
+    parsed: ParsedStrategy, user_prompt: str = ""
+) -> tuple[Optional[str], Optional[List[str]]]:
+    """백테스트 최소 조건이 하나라도 비어 있으면 채우도록 가이드하는 되묻기를 낸다.
+
+    (None, None)이면 다섯 조건이 모두 충족돼 실행 가능하다는 뜻이다. clarification이 뜨면
+    프론트는 실행 버튼을 숨기고 안내 칩을 보여준다(runButtonPlacement)."""
+    missing = _missing_backtest_conditions(parsed)
+    if not missing:
+        return (None, None)
+    lines = [_BACKTEST_MIN_CONDITION_INTRO, ""]
+    lines.extend(f"• {guide}" for guide, _ in missing)
+    suggestions: list[str] = []
+    for _, chips in missing:
+        for chip in chips:
+            if chip not in suggestions:
+                suggestions.append(chip)
+    return ("\n".join(lines), suggestions)
 
 
 def validate_parsed_strategy(

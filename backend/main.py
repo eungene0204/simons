@@ -2955,8 +2955,10 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
         apply_single_asset_adjustments,
         build_unsupported_concept_notice,
         detect_etf_factor_conflict,
+        detect_incomplete_backtest_conditions,
         detect_missing_entry_clarification,
         detect_symbol_ambiguity,
+        detect_symbol_typo_clarification,
         detect_unresolved_sector_clarification,
         enforce_strategy_minimums,
         synthesize_risk_overrides,
@@ -3003,6 +3005,12 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     # 미해결 업종 되묻기를 최우선으로 둔다 — 종목 범위(유니버스/섹터)가 진입 조건보다 먼저
     # 정해져야 하고, 조용한 전체 시장 강등을 막는다.
     clarification_question, clarification_suggestions = sector_reask_q, sector_reask_s
+    # 종목명 오타로 지정 종목을 잃었으면 '혹시 이 종목?'을 먼저 되묻는다 — 조용히 전체 시장으로
+    # 진행하지 않도록, 진입 조건보다 앞서 종목 범위를 확정한다(자모 근접 매칭, 자동 치환 아님).
+    if clarification_question is None:
+        clarification_question, clarification_suggestions = detect_symbol_typo_clarification(
+            parsed, request.prompt
+        )
     # ETF 유니버스 × 기업 재무지표 충돌: 조용히 무시하지 않고 이유 설명 + 기술 지표
     # 대안 제안으로 되묻는다(universe_capabilities 레지스트리 판정). 충돌이 없으면
     # 진입(종목 선정) 규칙을 통째로 잃었을 때의 되묻기를 검사한다.
@@ -3017,6 +3025,16 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     # 여러 종목이 함께 지정된 경우 임의 선택하지 않고 되묻는다(그대로 진행 시 전체 테스트).
     if clarification_question is None:
         clarification_question, clarification_suggestions = detect_symbol_ambiguity(parsed)
+    # 백테스트 최소 조건(유니버스·진입·청산·손절·익절)이 하나라도 비면, "현재 상태로도 실행
+    # 가능"으로 진행시키지 않고 채우도록 가이드한다(2026-07-22 정책). clarification이 뜨면
+    # 프론트가 실행 버튼을 숨기고 안내 칩을 보여준다. 단일 종목 '기간 종료까지 보유' 안내는
+    # 이 게이트와 모순이라 함께 제거한다.
+    if clarification_question is None:
+        clarification_question, clarification_suggestions = detect_incomplete_backtest_conditions(
+            parsed, request.prompt
+        )
+        if clarification_question is not None:
+            notices = [n for n in notices if "기간 종료까지 보유" not in n]
     return {
         "parsed": parsed.model_dump(),
         "backtest_request": backtest_req,

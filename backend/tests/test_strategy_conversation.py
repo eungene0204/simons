@@ -862,6 +862,25 @@ def test_modify_primary_roundtrip_guard_falls_back(monkeypatch):
     assert run_primary_modification("종목 5개로", prev.model_dump()) is None
 
 
+def test_modify_primary_rescues_deterministic_target_symbol(monkeypatch):
+    # [FR-STR-068 회귀] 종목-only 수정("삼성전자 투자 하는 전략")은 인터프리터가 유효 패치를
+    # 못 내고(StrategySpec에 지정 종목 개념 없음) _modify_rule_based fast-path도 못 잡아
+    # '해석 못 함'으로 조용히 무시되고 유니버스가 유지되던 사고. 결정적 target 추출로 구제한다.
+    from strategy_conversation.primary import run_primary_modification
+
+    # 발화에 cue 없는 패치(종목 수) → 환각 게이트가 전량 거부 → 결정적 구제 경로 진입.
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,
+        "patches": [{"op": "replace", "path": "/portfolio/selection_count", "value": 7}],
+    })
+    prev = _rich_parsed().model_dump()
+    prev["target_symbols"] = []
+    result = run_primary_modification("삼성전자 투자 하는 전략", prev)
+    assert result is not None
+    assert result["parsed"].target_symbols == ["005930"]
+    assert result["interpreter"]["mode"] == "primary_modify_deterministic_symbol"
+
+
 def test_modify_primary_clarify_returns_question_with_strategy_intact(monkeypatch):
     # 2026-07-17 사고 재현: "pbr이 뭐야?"가 수정 경로로 흘러 인터프리터가 CLARIFY로
     # 정확히 판단했는데, 폴백이 질문을 버리고 기존 수정 LLM이 무변경 전략을 반환해

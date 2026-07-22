@@ -465,6 +465,30 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
     if rejected:
         _log_llm("✗ 패치 거부", f"{rejected}건 — 발화에 필드 cue 없음(환각 게이트)")
     if not cued_patches:
+        # 인터프리터가 유효 패치를 못 냈어도, 결정적 지정 종목/섹터 변경은 StrategySpec 밖이라
+        # 여기서 구제한다 — 종목-only 수정("삼성전자 투자 하는 전략")은 _modify_rule_based
+        # fast-path도 못 잡아(신호·수치 키워드 부재) 여기 도달하는데, 그대로 '해석 못 함'으로
+        # 처리하면 지정 종목이 조용히 무시되고 유니버스 전략이 유지된다(FR-STR-068 회귀).
+        # [[project_single_asset_backtest]]: 레거시 결정적 오버라이드는 primary에도 미러링.
+        from engine.nl_parser import _apply_prompt_overrides
+        det = _apply_prompt_overrides(prev, user_input, preserve_universe=True)
+        if det.target_symbols != prev.target_symbols or det.sector != prev.sector:
+            _log_llm("✓ 결정적 종목/섹터 수정", "인터프리터 무효 패치 — 결정적 오버라이드로 구제")
+            return {
+                "parsed": det,
+                "clarification_question": None,
+                "clarification_suggestions": None,
+                "notices": [],
+                "interpreter": {
+                    "mode": "primary_modify_deterministic_symbol",
+                    "model_name": result.model_name,
+                    "prompt_version": result.prompt_version,
+                    "repair_attempts": result.repair_attempts,
+                    "llm_latency_ms": result.latency_ms,
+                    "patch_count": 0,
+                    "confidence": intent.confidence,
+                },
+            }
         # 전량 환각(예: 후속 질문 "다른 예는 없어?"에 임의 패치) — 전략을 그대로 유지하고,
         # 질문성 입력이면 지식 답변을, 아니면 미해석 안내를 전달한다(QA 20-3).
         from api.intent_routes import generate_general_answer

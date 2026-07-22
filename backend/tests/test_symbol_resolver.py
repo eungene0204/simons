@@ -61,3 +61,44 @@ def test_case_insensitive_with_josa():
     refs = find_in_text("삼성전자는 어때?")
     assert len(refs) == 1
     assert refs[0].symbol == "005930"
+
+
+def test_fuzzy_suggests_correct_stock_via_jamo_distance():
+    # [FR-STR-068 오타] '삼서전자'(서↔성=종성 ㅇ 차이)는 자모거리로 삼성전자(1)가
+    # 삼지전자(2)를 앞서 정답을 고른다 — 문자단위 difflib은 삼지전자를 오선택하던 함정.
+    from stock_analysis.symbol_resolver import suggest_similar_stocks
+    assert [r.name for r in suggest_similar_stocks("삼서전자")] == ["삼성전자"]
+    assert [r.name for r in suggest_similar_stocks("카키오")] == ["카카오"]
+    # 통칭(_KOREAN_ALIASES)의 오타도 등록명으로 정정한다('현디차'→현대차→현대자동차).
+    assert [r.name for r in suggest_similar_stocks("현디차")] == ["현대자동차"]
+
+
+def test_fuzzy_rejects_non_typos_and_vocab():
+    # 확신 없는 후보는 반환하지 않는다 — 전략 어휘·업종어·짧은 토큰의 오발동 방지.
+    from stock_analysis.symbol_resolver import suggest_similar_stocks
+    for q in ["전략", "우량주", "저평가", "골든크로스", "모멘텀", "반도체", "포스크", "엘지화학"]:
+        assert suggest_similar_stocks(q) == [], q
+
+
+def test_detect_symbol_typo_clarification_reasks():
+    from engine.nl_parser import detect_symbol_typo_clarification, ParsedStrategy
+    q, chips = detect_symbol_typo_clarification(ParsedStrategy(description="x"), "삼서전자 전략을 만들자")
+    assert q is not None and "삼성전자" in q
+    assert chips == ["삼성전자 전략을 만들자"]  # 오타 토큰만 정정한 재제출 프롬프트
+    # 조사가 붙은 토큰도 벗겨 매칭하고, 칩은 토큰 전체를 정정한다.
+    q2, chips2 = detect_symbol_typo_clarification(ParsedStrategy(description="x"), "카키오로 골든크로스 전략")
+    assert chips2 == ["카카오 골든크로스 전략"]
+
+
+def test_detect_symbol_typo_no_reask_on_valid_input():
+    from engine.nl_parser import detect_symbol_typo_clarification, ParsedStrategy
+    # 정확 매칭 종목·업종·순수 전략 어휘는 되묻지 않는다.
+    for t in ["삼성전자 전략을 만들자", "2차전지 전략을 만들자",
+              "골든크로스 전략 만들어줘", "PBR 1 이하 저평가 종목"]:
+        q, _ = detect_symbol_typo_clarification(ParsedStrategy(description="x"), t)
+        assert q is None, t
+    # 이미 종목이 해석된 경우(target_symbols)도 되묻지 않는다.
+    q, _ = detect_symbol_typo_clarification(
+        ParsedStrategy(description="x", target_symbols=["005930"]), "삼서전자 전략"
+    )
+    assert q is None

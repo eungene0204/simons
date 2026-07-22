@@ -64,6 +64,7 @@ import {
   type SemanticClassification,
   type StrategyAssumptions,
 } from "./conversationDecision";
+import { isBacktestReady } from "./backtestReadiness";
 import { normalizeCoachMessage } from "./coachMessage";
 import { parseCoachSegments } from "./coachText";
 import { runButtonPlacement } from "./runButtonPlacement";
@@ -2348,7 +2349,7 @@ function StrategyLabContent() {
                                 )}
                               </div>
                             )}
-                            {isLastAssistant(i) && stage === "ready" && runButtonPlacement(msg) === "summary" && (
+                            {isLastAssistant(i) && stage === "ready" && runButtonPlacement(msg) === "summary" && isBacktestReady(msg.parsed) && (
                               <button
                                 onClick={() => handleRunBacktest()}
                                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-black transition-all duration-300 hover:shadow-[0_0_24px_rgba(59,130,246,0.4)]"
@@ -2400,7 +2401,7 @@ function StrategyLabContent() {
                             )}
                           </div>
                         )}
-                        {isLastAssistant(i) && stage === "ready" && runButtonPlacement(msg) === "coach" && (
+                        {isLastAssistant(i) && stage === "ready" && runButtonPlacement(msg) === "coach" && isBacktestReady(msg.parsed) && (
                           <button
                             onClick={() => handleRunBacktest()}
                             className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-black transition-all duration-300 hover:shadow-[0_0_24px_rgba(59,130,246,0.4)]"
