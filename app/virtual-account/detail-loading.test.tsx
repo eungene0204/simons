@@ -394,6 +394,9 @@ describe("VirtualAccountDetailPage loading", () => {
     render(<VirtualAccountDetailPage />);
 
     expect(await screen.findByText("운용 전략")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "전략 교체" })).toHaveClass(
+      "border-main-blue"
+    );
     expect(await screen.findByText("유니버스")).toBeInTheDocument();
     expect(screen.getByText("KOSPI")).toBeInTheDocument();
     expect(screen.getByText("진입신호")).toBeInTheDocument();
@@ -632,7 +635,9 @@ describe("VirtualAccountDetailPage loading", () => {
     expect(await screen.findByText("삭제된 계좌")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /시뮬레이션/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "삭제" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "계좌닫기" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "계좌닫기" })).toHaveClass(
+      "border-main-blue"
+    );
     expect(screen.getByText(/해지 2026\.\s?06\.\s?20\.?/)).toBeInTheDocument();
   });
 });

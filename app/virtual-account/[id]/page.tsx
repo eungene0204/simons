@@ -340,6 +340,43 @@ export default function VirtualAccountDetailPage() {
     setIsPromptVisible(false);
   }, [account?.strategyId]);
 
+  // 운용 전략은 고정 데이터이므로 loadAccountData가 반복 호출돼도 다시 읽지 않고,
+  // 연결된 전략(strategyId)이 실제로 바뀔 때만 한 번 조회한다.
+  useEffect(() => {
+    const strategyId = account?.strategyId;
+    if (!strategyId) {
+      setDbStrategyDescription(null);
+      setDbStrategySettings(null);
+      setDbStrategyHistorySummary(null);
+      setIsStrategyDetailLoading(false);
+      return;
+    }
+
+    let isMounted = true;
+    setIsStrategyDetailLoading(true);
+    fetch(`/api/strategy/${strategyId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((s) => {
+        if (!isMounted) return;
+        setDbStrategyDescription(s?.description ?? null);
+        setDbStrategySettings((s?.settings as StrategyDSL | null) ?? null);
+        setDbStrategyHistorySummary(s?.historySummary ?? null);
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setDbStrategyDescription(null);
+        setDbStrategySettings(null);
+        setDbStrategyHistorySummary(null);
+      })
+      .finally(() => {
+        if (isMounted) setIsStrategyDetailLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [account?.strategyId]);
+
   useEffect(() => {
     if (!isMissingStrategyModalOpen) return;
     router.prefetch("/analytics/new");
@@ -368,28 +405,6 @@ export default function VirtualAccountDetailPage() {
     const nextTransactions = t.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     setHoldings(nextHoldings);
     setTransactions(nextTransactions);
-
-    if (acc.strategyId) {
-      setIsStrategyDetailLoading(true);
-      fetch(`/api/strategy/${acc.strategyId}`)
-        .then((r) => r.ok ? r.json() : null)
-        .then((s) => {
-          setDbStrategyDescription(s?.description ?? null);
-          setDbStrategySettings((s?.settings as StrategyDSL | null) ?? null);
-          setDbStrategyHistorySummary(s?.historySummary ?? null);
-        })
-        .catch(() => {
-          setDbStrategyDescription(null);
-          setDbStrategySettings(null);
-          setDbStrategyHistorySummary(null);
-        })
-        .finally(() => setIsStrategyDetailLoading(false));
-    } else {
-      setDbStrategyDescription(null);
-      setDbStrategySettings(null);
-      setDbStrategyHistorySummary(null);
-      setIsStrategyDetailLoading(false);
-    }
 
     const marketState = await marketPromise;
     const nextTrackedSymbols = marketState?.symbols?.length
@@ -872,7 +887,7 @@ export default function VirtualAccountDetailPage() {
                       forgetVirtualAccountDetail(accountId);
                       router.push("/virtual-account");
                     }}
-                    className="flex items-center gap-1.5 rounded-xl border border-white/[0.08] px-3 py-1.5 text-xs font-bold text-gray-500 transition-all duration-200 hover:border-white/[0.18] hover:text-gray-300"
+                    className="flex items-center gap-1.5 rounded-xl border border-main-blue px-3 py-1.5 text-xs font-bold text-gray-500 transition-all duration-200 hover:text-gray-300"
                   >
                     계좌닫기
                   </button>
@@ -1039,7 +1054,7 @@ export default function VirtualAccountDetailPage() {
                     </div>
                     <button
                       onClick={handleStrategyReplaceClick}
-                      className="text-xs font-bold text-gray-400 hover:text-white transition-colors duration-200"
+                      className="inline-flex items-center rounded-xl border border-main-blue px-3 py-1.5 text-xs font-bold text-gray-400 transition-colors duration-200 hover:text-white"
                     >
                       전략 교체
                     </button>
