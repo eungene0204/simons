@@ -201,6 +201,9 @@ export interface BacktestResult {
       symbolCoveragePct: number;
       symbolsWithData: number;
       symbolsTotal: number;
+      /** 결측이 아니라 적자·자본잠식이라 비율 산정 불가로 제외된 행 수(진짜 결측과 분리). */
+      negativeExcludedRows: number;
+      negativeExcludedPct: number;
       availableFrom: string | null;
       availableTo: string | null;
     }>;

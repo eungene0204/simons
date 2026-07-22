@@ -81,6 +81,76 @@ def test_accumulator_classifies_used_partial_unused():
     assert report["baseData"] == ["시가", "고가", "저가", "종가", "거래량"]
 
 
+def test_symbol_stats_counts_negative_excluded():
+    # per가 NaN인 4행 중, EPS가 존재하고 ≤0인 2행만 '음수 제외'로 분리해야 한다.
+    # 나머지 NaN(EPS 결측)은 진짜 결측이므로 제외 카운트에서 빠진다.
+    pdf = pd.DataFrame({
+        "date": pd.date_range("2020-01-01", periods=5),
+        "per": [None, None, 8.0, None, 9.0],
+        "eps": [-100.0, 0.0, 500.0, None, 400.0],  # 적자·손익분기·흑자·결측·흑자
+    })
+    stats = data_coverage.symbol_stats(pdf, ["per"])
+    assert stats["per"]["rows_valid"] == 2
+    # EPS<=0(적자/BEP)인 2행만 음수 제외. EPS 결측(index 3)은 진짜 결측.
+    assert stats["per"]["rows_excluded_negative"] == 2
+
+
+def test_symbol_stats_roe_uses_equity_fallback():
+    # roe_or_gpa는 total_equity 우선, 없으면 bps로 근사(fetcher와 동일).
+    pdf_eq = pd.DataFrame({
+        "roe_or_gpa": [None, 12.0],
+        "total_equity": [-50.0, 3000.0],
+        "bps": [10000.0, 20000.0],  # total_equity가 있으면 bps는 무시돼야 함
+    })
+    assert data_coverage.symbol_stats(pdf_eq, ["roe_or_gpa"])["roe_or_gpa"]["rows_excluded_negative"] == 1
+
+    pdf_bps = pd.DataFrame({"roe_or_gpa": [None, None], "bps": [-1.0, 5000.0]})
+    # bps<=0인 1행만 제외(두 번째는 roe 결측이지만 bps>0 → 진짜 결측).
+    assert data_coverage.symbol_stats(pdf_bps, ["roe_or_gpa"])["roe_or_gpa"]["rows_excluded_negative"] == 1
+
+
+def test_symbol_stats_no_denom_column_degrades_to_zero():
+    # 분모 컬럼이 없으면(백필 안 된 과거 parquet) 음수 제외를 판정할 수 없어 0.
+    pdf = pd.DataFrame({"per": [None, 8.0]})
+    assert data_coverage.symbol_stats(pdf, ["per"])["per"]["rows_excluded_negative"] == 0
+
+
+def test_unused_metric_all_negative_gets_corrected_warning():
+    # 값이 존재했으나 전부 적자라 unused가 된 경우, '존재하지 않아'가 아니라
+    # 적자 사유로 정정된 경고가 나가야 한다.
+    acc = data_coverage.CoverageAccumulator(["per"])
+    acc.fold({"per": {"rows_total": 10, "rows_valid": 0, "rows_excluded_negative": 10,
+                      "first_valid": None, "last_valid": None}})
+    report = acc.build()
+    m = report["metrics"][0]
+    assert m["status"] == "unused"
+    assert m["negativeExcludedRows"] == 10
+    assert not any("존재하지 않아" in w for w in report["warnings"])
+    assert any("적자" in w and "결측이 아니라" in w for w in report["warnings"])
+
+
+def test_material_negative_exclusion_emits_separate_warning():
+    # used/partial이어도 음수 제외 비중이 임계치 이상이면 결측과 구분한 라인을 낸다.
+    acc = data_coverage.CoverageAccumulator(["per"])
+    # 70% valid, 30% 적자 제외 → status=partial(<95%), 음수 경고도 함께.
+    acc.fold({"per": {"rows_total": 100, "rows_valid": 70, "rows_excluded_negative": 30,
+                      "first_valid": "2019-01-01", "last_valid": "2020-01-01"}})
+    report = acc.build()
+    m = report["metrics"][0]
+    assert m["negativeExcludedPct"] == 30.0
+    assert any("30.0%" in w and "결측과는 별개" in w for w in report["warnings"])
+
+
+def test_no_negative_exclusion_warning_below_threshold():
+    # 음수 제외가 임계치 미만이면 별도 경고를 내지 않는다(노이즈 방지).
+    acc = data_coverage.CoverageAccumulator(["per"])
+    acc.fold({"per": {"rows_total": 100, "rows_valid": 98, "rows_excluded_negative": 2,
+                      "first_valid": "2019-01-01", "last_valid": "2020-01-01"}})
+    report = acc.build()
+    assert report["metrics"][0]["negativeExcludedRows"] == 2
+    assert not any("별개" in w for w in report["warnings"])
+
+
 def test_accumulator_symbol_partial_warning():
     # 기간 커버리지는 높지만(≥60%) 일부 종목만 데이터 있음 → 종목 커버리지 경고.
     acc = data_coverage.CoverageAccumulator(["roe_or_gpa"])
