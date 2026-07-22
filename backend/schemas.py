@@ -1,6 +1,8 @@
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional, Literal, Union
 
+from engine.version import ENGINE_VERSION
+
 class Condition(BaseModel):
     type: str # "indicator" | "flow" | "risk" | "ml" | "filter"
     id: str
@@ -129,7 +131,7 @@ class BacktestResponse(BaseModel):
     warnings: Optional[List[str]] = Field(default_factory=list)
     # 데이터 커버리지 리포트(펀더멘털 지표별 종목·기간 커버리지). 없으면 null.
     dataCoverage: Optional[Dict[str, Any]] = None
-    version: Optional[str] = "1.0"
+    version: Optional[str] = ENGINE_VERSION
     executionTime: Optional[float] = 0.0
     vbtResult: Optional[VBTNativeResult] = None
 

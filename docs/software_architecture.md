@@ -130,6 +130,7 @@ simons/
 │   │   ├── simulator.py             # Simulator (루프=의도 결정 + vbt from_orders 목표비중 체결 — NAV 사이징·정수주·장중 스탑·거래정지 이월·매도 거래세)
 │   │   ├── rebalance.py             # 달력 기준 리밸런싱일 계산 (vbt 비의존)
 │   │   ├── result_handler.py        # ResultHandler (지표 계산 + 직렬화)
+│   │   ├── version.py               # 엔진 버전 SOT(ENGINE_VERSION·CHANGELOG). MAJOR=결과값 변경, MINOR=표시/버그. 결과에 기록됨(BacktestResponse.version)
 │   │   ├── nl_parser.py             # 자연어 → ParsedStrategy (LLM)
 │   │   ├── strategy_converter.py    # ParsedStrategy → BacktestRequest
 │   │   ├── universe_pit.py          # PIT(생존편향 제거) 유니버스 + 섹터 유니버스(CANONICAL_SECTORS·normalize_sector·filter_by_sector) + ETF 유니버스(resolve_etf_symbols·filter_etf_by_theme·extract_etf_theme)

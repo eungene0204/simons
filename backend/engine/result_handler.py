@@ -3,6 +3,8 @@ import pandas as pd
 from datetime import datetime
 from typing import Dict, Any
 
+from engine.version import ENGINE_VERSION
+
 class ResultHandler:
     @staticmethod
     def safe(val):
@@ -469,5 +471,7 @@ class ResultHandler:
             "perAssetStats":        per_asset_stats,
             "benchmark_label":      benchmark_label,
             "warnings":             [],
-            "version":              "7.0 (audit: NAV-sizing, integer shares, intraday stops, raw PF, std sortino)",
+            # 결과를 산출한 백테스트 엔진 버전(SOT: engine/version.py). 어떤 버전으로
+            # 테스트했는지 추적하기 위해 모든 결과에 기록한다.
+            "version":              ENGINE_VERSION,
         }

@@ -11,6 +11,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # 엔진 핵심 파일이 바뀌었는데 ENGINE_VERSION은 그대로면 실패시켜, 버전 올리는 걸
+  # 잊지 않도록 상기시킨다(리마인더). major/minor 판단은 사람이 하므로 자동 갱신은 안 한다.
+  # 우회: 결과 불변 리팩터/주석/로깅이면 커밋 메시지에 [skip-version-bump] 표기.
+  engine-version-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0                      # base/head 커밋 이력 필요
+      - name: Remind to bump ENGINE_VERSION when engine core changes
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+            HEAD="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+            HEAD="${{ github.sha }}"
+          fi
+          # 새 브랜치 최초 push 등 base가 비어있거나 0이면 직전 커밋과 비교
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            BASE="$(git rev-parse "$HEAD^" 2>/dev/null || echo "$HEAD")"
+          fi
+          bash scripts/check_engine_version_bump.sh "$BASE" "$HEAD"
+
   frontend:
     runs-on: ubuntu-latest
     steps:

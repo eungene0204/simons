@@ -209,6 +209,8 @@ export interface BacktestResult {
     unusedData: string[];
     warnings: string[];
   };
+  /** 이 결과를 산출한 백테스트 엔진 버전 (backend engine/version.py). */
+  engineVersion?: string;
   executionTime?: number;
   fromCache?: boolean;
   cachedAt?: string;

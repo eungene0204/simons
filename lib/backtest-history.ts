@@ -92,6 +92,7 @@ export function buildAutoSaveHistoryPayload(
       buyHold: result.buyAndHoldReturn || 0,
       trades: result.trades || 0,
       executionTime: result.executionTime ?? 0,
+      engineVersion: result.engineVersion,
       score: calculateHistoryScore(result),
     },
     cacheKey: result.cacheKey,
