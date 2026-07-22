@@ -218,4 +218,37 @@ describe("BacktestDetailPage", () => {
     const dashboard = await screen.findByTestId("backtest-dashboard");
     expect(dashboard).toHaveAttribute("data-trades-count", "2");
   });
+
+  it("기록 조회 실패 상태에서 안내 영역을 중앙 정렬하고 돌아가기 버튼은 router.back을 호출한다", async () => {
+    fetchMock.mockResolvedValue({ ok: false });
+
+    render(<BacktestDetailPage />);
+
+    const message = await screen.findByText("기록을 찾을 수 없습니다.");
+    expect(message.parentElement).toHaveClass(
+      "min-h-[calc(100vh-var(--top-menu-bar-height,76px))]",
+      "justify-center",
+      "text-center"
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "돌아가기" }));
+
+    expect(routerBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("상세 결과가 없는 기록도 안내 영역을 중앙 정렬한다", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => baseHistoryResponse({ result: null }),
+    });
+
+    render(<BacktestDetailPage />);
+
+    const message = await screen.findByText("이 기록에는 상세 결과가 저장되어 있지 않습니다.");
+    expect(message.parentElement).toHaveClass(
+      "min-h-[calc(100vh-var(--top-menu-bar-height,76px))]",
+      "justify-center",
+      "text-center"
+    );
+  });
 });

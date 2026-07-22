@@ -16,6 +16,9 @@ import {
 } from "../../analytics/new/parsedStrategyMerge";
 import { runWalkForwardStream, type WalkForwardProgressHandler } from "../../analytics/new/walkForwardStream";
 
+const backtestEmptyStateClassName =
+  "flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] flex-col items-center justify-center gap-4 px-4 text-center text-gray-500";
+
 export default function BacktestDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -58,7 +61,7 @@ export default function BacktestDetailPage() {
   if (notFound || !item) {
     return (
       <DashboardLayout userName="">
-        <div className="flex flex-col items-center justify-center h-full text-gray-500 gap-4">
+        <div className={backtestEmptyStateClassName}>
           <p className="text-base font-bold">기록을 찾을 수 없습니다.</p>
           <button
             onClick={() => router.back()}
@@ -74,7 +77,7 @@ export default function BacktestDetailPage() {
   if (!item.result) {
     return (
       <DashboardLayout userName="">
-        <div className="flex flex-col items-center text-gray-500 gap-4 pt-48 pb-32">
+        <div className={backtestEmptyStateClassName}>
           <p className="text-base font-bold">이 기록에는 상세 결과가 저장되어 있지 않습니다.</p>
           <p className="text-sm text-gray-600">새로 실행된 백테스트부터 상세 결과가 저장됩니다.</p>
           <button
