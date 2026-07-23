@@ -30,7 +30,7 @@ describe("normalizeCoachMessage", () => {
     ).toBe("전략 정의가 완료되었습니다. 백테스트를 실행할 수 있습니다.");
   });
 
-  it("익절 조건만 누락된 경우 추가 검토 안내를 표시한다", () => {
+  it("익절 조건만 누락된 경우 입력을 요청한다", () => {
     expect(
       normalizeCoachMessage(
         JSON.stringify({
@@ -41,15 +41,10 @@ describe("normalizeCoachMessage", () => {
         }),
         "fallback"
       )
-    ).toBe(
-      "전략이 아직 완전히 구성되지는 않았습니다.\n\n" +
-        "익절 조건을 추가하면 청산 기준을 더 명확히 검토할 수 있습니다. 현재 상태로도 백테스트를 실행할 수 있습니다.\n\n" +
-        "먼저 결과를 확인해 보고, 필요하면 나중에 조건을 추가해 보세요.\n\n" +
-        "백테스트를 시작할까요?"
-    );
+    ).toBe("익절 조건을 입력해 주세요.");
   });
 
-  it("묶어서 친근하게 안내한다 (손절·익절·청산 누락)", () => {
+  it("여러 조건이 누락되어도 첫 조건만 요청한다", () => {
     expect(
       normalizeCoachMessage(
         JSON.stringify({
@@ -62,12 +57,7 @@ describe("normalizeCoachMessage", () => {
         }),
         "fallback"
       )
-    ).toBe(
-      "전략이 아직 완전히 구성되지는 않았습니다.\n\n" +
-        "손절, 익절, 청산 조건이 비어 있지만 현재 상태로도 백테스트를 실행할 수 있습니다.\n\n" +
-        "먼저 결과를 확인해 보고, 필요하면 나중에 조건을 추가해 보세요.\n\n" +
-        "백테스트를 시작할까요?"
-    );
+    ).toBe("청산 조건을 입력해 주세요.");
   });
 
   it("누락 외 실제 이슈(예: 잘못된 파라미터)는 사실대로 함께 안내한다", () => {
@@ -82,28 +72,26 @@ describe("normalizeCoachMessage", () => {
         }),
         "fallback"
       )
-    ).toBe(
-      "전략이 아직 완전히 구성되지는 않았습니다.\n\n" +
-        "청산 조건이 비어 있지만 현재 상태로도 백테스트를 실행할 수 있습니다.\n\n" +
-        "RSI 기간은 1 이상의 값이어야 합니다.\n\n" +
-        "먼저 결과를 확인해 보고, 필요하면 나중에 조건을 추가해 보세요.\n\n" +
-        "백테스트를 시작할까요?"
-    );
+    ).toBe("청산 조건을 입력해 주세요.\n\nRSI 기간은 1 이상의 값이어야 합니다.");
   });
 
-  it("누락 필드가 없는 경고만 있을 때도 친근하게 안내한다", () => {
+  it("누락 필드가 없는 경고는 사실대로 안내한다", () => {
     expect(
       normalizeCoachMessage(
         '{"is_valid":true,"issues":[{"severity":"warning","category":"universe_risk","message":"조건으로 인해 대상 종목이 존재하지 않을 수 있습니다."}]}',
         "fallback"
       )
-    ).toBe(
-      "전략이 아직 완전히 구성되지는 않았습니다.\n\n" +
-        "조건으로 인해 대상 종목이 존재하지 않을 수 있습니다.\n\n" +
-        "현재 상태로도 백테스트를 실행할 수 있습니다.\n\n" +
-        "먼저 결과를 확인해 보고, 필요하면 나중에 조건을 추가해 보세요.\n\n" +
-        "백테스트를 시작할까요?"
+    ).toBe("조건으로 인해 대상 종목이 존재하지 않을 수 있습니다.");
+  });
+
+  it("누락 조건 응답에서 불완전 전략의 실행을 권유하지 않는다", () => {
+    const message = normalizeCoachMessage(
+      '{"is_valid":false,"issues":[{"category":"missing_field","field":"take_profit_pct"}]}',
+      "fallback",
     );
+
+    expect(message).not.toContain("현재 상태로도 백테스트를 실행할 수 있습니다");
+    expect(message).not.toContain("백테스트를 시작할까요");
   });
 
   it("falls back when the value is empty or not text", () => {

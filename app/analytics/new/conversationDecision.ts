@@ -410,6 +410,16 @@ function buildStrategyInputDecision(
   };
 }
 
+function isNamedStockStrategyRequest(
+  prompt: string,
+  symbol: string | null,
+): boolean {
+  return Boolean(
+    symbol &&
+    /(?:전략|백테스트|시뮬레이션|모의\s*투자)/i.test(prompt),
+  );
+}
+
 function fallbackMessage(intent: SemanticIntent): string {
   if (intent === "GREETING") {
     return "안녕하세요. 오늘은 어떤 전략을 연구해 볼까요?";
@@ -591,6 +601,13 @@ export function decideConversationTurn(
     (intent === "STOCK_PICK" || intent === "STRATEGY_PICK" || intent === "ONBOARDING")
   ) {
     return buildStrategyInputDecision(prompt, context, "preserve_active_strategy");
+  }
+
+  if (
+    (intent === "STOCK_PICK" || intent === "STRATEGY_PICK") &&
+    isNamedStockStrategyRequest(prompt, symbol)
+  ) {
+    return buildStrategyInputDecision(prompt, context, "named_stock_strategy_request");
   }
 
   if (

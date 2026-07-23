@@ -153,7 +153,7 @@ describe("StrategyLab unknown intent fallback", () => {
       exit_signals: [{ indicator: "rsi" }],
       max_positions: 5,
       hold_period_days: 20,
-      rebalancing_period: "none",
+      rebalancing_period: "monthly",
       stop_loss_pct: 10,
       take_profit_pct: null,
       trailing_stop_pct: null,
@@ -174,6 +174,9 @@ describe("StrategyLab unknown intent fallback", () => {
       const url = String(input);
       if (url === "/api/model/status") return Promise.resolve(createJsonResponse({ status: "ready" }));
       if (url === "/api/user") return Promise.resolve(createJsonResponse({ user: { name: "Tester" } }));
+      if (url === "/api/query/classify") {
+        return Promise.resolve(createJsonResponse({ intent: "STRATEGY_ADVICE", symbols: [] }));
+      }
       if (url === "/api/strategy/builder/step") {
         const body = JSON.parse(String(init?.body));
         if (body.input === "") {
@@ -191,6 +194,39 @@ describe("StrategyLab unknown intent fallback", () => {
           backtest_request: backtestRequest,
           prompt: parsed.description,
         }));
+      }
+      if (url === "/api/strategy/parse/stream") {
+        const body = JSON.parse(String(init?.body));
+        expect(body.prompt).toBe("익절 20%");
+        const completedParsed = { ...parsed, take_profit_pct: 20 };
+        const completedRequest = {
+          ...backtestRequest,
+          risk: { ...backtestRequest.risk, take_profit_pct: 20 },
+        };
+        const encoder = new TextEncoder();
+        const payload = [
+          `data: ${JSON.stringify({
+            type: "parsed_final",
+            parsed: completedParsed,
+            clarification_question: null,
+            clarification_suggestions: null,
+          })}\n\n`,
+          `data: ${JSON.stringify({
+            type: "dsl_ready",
+            backtest_request: completedRequest,
+            symbol_count: 1,
+          })}\n\n`,
+          "data: [DONE]\n\n",
+        ].join("");
+        return Promise.resolve(new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(encoder.encode(payload));
+              controller.close();
+            },
+          }),
+          { status: 200 },
+        ));
       }
       if (url === "http://localhost:8000/optimize") {
         expect(JSON.parse(String(init?.body))).toMatchObject({
@@ -211,6 +247,18 @@ describe("StrategyLab unknown intent fallback", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
     fireEvent.click(await screen.findByRole("button", { name: "코스피" }));
+    expect(
+      await screen.findByText(
+        "익절 기준이 빠져 있습니다. 익절 기준을 몇 %로 설정할까요?",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "익절 10%" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "익절 20%" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "익절 30%" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "직접 입력" })).toBeInTheDocument();
+    expect(screen.queryByText(/현재 상태로도 백테스트를 실행할 수 있습니다/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "백테스트 시작하기" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "익절 20%" }));
     fireEvent.click(await screen.findByRole("button", { name: "손절라인" }));
     fireEvent.click(await screen.findByRole("button", { name: /\d+(?:\.\d+)? ~ \d+(?:\.\d+)?/ }));
     fireEvent.click(await screen.findByRole("button", { name: "이 범위로 계산" }));

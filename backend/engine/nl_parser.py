@@ -4728,13 +4728,13 @@ def detect_missing_entry_clarification(
 # 실행 버튼 대신 채우도록 가이드하는 되묻기를 낸다(프론트는 clarification이면 버튼을 숨김).
 # 진입은 신호뿐 아니라 랭킹·재무필터·지정 종목도 인정한다(사용자 확인 Q2). 청산은 손절/익절과
 # 별개의 매도 규칙(매도 신호·보유기간·정기 리밸런싱)을 뜻한다.
-_BACKTEST_MIN_CONDITION_INTRO = (
-    "백테스트를 실행하려면 아래 조건을 모두 채워야 해요. 하나씩 말씀해 주시면 전략에 반영할게요."
-)
+# [정책 2026-07-22b] 여러 조건이 한꺼번에 비어 있어도 한 번에 다 묻지 않고 하나씩만 묻는다
+# (사용자 지시). 프론트도 조건이 모두 채워지기 전엔 전략 요약을 만들지 않고, 마지막에만
+# 요약+실행 확인을 보여준다.
 
 
 def _missing_backtest_conditions(parsed: ParsedStrategy) -> list[tuple[str, str, list[str]]]:
-    """아직 비어 있는 백테스트 최소 조건만 (안내문, 대표 예시칩) 순서대로 반환한다."""
+    """아직 비어 있는 백테스트 최소 조건만 (질문, 대표 예시칩) 순서대로 반환한다."""
     has_universe = bool(
         getattr(parsed, "universe", None)
         or getattr(parsed, "target_symbols", None)
@@ -4761,42 +4761,39 @@ def _missing_backtest_conditions(parsed: ParsedStrategy) -> list[tuple[str, str,
 
     missing: list[tuple[str, str, list[str]]] = []
     if not has_universe:
-        missing.append(("유니버스 — 어떤 시장·종목을 대상으로 할지 정해주세요 "
-                        "(예: 코스피200, 코스닥 전체)", ["코스피200 대상으로"]))
+        missing.append(("어떤 시장·종목을 대상으로 할까요?\n\n예: 코스피200, 코스닥 전체",
+                        ["코스피200 대상으로", "코스닥 전체 대상으로"]))
     if not has_entry:
-        missing.append(("진입 조건 — 어떤 조건에서 매수할지 정해주세요 "
-                        "(예: 골든크로스 발생 시 매수, PBR 1 이하)", ["골든크로스 발생 시 매수"]))
+        missing.append(("어떤 조건에서 매수할까요?\n\n예: 골든크로스 발생 시 매수, PBR 1 이하",
+                        ["골든크로스 발생 시 매수", "PBR 1 이하"]))
     if not has_exit:
-        missing.append(("청산 조건 — 언제 팔지 정해주세요 "
-                        "(예: 데드크로스 발생 시 매도, 20일 보유 후 청산)", ["20일 보유 후 청산"]))
+        missing.append(("청산 조건 — 언제 팔까요?\n\n예: 데드크로스 발생 시 매도, 20일 보유 후 청산",
+                        ["20일 보유 후 청산", "데드크로스 발생 시 매도"]))
     if not is_single_asset and not has_rebalancing:
-        missing.append(("리밸런싱 — 포트폴리오 교체 주기를 정해주세요 "
-                        "(예: 매월, 분기마다)", ["매월 리밸런싱", "분기마다 리밸런싱"]))
+        missing.append(("포트폴리오 교체 주기(리밸런싱)는 얼마로 할까요?\n\n예: 매월, 분기마다",
+                        ["매월 리밸런싱", "분기마다 리밸런싱"]))
     if not has_stop:
-        missing.append(("손절 — 손실을 제한할 비율을 정해주세요 (예: 손절 10%)", ["손절 10%"]))
+        missing.append(("손절 — 손실을 제한할 비율을 정해주세요 (예: 손절 10%, 손절 5%)",
+                        ["손절 10%", "손절 5%"]))
     if not has_take:
-        missing.append(("익절 — 목표 수익 비율을 정해주세요 (예: 익절 20%)", ["익절 20%"]))
+        missing.append(("익절 — 목표 수익 비율을 정해주세요 (예: 익절 20%, 익절 10%)",
+                        ["익절 20%", "익절 10%"]))
     return missing
 
 
 def detect_incomplete_backtest_conditions(
     parsed: ParsedStrategy, user_prompt: str = ""
 ) -> tuple[Optional[str], Optional[List[str]]]:
-    """백테스트 최소 조건이 하나라도 비어 있으면 채우도록 가이드하는 되묻기를 낸다.
+    """백테스트 최소 조건이 비어 있으면, 가장 먼저 비어 있는 조건 하나만 채우도록 되묻는다.
 
-    (None, None)이면 다섯 조건이 모두 충족돼 실행 가능하다는 뜻이다. clarification이 뜨면
-    프론트는 실행 버튼을 숨기고 안내 칩을 보여준다(runButtonPlacement)."""
+    한꺼번에 다 나열하지 않고 하나씩 순서대로 묻는다 — 답할 때마다 재파싱되어 다음 호출에서
+    자연히 다음 조건을 묻게 된다. (None, None)이면 다섯 조건이 모두 충족돼 실행 가능하다는
+    뜻이다. clarification이 뜨는 동안 프론트는 전략 요약을 만들지 않고 실행 버튼도 숨긴다."""
     missing = _missing_backtest_conditions(parsed)
     if not missing:
         return (None, None)
-    lines = [_BACKTEST_MIN_CONDITION_INTRO, ""]
-    lines.extend(f"• {guide}" for guide, _ in missing)
-    suggestions: list[str] = []
-    for _, chips in missing:
-        for chip in chips:
-            if chip not in suggestions:
-                suggestions.append(chip)
-    return ("\n".join(lines), suggestions)
+    question, chips = missing[0]
+    return (question, list(chips))
 
 
 def validate_parsed_strategy(

@@ -2284,14 +2284,16 @@ def test_missing_entry_clarification_skipped_for_single_asset():
 
 def test_incomplete_backtest_conditions_gate():
     """[정책] 백테스트 최소 조건(유니버스·진입·청산·손절·익절)이 하나라도 없으면 채우도록
-    되묻는다. 진입은 랭킹/지정 종목도 인정한다(Q2)."""
+    되묻는다. 진입은 랭킹/지정 종목도 인정한다(Q2). 여러 조건이 비어 있어도 한 번에 다
+    묻지 않고 가장 먼저 비어 있는 조건 하나만 묻는다(2026-07-22b 정책)."""
     from engine.nl_parser import detect_incomplete_backtest_conditions, ParsedStrategy
 
-    # 단일 종목(진입=지정종목 인정, 유니버스=지정종목 인정) → 청산·손절·익절만 요구
+    # 단일 종목(진입=지정종목 인정, 유니버스=지정종목 인정) → 청산·손절·익절이 비어 있지만
+    # 가장 먼저인 청산만 묻는다.
     single = ParsedStrategy(description="삼성전자", target_symbols=["005930"])
     q, chips = detect_incomplete_backtest_conditions(single, "삼성전자 투자 하는 전략")
-    assert q is not None and "청산" in q and "손절" in q and "익절" in q
-    assert chips == ["20일 보유 후 청산", "손절 10%", "익절 20%"]
+    assert q is not None and "청산" in q and "손절" not in q and "익절" not in q
+    assert chips == ["20일 보유 후 청산", "데드크로스 발생 시 매도"]
 
 
 def test_incomplete_backtest_conditions_complete_strategy_runs():
@@ -2333,7 +2335,8 @@ def test_incomplete_backtest_conditions_rebalancing_required_for_universe():
 
 
 def test_incomplete_backtest_conditions_momentum_entry_recognized():
-    """모멘텀 랭킹·정기 리밸런싱은 진입(랭킹)·청산(리밸런싱)으로 인정 → 손절·익절만 요구(Q2)."""
+    """모멘텀 랭킹·정기 리밸런싱은 진입(랭킹)·청산(리밸런싱)으로 인정 → 손절·익절이 남지만
+    가장 먼저인 손절만 묻는다(Q2 + 하나씩 묻기 정책)."""
     from engine.nl_parser import detect_incomplete_backtest_conditions, ParsedStrategy
 
     momentum = ParsedStrategy(
@@ -2341,8 +2344,8 @@ def test_incomplete_backtest_conditions_momentum_entry_recognized():
         rebalancing_period="monthly",
     )
     q, chips = detect_incomplete_backtest_conditions(momentum, "")
-    assert q is not None
-    assert chips == ["손절 10%", "익절 20%"]  # 진입·청산·리밸런싱은 충족
+    assert q is not None and "손절" in q and "익절" not in q
+    assert chips == ["손절 10%", "손절 5%"]  # 진입·청산·리밸런싱은 충족, 남은 것 중 손절이 먼저
 
 
 def test_missing_entry_clarification_asks_numbers_for_qualitative_metrics():

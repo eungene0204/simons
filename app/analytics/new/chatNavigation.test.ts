@@ -70,6 +70,21 @@ describe("selectPersistableChatMessages", () => {
 
     expect(selectPersistableChatMessages(messages)).toHaveLength(4);
   });
+
+  it("keeps the active builder question marker across session restoration", () => {
+    const result = selectPersistableChatMessages([
+      {
+        role: "assistant",
+        infoText: "마지막으로 청산 조건을 정해 주세요.",
+        builderQuestion: true,
+      },
+    ]);
+
+    expect(result[0]).toMatchObject({
+      builderQuestion: true,
+      infoText: "마지막으로 청산 조건을 정해 주세요.",
+    });
+  });
 });
 
 describe("shouldShowChatInputBox", () => {

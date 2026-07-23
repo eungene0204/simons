@@ -63,6 +63,7 @@ type PersistableChatMessage = {
   clarification?: string;
   isLoading?: boolean;
   coachLoading?: boolean;
+  builderQuestion?: boolean;
 };
 
 // 채팅 상태를 세션에 저장하기 전 메시지를 정리한다.

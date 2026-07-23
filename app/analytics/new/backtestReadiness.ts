@@ -6,13 +6,26 @@
 
 import type { ParsedSummary } from "@/lib/strategy-summary";
 
+export type MissingBacktestCondition = {
+  field: "universe" | "entry" | "exit" | "rebalancing" | "stop_loss" | "take_profit";
+  question: string;
+  suggestions: string[];
+};
+
 function nonEmpty(value: unknown): boolean {
   return Array.isArray(value) ? value.length > 0 : Boolean(value);
 }
 
-export function isBacktestReady(parsed: ParsedSummary | undefined | null): boolean {
-  if (!parsed) return false;
-
+export function getNextMissingBacktestCondition(
+  parsed: ParsedSummary | undefined | null,
+): MissingBacktestCondition | null {
+  if (!parsed) {
+    return {
+      field: "universe",
+      question: "대상 시장·종목이 빠져 있습니다. 어떤 시장·종목을 대상으로 할까요?",
+      suggestions: ["코스피200 대상으로", "코스피 대상으로", "코스닥 대상으로"],
+    };
+  }
   const hasUniverse =
     nonEmpty(parsed.universe) || nonEmpty(parsed.target_symbols) || nonEmpty(parsed.sector);
   const hasEntry =
@@ -30,5 +43,52 @@ export function isBacktestReady(parsed: ParsedSummary | undefined | null): boole
   const isSingleAsset = nonEmpty(parsed.target_symbols);
   const rebalancingOk = isSingleAsset || hasRebalancing;
 
-  return hasUniverse && hasEntry && hasExit && hasStop && hasTake && rebalancingOk;
+  if (!hasUniverse) {
+    return {
+      field: "universe",
+      question: "대상 시장·종목이 빠져 있습니다. 어떤 시장·종목을 대상으로 할까요?",
+      suggestions: ["코스피200 대상으로", "코스피 대상으로", "코스닥 대상으로"],
+    };
+  }
+  if (!hasEntry) {
+    return {
+      field: "entry",
+      question: "매수 조건이 빠져 있습니다. 어떤 조건에서 매수할까요?",
+      suggestions: ["골든크로스 발생 시 매수", "PBR 1 이하", "RSI 30 이하에서 매수"],
+    };
+  }
+  if (!hasExit) {
+    return {
+      field: "exit",
+      question: "청산 조건이 빠져 있습니다. 어떤 조건에서 청산할까요?",
+      suggestions: ["데드크로스 발생 시 매도", "20일 보유 후 청산", "RSI 70 이상에서 매도"],
+    };
+  }
+  if (!rebalancingOk) {
+    return {
+      field: "rebalancing",
+      question:
+        "리밸런싱 주기가 빠져 있습니다. 포트폴리오를 얼마나 자주 다시 구성할까요?",
+      suggestions: ["매주 리밸런싱", "매월 리밸런싱", "분기마다 리밸런싱"],
+    };
+  }
+  if (!hasStop) {
+    return {
+      field: "stop_loss",
+      question: "손절 기준이 빠져 있습니다. 손절 기준을 몇 %로 설정할까요?",
+      suggestions: ["손절 5%", "손절 10%", "손절 15%"],
+    };
+  }
+  if (!hasTake) {
+    return {
+      field: "take_profit",
+      question: "익절 기준이 빠져 있습니다. 익절 기준을 몇 %로 설정할까요?",
+      suggestions: ["익절 10%", "익절 20%", "익절 30%"],
+    };
+  }
+  return null;
+}
+
+export function isBacktestReady(parsed: ParsedSummary | undefined | null): boolean {
+  return parsed != null && getNextMissingBacktestCondition(parsed) === null;
 }

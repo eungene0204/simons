@@ -64,7 +64,10 @@ import {
   type SemanticClassification,
   type StrategyAssumptions,
 } from "./conversationDecision";
-import { isBacktestReady } from "./backtestReadiness";
+import {
+  getNextMissingBacktestCondition,
+  isBacktestReady,
+} from "./backtestReadiness";
 import { normalizeCoachMessage } from "./coachMessage";
 import { parseCoachSegments } from "./coachText";
 import { runButtonPlacement } from "./runButtonPlacement";
@@ -78,6 +81,7 @@ import {
   shouldShowChatInputBox,
 } from "./chatNavigation";
 import { selectClassifierHistory } from "./chatHistory";
+import { applyParsedValueStrategySeed } from "./builderSeed";
 
 const BacktestDashboard = dynamic(
   () => import("@/components/strategy/backtest/BacktestDashboard"),
@@ -115,6 +119,7 @@ interface ChatMessage {
   error?: string;
   infoText?: string;  // 일반 투자 답변 또는 전략 전환 안내
   infoSuggestions?: string[];  // 전략 빌더 옵션 칩(클릭 시 그 답으로 전송)
+  builderQuestion?: boolean;  // 복원 후에도 진행 중인 빌더 질문임을 식별
   // 전략 요약을 막지 않는 보정 안내(예: 초기자금 하한선 보정). 요약 카드와 함께 표시된다.
   notices?: string[];
 }
@@ -123,6 +128,155 @@ type MetricOptimizationProgressState = {
   startedAt: number;
   totalTrials: number;
 };
+
+type SingleAssetBuilderContext = {
+  symbol: string;
+  label: string;
+  builderUniverse: "KOSPI" | "KOSDAQ" | "KOSPI200" | "KOSPI_KOSDAQ" | "ETF";
+};
+
+type BuilderConfirmedData = {
+  parsed: ParsedSummary;
+  backtest_request: any;
+  prompt?: string;
+  notices?: string[];
+};
+
+const BUILDER_SLOT_KEYS = [
+  "universe",
+  "sector",
+  "strategy_type",
+  "lookback_days",
+  "lookback_label",
+  "holding_count",
+  "rebalance_cycle",
+  "entry_rule",
+  "rsi_period",
+  "rsi_oversold",
+  "rsi_overbought",
+  "ma_kind",
+  "ma_short",
+  "ma_long",
+  "macd_mode",
+  "cci_period",
+  "cci_threshold",
+  "volume_period",
+  "value_pbr",
+  "value_roe",
+  "filters_asked",
+  "trend_filter_ma",
+  "liquidity_min",
+  "rsi_filter",
+  "stop_loss_pct",
+  "take_profit_pct",
+  "trailing_stop_pct",
+  "hold_period_days",
+  "risk_done",
+] as const;
+
+function hasBuilderSlotValue(value: unknown): boolean {
+  return value !== null && value !== undefined && value !== "" && value !== false;
+}
+
+function mergeBuilderState(
+  previous: Record<string, any>,
+  next: Record<string, any> | null | undefined,
+): Record<string, any> {
+  const merged = { ...previous, ...(next ?? {}) };
+  for (const key of BUILDER_SLOT_KEYS) {
+    if (hasBuilderSlotValue(previous[key]) && !hasBuilderSlotValue(next?.[key])) {
+      merged[key] = previous[key];
+    }
+  }
+  return merged;
+}
+
+function hasActiveBuilderQuestion(messages: ChatMessage[]): boolean {
+  const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
+  return lastAssistant?.builderQuestion === true;
+}
+
+function hasBuilderProgress(state: Record<string, any>): boolean {
+  return BUILDER_SLOT_KEYS.some((key) => hasBuilderSlotValue(state[key]));
+}
+
+function getSingleAssetBuilderContext(
+  parsed?: ParsedSummary | null,
+  backtestRequest?: {
+    target_stocks?: Array<{ symbol: string; name?: string }> | null;
+  } | null,
+): SingleAssetBuilderContext | null {
+  const targetSymbols = parsed?.target_symbols?.filter(Boolean) ?? [];
+  if (targetSymbols.length !== 1) return null;
+
+  const symbol = targetSymbols[0];
+  const targetStock = backtestRequest?.target_stocks?.find((stock) => stock.symbol === symbol);
+  const label = targetStock?.name ? `${targetStock.name} (${symbol})` : symbol;
+  const parsedUniverse = parsed?.universe?.[0];
+  const builderUniverse =
+    parsedUniverse === "KOSPI" ||
+    parsedUniverse === "KOSDAQ" ||
+    parsedUniverse === "KOSPI200" ||
+    parsedUniverse === "ETF"
+      ? parsedUniverse
+      : "KOSPI_KOSDAQ";
+
+  return { symbol, label, builderUniverse };
+}
+
+function buildSingleAssetBuilderPrompt(
+  prompt: string,
+  context: SingleAssetBuilderContext,
+): string {
+  const strategyBody = prompt.replace(
+    /^(?:코스피·코스닥 전체|코스피200|코스피|코스닥|ETF)(?:\s+[^,]+?\s+업종)?\s+종목 중\s+/,
+    "",
+  );
+  return `${context.label} 단일 종목에 적용하는 전략: ${strategyBody}`;
+}
+
+function mergeSingleAssetBuilderResult(
+  data: {
+    parsed: ParsedSummary;
+    backtest_request: any;
+    prompt?: string;
+    notices?: string[];
+  },
+  context: SingleAssetBuilderContext,
+  currentParsed: ParsedSummary,
+  currentBacktestRequest: any,
+) {
+  const targetStock = currentBacktestRequest?.target_stocks?.find(
+    (stock: { symbol: string }) => stock.symbol === context.symbol,
+  );
+
+  return {
+    ...data,
+    parsed: {
+      ...data.parsed,
+      description: data.prompt
+        ? buildSingleAssetBuilderPrompt(data.prompt, context)
+        : data.parsed.description,
+      universe: currentParsed.universe,
+      target_symbols: [context.symbol],
+      max_positions: 1,
+      rebalancing_period: "none",
+    },
+    backtest_request: {
+      ...data.backtest_request,
+      symbols: [context.symbol],
+      universe_id: null,
+      backtest_mode: "single_asset",
+      target_stocks: targetStock ? [targetStock] : [{ symbol: context.symbol }],
+      risk: {
+        ...(data.backtest_request?.risk ?? {}),
+        max_positions: 1,
+        position_size_pct: 100,
+        ranking_enabled: false,
+      },
+    },
+  };
+}
 
 function formatElapsedTime(startedAt: number, now: number): string {
   const totalSeconds = Math.max(0, Math.floor((now - startedAt) / 1000));
@@ -263,6 +417,11 @@ const MIN_VALIDATION_DELAY_MS = 2400;
 // Choice-only prompts can reopen the shared chat input without sending another answer.
 const FREE_INPUT_CHIP = "직접 입력";
 
+function withFreeInputSuggestion(suggestions: string[] | undefined): string[] | undefined {
+  if (!suggestions?.length || suggestions.includes(FREE_INPUT_CHIP)) return suggestions;
+  return [...suggestions, FREE_INPUT_CHIP];
+}
+
 const sleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 
 async function enforceMinValidationDelay(startedAt: number) {
@@ -321,6 +480,15 @@ const ANALYSIS_STAGE_LABEL: Record<"parsing" | "thinking" | "validating", string
   validating: "검증 중...",
 };
 
+function PulsingDot({ className = "" }: { className?: string }) {
+  return (
+    <span className={`relative inline-flex h-2.5 w-2.5 flex-shrink-0 ${className}`}>
+      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-75" />
+      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-sky-400" />
+    </span>
+  );
+}
+
 function AnalysisStatusBubble({
   title,
   stage,
@@ -335,6 +503,7 @@ function AnalysisStatusBubble({
       style={SOFT_MESSAGE_ENTER_LATE_STYLE}
     >
       <div className="flex items-center gap-2">
+        <PulsingDot />
         {title && (
           <span className="text-[11px] font-black uppercase tracking-widest text-white">
             {title}
@@ -679,6 +848,8 @@ function StrategyLabContent() {
   // 짧은 답변을 전략 필드로 누적하는 동안 true. 상태는 백엔드 step에 그대로 재전송한다.
   const builderModeRef = useRef(false);
   const builderStateRef = useRef<Record<string, any>>({});
+  const applyBuilderConfirmedStrategyRef =
+    useRef<(data: BuilderConfirmedData) => void>();
   const pendingHoldingPeriodPromptRef = useRef<string | null>(null);
   const pendingHoldingPeriodHorizonRef = useRef<HoldingPeriodHorizon | null>(null);
   const pendingMetricResearchPromptRef = useRef<string | null>(null);
@@ -977,14 +1148,14 @@ function StrategyLabContent() {
     return null;
   };
 
-  // 열린 종목 추천(STOCK_PICK) 전환 직후, 사용자의 후속 입력을 기다리지 않고 곧바로
-  // 전략 빌더의 첫 질문(시장 선택)을 띄운다. 질문·옵션 칩은 백엔드 빌더가 단일 출처로
-  // 결정하므로(빈 입력 step = 현재 질문 조회) 프론트에서 하드코딩하지 않는다.
+  // Start the builder immediately. For a recognized single asset, prefill its
+  // universe internally and move straight to the entry-condition question.
   const startStrategyBuilder = async (
-    { reuseExisting = false, seedText, seedParsed, researchMetric }: {
+    { reuseExisting = false, seedText, seedParsed, seedBacktestRequest, researchMetric }: {
       reuseExisting?: boolean;
       seedText?: string;
       seedParsed?: ParsedSummary | null;
+      seedBacktestRequest?: any;
       researchMetric?: ResearchMetric | null;
     } = {},
   ) => {
@@ -995,38 +1166,122 @@ function StrategyLabContent() {
     // seedParsed: 파싱 파이프라인(룰→LLM 검증→LLM 폴백)이 이미 해석한 결과. 결정적 시드가
     // 놓친 필드(sector 등)를 빌더가 이어받아, 긴 꼬리 표현마다 regex를 늘리지 않게 한다.
     if (!reuseExisting) {
-      await appendAssistant({ role: "assistant", isLoading: true });
+      await appendAssistant({ role: "assistant", isLoading: true, builderQuestion: true });
     }
+    const singleAssetContext = getSingleAssetBuilderContext(
+      seedParsed,
+      seedBacktestRequest ?? backtestReqRef.current,
+    );
     try {
-      const res = await fetch("/api/strategy/builder/step", {
+      const requestBuilderStep = (state: Record<string, any>) => fetch("/api/strategy/builder/step", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          state: builderStateRef.current,
+          state,
           input: "",
           seed: seedText,
           ...(seedParsed ? { seed_parsed: seedParsed } : {}),
         }),
       });
+
+      const initialState = builderStateRef.current;
+      const res = await requestBuilderStep(initialState);
       if (!res.ok) throw new Error();
-      const data = await res.json();
-      builderStateRef.current = data.state ?? {};
+      let data = await res.json();
+      let nextState = mergeBuilderState(initialState, data.state);
+
+      const valueStrategyState = applyParsedValueStrategySeed(nextState, seedParsed);
+      if (valueStrategyState !== nextState && data.status !== "confirmed") {
+        const nextRes = await requestBuilderStep(valueStrategyState);
+        if (!nextRes.ok) throw new Error();
+        data = await nextRes.json();
+        nextState = mergeBuilderState(valueStrategyState, data.state);
+      }
+
+      if (singleAssetContext && data.status !== "confirmed") {
+        const singleAssetState = {
+          ...nextState,
+          universe: nextState.universe ?? singleAssetContext.builderUniverse,
+          holding_count: 1,
+          rebalance_cycle: nextState.rebalance_cycle ?? "none",
+        };
+        const nextRes = await requestBuilderStep(singleAssetState);
+        if (!nextRes.ok) throw new Error();
+        data = await nextRes.json();
+        nextState = mergeBuilderState(singleAssetState, data.state);
+      }
+
+      builderStateRef.current = nextState;
+      if (
+        data.status === "confirmed" &&
+        data.parsed &&
+        data.backtest_request &&
+        applyBuilderConfirmedStrategyRef.current
+      ) {
+        const confirmedData =
+          singleAssetContext && seedParsed
+            ? mergeSingleAssetBuilderResult(
+                data,
+                singleAssetContext,
+                seedParsed,
+                seedBacktestRequest ?? backtestReqRef.current,
+              )
+            : data;
+        builderModeRef.current = false;
+        builderStateRef.current = {};
+        updateLastAssistant({
+          isLoading: false,
+          infoText: undefined,
+          infoSuggestions: undefined,
+          builderQuestion: false,
+        });
+        applyBuilderConfirmedStrategyRef.current(confirmedData);
+        return;
+      }
       const activeResearchMetric = researchMetric ?? researchMetricRef.current;
+      const isChoosingSingleAssetEntry =
+        Boolean(singleAssetContext) && !builderStateRef.current.strategy_type;
+      const reply = isChoosingSingleAssetEntry
+        ? `${singleAssetContext?.label} 단일 종목 전략으로 설정했습니다. 어떤 진입 조건을 사용할까요?`
+        : data.reply;
+      const suggestions = withFreeInputSuggestion(
+        isChoosingSingleAssetEntry
+          ? ["골든크로스", "MACD", "돌파", "거래량 급증", "과매도 반등", "직접 설명하기"]
+          : data.suggestions,
+      );
       updateLastAssistant({
         isLoading: false,
         infoText: activeResearchMetric
-          ? `${buildResearchMetricIntro(activeResearchMetric)}\n\n${data.reply}`
-          : data.reply,
-        infoSuggestions: data.suggestions?.length ? data.suggestions : undefined,
+          ? `${buildResearchMetricIntro(activeResearchMetric)}\n\n${reply}`
+          : reply,
+        infoSuggestions: suggestions?.length ? suggestions : undefined,
+        builderQuestion: true,
       });
     } catch {
       // 호출 실패 시 거절하지 않는다 — 빌더 모드는 유지되어 다음 입력부터 정상 진행된다.
       const activeResearchMetric = researchMetric ?? researchMetricRef.current;
+      if (singleAssetContext) {
+        builderStateRef.current = {
+          ...builderStateRef.current,
+          universe: singleAssetContext.builderUniverse,
+          holding_count: 1,
+          rebalance_cycle: "none",
+        };
+      }
+      const fallbackQuestion = singleAssetContext
+        ? `${singleAssetContext.label} 단일 종목 전략으로 설정했습니다. 어떤 진입 조건을 사용할까요?`
+        : "어떤 시장을 대상으로 할까요?";
       updateLastAssistant({
         isLoading: false,
         infoText: activeResearchMetric
-          ? `${buildResearchMetricIntro(activeResearchMetric)}\n\n어떤 시장을 대상으로 할까요?`
-          : "어떤 시장을 대상으로 할까요?",
+          ? `${buildResearchMetricIntro(activeResearchMetric)}\n\n${fallbackQuestion}`
+          : fallbackQuestion,
+        infoSuggestions: singleAssetContext
+          ? withFreeInputSuggestion(
+              ["골든크로스", "MACD", "돌파", "거래량 급증", "과매도 반등", "직접 설명하기"],
+            )
+          : undefined,
+        builderQuestion: true,
       });
     }
   };
@@ -1244,9 +1499,9 @@ function StrategyLabContent() {
     let buffer = "";
     let parsedPayload: any = null;
     let finalizedParsed: ParsedSummary | null = null;
-    // 최초 파싱에서 진입 규칙을 못 잡아 되묻는 경우. 이때는 코치를 돌리지 않는다
-    // (불완전한 전략을 평가하면 안내 박스와 모순됨).
+    let finalizedBacktestRequest: any = null;
     let parseClarification: string | null = null;
+    let shouldRouteIncompleteStrategyToBuilder = false;
 
     // 요약 카드 메시지를 인덱스로 고정한다. 후행 검증 교정(parsed_updated)이 도착할 때는
     // 이미 코치 버블이 뒤에 추가돼 있으므로, updateLastAssistant로는 코치 버블을 덮어쓴다.
@@ -1268,7 +1523,13 @@ function StrategyLabContent() {
     // ([DONE])를 기다리지 않는다.
     let coachStarted = false;
     const maybeStartCoachValidation = () => {
-      if (coachStarted || !finalizedParsed || parseClarification || researchMetricRef.current) return;
+      if (
+        coachStarted ||
+        !finalizedParsed ||
+        parseClarification ||
+        shouldRouteIncompleteStrategyToBuilder ||
+        researchMetricRef.current
+      ) return;
       coachStarted = true;
       setMessages(prev => [...prev, { role: "assistant", coachLoading: true, coachText: "" }]);
       generateCoachResponse({ userText: promptText, parsed: finalizedParsed });
@@ -1309,6 +1570,7 @@ function StrategyLabContent() {
       coachSessionIdRef.current = null;
       // 전략을 수정해도 코치 대화 기록은 유지한다 — 이미 설명한 전문용어를 다시 설명하지 않도록.
       finalizedParsed = nextParsed;
+      finalizedBacktestRequest = nextBacktestReq;
       setLatestParsed(nextParsed);
       setBacktestReq(nextBacktestReq);
       setCurrentOptions({
@@ -1319,15 +1581,18 @@ function StrategyLabContent() {
       });
       setStage("ready");
 
-      // The backend owns clarification decisions; the UI only renders the returned payload.
       const clarificationText = parsedPayload.clarification_question ?? null;
       const clarificationSuggestions = clarificationText
         ? parsedPayload.clarification_suggestions
         : undefined;
       parseClarification = clarificationText;
+      shouldRouteIncompleteStrategyToBuilder = !isBacktestReady(nextParsed);
       const optimizationDraft = researchMetricRef.current && !clarificationText && nextBacktestReq
         ? prepareMetricOptimization(nextBacktestReq)
         : null;
+      if (shouldRouteIncompleteStrategyToBuilder) {
+        return;
+      }
       applySummaryPatch({
         isLoading: false,
         infoText: researchMetricRef.current
@@ -1388,6 +1653,17 @@ function StrategyLabContent() {
       }
     }
 
+    if (shouldRouteIncompleteStrategyToBuilder && finalizedParsed) {
+      builderModeRef.current = true;
+      await startStrategyBuilder({
+        reuseExisting: true,
+        seedText: promptText,
+        seedParsed: finalizedParsed,
+        seedBacktestRequest: finalizedBacktestRequest,
+      });
+      return;
+    }
+
     // 스트림이 끝난 시점에도 아직 코치가 시작되지 않았으면(예: dsl_ready 없이 종료) 착수한다.
     maybeStartCoachValidation();
   };
@@ -1395,12 +1671,7 @@ function StrategyLabContent() {
   // [전략별 특화 빌더] 빌더가 DSL을 직접 구성해 내려준 완성 전략을 한국어 재파싱 왕복 없이
   // 그대로 적용한다(파라미터 유실 방지). parsed는 ParsedStrategy dump = ParsedSummary와 동형,
   // backtest_request는 엔진 요청. runStrategyParseFlow.finalizeParse의 적용부와 동일한 효과.
-  const applyBuilderConfirmedStrategy = (data: {
-    parsed: ParsedSummary;
-    backtest_request: any;
-    prompt?: string;
-    notices?: string[];
-  }) => {
+  const applyBuilderConfirmedStrategy = (data: BuilderConfirmedData) => {
     coachSessionIdRef.current = null;
     setLatestParsed(data.parsed);
     setBacktestReq(data.backtest_request);
@@ -1411,6 +1682,19 @@ function StrategyLabContent() {
       slippagePct: 0.05,
     });
     setStage("ready");
+    const missingCondition = getNextMissingBacktestCondition(data.parsed);
+    if (missingCondition) {
+      updateLastAssistant({
+        isLoading: false,
+        infoText: undefined,
+        infoSuggestions: undefined,
+        parsed: data.parsed,
+        clarification: missingCondition.question,
+        clarificationSuggestions: missingCondition.suggestions,
+        notices: data.notices?.length ? data.notices : undefined,
+      });
+      return;
+    }
     const optimizationDraft = researchMetricRef.current
       ? prepareMetricOptimization(data.backtest_request)
       : null;
@@ -1433,6 +1717,7 @@ function StrategyLabContent() {
     setMessages(prev => [...prev, { role: "assistant", coachLoading: true, coachText: "" }]);
     generateCoachResponse({ userText: data.prompt ?? data.parsed.description, parsed: data.parsed });
   };
+  applyBuilderConfirmedStrategyRef.current = applyBuilderConfirmedStrategy;
 
   const handleSend = async (overrideText?: string) => {
     const userText = overrideText ?? inputValue.trim();
@@ -1467,11 +1752,19 @@ function StrategyLabContent() {
       return;
     }
 
+    const restoredBuilderQuestion = hasActiveBuilderQuestion(messages);
+    const restoredBuilderProgress = hasBuilderProgress(builderStateRef.current);
+    if (restoredBuilderQuestion || restoredBuilderProgress) {
+      builderModeRef.current = true;
+    }
     const conversationContext = {
       stage,
       hasBacktestRequest: Boolean(currentBacktestReq),
       hasCurrentStrategy: Boolean(currentParsed),
-      builderMode: builderModeRef.current,
+      builderMode:
+        builderModeRef.current ||
+        restoredBuilderQuestion ||
+        restoredBuilderProgress,
       lastCoachText: lastCoachText(),
       pendingHoldingPeriodPrompt: pendingHoldingPeriodPromptRef.current,
       pendingHoldingPeriodHorizon: pendingHoldingPeriodHorizonRef.current,
@@ -1538,33 +1831,77 @@ function StrategyLabContent() {
 
     // 분류/파싱 호출 전에 '분석 중...' 로딩을 즉시 보여준다 (딜레이 동안 사용자 피드백 제공).
     // 이후 분기들은 이 버블을 updateLastAssistant로 변형해 재사용한다(새 버블 생성 금지).
-    await appendAssistant({ role: "assistant", isLoading: true });
+    await appendAssistant({
+      role: "assistant",
+      isLoading: true,
+      builderQuestion: turnDecision.action === "continue_builder",
+    });
 
     // 전략 빌더 모드: 짧은 답변을 전략 필드로 누적한다(분류/거절보다 먼저 실행).
     if (turnDecision.action === "continue_builder") {
       try {
+        const requestState = builderStateRef.current;
         const res = await fetch("/api/strategy/builder/step", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ state: builderStateRef.current, input: userText }),
+          body: JSON.stringify({ state: requestState, input: userText }),
         });
         if (!res.ok) throw new Error();
         const data = await res.json();
-        builderStateRef.current = data.state ?? {};
+        builderStateRef.current =
+          data.status === "reset" || data.status === "exited"
+            ? data.state ?? {}
+            : mergeBuilderState(requestState, data.state);
 
         if (data.status === "confirmed") {
           // 전략 완성 → 빌더 종료. 특화 빌더가 DSL(parsed+backtest_request)을 직접 내려주면
           // 재파싱 없이 그대로 적용하고, custom(자유 서술)만 프롬프트 재파싱 경로로 폴백한다.
+          const confirmedBuilderState = builderStateRef.current;
           builderModeRef.current = false;
-          builderStateRef.current = {};
-          updateLastAssistant({ isLoading: true, infoText: undefined });
+          updateLastAssistant({
+            isLoading: true,
+            infoText: undefined,
+            infoSuggestions: undefined,
+            builderQuestion: false,
+          });
           try {
+            const singleAssetContext = getSingleAssetBuilderContext(
+              currentParsed,
+              currentBacktestReq,
+            );
             if (data.parsed && data.backtest_request) {
-              applyBuilderConfirmedStrategy(data);
+              applyBuilderConfirmedStrategy(
+                singleAssetContext && currentParsed
+                  ? mergeSingleAssetBuilderResult(
+                      data,
+                      singleAssetContext,
+                      currentParsed,
+                      currentBacktestReq,
+                    )
+                  : data,
+              );
+              builderStateRef.current = {};
             } else if (data.prompt) {
-              await runStrategyParseFlow(data.prompt, null, null);
+              await runStrategyParseFlow(
+                singleAssetContext
+                  ? buildSingleAssetBuilderPrompt(data.prompt, singleAssetContext)
+                  : data.prompt,
+                singleAssetContext ? currentParsed : null,
+                singleAssetContext ? currentBacktestReq : null,
+              );
+              if (!builderModeRef.current) {
+                builderStateRef.current = {};
+              }
+            } else {
+              builderModeRef.current = true;
+              builderStateRef.current = confirmedBuilderState;
+              throw new Error("완성된 전략 결과가 비어 있습니다.");
             }
           } catch (e: any) {
+            if (!hasBuilderProgress(builderStateRef.current)) {
+              builderStateRef.current = confirmedBuilderState;
+            }
+            builderModeRef.current = true;
             updateLastAssistant({ isLoading: false, error: e.message ?? "알 수 없는 오류" });
           }
           setIsSending(false);
@@ -1580,13 +1917,15 @@ function StrategyLabContent() {
         updateLastAssistant({
           isLoading: false,
           infoText: data.reply,
-          infoSuggestions: data.suggestions?.length ? data.suggestions : undefined,
+          infoSuggestions: withFreeInputSuggestion(data.suggestions),
+          builderQuestion: data.status !== "exited",
         });
       } catch {
         // 빌더 호출 실패 시 거절하지 않고 자연스럽게 다시 묻는다.
         updateLastAssistant({
           isLoading: false,
           infoText: "조건을 한 번 더 말씀해 주시겠어요?",
+          builderQuestion: true,
         });
       }
       setIsSending(false);
@@ -2018,18 +2357,31 @@ function StrategyLabContent() {
     setMessages([]);
     setLatestParsed(null);
     setBacktestReq(null);
+    setCurrentOptions(null);
     setResult(null);
     setExecutedReq(null);
     setIsSending(false);
+    setInputValue("");
+    setBuilderFreeTextRequested(false);
+    latestParsedRef.current = null;
+    backtestReqRef.current = null;
     coachSessionIdRef.current = null;
     coachConversationRef.current = [];
     firstPromptRef.current = "";
+    lastAnalyzedSymbolRef.current = null;
+    builderModeRef.current = false;
+    builderStateRef.current = {};
+    pendingHoldingPeriodPromptRef.current = null;
+    pendingHoldingPeriodHorizonRef.current = null;
+    pendingMetricResearchPromptRef.current = null;
+    researchMetricRef.current = null;
     pendingPromptConsumedRef.current = false;
     metricOptimizationDraftRef.current = null;
     metricOptimizationAbortRef.current?.abort();
     metricOptimizationAbortRef.current = null;
     setMetricOptimizationProgress(null);
     try {
+      sessionStorage.removeItem(PENDING_STRATEGY_PROMPT_KEY);
       sessionStorage.removeItem(STRATEGY_CHAT_STATE_KEY);
     } catch {
       // 무시
@@ -2298,25 +2650,31 @@ function StrategyLabContent() {
                         )}
                         {msg.parsed && (
                           <>
-                            <ParsedSummaryBubble parsed={msg.parsed} backtestRequest={backtestReq} />
-                            {msg.notices && msg.notices.length > 0 && (
-                              <div className="flex flex-col gap-1.5" style={SOFT_MESSAGE_ENTER_LATE_STYLE}>
-                                {msg.notices.map((notice, ni) => (
-                                  <div
-                                    key={ni}
-                                    className="flex items-start gap-2.5 p-3 rounded-xl bg-[#111111] border border-white/10"
-                                  >
-                                    <Info size={13} className="text-yellow-400 flex-shrink-0 mt-0.5" weight="fill" />
-                                    <p className="text-xs font-bold text-gray-300 leading-relaxed whitespace-pre-line">
-                                      {notice}
-                                    </p>
+                            {/* 백테스트 최소 조건을 채우는 중(clarification 대기)에는 전략 요약을
+                                미리 보여주지 않는다 — 모든 조건에 답한 뒤 한 번에 요약을 만든다. */}
+                            {!msg.clarification && (
+                              <>
+                                <ParsedSummaryBubble parsed={msg.parsed} backtestRequest={backtestReq} />
+                                {msg.notices && msg.notices.length > 0 && (
+                                  <div className="flex flex-col gap-1.5" style={SOFT_MESSAGE_ENTER_LATE_STYLE}>
+                                    {msg.notices.map((notice, ni) => (
+                                      <div
+                                        key={ni}
+                                        className="flex items-start gap-2.5 p-3 rounded-xl bg-[#111111] border border-white/10"
+                                      >
+                                        <Info size={13} className="text-yellow-400 flex-shrink-0 mt-0.5" weight="fill" />
+                                        <p className="text-xs font-bold text-gray-300 leading-relaxed whitespace-pre-line">
+                                          {notice}
+                                        </p>
+                                      </div>
+                                    ))}
                                   </div>
-                                ))}
-                              </div>
+                                )}
+                              </>
                             )}
                             {isLastAssistant(i) && !msg.coachLoading && msg.clarification && (
                               <div
-                                className="flex flex-col gap-2.5 p-3.5 rounded-xl bg-[#111111] border border-green-400/40"
+                                className="flex flex-col gap-2.5 p-3.5 rounded-xl bg-[#111111] border border-white/10"
                                 style={SOFT_MESSAGE_ENTER_LATE_STYLE}
                               >
                                 <div className="flex items-start gap-2.5">
@@ -2349,16 +2707,6 @@ function StrategyLabContent() {
                                 )}
                               </div>
                             )}
-                            {isLastAssistant(i) && stage === "ready" && runButtonPlacement(msg) === "summary" && isBacktestReady(msg.parsed) && (
-                              <button
-                                onClick={() => handleRunBacktest()}
-                                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-black transition-all duration-300 hover:shadow-[0_0_24px_rgba(59,130,246,0.4)]"
-                              >
-                                <ChartLineUp size={13} weight="fill" />
-                                백테스트 실행
-                                <ArrowRight size={11} />
-                              </button>
-                            )}
                             {isLastAssistant(i) && stage === "running" && (
                               <div className="flex items-center gap-2 px-1">
                                 <ArrowsClockwise size={13} className="text-sky-400 animate-spin flex-shrink-0" />
@@ -2371,8 +2719,10 @@ function StrategyLabContent() {
                           <div
                             className={`max-w-[88%] rounded-tl-sm p-3.5 space-y-2 ${COACH_CHAT_BUBBLE_CLASS}`}
                             style={SOFT_MESSAGE_ENTER_LATE_STYLE}
+                            data-testid="strategy-coach-bubble"
                           >
                             <div className="flex items-center gap-2">
+                              {msg.coachLoading && <PulsingDot />}
                               <span className="text-[11px] font-black uppercase tracking-widest text-white">
                                 전략 검증
                               </span>
@@ -2401,16 +2751,27 @@ function StrategyLabContent() {
                             )}
                           </div>
                         )}
-                        {isLastAssistant(i) && stage === "ready" && runButtonPlacement(msg) === "coach" && isBacktestReady(msg.parsed) && (
-                          <button
-                            onClick={() => handleRunBacktest()}
-                            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-black transition-all duration-300 hover:shadow-[0_0_24px_rgba(59,130,246,0.4)]"
-                          >
-                            <ChartLineUp size={13} weight="fill" />
-                            백테스트 실행
-                            <ArrowRight size={11} />
-                          </button>
-                        )}
+                        {isLastAssistant(i) &&
+                          backtestReq &&
+                          stage !== "running" &&
+                          !msg.clarification &&
+                          runButtonPlacement(msg) !== null &&
+                          isBacktestReady(msg.parsed ?? latestParsed) && (
+                            <div
+                              className="flex max-w-[88%] px-1"
+                              data-testid="backtest-action"
+                              style={SOFT_MESSAGE_ENTER_LATE_STYLE}
+                            >
+                              <button
+                                onClick={() => handleRunBacktest()}
+                                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-black transition-all duration-300 hover:shadow-[0_0_24px_rgba(59,130,246,0.4)]"
+                              >
+                                <ChartLineUp size={13} weight="fill" />
+                                백테스트 시작하기
+                                <ArrowRight size={11} />
+                              </button>
+                            </div>
+                          )}
                         {msg.error && (
                           <div
                             className="flex items-start gap-2.5 p-3.5 rounded-xl bg-[var(--error-red)]/10 border border-[var(--error-red)]/20"

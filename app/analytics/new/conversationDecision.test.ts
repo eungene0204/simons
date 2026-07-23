@@ -176,6 +176,23 @@ describe("decideConversationTurn", () => {
     });
   });
 
+  it("parses a named-stock strategy even when classification returns STOCK_PICK", () => {
+    const decision = decideConversationTurn(
+      "삼성전자에 투자 하는 전략",
+      baseContext,
+      {
+        intent: "STOCK_PICK",
+        symbol: "005930",
+      },
+    );
+
+    expect(decision).toMatchObject({
+      action: "parse_strategy",
+      reason: "named_stock_strategy_request",
+      strategyPrompt: "삼성전자에 투자 하는 전략",
+    });
+  });
+
   it("preserves an active strategy when semantic classification is ambiguous", () => {
     const decision = decideConversationTurn("장기전략으로 만들어 볼까?", {
       ...baseContext,
