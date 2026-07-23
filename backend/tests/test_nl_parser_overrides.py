@@ -4429,3 +4429,36 @@ def test_sector_validator_normalizes_llm_free_text():
     assert s.sector == "이차전지"
     s2 = ParsedStrategy(**{**base.model_dump(), "sector": "메타버스"})
     assert s2.sector is None
+
+
+# ─── 퍼징 QA(2026-07-24, docs/builder_fuzz_qa_report.md BF-16/BF-19) 회귀 ──────────
+
+def test_bf16_unsupported_indicator_concepts_detected():
+    """[BF-16] 이치모쿠·VWAP·PEG·PCR·피보나치·엘리엇·캔들패턴이 미지원 개념으로 감지돼
+    조용한 누락/안내 없는 LLM 폴백 대신 notices 안내로 이어진다."""
+    from engine.nl_parser import _mentioned_unsupported_concepts
+
+    cases = {
+        "이치모쿠 구름대 돌파 시 매수": "ichimoku",
+        "VWAP 위로 돌파하면 매수": "vwap",
+        "PEG 1 이하 종목": "peg",
+        "PCR 5 이하 종목": "cash_flow",
+        "피보나치 되돌림 61.8%에서 매수": "fibonacci",
+        "엘리엇 파동 3파에 매수": "elliott",
+        "망치형 캔들 나오면 매수": "candle_pattern",
+    }
+    for prompt, concept in cases.items():
+        assert concept in _mentioned_unsupported_concepts(prompt), prompt
+
+
+def test_bf19_korean_percent_notation_normalized_in_compact():
+    """[BF-19] '10 퍼센트'·'10프로'·'10퍼'가 %로 정규화돼 손절/익절이 유실되지 않는다."""
+    from engine.nl_parser import _compact, _parse_rule_based_strategy
+
+    assert _compact("손절은 10 퍼센트") == "손절은10%"
+    assert _compact("손절 10프로 익절 20퍼") == "손절10%익절20%"
+    parsed = _parse_rule_based_strategy(
+        "코스피 모멘텀 상위 10종목, 손절은 10 퍼센트 익절은 20 퍼센트"
+    )
+    assert parsed is not None
+    assert parsed.stop_loss_pct == 10.0 and parsed.take_profit_pct == 20.0

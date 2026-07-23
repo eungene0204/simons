@@ -851,6 +851,48 @@ def _coach_scope_guard(prompt: str) -> Optional[str]:
     return None
 
 
+def _single_asset_profile_block(symbol: str) -> str | None:
+    """단일 종목 프로파일을 코치 프롬프트용 압축 JSON으로 만든다(실패 시 None — 비차단).
+
+    LLM에는 결정론 서비스가 계산한 요약만 전달한다 — 원시 시계열·최적화 산출물 없음."""
+    try:
+        from engine.stock_profile import get_stock_profile
+
+        profile = get_stock_profile(symbol)
+        if profile is None:
+            return None
+        ohlcv = profile.data_coverage.get("ohlcv")
+        stats = profile.signal_statistics
+        signal_counts = {
+            k: stats.get(f"{k}_count")
+            for k in (
+                "golden_cross_5_20", "macd_buy_cross", "rsi_below_30", "rsi_below_20",
+                "bollinger_lower_touch", "breakout_60d", "volume_spike_3x",
+            )
+            if stats.get(f"{k}_count") is not None
+        }
+        return _stable_json({
+            "symbol": profile.symbol,
+            "name": profile.name,
+            "market": profile.market,
+            "sector": profile.sector,
+            "data_period": (
+                f"{ohlcv.start_date}~{ohlcv.end_date}" if ohlcv and ohlcv.available else None
+            ),
+            "supported_strategy_categories": sorted(profile.supported_strategy_categories),
+            "unsupported_features": sorted(profile.unsupported_features),
+            "signal_counts_total_period": signal_counts,
+            "historical": {
+                k: profile.historical_characteristics.get(k)
+                for k in ("annualized_volatility", "maximum_drawdown", "median_daily_turnover_krw")
+            },
+            "data_quality_warnings": list(profile.data_quality_warnings),
+        })
+    except Exception:
+        logger.debug("코치 프로파일 블록 생성 실패: %s", symbol, exc_info=True)
+        return None
+
+
 def _build_user_message(req: CoachRequest) -> str:
     parts: list[str] = [f'원본 사용자 입력(출력 금지): "{req.user_prompt}"']
     explained_terms = _explained_terms_from_context(req.conversation_context)
@@ -970,6 +1012,23 @@ def _build_user_message(req: CoachRequest) -> str:
         is_large_cap = any(u in _LARGE_CAP_UNIVERSES for u in universe)
         if capital and capital <= 20_000_000 and is_large_cap:
             parts.append("※ 소액 + 대형주 유니버스 → 유동성 필터 불필요")
+
+    # 단일 종목 연구 프로파일(FR-STR-068b) — 종목의 실제 데이터 통계를 근거로만 말하게 한다.
+    single_targets = list(ps.get("target_symbols") or [])
+    if len(single_targets) == 1:
+        profile_block = _single_asset_profile_block(single_targets[0])
+        if profile_block:
+            parts.append("\n[단일 종목 연구 프로파일 — 내부 컨텍스트, 직접 노출 금지]")
+            parts.append(profile_block)
+            parts.append(
+                "위 프로파일은 과거 데이터의 설명적 통계입니다. 반드시 지킬 것: "
+                "① 프로파일에 없는 데이터(수급·공매도·실적발표일·시장지수 등)를 지원하는 것처럼 말하지 마십시오. "
+                "② 신호 발생 횟수가 10회 미만인 조건은 표본이 적어 신뢰하기 어렵다고 알리고 기준 완화를 제안하십시오. "
+                "③ 과거 수익률이 가장 높았던 파라미터를 추천하지 마십시오 — 해석 가능한 탐색 범위만 제안하십시오. "
+                "④ 이 종목의 미래 상승/하락을 예측하거나 수익을 보장하지 마십시오. "
+                "⑤ 종목 선별(PBR 낮은 종목 고르기 등) 질문 대신 '언제 사고 언제 팔지'를 물으십시오. "
+                "⑥ 계산되지 않은 수치(null)를 임의로 추정해 말하지 마십시오."
+            )
 
     # news_agent_insight — 뉴스 우선 처리
     if req.news_agent_insight:

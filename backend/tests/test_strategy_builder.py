@@ -1107,3 +1107,177 @@ def test_etf_builder_dsl_universe():
     assert parsed is not None
     assert parsed.universe == ["ETF"]
     assert parsed.sector is None
+
+
+# ─── 퍼징 QA(2026-07-24, docs/builder_fuzz_qa_report.md BF-01~18) 회귀 ────────────
+
+def _full_state(**kw) -> sb.BuilderState:
+    base = dict(universe="KOSPI", strategy_type="momentum", lookback_days=63,
+                lookback_label="3개월", holding_count=10, rebalance_cycle="monthly")
+    base.update(kw)
+    return sb.BuilderState(**base)
+
+
+def test_bf01_proceed_words_not_cancelled():
+    """[BF-01] '됐어'·'그만'이 진행 의사/전략 값과 함께 오면 취소가 아니다."""
+    res = _step(_full_state(), "됐어, 손절 10%로 해줘")
+    assert res.status == "confirmed" and res.state.stop_loss_pct == 10.0
+    assert _step(_full_state(), "이제 됐어 백테스트 돌려줘").status != "exited"
+    assert _step(_full_state(), "그만 물어보고 그냥 진행해").status != "exited"
+
+
+def test_bf02_negated_cancel_not_cancelled():
+    """[BF-02] '취소하지 말고 계속해'는 취소가 아니다. 순수 취소어는 여전히 취소."""
+    assert sb.detect_control("취소하지 말고 계속해") is None
+    assert sb.detect_control("취소") == "cancel"
+    assert sb.detect_control("그만할래") == "cancel"
+    assert sb.detect_control("그냥 관두자") == "cancel"
+
+
+def test_bf03_definition_question_does_not_fill_strategy_type():
+    """[BF-03] '볼린저가 뭐야?' 같은 정의 질문이 전략 유형을 조용히 확정하면 안 된다."""
+    for q in ["볼린저가 뭐야?", "스토캐스틱이 뭐야?", "CCI가 뭐야?", "돌파가 뭐야"]:
+        state = sb.BuilderState(universe="KOSPI")
+        res = _step(state, q)
+        assert res.state.strategy_type is None, q
+        assert res.state == state, q
+
+
+def test_bf04_uncovered_term_gets_fallback_not_silent_repeat():
+    """[BF-04] 글로서리 밖 용어 정의 질문도 안내 없이 같은 질문만 반복하지 않는다."""
+    state = sb.BuilderState(universe="KOSPI")
+    res = _step(state, "PER이 뭐야?")
+    assert res.state == state
+    assert "PER" in res.reply or sb.GLOSSARY_FALLBACK_REPLY in res.reply
+
+
+def test_bf05_change_cue_overwrites_filled_fields():
+    """[BF-05] 변경 cue가 있으면 이미 채워진 유니버스·전략 유형을 정정한다."""
+    state = sb.BuilderState(universe="KOSPI", strategy_type="momentum",
+                            lookback_days=63, lookback_label="3개월")
+    res = _step(state, "코스닥으로 바꿔줘")
+    assert res.state.universe == "KOSDAQ"
+    res = _step(state, "모멘텀 말고 골든크로스로 바꿔줘")
+    assert res.state.strategy_type == "golden_cross"
+    assert res.state.lookback_days is None  # 이전 유형의 특화 파라미터 초기화
+    # 변경 cue 없는 재언급은 덮어쓰지 않는다.
+    res = _step(state, "코스피 좋지")
+    assert res.state.universe == "KOSPI"
+
+
+def test_bf06_correction_takes_value_after_malgo():
+    """[BF-06] 'A 말고 B'는 B를 채택한다(값 정정)."""
+    state = sb.BuilderState(universe="KOSPI", strategy_type="momentum")
+    res = _step(state, "3개월 말고 6개월")
+    assert res.state.lookback_days == 126
+    assert sb._parse_risk("손절 10% 말고 15%로").get("stop_loss_pct") == 15.0
+
+
+def test_bf07_value_direction_conflict_explained_not_flipped():
+    """[BF-07] 'PBR 5 이상'을 PBR≤5로 뒤집어 수락하지 않고 사유를 설명하며 되묻는다."""
+    state = sb.BuilderState(universe="KOSPI", strategy_type="value")
+    res = _step(state, "PBR 5 이상 ROE 3 이하")
+    assert res.state.value_pbr is None and res.state.value_roe is None
+    assert sb.VALUE_DIRECTION_REPLY in res.reply
+
+
+def test_bf08_risk_out_of_range_rejected_at_input():
+    """[BF-08] 손절 0%/200%는 '필수 청산' 게이트를 통과시키지 않고 즉시 되묻는다."""
+    res = _step(_full_state(), "손절 0%")
+    assert res.status == "collecting" and res.state.stop_loss_pct is None
+    assert "0%보다" in res.reply
+    res = _step(_full_state(), "손절 200%")
+    assert res.status == "collecting" and res.state.stop_loss_pct is None
+    # 일부만 유효하면 유효 값으로 진행하되 제외 사유를 notices로 알린다.
+    res = _step(_full_state(), "손절 0% 익절 20%")
+    assert res.status == "confirmed" and res.state.take_profit_pct == 20.0
+    assert res.state.stop_loss_pct is None and res.notices
+
+
+def test_bf09_param_invariants_reask_with_hint():
+    """[BF-09] RSI 0~100·과매도<과매수, MA 단기<장기, 기간>0 위반은 힌트와 함께 되묻는다."""
+    rsi = sb.BuilderState(universe="KOSPI", strategy_type="rsi", rsi_period=14)
+    res = _step(rsi, "20 150")
+    assert res.state.rsi_overbought is None and "0~100" in res.reply
+    assert _step(rsi, "50 50").state.rsi_oversold is None
+    res = _step(rsi, "과매도 80 과매수 20")  # 라벨 모순 — 조용히 재정렬하지 않는다
+    assert res.state.rsi_oversold is None
+    assert _step(rsi, "과매도 25 과매수 75").state.rsi_oversold == 25.0
+    gc = sb.BuilderState(universe="KOSPI", strategy_type="golden_cross", ma_kind="sma")
+    assert _step(gc, "20 20").state.ma_short is None
+    period = sb.BuilderState(universe="KOSPI", strategy_type="rsi")
+    res = _step(period, "0")
+    assert res.state.rsi_period is None and "2~250" in res.reply
+
+
+def test_bf10_filter_step_does_not_swallow_unrelated_input():
+    """[BF-10] 필터 단계가 무관한 입력을 '필터 없음'으로 조용히 소비하지 않는다."""
+    state = sb.BuilderState(universe="KOSPI", strategy_type="macd", macd_mode="crossover")
+    res = _step(state, "오늘 저녁 뭐 먹지")
+    assert not res.state.filters_asked
+    assert _step(state, "없음").state.filters_asked is True
+    assert _step(state, "EMA200 위에서만").state.trend_filter_ma == 200
+
+
+def test_bf11_single_stock_request_mid_build_gets_guidance():
+    """[BF-11] 빌더 중 '삼성전자만 테스트할래'는 조용히 무시하지 않고 안내한다(상태 불변)."""
+    state = sb.BuilderState(universe="KOSPI", strategy_type="momentum",
+                            lookback_days=63, lookback_label="3개월")
+    res = _step(state, "그냥 삼성전자만 테스트할래")
+    assert "삼성전자" in res.reply and res.state == state
+
+
+def test_bf12_etf_value_choice_explained():
+    """[BF-12] ETF 유니버스에서 가치 전략 선택 시 사유를 설명하며 되묻는다."""
+    res = _step(sb.BuilderState(universe="ETF"), "저평가 가치주")
+    assert res.state.strategy_type is None
+    assert sb.ETF_VALUE_BLOCKED_REPLY in res.reply
+
+
+def test_bf13_korean_percent_notation_deterministic():
+    """[BF-13] '10프로'·'10퍼센트'·'10퍼'를 LLM 없이 결정적으로 인식한다."""
+    assert sb._parse_risk("손절 10프로").get("stop_loss_pct") == 10.0
+    patch = sb._parse_risk("손절 10퍼센트 익절 20퍼")
+    assert patch.get("stop_loss_pct") == 10.0 and patch.get("take_profit_pct") == 20.0
+
+
+def test_bf14_compound_answer_fills_following_slots():
+    """[BF-14] '14일로 하고 과매도 25 과매수 80' 복합 답변의 후속 슬롯을 함께 채운다."""
+    rsi = sb.BuilderState(universe="KOSPI", strategy_type="rsi")
+    res = _step(rsi, "14일로 하고 과매도는 25 과매수는 80")
+    assert (res.state.rsi_period, res.state.rsi_oversold, res.state.rsi_overbought) == (14, 25.0, 80.0)
+    gc = sb.BuilderState(universe="KOSPI", strategy_type="golden_cross")
+    res = _step(gc, "지수로 하고 5일 20일")
+    assert (res.state.ma_kind, res.state.ma_short, res.state.ma_long) == ("ema", 5, 20)
+
+
+def test_bf15_miss_streak_escalates_and_resets():
+    """[BF-15] 연속 미인식 2회부터 이해 실패를 안내하고, 인식되면 카운터를 리셋한다."""
+    state = sb.BuilderState(universe="KOSPI")
+    res = _step(state, "I don't know")
+    assert res.state.miss_streak == 1
+    res = _step(res.state, "I don't know")
+    assert res.state.miss_streak == 2 and sb.UNRECOGNIZED_HINT in res.reply
+    res = _step(res.state, "모멘텀")
+    assert res.state.miss_streak == 0 and res.state.strategy_type == "momentum"
+
+
+def test_bf17_zero_and_over_limit_counts_reask():
+    """[BF-17] 0개·100 초과 종목 수는 조용히 수락/클램프하지 않고 안내하며 되묻는다."""
+    state = sb.BuilderState(universe="KOSPI", strategy_type="momentum",
+                            lookback_days=63, lookback_label="3개월")
+    res = _step(state, "0개")
+    assert res.state.holding_count is None and "1~100" in res.reply
+    res = _step(state, "99999개")
+    assert res.state.holding_count is None and "1~100" in res.reply
+    assert _step(state, "0개월").state.lookback_days == 63  # 0 기간은 무시
+
+
+def test_bf18_restart_seeds_from_same_message():
+    """[BF-18] '처음부터 다시. 이번엔 코스닥으로'는 리셋 후 코스닥을 시드로 승계한다."""
+    state = sb.BuilderState(universe="KOSPI", strategy_type="momentum")
+    res = _step(state, "처음부터 다시. 이번엔 코스닥으로")
+    assert res.status == "reset" and res.state.universe == "KOSDAQ"
+    # 단일 종목 모드는 재시작해도 대상 종목을 유지한다.
+    single = sb.BuilderState(universe="KOSPI", single_symbol="005930", single_label="삼성전자")
+    assert _step(single, "처음부터 다시").state.single_symbol == "005930"

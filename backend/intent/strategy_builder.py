@@ -26,6 +26,13 @@ RebalanceCycle = str  # "daily" | "weekly" | "monthly" | "quarterly" | "yearly"
 class BuilderState(BaseModel):
     """전략 빌더 대화 상태. 프론트가 무상태 step 호출 사이에 보관·재전송한다."""
 
+    # 단일 종목 모드(FR-STR-068b): 지정 종목 코드·표시 라벨. 설정되면 종목 선별용 질문
+    # (유니버스·보유 종목 수·리밸런싱 주기)을 건너뛰고, 횡단면 전략 유형(모멘텀 랭킹·
+    # 재무 스크리닝 가치주)을 기본 선택지에서 제외한다 — 질문의 중심은 "어떤 종목을
+    # 살까"가 아니라 "이 종목을 언제 사고 언제 팔까"다.
+    single_symbol: Optional[str] = None
+    single_label: Optional[str] = None
+
     universe: Optional[Universe] = None
     # 업종/섹터 제한(정본 섹터명, FR-STR-066). 질문으로 묻지 않고 진입 시드에서만 채운다 —
     # 종목 질문 리다이렉트 뒤 "반도체 주도주로 전략 만들어줘"처럼 사용자가 이미 말한 업종을
@@ -77,6 +84,10 @@ class BuilderState(BaseModel):
     hold_period_days: Optional[int] = None
     risk_done: bool = False
 
+    # 연속 미인식 카운터 — 같은 질문만 말없이 반복하는 대신, 2회부터는 이해하지 못했다고
+    # 알려주고 선택지를 안내한다(영어/자유 표현 무한 루프 방지, 퍼징 QA BF-15).
+    miss_streak: int = 0
+
 
 class StepResult(BaseModel):
     state: BuilderState
@@ -101,6 +112,13 @@ _EXIT_RE = re.compile(r"다른\s*질문|딴\s*거|다른\s*거\s*물어|그만\s
 # '관둘?'은 ?가 '둘'에만 붙어 맨 '관' 한 글자에도 매칭됐다 — '관련주로 해줘'가 취소로
 # 오인돼 빌더가 종료되던 버그. '관두/관둬/관둘'만 취소로 본다.
 _CANCEL_RE = re.compile(r"취소|그만|관[두둬둘]|중단|됐어|그만할래", re.IGNORECASE)
+# 취소어가 있어도 취소가 아닌 경우(퍼징 QA BF-01/02):
+#  · 부정/전환: "취소하지 말고", "그만 물어보고 …" — 취소어 자체가 부정됨
+#  · 진행 의사: "됐어, 손절 10%로 해줘"·"이제 됐어 백테스트 돌려줘" — 전략 값/진행 동사 동반
+_CANCEL_NEG_RE = re.compile(r"취소하지\s*마|취소하지\s*말|취소\s*말고|그만\s*(?:물어|묻)", re.IGNORECASE)
+_PROCEED_CUE_RE = re.compile(
+    r"진행|계속|백테스트|돌려|손절|익절|트레일링|보유|매수|매도|%|퍼센트|프로", re.IGNORECASE
+)
 
 
 def detect_control(text: str) -> Optional[str]:
@@ -110,7 +128,7 @@ def detect_control(text: str) -> Optional[str]:
         return "restart"
     if _EXIT_RE.search(t):
         return "exit"
-    if _CANCEL_RE.search(t):
+    if _CANCEL_RE.search(t) and not _CANCEL_NEG_RE.search(t) and not _PROCEED_CUE_RE.search(t):
         return "cancel"
     return None
 
@@ -140,10 +158,25 @@ _BUILDER_GLOSSARY: tuple[tuple["re.Pattern[str]", str], ...] = (
      "골든크로스는 단기 이동평균선이 장기 이동평균선을 아래에서 위로 뚫고 올라가는 것을 말해요."),
     (re.compile(r"macd", re.IGNORECASE),
      "MACD는 단기·장기 지수이동평균의 차이로 추세의 방향과 전환을 보는 지표예요."),
+    # 빌더가 선택지로 제시하는 어휘는 전부 커버한다 — 미커버 용어의 정의 질문이 필드
+    # 답변으로 오인돼 전략 유형이 조용히 확정되던 사고(퍼징 QA BF-03) 방지.
+    (re.compile(r"볼린저|볼린져|bollinger", re.IGNORECASE),
+     "볼린저 밴드는 이동평균 주위에 표준편차 범위의 밴드를 그려, 주가가 밴드 하단·상단에 닿는지를 보는 지표예요."),
+    (re.compile(r"스토캐스틱|스토케스틱|stochastic", re.IGNORECASE),
+     "스토캐스틱은 일정 기간의 고가·저가 범위에서 현재 주가의 상대적 위치(%K·%D)로 과매수·과매도를 가늠하는 지표예요."),
+    (re.compile(r"cci(?![a-z])|씨씨아이", re.IGNORECASE),
+     "CCI는 주가가 일정 기간 평균에서 얼마나 벗어났는지를 지수화해 과매수(+기준값)·과매도(-기준값)를 보는 지표예요."),
     (re.compile(r"rsi|과매도", re.IGNORECASE),
      "RSI는 일정 기간의 상승·하락 폭으로 과매수(70 이상)·과매도(30 이하) 상태를 가늠하는 지표예요."),
     (re.compile(r"pbr", re.IGNORECASE),
      "PBR은 주가를 주당 순자산으로 나눈 값으로, 낮을수록 자산 대비 주가가 낮게 거래된다는 뜻이에요."),
+    (re.compile(r"per(?![a-z])", re.IGNORECASE),
+     "PER은 주가를 주당 순이익으로 나눈 값으로, 이익 대비 주가 수준을 보는 지표예요."),
+    (re.compile(r"거래량|obv", re.IGNORECASE),
+     "거래량 급증 전략은 거래량 흐름(OBV)이 상승 전환한 종목을 찾는 방식이에요."),
+    (re.compile(r"이동\s*평균|이평|ema|sma", re.IGNORECASE),
+     "이동평균은 최근 N일 주가의 평균을 이어 그린 선으로, 추세의 방향을 보는 기본 지표예요. "
+     "단순(SMA)은 균등 평균, 지수(EMA)는 최근 값에 가중치를 둔 평균이에요."),
     (re.compile(r"roe", re.IGNORECASE),
      "ROE는 자기자본 대비 순이익의 비율로, 자본을 얼마나 효율적으로 활용했는지 보는 지표예요."),
     (re.compile(r"코스피\s*200|kospi\s*200", re.IGNORECASE),
@@ -226,7 +259,8 @@ _REBAL_RE: tuple[tuple[str, "re.Pattern[str]"], ...] = (
 #  치명적 오귀속 버그가 있었다. 메인 NL 파서 수정(commit 2811cdd8)과 동일한 접근.)
 _STOP_LOSS_KW = re.compile(r"손절|스탑\s*로스|stop\s*loss", re.IGNORECASE)
 _TAKE_PROFIT_KW = re.compile(r"익절|목표\s*수익|take\s*profit", re.IGNORECASE)
-_PCT_NUM_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+# '10프로'·'10퍼센트'·'10퍼'는 %의 흔한 한국어 표기다 — 결정적으로 인식한다(퍼징 QA BF-13).
+_PCT_NUM_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:%|퍼센트|프로|퍼)")
 # 키워드 바로 뒤에 부정어가 오면('손절 없이/안 함') 그 조건은 '없음'으로 보고 값을 뽑지 않는다.
 _NEG_AFTER_KW = re.compile(r"\s*(?:없|안\s|안$|말고|제외|불필요|필요\s*없|하지\s*않|빼)", re.IGNORECASE)
 _SL_TP_MAX_GAP = 4  # 값-키워드 사이 허용 최대 글자 간격(연결어 제외)
@@ -280,7 +314,7 @@ def _parse_sl_tp(text: str) -> dict:
             used.add(best_i)
     return patch
 _TRAILING_RE = re.compile(
-    r"(?:트레일링(?:\s*스탑)?|최고가\s*대비)\s*(\d+(?:\.\d+)?)\s*%", re.IGNORECASE
+    r"(?:트레일링(?:\s*스탑)?|최고가\s*대비)\s*(\d+(?:\.\d+)?)\s*(?:%|퍼센트|프로|퍼)", re.IGNORECASE
 )
 # 보유기간 청산("20일 보유 후 청산", "3개월 보유"). 청산 단계에서만 해석한다.
 _HOLD_RISK_RE = re.compile(
@@ -344,19 +378,16 @@ def _parse_rebalance(text: str) -> Optional[RebalanceCycle]:
 
 def _parse_lookback(text: str) -> Optional[dict]:
     """기준 기간 접미사(년/개월/주/일)를 거래일 수와 표시 라벨로 환산한다. 없으면 None.
-    우선순위: 년 > 개월 > 주 > 일 (긴 단위가 짧은 단위 패턴에 먹히지 않게)."""
-    m_year = _YEARS_RE.search(text)
-    if m_year:
-        return {"lookback_days": int(m_year.group(1)) * 252, "lookback_label": f"{m_year.group(1)}년"}
-    m_month = _MONTHS_RE.search(text)
-    if m_month:
-        return {"lookback_days": int(m_month.group(1)) * 21, "lookback_label": f"{m_month.group(1)}개월"}
-    m_week = _WEEKS_RE.search(text)
-    if m_week:
-        return {"lookback_days": int(m_week.group(1)) * 5, "lookback_label": f"{m_week.group(1)}주일"}
-    m_day = _DAYS_RE.search(text)
-    if m_day:
-        return {"lookback_days": int(m_day.group(1)), "lookback_label": f"{m_day.group(1)}일"}
+    우선순위: 년 > 개월 > 주 > 일 (긴 단위가 짧은 단위 패턴에 먹히지 않게).
+    0 기간('0개월')은 성립하지 않으므로 채우지 않는다(BF-17)."""
+    for pattern, mult, unit in ((_YEARS_RE, 252, "년"), (_MONTHS_RE, 21, "개월"),
+                                (_WEEKS_RE, 5, "주일"), (_DAYS_RE, 1, "일")):
+        m = pattern.search(text)
+        if m:
+            n = int(m.group(1))
+            if n <= 0:
+                return None
+            return {"lookback_days": n * mult, "lookback_label": f"{n}{unit}"}
     return None
 
 
@@ -384,25 +415,162 @@ RISK_REQUIRED_REPLY = (
     "(예: '10% 손절', '20일 보유 후 청산')"
 )
 
+# 종목 수 지원 범위(엔진 스키마 max_positions le=100과 동일) — 밖이면 조용히 클램프하지
+# 않고 채우지 않는다(step이 안내하며 되묻는다, BF-17).
+_MAX_HOLDING_COUNT = 100
+
+
+def _valid_count(n: int) -> bool:
+    return 1 <= n <= _MAX_HOLDING_COUNT
+
+
+# 파라미터 스텝별 유효 범위 안내 — 범위 밖/모순 값 입력 시 같은 질문을 말없이 반복하지
+# 않고 이유를 알려준다(퍼징 QA BF-09).
+_PARAM_HINTS: dict = {
+    "rsi_period": "RSI 기간은 2~250 사이 정수로 말씀해 주세요.",
+    "rsi_bounds": "과매도·과매수 기준은 0~100 사이이고 과매도가 과매수보다 작아야 해요. (예: 30 70)",
+    "ma_periods": "단기·장기 기간은 1 이상이고 서로 달라야 해요. (예: 5 20)",
+    "cci_params": "CCI 기간은 2~250, 기준값은 0보다 커야 해요. (예: 14 100)",
+    "volume_period": "거래량 평균 기간은 2~250 사이로 말씀해 주세요.",
+    "value_params": "저평가 기준은 'PBR 1 이하 · ROE 10 이상'처럼 0보다 큰 값으로 말씀해 주세요.",
+    "lookback_days": "기간은 0보다 커야 해요. (예: 3개월, 60일)",
+    "holding_count": f"보유 종목 수는 1~{_MAX_HOLDING_COUNT}개 사이로 말씀해 주세요.",
+    "filters": "필터를 인식하지 못했어요. 'EMA200 위', '거래대금 100억', 'RSI 30 이하'처럼 "
+               "말씀하시거나, 필터 없이 진행하려면 '없음'이라고 답해 주세요.",
+}
+
+# 저평가 기준의 방향이 빌더 고정(PBR≤·ROE≥)과 반대인 요청 안내(BF-07).
+VALUE_DIRECTION_REPLY = (
+    "이 빌더의 가치 전략은 'PBR ○ 이하 · ROE ○ 이상'(저평가) 기준만 지원해요. "
+    "반대 방향 조건(PBR 이상·ROE 이하)이 필요하시면 전략 문장 전체를 채팅에 직접 입력해 주세요."
+)
+
+# 연속 미인식 시(2회부터) 같은 질문만 반복하지 않고 이해하지 못했음을 알린다(BF-15).
+UNRECOGNIZED_HINT = (
+    "죄송해요, 답변을 이해하지 못했어요. 아래 선택지에서 고르거나 예시 형식으로 입력해 주세요."
+)
+
+# 용어 정의 질문인데 빌더 글로서리에 없는 용어 — 필드 답변으로 오해석하지 않고 안내한다(BF-03/04).
+GLOSSARY_FALLBACK_REPLY = (
+    "그 용어 설명은 빌더에 준비돼 있지 않아요. 전략을 완성한 뒤 채팅에서 물어봐 주시면 "
+    "자세히 답해 드릴게요."
+)
+
+# ETF 유니버스에서 가치 전략을 고른 경우 — 조용히 되묻지 않고 이유를 설명한다(BF-12).
+ETF_VALUE_BLOCKED_REPLY = (
+    "ETF 유니버스에는 개별 기업 재무지표(PBR·ROE)가 없어 저평가 가치주 전략을 적용할 수 "
+    "없어요. 다른 진입 방식을 골라 주세요."
+)
+
+# 빌더 진행 중 특정 종목 지정 요청(BF-11) — 빌더는 종목 선별 전략을 만드는 흐름이라
+# 조용히 무시하지 않고 단일 종목 흐름으로 가는 길을 안내한다.
+_SINGLE_SWITCH_CUE_RE = re.compile(r"단일|하나만|종목만|테스트|만\s*(?:하고|할래|해|사)", re.IGNORECASE)
+SINGLE_SWITCH_REPLY = (
+    "지금은 조건에 맞는 종목을 고르는 전략을 만들고 있어서 특정 종목({name})을 지정할 수 "
+    "없어요. {name} 한 종목만 백테스트하려면 '취소'라고 입력해 빌더를 마친 뒤 "
+    "\"{name} 단일 종목 테스트해줘\"라고 말씀해 주세요. 계속 만들려면 아래 질문에 답해 주세요."
+)
+
 
 def _is_risk_refusal(text: str) -> bool:
     return bool(_RISK_REFUSAL_RE.search(text or ""))
 
 
-def _parse_risk(text: str) -> dict:
-    """청산 조건 단계의 답변을 파싱한다. 청산 조건은 필수이므로, 손절·익절·트레일링·보유기간을
-    하나 이상 인식했을 때만 risk_done=True로 완료 처리한다(없으면 같은 질문을 다시 한다)."""
-    patch: dict = {}
-    patch.update(_parse_sl_tp(text))
+# ─── 정정 표현("A 말고 B") 처리 ───────────────────────────────────────────────────
+# "3개월 말고 6개월"에서 첫 매치(버려진 값 3개월)를 채택하던 오파싱(퍼징 QA BF-06) 방지.
+# 정정 큐가 있으면 마지막 조각(사용자가 원하는 쪽)만 값 해석에 쓴다.
+
+_CORRECTION_SPLIT_RE = re.compile(r"말고|말구|아니라|대신", re.IGNORECASE)
+# 이미 채워진 필드를 바꾸려는 의도(정정/변경) 큐 — 유니버스·전략유형 덮어쓰기를 허용한다(BF-05).
+_CHANGE_CUE_RE = re.compile(r"바꾸|바꿔|변경|교체|수정|말고|말구|아니라|대신", re.IGNORECASE)
+
+
+def _correction_focus(text: str) -> str:
+    """'A 말고 B'류 정정 표현에서 사용자가 원하는 쪽(마지막 조각)만 남긴다. 정정 큐가
+    없거나 마지막 조각이 비어 있으면 원문 그대로."""
+    parts = _CORRECTION_SPLIT_RE.split(text or "")
+    if len(parts) < 2:
+        return text
+    tail = parts[-1].strip()
+    return tail if tail else text
+
+
+def _apply_risk_correction(text: str) -> str:
+    """청산 단계의 정정 표현을 해석 가능한 문장으로 재구성한다.
+
+    "손절 10% 말고 15%"처럼 키워드가 앞 조각에만 있으면, 앞 조각의 유일한 청산 키워드를
+    뒤 조각에 붙여("손절 15%") 값이 올바른 필드로 귀속되게 한다. 키워드가 여럿이거나
+    뒤 조각에 이미 키워드가 있으면 뒤 조각(또는 원문)을 그대로 쓴다."""
+    parts = _CORRECTION_SPLIT_RE.split(text or "")
+    if len(parts) < 2:
+        return text
+    tail = parts[-1].strip()
+    if not tail:
+        return text
+    kw_res = (("손절", _STOP_LOSS_KW), ("익절", _TAKE_PROFIT_KW),
+              ("트레일링", re.compile(r"트레일링|최고가\s*대비", re.IGNORECASE)))
+    if any(pat.search(tail) for _, pat in kw_res) or _HOLD_RISK_RE.search(tail):
+        return tail
+    head = " ".join(parts[:-1])
+    found = [label for label, pat in kw_res if pat.search(head)]
+    if len(found) == 1 and _PCT_NUM_RE.search(tail):
+        return f"{found[0]} {tail}"
+    return tail
+
+
+# 청산 비율 유효 범위 — 엔진 하한 보정(enforce_strategy_minimums)과 동일 기준을 입력
+# 시점에 적용한다. 범위 밖 값이 '필수 청산' 게이트를 통과한 뒤 조용히 제거되던 사고
+# (퍼징 QA BF-08) 방지: 손절·트레일링은 매수 포지션 손실 한계(0~100%), 익절은 0 초과.
+_RISK_RANGE_NOTICES = {
+    "stop_loss_pct": "손절 비율은 0%보다 크고 100% 이하여야 해요.",
+    "trailing_stop_pct": "트레일링 스탑 비율은 0%보다 크고 100% 이하여야 해요.",
+    "take_profit_pct": "익절 비율은 0%보다 커야 해요.",
+}
+
+
+def _risk_value_valid(field: str, value) -> bool:
+    if field == "hold_period_days":
+        return value > 0
+    if field == "take_profit_pct":
+        return value > 0
+    return 0 < value <= 100  # stop_loss / trailing
+
+
+def _validate_risk_patch(patch: dict) -> tuple[dict, list[str]]:
+    """범위 밖 청산 값을 제거하고 안내 문구를 모은다. 유효 값이 남을 때만 risk_done."""
+    valid: dict = {}
+    notes: list[str] = []
+    for field in RISK_FIELDS:
+        value = patch.get(field)
+        if value is None:
+            continue
+        if _risk_value_valid(field, value):
+            valid[field] = value
+        else:
+            notes.append(_RISK_RANGE_NOTICES.get(field, "청산 값이 유효 범위를 벗어났어요."))
+    if valid:
+        valid["risk_done"] = True
+    return valid, notes
+
+
+def _parse_risk_ex(text: str) -> tuple[dict, list[str]]:
+    """청산 조건 답변 파싱 + 범위 검증 → (patch, 범위 안내 문구)."""
+    text = _apply_risk_correction(text)
+    raw: dict = {}
+    raw.update(_parse_sl_tp(text))
     tr = _TRAILING_RE.search(text)
     if tr:
-        patch["trailing_stop_pct"] = float(tr.group(1))
+        raw["trailing_stop_pct"] = float(tr.group(1))
     hold = _parse_hold_days(text)
     if hold:
-        patch["hold_period_days"] = hold
-    if patch:
-        patch["risk_done"] = True
-    return patch
+        raw["hold_period_days"] = hold
+    return _validate_risk_patch(raw)
+
+
+def _parse_risk(text: str) -> dict:
+    """청산 조건 단계의 답변을 파싱한다. 청산 조건은 필수이므로, 유효한 손절·익절·트레일링·
+    보유기간을 하나 이상 인식했을 때만 risk_done=True로 완료 처리한다."""
+    return _parse_risk_ex(text)[0]
 
 
 # ─── 청산 조건 LLM 검증/보강(정규식 우선, 누락만 LLM으로 채움) ──────────────────────
@@ -513,11 +681,13 @@ def llm_extract_sector(text: str, chat: Callable[..., str]) -> Optional[str]:
 
 
 def _merge_risk(regex_patch: dict, llm_patch: dict) -> dict:
-    """정규식 결과를 우선하고, 정규식이 놓친 청산 필드만 LLM 결과로 채운다."""
+    """정규식 결과를 우선하고, 정규식이 놓친 청산 필드만 LLM 결과로 채운다.
+    LLM 값도 범위 검증을 통과해야 한다(정규식 경로와 동일 기준)."""
     merged = dict(regex_patch)
     for field in RISK_FIELDS:
-        if merged.get(field) is None and llm_patch.get(field) is not None:
-            merged[field] = llm_patch[field]
+        value = llm_patch.get(field)
+        if merged.get(field) is None and value is not None and _risk_value_valid(field, value):
+            merged[field] = value
     if any(merged.get(field) is not None for field in RISK_FIELDS):
         merged["risk_done"] = True
     return merged
@@ -539,21 +709,48 @@ def _nums(text: str) -> list[float]:
     return [float(x) for x in _NUM_RE.findall(text or "")]
 
 
+# 지표 파라미터의 상식적 기간 상한(그 이상은 오타/오해로 보고 되묻는다).
+_MAX_INDICATOR_PERIOD = 250
+
+
 def _parse_rsi_period(text: str) -> dict:
     if _wants_default(text):
         return {"rsi_period": 14}
     ns = _nums(text)
-    return {"rsi_period": int(ns[0])} if ns else {}
+    if not ns:
+        return {}
+    n = int(ns[0])
+    # 0·음수·비상식적 기간은 채우지 않는다(합성 시 기본값으로 조용히 치환되던 BF-09 방지).
+    return {"rsi_period": n} if 2 <= n <= _MAX_INDICATOR_PERIOD else {}
+
+
+def _labeled_rsi_bounds(text: str) -> dict:
+    """'과매도 25 과매수 80'처럼 라벨이 명시된 경우만 값을 뽑는다(순서 무관).
+    라벨이 서로 뒤바뀐 모순 입력(과매도>과매수)은 조용히 재정렬하지 않고 {}로 되묻는다."""
+    m_lo = re.search(r"과매도[^0-9]{0,8}(\d+(?:\.\d+)?)", text)
+    m_hi = re.search(r"과매수[^0-9]{0,8}(\d+(?:\.\d+)?)", text)
+    if not (m_lo and m_hi):
+        return {}
+    lo, hi = float(m_lo.group(1)), float(m_hi.group(1))
+    if 0 <= lo < hi <= 100:
+        return {"rsi_oversold": lo, "rsi_overbought": hi}
+    return {}
 
 
 def _parse_rsi_bounds(text: str) -> dict:
     if _wants_default(text):
         return {"rsi_oversold": 30.0, "rsi_overbought": 70.0}
+    if re.search(r"과매도", text) and re.search(r"과매수", text):
+        # 라벨이 명시됐으면 라벨 해석만 쓴다 — 라벨 모순('과매도 80 과매수 20')이
+        # 무라벨 정렬 폴백으로 흘러 조용히 재정렬되지 않게 한다(BF-09).
+        return _labeled_rsi_bounds(text)
     ns = _nums(text)
     if len(ns) >= 2:
         lo, hi = sorted(ns[:2])
-        return {"rsi_oversold": lo, "rsi_overbought": hi}
-    return {}  # 값 하나만으론 과매도·과매수를 모두 못 채운다 → 다시 묻는다
+        # RSI는 0~100 범위, 과매도<과매수여야 신호가 성립한다(BF-09: 150·동일값 수락 방지).
+        if 0 <= lo < hi <= 100:
+            return {"rsi_oversold": lo, "rsi_overbought": hi}
+    return {}  # 값 부족/범위 밖 → 다시 묻는다
 
 
 def _parse_ma_kind(text: str) -> dict:
@@ -571,7 +768,9 @@ def _parse_ma_periods(text: str) -> dict:
     ns = [int(x) for x in _nums(text)]
     if len(ns) >= 2:
         lo, hi = sorted(ns[:2])
-        return {"ma_short": lo, "ma_long": hi}
+        # 동일 기간은 교차가 발생할 수 없다(BF-09) — 되묻는다.
+        if 1 <= lo < hi:
+            return {"ma_short": lo, "ma_long": hi}
     return {}
 
 
@@ -588,8 +787,11 @@ def _parse_cci_params(text: str) -> dict:
         return {"cci_period": 14, "cci_threshold": 100.0}
     ns = _nums(text)
     if len(ns) >= 2:
-        return {"cci_period": int(ns[0]), "cci_threshold": ns[1]}
-    if len(ns) == 1:
+        period, thr = int(ns[0]), ns[1]
+        if 2 <= period <= _MAX_INDICATOR_PERIOD and thr > 0:
+            return {"cci_period": period, "cci_threshold": thr}
+        return {}
+    if len(ns) == 1 and ns[0] > 0:
         return {"cci_period": 14, "cci_threshold": ns[0]}  # 기준값만 주면 기간은 기본 14
     return {}
 
@@ -598,24 +800,42 @@ def _parse_volume_period(text: str) -> dict:
     if _wants_default(text):
         return {"volume_period": 20}
     ns = _nums(text)
-    return {"volume_period": int(ns[0])} if ns else {}
+    if not ns:
+        return {}
+    n = int(ns[0])
+    return {"volume_period": n} if 2 <= n <= _MAX_INDICATOR_PERIOD else {}
+
+
+# 저평가 기준의 방향이 빌더 고정(PBR≤·ROE≥)과 반대인 요청("PBR 5 이상"·"ROE 3 이하") —
+# 숫자만 뽑아 정반대 스크리닝을 조용히 만들지 않도록(BF-07) 감지해서 채우지 않고 안내한다.
+_PBR_WRONG_DIR_RE = re.compile(r"pbr[^0-9]{0,6}\d+(?:\.\d+)?\s*(?:이상|초과|넘|보다\s*[크높])", re.IGNORECASE)
+_ROE_WRONG_DIR_RE = re.compile(r"roe[^0-9]{0,6}\d+(?:\.\d+)?\s*(?:이하|미만|밑|아래|보다\s*[작낮])", re.IGNORECASE)
+
+
+def _value_direction_conflict(text: str) -> bool:
+    t = text or ""
+    return bool(_PBR_WRONG_DIR_RE.search(t) or _ROE_WRONG_DIR_RE.search(t))
 
 
 def _parse_value_params(text: str) -> dict:
     if _wants_default(text):
         return {"value_pbr": 1.0, "value_roe": 10.0}
     t = text or ""
-    m_pbr = re.search(r"pbr[^0-9]{0,6}(\d+(?:\.\d+)?)", t, re.IGNORECASE)
-    m_roe = re.search(r"roe[^0-9]{0,6}(\d+(?:\.\d+)?)", t, re.IGNORECASE)
+    pbr_conflict = bool(_PBR_WRONG_DIR_RE.search(t))
+    roe_conflict = bool(_ROE_WRONG_DIR_RE.search(t))
+    m_pbr = None if pbr_conflict else re.search(r"pbr[^0-9]{0,6}(\d+(?:\.\d+)?)", t, re.IGNORECASE)
+    m_roe = None if roe_conflict else re.search(r"roe[^0-9]{0,6}(\d+(?:\.\d+)?)", t, re.IGNORECASE)
     if m_pbr or m_roe:
         patch: dict = {}
-        if m_pbr:
+        if m_pbr and float(m_pbr.group(1)) > 0:
             patch["value_pbr"] = float(m_pbr.group(1))
-        if m_roe:
+        if m_roe and float(m_roe.group(1)) > 0:
             patch["value_roe"] = float(m_roe.group(1))
-        return patch if len(patch) == 2 else patch  # 하나만 라벨돼도 채운다(나머지는 다시 묻음)
+        return patch  # 하나만 라벨돼도 채운다(나머지는 다시 묻음)
+    if pbr_conflict or roe_conflict:
+        return {}  # 방향 충돌만 있으면 채우지 않는다 — step이 사유를 설명하며 되묻는다
     ns = _nums(t)
-    if len(ns) >= 2:
+    if len(ns) >= 2 and ns[0] > 0 and ns[1] > 0:
         return {"value_pbr": ns[0], "value_roe": ns[1]}  # 라벨 없으면 'PBR 먼저, ROE 다음' 순서
     return {}
 
@@ -627,11 +847,13 @@ _FILTER_RSI_RE = re.compile(r"rsi\s*(\d+)", re.IGNORECASE)
 
 
 def _parse_filters(text: str) -> dict:
-    """옵션 필터 답변을 해석한다. 항상 filters_asked=True(옵션이라 무매치·'없음'도 완료).
+    """옵션 필터 답변을 해석한다. '없음'/기본값 계열 또는 필터 어휘를 인식했을 때만
+    filters_asked=True로 완료한다 — 무관한 입력("근데 삼성전자만 하면 안돼?")까지
+    '필터 없음'으로 조용히 소비하던 사고(퍼징 QA BF-10) 방지. 무매치면 {}로 되묻는다.
     추세(EMA 기간)·거래대금(억)·RSI 결합을 자유 입력에서 함께 인식한다."""
     patch: dict = {"filters_asked": True}
     t = text or ""
-    if _FILTER_NONE_RE.search(t):
+    if _FILTER_NONE_RE.search(t) or _wants_default(t):
         return patch  # 필터 없이 완료
     m = _FILTER_TREND_RE.search(t)
     if m:
@@ -644,6 +866,8 @@ def _parse_filters(text: str) -> dict:
     mr = _FILTER_RSI_RE.search(t)
     if mr:
         patch["rsi_filter"] = float(mr.group(1))
+    if len(patch) == 1:  # 아무 필터도 인식 못 함 → 완료 처리하지 않고 다시 묻는다
+        return {}
     return patch
 
 
@@ -696,18 +920,26 @@ def _step_filled(state: BuilderState, step: str) -> bool:
     return checks.get(step, lambda s: True)(state)
 
 
+# 전략 유형 변경 시 함께 초기화할 유형 특화 파라미터(이전 유형의 값이 새 유형에
+# 그대로 남지 않게). 변경 cue가 있는 명시적 정정에서만 쓴다.
+_TYPE_PARAM_RESET: dict = {
+    "lookback_days": None, "lookback_label": None,
+    "rsi_period": None, "rsi_oversold": None, "rsi_overbought": None,
+    "ma_kind": None, "ma_short": None, "ma_long": None,
+    "macd_mode": None, "cci_period": None, "cci_threshold": None,
+    "volume_period": None, "value_pbr": None, "value_roe": None,
+    "entry_rule": None, "filters_asked": False,
+    "trend_filter_ma": None, "liquidity_min": None, "rsi_filter": None,
+}
+
 def parse_input(text: str, state: BuilderState, expecting: Optional[str]) -> dict:
-    """짧은 답변을 전략 필드 patch로 해석한다. 모호한 맨숫자는 현재 묻는 필드(expecting)로 해석."""
+    """짧은 답변을 전략 필드 patch로 해석한다. 모호한 맨숫자는 현재 묻는 필드(expecting)로 해석.
+
+    '말고/아니라' 정정 표현은 마지막 조각만 값 해석에 쓴다(BF-06). 전용 스텝(필터·특화
+    파라미터)에서 인식 실패 + 변경 cue가 있으면 공통 필드 정정(유니버스·유형 변경)으로
+    떨어져 처리한다 — 파라미터 질문 중의 "코스닥으로 바꿔줘"가 조용히 무시되지 않게."""
     t = text or ""
     patch: dict = {}
-
-    # 옵션 필터 스텝 — 항상 완료(옵션). 추세·거래대금·RSI 결합을 함께 인식한다.
-    if expecting == "filters":
-        return _parse_filters(t)
-
-    # 전략별 특화 파라미터 스텝은 전용 파서로 처리한다(그 값만 해석, 다른 필드 오염 방지).
-    if expecting in _PARAM_STEP_PARSERS:
-        return _PARAM_STEP_PARSERS[expecting](t)
 
     # custom 유형에서 진입 조건을 서술로 받는 중이면, 입력 전체를 진입 규칙으로 저장한다
     # (자유 서술 안의 숫자를 기간/보유수로 오해하지 않도록 다른 파싱을 건너뛴다).
@@ -718,7 +950,7 @@ def parse_input(text: str, state: BuilderState, expecting: Optional[str]) -> dic
         if stripped and detect_control(stripped) is None:
             patch = {"entry_rule": stripped}
             m_count = _COUNT_RE.search(t)
-            if m_count and not state.holding_count:
+            if m_count and not state.holding_count and _valid_count(int(m_count.group(1))):
                 patch["holding_count"] = int(m_count.group(1))
             return patch
         return {}
@@ -727,8 +959,35 @@ def parse_input(text: str, state: BuilderState, expecting: Optional[str]) -> dic
     if expecting == "risk":
         return _parse_risk(t)
 
+    focused = _correction_focus(t)
+    change_cue = bool(_CHANGE_CUE_RE.search(t))
+
+    # 옵션 필터 스텝 — 필터 어휘를 인식했을 때만 완료. 추세·거래대금·RSI 결합을 함께 인식.
+    if expecting == "filters":
+        patch = _parse_filters(focused)
+        if patch or not change_cue:
+            return patch
+        # 인식 실패 + 변경 cue → 아래 공통 필드 정정으로 폴백
+
+    # 전략별 특화 파라미터 스텝은 전용 파서로 처리한다(그 값만 해석, 다른 필드 오염 방지).
+    elif expecting in _PARAM_STEP_PARSERS:
+        patch = _PARAM_STEP_PARSERS[expecting](focused)
+        if patch:
+            # 복합 답변("14일로 하고 과매도 25 과매수 80")의 후속 슬롯을 함께 흡수한다(BF-14).
+            # 오귀속 위험이 없는 조합만: 라벨 명시 RSI 경계, 이동평균 종류+두 기간.
+            if expecting == "rsi_period":
+                patch.update(_labeled_rsi_bounds(focused))
+            elif expecting == "ma_kind":
+                patch.update(_parse_ma_periods(focused))
+            return patch
+        if not change_cue:
+            return patch
+        # 인식 실패 + 변경 cue → 아래 공통 필드 정정으로 폴백
+
+    t = focused
+
     universe = _parse_universe(t)
-    if universe and not state.universe:
+    if universe and (not state.universe or (change_cue and universe != state.universe)):
         patch["universe"] = universe
 
     # 대화 중 업종/테마 언급 — 지원 업종이면 유니버스 제한으로 반영하고, 목록 밖이면
@@ -743,11 +1002,17 @@ def parse_input(text: str, state: BuilderState, expecting: Optional[str]) -> dic
         patch["sector_hint"] = t
 
     stype = _parse_strategy_type(t)
-    if stype and not state.strategy_type:
+    if stype and (not state.strategy_type or (change_cue and stype != state.strategy_type)):
         # ETF 유니버스에는 가치 전략(PBR/ROE 재무 필터)을 만들 수 없다 — 채우지 않고
-        # 같은 질문을 다시 한다(ETF용 선택지에는 가치 전략이 없음).
-        if not (stype == "value" and (patch.get("universe") or state.universe) == "ETF"):
+        # step()이 이유를 설명하며 되묻는다(BF-12).
+        # 단일 종목 모드에는 종목 선별형 유형(모멘텀 랭킹·가치 스크리닝)을 채우지 않는다
+        # (step()이 이유를 설명하며 되묻는다 — 조용한 무시 방지).
+        if not (stype == "value" and (patch.get("universe") or state.universe) == "ETF") \
+                and not (state.single_symbol is not None and stype in _SINGLE_ASSET_BLOCKED_TYPES):
             patch["strategy_type"] = stype
+            if state.strategy_type and stype != state.strategy_type:
+                # 명시적 유형 변경(BF-05) — 이전 유형의 특화 파라미터를 초기화한다.
+                patch.update(_TYPE_PARAM_RESET)
 
     rebal = _parse_rebalance(t)
     if rebal:
@@ -759,23 +1024,23 @@ def parse_input(text: str, state: BuilderState, expecting: Optional[str]) -> dic
     if lookback:
         patch.update(lookback)
 
-    # 보유 종목 수. 접미사("N개/N종목") 우선.
+    # 보유 종목 수. 접미사("N개/N종목") 우선. 범위 밖(0·100 초과)은 채우지 않는다(BF-17).
     m_count = _COUNT_RE.search(t)
-    if m_count:
+    if m_count and _valid_count(int(m_count.group(1))):
         patch["holding_count"] = int(m_count.group(1))
 
     # 맨숫자는 현재 묻는 필드로 귀속(둘 다 채우지 않도록 분기).
     bare = _BARE_NUM_RE.match(t)
     if bare and "lookback_days" not in patch and "holding_count" not in patch:
         n = int(bare.group(1))
-        if expecting == "lookback_days":
+        if expecting == "lookback_days" and n > 0:
             if effective_type == "breakout":
                 patch["lookback_days"] = n
                 patch["lookback_label"] = f"{n}일"
             else:
                 patch["lookback_days"] = n * 21
                 patch["lookback_label"] = f"{n}개월"
-        elif expecting == "holding_count":
+        elif expecting == "holding_count" and _valid_count(n):
             patch["holding_count"] = n
 
     return patch
@@ -821,9 +1086,9 @@ def seed_state(text: str) -> BuilderState:
     if lookback:
         patch.update(lookback)
     count = _COUNT_RE.search(text)
-    if count:
+    if count and _valid_count(int(count.group(1))):
         patch["holding_count"] = int(count.group(1))
-    patch.update(_parse_risk(text))  # 손절/익절/트레일링/보유기간(+risk_done)
+    patch.update(_parse_risk(text))  # 손절/익절/트레일링/보유기간(+risk_done, 범위 검증 포함)
     return BuilderState().model_copy(update=patch)
 
 
@@ -862,8 +1127,12 @@ def apply_parsed_seed(state: BuilderState, parsed: Optional[dict]) -> BuilderSta
 # ─── 필수 필드 우선순위 ──────────────────────────────────────────────────────────
 
 def required_missing(state: BuilderState) -> Optional[str]:
-    """필수 필드 우선순위 중 첫 빈 필드를 반환한다(없으면 None=완성)."""
-    if not state.universe:
+    """필수 필드 우선순위 중 첫 빈 필드를 반환한다(없으면 None=완성).
+
+    단일 종목 모드에서는 종목 선별용 필드(유니버스·보유 종목 수·리밸런싱 주기)를 묻지
+    않는다 — 대상이 한 종목으로 확정돼 있어 횡단면 질문이 무의미하다(FR-STR-068b)."""
+    single = state.single_symbol is not None
+    if not single and not state.universe:
         return "universe"
     if not state.strategy_type:
         return "strategy_type"
@@ -871,9 +1140,9 @@ def required_missing(state: BuilderState) -> Optional[str]:
     for step in STRATEGY_PARAM_STEPS.get(state.strategy_type, ()):
         if not _step_filled(state, step):
             return step
-    if not state.holding_count:
+    if not single and not state.holding_count:
         return "holding_count"
-    if not state.rebalance_cycle:
+    if not single and not state.rebalance_cycle:
         return "rebalance_cycle"
     if not state.risk_done:
         return "risk"
@@ -914,6 +1183,74 @@ _REBAL_PHRASE = {
 }
 
 
+# 단일 종목 모드의 전략 유형 선택지(횡단면 제외 — 시계열 진입 방식만). 칩 텍스트는
+# _parse_strategy_type이 그대로 해석할 수 있는 어휘여야 한다.
+_SINGLE_ASSET_TYPE_CHIPS = ["골든크로스", "MACD", "돌파", "거래량 급증", "과매도 반등"]
+
+# 프로파일 카테고리 → (선택지 라벨, 대응 신호 통계 키). reason은 발생 횟수 사실만 담는다.
+_SINGLE_ASSET_CATEGORY_BULLETS: tuple[tuple[str, str, str], ...] = (
+    ("trend_following", "골든크로스·MACD 같은 추세 추종", "golden_cross_5_20"),
+    ("mean_reversion", "RSI 과매도·볼린저 하단에서 반등을 노리는 평균회귀", "rsi_below_30"),
+    ("breakout", "신고가 돌파", "breakout_60d"),
+    ("volume", "거래량 급증", "volume_spike_3x"),
+)
+
+
+def _single_asset_strategy_question(
+    state: BuilderState, prefix: str,
+) -> tuple[str, list[str]]:
+    """단일 종목의 진입 방식 질문. 가능하면 종목 프로파일의 신호 발생 횟수를 근거로
+    선택지를 설명한다(수익 보장·우열 표현 없음). 프로파일 조회 실패 시 정적 문구."""
+    label = state.single_label or state.single_symbol or "선택한 종목"
+    bullets: list[str] = []
+    try:  # 지연 import + 방어 — 프로파일이 없어도 질문은 항상 가능해야 한다
+        from engine.stock_profile import get_stock_profile
+
+        profile = get_stock_profile(state.single_symbol) if state.single_symbol else None
+        if profile is not None:
+            for category, text, stat_key in _SINGLE_ASSET_CATEGORY_BULLETS:
+                if category not in profile.supported_strategy_categories:
+                    continue
+                count = profile.signal_statistics.get(f"{stat_key}_count")
+                if isinstance(count, (int, float)):
+                    bullets.append(f"• {text} — 과거 데이터에서 관련 신호 {int(count)}회 발생")
+                else:
+                    bullets.append(f"• {text}")
+    except Exception:
+        bullets = []
+    if not bullets:
+        bullets = [f"• {text}" for _, text, _ in _SINGLE_ASSET_CATEGORY_BULLETS]
+    # '직접 입력' 칩은 프론트가 공통으로 붙이므로 여기서 자유 서술 항목을 중복 노출하지
+    # 않는다('직접 설명하기'+'직접 입력' 이중 버튼 문제).
+    msg = (
+        prefix + f"{label} 단일 종목 전략이니 어떤 조건에서 사고팔지를 정하면 돼요. "
+        "어떤 진입 방식을 사용할까요?\n\n"
+        + "\n".join(bullets)
+    )
+    return (msg, list(_SINGLE_ASSET_TYPE_CHIPS))
+
+
+# 자유 서술 진입 조건으로 인정할 최소 큐(지표·비교·매매 어휘 또는 숫자). 인사말·잡담이
+# custom 진입 규칙으로 저장되는 것을 막는다.
+_ENTRY_DESCRIPTION_CUE_RE = re.compile(
+    r"매수|매도|사고|팔|진입|이상|이하|이내|돌파|하락|상승|반등|연속|평균|지표|밴드|%|\d",
+    re.IGNORECASE,
+)
+
+# 단일 종목 모드에서 쓸 수 없는 종목 선별형 전략 유형 → 안내 문구.
+_SINGLE_ASSET_BLOCKED_TYPES: dict[str, str] = {
+    "momentum": (
+        "모멘텀 전략은 여러 종목의 수익률을 비교해 상위 종목을 고르는 방식이라 "
+        "단일 종목에는 적용할 수 없어요. 비슷한 아이디어로는 신고가 '돌파' 진입이 있어요."
+    ),
+    "value": (
+        "저평가 가치주 전략은 여러 종목을 재무지표로 비교·선별하는 방식이라 "
+        "단일 종목에는 적용할 수 없어요. 이 종목의 당시 PBR·PER 수준을 진입 조건으로 "
+        "쓰고 싶으시면 '직접 입력'으로 조건을 말씀해 주세요(예: 'PBR 1 이하일 때 매수')."
+    ),
+}
+
+
 def next_question(
     state: BuilderState, just_filled: Optional[set[str]] = None,
 ) -> tuple[str, list[str]]:
@@ -930,6 +1267,10 @@ def next_question(
             ["코스피", "코스닥", "코스피200", "코스피·코스닥 전체", "ETF"],
         )
     if field == "strategy_type":
+        # 단일 종목 모드: 종목 선별형 유형(모멘텀 랭킹·재무 스크리닝 가치주)을 빼고,
+        # 가능하면 종목 프로파일의 신호 발생 통계를 근거로 선택지를 설명한다.
+        if state.single_symbol is not None:
+            return _single_asset_strategy_question(state, prefix)
         # ETF 유니버스: 기업 재무지표가 없어 가치 전략(PBR/ROE)은 제시하지 않는다.
         value_bullet = (
             "" if state.universe == "ETF"
@@ -1072,6 +1413,8 @@ def _ack_sentence(state: BuilderState, field: str) -> str:
     if field == "volume_period":
         return f"거래량 흐름(OBV) {state.volume_period}일 평균 기준으로 보겠습니다"
     if field == "value_roe":
+        if state.value_pbr is None:  # 한쪽만 채워진 부분 답변 — 채워진 값만 확인한다
+            return f"ROE {_fmt_pct(state.value_roe)} 이상으로 하겠습니다"
         return f"PBR {_fmt_pct(state.value_pbr)} 이하·ROE {_fmt_pct(state.value_roe)} 이상으로 하겠습니다"
     if field == "rebalance_cycle":
         if state.rebalance_cycle == "none":
@@ -1093,17 +1436,22 @@ def _ack_sentence(state: BuilderState, field: str) -> str:
 
 
 def _seed_summary(state: BuilderState) -> list[str]:
-    """시드로 미리 채워진 조건을 짧은 명사구로 요약한다(초기 질문에서 '이해한 내용' 표시)."""
+    """시드로 미리 채워진 조건을 짧은 명사구로 요약한다(초기 질문에서 '이해한 내용' 표시).
+
+    단일 종목 모드에서는 시스템이 자동 고정하는 값(보유 1종목·리밸런싱 없음)을 사용자가
+    말한 조건처럼 복창하지 않는다 — "1종목, 안 함 리밸런싱(으)로 이해했어요" 같은 어색한
+    문장이 나오던 버그."""
+    single = state.single_symbol is not None
     parts: list[str] = []
-    if state.sector:
+    if state.sector and not single:
         parts.append(f"{state.sector} 업종 대상")
     if state.strategy_type:
         parts.append(f"{_TYPE_LABEL.get(state.strategy_type, '')} 전략")
     if state.lookback_days and state.strategy_type in ("momentum", "breakout"):
         parts.append(f"최근 {state.lookback_label} 기준")
-    if state.holding_count:
+    if state.holding_count and not single:
         parts.append(f"{state.holding_count}종목")
-    if state.rebalance_cycle:
+    if state.rebalance_cycle and not single:
         parts.append(_REBAL_LABEL.get(state.rebalance_cycle, "") + " 리밸런싱")
     risk: list[str] = []
     if state.stop_loss_pct is not None:
@@ -1146,12 +1494,13 @@ def _fmt_pct(value: float) -> str:
 
 def synthesize_prompt(state: BuilderState) -> str:
     """수집한 필드를 기존 NL 파서가 안정적으로 해석하는 한국어 프롬프트로 합성한다."""
+    single = state.single_symbol is not None
     universe = _UNIVERSE_LABEL.get(state.universe or "KOSPI", "코스피")
-    if state.sector:
+    if state.sector and not single:
         # "업종" 큐를 붙여 custom 유형의 prompt 재파싱 경로에서도 섹터가 다시 인식되게 한다.
         universe = f"{universe} {state.sector} 업종"
     rebal = _REBAL_PHRASE.get(state.rebalance_cycle or "", "")
-    n = state.holding_count or 10
+    n = 1 if single else (state.holding_count or 10)
     days = state.lookback_days or 63
 
     if state.strategy_type == "momentum":
@@ -1198,6 +1547,13 @@ def synthesize_prompt(state: BuilderState) -> str:
     else:  # custom
         entry = (state.entry_rule or "").strip().rstrip(".")
         core = f"{universe} 종목 중 {entry}, 최대 {n}종목 보유"
+
+    if single:
+        # 단일 종목: "{시장} 종목 중" 선별 서술을 지정 종목 서술로 바꾼다. custom 유형의
+        # prompt 재파싱 경로에서도 종목명이 결정적 추출(_extract_target_symbols)에 잡힌다.
+        label = state.single_label or state.single_symbol
+        core = re.sub(r"^.*?종목 중\s*", "", core)
+        core = f"{label} 단일 종목에 적용하는 전략: {core}"
 
     parts = [core]
     # 옵션 진입 필터를 매수 조건 뒤에 덧붙인다(설명과 DSL 일치).
@@ -1299,19 +1655,22 @@ def build_parsed_strategy(state: BuilderState):
         entry_filters.append(TechnicalSignal(indicator="rsi", signal_type="buy",
                                              period=14, operator="<", value=state.rsi_filter))
 
+    single = state.single_symbol is not None
     return ParsedStrategy(
         description=synthesize_prompt(state),
         universe=_UNIVERSE_DSL.get(state.universe or "KOSPI", ["KOSPI"]),
-        sector=state.sector,
+        sector=None if single else state.sector,
+        # 단일 종목 모드: 지정 종목·집중 보유·리밸런싱 없음(엔진 계약 FR-STR-068).
+        target_symbols=[state.single_symbol] if single else [],
         fundamental_filters=filters,
         entry_signals=entry,
         exit_signals=exit_,
         entry_filters=entry_filters,
         ranking_metric=ranking_metric,
         ranking_lookback_days=ranking_lookback_days,
-        max_positions=state.holding_count or 10,
+        max_positions=1 if single else (state.holding_count or 10),
         hold_period_days=state.hold_period_days,
-        rebalancing_period=state.rebalance_cycle or "none",
+        rebalancing_period="none" if single else (state.rebalance_cycle or "none"),
         stop_loss_pct=state.stop_loss_pct,
         take_profit_pct=state.take_profit_pct,
         trailing_stop_pct=state.trailing_stop_pct,
@@ -1464,7 +1823,15 @@ def step(
     if ctrl == "exit":
         return StepResult(state=BuilderState(), reply=EXIT_REPLY, status="exited")
     if ctrl == "restart":
-        fresh = BuilderState()
+        # "처음부터 다시. 이번엔 코스닥으로"처럼 리셋과 함께 말한 조건은 버리지 않고
+        # 새 상태의 시드로 쓴다(BF-18). 단일 종목 모드는 대상 종목을 유지한 채 재시작한다.
+        fresh = seed_state(text)
+        if state.single_symbol is not None:
+            fresh = fresh.model_copy(update={
+                "single_symbol": state.single_symbol, "single_label": state.single_label,
+            })
+        if required_missing(fresh) is None:
+            return StepResult(state=fresh, status="confirmed", prompt=synthesize_prompt(fresh))
         msg, sug = next_question(fresh)
         return StepResult(state=fresh, reply=RESTART_PREFIX + msg, suggestions=sug, status="reset")
 
@@ -1473,17 +1840,73 @@ def step(
     if state.sector_unresolved and state.sector_reask_done and state.sector is None:
         return _answer_sector_reask(state, text, sector_resolver)
 
+    expecting = required_missing(state)
+
     # 용어 질문("손절이 뭐야?")은 필드 답변이 아니다 — 같은 질문을 말없이 반복하는 대신
-    # 짧은 객관적 정의를 알려주고 현재 질문을 이어간다(상태 불변).
+    # 짧은 객관적 정의를 알려주고 현재 질문을 이어간다(상태 불변). 글로서리에 없는 용어도
+    # 정의 질문이면 필드 파싱으로 넘기지 않는다 — "볼린저가 뭐야?"가 전략 유형을 조용히
+    # 확정하던 사고(BF-03) 방지. (자유 서술 단계는 제외 — 서술 안의 '뜻' 어휘 오탐 방지.)
     definition = _glossary_answer(text)
+    if (definition is None and expecting != "entry_rule"
+            and _DEFINITION_MARKER_RE.search(text)
+            and not _NUM_RE.search(text) and len(text.strip()) <= 30):
+        definition = GLOSSARY_FALLBACK_REPLY
     if definition is not None:
         msg, sug = next_question(state)
         return StepResult(
             state=state, reply=definition + "\n\n" + msg, suggestions=sug, status="collecting"
         )
 
-    expecting = required_missing(state)
-    patch = parse_input(text, state, expecting)
+    # 빌더 중 특정 종목 지정 요청("그냥 삼성전자만 테스트할래") — 빌더는 분류기를 거치지
+    # 않아 조용히 무시되던 요청(BF-11). 종목명이 실제로 인식될 때만 안내한다(상태 불변).
+    if (state.single_symbol is None and expecting != "entry_rule"
+            and _SINGLE_SWITCH_CUE_RE.search(text)):
+        try:  # 지연 import — 종목 마스터 로딩은 cue가 있을 때만
+            from stock_analysis.symbol_resolver import find_in_text
+            refs = find_in_text(text)
+        except Exception:  # noqa: BLE001 — 종목 인식 실패 시 일반 흐름 유지
+            refs = []
+        if refs:
+            msg, sug = next_question(state)
+            return StepResult(
+                state=state, reply=SINGLE_SWITCH_REPLY.format(name=refs[0].name) + "\n\n" + msg,
+                suggestions=sug, status="collecting",
+            )
+
+    # 단일 종목 모드: 종목 선별형 유형(모멘텀 랭킹·가치 스크리닝)을 고르면 조용히 무시하지
+    # 않고 이유를 설명하며 시계열 진입 방식으로 되묻는다(FR-STR-068b).
+    if expecting == "strategy_type" and state.single_symbol is not None:
+        blocked = _SINGLE_ASSET_BLOCKED_TYPES.get(_parse_strategy_type(text) or "")
+        if blocked:
+            msg, sug = next_question(state)
+            return StepResult(
+                state=state, reply=blocked + "\n\n" + msg, suggestions=sug, status="collecting"
+            )
+
+    # ETF 유니버스에서 가치 전략 선택 — 조용히 되묻지 않고 이유를 설명한다(BF-12).
+    if (expecting == "strategy_type" and state.universe == "ETF"
+            and _parse_strategy_type(_correction_focus(text)) == "value"):
+        msg, sug = next_question(state)
+        return StepResult(
+            state=state, reply=ETF_VALUE_BLOCKED_REPLY + "\n\n" + msg,
+            suggestions=sug, status="collecting",
+        )
+
+    # 청산 단계는 범위 검증 안내까지 함께 받는다(BF-08) — 그 외 단계는 공용 파서.
+    risk_range_notes: List[str] = []
+    if expecting == "risk":
+        patch, risk_range_notes = _parse_risk_ex(text)
+    else:
+        patch = parse_input(text, state, expecting)
+
+    # 단일 종목 모드에서 '직접 입력'으로 받은 자유 서술 진입 조건: 알려진 유형에 매칭되지
+    # 않아도 조건 서술 큐가 있으면 custom 진입 규칙으로 바로 저장한다 — '직접 설명하기' 칩
+    # 제거 후에도 같은 질문만 반복되는 막다른 길을 막는다.
+    if (expecting == "strategy_type" and state.single_symbol is not None
+            and "strategy_type" not in patch
+            and len(text.strip()) >= 5  # 맨숫자·한두 글자 답은 서술로 보지 않는다
+            and _ENTRY_DESCRIPTION_CUE_RE.search(text)):
+        patch = {"strategy_type": "custom", "entry_rule": text.strip()}
 
     # 청산 조건 자유 입력: 정규식이 키워드를 봤는데 값을 못 뽑았으면 LLM으로 보강·검증한다.
     if expecting == "risk" and risk_extractor is not None and _risk_needs_llm(text, patch):
@@ -1504,7 +1927,9 @@ def step(
     if reask:
         prompt, sug = reask
         return StepResult(state=new_state, reply=prompt, suggestions=sug, status="collecting")
-    just_filled = set(patch.keys())
+    # 확인 도입부는 실제로 채워진 값만 다룬다 — 유형 변경 리셋(None/False)이 직전 답변으로
+    # 오인돼 엉뚱한 확인 문장("추가 필터 없이…")이 나가지 않게 한다.
+    just_filled = {k for k, v in patch.items() if v not in (None, False, 0)}
     if new_state.sector and "sector" not in patch and state.sector is None:
         just_filled.add("sector")  # LLM 해석으로 채워진 업종도 확인 문장으로 알린다
 
@@ -1512,9 +1937,29 @@ def step(
     # (전략 요약 카드 + 검증이 곧 확인 단계이므로 별도 텍스트 요약은 중복이다.)
     if required_missing(new_state) is None:
         return StepResult(state=new_state, status="confirmed", prompt=synthesize_prompt(new_state),
-                          notices=[notice] if notice else [])
+                          notices=[n for n in [notice, *risk_range_notes] if n])
+
+    # 미인식/범위 밖 입력 안내 — 같은 질문을 말없이 반복하지 않는다(BF-09/15).
+    hint: Optional[str] = None
+    if not patch:
+        new_state = new_state.model_copy(update={"miss_streak": state.miss_streak + 1})
+        if risk_range_notes:
+            hint = " ".join(risk_range_notes)
+        elif expecting == "value_params" and _value_direction_conflict(text):
+            hint = VALUE_DIRECTION_REPLY
+        elif expecting in _PARAM_HINTS and (_NUM_RE.search(text) or expecting == "filters"):
+            hint = _PARAM_HINTS[expecting]
+        elif new_state.miss_streak >= 2:
+            hint = UNRECOGNIZED_HINT
+    elif state.miss_streak:
+        new_state = new_state.model_copy(update={"miss_streak": 0})
 
     msg, sug = next_question(new_state, just_filled=just_filled)
-    if notice:
-        msg = notice + "\n\n" + msg
+    prefix_parts = [notice] if notice else []
+    if patch and risk_range_notes:  # 일부 값만 유효했던 경우 제외된 값의 사유를 알린다
+        prefix_parts.extend(risk_range_notes)
+    if hint:
+        prefix_parts.append(hint)
+    if prefix_parts:
+        msg = "\n\n".join(prefix_parts + [msg])
     return StepResult(state=new_state, reply=msg, suggestions=sug, status="collecting")

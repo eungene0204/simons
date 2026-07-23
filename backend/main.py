@@ -146,6 +146,10 @@ app.include_router(coach_router)
 from api.intent_routes import router as intent_router
 app.include_router(intent_router)
 
+# 단일 종목 연구 프로파일(FR-STR-068b)
+from api.stock_profile_routes import router as stock_profile_router
+app.include_router(stock_profile_router)
+
 # news_v2 — pre-fetch & cache architecture
 try:
     from news_v2.api import router as news_v2_router
@@ -2972,6 +2976,18 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     # 조용한 임의 실행 방지 — 무엇이 추천 적용됐는지 notices로 알린다.
     parsed, single_asset_notices = apply_single_asset_adjustments(parsed)
     notices.extend(single_asset_notices)
+    # 단일 종목 프로파일 리뷰(FR-STR-068b): 종목의 실제 데이터 통계와 대조해 희소/과다
+    # 신호·재무 데이터 미보유·PIT 적용 사실·데이터 품질을 비차단 안내한다. 프로파일 조회
+    # 실패는 조용히 무시된다(파싱 흐름 보호).
+    if len(getattr(parsed, "target_symbols", None) or []) == 1:
+        from engine.single_asset_review import review_single_asset_strategy
+        profile_notices = review_single_asset_strategy(parsed)
+        notices.extend(profile_notices)
+        if profile_notices:
+            print(
+                f"[SINGLE-ASSET-REVIEW] symbol={parsed.target_symbols[0]} "
+                f"notices={len(profile_notices)}", flush=True,
+            )
     # 언급한 업종/테마를 지원 섹터로 매핑하지 못했으면 조용히 전체 시장으로 강등하지 않고
     # 되묻는다(오타 '재약주'→'제약주'·목록 밖 표현 정정 기회). 되묻기로 능동 처리하는 경우
     # 수동 안내에서 'sector'를 빼 중복(안내 + 질문)을 피한다.

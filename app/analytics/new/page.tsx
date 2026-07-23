@@ -147,6 +147,8 @@ type BuilderConfirmedData = {
 };
 
 const BUILDER_SLOT_KEYS = [
+  "single_symbol",
+  "single_label",
   "universe",
   "sector",
   "strategy_type",
@@ -421,10 +423,34 @@ const MIN_VALIDATION_DELAY_MS = 2400;
 // Choice-only prompts can reopen the shared chat input without sending another answer.
 const FREE_INPUT_CHIP = "직접 입력";
 const NO_REBALANCING_CHIP = "안 함";
+const BUILDER_BACK_CHIP = "뒤로가기";
 
 function withFreeInputSuggestion(suggestions: string[] | undefined): string[] | undefined {
   if (!suggestions?.length || suggestions.includes(FREE_INPUT_CHIP)) return suggestions;
   return [...suggestions, FREE_INPUT_CHIP];
+}
+
+function isBuilderUniverseStep(state: Record<string, any>): boolean {
+  return !hasBuilderSlotValue(state.universe);
+}
+
+function withBuilderNavigationSuggestions(
+  suggestions: string[] | undefined,
+  state: Record<string, any>,
+  canGoBack: boolean,
+): string[] | undefined {
+  if (!suggestions?.length) return suggestions;
+
+  const withoutNavigation = suggestions.filter(
+    (suggestion) => suggestion !== FREE_INPUT_CHIP && suggestion !== BUILDER_BACK_CHIP,
+  );
+  if (isBuilderUniverseStep(state)) return withoutNavigation;
+
+  return [
+    ...withoutNavigation,
+    FREE_INPUT_CHIP,
+    ...(canGoBack ? [BUILDER_BACK_CHIP] : []),
+  ];
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
@@ -853,6 +879,7 @@ function StrategyLabContent() {
   // 짧은 답변을 전략 필드로 누적하는 동안 true. 상태는 백엔드 step에 그대로 재전송한다.
   const builderModeRef = useRef(false);
   const builderStateRef = useRef<Record<string, any>>({});
+  const builderHistoryRef = useRef<Array<Record<string, any>>>([]);
   const applyBuilderConfirmedStrategyRef =
     useRef<(data: BuilderConfirmedData) => void>();
   const pendingHoldingPeriodPromptRef = useRef<string | null>(null);
@@ -898,6 +925,9 @@ function StrategyLabContent() {
       lastAnalyzedSymbolRef.current = snapshot.lastAnalyzedSymbol ?? null;
       builderModeRef.current = snapshot.builderMode ?? false;
       builderStateRef.current = snapshot.builderState ?? {};
+      builderHistoryRef.current = Array.isArray(snapshot.builderHistory)
+        ? snapshot.builderHistory
+        : [];
       const restoredNoRebalancing = snapshot.explicitNoRebalancing === true;
       explicitNoRebalancingRef.current = restoredNoRebalancing;
       setExplicitNoRebalancing(restoredNoRebalancing);
@@ -992,6 +1022,7 @@ function StrategyLabContent() {
         lastAnalyzedSymbol: lastAnalyzedSymbolRef.current,
         builderMode: builderModeRef.current,
         builderState: builderStateRef.current,
+        builderHistory: builderHistoryRef.current,
         explicitNoRebalancing,
         pendingHoldingPeriodPrompt: pendingHoldingPeriodPromptRef.current,
         pendingHoldingPeriodHorizon: pendingHoldingPeriodHorizonRef.current,
@@ -1082,6 +1113,11 @@ function StrategyLabContent() {
   };
 
   const handleSuggestionClick = (text: string) => {
+    if (text === BUILDER_BACK_CHIP) {
+      void handleBuilderBack();
+      return;
+    }
+
     const currentParsed = latestParsedRef.current ?? latestParsed;
     if (
       text === NO_REBALANCING_CHIP &&
@@ -1232,6 +1268,10 @@ function StrategyLabContent() {
       if (singleAssetContext && data.status !== "confirmed") {
         const singleAssetState = {
           ...nextState,
+          // 백엔드 빌더의 단일 종목 모드(FR-STR-068b): 횡단면 질문(보유 수·리밸런싱)을
+          // 건너뛰고 종목 프로파일 근거의 진입 방식 질문을 생성한다.
+          single_symbol: singleAssetContext.symbol,
+          single_label: singleAssetContext.label,
           universe: nextState.universe ?? singleAssetContext.builderUniverse,
           holding_count: 1,
           rebalance_cycle: nextState.rebalance_cycle ?? "none",
@@ -1260,6 +1300,7 @@ function StrategyLabContent() {
             : data;
         builderModeRef.current = false;
         builderStateRef.current = {};
+        builderHistoryRef.current = [];
         updateLastAssistant({
           isLoading: false,
           infoText: undefined,
@@ -1272,13 +1313,18 @@ function StrategyLabContent() {
       const activeResearchMetric = researchMetric ?? researchMetricRef.current;
       const isChoosingSingleAssetEntry =
         Boolean(singleAssetContext) && !builderStateRef.current.strategy_type;
-      const reply = isChoosingSingleAssetEntry
-        ? `${singleAssetContext?.label} 단일 종목 전략으로 설정했습니다. 어떤 진입 조건을 사용할까요?`
-        : data.reply;
-      const suggestions = withFreeInputSuggestion(
-        isChoosingSingleAssetEntry
-          ? ["골든크로스", "MACD", "돌파", "거래량 급증", "과매도 반등", "직접 설명하기"]
+      // 백엔드가 종목 프로파일 근거의 진입 방식 질문(신호 발생 횟수 포함)을 생성한다 —
+      // 응답이 비어 있을 때만 정적 문구로 폴백한다.
+      const reply =
+        isChoosingSingleAssetEntry && !data.reply
+          ? `${singleAssetContext?.label} 단일 종목 전략으로 설정했습니다. 어떤 진입 조건을 사용할까요?`
+          : data.reply;
+      const suggestions = withBuilderNavigationSuggestions(
+        isChoosingSingleAssetEntry && !data.suggestions?.length
+          ? ["골든크로스", "MACD", "돌파", "거래량 급증", "과매도 반등", FREE_INPUT_CHIP]
           : data.suggestions,
+        builderStateRef.current,
+        builderHistoryRef.current.length > 0,
       );
       updateLastAssistant({
         isLoading: false,
@@ -1294,6 +1340,8 @@ function StrategyLabContent() {
       if (singleAssetContext) {
         builderStateRef.current = {
           ...builderStateRef.current,
+          single_symbol: singleAssetContext.symbol,
+          single_label: singleAssetContext.label,
           universe: singleAssetContext.builderUniverse,
           holding_count: 1,
           rebalance_cycle: "none",
@@ -1308,12 +1356,60 @@ function StrategyLabContent() {
           ? `${buildResearchMetricIntro(activeResearchMetric)}\n\n${fallbackQuestion}`
           : fallbackQuestion,
         infoSuggestions: singleAssetContext
-          ? withFreeInputSuggestion(
-              ["골든크로스", "MACD", "돌파", "거래량 급증", "과매도 반등", "직접 설명하기"],
+          ? withBuilderNavigationSuggestions(
+              ["골든크로스", "MACD", "돌파", "거래량 급증", "과매도 반등", FREE_INPUT_CHIP],
+              builderStateRef.current,
+              builderHistoryRef.current.length > 0,
             )
           : undefined,
         builderQuestion: true,
       });
+    }
+  };
+
+  const handleBuilderBack = async () => {
+    if (isSending) return;
+    const previousState = builderHistoryRef.current.pop();
+    if (!previousState) return;
+
+    setBuilderFreeTextRequested(false);
+    setIsSending(true);
+    appendUserMessage(BUILDER_BACK_CHIP);
+    await appendAssistant({ role: "assistant", isLoading: true, builderQuestion: true });
+
+    try {
+      const res = await fetch("/api/strategy/builder/step", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ state: previousState, input: "" }),
+      });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      builderStateRef.current = mergeBuilderState(previousState, data.state);
+      if (data.status === "exited") {
+        builderModeRef.current = false;
+        builderStateRef.current = {};
+        builderHistoryRef.current = [];
+      }
+      updateLastAssistant({
+        isLoading: false,
+        infoText: data.reply,
+        infoSuggestions: withBuilderNavigationSuggestions(
+          data.suggestions,
+          builderStateRef.current,
+          builderHistoryRef.current.length > 0,
+        ),
+        builderQuestion: data.status !== "exited",
+      });
+    } catch {
+      builderHistoryRef.current.push(previousState);
+      updateLastAssistant({
+        isLoading: false,
+        error: "이전 조건으로 돌아가지 못했습니다. 다시 시도해 주세요.",
+        builderQuestion: true,
+      });
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -1878,6 +1974,7 @@ function StrategyLabContent() {
       builderStateRef.current = holdingPeriodDays
         ? { hold_period_days: holdingPeriodDays, risk_done: true }
         : {};
+      builderHistoryRef.current = [];
       await startStrategyBuilder({ seedText: turnDecision.seedPrompt, researchMetric });
       setIsSending(false);
       return;
@@ -1935,6 +2032,7 @@ function StrategyLabContent() {
                   : data,
               );
               builderStateRef.current = {};
+              builderHistoryRef.current = [];
             } else if (data.prompt) {
               await runStrategyParseFlow(
                 singleAssetContext
@@ -1945,6 +2043,7 @@ function StrategyLabContent() {
               );
               if (!builderModeRef.current) {
                 builderStateRef.current = {};
+                builderHistoryRef.current = [];
               }
             } else {
               builderModeRef.current = true;
@@ -1961,6 +2060,9 @@ function StrategyLabContent() {
           setIsSending(false);
           return;
         }
+        if (data.status === "reset" || data.status === "exited") {
+          builderHistoryRef.current = [];
+        }
         if (data.status === "exited") {
           builderModeRef.current = false;
           builderStateRef.current = {};
@@ -1968,10 +2070,17 @@ function StrategyLabContent() {
           researchMetricRef.current = null;
           metricOptimizationDraftRef.current = null;
         }
+        if (data.status !== "reset" && data.status !== "exited") {
+          builderHistoryRef.current.push({ ...requestState });
+        }
         updateLastAssistant({
           isLoading: false,
           infoText: data.reply,
-          infoSuggestions: withFreeInputSuggestion(data.suggestions),
+          infoSuggestions: withBuilderNavigationSuggestions(
+            data.suggestions,
+            builderStateRef.current,
+            builderHistoryRef.current.length > 0,
+          ),
           builderQuestion: data.status !== "exited",
         });
       } catch {
@@ -2054,6 +2163,7 @@ function StrategyLabContent() {
       metricOptimizationDraftRef.current = null;
       builderModeRef.current = true;
       builderStateRef.current = {};
+      builderHistoryRef.current = [];
       await startStrategyBuilder({ seedText: turnDecision.seedPrompt });
       setIsSending(false);
       return;
@@ -2290,6 +2400,7 @@ function StrategyLabContent() {
     if (!hasBuyCriteria(currentParsed)) {
       builderModeRef.current = true;
       builderStateRef.current = {};
+      builderHistoryRef.current = [];
       await startStrategyBuilder();
       return;
     }
@@ -2425,6 +2536,7 @@ function StrategyLabContent() {
     lastAnalyzedSymbolRef.current = null;
     builderModeRef.current = false;
     builderStateRef.current = {};
+    builderHistoryRef.current = [];
     explicitNoRebalancingRef.current = false;
     setExplicitNoRebalancing(false);
     pendingHoldingPeriodPromptRef.current = null;
@@ -2692,7 +2804,7 @@ function StrategyLabContent() {
                                         focusFreeTextInput();
                                         return;
                                       }
-                                      void handleSend(suggestion);
+                                      handleSuggestionClick(suggestion);
                                     }}
                                     className="px-3 py-1.5 rounded-lg bg-[#171717] border border-white/10 hover:border-yellow-400/50 hover:bg-[#202020] text-xs font-bold text-gray-300 transition-all duration-200 text-left"
                                   >

@@ -1502,6 +1502,10 @@ def _compact(user_input: str) -> str:
     # '5게'·'120게'처럼 숫자 뒤 '게'는 종목 수 단위 '개'의 흔한 오타다(게 자체는 단위가 아님).
     # 게로 시작하는 단어(게임·게시 등)는 보정하지 않도록 문장 끝/조사 앞에서만 바꾼다.
     compact = re.sub(r"(\d)게(?=$|[은는이가을를로도만씩요])", r"\1개", compact)
+    # '10퍼센트'·'10프로'·'10퍼'는 %의 흔한 한국어 표기 — %로 정규화해 손절/익절 등 모든
+    # 결정적 % 추출기가 인식하게 한다(퍼징 QA BF-19: "손절은 10 퍼센트"가 조용히 유실).
+    # '퍼센트'가 alternation 앞이라 '10퍼센트'가 '10퍼'+센트로 쪼개지지 않는다.
+    compact = re.sub(r"(\d(?:\.\d+)?)(?:퍼센트|프로|퍼)", r"\1%", compact)
     return compact
 
 
@@ -3057,7 +3061,7 @@ def _extract_max_mdd_limit_pct(user_input: str) -> Optional[float]:
 #     절대 포함하지 않는다(오폴백 방지).
 _UNSUPPORTED_CONCEPT_PATTERNS: tuple[tuple[str, str], ...] = (
     ("volatility", r"변동성"),
-    ("cash_flow", r"현금흐름|영업활동현금|잉여현금|fcf|pcf"),
+    ("cash_flow", r"현금흐름|영업활동현금|잉여현금|fcf|pcf|pcr(?![a-z])"),
     ("cash_weight", r"현금[^,]{0,4}(?:비중|유지)"),
     ("dividend", r"배당"),
     # 흔한 퀀트 팩터지만 데이터 파이프라인이 없어 표현 불가 — 조용히 누락/유사 해석되는
@@ -3103,6 +3107,15 @@ _UNSUPPORTED_CONCEPT_PATTERNS: tuple[tuple[str, str], ...] = (
     # 없다(TechnicalSignal에 해당 필드 없음). 배수 없는 '거래량 급증'은 지원 개념이므로 제외.
     # 절 경계(쉼표/마침표)를 넘는 매칭 금지 — "거래량 급증, 3배 수익"의 '3배'는 배수 조건이 아니다.
     ("volume_multiple", r"(?:거래량|거래대금)[^,.]{0,10}\d+(?:\.\d+)?배|\d+(?:\.\d+)?배[^,.]{0,4}(?:거래량|거래대금)"),
+    # 미지원 기술 지표/분석 기법 — 감지 공백으로 LLM 폴백이 안내 없이 일반 되묻기만 하던
+    # 막다른 길(퍼징 QA BF-16) 보정. 구현(지원) 시 이 목록에서 제거할 것(커버리지 가드 원칙).
+    ("ichimoku", r"이치모쿠|일목균형표|ichimoku"),
+    ("vwap", r"vwap|브이왑"),
+    ("peg", r"peg(?![a-z])"),
+    ("fibonacci", r"피보나치|fibonacci"),
+    ("elliott", r"엘리엇|엘리어트|파동이론"),
+    # '도지'는 '정도 지나면'(compact: 정도지나면)과 충돌하므로 캔들 문맥이 붙은 형태만 잡는다.
+    ("candle_pattern", r"망치형|장악형|샛별형|도지형|도지캔들|캔들패턴|캔들모양|음봉|양봉"),
 )
 _UNSUPPORTED_CONCEPT_RE = tuple(
     (name, re.compile(pattern)) for name, pattern in _UNSUPPORTED_CONCEPT_PATTERNS
@@ -3137,6 +3150,12 @@ _UNSUPPORTED_CONCEPT_LABELS: dict[str, str] = {
     "intraday": "실시간/장중 단위 매매·리밸런싱(일봉 기준만 지원)",
     "overseas": "해외 시장/종목(국내 주식·국내 상장 ETF만 지원)",
     "preferred_stock": "우선주 종목 지정(보통주 데이터만 지원)",
+    "ichimoku": "이치모쿠(일목균형표) 지표",
+    "vwap": "VWAP(거래량 가중 평균가) 지표",
+    "peg": "PEG(주가수익성장비율) 조건",
+    "fibonacci": "피보나치 되돌림 조건",
+    "elliott": "엘리엇 파동 분석",
+    "candle_pattern": "캔들 패턴(망치형·장악형 등) 조건",
 }
 
 

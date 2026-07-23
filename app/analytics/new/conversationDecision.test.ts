@@ -427,6 +427,25 @@ describe("decideConversationTurn", () => {
     });
   });
 
+  it("uses entry and exit examples only for a single-stock analysis request", () => {
+    const decision = decideConversationTurn("삼성전자 언제 사야 하지?", baseContext, {
+      intent: "STOCK_ANALYSIS",
+      symbol: "005930",
+      suggestedReply:
+        "PBR은 낮고 ROE는 높은 저평가 우량주를 고르는 가치 전략",
+    });
+
+    expect(decision).toMatchObject({
+      action: "respond_stock",
+      reason: "classified_stock_analysis",
+      message: expect.stringContaining("5일 이동평균이 20일 이동평균을 상향 돌파"),
+    });
+    const message = decision.action === "respond_stock" ? decision.message : "";
+    expect(message).toContain("RSI가 30 이하");
+    expect(message).not.toContain("저평가 우량주를 고르는");
+    expect(message).not.toContain("상위 5종목");
+  });
+
   // 회귀: 전략이 이미 있어도 정의형 질문("pbr이 뭐야?")은 수정 파싱이 아니라 지식 답변
   // 경로로 가야 한다 — 수정 파싱으로 흘리면 무변경 전략 요약만 다시 렌더링됐다.
   it("routes general knowledge to the general answer path even with an active strategy", () => {

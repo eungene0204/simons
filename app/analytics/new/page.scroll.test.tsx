@@ -478,15 +478,20 @@ describe("StrategyLabPage scroll behavior", () => {
           }));
         }
         if (builderCallCount === 2) {
+          // 단일 종목 모드(FR-STR-068b): 프론트가 single_symbol을 전달하고, 백엔드가
+          // 종목 프로파일 근거의 진입 방식 질문(횡단면 유형 제외)을 생성한다.
           expect(body.state).toMatchObject({
+            single_symbol: "005930",
+            single_label: "삼성전자 (005930)",
             universe: "KOSPI200",
             holding_count: 1,
             rebalance_cycle: "none",
           });
           return Promise.resolve(createJsonResponse({
             state: body.state,
-            reply: "어떤 방식으로 종목을 고를까요?",
-            suggestions: ["모멘텀", "골든크로스", "저평가 가치주"],
+            reply:
+              "삼성전자 (005930) 단일 종목 전략이니 어떤 조건에서 사고팔지를 정하면 돼요. 어떤 진입 방식을 사용할까요?",
+            suggestions: ["골든크로스", "MACD", "돌파", "거래량 급증", "과매도 반등"],
           }));
         }
         if (builderCallCount === 3) {
@@ -529,11 +534,17 @@ describe("StrategyLabPage scroll behavior", () => {
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
 
     expect(
-      await screen.findByText("삼성전자 (005930) 단일 종목 전략으로 설정했습니다. 어떤 진입 조건을 사용할까요?")
+      await screen.findByText(
+        "삼성전자 (005930) 단일 종목 전략이니 어떤 조건에서 사고팔지를 정하면 돼요. 어떤 진입 방식을 사용할까요?",
+      )
     ).toBeInTheDocument();
     expect(screen.queryByText("어떤 시장을 대상으로 할까요?")).not.toBeInTheDocument();
+    // 횡단면(종목 선별형) 유형은 단일 종목 선택지에 노출되지 않는다.
     expect(screen.queryByRole("button", { name: "모멘텀" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "저평가 가치주" })).not.toBeInTheDocument();
+    // 자유 입력 진입로는 '직접 입력' 하나만 — '직접 설명하기'와 이중 노출하지 않는다.
+    expect(screen.getAllByRole("button", { name: "직접 입력" })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "직접 설명하기" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "골든크로스" }));
 
@@ -805,14 +816,16 @@ describe("StrategyLabPage scroll behavior", () => {
           }));
         }
         expect(body.state).toMatchObject({
+          single_symbol: "005930",
           universe: "KOSPI200",
           holding_count: 1,
           rebalance_cycle: "none",
         });
         return Promise.resolve(createJsonResponse({
           state: body.state,
-          reply: "어떤 방식으로 종목을 고를까요?",
-          suggestions: ["모멘텀", "골든크로스", "저평가 가치주"],
+          reply:
+            "삼성전자 (005930) 단일 종목 전략이니 어떤 조건에서 사고팔지를 정하면 돼요. 어떤 진입 방식을 사용할까요?",
+          suggestions: ["골든크로스", "MACD", "돌파", "거래량 급증", "과매도 반등"],
         }));
       }
       return Promise.resolve(createJsonResponse({}));
@@ -835,12 +848,76 @@ describe("StrategyLabPage scroll behavior", () => {
 
     expect(
       await screen.findByText(
-        "삼성전자 (005930) 단일 종목 전략으로 설정했습니다. 어떤 진입 조건을 사용할까요?",
+        "삼성전자 (005930) 단일 종목 전략이니 어떤 조건에서 사고팔지를 정하면 돼요. 어떤 진입 방식을 사용할까요?",
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText("어떤 시장을 대상으로 할까요?")).not.toBeInTheDocument();
     expect(classifyCallCount).toBe(2);
     expect(builderCallCount).toBe(3);
+  });
+
+  it("유니버스 이후 조건에서는 뒤로가기를 제공하고 유니버스 질문으로 복원한다", async () => {
+    const builderRequests: Array<{ state: Record<string, unknown>; input: string }> = [];
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url === "/api/model/status") {
+        return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
+      }
+      if (url === "/api/user") {
+        return Promise.resolve(createJsonResponse({ user: { name: "Tester" } }));
+      }
+      if (url === "/api/query/classify") {
+        return Promise.resolve(createJsonResponse({ intent: "STRATEGY_PICK", symbols: [] }));
+      }
+      if (url === "/api/strategy/builder/step") {
+        const body = JSON.parse(String(init?.body ?? "{}"));
+        builderRequests.push({ state: body.state ?? {}, input: body.input ?? "" });
+        if (body.input === "코스피" || body.state?.universe) {
+          return Promise.resolve(createJsonResponse({
+            state: { universe: "KOSPI" },
+            reply: "어떤 방식으로 종목을 고를까요?",
+            suggestions: ["모멘텀", "골든크로스", "MACD"],
+          }));
+        }
+        if (!body.state?.universe) {
+          return Promise.resolve(createJsonResponse({
+            state: {},
+            reply: "어떤 시장을 대상으로 할까요?",
+            suggestions: ["코스피", "코스닥", "코스피200"],
+          }));
+        }
+        return Promise.resolve(createJsonResponse({}));
+      }
+      return Promise.resolve(createJsonResponse({}));
+    });
+
+    render(<StrategyLabPage />);
+
+    fireEvent.change(await screen.findByRole("textbox"), {
+      target: { value: "어떤 전략이 좋아?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
+
+    expect(await screen.findByText("어떤 시장을 대상으로 할까요?")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "직접 입력" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "뒤로가기" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "코스피" }));
+
+    expect(await screen.findByText("어떤 방식으로 종목을 고를까요?")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "직접 입력" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "뒤로가기" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "뒤로가기" }));
+
+    await waitFor(() => {
+      expect(builderRequests.at(-1)).toEqual({ state: {}, input: "" });
+      expect(screen.getAllByText("어떤 시장을 대상으로 할까요?")).toHaveLength(2);
+    });
+    expect(screen.queryByRole("button", { name: "직접 입력" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "뒤로가기" })).not.toBeInTheDocument();
   });
 
   it("scrolls to the bottom when a follow-up coach reply updates the existing assistant message", async () => {

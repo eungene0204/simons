@@ -1,6 +1,5 @@
 // [회귀] 특정 종목 질문("삼성전자 어때?") 전환 안내 후 전략 빌더 모드로 자동 진입하지 않는다.
-// 안내가 이미 그 종목 기반의 구체적인 전략 예시를 제시하므로, 빌더의 첫 질문("어떤 시장을
-// 대상으로 할까요?")이 예시를 덮지 않도록 사용자의 후속 답변을 기다려야 한다(2026-07-11).
+// 종목을 이미 지정한 맥락에서는 다른 종목을 선별하는 예시 대신 진입·청산 규칙만 보여준다.
 import type { ReactNode } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -46,7 +45,7 @@ function createJsonResponse(body: unknown) {
 
 const REDIRECT_REPLY =
   "삼성전자에 대한 매수·매도 판단이나 종목 추천은 제공하지 않아요.\n" +
-  "• 삼성전자가 속한 반도체 업종 종목만 대상으로, 최근 3개월 수익률 상위 5종목을 매수하는 전략";
+  "• PBR은 낮고 ROE는 높은 저평가 우량주를 고르는 가치 전략";
 
 describe("특정 종목 질문 전환 안내", () => {
   beforeEach(() => {
@@ -94,12 +93,14 @@ describe("특정 종목 질문 전환 안내", () => {
     fireEvent.change(textarea, { target: { value: "삼성전자 어때?" } });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
 
-    // 전환 안내(종목 기반 전략 예시 포함)가 표시된다.
+    // 단일 종목 전환 안내는 진입·청산 규칙 예시만 표시한다.
     expect(
-      await screen.findByText(/삼성전자가 속한 반도체 업종 종목만 대상으로/, undefined, {
+      await screen.findByText(/5일 이동평균이 20일 이동평균을 상향 돌파하면 매수/, undefined, {
         timeout: 5000,
       })
     ).toBeInTheDocument();
+    expect(screen.queryByText(/저평가 우량주를 고르는/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/상위 5종목/)).not.toBeInTheDocument();
 
     // 빌더 스텝 호출이 없어야 한다 — 빌더 첫 질문이 예시를 덮지 않고 후속 답변을 기다린다.
     await waitFor(() => {

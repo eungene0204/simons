@@ -439,6 +439,10 @@ function fallbackMessage(intent: SemanticIntent): string {
   return "저는 투자 전략 및 분석 전용 모델입니다. 현재 질문에는 도움을 드릴 수 없습니다. 대신 투자 전략, 백테스트와 관련된 질문은 도와드릴 수 있습니다.";
 }
 
+function singleStockResearchMessage(): string {
+  return "특정 종목에 대한 매수·매도 판단이나 종목 추천은 제공하지 않아요.\n\n대신 관심 있는 종목을 대상으로, 어떤 조건에서 진입하고 청산할지를 정해 과거 데이터에서 검증하는 전략을 만들 수 있어요.\n\n예를 들어 이렇게 시작해볼 수 있어요:\n• 5일 이동평균이 20일 이동평균을 상향 돌파하면 매수하고, 하향 돌파하면 매도하는 전략\n• RSI가 30 이하로 내려가면 매수하고 70 이상이면 매도하는 전략\n• 최근 60일 고점을 돌파하면 매수하고, 손절 -10%·익절 +20%를 적용하는 전략\n\n관심 가는 방식이 있으면 말씀해 주세요. 해당 종목을 대상으로 과거 데이터에서 전략을 검증할 수 있어요.";
+}
+
 export function decideConversationTurn(
   prompt: string,
   context: ConversationContext,
@@ -652,9 +656,9 @@ export function decideConversationTurn(
       confidence: 1,
       reason: "classified_stock_analysis",
       symbol,
-      message:
-        suggestedReply ??
-        "특정 종목에 대한 매수·매도 판단이나 종목 추천은 제공하지 않아요. 대신 관심 있는 종목에서 출발한 아이디어를 전략으로 만들어 과거 데이터로 검증할 수 있어요.",
+      // 단일 종목 맥락에서 서버의 범용 예시를 그대로 노출하면 다른 종목을 다시
+      // 선별하는 전략이 섞일 수 있다. 이 경로는 해당 종목의 진입·청산 규칙만 안내한다.
+      message: singleStockResearchMessage(),
     };
   }
 

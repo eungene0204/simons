@@ -504,6 +504,18 @@ strategy_converter.to_backtest_request() (backend/engine/strategy_converter.py)
     │   stock_analysis/symbol_resolver 정본)이 채우고, 문맥 가드(업종·예시·제외 표현)가
     │   유니버스 전략의 오폭을 막는다. 청산 누락은 apply_single_asset_adjustments가
     │   반대 신호 청산 추천/안내(notices)로 보정한다.
+    ├── 단일 종목 연구 프로파일(FR-STR-068b): engine/stock_profile.py의
+    │   StockProfileService가 종목 지정 시 OHLCV·PIT 재무에서 결정론 프로파일
+    │   (커버리지·설명 통계·신호 발생 빈도·지원/미지원 피처)을 생성·캐시
+    │   (data/cache/stock_profiles/, fingerprint 무효화). LLM(코치/빌더)은 원시
+    │   시계열이 아닌 직렬화 요약만 읽는다. engine/single_asset_review.py가 파싱
+    │   결과를 프로파일과 대조해 희소/과다 신호·재무 미보유·PIT 안내를 비차단
+    │   notices로 전달하고, engine/stock_question_templates.py가 데이터 가용성
+    │   기반으로 질문 노출/제외(이유 포함)를 결정한다(횡단면 선별 질문 없음,
+    │   재무는 advanced 시계열 신호로만). API: GET /stock/{symbol}/research-profile.
+    │   빌더는 BuilderState.single_symbol로 유니버스·보유수·리밸런싱 질문을 건너뛰고
+    │   모멘텀 랭킹·가치 스크리닝을 이유와 함께 차단한다. 사후 최적값(best value)은
+    │   계산·저장·추천하지 않는다(과최적화 방지).
     ├── 기술 신호 → Condition dict 변환
     ├── 재무 필터 → filter condition 변환
     └── 리스크 관리 설정 병합

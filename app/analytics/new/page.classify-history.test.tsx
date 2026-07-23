@@ -49,6 +49,15 @@ const REDIRECT_REPLY =
   "예를 들어 이렇게 시작해볼 수 있어요:\n" +
   "• RSI가 30 이하로 떨어지면 매수하고 70 이상에서 파는 과매도 반등 전략";
 
+const SINGLE_STOCK_REPLY =
+  "특정 종목에 대한 매수·매도 판단이나 종목 추천은 제공하지 않아요.\n\n" +
+  "대신 관심 있는 종목을 대상으로, 어떤 조건에서 진입하고 청산할지를 정해 과거 데이터에서 검증하는 전략을 만들 수 있어요.\n\n" +
+  "예를 들어 이렇게 시작해볼 수 있어요:\n" +
+  "• 5일 이동평균이 20일 이동평균을 상향 돌파하면 매수하고, 하향 돌파하면 매도하는 전략\n" +
+  "• RSI가 30 이하로 내려가면 매수하고 70 이상이면 매도하는 전략\n" +
+  "• 최근 60일 고점을 돌파하면 매수하고, 손절 -10%·익절 +20%를 적용하는 전략\n\n" +
+  "관심 가는 방식이 있으면 말씀해 주세요. 해당 종목을 대상으로 과거 데이터에서 전략을 검증할 수 있어요.";
+
 function bodyOf(call: unknown[]): any {
   return JSON.parse((call[1] as RequestInit).body as string);
 }
@@ -109,7 +118,9 @@ describe("후속 질문 분류에 대화 맥락 전달", () => {
     fireEvent.change(textarea, { target: { value: "삼성전자 어때?" } });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
 
-    await screen.findByText(/과매도 반등 전략/, undefined, { timeout: 5000 });
+    await screen.findByText(/5일 이동평균이 20일 이동평균을 상향 돌파하면 매수/, undefined, {
+      timeout: 5000,
+    });
 
     // 후속 질문 전송(대화 시작 후에는 전송 버튼 라벨이 "전송"이다).
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "다른 예는 없어?" } });
@@ -132,7 +143,7 @@ describe("후속 질문 분류에 대화 맥락 전달", () => {
     expect(followUpBody.query).toBe("다른 예는 없어?");
     expect(followUpBody.history).toEqual([
       { role: "user", text: "삼성전자 어때?" },
-      { role: "assistant", text: REDIRECT_REPLY },
+      { role: "assistant", text: SINGLE_STOCK_REPLY },
     ]);
 
     // 일반 답변 호출에도 같은 맥락이 실린다(직전 답변에 이어 답하도록).
