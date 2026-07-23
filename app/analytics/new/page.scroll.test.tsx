@@ -216,6 +216,38 @@ function createParseStreamResponseWithNonConditionClarification() {
   );
 }
 
+function createParseStreamResponseMissingRebalancing() {
+  const encoder = new TextEncoder();
+  const parsed = {
+    ...parsedStrategy,
+    rebalancing_period: "none",
+    take_profit_pct: null,
+  };
+  const request = {
+    ...backtestRequest,
+    risk: {
+      ...backtestRequest.risk,
+      rebalancing_period: "none",
+      take_profit_pct: null,
+    },
+  };
+  const payload = [
+    `data: ${JSON.stringify({ type: "parsed_final", parsed })}\n\n`,
+    `data: ${JSON.stringify({ type: "dsl_ready", backtest_request: request, symbol_count: 2 })}\n\n`,
+    "data: [DONE]\n\n",
+  ].join("");
+
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(payload));
+        controller.close();
+      },
+    }),
+    { status: 200 },
+  );
+}
+
 function createSingleAssetParseStreamResponse(complete = false) {
   const encoder = new TextEncoder();
   const parsed = complete ? completeSingleAssetStrategy : incompleteSingleAssetStrategy;
@@ -269,8 +301,8 @@ describe("StrategyLabPage scroll behavior", () => {
     vi.unstubAllGlobals();
   });
 
-  it("조건 명확화가 필요하면 카드를 표시하지 않고 파싱 결과를 시드한 전략 빌더를 시작한다", async () => {
-    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+  it("조건이 빠지면 파싱 결과를 다시 빌더로 보내지 않고 다음 누락 조건을 직접 묻는다", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
 
       if (url === "/api/model/status") {
@@ -286,18 +318,7 @@ describe("StrategyLabPage scroll behavior", () => {
         return Promise.resolve(createParseStreamResponseWithClarification());
       }
       if (url === "/api/strategy/builder/step") {
-        const body = JSON.parse(String(init?.body ?? "{}"));
-        expect(body).toMatchObject({
-          input: "",
-          seed: "영업이익률이 높은 조건도 넣어줘",
-          seed_parsed: incompleteParsedStrategy,
-          state: {},
-        });
-        return Promise.resolve(createJsonResponse({
-          state: { universe: "KOSPI" },
-          reply: "어떤 진입 조건으로 연구할까요?",
-          suggestions: ["모멘텀", "RSI", "직접 설계"],
-        }));
+        throw new Error(`파싱 결과를 다시 빌더로 보내면 안 되는 경로: ${url}`);
       }
       if (url === "/api/strategy/coach") {
         throw new Error(`누락 조건 입력 전에 호출되면 안 되는 경로: ${url}`);
@@ -312,14 +333,16 @@ describe("StrategyLabPage scroll behavior", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
 
-    expect(await screen.findByText("어떤 진입 조건으로 연구할까요?")).toBeInTheDocument();
+    expect(
+      await screen.findByText("청산 조건이 빠져 있습니다. 어떤 조건에서 청산할까요?"),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/영업이익률 몇 % 이상으로 설정할까요/)).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "영업이익률 10% 이상" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "모멘텀" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "RSI" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "직접 설계" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "데드크로스 발생 시 매도" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "20일 보유 후 청산" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "RSI 70 이상에서 매도" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "직접 입력" })).toBeInTheDocument();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/strategy/builder/step")).toHaveLength(1);
+    expect(fetchMock.mock.calls.some(([input]) => String(input) === "/api/strategy/builder/step")).toBe(false);
     expect(
       fetchMock.mock.calls.some(([input]) => String(input) === "/api/strategy/coach")
     ).toBe(false);
@@ -352,11 +375,67 @@ describe("StrategyLabPage scroll behavior", () => {
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
 
     expect(
-      await screen.findByText("여러 종목이 지정되었습니다. 어느 종목을 대상으로 할까요?")
+      await screen.findByText(
+        "세부 조건이 빠져 있습니다. 여러 종목이 지정되었습니다. 어느 종목을 대상으로 할까요?",
+      )
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "삼성전자" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "SK하이닉스" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "직접 입력" })).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([input]) => String(input) === "/api/strategy/builder/step")).toBe(false);
+  });
+
+  it("리밸런싱 안 함을 선택하면 같은 질문을 반복하지 않고 다음 누락 조건으로 진행한다", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url === "/api/model/status") {
+        return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
+      }
+      if (url === "/api/user") {
+        return Promise.resolve(createJsonResponse({ user: { name: "Tester" } }));
+      }
+      if (url === "/api/query/classify") {
+        return Promise.resolve(createJsonResponse({ intent: "STRATEGY_ADVICE", symbols: [] }));
+      }
+      if (url === "/api/strategy/parse/stream") {
+        return Promise.resolve(createParseStreamResponseMissingRebalancing());
+      }
+      if (url === "/api/strategy/coach") {
+        throw new Error(`누락 조건 입력 중 호출되면 안 되는 경로: ${url}`);
+      }
+      return Promise.resolve(createJsonResponse({}));
+    });
+
+    render(<StrategyLabPage />);
+
+    fireEvent.change(await screen.findByRole("textbox"), {
+      target: { value: "PER 10 이하 전략을 만들어줘" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
+
+    expect(
+      await screen.findByText(
+        "리밸런싱 주기가 빠져 있습니다. 포트폴리오를 얼마나 자주 다시 구성할까요?",
+      ),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "안 함" }));
+
+    expect(
+      await screen.findByText(
+        "익절 기준이 빠져 있습니다. 익절 기준을 몇 %로 설정할까요?",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "리밸런싱 주기가 빠져 있습니다. 포트폴리오를 얼마나 자주 다시 구성할까요?",
+      ),
+    ).not.toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.filter(
+        ([input]) => String(input) === "/api/strategy/parse/stream",
+      ),
+    ).toHaveLength(2);
   });
 
   it("단일 종목 빌더를 재파싱하지 않고 없음 답변 뒤 완성해 실행 버튼을 한 번 표시한다", async () => {

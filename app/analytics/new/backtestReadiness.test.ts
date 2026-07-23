@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import type { ParsedSummary } from "@/lib/strategy-summary";
 
-import { isBacktestReady } from "./backtestReadiness";
+import {
+  getNextMissingBacktestCondition,
+  isBacktestReady,
+} from "./backtestReadiness";
 
 const base: ParsedSummary = {
   description: "x",
@@ -31,6 +34,29 @@ describe("isBacktestReady", () => {
     // 리밸런싱(none)이 없으면 유니버스 전략은 실행 불가
     expect(isBacktestReady(withoutRebal)).toBe(false);
     expect(isBacktestReady({ ...withoutRebal, rebalancing_period: "monthly" })).toBe(true);
+  });
+
+  it("리밸런싱 누락 안내에서 안 함을 선택할 수 있고 명시적 선택으로 인정한다", () => {
+    const withoutRebal = {
+      ...base,
+      entry_signals: [{ indicator: "ma_crossover", signal_type: "buy" }],
+      exit_signals: [{ indicator: "ma_crossover", signal_type: "sell" }],
+      stop_loss_pct: 10,
+      take_profit_pct: 20,
+    };
+
+    expect(getNextMissingBacktestCondition(withoutRebal)).toMatchObject({
+      field: "rebalancing",
+      suggestions: [
+        "매주 리밸런싱",
+        "매월 리밸런싱",
+        "분기마다 리밸런싱",
+        "안 함",
+      ],
+    });
+    expect(
+      isBacktestReady(withoutRebal, { allowNoRebalancing: true }),
+    ).toBe(true);
   });
 
   it("단독 종목은 리밸런싱 없이도(나머지 충족 시) 실행 가능", () => {

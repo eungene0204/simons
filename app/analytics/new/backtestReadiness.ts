@@ -12,12 +12,17 @@ export type MissingBacktestCondition = {
   suggestions: string[];
 };
 
+export type BacktestReadinessOptions = {
+  allowNoRebalancing?: boolean;
+};
+
 function nonEmpty(value: unknown): boolean {
   return Array.isArray(value) ? value.length > 0 : Boolean(value);
 }
 
 export function getNextMissingBacktestCondition(
   parsed: ParsedSummary | undefined | null,
+  options: BacktestReadinessOptions = {},
 ): MissingBacktestCondition | null {
   if (!parsed) {
     return {
@@ -41,7 +46,8 @@ export function getNextMissingBacktestCondition(
   const hasTake = parsed.take_profit_pct != null && parsed.take_profit_pct > 0;
   // 단독 종목이 아니면(유니버스/다종목) 리밸런싱 주기도 필수다(단독 종목은 교체가 없어 제외).
   const isSingleAsset = nonEmpty(parsed.target_symbols);
-  const rebalancingOk = isSingleAsset || hasRebalancing;
+  const rebalancingOk =
+    isSingleAsset || hasRebalancing || options.allowNoRebalancing === true;
 
   if (!hasUniverse) {
     return {
@@ -69,7 +75,7 @@ export function getNextMissingBacktestCondition(
       field: "rebalancing",
       question:
         "리밸런싱 주기가 빠져 있습니다. 포트폴리오를 얼마나 자주 다시 구성할까요?",
-      suggestions: ["매주 리밸런싱", "매월 리밸런싱", "분기마다 리밸런싱"],
+      suggestions: ["매주 리밸런싱", "매월 리밸런싱", "분기마다 리밸런싱", "안 함"],
     };
   }
   if (!hasStop) {
@@ -89,6 +95,9 @@ export function getNextMissingBacktestCondition(
   return null;
 }
 
-export function isBacktestReady(parsed: ParsedSummary | undefined | null): boolean {
-  return parsed != null && getNextMissingBacktestCondition(parsed) === null;
+export function isBacktestReady(
+  parsed: ParsedSummary | undefined | null,
+  options: BacktestReadinessOptions = {},
+): boolean {
+  return parsed != null && getNextMissingBacktestCondition(parsed, options) === null;
 }

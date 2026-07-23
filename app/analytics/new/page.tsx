@@ -68,6 +68,10 @@ import {
   getNextMissingBacktestCondition,
   isBacktestReady,
 } from "./backtestReadiness";
+import {
+  presentStrategyClarification,
+  shouldContinueWithSingleAssetBuilder,
+} from "./clarificationPresentation";
 import { normalizeCoachMessage } from "./coachMessage";
 import { parseCoachSegments } from "./coachText";
 import { runButtonPlacement } from "./runButtonPlacement";
@@ -416,6 +420,7 @@ const MIN_VALIDATION_DELAY_MS = 2400;
 
 // Choice-only prompts can reopen the shared chat input without sending another answer.
 const FREE_INPUT_CHIP = "직접 입력";
+const NO_REBALANCING_CHIP = "안 함";
 
 function withFreeInputSuggestion(suggestions: string[] | undefined): string[] | undefined {
   if (!suggestions?.length || suggestions.includes(FREE_INPUT_CHIP)) return suggestions;
@@ -856,8 +861,10 @@ function StrategyLabContent() {
   const researchMetricRef = useRef<ResearchMetric | null>(null);
   const metricOptimizationDraftRef = useRef<MetricOptimizationDraft | null>(null);
   const metricOptimizationAbortRef = useRef<AbortController | null>(null);
+  const explicitNoRebalancingRef = useRef(false);
   // 빌더 칩-only 단계에서 '직접 입력'을 눌러 채팅창을 다시 띄운 상태(빌더는 진행하지 않음).
   const [builderFreeTextRequested, setBuilderFreeTextRequested] = useState(false);
+  const [explicitNoRebalancing, setExplicitNoRebalancing] = useState(false);
 
   useEffect(() => {
     fetch("/api/model/status")
@@ -891,6 +898,9 @@ function StrategyLabContent() {
       lastAnalyzedSymbolRef.current = snapshot.lastAnalyzedSymbol ?? null;
       builderModeRef.current = snapshot.builderMode ?? false;
       builderStateRef.current = snapshot.builderState ?? {};
+      const restoredNoRebalancing = snapshot.explicitNoRebalancing === true;
+      explicitNoRebalancingRef.current = restoredNoRebalancing;
+      setExplicitNoRebalancing(restoredNoRebalancing);
       pendingHoldingPeriodPromptRef.current = snapshot.pendingHoldingPeriodPrompt ?? null;
       pendingHoldingPeriodHorizonRef.current = snapshot.pendingHoldingPeriodHorizon ?? null;
       pendingMetricResearchPromptRef.current = snapshot.pendingMetricResearchPrompt ?? null;
@@ -982,6 +992,7 @@ function StrategyLabContent() {
         lastAnalyzedSymbol: lastAnalyzedSymbolRef.current,
         builderMode: builderModeRef.current,
         builderState: builderStateRef.current,
+        explicitNoRebalancing,
         pendingHoldingPeriodPrompt: pendingHoldingPeriodPromptRef.current,
         pendingHoldingPeriodHorizon: pendingHoldingPeriodHorizonRef.current,
         pendingMetricResearchPrompt: pendingMetricResearchPromptRef.current,
@@ -992,7 +1003,16 @@ function StrategyLabContent() {
     } catch {
       // 용량 초과 등은 무시한다 — 복원은 best-effort.
     }
-  }, [messages, latestParsed, backtestReq, currentOptions, stage, result, executedReq]);
+  }, [
+    messages,
+    latestParsed,
+    backtestReq,
+    currentOptions,
+    stage,
+    result,
+    executedReq,
+    explicitNoRebalancing,
+  ]);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -1062,6 +1082,17 @@ function StrategyLabContent() {
   };
 
   const handleSuggestionClick = (text: string) => {
+    const currentParsed = latestParsedRef.current ?? latestParsed;
+    if (
+      text === NO_REBALANCING_CHIP &&
+      getNextMissingBacktestCondition(currentParsed)?.field === "rebalancing"
+    ) {
+      explicitNoRebalancingRef.current = true;
+      setExplicitNoRebalancing(true);
+      handleSend("리밸런싱 안 함");
+      return;
+    }
+
     const periodResult = resolvePeriodSuggestion(text);
 
     if (periodResult === null) {
@@ -1501,7 +1532,7 @@ function StrategyLabContent() {
     let finalizedParsed: ParsedSummary | null = null;
     let finalizedBacktestRequest: any = null;
     let parseClarification: string | null = null;
-    let shouldRouteIncompleteStrategyToBuilder = false;
+    let shouldRouteSingleAssetToBuilder = false;
 
     // 요약 카드 메시지를 인덱스로 고정한다. 후행 검증 교정(parsed_updated)이 도착할 때는
     // 이미 코치 버블이 뒤에 추가돼 있으므로, updateLastAssistant로는 코치 버블을 덮어쓴다.
@@ -1527,7 +1558,7 @@ function StrategyLabContent() {
         coachStarted ||
         !finalizedParsed ||
         parseClarification ||
-        shouldRouteIncompleteStrategyToBuilder ||
+        shouldRouteSingleAssetToBuilder ||
         researchMetricRef.current
       ) return;
       coachStarted = true;
@@ -1581,16 +1612,37 @@ function StrategyLabContent() {
       });
       setStage("ready");
 
-      const clarificationText = parsedPayload.clarification_question ?? null;
-      const clarificationSuggestions = clarificationText
-        ? parsedPayload.clarification_suggestions
-        : undefined;
+      let presentedClarification = presentStrategyClarification({
+        prompt: promptText,
+        parsed: nextParsed,
+        backendQuestion: parsedPayload.clarification_question,
+        backendSuggestions: parsedPayload.clarification_suggestions,
+      });
+      if (
+        explicitNoRebalancingRef.current &&
+        presentedClarification?.missingCondition?.field === "rebalancing"
+      ) {
+        const nextMissingCondition = getNextMissingBacktestCondition(nextParsed, {
+          allowNoRebalancing: true,
+        });
+        presentedClarification = nextMissingCondition
+          ? {
+              question: nextMissingCondition.question,
+              suggestions: nextMissingCondition.suggestions,
+              missingCondition: nextMissingCondition,
+            }
+          : null;
+      }
+      const clarificationText = presentedClarification?.question ?? null;
+      const clarificationSuggestions = presentedClarification?.suggestions;
       parseClarification = clarificationText;
-      shouldRouteIncompleteStrategyToBuilder = !isBacktestReady(nextParsed);
+      shouldRouteSingleAssetToBuilder = shouldContinueWithSingleAssetBuilder(
+        nextParsed,
+      );
       const optimizationDraft = researchMetricRef.current && !clarificationText && nextBacktestReq
         ? prepareMetricOptimization(nextBacktestReq)
         : null;
-      if (shouldRouteIncompleteStrategyToBuilder) {
+      if (shouldRouteSingleAssetToBuilder) {
         return;
       }
       applySummaryPatch({
@@ -1653,7 +1705,7 @@ function StrategyLabContent() {
       }
     }
 
-    if (shouldRouteIncompleteStrategyToBuilder && finalizedParsed) {
+    if (shouldRouteSingleAssetToBuilder && finalizedParsed) {
       builderModeRef.current = true;
       await startStrategyBuilder({
         reuseExisting: true,
@@ -1682,7 +1734,9 @@ function StrategyLabContent() {
       slippagePct: 0.05,
     });
     setStage("ready");
-    const missingCondition = getNextMissingBacktestCondition(data.parsed);
+    const missingCondition = getNextMissingBacktestCondition(data.parsed, {
+      allowNoRebalancing: explicitNoRebalancingRef.current,
+    });
     if (missingCondition) {
       updateLastAssistant({
         isLoading: false,
@@ -2371,6 +2425,8 @@ function StrategyLabContent() {
     lastAnalyzedSymbolRef.current = null;
     builderModeRef.current = false;
     builderStateRef.current = {};
+    explicitNoRebalancingRef.current = false;
+    setExplicitNoRebalancing(false);
     pendingHoldingPeriodPromptRef.current = null;
     pendingHoldingPeriodHorizonRef.current = null;
     pendingMetricResearchPromptRef.current = null;
@@ -2756,7 +2812,9 @@ function StrategyLabContent() {
                           stage !== "running" &&
                           !msg.clarification &&
                           runButtonPlacement(msg) !== null &&
-                          isBacktestReady(msg.parsed ?? latestParsed) && (
+                          isBacktestReady(msg.parsed ?? latestParsed, {
+                            allowNoRebalancing: explicitNoRebalancing,
+                          }) && (
                             <div
                               className="flex max-w-[88%] px-1"
                               data-testid="backtest-action"
