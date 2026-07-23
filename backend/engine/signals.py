@@ -23,6 +23,8 @@ FUNDAMENTAL_LABELS = {
     "dividend_growth": "배당성장률",
     "eps_growth": "EPS증가율", "ebitda_growth": "EBITDA증가율",
     "ocf_growth": "영업현금흐름증가율", "fcf_growth": "잉여현금흐름증가율",
+    # eps(원) 부호 필터로 '흑자(eps>0)/적자(eps<0)' 키워드 조건을 표현한다(nl_parser 참고).
+    "eps": "EPS",
 }
 FUNDAMENTAL_CIDS = list(FUNDAMENTAL_LABELS)
 # Metrics whose value is an amount (억원), not a ratio — for badge suffixing.

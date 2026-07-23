@@ -7,39 +7,44 @@ import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+from engine.signals import FUNDAMENTAL_CIDS
+
 
 class StrategyValidationAgent:
     """Validate structure and executability without evaluating strategy quality."""
 
-    _SUPPORTED_CONDITIONS = {
+    # 재무 지표는 engine.signals.FUNDAMENTAL_CIDS(SOT)를 그대로 따른다 — 하드코딩 사본이
+    # 뒤처지면 엔진이 지원하는 지표를 '미지원 필드'로 오탐한다(순이익증가율 사고).
+    _TECHNICAL_CONDITIONS = {
         "adx",
         "ai_drop_model",
         "ai_model",
         "bollinger_bands",
         "breakout",
         "cci",
-        "debt_ratio",
         "ema",
         "ma_crossover",
         "macd",
-        "market_cap",
-        "max_mdd_limit_pct",
-        "max_holding_days",
-        "pbr",
-        "per",
+        "mfi",
         "price",
         "price_level",
         "price_limit_exit",
-        "roe_or_gpa",
+        "roc",
         "rsi",
-        "stop_loss_pct",
         "stochastic",
-        "take_profit_pct",
         "trading_value",
+        "volume_spike",
+        "williams_r",
+    }
+    _RISK_CONDITIONS = {
+        "max_holding_days",
+        "max_mdd_limit_pct",
+        "stop_loss_pct",
+        "take_profit_pct",
         "trailing_stop",
         "trailing_stop_pct",
-        "volume_spike",
     }
+    _SUPPORTED_CONDITIONS = _TECHNICAL_CONDITIONS | _RISK_CONDITIONS | set(FUNDAMENTAL_CIDS)
     _SUPPORTED_PRICE_FIELDS = {"open", "high", "low", "close", "volume"}
     _DAILY_FREQUENCIES = {"1d", "day", "daily"}
     _OPERATORS = {"<", "<=", ">", ">=", "=="}

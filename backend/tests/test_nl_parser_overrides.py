@@ -3191,7 +3191,7 @@ def test_macd_golden_does_not_create_spurious_macd_sell_from_far_deadcross():
         ("ROE 12% 이상 종목 중 포트폴리오 현금 비중 10% 유지, 손절 -8%", "cash_weight"),
         ("PBR 1 이하 종목 매수, 밸류에이션 정상화 시점에 청산", "valuation_exit"),
         ("최근 60일 수익률이 시장보다 약한 종목은 제외하고 매수, 손절 -9%", "relative_to_market"),
-        ("최근 4분기 연속 적자인 기업은 제외하고 ROE 10% 이상 매수, 손절 -10%", "profitability_sign"),
+        ("최근 4분기 연속 적자인 기업은 제외하고 ROE 10% 이상 매수, 손절 -10%", "profitability_transition"),
         # 흔한 퀀트 팩터지만 데이터 파이프라인이 없는 것들 — 침묵 누락 대신 안내 대상.
         # (EV/EBITDA는 KIS other-major-ratios 배선 후 지원 지표로 승격 — 아래 미포함.)
         ("ROIC 10% 이상 기업만 편입해줘", "roic"),
@@ -3980,6 +3980,60 @@ def test_risk_verb_synonyms(prompt, field, expected):
 def test_fundamental_auxiliary_particle_do(prompt, expected):
     filters = _extract_fundamental_filters(prompt)
     assert (filters[0].metric, filters[0].operator, filters[0].value) == expected
+
+
+# ─── 흑자/적자 키워드 → EPS 부호 필터 (FR: '작년도 흑자종목' 순이익증가율 환각 사고) ────
+
+
+@pytest.mark.parametrize(
+    "prompt,expected",
+    [
+        # 흑자 = 순이익 > 0 = 연간 EPS > 0. 값 없는 키워드 조건의 결정적 추출.
+        ("작년도 흑자종목을 매수 하는 전략", ("eps", ">", 0.0)),
+        ("흑자 기업만 매수, 손절 -8%", ("eps", ">", 0.0)),
+        # 부정형 '적자 제외/아닌'은 흑자와 동치.
+        ("적자 기업은 제외하고 매수", ("eps", ">", 0.0)),
+        ("적자가 아닌 회사만 편입", ("eps", ">", 0.0)),
+        ("적자 기업만 골라서 매수", ("eps", "<", 0.0)),
+    ],
+)
+def test_profitability_keyword_maps_to_eps_sign_filter(prompt, expected):
+    filters = _extract_fundamental_filters(prompt)
+    assert [(f.metric, f.operator, f.value) for f in filters] == [expected]
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        # 전환·연속은 단일 시점 부호 필터로 왜곡되므로 emit하지 않는다(미지원 안내 담당).
+        "흑자전환 종목 매수",
+        "3년 연속 흑자 기업 매수",
+        # 순이익이 아닌 항목의 부호 언급은 eps로 바꿔치기하지 않는다.
+        "영업활동현금흐름이 흑자인 기업만 매수",
+        "영업이익이 흑자인 기업 매수",
+    ],
+)
+def test_profitability_keyword_not_extracted_for_transition_or_other_items(prompt):
+    assert not any(f.metric == "eps" for f in _extract_fundamental_filters(prompt))
+
+
+def test_profitability_transition_still_routes_to_unsupported_notice():
+    """전환/연속 표현만 미지원 안내로 남는다 — 단순 흑자/적자는 지원 승격되어 안내 없음."""
+    from engine.nl_parser import _mentioned_unsupported_concepts
+
+    assert "profitability_transition" in _mentioned_unsupported_concepts("흑자전환 종목 매수")
+    assert _mentioned_unsupported_concepts("작년도 흑자종목을 매수 하는 전략") == []
+
+
+def test_profitable_last_year_strategy_parses_deterministically():
+    """'작년도 흑자종목' 전략 전체가 LLM 폴백 없이 결정적으로 파싱된다 —
+    LLM이 순이익증가율>=100으로 환각하던 사고의 회귀 가드."""
+    parsed = _parse_rule_based_strategy(
+        "작년도 흑자종목을 매수 하는 전략, RSI 70 이상에서 매도, 매월 리밸런싱, 손절 15%, 익절 30%"
+    )
+    assert parsed is not None
+    assert [(f.metric, f.operator, f.value) for f in parsed.fundamental_filters] == [("eps", ">", 0.0)]
+    assert not any(f.metric == "net_income_growth" for f in parsed.fundamental_filters)
 
 
 # ─── 오타·맞춤법·띄어쓰기 내성 회귀 ──────────────────────────────────────────

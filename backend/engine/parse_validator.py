@@ -99,7 +99,8 @@ The parsed strategy object follows this schema (ParsedStrategy):
     metric ∈ per, pbr, psr, ev_ebitda, roe_or_gpa, roa, debt_ratio, current_ratio, quick_ratio,
     reserve_ratio, net_margin, gross_margin, operating_margin, revenue_growth,
     operating_income_growth, net_income_growth, market_cap, trading_value,
-    dividend_yield(배당수익률 %), payout_rate(배당성향 %), dividend_growth(배당성장률 %, 전년比)
+    dividend_yield(배당수익률 %), payout_rate(배당성향 %), dividend_growth(배당성장률 %, 전년比),
+    eps(주당순이익 원 — "흑자 기업"=eps>0, "적자 제외"=eps>0, "적자 기업"=eps<0)
 - entry_signals / exit_signals: array of {indicator, signal_type(buy/sell), ...params}
     indicator ∈ ma_crossover, rsi, ema, macd, bollinger_bands, breakout, volume_spike,
     stochastic, cci, adx, williams_r, mfi, roc, ai_model, ai_drop_model

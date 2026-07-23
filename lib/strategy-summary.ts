@@ -100,6 +100,7 @@ export const METRIC_LABELS: Record<string, string> = {
   dividend_yield: "배당수익률",
   payout_rate: "배당성향",
   dividend_growth: "배당성장률",
+  eps: "EPS",
 };
 
 const KO_NUMBER_FORMAT = new Intl.NumberFormat("ko-KR");
@@ -148,6 +149,11 @@ export function formatFundamentalFilter(filter: {
   value: number;
 }): string {
   const label = METRIC_LABELS[filter.metric] ?? filter.metric;
+  // EPS 부호 필터는 '흑자/적자' 키워드 조건의 표현형 — 사용자 어휘로 배지를 만든다.
+  if (filter.metric === "eps" && filter.value === 0) {
+    if (filter.operator === ">") return "흑자 기업 (EPS > 0)";
+    if (filter.operator === "<") return "적자 기업 (EPS < 0)";
+  }
   let value: string;
   if (filter.metric === "market_cap") {
     value = formatMarketCapValue(filter.value);

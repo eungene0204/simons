@@ -167,6 +167,23 @@ def test_unsupported_indicator_and_price_field_are_errors():
     assert all(issue["category"] == "unsupported_field" for issue in result["issues"])
 
 
+def test_engine_supported_metrics_are_not_flagged_unsupported():
+    """엔진 SOT(FUNDAMENTAL_CIDS)의 재무 지표와 후기 추가 기술 지표를 '미지원 필드'로
+    오탐하지 않는다 — 하드코딩 사본이 뒤처져 순이익증가율이 차단되던 사고의 회귀 가드."""
+    from engine.signals import FUNDAMENTAL_CIDS
+
+    metric_rules = [{"metric": cid, "operator": ">=", "value": 1} for cid in FUNDAMENTAL_CIDS]
+    indicator_rules = [
+        {"indicator": name, "operator": ">=", "value": 1}
+        for name in ("williams_r", "mfi", "roc")
+    ]
+    result = StrategyValidationAgent().validate(
+        _valid_strategy(entry_rule=metric_rules + indicator_rules)
+    )
+
+    assert not any(code.startswith("UNSUPPORTED_FIELD_") for code in _codes(result))
+
+
 def test_trailing_stop_only_exit_is_not_flagged_unsupported():
     """트레일링 스탑만으로 청산하는 전략은 차단되면 안 된다.
 

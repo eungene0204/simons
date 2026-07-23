@@ -213,7 +213,7 @@ class FundamentalFilter(BaseModel):
         "reserve_ratio", "net_margin", "gross_margin", "operating_margin", "revenue_growth",
         "operating_income_growth", "net_income_growth", "market_cap", "trading_value",
         "dividend_yield", "payout_rate", "dividend_growth",
-        "eps_growth", "ebitda_growth", "ocf_growth", "fcf_growth",
+        "eps_growth", "ebitda_growth", "ocf_growth", "fcf_growth", "eps",
     ] = Field(
         description=(
             "재무 지표 종류. "
@@ -228,7 +228,8 @@ class FundamentalFilter(BaseModel):
             "dividend_yield=배당수익률(%, 높을수록 고배당), payout_rate=배당성향(%), "
             "dividend_growth=배당성장률(%, 전년 대비 주당배당 증가율), "
             "eps_growth=EPS증가율(%), ebitda_growth=EBITDA증가율(%), "
-            "ocf_growth=영업활동현금흐름증가율(%), fcf_growth=잉여현금흐름증가율(%). "
+            "ocf_growth=영업활동현금흐름증가율(%), fcf_growth=잉여현금흐름증가율(%), "
+            "eps=주당순이익(원, 최근 연간 결산 기준 — 흑자 기업=eps>0, 적자 기업=eps<0). "
             "eps_growth/ebitda_growth/net_income_growth/operating_income_growth/ocf_growth/fcf_growth는 "
             "적자↔흑자 전환기에는 값 대신 상태코드(TURNAROUND/LOSS_TRANSITION 등)로 표현될 수 있다."
         )
@@ -629,6 +630,10 @@ SYSTEM_PROMPT = """당신은 한국 주식 퀀트 투자 전략을 JSON으로 �
 - 순이익률 10% 이상 → {"metric": "net_margin", "operator": ">=", "value": 10.0}
 - 영업이익률 15% 이상 → {"metric": "operating_margin", "operator": ">=", "value": 15.0}
 - 시가총액 1000억 이상 → {"metric": "market_cap", "operator": ">=", "value": 1000.0}
+- 흑자 기업 / 작년(전년도) 흑자 종목 → {"metric": "eps", "operator": ">", "value": 0.0} (연간 EPS>0 ⟺ 순이익 흑자)
+- 적자 기업 제외 → {"metric": "eps", "operator": ">", "value": 0.0}
+- 적자 기업만 → {"metric": "eps", "operator": "<", "value": 0.0}
+- 흑자 여부를 순이익증가율(net_income_growth)로 바꿔 해석하지 말 것 — 흑자=부호 조건, 증가율=변화율 조건으로 서로 다르다
 - '이하'='<=', '미만'='<', '이상'='>=', '초과'='>'
 
 ### 기술적 신호 (entry_signals / exit_signals)
@@ -2354,6 +2359,44 @@ _FUNDAMENTAL_PATTERN_SPECS = [
 # 금액 지표는 값을 (조 부분 × 10000) + (억 부분)으로 합산한다. 그 외는 group(1) 단일 값.
 _AMOUNT_METRICS = {"market_cap", "trading_value"}
 
+# 흑자/적자 키워드 → EPS 부호 필터. 연간 EPS>0 ⟺ 순이익 흑자이므로 '작년(최근 결산) 흑자'
+# 의미를 값 없는 키워드만으로 결정적으로 표현한다. 단 전환·연속·유지 같은 시계열 개념은
+# 단일 시점 부호 필터로 왜곡되므로 emit하지 않고 미지원 안내(profitability_transition)에
+# 맡긴다. 부정형('적자 제외/아닌')은 흑자와 동치.
+_PROFITABILITY_TIMESERIES_PATTERN = (
+    r"(?:흑자|적자)[^,.]{0,6}(?:전환|탈출|연속|유지|지속)"
+    r"|연속[^,.]{0,4}(?:흑자|적자)|턴어라운드"
+)
+_PROFITABILITY_TIMESERIES_RE = re.compile(_PROFITABILITY_TIMESERIES_PATTERN)
+_PROFITABLE_RE = re.compile(r"흑자(?![가-힣]{0,2}아니)")
+_LOSS_NEGATED_RE = re.compile(r"적자[^,.]{0,6}(?:제외|빼|아닌|아니|없|피하|거르|말고)")
+_LOSS_RE = re.compile(r"적자")
+# '영업활동현금흐름이 흑자'·'영업이익 흑자'처럼 순이익이 아닌 항목의 부호 언급은 eps로
+# 표현하면 왜곡이다 — 키워드 직전 문맥에 이 표현이 붙으면 emit하지 않는다(LLM 위임).
+_PROFITABILITY_CONTEXT_EXCLUDE_RE = re.compile(r"(?:현금흐름|현금|흐름|영업이익|영업|ocf|fcf)[이가은는도의]?$")
+
+
+def _keyword_profitability_operator(compact: str) -> Optional[str]:
+    """흑자/적자 키워드가 '순이익 부호' 의미로 쓰였으면 eps 필터 연산자('>'/'<')를 돌려준다.
+
+    전환·연속 등 시계열 표현이 섞이면 단일 시점 부호 필터로 왜곡되므로 None(미지원 안내
+    profitability_transition 담당). 현금흐름·영업이익 등 다른 항목의 부호 언급도 None.
+    """
+    if _PROFITABILITY_TIMESERIES_RE.search(compact):
+        return None
+
+    def clean_match(rx: "re.Pattern") -> bool:
+        return any(
+            not _PROFITABILITY_CONTEXT_EXCLUDE_RE.search(compact[max(0, m.start() - 8):m.start()])
+            for m in rx.finditer(compact)
+        )
+
+    if clean_match(_PROFITABLE_RE) or clean_match(_LOSS_NEGATED_RE):
+        return ">"
+    if clean_match(_LOSS_RE):
+        return "<"
+    return None
+
 _OPERATOR_BY_KOREAN = {
     "이하": "<=",
     "미만": "<",
@@ -2420,6 +2463,12 @@ def _extract_fundamental_filters(user_input: str) -> list[FundamentalFilter]:
                     continue
                 filters.append(FundamentalFilter(metric=metric, operator=operator, value=value))
                 seen.add(key)
+
+    # 흑자/적자는 값 없는 키워드 조건 — 위 숫자 기반 루프와 별도로 EPS 부호 필터로 추출한다.
+    eps_operator = _keyword_profitability_operator(compact)
+    if eps_operator is not None and ("eps", eps_operator, 0.0) not in seen:
+        filters.append(FundamentalFilter(metric="eps", operator=eps_operator, value=0.0))
+        seen.add(("eps", eps_operator, 0.0))
 
     return filters
 
@@ -3089,7 +3138,11 @@ _UNSUPPORTED_CONCEPT_PATTERNS: tuple[tuple[str, str], ...] = (
     # flavor 언급(구체 규칙 동반)은 결정적 파싱을 유지한다(오폴백 방지).
     ("news", r"호재|악재|(?:뉴스|공시|루머|풍문|기사)[^,.]{0,6}(?:좋|나쁘|긍정|부정|기반|보고|분석|따라|필터)"),
     ("supply_demand", r"수급|외국인|기관(?:이|투자|순매)|공매도|신용잔고|유상증자|증자"),
-    ("profitability_sign", r"흑자|적자"),
+    # 흑자/적자 '여부'는 2026-07-24 EPS 부호 필터(eps>0/eps<0)로 정식 지원 승격 —
+    # _extract_fundamental_filters의 키워드 추출 참고(개념 구현 시 목록 조건화 원칙).
+    # 전환('흑자전환'/'턴어라운드')·연속('3년 연속 흑자')은 status/시계열 데이터가 필요해
+    # 여전히 표현 불가이므로 그 형태만 잡는다(추출 가드와 동일 패턴 공유).
+    ("profitability_transition", _PROFITABILITY_TIMESERIES_PATTERN),
     ("ema_alignment", r"정배열|역배열"),
     ("partial_exit", r"분할매[도수]|절반[^,]{0,3}(?:익절|매도|청산)|일부[^,]{0,3}(?:익절|청산)"),
     ("new_low", r"신저가"),
@@ -3140,7 +3193,7 @@ _UNSUPPORTED_CONCEPT_LABELS: dict[str, str] = {
     "earnings": "실적/컨센서스 조건",
     "news": "뉴스/공시 등 재료 조건",
     "supply_demand": "수급(외국인·기관·공매도 등) 조건",
-    "profitability_sign": "흑자/적자 조건",
+    "profitability_transition": "흑자/적자 전환·연속(턴어라운드, N년 연속 흑자 등) 조건",
     "ema_alignment": "정배열/역배열 조건",
     "partial_exit": "분할 매도/부분 청산",
     "new_low": "신저가 조건",
