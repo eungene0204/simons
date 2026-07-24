@@ -146,3 +146,68 @@ def test_learned_edges_only_verified_composed(tmp_path, monkeypatch):
     assert "learned:무섹터어" in graph.nodes        # 섹터 없어도 verified 엣지로 편입
 
     monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
+
+
+def test_learned_company_edges_create_canonical_nodes(tmp_path, monkeypatch):
+    """학습된 related_company 엣지(FR-STR-071)의 company: 타깃은 정본 노드로 자동 생성된다.
+
+    verified만 합성(pending 제외), 정본에 없는 심볼은 issues 없이 조용히 건너뛴다."""
+    import engine.knowledge_graph as kg
+
+    lexicon = tmp_path / "lex.json"
+    lexicon.write_text(json.dumps({
+        "위고비": {"term": "위고비", "sector": "바이오/제약", "edges": [
+            {"type": "related_company", "target": "company:005930",
+             "target_name": "삼성전자", "support": 2, "status": "verified"},
+            {"type": "related_company", "target": "company:035720",
+             "target_name": "카카오", "support": 1, "status": "pending"},
+            {"type": "related_company", "target": "company:999999",
+             "target_name": "없는회사", "support": 2, "status": "verified"},
+        ]}
+    }, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+    graph = kg.get_graph()
+    assert "company:005930" in graph.nodes
+    assert graph.nodes["company:005930"]["name"] == "삼성전자"
+    assert any(
+        e["source"] == "learned:위고비" and e["target"] == "company:005930"
+        for e in graph.edges
+    )
+    # pending은 미합성, 정본에 없는 심볼은 엣지·issue 모두 없이 스킵
+    assert not any(e["source"] == "learned:위고비" and e["target"] == "company:035720"
+                   for e in graph.edges)
+    assert not any(e["source"] == "learned:위고비" and e["target"] == "company:999999"
+                   for e in graph.edges)
+    assert not any("999999" in issue for issue in graph.issues)
+    monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
+
+
+def test_scan_index_includes_learned_terms_seed_wins_on_collision(tmp_path, monkeypatch):
+    """읽기 경로 통합(2026-07-25) — 학습 용어도 그래프 스캔 인덱스에 포함돼 find_concepts·
+    resolve_sector_from_text가 어휘집 별도 스캔 없이 해석한다. 같은 용어가 시드에도 있으면
+    시드가 이긴다(큐레이션 우선 — 비결정적 인식 방지)."""
+    lexicon = tmp_path / "term_lexicon.json"
+    lexicon.write_text(json.dumps({
+        "마운자로": {"term": "마운자로", "definition": "당뇨·비만 치료제",
+                  "sector": "바이오/제약", "searched_at": "2026-07-25T00:00:00+00:00"},
+        "hbm": {"term": "HBM", "definition": "학습이 시드와 겹친 경우",
+                "sector": "이차전지"},  # 시드 hbm(반도체)과 충돌 — 시드가 이겨야 한다
+        "매핑불가어": {"term": "매핑불가어", "definition": None, "sector": None},
+    }, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+    graph = get_graph()
+    # 학습 용어가 스캔으로 인식되고 belongs_to로 섹터 해석까지 단일 경로로 통한다
+    assert any(n["id"] == "learned:마운자로" for n in graph.find_concepts("마운자로 관련주 전략"))
+    assert resolve_sector_from_text("마운자로 관련주 전략") == "바이오/제약"
+    # 시드와 겹치는 용어는 시드 노드가 인식된다(학습 노드로 갈라지지 않음)
+    hits = graph.find_concepts("HBM 관련주")
+    assert any(n["id"] == "hbm" for n in hits)
+    assert not any(n["id"] == "learned:hbm" for n in hits)
+    # 매핑 불가 항목은 노드가 아니므로 스캔에도 없다(부정 캐시는 어휘집 원장 담당)
+    assert graph.find_concepts("매핑불가어 관련") == []
+
+    monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록

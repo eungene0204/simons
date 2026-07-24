@@ -1,0 +1,114 @@
+{
+  "concept": {
+    "id": "space-launch-vehicle",
+    "canonical_name": "우주발사체",
+    "canonical_name_en": "Space Launch Vehicle",
+    "abbreviation": "",
+    "aliases": ["우주 발사체", "발사체", "소형발사체"],
+    "definition": "인공위성 등 탑재체를 우주 궤도에 올리는 로켓. 체계종합(설계·제작·발사 운용)과 엔진·단 조립 등으로 구성된다.",
+    "investment_context": "한국형발사체(누리호)의 민간 기술이전으로 체계종합기업이 제작·발사를 총괄하게 됐고, 민간 소형발사체 기업의 상업 발사 서비스 계약·수행이 시작됐다. 위성 제조·지상국은 별개 밸류체인이다.",
+    "industry": ["우주항공/방산"],
+    "related_keywords": ["누리호", "한빛", "체계종합기업", "소형위성 발사 서비스", "재사용 발사체"],
+    "sources": [
+      {
+        "source_name": "우주항공청",
+        "document_title": "한국형발사체 누리호, 민간으로 기술이전 보도자료",
+        "document_type": "government",
+        "url": "https://www.kasa.go.kr/bbs/BBSMSTR_000000000010/B000000001951Ng6iD1.do?mno=sub01_01_01",
+        "evidence": "누리호 개발 기술의 민간(체계종합기업) 이전 공식 발표",
+        "retrieved_at": "2026-07-25"
+      }
+    ]
+  },
+  "related_etfs": [
+    {
+      "name": "SOL 우주항공밸류체인",
+      "ticker": "0207G0",
+      "country": "KR",
+      "issuer": "신한자산운용",
+      "theme_reason": "국내 우주항공 밸류체인 테마(etf-master.json 정본 등재 확인)",
+      "as_of_date": "2026-07-25",
+      "source_url": "https://www.soletf.com/"
+    }
+  ],
+  "stocks": [
+    {
+      "company_name": "한화에어로스페이스",
+      "ticker": "012450",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 90,
+      "reason": "누리호 체계종합기업으로 발사체 제작을 총괄하며, 항우연과 누리호 설계·제작·발사 운용 전 과정 기술이전 계약(2,400억원)을 체결했다. 우주사업이 회사의 공식 성장축이다.",
+      "business_evidence": "2025-07-25 항우연과 누리호 기술이전 계약 체결(계약금 2,400억원, 관련 문서 16,050건). 체계종합기업으로서 누리호 제작 총괄, 발사 운용 기술 순차 이전.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "한화에어로스페이스 공식 뉴스룸",
+          "document_title": "한화-항우연, '누리호' 기술이전 계약 체결",
+          "document_type": "company_official",
+          "url": "https://m.hanwhaaerospace.com/kor/media/newsroom/view.do?seq=534",
+          "published_at": "2025-07-25",
+          "evidence": "누리호 설계·제작·발사 운용 전 과정 기술이전 계약(2,400억원)"
+        },
+        {
+          "source_name": "우주항공청",
+          "document_title": "누리호 민간 기술이전 보도자료",
+          "document_type": "government",
+          "url": "https://www.kasa.go.kr/bbs/BBSMSTR_000000000010/B000000001951Ng6iD1.do?mno=sub01_01_01",
+          "evidence": "체계종합기업으로 선정된 한화에어로스페이스에 기술이전"
+        }
+      ]
+    },
+    {
+      "company_name": "이노스페이스",
+      "ticker": "462350",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 92,
+      "reason": "소형발사체 '한빛'의 개발·발사 서비스가 회사의 주력 사업 그 자체다. 해외 고객과 발사 서비스 계약을 체결했고 첫 상업 발사를 수행했다.",
+      "business_evidence": "2024-06 이탈리아 CShark(위성 35기)·태국 EOS Orbit과 발사 서비스 계약. 2025-12-20 브라질 알칸타라 우주센터에서 한빛-나노 첫 상업 발사 수행.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "언론 보도",
+          "document_title": "누리호 성공 잇는다…이노스페이스, 첫 상업발사 도전",
+          "document_type": "news",
+          "url": "https://www.ntoday.co.kr/news/articleView.html?idxno=123015",
+          "evidence": "한빛-나노 첫 상업 발사(2025-12-20, 알칸타라), CShark·EOS Orbit 발사 계약"
+        },
+        {
+          "source_name": "이노스페이스 공식 뉴스",
+          "document_title": "INNOSPACE 뉴스",
+          "document_type": "company_official",
+          "url": "https://innospc.com/",
+          "evidence": "한빛 발사체 개발·상업 발사 서비스 공식 소개"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "company_name": "쎄트렉아이",
+      "ticker": "099320",
+      "reason_for_exclusion": "위성 제조 기업 — 우주발사체가 아닌 '인공위성' 별개 Concept의 Core 후보."
+    },
+    {
+      "company_name": "컨텍",
+      "ticker": "451760",
+      "reason_for_exclusion": "위성 지상국·데이터 수신 기업 — 발사체와 직접 사업 관계 없음(우주 인프라 별개 Concept)."
+    }
+  ],
+  "summary": {
+    "core_stock_count": 2,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 0,
+    "recommended_backtest_universe": ["012450", "462350"]
+  },
+  "researched_at": "2026-07-25"
+}

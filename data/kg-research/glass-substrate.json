@@ -1,0 +1,153 @@
+{
+  "concept": {
+    "id": "glass-substrate",
+    "canonical_name": "유리기판",
+    "canonical_name_en": "Glass Substrate",
+    "abbreviation": "",
+    "aliases": ["글라스기판", "유리 기판", "반도체 유리기판"],
+    "definition": "반도체 패키징에서 기존 플라스틱(유기) 기판을 유리 소재로 대체한 차세대 기판. 평탄도·열 안정성이 높아 AI 반도체의 대면적·고밀도 패키징에 유리하다.",
+    "investment_context": "AI 반도체 패키징 수요와 연결된다. 기판 제조사(SKC 앱솔릭스·삼성전기)의 양산 투자와 TGV(유리관통전극) 가공·검사 장비 기업의 사업으로 이어진다. 2026년 현재 파일럿~초기 양산 단계로 매출 기여는 제한적이다.",
+    "industry": ["반도체"],
+    "related_keywords": ["TGV", "Through Glass Via", "FC-BGA", "패키지 기판", "앱솔릭스", "싱귤레이션"],
+    "sources": [
+      {
+        "source_name": "전자신문",
+        "document_title": "[CES 2024] 삼성전기, 유리기판 시장 진출",
+        "document_type": "news",
+        "url": "https://www.etnews.com/20240111000240",
+        "published_at": "2024-01-11",
+        "evidence": "삼성전기가 CES 2024에서 유리기판 사업 진출을 공식화",
+        "retrieved_at": "2026-07-25"
+      }
+    ]
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "SKC",
+      "ticker": "011790",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 88,
+      "reason": "자회사 앱솔릭스(Absolics)를 통해 유리기판을 직접 생산하는 세계 최초 양산에 가장 근접한 국내 기업으로, 회사가 공식 IR(반도체 소재 사업)에서 유리기판을 핵심 성장사업으로 설명한다.",
+      "business_evidence": "앱솔릭스 미국 조지아 공장 구축·양산 추진. SKC 공식 홈페이지 반도체 소재 사업에 유리기판 등재.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "SKC 공식 홈페이지",
+          "document_title": "SKC 사업소개 — 반도체",
+          "document_type": "company_official",
+          "url": "https://www.skc.kr/m/kor/creation/detailView.do?menuCd=002006&lang=kor&cate1=258&cate2=355",
+          "evidence": "반도체 소재 사업으로 유리기판(앱솔릭스) 공식 소개"
+        },
+        {
+          "source_name": "언론 보도",
+          "document_title": "유리기판 관련 산업 동향",
+          "document_type": "news",
+          "url": "https://www.ftoday.co.kr/news/articleView.html?idxno=355217",
+          "evidence": "SKC 앱솔릭스가 미국 공장 통해 최초 양산에 가장 근접"
+        }
+      ]
+    },
+    {
+      "company_name": "삼성전기",
+      "ticker": "009150",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 78,
+      "reason": "CES 2024에서 유리기판 사업 진출을 공식화하고 세종사업장 파일럿 라인에서 고객사 샘플을 생산 중(2026년 본격 양산 계획). 직접 생산 관계는 공식 확인되나 아직 양산 전이라 핵심 사업부는 아니다.",
+      "business_evidence": "CES 2024 공식 사업화 발표, 세종 파일럿 라인 샘플 생산, 세 차례 샘플 개발 성공, 2026년 양산 체제 계획.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "전자신문",
+          "document_title": "[CES 2024] 삼성전기, 유리기판 시장 진출 — 26년 이후 양산",
+          "document_type": "news",
+          "url": "https://www.etnews.com/20240111000240",
+          "published_at": "2024-01-11",
+          "evidence": "CES 2024에서 유리기판 시장 진출 공식화, 2026년 이후 양산 계획"
+        },
+        {
+          "source_name": "이투데이",
+          "document_title": "삼성전기 유리기판 2026년 본격 양산",
+          "document_type": "news",
+          "url": "https://www.etoday.co.kr/news/view/2397706",
+          "evidence": "세종 파일럿 라인 샘플 생산, 고객사 기술 요구 대응, 2026년 본격 양산"
+        }
+      ]
+    },
+    {
+      "company_name": "필옵틱스",
+      "ticker": "161580",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Supplier",
+      "relevance": "Moderate",
+      "relevance_score": 62,
+      "reason": "유리기판 핵심 공정인 TGV(유리관통전극) 가공·싱귤레이션 장비를 개발했고 공급처가 앱솔릭스로 보도되나, 공급계약 공시가 확인되지 않아 Strong 승격을 보류한다.",
+      "business_evidence": "TGV 초정밀 가공 장비 개발, 공급처 SKC 자회사 앱솔릭스로 보도.",
+      "verified": true,
+      "note": "DART 단일판매·공급계약 공시 확인 시 Strong 승격 검토",
+      "sources": [
+        {
+          "source_name": "언론 보도",
+          "document_title": "유리기판 장비 공급 동향",
+          "document_type": "news",
+          "url": "https://stockstalker.co.kr/glass-substrate/",
+          "evidence": "필옵틱스 TGV 장비 개발·앱솔릭스 공급 보도"
+        }
+      ]
+    },
+    {
+      "company_name": "HB테크놀러지",
+      "ticker": "078150",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Supplier",
+      "relevance": "Moderate",
+      "relevance_score": 53,
+      "reason": "앱솔릭스에 유리기판 검사 장비를 공급한다고 보도되나 공식 자료(공시·IR) 확인이 부족하고, 본업은 디스플레이 검사 장비다.",
+      "business_evidence": "SKC 자회사 앱솔릭스에 유리기판 검사 장비 공급 보도.",
+      "verified": false,
+      "sources": [
+        {
+          "source_name": "언론 보도",
+          "document_title": "유리기판 관련 기업 동향",
+          "document_type": "news",
+          "url": "https://stockstalker.co.kr/glass-substrate/",
+          "evidence": "HB테크놀러지, 앱솔릭스에 검사 장비 공급 보도"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "company_name": "켐트로닉스",
+      "ticker": "089010",
+      "reason_for_exclusion": "삼성전기 협력·TGV 식각 언급이 비공식 출처(SNS)에서만 확인됨 — 공식 근거 미확보."
+    },
+    {
+      "company_name": "와이씨켐",
+      "ticker": "112290",
+      "reason_for_exclusion": "유리기판 소재(포토레지스트 등) 테마로 언급되나 이번 조사에서 사업 관계의 공식 근거를 확인하지 못함."
+    },
+    {
+      "company_name": "LG이노텍",
+      "ticker": "011070",
+      "reason_for_exclusion": "유리기판 개발 착수 보도는 있으나 파일럿·양산 단계의 구체 근거 미확보 — 추가 조사 대상."
+    }
+  ],
+  "summary": {
+    "core_stock_count": 1,
+    "strong_stock_count": 1,
+    "moderate_stock_count": 2,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 3,
+    "recommended_backtest_universe": ["011790", "009150"]
+  },
+  "researched_at": "2026-07-25"
+}

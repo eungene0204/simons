@@ -1,0 +1,75 @@
+{
+  "concept": {
+    "id": "ai-agent",
+    "canonical_name": "AI 에이전트",
+    "canonical_name_en": "AI Agent",
+    "abbreviation": "",
+    "aliases": ["AI Agent", "에이전틱 AI", "인공지능 에이전트", "AI에이전트"],
+    "definition": "목표를 부여하면 스스로 계획을 세우고 도구를 사용해 여러 단계의 작업을 수행하는 자율형 AI 소프트웨어. LLM 기반 대화형 AI의 다음 단계로 꼽힌다.",
+    "investment_context": "국내에서는 자체 LLM·검색 기술을 보유한 AI 소프트웨어 기업의 에이전트 제품 출시로 이어진다. 이용자 지표는 확인되나 에이전트 단독 매출 비중이 공식 확인되는 상장사는 아직 드물다.",
+    "industry": ["소프트웨어/플랫폼"],
+    "related_keywords": ["에이전틱 AI", "자율 에이전트", "LLM", "sLLM", "RAG"],
+    "sources": [
+      {
+        "source_name": "이데일리",
+        "document_title": "AI 에이전트 폭증 시대 — 솔트룩스 차세대 AI 전략",
+        "document_type": "news",
+        "url": "https://www.edaily.co.kr/News/Read?newsId=02646966645453840&mediaCodeNo=257",
+        "evidence": "솔트룩스 루시아 4.0 공개·AI 에이전트 전략 발표",
+        "retrieved_at": "2026-07-25"
+      }
+    ]
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "솔트룩스",
+      "ticker": "304100",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 72,
+      "reason": "자체 LLM(루시아) 기반 AI 에이전트 '구버'를 직접 개발·출시해 3개월 만에 이용자 100만 명을 돌파했다. 제품·이용자 지표는 확인되나 에이전트 매출 비중은 공식 확인이 부족하다.",
+      "business_evidence": "AI 에이전트 '구버' 출시(이용자 100만 돌파), 루시아 4.0 LLM 공개, AI 소프트웨어가 본업.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "딜사이트TV",
+          "document_title": "솔트룩스, AI 에이전트 '구버' 이용자 100만명 돌파",
+          "document_type": "news",
+          "url": "https://dealsitetv.com/articles/158870",
+          "evidence": "구버 출시 3개월 만에 이용자 100만 돌파"
+        },
+        {
+          "source_name": "이데일리",
+          "document_title": "솔트룩스 차세대 AI 전략 공개",
+          "document_type": "news",
+          "url": "https://www.edaily.co.kr/News/Read?newsId=02646966645453840&mediaCodeNo=257",
+          "evidence": "루시아 4.0·AI 에이전트 전략"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "company_name": "코난테크놀로지",
+      "ticker": "402030",
+      "reason_for_exclusion": "AI 소프트웨어 기업이나 이번 조사에서 에이전트 제품·매출의 공식 근거를 확인하지 못함 — 추가 조사 대상."
+    },
+    {
+      "company_name": "폴라리스오피스",
+      "ticker": "041020",
+      "reason_for_exclusion": "오피스 SW에 AI 기능 탑재 수준의 보도만 확인 — 에이전트 직접 사업 근거 미확보."
+    }
+  ],
+  "summary": {
+    "core_stock_count": 0,
+    "strong_stock_count": 1,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 2,
+    "recommended_backtest_universe": ["304100"]
+  },
+  "researched_at": "2026-07-25"
+}

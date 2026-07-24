@@ -1644,6 +1644,9 @@ def _extract_sector(user_input: str) -> Optional[str]:
     if _KG_SECTOR_CUE_RE.search(_compact(user_input)):
         from engine.knowledge_graph import resolve_sector_from_text
 
+        # 시드 개념(HBM·SMR)과 검색 학습 용어('마운자로' 등) 모두 그래프 단일 경로로
+        # 해석한다 — 읽기 경로 통합(2026-07-25): 학습 용어가 스캔 인덱스에 포함돼
+        # 별도 어휘집 스캔 폴백이 필요 없다.
         try:
             return resolve_sector_from_text(user_input)
         except Exception:  # noqa: BLE001 — 그래프 실패가 파싱을 막으면 안 된다
@@ -3285,6 +3288,14 @@ def _mentions_unsupported_concept(user_input: str) -> Optional[str]:
     return names[0] if names else None
 
 
+def mentions_unresolved_sector(user_input: str) -> bool:
+    """업종/테마 큐는 있는데 결정적 추출(정규식·지식그래프)이 실패한 입력인가.
+
+    검색 그라운딩 사전 학습(term_grounding.learn_sector_term)의 게이트 — 섹터 되묻기
+    (detect_unresolved_sector_clarification)와 같은 판정을 공유한다."""
+    return "sector" in _mentioned_unsupported_concepts(user_input)
+
+
 def build_unsupported_concept_notice(
     user_input: str, exclude: Optional[set] = None
 ) -> Optional[str]:
@@ -3337,6 +3348,62 @@ def detect_unresolved_sector_clarification(
     if "sector" not in _mentioned_unsupported_concepts(user_prompt):
         return (None, None)
     return (SECTOR_REASK_QUESTION, list(SECTOR_REASK_SUGGESTIONS))
+
+
+# 테마 유니버스 되묻기(FR-STR-071) — 칩 왕복 계약에 주의:
+#  · 종목 칩은 종목명 나열 + '종목 전체를 함께'(집합 의도 큐 — detect_symbol_ambiguity 억제)
+#    + 'YYYY년부터'(시점 편향 가드 — _extract_backtest_dates가 startDate로 해석).
+#    '관련주/테마/업종' 단어는 종목 칩에 넣지 않는다(_TARGET_SYMBOL_CONTEXT_GUARD_RE가
+#    종목 추출을 차단해 칩이 무효화된다).
+#  · 업종 칩은 기존 섹터 어휘(_extract_sector)로 재해석된다.
+_THEME_UNIVERSE_CUE_RE = re.compile(r"관련|테마")
+_THEME_COMPANY_CHIP_MAX = 10
+
+
+def detect_theme_universe_clarification(
+    parsed: ParsedStrategy, user_prompt: str = ""
+) -> tuple[Optional[str], Optional[List[str]]]:
+    """테마와 '함께 언급된 것으로 학습·검증된' 상장사가 있으면 대상 범위를 되묻는다(FR-STR-071).
+
+    '마운자로 관련주'는 업종 근사(바이오/제약 전체)보다 관련 종목 제한이 문자 그대로의
+    해석이지만, 검색 학습 목록은 오늘 기준 정보라 자동 적용하지 않는다 — 출처 교차 확인된
+    목록과 시점 편향 경고를 함께 제시하고 사용자가 고른다(객관적 관계 데이터 표시, 추천
+    아님). 종목이 이미 지정됐거나 테마 큐(관련/테마)가 없으면 침묵한다."""
+    if getattr(parsed, "target_symbols", None):
+        return (None, None)
+    if not _THEME_UNIVERSE_CUE_RE.search(_compact(user_prompt)):
+        return (None, None)
+    from engine.knowledge_graph import theme_listed_companies
+
+    try:
+        theme = theme_listed_companies(user_prompt)
+    except Exception:  # noqa: BLE001 — 테마 조회 실패가 파싱을 막으면 안 된다
+        return (None, None)
+    if theme is None:
+        return (None, None)
+    companies = theme["companies"][:_THEME_COMPANY_CHIP_MAX]
+    names = ", ".join(c["name"] for c in companies)
+    first_date = theme.get("first_known_date")
+    question = (
+        f"'{theme['term']}'와(과) 함께 언급된 것으로 확인된 상장사 {len(companies)}곳이 "
+        f"있어요(검색 출처 교차 확인): {names}. "
+        "이 종목들로만 백테스트할까요, 아니면 업종 전체로 할까요?"
+    )
+    if first_date:
+        question += (
+            f" 참고로 이 목록은 {first_date} 이후 확인된 정보예요 — 그 이전 구간까지 "
+            "백테스트하면 당시에는 알 수 없던 정보를 미리 반영하는 편향이 생길 수 있어요."
+        )
+    symbols_chip = f"{names} 종목 전체를 함께 백테스트"
+    if first_date:
+        symbols_chip = f"{names} 종목 전체를 함께 {first_date[:4]}년부터 백테스트"
+    sector = getattr(parsed, "sector", None)
+    if isinstance(sector, list):  # 다중 섹터(리스트)면 칩은 첫 섹터로(재파싱 가능한 형태 유지)
+        sector = sector[0] if sector else None
+    sector_chip = (
+        f"{sector} 업종 전체로 백테스트" if sector else "업종 상관없이 전체 시장으로 백테스트"
+    )
+    return (question, [symbols_chip, sector_chip])
 
 
 # 종목명 오타 되묻기 — 흔한 조사(뒤에 붙어 자모거리를 벌리는)를 벗겨 근접 매칭 정확도를 올린다.
@@ -4387,15 +4454,22 @@ def apply_single_asset_adjustments(parsed: ParsedStrategy) -> tuple[ParsedStrate
     return parsed, notices
 
 
+_COLLECTIVE_TARGET_CUE_RE = re.compile(r"전체|모두|함께|다같이")
+
+
 def detect_symbol_ambiguity(
-    parsed: ParsedStrategy,
+    parsed: ParsedStrategy, user_prompt: str = ""
 ) -> tuple[Optional[str], Optional[List[str]]]:
     """여러 종목이 함께 지정된 경우 임의로 하나를 고르지 않고 되묻는다(FR-STR-068).
 
     비차단 clarification — 그대로 진행하면 언급된 종목 전체를 함께 백테스트한다.
+    '전체를 함께'처럼 여러 종목을 묶어 지정하는 의도가 발화에 명시돼 있으면 되묻지
+    않는다(테마 종목 칩 왕복 등 — FR-STR-071).
     """
     # getattr 방어 — 테스트 스텁·레거시 객체는 유니버스 취급(되묻기 없음).
     if len(getattr(parsed, "target_symbols", None) or []) <= 1:
+        return (None, None)
+    if user_prompt and _COLLECTIVE_TARGET_CUE_RE.search(_compact(user_prompt)):
         return (None, None)
     from stock_analysis.symbol_resolver import resolve_by_symbol
 

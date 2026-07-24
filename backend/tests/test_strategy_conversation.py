@@ -1324,3 +1324,44 @@ def test_etf_theme_is_not_unsupported_and_compiles_to_etf_theme():
     assert parsed.universe == ["ETF"]
     assert parsed.etf_theme == "반도체"
     assert parsed.sector is None
+
+
+# ─── 섹터 보정 후 인터프리터 질문/미지원 안내 정리(FR-STR-069 파싱 경로) ────────────
+
+def test_prune_sector_question_when_deterministic_sector_filled():
+    """결정적 섹터 보정(검색 그라운딩 학습분 포함)이 채운 업종 질문은 제거된다.
+
+    '마운자로 관련주' — 인터프리터 LLM은 업종을 몰라 universe.sectors 질문을 냈지만,
+    오버라이드가 섹터를 채웠으면 같은 걸 다시 되묻지 않는다(다른 질문은 유지)."""
+    from engine.nl_parser import ParsedStrategy
+    from strategy_conversation.interpreter.models import (
+        ClarificationQuestion,
+        ValidationReport,
+    )
+    from strategy_conversation.primary import _prune_clarifications_filled_by_overrides
+
+    def make_report():
+        return ValidationReport(clarification_questions=[
+            ClarificationQuestion(field="strategy.universe.sectors",
+                                  question="어떤 업종을 대상으로 할까요?"),
+            ClarificationQuestion(field="strategy.portfolio.selection_count",
+                                  question="몇 종목을 보유할까요?"),
+        ])
+
+    filled = ParsedStrategy.model_validate({
+        "description": "마운자로 관련주 전략", "universe": ["KOSPI", "KOSDAQ"],
+        "sector": "바이오/제약",
+    })
+    report = make_report()
+    _prune_clarifications_filled_by_overrides(report, filled)
+    assert [q.field for q in report.clarification_questions] == [
+        "strategy.portfolio.selection_count"
+    ]
+
+    # 섹터 미해석이면 업종 질문은 그대로 남는다
+    unfilled = ParsedStrategy.model_validate({
+        "description": "마운자로 관련주 전략", "universe": ["KOSPI", "KOSDAQ"],
+    })
+    report2 = make_report()
+    _prune_clarifications_filled_by_overrides(report2, unfilled)
+    assert len(report2.clarification_questions) == 2

@@ -28,7 +28,7 @@
 
 | 소스 | 노드 id | 생성 방식 |
 |---|---|---|
-| `data/knowledge-graph.json` | `hbm`, `smr`, … | git 추적 시드 — 수동 큐레이션(개념·테마·지표·매크로·상품) |
+| `data/knowledge-graph.json` | `hbm`, `smr`, … | git 추적 시드 — 수동 큐레이션(개념·테마·지표·매크로·상품). 확장은 Concept–Stock Builder 절차(`docs/kg_concept_builder.md`)로 — 조사 원장은 `data/kg-research/`, Core/Strong 관계만 시드 편입 |
 | `universe_pit.CANONICAL_SECTORS` | `sector:반도체` | 39개 정본 섹터 자동 생성 |
 | `data/korea-stocks.json` | `company:000660` | 엣지가 참조할 때만 자동 생성(심볼 검증) |
 | `data/etf-master.json` | `etf:091160` | 엣지가 참조할 때만 자동 생성(심볼 검증) |

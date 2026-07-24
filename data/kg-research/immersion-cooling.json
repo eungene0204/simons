@@ -1,0 +1,115 @@
+{
+  "concept": {
+    "id": "immersion-cooling",
+    "canonical_name": "액침냉각",
+    "canonical_name_en": "Immersion Cooling",
+    "abbreviation": "",
+    "aliases": ["이머전쿨링", "이머전 쿨링", "액침 냉각"],
+    "definition": "서버·스토리지 등 IT 장비를 전기가 통하지 않는 특수 냉각유에 직접 담가 열을 식히는 차세대 데이터센터 냉각 기술. 공랭 대비 냉각 에너지를 크게 절감한다.",
+    "investment_context": "AI 데이터센터의 발열 밀도 증가로 수요가 형성되는 단계다. 국내 상장사는 대부분 개발·시제품·해외사 협력 진입 단계로, 2026년 현재 액침냉각 매출이 확인되는 Core/Strong 기업이 없다 — 기본 Backtest Universe 후보 없음.",
+    "industry": [],
+    "related_keywords": ["데이터센터 냉각", "냉각유", "PUE", "다이렉트 리퀴드 쿨링", "DLC"],
+    "sources": [
+      {
+        "source_name": "언론 보도",
+        "document_title": "AI 데이터센터 '액침냉각' 경쟁 — GST·케이엔솔·인성정보",
+        "document_type": "news",
+        "url": "https://www.hanyangeconomy.com/article/view/hye202511120013",
+        "evidence": "액침냉각은 IT 장비를 비전도성 특수 액체에 담가 냉각하는 차세대 기술",
+        "retrieved_at": "2026-07-25"
+      }
+    ]
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "GST",
+      "ticker": "083450",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Moderate",
+      "relevance_score": 60,
+      "reason": "2022년부터 액침냉각 시스템을 개발해 시제품을 공개했고 에쓰오일(냉각유)·LS일렉트릭(국산화 MOU)과 협력 중이나, 액침냉각 매출·공급계약이 아직 확인되지 않는다. 본업은 반도체 스크러버·칠러.",
+      "business_evidence": "액침냉각 시스템 시제품 공개, 에쓰오일과 냉각 솔루션 공동 공개(2026-05), LS일렉트릭과 국산화 MOU.",
+      "verified": true,
+      "note": "공급계약·매출 확인 시 Strong 승격 검토",
+      "sources": [
+        {
+          "source_name": "언론 보도",
+          "document_title": "GST, 에쓰오일과 액침냉각 솔루션 협력",
+          "document_type": "news",
+          "url": "https://news.nate.com/view/20260511n28293",
+          "published_at": "2026-05-11",
+          "evidence": "에쓰오일과 데이터센터 냉각 에너지 절감 액침냉각 솔루션 공개"
+        },
+        {
+          "source_name": "더벨",
+          "document_title": "GST, 액침냉각 밸류체인 편입",
+          "document_type": "news",
+          "url": "https://www.thebell.co.kr/free/content/ArticleView.asp?key=202509191433437760102540",
+          "evidence": "2022년 개발 시작, 액침냉각 시스템 시제품 공개"
+        }
+      ]
+    },
+    {
+      "company_name": "케이엔솔",
+      "ticker": "053080",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Related",
+      "relevance": "Moderate",
+      "relevance_score": 48,
+      "reason": "클린룸·드라이룸 시공 전문기업으로 글로벌 액침냉각 1위 서브머(Submer)와 협력해 국내 시장에 진입하는 단계 — 자체 제품·매출은 확인되지 않는다.",
+      "business_evidence": "스페인 서브머사와 협력해 국내 액침냉각 시장 진출.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "언론 보도",
+          "document_title": "AI 데이터센터 액침냉각 경쟁",
+          "document_type": "news",
+          "url": "https://www.hanyangeconomy.com/article/view/hye202511120013",
+          "evidence": "케이엔솔, 서브머와 협력해 국내 액침냉각 시장 진출"
+        }
+      ]
+    },
+    {
+      "company_name": "인성정보",
+      "ticker": "033230",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Related",
+      "relevance": "Weak",
+      "relevance_score": 25,
+      "reason": "액침냉각 사업 참여가 언급되나 구체적인 제품·계약·매출 근거가 확인되지 않는다.",
+      "business_evidence": "액침냉각 시장 참여 언급(파트너십 수준).",
+      "verified": false,
+      "sources": [
+        {
+          "source_name": "언론 보도",
+          "document_title": "AI 데이터센터 액침냉각 경쟁",
+          "document_type": "news",
+          "url": "https://www.hanyangeconomy.com/article/view/hye202511120013",
+          "evidence": "GST·케이엔솔·인성정보 액침냉각 경쟁 언급"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "company_name": "SK이노베이션(SK엔무브)",
+      "ticker": "096770",
+      "reason_for_exclusion": "액침냉각 냉각유 사업은 비상장 자회사 SK엔무브가 수행 — 상장사 SK이노베이션의 지분 관계만으로는 Core/Strong 확정 불가(Investor 성격)."
+    }
+  ],
+  "summary": {
+    "core_stock_count": 0,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 2,
+    "weak_stock_count": 1,
+    "unverified_stock_count": 2,
+    "recommended_backtest_universe": []
+  },
+  "notes": "Core/Strong 없음 — 시드에는 개념 노드와 데이터센터 관계만 편입하고 기업 엣지는 만들지 않는다(억지 추가 금지 원칙). 관련 기업 매출·계약 확인 시 재조사.",
+  "researched_at": "2026-07-25"
+}

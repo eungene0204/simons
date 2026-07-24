@@ -1,0 +1,123 @@
+{
+  "concept": {
+    "id": "battery-recycling",
+    "canonical_name": "폐배터리 리사이클링",
+    "canonical_name_en": "Battery Recycling",
+    "abbreviation": "",
+    "aliases": ["배터리 리사이클링", "폐배터리 재활용", "배터리 재활용", "2차전지 리사이클링", "이차전지 리사이클링"],
+    "alias_note": "'폐배터리' 단독 표현은 grounding 테스트(test_term_grounding.py)의 정본 예제 용어라 시드 동의어에서 제외 — 검색 학습 경로가 담당(빌더 가드 ③)",
+    "definition": "수명이 다한 이차전지에서 리튬·니켈·코발트·망간 등 유가금속을 회수해 배터리 소재 원료로 재공급하는 산업. 전처리(방전·파쇄)와 습식·건식 제련 공정으로 구성된다.",
+    "investment_context": "전기차 보급 확대에 따른 폐배터리 발생량 증가와 배터리 소재 공급망 규제(원료 역내 조달)가 수요 동인이다. 회수 금속은 양극재 원료(전구체)로 판매되므로 양극재 기업이 후방 고객이다.",
+    "industry": ["이차전지"],
+    "related_keywords": ["유가금속 회수", "블랙매스", "전구체", "탄산리튬", "황산니켈", "하이드로센터"],
+    "sources": [
+      {
+        "source_name": "아시아경제",
+        "document_title": "성일하이텍 배터리 재활용 공장 르포",
+        "document_type": "news",
+        "url": "https://www.asiae.co.kr/article/2024070211112313410",
+        "published_at": "2024-07-02",
+        "evidence": "리튬부터 흑연·망초까지 회수하는 배터리 재활용 일관 공정",
+        "retrieved_at": "2026-07-25"
+      }
+    ]
+  },
+  "related_etfs": [
+    {
+      "name": "RISE 배터리 리사이클링",
+      "ticker": "446700",
+      "country": "KR",
+      "issuer": "KB자산운용",
+      "theme_reason": "배터리 리사이클링 밸류체인 테마(etf-master.json 정본 등재 확인)",
+      "as_of_date": "2026-07-25",
+      "source_url": "https://www.riseetf.co.kr/"
+    }
+  ],
+  "stocks": [
+    {
+      "company_name": "성일하이텍",
+      "ticker": "365340",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 92,
+      "reason": "배터리 리사이클링이 회사의 주력 사업 그 자체다. 국내 유일의 전처리~습식제련(하이드로센터) 일관 공정을 보유하고 3공장을 가동하며, 미국·유럽·아시아 거점으로 확장 중이다.",
+      "business_evidence": "제3 하이드로센터 1단계 기준 연간 탄산리튬 약 3,500톤·니켈 5,280톤·코발트 600톤·망간 600톤·구리 540톤 생산 능력. 전기차 30만대분 폐배터리 처리 신공장 가동.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "디일렉",
+          "document_title": "성일하이텍, 전기차 30만대 폐배터리 처리 신공장 가동",
+          "document_type": "news",
+          "url": "https://www.thelec.kr/news/articleView.html?idxno=28326",
+          "evidence": "3공장(하이드로센터) 가동, 연간 처리 능력·금속 회수량"
+        },
+        {
+          "source_name": "미래에셋증권 기업분석",
+          "document_title": "성일하이텍 — 배터리 메탈 리사이클링",
+          "document_type": "research_report",
+          "url": "https://securities.miraeasset.com/bbs/download/2129980.pdf?attachmentId=2129980",
+          "evidence": "배터리 메탈 리사이클링을 주력 사업으로 분석"
+        },
+        {
+          "source_name": "아시아경제",
+          "document_title": "성일하이텍 배터리 재활용 공장 르포",
+          "document_type": "news",
+          "url": "https://www.asiae.co.kr/article/2024070211112313410",
+          "evidence": "일관 공정으로 리튬·흑연 등 회수, 2030년 매출 1조원 목표·해외 거점"
+        }
+      ]
+    },
+    {
+      "company_name": "새빗켐",
+      "ticker": "107600",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 85,
+      "reason": "2017년 폐배터리 리사이클링 진출 후 재활용 매출이 회사 매출의 과반(2022년 기준 약 52%)으로 주력 사업이다. 회수 원료를 양극재 밸류체인(전구체)으로 판매한다.",
+      "business_evidence": "2022년 제품별 매출 비중: 폐배터리 재활용 52.0%·폐산 재활용 33.3%. 원재료를 포스코케미칼·엘앤에프 등 양극재 업체에서 조달.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "증권사 기업분석(네이버 리서치)",
+          "document_title": "새빗켐(107600) 기업분석",
+          "document_type": "research_report",
+          "url": "https://ssl.pstatic.net/imgstock/upload/research/company/1675638985913.pdf",
+          "published_at": "2023-02-06",
+          "evidence": "폐배터리 재활용 매출 비중 52.0%(2022E), 2019년부터 매출 성장"
+        },
+        {
+          "source_name": "유진투자증권 산업보고서",
+          "document_title": "폐배터리 산업",
+          "document_type": "research_report",
+          "url": "https://www.eugenefn.com/common/files/amail/20221206_B15_jongsun.park_1765.pdf",
+          "evidence": "성일하이텍·새빗켐 등 폐배터리 리사이클링 기업 산업 분석"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "company_name": "코스모화학",
+      "ticker": "005420",
+      "reason_for_exclusion": "폐배터리 리사이클 사업 투자가 알려져 있으나 이번 조사에서 매출·설비의 공식 근거를 확인하지 못함 — 추가 조사 후 재분류."
+    },
+    {
+      "company_name": "아이에스동서",
+      "ticker": "010780",
+      "reason_for_exclusion": "자회사를 통한 리사이클링 사업이 알려져 있으나 지분 구조·사업 비중의 공식 근거 미확보 — Investor 성격 가능성, 추가 조사 대상."
+    }
+  ],
+  "summary": {
+    "core_stock_count": 2,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 2,
+    "recommended_backtest_universe": ["365340", "107600"]
+  },
+  "researched_at": "2026-07-25"
+}

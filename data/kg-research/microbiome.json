@@ -1,0 +1,127 @@
+{
+  "concept": {
+    "id": "microbiome",
+    "canonical_name": "마이크로바이옴",
+    "canonical_name_en": "Microbiome",
+    "abbreviation": "",
+    "aliases": ["마이크로바이옴 치료제", "장내 미생물", "프로바이오틱스"],
+    "definition": "인체에 서식하는 미생물 군집과 그 유전정보. 이를 활용한 신약(LBP)·진단·기능성 프로바이오틱스 산업으로 이어진다.",
+    "investment_context": "국내에서는 마이크로바이옴 신약 개발사(임상 단계, 매출 정체)와 프로바이오틱스 제조·판매 기업(실매출 발생)으로 나뉜다. 신약 중심 기업은 임상 성패 리스크가 크다.",
+    "industry": ["바이오/제약"],
+    "related_keywords": ["LBP", "생균치료제", "유산균", "장내 미생물 분석", "건기식"],
+    "sources": [
+      {
+        "source_name": "CJ 뉴스룸",
+        "document_title": "CJ바이오사이언스, 글로벌 No.1 마이크로바이옴 기업으로 도약",
+        "document_type": "company_official",
+        "url": "https://cjnews.cj.net/cj%EB%B0%94%EC%9D%B4%EC%98%A4%EC%82%AC%EC%9D%B4%EC%96%B8%EC%8A%A4-%EA%B8%80%EB%A1%9C%EB%B2%8C-no-1-%EB%A7%88%EC%9D%B4%ED%81%AC%EB%A1%9C%EB%B0%94%EC%9D%B4%EC%98%B4-%EA%B8%B0%EC%97%85%EC%9C%BC/",
+        "evidence": "CJ제일제당이 천랩 인수 후 마이크로바이옴 신약 개발 전문기업으로 출범",
+        "retrieved_at": "2026-07-25"
+      }
+    ]
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "CJ 바이오사이언스",
+      "ticker": "311690",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 88,
+      "reason": "마이크로바이옴 신약 개발·미생물 생명정보 플랫폼이 회사 사업 그 자체다(CJ제일제당의 천랩 인수로 출범, 매출 80% 이상이 플랫폼·솔루션). 다만 매출 규모는 수십억 원대 정체 상태다.",
+      "business_evidence": "미생물 생명정보 플랫폼·솔루션 매출 80% 이상(2022 41억·2023 56억·2024 35억), 마이크로바이옴 신약 임상 진행.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "CJ 뉴스룸",
+          "document_title": "글로벌 No.1 마이크로바이옴 기업 도약",
+          "document_type": "company_official",
+          "url": "https://cjnews.cj.net/cj%EB%B0%94%EC%9D%B4%EC%98%A4%EC%82%AC%EC%9D%B4%EC%96%B8%EC%8A%A4",
+          "evidence": "마이크로바이옴 신약 전문기업 공식 선언"
+        },
+        {
+          "source_name": "머니투데이 더바이오",
+          "document_title": "K-마이크로바이옴 사업전략별 희비",
+          "document_type": "news",
+          "url": "https://www.mt.co.kr/thebio/2026/02/10/2026021015124020254",
+          "evidence": "플랫폼·솔루션 매출 80% 이상, 매출 수십억대 정체"
+        }
+      ]
+    },
+    {
+      "company_name": "쎌바이오텍",
+      "ticker": "049960",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 85,
+      "reason": "프로바이오틱스(DUOLAC) 제조·판매가 주력 사업으로 실매출이 발생하며, 마이크로바이옴 신약(대장암 치료제 임상)도 병행한다.",
+      "business_evidence": "DUOLAC 브랜드 프로바이오틱스 매출 성장, 마이크로바이옴 신약 사업 병행.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "언론 보도",
+          "document_title": "마이크로바이옴 기업 매출 동향",
+          "document_type": "news",
+          "url": "https://www.sisajournal-e.com/news/curationView.html?idxno=402341",
+          "evidence": "프로바이오틱스·건기식 매출로 실적 견인"
+        }
+      ]
+    },
+    {
+      "company_name": "고바이오랩",
+      "ticker": "348150",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 68,
+      "reason": "마이크로바이옴 신약 개발사로 건선·궤양성대장염 임상을 진행했고(핵심 임상 유효성 확보 실패), 프로바이오틱스 건기식 매출(3분기 누적 500억+)이 현금창출원이다 — 직접 사업은 확인되나 신약 성과가 불확실하다.",
+      "business_evidence": "마이크로바이옴 신약 임상 수행(일부 실패), 건기식 매출 누적 500억+ (2025 3Q).",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "머니투데이 더바이오",
+          "document_title": "K-마이크로바이옴 사업전략별 희비",
+          "document_type": "news",
+          "url": "https://www.mt.co.kr/thebio/2026/02/10/2026021015124020254",
+          "evidence": "건기식 매출 500억+, 핵심 임상 유효성 실패"
+        }
+      ]
+    },
+    {
+      "company_name": "지놈앤컴퍼니",
+      "ticker": "314130",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Related",
+      "relevance": "Moderate",
+      "relevance_score": 50,
+      "reason": "마이크로바이옴 신약으로 출발했으나 ADC 등 타 분야로 사업 전략을 전환해 마이크로바이옴 비중이 축소됐다.",
+      "business_evidence": "마이크로바이옴 외 분야로 다각화(전략 전환).",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "팜이데일리",
+          "document_title": "CJ바이오사이언스 정체 vs 지놈앤컴퍼니 전환",
+          "document_type": "news",
+          "url": "https://pharm.edaily.co.kr/news/read?newsId=01315286638918768",
+          "evidence": "마이크로바이옴 외 분야 진출로 전략 변경"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [],
+  "summary": {
+    "core_stock_count": 2,
+    "strong_stock_count": 1,
+    "moderate_stock_count": 1,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 0,
+    "recommended_backtest_universe": ["311690", "049960", "348150"]
+  },
+  "researched_at": "2026-07-25"
+}

@@ -67,6 +67,11 @@ def _prune_clarifications_filled_by_overrides(
         filled_fields.add("strategy.entry_conditions")
     if has_exit:
         filled_fields.add("strategy.exit_conditions")
+    # 결정적 섹터 보정(_extract_sector — 지식그래프·검색 그라운딩 학습분 포함)이 업종을
+    # 채웠으면 인터프리터의 업종 질문은 이미 답이 있다("마운자로 관련주" — LLM은 모르지만
+    # 검색 학습으로 해석된 테마를 다시 되묻는 사고 방지).
+    if getattr(parsed, "sector", None):
+        filled_fields.add("strategy.universe.sectors")
     if filled_fields:
         report.clarification_questions = [
             q for q in report.clarification_questions if q.field not in filled_fields
@@ -332,6 +337,13 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
     # 보정이 결정적으로 되살린 진입/청산 조건의 되묻기 질문을 지운다 — 완성 전략을 다시
     # 되묻는 사고 방지(흑자 기업 등 LLM 누락 → eps>0 필터로 복원됐는데 진입 질문 잔존).
     _prune_clarifications_filled_by_overrides(report, parsed)
+    # 보정이 섹터를 해석했으면(검색 그라운딩 학습분 포함) 같은 테마를 가리키는 미지원
+    # 안내도 지운다 — "'마운자로 관련주'는 반영되지 않았어요"가 반영된 전략과 모순.
+    if parsed.sector and report.unsupported_features:
+        from engine.nl_parser import _extract_sector
+        report.unsupported_features = [
+            f for f in report.unsupported_features if _extract_sector(f) is None
+        ]
     if parsed.target_symbols:
         # 지정 종목 전략의 청산 누락은 호출부 공유 보정(apply_single_asset_adjustments)이
         # 반대 신호 청산 추천/기간 종료 보유 안내(비차단 notices)로 처리한다(FR-STR-068) —
@@ -681,9 +693,11 @@ def apply_primary_meta(result: dict, primary: Dict[str, Any]) -> None:
     """_build_parse_result 산출물에 primary 경로의 질문/안내/메타를 병합한다.
 
     인터프리터의 질문이 기존 detect_missing_entry_clarification 질문보다 구체적이므로
-    있으면 우선한다. notices는 뒤에 덧붙인다(하한선 보정 안내가 앞).
+    있으면 우선한다. 단, 유니버스 범위 질문(clarification_priority — 테마 관련 상장사
+    되묻기 FR-STR-071)은 조건 질문보다 선행 결정 사항이라 덮어쓰지 않는다.
+    notices는 뒤에 덧붙인다(하한선 보정 안내가 앞).
     """
-    if primary["clarification_question"]:
+    if primary["clarification_question"] and not result.get("clarification_priority"):
         result["clarification_question"] = primary["clarification_question"]
         result["clarification_suggestions"] = primary["clarification_suggestions"]
     elif primary["interpreter"]["mode"] in ("primary_modify_explain", "primary_modify_unsupported", "primary_modify_rejected_patches"):

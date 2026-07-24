@@ -1,0 +1,52 @@
+{
+  "concept": {
+    "id": "quantum-computing",
+    "canonical_name": "양자컴퓨터",
+    "canonical_name_en": "Quantum Computing",
+    "abbreviation": "",
+    "aliases": ["양자 컴퓨터", "양자컴퓨팅", "퀀텀컴퓨팅", "퀀텀 컴퓨터"],
+    "definition": "큐비트의 중첩·얽힘을 이용해 특정 연산을 고전 컴퓨터보다 빠르게 수행하는 컴퓨팅 기술. 극저온 냉각기·제어계측 장비·클라우드 접근 서비스 등으로 밸류체인이 구성된다.",
+    "investment_context": "국내 핵심 기업 SDT(에스디티)는 비상장(2025 상장 추진·Pre-IPO 200억 유치)이며, 상장사 중 양자컴퓨터 사업 매출이 공식 확인되는 기업이 없다 — 2026-07 기준 기본 Backtest Universe 후보 없음. 상장 테마주는 대부분 양자내성암호·양자통신 인접 분야다.",
+    "industry": [],
+    "related_keywords": ["큐비트", "양자내성암호", "PQC", "양자통신", "극저온 냉각기", "양자 클라우드"],
+    "sources": [
+      {
+        "source_name": "디일렉",
+        "document_title": "SDT, 양자 클라우드 출시 임박",
+        "document_type": "news",
+        "url": "https://www.thelec.kr/news/articleView.html?idxno=33474",
+        "evidence": "SDT가 20큐비트 양자컴퓨터·양자 클라우드 서비스 국내 최초 출시",
+        "retrieved_at": "2026-07-25"
+      }
+    ]
+  },
+  "related_etfs": [],
+  "stocks": [],
+  "excluded_candidates": [
+    {
+      "company_name": "에스디티(SDT)",
+      "ticker": "",
+      "reason_for_exclusion": "국내 유일 양자컴퓨터 제조(극저온 냉각기·제어계측·클라우드 풀스택) 기업이지만 비상장 — 상장(2025 추진) 확인 시 Core 후보로 재조사."
+    },
+    {
+      "company_name": "케이씨에스",
+      "ticker": "115500",
+      "reason_for_exclusion": "양자내성암호(PQC) 인접 분야 테마주 — 양자컴퓨터 자체 사업의 공식 근거 미확인."
+    },
+    {
+      "company_name": "엑스게이트",
+      "ticker": "356680",
+      "reason_for_exclusion": "양자암호 VPN 인접 분야 — 양자컴퓨터 직접 사업 근거 미확인."
+    }
+  ],
+  "summary": {
+    "core_stock_count": 0,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 3,
+    "recommended_backtest_universe": []
+  },
+  "notes": "기업 엣지 0 — 시드에는 개념 노드만 편입(액침냉각과 동일 관례). SDT 상장 시 재조사.",
+  "researched_at": "2026-07-25"
+}

@@ -2588,6 +2588,9 @@ class NLParseResponse(BaseModel):
     symbol_count: int
     clarification_question: Optional[str] = None
     clarification_suggestions: Optional[List[str]] = None
+    # 되묻기 우선순위 표시(예: "theme_universe" — FR-STR-071 테마 관련 상장사 질문).
+    # 인터프리터 질문이 유니버스 범위 질문을 덮어쓰지 않게 하는 내부 가드의 관측용 노출.
+    clarification_priority: Optional[str] = None
     # 이번 프롬프트에서 규칙 기반으로 결정적으로 바뀐 리스크 필드 {field: value|null}.
     # 프론트가 자체 정규식으로 재추측하지 말고 이 값을 그대로 신뢰하도록 단일 진실 소스로 제공.
     risk_overrides: Optional[dict] = None
@@ -2963,6 +2966,7 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
         detect_missing_entry_clarification,
         detect_symbol_ambiguity,
         detect_symbol_typo_clarification,
+        detect_theme_universe_clarification,
         detect_unresolved_sector_clarification,
         enforce_strategy_minimums,
         synthesize_risk_overrides,
@@ -3021,6 +3025,16 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     # 미해결 업종 되묻기를 최우선으로 둔다 — 종목 범위(유니버스/섹터)가 진입 조건보다 먼저
     # 정해져야 하고, 조용한 전체 시장 강등을 막는다.
     clarification_question, clarification_suggestions = sector_reask_q, sector_reask_s
+    # 테마 관련 상장사 되묻기(FR-STR-071) — 학습·검증된 '함께 언급 상장사'가 있으면 업종
+    # 근사 대신 종목 제한 여부를 시점 편향 경고와 함께 묻는다. 유니버스 범위 질문이므로
+    # 인터프리터의 조건 질문이 덮어쓰지 않도록 우선순위를 표시한다(apply_primary_meta 가드).
+    clarification_priority = None
+    if clarification_question is None:
+        clarification_question, clarification_suggestions = detect_theme_universe_clarification(
+            parsed, request.prompt
+        )
+        if clarification_question is not None:
+            clarification_priority = "theme_universe"
     # 종목명 오타로 지정 종목을 잃었으면 '혹시 이 종목?'을 먼저 되묻는다 — 조용히 전체 시장으로
     # 진행하지 않도록, 진입 조건보다 앞서 종목 범위를 확정한다(자모 근접 매칭, 자동 치환 아님).
     if clarification_question is None:
@@ -3039,8 +3053,11 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
             parsed, request.prompt
         )
     # 여러 종목이 함께 지정된 경우 임의 선택하지 않고 되묻는다(그대로 진행 시 전체 테스트).
+    # '전체를 함께'처럼 집합 의도가 명시된 발화(테마 종목 칩 왕복 등)는 되묻지 않는다.
     if clarification_question is None:
-        clarification_question, clarification_suggestions = detect_symbol_ambiguity(parsed)
+        clarification_question, clarification_suggestions = detect_symbol_ambiguity(
+            parsed, request.prompt
+        )
     # 백테스트 최소 조건(유니버스·진입·청산·손절·익절)이 하나라도 비면, "현재 상태로도 실행
     # 가능"으로 진행시키지 않고 채우도록 가이드한다(2026-07-22 정책). clarification이 뜨면
     # 프론트가 실행 버튼을 숨기고 안내 칩을 보여준다. 단일 종목 '기간 종료까지 보유' 안내는
@@ -3057,6 +3074,7 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
         "symbol_count": len(backtest_req["symbols"]),
         "clarification_question": clarification_question,
         "clarification_suggestions": clarification_suggestions,
+        "clarification_priority": clarification_priority,
         "risk_overrides": risk_overrides,
         "parse_validation": validation_report,
         "notices": notices,
@@ -3098,8 +3116,57 @@ def _complete_deferred_validation(defer_ctx: dict):
         parse_ms=round((time.perf_counter() - started) * 1000, 2),
         request_started=started,
     )
+    extra_notices = defer_ctx.get("extra_notices") or []
+    if extra_notices:
+        result["notices"] = extra_notices + list(result.get("notices") or [])
     _store_nl_parse_cache(cache_key, result)
     return result
+
+
+def _learn_unknown_sector_term(prompt: str, parser, on_stage=None) -> Optional[str]:
+    """어휘 밖 업종/테마 언급을 파싱 전에 검색 그라운딩으로 학습한다(FR-STR-069 파싱 경로).
+
+    '마운자로 관련주'처럼 정규식·지식그래프가 모르는 테마가 파싱 경로로 들어오면
+    빌더 경로처럼 인터넷 검색 학습이 없어 조용히 미지원 처리되던 공백 보정 —
+    학습되면 어휘집→지식그래프 합성으로 이후 결정적 섹터 추출(_extract_sector)이
+    규칙·LLM 폴백·인터프리터 오버라이드·수정 전 경로에서 그대로 해석한다.
+    반환: 해석 안내 notice 문구 | None(게이트 미해당·학습 실패·매핑 불가)."""
+    from engine.term_grounding import learn_sector_term, lexicon_entry, search_available
+
+    if not search_available():
+        return None
+
+    def chat(system_prompt: str, user_msg: str, *, max_tokens: int = 400) -> str:
+        with _mlx_inference_lock.priority(0):
+            return parser.chat(system_prompt, user_msg, max_tokens=max_tokens)
+
+    searched = False
+
+    def on_search_cb():
+        nonlocal searched
+        searched = True
+        if on_stage is not None:
+            on_stage("searching")
+
+    try:
+        sector = learn_sector_term(prompt, chat, on_search=on_search_cb)
+    except Exception as exc:  # noqa: BLE001 — 그라운딩 실패가 파싱을 막으면 안 된다
+        print(f"[NL-PARSE] 용어 그라운딩 실패(무시): {exc}", flush=True)
+        return None
+    finally:
+        if searched and on_stage is not None:
+            on_stage("parsing")
+    if not sector:
+        return None
+    entry = lexicon_entry(prompt)
+    term = (entry or {}).get("term")
+    print(f"[NL-PARSE] 용어 그라운딩: '{term or prompt}' → 섹터 '{sector}'", flush=True)
+    if term:
+        return (
+            f"'{term}'은(는) 인터넷 검색으로 확인해 '{sector}' 업종 관련으로 해석했어요. "
+            "다른 업종을 원하시면 말씀해 주세요."
+        )
+    return f"말씀하신 테마를 '{sector}' 업종 관련으로 해석했어요."
 
 
 def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | None = None):
@@ -3163,6 +3230,10 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
             from api.coach_routes import set_parser as _set_coach_parser
             _set_coach_parser(parser)
         load_ms = round((time.perf_counter() - load_started) * 1000, 2)
+        # 어휘 밖 업종/테마 사전 학습(FR-STR-069) — 큐가 있는데 결정적 추출이 실패한 입력만
+        # 검색 그라운딩으로 학습한다(어휘집 캐시 — 같은 용어 재검색 없음). 학습되면 아래
+        # 파싱(규칙·인터프리터·수정 모두)의 결정적 섹터 추출이 그대로 해석한다.
+        grounding_notice = _learn_unknown_sector_term(request.prompt, parser, on_stage=on_stage)
         parse_started = time.perf_counter()
         # 룰베이스 파싱 결과의 LLM 검증 리포트(on_validation 콜백으로 수집). 스레드 로컬한
         # holder라 동시 요청 간 경합이 없다.
@@ -3260,6 +3331,7 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
                 "parsed": parsed.model_copy(deep=True),
                 "cache_key": cache_key,
                 "backend": backend,
+                "extra_notices": [grounding_notice] if grounding_notice else [],
             })
 
         result = _build_parse_result(
@@ -3269,6 +3341,8 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
         if primary_holder:
             from strategy_conversation.primary import apply_primary_meta
             apply_primary_meta(result, primary_holder)
+        if grounding_notice:
+            result["notices"] = [grounding_notice] + list(result.get("notices") or [])
         _record_ai_runtime("parse", result["runtime"])
         _store_nl_parse_cache(cache_key, result)
         return result

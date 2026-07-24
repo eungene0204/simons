@@ -1,0 +1,252 @@
+{
+  "concept": {
+    "id": "solid-state-battery",
+    "canonical_name": "전고체 배터리",
+    "canonical_name_en": "All-Solid-State Battery",
+    "abbreviation": "ASB",
+    "aliases": ["전고체배터리", "전고체 전지", "전고체전지", "전고체", "올솔리드스테이트배터리"],
+    "definition": "이차전지 내부의 액체 전해질을 고체 전해질로 대체한 차세대 배터리. 기존 리튬이온 배터리 대비 에너지 밀도와 안전성(발화 위험)이 개선된다.",
+    "investment_context": "셀 제조사의 파일럿·양산 설비투자, 고체 전해질 원료(황화리튬) 소재 기업, 전용 공정 장비(고온고압 프레스·건조 코터) 기업의 사업과 연결된다. 2026년 현재 대부분 파일럿~초기 양산 단계로 매출 기여는 제한적이다.",
+    "industry": ["이차전지"],
+    "related_keywords": ["고체 전해질", "황화리튬", "Li2S", "황화물계 전해질", "WIP 장비", "실리콘음극재"],
+    "sources": [
+      {
+        "source_name": "신한자산운용 SOL ETF",
+        "document_title": "SOL 전고체배터리&실리콘음극재 상품정보",
+        "document_type": "etf_official",
+        "url": "https://www.soletf.com/ko/fund/etf/211079",
+        "section": "상품정보",
+        "evidence": "전고체 배터리는 양극재와 음극재 사이의 액체 전해질을 고체 전해질로 대체해 안정성과 에너지 밀도를 개선한 차세대 배터리",
+        "retrieved_at": "2026-07-25"
+      }
+    ]
+  },
+  "related_etfs": [
+    {
+      "name": "SOL 전고체배터리&실리콘음극재",
+      "ticker": "0005D0",
+      "country": "KR",
+      "issuer": "신한자산운용",
+      "theme_reason": "국내 전고체배터리·실리콘음극재 밸류체인 상위 10종목 집중 투자(FnGuide 전고체배터리&실리콘음극재 지수 추종)",
+      "top_holdings_at_listing": "이수스페셜티케미컬 24.4%, 삼성SDI 20.1%, 대주전자재료 12.5%, 롯데에너지머티리얼즈 10.1%",
+      "as_of_date": "2025-01-07",
+      "source_url": "https://www.soletf.com/ko/fund/etf/211079"
+    },
+    {
+      "name": "KODEX 전고체배터리ESS TOP2플러스",
+      "ticker": "0209D0",
+      "country": "KR",
+      "issuer": "삼성자산운용",
+      "theme_reason": "전고체 배터리·ESS 밸류체인 이중 테마(etf-master.json 정본 등재 확인)",
+      "as_of_date": "2026-07-25",
+      "source_url": "https://www.samsungfund.com/"
+    }
+  ],
+  "stocks": [
+    {
+      "company_name": "삼성SDI",
+      "ticker": "006400",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 90,
+      "reason": "전고체 배터리(ASB)를 직접 개발하며 파일럿 라인에서 시제품을 생산·납품 중이고, 회사가 공식적으로 핵심 성장사업(2027년 양산 목표)으로 추진한다.",
+      "business_evidence": "2022년 수원 SDI연구소에 국내 최초 전고체 파일럿 'S라인' 착공, 글로벌 OEM 5개사에 시제품 공급·성능 평가 중. 2조원 유상증자 중 약 4,500억원을 전고체 라인 구축에 배정.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "언론 보도(유상증자 증권신고서 기반)",
+          "document_title": "삼성SDI, 전고체 배터리에 승부수 띄워…4500억 투입",
+          "document_type": "news",
+          "url": "https://www.newstof.com/news/articleView.html?idxno=27394",
+          "evidence": "2조원 규모 유상증자 자금 중 약 4,500억원을 전고체 배터리 라인 구축에 투입"
+        },
+        {
+          "source_name": "언론 보도",
+          "document_title": "삼성SDI 전고체 배터리 전용 시설 'S라인' 2027년 상용화 목표",
+          "document_type": "news",
+          "url": "https://www.autodaily.co.kr/news/articleView.html?idxno=544516",
+          "evidence": "2022년 S라인 착공 후 시제품 생산, 글로벌 OEM 5개사 샘플 공급·성능 평가, 2027년 양산 목표"
+        },
+        {
+          "source_name": "신한자산운용 SOL ETF",
+          "document_title": "SOL 전고체배터리&실리콘음극재 구성종목",
+          "document_type": "etf_official",
+          "url": "https://www.soletf.com/ko/fund/etf/211079",
+          "evidence": "상장 시점 구성비중 20.1%"
+        }
+      ]
+    },
+    {
+      "company_name": "이수스페셜티케미컬",
+      "ticker": "457190",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Supplier",
+      "relevance": "Core",
+      "relevance_score": 87,
+      "reason": "고체 전해질의 필수 원료인 황화리튬(Li2S)을 생산·판매하는 국내 유일 양산 가능 기업이며, 전고체 소재 사업이 회사의 주력 사업이다(이수화학에서 전고체 소재 부문 인적분할로 출범).",
+      "business_evidence": "울산 온산공장에 약 852억원 규모 황화리튬 상업 생산 설비 착공(초기 연 150톤→최대 500톤). 에코프로비엠·삼성SDI·미국 솔리드파워 등과 황화리튬 상용화 업무협약.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "언론 보도(설비투자 착공식)",
+          "document_title": "이수스페셜티케미컬, 852억 투자로 황화리튬 상업생산 본격화",
+          "document_type": "news",
+          "url": "https://www.globalepic.co.kr/view.php?ud=202509082133151229ac3d53c8ec_29",
+          "published_at": "2025-09-08",
+          "evidence": "온산공장 황화리튬 상업 생산 설비 착공, 852억원 투자, 연 150톤→500톤 확장 설계"
+        },
+        {
+          "source_name": "신한자산운용 SOL ETF",
+          "document_title": "SOL 전고체배터리&실리콘음극재 구성종목",
+          "document_type": "etf_official",
+          "url": "https://www.soletf.com/ko/fund/etf/211079",
+          "evidence": "상장 시점 최대 구성비중 24.4%"
+        }
+      ]
+    },
+    {
+      "company_name": "하나기술",
+      "ticker": "299030",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Supplier",
+      "relevance": "Moderate",
+      "relevance_score": 55,
+      "reason": "전고체 전용 공정 장비(고온고압 프레스, WIP)의 수주(PO)를 확보해 파일럿 라인에 공급하는 직접 공급 관계가 확인되나, 회사 전체에서 전고체 장비 매출 비중은 아직 작다.",
+      "business_evidence": "국내 배터리 제조사로부터 전고체 고온 고압 프레스(Warm Isostatic Press) 장비 정식 구매 발주(PO) 확보, 2025년 상반기 파일럿 라인 공급 계획.",
+      "verified": true,
+      "note": "DART 단일판매·공급계약 공시 확인 시 Strong 승격 검토",
+      "sources": [
+        {
+          "source_name": "언론 보도",
+          "document_title": "하나기술, 전고체 고온 고압 프레스 장비 수주 확보",
+          "document_type": "news",
+          "url": "https://www.venturesquare.net/954533/",
+          "evidence": "전고체 WIP 장비 정식 PO 수령, 2025년 상반기 파일럿 라인 공급 계획"
+        }
+      ]
+    },
+    {
+      "company_name": "씨아이에스",
+      "ticker": "222080",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Supplier",
+      "relevance": "Moderate",
+      "relevance_score": 50,
+      "reason": "이차전지 전극 공정 장비 전문기업으로 전고체 양산용 장비(하이브리드 건조 코터)와 고체 전해질 소재를 개발 중이나, 전고체 관련 매출은 아직 확인되지 않는다.",
+      "business_evidence": "전고체 소재 양산용 장비 개발 — 레이저 건조 기술을 접목한 '하이브리드 건조 코터' 개발(생산 라인 길이 절반 단축).",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "언론 보도",
+          "document_title": "씨아이에스, 전고체 배터리 소재·장비 도전장",
+          "document_type": "news",
+          "url": "https://plus.hankyung.com/apps/newsinside.view?date=20240910&face=A016&orgId=002255478",
+          "published_at": "2024-09-09",
+          "evidence": "전고체 소재 양산용 장비 개발, 하이브리드 건조 코터 개발 완료"
+        }
+      ]
+    },
+    {
+      "company_name": "롯데에너지머티리얼즈",
+      "ticker": "020150",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Supplier",
+      "relevance": "Moderate",
+      "relevance_score": 52,
+      "reason": "주력은 동박(리튬이온 소재)이나 황화물계 고체 전해질 파일럿 설비를 갖추고 개발 중이며, 전고체 테마 ETF 상위 구성종목(10.1%)이다.",
+      "business_evidence": "황화물계 고체 전해질 파일럿 생산 추진. SOL 전고체배터리&실리콘음극재 ETF 상장 시점 구성비중 10.1%.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "신한자산운용 SOL ETF",
+          "document_title": "SOL 전고체배터리&실리콘음극재 구성종목",
+          "document_type": "etf_official",
+          "url": "https://www.soletf.com/ko/fund/etf/211079",
+          "evidence": "상장 시점 구성비중 10.1%"
+        }
+      ]
+    },
+    {
+      "company_name": "LG에너지솔루션",
+      "ticker": "373220",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Moderate",
+      "relevance_score": 45,
+      "reason": "황화물계 전고체 배터리를 개발 중(2030년경 양산 목표)이나 현재 주력 사업은 리튬이온 배터리로, 전고체는 연구·개발 단계다.",
+      "business_evidence": "황화물계 전고체 배터리 R&D 진행, 파일럿 단계.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "언론 보도",
+          "document_title": "전고체 배터리 개발 동향(국내 셀 3사)",
+          "document_type": "news",
+          "url": "https://www.inews24.com/view/1830077",
+          "evidence": "LG에너지솔루션은 2030년경 양산 목표로 황화물계 전고체 개발 중"
+        }
+      ]
+    },
+    {
+      "company_name": "에코프로비엠",
+      "ticker": "247540",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Related",
+      "relevance": "Weak",
+      "relevance_score": 28,
+      "reason": "전고체용 양극재 개발과 황화리튬 상용화 업무협약(이수스페셜티케미컬 등)이 확인되나 협약·개발 단계로, 주력은 리튬이온 양극재다.",
+      "business_evidence": "이수스페셜티케미컬·삼성SDI 등과 황화리튬 상용화 업무협약 체결.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "언론 보도",
+          "document_title": "이수스페셜티케미컬 황화리튬 상용화 협약",
+          "document_type": "news",
+          "url": "https://www.globalepic.co.kr/view.php?ud=202509082133151229ac3d53c8ec_29",
+          "evidence": "에코프로비엠, 삼성SDI, 희성촉매, 미국 솔리드파워 등과 황화리튬 상용화 업무협약"
+        }
+      ]
+    },
+    {
+      "company_name": "한농화성",
+      "ticker": "011500",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Related",
+      "relevance": "Weak",
+      "relevance_score": 30,
+      "reason": "고분자(전고체) 전해질 국책 연구개발 과제 수행이 알려져 있으나 연구 단계로 관련 매출·상업 설비가 확인되지 않는다.",
+      "business_evidence": "전고체 배터리용 고분자 전해질 국책과제 참여(연구개발 단계).",
+      "verified": false,
+      "sources": []
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "company_name": "대주전자재료",
+      "ticker": "078600",
+      "reason_for_exclusion": "SOL ETF 상위 종목(12.5%)이지만 편입 사유는 실리콘음극재(별개 Concept)로, 전고체 배터리와의 직접 사업 근거가 공식 자료에서 확인되지 않음."
+    },
+    {
+      "company_name": "레이크머티리얼즈",
+      "ticker": "281740",
+      "reason_for_exclusion": "황화리튬 사업 진출 보도는 있으나 공식 자료(공시·IR)에서 사업 관계를 확인하지 못함 — Unverified."
+    }
+  ],
+  "summary": {
+    "core_stock_count": 2,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 4,
+    "weak_stock_count": 2,
+    "unverified_stock_count": 1,
+    "recommended_backtest_universe": ["006400", "457190"]
+  },
+  "researched_at": "2026-07-25"
+}

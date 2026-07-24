@@ -1,0 +1,80 @@
+{
+  "concept": {
+    "id": "carbon-credit",
+    "canonical_name": "탄소배출권",
+    "canonical_name_en": "Carbon Credit",
+    "abbreviation": "",
+    "aliases": ["배출권", "탄소 배출권", "탄소크레딧", "온실가스 배출권"],
+    "definition": "온실가스를 배출할 수 있는 권리를 증권화한 것. 규제 시장(국가 할당 배출권)과 자발적 시장(감축 사업으로 창출한 크레딧)에서 거래된다.",
+    "investment_context": "온실가스 감축 사업(쿡스토브 보급·메탄 누출 방지·조림 등)으로 배출권을 창출해 판매하는 기업의 매출과 직접 연결된다. 배출권 가격은 각국 규제 강도에 좌우된다.",
+    "industry": [],
+    "related_keywords": ["온실가스 감축", "자발적 탄소시장", "CDM", "유럽할당배출권", "EU ETS", "K-ETS"],
+    "sources": [
+      {
+        "source_name": "KIND(한국거래소 상장공시)",
+        "document_title": "[에코아이] 사업보고서(일반법인)",
+        "document_type": "annual_report",
+        "url": "https://kind.krx.co.kr/common/disclsviewer.do?method=search&acptno=20240321000668",
+        "evidence": "온실가스 감축 투자사업을 통한 배출권 판매 주력",
+        "retrieved_at": "2026-07-25"
+      }
+    ]
+  },
+  "related_etfs": [],
+  "etf_note": "국내 상장 탄소배출권 추종 상품은 주로 ETN이거나 해외 선물형으로 etf-master.json 정본에 없음 — related_etf 미연결. '탄소효율그린뉴딜' ETF는 광범위 ESG 지수로 배출권 개념과 직접 관련 없음(연결 금지).",
+  "stocks": [
+    {
+      "company_name": "에코아이",
+      "ticker": "448280",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 95,
+      "reason": "온실가스 감축 투자사업으로 탄소배출권을 창출·판매하는 것이 회사의 주력 사업 그 자체다('탄소배출권 1호' 코스닥 상장, 2023). 사업보고서(KIND)에서 직접 확인된다.",
+      "business_evidence": "고효율 쿡스토브 보급·PNG 메탄가스 누출방지·맹그로브 조림 등 감축 사업으로 배출권 창출·판매. 2025년 3분기 누적 매출 222억원(+65.7% YoY). 유럽에너지거래소 트레이딩 멤버십으로 유럽할당배출권 거래 확장.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "KIND(한국거래소 상장공시)",
+          "document_title": "[에코아이] 사업보고서(일반법인)",
+          "document_type": "annual_report",
+          "url": "https://kind.krx.co.kr/common/disclsviewer.do?method=search&acptno=20240321000668",
+          "published_at": "2024-03-21",
+          "evidence": "배출권 판매 주력·환경컨설팅 사업 영위"
+        },
+        {
+          "source_name": "FnGuide",
+          "document_title": "에코아이(A448280) Snapshot",
+          "document_type": "data_provider",
+          "url": "https://comp.fnguide.com/SVO2/ASP/SVD_Main.asp?pGB=1&gicode=A448280",
+          "evidence": "온실가스 감축 전문기업, 배출권 판매·환경컨설팅"
+        },
+        {
+          "source_name": "언론 보도",
+          "document_title": "탄소배출권 1호 '에코아이' 코스닥 상장",
+          "document_type": "news",
+          "url": "https://www.newswell.co.kr/news/articleView.html?idxno=9029",
+          "evidence": "탄소배출권 사업 기업 최초 코스닥 상장"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "company_name": "후성",
+      "ticker": "093370",
+      "reason_for_exclusion": "과거 CDM(온실가스 감축) 사업 이력이 알려져 있으나 현재 배출권 관련 매출의 공식 근거를 확인하지 못함 — 과거 사업의 현재화 금지 원칙."
+    }
+  ],
+  "summary": {
+    "core_stock_count": 1,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 1,
+    "recommended_backtest_universe": ["448280"]
+  },
+  "notes": "개념 자체가 특정 산업 소속이 아니라(에코아이 정본 섹터=기타 서비스) 시드에 part_of 섹터 엣지를 두지 않는다 — 데이터센터와 같은 무소속 개념 관례.",
+  "researched_at": "2026-07-25"
+}

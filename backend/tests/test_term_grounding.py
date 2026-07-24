@@ -272,3 +272,156 @@ def test_no_search_credentials_returns_base_only(tmp_path, monkeypatch):
     # search_fn 미주입 + 자격증명 없음 → 검색 단계 진입 없이 None(용어 추출 LLM도 안 부른다)
     assert resolve_sector("폐배터리 전략", chat, lexicon_path=tmp_path / "lex.json") is None
     assert chat.calls == 0
+
+
+def test_learn_sector_term_grounds_unknown_theme_for_parse_path(tmp_path, monkeypatch):
+    """파싱 경로 사전 학습(FR-STR-069) — '마운자로 관련주'가 검색 없이 미지원 처리되던 사고 재현.
+
+    어휘 밖 테마+업종 큐면 검색 그라운딩으로 학습하고, 학습 후에는 파싱의 결정적 섹터
+    추출(_extract_sector→지식그래프)이 같은 문장을 그대로 해석해야 한다."""
+    import engine.knowledge_graph as kg
+    from engine.term_grounding import learn_sector_term
+
+    lexicon = tmp_path / "lex.json"
+    # 읽기 경로 통합: _extract_sector는 그래프 단일 경로(스캔 인덱스에 학습 노드 포함)
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+    chat = _ChatStub("마운자로", {"definition": "당뇨·비만 치료제", "sector": "바이오/제약"})
+    search = _SearchStub([
+        {"title": "마운자로", "description": "일라이 릴리가 개발한 당뇨·비만 치료제",
+         "link": "https://example.com/mounjaro"},
+    ])
+    got = learn_sector_term(
+        "마운자로 관련주 전략을 만들어보자", chat, search_fn=search, lexicon_path=lexicon
+    )
+    assert got == "바이오/제약"
+    assert search.calls == 1
+    saved = json.loads(lexicon.read_text(encoding="utf-8"))
+    assert saved["마운자로"]["sector"] == "바이오/제약"
+
+    # 학습 후: 결정적 추출이 지식그래프(어휘집 합성)로 같은 문장을 즉시 해석한다
+    from engine.nl_parser import _extract_sector, mentions_unresolved_sector
+    assert _extract_sector("마운자로 관련주 전략을 만들어보자") == "바이오/제약"
+    # 해석되므로 게이트도 닫힌다 — 같은 용어를 다시 학습(검색)하지 않는다
+    assert mentions_unresolved_sector("마운자로 관련주 전략을 만들어보자") is False
+    monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
+
+
+def test_learn_sector_term_gate_skips_known_vocab_and_cueless(tmp_path):
+    """게이트: 지원 어휘(반도체)나 업종 큐 없는 입력은 검색·LLM에 진입하지 않는다."""
+    from engine.term_grounding import learn_sector_term
+
+    chat = _ChatStub(None, None)
+    search = _SearchStub(_SNIPPETS)
+    lexicon = tmp_path / "lex.json"
+    assert learn_sector_term("반도체 관련주 전략 만들어줘", chat,
+                             search_fn=search, lexicon_path=lexicon) is None
+    assert learn_sector_term("PER 10 이하면 매수하는 전략", chat,
+                             search_fn=search, lexicon_path=lexicon) is None
+    assert search.calls == 0
+    assert chat.calls == 0
+
+
+# ─── 관련 기업 엣지 학습 + 테마 유니버스 되묻기(FR-STR-071) ────────────────────────
+
+def test_company_edges_learned_from_snippets_with_first_known_date(tmp_path, monkeypatch):
+    """스니펫에 함께 언급된 상장사가 related_company 엣지로 학습된다(결정적, LLM 무관여).
+
+    출처 2건 교차지지 → verified, 1건 → pending. first_known_date는 뉴스 보도일 최솟값."""
+    import engine.knowledge_graph as kg
+
+    lexicon = tmp_path / "lex.json"
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
+    monkeypatch.setattr(kg, "_CACHED", None)
+    snippets = [
+        {"title": "위고비 국내 시장 동향", "description": "삼성전자, 카카오 언급 기사",
+         "link": "https://a.com/1", "date": "2024-03-05"},
+        {"title": "위고비 산업 분석", "description": "삼성전자 협력 현황",
+         "link": "https://b.com/2", "date": None},
+    ]
+    chat = _ChatStub("위고비", {"definition": "주사형 비만 치료제", "sector": "바이오/제약"})
+    got = resolve_sector("위고비 관련주 전략을 만들어줘", chat,
+                         search_fn=_SearchStub(snippets), lexicon_path=lexicon)
+    assert got == "바이오/제약"
+
+    saved = json.loads(lexicon.read_text(encoding="utf-8"))["위고비"]
+    by_target = {e["target"]: e for e in saved["edges"] if e["type"] == "related_company"}
+    assert by_target["company:005930"]["status"] == "verified"
+    assert by_target["company:005930"]["support"] == 2
+    assert by_target["company:005930"]["first_known_date"] == "2024-03-05"
+    assert by_target["company:005930"]["target_name"] == "삼성전자"
+    assert by_target["company:035720"]["status"] == "pending"
+
+    # 검증(verified) 기업만 테마 유니버스 후보로 나온다 — pending은 콘솔 검토 대기.
+    # 읽기 경로 통합: 조회는 그래프 단일 경로(어휘집 별도 스캔 없음).
+    from engine.knowledge_graph import theme_listed_companies
+    theme = theme_listed_companies("위고비 관련해서 백테스트")
+    assert theme is not None
+    assert theme["term"] == "위고비"
+    assert [c["symbol"] for c in theme["companies"]] == ["005930"]
+    assert theme["first_known_date"] == "2024-03-05"
+    monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
+
+
+def test_theme_universe_clarification_chip_roundtrip(tmp_path, monkeypatch):
+    """테마 관련 상장사 되묻기(FR-STR-071) — 질문·칩 구성과 칩 왕복 재해석 계약.
+
+    종목 칩은 '종목 전체를 함께'(모호성 되묻기 억제)+'YYYY년부터'(시점 편향 가드)를
+    포함해야 하고, 지정 종목·시작일로 결정적으로 재해석돼야 한다."""
+    import engine.knowledge_graph as kg
+
+    lexicon = tmp_path / "lex.json"
+    lexicon.write_text(json.dumps({
+        "위고비": {
+            "term": "위고비", "definition": "주사형 비만 치료제", "sector": "바이오/제약",
+            "sources": [], "searched_at": "2026-07-25T00:00:00+00:00",
+            "edges": [
+                {"type": "related_company", "target": "company:005930", "target_name": "삼성전자",
+                 "support": 2, "status": "verified", "evidence": [], "first_known_date": "2024-03-05"},
+                {"type": "related_company", "target": "company:035720", "target_name": "카카오",
+                 "support": 2, "status": "verified", "evidence": [], "first_known_date": None},
+                {"type": "related_company", "target": "company:000660", "target_name": "SK하이닉스",
+                 "support": 1, "status": "pending", "evidence": [], "first_known_date": None},
+            ],
+        }
+    }, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+    from engine.nl_parser import (
+        ParsedStrategy,
+        _extract_backtest_dates,
+        _extract_target_symbols,
+        detect_symbol_ambiguity,
+        detect_theme_universe_clarification,
+    )
+
+    parsed = ParsedStrategy.model_validate({
+        "description": "위고비 관련주 전략", "universe": ["KOSPI", "KOSDAQ"],
+        "sector": "바이오/제약",
+    })
+    question, chips = detect_theme_universe_clarification(parsed, "위고비 관련주 전략을 만들어보자")
+    assert question is not None and "2024-03-05" in question  # 시점 편향 경고 포함
+    assert chips is not None and len(chips) == 2
+    assert "삼성전자, 카카오" in chips[0] and "2024년부터" in chips[0]
+    assert "SK하이닉스" not in chips[0]  # pending 제외
+    assert "바이오/제약 업종 전체로" in chips[1]
+
+    # 칩 왕복 ①: 종목 칩 → 지정 종목 + 명시적 시작일로 결정적 재해석
+    refs = _extract_target_symbols(chips[0])
+    assert refs is not None and {r.symbol for r in refs} == {"005930", "035720"}
+    start, end = _extract_backtest_dates(chips[0])
+    assert start == "2024-01-01" and end is None
+
+    # 칩 왕복 ②: '전체를 함께' 집합 의도 발화는 다종목 모호성 되묻기를 억제
+    multi = parsed.model_copy(update={"target_symbols": ["005930", "035720"]})
+    assert detect_symbol_ambiguity(multi, chips[0]) == (None, None)
+    # 집합 의도 없는 다종목 발화는 기존대로 되묻는다(FR-STR-068 계약 유지)
+    q_ambig, _ = detect_symbol_ambiguity(multi, "삼성전자 카카오 백테스트")
+    assert q_ambig is not None
+
+    # 게이트: 테마 큐 없는 발화·이미 종목이 지정된 경우엔 침묵
+    assert detect_theme_universe_clarification(parsed, "PER 10 이하 매수") == (None, None)
+    assert detect_theme_universe_clarification(multi, "위고비 관련주") == (None, None)
+    monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록

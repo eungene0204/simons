@@ -1,0 +1,127 @@
+{
+  "concept": {
+    "id": "cxl",
+    "canonical_name": "CXL",
+    "canonical_name_en": "Compute Express Link",
+    "abbreviation": "CXL",
+    "aliases": ["씨엑스엘", "CXL 메모리", "CMM"],
+    "definition": "PCIe 기반으로 CPU·메모리·가속기 간 고속 연결과 메모리 풀링을 가능하게 하는 인터커넥트 표준. 이를 적용한 메모리 모듈(CMM)이 서버 메모리 확장에 쓰인다.",
+    "investment_context": "'포스트 HBM'으로 불리는 서버 메모리 확장 기술. 메모리 제조사의 CMM 양산과 전용 검사장비 기업의 사업으로 이어진다. 2026년 양산 초입 단계다.",
+    "industry": ["반도체"],
+    "related_keywords": ["CMM-DDR5", "메모리 풀링", "PCIe", "포스트 HBM", "D램 모듈"],
+    "sources": [
+      {
+        "source_name": "디일렉",
+        "document_title": "삼성전자, 4분기 '포스트 HBM' CXL 3.1 양산 추진",
+        "document_type": "news",
+        "url": "https://www.thelec.kr/news/articleView.html?idxno=56445",
+        "evidence": "CXL은 PCIe 기반 CPU-메모리-GPU 고속 인터커넥트 기술",
+        "retrieved_at": "2026-07-25"
+      }
+    ]
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "삼성전자",
+      "ticker": "005930",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 72,
+      "reason": "CXL 2.0 지원 128GB CXL D램을 개발했고 CXL 3.1 양산을 추진 중이다. 직접 개발·양산 관계는 확인되나 회사 전체 매출에서 CXL 비중은 아직 미미하다.",
+      "business_evidence": "CXL 2.0 128GB D램 개발, 2026년 4분기 CXL 3.1 양산 추진.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "디일렉",
+          "document_title": "삼성전자, 4분기 CXL 3.1 양산 추진",
+          "document_type": "news",
+          "url": "https://www.thelec.kr/news/articleView.html?idxno=56445",
+          "evidence": "CXL 2.0 128GB D램 개발·CXL 3.1 양산 추진"
+        }
+      ]
+    },
+    {
+      "company_name": "SK하이닉스",
+      "ticker": "000660",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 72,
+      "reason": "CXL 메모리 모듈 CMM-DDR5의 양산에 돌입한다. 직접 생산 관계가 확인되나 회사 전체에서 비중은 아직 작다.",
+      "business_evidence": "2026년 1분기 말 CMM-DDR5 양산 돌입.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "아시아경제",
+          "document_title": "삼성·SK CXL 양산 임박",
+          "document_type": "news",
+          "url": "https://view.asiae.co.kr/article/2025021410494526515",
+          "evidence": "SK하이닉스 1분기 말 CMM-DDR5 양산 돌입"
+        }
+      ]
+    },
+    {
+      "company_name": "네오셈",
+      "ticker": "253590",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Supplier",
+      "relevance": "Strong",
+      "relevance_score": 75,
+      "reason": "세계 최초로 CXL 1.0·2.0 검사장비를 상용화해 삼성전자에 납품을 시작했고 3.1 검사장비를 개발 중 — 핵심 장비의 직접 공급 관계가 확인된다.",
+      "business_evidence": "CXL 2.0 메모리 양산용 검사장비 세계 최초 초도 출하, 삼성전자 납품 시작, CXL 3.1 검사장비 개발.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "디일렉",
+          "document_title": "네오셈, CXL 2.0 양산용 검사장비 초도 출하(세계 최초)",
+          "document_type": "news",
+          "url": "http://www.thelec.kr/news/articleView.html?idxno=28902",
+          "evidence": "CXL 2.0 양산용 검사장비 세계 최초 출하"
+        },
+        {
+          "source_name": "딜사이트",
+          "document_title": "삼성전자도 넘보는 'CXL' — 네오셈",
+          "document_type": "news",
+          "url": "https://dealsite.co.kr/articles/114760",
+          "evidence": "삼성전자에 CXL 2.0 검사장비 납품 시작, CXL 매출 본격화 전망"
+        }
+      ]
+    },
+    {
+      "company_name": "오킨스전자",
+      "ticker": "080580",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Supplier",
+      "relevance": "Moderate",
+      "relevance_score": 50,
+      "reason": "번인 소켓 전문기업으로 삼성전자 CXL 양산용 검사장비 반입이 보도됐으나 계약·매출의 공식 확인이 부족하다.",
+      "business_evidence": "삼성전자 CXL 양산용 검사장비 반입 보도.",
+      "verified": false,
+      "sources": [
+        {
+          "source_name": "언론 보도",
+          "document_title": "오킨스전자, 삼성전자 CXL 양산용 검사장비 반입",
+          "document_type": "news",
+          "url": "https://www.thebigdata.co.kr/view.php?ud=202407040432032883cd1e7f0bdf_23",
+          "evidence": "CXL 양산용 검사장비 반입 보도(테마성)"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [],
+  "summary": {
+    "core_stock_count": 0,
+    "strong_stock_count": 3,
+    "moderate_stock_count": 1,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 1,
+    "recommended_backtest_universe": ["005930", "000660", "253590"]
+  },
+  "researched_at": "2026-07-25"
+}

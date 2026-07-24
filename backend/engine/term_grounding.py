@@ -37,7 +37,10 @@ _LEXICON_LOCK = threading.Lock()
 # NAVER_CLIENT_SECRET이 각각 Key ID/Key에 매핑된다.
 _NAVER_ENDPOINT = "https://naverapihub.apigw.ntruss.com/search/v1/{kind}"
 _SEARCH_TIMEOUT_S = 5
-_MAX_SNIPPETS = 6
+# 뉴스는 8건 — 관련 기업 엣지의 verified 승격(서로 다른 출처 2건 교차지지)이 가능하려면
+# 같은 기업이 복수 기사에 등장할 표본이 필요하다(4건에선 전부 pending로 끝나는 실측).
+_MAX_SNIPPETS = 16
+_NEWS_DISPLAY = 8
 
 # chat은 기존 공유 파서 관례와 동일: (system_prompt, user_msg, *, max_tokens) -> str
 ChatFn = Callable[..., str]
@@ -59,8 +62,20 @@ def _strip_tags(text: str) -> str:
     return _TAG_RE.sub("", text or "").replace("&quot;", '"').replace("&amp;", "&").strip()
 
 
+def _pub_date_to_iso(pub_date: str) -> Optional[str]:
+    """뉴스 pubDate(RFC 2822: 'Mon, 07 Jul 2025 10:30:00 +0900') → ISO 날짜 | None."""
+    try:
+        from email.utils import parsedate_to_datetime
+        return parsedate_to_datetime(pub_date).date().isoformat()
+    except (TypeError, ValueError):
+        return None
+
+
 def _naver_search_one(query: str, kind: str, display: int = 4) -> Optional[list[dict]]:
-    """네이버 오픈API 검색 1회 → [{title, description, link}] | None(호출 실패)."""
+    """네이버 오픈API 검색 1회 → [{title, description, link, date?}] | None(호출 실패).
+
+    date는 뉴스(kind=news)의 보도일(ISO) — 관련 기업 엣지의 first_known_date 근거
+    (시점 편향 가드). 백과사전·웹문서엔 날짜가 없어 None."""
     url = _NAVER_ENDPOINT.format(kind=kind) + "?" + urllib.parse.urlencode(
         {"query": query, "display": display, "format": "json"}
     )
@@ -79,20 +94,25 @@ def _naver_search_one(query: str, kind: str, display: int = 4) -> Optional[list[
             "title": _strip_tags(item.get("title", "")),
             "description": _strip_tags(item.get("description", ""))[:200],
             "link": item.get("link", ""),
+            "date": _pub_date_to_iso(item["pubDate"]) if item.get("pubDate") else None,
         }
         for item in data.get("items", [])
     ]
 
 
 def _default_search(term: str) -> Optional[list[dict]]:
-    """백과사전(정의) + 웹문서(산업 문맥) 2쿼리. 둘 다 실패하면 None(캐시 금지 신호)."""
+    """백과사전(정의) + 뉴스('관련주' 동반 언급 기업) + 웹문서(산업 문맥) 3쿼리.
+
+    전부 실패하면 None(캐시 금지 신호). 뉴스 쿼리는 테마와 함께 언급되는 상장사를
+    수집하는 용도(FR-STR-071 — 관련 기업 엣지 학습의 원천 데이터)."""
     if not search_available():
         return None
     encyc = _naver_search_one(term, "encyc")
+    news = _naver_search_one(f"{term} 관련주", "news", display=_NEWS_DISPLAY)
     web = _naver_search_one(f"{term} 산업", "webkr")
-    if encyc is None and web is None:
+    if encyc is None and news is None and web is None:
         return None
-    return ((encyc or []) + (web or []))[:_MAX_SNIPPETS]
+    return ((encyc or []) + (news or []) + (web or []))[:_MAX_SNIPPETS]
 
 
 # ─── 어휘집(검색 결과 영속 캐시) ─────────────────────────────────────────────────
@@ -265,6 +285,58 @@ def resolve_sector(
     return entry.get("sector") if entry is not None else None
 
 
+def learn_sector_term(
+    text: str,
+    chat: ChatFn,
+    search_fn: Optional[SearchFn] = None,
+    lexicon_path: Optional[Path] = None,
+    on_search: Optional[Callable[[], None]] = None,
+) -> Optional[str]:
+    """파싱 경로 사전 학습(FR-STR-069) — 어휘 밖 업종/테마 언급을 검색 그라운딩으로 학습한다.
+
+    게이트: 업종/테마 큐('관련주' 등)는 있는데 결정적 추출(_extract_sector — 정규식·
+    지식그래프)이 실패한 입력만('마운자로 관련주' 등). 학습 결과는 어휘집(원장)에
+    저장되고 지식그래프가 이를 합성·스캔하므로(읽기 경로 통합), 이후 파싱의 규칙·
+    LLM 폴백 보정·인터프리터 오버라이드·수정 전 경로에서 결정적으로 해석된다.
+    이미 매핑 불가로 학습된 용어는 resolve_sector의 재검색 금지 계약이 그대로 적용된다.
+    반환: 이번에 해석된 정본 섹터 | None."""
+    from engine.nl_parser import mentions_unresolved_sector  # 지연 import(무거운 모듈)
+
+    if not mentions_unresolved_sector(text):
+        return None
+    return resolve_sector(
+        text, chat, search_fn=search_fn, lexicon_path=lexicon_path, on_search=on_search
+    )
+
+
+# lexicon_entry는 파싱 핫패스(nl_parser._extract_sector 폴백)에서 불리므로 mtime 캐시로
+# 파일 재파싱을 막는다(지식그래프 get_graph와 같은 관례).
+_LEXICON_READ_CACHE: dict[str, tuple[float, dict]] = {}
+
+
+def _load_lexicon_cached(path: Path) -> dict:
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return {}
+    key = str(path)
+    cached = _LEXICON_READ_CACHE.get(key)
+    if cached is not None and cached[0] == mtime:
+        return cached[1]
+    lexicon = _load_lexicon(path)
+    _LEXICON_READ_CACHE[key] = (mtime, lexicon)
+    return lexicon
+
+
+def lexicon_entry(text: str, lexicon_path: Optional[Path] = None) -> Optional[dict]:
+    """문장에서 학습된 어휘집 항목(term/definition/sector)을 결정적으로 찾는다(없으면 None)."""
+    return _scan_lexicon(text, _load_lexicon_cached(lexicon_path or _LEXICON_PATH))
+
+
+# 테마 관련 상장사 조회(theme_listed_companies)는 knowledge_graph로 이동(2026-07-25 읽기
+# 경로 통합) — 학습 용어가 그래프 스캔 인덱스에 포함돼 어휘집 별도 스캔이 불필요해졌다.
+
+
 # 학습 엣지에 허용하는 관계 유형 — 객관적 관계만(추천·전망·우열 관계 금지, 규제 안전).
 # knowledge_graph.EDGE_TYPES의 부분집합이어야 한다(로더 합성 시 재검증).
 _LEARNED_EDGE_TYPES = (
@@ -341,6 +413,46 @@ def _propose_edges(
     return edges
 
 
+def _propose_company_edges(term: str, snippets: list[dict]) -> list[dict]:
+    """검색 스니펫에 함께 언급된 국내 상장사를 related_company 후보 엣지로 학습한다(FR-STR-071).
+
+    LLM 없이 정본 종목 마스터 매칭(symbol_resolver.find_in_text)만 쓴다 — '출처에 함께
+    언급됨'은 관계 유형 판단이 필요 없는 객관적 사실이라 개념 엣지(_propose_edges)와 달리
+    결정적으로 수집한다(환각 원천 차단). 신뢰도는 동일하게 출처 수 기반(≥2 자동 verified /
+    1개 pending — 콘솔 검토). first_known_date는 그 기업이 언급된 뉴스 보도일 최솟값(ISO,
+    뉴스 아닌 출처뿐이면 None) — 테마 멤버십의 시점 편향 가드 근거."""
+    try:
+        from stock_analysis.symbol_resolver import find_in_text
+    except Exception:  # noqa: BLE001 — 종목 마스터 미가용이 학습을 막으면 안 된다
+        return []
+    support: dict[str, set[str]] = {}
+    names: dict[str, str] = {}
+    first_dates: dict[str, str] = {}
+    for s in snippets:
+        text = f"{s.get('title', '')} {s.get('description', '')}"
+        for ref in find_in_text(text):
+            if ref.overseas:
+                continue
+            support.setdefault(ref.symbol, set()).add(s.get("link") or s.get("title", ""))
+            names[ref.symbol] = ref.name
+            date = s.get("date")
+            if date and (ref.symbol not in first_dates or date < first_dates[ref.symbol]):
+                first_dates[ref.symbol] = date
+    edges: list[dict] = []
+    for symbol in sorted(support):
+        links = sorted(support[symbol])
+        edges.append({
+            "type": "related_company",
+            "target": f"company:{symbol}",
+            "target_name": names[symbol],
+            "support": len(links),
+            "status": "verified" if len(links) >= _EDGE_AUTO_VERIFY_SOURCES else "pending",
+            "evidence": links[:3],
+            "first_known_date": first_dates.get(symbol),
+        })
+    return edges
+
+
 def _ground_and_learn(
     term: str, chat: ChatFn, fn: SearchFn, path: Path
 ) -> Optional[dict]:
@@ -353,6 +465,7 @@ def _ground_and_learn(
         return None
     definition, sector = (None, None) if not snippets else _ground(term, snippets, chat)
     edges = _propose_edges(term, definition, snippets, chat) if snippets else []
+    edges += _propose_company_edges(term, snippets) if snippets else []
     entry = {
         "term": term,
         "definition": definition,

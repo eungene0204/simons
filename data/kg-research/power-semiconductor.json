@@ -1,0 +1,112 @@
+{
+  "concept": {
+    "id": "power-semiconductor",
+    "canonical_name": "전력반도체",
+    "canonical_name_en": "Power Semiconductor",
+    "abbreviation": "",
+    "aliases": ["전력 반도체", "SiC", "GaN", "화합물 전력반도체", "SiC 반도체", "GaN 반도체"],
+    "definition": "전력의 변환·제어(정류·증폭·스위칭)를 담당하는 반도체. 실리콘 기반과 차세대 화합물(SiC 탄화규소·GaN 질화갈륨) 기반으로 나뉜다.",
+    "investment_context": "전기차·신재생·데이터센터 전원장치 수요와 연결된다. 국내에서는 전력반도체 파운드리(위탁생산), 소자 제조사, SiC 소자 개발 자회사를 둔 기업의 사업으로 이어진다. SiC/GaN은 대부분 개발~초기 양산 단계다.",
+    "industry": ["반도체"],
+    "related_keywords": ["탄화규소", "질화갈륨", "IGBT", "MOSFET", "8인치 파운드리", "전계모드 HEMT"],
+    "sources": [
+      {
+        "source_name": "시사저널e",
+        "document_title": "DB하이텍, 전력반도체 매출 비중 70% 안착",
+        "document_type": "news",
+        "url": "https://www.sisajournal-e.com/news/articleView.html?idxno=420976",
+        "evidence": "전력반도체는 전력 변환·제어 반도체로 DB하이텍 파운드리 매출의 70% 차지",
+        "retrieved_at": "2026-07-25"
+      }
+    ]
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "DB하이텍",
+      "ticker": "000990",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 89,
+      "reason": "전력반도체 파운드리가 주력 사업으로 전체 매출 비중 70%에 안착했다. 차세대 SiC/GaN 공정도 개발 완료 후 시험 생산 중(초도 양산은 지연).",
+      "business_evidence": "전력반도체 매출 비중 70%. 2024-09 650V 전계모드 GaN HEMT 공정 개발 완료, 2024-10부터 고객사 시험 생산용 웨이퍼 제공. GaN·SiC 초도 물량 생산은 2026년 1분기로 조정.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "시사저널e",
+          "document_title": "DB하이텍, 전력반도체 매출 비중 70% 안착 — GaN·SiC 양산은 지연",
+          "document_type": "news",
+          "url": "https://www.sisajournal-e.com/news/articleView.html?idxno=420976",
+          "evidence": "전력반도체 매출 비중 70%, GaN 공정 개발 완료·시험 생산, 초도 양산 일정"
+        },
+        {
+          "source_name": "DB하이텍 공식 홈페이지",
+          "document_title": "DB HiTek 사업 소개",
+          "document_type": "company_official",
+          "url": "https://dbhitek.com/kr/",
+          "evidence": "전력반도체 특화 파운드리·SiC/GaN 기술 공식 소개"
+        }
+      ]
+    },
+    {
+      "company_name": "KEC",
+      "ticker": "092220",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 73,
+      "reason": "전력반도체 소자(트랜지스터 등)가 본업인 제조사로 GaN·SiC 기반 전력 소자 상용화를 추진 중이다. SiC/GaN 매출 규모의 공식 확인이 부족해 Core 승격은 보류한다.",
+      "business_evidence": "GaN·SiC 기반 전력 소자 상용화 추진, 기존 전력반도체 소자 제조·판매.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "언론 보도",
+          "document_title": "전력반도체 산업 동향",
+          "document_type": "news",
+          "url": "https://www.sisajournal-e.com/news/articleView.html?idxno=420976",
+          "evidence": "KEC, GaN·SiC 기반 전력 소자 상용화 추진"
+        }
+      ]
+    },
+    {
+      "company_name": "아이에이",
+      "ticker": "038880",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 68,
+      "reason": "자회사 트리노테크놀로지가 SiC 전력반도체를 개발해 중국 시장에 납품 중이고, 중국 장가항 시정부와 전력반도체 개발·생산 합자법인을 설립해 공동 사업을 진행한다.",
+      "business_evidence": "자회사 트리노테크놀로지 SiC 전력반도체 중국 납품, 장가항 합자법인 공동 사업.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "언론 보도",
+          "document_title": "전력반도체 관련 기업 동향",
+          "document_type": "news",
+          "url": "https://www.sisajournal-e.com/news/articleView.html?idxno=420976",
+          "evidence": "아이에이 자회사 트리노테크놀로지 SiC 기술 개발·중국 납품, 합자법인 설립"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "company_name": "LX세미콘",
+      "ticker": "108320",
+      "reason_for_exclusion": "주력은 디스플레이 구동칩(DDI)이며 SiC 방열기판 등은 연구 단계 — 전력반도체 직접 사업의 공식 근거 미확보."
+    }
+  ],
+  "summary": {
+    "core_stock_count": 1,
+    "strong_stock_count": 2,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 1,
+    "recommended_backtest_universe": ["000990", "092220", "038880"]
+  },
+  "researched_at": "2026-07-25"
+}

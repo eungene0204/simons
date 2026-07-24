@@ -2224,8 +2224,9 @@ function StrategyLabContent() {
         if (evt.type === "skeleton") {
           // 구조 분석 스켈레톤은 표시하지 않는다 — 파싱이 끝날 때까지 단계 문구만 노출한다.
         } else if (evt.type === "stage") {
-          // 백엔드 진행 단계: 'parsing'(규칙 파싱) → 'thinking'(LLM 처리) → 'validating'(LLM 검증).
-          if (evt.stage === "parsing" || evt.stage === "thinking" || evt.stage === "validating") {
+          // 백엔드 진행 단계: 'parsing'(규칙 파싱) → 'searching'(용어 그라운딩 인터넷 검색)
+          // → 'thinking'(LLM 처리) → 'validating'(LLM 검증).
+          if (evt.stage === "parsing" || evt.stage === "searching" || evt.stage === "thinking" || evt.stage === "validating") {
             updateLastAssistant({ isLoading: true, loadingStage: evt.stage });
           }
         } else if (evt.type === "parsed_final") {

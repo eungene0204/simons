@@ -1,0 +1,144 @@
+{
+  "concept": {
+    "id": "satellite",
+    "canonical_name": "인공위성",
+    "canonical_name_en": "Satellite",
+    "abbreviation": "",
+    "aliases": ["인공 위성", "위성통신", "지구관측 위성", "저궤도 위성"],
+    "alias_note": "'위성' 단독 표현은 섹터 어휘(normalize_sector→우주항공/방산)가 이미 해석하므로 시드 동의어에 넣어도 스캔에서 자동 제외됨 — 편입하지 않음(가드 ②)",
+    "definition": "지구 궤도에서 관측·통신·항법 등을 수행하는 우주 비행체. 위성 본체 제조, 탑재체, 위성통신 단말·안테나, 지상국·영상 서비스로 밸류체인이 구성된다.",
+    "investment_context": "국내에서는 위성 본체·광학 탑재체를 직접 제조하는 기업, 위성통신 안테나·단말 기업의 수출 매출과 연결된다. 발사체(별개 Concept)와 함께 우주산업 양대 축이다.",
+    "industry": ["우주항공/방산"],
+    "related_keywords": ["지구관측", "SpaceEye-T", "위성 안테나", "저궤도 통신", "지상국"],
+    "sources": [
+      {
+        "source_name": "쎄트렉아이 공식 홈페이지",
+        "document_title": "SATREC INITIATIVE 사업 소개",
+        "document_type": "company_official",
+        "url": "https://www.satreci.com/kr/",
+        "evidence": "지구관측 위성 시스템 개발·제조 전문기업",
+        "retrieved_at": "2026-07-25"
+      }
+    ]
+  },
+  "related_etfs": [
+    {
+      "name": "SOL 우주항공밸류체인",
+      "ticker": "0207G0",
+      "country": "KR",
+      "issuer": "신한자산운용",
+      "theme_reason": "국내 우주항공 밸류체인 테마(etf-master.json 정본 등재 확인)",
+      "as_of_date": "2026-07-25",
+      "source_url": "https://www.soletf.com/"
+    }
+  ],
+  "stocks": [
+    {
+      "company_name": "쎄트렉아이",
+      "ticker": "099320",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 92,
+      "reason": "지구관측 위성 시스템 제조가 주력 사업 그 자체(연결 매출 2,069억)다. KAIST와 우주탐사사업 단일판매·공급계약(공시)을 체결했고, 자회사 SIIS가 자체 개발 초고해상도 위성(SpaceEye-T) 기반 수천만 달러 규모 해외 임대 서비스 계약을 따냈다.",
+      "business_evidence": "2026-07-23 KAIST와 단일판매·공급계약(계약금액 매출액 10% 이상, 2033년까지). SpaceEye-T(25cm급) 기반 해외 지구관측 서비스 수출.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "디지털투데이(공시 기반)",
+          "document_title": "쎄트렉아이, KAIST와 우주탐사사업 계약 체결",
+          "document_type": "news",
+          "url": "https://www.digitaltoday.co.kr/news/articleView.html?idxno=686762",
+          "published_at": "2026-07-23",
+          "evidence": "단일판매·공급계약 공시(매출액 10% 이상, ~2033)"
+        },
+        {
+          "source_name": "쎄트렉아이 공식 홈페이지",
+          "document_title": "SATREC INITIATIVE",
+          "document_type": "company_official",
+          "url": "https://www.satreci.com/kr/",
+          "evidence": "위성 시스템 개발·제조 전문기업 공식 소개"
+        }
+      ]
+    },
+    {
+      "company_name": "인텔리안테크",
+      "ticker": "189300",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 85,
+      "reason": "위성통신 안테나·터미널이 주력 사업으로 해상용 위성통신 안테나 세계 1위, 수출 비중 95%다. 정지·중·저궤도용 터미널과 게이트웨이 안테나를 전 세계 600여 고객사에 공급한다.",
+      "business_evidence": "해상용 위성통신 안테나 점유율 1위, 미 항공모함 위성 장비 납품, 전 세계 600여 고객사.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "인텔리안테크 공식 홈페이지",
+          "document_title": "글로벌 위성 안테나·터미널 기업",
+          "document_type": "company_official",
+          "url": "https://intelliantech.com/kr/about-intellian",
+          "evidence": "위성 안테나·터미널 세계 1위, 600여 고객사 공급"
+        },
+        {
+          "source_name": "뉴스1",
+          "document_title": "수출 비중 95% 인텔리안테크, 美 항공모함에 위성 장비 납품",
+          "document_type": "news",
+          "url": "https://www.news1.kr/industry/sb-founded/5429338",
+          "evidence": "미 해군 항공모함 위성 장비 납품, 수출 비중 95%"
+        }
+      ]
+    },
+    {
+      "company_name": "AP위성",
+      "ticker": "211270",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 72,
+      "reason": "위성통신 단말기(해외 수출)와 위성시스템(국내 대기업·정부 연구기관 수요) 두 사업부문이 모두 위성 산업 직접 사업이다. 세부 매출 비중의 공식 확인이 부족해 Core 승격은 보류한다.",
+      "business_evidence": "위성통신 단말기 사업부문(수요처 대부분 해외)+위성시스템 사업부문(국내 대기업·정부 연구기관).",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "언론 보도",
+          "document_title": "AP위성 사업 구조",
+          "document_type": "news",
+          "url": "https://stockstalker.co.kr/aerospace/",
+          "evidence": "위성통신 단말기·위성시스템 2개 사업부문"
+        }
+      ]
+    },
+    {
+      "company_name": "컨텍",
+      "ticker": "451760",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Infrastructure",
+      "relevance": "Moderate",
+      "relevance_score": 55,
+      "reason": "위성 지상국·데이터 수신 서비스 기업 — 위성 운용 기반시설을 제공하나 위성 자체를 제조하지 않는다.",
+      "business_evidence": "지상국 설계·구축·운용, 위성 데이터 수신 처리 서비스.",
+      "verified": true,
+      "sources": []
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "company_name": "한화시스템",
+      "ticker": "272210",
+      "reason_for_exclusion": "위성 통신·탑재체 사업이 알려져 있으나 이번 조사에서 공식 근거를 수집하지 못함 — 추가 조사 대상."
+    }
+  ],
+  "summary": {
+    "core_stock_count": 2,
+    "strong_stock_count": 1,
+    "moderate_stock_count": 1,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 1,
+    "recommended_backtest_universe": ["099320", "189300", "211270"]
+  },
+  "researched_at": "2026-07-25"
+}

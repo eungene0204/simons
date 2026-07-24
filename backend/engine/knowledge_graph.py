@@ -88,18 +88,23 @@ class KnowledgeGraph:
 
         normalize_sector가 이미 해석하는 용어(반도체·AI 등)는 제외한다 — 상류의
         결정적 섹터 인식과 이중 매칭돼 어긋나는 일을 막는다. 자동 생성 노드
-        (sector:/company:/etf:)와 학습 노드는 각자 기존 경로(섹터 정규화·종목 인식·
-        어휘집 스캔)가 담당하므로 스캔 대상이 아니다."""
+        (sector:/company:/etf:)는 각자 기존 경로(섹터 정규화·종목 인식)가 담당하므로
+        스캔 대상이 아니다. 학습 노드(learned:)는 포함한다 — 읽기 경로 통합(2026-07-25):
+        어휘집 별도 스캔 없이 그래프가 시드·학습 용어를 단일 경로로 인식한다. 같은
+        용어가 시드와 학습에 모두 있으면 시드가 이긴다(삽입 순서 — 큐레이션 우선)."""
         from engine.universe_pit import normalize_sector  # 지연 import(무거운 엔진 모듈)
 
         index: list[tuple[str, str]] = []
+        taken: dict[str, str] = {}
         for node_id, node in self.nodes.items():
-            if ":" in node_id or node.get("category") == "learned":
+            if node_id.startswith(("sector:", "company:", "etf:")):
                 continue
             for term in [node.get("name", "")] + list(node.get("synonyms", [])):
                 key = _norm_key(term)
                 if len(key) < 2 or normalize_sector(term):
                     continue
+                if taken.setdefault(key, node_id) != node_id:
+                    continue  # 먼저 등록된 노드(시드) 우선 — 비결정적 인식 방지
                 index.append((key, node_id))
         index.sort(key=lambda kv: -len(kv[0]))  # 긴 용어 우선(부분 문자열 가림 방지)
         return index
@@ -153,6 +158,26 @@ class KnowledgeGraph:
                     visited.add(target)
                     queue.append((target, depth + 1))
         return next(iter(found)) if len(found) == 1 else None
+
+    def listed_companies(self, node_id: str) -> list[dict]:
+        """개념에 직접(깊이 1) 연결된 상장사 이웃 — 테마 유니버스 후보(FR-STR-071).
+
+        학습 엣지가 실어온 출처 지지 수(support)·뉴스 최초 보도일(first_known_date)을
+        함께 돌려준다(시드 엣지엔 없음). 공급망 전체로 번지지 않도록 깊이 1만 본다."""
+        result: list[dict] = []
+        seen: set[str] = set()
+        for e in self._out.get(node_id, []) + self._in.get(node_id, []):
+            other = e["target"] if e["source"] == node_id else e["source"]
+            if not other.startswith("company:") or other in seen:
+                continue
+            seen.add(other)
+            result.append({
+                "symbol": other.split(":", 1)[1],
+                "name": self.nodes.get(other, {}).get("name", other),
+                "support": e.get("support", 1),
+                "first_known_date": e.get("first_known_date"),
+            })
+        return result
 
     def expand(self, node_id: str, max_depth: int = 2) -> dict:
         """개념 주변을 BFS로 펼쳐 sectors/companies/etfs/concepts 버킷으로 분류한다.
@@ -251,13 +276,18 @@ def _build() -> KnowledgeGraph:
         nodes[node_id] = {
             "id": node_id, "name": entry.get("term", key), "category": "learned",
             "description": entry.get("definition"),
+            # 테마 유니버스의 시점 편향 폴백(뉴스 보도일 없는 엣지뿐일 때) — FR-STR-071
+            "searched_at": entry.get("searched_at"),
         }
 
     stock_names = _stock_names()
     etf_names = _etf_names()
 
-    def resolve_endpoint(ref: str) -> bool:
-        """엣지 끝점을 검증하고, 정본 참조(company:/etf:)면 노드를 자동 생성한다."""
+    def resolve_endpoint(ref: str, report: bool = True) -> bool:
+        """엣지 끝점을 검증하고, 정본 참조(company:/etf:)면 노드를 자동 생성한다.
+
+        report=False(학습 엣지 경로): 정본에 없는 참조를 issues에 남기지 않는다 —
+        학습 데이터는 시드와 달리 무결성 단언 대상이 아니다."""
         if ref in nodes:
             return True
         if ref.startswith("company:"):
@@ -265,16 +295,19 @@ def _build() -> KnowledgeGraph:
             if symbol in stock_names:
                 nodes[ref] = {"id": ref, "name": stock_names[symbol], "category": "company"}
                 return True
-            issues.append(f"korea-stocks.json에 없는 종목 참조: {ref}")
+            if report:
+                issues.append(f"korea-stocks.json에 없는 종목 참조: {ref}")
             return False
         if ref.startswith("etf:"):
             symbol = ref.split(":", 1)[1]
             if symbol in etf_names:
                 nodes[ref] = {"id": ref, "name": etf_names[symbol], "category": "etf"}
                 return True
-            issues.append(f"etf-master.json에 없는 ETF 참조: {ref}")
+            if report:
+                issues.append(f"etf-master.json에 없는 ETF 참조: {ref}")
             return False
-        issues.append(f"존재하지 않는 노드 참조: {ref}")
+        if report:
+            issues.append(f"존재하지 않는 노드 참조: {ref}")
         return False
 
     edges: list[dict] = []
@@ -296,14 +329,31 @@ def _build() -> KnowledgeGraph:
             edges.append({"source": node_id, "type": "belongs_to", "target": f"sector:{sector}"})
         # 학습 관계 엣지(FR-STR-070b) — 자동(출처 교차지지)·수동 검증된 verified만 합성한다.
         # pending은 콘솔 검토 대기, rejected는 반려분. 타입·타깃은 로더에서 재검증(닫힌 세계).
+        # 정본 참조 타깃(company:/etf:, FR-STR-071 관련 기업 엣지)은 시드 엣지처럼 노드를
+        # 자동 생성하되, 정본에 없는 참조는 issues 없이 조용히 건너뛴다(학습 데이터는
+        # 시드와 달리 무결성 단언 대상이 아니다 — 상폐 이후 마스터에서 빠진 종목 등).
         for e in entry.get("edges", []):
             if (
-                isinstance(e, dict)
-                and e.get("status") == "verified"
-                and e.get("type") in EDGE_TYPES
-                and e.get("target") in nodes
+                not isinstance(e, dict)
+                or e.get("status") != "verified"
+                or e.get("type") not in EDGE_TYPES
             ):
-                edges.append({"source": node_id, "type": e["type"], "target": e["target"]})
+                continue
+            target = e.get("target")
+            if target not in nodes:
+                if not (
+                    isinstance(target, str)
+                    and target.startswith(("company:", "etf:"))
+                    and resolve_endpoint(target, report=False)
+                ):
+                    continue
+            edge = {"source": node_id, "type": e["type"], "target": target}
+            # 테마 유니버스 조회가 그래프 단일 경로로 동작하도록 학습 엣지의 출처 지지 수·
+            # 뉴스 최초 보도일을 함께 실어 나른다(FR-STR-071 읽기 경로 통합).
+            for extra in ("support", "first_known_date"):
+                if e.get(extra) is not None:
+                    edge[extra] = e[extra]
+            edges.append(edge)
 
     for issue in issues:
         logger.warning("지식그래프 검증: %s", issue)
@@ -337,6 +387,27 @@ def resolve_sector_from_text(text: str) -> Optional[str]:
         if (sector := graph.resolve_sector(node["id"])) is not None
     }
     return next(iter(sectors)) if len(sectors) == 1 else None
+
+
+def theme_listed_companies(text: str) -> Optional[dict]:
+    """문장 속 테마(시드 개념·검색 학습 용어 공통)의 직접 상장사 목록(FR-STR-071).
+
+    읽기 경로 통합(2026-07-25): 학습 용어도 스캔 인덱스에 포함되므로 어휘집 별도 스캔
+    없이 그래프 단일 경로로 인식·해석한다. verified 학습 엣지만 그래프에 합성되므로
+    결과는 자동으로 검증분이다(pending은 콘솔 승인 대기). first_known_date 대표값은
+    기업별 뉴스 최초 보도일 최솟값, 없으면 학습 노드의 searched_at(시드 개념은 None —
+    수동 큐레이션이라 시점 편향 경고 대상이 아니다)."""
+    graph = get_graph()
+    concepts = graph.find_concepts(text)
+    if not concepts:
+        return None
+    anchor = concepts[0]
+    companies = graph.listed_companies(anchor["id"])
+    if not companies:
+        return None
+    dates = sorted(c["first_known_date"] for c in companies if c["first_known_date"])
+    first = dates[0] if dates else ((anchor.get("searched_at") or "")[:10] or None)
+    return {"term": anchor.get("name"), "companies": companies, "first_known_date": first}
 
 
 def related_universe(text: str, max_depth: int = 2) -> Optional[dict]:
