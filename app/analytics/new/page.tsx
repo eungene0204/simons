@@ -92,6 +92,7 @@ import {
   getDisplayBuilderProgressItems,
   type BuilderProgressItem,
   type BuilderSummaryItem,
+  type BuilderTurnPresentation,
 } from "./builderProgressPresentation";
 import { applyDeterministicConditionChoice } from "./deterministicConditionFlow";
 import { buildStrategyRestatement } from "./strategyRestatement";
@@ -252,7 +253,7 @@ function getSingleAssetBuilderContext(
 }
 
 function withSingleAssetSummaryLabel(
-  presentation: NonNullable<ChatMessage["builderPresentation"]>,
+  presentation: BuilderTurnPresentation,
   parsed: ParsedSummary,
   backtestRequest: {
     target_stocks?: Array<{ symbol: string; name?: string }> | null;
@@ -1259,7 +1260,7 @@ function StrategyLabContent() {
         })
       : null;
 
-    if (!deterministicChoice) {
+    if (!deterministicChoice || !missingCondition || !currentParsed) {
       handleSend(text);
       return;
     }
