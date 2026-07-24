@@ -203,7 +203,10 @@ function OrderPageContent() {
     };
 
     loadAccounts();
-    const interval = setInterval(loadAccounts, 3000);
+    // 백그라운드 탭에서는 계좌 폴링을 쉬게 한다.
+    const interval = setInterval(() => {
+      if (!document.hidden) loadAccounts();
+    }, 3000);
     return () => {
       isMounted = false;
       clearInterval(interval);

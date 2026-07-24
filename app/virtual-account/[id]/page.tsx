@@ -281,6 +281,8 @@ export default function VirtualAccountDetailPage() {
   useEffect(() => {
     if (!accountId) return;
     const interval = setInterval(async () => {
+      // 백그라운드 탭에서는 폴링을 쉬게 한다.
+      if (document.hidden) return;
       const result = await refreshAccountValue(accountId);
       if (!result) return;
       setAccount(result.account);
@@ -293,6 +295,7 @@ export default function VirtualAccountDetailPage() {
     if (!accountId) return;
     loadSignalLogs();
     const interval = setInterval(() => {
+      if (document.hidden) return;
       loadSignalLogs();
     }, 5000);
     return () => clearInterval(interval);

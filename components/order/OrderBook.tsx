@@ -189,6 +189,8 @@ export default function OrderBook({
     };
 
     const loadOrderbook = async () => {
+      // 백그라운드 탭에서는 250ms 폴백 폴링을 쉬게 한다(화면에 보이지 않는 데이터).
+      if (document.hidden) return;
       try {
         const res = await fetch(`/api/stock/${symbol}/orderbook`, { cache: "no-store" });
         if (!res.ok) {

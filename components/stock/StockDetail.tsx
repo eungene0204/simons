@@ -128,7 +128,10 @@ export default function StockDetail({ symbol }: { symbol: string }) {
   }, [queryClient, symbol]);
 
   useEffect(() => {
-    const id = setInterval(fetchPrice, 1000);
+    // 탭이 백그라운드일 때는 폴링을 건너뛴다 — 모바일에서 배터리·네트워크 낭비 방지.
+    const id = setInterval(() => {
+      if (!document.hidden) fetchPrice();
+    }, 1000);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol]);

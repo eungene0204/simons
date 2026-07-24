@@ -1,6 +1,15 @@
 "use client";
 
-import { useState, useRef, useEffect, Suspense } from "react";
+import {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useImperativeHandle,
+  forwardRef,
+  memo,
+  Suspense,
+} from "react";
 import { flushSync } from "react-dom";
 import dynamic from "next/dynamic";
 import { createClient } from "@supabase/supabase-js";
@@ -457,6 +466,14 @@ const SOFT_MESSAGE_ENTER_STYLE = {
 const SOFT_MESSAGE_ENTER_LATE_STYLE = {
   animation: "softChatCardEnter 860ms cubic-bezier(0.19, 1, 0.22, 1) 140ms both",
 };
+// 렌더마다 새 객체가 만들어지지 않도록 모듈 상수로 고정 — memo된 ChatInputBox의
+// props 동일성 유지에 필요하다.
+const SOFT_ENTER_STYLE = {
+  animation: "softChatSurfaceEnter 720ms cubic-bezier(0.19, 1, 0.22, 1) both",
+};
+const SOFT_ENTER_LATE_STYLE = {
+  animation: "softChatSurfaceEnter 820ms cubic-bezier(0.19, 1, 0.22, 1) 120ms both",
+};
 
 // 전략 검증은 규칙 기반이라 즉시 응답하지만, 분석이 진행 중임을 사용자가 인지하도록
 // 최소 노출 시간을 둔다. 응답이 더 오래 걸리면 추가 지연 없이 그대로 표시한다.
@@ -698,6 +715,161 @@ function buildAnimatedHeadline(lines: string[], visibleCount: number) {
     );
   });
 }
+
+const HEADLINE_LINES = ["투자 아이디어를 전략으로 만들고", "전략을 시뮬레이션 하세요"];
+
+// 헤드라인 타이핑 연출을 격리한 컴포넌트 — 38ms 간격 상태 갱신이 페이지 전체를
+// 리렌더링하지 않도록 한다(인트로 화면 입력 버벅임의 원인 중 하나).
+function AnimatedHeadline({ lines }: { lines: string[] }) {
+  const totalChars = lines.reduce((sum, line) => sum + line.length, 0);
+  const [visibleChars, setVisibleChars] = useState(0);
+
+  useEffect(() => {
+    setVisibleChars(0);
+    const timer = window.setInterval(() => {
+      setVisibleChars((current) => {
+        if (current >= totalChars) {
+          window.clearInterval(timer);
+          return current;
+        }
+
+        return current + 1;
+      });
+    }, 38);
+
+    return () => window.clearInterval(timer);
+  }, [totalChars]);
+
+  return <>{buildAnimatedHeadline(lines, visibleChars)}</>;
+}
+
+type ChatInputHandle = {
+  focus: () => void;
+  clear: () => void;
+};
+
+type ChatInputBoxProps = {
+  variant: "inline" | "fixed";
+  containerStyle?: React.CSSProperties;
+  running: boolean;
+  canSend: boolean;
+  isLlmWorking: boolean;
+  isStrategyInput: boolean;
+  onSend: (text: string) => void;
+  onReset?: () => void;
+};
+
+// 채팅 입력창을 격리한 메모 컴포넌트 — 키 입력마다 페이지 전체(메시지 목록 포함)가
+// 리렌더링되지 않도록 입력 상태를 내부에서만 관리한다(모바일 입력 버벅임의 핵심 원인).
+const ChatInputBox = memo(
+  forwardRef<ChatInputHandle, ChatInputBoxProps>(function ChatInputBox(
+    { variant, containerStyle, running, canSend, isLlmWorking, isStrategyInput, onSend, onReset },
+    ref,
+  ) {
+    const [value, setValue] = useState("");
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        focus: () => textareaRef.current?.focus(),
+        clear: () => setValue(""),
+      }),
+      [],
+    );
+
+    useEffect(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.style.height = "auto";
+      el.style.height = Math.min(el.scrollHeight, 160) + "px";
+    }, [value]);
+
+    const trySend = () => {
+      const text = value.trim();
+      if (!text || !canSend) return;
+      setValue("");
+      onSend(text);
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+        e.preventDefault();
+        trySend();
+      }
+    };
+
+    const hasTypedInput = value.length > 0;
+    const canSubmitInput = !!value.trim() && canSend;
+
+    const textarea = (
+      <textarea
+        ref={textareaRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={handleKeyDown}
+        disabled={running}
+        rows={2}
+        placeholder="어떤 투자 아이디어를 테스트해볼까요?"
+        className="w-full resize-none bg-transparent px-5 pt-4 pb-12 text-sm font-bold leading-relaxed text-white outline-none placeholder-gray-600 focus:outline-none focus:ring-0"
+      />
+    );
+
+    const sendButton = (
+      <div className="absolute bottom-3 right-3 flex items-center gap-2">
+        <button
+          onClick={trySend}
+          disabled={!canSubmitInput}
+          aria-label={isLlmWorking ? (isStrategyInput ? "전략 생성 중" : "전송 중") : (isStrategyInput ? "전략 생성" : "전송")}
+          title={isLlmWorking ? (isStrategyInput ? "전략 생성 중" : "전송 중") : (isStrategyInput ? "전략 생성" : "전송")}
+          className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-300 ${
+            isLlmWorking
+              ? "cursor-wait bg-[#f3f1ec]"
+              : hasTypedInput
+                ? "bg-[#f3f1ec] text-[#2b2b2b] hover:bg-white disabled:cursor-not-allowed"
+                : "cursor-not-allowed bg-[#595959] text-[#bdbdbd]"
+          }`}
+        >
+          {isLlmWorking ? (
+            <span className="h-3 w-3 rounded-[3px] bg-[#3a3a3a]" aria-hidden="true" />
+          ) : (
+            <ArrowUp size={15} weight="bold" />
+          )}
+        </button>
+      </div>
+    );
+
+    if (variant === "inline") {
+      return (
+        <div
+          className="relative w-full rounded-[28px] border border-[var(--glass-border)] bg-[#101010]"
+          style={containerStyle}
+        >
+          {textarea}
+          {sendButton}
+        </div>
+      );
+    }
+
+    return (
+      <div
+        className="fixed bottom-4 left-4 right-4 z-40 mx-auto max-w-4xl rounded-[28px] border border-[var(--glass-border)] bg-[#101010]"
+        style={containerStyle}
+      >
+        {textarea}
+        <button
+          type="button"
+          onClick={onReset}
+          className="absolute bottom-3 left-3 inline-flex items-center gap-1.5 rounded-full border border-[var(--accent-blue)] bg-[#171717] px-3 py-1.5 text-xs font-bold text-gray-400 transition-all duration-200 hover:bg-[#202020] hover:text-white"
+        >
+          <X size={12} weight="bold" />
+          대화 종료
+        </button>
+        {sendButton}
+      </div>
+    );
+  }),
+);
 
 function BacktestRunningStatus({ message }: { message: string }) {
   return (
@@ -965,7 +1137,6 @@ function StrategyLabContent() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const isChatPage = pathname === "/analytics/chat" || searchParams.get("chat") === "1";
-  const [inputValue, setInputValue] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [authState, setAuthState] = useState<AuthState>("loading");
@@ -988,8 +1159,7 @@ function StrategyLabContent() {
   const [executedReq, setExecutedReq] = useState<any>(null);
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [modelStatus, setModelStatus] = useState<{ status: string; error: string | null } | null>(null);
-  const [visibleHeadlineChars, setVisibleHeadlineChars] = useState(0);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const chatInputRef = useRef<ChatInputHandle>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const resultScrollRef = useRef<HTMLDivElement>(null);
   const latestParsedRef = useRef<ParsedSummary | null>(null);
@@ -1000,6 +1170,14 @@ function StrategyLabContent() {
   // 진행 중이던 채팅을 한 번만 복원하기 위한 가드.
   const chatRestoredRef = useRef(false);
   const handleSendRef = useRef<(overrideText?: string) => Promise<void>>();
+  const handleResetRef = useRef<() => void>();
+  // memo된 ChatInputBox에 넘길 안정 콜백 — 최신 구현은 ref로 참조한다.
+  const handleSendFromInput = useCallback((text: string) => {
+    void handleSendRef.current?.(text);
+  }, []);
+  const handleResetFromInput = useCallback(() => {
+    handleResetRef.current?.();
+  }, []);
   // 직전에 언급된 종목 — '이 종목 팔까?' 같은 anaphora 해석용(분류 요청에 전달).
   const lastAnalyzedSymbolRef = useRef<string | null>(null);
   // first user prompt — kept for advisor context
@@ -1175,13 +1353,6 @@ function StrategyLabContent() {
   ]);
 
   useEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 160) + "px";
-  }, [inputValue]);
-
-  useEffect(() => {
     const animationFrame = window.requestAnimationFrame(() => {
       if (!messagesEndRef.current) return;
       const main = document.querySelector("main");
@@ -1224,7 +1395,7 @@ function StrategyLabContent() {
     if (!shouldShowChatInput || stage === "running" || result) return;
 
     const animationFrame = window.requestAnimationFrame(() => {
-      textareaRef.current?.focus();
+      chatInputRef.current?.focus();
     });
 
     return () => window.cancelAnimationFrame(animationFrame);
@@ -1326,7 +1497,7 @@ function StrategyLabContent() {
 
   const focusFreeTextInput = () => {
     setBuilderFreeTextRequested(true);
-    window.setTimeout(() => textareaRef.current?.focus(), 0);
+    window.setTimeout(() => chatInputRef.current?.focus(), 0);
   };
 
   const updateLastAssistant = (patch: Partial<ChatMessage>) => {
@@ -2180,25 +2351,22 @@ function StrategyLabContent() {
   applyBuilderConfirmedStrategyRef.current = applyBuilderConfirmedStrategy;
 
   const handleSend = async (overrideText?: string) => {
-    const userText = overrideText ?? inputValue.trim();
+    const userText = overrideText ?? "";
     if (!userText || isSending || stage === "running") return;
     // 메시지를 보내는 순간 '직접 입력' 노출 토글을 해제한다(다음 빌더 단계는 다시 칩 집중).
     setBuilderFreeTextRequested(false);
 
     if (authState !== "authenticated" && isStrategyInput) {
       sessionStorage.setItem(PENDING_STRATEGY_PROMPT_KEY, userText);
-      if (!overrideText) setInputValue("");
       setIsAuthModalOpen(true);
       return;
     }
 
     if (shouldBeginStrategyChatNavigation(isChatPage, messages.length)) {
-      if (!overrideText) setInputValue("");
       beginStrategyChatNavigation(userText, (url) => router.push(url));
       return;
     }
 
-    if (!overrideText) setInputValue("");
     if (!firstPromptRef.current) firstPromptRef.current = userText;
     const currentParsed = latestParsedRef.current ?? latestParsed;
     const currentBacktestReq = backtestReqRef.current ?? backtestReq;
@@ -2582,7 +2750,7 @@ function StrategyLabContent() {
 
     pendingPromptConsumedRef.current = true;
     sessionStorage.removeItem(PENDING_STRATEGY_PROMPT_KEY);
-    setInputValue("");
+    chatInputRef.current?.clear();
     void handleSendRef.current?.(pendingPrompt);
   }, [authState, isChatPage, messages.length, isSending]);
 
@@ -2848,7 +3016,7 @@ function StrategyLabContent() {
     setResult(null);
     setExecutedReq(null);
     setIsSending(false);
-    setInputValue("");
+    chatInputRef.current?.clear();
     setBuilderFreeTextRequested(false);
     latestParsedRef.current = null;
     backtestReqRef.current = null;
@@ -2879,51 +3047,16 @@ function StrategyLabContent() {
     if (isChatPage) {
       router.push("/analytics");
     }
-    setTimeout(() => textareaRef.current?.focus(), 100);
+    setTimeout(() => chatInputRef.current?.focus(), 100);
   };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
+  handleResetRef.current = handleReset;
 
   const shouldShowIntro = isIdle && !isChatPage;
-  const headlineLines = ["투자 아이디어를 전략으로 만들고", "전략을 시뮬레이션 하세요"];
-  const totalHeadlineChars = headlineLines.reduce((sum, line) => sum + line.length, 0);
   const strategyPreviewBackgroundClass = isStrategyPreviewModalOpen
     ? "pointer-events-none select-none blur-[6px] transition-[filter,opacity] duration-200"
     : "transition-[filter,opacity] duration-200";
-  const softEnterStyle = {
-    animation: "softChatSurfaceEnter 720ms cubic-bezier(0.19, 1, 0.22, 1) both",
-  };
-  const softEnterLateStyle = {
-    animation: "softChatSurfaceEnter 820ms cubic-bezier(0.19, 1, 0.22, 1) 120ms both",
-  };
-
-  // 훅은 early return 위에 있어야 한다 — 결과 화면으로 early return 시 훅 개수가
-  // 줄어들어 "Rendered fewer hooks than expected" 에러가 나기 때문.
-  useEffect(() => {
-    if (!shouldShowIntro) {
-      setVisibleHeadlineChars(0);
-      return;
-    }
-
-    setVisibleHeadlineChars(0);
-    const timer = window.setInterval(() => {
-      setVisibleHeadlineChars((current) => {
-        if (current >= totalHeadlineChars) {
-          window.clearInterval(timer);
-          return current;
-        }
-
-        return current + 1;
-      });
-    }, 38);
-
-    return () => window.clearInterval(timer);
-  }, [shouldShowIntro, totalHeadlineChars]);
+  const softEnterStyle = SOFT_ENTER_STYLE;
+  const softEnterLateStyle = SOFT_ENTER_LATE_STYLE;
 
   // ── 결과 화면
   const isRunning = stage === "running";
@@ -2982,9 +3115,8 @@ function StrategyLabContent() {
 
   // 전략 작성 맥락(시작 화면 또는 전략 요약 존재)에서만 '전략 생성', 그 외(안내 대화)는 '전송'.
   const isStrategyInput = isIdle || messages.some((m) => m.parsed);
-  const hasTypedInput = inputValue.length > 0;
-  const canSubmitInput = !!inputValue.trim() && !isSending && stage !== "running";
   const isLlmWorking = isSending;
+  const canSendInput = !isSending && stage !== "running";
   const hasChatStarted = messages.length > 0;
   const isLastAssistant = (i: number) => i === messages.length - 1 && messages[i].role === "assistant";
   const latestAssistantMessage = [...messages]
@@ -3077,7 +3209,7 @@ function StrategyLabContent() {
                   className="max-w-5xl text-[27px] leading-none tracking-tight text-[#fcfdff] sm:text-5xl lg:text-7xl [font-weight:950]"
                   style={{ textShadow: "0 0 24px rgba(255, 255, 255, 0.18)" }}
                 >
-                  {buildAnimatedHeadline(headlineLines, visibleHeadlineChars)}
+                  <AnimatedHeadline lines={HEADLINE_LINES} />
                 </p>
                 <p className="text-sm font-bold leading-relaxed text-gray-400 sm:text-base">
                   AI와 함께 전략을 설계하고, 바로 백테스트 하세요
@@ -3370,43 +3502,17 @@ function StrategyLabContent() {
 
             {/* 입력 영역 — 시작 화면, 전략 요약 출력 후, 또는 안내 대화 중 표시 */}
             {shouldShowChatInput && !hasChatStarted && (
-            <div
-              key={shouldShowIntro ? "intro-chat-input" : "active-chat-input"}
-              className="relative w-full rounded-[28px] border border-[var(--glass-border)] bg-[#101010]"
-              style={softEnterLateStyle}
-            >
-              <textarea
-                ref={textareaRef}
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={handleKeyDown}
-                disabled={stage === "running"}
-                rows={2}
-                placeholder="어떤 투자 아이디어를 테스트해볼까요?"
-                className="w-full resize-none bg-transparent px-5 pt-4 pb-12 text-sm font-bold leading-relaxed text-white outline-none placeholder-gray-600 focus:outline-none focus:ring-0"
+              <ChatInputBox
+                key={shouldShowIntro ? "intro-chat-input" : "active-chat-input"}
+                ref={chatInputRef}
+                variant="inline"
+                containerStyle={softEnterLateStyle}
+                running={stage === "running"}
+                canSend={canSendInput}
+                isLlmWorking={isLlmWorking}
+                isStrategyInput={isStrategyInput}
+                onSend={handleSendFromInput}
               />
-              <div className="absolute bottom-3 right-3 flex items-center gap-2">
-                <button
-                  onClick={() => handleSend()}
-                  disabled={!canSubmitInput}
-                  aria-label={isLlmWorking ? (isStrategyInput ? "전략 생성 중" : "전송 중") : (isStrategyInput ? "전략 생성" : "전송")}
-                  title={isLlmWorking ? (isStrategyInput ? "전략 생성 중" : "전송 중") : (isStrategyInput ? "전략 생성" : "전송")}
-                  className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-300 ${
-                    isLlmWorking
-                      ? "cursor-wait bg-[#f3f1ec]"
-                      : hasTypedInput
-                        ? "bg-[#f3f1ec] text-[#2b2b2b] hover:bg-white disabled:cursor-not-allowed"
-                        : "cursor-not-allowed bg-[#595959] text-[#bdbdbd]"
-                  }`}
-                >
-                  {isLlmWorking ? (
-                    <span className="h-3 w-3 rounded-[3px] bg-[#3a3a3a]" aria-hidden="true" />
-                  ) : (
-                    <ArrowUp size={15} weight="bold" />
-                  )}
-                </button>
-              </div>
-            </div>
             )}
           </div>
 
@@ -3423,51 +3529,18 @@ function StrategyLabContent() {
         </div>{/* end 채팅 영역 */}
 
         {shouldShowChatInput && hasChatStarted && (
-          <div
+          <ChatInputBox
             key="fixed-chat-input"
-            className="fixed bottom-4 left-4 right-4 z-40 mx-auto max-w-4xl rounded-[28px] border border-[var(--glass-border)] bg-[#101010]"
-            style={softEnterLateStyle}
-          >
-            <textarea
-              ref={textareaRef}
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={stage === "running"}
-              rows={2}
-              placeholder="어떤 투자 아이디어를 테스트해볼까요?"
-              className="w-full resize-none bg-transparent px-5 pt-4 pb-12 text-sm font-bold leading-relaxed text-white outline-none placeholder-gray-600 focus:outline-none focus:ring-0"
-            />
-            <button
-              type="button"
-              onClick={handleReset}
-              className="absolute bottom-3 left-3 inline-flex items-center gap-1.5 rounded-full border border-[var(--accent-blue)] bg-[#171717] px-3 py-1.5 text-xs font-bold text-gray-400 transition-all duration-200 hover:bg-[#202020] hover:text-white"
-            >
-              <X size={12} weight="bold" />
-              대화 종료
-            </button>
-            <div className="absolute bottom-3 right-3 flex items-center gap-2">
-              <button
-                onClick={() => handleSend()}
-                disabled={!canSubmitInput}
-                aria-label={isLlmWorking ? (isStrategyInput ? "전략 생성 중" : "전송 중") : (isStrategyInput ? "전략 생성" : "전송")}
-                title={isLlmWorking ? (isStrategyInput ? "전략 생성 중" : "전송 중") : (isStrategyInput ? "전략 생성" : "전송")}
-                className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-300 ${
-                  isLlmWorking
-                    ? "cursor-wait bg-[#f3f1ec]"
-                    : hasTypedInput
-                      ? "bg-[#f3f1ec] text-[#2b2b2b] hover:bg-white disabled:cursor-not-allowed"
-                      : "cursor-not-allowed bg-[#595959] text-[#bdbdbd]"
-                }`}
-              >
-                {isLlmWorking ? (
-                  <span className="h-3 w-3 rounded-[3px] bg-[#3a3a3a]" aria-hidden="true" />
-                ) : (
-                  <ArrowUp size={15} weight="bold" />
-                )}
-              </button>
-            </div>
-          </div>
+            ref={chatInputRef}
+            variant="fixed"
+            containerStyle={softEnterLateStyle}
+            running={stage === "running"}
+            canSend={canSendInput}
+            isLlmWorking={isLlmWorking}
+            isStrategyInput={isStrategyInput}
+            onSend={handleSendFromInput}
+            onReset={handleResetFromInput}
+          />
         )}
 
         {/* 입력창이 숨겨지는 상태(에러/로딩 등 예상 못 한 상태 포함)에서도 항상 빠져나갈 수 있도록,

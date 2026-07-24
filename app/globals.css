@@ -350,9 +350,12 @@ input[type=number] {
   -moz-appearance: textfield;
 }
 
-@keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+/* background-position 애니메이션은 매 프레임 repaint를 유발해 모바일에서 비싸다.
+   동일한 스윕을 transform(컴포지터 전용)으로 구현 — 시각적으로 완전히 동일하다.
+   (기존 키프레임 이름 shimmer는 116행의 transform 버전과 충돌하기도 했다.) */
+@keyframes shimmerSweep {
+  0% { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
 }
 
 .shimmer {
@@ -363,13 +366,16 @@ input[type=number] {
 .shimmer::after {
   content: "";
   position: absolute;
-  inset: 0;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 200%;
   background: linear-gradient(
     90deg,
     transparent 0%,
     rgba(255, 255, 255, 0.07) 50%,
     transparent 100%
   );
-  background-size: 200% 100%;
-  animation: shimmer 1.8s ease-in-out infinite;
+  animation: shimmerSweep 1.8s ease-in-out infinite;
+  will-change: transform;
 }

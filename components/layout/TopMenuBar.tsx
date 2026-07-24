@@ -28,16 +28,13 @@ const TopMenuBarContent = memo(function TopMenuBarContent({
     // 초기 높이 설정
     updateHeight();
 
-    // ResizeObserver로 높이 변경 감지
+    // ResizeObserver로 높이 변경 감지 — 요소 크기를 직접 관찰하므로 window resize
+    // 리스너는 불필요하다(중복 등록 시 모바일 주소창 개폐마다 forced layout이 두 번 돈다).
     const resizeObserver = new ResizeObserver(updateHeight);
     resizeObserver.observe(topMenuBar);
 
-    // 리사이즈 이벤트도 함께 감지
-    window.addEventListener('resize', updateHeight);
-
     return () => {
       resizeObserver.disconnect();
-      window.removeEventListener('resize', updateHeight);
     };
   }, []);
 

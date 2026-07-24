@@ -32,6 +32,9 @@ export function StrategyWaveBackground() {
     let height = 0;
     let points: WavePoint[] = [];
     let resizeObserver: ResizeObserver | null = null;
+    // 그라디언트는 크기에만 의존 — 매 프레임 새로 만들면 모바일에서 CPU를 크게 잡아먹으므로
+    // 리사이즈 시에만 재생성해 캐시한다.
+    let cachedGlow: CanvasGradient | null = null;
 
     const buildPointField = () => {
       const gapX = 28;
@@ -58,12 +61,7 @@ export function StrategyWaveBackground() {
       points = nextPoints;
     };
 
-    const render = (time: number) => {
-      context.clearRect(0, 0, width, height);
-      context.lineCap = "round";
-
-      if (width <= 0 || height <= 0) return;
-
+    const buildGlow = () => {
       const glow = context.createRadialGradient(
         width * 0.5,
         height * 0.34,
@@ -75,7 +73,17 @@ export function StrategyWaveBackground() {
       glow.addColorStop(0, "rgba(50, 121, 249, 0.08)");
       glow.addColorStop(0.34, "rgba(183, 191, 217, 0.035)");
       glow.addColorStop(1, "rgba(18, 19, 23, 0)");
-      context.fillStyle = glow;
+      return glow;
+    };
+
+    const render = (time: number) => {
+      context.clearRect(0, 0, width, height);
+      context.lineCap = "round";
+
+      if (width <= 0 || height <= 0) return;
+
+      if (!cachedGlow) cachedGlow = buildGlow();
+      context.fillStyle = cachedGlow;
       context.fillRect(0, 0, width, height);
 
       const focusX = width * 0.5;
@@ -121,9 +129,16 @@ export function StrategyWaveBackground() {
       }
     };
 
+    // 은은한 저속 웨이브라 30fps로도 시각적으로 동일 — 프레임을 절반으로 줄여
+    // 모바일 메인 스레드 예산(입력·스크롤)을 확보한다.
+    const FRAME_INTERVAL_MS = 1000 / 30;
+    let lastFrameTime = 0;
+
     const draw = (time: number) => {
-      render(time);
       frameId = requestAnimationFrame(draw);
+      if (time - lastFrameTime < FRAME_INTERVAL_MS) return;
+      lastFrameTime = time;
+      render(time);
     };
 
     const resize = () => {
@@ -133,6 +148,7 @@ export function StrategyWaveBackground() {
       canvas.width = Math.floor(width * ratio);
       canvas.height = Math.floor(height * ratio);
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      cachedGlow = null;
       buildPointField();
       render(0);
     };
@@ -143,14 +159,17 @@ export function StrategyWaveBackground() {
       frameId = requestAnimationFrame(draw);
     }
 
-    window.addEventListener("resize", resize);
-
-    if ("ResizeObserver" in window) {
+    // 캔버스는 inset-0(부모 크기 추종)이라 ResizeObserver만으로 모든 크기 변화가 감지된다.
+    // window resize 리스너를 함께 걸면 모바일 주소창 개폐마다 이중으로 전체 재계산이 돌아
+    // 스크롤 버벅임을 만들었다.
+    if (typeof ResizeObserver !== "undefined") {
       resizeObserver = new ResizeObserver(resize);
       resizeObserver.observe(canvas);
       if (canvas.parentElement) {
         resizeObserver.observe(canvas.parentElement);
       }
+    } else {
+      window.addEventListener("resize", resize);
     }
 
     return () => {
