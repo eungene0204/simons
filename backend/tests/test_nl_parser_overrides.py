@@ -1049,6 +1049,15 @@ def test_extract_initial_capital_still_reads_explicit_capital():
     )
 
 
+def test_apply_prompt_overrides_preserves_comma_delimited_manwon_capital():
+    parsed = _apply_prompt_overrides(
+        make_base_strategy(),
+        "초기자금 1,000만원으로 설정",
+    )
+
+    assert parsed.initial_capital == 10_000_000.0
+
+
 def test_rule_based_strategy_multifactor_prompt_keeps_default_capital():
     # 사용자 멀티팩터 프롬프트에는 초기자금 언급이 없으므로 기본값이어야 한다.
     prompt = (

@@ -1,8 +1,18 @@
 import type { ReactNode } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import StrategyLabPage from "./page";
+import {
+  buildBuilderTurnPresentation,
+  getDisplayBuilderProgressItems,
+  makeBuilderQuestionFriendly,
+} from "./builderProgressPresentation";
+import {
+  getNextMissingBacktestCondition,
+  type MissingBacktestCondition,
+} from "./backtestReadiness";
+import { applyDeterministicConditionChoice } from "./deterministicConditionFlow";
 
 const push = vi.fn();
 const fetchMock = vi.fn();
@@ -302,6 +312,10 @@ describe("StrategyLabPage scroll behavior", () => {
   });
 
   it("조건이 빠지면 파싱 결과를 다시 빌더로 보내지 않고 다음 누락 조건을 직접 묻는다", async () => {
+    let classifyCallCount = 0;
+    let parseCallCount = 0;
+    const finalParseResponse = createDeferred<Response>();
+
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
 
@@ -312,16 +326,23 @@ describe("StrategyLabPage scroll behavior", () => {
         return Promise.resolve(createJsonResponse({ user: { name: "Tester" } }));
       }
       if (url === "/api/query/classify") {
+        classifyCallCount += 1;
         return Promise.resolve(createJsonResponse({ intent: "STRATEGY_ADVICE", symbols: [] }));
       }
       if (url === "/api/strategy/parse/stream") {
-        return Promise.resolve(createParseStreamResponseWithClarification());
+        parseCallCount += 1;
+        return parseCallCount === 1
+          ? Promise.resolve(createParseStreamResponseWithClarification())
+          : finalParseResponse.promise;
       }
       if (url === "/api/strategy/builder/step") {
         throw new Error(`파싱 결과를 다시 빌더로 보내면 안 되는 경로: ${url}`);
       }
       if (url === "/api/strategy/coach") {
-        throw new Error(`누락 조건 입력 전에 호출되면 안 되는 경로: ${url}`);
+        if (parseCallCount < 2) {
+          throw new Error(`누락 조건 입력 전에 호출되면 안 되는 경로: ${url}`);
+        }
+        return Promise.resolve(createJsonResponse({ message: "전략 검증 완료" }));
       }
       return Promise.resolve(createJsonResponse({}));
     });
@@ -334,18 +355,146 @@ describe("StrategyLabPage scroll behavior", () => {
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
 
     expect(
-      await screen.findByText("청산 조건이 빠져 있습니다. 어떤 조건에서 청산할까요?"),
+      await screen.findByText("먼저 어떤 시장·종목을 대상으로 할지 정해볼까요?"),
     ).toBeInTheDocument();
+    expect(screen.getByText("현재까지 이해한 전략")).toBeInTheDocument();
+    const progressPanel = screen.getByTestId("strategy-progress-panel");
+    expect(progressPanel).toHaveClass(
+      "xl:fixed",
+      "xl:right-4",
+      "xl:top-[calc(var(--top-menu-bar-height,76px)+5rem)]",
+    );
+    expect(progressPanel).not.toHaveClass("xl:left-4");
+    expect(within(progressPanel).getByTestId("strategy-progress-list")).toHaveClass("flex-col");
+    expect(
+      within(progressPanel)
+        .getAllByRole("listitem")
+        .map((item) => item.getAttribute("aria-label")),
+    ).toEqual([
+      "매수 조건: 완료",
+      "유니버스: 진행 전",
+      "매도 조건: 진행 전",
+      "최대 보유: 진행 전",
+      "리밸런싱: 진행 전",
+      "리스크 관리: 진행 전",
+      "백테스트 기간: 진행 전",
+      "초기 자본: 진행 전",
+    ]);
+    expect(within(progressPanel).getByRole("listitem", { name: "유니버스: 진행 전" }))
+      .toHaveAttribute("data-complete", "false");
+    expect(within(progressPanel).getByRole("listitem", { name: "매수 조건: 완료" }))
+      .toHaveAttribute("data-complete", "true");
+    expect(within(progressPanel).getByRole("listitem", { name: "매도 조건: 진행 전" }))
+      .toHaveAttribute("data-complete", "false");
+    expect(
+      within(screen.getByTestId("builder-strategy-summary")).queryByText("전략 진행률"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("선택 예시")).toBeInTheDocument();
+    expect(screen.queryByText("기본값")).not.toBeInTheDocument();
+    expect(screen.queryByText("10,000,000원")).not.toBeInTheDocument();
+    expect(screen.queryByText(/빠져 있습니다|빠졌습니다/)).not.toBeInTheDocument();
     expect(screen.queryByText(/영업이익률 몇 % 이상으로 설정할까요/)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "데드크로스 발생 시 매도" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "20일 보유 후 청산" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "RSI 70 이상에서 매도" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "코스피200" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "코스피" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "코스닥" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "코스피+코스닥" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "직접 입력" })).toBeInTheDocument();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([input]) => String(input) === "/api/strategy/builder/step")).toBe(false);
     expect(
       fetchMock.mock.calls.some(([input]) => String(input) === "/api/strategy/coach")
     ).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "코스피" }));
+    expect(
+      await screen.findByRole("button", { name: "데드크로스 발생 시 매도" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "데드크로스 발생 시 매도" }));
+    expect(
+      await screen.findByRole("button", { name: "최대 5종목" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "최대 5종목" }));
+    expect(
+      await screen.findByRole("button", { name: "매월 리밸런싱" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "매월 리밸런싱" }));
+    expect(
+      await screen.findByRole("button", { name: "손절 10%" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "손절 10%" }));
+    expect(
+      await screen.findByRole("button", { name: "익절 20%" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "익절 20%" }));
+    expect(
+      await screen.findByRole("button", { name: "최근 5년 데이터" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "최근 5년 데이터" }));
+    expect(
+      await screen.findByRole("button", { name: "1,000만원" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "1,000만원" }));
+    expect(
+      await screen.findByText(
+        "모든 조건을 정했습니다. 현재까지의 전략을 확인하고 확정해 주세요.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("전략 확인")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "이 전략으로 확정" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "돌아가기" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "직접 입력" })).not.toBeInTheDocument();
+    expect(parseCallCount).toBe(1);
+    expect(classifyCallCount).toBe(1);
+    expect(
+      within(screen.getByTestId("strategy-progress-panel"))
+        .getAllByRole("listitem")
+        .every((item) => item.getAttribute("data-complete") === "true"),
+    ).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "돌아가기" }));
+    expect(await screen.findByRole("button", { name: "1,000만원" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "이 전략으로 확정" })).not.toBeInTheDocument();
+    expect(parseCallCount).toBe(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "1,000만원" }));
+    fireEvent.click(screen.getByRole("button", { name: "이 전략으로 확정" }));
+
+    await waitFor(() => {
+      expect(parseCallCount).toBe(2);
+    });
+    expect(screen.queryByRole("button", { name: "백테스트 시작하기" })).not.toBeInTheDocument();
+
+    finalParseResponse.resolve(createParseStreamResponse());
+
+    expect(classifyCallCount).toBe(1);
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "이 전략으로 확정" }))
+        .not.toBeInTheDocument();
+    });
+
+    const finalParseCall = fetchMock.mock.calls
+      .filter(([input]) => String(input) === "/api/strategy/parse/stream")
+      .at(-1);
+    const finalParseBody = JSON.parse(
+      String((finalParseCall?.[1] as RequestInit | undefined)?.body),
+    );
+    expect(finalParseBody.prompt).toContain("코스피");
+    expect(finalParseBody.prompt).toContain("데드크로스 발생 시 매도");
+    expect(finalParseBody.prompt).toContain("최대 5종목");
+    expect(finalParseBody.prompt).toContain("매월 리밸런싱");
+    expect(finalParseBody.prompt).toContain("손절 10%");
+    expect(finalParseBody.prompt).toContain("익절 20%");
+    expect(finalParseBody.prompt).toContain("최근 5년 데이터");
+    expect(finalParseBody.prompt).toContain("1,000만원");
   });
 
   it("조건 슬롯이 완성된 전략의 종목 명확화는 전략 빌더로 보내지 않는다", async () => {
@@ -370,13 +519,16 @@ describe("StrategyLabPage scroll behavior", () => {
     render(<StrategyLabPage />);
 
     fireEvent.change(await screen.findByRole("textbox"), {
-      target: { value: "삼성전자와 SK하이닉스 중 하나로 완성해줘" },
+      target: {
+        value:
+          "코스피에서 최대 5종목, 매월 리밸런싱, 최근 5년 데이터, 초기 자금 1,000만원. 삼성전자와 SK하이닉스 중 하나로 완성해줘",
+      },
     });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
 
     expect(
       await screen.findByText(
-        "세부 조건이 빠져 있습니다. 여러 종목이 지정되었습니다. 어느 종목을 대상으로 할까요?",
+        "여러 종목이 지정되었습니다. 어느 종목을 대상으로 할까요?",
       )
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "삼성전자" })).toBeInTheDocument();
@@ -410,32 +562,35 @@ describe("StrategyLabPage scroll behavior", () => {
     render(<StrategyLabPage />);
 
     fireEvent.change(await screen.findByRole("textbox"), {
-      target: { value: "PER 10 이하 전략을 만들어줘" },
+      target: {
+        value:
+          "코스피에서 PER 10 이하, 최대 5종목, 최근 5년 데이터, 초기 자금 1,000만원 전략을 만들어줘",
+      },
     });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
 
     expect(
       await screen.findByText(
-        "리밸런싱 주기가 빠져 있습니다. 포트폴리오를 얼마나 자주 다시 구성할까요?",
+        "다음으로 포트폴리오를 얼마나 자주 다시 구성할지 정해볼까요?",
       ),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "안 함" }));
 
     expect(
       await screen.findByText(
-        "익절 기준이 빠져 있습니다. 익절 기준을 몇 %로 설정할까요?",
+        "이제 익절 기준을 몇 %로 정할까요?",
       ),
     ).toBeInTheDocument();
     expect(
       screen.queryByText(
-        "리밸런싱 주기가 빠져 있습니다. 포트폴리오를 얼마나 자주 다시 구성할까요?",
+        "다음으로 포트폴리오를 얼마나 자주 다시 구성할지 정해볼까요?",
       ),
     ).not.toBeInTheDocument();
     expect(
       fetchMock.mock.calls.filter(
         ([input]) => String(input) === "/api/strategy/parse/stream",
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
   });
 
   it("단일 종목 빌더를 재파싱하지 않고 없음 답변 뒤 완성해 실행 버튼을 한 번 표시한다", async () => {
@@ -462,7 +617,9 @@ describe("StrategyLabPage scroll behavior", () => {
         parseCallCount += 1;
         const body = JSON.parse(String(init?.body ?? "{}"));
         expect(parseCallCount).toBe(1);
-        expect(body.prompt).toBe("삼성전자에 투자 하는 전략");
+        expect(body.prompt).toBe(
+          "삼성전자에 투자 하는 전략, 최근 5년 데이터, 초기 자금 1,000만원",
+        );
         return Promise.resolve(createSingleAssetParseStreamResponse());
       }
       if (url === "/api/strategy/builder/step") {
@@ -516,8 +673,8 @@ describe("StrategyLabPage scroll behavior", () => {
           state: { ...body.state, filters_asked: true },
           status: "confirmed",
           prompt: "코스피200 종목 중 골든크로스에서 매수하고 데드크로스에서 매도",
-          parsed: parsedStrategy,
-          backtest_request: backtestRequest,
+          parsed: completeSingleAssetStrategy,
+          backtest_request: completeSingleAssetBacktestRequest,
         }));
       }
       if (url === "/api/strategy/coach") {
@@ -529,7 +686,9 @@ describe("StrategyLabPage scroll behavior", () => {
     render(<StrategyLabPage />);
 
     fireEvent.change(await screen.findByRole("textbox"), {
-      target: { value: "삼성전자에 투자 하는 전략" },
+      target: {
+        value: "삼성전자에 투자 하는 전략, 최근 5년 데이터, 초기 자금 1,000만원",
+      },
     });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
 
@@ -562,6 +721,54 @@ describe("StrategyLabPage scroll behavior", () => {
     expect(builderCallCount).toBe(4);
   });
 
+  it("단일 종목 확정 카드에 종목명과 코드, 돌아가기 선택지를 표시한다", async () => {
+    const awaitingCapital = {
+      ...completeSingleAssetStrategy,
+      initial_capital: 0,
+    };
+    sessionStorage.setItem("simons.strategyChatState", JSON.stringify({
+      messages: [
+        {
+          role: "user",
+          content: "삼성전자 골든크로스 전략, 최근 5년 데이터",
+        },
+        {
+          role: "assistant",
+          parsed: awaitingCapital,
+          clarification: "초기 투자 자금을 얼마로 설정할까요?",
+          clarificationSuggestions: ["500만원", "1,000만원", "3,000만원", "5,000만원"],
+        },
+      ],
+      latestParsed: awaitingCapital,
+      backtestReq: completeSingleAssetBacktestRequest,
+      stage: "ready",
+    }));
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      if (String(input) === "/api/model/status") {
+        return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
+      }
+      if (String(input) === "/api/user") {
+        return Promise.resolve(createJsonResponse({ user: { name: "Tester" } }));
+      }
+      return Promise.resolve(createJsonResponse({}));
+    });
+
+    render(<StrategyLabPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "1,000만원" }));
+
+    const summary = await screen.findByTestId("builder-strategy-summary");
+    expect(within(summary).getByText("유니버스")).toBeInTheDocument();
+    expect(within(summary).getByText("삼성전자 (005930)")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "이 전략으로 확정" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "돌아가기" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "돌아가기" }));
+
+    expect(await screen.findByRole("button", { name: "1,000만원" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "이 전략으로 확정" })).not.toBeInTheDocument();
+  });
+
   it("복원된 빌더가 채워진 이동평균 슬롯을 보존하고 청산 답변 뒤 이전 질문으로 돌아가지 않는다", async () => {
     const builderCalls: Array<Record<string, any>> = [];
     const riskQuestion =
@@ -569,7 +776,10 @@ describe("StrategyLabPage scroll behavior", () => {
 
     sessionStorage.setItem("simons.strategyChatState", JSON.stringify({
       messages: [
-        { role: "user", content: "삼성전자 골든크로스 전략" },
+        {
+          role: "user",
+          content: "삼성전자 골든크로스 전략, 최근 5년 데이터, 초기 자금 1,000만원",
+        },
         {
           role: "assistant",
           infoText: "매수에 추가 필터를 넣을까요?",
@@ -683,7 +893,10 @@ describe("StrategyLabPage scroll behavior", () => {
 
     sessionStorage.setItem("simons.strategyChatState", JSON.stringify({
       messages: [
-        { role: "user", content: "삼성전자 골든크로스 전략" },
+        {
+          role: "user",
+          content: "삼성전자 골든크로스 전략, 최근 5년 데이터, 초기 자금 1,000만원",
+        },
         {
           role: "assistant",
           infoText: "마지막으로 청산 조건을 정해 주세요.",
@@ -901,12 +1114,22 @@ describe("StrategyLabPage scroll behavior", () => {
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
 
     expect(await screen.findByText("어떤 시장을 대상으로 할까요?")).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("strategy-progress-panel")).getByRole("listitem", {
+        name: "유니버스: 진행 전",
+      }),
+    ).toHaveAttribute("data-complete", "false");
     expect(screen.queryByRole("button", { name: "직접 입력" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "뒤로가기" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "코스피" }));
 
     expect(await screen.findByText("어떤 방식으로 종목을 고를까요?")).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("strategy-progress-panel")).getByRole("listitem", {
+        name: "유니버스: 완료",
+      }),
+    ).toHaveAttribute("data-complete", "true");
     expect(screen.getByRole("button", { name: "직접 입력" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "뒤로가기" })).toBeInTheDocument();
 
@@ -915,6 +1138,11 @@ describe("StrategyLabPage scroll behavior", () => {
     await waitFor(() => {
       expect(builderRequests.at(-1)).toEqual({ state: {}, input: "" });
       expect(screen.getAllByText("어떤 시장을 대상으로 할까요?")).toHaveLength(2);
+      expect(
+        within(screen.getByTestId("strategy-progress-panel")).getByRole("listitem", {
+          name: "유니버스: 진행 전",
+        }),
+      ).toHaveAttribute("data-complete", "false");
     });
     expect(screen.queryByRole("button", { name: "직접 입력" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "뒤로가기" })).not.toBeInTheDocument();
@@ -966,7 +1194,12 @@ describe("StrategyLabPage scroll behavior", () => {
     render(<StrategyLabPage />);
 
     const textarea = await screen.findByRole("textbox");
-    fireEvent.change(textarea, { target: { value: "PER 10 이하 전략 만들어줘" } });
+    fireEvent.change(textarea, {
+      target: {
+        value:
+          "코스피에서 PER 10 이하, 최대 5종목, 매월 리밸런싱, 최근 5년 데이터, 초기 자금 1,000만원 전략 만들어줘",
+      },
+    });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
 
     // 전략 검증은 의도된 최소 지연(~2.4s) 후 응답을 노출하므로 타임아웃을 넉넉히 둔다.
@@ -1036,7 +1269,12 @@ describe("StrategyLabPage scroll behavior", () => {
     render(<StrategyLabPage />);
 
     const textarea = await screen.findByRole("textbox");
-    fireEvent.change(textarea, { target: { value: "PER 10 이하 전략 만들어줘" } });
+    fireEvent.change(textarea, {
+      target: {
+        value:
+          "코스피에서 PER 10 이하, 최대 5종목, 매월 리밸런싱, 최근 5년 데이터, 초기 자금 1,000만원 전략 만들어줘",
+      },
+    });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
 
     expect(
@@ -1232,5 +1470,219 @@ describe("StrategyLabPage scroll behavior", () => {
     expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/strategy/builder/step")).toHaveLength(1);
     expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/query/classify")).toHaveLength(1);
     expect(fetchMock.mock.calls.some(([input]) => String(input) === "/api/strategy/parse/stream")).toBe(false);
+  });
+});
+
+describe("strategy builder progress presentation", () => {
+  it("moves completed items first and normalizes the legacy target label", () => {
+    expect(
+      getDisplayBuilderProgressItems([
+        { label: "투자 대상", complete: false },
+        { label: "매수 조건", complete: true },
+        { label: "매도 조건", complete: false },
+        { label: "초기 자본", complete: true },
+      ]),
+    ).toEqual([
+      { label: "매수 조건", complete: true },
+      { label: "초기 자본", complete: true },
+      { label: "유니버스", complete: false },
+      { label: "매도 조건", complete: false },
+    ]);
+  });
+
+  it("summarizes a profitable-company seed as EPS above zero only", () => {
+    const parsed = {
+      description: "작년도 흑자종목을 매수 하는 전략",
+      universe: ["KOSPI200"],
+      fundamental_filters: [{ metric: "eps", operator: ">", value: 0 }],
+      entry_signals: [],
+      exit_signals: [],
+      max_positions: 10,
+      hold_period_days: null,
+      rebalancing_period: "none",
+      stop_loss_pct: null,
+      take_profit_pct: null,
+      backtest_period: "5y",
+      initial_capital: 10000000,
+    };
+    const result = buildBuilderTurnPresentation({
+      state: {},
+      reply: "청산 조건이 빠져 있습니다. 어떤 조건에서 청산할까요?",
+      parsed,
+      prompt: "작년도 흑자종목을 매수 하는 전략",
+    });
+
+    expect(result.summaryItems).toContainEqual({
+      label: "매수 조건",
+      value: "흑자 기업 (EPS > 0)",
+    });
+    expect(
+      result.summaryItems
+        .some((item) =>
+          ["유니버스", "최대 보유", "리밸런싱", "백테스트 기간", "초기 자본"]
+            .includes(item.label),
+        ),
+    ).toBe(false);
+    expect(result.progressItems).toEqual([
+      { label: "유니버스", complete: false },
+      { label: "매수 조건", complete: true },
+      { label: "매도 조건", complete: false },
+      { label: "최대 보유", complete: false },
+      { label: "리밸런싱", complete: false },
+      { label: "리스크 관리", complete: false },
+      { label: "백테스트 기간", complete: false },
+      { label: "초기 자본", complete: false },
+    ]);
+    expect(result.summaryItems.some((item) => item.value.includes("순이익증가율"))).toBe(false);
+    expect(result.question).toBe("이제 언제 매도할지 정해볼까요?");
+
+    const explicitResult = buildBuilderTurnPresentation({
+      state: {},
+      reply: "이제 언제 매도할지 정해볼까요?",
+      parsed: { ...parsed, rebalancing_period: "weekly" },
+      prompt: "코스피200에서 최대 10종목을 보유하고 매주 리밸런싱",
+    });
+    expect(explicitResult.summaryItems).toEqual(expect.arrayContaining([
+      { label: "유니버스", value: "KOSPI 200" },
+      { label: "최대 보유", value: "10종목" },
+      { label: "리밸런싱", value: "매주" },
+    ]));
+
+    const explicitCapitalResult = buildBuilderTurnPresentation({
+      state: {},
+      reply: "이제 언제 매도할지 정해볼까요?",
+      parsed: { ...parsed, initial_capital: 50_000_000 },
+      prompt: "초기자금 5천만원으로 시작",
+    });
+    expect(explicitCapitalResult.summaryItems).toContainEqual({
+      label: "초기 자본",
+      value: "50,000,000원",
+    });
+  });
+
+  it("asks for each former default condition before allowing a backtest", () => {
+    const explicitOptions = {
+      requireExplicitConfiguration: true,
+    };
+
+    expect(getNextMissingBacktestCondition(parsedStrategy, {
+      ...explicitOptions,
+      prompt: "",
+    })).toMatchObject({
+      field: "universe",
+      suggestions: ["코스피200", "코스피", "코스닥", "코스피+코스닥"],
+    });
+    expect(getNextMissingBacktestCondition(parsedStrategy, {
+      ...explicitOptions,
+      prompt: "코스피",
+    })).toMatchObject({
+      field: "max_positions",
+      suggestions: ["최대 5종목", "최대 10종목", "최대 20종목"],
+    });
+    expect(getNextMissingBacktestCondition(parsedStrategy, {
+      ...explicitOptions,
+      prompt: "코스피 최대 5종목",
+    })?.field).toBe("rebalancing");
+    expect(getNextMissingBacktestCondition(parsedStrategy, {
+      ...explicitOptions,
+      prompt: "코스피 최대 5종목 매월 리밸런싱",
+    })?.field).toBe("backtest_period");
+    expect(getNextMissingBacktestCondition(parsedStrategy, {
+      ...explicitOptions,
+      prompt: "코스피 최대 5종목 매월 리밸런싱 최근 5년 데이터",
+    })).toMatchObject({
+      field: "initial_capital",
+      suggestions: ["500만원", "1,000만원", "3,000만원", "5,000만원"],
+    });
+    expect(getNextMissingBacktestCondition(parsedStrategy, {
+      ...explicitOptions,
+      prompt:
+        "코스피 최대 5종목 매월 리밸런싱 최근 5년 데이터 초기 자금 1,000만원",
+    })).toBeNull();
+  });
+
+  it("uses collaborative wording for required strategy fields", () => {
+    expect(
+      makeBuilderQuestionFriendly(
+        "리밸런싱 주기가 빠져 있습니다. 포트폴리오를 얼마나 자주 다시 구성할까요?",
+      ),
+    ).toBe("다음으로 포트폴리오를 얼마나 자주 다시 구성할지 정해볼까요?");
+    expect(makeBuilderQuestionFriendly("마지막으로 청산 조건을 정해 주세요.")).toBe(
+      "이제 언제 매도할지 정하면 전략이 완성됩니다. 매도 조건을 함께 정해볼까요?",
+    );
+  });
+});
+
+describe("deterministic condition selection", () => {
+  it("applies every guided condition without another parser result", () => {
+    let current = {
+      ...incompleteParsedStrategy,
+      universe: [],
+      fundamental_filters: [],
+      entry_signals: [],
+      max_positions: 0,
+      backtest_period: "",
+      initial_capital: 0,
+    };
+    const choose = (
+      field: MissingBacktestCondition["field"],
+      choice: string,
+    ) => {
+      const result = applyDeterministicConditionChoice({
+        parsed: current,
+        condition: { field, question: "", suggestions: [choice] },
+        choice,
+      });
+      expect(result).not.toBeNull();
+      current = result!.parsed;
+      return result!;
+    };
+
+    choose("universe", "코스피+코스닥");
+    choose("entry", "RSI 30 이하에서 매수");
+    choose("exit", "RSI 70 이상에서 매도");
+    choose("max_positions", "최대 20종목");
+    const rebalancing = choose("rebalancing", "안 함");
+    choose("stop_loss", "손절 15%");
+    choose("take_profit", "익절 30%");
+    choose("backtest_period", "사용 가능한 전체 데이터");
+    choose("initial_capital", "5,000만원");
+
+    expect(current).toMatchObject({
+      universe: ["KOSPI", "KOSDAQ"],
+      max_positions: 20,
+      rebalancing_period: "none",
+      stop_loss_pct: 15,
+      take_profit_pct: 30,
+      backtest_period: "full",
+      initial_capital: 50_000_000,
+    });
+    expect(current.entry_signals).toEqual([{
+      indicator: "rsi",
+      signal_type: "buy",
+      operator: "<=",
+      value: 30,
+    }]);
+    expect(current.exit_signals).toEqual([{
+      indicator: "rsi",
+      signal_type: "sell",
+      operator: ">=",
+      value: 70,
+    }]);
+    expect(rebalancing.allowNoRebalancing).toBe(true);
+  });
+
+  it("leaves free-form choices for the parser", () => {
+    expect(
+      applyDeterministicConditionChoice({
+        parsed: incompleteParsedStrategy,
+        condition: {
+          field: "entry",
+          question: "",
+          suggestions: ["직접 입력"],
+        },
+        choice: "직접 입력",
+      }),
+    ).toBeNull();
   });
 });

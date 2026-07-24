@@ -306,6 +306,70 @@ function mergeParsedSummary(
   };
 }
 
+function shouldRemoveHallucinatedProfitGrowth(
+  prompt: string,
+  filters: ParsedSummary["fundamental_filters"]
+): boolean {
+  const compact = prompt.replace(/\s+/g, "");
+  const mentionsProfitability = compact.includes("흑자");
+  const mentionsProfitGrowth =
+    /(?:당기)?순이익(?:증가율|성장률)/.test(compact);
+  const mentionsDifferentProfitContext =
+    /(?:영업이익|영업활동?현금흐름|현금흐름).{0,3}흑자/.test(compact);
+  const mentionsProfitabilityHistory =
+    /(?:흑자|적자).{0,6}(?:전환|탈출|연속|유지|지속)|연속.{0,4}(?:흑자|적자)|턴어라운드/.test(
+      compact
+    );
+  const hasProfitableEpsFilter = filters.some(
+    (filter) =>
+      filter.metric.toLowerCase() === "eps" &&
+      filter.operator === ">" &&
+      filter.value === 0
+  );
+
+  return (
+    mentionsProfitability &&
+    !mentionsProfitGrowth &&
+    !mentionsDifferentProfitContext &&
+    !mentionsProfitabilityHistory &&
+    hasProfitableEpsFilter
+  );
+}
+
+function removeHallucinatedProfitGrowthFromParsed(
+  parsed: ParsedSummary,
+  prompt: string
+): ParsedSummary {
+  if (!shouldRemoveHallucinatedProfitGrowth(prompt, parsed.fundamental_filters)) {
+    return parsed;
+  }
+
+  return {
+    ...parsed,
+    fundamental_filters: parsed.fundamental_filters.filter(
+      (filter) => filter.metric.toLowerCase() !== "net_income_growth"
+    ),
+  };
+}
+
+function removeHallucinatedProfitGrowthFromRequest(
+  request: StrategyBacktestRequest | null,
+  shouldRemove: boolean
+): StrategyBacktestRequest | null {
+  if (!request || !shouldRemove || !request.entry?.conditions) return request;
+
+  return {
+    ...request,
+    entry: {
+      ...request.entry,
+      conditions: request.entry.conditions.filter((condition) => {
+        const id = typeof condition.id === "string" ? condition.id.toLowerCase() : "";
+        return id.replace(/_filter$/, "") !== "net_income_growth";
+      }),
+    },
+  };
+}
+
 function mergeBacktestRequest(
   previous: StrategyBacktestRequest | null | undefined,
   next: StrategyBacktestRequest | null | undefined,
@@ -342,11 +406,23 @@ export function mergeStrategyModification(params: {
   // 모두 제거/백엔드 이관했다.
   const riskOverrides = params.riskOverrides ?? null;
 
-  const parsed = mergeParsedSummary(params.nextParsed, riskOverrides);
-  const backtestRequest = mergeBacktestRequest(
+  const mergedParsed = mergeParsedSummary(params.nextParsed, riskOverrides);
+  const shouldRemoveProfitGrowth = shouldRemoveHallucinatedProfitGrowth(
+    params.userPrompt,
+    mergedParsed.fundamental_filters
+  );
+  const parsed = removeHallucinatedProfitGrowthFromParsed(
+    mergedParsed,
+    params.userPrompt
+  );
+  const mergedBacktestRequest = mergeBacktestRequest(
     params.previousBacktestRequest,
     params.nextBacktestRequest,
     riskOverrides
+  );
+  const backtestRequest = removeHallucinatedProfitGrowthFromRequest(
+    mergedBacktestRequest,
+    shouldRemoveProfitGrowth
   );
 
   return {

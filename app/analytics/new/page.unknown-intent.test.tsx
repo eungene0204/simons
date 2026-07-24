@@ -197,7 +197,7 @@ describe("StrategyLab unknown intent fallback", () => {
       }
       if (url === "/api/strategy/parse/stream") {
         const body = JSON.parse(String(init?.body));
-        expect(body.prompt).toBe("익절 20%");
+        expect(body.prompt).toContain("익절 20%");
         const completedParsed = { ...parsed, take_profit_pct: 20 };
         const completedRequest = {
           ...backtestRequest,
@@ -243,13 +243,16 @@ describe("StrategyLab unknown intent fallback", () => {
 
     render(<StrategyLabPage />);
     fireEvent.change(await screen.findByRole("textbox"), {
-      target: { value: "샤프지수를 최대화할 수 있는 전략을 만들어줘" },
+      target: {
+        value:
+          "샤프지수를 최대화할 수 있는 전략을 만들어줘. 최대 5종목, 매월 리밸런싱, 최근 5년 데이터, 초기 자금 1,000만원",
+      },
     });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
     fireEvent.click(await screen.findByRole("button", { name: "코스피" }));
     expect(
       await screen.findByText(
-        "익절 기준이 빠져 있습니다. 익절 기준을 몇 %로 설정할까요?",
+        "이제 익절 기준을 몇 %로 정할까요?",
       ),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "익절 10%" })).toBeInTheDocument();
@@ -259,6 +262,9 @@ describe("StrategyLab unknown intent fallback", () => {
     expect(screen.queryByText(/현재 상태로도 백테스트를 실행할 수 있습니다/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "백테스트 시작하기" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "익절 20%" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "이 전략으로 확정" }),
+    );
     fireEvent.click(await screen.findByRole("button", { name: "손절라인" }));
     fireEvent.click(await screen.findByRole("button", { name: /\d+(?:\.\d+)? ~ \d+(?:\.\d+)?/ }));
     fireEvent.click(await screen.findByRole("button", { name: "이 범위로 계산" }));

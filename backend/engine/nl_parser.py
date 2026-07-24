@@ -2913,6 +2913,7 @@ def _extract_capital_amount(user_input: str, *, allow_bare: bool = False) -> Opt
     오인하지 않도록 단위가 명시된 표현만 인정한다(allow_bare=False).
     """
     compact = _compact(user_input)
+    compact = re.sub(r"(?<=\d),(?=\d)", "", compact)
     # 거래대금/시가총액 필터의 '억' 수치를 초기자금으로 오인하지 않도록 먼저 제거한다.
     compact = _strip_amount_filter_phrases(compact)
     match = re.search(r"(\d+(?:\.\d+)?)억(?:(\d+(?:\.\d+)?)천?만)?", compact)

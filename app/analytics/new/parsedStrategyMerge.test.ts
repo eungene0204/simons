@@ -32,6 +32,68 @@ const previousParsed: ParsedSummary = {
 };
 
 describe("mergeStrategyModification", () => {
+  it("작년도 흑자종목은 EPS 양수 조건만 남기고 순이익증가율 환각을 제거한다", () => {
+    const result = mergeStrategyModification({
+      previousParsed: null,
+      nextParsed: {
+        ...previousParsed,
+        description: "작년도 흑자종목을 매수 하는 전략",
+        fundamental_filters: [
+          { metric: "net_income_growth", operator: ">=", value: 100 },
+          { metric: "eps", operator: ">", value: 0 },
+        ],
+      },
+      nextBacktestRequest: {
+        universe_id: "kospi200",
+        entry: {
+          conditions: [
+            {
+              type: "filter",
+              id: "net_income_growth",
+              params: { operator: ">=", value: 100 },
+            },
+            {
+              type: "filter",
+              id: "eps",
+              params: { operator: ">", value: 0 },
+            },
+          ],
+        },
+        risk: { max_positions: 10, init_cash: 10000000 },
+        period: "5y",
+      },
+      userPrompt: "작년도 흑자종목을 매수 하는 전략",
+    });
+
+    expect(result.parsed.fundamental_filters).toEqual([
+      { metric: "eps", operator: ">", value: 0 },
+    ]);
+    expect(result.backtestRequest?.entry?.conditions).toEqual([
+      {
+        type: "filter",
+        id: "eps",
+        params: { operator: ">", value: 0 },
+      },
+    ]);
+  });
+
+  it("사용자가 흑자와 순이익증가율을 모두 명시하면 두 조건을 유지한다", () => {
+    const filters = [
+      { metric: "net_income_growth", operator: ">=", value: 100 },
+      { metric: "eps", operator: ">", value: 0 },
+    ];
+    const result = mergeStrategyModification({
+      previousParsed: null,
+      nextParsed: {
+        ...previousParsed,
+        fundamental_filters: filters,
+      },
+      userPrompt: "흑자 기업 중 순이익증가율 100% 이상인 종목",
+    });
+
+    expect(result.parsed.fundamental_filters).toEqual(filters);
+  });
+
   it("백테스트 기간만 바꾸는 요청에서는 기존 진입/청산 조건을 유지한다", () => {
     // 백엔드가 권위 있게 병합해 내려주므로(요청 안 된 진입/청산·손절은 이전 값 그대로),
     // next는 기간만 바뀐 완전한 전략이다. 프론트는 그대로 신뢰한다.

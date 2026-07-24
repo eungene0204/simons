@@ -86,6 +86,13 @@ import {
 } from "./chatNavigation";
 import { selectClassifierHistory } from "./chatHistory";
 import { applyParsedValueStrategySeed } from "./builderSeed";
+import {
+  buildBuilderTurnPresentation,
+  getDisplayBuilderProgressItems,
+  type BuilderProgressItem,
+  type BuilderSummaryItem,
+} from "./builderProgressPresentation";
+import { applyDeterministicConditionChoice } from "./deterministicConditionFlow";
 
 const BacktestDashboard = dynamic(
   () => import("@/components/strategy/backtest/BacktestDashboard"),
@@ -124,6 +131,15 @@ interface ChatMessage {
   infoText?: string;  // 일반 투자 답변 또는 전략 전환 안내
   infoSuggestions?: string[];  // 전략 빌더 옵션 칩(클릭 시 그 답으로 전송)
   builderQuestion?: boolean;  // 복원 후에도 진행 중인 빌더 질문임을 식별
+  builderPresentation?: {
+    summaryItems: BuilderSummaryItem[];
+    progressItems: BuilderProgressItem[];
+  };
+  strategyConfirmation?: boolean;
+  confirmationPrevious?: {
+    parsed: ParsedSummary;
+    allowNoRebalancing: boolean;
+  };
   // 전략 요약을 막지 않는 보정 안내(예: 초기자금 하한선 보정). 요약 카드와 함께 표시된다.
   notices?: string[];
 }
@@ -228,6 +244,26 @@ function getSingleAssetBuilderContext(
       : "KOSPI_KOSDAQ";
 
   return { symbol, label, builderUniverse };
+}
+
+function withSingleAssetSummaryLabel(
+  presentation: NonNullable<ChatMessage["builderPresentation"]>,
+  parsed: ParsedSummary,
+  backtestRequest: {
+    target_stocks?: Array<{ symbol: string; name?: string }> | null;
+  } | null | undefined,
+) {
+  const singleAssetContext = getSingleAssetBuilderContext(parsed, backtestRequest);
+  if (!singleAssetContext) return presentation;
+
+  return {
+    ...presentation,
+    summaryItems: presentation.summaryItems.map((item) =>
+      item.label === "유니버스"
+        ? { ...item, value: singleAssetContext.label }
+        : item,
+    ),
+  };
 }
 
 function buildSingleAssetBuilderPrompt(
@@ -424,6 +460,8 @@ const MIN_VALIDATION_DELAY_MS = 2400;
 const FREE_INPUT_CHIP = "직접 입력";
 const NO_REBALANCING_CHIP = "안 함";
 const BUILDER_BACK_CHIP = "뒤로가기";
+const CONFIRM_STRATEGY_CHIP = "이 전략으로 확정";
+const CONFIRMATION_BACK_CHIP = "돌아가기";
 
 function withFreeInputSuggestion(suggestions: string[] | undefined): string[] | undefined {
   if (!suggestions?.length || suggestions.includes(FREE_INPUT_CHIP)) return suggestions;
@@ -831,6 +869,91 @@ function ParsedSummaryBubble({
   );
 }
 
+function BuilderStrategyOverview({
+  presentation,
+}: {
+  presentation: NonNullable<ChatMessage["builderPresentation"]>;
+}) {
+  return (
+    <div className="pb-2" data-testid="builder-strategy-summary">
+      <section aria-label="현재까지 이해한 전략">
+        <p className="text-[11px] font-black tracking-wide text-amber-200">
+          현재까지 이해한 전략
+        </p>
+        {presentation.summaryItems.length > 0 ? (
+          <dl className="mt-2 space-y-1.5">
+            {presentation.summaryItems.map((item) => (
+              <div key={`${item.label}-${item.value}`} className="flex gap-2 text-xs leading-relaxed">
+                <dt className="w-16 flex-shrink-0 font-bold text-gray-500">
+                  {item.label}
+                </dt>
+                <dd className="flex flex-wrap items-center gap-1.5 font-bold text-gray-200">
+                  <span>{item.value}</span>
+                </dd>
+              </div>
+            ))}
+          </dl>
+        ) : (
+          <p className="mt-1.5 text-xs font-bold text-gray-300">
+            첫 조건부터 하나씩 함께 정해보겠습니다.
+          </p>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function StrategyProgressPanel({ items }: { items: BuilderProgressItem[] }) {
+  const completedCount = items.filter((item) => item.complete).length;
+  const displayItems = getDisplayBuilderProgressItems(items);
+
+  return (
+    <aside
+      aria-label="전략 진행률"
+      aria-live="polite"
+      className="relative z-20 w-full max-w-4xl rounded-2xl border border-white/[0.08] bg-[#101010] p-4 xl:fixed xl:right-4 xl:top-[calc(var(--top-menu-bar-height,76px)+5rem)] xl:w-40 xl:max-w-none 2xl:w-56"
+      data-testid="strategy-progress-panel"
+    >
+      <div className="flex items-end justify-between gap-3">
+        <h2 className="font-outfit text-xs font-black uppercase tracking-widest text-gray-300">
+          전략 진행률
+        </h2>
+        <span className="font-outfit text-[10px] font-black tabular-nums text-gray-500">
+          {completedCount}/{items.length}
+        </span>
+      </div>
+      <ol className="mt-3 flex flex-col gap-2" data-testid="strategy-progress-list">
+        {displayItems.map((item) => (
+          <li
+            key={item.label}
+            aria-label={`${item.label}: ${item.complete ? "완료" : "진행 전"}`}
+            className={`flex items-center gap-2 text-xs font-bold transition-colors duration-200 ${
+              item.complete ? "text-emerald-300" : "text-gray-500"
+            }`}
+            data-complete={item.complete ? "true" : "false"}
+            data-progress-label={item.label}
+          >
+            {item.complete ? (
+              <CheckCircle
+                aria-hidden="true"
+                className="flex-shrink-0 text-emerald-400"
+                size={15}
+                weight="fill"
+              />
+            ) : (
+              <span
+                aria-hidden="true"
+                className="h-[15px] w-[15px] flex-shrink-0 rounded-full border border-white/20"
+              />
+            )}
+            <span>{item.label}</span>
+          </li>
+        ))}
+      </ol>
+    </aside>
+  );
+}
+
 function StrategyLabContent() {
   const router = useRouter();
   const pathname = usePathname();
@@ -881,7 +1004,7 @@ function StrategyLabContent() {
   const builderStateRef = useRef<Record<string, any>>({});
   const builderHistoryRef = useRef<Array<Record<string, any>>>([]);
   const applyBuilderConfirmedStrategyRef =
-    useRef<(data: BuilderConfirmedData) => void>();
+    useRef<(data: BuilderConfirmedData, currentPrompt?: string) => void>();
   const pendingHoldingPeriodPromptRef = useRef<string | null>(null);
   const pendingHoldingPeriodHorizonRef = useRef<HoldingPeriodHorizon | null>(null);
   const pendingMetricResearchPromptRef = useRef<string | null>(null);
@@ -1101,75 +1224,102 @@ function StrategyLabContent() {
     return () => window.cancelAnimationFrame(animationFrame);
   }, [shouldShowChatInput, stage, result]);
 
-  // period 제안 텍스트 → { parsed: backtest_period 값, options: currentOptions.period 값 }
-  // 매칭되지 않으면 null 반환 (AI 파싱 필요)
-  const resolvePeriodSuggestion = (text: string): { parsed: string; options: string } | "keep" | null => {
-    if (/\d+년.*그대로 진행/.test(text)) return "keep";        // 현재 기간 유지
-    if (/^1년/.test(text))   return { parsed: "1y",   options: "1Y"  };
-    if (/^3년/.test(text))   return { parsed: "3y",   options: "3Y"  };
-    if (/^5년/.test(text))   return { parsed: "5y",   options: "5Y"  };
-    if (text === "전체 데이터") return { parsed: "full", options: "ALL" };
-    return null;
-  };
-
   const handleSuggestionClick = (text: string) => {
     if (text === BUILDER_BACK_CHIP) {
       void handleBuilderBack();
       return;
     }
 
-    const currentParsed = latestParsedRef.current ?? latestParsed;
-    if (
-      text === NO_REBALANCING_CHIP &&
-      getNextMissingBacktestCondition(currentParsed)?.field === "rebalancing"
-    ) {
-      explicitNoRebalancingRef.current = true;
-      setExplicitNoRebalancing(true);
-      handleSend("리밸런싱 안 함");
+    const latestAssistant = [...messages]
+      .reverse()
+      .find((message) => message.role === "assistant");
+    if (latestAssistant?.strategyConfirmation && text === CONFIRM_STRATEGY_CHIP) {
+      void confirmDeterministicStrategy();
+      return;
+    }
+    if (latestAssistant?.strategyConfirmation && text === CONFIRMATION_BACK_CHIP) {
+      returnToPreviousCondition(latestAssistant);
       return;
     }
 
-    const periodResult = resolvePeriodSuggestion(text);
+    const currentParsed = latestParsedRef.current ?? latestParsed;
+    const promptContext = getStrategyPromptContext();
+    const missingCondition = getNextMissingBacktestCondition(currentParsed, {
+      allowNoRebalancing: explicitNoRebalancingRef.current,
+      prompt: promptContext,
+      requireExplicitConfiguration: true,
+    });
+    const deterministicChoice = currentParsed && missingCondition &&
+      latestAssistant?.clarificationSuggestions?.includes(text)
+      ? applyDeterministicConditionChoice({
+          parsed: currentParsed,
+          condition: missingCondition,
+          choice: text,
+        })
+      : null;
 
-    if (periodResult === null) {
-      // period 제안이 아님 → 기존 AI 파싱 경로
+    if (!deterministicChoice) {
       handleSend(text);
       return;
     }
 
-    // period 제안: AI 없이 직접 적용
-    const updatedParsed = latestParsed
-      ? {
-          ...latestParsed,
-          backtest_period: periodResult === "keep"
-            ? latestParsed.backtest_period
-            : periodResult.parsed,
-        }
-      : latestParsed;
+    const userChoice = missingCondition.field === "rebalancing" &&
+      text === NO_REBALANCING_CHIP
+      ? "리밸런싱 안 함"
+      : text;
+    const nextPromptContext = [promptContext, userChoice].filter(Boolean).join("\n");
+    const previousAllowNoRebalancing = explicitNoRebalancingRef.current;
+    const allowNoRebalancing = missingCondition.field === "rebalancing"
+      ? deterministicChoice.allowNoRebalancing === true
+      : previousAllowNoRebalancing;
+    explicitNoRebalancingRef.current = allowNoRebalancing;
+    setExplicitNoRebalancing(allowNoRebalancing);
+    latestParsedRef.current = deterministicChoice.parsed;
+    setLatestParsed(deterministicChoice.parsed);
 
-    if (updatedParsed) setLatestParsed(updatedParsed);
+    const nextMissingCondition = getNextMissingBacktestCondition(
+      deterministicChoice.parsed,
+      {
+        allowNoRebalancing,
+        prompt: nextPromptContext,
+        requireExplicitConfiguration: true,
+      },
+    );
+    const nextQuestion = nextMissingCondition?.question ??
+      "모든 조건을 정했습니다. 현재까지의 전략을 확인하고 확정해 주세요.";
+    const nextPresentation = withSingleAssetSummaryLabel(
+      buildBuilderTurnPresentation({
+        state: {},
+        reply: nextQuestion,
+        parsed: deterministicChoice.parsed,
+        prompt: nextPromptContext,
+      }),
+      deterministicChoice.parsed,
+      backtestReqRef.current ?? backtestReq,
+    );
 
-    if (periodResult !== "keep") {
-      setCurrentOptions((prev: any) => ({ ...prev, period: periodResult.options }));
-      if (backtestReq) setBacktestReq((prev: any) => ({ ...prev, period: periodResult.options }));
-    }
-
-    // 메시지: 사용자 선택 버블 추가 + 마지막 assistant 메시지의 parsed 업데이트 + clarification 제거
-    setMessages(prev => {
-      const msgs = [...prev];
-      for (let i = msgs.length - 1; i >= 0; i--) {
-        if (msgs[i].role === "assistant" && msgs[i].parsed) {
-          msgs[i] = {
-            ...msgs[i],
-            parsed: updatedParsed ?? msgs[i].parsed,
-            clarification: undefined,
-            clarificationSuggestions: undefined,
-          };
-          break;
-        }
-      }
-      return [...msgs, { role: "user", content: text }];
-    });
+    setMessages((previousMessages) => [
+      ...previousMessages,
+      { role: "user", content: userChoice },
+      {
+        role: "assistant",
+        parsed: deterministicChoice.parsed,
+        clarification: nextPresentation.question,
+        clarificationSuggestions: nextMissingCondition?.suggestions ??
+          [CONFIRM_STRATEGY_CHIP, CONFIRMATION_BACK_CHIP],
+        builderPresentation: {
+          summaryItems: nextPresentation.summaryItems,
+          progressItems: nextPresentation.progressItems,
+        },
+        strategyConfirmation: nextMissingCondition === null,
+        confirmationPrevious: nextMissingCondition === null
+          ? {
+              parsed: currentParsed,
+              allowNoRebalancing: previousAllowNoRebalancing,
+            }
+          : undefined,
+      },
+    ]);
   };
 
   const focusFreeTextInput = () => {
@@ -1214,6 +1364,15 @@ function StrategyLabContent() {
     }
     return null;
   };
+
+  const getStrategyPromptContext = (currentPrompt = "") => [
+    ...messages
+      .filter((message) => message.role === "user" && message.content)
+      .map((message) => message.content as string),
+    currentPrompt,
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   // Start the builder immediately. For a recognized single asset, prefill its
   // universe internally and move straight to the entry-condition question.
@@ -1306,8 +1465,9 @@ function StrategyLabContent() {
           infoText: undefined,
           infoSuggestions: undefined,
           builderQuestion: false,
+          builderPresentation: undefined,
         });
-        applyBuilderConfirmedStrategyRef.current(confirmedData);
+        applyBuilderConfirmedStrategyRef.current(confirmedData, seedText);
         return;
       }
       const activeResearchMetric = researchMetric ?? researchMetricRef.current;
@@ -1326,13 +1486,23 @@ function StrategyLabContent() {
         builderStateRef.current,
         builderHistoryRef.current.length > 0,
       );
+      const {
+        question,
+        ...builderPresentation
+      } = buildBuilderTurnPresentation({
+        state: builderStateRef.current,
+        reply,
+        parsed: seedParsed ?? latestParsedRef.current,
+        prompt: getStrategyPromptContext(seedText),
+      });
       updateLastAssistant({
         isLoading: false,
         infoText: activeResearchMetric
-          ? `${buildResearchMetricIntro(activeResearchMetric)}\n\n${reply}`
-          : reply,
+          ? `${buildResearchMetricIntro(activeResearchMetric)}\n\n${question}`
+          : question,
         infoSuggestions: suggestions?.length ? suggestions : undefined,
         builderQuestion: true,
+        builderPresentation,
       });
     } catch {
       // 호출 실패 시 거절하지 않는다 — 빌더 모드는 유지되어 다음 입력부터 정상 진행된다.
@@ -1350,11 +1520,20 @@ function StrategyLabContent() {
       const fallbackQuestion = singleAssetContext
         ? `${singleAssetContext.label} 단일 종목 전략으로 설정했습니다. 어떤 진입 조건을 사용할까요?`
         : "어떤 시장을 대상으로 할까요?";
+      const {
+        question,
+        ...builderPresentation
+      } = buildBuilderTurnPresentation({
+        state: builderStateRef.current,
+        reply: fallbackQuestion,
+        parsed: seedParsed ?? latestParsedRef.current,
+        prompt: getStrategyPromptContext(seedText),
+      });
       updateLastAssistant({
         isLoading: false,
         infoText: activeResearchMetric
-          ? `${buildResearchMetricIntro(activeResearchMetric)}\n\n${fallbackQuestion}`
-          : fallbackQuestion,
+          ? `${buildResearchMetricIntro(activeResearchMetric)}\n\n${question}`
+          : question,
         infoSuggestions: singleAssetContext
           ? withBuilderNavigationSuggestions(
               ["골든크로스", "MACD", "돌파", "거래량 급증", "과매도 반등", FREE_INPUT_CHIP],
@@ -1363,6 +1542,7 @@ function StrategyLabContent() {
             )
           : undefined,
         builderQuestion: true,
+        builderPresentation,
       });
     }
   };
@@ -1391,15 +1571,25 @@ function StrategyLabContent() {
         builderStateRef.current = {};
         builderHistoryRef.current = [];
       }
+      const {
+        question,
+        ...builderPresentation
+      } = buildBuilderTurnPresentation({
+        state: builderStateRef.current,
+        reply: data.reply,
+        parsed: latestParsedRef.current,
+        prompt: getStrategyPromptContext(),
+      });
       updateLastAssistant({
         isLoading: false,
-        infoText: data.reply,
+        infoText: question,
         infoSuggestions: withBuilderNavigationSuggestions(
           data.suggestions,
           builderStateRef.current,
           builderHistoryRef.current.length > 0,
         ),
         builderQuestion: data.status !== "exited",
+        builderPresentation: data.status !== "exited" ? builderPresentation : undefined,
       });
     } catch {
       builderHistoryRef.current.push(previousState);
@@ -1708,18 +1898,31 @@ function StrategyLabContent() {
       });
       setStage("ready");
 
-      let presentedClarification = presentStrategyClarification({
-        prompt: promptText,
-        parsed: nextParsed,
-        backendQuestion: parsedPayload.clarification_question,
-        backendSuggestions: parsedPayload.clarification_suggestions,
+      const promptContext = getStrategyPromptContext(promptText);
+      const explicitMissingCondition = getNextMissingBacktestCondition(nextParsed, {
+        prompt: promptContext,
+        requireExplicitConfiguration: true,
       });
+      let presentedClarification = explicitMissingCondition
+        ? {
+            question: explicitMissingCondition.question,
+            suggestions: explicitMissingCondition.suggestions,
+            missingCondition: explicitMissingCondition,
+          }
+        : presentStrategyClarification({
+            prompt: promptContext,
+            parsed: nextParsed,
+            backendQuestion: parsedPayload.clarification_question,
+            backendSuggestions: parsedPayload.clarification_suggestions,
+          });
       if (
         explicitNoRebalancingRef.current &&
         presentedClarification?.missingCondition?.field === "rebalancing"
       ) {
         const nextMissingCondition = getNextMissingBacktestCondition(nextParsed, {
           allowNoRebalancing: true,
+          prompt: promptContext,
+          requireExplicitConfiguration: true,
         });
         presentedClarification = nextMissingCondition
           ? {
@@ -1729,7 +1932,15 @@ function StrategyLabContent() {
             }
           : null;
       }
-      const clarificationText = presentedClarification?.question ?? null;
+      const clarificationTurn = presentedClarification
+        ? buildBuilderTurnPresentation({
+            state: {},
+            reply: presentedClarification.question,
+            parsed: nextParsed,
+            prompt: promptContext,
+          })
+        : null;
+      const clarificationText = clarificationTurn?.question ?? null;
       const clarificationSuggestions = presentedClarification?.suggestions;
       parseClarification = clarificationText;
       shouldRouteSingleAssetToBuilder = shouldContinueWithSingleAssetBuilder(
@@ -1756,6 +1967,12 @@ function StrategyLabContent() {
         parsed: nextParsed,
         clarification: clarificationText ?? undefined,
         clarificationSuggestions: clarificationText ? clarificationSuggestions : undefined,
+        builderPresentation: clarificationTurn
+          ? {
+              summaryItems: clarificationTurn.summaryItems,
+              progressItems: clarificationTurn.progressItems,
+            }
+          : undefined,
         notices: parsedPayload.notices?.length ? parsedPayload.notices : undefined,
       });
     };
@@ -1816,10 +2033,57 @@ function StrategyLabContent() {
     maybeStartCoachValidation();
   };
 
+  const confirmDeterministicStrategy = async () => {
+    if (isSending || stage === "running") return;
+
+    const completedPrompt = getStrategyPromptContext();
+    setBuilderFreeTextRequested(false);
+    setIsSending(true);
+    appendUserMessage(CONFIRM_STRATEGY_CHIP);
+    await appendAssistant({ role: "assistant", isLoading: true });
+
+    try {
+      await runStrategyParseFlow(completedPrompt, null, null);
+    } catch (error) {
+      updateLastAssistant({
+        isLoading: false,
+        error: error instanceof Error ? error.message : "전략 확정에 실패했습니다.",
+      });
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const returnToPreviousCondition = (confirmation: ChatMessage) => {
+    const previous = confirmation.confirmationPrevious;
+    if (!previous) return;
+
+    setBuilderFreeTextRequested(false);
+    latestParsedRef.current = previous.parsed;
+    setLatestParsed(previous.parsed);
+    explicitNoRebalancingRef.current = previous.allowNoRebalancing;
+    setExplicitNoRebalancing(previous.allowNoRebalancing);
+    setMessages((previousMessages) => {
+      const confirmationIndex = previousMessages.length - 1;
+      const selectedConditionIndex = previousMessages
+        .slice(0, confirmationIndex)
+        .map((message, index) => (message.role === "user" ? index : -1))
+        .filter((index) => index >= 0)
+        .at(-1);
+
+      return previousMessages.filter(
+        (_, index) => index !== confirmationIndex && index !== selectedConditionIndex,
+      );
+    });
+  };
+
   // [전략별 특화 빌더] 빌더가 DSL을 직접 구성해 내려준 완성 전략을 한국어 재파싱 왕복 없이
   // 그대로 적용한다(파라미터 유실 방지). parsed는 ParsedStrategy dump = ParsedSummary와 동형,
   // backtest_request는 엔진 요청. runStrategyParseFlow.finalizeParse의 적용부와 동일한 효과.
-  const applyBuilderConfirmedStrategy = (data: BuilderConfirmedData) => {
+  const applyBuilderConfirmedStrategy = (
+    data: BuilderConfirmedData,
+    currentPrompt = "",
+  ) => {
     coachSessionIdRef.current = null;
     setLatestParsed(data.parsed);
     setBacktestReq(data.backtest_request);
@@ -1830,17 +2094,30 @@ function StrategyLabContent() {
       slippagePct: 0.05,
     });
     setStage("ready");
+    const promptContext = getStrategyPromptContext(currentPrompt);
     const missingCondition = getNextMissingBacktestCondition(data.parsed, {
       allowNoRebalancing: explicitNoRebalancingRef.current,
+      prompt: promptContext,
+      requireExplicitConfiguration: true,
     });
     if (missingCondition) {
+      const {
+        question,
+        ...builderPresentation
+      } = buildBuilderTurnPresentation({
+        state: {},
+        reply: missingCondition.question,
+        parsed: data.parsed,
+        prompt: promptContext,
+      });
       updateLastAssistant({
         isLoading: false,
         infoText: undefined,
         infoSuggestions: undefined,
         parsed: data.parsed,
-        clarification: missingCondition.question,
+        clarification: question,
         clarificationSuggestions: missingCondition.suggestions,
+        builderPresentation,
         notices: data.notices?.length ? data.notices : undefined,
       });
       return;
@@ -2014,6 +2291,7 @@ function StrategyLabContent() {
             infoText: undefined,
             infoSuggestions: undefined,
             builderQuestion: false,
+            builderPresentation: undefined,
           });
           try {
             const singleAssetContext = getSingleAssetBuilderContext(
@@ -2030,6 +2308,7 @@ function StrategyLabContent() {
                       currentBacktestReq,
                     )
                   : data,
+                userText,
               );
               builderStateRef.current = {};
               builderHistoryRef.current = [];
@@ -2073,15 +2352,25 @@ function StrategyLabContent() {
         if (data.status !== "reset" && data.status !== "exited") {
           builderHistoryRef.current.push({ ...requestState });
         }
+        const {
+          question,
+          ...builderPresentation
+        } = buildBuilderTurnPresentation({
+          state: builderStateRef.current,
+          reply: data.reply,
+          parsed: currentParsed,
+          prompt: getStrategyPromptContext(userText),
+        });
         updateLastAssistant({
           isLoading: false,
-          infoText: data.reply,
+          infoText: question,
           infoSuggestions: withBuilderNavigationSuggestions(
             data.suggestions,
             builderStateRef.current,
             builderHistoryRef.current.length > 0,
           ),
           builderQuestion: data.status !== "exited",
+          builderPresentation: data.status !== "exited" ? builderPresentation : undefined,
         });
       } catch {
         // 빌더 호출 실패 시 거절하지 않고 자연스럽게 다시 묻는다.
@@ -2665,6 +2954,18 @@ function StrategyLabContent() {
   const isLlmWorking = isSending;
   const hasChatStarted = messages.length > 0;
   const isLastAssistant = (i: number) => i === messages.length - 1 && messages[i].role === "assistant";
+  const latestAssistantMessage = [...messages]
+    .reverse()
+    .find((message) => message.role === "assistant");
+  const latestBuilderPresentation = [...messages]
+    .reverse()
+    .find((message) => message.builderPresentation)?.builderPresentation;
+  const activeStrategyProgressItems =
+    latestBuilderPresentation &&
+    (latestAssistantMessage?.builderQuestion === true ||
+      Boolean(latestAssistantMessage?.builderPresentation))
+      ? latestBuilderPresentation.progressItems
+      : null;
 
   // ── 메인 채팅 화면
   return (
@@ -2713,6 +3014,10 @@ function StrategyLabContent() {
         style={{ minHeight: "calc(100vh - var(--top-menu-bar-height, 76px))" }}
       >
         {shouldShowIntro && <StrategyWaveBackground />}
+
+        {activeStrategyProgressItems && (
+          <StrategyProgressPanel items={activeStrategyProgressItems} />
+        )}
 
         {/* ── 채팅 영역 ── */}
         <div
@@ -2783,6 +3088,9 @@ function StrategyLabContent() {
                             className={`max-w-[88%] rounded-tl-sm p-3.5 space-y-2 ${COACH_CHAT_BUBBLE_CLASS}`}
                             style={SOFT_MESSAGE_ENTER_STYLE}
                           >
+                            {msg.builderPresentation && (
+                              <BuilderStrategyOverview presentation={msg.builderPresentation} />
+                            )}
                             <p className="text-sm font-bold text-white leading-relaxed whitespace-pre-line">
                               {msg.infoText}
                             </p>
@@ -2790,28 +3098,35 @@ function StrategyLabContent() {
                               <MetricOptimizationProgressIndicator progress={metricOptimizationProgress} />
                             )}
                             {isLastAssistant(i) && msg.infoSuggestions && msg.infoSuggestions.length > 0 && (
-                              <div className="flex flex-wrap gap-2 pt-1">
-                                {msg.infoSuggestions.map((suggestion) => (
-                                  <button
-                                    key={suggestion}
-                                    onClick={() => {
-                                      if (suggestion === CANCEL_METRIC_OPTIMIZATION_CHIP) {
-                                        metricOptimizationAbortRef.current?.abort();
-                                        return;
-                                      }
-                                      // '직접 입력'은 빌더 답변이 아니라 입력창을 다시 띄우는 토글이다.
-                                      if (suggestion === FREE_INPUT_CHIP) {
-                                        focusFreeTextInput();
-                                        return;
-                                      }
-                                      handleSuggestionClick(suggestion);
-                                    }}
-                                    className="px-3 py-1.5 rounded-lg bg-[#171717] border border-white/10 hover:border-yellow-400/50 hover:bg-[#202020] text-xs font-bold text-gray-300 transition-all duration-200 text-left"
-                                  >
-                                    {suggestion}
-                                  </button>
-                                ))}
-                                {shouldShowMovingAverageHelp(msg) && <MovingAverageTypeHelp />}
+                              <div className="space-y-1.5 pt-1">
+                                {msg.builderPresentation && (
+                                  <p className="text-[10px] font-black tracking-wide text-gray-500">
+                                    선택 예시
+                                  </p>
+                                )}
+                                <div className="flex flex-wrap gap-2">
+                                  {msg.infoSuggestions.map((suggestion) => (
+                                    <button
+                                      key={suggestion}
+                                      onClick={() => {
+                                        if (suggestion === CANCEL_METRIC_OPTIMIZATION_CHIP) {
+                                          metricOptimizationAbortRef.current?.abort();
+                                          return;
+                                        }
+                                        // '직접 입력'은 빌더 답변이 아니라 입력창을 다시 띄우는 토글이다.
+                                        if (suggestion === FREE_INPUT_CHIP) {
+                                          focusFreeTextInput();
+                                          return;
+                                        }
+                                        handleSuggestionClick(suggestion);
+                                      }}
+                                      className="px-3 py-1.5 rounded-lg bg-[#171717] border border-white/10 hover:border-yellow-400/50 hover:bg-[#202020] text-xs font-bold text-gray-300 transition-all duration-200 text-left"
+                                    >
+                                      {suggestion}
+                                    </button>
+                                  ))}
+                                  {shouldShowMovingAverageHelp(msg) && <MovingAverageTypeHelp />}
+                                </div>
                               </div>
                             )}
                           </div>
@@ -2843,8 +3158,11 @@ function StrategyLabContent() {
                             {isLastAssistant(i) && !msg.coachLoading && msg.clarification && (
                               <div
                                 className="flex flex-col gap-2.5 p-3.5 rounded-xl bg-[#111111] border border-white/10"
-                                style={SOFT_MESSAGE_ENTER_LATE_STYLE}
-                              >
+                              style={SOFT_MESSAGE_ENTER_LATE_STYLE}
+                            >
+                                {msg.builderPresentation && (
+                                  <BuilderStrategyOverview presentation={msg.builderPresentation} />
+                                )}
                                 <div className="flex items-start gap-2.5">
                                   <Question size={13} className="text-yellow-400 flex-shrink-0 mt-0.5" weight="fill" />
                                   <p className="text-xs font-bold text-gray-300 leading-relaxed whitespace-pre-line">
@@ -2852,25 +3170,31 @@ function StrategyLabContent() {
                                   </p>
                                 </div>
                                 {msg.clarificationSuggestions && msg.clarificationSuggestions.length > 0 && (
-                                  <div className="flex flex-wrap gap-2 pl-6">
-                                    {msg.clarificationSuggestions.map((suggestion) => (
-                                      <button
-                                        key={suggestion}
-                                        onClick={() => handleSuggestionClick(suggestion)}
-                                        className="px-3 py-1.5 rounded-lg bg-[#171717] border border-white/10 hover:border-yellow-400/50 hover:bg-[#202020] text-xs font-bold text-gray-300 transition-all duration-200 text-left"
-                                      >
-                                        {suggestion}
-                                      </button>
-                                    ))}
-                                    {!msg.clarificationSuggestions.includes(FREE_INPUT_CHIP) && (
-                                      <button
-                                        type="button"
-                                        onClick={focusFreeTextInput}
-                                        className="px-3 py-1.5 rounded-lg bg-[#171717] border border-white/10 hover:border-yellow-400/50 hover:bg-[#202020] text-xs font-bold text-gray-300 transition-all duration-200 text-left"
-                                      >
-                                        {FREE_INPUT_CHIP}
-                                      </button>
-                                    )}
+                                  <div className="space-y-1.5 pl-6">
+                                    <p className="text-[10px] font-black tracking-wide text-gray-500">
+                                      {msg.strategyConfirmation ? "전략 확인" : "선택 예시"}
+                                    </p>
+                                    <div className="flex flex-wrap gap-2">
+                                      {msg.clarificationSuggestions.map((suggestion) => (
+                                        <button
+                                          key={suggestion}
+                                          onClick={() => handleSuggestionClick(suggestion)}
+                                          className="px-3 py-1.5 rounded-lg bg-[#171717] border border-white/10 hover:border-yellow-400/50 hover:bg-[#202020] text-xs font-bold text-gray-300 transition-all duration-200 text-left"
+                                        >
+                                          {suggestion}
+                                        </button>
+                                      ))}
+                                      {!msg.strategyConfirmation &&
+                                        !msg.clarificationSuggestions.includes(FREE_INPUT_CHIP) && (
+                                        <button
+                                          type="button"
+                                          onClick={focusFreeTextInput}
+                                          className="px-3 py-1.5 rounded-lg bg-[#171717] border border-white/10 hover:border-yellow-400/50 hover:bg-[#202020] text-xs font-bold text-gray-300 transition-all duration-200 text-left"
+                                        >
+                                          {FREE_INPUT_CHIP}
+                                        </button>
+                                      )}
+                                    </div>
                                   </div>
                                 )}
                               </div>
@@ -2922,10 +3246,14 @@ function StrategyLabContent() {
                         {isLastAssistant(i) &&
                           backtestReq &&
                           stage !== "running" &&
+                          !isSending &&
+                          !msg.isLoading &&
                           !msg.clarification &&
                           runButtonPlacement(msg) !== null &&
                           isBacktestReady(msg.parsed ?? latestParsed, {
                             allowNoRebalancing: explicitNoRebalancing,
+                            prompt: getStrategyPromptContext(),
+                            requireExplicitConfiguration: true,
                           }) && (
                             <div
                               className="flex max-w-[88%] px-1"

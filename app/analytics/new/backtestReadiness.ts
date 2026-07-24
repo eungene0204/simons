@@ -7,17 +7,64 @@
 import type { ParsedSummary } from "@/lib/strategy-summary";
 
 export type MissingBacktestCondition = {
-  field: "universe" | "entry" | "exit" | "rebalancing" | "stop_loss" | "take_profit";
+  field:
+    | "universe"
+    | "entry"
+    | "exit"
+    | "max_positions"
+    | "rebalancing"
+    | "stop_loss"
+    | "take_profit"
+    | "backtest_period"
+    | "initial_capital";
   question: string;
   suggestions: string[];
 };
 
 export type BacktestReadinessOptions = {
   allowNoRebalancing?: boolean;
+  prompt?: string;
+  requireExplicitConfiguration?: boolean;
 };
 
 function nonEmpty(value: unknown): boolean {
   return Array.isArray(value) ? value.length > 0 : Boolean(value);
+}
+
+export function hasExplicitUniverse(
+  prompt: string,
+  parsed?: ParsedSummary | null,
+): boolean {
+  return Boolean(
+    parsed?.target_symbols?.length ||
+    /코스피\s*200|코스피|코스닥|KOSPI\s*200|KOSPI|KOSDAQ|ETF|유니버스|투자\s*대상|대상\s*(?:시장|종목)/i.test(
+      prompt,
+    ),
+  );
+}
+
+export function hasExplicitMaxPositions(prompt: string): boolean {
+  return /(?:최대|상위)\s*\d+\s*(?:개|종목)|\d+\s*(?:개\s*)?종목|보유\s*(?:종목\s*)?\d+/i.test(
+    prompt,
+  );
+}
+
+export function hasExplicitRebalancing(prompt: string): boolean {
+  return /리밸런싱|리밸런스|종목\s*교체|매일|매주|매월|월마다|분기(?:마다)?|매년|연간|안\s*함|하지\s*않/i.test(
+    prompt,
+  );
+}
+
+export function hasExplicitBacktestPeriod(prompt: string): boolean {
+  return /백테스트\s*(?:기간\s*)?(?:\d+\s*(?:년|개월|일)|전체)|최근\s*\d+\s*(?:년|개월|일)|전체\s*(?:기간|데이터)|전\s*기간|\d{4}\s*년?\s*(?:부터|~|-)/i.test(
+    prompt,
+  );
+}
+
+export function hasExplicitInitialCapital(prompt: string): boolean {
+  return /(?:초기\s*(?:자금|자본)|투자\s*(?:금액|자금|자본)|시드\s*머니)\s*(?:은|을|:)?\s*\d[\d,]*(?:\.\d+)?\s*(?:조|억|천만|백만|만|천)?\s*원?|\d[\d,]*(?:\.\d+)?\s*(?:조|억|천만|백만|만|천)?\s*원/i.test(
+    prompt,
+  );
 }
 
 export function getNextMissingBacktestCondition(
@@ -28,7 +75,7 @@ export function getNextMissingBacktestCondition(
     return {
       field: "universe",
       question: "대상 시장·종목이 빠져 있습니다. 어떤 시장·종목을 대상으로 할까요?",
-      suggestions: ["코스피200 대상으로", "코스피 대상으로", "코스닥 대상으로"],
+      suggestions: ["코스피200", "코스피", "코스닥", "코스피+코스닥"],
     };
   }
   const hasUniverse =
@@ -44,16 +91,21 @@ export function getNextMissingBacktestCondition(
     nonEmpty(parsed.exit_signals) || Boolean(parsed.hold_period_days) || hasRebalancing;
   const hasStop = parsed.stop_loss_pct != null && parsed.stop_loss_pct > 0;
   const hasTake = parsed.take_profit_pct != null && parsed.take_profit_pct > 0;
+  const hasMaxPositions = parsed.max_positions != null && parsed.max_positions > 0;
+  const hasBacktestPeriod = nonEmpty(parsed.backtest_period);
+  const hasInitialCapital = parsed.initial_capital != null && parsed.initial_capital > 0;
   // 단독 종목이 아니면(유니버스/다종목) 리밸런싱 주기도 필수다(단독 종목은 교체가 없어 제외).
   const isSingleAsset = nonEmpty(parsed.target_symbols);
   const rebalancingOk =
     isSingleAsset || hasRebalancing || options.allowNoRebalancing === true;
+  const prompt = options.prompt ?? "";
+  const requireExplicit = options.requireExplicitConfiguration === true;
 
-  if (!hasUniverse) {
+  if (!hasUniverse || (requireExplicit && !hasExplicitUniverse(prompt, parsed))) {
     return {
       field: "universe",
       question: "대상 시장·종목이 빠져 있습니다. 어떤 시장·종목을 대상으로 할까요?",
-      suggestions: ["코스피200 대상으로", "코스피 대상으로", "코스닥 대상으로"],
+      suggestions: ["코스피200", "코스피", "코스닥", "코스피+코스닥"],
     };
   }
   if (!hasEntry) {
@@ -70,7 +122,20 @@ export function getNextMissingBacktestCondition(
       suggestions: ["데드크로스 발생 시 매도", "20일 보유 후 청산", "RSI 70 이상에서 매도"],
     };
   }
-  if (!rebalancingOk) {
+  if (
+    !hasMaxPositions ||
+    (requireExplicit && !isSingleAsset && !hasExplicitMaxPositions(prompt))
+  ) {
+    return {
+      field: "max_positions",
+      question: "포트폴리오에 최대 몇 종목을 담을까요?",
+      suggestions: ["최대 5종목", "최대 10종목", "최대 20종목"],
+    };
+  }
+  if (
+    !rebalancingOk ||
+    (requireExplicit && !isSingleAsset && !hasExplicitRebalancing(prompt))
+  ) {
     return {
       field: "rebalancing",
       question:
@@ -90,6 +155,31 @@ export function getNextMissingBacktestCondition(
       field: "take_profit",
       question: "익절 기준이 빠져 있습니다. 익절 기준을 몇 %로 설정할까요?",
       suggestions: ["익절 10%", "익절 20%", "익절 30%"],
+    };
+  }
+  if (
+    !hasBacktestPeriod ||
+    (requireExplicit && !hasExplicitBacktestPeriod(prompt))
+  ) {
+    return {
+      field: "backtest_period",
+      question: "어느 기간의 과거 데이터로 백테스트할까요?",
+      suggestions: [
+        "최근 1년 데이터",
+        "최근 3년 데이터",
+        "최근 5년 데이터",
+        "사용 가능한 전체 데이터",
+      ],
+    };
+  }
+  if (
+    !hasInitialCapital ||
+    (requireExplicit && !hasExplicitInitialCapital(prompt))
+  ) {
+    return {
+      field: "initial_capital",
+      question: "초기 투자 자금을 얼마로 설정할까요?",
+      suggestions: ["500만원", "1,000만원", "3,000만원", "5,000만원"],
     };
   }
   return null;
