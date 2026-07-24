@@ -15,8 +15,8 @@ _spec.loader.exec_module(scheduler)
 KST = pytz.timezone("Asia/Seoul")
 
 
-def _kst(y, m, d):
-    return KST.localize(datetime(y, m, d, 9, 0))
+def _kst(y, m, d, hour=9, minute=0):
+    return KST.localize(datetime(y, m, d, hour, minute))
 
 
 def test_last_expected_trading_day_monday_is_previous_friday():
@@ -52,6 +52,43 @@ def test_is_data_stale_false_when_up_to_date(monkeypatch):
 def test_is_data_stale_true_when_no_data(monkeypatch):
     monkeypatch.setattr(scheduler, "_newest_data_date", lambda: None)
     assert scheduler._is_data_stale(_kst(2026, 6, 22)) is True
+
+
+# ── 시각 인지 sync 시점(21:00 KST 당일 종가, 2026-07-25 00:00→21:00 전환) ──────────
+
+
+def test_last_expected_trading_day_before_sync_time_still_expects_previous_day():
+    # 화요일 09:00(21:00 sync 전) → 당일분은 아직 안 왔을 시간대이므로 기대치는 월요일
+    assert scheduler._last_expected_trading_day(_kst(2026, 6, 23, 9, 0)).isoformat() == "2026-06-22"
+
+
+def test_last_expected_trading_day_at_sync_time_expects_today():
+    # 화요일 21:00 정각(sync 시각 도달) → 당일 종가가 기대치
+    assert scheduler._last_expected_trading_day(_kst(2026, 6, 23, 21, 0)).isoformat() == "2026-06-23"
+
+
+def test_last_expected_trading_day_after_sync_time_expects_today():
+    # 화요일 23:00(sync 완료 이후) → 여전히 당일 종가가 기대치
+    assert scheduler._last_expected_trading_day(_kst(2026, 6, 23, 23, 0)).isoformat() == "2026-06-23"
+
+
+def test_last_expected_trading_day_friday_evening_expects_friday():
+    # 금요일 22:00 → 당일(금) 종가 기대. 주말로 넘어가지 않는다.
+    assert scheduler._last_expected_trading_day(_kst(2026, 6, 19, 22, 0)).isoformat() == "2026-06-19"
+
+
+def test_is_data_stale_false_right_after_sync_time_with_todays_data(monkeypatch):
+    from datetime import date
+    # 21:05에 당일(06-23) 데이터가 이미 있으면(방금 sync 완료) not stale
+    monkeypatch.setattr(scheduler, "_newest_data_date", lambda: date(2026, 6, 23))
+    assert scheduler._is_data_stale(_kst(2026, 6, 23, 21, 5)) is False
+
+
+def test_is_data_stale_true_when_past_sync_time_without_todays_data(monkeypatch):
+    from datetime import date
+    # 22:00인데 아직 어제(06-22) 데이터뿐이면 오늘 sync가 안 된 것 — stale(캐치업 필요)
+    monkeypatch.setattr(scheduler, "_newest_data_date", lambda: date(2026, 6, 22))
+    assert scheduler._is_data_stale(_kst(2026, 6, 23, 22, 0)) is True
 
 
 # ── 미러/정본 분기 ────────────────────────────────────────────────

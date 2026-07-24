@@ -90,6 +90,32 @@ def test_strategy_modification_is_strategy_not_pick(query):
 
 
 @pytest.mark.parametrize(
+    "query",
+    [
+        "ess 관련 투자",          # 실측 사고: LLM 일반답변으로 새서 ESS 정의를 환각(2026-07-24)
+        "2차전지 관련 투자",
+        "반도체 관련주",
+        "원자로 테마주",
+    ],
+)
+def test_theme_invest_mention_routes_to_strategy(query):
+    # 테마/업종 '관련 투자' 언급은 전략 동사가 없어도 투자 아이디어 제시다 — 일반 지식
+    # 답변이 아니라 전략 설계로 라우팅해 빌더 시드 → 용어 그라운딩 체인(FR-STR-069/070)을
+    # 관통시킨다.
+    result = classify(query)  # llm 없이도 결정적으로
+    assert result.intent == QueryIntent.STRATEGY_ADVICE
+    assert result.deterministic is True
+
+
+def test_theme_invest_guards_keep_existing_routes():
+    # 열린 추천 요청은 기존 STOCK_PICK 리다이렉트 유지("AI 관련주 추천해 주세요" —
+    # 위 test_open_stock_pick_is_redirected가 계약), 종목명+행동 질문은 STOCK_ANALYSIS 유지,
+    # 정의형 질문은 전략 설계로 가로채지 않는다.
+    assert classify("삼성전자 관련주 살까?").intent == QueryIntent.STOCK_ANALYSIS
+    assert classify("ESS 관련주가 뭐야?").intent != QueryIntent.STRATEGY_ADVICE
+
+
+@pytest.mark.parametrize(
     "raw,corrected",
     [
         ("종목은 5게", "종목은 5개"),

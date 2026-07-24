@@ -265,7 +265,7 @@ const HOLDING_PERIOD_PROMPTS = {
 } as const;
 
 const MODIFICATION_REQUEST_PATTERN =
-  /(?:바꾸|변경|수정|고치|교체|다른|새로|설정|옵션|종류|선택|원하|싶|보여|알려)/i;
+  /(?:바꾸|바꿔|바꿀|변경|수정|고치|고쳐|교체|다른|새로|설정|옵션|종류|선택|원하|싶|보여|알려)/i;
 const EXPLICIT_KEEP_OR_REMOVE_PATTERN =
   /(?:없애|삭제|제거|해제|빼|그대로|유지|하지\s*마|필요\s*없)/i;
 const EXPLICIT_ENTRY_SIGNAL_PATTERN =
@@ -277,9 +277,30 @@ const EXPLICIT_UNIVERSE_PATTERN =
 const EXPLICIT_PORTFOLIO_PATTERN =
   /(?:\d[\d,]*\s*(?:개|종목|거래일|일|주|개월|년|원|만원|억)|매일|매주|주간|매월|월간|분기|매년|연간|리밸런싱\s*없음)/i;
 const EXPLICIT_RISK_PATTERN = /(?:\d+(?:\.\d+)?\s*%)/;
+// 영역 미지정 되묻기("조건을 변경할 수 있어?")의 통과 조건 — 구체 영역·필드·값이 하나라도
+// 언급되면 기존 영역별 되묻기/수정 파싱 경로에 맡긴다.
+const EXPLICIT_CONDITION_TARGET_PATTERN = new RegExp(
+  [
+    EXPLICIT_ENTRY_SIGNAL_PATTERN.source,
+    EXPLICIT_EXIT_SIGNAL_PATTERN.source,
+    EXPLICIT_UNIVERSE_PATTERN.source,
+    EXPLICIT_PORTFOLIO_PATTERN.source,
+    EXPLICIT_RISK_PATTERN.source,
+    /(?:진입|매수|청산|매도|유니버스|시장|업종|섹터|테마|포트폴리오|종목|손절|익절|트레일링|낙폭|mdd|보유|리밸런싱|초기\s*자금|자본|수수료|슬리피지|백테스트|기간|배당|시총|매출|이익|부채)/
+      .source,
+  ].join("|"),
+  "i",
+);
 
 export type ModificationClarification = {
-  area: "entry_signal" | "universe" | "exit_signal" | "portfolio" | "risk";
+  area:
+    | "entry_signal"
+    | "universe"
+    | "exit_signal"
+    | "portfolio"
+    | "risk"
+    | "backtest"
+    | "condition";
   topic: Topic;
   reason: string;
   message: string;
@@ -290,6 +311,84 @@ const MODIFICATION_CLARIFICATIONS: Array<ModificationClarification & {
   topicPattern: RegExp;
   explicitPattern: RegExp;
 }> = [
+  // ── 필드 언급+값 없음("손절 바꿔줘") ──────────────────────────────────────
+  // 값이 없으면 백엔드 LLM diff가 전부 null이라 무변경 전략만 재렌더링되므로,
+  // 값 칩(백엔드 결정론 fast-path가 처리하는 완결 지시문)으로 되묻는다. 익절은
+  // buildTakeProfitPercentagePrompt가 이미 담당하므로 여기 없다. 영역·catch-all
+  // 항목보다 앞이어야 한다(구체 필드 우선 매칭).
+  {
+    area: "risk",
+    topic: "risk",
+    topicPattern: /(?:손절|스탑\s*로스|스톱\s*로스|stop\s*loss)/i,
+    explicitPattern: /\d/,
+    reason: "missing_stop_loss_value",
+    message: "손절 기준을 몇 %로 변경할까요? 아래에서 선택하거나 원하는 값을 직접 입력해 주세요.",
+    suggestions: ["손절을 5%로 변경", "손절을 10%로 변경", "손절을 15%로 변경", "직접 입력"],
+  },
+  {
+    area: "risk",
+    topic: "risk",
+    topicPattern: /(?:트레일링|trailing)/i,
+    explicitPattern: /\d/,
+    reason: "missing_trailing_stop_value",
+    message: "트레일링 스탑 기준을 몇 %로 변경할까요? 아래에서 선택하거나 원하는 값을 직접 입력해 주세요.",
+    suggestions: ["트레일링 스탑을 5%로 변경", "트레일링 스탑을 10%로 변경", "직접 입력"],
+  },
+  {
+    area: "risk",
+    topic: "risk",
+    topicPattern: /(?:mdd|최대\s*낙폭|낙폭|드로우?\s*다운)/i,
+    explicitPattern: /\d/,
+    reason: "missing_mdd_limit_value",
+    message: "MDD 한도를 몇 %로 변경할까요? 아래에서 선택하거나 원하는 값을 직접 입력해 주세요.",
+    suggestions: ["MDD 20% 한도로 변경", "MDD 30% 한도로 변경", "직접 입력"],
+  },
+  {
+    area: "portfolio",
+    topic: "strategy",
+    topicPattern: /(?:종목\s*수(?!익)|보유\s*종목|동시\s*보유)/i,
+    explicitPattern: /\d/,
+    reason: "missing_max_positions_value",
+    message: "최대 보유 종목 수를 몇 종목으로 변경할까요? 아래에서 선택하거나 원하는 수를 직접 입력해 주세요.",
+    suggestions: ["최대 5종목으로 변경", "최대 10종목으로 변경", "최대 20종목으로 변경", "직접 입력"],
+  },
+  {
+    area: "portfolio",
+    topic: "strategy",
+    topicPattern: /(?:보유\s*기간|홀딩\s*기간|보유\s*일수)/i,
+    explicitPattern: /\d/,
+    reason: "missing_hold_period_value",
+    message: "보유 기간을 며칠로 변경할까요? 아래에서 선택하거나 원하는 기간을 직접 입력해 주세요.",
+    suggestions: ["20일 보유로 변경", "60일 보유로 변경", "직접 입력"],
+  },
+  {
+    area: "portfolio",
+    topic: "strategy",
+    topicPattern: /(?:리밸런싱|리밸런스|재조정)/i,
+    explicitPattern: /(?:\d|매일|매주|주간|매월|월간|월별|분기|반기|매년|연간|없)/,
+    reason: "missing_rebalancing_value",
+    message: "리밸런싱 주기를 어떻게 변경할까요? 아래에서 선택하거나 원하는 주기를 직접 입력해 주세요.",
+    suggestions: ["매월 리밸런싱으로 변경", "분기 리밸런싱으로 변경", "매년 리밸런싱으로 변경", "직접 입력"],
+  },
+  {
+    area: "portfolio",
+    topic: "strategy",
+    topicPattern: /(?:초기\s*자금|초기\s*자본|투자금|자본금|시드)/i,
+    explicitPattern: /\d/,
+    reason: "missing_initial_capital_value",
+    message: "초기자금을 얼마로 변경할까요? 아래에서 선택하거나 원하는 금액을 직접 입력해 주세요.",
+    suggestions: ["초기자금 1000만원으로 변경", "초기자금 3000만원으로 변경", "초기자금 1억원으로 변경", "직접 입력"],
+  },
+  {
+    area: "backtest",
+    topic: "backtest",
+    topicPattern: /(?:백테스트|테스트)\s*기간/i,
+    explicitPattern: /(?:\d|전체)/,
+    reason: "missing_backtest_period_value",
+    message: "백테스트 기간을 어떻게 변경할까요? 아래에서 선택하거나 원하는 기간을 직접 입력해 주세요.",
+    suggestions: ["백테스트 기간을 3년으로 변경", "백테스트 기간을 5년으로 변경", "백테스트 전체 기간으로 변경", "직접 입력"],
+  },
+  // ── 영역 언급("진입 신호를 바꾸고 싶어") ─────────────────────────────────
   {
     area: "entry_signal",
     topic: "strategy",
@@ -334,6 +433,19 @@ const MODIFICATION_CLARIFICATIONS: Array<ModificationClarification & {
     reason: "missing_risk_definition",
     message: "어떤 리스크 설정을 변경할까요? 아래 옵션을 선택하거나 원하는 기준을 직접 입력해 주세요.",
     suggestions: ["손절을 10%로 변경", "익절을 20%로 변경", "트레일링 스탑을 10%로 변경", "MDD 20% 한도로 변경", "직접 입력"],
+  },
+  // 영역 미지정 조건 변경("조건을 변경할 수 있어?") — 어느 영역 topicPattern에도 안 걸려
+  // 수정 파싱으로 흘러가면 LLM diff가 전부 null이라 무변경 전략만 조용히 재렌더링된다.
+  // 반드시 마지막 항목이어야 한다(영역이 언급되면 위의 구체 되묻기가 먼저 매칭).
+  // 칩은 영역 문구라 클릭 시 위의 영역별 되묻기로 이어지는 2단계 플로우다.
+  {
+    area: "condition",
+    topic: "strategy",
+    topicPattern: /(?:조건|설정|옵션|항목|파라미터|세팅)/i,
+    explicitPattern: EXPLICIT_CONDITION_TARGET_PATTERN,
+    reason: "missing_condition_target",
+    message: "네, 조건을 변경할 수 있어요. 어떤 조건을 바꿀까요? 아래에서 선택하거나 원하는 변경 내용을 직접 입력해 주세요.",
+    suggestions: ["진입 신호 변경", "청산 신호 변경", "유니버스 변경", "포트폴리오 설정 변경", "리스크 설정 변경", "직접 입력"],
   },
 ];
 

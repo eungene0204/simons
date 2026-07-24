@@ -84,3 +84,18 @@ def test_generic_industry_words_stay_unrecognized():
     # 실제 비섹터 문장이 섹터로 오인식되지 않는다.
     assert _extract_sector("투자금 1억으로 바꿔줘") is None
     assert _extract_sector("데이터 3년 백테스트") is None
+
+
+def test_kg_seed_terms_resolve_with_sector_cue_only():
+    """어휘 밖 테마어(ESS·SMR·HBM)는 업종 큐 동반 시 지식그래프 시드로 결정적 해석된다
+    (FR-STR-070 — 'ess 관련 투자'가 파싱 경로에서 조용히 소실되던 실측 사고 방지).
+    큐 없는 개념 언급은 업종 제한으로 오폭하지 않는다."""
+    from engine.nl_parser import _extract_sector, _mentioned_unsupported_concepts
+
+    assert _extract_sector("ess 관련 투자") == "이차전지"
+    assert _extract_sector("SMR 관련주 전략") == "에너지/원자력"
+    assert _extract_sector("HBM 테마로 전략 만들어줘") == "반도체"
+    # 추출 성공 → 미지원 sector 안내도 자연히 빠진다(기존 억제 로직 관통)
+    assert "sector" not in _mentioned_unsupported_concepts("ess 관련 투자")
+    # 큐 없는 개념 언급(조건 서술)은 섹터로 오인식하지 않는다
+    assert _extract_sector("금리가 오르면 매수하는 전략") is None

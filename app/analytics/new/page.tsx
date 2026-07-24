@@ -137,8 +137,9 @@ interface ChatMessage {
   coachLoading?: boolean;  // coach response is being generated
   isLoading?: boolean;
   // 분석 로딩 단계: 'parsing'(NL 파서 규칙 파싱) → 'thinking'(LLM 처리) → 'validating'(LLM 검증).
+  // 'searching'은 빌더의 용어 그라운딩이 인터넷 검색에 진입했을 때(FR-STR-069).
   // 미설정이면 기본 '분석 중...'을 표시한다(빌더/분류 등 비파싱 로딩).
-  loadingStage?: "parsing" | "thinking" | "validating";
+  loadingStage?: "parsing" | "thinking" | "validating" | "searching";
   error?: string;
   infoText?: string;  // 일반 투자 답변 또는 전략 전환 안내
   infoSuggestions?: string[];  // 전략 빌더 옵션 칩(클릭 시 그 답으로 전송)
@@ -566,11 +567,67 @@ function ShimmerStatusText({
 
 // 분석 로딩 단계별 표시 문구. 미설정이면 기본 '분석 중...'.
 // validating: 룰 파싱이 애매해 LLM 검증기를 호출하는 동안 표시(ShimmerStatusText 애니메이션).
-const ANALYSIS_STAGE_LABEL: Record<"parsing" | "thinking" | "validating", string> = {
+// searching: 빌더 용어 그라운딩이 인터넷 검색으로 낯선 테마 용어를 학습하는 동안 표시.
+const ANALYSIS_STAGE_LABEL: Record<"parsing" | "thinking" | "validating" | "searching", string> = {
   parsing: "파싱 중...",
   thinking: "생각 중...",
   validating: "검증 중...",
+  searching: "검색 중...",
 };
+
+// 빌더 스텝 호출 — 프록시가 SSE(text/event-stream)를 돌려주면 stage 이벤트('searching' =
+// 인터넷 검색 그라운딩 진입, FR-STR-069)를 onStage로 알리고 최종 result 데이터를 반환한다.
+// JSON 응답(테스트 mock 등)은 기존 계약대로 그대로 반환해 호출부 코드가 동일하게 동작한다.
+async function requestBuilderStepData(
+  payload: Record<string, any>,
+  onStage?: (stage: string) => void,
+): Promise<any> {
+  const res = await fetch("/api/strategy/builder/step", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error();
+  const contentType = res.headers?.get?.("content-type") ?? "";
+  if (!contentType.includes("text/event-stream") || !res.body) {
+    return res.json();
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: any = null;
+  let errorDetail: string | null = null;
+
+  const handlePayload = (raw: string) => {
+    if (raw === "[DONE]") return;
+    let evt: any;
+    try {
+      evt = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (evt.type === "stage" && evt.stage) onStage?.(evt.stage);
+    else if (evt.type === "result") result = evt.data;
+    else if (evt.type === "error") errorDetail = evt.detail ?? "빌더 응답 실패";
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
+    const blocks = buffer.split(/\r?\n\r?\n/);
+    buffer = done ? "" : blocks.pop() ?? "";
+    for (const block of blocks) {
+      const line = block.split(/\r?\n/).find(l => l.startsWith("data: "));
+      if (line) handlePayload(line.slice(6).trim());
+    }
+    if (done) break;
+  }
+
+  if (errorDetail !== null) throw new Error(errorDetail);
+  if (result === null) throw new Error();
+  return result;
+}
 
 function PulsingDot({ className = "" }: { className?: string }) {
   return (
@@ -586,7 +643,7 @@ function AnalysisStatusBubble({
   stage,
 }: {
   title?: string;
-  stage?: "parsing" | "thinking" | "validating";
+  stage?: "parsing" | "thinking" | "validating" | "searching";
 }) {
   const label = stage ? ANALYSIS_STAGE_LABEL[stage] : "분석 중...";
   return (
@@ -1572,28 +1629,25 @@ function StrategyLabContent() {
       seedBacktestRequest ?? backtestReqRef.current,
     );
     try {
-      const requestBuilderStep = (state: Record<string, any>) => fetch("/api/strategy/builder/step", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          state,
-          input: "",
-          seed: seedText,
-          ...(seedParsed ? { seed_parsed: seedParsed } : {}),
-        }),
-      });
+      // 시드에 낯선 테마 용어가 있으면 백엔드가 인터넷 검색 그라운딩에 진입할 수 있다 —
+      // stage:'searching' 이벤트가 오면 로딩 버블을 '검색 중...'으로 바꾼다.
+      const onBuilderStage = (stage: string) => {
+        if (stage === "searching") updateLastAssistant({ isLoading: true, loadingStage: "searching" });
+      };
+      const requestBuilderStep = (state: Record<string, any>) => requestBuilderStepData({
+        state,
+        input: "",
+        seed: seedText,
+        ...(seedParsed ? { seed_parsed: seedParsed } : {}),
+      }, onBuilderStage);
 
       const initialState = builderStateRef.current;
-      const res = await requestBuilderStep(initialState);
-      if (!res.ok) throw new Error();
-      let data = await res.json();
+      let data = await requestBuilderStep(initialState);
       let nextState = mergeBuilderState(initialState, data.state);
 
       const valueStrategyState = applyParsedValueStrategySeed(nextState, seedParsed);
       if (valueStrategyState !== nextState && data.status !== "confirmed") {
-        const nextRes = await requestBuilderStep(valueStrategyState);
-        if (!nextRes.ok) throw new Error();
-        data = await nextRes.json();
+        data = await requestBuilderStep(valueStrategyState);
         nextState = mergeBuilderState(valueStrategyState, data.state);
       }
 
@@ -1608,9 +1662,7 @@ function StrategyLabContent() {
           holding_count: 1,
           rebalance_cycle: nextState.rebalance_cycle ?? "none",
         };
-        const nextRes = await requestBuilderStep(singleAssetState);
-        if (!nextRes.ok) throw new Error();
-        data = await nextRes.json();
+        data = await requestBuilderStep(singleAssetState);
         nextState = mergeBuilderState(singleAssetState, data.state);
       }
 
@@ -1731,13 +1783,12 @@ function StrategyLabContent() {
     await appendAssistant({ role: "assistant", isLoading: true, builderQuestion: true });
 
     try {
-      const res = await fetch("/api/strategy/builder/step", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ state: previousState, input: "" }),
-      });
-      if (!res.ok) throw new Error();
-      const data = await res.json();
+      const data = await requestBuilderStepData(
+        { state: previousState, input: "" },
+        (stage) => {
+          if (stage === "searching") updateLastAssistant({ isLoading: true, loadingStage: "searching" });
+        },
+      );
       builderStateRef.current = mergeBuilderState(previousState, data.state);
       if (data.status === "exited") {
         builderModeRef.current = false;
@@ -2470,13 +2521,14 @@ function StrategyLabContent() {
     if (turnDecision.action === "continue_builder") {
       try {
         const requestState = builderStateRef.current;
-        const res = await fetch("/api/strategy/builder/step", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ state: requestState, input: userText }),
-        });
-        if (!res.ok) throw new Error();
-        const data = await res.json();
+        // 답변에 낯선 테마 용어가 있으면(업종 되묻기 답 등) 검색 그라운딩에 진입할 수
+        // 있다 — stage:'searching' 수신 시 '검색 중...' 표시.
+        const data = await requestBuilderStepData(
+          { state: requestState, input: userText },
+          (stage) => {
+            if (stage === "searching") updateLastAssistant({ isLoading: true, loadingStage: "searching" });
+          },
+        );
         builderStateRef.current =
           data.status === "reset" || data.status === "exited"
             ? data.state ?? {}

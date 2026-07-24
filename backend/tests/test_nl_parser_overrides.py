@@ -3329,6 +3329,21 @@ STRATEGY_UI_SETTING_SUGGESTIONS = [
     ("익절을 20%로 변경", "take_profit_pct", 20.0),
     ("트레일링 스탑을 10%로 변경", "trailing_stop_pct", 10.0),
     ("MDD 20% 한도로 변경", "max_mdd_limit_pct", 20.0),
+    # 필드 언급+값 없음 되묻기("손절 바꿔줘")의 값 칩(FR-STR-019f ⑥ 필드 층).
+    ("손절을 5%로 변경", "stop_loss_pct", 5.0),
+    ("손절을 15%로 변경", "stop_loss_pct", 15.0),
+    ("트레일링 스탑을 5%로 변경", "trailing_stop_pct", 5.0),
+    ("MDD 30% 한도로 변경", "max_mdd_limit_pct", 30.0),
+    ("최대 10종목으로 변경", "max_positions", 10),
+    ("최대 20종목으로 변경", "max_positions", 20),
+    ("60일 보유로 변경", "hold_period_days", 60),
+    ("매월 리밸런싱으로 변경", "rebalancing_period", "monthly"),
+    ("매년 리밸런싱으로 변경", "rebalancing_period", "yearly"),
+    ("초기자금 3000만원으로 변경", "initial_capital", 30_000_000.0),
+    ("초기자금 1억원으로 변경", "initial_capital", 100_000_000.0),
+    ("백테스트 기간을 3년으로 변경", "backtest_period", "3y"),
+    ("백테스트 기간을 5년으로 변경", "backtest_period", "5y"),
+    ("백테스트 전체 기간으로 변경", "backtest_period", "full"),
 ]
 
 
@@ -3364,7 +3379,15 @@ def test_strategy_ui_exposes_only_suggestions_covered_by_backend_contract():
             STRATEGY_UI_SIGNAL_SUGGESTIONS + STRATEGY_UI_SETTING_SUGGESTIONS
         )
     }
-    assert exposed == covered
+    # 영역 미지정 되묻기("조건을 변경할 수 있어?")의 영역 선택 칩 — 클릭 시 프론트
+    # getModificationClarification이 다시 가로채 영역별 되묻기로 이어지므로 백엔드에
+    # 도달하지 않는다(conversationDecision.test.ts가 가로챔을 검증한다).
+    frontend_intercepted = {
+        "진입 신호 변경", "청산 신호 변경", "유니버스 변경",
+        "포트폴리오 설정 변경", "리스크 설정 변경",
+    }
+    assert frontend_intercepted <= exposed
+    assert exposed - frontend_intercepted == covered
 
 
 def test_unsupported_concept_notice_names_all_concepts():

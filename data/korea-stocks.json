@@ -1186,7 +1186,7 @@
     "symbol": "079550",
     "name": "LIG디펜스앤에어로스페이스",
     "market": "KOSPI",
-    "sector": "수산",
+    "sector": "우주항공/방산",
     "industry": "무기 및 총포탄 제조업"
   },
   {
@@ -4021,7 +4021,7 @@
     "symbol": "010820",
     "name": "퍼스텍",
     "market": "KOSPI",
-    "sector": "기타 제조업",
+    "sector": "우주항공/방산",
     "industry": "무기 및 총포탄 제조업"
   },
   {
@@ -4147,7 +4147,7 @@
     "symbol": "006980",
     "name": "우성",
     "market": "KOSPI",
-    "sector": "식품/음료",
+    "sector": "사료/축산",
     "industry": "곡물가공품, 전분 및 전분제품 제조업"
   },
   {
@@ -4511,7 +4511,7 @@
     "symbol": "012450",
     "name": "한화에어로스페이스",
     "market": "KOSPI",
-    "sector": "수산",
+    "sector": "우주항공/방산",
     "industry": "항공기,우주선 및 부품 제조업"
   },
   {
@@ -5925,7 +5925,7 @@
     "symbol": "0131D0",
     "name": "키움히어로제2호스팩",
     "market": "KOSDAQ",
-    "sector": "수산",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -6142,7 +6142,7 @@
     "symbol": "466690",
     "name": "키움히어로제1호스팩",
     "market": "KOSDAQ",
-    "sector": "수산",
+    "sector": "증권/보험",
     "industry": "금융 지원 서비스업"
   },
   {
@@ -6373,7 +6373,7 @@
     "symbol": "484590",
     "name": "삼양컴텍",
     "market": "KOSDAQ",
-    "sector": "기타 제조업",
+    "sector": "우주항공/방산",
     "industry": "무기 및 총포탄 제조업"
   },
   {
@@ -9873,7 +9873,7 @@
     "symbol": "274090",
     "name": "켄코아에어로스페이스",
     "market": "KOSDAQ",
-    "sector": "수산",
+    "sector": "우주항공/방산",
     "industry": "항공기,우주선 및 부품 제조업"
   },
   {
@@ -18273,7 +18273,7 @@
     "symbol": "006910",
     "name": "보성파워텍",
     "market": "KOSDAQ",
-    "sector": "사료/축산",
+    "sector": "에너지/원자력",
     "industry": "구조용 금속제품, 탱크 및 증기발생기 제조업"
   },
   {

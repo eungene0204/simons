@@ -123,13 +123,86 @@ async def strategy_builder_step(req: BuilderStepRequest) -> strategy_builder.Ste
         if req.seed:
             state = strategy_builder.seed_state(req.seed)
         state = strategy_builder.apply_parsed_seed(state, req.seed_parsed)
-    # 청산 조건 자유 입력·미해결 업종 언급은 공유 LLM 파서로 보강·해석한다.
-    risk_extractor = None
-    sector_resolver = None
-    if _llm_available():
-        risk_extractor = lambda text: strategy_builder.llm_extract_risk(text, _mlx_llm)
-        sector_resolver = lambda text: strategy_builder.llm_extract_sector(text, _mlx_llm)
+    risk_extractor, sector_resolver = _builder_llm_helpers()
     return await asyncio.to_thread(_run_builder_step, state, req.input, risk_extractor, sector_resolver)
+
+
+def _builder_llm_helpers(on_search=None):
+    """빌더 스텝용 LLM 헬퍼 쌍 → (risk_extractor, sector_resolver). LLM 없으면 (None, None).
+
+    청산 조건 자유 입력·미해결 업종 언급은 공유 LLM 파서로 보강·해석한다.
+    업종 해석은 어휘집 → 내부 지식 LLM → 인터넷 검색 그라운딩 체인(FR-STR-069) —
+    LLM이 모르는 테마 용어(ESS 등)를 검색으로 학습해 정본 섹터로 매핑하고, 결과는
+    어휘집에 영속 저장돼 같은 용어를 두 번 검색하지 않는다. on_search는 검색 그라운딩
+    실제 진입 시 1회 호출된다(SSE 경로의 '검색 중...' 진행 표시)."""
+    if not _llm_available():
+        return None, None
+    from engine.term_grounding import resolve_sector as _resolve_sector_grounded
+
+    risk_extractor = lambda text: strategy_builder.llm_extract_risk(text, _mlx_llm)
+    sector_resolver = lambda text: _resolve_sector_grounded(
+        text, _mlx_llm,
+        base_resolver=lambda t: strategy_builder.llm_extract_sector(t, _mlx_llm),
+        on_search=on_search,
+    )
+    return risk_extractor, sector_resolver
+
+
+@router.post("/strategy/builder/step-stream")
+async def strategy_builder_step_stream(req: BuilderStepRequest):
+    """빌더 한 턴을 SSE로 처리한다 — 인터넷 검색 그라운딩(FR-STR-069) 진입 시
+    {"type":"stage","stage":"searching"} 이벤트를 먼저 흘려 프론트가 '검색 중...'을
+    표시할 수 있게 한다(parse-stream의 stage_holder 폴링 패턴 재사용).
+
+    최종 결과는 {"type":"result","data":StepResult} 단일 이벤트. 결과 계약은 기존
+    POST /strategy/builder/step과 동일하다(그 엔드포인트는 호환용으로 유지)."""
+    import json as _json
+    import threading
+
+    from fastapi.responses import StreamingResponse
+
+    state = req.state
+    if strategy_builder.is_empty(state):
+        if req.seed:
+            state = strategy_builder.seed_state(req.seed)
+        state = strategy_builder.apply_parsed_seed(state, req.seed_parsed)
+
+    stage_holder: dict = {"stage": None}
+    result_holder: dict = {}
+    error_holder: dict = {}
+    risk_extractor, sector_resolver = _builder_llm_helpers(
+        on_search=lambda: stage_holder.__setitem__("stage", "searching")
+    )
+
+    def run_step():
+        try:
+            result_holder["data"] = _run_builder_step(
+                state, req.input, risk_extractor, sector_resolver
+            ).model_dump()
+        except Exception as exc:  # noqa: BLE001 — SSE로 에러 전달(스트림 중단 방지)
+            error_holder["detail"] = str(exc)
+
+    thread = threading.Thread(target=run_step, daemon=True)
+
+    async def generate():
+        thread.start()
+        emitted = None
+        while thread.is_alive():
+            if stage_holder["stage"] != emitted:
+                emitted = stage_holder["stage"]
+                yield f"data: {_json.dumps({'type': 'stage', 'stage': emitted})}\n\n"
+            await asyncio.sleep(0.1)
+        thread.join()
+        if "detail" in error_holder:
+            yield f"data: {_json.dumps({'type': 'error', 'detail': error_holder['detail']}, ensure_ascii=False)}\n\n"
+        else:
+            yield f"data: {_json.dumps({'type': 'result', 'data': result_holder.get('data')}, ensure_ascii=False)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache, no-transform",
+        "X-Accel-Buffering": "no",
+    })
 
 
 # ─── /strategy/compile ───────────────────────────────────────────────────────────
@@ -196,16 +269,19 @@ _GENERAL_SYSTEM_PROMPT = (
 )
 
 
-def _build_general_user_msg(req: GeneralQueryRequest) -> str:
+def _build_general_user_msg(req: GeneralQueryRequest, extra_facts: Optional[str] = None) -> str:
     # 설정 용어(슬리피지·수수료 등)가 언급된 개념 질문에는 실제 플랫폼 기본값을 사실로
     # 주입한다 — LLM이 "기본값은 0%" 같은 값을 지어내는 것을 막는다.
     # 기초 용어(PER·RSI 등) 정의도 사실로 주입한다 — 소형 LLM의 정의 오류(레드팀 QA
     # 6-1/7-4: "PER=주가순자산비율", "RSI 90=과매도") 방지.
+    # extra_facts: 테마 용어 검증 정의 블록(term_grounding.general_facts_block — 지식그래프/
+    # 어휘집/검색 그라운딩. ESS를 '에너지 효율성'으로 환각하던 사고 방지).
     from intent import glossary_facts
     facts_parts = [
         block for block in (
             platform_defaults.facts_block(req.query),
             glossary_facts.facts_block(req.query),
+            extra_facts,
         ) if block
     ]
     facts = "\n".join(facts_parts)
@@ -231,7 +307,20 @@ def generate_general_answer(query: str, history: list[ChatTurn] | None = None) -
     if not _llm_available():
         return None
     req = GeneralQueryRequest(query=query, history=history or [])
-    raw = _mlx_llm(_GENERAL_SYSTEM_PROMPT, _build_general_user_msg(req), max_tokens=300)
+    # 테마 용어 검증 정의 주입(FR-STR-069) — 기초 용어(glossary/기본값)가 이미 잡힌
+    # 질문은 검색 폴백을 건너뛴다(불필요한 용어 추출 LLM 호출·검색 방지).
+    extra_facts = None
+    try:
+        from intent import glossary_facts
+        from engine.term_grounding import general_facts_block
+
+        known_vocab = bool(
+            platform_defaults.facts_block(query) or glossary_facts.facts_block(query)
+        )
+        extra_facts = general_facts_block(query, _mlx_llm, allow_search=not known_vocab)
+    except Exception:  # noqa: BLE001 — 사실 주입 실패가 답변 자체를 막으면 안 된다
+        logger.debug("용어 정의 사실 주입 실패 — 주입 없이 답변", exc_info=True)
+    raw = _mlx_llm(_GENERAL_SYSTEM_PROMPT, _build_general_user_msg(req, extra_facts), max_tokens=300)
     return guardrails.sanitize(raw) or None
 
 

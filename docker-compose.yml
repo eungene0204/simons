@@ -90,7 +90,7 @@ services:
     working_dir: /app
     command: npm run start
 
-  scheduler:                      # 매일 00:00 KST OHLCV 동기화 (단일 인스턴스 — 중복 금지)
+  scheduler:                      # 매일 21:00 KST OHLCV 동기화 (단일 인스턴스 — 중복 금지)
     image: simons-app:latest
     restart: unless-stopped
     env_file: .env

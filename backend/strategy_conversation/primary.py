@@ -228,6 +228,40 @@ def _fill_deterministic_condition_params(intent: StrategyIntent, user_input: str
                 cond.value = None
 
 
+# ── 관측 로그 헬퍼 — dev 콘솔 [LLM-INTERPRETER] 흐름 추적용 ────────────────────
+def _short(value: Any) -> str:
+    """로그용 값 축약 — 긴 목록(symbols 1747개 등)은 개수로, 그 외는 100자 repr."""
+    if isinstance(value, list) and len(value) > 5:
+        return f"[{len(value)}개 목록]"
+    text = repr(value)
+    return text if len(text) <= 100 else text[:100] + "…"
+
+
+def _value_diff(before: Any, after: Any) -> str:
+    """값 쌍을 '이전 → 이후'로 요약한다. dict·같은 길이 목록은 다른 부분만 파고든다 —
+    100자 절단 repr이 차이 지점 앞에서 잘리면 diff가 무의미해지는 것 방지(rsi mode 등)."""
+    if isinstance(before, dict) and isinstance(after, dict):
+        return ", ".join(
+            f"{k}: {_value_diff(before.get(k), after.get(k))}"
+            for k in sorted(set(before) | set(after)) if before.get(k) != after.get(k)
+        )
+    if isinstance(before, list) and isinstance(after, list) and len(before) == len(after):
+        return "; ".join(
+            f"[{i}] {_value_diff(b, a)}"
+            for i, (b, a) in enumerate(zip(before, after)) if b != a
+        )
+    return f"{_short(before)} → {_short(after)}"
+
+
+def _diff_fields(before: Dict[str, Any], after: Dict[str, Any]) -> List[str]:
+    """두 model_dump의 값이 다른 최상위 필드를 '필드: 이전 → 이후'로 요약한다."""
+    return [
+        f"{key}: {_value_diff(before.get(key), after.get(key))}"
+        for key in sorted(set(before) | set(after))
+        if before.get(key) != after.get(key)
+    ]
+
+
 def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]]:
     """LLM Interpreter 기본 경로 실행. 성공 시 결과 dict, 폴백 필요 시 None.
 
@@ -281,13 +315,20 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
     except StrategyCompileError as exc:
         logger.warning("interpreter primary compile failed, falling back | err=%s", exc)
         return None
+    _log_llm("✓ 컴파일", (
+        f"{'전체' if report.is_valid else '부분'} 컴파일 — 제외 조건: {', '.join(dropped) or '없음'}"
+    ))
     # 레거시 파서와 동일한 결정적 보정 전체를 적용한다 — 명시적 날짜·지정 종목만 부분
     # 적용하던 시절, '최근 3년'→MA 365일 오귀속(QA 11-1), 익절 0.0001% 드롭(14-5),
     # 시총 100조→100억 단위 오류(24-2), 슬리피지 드롭(24-10) 등 인터프리터 LLM의 수치
     # 드리프트가 그대로 노출됐다. 프롬프트에 명시된 값만 덮어쓰므로 인터프리터 해석과
     # 충돌하지 않는다(레거시 LLM 폴백과 같은 계약).
     from engine.nl_parser import _apply_prompt_overrides
+    compiled_dump = parsed.model_dump()
     parsed = _apply_prompt_overrides(parsed, user_input)
+    override_diff = _diff_fields(compiled_dump, parsed.model_dump())
+    if override_diff:
+        _log_llm("✓ 결정적 보정", "; ".join(override_diff))
     # 보정이 결정적으로 되살린 진입/청산 조건의 되묻기 질문을 지운다 — 완성 전략을 다시
     # 되묻는 사고 방지(흑자 기업 등 LLM 누락 → eps>0 필터로 복원됐는데 진입 질문 잔존).
     _prune_clarifications_filled_by_overrides(report, parsed)
@@ -398,10 +439,17 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
         ))
     except StrategyCompileError:
         return None
-    if roundtrip.model_dump() != prev.model_dump():
-        _log_llm("↩ 폴백", "라운드트립 불일치(표현 불가 전략) — 기존 수정 경로로")
+    prev_dump = prev.model_dump()
+    roundtrip_dump = roundtrip.model_dump()
+    if roundtrip_dump != prev_dump:
+        diff = _diff_fields(prev_dump, roundtrip_dump)
+        _log_llm("↩ 폴백", (
+            "라운드트립 불일치(표현 불가 전략) — 기존 수정 경로로 | "
+            f"불일치 필드(원본 → 복원본): {'; '.join(diff)}"
+        ))
         logger.info("modify primary roundtrip mismatch, falling back to legacy modify")
         return None
+    _log_llm("✓ 라운드트립", "기존 전략의 StrategySpec 무손실 변환 확인 — 인터프리터 호출")
 
     if on_stage is not None:
         on_stage("thinking")
@@ -501,10 +549,15 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
     # 환각 게이트: 발화에 해당 필드의 cue조차 없는 패치는 지어낸 것이다 — 거부한다.
     from engine.nl_parser import _compact
     compact_input = _compact(user_input)
-    cued_patches = [p for p in intent.patches if _patch_cue_supported(p, compact_input)]
-    rejected = len(intent.patches) - len(cued_patches)
-    if rejected:
-        _log_llm("✗ 패치 거부", f"{rejected}건 — 발화에 필드 cue 없음(환각 게이트)")
+    cued_patches: List[Any] = []
+    rejected_patches: List[Any] = []
+    for p in intent.patches:
+        (cued_patches if _patch_cue_supported(p, compact_input) else rejected_patches).append(p)
+    if rejected_patches:
+        _log_llm("✗ 패치 거부", (
+            "발화에 필드 cue 없음(환각 게이트): "
+            + "; ".join(f"{p.op} {p.path}" for p in rejected_patches)
+        ))
     if not cued_patches:
         # 인터프리터가 유효 패치를 못 냈어도, 결정적 지정 종목/섹터 변경은 StrategySpec 밖이라
         # 여기서 구제한다 — 종목-only 수정("삼성전자 투자 하는 전략")은 _modify_rule_based
@@ -554,6 +607,9 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
                 "confidence": intent.confidence,
             },
         }
+    _log_llm("✓ 패치 수락", "; ".join(
+        f"{p.op} {p.path}={_short(p.value)}" for p in cued_patches
+    ))
     try:
         patched_spec = apply_patches(draft_spec, cued_patches)
     except PatchError as exc:
@@ -584,9 +640,15 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
     # 레거시 수정 경로와 동일한 결정적 보정(신호 재검증 생략·universe 보존) — 명시된
     # 수치·날짜·리스크 값은 결정적 추출이 최종 진실이다.
     from engine.nl_parser import _apply_prompt_overrides
+    compiled_dump = parsed.model_dump()
     parsed = _apply_prompt_overrides(
         parsed, user_input, skip_signal_validation=True, preserve_universe=True
     )
+    override_diff = _diff_fields(compiled_dump, parsed.model_dump())
+    if override_diff:
+        _log_llm("✓ 결정적 보정", "; ".join(override_diff))
+    final_diff = _diff_fields(prev_dump, parsed.model_dump())
+    _log_llm("✓ 수정 완료", f"변경 필드(원본 대비): {'; '.join(final_diff) or '없음'}")
 
     return {
         "parsed": parsed,

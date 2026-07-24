@@ -1621,16 +1621,34 @@ _CUE_LESS_SECTOR_RE = re.compile(
 )
 
 
+# 지식그래프 폴백용 업종 큐 — _UNSUPPORTED_CONCEPT_PATTERNS의 sector 큐와 동일 어휘.
+# 큐 없는 개념 언급("금리가 오르면 매수")이 업종 제한으로 오폭하지 않게 게이트로 쓴다.
+_KG_SECTOR_CUE_RE = re.compile(r"섹터|업종|관련|테마")
+
+
 def _extract_sector(user_input: str) -> Optional[str]:
     """'반도체 관련주'·'2차전지 업종' 같은 명시적 섹터 제한을 정본 섹터명으로 추출한다.
 
     큐가 없어도 '2차전지 전략을 만들자'류의 고유 테마어(_CUE_LESS_SECTOR_TERMS)는 단독으로
-    잡는다 — 회사명 조각·일반어와 겹치지 않는 통칭만, 원문 경계 검사로 오탐을 막는다."""
+    잡는다 — 회사명 조각·일반어와 겹치지 않는 통칭만, 원문 경계 검사로 오탐을 막는다.
+
+    어휘 밖 테마어(ESS·HBM 등)는 업종 큐 동반 시 지식그래프 시드로 결정적 해석한다
+    (FR-STR-070 — 빌더 resolver 체인 ①b와 동일 게이트를 파싱·시드·수정 경로에도 배선.
+    'ess 관련 투자'가 파싱 경로에서 조용히 소실되던 실측 사고 2026-07-25)."""
     match = _SECTOR_TERM_RE.search(_compact(user_input))
     if match:
         return normalize_sector(match.group(1))
     cue_less = _CUE_LESS_SECTOR_RE.search(user_input or "")
-    return normalize_sector(cue_less.group(1)) if cue_less else None
+    if cue_less:
+        return normalize_sector(cue_less.group(1))
+    if _KG_SECTOR_CUE_RE.search(_compact(user_input)):
+        from engine.knowledge_graph import resolve_sector_from_text
+
+        try:
+            return resolve_sector_from_text(user_input)
+        except Exception:  # noqa: BLE001 — 그래프 실패가 파싱을 막으면 안 된다
+            return None
+    return None
 
 
 # 업종/섹터 제한 해제('업종 제한 빼줘', '섹터 필터 지워줘'). '업종/섹터'와 삭제어의 인접을
@@ -3531,7 +3549,12 @@ _MODIFY_FIELD_CUES: dict[str, list[str]] = {
     "max_mdd_limit_pct": ["최대낙폭", "낙폭", "드로우다운", "드로다운", "mdd"],
     "max_positions": ["동시보유", "maxpositions", "종목", "포지션", "최대", "총", "상위", "나눠"],
     "hold_period_days": ["보유기간", "보유", "들고", "홀딩", "가지고", "가져가", "지나면", "유지"],
-    "rebalancing_period": ["리밸런싱", "리밸런스", "리밸", "재조정", "재선정", "rebalanc", "주기", "마다", "점검", "분기"],
+    # 주기 어휘(매월/매년 등)는 추출은 되는데 cue에 없어 잔여로 오판돼 fast-path가
+    # LLM으로 새던 것 보정("매월 리밸런싱으로 변경" 값 칩이 결정적으로 처리돼야 한다).
+    "rebalancing_period": [
+        "리밸런싱", "리밸런스", "리밸", "재조정", "재선정", "rebalanc", "주기", "마다", "점검",
+        "매일", "매주", "주간", "매월", "매달", "월간", "월별", "분기", "반기", "매년", "연간",
+    ],
     "initial_capital": ["초기자금", "투자금", "자본", "자금", "초기투자", "초기", "시드", "seed", "시작"],
     "universe": ["코스피200", "코스피", "코스닥", "kospi200", "kospi", "kosdaq", "대형주", "전체시장", "전체", "유니버스", "시장"],
     "entry_signals": [

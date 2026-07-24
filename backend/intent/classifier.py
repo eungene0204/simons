@@ -83,6 +83,14 @@ _STRATEGY_KEYWORDS = re.compile(
 # 거절 안내로 새는 것을 결정 규칙이 막는다.
 _TEST_CUE = re.compile(r"테스트", re.IGNORECASE)
 
+# 테마/업종 '관련 투자' 언급("ess 관련 투자"·"2차전지 관련주"·"원자로 테마주") — 전략
+# 동사가 없어도 투자 아이디어 제시이므로 전략 설계로 라우팅한다(빌더 시드 → 섹터/용어
+# 그라운딩 체인 FR-STR-069/070 관통). LLM 일반답변으로 새면 낯선 용어(ESS)를 아는 척
+# 환각 정의하는 사고 실측(2026-07-24 스크린샷: ESS를 '에너지 효율성·저탄소'로 오답).
+_THEME_INVEST_CUE = re.compile(
+    r"관련\s*(?:주식|주|투자|종목|산업|테마)|테마\s*(?:주|투자)", re.IGNORECASE
+)
+
 # 펀더멘털/지표 스크리닝은 이 플랫폼 전략의 핵심 카테고리다 — 특정 종목이 아니라
 # '조건에 맞는 종목 바스켓'을 고르는 전략 설계 신호다(phrasing 긴 꼬리가 아니라
 # 카테고리 단위 신호이므로 결정적으로 처리, feedback_nl_parser_hybrid 부합).
@@ -355,8 +363,15 @@ def _classify_deterministic(query: str, last_symbol: Optional[str]) -> Optional[
     #    "종목을 10개로 늘려줘"처럼 기존 전략을 다듬는 요청을 '종목 추천(STOCK_PICK)'으로
     #    오분류해 빌더로 새로 진입하는 일을 막는다.
     has_stock_test = bool(refs and _TEST_CUE.search(text))
+    # 테마 관련 투자 언급 — 열린 추천 요청("AI 관련주 추천해 주세요")은 기존 STOCK_PICK
+    # 리다이렉트(1-b)에 맡기고, 종목명+행동 질문("삼성전자 관련주 살까?")도 가로채지 않는다.
+    has_theme_invest = bool(
+        _THEME_INVEST_CUE.search(text)
+        and not (refs and has_stock_q)
+        and not is_stock_pick_request(text)
+    )
     if (
-        (has_strategy_kw or has_screening or has_modify or has_stock_test)
+        (has_strategy_kw or has_screening or has_modify or has_stock_test or has_theme_invest)
         and not pure_definition
         and not stock_question_overrides_strategy
     ):
@@ -364,7 +379,8 @@ def _classify_deterministic(query: str, last_symbol: Optional[str]) -> Optional[
             "전략 설계 키워드 감지" if has_strategy_kw
             else "종목 스크리닝 조건 감지" if has_screening
             else "전략 수정/조정 명령 감지" if has_modify
-            else "종목 지정 테스트 요청 감지"
+            else "종목 지정 테스트 요청 감지" if has_stock_test
+            else "테마 관련 투자 언급 감지 — 전략 설계로 전환"
         )
         return IntentResult(
             intent=QueryIntent.STRATEGY_ADVICE,

@@ -135,6 +135,8 @@ simons/
 │   │   ├── strategy_converter.py    # ParsedStrategy → BacktestRequest
 │   │   ├── universe_pit.py          # PIT(생존편향 제거) 유니버스 + 섹터 유니버스(CANONICAL_SECTORS·normalize_sector·filter_by_sector) + ETF 유니버스(resolve_etf_symbols·filter_etf_by_theme·extract_etf_theme)
 │   │   ├── universe_capabilities.py # 유니버스별 지원 팩터 레지스트리(ETF=기업 재무지표 불가, FR-STR-067)
+│   │   ├── term_grounding.py        # 용어 그라운딩 — 어휘집→지식그래프→LLM→검색 체인으로 테마 용어를 정본 섹터에 매핑(FR-STR-069)
+│   │   ├── knowledge_graph.py       # Investment Knowledge Graph — 개념·공급망·기업·ETF 노드/엣지 합성·탐색(FR-STR-070, docs/knowledge_graph.md)
 │   │   ├── data_resolver.py         # 유니버스 필터링
 │   │   ├── virtual_trader.py        # 가상매매 실시간 엔진 (상장 상태 체크 포함)
 │   │   ├── listing_status.py        # 상장 상태 머신 (7단계) + DART 분류 + DB 동기화

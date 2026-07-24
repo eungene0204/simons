@@ -112,3 +112,6 @@ top200.txt
 
 # KRX 일별 스윕 캐시(backfill_delisted_etf.py 재개용 — 재생성 가능)
 /data/cache/
+
+# 용어 그라운딩 어휘집(런타임 학습 산출물 — 환경별로 자라남)
+/data/term_lexicon.json

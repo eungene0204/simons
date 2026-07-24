@@ -543,6 +543,92 @@ describe("getModificationClarification", () => {
       action: "classify",
     });
   });
+
+  it.each([
+    "조건을 변경 할 수 있어?",
+    "조건을 변경 하고 싶어",
+    "설정을 바꿀 수 있나요?",
+  ])("asks which condition to change when no target is named: %s", (prompt) => {
+    expect(getModificationClarification(prompt)).toMatchObject({
+      area: "condition",
+      reason: "missing_condition_target",
+    });
+  });
+
+  it("routes an area-scoped condition change to that area's clarification", () => {
+    expect(getModificationClarification("청산 조건을 바꾸고 싶어")).toMatchObject({
+      area: "exit_signal",
+    });
+  });
+
+  // 백엔드 계약(test_nl_parser_overrides.py)의 전제: 영역 선택 칩은 재전송 시 여기서
+  // 다시 가로채져 백엔드 수정 파싱에 도달하지 않는다.
+  it.each([
+    ["진입 신호 변경", "entry_signal"],
+    ["청산 신호 변경", "exit_signal"],
+    ["유니버스 변경", "universe"],
+    ["포트폴리오 설정 변경", "portfolio"],
+    ["리스크 설정 변경", "risk"],
+  ])("re-intercepts the area chip %s into the %s clarification", (chip, area) => {
+    expect(getModificationClarification(chip)).toMatchObject({ area });
+  });
+
+  it.each([
+    ["손절 바꿔줘", "missing_stop_loss_value"],
+    ["트레일링 스탑을 바꾸고 싶어", "missing_trailing_stop_value"],
+    ["MDD 한도 변경할 수 있어?", "missing_mdd_limit_value"],
+    ["종목 수를 바꿀 수 있나요?", "missing_max_positions_value"],
+    ["보유 기간을 변경하고 싶어", "missing_hold_period_value"],
+    ["리밸런싱 주기 바꿔줘", "missing_rebalancing_value"],
+    ["초기자금을 바꾸고 싶어", "missing_initial_capital_value"],
+    ["백테스트 기간 변경해줘", "missing_backtest_period_value"],
+  ])("asks for the value when a field is named without one: %s", (prompt, reason) => {
+    expect(getModificationClarification(prompt)).toMatchObject({ reason });
+  });
+
+  it.each([
+    "손절을 12%로 바꿔줘",
+    "리밸런싱을 매주로 바꿔줘",
+    "백테스트 전체 기간으로 변경",
+    "손절 없애줘",
+  ])("does not intercept a field change that already carries a value: %s", (prompt) => {
+    expect(getModificationClarification(prompt)).toBeNull();
+  });
+
+  // 백엔드 계약의 전제: 필드 값 칩은 재전송 시 가로채지지 않고 백엔드 결정론
+  // fast-path에 도달해야 한다(각 칩의 추출 계약은 test_nl_parser_overrides.py가 검증).
+  it.each([
+    "손절을 5%로 변경",
+    "트레일링 스탑을 5%로 변경",
+    "MDD 30% 한도로 변경",
+    "최대 20종목으로 변경",
+    "60일 보유로 변경",
+    "매월 리밸런싱으로 변경",
+    "초기자금 1억원으로 변경",
+    "백테스트 기간을 3년으로 변경",
+  ])("lets the value chip %s pass through to backend parsing", (chip) => {
+    expect(getModificationClarification(chip)).toBeNull();
+  });
+
+  it.each([
+    "손절 조건을 10%로 변경",
+    "조건은 그대로 유지해줘",
+  ])("does not intercept a concrete or keep request as a vague change: %s", (prompt) => {
+    expect(getModificationClarification(prompt)).toBeNull();
+  });
+
+  it("responds with condition options when a strategy exists", () => {
+    expect(
+      decideConversationTurn("조건을 변경 할 수 있어?", {
+        ...baseContext,
+        hasCurrentStrategy: true,
+      }),
+    ).toMatchObject({
+      action: "respond",
+      reason: "missing_condition_target",
+      suggestions: expect.arrayContaining(["리스크 설정 변경", "직접 입력"]),
+    });
+  });
 });
 
 describe("parseHoldingPeriodDays", () => {
