@@ -19,7 +19,7 @@ import logging
 import sys
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from intent.classifier import classify, format_history_context
@@ -130,6 +130,43 @@ async def strategy_builder_step(req: BuilderStepRequest) -> strategy_builder.Ste
         risk_extractor = lambda text: strategy_builder.llm_extract_risk(text, _mlx_llm)
         sector_resolver = lambda text: strategy_builder.llm_extract_sector(text, _mlx_llm)
     return await asyncio.to_thread(_run_builder_step, state, req.input, risk_extractor, sector_resolver)
+
+
+# ─── /strategy/compile ───────────────────────────────────────────────────────────
+
+
+class StrategyCompileRequest(BaseModel):
+    # 프론트가 누적해 온 ParsedStrategy dump. 재해석 없이 이 값이 진실이다.
+    parsed: dict
+
+
+class StrategyCompileResponse(BaseModel):
+    parsed: dict
+    backtest_request: dict
+    notices: list[str] = Field(default_factory=list)
+
+
+@router.post("/strategy/compile", response_model=StrategyCompileResponse)
+async def strategy_compile(req: StrategyCompileRequest) -> StrategyCompileResponse:
+    """확정된 ParsedStrategy를 재해석 없이 백테스트 요청으로 컴파일한다.
+
+    결정적 조건 플로우의 '전략 확정'이 대화 전체를 LLM에 재파싱시키면, 규칙 파서가
+    표현 못 하는 조건(예: '영업이익 흑자' 필터)을 LLM이 비결정적으로 떨어뜨려 완성
+    전략의 매수 조건이 사라진 채 다시 되묻는 사고가 난다. 특화 빌더의 '한국어 재파싱
+    왕복 없이 그대로 적용'(_run_builder_step confirmed)과 같은 계약으로, 누적 parsed를
+    그대로 컴파일만 한다(하한선 방어 보정은 공통 적용)."""
+    from engine.nl_parser import ParsedStrategy, enforce_strategy_minimums
+    from engine.strategy_converter import to_backtest_request
+
+    try:
+        parsed = ParsedStrategy.model_validate(req.parsed)
+    except Exception:
+        raise HTTPException(status_code=422, detail="전략 데이터를 해석할 수 없습니다.")
+    notices = enforce_strategy_minimums(parsed)
+    backtest_request = await asyncio.to_thread(to_backtest_request, parsed)
+    return StrategyCompileResponse(
+        parsed=parsed.model_dump(), backtest_request=backtest_request, notices=notices,
+    )
 
 
 # ─── /query/general ──────────────────────────────────────────────────────────────

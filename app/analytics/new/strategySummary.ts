@@ -16,6 +16,7 @@ export {
   FUNDAMENTAL_FILTER_SECTION_LABEL,
   formatFundamentalFilter,
   formatInitialCapital,
+  formatMarketCapValue,
   INDICATOR_LABELS,
   METRIC_LABELS,
   PERIOD_LABELS,

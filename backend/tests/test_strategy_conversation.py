@@ -685,6 +685,24 @@ def test_primary_universe_strategy_keeps_exit_question(monkeypatch):
     assert "청산 규칙이 없습니다" in (result["clarification_question"] or "")
 
 
+def test_primary_entry_restored_by_override_drops_entry_question(monkeypatch):
+    """[회귀] 확정된 완성 전략을 다시 '어떤 조건으로 종목을 선택할까요?'로 되묻는 사고.
+
+    인터프리터 LLM이 '흑자 기업'을 진입 조건에서 통째로 빠뜨리면 완결성 검증이 진입
+    누락 질문을 낸다. 그러나 _apply_prompt_overrides가 흑자→eps>0 필터로 결정적으로
+    되살리므로 parsed에는 진입 조건이 있다 — 이 경우 진입 되묻기는 모순이라 제거한다.
+    """
+    data = _full_intent_dict(entry_conditions=[], ranking=[])
+    result = _run_primary_with(
+        monkeypatch, data, "코스피 흑자 기업 매수, 손절 10% 익절 30%, 매월 리밸런싱"
+    )
+    assert result is not None
+    # 결정적 보정이 진입(eps>0)을 되살렸다
+    assert any(f.metric == "eps" for f in result["parsed"].fundamental_filters)
+    # 진입이 채워졌으므로 진입 되묻기는 나가지 않는다
+    assert result["clarification_question"] is None
+
+
 def test_primary_non_strategy_intent_falls_back(monkeypatch):
     data = {"intent": "NON_STRATEGY_REQUEST", "confidence": 0.9}
     assert _run_primary_with(monkeypatch, data) is None

@@ -195,38 +195,19 @@ describe("StrategyLab unknown intent fallback", () => {
           prompt: parsed.description,
         }));
       }
-      if (url === "/api/strategy/parse/stream") {
+      if (url === "/api/strategy/compile") {
+        // 확정은 재파싱이 아니라 누적 parsed의 컴파일이다 — 칩으로 채운 익절이 담겨 온다.
         const body = JSON.parse(String(init?.body));
-        expect(body.prompt).toContain("익절 20%");
-        const completedParsed = { ...parsed, take_profit_pct: 20 };
+        expect(body.parsed.take_profit_pct).toBe(20);
         const completedRequest = {
           ...backtestRequest,
           risk: { ...backtestRequest.risk, take_profit_pct: 20 },
         };
-        const encoder = new TextEncoder();
-        const payload = [
-          `data: ${JSON.stringify({
-            type: "parsed_final",
-            parsed: completedParsed,
-            clarification_question: null,
-            clarification_suggestions: null,
-          })}\n\n`,
-          `data: ${JSON.stringify({
-            type: "dsl_ready",
-            backtest_request: completedRequest,
-            symbol_count: 1,
-          })}\n\n`,
-          "data: [DONE]\n\n",
-        ].join("");
-        return Promise.resolve(new Response(
-          new ReadableStream({
-            start(controller) {
-              controller.enqueue(encoder.encode(payload));
-              controller.close();
-            },
-          }),
-          { status: 200 },
-        ));
+        return Promise.resolve(createJsonResponse({
+          parsed: body.parsed,
+          backtest_request: completedRequest,
+          notices: [],
+        }));
       }
       if (url === "http://localhost:8000/optimize") {
         expect(JSON.parse(String(init?.body))).toMatchObject({

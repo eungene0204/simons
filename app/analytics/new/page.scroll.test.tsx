@@ -314,9 +314,10 @@ describe("StrategyLabPage scroll behavior", () => {
   it("조건이 빠지면 파싱 결과를 다시 빌더로 보내지 않고 다음 누락 조건을 직접 묻는다", async () => {
     let classifyCallCount = 0;
     let parseCallCount = 0;
-    const finalParseResponse = createDeferred<Response>();
+    const compileBodies: Array<{ parsed: Record<string, unknown> }> = [];
+    const compileResponse = createDeferred<Response>();
 
-    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
 
       if (url === "/api/model/status") {
@@ -331,15 +332,17 @@ describe("StrategyLabPage scroll behavior", () => {
       }
       if (url === "/api/strategy/parse/stream") {
         parseCallCount += 1;
-        return parseCallCount === 1
-          ? Promise.resolve(createParseStreamResponseWithClarification())
-          : finalParseResponse.promise;
+        return Promise.resolve(createParseStreamResponseWithClarification());
+      }
+      if (url === "/api/strategy/compile") {
+        compileBodies.push(JSON.parse(String(init?.body ?? "{}")));
+        return compileResponse.promise;
       }
       if (url === "/api/strategy/builder/step") {
         throw new Error(`파싱 결과를 다시 빌더로 보내면 안 되는 경로: ${url}`);
       }
       if (url === "/api/strategy/coach") {
-        if (parseCallCount < 2) {
+        if (compileBodies.length === 0) {
           throw new Error(`누락 조건 입력 전에 호출되면 안 되는 경로: ${url}`);
         }
         return Promise.resolve(createJsonResponse({ message: "전략 검증 완료" }));
@@ -357,7 +360,7 @@ describe("StrategyLabPage scroll behavior", () => {
     expect(
       await screen.findByText("먼저 어떤 시장·종목을 대상으로 할지 정해볼까요?"),
     ).toBeInTheDocument();
-    expect(screen.getByText("현재까지 이해한 전략")).toBeInTheDocument();
+    expect(screen.getByText("현재까지 이해한 전략입니다")).toBeInTheDocument();
     const progressPanel = screen.getByTestId("strategy-progress-panel");
     expect(progressPanel).toHaveClass(
       "xl:fixed",
@@ -404,6 +407,19 @@ describe("StrategyLabPage scroll behavior", () => {
     expect(
       fetchMock.mock.calls.some(([input]) => String(input) === "/api/strategy/coach")
     ).toBe(false);
+    // 최초 질문(유니버스 선택)에는 되돌아갈 이전 단계가 없으므로 '돌아가기' 버튼이 없다.
+    expect(screen.queryByRole("button", { name: "돌아가기" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "코스피" }));
+    expect(
+      await screen.findByRole("button", { name: "데드크로스 발생 시 매도" }),
+    ).toBeInTheDocument();
+    // 두 번째 질문(매도 조건)부터는 '돌아가기' 버튼으로 직전 조건 버블로 되돌아갈 수 있다.
+    expect(screen.getByRole("button", { name: "돌아가기" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "돌아가기" }));
+    expect(await screen.findByRole("button", { name: "코스피" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "돌아가기" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "코스피" }));
     expect(
@@ -468,12 +484,18 @@ describe("StrategyLabPage scroll behavior", () => {
     fireEvent.click(screen.getByRole("button", { name: "1,000만원" }));
     fireEvent.click(screen.getByRole("button", { name: "이 전략으로 확정" }));
 
+    // 확정은 대화 전체를 재파싱하지 않고, 누적된 parsed를 그대로 컴파일한다.
     await waitFor(() => {
-      expect(parseCallCount).toBe(2);
+      expect(compileBodies).toHaveLength(1);
     });
+    expect(parseCallCount).toBe(1);
     expect(screen.queryByRole("button", { name: "백테스트 시작하기" })).not.toBeInTheDocument();
 
-    finalParseResponse.resolve(createParseStreamResponse());
+    compileResponse.resolve(createJsonResponse({
+      parsed: compileBodies[0].parsed,
+      backtest_request: backtestRequest,
+      notices: [],
+    }));
 
     expect(classifyCallCount).toBe(1);
     await waitFor(() => {
@@ -481,20 +503,22 @@ describe("StrategyLabPage scroll behavior", () => {
         .not.toBeInTheDocument();
     });
 
-    const finalParseCall = fetchMock.mock.calls
-      .filter(([input]) => String(input) === "/api/strategy/parse/stream")
-      .at(-1);
-    const finalParseBody = JSON.parse(
-      String((finalParseCall?.[1] as RequestInit | undefined)?.body),
+    // 칩으로 답한 모든 조건이 누적 parsed에 담겨 컴파일 요청에 실린다.
+    const compiledParsed = compileBodies[0].parsed as Record<string, any>;
+    expect(compiledParsed.universe).toEqual(["KOSPI"]);
+    expect(compiledParsed.exit_signals).toEqual([
+      { indicator: "ma_crossover", signal_type: "sell" },
+    ]);
+    expect(compiledParsed.max_positions).toBe(5);
+    expect(compiledParsed.rebalancing_period).toBe("monthly");
+    expect(compiledParsed.stop_loss_pct).toBe(10);
+    expect(compiledParsed.take_profit_pct).toBe(20);
+    expect(compiledParsed.backtest_period).toBe("5y");
+    expect(compiledParsed.initial_capital).toBe(10000000);
+    // 파싱이 해석해 둔 매수 필터(재파싱이 잃을 수 있는 조건)가 그대로 보존된다.
+    expect(compiledParsed.fundamental_filters).toEqual(
+      incompleteParsedStrategy.fundamental_filters,
     );
-    expect(finalParseBody.prompt).toContain("코스피");
-    expect(finalParseBody.prompt).toContain("데드크로스 발생 시 매도");
-    expect(finalParseBody.prompt).toContain("최대 5종목");
-    expect(finalParseBody.prompt).toContain("매월 리밸런싱");
-    expect(finalParseBody.prompt).toContain("손절 10%");
-    expect(finalParseBody.prompt).toContain("익절 20%");
-    expect(finalParseBody.prompt).toContain("최근 5년 데이터");
-    expect(finalParseBody.prompt).toContain("1,000만원");
   });
 
   it("조건 슬롯이 완성된 전략의 종목 명확화는 전략 빌더로 보내지 않는다", async () => {

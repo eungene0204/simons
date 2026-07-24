@@ -101,13 +101,14 @@ export const METRIC_LABELS: Record<string, string> = {
   payout_rate: "배당성향",
   dividend_growth: "배당성장률",
   eps: "EPS",
+  ebit: "영업이익",
 };
 
 const KO_NUMBER_FORMAT = new Intl.NumberFormat("ko-KR");
 
 // 시총처럼 원 단위 큰 금액(>=1억)을 '100억' / '1조' / '1조 5,000억' 형태로 표시한다.
 // 1억 미만이거나 숫자가 아니면 원본을 그대로 둔다(단위가 모호한 값 오변환 방지).
-function formatMarketCapValue(value: number): string {
+export function formatMarketCapValue(value: number): string {
   if (!Number.isFinite(value) || value < 100_000_000) return String(value);
 
   const roundedEok = Math.round(value / 100_000_000);
@@ -149,10 +150,14 @@ export function formatFundamentalFilter(filter: {
   value: number;
 }): string {
   const label = METRIC_LABELS[filter.metric] ?? filter.metric;
-  // EPS 부호 필터는 '흑자/적자' 키워드 조건의 표현형 — 사용자 어휘로 배지를 만든다.
+  // EPS·영업이익 부호 필터는 '흑자/적자' 키워드 조건의 표현형 — 사용자 어휘로 배지를 만든다.
   if (filter.metric === "eps" && filter.value === 0) {
     if (filter.operator === ">") return "흑자 기업 (EPS > 0)";
     if (filter.operator === "<") return "적자 기업 (EPS < 0)";
+  }
+  if (filter.metric === "ebit" && filter.value === 0) {
+    if (filter.operator === ">") return "영업이익 흑자 기업";
+    if (filter.operator === "<") return "영업이익 적자 기업";
   }
   let value: string;
   if (filter.metric === "market_cap") {

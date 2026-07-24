@@ -678,7 +678,7 @@ export default function VirtualAccountDetailPage() {
                   </div>
                   <button
                     onClick={() => { setSelectedSymbol(""); setShowOrderPage(false); }}
-                    className="text-xs font-bold text-gray-500 hover:text-gray-300 transition-colors duration-200"
+                    className="text-xs font-bold text-blue-500 hover:text-blue-400 transition-colors duration-200"
                   >
                     ← 돌아가기
                   </button>
@@ -887,7 +887,7 @@ export default function VirtualAccountDetailPage() {
                       forgetVirtualAccountDetail(accountId);
                       router.push("/virtual-account");
                     }}
-                    className="flex items-center gap-1.5 rounded-xl border border-main-blue px-3 py-1.5 text-xs font-bold text-gray-500 transition-all duration-200 hover:text-gray-300"
+                    className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-[var(--main-blue)] transition-all duration-200 hover:text-[var(--main-blue)]/80"
                   >
                     계좌닫기
                   </button>
@@ -1054,7 +1054,7 @@ export default function VirtualAccountDetailPage() {
                     </div>
                     <button
                       onClick={handleStrategyReplaceClick}
-                      className="inline-flex items-center rounded-xl border border-main-blue px-3 py-1.5 text-xs font-bold text-gray-400 transition-colors duration-200 hover:text-white"
+                      className="inline-flex items-center rounded-xl px-3 py-1.5 text-xs font-bold text-[var(--main-blue)] transition-colors duration-200 hover:text-[var(--main-blue)]/80"
                     >
                       전략 교체
                     </button>

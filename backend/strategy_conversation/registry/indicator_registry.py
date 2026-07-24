@@ -146,6 +146,9 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
     _fundamental("eps", "EPS(주당순이익)", "profitability", "원", recommended=0,
                  value_range=(-1_000_000, 10_000_000),
                  notes="흑자 기업=eps>0, 적자 기업=eps<0 부호 필터로 주로 사용(최근 연간 결산 기준)"),
+    _fundamental("ebit", "영업이익", "profitability", "억원", recommended=0,
+                 value_range=(-10_000_000, 10_000_000),
+                 notes="영업이익 흑자=ebit>0, 영업이익 적자=ebit<0 부호 필터로 주로 사용(최근 연간 결산 기준)"),
 
     # ── 기술적 지표 (엔진 TechnicalSignal.indicator와 1:1) ───────────────────
     _technical("ma_crossover", "이동평균 크로스오버", "event",
@@ -318,6 +321,8 @@ _ALIASES: Dict[str, str] = {
     "수급": "unsupported.supply_demand", "외국인순매수": "unsupported.supply_demand",
     "eps": "fundamental.eps", "주당순이익": "fundamental.eps",
     "흑자": "fundamental.eps", "적자": "fundamental.eps",
+    "ebit": "fundamental.ebit", "영업이익": "fundamental.ebit",
+    "영업이익흑자": "fundamental.ebit", "영업이익적자": "fundamental.ebit",
     "흑자전환": "unsupported.profitability_transition",
     "턴어라운드": "unsupported.profitability_transition",
     "정배열": "unsupported.ema_alignment", "역배열": "unsupported.ema_alignment",

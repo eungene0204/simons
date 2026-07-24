@@ -17,6 +17,7 @@ import { mapRawBacktestResult } from "./backtestResultMapper";
 import {
   ArrowUp,
   ArrowRight,
+  ArrowLeft,
   ArrowsClockwise,
   CheckCircle,
   Warning,
@@ -93,6 +94,7 @@ import {
   type BuilderSummaryItem,
 } from "./builderProgressPresentation";
 import { applyDeterministicConditionChoice } from "./deterministicConditionFlow";
+import { buildStrategyRestatement } from "./strategyRestatement";
 
 const BacktestDashboard = dynamic(
   () => import("@/components/strategy/backtest/BacktestDashboard"),
@@ -136,12 +138,15 @@ interface ChatMessage {
     progressItems: BuilderProgressItem[];
   };
   strategyConfirmation?: boolean;
-  confirmationPrevious?: {
+  // 조건 옵션 버블에서 '돌아가기'로 되돌아갈 이전 단계 상태(유니버스 질문 제외 전 단계에 설정).
+  previousStepState?: {
     parsed: ParsedSummary;
     allowNoRebalancing: boolean;
   };
   // 전략 요약을 막지 않는 보정 안내(예: 초기자금 하한선 보정). 요약 카드와 함께 표시된다.
   notices?: string[];
+  // 사용자의 자연어를 백테스트 가능한 전략 개념으로 재정리한 첫 문장("…전략이군요.").
+  restatement?: string;
 }
 
 type MetricOptimizationProgressState = {
@@ -875,16 +880,16 @@ function BuilderStrategyOverview({
   presentation: NonNullable<ChatMessage["builderPresentation"]>;
 }) {
   return (
-    <div className="pb-2" data-testid="builder-strategy-summary">
-      <section aria-label="현재까지 이해한 전략">
+    <div data-testid="builder-strategy-summary">
+      <section aria-label="현재까지 이해한 전략입니다">
         <p className="text-[11px] font-black tracking-wide text-amber-200">
-          현재까지 이해한 전략
+          현재까지 이해한 전략입니다
         </p>
         {presentation.summaryItems.length > 0 ? (
           <dl className="mt-2 space-y-1.5">
             {presentation.summaryItems.map((item) => (
               <div key={`${item.label}-${item.value}`} className="flex gap-2 text-xs leading-relaxed">
-                <dt className="w-16 flex-shrink-0 font-bold text-gray-500">
+                <dt className="w-16 flex-shrink-0 break-keep font-bold text-gray-500">
                   {item.label}
                 </dt>
                 <dd className="flex flex-wrap items-center gap-1.5 font-bold text-gray-200">
@@ -1237,10 +1242,6 @@ function StrategyLabContent() {
       void confirmDeterministicStrategy();
       return;
     }
-    if (latestAssistant?.strategyConfirmation && text === CONFIRMATION_BACK_CHIP) {
-      returnToPreviousCondition(latestAssistant);
-      return;
-    }
 
     const currentParsed = latestParsedRef.current ?? latestParsed;
     const promptContext = getStrategyPromptContext();
@@ -1306,18 +1307,18 @@ function StrategyLabContent() {
         parsed: deterministicChoice.parsed,
         clarification: nextPresentation.question,
         clarificationSuggestions: nextMissingCondition?.suggestions ??
-          [CONFIRM_STRATEGY_CHIP, CONFIRMATION_BACK_CHIP],
+          [CONFIRM_STRATEGY_CHIP],
         builderPresentation: {
           summaryItems: nextPresentation.summaryItems,
           progressItems: nextPresentation.progressItems,
         },
         strategyConfirmation: nextMissingCondition === null,
-        confirmationPrevious: nextMissingCondition === null
-          ? {
-              parsed: currentParsed,
-              allowNoRebalancing: previousAllowNoRebalancing,
-            }
-          : undefined,
+        // 이 블록에 진입했다는 것은 직전에 답한 조건 버블이 이미 존재한다는 뜻이다(유니버스
+        // 질문은 이 경로로 생성되지 않으므로 자연히 제외된다) — 항상 되돌아갈 상태를 남긴다.
+        previousStepState: {
+          parsed: currentParsed,
+          allowNoRebalancing: previousAllowNoRebalancing,
+        },
       },
     ]);
   };
@@ -1952,8 +1953,14 @@ function StrategyLabContent() {
       if (shouldRouteSingleAssetToBuilder) {
         return;
       }
+      // 첫 문장으로 사용자의 자연어를 전략 개념으로 재정리해 되돌려준다("…전략이군요.").
+      // 지표 연구 질문(researchMetric)은 전략 선언이 아니므로 제외한다.
+      const restatement = researchMetricRef.current
+        ? null
+        : buildStrategyRestatement(nextParsed, promptContext);
       applySummaryPatch({
         isLoading: false,
+        restatement: restatement ?? undefined,
         infoText: researchMetricRef.current
           ? `${buildResearchMetricSummary(researchMetricRef.current)}${
               optimizationDraft
@@ -2037,13 +2044,37 @@ function StrategyLabContent() {
     if (isSending || stage === "running") return;
 
     const completedPrompt = getStrategyPromptContext();
+    const confirmedParsed = latestParsedRef.current ?? latestParsed;
     setBuilderFreeTextRequested(false);
     setIsSending(true);
     appendUserMessage(CONFIRM_STRATEGY_CHIP);
     await appendAssistant({ role: "assistant", isLoading: true });
 
     try {
-      await runStrategyParseFlow(completedPrompt, null, null);
+      // 확정 시 대화 전체를 LLM에 재파싱시키지 않는다 — 재해석은 규칙 파서가 표현 못 하는
+      // 조건(예: '영업이익 흑자' 필터)을 비결정적으로 잃어 완성 전략의 매수 조건을 다시
+      // 되묻는 사고로 이어진다. 누적 parsed를 진실로 삼아 컴파일만 요청한다(특화 빌더의
+      // '재파싱 왕복 없이 그대로 적용'과 같은 계약).
+      if (confirmedParsed) {
+        const res = await fetch("/api/strategy/compile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ parsed: confirmedParsed }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({} as { detail?: string }));
+          throw new Error(err.detail ?? "전략 확정에 실패했습니다.");
+        }
+        const data = await res.json();
+        applyBuilderConfirmedStrategy({
+          parsed: data.parsed,
+          backtest_request: data.backtest_request,
+          notices: data.notices,
+          prompt: completedPrompt,
+        });
+      } else {
+        await runStrategyParseFlow(completedPrompt, null, null);
+      }
     } catch (error) {
       updateLastAssistant({
         isLoading: false,
@@ -2054,8 +2085,9 @@ function StrategyLabContent() {
     }
   };
 
-  const returnToPreviousCondition = (confirmation: ChatMessage) => {
-    const previous = confirmation.confirmationPrevious;
+  const returnToPreviousCondition = (message: ChatMessage) => {
+    if (isSending) return;
+    const previous = message.previousStepState;
     if (!previous) return;
 
     setBuilderFreeTextRequested(false);
@@ -2064,15 +2096,15 @@ function StrategyLabContent() {
     explicitNoRebalancingRef.current = previous.allowNoRebalancing;
     setExplicitNoRebalancing(previous.allowNoRebalancing);
     setMessages((previousMessages) => {
-      const confirmationIndex = previousMessages.length - 1;
+      const currentIndex = previousMessages.length - 1;
       const selectedConditionIndex = previousMessages
-        .slice(0, confirmationIndex)
-        .map((message, index) => (message.role === "user" ? index : -1))
+        .slice(0, currentIndex)
+        .map((m, index) => (m.role === "user" ? index : -1))
         .filter((index) => index >= 0)
         .at(-1);
 
       return previousMessages.filter(
-        (_, index) => index !== confirmationIndex && index !== selectedConditionIndex,
+        (_, index) => index !== currentIndex && index !== selectedConditionIndex,
       );
     });
   };
@@ -3084,55 +3116,76 @@ function StrategyLabContent() {
                           <AnalysisStatusBubble stage={msg.loadingStage} />
                         )}
                         {msg.infoText && (
-                          <div
-                            className={`max-w-[88%] rounded-tl-sm p-3.5 space-y-2 ${COACH_CHAT_BUBBLE_CLASS}`}
-                            style={SOFT_MESSAGE_ENTER_STYLE}
-                          >
+                          <>
                             {msg.builderPresentation && (
-                              <BuilderStrategyOverview presentation={msg.builderPresentation} />
-                            )}
-                            <p className="text-sm font-bold text-white leading-relaxed whitespace-pre-line">
-                              {msg.infoText}
-                            </p>
-                            {isLastAssistant(i) && metricOptimizationProgress && (
-                              <MetricOptimizationProgressIndicator progress={metricOptimizationProgress} />
-                            )}
-                            {isLastAssistant(i) && msg.infoSuggestions && msg.infoSuggestions.length > 0 && (
-                              <div className="space-y-1.5 pt-1">
-                                {msg.builderPresentation && (
-                                  <p className="text-[10px] font-black tracking-wide text-gray-500">
-                                    선택 예시
-                                  </p>
-                                )}
-                                <div className="flex flex-wrap gap-2">
-                                  {msg.infoSuggestions.map((suggestion) => (
-                                    <button
-                                      key={suggestion}
-                                      onClick={() => {
-                                        if (suggestion === CANCEL_METRIC_OPTIMIZATION_CHIP) {
-                                          metricOptimizationAbortRef.current?.abort();
-                                          return;
-                                        }
-                                        // '직접 입력'은 빌더 답변이 아니라 입력창을 다시 띄우는 토글이다.
-                                        if (suggestion === FREE_INPUT_CHIP) {
-                                          focusFreeTextInput();
-                                          return;
-                                        }
-                                        handleSuggestionClick(suggestion);
-                                      }}
-                                      className="px-3 py-1.5 rounded-lg bg-[#171717] border border-white/10 hover:border-yellow-400/50 hover:bg-[#202020] text-xs font-bold text-gray-300 transition-all duration-200 text-left"
-                                    >
-                                      {suggestion}
-                                    </button>
-                                  ))}
-                                  {shouldShowMovingAverageHelp(msg) && <MovingAverageTypeHelp />}
-                                </div>
+                              <div
+                                className="max-w-[88%] rounded-xl p-3.5 bg-[#111111] border border-white/10"
+                                style={SOFT_MESSAGE_ENTER_STYLE}
+                              >
+                                <BuilderStrategyOverview presentation={msg.builderPresentation} />
                               </div>
                             )}
-                          </div>
+                            <div
+                              className={`max-w-[88%] rounded-tl-sm p-3.5 space-y-2 ${COACH_CHAT_BUBBLE_CLASS}`}
+                              style={SOFT_MESSAGE_ENTER_STYLE}
+                            >
+                              <p className="text-sm font-bold text-white leading-relaxed whitespace-pre-line">
+                                {msg.infoText}
+                              </p>
+                              {isLastAssistant(i) && metricOptimizationProgress && (
+                                <MetricOptimizationProgressIndicator progress={metricOptimizationProgress} />
+                              )}
+                              {isLastAssistant(i) && msg.infoSuggestions && msg.infoSuggestions.length > 0 && (
+                                <div className="space-y-1.5 pt-1">
+                                  {msg.builderPresentation && (
+                                    <p className="text-[10px] font-black tracking-wide text-gray-500">
+                                      선택 예시
+                                    </p>
+                                  )}
+                                  <div className="flex flex-wrap gap-2">
+                                    {msg.infoSuggestions.map((suggestion) => (
+                                      <button
+                                        key={suggestion}
+                                        onClick={() => {
+                                          if (suggestion === CANCEL_METRIC_OPTIMIZATION_CHIP) {
+                                            metricOptimizationAbortRef.current?.abort();
+                                            return;
+                                          }
+                                          // '직접 입력'은 빌더 답변이 아니라 입력창을 다시 띄우는 토글이다.
+                                          if (suggestion === FREE_INPUT_CHIP) {
+                                            focusFreeTextInput();
+                                            return;
+                                          }
+                                          handleSuggestionClick(suggestion);
+                                        }}
+                                        className="px-3 py-1.5 rounded-lg bg-[#171717] border border-white/10 hover:border-yellow-400/50 hover:bg-[#202020] text-xs font-bold text-gray-300 transition-all duration-200 text-left"
+                                      >
+                                        {suggestion}
+                                      </button>
+                                    ))}
+                                    {shouldShowMovingAverageHelp(msg) && <MovingAverageTypeHelp />}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </>
                         )}
                         {msg.parsed && (
                           <>
+                            {/* 사용자의 자연어를 전략 개념으로 재정리한 첫 문장 — 요약 카드·되묻기보다 먼저 보여준다. */}
+                            {msg.restatement && (
+                              <div
+                                className={`max-w-[88%] rounded-tl-sm p-3.5 ${COACH_CHAT_BUBBLE_CLASS}`}
+                                style={SOFT_MESSAGE_ENTER_STYLE}
+                              >
+                                <p
+                                  data-testid="strategy-restatement"
+                                  className="text-sm font-bold text-white leading-relaxed"
+                                >
+                                  {msg.restatement}
+                                </p>
+                              </div>
+                            )}
                             {/* 백테스트 최소 조건을 채우는 중(clarification 대기)에는 전략 요약을
                                 미리 보여주지 않는다 — 모든 조건에 답한 뒤 한 번에 요약을 만든다. */}
                             {!msg.clarification && (
@@ -3156,48 +3209,68 @@ function StrategyLabContent() {
                               </>
                             )}
                             {isLastAssistant(i) && !msg.coachLoading && msg.clarification && (
-                              <div
-                                className="flex flex-col gap-2.5 p-3.5 rounded-xl bg-[#111111] border border-white/10"
-                              style={SOFT_MESSAGE_ENTER_LATE_STYLE}
-                            >
+                              <>
                                 {msg.builderPresentation && (
-                                  <BuilderStrategyOverview presentation={msg.builderPresentation} />
-                                )}
-                                <div className="flex items-start gap-2.5">
-                                  <Question size={13} className="text-yellow-400 flex-shrink-0 mt-0.5" weight="fill" />
-                                  <p className="text-xs font-bold text-gray-300 leading-relaxed whitespace-pre-line">
-                                    {msg.clarification.replace(/\*\*(.*?)\*\*/g, "$1")}
-                                  </p>
-                                </div>
-                                {msg.clarificationSuggestions && msg.clarificationSuggestions.length > 0 && (
-                                  <div className="space-y-1.5 pl-6">
-                                    <p className="text-[10px] font-black tracking-wide text-gray-500">
-                                      {msg.strategyConfirmation ? "전략 확인" : "선택 예시"}
-                                    </p>
-                                    <div className="flex flex-wrap gap-2">
-                                      {msg.clarificationSuggestions.map((suggestion) => (
-                                        <button
-                                          key={suggestion}
-                                          onClick={() => handleSuggestionClick(suggestion)}
-                                          className="px-3 py-1.5 rounded-lg bg-[#171717] border border-white/10 hover:border-yellow-400/50 hover:bg-[#202020] text-xs font-bold text-gray-300 transition-all duration-200 text-left"
-                                        >
-                                          {suggestion}
-                                        </button>
-                                      ))}
-                                      {!msg.strategyConfirmation &&
-                                        !msg.clarificationSuggestions.includes(FREE_INPUT_CHIP) && (
-                                        <button
-                                          type="button"
-                                          onClick={focusFreeTextInput}
-                                          className="px-3 py-1.5 rounded-lg bg-[#171717] border border-white/10 hover:border-yellow-400/50 hover:bg-[#202020] text-xs font-bold text-gray-300 transition-all duration-200 text-left"
-                                        >
-                                          {FREE_INPUT_CHIP}
-                                        </button>
-                                      )}
-                                    </div>
+                                  <div
+                                    className="flex flex-col gap-2.5 p-3.5 rounded-xl bg-[#111111] border border-white/10"
+                                    style={SOFT_MESSAGE_ENTER_STYLE}
+                                  >
+                                    <BuilderStrategyOverview presentation={msg.builderPresentation} />
                                   </div>
                                 )}
-                              </div>
+                                <div
+                                  className="flex flex-col gap-2.5 p-3.5 rounded-xl bg-[#111111] border border-white/10"
+                                  style={SOFT_MESSAGE_ENTER_LATE_STYLE}
+                                >
+                                  <div className="flex items-start justify-between gap-2.5">
+                                    <div className="flex items-start gap-2.5">
+                                      <Question size={13} className="text-yellow-400 flex-shrink-0 mt-0.5" weight="fill" />
+                                      <p className="text-xs font-bold text-gray-300 leading-relaxed whitespace-pre-line">
+                                        {msg.clarification.replace(/\*\*(.*?)\*\*/g, "$1")}
+                                      </p>
+                                    </div>
+                                    {msg.previousStepState && (
+                                      <button
+                                        type="button"
+                                        onClick={() => returnToPreviousCondition(msg)}
+                                        disabled={isSending}
+                                        className="flex flex-shrink-0 items-center gap-1 text-[10px] font-bold text-blue-400 hover:text-blue-300 disabled:opacity-40 transition-colors duration-200"
+                                      >
+                                        <ArrowLeft size={11} />
+                                        {CONFIRMATION_BACK_CHIP}
+                                      </button>
+                                    )}
+                                  </div>
+                                  {msg.clarificationSuggestions && msg.clarificationSuggestions.length > 0 && (
+                                    <div className="space-y-1.5 pl-6">
+                                      <p className="text-[10px] font-black tracking-wide text-gray-500">
+                                        {msg.strategyConfirmation ? "전략 확인" : "선택 예시"}
+                                      </p>
+                                      <div className="flex flex-wrap gap-2">
+                                        {msg.clarificationSuggestions.map((suggestion) => (
+                                          <button
+                                            key={suggestion}
+                                            onClick={() => handleSuggestionClick(suggestion)}
+                                            className="px-3 py-1.5 rounded-lg bg-[#171717] border border-white/10 hover:border-yellow-400/50 hover:bg-[#202020] text-xs font-bold text-gray-300 transition-all duration-200 text-left"
+                                          >
+                                            {suggestion}
+                                          </button>
+                                        ))}
+                                        {!msg.strategyConfirmation &&
+                                          !msg.clarificationSuggestions.includes(FREE_INPUT_CHIP) && (
+                                          <button
+                                            type="button"
+                                            onClick={focusFreeTextInput}
+                                            className="px-3 py-1.5 rounded-lg bg-[#171717] border border-white/10 hover:border-yellow-400/50 hover:bg-[#202020] text-xs font-bold text-gray-300 transition-all duration-200 text-left"
+                                          >
+                                            {FREE_INPUT_CHIP}
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </>
                             )}
                             {isLastAssistant(i) && stage === "running" && (
                               <div className="flex items-center gap-2 px-1">

@@ -66,6 +66,18 @@ describe("presentStrategyClarification", () => {
     ).toBeNull();
   });
 
+  it("진입 조건이 이미 있으면 종목 선택 되묻기를 숨긴다", () => {
+    expect(
+      presentStrategyClarification({
+        prompt:
+          "KOSPI 흑자 기업 매수, 손절 10% 익절 30%, 매월 리밸런싱, 최근 5년, 3000만원",
+        parsed: complete,
+        backendQuestion:
+          "어떤 조건으로 종목을 선택할까요? (예: 재무 지표 기준, 기술적 신호, 기간 수익률 상위)",
+      }),
+    ).toBeNull();
+  });
+
   it("실제 추가 확인 질문은 친절한 안내와 직접 입력 선택지를 유지한다", () => {
     expect(
       presentStrategyClarification({

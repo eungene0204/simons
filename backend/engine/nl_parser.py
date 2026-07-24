@@ -213,7 +213,7 @@ class FundamentalFilter(BaseModel):
         "reserve_ratio", "net_margin", "gross_margin", "operating_margin", "revenue_growth",
         "operating_income_growth", "net_income_growth", "market_cap", "trading_value",
         "dividend_yield", "payout_rate", "dividend_growth",
-        "eps_growth", "ebitda_growth", "ocf_growth", "fcf_growth", "eps",
+        "eps_growth", "ebitda_growth", "ocf_growth", "fcf_growth", "eps", "ebit",
     ] = Field(
         description=(
             "재무 지표 종류. "
@@ -229,7 +229,8 @@ class FundamentalFilter(BaseModel):
             "dividend_growth=배당성장률(%, 전년 대비 주당배당 증가율), "
             "eps_growth=EPS증가율(%), ebitda_growth=EBITDA증가율(%), "
             "ocf_growth=영업활동현금흐름증가율(%), fcf_growth=잉여현금흐름증가율(%), "
-            "eps=주당순이익(원, 최근 연간 결산 기준 — 흑자 기업=eps>0, 적자 기업=eps<0). "
+            "eps=주당순이익(원, 최근 연간 결산 기준 — 흑자 기업=eps>0, 적자 기업=eps<0), "
+            "ebit=영업이익(억원, 최근 연간 결산 기준 — 영업이익 흑자=ebit>0, 영업이익 적자=ebit<0). "
             "eps_growth/ebitda_growth/net_income_growth/operating_income_growth/ocf_growth/fcf_growth는 "
             "적자↔흑자 전환기에는 값 대신 상태코드(TURNAROUND/LOSS_TRANSITION 등)로 표현될 수 있다."
         )
@@ -634,6 +635,9 @@ SYSTEM_PROMPT = """당신은 한국 주식 퀀트 투자 전략을 JSON으로 �
 - 적자 기업 제외 → {"metric": "eps", "operator": ">", "value": 0.0}
 - 적자 기업만 → {"metric": "eps", "operator": "<", "value": 0.0}
 - 흑자 여부를 순이익증가율(net_income_growth)로 바꿔 해석하지 말 것 — 흑자=부호 조건, 증가율=변화율 조건으로 서로 다르다
+- 영업이익 흑자 기업 → {"metric": "ebit", "operator": ">", "value": 0.0} (연간 영업이익>0)
+- 영업이익 적자 제외 → {"metric": "ebit", "operator": ">", "value": 0.0}
+- 영업이익 흑자를 영업이익증가율(operating_income_growth)이나 영업이익률(operating_margin)로 바꿔 해석하지 말 것 — 흑자=부호 조건이다
 - '이하'='<=', '미만'='<', '이상'='>=', '초과'='>'
 
 ### 기술적 신호 (entry_signals / exit_signals)
@@ -2371,31 +2375,38 @@ _PROFITABILITY_TIMESERIES_RE = re.compile(_PROFITABILITY_TIMESERIES_PATTERN)
 _PROFITABLE_RE = re.compile(r"흑자(?![가-힣]{0,2}아니)")
 _LOSS_NEGATED_RE = re.compile(r"적자[^,.]{0,6}(?:제외|빼|아닌|아니|없|피하|거르|말고)")
 _LOSS_RE = re.compile(r"적자")
-# '영업활동현금흐름이 흑자'·'영업이익 흑자'처럼 순이익이 아닌 항목의 부호 언급은 eps로
-# 표현하면 왜곡이다 — 키워드 직전 문맥에 이 표현이 붙으면 emit하지 않는다(LLM 위임).
-_PROFITABILITY_CONTEXT_EXCLUDE_RE = re.compile(r"(?:현금흐름|현금|흐름|영업이익|영업|ocf|fcf)[이가은는도의]?$")
+# 흑자/적자 키워드 직전 문맥으로 어느 항목의 부호인지 라우팅한다: '영업이익(영업) 흑자'는
+# ebit, 현금흐름(OCF/FCF)의 부호 언급은 eps/ebit로 표현하면 왜곡이라 emit하지 않는다(LLM
+# 위임). 문맥이 없으면 순이익 부호(eps).
+_PROFITABILITY_EBIT_CONTEXT_RE = re.compile(r"(?:영업이익|영업)[이가은는도의]?$")
+_PROFITABILITY_DELEGATED_CONTEXT_RE = re.compile(r"(?:현금흐름|현금|흐름|ocf|fcf)[이가은는도의]?$")
 
 
-def _keyword_profitability_operator(compact: str) -> Optional[str]:
-    """흑자/적자 키워드가 '순이익 부호' 의미로 쓰였으면 eps 필터 연산자('>'/'<')를 돌려준다.
+def _keyword_profitability_filters(compact: str) -> list[tuple[str, str]]:
+    """흑자/적자 키워드를 문맥별 부호 필터 [(metric, operator)]로 돌려준다.
 
-    전환·연속 등 시계열 표현이 섞이면 단일 시점 부호 필터로 왜곡되므로 None(미지원 안내
-    profitability_transition 담당). 현금흐름·영업이익 등 다른 항목의 부호 언급도 None.
+    무문맥 흑자/적자=순이익 부호(eps), '영업이익 흑자'=영업이익 부호(ebit). 전환·연속 등
+    시계열 표현이 섞이면 단일 시점 부호 필터로 왜곡되므로 빈 목록(미지원 안내
+    profitability_transition 담당). 현금흐름 부호 언급도 emit하지 않는다(LLM 위임).
     """
     if _PROFITABILITY_TIMESERIES_RE.search(compact):
-        return None
+        return []
 
-    def clean_match(rx: "re.Pattern") -> bool:
-        return any(
-            not _PROFITABILITY_CONTEXT_EXCLUDE_RE.search(compact[max(0, m.start() - 8):m.start()])
-            for m in rx.finditer(compact)
-        )
+    def matched_metrics(rx: "re.Pattern") -> set[str]:
+        metrics: set[str] = set()
+        for m in rx.finditer(compact):
+            context = compact[max(0, m.start() - 8):m.start()]
+            if _PROFITABILITY_DELEGATED_CONTEXT_RE.search(context):
+                continue
+            metrics.add("ebit" if _PROFITABILITY_EBIT_CONTEXT_RE.search(context) else "eps")
+        return metrics
 
-    if clean_match(_PROFITABLE_RE) or clean_match(_LOSS_NEGATED_RE):
-        return ">"
-    if clean_match(_LOSS_RE):
-        return "<"
-    return None
+    # '적자 제외/아닌'의 적자는 _LOSS_RE에도 걸리므로, 같은 항목에 흑자 의미가 있으면 우선한다.
+    positive = matched_metrics(_PROFITABLE_RE) | matched_metrics(_LOSS_NEGATED_RE)
+    negative = matched_metrics(_LOSS_RE) - positive
+    return [(metric, ">") for metric in ("eps", "ebit") if metric in positive] + [
+        (metric, "<") for metric in ("eps", "ebit") if metric in negative
+    ]
 
 _OPERATOR_BY_KOREAN = {
     "이하": "<=",
@@ -2464,11 +2475,12 @@ def _extract_fundamental_filters(user_input: str) -> list[FundamentalFilter]:
                 filters.append(FundamentalFilter(metric=metric, operator=operator, value=value))
                 seen.add(key)
 
-    # 흑자/적자는 값 없는 키워드 조건 — 위 숫자 기반 루프와 별도로 EPS 부호 필터로 추출한다.
-    eps_operator = _keyword_profitability_operator(compact)
-    if eps_operator is not None and ("eps", eps_operator, 0.0) not in seen:
-        filters.append(FundamentalFilter(metric="eps", operator=eps_operator, value=0.0))
-        seen.add(("eps", eps_operator, 0.0))
+    # 흑자/적자는 값 없는 키워드 조건 — 위 숫자 기반 루프와 별도로 부호 필터로 추출한다.
+    for sign_metric, sign_operator in _keyword_profitability_filters(compact):
+        key = (sign_metric, sign_operator, 0.0)
+        if key not in seen:
+            filters.append(FundamentalFilter(metric=sign_metric, operator=sign_operator, value=0.0))
+            seen.add(key)
 
     return filters
 

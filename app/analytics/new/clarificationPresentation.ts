@@ -50,6 +50,18 @@ function shouldSuppressContradictedQuestion(
   ) {
     return true;
   }
+  // 진입(종목 선정) 조건이 이미 있는데 "어떤 조건으로 종목을 선택할까요?"를 되묻는 것은
+  // parsed에 모순된다 — 완성된 전략을 확정한 뒤 다시 진입을 묻는 사고를 막는다. 진입이
+  // 정말 비어 있으면 이 함수 호출 전에 getNextMissingBacktestCondition이 먼저 가로챈다.
+  if (
+    question.includes("종목을 선택") &&
+    (parsed.entry_signals?.length ||
+      parsed.fundamental_filters?.length ||
+      Boolean(parsed.ranking_metric) ||
+      parsed.target_symbols?.length)
+  ) {
+    return true;
+  }
   return false;
 }
 

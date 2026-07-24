@@ -4017,13 +4017,52 @@ def test_profitability_keyword_maps_to_eps_sign_filter(prompt, expected):
         # 전환·연속은 단일 시점 부호 필터로 왜곡되므로 emit하지 않는다(미지원 안내 담당).
         "흑자전환 종목 매수",
         "3년 연속 흑자 기업 매수",
-        # 순이익이 아닌 항목의 부호 언급은 eps로 바꿔치기하지 않는다.
+        # 현금흐름의 부호 언급은 eps/ebit로 바꿔치기하지 않는다(LLM 위임).
         "영업활동현금흐름이 흑자인 기업만 매수",
-        "영업이익이 흑자인 기업 매수",
     ],
 )
 def test_profitability_keyword_not_extracted_for_transition_or_other_items(prompt):
-    assert not any(f.metric == "eps" for f in _extract_fundamental_filters(prompt))
+    assert not any(f.metric in ("eps", "ebit") for f in _extract_fundamental_filters(prompt))
+
+
+@pytest.mark.parametrize(
+    "prompt,expected",
+    [
+        # '영업이익 흑자'는 영업이익 부호(ebit) — LLM이 영업이익증가율>=0으로 환각하던 사고.
+        ("영업이익 흑자인 기업 투자 전략", ("ebit", ">", 0.0)),
+        ("영업이익이 흑자인 기업 매수", ("ebit", ">", 0.0)),
+        ("영업 흑자 기업만 편입", ("ebit", ">", 0.0)),
+        ("영업이익 적자 기업은 제외", ("ebit", ">", 0.0)),
+        ("영업이익 적자인 기업만 매수", ("ebit", "<", 0.0)),
+    ],
+)
+def test_operating_profitability_keyword_maps_to_ebit_sign_filter(prompt, expected):
+    filters = _extract_fundamental_filters(prompt)
+    assert [(f.metric, f.operator, f.value) for f in filters] == [expected]
+
+
+def test_mixed_profitability_contexts_emit_both_sign_filters():
+    """무문맥 흑자(eps)와 영업이익 흑자(ebit)가 한 문장에 섞여도 각각 추출된다."""
+    filters = _extract_fundamental_filters("순이익도 흑자이고 영업이익도 흑자인 기업 매수")
+    assert {(f.metric, f.operator, f.value) for f in filters} == {
+        ("eps", ">", 0.0),
+        ("ebit", ">", 0.0),
+    }
+
+
+def test_operating_profit_strategy_parses_deterministically():
+    """스크린샷 사고 재현: '영업이익 흑자인 기업 투자 전략'이 LLM 폴백 없이 ebit>0으로
+    파싱된다 — LLM이 영업이익증가율>=0으로 환각해 요약이 '영업이익증가율이 0 이상'으로
+    노출되던 사고의 회귀 가드."""
+    parsed = _parse_rule_based_strategy(
+        "영업이익 흑자인 기업 투자 전략, 손절 10%, 익절 20%, 매월 리밸런싱"
+    )
+    assert parsed is not None
+    assert [(f.metric, f.operator, f.value) for f in parsed.fundamental_filters] == [("ebit", ">", 0.0)]
+    assert not any(
+        f.metric in ("operating_income_growth", "operating_margin", "eps")
+        for f in parsed.fundamental_filters
+    )
 
 
 def test_profitability_transition_still_routes_to_unsupported_notice():

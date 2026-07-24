@@ -215,9 +215,10 @@
     "RSI N 이하 매수는 rsi buy(period 14, operator <=, value N), RSI N 이상 매도는 rsi sell(operator >=)이다.",
     "매수 조건 추가는 entry_signals, 매도/청산 조건 추가는 exit_signals에 기존 신호를 유지한 채 더한다.",
     "필터 추가 요청도 기존 fundamental_filters를 유지한 채 새 필터를 더한 전체 목록을 출력한다.",
-    "지원 metric: per(PER), pbr(PBR), psr(PSR), ev_ebitda(EV/EBITDA), roe_or_gpa(ROE), roa(ROA), debt_ratio(부채비율), current_ratio(유동비율), quick_ratio(당좌비율), reserve_ratio(유보율), net_margin(순이익률), gross_margin(매출총이익률), operating_margin(영업이익률), revenue_growth(매출액증가율), operating_income_growth(영업이익증가율), net_income_growth(순이익증가율), market_cap(시가총액, 억원), trading_value(거래대금, 억원), dividend_yield(배당수익률), payout_rate(배당성향), dividend_growth(배당성장률), eps(주당순이익, 원).",
+    "지원 metric: per(PER), pbr(PBR), psr(PSR), ev_ebitda(EV/EBITDA), roe_or_gpa(ROE), roa(ROA), debt_ratio(부채비율), current_ratio(유동비율), quick_ratio(당좌비율), reserve_ratio(유보율), net_margin(순이익률), gross_margin(매출총이익률), operating_margin(영업이익률), revenue_growth(매출액증가율), operating_income_growth(영업이익증가율), net_income_growth(순이익증가율), market_cap(시가총액, 억원), trading_value(거래대금, 억원), dividend_yield(배당수익률), payout_rate(배당성향), dividend_growth(배당성장률), eps(주당순이익, 원), ebit(영업이익, 억원).",
     "영업이익률(operating_margin)과 영업이익증가율(operating_income_growth)은 서로 다른 지표다 — 이름 그대로 구분한다.",
     "흑자 기업 조건은 eps > 0, 적자 기업 제외도 eps > 0, 적자 기업만은 eps < 0이다 — 흑자/적자를 순이익증가율(net_income_growth)로 바꿔 해석하지 않는다.",
+    "영업이익 흑자 조건은 ebit > 0, 영업이익 적자 제외도 ebit > 0, 영업이익 적자만은 ebit < 0이다 — 영업이익증가율(operating_income_growth)이나 영업이익률(operating_margin)로 바꿔 해석하지 않는다.",
     "지원 metric 목록에 없는 지표(ROIC, 베타, 현금흐름, 이자보상배율 등)는 diff에 넣지 않고 비슷한 지표로 대체하지도 않는다.",
     "필터 추가 요청에 임계값이 없으면 수익성 비율 지표(마진·ROE·ROA)는 >= 10.0을 기본값으로 쓴다."
    ],

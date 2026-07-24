@@ -35,6 +35,44 @@ def primary_enabled() -> bool:
     return config.interpreter_mode() == "primary"
 
 
+def _prune_clarifications_filled_by_overrides(
+    report: ValidationReport, parsed: Any
+) -> None:
+    """결정적 보정(_apply_prompt_overrides)이 채운 조건의 되묻기 질문을 제거한다(제자리).
+
+    완결성 검증은 인터프리터 LLM이 낸 intent(보정 전)에 대해 돌기 때문에, LLM이 '흑자
+    기업'을 빠뜨렸다가 _apply_prompt_overrides가 eps>0 필터로 결정적으로 되살린 경우
+    parsed에는 진입 조건이 있는데도 "어떤 조건으로 종목을 선택할까요?" 질문이 남는다 —
+    확정된 완성 전략을 다시 되묻는 사고. 보정 후 parsed가 실제로 채운 조건 질문만 지운다.
+    """
+    if not report.clarification_questions:
+        return
+    has_entry = bool(
+        getattr(parsed, "entry_signals", None)
+        or getattr(parsed, "fundamental_filters", None)
+        or getattr(parsed, "ranking_metric", None)
+        or getattr(parsed, "target_symbols", None)
+    )
+    rebal = getattr(parsed, "rebalancing_period", None)
+    has_exit = bool(
+        getattr(parsed, "exit_signals", None)
+        or getattr(parsed, "hold_period_days", None)
+        or (rebal and rebal != "none")
+        or getattr(parsed, "stop_loss_pct", None)
+        or getattr(parsed, "take_profit_pct", None)
+        or getattr(parsed, "trailing_stop_pct", None)
+    )
+    filled_fields = set()
+    if has_entry:
+        filled_fields.add("strategy.entry_conditions")
+    if has_exit:
+        filled_fields.add("strategy.exit_conditions")
+    if filled_fields:
+        report.clarification_questions = [
+            q for q in report.clarification_questions if q.field not in filled_fields
+        ]
+
+
 def _build_clarification(
     report: ValidationReport, intent: StrategyIntent
 ) -> tuple[Optional[str], Optional[List[str]]]:
@@ -250,6 +288,9 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
     # 충돌하지 않는다(레거시 LLM 폴백과 같은 계약).
     from engine.nl_parser import _apply_prompt_overrides
     parsed = _apply_prompt_overrides(parsed, user_input)
+    # 보정이 결정적으로 되살린 진입/청산 조건의 되묻기 질문을 지운다 — 완성 전략을 다시
+    # 되묻는 사고 방지(흑자 기업 등 LLM 누락 → eps>0 필터로 복원됐는데 진입 질문 잔존).
+    _prune_clarifications_filled_by_overrides(report, parsed)
     if parsed.target_symbols:
         # 지정 종목 전략의 청산 누락은 호출부 공유 보정(apply_single_asset_adjustments)이
         # 반대 신호 청산 추천/기간 종료 보유 안내(비차단 notices)로 처리한다(FR-STR-068) —
