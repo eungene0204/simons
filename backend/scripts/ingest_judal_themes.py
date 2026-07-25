@@ -64,6 +64,14 @@ EXCLUDE_MARKET = {
     "금은투자",
 }
 
+# 소스 원본 오류(사용자 제보 2026-07-25) — 주달 자체가 잘못 만든 테마는 재수집에도 제외.
+# '반도체 제품(SOC)': 이름은 반도체 계열인데 종목은 전부 건설사(삼성물산·현대건설 등) —
+# 사회간접자본(SOC) 인프라 테마를 반도체 제품(System on Chip) 이름으로 오분류한 원본 오류.
+# 건설사는 섹터 유니버스가 이미 커버하고 'SOC' 약어는 반도체와 중의적이라 제거가 안전하다.
+EXCLUDE_SOURCE_ERROR = {
+    "반도체 제품(SOC)",
+}
+
 # 가드 ④ — grounding·빌더 테스트가 '그래프 밖'을 전제하는 정본 용어(_norm_key 기준).
 # 여기 있는 표현이 카탈로그 스캔 용어가 되면 검색 학습 경로 테스트가 죽는다.
 TEST_RESERVED_TERMS = {
@@ -145,7 +153,8 @@ def main() -> None:
     print(f"주달 테마 {len(themes)}개 발견")
 
     report = {"included": 0, "excluded_person": 0, "excluded_event": 0,
-              "excluded_market": 0, "skipped_sector_vocab": [], "skipped_seed_dup": [],
+              "excluded_market": 0, "excluded_source_error": 0,
+              "skipped_sector_vocab": [], "skipped_seed_dup": [],
               "skipped_test_reserved": [], "dropped_symbols": 0, "edge_count": 0}
     catalog_themes: list[dict] = []
 
@@ -160,6 +169,9 @@ def main() -> None:
             continue
         if name in EXCLUDE_MARKET or base in EXCLUDE_MARKET:
             report["excluded_market"] += 1
+            continue
+        if name in EXCLUDE_SOURCE_ERROR:
+            report["excluded_source_error"] += 1
             continue
         if _norm_key(name) in TEST_RESERVED_TERMS or _norm_key(base) in TEST_RESERVED_TERMS:
             report["skipped_test_reserved"].append(name)
@@ -204,7 +216,7 @@ def main() -> None:
     print("\n=== 수집 결과 ===")
     print(f"포함 테마 {report['included']} / 엣지 {report['edge_count']}")
     print(f"제외 — 인물 {report['excluded_person']} · 이벤트 {report['excluded_event']}"
-          f" · 시장분류 {report['excluded_market']}")
+          f" · 시장분류 {report['excluded_market']} · 소스오류 {report['excluded_source_error']}")
     print(f"스킵 — 섹터 어휘 {len(report['skipped_sector_vocab'])}: {report['skipped_sector_vocab']}")
     print(f"스킵 — 시드 중복 {len(report['skipped_seed_dup'])}: {report['skipped_seed_dup']}")
     print(f"스킵 — 테스트 정본 용어 {len(report['skipped_test_reserved'])}: {report['skipped_test_reserved']}")

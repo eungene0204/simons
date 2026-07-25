@@ -3609,40 +3609,6 @@
    ]
   },
   {
-   "id": "judal-133",
-   "name": "반도체 제품(SOC)",
-   "kind": "industry",
-   "synonyms": [
-    "SOC"
-   ],
-   "stocks": [
-    {
-     "symbol": "028260",
-     "name": "삼성물산"
-    },
-    {
-     "symbol": "000720",
-     "name": "현대건설"
-    },
-    {
-     "symbol": "047040",
-     "name": "대우건설"
-    },
-    {
-     "symbol": "294870",
-     "name": "IPARK현대산업개발"
-    },
-    {
-     "symbol": "000210",
-     "name": "DL"
-    },
-    {
-     "symbol": "014790",
-     "name": "HL D&I"
-    }
-   ]
-  },
-  {
    "id": "judal-136",
    "name": "원자재(구리)",
    "kind": "industry",
