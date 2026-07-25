@@ -355,3 +355,18 @@ async def knowledge_graph_dump() -> dict:
         "edges": graph.edges,
         "issues": graph.issues,
     }
+
+
+@router.get("/knowledge/concept-universe")
+async def knowledge_concept_universe(q: str) -> dict:
+    """Concept 중심 유니버스 결정론 생성(FR-STR-072) — 읽기 전용 뷰.
+
+    KG 근거(원장 점수·출처 수·관계 거리)에서 관련도를 결정론 산출한 종목 집합.
+    객관적 관계 데이터 표시이며 추천·전망이 아니다. 모르는 개념은 found=false.
+    """
+    from engine.concept_universe import build_concept_universe
+
+    result = await asyncio.to_thread(build_concept_universe, q)
+    if result is None:
+        return {"found": False, "query": q}
+    return {"found": True, "query": q, **result}

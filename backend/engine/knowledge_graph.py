@@ -181,6 +181,14 @@ class KnowledgeGraph:
             })
         return result
 
+    def neighbor_edges(self, node_id: str):
+        """(엣지 원본, 반대편 노드 id) 순회 — 방향 무관, note·support 등 원본 필드 보존.
+
+        listed_companies가 심볼 요약만 주는 것과 달리 엣지 자체가 필요한 소비자
+        (concept_universe의 원장 점수 파싱 등)용 읽기 접근이다."""
+        for e in self._out.get(node_id, []) + self._in.get(node_id, []):
+            yield e, (e["target"] if e["source"] == node_id else e["source"])
+
     def listed_companies_via_concepts(self, node_id: str) -> list[dict]:
         """개념 이웃 1홉 너머의 직접 상장사 — 직접 상장사 엣지가 없는 테마의 폴백.
 
