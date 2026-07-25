@@ -164,6 +164,8 @@ _TERM_EXTRACT_PROMPT = (
     "너는 한국어 주식 전략 문장에서 사용자가 종목 범위를 제한하려는 업종/테마/산업 용어를 "
     "추출하는 도구다. 용어 하나만 원문 표기 그대로 추출한다(예: 'ESS 관련 투자 전략을 "
     "만들어줘' → 'ESS'). '관련주·관련·테마·업종·주' 같은 꼬리말은 제외한다. "
+    "업종에 수식어가 붙은 복합 표현은 수식어까지 포함한 전체를 추출한다"
+    "(예: '반도체 소부장 전략을 만들자' → '반도체 소부장'). "
     "그런 용어가 없으면 null.\n"
     '설명 없이 JSON만 출력한다. 예: {"term": "ESS"} 또는 {"term": null}'
 )
@@ -229,15 +231,24 @@ def resolve_sector(
     search_fn: Optional[SearchFn] = None,
     lexicon_path: Optional[Path] = None,
     on_search: Optional[Callable[[], None]] = None,
+    on_kg_lookup: Optional[Callable[[], None]] = None,
 ) -> Optional[str]:
     """업종 언급을 어휘집 → 내부 지식 LLM → 검색 그라운딩 순으로 해석한다.
 
     반환값은 정본 섹터명 또는 None(기존 되묻기 흐름으로 폴백). 검색이 실제 수행되면
     결과는 성공/실패 모두 어휘집에 저장돼 같은 용어를 다시 검색하지 않는다.
     on_search는 검색 그라운딩 단계(④)에 실제 진입할 때 1회 호출된다 — 호출부가
-    '검색 중...' 진행 표시를 띄우는 용도(어휘집/그래프/내부 LLM 히트 시엔 부르지 않는다)."""
+    '검색 중...' 진행 표시를 띄우는 용도(어휘집/그래프/내부 LLM 히트 시엔 부르지 않는다).
+    on_kg_lookup은 개념 해석 체인(어휘집·지식그래프·내부 LLM) 진입 시 1회 호출된다 —
+    호출부가 '개념 확인 중...' 진행 표시를 띄우는 용도(④ 진입 시 on_search가 대체)."""
     path = lexicon_path or _LEXICON_PATH
     lexicon = _load_lexicon(path)
+
+    if on_kg_lookup is not None:
+        try:
+            on_kg_lookup()
+        except Exception:  # noqa: BLE001 — 진행 표시 실패가 해석을 깨면 안 된다
+            pass
 
     # ① 어휘집 결정적 조회 — 학습된 용어면 검색·LLM 없이 즉시 해석
     hit = _scan_lexicon(text, lexicon)
@@ -252,37 +263,58 @@ def resolve_sector(
     if graph_sector:
         return graph_sector
 
-    # ② 내부 지식 LLM 매핑(기존 경로)
-    if base_resolver is not None:
+    # ② 내부 지식 LLM 매핑 / ④ 검색 그라운딩. 기본 순서는 ②→④지만, 복합 테마구
+    # ("반도체 소부장")나 큐 없는 미지 테마어("소부장 전략")는 내부 지식 LLM이 머리
+    # 테마어(반도체)로 근사해 버려 하위 테마 학습(정의·관련 상장사 엣지)이 영영 일어나지
+    # 않는다 — 이런 텍스트는 ④를 먼저 시도하고 실패 시에만 ②로 폴백한다(FR-STR-071).
+    def _llm_step() -> Optional[str]:
+        if base_resolver is None:
+            return None
         try:
-            sector = base_resolver(text)
+            return base_resolver(text) or None
         except Exception:  # noqa: BLE001 — LLM 실패는 다음 단계로
-            sector = None
-        if sector:
-            return sector
+            return None
 
-    # ③ 이미 검색해서 매핑 불가로 판명된 용어는 재검색하지 않는다
-    if hit is not None:
-        return None
+    def _search_step() -> Optional[str]:
+        # ③ 이미 검색해서 매핑 불가로 판명된 용어는 재검색하지 않는다
+        if hit is not None:
+            return None
+        fn = search_fn if search_fn is not None else _default_search
+        if search_fn is None and not search_available():
+            return None
+        if on_search is not None:
+            try:
+                on_search()
+            except Exception:  # noqa: BLE001 — 진행 표시 실패가 해석을 깨면 안 된다
+                pass
+        term = _extract_term(text, chat)
+        if not term:
+            return None
+        from engine.universe_pit import normalize_sector
 
-    # ④ 검색 그라운딩 — 용어 추출 → 검색 → 정의·업종 매핑 → 어휘집 저장
-    fn = search_fn if search_fn is not None else _default_search
-    if search_fn is None and not search_available():
-        return None
-    if on_search is not None:
-        try:
-            on_search()
-        except Exception:  # noqa: BLE001 — 진행 표시 실패가 해석을 깨면 안 된다
-            pass
-    term = _extract_term(text, chat)
-    if not term:
-        return None
-    key = _term_key(term)
-    entry = lexicon.get(key)  # 문장 스캔이 놓친 직접 키 조회(용어 표기 변형)
-    if entry is not None:
-        return entry.get("sector")
-    entry = _ground_and_learn(term, chat, fn, path)
-    return entry.get("sector") if entry is not None else None
+        known = normalize_sector(term)
+        if known:
+            return known  # 이미 정본 섹터 용어(반도체 등) — 검색·학습 불필요(어휘집 오염 방지)
+        key = _term_key(term)
+        entry = lexicon.get(key)  # 문장 스캔이 놓친 직접 키 조회(용어 표기 변형)
+        if entry is not None:
+            return entry.get("sector")
+        entry = _ground_and_learn(term, chat, fn, path)
+        return entry.get("sector") if entry is not None else None
+
+    if _prefers_search_first(text):
+        return _search_step() or _llm_step()
+    return _llm_step() or _search_step()
+
+
+def _prefers_search_first(text: str) -> bool:
+    """검색 학습을 내부 지식 LLM보다 먼저 시도해야 하는 텍스트인지(복합/미지 테마어)."""
+    try:
+        from engine.nl_parser import _compound_theme_hint, _weak_theme_candidate
+        return (_compound_theme_hint(text) is not None
+                or _weak_theme_candidate(text) is not None)
+    except Exception:  # noqa: BLE001 — 판정 실패는 기존 순서(LLM 우선) 유지
+        return False
 
 
 def learn_sector_term(
@@ -291,6 +323,7 @@ def learn_sector_term(
     search_fn: Optional[SearchFn] = None,
     lexicon_path: Optional[Path] = None,
     on_search: Optional[Callable[[], None]] = None,
+    on_kg_lookup: Optional[Callable[[], None]] = None,
 ) -> Optional[str]:
     """파싱 경로 사전 학습(FR-STR-069) — 어휘 밖 업종/테마 언급을 검색 그라운딩으로 학습한다.
 
@@ -305,7 +338,8 @@ def learn_sector_term(
     if not mentions_unresolved_sector(text):
         return None
     return resolve_sector(
-        text, chat, search_fn=search_fn, lexicon_path=lexicon_path, on_search=on_search
+        text, chat, search_fn=search_fn, lexicon_path=lexicon_path,
+        on_search=on_search, on_kg_lookup=on_kg_lookup,
     )
 
 

@@ -163,6 +163,41 @@ def test_on_search_fires_only_when_grounding_actually_runs(tmp_path):
     assert fired == []
 
 
+def test_on_kg_lookup_fires_at_chain_entry(tmp_path):
+    """on_kg_lookup('개념 확인 중...' 표시 신호)은 해석 체인 진입 시 1회 호출된다.
+
+    검색 그라운딩까지 가면 on_search가 뒤이어 호출돼 표시가 교체되고,
+    콜백 예외는 해석 결과를 깨지 않는다."""
+    lexicon = tmp_path / "lex.json"
+    stages: list[str] = []
+    chat = _ChatStub("폐배터리", {"definition": "배터리 재활용", "sector": "이차전지"})
+
+    # 검색까지 진행 → kg_lookup 1회 후 searching이 뒤따른다(표시 교체 순서)
+    got = resolve_sector("폐배터리 관련 전략", chat, search_fn=_SearchStub(_SNIPPETS),
+                         lexicon_path=lexicon,
+                         on_search=lambda: stages.append("searching"),
+                         on_kg_lookup=lambda: stages.append("kg_lookup"))
+    assert got == "이차전지"
+    assert stages == ["kg_lookup", "searching"]
+
+    # 어휘집 히트(즉시 해석)여도 체인 진입 신호는 1회 온다
+    stages.clear()
+    resolve_sector("폐배터리 전략 하나 더", _ChatStub(None, None),
+                   search_fn=_SearchStub(_SNIPPETS), lexicon_path=lexicon,
+                   on_search=lambda: stages.append("searching"),
+                   on_kg_lookup=lambda: stages.append("kg_lookup"))
+    assert stages == ["kg_lookup"]
+
+    # 콜백 예외는 무시되고 해석은 정상 진행된다
+    def boom():
+        raise RuntimeError("표시 실패")
+
+    got3 = resolve_sector("폐배터리 전략", _ChatStub(None, None),
+                          search_fn=_SearchStub(_SNIPPETS), lexicon_path=lexicon,
+                          on_kg_lookup=boom)
+    assert got3 == "이차전지"
+
+
 def test_edge_learning_anchors_support_and_auto_verify(tmp_path):
     """관계 엣지 학습(FR-STR-070b) — 앵커는 스니펫에 실제 등장한 시드 개념만(결정적),
     출처 2개 이상 지지는 자동 verified, 1개는 pending, 후보 밖 타깃·미허용 유형은 드롭."""
@@ -207,6 +242,68 @@ def test_edge_learning_no_anchor_skips_edge_llm(tmp_path):
     assert saved["edges"] == []
     # 용어 추출 + 그라운딩 2회만(엣지 선택 LLM 미호출 — 앵커 없음)
     assert chat.calls == 2
+
+
+def test_compound_theme_prefers_search_learning_over_llm(tmp_path, monkeypatch):
+    """복합 테마구('반도체 소부장')는 내부 지식 LLM보다 검색 학습을 먼저 시도한다 —
+    LLM이 머리 테마어(반도체)로 근사해 버리면 하위 테마(정의·관련 상장사)가 영영
+    학습되지 않던 공백(FR-STR-071, 실측 사고 2026-07-25).
+
+    ①b 지식그래프 단계는 전역 어휘집(learned 오버레이)을 읽으므로, 런타임 학습으로
+    실제 data/term_lexicon.json에 '반도체소부장'이 저장되면 검색 학습 경로가 선점돼
+    테스트가 깨진다 — tmp 어휘집으로 그래프도 격리한다(실측 2026-07-25)."""
+    import engine.knowledge_graph as kg
+
+    lexicon = tmp_path / "lex.json"
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
+    monkeypatch.setattr(kg, "_CACHED", None)
+    base_calls: list[str] = []
+
+    def base(text: str):
+        base_calls.append(text)
+        return "반도체"
+
+    chat = _ChatStub("반도체 소부장", {"definition": "반도체 소재·부품·장비 산업",
+                                       "sector": "반도체"})
+    search = _SearchStub(_SNIPPETS)
+    got = resolve_sector("반도체 소부장 전략을 만들자", chat, base_resolver=base,
+                         search_fn=search, lexicon_path=lexicon)
+    assert got == "반도체"
+    assert search.calls == 1          # 검색 학습이 실제로 수행됐다
+    assert base_calls == []           # 내부 지식 LLM은 호출되지 않았다(검색 성공)
+    saved = json.loads(lexicon.read_text(encoding="utf-8"))
+    assert saved["반도체소부장"]["definition"] == "반도체 소재·부품·장비 산업"
+    monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
+
+
+def test_compound_theme_falls_back_to_llm_when_unmappable(tmp_path, monkeypatch):
+    """검색 학습이 업종 매핑에 실패해도 내부 지식 LLM 폴백으로 근사할 수 있다."""
+    import engine.knowledge_graph as kg
+
+    lexicon = tmp_path / "lex.json"
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
+    monkeypatch.setattr(kg, "_CACHED", None)
+    chat = _ChatStub("반도체 소부장", {"definition": "정의", "sector": None})
+    got = resolve_sector("반도체 소부장 전략을 만들자", chat,
+                         base_resolver=lambda _t: "반도체",
+                         search_fn=_SearchStub(_SNIPPETS), lexicon_path=lexicon)
+    assert got == "반도체"  # 폴백 성공
+    # 학습 자체는 저장돼 재검색하지 않는다(매핑 불가 캐시).
+    saved = json.loads(lexicon.read_text(encoding="utf-8"))
+    assert saved["반도체소부장"]["sector"] is None
+    monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
+
+
+def test_extracted_known_sector_term_is_not_learned(tmp_path):
+    """용어 추출 LLM이 정본 섹터 용어(반도체)를 내면 검색·학습 없이 그 섹터로 해석한다 —
+    '반도체' 항목이 어휘집에 학습되면 이후 모든 반도체 언급이 어휘집 히트로 오염된다."""
+    lexicon = tmp_path / "lex.json"
+    chat = _ChatStub("반도체", {"definition": "정의", "sector": "반도체"})
+    search = _SearchStub(_SNIPPETS)
+    got = resolve_sector("반도체 소부장 전략", chat, search_fn=search, lexicon_path=lexicon)
+    assert got == "반도체"
+    assert search.calls == 0          # 검색하지 않는다
+    assert not lexicon.exists()       # 학습(저장)하지 않는다
 
 
 def test_general_facts_block_kg_seed_is_deterministic(tmp_path):

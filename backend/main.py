@@ -3140,21 +3140,25 @@ def _learn_unknown_sector_term(prompt: str, parser, on_stage=None) -> Optional[s
         with _mlx_inference_lock.priority(0):
             return parser.chat(system_prompt, user_msg, max_tokens=max_tokens)
 
-    searched = False
+    stage_entered = False
 
-    def on_search_cb():
-        nonlocal searched
-        searched = True
+    def on_stage_cb(stage: str):
+        nonlocal stage_entered
+        stage_entered = True
         if on_stage is not None:
-            on_stage("searching")
+            on_stage(stage)
 
     try:
-        sector = learn_sector_term(prompt, chat, on_search=on_search_cb)
+        sector = learn_sector_term(
+            prompt, chat,
+            on_search=lambda: on_stage_cb("searching"),
+            on_kg_lookup=lambda: on_stage_cb("kg_lookup"),
+        )
     except Exception as exc:  # noqa: BLE001 — 그라운딩 실패가 파싱을 막으면 안 된다
         print(f"[NL-PARSE] 용어 그라운딩 실패(무시): {exc}", flush=True)
         return None
     finally:
-        if searched and on_stage is not None:
+        if stage_entered and on_stage is not None:
             on_stage("parsing")
     if not sector:
         return None

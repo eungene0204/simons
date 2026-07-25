@@ -1620,6 +1620,85 @@ _CUE_LESS_SECTOR_RE = re.compile(
     r"(?=$|[^가-힣]|은|는|이|가|을|를|로|에|의|도|만|와|과|나|랑)"
 )
 
+# 큐리스 테마어 바로 뒤 후속어가 '아는 어휘'인지 판정할 어휘 집합(지연 구성 캐시).
+# _RULE_GUARD_KNOWN_VOCAB(모듈 하단 정의)에 없는 흔한 후속어(주도주·수혜주·소재 등)를
+# 보강한다 — 이 목록에 있으면 복합 테마구가 아니라 기존 단독 확정 동작을 유지한다.
+_THEME_FOLLOWER_EXTRA_BENIGN = frozenset({
+    "주도주", "대장주", "우량주", "수혜주", "테마주", "배당주", "관련주", "중소형주", "소형주",
+    "소재", "부품", "장비", "산업", "기업", "회사", "투자", "백테스트", "매매", "관련", "테마",
+    "분야", "단타", "스윙", "장기", "단기", "중기", "중장기", "퀀트", "추천", "코스피", "코스닥",
+    "성장", "가치", "배당", "미국", "해외", "국내", "한국",
+})
+_THEME_FOLLOWER_VOCAB_CACHE: Optional[frozenset] = None
+
+
+def _theme_follower_vocab() -> frozenset:
+    global _THEME_FOLLOWER_VOCAB_CACHE
+    if _THEME_FOLLOWER_VOCAB_CACHE is None:
+        _THEME_FOLLOWER_VOCAB_CACHE = (
+            _RULE_GUARD_KNOWN_VOCAB
+            | _THEME_FOLLOWER_EXTRA_BENIGN
+            | frozenset(_CUE_LESS_SECTOR_TERMS)
+            | frozenset(_sector_terms_longest_first())
+        )
+    return _THEME_FOLLOWER_VOCAB_CACHE
+
+
+def _is_known_theme_follower(token: str) -> bool:
+    """큐리스 테마어 뒤 후속 토큰이 '아는 어휘'(전략어·섹터어·종목명)인지 판정한다."""
+    vocab = _theme_follower_vocab()
+    forms = {token, _strip_trailing_josa(token)}
+    if any(f in vocab for f in forms) or normalize_sector(token) is not None:
+        return True
+    if any(token.startswith(w) for w in vocab if len(w) >= 2):
+        return True  # '전략을만들자'처럼 조사·후속 서술이 붙은 형태
+    try:  # 종목명이면 복합 테마가 아니라 종목 지정 문맥("반도체 삼성전자만")
+        from stock_analysis.symbol_resolver import find_in_text
+        if find_in_text(token):
+            return True
+    except Exception:  # noqa: BLE001 — 종목 마스터 미가용이 판정을 막으면 안 된다
+        pass
+    return False
+
+
+def _compound_theme_hint(user_input: str) -> Optional[str]:
+    """큐리스 테마어 뒤에 미지의 한글 수식어가 이어진 복합 테마구를 감지한다("반도체 소부장").
+
+    앞 테마어만 잘라 업종을 단독 확정하면 수식어가 조용히 소실된다(실측 사고 2026-07-25:
+    '반도체 소부장 전략'이 반도체 전체로 인식). 감지 시 (테마어, 수식어) 복합구 문자열을
+    반환한다 — 호출부는 단독 확정 대신 원문을 미해결 테마 힌트로 그라운딩 체인
+    (learn_sector_term/빌더 sector_resolver)에 넘긴다. 공백 없는 붙여쓰기('반도체소부장')는
+    큐리스 규칙 자체가 매칭하지 않아 감지 대상이 아니다(기존과 동일하게 None 경로)."""
+    m = _CUE_LESS_SECTOR_RE.search(user_input or "")
+    if not m:
+        return None
+    tail = re.match(r"\s*([가-힣]{2,})", user_input[m.end():])
+    if not tail or _is_known_theme_follower(tail.group(1)):
+        return None
+    return f"{m.group(1)} {tail.group(1)}"
+
+
+# 큐 없는 미지 테마어("소부장 전략을 만들자") — 알려진 머리명사(전략·종목·투자…) 앞의
+# 미지 한글 명사를 테마 후보로 본다. 신호가 약해(수식어 오탐 여지: '새로운 전략') 빌더
+# 시드에서만 쓰며, 해석 실패 시 되묻지 않고 조용히 해제하는 약한 힌트 계약과 짝이다
+# (strategy_builder.sector_hint_weak). 형용사꼴(ㄴ받침 종결: 새로운·괜찮은·어떤)과 아는
+# 어휘·섹터어·종목명은 제외한다.
+_WEAK_THEME_HEAD_RE = re.compile(
+    r"(?:^|(?<=[^0-9A-Za-z가-힣]))([가-힣]{2,})\s*(?:전략|종목|주식|투자|포트폴리오)"
+)
+
+
+def _weak_theme_candidate(user_input: str) -> Optional[str]:
+    for m in _WEAK_THEME_HEAD_RE.finditer(user_input or ""):
+        token = m.group(1)
+        last = ord(token[-1])
+        if 0xAC00 <= last <= 0xD7A3 and (last - 0xAC00) % 28 == 4:
+            continue  # ㄴ받침 종결 — 형용사 수식어로 본다
+        if _is_known_theme_follower(token):
+            continue
+        return token
+    return None
+
 
 # 지식그래프 폴백용 업종 큐 — _UNSUPPORTED_CONCEPT_PATTERNS의 sector 큐와 동일 어휘.
 # 큐 없는 개념 언급("금리가 오르면 매수")이 업종 제한으로 오폭하지 않게 게이트로 쓴다.
@@ -1640,7 +1719,17 @@ def _extract_sector(user_input: str) -> Optional[str]:
         return normalize_sector(match.group(1))
     cue_less = _CUE_LESS_SECTOR_RE.search(user_input or "")
     if cue_less:
-        return normalize_sector(cue_less.group(1))
+        if _compound_theme_hint(user_input) is None:
+            return normalize_sector(cue_less.group(1))
+        # 복합 테마구("반도체 소부장") — 앞 테마어 단독 확정 금지(수식어 침묵 소실 방지).
+        # 그래프(시드·학습)가 아는 개념이면 즉시 해석하고, 모르면 None — 미해결 플래그는
+        # _mentioned_unsupported_concepts가 세워 그라운딩 체인으로 넘긴다.
+        from engine.knowledge_graph import resolve_sector_from_text
+
+        try:
+            return resolve_sector_from_text(user_input)
+        except Exception:  # noqa: BLE001 — 그래프 실패가 파싱을 막으면 안 된다
+            return None
     if _KG_SECTOR_CUE_RE.search(_compact(user_input)):
         from engine.knowledge_graph import resolve_sector_from_text
 
@@ -3272,6 +3361,12 @@ def _mentioned_unsupported_concepts(user_input: str) -> list[str]:
         _extract_sector(user_input) is not None or _SECTOR_AGNOSTIC_RE.search(compact)
     ):
         names.remove("sector")
+    # 큐리스 복합 테마구("반도체 소부장 전략") — 업종 큐 없이도 미해결 업종 언급으로 취급해
+    # 되묻기·검색 그라운딩 학습 게이트를 연다(앞 테마어 조용한 단독 확정 사고 2026-07-25).
+    if ("sector" not in names and not _SECTOR_AGNOSTIC_RE.search(compact)
+            and _compound_theme_hint(user_input) is not None
+            and _extract_sector(user_input) is None):
+        names.append("sector")
     # 배당수익률/배당성향은 이제 지원 지표다 — 값이 추출되면 '배당' 미지원 안내를 뺀다
     # (섹터와 동형). '배당 성장/증가' 등 미추출 배당 개념은 그대로 안내 대상으로 남는다.
     if "dividend" in names and any(
@@ -3371,7 +3466,9 @@ def detect_theme_universe_clarification(
     아님). 종목이 이미 지정됐거나 테마 큐(관련/테마)가 없으면 침묵한다."""
     if getattr(parsed, "target_symbols", None):
         return (None, None)
-    if not _THEME_UNIVERSE_CUE_RE.search(_compact(user_prompt)):
+    # 큐리스 복합 테마구("반도체 소부장 종목")는 그 자체가 테마 의도 신호 — 큐와 동급으로 인정.
+    if not (_THEME_UNIVERSE_CUE_RE.search(_compact(user_prompt))
+            or _compound_theme_hint(user_prompt) is not None):
         return (None, None)
     from engine.knowledge_graph import theme_listed_companies
 

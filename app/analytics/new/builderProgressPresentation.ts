@@ -225,8 +225,9 @@ export function buildBuilderTurnPresentation({
   const targetFromState = (state.single_label
     ? String(state.single_label).replace(/\s*\(\d{6}\)$/, "")
     : null) ||
+    (state.theme_label ? String(state.theme_label) : null) ||
     (state.universe ? UNIVERSE_LABELS[state.universe] ?? state.universe : null);
-  const targetExplicit = hasExplicitUniverse(prompt, parsed);
+  const targetExplicit = Boolean(state.theme_label) || hasExplicitUniverse(prompt, parsed);
   const target = targetExplicit
     ? targetFromState || (parsed ? getDisplayUniverseLabels(parsed).join(" · ") : null)
     : null;
@@ -253,7 +254,7 @@ export function buildBuilderTurnPresentation({
 
   if (target) {
     summaryItems.push({
-      label: state.single_label ? "대상 종목" : "유니버스",
+      label: state.single_label || state.theme_label ? "대상 종목" : "유니버스",
       value: target,
     });
   }

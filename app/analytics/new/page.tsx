@@ -137,9 +137,10 @@ interface ChatMessage {
   coachLoading?: boolean;  // coach response is being generated
   isLoading?: boolean;
   // 분석 로딩 단계: 'parsing'(NL 파서 규칙 파싱) → 'thinking'(LLM 처리) → 'validating'(LLM 검증).
-  // 'searching'은 빌더의 용어 그라운딩이 인터넷 검색에 진입했을 때(FR-STR-069).
+  // 'kg_lookup'은 개념 해석 체인(지식그래프 조회 포함) 진입, 'searching'은 용어 그라운딩이
+  // 인터넷 검색에 진입했을 때(FR-STR-069).
   // 미설정이면 기본 '분석 중...'을 표시한다(빌더/분류 등 비파싱 로딩).
-  loadingStage?: "parsing" | "thinking" | "validating" | "searching";
+  loadingStage?: "parsing" | "thinking" | "validating" | "searching" | "kg_lookup";
   error?: string;
   infoText?: string;  // 일반 투자 답변 또는 전략 전환 안내
   infoSuggestions?: string[];  // 전략 빌더 옵션 칩(클릭 시 그 답으로 전송)
@@ -568,11 +569,13 @@ function ShimmerStatusText({
 // 분석 로딩 단계별 표시 문구. 미설정이면 기본 '분석 중...'.
 // validating: 룰 파싱이 애매해 LLM 검증기를 호출하는 동안 표시(ShimmerStatusText 애니메이션).
 // searching: 빌더 용어 그라운딩이 인터넷 검색으로 낯선 테마 용어를 학습하는 동안 표시.
-const ANALYSIS_STAGE_LABEL: Record<"parsing" | "thinking" | "validating" | "searching", string> = {
+// kg_lookup: 개념 해석 체인(지식그래프·어휘집·내부 LLM)에서 용어를 확인하는 동안 표시.
+const ANALYSIS_STAGE_LABEL: Record<"parsing" | "thinking" | "validating" | "searching" | "kg_lookup", string> = {
   parsing: "파싱 중...",
   thinking: "생각 중...",
   validating: "검증 중...",
   searching: "검색 중...",
+  kg_lookup: "개념 확인 중...",
 };
 
 // 빌더 스텝 호출 — 프록시가 SSE(text/event-stream)를 돌려주면 stage 이벤트('searching' =
@@ -643,7 +646,7 @@ function AnalysisStatusBubble({
   stage,
 }: {
   title?: string;
-  stage?: "parsing" | "thinking" | "validating" | "searching";
+  stage?: "parsing" | "thinking" | "validating" | "searching" | "kg_lookup";
 }) {
   const label = stage ? ANALYSIS_STAGE_LABEL[stage] : "분석 중...";
   return (
@@ -1629,10 +1632,12 @@ function StrategyLabContent() {
       seedBacktestRequest ?? backtestReqRef.current,
     );
     try {
-      // 시드에 낯선 테마 용어가 있으면 백엔드가 인터넷 검색 그라운딩에 진입할 수 있다 —
-      // stage:'searching' 이벤트가 오면 로딩 버블을 '검색 중...'으로 바꾼다.
+      // 시드에 낯선 테마 용어가 있으면 백엔드가 개념 확인(kg_lookup)·인터넷 검색
+      // 그라운딩(searching)에 진입할 수 있다 — stage 이벤트로 로딩 버블 문구를 바꾼다.
       const onBuilderStage = (stage: string) => {
-        if (stage === "searching") updateLastAssistant({ isLoading: true, loadingStage: "searching" });
+        if (stage === "searching" || stage === "kg_lookup") {
+          updateLastAssistant({ isLoading: true, loadingStage: stage });
+        }
       };
       const requestBuilderStep = (state: Record<string, any>) => requestBuilderStepData({
         state,
@@ -1786,7 +1791,9 @@ function StrategyLabContent() {
       const data = await requestBuilderStepData(
         { state: previousState, input: "" },
         (stage) => {
-          if (stage === "searching") updateLastAssistant({ isLoading: true, loadingStage: "searching" });
+          if (stage === "searching" || stage === "kg_lookup") {
+            updateLastAssistant({ isLoading: true, loadingStage: stage });
+          }
         },
       );
       builderStateRef.current = mergeBuilderState(previousState, data.state);
@@ -2224,9 +2231,9 @@ function StrategyLabContent() {
         if (evt.type === "skeleton") {
           // 구조 분석 스켈레톤은 표시하지 않는다 — 파싱이 끝날 때까지 단계 문구만 노출한다.
         } else if (evt.type === "stage") {
-          // 백엔드 진행 단계: 'parsing'(규칙 파싱) → 'searching'(용어 그라운딩 인터넷 검색)
-          // → 'thinking'(LLM 처리) → 'validating'(LLM 검증).
-          if (evt.stage === "parsing" || evt.stage === "searching" || evt.stage === "thinking" || evt.stage === "validating") {
+          // 백엔드 진행 단계: 'parsing'(규칙 파싱) → 'kg_lookup'(개념 확인) →
+          // 'searching'(용어 그라운딩 인터넷 검색) → 'thinking'(LLM 처리) → 'validating'(LLM 검증).
+          if (evt.stage === "parsing" || evt.stage === "kg_lookup" || evt.stage === "searching" || evt.stage === "thinking" || evt.stage === "validating") {
             updateLastAssistant({ isLoading: true, loadingStage: evt.stage });
           }
         } else if (evt.type === "parsed_final") {
@@ -2522,12 +2529,14 @@ function StrategyLabContent() {
     if (turnDecision.action === "continue_builder") {
       try {
         const requestState = builderStateRef.current;
-        // 답변에 낯선 테마 용어가 있으면(업종 되묻기 답 등) 검색 그라운딩에 진입할 수
-        // 있다 — stage:'searching' 수신 시 '검색 중...' 표시.
+        // 답변에 낯선 테마 용어가 있으면(업종 되묻기 답 등) 개념 확인(kg_lookup)·검색
+        // 그라운딩(searching)에 진입할 수 있다 — stage 수신 시 진행 문구 표시.
         const data = await requestBuilderStepData(
           { state: requestState, input: userText },
           (stage) => {
-            if (stage === "searching") updateLastAssistant({ isLoading: true, loadingStage: "searching" });
+            if (stage === "searching" || stage === "kg_lookup") {
+              updateLastAssistant({ isLoading: true, loadingStage: stage });
+            }
           },
         );
         builderStateRef.current =

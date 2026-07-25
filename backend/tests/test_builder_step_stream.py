@@ -2,6 +2,7 @@
 
 계약:
   - 결과는 {"type":"result","data":StepResult} 단일 이벤트 + [DONE] (기존 POST와 동일 데이터).
+  - 개념 해석 체인(지식그래프 조회 포함) 진입 시 {"type":"stage","stage":"kg_lookup"}가 흐른다.
   - 용어 그라운딩이 인터넷 검색에 진입하면 결과 전에 {"type":"stage","stage":"searching"}가 흐른다.
   - 예외는 {"type":"error"} 이벤트로 전달된다(스트림 200 유지).
 """
@@ -51,7 +52,7 @@ def test_step_stream_returns_result_event():
 def test_step_stream_emits_searching_stage_before_result(monkeypatch):
     """업종 되묻기 답이 검색 그라운딩에 진입하면 result 전에 searching stage가 흐른다."""
 
-    def fake_helpers(on_search=None):
+    def fake_helpers(on_search=None, on_kg_lookup=None):
         def sector_resolver(text):
             if on_search is not None:
                 on_search()
@@ -71,6 +72,32 @@ def test_step_stream_emits_searching_stage_before_result(monkeypatch):
     types = [(e["type"], e.get("stage")) for e in events]
     assert ("stage", "searching") in types
     assert types.index(("stage", "searching")) < types.index(
+        next(t for t in types if t[0] == "result")
+    )
+
+
+def test_step_stream_emits_kg_lookup_stage_before_result(monkeypatch):
+    """개념 해석 체인 진입('개념 확인 중...' 표시 신호)이 result 전에 kg_lookup stage로 흐른다."""
+
+    def fake_helpers(on_search=None, on_kg_lookup=None):
+        def sector_resolver(text):
+            if on_kg_lookup is not None:
+                on_kg_lookup()
+            time.sleep(0.25)  # 폴링(0.1s) 주기가 stage 전환을 확실히 관측하도록
+            return None
+
+        return None, sector_resolver
+
+    monkeypatch.setattr(intent_routes, "_builder_llm_helpers", fake_helpers)
+    with _client().stream(
+        "POST", "/strategy/builder/step-stream",
+        json={"state": {}, "input": "", "seed": "원자로 관련주 전략 만들어줘"},
+    ) as r:
+        body = "".join(r.iter_text())
+    events = _events(body)
+    types = [(e["type"], e.get("stage")) for e in events]
+    assert ("stage", "kg_lookup") in types
+    assert types.index(("stage", "kg_lookup")) < types.index(
         next(t for t in types if t[0] == "result")
     )
 

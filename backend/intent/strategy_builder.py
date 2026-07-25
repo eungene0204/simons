@@ -47,6 +47,20 @@ class BuilderState(BaseModel):
     # 미해결 업종을 사용자에게 한 번 되물었는지. 조용히 전체 시장으로 강등하지 않고 오타·
     # 목록 밖 표현을 정정할 기회를 준다(1회 한정 — 답에도 실패하면 안내 후 제한 없이 진행).
     sector_reask_done: bool = False
+    # 미해결 힌트가 '약한 신호'(큐 없는 미지 테마어 추정 — "소부장 전략")인지. 약한 힌트는
+    # 해석 실패 시 되묻기·안내 없이 조용히 해제한다 — 오탐('역발상 전략' 같은 수식어)이
+    # 사용자에게 "업종을 인식하지 못했다"는 엉뚱한 되묻기로 새지 않게 하는 계약.
+    sector_hint_weak: bool = False
+    # ── 테마 유니버스(FR-STR-071) — 테마와 함께 언급된 것으로 학습·검증된 상장사 제한 ────
+    # 그라운딩/지식그래프가 테마의 관련 상장사(related_company verified 엣지)를 알면 업종
+    # 근사 대신 '이 종목들로만 vs 업종 전체'를 한 번 되묻는다. 자동 적용하지 않는다 —
+    # 오늘 기준 정보라 시점 편향 고지와 함께 사용자가 고른다(객관적 관계 표시, 추천 아님).
+    theme_term: Optional[str] = None
+    theme_candidates: Optional[List[dict]] = None   # [{symbol, name}] 되묻기 후보
+    theme_first_date: Optional[str] = None          # 뉴스 최초 보도일(시점 편향 가드)
+    theme_reask_done: bool = False                  # 되묻기를 보여줬는지(답 분기 게이트)
+    theme_symbols: Optional[List[str]] = None       # '이 종목들로만' 선택 시 확정 심볼
+    theme_label: Optional[str] = None               # 확정 종목명 나열(요약·합성용)
     strategy_type: Optional[StrategyType] = None
     lookback_days: Optional[int] = None       # 모멘텀/돌파 기준 기간(거래일)
     lookback_label: Optional[str] = None       # 표시용 ("3개월", "60일")
@@ -1073,6 +1087,21 @@ def seed_state(text: str) -> BuilderState:
         # LLM 해석(step의 sector_resolver)에 원문을 넘기고, 그래도 안 되면 안내한다.
         patch["sector_unresolved"] = True
         patch["sector_hint"] = text
+    else:
+        from engine.nl_parser import _weak_theme_candidate
+
+        if _weak_theme_candidate(text):
+            # 큐 없는 미지 테마어 추정("소부장 전략") — 약한 힌트로 그라운딩 체인에 넘긴다.
+            # 오탐 여지가 있어 해석 실패 시 되묻기 없이 조용히 해제된다(sector_hint_weak).
+            patch["sector_unresolved"] = True
+            patch["sector_hint"] = text
+            patch["sector_hint_weak"] = True
+    # 테마 관련 상장사가 이미 학습·검증돼 있으면(재사용 발화) 되묻기 후보를 즉시 챙긴다 —
+    # 미해결 힌트 경로는 해석 후 _consume_sector_notice가 같은 조회를 한다(FR-STR-071).
+    if not patch.get("sector_unresolved"):
+        theme = _theme_companies(text)
+        if theme:
+            patch.update(_theme_patch(theme))
     universe = _parse_universe(text)
     if universe:
         patch["universe"] = universe
@@ -1132,7 +1161,8 @@ def required_missing(state: BuilderState) -> Optional[str]:
     단일 종목 모드에서는 종목 선별용 필드(유니버스·보유 종목 수·리밸런싱 주기)를 묻지
     않는다 — 대상이 한 종목으로 확정돼 있어 횡단면 질문이 무의미하다(FR-STR-068b)."""
     single = state.single_symbol is not None
-    if not single and not state.universe:
+    # 테마 종목 목록이 확정되면 대상이 목록으로 정해져 시장(유니버스) 질문이 무의미하다.
+    if not single and not state.theme_symbols and not state.universe:
         return "universe"
     if not state.strategy_type:
         return "strategy_type"
@@ -1377,7 +1407,7 @@ _ACK_PRIORITY = (
     "filters_asked", "rsi_overbought", "rsi_period", "ma_long", "ma_kind", "macd_mode",
     "cci_threshold", "volume_period", "value_roe",
     "rebalance_cycle", "holding_count", "lookback_days", "entry_rule", "strategy_type",
-    "sector", "universe",
+    "theme_symbols", "sector", "universe",
 )
 
 
@@ -1430,6 +1460,8 @@ def _ack_sentence(state: BuilderState, field: str) -> str:
         return f"{_TYPE_LABEL.get(state.strategy_type, '')} 전략으로 구성해 볼게요"
     if field == "sector":
         return f"{state.sector} 업종 종목만 대상으로 하겠습니다"
+    if field == "theme_symbols":
+        return f"{state.theme_label} 종목만 대상으로 하겠습니다"
     if field == "universe":
         return f"{_UNIVERSE_LABEL.get(state.universe, '')} 시장을 대상으로 하겠습니다"
     return ""
@@ -1496,7 +1528,12 @@ def synthesize_prompt(state: BuilderState) -> str:
     """수집한 필드를 기존 NL 파서가 안정적으로 해석하는 한국어 프롬프트로 합성한다."""
     single = state.single_symbol is not None
     universe = _UNIVERSE_LABEL.get(state.universe or "KOSPI", "코스피")
-    if state.sector and not single:
+    if state.theme_symbols and state.theme_label and not single:
+        # 테마 종목 목록 확정(FR-STR-071): 종목명 나열로 합성 — custom 유형의 prompt
+        # 재파싱 경로에서 _extract_target_symbols가 결정적으로 잡는다('업종/테마' 단어를
+        # 넣지 않는다 — 문맥 가드가 종목 추출을 차단해 목록이 무효화되는 함정).
+        universe = state.theme_label
+    elif state.sector and not single:
         # "업종" 큐를 붙여 custom 유형의 prompt 재파싱 경로에서도 섹터가 다시 인식되게 한다.
         universe = f"{universe} {state.sector} 업종"
     rebal = _REBAL_PHRASE.get(state.rebalance_cycle or "", "")
@@ -1573,6 +1610,9 @@ def synthesize_prompt(state: BuilderState) -> str:
         parts.append(f"최고가 대비 {_fmt_pct(state.trailing_stop_pct)}% 하락 시 청산")
     if state.hold_period_days:
         parts.append(f"최대 {state.hold_period_days}거래일 보유 후 청산")
+    if state.theme_symbols and state.theme_first_date and not single:
+        # 시점 편향 가드(FR-STR-071) — 목록 확인 시점 이후만 백테스트(되묻기에서 고지됨).
+        parts.append(f"{state.theme_first_date[:4]}년부터 백테스트")
     return ", ".join(parts)
 
 
@@ -1656,12 +1696,16 @@ def build_parsed_strategy(state: BuilderState):
                                              period=14, operator="<", value=state.rsi_filter))
 
     single = state.single_symbol is not None
+    theme = bool(state.theme_symbols)
     return ParsedStrategy(
         description=synthesize_prompt(state),
         universe=_UNIVERSE_DSL.get(state.universe or "KOSPI", ["KOSPI"]),
-        sector=None if single else state.sector,
+        sector=None if (single or theme) else state.sector,
         # 단일 종목 모드: 지정 종목·집중 보유·리밸런싱 없음(엔진 계약 FR-STR-068).
-        target_symbols=[state.single_symbol] if single else [],
+        # 테마 종목 목록(FR-STR-071)도 같은 지정 종목 계약을 재사용한다(universe 무시).
+        target_symbols=(state.theme_symbols if theme
+                        else [state.single_symbol] if single else []),
+        backtest_start_date=state.theme_first_date if theme else None,
         fundamental_filters=filters,
         entry_signals=entry,
         exit_signals=exit_,
@@ -1712,6 +1756,53 @@ RESTART_PREFIX = "처음부터 새로 구성해볼게요.\n\n"
 
 # ─── 오케스트레이션 ──────────────────────────────────────────────────────────────
 
+# 테마 유니버스 되묻기(FR-STR-071) — 후보 종목 수 상한(파싱 경로 _THEME_COMPANY_CHIP_MAX와 동률).
+_THEME_CHIP_MAX = 10
+
+
+def _theme_companies(text: Optional[str]) -> Optional[dict]:
+    """문장 속 테마의 학습·검증된 관련 상장사 조회(없음·실패=None). knowledge_graph 위임."""
+    if not text:
+        return None
+    try:
+        from engine.knowledge_graph import theme_listed_companies
+        theme = theme_listed_companies(text)
+    except Exception:  # noqa: BLE001 — 테마 조회 실패가 빌더를 막으면 안 된다
+        return None
+    return theme if theme and theme.get("companies") else None
+
+
+def _theme_patch(theme: dict) -> dict:
+    companies = theme["companies"][:_THEME_CHIP_MAX]
+    return {
+        "theme_term": theme.get("term"),
+        "theme_candidates": [{"symbol": c["symbol"], "name": c["name"]} for c in companies],
+        "theme_first_date": theme.get("first_known_date"),
+    }
+
+
+def _theme_reask_prompt(state: BuilderState) -> tuple[str, list[str]]:
+    """테마 관련 상장사 되묻기 질문·칩. [규제 안전] 출처 교차 확인된 객관적 관계 표시이며
+    추천이 아니다 — 어느 쪽이 낫다고 말하지 않고 범위 선택만 묻는다."""
+    names = ", ".join(c["name"] for c in state.theme_candidates or [])
+    question = (
+        f"'{state.theme_term}'와(과) 함께 언급된 것으로 확인된 상장사 "
+        f"{len(state.theme_candidates or [])}곳이 있어요(검색 출처 교차 확인): {names}. "
+        "이 종목들로만 백테스트할까요, 아니면 업종 전체로 할까요?"
+    )
+    if state.theme_first_date:
+        question += (
+            f" 참고로 이 목록은 {state.theme_first_date} 이후 확인된 정보예요 — 종목들로만 "
+            f"진행하면 {state.theme_first_date[:4]}년부터 백테스트해 당시에는 알 수 없던 "
+            "정보를 미리 반영하는 편향을 줄여요."
+        )
+    sector_chip = (
+        f"{state.sector} 업종 전체로 백테스트" if state.sector
+        else "업종 상관없이 전체 시장으로 백테스트"
+    )
+    return question, ["이 종목들로만 백테스트", sector_chip]
+
+
 def _consume_sector_notice(
     state: BuilderState,
     sector_resolver: Optional[Callable[[str], Optional[str]]] = None,
@@ -1723,31 +1814,50 @@ def _consume_sector_notice(
     normalize_sector로 재검증한다. LLM이 매핑하지 못하면 조용히 전체 시장으로 강등하지
     않고 사용자에게 한 번 되묻는다(reask=(질문, 칩)). 되묻기 답은 step의 전용 분기
     (_answer_sector_reask)에서 종결하므로 reask_done 상태로 여기 다시 오지 않는다.
-    LLM 시드나 후속 입력이 이미 정본 업종을 채웠으면 조용히 플래그만 정리한다."""
+    LLM 시드나 후속 입력이 이미 정본 업종을 채웠으면 조용히 플래그만 정리한다.
+
+    해석(그라운딩 검색 포함) 후 테마의 관련 상장사가 학습·검증돼 있으면 업종을 바로
+    확정하지 않고 '이 종목들로만 vs 업종 전체' 되묻기를 먼저 낸다(FR-STR-071). 약한
+    힌트(sector_hint_weak)는 해석 실패 시 되묻기·안내 없이 조용히 해제한다."""
+    if state.theme_candidates and not state.theme_reask_done and state.theme_symbols is None:
+        new_state = state.model_copy(update={"theme_reask_done": True})
+        return None, _theme_reask_prompt(new_state), new_state
     if not state.sector_unresolved:
         return None, None, state
+    cleared = {
+        "sector_unresolved": False, "sector_hint": None,
+        "sector_reask_done": False, "sector_hint_weak": False,
+    }
     if state.sector is not None:
-        return None, None, state.model_copy(update={
-            "sector_unresolved": False, "sector_hint": None, "sector_reask_done": False,
-        })
+        return None, None, state.model_copy(update=cleared)
     if not state.sector_reask_done:
-        if sector_resolver is not None and state.sector_hint:
+        hint = state.sector_hint
+        canonical = None
+        if sector_resolver is not None and hint:
             from engine.universe_pit import normalize_sector  # 지연 import(무거운 엔진 모듈)
 
             try:
-                canonical = normalize_sector(sector_resolver(state.sector_hint))
+                canonical = normalize_sector(sector_resolver(hint))
             except Exception:  # noqa: BLE001 — LLM 실패 시 되묻기로 안전 폴백
                 canonical = None
-            if canonical:
-                return None, None, state.model_copy(update={
-                    "sector": canonical, "sector_unresolved": False, "sector_hint": None,
-                })
+        # 해석 결과와 무관하게, 그라운딩이 관련 상장사를 학습했으면 되묻기 우선
+        # (업종 매핑 실패여도 종목 목록이 문자 그대로의 해석일 수 있다 — '소부장').
+        theme = _theme_companies(hint)
+        if theme:
+            new_state = state.model_copy(update={
+                **cleared, "sector": canonical, **_theme_patch(theme), "theme_reask_done": True,
+            })
+            return None, _theme_reask_prompt(new_state), new_state
+        if canonical:
+            return None, None, state.model_copy(update={**cleared, "sector": canonical})
+        if state.sector_hint_weak:
+            # 약한 힌트(미지 테마어 추정)는 오탐일 수 있다 — 엉뚱한 업종 되묻기로 새지
+            # 않고 조용히 해제한다(업종 제한 없음 = 기존 기본 동작).
+            return None, None, state.model_copy(update=cleared)
         return None, (SECTOR_REASK_PROMPT, list(SECTOR_REASK_SUGGESTIONS)), \
             state.model_copy(update={"sector_reask_done": True})
     # 방어적 폴백: 되묻기 답은 전용 분기가 처리하므로 정상적으로 여기 도달하지 않는다.
-    return SECTOR_UNSUPPORTED_NOTICE, None, state.model_copy(update={
-        "sector_unresolved": False, "sector_hint": None, "sector_reask_done": False,
-    })
+    return SECTOR_UNSUPPORTED_NOTICE, None, state.model_copy(update=cleared)
 
 
 def _answer_sector_reask(
@@ -1785,6 +1895,47 @@ def _answer_sector_reask(
     msg, sug = next_question(new_state, just_filled={"sector"} if resolved else None)
     if notice:
         msg = notice + "\n\n" + msg
+    return StepResult(state=new_state, reply=msg, suggestions=sug, status="collecting")
+
+
+# 테마 되묻기 답 판정 — 칩 문구('이 종목들로만 백테스트' / '~업종 전체로 백테스트')와
+# 자유 표현을 모두 커버한다. 종목 선택은 '종목' 어휘가 있고 업종/전체 어휘가 없을 때만.
+_THEME_ANSWER_SYMBOLS_RE = re.compile(r"종목|이걸로|이것들")
+_THEME_ANSWER_SECTOR_RE = re.compile(r"업종|섹터|전체|시장|상관없")
+
+
+def _answer_theme_reask(state: BuilderState, text: str) -> StepResult:
+    """테마 유니버스 되묻기 답을 종결적으로 처리한다(1회 한정 — 무한 되묻기 없음).
+
+    '이 종목들로만'이면 후보 상장사를 지정 종목 목록으로 확정하고 업종 근사를 해제한다
+    (유니버스 질문도 건너뜀 — 대상이 목록으로 확정). 업종/전체·모호한 답이면 업종 근사
+    (있으면)를 유지한 채 진행한다 — 안전한 기본값(기존 동작)이며 조용한 종목 제한이 없다."""
+    from engine.nl_parser import _compact
+
+    compact = _compact(text)
+    cleared = {"theme_candidates": None, "theme_reask_done": False}
+    choose_symbols = (
+        bool(_THEME_ANSWER_SYMBOLS_RE.search(compact))
+        and not _THEME_ANSWER_SECTOR_RE.search(compact)
+    )
+    if choose_symbols and state.theme_candidates:
+        names = [c["name"] for c in state.theme_candidates]
+        new_state = state.model_copy(update={
+            **cleared,
+            "theme_symbols": [c["symbol"] for c in state.theme_candidates],
+            "theme_label": ", ".join(names),
+            "sector": None,  # 대상이 종목 목록으로 확정 — 업종 근사 해제
+        })
+        just: Optional[set] = {"theme_symbols"}
+    else:
+        new_state = state.model_copy(update={
+            **cleared, "theme_term": None, "theme_first_date": None,
+        })
+        just = {"sector"} if state.sector else None
+    if required_missing(new_state) is None:
+        return StepResult(state=new_state, status="confirmed",
+                          prompt=synthesize_prompt(new_state))
+    msg, sug = next_question(new_state, just_filled=just)
     return StepResult(state=new_state, reply=msg, suggestions=sug, status="collecting")
 
 
@@ -1839,6 +1990,10 @@ def step(
     # (지원 업종 반영 / '업종 상관없음' 진행 / 실패 시 안내 — 무한 되묻기 없음).
     if state.sector_unresolved and state.sector_reask_done and state.sector is None:
         return _answer_sector_reask(state, text, sector_resolver)
+
+    # 테마 유니버스 되묻기 답(FR-STR-071) — 되묻기를 보여준 뒤의 다음 입력으로 종결한다.
+    if state.theme_reask_done and state.theme_candidates and state.theme_symbols is None:
+        return _answer_theme_reask(state, text)
 
     expecting = required_missing(state)
 

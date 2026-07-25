@@ -502,6 +502,164 @@ def test_sector_reask_second_failure_degrades_with_notice():
     assert "지원 목록에 없어" in second.reply
 
 
+# ─── 복합 테마구·테마 유니버스(FR-STR-071) ────────────────────────────────────────
+
+def test_compound_theme_not_confirmed_as_head_sector(tmp_path, monkeypatch):
+    """[회귀] '반도체 소부장 전략을 만들자' — 큐리스 테마어(반도체)가 미지 수식어(소부장)를
+    잘라먹고 업종을 단독 확정하던 사고(2026-07-25). 미해결 힌트로 그라운딩 체인에 넘긴다.
+
+    '학습 전' 상태를 검증하므로 그래프의 learned 오버레이를 tmp 어휘집으로 격리한다 —
+    런타임 학습으로 실제 data/term_lexicon.json에 '반도체소부장'이 저장되면 결정적
+    해석(설계 동작)이 선점돼 전제가 깨진다(실측 2026-07-25)."""
+    import engine.knowledge_graph as kg
+
+    monkeypatch.setattr(kg, "_LEXICON_PATH", tmp_path / "lex.json")
+    monkeypatch.setattr(kg, "_CACHED", None)
+    state = sb.seed_state("반도체 소부장 전략을 만들자")
+    monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
+    assert state.sector is None
+    assert state.sector_unresolved is True
+    assert state.sector_hint == "반도체 소부장 전략을 만들자"
+    assert state.sector_hint_weak is False  # 복합구는 강한 신호(실패 시 되묻기 허용)
+
+
+def test_known_follower_keeps_cue_less_sector():
+    """알려진 후속어('주도주'·'전략'·섹터어)는 복합구가 아니다 — 기존 단독 확정 유지."""
+    assert sb.seed_state("반도체 주도주 전략").sector == "반도체"
+    assert sb.seed_state("반도체 전략을 만들자").sector == "반도체"
+    assert sb.seed_state("바이오 헬스케어 전략").sector == "바이오/제약"
+
+
+def test_weak_theme_candidate_seeds_weak_hint():
+    """큐 없는 미지 테마어('소부장 전략')는 약한 힌트로 그라운딩 체인에 넘긴다."""
+    state = sb.seed_state("소부장 전략을 만들자")
+    assert state.sector is None and state.sector_unresolved is True
+    assert state.sector_hint_weak is True
+    # 알려진 수식어·형용사꼴은 약한 힌트를 만들지 않는다(오탐 방지).
+    assert sb.seed_state("새로운 전략을 만들어줘").sector_unresolved is False
+    assert sb.seed_state("단타 전략 짜줘").sector_unresolved is False
+
+
+def test_weak_hint_failure_clears_silently():
+    """약한 힌트는 해석 실패 시 되묻기·안내 없이 조용히 해제된다(오탐 UX 가드)."""
+    state = sb.seed_state("소부장 전략을 만들자")
+    r = sb.step(state, "", sector_resolver=lambda _t: None)
+    assert r.state.sector_unresolved is False and r.state.sector_hint is None
+    assert "다시 알려주시겠어요" not in r.reply
+    assert "지원 목록에 없어" not in r.reply
+    assert "어떤 시장" in r.reply  # 곧바로 일반 질문 진행
+
+
+@pytest.fixture
+def learned_theme_graph(tmp_path, monkeypatch):
+    """'반도체 소부장'이 관련 상장사(verified)와 함께 학습된 어휘집으로 지식그래프를 구성한다."""
+    import json as _json
+
+    from engine import knowledge_graph as kg
+
+    lexicon = tmp_path / "term_lexicon.json"
+    lexicon.write_text(_json.dumps({
+        "반도체소부장": {
+            "term": "반도체 소부장",
+            "definition": "반도체 소재·부품·장비 산업",
+            "sector": "반도체",
+            "sources": [], "searched_at": "2026-07-25T00:00:00+00:00",
+            "edges": [
+                {"type": "related_company", "target": "company:005290",
+                 "target_name": "동진쎄미켐", "support": 2, "status": "verified",
+                 "evidence": [], "first_known_date": "2020-03-01"},
+                {"type": "related_company", "target": "company:240810",
+                 "target_name": "원익IPS", "support": 2, "status": "verified",
+                 "evidence": [], "first_known_date": "2021-05-02"},
+            ],
+        }
+    }, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
+    kg._CACHED = None
+    yield lexicon
+    kg._CACHED = None
+
+
+def test_theme_companies_reask_then_symbol_universe(learned_theme_graph):
+    """그라운딩/그래프가 테마 관련 상장사를 알면 업종 확정 대신 '종목만 vs 업종 전체'를
+    되묻고, '이 종목들로만'이면 지정 종목 목록으로 확정된다(유니버스 질문 생략,
+    시점 편향 가드로 학습 시점 이후만 백테스트)."""
+    state = sb.seed_state("반도체 소부장 전략을 만들자")
+    # 시드가 이미 학습된 테마를 결정적으로 인식(그래프 경유) — 되묻기 후보까지 챙긴다.
+    assert state.sector == "반도체"
+    assert state.theme_candidates and state.theme_term == "반도체 소부장"
+
+    first = sb.step(state, "")
+    assert "이 종목들로만 백테스트할까요" in first.reply
+    assert "동진쎄미켐" in first.reply and "원익IPS" in first.reply
+    assert "2020" in first.reply  # 시점 편향 고지
+    assert first.suggestions and "이 종목들로만 백테스트" in first.suggestions[0]
+
+    second = sb.step(first.state, "이 종목들로만 백테스트")
+    st = second.state
+    assert st.theme_symbols == ["005290", "240810"]
+    assert st.sector is None  # 업종 근사 해제(대상=종목 목록)
+    assert "동진쎄미켐, 원익IPS 종목만 대상" in second.reply
+    assert sb.required_missing(st) != "universe"  # 시장 질문 생략
+
+    r = second
+    for answer in ("모멘텀", "3개월", "2종목", "매월", "10% 손절"):
+        r = sb.step(r.state, answer)
+    assert r.status == "confirmed"
+    assert "동진쎄미켐, 원익IPS 종목 중" in r.prompt
+    parsed = sb.build_parsed_strategy(r.state)
+    assert parsed.target_symbols == ["005290", "240810"]
+    assert parsed.sector is None
+    assert parsed.backtest_start_date == "2020-03-01"
+
+
+def test_theme_reask_sector_choice_keeps_sector(learned_theme_graph):
+    """되묻기에서 '업종 전체'를 고르면 업종 근사를 유지하고 종목 제한 없이 진행한다."""
+    state = sb.seed_state("반도체 소부장 전략을 만들자")
+    first = sb.step(state, "")
+    second = sb.step(first.state, "반도체 업종 전체로 백테스트")
+    st = second.state
+    assert st.theme_symbols is None and st.theme_candidates is None
+    assert st.sector == "반도체"
+    assert sb.required_missing(st) == "universe"  # 시장 질문은 정상 진행
+
+
+def test_theme_reask_fires_after_grounding_resolution(tmp_path, monkeypatch):
+    """첫 발화(미학습)는 resolver(그라운딩)가 학습을 마친 뒤 같은 스텝에서 되묻는다."""
+    import json as _json
+
+    from engine import knowledge_graph as kg
+
+    lexicon = tmp_path / "term_lexicon.json"
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
+    kg._CACHED = None
+
+    def resolver(_text: str):
+        # 그라운딩 검색이 어휘집을 채우는 상황을 재현(학습 후 섹터 반환)
+        lexicon.write_text(_json.dumps({
+            "반도체소부장": {
+                "term": "반도체 소부장", "definition": "d", "sector": "반도체",
+                "sources": [], "searched_at": "2026-07-25T00:00:00+00:00",
+                "edges": [
+                    {"type": "related_company", "target": "company:005290",
+                     "target_name": "동진쎄미켐", "support": 2, "status": "verified",
+                     "evidence": [], "first_known_date": "2020-03-01"},
+                ],
+            }
+        }, ensure_ascii=False), encoding="utf-8")
+        return "반도체"
+
+    try:
+        state = sb.seed_state("반도체 소부장 전략을 만들자")
+        assert state.sector_unresolved is True
+        first = sb.step(state, "", sector_resolver=resolver)
+        assert "이 종목들로만 백테스트할까요" in first.reply
+        assert first.state.sector == "반도체"  # 업종 근사도 함께 보존(업종 전체 선택 대비)
+        assert first.state.theme_candidates == [{"symbol": "005290", "name": "동진쎄미켐"}]
+    finally:
+        kg._CACHED = None
+
+
 def test_midflow_unresolved_mention_resolved_by_llm():
     """대화 중 미지원 표현('원자로 관련주로')도 LLM 해석으로 반영되고 확인 문장이 나온다."""
     state = sb.step(sb.BuilderState(), "").state  # 빈 상태에서 유니버스 질문

@@ -127,14 +127,15 @@ async def strategy_builder_step(req: BuilderStepRequest) -> strategy_builder.Ste
     return await asyncio.to_thread(_run_builder_step, state, req.input, risk_extractor, sector_resolver)
 
 
-def _builder_llm_helpers(on_search=None):
+def _builder_llm_helpers(on_search=None, on_kg_lookup=None):
     """빌더 스텝용 LLM 헬퍼 쌍 → (risk_extractor, sector_resolver). LLM 없으면 (None, None).
 
     청산 조건 자유 입력·미해결 업종 언급은 공유 LLM 파서로 보강·해석한다.
     업종 해석은 어휘집 → 내부 지식 LLM → 인터넷 검색 그라운딩 체인(FR-STR-069) —
     LLM이 모르는 테마 용어(ESS 등)를 검색으로 학습해 정본 섹터로 매핑하고, 결과는
     어휘집에 영속 저장돼 같은 용어를 두 번 검색하지 않는다. on_search는 검색 그라운딩
-    실제 진입 시 1회 호출된다(SSE 경로의 '검색 중...' 진행 표시)."""
+    실제 진입 시 1회 호출된다(SSE 경로의 '검색 중...' 진행 표시). on_kg_lookup은 개념
+    해석 체인 진입 시 1회 호출된다('개념 확인 중...' 표시 — 검색 진입 시 on_search가 대체)."""
     if not _llm_available():
         return None, None
     from engine.term_grounding import resolve_sector as _resolve_sector_grounded
@@ -144,15 +145,17 @@ def _builder_llm_helpers(on_search=None):
         text, _mlx_llm,
         base_resolver=lambda t: strategy_builder.llm_extract_sector(t, _mlx_llm),
         on_search=on_search,
+        on_kg_lookup=on_kg_lookup,
     )
     return risk_extractor, sector_resolver
 
 
 @router.post("/strategy/builder/step-stream")
 async def strategy_builder_step_stream(req: BuilderStepRequest):
-    """빌더 한 턴을 SSE로 처리한다 — 인터넷 검색 그라운딩(FR-STR-069) 진입 시
-    {"type":"stage","stage":"searching"} 이벤트를 먼저 흘려 프론트가 '검색 중...'을
-    표시할 수 있게 한다(parse-stream의 stage_holder 폴링 패턴 재사용).
+    """빌더 한 턴을 SSE로 처리한다 — 개념 해석 체인(지식그래프 조회 포함) 진입 시
+    {"type":"stage","stage":"kg_lookup"}('개념 확인 중...'), 인터넷 검색 그라운딩
+    (FR-STR-069) 진입 시 {"type":"stage","stage":"searching"}('검색 중...') 이벤트를
+    먼저 흘려 프론트가 진행 표시할 수 있게 한다(parse-stream의 stage_holder 폴링 패턴 재사용).
 
     최종 결과는 {"type":"result","data":StepResult} 단일 이벤트. 결과 계약은 기존
     POST /strategy/builder/step과 동일하다(그 엔드포인트는 호환용으로 유지)."""
@@ -171,7 +174,8 @@ async def strategy_builder_step_stream(req: BuilderStepRequest):
     result_holder: dict = {}
     error_holder: dict = {}
     risk_extractor, sector_resolver = _builder_llm_helpers(
-        on_search=lambda: stage_holder.__setitem__("stage", "searching")
+        on_search=lambda: stage_holder.__setitem__("stage", "searching"),
+        on_kg_lookup=lambda: stage_holder.__setitem__("stage", "kg_lookup"),
     )
 
     def run_step():
