@@ -211,3 +211,28 @@ def test_scan_index_includes_learned_terms_seed_wins_on_collision(tmp_path, monk
     assert graph.find_concepts("매핑불가어 관련") == []
 
     monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
+
+
+def test_graph_dump_route_returns_full_graph():
+    """GET /knowledge/graph(FR-STR-070c) — 관리자 콘솔 KG 시각화가 쓰는 합성 그래프
+    전체 덤프. nodes/edges/issues 구조와 정본 자동 생성 노드 포함 여부를 검증한다."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from api import intent_routes
+
+    app = FastAPI()
+    app.include_router(intent_routes.router)
+    res = TestClient(app).get("/knowledge/graph")
+    assert res.status_code == 200
+    data = res.json()
+    assert set(data.keys()) == {"nodes", "edges", "issues"}
+
+    graph = get_graph()
+    assert len(data["nodes"]) == len(graph.nodes)
+    assert len(data["edges"]) == len(graph.edges)
+    node_ids = {n["id"] for n in data["nodes"]}
+    # 시드 개념 + 정본 자동 생성(섹터·기업) 노드가 모두 포함된다
+    assert "hbm" in node_ids
+    assert any(i.startswith("sector:") for i in node_ids)
+    assert any(i.startswith("company:") for i in node_ids)

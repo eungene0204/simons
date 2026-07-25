@@ -336,3 +336,22 @@ async def general_answer(req: GeneralQueryRequest) -> GeneralQueryResponse:
     return GeneralQueryResponse(
         answer="해당 주제에 대한 일반적인 설명을 준비하지 못했습니다. 질문을 좀 더 구체적으로 입력해 주세요."
     )
+
+
+# ─── /knowledge/graph ───────────────────────────────────────────────────────────
+
+@router.get("/knowledge/graph")
+async def knowledge_graph_dump() -> dict:
+    """합성 지식그래프 전체 덤프 — 관리자 콘솔 KG 시각화(FR-STR-070c)용 읽기 전용 뷰.
+
+    시드+정본(섹터·기업·ETF)+학습 오버레이가 합성된 그래프를 그대로 내보낸다.
+    객관적 관계 데이터 표시이며 추천·전망이 아니다.
+    """
+    from engine.knowledge_graph import get_graph
+
+    graph = await asyncio.to_thread(get_graph)
+    return {
+        "nodes": list(graph.nodes.values()),
+        "edges": graph.edges,
+        "issues": graph.issues,
+    }

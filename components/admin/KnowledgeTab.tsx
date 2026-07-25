@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { adminFetch, ErrorNotice, formatDateTime } from './shared'
+import KnowledgeGraphView from './KnowledgeGraphView'
 
 // 지식그래프 학습 검토(FR-STR-070b) — 인터넷 검색으로 학습된 용어(어휘집)와 관계
 // 엣지를 검토한다. 엣지는 출처 교차지지(≥2)로 자동 verified 승격되며, 여기서 사후
 // 반려하거나 pending을 수동 승인한다. verified만 지식그래프에 합성된다.
+// 'KG 시각화' 서브탭(FR-STR-070c)은 합성 그래프 전체를 포스 레이아웃으로 표시한다.
 
 interface LearnedEdge {
   type: string
@@ -32,7 +34,15 @@ const STATUS_LABEL: Record<LearnedEdge['status'], { label: string; cls: string }
   rejected: { label: '반려됨', cls: 'bg-red-500/15 text-red-400' },
 }
 
+const SUB_TABS = [
+  { id: 'review', label: '학습 검토' },
+  { id: 'graph', label: 'KG 시각화' },
+] as const
+
+type SubTabId = (typeof SUB_TABS)[number]['id']
+
 export default function KnowledgeTab() {
+  const [subTab, setSubTab] = useState<SubTabId>('review')
   const [terms, setTerms] = useState<LearnedTerm[]>([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -69,12 +79,35 @@ export default function KnowledgeTab() {
     }
   }
 
-  if (!loaded && !error) {
-    return <p className="text-sm font-bold text-gray-600">불러오는 중…</p>
-  }
-
   return (
     <div className="space-y-4">
+      <div className="flex gap-1">
+        {SUB_TABS.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setSubTab(t.id)}
+            className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
+              subTab === t.id
+                ? 'bg-white/10 text-white'
+                : 'text-gray-500 hover:bg-white/5 hover:text-gray-300'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {subTab === 'graph' ? <KnowledgeGraphView /> : renderReview()}
+    </div>
+  )
+
+  // 학습 검토 서브탭 — 기존 검토 UI(FR-STR-070b)를 그대로 렌더링한다.
+  // 컴포넌트가 아닌 렌더 함수로 호출한다(렌더마다 새 컴포넌트 타입 → 리마운트 방지).
+  function renderReview() {
+    if (!loaded && !error) {
+      return <p className="text-sm font-bold text-gray-600">불러오는 중…</p>
+    }
+    return (
+      <div className="space-y-4">
       {error && <ErrorNotice message={error} />}
       <p className="text-xs font-bold text-gray-500">
         인터넷 검색으로 학습된 용어와 관계입니다. 관계 엣지는 서로 다른 출처 2개 이상이
@@ -153,6 +186,7 @@ export default function KnowledgeTab() {
           )}
         </div>
       ))}
-    </div>
-  )
+      </div>
+    )
+  }
 }
