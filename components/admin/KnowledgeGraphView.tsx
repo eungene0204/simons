@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { adminFetch, ErrorNotice } from './shared'
+import { adminFetch, ErrorNotice, inputClass } from './shared'
 
 // KG 시각화(FR-STR-070c) — 백엔드가 합성한 지식그래프(시드+정본 섹터·기업·ETF+학습
 // 오버레이)를 포스 레이아웃 캔버스로 표시한다. 객관적 관계 데이터의 표시일 뿐
@@ -16,6 +16,7 @@ interface KgNode {
   name: string
   category?: string
   description?: string
+  synonyms?: string[]
 }
 
 interface KgEdge {
@@ -62,6 +63,11 @@ interface SimEdge extends KgEdge {
 
 const HEIGHT = 560
 
+// 정규화 키(공백 제거·소문자화) — 백엔드 knowledge_graph._norm_key와 동일 관례
+function normKey(text: string): string {
+  return text.replace(/\s+/g, '').toLowerCase()
+}
+
 export default function KnowledgeGraphView() {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -76,6 +82,34 @@ export default function KnowledgeGraphView() {
     group: string
     description: string | null
   } | null>(null)
+  const [query, setQuery] = useState('')
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  // 진행 중인 포스 시뮬레이션에 명령을 보내는 통로 — 검색 결과 선택 시 레이아웃을
+  // 재시작(resetKey)하지 않고 카메라만 이동시킨다(재배치는 위치가 흔들려 방해된다)
+  const controllerRef = useRef<{ selectNode: (id: string) => void } | null>(null)
+
+  // 이름·별칭 부분일치 검색 — 이름 시작 일치 > 이름 포함 > 별칭 포함 순으로 정렬
+  const matches = useMemo(() => {
+    const nq = normKey(query)
+    if (!nq || !data) return []
+    const scored: { node: KgNode; score: number }[] = []
+    for (const n of data.nodes) {
+      const nameNorm = normKey(n.name)
+      let score = -1
+      if (nameNorm.startsWith(nq)) score = 0
+      else if (nameNorm.includes(nq)) score = 1
+      else if (n.synonyms?.some((s) => normKey(s).includes(nq))) score = 2
+      if (score >= 0) scored.push({ node: n, score })
+    }
+    scored.sort((a, b) => a.score - b.score || a.node.name.length - b.node.name.length)
+    return scored.slice(0, 8).map((s) => s.node)
+  }, [query, data])
+
+  const selectMatch = (node: KgNode) => {
+    setQuery(node.name)
+    setDropdownOpen(false)
+    controllerRef.current?.selectNode(node.id)
+  }
 
   useEffect(() => {
     adminFetch<{ nodes: KgNode[]; edges: KgEdge[]; issues: string[] }>('/api/admin/knowledge/graph')
@@ -439,6 +473,21 @@ export default function KnowledgeGraphView() {
       needsDraw = true
     }
 
+    // 검색 결과 선택 → 카메라를 그 노드로 이동+확대(최소 1.1배)하고 이웃을 하이라이트
+    controllerRef.current = {
+      selectNode: (id: string) => {
+        const n = nodeById.get(id)
+        if (!n) return
+        selected = n
+        setSelectedId(id)
+        interacted = true
+        k = Math.max(k, 1.1)
+        ox = width / 2 - n.x * k
+        oy = HEIGHT / 2 - n.y * k
+        needsDraw = true
+      },
+    }
+
     canvas.style.cursor = 'grab'
     canvas.addEventListener('pointerdown', onPointerDown)
     canvas.addEventListener('pointermove', onPointerMove)
@@ -449,6 +498,7 @@ export default function KnowledgeGraphView() {
     return () => {
       cancelAnimationFrame(raf)
       observer.disconnect()
+      controllerRef.current = null
       canvas.removeEventListener('pointerdown', onPointerDown)
       canvas.removeEventListener('pointermove', onPointerMove)
       canvas.removeEventListener('pointerup', onPointerUp)
@@ -464,6 +514,59 @@ export default function KnowledgeGraphView() {
 
   return (
     <div className="space-y-3">
+      <div className="relative w-full max-w-xs">
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value)
+            setDropdownOpen(true)
+          }}
+          onFocus={() => setDropdownOpen(true)}
+          onBlur={() => setTimeout(() => setDropdownOpen(false), 120)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && matches[0]) selectMatch(matches[0])
+            else if (e.key === 'Escape') {
+              setQuery('')
+              setDropdownOpen(false)
+            }
+          }}
+          placeholder="노드 검색 (이름·별칭)"
+          className={`${inputClass} w-full`}
+        />
+        {dropdownOpen && query && (
+          <ul className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto rounded-lg border border-white/10 bg-[#1a1a1a] shadow-xl">
+            {matches.length === 0 && (
+              <li className="px-3 py-2 text-xs font-bold text-gray-600">일치하는 노드 없음</li>
+            )}
+            {matches.map((m) => (
+              <li key={m.id}>
+                <button
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    selectMatch(m)
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-bold text-gray-200 hover:bg-white/10"
+                >
+                  <span
+                    className={GROUPS[groupOf(m)].shape === 'circle' ? 'inline-block h-2 w-2 shrink-0 rounded-full' : 'inline-block h-2 w-2 shrink-0'}
+                    style={{
+                      backgroundColor: GROUPS[groupOf(m)].color,
+                      transform: GROUPS[groupOf(m)].shape === 'diamond' ? 'rotate(45deg)' : undefined,
+                    }}
+                  />
+                  <span className="truncate">{m.name}</span>
+                  <span className="ml-auto shrink-0 text-[11px] font-bold text-gray-500">
+                    {GROUPS[groupOf(m)].label}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs font-bold text-gray-400">
         {GROUP_ORDER.map((g) => (
           <span key={g} className="flex items-center gap-1.5">
@@ -483,6 +586,7 @@ export default function KnowledgeGraphView() {
         <button
           onClick={() => {
             setSelectedId(null)
+            setQuery('')
             setResetKey((v) => v + 1)
           }}
           className="rounded-md border border-white/10 px-2.5 py-1 text-gray-300 hover:bg-white/5"

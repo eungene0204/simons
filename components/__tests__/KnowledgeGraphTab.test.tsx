@@ -23,7 +23,13 @@ const TERMS = {
 
 const GRAPH = {
   nodes: [
-    { id: "hbm", name: "HBM", category: "technology", description: "고대역폭 메모리" },
+    {
+      id: "hbm",
+      name: "HBM",
+      category: "technology",
+      description: "고대역폭 메모리",
+      synonyms: ["고대역폭 메모리"],
+    },
     { id: "sector:반도체", name: "반도체", category: "industry" },
     { id: "company:000660", name: "SK하이닉스", category: "company" },
     { id: "learned:cowos", name: "CoWoS", category: "learned" },
@@ -69,6 +75,67 @@ describe("KnowledgeTab 서브탭", () => {
     expect(
       (global.fetch as any).mock.calls.some((c) => String(c[0]) === "/api/admin/knowledge/graph")
     ).toBe(true);
+  });
+
+  it("검색창에 이름 부분일치 노드가 드롭다운으로 표시된다", async () => {
+    render(<KnowledgeTab />);
+    fireEvent.click(screen.getByText("KG 시각화"));
+    await waitFor(() => expect(screen.getByText(/노드 4 · 엣지 2/)).toBeInTheDocument());
+
+    fireEvent.change(screen.getByPlaceholderText("노드 검색 (이름·별칭)"), {
+      target: { value: "SK" },
+    });
+    expect(await screen.findByText("SK하이닉스")).toBeInTheDocument();
+  });
+
+  it("별칭(synonyms)으로도 검색된다", async () => {
+    render(<KnowledgeTab />);
+    fireEvent.click(screen.getByText("KG 시각화"));
+    await waitFor(() => expect(screen.getByText(/노드 4 · 엣지 2/)).toBeInTheDocument());
+
+    fireEvent.change(screen.getByPlaceholderText("노드 검색 (이름·별칭)"), {
+      target: { value: "고대역폭" },
+    });
+    // 드롭다운 항목의 노드명(HBM)과 범례의 그룹 개수(반도체 1)가 겹치지 않게 노드명으로 확인
+    const options = await screen.findAllByText("HBM");
+    expect(options.length).toBeGreaterThan(0);
+  });
+
+  it("일치하는 노드가 없으면 안내 문구를 보여준다", async () => {
+    render(<KnowledgeTab />);
+    fireEvent.click(screen.getByText("KG 시각화"));
+    await waitFor(() => expect(screen.getByText(/노드 4 · 엣지 2/)).toBeInTheDocument());
+
+    fireEvent.change(screen.getByPlaceholderText("노드 검색 (이름·별칭)"), {
+      target: { value: "존재하지않는용어" },
+    });
+    expect(await screen.findByText("일치하는 노드 없음")).toBeInTheDocument();
+  });
+
+  it("드롭다운 항목을 클릭하면 검색창에 이름이 채워지고 드롭다운이 닫힌다", async () => {
+    render(<KnowledgeTab />);
+    fireEvent.click(screen.getByText("KG 시각화"));
+    await waitFor(() => expect(screen.getByText(/노드 4 · 엣지 2/)).toBeInTheDocument());
+
+    const input = screen.getByPlaceholderText("노드 검색 (이름·별칭)") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "SK" } });
+    fireEvent.mouseDown(await screen.findByText("SK하이닉스"));
+
+    expect(input.value).toBe("SK하이닉스");
+    expect(screen.queryByText("일치하는 노드 없음")).not.toBeInTheDocument();
+  });
+
+  it("Enter 키로 첫 번째 검색 결과를 선택한다", async () => {
+    render(<KnowledgeTab />);
+    fireEvent.click(screen.getByText("KG 시각화"));
+    await waitFor(() => expect(screen.getByText(/노드 4 · 엣지 2/)).toBeInTheDocument());
+
+    const input = screen.getByPlaceholderText("노드 검색 (이름·별칭)") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "HBM" } });
+    await screen.findByText("HBM", { selector: "span.truncate" });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(input.value).toBe("HBM");
   });
 
   it("그래프 조회 실패 시 에러를 표시한다", async () => {
