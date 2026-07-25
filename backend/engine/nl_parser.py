@@ -1661,6 +1661,14 @@ def _is_known_theme_follower(token: str) -> bool:
     return False
 
 
+def _compound_theme_follower(user_input: str, match: "re.Match[str]") -> Optional[str]:
+    """큐리스 테마어 매치 바로 뒤가 미지의 한글 수식어면 그 수식어를 반환한다(아니면 None)."""
+    tail = re.match(r"\s*([가-힣]{2,})", user_input[match.end():])
+    if not tail or _is_known_theme_follower(tail.group(1)):
+        return None
+    return tail.group(1)
+
+
 def _compound_theme_hint(user_input: str) -> Optional[str]:
     """큐리스 테마어 뒤에 미지의 한글 수식어가 이어진 복합 테마구를 감지한다("반도체 소부장").
 
@@ -1672,10 +1680,10 @@ def _compound_theme_hint(user_input: str) -> Optional[str]:
     m = _CUE_LESS_SECTOR_RE.search(user_input or "")
     if not m:
         return None
-    tail = re.match(r"\s*([가-힣]{2,})", user_input[m.end():])
-    if not tail or _is_known_theme_follower(tail.group(1)):
+    follower = _compound_theme_follower(user_input, m)
+    if follower is None:
         return None
-    return f"{m.group(1)} {tail.group(1)}"
+    return f"{m.group(1)} {follower}"
 
 
 # 큐 없는 미지 테마어("소부장 전략을 만들자") — 알려진 머리명사(전략·종목·투자…) 앞의
@@ -1705,8 +1713,12 @@ def _weak_theme_candidate(user_input: str) -> Optional[str]:
 _KG_SECTOR_CUE_RE = re.compile(r"섹터|업종|관련|테마")
 
 
-def _extract_sector(user_input: str) -> Optional[str]:
+def _extract_sector(user_input: str) -> Optional[Union[str, List[str]]]:
     """'반도체 관련주'·'2차전지 업종' 같은 명시적 섹터 제한을 정본 섹터명으로 추출한다.
+
+    복수 언급("반도체와 로봇관련 종목")은 전부 수집해 정규형(단일=str, 2개 이상=list,
+    FR-STR-066 ⑦)으로 반환한다 — 첫 매치만 반환해 뒤 업종 외 언급이 조용히 소실되던
+    실측 사고 2026-07-25('반도체와 로봇관련 종목'이 로봇 단독으로 인식).
 
     큐가 없어도 '2차전지 전략을 만들자'류의 고유 테마어(_CUE_LESS_SECTOR_TERMS)는 단독으로
     잡는다 — 회사명 조각·일반어와 겹치지 않는 통칭만, 원문 경계 검사로 오탐을 막는다.
@@ -1714,28 +1726,36 @@ def _extract_sector(user_input: str) -> Optional[str]:
     어휘 밖 테마어(ESS·HBM 등)는 업종 큐 동반 시 지식그래프 시드로 결정적 해석한다
     (FR-STR-070 — 빌더 resolver 체인 ①b와 동일 게이트를 파싱·시드·수정 경로에도 배선.
     'ess 관련 투자'가 파싱 경로에서 조용히 소실되던 실측 사고 2026-07-25)."""
-    match = _SECTOR_TERM_RE.search(_compact(user_input))
-    if match:
-        return normalize_sector(match.group(1))
-    cue_less = _CUE_LESS_SECTOR_RE.search(user_input or "")
-    if cue_less:
-        if _compound_theme_hint(user_input) is None:
-            return normalize_sector(cue_less.group(1))
+    compact = _compact(user_input)
+    found: list[tuple[int, str]] = []  # (발화 내 위치, 정본명) — 표시 순서를 발화 순서로
+
+    def _collect(raw: str, pos: int) -> None:
+        canonical = normalize_sector(raw)
+        if canonical is not None and all(c != canonical for _, c in found):
+            found.append((pos, canonical))
+
+    for match in _SECTOR_TERM_RE.finditer(compact):
+        _collect(match.group(1), match.start())
+    compound_seen = False
+    for cue_less in _CUE_LESS_SECTOR_RE.finditer(user_input or ""):
         # 복합 테마구("반도체 소부장") — 앞 테마어 단독 확정 금지(수식어 침묵 소실 방지).
-        # 그래프(시드·학습)가 아는 개념이면 즉시 해석하고, 모르면 None — 미해결 플래그는
-        # _mentioned_unsupported_concepts가 세워 그라운딩 체인으로 넘긴다.
-        from engine.knowledge_graph import resolve_sector_from_text
-
-        try:
-            return resolve_sector_from_text(user_input)
-        except Exception:  # noqa: BLE001 — 그래프 실패가 파싱을 막으면 안 된다
-            return None
-    if _KG_SECTOR_CUE_RE.search(_compact(user_input)):
-        from engine.knowledge_graph import resolve_sector_from_text
-
+        if _compound_theme_follower(user_input, cue_less) is not None:
+            compound_seen = True
+            continue
+        # 큐리스 매치는 원문 좌표라 큐 매치(compact 좌표)와 직접 비교할 수 없다 —
+        # 같은 표면형의 compact 내 첫 위치로 근사한다(표시 순서용, 의미 동일).
+        approx = compact.find(_compact(cue_less.group(1)))
+        _collect(cue_less.group(1), approx if approx >= 0 else cue_less.start())
+    if found:
+        return normalize_sector_value([c for _, c in sorted(found)])
+    if compound_seen or _KG_SECTOR_CUE_RE.search(compact):
+        # 복합 테마구는 그래프(시드·학습)가 아는 개념이면 즉시 해석하고, 모르면 None —
+        # 미해결 플래그는 _mentioned_unsupported_concepts가 세워 그라운딩 체인으로 넘긴다.
         # 시드 개념(HBM·SMR)과 검색 학습 용어('마운자로' 등) 모두 그래프 단일 경로로
         # 해석한다 — 읽기 경로 통합(2026-07-25): 학습 용어가 스캔 인덱스에 포함돼
         # 별도 어휘집 스캔 폴백이 필요 없다.
+        from engine.knowledge_graph import resolve_sector_from_text
+
         try:
             return resolve_sector_from_text(user_input)
         except Exception:  # noqa: BLE001 — 그래프 실패가 파싱을 막으면 안 된다
@@ -3453,6 +3473,18 @@ def detect_unresolved_sector_clarification(
 #  · 업종 칩은 기존 섹터 어휘(_extract_sector)로 재해석된다.
 _THEME_UNIVERSE_CUE_RE = re.compile(r"관련|테마")
 _THEME_COMPANY_CHIP_MAX = 10
+# Phase 2(FR-STR-070) 공급망 확장 칩 — 직접 관련 종목+깊이 2 확장분 합계 상한.
+# 초과 시 확장분을 잘라 맞춘다(칩은 종목명 나열로 재파싱되므로 무한정 길 수 없다).
+_THEME_EXPANDED_CHIP_MAX = 15
+# via 경로("데이터센터 –requires→ 전력기기 –produced_by→ HD현대일렉트릭")에서
+# 노드 이름들만 분리하는 구분자 — expand()의 화살표 표기(–type→ / ←type–)와 일치.
+_VIA_ARROW_RE = re.compile(r"\s*(?:–[a-z_]+→|←[a-z_]+–)\s*")
+
+
+def _via_hop_label(via: str) -> str:
+    """via 경로에서 중간 개념명만 뽑아 근거 요약을 만든다('전력기기' 등). 직접 연결은 빈 문자열."""
+    parts = [p for p in _VIA_ARROW_RE.split(via or "") if p]
+    return "·".join(parts[1:-1])
 
 
 def detect_theme_universe_clarification(
@@ -3500,7 +3532,43 @@ def detect_theme_universe_clarification(
     sector_chip = (
         f"{sector} 업종 전체로 백테스트" if sector else "업종 상관없이 전체 시장으로 백테스트"
     )
-    return (question, [symbols_chip, sector_chip])
+    chips = [symbols_chip, sector_chip]
+
+    # Phase 2(FR-STR-070) — 공급망 확장 제안: related_universe 깊이 2가 직접 관련
+    # 종목 밖의 상장사(공급망·인프라)에 닿으면 세 번째 선택지로 제시한다. 관계 근거
+    # (via의 중간 개념)는 질문 본문에 요약 표시하고, 칩은 기존 계약대로 종목명
+    # 나열('관련주/테마' 단어 금지 — TARGET 가드)로 만들어 재파싱되게 한다.
+    # 확장은 객관적 관계 데이터의 표시이며 추천이 아니다 — 선택은 사용자가 한다.
+    try:
+        from engine.knowledge_graph import related_universe
+
+        expansion = related_universe(user_prompt)
+    except Exception:  # noqa: BLE001 — 확장 조회 실패가 기존 되묻기를 막으면 안 된다
+        expansion = None
+    if expansion:
+        direct_symbols = {c["symbol"] for c in companies}
+        added = [c for c in expansion["companies"] if c["symbol"] not in direct_symbols]
+        added = added[: max(0, _THEME_EXPANDED_CHIP_MAX - len(companies))]
+        if added:
+            added_desc = ", ".join(
+                f"{c['name']}({label})" if (label := _via_hop_label(c.get("via", ""))) else c["name"]
+                for c in added[:5]
+            )
+            more = f" 외 {len(added) - 5}곳" if len(added) > 5 else ""
+            question += (
+                f" 관계 그래프상 공급망·인프라 기업까지 넓히면 {len(companies) + len(added)}곳이에요"
+                f" — 추가: {added_desc}{more}."
+            )
+            all_names = ", ".join(
+                [c["name"] for c in companies] + [c["name"] for c in added]
+            )
+            expanded_chip = f"{all_names} 종목 전체를 함께 백테스트"
+            if first_date:
+                expanded_chip = (
+                    f"{all_names} 종목 전체를 함께 {first_date[:4]}년부터 백테스트"
+                )
+            chips.append(expanded_chip)
+    return (question, chips)
 
 
 # 종목명 오타 되묻기 — 흔한 조사(뒤에 붙어 자모거리를 벌리는)를 벗겨 근접 매칭 정확도를 올린다.
@@ -5043,8 +5111,11 @@ def _missing_backtest_conditions(parsed: ParsedStrategy) -> list[tuple[str, str,
         missing.append(("어떤 시장·종목을 대상으로 할까요?\n\n예: 코스피200, 코스닥 전체",
                         ["코스피200 대상으로", "코스닥 전체 대상으로"]))
     if not has_entry:
-        missing.append(("어떤 조건에서 매수할까요?\n\n예: 골든크로스 발생 시 매수, PBR 1 이하",
-                        ["골든크로스 발생 시 매수", "PBR 1 이하"]))
+        missing.append(("어떤 조건에서 매수할까요?\n\n예: 골든크로스 발생 시 매수, PER 10 이하",
+                        ["골든크로스 발생 시 매수", "RSI 30 이하에서 매수",
+                         "MACD 골든크로스 매수", "볼린저밴드 하단 터치 시 매수",
+                         "20일 고점 돌파 시 매수", "거래량 급증 시 매수",
+                         "PER 10 이하", "ROE 15% 이상"]))
     if not has_exit:
         missing.append(("청산 조건 — 언제 팔까요?\n\n예: 데드크로스 발생 시 매도, 20일 보유 후 청산",
                         ["20일 보유 후 청산", "데드크로스 발생 시 매도"]))

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -36,8 +36,9 @@ class BuilderState(BaseModel):
     universe: Optional[Universe] = None
     # 업종/섹터 제한(정본 섹터명, FR-STR-066). 질문으로 묻지 않고 진입 시드에서만 채운다 —
     # 종목 질문 리다이렉트 뒤 "반도체 주도주로 전략 만들어줘"처럼 사용자가 이미 말한 업종을
-    # 기억해 최종 전략의 유니버스에 반영한다.
-    sector: Optional[str] = None
+    # 기억해 최종 전략의 유니버스에 반영한다. 복수 언급("반도체와 로봇")은 list 정규형
+    # (FR-STR-066 ⑦)을 그대로 담는다.
+    sector: Optional[Union[str, List[str]]] = None
     # 업종/테마 언급('로봇주 관련')을 봤지만 지원 목록(정본 38개)으로 매핑하지 못한 상태.
     # step이 LLM 해석을 한 번 시도하고, 그래도 안 되면 안내를 보여준 뒤 끄는 일회성 플래그
     # — 조용히 전체 시장으로 진행되는 유실 방지.
@@ -1134,10 +1135,10 @@ def apply_parsed_seed(state: BuilderState, parsed: Optional[dict]) -> BuilderSta
         return state
     patch: dict = {}
     sector = parsed.get("sector")
-    if isinstance(sector, str) and sector and state.sector is None:
-        from engine.universe_pit import normalize_sector  # 지연 import(무거운 엔진 모듈)
+    if isinstance(sector, (str, list)) and sector and state.sector is None:
+        from engine.universe_pit import normalize_sector_value  # 지연 import(무거운 엔진 모듈)
 
-        canonical = normalize_sector(sector)
+        canonical = normalize_sector_value(sector)
         if canonical:
             patch["sector"] = canonical
     for field in ("stop_loss_pct", "take_profit_pct", "trailing_stop_pct"):
@@ -1423,6 +1424,12 @@ def _filter_phrases(state: BuilderState) -> list[str]:
     return parts
 
 
+def _sector_label(state: BuilderState) -> str:
+    """sector 정규형(str/list)을 표시용 라벨로 — 복수는 '·'로 잇는다("반도체·로봇")."""
+    from engine.universe_pit import sector_value_as_list  # 지연 import(무거운 엔진 모듈)
+    return "·".join(sector_value_as_list(state.sector))
+
+
 def _ack_sentence(state: BuilderState, field: str) -> str:
     """단일 필드를 확인하는 완결 문장(마침표 없이)."""
     if field == "filters_asked":
@@ -1459,7 +1466,7 @@ def _ack_sentence(state: BuilderState, field: str) -> str:
     if field == "strategy_type":
         return f"{_TYPE_LABEL.get(state.strategy_type, '')} 전략으로 구성해 볼게요"
     if field == "sector":
-        return f"{state.sector} 업종 종목만 대상으로 하겠습니다"
+        return f"{_sector_label(state)} 업종 종목만 대상으로 하겠습니다"
     if field == "theme_symbols":
         return f"{state.theme_label} 종목만 대상으로 하겠습니다"
     if field == "universe":
@@ -1476,7 +1483,7 @@ def _seed_summary(state: BuilderState) -> list[str]:
     single = state.single_symbol is not None
     parts: list[str] = []
     if state.sector and not single:
-        parts.append(f"{state.sector} 업종 대상")
+        parts.append(f"{_sector_label(state)} 업종 대상")
     if state.strategy_type:
         parts.append(f"{_TYPE_LABEL.get(state.strategy_type, '')} 전략")
     if state.lookback_days and state.strategy_type in ("momentum", "breakout"):
@@ -1535,7 +1542,8 @@ def synthesize_prompt(state: BuilderState) -> str:
         universe = state.theme_label
     elif state.sector and not single:
         # "업종" 큐를 붙여 custom 유형의 prompt 재파싱 경로에서도 섹터가 다시 인식되게 한다.
-        universe = f"{universe} {state.sector} 업종"
+        # 복수 섹터는 '·'로 잇는다 — 재파싱의 _extract_sector가 각 항목을 다시 잡는다.
+        universe = f"{universe} {_sector_label(state)} 업종"
     rebal = _REBAL_PHRASE.get(state.rebalance_cycle or "", "")
     n = 1 if single else (state.holding_count or 10)
     days = state.lookback_days or 63
@@ -1740,7 +1748,7 @@ SECTOR_REASK_PROMPT = (
 SECTOR_REASK_SUGGESTIONS = ("반도체", "이차전지", "바이오/제약", "자동차", "업종 상관없음")
 
 
-def _resolve_sector_answer(text: str) -> Optional[str]:
+def _resolve_sector_answer(text: str) -> Optional[Union[str, List[str]]]:
     """되묻기 답으로 받은 업종 표현을 정본 섹터명으로 결정적 해석한다.
 
     맨 용어('제약'·'반도체')는 normalize_sector가, 큐 동반('제약주'·'제약 관련주')은
@@ -1797,7 +1805,7 @@ def _theme_reask_prompt(state: BuilderState) -> tuple[str, list[str]]:
             "정보를 미리 반영하는 편향을 줄여요."
         )
     sector_chip = (
-        f"{state.sector} 업종 전체로 백테스트" if state.sector
+        f"{_sector_label(state)} 업종 전체로 백테스트" if state.sector
         else "업종 상관없이 전체 시장으로 백테스트"
     )
     return question, ["이 종목들로만 백테스트", sector_chip]

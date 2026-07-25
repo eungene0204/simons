@@ -4227,6 +4227,22 @@ def test_extract_sector_deterministic():
     assert _extract_sector("로봇 관련주 매수") == "로봇"
 
 
+def test_extract_sector_multiple_mentions():
+    """복수 업종 언급은 발화 순서대로 전부 수집한다(FR-STR-066 ⑦ 정규형: 2개 이상=list).
+
+    [회귀] 첫 매치만 반환해 '반도체와 로봇관련 종목'에서 반도체가 조용히 소실되던
+    실측 사고(2026-07-25 — 빌더 시드가 '업종 로봇' 단독으로 이해)."""
+    from engine.nl_parser import _extract_sector
+    assert _extract_sector(
+        "반도체와 로봇관련 종목에 투자 하는 전략을 만들어 보자"
+    ) == ["반도체", "로봇"]
+    assert _extract_sector("반도체와 2차전지 관련주") == ["반도체", "이차전지"]
+    # 같은 업종 중복 언급은 dedup 후 단일 str 정규형 유지(하위 호환).
+    assert _extract_sector("반도체 관련주, 반도체 업종") == "반도체"
+    # 정정 발화는 대상 업종만 잡는다 — '말고' 앞 업종을 함께 수집하면 교체가 합집합이 된다.
+    assert _extract_sector("반도체 말고 로봇 관련주로 바꿔줘") == "로봇"
+
+
 def test_extract_sector_bare_related_and_theme_cues():
     # [회귀] '관련주' 어순만 보던 큐가 "반도체 관련 전략"·"2차전지 테마"를 놓쳤다 —
     # 같은 계열의 "로봇주 관련 전략"이 안내 없이 전체 시장으로 백테스트되던 사고.

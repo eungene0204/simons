@@ -527,7 +527,17 @@ def test_known_follower_keeps_cue_less_sector():
     """알려진 후속어('주도주'·'전략'·섹터어)는 복합구가 아니다 — 기존 단독 확정 유지."""
     assert sb.seed_state("반도체 주도주 전략").sector == "반도체"
     assert sb.seed_state("반도체 전략을 만들자").sector == "반도체"
-    assert sb.seed_state("바이오 헬스케어 전략").sector == "바이오/제약"
+    # 후속 섹터어는 버리지 않고 함께 수집한다(FR-STR-066 ⑦ 다중 섹터 — 2026-07-25 수정
+    # 이전엔 첫 매치 단독 확정으로 '헬스케어'가 조용히 소실됐다).
+    assert sb.seed_state("바이오 헬스케어 전략").sector == ["바이오/제약", "의료기기"]
+
+
+def test_seed_collects_multiple_sectors():
+    """'반도체와 로봇관련 종목' — 접속된 복수 업종을 모두 시드한다(첫 매치만 잡아
+    반도체가 소실되던 실측 사고 2026-07-25 회귀 방지)."""
+    state = sb.seed_state("반도체와 로봇관련 종목에 투자 하는 전략을 만들어 보자")
+    assert state.sector == ["반도체", "로봇"]
+    assert "반도체·로봇 업종 대상" in sb._seed_summary(state)
 
 
 def test_weak_theme_candidate_seeds_weak_hint():

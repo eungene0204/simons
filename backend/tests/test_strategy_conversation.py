@@ -513,6 +513,31 @@ def test_sector_normalized_and_unknown_sector_rejected():
     assert any("우주광물채굴" in e for e in report2.errors)
 
 
+def test_multiple_sectors_normalized_with_spacing_drift():
+    """복수 업종은 전부 정본화된다 — 4B의 글자 사이 공백 드리프트('2 차 전 지')도
+    _sector_key가 흡수한다(실측 2026-07-25, 프롬프트 규칙 6-0 E2E 프로브)."""
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        universe={"markets": ["KOSPI", "KOSDAQ"], "sectors": ["반도체", "2 차 전 지"]},
+    ))
+    validated, report = run_validation(intent)
+    assert validated.strategy.universe.sectors == ["반도체", "이차전지"]
+    assert report.is_valid
+
+
+def test_system_prompt_sector_rule_contract():
+    """규칙 6-0 계약 가드 — 업종 제한은 지원 기능이며 universe.sectors에 채운다.
+
+    실측 사고(2026-07-25): 4B가 규칙 3('목록에 없는 개념→unsupported')을 업종에도 적용해
+    '업종/테마 기반 종목 선택 (반도체, 로봇)'을 unsupported_features로 분류하고 sectors를
+    비운 채 되묻기를 냈다. 지표 목록은 조건용이지 유니버스용이 아님을 명시한다."""
+    from strategy_conversation.interpreter.prompts import build_system_prompt
+
+    prompt = build_system_prompt()
+    assert "업종/테마 제한은 지원 기능" in prompt
+    assert 'sectors=["반도체","로봇"]' in prompt
+    assert "unsupported_features에 넣지 말고" in prompt
+
+
 def test_rebalance_frequency_alias_normalized():
     intent = StrategyIntent.model_validate(_full_intent_dict(
         portfolio={"selection_count": 10, "rebalance_frequency": "분기별"},

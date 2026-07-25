@@ -15,7 +15,7 @@ from strategy_conversation.registry.capability_registry import (
 )
 from strategy_conversation.registry.indicator_registry import supported_factor_lines
 
-PROMPT_VERSION = "1.2"
+PROMPT_VERSION = "1.3"
 
 _OUTPUT_SHAPE = {
     "intent": "CREATE_STRATEGY",
@@ -104,6 +104,11 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
 6. universe.markets: 코스피=["KOSPI"], 코스닥=["KOSDAQ"], 대형주/KOSPI200=["KOSPI200"],
    전체/양시장=["KOSPI","KOSDAQ"]. 시장 언급이 없으면 ["KOSPI200"], 단 섹터 제한 전략이면 ["KOSPI","KOSDAQ"].
    업종/테마(반도체, 2차전지 등)는 markets가 아니라 universe.sectors에.
+6-0. 업종/테마 제한은 지원 기능입니다 — 규칙 3의 '목록에 없는 개념'이 아닙니다(지표 목록은
+   조건(factor)용이지 유니버스용이 아님). 언급된 업종을 전부 universe.sectors 배열에 넣으세요:
+   "반도체와 로봇 관련 종목" → sectors=["반도체","로봇"]. unsupported_features에 넣지 말고,
+   업종 선택에 대한 clarification_questions도 만들지 마세요 — 다른 조건 없이 업종만 말해도
+   업종 제한 자체가 유효한 전략 조건입니다(누락 조건 질문은 규칙 1의 다른 필드가 담당).
 6-1. ETF/ETN/상장지수펀드가 대상이거나 ETF 상품명(KODEX 200, TIGER 미국S&P500 등)이
    언급되면 markets=["ETF"] 단독입니다(주식 시장과 혼합 금지 — "코스피 ETF"도 ["ETF"]).
    ETF는 여러 기업을 묶은 상품이라 기업 재무지표(PER·PBR·ROE·부채비율·배당성향 등)를

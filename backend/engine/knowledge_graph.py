@@ -181,6 +181,26 @@ class KnowledgeGraph:
             })
         return result
 
+    def listed_companies_via_concepts(self, node_id: str) -> list[dict]:
+        """개념 이웃 1홉 너머의 직접 상장사 — 직접 상장사 엣지가 없는 테마의 폴백.
+
+        'bts 관련주' 사고(2026-07-25): 검색 학습이 상장사 엣지를 검증하지 못해도(출처 1건
+        pending) verified 개념 엣지(bts→K-팝 기획사)가 있으면 그 개념의 직접 상장사
+        (하이브 등)가 답이었다. 그래프에 합성된 엣지는 전부 검증분이므로 신뢰 등급은
+        유지되며, 공급망 전체로 번지지 않게 개념 경유는 정확히 1홉만 허용한다."""
+        result: list[dict] = []
+        seen: set[str] = set()
+        for e in self._out.get(node_id, []) + self._in.get(node_id, []):
+            other = e["target"] if e["source"] == node_id else e["source"]
+            if other.startswith(("company:", "etf:", "sector:")):
+                continue
+            for c in self.listed_companies(other):
+                if c["symbol"] in seen:
+                    continue
+                seen.add(c["symbol"])
+                result.append(c)
+        return result
+
     def expand(self, node_id: str, max_depth: int = 2) -> dict:
         """개념 주변을 BFS로 펼쳐 sectors/companies/etfs/concepts 버킷으로 분류한다.
 
@@ -435,6 +455,11 @@ def theme_listed_companies(text: str) -> Optional[dict]:
         return None
     anchor = concepts[0]
     companies = graph.listed_companies(anchor["id"])
+    if not companies and anchor.get("category") == "learned":
+        # 학습 용어 한정 폴백('bts 관련주' 사고 2026-07-25) — 직접 상장사가 검증되지
+        # 않았어도 verified 개념 엣지 1홉 너머의 상장사를 후보로 쓴다. 시드·카탈로그
+        # 앵커는 큐레이션이 직접 엣지를 책임지므로 기존 동작(직접 엣지만)을 유지한다.
+        companies = graph.listed_companies_via_concepts(anchor["id"])
     if not companies:
         return None
     dates = sorted(c["first_known_date"] for c in companies if c["first_known_date"])

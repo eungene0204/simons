@@ -235,6 +235,48 @@ def test_learned_company_edges_create_canonical_nodes(tmp_path, monkeypatch):
     monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
 
 
+def test_theme_companies_via_verified_concept_hop(tmp_path, monkeypatch):
+    """'bts 관련주' 사고 재현(2026-07-25) — 학습 용어의 직접 상장사 엣지가 전부 pending이라도
+    verified 개념 엣지 1홉 너머(kpop-agency→하이브 등)의 상장사로 테마 후보를 채운다.
+
+    직접 verified 상장사 엣지가 있으면 그 목록이 우선하고 홉은 발동하지 않는다(정밀 목록
+    우선 — 이웃 개념의 상장사로 희석 금지). 시드 앵커는 폴백 대상이 아니다(큐레이션 책임)."""
+    from engine.knowledge_graph import theme_listed_companies
+
+    lexicon = tmp_path / "term_lexicon.json"
+    lexicon.write_text(json.dumps({
+        "빅히트뮤직": {"term": "빅히트뮤직", "sector": "미디어/엔터",
+                  "searched_at": "2026-07-25T10:10:03+00:00",
+                  "edges": [
+                      {"type": "related_to", "target": "kpop-agency",
+                       "support": 4, "status": "verified"},
+                      {"type": "related_company", "target": "company:352820",
+                       "target_name": "하이브", "support": 1, "status": "pending"},
+                  ]},
+        "직접검증어": {"term": "직접검증어", "sector": "반도체",
+                  "edges": [
+                      {"type": "related_to", "target": "hbm",
+                       "support": 2, "status": "verified"},
+                      {"type": "related_company", "target": "company:005930",
+                       "target_name": "삼성전자", "support": 2, "status": "verified"},
+                  ]},
+    }, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+    # 직접 엣지는 pending뿐 → verified 개념 엣지(kpop-agency) 1홉 경유로 상장사 확보
+    result = theme_listed_companies("빅히트뮤직 관련주에 투자")
+    assert result is not None
+    assert "352820" in {c["symbol"] for c in result["companies"]}  # 하이브
+    # 뉴스 보도일이 없는 홉 상장사는 학습 시점(searched_at)으로 폴백(시점 편향 보수 유지)
+    assert result["first_known_date"] == "2026-07-25"
+    # 직접 verified 상장사가 있으면 홉을 하지 않는다
+    result2 = theme_listed_companies("직접검증어 관련주")
+    assert {c["symbol"] for c in result2["companies"]} == {"005930"}
+
+    monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
+
+
 def test_scan_index_includes_learned_terms_seed_wins_on_collision(tmp_path, monkeypatch):
     """읽기 경로 통합(2026-07-25) — 학습 용어도 그래프 스캔 인덱스에 포함돼 find_concepts·
     resolve_sector_from_text가 어휘집 별도 스캔 없이 해석한다. 같은 용어가 시드에도 있으면
