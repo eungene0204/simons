@@ -34,7 +34,33 @@
 --success-green: #10b981
 --error-red:     #ef4444
 --text-muted:    #64748b
+
+/* 대화 표면 (전략연구소) */
+--chat-accent:           #f0b429                  /* 단일 강조색, #0f0f0f 대비 10.2:1 */
+--chat-accent-soft:      rgba(240,180,41,0.14)
+--chat-accent-ink:       #191203                  /* accent 채운 버튼의 글자색 */
+--chat-user-surface:     #1c1c1c                  /* 사용자 발화 카드 */
+--chat-artifact-surface: #141414                  /* 구조화 산출물 카드 */
+--chat-hairline:         rgba(255,255,255,0.09)
+
+/* WCAG AA 통과 보조 텍스트 */
+--text-label:       #9ca3af                       /* 7.6:1 */
+--text-placeholder: #8b8f96                       /* 5.9:1 */
 ```
+
+### 강조색 단일화
+
+- **한 화면의 장식용 강조색은 하나만 쓴다.** 강조색이 여러 개면 색이 의미를 잃는다.
+- 의미색(`--main-red` 상승, `--main-blue` 하락, `--error-red` 오류)은 강조 목적으로 전용하지 않는다.
+- 강조색에 역할을 부여하고 그 역할에만 쓴다. 전략연구소 대화의 `--chat-accent`는 "사용자 응답이 필요한 지점 + 진행 상태"만 담당한다.
+- 링크도 강조색을 따른다. 별도의 링크 색을 도입하지 않는다.
+
+### 텍스트 대비 (WCAG AA)
+
+- 본문·라벨은 배경 대비 **4.5:1 이상**을 확보한다.
+- `text-gray-500`(#6b7280)은 `#0f0f0f` 대비 **3.98:1로 미달**이다. 의미 있는 라벨에는 `text-[var(--text-label)]`를 쓴다.
+- placeholder도 AA 대상이다. `placeholder-gray-600`은 미달이며 `placeholder:text-[var(--text-placeholder)]`를 쓴다.
+- `text-gray-600` 이하는 순수 장식 텍스트에만 허용한다.
 
 ### 텍스트 색상 사용 기준
 
@@ -115,8 +141,14 @@ KOSDAQ:   bg-purple-500/15  text-purple-400
 
 ### 폰트 패밀리
 
-- 기본: `Arial, Helvetica, sans-serif`
-- 숫자/수치 표시: `font-outfit` (커스텀 Tailwind 클래스) — KPI 수치, 섹션 제목, 차트 레이블에 사용
+폰트 스택은 `tailwind.config.js`의 `theme.extend.fontFamily`가 SOT다. `globals.css`의 `body`에서 `font-family`를 재지정하면 그 스택을 덮어쓰므로 선언하지 않는다.
+
+- 기본(`font-sans`, `font-inter`): `var(--font-inter)` → `Pretendard` → `Apple SD Gothic Neo` → `Malgun Gothic` → `system-ui`
+  - Inter는 라틴/숫자만 커버한다. 한글 글리프는 뒤따르는 한글 폰트로 글리프 단위 폴백된다.
+  - Inter를 기본으로 두는 이유: 데이터 밀도가 높은 계기판형 UI에서 중성적인 그로테스크가 맞고, 숫자 정렬(`tabular-nums`)이 안정적이다.
+- 숫자/수치 표시: `font-outfit` — KPI 수치, 섹션 제목, 차트 레이블에 사용
+
+> ⚠️ 2026-07-25까지 `fontFamily` 확장이 없어 `font-outfit`·`font-inter`는 **정의되지 않은 죽은 클래스**였고(22개 파일이 사용 중), 실제 렌더 폰트는 `globals.css`의 Arial이었다. 회귀 가드: `app/analytics/new/chatSurfaceDesign.test.ts`
 
 ### 텍스트 스타일 계층
 
@@ -132,10 +164,18 @@ KOSDAQ:   bg-purple-500/15  text-purple-400
 ### 공통 텍스트 규칙
 
 - 숫자는 항상 `tabular-nums` 적용 (숫자 정렬 일관성)
-- 섹션 제목은 `uppercase tracking-widest` 적용
+- 라틴 섹션 제목은 `uppercase tracking-widest` 적용. **한글 제목에는 적용하지 않는다** — `uppercase`는 한글에 아무 효과가 없고 `tracking-widest`는 가독성을 떨어뜨린다.
 - 차트/지표/요약 카드의 제목성 텍스트는 가독성을 위해 `text-gray-400` 이상 밝기를 유지
 - 긴 텍스트는 `truncate` 처리
 - `leading-none` 또는 `leading-tight`로 줄 간격 최소화
+
+### 소형 라벨(eyebrow) 배급제
+
+`uppercase tracking-widest` 소형 라벨을 모든 블록 위에 붙이면 화면 전체가 같은 리듬으로 눌려 위계가 사라진다.
+
+- 한 화면의 소형 라벨 수는 **섹션 수의 1/3 이하**로 제한한다.
+- 라벨을 지우는 것이 기본이다. 위치가 이미 그 블록의 종류를 말해 준다.
+- 위계는 라벨 대신 **크기·굵기·간격**으로 만든다.
 
 ---
 
@@ -276,14 +316,25 @@ space-y-1    (섹션 간 세로 간격 — 카드가 바짝 붙도록)
 
 ---
 
+### 카드를 쓸 때 / 쓰지 않을 때
+
+카드는 **위계를 전달할 때만** 쓴다. 모든 블록을 카드로 감싸면 아무것도 강조되지 않는다.
+
+- 카드로 감쌀 것: 남아서 다시 참조되는 산출물(요약, 검증 결과, 공지, 오류)
+- 카드 없이 둘 것: 흘러가는 텍스트, 상태 표시 → `border-l` 헤어라인 + 여백으로 묶는다
+- 서로 다른 종류의 블록이 같은 카드 스타일을 공유하면 종류 구분이 사라진다. 표면을 분리한다.
+
 ## 6. 테두리 반경
+
+**한 화면에서 반경 체계는 하나만 쓴다.** 아래 스케일을 벗어나면 레이아웃이 깨진 것처럼 보인다.
 
 | 요소 | 클래스 |
 |------|--------|
-| 카드/패널 | `rounded-2xl` |
-| 버튼/입력 | `rounded-xl` |
+| 카드/패널/모달 | `rounded-2xl` |
+| 버튼/입력/칩 | `rounded-xl` |
 | 배지/라벨 | `rounded-md` |
 | 차트 바 | `rounded-xl` |
+| 입력 바(대화) | `rounded-[28px]` (pill, 대화 입력 바 전용) |
 
 ---
 
@@ -291,13 +342,24 @@ space-y-1    (섹션 간 세로 간격 — 카드가 바짝 붙도록)
 
 ```css
 카드:           그림자 없음 (flat)
-활성 차트 바:   box-shadow: 0 0 16px rgba({color},0.35)
-버튼 호버:      box-shadow: 0 0 15px rgba(59,130,246,0.4)
+오버레이/모달:  shadow-2xl shadow-black/50
 ```
+
+> §2 금지 스타일의 발광(glow) 금지와 일관되게, **버튼·카드·배지에 외곽 glow를 쓰지 않는다.**
+> 이전 가이드는 §2에서 glow를 금지하면서 §7·§10에서 `0 0 15px rgba(59,130,246,0.4)` 버튼 glow를 규정해 서로 모순됐다(2026-07-25 해소).
+> 그림자를 쓸 때는 배경 색조를 따라 틴트한다. 밝은 배경에 순검정 그림자를 쓰지 않는다.
 
 ---
 
 ## 8. 레이아웃 패턴
+
+### 전체 높이
+
+`100vh`를 쓰지 않는다. iOS Safari에서 주소창 높이 때문에 레이아웃이 튄다. `100dvh`를 쓴다.
+
+```tsx
+style={{ minHeight: "calc(100dvh - var(--top-menu-bar-height, 76px))" }}
+```
 
 ### 페이지 기본 구조
 
@@ -468,6 +530,109 @@ transition-colors duration-150 (행 호버)
 transition-colors duration-200 (텍스트 색상 변화)
 ```
 
+### 감속 설정(prefers-reduced-motion) 필수
+
+- 반복(infinite) 애니메이션, 진입 연출, 스피너는 **반드시** `prefers-reduced-motion: reduce`에서 멈춘다.
+- **연출을 인라인 `style={{ animation: ... }}`으로 넣지 않는다.** 인라인 선언은 CSS로 덮을 수 없어 감속 설정을 무시하게 된다. `globals.css`에 클래스로 정의하고 감속 블록에 함께 등록한다.
+- Tailwind 유틸리티 애니메이션(`animate-spin` 등)은 `motion-reduce:animate-none`을 함께 붙인다.
+- styled-jsx 스코프 클래스는 globals의 감속 규칙이 이기지 못하므로 같은 스코프 안에서 직접 끈다.
+- 순서가 있는 진입 연출은 React 상태 타이머가 아니라 `animation-delay` 캐스케이드로 만든다(상태 타이머는 프레임마다 전체 리렌더를 유발한다).
+
+### 애니메이션 대상
+
+- `transform`과 `opacity`만 애니메이션한다. `top`/`left`/`width`/`height`는 쓰지 않는다.
+- `blur` + `mix-blend-mode` 레이어를 스크롤·장시간 노출 요소에 겹치지 않는다(모바일 합성 비용).
+
+### 보관 연출: 테두리 오로라(불꽃 발광) — 현재 미적용
+
+> **§2 금지 스타일·§10 주요 버튼의 glow 금지와 충돌하므로 어디에도 적용하지 않는다.**
+> 2026-07-25 전략연구소 백테스트 CTA에 시험 적용했다가 제거했다. 레시피만 보관한다.
+> 다시 쓰려면 먼저 §2·§10의 glow 금지 조항에 예외를 명문화할 것.
+
+버튼 테두리에서 하얗게 타오르는 빛. 원형 blob을 흩뿌리면 윤곽에서 어긋나 보이므로,
+**버튼과 같은 실루엣을 바깥으로 키운 판 두 겹**을 blur한다. 반지름은 `버튼 반경 + 바깥 여백`
+(rounded-xl 12px + 16px = 28px)으로 맞춰야 윤곽과 평행하게 번진다.
+두 겹의 주기(4.6s / 3.1s)를 어긋내면 간섭이 생겨 불규칙하게 일렁인다 = 타는 느낌.
+좌우 `translate`는 넣지 않는다(테두리에서 빛이 떨어져 나온다).
+
+```css
+@keyframes auroraFlameHalo {
+  0%   { transform: scale3d(1, 1, 1);       opacity: 0.72; }
+  30%  { transform: scale3d(1.04, 1.14, 1); opacity: 1; }
+  55%  { transform: scale3d(1.01, 0.96, 1); opacity: 0.66; }
+  80%  { transform: scale3d(1.05, 1.1, 1);  opacity: 0.95; }
+  100% { transform: scale3d(1, 1, 1);       opacity: 0.72; }
+}
+
+@keyframes auroraFlameRim {
+  0%   { transform: scale3d(1.01, 0.98, 1); opacity: 0.85; }
+  35%  { transform: scale3d(0.99, 1.12, 1); opacity: 1; }
+  60%  { transform: scale3d(1.04, 0.94, 1); opacity: 0.7; }
+  85%  { transform: scale3d(1, 1.08, 1);    opacity: 0.98; }
+  100% { transform: scale3d(1.01, 0.98, 1); opacity: 0.85; }
+}
+
+.aurora-cta {
+  position: relative;
+  display: inline-flex;
+}
+
+.aurora-cta::before,
+.aurora-cta::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+/* 바깥으로 퍼지는 넓은 후광 */
+.aurora-cta::before {
+  inset: -16px;
+  border-radius: 28px;               /* 12px(버튼) + 16px(여백) */
+  background: rgba(255, 255, 255, 0.62);
+  filter: blur(18px);
+  animation: auroraFlameHalo 4.6s ease-in-out infinite;
+}
+
+/* 테두리에 딱 붙는 밝은 심지 */
+.aurora-cta::after {
+  inset: -5px;
+  border-radius: 17px;               /* 12px + 5px */
+  background: rgba(255, 255, 255, 0.95);
+  filter: blur(7px);
+  animation: auroraFlameRim 3.1s ease-in-out infinite;
+}
+
+/* 버튼을 빛 위로 올린다 — positioned 형제가 아니면 ::before/::after가 덮는다 */
+.aurora-cta > * {
+  position: relative;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora-cta::before,
+  .aurora-cta::after { animation: none; }
+  /* 애니메이션을 끄면 opacity가 기본값 1로 돌아가 과하게 밝다 — 정적 값으로 고정 */
+  .aurora-cta::before { opacity: 0.72; }
+  .aurora-cta::after  { opacity: 0.85; }
+}
+```
+
+```tsx
+{/* 래퍼에 배경이 없어야 버튼 면은 그대로 두고 가장자리 바깥에만 번진다 */}
+<span className="aurora-cta">
+  <button className="rounded-xl bg-[var(--chat-accent)] ...">…</button>
+</span>
+```
+
+주의할 점:
+
+- 래퍼 없이 버튼 자신에게 `::before { z-index: -1 }`로 넣으면 안 된다. 음수 z-index 자식은
+  요소의 **배경보다 위**에 그려져(CSS 페인팅 순서 3단계) 버튼 면을 뿌옇게 덮는다.
+- `filter: blur`는 매 프레임 repaint를 부르므로 `transform`/`opacity`만 애니메이션하고
+  `will-change: transform, opacity`로 레이어를 고정해 blur 결과를 캐시시킨다.
+- 감속 설정에서 `animation: none`만 주면 opacity가 1로 복귀해 오히려 더 밝아진다.
+
 ### 로딩 상태
 
 ```tsx
@@ -495,18 +660,25 @@ transition-colors duration-200 (텍스트 색상 변화)
 
 ### 주요 버튼
 
+강조색 단색 채움. 그라디언트와 glow는 쓰지 않는다. `:active`에 물리적 눌림을 준다.
+
 ```tsx
 <button className="
   px-4 py-2 rounded-xl
-  bg-gradient-to-r from-blue-600 to-indigo-600
-  text-white text-sm font-bold
-  transition-all duration-300
-  hover:shadow-[0_0_15px_rgba(59,130,246,0.4)]
-  hover:opacity-90
+  bg-[var(--chat-accent)] text-[var(--chat-accent-ink)]
+  text-sm font-bold
+  transition-colors duration-200
+  hover:brightness-110
+  active:translate-y-[1px]
+  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)]/50
 ">
   버튼 텍스트
 </button>
 ```
+
+- 버튼 글자는 버튼 배경 대비 **4.5:1 이상**이어야 한다(흰 배경 + 흰 글자, 테두리 없는 투명 버튼 금지).
+- 주 CTA 라벨은 데스크톱에서 **한 줄에 들어와야 한다**. 두 줄로 감기면 라벨을 줄인다.
+- 같은 의도의 CTA를 한 화면에 두 개 두지 않는다(라벨 하나만 정해 전 화면에서 재사용).
 
 ### 보조/텍스트 버튼
 
@@ -693,6 +865,32 @@ className="[&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full 
 
 ---
 
+---
+
+## 17. 대화 표면 위계 (전략연구소)
+
+전략연구소 채팅은 한 화면에서 성격이 다른 블록 여섯 종류를 만든다. 표면을 셋으로 나눠 구분한다. 상수는 `app/analytics/new/page.tsx` 상단에 정의한다.
+
+| 표면 | 상수 | 담는 것 |
+|------|------|---------|
+| 사용자 발화 | `USER_CHAT_BUBBLE_CLASS` | 우측 정렬 단색 카드(`--chat-user-surface`) |
+| 대화 산문 | (표면 없음) | 어시스턴트 설명·재진술·로딩 상태. **카드도 레일도 없는 맨 텍스트** |
+| 산출물 카드 | `ARTIFACT_CARD_CLASS` | 전략 요약, 빌더 요약, 전략 검증, 공지, 되묻기, 전략 확인 |
+| 오류 카드 | (인라인) | `--error-red` 테두리. 의미색 |
+| 선택 칩 | `CHOICE_CHIP_CLASS` | 빌더의 주 경로이므로 3순위 컨트롤보다 무게를 올린다 |
+| 돌아가기 컨트롤 | `BACK_CONTROL_CLASS` | 되돌릴 길을 여는 컨트롤. 테두리·면·눌림으로 클릭 가능함을 알린다 |
+
+> ⚠️ **탐색 컨트롤을 텍스트 색만으로 표시하지 않는다.** 강조색이 다른 역할에 예약돼 있으면 회색 텍스트로 남기기 쉬운데, 그러면 정적 캡션으로 읽혀 사용자가 되돌릴 길을 찾지 못한다(2026-07-25 '돌아가기' 제보). affordance는 색이 아니라 **테두리·면·`hover`·`active`·`focus-visible`**로 만든다.
+
+- **세로 레일(`border-l`)은 어떤 색으로도 쓰지 않는다.** 산문은 카드가 없다는 사실 자체로 구분되고, 응답이 필요한 블록은 강조색 아이콘과 선택 칩으로 알린다. 오류 카드도 전체 테두리만 쓴다.
+- **강조색(`--chat-accent`)의 역할은 "사용자 차례 + 진행 상태" 하나로 고정한다.** 되묻기 아이콘, 진행률 완료 표시, 로딩 스피너, 주 CTA, 링크까지 같은 색을 쓴다.
+- 칩 문자열(`직접 입력`·`뒤로가기`·`돌아가기` 등)은 백엔드 답변 프로토콜의 일부다. **시각 작업에서 라벨 텍스트를 바꾸지 않는다** — 프론트·백엔드 동기화 지점이 4곳이다.
+- 진행률 패널(`StrategyProgressPanel`)의 `xl:fixed` 우측 레일은 1280px 이상에서만 고정된다. 그 아래에서는 대화 흐름 상단 카드로 들어간다.
+
+회귀 가드: `app/analytics/new/chatSurfaceDesign.test.ts` (폰트 배선·감속 설정·강조색 단일화·100dvh·표면 분리)
+
+---
+
 ## 체크리스트
 
 새 페이지/컴포넌트 작성 시 확인:
@@ -708,3 +906,11 @@ className="[&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full 
 - [ ] 로딩 상태에 `animate-pulse` 스켈레톤 구현
 - [ ] `truncate` + `min-w-0` 텍스트 오버플로우 방지
 - [ ] 반응형: 모바일(`grid-cols-1`) → 데스크톱(`lg:grid-cols-10`) 순서
+- [ ] 장식용 강조색이 하나뿐인가 (의미색 `--main-red`/`--main-blue`/`--error-red`를 강조에 전용하지 않았는가)
+- [ ] 반경 체계가 하나인가 (카드 `rounded-2xl` / 컨트롤 `rounded-xl` / 배지 `rounded-md`)
+- [ ] 버튼·카드에 외곽 glow가 없는가, 버튼 글자 대비가 4.5:1 이상인가
+- [ ] 라벨·placeholder 대비가 AA를 넘는가 (`text-gray-500`·`placeholder-gray-600` 미달)
+- [ ] 소형 라벨(eyebrow) 수가 섹션 수의 1/3 이하인가, 한글에 `uppercase tracking-widest`를 쓰지 않았는가
+- [ ] 모든 반복·진입 애니메이션이 `prefers-reduced-motion`에서 멈추는가, 연출을 인라인 `style`에 넣지 않았는가
+- [ ] 전체 높이에 `100vh` 대신 `100dvh`를 썼는가
+- [ ] 카드가 위계를 전달하는가 (흘러가는 텍스트를 카드로 감싸지 않았는가)

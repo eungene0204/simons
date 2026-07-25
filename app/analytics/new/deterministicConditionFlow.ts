@@ -27,6 +27,43 @@ const PERIOD_BY_CHOICE: Record<string, string> = {
   "사용 가능한 전체 데이터": "full",
 };
 
+const ENTRY_SIGNAL_BY_CHOICE: Record<
+  string,
+  ParsedSummary["entry_signals"][number]
+> = {
+  "골든크로스 발생 시 매수": { indicator: "ma_crossover", signal_type: "buy" },
+  "RSI 30 이하에서 매수": {
+    indicator: "rsi",
+    signal_type: "buy",
+    operator: "<=",
+    value: 30,
+  },
+  "MACD 골든크로스 매수": {
+    indicator: "macd",
+    signal_type: "buy",
+    mode: "crossover",
+  },
+  "볼린저밴드 하단 터치 시 매수": {
+    indicator: "bollinger_bands",
+    signal_type: "buy",
+  },
+  "20일 고점 돌파 시 매수": {
+    indicator: "breakout",
+    signal_type: "buy",
+    lookback_period: 20,
+  },
+  "거래량 급증 시 매수": { indicator: "volume_spike", signal_type: "buy" },
+};
+
+const ENTRY_FILTER_BY_CHOICE: Record<
+  string,
+  ParsedSummary["fundamental_filters"][number]
+> = {
+  "PER 10 이하": { metric: "per", operator: "<=", value: 10 },
+  "ROE 15% 이상": { metric: "roe", operator: ">=", value: 15 },
+  "PBR 1 이하": { metric: "pbr", operator: "<=", value: 1 },
+};
+
 const INITIAL_CAPITAL_BY_CHOICE: Record<string, number> = {
   "500만원": 5_000_000,
   "1,000만원": 10_000_000,
@@ -54,34 +91,13 @@ export function applyDeterministicConditionChoice({
   }
 
   if (condition.field === "entry") {
-    if (choice === "골든크로스 발생 시 매수") {
-      return {
-        parsed: {
-          ...parsed,
-          entry_signals: [{ indicator: "ma_crossover", signal_type: "buy" }],
-        },
-      };
+    const entrySignal = ENTRY_SIGNAL_BY_CHOICE[choice];
+    if (entrySignal) {
+      return { parsed: { ...parsed, entry_signals: [entrySignal] } };
     }
-    if (choice === "PBR 1 이하") {
-      return {
-        parsed: {
-          ...parsed,
-          fundamental_filters: [{ metric: "pbr", operator: "<=", value: 1 }],
-        },
-      };
-    }
-    if (choice === "RSI 30 이하에서 매수") {
-      return {
-        parsed: {
-          ...parsed,
-          entry_signals: [{
-            indicator: "rsi",
-            signal_type: "buy",
-            operator: "<=",
-            value: 30,
-          }],
-        },
-      };
+    const entryFilter = ENTRY_FILTER_BY_CHOICE[choice];
+    if (entryFilter) {
+      return { parsed: { ...parsed, fundamental_filters: [entryFilter] } };
     }
     return null;
   }

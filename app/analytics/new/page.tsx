@@ -359,9 +359,9 @@ function MetricOptimizationProgressIndicator({
   const elapsed = formatElapsedTime(progress.startedAt, now);
   return (
     <div className="space-y-2 pt-1" data-testid="metric-optimization-progress">
-      <div className="flex items-center justify-between gap-4 text-[11px] font-bold text-gray-400">
+      <div className="flex items-center justify-between gap-4 text-[11px] font-bold text-gray-300">
         <span>{progress.totalTrials}개 조합 계산 중</span>
-        <span className="tabular-nums text-gray-500">경과 {elapsed}</span>
+        <span className="tabular-nums text-[var(--text-label)]">경과 {elapsed}</span>
       </div>
       <div
         role="progressbar"
@@ -369,7 +369,7 @@ function MetricOptimizationProgressIndicator({
         aria-valuetext={`${progress.totalTrials}개 조합 계산 중, 경과 ${elapsed}`}
         className="h-1.5 overflow-hidden rounded-full bg-white/[0.08]"
       >
-        <div className="metric-optimization-progress-bar h-full w-1/3 rounded-full bg-sky-400/80" />
+        <div className="metric-optimization-progress-bar h-full w-1/3 rounded-full bg-[var(--chat-accent)]" />
       </div>
     </div>
   );
@@ -433,15 +433,15 @@ function MovingAverageTypeHelp() {
       <button
         type="button"
         aria-label="SMA와 EMA 설명"
-        className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-[#171717] text-gray-400 transition-all duration-200 hover:border-yellow-400/50 hover:bg-[#202020] hover:text-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-400/40"
+        className="flex h-7 w-7 items-center justify-center rounded-full border border-white/[0.14] bg-white/[0.05] text-gray-300 transition-colors duration-200 hover:border-[var(--chat-accent-line)] hover:bg-white/[0.09] hover:text-[var(--chat-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]"
       >
         <Question size={14} weight="bold" />
       </button>
       <div
         role="tooltip"
-        className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 w-[min(18rem,calc(100vw-3rem))] -translate-x-1/2 rounded-xl border border-white/10 bg-[#101010] p-3 text-left opacity-0 shadow-2xl shadow-black/50 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 sm:left-auto sm:right-0 sm:translate-x-0"
+        className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 w-[min(18rem,calc(100vw-3rem))] -translate-x-1/2 rounded-2xl border border-[var(--chat-hairline)] bg-[#101010] p-3 text-left opacity-0 shadow-2xl shadow-black/50 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 sm:left-auto sm:right-0 sm:translate-x-0"
       >
-        <p className="text-[11px] font-black uppercase tracking-widest text-gray-500">이동평균 종류</p>
+        <p className="text-[11px] font-black text-[var(--text-label)]">이동평균 종류</p>
         <div className="mt-2 space-y-1.5 text-xs font-bold leading-relaxed text-gray-300">
           <p>
             <span className="text-white">SMA</span>는 단순 이동평균으로, 최근 N일 가격을 같은 비중으로 평균낸 값입니다.
@@ -460,22 +460,28 @@ type CoachConversationMessage = {
   content: string;
 };
 
-const USER_CHAT_BUBBLE_CLASS = "rounded-2xl bg-[#171717]";
-const COACH_CHAT_BUBBLE_CLASS = "rounded-2xl bg-[#171717]";
-const SOFT_MESSAGE_ENTER_STYLE = {
-  animation: "softChatCardEnter 780ms cubic-bezier(0.19, 1, 0.22, 1) both",
-};
-const SOFT_MESSAGE_ENTER_LATE_STYLE = {
-  animation: "softChatCardEnter 860ms cubic-bezier(0.19, 1, 0.22, 1) 140ms both",
-};
-// 렌더마다 새 객체가 만들어지지 않도록 모듈 상수로 고정 — memo된 ChatInputBox의
-// props 동일성 유지에 필요하다.
-const SOFT_ENTER_STYLE = {
-  animation: "softChatSurfaceEnter 720ms cubic-bezier(0.19, 1, 0.22, 1) both",
-};
-const SOFT_ENTER_LATE_STYLE = {
-  animation: "softChatSurfaceEnter 820ms cubic-bezier(0.19, 1, 0.22, 1) 120ms both",
-};
+// ── 대화 표면 위계 ──
+// 카드는 위계를 전달할 때만 쓴다. 이전에는 사용자 발화·어시스턴트 산문·전략 요약·
+// 공지·되묻기·에러 여섯 종류가 모두 같은 글래스 카드여서 서로 구별되지 않았다.
+//   맨 텍스트          = 흘러가는 대화. 카드가 없다는 것 자체가 구분이다(세로 레일 없음)
+//   카드              = 남는 산출물(요약·검증·공지·되묻기)
+// 응답이 필요한 블록은 강조 레일 대신 강조색 아이콘과 선택 칩으로 알린다.
+const USER_CHAT_BUBBLE_CLASS = "rounded-2xl rounded-tr-md bg-[var(--chat-user-surface)]";
+const ARTIFACT_CARD_CLASS =
+  "rounded-2xl border border-[var(--chat-hairline)] bg-[var(--chat-artifact-surface)]";
+// '돌아가기'는 되돌릴 길을 잃지 않게 해주는 컨트롤이라 반드시 클릭 가능해 보여야 한다.
+// 회색 텍스트만 두면 정적 캡션으로 읽혀 사용자가 찾지 못한다(2026-07-25 제보).
+// 강조색은 '사용자 차례'에 예약돼 있으므로 색이 아니라 테두리·면·눌림으로 알린다.
+const BACK_CONTROL_CLASS =
+  "flex flex-shrink-0 items-center gap-1 rounded-xl border border-white/[0.14] bg-white/[0.05] px-2.5 py-1 text-[11px] font-bold text-gray-200 transition-colors duration-200 hover:bg-white/[0.09] hover:text-white active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)] disabled:opacity-40";
+// 선택 칩은 빌더 흐름의 주 경로라 3순위 컨트롤보다 무게를 올린다.
+const CHOICE_CHIP_CLASS =
+  "rounded-xl border border-white/[0.14] bg-white/[0.05] px-3.5 py-2 text-[13px] font-bold text-gray-200 text-left transition-colors duration-200 hover:border-[var(--chat-accent-line)] hover:bg-white/[0.09] hover:text-white active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]";
+// 진입 연출은 클래스로 둔다 — 인라인 animation은 prefers-reduced-motion으로 끌 수 없다.
+const MESSAGE_ENTER_CLASS = "chat-card-enter";
+const MESSAGE_ENTER_LATE_CLASS = "chat-card-enter-late";
+const SURFACE_ENTER_CLASS = "chat-enter";
+const SURFACE_ENTER_LATE_CLASS = "chat-enter-late";
 
 // 전략 검증은 규칙 기반이라 즉시 응답하지만, 분석이 진행 중임을 사용자가 인지하도록
 // 최소 노출 시간을 둔다. 응답이 더 오래 걸리면 추가 지연 없이 그대로 표시한다.
@@ -561,6 +567,18 @@ function ShimmerStatusText({
             background-position: -180% 0;
           }
         }
+
+        /* styled-jsx 스코프 클래스라 globals.css의 감속 규칙이 이기지 못한다.
+           같은 스코프 안에서 직접 끈다. */
+        @media (prefers-reduced-motion: reduce) {
+          .loading-shimmer-text {
+            animation: none;
+            color: rgba(255, 255, 255, 0.82);
+            background-image: none;
+            -webkit-background-clip: border-box;
+            background-clip: border-box;
+          }
+        }
       `}</style>
     </>
   );
@@ -632,11 +650,22 @@ async function requestBuilderStepData(
   return result;
 }
 
-function PulsingDot({ className = "" }: { className?: string }) {
+const SPINNER_DOT_COUNT = 12;
+const SPINNER_CYCLE_S = 1.2;
+
+function LoadingSpinner({ className = "" }: { className?: string }) {
   return (
-    <span className={`relative inline-flex h-2.5 w-2.5 flex-shrink-0 ${className}`}>
-      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-75" />
-      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-sky-400" />
+    <span className={`relative inline-block h-4 w-4 flex-shrink-0 ${className}`}>
+      {Array.from({ length: SPINNER_DOT_COUNT }, (_, i) => (
+        <span
+          key={i}
+          className="absolute left-1/2 top-1/2 -ml-[1.5px] -mt-[1.5px] h-[3px] w-[3px] rounded-full bg-gray-600 animate-dot-fill"
+          style={{
+            transform: `rotate(${(i * 360) / SPINNER_DOT_COUNT}deg) translateY(-6.5px)`,
+            animationDelay: `${(i * SPINNER_CYCLE_S) / SPINNER_DOT_COUNT}s`,
+          }}
+        />
+      ))}
     </span>
   );
 }
@@ -651,18 +680,11 @@ function AnalysisStatusBubble({
   const label = stage ? ANALYSIS_STAGE_LABEL[stage] : "분석 중...";
   return (
     <div
-      className={`max-w-[88%] rounded-tl-sm p-3.5 space-y-2 ${COACH_CHAT_BUBBLE_CLASS}`}
-      style={SOFT_MESSAGE_ENTER_LATE_STYLE}
+      className={`flex max-w-[88%] items-center gap-2 py-1 ${MESSAGE_ENTER_LATE_CLASS}`}
     >
-      <div className="flex items-center gap-2">
-        <PulsingDot />
-        {title && (
-          <span className="text-[11px] font-black uppercase tracking-widest text-white">
-            {title}
-          </span>
-        )}
-        <ShimmerStatusText className="text-sm font-bold">{label}</ShimmerStatusText>
-      </div>
+      <LoadingSpinner />
+      {title && <span className="text-sm font-black text-white">{title}</span>}
+      <ShimmerStatusText className="text-sm font-bold">{label}</ShimmerStatusText>
     </div>
   );
 }
@@ -717,7 +739,7 @@ function getSupabaseBrowserClient() {
 
 function FilterBadge({ label }: { label: string }) {
   return (
-    <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-[#171717] border border-white/[0.08] text-white text-xs font-bold">
+    <span className="inline-flex items-center rounded-md border border-white/[0.08] bg-white/[0.05] px-2.5 py-0.5 text-xs font-bold text-gray-200">
       {label}
     </span>
   );
@@ -742,35 +764,30 @@ function backtestPeriodLabel(parsed: ParsedSummary): string {
   return `백테스트 ${PERIOD_LABELS[parsed.backtest_period]}`;
 }
 
-function buildAnimatedHeadline(lines: string[], visibleCount: number) {
-  let remaining = visibleCount;
+// 글자별 진입 연출. 순서는 CSS animation-delay 캐스케이드가 만든다 —
+// 이전 구현은 38ms마다 React 상태를 갱신해 글자 수만큼 전체 리렌더를 냈고,
+// prefers-reduced-motion도 존중할 수 없었다(인라인 style 연출).
+function buildAnimatedHeadline(lines: string[]) {
+  let charOffset = 0;
 
   return lines.map((line, lineIndex) => {
-    const visibleChars = Math.max(0, Math.min(line.length, remaining));
-    remaining -= visibleChars;
+    const startIndex = charOffset;
+    charOffset += line.length;
 
     return (
       <span
         key={`${line}-${lineIndex}`}
         className="block min-h-[1em] whitespace-normal lg:whitespace-nowrap"
       >
-        {line.split("").map((char, charIndex) => {
-          const isVisible = charIndex < visibleChars;
-
-          return (
-            <span
-              key={`${line}-${lineIndex}-${charIndex}`}
-              className="inline-block transition-all duration-300 ease-out"
-              style={{
-                opacity: isVisible ? 1 : 0,
-                transform: isVisible ? "translateY(0)" : "translateY(8px)",
-                filter: isVisible ? "blur(0)" : "blur(6px)",
-              }}
-            >
-              {char === " " ? "\u00A0" : char}
-            </span>
-          );
-        })}
+        {line.split("").map((char, charIndex) => (
+          <span
+            key={`${line}-${lineIndex}-${charIndex}`}
+            className="chat-headline-char"
+            style={{ "--char-index": String(startIndex + charIndex) } as React.CSSProperties}
+          >
+            {char === " " ? "\u00A0" : char}
+          </span>
+        ))}
       </span>
     );
   });
@@ -778,29 +795,8 @@ function buildAnimatedHeadline(lines: string[], visibleCount: number) {
 
 const HEADLINE_LINES = ["투자 아이디어를 전략으로 만들고", "전략을 시뮬레이션 하세요"];
 
-// 헤드라인 타이핑 연출을 격리한 컴포넌트 — 38ms 간격 상태 갱신이 페이지 전체를
-// 리렌더링하지 않도록 한다(인트로 화면 입력 버벅임의 원인 중 하나).
 function AnimatedHeadline({ lines }: { lines: string[] }) {
-  const totalChars = lines.reduce((sum, line) => sum + line.length, 0);
-  const [visibleChars, setVisibleChars] = useState(0);
-
-  useEffect(() => {
-    setVisibleChars(0);
-    const timer = window.setInterval(() => {
-      setVisibleChars((current) => {
-        if (current >= totalChars) {
-          window.clearInterval(timer);
-          return current;
-        }
-
-        return current + 1;
-      });
-    }, 38);
-
-    return () => window.clearInterval(timer);
-  }, [totalChars]);
-
-  return <>{buildAnimatedHeadline(lines, visibleChars)}</>;
+  return <>{buildAnimatedHeadline(lines)}</>;
 }
 
 type ChatInputHandle = {
@@ -810,7 +806,7 @@ type ChatInputHandle = {
 
 type ChatInputBoxProps = {
   variant: "inline" | "fixed";
-  containerStyle?: React.CSSProperties;
+  containerClassName?: string;
   running: boolean;
   canSend: boolean;
   isLlmWorking: boolean;
@@ -823,7 +819,7 @@ type ChatInputBoxProps = {
 // 리렌더링되지 않도록 입력 상태를 내부에서만 관리한다(모바일 입력 버벅임의 핵심 원인).
 const ChatInputBox = memo(
   forwardRef<ChatInputHandle, ChatInputBoxProps>(function ChatInputBox(
-    { variant, containerStyle, running, canSend, isLlmWorking, isStrategyInput, onSend, onReset },
+    { variant, containerClassName = "", running, canSend, isLlmWorking, isStrategyInput, onSend, onReset },
     ref,
   ) {
     const [value, setValue] = useState("");
@@ -871,7 +867,7 @@ const ChatInputBox = memo(
         disabled={running}
         rows={2}
         placeholder="어떤 투자 아이디어를 테스트해볼까요?"
-        className="w-full resize-none bg-transparent px-5 pt-4 pb-12 text-sm font-bold leading-relaxed text-white outline-none placeholder-gray-600 focus:outline-none focus:ring-0"
+        className="w-full resize-none bg-transparent px-5 pt-4 pb-12 text-sm font-bold leading-relaxed text-white outline-none placeholder:text-[var(--text-placeholder)] focus:outline-none focus:ring-0"
       />
     );
 
@@ -882,11 +878,11 @@ const ChatInputBox = memo(
           disabled={!canSubmitInput}
           aria-label={isLlmWorking ? (isStrategyInput ? "전략 생성 중" : "전송 중") : (isStrategyInput ? "전략 생성" : "전송")}
           title={isLlmWorking ? (isStrategyInput ? "전략 생성 중" : "전송 중") : (isStrategyInput ? "전략 생성" : "전송")}
-          className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-300 ${
+          className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)] ${
             isLlmWorking
               ? "cursor-wait bg-[#f3f1ec]"
               : hasTypedInput
-                ? "bg-[#f3f1ec] text-[#2b2b2b] hover:bg-white disabled:cursor-not-allowed"
+                ? "bg-[#f3f1ec] text-[#2b2b2b] hover:bg-white active:scale-[0.96] disabled:cursor-not-allowed"
                 : "cursor-not-allowed bg-[#595959] text-[#bdbdbd]"
           }`}
         >
@@ -902,8 +898,7 @@ const ChatInputBox = memo(
     if (variant === "inline") {
       return (
         <div
-          className="relative w-full rounded-[28px] border border-[var(--glass-border)] bg-[#101010]"
-          style={containerStyle}
+          className={`relative w-full rounded-[28px] border border-[var(--glass-border)] bg-[#101010] ${containerClassName}`}
         >
           {textarea}
           {sendButton}
@@ -913,14 +908,13 @@ const ChatInputBox = memo(
 
     return (
       <div
-        className="fixed bottom-4 left-4 right-4 z-40 mx-auto max-w-4xl rounded-[28px] border border-[var(--glass-border)] bg-[#101010]"
-        style={containerStyle}
+        className={`fixed bottom-4 left-4 right-4 z-40 mx-auto max-w-4xl rounded-[28px] border border-[var(--glass-border)] bg-[#101010] ${containerClassName}`}
       >
         {textarea}
         <button
           type="button"
           onClick={onReset}
-          className="absolute bottom-3 left-3 inline-flex items-center gap-1.5 rounded-full border border-[var(--accent-blue)] bg-[#171717] px-3 py-1.5 text-xs font-bold text-gray-400 transition-all duration-200 hover:bg-[#202020] hover:text-white"
+          className="absolute bottom-3 left-3 inline-flex items-center gap-1.5 rounded-full border border-white/[0.14] bg-white/[0.05] px-3 py-1.5 text-xs font-bold text-[var(--accent-blue)] transition-colors duration-200 hover:bg-white/[0.09] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]"
         >
           <X size={12} weight="bold" />
           대화 종료
@@ -936,78 +930,74 @@ function BacktestRunningStatus({ message }: { message: string }) {
     <div
       role="status"
       aria-live="polite"
-      className={`relative isolate w-full overflow-hidden rounded-2xl border border-white/[0.08] px-4 py-3 ${COACH_CHAT_BUBBLE_CLASS}`}
+      className={`relative isolate w-full overflow-hidden px-4 py-3 ${ARTIFACT_CARD_CLASS}`}
     >
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0">
-        <span className="backtest-aurora backtest-aurora-blue" />
-        <span className="backtest-aurora backtest-aurora-mint" />
-        <span className="backtest-aurora backtest-aurora-gold" />
-        <span className="absolute inset-0 bg-[#171717]/45" />
+        <span className="backtest-aurora" />
       </div>
       <div className="relative z-10 flex items-center gap-3">
-        <ArrowsClockwise size={18} className="flex-shrink-0 animate-spin text-white" />
+        <ArrowsClockwise
+          size={18}
+          className="flex-shrink-0 animate-spin text-[var(--chat-accent)] motion-reduce:animate-none"
+        />
         <div className="min-w-0">
-          <p className="text-xs font-black uppercase tracking-widest text-white">백테스트 진행 중</p>
+          <p className="text-xs font-black text-[var(--text-label)]">백테스트 진행 중</p>
           <p className="mt-0.5 text-sm font-bold text-white">
             {message || "백테스트 준비 중..."}
           </p>
         </div>
       </div>
       <style jsx>{`
+        /* 이전에는 blue·mint·gold 세 개의 블롭이 mix-blend-mode: screen으로 겹쳐
+           한 카드 안에서 강조색이 세 개였고, 백테스트가 도는 동안 blur(26px)
+           레이어 3장이 계속 합성됐다. 강조색 하나, 블롭 하나로 줄인다.
+           역동성은 레이어를 늘리지 않고 궤적으로 만든다 — 제자리 흔들림(±5%)
+           대신 카드를 가로지르는 스윕에 회전·크기·밝기 변화를 얹는다. */
         .backtest-aurora {
           position: absolute;
           display: block;
+          left: -10%;
+          top: -92%;
           width: 58%;
           height: 190%;
           border-radius: 999px;
           filter: blur(26px);
-          mix-blend-mode: screen;
-          opacity: 0.68;
-          animation: backtestAuroraDrift 7s ease-in-out infinite;
-        }
-
-        .backtest-aurora-blue {
-          left: -10%;
-          top: -92%;
+          opacity: 0.5;
           background: radial-gradient(
             ellipse at center,
-            rgba(125, 211, 252, 0.72) 0%,
-            rgba(59, 130, 246, 0.3) 38%,
-            rgba(59, 130, 246, 0) 72%
+            rgba(240, 180, 41, 0.5) 0%,
+            rgba(240, 180, 41, 0.16) 38%,
+            rgba(240, 180, 41, 0) 72%
           );
+          animation: backtestAuroraSweep 6.5s ease-in-out infinite;
+          will-change: transform, opacity;
         }
 
-        .backtest-aurora-mint {
-          right: 14%;
-          bottom: -118%;
-          background: radial-gradient(
-            ellipse at center,
-            rgba(167, 243, 208, 0.58) 0%,
-            rgba(34, 197, 94, 0.22) 36%,
-            rgba(34, 197, 94, 0) 74%
-          );
-          animation-delay: -2.4s;
-        }
-
-        .backtest-aurora-gold {
-          right: -12%;
-          top: -96%;
-          background: radial-gradient(
-            ellipse at center,
-            rgba(253, 224, 71, 0.45) 0%,
-            rgba(245, 158, 11, 0.18) 34%,
-            rgba(245, 158, 11, 0) 74%
-          );
-          animation-delay: -4.8s;
-        }
-
-        @keyframes backtestAuroraDrift {
-          0%,
-          100% {
-            transform: translate3d(-2%, 0, 0) rotate(-8deg) scale(1);
+        /* 왕복 구간마다 정지점(%)을 불규칙하게 둬 시계추처럼 보이지 않게 한다. */
+        @keyframes backtestAuroraSweep {
+          0% {
+            transform: translate3d(-18%, 5%, 0) rotate(-14deg) scale(0.9);
+            opacity: 0.3;
           }
-          50% {
-            transform: translate3d(5%, 6%, 0) rotate(8deg) scale(1.08);
+          18% {
+            transform: translate3d(24%, -4%, 0) rotate(-4deg) scale(1.08);
+            opacity: 0.58;
+          }
+          40% {
+            transform: translate3d(70%, 6%, 0) rotate(7deg) scale(0.96);
+            opacity: 0.4;
+          }
+          62% {
+            transform: translate3d(114%, -5%, 0) rotate(15deg) scale(1.14);
+            opacity: 0.62;
+          }
+          82% {
+            transform: translate3d(52%, 4%, 0) rotate(3deg) scale(1);
+            opacity: 0.36;
+          }
+          100% {
+            transform: translate3d(-18%, 5%, 0) rotate(-14deg) scale(0.9);
+            opacity: 0.3;
           }
         }
 
@@ -1043,18 +1033,15 @@ function ParsedSummaryBubble({
   ];
 
   return (
-    <div
-      className="space-y-3 rounded-2xl border border-gray-300/30 bg-[#101010] p-4"
-      style={SOFT_MESSAGE_ENTER_STYLE}
-    >
-      <div className="flex items-center gap-1.5 border-b border-gray-300/20 pb-2">
-        <CheckCircle size={13} className="text-amber-300" weight="fill" />
-        <span className="text-xs font-black uppercase tracking-widest text-amber-100">전략 요약</span>
+    <div className={`space-y-3 p-4 ${ARTIFACT_CARD_CLASS} ${MESSAGE_ENTER_CLASS}`}>
+      <div className="flex items-center gap-1.5 border-b border-[var(--chat-hairline)] pb-2">
+        <CheckCircle size={13} className="text-[var(--text-label)]" weight="fill" />
+        <span className="text-xs font-black text-white">전략 요약</span>
       </div>
       <div className="space-y-2">
         {(parsed.universe.length > 0 || isSingleAsset) && (
           <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest w-14 flex-shrink-0">{isSingleAsset ? "대상 종목" : "유니버스"}</span>
+            <span className="w-14 flex-shrink-0 text-[11px] font-bold text-[var(--text-label)]">{isSingleAsset ? "대상 종목" : "유니버스"}</span>
             <div className="flex flex-wrap gap-1">
               {universeLabels.map((label, i) => (
                 <FilterBadge key={i} label={label} />
@@ -1064,7 +1051,7 @@ function ParsedSummaryBubble({
         )}
         {entryLabels.length > 0 && (
           <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest w-14 flex-shrink-0">{FUNDAMENTAL_FILTER_SECTION_LABEL}</span>
+            <span className="w-14 flex-shrink-0 text-[11px] font-bold text-[var(--text-label)]">{FUNDAMENTAL_FILTER_SECTION_LABEL}</span>
             <div className="flex flex-wrap gap-1">
               {entryLabels.map((label, i) => (
                 <FilterBadge key={i} label={label} />
@@ -1074,7 +1061,7 @@ function ParsedSummaryBubble({
         )}
         {exitLabels.length > 0 && (
           <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest w-14 flex-shrink-0">청산 신호</span>
+            <span className="w-14 flex-shrink-0 text-[11px] font-bold text-[var(--text-label)]">청산 신호</span>
             <div className="flex flex-wrap gap-1">
               {exitLabels.map((label, i) => (
                 <FilterBadge key={i} label={label} />
@@ -1083,7 +1070,7 @@ function ParsedSummaryBubble({
           </div>
         )}
         <div className="flex flex-wrap gap-1.5 items-center">
-          <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest w-14 flex-shrink-0">포트폴리오</span>
+          <span className="w-14 flex-shrink-0 text-[11px] font-bold text-[var(--text-label)]">포트폴리오</span>
           <div className="flex flex-wrap gap-1">
             <FilterBadge label={getPositionLabel(parsed)} />
             {parsed.hold_period_days && <FilterBadge label={`${parsed.hold_period_days}일 보유`} />}
@@ -1094,7 +1081,7 @@ function ParsedSummaryBubble({
         </div>
         {(parsed.stop_loss_pct || parsed.take_profit_pct || parsed.trailing_stop_pct) && (
           <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest w-14 flex-shrink-0">리스크</span>
+            <span className="w-14 flex-shrink-0 text-[11px] font-bold text-[var(--text-label)]">리스크</span>
             <div className="flex flex-wrap gap-1">
               {parsed.stop_loss_pct && <FilterBadge label={`손절 ${parsed.stop_loss_pct}%`} />}
               {parsed.take_profit_pct && <FilterBadge label={`익절 ${parsed.take_profit_pct}%`} />}
@@ -1115,14 +1102,14 @@ function BuilderStrategyOverview({
   return (
     <div data-testid="builder-strategy-summary">
       <section aria-label="현재까지 이해한 전략입니다">
-        <p className="text-[11px] font-black tracking-wide text-amber-200">
+        <p className="text-sm font-black tracking-wide text-gray-400">
           현재까지 이해한 전략입니다
         </p>
         {presentation.summaryItems.length > 0 ? (
           <dl className="mt-2 space-y-1.5">
             {presentation.summaryItems.map((item) => (
               <div key={`${item.label}-${item.value}`} className="flex gap-2 text-xs leading-relaxed">
-                <dt className="w-16 flex-shrink-0 break-keep font-bold text-gray-500">
+                <dt className="flex-shrink-0 break-keep font-bold text-[var(--text-label)]">
                   {item.label}
                 </dt>
                 <dd className="flex flex-wrap items-center gap-1.5 font-bold text-gray-200">
@@ -1149,14 +1136,14 @@ function StrategyProgressPanel({ items }: { items: BuilderProgressItem[] }) {
     <aside
       aria-label="전략 진행률"
       aria-live="polite"
-      className="relative z-20 w-full max-w-4xl rounded-2xl border border-white/[0.08] bg-[#101010] p-4 xl:fixed xl:right-4 xl:top-[calc(var(--top-menu-bar-height,76px)+5rem)] xl:w-40 xl:max-w-none 2xl:w-56"
+      className="relative z-20 w-full max-w-4xl rounded-2xl border border-[var(--chat-hairline)] bg-[var(--chat-artifact-surface)] p-4 xl:fixed xl:right-4 xl:top-[calc(var(--top-menu-bar-height,76px)+5rem)] xl:w-40 xl:max-w-none 2xl:w-56"
       data-testid="strategy-progress-panel"
     >
       <div className="flex items-end justify-between gap-3">
-        <h2 className="font-outfit text-xs font-black uppercase tracking-widest text-gray-300">
+        <h2 className="text-xs font-black text-white">
           전략 진행률
         </h2>
-        <span className="font-outfit text-[10px] font-black tabular-nums text-gray-500">
+        <span className="font-outfit text-[11px] font-black tabular-nums text-[var(--text-label)]">
           {completedCount}/{items.length}
         </span>
       </div>
@@ -1166,7 +1153,7 @@ function StrategyProgressPanel({ items }: { items: BuilderProgressItem[] }) {
             key={item.label}
             aria-label={`${item.label}: ${item.complete ? "완료" : "진행 전"}`}
             className={`flex items-center gap-2 text-xs font-bold transition-colors duration-200 ${
-              item.complete ? "text-emerald-300" : "text-gray-500"
+              item.complete ? "text-[var(--chat-accent)]" : "text-[var(--text-label)]"
             }`}
             data-complete={item.complete ? "true" : "false"}
             data-progress-label={item.label}
@@ -1174,7 +1161,7 @@ function StrategyProgressPanel({ items }: { items: BuilderProgressItem[] }) {
             {item.complete ? (
               <CheckCircle
                 aria-hidden="true"
-                className="flex-shrink-0 text-emerald-400"
+                className="flex-shrink-0 text-[var(--chat-accent)]"
                 size={15}
                 weight="fill"
               />
@@ -2976,6 +2963,15 @@ function StrategyLabContent() {
       setBacktestReq(effectiveReq);
     }
 
+    // 결과 화면을 닫아도 직전 result는 state에 남는다(대화 복귀 후 결과 유지). 그래서 채팅에서
+    // 새 백테스트를 시작하면 이전 결과 화면이 진행 바와 함께 되살아났다 — 결과 화면 밖에서
+    // 시작한 실행은 이전 결과를 비워 채팅의 진행 표시만 보이게 한다.
+    // 결과 화면 안에서의 재실행(옵션 변경)은 이전 결과를 그대로 두고 진행 바를 얹는다.
+    const isRerunFromResultView = (stage === "done" || stage === "running") && !!result;
+    if (!isRerunFromResultView) {
+      setResult(null);
+    }
+
     setStage("running");
     setStatusMessage("백테스트 준비 중...");
 
@@ -3117,8 +3113,8 @@ function StrategyLabContent() {
   const strategyPreviewBackgroundClass = isStrategyPreviewModalOpen
     ? "pointer-events-none select-none blur-[6px] transition-[filter,opacity] duration-200"
     : "transition-[filter,opacity] duration-200";
-  const softEnterStyle = SOFT_ENTER_STYLE;
-  const softEnterLateStyle = SOFT_ENTER_LATE_STYLE;
+  const softEnterClass = SURFACE_ENTER_CLASS;
+  const softEnterLateClass = SURFACE_ENTER_LATE_CLASS;
 
   // ── 결과 화면
   const isRunning = stage === "running";
@@ -3149,7 +3145,7 @@ function StrategyLabContent() {
       <DashboardLayout userName="">
         <div
           className="flex flex-col"
-          style={{ minHeight: "calc(100vh - var(--top-menu-bar-height, 76px))" }}
+          style={{ minHeight: "calc(100dvh - var(--top-menu-bar-height, 76px))" }}
         >
           <div ref={resultScrollRef} className="flex flex-1 flex-col overflow-auto">
             {isRunning && (
@@ -3197,29 +3193,9 @@ function StrategyLabContent() {
   // ── 메인 채팅 화면
   return (
     <DashboardLayout userName="">
+      {/* 대화 진입 연출(chat-enter / chat-card-enter)은 globals.css에 있다 —
+          prefers-reduced-motion으로 끌 수 있어야 하므로 인라인 style을 쓰지 않는다. */}
       <style>{`
-        @keyframes softChatSurfaceEnter {
-          from {
-            opacity: 0;
-            transform: translate3d(0, 6px, 0);
-          }
-          to {
-            opacity: 1;
-            transform: translate3d(0, 0, 0);
-          }
-        }
-
-        @keyframes softChatCardEnter {
-          from {
-            opacity: 0;
-            transform: translate3d(0, 5px, 0) scale(0.995);
-          }
-          to {
-            opacity: 1;
-            transform: translate3d(0, 0, 0) scale(1);
-          }
-        }
-
         @keyframes metricOptimizationSweep {
           from { transform: translateX(-120%); }
           to { transform: translateX(320%); }
@@ -3238,7 +3214,7 @@ function StrategyLabContent() {
       <div
         className={`relative flex flex-col items-center gap-4 overflow-x-hidden px-4 pt-10 sm:pt-14 lg:pt-20 ${hasChatStarted ? "pb-56" : "pb-12"} ${strategyPreviewBackgroundClass}`}
         data-testid="strategy-lab-background"
-        style={{ minHeight: "calc(100vh - var(--top-menu-bar-height, 76px))" }}
+        style={{ minHeight: "calc(100dvh - var(--top-menu-bar-height, 76px))" }}
       >
         {shouldShowIntro && <StrategyWaveBackground />}
 
@@ -3249,13 +3225,12 @@ function StrategyLabContent() {
         {/* ── 채팅 영역 ── */}
         <div
           key={isChatPage ? "strategy-chat-page" : "strategy-intro-page"}
-          className="relative z-10 flex min-h-[calc(100vh-var(--top-menu-bar-height,76px)-5rem)] w-full flex-col items-center justify-start transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)]"
-          style={softEnterStyle}
+          className={`relative z-10 flex min-h-[calc(100dvh-var(--top-menu-bar-height,76px)-5rem)] w-full flex-col items-center justify-start transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] ${softEnterClass}`}
         >
         <div className={`w-full max-w-4xl flex flex-col items-center gap-6 ${
           hasChatStarted
-            ? "min-h-[calc(100vh-var(--top-menu-bar-height,76px)-5rem)]"
-            : "min-h-[calc(100vh-var(--top-menu-bar-height,76px)-5rem)] justify-end pb-10"
+            ? "min-h-[calc(100dvh-var(--top-menu-bar-height,76px)-5rem)]"
+            : "min-h-[calc(100dvh-var(--top-menu-bar-height,76px)-5rem)] justify-end pb-10"
         }`}>
 
           {/* 헤더 */}
@@ -3269,7 +3244,6 @@ function StrategyLabContent() {
                 <p
                   data-testid="strategy-lab-headline"
                   className="max-w-5xl text-[27px] leading-none tracking-tight text-[#fcfdff] sm:text-5xl lg:text-7xl [font-weight:950]"
-                  style={{ textShadow: "0 0 24px rgba(255, 255, 255, 0.18)" }}
                 >
                   <AnimatedHeadline lines={HEADLINE_LINES} />
                 </p>
@@ -3279,7 +3253,7 @@ function StrategyLabContent() {
               </div>
             </div>
             {modelStatus?.status === "failed" && (
-              <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[var(--main-blue)]/10 border border-[var(--main-blue)]/20 text-[var(--main-blue)] text-xs font-bold">
+              <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-[var(--error-red-line)] bg-[var(--chat-artifact-surface)] px-3 py-1 text-xs font-bold text-[var(--error-red)]">
                 <Warning size={12} weight="fill" />
                 AI 모델 로드 실패 — 전략 생성을 사용할 수 없습니다
               </div>
@@ -3292,15 +3266,12 @@ function StrategyLabContent() {
 
             {/* 대화 히스토리 */}
             {messages.length > 0 && (
-              <div
-                className="w-full space-y-4 px-1 py-2"
-                style={softEnterStyle}
-              >
+              <div className={`w-full space-y-4 px-1 py-2 ${softEnterClass}`}>
                 {messages.map((msg, i) => (
                   <div key={i}>
                     {msg.role === "user" && (
-                      <div className="flex justify-end" style={SOFT_MESSAGE_ENTER_STYLE}>
-                        <div className={`max-w-[80%] rounded-tr-sm px-4 py-2.5 ${USER_CHAT_BUBBLE_CLASS}`}>
+                      <div className={`flex justify-end ${MESSAGE_ENTER_CLASS}`}>
+                        <div className={`max-w-[80%] px-4 py-2.5 ${USER_CHAT_BUBBLE_CLASS}`}>
                           <p className="text-sm font-bold text-white leading-relaxed">{msg.content}</p>
                         </div>
                       </div>
@@ -3314,15 +3285,13 @@ function StrategyLabContent() {
                           <>
                             {msg.builderPresentation && (
                               <div
-                                className="max-w-[88%] rounded-xl p-3.5 bg-[#111111] border border-white/10"
-                                style={SOFT_MESSAGE_ENTER_STYLE}
+                                className={`max-w-[88%] p-4 ${ARTIFACT_CARD_CLASS} ${MESSAGE_ENTER_CLASS}`}
                               >
                                 <BuilderStrategyOverview presentation={msg.builderPresentation} />
                               </div>
                             )}
                             <div
-                              className={`max-w-[88%] rounded-tl-sm p-3.5 space-y-2 ${COACH_CHAT_BUBBLE_CLASS}`}
-                              style={SOFT_MESSAGE_ENTER_STYLE}
+                              className={`max-w-[88%] space-y-2 py-0.5 ${MESSAGE_ENTER_CLASS}`}
                             >
                               <p className="text-sm font-bold text-white leading-relaxed whitespace-pre-line">
                                 {msg.infoText}
@@ -3333,7 +3302,7 @@ function StrategyLabContent() {
                               {isLastAssistant(i) && msg.infoSuggestions && msg.infoSuggestions.length > 0 && (
                                 <div className="space-y-1.5 pt-1">
                                   {msg.builderPresentation && (
-                                    <p className="text-[10px] font-black tracking-wide text-gray-500">
+                                    <p className="text-[11px] font-black text-[var(--text-label)]">
                                       선택 예시
                                     </p>
                                   )}
@@ -3353,7 +3322,7 @@ function StrategyLabContent() {
                                           }
                                           handleSuggestionClick(suggestion);
                                         }}
-                                        className="px-3 py-1.5 rounded-lg bg-[#171717] border border-white/10 hover:border-yellow-400/50 hover:bg-[#202020] text-xs font-bold text-gray-300 transition-all duration-200 text-left"
+                                        className={CHOICE_CHIP_CLASS}
                                       >
                                         {suggestion}
                                       </button>
@@ -3370,9 +3339,15 @@ function StrategyLabContent() {
                             {/* 사용자의 자연어를 전략 개념으로 재정리한 첫 문장 — 요약 카드·되묻기보다 먼저 보여준다. */}
                             {msg.restatement && (
                               <div
-                                className={`max-w-[88%] rounded-tl-sm p-3.5 ${COACH_CHAT_BUBBLE_CLASS}`}
-                                style={SOFT_MESSAGE_ENTER_STYLE}
+                                className={`flex max-w-[88%] items-start gap-2.5 py-0.5 ${MESSAGE_ENTER_CLASS}`}
                               >
+                                {/* 산문은 카드도 레일도 없으므로 닷이 블록 시작점을 표시한다.
+                                    강조색은 '사용자 차례'에 예약돼 있어 중립 톤을 쓴다. */}
+                                <span
+                                  aria-hidden="true"
+                                  data-testid="strategy-restatement-dot"
+                                  className="mt-[7px] h-1.5 w-1.5 flex-shrink-0 rounded-full bg-[var(--text-label)]"
+                                />
                                 <p
                                   data-testid="strategy-restatement"
                                   className="text-sm font-bold text-white leading-relaxed"
@@ -3387,13 +3362,13 @@ function StrategyLabContent() {
                               <>
                                 <ParsedSummaryBubble parsed={msg.parsed} backtestRequest={backtestReq} />
                                 {msg.notices && msg.notices.length > 0 && (
-                                  <div className="flex flex-col gap-1.5" style={SOFT_MESSAGE_ENTER_LATE_STYLE}>
+                                  <div className={`flex flex-col gap-1.5 ${MESSAGE_ENTER_LATE_CLASS}`}>
                                     {msg.notices.map((notice, ni) => (
                                       <div
                                         key={ni}
-                                        className="flex items-start gap-2.5 p-3 rounded-xl bg-[#111111] border border-white/10"
+                                        className={`flex items-start gap-2.5 p-3 ${ARTIFACT_CARD_CLASS}`}
                                       >
-                                        <Info size={13} className="text-yellow-400 flex-shrink-0 mt-0.5" weight="fill" />
+                                        <Info size={13} className="mt-0.5 flex-shrink-0 text-[var(--text-label)]" weight="fill" />
                                         <p className="text-xs font-bold text-gray-300 leading-relaxed whitespace-pre-line">
                                           {notice}
                                         </p>
@@ -3407,20 +3382,18 @@ function StrategyLabContent() {
                               <>
                                 {msg.builderPresentation && (
                                   <div
-                                    className="flex flex-col gap-2.5 p-3.5 rounded-xl bg-[#111111] border border-white/10"
-                                    style={SOFT_MESSAGE_ENTER_STYLE}
+                                    className={`flex flex-col gap-2.5 p-4 ${ARTIFACT_CARD_CLASS} ${MESSAGE_ENTER_CLASS}`}
                                   >
                                     <BuilderStrategyOverview presentation={msg.builderPresentation} />
                                   </div>
                                 )}
                                 <div
-                                  className="flex flex-col gap-2.5 p-3.5 rounded-xl bg-[#111111] border border-white/10"
-                                  style={SOFT_MESSAGE_ENTER_LATE_STYLE}
+                                  className={`flex flex-col gap-2.5 p-4 ${ARTIFACT_CARD_CLASS} ${MESSAGE_ENTER_LATE_CLASS}`}
                                 >
                                   <div className="flex items-start justify-between gap-2.5">
                                     <div className="flex items-start gap-2.5">
-                                      <Question size={13} className="text-yellow-400 flex-shrink-0 mt-0.5" weight="fill" />
-                                      <p className="text-xs font-bold text-gray-300 leading-relaxed whitespace-pre-line">
+                                      <Question size={13} className="mt-0.5 flex-shrink-0 text-[var(--chat-accent)]" weight="fill" />
+                                      <p className="text-[13px] font-bold leading-relaxed text-gray-200 whitespace-pre-line">
                                         {msg.clarification.replace(/\*\*(.*?)\*\*/g, "$1")}
                                       </p>
                                     </div>
@@ -3429,7 +3402,7 @@ function StrategyLabContent() {
                                         type="button"
                                         onClick={() => returnToPreviousCondition(msg)}
                                         disabled={isSending}
-                                        className="flex flex-shrink-0 items-center gap-1 text-[10px] font-bold text-blue-400 hover:text-blue-300 disabled:opacity-40 transition-colors duration-200"
+                                        className={BACK_CONTROL_CLASS}
                                       >
                                         <ArrowLeft size={11} />
                                         {CONFIRMATION_BACK_CHIP}
@@ -3438,7 +3411,7 @@ function StrategyLabContent() {
                                   </div>
                                   {msg.clarificationSuggestions && msg.clarificationSuggestions.length > 0 && (
                                     <div className="space-y-1.5 pl-6">
-                                      <p className="text-[10px] font-black tracking-wide text-gray-500">
+                                      <p className="text-[11px] font-black text-[var(--text-label)]">
                                         {msg.strategyConfirmation ? "전략 확인" : "선택 예시"}
                                       </p>
                                       <div className="flex flex-wrap gap-2">
@@ -3446,7 +3419,7 @@ function StrategyLabContent() {
                                           <button
                                             key={suggestion}
                                             onClick={() => handleSuggestionClick(suggestion)}
-                                            className="px-3 py-1.5 rounded-lg bg-[#171717] border border-white/10 hover:border-yellow-400/50 hover:bg-[#202020] text-xs font-bold text-gray-300 transition-all duration-200 text-left"
+                                            className={CHOICE_CHIP_CLASS}
                                           >
                                             {suggestion}
                                           </button>
@@ -3456,7 +3429,7 @@ function StrategyLabContent() {
                                           <button
                                             type="button"
                                             onClick={focusFreeTextInput}
-                                            className="px-3 py-1.5 rounded-lg bg-[#171717] border border-white/10 hover:border-yellow-400/50 hover:bg-[#202020] text-xs font-bold text-gray-300 transition-all duration-200 text-left"
+                                            className={CHOICE_CHIP_CLASS}
                                           >
                                             {FREE_INPUT_CHIP}
                                           </button>
@@ -3469,21 +3442,20 @@ function StrategyLabContent() {
                             )}
                             {isLastAssistant(i) && stage === "running" && (
                               <div className="flex items-center gap-2 px-1">
-                                <ArrowsClockwise size={13} className="text-sky-400 animate-spin flex-shrink-0" />
-                                <span className="text-xs font-bold text-gray-500 transition-all duration-300">{statusMessage}</span>
+                                <ArrowsClockwise size={13} className="flex-shrink-0 animate-spin text-[var(--chat-accent)] motion-reduce:animate-none" />
+                                <span className="text-xs font-bold text-[var(--text-label)] transition-colors duration-300">{statusMessage}</span>
                               </div>
                             )}
                           </>
                         )}
                         {(msg.coachLoading || msg.coachText) && (
                           <div
-                            className={`max-w-[88%] rounded-tl-sm p-3.5 space-y-2 ${COACH_CHAT_BUBBLE_CLASS}`}
-                            style={SOFT_MESSAGE_ENTER_LATE_STYLE}
+                            className={`max-w-[88%] space-y-2 p-4 ${ARTIFACT_CARD_CLASS} ${MESSAGE_ENTER_LATE_CLASS}`}
                             data-testid="strategy-coach-bubble"
                           >
                             <div className="flex items-center gap-2">
-                              {msg.coachLoading && <PulsingDot />}
-                              <span className="text-[11px] font-black uppercase tracking-widest text-white">
+                              {msg.coachLoading && <LoadingSpinner />}
+                              <span className="text-xs font-black text-white">
                                 전략 검증
                               </span>
                               {msg.coachLoading && (
@@ -3499,7 +3471,7 @@ function StrategyLabContent() {
                                       href={seg.href}
                                       target="_blank"
                                       rel="noopener noreferrer"
-                                      className="underline text-sky-300 hover:text-sky-200"
+                                      className="text-[var(--chat-accent)] underline decoration-[var(--chat-accent-underline)] underline-offset-2 transition-colors hover:decoration-[var(--chat-accent)]"
                                     >
                                       {seg.value}
                                     </a>
@@ -3524,13 +3496,12 @@ function StrategyLabContent() {
                             requireExplicitConfiguration: true,
                           }) && (
                             <div
-                              className="flex max-w-[88%] px-1"
+                              className={`flex max-w-[88%] px-1 ${MESSAGE_ENTER_LATE_CLASS}`}
                               data-testid="backtest-action"
-                              style={SOFT_MESSAGE_ENTER_LATE_STYLE}
                             >
                               <button
                                 onClick={() => handleRunBacktest()}
-                                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-black transition-all duration-300 hover:shadow-[0_0_24px_rgba(59,130,246,0.4)]"
+                                className="flex items-center gap-2 rounded-xl bg-[var(--chat-accent)] px-5 py-2.5 text-xs font-black text-[var(--chat-accent-ink)] transition-colors duration-200 hover:brightness-110 active:translate-y-[1px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]"
                               >
                                 <ChartLineUp size={13} weight="fill" />
                                 백테스트 시작하기
@@ -3540,13 +3511,12 @@ function StrategyLabContent() {
                           )}
                         {msg.error && (
                           <div
-                            className="flex items-start gap-2.5 p-3.5 rounded-xl bg-[var(--error-red)]/10 border border-[var(--error-red)]/20"
-                            style={SOFT_MESSAGE_ENTER_STYLE}
+                            className={`flex items-start gap-2.5 rounded-2xl border border-[var(--error-red-line)] bg-[var(--chat-artifact-surface)] p-4 ${MESSAGE_ENTER_CLASS}`}
                           >
-                            <Warning size={13} className="text-[var(--error-red)] flex-shrink-0 mt-0.5" weight="fill" />
-                            <div className="space-y-1 flex-1">
+                            <Warning size={13} className="mt-0.5 flex-shrink-0 text-[var(--error-red)]" weight="fill" />
+                            <div className="flex-1 space-y-1">
                               <p className="text-xs font-black text-[var(--error-red)]">오류 발생</p>
-                              <p className="text-xs font-bold text-gray-500">{msg.error}</p>
+                              <p className="text-xs font-bold text-[var(--text-label)]">{msg.error}</p>
                             </div>
                           </div>
                         )}
@@ -3568,7 +3538,7 @@ function StrategyLabContent() {
                 key={shouldShowIntro ? "intro-chat-input" : "active-chat-input"}
                 ref={chatInputRef}
                 variant="inline"
-                containerStyle={softEnterLateStyle}
+                containerClassName={softEnterLateClass}
                 running={stage === "running"}
                 canSend={canSendInput}
                 isLlmWorking={isLlmWorking}
@@ -3595,7 +3565,7 @@ function StrategyLabContent() {
             key="fixed-chat-input"
             ref={chatInputRef}
             variant="fixed"
-            containerStyle={softEnterLateStyle}
+            containerClassName={softEnterLateClass}
             running={stage === "running"}
             canSend={canSendInput}
             isLlmWorking={isLlmWorking}
@@ -3615,7 +3585,7 @@ function StrategyLabContent() {
             <button
               type="button"
               onClick={handleReset}
-              className="inline-flex items-center gap-1.5 rounded-full border border-[var(--accent-blue)] bg-[#171717] px-4 py-2 text-xs font-bold text-gray-300 shadow-lg transition-all duration-200 hover:bg-[#202020] hover:text-white"
+              className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.14] bg-white/[0.05] px-4 py-2 text-xs font-bold text-[var(--accent-blue)] shadow-lg transition-colors duration-200 hover:bg-white/[0.09] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]"
             >
               <X size={12} weight="bold" />
               대화 종료
@@ -3633,8 +3603,7 @@ function StrategyLabContent() {
           aria-labelledby="strategy-auth-modal-title"
         >
           <div
-            className="w-full max-w-md rounded-3xl border border-white/[0.08] bg-[#0b0b0b] p-6 text-center shadow-2xl shadow-black/50"
-            style={softEnterStyle}
+            className={`w-full max-w-md rounded-2xl border border-[var(--chat-hairline)] bg-[#0b0b0b] p-6 text-center shadow-2xl shadow-black/50 ${softEnterClass}`}
           >
             <div className="space-y-3">
               <p

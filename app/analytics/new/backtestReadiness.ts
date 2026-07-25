@@ -112,7 +112,16 @@ export function getNextMissingBacktestCondition(
     return {
       field: "entry",
       question: "매수 조건이 빠져 있습니다. 어떤 조건에서 매수할까요?",
-      suggestions: ["골든크로스 발생 시 매수", "PBR 1 이하", "RSI 30 이하에서 매수"],
+      suggestions: [
+        "골든크로스 발생 시 매수",
+        "RSI 30 이하에서 매수",
+        "MACD 골든크로스 매수",
+        "볼린저밴드 하단 터치 시 매수",
+        "20일 고점 돌파 시 매수",
+        "거래량 급증 시 매수",
+        "PER 10 이하",
+        "ROE 15% 이상",
+      ],
     };
   }
   if (!hasExit) {

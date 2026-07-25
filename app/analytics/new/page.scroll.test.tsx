@@ -1696,6 +1696,33 @@ describe("deterministic condition selection", () => {
     expect(rebalancing.allowNoRebalancing).toBe(true);
   });
 
+  // 매수 조건 예시 칩 문구와 결정적 매핑 키가 어긋나면 칩 선택이 조용히 파서 폴백으로
+  // 새어 나간다 — 제안된 모든 칩이 결정적으로 적용되는지 잠근다.
+  it("applies every suggested entry chip deterministically", () => {
+    const parsed = {
+      ...incompleteParsedStrategy,
+      fundamental_filters: [],
+      entry_signals: [],
+    };
+    const condition = getNextMissingBacktestCondition(parsed, {
+      requireExplicitConfiguration: true,
+      prompt: "코스피 대상으로",
+    });
+    expect(condition?.field).toBe("entry");
+    for (const choice of condition!.suggestions) {
+      const result = applyDeterministicConditionChoice({
+        parsed,
+        condition: condition!,
+        choice,
+      });
+      expect(result, `칩 "${choice}"이 결정적으로 적용되지 않음`).not.toBeNull();
+      const next = result!.parsed;
+      expect(
+        (next.entry_signals?.length ?? 0) + (next.fundamental_filters?.length ?? 0),
+      ).toBe(1);
+    }
+  });
+
   it("leaves free-form choices for the parser", () => {
     expect(
       applyDeterministicConditionChoice({

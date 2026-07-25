@@ -19,6 +19,27 @@
   --success-green: #10b981;
   --error-red: #ef4444;
   --text-muted: #64748b;
+
+  /* 대화 표면 토큰 — 강조색은 하나만 쓴다(Color Consistency Lock).
+     상승/하락(--main-red/--main-blue)과 에러(--error-red)는 의미 색이라
+     장식 목적으로 쓰지 않는다. */
+  --chat-accent: #f0b429;                        /* 대비 10.2:1 on #0f0f0f */
+  --chat-accent-soft: rgba(240, 180, 41, 0.14);  /* 옅은 면 */
+  --chat-accent-ink: #191203;                    /* accent 채운 버튼의 글자색 */
+  /* 투명도 단계는 토큰으로 둔다 — tailwind는 `[var(--x)]/50` 형태의 투명도
+     수정자에서 아무 클래스도 생성하지 않아(조용한 죽은 클래스) 쓸 수 없다. */
+  --chat-accent-line: rgba(240, 180, 41, 0.6);   /* 호버 테두리 */
+  --chat-accent-ring: rgba(240, 180, 41, 0.5);   /* 포커스 링 */
+  --chat-accent-underline: rgba(240, 180, 41, 0.4);
+  --chat-user-surface: #1c1c1c;                  /* 사용자 발화 카드 */
+  --chat-artifact-surface: #141414;              /* 구조화 산출물 카드 */
+  --chat-hairline: rgba(255, 255, 255, 0.09);
+  --error-red-line: rgba(239, 68, 68, 0.28);
+
+  /* WCAG AA를 통과하는 보조 텍스트 값. 기존 text-gray-500(#6b7280)은
+     #0f0f0f 대비 3.98:1로 본문 기준(4.5:1) 미달이라 대체한다. */
+  --text-label: #9ca3af;         /* 7.6:1 */
+  --text-placeholder: #8b8f96;   /* 5.9:1 */
 }
 
 @media (prefers-color-scheme: dark) {
@@ -38,10 +59,11 @@
   }
 }
 
+/* font-family는 tailwind fontFamily.sans(= 한글 우선 스택)를 따른다.
+   여기서 Arial을 재지정하면 그 스택을 덮어쓰므로 선언하지 않는다. */
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
 }
 
 /* Remove default blue focus outline */
@@ -378,4 +400,109 @@ input[type=number] {
   );
   animation: shimmerSweep 1.8s ease-in-out infinite;
   will-change: transform;
+}
+
+/* 로딩 스피너 — 원형으로 배치된 닷들이 시계방향으로 파랗게 차오르며 진해졌다가
+   같은 방향으로 옅어진다. 각 닷은 animation-delay로만 순서가 갈린다.
+   0%와 100%의 opacity를 맞춰 색이 되돌아가는 지점을 눈에 띄지 않게 한다. */
+@keyframes dotFill {
+  0% {
+    background-color: rgb(75, 85, 99);
+    opacity: 0.3;
+  }
+  15% {
+    background-color: var(--chat-accent);
+    opacity: 1;
+  }
+  65% {
+    background-color: var(--chat-accent);
+    opacity: 1;
+  }
+  100% {
+    background-color: var(--chat-accent);
+    opacity: 0.3;
+  }
+}
+
+.animate-dot-fill {
+  animation: dotFill 1.2s ease-in-out infinite;
+}
+
+/* ── 전략연구소 대화 진입 연출 ──
+   이전에는 인라인 style에 animation을 넣어 prefers-reduced-motion으로 끌 수
+   없었다(인라인 선언은 CSS로 덮이지 않는다). 클래스로 옮겨 감속 설정을 존중한다. */
+@keyframes chatSurfaceEnter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes chatCardEnter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 5px, 0) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.chat-enter {
+  animation: chatSurfaceEnter 720ms cubic-bezier(0.19, 1, 0.22, 1) both;
+}
+
+.chat-enter-late {
+  animation: chatSurfaceEnter 820ms cubic-bezier(0.19, 1, 0.22, 1) 120ms both;
+}
+
+.chat-card-enter {
+  animation: chatCardEnter 780ms cubic-bezier(0.19, 1, 0.22, 1) both;
+}
+
+.chat-card-enter-late {
+  animation: chatCardEnter 860ms cubic-bezier(0.19, 1, 0.22, 1) 140ms both;
+}
+
+/* 인트로 헤드라인 글자 연출 — 이전에는 38ms setInterval로 글자마다 React
+   상태를 갱신했다(글자당 전체 리렌더). CSS animation-delay 캐스케이드로 대체. */
+@keyframes chatHeadlineCharIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+.chat-headline-char {
+  display: inline-block;
+  opacity: 0;
+  animation: chatHeadlineCharIn 300ms ease-out both;
+  animation-delay: calc(var(--char-index) * 38ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-dot-fill,
+  .chat-enter,
+  .chat-enter-late,
+  .chat-card-enter,
+  .chat-card-enter-late,
+  .shimmer::after {
+    animation: none;
+  }
+
+  .chat-headline-char {
+    animation: none;
+    opacity: 1;
+  }
 }

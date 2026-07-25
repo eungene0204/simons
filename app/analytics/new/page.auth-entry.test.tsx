@@ -88,8 +88,11 @@ describe("StrategyLab auth entry", () => {
     window.sessionStorage.clear();
   });
 
-  it("reveals the headline letters with the original fade animation", async () => {
-    vi.useFakeTimers();
+  // 글자 진입 연출은 CSS animation-delay 캐스케이드가 만든다(.chat-headline-char).
+  // 이전에는 38ms setInterval + 인라인 opacity였고, 이 테스트도 그 타이머를 전제로
+  // opacity 0 -> 1을 검증했다. 타이머 구현은 글자마다 페이지 전체를 리렌더링했고
+  // prefers-reduced-motion으로 끌 수도 없어 CSS로 옮겼다.
+  it("staggers the headline letters through the CSS delay cascade", async () => {
     render(<StrategyLabPage />);
 
     await act(async () => {
@@ -115,15 +118,16 @@ describe("StrategyLab auth entry", () => {
       "lg:pt-20"
     );
 
-    const firstAnimatedChar = headline.querySelector("span span");
-    expect(firstAnimatedChar).toHaveStyle({ opacity: "0" });
-
-    await act(async () => {
-      vi.advanceTimersByTime(38);
-      await Promise.resolve();
-    });
-
-    expect(firstAnimatedChar).toHaveStyle({ opacity: "1" });
+    const animatedChars = Array.from(headline.querySelectorAll("span span"));
+    expect(animatedChars).toHaveLength(
+      "투자 아이디어를 전략으로 만들고전략을 시뮬레이션 하세요".length
+    );
+    expect(animatedChars[0]).toHaveClass("chat-headline-char");
+    // 지연 순서는 --char-index가 줄 경계를 넘어 이어져야 한다.
+    expect(animatedChars[0].getAttribute("style")).toContain("--char-index: 0");
+    expect(animatedChars[animatedChars.length - 1].getAttribute("style")).toContain(
+      `--char-index: ${animatedChars.length - 1}`
+    );
   });
 
   it("opens a Google start modal when an anonymous user tries to generate a strategy", async () => {
