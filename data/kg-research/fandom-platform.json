@@ -1,0 +1,63 @@
+{
+  "concept": {
+    "id": "fandom-platform",
+    "canonical_name": "팬덤 플랫폼",
+    "canonical_name_en": "Fandom Platform",
+    "abbreviation": "",
+    "aliases": ["팬덤", "팬 플랫폼", "팬덤 비즈니스"],
+    "alias_note": "'버블'·'위버스'는 개별 상품명이라 시드 동의어 금지(가드 ③ — 약품명 원칙과 동일, 학습 경로가 담당)",
+    "definition": "아티스트와 팬의 소통(프라이빗 메시지·커뮤니티)·커머스를 구독 모델로 제공하는 플랫폼 산업. K-팝 팬덤의 지불 의사를 반복 매출로 전환한다.",
+    "investment_context": "구독 수와 입점 아티스트 IP 라인업이 실적 지표. 기획사 실적의 변동성(컴백 주기)을 구독 매출로 평탄화하는 모델이라 기획사와 별개의 밸류에이션을 받는다.",
+    "industry": ["미디어/엔터", "소프트웨어/플랫폼"],
+    "industry_note": "플랫폼 사업자(디어유)는 소프트웨어/플랫폼, 기획사 겸업(하이브)은 미디어/엔터 — 다업종이라 시드에 소속 엣지를 두지 않는다(데이터센터·온디바이스 AI 전례)",
+    "related_keywords": ["구독", "프라이빗 메시지", "아티스트 IP", "MD 커머스"],
+    "sources": [
+      {
+        "source_name": "IBK투자증권(네이버 리서치)",
+        "document_title": "디어유(376300) 기업분석",
+        "document_type": "research_report",
+        "url": "https://ssl.pstatic.net/imgstock/upload/research/company/1661988398906.pdf",
+        "evidence": "팬덤 플랫폼 구독 모델·실적 구조 분석",
+        "retrieved_at": "2026-07-25"
+      }
+    ]
+  },
+  "related_etfs": [],
+  "etf_note": "팬덤 플랫폼 전용 ETF 부재 — K-팝 광의 ETF는 kpop-agency에 연결(탄소배출권 전례로 미연결)",
+  "stocks": [
+    {
+      "company_name": "디어유",
+      "ticker": "376300",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 92,
+      "reason": "아티스트-팬 프라이빗 메시지 구독 플랫폼이 사업 전부인 팬덤 플랫폼 전문 기업. 구독 수 200만 돌파, 에스엠(에스엠스튜디오스 31.98%)·JYP(18.53%)가 1·2대 주주로 IP 공급이 구조화돼 있다.",
+      "business_evidence": "2022년 매출 516억원(+23%)·영업이익 186억원(+41%), 구독 200만. 미국 서비스 개시로 확장.",
+      "verified": true,
+      "sources": [
+        {"source_name": "IBK투자증권", "document_title": "디어유 기업분석", "document_type": "research_report", "url": "https://ssl.pstatic.net/imgstock/upload/research/company/1661988398906.pdf", "evidence": "구독 플랫폼 단일 사업·실적"},
+        {"source_name": "서울경제", "document_title": "디어유, SM·JYP 팬덤 플랫폼 강화", "document_type": "news", "url": "https://www.sedaily.com/article/13575333", "evidence": "에스엠·JYP 지분 구조(31.98%·18.53%)"}
+      ]
+    },
+    {
+      "company_name": "하이브",
+      "ticker": "352820",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 74,
+      "reason": "자회사 위버스컴퍼니의 팬덤 플랫폼을 운영하나 주력 사업은 아티스트 매니지먼트·음반이라 Strong.",
+      "business_evidence": "팬덤 플랫폼이 4대 기획사 매출 구성의 성장 축으로 분석됨(뉴스투데이 K팝 비즈니스 대전환).",
+      "verified": true,
+      "sources": [
+        {"source_name": "뉴스투데이", "document_title": "K팝 비즈니스 대전환 — 팬덤 자산", "document_type": "news", "url": "https://www.news2day.co.kr/article/20260616500067", "evidence": "팬덤 플랫폼이 기획사 매출 축으로 성장"}
+      ]
+    }
+  ],
+  "excluded_candidates": [],
+  "summary": {"core": 1, "strong": 1, "moderate": 0, "weak": 0, "unverified": 0,
+              "recommended_backtest_universe": ["376300", "352820"]}
+}

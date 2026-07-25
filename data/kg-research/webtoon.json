@@ -1,0 +1,87 @@
+{
+  "concept": {
+    "id": "webtoon",
+    "canonical_name": "웹툰",
+    "canonical_name_en": "Webtoon",
+    "abbreviation": "",
+    "aliases": ["웹소설", "웹툰 플랫폼", "웹툰 제작사", "웹툰 IP"],
+    "alias_note": "노드명 '웹툰'은 normalize_sector가 미디어/엔터로 해석하는 어휘라 스캔에서 자동 제외되지만 엣지 앵커로는 유효('양극재'·'음극재' 전례). 스캔은 동의어(웹소설 등)가 담당",
+    "definition": "디지털 연재 만화(웹툰)와 웹소설의 제작·출판·플랫폼 유통 산업. 원천 IP를 드라마·애니메이션·게임으로 확장하는 IP 밸류체인의 출발점이다.",
+    "investment_context": "플랫폼(국내외 유통)과 IP 보유(출판사·스튜디오)로 수익 모델이 나뉜다. 웹툰 원작의 영상화 성공 사례가 IP 가치 재평가의 트리거다.",
+    "industry": ["미디어/엔터"],
+    "related_keywords": ["웹소설", "원천 IP", "노블코믹스", "영상화", "플랫폼 유통"],
+    "sources": [
+      {
+        "source_name": "밸류파인더",
+        "document_title": "웹툰산업보고서 — 네이버웹툰 상장을 앞둔 지금",
+        "document_type": "research_report",
+        "url": "https://files-scs.pstatic.net/2024/01/03/mpZT5kjudA/웹툰산업_밸류파인더.pdf",
+        "evidence": "웹툰 산업 구조·국내 상장사 밸류체인 분석",
+        "retrieved_at": "2026-07-25"
+      }
+    ]
+  },
+  "related_etfs": [
+    {
+      "name": "KODEX 웹툰&드라마",
+      "ticker": "395150",
+      "country": "KR",
+      "issuer": "삼성자산운용",
+      "theme_reason": "웹툰·드라마 콘텐츠 테마(etf-master.json 정본 등재 확인)",
+      "as_of_date": "2026-07-25"
+    }
+  ],
+  "stocks": [
+    {
+      "company_name": "디앤씨미디어",
+      "ticker": "263720",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 90,
+      "reason": "웹툰·웹소설 출판이 주업인 IP 전문 기업. '나 혼자만 레벨업' IP 보유, 2024년 주요 만화·웹툰·웹소설 출판사 부문 1위.",
+      "business_evidence": "만화·웹툰·웹소설 출판 부문 1위, 매출 전년 대비 230% 성장(나혼렙 애니메이션 효과).",
+      "verified": true,
+      "sources": [
+        {"source_name": "위클리툰", "document_title": "웹툰·웹소설의 급격한 성장", "document_type": "news", "url": "https://www.weeklytoon.com/news/articleView.html?idxno=998", "evidence": "출판사 부문 1위·매출 230% 성장, 나혼렙 IP"}
+      ]
+    },
+    {
+      "company_name": "키다리스튜디오",
+      "ticker": "020120",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 88,
+      "reason": "웹툰·웹소설 사업부문이 사업 전부인 콘텐츠 전문 기업(봄툰·레진코믹스 플랫폼). 키다리이엔티 흡수합병으로 영상 제작 기능 내재화.",
+      "business_evidence": "사업부문=웹툰+웹소설. 2025년 1분기 매출 83.2%·영업이익 129.5% 증가 — 웹툰 국내외 판매 개선.",
+      "verified": true,
+      "sources": [
+        {"source_name": "THE VC", "document_title": "키다리스튜디오(봄툰) 기업정보", "document_type": "company_profile", "url": "https://thevc.kr/kidaristudio", "evidence": "웹툰·웹소설 사업부문 구성과 실적 개선"}
+      ]
+    },
+    {
+      "company_name": "와이랩",
+      "ticker": "432430",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 75,
+      "reason": "웹툰 기획·제작 스튜디오(네이버웹툰 공급). 웹툰·웹소설 제작이 주업이나 매출 규모가 작고 영상화 등 확장은 진행 단계라 Strong.",
+      "business_evidence": "웹툰·웹소설 다량 공급, 만화·애니메이션 종합 콘텐츠 사업.",
+      "verified": true,
+      "sources": [
+        {"source_name": "THE VC", "document_title": "와이랩 기업정보", "document_type": "company_profile", "url": "https://thevc.kr/ylab", "evidence": "웹툰 제작 스튜디오 사업 구조"}
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {"company_name": "미스터블루", "reason": "웹툰 플랫폼+게임 겸업 — 웹툰 매출 비중 미확인, Moderate(원장만)"},
+    {"company_name": "네이버", "reason": "네이버웹툰(웹툰엔터테인먼트)은 미국 상장 별도 법인 — 네이버 본체는 웹툰 비중 작아 제외"}
+  ],
+  "summary": {"core": 2, "strong": 1, "moderate": 1, "weak": 0, "unverified": 0,
+              "recommended_backtest_universe": ["263720", "020120", "432430"]}
+}

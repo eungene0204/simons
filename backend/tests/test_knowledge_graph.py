@@ -93,6 +93,52 @@ def test_learned_lexicon_overlay(tmp_path, monkeypatch):
     monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
 
 
+def test_theme_catalog_overlay(tmp_path, monkeypatch):
+    """카탈로그 레이어(주달 테마→종목, 2026-07-25) — 최하위 순위 합성 계약.
+
+    시드·학습이 스캔에서 우선하고, 정본에 없는 심볼은 issues 없이 조용히 스킵되며,
+    소속 엣지가 없어 섹터 해석에 관여하지 않는다(테마→종목 조회 전용)."""
+    catalog = tmp_path / "kg-theme-catalog.json"
+    catalog.write_text(json.dumps({
+        "version": 1, "source": "judal.co.kr", "retrieved_at": "2026-07-25",
+        "themes": [
+            {"id": "judal-1", "name": "가상테마", "synonyms": ["가상 테마"],
+             "stocks": [{"symbol": "005930", "name": "삼성전자"},
+                        {"symbol": "999999", "name": "없는종목"}]},
+            {"id": "judal-2", "name": "HBM", "synonyms": [],
+             "stocks": [{"symbol": "000660", "name": "SK하이닉스"}]},
+        ],
+    }, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(kg, "_CATALOG_PATH", catalog)
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+    graph = get_graph()
+    node = graph.nodes.get("theme:judal-1")
+    assert node is not None and node["category"] == "theme_catalog"
+    # 정본 심볼만 엣지로 — 없는 심볼은 issues 없이 드롭
+    symbols = {c["symbol"] for c in graph.listed_companies("theme:judal-1")}
+    assert symbols == {"005930"}
+    assert not any("999999" in issue for issue in graph.issues)
+    # 시드와 같은 이름(HBM)은 시드가 스캔에서 이긴다(카탈로그 최하위)
+    assert any(n["id"] == "hbm" for n in graph.find_concepts("HBM 관련주"))
+    assert not any(n["id"] == "theme:judal-2" for n in graph.find_concepts("HBM 관련주"))
+    # 소속 엣지가 없어 섹터 해석에 관여하지 않는다
+    assert graph.resolve_sector("theme:judal-1") is None
+
+    monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
+
+
+def test_theme_catalog_real_file_composed():
+    """실제 카탈로그 파일이 그래프에 합성되고 테마→종목 조회가 동작한다."""
+    from engine.knowledge_graph import theme_listed_companies
+
+    graph = get_graph()
+    catalog_nodes = [n for n in graph.nodes.values() if n.get("category") == "theme_catalog"]
+    assert len(catalog_nodes) > 100  # 2026-07-25 수집분 209개
+    result = theme_listed_companies("초전도체 관련주")
+    assert result is not None and len(result["companies"]) >= 5
+
+
 def test_graph_step_short_circuits_llm_and_search(tmp_path):
     """term_grounding 체인 ①b — 시드 개념은 LLM·검색 없이 그래프가 해석한다."""
     from engine.term_grounding import resolve_sector

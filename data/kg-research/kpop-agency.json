@@ -1,0 +1,137 @@
+{
+  "concept": {
+    "id": "kpop-agency",
+    "canonical_name": "K-팝 기획사",
+    "canonical_name_en": "K-Pop Agency",
+    "abbreviation": "",
+    "aliases": ["K팝", "K-팝", "케이팝", "연예기획사", "아이돌 기획사", "아이돌"],
+    "alias_note": "'엔터'·'엔터테인먼트'는 normalize_sector가 미디어/엔터로 해석하는 어휘라 동의어 제외(가드 ②). '드라마' 단독은 '드라마틱' 부분 문자열 오폭 위험으로 미사용",
+    "definition": "아티스트 발굴·육성·매니지먼트와 음반·음원 기획제작을 주업으로 하는 연예기획사. 매출은 음반·음원, 콘서트 공연, MD(굿즈), 팬덤 플랫폼, 출연료·초상권 등으로 구성된다.",
+    "investment_context": "음반 판매량·콘서트 규모·팬덤 플랫폼 구독이 실적 지표. 공연·IP 비즈니스·글로벌 현지화가 성장 축으로 이동 중이며, 4대 기획사가 공연 합작법인(패노미논) 기업결합을 신고하는 등 산업 구조가 변하고 있다.",
+    "industry": ["미디어/엔터"],
+    "related_keywords": ["음반", "콘서트", "MD", "팬덤 플랫폼", "아티스트 IP"],
+    "sources": [
+      {
+        "source_name": "뉴스투데이",
+        "document_title": "[K팝 비즈니스 대전환] 콘서트 매진 비밀…하이브·SM·JYP·YG, 엔터株 가르는 '팬덤 자산'",
+        "document_type": "news",
+        "url": "https://www.news2day.co.kr/article/20260616500067",
+        "evidence": "4대 기획사의 매출 구조(음반→공연·팬덤 플랫폼·IP)와 산업 동향",
+        "retrieved_at": "2026-07-25"
+      },
+      {
+        "source_name": "공정거래위원회",
+        "document_title": "하이브·SM·JYP·YG 공연 합작법인 기업결합 신고",
+        "document_type": "disclosure",
+        "url": "https://case.ftc.go.kr/com/dscv/dscvHtmlView.do?docId=20240704133023059084",
+        "evidence": "4대 기획사 공연 합작법인 기업결합 공식 절차",
+        "retrieved_at": "2026-07-25"
+      }
+    ]
+  },
+  "related_etfs": [
+    {
+      "name": "ACE KPOP포커스",
+      "ticker": "475050",
+      "country": "KR",
+      "issuer": "한국투자신탁운용",
+      "theme_reason": "K-팝 기획사 집중 테마(etf-master.json 정본 등재 확인)",
+      "as_of_date": "2026-07-25"
+    },
+    {
+      "name": "HANARO Fn K-POP&미디어",
+      "ticker": "395290",
+      "country": "KR",
+      "issuer": "NH-Amundi자산운용",
+      "theme_reason": "K-POP·미디어 테마(etf-master.json 정본 등재 확인)",
+      "as_of_date": "2026-07-25"
+    }
+  ],
+  "stocks": [
+    {
+      "company_name": "하이브",
+      "ticker": "352820",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 95,
+      "reason": "BTS 등 대형 IP를 보유한 국내 최대 K-팝 기획사. 아티스트 매니지먼트·음반이 주업이며 팬덤 플랫폼(위버스)·게임 등으로 확장. 소비자 선호도 1위(44.0%).",
+      "business_evidence": "멀티 레이블 체제로 음반·공연·MD·플랫폼 매출 구성. 4대 기획사 공연 합작법인 참여.",
+      "verified": true,
+      "sources": [
+        {"source_name": "뉴스투데이", "document_title": "K팝 비즈니스 대전환", "document_type": "news", "url": "https://www.news2day.co.kr/article/20260616500067", "evidence": "4대 기획사 팬덤 자산·매출 구조 분석"},
+        {"source_name": "아시아경제", "document_title": "K팝, 해외로 뛴 만큼 더 벌었다…4대 기획사 3분기 성적표", "document_type": "news", "url": "https://view.asiae.co.kr/article/2025111921405391717", "evidence": "4대 기획사 분기 실적 — 해외 매출 성장"}
+      ]
+    },
+    {
+      "company_name": "에스엠",
+      "ticker": "041510",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 92,
+      "reason": "EXO·NCT·에스파 등 IP를 보유한 K-팝 기획사. 아티스트 기획·음반·공연이 주업이며 자회사(에스엠스튜디오스)를 통해 팬덤 플랫폼 디어유 최대주주.",
+      "business_evidence": "소비자 선호도 2위(35.5%). 디어유 지분 31.98%(에스엠스튜디오스 경유).",
+      "verified": true,
+      "sources": [
+        {"source_name": "아시아경제", "document_title": "4대 기획사 3분기 성적표", "document_type": "news", "url": "https://view.asiae.co.kr/article/2025111921405391717", "evidence": "4대 기획사 실적"},
+        {"source_name": "서울경제", "document_title": "디어유, SM·JYP 팬덤 플랫폼 '버블' 강화", "document_type": "news", "url": "https://www.sedaily.com/article/13575333", "evidence": "에스엠 계열의 디어유 지배 구조"}
+      ]
+    },
+    {
+      "company_name": "JYP Ent.",
+      "ticker": "035900",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 92,
+      "reason": "TWICE·스트레이키즈 등 IP를 보유한 K-팝 기획사. 음반·공연·매니지먼트가 사업 전부이며 디어유 2대 주주(18.53%).",
+      "business_evidence": "소비자 선호도 3위(32.5%). IR 자료 공시(jype.com). 공연 합작법인 참여.",
+      "verified": true,
+      "sources": [
+        {"source_name": "JYP Entertainment", "document_title": "JYP IR 자료", "document_type": "corporate_website", "url": "https://www.jype.com/ko/Board/Detail?jbst_sq=2&gubun=irdata", "evidence": "공식 IR — 음반·공연 중심 사업 구조"},
+        {"source_name": "서울경제", "document_title": "디어유, SM·JYP 팬덤 플랫폼 '버블' 강화", "document_type": "news", "url": "https://www.sedaily.com/article/13575333", "evidence": "JYP의 디어유 2대 주주 지위"}
+      ]
+    },
+    {
+      "company_name": "와이지엔터테인먼트",
+      "ticker": "122870",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 88,
+      "reason": "블랙핑크 등 IP를 보유한 K-팝 기획사. 음반·공연·매니지먼트 주업, 광고·음원유통은 자회사 YG PLUS가 담당.",
+      "business_evidence": "소비자 선호도 4위(20.9%). 4대 기획사 공연 합작법인 참여.",
+      "verified": true,
+      "sources": [
+        {"source_name": "아시아경제", "document_title": "4대 기획사 3분기 성적표", "document_type": "news", "url": "https://view.asiae.co.kr/article/2025111921405391717", "evidence": "4대 기획사 실적"},
+        {"source_name": "KMJ", "document_title": "하이브·SM·JYP·YG 'K팝 슈퍼 페스티벌' 합작", "document_type": "news", "url": "https://www.kmjournal.net/news/articleView.html?idxno=10485", "evidence": "공연 합작법인 패노미논 참여"}
+      ]
+    },
+    {
+      "company_name": "큐브엔터",
+      "ticker": "182360",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 85,
+      "reason": "(여자)아이들·비투비 IP를 보유한 K-팝 기획사. 등록 업종 자체가 오디오물출판및원판녹음업으로 아티스트 매니지먼트·음반이 사업 전부다. 매출 872억원(2025 연결기준, 4대 기획사 대비 규모는 작음)이나 사업 성격은 동일 본업이라 Core로 분류한다(2026-07-25 누락 연결 감사에서 재조사 후 Moderate→Core 승격).",
+      "business_evidence": "매출 872억원(2025 연결), 영업손실 73억원 — (여자)아이들이 사실상 유일한 흑자 아티스트라는 언론 보도(경영 위험은 관련성 평가와 별개).",
+      "verified": true,
+      "sources": [
+        {"source_name": "비즈니스포스트", "document_title": "강승곤 큐브엔터테인먼트 지갑 열어 100억 승부수", "document_type": "news", "url": "https://www.businesspost.co.kr/BP?command=article_view&num=440099", "evidence": "매출 872억원·영업손실 73억원(2025 연결), 아티스트 편중 현황"}
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {"company_name": "YG PLUS", "reason": "음원 유통·광고가 주업(기획사 아님) — 카탈로그 '음원/음반' 테마가 커버"}
+  ],
+  "summary": {"core": 5, "strong": 0, "moderate": 0, "weak": 0, "unverified": 0,
+              "recommended_backtest_universe": ["352820", "041510", "035900", "122870", "182360"]},
+  "audit_updated_at": "2026-07-25"
+}

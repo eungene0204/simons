@@ -1,0 +1,97 @@
+{
+  "concept": {
+    "id": "drama-production",
+    "canonical_name": "드라마 제작사",
+    "canonical_name_en": "Drama Production",
+    "abbreviation": "",
+    "aliases": ["드라마 제작", "K드라마", "K-드라마"],
+    "alias_note": "'드라마' 단독은 '드라마틱' 등 부분 문자열 오폭 위험(스캔이 substring 매칭)이라 동의어 제외",
+    "definition": "방송사·OTT에 공급할 드라마를 기획·제작하고 IP(저작권)를 확보·판매하는 산업. 방송사 납품과 글로벌 스트리밍 플랫폼 오리지널·라이선스 판매가 주요 수익원이다.",
+    "investment_context": "글로벌 OTT의 K-드라마 수요와 IP 확보 여부(자체 IP vs 외주 제작)가 수익성을 좌우한다. 웹툰·웹소설 원작의 드라마화가 주요 IP 파이프라인이다.",
+    "industry": ["미디어/엔터"],
+    "related_keywords": ["OTT 오리지널", "IP 판매", "리쿱율", "웹툰 원작", "텐트폴"],
+    "sources": [
+      {
+        "source_name": "한국콘텐츠진흥원",
+        "document_title": "스튜디오 드래곤 — 방송 트렌드&인사이트",
+        "document_type": "public_report",
+        "url": "https://www.kocca.kr/trend/vol14/sub/s41.html",
+        "evidence": "드라마 제작 산업 구조(제작사 IP 확보 모델) 공공기관 분석",
+        "retrieved_at": "2026-07-25"
+      }
+    ]
+  },
+  "related_etfs": [
+    {
+      "name": "KODEX 웹툰&드라마",
+      "ticker": "395150",
+      "country": "KR",
+      "issuer": "삼성자산운용",
+      "theme_reason": "웹툰·드라마 콘텐츠 테마(etf-master.json 정본 등재 확인)",
+      "as_of_date": "2026-07-25"
+    },
+    {
+      "name": "TIGER 미디어컨텐츠",
+      "ticker": "228810",
+      "country": "KR",
+      "issuer": "미래에셋자산운용",
+      "theme_reason": "미디어·콘텐츠 광의 테마(etf-master.json 정본 등재 확인)",
+      "as_of_date": "2026-07-25"
+    }
+  ],
+  "stocks": [
+    {
+      "company_name": "스튜디오드래곤",
+      "ticker": "253450",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 95,
+      "reason": "국내 최대 드라마 제작 전업 기업(CJ ENM 계열). 드라마 기획·제작과 IP 확보·판매가 사업 전부다. 방송사 의존 없이 콘텐츠 자체로 사업을 확장하는 프로덕션 모델의 대표 사례.",
+      "business_evidence": "국내 최대 드라마 제작사 — 저작권(IP) 확보형 프로덕션 사업 구조(콘텐츠진흥원 분석). 넷플릭스 등 글로벌 OTT 공급.",
+      "verified": true,
+      "sources": [
+        {"source_name": "한국콘텐츠진흥원", "document_title": "스튜디오 드래곤", "document_type": "public_report", "url": "https://www.kocca.kr/trend/vol14/sub/s41.html", "evidence": "IP 확보형 드라마 프로덕션 모델 분석"},
+        {"source_name": "더벨", "document_title": "스튜디오드래곤 '한국판 할리우드' 등극할까", "document_type": "news", "url": "https://www.thebell.co.kr/free/content/ArticleView.asp?key=202012291400077360107576", "evidence": "드라마 제작 전업·규모 국내 최대"}
+      ]
+    },
+    {
+      "company_name": "에이스토리",
+      "ticker": "241840",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 87,
+      "reason": "IP 기반 드라마 제작 전업 기업('킹덤'·'이상한 변호사 우영우' 등). 방송·스트리밍 콘텐츠 판매와 라이선스가 주요 수익원.",
+      "business_evidence": "콘텐츠 판매·라이선스 계약 중심 수익 구조, 자체 IP 글로벌 판매('우영우' IP 보유). 스튜디오드래곤과 '지리산' 공동 제작.",
+      "verified": true,
+      "sources": [
+        {"source_name": "THE VC", "document_title": "에이스토리 기업정보", "document_type": "company_profile", "url": "https://thevc.kr/astory", "evidence": "영화/드라마 제작 전업 — IP 기반 수익 구조"}
+      ]
+    },
+    {
+      "company_name": "팬엔터테인먼트",
+      "ticker": "068050",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 78,
+      "reason": "'겨울연가' 이래 드라마 제작을 주업으로 하는 제작사. 제작 편수·매출 규모가 상위 2개사 대비 작고 최근 제작 확대는 기대 단계라 Strong.",
+      "business_evidence": "드라마 제작 확대 기대 반영(검색 근거). 드라마 제작이 주력 사업부문.",
+      "verified": true,
+      "sources": [
+        {"source_name": "THE VC", "document_title": "스튜디오드래곤·제작사 비교 검색", "document_type": "company_profile", "url": "https://thevc.kr/studiodragon", "evidence": "드라마 제작사 산업 내 위치"}
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {"company_name": "콘텐트리중앙", "reason": "드라마(SLL)+영화관(메가박스) 복합 지주 구조 — 드라마 매출 비중 미확인, Moderate(원장만)"},
+    {"company_name": "삼화네트웍스", "reason": "드라마 제작사이나 근거 미수집 — Moderate(원장만), 재조사 후보"},
+    {"company_name": "위지윅스튜디오", "reason": "VFX·콘텐츠 제작 복합 — 드라마 전업 아님, 제외"}
+  ],
+  "summary": {"core": 2, "strong": 1, "moderate": 2, "weak": 0, "unverified": 0,
+              "recommended_backtest_universe": ["253450", "241840", "068050"]}
+}

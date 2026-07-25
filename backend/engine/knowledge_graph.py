@@ -35,6 +35,7 @@ logger = logging.getLogger("knowledge_graph")
 _BASE_DIR = Path(__file__).resolve().parent.parent.parent  # 레포 루트(data/의 부모)
 _SEED_PATH = _BASE_DIR / "data" / "knowledge-graph.json"
 _LEXICON_PATH = _BASE_DIR / "data" / "term_lexicon.json"
+_CATALOG_PATH = _BASE_DIR / "data" / "kg-theme-catalog.json"
 _STOCKS_PATH = _BASE_DIR / "data" / "korea-stocks.json"
 _ETF_PATH = _BASE_DIR / "data" / "etf-master.json"
 
@@ -91,7 +92,8 @@ class KnowledgeGraph:
         (sector:/company:/etf:)는 각자 기존 경로(섹터 정규화·종목 인식)가 담당하므로
         스캔 대상이 아니다. 학습 노드(learned:)는 포함한다 — 읽기 경로 통합(2026-07-25):
         어휘집 별도 스캔 없이 그래프가 시드·학습 용어를 단일 경로로 인식한다. 같은
-        용어가 시드와 학습에 모두 있으면 시드가 이긴다(삽입 순서 — 큐레이션 우선)."""
+        용어가 시드와 학습에 모두 있으면 시드가 이긴다(삽입 순서 — 큐레이션 우선).
+        카탈로그 노드(theme:)는 최하위 — 시드·학습 다음에 삽입돼 겹치면 진다."""
         from engine.universe_pit import normalize_sector  # 지연 import(무거운 엔진 모듈)
 
         index: list[tuple[str, str]] = []
@@ -223,7 +225,7 @@ def _mtimes() -> tuple:
             return os.path.getmtime(p)
         except OSError:
             return 0.0
-    return (mt(_SEED_PATH), mt(_LEXICON_PATH))
+    return (mt(_SEED_PATH), mt(_LEXICON_PATH), mt(_CATALOG_PATH))
 
 
 def _stock_names() -> dict[str, str]:
@@ -278,6 +280,23 @@ def _build() -> KnowledgeGraph:
             "description": entry.get("definition"),
             # 테마 유니버스의 시점 편향 폴백(뉴스 보도일 없는 엣지뿐일 때) — FR-STR-071
             "searched_at": entry.get("searched_at"),
+        }
+
+    # 카탈로그 오버레이 — 외부 테마 분류(주달, 사용자 지정 신뢰 소스 2026-07-25)를
+    # 최하위 순위로 편입한다. 스캔 인덱스는 삽입 순서로 시드·학습이 우선하고(taken),
+    # 소속 엣지가 없어 섹터 해석에는 관여하지 않는다 — 테마→종목 조회 전용.
+    # 수집·가드는 scripts/ingest_judal_themes.py(시드 중복·섹터 어휘·테스트 용어 제외).
+    catalog = _load_json(_CATALOG_PATH, {})
+    for theme in catalog.get("themes", []):
+        if not isinstance(theme, dict) or not theme.get("id"):
+            continue
+        node_id = f"theme:{theme['id']}"
+        if node_id in nodes:
+            continue
+        nodes[node_id] = {
+            "id": node_id, "name": theme.get("name", theme["id"]),
+            "category": "theme_catalog", "synonyms": list(theme.get("synonyms", [])),
+            "source": catalog.get("source"), "retrieved_at": catalog.get("retrieved_at"),
         }
 
     stock_names = _stock_names()
@@ -354,6 +373,19 @@ def _build() -> KnowledgeGraph:
                 if e.get(extra) is not None:
                     edge[extra] = e[extra]
             edges.append(edge)
+
+    # 카탈로그 엣지 — 정본에 없는 심볼은 조용히 스킵(카탈로그는 학습 데이터처럼
+    # 무결성 단언 대상이 아니다 — 수집 시점 이후 마스터에서 빠진 종목 등).
+    for theme in catalog.get("themes", []):
+        node_id = f"theme:{theme.get('id')}"
+        if node_id not in nodes:
+            continue
+        for stock in theme.get("stocks", []):
+            symbol = stock.get("symbol") if isinstance(stock, dict) else None
+            target = f"company:{symbol}"
+            if not symbol or (target not in nodes and not resolve_endpoint(target, report=False)):
+                continue
+            edges.append({"source": node_id, "type": "related_company", "target": target})
 
     for issue in issues:
         logger.warning("지식그래프 검증: %s", issue)
