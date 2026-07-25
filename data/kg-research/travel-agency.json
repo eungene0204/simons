@@ -1,0 +1,71 @@
+{
+  "concept": {
+    "id": "travel-agency",
+    "canonical_name": "여행사",
+    "canonical_name_en": "Travel Agency",
+    "abbreviation": "",
+    "aliases": ["해외여행", "패키지여행"],
+    "alias_note": "'여행' 단독은 일반명사라 임의 문장 오폭 위험이 커 동의어 제외 — 카탈로그 '여행' 테마(9종목)가 해당 문구를 담당",
+    "definition": "패키지·항공권 등 여행 상품을 기획·판매하는 산업.",
+    "investment_context": "해외여행 수요(출국자 수)·환율·유가가 실적 변수이며, 국내는 상위 2사 과점 구도다.",
+    "industry": ["미디어/엔터"],
+    "related_keywords": ["패키지", "출국자 수", "인바운드"],
+    "sources": []
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "하나투어",
+      "ticker": "039130",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 90,
+      "reason": "국내 1위 여행사로 패키지·항공권 판매가 사업 전부다(정본 업종=여행사 및 기타 여행보조 서비스업). 2026년 1분기 연결 매출 1,748억원(전년 대비 4%↑)·영업이익 168억원(36%↑).",
+      "business_evidence": "2026 1분기 매출 1,748억원·영업이익 168억원, 국내 여행사 1위.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "머니투데이",
+          "document_title": "하나투어 웃고 모두투어 주춤…여행사 투톱, 2분기가 '진짜 위기'",
+          "document_type": "news",
+          "url": "https://www.mt.co.kr/culture/2026/05/10/2026051011153058188",
+          "evidence": "2026 1분기 실적 비교(하나투어·모두투어)"
+        }
+      ]
+    },
+    {
+      "company_name": "모두투어",
+      "ticker": "080160",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 85,
+      "reason": "국내 2위 여행사 전업(정본 업종=여행사 및 기타 여행보조 서비스업). 2026년 1분기 매출 613억원 — 일회성 비용으로 수익성은 둔화됐으나 사업 관련성은 명확.",
+      "business_evidence": "2026 1분기 매출 613억원, 국내 여행사 2위.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "머니투데이",
+          "document_title": "하나투어 웃고 모두투어 주춤…여행사 투톱, 2분기가 '진짜 위기'",
+          "document_type": "news",
+          "url": "https://www.mt.co.kr/culture/2026/05/10/2026051011153058188",
+          "evidence": "2026 1분기 실적"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [],
+  "summary": {
+    "core_stock_count": 2,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 0,
+    "recommended_backtest_universe": ["039130", "080160"]
+  },
+  "researched_at": "2026-07-25",
+  "audit_note": "Part B 배치 10(2026-07-25, 잔여 작업 마무리). judal 카탈로그의 '여행' 테마(9종목)에 대응하는 개념 노드가 없던 공백을 메운다 — 노드명은 오폭이 없는 '여행사'를 채택."
+}

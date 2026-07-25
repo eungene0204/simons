@@ -1,0 +1,49 @@
+{
+  "concept": {
+    "id": "carbon-fiber",
+    "canonical_name": "탄소섬유",
+    "canonical_name_en": "Carbon Fiber",
+    "abbreviation": "",
+    "aliases": [],
+    "definition": "강철보다 가볍고 강한 고강도 섬유 소재. 수소차 연료탱크·항공우주·풍력 블레이드 등에 쓰인다.",
+    "investment_context": "국내 상장사 중 탄소섬유를 생산하는 곳은 1곳뿐이며, 수소차 연료탱크 소재 수요가 성장 변수다.",
+    "industry": ["화학"],
+    "related_keywords": ["수소탱크", "고강도 소재", "경량화"],
+    "sources": []
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "HS효성첨단소재",
+      "ticker": "298050",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 70,
+      "reason": "국내 유일 탄소섬유 생산 기업으로 탄소섬유가 수소차 연료탱크의 핵심 소재다. 다만 회사 주력은 타이어코드(세계 1위)라 탄소섬유의 매출 비중이 불확정 — Strong으로 분류한다.",
+      "business_evidence": "국내 유일 탄소섬유 생산(수소차 연료탱크 핵심 소재), 주력은 타이어코드.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "주식스토커",
+          "document_title": "수소 관련주 TOP 15",
+          "document_type": "news",
+          "url": "https://stockstalker.co.kr/hydrogen/",
+          "evidence": "효성첨단소재 국내 유일 탄소섬유 기업, 수소차 연료탱크 소재"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [],
+  "summary": {
+    "core_stock_count": 0,
+    "strong_stock_count": 1,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 0,
+    "recommended_backtest_universe": ["298050"]
+  },
+  "researched_at": "2026-07-25",
+  "audit_note": "Part B 배치 10(2026-07-25, 잔여 작업 마무리). judal 카탈로그의 '탄소섬유' 테마(7종목)에 대응하는 개념 노드가 없던 공백을 메운다. used_in→hydrogen-car로 배치 8의 수소차 개념과 연결(연료탱크 소재). 배치 4 수소차 보류 조사에서 확보한 근거의 재활용 — 당시 수소차 관점에서는 비중 미달이었지만 탄소섬유 개념 자체로는 '국내 유일 생산' 지위가 명확."
+}

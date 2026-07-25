@@ -1,0 +1,70 @@
+{
+  "concept": {
+    "id": "mlcc",
+    "canonical_name": "MLCC",
+    "canonical_name_en": "Multi-Layer Ceramic Capacitor",
+    "abbreviation": "MLCC",
+    "aliases": ["적층세라믹콘덴서", "적층세라믹커패시터"],
+    "definition": "전자회로에서 전류를 안정시키는 초소형 수동부품(적층 세라믹 캐패시터). 스마트폰·서버·전장 등 거의 모든 전자기기에 들어간다.",
+    "investment_context": "AI 서버·전장(자동차 전자화)향 고부가 MLCC 수요가 성장 동력이다.",
+    "industry": ["디스플레이/부품"],
+    "related_keywords": ["수동부품", "전장 MLCC", "AI 서버", "가동률"],
+    "sources": []
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "삼성전기",
+      "ticker": "009150",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 88,
+      "reason": "MLCC가 포함된 컴포넌트 부문이 2026년 1분기 매출 1조4,085억원으로 전체 매출(3조2,091억원)의 43.9%를 차지하는 최대 사업부다. AI 서버·전장향 수요로 연간 MLCC 가동률 90% 상회가 전망된다.",
+      "business_evidence": "컴포넌트 부문 2026 1분기 매출 1조4,085억원(전체의 43.9%), MLCC 가동률 90%+ 전망.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "디일렉",
+          "document_title": "삼성전기 2026년 1분기 실적발표 컨퍼런스콜 전문",
+          "document_type": "news",
+          "url": "https://www.thelec.kr/news/articleView.html?idxno=55928",
+          "evidence": "컴포넌트 부문 분기 매출·비중"
+        }
+      ]
+    },
+    {
+      "company_name": "삼화콘덴서공업",
+      "ticker": "001820",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 85,
+      "reason": "콘덴서 전문 제조사로 MLCC가 매출 비중 52%(2026년 1분기 387억원, 전년 대비 24.2%↑)인 최대 제품군이다. 1분기 흑자 전환에 성공했고 AI·전장 수요 확대가 성장 동력이다.",
+      "business_evidence": "MLCC 매출 비중 52%(2026 1분기 387억원·24.2%↑), 1분기 흑자 전환.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "금융소비자뉴스",
+          "document_title": "삼화콘덴서, 1분기 흑자 전환....MLCC 매출 비중 52%",
+          "document_type": "news",
+          "url": "https://www.newsfc.co.kr/news/articleView.html?idxno=78768",
+          "evidence": "MLCC 매출 비중 52%·흑자 전환"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [],
+  "summary": {
+    "core_stock_count": 2,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 0,
+    "recommended_backtest_universe": ["009150", "001820"]
+  },
+  "researched_at": "2026-07-25",
+  "audit_note": "Part B 배치 8(2026-07-25). judal 카탈로그의 'MLCC' 테마(8종목)에 대응하는 개념 노드가 아예 없던 공백을 메운다."
+}

@@ -1,0 +1,61 @@
+{
+  "concept": {
+    "id": "superconductor",
+    "canonical_name": "초전도체",
+    "canonical_name_en": "Superconductor",
+    "abbreviation": "",
+    "aliases": ["초전도", "초전도 선재"],
+    "definition": "특정 조건(극저온 등)에서 전기저항이 0이 되는 소재. 전력케이블·한류기·핵융합로·의료기기(MRI)용 선재가 응용처다.",
+    "investment_context": "국내 상장사 중 초전도 선재가 사업 전부인 회사는 1곳뿐이며, 수주 기반 사업 특성상 매출 변동이 크고 규모가 아직 작다. 테마 급등락(2023 LK-99 등) 이력이 있어 사업 실체와 주가 테마를 구분해야 한다.",
+    "industry": ["IT 하드웨어"],
+    "related_keywords": ["고온초전도", "선재", "핵융합", "한류기"],
+    "sources": []
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "서남",
+      "ticker": "294630",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 85,
+      "reason": "독자 개발한 RCE-DR 공정으로 고온초전도 선재(전력케이블·한류기·핵융합로용)를 제조·판매하는 것이 사업 전부다(2020-02 코스닥 상장). 다만 매출 규모가 극히 작고(2024년 14억원·영업손실 45억원, 2026 1분기 매출 37.8% 감소) 수주 시기에 따라 변동이 크다 — 사업 관련성(Core)과 실적은 별개 사안(뉴트리 전례).",
+      "business_evidence": "고온초전도 선재 전업(사업보고서), 무절연 초전도 자석 시스템 개발·납품. 2024년 매출 14억원·영업손실 45억원(실적 미미).",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "KRX KIND",
+          "document_title": "서남 사업보고서(2026-03)",
+          "document_type": "disclosure",
+          "url": "https://kind.krx.co.kr/common/disclsviewer.do?method=search&acptno=20260318001510&rcpno=20260318001099&orgid=F&tran=Y&langTpCd=0",
+          "evidence": "고온초전도 선재 제조·판매가 주업임을 공시"
+        },
+        {
+          "source_name": "FnGuide Company Guide",
+          "document_title": "서남(A294630) Snapshot",
+          "document_type": "research_report",
+          "url": "https://comp.fnguide.com/SVO2/ASP/SVD_Main.asp?gicode=A294630",
+          "evidence": "재무 현황(매출 14억원·영업손실)"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "company_name": "신성델타테크 등 LK-99 테마주",
+      "reason": "2023년 상온 초전도체(LK-99) 주장 관련 지분 투자 테마로 급등한 종목들 — 초전도체 직접 사업(생산·매출) 근거 없음, 프롬프트 §7 '기사 테마주 언급만' 확정 금지 원칙."
+    }
+  ],
+  "summary": {
+    "core_stock_count": 1,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 0,
+    "recommended_backtest_universe": ["294630"]
+  },
+  "researched_at": "2026-07-25",
+  "audit_note": "Part B 배치 9(2026-07-25). judal 카탈로그의 '초전도체' 테마(15종목 — 대부분 LK-99 테마주)에 대응하는 개념 노드가 없던 공백을, 실제 사업 실체가 있는 1개사만으로 메운다. related_to cable(초전도 선재의 응용처)."
+}

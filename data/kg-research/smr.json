@@ -1,0 +1,49 @@
+{
+  "concept": {
+    "id": "smr",
+    "canonical_name": "SMR",
+    "canonical_name_en": "Small Modular Reactor",
+    "abbreviation": "SMR",
+    "aliases": ["소형모듈원자로", "소형 모듈 원자로", "소형원자로"],
+    "definition": "공장에서 모듈 형태로 제작해 현장 조립하는 소형 원자로. 데이터센터 전력 수요 확대로 주목받는다.",
+    "investment_context": "국내에서는 글로벌 SMR 개발사(뉴스케일·테라파워)의 기자재 제작 파트너가 핵심 수혜 기업이다.",
+    "industry": ["에너지/원자력"],
+    "related_keywords": ["뉴스케일", "테라파워", "원전 기자재", "주기기"],
+    "sources": []
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "두산에너빌리티",
+      "ticker": "034020",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 88,
+      "reason": "뉴스케일파워에 1억400만 달러(약 1,300억원) 지분 투자로 SMR 제작 파트너 지위를 확보했고, 테라파워·뉴스케일 등 글로벌 선도기업의 핵심 기자재를 잇달아 수주해 SMR 생산기지로 자리잡았다. SMR 전용 공장 신설을 발표했고 2026년 SMR 매출 2,000억~3,000억원을 시작으로 2030년 3조3,000억원 성장이 전망된다.",
+      "business_evidence": "뉴스케일 지분 투자(1억400만 달러), 테라파워·뉴스케일 기자재 수주, SMR 전용 공장 신설 발표, 뉴스케일 전용 원자로 주조 설비 가동.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "뉴데일리경제",
+          "document_title": "돌아온 원전 생태계 … 두산에너빌리티, SMR 생산 주도권 커진다",
+          "document_type": "news",
+          "url": "https://biz.newdaily.co.kr/site/data/html/2026/04/06/2026040600097.html",
+          "evidence": "테라파워·뉴스케일 기자재 수주, SMR 생산기지 지위"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [],
+  "summary": {
+    "core_stock_count": 1,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 0,
+    "recommended_backtest_universe": ["034020"]
+  },
+  "researched_at": "2026-07-25",
+  "audit_note": "누락 연결 감사 Part A 최종 배치(2026-07-25, 잔여 작업 마무리). SMR은 2026-07-24 최초 시드 개념이었으나 기업 엣지가 0이었다 — 기업 연결 0인 시드 개념 19개 전수 스캔에서 매크로·원자재·추상 개념과 문서화된 보류(액침냉각·양자컴퓨터)를 제외한 유일한 실제 공백으로 확인돼 보완. 두산에너빌리티는 nuclear(원전 주기기)에는 연결돼 있었지만 SMR에는 빠져 있었다."
+}

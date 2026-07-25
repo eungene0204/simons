@@ -1,0 +1,56 @@
+{
+  "concept": {
+    "id": "hydrogen-car",
+    "canonical_name": "수소차",
+    "canonical_name_en": "Hydrogen Fuel Cell Vehicle",
+    "abbreviation": "FCEV",
+    "aliases": ["수소전기차", "수소자동차", "FCEV"],
+    "definition": "수소연료전지로 전기를 생산해 구동하는 자동차.",
+    "investment_context": "국내 수소차 시장은 사실상 단일 완성차 업체(넥쏘)가 이끈다. 연료전지 스택·수소탱크 등 부품은 별개 개념(수소연료전지)이 담당한다.",
+    "industry": ["자동차"],
+    "related_keywords": ["넥쏘", "FCEV", "수소연료전지", "수소충전소"],
+    "sources": []
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "현대자동차",
+      "ticker": "005380",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 92,
+      "reason": "넥쏘가 국내 등록 수소차의 92.6%(2026-04 기준 4만3,357대/4만6,834대)를 차지하는 사실상 유일한 국내 수소 승용차 생산사다. 2025년 글로벌 수소차 판매 1위(6,861대, 전년 대비 78.9%↑)를 기록했고, 2세대 신형 넥쏘를 2025-06 출시해 2026-04 일본 판매도 개시했다.",
+      "business_evidence": "국내 수소차 점유율 92.6%, 2025 글로벌 수소차 판매 1위(6,861대), 신형 넥쏘 일본 진출(2026-04).",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "현대자동차그룹 공식 뉴스룸",
+          "document_title": "현대자동차, 〈디 올 뉴 넥쏘〉 판매 개시",
+          "document_type": "corporate_website",
+          "url": "https://www.hyundaimotorgroup.com/ko/news/CONT0000000000178385",
+          "evidence": "2세대 넥쏘 공식 출시"
+        },
+        {
+          "source_name": "더구루",
+          "document_title": "현대차, 수소차 '넥쏘' 日 판매 개시…보조금만 최대 '3000만원'",
+          "document_type": "news",
+          "url": "https://www.theguru.co.kr/news/article.html?no=100360",
+          "evidence": "일본 시장 판매 개시(2026-04), 국내 점유율·글로벌 1위 실적"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [],
+  "summary": {
+    "core_stock_count": 1,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 0,
+    "recommended_backtest_universe": ["005380"]
+  },
+  "researched_at": "2026-07-25",
+  "audit_note": "Part B 배치 8(2026-07-25). judal 카탈로그 '수소차' 테마(70종목·미검증)와 별개로 검증된 Core만 시드 편입. Part B 배치 4에서 보류했던 수소차 개념의 재조사 — 당시 부품·충전소 후보(효성첨단소재·이엠코리아 등)는 근거 미달이었으나 완성차(현대차 넥쏘)는 점유율 92.6%로 명확. uses→hydrogen-fuel-cell 엣지로 기존 연료전지 개념과 연결(두산퓨얼셀 등 부품·발전용은 그쪽이 담당)."
+}

@@ -1,0 +1,69 @@
+{
+  "concept": {
+    "id": "wind-power",
+    "canonical_name": "풍력발전",
+    "canonical_name_en": "Wind Power",
+    "abbreviation": "",
+    "aliases": ["해상풍력", "풍력 타워"],
+    "alias_note": "'풍력' 단독은 normalize_sector가 에너지/원자력으로 해석하는 섹터 어휘라 동의어 제외(가드 ②)",
+    "definition": "바람으로 전기를 생산하는 신재생에너지 발전. 타워·베어링·터빈 등 부품 밸류체인이 있다.",
+    "investment_context": "국내 상장사 중에서는 풍력타워 글로벌 1위 부품사가 핵심이다. 미국·유럽 해상풍력 확대가 성장 변수다.",
+    "industry": ["에너지/원자력"],
+    "related_keywords": ["풍력타워", "해상풍력", "부유식", "신재생에너지"],
+    "sources": []
+  },
+  "related_etfs": [],
+  "etf_note": "풍력 전용 ETF 부재 — 신재생에너지 광의 ETF(TIGER Fn신재생에너지 등)는 태양광·수소 혼합이라 연결하지 않음(탄소배출권의 '광범위 테마 연결 금지' 전례).",
+  "stocks": [
+    {
+      "company_name": "씨에스윈드",
+      "ticker": "112610",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Supplier",
+      "relevance": "Core",
+      "relevance_score": 90,
+      "reason": "풍력타워 생산 글로벌 시장 점유율 1위(연 7,000기 이상)로 풍력타워가 사업 그 자체다. 2026년 매출 3조원 이상을 목표하며 부유식 타워 시장 진출과 해상풍력 확장을 공식화했다.",
+      "business_evidence": "풍력타워 글로벌 점유율 1위(연 7,000기+), 2026년 매출 3조원 목표, 세계 최대 미국 풍력타워 공장 인수 이력.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "씨에스윈드 공식 홈페이지",
+          "document_title": "회사 소개",
+          "document_type": "corporate_website",
+          "url": "https://www.cswind.com/company_information/about_us/",
+          "evidence": "글로벌 풍력타워·해상풍력 하부구조물 기업 공식 소개"
+        },
+        {
+          "source_name": "경제타임스",
+          "document_title": "씨에스윈드, '미운 오리' 탈출…2026년 매출 3조 시대",
+          "document_type": "news",
+          "url": "https://ket.kr/news/article.html?no=37516",
+          "evidence": "2026년 매출 3조원 목표·수주잔고"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "company_name": "유니슨",
+      "ticker": "018000",
+      "reason": "풍력터빈 제조사로 알려져 있으나 이번 조사에서 최신 매출·수주의 공식 근거를 수집하지 못함 — 재조사 대상."
+    },
+    {
+      "company_name": "씨에스베어링",
+      "ticker": "297090",
+      "reason": "풍력 베어링 공급사(씨에스윈드 계열)이나 이번 조사에서 직접 근거 미수집 — 재조사 대상."
+    }
+  ],
+  "summary": {
+    "core_stock_count": 1,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 2,
+    "recommended_backtest_universe": ["112610"]
+  },
+  "researched_at": "2026-07-25",
+  "audit_note": "Part B 배치 9(2026-07-25). judal 카탈로그의 '풍력발전' 테마(8종목)에 대응하는 개념 노드가 아예 없던 공백을 메운다."
+}

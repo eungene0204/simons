@@ -129,13 +129,18 @@ def test_theme_catalog_overlay(tmp_path, monkeypatch):
 
 
 def test_theme_catalog_real_file_composed():
-    """실제 카탈로그 파일이 그래프에 합성되고 테마→종목 조회가 동작한다."""
+    """실제 카탈로그 파일이 그래프에 합성되고 테마→종목 조회가 동작한다.
+
+    예제 테마는 시드로 승격될 일 없는 카탈로그 전용 테마(골판지 — 종이 섹터가
+    커버하는 영역)를 쓴다. 초전도체를 쓰다가 Part B 배치 9에서 시드 승격되며
+    스캔 우선권이 시드(1개사)로 넘어가 깨진 전례(2026-07-25) — 시드 승격 시
+    이 테스트의 예제 용어와 충돌하지 않는지 확인할 것."""
     from engine.knowledge_graph import theme_listed_companies
 
     graph = get_graph()
     catalog_nodes = [n for n in graph.nodes.values() if n.get("category") == "theme_catalog"]
-    assert len(catalog_nodes) > 100  # 2026-07-25 수집분 209개
-    result = theme_listed_companies("초전도체 관련주")
+    assert len(catalog_nodes) > 100  # 2026-07-25 수집분 209개(소스 오류 1건 제거 후 208)
+    result = theme_listed_companies("골판지 관련주")
     assert result is not None and len(result["companies"]) >= 5
 
 
@@ -463,3 +468,91 @@ def test_part_b_new_concepts_batch7_present():
         return {t for t, other, _ in graph.neighbors(f"company:{symbol}") if other == concept}
 
     assert "supplier" in types_to("060720", "foldable-phone")  # KH바텍
+
+
+def test_catalog_source_error_theme_excluded():
+    """카탈로그 소스 오류 제거(2026-07-25, 사용자 제보) 회귀 가드.
+
+    주달 원본이 사회간접자본(건설) 테마를 '반도체 제품(SOC)' 이름으로 오분류한
+    항목이 카탈로그에 실려, "SOC 관련주" 질의가 건설사 6곳을 반도체 이름으로
+    응답하던 사고. 카탈로그에서 제거했고 재수집 가드(EXCLUDE_SOURCE_ERROR)도
+    두었다 — 이 테마가 다시 합성되면 안 된다."""
+    graph = get_graph()
+    assert "theme:judal-133" not in graph.nodes
+    # 'SOC' 질의가 건설사 테마로 해석되지 않는다
+    assert not any(
+        n["id"] == "theme:judal-133" for n in graph.find_concepts("SOC 관련주")
+    )
+
+
+def test_part_b_new_concepts_batch8_present():
+    """누락 연결 감사 Part B 배치 8(2026-07-25, "part b" 재개) 회귀 가드.
+
+    전기차·수소차·MLCC 3개 신규 개념과 회사 연결·기존 개념 연결(수소차 uses
+    수소연료전지, 전기차 related_to 전기차 충전)이 유지되는지 고정한다.
+    'EV' 약어는 EV/EBITDA 재무지표와 중의적이라 동의어에서 제외한 계약도 검증한다."""
+    graph = get_graph()
+
+    assert any(n["id"] == "electric-vehicle" for n in graph.find_concepts("전기차 관련주 전략"))
+    assert any(n["id"] == "hydrogen-car" for n in graph.find_concepts("수소차 관련주"))
+    assert any(n["id"] == "mlcc" for n in graph.find_concepts("MLCC 관련주"))
+    # EV/EBITDA 질의가 전기차로 오인되면 안 된다(동의어 'EV' 제외 계약)
+    assert not any(n["id"] == "electric-vehicle" for n in graph.find_concepts("EV/EBITDA 낮은 종목"))
+
+    def types_to(symbol: str, concept: str) -> set[str]:
+        return {t for t, other, _ in graph.neighbors(f"company:{symbol}") if other == concept}
+
+    assert "produced_by" in types_to("005380", "electric-vehicle")  # 현대자동차
+    assert "produced_by" in types_to("000270", "electric-vehicle")  # 기아
+    assert "produced_by" in types_to("005380", "hydrogen-car")  # 현대자동차 — 넥쏘
+    assert "produced_by" in types_to("009150", "mlcc")  # 삼성전기
+    assert "produced_by" in types_to("001820", "mlcc")  # 삼화콘덴서공업
+
+    out = {(t, other) for t, other, d in graph.neighbors("hydrogen-car") if d == "out"}
+    assert ("uses", "hydrogen-fuel-cell") in out  # 기존 연료전지 개념과 연결
+
+
+def test_part_b_new_concepts_batch9_present():
+    """누락 연결 감사 Part B 배치 9(2026-07-25, "계속 하자") 회귀 가드.
+
+    풍력발전·임플란트·초전도체 3개 신규 개념과 회사 연결이 유지되는지 고정한다."""
+    graph = get_graph()
+
+    assert any(n["id"] == "wind-power" for n in graph.find_concepts("풍력발전 관련주"))
+    assert any(n["id"] == "wind-power" for n in graph.find_concepts("해상풍력 관련주"))
+    assert any(n["id"] == "dental-implant" for n in graph.find_concepts("임플란트 관련주"))
+    assert any(n["id"] == "superconductor" for n in graph.find_concepts("초전도체 관련주"))
+
+    def types_to(symbol: str, concept: str) -> set[str]:
+        return {t for t, other, _ in graph.neighbors(f"company:{symbol}") if other == concept}
+
+    assert "supplier" in types_to("112610", "wind-power")  # 씨에스윈드
+    assert "produced_by" in types_to("145720", "dental-implant")  # 덴티움
+    assert "produced_by" in types_to("294630", "superconductor")  # 서남
+
+
+def test_part_b_batch10_and_part_a_closure_present():
+    """누락 연결 감사 최종 배치(2026-07-25, "남은 모든 작업 마무리") 회귀 가드.
+
+    Part B 배치 10(카지노·여행사·면세점·탄소섬유)과 Part A 최종 스캔에서 찾은
+    마지막 공백(SMR — 기업 엣지 0이던 시드 개념에 두산에너빌리티 연결)을 고정한다."""
+    graph = get_graph()
+
+    assert any(n["id"] == "casino" for n in graph.find_concepts("카지노 관련주"))
+    assert any(n["id"] == "travel-agency" for n in graph.find_concepts("여행사 관련주"))
+    assert any(n["id"] == "duty-free" for n in graph.find_concepts("면세점 관련주"))
+    assert any(n["id"] == "carbon-fiber" for n in graph.find_concepts("탄소섬유 관련주"))
+
+    def types_to(symbol: str, concept: str) -> set[str]:
+        return {t for t, other, _ in graph.neighbors(f"company:{symbol}") if other == concept}
+
+    assert "produced_by" in types_to("035250", "casino")  # 강원랜드
+    assert "produced_by" in types_to("034230", "casino")  # 파라다이스
+    assert "produced_by" in types_to("039130", "travel-agency")  # 하나투어
+    assert "produced_by" in types_to("080160", "travel-agency")  # 모두투어
+    assert "produced_by" in types_to("008770", "duty-free")  # 호텔신라
+    assert "produced_by" in types_to("298050", "carbon-fiber")  # HS효성첨단소재
+    assert "produced_by" in types_to("034020", "smr")  # 두산에너빌리티 — Part A 마지막 공백
+
+    out = {(t, other) for t, other, d in graph.neighbors("carbon-fiber") if d == "out"}
+    assert ("used_in", "hydrogen-car") in out  # 수소차 연료탱크 소재 연결

@@ -1,0 +1,75 @@
+{
+  "concept": {
+    "id": "casino",
+    "canonical_name": "카지노",
+    "canonical_name_en": "Casino",
+    "abbreviation": "",
+    "aliases": [],
+    "definition": "카지노 운영업. 국내는 내국인 대상 단일 사업자(폐광지역 특별법)와 외국인 전용 사업자로 나뉜다.",
+    "investment_context": "내국인 카지노는 규제(베팅 한도 등) 완화가, 외국인 전용은 해외 관광객 유입이 실적 변수다.",
+    "industry": ["미디어/엔터"],
+    "related_keywords": ["내국인 카지노", "외국인 전용", "VIP 영업장", "복합리조트"],
+    "sources": []
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "강원랜드",
+      "ticker": "035250",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 90,
+      "reason": "국내 유일 내국인 카지노 사업자. 2026년 1분기 매출 3,789억원(전년 대비 3.4%↑), 바카라 베팅 한도 상향 등 규제 완화로 회원영업장 매출이 27.6% 성장했다.",
+      "business_evidence": "2026 1분기 매출 3,789억원·영업이익 689억원, 회원영업장 621억원(27.6%↑).",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "뉴스1",
+          "document_title": "강원랜드, 1Q 매출 3789억…카지노 VIP 매출 27% '폭발적 성장'",
+          "document_type": "news",
+          "url": "https://www.news1.kr/industry/hotel-tourism/6154564",
+          "evidence": "2026 1분기 실적·카지노 부문 성장"
+        }
+      ]
+    },
+    {
+      "company_name": "파라다이스",
+      "ticker": "034230",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 90,
+      "reason": "외국인 전용 카지노 전업으로 월별 카지노매출액을 정기 공시한다. 2025년 카지노 부문 매출 8,998억원(전사 매출 1.1조원·영업이익 1,500억원, 역대 최대).",
+      "business_evidence": "2025년 카지노 부문 매출 8,998억원(9.8%↑), 월별 카지노매출 공시(2026-02 895억·2026-03 495억 등).",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "뉴스1",
+          "document_title": "파라다이스, 매출 1.1조·영업익 1500억…역대급 실적에 현금배당",
+          "document_type": "news",
+          "url": "https://www.news1.kr/industry/hotel-tourism/6069052",
+          "evidence": "2025년 역대 최대 실적"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "company_name": "GKL(그랜드코리아레저)",
+      "reason": "외국인 전용 카지노(세븐럭) 사업자이나 이번 조사에서 최신 실적 근거를 수집하지 못함 — 재조사 대상."
+    }
+  ],
+  "summary": {
+    "core_stock_count": 2,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 1,
+    "recommended_backtest_universe": ["035250", "034230"]
+  },
+  "researched_at": "2026-07-25",
+  "audit_note": "Part B 배치 10(2026-07-25, 잔여 작업 마무리). judal 카탈로그의 '카지노' 테마(5종목)에 대응하는 개념 노드가 없던 공백을 메운다."
+}

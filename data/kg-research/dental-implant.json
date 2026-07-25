@@ -1,0 +1,59 @@
+{
+  "concept": {
+    "id": "dental-implant",
+    "canonical_name": "임플란트",
+    "canonical_name_en": "Dental Implant",
+    "abbreviation": "",
+    "aliases": ["치과 임플란트", "덴탈"],
+    "definition": "치아 결손부에 식립하는 인공 치근과 보철 시스템.",
+    "investment_context": "국내 임플란트 산업은 수출 비중이 높고(중국·신흥국), 전문 제조사의 해외 매출 성장이 실적을 좌우한다.",
+    "industry": ["의료기기"],
+    "related_keywords": ["치과", "디지털 덴티스트리", "수출"],
+    "sources": []
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "덴티움",
+      "ticker": "145720",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 90,
+      "reason": "임플란트가 매출의 88%인 전문 제조사로 국내 임플란트 업계 유일 KOSPI 상장사다. 매출 2,670억원, 전 세계 77개국 수출(해외 매출 비중 80%), 국내 시장 점유율 2위.",
+      "business_evidence": "임플란트 매출 비중 88%, 매출 2,670억원, 77개국 수출·해외 비중 80%.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "기업모니터(WISEreport)",
+          "document_title": "덴티움 기업현황",
+          "document_type": "research_report",
+          "url": "https://comp.wisereport.co.kr/company/c1010001.aspx?cmp_cd=145720",
+          "evidence": "제품 구성(임플란트 88%)·수출 구조"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "company_name": "바텍",
+      "ticker": "043150",
+      "reason": "치과용 영상장비(엑스레이·CT) 전문사로 치과 산업이긴 하나 '임플란트' 개념의 직접 생산자가 아님 — 치과 영상장비는 별개 개념 후보."
+    },
+    {
+      "company_name": "오스템임플란트",
+      "reason": "국내 1위 임플란트사였으나 2023년 공개매수 후 자진 상장폐지 — 정본 미등재."
+    }
+  ],
+  "summary": {
+    "core_stock_count": 1,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 0,
+    "recommended_backtest_universe": ["145720"]
+  },
+  "researched_at": "2026-07-25",
+  "audit_note": "Part B 배치 9(2026-07-25). judal 카탈로그의 '치아' 테마(11종목)에 대응하는 개념 노드가 아예 없던 공백을 메운다 — '치아'보다 투자 관행 용어인 '임플란트'를 정식 명칭으로 채택."
+}

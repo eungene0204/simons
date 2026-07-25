@@ -1,0 +1,57 @@
+{
+  "concept": {
+    "id": "duty-free",
+    "canonical_name": "면세점",
+    "canonical_name_en": "Duty Free",
+    "abbreviation": "",
+    "aliases": [],
+    "alias_note": "'면세' 단독은 세금 문맥('면세 혜택' 등) 오폭 위험이라 동의어 제외",
+    "definition": "공항·시내에서 면세품을 판매하는 유통업.",
+    "investment_context": "외국인 관광객 유입과 할인율(수익성) 관리가 실적 변수다.",
+    "industry": ["유통/상사"],
+    "related_keywords": ["시내면세점", "공항면세점", "따이공", "할인율"],
+    "sources": []
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "호텔신라",
+      "ticker": "008770",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 90,
+      "reason": "면세 부문이 매출의 83.1%(호텔·레저 16.9%)인 사실상 면세 전업이다. 수익성 중심 구조조정(마카오 공항점·인천 DF1 철수, 할인율 30% 중반 안정화)으로 2026년 1분기 매출 1조535억원(8.4%↑)·흑자전환에 성공했다.",
+      "business_evidence": "면세 매출 비중 83.1%, 2026 1분기 매출 1조535억원·흑자전환.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "글로벌이코노믹",
+          "document_title": "흥국증권 \"호텔신라, 면세점과 호텔&레저 실적 개선.. 목표가 38% 상향\"",
+          "document_type": "news",
+          "url": "https://www.g-enews.com/article/Securities/2026/04/20260427085513973244093b5d4e_1",
+          "evidence": "사업부문별 매출 비중(면세 83.1%)"
+        },
+        {
+          "source_name": "디지털데일리",
+          "document_title": "호텔신라, 1분기 흑자전환 성공…면세 구조조정 '통했다'",
+          "document_type": "news",
+          "url": "https://www.ddaily.co.kr/page/view/2026042414320269379",
+          "evidence": "2026 1분기 실적·구조조정 내용"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [],
+  "summary": {
+    "core_stock_count": 1,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 0,
+    "recommended_backtest_universe": ["008770"]
+  },
+  "researched_at": "2026-07-25",
+  "audit_note": "Part B 배치 10(2026-07-25, 잔여 작업 마무리). judal 카탈로그의 '면세점' 테마(8종목)에 대응하는 개념 노드가 없던 공백을 메운다."
+}

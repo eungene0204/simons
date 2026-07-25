@@ -1,0 +1,95 @@
+{
+  "concept": {
+    "id": "electric-vehicle",
+    "canonical_name": "전기차",
+    "canonical_name_en": "Electric Vehicle",
+    "abbreviation": "EV",
+    "aliases": ["전기자동차"],
+    "alias_note": "'EV' 약어는 재무지표 EV/EBITDA와 중의적(라틴 경계 매칭 시 'EV/EBITDA'의 EV에 오매칭)이라 동의어에서 의도적으로 제외 — find_concepts('EV/EBITDA 낮은 종목')==[]를 검증함",
+    "definition": "배터리 전기 모터로 구동하는 자동차.",
+    "investment_context": "국내 완성차 2사가 전 차급 EV 라인업을 구축하고 있으며, 판매 대수·비중 목표가 공식 발표된다.",
+    "industry": ["자동차"],
+    "related_keywords": ["아이오닉", "EV 시리즈", "전기차 충전"],
+    "sources": []
+  },
+  "related_etfs": [
+    {
+      "name": "SOL 한국형글로벌전기차&2차전지액티브",
+      "ticker": "429980",
+      "country": "KR",
+      "issuer": "신한자산운용",
+      "theme_reason": "한국형 전기차·이차전지 테마(etf-master.json 정본 등재 확인)",
+      "as_of_date": "2026-07-25"
+    },
+    {
+      "name": "TIGER 글로벌자율주행&전기차SOLACTIVE",
+      "ticker": "394660",
+      "country": "KR",
+      "issuer": "미래에셋자산운용",
+      "theme_reason": "글로벌 자율주행·전기차 테마(autonomous-driving과 공유)",
+      "as_of_date": "2026-07-25"
+    }
+  ],
+  "stocks": [
+    {
+      "company_name": "현대자동차",
+      "ticker": "005380",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 90,
+      "reason": "아이오닉 시리즈로 세단부터 SUV까지 전 차급 EV 라인업을 구축해 국내 전기차 시장을 주도한다(아이오닉 9 월 1,482대 등).",
+      "business_evidence": "아이오닉 시리즈 전 차급 라인업, 2026 대한민국 올해의 차 3년 연속.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "겟차",
+          "document_title": "전기차 판매량 2026 분석: 브랜드별 점유율과 인기 모델 순위 총정리",
+          "document_type": "news",
+          "url": "https://web.getcha.kr/blog/electric-vehicle-sales-2026-analysis-brand-market-share",
+          "evidence": "현대차 아이오닉 중심 국내 EV 시장 주도"
+        }
+      ]
+    },
+    {
+      "company_name": "기아",
+      "ticker": "000270",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 90,
+      "reason": "EV3(1만8,431대)·EV5(1만5,965대)·PV5(1만5,000대) 등 라인업으로 2026년 상반기 전기차 7만 대를 돌파했고, 2026년 전기차 40만 대(전체 판매의 12%) 목표를 CEO 인베스터 데이에서 공식 발표했다.",
+      "business_evidence": "2026 상반기 EV 7만 대 돌파(역대 최다 판매), 2026년 EV 40만 대 목표 공식 발표.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "다나와 자동차",
+          "document_title": "기아, 2026년 상반기 역대 최다 판매 신기록 달성…전기차 7만 대 돌파",
+          "document_type": "news",
+          "url": "https://mauto.danawa.com/news/?Tab=N1&no=5992770&Work=detail&no=6029837",
+          "evidence": "2026 상반기 EV 7만 대 돌파"
+        },
+        {
+          "source_name": "기아 공식 뉴스룸",
+          "document_title": "기아, 『2026 CEO 인베스터 데이』 개최",
+          "document_type": "corporate_website",
+          "url": "https://worldwide.kia.com/ko/newsroom-korea/view/?id=1506",
+          "evidence": "친환경차 풀라인업·EV 판매 목표 공식 발표"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [],
+  "summary": {
+    "core_stock_count": 2,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 0,
+    "recommended_backtest_universe": ["005380", "000270"]
+  },
+  "researched_at": "2026-07-25",
+  "audit_note": "Part B 배치 8(2026-07-25). judal 카탈로그 '전기차' 테마(55종목·미검증)와 별개로 검증된 Core만 시드 편입 — 스캔은 시드가 우선하므로 '전기차 관련주'는 큐레이션 2종을 응답한다. 배터리·소재사는 이차전지 섹터·기존 개념(양극재·분리막 등)이 담당."
+}
