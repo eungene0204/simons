@@ -139,6 +139,53 @@ describe("saveCachedResult > 캐시 자동 생성 전략", () => {
     });
   });
 
+  /**
+   * 버그: 스트리밍 실행에서 클라이언트는 result 이벤트를 받은 즉시 자동 저장 POST를 보내는데,
+   *      saveCachedResult는 스트림 종료 후에 실행된다. 자동 저장이 먼저 도착해 사용자 이름과
+   *      isVisible=true로 행을 만들면, 뒤늦게 실행된 saveCachedResult가 그 행을
+   *      "전략 <8자해시>" 자리표시자 이름과 isVisible=false로 덮어써서
+   *      기록 카드에 해시 이름이 보였다.
+   */
+  it("자동 저장이 먼저 만든 행의 실제 이름과 노출 상태를 덮어쓰지 않는다", async () => {
+    mockBacktestHistoryFindFirst.mockResolvedValueOnce({
+      id: "history-race",
+      strategyName: "코스피200 RSI 30 이하 매수",
+      isVisible: true,
+    });
+
+    await saveCachedResult(
+      "cache-key-race",
+      { strategy_id: "strategy-race", canonical_strategy_dsl: { universe: "KOSPI200" } },
+      { totalReturn: 0, tradesList: [] }
+    );
+
+    const updateArg = mockBacktestHistoryUpdate.mock.calls[0][0];
+    expect(updateArg.data.strategyName).toBe("코스피200 RSI 30 이하 매수");
+    expect(updateArg.data.isVisible).toBe(true);
+  });
+
+  it("기존 행 이름이 해시 자리표시자면 갱신 대상이다", async () => {
+    mockBacktestHistoryFindFirst.mockResolvedValueOnce({
+      id: "history-placeholder",
+      strategyName: "전략 50e25330",
+      isVisible: false,
+    });
+
+    await saveCachedResult(
+      "cache-key-placeholder",
+      {
+        strategy_id: "strategy-placeholder",
+        strategy_name: "저장한 이름",
+        canonical_strategy_dsl: { universe: "KOSPI200" },
+      },
+      { totalReturn: 0, tradesList: [] }
+    );
+
+    const updateArg = mockBacktestHistoryUpdate.mock.calls[0][0];
+    expect(updateArg.data.strategyName).toBe("저장한 이름");
+    expect(updateArg.data.isVisible).toBe(false);
+  });
+
   it("스트림 저장 경로에서는 DSL 영속화 실패를 호출자에게 전달한다", async () => {
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     mockStrategyUpsert.mockRejectedValueOnce(new Error("DB write failed"));

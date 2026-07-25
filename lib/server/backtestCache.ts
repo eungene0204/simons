@@ -424,9 +424,19 @@ export async function saveCachedResult(
     };
 
     if (existingHistory) {
+      // 스트리밍 실행에서는 클라이언트가 result 이벤트를 받은 즉시 자동 저장(POST /api/backtest/history)을
+      // 보내므로, 스트림 종료 후 실행되는 이 함수보다 먼저 행이 만들어질 수 있다.
+      // 그 행에는 이미 사용자 프롬프트/저장명과 노출 상태가 들어 있으므로 해시 자리표시자와
+      // isVisible=false로 되돌려 덮어쓰지 않는다.
       await prisma.backtestHistory.update({
         where: { id: existingHistory.id },
-        data: historyData,
+        data: {
+          ...historyData,
+          strategyName: isPlaceholderStrategyName(existingHistory.strategyName)
+            ? historyData.strategyName
+            : existingHistory.strategyName,
+          isVisible: existingHistory.isVisible || historyData.isVisible,
+        },
       });
       if (options.awaitVectorUpsert) {
         await runVectorMemoryBacktestUpsert({ throwOnFailure: true });
